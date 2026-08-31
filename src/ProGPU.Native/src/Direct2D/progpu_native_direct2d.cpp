@@ -186,6 +186,13 @@ struct progpu_native_direct2d_surface {
     }
 };
 
+struct progpu_native_direct2d_scene_recorder {
+    void* command_sink = nullptr;
+    uint64_t scene_id = 0U;
+    uint64_t generation = 0U;
+    std::mutex access_mutex;
+};
+
 namespace {
 
 constexpr uint32_t dxgi_format_b8g8r8a8_unorm = 87U;
@@ -1680,6 +1687,11 @@ public:
         return clear_color_;
     }
 
+    bool is_complete() const noexcept
+    {
+        return begun_ && ended_;
+    }
+
 private:
     struct brush_cache_entry {
         ComPtr<IUnknown> identity;
@@ -2781,6 +2793,119 @@ private:
     bool has_opacity_brush_layer_masks_ = false;
     bool has_composite_layer_masks_ = false;
 };
+
+void initialize_scene_stream_result(
+    CommandSceneStreamSink& sink,
+    uint64_t scene_id,
+    uint64_t generation,
+    progpu_native_direct2d_scene_stream_result& result) noexcept
+{
+    result = {};
+    result.struct_size = static_cast<uint32_t>(sizeof(result));
+    result.scene_id = scene_id;
+    result.generation = generation;
+    result.failure_callback_index = sink.failure_callback_index();
+    result.failure_reason = sink.failure_reason();
+    result.translated_draw_count = sink.translated_draw_count();
+    if (sink.has_clear()) {
+        result.flags |=
+            PROGPU_NATIVE_DIRECT2D_SCENE_STREAM_FLAG_HAS_LEADING_CLEAR;
+        const D2D1_COLOR_F color = sink.clear_color();
+        result.clear_color = {color.r, color.g, color.b, color.a};
+    }
+    if (sink.has_aliased_primitives()) {
+        result.flags |=
+            PROGPU_NATIVE_DIRECT2D_SCENE_STREAM_FLAG_HAS_ALIASED_PRIMITIVES;
+    }
+    if (sink.has_axis_aligned_clips()) {
+        result.flags |=
+            PROGPU_NATIVE_DIRECT2D_SCENE_STREAM_FLAG_HAS_AXIS_ALIGNED_CLIPS;
+    }
+    if (sink.has_gradient_brushes()) {
+        result.flags |=
+            PROGPU_NATIVE_DIRECT2D_SCENE_STREAM_FLAG_HAS_GRADIENT_BRUSHES;
+    }
+    if (sink.has_path_geometry()) {
+        result.flags |=
+            PROGPU_NATIVE_DIRECT2D_SCENE_STREAM_FLAG_HAS_PATH_GEOMETRY;
+    }
+    if (sink.has_stroked_path_geometry()) {
+        result.flags |=
+            PROGPU_NATIVE_DIRECT2D_SCENE_STREAM_FLAG_HAS_STROKED_PATH_GEOMETRY;
+    }
+    if (sink.has_opacity_layers()) {
+        result.flags |=
+            PROGPU_NATIVE_DIRECT2D_SCENE_STREAM_FLAG_HAS_OPACITY_LAYERS;
+    }
+    if (sink.has_geometric_layer_masks()) {
+        result.flags |=
+            PROGPU_NATIVE_DIRECT2D_SCENE_STREAM_FLAG_HAS_GEOMETRIC_LAYER_MASKS;
+    }
+    if (sink.has_opacity_brush_layer_masks()) {
+        result.flags |=
+            PROGPU_NATIVE_DIRECT2D_SCENE_STREAM_FLAG_HAS_OPACITY_BRUSH_LAYER_MASKS;
+    }
+    if (sink.has_composite_layer_masks()) {
+        result.flags |=
+            PROGPU_NATIVE_DIRECT2D_SCENE_STREAM_FLAG_HAS_COMPOSITE_LAYER_MASKS;
+    }
+}
+
+HRESULT build_scene_stream(
+    CommandSceneStreamSink& sink,
+    uint64_t scene_id,
+    uint64_t generation,
+    uint8_t* destination,
+    uint64_t destination_capacity,
+    progpu_native_direct2d_scene_stream_result& result,
+    HRESULT recording_result) noexcept
+{
+    initialize_scene_stream_result(sink, scene_id, generation, result);
+    if (FAILED(recording_result)) {
+        return recording_result;
+    }
+    if (!sink.is_complete()) {
+        result.failure_reason =
+            PROGPU_NATIVE_DIRECT2D_SCENE_STREAM_FAILURE_DRAWING_STATE;
+        return D2DERR_WRONG_STATE;
+    }
+    if (sink.failure_reason() !=
+        PROGPU_NATIVE_DIRECT2D_SCENE_STREAM_FAILURE_NONE) {
+        return E_NOTIMPL;
+    }
+
+    const size_t required = sink.builder().required_stream_size();
+    result.required_bytes = required;
+    if (required == 0U) {
+        result.failure_reason =
+            PROGPU_NATIVE_DIRECT2D_SCENE_STREAM_FAILURE_BUILDER;
+        return E_FAIL;
+    }
+    if (destination_capacity < required) {
+        return HRESULT_FROM_WIN32(ERROR_INSUFFICIENT_BUFFER);
+    }
+
+    size_t written = 0U;
+    progpu::native::scene_build_metrics metrics{};
+    if (!sink.builder().build_into(
+            std::span<std::byte>(
+                reinterpret_cast<std::byte*>(destination),
+                static_cast<size_t>(destination_capacity)),
+            written,
+            &metrics)) {
+        result.failure_reason =
+            PROGPU_NATIVE_DIRECT2D_SCENE_STREAM_FAILURE_BUILDER;
+        return sink.builder().last_error() ==
+                progpu::native::scene_build_error::out_of_memory
+            ? E_OUTOFMEMORY
+            : E_FAIL;
+    }
+    result.written_bytes = written;
+    result.command_count = metrics.command_count;
+    result.resource_count = metrics.resource_count;
+    result.brush_count = metrics.brush_count;
+    return S_OK;
+}
 
 class CallerTessellationSink final : public ID2D1TessellationSink {
 public:
@@ -3903,6 +4028,29 @@ progpu_native_direct2d_status status_from_win2d_hresult(HRESULT hr)
     return PROGPU_NATIVE_DIRECT2D_STATUS_RESOURCE_CREATION_FAILED;
 }
 
+progpu_native_direct2d_status status_from_scene_stream_hresult(HRESULT hr)
+{
+    if (SUCCEEDED(hr)) {
+        return PROGPU_NATIVE_DIRECT2D_STATUS_SUCCESS;
+    }
+    if (hr == HRESULT_FROM_WIN32(ERROR_INSUFFICIENT_BUFFER)) {
+        return PROGPU_NATIVE_DIRECT2D_STATUS_INSUFFICIENT_BUFFER;
+    }
+    if (hr == E_NOTIMPL || hr == E_NOINTERFACE) {
+        return PROGPU_NATIVE_DIRECT2D_STATUS_INTERFACE_NOT_SUPPORTED;
+    }
+    if (hr == D2DERR_WRONG_STATE) {
+        return PROGPU_NATIVE_DIRECT2D_STATUS_DRAWING_STATE_MISMATCH;
+    }
+    if (hr == E_INVALIDARG || hr == E_POINTER) {
+        return PROGPU_NATIVE_DIRECT2D_STATUS_INVALID_ARGUMENT;
+    }
+    if (hr == E_OUTOFMEMORY) {
+        return PROGPU_NATIVE_DIRECT2D_STATUS_OUT_OF_MEMORY;
+    }
+    return PROGPU_NATIVE_DIRECT2D_STATUS_RESOURCE_CREATION_FAILED;
+}
+
 template<typename T>
 progpu_native_direct2d_status return_interface(
     const ComPtr<T>& source,
@@ -3923,6 +4071,145 @@ extern "C" {
 uint32_t progpu_native_direct2d_get_abi_version(void)
 {
     return PROGPU_NATIVE_DIRECT2D_ABI_VERSION;
+}
+
+progpu_native_direct2d_status
+progpu_native_direct2d_scene_recorder_create(
+    uint64_t scene_id,
+    uint64_t generation,
+    const progpu_native_direct2d_command_stream_summary* capacity_hint,
+    progpu_native_direct2d_scene_recorder** recorder,
+    int32_t* native_hresult)
+{
+    if (recorder != nullptr) {
+        *recorder = nullptr;
+    }
+    if (native_hresult != nullptr) {
+        *native_hresult = E_INVALIDARG;
+    }
+    if (scene_id == 0U || generation == 0U || recorder == nullptr ||
+        native_hresult == nullptr ||
+        (capacity_hint != nullptr &&
+            capacity_hint->struct_size != sizeof(*capacity_hint))) {
+        return PROGPU_NATIVE_DIRECT2D_STATUS_INVALID_ARGUMENT;
+    }
+
+    progpu_native_direct2d_command_stream_summary hint{};
+    hint.struct_size = static_cast<uint32_t>(sizeof(hint));
+    if (capacity_hint != nullptr) {
+        hint = *capacity_hint;
+    }
+
+    CommandSceneStreamSink* sink = nullptr;
+    try {
+        sink = new CommandSceneStreamSink(scene_id, generation, hint);
+    } catch (const std::bad_alloc&) {
+        *native_hresult = E_OUTOFMEMORY;
+        return PROGPU_NATIVE_DIRECT2D_STATUS_OUT_OF_MEMORY;
+    } catch (...) {
+        *native_hresult = E_FAIL;
+        return PROGPU_NATIVE_DIRECT2D_STATUS_RESOURCE_CREATION_FAILED;
+    }
+    if (sink == nullptr) {
+        *native_hresult = E_OUTOFMEMORY;
+        return PROGPU_NATIVE_DIRECT2D_STATUS_OUT_OF_MEMORY;
+    }
+
+    auto instance =
+        new (std::nothrow) progpu_native_direct2d_scene_recorder();
+    if (instance == nullptr) {
+        sink->Release();
+        *native_hresult = E_OUTOFMEMORY;
+        return PROGPU_NATIVE_DIRECT2D_STATUS_OUT_OF_MEMORY;
+    }
+    instance->command_sink = sink;
+    instance->scene_id = scene_id;
+    instance->generation = generation;
+    *recorder = instance;
+    *native_hresult = S_OK;
+    return PROGPU_NATIVE_DIRECT2D_STATUS_SUCCESS;
+}
+
+void progpu_native_direct2d_scene_recorder_destroy(
+    progpu_native_direct2d_scene_recorder* recorder)
+{
+    if (recorder == nullptr) {
+        return;
+    }
+    auto* sink = static_cast<CommandSceneStreamSink*>(
+        recorder->command_sink);
+    recorder->command_sink = nullptr;
+    if (sink != nullptr) {
+        sink->Release();
+    }
+    delete recorder;
+}
+
+progpu_native_direct2d_status
+progpu_native_direct2d_scene_recorder_get_command_sink(
+    progpu_native_direct2d_scene_recorder* recorder,
+    void** command_sink,
+    int32_t* native_hresult)
+{
+    if (command_sink != nullptr) {
+        *command_sink = nullptr;
+    }
+    if (native_hresult != nullptr) {
+        *native_hresult = E_INVALIDARG;
+    }
+    if (recorder == nullptr || command_sink == nullptr ||
+        native_hresult == nullptr) {
+        return PROGPU_NATIVE_DIRECT2D_STATUS_INVALID_ARGUMENT;
+    }
+
+    std::scoped_lock lock(recorder->access_mutex);
+    auto* sink = static_cast<CommandSceneStreamSink*>(
+        recorder->command_sink);
+    if (sink == nullptr) {
+        *native_hresult = D2DERR_WRONG_STATE;
+        return PROGPU_NATIVE_DIRECT2D_STATUS_DRAWING_STATE_MISMATCH;
+    }
+    sink->AddRef();
+    *command_sink = static_cast<ID2D1CommandSink1*>(sink);
+    *native_hresult = S_OK;
+    return PROGPU_NATIVE_DIRECT2D_STATUS_SUCCESS;
+}
+
+progpu_native_direct2d_status
+progpu_native_direct2d_scene_recorder_build_stream(
+    progpu_native_direct2d_scene_recorder* recorder,
+    uint8_t* destination,
+    uint64_t destination_capacity,
+    progpu_native_direct2d_scene_stream_result* result,
+    int32_t* native_hresult)
+{
+    if (native_hresult != nullptr) {
+        *native_hresult = E_INVALIDARG;
+    }
+    if (recorder == nullptr || result == nullptr ||
+        result->struct_size != sizeof(*result) || native_hresult == nullptr ||
+        (destination == nullptr) != (destination_capacity == 0U) ||
+        destination_capacity > std::numeric_limits<size_t>::max()) {
+        return PROGPU_NATIVE_DIRECT2D_STATUS_INVALID_ARGUMENT;
+    }
+
+    std::scoped_lock lock(recorder->access_mutex);
+    auto* sink = static_cast<CommandSceneStreamSink*>(
+        recorder->command_sink);
+    if (sink == nullptr) {
+        *native_hresult = D2DERR_WRONG_STATE;
+        return PROGPU_NATIVE_DIRECT2D_STATUS_DRAWING_STATE_MISMATCH;
+    }
+    const HRESULT hr = build_scene_stream(
+        *sink,
+        recorder->scene_id,
+        recorder->generation,
+        destination,
+        destination_capacity,
+        *result,
+        S_OK);
+    *native_hresult = hr;
+    return status_from_scene_stream_hresult(hr);
 }
 
 progpu_native_direct2d_status progpu_native_direct2d_surface_create(
@@ -5615,86 +5902,14 @@ progpu_native_direct2d_command_list_build_scene_stream(
         hr = native_command_list->Stream(scene_sink);
     }
     if (scene_sink != nullptr) {
-        result->failure_callback_index =
-            scene_sink->failure_callback_index();
-        result->failure_reason = scene_sink->failure_reason();
-        result->translated_draw_count =
-            scene_sink->translated_draw_count();
-        if (scene_sink->has_clear()) {
-            result->flags |=
-                PROGPU_NATIVE_DIRECT2D_SCENE_STREAM_FLAG_HAS_LEADING_CLEAR;
-            const D2D1_COLOR_F color = scene_sink->clear_color();
-            result->clear_color = {color.r, color.g, color.b, color.a};
-        }
-        if (scene_sink->has_aliased_primitives()) {
-            result->flags |=
-                PROGPU_NATIVE_DIRECT2D_SCENE_STREAM_FLAG_HAS_ALIASED_PRIMITIVES;
-        }
-        if (scene_sink->has_axis_aligned_clips()) {
-            result->flags |=
-                PROGPU_NATIVE_DIRECT2D_SCENE_STREAM_FLAG_HAS_AXIS_ALIGNED_CLIPS;
-        }
-        if (scene_sink->has_gradient_brushes()) {
-            result->flags |=
-                PROGPU_NATIVE_DIRECT2D_SCENE_STREAM_FLAG_HAS_GRADIENT_BRUSHES;
-        }
-        if (scene_sink->has_path_geometry()) {
-            result->flags |=
-                PROGPU_NATIVE_DIRECT2D_SCENE_STREAM_FLAG_HAS_PATH_GEOMETRY;
-        }
-        if (scene_sink->has_stroked_path_geometry()) {
-            result->flags |=
-                PROGPU_NATIVE_DIRECT2D_SCENE_STREAM_FLAG_HAS_STROKED_PATH_GEOMETRY;
-        }
-        if (scene_sink->has_opacity_layers()) {
-            result->flags |=
-                PROGPU_NATIVE_DIRECT2D_SCENE_STREAM_FLAG_HAS_OPACITY_LAYERS;
-        }
-        if (scene_sink->has_geometric_layer_masks()) {
-            result->flags |=
-                PROGPU_NATIVE_DIRECT2D_SCENE_STREAM_FLAG_HAS_GEOMETRIC_LAYER_MASKS;
-        }
-        if (scene_sink->has_opacity_brush_layer_masks()) {
-            result->flags |=
-                PROGPU_NATIVE_DIRECT2D_SCENE_STREAM_FLAG_HAS_OPACITY_BRUSH_LAYER_MASKS;
-        }
-        if (scene_sink->has_composite_layer_masks()) {
-            result->flags |=
-                PROGPU_NATIVE_DIRECT2D_SCENE_STREAM_FLAG_HAS_COMPOSITE_LAYER_MASKS;
-        }
-    }
-
-    if (SUCCEEDED(hr) && scene_sink != nullptr) {
-        const size_t required = scene_sink->builder().required_stream_size();
-        result->required_bytes = required;
-        if (required == 0U) {
-            result->failure_reason =
-                PROGPU_NATIVE_DIRECT2D_SCENE_STREAM_FAILURE_BUILDER;
-            hr = E_FAIL;
-        } else if (destination_capacity < required) {
-            hr = HRESULT_FROM_WIN32(ERROR_INSUFFICIENT_BUFFER);
-        } else {
-            size_t written = 0U;
-            progpu::native::scene_build_metrics metrics{};
-            if (!scene_sink->builder().build_into(
-                    std::span<std::byte>(
-                        reinterpret_cast<std::byte*>(destination),
-                        static_cast<size_t>(destination_capacity)),
-                    written,
-                    &metrics)) {
-                result->failure_reason =
-                    PROGPU_NATIVE_DIRECT2D_SCENE_STREAM_FAILURE_BUILDER;
-                hr = scene_sink->builder().last_error() ==
-                        progpu::native::scene_build_error::out_of_memory
-                    ? E_OUTOFMEMORY
-                    : E_FAIL;
-            } else {
-                result->written_bytes = written;
-                result->command_count = metrics.command_count;
-                result->resource_count = metrics.resource_count;
-                result->brush_count = metrics.brush_count;
-            }
-        }
+        hr = build_scene_stream(
+            *scene_sink,
+            scene_id,
+            generation,
+            destination,
+            destination_capacity,
+            *result,
+            hr);
     }
     if (scene_sink != nullptr) {
         scene_sink->Release();

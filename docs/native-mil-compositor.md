@@ -5581,9 +5581,26 @@ The native oracle requires a real transformed line/cubic geometry plus a real
 two-stop linear gradient to decode as two components with one brush, one path,
 three segments, and two stops, alongside the exact content/mask bound
 intersection. Managed AOT build is warning-free and contracts pass 5/5.
-Windows VM runtime qualification remains pending after Parallels guest-command
-dispatch stalled following an exact archive transfer; clean PR MSVC/ClangCL
-jobs are the current compile oracle. No Windows execution result is inferred.
+After the Windows VM's existing restart restored Guest Tools, the exact source
+archive SHA-256
+`E01D2B571D8C11CCC41A3639DEBE5C4DB4B08CE571A60B0C4EE4802F80DEFBAC`
+was extracted and confirmed as ABI v42. Windows 11 ARM64 Parallels rebuilt the
+provider/test cleanly with MSVC 19.44/SDK 10.0.26100.0 `/W4 /WX`, and the
+native executable exits zero. The 181,248-byte provider SHA-256 is
+`D20084AFFC6C8FE39C2F10EBBBA565BB8CA0D6C0771B595A33C5527135F09698`.
+
+ABI v43 begins the explicit ProGPU-owned Direct2D COM facade. The native API
+creates a retained scene recorder and returns a caller-owned genuine
+`ID2D1CommandSink1*` whose `IUnknown`, base sink, and versioned sink queries
+share canonical identity. Applications can invoke supported Direct2D COM
+callbacks directly and then serialize the finished recording into the same
+pointer-free semantic scene used by the MIL replacement on D3D12, Metal,
+Vulkan, and WebGPU. The recorder holds an independent sink reference, accepts
+an optional allocation reserve hint, rejects incomplete or unsupported
+recordings with typed HRESULT/reason data, and retains no COM pointer in the
+scene. This is an explicit factory API, not a replacement `d2d1.dll`; future
+factory, geometry, resource, and device-context vtables will build on the same
+typed recorder and fail-closed rules.
 
 ## Managed glyph row-reuse SIMD checkpoint
 
