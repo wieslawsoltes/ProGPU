@@ -2485,9 +2485,9 @@ int main()
     progpu_native_direct2d_command_stream_summary recorder_hint{};
     recorder_hint.struct_size = static_cast<uint32_t>(sizeof(recorder_hint));
     recorder_hint.clear_count = 1U;
-    recorder_hint.draw_count = 1U;
+    recorder_hint.draw_count = 2U;
     recorder_hint.fill_count = 2U;
-    recorder_hint.total_command_count = 4U;
+    recorder_hint.total_command_count = 5U;
     progpu_native_direct2d_scene_recorder* direct_recorder = nullptr;
     native_hresult = E_FAIL;
     require(
@@ -2565,6 +2565,13 @@ int main()
             compat_stroke_style.Get()) == S_OK,
         "ProGPU Direct2D COM retained DrawGeometry callback failed");
     require(
+        direct_sink->DrawGeometry(
+            compat_path.Get(),
+            compat_solid_brush.Get(),
+            3.0F,
+            nullptr) == S_OK,
+        "ProGPU Direct2D COM curved DrawGeometry callback failed");
+    require(
         direct_sink->EndDraw() == S_OK,
         "ProGPU Direct2D COM EndDraw callback failed");
     progpu_native_direct2d_scene_stream_result direct_measure{};
@@ -2581,7 +2588,7 @@ int main()
             native_hresult == HRESULT_FROM_WIN32(ERROR_INSUFFICIENT_BUFFER) &&
             direct_measure.scene_id == 7002U &&
             direct_measure.generation == 10U &&
-            direct_measure.translated_draw_count == 3U &&
+            direct_measure.translated_draw_count == 4U &&
             direct_measure.failure_reason ==
                 PROGPU_NATIVE_DIRECT2D_SCENE_STREAM_FAILURE_NONE &&
             (direct_measure.flags &
@@ -2609,7 +2616,7 @@ int main()
             &native_hresult) == PROGPU_NATIVE_DIRECT2D_STATUS_SUCCESS &&
             native_hresult == S_OK &&
             direct_write.written_bytes == direct_scene_stream.size() &&
-            direct_write.command_count == 3U &&
+            direct_write.command_count == 4U &&
             direct_write.brush_count == 1U,
         "ProGPU Direct2D COM recorder write pass changed");
     const progpu_native_scene_header direct_scene_header =
@@ -2617,9 +2624,10 @@ int main()
     require(
             direct_scene_header.scene_id == 7002U &&
             direct_scene_header.generation == 10U &&
-            direct_scene_header.command_count == 3U,
+            direct_scene_header.command_count == 4U,
         "ProGPU Direct2D COM recorder scene identity changed");
     bool direct_stroke_found = false;
+    bool direct_curved_stroke_found = false;
     for (uint32_t index = 0U;
          index < direct_scene_header.resource_count;
          ++index) {
@@ -2629,6 +2637,43 @@ int main()
                 direct_scene_header.resource_offset +
                     static_cast<size_t>(index) *
                         direct_scene_header.resource_stride);
+        if (resource.kind == PROGPU_NATIVE_SCENE_RESOURCE_GEOMETRY_BATCH) {
+            require(
+                !direct_curved_stroke_found &&
+                    resource.payload_size >=
+                        2U * sizeof(progpu_native_geometry_primitive) &&
+                    resource.payload_size %
+                        sizeof(progpu_native_geometry_primitive) == 0U,
+                "ProGPU Direct2D curved stroke resource layout changed");
+            bool cubic_found = false;
+            bool forced_round_join_found = false;
+            const size_t primitive_count = resource.payload_size /
+                sizeof(progpu_native_geometry_primitive);
+            for (size_t primitive_index = 0U;
+                 primitive_index < primitive_count;
+                 ++primitive_index) {
+                const progpu_native_geometry_primitive primitive =
+                    read_value<progpu_native_geometry_primitive>(
+                        direct_scene_stream,
+                        resource.payload_offset + primitive_index *
+                            sizeof(progpu_native_geometry_primitive));
+                require(
+                    primitive.stroke_thickness == 3.0F,
+                    "ProGPU Direct2D curved stroke width changed");
+                cubic_found = cubic_found || primitive.kind ==
+                    PROGPU_NATIVE_GEOMETRY_CUBIC_BEZIER;
+                forced_round_join_found = forced_round_join_found ||
+                    (primitive.kind == PROGPU_NATIVE_GEOMETRY_PATH_JOIN &&
+                        ((primitive.flags >>
+                            PROGPU_NATIVE_PRIMITIVE_START_CAP_SHIFT) & 0x3U) ==
+                            PROGPU_NATIVE_STROKE_JOIN_ROUND);
+            }
+            require(
+                cubic_found && forced_round_join_found,
+                "ProGPU Direct2D curved stroke lost cubic or forced-round semantics");
+            direct_curved_stroke_found = true;
+            continue;
+        }
         if (resource.kind != PROGPU_NATIVE_SCENE_RESOURCE_STROKE_BATCH) {
             continue;
         }
@@ -2675,6 +2720,8 @@ int main()
     }
     require(direct_stroke_found,
         "ProGPU Direct2D COM recorder omitted the retained stroke batch");
+    require(direct_curved_stroke_found,
+        "ProGPU Direct2D COM recorder omitted the analytic curved stroke");
     direct_base_sink.Reset();
     direct_sink.Reset();
     progpu_native_direct2d_scene_recorder_destroy(direct_recorder);

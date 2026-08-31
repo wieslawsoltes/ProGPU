@@ -45,7 +45,7 @@ public sealed class Direct2DInteropContractTests
             native,
             StringComparison.Ordinal);
         Assert.Contains(
-            "internal const uint AbiVersion = 48U;",
+            "internal const uint AbiVersion = 49U;",
             native,
             StringComparison.Ordinal);
         Assert.Contains(
@@ -489,6 +489,12 @@ public sealed class Direct2DInteropContractTests
             "src",
             "Direct2D",
             "progpu_native_direct2d.cpp");
+        string semanticStroke = ReadRepoFile(
+            "src",
+            "ProGPU.Native",
+            "src",
+            "Scene",
+            "progpu_native_semantic_path_stroke.hpp");
         string test = ReadRepoFile(
             "src",
             "ProGPU.Native",
@@ -496,7 +502,7 @@ public sealed class Direct2DInteropContractTests
             "progpu_native_direct2d_tests.cpp");
 
         Assert.Contains(
-            "PROGPU_NATIVE_DIRECT2D_ABI_VERSION = 48U",
+            "PROGPU_NATIVE_DIRECT2D_ABI_VERSION = 49U",
             header,
             StringComparison.Ordinal);
         Assert.Contains(
@@ -530,6 +536,26 @@ public sealed class Direct2DInteropContractTests
         Assert.Contains(
             "class CommandSceneStrokeSink final : public ID2D1SimplifiedGeometrySink",
             source,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "D2D1_GEOMETRY_SIMPLIFICATION_OPTION_CUBICS_AND_LINES",
+            source,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "semantic_path_stroke::compile(",
+            source,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "mil::curve_dash::try_create_runs(",
+            semanticStroke,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "PROGPU_NATIVE_GEOMETRY_PATH_JOIN",
+            semanticStroke,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "ProGPU Direct2D COM recorder omitted the analytic curved stroke",
+            test,
             StringComparison.Ordinal);
         Assert.Contains(
             "class ProGpuD2DFactory final",
