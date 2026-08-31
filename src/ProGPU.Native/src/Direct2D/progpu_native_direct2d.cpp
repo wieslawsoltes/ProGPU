@@ -781,6 +781,246 @@ private:
     bool overflow_ = false;
 };
 
+class CommandScenePathSink final : public ID2D1SimplifiedGeometrySink {
+public:
+    HRESULT STDMETHODCALLTYPE QueryInterface(
+        REFIID interface_id,
+        void** value) noexcept override
+    {
+        if (value == nullptr) {
+            return E_POINTER;
+        }
+        *value = nullptr;
+        if (IsEqualIID(interface_id, IID_IUnknown) ||
+            IsEqualIID(
+                interface_id,
+                __uuidof(ID2D1SimplifiedGeometrySink))) {
+            *value = static_cast<ID2D1SimplifiedGeometrySink*>(this);
+            AddRef();
+            return S_OK;
+        }
+        return E_NOINTERFACE;
+    }
+
+    ULONG STDMETHODCALLTYPE AddRef() noexcept override
+    {
+        return reference_count_.fetch_add(1U, std::memory_order_relaxed) + 1U;
+    }
+
+    ULONG STDMETHODCALLTYPE Release() noexcept override
+    {
+        const ULONG remaining = reference_count_.fetch_sub(
+            1U,
+            std::memory_order_acq_rel) - 1U;
+        if (remaining == 0U) {
+            delete this;
+        }
+        return remaining;
+    }
+
+    void STDMETHODCALLTYPE SetFillMode(D2D1_FILL_MODE fill_mode) noexcept override
+    {
+        if (closed_ || figure_started_ ||
+            (fill_mode != D2D1_FILL_MODE_ALTERNATE &&
+                fill_mode != D2D1_FILL_MODE_WINDING)) {
+            set_failure(E_INVALIDARG);
+            return;
+        }
+        fill_mode_ = fill_mode;
+    }
+
+    void STDMETHODCALLTYPE SetSegmentFlags(
+        D2D1_PATH_SEGMENT vertex_flags) noexcept override
+    {
+        constexpr uint32_t supported_flags =
+            D2D1_PATH_SEGMENT_FORCE_UNSTROKED |
+            D2D1_PATH_SEGMENT_FORCE_ROUND_LINE_JOIN;
+        if (closed_ ||
+            (static_cast<uint32_t>(vertex_flags) & ~supported_flags) != 0U) {
+            set_failure(E_INVALIDARG);
+        }
+    }
+
+    void STDMETHODCALLTYPE BeginFigure(
+        D2D1_POINT_2F start_point,
+        D2D1_FIGURE_BEGIN figure_begin) noexcept override
+    {
+        if (closed_ || figure_open_ || !finite(start_point) ||
+            (figure_begin != D2D1_FIGURE_BEGIN_FILLED &&
+                figure_begin != D2D1_FIGURE_BEGIN_HOLLOW)) {
+            set_failure(E_INVALIDARG);
+            return;
+        }
+        figure_started_ = true;
+        figure_open_ = true;
+        figure_filled_ = figure_begin == D2D1_FIGURE_BEGIN_FILLED;
+        figure_start_ = start_point;
+        current_point_ = start_point;
+    }
+
+    void STDMETHODCALLTYPE AddLines(
+        const D2D1_POINT_2F* points,
+        UINT32 point_count) noexcept override
+    {
+        if (closed_ || !figure_open_ ||
+            (point_count != 0U && points == nullptr)) {
+            set_failure(E_INVALIDARG);
+            return;
+        }
+        for (UINT32 index = 0U; index < point_count; ++index) {
+            if (!finite(points[index])) {
+                set_failure(E_INVALIDARG);
+                return;
+            }
+            if (figure_filled_ && !append_line(current_point_, points[index])) {
+                return;
+            }
+            current_point_ = points[index];
+        }
+    }
+
+    void STDMETHODCALLTYPE AddBeziers(
+        const D2D1_BEZIER_SEGMENT* beziers,
+        UINT32 bezier_count) noexcept override
+    {
+        if (closed_ || !figure_open_ ||
+            (bezier_count != 0U && beziers == nullptr)) {
+            set_failure(E_INVALIDARG);
+            return;
+        }
+        for (UINT32 index = 0U; index < bezier_count; ++index) {
+            const auto& bezier = beziers[index];
+            if (!finite(bezier.point1) || !finite(bezier.point2) ||
+                !finite(bezier.point3)) {
+                set_failure(E_INVALIDARG);
+                return;
+            }
+            if (figure_filled_ && !append_cubic(current_point_, bezier)) {
+                return;
+            }
+            current_point_ = bezier.point3;
+        }
+    }
+
+    void STDMETHODCALLTYPE EndFigure(D2D1_FIGURE_END figure_end) noexcept override
+    {
+        if (closed_ || !figure_open_ ||
+            (figure_end != D2D1_FIGURE_END_OPEN &&
+                figure_end != D2D1_FIGURE_END_CLOSED)) {
+            set_failure(E_INVALIDARG);
+            return;
+        }
+        if (figure_filled_ && figure_end == D2D1_FIGURE_END_CLOSED &&
+            !same_point(current_point_, figure_start_) &&
+            !append_line(current_point_, figure_start_)) {
+            return;
+        }
+        figure_open_ = false;
+        figure_filled_ = false;
+    }
+
+    HRESULT STDMETHODCALLTYPE Close() noexcept override
+    {
+        if (closed_ || figure_open_) {
+            set_failure(D2DERR_WRONG_STATE);
+        }
+        closed_ = true;
+        return failure_;
+    }
+
+    std::span<const progpu_native_path_segment> segments() const noexcept
+    {
+        return segments_;
+    }
+
+    uint32_t fill_rule() const noexcept
+    {
+        return fill_mode_ == D2D1_FILL_MODE_ALTERNATE
+            ? PROGPU_NATIVE_FILL_RULE_EVEN_ODD
+            : PROGPU_NATIVE_FILL_RULE_NON_ZERO;
+    }
+
+    bool capacity_exceeded() const noexcept
+    {
+        return capacity_exceeded_;
+    }
+
+private:
+    static constexpr size_t maximum_segment_count = 1U << 20U;
+
+    static bool finite(D2D1_POINT_2F point) noexcept
+    {
+        return std::isfinite(point.x) && std::isfinite(point.y);
+    }
+
+    static bool same_point(
+        D2D1_POINT_2F left,
+        D2D1_POINT_2F right) noexcept
+    {
+        return left.x == right.x && left.y == right.y;
+    }
+
+    void set_failure(HRESULT value) noexcept
+    {
+        if (SUCCEEDED(failure_)) {
+            failure_ = value;
+        }
+    }
+
+    bool append(progpu_native_path_segment segment) noexcept
+    {
+        if (segments_.size() == maximum_segment_count) {
+            capacity_exceeded_ = true;
+            set_failure(HRESULT_FROM_WIN32(ERROR_ARITHMETIC_OVERFLOW));
+            return false;
+        }
+        try {
+            segments_.push_back(segment);
+            return true;
+        } catch (const std::bad_alloc&) {
+            set_failure(E_OUTOFMEMORY);
+            return false;
+        } catch (...) {
+            set_failure(E_FAIL);
+            return false;
+        }
+    }
+
+    bool append_line(D2D1_POINT_2F start, D2D1_POINT_2F end) noexcept
+    {
+        progpu_native_path_segment segment{};
+        segment.p0 = {start.x, start.y};
+        segment.p1 = {end.x, end.y};
+        segment.kind = PROGPU_NATIVE_PATH_SEGMENT_LINE;
+        return append(segment);
+    }
+
+    bool append_cubic(
+        D2D1_POINT_2F start,
+        const D2D1_BEZIER_SEGMENT& bezier) noexcept
+    {
+        progpu_native_path_segment segment{};
+        segment.p0 = {start.x, start.y};
+        segment.p1 = {bezier.point1.x, bezier.point1.y};
+        segment.p2 = {bezier.point2.x, bezier.point2.y};
+        segment.p3 = {bezier.point3.x, bezier.point3.y};
+        segment.kind = PROGPU_NATIVE_PATH_SEGMENT_CUBIC;
+        return append(segment);
+    }
+
+    std::atomic<ULONG> reference_count_{1U};
+    std::vector<progpu_native_path_segment> segments_;
+    D2D1_POINT_2F figure_start_{};
+    D2D1_POINT_2F current_point_{};
+    D2D1_FILL_MODE fill_mode_ = D2D1_FILL_MODE_ALTERNATE;
+    HRESULT failure_ = S_OK;
+    bool figure_open_ = false;
+    bool figure_started_ = false;
+    bool figure_filled_ = false;
+    bool closed_ = false;
+    bool capacity_exceeded_ = false;
+};
+
 class CommandSceneStreamSink final : public ID2D1CommandSink1 {
 public:
     CommandSceneStreamSink(
@@ -1120,11 +1360,24 @@ public:
     }
 
     HRESULT STDMETHODCALLTYPE FillGeometry(
-        ID2D1Geometry*,
-        ID2D1Brush*,
-        ID2D1Brush*) noexcept override
+        ID2D1Geometry* geometry,
+        ID2D1Brush* brush,
+        ID2D1Brush* opacity_brush) noexcept override
     {
-        return unsupported_resource_callback();
+        begin_callback();
+        if (!can_record()) {
+            return fail_drawing_state();
+        }
+        if (geometry == nullptr || brush == nullptr) {
+            return fail_invalid_value();
+        }
+        if (opacity_brush != nullptr) {
+            return fail_unsupported_resource();
+        }
+        if (antialias_mode_ != D2D1_ANTIALIAS_MODE_PER_PRIMITIVE) {
+            return fail_unsupported_state();
+        }
+        return draw_filled_geometry(geometry, brush);
     }
 
     HRESULT STDMETHODCALLTYPE FillRectangle(
@@ -1254,6 +1507,11 @@ public:
     bool has_gradient_brushes() const noexcept
     {
         return has_gradient_brushes_;
+    }
+
+    bool has_path_geometry() const noexcept
+    {
+        return has_path_geometry_;
     }
 
     D2D1_COLOR_F clear_color() const noexcept
@@ -1497,13 +1755,12 @@ private:
                 static_cast<double>(source._31) * source._22) * reciprocal,
             (static_cast<double>(source._31) * source._12 -
                 static_cast<double>(source._11) * source._32) * reciprocal};
-        inverse = {{
-            static_cast<float>(values[0]),
-            static_cast<float>(values[1]),
-            static_cast<float>(values[2]),
-            static_cast<float>(values[3]),
-            static_cast<float>(values[4]),
-            static_cast<float>(values[5])}};
+        inverse._11 = static_cast<float>(values[0]);
+        inverse._12 = static_cast<float>(values[1]);
+        inverse._21 = static_cast<float>(values[2]);
+        inverse._22 = static_cast<float>(values[3]);
+        inverse._31 = static_cast<float>(values[4]);
+        inverse._32 = static_cast<float>(values[5]);
         return std::all_of(
             values.begin(),
             values.end(),
@@ -1518,13 +1775,16 @@ private:
         const D2D1_MATRIX_3X2_F& first,
         const D2D1_MATRIX_3X2_F& second) noexcept
     {
-        return {{
-            first._11 * second._11 + first._12 * second._21,
-            first._11 * second._12 + first._12 * second._22,
-            first._21 * second._11 + first._22 * second._21,
-            first._21 * second._12 + first._22 * second._22,
-            first._31 * second._11 + first._32 * second._21 + second._31,
-            first._31 * second._12 + first._32 * second._22 + second._32}};
+        D2D1_MATRIX_3X2_F result{};
+        result._11 = first._11 * second._11 + first._12 * second._21;
+        result._12 = first._11 * second._12 + first._12 * second._22;
+        result._21 = first._21 * second._11 + first._22 * second._21;
+        result._22 = first._21 * second._12 + first._22 * second._22;
+        result._31 = first._31 * second._11 + first._32 * second._21 +
+            second._31;
+        result._32 = first._31 * second._12 + first._32 * second._22 +
+            second._32;
+        return result;
     }
 
     bool try_set_gradient_coordinate_transform(
@@ -1837,6 +2097,98 @@ private:
         return S_OK;
     }
 
+    HRESULT draw_filled_geometry(
+        ID2D1Geometry* geometry,
+        ID2D1Brush* brush) noexcept
+    {
+        CommandScenePathSink* raw_sink = new (std::nothrow)
+            CommandScenePathSink();
+        if (raw_sink == nullptr) {
+            return fail(
+                PROGPU_NATIVE_DIRECT2D_SCENE_STREAM_FAILURE_BUILDER,
+                E_OUTOFMEMORY);
+        }
+        ComPtr<CommandScenePathSink> path_sink;
+        path_sink.Attach(raw_sink);
+        HRESULT hr = geometry->Simplify(
+            D2D1_GEOMETRY_SIMPLIFICATION_OPTION_CUBICS_AND_LINES,
+            nullptr,
+            D2D1_DEFAULT_FLATTENING_TOLERANCE,
+            path_sink.Get());
+        const HRESULT close_hr = path_sink->Close();
+        if (SUCCEEDED(hr)) {
+            hr = close_hr;
+        }
+        if (FAILED(hr)) {
+            if (path_sink->capacity_exceeded()) {
+                return fail_capacity_exceeded();
+            }
+            if (hr == E_OUTOFMEMORY) {
+                return fail(
+                    PROGPU_NATIVE_DIRECT2D_SCENE_STREAM_FAILURE_BUILDER,
+                    hr);
+            }
+            return fail_unsupported_resource();
+        }
+        const auto segments = path_sink->segments();
+        if (segments.empty()) {
+            record_draw();
+            return S_OK;
+        }
+
+        D2D1_RECT_F local_bounds{};
+        hr = geometry->GetBounds(nullptr, &local_bounds);
+        D2D1_RECT_F target_bounds{};
+        if (SUCCEEDED(hr)) {
+            hr = geometry->GetBounds(&transform_, &target_bounds);
+        }
+        if (FAILED(hr) || !finite_rectangle(&local_bounds) ||
+            !finite_rectangle(&target_bounds)) {
+            return fail_invalid_value();
+        }
+        if (local_bounds.right == local_bounds.left ||
+            local_bounds.bottom == local_bounds.top ||
+            target_bounds.right == target_bounds.left ||
+            target_bounds.bottom == target_bounds.top) {
+            record_draw();
+            return S_OK;
+        }
+
+        uint32_t brush_index = PROGPU_NATIVE_SCENE_NO_INDEX;
+        hr = add_brush(brush, brush_index);
+        if (FAILED(hr)) {
+            return hr;
+        }
+        const progpu_native_scene_path_fill path{
+            0U,
+            segments.size(),
+            0U,
+            0U,
+            local_bounds.left,
+            local_bounds.top,
+            local_bounds.right,
+            local_bounds.bottom,
+            {1.0F, 1.0F, 1.0F, 1.0F},
+            native_transform(),
+            path_sink->fill_rule(),
+            8U};
+        const progpu_native_image_rect bounds{
+            target_bounds.left,
+            target_bounds.top,
+            target_bounds.right - target_bounds.left,
+            target_bounds.bottom - target_bounds.top};
+        if (!builder_.draw_paths(
+                std::span<const progpu_native_scene_path_fill>(&path, 1U),
+                segments,
+                std::span<const uint32_t>(&brush_index, 1U),
+                bounds)) {
+            return fail_builder();
+        }
+        has_path_geometry_ = true;
+        record_draw();
+        return S_OK;
+    }
+
     void record_draw() noexcept
     {
         if (translated_draw_count_ != std::numeric_limits<uint32_t>::max()) {
@@ -1867,6 +2219,7 @@ private:
     bool has_aliased_primitives_ = false;
     bool has_axis_aligned_clips_ = false;
     bool has_gradient_brushes_ = false;
+    bool has_path_geometry_ = false;
 };
 
 class CallerTessellationSink final : public ID2D1TessellationSink {
@@ -4724,6 +5077,10 @@ progpu_native_direct2d_command_list_build_scene_stream(
         if (scene_sink->has_gradient_brushes()) {
             result->flags |=
                 PROGPU_NATIVE_DIRECT2D_SCENE_STREAM_FLAG_HAS_GRADIENT_BRUSHES;
+        }
+        if (scene_sink->has_path_geometry()) {
+            result->flags |=
+                PROGPU_NATIVE_DIRECT2D_SCENE_STREAM_FLAG_HAS_PATH_GEOMETRY;
         }
     }
 
