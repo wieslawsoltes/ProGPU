@@ -779,7 +779,7 @@ typedef struct progpu_native_direct2d_stroke_style_properties {
 } progpu_native_direct2d_stroke_style_properties;
 
 enum {
-    PROGPU_NATIVE_DIRECT2D_ABI_VERSION = 44U
+    PROGPU_NATIVE_DIRECT2D_ABI_VERSION = 45U
 };
 
 PROGPU_NATIVE_DIRECT2D_API uint32_t
@@ -792,6 +792,17 @@ progpu_native_direct2d_get_abi_version(void);
 PROGPU_NATIVE_DIRECT2D_API progpu_native_direct2d_status
 progpu_native_direct2d_compat_factory_create(
     void** factory,
+    int32_t* native_hresult);
+
+/* Creates a caller-owned ProGPU-implemented ID2D1SolidColorBrush in the
+ * supplied compatibility-factory domain. properties is optional and defaults
+ * to opacity 1 plus the identity transform. */
+PROGPU_NATIVE_DIRECT2D_API progpu_native_direct2d_status
+progpu_native_direct2d_compat_factory_create_solid_color_brush(
+    void* factory,
+    const progpu_native_direct2d_color_f* color,
+    const progpu_native_direct2d_brush_properties* properties,
+    void** brush,
     int32_t* native_hresult);
 
 /* Creates a retained ProGPU scene recorder. capacity_hint is optional and is
