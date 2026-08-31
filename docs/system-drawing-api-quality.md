@@ -343,9 +343,9 @@ evidence. Ten focused cases independently cover all four layouts, bottom-up
 padding, top-down and bottom-up partial bands, packed color tables, retained
 sampling, malformed usage/ROP/scan/buffer inputs, transactional rollback,
 playback-DC-only source boundaries, and a warmed allocation ceiling.
-JPEG/PNG/CMYK compression, logical palettes, playback-device-context sources, and
+CMYK compression, logical palettes, playback-device-context sources, and
 device-dependent bitmaps remain explicit. ApiCompat remains 0/0/13.
-Both complete Debug and Release drawing suites pass 538/538.
+Both complete Debug and Release drawing suites pass 546/546.
 
 `MetafileBenchmarks.Playback256BitFieldDibImagesToRetainedCommands` extends the
 same shared decoder to 16/32-bit `BI_BITFIELDS`. Forty-byte headers supply three
@@ -377,6 +377,25 @@ claim. The official contracts are
 [`Bitmap Compression`](https://learn.microsoft.com/en-us/windows/win32/gdi/bitmap-compression),
 [`Compression`](https://learn.microsoft.com/en-us/openspecs/windows_protocols/ms-wmf/4e588f70-bd92-4a6f-b77f-35d0feaf7a57), and the
 [`RLE4 bitmap example`](https://learn.microsoft.com/en-us/openspecs/windows_protocols/ms-wmf/73b57f24-6d78-4eeb-9c06-8f892d88f1ab).
+
+`MetafileBenchmarks.Playback256EncodedDibImagesToRetainedCommands` extends the
+same DIB records to complete `BI_JPEG` and `BI_PNG` file buffers. The metafile
+layer requires bit count zero, positive dimensions, no color table, exact
+nonzero `biSizeImage`, a compression-matching signature, and codec dimensions
+equal to the header before pixel allocation. WMF word padding is excluded from
+the encoded buffer, decode failures roll back the complete temporary command
+stream, and partial encoded `SetDIBitsToDevice` bands remain explicit because a
+file stream is not independently decodable scan rows. Eight focused cases cover
+PNG pixels, crop/mirroring, JPEG color bounds, odd-sized WMF buffers, complete
+EMF/WMF set-DIB images, malformed transactional rollback in both formats,
+partial-band rollback, and warmed allocation. The 2026-08-31 ARM64/.NET 10.0.11
+ShortRun measured a 19.527 ms median (18.959 ms mean, 3.838 ms standard
+deviation) and 743.78 KB allocated for 256 packed two-by-two PNG images. Three
+iterations and timing variance make this allocation and command-ownership
+evidence rather than a throughput claim. The official contracts are the
+[`BITMAPINFOHEADER`](https://learn.microsoft.com/en-us/previous-versions/dd183376%28v%3Dvs.85%29),
+[`SetDIBitsToDevice`](https://learn.microsoft.com/en-us/windows/win32/api/wingdi/nf-wingdi-setdibitstodevice), and
+[`JPEG and PNG bitmap extensions`](https://learn.microsoft.com/en-us/windows/win32/gdi/jpeg-and-png-extensions-for-specific-bitmap-functions-and-structures).
 
 `MetafileBenchmarks.Playback256EmfPathBracketsToRetainedCommands` guards 256
 Begin/rectangle/End/StrokeAndFill groups. The 2026-08-31 ARM64/.NET 10.0.11

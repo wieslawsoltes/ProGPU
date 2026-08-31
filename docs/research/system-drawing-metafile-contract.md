@@ -122,7 +122,11 @@ The RLE state machine bounds encoded and absolute runs, end-of-line/end-of-bitma
 escapes, deltas, word padding, palette indexes, and the declared compressed byte
 count before publishing pixels. It preserves unspecified pixels as palette index
 zero and supports supplied scan bands without assuming DWORD-aligned compressed
-rows. Uncompressed and bit-field paths handle DWORD row
+rows. `BI_JPEG` and `BI_PNG` accept bit-count-zero positive-height headers with
+no color table, exact declared buffer sizes and matching file signatures. Codec
+dimensions are checked against the DIB header before pixel allocation; decode
+failure and partial encoded scan bands roll back transactionally. Uncompressed
+and bit-field paths handle DWORD row
 stride, bottom-up and top-down storage, source cropping, sign-directed
 mirroring, partial scan bands, destination transforms, and saved nearest or
 halftone sampling state. BI_RGB's unused 32-bit high byte is made opaque rather
@@ -150,6 +154,7 @@ official [EMR_RECTANGLE](https://learn.microsoft.com/en-us/openspecs/windows_pro
 [Compression](https://learn.microsoft.com/en-us/openspecs/windows_protocols/ms-wmf/4e588f70-bd92-4a6f-b77f-35d0feaf7a57),
 [Bitmap Compression](https://learn.microsoft.com/en-us/windows/win32/gdi/bitmap-compression),
 [RLE4 bitmap example](https://learn.microsoft.com/en-us/openspecs/windows_protocols/ms-wmf/73b57f24-6d78-4eeb-9c06-8f892d88f1ab),
+[JPEG and PNG bitmap extensions](https://learn.microsoft.com/en-us/windows/win32/gdi/jpeg-and-png-extensions-for-specific-bitmap-functions-and-structures),
 [BitmapV4Header](https://learn.microsoft.com/en-us/openspecs/windows_protocols/ms-wmf/071b0c0d-c2df-4f1c-9828-d03c26002c61),
 [RegionData](https://learn.microsoft.com/en-us/openspecs/windows_protocols/ms-emf/e66601f2-9b5c-4619-8476-ddb7b087551b),
 [RegionMode](https://learn.microsoft.com/en-us/openspecs/windows_protocols/ms-emf/b7f99f50-dd2f-4528-9624-f74140368019),
@@ -251,7 +256,7 @@ implementation is based on the official
 contracts. WMF paths and select-clip-region records, `EXTTEXTOUT` glyph-index, numeric-
 substitution, two-dimensional, DBCS-advance, and bidi-advance modes, independent
 escapement/orientation, vertical fonts, SYMBOL glyph-index mapping,
-JPEG/PNG/CMYK and logical-palette DIBs, playback-device-context-only
+CMYK and logical-palette DIBs, playback-device-context-only
 `META_DIBBITBLT`/`META_DIBSTRETCHBLT` variants, device-dependent bitmap blits,
 richer GDI objects,
 other WMF drawing families, and nonstructural EMF+ drawing records remain
@@ -764,7 +769,7 @@ operations, transactional rollback, and warmed allocation. The WMF follow-up
 adds all four source-bearing packed-DIB layouts, exact packed header/color-table
 splitting, direct-color optimization tables, both scan orientations, retained
 command shape, and explicit rollback for the two playback-DC-only source forms.
-JPEG/PNG/CMYK compression and logical-palette usage,
+CMYK compression and logical-palette usage,
 playback-device-context sources, and device-dependent bitmaps remain named typed
 boundaries. ApiCompat remains at zero missing types, zero missing members, and
 13 reviewed shape differences.
@@ -792,6 +797,19 @@ and absolute modes, delta/default pixels, EMF and WMF partial scan bands, a
 malformed-input matrix with transactional rollback in both formats, and warmed
 allocation.
 
+The `BI_JPEG`/`BI_PNG` follow-up decodes complete embedded file buffers through
+the existing managed bitmap codec path after the metafile layer validates the
+official compression/header combination. The decoder requires bit count zero,
+positive dimensions, no color table, exact nonzero `biSizeImage`, a matching
+JPEG or PNG signature, and codec dimensions equal to the declared DIB before
+allocating the pixel bitmap. WMF's optional final word-alignment byte is kept
+outside the declared encoded buffer. Complete `SetDIBitsToDevice` images reuse
+the typed source/destination lowering; partial encoded scan bands fail instead
+of pretending a file stream is independently decodable rows. Eight focused
+cases cover exact PNG pixels, crop/mirroring, lossy JPEG color bounds, odd-sized
+WMF buffers, complete EMF/WMF set-DIB records, malformed header/buffer/codec
+rollback in both formats, partial-band rollback, and warmed allocation.
+
 `Playback256EmfDibImagesToRetainedCommands` measures bounded header/row decode,
 256 owned two-by-two RGBA snapshots, typed retained-texture recording,
 transactional append, and cleanup. The 2026-08-31 ARM64/.NET 10.0.11 ShortRun
@@ -812,7 +830,7 @@ throughput. Ten focused WMF cases independently cover all four record families,
 bottom-up padding, top-down and bottom-up partial bands, packed color-table
 splitting, retained sampling, playback-DC boundaries, malformed input,
 transactional rollback, and the warmed 64-image allocation ceiling.
-Both complete Debug and Release drawing suites pass 538/538; ApiCompat remains
+Both complete Debug and Release drawing suites pass 546/546; ApiCompat remains
 at zero missing types, zero missing members, and 13 reviewed shape differences.
 
 `Playback256BitFieldDibImagesToRetainedCommands` measures 256 packed RGB565
@@ -830,6 +848,14 @@ measured a 30.944 millisecond median (25.515 millisecond mean, 16.116
 millisecond standard deviation) with 509.73 KB allocated. Three iterations and
 high timing variance make allocation and command ownership authoritative rather
 than throughput.
+
+`Playback256EncodedDibImagesToRetainedCommands` measures 256 packed two-by-two
+`BI_PNG` `META_STRETCHDIB` records, including signature/size/dimension checks,
+managed codec decode, retained ownership, and cleanup. The 2026-08-31
+ARM64/.NET 10.0.11 ShortRun measured a 19.527 millisecond median (18.959
+millisecond mean, 3.838 millisecond standard deviation) with 743.78 KB
+allocated. Three iterations and timing variance make allocation and command
+ownership authoritative rather than throughput.
 
 The EMF path-bracket follow-up adds `EMR_BEGINPATH`, `EMR_ENDPATH`,
 `EMR_CLOSEFIGURE`, `EMR_ABORTPATH`, `EMR_FILLPATH`, `EMR_STROKEPATH`,

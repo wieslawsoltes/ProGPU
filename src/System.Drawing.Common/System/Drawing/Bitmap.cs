@@ -66,6 +66,10 @@ public class Bitmap : Image, IProGpuContextTextureLeaseSource
     public override int Height => _height;
     public override PixelFormat PixelFormat => _pixelFormat;
 
+    private Bitmap()
+    {
+    }
+
     public Bitmap(int width, int height)
     {
         ArgumentOutOfRangeException.ThrowIfNegativeOrZero(width);
@@ -378,7 +382,10 @@ public class Bitmap : Image, IProGpuContextTextureLeaseSource
         throw new PlatformNotSupportedException(
             "HBITMAP export requires the explicit Windows GDI image adapter.");
 
-    private void InitializeFromStream(System.IO.Stream stream)
+    private void InitializeFromStream(
+        System.IO.Stream stream,
+        int? expectedWidth = null,
+        int? expectedHeight = null)
     {
         using var skData = SkiaSharp.SKData.Create(stream);
         using var codec = SkiaSharp.SKCodec.Create(skData);
@@ -389,6 +396,13 @@ public class Bitmap : Image, IProGpuContextTextureLeaseSource
         }
 
         var decodeInfo = codec.Info;
+        if (expectedWidth is int width && decodeInfo.Width != width ||
+            expectedHeight is int height && decodeInfo.Height != height)
+        {
+            throw new ArgumentException(
+                "The encoded image dimensions do not match the declared bitmap dimensions.",
+                nameof(stream));
+        }
         decodeInfo.ColorType = SkiaSharp.SKColorType.Rgba8888;
         decodeInfo.AlphaType = SkiaSharp.SKAlphaType.Unpremul;
         using var tempBitmap = SkiaSharp.SKBitmap.Decode(codec, decodeInfo);
@@ -409,6 +423,18 @@ public class Bitmap : Image, IProGpuContextTextureLeaseSource
         }
 
         _hasDefinedPixels = true;
+    }
+
+    internal static Bitmap CreateFromEncodedImage(
+        ReadOnlySpan<byte> encodedImage,
+        int expectedWidth,
+        int expectedHeight)
+    {
+        byte[] ownedImage = encodedImage.ToArray();
+        using var stream = new MemoryStream(ownedImage, writable: false);
+        var bitmap = new Bitmap();
+        bitmap.InitializeFromStream(stream, expectedWidth, expectedHeight);
+        return bitmap;
     }
 
     private static int GetImageWidth(Image original)

@@ -22,6 +22,8 @@ internal static class MetafilePlaybackRenderer
     private const uint BiRle8 = 1;
     private const uint BiRle4 = 2;
     private const uint BiBitFields = 3;
+    private const uint BiJpeg = 4;
+    private const uint BiPng = 5;
     private const uint SrcCopy = 0x00CC_0020;
 
     static MetafilePlaybackRenderer() =>
@@ -839,11 +841,12 @@ internal static class MetafilePlaybackRenderer
 
         ReadOnlySpan<byte> packedDib = payload[fixedPayloadSize..];
         DibInfo dib = ReadDibInfo(record, packedDib, DibRgbColors);
+        ReadOnlySpan<byte> bitmapBits = ReadWmfDibBits(record, dib, packedDib);
         using Bitmap bitmap = DecodeDibRows(
             record,
             dib,
             packedDib[..dib.BitmapInfoSize],
-            packedDib[dib.BitmapInfoSize..],
+            bitmapBits,
             dib.Height);
         int width = ReadInt16(payload, 10);
         int height = ReadInt16(payload, 8);
@@ -873,11 +876,12 @@ internal static class MetafilePlaybackRenderer
 
         ReadOnlySpan<byte> packedDib = payload[fixedPayloadSize..];
         DibInfo dib = ReadDibInfo(record, packedDib, DibRgbColors);
+        ReadOnlySpan<byte> bitmapBits = ReadWmfDibBits(record, dib, packedDib);
         using Bitmap bitmap = DecodeDibRows(
             record,
             dib,
             packedDib[..dib.BitmapInfoSize],
-            packedDib[dib.BitmapInfoSize..],
+            bitmapBits,
             dib.Height);
         DrawMappedDib(
             state,
@@ -913,11 +917,12 @@ internal static class MetafilePlaybackRenderer
 
         ReadOnlySpan<byte> packedDib = payload[fixedPayloadSize..];
         DibInfo dib = ReadDibInfo(record, packedDib, usage);
+        ReadOnlySpan<byte> bitmapBits = ReadWmfDibBits(record, dib, packedDib);
         using Bitmap bitmap = DecodeDibRows(
             record,
             dib,
             packedDib[..dib.BitmapInfoSize],
-            packedDib[dib.BitmapInfoSize..],
+            bitmapBits,
             dib.Height);
         DrawMappedDib(
             state,
@@ -952,12 +957,13 @@ internal static class MetafilePlaybackRenderer
 
         ReadOnlySpan<byte> packedDib = payload[fixedPayloadSize..];
         DibInfo dib = ReadDibInfo(record, packedDib, usage);
+        ReadOnlySpan<byte> bitmapBits = ReadWmfDibBits(record, dib, packedDib);
         DrawSetDibitsBand(
             state,
             record,
             dib,
             packedDib[..dib.BitmapInfoSize],
-            packedDib[dib.BitmapInfoSize..],
+            bitmapBits,
             ReadUInt16(payload, 8),
             ReadUInt16(payload, 6),
             ReadUInt16(payload, 12),
@@ -966,6 +972,27 @@ internal static class MetafilePlaybackRenderer
             ReadUInt16(payload, 14),
             ReadUInt16(payload, 4),
             ReadUInt16(payload, 2));
+    }
+
+    private static ReadOnlySpan<byte> ReadWmfDibBits(
+        in MetafileRecord record,
+        in DibInfo dib,
+        ReadOnlySpan<byte> packedDib)
+    {
+        ReadOnlySpan<byte> bitmapBits = packedDib[dib.BitmapInfoSize..];
+        if (dib.Compression is not BiRle8 and not BiRle4 and not BiJpeg and not BiPng)
+        {
+            return bitmapBits;
+        }
+        if (bitmapBits.Length == dib.CompressedSize)
+        {
+            return bitmapBits;
+        }
+        if (dib.CompressedSize < int.MaxValue && bitmapBits.Length == dib.CompressedSize + 1)
+        {
+            return bitmapBits[..dib.CompressedSize];
+        }
+        throw Invalid(record);
     }
 
     private static void RequireWmfSourceDib(
@@ -1256,14 +1283,25 @@ internal static class MetafilePlaybackRenderer
         }
         int height = Math.Abs(signedHeight);
         ushort bitCount = ReadUInt16(bitmapInfo, 14);
-        if (bitCount is not 1 and not 4 and not 8 and not 16 and not 24 and not 32)
+        uint compression = ReadUInt32(bitmapInfo, 16);
+        if (compression is not BiRgb and not BiRle8 and not BiRle4 and
+            not BiBitFields and not BiJpeg and not BiPng)
+        {
+            throw Unsupported(
+                record,
+                "Only BI_RGB, BI_RLE8, BI_RLE4, BI_BITFIELDS, BI_JPEG, and BI_PNG DIBs are supported.");
+        }
+        bool usesEncodedFile = compression is BiJpeg or BiPng;
+        if (usesEncodedFile)
+        {
+            if (bitCount != 0 || signedHeight < 0)
+            {
+                throw Invalid(record);
+            }
+        }
+        else if (bitCount is not 1 and not 4 and not 8 and not 16 and not 24 and not 32)
         {
             throw Unsupported(record, $"DIB bit depth {bitCount} is not supported.");
-        }
-        uint compression = ReadUInt32(bitmapInfo, 16);
-        if (compression is not BiRgb and not BiRle8 and not BiRle4 and not BiBitFields)
-        {
-            throw Unsupported(record, "Only BI_RGB, BI_RLE8, BI_RLE4, and BI_BITFIELDS DIBs are supported.");
         }
         bool usesBitFields = compression == BiBitFields;
         if (usesBitFields && bitCount is not 16 and not 32)
@@ -1279,7 +1317,8 @@ internal static class MetafilePlaybackRenderer
             throw Invalid(record);
         }
         uint imageSize = ReadUInt32(bitmapInfo, 20);
-        if (usesRle && (imageSize == 0 || imageSize > int.MaxValue))
+        bool usesCompressedBuffer = usesRle || usesEncodedFile;
+        if (usesCompressedBuffer && (imageSize == 0 || imageSize > int.MaxValue))
         {
             throw Invalid(record);
         }
@@ -1294,7 +1333,15 @@ internal static class MetafilePlaybackRenderer
         uint colorsUsed = ReadUInt32(bitmapInfo, 32);
         int paletteCount = 0;
         int colorTableCount;
-        if (bitCount <= 8)
+        if (usesEncodedFile)
+        {
+            if (colorsUsed != 0)
+            {
+                throw Invalid(record);
+            }
+            colorTableCount = 0;
+        }
+        else if (bitCount <= 8)
         {
             int maximumPaletteCount = 1 << bitCount;
             if (colorsUsed > (uint)maximumPaletteCount)
@@ -1353,7 +1400,7 @@ internal static class MetafilePlaybackRenderer
             blueMask,
             alphaMask,
             compression,
-            usesRle ? (int)imageSize : 0);
+            usesCompressedBuffer ? (int)imageSize : 0);
     }
 
     private static void ValidateDibMasks(
@@ -1404,6 +1451,10 @@ internal static class MetafilePlaybackRenderer
         {
             return DecodeRleDib(record, dib, bitmapInfo, bitmapBits, rowCount);
         }
+        if (dib.Compression is BiJpeg or BiPng)
+        {
+            return DecodeEncodedDib(record, dib, bitmapBits, rowCount);
+        }
         if (bitmapBits.Length != checked(dib.RowStride * rowCount))
         {
             throw Invalid(record);
@@ -1419,6 +1470,46 @@ internal static class MetafilePlaybackRenderer
         }
         return Bitmap.CreateOwnedRgba(dib.Width, rowCount, rgba);
     }
+
+    private static Bitmap DecodeEncodedDib(
+        in MetafileRecord record,
+        in DibInfo dib,
+        ReadOnlySpan<byte> bitmapBits,
+        int rowCount)
+    {
+        if (rowCount != dib.Height || bitmapBits.Length != dib.CompressedSize ||
+            dib.Compression == BiJpeg && !HasJpegSignature(bitmapBits) ||
+            dib.Compression == BiPng && !HasPngSignature(bitmapBits))
+        {
+            throw Invalid(record);
+        }
+
+        try
+        {
+            return Bitmap.CreateFromEncodedImage(bitmapBits, dib.Width, dib.Height);
+        }
+        catch (ArgumentException)
+        {
+            throw Invalid(record);
+        }
+    }
+
+    private static bool HasJpegSignature(ReadOnlySpan<byte> bitmapBits) =>
+        bitmapBits.Length >= 3 &&
+        bitmapBits[0] == 0xFF &&
+        bitmapBits[1] == 0xD8 &&
+        bitmapBits[2] == 0xFF;
+
+    private static bool HasPngSignature(ReadOnlySpan<byte> bitmapBits) =>
+        bitmapBits.Length >= 8 &&
+        bitmapBits[0] == 0x89 &&
+        bitmapBits[1] == 0x50 &&
+        bitmapBits[2] == 0x4E &&
+        bitmapBits[3] == 0x47 &&
+        bitmapBits[4] == 0x0D &&
+        bitmapBits[5] == 0x0A &&
+        bitmapBits[6] == 0x1A &&
+        bitmapBits[7] == 0x0A;
 
     private static Bitmap DecodeRleDib(
         in MetafileRecord record,

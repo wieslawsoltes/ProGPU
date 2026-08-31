@@ -3663,6 +3663,238 @@ public sealed class MetafileParserTests
     }
 
     [Fact]
+    public void EmfStretchDibitsDecodesPngWithSourceCropAndMirroring()
+    {
+        TestDib dib = CreateEncodedDib(
+            4,
+            2,
+            5,
+            [
+                Color.Red, Color.Lime, Color.Blue, Color.White,
+                Color.Black, Color.Yellow, Color.Cyan, Color.Magenta
+            ]);
+        byte[] fixture = CreateTextPlaybackEmf(
+        [
+            (EmfPlusRecordType.EmfStretchDIBits,
+                EmfStretchDibits(dib, new Rectangle(3, 0, -2, 2), new Rectangle(8, 8, 16, 8)))
+        ]);
+        using var metafile = new Metafile(new MemoryStream(fixture, writable: false));
+        using var target = new Bitmap(32, 24);
+        using (Graphics graphics = Graphics.FromImage(target))
+        {
+            graphics.Clear(Color.Transparent);
+            graphics.DrawImage(metafile, new Rectangle(0, 0, 64, 64));
+        }
+
+        Assert.Equal(Color.Blue.ToArgb(), target.GetPixel(9, 9).ToArgb());
+        Assert.Equal(Color.Lime.ToArgb(), target.GetPixel(17, 9).ToArgb());
+        Assert.Equal(Color.Cyan.ToArgb(), target.GetPixel(9, 13).ToArgb());
+        Assert.Equal(Color.Yellow.ToArgb(), target.GetPixel(17, 13).ToArgb());
+    }
+
+    [Fact]
+    public void WmfStretchDibDecodesOddSizedJpegBufferAndIgnoresRecordPadding()
+    {
+        TestDib dib = CreateEncodedDib(
+            3,
+            2,
+            4,
+            Enumerable.Repeat(Color.FromArgb(255, 220, 30, 20), 6).ToArray(),
+            forceOddSize: true);
+        byte[] fixture = CreatePlaybackWmf(
+        [
+            (0x0F43, WmfStretchDib(
+                dib,
+                new Rectangle(0, 0, 3, 2),
+                new Rectangle(8, 8, 18, 8))),
+            (0, [])
+        ]);
+        using var metafile = new Metafile(new MemoryStream(fixture, writable: false));
+        using var target = new Bitmap(32, 24);
+        using (Graphics graphics = Graphics.FromImage(target))
+        {
+            graphics.Clear(Color.Transparent);
+            graphics.DrawImage(metafile, new Rectangle(0, 0, 64, 64));
+        }
+
+        Color pixel = target.GetPixel(12, 10);
+        Assert.InRange(pixel.R, 190, 240);
+        Assert.InRange(pixel.G, 10, 55);
+        Assert.InRange(pixel.B, 5, 45);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void SetDibToDeviceDecodesCompletePngImage(bool wmf)
+    {
+        TestDib dib = CreateEncodedDib(
+            2,
+            2,
+            5,
+            [Color.Red, Color.Lime, Color.Blue, Color.White]);
+        byte[] fixture = wmf
+            ? CreatePlaybackWmf(
+            [
+                (0x0D33, WmfSetDibToDevice(
+                    dib,
+                    new Rectangle(0, 0, 2, 2),
+                    new Point(8, 8),
+                    0,
+                    2)),
+                (0, [])
+            ])
+            : CreateTextPlaybackEmf(
+            [
+                (EmfPlusRecordType.EmfSetDIBitsToDevice,
+                    EmfSetDibitsToDevice(
+                        dib,
+                        new Rectangle(0, 0, 2, 2),
+                        new Point(8, 8),
+                        0,
+                        2))
+            ]);
+        using var metafile = new Metafile(new MemoryStream(fixture, writable: false));
+        using var target = new Bitmap(16, 16);
+        using (Graphics graphics = Graphics.FromImage(target))
+        {
+            graphics.Clear(Color.Transparent);
+            graphics.DrawImage(metafile, new Rectangle(0, 0, 64, 64));
+        }
+
+        Assert.Equal(Color.Red.ToArgb(), target.GetPixel(8, 8).ToArgb());
+        Assert.Equal(Color.Lime.ToArgb(), target.GetPixel(9, 8).ToArgb());
+        Assert.Equal(Color.Blue.ToArgb(), target.GetPixel(8, 9).ToArgb());
+        Assert.Equal(Color.White.ToArgb(), target.GetPixel(9, 9).ToArgb());
+    }
+
+    [Fact]
+    public void MalformedEncodedDibsRollBackEmfAndWmfPlayback()
+    {
+        TestDib valid = CreateEncodedDib(
+            2,
+            2,
+            5,
+            [Color.Red, Color.Lime, Color.Blue, Color.White]);
+        byte[] truncatedBits = valid.Bits[..8];
+        byte[] trailingBits = [.. valid.Bits, 0, 0];
+        TestDib[] malformed =
+        [
+            WithEncodedDibHeader(valid, compression: 4),
+            WithEncodedDibHeader(valid, imageSize: checked((uint)valid.Bits.Length - 2)),
+            WithEncodedDibHeader(valid, width: 3),
+            WithEncodedDibHeader(valid, height: -2),
+            WithEncodedDibHeader(valid, bitCount: 24),
+            WithEncodedDibHeader(valid, colorsUsed: 1),
+            new TestDib(
+                WithEncodedDibHeader(valid, imageSize: checked((uint)truncatedBits.Length)).Info,
+                truncatedBits),
+            new TestDib(valid.Info, trailingBits)
+        ];
+
+        foreach (TestDib dib in malformed)
+        {
+            byte[] emfFixture = CreateTextPlaybackEmf(
+            [
+                (EmfPlusRecordType.EmfSetPixelV, EmfSetPixel(new Point(1, 1), Color.Red)),
+                (EmfPlusRecordType.EmfStretchDIBits,
+                    EmfStretchDibits(dib, new Rectangle(0, 0, 2, 2), new Rectangle(0, 0, 8, 8)))
+            ]);
+            AssertDibPlaybackRollsBack(emfFixture);
+
+            byte[] wmfFixture = CreatePlaybackWmf(
+            [
+                (0x041F, WmfSetPixel(Color.Red, new Point(1, 1))),
+                (0x0F43, WmfStretchDib(
+                    dib,
+                    new Rectangle(0, 0, 2, 2),
+                    new Rectangle(0, 0, 8, 8))),
+                (0, [])
+            ]);
+            AssertDibPlaybackRollsBack(wmfFixture);
+        }
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void PartialEncodedScanBandsRollBackPlayback(bool wmf)
+    {
+        TestDib dib = CreateEncodedDib(
+            2,
+            2,
+            5,
+            [Color.Red, Color.Lime, Color.Blue, Color.White]);
+        byte[] fixture = wmf
+            ? CreatePlaybackWmf(
+            [
+                (0x041F, WmfSetPixel(Color.Red, new Point(1, 1))),
+                (0x0D33, WmfSetDibToDevice(
+                    dib,
+                    new Rectangle(0, 0, 2, 2),
+                    new Point(8, 8),
+                    0,
+                    1)),
+                (0, [])
+            ])
+            : CreateTextPlaybackEmf(
+            [
+                (EmfPlusRecordType.EmfSetPixelV, EmfSetPixel(new Point(1, 1), Color.Red)),
+                (EmfPlusRecordType.EmfSetDIBitsToDevice,
+                    EmfSetDibitsToDevice(
+                        dib,
+                        new Rectangle(0, 0, 2, 2),
+                        new Point(8, 8),
+                        0,
+                        1))
+            ]);
+
+        AssertDibPlaybackRollsBack(fixture);
+    }
+
+    [Fact]
+    public void EncodedDibPlaybackHasBoundedWarmedAllocation()
+    {
+        TestDib dib = CreateEncodedDib(
+            2,
+            2,
+            5,
+            [Color.Red, Color.Lime, Color.Blue, Color.White]);
+        var records = new List<(ushort Function, byte[] Payload)>();
+        for (int index = 0; index < 64; index++)
+        {
+            records.Add((
+                0x0F43,
+                WmfStretchDib(
+                    dib,
+                    new Rectangle(0, 0, 2, 2),
+                    new Rectangle((index % 8) * 8, (index / 8) * 8, 8, 8))));
+        }
+        records.Add((0, []));
+        using var metafile = new Metafile(new MemoryStream(
+            CreatePlaybackWmf(records),
+            writable: false));
+        var context = new DrawingContext();
+        using Graphics graphics = Graphics.FromProGpuDrawingContext(context);
+        for (int iteration = 0; iteration < 4; iteration++)
+        {
+            graphics.DrawImage(metafile, new Rectangle(0, 0, 64, 64));
+            context.Clear();
+        }
+
+        long before = GC.GetAllocatedBytesForCurrentThread();
+        for (int iteration = 0; iteration < 8; iteration++)
+        {
+            graphics.DrawImage(metafile, new Rectangle(0, 0, 64, 64));
+            context.Clear();
+        }
+        long allocatedPerPlayback =
+            (GC.GetAllocatedBytesForCurrentThread() - before) / 8;
+
+        Assert.InRange(allocatedPerPlayback, 64 * 1024, 32 * 1024 * 1024);
+    }
+
+    [Fact]
     public void WmfMalformedAndUnsupportedDibRecordsRollBackEarlierCommands()
     {
         TestDib valid = CreateRgbDib(1, -1, 24, [0, 0, 255, 0]);
@@ -4555,8 +4787,8 @@ public sealed class MetafileParserTests
 
     private static byte[] CreatePlaybackWmf(List<(ushort Function, byte[] Payload)> records)
     {
-        int maximumRecordWords = records.Max(record => (record.Payload.Length + 6) / 2);
-        int declaredWords = 9 + records.Sum(record => (record.Payload.Length + 6) / 2);
+        int maximumRecordWords = records.Max(record => (record.Payload.Length + 7) / 2);
+        int declaredWords = 9 + records.Sum(record => (record.Payload.Length + 7) / 2);
         byte[] bytes = new byte[checked(22 + declaredWords * 2)];
         WriteUInt32(bytes, 0, 0x9AC6_CDD7);
         WriteInt16(bytes, 6, 0);
@@ -4582,10 +4814,10 @@ public sealed class MetafileParserTests
         int cursor = 40;
         foreach ((ushort function, byte[] payload) in records)
         {
-            WriteUInt32(bytes, cursor, (uint)((payload.Length + 6) / 2));
+            WriteUInt32(bytes, cursor, (uint)((payload.Length + 7) / 2));
             WriteUInt16(bytes, cursor + 4, function);
             payload.CopyTo(bytes, cursor + 6);
-            cursor += payload.Length + 6;
+            cursor += checked((payload.Length + 7) & ~1);
         }
         return bytes;
     }
@@ -5427,6 +5659,64 @@ public sealed class MetafileParserTests
     {
         byte[] info = dib.Info.ToArray();
         WriteUInt32(info, 20, imageSize);
+        return new TestDib(info, dib.Bits);
+    }
+
+    private static TestDib CreateEncodedDib(
+        int width,
+        int height,
+        uint compression,
+        Color[] pixels,
+        bool forceOddSize = false)
+    {
+        if (pixels.Length != checked(width * height) || compression is not 4 and not 5)
+        {
+            throw new ArgumentException("The encoded DIB fixture is invalid.", nameof(pixels));
+        }
+
+        using var source = new Bitmap(width, height);
+        for (int y = 0; y < height; y++)
+        {
+            for (int x = 0; x < width; x++)
+            {
+                source.SetPixel(x, y, pixels[y * width + x]);
+            }
+        }
+        using var stream = new MemoryStream();
+        source.Save(stream, compression == 4 ? ImageFormat.Jpeg : ImageFormat.Png);
+        byte[] bits = stream.ToArray();
+        if (forceOddSize && (bits.Length & 1) == 0)
+        {
+            Array.Resize(ref bits, bits.Length + 1);
+        }
+
+        byte[] info = new byte[40];
+        WriteUInt32(info, 0, 40);
+        WriteInt32(info, 4, width);
+        WriteInt32(info, 8, height);
+        WriteUInt16(info, 12, 1);
+        WriteUInt16(info, 14, 0);
+        WriteUInt32(info, 16, compression);
+        WriteUInt32(info, 20, checked((uint)bits.Length));
+        return new TestDib(info, bits);
+    }
+
+    private static TestDib WithEncodedDibHeader(
+        in TestDib dib,
+        int? width = null,
+        int? height = null,
+        ushort? bitCount = null,
+        uint? imageSize = null,
+        uint? colorsUsed = null,
+        uint? compression = null)
+    {
+        byte[] info = dib.Info.ToArray();
+        if (width is int declaredWidth) WriteInt32(info, 4, declaredWidth);
+        if (height is int declaredHeight) WriteInt32(info, 8, declaredHeight);
+        if (bitCount is ushort declaredBitCount) WriteUInt16(info, 14, declaredBitCount);
+        if (compression is uint declaredCompression) WriteUInt32(info, 16, declaredCompression);
+        if (imageSize is uint declaredSize) WriteUInt32(info, 20, declaredSize);
+        if (colorsUsed is uint declaredColors) WriteUInt32(info, 32, declaredColors);
         return new TestDib(info, dib.Bits);
     }
 

@@ -47,6 +47,7 @@ public class MetafileBenchmarks
     private Metafile _wmfDibPlaybackMetafile = null!;
     private Metafile _bitFieldDibPlaybackMetafile = null!;
     private Metafile _rleDibPlaybackMetafile = null!;
+    private Metafile _encodedDibPlaybackMetafile = null!;
     private Metafile _wmfTextPlaybackMetafile = null!;
     private Metafile _wmfSpacedRotatedTextPlaybackMetafile = null!;
     private Metafile _wmfJustifiedRotatedTextPlaybackMetafile = null!;
@@ -135,6 +136,8 @@ public class MetafileBenchmarks
             new MemoryStream(CreatePlaybackWmfDibImages(256, bitFields: true), writable: false));
         _rleDibPlaybackMetafile = new Metafile(
             new MemoryStream(CreatePlaybackWmfRleImages(256), writable: false));
+        _encodedDibPlaybackMetafile = new Metafile(
+            new MemoryStream(CreatePlaybackWmfEncodedImages(256), writable: false));
         _wmfTextPlaybackMetafile = new Metafile(
             new MemoryStream(CreatePlaybackWmfText(256), writable: false));
         _wmfSpacedRotatedTextPlaybackMetafile = new Metafile(
@@ -190,6 +193,7 @@ public class MetafileBenchmarks
         _wmfDibPlaybackMetafile.Dispose();
         _bitFieldDibPlaybackMetafile.Dispose();
         _rleDibPlaybackMetafile.Dispose();
+        _encodedDibPlaybackMetafile.Dispose();
         _wmfTextPlaybackMetafile.Dispose();
         _wmfSpacedRotatedTextPlaybackMetafile.Dispose();
         _wmfJustifiedRotatedTextPlaybackMetafile.Dispose();
@@ -328,6 +332,18 @@ public class MetafileBenchmarks
         _playbackContext.Clear();
         _playbackGraphics.DrawImage(
             _rleDibPlaybackMetafile,
+            new Rectangle(0, 0, 640, 480));
+        int commandCount = _playbackContext.Commands.Count;
+        _playbackContext.Clear();
+        return commandCount;
+    }
+
+    [Benchmark]
+    public int Playback256EncodedDibImagesToRetainedCommands()
+    {
+        _playbackContext.Clear();
+        _playbackGraphics.DrawImage(
+            _encodedDibPlaybackMetafile,
             new Rectangle(0, 0, 640, 480));
         int commandCount = _playbackContext.Commands.Count;
         _playbackContext.Clear();
@@ -1550,6 +1566,73 @@ public class MetafileBenchmarks
             bytes[bits + 5] = 2;
             bytes[bits + 6] = 0;
             bytes[bits + 7] = 1;
+            cursor += recordBytes;
+        }
+
+        WriteUInt32(bytes, cursor, 3);
+        return bytes;
+    }
+
+    private static byte[] CreatePlaybackWmfEncodedImages(int recordCount)
+    {
+        byte[] encodedImage;
+        using (var source = new Bitmap(2, 2))
+        {
+            source.SetPixel(0, 0, Color.Red);
+            source.SetPixel(1, 0, Color.Lime);
+            source.SetPixel(0, 1, Color.Blue);
+            source.SetPixel(1, 1, Color.White);
+            using var stream = new MemoryStream();
+            source.Save(stream, ImageFormat.Png);
+            encodedImage = stream.ToArray();
+        }
+
+        int recordBytes = checked((6 + 22 + 40 + encodedImage.Length + 1) & ~1);
+        int recordWords = recordBytes / 2;
+        int declaredWords = checked(9 + recordCount * recordWords + 3);
+        byte[] bytes = new byte[checked(22 + declaredWords * 2)];
+        WriteUInt32(bytes, 0, 0x9AC6_CDD7);
+        WriteInt16(bytes, 10, 640);
+        WriteInt16(bytes, 12, 480);
+        WriteUInt16(bytes, 14, 96);
+        ushort checksum = 0;
+        for (int offset = 0; offset < 20; offset += 2)
+        {
+            checksum ^= BinaryPrimitives.ReadUInt16LittleEndian(bytes.AsSpan(offset, 2));
+        }
+        WriteUInt16(bytes, 20, checksum);
+
+        WriteUInt16(bytes, 22, 1);
+        WriteUInt16(bytes, 24, 9);
+        WriteUInt16(bytes, 26, 0x0300);
+        WriteUInt32(bytes, 28, (uint)declaredWords);
+        WriteUInt16(bytes, 32, 0);
+        WriteUInt32(bytes, 34, checked((uint)recordWords));
+
+        int cursor = 40;
+        for (int index = 0; index < recordCount; index++)
+        {
+            short x = checked((short)((index % 16) * 40));
+            short y = checked((short)((index / 16) * 30));
+            WriteUInt32(bytes, cursor, checked((uint)recordWords));
+            WriteUInt16(bytes, cursor + 4, 0x0F43);
+            WriteUInt32(bytes, cursor + 6, 0x00CC_0020);
+            WriteInt16(bytes, cursor + 12, 2);
+            WriteInt16(bytes, cursor + 14, 2);
+            WriteInt16(bytes, cursor + 20, 22);
+            WriteInt16(bytes, cursor + 22, 32);
+            WriteInt16(bytes, cursor + 24, y);
+            WriteInt16(bytes, cursor + 26, x);
+
+            int info = cursor + 28;
+            WriteUInt32(bytes, info, 40);
+            WriteInt32(bytes, info + 4, 2);
+            WriteInt32(bytes, info + 8, 2);
+            WriteUInt16(bytes, info + 12, 1);
+            WriteUInt16(bytes, info + 14, 0);
+            WriteUInt32(bytes, info + 16, 5);
+            WriteUInt32(bytes, info + 20, checked((uint)encodedImage.Length));
+            encodedImage.CopyTo(bytes, info + 40);
             cursor += recordBytes;
         }
 
