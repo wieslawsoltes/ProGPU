@@ -24,6 +24,19 @@ if (polylineAuthoringSegmentCount != 0)
     return;
 }
 
+int arcAuthoringSolveCount = ReadNonNegativeInt(
+    "--arc-authoring-solves",
+    0);
+if (arcAuthoringSolveCount != 0)
+{
+    RunArcAuthoringBenchmark(
+        arcAuthoringSolveCount,
+        ReadNonNegativeInt("--warmup", 3),
+        ReadPositiveInt("--iterations", 24),
+        ReadString("--output-json"));
+    return;
+}
+
 int viewportCount = ReadNonNegativeInt("--viewports", 0);
 if (viewportCount != 0)
 {
@@ -819,6 +832,105 @@ CadPolylineAuthoringSnapshot CreateClockwiseMajorRadiusPolylineAuthoringSnapshot
         throw new InvalidOperationException(snapshotError);
     }
     return snapshot!;
+}
+
+void RunArcAuthoringBenchmark(
+    int solveCount,
+    int warmups,
+    int iterations,
+    string? reportPath)
+{
+    for (int i = 0; i < warmups; i++)
+    {
+        _ = CreatePointFinalArcChecksum(
+            solveCount,
+            clockwiseOverride: false);
+        _ = CreatePointFinalArcChecksum(
+            solveCount,
+            clockwiseOverride: true);
+    }
+
+    Measurement defaultRoutes = Measure(
+        "arc-authoring-point-finals-default",
+        iterations,
+        () => CreatePointFinalArcChecksum(
+            solveCount,
+            clockwiseOverride: false));
+    Measurement clockwiseRoutes = Measure(
+        "arc-authoring-point-finals-clockwise",
+        iterations,
+        () => CreatePointFinalArcChecksum(
+            solveCount,
+            clockwiseOverride: true));
+    var report = new CadArcAuthoringBenchmarkReport(
+        DateTimeOffset.UtcNow,
+        Environment.OSVersion.ToString(),
+        System.Runtime.InteropServices.RuntimeInformation.FrameworkDescription,
+        solveCount,
+        warmups,
+        iterations,
+        defaultRoutes,
+        clockwiseRoutes);
+    var options = new JsonSerializerOptions { WriteIndented = true };
+    string reportJson = JsonSerializer.Serialize(report, options);
+    Console.WriteLine(reportJson);
+    if (reportPath is not null)
+    {
+        File.WriteAllText(reportPath, reportJson);
+    }
+}
+
+double CreatePointFinalArcChecksum(
+    int solveCount,
+    bool clockwiseOverride)
+{
+    double checksum = 0.0;
+    for (int i = 0; i < solveCount; i++)
+    {
+        double offset = i * 20.0;
+        CadPoint3D center = new(offset, 10.0, 0.0);
+        CadPoint3D start = new(offset, 0.0, 0.0);
+        CadPoint3D end = new(offset + 10.0, 10.0, 0.0);
+        CadPoint3D finalPoint;
+        CadArcAuthoringMode mode;
+        CadPoint3D first;
+        CadPoint3D second;
+        switch (i % 3)
+        {
+            case 0:
+                mode = CadArcAuthoringMode.CenterStartEnd;
+                first = center;
+                second = start;
+                finalPoint = end;
+                break;
+            case 1:
+                mode = CadArcAuthoringMode.StartCenterEnd;
+                first = start;
+                second = center;
+                finalPoint = end;
+                break;
+            default:
+                mode = CadArcAuthoringMode.StartEndDirection;
+                first = start;
+                second = end;
+                finalPoint = new CadPoint3D(offset + 10.0, 0.0, 0.0);
+                break;
+        }
+
+        var authoring = new CadArcAuthoringSession(mode);
+        if (!authoring.TryAcceptIntermediatePoint(first, out string? error) ||
+            !authoring.TryAcceptIntermediatePoint(second, out error) ||
+            !authoring.TryCreateSnapshot(
+                finalPoint,
+                clockwiseOverride,
+                out CadArcAuthoringSnapshot snapshot,
+                out error))
+        {
+            throw new InvalidOperationException(error);
+        }
+        checksum += snapshot.Center.X + snapshot.Radius + snapshot.SweepAngle;
+    }
+    return checksum;
 }
 
 void RunViewportBenchmark(
@@ -2406,6 +2518,16 @@ internal sealed record CadPolylineAuthoringBenchmarkReport(
     Measurement ExplicitAngleArcMilliseconds,
     Measurement NestedCenterAngleArcMilliseconds,
     Measurement ClockwiseMajorRadiusArcMilliseconds);
+
+internal sealed record CadArcAuthoringBenchmarkReport(
+    DateTimeOffset CapturedAt,
+    string OperatingSystem,
+    string Runtime,
+    int SolveCount,
+    int WarmupCount,
+    int IterationCount,
+    Measurement DefaultPointFinalMilliseconds,
+    Measurement ClockwisePointFinalMilliseconds);
 
 internal sealed record CadBenchmarkReport(
     DateTimeOffset CapturedAt,

@@ -148,13 +148,20 @@ families using endpoint, included-angle, chord-length, tangent-direction, or
 radius input. Signed angle/chord/radius values preserve clockwise and
 minor/major semantics, current ANGDIR is honored, and large-WCS 3P/direction
 solves avoid origin-relative precision loss. The prompt retains exactly two
-points; point-final feedback records one analytic `ArcSegment` without
+points. Holding Ctrl transiently selects the clockwise route for point-final
+Center/Start/End, Start/Center/End, and Start/End/Direction, refreshes the live
+preview, and applies identically to pointer and typed point acceptance without
+altering three-point or signed-scalar behavior. Point-final feedback records
+one analytic `ArcSegment` without
 tessellation or model compilation. One successful final solve publishes one
 Axis-Z `Arc` and one history generation, while locked layer, invalid CELTSCALE,
 and nonzero THICKNESS failures retain the prompt. Tangent Continue remains
 deferred to the global command-chaining contract rather than approximated. The
 existing managed/native analytic ARC lowering is unchanged, so no shader, ABI,
 resource, cache, upload, or device-loss fork is introduced.
+
+The checked-in 65,536-solve Release ARC authoring lane records matched default
+and Ctrl-clockwise p50/p95/p99 latency for all three eligible constructions.
 
 Shared desktop/browser ProGPU.CAD now also authors exact plan-view full
 ELLIPSEs and elliptical ARCs through axis-endpoint or Center construction,

@@ -866,6 +866,13 @@ public sealed class CadSampleCanvas : FrameworkElement
 
     public CadPoint3D? PendingArcCurrentPoint => _arcAuthoring?.CurrentPoint;
 
+    public bool CanApplyArcClockwiseOverride =>
+        _arcAuthoring?.CanApplyClockwiseOverride == true;
+
+    public bool IsArcClockwiseOverrideActive =>
+        CanApplyArcClockwiseOverride &&
+        InputSystem.Current.IsControlPressed;
+
     /// <summary>Whether one bounded plan-view ELLIPSE is active.</summary>
     public bool IsEllipseAuthoring => _ellipseAuthoring is not null;
 
@@ -1970,6 +1977,7 @@ public sealed class CadSampleCanvas : FrameworkElement
         }
         if (!authoring.TryCreateSnapshot(
                 finalPoint,
+                IsArcClockwiseOverrideActive,
                 out CadArcAuthoringSnapshot snapshot,
                 out _))
         {
@@ -4879,7 +4887,9 @@ public sealed class CadSampleCanvas : FrameworkElement
             }
         }
 
-        if (!authoring.CanAcceptPoint(point))
+        if (!authoring.CanAcceptPoint(
+                point,
+                IsArcClockwiseOverrideActive))
         {
             return false;
         }
@@ -5014,6 +5024,19 @@ public sealed class CadSampleCanvas : FrameworkElement
                 currentPoint));
         Invalidate();
         return true;
+    }
+
+    public void RefreshArcClockwiseOverride()
+    {
+        if (!CanApplyArcClockwiseOverride)
+        {
+            return;
+        }
+        if (_hasPointTransformPointerPosition)
+        {
+            UpdatePointTransformPointer(_pointTransformPointerPosition);
+        }
+        Invalidate();
     }
 
     private bool TryResolveArcScalarSnapshot(
@@ -9067,6 +9090,7 @@ public sealed class CadSampleCanvas : FrameworkElement
 
         if (!authoring.TryCreateSnapshot(
                 point,
+                IsArcClockwiseOverrideActive,
                 out CadArcAuthoringSnapshot snapshot,
                 out errorMessage))
         {

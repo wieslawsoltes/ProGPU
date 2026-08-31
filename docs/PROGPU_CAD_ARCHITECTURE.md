@@ -1141,6 +1141,11 @@ clockwise construction is canonicalized to the same geometric interval without
 a negative-sweep backend fork. Signed degree/chord/radius prompts honor ANGDIR
 and documented minor/major selection, while point prompts reuse the complete
 object-snap/grid/Ortho/polar/PolarSnap/direct-distance pipeline. Point-final
+Center/Start/End, Start/Center/End, and point-defined Start/End/Direction also
+accept one explicit transient Ctrl clockwise flag. It selects the same solved
+circle's clockwise route, leaves three-point and scalar contracts unchanged,
+and refreshes typed or pointer preview/acceptance without embedding keyboard
+state in the solver. Point-final
 feedback is one analytic `ArcSegment`; no model compile or upload occurs before
 commit. One successful final solve captures current entity properties and adds
 one Axis-Z ACadSharp `Arc`; preflight failure retains the prompt. Tangent

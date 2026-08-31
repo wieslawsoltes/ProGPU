@@ -41,7 +41,8 @@ public model. No ACadSharp implementation text is included in ProGPU files.
   defines the point/center/end/angle/chord/direction/radius families, default
   counterclockwise construction, negative-angle clockwise construction,
   positive-chord minor versus negative-chord major selection, positive-radius
-  minor versus negative-radius major selection, and tangent Continue.
+  minor versus negative-radius major selection, transient Ctrl-drag clockwise
+  construction with counterclockwise restored on release, and tangent Continue.
 - [Autodesk ARC DXF records](https://help.autodesk.com/cloudhelp/2024/ENU/AutoCAD-DXF/files/GUID-0B14D8F1-0EBA-44BF-9108-57D8CE614BC8.htm)
   define OCS center groups 10/20/30, radius group 40, optional thickness group
   39, start/end angle groups 50/51, and extrusion groups 210/220/230.
@@ -103,6 +104,16 @@ included and direction angles are entered in degrees and converted at the host
 boundary using current ANGDIR. Direction angles use the captured current-UCS
 plus ANGBASE basis. Host-neutral solver angles are radians.
 
+After the two fixed points of Center/Start/End, Start/Center/End, or point-
+defined Start/End/Direction, the session exposes an explicit transient
+clockwise boolean. Center constructions retain the same center and radius and
+exchange their geometric endpoints to store the clockwise complement as one
+positive counterclockwise DXF interval. Direction retains an already-clockwise
+solve; otherwise it selects the same circle's clockwise route. Three-point ARC
+ignores the override because its second circumference point uniquely selects
+the route. Scalar angle, chord, direction-angle, and radius inputs retain their
+signed contracts and do not query keyboard state.
+
 All constructions are normalized constant-work formulas:
 
 - 3P translates the start to the origin, scales the two remaining vectors by
@@ -140,7 +151,10 @@ absolute/relative Cartesian or polar coordinates bypass pointer constraints.
 Bare positive values remain shared direct-distance input during point prompts;
 at an ARC scalar prompt the same bounded grammar is interpreted according to
 that mode, including negative major-arc values. ARC does not infer a previous
-segment for relative polar tracking.
+segment for relative polar tracking. The shared host passes current Ctrl state
+only through the eligible point-final seam, refreshes an existing pointer
+preview on key transitions, and applies the same route to pointer clicks,
+typed coordinates, and point-prompt direct distance.
 
 One successful final solve adds one ACadSharp `Arc` as one history operation and
 one content generation. Undo removes that same entity; Redo restores the same
@@ -159,10 +173,17 @@ have since changed.
 - apply, Undo, and Redo: O(1), one entity and one history record;
 - completed replay: the unchanged existing analytic managed/native ARC path.
 
-This is a capability addition, not a rendering-speed claim. Dense authoring
-p50/p95/p99, visual goldens, arbitrary UCS/camera construction, expressions and
-units, temporary overrides, command chaining/Continue, and Ctrl-drag clockwise
-point overrides remain future gates.
+The checked-in Release benchmark
+`artifacts/benchmarks/cad-arc-authoring-clockwise.json` measures batches of
+65,536 mixed Center/Start/End, Start/Center/End, and Start/End/Direction
+sessions over five warmups and forty iterations on macOS arm64/.NET 10.
+Default point-final routes are p50 3.0400 ms, p95 3.4053 ms, and p99 3.6508 ms;
+Ctrl-clockwise routes are p50 3.1334 ms, p95 3.3765 ms, and p99 3.6994 ms.
+The complete session lifecycle allocates about 6.82 MB per batch, including
+65,536 session objects and their fixed two-point arrays. This is bounded solver
+throughput evidence, not a rendering-speed claim. Visual goldens, arbitrary
+UCS/camera construction, expressions and units, other temporary overrides,
+and command chaining/Continue remain future gates.
 
 ## Verification
 
@@ -171,19 +192,15 @@ positive/negative minor/major rules, normalized large-WCS 3P and direction
 solves, bounded scalar parsing, ANGDIR, exact analytic preview, shared point
 constraints and direct distance, nonzero elevation, invalid geometry,
 recoverable final/preflight failures, property capture, identity through
-Undo/Redo, all shared selector entries and Escape, and DXF/DWG round trips. The
+Undo/Redo, all shared selector entries and Escape, eligible and ineligible Ctrl
+state, default-overload compatibility, same-circle endpoint exchange, already-
+clockwise Direction retention, live preview refresh, pointer and typed point-
+final acceptance, and DXF/DWG round trips. The
 publication gates passed on 2026-08-31:
 
-- focused ARC authoring tests: 48/48;
-- all CAD authoring tests: 95/95;
-- complete .NET 10 CAD suite: 1,157/1,157;
+- focused ARC authoring tests: 54/54 in Debug and Release;
+- complete .NET 10 CAD suite: 1,391/1,391 in Debug and Release;
 - Release desktop build: 0 warnings, 0 errors;
 - `ProGPU.CAD` and `ACadSharp.ProGPU` packages built at
   `0.1.0-preview.62`, and the isolated package consumer restored, built with
   0 warnings and 0 errors, and created an AC1032 document.
-
-An exploratory `0.1.0-preview.63` package build also succeeded, but its
-isolated restore correctly remained unavailable because the coordinated
-`ProGPU.Backend`, `ProGPU.Scene`, `ProGPU.Text`, `ProGPU.Vector`, and
-`ProGPU.SkiaSharp` `preview.63` dependency set has not been published. No
-package-contract defect was inferred from that expected version mismatch.

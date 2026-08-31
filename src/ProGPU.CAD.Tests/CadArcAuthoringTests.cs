@@ -75,6 +75,111 @@ public sealed class CadArcAuthoringTests
         Assert.Equal(2, authoring.PointCount);
     }
 
+    [Theory]
+    [InlineData(CadArcAuthoringMode.CenterStartEnd)]
+    [InlineData(CadArcAuthoringMode.StartCenterEnd)]
+    [InlineData(CadArcAuthoringMode.StartEndDirection)]
+    public void ClockwiseOverrideSelectsComplementOnSameCircle(
+        CadArcAuthoringMode mode)
+    {
+        CadPoint3D center = new(0, 10, 4);
+        CadPoint3D start = new(0, 0, 4);
+        CadPoint3D end = new(10, 10, 4);
+        CadPoint3D direction = new(10, 0, 4);
+        var authoring = new CadArcAuthoringSession(mode);
+        Assert.False(authoring.CanApplyClockwiseOverride);
+        if (mode == CadArcAuthoringMode.CenterStartEnd)
+        {
+            Assert.True(authoring.TryAcceptIntermediatePoint(center, out _));
+            Assert.True(authoring.TryAcceptIntermediatePoint(start, out _));
+        }
+        else
+        {
+            Assert.True(authoring.TryAcceptIntermediatePoint(start, out _));
+            Assert.True(authoring.TryAcceptIntermediatePoint(
+                mode == CadArcAuthoringMode.StartCenterEnd ? center : end,
+                out _));
+        }
+        Assert.True(authoring.CanApplyClockwiseOverride);
+        CadPoint3D finalPoint = mode == CadArcAuthoringMode.StartEndDirection
+            ? direction
+            : end;
+
+        Assert.True(authoring.TryCreateSnapshot(
+            finalPoint,
+            out CadArcAuthoringSnapshot compatibleDefault,
+            out _));
+        Assert.True(authoring.TryCreateSnapshot(
+            finalPoint,
+            clockwiseOverride: false,
+            out CadArcAuthoringSnapshot explicitDefault,
+            out _));
+        Assert.True(authoring.TryCreateSnapshot(
+            finalPoint,
+            clockwiseOverride: true,
+            out CadArcAuthoringSnapshot clockwise,
+            out _));
+
+        Assert.Equal(compatibleDefault, explicitDefault);
+        AssertPoint(explicitDefault.Center, clockwise.Center);
+        AssertClose(explicitDefault.Radius, clockwise.Radius);
+        AssertPoint(explicitDefault.StartPoint, clockwise.EndPoint);
+        AssertPoint(explicitDefault.EndPoint, clockwise.StartPoint);
+        AssertClose(Math.PI / 2.0, explicitDefault.SweepAngle);
+        AssertClose(Math.PI * 3.0 / 2.0, clockwise.SweepAngle);
+    }
+
+    [Fact]
+    public void ClockwiseOverrideDoesNotReplaceThreePointCircumferenceRoute()
+    {
+        var authoring = new CadArcAuthoringSession(
+            CadArcAuthoringMode.ThreePoint);
+        Assert.True(authoring.TryAcceptIntermediatePoint(
+            new CadPoint3D(1, 0, 3),
+            out _));
+        Assert.True(authoring.TryAcceptIntermediatePoint(
+            new CadPoint3D(0, 1, 3),
+            out _));
+        Assert.False(authoring.CanApplyClockwiseOverride);
+
+        Assert.True(authoring.TryCreateSnapshot(
+            new CadPoint3D(-1, 0, 3),
+            clockwiseOverride: false,
+            out CadArcAuthoringSnapshot defaultSnapshot,
+            out _));
+        Assert.True(authoring.TryCreateSnapshot(
+            new CadPoint3D(-1, 0, 3),
+            clockwiseOverride: true,
+            out CadArcAuthoringSnapshot overrideSnapshot,
+            out _));
+
+        Assert.Equal(defaultSnapshot, overrideSnapshot);
+    }
+
+    [Fact]
+    public void ClockwiseOverrideRetainsAlreadyClockwiseDirectionSolve()
+    {
+        var authoring = new CadArcAuthoringSession(
+            CadArcAuthoringMode.StartEndDirection);
+        Assert.True(authoring.TryAcceptIntermediatePoint(CadPoint3D.Zero, out _));
+        Assert.True(authoring.TryAcceptIntermediatePoint(
+            new CadPoint3D(10, -10, 0),
+            out _));
+
+        Assert.True(authoring.TryCreateSnapshot(
+            new CadPoint3D(10, 0, 0),
+            clockwiseOverride: false,
+            out CadArcAuthoringSnapshot defaultSnapshot,
+            out _));
+        Assert.True(authoring.TryCreateSnapshot(
+            new CadPoint3D(10, 0, 0),
+            clockwiseOverride: true,
+            out CadArcAuthoringSnapshot overrideSnapshot,
+            out _));
+
+        Assert.Equal(defaultSnapshot, overrideSnapshot);
+    }
+
     [Fact]
     public void ThreePointClockwiseConstructionCanonicalizesSameGeometricInterval()
     {

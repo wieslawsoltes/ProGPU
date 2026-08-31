@@ -222,6 +222,16 @@ public sealed class CadArcAuthoringSession
         CadArcAuthoringMode.StartCenterEnd or
         CadArcAuthoringMode.StartEndDirection;
 
+    /// <summary>
+    /// Whether the active point-final construction has an alternate clockwise
+    /// route selected by Autodesk's transient Ctrl override.
+    /// </summary>
+    public bool CanApplyClockwiseOverride =>
+        _pointCount == 2 &&
+        Mode is (CadArcAuthoringMode.CenterStartEnd or
+            CadArcAuthoringMode.StartCenterEnd or
+            CadArcAuthoringMode.StartEndDirection);
+
     public CadArcAuthoringSession(CadArcAuthoringMode mode)
     {
         if (!Enum.IsDefined(mode))
@@ -234,12 +244,23 @@ public sealed class CadArcAuthoringSession
 
     public bool CanAcceptPoint(CadPoint3D point)
     {
+        return CanAcceptPoint(point, clockwiseOverride: false);
+    }
+
+    public bool CanAcceptPoint(
+        CadPoint3D point,
+        bool clockwiseOverride)
+    {
         if (_pointCount < 2)
         {
             return ValidateNextPoint(point, out _);
         }
 
-        return TryCreateSnapshot(point, out _, out _);
+        return TryCreateSnapshot(
+            point,
+            clockwiseOverride,
+            out _,
+            out _);
     }
 
     /// <summary>Accepts either of the two non-final construction points.</summary>
@@ -266,6 +287,24 @@ public sealed class CadArcAuthoringSession
     /// <summary>Resolves a point-defined final prompt without mutating accepted state.</summary>
     public bool TryCreateSnapshot(
         CadPoint3D finalPoint,
+        out CadArcAuthoringSnapshot snapshot,
+        out string? errorMessage)
+    {
+        return TryCreateSnapshot(
+            finalPoint,
+            clockwiseOverride: false,
+            out snapshot,
+            out errorMessage);
+    }
+
+    /// <summary>
+    /// Resolves a point-defined final prompt with an explicit transient
+    /// clockwise override. Three-point construction ignores the override
+    /// because its second circumference point already fixes the route.
+    /// </summary>
+    public bool TryCreateSnapshot(
+        CadPoint3D finalPoint,
+        bool clockwiseOverride,
         out CadArcAuthoringSnapshot snapshot,
         out string? errorMessage)
     {
@@ -300,18 +339,21 @@ public sealed class CadArcAuthoringSession
                     _points[0],
                     _points[1],
                     finalPoint,
+                    clockwiseOverride,
                     out snapshot),
             CadArcAuthoringMode.StartCenterEnd =>
                 TryCreateCenterStartEnd(
                     _points[1],
                     _points[0],
                     finalPoint,
+                    clockwiseOverride,
                     out snapshot),
             CadArcAuthoringMode.StartEndDirection =>
                 TryCreateStartEndDirection(
                     _points[0],
                     _points[1],
                     finalPoint,
+                    clockwiseOverride,
                     out snapshot),
             _ => false,
         };
@@ -575,6 +617,7 @@ public sealed class CadArcAuthoringSession
         CadPoint3D center,
         CadPoint3D start,
         CadPoint3D endRayPoint,
+        bool clockwiseOverride,
         out CadArcAuthoringSnapshot snapshot)
     {
         snapshot = default;
@@ -585,12 +628,21 @@ public sealed class CadArcAuthoringSession
             return false;
         }
 
-        return TryCreateSnapshot(
-            center,
-            radius,
-            Angle(center, start),
-            Angle(center, endRayPoint),
-            out snapshot);
+        double startAngle = Angle(center, start);
+        double endAngle = Angle(center, endRayPoint);
+        return clockwiseOverride
+            ? TryCreateSnapshot(
+                center,
+                radius,
+                endAngle,
+                startAngle,
+                out snapshot)
+            : TryCreateSnapshot(
+                center,
+                radius,
+                startAngle,
+                endAngle,
+                out snapshot);
     }
 
     private static bool TryCreateCenterStartSweep(
@@ -723,6 +775,7 @@ public sealed class CadArcAuthoringSession
         CadPoint3D start,
         CadPoint3D end,
         CadPoint3D directionPoint,
+        bool clockwiseOverride,
         out CadArcAuthoringSnapshot snapshot)
     {
         snapshot = default;
@@ -730,6 +783,7 @@ public sealed class CadArcAuthoringSession
             start,
             end,
             directionPoint - start,
+            clockwiseOverride,
             out snapshot);
     }
 
@@ -737,6 +791,21 @@ public sealed class CadArcAuthoringSession
         CadPoint3D start,
         CadPoint3D end,
         CadPoint3D direction,
+        out CadArcAuthoringSnapshot snapshot)
+    {
+        return TryCreateStartEndDirectionVector(
+            start,
+            end,
+            direction,
+            clockwiseOverride: false,
+            out snapshot);
+    }
+
+    private static bool TryCreateStartEndDirectionVector(
+        CadPoint3D start,
+        CadPoint3D end,
+        CadPoint3D direction,
+        bool clockwiseOverride,
         out CadArcAuthoringSnapshot snapshot)
     {
         snapshot = default;
@@ -780,7 +849,9 @@ public sealed class CadArcAuthoringSession
         double radius = Math.Abs(centerOffset);
         double startAngle = Angle(center, start);
         double endAngle = Angle(center, end);
-        return centerOffset > 0.0
+        bool useCounterclockwiseRoute =
+            centerOffset > 0.0 && !clockwiseOverride;
+        return useCounterclockwiseRoute
             ? TryCreateSnapshot(
                 center,
                 radius,

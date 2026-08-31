@@ -354,6 +354,81 @@ public sealed class CadArcAuthoringInteractionTests
     }
 
     [Fact]
+    public void CtrlRefreshesPreviewAndAppliesToPointerAndTypedPointFinals()
+    {
+        bool previousControl = InputSystem.Current.IsControlPressed;
+        var document = new CadDocument();
+        var session = new CadDocumentSession(document);
+        var canvas = new CadSampleCanvas();
+        try
+        {
+            canvas.Load(session);
+            canvas.Arrange(new Rect(0, 0, 800, 600));
+            canvas.ObjectSnapModes = CadObjectSnapModes.None;
+            Assert.True(canvas.BeginArcAuthoring(
+                CadArcAuthoringMode.CenterStartEnd));
+            Assert.True(canvas.TryAcceptArcAuthoringInput("0,0", out _));
+            Assert.True(canvas.TryAcceptArcAuthoringInput("10,0", out _));
+            Assert.True(canvas.CanApplyArcClockwiseOverride);
+            Vector2 endpoint = canvas.CurrentViewport.WorldToScreen(
+                new CadPoint3D(0, 10, 0));
+            canvas.OnPointerMoved(new PointerRoutedEventArgs
+            {
+                Position = endpoint,
+            });
+
+            var defaultDrawing = new DrawingContext();
+            canvas.OnRender(defaultDrawing);
+            PathFigure defaultFigure = Assert.Single(Assert.Single(
+                defaultDrawing.Commands,
+                command => command.Type == RenderCommandType.DrawPath)
+                .Path!.Figures);
+            ArcSegment defaultPreview = Assert.IsType<ArcSegment>(
+                Assert.Single(defaultFigure.Segments));
+            Assert.False(defaultPreview.IsLargeArc);
+
+            InputSystem.Current.IsControlPressed = true;
+            canvas.RefreshArcClockwiseOverride();
+            Assert.True(canvas.IsArcClockwiseOverrideActive);
+            var clockwiseDrawing = new DrawingContext();
+            canvas.OnRender(clockwiseDrawing);
+            PathFigure clockwiseFigure = Assert.Single(Assert.Single(
+                clockwiseDrawing.Commands,
+                command => command.Type == RenderCommandType.DrawPath)
+                .Path!.Figures);
+            ArcSegment clockwisePreview = Assert.IsType<ArcSegment>(
+                Assert.Single(clockwiseFigure.Segments));
+            Assert.True(clockwisePreview.IsLargeArc);
+
+            Click(canvas, endpoint);
+            Arc pointerArc = Assert.Single(document.Entities.OfType<Arc>());
+            AssertClose(0.0, pointerArc.Center.X);
+            AssertClose(0.0, pointerArc.Center.Y);
+            AssertClose(10.0, pointerArc.Radius);
+            AssertClose(Math.PI * 3.0 / 2.0,
+                PositiveSweep(pointerArc.StartAngle, pointerArc.EndAngle));
+
+            Assert.True(canvas.BeginArcAuthoring(
+                CadArcAuthoringMode.StartEndDirection));
+            Assert.True(canvas.TryAcceptArcAuthoringInput("20,0", out _));
+            Assert.True(canvas.TryAcceptArcAuthoringInput("30,10", out _));
+            Assert.True(canvas.CanApplyArcClockwiseOverride);
+            Assert.True(canvas.TryAcceptArcAuthoringInput("30,0", out _));
+            Arc typedArc = document.Entities.OfType<Arc>().Last();
+            AssertClose(20.0, typedArc.Center.X);
+            AssertClose(10.0, typedArc.Center.Y);
+            AssertClose(10.0, typedArc.Radius);
+            AssertClose(Math.PI * 3.0 / 2.0,
+                PositiveSweep(typedArc.StartAngle, typedArc.EndAngle));
+        }
+        finally
+        {
+            InputSystem.Current.IsControlPressed = previousControl;
+            canvas.FireUnloaded();
+        }
+    }
+
+    [Fact]
     public void SignedScalarParserIsBoundedInvariantAndFinite()
     {
         Assert.True(CadArcScalarInput.TryParse("-12.5", out var scalar));
@@ -371,6 +446,19 @@ public sealed class CadArcAuthoringInteractionTests
         {
             Assert.True(canvas.TryAcceptArcAuthoringInput(input, out _));
         }
+    }
+
+    private static void Click(CadSampleCanvas canvas, Vector2 position)
+    {
+        canvas.OnPointerPressed(new PointerRoutedEventArgs
+        {
+            Position = position,
+            IsLeftButtonPressed = true,
+        });
+        canvas.OnPointerReleased(new PointerRoutedEventArgs
+        {
+            Position = position,
+        });
     }
 
     private static double PositiveSweep(double start, double end)

@@ -2842,6 +2842,7 @@ public sealed class CadSampleView : Grid
         if (e.Key is Key.ControlLeft or Key.ControlRight)
         {
             _canvas.RefreshPolylineArcClockwiseOverride();
+            _canvas.RefreshArcClockwiseOverride();
         }
         if (!e.Handled &&
             _isPrintPreview &&
@@ -3180,6 +3181,7 @@ public sealed class CadSampleView : Grid
         if (e.Key is Key.ControlLeft or Key.ControlRight)
         {
             _canvas.RefreshPolylineArcClockwiseOverride();
+            _canvas.RefreshArcClockwiseOverride();
         }
         base.OnKeyUp(e);
     }
@@ -6531,7 +6533,7 @@ public sealed class CadSampleView : Grid
                 "specify endpoint by click or coordinate",
             CadArcAuthoringMode.CenterStartEnd or
             CadArcAuthoringMode.StartCenterEnd =>
-                "specify endpoint ray by click or coordinate",
+                "specify endpoint ray by click or coordinate; hold Ctrl for clockwise",
             CadArcAuthoringMode.CenterStartAngle or
             CadArcAuthoringMode.StartCenterAngle or
             CadArcAuthoringMode.StartEndAngle =>
@@ -6540,7 +6542,7 @@ public sealed class CadSampleView : Grid
             CadArcAuthoringMode.StartCenterChord =>
                 "enter a signed chord length (positive minor, negative major)",
             CadArcAuthoringMode.StartEndDirection =>
-                "specify a tangent-direction point or enter its angle in degrees",
+                "specify a tangent-direction point (hold Ctrl for clockwise) or enter its angle in degrees",
             CadArcAuthoringMode.StartEndRadius =>
                 "enter a signed radius (positive minor, negative major)",
             _ => throw new ArgumentOutOfRangeException(nameof(mode)),
