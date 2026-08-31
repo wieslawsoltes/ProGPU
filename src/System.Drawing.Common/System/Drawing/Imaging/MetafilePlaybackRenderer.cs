@@ -30,7 +30,11 @@ internal static class MetafilePlaybackRenderer
     private const uint BiCmyk = 11;
     private const uint BiCmykRle8 = 12;
     private const uint BiCmykRle4 = 13;
+    private const uint Blackness = 0x0000_0042;
+    private const uint NotSourceCopy = 0x0033_0008;
     private const uint SrcCopy = 0x00CC_0020;
+    private const uint PatCopy = 0x00F0_0021;
+    private const uint Whiteness = 0x00FF_0062;
 
     static MetafilePlaybackRenderer() =>
         Encoding.RegisterProvider(CodePagesEncodingProvider.Instance);
@@ -790,10 +794,8 @@ internal static class MetafilePlaybackRenderer
 
         state.EnsurePathCaptureSupported(record, "StretchDIBits");
         uint usage = ReadUInt32(payload, 56);
-        if (ReadUInt32(payload, 60) != SrcCopy)
-        {
-            throw Unsupported(record, "Only the SRCCOPY raster operation is supported.");
-        }
+        uint rasterOperation = ReadUInt32(payload, 60);
+        ValidateDibRasterOperation(record, rasterOperation);
 
         ReadOnlySpan<byte> bitmapInfo = ReadEmfBuffer(
             record,
@@ -828,7 +830,8 @@ internal static class MetafilePlaybackRenderer
             ReadInt32(payload, 16),
             ReadInt32(payload, 20),
             ReadInt32(payload, 64),
-            ReadInt32(payload, 68));
+            ReadInt32(payload, 68),
+            rasterOperation);
     }
 
     private static void DrawEmfSetDibitsToDevice(
@@ -888,7 +891,8 @@ internal static class MetafilePlaybackRenderer
     {
         const int fixedPayloadSize = 16;
         RequireWmfSourceDib(record, payload, fixedPayloadSize, playbackDcPayloadSize: 18);
-        RequireSrcCopy(record, ReadUInt32(payload, 0));
+        uint rasterOperation = ReadUInt32(payload, 0);
+        ValidateDibRasterOperation(record, rasterOperation);
 
         ReadOnlySpan<byte> packedDib = payload[fixedPayloadSize..];
         DibInfo dib = ReadDibInfo(record, packedDib, DibRgbColors, state.SelectedPalette);
@@ -913,7 +917,8 @@ internal static class MetafilePlaybackRenderer
             ReadInt16(payload, 14),
             ReadInt16(payload, 12),
             width,
-            height);
+            height,
+            rasterOperation);
     }
 
     private static void DrawWmfDibStretchBlt(
@@ -923,7 +928,8 @@ internal static class MetafilePlaybackRenderer
     {
         const int fixedPayloadSize = 20;
         RequireWmfSourceDib(record, payload, fixedPayloadSize, playbackDcPayloadSize: 22);
-        RequireSrcCopy(record, ReadUInt32(payload, 0));
+        uint rasterOperation = ReadUInt32(payload, 0);
+        ValidateDibRasterOperation(record, rasterOperation);
 
         ReadOnlySpan<byte> packedDib = payload[fixedPayloadSize..];
         DibInfo dib = ReadDibInfo(record, packedDib, DibRgbColors, state.SelectedPalette);
@@ -946,7 +952,8 @@ internal static class MetafilePlaybackRenderer
             ReadInt16(payload, 18),
             ReadInt16(payload, 16),
             ReadInt16(payload, 14),
-            ReadInt16(payload, 12));
+            ReadInt16(payload, 12),
+            rasterOperation);
     }
 
     private static void DrawWmfStretchDib(
@@ -959,7 +966,8 @@ internal static class MetafilePlaybackRenderer
         {
             throw Invalid(record);
         }
-        RequireSrcCopy(record, ReadUInt32(payload, 0));
+        uint rasterOperation = ReadUInt32(payload, 0);
+        ValidateDibRasterOperation(record, rasterOperation);
         uint usage = ReadUInt16(payload, 4);
 
         ReadOnlySpan<byte> packedDib = payload[fixedPayloadSize..];
@@ -983,7 +991,8 @@ internal static class MetafilePlaybackRenderer
             ReadInt16(payload, 20),
             ReadInt16(payload, 18),
             ReadInt16(payload, 16),
-            ReadInt16(payload, 14));
+            ReadInt16(payload, 14),
+            rasterOperation);
     }
 
     private static void DrawWmfSetDibToDevice(
@@ -1055,11 +1064,16 @@ internal static class MetafilePlaybackRenderer
         }
     }
 
-    private static void RequireSrcCopy(in MetafileRecord record, uint rasterOperation)
+    private static void ValidateDibRasterOperation(
+        in MetafileRecord record,
+        uint rasterOperation)
     {
-        if (rasterOperation != SrcCopy)
+        if (rasterOperation is not Blackness and not NotSourceCopy and not SrcCopy and
+            not PatCopy and not Whiteness)
         {
-            throw Unsupported(record, "Only the SRCCOPY raster operation is supported.");
+            throw Unsupported(
+                record,
+                $"Ternary raster operation 0x{rasterOperation:X8} requires destination-dependent compositing.");
         }
     }
 
@@ -1175,11 +1189,48 @@ internal static class MetafilePlaybackRenderer
         int destinationX,
         int destinationY,
         int destinationWidth,
-        int destinationHeight)
+        int destinationHeight,
+        uint rasterOperation)
     {
         if (sourceWidth == 0 || sourceHeight == 0 ||
             destinationWidth == 0 || destinationHeight == 0)
         {
+            return;
+        }
+
+        if (rasterOperation is Blackness or PatCopy or Whiteness)
+        {
+            Brush? brush = rasterOperation switch
+            {
+                Blackness => Brushes.Black,
+                PatCopy => state.SelectedBrush,
+                Whiteness => Brushes.White,
+                _ => null
+            };
+            if (brush is null)
+            {
+                return;
+            }
+
+            PointF destinationTopLeft = new(destinationX, destinationY);
+            PointF destinationTopRight = new(
+                AddCoordinate(record, destinationX, destinationWidth),
+                destinationY);
+            PointF destinationBottomLeft = new(
+                destinationX,
+                AddCoordinate(record, destinationY, destinationHeight));
+            PointF destinationBottomRight = new(
+                destinationTopRight.X + destinationBottomLeft.X - destinationTopLeft.X,
+                destinationTopRight.Y + destinationBottomLeft.Y - destinationTopLeft.Y);
+            state.ApplyTransform(record);
+            state.Graphics.FillPolygon(
+                brush,
+                [
+                    destinationTopLeft,
+                    destinationTopRight,
+                    destinationBottomRight,
+                    destinationBottomLeft
+                ]);
             return;
         }
 
@@ -1228,8 +1279,11 @@ internal static class MetafilePlaybackRenderer
 
         state.ApplyTransform(record);
         state.Graphics.InterpolationMode = state.DibInterpolationMode;
+        using Bitmap? inverted = rasterOperation == NotSourceCopy
+            ? bitmap.CreateBitwiseInvertedRgb()
+            : null;
         state.Graphics.DrawImage(
-            bitmap,
+            inverted ?? bitmap,
             [clippedDestinationTopLeft, clippedDestinationTopRight, clippedDestinationBottomLeft],
             new RectangleF(
                 clippedLeft,

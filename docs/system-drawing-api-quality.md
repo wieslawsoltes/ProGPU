@@ -345,7 +345,7 @@ sampling, malformed usage/ROP/scan/buffer inputs, transactional rollback,
 playback-DC-only source boundaries, and a warmed allocation ceiling.
 Playback-device-context sources and device-dependent bitmaps remain explicit.
 ApiCompat remains 0/0/13.
-Both complete Debug and Release drawing suites pass 558/558.
+Both complete Debug and Release drawing suites pass 561/561.
 
 `MetafileBenchmarks.Playback256BitFieldDibImagesToRetainedCommands` extends the
 same shared decoder to 16/32-bit `BI_BITFIELDS`. Forty-byte headers supply three
@@ -431,6 +431,23 @@ official contracts are the
 [`Compression enumeration`](https://learn.microsoft.com/en-us/openspecs/windows_protocols/ms-wmf/4e588f70-bd92-4a6f-b77f-35d0feaf7a57),
 [`DeviceIndependentBitmap object`](https://learn.microsoft.com/en-us/openspecs/windows_protocols/ms-wmf/7376542a-cce9-4625-8ead-585e9538f9f1), and
 [`CMY and CMYK color spaces`](https://learn.microsoft.com/en-us/windows/win32/wcs/cmy-and-cmyk-color-spaces).
+
+`MetafileBenchmarks.Playback256NotSourceCopyDibImagesToRetainedCommands`
+extends every source-bearing EMF/WMF DIB family beyond `SRCCOPY` with the
+destination-independent common `BLACKNESS`, `WHITENESS`, `NOTSRCCOPY`, and
+selected-brush `PATCOPY` operations. Black, white, and pattern copies fill the
+same clipped and transformed destination parallelogram. `NOTSRCCOPY` performs
+an exact bitwise inversion of straight RGB channels while preserving alpha and
+correctly crossing premultiplied storage. Destination-dependent AND/OR/XOR and
+merge operations continue to reject transactionally until a typed destination-
+read composition seam exists. Three focused cases cover exact inversion,
+black/white/pattern output, rollback coverage, and warmed allocation. The
+2026-09-01 ARM64/.NET 10.0.11 in-process ShortRun measured a 51.551 ms median
+(61.174 ms mean, 23.446 ms standard deviation) and 605.85 KB allocated for 256
+packed two-by-two images. Three iterations, denied priority elevation, and high
+variance make correctness and allocation authoritative. The official contract
+is the
+[`TernaryRasterOperation enumeration`](https://learn.microsoft.com/en-us/openspecs/windows_protocols/ms-wmf/1605dd68-a635-4639-ab81-99ff3e3fc5a3).
 
 `MetafileBenchmarks.Playback256EmfPathBracketsToRetainedCommands` guards 256
 Begin/rectangle/End/StrokeAndFill groups. The 2026-08-31 ARM64/.NET 10.0.11

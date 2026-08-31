@@ -4332,6 +4332,111 @@ public sealed class MetafileParserTests
     }
 
     [Fact]
+    public void EmfStretchDibitsAppliesNotSourceCopyToRgbChannels()
+    {
+        TestDib dib = CreateRgbDib(1, -1, 24, [0x56, 0x34, 0x12, 0]);
+        byte[] fixture = CreateTextPlaybackEmf(
+        [
+            (EmfPlusRecordType.EmfStretchDIBits,
+                EmfStretchDibits(
+                    dib,
+                    new Rectangle(0, 0, 1, 1),
+                    new Rectangle(8, 8, 8, 8),
+                    rasterOperation: 0x0033_0008))
+        ]);
+        using var metafile = new Metafile(new MemoryStream(fixture, writable: false));
+        using var target = new Bitmap(24, 24);
+        using (Graphics graphics = Graphics.FromImage(target))
+        {
+            graphics.Clear(Color.Yellow);
+            graphics.DrawImage(metafile, new Rectangle(0, 0, 64, 64));
+        }
+
+        Assert.Equal(
+            Color.FromArgb(0xED, 0xCB, 0xA9).ToArgb(),
+            target.GetPixel(10, 10).ToArgb());
+        Assert.Equal(Color.Yellow.ToArgb(), target.GetPixel(2, 2).ToArgb());
+    }
+
+    [Fact]
+    public void WmfDibRasterOperationsDrawBlackWhiteAndSelectedPattern()
+    {
+        TestDib dib = CreateRgbDib(1, -1, 24, [0, 0, 255, 0]);
+        byte[] fixture = CreatePlaybackWmf(
+        [
+            (0x02FC, WmfBrush(Color.Green)),
+            (0x012D, WmfWords(0)),
+            (0x0F43, WmfStretchDib(
+                dib,
+                new Rectangle(0, 0, 1, 1),
+                new Rectangle(4, 4, 8, 8),
+                rasterOperation: 0x0000_0042)),
+            (0x0F43, WmfStretchDib(
+                dib,
+                new Rectangle(4, 4, 1, 1),
+                new Rectangle(16, 4, 8, 8),
+                rasterOperation: 0x00F0_0021)),
+            (0x0F43, WmfStretchDib(
+                dib,
+                new Rectangle(0, 0, 1, 1),
+                new Rectangle(28, 4, 8, 8),
+                rasterOperation: 0x00FF_0062)),
+            (0, [])
+        ]);
+        using var metafile = new Metafile(new MemoryStream(fixture, writable: false));
+        using var target = new Bitmap(48, 20);
+        using (Graphics graphics = Graphics.FromImage(target))
+        {
+            graphics.Clear(Color.Transparent);
+            graphics.DrawImage(metafile, new Rectangle(0, 0, 64, 64));
+        }
+
+        Assert.Equal(Color.Black.ToArgb(), target.GetPixel(6, 6).ToArgb());
+        Assert.Equal(Color.Green.ToArgb(), target.GetPixel(18, 6).ToArgb());
+        Assert.Equal(Color.White.ToArgb(), target.GetPixel(30, 6).ToArgb());
+        Assert.Equal(0, target.GetPixel(2, 2).A);
+    }
+
+    [Fact]
+    public void NotSourceCopyDibPlaybackHasBoundedWarmedAllocation()
+    {
+        TestDib dib = CreateRgbDib(1, -1, 24, [0, 0, 255, 0]);
+        var records = new List<(ushort Function, byte[] Payload)>();
+        for (int index = 0; index < 64; index++)
+        {
+            records.Add((
+                0x0F43,
+                WmfStretchDib(
+                    dib,
+                    new Rectangle(0, 0, 1, 1),
+                    new Rectangle((index % 8) * 8, (index / 8) * 8, 8, 8),
+                    rasterOperation: 0x0033_0008)));
+        }
+        records.Add((0, []));
+        using var metafile = new Metafile(new MemoryStream(
+            CreatePlaybackWmf(records),
+            writable: false));
+        var context = new DrawingContext();
+        using Graphics graphics = Graphics.FromProGpuDrawingContext(context);
+        for (int iteration = 0; iteration < 4; iteration++)
+        {
+            graphics.DrawImage(metafile, new Rectangle(0, 0, 64, 64));
+            context.Clear();
+        }
+
+        long before = GC.GetAllocatedBytesForCurrentThread();
+        for (int iteration = 0; iteration < 8; iteration++)
+        {
+            graphics.DrawImage(metafile, new Rectangle(0, 0, 64, 64));
+            context.Clear();
+        }
+        long allocatedPerPlayback =
+            (GC.GetAllocatedBytesForCurrentThread() - before) / 8;
+
+        Assert.InRange(allocatedPerPlayback, 64 * 1024, 16 * 1024 * 1024);
+    }
+
+    [Fact]
     public void WmfDibPlaybackHasBoundedWarmedAllocation()
     {
         TestDib dib = CreateRgbDib(1, -1, 32, [0, 0, 255, 0]);

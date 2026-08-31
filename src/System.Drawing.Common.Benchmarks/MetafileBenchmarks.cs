@@ -50,6 +50,7 @@ public class MetafileBenchmarks
     private Metafile _encodedDibPlaybackMetafile = null!;
     private Metafile _logicalPaletteDibPlaybackMetafile = null!;
     private Metafile _cmykDibPlaybackMetafile = null!;
+    private Metafile _notSourceCopyDibPlaybackMetafile = null!;
     private Metafile _wmfTextPlaybackMetafile = null!;
     private Metafile _wmfSpacedRotatedTextPlaybackMetafile = null!;
     private Metafile _wmfJustifiedRotatedTextPlaybackMetafile = null!;
@@ -144,6 +145,10 @@ public class MetafileBenchmarks
             new MemoryStream(CreatePlaybackWmfLogicalPaletteImages(256), writable: false));
         _cmykDibPlaybackMetafile = new Metafile(
             new MemoryStream(CreatePlaybackWmfCmykImages(256), writable: false));
+        _notSourceCopyDibPlaybackMetafile = new Metafile(
+            new MemoryStream(
+                CreatePlaybackWmfDibImages(256, rasterOperation: 0x0033_0008),
+                writable: false));
         _wmfTextPlaybackMetafile = new Metafile(
             new MemoryStream(CreatePlaybackWmfText(256), writable: false));
         _wmfSpacedRotatedTextPlaybackMetafile = new Metafile(
@@ -202,6 +207,7 @@ public class MetafileBenchmarks
         _encodedDibPlaybackMetafile.Dispose();
         _logicalPaletteDibPlaybackMetafile.Dispose();
         _cmykDibPlaybackMetafile.Dispose();
+        _notSourceCopyDibPlaybackMetafile.Dispose();
         _wmfTextPlaybackMetafile.Dispose();
         _wmfSpacedRotatedTextPlaybackMetafile.Dispose();
         _wmfJustifiedRotatedTextPlaybackMetafile.Dispose();
@@ -376,6 +382,18 @@ public class MetafileBenchmarks
         _playbackContext.Clear();
         _playbackGraphics.DrawImage(
             _cmykDibPlaybackMetafile,
+            new Rectangle(0, 0, 640, 480));
+        int commandCount = _playbackContext.Commands.Count;
+        _playbackContext.Clear();
+        return commandCount;
+    }
+
+    [Benchmark]
+    public int Playback256NotSourceCopyDibImagesToRetainedCommands()
+    {
+        _playbackContext.Clear();
+        _playbackGraphics.DrawImage(
+            _notSourceCopyDibPlaybackMetafile,
             new Rectangle(0, 0, 640, 480));
         int commandCount = _playbackContext.Commands.Count;
         _playbackContext.Clear();
@@ -1463,7 +1481,10 @@ public class MetafileBenchmarks
         WriteUInt32(target, offset + 8, 10);
     }
 
-    private static byte[] CreatePlaybackWmfDibImages(int recordCount, bool bitFields = false)
+    private static byte[] CreatePlaybackWmfDibImages(
+        int recordCount,
+        bool bitFields = false,
+        uint rasterOperation = 0x00CC_0020)
     {
         int recordWords = bitFields ? 44 : 42;
         int recordBytes = recordWords * 2;
@@ -1494,7 +1515,7 @@ public class MetafileBenchmarks
             short y = checked((short)((index / 16) * 30));
             WriteUInt32(bytes, cursor, checked((uint)recordWords));
             WriteUInt16(bytes, cursor + 4, 0x0F43);
-            WriteUInt32(bytes, cursor + 6, 0x00CC_0020);
+            WriteUInt32(bytes, cursor + 6, rasterOperation);
             WriteInt16(bytes, cursor + 12, 2);
             WriteInt16(bytes, cursor + 14, 2);
             WriteInt16(bytes, cursor + 20, 22);

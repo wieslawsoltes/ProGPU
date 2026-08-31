@@ -774,14 +774,17 @@ gates remain the correctness authority.
 The EMF and WMF DIB follow-ups decode ordinary embedded device-independent images
 without a native HDC, runtime reflection, or a compatibility bitmap wrapper.
 `EMR_STRETCHDIBITS` supports typed source crop, source/destination sign
-mirroring, transformed destination parallelograms, SRCCOPY, and saved
+mirroring, transformed destination parallelograms, the destination-independent
+`SRCCOPY`, `NOTSRCCOPY`, `BLACKNESS`, `WHITENESS`, and selected-brush `PATCOPY`
+operations, and saved
 BLACKONWHITE/WHITEONBLACK/COLORONCOLOR/HALFTONE sampling state.
 `EMR_SETDIBITSTODEVICE` materializes only the supplied scan band and places its
 intersection at the corresponding full-image destination. Twelve focused cases
 cover bottom-up padding, top-down rows, clipped source adjustment, crop,
 mirroring, transforms, all six BI_RGB bit depths, both scan orientations,
 saved stretch state, malformed offsets/sizes/scan ranges, unsupported raster
-operations, transactional rollback, and warmed allocation. The WMF follow-up
+destination-dependent operations, transactional rollback, and warmed allocation.
+The WMF follow-up
 adds all four source-bearing packed-DIB layouts, exact packed header/color-table
 splitting, direct-color optimization tables, both scan orientations, retained
 command shape, and explicit rollback for the two playback-DC-only source forms.
@@ -846,6 +849,18 @@ gates cover top-down and bottom-up direct pixels, mixed black/colorant math,
 both CMYK RLE forms, invalid depth/orientation/size rollback, and warmed
 allocation.
 
+The destination-independent raster-operation follow-up accepts the official
+common `BLACKNESS`, `WHITENESS`, `NOTSRCCOPY`, and `PATCOPY` values in every
+source-bearing EMF/WMF DIB family. Solid black/white and selected-brush pattern
+copies fill the same clipped, mirrored, transformed destination parallelogram
+without pretending to sample destination pixels. `NOTSRCCOPY` bitwise-inverts
+straight RGB channels while preserving alpha ownership; premultiplied inputs
+are unpremultiplied and repremultiplied around the inversion. Destination-
+dependent AND/OR/XOR/merge operations still reject transactionally until a
+typed destination-read composition seam exists. Three focused gates cover
+exact channel inversion, black/white/pattern pixels, and warmed allocation;
+the existing malformed-stream matrix guards rollback for `SRCINVERT`.
+
 `Playback256EmfDibImagesToRetainedCommands` measures bounded header/row decode,
 256 owned two-by-two RGBA snapshots, typed retained-texture recording,
 transactional append, and cleanup. The 2026-08-31 ARM64/.NET 10.0.11 ShortRun
@@ -866,7 +881,7 @@ throughput. Ten focused WMF cases independently cover all four record families,
 bottom-up padding, top-down and bottom-up partial bands, packed color-table
 splitting, retained sampling, playback-DC boundaries, malformed input,
 transactional rollback, and the warmed 64-image allocation ceiling.
-Both complete Debug and Release drawing suites pass 558/558; ApiCompat remains
+Both complete Debug and Release drawing suites pass 561/561; ApiCompat remains
 at zero missing types, zero missing members, and 13 reviewed shape differences.
 
 `Playback256BitFieldDibImagesToRetainedCommands` measures 256 packed RGB565
@@ -910,6 +925,14 @@ ownership, and cleanup. The 2026-08-31 ARM64/.NET 10.0.11 ShortRun measured a
 deviation) with 501.71 KB allocated. Three iterations, denied priority
 elevation, and high timing variance make allocation and command ownership
 authoritative rather than throughput.
+
+`Playback256NotSourceCopyDibImagesToRetainedCommands` measures 256 packed
+two-by-two DIBs through bitwise RGB inversion, alpha-mode preservation,
+retained ownership, and cleanup. The 2026-09-01 ARM64/.NET 10.0.11 in-process
+ShortRun measured a 51.551 millisecond median (61.174 millisecond mean, 23.446
+millisecond standard deviation) with 605.85 KB allocated. Three iterations,
+denied priority elevation, and high timing variance make allocation and exact
+focused pixels authoritative rather than throughput.
 
 The EMF path-bracket follow-up adds `EMR_BEGINPATH`, `EMR_ENDPATH`,
 `EMR_CLOSEFIGURE`, `EMR_ABORTPATH`, `EMR_FILLPATH`, `EMR_STROKEPATH`,

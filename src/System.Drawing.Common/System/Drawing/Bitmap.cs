@@ -789,6 +789,44 @@ public class Bitmap : Image, IProGpuContextTextureLeaseSource
         }
     }
 
+    internal Bitmap CreateBitwiseInvertedRgb()
+    {
+        lock (_textureLifetimeLock)
+        {
+            ThrowIfDisposed();
+            byte[] pixels = (byte[])ReadPixelsCore(out GpuTextureAlphaMode alphaMode).Clone();
+            for (int offset = 0; offset < pixels.Length; offset += 4)
+            {
+                byte alpha = pixels[offset + 3];
+                byte red = pixels[offset];
+                byte green = pixels[offset + 1];
+                byte blue = pixels[offset + 2];
+                if (alphaMode == GpuTextureAlphaMode.Premultiplied)
+                {
+                    red = UnpremultiplyChannel(red, alpha);
+                    green = UnpremultiplyChannel(green, alpha);
+                    blue = UnpremultiplyChannel(blue, alpha);
+                }
+
+                red = (byte)~red;
+                green = (byte)~green;
+                blue = (byte)~blue;
+                if (alphaMode == GpuTextureAlphaMode.Premultiplied)
+                {
+                    red = PremultiplyChannel(red, alpha);
+                    green = PremultiplyChannel(green, alpha);
+                    blue = PremultiplyChannel(blue, alpha);
+                }
+
+                pixels[offset] = red;
+                pixels[offset + 1] = green;
+                pixels[offset + 2] = blue;
+            }
+
+            return CreateFromPixels(_width, _height, pixels, alphaMode);
+        }
+    }
+
     internal Bitmap CreateImageAttributesAdjusted(
         ImageAttributes attributes,
         ColorAdjustType type = ColorAdjustType.Bitmap)
