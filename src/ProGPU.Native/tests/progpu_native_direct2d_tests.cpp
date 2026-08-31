@@ -2953,7 +2953,7 @@ int main()
         native_hresult != S_OK ||
         direct_write.written_bytes != direct_scene_stream.size() ||
         direct_write.command_count != 8U ||
-        direct_write.brush_count != 2U) {
+        direct_write.brush_count != 1U) {
         std::cerr << "Direct2D recorder write diagnostic: status="
                   << static_cast<uint32_t>(direct_write_status)
                   << ", hr=" << native_hresult
@@ -2967,7 +2967,7 @@ int main()
             native_hresult == S_OK &&
             direct_write.written_bytes == direct_scene_stream.size() &&
             direct_write.command_count == 8U &&
-            direct_write.brush_count == 2U,
+            direct_write.brush_count == 1U,
         "ProGPU Direct2D COM recorder write pass changed");
     const progpu_native_scene_header direct_scene_header =
         read_value<progpu_native_scene_header>(direct_scene_stream, 0U);

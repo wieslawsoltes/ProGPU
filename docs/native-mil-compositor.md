@@ -5829,6 +5829,15 @@ returned `35.7652`. Recursive subdivision has data-dependent child
 termination, so it is not an independent-lane SIMD workload; emitted-edge
 reduction remains bounded and allocation ownership is unchanged.
 
+The field-level recorder diagnostic also resolves the ABI-v50 Parallels
+failure: scene serialization returns success/S_OK, writes exactly
+`17,936/17,936` bytes and eight commands, and retains one brush. The prior test
+expected two brushes even though the semantic builder correctly deduplicates
+the same solid brush across draw transforms. ABI v52 now locks down the
+canonical one-brush result. The archived ABI-v50 execution remains negative
+qualification evidence because that executable exited 1, but it no longer
+indicates a provider write defect.
+
 ## Managed glyph row-reuse SIMD checkpoint
 
 Managed ProGPU checkpoints `2960fb39` and `ffb285af` bring the explicit

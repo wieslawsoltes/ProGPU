@@ -664,6 +664,10 @@ public sealed class Direct2DInteropContractTests
             test,
             StringComparison.Ordinal);
         Assert.Contains(
+            "direct_write.brush_count == 1U",
+            test,
+            StringComparison.Ordinal);
+        Assert.Contains(
             "ProGPU path bounds diverged from system Direct2D",
             test,
             StringComparison.Ordinal);

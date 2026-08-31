@@ -1492,6 +1492,13 @@ and the 122,880-byte test executable is
 `7A39E6AB242413EAF9704FC43C4FCCCF8DE1C507CCCE08BDB7C59B8AE282FF70`.
 ABI v52 adds field-level recorder diagnostics so the next Windows run reports
 status, HRESULT, written/capacity bytes, command count, and brush count.
+That diagnostic subsequently reported successful status/HRESULT, exact
+`17,936/17,936` byte production, eight commands, and one brush. The old oracle
+incorrectly expected two entries even though the scene builder canonically
+deduplicates the unchanged solid brush across draw transforms. ABI v52 now
+requires the correct single-brush result; the archived ABI-v50 execution
+remains a non-passing run, but its failure is classified as an oracle false
+negative rather than provider serialization corruption.
 
 ABI v51 extends the ProGPU-owned factory with a genuine
 [`ID2D1EllipseGeometry`](https://learn.microsoft.com/windows/win32/api/d2d1/nn-d2d1-id2d1ellipsegeometry)
