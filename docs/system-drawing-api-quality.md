@@ -87,8 +87,9 @@ member suppression, leaving zero missing types, zero missing members, and 13
     allocation, and supports the state, solid/null pen/brush, polygon, polyline,
     and counterclockwise arc records used by the canonical LibreWinForms
     `telescope_01.wmf` asset, plus filled/stroked rectangles and ellipses and
-    rounded rectangles, pies, chords, poly-polygons, current-position lines, and explicit-color
-    device pixels, plus intersect/exclude rectangle clip
+    rounded rectangles, pies, chords, poly-polygons, current-position lines,
+    explicit-color device pixels, and exact pattern-copy/blackness/whiteness
+    rectangle blits, plus intersect/exclude rectangle clip
     state. WMF SaveDC and relative RestoreDC
     snapshot window/viewport origins and extents, current point, world
     transform, fill/map/background/raster/text/background-color settings,
@@ -221,7 +222,7 @@ measured a 561.572 µs median (599.013 µs mean, 103.320 µs standard deviation)
 with 628.33 KB allocated. Three iterations make this coarse state-lowering
 evidence; independent inside, excluded-hole, restored-clip, intersection-edge,
 invalid-relative-level, and transactional-rollback gates remain authoritative.
-The complete drawing suite passes 407/407, and ApiCompat remains at zero
+The complete drawing suite passes 409/409, and ApiCompat remains at zero
 missing types, zero missing members, and 13 reviewed platform annotations.
 
 `MetafileBenchmarks.Playback256WmfEllipsesToRetainedCommands` guards typed WMF ellipse playback through the selected fill and outline objects. The 2026-08-31 ARM64/.NET 10.0.11 in-process ShortRun measured a 1.060 ms median (1.109 ms mean, 0.115 ms standard deviation) with 622.14 KB allocated for 256 ellipses. The three-iteration result is coarse retained-command evidence; exact pixels and rollback after a later unsupported text record remain the independent correctness gates.
@@ -275,6 +276,14 @@ ARM64/.NET 10.0.11 in-process ShortRun measured a 155.282 µs median (156.556 µ
 mean, 3.099 µs standard deviation) with 305.71 KB allocated. Exact pixels cover
 `MM_ANISOTROPIC`, set/offset/scale composition, and SaveDC/RestoreDC; a zero
 denominator rollback gate remains the correctness authority.
+
+`MetafileBenchmarks.Playback256WmfPatternCopiesToRetainedCommands` guards exact
+selected-brush `PATCOPY` lowering. The 2026-08-31 ARM64/.NET 10.0.11 in-process
+ShortRun measured a 133.616 µs median (135.580 µs mean, 16.236 µs standard
+deviation) with 305.88 KB allocated for 256 records. Exact `PATCOPY`,
+`BLACKNESS`, and `WHITENESS` pixels remain the correctness gate;
+destination-dependent `PATINVERT` fails explicitly and transactionally until a
+typed destination-read/compositing seam exists.
 
 `MetafileBenchmarks.RecordAndFinalize256PortableComments` measures construction,
 256 owned 64-byte comment copies, bounded EMF+ encoding, validation through the

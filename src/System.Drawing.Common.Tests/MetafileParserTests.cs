@@ -603,6 +603,41 @@ public sealed class MetafileParserTests
     }
 
     [Fact]
+    public void WmfPatBltDrawsPatternCopyBlacknessAndWhiteness()
+    {
+        using var metafile = new Metafile(new MemoryStream(CreatePatBltPlaybackWmf()));
+        using var target = new Bitmap(64, 64);
+        using (Graphics graphics = Graphics.FromImage(target))
+        {
+            graphics.Clear(Color.Transparent);
+            graphics.DrawImage(metafile, new Rectangle(0, 0, 64, 64));
+        }
+
+        Assert.Equal(Color.Green.ToArgb(), target.GetPixel(12, 12).ToArgb());
+        Assert.Equal(Color.Black.ToArgb(), target.GetPixel(32, 12).ToArgb());
+        Assert.Equal(Color.White.ToArgb(), target.GetPixel(52, 12).ToArgb());
+        Assert.Equal(0, target.GetPixel(2, 2).A);
+    }
+
+    [Fact]
+    public void WmfDestinationDependentPatBltRollsBackEarlierPatternCopy()
+    {
+        using var metafile = new Metafile(new MemoryStream(
+            CreatePatBltPlaybackWmf(includeDestinationDependentRecord: true)));
+        using var target = new Bitmap(64, 64);
+        using (Graphics graphics = Graphics.FromImage(target))
+        {
+            graphics.Clear(Color.Blue);
+            NotSupportedException exception = Assert.Throws<NotSupportedException>(() =>
+                graphics.DrawImage(metafile, new Rectangle(0, 0, 64, 64)));
+            Assert.Contains(nameof(EmfPlusRecordType.WmfPatBlt), exception.Message, StringComparison.Ordinal);
+            Assert.Contains("0x005A0049", exception.Message, StringComparison.Ordinal);
+        }
+
+        Assert.Equal(Color.Blue.ToArgb(), target.GetPixel(12, 12).ToArgb());
+    }
+
+    [Fact]
     public void WmfEllipseRejectsUnorderedBoundsWithoutPublishingCommands()
     {
         byte[] bytes = CreatePlaybackWmf();
@@ -1127,6 +1162,24 @@ public sealed class MetafileParserTests
         return CreatePlaybackWmf(records);
     }
 
+    private static byte[] CreatePatBltPlaybackWmf(bool includeDestinationDependentRecord = false)
+    {
+        var records = new List<(ushort Function, byte[] Payload)>
+        {
+            (0x02FC, WmfBrush(Color.Green)),
+            (0x012D, WmfWords(0)),
+            (0x061D, WmfPatBlt(0x00F0_0021, new Rectangle(4, 4, 16, 16))),
+            (0x061D, WmfPatBlt(0x0000_0042, new Rectangle(24, 4, 16, 16))),
+            (0x061D, WmfPatBlt(0x00FF_0062, new Rectangle(44, 4, 16, 16)))
+        };
+        if (includeDestinationDependentRecord)
+        {
+            records.Add((0x061D, WmfPatBlt(0x005A_0049, new Rectangle(4, 4, 16, 16))));
+        }
+        records.Add((0, []));
+        return CreatePlaybackWmf(records);
+    }
+
     private static byte[] CreatePlaybackWmf(List<(ushort Function, byte[] Payload)> records)
     {
         int maximumRecordWords = records.Max(record => (record.Payload.Length + 6) / 2);
@@ -1210,6 +1263,17 @@ public sealed class MetafileParserTests
                 cursor += 4;
             }
         }
+        return bytes;
+    }
+
+    private static byte[] WmfPatBlt(uint rasterOperation, Rectangle rectangle)
+    {
+        byte[] bytes = new byte[12];
+        WriteUInt32(bytes, 0, rasterOperation);
+        WriteInt16(bytes, 4, checked((short)rectangle.Height));
+        WriteInt16(bytes, 6, checked((short)rectangle.Width));
+        WriteInt16(bytes, 8, checked((short)rectangle.Y));
+        WriteInt16(bytes, 10, checked((short)rectangle.X));
         return bytes;
     }
 

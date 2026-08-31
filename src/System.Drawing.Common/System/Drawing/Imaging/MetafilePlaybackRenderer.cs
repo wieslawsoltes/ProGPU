@@ -158,6 +158,10 @@ internal static class MetafilePlaybackRenderer
                 state.Graphics.SetTransformedPixel(ReadColor(payload, 0), ReadWmfYxPoint(payload[4..]));
                 return;
 
+            case EmfPlusRecordType.WmfPatBlt:
+                DrawWmfPatBlt(state, record, payload);
+                return;
+
             case EmfPlusRecordType.WmfIntersectClipRect:
                 state.IntersectClip(record, ReadWmfRectangle(record, payload));
                 return;
@@ -778,6 +782,40 @@ internal static class MetafilePlaybackRenderer
                 }
             }
         }
+    }
+
+    private static void DrawWmfPatBlt(
+        PlaybackState state,
+        in MetafileRecord record,
+        ReadOnlySpan<byte> payload)
+    {
+        RequireSize(record, payload, 12);
+        uint rasterOperation = ReadUInt32(payload, 0);
+        int height = ReadInt16(payload, 4);
+        int width = ReadInt16(payload, 6);
+        int y = ReadInt16(payload, 8);
+        int x = ReadInt16(payload, 10);
+        if (width <= 0 || height <= 0)
+        {
+            throw Invalid(record);
+        }
+
+        Brush? brush = rasterOperation switch
+        {
+            0x0000_0042 => Brushes.Black,
+            0x00F0_0021 => state.SelectedBrush,
+            0x00FF_0062 => Brushes.White,
+            _ => throw Unsupported(
+                record,
+                $"Ternary raster operation 0x{rasterOperation:X8} requires destination-dependent compositing.")
+        };
+        if (brush is null)
+        {
+            return;
+        }
+
+        state.ApplyTransform(record);
+        state.Graphics.FillRectangle(brush, x, y, width, height);
     }
 
     private static void DrawWmfArcFamily(
