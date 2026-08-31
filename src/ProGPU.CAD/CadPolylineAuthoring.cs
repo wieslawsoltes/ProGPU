@@ -19,6 +19,23 @@ public enum CadPolylineAuthoringPrompt : byte
     StartingWidth = 1,
     EndingWidth = 2,
     Length = 3,
+    ArcIncludedAngle = 4,
+    ArcCenter = 5,
+    ArcDirection = 6,
+    ArcRadius = 7,
+    ArcSecondPoint = 8,
+    ArcEndpoint = 9,
+}
+
+/// <summary>The explicit construction used by the next PLINE arc.</summary>
+public enum CadPolylineArcConstruction : byte
+{
+    TangentEndpoint = 0,
+    IncludedAngle = 1,
+    Center = 2,
+    Direction = 3,
+    Radius = 4,
+    ThreePoint = 5,
 }
 
 /// <summary>Whether a PLINE width prompt consumes full or half widths.</summary>
@@ -203,6 +220,9 @@ public sealed class CadPolylineAuthoringSession
     private double _nextEndWidth;
     private double _widthInputStart;
     private bool _widthWasChanged;
+    private CadPolylineArcConstruction _arcConstruction;
+    private double _arcScalar;
+    private CadPoint3D _arcControlPoint;
 
     public int MaximumSegmentCount { get; }
 
@@ -228,6 +248,8 @@ public sealed class CadPolylineAuthoringSession
 
     public CadPolylineWidthInputMode WidthInputMode { get; private set; }
 
+    public CadPolylineArcConstruction ArcConstruction => _arcConstruction;
+
     public double NextStartWidth => _nextStartWidth;
 
     public double NextEndWidth => _nextEndWidth;
@@ -252,6 +274,12 @@ public sealed class CadPolylineAuthoringSession
         Prompt == CadPolylineAuthoringPrompt.Point &&
         Mode == CadPolylineAuthoringMode.Line &&
         SegmentCount > 0;
+
+    public bool CanBeginArcConstruction =>
+        Prompt == CadPolylineAuthoringPrompt.Point &&
+        Mode == CadPolylineAuthoringMode.TangentArc &&
+        HasFirstPoint &&
+        SegmentCount < MaximumSegmentCount;
 
     public bool CanUndo =>
         Prompt == CadPolylineAuthoringPrompt.Point && SegmentCount > 0;
@@ -337,6 +365,16 @@ public sealed class CadPolylineAuthoringSession
         CadPoint3D point,
         out string? errorMessage)
     {
+        if (Prompt is CadPolylineAuthoringPrompt.ArcCenter or
+            CadPolylineAuthoringPrompt.ArcDirection or
+            CadPolylineAuthoringPrompt.ArcSecondPoint)
+        {
+            return TryAcceptArcControlPoint(point, out errorMessage);
+        }
+        if (Prompt == CadPolylineAuthoringPrompt.ArcEndpoint)
+        {
+            return TryAcceptArcEndpoint(point, out _, out errorMessage);
+        }
         if (Prompt != CadPolylineAuthoringPrompt.Point)
         {
             errorMessage = "Complete the active PLINE scalar prompt before specifying a point.";
@@ -356,20 +394,230 @@ public sealed class CadPolylineAuthoringSession
     /// </summary>
     public bool TryGetPendingBulge(CadPoint3D point, out double bulge)
     {
-        bulge = 0.0;
-        if (Prompt != CadPolylineAuthoringPrompt.Point ||
-            _pointCount == 0 || !IsFinite(point) ||
-            point.Z != _points[0].Z || point == _points[_pointCount - 1])
+        return TryResolvePendingSegment(point, out _, out bulge, out _);
+    }
+
+    /// <summary>
+    /// Starts an explicit O(1) PLINE arc construction. The implementation is
+    /// derived from the original ProGPU-owned normalized ARC solvers in
+    /// <c>CadArcAuthoring.cs</c>; signed bulges preserve PLINE vertex order.
+    /// </summary>
+    public bool TryBeginArcConstruction(
+        CadPolylineArcConstruction construction,
+        out string? errorMessage)
+    {
+        errorMessage = null;
+        if (!Enum.IsDefined(construction) ||
+            construction == CadPolylineArcConstruction.TangentEndpoint)
+        {
+            throw new ArgumentOutOfRangeException(nameof(construction));
+        }
+        if (!CanBeginArcConstruction)
+        {
+            errorMessage = HasFirstPoint
+                ? "Explicit PLINE arc options require Arc mode and no active value prompt."
+                : "Accept the first PLINE point before choosing an arc option.";
+            return false;
+        }
+
+        _arcConstruction = construction;
+        Prompt = construction switch
+        {
+            CadPolylineArcConstruction.IncludedAngle =>
+                CadPolylineAuthoringPrompt.ArcIncludedAngle,
+            CadPolylineArcConstruction.Center => CadPolylineAuthoringPrompt.ArcCenter,
+            CadPolylineArcConstruction.Direction => CadPolylineAuthoringPrompt.ArcDirection,
+            CadPolylineArcConstruction.Radius => CadPolylineAuthoringPrompt.ArcRadius,
+            CadPolylineArcConstruction.ThreePoint =>
+                CadPolylineAuthoringPrompt.ArcSecondPoint,
+            _ => throw new InvalidOperationException(),
+        };
+        return true;
+    }
+
+    public bool TryAcceptArcScalar(double value, out string? errorMessage)
+    {
+        errorMessage = null;
+        if (Prompt == CadPolylineAuthoringPrompt.ArcIncludedAngle)
+        {
+            if (!double.IsFinite(value) || value == 0.0 ||
+                Math.Abs(value) >= MaximumArcAngle)
+            {
+                errorMessage =
+                    "A PLINE arc angle must be finite, nonzero, and less than one complete turn.";
+                return false;
+            }
+        }
+        else if (Prompt == CadPolylineAuthoringPrompt.ArcRadius)
+        {
+            if (!double.IsFinite(value) || value <= 0.0)
+            {
+                errorMessage = "A PLINE arc radius must be finite and positive.";
+                return false;
+            }
+        }
+        else
+        {
+            errorMessage = "No PLINE arc scalar value is currently requested.";
+            return false;
+        }
+
+        _arcScalar = value;
+        Prompt = CadPolylineAuthoringPrompt.ArcEndpoint;
+        return true;
+    }
+
+    public bool TryAcceptArcControlPoint(
+        CadPoint3D point,
+        out string? errorMessage)
+    {
+        errorMessage = null;
+        if (Prompt is not (CadPolylineAuthoringPrompt.ArcCenter or
+            CadPolylineAuthoringPrompt.ArcDirection or
+            CadPolylineAuthoringPrompt.ArcSecondPoint))
+        {
+            errorMessage = "No PLINE arc construction point is currently requested.";
+            return false;
+        }
+        if (!ValidatePlanPoint(point, out errorMessage))
         {
             return false;
         }
-        if (Mode == CadPolylineAuthoringMode.Line)
+
+        CadPoint3D start = _points[_pointCount - 1];
+        if (point == start)
         {
-            return true;
+            errorMessage = Prompt switch
+            {
+                CadPolylineAuthoringPrompt.ArcCenter =>
+                    "A PLINE arc center must differ from its start point.",
+                CadPolylineAuthoringPrompt.ArcDirection =>
+                    "A PLINE arc direction point must differ from its start point.",
+                _ => "A PLINE arc second point must differ from its start point.",
+            };
+            return false;
         }
-        return TryGetPreviousSegmentTangent(out CadPoint3D tangent) &&
-            TryGetTangentBulge(_points[_pointCount - 1], point, tangent, out bulge) &&
-            CanAcceptBulgeWithNextWidth(bulge, out _);
+
+        _arcControlPoint = point;
+        Prompt = CadPolylineAuthoringPrompt.ArcEndpoint;
+        return true;
+    }
+
+    public bool CanAcceptArcControlPoint(CadPoint3D point) =>
+        Prompt is (CadPolylineAuthoringPrompt.ArcCenter or
+            CadPolylineAuthoringPrompt.ArcDirection or
+            CadPolylineAuthoringPrompt.ArcSecondPoint) &&
+        ValidatePlanPoint(point, out _) &&
+        point != _points[_pointCount - 1];
+
+    public bool TryAcceptArcEndpoint(
+        CadPoint3D inputPoint,
+        out CadPoint3D endpoint,
+        out string? errorMessage)
+    {
+        if (!TryResolvePendingSegment(
+                inputPoint,
+                out endpoint,
+                out double bulge,
+                out errorMessage))
+        {
+            return false;
+        }
+        if (!TryAccept(endpoint, bulge, out errorMessage))
+        {
+            return false;
+        }
+
+        ResetArcConstruction();
+        return true;
+    }
+
+    /// <summary>
+    /// Resolves the pointer/input point to the exact next endpoint and signed
+    /// DXF bulge without mutating accepted state.
+    /// </summary>
+    public bool TryResolvePendingSegment(
+        CadPoint3D inputPoint,
+        out CadPoint3D endpoint,
+        out double bulge,
+        out string? errorMessage)
+    {
+        endpoint = inputPoint;
+        bulge = 0.0;
+        errorMessage = null;
+        if (_pointCount == 0 || !ValidatePlanPoint(inputPoint, out errorMessage))
+        {
+            return false;
+        }
+        CadPoint3D start = _points[_pointCount - 1];
+        if (inputPoint == start)
+        {
+            errorMessage = "A PLINE segment must have distinct endpoints.";
+            return false;
+        }
+
+        if (Prompt == CadPolylineAuthoringPrompt.Point)
+        {
+            if (Mode == CadPolylineAuthoringMode.Line)
+            {
+                return true;
+            }
+            if (!TryGetPreviousSegmentTangent(out CadPoint3D tangent) ||
+                !TryGetTangentBulge(start, inputPoint, tangent, out bulge))
+            {
+                errorMessage =
+                    "The endpoint does not define a finite non-degenerate arc from the previous segment tangent.";
+                return false;
+            }
+        }
+        else if (Prompt == CadPolylineAuthoringPrompt.ArcEndpoint)
+        {
+            bool solved = _arcConstruction switch
+            {
+                CadPolylineArcConstruction.IncludedAngle =>
+                    TryGetSweepBulge(_arcScalar, out bulge),
+                CadPolylineArcConstruction.Center =>
+                    TryGetCenterArc(start, _arcControlPoint, inputPoint, out endpoint, out bulge),
+                CadPolylineArcConstruction.Direction =>
+                    TryGetTangentBulge(start, inputPoint, _arcControlPoint - start, out bulge),
+                CadPolylineArcConstruction.Radius =>
+                    TryGetRadiusBulge(start, inputPoint, _arcScalar, out bulge),
+                CadPolylineArcConstruction.ThreePoint =>
+                    TryGetThreePointBulge(start, _arcControlPoint, inputPoint, out bulge),
+                _ => false,
+            };
+            if (!solved)
+            {
+                errorMessage =
+                    "The PLINE arc inputs do not define a finite non-degenerate circular arc.";
+                return false;
+            }
+        }
+        else
+        {
+            errorMessage = "Complete the active PLINE arc option before specifying its endpoint.";
+            return false;
+        }
+
+        if (bulge != 0.0 &&
+            !TryGetBulgeGeometry(
+                start,
+                endpoint,
+                bulge,
+                out _,
+                out _,
+                out _,
+                out _))
+        {
+            errorMessage =
+                "The PLINE arc resolves outside finite analytic geometry.";
+            return false;
+        }
+        if (!CanAcceptBulgeWithNextWidth(bulge, out errorMessage))
+        {
+            return false;
+        }
+        return true;
     }
 
     public bool TryBeginWidthInput(
@@ -922,6 +1170,198 @@ public sealed class CadPolylineAuthoringSession
 
         bulge = y / denominator;
         return double.IsFinite(bulge) && bulge != 0.0;
+    }
+
+    private static bool TryGetSweepBulge(double signedSweep, out double bulge)
+    {
+        bulge = Math.Tan(signedSweep * 0.25);
+        return double.IsFinite(signedSweep) &&
+            signedSweep != 0.0 &&
+            Math.Abs(signedSweep) < MaximumArcAngle &&
+            double.IsFinite(bulge) &&
+            bulge != 0.0;
+    }
+
+    private static bool TryGetCenterArc(
+        CadPoint3D start,
+        CadPoint3D center,
+        CadPoint3D endRayPoint,
+        out CadPoint3D endpoint,
+        out double bulge)
+    {
+        endpoint = default;
+        bulge = 0.0;
+        double radius = Hypot(start.X - center.X, start.Y - center.Y);
+        if (!double.IsFinite(radius) || radius <= 0.0 ||
+            !TryGetUnit2D(
+                endRayPoint - center,
+                out double endX,
+                out double endY))
+        {
+            return false;
+        }
+
+        endpoint = new CadPoint3D(
+            center.X + (endX * radius),
+            center.Y + (endY * radius),
+            start.Z);
+        double startAngle = Math.Atan2(start.Y - center.Y, start.X - center.X);
+        double endAngle = Math.Atan2(endpoint.Y - center.Y, endpoint.X - center.X);
+        return IsFinite(endpoint) &&
+            TryGetSweepBulge(PositiveAngle(endAngle - startAngle), out bulge);
+    }
+
+    private static bool TryGetRadiusBulge(
+        CadPoint3D start,
+        CadPoint3D end,
+        double radius,
+        out double bulge)
+    {
+        bulge = 0.0;
+        double chordLength = Hypot(end.X - start.X, end.Y - start.Y);
+        double halfChord = chordLength * 0.5;
+        if (!double.IsFinite(radius) || radius <= 0.0 ||
+            !double.IsFinite(chordLength) || chordLength <= 0.0 ||
+            radius < halfChord)
+        {
+            return false;
+        }
+
+        double sweep = 2.0 * Math.Asin(Math.Min(1.0, halfChord / radius));
+        return TryGetSweepBulge(sweep, out bulge);
+    }
+
+    private static bool TryGetThreePointBulge(
+        CadPoint3D start,
+        CadPoint3D pointOnArc,
+        CadPoint3D end,
+        out double bulge)
+    {
+        bulge = 0.0;
+        if (!TryGetThreePointCircle(
+                start,
+                pointOnArc,
+                end,
+                out CadPoint3D center))
+        {
+            return false;
+        }
+
+        double orientation = Cross2D(pointOnArc - start, end - start);
+        if (!double.IsFinite(orientation) || orientation == 0.0)
+        {
+            return false;
+        }
+        double startAngle = Math.Atan2(start.Y - center.Y, start.X - center.X);
+        double endAngle = Math.Atan2(end.Y - center.Y, end.X - center.X);
+        double sweep = orientation > 0.0
+            ? PositiveAngle(endAngle - startAngle)
+            : -PositiveAngle(startAngle - endAngle);
+        return TryGetSweepBulge(sweep, out bulge);
+    }
+
+    private static bool TryGetThreePointCircle(
+        CadPoint3D first,
+        CadPoint3D second,
+        CadPoint3D third,
+        out CadPoint3D center)
+    {
+        center = default;
+        double secondX = second.X - first.X;
+        double secondY = second.Y - first.Y;
+        double thirdX = third.X - first.X;
+        double thirdY = third.Y - first.Y;
+        double scale = Math.Max(
+            Math.Max(Math.Abs(secondX), Math.Abs(secondY)),
+            Math.Max(Math.Abs(thirdX), Math.Abs(thirdY)));
+        if (!double.IsFinite(scale) || scale <= 0.0)
+        {
+            return false;
+        }
+
+        double x2 = secondX / scale;
+        double y2 = secondY / scale;
+        double x3 = thirdX / scale;
+        double y3 = thirdY / scale;
+        double determinant = 2.0 * ((x2 * y3) - (y2 * x3));
+        if (!double.IsFinite(determinant) || determinant == 0.0)
+        {
+            return false;
+        }
+
+        double length2 = (x2 * x2) + (y2 * y2);
+        double length3 = (x3 * x3) + (y3 * y3);
+        double offsetX = scale *
+            (((y3 * length2) - (y2 * length3)) / determinant);
+        double offsetY = scale *
+            (((x2 * length3) - (x3 * length2)) / determinant);
+        center = new CadPoint3D(
+            first.X + offsetX,
+            first.Y + offsetY,
+            first.Z);
+        double radius = Hypot(offsetX, offsetY);
+        return IsFinite(center) && double.IsFinite(radius) && radius > 0.0;
+    }
+
+    private static bool TryGetUnit2D(
+        CadPoint3D vector,
+        out double x,
+        out double y)
+    {
+        x = 0.0;
+        y = 0.0;
+        double scale = Math.Max(Math.Abs(vector.X), Math.Abs(vector.Y));
+        if (!double.IsFinite(scale) || scale <= 0.0)
+        {
+            return false;
+        }
+
+        double scaledX = vector.X / scale;
+        double scaledY = vector.Y / scale;
+        double length = Math.Sqrt((scaledX * scaledX) + (scaledY * scaledY));
+        if (!double.IsFinite(length) || length <= 0.0)
+        {
+            return false;
+        }
+        x = scaledX / length;
+        y = scaledY / length;
+        return double.IsFinite(x) && double.IsFinite(y);
+    }
+
+    private static double Cross2D(CadPoint3D first, CadPoint3D second) =>
+        (first.X * second.Y) - (first.Y * second.X);
+
+    private static double PositiveAngle(double angle)
+    {
+        double normalized = angle % Math.Tau;
+        return normalized < 0.0 ? normalized + Math.Tau : normalized;
+    }
+
+    private bool ValidatePlanPoint(
+        CadPoint3D point,
+        out string? errorMessage)
+    {
+        errorMessage = null;
+        if (!IsFinite(point))
+        {
+            errorMessage = "A PLINE point must contain finite WCS coordinates.";
+            return false;
+        }
+        if (_pointCount > 0 && point.Z != _points[0].Z)
+        {
+            errorMessage =
+                "A lightweight PLINE point must remain on the first point's WCS-Z plane.";
+            return false;
+        }
+        return true;
+    }
+
+    private void ResetArcConstruction()
+    {
+        _arcConstruction = CadPolylineArcConstruction.TangentEndpoint;
+        _arcScalar = 0.0;
+        _arcControlPoint = default;
+        Prompt = CadPolylineAuthoringPrompt.Point;
     }
 
     /// <summary>

@@ -5,13 +5,19 @@
 This record covers bounded `PLINE` authoring in the shared
 desktop/browser editor. It creates one planar ACadSharp `LwPolyline` containing
 straight and analytic circular-arc segments, including the interactive Width,
-Halfwidth, and line-mode Length options. The design is clean-room and uses
+Halfwidth, line-mode Length, and arc-mode Angle, Center, Direction, Radius,
+and Second point options. The design is clean-room and uses
 public contracts rather than third-party implementation source:
 
-- Autodesk's [PLINE command reference](https://help.autodesk.com/cloudhelp/2027/ENG/AutoCAD-Core/files/GUID-11883C70-6435-4F80-8FB4-F6E933B8FD94.htm)
+- Autodesk's [PLINE command reference](https://help.autodesk.com/cloudhelp/2022/ENU/AutoCAD-Core/files/GUID-11883C70-6435-4F80-8FB4-F6E933B8FD94.htm)
   defines one 2D polyline object, line/arc modes, tangent continuation, signed
-  included angles, Width/Halfwidth state, tangent Length, `Undo`, `Close`, and
-  `PLINEGEN` behavior.
+  included angles, fixed-center endpoint projection, tangent directions,
+  radius and three-point constructions, Width/Halfwidth state, tangent Length,
+  `Undo`, `Close`, and `PLINEGEN` behavior.
+- Autodesk's [ARC command reference](https://help.autodesk.com/cloudhelp/2022/ENU/AutoCAD-Core/files/GUID-30ECFD30-A1D6-4D60-9DD1-B487603F6772.htm)
+  independently confirms positive counterclockwise angles, center/start/end
+  projection, start/end/direction tangency, start/end/radius, and three-point
+  circular construction behavior used by the differential tests.
 - Autodesk's [SetWidth API contract](https://help.autodesk.com/cloudhelp/2022/ENU/AutoCAD-ActiveX-Reference/files/GUID-ED45F9D1-AE03-4DF0-9F2D-2019BD42CD52E.htm)
   confirms per-segment start/end width ownership, while the
   [PLINEWID system-variable contract](https://help.autodesk.com/view/ACD/2026/ENU/?caas=caas%2Fdocumentation%2FACDLT%2F2014%2FENU%2Ffiles%2FGUID-35EEB892-15C9-442F-847D-2F4DC52E9690-htm.html)
@@ -28,6 +34,12 @@ public contracts rather than third-party implementation source:
   generation-safe history provenance. This is a permitted cross-feature port
   and composition of original ProGPU code under the repository clean-room
   policy.
+- Existing original ProGPU-owned `CadArcAuthoring.cs` is the exact in-repository
+  normalized solver provenance for the new PLINE Angle, Center, Direction,
+  Radius, and Second point calculations. PLINE keeps vertex order and a signed
+  bulge while ARC canonicalizes persisted geometry to a positive
+  counterclockwise interval; matched differential tests compare center, radius,
+  and absolute sweep.
 
 No third-party source text, helper shape, control flow, naming scheme, or data
 encoding was copied or translated.
@@ -42,8 +54,15 @@ The reusable explicit-angle API maps signed included angle `a` to the standard
 bulge `tan(a / 4)`, with positive angles counterclockwise and negative angles
 clockwise. Closure is a flag and terminal bulge, never a duplicate vertex.
 
-The shared shell exposes `PLine`, line/arc mode, `Width`, `Halfwidth`, `Length`,
-`U`, `Close`, and finish. Click
+The shared shell exposes `PLine`, line/arc mode, a typed arc-option selector,
+`Width`, `Halfwidth`, `Length`, `U`, `Close`, and finish. In Arc mode, Angle
+stores a signed included angle before accepting an endpoint; Center fixes the
+start-center radius and projects the endpoint input onto its ray; Direction
+uses the start-to-direction-point vector as the exact starting tangent; Radius
+creates the positive-radius minor counterclockwise interval; and Second point
+solves the unique oriented circumcircle through start, second, and end. These
+explicit options work immediately after the first vertex; only the default
+tangent endpoint requires a preceding segment. Click
 or invariant typed absolute/relative Cartesian or polar input uses the existing
 object-snap, grid, Ortho, polar, PolarSnap, and direct-distance acquisition
 pipeline. Relative polar tracking and direct distance use the true endpoint
@@ -71,22 +90,22 @@ fails before document mutation. Nonzero PLINEWID publishes through the exact
 filled or FILLMODE-off outline contract in
 `PROGPU_CAD_WIDE_POLYLINE_RESEARCH.md`.
 
-The following observable PLINE options remain explicit future work: interactive
-Angle, Center, Direction, Radius, Second point,
-command chaining from the prior endpoint, temporary overrides, expressions and
+The following observable PLINE options remain explicit future work: nested
+Center/Radius after Angle, nested Angle/Length after Center, chord-direction
+input after Angle/Radius, clockwise radius toggling, command chaining from the
+prior endpoint, temporary overrides, expressions and
 drawing units, legacy PLINETYPE output, 3D polyline authoring, and arbitrary
 UCS/camera acquisition. Variable-width arc publication also remains explicitly
 unsupported: exact tapered circular-arc boundaries are spirals, and signed
 inner boundaries can cross the arc center. The authoring session therefore
 rejects any arc/variable-profile combination before snapshot or document
-mutation rather than lowering a cosmetic approximation. `TryAcceptArcPoint`
-provides the bounded core signed-angle seam, but the shared prompt does not yet
-expose the Angle subdialog.
+mutation rather than lowering a cosmetic approximation.
 
 ## Retention, quality, and complexity
 
-The default limit is 65,536 segments. Point, width-prompt, and length acceptance
-are amortized O(1), segment-local Undo is O(1), tangent and bulge calculations are O(1), and
+The default limit is 65,536 segments. Point, scalar/control prompt, width-prompt,
+and length acceptance are amortized O(1), segment-local Undo is O(1), every
+normalized circular solve and bulge calculation is O(1), and
 snapshot creation plus Apply/Undo/Redo are O(S) time and storage for S segments.
 Prefix uniform-width metadata and one accepted-arc counter make compatibility
 checks O(1); an early benchmark found and eliminated an O(S²) width-option scan.
@@ -155,13 +174,14 @@ Width/Halfwidth default propagation, Length after a line or arc, scalar prompt
 recovery, variable-arc fail-closed behavior, uniform-width collapse, explicit
 start/end width publication, PLINEGEN suppression, atomic PLINEWID restoration,
 locked-layer and FILLMODE-off atomic failure,
-one-entity/one-history
+all five explicit arc prompt state machines, differential center/radius/sweep
+parity with the authoritative ARC command, Center endpoint projection, shared
+typed arc-option interaction, one-entity/one-history
 Apply/Undo/Redo, typed and pointer interaction, shared buttons and keys, exact
 relative-polar direct distance after an arc, nonzero-Z pointer acquisition, and
 DXF/DWG entity-width and PLINEWID round trips. The focused authoring gate passes
-25/25 in both configurations; final complete-suite and package counts are
-recorded with the checkpoint handoff. The complete ProGPU.CAD suite passes
-1,372/1,372 in both Debug and Release on macOS arm64. The three Release CAD
+29/29 in both configurations; the complete suite passes 1,376/1,376 in both Debug and Release
+on macOS arm64. The Release `ACadSharp.ProGPU` and `ProGPU.CAD`
 packages build at `0.1.0-preview.62`; an isolated consumer resolves the reviewed
 `ACadSharp.ProGPU` identity, builds with zero warnings, and creates an AC1032
 document.
@@ -169,9 +189,11 @@ document.
 The checked-in Release benchmark
 `artifacts/benchmarks/cad-polyline-authoring-options.json` measures the maximum
 65,536-segment bound over five warmups and forty iterations on macOS arm64/.NET
-10. Inherited-width acquisition plus snapshot completion is p50 4.9602 ms,
-p95 12.5514 ms, and p99 13.3511 ms; changing Width on every segment is p50
-2.2580 ms, p95 7.7057 ms, and p99 11.0241 ms. Both allocate about 17.5 MB per
+10. Inherited-width acquisition plus snapshot completion is p50 4.4279 ms,
+p95 15.0002 ms, and p99 16.4181 ms; changing Width on every segment is p50
+4.7292 ms, p95 8.7332 ms, and p99 13.8830 ms. An explicit 60-degree Angle
+arc at every segment is p50 5.1878 ms, p95 9.5171 ms, and p99 9.6805 ms.
+All three allocate about 17.5 MB per
 completed maximum-size snapshot, dominated by geometrically grown retained
 arrays and the immutable O(S) snapshot copies. The result is complexity and
 bounded-throughput evidence, not an interactive rendering-speed claim; the

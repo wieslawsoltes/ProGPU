@@ -71,6 +71,8 @@ public sealed class CadSampleView : Grid
     private readonly Button _polylineUndoButton;
     private readonly Button _polylineLineModeButton;
     private readonly Button _polylineArcModeButton;
+    private readonly ComboBox _polylineArcConstructionSelector;
+    private readonly Button _polylineArcConstructionButton;
     private readonly Button _polylineWidthButton;
     private readonly Button _polylineHalfwidthButton;
     private readonly Button _polylineLengthButton;
@@ -347,6 +349,12 @@ public sealed class CadSampleView : Grid
     public Button PolylineLineModeButton => _polylineLineModeButton;
 
     public Button PolylineArcModeButton => _polylineArcModeButton;
+
+    public ComboBox PolylineArcConstructionSelector =>
+        _polylineArcConstructionSelector;
+
+    public Button PolylineArcConstructionButton =>
+        _polylineArcConstructionButton;
 
     public Button PolylineWidthButton => _polylineWidthButton;
 
@@ -676,6 +684,31 @@ public sealed class CadSampleView : Grid
         _polylineUndoButton = CreateButton("PLine U", font, 72, 30);
         _polylineLineModeButton = CreateButton("PLine line", font, 82, 30);
         _polylineArcModeButton = CreateButton("PLine arc", font, 82, 30);
+        _polylineArcConstructionSelector = new ComboBox
+        {
+            WidthConstraint = 132,
+            HeightConstraint = 30,
+            Font = font,
+            FontSize = 11,
+            Margin = new Thickness(0, 0, 4, 0),
+        };
+        foreach ((CadPolylineArcConstruction construction, string label) in new[]
+        {
+            (CadPolylineArcConstruction.IncludedAngle, "PLine Angle"),
+            (CadPolylineArcConstruction.Center, "PLine Center"),
+            (CadPolylineArcConstruction.Direction, "PLine Direction"),
+            (CadPolylineArcConstruction.Radius, "PLine Radius"),
+            (CadPolylineArcConstruction.ThreePoint, "PLine Second pt"),
+        })
+        {
+            _polylineArcConstructionSelector.Items.Add(new ComboBoxItem(label)
+            {
+                Tag = construction,
+            });
+        }
+        _polylineArcConstructionSelector.SelectedIndex = 0;
+        _polylineArcConstructionButton =
+            CreateButton("PLine option", font, 96, 30);
         _polylineWidthButton = CreateButton("PLine width", font, 92, 30);
         _polylineHalfwidthButton = CreateButton("PLine half", font, 88, 30);
         _polylineLengthButton = CreateButton("PLine length", font, 96, 30);
@@ -902,6 +935,7 @@ public sealed class CadSampleView : Grid
         _polylineUndoButton.Margin = new Thickness(0, 0, 4, 0);
         _polylineLineModeButton.Margin = new Thickness(0, 0, 4, 0);
         _polylineArcModeButton.Margin = new Thickness(0, 0, 4, 0);
+        _polylineArcConstructionButton.Margin = new Thickness(0, 0, 4, 0);
         _polylineWidthButton.Margin = new Thickness(0, 0, 4, 0);
         _polylineHalfwidthButton.Margin = new Thickness(0, 0, 4, 0);
         _polylineLengthButton.Margin = new Thickness(0, 0, 4, 0);
@@ -939,6 +973,8 @@ public sealed class CadSampleView : Grid
         editActions.AddChild(_polylineUndoButton);
         editActions.AddChild(_polylineLineModeButton);
         editActions.AddChild(_polylineArcModeButton);
+        editActions.AddChild(_polylineArcConstructionSelector);
+        editActions.AddChild(_polylineArcConstructionButton);
         editActions.AddChild(_polylineWidthButton);
         editActions.AddChild(_polylineHalfwidthButton);
         editActions.AddChild(_polylineLengthButton);
@@ -2422,6 +2458,16 @@ public sealed class CadSampleView : Grid
             SetPolylineAuthoringMode(CadPolylineAuthoringMode.Line);
         _polylineArcModeButton.Click += (_, _) =>
             SetPolylineAuthoringMode(CadPolylineAuthoringMode.TangentArc);
+        _polylineArcConstructionSelector.SelectionChanged += (_, _) =>
+            UpdateEditControls();
+        _polylineArcConstructionButton.Click += (_, _) =>
+        {
+            if ((_polylineArcConstructionSelector.SelectedItem as ComboBoxItem)?.Tag is
+                CadPolylineArcConstruction construction)
+            {
+                BeginPolylineArcConstruction(construction);
+            }
+        };
         _polylineWidthButton.Click += (_, _) =>
             BeginPolylineWidthInput(CadPolylineWidthInputMode.Width);
         _polylineHalfwidthButton.Click += (_, _) =>
@@ -2952,9 +2998,37 @@ public sealed class CadSampleView : Grid
             }
             if (e.Key == Key.A &&
                 _canvas.PendingPolylinePrompt == CadPolylineAuthoringPrompt.Point &&
-                _canvas.PendingPolylineSegmentCount > 0)
+                _canvas.PendingPolylineCurrentPoint is not null)
             {
-                SetPolylineAuthoringMode(CadPolylineAuthoringMode.TangentArc);
+                if (_canvas.PolylineAuthoringMode ==
+                    CadPolylineAuthoringMode.TangentArc)
+                {
+                    BeginPolylineArcConstruction(
+                        CadPolylineArcConstruction.IncludedAngle);
+                }
+                else
+                {
+                    SetPolylineAuthoringMode(
+                        CadPolylineAuthoringMode.TangentArc);
+                }
+                e.Handled = true;
+                return;
+            }
+            if (e.Key == Key.D && _canvas.CanBeginPolylineArcConstruction)
+            {
+                BeginPolylineArcConstruction(CadPolylineArcConstruction.Direction);
+                e.Handled = true;
+                return;
+            }
+            if (e.Key == Key.R && _canvas.CanBeginPolylineArcConstruction)
+            {
+                BeginPolylineArcConstruction(CadPolylineArcConstruction.Radius);
+                e.Handled = true;
+                return;
+            }
+            if (e.Key == Key.S && _canvas.CanBeginPolylineArcConstruction)
+            {
+                BeginPolylineArcConstruction(CadPolylineArcConstruction.ThreePoint);
                 e.Handled = true;
                 return;
             }
@@ -6087,6 +6161,22 @@ public sealed class CadSampleView : Grid
         UpdateEditControls();
     }
 
+    private void BeginPolylineArcConstruction(
+        CadPolylineArcConstruction construction)
+    {
+        if (!_canvas.BeginPolylineArcConstruction(
+                construction,
+                out string? errorMessage))
+        {
+            SetStatus(errorMessage ?? "PLINE arc option could not start.");
+        }
+        else
+        {
+            _pointTransformInput.Text = string.Empty;
+        }
+        UpdateEditControls();
+    }
+
     private void CompletePolylineAuthoring(bool close)
     {
         if (!_canvas.CompletePolylineAuthoring(close, out string? errorMessage))
@@ -6228,7 +6318,7 @@ public sealed class CadSampleView : Grid
             $"PLINE: specify first point by click or absolute WCS coordinate; " +
             $"current width {FormatScalar(args.NextStartWidth)}; Escape ends.",
         CadPolylineAuthoringStage.AwaitingNextPoint when args.SegmentCount == 0 =>
-            $"PLINE: first point {FormatPoint(args.CurrentPoint!.Value)}; specify next point, Width (W), or Halfwidth (H); " +
+            $"PLINE: first point {FormatPoint(args.CurrentPoint!.Value)}; specify next point, Arc (A), Width (W), or Halfwidth (H); " +
             $"next width {FormatWidthRange(args)}.",
         CadPolylineAuthoringStage.AwaitingNextPoint =>
             $"PLINE: {args.SegmentCount} accepted segment(s); " +
@@ -6239,7 +6329,7 @@ public sealed class CadSampleView : Grid
         CadPolylineAuthoringStage.ModeChanged =>
             args.Mode == CadPolylineAuthoringMode.Line
                 ? "PLINE: Line mode."
-                : "PLINE: tangent Arc mode; a preceding segment is required.",
+                : "PLINE: Arc mode; specify an endpoint for tangent continuation, or Angle, Center, Direction, Radius, or Second pt.",
         CadPolylineAuthoringStage.PromptChanged when
             args.Prompt == CadPolylineAuthoringPrompt.StartingWidth =>
             $"PLINE {DescribeWidthInputMode(args.WidthInputMode)}: enter starting " +
@@ -6253,6 +6343,24 @@ public sealed class CadSampleView : Grid
         CadPolylineAuthoringStage.PromptChanged when
             args.Prompt == CadPolylineAuthoringPrompt.Length =>
             "PLINE Length: enter a finite positive length; the new line follows the previous segment tangent.",
+        CadPolylineAuthoringStage.PromptChanged when
+            args.Prompt == CadPolylineAuthoringPrompt.ArcIncludedAngle =>
+            "PLINE Arc/Angle: enter a finite nonzero included angle in degrees.",
+        CadPolylineAuthoringStage.PromptChanged when
+            args.Prompt == CadPolylineAuthoringPrompt.ArcCenter =>
+            "PLINE Arc/Center: specify the arc center point.",
+        CadPolylineAuthoringStage.PromptChanged when
+            args.Prompt == CadPolylineAuthoringPrompt.ArcDirection =>
+            "PLINE Arc/Direction: specify a point establishing the start tangent.",
+        CadPolylineAuthoringStage.PromptChanged when
+            args.Prompt == CadPolylineAuthoringPrompt.ArcRadius =>
+            "PLINE Arc/Radius: enter a finite positive radius.",
+        CadPolylineAuthoringStage.PromptChanged when
+            args.Prompt == CadPolylineAuthoringPrompt.ArcSecondPoint =>
+            "PLINE Arc/Second pt: specify a second point on the arc.",
+        CadPolylineAuthoringStage.PromptChanged when
+            args.Prompt == CadPolylineAuthoringPrompt.ArcEndpoint =>
+            "PLINE Arc: specify the endpoint for the selected construction.",
         CadPolylineAuthoringStage.PromptChanged =>
             "PLINE: specify the requested input.",
         CadPolylineAuthoringStage.SegmentUndone =>
@@ -7442,8 +7550,14 @@ public sealed class CadSampleView : Grid
             _canvas.PolylineAuthoringMode != CadPolylineAuthoringMode.Line;
         _polylineArcModeButton.IsEnabled =
             !_isBusy && isPolylinePointPrompt &&
-            _canvas.PendingPolylineSegmentCount > 0 &&
+            _canvas.PendingPolylineCurrentPoint is not null &&
             _canvas.PolylineAuthoringMode != CadPolylineAuthoringMode.TangentArc;
+        _polylineArcConstructionSelector.IsEnabled =
+            !_isBusy && _canvas.CanBeginPolylineArcConstruction;
+        _polylineArcConstructionButton.IsEnabled =
+            !_isBusy && _canvas.CanBeginPolylineArcConstruction &&
+            (_polylineArcConstructionSelector.SelectedItem as ComboBoxItem)?.Tag is
+                CadPolylineArcConstruction;
         _polylineWidthButton.IsEnabled =
             !_isBusy && _canvas.CanBeginPolylineWidthInput;
         _polylineHalfwidthButton.IsEnabled =

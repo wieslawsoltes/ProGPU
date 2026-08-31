@@ -93,6 +93,134 @@ public sealed class CadPolylineAuthoringTests
     }
 
     [Fact]
+    public void ExplicitArcOptionsMatchAuthoritativeArcSolvers()
+    {
+        CadPoint3D start = new(0, 0, 7);
+
+        AssertMatchesArcSolver(
+            CreateExplicitArc(
+                start,
+                CadPolylineArcConstruction.IncludedAngle,
+                scalar: Math.PI / 2.0,
+                endpointInput: new CadPoint3D(10, 10, 7)),
+            CreateScalarArc(
+                CadArcAuthoringMode.StartEndAngle,
+                start,
+                new CadPoint3D(10, 10, 7),
+                Math.PI / 2.0));
+
+        (CadPoint3D centerStart, CadPoint3D centerEnd, double centerBulge) = CreateExplicitArc(
+            new CadPoint3D(10, 0, 7),
+            CadPolylineArcConstruction.Center,
+            controlPoint: new CadPoint3D(0, 0, 7),
+            endpointInput: new CadPoint3D(0, 30, 7));
+        Assert.Equal(new CadPoint3D(0, 10, 7), centerEnd);
+        AssertMatchesArcSolver(
+            (centerStart, centerEnd, centerBulge),
+            CreatePointArc(
+                CadArcAuthoringMode.StartCenterEnd,
+                new CadPoint3D(10, 0, 7),
+                new CadPoint3D(0, 0, 7),
+                new CadPoint3D(0, 30, 7)));
+
+        AssertMatchesArcSolver(
+            CreateExplicitArc(
+                start,
+                CadPolylineArcConstruction.Direction,
+                controlPoint: new CadPoint3D(10, 0, 7),
+                endpointInput: new CadPoint3D(10, 10, 7)),
+            CreateDirectionArc(
+                start,
+                new CadPoint3D(10, 10, 7),
+                new CadPoint3D(10, 0, 0)));
+
+        AssertMatchesArcSolver(
+            CreateExplicitArc(
+                start,
+                CadPolylineArcConstruction.Radius,
+                scalar: 10.0,
+                endpointInput: new CadPoint3D(10, 0, 7)),
+            CreateScalarArc(
+                CadArcAuthoringMode.StartEndRadius,
+                start,
+                new CadPoint3D(10, 0, 7),
+                10.0));
+
+        AssertMatchesArcSolver(
+            CreateExplicitArc(
+                start,
+                CadPolylineArcConstruction.ThreePoint,
+                controlPoint: new CadPoint3D(5, 5, 7),
+                endpointInput: new CadPoint3D(10, 0, 7)),
+            CreatePointArc(
+                CadArcAuthoringMode.ThreePoint,
+                start,
+                new CadPoint3D(5, 5, 7),
+                new CadPoint3D(10, 0, 7)));
+    }
+
+    [Fact]
+    public void ExplicitArcPromptFailuresRetainRecoverableState()
+    {
+        var authoring = new CadPolylineAuthoringSession(initialWidth: 2.0);
+        Assert.True(authoring.TryAcceptPoint(CadPoint3D.Zero, out _));
+        authoring.Mode = CadPolylineAuthoringMode.TangentArc;
+        Assert.True(authoring.CanBeginArcConstruction);
+        Assert.True(authoring.TryBeginArcConstruction(
+            CadPolylineArcConstruction.Radius,
+            out _));
+        Assert.Equal(CadPolylineAuthoringPrompt.ArcRadius, authoring.Prompt);
+        Assert.False(authoring.TryAcceptArcScalar(0.0, out _));
+        Assert.Equal(CadPolylineAuthoringPrompt.ArcRadius, authoring.Prompt);
+        Assert.True(authoring.TryAcceptArcScalar(4.0, out _));
+        Assert.Equal(CadPolylineAuthoringPrompt.ArcEndpoint, authoring.Prompt);
+        Assert.False(authoring.TryAcceptArcEndpoint(
+            new CadPoint3D(10, 0, 0),
+            out _,
+            out string? tooSmall));
+        Assert.Contains("do not define", tooSmall, StringComparison.OrdinalIgnoreCase);
+        Assert.Equal(CadPolylineAuthoringPrompt.ArcEndpoint, authoring.Prompt);
+        Assert.True(authoring.TryAcceptArcEndpoint(
+            new CadPoint3D(6, 0, 0),
+            out CadPoint3D endpoint,
+            out _));
+        Assert.Equal(new CadPoint3D(6, 0, 0), endpoint);
+        Assert.Equal(CadPolylineAuthoringPrompt.Point, authoring.Prompt);
+        Assert.Equal(CadPolylineArcConstruction.TangentEndpoint, authoring.ArcConstruction);
+    }
+
+    [Fact]
+    public void ExplicitThreePointArcIsStableAtLargeWcsOrigin()
+    {
+        CadPoint3D start = new(1_000_000_000_005, -2_000_000_000_000, 9);
+        (CadPoint3D _, CadPoint3D endpoint, double bulge) = CreateExplicitArc(
+            start,
+            CadPolylineArcConstruction.ThreePoint,
+            controlPoint: new CadPoint3D(
+                1_000_000_000_000,
+                -1_999_999_999_995,
+                9),
+            endpointInput: new CadPoint3D(
+                999_999_999_995,
+                -2_000_000_000_000,
+                9));
+
+        Assert.True(CadPolylineAuthoringSession.TryGetBulgeGeometry(
+            start,
+            endpoint,
+            bulge,
+            out CadPoint3D center,
+            out double radius,
+            out _,
+            out double sweep));
+        Assert.Equal(
+            new CadPoint3D(1_000_000_000_000, -2_000_000_000_000, 9),
+            center);
+        Assert.Equal(5.0, radius, 12);
+        Assert.Equal(Math.PI, Math.Abs(sweep), 12);
+    }
+
+    [Fact]
     public void WidthAndHalfwidthPersistEndWidthForFollowingSegments()
     {
         var authoring = new CadPolylineAuthoringSession(initialWidth: 2.0);
@@ -518,5 +646,99 @@ public sealed class CadPolylineAuthoringTests
         Assert.Equal(2.0, polyline.Vertices[1].EndWidth);
         Assert.Equal(2.0, loaded.Session.Read(document =>
             document.Header.PolylineWidthDefault));
+    }
+
+    private static (CadPoint3D Start, CadPoint3D Endpoint, double Bulge) CreateExplicitArc(
+        CadPoint3D start,
+        CadPolylineArcConstruction construction,
+        double scalar = 0.0,
+        CadPoint3D controlPoint = default,
+        CadPoint3D endpointInput = default)
+    {
+        var authoring = new CadPolylineAuthoringSession();
+        Assert.True(authoring.TryAcceptPoint(start, out _));
+        authoring.Mode = CadPolylineAuthoringMode.TangentArc;
+        Assert.True(authoring.TryBeginArcConstruction(construction, out _));
+        if (construction is CadPolylineArcConstruction.IncludedAngle or
+            CadPolylineArcConstruction.Radius)
+        {
+            Assert.True(authoring.TryAcceptArcScalar(scalar, out _));
+        }
+        else
+        {
+            Assert.True(authoring.TryAcceptArcControlPoint(controlPoint, out _));
+        }
+        Assert.True(authoring.TryAcceptArcEndpoint(
+            endpointInput,
+            out CadPoint3D endpoint,
+            out _));
+        return (start, endpoint, authoring.Bulges.Span[0]);
+    }
+
+    private static CadArcAuthoringSnapshot CreateScalarArc(
+        CadArcAuthoringMode mode,
+        CadPoint3D start,
+        CadPoint3D end,
+        double scalar)
+    {
+        var authoring = new CadArcAuthoringSession(mode);
+        Assert.True(authoring.TryAcceptIntermediatePoint(start, out _));
+        Assert.True(authoring.TryAcceptIntermediatePoint(end, out _));
+        Assert.True(authoring.TryCreateSnapshotFromScalar(
+            scalar,
+            out CadArcAuthoringSnapshot snapshot,
+            out _));
+        return snapshot;
+    }
+
+    private static CadArcAuthoringSnapshot CreatePointArc(
+        CadArcAuthoringMode mode,
+        CadPoint3D first,
+        CadPoint3D second,
+        CadPoint3D final)
+    {
+        var authoring = new CadArcAuthoringSession(mode);
+        Assert.True(authoring.TryAcceptIntermediatePoint(first, out _));
+        Assert.True(authoring.TryAcceptIntermediatePoint(second, out _));
+        Assert.True(authoring.TryCreateSnapshot(
+            final,
+            out CadArcAuthoringSnapshot snapshot,
+            out _));
+        return snapshot;
+    }
+
+    private static CadArcAuthoringSnapshot CreateDirectionArc(
+        CadPoint3D start,
+        CadPoint3D end,
+        CadPoint3D direction)
+    {
+        var authoring = new CadArcAuthoringSession(
+            CadArcAuthoringMode.StartEndDirection);
+        Assert.True(authoring.TryAcceptIntermediatePoint(start, out _));
+        Assert.True(authoring.TryAcceptIntermediatePoint(end, out _));
+        Assert.True(authoring.TryCreateSnapshotFromDirection(
+            direction,
+            out CadArcAuthoringSnapshot snapshot,
+            out _));
+        return snapshot;
+    }
+
+    private static void AssertMatchesArcSolver(
+        (CadPoint3D Start, CadPoint3D Endpoint, double Bulge) polyline,
+        CadArcAuthoringSnapshot arc)
+    {
+        Assert.True(CadPolylineAuthoringSession.TryGetBulgeGeometry(
+            polyline.Start,
+            polyline.Endpoint,
+            polyline.Bulge,
+            out CadPoint3D center,
+            out double radius,
+            out _,
+            out double sweep));
+        Assert.Equal(arc.Center.X, center.X, 10);
+        Assert.Equal(arc.Center.Y, center.Y, 10);
+        Assert.Equal(arc.Center.Z, center.Z, 10);
+        Assert.Equal(arc.Radius, radius, 10);
+        Assert.Equal(arc.SweepAngle, Math.Abs(sweep), 10);
     }
 }

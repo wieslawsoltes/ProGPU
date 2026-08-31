@@ -624,6 +624,7 @@ void RunPolylineAuthoringBenchmark(
     {
         _ = CreatePolylineAuthoringSnapshot(segmentCount, changeEverySegment: false);
         _ = CreatePolylineAuthoringSnapshot(segmentCount, changeEverySegment: true);
+        _ = CreateExplicitArcPolylineAuthoringSnapshot(segmentCount);
     }
 
     Measurement inherited = Measure(
@@ -634,6 +635,10 @@ void RunPolylineAuthoringBenchmark(
         "polyline-authoring-width-option-every-segment",
         iterations,
         () => CreatePolylineAuthoringSnapshot(segmentCount, changeEverySegment: true));
+    Measurement explicitArcs = Measure(
+        "polyline-authoring-explicit-angle-arcs",
+        iterations,
+        () => CreateExplicitArcPolylineAuthoringSnapshot(segmentCount));
     var report = new CadPolylineAuthoringBenchmarkReport(
         DateTimeOffset.UtcNow,
         Environment.OSVersion.ToString(),
@@ -642,7 +647,8 @@ void RunPolylineAuthoringBenchmark(
         warmups,
         iterations,
         inherited,
-        variable);
+        variable,
+        explicitArcs);
     var options = new JsonSerializerOptions { WriteIndented = true };
     string reportJson = JsonSerializer.Serialize(report, options);
     Console.WriteLine(reportJson);
@@ -682,6 +688,39 @@ CadPolylineAuthoringSnapshot CreatePolylineAuthoringSnapshot(
                 out string? pointError))
         {
             throw new InvalidOperationException(pointError);
+        }
+    }
+    if (!authoring.TryCreateSnapshot(
+            close: false,
+            out CadPolylineAuthoringSnapshot? snapshot,
+            out string? snapshotError))
+    {
+        throw new InvalidOperationException(snapshotError);
+    }
+    return snapshot!;
+}
+
+CadPolylineAuthoringSnapshot CreateExplicitArcPolylineAuthoringSnapshot(
+    int segmentCount)
+{
+    var authoring = new CadPolylineAuthoringSession(segmentCount);
+    if (!authoring.TryAcceptPoint(CadPoint3D.Zero, out string? firstError))
+    {
+        throw new InvalidOperationException(firstError);
+    }
+    authoring.Mode = CadPolylineAuthoringMode.TangentArc;
+    for (int i = 0; i < segmentCount; i++)
+    {
+        if (!authoring.TryBeginArcConstruction(
+                CadPolylineArcConstruction.IncludedAngle,
+                out string? optionError) ||
+            !authoring.TryAcceptArcScalar(Math.PI / 3.0, out optionError) ||
+            !authoring.TryAcceptArcEndpoint(
+                new CadPoint3D(i + 1.0, i % 17, 0.0),
+                out _,
+                out optionError))
+        {
+            throw new InvalidOperationException(optionError);
         }
     }
     if (!authoring.TryCreateSnapshot(
@@ -2275,7 +2314,8 @@ internal sealed record CadPolylineAuthoringBenchmarkReport(
     int WarmupCount,
     int IterationCount,
     Measurement InheritedWidthMilliseconds,
-    Measurement WidthOptionEverySegmentMilliseconds);
+    Measurement WidthOptionEverySegmentMilliseconds,
+    Measurement ExplicitAngleArcMilliseconds);
 
 internal sealed record CadBenchmarkReport(
     DateTimeOffset CapturedAt,

@@ -56,6 +56,51 @@ public sealed class CadPolylineAuthoringInteractionTests
     }
 
     [Fact]
+    public void SharedCanvasAuthorsExplicitCenterAndAnglePolylineArcs()
+    {
+        var session = new CadDocumentSession(new CadDocument());
+        var canvas = new CadSampleCanvas();
+        try
+        {
+            canvas.Load(session);
+            canvas.Arrange(new Rect(0, 0, 800, 600));
+            canvas.ObjectSnapModes = CadObjectSnapModes.None;
+            Assert.True(canvas.BeginPolylineAuthoring());
+            Assert.True(canvas.TryAcceptPolylineAuthoringInput("10,0", out _));
+            Assert.True(canvas.TryAcceptPolylineAuthoringInput("A", out _));
+            Assert.True(canvas.CanBeginPolylineArcConstruction);
+            Assert.True(canvas.TryAcceptPolylineAuthoringInput("CE", out _));
+            Assert.Equal(
+                CadPolylineAuthoringPrompt.ArcCenter,
+                canvas.PendingPolylinePrompt);
+            Assert.True(canvas.TryAcceptPolylineAuthoringInput("0,0", out _));
+            Assert.Equal(
+                CadPolylineAuthoringPrompt.ArcEndpoint,
+                canvas.PendingPolylinePrompt);
+            Assert.True(canvas.TryAcceptPolylineAuthoringInput("0,30", out _));
+            Assert.Equal(new CadPoint3D(0, 10, 0), canvas.PendingPolylineCurrentPoint);
+
+            Assert.True(canvas.TryAcceptPolylineAuthoringInput("A", out _));
+            Assert.Equal(
+                CadPolylineAuthoringPrompt.ArcIncludedAngle,
+                canvas.PendingPolylinePrompt);
+            Assert.True(canvas.TryAcceptPolylineAuthoringInput("-90", out _));
+            Assert.True(canvas.TryAcceptPolylineAuthoringInput("10,10", out _));
+            Assert.True(canvas.CompletePolylineAuthoring(false, out _));
+
+            LwPolyline polyline = Assert.Single(session.Read(document =>
+                document.Entities.OfType<LwPolyline>().ToArray()));
+            Assert.Equal(3, polyline.Vertices.Count);
+            Assert.Equal(Math.Tan(Math.PI / 8.0), polyline.Vertices[0].Bulge, 12);
+            Assert.Equal(-Math.Tan(Math.PI / 8.0), polyline.Vertices[1].Bulge, 12);
+        }
+        finally
+        {
+            canvas.FireUnloaded();
+        }
+    }
+
+    [Fact]
     public void RelativePolarUsesActualArcEndTangentForDirectDistance()
     {
         var session = new CadDocumentSession(new CadDocument());
@@ -130,6 +175,8 @@ public sealed class CadPolylineAuthoringInteractionTests
             Assert.Equal(
                 CadPolylineAuthoringMode.TangentArc,
                 view.Canvas.PolylineAuthoringMode);
+            Assert.True(view.PolylineArcConstructionSelector.IsEnabled);
+            Assert.True(view.PolylineArcConstructionButton.IsEnabled);
             Assert.True(view.Canvas.TryAcceptPolylineAuthoringInput("20,10", out _));
             Assert.True(view.PolylineUndoButton.IsEnabled);
             PressEnter(view.PolylineUndoButton);
