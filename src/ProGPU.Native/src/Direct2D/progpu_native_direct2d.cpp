@@ -1506,8 +1506,15 @@ bool compat_visit_path(
     CubicCallback&& cubic_callback,
     EndCallback&& end_callback)
 {
+    // System Direct2D subdivides cubic analysis at an effective geometric
+    // threshold of one half the public flattening tolerance. Keep that safety
+    // factor in the shared path visitor so length, area, containment, and
+    // point-at-length queries consume the same bounded line approximation.
+    constexpr double direct2d_tolerance_scale = 0.5;
+    const double scaled_tolerance =
+        static_cast<double>(tolerance) * direct2d_tolerance_scale;
     const double tolerance_squared =
-        static_cast<double>(tolerance) * tolerance;
+        scaled_tolerance * scaled_tolerance;
     for (size_t figure_offset = 0U;
          figure_offset < data.figures.size();
          ++figure_offset) {

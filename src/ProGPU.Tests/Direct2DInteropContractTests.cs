@@ -652,6 +652,10 @@ public sealed class Direct2DInteropContractTests
             test,
             StringComparison.Ordinal);
         Assert.Contains(
+            "direct2d_tolerance_scale = 0.5",
+            source,
+            StringComparison.Ordinal);
+        Assert.Contains(
             "ProGPU ID2D1StrokeStyle1 creation failed",
             test,
             StringComparison.Ordinal);
