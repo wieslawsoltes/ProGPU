@@ -282,6 +282,56 @@ public sealed class CadEllipseAuthoringChangedEventArgs : EventArgs
     }
 }
 
+/// <summary>Observable stage of one shared desktop/browser POLYGON command.</summary>
+public enum CadPolygonAuthoringStage : byte
+{
+    AwaitingFirstPoint = 0,
+    AwaitingFinalInput = 1,
+    Completed = 2,
+    Canceled = 3,
+    Failed = 4,
+}
+
+/// <summary>Immutable transition emitted by bounded POLYGON authoring.</summary>
+public sealed class CadPolygonAuthoringChangedEventArgs : EventArgs
+{
+    public CadPolygonAuthoringStage Stage { get; }
+
+    public int SideCount { get; }
+
+    public CadPolygonAuthoringMode Mode { get; }
+
+    public CadPolygonAuthoringInputKind InputKind { get; }
+
+    public int AcceptedInputCount { get; }
+
+    public CadPoint3D? CurrentPoint { get; }
+
+    public CadPolygonAuthoringSnapshot? Snapshot { get; }
+
+    public string? ErrorMessage { get; }
+
+    internal CadPolygonAuthoringChangedEventArgs(
+        CadPolygonAuthoringStage stage,
+        int sideCount,
+        CadPolygonAuthoringMode mode,
+        CadPolygonAuthoringInputKind inputKind,
+        int acceptedInputCount,
+        CadPoint3D? currentPoint = null,
+        CadPolygonAuthoringSnapshot? snapshot = null,
+        string? errorMessage = null)
+    {
+        Stage = stage;
+        SideCount = sideCount;
+        Mode = mode;
+        InputKind = inputKind;
+        AcceptedInputCount = acceptedInputCount;
+        CurrentPoint = currentPoint;
+        Snapshot = snapshot;
+        ErrorMessage = errorMessage;
+    }
+}
+
 /// <summary>
 /// Common general properties for the current semantic model-space selection.
 /// A null common property means selected entities have different persisted values;
@@ -378,12 +428,14 @@ public sealed class CadSampleCanvas : FrameworkElement
     private GpuPicture? _pointMarkerPicture;
     private GpuPicture? _lineAuthoringPicture;
     private GpuPicture? _polylineAuthoringPicture;
+    private GpuPicture? _polygonAuthoringPicture;
     private CadDocumentHistory? _history;
     private CadLineAuthoringSession? _lineAuthoring;
     private CadPolylineAuthoringSession? _polylineAuthoring;
     private CadCircleAuthoringSession? _circleAuthoring;
     private CadArcAuthoringSession? _arcAuthoring;
     private CadEllipseAuthoringSession? _ellipseAuthoring;
+    private CadPolygonAuthoringSession? _polygonAuthoring;
     private CadBounds3D _bounds;
     private CadBounds3D _selectedBounds;
     private CadBounds3D _drawOrderReferenceBounds;
@@ -564,6 +616,24 @@ public sealed class CadSampleCanvas : FrameworkElement
     public CadPoint3D? PendingEllipseCurrentPoint =>
         _ellipseAuthoring?.CurrentPoint;
 
+    /// <summary>Whether one bounded regular plan-view POLYGON is active.</summary>
+    public bool IsPolygonAuthoring => _polygonAuthoring is not null;
+
+    public int PendingPolygonSideCount =>
+        _polygonAuthoring?.SideCount ?? 0;
+
+    public CadPolygonAuthoringMode? PendingPolygonAuthoringMode =>
+        _polygonAuthoring?.Mode;
+
+    public CadPolygonAuthoringInputKind? PendingPolygonInputKind =>
+        _polygonAuthoring?.InputKind;
+
+    public int PendingPolygonAcceptedInputCount =>
+        _polygonAuthoring?.AcceptedInputCount ?? 0;
+
+    public CadPoint3D? PendingPolygonCurrentPoint =>
+        _polygonAuthoring?.CurrentPoint;
+
     public CadPolylineAuthoringMode PolylineAuthoringMode
     {
         get => _polylineAuthoring?.Mode ?? CadPolylineAuthoringMode.Line;
@@ -600,7 +670,8 @@ public sealed class CadSampleCanvas : FrameworkElement
         _polylineAuthoring is not null ||
         _circleAuthoring is not null ||
         _arcAuthoring is not null ||
-        _ellipseAuthoring is not null;
+        _ellipseAuthoring is not null ||
+        _polygonAuthoring is not null;
 
     /// <summary>Running object-snap modes used by MOVE/COPY point prompts.</summary>
     public CadObjectSnapModes ObjectSnapModes
@@ -1043,6 +1114,13 @@ public sealed class CadSampleCanvas : FrameworkElement
         EllipseAuthoringChanged;
 
     /// <summary>
+    /// Raised for accepted POLYGON inputs, completion, cancellation, and failure.
+    /// Pointer motion does not allocate events.
+    /// </summary>
+    public event EventHandler<CadPolygonAuthoringChangedEventArgs>?
+        PolygonAuthoringChanged;
+
+    /// <summary>
     /// Raised when cursor-direction availability changes for typed point input.
     /// </summary>
     public event EventHandler? PointTransformInputAvailabilityChanged;
@@ -1233,6 +1311,7 @@ public sealed class CadSampleCanvas : FrameworkElement
             ResetCircleAuthoringState();
             ResetArcAuthoringState();
             ResetEllipseAuthoringState();
+            ResetPolygonAuthoringState();
             ResetSelectionState(notify: false);
             _needsFit = true;
         }
@@ -1313,7 +1392,8 @@ public sealed class CadSampleCanvas : FrameworkElement
             _hasPointTransformBasePoint)
         {
             Vector2 basePoint = viewport.WorldToScreen(_pointTransformBasePoint);
-            if (!DrawPendingEllipse(context, viewport) &&
+            if (!DrawPendingPolygon(context, viewport) &&
+                !DrawPendingEllipse(context, viewport) &&
                 !DrawPendingArc(context, viewport) &&
                 !DrawPendingCircle(context, viewport) &&
                 !DrawPendingPolylineArc(context, viewport, basePoint))
@@ -1511,6 +1591,83 @@ public sealed class CadSampleCanvas : FrameworkElement
             // cannot be represented by the current float viewport.
         }
         return true;
+    }
+
+    private bool DrawPendingPolygon(
+        DrawingContext context,
+        CadPlanViewport viewport)
+    {
+        CadPolygonAuthoringSession? authoring = _polygonAuthoring;
+        GpuPicture? picture = _polygonAuthoringPicture;
+        if (authoring is null ||
+            picture is null ||
+            authoring.FirstPoint is not CadPoint3D firstPoint)
+        {
+            return false;
+        }
+
+        try
+        {
+            CadPoint3D previewPoint = viewport.ScreenToWorld(
+                _pointTransformCurrent,
+                firstPoint.Z);
+            if (authoring.TryPreviewPoint(
+                    previewPoint,
+                    out CadPolygonAuthoringSnapshot snapshot))
+            {
+                DrawPolygonAuthoringSnapshot(
+                    context,
+                    viewport,
+                    picture,
+                    snapshot);
+            }
+
+            context.DrawLine(
+                _drawOrderReferencePen,
+                viewport.WorldToScreen(firstPoint),
+                _pointTransformCurrent);
+        }
+        catch (ArgumentException)
+        {
+            // A non-representable live pointer never mutates accepted state.
+        }
+        return true;
+    }
+
+    private static void DrawPolygonAuthoringSnapshot(
+        DrawingContext context,
+        CadPlanViewport viewport,
+        GpuPicture picture,
+        CadPolygonAuthoringSnapshot snapshot)
+    {
+        Vector2 center = viewport.WorldToScreen(snapshot.Center);
+        double cosine = Math.Cos(snapshot.FirstVertexAngle);
+        double sine = Math.Sin(snapshot.FirstVertexAngle);
+        Vector2 xEnd = viewport.WorldToScreen(new CadPoint3D(
+            snapshot.Center.X + (snapshot.Circumradius * cosine),
+            snapshot.Center.Y + (snapshot.Circumradius * sine),
+            snapshot.Center.Z));
+        Vector2 yEnd = viewport.WorldToScreen(new CadPoint3D(
+            snapshot.Center.X - (snapshot.Circumradius * sine),
+            snapshot.Center.Y + (snapshot.Circumradius * cosine),
+            snapshot.Center.Z));
+        Vector2 xAxis = xEnd - center;
+        Vector2 yAxis = yEnd - center;
+        if (!float.IsFinite(xAxis.X) || !float.IsFinite(xAxis.Y) ||
+            !float.IsFinite(yAxis.X) || !float.IsFinite(yAxis.Y) ||
+            xAxis.LengthSquared() <= 0.0f ||
+            yAxis.LengthSquared() <= 0.0f)
+        {
+            return;
+        }
+
+        context.DrawPictureTransformed(
+            picture,
+            new Matrix4x4(
+                xAxis.X, xAxis.Y, 0.0f, 0.0f,
+                yAxis.X, yAxis.Y, 0.0f, 0.0f,
+                0.0f, 0.0f, 1.0f, 0.0f,
+                center.X, center.Y, 0.0f, 1.0f));
     }
 
     private bool DrawPendingEllipse(
@@ -1948,6 +2105,7 @@ public sealed class CadSampleCanvas : FrameworkElement
         ResetCircleAuthoringState();
         ResetArcAuthoringState();
         ResetEllipseAuthoringState();
+        ResetPolygonAuthoringState();
         ResetSelectionState(notify: true);
         Invalidate();
     }
@@ -3147,6 +3305,297 @@ public sealed class CadSampleCanvas : FrameworkElement
             _ = viewport.WorldToScreen(snapshot.Center);
             _ = viewport.WorldToScreen(snapshot.StartPoint);
             _ = viewport.WorldToScreen(snapshot.EndPoint);
+            return true;
+        }
+        catch (ArgumentException)
+        {
+            return false;
+        }
+    }
+
+    /// <summary>Starts one bounded regular plan-view POLYGON.</summary>
+    public bool BeginPolygonAuthoring(
+        int sideCount,
+        CadPolygonAuthoringMode mode)
+    {
+        _ = new CadPolygonSideCount(sideCount);
+        if (!Enum.IsDefined(mode))
+        {
+            throw new ArgumentOutOfRangeException(nameof(mode));
+        }
+        if (CurrentSession is null || CurrentSnapshot is null)
+        {
+            return false;
+        }
+        ThrowIfDrawOrderReferenceSelectionPending();
+        if (IsPointAcquisitionActive)
+        {
+            throw new InvalidOperationException(
+                "Complete the pending point-acquisition command first.");
+        }
+
+        GpuPicture preview = CreatePolygonAuthoringPicture(sideCount);
+        _polygonAuthoring = new CadPolygonAuthoringSession(sideCount, mode);
+        _polygonAuthoringPicture = preview;
+        _hasPointTransformBasePoint = false;
+        _isPointTransformPointerPressed = false;
+        ClearPointTransformSnapState();
+        PolygonAuthoringChanged?.Invoke(
+            this,
+            new CadPolygonAuthoringChangedEventArgs(
+                CadPolygonAuthoringStage.AwaitingFirstPoint,
+                sideCount,
+                mode,
+                _polygonAuthoring.InputKind,
+                acceptedInputCount: 0));
+        Invalidate();
+        return true;
+    }
+
+    public bool CanAcceptPolygonAuthoringInput(string? text)
+    {
+        CadPolygonAuthoringSession? authoring = _polygonAuthoring;
+        if (authoring is null)
+        {
+            return false;
+        }
+
+        if (authoring.AcceptsScalarInput &&
+            CadDirectDistanceInput.TryParse(
+                text,
+                out CadDirectDistanceInput radius) &&
+            TryGetPolygonBottomDirection(out CadPoint3D bottomDirection) &&
+            authoring.TryCreateFromRadius(
+                radius.Distance,
+                bottomDirection,
+                out CadPolygonAuthoringSnapshot scalarSnapshot,
+                out _))
+        {
+            return CanRepresentPolygonSnapshot(scalarSnapshot);
+        }
+
+        if (!TryResolvePolygonPointInput(text, out CadPoint3D point, out _))
+        {
+            return false;
+        }
+        if (!authoring.CanAcceptPoint(point))
+        {
+            return false;
+        }
+        if (authoring.TryPreviewPoint(point, out CadPolygonAuthoringSnapshot snapshot))
+        {
+            return CanRepresentPolygonSnapshot(snapshot);
+        }
+        try
+        {
+            _ = CreateViewport().WorldToScreen(point);
+            return true;
+        }
+        catch (ArgumentException)
+        {
+            return false;
+        }
+    }
+
+    public bool TryAcceptPolygonAuthoringInput(
+        string? text,
+        out string? errorMessage)
+    {
+        errorMessage = null;
+        CadPolygonAuthoringSession? authoring = _polygonAuthoring;
+        if (authoring is null)
+        {
+            errorMessage = "No POLYGON command is awaiting input.";
+            return false;
+        }
+
+        if (authoring.AcceptsScalarInput &&
+            CadDirectDistanceInput.TryParse(
+                text,
+                out CadDirectDistanceInput radius))
+        {
+            if (!TryGetPolygonBottomDirection(out CadPoint3D bottomDirection) ||
+                !authoring.TryCreateFromRadius(
+                    radius.Distance,
+                    bottomDirection,
+                    out CadPolygonAuthoringSnapshot scalarSnapshot,
+                    out errorMessage))
+            {
+                NotifyPolygonAuthoringFailure(authoring, errorMessage);
+                return false;
+            }
+            return TryCommitPolygonAuthoringSnapshot(
+                authoring,
+                scalarSnapshot,
+                finalPoint: null,
+                out errorMessage);
+        }
+
+        if (!TryResolvePolygonPointInput(text, out CadPoint3D point, out errorMessage))
+        {
+            return false;
+        }
+        Vector2 screenPoint;
+        try
+        {
+            screenPoint = CreateViewport().WorldToScreen(point);
+        }
+        catch (ArgumentException)
+        {
+            errorMessage =
+                "The POLYGON point cannot be represented by the current plan viewport.";
+            return false;
+        }
+        return TryAcceptPolygonAuthoringPoint(point, screenPoint, out errorMessage);
+    }
+
+    /// <summary>Cancels POLYGON without changing the document or history.</summary>
+    public bool CancelPolygonAuthoring()
+    {
+        CadPolygonAuthoringSession? authoring = _polygonAuthoring;
+        if (authoring is null)
+        {
+            return false;
+        }
+
+        int sideCount = authoring.SideCount;
+        CadPolygonAuthoringMode mode = authoring.Mode;
+        CadPolygonAuthoringInputKind inputKind = authoring.InputKind;
+        int acceptedInputCount = authoring.AcceptedInputCount;
+        CadPoint3D? currentPoint = authoring.CurrentPoint;
+        ResetPolygonAuthoringState();
+        PolygonAuthoringChanged?.Invoke(
+            this,
+            new CadPolygonAuthoringChangedEventArgs(
+                CadPolygonAuthoringStage.Canceled,
+                sideCount,
+                mode,
+                inputKind,
+                acceptedInputCount,
+                currentPoint));
+        Invalidate();
+        return true;
+    }
+
+    private bool TryResolvePolygonPointInput(
+        string? text,
+        out CadPoint3D point,
+        out string? errorMessage)
+    {
+        point = default;
+        errorMessage = null;
+        if (!CadCoordinateInput.TryParse(text, out CadCoordinateInput coordinate))
+        {
+            if (!CadDirectDistanceInput.TryParse(
+                    text,
+                    out CadDirectDistanceInput distance))
+            {
+                errorMessage =
+                    "Enter x,y[,z], @dx,dy[,dz], distance<angle, @distance<angle, or a positive direct distance using invariant numbers.";
+                return false;
+            }
+            if (!_hasPointTransformBasePoint)
+            {
+                errorMessage =
+                    "Accept an absolute first point before entering a direct distance.";
+                return false;
+            }
+            if (!_hasPointTransformPointerPosition)
+            {
+                errorMessage =
+                    "Move the cursor from the current POLYGON point before entering an edge distance.";
+                return false;
+            }
+            if (!TryResolvePointTransformDirectDistance(distance, out point))
+            {
+                errorMessage =
+                    "The cursor direction and distance do not resolve to a finite WCS point.";
+                return false;
+            }
+            return true;
+        }
+
+        if (!_hasPointTransformBasePoint && coordinate.IsRelative)
+        {
+            errorMessage =
+                "Enter an absolute first point before using a relative coordinate.";
+            return false;
+        }
+        CadPoint3D origin = _hasPointTransformBasePoint
+            ? _pointTransformBasePoint
+            : CadPoint3D.Zero;
+        if (!coordinate.TryResolve(origin, out point))
+        {
+            errorMessage = "The coordinate resolves outside finite WCS values.";
+            return false;
+        }
+        return true;
+    }
+
+    private bool TryGetPolygonBottomDirection(out CadPoint3D direction)
+    {
+        CadPlanGridSnapSettings settings = _planGridSnapSettings;
+        CadPoint3D rectangularY;
+        if (settings.Style == CadPlanGridSnapStyle.Rectangular)
+        {
+            rectangularY = settings.YAxis;
+        }
+        else
+        {
+            rectangularY = settings.Isoplane switch
+            {
+                CadPlanIsoplane.Left => settings.XAxis,
+                CadPlanIsoplane.Top => settings.XAxis + settings.YAxis,
+                CadPlanIsoplane.Right => settings.YAxis,
+                _ => default,
+            };
+        }
+        direction = rectangularY * -1.0;
+        return double.IsFinite(direction.X) &&
+            double.IsFinite(direction.Y) &&
+            ((direction.X * direction.X) +
+                (direction.Y * direction.Y)) > 0.0;
+    }
+
+    private GpuPicture CreatePolygonAuthoringPicture(int sideCount)
+    {
+        var recorder = new GpuPictureRecorder();
+        DrawingContext target = recorder.BeginRecording(new Rect(-2, -2, 4, 4));
+        try
+        {
+            double step = (Math.PI * 2.0) / sideCount;
+            var path = new PathGeometry();
+            var figure = new PathFigure(new Vector2(1.0f, 0.0f))
+            {
+                IsFilled = false,
+                IsClosed = true,
+            };
+            for (int index = 1; index < sideCount; index++)
+            {
+                double angle = index * step;
+                figure.Segments.Add(new LineSegment(new Vector2(
+                    (float)Math.Cos(angle),
+                    (float)Math.Sin(angle))));
+            }
+            path.Figures.Add(figure);
+            target.DrawPath(null, _drawOrderReferencePen, path);
+            return recorder.EndRecording();
+        }
+        catch
+        {
+            target.Clear();
+            throw;
+        }
+    }
+
+    private bool CanRepresentPolygonSnapshot(CadPolygonAuthoringSnapshot snapshot)
+    {
+        try
+        {
+            CadPlanViewport viewport = CreateViewport();
+            _ = viewport.WorldToScreen(snapshot.Center);
+            _ = viewport.WorldToScreen(snapshot.VertexAt(0));
+            _ = viewport.WorldToScreen(snapshot.VertexAt(1));
             return true;
         }
         catch (ArgumentException)
@@ -5168,7 +5617,8 @@ public sealed class CadSampleCanvas : FrameworkElement
         CadPoint3D pointerWorld = (_polylineAuthoring is not null ||
                 _circleAuthoring is not null ||
                 _arcAuthoring is not null ||
-                _ellipseAuthoring is not null) &&
+                _ellipseAuthoring is not null ||
+                _polygonAuthoring is not null) &&
             _hasPointTransformBasePoint
             ? viewport.ScreenToWorld(screenPoint, _pointTransformBasePoint.Z)
             : viewport.ScreenToWorld(screenPoint);
@@ -5648,9 +6098,10 @@ public sealed class CadSampleCanvas : FrameworkElement
         if (operation is null &&
             _lineAuthoring is null &&
             _polylineAuthoring is null &&
-            _circleAuthoring is null &&
-            _arcAuthoring is null &&
-            _ellipseAuthoring is null)
+                _circleAuthoring is null &&
+                _arcAuthoring is null &&
+                _ellipseAuthoring is null &&
+                _polygonAuthoring is null)
         {
             return;
         }
@@ -5661,7 +6112,8 @@ public sealed class CadSampleCanvas : FrameworkElement
             point = (_polylineAuthoring is not null ||
                     _circleAuthoring is not null ||
                     _arcAuthoring is not null ||
-                    _ellipseAuthoring is not null) &&
+                    _ellipseAuthoring is not null ||
+                    _polygonAuthoring is not null) &&
                 _hasPointTransformBasePoint
                 ? CreateViewport().ScreenToWorld(
                     screenPoint,
@@ -5725,7 +6177,7 @@ public sealed class CadSampleCanvas : FrameworkElement
                         _arcAuthoring?.CurrentPoint,
                         errorMessage: exception.Message));
             }
-            else
+            else if (_ellipseAuthoring is not null)
             {
                 EllipseAuthoringChanged?.Invoke(
                     this,
@@ -5739,6 +6191,21 @@ public sealed class CadSampleCanvas : FrameworkElement
                             CadEllipseAuthoringInputKind.FirstAxisPoint,
                         _ellipseAuthoring?.AcceptedInputCount ?? 0,
                         _ellipseAuthoring?.CurrentPoint,
+                        errorMessage: exception.Message));
+            }
+            else
+            {
+                PolygonAuthoringChanged?.Invoke(
+                    this,
+                    new CadPolygonAuthoringChangedEventArgs(
+                        CadPolygonAuthoringStage.Failed,
+                        _polygonAuthoring?.SideCount ?? 0,
+                        _polygonAuthoring?.Mode ??
+                            CadPolygonAuthoringMode.Inscribed,
+                        _polygonAuthoring?.InputKind ??
+                            CadPolygonAuthoringInputKind.CenterPoint,
+                        _polygonAuthoring?.AcceptedInputCount ?? 0,
+                        _polygonAuthoring?.CurrentPoint,
                         errorMessage: exception.Message));
             }
             Invalidate();
@@ -5775,6 +6242,11 @@ public sealed class CadSampleCanvas : FrameworkElement
         if (_ellipseAuthoring is not null)
         {
             _ = TryAcceptEllipseAuthoringPoint(point, screenPoint, out _);
+            return;
+        }
+        if (_polygonAuthoring is not null)
+        {
+            _ = TryAcceptPolygonAuthoringPoint(point, screenPoint, out _);
             return;
         }
 
@@ -6267,6 +6739,139 @@ public sealed class CadSampleCanvas : FrameworkElement
         _hasPointTransformBasePoint = true;
     }
 
+    private bool TryAcceptPolygonAuthoringPoint(
+        CadPoint3D point,
+        Vector2? screenPoint,
+        out string? errorMessage)
+    {
+        errorMessage = null;
+        CadPolygonAuthoringSession? authoring = _polygonAuthoring;
+        if (authoring is null)
+        {
+            errorMessage = "No POLYGON command is active.";
+            return false;
+        }
+
+        try
+        {
+            _ = screenPoint ?? CreateViewport().WorldToScreen(point);
+        }
+        catch (ArgumentException exception)
+        {
+            errorMessage = exception.Message;
+            NotifyPolygonAuthoringFailure(authoring, errorMessage);
+            return false;
+        }
+
+        if (!authoring.TryAcceptPoint(
+                point,
+                out CadPolygonAuthoringSnapshot snapshot,
+                out bool completed,
+                out errorMessage))
+        {
+            NotifyPolygonAuthoringFailure(authoring, errorMessage);
+            return false;
+        }
+        if (completed)
+        {
+            return TryCommitPolygonAuthoringSnapshot(
+                authoring,
+                snapshot,
+                point,
+                out errorMessage);
+        }
+
+        UpdatePolygonAcquisitionBase(authoring);
+        PolygonAuthoringChanged?.Invoke(
+            this,
+            new CadPolygonAuthoringChangedEventArgs(
+                CadPolygonAuthoringStage.AwaitingFinalInput,
+                authoring.SideCount,
+                authoring.Mode,
+                authoring.InputKind,
+                authoring.AcceptedInputCount,
+                point));
+        Invalidate();
+        return true;
+    }
+
+    private bool TryCommitPolygonAuthoringSnapshot(
+        CadPolygonAuthoringSession authoring,
+        CadPolygonAuthoringSnapshot snapshot,
+        CadPoint3D? finalPoint,
+        out string? errorMessage)
+    {
+        errorMessage = null;
+        CadDocumentSession session = CurrentSession ??
+            throw new InvalidOperationException("No CAD document is loaded.");
+        CadDocumentHistory history = _history ??
+            throw new InvalidOperationException(
+                "The CAD edit history is not initialized.");
+        try
+        {
+            history.Execute(new CadAddPolylineCommand(
+                snapshot.CreatePolylineSnapshot(),
+                description:
+                    $"POLYGON: add {authoring.SideCount} {authoring.Mode}"));
+            int sideCount = authoring.SideCount;
+            CadPolygonAuthoringMode mode = authoring.Mode;
+            CadPolygonAuthoringInputKind inputKind = authoring.InputKind;
+            int acceptedInputCount = authoring.AcceptedInputCount + 1;
+            ResetPolygonAuthoringState();
+            RecompileAfterEdit(session);
+            PolygonAuthoringChanged?.Invoke(
+                this,
+                new CadPolygonAuthoringChangedEventArgs(
+                    CadPolygonAuthoringStage.Completed,
+                    sideCount,
+                    mode,
+                    inputKind,
+                    acceptedInputCount,
+                    finalPoint,
+                    snapshot));
+            return true;
+        }
+        catch (Exception exception)
+        {
+            errorMessage = exception.Message;
+            NotifyPolygonAuthoringFailure(authoring, errorMessage);
+            return false;
+        }
+    }
+
+    private void NotifyPolygonAuthoringFailure(
+        CadPolygonAuthoringSession authoring,
+        string? errorMessage)
+    {
+        PolygonAuthoringChanged?.Invoke(
+            this,
+            new CadPolygonAuthoringChangedEventArgs(
+                CadPolygonAuthoringStage.Failed,
+                authoring.SideCount,
+                authoring.Mode,
+                authoring.InputKind,
+                authoring.AcceptedInputCount,
+                authoring.CurrentPoint,
+                errorMessage: errorMessage));
+        Invalidate();
+    }
+
+    private void UpdatePolygonAcquisitionBase(
+        CadPolygonAuthoringSession authoring)
+    {
+        ClearPointTransformSnapState();
+        CadPoint3D? acquisitionBase = authoring.AcquisitionBasePoint;
+        if (acquisitionBase is not CadPoint3D point)
+        {
+            _hasPointTransformBasePoint = false;
+            return;
+        }
+
+        _pointTransformBasePoint = point;
+        _pointTransformCurrent = CreateViewport().WorldToScreen(point);
+        _hasPointTransformBasePoint = true;
+    }
+
     private void AcceptPointTransformPoint(
         CadPoint3D point,
         Vector2? screenPoint)
@@ -6590,6 +7195,18 @@ public sealed class CadSampleCanvas : FrameworkElement
         ClearPointTransformSnapState();
     }
 
+    private void ResetPolygonAuthoringState()
+    {
+        _polygonAuthoring = null;
+        _polygonAuthoringPicture?.Dispose();
+        _polygonAuthoringPicture = null;
+        _hasPointTransformBasePoint = false;
+        _isPointTransformPointerPressed = false;
+        _pointTransformBasePoint = default;
+        _pointTransformCurrent = default;
+        ClearPointTransformSnapState();
+    }
+
     private void ResetSelectionState(bool notify)
     {
         _selectedHandleCount = 0;
@@ -6842,6 +7459,7 @@ public sealed class CadSampleCanvas : FrameworkElement
         ResetCircleAuthoringState();
         ResetArcAuthoringState();
         ResetEllipseAuthoringState();
+        ResetPolygonAuthoringState();
         _picture?.Dispose();
         _picture = null;
         _constructionPicture?.Dispose();

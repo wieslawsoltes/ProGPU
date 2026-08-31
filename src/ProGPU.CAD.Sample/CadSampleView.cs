@@ -74,6 +74,9 @@ public sealed class CadSampleView : Grid
     private readonly ComboBox _ellipseModeSelector;
     private readonly ComboBox _ellipseArcInputSelector;
     private readonly Button _ellipseButton;
+    private readonly TextBox _polygonSideCountInput;
+    private readonly ComboBox _polygonModeSelector;
+    private readonly Button _polygonButton;
     private readonly Button[] _drawOrderButtons;
     private readonly Button[] _moveButtons;
     private readonly Button[] _copyButtons;
@@ -332,6 +335,12 @@ public sealed class CadSampleView : Grid
     public ComboBox EllipseArcInputSelector => _ellipseArcInputSelector;
 
     public Button EllipseButton => _ellipseButton;
+
+    public TextBox PolygonSideCountInput => _polygonSideCountInput;
+
+    public ComboBox PolygonModeSelector => _polygonModeSelector;
+
+    public Button PolygonButton => _polygonButton;
 
     public ComboBox SelectionAttributeSelector =>
         _selectionAttributeSelector;
@@ -659,6 +668,37 @@ public sealed class CadSampleView : Grid
         }
         _ellipseArcInputSelector.SelectedIndex = 0;
         _ellipseButton = CreateButton("Ellipse", font, 76, 30);
+        _polygonSideCountInput = new TextBox
+        {
+            Text = "4",
+            Font = font,
+            WidthConstraint = 52,
+            HeightConstraint = 30,
+            IsSpellCheckEnabled = false,
+            Margin = new Thickness(0, 0, 4, 0),
+        };
+        _polygonModeSelector = new ComboBox
+        {
+            WidthConstraint = 138,
+            HeightConstraint = 30,
+            Font = font,
+            FontSize = 11,
+            Margin = new Thickness(0, 0, 4, 0),
+        };
+        foreach ((CadPolygonAuthoringMode mode, string label) in new[]
+        {
+            (CadPolygonAuthoringMode.Inscribed, "Polygon Inscribed"),
+            (CadPolygonAuthoringMode.Circumscribed, "Polygon Circumscribed"),
+            (CadPolygonAuthoringMode.Edge, "Polygon Edge"),
+        })
+        {
+            _polygonModeSelector.Items.Add(new ComboBoxItem(label)
+            {
+                Tag = mode,
+            });
+        }
+        _polygonModeSelector.SelectedIndex = 0;
+        _polygonButton = CreateButton("Polygon", font, 78, 30);
         Button sendToBack = CreateButton("To back", font, 76, 30);
         Button bringToFront = CreateButton("To front", font, 76, 30);
         Button bringAbove = CreateButton("Above…", font, 82, 30);
@@ -682,6 +722,7 @@ public sealed class CadSampleView : Grid
         _circleThreePointButton.Margin = new Thickness(0, 0, 4, 0);
         _arcButton.Margin = new Thickness(0, 0, 12, 0);
         _ellipseButton.Margin = new Thickness(0, 0, 12, 0);
+        _polygonButton.Margin = new Thickness(0, 0, 12, 0);
         sendToBack.Margin = new Thickness(0, 0, 4, 0);
         bringToFront.Margin = new Thickness(0, 0, 4, 0);
         bringAbove.Margin = new Thickness(0, 0, 4, 0);
@@ -709,6 +750,9 @@ public sealed class CadSampleView : Grid
         editActions.AddChild(_ellipseModeSelector);
         editActions.AddChild(_ellipseArcInputSelector);
         editActions.AddChild(_ellipseButton);
+        editActions.AddChild(_polygonSideCountInput);
+        editActions.AddChild(_polygonModeSelector);
+        editActions.AddChild(_polygonButton);
         editActions.AddChild(sendToBack);
         editActions.AddChild(bringToFront);
         editActions.AddChild(bringAbove);
@@ -2194,6 +2238,19 @@ public sealed class CadSampleView : Grid
         _ellipseModeSelector.SelectionChanged += (_, _) => UpdateEditControls();
         _ellipseArcInputSelector.SelectionChanged += (_, _) =>
             UpdateEditControls();
+        _polygonButton.Click += (_, _) =>
+        {
+            if (CadPolygonSideCount.TryParse(
+                    _polygonSideCountInput.Text,
+                    out CadPolygonSideCount sideCount) &&
+                (_polygonModeSelector.SelectedItem as ComboBoxItem)?.Tag is
+                    CadPolygonAuthoringMode mode)
+            {
+                BeginPolygonAuthoring(sideCount.Value, mode);
+            }
+        };
+        _polygonSideCountInput.TextChanged += (_, _) => UpdateEditControls();
+        _polygonModeSelector.SelectionChanged += (_, _) => UpdateEditControls();
         sendToBack.Click += (_, _) =>
             SetSelectionDrawOrder(CadDrawOrderPlacement.SendToBack);
         bringToFront.Click += (_, _) =>
@@ -2435,6 +2492,12 @@ public sealed class CadSampleView : Grid
             SetStatus(DescribeEllipseAuthoring(args));
             UpdateEditControls();
         };
+        _canvas.PolygonAuthoringChanged += (_, args) =>
+        {
+            _pointTransformInput.Text = string.Empty;
+            SetStatus(DescribePolygonAuthoring(args));
+            UpdateEditControls();
+        };
         _canvas.PointTransformInputAvailabilityChanged += (_, _) =>
             UpdateEditControls();
         _canvas.SnapshotChanged += (_, _) =>
@@ -2472,6 +2535,16 @@ public sealed class CadSampleView : Grid
                 _currentDocumentName,
                 _currentDiagnosticCount));
             UpdateEditControls();
+            e.Handled = true;
+            return;
+        }
+
+        if (!e.Handled &&
+            _canvas.IsPolygonAuthoring &&
+            e.Key == Key.Escape &&
+            FocusManager.GetFocusedElement() is not TextBox)
+        {
+            _canvas.CancelPolygonAuthoring();
             e.Handled = true;
             return;
         }
@@ -5219,6 +5292,30 @@ public sealed class CadSampleView : Grid
         UpdateEditControls();
     }
 
+    private void BeginPolygonAuthoring(
+        int sideCount,
+        CadPolygonAuthoringMode mode)
+    {
+        if (_isBusy)
+        {
+            return;
+        }
+
+        try
+        {
+            _pointTransformInput.Text = string.Empty;
+            if (!_canvas.BeginPolygonAuthoring(sideCount, mode))
+            {
+                SetStatus("POLYGON requires a loaded plan-view document.");
+            }
+        }
+        catch (Exception exception)
+        {
+            SetStatus($"POLYGON could not start: {exception.Message}");
+        }
+        UpdateEditControls();
+    }
+
     private void AcceptPointInput()
     {
         if (_isBusy)
@@ -5229,7 +5326,13 @@ public sealed class CadSampleView : Grid
         string input = _pointTransformInput.Text;
         bool accepted;
         string? errorMessage;
-        if (_canvas.IsEllipseAuthoring)
+        if (_canvas.IsPolygonAuthoring)
+        {
+            accepted = _canvas.TryAcceptPolygonAuthoringInput(
+                input,
+                out errorMessage);
+        }
+        else if (_canvas.IsEllipseAuthoring)
         {
             accepted = _canvas.TryAcceptEllipseAuthoringInput(
                 input,
@@ -5571,6 +5674,48 @@ public sealed class CadSampleView : Grid
             "enter the end parameter in degrees",
         CadEllipseAuthoringInputKind.IncludedAngleRadians =>
             "enter the signed included angle in degrees",
+        _ => throw new ArgumentOutOfRangeException(nameof(inputKind)),
+    };
+
+    private static string DescribePolygonAuthoring(
+        CadPolygonAuthoringChangedEventArgs args) => args.Stage switch
+    {
+        CadPolygonAuthoringStage.AwaitingFirstPoint =>
+            $"POLYGON {args.SideCount} {DescribePolygonMode(args.Mode)}: " +
+            $"{DescribePolygonPrompt(args.InputKind)}; Escape cancels.",
+        CadPolygonAuthoringStage.AwaitingFinalInput =>
+            $"POLYGON {args.SideCount} {DescribePolygonMode(args.Mode)}: " +
+            $"{DescribePolygonPrompt(args.InputKind)}; Escape cancels.",
+        CadPolygonAuthoringStage.Completed =>
+            $"POLYGON {args.SideCount} {DescribePolygonMode(args.Mode)} created " +
+            $"center {FormatPoint(args.Snapshot!.Value.Center)}, circumradius " +
+            $"{args.Snapshot.Value.Circumradius:G17}.",
+        CadPolygonAuthoringStage.Canceled => "POLYGON canceled.",
+        CadPolygonAuthoringStage.Failed =>
+            $"POLYGON failed: {args.ErrorMessage}",
+        _ => throw new ArgumentOutOfRangeException(nameof(args)),
+    };
+
+    private static string DescribePolygonMode(CadPolygonAuthoringMode mode) =>
+        mode switch
+        {
+            CadPolygonAuthoringMode.Inscribed => "Inscribed",
+            CadPolygonAuthoringMode.Circumscribed => "Circumscribed",
+            CadPolygonAuthoringMode.Edge => "Edge",
+            _ => throw new ArgumentOutOfRangeException(nameof(mode)),
+        };
+
+    private static string DescribePolygonPrompt(
+        CadPolygonAuthoringInputKind inputKind) => inputKind switch
+    {
+        CadPolygonAuthoringInputKind.CenterPoint =>
+            "specify the center point by click or absolute WCS coordinate",
+        CadPolygonAuthoringInputKind.FirstEdgePoint =>
+            "specify the first edge point by click or absolute WCS coordinate",
+        CadPolygonAuthoringInputKind.RadiusPoint =>
+            "specify a radius point by click/coordinate, or enter a positive radius",
+        CadPolygonAuthoringInputKind.SecondEdgePoint =>
+            "specify the second edge point by click, coordinate, or direct distance",
         _ => throw new ArgumentOutOfRangeException(nameof(inputKind)),
     };
 
@@ -6347,10 +6492,11 @@ public sealed class CadSampleView : Grid
         bool isCircleAuthoring = _canvas.IsCircleAuthoring;
         bool isArcAuthoring = _canvas.IsArcAuthoring;
         bool isEllipseAuthoring = _canvas.IsEllipseAuthoring;
+        bool isPolygonAuthoring = _canvas.IsPolygonAuthoring;
         bool isPointInputActive =
             isPointTransformPicking || isLineAuthoring ||
             isPolylineAuthoring || isCircleAuthoring || isArcAuthoring ||
-            isEllipseAuthoring;
+            isEllipseAuthoring || isPolygonAuthoring;
         bool isInteractivePicking =
             isReferencePicking || isPointInputActive;
         bool canUsePlanTools =
@@ -6469,6 +6615,16 @@ public sealed class CadSampleView : Grid
                 CadEllipseAuthoringMode &&
             (_ellipseArcInputSelector.SelectedItem as ComboBoxItem)?.Tag is
                 CadEllipseArcInputMode;
+        bool canStartPolygon = canUsePlanTools && !_is3DView &&
+            _canvas.CurrentSession is not null;
+        _polygonSideCountInput.IsEnabled = canStartPolygon;
+        _polygonModeSelector.IsEnabled = canStartPolygon;
+        _polygonButton.IsEnabled = canStartPolygon &&
+            CadPolygonSideCount.TryParse(
+                _polygonSideCountInput.Text,
+                out _) &&
+            (_polygonModeSelector.SelectedItem as ComboBoxItem)?.Tag is
+                CadPolygonAuthoringMode;
         _selectionColorInput.IsEnabled = canTransform;
         _selectionLineWeightSelector.IsEnabled = canTransform;
         _selectionLayerSelector.IsEnabled = canTransform;
@@ -6719,7 +6875,10 @@ public sealed class CadSampleView : Grid
         _acceptPointTransformInputButton.IsEnabled =
             !_isBusy &&
             isPointInputActive &&
-            (isEllipseAuthoring
+            (isPolygonAuthoring
+                ? _canvas.CanAcceptPolygonAuthoringInput(
+                    _pointTransformInput.Text)
+                : isEllipseAuthoring
                 ? _canvas.CanAcceptEllipseAuthoringInput(
                     _pointTransformInput.Text)
                 : isArcAuthoring
