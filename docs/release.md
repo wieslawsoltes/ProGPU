@@ -85,6 +85,20 @@ as one generation-safe Undo/Redo command with DXF/DWG round trips. The ordinary
 line renderer is unchanged, so this adds no shader, native ABI, or one-sided
 managed/native rendering path.
 
+Shared desktop/browser ProGPU.CAD now also provides bounded centerline PLINE
+authoring as one planar `LwPolyline`. Straight and tangent-arc modes preserve
+exact DXF bulges, the real endpoint tangent drives relative polar and direct-
+distance input after either segment kind, `U` removes one segment, and Close
+uses the entity flag with either a straight or tangent closing segment.
+Accepted arcs use one retained analytic path; only the live pointer arc uses a
+DPI-aware allocation-free approximation capped at 512 lines. Completion
+captures current entity properties plus PLINEGEN and publishes one entity as
+one generation-safe Undo/Redo action with DXF/DWG round trips. Nonzero PLINEWID
+fails before mutation until the renderer supports filled wide-polylines, so no
+wide object is silently reduced to a cosmetic centerline. Existing managed and
+native analytic LWPOLYLINE lowering is unchanged; no shader or ABI fork is
+introduced.
+
 The shared ProGPU.CAD plan grid now defaults to AutoCAD's lined model-space
 GRIDSTYLE and exposes a shared desktop/browser Dots toggle. Autodesk documents
 GRIDSTYLE as registry-backed host state, so the toggle intentionally changes no

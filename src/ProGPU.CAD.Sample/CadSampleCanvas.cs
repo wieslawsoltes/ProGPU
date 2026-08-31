@@ -11,6 +11,7 @@ using ProGPU.Backend;
 using ProGPU.Fonts.Inter;
 using ProGPU.Scene;
 using ProGPU.Vector;
+using Windows.Graphics.Display;
 using ACadLayout = ACadSharp.Objects.Layout;
 
 namespace ProGPU.CAD.Sample;
@@ -104,6 +105,49 @@ public sealed class CadLineAuthoringChangedEventArgs : EventArgs
     }
 }
 
+/// <summary>Observable stage of one shared desktop/browser PLINE command.</summary>
+public enum CadPolylineAuthoringStage : byte
+{
+    AwaitingFirstPoint = 0,
+    AwaitingNextPoint = 1,
+    ModeChanged = 2,
+    SegmentUndone = 3,
+    Completed = 4,
+    Failed = 5,
+}
+
+/// <summary>Immutable transition emitted by bounded PLINE authoring.</summary>
+public sealed class CadPolylineAuthoringChangedEventArgs : EventArgs
+{
+    public CadPolylineAuthoringStage Stage { get; }
+
+    public CadPolylineAuthoringMode Mode { get; }
+
+    public int SegmentCount { get; }
+
+    public CadPoint3D? CurrentPoint { get; }
+
+    public bool IsClosed { get; }
+
+    public string? ErrorMessage { get; }
+
+    internal CadPolylineAuthoringChangedEventArgs(
+        CadPolylineAuthoringStage stage,
+        CadPolylineAuthoringMode mode,
+        int segmentCount,
+        CadPoint3D? currentPoint = null,
+        bool isClosed = false,
+        string? errorMessage = null)
+    {
+        Stage = stage;
+        Mode = mode;
+        SegmentCount = segmentCount;
+        CurrentPoint = currentPoint;
+        IsClosed = isClosed;
+        ErrorMessage = errorMessage;
+    }
+}
+
 /// <summary>
 /// Common general properties for the current semantic model-space selection.
 /// A null common property means selected entities have different persisted values;
@@ -166,6 +210,9 @@ public sealed class CadSelectionPropertyCatalog
 /// <summary>Shared interactive retained CAD surface used by desktop and browser hosts.</summary>
 public sealed class CadSampleCanvas : FrameworkElement
 {
+    private const double PolylinePreviewMaximumPhysicalError = 0.25;
+    private const int PolylinePreviewMaximumStepCount = 512;
+
     private const int MaxSelectionPropertyCatalogEntries = 65_536;
     private const int MaxSelectionPropertyCatalogCharacters = 1_048_576;
     private readonly Brush _background = new ThemeResourceBrush("CardBackground");
@@ -196,8 +243,10 @@ public sealed class CadSampleCanvas : FrameworkElement
     private GpuPicture? _constructionPicture;
     private GpuPicture? _pointMarkerPicture;
     private GpuPicture? _lineAuthoringPicture;
+    private GpuPicture? _polylineAuthoringPicture;
     private CadDocumentHistory? _history;
     private CadLineAuthoringSession? _lineAuthoring;
+    private CadPolylineAuthoringSession? _polylineAuthoring;
     private CadBounds3D _bounds;
     private CadBounds3D _selectedBounds;
     private CadBounds3D _drawOrderReferenceBounds;
@@ -315,8 +364,55 @@ public sealed class CadSampleCanvas : FrameworkElement
 
     public CadPoint3D? PendingLineCurrentPoint => _lineAuthoring?.CurrentPoint;
 
+    /// <summary>Whether one bounded model-space PLINE is active.</summary>
+    public bool IsPolylineAuthoring => _polylineAuthoring is not null;
+
+    public int PendingPolylineSegmentCount =>
+        _polylineAuthoring?.SegmentCount ?? 0;
+
+    public bool CanClosePolylineAuthoring =>
+        _polylineAuthoring?.CanClose == true;
+
+    public CadPoint3D? PendingPolylineFirstPoint =>
+        _polylineAuthoring?.FirstPoint;
+
+    public CadPoint3D? PendingPolylineCurrentPoint =>
+        _polylineAuthoring?.CurrentPoint;
+
+    public CadPolylineAuthoringMode PolylineAuthoringMode
+    {
+        get => _polylineAuthoring?.Mode ?? CadPolylineAuthoringMode.Line;
+        set
+        {
+            if (!Enum.IsDefined(value))
+            {
+                throw new ArgumentOutOfRangeException(nameof(value));
+            }
+            CadPolylineAuthoringSession? authoring = _polylineAuthoring;
+            if (authoring is null || authoring.Mode == value)
+            {
+                return;
+            }
+            authoring.Mode = value;
+            if (_hasPointTransformPointerPosition)
+            {
+                UpdatePointTransformPointer(_pointTransformPointerPosition);
+            }
+            PolylineAuthoringChanged?.Invoke(
+                this,
+                new CadPolylineAuthoringChangedEventArgs(
+                    CadPolylineAuthoringStage.ModeChanged,
+                    value,
+                    authoring.SegmentCount,
+                    authoring.CurrentPoint));
+            Invalidate();
+        }
+    }
+
     private bool IsPointAcquisitionActive =>
-        PendingPointTransformOperation is not null || _lineAuthoring is not null;
+        PendingPointTransformOperation is not null ||
+        _lineAuthoring is not null ||
+        _polylineAuthoring is not null;
 
     /// <summary>Running object-snap modes used by MOVE/COPY point prompts.</summary>
     public CadObjectSnapModes ObjectSnapModes
@@ -731,6 +827,13 @@ public sealed class CadSampleCanvas : FrameworkElement
         LineAuthoringChanged;
 
     /// <summary>
+    /// Raised for accepted PLINE points, mode changes, segment Undo,
+    /// completion, and failure. Pointer motion does not allocate events.
+    /// </summary>
+    public event EventHandler<CadPolylineAuthoringChangedEventArgs>?
+        PolylineAuthoringChanged;
+
+    /// <summary>
     /// Raised when cursor-direction availability changes for typed point input.
     /// </summary>
     public event EventHandler? PointTransformInputAvailabilityChanged;
@@ -917,6 +1020,7 @@ public sealed class CadSampleCanvas : FrameworkElement
             ResetDrawOrderReferencePickState(notify: false);
             ResetPointTransformState(notify: false);
             ResetLineAuthoringState();
+            ResetPolylineAuthoringState();
             ResetSelectionState(notify: false);
             _needsFit = true;
         }
@@ -975,6 +1079,10 @@ public sealed class CadSampleCanvas : FrameworkElement
         {
             context.DrawPicture(_lineAuthoringPicture);
         }
+        if (_polylineAuthoringPicture is not null)
+        {
+            context.DrawPicture(_polylineAuthoringPicture);
+        }
         if (!_selectedBounds.IsEmpty)
         {
             context.DrawRectangle(
@@ -993,10 +1101,13 @@ public sealed class CadSampleCanvas : FrameworkElement
             _hasPointTransformBasePoint)
         {
             Vector2 basePoint = viewport.WorldToScreen(_pointTransformBasePoint);
-            context.DrawLine(
-                _drawOrderReferencePen,
-                basePoint,
-                _pointTransformCurrent);
+            if (!DrawPendingPolylineArc(context, viewport, basePoint))
+            {
+                context.DrawLine(
+                    _drawOrderReferencePen,
+                    basePoint,
+                    _pointTransformCurrent);
+            }
             if (!_selectedBounds.IsEmpty)
             {
                 Vector2 displacement = _pointTransformCurrent - basePoint;
@@ -1024,6 +1135,69 @@ public sealed class CadSampleCanvas : FrameworkElement
                 ToScreenRect(_pointerOrigin, _selectionCurrent));
         }
         context.PopClip();
+    }
+
+    private bool DrawPendingPolylineArc(
+        DrawingContext context,
+        CadPlanViewport viewport,
+        Vector2 screenStart)
+    {
+        CadPolylineAuthoringSession? authoring = _polylineAuthoring;
+        if (authoring is null ||
+            authoring.Mode != CadPolylineAuthoringMode.TangentArc ||
+            !authoring.HasFirstPoint)
+        {
+            return false;
+        }
+
+        CadPoint3D endpoint;
+        try
+        {
+            endpoint = viewport.ScreenToWorld(
+                _pointTransformCurrent,
+                authoring.CurrentPoint!.Value.Z);
+        }
+        catch (ArgumentException)
+        {
+            return false;
+        }
+        CadPoint3D start = authoring.CurrentPoint!.Value;
+        if (!authoring.TryGetPendingBulge(endpoint, out double bulge) ||
+            bulge == 0.0 ||
+            !CadPolylineAuthoringSession.TryGetBulgeGeometry(
+                start,
+                endpoint,
+                bulge,
+                out CadPoint3D center,
+                out double radius,
+                out double startAngle,
+                out double sweep))
+        {
+            return false;
+        }
+
+        int stepCount = GetPolylinePreviewStepCount(viewport, radius, sweep);
+        Vector2 previous = screenStart;
+        for (int step = 1; step <= stepCount; step++)
+        {
+            double angle = startAngle + (sweep * (step / (double)stepCount));
+            var point = new CadPoint3D(
+                center.X + (radius * Math.Cos(angle)),
+                center.Y + (radius * Math.Sin(angle)),
+                center.Z);
+            Vector2 current;
+            try
+            {
+                current = viewport.WorldToScreen(point);
+            }
+            catch (ArgumentException)
+            {
+                return true;
+            }
+            context.DrawLine(_drawOrderReferencePen, previous, current);
+            previous = current;
+        }
+        return true;
     }
 
     private void DrawPlanGridDisplay(
@@ -1232,6 +1406,7 @@ public sealed class CadSampleCanvas : FrameworkElement
         ResetDrawOrderReferencePickState(notify: true);
         ResetPointTransformState(notify: true);
         ResetLineAuthoringState();
+        ResetPolylineAuthoringState();
         ResetSelectionState(notify: true);
         Invalidate();
     }
@@ -1679,6 +1854,265 @@ public sealed class CadSampleCanvas : FrameworkElement
                 this,
                 new CadLineAuthoringChangedEventArgs(
                     CadLineAuthoringStage.Failed,
+                    authoring.SegmentCount,
+                    authoring.CurrentPoint,
+                    errorMessage: exception.Message));
+            return false;
+        }
+    }
+
+    /// <summary>
+    /// Starts one bounded planar lightweight-polyline command. Accepted line
+    /// and analytic tangent-arc segments remain transient until completion.
+    /// </summary>
+    public bool BeginPolylineAuthoring(
+        int maximumSegmentCount =
+            CadPolylineAuthoringSession.DefaultMaximumSegmentCount)
+    {
+        if (CurrentSession is null || CurrentSnapshot is null)
+        {
+            return false;
+        }
+        ThrowIfDrawOrderReferenceSelectionPending();
+        if (IsPointAcquisitionActive)
+        {
+            throw new InvalidOperationException(
+                "Complete the pending point-acquisition command first.");
+        }
+
+        _polylineAuthoring = new CadPolylineAuthoringSession(maximumSegmentCount);
+        _hasPointTransformBasePoint = false;
+        _isPointTransformPointerPressed = false;
+        ClearPointTransformSnapState();
+        RefreshPolylineAuthoringPicture();
+        PolylineAuthoringChanged?.Invoke(
+            this,
+            new CadPolylineAuthoringChangedEventArgs(
+                CadPolylineAuthoringStage.AwaitingFirstPoint,
+                CadPolylineAuthoringMode.Line,
+                segmentCount: 0));
+        Invalidate();
+        return true;
+    }
+
+    public bool CanAcceptPolylineAuthoringInput(string? text)
+    {
+        CadPolylineAuthoringSession? authoring = _polylineAuthoring;
+        if (authoring is null)
+        {
+            return false;
+        }
+
+        CadPoint3D point;
+        if (!CadCoordinateInput.TryParse(text, out CadCoordinateInput coordinate))
+        {
+            if (!CadDirectDistanceInput.TryParse(
+                    text,
+                    out CadDirectDistanceInput distance) ||
+                !TryResolvePointTransformDirectDistance(distance, out point))
+            {
+                return false;
+            }
+        }
+        else
+        {
+            if (!_hasPointTransformBasePoint && coordinate.IsRelative)
+            {
+                return false;
+            }
+            CadPoint3D origin = _hasPointTransformBasePoint
+                ? _pointTransformBasePoint
+                : CadPoint3D.Zero;
+            if (!coordinate.TryResolve(origin, out point))
+            {
+                return false;
+            }
+        }
+
+        if (authoring.HasFirstPoint &&
+            !authoring.TryGetPendingBulge(point, out _))
+        {
+            return false;
+        }
+        try
+        {
+            _ = CreateViewport().WorldToScreen(point);
+            return true;
+        }
+        catch (ArgumentException)
+        {
+            return false;
+        }
+    }
+
+    public bool TryAcceptPolylineAuthoringInput(
+        string? text,
+        out string? errorMessage)
+    {
+        errorMessage = null;
+        CadPolylineAuthoringSession? authoring = _polylineAuthoring;
+        if (authoring is null)
+        {
+            errorMessage = "No PLINE command is awaiting point input.";
+            return false;
+        }
+
+        CadPoint3D point;
+        if (!CadCoordinateInput.TryParse(text, out CadCoordinateInput coordinate))
+        {
+            if (!CadDirectDistanceInput.TryParse(
+                    text,
+                    out CadDirectDistanceInput directDistance))
+            {
+                errorMessage =
+                    "Enter x,y[,z], @dx,dy[,dz], distance<angle, @distance<angle, or a positive direct distance using invariant numbers.";
+                return false;
+            }
+            if (!_hasPointTransformBasePoint)
+            {
+                errorMessage =
+                    "Accept an absolute first point before entering a direct distance.";
+                return false;
+            }
+            if (!_hasPointTransformPointerPosition)
+            {
+                errorMessage =
+                    "Move the cursor from the current PLINE point before entering a direct distance.";
+                return false;
+            }
+            if (!TryResolvePointTransformDirectDistance(
+                    directDistance,
+                    out point))
+            {
+                errorMessage =
+                    "The cursor direction and distance do not resolve to a finite WCS point.";
+                return false;
+            }
+        }
+        else
+        {
+            if (!_hasPointTransformBasePoint && coordinate.IsRelative)
+            {
+                errorMessage =
+                    "Enter an absolute first point before using a relative coordinate.";
+                return false;
+            }
+            CadPoint3D origin = _hasPointTransformBasePoint
+                ? _pointTransformBasePoint
+                : CadPoint3D.Zero;
+            if (!coordinate.TryResolve(origin, out point))
+            {
+                errorMessage = "The coordinate resolves outside finite WCS values.";
+                return false;
+            }
+        }
+
+        Vector2 screenPoint;
+        try
+        {
+            screenPoint = CreateViewport().WorldToScreen(point);
+        }
+        catch (ArgumentException)
+        {
+            errorMessage =
+                "The PLINE point cannot be represented by the current plan viewport.";
+            return false;
+        }
+        return TryAcceptPolylineAuthoringPoint(
+            point,
+            screenPoint,
+            out errorMessage);
+    }
+
+    public bool UndoPolylineAuthoringSegment()
+    {
+        CadPolylineAuthoringSession? authoring = _polylineAuthoring;
+        if (authoring is null || !authoring.TryUndoLastSegment())
+        {
+            return false;
+        }
+
+        _pointTransformBasePoint = authoring.CurrentPoint!.Value;
+        _pointTransformCurrent = CreateViewport().WorldToScreen(
+            _pointTransformBasePoint);
+        _hasPointTransformBasePoint = true;
+        ClearPointTransformSnapState();
+        RefreshPolylineAuthoringPicture();
+        PolylineAuthoringChanged?.Invoke(
+            this,
+            new CadPolylineAuthoringChangedEventArgs(
+                CadPolylineAuthoringStage.SegmentUndone,
+                authoring.Mode,
+                authoring.SegmentCount,
+                authoring.CurrentPoint));
+        Invalidate();
+        return true;
+    }
+
+    public bool CompletePolylineAuthoring(
+        bool close,
+        out string? errorMessage)
+    {
+        errorMessage = null;
+        CadPolylineAuthoringSession? authoring = _polylineAuthoring;
+        if (authoring is null)
+        {
+            errorMessage = "No PLINE command is active.";
+            return false;
+        }
+        if (authoring.SegmentCount == 0 && !close)
+        {
+            ResetPolylineAuthoringState();
+            PolylineAuthoringChanged?.Invoke(
+                this,
+                new CadPolylineAuthoringChangedEventArgs(
+                    CadPolylineAuthoringStage.Completed,
+                    authoring.Mode,
+                    segmentCount: 0));
+            Invalidate();
+            return true;
+        }
+        if (!authoring.TryCreateSnapshot(
+                close,
+                out CadPolylineAuthoringSnapshot? snapshot,
+                out errorMessage))
+        {
+            return false;
+        }
+
+        CadDocumentSession session = CurrentSession ??
+            throw new InvalidOperationException("No CAD document is loaded.");
+        CadDocumentHistory history = _history ??
+            throw new InvalidOperationException(
+                "The CAD edit history is not initialized.");
+        try
+        {
+            history.Execute(new CadAddPolylineCommand(
+                snapshot!,
+                description: $"PLINE: add {snapshot!.SegmentCount} segments"));
+            int segmentCount = snapshot.SegmentCount;
+            CadPolylineAuthoringMode mode = authoring.Mode;
+            CadPoint3D currentPoint = authoring.CurrentPoint!.Value;
+            ResetPolylineAuthoringState();
+            RecompileAfterEdit(session);
+            PolylineAuthoringChanged?.Invoke(
+                this,
+                new CadPolylineAuthoringChangedEventArgs(
+                    CadPolylineAuthoringStage.Completed,
+                    mode,
+                    segmentCount,
+                    currentPoint,
+                    isClosed: close));
+            return true;
+        }
+        catch (Exception exception)
+        {
+            errorMessage = exception.Message;
+            PolylineAuthoringChanged?.Invoke(
+                this,
+                new CadPolylineAuthoringChangedEventArgs(
+                    CadPolylineAuthoringStage.Failed,
+                    authoring.Mode,
                     authoring.SegmentCount,
                     authoring.CurrentPoint,
                     errorMessage: exception.Message));
@@ -3330,7 +3764,10 @@ public sealed class CadSampleCanvas : FrameworkElement
         }
 
         CadPlanViewport viewport = CreateViewport();
-        CadPoint3D pointerWorld = viewport.ScreenToWorld(screenPoint);
+        CadPoint3D pointerWorld = _polylineAuthoring is not null &&
+            _hasPointTransformBasePoint
+            ? viewport.ScreenToWorld(screenPoint, _pointTransformBasePoint.Z)
+            : viewport.ScreenToWorld(screenPoint);
         _pointTransformObjectSnap = default;
         _hasPointTransformGridSnap = false;
         _hasPointTransformOrtho = false;
@@ -3540,8 +3977,10 @@ public sealed class CadSampleCanvas : FrameworkElement
         CadPoint3D pointerPoint,
         out CadPlanPolarTrackingResult result)
     {
-        if (_lineAuthoring?.PreviousSegmentDirection is
-            CadPoint3D referenceDirection)
+        CadPoint3D? activeReferenceDirection =
+            _lineAuthoring?.PreviousSegmentDirection ??
+            _polylineAuthoring?.PreviousSegmentDirection;
+        if (activeReferenceDirection is CadPoint3D referenceDirection)
         {
             return _planPolarTrackingSettings.TryTrack(
                 basePoint,
@@ -3802,7 +4241,9 @@ public sealed class CadSampleCanvas : FrameworkElement
     private void AcceptActivePoint(Vector2 screenPoint)
     {
         CadPointTransformOperation? operation = PendingPointTransformOperation;
-        if (operation is null && _lineAuthoring is null)
+        if (operation is null &&
+            _lineAuthoring is null &&
+            _polylineAuthoring is null)
         {
             return;
         }
@@ -3810,7 +4251,12 @@ public sealed class CadSampleCanvas : FrameworkElement
         CadPoint3D point;
         try
         {
-            point = CreateViewport().ScreenToWorld(screenPoint);
+            point = _polylineAuthoring is not null &&
+                _hasPointTransformBasePoint
+                ? CreateViewport().ScreenToWorld(
+                    screenPoint,
+                    _pointTransformBasePoint.Z)
+                : CreateViewport().ScreenToWorld(screenPoint);
         }
         catch (Exception exception)
         {
@@ -3824,7 +4270,7 @@ public sealed class CadSampleCanvas : FrameworkElement
                         CadPointTransformStage.Failed,
                         errorMessage: exception.Message));
             }
-            else
+            else if (_lineAuthoring is not null)
             {
                 LineAuthoringChanged?.Invoke(
                     this,
@@ -3832,6 +4278,17 @@ public sealed class CadSampleCanvas : FrameworkElement
                         CadLineAuthoringStage.Failed,
                         _lineAuthoring?.SegmentCount ?? 0,
                         _lineAuthoring?.CurrentPoint,
+                        errorMessage: exception.Message));
+            }
+            else
+            {
+                PolylineAuthoringChanged?.Invoke(
+                    this,
+                    new CadPolylineAuthoringChangedEventArgs(
+                        CadPolylineAuthoringStage.Failed,
+                        _polylineAuthoring?.Mode ?? CadPolylineAuthoringMode.Line,
+                        _polylineAuthoring?.SegmentCount ?? 0,
+                        _polylineAuthoring?.CurrentPoint,
                         errorMessage: exception.Message));
             }
             Invalidate();
@@ -3848,6 +4305,11 @@ public sealed class CadSampleCanvas : FrameworkElement
         if (_lineAuthoring is not null)
         {
             _ = TryAcceptLineAuthoringPoint(point, screenPoint, out _);
+            return;
+        }
+        if (_polylineAuthoring is not null)
+        {
+            _ = TryAcceptPolylineAuthoringPoint(point, screenPoint, out _);
             return;
         }
 
@@ -3905,6 +4367,66 @@ public sealed class CadSampleCanvas : FrameworkElement
             this,
             new CadLineAuthoringChangedEventArgs(
                 CadLineAuthoringStage.AwaitingNextPoint,
+                authoring.SegmentCount,
+                point));
+        Invalidate();
+        return true;
+    }
+
+    private bool TryAcceptPolylineAuthoringPoint(
+        CadPoint3D point,
+        Vector2? screenPoint,
+        out string? errorMessage)
+    {
+        errorMessage = null;
+        CadPolylineAuthoringSession? authoring = _polylineAuthoring;
+        if (authoring is null)
+        {
+            errorMessage = "No PLINE command is active.";
+            return false;
+        }
+        Vector2 resolvedScreen;
+        try
+        {
+            resolvedScreen = screenPoint ??
+                CreateViewport().WorldToScreen(point);
+        }
+        catch (ArgumentException exception)
+        {
+            errorMessage = exception.Message;
+            PolylineAuthoringChanged?.Invoke(
+                this,
+                new CadPolylineAuthoringChangedEventArgs(
+                    CadPolylineAuthoringStage.Failed,
+                    authoring.Mode,
+                    authoring.SegmentCount,
+                    authoring.CurrentPoint,
+                    errorMessage: errorMessage));
+            return false;
+        }
+        if (!authoring.TryAcceptPoint(point, out errorMessage))
+        {
+            PolylineAuthoringChanged?.Invoke(
+                this,
+                new CadPolylineAuthoringChangedEventArgs(
+                    CadPolylineAuthoringStage.Failed,
+                    authoring.Mode,
+                    authoring.SegmentCount,
+                    authoring.CurrentPoint,
+                    errorMessage: errorMessage));
+            return false;
+        }
+
+        ClearPointTransformSnapState();
+        _pointTransformBasePoint = point;
+        _pointTransformCurrent = resolvedScreen;
+        _hasPointTransformBasePoint = true;
+        RefreshPolylineAuthoringPicture();
+        PolylineAuthoringChanged?.Invoke(
+            this,
+            new CadPolylineAuthoringChangedEventArgs(
+                CadPolylineAuthoringStage.AwaitingNextPoint,
+                authoring.Mode,
                 authoring.SegmentCount,
                 point));
         Invalidate();
@@ -4192,6 +4714,18 @@ public sealed class CadSampleCanvas : FrameworkElement
         ClearPointTransformSnapState();
     }
 
+    private void ResetPolylineAuthoringState()
+    {
+        _polylineAuthoring = null;
+        _polylineAuthoringPicture?.Dispose();
+        _polylineAuthoringPicture = null;
+        _hasPointTransformBasePoint = false;
+        _isPointTransformPointerPressed = false;
+        _pointTransformBasePoint = default;
+        _pointTransformCurrent = default;
+        ClearPointTransformSnapState();
+    }
+
     private void ResetSelectionState(bool notify)
     {
         _selectedHandleCount = 0;
@@ -4223,6 +4757,8 @@ public sealed class CadSampleCanvas : FrameworkElement
             _pointMarkerPicture = null;
             _lineAuthoringPicture?.Dispose();
             _lineAuthoringPicture = null;
+            _polylineAuthoringPicture?.Dispose();
+            _polylineAuthoringPicture = null;
             return;
         }
 
@@ -4251,6 +4787,7 @@ public sealed class CadSampleCanvas : FrameworkElement
         _pointMarkerPicture = markerReplacement;
         previousMarkers?.Dispose();
         RefreshLineAuthoringPicture();
+        RefreshPolylineAuthoringPicture();
     }
 
     private void RefreshLineAuthoringPicture()
@@ -4291,6 +4828,131 @@ public sealed class CadSampleCanvas : FrameworkElement
         previous?.Dispose();
     }
 
+    private void RefreshPolylineAuthoringPicture()
+    {
+        GpuPicture? replacement = null;
+        CadPolylineAuthoringSession? authoring = _polylineAuthoring;
+        if (authoring is not null &&
+            authoring.SegmentCount > 0 &&
+            CurrentSnapshot is not null &&
+            Size.X > 0.0f &&
+            Size.Y > 0.0f)
+        {
+            CadPlanViewport viewport = CreateViewport();
+            var recorder = new GpuPictureRecorder();
+            DrawingContext target = recorder.BeginRecording(
+                new Rect(0, 0, Size.X, Size.Y));
+            try
+            {
+                ReadOnlySpan<CadPoint3D> points = authoring.Points.Span;
+                ReadOnlySpan<double> bulges = authoring.Bulges.Span;
+                var path = new PathGeometry();
+                var figure = new PathFigure(viewport.WorldToScreen(points[0]))
+                {
+                    IsFilled = false,
+                    IsClosed = false,
+                };
+                for (int i = 1; i < points.Length; i++)
+                {
+                    AppendPolylinePreviewSegment(
+                        figure,
+                        viewport,
+                        points[i - 1],
+                        points[i],
+                        bulges[i - 1]);
+                }
+                path.Figures.Add(figure);
+                target.DrawPath(null, _drawOrderReferencePen, path);
+                replacement = recorder.EndRecording();
+            }
+            catch
+            {
+                target.Clear();
+                throw;
+            }
+        }
+
+        GpuPicture? previous = _polylineAuthoringPicture;
+        _polylineAuthoringPicture = replacement;
+        previous?.Dispose();
+    }
+
+    private static void AppendPolylinePreviewSegment(
+        PathFigure figure,
+        CadPlanViewport viewport,
+        CadPoint3D start,
+        CadPoint3D end,
+        double bulge)
+    {
+        if (bulge == 0.0 ||
+            !CadPolylineAuthoringSession.TryGetBulgeGeometry(
+                start,
+                end,
+                bulge,
+                out _,
+                out double radius,
+                out _,
+                out double sweep))
+        {
+            figure.Segments.Add(new LineSegment(viewport.WorldToScreen(end)));
+            return;
+        }
+
+        double screenRadius = radius * viewport.Zoom;
+        if (!double.IsFinite(screenRadius) || screenRadius > float.MaxValue)
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(bulge),
+                "The projected PLINE preview arc radius exceeds finite screen coordinates.");
+        }
+
+        figure.Segments.Add(new ArcSegment(
+            viewport.WorldToScreen(end),
+            new Vector2((float)screenRadius, (float)screenRadius),
+            rotationAngle: 0.0f,
+            isLargeArc: Math.Abs(sweep) > Math.PI,
+            sweepDirection: sweep > 0.0
+                ? SweepDirection.Clockwise
+                : SweepDirection.Counterclockwise));
+    }
+
+    private static int GetPolylinePreviewStepCount(
+        CadPlanViewport viewport,
+        double worldRadius,
+        double sweep)
+    {
+        double rasterScale = DisplayInformation.GetForCurrentView().RawPixelsPerViewPixel;
+        if (!double.IsFinite(rasterScale) || rasterScale <= 0.0)
+        {
+            rasterScale = 1.0;
+        }
+
+        double physicalRadius = worldRadius * viewport.Zoom * rasterScale;
+        if (!double.IsFinite(physicalRadius))
+        {
+            return PolylinePreviewMaximumStepCount;
+        }
+        if (physicalRadius <= PolylinePreviewMaximumPhysicalError)
+        {
+            return 1;
+        }
+
+        double maximumStepAngle = 2.0 * Math.Acos(Math.Clamp(
+            1.0 - (PolylinePreviewMaximumPhysicalError / physicalRadius),
+            -1.0,
+            1.0));
+        if (!double.IsFinite(maximumStepAngle) || maximumStepAngle <= 0.0)
+        {
+            return PolylinePreviewMaximumStepCount;
+        }
+
+        double requiredStepCount = Math.Ceiling(Math.Abs(sweep) / maximumStepAngle);
+        return (int)Math.Clamp(
+            requiredStepCount,
+            1.0,
+            PolylinePreviewMaximumStepCount);
+    }
+
     private static Rect ToScreenRect(
         CadPlanViewport viewport,
         CadBounds3D bounds)
@@ -4312,6 +4974,7 @@ public sealed class CadSampleCanvas : FrameworkElement
         ResetDrawOrderReferencePickState(notify: false);
         ResetPointTransformState(notify: false);
         ResetLineAuthoringState();
+        ResetPolylineAuthoringState();
         _picture?.Dispose();
         _picture = null;
         _constructionPicture?.Dispose();

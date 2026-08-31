@@ -1076,7 +1076,19 @@ after two segments; Enter/Escape finish. Completion creates separate ACadSharp
 LINE entities with current CLAYER/CECOLOR/CELTYPE/CELTSCALE/CELWEIGHT through
 one O(S) reversible history command, so a finished sequence publishes one
 generation and global Undo is atomic. Exact behavior and applicability are in
-`PROGPU_CAD_LINE_AUTHORING_RESEARCH.md`. One
+`PROGPU_CAD_LINE_AUTHORING_RESEARCH.md`. Shared PLINE authoring retains the
+same 65,536-segment bound and point-acquisition pipeline but publishes one
+planar ACadSharp `LwPolyline`. Line segments store zero bulge; tangent-arc
+segments retain exact signed DXF bulges and continue the real endpoint tangent
+of the preceding line or arc. Accepted edges replay as one retained analytic
+screen-space path; live pointer arcs use allocation-free DPI-aware bounded
+tessellation only until acceptance. In-command U is O(1), closure uses the
+entity flag rather than a duplicate vertex, and completion captures current
+CLAYER/CECOLOR/CELTYPE/CELTSCALE/CELWEIGHT/PLINEGEN through one reversible
+history entry. Nonzero PLINEWID fails before mutation until filled wide-
+polyline lowering exists, preventing a silent cosmetic-centerline downgrade.
+Exact behavior, cross-engine applicability, and remaining command options are
+in `PROGPU_CAD_POLYLINE_AUTHORING_RESEARCH.md`. One
 `CadDocumentHistory` belongs to the loaded session, so each Move, Copy, Rotate, Scale,
 Undo, or Redo publishes exactly one generation and then prepares one complete
 replacement snapshot and picture. The prior picture stays drawable until

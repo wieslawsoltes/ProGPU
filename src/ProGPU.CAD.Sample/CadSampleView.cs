@@ -59,6 +59,12 @@ public sealed class CadSampleView : Grid
     private readonly Button _lineUndoButton;
     private readonly Button _lineCloseButton;
     private readonly Button _lineFinishButton;
+    private readonly Button _polylineButton;
+    private readonly Button _polylineUndoButton;
+    private readonly Button _polylineLineModeButton;
+    private readonly Button _polylineArcModeButton;
+    private readonly Button _polylineCloseButton;
+    private readonly Button _polylineFinishButton;
     private readonly Button[] _drawOrderButtons;
     private readonly Button[] _moveButtons;
     private readonly Button[] _copyButtons;
@@ -287,6 +293,18 @@ public sealed class CadSampleView : Grid
     public Button LineCloseButton => _lineCloseButton;
 
     public Button LineFinishButton => _lineFinishButton;
+
+    public Button PolylineButton => _polylineButton;
+
+    public Button PolylineUndoButton => _polylineUndoButton;
+
+    public Button PolylineLineModeButton => _polylineLineModeButton;
+
+    public Button PolylineArcModeButton => _polylineArcModeButton;
+
+    public Button PolylineCloseButton => _polylineCloseButton;
+
+    public Button PolylineFinishButton => _polylineFinishButton;
 
     public ComboBox SelectionAttributeSelector =>
         _selectionAttributeSelector;
@@ -530,6 +548,12 @@ public sealed class CadSampleView : Grid
         _lineUndoButton = CreateButton("Line U", font, 68, 30);
         _lineCloseButton = CreateButton("Close", font, 68, 30);
         _lineFinishButton = CreateButton("Finish", font, 68, 30);
+        _polylineButton = CreateButton("PLine", font, 68, 30);
+        _polylineUndoButton = CreateButton("PLine U", font, 72, 30);
+        _polylineLineModeButton = CreateButton("PLine line", font, 82, 30);
+        _polylineArcModeButton = CreateButton("PLine arc", font, 82, 30);
+        _polylineCloseButton = CreateButton("PLine close", font, 92, 30);
+        _polylineFinishButton = CreateButton("PLine finish", font, 92, 30);
         Button sendToBack = CreateButton("To back", font, 76, 30);
         Button bringToFront = CreateButton("To front", font, 76, 30);
         Button bringAbove = CreateButton("Above…", font, 82, 30);
@@ -541,6 +565,12 @@ public sealed class CadSampleView : Grid
         _lineUndoButton.Margin = new Thickness(0, 0, 4, 0);
         _lineCloseButton.Margin = new Thickness(0, 0, 4, 0);
         _lineFinishButton.Margin = new Thickness(0, 0, 12, 0);
+        _polylineButton.Margin = new Thickness(0, 0, 4, 0);
+        _polylineUndoButton.Margin = new Thickness(0, 0, 4, 0);
+        _polylineLineModeButton.Margin = new Thickness(0, 0, 4, 0);
+        _polylineArcModeButton.Margin = new Thickness(0, 0, 4, 0);
+        _polylineCloseButton.Margin = new Thickness(0, 0, 4, 0);
+        _polylineFinishButton.Margin = new Thickness(0, 0, 12, 0);
         sendToBack.Margin = new Thickness(0, 0, 4, 0);
         bringToFront.Margin = new Thickness(0, 0, 4, 0);
         bringAbove.Margin = new Thickness(0, 0, 4, 0);
@@ -553,6 +583,12 @@ public sealed class CadSampleView : Grid
         editActions.AddChild(_lineUndoButton);
         editActions.AddChild(_lineCloseButton);
         editActions.AddChild(_lineFinishButton);
+        editActions.AddChild(_polylineButton);
+        editActions.AddChild(_polylineUndoButton);
+        editActions.AddChild(_polylineLineModeButton);
+        editActions.AddChild(_polylineArcModeButton);
+        editActions.AddChild(_polylineCloseButton);
+        editActions.AddChild(_polylineFinishButton);
         editActions.AddChild(sendToBack);
         editActions.AddChild(bringToFront);
         editActions.AddChild(bringAbove);
@@ -1998,6 +2034,16 @@ public sealed class CadSampleView : Grid
         _lineUndoButton.Click += (_, _) => UndoLineAuthoringSegment();
         _lineCloseButton.Click += (_, _) => CompleteLineAuthoring(close: true);
         _lineFinishButton.Click += (_, _) => CompleteLineAuthoring(close: false);
+        _polylineButton.Click += (_, _) => BeginPolylineAuthoring();
+        _polylineUndoButton.Click += (_, _) => UndoPolylineAuthoringSegment();
+        _polylineLineModeButton.Click += (_, _) =>
+            SetPolylineAuthoringMode(CadPolylineAuthoringMode.Line);
+        _polylineArcModeButton.Click += (_, _) =>
+            SetPolylineAuthoringMode(CadPolylineAuthoringMode.TangentArc);
+        _polylineCloseButton.Click += (_, _) =>
+            CompletePolylineAuthoring(close: true);
+        _polylineFinishButton.Click += (_, _) =>
+            CompletePolylineAuthoring(close: false);
         sendToBack.Click += (_, _) =>
             SetSelectionDrawOrder(CadDrawOrderPlacement.SendToBack);
         bringToFront.Click += (_, _) =>
@@ -2158,10 +2204,17 @@ public sealed class CadSampleView : Grid
         {
             if (!args.Handled && args.Key == Key.Enter)
             {
-                if (_canvas.IsLineAuthoring &&
+                if ((_canvas.IsLineAuthoring || _canvas.IsPolylineAuthoring) &&
                     string.IsNullOrWhiteSpace(_pointTransformInput.Text))
                 {
-                    CompleteLineAuthoring(close: false);
+                    if (_canvas.IsPolylineAuthoring)
+                    {
+                        CompletePolylineAuthoring(close: false);
+                    }
+                    else
+                    {
+                        CompleteLineAuthoring(close: false);
+                    }
                 }
                 else
                 {
@@ -2206,6 +2259,12 @@ public sealed class CadSampleView : Grid
         {
             _pointTransformInput.Text = string.Empty;
             SetStatus(DescribeLineAuthoring(args));
+            UpdateEditControls();
+        };
+        _canvas.PolylineAuthoringChanged += (_, args) =>
+        {
+            _pointTransformInput.Text = string.Empty;
+            SetStatus(DescribePolylineAuthoring(args));
             UpdateEditControls();
         };
         _canvas.PointTransformInputAvailabilityChanged += (_, _) =>
@@ -2268,6 +2327,42 @@ public sealed class CadSampleView : Grid
             if (e.Key == Key.C && _canvas.CanCloseLineAuthoring)
             {
                 CompleteLineAuthoring(close: true);
+                e.Handled = true;
+                return;
+            }
+        }
+
+        if (!e.Handled &&
+            _canvas.IsPolylineAuthoring &&
+            FocusManager.GetFocusedElement() is not TextBox)
+        {
+            if (e.Key is Key.Enter or Key.Escape)
+            {
+                CompletePolylineAuthoring(close: false);
+                e.Handled = true;
+                return;
+            }
+            if (e.Key == Key.U)
+            {
+                UndoPolylineAuthoringSegment();
+                e.Handled = true;
+                return;
+            }
+            if (e.Key == Key.C && _canvas.CanClosePolylineAuthoring)
+            {
+                CompletePolylineAuthoring(close: true);
+                e.Handled = true;
+                return;
+            }
+            if (e.Key == Key.A)
+            {
+                SetPolylineAuthoringMode(CadPolylineAuthoringMode.TangentArc);
+                e.Handled = true;
+                return;
+            }
+            if (e.Key == Key.L)
+            {
+                SetPolylineAuthoringMode(CadPolylineAuthoringMode.Line);
                 e.Handled = true;
                 return;
             }
@@ -4836,6 +4931,28 @@ public sealed class CadSampleView : Grid
         }
     }
 
+    private void BeginPolylineAuthoring()
+    {
+        if (_isBusy)
+        {
+            return;
+        }
+
+        try
+        {
+            _pointTransformInput.Text = string.Empty;
+            if (!_canvas.BeginPolylineAuthoring())
+            {
+                SetStatus("PLINE requires a loaded plan-view document.");
+            }
+        }
+        catch (Exception exception)
+        {
+            SetStatus($"PLINE could not start: {exception.Message}");
+        }
+        UpdateEditControls();
+    }
+
     private void AcceptPointInput()
     {
         if (_isBusy)
@@ -4846,7 +4963,13 @@ public sealed class CadSampleView : Grid
         string input = _pointTransformInput.Text;
         bool accepted;
         string? errorMessage;
-        if (_canvas.IsLineAuthoring)
+        if (_canvas.IsPolylineAuthoring)
+        {
+            accepted = _canvas.TryAcceptPolylineAuthoringInput(
+                input,
+                out errorMessage);
+        }
+        else if (_canvas.IsLineAuthoring)
         {
             accepted = _canvas.TryAcceptLineAuthoringInput(
                 input,
@@ -4884,6 +5007,34 @@ public sealed class CadSampleView : Grid
         if (!_canvas.CompleteLineAuthoring(close, out string? errorMessage))
         {
             SetStatus(errorMessage ?? "LINE completion failed.");
+        }
+        UpdateEditControls();
+    }
+
+    private void UndoPolylineAuthoringSegment()
+    {
+        if (!_canvas.UndoPolylineAuthoringSegment())
+        {
+            SetStatus("PLINE has no accepted segment to undo.");
+        }
+        UpdateEditControls();
+    }
+
+    private void SetPolylineAuthoringMode(CadPolylineAuthoringMode mode)
+    {
+        if (!_canvas.IsPolylineAuthoring)
+        {
+            return;
+        }
+        _canvas.PolylineAuthoringMode = mode;
+        UpdateEditControls();
+    }
+
+    private void CompletePolylineAuthoring(bool close)
+    {
+        if (!_canvas.CompletePolylineAuthoring(close, out string? errorMessage))
+        {
+            SetStatus(errorMessage ?? "PLINE completion failed.");
         }
         UpdateEditControls();
     }
@@ -4929,6 +5080,32 @@ public sealed class CadSampleView : Grid
             (args.IsClosed ? " and closed the sequence." : "."),
         CadLineAuthoringStage.Failed =>
             $"LINE failed: {args.ErrorMessage}",
+        _ => throw new ArgumentOutOfRangeException(nameof(args)),
+    };
+
+    private static string DescribePolylineAuthoring(
+        CadPolylineAuthoringChangedEventArgs args) => args.Stage switch
+    {
+        CadPolylineAuthoringStage.AwaitingFirstPoint =>
+            "PLINE: specify first point by click or absolute WCS coordinate; Escape ends.",
+        CadPolylineAuthoringStage.AwaitingNextPoint when args.SegmentCount == 0 =>
+            $"PLINE: first point {FormatPoint(args.CurrentPoint!.Value)}; specify next point.",
+        CadPolylineAuthoringStage.AwaitingNextPoint =>
+            $"PLINE: {args.SegmentCount} accepted segment(s); " +
+            $"{(args.Mode == CadPolylineAuthoringMode.Line ? "Line" : "tangent Arc")} mode; next point, U, Close, Enter, or Escape.",
+        CadPolylineAuthoringStage.ModeChanged =>
+            args.Mode == CadPolylineAuthoringMode.Line
+                ? "PLINE: Line mode."
+                : "PLINE: tangent Arc mode; a preceding segment is required.",
+        CadPolylineAuthoringStage.SegmentUndone =>
+            $"PLINE: latest segment removed; {args.SegmentCount} segment(s) remain.",
+        CadPolylineAuthoringStage.Completed when args.SegmentCount == 0 =>
+            "PLINE ended without creating an entity.",
+        CadPolylineAuthoringStage.Completed =>
+            $"PLINE created one lightweight polyline with {args.SegmentCount} segment(s)" +
+            (args.IsClosed ? " and closed it." : "."),
+        CadPolylineAuthoringStage.Failed =>
+            $"PLINE failed: {args.ErrorMessage}",
         _ => throw new ArgumentOutOfRangeException(nameof(args)),
     };
 
@@ -5701,8 +5878,9 @@ public sealed class CadSampleView : Grid
         bool isPointTransformPicking =
             _canvas.PendingPointTransformOperation is not null;
         bool isLineAuthoring = _canvas.IsLineAuthoring;
+        bool isPolylineAuthoring = _canvas.IsPolylineAuthoring;
         bool isPointInputActive =
-            isPointTransformPicking || isLineAuthoring;
+            isPointTransformPicking || isLineAuthoring || isPolylineAuthoring;
         bool isInteractivePicking =
             isReferencePicking || isPointInputActive;
         bool canUsePlanTools =
@@ -5782,6 +5960,24 @@ public sealed class CadSampleView : Grid
             _canvas.CanCloseLineAuthoring;
         _lineFinishButton.IsEnabled =
             !_isBusy && isLineAuthoring;
+        _polylineButton.IsEnabled =
+            canUsePlanTools && !_is3DView &&
+            _canvas.CurrentSession is not null;
+        _polylineUndoButton.IsEnabled =
+            !_isBusy && isPolylineAuthoring &&
+            _canvas.PendingPolylineSegmentCount > 0;
+        _polylineLineModeButton.IsEnabled =
+            !_isBusy && isPolylineAuthoring &&
+            _canvas.PolylineAuthoringMode != CadPolylineAuthoringMode.Line;
+        _polylineArcModeButton.IsEnabled =
+            !_isBusy && isPolylineAuthoring &&
+            _canvas.PendingPolylineSegmentCount > 0 &&
+            _canvas.PolylineAuthoringMode != CadPolylineAuthoringMode.TangentArc;
+        _polylineCloseButton.IsEnabled =
+            !_isBusy && isPolylineAuthoring &&
+            _canvas.CanClosePolylineAuthoring;
+        _polylineFinishButton.IsEnabled =
+            !_isBusy && isPolylineAuthoring;
         _selectionColorInput.IsEnabled = canTransform;
         _selectionLineWeightSelector.IsEnabled = canTransform;
         _selectionLayerSelector.IsEnabled = canTransform;
@@ -6032,7 +6228,10 @@ public sealed class CadSampleView : Grid
         _acceptPointTransformInputButton.IsEnabled =
             !_isBusy &&
             isPointInputActive &&
-            (isLineAuthoring
+            (isPolylineAuthoring
+                ? _canvas.CanAcceptPolylineAuthoringInput(
+                    _pointTransformInput.Text)
+                : isLineAuthoring
                 ? _canvas.CanAcceptLineAuthoringInput(
                     _pointTransformInput.Text)
                 : _canvas.CanAcceptSelectionPointTransformInput(

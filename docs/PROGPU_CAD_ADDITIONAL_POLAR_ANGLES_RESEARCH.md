@@ -104,7 +104,7 @@ queries over all ten slots with zero managed allocation. Shared interaction
 regressions cover live reevaluation without pointer motion, invalid-list disable,
 no drawing generation, object-snap precedence, PolarSnap composition, exact
 MOVE, and exact direct-distance separation.
-The complete macOS arm64 Release ProGPU.CAD suite passes 1,075/1,075.
+The complete macOS arm64 Release ProGPU.CAD suite passes 1,090/1,090.
 
 Last-segment-relative measurement is now covered by real LINE authoring and
 remains pending for POLYLINE. Object-snap tracking/acquired points, 3D paths, cross-session

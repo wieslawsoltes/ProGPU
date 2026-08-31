@@ -104,7 +104,7 @@ profile type retention across F9, invalid-distance rejection, staged-panel
 protection, exact generation counts, and Undo/Redo synchronization. Command
 tests cover exact active-VPORT identity/value validation plus DXF and DWG
 SNAPMODE round trips. The browser reservation regression includes F9.
-The complete macOS arm64 Release ProGPU.CAD suite passes 1,075/1,075.
+The complete macOS arm64 Release ProGPU.CAD suite passes 1,090/1,090.
 
 Cross-session profile persistence, object-snap tracking and acquired points,
 POLYLINE last-segment-relative polar angles, 3D UCS Z paths, arbitrary-camera rays,

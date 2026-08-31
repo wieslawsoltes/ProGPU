@@ -221,7 +221,7 @@ dot transparency, affine dot circularity, and one-pixel minor versus two-pixel
 major line output. Shader-resource coverage verifies the canonical module and
 its required algorithm/complexity contract.
 
-Final macOS arm64 Release validation passed 1,075/1,075 ProGPU.CAD tests. The
+Final macOS arm64 Release validation passed 1,090/1,090 ProGPU.CAD tests. The
 isometric continuation's focused grid/snap/Ortho/COPY set passed 36/36, the
 complete headless dot-grid pixel class passed 24/24, and the isometric native
 semantic-transform regression passed 1/1. The ACadSharp R2007/R2013/R2018 VPORT

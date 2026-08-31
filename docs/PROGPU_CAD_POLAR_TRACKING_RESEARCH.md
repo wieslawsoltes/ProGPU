@@ -153,10 +153,11 @@ and browser key reservation. PolarSnap regressions cover explicit and Snap-X-
 inherited distance, live prompt reevaluation, object-snap precedence, direct-
 distance separation, F9/type retention, exact SNAPMODE history, staged input,
 zero-allocation warm queries, browser reservation, and DXF/DWG round trips.
-The complete macOS arm64 Release ProGPU.CAD suite passes 1,075/1,075.
+The complete macOS arm64 Release ProGPU.CAD suite passes 1,090/1,090.
 
-Relative-to-last-segment measurement is covered for LINE and remains pending
-for POLYLINE. Object-snap tracking and acquired points, 3D UCS Z paths,
+Relative-to-last-segment measurement is covered for LINE and for the actual
+line-or-arc endpoint tangent of PLINE. Object-snap tracking and acquired points,
+3D UCS Z paths,
 temporary overrides, cross-session host profile persistence,
 arbitrary-camera rays, interaction image goldens, dense-drawing p50/p95/p99
 evidence, and independent DXF/DWG angle fixtures remain before the broader

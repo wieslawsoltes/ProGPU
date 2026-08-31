@@ -87,13 +87,14 @@ rejection, Close, current-property inheritance, locked-layer atomic failure,
 one-entry Undo/Redo, DXF and DWG round trips, typed and pointer interaction,
 object-snap precedence, exact relative-polar direct distance, shared controls,
 `U`, Close, Enter/Escape completion, and profile-only relative-mode changes.
-The complete macOS arm64 Release ProGPU.CAD suite passes 1,075/1,075.
+The complete macOS arm64 Release ProGPU.CAD suite passes 1,090/1,090.
 Focused package-content validation passes for the paired
 `ACadSharp.ProGPU.0.1.0-preview.62` and `ProGPU.CAD.0.1.0-preview.62` packages;
 an isolated consumer resolves the fork identity, rejects upstream ACadSharp,
 builds without warnings, and creates an AC1032 document.
 
-POLYLINE authoring, command chaining from a previous command endpoint, temporary
-overrides, expressions and drawing units, 3D UCS/arbitrary-camera acquisition,
-object-snap tracking, visual goldens, and dense-sequence p50/p95/p99 evidence
-remain later editor gates.
+POLYLINE authoring is now covered separately by
+`PROGPU_CAD_POLYLINE_AUTHORING_RESEARCH.md`. Command chaining from a previous
+command endpoint, temporary overrides, expressions and drawing units, 3D
+UCS/arbitrary-camera acquisition, object-snap tracking, visual goldens, and
+dense-sequence p50/p95/p99 evidence remain later LINE editor gates.
