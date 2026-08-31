@@ -1059,6 +1059,12 @@ int main()
         approximately_equal(
             system_ellipse_area, compat_ellipse_area, 0.05F),
         "ProGPU ellipse area diverged from system Direct2D");
+    if (!approximately_equal(
+            system_ellipse_length, compat_ellipse_length, 0.05F)) {
+        std::cerr << "Direct2D ellipse length diagnostic: system="
+                  << system_ellipse_length
+                  << ", ProGPU=" << compat_ellipse_length << '\n';
+    }
     require(
         approximately_equal(
             system_ellipse_length, compat_ellipse_length, 0.05F),
