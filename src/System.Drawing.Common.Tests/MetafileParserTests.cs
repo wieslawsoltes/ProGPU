@@ -3133,6 +3133,233 @@ public sealed class MetafileParserTests
     }
 
     [Fact]
+    public void WmfDibBitBltDecodesBottomUpRowsAndPadding()
+    {
+        TestDib dib = CreateRgbDib(
+            2,
+            2,
+            24,
+            [255, 0, 0, 255, 255, 255, 0, 0, 0, 0, 255, 0, 255, 0, 0, 0]);
+        byte[] fixture = CreatePlaybackWmf(
+        [
+            (0x0940, WmfDibBitBlt(dib, new Rectangle(0, 0, 2, 2), new Point(8, 8))),
+            (0, [])
+        ]);
+        using var metafile = new Metafile(new MemoryStream(fixture, writable: false));
+        using var target = new Bitmap(16, 16);
+        using (Graphics graphics = Graphics.FromImage(target))
+        {
+            graphics.Clear(Color.Transparent);
+            graphics.DrawImage(metafile, new Rectangle(0, 0, 64, 64));
+        }
+
+        Assert.Equal(Color.Red.ToArgb(), target.GetPixel(8, 8).ToArgb());
+        Assert.Equal(Color.Lime.ToArgb(), target.GetPixel(9, 8).ToArgb());
+        Assert.Equal(Color.Blue.ToArgb(), target.GetPixel(8, 9).ToArgb());
+        Assert.Equal(Color.White.ToArgb(), target.GetPixel(9, 9).ToArgb());
+    }
+
+    [Theory]
+    [InlineData(0x0B41)]
+    [InlineData(0x0F43)]
+    public void WmfStretchDibFamiliesDecodeAndScalePackedDibs(ushort function)
+    {
+        TestDib dib = CreateRgbDib(1, -1, 24, [0, 0, 255, 0]);
+        byte[] payload = function == 0x0B41
+            ? WmfDibStretchBlt(dib, new Rectangle(0, 0, 1, 1), new Rectangle(8, 8, 16, 16))
+            : WmfStretchDib(dib, new Rectangle(0, 0, 1, 1), new Rectangle(8, 8, 16, 16));
+        byte[] fixture = CreatePlaybackWmf([(function, payload), (0, [])]);
+        using var metafile = new Metafile(new MemoryStream(fixture, writable: false));
+        var context = new DrawingContext();
+        using Graphics graphics = Graphics.FromProGpuDrawingContext(context);
+
+        graphics.DrawImage(metafile, new Rectangle(0, 0, 64, 64));
+
+        RenderCommand image = Assert.Single(
+            context.Commands,
+            static command => command.Type == RenderCommandType.DrawTexture);
+        Assert.Equal(TextureSamplingMode.Nearest, image.TextureSamplingMode);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void WmfSetDibToDevicePlacesOnlyTheSuppliedScanBand(bool topDown)
+    {
+        TestDib dib = CreateRgbDib(
+            2,
+            topDown ? -4 : 4,
+            24,
+            topDown
+                ? [0, 0, 255, 0, 0, 255, 0, 0, 255, 0, 0, 0, 0, 0, 0, 0]
+                : [255, 0, 0, 255, 0, 0, 0, 0, 0, 0, 255, 0, 0, 255, 0, 0]);
+        byte[] fixture = CreatePlaybackWmf(
+        [
+            (0x0D33, WmfSetDibToDevice(
+                dib,
+                new Rectangle(0, 0, 2, 4),
+                new Point(8, 8),
+                1,
+                2)),
+            (0, [])
+        ]);
+        using var metafile = new Metafile(new MemoryStream(fixture, writable: false));
+        using var target = new Bitmap(16, 16);
+        using (Graphics graphics = Graphics.FromImage(target))
+        {
+            graphics.Clear(Color.Transparent);
+            graphics.DrawImage(metafile, new Rectangle(0, 0, 64, 64));
+        }
+
+        Assert.Equal(0, target.GetPixel(8, 8).A);
+        Assert.Equal(Color.Red.ToArgb(), target.GetPixel(8, 9).ToArgb());
+        Assert.Equal(Color.Blue.ToArgb(), target.GetPixel(8, 10).ToArgb());
+        Assert.Equal(0, target.GetPixel(8, 11).A);
+    }
+
+    [Theory]
+    [InlineData(0x0940, 18)]
+    [InlineData(0x0B41, 22)]
+    public void WmfDibPlaybackDcSourcesRemainExplicitAndTransactional(
+        ushort function,
+        int payloadSize)
+    {
+        byte[] payload = new byte[payloadSize];
+        WriteUInt32(payload, 0, 0x00CC_0020);
+        byte[] fixture = CreatePlaybackWmf(
+        [
+            (0x041B, WmfWords(12, 12, 0, 0)),
+            (function, payload),
+            (0, [])
+        ]);
+        using var metafile = new Metafile(new MemoryStream(fixture, writable: false));
+        var context = new DrawingContext();
+        using Graphics graphics = Graphics.FromProGpuDrawingContext(context);
+
+        NotSupportedException exception = Assert.Throws<NotSupportedException>(() =>
+            graphics.DrawImage(metafile, new Rectangle(0, 0, 64, 64)));
+
+        Assert.Contains("Playback-device-context", exception.Message, StringComparison.Ordinal);
+        Assert.Empty(context.Commands);
+    }
+
+    [Fact]
+    public void WmfPackedDibSkipsDirectColorOptimizationTable()
+    {
+        TestDib original = CreateRgbDib(1, -1, 24, [0, 0, 255, 0]);
+        byte[] info = new byte[44];
+        original.Info.CopyTo(info, 0);
+        WriteUInt32(info, 32, 1);
+        info[40] = 0x55;
+        var dib = new TestDib(info, original.Bits);
+        byte[] fixture = CreatePlaybackWmf(
+        [
+            (0x0940, WmfDibBitBlt(dib, new Rectangle(0, 0, 1, 1), new Point(8, 8))),
+            (0, [])
+        ]);
+        using var metafile = new Metafile(new MemoryStream(fixture, writable: false));
+        using var target = new Bitmap(16, 16);
+        using (Graphics graphics = Graphics.FromImage(target))
+        {
+            graphics.Clear(Color.Transparent);
+            graphics.DrawImage(metafile, new Rectangle(0, 0, 64, 64));
+        }
+
+        Assert.Equal(Color.Red.ToArgb(), target.GetPixel(8, 8).ToArgb());
+    }
+
+    [Fact]
+    public void WmfMalformedAndUnsupportedDibRecordsRollBackEarlierCommands()
+    {
+        TestDib valid = CreateRgbDib(1, -1, 24, [0, 0, 255, 0]);
+        byte[] truncated = WmfStretchDib(
+            valid,
+            new Rectangle(0, 0, 1, 1),
+            new Rectangle(0, 0, 8, 8));
+        Array.Resize(ref truncated, truncated.Length - 2);
+        byte[] unsupportedUsage = WmfStretchDib(
+            valid,
+            new Rectangle(0, 0, 1, 1),
+            new Rectangle(0, 0, 8, 8),
+            usage: 1);
+        byte[] unsupportedRop = WmfDibBitBlt(
+            valid,
+            new Rectangle(0, 0, 1, 1),
+            Point.Empty,
+            rasterOperation: 0x0066_0046);
+        byte[] invalidScan = WmfSetDibToDevice(
+            valid,
+            new Rectangle(0, 0, 1, 1),
+            Point.Empty,
+            0,
+            2);
+        (ushort Function, byte[] Payload)[] malformedRecords =
+        [
+            (0x0F43, truncated),
+            (0x0F43, unsupportedUsage),
+            (0x0940, unsupportedRop),
+            (0x0D33, invalidScan)
+        ];
+
+        foreach ((ushort function, byte[] payload) in malformedRecords)
+        {
+            byte[] fixture = CreatePlaybackWmf(
+            [
+                (0x041F, WmfSetPixel(Color.Red, new Point(1, 1))),
+                (function, payload),
+                (0, [])
+            ]);
+            using var metafile = new Metafile(new MemoryStream(fixture, writable: false));
+            var context = new DrawingContext();
+            using Graphics graphics = Graphics.FromProGpuDrawingContext(context);
+
+            Exception exception = Assert.ThrowsAny<Exception>(() =>
+                graphics.DrawImage(metafile, new Rectangle(0, 0, 64, 64)));
+
+            Assert.True(exception is ArgumentException or NotSupportedException);
+            Assert.Empty(context.Commands);
+        }
+    }
+
+    [Fact]
+    public void WmfDibPlaybackHasBoundedWarmedAllocation()
+    {
+        TestDib dib = CreateRgbDib(1, -1, 32, [0, 0, 255, 0]);
+        var records = new List<(ushort Function, byte[] Payload)>();
+        for (int index = 0; index < 64; index++)
+        {
+            records.Add((
+                0x0F43,
+                WmfStretchDib(
+                    dib,
+                    new Rectangle(0, 0, 1, 1),
+                    new Rectangle((index % 8) * 8, (index / 8) * 8, 8, 8))));
+        }
+        records.Add((0, []));
+        using var metafile = new Metafile(new MemoryStream(
+            CreatePlaybackWmf(records),
+            writable: false));
+        var context = new DrawingContext();
+        using Graphics graphics = Graphics.FromProGpuDrawingContext(context);
+        for (int iteration = 0; iteration < 4; iteration++)
+        {
+            graphics.DrawImage(metafile, new Rectangle(0, 0, 64, 64));
+            context.Clear();
+        }
+
+        long before = GC.GetAllocatedBytesForCurrentThread();
+        for (int iteration = 0; iteration < 8; iteration++)
+        {
+            graphics.DrawImage(metafile, new Rectangle(0, 0, 64, 64));
+            context.Clear();
+        }
+        long allocatedPerPlayback =
+            (GC.GetAllocatedBytesForCurrentThread() - before) / 8;
+
+        Assert.InRange(allocatedPerPlayback, 64 * 1024, 16 * 1024 * 1024);
+    }
+
+    [Fact]
     public void EmfPathBracketStoresGeometryInDeviceCoordinatesBeforeFill()
     {
         byte[] fixture = CreateTextPlaybackEmf(
@@ -3977,6 +4204,96 @@ public sealed class MetafileParserTests
             WriteInt16(bytes, index * 2, values[index]);
         }
         return bytes;
+    }
+
+    private static byte[] WmfDibBitBlt(
+        in TestDib dib,
+        Rectangle source,
+        Point destination,
+        uint rasterOperation = 0x00CC_0020)
+    {
+        const int fixedPayloadSize = 16;
+        byte[] payload = CreatePackedWmfDibPayload(dib, fixedPayloadSize);
+        WriteUInt32(payload, 0, rasterOperation);
+        WriteInt16(payload, 4, checked((short)source.Y));
+        WriteInt16(payload, 6, checked((short)source.X));
+        WriteInt16(payload, 8, checked((short)source.Height));
+        WriteInt16(payload, 10, checked((short)source.Width));
+        WriteInt16(payload, 12, checked((short)destination.Y));
+        WriteInt16(payload, 14, checked((short)destination.X));
+        return payload;
+    }
+
+    private static byte[] WmfDibStretchBlt(
+        in TestDib dib,
+        Rectangle source,
+        Rectangle destination,
+        uint rasterOperation = 0x00CC_0020)
+    {
+        const int fixedPayloadSize = 20;
+        byte[] payload = CreatePackedWmfDibPayload(dib, fixedPayloadSize);
+        WriteUInt32(payload, 0, rasterOperation);
+        WriteInt16(payload, 4, checked((short)source.Height));
+        WriteInt16(payload, 6, checked((short)source.Width));
+        WriteInt16(payload, 8, checked((short)source.Y));
+        WriteInt16(payload, 10, checked((short)source.X));
+        WriteInt16(payload, 12, checked((short)destination.Height));
+        WriteInt16(payload, 14, checked((short)destination.Width));
+        WriteInt16(payload, 16, checked((short)destination.Y));
+        WriteInt16(payload, 18, checked((short)destination.X));
+        return payload;
+    }
+
+    private static byte[] WmfStretchDib(
+        in TestDib dib,
+        Rectangle source,
+        Rectangle destination,
+        ushort usage = 0,
+        uint rasterOperation = 0x00CC_0020)
+    {
+        const int fixedPayloadSize = 22;
+        byte[] payload = CreatePackedWmfDibPayload(dib, fixedPayloadSize);
+        WriteUInt32(payload, 0, rasterOperation);
+        WriteUInt16(payload, 4, usage);
+        WriteInt16(payload, 6, checked((short)source.Height));
+        WriteInt16(payload, 8, checked((short)source.Width));
+        WriteInt16(payload, 10, checked((short)source.Y));
+        WriteInt16(payload, 12, checked((short)source.X));
+        WriteInt16(payload, 14, checked((short)destination.Height));
+        WriteInt16(payload, 16, checked((short)destination.Width));
+        WriteInt16(payload, 18, checked((short)destination.Y));
+        WriteInt16(payload, 20, checked((short)destination.X));
+        return payload;
+    }
+
+    private static byte[] WmfSetDibToDevice(
+        in TestDib dib,
+        Rectangle source,
+        Point destination,
+        ushort startScan,
+        ushort scanCount,
+        ushort usage = 0)
+    {
+        const int fixedPayloadSize = 18;
+        byte[] payload = CreatePackedWmfDibPayload(dib, fixedPayloadSize);
+        WriteUInt16(payload, 0, usage);
+        WriteUInt16(payload, 2, scanCount);
+        WriteUInt16(payload, 4, startScan);
+        WriteUInt16(payload, 6, checked((ushort)source.Y));
+        WriteUInt16(payload, 8, checked((ushort)source.X));
+        WriteUInt16(payload, 10, checked((ushort)source.Height));
+        WriteUInt16(payload, 12, checked((ushort)source.Width));
+        WriteUInt16(payload, 14, checked((ushort)destination.Y));
+        WriteUInt16(payload, 16, checked((ushort)destination.X));
+        return payload;
+    }
+
+    private static byte[] CreatePackedWmfDibPayload(in TestDib dib, int fixedPayloadSize)
+    {
+        byte[] payload = new byte[checked(fixedPayloadSize + dib.Info.Length + dib.Bits.Length)];
+        dib.Info.CopyTo(payload, fixedPayloadSize);
+        dib.Bits.CopyTo(payload, fixedPayloadSize + dib.Info.Length);
+        return payload;
     }
 
     private static byte[] WmfColor(Color color)

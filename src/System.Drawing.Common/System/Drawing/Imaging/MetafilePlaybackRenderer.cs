@@ -192,6 +192,22 @@ internal static class MetafilePlaybackRenderer
                 DrawWmfPatBlt(state, record, payload);
                 return;
 
+            case EmfPlusRecordType.WmfDibBitBlt:
+                DrawWmfDibBitBlt(state, record, payload);
+                return;
+
+            case EmfPlusRecordType.WmfDibStretchBlt:
+                DrawWmfDibStretchBlt(state, record, payload);
+                return;
+
+            case EmfPlusRecordType.WmfStretchDib:
+                DrawWmfStretchDib(state, record, payload);
+                return;
+
+            case EmfPlusRecordType.WmfSetDibToDev:
+                DrawWmfSetDibToDevice(state, record, payload);
+                return;
+
             case EmfPlusRecordType.WmfIntersectClipRect:
                 state.IntersectClip(record, ReadWmfRectangle(record, payload));
                 return;
@@ -793,8 +809,201 @@ internal static class MetafilePlaybackRenderer
             ReadUInt32(payload, 52));
 
         DibInfo dib = ReadDibInfo(record, bitmapInfo, usage);
-        uint startScan = ReadUInt32(payload, 60);
-        uint scanCount = ReadUInt32(payload, 64);
+        DrawSetDibitsBand(
+            state,
+            record,
+            dib,
+            bitmapInfo,
+            bitmapBits,
+            ReadInt32(payload, 24),
+            ReadInt32(payload, 28),
+            ReadInt32(payload, 32),
+            ReadInt32(payload, 36),
+            ReadInt32(payload, 16),
+            ReadInt32(payload, 20),
+            ReadUInt32(payload, 60),
+            ReadUInt32(payload, 64));
+    }
+
+    private static void DrawWmfDibBitBlt(
+        PlaybackState state,
+        in MetafileRecord record,
+        ReadOnlySpan<byte> payload)
+    {
+        const int fixedPayloadSize = 16;
+        RequireWmfSourceDib(record, payload, fixedPayloadSize, playbackDcPayloadSize: 18);
+        RequireSrcCopy(record, ReadUInt32(payload, 0));
+
+        ReadOnlySpan<byte> packedDib = payload[fixedPayloadSize..];
+        DibInfo dib = ReadDibInfo(record, packedDib, DibRgbColors);
+        using Bitmap bitmap = DecodeDibRows(
+            record,
+            dib,
+            packedDib[..dib.BitmapInfoSize],
+            packedDib[dib.BitmapInfoSize..],
+            dib.Height);
+        int width = ReadInt16(payload, 10);
+        int height = ReadInt16(payload, 8);
+        DrawMappedDib(
+            state,
+            record,
+            bitmap,
+            dib,
+            ReadInt16(payload, 6),
+            ReadInt16(payload, 4),
+            width,
+            height,
+            ReadInt16(payload, 14),
+            ReadInt16(payload, 12),
+            width,
+            height);
+    }
+
+    private static void DrawWmfDibStretchBlt(
+        PlaybackState state,
+        in MetafileRecord record,
+        ReadOnlySpan<byte> payload)
+    {
+        const int fixedPayloadSize = 20;
+        RequireWmfSourceDib(record, payload, fixedPayloadSize, playbackDcPayloadSize: 22);
+        RequireSrcCopy(record, ReadUInt32(payload, 0));
+
+        ReadOnlySpan<byte> packedDib = payload[fixedPayloadSize..];
+        DibInfo dib = ReadDibInfo(record, packedDib, DibRgbColors);
+        using Bitmap bitmap = DecodeDibRows(
+            record,
+            dib,
+            packedDib[..dib.BitmapInfoSize],
+            packedDib[dib.BitmapInfoSize..],
+            dib.Height);
+        DrawMappedDib(
+            state,
+            record,
+            bitmap,
+            dib,
+            ReadInt16(payload, 10),
+            ReadInt16(payload, 8),
+            ReadInt16(payload, 6),
+            ReadInt16(payload, 4),
+            ReadInt16(payload, 18),
+            ReadInt16(payload, 16),
+            ReadInt16(payload, 14),
+            ReadInt16(payload, 12));
+    }
+
+    private static void DrawWmfStretchDib(
+        PlaybackState state,
+        in MetafileRecord record,
+        ReadOnlySpan<byte> payload)
+    {
+        const int fixedPayloadSize = 22;
+        if (payload.Length < fixedPayloadSize)
+        {
+            throw Invalid(record);
+        }
+        RequireSrcCopy(record, ReadUInt32(payload, 0));
+        uint usage = ReadUInt16(payload, 4);
+        if (usage != DibRgbColors)
+        {
+            throw Unsupported(record, "Only DIB_RGB_COLORS is supported.");
+        }
+
+        ReadOnlySpan<byte> packedDib = payload[fixedPayloadSize..];
+        DibInfo dib = ReadDibInfo(record, packedDib, usage);
+        using Bitmap bitmap = DecodeDibRows(
+            record,
+            dib,
+            packedDib[..dib.BitmapInfoSize],
+            packedDib[dib.BitmapInfoSize..],
+            dib.Height);
+        DrawMappedDib(
+            state,
+            record,
+            bitmap,
+            dib,
+            ReadInt16(payload, 12),
+            ReadInt16(payload, 10),
+            ReadInt16(payload, 8),
+            ReadInt16(payload, 6),
+            ReadInt16(payload, 20),
+            ReadInt16(payload, 18),
+            ReadInt16(payload, 16),
+            ReadInt16(payload, 14));
+    }
+
+    private static void DrawWmfSetDibToDevice(
+        PlaybackState state,
+        in MetafileRecord record,
+        ReadOnlySpan<byte> payload)
+    {
+        const int fixedPayloadSize = 18;
+        if (payload.Length < fixedPayloadSize)
+        {
+            throw Invalid(record);
+        }
+        uint usage = ReadUInt16(payload, 0);
+        if (usage != DibRgbColors)
+        {
+            throw Unsupported(record, "Only DIB_RGB_COLORS is supported.");
+        }
+
+        ReadOnlySpan<byte> packedDib = payload[fixedPayloadSize..];
+        DibInfo dib = ReadDibInfo(record, packedDib, usage);
+        DrawSetDibitsBand(
+            state,
+            record,
+            dib,
+            packedDib[..dib.BitmapInfoSize],
+            packedDib[dib.BitmapInfoSize..],
+            ReadUInt16(payload, 8),
+            ReadUInt16(payload, 6),
+            ReadUInt16(payload, 12),
+            ReadUInt16(payload, 10),
+            ReadUInt16(payload, 16),
+            ReadUInt16(payload, 14),
+            ReadUInt16(payload, 4),
+            ReadUInt16(payload, 2));
+    }
+
+    private static void RequireWmfSourceDib(
+        in MetafileRecord record,
+        ReadOnlySpan<byte> payload,
+        int fixedPayloadSize,
+        int playbackDcPayloadSize)
+    {
+        if (payload.Length == playbackDcPayloadSize)
+        {
+            throw Unsupported(record, "Playback-device-context bitmap sources are not supported.");
+        }
+        if (payload.Length < fixedPayloadSize)
+        {
+            throw Invalid(record);
+        }
+    }
+
+    private static void RequireSrcCopy(in MetafileRecord record, uint rasterOperation)
+    {
+        if (rasterOperation != SrcCopy)
+        {
+            throw Unsupported(record, "Only the SRCCOPY raster operation is supported.");
+        }
+    }
+
+    private static void DrawSetDibitsBand(
+        PlaybackState state,
+        in MetafileRecord record,
+        in DibInfo dib,
+        ReadOnlySpan<byte> bitmapInfo,
+        ReadOnlySpan<byte> bitmapBits,
+        int sourceX,
+        int sourceY,
+        int sourceWidth,
+        int sourceHeight,
+        int destinationX,
+        int destinationY,
+        uint startScan,
+        uint scanCount)
+    {
         if (startScan > (uint)dib.Height || scanCount > (uint)dib.Height - startScan)
         {
             throw Invalid(record);
@@ -808,8 +1017,6 @@ internal static class MetafilePlaybackRenderer
             return;
         }
 
-        int sourceWidth = ReadInt32(payload, 32);
-        int sourceHeight = ReadInt32(payload, 36);
         if (sourceWidth <= 0 || sourceHeight <= 0)
         {
             throw Invalid(record);
@@ -827,8 +1034,8 @@ internal static class MetafilePlaybackRenderer
         Rectangle requestedSource = GetSetDibSourceRectangle(
             record,
             dib,
-            ReadInt32(payload, 24),
-            ReadInt32(payload, 28),
+            sourceX,
+            sourceY,
             sourceWidth,
             sourceHeight);
         Rectangle availableSource = Rectangle.Intersect(
@@ -847,11 +1054,11 @@ internal static class MetafilePlaybackRenderer
         Rectangle destination = new(
             AddCoordinate(
                 record,
-                ReadInt32(payload, 16),
+                destinationX,
                 availableSource.X - requestedSource.X),
             AddCoordinate(
                 record,
-                ReadInt32(payload, 20),
+                destinationY,
                 availableSource.Y - requestedSource.Y),
             availableSource.Width,
             availableSource.Height);
@@ -1062,19 +1269,34 @@ internal static class MetafilePlaybackRenderer
             throw Invalid(record);
         }
 
+        uint colorsUsed = ReadUInt32(bitmapInfo, 32);
         int paletteCount = 0;
+        int colorTableCount;
         if (bitCount <= 8)
         {
             int maximumPaletteCount = 1 << bitCount;
-            uint colorsUsed = ReadUInt32(bitmapInfo, 32);
-            paletteCount = colorsUsed == 0
-                ? maximumPaletteCount
-                : (int)Math.Min(colorsUsed, (uint)maximumPaletteCount);
-            long requiredInfoSize = (long)headerSize + paletteCount * 4L;
-            if (requiredInfoSize > bitmapInfo.Length)
+            if (colorsUsed > (uint)maximumPaletteCount)
             {
                 throw Invalid(record);
             }
+            paletteCount = colorsUsed == 0
+                ? maximumPaletteCount
+                : (int)colorsUsed;
+            colorTableCount = paletteCount;
+        }
+        else
+        {
+            if (colorsUsed > int.MaxValue)
+            {
+                throw Invalid(record);
+            }
+            colorTableCount = (int)colorsUsed;
+        }
+
+        long requiredInfoSize = (long)headerSize + colorTableCount * 4L;
+        if (requiredInfoSize > bitmapInfo.Length || requiredInfoSize > int.MaxValue)
+        {
+            throw Invalid(record);
         }
 
         return new DibInfo(
@@ -1084,7 +1306,8 @@ internal static class MetafilePlaybackRenderer
             bitCount,
             (int)rowStride,
             (int)headerSize,
-            paletteCount);
+            paletteCount,
+            (int)requiredInfoSize);
     }
 
     private static Bitmap DecodeDibRows(
@@ -1200,7 +1423,8 @@ internal static class MetafilePlaybackRenderer
         ushort BitCount,
         int RowStride,
         int HeaderSize,
-        int PaletteCount);
+        int PaletteCount,
+        int BitmapInfoSize);
 
     private static void DrawRectangle(
         PlaybackState state,

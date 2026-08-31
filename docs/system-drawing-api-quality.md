@@ -117,7 +117,8 @@ member suppression, leaving zero missing types, zero missing members, and 13
     `EXTTEXTOUT` glyph-index, numeric-substitution, two-dimensional, DBCS-
     advance, and bidi-advance modes, independent escapement/orientation,
     vertical fonts, SYMBOL
-    glyph-index mapping, DIBs, other WMF drawing families, and nonstructural EMF+ drawing remain
+    glyph-index mapping, playback-DC and device-dependent bitmap sources, other
+    WMF drawing families, and nonstructural EMF+ drawing remain
     explicit follow-up work. Contract, security bounds, and benchmark evidence are recorded
 in
 [`docs/research/system-drawing-metafile-contract.md`](research/system-drawing-metafile-contract.md).
@@ -325,10 +326,26 @@ cover exact bottom-up/top-down pixels and stride, source clipping/crop,
 mirroring, transforms, all six BI_RGB bit depths, partial scan bands in both
 orientations, saved stretch sampling, buffer/range/ROP failures, transactional
 rollback, and a warmed 64-image allocation ceiling. Unsupported compression,
-bitfields, logical-palette color usage, JPEG/PNG transport, and WMF DIB records
-fail at named boundaries. ApiCompat is unaffected because this closes managed
-behavior behind the existing public surface. Both complete Debug and Release
-drawing suites pass 515/515; ApiCompat remains 0/0/13.
+bitfields, logical-palette color usage, and JPEG/PNG transport fail at named
+boundaries. ApiCompat is unaffected because this closes managed behavior behind
+the existing public surface.
+
+`MetafileBenchmarks.Playback256WmfDibImagesToRetainedCommands` extends that
+same decoder and retained-texture gate to source-bearing `META_DIBBITBLT`,
+`META_DIBSTRETCHBLT`, `META_STRETCHDIB`, and `META_SETDIBTODEV`. Packed
+BITMAPINFO/color-table boundaries are validated before the exact remaining bytes
+are decoded as rows; direct-color optimization tables are skipped without being
+misread as pixels. The 2026-08-31 ARM64/.NET 10.0.11 ShortRun measured an
+18.268 ms median (18.582 ms mean, 9.289 ms standard deviation) and 501.73 KB
+allocated for 256 packed two-by-two images. Three iterations, denied priority
+elevation, and high timing variance make this coarse ownership/allocation
+evidence. Ten focused cases independently cover all four layouts, bottom-up
+padding, top-down and bottom-up partial bands, packed color tables, retained
+sampling, malformed usage/ROP/scan/buffer inputs, transactional rollback,
+playback-DC-only source boundaries, and a warmed allocation ceiling. Compression,
+bitfields, logical palettes, playback-device-context sources, and
+device-dependent bitmaps remain explicit. ApiCompat remains 0/0/13.
+Both complete Debug and Release drawing suites pass 525/525.
 
 `MetafileBenchmarks.Playback256EmfPathBracketsToRetainedCommands` guards 256
 Begin/rectangle/End/StrokeAndFill groups. The 2026-08-31 ARM64/.NET 10.0.11

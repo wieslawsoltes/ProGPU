@@ -110,7 +110,9 @@ axis-aligned scans before recording while rotated or curved regions retain the
 deferred-vector path. An omitted `RGN_COPY` restores the default application
 clip without escaping the metaclip. EMF/EMF+ structural and comment records are
 nonvisual. Typed DIB playback adds `EMR_STRETCHDIBITS`,
-`EMR_SETDIBITSTODEVICE`, and EMF/WMF stretch-mode state. The shared bounded
+`EMR_SETDIBITSTODEVICE`, source-bearing `META_DIBBITBLT`,
+`META_DIBSTRETCHBLT`, `META_STRETCHDIB`, and `META_SETDIBTODEV`, plus EMF/WMF
+stretch-mode state. The shared bounded
 decoder accepts `DIB_RGB_COLORS` with uncompressed `BI_RGB` 1-, 4-, 8-, 16-,
 24-, and 32-bit pixels in `BITMAPINFOHEADER`, `BITMAPV4HEADER`, or
 `BITMAPV5HEADER` envelopes. It handles RGBQUAD palettes, RGB555, DWORD row
@@ -131,6 +133,10 @@ official [EMR_RECTANGLE](https://learn.microsoft.com/en-us/openspecs/windows_pro
 [EMR_EXTSELECTCLIPRGN](https://learn.microsoft.com/en-us/openspecs/windows_protocols/ms-emf/c6b9f4e6-27f6-4a4d-a383-c2daf5da11d9),
 [EMR_STRETCHDIBITS](https://learn.microsoft.com/en-us/openspecs/windows_protocols/ms-emf/89c0d808-0dea-413f-be40-2e9e51fa36ac),
 [EMR_SETDIBITSTODEVICE](https://learn.microsoft.com/en-us/openspecs/windows_protocols/ms-emf/e8816cc6-35d2-43e6-8d88-d69cd342372e),
+[META_DIBBITBLT](https://learn.microsoft.com/en-us/openspecs/windows_protocols/ms-wmf/524aa748-f274-4bd3-a4c1-f280bd6cac09),
+[META_DIBSTRETCHBLT](https://learn.microsoft.com/en-us/openspecs/windows_protocols/ms-wmf/e666a66f-b29d-4adb-82da-e00eaf032ea6),
+[META_STRETCHDIB](https://learn.microsoft.com/en-us/openspecs/windows_protocols/ms-wmf/7ebae08d-61ee-4d82-9aa5-9217ba2aa8c1),
+[META_SETDIBTODEV](https://learn.microsoft.com/en-us/openspecs/windows_protocols/ms-wmf/d0e77d4d-653f-4535-a4db-1496af84acdc),
 [DeviceIndependentBitmap](https://learn.microsoft.com/en-us/openspecs/windows_protocols/ms-wmf/7376542a-cce9-4625-8ead-585e9538f9f1),
 [BitmapInfoHeader](https://learn.microsoft.com/en-us/openspecs/windows_protocols/ms-wmf/567172fa-b8a2-4d79-86a2-5e21d6659ef3),
 [RegionData](https://learn.microsoft.com/en-us/openspecs/windows_protocols/ms-emf/e66601f2-9b5c-4619-8476-ddb7b087551b),
@@ -187,7 +193,9 @@ reuse, selection/deletion, solid/null pens and brushes, polygons, polylines,
 poly-polygons, current-position lines, explicit-color device pixels, counterclockwise
 elliptical arcs, filled/stroked pies and chords, rectangles, ellipses, and
 rounded rectangles, plus exact pattern-copy/blackness/whiteness rectangle
-blits. Intersect-, exclude-, and logical-offset clip
+blits. Source-bearing packed-DIB bit blits, stretch blits, explicit-usage
+stretch blits, and partial scan-band transfers share the bounded decoder and
+retained texture path described above. Intersect-, exclude-, and logical-offset clip
 rectangles lower through the retained Region clip path, and SaveDC/relative
 RestoreDC uses the complete managed state snapshot described below. The record
 inventory used by the canonical LibreWinForms `telescope_01.wmf` asset remains
@@ -231,7 +239,9 @@ implementation is based on the official
 contracts. WMF paths and select-clip-region records, `EXTTEXTOUT` glyph-index, numeric-
 substitution, two-dimensional, DBCS-advance, and bidi-advance modes, independent
 escapement/orientation, vertical fonts, SYMBOL glyph-index mapping, compressed,
-bitfield, logical-palette, and WMF DIB records, richer GDI objects,
+bitfield, and logical-palette DIBs, playback-device-context-only
+`META_DIBBITBLT`/`META_DIBSTRETCHBLT` variants, device-dependent bitmap blits,
+richer GDI objects,
 other WMF drawing families, and nonstructural EMF+ drawing records remain
 explicit later tranches. The Win32 contract identifies character extra as
 incompatible with complex shaping; playback consequently rejects explicit RTL
@@ -728,7 +738,7 @@ allocated. Three measured iterations and denied priority elevation make this
 coarse state-heavy command-shape evidence; the focused raster and rollback
 gates remain the correctness authority.
 
-The EMF DIB follow-up decodes ordinary embedded device-independent images
+The EMF and WMF DIB follow-ups decode ordinary embedded device-independent images
 without a native HDC, runtime reflection, or a compatibility bitmap wrapper.
 `EMR_STRETCHDIBITS` supports typed source crop, source/destination sign
 mirroring, transformed destination parallelograms, SRCCOPY, and saved
@@ -738,11 +748,14 @@ intersection at the corresponding full-image destination. Twelve focused cases
 cover bottom-up padding, top-down rows, clipped source adjustment, crop,
 mirroring, transforms, all six BI_RGB bit depths, both scan orientations,
 saved stretch state, malformed offsets/sizes/scan ranges, unsupported raster
-operations, transactional rollback, and warmed allocation. Compression,
-bitfields, logical-palette usage, JPEG/PNG transport, and the WMF image records
-remain named typed boundaries. Both complete Debug and Release drawing suites
-pass 515/515; ApiCompat remains at zero missing types, zero missing members,
-and 13 reviewed shape differences.
+operations, transactional rollback, and warmed allocation. The WMF follow-up
+adds all four source-bearing packed-DIB layouts, exact packed header/color-table
+splitting, direct-color optimization tables, both scan orientations, retained
+command shape, and explicit rollback for the two playback-DC-only source forms.
+Compression, bitfields, logical-palette usage, JPEG/PNG transport,
+playback-device-context sources, and device-dependent bitmaps remain named typed
+boundaries. ApiCompat remains at zero missing types, zero missing members, and
+13 reviewed shape differences.
 
 `Playback256EmfDibImagesToRetainedCommands` measures bounded header/row decode,
 256 owned two-by-two RGBA snapshots, typed retained-texture recording,
@@ -753,6 +766,19 @@ iterations, denied priority elevation, and visible timing variance make this a
 coarse allocation/command-ownership baseline. The focused 64-image gate remains
 the deterministic bound; per-record bitmap/texture construction is the next
 explicit optimization target.
+
+`Playback256WmfDibImagesToRetainedCommands` measures the same bounded decode
+and retained ownership path from 256 packed `META_STRETCHDIB` records. The
+2026-08-31 ARM64/.NET 10.0.11 ShortRun measured an 18.268 millisecond median
+(18.582 millisecond mean, 9.289 millisecond standard deviation) with 501.73 KB
+allocated. Three measured iterations, denied priority elevation, and high
+timing variance make allocation and command ownership authoritative rather than
+throughput. Ten focused WMF cases independently cover all four record families,
+bottom-up padding, top-down and bottom-up partial bands, packed color-table
+splitting, retained sampling, playback-DC boundaries, malformed input,
+transactional rollback, and the warmed 64-image allocation ceiling.
+Both complete Debug and Release drawing suites pass 525/525; ApiCompat remains
+at zero missing types, zero missing members, and 13 reviewed shape differences.
 
 The EMF path-bracket follow-up adds `EMR_BEGINPATH`, `EMR_ENDPATH`,
 `EMR_CLOSEFIGURE`, `EMR_ABORTPATH`, `EMR_FILLPATH`, `EMR_STROKEPATH`,
