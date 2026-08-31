@@ -1432,6 +1432,68 @@ public sealed class MetafileParserTests
     }
 
     [Fact]
+    public void EmfExtTextOutWPdyUsesTwoDimensionalCellsAndUpdatesCurrentPoint()
+    {
+        byte[] emf = CreateTextPlaybackEmf(
+        [
+            (EmfPlusRecordType.EmfSetBkMode, EmfInt32(1)),
+            (EmfPlusRecordType.EmfExtCreateFontIndirect,
+                EmfFont(1, -14, SystemFonts.DefaultFont.Name)),
+            (EmfPlusRecordType.EmfSelectObject, EmfUInt32(1)),
+            (EmfPlusRecordType.EmfSetTextAlign, EmfInt32(1)),
+            (EmfPlusRecordType.EmfMoveToEx, EmfPoint(4, 4)),
+            (EmfPlusRecordType.EmfExtTextOutW,
+                EmfExtTextOutWPdy(
+                    "M\u03A9",
+                    Point.Empty,
+                    [new Point(20, 5), new Point(24, 7)])),
+            (EmfPlusRecordType.EmfExtTextOutW,
+                EmfExtTextOutW("M", Point.Empty, 0, Rectangle.Empty, null))
+        ]);
+        using var metafile = new Metafile(new MemoryStream(emf));
+        var context = new DrawingContext();
+        using Graphics graphics = Graphics.FromProGpuDrawingContext(context);
+
+        graphics.DrawImage(metafile, new Rectangle(0, 0, 64, 64));
+
+        RenderCommand[] textCommands = context.Commands
+            .Where(static command => command.Type is
+                RenderCommandType.DrawGlyphRun or RenderCommandType.DrawText)
+            .ToArray();
+        Assert.Equal(2, textCommands.Length);
+        Vector2[] positions = Assert.IsType<Vector2[]>(textCommands[0].GlyphPositions);
+        Assert.Equal(2, positions.Length);
+        Assert.Equal(20f, positions[1].X - positions[0].X, 3);
+        Assert.Equal(5f, positions[1].Y - positions[0].Y, 3);
+        Assert.Equal(48f, textCommands[1].Position.X, 3);
+        Assert.Equal(16f, textCommands[1].Position.Y, 3);
+    }
+
+    [Fact]
+    public void EmfExtTextOutWPdyRejectsOutOfRangeCellWithoutPublishing()
+    {
+        byte[] malformed = EmfExtTextOutWPdy(
+            "M",
+            new Point(4, 4),
+            [new Point(10, 2)]);
+        WriteUInt32(malformed, 76, 0x8000_0000);
+        byte[] emf = CreateTextPlaybackEmf(
+        [
+            (EmfPlusRecordType.EmfRectangle, EmfRectangle(1, 1, 4, 4)),
+            (EmfPlusRecordType.EmfExtTextOutW, malformed)
+        ]);
+        using var metafile = new Metafile(new MemoryStream(emf));
+        var context = new DrawingContext();
+        using Graphics graphics = Graphics.FromProGpuDrawingContext(context);
+
+        ArgumentException exception = Assert.Throws<ArgumentException>(() =>
+            graphics.DrawImage(metafile, new Rectangle(0, 0, 64, 64)));
+
+        Assert.Contains(nameof(EmfPlusRecordType.EmfExtTextOutW), exception.Message);
+        Assert.Empty(context.Commands);
+    }
+
+    [Fact]
     public void EmfTextStateRestoresAndAppliesOpaqueClipRectangle()
     {
         byte[] emf = CreateTextPlaybackEmf(
@@ -2882,6 +2944,34 @@ public sealed class MetafileParserTests
             rectangle,
             advances,
             stringPadding);
+    }
+
+    private static byte[] EmfExtTextOutWPdy(
+        string text,
+        Point reference,
+        Point[] advances)
+    {
+        if (advances.Length != text.Length)
+        {
+            throw new ArgumentException(
+                "One two-dimensional EMF advance is required per UTF-16 code unit.",
+                nameof(advances));
+        }
+        byte[] payload = EmfExtTextOutW(
+            text,
+            reference,
+            0x0000_2000,
+            Rectangle.Empty,
+            null);
+        int advancesOffset = payload.Length;
+        Array.Resize(ref payload, checked(payload.Length + advances.Length * 8));
+        WriteUInt32(payload, 64, checked((uint)advancesOffset + 8));
+        for (int index = 0; index < advances.Length; index++)
+        {
+            WriteUInt32(payload, advancesOffset + index * 8, checked((uint)advances[index].X));
+            WriteUInt32(payload, advancesOffset + index * 8 + 4, checked((uint)advances[index].Y));
+        }
+        return payload;
     }
 
     private static byte[] EmfExtTextOut(

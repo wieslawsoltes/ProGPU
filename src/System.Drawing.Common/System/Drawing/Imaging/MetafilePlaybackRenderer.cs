@@ -1239,8 +1239,9 @@ internal static class MetafilePlaybackRenderer
         const uint EtoClipped = 0x0000_0004;
         const uint EtoRtlReading = 0x0000_0080;
         const uint EtoIgnoreLanguage = 0x0000_1000;
+        const uint EtoPdy = 0x0000_2000;
         const uint SupportedOptions =
-            EtoOpaque | EtoClipped | EtoRtlReading | EtoIgnoreLanguage;
+            EtoOpaque | EtoClipped | EtoRtlReading | EtoIgnoreLanguage | EtoPdy;
         const int RecordHeaderSize = 8;
 
         int referenceX = ReadInt32(payload, emrTextOffset);
@@ -1309,6 +1310,7 @@ internal static class MetafilePlaybackRenderer
         }
 
         scoped Span<int> advances = default;
+        scoped Span<int> verticalAdvances = default;
         if (advancesOffsetValue != 0)
         {
             if (!unicode &&
@@ -1325,7 +1327,8 @@ internal static class MetafilePlaybackRenderer
             try
             {
                 advancesOffset = checked((int)advancesOffsetValue - RecordHeaderSize);
-                advancesSize = checked(characterCount * 4);
+                advancesSize = checked(characterCount * 4 *
+                    ((options & EtoPdy) != 0 ? 2 : 1));
             }
             catch (OverflowException exception)
             {
@@ -1341,14 +1344,31 @@ internal static class MetafilePlaybackRenderer
             advances = characterCount <= 256
                 ? stackalloc int[characterCount]
                 : new int[characterCount];
+            if ((options & EtoPdy) != 0)
+            {
+                verticalAdvances = characterCount <= 256
+                    ? stackalloc int[characterCount]
+                    : new int[characterCount];
+            }
             for (int index = 0; index < advances.Length; index++)
             {
-                uint advance = ReadUInt32(payload, advancesOffset + index * 4);
+                int elementOffset = advancesOffset + index *
+                    (verticalAdvances.IsEmpty ? 4 : 8);
+                uint advance = ReadUInt32(payload, elementOffset);
                 if (advance > int.MaxValue)
                 {
                     throw Invalid(record);
                 }
                 advances[index] = (int)advance;
+                if (!verticalAdvances.IsEmpty)
+                {
+                    uint verticalAdvance = ReadUInt32(payload, elementOffset + 4);
+                    if (verticalAdvance > int.MaxValue)
+                    {
+                        throw Invalid(record);
+                    }
+                    verticalAdvances[index] = (int)verticalAdvance;
+                }
             }
 
             int stringEnd = checked(stringOffset + stringSize);
@@ -1400,7 +1420,8 @@ internal static class MetafilePlaybackRenderer
             opaque: (options & EtoOpaque) != 0,
             clipped: (options & EtoClipped) != 0,
             rightToLeft: (options & EtoRtlReading) != 0,
-            advances);
+            advances,
+            verticalAdvances);
     }
 
     private static string DecodeWmfText(
@@ -2228,8 +2249,18 @@ internal static class MetafilePlaybackRenderer
             bool opaque,
             bool clipped,
             bool rightToLeft,
-            ReadOnlySpan<int> advances) =>
-            DrawTextCore(record, text, recordPoint, rectangle, opaque, clipped, rightToLeft, advances);
+            ReadOnlySpan<int> advances,
+            ReadOnlySpan<int> verticalAdvances = default) =>
+            DrawTextCore(
+                record,
+                text,
+                recordPoint,
+                rectangle,
+                opaque,
+                clipped,
+                rightToLeft,
+                advances,
+                verticalAdvances);
 
         private void DrawTextCore(
             in MetafileRecord record,
@@ -2239,7 +2270,8 @@ internal static class MetafilePlaybackRenderer
             bool opaque,
             bool clipped,
             bool rightToLeft,
-            ReadOnlySpan<int> advances)
+            ReadOnlySpan<int> advances,
+            ReadOnlySpan<int> verticalAdvances = default)
         {
             const int SupportedAlignmentMask = 0x011F;
             if ((TextAlignment & ~SupportedAlignmentMask) != 0 ||
@@ -2250,6 +2282,17 @@ internal static class MetafilePlaybackRenderer
             }
 
             bool effectiveRightToLeft = rightToLeft || (TextAlignment & 0x0100) != 0;
+            if (!verticalAdvances.IsEmpty && verticalAdvances.Length != advances.Length)
+            {
+                throw Invalid(record);
+            }
+            if (!verticalAdvances.IsEmpty &&
+                (_selectedFont.Style & (FontStyle.Underline | FontStyle.Strikeout)) != 0)
+            {
+                throw Unsupported(
+                    record,
+                    "Two-dimensional character advances with font decorations require per-cell decoration geometry.");
+            }
             if (!advances.IsEmpty && effectiveRightToLeft)
             {
                 throw Unsupported(
@@ -2266,13 +2309,26 @@ internal static class MetafilePlaybackRenderer
             }
 
             long totalAdvance = 0;
+            long totalVerticalAdvance = 0;
             long minimumAdvance = 0;
             long maximumAdvance = 0;
+            long minimumVerticalAdvance = 0;
+            long maximumVerticalAdvance = 0;
             for (int index = 0; index < advances.Length; index++)
             {
                 totalAdvance += advances[index];
                 minimumAdvance = Math.Min(minimumAdvance, totalAdvance);
                 maximumAdvance = Math.Max(maximumAdvance, totalAdvance);
+                if (!verticalAdvances.IsEmpty)
+                {
+                    totalVerticalAdvance += verticalAdvances[index];
+                    minimumVerticalAdvance = Math.Min(
+                        minimumVerticalAdvance,
+                        totalVerticalAdvance);
+                    maximumVerticalAdvance = Math.Max(
+                        maximumVerticalAdvance,
+                        totalVerticalAdvance);
+                }
             }
 
             SizeF measuredSize = Graphics.MeasureString(text, _selectedFont);
@@ -2354,15 +2410,22 @@ internal static class MetafilePlaybackRenderer
                     float backgroundWidth = advances.IsEmpty
                         ? horizontalAdvance
                         : maximumAdvance - minimumAdvance;
+                    float backgroundY = verticalAdvances.IsEmpty
+                        ? y
+                        : y + minimumVerticalAdvance;
+                    float backgroundHeight = measuredSize.Height +
+                        (verticalAdvances.IsEmpty
+                            ? 0f
+                            : maximumVerticalAdvance - minimumVerticalAdvance);
                     if (!opaque && BackgroundMode == 2 &&
-                        backgroundWidth > 0f && measuredSize.Height > 0f)
+                        backgroundWidth > 0f && backgroundHeight > 0f)
                     {
                         Graphics.FillRectangle(
                             GetBackgroundBrush(),
                             backgroundX,
-                            y,
+                            backgroundY,
                             backgroundWidth,
-                            measuredSize.Height);
+                            backgroundHeight);
                     }
 
                     SolidBrush foreground = GetTextBrush();
@@ -2393,13 +2456,35 @@ internal static class MetafilePlaybackRenderer
                     }
                     else
                     {
-                        Graphics.DrawStringWithCharacterAdvances(
-                            text,
-                            _selectedFont,
-                            foreground,
-                            x,
-                            y,
-                            advances);
+                        if (verticalAdvances.IsEmpty)
+                        {
+                            Graphics.DrawStringWithCharacterAdvances(
+                                text,
+                                _selectedFont,
+                                foreground,
+                                x,
+                                y,
+                                advances);
+                        }
+                        else
+                        {
+                            scoped Span<Point> vectorAdvances = advances.Length <= 256
+                                ? stackalloc Point[advances.Length]
+                                : new Point[advances.Length];
+                            for (int index = 0; index < vectorAdvances.Length; index++)
+                            {
+                                vectorAdvances[index] = new Point(
+                                    advances[index],
+                                    verticalAdvances[index]);
+                            }
+                            Graphics.DrawStringWithCharacterAdvances(
+                                text,
+                                _selectedFont,
+                                foreground,
+                                x,
+                                y,
+                                vectorAdvances);
+                        }
                     }
                 }
                 finally
@@ -2420,17 +2505,21 @@ internal static class MetafilePlaybackRenderer
                 if (_selectedFontEscapement == 0)
                 {
                     float logicalEndX = reference.X + horizontalAdvance;
-                    if (!float.IsFinite(logicalEndX) ||
-                        logicalEndX < int.MinValue || logicalEndX > int.MaxValue)
+                    float logicalEndY = reference.Y + totalVerticalAdvance;
+                    if (!float.IsFinite(logicalEndX) || !float.IsFinite(logicalEndY) ||
+                        logicalEndX < int.MinValue || logicalEndX > int.MaxValue ||
+                        logicalEndY < int.MinValue || logicalEndY > int.MaxValue)
                     {
                         throw Invalid(record);
                     }
-                    CurrentPoint = Point.Round(new PointF(logicalEndX, reference.Y));
+                    CurrentPoint = Point.Round(new PointF(logicalEndX, logicalEndY));
                 }
                 else
                 {
                     Vector2 deviceEnd = Vector2.Transform(
-                        new Vector2(reference.X + horizontalAdvance, reference.Y),
+                        new Vector2(
+                            reference.X + horizontalAdvance,
+                            reference.Y + totalVerticalAdvance),
                         textTransform);
                     if (!Matrix3x2.Invert(baseTransform, out Matrix3x2 inverseBase))
                     {

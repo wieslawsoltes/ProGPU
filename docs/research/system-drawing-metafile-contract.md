@@ -553,6 +553,22 @@ deviation) with 516.24 KB allocated. Denied process-priority elevation and
 three measured iterations make this a coarse local allocation/command-shape
 checkpoint rather than a universal throughput claim.
 
+`ETO_PDY` now consumes the official interleaved horizontal/vertical 32-bit cell
+array through a typed two-dimensional drawing seam. Cumulative glyph origins,
+transparent background extents, text escapement, and `TA_UPDATECP` all preserve
+both components. Out-of-range cells and right-to-left explicit positioning fail
+transactionally. Underlined or strikeout PDY text remains a named boundary
+until decorations can follow per-cell vertical origins instead of drawing an
+incorrect continuous rule. Focused retained-command gates prove a `(20,5)`
+second-glyph delta, a `(44,12)` final current-position delta, and malformed-cell
+rollback. The complete drawing suite passes 451/451.
+
+`Playback256EmfExtTextOutWPdyAdvances` guards 256 three-character records with
+interleaved two-dimensional cells. The 2026-08-31 ARM64/.NET 10.0.11 in-process
+run measured a 4.032 millisecond median (4.449 millisecond mean, 0.850
+millisecond standard deviation) and 1.08 MB allocated. Denied priority
+elevation and three iterations make this coarse local regression evidence.
+
 `RecordAndFinalize256PortableComments` measures the complete portable writer:
 256 owned 64-byte comment copies, EMF+/EMF assembly, validation, and publication
 to a pre-sized memory stream. The 2026-08-27 ARM64/.NET 10.0.11 ShortRun

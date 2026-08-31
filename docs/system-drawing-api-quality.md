@@ -433,6 +433,19 @@ median (750.068 us mean, 34.800 us standard deviation) and 516.24 KB allocated
 for 256 compact records on ARM64/.NET 10.0.11. Three measured iterations and
 denied priority elevation make this coarse local regression evidence.
 
+`ETO_PDY` extends the private text path with typed two-dimensional character
+cells rather than flattening vertical advances. Glyph origins, transparent
+background extent, escapement, and `TA_UPDATECP` use the cumulative X/Y path.
+Decorated-font PDY and explicit bidi positioning remain named boundaries.
+Exact `(20,5)` glyph displacement, `(44,12)` current-point progression,
+out-of-range rejection, and rollback are covered by the complete 451/451 suite.
+ApiCompat remains 0/0/13.
+
+`MetafileBenchmarks.Playback256EmfExtTextOutWPdyAdvances` measured a 4.032 ms
+median (4.449 ms mean, 0.850 ms standard deviation) and 1.08 MB allocated for
+256 records. Three measured iterations and denied priority elevation make this
+coarse local allocation/command-shape evidence.
+
 `MetafileBenchmarks.RecordAndFinalize256PortableComments` measures construction,
 256 owned 64-byte comment copies, bounded EMF+ encoding, validation through the
 same parser used by consumers, and final stream publication. The 2026-08-27

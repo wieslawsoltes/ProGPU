@@ -19,6 +19,7 @@ public class MetafileBenchmarks
     private Graphics _playbackGraphics = null!;
     private Metafile _playbackMetafile = null!;
     private Metafile _emfExtendedTextPlaybackMetafile = null!;
+    private Metafile _emfPdyExtendedTextPlaybackMetafile = null!;
     private Metafile _emfAnsiExtendedTextPlaybackMetafile = null!;
     private Metafile _emfPolyTextPlaybackMetafile = null!;
     private Metafile _emfSmallTextPlaybackMetafile = null!;
@@ -56,6 +57,10 @@ public class MetafileBenchmarks
             new MemoryStream(CreatePlaybackEmf(256), writable: false));
         _emfExtendedTextPlaybackMetafile = new Metafile(
             new MemoryStream(CreatePlaybackEmfExtendedText(256), writable: false));
+        _emfPdyExtendedTextPlaybackMetafile = new Metafile(
+            new MemoryStream(
+                CreatePlaybackEmfExtendedText(256, pdy: true),
+                writable: false));
         _emfAnsiExtendedTextPlaybackMetafile = new Metafile(
             new MemoryStream(
                 CreatePlaybackEmfExtendedText(256, unicode: false),
@@ -117,6 +122,7 @@ public class MetafileBenchmarks
         _metafile.Dispose();
         _playbackMetafile.Dispose();
         _emfExtendedTextPlaybackMetafile.Dispose();
+        _emfPdyExtendedTextPlaybackMetafile.Dispose();
         _emfAnsiExtendedTextPlaybackMetafile.Dispose();
         _emfPolyTextPlaybackMetafile.Dispose();
         _emfSmallTextPlaybackMetafile.Dispose();
@@ -187,6 +193,18 @@ public class MetafileBenchmarks
         _playbackContext.Clear();
         _playbackGraphics.DrawImage(
             _emfExtendedTextPlaybackMetafile,
+            new Rectangle(0, 0, 640, 480));
+        int commandCount = _playbackContext.Commands.Count;
+        _playbackContext.Clear();
+        return commandCount;
+    }
+
+    [Benchmark]
+    public int Playback256EmfExtTextOutWPdyAdvances()
+    {
+        _playbackContext.Clear();
+        _playbackGraphics.DrawImage(
+            _emfPdyExtendedTextPlaybackMetafile,
             new Rectangle(0, 0, 640, 480));
         int commandCount = _playbackContext.Commands.Count;
         _playbackContext.Clear();
@@ -497,10 +515,15 @@ public class MetafileBenchmarks
 
     private static byte[] CreatePlaybackEmfExtendedText(
         int recordCount,
-        bool unicode = true)
+        bool unicode = true,
+        bool pdy = false)
     {
         const int fontRecordSize = 104;
-        int textRecordSize = unicode ? 96 : 92;
+        if (pdy && !unicode)
+        {
+            throw new ArgumentException("The PDY benchmark fixture requires Unicode text.", nameof(unicode));
+        }
+        int textRecordSize = pdy ? 108 : unicode ? 96 : 92;
         int totalBytes = checked(
             88 + fontRecordSize + 12 + 12 + 12 + recordCount * textRecordSize + 20);
         byte[] bytes = new byte[totalBytes];
@@ -560,15 +583,27 @@ public class MetafileBenchmarks
             WriteInt32(bytes, cursor + 40, y);
             WriteUInt32(bytes, cursor + 44, 3);
             WriteUInt32(bytes, cursor + 48, 76);
-            WriteUInt32(bytes, cursor + 52, 0x0000_1000);
+            WriteUInt32(bytes, cursor + 52, pdy ? 0x0000_3000u : 0x0000_1000u);
             int advancesOffset = unicode ? 84 : 80;
             WriteUInt32(bytes, cursor + 72, checked((uint)advancesOffset));
             bytes[cursor + 76] = (byte)'W';
             bytes[cursor + (unicode ? 78 : 77)] = (byte)'M';
             bytes[cursor + (unicode ? 80 : 78)] = (byte)'F';
-            WriteUInt32(bytes, cursor + advancesOffset, 10);
-            WriteUInt32(bytes, cursor + advancesOffset + 4, 10);
-            WriteUInt32(bytes, cursor + advancesOffset + 8, 10);
+            if (pdy)
+            {
+                WriteUInt32(bytes, cursor + advancesOffset, 10);
+                WriteUInt32(bytes, cursor + advancesOffset + 4, 1);
+                WriteUInt32(bytes, cursor + advancesOffset + 8, 10);
+                WriteUInt32(bytes, cursor + advancesOffset + 12, 2);
+                WriteUInt32(bytes, cursor + advancesOffset + 16, 10);
+                WriteUInt32(bytes, cursor + advancesOffset + 20, 3);
+            }
+            else
+            {
+                WriteUInt32(bytes, cursor + advancesOffset, 10);
+                WriteUInt32(bytes, cursor + advancesOffset + 4, 10);
+                WriteUInt32(bytes, cursor + advancesOffset + 8, 10);
+            }
             cursor += textRecordSize;
         }
 

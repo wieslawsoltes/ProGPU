@@ -2516,6 +2516,88 @@ public partial class Graphics :
             CurrentTransform4x4());
     }
 
+    internal void DrawStringWithCharacterAdvances(
+        string text,
+        Font font,
+        Brush brush,
+        float x,
+        float y,
+        ReadOnlySpan<Point> advances)
+    {
+        ArgumentNullException.ThrowIfNull(text);
+        ArgumentNullException.ThrowIfNull(font);
+        ArgumentNullException.ThrowIfNull(brush);
+        if (advances.Length != text.Length)
+        {
+            throw new ArgumentException("The advance count must match the text length.", nameof(advances));
+        }
+        if (text.Length == 0)
+        {
+            return;
+        }
+
+        using StringFormat format = StringFormat.GenericTypographic;
+        FormattedTextLayout formatted = CreateFormattedTextLayout(
+            text,
+            font,
+            new SizeF(float.PositiveInfinity, float.PositiveInfinity),
+            format);
+        ProGPU.Text.TextLayout layout = formatted.Layout;
+        if (layout.Glyphs.Count == 0)
+        {
+            return;
+        }
+
+        Span<Vector2> desiredOrigins = text.Length <= 256
+            ? stackalloc Vector2[text.Length]
+            : new Vector2[text.Length];
+        int desiredX = 0;
+        int desiredY = 0;
+        for (int index = 0; index < advances.Length; index++)
+        {
+            desiredOrigins[index] = new Vector2(desiredX, desiredY);
+            desiredX = checked(desiredX + advances[index].X);
+            desiredY = checked(desiredY + advances[index].Y);
+        }
+
+        Span<float> naturalOrigins = text.Length <= 256
+            ? stackalloc float[text.Length]
+            : new float[text.Length];
+        naturalOrigins.Fill(float.NaN);
+        IReadOnlyList<ProGPU.Text.TextCaretStop> caretStops = layout.GetVisualCaretStops();
+        for (int index = 0; index < caretStops.Count; index++)
+        {
+            ProGPU.Text.TextCaretStop stop = caretStops[index];
+            if (!stop.IsTrailing && (uint)stop.TextPosition < (uint)naturalOrigins.Length)
+            {
+                naturalOrigins[stop.TextPosition] = stop.Position.X;
+            }
+        }
+
+        for (int index = 0; index < layout.Glyphs.Count; index++)
+        {
+            ProGPU.Text.TextRunGlyph glyph = layout.Glyphs[index];
+            int cluster = Math.Clamp(glyph.Cluster, 0, text.Length - 1);
+            float naturalOrigin = naturalOrigins[cluster];
+            if (float.IsNaN(naturalOrigin))
+            {
+                naturalOrigin = glyph.Position.X;
+                naturalOrigins[cluster] = naturalOrigin;
+            }
+            Vector2 desiredOrigin = desiredOrigins[cluster];
+            glyph.Position.X += desiredOrigin.X - naturalOrigin;
+            glyph.Position.Y += desiredOrigin.Y;
+            layout.Glyphs[index] = glyph;
+        }
+
+        DrawFormattedGlyphRuns(
+            layout,
+            font,
+            brush,
+            new Vector2(x, y),
+            CurrentTransform4x4());
+    }
+
     internal void DrawStringWithCharacterSpacing(
         string text,
         Font font,
