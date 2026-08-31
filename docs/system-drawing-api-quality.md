@@ -93,7 +93,10 @@ member suppression, leaving zero missing types, zero missing members, and 13
     state. Typed `CREATEFONTINDIRECT`, `SETTEXTCOLOR`, and charset-decoded
     `TEXTOUT` add selected font/color output, alignment/current-position state,
     transparent or measured opaque backgrounds, and retained underline/strikeout
-    decorations from selected WMF font flags. `EXTTEXTOUT` adds explicit
+    decorations from selected WMF font flags. Matching compatible-mode font
+    escapement/orientation rotates baselines, glyphs, backgrounds, and
+    decorations in device space and advances `TA_UPDATECP` along the rotated
+    baseline. `EXTTEXTOUT` adds explicit
     opaque/clipped rectangles, RTL layout without explicit advances, and signed
     one-byte-character advances. WMF SaveDC and relative RestoreDC
     snapshot window/viewport origins and extents, current point, world
@@ -104,7 +107,8 @@ member suppression, leaving zero missing types, zero missing members, and 13
     ratio scaling for both window and viewport extents. Four-point
     perspective, image attributes, paths,
     `EXTTEXTOUT` glyph-index, numeric-substitution, two-dimensional, DBCS-
-    advance, and bidi-advance modes, rotated/transformed fonts, SYMBOL
+    advance, and bidi-advance modes, independent escapement/orientation,
+    vertical fonts, SYMBOL
     glyph-index mapping, DIBs, other WMF drawing families, and nonstructural EMF+ drawing remain
     explicit follow-up work. Contract, security bounds, and benchmark evidence are recorded
 in
@@ -333,6 +337,17 @@ remain one run. The comparable five-iteration ShortRun improved to a 5.227 ms
 median (5.474 ms mean, 0.527 ms standard deviation) and 2.66 MB allocated,
 reducing median by 0.647 ms (11.0%) and allocation by 0.62 MB (18.9%). Repeated
 layout/caret construction and Region clip state remain explicit debt.
+
+`MetafileBenchmarks.Playback256WmfRotatedExtTextOutWithAdvances` adds a
+90-degree compatible-mode font to the same 256-record explicit-advance shape.
+The first full-`GraphicsState` restoration measured 4.05 MB allocation; exact
+base-transform restoration lowers the optimized checkpoint to 2.66 MB, the same
+allocation as the unrotated workload. Its five-iteration ARM64/.NET 10.0.11
+ShortRun measured a 5.599 ms median (5.831 ms mean, 0.821 ms standard
+deviation). Command gates independently prove upward baseline rotation,
+decoration-transform identity, deterministic `TA_UPDATECP`, and transactional
+rejection of independent orientation. The complete suite passes 423/423 and
+ApiCompat remains 0/0/13.
 
 `MetafileBenchmarks.RecordAndFinalize256PortableComments` measures construction,
 256 owned 64-byte comment copies, bounded EMF+ encoding, validation through the

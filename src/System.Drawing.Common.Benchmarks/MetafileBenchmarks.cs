@@ -32,6 +32,7 @@ public class MetafileBenchmarks
     private Metafile _wmfOffsetClipPatBltPlaybackMetafile = null!;
     private Metafile _wmfTextPlaybackMetafile = null!;
     private Metafile _wmfExtendedTextPlaybackMetafile = null!;
+    private Metafile _wmfRotatedExtendedTextPlaybackMetafile = null!;
     private readonly Graphics.EnumerateMetafileProc _enumerate = static (_, _, _, _, _) => true;
     private readonly byte[] _comment = new byte[64];
 
@@ -76,6 +77,8 @@ public class MetafileBenchmarks
             new MemoryStream(CreatePlaybackWmfText(256), writable: false));
         _wmfExtendedTextPlaybackMetafile = new Metafile(
             new MemoryStream(CreatePlaybackWmfExtendedText(256), writable: false));
+        _wmfRotatedExtendedTextPlaybackMetafile = new Metafile(
+            new MemoryStream(CreatePlaybackWmfExtendedText(256, escapement: 900), writable: false));
     }
 
     [GlobalCleanup]
@@ -98,6 +101,7 @@ public class MetafileBenchmarks
         _wmfOffsetClipPatBltPlaybackMetafile.Dispose();
         _wmfTextPlaybackMetafile.Dispose();
         _wmfExtendedTextPlaybackMetafile.Dispose();
+        _wmfRotatedExtendedTextPlaybackMetafile.Dispose();
         _playbackGraphics.Dispose();
         _graphics.Dispose();
         _target.Dispose();
@@ -287,6 +291,18 @@ public class MetafileBenchmarks
         _playbackContext.Clear();
         _playbackGraphics.DrawImage(
             _wmfExtendedTextPlaybackMetafile,
+            new Rectangle(0, 0, 640, 480));
+        int commandCount = _playbackContext.Commands.Count;
+        _playbackContext.Clear();
+        return commandCount;
+    }
+
+    [Benchmark]
+    public int Playback256WmfRotatedExtTextOutWithAdvances()
+    {
+        _playbackContext.Clear();
+        _playbackGraphics.DrawImage(
+            _wmfRotatedExtendedTextPlaybackMetafile,
             new Rectangle(0, 0, 640, 480));
         int commandCount = _playbackContext.Commands.Count;
         _playbackContext.Clear();
@@ -895,7 +911,7 @@ public class MetafileBenchmarks
         return bytes;
     }
 
-    private static byte[] CreatePlaybackWmfExtendedText(int recordCount)
+    private static byte[] CreatePlaybackWmfExtendedText(int recordCount, short escapement = 0)
     {
         const int fontWords = 28;
         const int recordWords = 16;
@@ -923,6 +939,8 @@ public class MetafileBenchmarks
         WriteUInt32(bytes, cursor, fontWords);
         WriteUInt16(bytes, cursor + 4, 0x02FB);
         WriteInt16(bytes, cursor + 6, -14);
+        WriteInt16(bytes, cursor + 10, escapement);
+        WriteInt16(bytes, cursor + 12, escapement);
         WriteInt16(bytes, cursor + 14, 400);
         bytes[cursor + 19] = 1;
         cursor += fontWords * 2;

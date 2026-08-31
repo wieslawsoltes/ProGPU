@@ -1257,6 +1257,8 @@ internal static class MetafilePlaybackRenderer
         private Pen? _selectedPen = Pens.Black;
         private Brush? _selectedBrush = Brushes.White;
         private Font _selectedFont = SystemFonts.DefaultFont;
+        private object? _selectedFontObject;
+        private int _selectedFontEscapement;
         private SolidBrush? _textBrush;
         private SolidBrush? _backgroundBrush;
 
@@ -1284,7 +1286,7 @@ internal static class MetafilePlaybackRenderer
         internal Brush? SelectedBrush => _selectedBrush;
         internal Font SelectedFont => _selectedFont;
 
-        internal void ApplyTransform(in MetafileRecord record)
+        internal Matrix3x2 ApplyTransform(in MetafileRecord record)
         {
             ValidateExtents(record);
             float scaleX = MapMode == 1 ? 1f : (float)ViewportExtent.X / WindowExtent.X;
@@ -1303,6 +1305,7 @@ internal static class MetafilePlaybackRenderer
             }
 
             Graphics.TransformElements = combined;
+            return combined;
         }
 
         internal void ValidateExtents(in MetafileRecord record)
@@ -1484,6 +1487,8 @@ internal static class MetafilePlaybackRenderer
                 _selectedPen,
                 _selectedBrush,
                 _selectedFont,
+                _selectedFontObject,
+                _selectedFontEscapement,
                 graphicsState));
         }
 
@@ -1519,6 +1524,8 @@ internal static class MetafilePlaybackRenderer
             _selectedPen = saved.SelectedPen;
             _selectedBrush = saved.SelectedBrush;
             _selectedFont = saved.SelectedFont;
+            _selectedFontObject = saved.SelectedFontObject;
+            _selectedFontEscapement = saved.SelectedFontEscapement;
             Graphics.Restore(saved.GraphicsState);
         }
 
@@ -1600,11 +1607,11 @@ internal static class MetafilePlaybackRenderer
             bool strikeout = payload[12] != 0;
             byte charSet = payload[13];
             if (height is 0 or short.MinValue || width != 0 ||
-                escapement != 0 || orientation != 0 || weight is < 0 or > 1000)
+                escapement != orientation || weight is < 0 or > 1000)
             {
                 throw Unsupported(
                     record,
-                    "The typed WMF text path supports nonzero unscaled horizontal regular, bold, italic, underlined, or strikeout fonts.");
+                    "The typed WMF text path supports nonzero unscaled compatible-mode fonts whose escapement and orientation match.");
             }
 
             Encoding encoding = GetWmfEncoding(charSet, record);
@@ -1650,7 +1657,7 @@ internal static class MetafilePlaybackRenderer
                 font.Dispose();
                 font = new Font(faceName, emSize, style, GraphicsUnit.Pixel, charSet, false);
             }
-            AddWmfObject(font, record);
+            AddWmfObject(new WmfFontObject(font, escapement), record);
         }
 
         internal void DrawText(in MetafileRecord record, string text, Point recordPoint) =>
@@ -1742,7 +1749,8 @@ internal static class MetafilePlaybackRenderer
                 _ => 0f
             };
 
-            ApplyTransform(record);
+            Matrix3x2 baseTransform = ApplyTransform(record);
+            Matrix3x2 textTransform = CreateTextTransform(baseTransform, reference);
             GraphicsState? clippingState = null;
             if (clipped)
             {
@@ -1756,53 +1764,61 @@ internal static class MetafilePlaybackRenderer
                     Graphics.FillRectangle(GetBackgroundBrush(), rectangle);
                 }
 
-                float backgroundX = dx.IsEmpty ? x : x + minimumAdvance;
-                float backgroundWidth = dx.IsEmpty
-                    ? measuredSize.Width
-                    : maximumAdvance - minimumAdvance;
-                if (!opaque && BackgroundMode == 2 &&
-                    backgroundWidth > 0f && measuredSize.Height > 0f)
+                Graphics.TransformElements = textTransform;
+                try
                 {
-                    Graphics.FillRectangle(
-                        GetBackgroundBrush(),
-                        backgroundX,
-                        y,
-                        backgroundWidth,
-                        measuredSize.Height);
-                }
-
-                SolidBrush foreground = GetTextBrush();
-                if (dx.IsEmpty)
-                {
-                    if (effectiveRightToLeft)
+                    float backgroundX = dx.IsEmpty ? x : x + minimumAdvance;
+                    float backgroundWidth = dx.IsEmpty
+                        ? measuredSize.Width
+                        : maximumAdvance - minimumAdvance;
+                    if (!opaque && BackgroundMode == 2 &&
+                        backgroundWidth > 0f && measuredSize.Height > 0f)
                     {
-                        using var format = new StringFormat(StringFormat.GenericTypographic)
+                        Graphics.FillRectangle(
+                            GetBackgroundBrush(),
+                            backgroundX,
+                            y,
+                            backgroundWidth,
+                            measuredSize.Height);
+                    }
+
+                    SolidBrush foreground = GetTextBrush();
+                    if (dx.IsEmpty)
+                    {
+                        if (effectiveRightToLeft)
                         {
-                            FormatFlags = StringFormatFlags.DirectionRightToLeft
-                        };
-                        Graphics.DrawString(text, _selectedFont, foreground, x, y, format);
+                            using var format = new StringFormat(StringFormat.GenericTypographic)
+                            {
+                                FormatFlags = StringFormatFlags.DirectionRightToLeft
+                            };
+                            Graphics.DrawString(text, _selectedFont, foreground, x, y, format);
+                        }
+                        else
+                        {
+                            Graphics.DrawString(text, _selectedFont, foreground, x, y);
+                        }
                     }
                     else
                     {
-                        Graphics.DrawString(text, _selectedFont, foreground, x, y);
+                        Span<int> advances = text.Length <= 256
+                            ? stackalloc int[text.Length]
+                            : new int[text.Length];
+                        for (int index = 0; index < text.Length; index++)
+                        {
+                            advances[index] = ReadInt16(dx, index * 2);
+                        }
+                        Graphics.DrawStringWithCharacterAdvances(
+                            text,
+                            _selectedFont,
+                            foreground,
+                            x,
+                            y,
+                            advances);
                     }
                 }
-                else
+                finally
                 {
-                    Span<int> advances = text.Length <= 256
-                        ? stackalloc int[text.Length]
-                        : new int[text.Length];
-                    for (int index = 0; index < text.Length; index++)
-                    {
-                        advances[index] = ReadInt16(dx, index * 2);
-                    }
-                    Graphics.DrawStringWithCharacterAdvances(
-                        text,
-                        _selectedFont,
-                        foreground,
-                        x,
-                        y,
-                        advances);
+                    Graphics.TransformElements = baseTransform;
                 }
             }
             finally
@@ -1815,12 +1831,47 @@ internal static class MetafilePlaybackRenderer
 
             if ((TextAlignment & 0x0001) != 0)
             {
-                CurrentPoint = new Point(
-                    dx.IsEmpty
-                        ? Point.Round(new PointF(reference.X + horizontalAdvance, reference.Y)).X
-                        : checked((int)updatedX),
-                    Point.Round(reference).Y);
+                if (_selectedFontEscapement == 0)
+                {
+                    CurrentPoint = new Point(
+                        dx.IsEmpty
+                            ? Point.Round(new PointF(reference.X + horizontalAdvance, reference.Y)).X
+                            : checked((int)updatedX),
+                        Point.Round(reference).Y);
+                }
+                else
+                {
+                    Vector2 deviceEnd = Vector2.Transform(
+                        new Vector2(reference.X + horizontalAdvance, reference.Y),
+                        textTransform);
+                    if (!Matrix3x2.Invert(baseTransform, out Matrix3x2 inverseBase))
+                    {
+                        throw Invalid(record);
+                    }
+                    Vector2 logicalEnd = Vector2.Transform(deviceEnd, inverseBase);
+                    if (!float.IsFinite(logicalEnd.X) || !float.IsFinite(logicalEnd.Y) ||
+                        logicalEnd.X < int.MinValue || logicalEnd.X > int.MaxValue ||
+                        logicalEnd.Y < int.MinValue || logicalEnd.Y > int.MaxValue)
+                    {
+                        throw Invalid(record);
+                    }
+                    CurrentPoint = Point.Round(new PointF(logicalEnd.X, logicalEnd.Y));
+                }
             }
+        }
+
+        private Matrix3x2 CreateTextTransform(Matrix3x2 baseTransform, PointF reference)
+        {
+            if (_selectedFontEscapement == 0)
+            {
+                return baseTransform;
+            }
+
+            Vector2 deviceReference = Vector2.Transform(
+                new Vector2(reference.X, reference.Y),
+                baseTransform);
+            float radians = -_selectedFontEscapement * (MathF.PI / 1800f);
+            return baseTransform * Matrix3x2.CreateRotation(radians, deviceReference);
         }
 
         private SolidBrush GetTextBrush()
@@ -1887,7 +1938,7 @@ internal static class MetafilePlaybackRenderer
         private bool IsSelected(object product)
         {
             if (ReferenceEquals(product, _selectedPen) || ReferenceEquals(product, _selectedBrush) ||
-                ReferenceEquals(product, _selectedFont))
+                ReferenceEquals(product, _selectedFontObject))
             {
                 return true;
             }
@@ -1896,7 +1947,7 @@ internal static class MetafilePlaybackRenderer
             {
                 if (ReferenceEquals(product, savedState.SelectedPen) ||
                     ReferenceEquals(product, savedState.SelectedBrush) ||
-                    ReferenceEquals(product, savedState.SelectedFont))
+                    ReferenceEquals(product, savedState.SelectedFontObject))
                 {
                     return true;
                 }
@@ -1945,6 +1996,13 @@ internal static class MetafilePlaybackRenderer
                     break;
                 case Font font:
                     _selectedFont = font;
+                    _selectedFontObject = font;
+                    _selectedFontEscapement = 0;
+                    break;
+                case WmfFontObject fontObject:
+                    _selectedFont = fontObject.Font;
+                    _selectedFontObject = fontObject;
+                    _selectedFontEscapement = fontObject.Escapement;
                     break;
                 default:
                     throw Unsupported(record, "The selected GDI object kind is not supported.");
@@ -1993,7 +2051,17 @@ internal static class MetafilePlaybackRenderer
             Pen? SelectedPen,
             Brush? SelectedBrush,
             Font SelectedFont,
+            object? SelectedFontObject,
+            int SelectedFontEscapement,
             GraphicsState GraphicsState);
+    }
+
+    private sealed class WmfFontObject(Font font, int escapement) : IDisposable
+    {
+        internal Font Font { get; } = font;
+        internal int Escapement { get; } = escapement;
+
+        public void Dispose() => Font.Dispose();
     }
 
     private sealed class NullPenMarker

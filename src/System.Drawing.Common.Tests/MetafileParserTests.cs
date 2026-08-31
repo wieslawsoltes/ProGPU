@@ -1,5 +1,6 @@
 using System.Buffers.Binary;
 using System.Drawing.Imaging;
+using System.Numerics;
 using System.Reflection;
 using System.Runtime.InteropServices;
 using System.Text;
@@ -466,7 +467,8 @@ public sealed class MetafileParserTests
                 -14,
                 SystemFonts.DefaultFont.Name,
                 underline: true,
-                strikeout: true)),
+                strikeout: true,
+                escapement: 900)),
             (0x012D, WmfWords(0)),
             (0x0A32, WmfExtTextOut(
                 "WM",
@@ -482,12 +484,94 @@ public sealed class MetafileParserTests
 
         graphics.DrawImage(metafile, new Rectangle(0, 0, 64, 64));
 
-        Assert.Equal(
-            2,
-            context.Commands.Count(static command => command.Type == RenderCommandType.DrawRect));
-        Assert.Single(
+        RenderCommand[] decorations = context.Commands
+            .Where(static command => command.Type == RenderCommandType.DrawRect)
+            .ToArray();
+        Assert.Equal(2, decorations.Length);
+        RenderCommand glyphRun = Assert.Single(
             context.Commands,
             static command => command.Type == RenderCommandType.DrawGlyphRun);
+        Vector3 baseline = Vector3.TransformNormal(Vector3.UnitX, glyphRun.Transform);
+        Assert.InRange(MathF.Abs(baseline.X), 0f, 0.001f);
+        Assert.InRange(baseline.Y, -1.001f, -0.999f);
+        Assert.All(decorations, decoration => Assert.Equal(glyphRun.Transform, decoration.Transform));
+    }
+
+    [Fact]
+    public void WmfRotatedTextUpdatesCurrentPointAlongEscapement()
+    {
+        var records = new List<(ushort Function, byte[] Payload)>
+        {
+            (0x0102, WmfWords(1)),
+            (0x012E, WmfWords(1)),
+            (0x0214, WmfWords(56, 48)),
+            (0x02FB, WmfFont(
+                -14,
+                SystemFonts.DefaultFont.Name,
+                escapement: 900)),
+            (0x012D, WmfWords(0)),
+            (0x0A32, WmfExtTextOut(
+                "MM",
+                Point.Empty,
+                options: 0,
+                rectangle: Rectangle.Empty,
+                advances: [12, 12])),
+            (0x0521, WmfTextOut("M", Point.Empty)),
+            (0, [])
+        };
+        using var metafile = new Metafile(new MemoryStream(CreatePlaybackWmf(records)));
+        var context = new DrawingContext();
+        using Graphics graphics = Graphics.FromProGpuDrawingContext(context);
+
+        graphics.DrawImage(metafile, new Rectangle(0, 0, 64, 64));
+
+        RenderCommand[] textCommands = context.Commands
+            .Where(static command => command.Type is
+                RenderCommandType.DrawGlyphRun or RenderCommandType.DrawText)
+            .ToArray();
+        Assert.Equal(2, textCommands.Length);
+        Assert.Equal(48f, textCommands[0].Position.X, 3);
+        Assert.Equal(56f, textCommands[0].Position.Y, 3);
+        Assert.Equal(48f, textCommands[1].Position.X, 3);
+        Assert.Equal(32f, textCommands[1].Position.Y, 3);
+        Assert.All(textCommands, command =>
+        {
+            Vector3 baseline = Vector3.TransformNormal(Vector3.UnitX, command.Transform);
+            Assert.InRange(MathF.Abs(baseline.X), 0f, 0.001f);
+            Assert.InRange(baseline.Y, -1.001f, -0.999f);
+        });
+
+        using var target = new Bitmap(64, 64);
+        using (Graphics bitmapGraphics = Graphics.FromImage(target))
+        {
+            bitmapGraphics.Clear(Color.Transparent);
+            bitmapGraphics.DrawImage(metafile, new Rectangle(0, 0, 64, 64));
+        }
+        Rectangle paintedBounds = GetPaintedBounds(target);
+        Assert.True(paintedBounds.Height > paintedBounds.Width);
+    }
+
+    [Fact]
+    public void WmfIndependentFontOrientationFailsWithoutPublishing()
+    {
+        var records = new List<(ushort Function, byte[] Payload)>
+        {
+            (0x02FB, WmfFont(
+                -14,
+                SystemFonts.DefaultFont.Name,
+                escapement: 900,
+                orientation: 0)),
+            (0, [])
+        };
+        using var metafile = new Metafile(new MemoryStream(CreatePlaybackWmf(records)));
+        var context = new DrawingContext();
+        using Graphics graphics = Graphics.FromProGpuDrawingContext(context);
+
+        NotSupportedException exception = Assert.Throws<NotSupportedException>(() =>
+            graphics.DrawImage(metafile, new Rectangle(0, 0, 64, 64)));
+
+        Assert.Contains(nameof(EmfPlusRecordType.WmfCreateFontIndirect), exception.Message);
+        Assert.Empty(context.Commands);
     }
 
     [Fact]
@@ -1590,10 +1674,14 @@ public sealed class MetafileParserTests
         string faceName,
         byte charSet = 1,
         bool underline = false,
-        bool strikeout = false)
+        bool strikeout = false,
+        short escapement = 0,
+        short? orientation = null)
     {
         byte[] bytes = new byte[50];
         WriteInt16(bytes, 0, height);
+        WriteInt16(bytes, 4, escapement);
+        WriteInt16(bytes, 6, orientation ?? escapement);
         WriteInt16(bytes, 8, 400);
         bytes[11] = underline ? (byte)1 : (byte)0;
         bytes[12] = strikeout ? (byte)1 : (byte)0;
@@ -1665,6 +1753,32 @@ public sealed class MetafileParserTests
             }
         }
         return count;
+    }
+
+    private static Rectangle GetPaintedBounds(Bitmap bitmap)
+    {
+        int left = bitmap.Width;
+        int top = bitmap.Height;
+        int right = -1;
+        int bottom = -1;
+        for (int y = 0; y < bitmap.Height; y++)
+        {
+            for (int x = 0; x < bitmap.Width; x++)
+            {
+                if (bitmap.GetPixel(x, y).A == 0)
+                {
+                    continue;
+                }
+                left = Math.Min(left, x);
+                top = Math.Min(top, y);
+                right = Math.Max(right, x);
+                bottom = Math.Max(bottom, y);
+            }
+        }
+
+        return right < left || bottom < top
+            ? Rectangle.Empty
+            : Rectangle.FromLTRB(left, top, right + 1, bottom + 1);
     }
 
     private static bool IsMostlyRed(Color color) =>

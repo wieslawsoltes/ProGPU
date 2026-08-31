@@ -114,6 +114,10 @@ state, text color, `CREATEFONTINDIRECT` object-table fonts, charset-decoded
 `TEXTOUT`, and `EXTTEXTOUT` opaque/clipped rectangles and signed character
 advances. Selected WMF underline and strikeout font bits lower through the same
 OpenType-metric retained decoration path as ordinary `Graphics.DrawString`.
+Compatible-mode fonts whose escapement and orientation match rotate the text
+baseline, glyphs, measured background, and decorations together in device
+space. `TA_UPDATECP` maps the transformed advance back into logical state, so a
+following text record continues along that same baseline.
 Text/anisotropic map modes, set/offset/scale window and viewport state,
 move, lowest-free object-table allocation and slot
 reuse, selection/deletion, solid/null pens and brushes, polygons, polylines,
@@ -145,6 +149,7 @@ implementation is based on the official
 [TernaryRasterOperation](https://learn.microsoft.com/en-us/openspecs/windows_protocols/ms-wmf/1605dd68-a635-4639-ab81-99ff3e3fc5a3),
 [META_CREATEFONTINDIRECT](https://learn.microsoft.com/en-us/openspecs/windows_protocols/ms-wmf/6040492f-7b58-49bd-bfef-ef1126bdffe3),
 [Font Object](https://learn.microsoft.com/en-us/openspecs/windows_protocols/ms-wmf/dabb1ed6-e5e8-4243-80ed-e63443e5484f),
+[LOGFONT escapement and orientation](https://learn.microsoft.com/en-us/windows/win32/api/wingdi/ns-wingdi-logfonta),
 [META_SETTEXTCOLOR](https://learn.microsoft.com/en-us/openspecs/windows_protocols/ms-wmf/2bdfee2b-3016-4a6a-b4cd-c725ce9cb2a0),
 [META_TEXTOUT](https://learn.microsoft.com/en-us/openspecs/windows_protocols/ms-wmf/96531e1a-1875-49e5-b797-b4c4c50fa789),
 [META_EXTTEXTOUT](https://learn.microsoft.com/en-us/openspecs/windows_protocols/ms-wmf/7d07c44a-a828-4b82-9af0-e0a81cced5a8),
@@ -156,8 +161,8 @@ implementation is based on the official
 [META_ROUNDRECT](https://learn.microsoft.com/en-us/openspecs/windows_protocols/ms-wmf/9c262e3b-e631-4343-8b90-0441872f1e9a), and
 [state record](https://learn.microsoft.com/en-us/openspecs/windows_protocols/ms-wmf/54e4a2e0-5ca9-4c69-b6a8-dc8f938c68ae)
 contracts. Paths, other clipping records, `EXTTEXTOUT` glyph-index, numeric-
-substitution, two-dimensional, DBCS-advance, and bidi-advance modes, rotated or
-otherwise transformed fonts, SYMBOL glyph-index mapping, DIB images, richer GDI objects,
+substitution, two-dimensional, DBCS-advance, and bidi-advance modes, independent
+escapement/orientation, vertical fonts, SYMBOL glyph-index mapping, DIB images, richer GDI objects,
 other WMF drawing families, and nonstructural EMF+ drawing records remain
 explicit later tranches.
 
@@ -380,6 +385,27 @@ selected `System.Drawing.Font`. A retained-command gate proves that one font
 carrying both bits records exactly two decoration rectangles with its text;
 the ordinary string-format gate independently covers point, clipped rectangle,
 and formatted rectangle overloads. The complete drawing suite passes 421/421.
+
+Compatible-mode WMF font escapement now uses a typed font object that owns the
+managed `Font` plus its signed tenths-of-a-degree baseline angle. Playback
+rotates after the normal WMF logical-to-device transform about the text
+reference point, preserving horizontal/vertical alignment, explicit advances,
+retained decorations, rectangular `EXTTEXTOUT` clipping, and unrotated explicit
+opaque rectangles. A deterministic 90-degree gate proves the retained baseline
+points upward, decorated glyph and rectangle transforms match, and
+`TA_UPDATECP` moves a following record 24 units along that baseline. A mismatched
+orientation fails transactionally because independent glyph orientation needs a
+separate typed character-transform path. The complete drawing suite passes
+423/423.
+
+`Playback256WmfRotatedExtTextOutWithAdvances` applies 90-degree escapement to
+the existing 256-record/three-advance workload. The first implementation cloned
+full `GraphicsState` per record and measured 4.05 MB allocation. Restoring only
+the exact base transform reduced the comparable five-iteration checkpoint to
+2.66 MB, matching the unrotated workload. The optimized 2026-08-31 ARM64/.NET
+10.0.11 ShortRun measured a 5.599 millisecond median (5.831 millisecond mean,
+0.821 millisecond standard deviation). Timing remains high variance; the
+allocation result and command-transform gates are the authoritative evidence.
 
 `RecordAndFinalize256PortableComments` measures the complete portable writer:
 256 owned 64-byte comment copies, EMF+/EMF assembly, validation, and publication
