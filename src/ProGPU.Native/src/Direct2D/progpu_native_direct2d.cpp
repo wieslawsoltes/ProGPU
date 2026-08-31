@@ -3843,6 +3843,289 @@ private:
     D2D1_MATRIX_3X2_F transform_{};
 };
 
+class ProGpuD2DGeometryGroup final : public ID2D1GeometryGroup {
+public:
+    ProGpuD2DGeometryGroup(
+        ID2D1Factory1* factory,
+        D2D1_FILL_MODE fill_mode,
+        std::vector<ComPtr<ID2D1Geometry>>&& sources,
+        ID2D1PathGeometry1* path) noexcept
+        : factory_(factory),
+          fill_mode_(fill_mode),
+          sources_(std::move(sources)),
+          path_(path)
+    {
+    }
+
+    HRESULT STDMETHODCALLTYPE QueryInterface(
+        REFIID interface_id,
+        void** value) noexcept override
+    {
+        if (value == nullptr) {
+            return E_POINTER;
+        }
+        *value = nullptr;
+        if (IsEqualIID(interface_id, IID_IUnknown) ||
+            IsEqualIID(interface_id, __uuidof(ID2D1Resource)) ||
+            IsEqualIID(interface_id, __uuidof(ID2D1Geometry)) ||
+            IsEqualIID(interface_id, __uuidof(ID2D1GeometryGroup))) {
+            *value = static_cast<ID2D1GeometryGroup*>(this);
+            AddRef();
+            return S_OK;
+        }
+        return E_NOINTERFACE;
+    }
+
+    ULONG STDMETHODCALLTYPE AddRef() noexcept override
+    {
+        return reference_count_.fetch_add(1U, std::memory_order_relaxed) + 1U;
+    }
+
+    ULONG STDMETHODCALLTYPE Release() noexcept override
+    {
+        const ULONG remaining = reference_count_.fetch_sub(
+            1U,
+            std::memory_order_acq_rel) - 1U;
+        if (remaining == 0U) {
+            delete this;
+        }
+        return remaining;
+    }
+
+    void STDMETHODCALLTYPE GetFactory(
+        ID2D1Factory** factory) const noexcept override
+    {
+        if (factory == nullptr) {
+            return;
+        }
+        *factory = factory_.Get();
+        if (*factory != nullptr) {
+            (*factory)->AddRef();
+        }
+    }
+
+    HRESULT STDMETHODCALLTYPE GetBounds(
+        const D2D1_MATRIX_3X2_F* world_transform,
+        D2D1_RECT_F* bounds) const noexcept override
+    {
+        return path_->GetBounds(world_transform, bounds);
+    }
+
+    HRESULT STDMETHODCALLTYPE GetWidenedBounds(
+        FLOAT stroke_width,
+        ID2D1StrokeStyle* stroke_style,
+        const D2D1_MATRIX_3X2_F* world_transform,
+        FLOAT flattening_tolerance,
+        D2D1_RECT_F* bounds) const noexcept override
+    {
+        return path_->GetWidenedBounds(
+            stroke_width,
+            stroke_style,
+            world_transform,
+            flattening_tolerance,
+            bounds);
+    }
+
+    HRESULT STDMETHODCALLTYPE StrokeContainsPoint(
+        D2D1_POINT_2F point,
+        FLOAT stroke_width,
+        ID2D1StrokeStyle* stroke_style,
+        const D2D1_MATRIX_3X2_F* world_transform,
+        FLOAT flattening_tolerance,
+        BOOL* contains) const noexcept override
+    {
+        return path_->StrokeContainsPoint(
+            point,
+            stroke_width,
+            stroke_style,
+            world_transform,
+            flattening_tolerance,
+            contains);
+    }
+
+    HRESULT STDMETHODCALLTYPE FillContainsPoint(
+        D2D1_POINT_2F point,
+        const D2D1_MATRIX_3X2_F* world_transform,
+        FLOAT flattening_tolerance,
+        BOOL* contains) const noexcept override
+    {
+        return path_->FillContainsPoint(
+            point,
+            world_transform,
+            flattening_tolerance,
+            contains);
+    }
+
+    HRESULT STDMETHODCALLTYPE CompareWithGeometry(
+        ID2D1Geometry* input_geometry,
+        const D2D1_MATRIX_3X2_F* input_geometry_transform,
+        FLOAT flattening_tolerance,
+        D2D1_GEOMETRY_RELATION* relation) const noexcept override
+    {
+        return path_->CompareWithGeometry(
+            input_geometry,
+            input_geometry_transform,
+            flattening_tolerance,
+            relation);
+    }
+
+    HRESULT STDMETHODCALLTYPE Simplify(
+        D2D1_GEOMETRY_SIMPLIFICATION_OPTION simplification_option,
+        const D2D1_MATRIX_3X2_F* world_transform,
+        FLOAT flattening_tolerance,
+        ID2D1SimplifiedGeometrySink* geometry_sink) const noexcept override
+    {
+        return path_->Simplify(
+            simplification_option,
+            world_transform,
+            flattening_tolerance,
+            geometry_sink);
+    }
+
+    HRESULT STDMETHODCALLTYPE Tessellate(
+        const D2D1_MATRIX_3X2_F* world_transform,
+        FLOAT flattening_tolerance,
+        ID2D1TessellationSink* tessellation_sink) const noexcept override
+    {
+        return path_->Tessellate(
+            world_transform,
+            flattening_tolerance,
+            tessellation_sink);
+    }
+
+    HRESULT STDMETHODCALLTYPE CombineWithGeometry(
+        ID2D1Geometry* input_geometry,
+        D2D1_COMBINE_MODE combine_mode,
+        const D2D1_MATRIX_3X2_F* input_geometry_transform,
+        FLOAT flattening_tolerance,
+        ID2D1SimplifiedGeometrySink* geometry_sink) const noexcept override
+    {
+        return path_->CombineWithGeometry(
+            input_geometry,
+            combine_mode,
+            input_geometry_transform,
+            flattening_tolerance,
+            geometry_sink);
+    }
+
+    HRESULT STDMETHODCALLTYPE Outline(
+        const D2D1_MATRIX_3X2_F* world_transform,
+        FLOAT flattening_tolerance,
+        ID2D1SimplifiedGeometrySink* geometry_sink) const noexcept override
+    {
+        return path_->Outline(
+            world_transform,
+            flattening_tolerance,
+            geometry_sink);
+    }
+
+    HRESULT STDMETHODCALLTYPE ComputeArea(
+        const D2D1_MATRIX_3X2_F* world_transform,
+        FLOAT flattening_tolerance,
+        FLOAT* area) const noexcept override
+    {
+        return path_->ComputeArea(
+            world_transform,
+            flattening_tolerance,
+            area);
+    }
+
+    HRESULT STDMETHODCALLTYPE ComputeLength(
+        const D2D1_MATRIX_3X2_F* world_transform,
+        FLOAT flattening_tolerance,
+        FLOAT* length) const noexcept override
+    {
+        return path_->ComputeLength(
+            world_transform,
+            flattening_tolerance,
+            length);
+    }
+
+    HRESULT STDMETHODCALLTYPE ComputePointAtLength(
+        FLOAT length,
+        const D2D1_MATRIX_3X2_F* world_transform,
+        FLOAT flattening_tolerance,
+        D2D1_POINT_2F* point,
+        D2D1_POINT_2F* unit_tangent_vector) const noexcept override
+    {
+        return path_->ComputePointAtLength(
+            length,
+            world_transform,
+            flattening_tolerance,
+            point,
+            unit_tangent_vector);
+    }
+
+    HRESULT STDMETHODCALLTYPE Widen(
+        FLOAT stroke_width,
+        ID2D1StrokeStyle* stroke_style,
+        const D2D1_MATRIX_3X2_F* world_transform,
+        FLOAT flattening_tolerance,
+        ID2D1SimplifiedGeometrySink* geometry_sink) const noexcept override
+    {
+        return path_->Widen(
+            stroke_width,
+            stroke_style,
+            world_transform,
+            flattening_tolerance,
+            geometry_sink);
+    }
+
+    D2D1_FILL_MODE STDMETHODCALLTYPE GetFillMode() const noexcept override
+    {
+        return fill_mode_;
+    }
+
+    UINT32 STDMETHODCALLTYPE GetSourceGeometryCount() const noexcept override
+    {
+        return static_cast<UINT32>(sources_.size());
+    }
+
+    void STDMETHODCALLTYPE GetSourceGeometries(
+        ID2D1Geometry** geometries,
+        UINT32 geometries_count) const noexcept override
+    {
+        if (geometries == nullptr) {
+            return;
+        }
+        const size_t count = std::min(
+            static_cast<size_t>(geometries_count), sources_.size());
+        for (size_t index = 0U; index < count; ++index) {
+            geometries[index] = sources_[index].Get();
+            geometries[index]->AddRef();
+        }
+    }
+
+private:
+    std::atomic<ULONG> reference_count_{1U};
+    ComPtr<ID2D1Factory1> factory_;
+    D2D1_FILL_MODE fill_mode_ = D2D1_FILL_MODE_ALTERNATE;
+    std::vector<ComPtr<ID2D1Geometry>> sources_;
+    ComPtr<ID2D1PathGeometry1> path_;
+};
+
+bool compat_geometry_group_fill_compatible(
+    ID2D1Geometry* geometry,
+    D2D1_FILL_MODE fill_mode,
+    uint32_t depth = 0U) noexcept
+{
+    if (geometry == nullptr || depth == 64U) {
+        return false;
+    }
+    ComPtr<ID2D1GeometryGroup> group;
+    if (SUCCEEDED(geometry->QueryInterface(IID_PPV_ARGS(&group)))) {
+        return group->GetFillMode() == fill_mode;
+    }
+    ComPtr<ID2D1TransformedGeometry> transformed;
+    if (SUCCEEDED(geometry->QueryInterface(IID_PPV_ARGS(&transformed)))) {
+        ComPtr<ID2D1Geometry> source;
+        transformed->GetSourceGeometry(&source);
+        return compat_geometry_group_fill_compatible(
+            source.Get(), fill_mode, depth + 1U);
+    }
+    return true;
+}
+
 class ProGpuD2DFactory final :
     public ID2D1Factory1,
     public ID2D1Multithread,
@@ -4150,12 +4433,81 @@ public:
     }
 
     HRESULT STDMETHODCALLTYPE CreateGeometryGroup(
-        D2D1_FILL_MODE,
-        ID2D1Geometry**,
-        UINT32,
+        D2D1_FILL_MODE fill_mode,
+        ID2D1Geometry** geometries,
+        UINT32 geometries_count,
         ID2D1GeometryGroup** value) noexcept override
     {
-        return unsupported(value);
+        if (value == nullptr) {
+            return E_POINTER;
+        }
+        *value = nullptr;
+        if ((fill_mode != D2D1_FILL_MODE_ALTERNATE &&
+                fill_mode != D2D1_FILL_MODE_WINDING) ||
+            (geometries_count != 0U && geometries == nullptr)) {
+            return E_INVALIDARG;
+        }
+        std::vector<ComPtr<ID2D1Geometry>> sources;
+        try {
+            sources.reserve(geometries_count);
+            for (UINT32 index = 0U; index < geometries_count; ++index) {
+                if (geometries[index] == nullptr) {
+                    return E_INVALIDARG;
+                }
+                ComPtr<ID2D1Factory> source_factory;
+                geometries[index]->GetFactory(&source_factory);
+                if (source_factory.Get() !=
+                    static_cast<ID2D1Factory*>(this)) {
+                    return D2DERR_WRONG_FACTORY;
+                }
+                if (!compat_geometry_group_fill_compatible(
+                        geometries[index], fill_mode)) {
+                    return E_NOTIMPL;
+                }
+                sources.emplace_back(geometries[index]);
+            }
+        } catch (const std::bad_alloc&) {
+            return E_OUTOFMEMORY;
+        } catch (...) {
+            return E_FAIL;
+        }
+
+        ComPtr<ID2D1PathGeometry1> path;
+        auto* raw_path = new (std::nothrow) ProGpuD2DPathGeometry(this);
+        if (raw_path == nullptr) {
+            return E_OUTOFMEMORY;
+        }
+        path.Attach(raw_path);
+        ComPtr<ID2D1GeometrySink> sink;
+        HRESULT hr = path->Open(&sink);
+        if (FAILED(hr)) {
+            return hr;
+        }
+        sink->SetFillMode(fill_mode);
+        for (const auto& source : sources) {
+            hr = source->Simplify(
+                D2D1_GEOMETRY_SIMPLIFICATION_OPTION_CUBICS_AND_LINES,
+                nullptr,
+                D2D1_DEFAULT_FLATTENING_TOLERANCE,
+                sink.Get());
+            if (FAILED(hr)) {
+                static_cast<void>(sink->Close());
+                return hr;
+            }
+            sink->SetFillMode(fill_mode);
+        }
+        hr = sink->Close();
+        if (FAILED(hr)) {
+            return hr;
+        }
+
+        auto* group = new (std::nothrow) ProGpuD2DGeometryGroup(
+            this, fill_mode, std::move(sources), path.Get());
+        if (group == nullptr) {
+            return E_OUTOFMEMORY;
+        }
+        *value = group;
+        return S_OK;
     }
 
     HRESULT STDMETHODCALLTYPE CreateTransformedGeometry(

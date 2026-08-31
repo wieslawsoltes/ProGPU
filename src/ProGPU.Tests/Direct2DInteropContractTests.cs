@@ -45,7 +45,7 @@ public sealed class Direct2DInteropContractTests
             native,
             StringComparison.Ordinal);
         Assert.Contains(
-            "internal const uint AbiVersion = 53U;",
+            "internal const uint AbiVersion = 54U;",
             native,
             StringComparison.Ordinal);
         Assert.Contains(
@@ -508,7 +508,7 @@ public sealed class Direct2DInteropContractTests
             "progpu_native_direct2d_tests.cpp");
 
         Assert.Contains(
-            "PROGPU_NATIVE_DIRECT2D_ABI_VERSION = 53U",
+            "PROGPU_NATIVE_DIRECT2D_ABI_VERSION = 54U",
             header,
             StringComparison.Ordinal);
         Assert.Contains(
@@ -604,6 +604,10 @@ public sealed class Direct2DInteropContractTests
             source,
             StringComparison.Ordinal);
         Assert.Contains(
+            "class ProGpuD2DGeometryGroup final : public ID2D1GeometryGroup",
+            source,
+            StringComparison.Ordinal);
+        Assert.Contains(
             "class ProGpuD2DGeometrySink final : public ID2D1GeometrySink",
             source,
             StringComparison.Ordinal);
@@ -633,6 +637,18 @@ public sealed class Direct2DInteropContractTests
             StringComparison.Ordinal);
         Assert.Contains(
             "ProGPU Direct2D COM transformed FillGeometry callback failed",
+            test,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "ProGPU ID2D1GeometryGroup creation failed",
+            test,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "ProGPU geometry group diverged from system Direct2D",
+            test,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "ProGPU Direct2D COM geometry-group FillGeometry callback failed",
             test,
             StringComparison.Ordinal);
         Assert.Contains(
