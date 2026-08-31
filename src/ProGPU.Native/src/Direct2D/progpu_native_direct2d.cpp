@@ -3139,30 +3139,10 @@ public:
         FLOAT flattening_tolerance,
         FLOAT* area) const noexcept override
     {
-        if (area == nullptr) {
-            return E_POINTER;
-        }
-        *area = 0.0F;
-        if (!std::isfinite(flattening_tolerance) ||
-            flattening_tolerance <= 0.0F ||
-            !compat_finite_transform(world_transform)) {
-            return E_INVALIDARG;
-        }
-        const D2D1_MATRIX_3X2_F matrix = world_transform == nullptr
-            ? D2D1::Matrix3x2F::Identity()
-            : *world_transform;
-        const double determinant = std::abs(
-            static_cast<double>(matrix._11) * matrix._22 -
-            static_cast<double>(matrix._12) * matrix._21);
-        constexpr double pi = 3.14159265358979323846264338327950288;
-        const double result = pi * ellipse_.radiusX * ellipse_.radiusY *
-            determinant;
-        if (!std::isfinite(result) ||
-            result > std::numeric_limits<float>::max()) {
-            return E_INVALIDARG;
-        }
-        *area = static_cast<float>(result);
-        return S_OK;
+        return path_->ComputeArea(
+            world_transform,
+            flattening_tolerance,
+            area);
     }
 
     HRESULT STDMETHODCALLTYPE ComputeLength(

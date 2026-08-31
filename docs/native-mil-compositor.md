@@ -5797,8 +5797,8 @@ pass 5/5 and the native MIL oracle exits zero on macOS.
 
 Direct2D compatibility ABI v51 adds a ProGPU-owned
 `ID2D1EllipseGeometry`. It keeps genuine resource/geometry/ellipse COM
-identity and factory parentage, exact affine support-function bounds, exact
-determinant-scaled area, inverse-transform containment, and the original
+identity and factory parentage, exact affine support-function bounds,
+inverse-transform containment, tolerance-controlled path metrics, and the original
 ellipse descriptor. A closed four-cubic path is constructed once with the
 resource and is then reused by the shared path simplifier and scene compiler,
 so filled and stroked ellipses enter the same backend-neutral vector resources
