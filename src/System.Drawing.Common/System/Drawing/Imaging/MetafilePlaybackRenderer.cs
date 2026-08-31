@@ -517,6 +517,11 @@ internal static class MetafilePlaybackRenderer
                 state.OffsetClip(record, ReadPoint(payload));
                 return;
 
+            case EmfPlusRecordType.EmfSetMetaRgn:
+                RequireSize(record, payload, 0);
+                state.SetMetaRegion();
+                return;
+
             case EmfPlusRecordType.EmfExcludeClipRect:
                 RequireSize(record, payload, 16);
                 state.ExcludeClip(record, ReadRectangle(record, payload));
@@ -525,6 +530,10 @@ internal static class MetafilePlaybackRenderer
             case EmfPlusRecordType.EmfIntersectClipRect:
                 RequireSize(record, payload, 16);
                 state.IntersectClip(record, ReadRectangle(record, payload));
+                return;
+
+            case EmfPlusRecordType.EmfExtSelectClipRgn:
+                SelectEmfClipRegion(state, record, payload);
                 return;
 
             case EmfPlusRecordType.EmfSaveDC:
@@ -692,6 +701,155 @@ internal static class MetafilePlaybackRenderer
         if (state.SelectedPen is Pen pen)
         {
             state.Graphics.DrawRectangle(pen, rectangle);
+        }
+    }
+
+    private static void SelectEmfClipRegion(
+        PlaybackState state,
+        in MetafileRecord record,
+        ReadOnlySpan<byte> payload)
+    {
+        const int FixedPayloadSize = 8;
+        const int RegionDataHeaderSize = 32;
+        const int RectangleSize = 16;
+        if (payload.Length < FixedPayloadSize)
+        {
+            throw Invalid(record);
+        }
+
+        uint dataSize = ReadUInt32(payload, 0);
+        int mode = ReadInt32(payload, 4);
+        if (dataSize > int.MaxValue || payload.Length != FixedPayloadSize + (int)dataSize)
+        {
+            throw Invalid(record);
+        }
+
+        if (dataSize == 0)
+        {
+            state.SelectClipRegion(region: null, mode, record);
+            return;
+        }
+        if (dataSize < RegionDataHeaderSize)
+        {
+            throw Invalid(record);
+        }
+
+        ReadOnlySpan<byte> data = payload[FixedPayloadSize..];
+        uint headerSize = ReadUInt32(data, 0);
+        uint type = ReadUInt32(data, 4);
+        uint rectangleCount = ReadUInt32(data, 8);
+        uint rectangleBytes = ReadUInt32(data, 12);
+        if (headerSize != RegionDataHeaderSize || type != 1 ||
+            rectangleCount > int.MaxValue / RectangleSize ||
+            rectangleBytes != rectangleCount * RectangleSize ||
+            data.Length != RegionDataHeaderSize + (int)rectangleBytes)
+        {
+            throw Invalid(record);
+        }
+
+        Rectangle bounds = ReadRectangle(record, data[16..32]);
+        if (rectangleCount == 0)
+        {
+            if (bounds != Rectangle.Empty)
+            {
+                throw Invalid(record);
+            }
+            using var empty = new Region();
+            empty.MakeEmpty();
+            state.SelectClipRegion(empty, mode, record);
+            return;
+        }
+
+        int minimumX = int.MaxValue;
+        int minimumY = int.MaxValue;
+        int maximumX = int.MinValue;
+        int maximumY = int.MinValue;
+        for (int index = 0; index < rectangleCount; index++)
+        {
+            int offset = RegionDataHeaderSize + index * RectangleSize;
+            Rectangle rectangle = ReadRectangle(record, data.Slice(offset, RectangleSize));
+            if (rectangle.Left < bounds.Left || rectangle.Top < bounds.Top ||
+                rectangle.Right > bounds.Right || rectangle.Bottom > bounds.Bottom)
+            {
+                throw Invalid(record);
+            }
+
+            minimumX = Math.Min(minimumX, rectangle.Left);
+            minimumY = Math.Min(minimumY, rectangle.Top);
+            maximumX = Math.Max(maximumX, rectangle.Right);
+            maximumY = Math.Max(maximumY, rectangle.Bottom);
+        }
+        if (minimumX != bounds.Left || minimumY != bounds.Top ||
+            maximumX != bounds.Right || maximumY != bounds.Bottom)
+        {
+            throw Invalid(record);
+        }
+
+        using Region region = CreateRectangleRegion(data, (int)rectangleCount);
+        state.SelectClipRegion(region, mode, record);
+    }
+
+    private static Region CreateRectangleRegion(
+        ReadOnlySpan<byte> data,
+        int rectangleCount)
+    {
+        const int RegionDataHeaderSize = 32;
+        const int RectangleSize = 16;
+        var levels = new Region?[32];
+        try
+        {
+            for (int index = 0; index < rectangleCount; index++)
+            {
+                int offset = RegionDataHeaderSize + index * RectangleSize;
+                var rectangle = Rectangle.FromLTRB(
+                    ReadInt32(data, offset),
+                    ReadInt32(data, offset + 4),
+                    ReadInt32(data, offset + 8),
+                    ReadInt32(data, offset + 12));
+                Region current = new(rectangle);
+                for (int level = 0; ; level++)
+                {
+                    if (levels[level] is null)
+                    {
+                        levels[level] = current;
+                        break;
+                    }
+
+                    Region lower = levels[level]!;
+                    levels[level] = null;
+                    lower.Union(current);
+                    current.Dispose();
+                    current = lower;
+                }
+            }
+
+            Region? result = null;
+            for (int level = 0; level < levels.Length; level++)
+            {
+                Region? next = levels[level];
+                if (next is null)
+                {
+                    continue;
+                }
+                levels[level] = null;
+                if (result is null)
+                {
+                    result = next;
+                }
+                else
+                {
+                    result.Union(next);
+                    next.Dispose();
+                }
+            }
+            return result ?? throw new InvalidOperationException("An EMF rectangle region was unexpectedly empty.");
+        }
+        finally
+        {
+            foreach (Region? region in levels)
+            {
+                region?.Dispose();
+            }
         }
     }
 
@@ -2522,11 +2680,16 @@ internal static class MetafilePlaybackRenderer
         private PointF? _pathMoveDevicePoint;
         private bool _pathBracketOpen;
         private bool _pathConnectNext;
+        private Region _metaClip;
+        private Region? _applicationClip;
+        private bool _metaClipRequiresMaterialization;
+        private bool _applicationClipRequiresMaterialization;
 
         internal PlaybackState(Graphics graphics, int wmfObjectCapacity)
         {
             Graphics = graphics;
             _wmfObjectCapacity = wmfObjectCapacity;
+            _metaClip = graphics.Clip;
         }
 
         internal Graphics Graphics { get; }
@@ -2899,22 +3062,18 @@ internal static class MetafilePlaybackRenderer
 
         internal void SelectClipPath(int mode, in MetafileRecord record)
         {
-            CombineMode combineMode = mode switch
-            {
-                1 => CombineMode.Intersect,
-                2 => CombineMode.Union,
-                3 => CombineMode.Xor,
-                4 => CombineMode.Exclude,
-                5 => CombineMode.Replace,
-                _ => throw Invalid(record)
-            };
             GraphicsPath path = TakeSelectedPath(record);
             try
             {
                 path.FillMode = FillMode;
                 path.CloseAllFigures();
-                Graphics.TransformElements = Matrix3x2.Identity;
-                Graphics.SetClip(path, combineMode);
+                using var region = new Region(path);
+                CombineMode combineMode = ReadCombineMode(mode, record);
+                CombineApplicationClip(
+                    region,
+                    combineMode,
+                    requiresMaterialization:
+                        combineMode is CombineMode.Xor or CombineMode.Exclude);
             }
             finally
             {
@@ -2958,21 +3117,197 @@ internal static class MetafilePlaybackRenderer
 
         internal void IntersectClip(in MetafileRecord record, Rectangle rectangle)
         {
-            ApplyTransform(record);
-            Graphics.IntersectClip(rectangle);
+            using Region region = CreateTransformedRegion(record, rectangle);
+            CombineApplicationClip(region, CombineMode.Intersect);
         }
 
         internal void ExcludeClip(in MetafileRecord record, Rectangle rectangle)
         {
-            ApplyTransform(record);
-            Graphics.ExcludeClip(rectangle);
+            using Region region = CreateTransformedRegion(record, rectangle);
+            CombineApplicationClip(region, CombineMode.Exclude);
         }
 
         internal void OffsetClip(in MetafileRecord record, Point offset)
         {
-            ApplyTransform(record);
-            Graphics.TranslateClip(offset.X, offset.Y);
+            Matrix3x2 transform = ApplyTransform(record);
+            if (_applicationClip is null)
+            {
+                return;
+            }
+
+            Vector2 translated = Vector2.TransformNormal(
+                new Vector2(offset.X, offset.Y),
+                transform);
+            if (!float.IsFinite(translated.X) || !float.IsFinite(translated.Y))
+            {
+                throw Invalid(record);
+            }
+            _applicationClip.Translate(translated.X, translated.Y);
+            ApplyEffectiveClip();
         }
+
+        internal void SelectClipRegion(
+            Region? region,
+            int mode,
+            in MetafileRecord record)
+        {
+            CombineMode combineMode = ReadCombineMode(mode, record);
+            if (region is null)
+            {
+                if (combineMode != CombineMode.Replace)
+                {
+                    throw Invalid(record);
+                }
+                _applicationClip?.Dispose();
+                _applicationClip = null;
+                _applicationClipRequiresMaterialization = false;
+                ApplyEffectiveClip();
+                return;
+            }
+
+            Region transformed = region.Clone();
+            try
+            {
+                Matrix3x2 transform = ApplyTransform(record);
+                using var matrix = new Matrix(transform);
+                transformed.Transform(matrix);
+                CombineApplicationClip(
+                    transformed,
+                    combineMode,
+                    requiresMaterialization:
+                        combineMode is CombineMode.Xor or CombineMode.Exclude);
+            }
+            finally
+            {
+                transformed.Dispose();
+            }
+        }
+
+        internal void SetMetaRegion()
+        {
+            if (_applicationClip is not null)
+            {
+                _metaClip.Intersect(_applicationClip);
+                _metaClipRequiresMaterialization |=
+                    _applicationClipRequiresMaterialization;
+                _applicationClip.Dispose();
+                _applicationClip = null;
+                _applicationClipRequiresMaterialization = false;
+            }
+            ApplyEffectiveClip();
+        }
+
+        private Region CreateTransformedRegion(
+            in MetafileRecord record,
+            Rectangle rectangle)
+        {
+            var region = new Region(rectangle);
+            try
+            {
+                Matrix3x2 transform = ApplyTransform(record);
+                using var matrix = new Matrix(transform);
+                region.Transform(matrix);
+                return region;
+            }
+            catch
+            {
+                region.Dispose();
+                throw;
+            }
+        }
+
+        private void CombineApplicationClip(
+            Region region,
+            CombineMode mode,
+            bool requiresMaterialization = false)
+        {
+            if (mode == CombineMode.Replace)
+            {
+                _applicationClip?.Dispose();
+                _applicationClip = region.Clone();
+                _applicationClipRequiresMaterialization = requiresMaterialization;
+                ApplyEffectiveClip();
+                return;
+            }
+
+            _applicationClip ??= new Region();
+            _applicationClipRequiresMaterialization |= requiresMaterialization;
+            switch (mode)
+            {
+                case CombineMode.Intersect:
+                    _applicationClip.Intersect(region);
+                    break;
+                case CombineMode.Union:
+                    _applicationClip.Union(region);
+                    break;
+                case CombineMode.Xor:
+                    _applicationClip.Xor(region);
+                    break;
+                case CombineMode.Exclude:
+                    _applicationClip.Exclude(region);
+                    break;
+                default:
+                    throw new InvalidOperationException("Unexpected EMF region combine mode.");
+            }
+            ApplyEffectiveClip();
+        }
+
+        private void ApplyEffectiveClip()
+        {
+            Region effective = _metaClip.Clone();
+            Region? materialized = null;
+            try
+            {
+                if (_applicationClip is not null)
+                {
+                    effective.Intersect(_applicationClip);
+                }
+                if (_metaClipRequiresMaterialization ||
+                    _applicationClipRequiresMaterialization)
+                {
+                    try
+                    {
+                        using var identity = new Matrix();
+                        RectangleF[] scans = effective.GetRegionScans(identity);
+                        if (scans.Length == 0)
+                        {
+                            materialized = new Region();
+                            materialized.MakeEmpty();
+                        }
+                        else
+                        {
+                            using var path = new GraphicsPath(FillMode.Winding);
+                            path.AddRectangles(scans);
+                            materialized = new Region(path);
+                        }
+                    }
+                    catch (NotSupportedException)
+                    {
+                        // Curved or rotated clips retain the exact deferred-vector
+                        // path when rectangular scan materialization is unavailable.
+                    }
+                }
+                Graphics.TransformElements = Matrix3x2.Identity;
+                Graphics.SetClip(materialized ?? effective, CombineMode.Replace);
+            }
+            finally
+            {
+                materialized?.Dispose();
+                effective.Dispose();
+            }
+        }
+
+        private static CombineMode ReadCombineMode(
+            int mode,
+            in MetafileRecord record) => mode switch
+        {
+            1 => CombineMode.Intersect,
+            2 => CombineMode.Union,
+            3 => CombineMode.Xor,
+            4 => CombineMode.Exclude,
+            5 => CombineMode.Replace,
+            _ => throw Invalid(record)
+        };
 
         internal void ModifyWorldTransform(
             Matrix3x2 transform,
@@ -3022,6 +3357,10 @@ internal static class MetafilePlaybackRenderer
                 _selectedFont,
                 _selectedFontObject,
                 _selectedFontEscapement,
+                _metaClip.Clone(),
+                _applicationClip?.Clone(),
+                _metaClipRequiresMaterialization,
+                _applicationClipRequiresMaterialization,
                 graphicsState));
         }
 
@@ -3040,6 +3379,13 @@ internal static class MetafilePlaybackRenderer
 
             int stateIndex = _savedStates.Count - restoreCount;
             SavedState saved = _savedStates[stateIndex];
+            Region restoredMetaClip = saved.MetaClip.Clone();
+            Region? restoredApplicationClip = saved.ApplicationClip?.Clone();
+            for (int index = stateIndex; index < _savedStates.Count; index++)
+            {
+                _savedStates[index].MetaClip.Dispose();
+                _savedStates[index].ApplicationClip?.Dispose();
+            }
             _savedStates.RemoveRange(stateIndex, _savedStates.Count - stateIndex);
             WindowOrigin = saved.WindowOrigin;
             WindowExtent = saved.WindowExtent;
@@ -3066,6 +3412,13 @@ internal static class MetafilePlaybackRenderer
             _selectedFont = saved.SelectedFont;
             _selectedFontObject = saved.SelectedFontObject;
             _selectedFontEscapement = saved.SelectedFontEscapement;
+            _metaClip.Dispose();
+            _metaClip = restoredMetaClip;
+            _applicationClip?.Dispose();
+            _applicationClip = restoredApplicationClip;
+            _metaClipRequiresMaterialization = saved.MetaClipRequiresMaterialization;
+            _applicationClipRequiresMaterialization =
+                saved.ApplicationClipRequiresMaterialization;
             Graphics.Restore(saved.GraphicsState);
         }
 
@@ -4045,6 +4398,14 @@ internal static class MetafilePlaybackRenderer
             _backgroundBrush?.Dispose();
             _buildingPath?.Dispose();
             _selectedPath?.Dispose();
+            _metaClip.Dispose();
+            _applicationClip?.Dispose();
+            foreach (SavedState state in _savedStates)
+            {
+                state.MetaClip.Dispose();
+                state.ApplicationClip?.Dispose();
+            }
+            _savedStates.Clear();
             foreach (object product in _objects.Values)
             {
                 (product as IDisposable)?.Dispose();
@@ -4078,6 +4439,10 @@ internal static class MetafilePlaybackRenderer
             Font SelectedFont,
             object? SelectedFontObject,
             int SelectedFontEscapement,
+            Region MetaClip,
+            Region? ApplicationClip,
+            bool MetaClipRequiresMaterialization,
+            bool ApplicationClipRequiresMaterialization,
             GraphicsState GraphicsState);
     }
 

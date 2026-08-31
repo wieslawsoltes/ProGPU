@@ -299,6 +299,20 @@ excluded, restored, and transactional-rollback pixels are authoritative. The
 complete drawing suite passes 472/472 and ApiCompat remains at zero missing
 types, zero missing members, and 13 reviewed differences.
 
+`MetafileBenchmarks.Playback256EmfRegionDataClipSelections` guards 256 two-
+rectangle `EMR_EXTSELECTCLIPRGN` records cycling through all five region modes
+behind an `EMR_SETMETARGN` boundary. The 2026-08-31 ARM64/.NET 10.0.11 ShortRun
+measured a 10.177 millisecond median (10.257 millisecond mean, 0.623 millisecond
+standard deviation) with 19.72 MB allocated. Three iterations and denied
+priority elevation make this coarse local state-heavy evidence. The focused
+64-selection gate independently measured 5,516,529 warmed bytes per complete
+playback and enforces a 4-7 MiB window. Region scan materialization is therefore
+an explicit optimization target, while exact combine-mode, metaclip, transform,
+SaveDC/RestoreDC, malformed-input, and transactional pixel tests remain the
+correctness authority.
+The complete drawing suite passes 503/503 and ApiCompat remains at zero missing
+types, zero missing members, and 13 reviewed differences.
+
 `MetafileBenchmarks.Playback256EmfPathBracketsToRetainedCommands` guards 256
 Begin/rectangle/End/StrokeAndFill groups. The 2026-08-31 ARM64/.NET 10.0.11
 ShortRun measured a 1.520 millisecond median (1.477 millisecond mean, 0.381

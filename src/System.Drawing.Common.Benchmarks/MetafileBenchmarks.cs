@@ -21,6 +21,7 @@ public class MetafileBenchmarks
     private Metafile _emfArcPlaybackMetafile = null!;
     private Metafile _emfPolyDrawPlaybackMetafile = null!;
     private Metafile _emfClipPlaybackMetafile = null!;
+    private Metafile _emfRegionClipPlaybackMetafile = null!;
     private Metafile _emfPathPlaybackMetafile = null!;
     private Metafile _emfExtendedTextPlaybackMetafile = null!;
     private Metafile _emfPdyExtendedTextPlaybackMetafile = null!;
@@ -67,6 +68,8 @@ public class MetafileBenchmarks
             new MemoryStream(CreatePlaybackEmfPolyDraw16(256), writable: false));
         _emfClipPlaybackMetafile = new Metafile(
             new MemoryStream(CreatePlaybackEmfClipSequences(256), writable: false));
+        _emfRegionClipPlaybackMetafile = new Metafile(
+            new MemoryStream(CreatePlaybackEmfRegionClips(256), writable: false));
         _emfPathPlaybackMetafile = new Metafile(
             new MemoryStream(CreatePlaybackEmfPathBrackets(256), writable: false));
         _emfExtendedTextPlaybackMetafile = new Metafile(
@@ -149,6 +152,7 @@ public class MetafileBenchmarks
         _emfArcPlaybackMetafile.Dispose();
         _emfPolyDrawPlaybackMetafile.Dispose();
         _emfClipPlaybackMetafile.Dispose();
+        _emfRegionClipPlaybackMetafile.Dispose();
         _emfPathPlaybackMetafile.Dispose();
         _emfExtendedTextPlaybackMetafile.Dispose();
         _emfPdyExtendedTextPlaybackMetafile.Dispose();
@@ -248,6 +252,18 @@ public class MetafileBenchmarks
         _playbackContext.Clear();
         _playbackGraphics.DrawImage(
             _emfClipPlaybackMetafile,
+            new Rectangle(0, 0, 640, 480));
+        int commandCount = _playbackContext.Commands.Count;
+        _playbackContext.Clear();
+        return commandCount;
+    }
+
+    [Benchmark]
+    public int Playback256EmfRegionDataClipSelections()
+    {
+        _playbackContext.Clear();
+        _playbackGraphics.DrawImage(
+            _emfRegionClipPlaybackMetafile,
             new Rectangle(0, 0, 640, 480));
         int commandCount = _playbackContext.Commands.Count;
         _playbackContext.Clear();
@@ -801,6 +817,108 @@ public class MetafileBenchmarks
         WriteUInt32(bytes, cursor + 4, 20);
         WriteUInt32(bytes, cursor + 16, 20);
         return bytes;
+    }
+
+    private static byte[] CreatePlaybackEmfRegionClips(int sequenceCount)
+    {
+        const int RegionRecordSize = 80;
+        const int RectangleRecordSize = 24;
+        int totalBytes = checked(
+            88 + 24 + RegionRecordSize + 8 +
+            sequenceCount * (RegionRecordSize + RectangleRecordSize) + 20);
+        byte[] bytes = new byte[totalBytes];
+        WriteUInt32(bytes, 0, (uint)EmfPlusRecordType.EmfHeader);
+        WriteUInt32(bytes, 4, 88);
+        WriteInt32(bytes, 16, 640);
+        WriteInt32(bytes, 20, 480);
+        WriteInt32(bytes, 32, 16_933);
+        WriteInt32(bytes, 36, 12_700);
+        WriteUInt32(bytes, 40, 0x464D_4520);
+        WriteUInt32(bytes, 44, 0x0001_0000);
+        WriteUInt32(bytes, 48, (uint)totalBytes);
+        WriteUInt32(bytes, 52, checked((uint)(sequenceCount * 2 + 6)));
+        WriteUInt16(bytes, 56, 1);
+        WriteInt32(bytes, 72, 640);
+        WriteInt32(bytes, 76, 480);
+        WriteInt32(bytes, 80, 169);
+        WriteInt32(bytes, 84, 127);
+
+        int cursor = 88;
+        WriteSelectObject(bytes, cursor, 0x8000_0004);
+        cursor += 12;
+        WriteSelectObject(bytes, cursor, 0x8000_0008);
+        cursor += 12;
+        WriteRegionRecord(bytes, ref cursor, 5, 0, 0, 320, 480, 320, 0, 640, 480);
+        WriteUInt32(bytes, cursor, (uint)EmfPlusRecordType.EmfSetMetaRgn);
+        WriteUInt32(bytes, cursor + 4, 8);
+        cursor += 8;
+
+        for (int index = 0; index < sequenceCount; index++)
+        {
+            int x = (index % 16) * 40;
+            int y = (index / 16) * 30;
+            WriteRegionRecord(
+                bytes,
+                ref cursor,
+                index % 5 + 1,
+                x,
+                y,
+                x + 16,
+                y + 22,
+                x + 20,
+                y,
+                x + 36,
+                y + 22);
+            WriteRectangleRecord(
+                bytes,
+                ref cursor,
+                EmfPlusRecordType.EmfRectangle,
+                x,
+                y,
+                x + 36,
+                y + 22);
+        }
+
+        WriteUInt32(bytes, cursor, (uint)EmfPlusRecordType.EmfEof);
+        WriteUInt32(bytes, cursor + 4, 20);
+        WriteUInt32(bytes, cursor + 16, 20);
+        return bytes;
+    }
+
+    private static void WriteRegionRecord(
+        byte[] bytes,
+        ref int cursor,
+        int mode,
+        int left0,
+        int top0,
+        int right0,
+        int bottom0,
+        int left1,
+        int top1,
+        int right1,
+        int bottom1)
+    {
+        WriteUInt32(bytes, cursor, (uint)EmfPlusRecordType.EmfExtSelectClipRgn);
+        WriteUInt32(bytes, cursor + 4, 80);
+        WriteUInt32(bytes, cursor + 8, 64);
+        WriteInt32(bytes, cursor + 12, mode);
+        WriteUInt32(bytes, cursor + 16, 32);
+        WriteUInt32(bytes, cursor + 20, 1);
+        WriteUInt32(bytes, cursor + 24, 2);
+        WriteUInt32(bytes, cursor + 28, 32);
+        WriteInt32(bytes, cursor + 32, Math.Min(left0, left1));
+        WriteInt32(bytes, cursor + 36, Math.Min(top0, top1));
+        WriteInt32(bytes, cursor + 40, Math.Max(right0, right1));
+        WriteInt32(bytes, cursor + 44, Math.Max(bottom0, bottom1));
+        WriteInt32(bytes, cursor + 48, left0);
+        WriteInt32(bytes, cursor + 52, top0);
+        WriteInt32(bytes, cursor + 56, right0);
+        WriteInt32(bytes, cursor + 60, bottom0);
+        WriteInt32(bytes, cursor + 64, left1);
+        WriteInt32(bytes, cursor + 68, top1);
+        WriteInt32(bytes, cursor + 72, right1);
+        WriteInt32(bytes, cursor + 76, bottom1);
+        cursor += 80;
     }
 
     private static byte[] CreatePlaybackEmfPathBrackets(int sequenceCount)

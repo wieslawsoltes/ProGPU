@@ -2649,6 +2649,223 @@ public sealed class MetafileParserTests
     }
 
     [Fact]
+    public void EmfExtendedClipRegionCombinesCopyUnionDifferenceAndRestoresTypedState()
+    {
+        var left = new Rectangle(8, 8, 16, 16);
+        var right = new Rectangle(32, 8, 16, 16);
+        byte[] fixture = CreateTextPlaybackEmf(
+        [
+            (EmfPlusRecordType.EmfSelectObject, EmfUInt32(0x8000_0008)),
+            (EmfPlusRecordType.EmfExtSelectClipRgn,
+                EmfExtSelectClipRegion(5, [left])),
+            (EmfPlusRecordType.EmfExtSelectClipRgn,
+                EmfExtSelectClipRegion(2, [right])),
+            (EmfPlusRecordType.EmfSelectObject, EmfUInt32(0x8000_0004)),
+            (EmfPlusRecordType.EmfRectangle, EmfRectangle(0, 0, 64, 64)),
+            (EmfPlusRecordType.EmfSaveDC, []),
+            (EmfPlusRecordType.EmfExtSelectClipRgn,
+                EmfExtSelectClipRegion(4, [left])),
+            (EmfPlusRecordType.EmfSelectObject, EmfUInt32(0x8000_0000)),
+            (EmfPlusRecordType.EmfRectangle, EmfRectangle(0, 0, 64, 64)),
+            (EmfPlusRecordType.EmfRestoreDC, EmfInt32(-1))
+        ]);
+        using var metafile = new Metafile(new MemoryStream(fixture, writable: false));
+        using var target = new Bitmap(64, 64);
+        using (Graphics graphics = Graphics.FromImage(target))
+        {
+            graphics.Clear(Color.Transparent);
+            graphics.DrawImage(metafile, new Rectangle(0, 0, 64, 64));
+        }
+
+        Assert.Equal(Color.Black.ToArgb(), target.GetPixel(12, 12).ToArgb());
+        Assert.Equal(Color.White.ToArgb(), target.GetPixel(36, 12).ToArgb());
+        Assert.Equal(0, target.GetPixel(24, 12).A);
+        Assert.Equal(0, target.GetPixel(56, 12).A);
+    }
+
+    [Fact]
+    public void EmfExtendedClipRegionCombinesIntersectionAndExclusiveOr()
+    {
+        var left = new Rectangle(8, 8, 16, 16);
+        var right = new Rectangle(32, 8, 16, 16);
+        byte[] fixture = CreateTextPlaybackEmf(
+        [
+            (EmfPlusRecordType.EmfSelectObject, EmfUInt32(0x8000_0008)),
+            (EmfPlusRecordType.EmfExtSelectClipRgn,
+                EmfExtSelectClipRegion(5, [left, right])),
+            (EmfPlusRecordType.EmfExtSelectClipRgn,
+                EmfExtSelectClipRegion(3, [right])),
+            (EmfPlusRecordType.EmfExtSelectClipRgn,
+                EmfExtSelectClipRegion(1, [left])),
+            (EmfPlusRecordType.EmfSelectObject, EmfUInt32(0x8000_0004)),
+            (EmfPlusRecordType.EmfRectangle, EmfRectangle(0, 0, 64, 64))
+        ]);
+        using var metafile = new Metafile(new MemoryStream(fixture, writable: false));
+        using var target = new Bitmap(64, 64);
+        using (Graphics graphics = Graphics.FromImage(target))
+        {
+            graphics.Clear(Color.Transparent);
+            graphics.DrawImage(metafile, new Rectangle(0, 0, 64, 64));
+        }
+
+        Assert.Equal(Color.Black.ToArgb(), target.GetPixel(12, 12).ToArgb());
+        Assert.Equal(0, target.GetPixel(36, 12).A);
+    }
+
+    [Fact]
+    public void EmfSetMetaRegionConstrainsLaterCopyAndDefaultClip()
+    {
+        var left = new Rectangle(8, 8, 16, 16);
+        var right = new Rectangle(32, 8, 16, 16);
+        var outside = new Rectangle(48, 8, 8, 16);
+        byte[] fixture = CreateTextPlaybackEmf(
+        [
+            (EmfPlusRecordType.EmfSelectObject, EmfUInt32(0x8000_0008)),
+            (EmfPlusRecordType.EmfExtSelectClipRgn,
+                EmfExtSelectClipRegion(5, [left, right])),
+            (EmfPlusRecordType.EmfSetMetaRgn, []),
+            (EmfPlusRecordType.EmfExtSelectClipRgn,
+                EmfExtSelectClipRegion(5, [right])),
+            (EmfPlusRecordType.EmfExtSelectClipRgn,
+                EmfExtSelectClipRegion(2, [outside])),
+            (EmfPlusRecordType.EmfSelectObject, EmfUInt32(0x8000_0004)),
+            (EmfPlusRecordType.EmfRectangle, EmfRectangle(0, 0, 64, 64)),
+            (EmfPlusRecordType.EmfExtSelectClipRgn,
+                EmfExtSelectClipRegion(5, rectangles: null)),
+            (EmfPlusRecordType.EmfSelectObject, EmfUInt32(0x8000_0000)),
+            (EmfPlusRecordType.EmfRectangle, EmfRectangle(8, 8, 24, 24))
+        ]);
+        using var metafile = new Metafile(new MemoryStream(fixture, writable: false));
+        using var target = new Bitmap(64, 64);
+        using (Graphics graphics = Graphics.FromImage(target))
+        {
+            graphics.Clear(Color.Transparent);
+            graphics.DrawImage(metafile, new Rectangle(0, 0, 64, 64));
+        }
+
+        Assert.Equal(Color.White.ToArgb(), target.GetPixel(12, 12).ToArgb());
+        Assert.Equal(Color.Black.ToArgb(), target.GetPixel(36, 12).ToArgb());
+        Assert.Equal(0, target.GetPixel(52, 12).A);
+        Assert.Equal(0, target.GetPixel(24, 12).A);
+    }
+
+    [Fact]
+    public void EmfExtendedClipRegionCapturesItsSelectionTransform()
+    {
+        byte[] fixture = CreateTextPlaybackEmf(
+        [
+            (EmfPlusRecordType.EmfSetWorldTransform, EmfTransform(16f, 0f)),
+            (EmfPlusRecordType.EmfExtSelectClipRgn,
+                EmfExtSelectClipRegion(5, [new Rectangle(0, 8, 8, 8)])),
+            (EmfPlusRecordType.EmfSetWorldTransform, EmfTransform(0f, 0f)),
+            (EmfPlusRecordType.EmfSelectObject, EmfUInt32(0x8000_0004)),
+            (EmfPlusRecordType.EmfSelectObject, EmfUInt32(0x8000_0008)),
+            (EmfPlusRecordType.EmfRectangle, EmfRectangle(0, 0, 64, 64))
+        ]);
+        using var metafile = new Metafile(new MemoryStream(fixture, writable: false));
+        using var target = new Bitmap(64, 64);
+        using (Graphics graphics = Graphics.FromImage(target))
+        {
+            graphics.Clear(Color.Transparent);
+            graphics.DrawImage(metafile, new Rectangle(0, 0, 64, 64));
+        }
+
+        Assert.Equal(0, target.GetPixel(4, 12).A);
+        Assert.Equal(Color.Black.ToArgb(), target.GetPixel(20, 12).ToArgb());
+        Assert.Equal(0, target.GetPixel(28, 12).A);
+    }
+
+    [Fact]
+    public void EmfMalformedExtendedClipRegionRollsBackEarlierGeometry()
+    {
+        byte[][] malformedPayloads =
+        [
+            EmfExtSelectClipRegion(0, [new Rectangle(8, 8, 16, 16)]),
+            EmfExtSelectClipRegion(1, rectangles: null),
+            EmfExtSelectClipRegion(5, [new Rectangle(8, 8, 16, 16)]),
+            EmfExtSelectClipRegion(5, [new Rectangle(8, 8, 16, 16)])
+        ];
+        WriteUInt32(malformedPayloads[2], 8 + 4, 2);
+        WriteInt32(malformedPayloads[3], 8 + 16, 9);
+
+        foreach (byte[] payload in malformedPayloads)
+        {
+            byte[] fixture = CreateTextPlaybackEmf(
+            [
+                (EmfPlusRecordType.EmfRectangle, EmfRectangle(0, 0, 64, 64)),
+                (EmfPlusRecordType.EmfExtSelectClipRgn, payload)
+            ]);
+            using var metafile = new Metafile(new MemoryStream(fixture, writable: false));
+            var context = new DrawingContext();
+            using Graphics graphics = Graphics.FromProGpuDrawingContext(context);
+
+            Exception exception = Assert.ThrowsAny<Exception>(() =>
+                graphics.DrawImage(metafile, new Rectangle(0, 0, 64, 64)));
+            Assert.True(exception is ArgumentException or NotSupportedException);
+            Assert.Contains(
+                nameof(EmfPlusRecordType.EmfExtSelectClipRgn),
+                exception.Message,
+                StringComparison.Ordinal);
+            Assert.Empty(context.Commands);
+        }
+    }
+
+    [Fact]
+    public void EmfRegionClipPlaybackHasBoundedWarmedAllocation()
+    {
+        var records = new List<(EmfPlusRecordType Type, byte[] Payload)>
+        {
+            (EmfPlusRecordType.EmfSelectObject, EmfUInt32(0x8000_0004)),
+            (EmfPlusRecordType.EmfSelectObject, EmfUInt32(0x8000_0008)),
+            (EmfPlusRecordType.EmfExtSelectClipRgn,
+                EmfExtSelectClipRegion(5,
+                [
+                    new Rectangle(0, 0, 32, 64),
+                    new Rectangle(32, 0, 32, 64)
+                ])),
+            (EmfPlusRecordType.EmfSetMetaRgn, [])
+        };
+        for (int index = 0; index < 64; index++)
+        {
+            int x = (index % 8) * 8;
+            int y = (index / 8) * 8;
+            records.Add((
+                EmfPlusRecordType.EmfExtSelectClipRgn,
+                EmfExtSelectClipRegion(
+                    index % 5 + 1,
+                    [
+                        new Rectangle(x, y, 3, 6),
+                        new Rectangle(x + 4, y, 3, 6)
+                    ])));
+            records.Add((
+                EmfPlusRecordType.EmfRectangle,
+                EmfRectangle(x, y, x + 7, y + 6)));
+        }
+
+        using var metafile = new Metafile(new MemoryStream(
+            CreateTextPlaybackEmf(records),
+            writable: false));
+        var context = new DrawingContext();
+        using Graphics graphics = Graphics.FromProGpuDrawingContext(context);
+        for (int iteration = 0; iteration < 4; iteration++)
+        {
+            graphics.DrawImage(metafile, new Rectangle(0, 0, 64, 64));
+            context.Clear();
+        }
+
+        long before = GC.GetAllocatedBytesForCurrentThread();
+        for (int iteration = 0; iteration < 8; iteration++)
+        {
+            graphics.DrawImage(metafile, new Rectangle(0, 0, 64, 64));
+            context.Clear();
+        }
+        long allocatedPerPlayback =
+            (GC.GetAllocatedBytesForCurrentThread() - before) / 8;
+
+        Assert.InRange(allocatedPerPlayback, 4 * 1024 * 1024, 7 * 1024 * 1024);
+    }
+
+    [Fact]
     public void EmfPathBracketStoresGeometryInDeviceCoordinatesBeforeFill()
     {
         byte[] fixture = CreateTextPlaybackEmf(
@@ -4124,6 +4341,61 @@ public sealed class MetafileParserTests
         WriteUInt32(payload, 4, 0);
         WriteInt32(payload, 8, width);
         WriteUInt32(payload, 16, (uint)(color.R | color.G << 8 | color.B << 16));
+        return payload;
+    }
+
+    private static byte[] EmfBrush(uint index, Color color)
+    {
+        byte[] payload = new byte[16];
+        WriteUInt32(payload, 0, index);
+        WriteUInt32(payload, 4, 0);
+        WriteUInt32(payload, 8, (uint)(color.R | color.G << 8 | color.B << 16));
+        return payload;
+    }
+
+    private static byte[] EmfExtSelectClipRegion(
+        int mode,
+        Rectangle[]? rectangles)
+    {
+        if (rectangles is null)
+        {
+            byte[] omitted = new byte[8];
+            WriteInt32(omitted, 4, mode);
+            return omitted;
+        }
+
+        const int regionHeaderSize = 32;
+        const int rectangleSize = 16;
+        int rectangleBytes = checked(rectangles.Length * rectangleSize);
+        byte[] payload = new byte[checked(8 + regionHeaderSize + rectangleBytes)];
+        WriteUInt32(payload, 0, checked((uint)(regionHeaderSize + rectangleBytes)));
+        WriteInt32(payload, 4, mode);
+        WriteUInt32(payload, 8, regionHeaderSize);
+        WriteUInt32(payload, 12, 1);
+        WriteUInt32(payload, 16, checked((uint)rectangles.Length));
+        WriteUInt32(payload, 20, checked((uint)rectangleBytes));
+        if (rectangles.Length == 0)
+        {
+            return payload;
+        }
+
+        int left = rectangles.Min(static rectangle => rectangle.Left);
+        int top = rectangles.Min(static rectangle => rectangle.Top);
+        int right = rectangles.Max(static rectangle => rectangle.Right);
+        int bottom = rectangles.Max(static rectangle => rectangle.Bottom);
+        WriteInt32(payload, 24, left);
+        WriteInt32(payload, 28, top);
+        WriteInt32(payload, 32, right);
+        WriteInt32(payload, 36, bottom);
+        for (int index = 0; index < rectangles.Length; index++)
+        {
+            Rectangle rectangle = rectangles[index];
+            int offset = 8 + regionHeaderSize + index * rectangleSize;
+            WriteInt32(payload, offset, rectangle.Left);
+            WriteInt32(payload, offset + 4, rectangle.Top);
+            WriteInt32(payload, offset + 8, rectangle.Right);
+            WriteInt32(payload, offset + 12, rectangle.Bottom);
+        }
         return payload;
     }
 

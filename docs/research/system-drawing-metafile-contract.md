@@ -99,7 +99,16 @@ advances, and 32-bit character-cell advances. Saved DC state includes the
 retained clip and text state and restores both through the typed `GraphicsState`
 path. Typed path playback adds bracket creation, closure, selection, abort,
 fill/stroke, flatten, widen, clip selection, and miter-limit state over every
-implemented EMF vector family. EMF/EMF+ structural and comment records are
+implemented EMF vector family. Region clipping adds `EMR_EXTSELECTCLIPRGN` and
+`EMR_SETMETARGN`: application clipping and metaclip are separate managed
+`Region` values, all five `RGN_AND`/`OR`/`XOR`/`DIFF`/`COPY` modes are typed,
+and SaveDC/RestoreDC snapshots both layers. `RegionDataHeader`, rectangle count,
+byte size, ordered rectangles, containing bounds, and the data-size envelope
+are validated before state changes. Rectangles form a balanced retained-region
+tree; the XOR/difference combinations that require it materialize exact
+axis-aligned scans before recording while rotated or curved regions retain the
+deferred-vector path. An omitted `RGN_COPY` restores the default application
+clip without escaping the metaclip. EMF/EMF+ structural and comment records are
 nonvisual. The byte layouts and playback state follow the
 official [EMR_RECTANGLE](https://learn.microsoft.com/en-us/openspecs/windows_protocols/ms-emf/3c471238-0a02-4992-90a2-bfd2afd98f2a),
 [EMR_CREATEBRUSHINDIRECT](https://learn.microsoft.com/en-us/openspecs/windows_protocols/ms-emf/b9a8ef5d-0089-4e42-b317-e6ebc0ff098f),
@@ -108,6 +117,10 @@ official [EMR_RECTANGLE](https://learn.microsoft.com/en-us/openspecs/windows_pro
 [EMR_SETMAPMODE](https://learn.microsoft.com/en-us/openspecs/windows_protocols/ms-emf/aa4ad35d-fa42-4a4f-959a-8b41304e1b05),
 [EMR_SETWORLDTRANSFORM](https://learn.microsoft.com/en-us/openspecs/windows_protocols/ms-emf/985724c0-4db1-48f0-b346-67288b3288cb),
 [EMR_POLYGON](https://learn.microsoft.com/en-us/openspecs/windows_protocols/ms-emf/eb916781-58b6-4e92-b606-68071aa65733),
+[EMR_EXTSELECTCLIPRGN](https://learn.microsoft.com/en-us/openspecs/windows_protocols/ms-emf/c6b9f4e6-27f6-4a4d-a383-c2daf5da11d9),
+[RegionData](https://learn.microsoft.com/en-us/openspecs/windows_protocols/ms-emf/e66601f2-9b5c-4619-8476-ddb7b087551b),
+[RegionMode](https://learn.microsoft.com/en-us/openspecs/windows_protocols/ms-emf/b7f99f50-dd2f-4528-9624-f74140368019),
+[clipping record](https://learn.microsoft.com/en-us/openspecs/windows_protocols/ms-emf/0ca0d18e-324e-452f-9a41-26e1a82e3e03),
 [EMR_EXTCREATEFONTINDIRECTW](https://learn.microsoft.com/en-us/openspecs/windows_protocols/ms-emf/7e266b6d-32e5-4201-b687-8ec40c24cd73),
 [EMR_EXTTEXTOUTA](https://learn.microsoft.com/en-us/openspecs/windows_protocols/ms-emf/6b582a71-3c29-4fc6-a0f4-1f8a313739a1),
 [EMR_EXTTEXTOUTW](https://learn.microsoft.com/en-us/openspecs/windows_protocols/ms-emf/a59a79ac-328e-492d-a34d-e02727af6edf), and
@@ -200,7 +213,7 @@ implementation is based on the official
 [META_CHORD](https://learn.microsoft.com/en-us/openspecs/windows_protocols/ms-wmf/44aa3feb-ab01-47ca-9386-62acf7df5263),
 [META_ROUNDRECT](https://learn.microsoft.com/en-us/openspecs/windows_protocols/ms-wmf/9c262e3b-e631-4343-8b90-0441872f1e9a), and
 [state record](https://learn.microsoft.com/en-us/openspecs/windows_protocols/ms-wmf/54e4a2e0-5ca9-4c69-b6a8-dc8f938c68ae)
-contracts. Paths, other clipping records, `EXTTEXTOUT` glyph-index, numeric-
+contracts. WMF paths and select-clip-region records, `EXTTEXTOUT` glyph-index, numeric-
 substitution, two-dimensional, DBCS-advance, and bidi-advance modes, independent
 escapement/orientation, vertical fonts, SYMBOL glyph-index mapping, DIB images, richer GDI objects,
 other WMF drawing families, and nonstructural EMF+ drawing records remain
@@ -245,7 +258,11 @@ managed bitmap compositor. The first gate covers retained pixels, destination
 scaling and translation, object selection, map/world/save/restore composition,
 saved clip restoration, multi-polygon count/point validation,
 explicit image-attribute/projective rejection, and transactional rollback after
-a supported draw but before an unsupported record. WMF gates cover 16-bit
+a supported draw but before an unsupported record. EMF region gates cover all
+five combine modes, metaclip containment, omitted-copy reset, selection-time
+transforms, saved/restored two-layer state, malformed headers/bounds/modes, and
+whole-stream rollback. The fixed 64-selection warmed allocation gate permits
+4-7 MiB per complete retained playback. WMF gates cover 16-bit
 parameter ordering, lowest-free slot reuse, state, pen/brush selection,
 polygon/polyline/poly-polygon/current-position-line/set-pixel/pattern-blit/arc/pie/chord/rectangle/ellipse/rounded-rectangle pixels,
 intersect/exclude clip pixels, zero-corner rectangle fallback, invalid-bound rejection,
