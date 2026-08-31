@@ -1477,8 +1477,7 @@ public:
         if (!full_target && !axis_preserving_transform(transform_)) {
             return fail_unsupported_state();
         }
-        if (parameters->geometricMask != nullptr ||
-            parameters->opacityBrush != nullptr) {
+        if (parameters->opacityBrush != nullptr) {
             return fail_unsupported_resource();
         }
         if (parameters->maskAntialiasMode !=
@@ -1489,10 +1488,15 @@ public:
         if (parameters->layerOptions != D2D1_LAYER_OPTIONS1_NONE) {
             return fail_unsupported_state();
         }
+        if (parameters->geometricMask != nullptr &&
+            parameters->maskAntialiasMode !=
+                D2D1_ANTIALIAS_MODE_PER_PRIMITIVE) {
+            return fail_unsupported_state();
+        }
         if (scope_depth_ == scope_stack_.size()) {
             return fail_capacity_exceeded();
         }
-        const progpu_native_image_rect bounds = full_target
+        progpu_native_image_rect bounds = full_target
             ? progpu_native_image_rect{}
             : transformed_bounds(
                 parameters->contentBounds.left,
@@ -1502,13 +1506,36 @@ public:
         if (!finite_native_rectangle(bounds)) {
             return fail_invalid_value();
         }
+        uint32_t mask_resource_index = PROGPU_NATIVE_SCENE_NO_INDEX;
+        if (parameters->geometricMask != nullptr) {
+            progpu_native_image_rect mask_bounds{};
+            bool empty_mask = false;
+            const HRESULT mask_hr = add_geometric_layer_mask(
+                parameters->geometricMask,
+                parameters->maskTransform,
+                mask_resource_index,
+                mask_bounds,
+                empty_mask);
+            if (FAILED(mask_hr)) {
+                return mask_hr;
+            }
+            if (empty_mask) {
+                bounds = {};
+            } else {
+                bounds = full_target
+                    ? mask_bounds
+                    : intersect_rectangles(bounds, mask_bounds);
+            }
+        }
+        const bool has_bounds = !full_target ||
+            parameters->geometricMask != nullptr;
         const progpu_native_scene_layer layer{
             sizeof(progpu_native_scene_layer),
-            full_target ? 0U : PROGPU_NATIVE_SCENE_LAYER_BOUNDS,
+            has_bounds ? PROGPU_NATIVE_SCENE_LAYER_BOUNDS : 0U,
             bounds,
             parameters->opacity,
             PROGPU_NATIVE_BLEND_SRC_OVER,
-            PROGPU_NATIVE_SCENE_NO_INDEX,
+            mask_resource_index,
             PROGPU_NATIVE_SCENE_NO_INDEX,
             0U,
             0U,
@@ -1520,6 +1547,7 @@ public:
         scope_stack_[scope_depth_] = scope_opacity_layer;
         ++scope_depth_;
         has_opacity_layers_ = true;
+        has_geometric_layer_masks_ |= parameters->geometricMask != nullptr;
         return S_OK;
     }
 
@@ -1611,6 +1639,11 @@ public:
     bool has_opacity_layers() const noexcept
     {
         return has_opacity_layers_;
+    }
+
+    bool has_geometric_layer_masks() const noexcept
+    {
+        return has_geometric_layer_masks_;
     }
 
     D2D1_COLOR_F clear_color() const noexcept
@@ -2255,6 +2288,98 @@ private:
             false);
     }
 
+    HRESULT add_geometric_layer_mask(
+        ID2D1Geometry* geometry,
+        const D2D1_MATRIX_3X2_F& mask_transform,
+        uint32_t& resource_index,
+        progpu_native_image_rect& target_bounds,
+        bool& empty) noexcept
+    {
+        resource_index = PROGPU_NATIVE_SCENE_NO_INDEX;
+        target_bounds = {};
+        empty = false;
+        CommandScenePathSink* raw_sink = new (std::nothrow)
+            CommandScenePathSink();
+        if (raw_sink == nullptr) {
+            return fail(
+                PROGPU_NATIVE_DIRECT2D_SCENE_STREAM_FAILURE_BUILDER,
+                E_OUTOFMEMORY);
+        }
+        ComPtr<CommandScenePathSink> path_sink;
+        path_sink.Attach(raw_sink);
+        HRESULT hr = geometry->Simplify(
+            D2D1_GEOMETRY_SIMPLIFICATION_OPTION_CUBICS_AND_LINES,
+            nullptr,
+            D2D1_DEFAULT_FLATTENING_TOLERANCE,
+            path_sink.Get());
+        hr = finish_path_capture(path_sink.Get(), hr);
+        if (FAILED(hr)) {
+            return hr;
+        }
+        const auto segments = path_sink->segments();
+        if (segments.empty()) {
+            empty = true;
+            return S_OK;
+        }
+
+        D2D1_RECT_F local_bounds{};
+        hr = geometry->GetBounds(nullptr, &local_bounds);
+        const D2D1_MATRIX_3X2_F target_transform =
+            compose_transform(mask_transform, transform_);
+        D2D1_RECT_F transformed_mask_bounds{};
+        const bool finite_target_transform = finite_transform(target_transform);
+        if (SUCCEEDED(hr) && finite_target_transform) {
+            hr = geometry->GetBounds(
+                &target_transform,
+                &transformed_mask_bounds);
+        }
+        if (FAILED(hr) || !finite_target_transform ||
+            !finite_rectangle(&local_bounds) ||
+            !finite_rectangle(&transformed_mask_bounds)) {
+            return fail_unsupported_resource();
+        }
+        if (local_bounds.right == local_bounds.left ||
+            local_bounds.bottom == local_bounds.top ||
+            transformed_mask_bounds.right == transformed_mask_bounds.left ||
+            transformed_mask_bounds.bottom == transformed_mask_bounds.top) {
+            empty = true;
+            return S_OK;
+        }
+        const progpu_native_scene_clip_path path{
+            0U,
+            segments.size(),
+            0U,
+            0U,
+            local_bounds.left,
+            local_bounds.top,
+            local_bounds.right,
+            local_bounds.bottom,
+            {
+                target_transform._11,
+                target_transform._12,
+                target_transform._21,
+                target_transform._22,
+                target_transform._31,
+                target_transform._32},
+            path_sink->fill_rule(),
+            8U,
+            PROGPU_NATIVE_CLIP_INTERSECT,
+            0U};
+        if (!builder_.add_vector_clip_mask(
+                std::span<const progpu_native_scene_clip_path>(&path, 1U),
+                segments,
+                1.0F,
+                resource_index)) {
+            return fail_builder();
+        }
+        target_bounds = {
+            transformed_mask_bounds.left,
+            transformed_mask_bounds.top,
+            transformed_mask_bounds.right - transformed_mask_bounds.left,
+            transformed_mask_bounds.bottom - transformed_mask_bounds.top};
+        return S_OK;
+    }
+
     HRESULT draw_stroked_geometry(
         ID2D1Geometry* geometry,
         ID2D1Brush* brush,
@@ -2432,6 +2557,7 @@ private:
     bool has_path_geometry_ = false;
     bool has_stroked_path_geometry_ = false;
     bool has_opacity_layers_ = false;
+    bool has_geometric_layer_masks_ = false;
 };
 
 class CallerTessellationSink final : public ID2D1TessellationSink {
@@ -5301,6 +5427,10 @@ progpu_native_direct2d_command_list_build_scene_stream(
         if (scene_sink->has_opacity_layers()) {
             result->flags |=
                 PROGPU_NATIVE_DIRECT2D_SCENE_STREAM_FLAG_HAS_OPACITY_LAYERS;
+        }
+        if (scene_sink->has_geometric_layer_masks()) {
+            result->flags |=
+                PROGPU_NATIVE_DIRECT2D_SCENE_STREAM_FLAG_HAS_GEOMETRIC_LAYER_MASKS;
         }
     }
 

@@ -45,7 +45,7 @@ public sealed class Direct2DInteropContractTests
             native,
             StringComparison.Ordinal);
         Assert.Contains(
-            "internal const uint AbiVersion = 39U;",
+            "internal const uint AbiVersion = 40U;",
             native,
             StringComparison.Ordinal);
         Assert.Contains(
@@ -480,7 +480,7 @@ public sealed class Direct2DInteropContractTests
             "progpu_native_direct2d_tests.cpp");
 
         Assert.Contains(
-            "PROGPU_NATIVE_DIRECT2D_ABI_VERSION = 39U",
+            "PROGPU_NATIVE_DIRECT2D_ABI_VERSION = 40U",
             header,
             StringComparison.Ordinal);
         Assert.Contains(
@@ -1078,6 +1078,12 @@ public sealed class Direct2DInteropContractTests
         Assert.Equal(
             ProGpuDirect2DSceneStreamFlags.HasGradientBrushes,
             (ProGpuDirect2DSceneStreamFlags)(1U << 3));
+        Assert.Equal(
+            ProGpuDirect2DSceneStreamFlags.HasOpacityLayers,
+            (ProGpuDirect2DSceneStreamFlags)(1U << 6));
+        Assert.Equal(
+            ProGpuDirect2DSceneStreamFlags.HasGeometricLayerMasks,
+            (ProGpuDirect2DSceneStreamFlags)(1U << 7));
         Assert.Equal(
             ProGpuDirect2DSceneStreamFailureReason.CapacityExceeded,
             (ProGpuDirect2DSceneStreamFailureReason)7U);
