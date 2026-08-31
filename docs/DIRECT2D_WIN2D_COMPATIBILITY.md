@@ -121,6 +121,29 @@ Windows that service may return genuine system DirectX resources for zero-copy
 interop. On macOS/Linux it selects a native portable provider or reports the
 missing capability before recording work.
 
+Checkpoint `c943222a` identified the concrete build boundary, and ProGPU
+`4186a305` starts removing it without pretending that the provider already
+exists. `progpu_native_direct2d.h` now exposes its fixed-layout
+GUIDs, enums, descriptors, summaries, and function declarations on every
+desktop native target and is installed with the other native headers. The
+compile-time `PROGPU_NATIVE_DIRECT2D_HAS_WINDOWS_PROVIDER` capability is `1`
+only where the genuine system Direct2D/DXGI provider is built and `0` on
+macOS/Linux. A standalone warning-as-error CTest includes the header and checks
+the cross-platform GUID, point, rectangle, matrix, color, triangle, command
+summary, and scene-result layouts without linking Windows SDK libraries.
+
+This is a declaration and packaging seam, not a false implementation claim:
+calling the provider functions still requires the Windows shared library. The
+next code slice moves the ProGPU-owned COM identity and geometry/resource core
+behind these portable declarations; Windows-only surface, DXGI, WinRT, and
+native Win2D entry points remain in their existing provider.
+
+On Apple Silicon/macOS the no-provider native tree builds under
+`-Wall -Wextra -Wpedantic -Werror` and passes all 11 CTests, including the new
+portable Direct2D header executable. The focused managed Direct2D contract gate
+passes 6/6 with zero build warnings and verifies that the capability split,
+install rule, and native layout test cannot be removed accidentally.
+
 ## Current support matrix
 
 | Surface | Status | Contract |
