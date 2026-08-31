@@ -2,6 +2,9 @@
 set -euo pipefail
 
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+python3 "${repo_root}/eng/progpu-generate-mil-protocol.py" --check
+python3 "${repo_root}/eng/progpu-generate-mil-coverage.py" --check
+
 dotnet run --project \
   "${repo_root}/eng/ProGPU.NativeContractGenerator/ProGPU.NativeContractGenerator.csproj" \
   --configuration Release -- \

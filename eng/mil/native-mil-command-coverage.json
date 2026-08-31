@@ -1,0 +1,1027 @@
+{
+  "schemaVersion": 1,
+  "meaning": {
+    "top-level-decoder": "The transactional channel decoder has an explicit dispatch case. This proves packet recognition, not full semantic or pixel parity for every value combination.",
+    "nested-render-data-dispatch": "The canonical RenderData opcode is explicitly framed and dispatched by the retained scene compiler. This does not promise support for every value or resource combination; unsupported forms fail closed.",
+    "not-dispatched": "No native top-level decoder case exists. The packet is an explicit parity gap or belongs to a platform/transport boundary that requires a typed portable replacement.",
+    "sentinel": "The value is not a retail packet."
+  },
+  "source": {
+    "protocol": {
+      "path": "eng/mil/wpf-mil-protocol.json",
+      "sha256": "2398b91ccb14024bc529c638d3764cd46e880ab42ace989bbd6adb82e776bb1f"
+    },
+    "decoder": {
+      "path": "src/ProGPU.Native/src/Mil/progpu_native_mil.cpp",
+      "sha256": "e497fff96a783cb02e5cfc42af7b837ac5b42e5df1a1157ebbcbc9c8015ca985"
+    }
+  },
+  "summary": {
+    "commandCount": 143,
+    "sentinel": 2,
+    "topLevelDecoder": 62,
+    "nestedRenderDataDispatch": 25,
+    "notDispatched": 54
+  },
+  "commands": [
+    {
+      "name": "invalid",
+      "wpfName": "MilCmdInvalid",
+      "value": 0,
+      "executionPath": "sentinel"
+    },
+    {
+      "name": "transport_sync_flush",
+      "wpfName": "MilCmdTransportSyncFlush",
+      "value": 1,
+      "executionPath": "top-level-decoder",
+      "layout": "MILCMD_TRANSPORT_SYNCFLUSH"
+    },
+    {
+      "name": "transport_destroy_resources_on_channel",
+      "wpfName": "MilCmdTransportDestroyResourcesOnChannel",
+      "value": 2,
+      "executionPath": "not-dispatched",
+      "layout": "MILCMD_TRANSPORT_DESTROYRESOURCESONCHANNEL"
+    },
+    {
+      "name": "partition_register_for_notifications",
+      "wpfName": "MilCmdPartitionRegisterForNotifications",
+      "value": 3,
+      "executionPath": "not-dispatched",
+      "layout": "MILCMD_PARTITION_REGISTERFORNOTIFICATIONS"
+    },
+    {
+      "name": "channel_request_tier",
+      "wpfName": "MilCmdChannelRequestTier",
+      "value": 4,
+      "executionPath": "not-dispatched",
+      "layout": "MILCMD_CHANNEL_REQUESTTIER"
+    },
+    {
+      "name": "partition_set_vblank_sync_mode",
+      "wpfName": "MilCmdPartitionSetVBlankSyncMode",
+      "value": 5,
+      "executionPath": "not-dispatched",
+      "layout": "MILCMD_PARTITION_SETVBLANKSYNCMODE"
+    },
+    {
+      "name": "partition_notify_present",
+      "wpfName": "MilCmdPartitionNotifyPresent",
+      "value": 6,
+      "executionPath": "not-dispatched",
+      "layout": "MILCMD_PARTITION_NOTIFYPRESENT"
+    },
+    {
+      "name": "channel_create_resource",
+      "wpfName": "MilCmdChannelCreateResource",
+      "value": 7,
+      "executionPath": "top-level-decoder",
+      "layout": "MILCMD_CHANNEL_CREATERESOURCE"
+    },
+    {
+      "name": "channel_delete_resource",
+      "wpfName": "MilCmdChannelDeleteResource",
+      "value": 8,
+      "executionPath": "top-level-decoder",
+      "layout": "MILCMD_CHANNEL_DELETERESOURCE"
+    },
+    {
+      "name": "channel_duplicate_handle",
+      "wpfName": "MilCmdChannelDuplicateHandle",
+      "value": 9,
+      "executionPath": "not-dispatched",
+      "layout": "MILCMD_CHANNEL_DUPLICATEHANDLE"
+    },
+    {
+      "name": "d3d_image",
+      "wpfName": "MilCmdD3DImage",
+      "value": 10,
+      "executionPath": "top-level-decoder",
+      "layout": "MILCMD_D3DIMAGE"
+    },
+    {
+      "name": "d3d_image_present",
+      "wpfName": "MilCmdD3DImagePresent",
+      "value": 11,
+      "executionPath": "top-level-decoder",
+      "layout": "MILCMD_D3DIMAGE_PRESENT"
+    },
+    {
+      "name": "bitmap_source",
+      "wpfName": "MilCmdBitmapSource",
+      "value": 12,
+      "executionPath": "not-dispatched",
+      "layout": "MILCMD_BITMAP_SOURCE"
+    },
+    {
+      "name": "bitmap_invalidate",
+      "wpfName": "MilCmdBitmapInvalidate",
+      "value": 13,
+      "executionPath": "not-dispatched",
+      "layout": "MILCMD_BITMAP_INVALIDATE"
+    },
+    {
+      "name": "double_resource",
+      "wpfName": "MilCmdDoubleResource",
+      "value": 14,
+      "executionPath": "top-level-decoder",
+      "layout": "MILCMD_DOUBLERESOURCE"
+    },
+    {
+      "name": "color_resource",
+      "wpfName": "MilCmdColorResource",
+      "value": 15,
+      "executionPath": "top-level-decoder",
+      "layout": "MILCMD_COLORRESOURCE"
+    },
+    {
+      "name": "point_resource",
+      "wpfName": "MilCmdPointResource",
+      "value": 16,
+      "executionPath": "top-level-decoder",
+      "layout": "MILCMD_POINTRESOURCE"
+    },
+    {
+      "name": "rect_resource",
+      "wpfName": "MilCmdRectResource",
+      "value": 17,
+      "executionPath": "top-level-decoder",
+      "layout": "MILCMD_RECTRESOURCE"
+    },
+    {
+      "name": "size_resource",
+      "wpfName": "MilCmdSizeResource",
+      "value": 18,
+      "executionPath": "top-level-decoder",
+      "layout": "MILCMD_SIZERESOURCE"
+    },
+    {
+      "name": "matrix_resource",
+      "wpfName": "MilCmdMatrixResource",
+      "value": 19,
+      "executionPath": "top-level-decoder",
+      "layout": "MILCMD_MATRIXRESOURCE"
+    },
+    {
+      "name": "point3d_resource",
+      "wpfName": "MilCmdPoint3DResource",
+      "value": 20,
+      "executionPath": "top-level-decoder",
+      "layout": "MILCMD_POINT3DRESOURCE"
+    },
+    {
+      "name": "vector3d_resource",
+      "wpfName": "MilCmdVector3DResource",
+      "value": 21,
+      "executionPath": "top-level-decoder",
+      "layout": "MILCMD_VECTOR3DRESOURCE"
+    },
+    {
+      "name": "quaternion_resource",
+      "wpfName": "MilCmdQuaternionResource",
+      "value": 22,
+      "executionPath": "top-level-decoder",
+      "layout": "MILCMD_QUATERNIONRESOURCE"
+    },
+    {
+      "name": "media_player",
+      "wpfName": "MilCmdMediaPlayer",
+      "value": 23,
+      "executionPath": "not-dispatched",
+      "layout": "MILCMD_MEDIAPLAYER"
+    },
+    {
+      "name": "render_data",
+      "wpfName": "MilCmdRenderData",
+      "value": 24,
+      "executionPath": "top-level-decoder",
+      "layout": "MILCMD_RENDERDATA"
+    },
+    {
+      "name": "etw_event_resource",
+      "wpfName": "MilCmdEtwEventResource",
+      "value": 25,
+      "executionPath": "not-dispatched",
+      "layout": "MILCMD_ETWEVENTRESOURCE"
+    },
+    {
+      "name": "visual_create",
+      "wpfName": "MilCmdVisualCreate",
+      "value": 26,
+      "executionPath": "top-level-decoder",
+      "layout": "MILCMD_VISUAL_CREATE"
+    },
+    {
+      "name": "visual_set_offset",
+      "wpfName": "MilCmdVisualSetOffset",
+      "value": 27,
+      "executionPath": "top-level-decoder",
+      "layout": "MILCMD_VISUAL_SETOFFSET"
+    },
+    {
+      "name": "visual_set_transform",
+      "wpfName": "MilCmdVisualSetTransform",
+      "value": 28,
+      "executionPath": "top-level-decoder",
+      "layout": "MILCMD_VISUAL_SETTRANSFORM"
+    },
+    {
+      "name": "visual_set_effect",
+      "wpfName": "MilCmdVisualSetEffect",
+      "value": 29,
+      "executionPath": "top-level-decoder",
+      "layout": "MILCMD_VISUAL_SETEFFECT"
+    },
+    {
+      "name": "visual_set_cache_mode",
+      "wpfName": "MilCmdVisualSetCacheMode",
+      "value": 30,
+      "executionPath": "top-level-decoder",
+      "layout": "MILCMD_VISUAL_SETCACHEMODE"
+    },
+    {
+      "name": "visual_set_clip",
+      "wpfName": "MilCmdVisualSetClip",
+      "value": 31,
+      "executionPath": "top-level-decoder",
+      "layout": "MILCMD_VISUAL_SETCLIP"
+    },
+    {
+      "name": "visual_set_alpha",
+      "wpfName": "MilCmdVisualSetAlpha",
+      "value": 32,
+      "executionPath": "top-level-decoder",
+      "layout": "MILCMD_VISUAL_SETALPHA"
+    },
+    {
+      "name": "visual_set_render_options",
+      "wpfName": "MilCmdVisualSetRenderOptions",
+      "value": 33,
+      "executionPath": "top-level-decoder",
+      "layout": "MILCMD_VISUAL_SETRENDEROPTIONS"
+    },
+    {
+      "name": "visual_set_content",
+      "wpfName": "MilCmdVisualSetContent",
+      "value": 34,
+      "executionPath": "top-level-decoder",
+      "layout": "MILCMD_VISUAL_SETCONTENT"
+    },
+    {
+      "name": "visual_set_alpha_mask",
+      "wpfName": "MilCmdVisualSetAlphaMask",
+      "value": 35,
+      "executionPath": "top-level-decoder",
+      "layout": "MILCMD_VISUAL_SETALPHAMASK"
+    },
+    {
+      "name": "visual_remove_all_children",
+      "wpfName": "MilCmdVisualRemoveAllChildren",
+      "value": 36,
+      "executionPath": "top-level-decoder",
+      "layout": "MILCMD_VISUAL_REMOVEALLCHILDREN"
+    },
+    {
+      "name": "visual_remove_child",
+      "wpfName": "MilCmdVisualRemoveChild",
+      "value": 37,
+      "executionPath": "top-level-decoder",
+      "layout": "MILCMD_VISUAL_REMOVECHILD"
+    },
+    {
+      "name": "visual_insert_child_at",
+      "wpfName": "MilCmdVisualInsertChildAt",
+      "value": 38,
+      "executionPath": "top-level-decoder",
+      "layout": "MILCMD_VISUAL_INSERTCHILDAT"
+    },
+    {
+      "name": "visual_set_guideline_collection",
+      "wpfName": "MilCmdVisualSetGuidelineCollection",
+      "value": 39,
+      "executionPath": "top-level-decoder",
+      "layout": "MILCMD_VISUAL_SETGUIDELINECOLLECTION"
+    },
+    {
+      "name": "visual_set_scrollable_area_clip",
+      "wpfName": "MilCmdVisualSetScrollableAreaClip",
+      "value": 40,
+      "executionPath": "top-level-decoder",
+      "layout": "MILCMD_VISUAL_SETSCROLLABLEAREACLIP"
+    },
+    {
+      "name": "viewport3d_visual_set_camera",
+      "wpfName": "MilCmdViewport3DVisualSetCamera",
+      "value": 41,
+      "executionPath": "not-dispatched",
+      "layout": "MILCMD_VIEWPORT3DVISUAL_SETCAMERA"
+    },
+    {
+      "name": "viewport3d_visual_set_viewport",
+      "wpfName": "MilCmdViewport3DVisualSetViewport",
+      "value": 42,
+      "executionPath": "not-dispatched",
+      "layout": "MILCMD_VIEWPORT3DVISUAL_SETVIEWPORT"
+    },
+    {
+      "name": "viewport3d_visual_set_3d_child",
+      "wpfName": "MilCmdViewport3DVisualSet3DChild",
+      "value": 43,
+      "executionPath": "not-dispatched",
+      "layout": "MILCMD_VIEWPORT3DVISUAL_SET3DCHILD"
+    },
+    {
+      "name": "visual3d_set_content",
+      "wpfName": "MilCmdVisual3DSetContent",
+      "value": 44,
+      "executionPath": "not-dispatched",
+      "layout": "MILCMD_VISUAL3D_SETCONTENT"
+    },
+    {
+      "name": "visual3d_set_transform",
+      "wpfName": "MilCmdVisual3DSetTransform",
+      "value": 45,
+      "executionPath": "not-dispatched",
+      "layout": "MILCMD_VISUAL3D_SETTRANSFORM"
+    },
+    {
+      "name": "visual3d_remove_all_children",
+      "wpfName": "MilCmdVisual3DRemoveAllChildren",
+      "value": 46,
+      "executionPath": "not-dispatched",
+      "layout": "MILCMD_VISUAL3D_REMOVEALLCHILDREN"
+    },
+    {
+      "name": "visual3d_remove_child",
+      "wpfName": "MilCmdVisual3DRemoveChild",
+      "value": 47,
+      "executionPath": "not-dispatched",
+      "layout": "MILCMD_VISUAL3D_REMOVECHILD"
+    },
+    {
+      "name": "visual3d_insert_child_at",
+      "wpfName": "MilCmdVisual3DInsertChildAt",
+      "value": 48,
+      "executionPath": "not-dispatched",
+      "layout": "MILCMD_VISUAL3D_INSERTCHILDAT"
+    },
+    {
+      "name": "hwnd_target_create",
+      "wpfName": "MilCmdHwndTargetCreate",
+      "value": 49,
+      "executionPath": "not-dispatched",
+      "layout": "MILCMD_HWNDTARGET_CREATE"
+    },
+    {
+      "name": "hwnd_target_suppress_layered",
+      "wpfName": "MilCmdHwndTargetSuppressLayered",
+      "value": 50,
+      "executionPath": "not-dispatched",
+      "layout": "MILCMD_HWNDTARGET_SUPPRESSLAYERED"
+    },
+    {
+      "name": "target_update_window_settings",
+      "wpfName": "MilCmdTargetUpdateWindowSettings",
+      "value": 51,
+      "executionPath": "not-dispatched",
+      "layout": "MILCMD_TARGET_UPDATEWINDOWSETTINGS"
+    },
+    {
+      "name": "generic_target_create",
+      "wpfName": "MilCmdGenericTargetCreate",
+      "value": 52,
+      "executionPath": "top-level-decoder",
+      "layout": "MILCMD_GENERICTARGET_CREATE"
+    },
+    {
+      "name": "target_set_root",
+      "wpfName": "MilCmdTargetSetRoot",
+      "value": 53,
+      "executionPath": "top-level-decoder",
+      "layout": "MILCMD_TARGET_SETROOT"
+    },
+    {
+      "name": "target_set_clear_color",
+      "wpfName": "MilCmdTargetSetClearColor",
+      "value": 54,
+      "executionPath": "top-level-decoder",
+      "layout": "MILCMD_TARGET_SETCLEARCOLOR"
+    },
+    {
+      "name": "target_invalidate",
+      "wpfName": "MilCmdTargetInvalidate",
+      "value": 55,
+      "executionPath": "top-level-decoder",
+      "layout": "MILCMD_TARGET_INVALIDATE"
+    },
+    {
+      "name": "target_set_flags",
+      "wpfName": "MilCmdTargetSetFlags",
+      "value": 56,
+      "executionPath": "top-level-decoder",
+      "layout": "MILCMD_TARGET_SETFLAGS"
+    },
+    {
+      "name": "hwnd_target_dpi_changed",
+      "wpfName": "MilCmdHwndTargetDpiChanged",
+      "value": 57,
+      "executionPath": "not-dispatched",
+      "layout": "MILCMD_HWNDTARGET_DPICHANGED"
+    },
+    {
+      "name": "glyph_run_create",
+      "wpfName": "MilCmdGlyphRunCreate",
+      "value": 58,
+      "executionPath": "top-level-decoder",
+      "layout": "MILCMD_GLYPHRUN_CREATE"
+    },
+    {
+      "name": "double_buffered_bitmap",
+      "wpfName": "MilCmdDoubleBufferedBitmap",
+      "value": 59,
+      "executionPath": "not-dispatched",
+      "layout": "MILCMD_DOUBLEBUFFEREDBITMAP"
+    },
+    {
+      "name": "double_buffered_bitmap_copy_forward",
+      "wpfName": "MilCmdDoubleBufferedBitmapCopyForward",
+      "value": 60,
+      "executionPath": "not-dispatched",
+      "layout": "MILCMD_DOUBLEBUFFEREDBITMAP_COPYFORWARD"
+    },
+    {
+      "name": "partition_notify_policy_change_for_non_interactive_mode",
+      "wpfName": "MilCmdPartitionNotifyPolicyChangeForNonInteractiveMode",
+      "value": 61,
+      "executionPath": "not-dispatched",
+      "layout": "MILCMD_PARTITION_NOTIFYPOLICYCHANGEFORNONINTERACTIVEMODE"
+    },
+    {
+      "name": "draw_line",
+      "wpfName": "MilDrawLine",
+      "value": 62,
+      "executionPath": "nested-render-data-dispatch",
+      "layout": "MILCMD_DRAW_LINE"
+    },
+    {
+      "name": "draw_line_animate",
+      "wpfName": "MilDrawLineAnimate",
+      "value": 63,
+      "executionPath": "nested-render-data-dispatch",
+      "layout": "MILCMD_DRAW_LINE_ANIMATE"
+    },
+    {
+      "name": "draw_rectangle",
+      "wpfName": "MilDrawRectangle",
+      "value": 64,
+      "executionPath": "nested-render-data-dispatch",
+      "layout": "MILCMD_DRAW_RECTANGLE"
+    },
+    {
+      "name": "draw_rectangle_animate",
+      "wpfName": "MilDrawRectangleAnimate",
+      "value": 65,
+      "executionPath": "nested-render-data-dispatch",
+      "layout": "MILCMD_DRAW_RECTANGLE_ANIMATE"
+    },
+    {
+      "name": "draw_rounded_rectangle",
+      "wpfName": "MilDrawRoundedRectangle",
+      "value": 66,
+      "executionPath": "nested-render-data-dispatch",
+      "layout": "MILCMD_DRAW_ROUNDED_RECTANGLE"
+    },
+    {
+      "name": "draw_rounded_rectangle_animate",
+      "wpfName": "MilDrawRoundedRectangleAnimate",
+      "value": 67,
+      "executionPath": "nested-render-data-dispatch",
+      "layout": "MILCMD_DRAW_ROUNDED_RECTANGLE_ANIMATE"
+    },
+    {
+      "name": "draw_ellipse",
+      "wpfName": "MilDrawEllipse",
+      "value": 68,
+      "executionPath": "nested-render-data-dispatch",
+      "layout": "MILCMD_DRAW_ELLIPSE"
+    },
+    {
+      "name": "draw_ellipse_animate",
+      "wpfName": "MilDrawEllipseAnimate",
+      "value": 69,
+      "executionPath": "nested-render-data-dispatch",
+      "layout": "MILCMD_DRAW_ELLIPSE_ANIMATE"
+    },
+    {
+      "name": "draw_geometry",
+      "wpfName": "MilDrawGeometry",
+      "value": 70,
+      "executionPath": "nested-render-data-dispatch",
+      "layout": "MILCMD_DRAW_GEOMETRY"
+    },
+    {
+      "name": "draw_image",
+      "wpfName": "MilDrawImage",
+      "value": 71,
+      "executionPath": "nested-render-data-dispatch",
+      "layout": "MILCMD_DRAW_IMAGE"
+    },
+    {
+      "name": "draw_image_animate",
+      "wpfName": "MilDrawImageAnimate",
+      "value": 72,
+      "executionPath": "nested-render-data-dispatch",
+      "layout": "MILCMD_DRAW_IMAGE_ANIMATE"
+    },
+    {
+      "name": "draw_glyph_run",
+      "wpfName": "MilDrawGlyphRun",
+      "value": 73,
+      "executionPath": "nested-render-data-dispatch",
+      "layout": "MILCMD_DRAW_GLYPH_RUN"
+    },
+    {
+      "name": "draw_drawing",
+      "wpfName": "MilDrawDrawing",
+      "value": 74,
+      "executionPath": "nested-render-data-dispatch",
+      "layout": "MILCMD_DRAW_DRAWING"
+    },
+    {
+      "name": "draw_video",
+      "wpfName": "MilDrawVideo",
+      "value": 75,
+      "executionPath": "nested-render-data-dispatch",
+      "layout": "MILCMD_DRAW_VIDEO"
+    },
+    {
+      "name": "draw_video_animate",
+      "wpfName": "MilDrawVideoAnimate",
+      "value": 76,
+      "executionPath": "nested-render-data-dispatch",
+      "layout": "MILCMD_DRAW_VIDEO_ANIMATE"
+    },
+    {
+      "name": "push_clip",
+      "wpfName": "MilPushClip",
+      "value": 77,
+      "executionPath": "nested-render-data-dispatch",
+      "layout": "MILCMD_PUSH_CLIP"
+    },
+    {
+      "name": "push_opacity_mask",
+      "wpfName": "MilPushOpacityMask",
+      "value": 78,
+      "executionPath": "nested-render-data-dispatch",
+      "layout": "MILCMD_PUSH_OPACITY_MASK"
+    },
+    {
+      "name": "push_opacity",
+      "wpfName": "MilPushOpacity",
+      "value": 79,
+      "executionPath": "nested-render-data-dispatch",
+      "layout": "MILCMD_PUSH_OPACITY"
+    },
+    {
+      "name": "push_opacity_animate",
+      "wpfName": "MilPushOpacityAnimate",
+      "value": 80,
+      "executionPath": "nested-render-data-dispatch",
+      "layout": "MILCMD_PUSH_OPACITY_ANIMATE"
+    },
+    {
+      "name": "push_transform",
+      "wpfName": "MilPushTransform",
+      "value": 81,
+      "executionPath": "nested-render-data-dispatch",
+      "layout": "MILCMD_PUSH_TRANSFORM"
+    },
+    {
+      "name": "push_guideline_set",
+      "wpfName": "MilPushGuidelineSet",
+      "value": 82,
+      "executionPath": "nested-render-data-dispatch",
+      "layout": "MILCMD_PUSH_GUIDELINE_SET"
+    },
+    {
+      "name": "push_guideline_y1",
+      "wpfName": "MilPushGuidelineY1",
+      "value": 83,
+      "executionPath": "nested-render-data-dispatch",
+      "layout": "MILCMD_PUSH_GUIDELINE_Y1"
+    },
+    {
+      "name": "push_guideline_y2",
+      "wpfName": "MilPushGuidelineY2",
+      "value": 84,
+      "executionPath": "nested-render-data-dispatch",
+      "layout": "MILCMD_PUSH_GUIDELINE_Y2"
+    },
+    {
+      "name": "push_effect",
+      "wpfName": "MilPushEffect",
+      "value": 85,
+      "executionPath": "nested-render-data-dispatch",
+      "layout": "MILCMD_PUSH_EFFECT"
+    },
+    {
+      "name": "pop",
+      "wpfName": "MilPop",
+      "value": 86,
+      "executionPath": "nested-render-data-dispatch",
+      "layout": "MILCMD_POP"
+    },
+    {
+      "name": "axis_angle_rotation3d",
+      "wpfName": "MilCmdAxisAngleRotation3D",
+      "value": 87,
+      "executionPath": "not-dispatched",
+      "layout": "MILCMD_AXISANGLEROTATION3D"
+    },
+    {
+      "name": "quaternion_rotation3d",
+      "wpfName": "MilCmdQuaternionRotation3D",
+      "value": 88,
+      "executionPath": "not-dispatched",
+      "layout": "MILCMD_QUATERNIONROTATION3D"
+    },
+    {
+      "name": "perspective_camera",
+      "wpfName": "MilCmdPerspectiveCamera",
+      "value": 89,
+      "executionPath": "not-dispatched",
+      "layout": "MILCMD_PERSPECTIVECAMERA"
+    },
+    {
+      "name": "orthographic_camera",
+      "wpfName": "MilCmdOrthographicCamera",
+      "value": 90,
+      "executionPath": "not-dispatched",
+      "layout": "MILCMD_ORTHOGRAPHICCAMERA"
+    },
+    {
+      "name": "matrix_camera",
+      "wpfName": "MilCmdMatrixCamera",
+      "value": 91,
+      "executionPath": "not-dispatched",
+      "layout": "MILCMD_MATRIXCAMERA"
+    },
+    {
+      "name": "model3d_group",
+      "wpfName": "MilCmdModel3DGroup",
+      "value": 92,
+      "executionPath": "not-dispatched",
+      "layout": "MILCMD_MODEL3DGROUP"
+    },
+    {
+      "name": "ambient_light",
+      "wpfName": "MilCmdAmbientLight",
+      "value": 93,
+      "executionPath": "not-dispatched",
+      "layout": "MILCMD_AMBIENTLIGHT"
+    },
+    {
+      "name": "directional_light",
+      "wpfName": "MilCmdDirectionalLight",
+      "value": 94,
+      "executionPath": "not-dispatched",
+      "layout": "MILCMD_DIRECTIONALLIGHT"
+    },
+    {
+      "name": "point_light",
+      "wpfName": "MilCmdPointLight",
+      "value": 95,
+      "executionPath": "not-dispatched",
+      "layout": "MILCMD_POINTLIGHT"
+    },
+    {
+      "name": "spot_light",
+      "wpfName": "MilCmdSpotLight",
+      "value": 96,
+      "executionPath": "not-dispatched",
+      "layout": "MILCMD_SPOTLIGHT"
+    },
+    {
+      "name": "geometry_model3d",
+      "wpfName": "MilCmdGeometryModel3D",
+      "value": 97,
+      "executionPath": "not-dispatched",
+      "layout": "MILCMD_GEOMETRYMODEL3D"
+    },
+    {
+      "name": "mesh_geometry3d",
+      "wpfName": "MilCmdMeshGeometry3D",
+      "value": 98,
+      "executionPath": "not-dispatched",
+      "layout": "MILCMD_MESHGEOMETRY3D"
+    },
+    {
+      "name": "material_group",
+      "wpfName": "MilCmdMaterialGroup",
+      "value": 99,
+      "executionPath": "not-dispatched",
+      "layout": "MILCMD_MATERIALGROUP"
+    },
+    {
+      "name": "diffuse_material",
+      "wpfName": "MilCmdDiffuseMaterial",
+      "value": 100,
+      "executionPath": "not-dispatched",
+      "layout": "MILCMD_DIFFUSEMATERIAL"
+    },
+    {
+      "name": "specular_material",
+      "wpfName": "MilCmdSpecularMaterial",
+      "value": 101,
+      "executionPath": "not-dispatched",
+      "layout": "MILCMD_SPECULARMATERIAL"
+    },
+    {
+      "name": "emissive_material",
+      "wpfName": "MilCmdEmissiveMaterial",
+      "value": 102,
+      "executionPath": "not-dispatched",
+      "layout": "MILCMD_EMISSIVEMATERIAL"
+    },
+    {
+      "name": "transform3d_group",
+      "wpfName": "MilCmdTransform3DGroup",
+      "value": 103,
+      "executionPath": "not-dispatched",
+      "layout": "MILCMD_TRANSFORM3DGROUP"
+    },
+    {
+      "name": "translate_transform3d",
+      "wpfName": "MilCmdTranslateTransform3D",
+      "value": 104,
+      "executionPath": "not-dispatched",
+      "layout": "MILCMD_TRANSLATETRANSFORM3D"
+    },
+    {
+      "name": "scale_transform3d",
+      "wpfName": "MilCmdScaleTransform3D",
+      "value": 105,
+      "executionPath": "not-dispatched",
+      "layout": "MILCMD_SCALETRANSFORM3D"
+    },
+    {
+      "name": "rotate_transform3d",
+      "wpfName": "MilCmdRotateTransform3D",
+      "value": 106,
+      "executionPath": "not-dispatched",
+      "layout": "MILCMD_ROTATETRANSFORM3D"
+    },
+    {
+      "name": "matrix_transform3d",
+      "wpfName": "MilCmdMatrixTransform3D",
+      "value": 107,
+      "executionPath": "not-dispatched",
+      "layout": "MILCMD_MATRIXTRANSFORM3D"
+    },
+    {
+      "name": "pixel_shader",
+      "wpfName": "MilCmdPixelShader",
+      "value": 108,
+      "executionPath": "not-dispatched",
+      "layout": "MILCMD_PIXELSHADER"
+    },
+    {
+      "name": "implicit_input_brush",
+      "wpfName": "MilCmdImplicitInputBrush",
+      "value": 109,
+      "executionPath": "not-dispatched",
+      "layout": "MILCMD_IMPLICITINPUTBRUSH"
+    },
+    {
+      "name": "blur_effect",
+      "wpfName": "MilCmdBlurEffect",
+      "value": 110,
+      "executionPath": "top-level-decoder",
+      "layout": "MILCMD_BLUREFFECT"
+    },
+    {
+      "name": "drop_shadow_effect",
+      "wpfName": "MilCmdDropShadowEffect",
+      "value": 111,
+      "executionPath": "top-level-decoder",
+      "layout": "MILCMD_DROPSHADOWEFFECT"
+    },
+    {
+      "name": "shader_effect",
+      "wpfName": "MilCmdShaderEffect",
+      "value": 112,
+      "executionPath": "not-dispatched",
+      "layout": "MILCMD_SHADEREFFECT"
+    },
+    {
+      "name": "drawing_image",
+      "wpfName": "MilCmdDrawingImage",
+      "value": 113,
+      "executionPath": "top-level-decoder",
+      "layout": "MILCMD_DRAWINGIMAGE"
+    },
+    {
+      "name": "transform_group",
+      "wpfName": "MilCmdTransformGroup",
+      "value": 114,
+      "executionPath": "top-level-decoder",
+      "layout": "MILCMD_TRANSFORMGROUP"
+    },
+    {
+      "name": "translate_transform",
+      "wpfName": "MilCmdTranslateTransform",
+      "value": 115,
+      "executionPath": "top-level-decoder",
+      "layout": "MILCMD_TRANSLATETRANSFORM"
+    },
+    {
+      "name": "scale_transform",
+      "wpfName": "MilCmdScaleTransform",
+      "value": 116,
+      "executionPath": "top-level-decoder",
+      "layout": "MILCMD_SCALETRANSFORM"
+    },
+    {
+      "name": "skew_transform",
+      "wpfName": "MilCmdSkewTransform",
+      "value": 117,
+      "executionPath": "top-level-decoder",
+      "layout": "MILCMD_SKEWTRANSFORM"
+    },
+    {
+      "name": "rotate_transform",
+      "wpfName": "MilCmdRotateTransform",
+      "value": 118,
+      "executionPath": "top-level-decoder",
+      "layout": "MILCMD_ROTATETRANSFORM"
+    },
+    {
+      "name": "matrix_transform",
+      "wpfName": "MilCmdMatrixTransform",
+      "value": 119,
+      "executionPath": "top-level-decoder",
+      "layout": "MILCMD_MATRIXTRANSFORM"
+    },
+    {
+      "name": "line_geometry",
+      "wpfName": "MilCmdLineGeometry",
+      "value": 120,
+      "executionPath": "top-level-decoder",
+      "layout": "MILCMD_LINEGEOMETRY"
+    },
+    {
+      "name": "rectangle_geometry",
+      "wpfName": "MilCmdRectangleGeometry",
+      "value": 121,
+      "executionPath": "top-level-decoder",
+      "layout": "MILCMD_RECTANGLEGEOMETRY"
+    },
+    {
+      "name": "ellipse_geometry",
+      "wpfName": "MilCmdEllipseGeometry",
+      "value": 122,
+      "executionPath": "top-level-decoder",
+      "layout": "MILCMD_ELLIPSEGEOMETRY"
+    },
+    {
+      "name": "geometry_group",
+      "wpfName": "MilCmdGeometryGroup",
+      "value": 123,
+      "executionPath": "top-level-decoder",
+      "layout": "MILCMD_GEOMETRYGROUP"
+    },
+    {
+      "name": "combined_geometry",
+      "wpfName": "MilCmdCombinedGeometry",
+      "value": 124,
+      "executionPath": "top-level-decoder",
+      "layout": "MILCMD_COMBINEDGEOMETRY"
+    },
+    {
+      "name": "path_geometry",
+      "wpfName": "MilCmdPathGeometry",
+      "value": 125,
+      "executionPath": "top-level-decoder",
+      "layout": "MILCMD_PATHGEOMETRY"
+    },
+    {
+      "name": "solid_color_brush",
+      "wpfName": "MilCmdSolidColorBrush",
+      "value": 126,
+      "executionPath": "top-level-decoder",
+      "layout": "MILCMD_SOLIDCOLORBRUSH"
+    },
+    {
+      "name": "linear_gradient_brush",
+      "wpfName": "MilCmdLinearGradientBrush",
+      "value": 127,
+      "executionPath": "top-level-decoder",
+      "layout": "MILCMD_LINEARGRADIENTBRUSH"
+    },
+    {
+      "name": "radial_gradient_brush",
+      "wpfName": "MilCmdRadialGradientBrush",
+      "value": 128,
+      "executionPath": "top-level-decoder",
+      "layout": "MILCMD_RADIALGRADIENTBRUSH"
+    },
+    {
+      "name": "image_brush",
+      "wpfName": "MilCmdImageBrush",
+      "value": 129,
+      "executionPath": "not-dispatched",
+      "layout": "MILCMD_IMAGEBRUSH"
+    },
+    {
+      "name": "drawing_brush",
+      "wpfName": "MilCmdDrawingBrush",
+      "value": 130,
+      "executionPath": "not-dispatched",
+      "layout": "MILCMD_DRAWINGBRUSH"
+    },
+    {
+      "name": "visual_brush",
+      "wpfName": "MilCmdVisualBrush",
+      "value": 131,
+      "executionPath": "not-dispatched",
+      "layout": "MILCMD_VISUALBRUSH"
+    },
+    {
+      "name": "bitmap_cache_brush",
+      "wpfName": "MilCmdBitmapCacheBrush",
+      "value": 132,
+      "executionPath": "not-dispatched",
+      "layout": "MILCMD_BITMAPCACHEBRUSH"
+    },
+    {
+      "name": "dash_style",
+      "wpfName": "MilCmdDashStyle",
+      "value": 133,
+      "executionPath": "top-level-decoder",
+      "layout": "MILCMD_DASHSTYLE"
+    },
+    {
+      "name": "pen",
+      "wpfName": "MilCmdPen",
+      "value": 134,
+      "executionPath": "top-level-decoder",
+      "layout": "MILCMD_PEN"
+    },
+    {
+      "name": "geometry_drawing",
+      "wpfName": "MilCmdGeometryDrawing",
+      "value": 135,
+      "executionPath": "top-level-decoder",
+      "layout": "MILCMD_GEOMETRYDRAWING"
+    },
+    {
+      "name": "glyph_run_drawing",
+      "wpfName": "MilCmdGlyphRunDrawing",
+      "value": 136,
+      "executionPath": "top-level-decoder",
+      "layout": "MILCMD_GLYPHRUNDRAWING"
+    },
+    {
+      "name": "image_drawing",
+      "wpfName": "MilCmdImageDrawing",
+      "value": 137,
+      "executionPath": "top-level-decoder",
+      "layout": "MILCMD_IMAGEDRAWING"
+    },
+    {
+      "name": "video_drawing",
+      "wpfName": "MilCmdVideoDrawing",
+      "value": 138,
+      "executionPath": "not-dispatched",
+      "layout": "MILCMD_VIDEODRAWING"
+    },
+    {
+      "name": "drawing_group",
+      "wpfName": "MilCmdDrawingGroup",
+      "value": 139,
+      "executionPath": "top-level-decoder",
+      "layout": "MILCMD_DRAWINGGROUP"
+    },
+    {
+      "name": "guideline_set",
+      "wpfName": "MilCmdGuidelineSet",
+      "value": 140,
+      "executionPath": "top-level-decoder",
+      "layout": "MILCMD_GUIDELINESET"
+    },
+    {
+      "name": "bitmap_cache",
+      "wpfName": "MilCmdBitmapCache",
+      "value": 141,
+      "executionPath": "top-level-decoder",
+      "layout": "MILCMD_BITMAPCACHE"
+    },
+    {
+      "name": "validate_structure_order",
+      "wpfName": "MilCmdValidateStructureOrder",
+      "value": 142,
+      "executionPath": "sentinel"
+    }
+  ]
+}

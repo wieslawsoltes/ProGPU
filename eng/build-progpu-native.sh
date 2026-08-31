@@ -35,6 +35,7 @@ command -v python3 >/dev/null 2>&1 || {
   exit 1
 }
 python3 "${repo_root}/eng/progpu-generate-mil-protocol.py" --check
+python3 "${repo_root}/eng/progpu-generate-mil-coverage.py" --check
 if [[ "${PROGPU_NATIVE_SKIP_EXTENDED_INTEGRATION:-0}" != "1" ]]; then
   python3 "${repo_root}/eng/progpu-prepare-win2d-source.py"
 fi
