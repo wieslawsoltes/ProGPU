@@ -6,6 +6,7 @@ using System.Runtime.InteropServices;
 using System.Text;
 using ProGPU.Scene;
 using ProGPU.SystemDrawing;
+using ProGPU.Vector;
 using Xunit;
 
 namespace System.Drawing.Common.Tests;
@@ -2260,6 +2261,258 @@ public sealed class MetafileParserTests
     }
 
     [Fact]
+    public void EmfBezierAndPolylineToFamiliesPreserveCurrentPositionContracts()
+    {
+        byte[] emf = CreateTextPlaybackEmf(
+        [
+            (EmfPlusRecordType.EmfMoveToEx, EmfPoint(4, 4)),
+            (EmfPlusRecordType.EmfPolyBezierTo,
+                EmfPointArray(
+                    [new Point(8, 4), new Point(12, 12), new Point(16, 12)],
+                    points16: false)),
+            (EmfPlusRecordType.EmfPolylineTo16,
+                EmfPointArray(
+                    [new Point(20, 12), new Point(20, 16)],
+                    points16: true)),
+            (EmfPlusRecordType.EmfPolyBezier16,
+                EmfPointArray(
+                    [new Point(30, 4), new Point(34, 4), new Point(38, 12), new Point(42, 12)],
+                    points16: true)),
+            (EmfPlusRecordType.EmfLineTo, EmfPoint(24, 16))
+        ]);
+        using var metafile = new Metafile(new MemoryStream(emf));
+        var context = new DrawingContext();
+        using Graphics graphics = Graphics.FromProGpuDrawingContext(context);
+
+        graphics.DrawImage(metafile, new Rectangle(0, 0, 64, 64));
+
+        RenderCommand[] drawingCommands = context.Commands
+            .Where(static command => command.Type is RenderCommandType.DrawPath or RenderCommandType.DrawLine)
+            .ToArray();
+        Assert.Equal(4, drawingCommands.Length);
+        PathFigure first = Assert.Single(drawingCommands[0].Path!.Figures);
+        Assert.Equal(new Vector2(4, 4), first.StartPoint);
+        Assert.Equal(new Vector2(16, 12), Assert.IsType<CubicBezierSegment>(Assert.Single(first.Segments)).Point);
+        PathFigure second = Assert.Single(drawingCommands[1].Path!.Figures);
+        Assert.Equal(new Vector2(16, 12), second.StartPoint);
+        Assert.Equal(new Vector2(20, 16), Assert.IsType<LineSegment>(second.Segments[^1]).Point);
+        PathFigure third = Assert.Single(drawingCommands[2].Path!.Figures);
+        Assert.Equal(new Vector2(30, 4), third.StartPoint);
+        Assert.Equal(new Vector2(42, 12), Assert.IsType<CubicBezierSegment>(Assert.Single(third.Segments)).Point);
+        Assert.Equal(RenderCommandType.DrawLine, drawingCommands[3].Type);
+        Assert.Equal(new Vector2(20, 16), drawingCommands[3].Position);
+        Assert.Equal(new Vector2(24, 16), drawingCommands[3].Position2);
+    }
+
+    [Fact]
+    public void EmfCompactPointRecordsUseSigned16BitCoordinates()
+    {
+        byte[] emf = CreateTextPlaybackEmf(
+        [
+            (EmfPlusRecordType.EmfPolygon16,
+                EmfPointArray(
+                    [new Point(-2, 2), new Point(6, 2), new Point(6, 8)],
+                    points16: true)),
+            (EmfPlusRecordType.EmfPolyline16,
+                EmfPointArray(
+                    [new Point(10, 2), new Point(14, 6)],
+                    points16: true)),
+            (EmfPlusRecordType.EmfPolyPolygon16,
+                EmfPolyPoly(
+                    [3, 3],
+                    [
+                        new Point(18, 2), new Point(24, 2), new Point(21, 8),
+                        new Point(28, 2), new Point(34, 2), new Point(31, 8)
+                    ],
+                    points16: true)),
+            (EmfPlusRecordType.EmfPolyPolyline16,
+                EmfPolyPoly(
+                    [2, 2],
+                    [new Point(38, 2), new Point(42, 6), new Point(46, 2), new Point(50, 6)],
+                    points16: true))
+        ]);
+        using var metafile = new Metafile(new MemoryStream(emf));
+        var context = new DrawingContext();
+        using Graphics graphics = Graphics.FromProGpuDrawingContext(context);
+
+        graphics.DrawImage(metafile, new Rectangle(0, 0, 64, 64));
+
+        Assert.Equal(
+            9,
+            context.Commands.Count(static command => command.Type == RenderCommandType.DrawPath));
+        RenderCommand firstPath = Assert.Single(
+            context.Commands.Where(static command => command.Type == RenderCommandType.DrawPath).Take(1));
+        Assert.Equal(new Vector2(-2, 2), Assert.Single(firstPath.Path!.Figures).StartPoint);
+    }
+
+    [Fact]
+    public void EmfPolyDrawClosesToSavedMoveOriginAndUpdatesCurrentPosition()
+    {
+        byte[] emf = CreateTextPlaybackEmf(
+        [
+            (EmfPlusRecordType.EmfMoveToEx, EmfPoint(4, 4)),
+            (EmfPlusRecordType.EmfPolyDraw,
+                EmfPolyDraw(
+                    [new Point(8, 4), new Point(8, 12)],
+                    [0x02, 0x02],
+                    points16: false)),
+            (EmfPlusRecordType.EmfSaveDC, []),
+            (EmfPlusRecordType.EmfMoveToEx, EmfPoint(30, 30)),
+            (EmfPlusRecordType.EmfRestoreDC, EmfInt32(-1)),
+            (EmfPlusRecordType.EmfPolyDraw16,
+                EmfPolyDraw(
+                    [new Point(12, 12), new Point(16, 8), new Point(12, 4)],
+                    [0x04, 0x04, 0x05],
+                    points16: true)),
+            (EmfPlusRecordType.EmfLineTo, EmfPoint(4, 0))
+        ]);
+        using var metafile = new Metafile(new MemoryStream(emf));
+        var context = new DrawingContext();
+        using Graphics graphics = Graphics.FromProGpuDrawingContext(context);
+
+        graphics.DrawImage(metafile, new Rectangle(0, 0, 64, 64));
+
+        RenderCommand[] drawingCommands = context.Commands
+            .Where(static command => command.Type is RenderCommandType.DrawPath or RenderCommandType.DrawLine)
+            .ToArray();
+        Assert.Equal(3, drawingCommands.Length);
+        PathFigure curve = Assert.Single(drawingCommands[1].Path!.Figures);
+        Assert.Equal(new Vector2(8, 12), curve.StartPoint);
+        Assert.Equal(2, curve.Segments.Count);
+        Assert.Equal(new Vector2(12, 4), Assert.IsType<CubicBezierSegment>(curve.Segments[0]).Point);
+        Assert.Equal(new Vector2(4, 4), Assert.IsType<LineSegment>(curve.Segments[1]).Point);
+        Assert.Equal(RenderCommandType.DrawLine, drawingCommands[2].Type);
+        Assert.Equal(new Vector2(4, 4), drawingCommands[2].Position);
+        Assert.Equal(new Vector2(4, 0), drawingCommands[2].Position2);
+    }
+
+    [Fact]
+    public void EmfArcToConnectsToTheArcAndUpdatesCurrentPosition()
+    {
+        byte[] emf = CreateTextPlaybackEmf(
+        [
+            (EmfPlusRecordType.EmfMoveToEx, EmfPoint(4, 20)),
+            (EmfPlusRecordType.EmfArcTo,
+                EmfArc(
+                    new Rectangle(8, 8, 24, 24),
+                    new Point(32, 20),
+                    new Point(20, 8))),
+            (EmfPlusRecordType.EmfLineTo, EmfPoint(12, 8))
+        ]);
+        using var metafile = new Metafile(new MemoryStream(emf));
+        var context = new DrawingContext();
+        using Graphics graphics = Graphics.FromProGpuDrawingContext(context);
+
+        graphics.DrawImage(metafile, new Rectangle(0, 0, 64, 64));
+
+        RenderCommand[] drawingCommands = context.Commands
+            .Where(static command => command.Type is RenderCommandType.DrawPath or RenderCommandType.DrawLine)
+            .ToArray();
+        Assert.Equal(2, drawingCommands.Length);
+        PathFigure arcFigure = Assert.Single(drawingCommands[0].Path!.Figures);
+        Assert.Equal(new Vector2(4, 20), arcFigure.StartPoint);
+        Assert.Equal(new Vector2(32, 20), Assert.IsType<LineSegment>(arcFigure.Segments[0]).Point);
+        ArcSegment arc = Assert.IsType<ArcSegment>(arcFigure.Segments[1]);
+        Assert.Equal(new Vector2(20, 8), arc.Point);
+        Assert.Equal(SweepDirection.Counterclockwise, arc.SweepDirection);
+        Assert.Equal(new Vector2(20, 8), drawingCommands[1].Position);
+        Assert.Equal(new Vector2(12, 8), drawingCommands[1].Position2);
+    }
+
+    [Fact]
+    public void EmfAngleArcUsesCounterclockwiseAnglesAndUpdatesCurrentPosition()
+    {
+        byte[] emf = CreateTextPlaybackEmf(
+        [
+            (EmfPlusRecordType.EmfMoveToEx, EmfPoint(4, 20)),
+            (EmfPlusRecordType.EmfAngleArc,
+                EmfAngleArc(new Point(20, 20), 8, startAngle: 0f, sweepAngle: 90f)),
+            (EmfPlusRecordType.EmfLineTo, EmfPoint(12, 12))
+        ]);
+        using var metafile = new Metafile(new MemoryStream(emf));
+        var context = new DrawingContext();
+        using Graphics graphics = Graphics.FromProGpuDrawingContext(context);
+
+        graphics.DrawImage(metafile, new Rectangle(0, 0, 64, 64));
+
+        RenderCommand[] drawingCommands = context.Commands
+            .Where(static command => command.Type is RenderCommandType.DrawPath or RenderCommandType.DrawLine)
+            .ToArray();
+        Assert.Equal(2, drawingCommands.Length);
+        PathFigure arcFigure = Assert.Single(drawingCommands[0].Path!.Figures);
+        Assert.Equal(new Vector2(4, 20), arcFigure.StartPoint);
+        Assert.Equal(new Vector2(28, 20), Assert.IsType<LineSegment>(arcFigure.Segments[0]).Point);
+        ArcSegment arc = Assert.IsType<ArcSegment>(arcFigure.Segments[1]);
+        Assert.Equal(new Vector2(20, 12), arc.Point);
+        Assert.Equal(SweepDirection.Counterclockwise, arc.SweepDirection);
+        Assert.Equal(new Vector2(20, 12), drawingCommands[1].Position);
+        Assert.Equal(new Vector2(12, 12), drawingCommands[1].Position2);
+    }
+
+    [Fact]
+    public void EmfMalformedPolyDrawRollsBackEarlierGeometry()
+    {
+        byte[] emf = CreateTextPlaybackEmf(
+        [
+            (EmfPlusRecordType.EmfRectangle, EmfRectangle(1, 1, 4, 4)),
+            (EmfPlusRecordType.EmfPolyDraw,
+                EmfPolyDraw(
+                    [new Point(4, 4), new Point(8, 8)],
+                    [0x06, 0x04],
+                    points16: false))
+        ]);
+        using var metafile = new Metafile(new MemoryStream(emf));
+        var context = new DrawingContext();
+        using Graphics graphics = Graphics.FromProGpuDrawingContext(context);
+
+        ArgumentException exception = Assert.Throws<ArgumentException>(() =>
+            graphics.DrawImage(metafile, new Rectangle(0, 0, 64, 64)));
+
+        Assert.Contains(nameof(EmfPlusRecordType.EmfPolyDraw), exception.Message);
+        Assert.Empty(context.Commands);
+    }
+
+    [Fact]
+    public void EmfMalformedBezierToCountRollsBackEarlierGeometry()
+    {
+        byte[] emf = CreateTextPlaybackEmf(
+        [
+            (EmfPlusRecordType.EmfRectangle, EmfRectangle(1, 1, 4, 4)),
+            (EmfPlusRecordType.EmfPolyBezierTo,
+                EmfPointArray([new Point(4, 4), new Point(8, 8)], points16: false))
+        ]);
+        using var metafile = new Metafile(new MemoryStream(emf));
+        var context = new DrawingContext();
+        using Graphics graphics = Graphics.FromProGpuDrawingContext(context);
+
+        ArgumentException exception = Assert.Throws<ArgumentException>(() =>
+            graphics.DrawImage(metafile, new Rectangle(0, 0, 64, 64)));
+
+        Assert.Contains(nameof(EmfPlusRecordType.EmfPolyBezierTo), exception.Message);
+        Assert.Empty(context.Commands);
+    }
+
+    [Fact]
+    public void EmfAngleArcRejectsZeroRadiusWithoutPublishing()
+    {
+        byte[] emf = CreateTextPlaybackEmf(
+        [
+            (EmfPlusRecordType.EmfRectangle, EmfRectangle(1, 1, 4, 4)),
+            (EmfPlusRecordType.EmfAngleArc,
+                EmfAngleArc(new Point(20, 20), 0, startAngle: 0f, sweepAngle: 90f))
+        ]);
+        using var metafile = new Metafile(new MemoryStream(emf));
+        var context = new DrawingContext();
+        using Graphics graphics = Graphics.FromProGpuDrawingContext(context);
+
+        ArgumentException exception = Assert.Throws<ArgumentException>(() =>
+            graphics.DrawImage(metafile, new Rectangle(0, 0, 64, 64)));
+
+        Assert.Contains(nameof(EmfPlusRecordType.EmfAngleArc), exception.Message);
+        Assert.Empty(context.Commands);
+    }
+
+    [Fact]
     public void EmfPlaybackRejectsImageAttributesAndPerspectiveMappingExplicitly()
     {
         using var metafile = new Metafile(new MemoryStream(CreatePlaybackEmf()));
@@ -3558,6 +3811,81 @@ public sealed class MetafileParserTests
         WriteInt32(payload, 0, point.X);
         WriteInt32(payload, 4, point.Y);
         WriteUInt32(payload, 8, (uint)(color.R | color.G << 8 | color.B << 16));
+        return payload;
+    }
+
+    private static byte[] EmfPointArray(Point[] points, bool points16)
+    {
+        int pointSize = points16 ? 4 : 8;
+        byte[] payload = new byte[checked(20 + points.Length * pointSize)];
+        WriteUInt32(payload, 16, checked((uint)points.Length));
+        for (int index = 0; index < points.Length; index++)
+        {
+            WriteEmfPoint(payload, 20 + index * pointSize, points[index], points16);
+        }
+        return payload;
+    }
+
+    private static byte[] EmfPolyPoly(int[] counts, Point[] points, bool points16)
+    {
+        Assert.Equal(points.Length, counts.Sum());
+        int pointSize = points16 ? 4 : 8;
+        int pointsOffset = checked(24 + counts.Length * 4);
+        byte[] payload = new byte[checked(pointsOffset + points.Length * pointSize)];
+        WriteUInt32(payload, 16, checked((uint)counts.Length));
+        WriteUInt32(payload, 20, checked((uint)points.Length));
+        for (int index = 0; index < counts.Length; index++)
+        {
+            WriteUInt32(payload, 24 + index * 4, checked((uint)counts[index]));
+        }
+        for (int index = 0; index < points.Length; index++)
+        {
+            WriteEmfPoint(payload, pointsOffset + index * pointSize, points[index], points16);
+        }
+        return payload;
+    }
+
+    private static byte[] EmfPolyDraw(Point[] points, byte[] types, bool points16)
+    {
+        Assert.Equal(points.Length, types.Length);
+        int pointSize = points16 ? 4 : 8;
+        int typesOffset = checked(20 + points.Length * pointSize);
+        byte[] payload = new byte[checked((typesOffset + types.Length + 3) & ~3)];
+        WriteUInt32(payload, 16, checked((uint)points.Length));
+        for (int index = 0; index < points.Length; index++)
+        {
+            WriteEmfPoint(payload, 20 + index * pointSize, points[index], points16);
+        }
+        types.CopyTo(payload, typesOffset);
+        return payload;
+    }
+
+    private static void WriteEmfPoint(byte[] payload, int offset, Point point, bool point16)
+    {
+        if (point16)
+        {
+            WriteInt16(payload, offset, checked((short)point.X));
+            WriteInt16(payload, offset + 2, checked((short)point.Y));
+        }
+        else
+        {
+            WriteInt32(payload, offset, point.X);
+            WriteInt32(payload, offset + 4, point.Y);
+        }
+    }
+
+    private static byte[] EmfAngleArc(
+        Point center,
+        uint radius,
+        float startAngle,
+        float sweepAngle)
+    {
+        byte[] payload = new byte[20];
+        WriteInt32(payload, 0, center.X);
+        WriteInt32(payload, 4, center.Y);
+        WriteUInt32(payload, 8, radius);
+        WriteSingle(payload, 12, startAngle);
+        WriteSingle(payload, 16, sweepAngle);
         return payload;
     }
 

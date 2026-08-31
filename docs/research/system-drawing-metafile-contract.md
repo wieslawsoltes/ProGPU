@@ -639,6 +639,37 @@ denied priority elevation make this coarse local command-shape/allocation
 evidence; the focused direction, closure, pixel, and rollback gates remain the
 correctness authority.
 
+The current-position and compact-vector follow-up adds the 32- and 16-bit
+`EMR_POLYBEZIER`, `EMR_POLYBEZIERTO`, and `EMR_POLYLINETO` forms, both
+`EMR_POLYDRAW` forms, all compact polygon/polyline/poly-poly variants,
+`EMR_ARCTO`, and `EMR_ANGLEARC`. Point counts, exact payload sizes, cubic
+triplets, type arrays, signed compact coordinates, positive radii, and finite
+angles are bounded before execution. `PolyBezier` remains independent of the
+current position; the `To` forms update it. PolyDraw retains the most recent
+MoveTo origin across record boundaries and SaveDC/RestoreDC so
+`PT_CLOSEFIGURE` closes to the GDI figure origin rather than the current
+record's first point. ArcTo connects to the ellipse intersection and follows
+the saved arc direction; AngleArc converts GDI's counterclockwise angle system
+to the managed downward-positive coordinate system and updates the logical end
+point. These rules follow the official
+[`EMRPOLYLINE`](https://learn.microsoft.com/en-us/windows/win32/api/wingdi/ns-wingdi-emrpolyline),
+[`PolyDraw`](https://learn.microsoft.com/en-us/windows/win32/api/wingdi/nf-wingdi-polydraw),
+[`ArcTo`](https://learn.microsoft.com/en-us/windows/win32/api/wingdi/nf-wingdi-arcto),
+and
+[`AngleArc`](https://learn.microsoft.com/en-us/windows/win32/api/wingdi/nf-wingdi-anglearc)
+contracts. Eight focused retained-geometry and rollback gates prove exact
+curve/line endpoints, signed 16-bit storage, saved closure origin, arc
+orientation, current-position progression, invalid cubic groups, invalid type
+arrays, and zero-radius rejection. The complete drawing suite passes 470/470.
+
+`Playback256EmfPolyDraw16ToRetainedCommands` guards 256 compact records, each
+containing a MoveTo and cubic Bézier triplet. The 2026-08-31 ARM64/.NET 10.0.11
+ShortRun measured a 230.0 microsecond median (239.1 microsecond mean, 31.53
+microsecond standard deviation) and 483.46 KB allocated. The three measured
+iterations and denied priority elevation make this coarse local
+command-shape/allocation evidence; the focused state, geometry, and malformed-
+input gates remain authoritative.
+
 `RecordAndFinalize256PortableComments` measures the complete portable writer:
 256 owned 64-byte comment copies, EMF+/EMF assembly, validation, and publication
 to a pre-sized memory stream. The 2026-08-27 ARM64/.NET 10.0.11 ShortRun

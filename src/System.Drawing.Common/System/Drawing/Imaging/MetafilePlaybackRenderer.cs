@@ -160,7 +160,7 @@ internal static class MetafilePlaybackRenderer
 
             case EmfPlusRecordType.WmfMoveTo:
                 RequireSize(record, payload, 4);
-                state.CurrentPoint = ReadWmfYxPoint(payload);
+                state.MoveTo(ReadWmfYxPoint(payload));
                 return;
 
             case EmfPlusRecordType.WmfLineTo:
@@ -386,7 +386,7 @@ internal static class MetafilePlaybackRenderer
 
             case EmfPlusRecordType.EmfMoveToEx:
                 RequireSize(record, payload, 8);
-                state.CurrentPoint = ReadPoint(payload);
+                state.MoveTo(ReadPoint(payload));
                 return;
 
             case EmfPlusRecordType.EmfLineTo:
@@ -400,6 +400,38 @@ internal static class MetafilePlaybackRenderer
                 state.CurrentPoint = next;
                 return;
 
+            case EmfPlusRecordType.EmfPolyBezier:
+                DrawEmfBezier(state, record, payload, fromCurrentPosition: false, points16: false);
+                return;
+
+            case EmfPlusRecordType.EmfPolyBezier16:
+                DrawEmfBezier(state, record, payload, fromCurrentPosition: false, points16: true);
+                return;
+
+            case EmfPlusRecordType.EmfPolyBezierTo:
+                DrawEmfBezier(state, record, payload, fromCurrentPosition: true, points16: false);
+                return;
+
+            case EmfPlusRecordType.EmfPolyBezierTo16:
+                DrawEmfBezier(state, record, payload, fromCurrentPosition: true, points16: true);
+                return;
+
+            case EmfPlusRecordType.EmfPolyLineTo:
+                DrawEmfPolylineTo(state, record, payload, points16: false);
+                return;
+
+            case EmfPlusRecordType.EmfPolylineTo16:
+                DrawEmfPolylineTo(state, record, payload, points16: true);
+                return;
+
+            case EmfPlusRecordType.EmfPolyDraw:
+                DrawEmfPolyDraw(state, record, payload, points16: false);
+                return;
+
+            case EmfPlusRecordType.EmfPolyDraw16:
+                DrawEmfPolyDraw(state, record, payload, points16: true);
+                return;
+
             case EmfPlusRecordType.EmfRectangle:
                 RequireSize(record, payload, 16);
                 DrawRectangle(state, record, ReadRectangle(record, payload));
@@ -411,6 +443,14 @@ internal static class MetafilePlaybackRenderer
 
             case EmfPlusRecordType.EmfRoundArc:
                 DrawEmfArcFamily(state, record, payload, ArcClosure.Open);
+                return;
+
+            case EmfPlusRecordType.EmfArcTo:
+                DrawEmfArcTo(state, record, payload);
+                return;
+
+            case EmfPlusRecordType.EmfAngleArc:
+                DrawEmfAngleArc(state, record, payload);
                 return;
 
             case EmfPlusRecordType.EmfChord:
@@ -434,12 +474,28 @@ internal static class MetafilePlaybackRenderer
                 DrawPolygon(state, record, payload, close: false);
                 return;
 
+            case EmfPlusRecordType.EmfPolygon16:
+                DrawPolygon(state, record, payload, close: true, points16: true);
+                return;
+
+            case EmfPlusRecordType.EmfPolyline16:
+                DrawPolygon(state, record, payload, close: false, points16: true);
+                return;
+
             case EmfPlusRecordType.EmfPolyPolygon:
                 DrawPolyPoly(state, record, payload, close: true);
                 return;
 
             case EmfPlusRecordType.EmfPolyPolyline:
                 DrawPolyPoly(state, record, payload, close: false);
+                return;
+
+            case EmfPlusRecordType.EmfPolyPolygon16:
+                DrawPolyPoly(state, record, payload, close: true, points16: true);
+                return;
+
+            case EmfPlusRecordType.EmfPolyPolyline16:
+                DrawPolyPoly(state, record, payload, close: false, points16: true);
                 return;
 
             case EmfPlusRecordType.EmfIntersectClipRect:
@@ -636,7 +692,8 @@ internal static class MetafilePlaybackRenderer
         PlaybackState state,
         in MetafileRecord record,
         ReadOnlySpan<byte> payload,
-        bool close)
+        bool close,
+        bool points16 = false)
     {
         if (payload.Length < 20)
         {
@@ -650,7 +707,8 @@ internal static class MetafilePlaybackRenderer
         }
 
         int count = checked((int)countValue);
-        int expectedSize = checked(20 + count * 8);
+        int pointSize = points16 ? 4 : 8;
+        int expectedSize = checked(20 + count * pointSize);
         RequireSize(record, payload, expectedSize);
         if (count < (close ? 3 : 2))
         {
@@ -661,8 +719,8 @@ internal static class MetafilePlaybackRenderer
         int cursor = 20;
         for (int index = 0; index < count; index++)
         {
-            points[index] = ReadPoint(payload[cursor..]);
-            cursor += 8;
+            points[index] = ReadEmfPoint(payload[cursor..], points16);
+            cursor += pointSize;
         }
 
         state.ApplyTransform(record);
@@ -687,7 +745,8 @@ internal static class MetafilePlaybackRenderer
         PlaybackState state,
         in MetafileRecord record,
         ReadOnlySpan<byte> payload,
-        bool close)
+        bool close,
+        bool points16 = false)
     {
         if (payload.Length < 24)
         {
@@ -711,7 +770,7 @@ internal static class MetafilePlaybackRenderer
             polygonCount = checked((int)polygonCountValue);
             pointCount = checked((int)pointCountValue);
             pointsOffset = checked(24 + polygonCount * 4);
-            expectedSize = checked(pointsOffset + pointCount * 8);
+            expectedSize = checked(pointsOffset + pointCount * (points16 ? 4 : 8));
         }
         catch (OverflowException exception)
         {
@@ -744,6 +803,7 @@ internal static class MetafilePlaybackRenderer
         }
 
         state.ApplyTransform(record);
+        int pointSize = points16 ? 4 : 8;
         int pointIndex = 0;
         for (int polygonIndex = 0; polygonIndex < polygonCount; polygonIndex++)
         {
@@ -751,7 +811,9 @@ internal static class MetafilePlaybackRenderer
             var points = new Point[currentCount];
             for (int index = 0; index < currentCount; index++)
             {
-                points[index] = ReadPoint(payload[(pointsOffset + pointIndex * 8)..]);
+                points[index] = ReadEmfPoint(
+                    payload[(pointsOffset + pointIndex * pointSize)..],
+                    points16);
                 pointIndex++;
             }
 
@@ -770,6 +832,214 @@ internal static class MetafilePlaybackRenderer
                     state.Graphics.DrawLines(pen, points);
                 }
             }
+        }
+    }
+
+    private static void DrawEmfBezier(
+        PlaybackState state,
+        in MetafileRecord record,
+        ReadOnlySpan<byte> payload,
+        bool fromCurrentPosition,
+        bool points16)
+    {
+        if (payload.Length < 20)
+        {
+            throw Invalid(record);
+        }
+
+        uint countValue = ReadUInt32(payload, 16);
+        if (countValue > 1_000_000)
+        {
+            throw Invalid(record);
+        }
+
+        int count = checked((int)countValue);
+        if (fromCurrentPosition
+            ? count < 3 || count % 3 != 0
+            : count < 4 || (count - 1) % 3 != 0)
+        {
+            throw Invalid(record);
+        }
+
+        int pointSize = points16 ? 4 : 8;
+        RequireSize(record, payload, checked(20 + count * pointSize));
+        int destinationOffset = fromCurrentPosition ? 1 : 0;
+        var points = new Point[count + destinationOffset];
+        if (fromCurrentPosition)
+        {
+            points[0] = state.CurrentPoint;
+        }
+        for (int index = 0; index < count; index++)
+        {
+            points[index + destinationOffset] = ReadEmfPoint(
+                payload[(20 + index * pointSize)..],
+                points16);
+        }
+
+        state.ApplyTransform(record);
+        if (state.SelectedPen is Pen pen)
+        {
+            state.Graphics.DrawBeziers(pen, points);
+        }
+        if (fromCurrentPosition)
+        {
+            state.CurrentPoint = points[^1];
+        }
+    }
+
+    private static void DrawEmfPolylineTo(
+        PlaybackState state,
+        in MetafileRecord record,
+        ReadOnlySpan<byte> payload,
+        bool points16)
+    {
+        if (payload.Length < 20)
+        {
+            throw Invalid(record);
+        }
+
+        uint countValue = ReadUInt32(payload, 16);
+        if (countValue is 0 or > 1_000_000)
+        {
+            throw Invalid(record);
+        }
+
+        int count = checked((int)countValue);
+        int pointSize = points16 ? 4 : 8;
+        RequireSize(record, payload, checked(20 + count * pointSize));
+        var points = new Point[count + 1];
+        points[0] = state.CurrentPoint;
+        for (int index = 0; index < count; index++)
+        {
+            points[index + 1] = ReadEmfPoint(
+                payload[(20 + index * pointSize)..],
+                points16);
+        }
+
+        state.ApplyTransform(record);
+        if (state.SelectedPen is Pen pen)
+        {
+            state.Graphics.DrawLines(pen, points);
+        }
+        state.CurrentPoint = points[^1];
+    }
+
+    private static void DrawEmfPolyDraw(
+        PlaybackState state,
+        in MetafileRecord record,
+        ReadOnlySpan<byte> payload,
+        bool points16)
+    {
+        if (payload.Length < 20)
+        {
+            throw Invalid(record);
+        }
+
+        uint countValue = ReadUInt32(payload, 16);
+        if (countValue is 0 or > 1_000_000)
+        {
+            throw Invalid(record);
+        }
+
+        int count = checked((int)countValue);
+        int pointSize = points16 ? 4 : 8;
+        int typesOffset = checked(20 + count * pointSize);
+        int expectedSize = checked((typesOffset + count + 3) & ~3);
+        RequireSize(record, payload, expectedSize);
+
+        var points = new Point[count];
+        for (int index = 0; index < count; index++)
+        {
+            points[index] = ReadEmfPoint(
+                payload[(20 + index * pointSize)..],
+                points16);
+        }
+
+        Point current = state.CurrentPoint;
+        Point figureStart = state.FigureStart;
+        Point pathFigureStart = current;
+        bool hasDrawnSegment = false;
+        using var path = new GraphicsPath();
+        for (int index = 0; index < count; index++)
+        {
+            byte type = payload[typesOffset + index];
+            bool closeFigure = (type & 0x01) != 0;
+            switch (type & 0xFE)
+            {
+                case 0x06:
+                    if (closeFigure)
+                    {
+                        throw Invalid(record);
+                    }
+                    path.StartFigure();
+                    current = points[index];
+                    figureStart = current;
+                    pathFigureStart = current;
+                    break;
+
+                case 0x02:
+                    path.AddLine(current, points[index]);
+                    current = points[index];
+                    hasDrawnSegment = true;
+                    if (closeFigure)
+                    {
+                        ClosePolyDrawFigure(path, current, figureStart, pathFigureStart);
+                        current = figureStart;
+                        pathFigureStart = current;
+                    }
+                    break;
+
+                case 0x04:
+                    if (index + 2 >= count || closeFigure ||
+                        (payload[typesOffset + index + 1] & 0xFF) != 0x04 ||
+                        (payload[typesOffset + index + 2] & 0xFE) != 0x04)
+                    {
+                        throw Invalid(record);
+                    }
+                    path.AddBezier(
+                        current,
+                        points[index],
+                        points[index + 1],
+                        points[index + 2]);
+                    hasDrawnSegment = true;
+                    bool closeBezier = (payload[typesOffset + index + 2] & 0x01) != 0;
+                    current = points[index + 2];
+                    if (closeBezier)
+                    {
+                        ClosePolyDrawFigure(path, current, figureStart, pathFigureStart);
+                        current = figureStart;
+                        pathFigureStart = current;
+                    }
+                    index += 2;
+                    break;
+
+                default:
+                    throw Invalid(record);
+            }
+        }
+
+        state.ApplyTransform(record);
+        if (hasDrawnSegment && state.SelectedPen is Pen pen)
+        {
+            state.Graphics.DrawPath(pen, path);
+        }
+        state.CompletePolyDraw(current, figureStart);
+    }
+
+    private static void ClosePolyDrawFigure(
+        GraphicsPath path,
+        Point current,
+        Point figureStart,
+        Point pathFigureStart)
+    {
+        if (pathFigureStart == figureStart)
+        {
+            path.CloseFigure();
+        }
+        else
+        {
+            path.AddLine(current, figureStart);
+            path.StartFigure();
         }
     }
 
@@ -1609,6 +1879,94 @@ internal static class MetafilePlaybackRenderer
             state.ArcDirection);
     }
 
+    private static void DrawEmfArcTo(
+        PlaybackState state,
+        in MetafileRecord record,
+        ReadOnlySpan<byte> payload)
+    {
+        RequireSize(record, payload, 32);
+        Rectangle rectangle = ReadRectangle(record, payload);
+        if (rectangle.Width <= 0 || rectangle.Height <= 0)
+        {
+            throw Invalid(record);
+        }
+
+        ArcGeometry geometry = GetArcGeometry(
+            rectangle,
+            ReadPoint(payload[16..]),
+            ReadPoint(payload[24..]),
+            state.ArcDirection);
+        Point next = RoundLogicalPoint(record, geometry.EndPoint);
+        state.ApplyTransform(record);
+        if (state.SelectedPen is Pen pen)
+        {
+            using var path = new GraphicsPath();
+            path.AddLine(
+                state.CurrentPoint.X,
+                state.CurrentPoint.Y,
+                geometry.StartPoint.X,
+                geometry.StartPoint.Y);
+            path.AddArc(rectangle, geometry.StartAngle, geometry.SweepAngle);
+            state.Graphics.DrawPath(pen, path);
+        }
+        state.CurrentPoint = next;
+    }
+
+    private static void DrawEmfAngleArc(
+        PlaybackState state,
+        in MetafileRecord record,
+        ReadOnlySpan<byte> payload)
+    {
+        RequireSize(record, payload, 20);
+        Point center = ReadPoint(payload);
+        uint radiusValue = ReadUInt32(payload, 8);
+        float startAngle = ReadSingle(payload, 12);
+        float sweepAngle = ReadSingle(payload, 16);
+        if (radiusValue == 0 || !float.IsFinite(startAngle) || !float.IsFinite(sweepAngle))
+        {
+            throw Invalid(record);
+        }
+
+        float radius = radiusValue;
+        var rectangle = new RectangleF(
+            center.X - radius,
+            center.Y - radius,
+            radius * 2f,
+            radius * 2f);
+        if (!float.IsFinite(rectangle.X) || !float.IsFinite(rectangle.Y) ||
+            !float.IsFinite(rectangle.Width) || !float.IsFinite(rectangle.Height))
+        {
+            throw Invalid(record);
+        }
+
+        // GDI AngleArc angles are counterclockwise; managed drawing angles are
+        // clockwise in the usual downward-positive device coordinate system.
+        float managedStart = -MathF.IEEERemainder(startAngle, 360f);
+        float managedSweep = -sweepAngle;
+        float renderSweep = MathF.Abs(managedSweep) >= 360f
+            ? MathF.CopySign(360f, managedSweep)
+            : managedSweep;
+        PointF arcStart = PointOnEllipse(rectangle, managedStart);
+        double endAngle = Math.IEEERemainder(
+            -(double)startAngle - sweepAngle,
+            360d);
+        PointF arcEnd = PointOnEllipse(rectangle, (float)endAngle);
+        Point next = RoundLogicalPoint(record, arcEnd);
+
+        state.ApplyTransform(record);
+        if (state.SelectedPen is Pen pen)
+        {
+            using var path = new GraphicsPath();
+            path.AddLine(state.CurrentPoint.X, state.CurrentPoint.Y, arcStart.X, arcStart.Y);
+            if (renderSweep != 0f)
+            {
+                path.AddArc(rectangle, managedStart, renderSweep);
+            }
+            state.Graphics.DrawPath(pen, path);
+        }
+        state.CurrentPoint = next;
+    }
+
     private static void DrawArcFamily(
         PlaybackState state,
         in MetafileRecord record,
@@ -1618,28 +1976,9 @@ internal static class MetafilePlaybackRenderer
         ArcClosure closure,
         int arcDirection)
     {
-        float radiusX = rectangle.Width / 2f;
-        float radiusY = rectangle.Height / 2f;
-        float centerX = rectangle.Left + radiusX;
-        float centerY = rectangle.Top + radiusY;
-        float startAngle = MathF.Atan2(
-            (start.Y - centerY) / radiusY,
-            (start.X - centerX) / radiusX) * (180f / MathF.PI);
-        float endAngle = MathF.Atan2(
-            (end.Y - centerY) / radiusY,
-            (end.X - centerX) / radiusX) * (180f / MathF.PI);
-        float sweepAngle = endAngle - startAngle;
-        if (arcDirection == 1)
-        {
-            if (sweepAngle >= 0f)
-            {
-                sweepAngle -= 360f;
-            }
-        }
-        else if (sweepAngle <= 0f)
-        {
-            sweepAngle += 360f;
-        }
+        ArcGeometry geometry = GetArcGeometry(rectangle, start, end, arcDirection);
+        float startAngle = geometry.StartAngle;
+        float sweepAngle = geometry.SweepAngle;
 
         state.ApplyTransform(record);
         if (closure == ArcClosure.Open)
@@ -1676,6 +2015,73 @@ internal static class MetafilePlaybackRenderer
             state.Graphics.DrawPath(pen, path);
         }
     }
+
+    private static ArcGeometry GetArcGeometry(
+        Rectangle rectangle,
+        Point start,
+        Point end,
+        int arcDirection)
+    {
+        float radiusX = rectangle.Width / 2f;
+        float radiusY = rectangle.Height / 2f;
+        float centerX = rectangle.Left + radiusX;
+        float centerY = rectangle.Top + radiusY;
+        float startAngle = MathF.Atan2(
+            (start.Y - centerY) / radiusY,
+            (start.X - centerX) / radiusX) * (180f / MathF.PI);
+        float endAngle = MathF.Atan2(
+            (end.Y - centerY) / radiusY,
+            (end.X - centerX) / radiusX) * (180f / MathF.PI);
+        float sweepAngle = endAngle - startAngle;
+        if (arcDirection == 1)
+        {
+            if (sweepAngle >= 0f)
+            {
+                sweepAngle -= 360f;
+            }
+        }
+        else if (sweepAngle <= 0f)
+        {
+            sweepAngle += 360f;
+        }
+
+        return new ArcGeometry(
+            startAngle,
+            sweepAngle,
+            new PointF(
+                centerX + radiusX * MathF.Cos(startAngle * (MathF.PI / 180f)),
+                centerY + radiusY * MathF.Sin(startAngle * (MathF.PI / 180f))),
+            new PointF(
+                centerX + radiusX * MathF.Cos((startAngle + sweepAngle) * (MathF.PI / 180f)),
+                centerY + radiusY * MathF.Sin((startAngle + sweepAngle) * (MathF.PI / 180f))));
+    }
+
+    private static PointF PointOnEllipse(RectangleF rectangle, float angle)
+    {
+        double radians = angle * Math.PI / 180d;
+        return new PointF(
+            rectangle.Left + rectangle.Width / 2f + rectangle.Width / 2f * (float)Math.Cos(radians),
+            rectangle.Top + rectangle.Height / 2f + rectangle.Height / 2f * (float)Math.Sin(radians));
+    }
+
+    private static Point RoundLogicalPoint(in MetafileRecord record, PointF point)
+    {
+        float x = MathF.Round(point.X);
+        float y = MathF.Round(point.Y);
+        if (!float.IsFinite(x) || !float.IsFinite(y) ||
+            x < int.MinValue || x > int.MaxValue ||
+            y < int.MinValue || y > int.MaxValue)
+        {
+            throw Invalid(record);
+        }
+        return new Point((int)x, (int)y);
+    }
+
+    private readonly record struct ArcGeometry(
+        float StartAngle,
+        float SweepAngle,
+        PointF StartPoint,
+        PointF EndPoint);
 
     private enum ArcClosure
     {
@@ -1776,6 +2182,11 @@ internal static class MetafilePlaybackRenderer
     private static Point ReadPoint(ReadOnlySpan<byte> payload) =>
         new(ReadInt32(payload, 0), ReadInt32(payload, 4));
 
+    private static Point ReadEmfPoint(ReadOnlySpan<byte> payload, bool point16) =>
+        point16
+            ? new Point(ReadInt16(payload, 0), ReadInt16(payload, 2))
+            : ReadPoint(payload);
+
     private static Point ReadSize(ReadOnlySpan<byte> payload) => ReadPoint(payload);
 
     private static Point ReadWmfYxPoint(ReadOnlySpan<byte> payload) =>
@@ -1861,6 +2272,7 @@ internal static class MetafilePlaybackRenderer
         internal Point ViewportOrigin { get; set; }
         internal Point ViewportExtent { get; set; } = new(1, 1);
         internal Point CurrentPoint { get; set; }
+        internal Point FigureStart { get; private set; }
         internal Matrix3x2 WorldTransform { get; set; } = Matrix3x2.Identity;
         internal FillMode FillMode { get; set; } = FillMode.Alternate;
         internal int MapMode { get; set; } = 1;
@@ -1898,6 +2310,18 @@ internal static class MetafilePlaybackRenderer
 
             Graphics.TransformElements = combined;
             return combined;
+        }
+
+        internal void MoveTo(Point point)
+        {
+            CurrentPoint = point;
+            FigureStart = point;
+        }
+
+        internal void CompletePolyDraw(Point currentPoint, Point figureStart)
+        {
+            CurrentPoint = currentPoint;
+            FigureStart = figureStart;
         }
 
         internal void ValidateExtents(in MetafileRecord record)
@@ -2077,6 +2501,7 @@ internal static class MetafilePlaybackRenderer
                 ViewportOrigin,
                 ViewportExtent,
                 CurrentPoint,
+                FigureStart,
                 WorldTransform,
                 FillMode,
                 MapMode,
@@ -2119,6 +2544,7 @@ internal static class MetafilePlaybackRenderer
             ViewportOrigin = saved.ViewportOrigin;
             ViewportExtent = saved.ViewportExtent;
             CurrentPoint = saved.CurrentPoint;
+            FigureStart = saved.FigureStart;
             WorldTransform = saved.WorldTransform;
             FillMode = saved.FillMode;
             MapMode = saved.MapMode;
@@ -3125,6 +3551,7 @@ internal static class MetafilePlaybackRenderer
             Point ViewportOrigin,
             Point ViewportExtent,
             Point CurrentPoint,
+            Point FigureStart,
             Matrix3x2 WorldTransform,
             FillMode FillMode,
             int MapMode,
