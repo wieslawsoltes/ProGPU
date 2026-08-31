@@ -5611,6 +5611,23 @@ matches all 127 allowlisted exports exactly. The 183,296-byte provider hash is
 and the test executable hash is
 `08A3E37727EA14A579D6333E3E20914D15DE17F4F016AE10E6EC368F330A474D`.
 
+ABI v44 extends that COM facade with an explicit ProGPU-owned
+`ID2D1Factory1`/`ID2D1RectangleGeometry` dependency slice. The factory exposes
+canonical base identity and `ID2D1Multithread`; it creates immutable finite
+rectangles while every unimplemented resource family returns `E_NOTIMPL` with
+a null output. Rectangle geometry supports `GetRect`, transformed `GetBounds`,
+fill containment, `Simplify`, `Tessellate`, area, length, and
+point-at-length. Geometry/factory ownership follows COM reference rules.
+
+Passing that geometry to the ProGPU `ID2D1CommandSink1::FillGeometry` recorder
+calls its standard Direct2D simplification and bounds vtables and emits the
+same portable vector-path scene used by the native MIL renderer on D3D12,
+Metal, Vulkan, and WebGPU. No system Direct2D geometry, pointer serialization,
+CPU pixel fallback, or second renderer is introduced. The entry point remains
+an explicit ProGPU API and does not shadow `D2D1CreateFactory` or `d2d1.dll`.
+The committed-source Windows ARM64 `/W4 /WX`, runtime, and exact-export
+qualification is recorded after the ABI v44 archive is rebuilt in Parallels.
+
 ## Managed glyph row-reuse SIMD checkpoint
 
 Managed ProGPU checkpoints `2960fb39` and `ffb285af` bring the explicit

@@ -114,12 +114,124 @@ int main()
             PROGPU_NATIVE_DIRECT2D_ABI_VERSION,
         "unexpected Direct2D provider ABI version");
 
+    void* compat_factory_value = nullptr;
+    int32_t native_hresult = E_FAIL;
+    require(
+        progpu_native_direct2d_compat_factory_create(
+            &compat_factory_value,
+            &native_hresult) == PROGPU_NATIVE_DIRECT2D_STATUS_SUCCESS &&
+            compat_factory_value != nullptr && native_hresult == S_OK,
+        "ProGPU ID2D1Factory1 compatibility facade creation failed");
+    ComPtr<ID2D1Factory1> compat_factory;
+    compat_factory.Attach(static_cast<ID2D1Factory1*>(compat_factory_value));
+    ComPtr<ID2D1Factory> compat_base_factory;
+    ComPtr<ID2D1Multithread> compat_multithread;
+    require(
+        SUCCEEDED(compat_factory.As(&compat_base_factory)) &&
+            SUCCEEDED(compat_factory.As(&compat_multithread)) &&
+            has_same_com_identity(
+                compat_factory.Get(), compat_base_factory.Get()) &&
+            has_same_com_identity(
+                compat_factory.Get(), compat_multithread.Get()) &&
+            compat_multithread->GetMultithreadProtected() == TRUE,
+        "ProGPU compatibility factory COM identity changed");
+    compat_multithread->Enter();
+    compat_multithread->Leave();
+
+    const D2D1_RECT_F compat_rectangle_value = {2.0F, 3.0F, 12.0F, 11.0F};
+    ComPtr<ID2D1RectangleGeometry> compat_rectangle;
+    require(
+        compat_factory->CreateRectangleGeometry(
+            &compat_rectangle_value,
+            &compat_rectangle) == S_OK &&
+            compat_rectangle != nullptr,
+        "ProGPU ID2D1RectangleGeometry creation failed");
+    D2D1_RECT_F returned_rectangle{};
+    compat_rectangle->GetRect(&returned_rectangle);
+    require(
+        returned_rectangle.left == 2.0F &&
+            returned_rectangle.top == 3.0F &&
+            returned_rectangle.right == 12.0F &&
+            returned_rectangle.bottom == 11.0F,
+        "ProGPU rectangle geometry changed its immutable rectangle");
+    ComPtr<ID2D1Factory> rectangle_factory;
+    compat_rectangle->GetFactory(&rectangle_factory);
+    require(
+        rectangle_factory != nullptr &&
+            has_same_com_identity(
+                rectangle_factory.Get(), compat_factory.Get()),
+        "ProGPU rectangle geometry lost its factory identity");
+    D2D1_RECT_F compat_bounds{};
+    require(
+        compat_rectangle->GetBounds(nullptr, &compat_bounds) == S_OK &&
+            compat_bounds.left == 2.0F && compat_bounds.top == 3.0F &&
+            compat_bounds.right == 12.0F && compat_bounds.bottom == 11.0F,
+        "ProGPU rectangle geometry identity bounds changed");
+    const D2D1_MATRIX_3X2_F compat_transform = {
+        2.0F, 0.0F, 0.0F, 3.0F, 5.0F, -2.0F};
+    require(
+        compat_rectangle->GetBounds(
+            &compat_transform, &compat_bounds) == S_OK &&
+            compat_bounds.left == 9.0F && compat_bounds.top == 7.0F &&
+            compat_bounds.right == 29.0F && compat_bounds.bottom == 31.0F,
+        "ProGPU rectangle geometry transformed bounds changed");
+    BOOL compat_contains = FALSE;
+    require(
+        compat_rectangle->FillContainsPoint(
+            D2D1::Point2F(7.0F, 7.0F),
+            nullptr,
+            D2D1_DEFAULT_FLATTENING_TOLERANCE,
+            &compat_contains) == S_OK &&
+            compat_contains == TRUE,
+        "ProGPU rectangle geometry rejected an interior point");
+    require(
+        compat_rectangle->FillContainsPoint(
+            D2D1::Point2F(20.0F, 20.0F),
+            nullptr,
+            D2D1_DEFAULT_FLATTENING_TOLERANCE,
+            &compat_contains) == S_OK &&
+            compat_contains == FALSE,
+        "ProGPU rectangle geometry accepted an exterior point");
+    FLOAT compat_area = 0.0F;
+    FLOAT compat_length = 0.0F;
+    require(
+        compat_rectangle->ComputeArea(
+            nullptr,
+            D2D1_DEFAULT_FLATTENING_TOLERANCE,
+            &compat_area) == S_OK &&
+            compat_area == 80.0F &&
+            compat_rectangle->ComputeLength(
+                nullptr,
+                D2D1_DEFAULT_FLATTENING_TOLERANCE,
+                &compat_length) == S_OK &&
+            compat_length == 36.0F,
+        "ProGPU rectangle geometry metrics changed");
+    D2D1_POINT_2F compat_point{};
+    D2D1_POINT_2F compat_tangent{};
+    require(
+        compat_rectangle->ComputePointAtLength(
+            5.0F,
+            nullptr,
+            D2D1_DEFAULT_FLATTENING_TOLERANCE,
+            &compat_point,
+            &compat_tangent) == S_OK &&
+            compat_point.x == 7.0F && compat_point.y == 3.0F &&
+            compat_tangent.x == 1.0F && compat_tangent.y == 0.0F,
+        "ProGPU rectangle geometry point-at-length changed");
+    ComPtr<ID2D1EllipseGeometry> unsupported_ellipse;
+    const D2D1_ELLIPSE ellipse = {D2D1::Point2F(0.0F, 0.0F), 1.0F, 1.0F};
+    require(
+        compat_factory->CreateEllipseGeometry(
+            &ellipse, &unsupported_ellipse) == E_NOTIMPL &&
+            unsupported_ellipse == nullptr,
+        "unsupported ProGPU compatibility geometry did not fail closed");
+
     progpu_native_direct2d_surface_options invalid_options{};
     invalid_options.struct_size = sizeof(invalid_options);
     invalid_options.dpi_x = 96.0F;
     invalid_options.dpi_y = 96.0F;
     progpu_native_direct2d_surface* invalid_surface = nullptr;
-    int32_t native_hresult = S_OK;
+    native_hresult = S_OK;
     require(
         progpu_native_direct2d_surface_create(
             &invalid_options,
@@ -1984,8 +2096,8 @@ int main()
     progpu_native_direct2d_command_stream_summary recorder_hint{};
     recorder_hint.struct_size = static_cast<uint32_t>(sizeof(recorder_hint));
     recorder_hint.clear_count = 1U;
-    recorder_hint.fill_count = 1U;
-    recorder_hint.total_command_count = 2U;
+    recorder_hint.fill_count = 2U;
+    recorder_hint.total_command_count = 3U;
     progpu_native_direct2d_scene_recorder* direct_recorder = nullptr;
     native_hresult = E_FAIL;
     require(
@@ -2046,6 +2158,10 @@ int main()
             direct_sink->FillRectangle(
                 &direct_fill,
                 solid_brush.Get()) == S_OK &&
+            direct_sink->FillGeometry(
+                compat_rectangle.Get(),
+                solid_brush.Get(),
+                nullptr) == S_OK &&
             direct_sink->EndDraw() == S_OK,
         "ProGPU Direct2D COM callbacks did not record a semantic scene");
     progpu_native_direct2d_scene_stream_result direct_measure{};
@@ -2062,11 +2178,14 @@ int main()
             native_hresult == HRESULT_FROM_WIN32(ERROR_INSUFFICIENT_BUFFER) &&
             direct_measure.scene_id == 7002U &&
             direct_measure.generation == 10U &&
-            direct_measure.translated_draw_count == 1U &&
+            direct_measure.translated_draw_count == 2U &&
             direct_measure.failure_reason ==
                 PROGPU_NATIVE_DIRECT2D_SCENE_STREAM_FAILURE_NONE &&
             (direct_measure.flags &
                 PROGPU_NATIVE_DIRECT2D_SCENE_STREAM_FLAG_HAS_LEADING_CLEAR) !=
+                0U &&
+            (direct_measure.flags &
+                PROGPU_NATIVE_DIRECT2D_SCENE_STREAM_FLAG_HAS_PATH_GEOMETRY) !=
                 0U &&
             direct_measure.required_bytes >= sizeof(progpu_native_scene_header),
         "ProGPU Direct2D COM recorder size pass changed");
@@ -2084,7 +2203,7 @@ int main()
             &native_hresult) == PROGPU_NATIVE_DIRECT2D_STATUS_SUCCESS &&
             native_hresult == S_OK &&
             direct_write.written_bytes == direct_scene_stream.size() &&
-            direct_write.command_count == 1U &&
+            direct_write.command_count == 2U &&
             direct_write.brush_count == 1U,
         "ProGPU Direct2D COM recorder write pass changed");
     const progpu_native_scene_header direct_scene_header =
@@ -2092,7 +2211,7 @@ int main()
     require(
         direct_scene_header.scene_id == 7002U &&
             direct_scene_header.generation == 10U &&
-            direct_scene_header.command_count == 1U,
+            direct_scene_header.command_count == 2U,
         "ProGPU Direct2D COM recorder scene identity changed");
     direct_base_sink.Reset();
     direct_sink.Reset();

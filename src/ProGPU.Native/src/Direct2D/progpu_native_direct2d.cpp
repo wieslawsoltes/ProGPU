@@ -406,6 +406,744 @@ private:
     uint64_t position_ = 0U;
 };
 
+bool compat_finite_transform(
+    const D2D1_MATRIX_3X2_F* value) noexcept
+{
+    return value == nullptr ||
+        (std::isfinite(value->_11) && std::isfinite(value->_12) &&
+            std::isfinite(value->_21) && std::isfinite(value->_22) &&
+            std::isfinite(value->_31) && std::isfinite(value->_32));
+}
+
+bool compat_finite_rectangle(const D2D1_RECT_F* value) noexcept
+{
+    return value != nullptr && std::isfinite(value->left) &&
+        std::isfinite(value->top) && std::isfinite(value->right) &&
+        std::isfinite(value->bottom) && value->right >= value->left &&
+        value->bottom >= value->top;
+}
+
+bool compat_transform_rectangle(
+    const D2D1_RECT_F& rectangle,
+    const D2D1_MATRIX_3X2_F* transform,
+    std::array<D2D1_POINT_2F, 4U>& points) noexcept
+{
+    if (!compat_finite_rectangle(&rectangle) ||
+        !compat_finite_transform(transform)) {
+        return false;
+    }
+    const D2D1_MATRIX_3X2_F matrix = transform == nullptr
+        ? D2D1::Matrix3x2F::Identity()
+        : *transform;
+    const std::array<D2D1_POINT_2F, 4U> source = {
+        D2D1::Point2F(rectangle.left, rectangle.top),
+        D2D1::Point2F(rectangle.right, rectangle.top),
+        D2D1::Point2F(rectangle.right, rectangle.bottom),
+        D2D1::Point2F(rectangle.left, rectangle.bottom)};
+    constexpr double maximum =
+        static_cast<double>(std::numeric_limits<float>::max());
+    for (size_t index = 0U; index < source.size(); ++index) {
+        const double x = static_cast<double>(source[index].x) * matrix._11 +
+            static_cast<double>(source[index].y) * matrix._21 + matrix._31;
+        const double y = static_cast<double>(source[index].x) * matrix._12 +
+            static_cast<double>(source[index].y) * matrix._22 + matrix._32;
+        if (!std::isfinite(x) || !std::isfinite(y) ||
+            std::abs(x) > maximum || std::abs(y) > maximum) {
+            return false;
+        }
+        points[index] = {
+            static_cast<float>(x),
+            static_cast<float>(y)};
+    }
+    return true;
+}
+
+class ProGpuD2DRectangleGeometry final : public ID2D1RectangleGeometry {
+public:
+    ProGpuD2DRectangleGeometry(
+        ID2D1Factory1* factory,
+        const D2D1_RECT_F& rectangle) noexcept
+        : factory_(factory), rectangle_(rectangle)
+    {
+    }
+
+    HRESULT STDMETHODCALLTYPE QueryInterface(
+        REFIID interface_id,
+        void** value) noexcept override
+    {
+        if (value == nullptr) {
+            return E_POINTER;
+        }
+        *value = nullptr;
+        if (IsEqualIID(interface_id, IID_IUnknown) ||
+            IsEqualIID(interface_id, __uuidof(ID2D1Resource)) ||
+            IsEqualIID(interface_id, __uuidof(ID2D1Geometry)) ||
+            IsEqualIID(interface_id, __uuidof(ID2D1RectangleGeometry))) {
+            *value = static_cast<ID2D1RectangleGeometry*>(this);
+            AddRef();
+            return S_OK;
+        }
+        return E_NOINTERFACE;
+    }
+
+    ULONG STDMETHODCALLTYPE AddRef() noexcept override
+    {
+        return reference_count_.fetch_add(1U, std::memory_order_relaxed) + 1U;
+    }
+
+    ULONG STDMETHODCALLTYPE Release() noexcept override
+    {
+        const ULONG remaining = reference_count_.fetch_sub(
+            1U,
+            std::memory_order_acq_rel) - 1U;
+        if (remaining == 0U) {
+            delete this;
+        }
+        return remaining;
+    }
+
+    void STDMETHODCALLTYPE GetFactory(
+        ID2D1Factory** factory) const noexcept override
+    {
+        if (factory == nullptr) {
+            return;
+        }
+        *factory = factory_.Get();
+        if (*factory != nullptr) {
+            (*factory)->AddRef();
+        }
+    }
+
+    HRESULT STDMETHODCALLTYPE GetBounds(
+        const D2D1_MATRIX_3X2_F* world_transform,
+        D2D1_RECT_F* bounds) const noexcept override
+    {
+        if (bounds == nullptr) {
+            return E_POINTER;
+        }
+        *bounds = {};
+        std::array<D2D1_POINT_2F, 4U> points{};
+        if (!compat_transform_rectangle(
+                rectangle_, world_transform, points)) {
+            return E_INVALIDARG;
+        }
+        bounds->left = points[0].x;
+        bounds->top = points[0].y;
+        bounds->right = points[0].x;
+        bounds->bottom = points[0].y;
+        for (size_t index = 1U; index < points.size(); ++index) {
+            bounds->left = std::min(bounds->left, points[index].x);
+            bounds->top = std::min(bounds->top, points[index].y);
+            bounds->right = std::max(bounds->right, points[index].x);
+            bounds->bottom = std::max(bounds->bottom, points[index].y);
+        }
+        return S_OK;
+    }
+
+    HRESULT STDMETHODCALLTYPE GetWidenedBounds(
+        FLOAT,
+        ID2D1StrokeStyle*,
+        const D2D1_MATRIX_3X2_F*,
+        FLOAT,
+        D2D1_RECT_F* bounds) const noexcept override
+    {
+        if (bounds == nullptr) {
+            return E_POINTER;
+        }
+        *bounds = {};
+        return E_NOTIMPL;
+    }
+
+    HRESULT STDMETHODCALLTYPE StrokeContainsPoint(
+        D2D1_POINT_2F,
+        FLOAT,
+        ID2D1StrokeStyle*,
+        const D2D1_MATRIX_3X2_F*,
+        FLOAT,
+        BOOL* contains) const noexcept override
+    {
+        if (contains == nullptr) {
+            return E_POINTER;
+        }
+        *contains = FALSE;
+        return E_NOTIMPL;
+    }
+
+    HRESULT STDMETHODCALLTYPE FillContainsPoint(
+        D2D1_POINT_2F point,
+        const D2D1_MATRIX_3X2_F* world_transform,
+        FLOAT flattening_tolerance,
+        BOOL* contains) const noexcept override
+    {
+        if (contains == nullptr) {
+            return E_POINTER;
+        }
+        *contains = FALSE;
+        if (!std::isfinite(point.x) || !std::isfinite(point.y) ||
+            !std::isfinite(flattening_tolerance) ||
+            flattening_tolerance <= 0.0F) {
+            return E_INVALIDARG;
+        }
+        std::array<D2D1_POINT_2F, 4U> points{};
+        if (!compat_transform_rectangle(
+                rectangle_, world_transform, points)) {
+            return E_INVALIDARG;
+        }
+        double twice_area = 0.0;
+        for (size_t index = 0U; index < points.size(); ++index) {
+            const auto& start = points[index];
+            const auto& end = points[(index + 1U) % points.size()];
+            twice_area += static_cast<double>(start.x) * end.y -
+                static_cast<double>(start.y) * end.x;
+        }
+        if (twice_area == 0.0) {
+            return S_OK;
+        }
+        bool positive = false;
+        bool negative = false;
+        for (size_t index = 0U; index < points.size(); ++index) {
+            const auto& start = points[index];
+            const auto& end = points[(index + 1U) % points.size()];
+            const double cross =
+                (static_cast<double>(end.x) - start.x) *
+                    (static_cast<double>(point.y) - start.y) -
+                (static_cast<double>(end.y) - start.y) *
+                    (static_cast<double>(point.x) - start.x);
+            positive |= cross > 0.0;
+            negative |= cross < 0.0;
+        }
+        *contains = positive && negative ? FALSE : TRUE;
+        return S_OK;
+    }
+
+    HRESULT STDMETHODCALLTYPE CompareWithGeometry(
+        ID2D1Geometry*,
+        const D2D1_MATRIX_3X2_F*,
+        FLOAT,
+        D2D1_GEOMETRY_RELATION* relation) const noexcept override
+    {
+        if (relation == nullptr) {
+            return E_POINTER;
+        }
+        *relation = D2D1_GEOMETRY_RELATION_UNKNOWN;
+        return E_NOTIMPL;
+    }
+
+    HRESULT STDMETHODCALLTYPE Simplify(
+        D2D1_GEOMETRY_SIMPLIFICATION_OPTION simplification_option,
+        const D2D1_MATRIX_3X2_F* world_transform,
+        FLOAT flattening_tolerance,
+        ID2D1SimplifiedGeometrySink* geometry_sink) const noexcept override
+    {
+        if (geometry_sink == nullptr) {
+            return E_POINTER;
+        }
+        if ((simplification_option !=
+                D2D1_GEOMETRY_SIMPLIFICATION_OPTION_CUBICS_AND_LINES &&
+             simplification_option !=
+                D2D1_GEOMETRY_SIMPLIFICATION_OPTION_LINES) ||
+            !std::isfinite(flattening_tolerance) ||
+            flattening_tolerance <= 0.0F) {
+            return E_INVALIDARG;
+        }
+        std::array<D2D1_POINT_2F, 4U> points{};
+        if (!compat_transform_rectangle(
+                rectangle_, world_transform, points)) {
+            return E_INVALIDARG;
+        }
+        geometry_sink->SetFillMode(D2D1_FILL_MODE_WINDING);
+        geometry_sink->SetSegmentFlags(D2D1_PATH_SEGMENT_NONE);
+        geometry_sink->BeginFigure(
+            points[0], D2D1_FIGURE_BEGIN_FILLED);
+        geometry_sink->AddLines(points.data() + 1U, 3U);
+        geometry_sink->EndFigure(D2D1_FIGURE_END_CLOSED);
+        return geometry_sink->Close();
+    }
+
+    HRESULT STDMETHODCALLTYPE Tessellate(
+        const D2D1_MATRIX_3X2_F* world_transform,
+        FLOAT flattening_tolerance,
+        ID2D1TessellationSink* tessellation_sink) const noexcept override
+    {
+        if (tessellation_sink == nullptr) {
+            return E_POINTER;
+        }
+        if (!std::isfinite(flattening_tolerance) ||
+            flattening_tolerance <= 0.0F) {
+            return E_INVALIDARG;
+        }
+        std::array<D2D1_POINT_2F, 4U> points{};
+        if (!compat_transform_rectangle(
+                rectangle_, world_transform, points)) {
+            return E_INVALIDARG;
+        }
+        const std::array<D2D1_TRIANGLE, 2U> triangles = {{
+            {points[0], points[1], points[2]},
+            {points[0], points[2], points[3]}}};
+        tessellation_sink->AddTriangles(
+            triangles.data(), static_cast<UINT32>(triangles.size()));
+        return tessellation_sink->Close();
+    }
+
+    HRESULT STDMETHODCALLTYPE CombineWithGeometry(
+        ID2D1Geometry*,
+        D2D1_COMBINE_MODE,
+        const D2D1_MATRIX_3X2_F*,
+        FLOAT,
+        ID2D1SimplifiedGeometrySink*) const noexcept override
+    {
+        return E_NOTIMPL;
+    }
+
+    HRESULT STDMETHODCALLTYPE Outline(
+        const D2D1_MATRIX_3X2_F*,
+        FLOAT,
+        ID2D1SimplifiedGeometrySink*) const noexcept override
+    {
+        return E_NOTIMPL;
+    }
+
+    HRESULT STDMETHODCALLTYPE ComputeArea(
+        const D2D1_MATRIX_3X2_F* world_transform,
+        FLOAT flattening_tolerance,
+        FLOAT* area) const noexcept override
+    {
+        if (area == nullptr) {
+            return E_POINTER;
+        }
+        *area = 0.0F;
+        if (!std::isfinite(flattening_tolerance) ||
+            flattening_tolerance <= 0.0F) {
+            return E_INVALIDARG;
+        }
+        std::array<D2D1_POINT_2F, 4U> points{};
+        if (!compat_transform_rectangle(
+                rectangle_, world_transform, points)) {
+            return E_INVALIDARG;
+        }
+        double twice_area = 0.0;
+        for (size_t index = 0U; index < points.size(); ++index) {
+            const auto& start = points[index];
+            const auto& end = points[(index + 1U) % points.size()];
+            twice_area += static_cast<double>(start.x) * end.y -
+                static_cast<double>(start.y) * end.x;
+        }
+        const double result = std::abs(twice_area) * 0.5;
+        if (!std::isfinite(result) ||
+            result > std::numeric_limits<float>::max()) {
+            return E_INVALIDARG;
+        }
+        *area = static_cast<float>(result);
+        return S_OK;
+    }
+
+    HRESULT STDMETHODCALLTYPE ComputeLength(
+        const D2D1_MATRIX_3X2_F* world_transform,
+        FLOAT flattening_tolerance,
+        FLOAT* length) const noexcept override
+    {
+        if (length == nullptr) {
+            return E_POINTER;
+        }
+        *length = 0.0F;
+        if (!std::isfinite(flattening_tolerance) ||
+            flattening_tolerance <= 0.0F) {
+            return E_INVALIDARG;
+        }
+        std::array<D2D1_POINT_2F, 4U> points{};
+        if (!compat_transform_rectangle(
+                rectangle_, world_transform, points)) {
+            return E_INVALIDARG;
+        }
+        double result = 0.0;
+        for (size_t index = 0U; index < points.size(); ++index) {
+            const auto& start = points[index];
+            const auto& end = points[(index + 1U) % points.size()];
+            result += std::hypot(
+                static_cast<double>(end.x) - start.x,
+                static_cast<double>(end.y) - start.y);
+        }
+        if (!std::isfinite(result) ||
+            result > std::numeric_limits<float>::max()) {
+            return E_INVALIDARG;
+        }
+        *length = static_cast<float>(result);
+        return S_OK;
+    }
+
+    HRESULT STDMETHODCALLTYPE ComputePointAtLength(
+        FLOAT length,
+        const D2D1_MATRIX_3X2_F* world_transform,
+        FLOAT flattening_tolerance,
+        D2D1_POINT_2F* point,
+        D2D1_POINT_2F* unit_tangent_vector) const noexcept override
+    {
+        if (point == nullptr && unit_tangent_vector == nullptr) {
+            return E_POINTER;
+        }
+        if (point != nullptr) {
+            *point = {};
+        }
+        if (unit_tangent_vector != nullptr) {
+            *unit_tangent_vector = {};
+        }
+        if (!std::isfinite(length) || length < 0.0F ||
+            !std::isfinite(flattening_tolerance) ||
+            flattening_tolerance <= 0.0F) {
+            return E_INVALIDARG;
+        }
+        std::array<D2D1_POINT_2F, 4U> points{};
+        if (!compat_transform_rectangle(
+                rectangle_, world_transform, points)) {
+            return E_INVALIDARG;
+        }
+        std::array<double, 4U> edge_lengths{};
+        double perimeter = 0.0;
+        for (size_t index = 0U; index < points.size(); ++index) {
+            const auto& start = points[index];
+            const auto& end = points[(index + 1U) % points.size()];
+            edge_lengths[index] = std::hypot(
+                static_cast<double>(end.x) - start.x,
+                static_cast<double>(end.y) - start.y);
+            perimeter += edge_lengths[index];
+        }
+        if (perimeter == 0.0) {
+            if (point != nullptr) {
+                *point = points[0];
+            }
+            return S_OK;
+        }
+        double remaining = std::min(static_cast<double>(length), perimeter);
+        for (size_t index = 0U; index < points.size(); ++index) {
+            const auto& start = points[index];
+            const auto& end = points[(index + 1U) % points.size()];
+            const double edge_length = edge_lengths[index];
+            if (edge_length == 0.0) {
+                continue;
+            }
+            if (remaining <= edge_length || index + 1U == points.size()) {
+                const double ratio = std::min(remaining / edge_length, 1.0);
+                if (point != nullptr) {
+                    point->x = static_cast<float>(
+                        start.x + (end.x - start.x) * ratio);
+                    point->y = static_cast<float>(
+                        start.y + (end.y - start.y) * ratio);
+                }
+                if (unit_tangent_vector != nullptr) {
+                    unit_tangent_vector->x = static_cast<float>(
+                        (end.x - start.x) / edge_length);
+                    unit_tangent_vector->y = static_cast<float>(
+                        (end.y - start.y) / edge_length);
+                }
+                return S_OK;
+            }
+            remaining -= edge_length;
+        }
+        return E_UNEXPECTED;
+    }
+
+    HRESULT STDMETHODCALLTYPE Widen(
+        FLOAT,
+        ID2D1StrokeStyle*,
+        const D2D1_MATRIX_3X2_F*,
+        FLOAT,
+        ID2D1SimplifiedGeometrySink*) const noexcept override
+    {
+        return E_NOTIMPL;
+    }
+
+    void STDMETHODCALLTYPE GetRect(
+        D2D1_RECT_F* rectangle) const noexcept override
+    {
+        if (rectangle != nullptr) {
+            *rectangle = rectangle_;
+        }
+    }
+
+private:
+    std::atomic<ULONG> reference_count_{1U};
+    ComPtr<ID2D1Factory1> factory_;
+    D2D1_RECT_F rectangle_{};
+};
+
+class ProGpuD2DFactory final :
+    public ID2D1Factory1,
+    public ID2D1Multithread {
+public:
+    HRESULT STDMETHODCALLTYPE QueryInterface(
+        REFIID interface_id,
+        void** value) noexcept override
+    {
+        if (value == nullptr) {
+            return E_POINTER;
+        }
+        *value = nullptr;
+        if (IsEqualIID(interface_id, IID_IUnknown) ||
+            IsEqualIID(interface_id, __uuidof(ID2D1Factory)) ||
+            IsEqualIID(interface_id, __uuidof(ID2D1Factory1))) {
+            *value = static_cast<ID2D1Factory1*>(this);
+        } else if (IsEqualIID(
+                interface_id, __uuidof(ID2D1Multithread))) {
+            *value = static_cast<ID2D1Multithread*>(this);
+        } else {
+            return E_NOINTERFACE;
+        }
+        AddRef();
+        return S_OK;
+    }
+
+    ULONG STDMETHODCALLTYPE AddRef() noexcept override
+    {
+        return reference_count_.fetch_add(1U, std::memory_order_relaxed) + 1U;
+    }
+
+    ULONG STDMETHODCALLTYPE Release() noexcept override
+    {
+        const ULONG remaining = reference_count_.fetch_sub(
+            1U,
+            std::memory_order_acq_rel) - 1U;
+        if (remaining == 0U) {
+            delete this;
+        }
+        return remaining;
+    }
+
+    HRESULT STDMETHODCALLTYPE ReloadSystemMetrics() noexcept override
+    {
+        return S_OK;
+    }
+
+    void STDMETHODCALLTYPE GetDesktopDpi(
+        FLOAT* dpi_x,
+        FLOAT* dpi_y) noexcept override
+    {
+        if (dpi_x != nullptr) {
+            *dpi_x = 96.0F;
+        }
+        if (dpi_y != nullptr) {
+            *dpi_y = 96.0F;
+        }
+    }
+
+    HRESULT STDMETHODCALLTYPE CreateRectangleGeometry(
+        const D2D1_RECT_F* rectangle,
+        ID2D1RectangleGeometry** rectangle_geometry) noexcept override
+    {
+        if (rectangle_geometry == nullptr) {
+            return E_POINTER;
+        }
+        *rectangle_geometry = nullptr;
+        if (!compat_finite_rectangle(rectangle)) {
+            return E_INVALIDARG;
+        }
+        auto* geometry = new (std::nothrow) ProGpuD2DRectangleGeometry(
+            this, *rectangle);
+        if (geometry == nullptr) {
+            return E_OUTOFMEMORY;
+        }
+        *rectangle_geometry = geometry;
+        return S_OK;
+    }
+
+    HRESULT STDMETHODCALLTYPE CreateRoundedRectangleGeometry(
+        const D2D1_ROUNDED_RECT*,
+        ID2D1RoundedRectangleGeometry** value) noexcept override
+    {
+        return unsupported(value);
+    }
+
+    HRESULT STDMETHODCALLTYPE CreateEllipseGeometry(
+        const D2D1_ELLIPSE*,
+        ID2D1EllipseGeometry** value) noexcept override
+    {
+        return unsupported(value);
+    }
+
+    HRESULT STDMETHODCALLTYPE CreateGeometryGroup(
+        D2D1_FILL_MODE,
+        ID2D1Geometry**,
+        UINT32,
+        ID2D1GeometryGroup** value) noexcept override
+    {
+        return unsupported(value);
+    }
+
+    HRESULT STDMETHODCALLTYPE CreateTransformedGeometry(
+        ID2D1Geometry*,
+        const D2D1_MATRIX_3X2_F*,
+        ID2D1TransformedGeometry** value) noexcept override
+    {
+        return unsupported(value);
+    }
+
+    HRESULT STDMETHODCALLTYPE CreatePathGeometry(
+        ID2D1PathGeometry** value) noexcept override
+    {
+        return unsupported(value);
+    }
+
+    HRESULT STDMETHODCALLTYPE CreateStrokeStyle(
+        const D2D1_STROKE_STYLE_PROPERTIES*,
+        const FLOAT*,
+        UINT32,
+        ID2D1StrokeStyle** value) noexcept override
+    {
+        return unsupported(value);
+    }
+
+    HRESULT STDMETHODCALLTYPE CreateDrawingStateBlock(
+        const D2D1_DRAWING_STATE_DESCRIPTION*,
+        IDWriteRenderingParams*,
+        ID2D1DrawingStateBlock** value) noexcept override
+    {
+        return unsupported(value);
+    }
+
+    HRESULT STDMETHODCALLTYPE CreateWicBitmapRenderTarget(
+        IWICBitmap*,
+        const D2D1_RENDER_TARGET_PROPERTIES*,
+        ID2D1RenderTarget** value) noexcept override
+    {
+        return unsupported(value);
+    }
+
+    HRESULT STDMETHODCALLTYPE CreateHwndRenderTarget(
+        const D2D1_RENDER_TARGET_PROPERTIES*,
+        const D2D1_HWND_RENDER_TARGET_PROPERTIES*,
+        ID2D1HwndRenderTarget** value) noexcept override
+    {
+        return unsupported(value);
+    }
+
+    HRESULT STDMETHODCALLTYPE CreateDxgiSurfaceRenderTarget(
+        IDXGISurface*,
+        const D2D1_RENDER_TARGET_PROPERTIES*,
+        ID2D1RenderTarget** value) noexcept override
+    {
+        return unsupported(value);
+    }
+
+    HRESULT STDMETHODCALLTYPE CreateDCRenderTarget(
+        const D2D1_RENDER_TARGET_PROPERTIES*,
+        ID2D1DCRenderTarget** value) noexcept override
+    {
+        return unsupported(value);
+    }
+
+    HRESULT STDMETHODCALLTYPE CreateDevice(
+        IDXGIDevice*,
+        ID2D1Device** value) noexcept override
+    {
+        return unsupported(value);
+    }
+
+    HRESULT STDMETHODCALLTYPE CreateStrokeStyle(
+        const D2D1_STROKE_STYLE_PROPERTIES1*,
+        const FLOAT*,
+        UINT32,
+        ID2D1StrokeStyle1** value) noexcept override
+    {
+        return unsupported(value);
+    }
+
+    HRESULT STDMETHODCALLTYPE CreatePathGeometry(
+        ID2D1PathGeometry1** value) noexcept override
+    {
+        return unsupported(value);
+    }
+
+    HRESULT STDMETHODCALLTYPE CreateDrawingStateBlock(
+        const D2D1_DRAWING_STATE_DESCRIPTION1*,
+        IDWriteRenderingParams*,
+        ID2D1DrawingStateBlock1** value) noexcept override
+    {
+        return unsupported(value);
+    }
+
+    HRESULT STDMETHODCALLTYPE CreateGdiMetafile(
+        IStream*,
+        ID2D1GdiMetafile** value) noexcept override
+    {
+        return unsupported(value);
+    }
+
+    HRESULT STDMETHODCALLTYPE RegisterEffectFromStream(
+        REFCLSID,
+        IStream*,
+        const D2D1_PROPERTY_BINDING*,
+        UINT32,
+        const PD2D1_EFFECT_FACTORY) noexcept override
+    {
+        return E_NOTIMPL;
+    }
+
+    HRESULT STDMETHODCALLTYPE RegisterEffectFromString(
+        REFCLSID,
+        PCWSTR,
+        const D2D1_PROPERTY_BINDING*,
+        UINT32,
+        const PD2D1_EFFECT_FACTORY) noexcept override
+    {
+        return E_NOTIMPL;
+    }
+
+    HRESULT STDMETHODCALLTYPE UnregisterEffect(REFCLSID) noexcept override
+    {
+        return E_NOTIMPL;
+    }
+
+    HRESULT STDMETHODCALLTYPE GetRegisteredEffects(
+        CLSID*,
+        UINT32,
+        UINT32* effects_returned,
+        UINT32* effects_registered) const noexcept override
+    {
+        if (effects_returned != nullptr) {
+            *effects_returned = 0U;
+        }
+        if (effects_registered != nullptr) {
+            *effects_registered = 0U;
+        }
+        return E_NOTIMPL;
+    }
+
+    HRESULT STDMETHODCALLTYPE GetEffectProperties(
+        REFCLSID,
+        ID2D1Properties** value) const noexcept override
+    {
+        return unsupported(value);
+    }
+
+    BOOL STDMETHODCALLTYPE GetMultithreadProtected() const noexcept override
+    {
+        return TRUE;
+    }
+
+    void STDMETHODCALLTYPE Enter() noexcept override
+    {
+        mutex_.lock();
+    }
+
+    void STDMETHODCALLTYPE Leave() noexcept override
+    {
+        mutex_.unlock();
+    }
+
+private:
+    template<typename T>
+    static HRESULT unsupported(T** value) noexcept
+    {
+        if (value == nullptr) {
+            return E_POINTER;
+        }
+        *value = nullptr;
+        return E_NOTIMPL;
+    }
+
+    std::atomic<ULONG> reference_count_{1U};
+    std::recursive_mutex mutex_;
+};
+
 class CommandStreamSummarySink final : public ID2D1CommandSink1 {
 public:
     explicit CommandStreamSummarySink(bool require_supported_operations) noexcept
@@ -4071,6 +4809,30 @@ extern "C" {
 uint32_t progpu_native_direct2d_get_abi_version(void)
 {
     return PROGPU_NATIVE_DIRECT2D_ABI_VERSION;
+}
+
+progpu_native_direct2d_status
+progpu_native_direct2d_compat_factory_create(
+    void** factory,
+    int32_t* native_hresult)
+{
+    if (factory != nullptr) {
+        *factory = nullptr;
+    }
+    if (native_hresult != nullptr) {
+        *native_hresult = E_INVALIDARG;
+    }
+    if (factory == nullptr || native_hresult == nullptr) {
+        return PROGPU_NATIVE_DIRECT2D_STATUS_INVALID_ARGUMENT;
+    }
+    auto* instance = new (std::nothrow) ProGpuD2DFactory();
+    if (instance == nullptr) {
+        *native_hresult = E_OUTOFMEMORY;
+        return PROGPU_NATIVE_DIRECT2D_STATUS_OUT_OF_MEMORY;
+    }
+    *factory = static_cast<ID2D1Factory1*>(instance);
+    *native_hresult = S_OK;
+    return PROGPU_NATIVE_DIRECT2D_STATUS_SUCCESS;
 }
 
 progpu_native_direct2d_status
