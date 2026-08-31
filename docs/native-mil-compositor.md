@@ -5471,6 +5471,34 @@ Windows 11 ARM64 Parallels with MSVC 19.44/SDK 10.0.26100.0 compiles provider
 and test under `/W4 /WX`; focused CTest passes 1/1 in 40.29 seconds (78.46
 seconds total under concurrent guest load). No native export is added.
 
+ABI v38 implementation `a308e7df` adds exact full-target uniform-opacity
+Direct2D layers. The command sink accepts `D2D1::InfiniteRect()`, finite
+opacity, no geometric/opacity mask, and `D2D1_LAYER_OPTIONS1_NONE`, then emits
+the existing ProGPU isolated-layer command. Group opacity is consequently
+applied once during composition, including overlapping descendants, and the
+temporary Windows `ID2D1Layer` identity is not retained. ProGPU's shared GPU
+layer executor owns pooling and replay on D3D12, Metal, Vulkan, and WebGPU; no
+CPU pixel fallback or readback is introduced.
+
+Axis clips and layers now share a bounded command-scope stack, preserving the
+Direct2D rule that their push/pop pairs may nest but may not overlap. Wrong
+pop order and unbalanced completion report typed drawing state. Exact finite
+content bounds, geometric masks, opacity brushes, background initialization,
+and ignored-alpha targets remain fail-closed pending their separate native
+bounds/mask/backdrop resources.
+
+The Windows oracle decodes a 37.5% source-over layer containing two overlapping
+rectangles inside a valid outer axis clip and requires save/push/pop/restore
+ordering. Its negative command list proves `INITIALIZE_FROM_BACKGROUND` emits
+no partial scene. Managed AOT contracts pass 5/5 and the package builds with
+zero warnings. Windows 11 ARM64 Parallels, MSVC 19.44/SDK 10.0.26100.0,
+recompiles provider and test under `/W4 /WX`; the fresh executable exits zero.
+The final 97,082-byte payload SHA-256 is
+`84A118A67091ED4DA4854B1B00A4AEB26F760073D22A729DFCE1B8460859C270`.
+Provider SHA-256 is
+`305C1D7D3BC72F0CFC016778721CC36D90FDC91ABE1F9FCDE5DA2A8C5CFEF121`,
+and all 123 exports exactly match the allowlist.
+
 ## Managed glyph row-reuse SIMD checkpoint
 
 Managed ProGPU checkpoints `2960fb39` and `ffb285af` bring the explicit
