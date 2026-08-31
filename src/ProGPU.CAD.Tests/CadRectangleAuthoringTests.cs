@@ -199,6 +199,30 @@ public sealed class CadRectangleAuthoringTests
     }
 
     [Fact]
+    public void FixedConstructionRejectsCornerTreatmentThatCannotFit()
+    {
+        Assert.Throws<ArgumentOutOfRangeException>(() =>
+            new CadRectangleAuthoringSession(
+                0,
+                CadRectangleCornerTreatment.Fillet(3),
+                CadRectangleConstruction.Dimensions(8, 4)));
+        Assert.Throws<ArgumentOutOfRangeException>(() =>
+            new CadRectangleAuthoringSession(
+                0,
+                CadRectangleCornerTreatment.Chamfer(2, 1),
+                CadRectangleConstruction.FromArea(
+                    4,
+                    CadRectangleKnownDimension.Length,
+                    2)));
+
+        var authoring = new CadRectangleAuthoringSession(
+            construction: CadRectangleConstruction.Dimensions(8, 4));
+        Assert.False(authoring.TrySetFillet(3, out string? error));
+        Assert.Contains("half", error, StringComparison.OrdinalIgnoreCase);
+        Assert.Equal(CadRectangleCornerMode.Sharp, authoring.CornerTreatment.Mode);
+    }
+
+    [Fact]
     public void InvalidFinalInputDoesNotConsumeFirstCorner()
     {
         var authoring = new CadRectangleAuthoringSession(
@@ -440,6 +464,39 @@ public sealed class CadRectangleAuthoringTests
                 Assert.NotEqual(points[index], points[(index + 1) % points.Length]);
             }
         }
+    }
+
+    [Fact]
+    public void StablePreviewSolveAndContourExpansionAllocateNothingAfterWarmup()
+    {
+        var authoring = new CadRectangleAuthoringSession(
+            0.37,
+            CadRectangleCornerTreatment.Fillet(2.5),
+            CadRectangleConstruction.Dimensions(20, 12));
+        AcceptFirst(authoring, new CadPoint3D(100, -200, 7));
+        var placement = new CadPoint3D(120, -180, 7);
+        Span<CadPoint3D> points = stackalloc CadPoint3D[8];
+        Span<double> bulges = stackalloc double[8];
+        for (int index = 0; index < 64; index++)
+        {
+            Assert.True(authoring.TryPreviewPoint(placement, out var warm));
+            Assert.Equal(8, warm.CopyContour(points, bulges));
+        }
+
+        long before = GC.GetAllocatedBytesForCurrentThread();
+        int vertexTotal = 0;
+        for (int index = 0; index < 100_000; index++)
+        {
+            if (!authoring.TryPreviewPoint(placement, out var snapshot))
+            {
+                throw new InvalidOperationException("Stable RECTANG preview failed.");
+            }
+            vertexTotal += snapshot.CopyContour(points, bulges);
+        }
+        long allocated = GC.GetAllocatedBytesForCurrentThread() - before;
+
+        Assert.Equal(800_000, vertexTotal);
+        Assert.Equal(0, allocated);
     }
 
     private static void AcceptFirst(

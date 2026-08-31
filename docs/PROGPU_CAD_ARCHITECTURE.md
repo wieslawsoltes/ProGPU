@@ -1130,7 +1130,25 @@ upload, or native crossing. The final solve remains non-mutating until
 `CadAddEllipseCommand` preflight and one history generation succeed. Isocircle
 stays deferred to an explicit SNAPSTYL/SNAPISOPAIR drafting-plane contract.
 Exact clean-room sources, formulas, applicability, and complexity are in
-`PROGPU_CAD_ELLIPSE_AUTHORING_RESEARCH.md`. One `CadDocumentHistory` belongs to
+`PROGPU_CAD_ELLIPSE_AUTHORING_RESEARCH.md`. `CadPolygonAuthoringSession` adds
+bounded 3-through-1024
+regular POLYGON construction by Inscribed, Circumscribed, or Edge input and
+defers vertex expansion until one final closed LWPOLYLINE publication. Its
+shared preview replays one canonical retained unit polygon through an affine
+transform. `CadRectangleAuthoringSession` adds diagonal-corner, Dimensions,
+and corner-area-corrected Area RECTANG placement in an ANGBASE/ANGDIR-derived
+local basis. Sharp and chamfer contours remain exact line vertices; fillets
+remain signed quarter-circle bulges, including compact stadium and circle
+forms at the maximum valid radius. Caller-owned eight-entry spans make stable
+solve/contour expansion zero-allocation. The shared canvas uses the same
+generation-safe point acquisition and draws the bounded preview as analytic
+line/`ArcSegment` geometry; commit reuses `CadAddPolylineCommand`, current
+entity/PLINEGEN capture, nonzero-PLINEWID failure, DXF/DWG persistence,
+printing, and managed/native replay. Width and Thickness are not cosmetically
+approximated while their complete rendering contracts remain absent. Detailed
+sources, equations, clean-room provenance, parity, and deferrals are in
+`PROGPU_CAD_POLYGON_AUTHORING_RESEARCH.md` and
+`PROGPU_CAD_RECTANGLE_AUTHORING_RESEARCH.md`. One `CadDocumentHistory` belongs to
 the loaded session, so each Move, Copy, Rotate, Scale,
 Undo, or Redo publishes exactly one generation and then prepares one complete
 replacement snapshot and picture. The prior picture stays drawable until

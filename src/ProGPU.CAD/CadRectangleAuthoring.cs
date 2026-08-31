@@ -15,6 +15,98 @@ public enum CadRectangleKnownDimension : byte
     Width = 1,
 }
 
+/// <summary>The final placement solve used by one RECTANG command.</summary>
+public enum CadRectangleConstructionMode : byte
+{
+    DiagonalCorners = 0,
+    Dimensions = 1,
+    Area = 2,
+}
+
+/// <summary>Validated scalar construction retained by one RECTANG session.</summary>
+public readonly record struct CadRectangleConstruction
+{
+    public CadRectangleConstructionMode Mode { get; }
+
+    public double Length { get; }
+
+    public double Width { get; }
+
+    public double Area { get; }
+
+    public CadRectangleKnownDimension KnownDimension { get; }
+
+    public double KnownValue { get; }
+
+    public static CadRectangleConstruction DiagonalCorners => default;
+
+    public static CadRectangleConstruction Dimensions(
+        double length,
+        double width) => new(
+            CadRectangleConstructionMode.Dimensions,
+            length,
+            width,
+            0.0,
+            CadRectangleKnownDimension.Length,
+            0.0);
+
+    public static CadRectangleConstruction FromArea(
+        double area,
+        CadRectangleKnownDimension knownDimension,
+        double knownValue) => new(
+            CadRectangleConstructionMode.Area,
+            0.0,
+            0.0,
+            area,
+            knownDimension,
+            knownValue);
+
+    private CadRectangleConstruction(
+        CadRectangleConstructionMode mode,
+        double length,
+        double width,
+        double area,
+        CadRectangleKnownDimension knownDimension,
+        double knownValue)
+    {
+        if (!Enum.IsDefined(mode))
+        {
+            throw new ArgumentOutOfRangeException(nameof(mode));
+        }
+        if (!Enum.IsDefined(knownDimension))
+        {
+            throw new ArgumentOutOfRangeException(nameof(knownDimension));
+        }
+        if (mode == CadRectangleConstructionMode.Dimensions &&
+            (!IsPositiveRenderable(length) || !IsPositiveRenderable(width)))
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(length),
+                "RECTANG Dimensions must be finite, positive, and renderable.");
+        }
+        if (mode == CadRectangleConstructionMode.Area &&
+            ((!double.IsFinite(area) || area <= 0.0) ||
+             !IsPositiveRenderable(knownValue)))
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(area),
+                "RECTANG Area and its known dimension must be finite and positive; the dimension must be renderable.");
+        }
+
+        Mode = mode;
+        Length = length;
+        Width = width;
+        Area = area;
+        KnownDimension = knownDimension;
+        KnownValue = knownValue;
+    }
+
+    private static bool IsPositiveRenderable(double value) =>
+        double.IsFinite(value) &&
+        value > 0.0 &&
+        value <= float.MaxValue;
+}
+
 /// <summary>The exact point expected by the current RECTANG prompt.</summary>
 public enum CadRectangleAuthoringInputKind : byte
 {
@@ -221,18 +313,32 @@ public readonly record struct CadRectangleAuthoringSnapshot
         return bulges[index];
     }
 
+    /// <summary>
+    /// Copies the compact analytic contour into caller-owned bounded storage.
+    /// Both destinations must hold the maximum eight RECTANG vertices.
+    /// </summary>
+    public int CopyContour(
+        Span<CadPoint3D> destinationPoints,
+        Span<double> destinationBulges)
+    {
+        if (destinationPoints.Length < 8 || destinationBulges.Length < 8)
+        {
+            throw new ArgumentException(
+                "RECTANG contour storage must hold eight points and bulges.");
+        }
+        return BuildVertices(destinationPoints, destinationBulges);
+    }
+
     /// <summary>Materializes one exact closed LWPOLYLINE only at commit.</summary>
     public CadPolylineAuthoringSnapshot CreatePolylineSnapshot()
     {
-        int count = VertexCount;
+        Span<CadPoint3D> retainedPoints = stackalloc CadPoint3D[8];
+        Span<double> retainedBulges = stackalloc double[8];
+        int count = BuildVertices(retainedPoints, retainedBulges);
         var points = new CadPoint3D[count];
         var bulges = new double[count];
-        int written = BuildVertices(points, bulges);
-        if (written != count)
-        {
-            throw new InvalidOperationException(
-                "The immutable RECTANG contour changed while materializing.");
-        }
+        retainedPoints[..count].CopyTo(points);
+        retainedBulges[..count].CopyTo(bulges);
         return new CadPolylineAuthoringSnapshot(points, bulges, isClosed: true);
     }
 
@@ -391,6 +497,8 @@ public sealed class CadRectangleAuthoringSession
 
     public CadRectangleCornerTreatment CornerTreatment { get; private set; }
 
+    public CadRectangleConstruction Construction { get; }
+
     public CadRectangleAuthoringInputKind InputKind => _hasFirstCorner
         ? CadRectangleAuthoringInputKind.OtherCorner
         : CadRectangleAuthoringInputKind.FirstCorner;
@@ -406,7 +514,8 @@ public sealed class CadRectangleAuthoringSession
 
     public CadRectangleAuthoringSession(
         double rotationRadians = 0.0,
-        CadRectangleCornerTreatment cornerTreatment = default)
+        CadRectangleCornerTreatment cornerTreatment = default,
+        CadRectangleConstruction construction = default)
     {
         if (!TrySetRotation(rotationRadians, out string? errorMessage))
         {
@@ -415,6 +524,8 @@ public sealed class CadRectangleAuthoringSession
                 rotationRadians,
                 errorMessage);
         }
+        Construction = construction;
+        ValidateFixedConstruction(construction, cornerTreatment);
         CornerTreatment = cornerTreatment;
     }
 
@@ -442,9 +553,12 @@ public sealed class CadRectangleAuthoringSession
     {
         try
         {
-            CornerTreatment = CadRectangleCornerTreatment.Chamfer(
+            CadRectangleCornerTreatment treatment =
+                CadRectangleCornerTreatment.Chamfer(
                 firstDistance,
                 secondDistance);
+            ValidateFixedConstruction(Construction, treatment);
+            CornerTreatment = treatment;
             errorMessage = null;
             return true;
         }
@@ -459,7 +573,10 @@ public sealed class CadRectangleAuthoringSession
     {
         try
         {
-            CornerTreatment = CadRectangleCornerTreatment.Fillet(radius);
+            CadRectangleCornerTreatment treatment =
+                CadRectangleCornerTreatment.Fillet(radius);
+            ValidateFixedConstruction(Construction, treatment);
+            CornerTreatment = treatment;
             errorMessage = null;
             return true;
         }
@@ -629,17 +746,45 @@ public sealed class CadRectangleAuthoringSession
             return false;
         }
 
-        double dx = point.X - _firstCorner.X;
-        double dy = point.Y - _firstCorner.Y;
-        double cosine = Math.Cos(RotationRadians);
-        double sine = Math.Sin(RotationRadians);
-        double localX = (dx * cosine) + (dy * sine);
-        double localY = (-dx * sine) + (dy * cosine);
-        if (!TryCreateSnapshot(
-                localX,
-                localY,
-                out snapshot,
-                out errorMessage))
+        bool solved;
+        switch (Construction.Mode)
+        {
+            case CadRectangleConstructionMode.DiagonalCorners:
+                double dx = point.X - _firstCorner.X;
+                double dy = point.Y - _firstCorner.Y;
+                double cosine = Math.Cos(RotationRadians);
+                double sine = Math.Sin(RotationRadians);
+                double localX = (dx * cosine) + (dy * sine);
+                double localY = (-dx * sine) + (dy * cosine);
+                solved = TryCreateSnapshot(
+                    localX,
+                    localY,
+                    out snapshot,
+                    out errorMessage);
+                break;
+            case CadRectangleConstructionMode.Dimensions:
+                solved = TryCreateFromDimensions(
+                    Construction.Length,
+                    Construction.Width,
+                    point,
+                    out snapshot,
+                    out errorMessage);
+                break;
+            case CadRectangleConstructionMode.Area:
+                solved = TryCreateFromArea(
+                    Construction.Area,
+                    Construction.KnownDimension,
+                    Construction.KnownValue,
+                    point,
+                    out snapshot,
+                    out errorMessage);
+                break;
+            default:
+                errorMessage = "The RECTANG construction mode is invalid.";
+                solved = false;
+                break;
+        }
+        if (!solved)
         {
             return false;
         }
@@ -716,6 +861,47 @@ public sealed class CadRectangleAuthoringSession
         double.IsFinite(value) &&
         value > 0.0 &&
         value <= float.MaxValue;
+
+    private static void ValidateFixedConstruction(
+        CadRectangleConstruction construction,
+        CadRectangleCornerTreatment treatment)
+    {
+        switch (construction.Mode)
+        {
+            case CadRectangleConstructionMode.DiagonalCorners:
+                return;
+            case CadRectangleConstructionMode.Dimensions:
+                _ = new CadRectangleAuthoringSnapshot(
+                    CadPoint3D.Zero,
+                    construction.Length,
+                    construction.Width,
+                    0.0,
+                    treatment);
+                return;
+            case CadRectangleConstructionMode.Area:
+                double outerArea = construction.Area +
+                    CadRectangleAuthoringSnapshot.GetCornerAreaReduction(
+                        treatment);
+                double missing = outerArea / construction.KnownValue;
+                double length = construction.KnownDimension ==
+                        CadRectangleKnownDimension.Length
+                    ? construction.KnownValue
+                    : missing;
+                double width = construction.KnownDimension ==
+                        CadRectangleKnownDimension.Width
+                    ? construction.KnownValue
+                    : missing;
+                _ = new CadRectangleAuthoringSnapshot(
+                    CadPoint3D.Zero,
+                    length,
+                    width,
+                    0.0,
+                    treatment);
+                return;
+            default:
+                throw new ArgumentOutOfRangeException(nameof(construction));
+        }
+    }
 
     private static bool IsFinite(CadPoint3D point) =>
         double.IsFinite(point.X) &&

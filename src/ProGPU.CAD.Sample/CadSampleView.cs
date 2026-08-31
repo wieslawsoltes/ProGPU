@@ -85,6 +85,13 @@ public sealed class CadSampleView : Grid
     private readonly TextBox _polygonSideCountInput;
     private readonly ComboBox _polygonModeSelector;
     private readonly Button _polygonButton;
+    private readonly ComboBox _rectangleConstructionSelector;
+    private readonly ComboBox _rectangleAreaDimensionSelector;
+    private readonly TextBox _rectangleValuesInput;
+    private readonly ComboBox _rectangleCornerSelector;
+    private readonly TextBox _rectangleCornerValuesInput;
+    private readonly TextBox _rectangleRotationInput;
+    private readonly Button _rectangleButton;
     private readonly Button[] _drawOrderButtons;
     private readonly Button[] _moveButtons;
     private readonly Button[] _copyButtons;
@@ -365,6 +372,23 @@ public sealed class CadSampleView : Grid
     public ComboBox PolygonModeSelector => _polygonModeSelector;
 
     public Button PolygonButton => _polygonButton;
+
+    public ComboBox RectangleConstructionSelector =>
+        _rectangleConstructionSelector;
+
+    public ComboBox RectangleAreaDimensionSelector =>
+        _rectangleAreaDimensionSelector;
+
+    public TextBox RectangleValuesInput => _rectangleValuesInput;
+
+    public ComboBox RectangleCornerSelector => _rectangleCornerSelector;
+
+    public TextBox RectangleCornerValuesInput =>
+        _rectangleCornerValuesInput;
+
+    public TextBox RectangleRotationInput => _rectangleRotationInput;
+
+    public Button RectangleButton => _rectangleButton;
 
     public ComboBox SelectionAttributeSelector =>
         _selectionAttributeSelector;
@@ -754,6 +778,96 @@ public sealed class CadSampleView : Grid
         }
         _polygonModeSelector.SelectedIndex = 0;
         _polygonButton = CreateButton("Polygon", font, 78, 30);
+        _rectangleConstructionSelector = new ComboBox
+        {
+            WidthConstraint = 142,
+            HeightConstraint = 30,
+            Font = font,
+            FontSize = 11,
+            Margin = new Thickness(0, 0, 4, 0),
+        };
+        foreach ((CadRectangleConstructionMode mode, string label) in new[]
+        {
+            (CadRectangleConstructionMode.DiagonalCorners, "Rect 2 corners"),
+            (CadRectangleConstructionMode.Dimensions, "Rect Dimensions"),
+            (CadRectangleConstructionMode.Area, "Rect Area"),
+        })
+        {
+            _rectangleConstructionSelector.Items.Add(new ComboBoxItem(label)
+            {
+                Tag = mode,
+            });
+        }
+        _rectangleConstructionSelector.SelectedIndex = 0;
+        _rectangleAreaDimensionSelector = new ComboBox
+        {
+            WidthConstraint = 106,
+            HeightConstraint = 30,
+            Font = font,
+            FontSize = 11,
+            Margin = new Thickness(0, 0, 4, 0),
+        };
+        foreach ((CadRectangleKnownDimension dimension, string label) in new[]
+        {
+            (CadRectangleKnownDimension.Length, "Area + length"),
+            (CadRectangleKnownDimension.Width, "Area + width"),
+        })
+        {
+            _rectangleAreaDimensionSelector.Items.Add(new ComboBoxItem(label)
+            {
+                Tag = dimension,
+            });
+        }
+        _rectangleAreaDimensionSelector.SelectedIndex = 0;
+        _rectangleValuesInput = new TextBox
+        {
+            Text = "10,6",
+            Font = font,
+            WidthConstraint = 76,
+            HeightConstraint = 30,
+            IsSpellCheckEnabled = false,
+            Margin = new Thickness(0, 0, 4, 0),
+        };
+        _rectangleCornerSelector = new ComboBox
+        {
+            WidthConstraint = 104,
+            HeightConstraint = 30,
+            Font = font,
+            FontSize = 11,
+            Margin = new Thickness(0, 0, 4, 0),
+        };
+        foreach ((CadRectangleCornerMode mode, string label) in new[]
+        {
+            (CadRectangleCornerMode.Sharp, "Rect Sharp"),
+            (CadRectangleCornerMode.Chamfer, "Rect Chamfer"),
+            (CadRectangleCornerMode.Fillet, "Rect Fillet"),
+        })
+        {
+            _rectangleCornerSelector.Items.Add(new ComboBoxItem(label)
+            {
+                Tag = mode,
+            });
+        }
+        _rectangleCornerSelector.SelectedIndex = 0;
+        _rectangleCornerValuesInput = new TextBox
+        {
+            Text = "0",
+            Font = font,
+            WidthConstraint = 66,
+            HeightConstraint = 30,
+            IsSpellCheckEnabled = false,
+            Margin = new Thickness(0, 0, 4, 0),
+        };
+        _rectangleRotationInput = new TextBox
+        {
+            Text = "0",
+            Font = font,
+            WidthConstraint = 54,
+            HeightConstraint = 30,
+            IsSpellCheckEnabled = false,
+            Margin = new Thickness(0, 0, 4, 0),
+        };
+        _rectangleButton = CreateButton("Rectang", font, 78, 30);
         Button sendToBack = CreateButton("To back", font, 76, 30);
         Button bringToFront = CreateButton("To front", font, 76, 30);
         Button bringAbove = CreateButton("Above…", font, 82, 30);
@@ -785,6 +899,7 @@ public sealed class CadSampleView : Grid
         _arcButton.Margin = new Thickness(0, 0, 12, 0);
         _ellipseButton.Margin = new Thickness(0, 0, 12, 0);
         _polygonButton.Margin = new Thickness(0, 0, 12, 0);
+        _rectangleButton.Margin = new Thickness(0, 0, 12, 0);
         sendToBack.Margin = new Thickness(0, 0, 4, 0);
         bringToFront.Margin = new Thickness(0, 0, 4, 0);
         bringAbove.Margin = new Thickness(0, 0, 4, 0);
@@ -823,6 +938,13 @@ public sealed class CadSampleView : Grid
         editActions.AddChild(_polygonSideCountInput);
         editActions.AddChild(_polygonModeSelector);
         editActions.AddChild(_polygonButton);
+        editActions.AddChild(_rectangleConstructionSelector);
+        editActions.AddChild(_rectangleAreaDimensionSelector);
+        editActions.AddChild(_rectangleValuesInput);
+        editActions.AddChild(_rectangleCornerSelector);
+        editActions.AddChild(_rectangleCornerValuesInput);
+        editActions.AddChild(_rectangleRotationInput);
+        editActions.AddChild(_rectangleButton);
         editActions.AddChild(sendToBack);
         editActions.AddChild(bringToFront);
         editActions.AddChild(bringAbove);
@@ -2329,6 +2451,17 @@ public sealed class CadSampleView : Grid
         };
         _polygonSideCountInput.TextChanged += (_, _) => UpdateEditControls();
         _polygonModeSelector.SelectionChanged += (_, _) => UpdateEditControls();
+        _rectangleButton.Click += (_, _) => BeginRectangleAuthoring();
+        _rectangleConstructionSelector.SelectionChanged += (_, _) =>
+            UpdateEditControls();
+        _rectangleAreaDimensionSelector.SelectionChanged += (_, _) =>
+            UpdateEditControls();
+        _rectangleValuesInput.TextChanged += (_, _) => UpdateEditControls();
+        _rectangleCornerSelector.SelectionChanged += (_, _) =>
+            UpdateEditControls();
+        _rectangleCornerValuesInput.TextChanged += (_, _) =>
+            UpdateEditControls();
+        _rectangleRotationInput.TextChanged += (_, _) => UpdateEditControls();
         sendToBack.Click += (_, _) =>
             SetSelectionDrawOrder(CadDrawOrderPlacement.SendToBack);
         bringToFront.Click += (_, _) =>
@@ -2604,6 +2737,12 @@ public sealed class CadSampleView : Grid
             SetStatus(DescribePolygonAuthoring(args));
             UpdateEditControls();
         };
+        _canvas.RectangleAuthoringChanged += (_, args) =>
+        {
+            _pointTransformInput.Text = string.Empty;
+            SetStatus(DescribeRectangleAuthoring(args));
+            UpdateEditControls();
+        };
         _canvas.PointTransformInputAvailabilityChanged += (_, _) =>
             UpdateEditControls();
         _canvas.SnapshotChanged += (_, _) =>
@@ -2641,6 +2780,16 @@ public sealed class CadSampleView : Grid
                 _currentDocumentName,
                 _currentDiagnosticCount));
             UpdateEditControls();
+            e.Handled = true;
+            return;
+        }
+
+        if (!e.Handled &&
+            _canvas.IsRectangleAuthoring &&
+            e.Key == Key.Escape &&
+            FocusManager.GetFocusedElement() is not TextBox)
+        {
+            _canvas.CancelRectangleAuthoring();
             e.Handled = true;
             return;
         }
@@ -5548,6 +5697,160 @@ public sealed class CadSampleView : Grid
         UpdateEditControls();
     }
 
+    private void BeginRectangleAuthoring()
+    {
+        if (_isBusy)
+        {
+            return;
+        }
+
+        if (!TryCreateRectangleConfiguration(
+                out CadRectangleConstruction construction,
+                out CadRectangleCornerTreatment cornerTreatment,
+                out double rotationDegrees,
+                out string? errorMessage))
+        {
+            SetStatus(errorMessage ?? "RECTANG settings are invalid.");
+            UpdateEditControls();
+            return;
+        }
+
+        try
+        {
+            _pointTransformInput.Text = string.Empty;
+            if (!_canvas.BeginRectangleAuthoring(
+                    construction,
+                    cornerTreatment,
+                    rotationDegrees))
+            {
+                SetStatus("RECTANG requires a loaded plan-view document.");
+            }
+        }
+        catch (Exception exception)
+        {
+            SetStatus($"RECTANG could not start: {exception.Message}");
+        }
+        UpdateEditControls();
+    }
+
+    private bool TryCreateRectangleConfiguration(
+        out CadRectangleConstruction construction,
+        out CadRectangleCornerTreatment cornerTreatment,
+        out double rotationDegrees,
+        out string? errorMessage)
+    {
+        construction = default;
+        cornerTreatment = default;
+        rotationDegrees = 0.0;
+        errorMessage = null;
+        if ((_rectangleConstructionSelector.SelectedItem as ComboBoxItem)?.Tag
+                is not CadRectangleConstructionMode constructionMode ||
+            (_rectangleCornerSelector.SelectedItem as ComboBoxItem)?.Tag
+                is not CadRectangleCornerMode cornerMode ||
+            !TryParseFiniteInvariantDouble(
+                _rectangleRotationInput.Text,
+                out rotationDegrees))
+        {
+            errorMessage =
+                "Choose RECTANG construction/corners and enter a finite rotation in degrees.";
+            return false;
+        }
+
+        try
+        {
+            switch (constructionMode)
+            {
+                case CadRectangleConstructionMode.DiagonalCorners:
+                    construction = CadRectangleConstruction.DiagonalCorners;
+                    break;
+                case CadRectangleConstructionMode.Dimensions:
+                    if (!TryParseInvariantPair(
+                            _rectangleValuesInput.Text,
+                            positive: true,
+                            out double length,
+                            out double width))
+                    {
+                        errorMessage =
+                            "Enter positive RECTANG Dimensions as length,width.";
+                        return false;
+                    }
+                    construction = CadRectangleConstruction.Dimensions(
+                        length,
+                        width);
+                    break;
+                case CadRectangleConstructionMode.Area:
+                    if ((_rectangleAreaDimensionSelector.SelectedItem as
+                                ComboBoxItem)?.Tag is not
+                            CadRectangleKnownDimension knownDimension ||
+                        !TryParseInvariantPair(
+                            _rectangleValuesInput.Text,
+                            positive: true,
+                            out double area,
+                            out double knownValue))
+                    {
+                        errorMessage =
+                            "Enter positive RECTANG Area values as area,known-dimension.";
+                        return false;
+                    }
+                    construction = CadRectangleConstruction.FromArea(
+                        area,
+                        knownDimension,
+                        knownValue);
+                    break;
+                default:
+                    errorMessage = "The RECTANG construction mode is invalid.";
+                    return false;
+            }
+
+            switch (cornerMode)
+            {
+                case CadRectangleCornerMode.Sharp:
+                    cornerTreatment = CadRectangleCornerTreatment.Sharp;
+                    break;
+                case CadRectangleCornerMode.Chamfer:
+                    if (!TryParseInvariantPair(
+                            _rectangleCornerValuesInput.Text,
+                            positive: false,
+                            out double firstDistance,
+                            out double secondDistance))
+                    {
+                        errorMessage =
+                            "Enter non-negative RECTANG chamfers as first,second.";
+                        return false;
+                    }
+                    cornerTreatment = CadRectangleCornerTreatment.Chamfer(
+                        firstDistance,
+                        secondDistance);
+                    break;
+                case CadRectangleCornerMode.Fillet:
+                    if (!TryParseNonNegativeInvariantDouble(
+                            _rectangleCornerValuesInput.Text,
+                            out double radius))
+                    {
+                        errorMessage =
+                            "Enter one non-negative RECTANG fillet radius.";
+                        return false;
+                    }
+                    cornerTreatment =
+                        CadRectangleCornerTreatment.Fillet(radius);
+                    break;
+                default:
+                    errorMessage = "The RECTANG corner mode is invalid.";
+                    return false;
+            }
+            _ = new CadRectangleAuthoringSession(
+                0.0,
+                cornerTreatment,
+                construction);
+            return true;
+        }
+        catch (ArgumentException exception)
+        {
+            errorMessage = exception.Message;
+            return false;
+        }
+    }
+
     private void AcceptPointInput()
     {
         if (_isBusy)
@@ -5561,6 +5864,12 @@ public sealed class CadSampleView : Grid
         if (_canvas.IsPointAuthoring)
         {
             accepted = _canvas.TryAcceptPointAuthoringInput(
+                input,
+                out errorMessage);
+        }
+        else if (_canvas.IsRectangleAuthoring)
+        {
+            accepted = _canvas.TryAcceptRectangleAuthoringInput(
                 input,
                 out errorMessage);
         }
@@ -6061,6 +6370,40 @@ public sealed class CadSampleView : Grid
         CadPolygonAuthoringStage.Failed =>
             $"POLYGON failed: {args.ErrorMessage}",
         _ => throw new ArgumentOutOfRangeException(nameof(args)),
+    };
+
+    private static string DescribeRectangleAuthoring(
+        CadRectangleAuthoringChangedEventArgs args) => args.Stage switch
+    {
+        CadRectangleAuthoringStage.AwaitingFirstCorner =>
+            $"RECTANG {DescribeRectangleConstruction(args.Construction)} " +
+            $"{args.CornerTreatment.Mode}: specify the first corner by click " +
+            "or absolute WCS coordinate; Escape cancels.",
+        CadRectangleAuthoringStage.AwaitingPlacement =>
+            $"RECTANG {DescribeRectangleConstruction(args.Construction)} " +
+            $"{args.CornerTreatment.Mode}: specify the other corner/placement " +
+            "quadrant by click, coordinate, or direct distance; Escape cancels.",
+        CadRectangleAuthoringStage.Completed =>
+            $"RECTANG {args.CornerTreatment.Mode} created length " +
+            $"{args.Snapshot!.Value.Length:G17}, width " +
+            $"{args.Snapshot.Value.Width:G17}, area " +
+            $"{args.Snapshot.Value.EnclosedArea:G17}.",
+        CadRectangleAuthoringStage.Canceled => "RECTANG canceled.",
+        CadRectangleAuthoringStage.Failed =>
+            $"RECTANG failed: {args.ErrorMessage}",
+        _ => throw new ArgumentOutOfRangeException(nameof(args)),
+    };
+
+    private static string DescribeRectangleConstruction(
+        CadRectangleConstruction construction) => construction.Mode switch
+    {
+        CadRectangleConstructionMode.DiagonalCorners => "2 Corners",
+        CadRectangleConstructionMode.Dimensions =>
+            $"Dimensions {construction.Length:G17} x {construction.Width:G17}",
+        CadRectangleConstructionMode.Area =>
+            $"Area {construction.Area:G17} with " +
+            $"{construction.KnownDimension} {construction.KnownValue:G17}",
+        _ => throw new ArgumentOutOfRangeException(nameof(construction)),
     };
 
     private static string DescribePolygonMode(CadPolygonAuthoringMode mode) =>
@@ -6863,12 +7206,13 @@ public sealed class CadSampleView : Grid
         bool isArcAuthoring = _canvas.IsArcAuthoring;
         bool isEllipseAuthoring = _canvas.IsEllipseAuthoring;
         bool isPolygonAuthoring = _canvas.IsPolygonAuthoring;
+        bool isRectangleAuthoring = _canvas.IsRectangleAuthoring;
         bool isPointInputActive =
             isPointTransformPicking || isLineAuthoring || isRayAuthoring ||
             isXLineAuthoring ||
             isPointAuthoring ||
             isPolylineAuthoring || isCircleAuthoring || isArcAuthoring ||
-            isEllipseAuthoring || isPolygonAuthoring;
+            isEllipseAuthoring || isPolygonAuthoring || isRectangleAuthoring;
         bool isInteractivePicking =
             isReferencePicking || isPointInputActive;
         bool canUsePlanTools =
@@ -7019,6 +7363,30 @@ public sealed class CadSampleView : Grid
                 out _) &&
             (_polygonModeSelector.SelectedItem as ComboBoxItem)?.Tag is
                 CadPolygonAuthoringMode;
+        bool canStartRectangle = canUsePlanTools && !_is3DView &&
+            _canvas.CurrentSession is not null;
+        _rectangleConstructionSelector.IsEnabled = canStartRectangle;
+        CadRectangleConstructionMode? rectangleConstructionMode =
+            (_rectangleConstructionSelector.SelectedItem as ComboBoxItem)?.Tag
+                is CadRectangleConstructionMode selectedConstructionMode
+                    ? selectedConstructionMode
+                    : null;
+        _rectangleAreaDimensionSelector.IsEnabled = canStartRectangle &&
+            rectangleConstructionMode == CadRectangleConstructionMode.Area;
+        _rectangleValuesInput.IsEnabled = canStartRectangle &&
+            rectangleConstructionMode !=
+                CadRectangleConstructionMode.DiagonalCorners;
+        _rectangleCornerSelector.IsEnabled = canStartRectangle;
+        CadRectangleCornerMode? rectangleCornerMode =
+            (_rectangleCornerSelector.SelectedItem as ComboBoxItem)?.Tag
+                is CadRectangleCornerMode selectedCornerMode
+                    ? selectedCornerMode
+                    : null;
+        _rectangleCornerValuesInput.IsEnabled = canStartRectangle &&
+            rectangleCornerMode != CadRectangleCornerMode.Sharp;
+        _rectangleRotationInput.IsEnabled = canStartRectangle;
+        _rectangleButton.IsEnabled = canStartRectangle &&
+            TryCreateRectangleConfiguration(out _, out _, out _, out _);
         _selectionColorInput.IsEnabled = canTransform;
         _selectionLineWeightSelector.IsEnabled = canTransform;
         _selectionLayerSelector.IsEnabled = canTransform;
@@ -7758,6 +8126,28 @@ public sealed class CadSampleView : Grid
             CultureInfo.InvariantCulture,
             out value) &&
         double.IsFinite(value);
+
+    private static bool TryParseInvariantPair(
+        string source,
+        bool positive,
+        out double first,
+        out double second)
+    {
+        first = 0.0;
+        second = 0.0;
+        int separator = source.IndexOf(',');
+        if (separator <= 0 || separator == source.Length - 1 ||
+            source.IndexOf(',', separator + 1) >= 0 ||
+            !TryParseFiniteInvariantDouble(source[..separator], out first) ||
+            !TryParseFiniteInvariantDouble(source[(separator + 1)..], out second))
+        {
+            return false;
+        }
+        return positive
+            ? first > 0.0 && second > 0.0 &&
+                first <= float.MaxValue && second <= float.MaxValue
+            : first >= 0.0 && second >= 0.0;
+    }
 
     private static bool TryParseTransparency(
         string source,

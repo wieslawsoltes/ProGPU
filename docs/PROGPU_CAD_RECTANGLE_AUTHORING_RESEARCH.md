@@ -99,7 +99,11 @@ behavioral differential fixtures remain a later confirmation gate.
 Session state, diagonal projection, Dimensions solving, Area solving, and live
 vertex expansion are bounded O(1) time and storage. A snapshot has four scalar
 corner parameters and never owns a variable vertex collection. Commit expands
-at most eight vertices and allocates the one final LWPOLYLINE snapshot.
+at most eight vertices and allocates the one final LWPOLYLINE snapshot. Stable
+solve plus caller-buffered contour expansion is verified at zero managed
+allocation after warmup; the shared live preview records at most eight exact
+line/arc segments and one diagonal guide without document compilation, upload,
+or a managed/native crossing.
 
 The final entity follows the existing polyline pipeline, so startup/lazy
 initialization, text shaping/layout reuse, visibility culling, cache keys and
@@ -120,9 +124,8 @@ or new managed/native crossing applies.
   value would violate rendering/printing parity.
 - Arbitrary 3D UCS/OCS planes, per-corner radii, expressions and unit suffixes,
   command-line aliases, command chaining, licensed AutoCAD differential
-  fixtures, and host controls are separate checkpoints. Plan elevation is the
-  accepted first point's exact WCS Z until a typed persistent elevation option
-  is integrated.
+  fixtures, and a typed persistent elevation option are separate checkpoints.
+  Plan elevation is the accepted first point's exact WCS Z.
 
 ## Verification contract
 
@@ -132,7 +135,17 @@ maximum-radius vertex coalescing, large-WCS behavior, nonfinite and degenerate
 failure, recoverable final input, property publication and Undo/Redo, DXF and
 DWG round trips, managed/native replay, and bounded randomized invariants.
 
-The analytic-core checkpoint passed 20/20 focused tests in Debug and Release,
-including 4,096 deterministic randomized snapshots, both persistence formats,
-and native replay. ACadSharp emitted only its pre-existing warning baseline;
-the new ProGPU sources compiled without warnings.
+The analytic-core checkpoint passed 20/20 focused tests in Debug and Release.
+The integrated checkpoint expands this to 31 focused tests, including 4,096
+deterministic randomized snapshots, a 100,000-iteration zero-allocation stable
+preview gate, shared controls and Escape, ANGBASE/ANGDIR, direct distance,
+fixed-construction corner preflight, recoverable publication failure, both
+persistence formats, and native replay. The complete CAD suite passes
+1,321/1,321 in Debug and Release. ACadSharp emits only its pre-existing warning
+baseline; the Release `ProGPU.CAD` build completes with 0 warnings and 0
+errors. Fresh `ACadSharp.ProGPU` and `ProGPU.CAD` packages at
+`0.1.0-preview.62` pass the two-package content/dependency audit, and an
+isolated package-only consumer restores, builds with 0 warnings and 0 errors,
+and creates an AC1032 document. The grouped wrapper remains unavailable while
+the separately user-deleted browser sample project is absent; validation did
+not restore or stage those files.

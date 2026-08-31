@@ -443,6 +443,60 @@ public sealed class CadPolygonAuthoringChangedEventArgs : EventArgs
     }
 }
 
+/// <summary>Observable stage of one shared desktop/browser RECTANG command.</summary>
+public enum CadRectangleAuthoringStage : byte
+{
+    AwaitingFirstCorner = 0,
+    AwaitingPlacement = 1,
+    Completed = 2,
+    Canceled = 3,
+    Failed = 4,
+}
+
+/// <summary>Immutable transition emitted by bounded RECTANG authoring.</summary>
+public sealed class CadRectangleAuthoringChangedEventArgs : EventArgs
+{
+    public CadRectangleAuthoringStage Stage { get; }
+
+    public CadRectangleConstruction Construction { get; }
+
+    public CadRectangleCornerTreatment CornerTreatment { get; }
+
+    public double RotationRadians { get; }
+
+    public CadRectangleAuthoringInputKind InputKind { get; }
+
+    public int AcceptedInputCount { get; }
+
+    public CadPoint3D? CurrentPoint { get; }
+
+    public CadRectangleAuthoringSnapshot? Snapshot { get; }
+
+    public string? ErrorMessage { get; }
+
+    internal CadRectangleAuthoringChangedEventArgs(
+        CadRectangleAuthoringStage stage,
+        CadRectangleConstruction construction,
+        CadRectangleCornerTreatment cornerTreatment,
+        double rotationRadians,
+        CadRectangleAuthoringInputKind inputKind,
+        int acceptedInputCount,
+        CadPoint3D? currentPoint = null,
+        CadRectangleAuthoringSnapshot? snapshot = null,
+        string? errorMessage = null)
+    {
+        Stage = stage;
+        Construction = construction;
+        CornerTreatment = cornerTreatment;
+        RotationRadians = rotationRadians;
+        InputKind = inputKind;
+        AcceptedInputCount = acceptedInputCount;
+        CurrentPoint = currentPoint;
+        Snapshot = snapshot;
+        ErrorMessage = errorMessage;
+    }
+}
+
 /// <summary>
 /// Common general properties for the current semantic model-space selection.
 /// A null common property means selected entities have different persisted values;
@@ -552,6 +606,9 @@ public sealed class CadSampleCanvas : FrameworkElement
     private CadArcAuthoringSession? _arcAuthoring;
     private CadEllipseAuthoringSession? _ellipseAuthoring;
     private CadPolygonAuthoringSession? _polygonAuthoring;
+    private CadRectangleAuthoringSession? _rectangleAuthoring;
+    private double _rectangleRotationRadians;
+    private CadRectangleCornerTreatment _rectangleCornerTreatment;
     private CadBounds3D _bounds;
     private CadBounds3D _selectedBounds;
     private CadBounds3D _drawOrderReferenceBounds;
@@ -772,6 +829,28 @@ public sealed class CadSampleCanvas : FrameworkElement
     public CadPoint3D? PendingPolygonCurrentPoint =>
         _polygonAuthoring?.CurrentPoint;
 
+    /// <summary>Whether one bounded plan-view RECTANG is active.</summary>
+    public bool IsRectangleAuthoring => _rectangleAuthoring is not null;
+
+    public CadRectangleConstruction? PendingRectangleConstruction =>
+        _rectangleAuthoring?.Construction;
+
+    public CadRectangleAuthoringInputKind? PendingRectangleInputKind =>
+        _rectangleAuthoring?.InputKind;
+
+    public int PendingRectangleAcceptedInputCount =>
+        _rectangleAuthoring?.AcceptedInputCount ?? 0;
+
+    public CadPoint3D? PendingRectangleCurrentPoint =>
+        _rectangleAuthoring?.CurrentPoint;
+
+    /// <summary>Profile-scoped RECTANG rotation retained across commands.</summary>
+    public double RectangleRotationRadians => _rectangleRotationRadians;
+
+    /// <summary>Profile-scoped RECTANG corner treatment retained across commands.</summary>
+    public CadRectangleCornerTreatment RectangleCornerTreatment =>
+        _rectangleCornerTreatment;
+
     public CadPolylineAuthoringMode PolylineAuthoringMode
     {
         get => _polylineAuthoring?.Mode ?? CadPolylineAuthoringMode.Line;
@@ -812,7 +891,8 @@ public sealed class CadSampleCanvas : FrameworkElement
         _circleAuthoring is not null ||
         _arcAuthoring is not null ||
         _ellipseAuthoring is not null ||
-        _polygonAuthoring is not null;
+        _polygonAuthoring is not null ||
+        _rectangleAuthoring is not null;
 
     /// <summary>Running object-snap modes used by MOVE/COPY point prompts.</summary>
     public CadObjectSnapModes ObjectSnapModes
@@ -1280,6 +1360,13 @@ public sealed class CadSampleCanvas : FrameworkElement
         PolygonAuthoringChanged;
 
     /// <summary>
+    /// Raised for accepted RECTANG corners, completion, cancellation, and
+    /// failure. Pointer-motion preview does not allocate events.
+    /// </summary>
+    public event EventHandler<CadRectangleAuthoringChangedEventArgs>?
+        RectangleAuthoringChanged;
+
+    /// <summary>
     /// Raised when cursor-direction availability changes for typed point input.
     /// </summary>
     public event EventHandler? PointTransformInputAvailabilityChanged;
@@ -1474,6 +1561,7 @@ public sealed class CadSampleCanvas : FrameworkElement
             ResetArcAuthoringState();
             ResetEllipseAuthoringState();
             ResetPolygonAuthoringState();
+            ResetRectangleAuthoringState();
             ResetSelectionState(notify: false);
             _needsFit = true;
         }
@@ -1564,7 +1652,8 @@ public sealed class CadSampleCanvas : FrameworkElement
             !drewPendingXLine)
         {
             Vector2 basePoint = viewport.WorldToScreen(_pointTransformBasePoint);
-            if (!DrawPendingPolygon(context, viewport) &&
+            if (!DrawPendingRectangle(context, viewport) &&
+                !DrawPendingPolygon(context, viewport) &&
                 !DrawPendingEllipse(context, viewport) &&
                 !DrawPendingArc(context, viewport) &&
                 !DrawPendingCircle(context, viewport) &&
@@ -1898,6 +1987,77 @@ public sealed class CadSampleCanvas : FrameworkElement
             // A non-representable live pointer never mutates accepted state.
         }
         return true;
+    }
+
+    private bool DrawPendingRectangle(
+        DrawingContext context,
+        CadPlanViewport viewport)
+    {
+        CadRectangleAuthoringSession? authoring = _rectangleAuthoring;
+        if (authoring is null ||
+            authoring.FirstCorner is not CadPoint3D firstCorner)
+        {
+            return false;
+        }
+
+        try
+        {
+            CadPoint3D previewPoint = viewport.ScreenToWorld(
+                _pointTransformCurrent,
+                firstCorner.Z);
+            if (authoring.TryPreviewPoint(
+                    previewPoint,
+                    out CadRectangleAuthoringSnapshot snapshot))
+            {
+                DrawRectangleAuthoringSnapshot(context, viewport, snapshot);
+            }
+            context.DrawLine(
+                _drawOrderReferencePen,
+                viewport.WorldToScreen(firstCorner),
+                _pointTransformCurrent);
+        }
+        catch (ArgumentException)
+        {
+            // A non-representable live pointer never mutates accepted state.
+        }
+        return true;
+    }
+
+    private void DrawRectangleAuthoringSnapshot(
+        DrawingContext context,
+        CadPlanViewport viewport,
+        CadRectangleAuthoringSnapshot snapshot)
+    {
+        Span<CadPoint3D> points = stackalloc CadPoint3D[8];
+        Span<double> bulges = stackalloc double[8];
+        int count = snapshot.CopyContour(points, bulges);
+        CadPoint3D first = points[0];
+        var path = new PathGeometry();
+        var figure = new PathFigure(viewport.WorldToScreen(first))
+        {
+            IsFilled = false,
+            IsClosed = false,
+        };
+        CadPoint3D previous = first;
+        for (int index = 1; index < count; index++)
+        {
+            CadPoint3D current = points[index];
+            AppendPolylinePreviewSegment(
+                figure,
+                viewport,
+                previous,
+                current,
+                bulges[index - 1]);
+            previous = current;
+        }
+        AppendPolylinePreviewSegment(
+            figure,
+            viewport,
+            previous,
+            first,
+            bulges[count - 1]);
+        path.Figures.Add(figure);
+        context.DrawPath(null, _drawOrderReferencePen, path);
     }
 
     private static void DrawPolygonAuthoringSnapshot(
@@ -2375,6 +2535,7 @@ public sealed class CadSampleCanvas : FrameworkElement
         ResetArcAuthoringState();
         ResetEllipseAuthoringState();
         ResetPolygonAuthoringState();
+        ResetRectangleAuthoringState();
         ResetSelectionState(notify: true);
         Invalidate();
     }
@@ -4609,6 +4770,229 @@ public sealed class CadSampleCanvas : FrameworkElement
     }
 
     /// <summary>
+    /// Starts one bounded plan-view RECTANG using typed scalar construction
+    /// and profile-scoped corner/rotation settings.
+    /// </summary>
+    public bool BeginRectangleAuthoring(
+        CadRectangleConstruction construction,
+        CadRectangleCornerTreatment cornerTreatment,
+        double rotationDegrees)
+    {
+        if (!double.IsFinite(rotationDegrees))
+        {
+            throw new ArgumentOutOfRangeException(nameof(rotationDegrees));
+        }
+        if (CurrentSession is null || CurrentSnapshot is null)
+        {
+            return false;
+        }
+        ThrowIfDrawOrderReferenceSelectionPending();
+        if (IsPointAcquisitionActive)
+        {
+            throw new InvalidOperationException(
+                "Complete the pending point-acquisition command first.");
+        }
+
+        double rotationRadians = Math.Atan2(
+            _planPolarTrackingSettings.XAxis.Y,
+            _planPolarTrackingSettings.XAxis.X);
+        double enteredRotation = rotationDegrees * (Math.PI / 180.0);
+        if (_planPolarTrackingSettings.IsClockwise)
+        {
+            enteredRotation = -enteredRotation;
+        }
+        rotationRadians += enteredRotation;
+        var authoring = new CadRectangleAuthoringSession(
+            rotationRadians,
+            cornerTreatment,
+            construction);
+        _rectangleAuthoring = authoring;
+        _rectangleRotationRadians = authoring.RotationRadians;
+        _rectangleCornerTreatment = cornerTreatment;
+        _hasPointTransformBasePoint = false;
+        _isPointTransformPointerPressed = false;
+        ClearPointTransformSnapState();
+        RectangleAuthoringChanged?.Invoke(
+            this,
+            new CadRectangleAuthoringChangedEventArgs(
+                CadRectangleAuthoringStage.AwaitingFirstCorner,
+                construction,
+                cornerTreatment,
+                authoring.RotationRadians,
+                authoring.InputKind,
+                acceptedInputCount: 0));
+        Invalidate();
+        return true;
+    }
+
+    public bool CanAcceptRectangleAuthoringInput(string? text)
+    {
+        CadRectangleAuthoringSession? authoring = _rectangleAuthoring;
+        if (authoring is null ||
+            !TryResolveRectanglePointInput(text, out CadPoint3D point, out _) ||
+            !authoring.CanAcceptPoint(point))
+        {
+            return false;
+        }
+        if (authoring.TryPreviewPoint(
+                point,
+                out CadRectangleAuthoringSnapshot snapshot))
+        {
+            return CanRepresentRectangleSnapshot(snapshot);
+        }
+        try
+        {
+            _ = CreateViewport().WorldToScreen(point);
+            return true;
+        }
+        catch (ArgumentException)
+        {
+            return false;
+        }
+    }
+
+    public bool TryAcceptRectangleAuthoringInput(
+        string? text,
+        out string? errorMessage)
+    {
+        errorMessage = null;
+        if (_rectangleAuthoring is null)
+        {
+            errorMessage = "No RECTANG command is awaiting input.";
+            return false;
+        }
+        if (!TryResolveRectanglePointInput(
+                text,
+                out CadPoint3D point,
+                out errorMessage))
+        {
+            return false;
+        }
+        Vector2 screenPoint;
+        try
+        {
+            screenPoint = CreateViewport().WorldToScreen(point);
+        }
+        catch (ArgumentException)
+        {
+            errorMessage =
+                "The RECTANG point cannot be represented by the current plan viewport.";
+            return false;
+        }
+        return TryAcceptRectangleAuthoringPoint(
+            point,
+            screenPoint,
+            out errorMessage);
+    }
+
+    /// <summary>Cancels RECTANG without changing the document or history.</summary>
+    public bool CancelRectangleAuthoring()
+    {
+        CadRectangleAuthoringSession? authoring = _rectangleAuthoring;
+        if (authoring is null)
+        {
+            return false;
+        }
+
+        CadRectangleAuthoringInputKind inputKind = authoring.InputKind;
+        int acceptedInputCount = authoring.AcceptedInputCount;
+        CadPoint3D? currentPoint = authoring.CurrentPoint;
+        CadRectangleConstruction construction = authoring.Construction;
+        CadRectangleCornerTreatment cornerTreatment =
+            authoring.CornerTreatment;
+        double rotationRadians = authoring.RotationRadians;
+        ResetRectangleAuthoringState();
+        RectangleAuthoringChanged?.Invoke(
+            this,
+            new CadRectangleAuthoringChangedEventArgs(
+                CadRectangleAuthoringStage.Canceled,
+                construction,
+                cornerTreatment,
+                rotationRadians,
+                inputKind,
+                acceptedInputCount,
+                currentPoint));
+        Invalidate();
+        return true;
+    }
+
+    private bool TryResolveRectanglePointInput(
+        string? text,
+        out CadPoint3D point,
+        out string? errorMessage)
+    {
+        point = default;
+        errorMessage = null;
+        if (!CadCoordinateInput.TryParse(text, out CadCoordinateInput coordinate))
+        {
+            if (!CadDirectDistanceInput.TryParse(
+                    text,
+                    out CadDirectDistanceInput distance))
+            {
+                errorMessage =
+                    "Enter x,y[,z], @dx,dy[,dz], distance<angle, @distance<angle, or a positive direct distance using invariant numbers.";
+                return false;
+            }
+            if (!_hasPointTransformBasePoint)
+            {
+                errorMessage =
+                    "Accept an absolute first corner before entering a direct distance.";
+                return false;
+            }
+            if (!_hasPointTransformPointerPosition)
+            {
+                errorMessage =
+                    "Move the cursor from the first RECTANG corner before entering a direct distance.";
+                return false;
+            }
+            if (!TryResolvePointTransformDirectDistance(distance, out point))
+            {
+                errorMessage =
+                    "The cursor direction and distance do not resolve to a finite WCS point.";
+                return false;
+            }
+            return true;
+        }
+
+        if (!_hasPointTransformBasePoint && coordinate.IsRelative)
+        {
+            errorMessage =
+                "Enter an absolute first corner before using a relative coordinate.";
+            return false;
+        }
+        CadPoint3D origin = _hasPointTransformBasePoint
+            ? _pointTransformBasePoint
+            : CadPoint3D.Zero;
+        if (!coordinate.TryResolve(origin, out point))
+        {
+            errorMessage = "The coordinate resolves outside finite WCS values.";
+            return false;
+        }
+        return true;
+    }
+
+    private bool CanRepresentRectangleSnapshot(
+        CadRectangleAuthoringSnapshot snapshot)
+    {
+        try
+        {
+            CadPlanViewport viewport = CreateViewport();
+            Span<CadPoint3D> points = stackalloc CadPoint3D[8];
+            Span<double> bulges = stackalloc double[8];
+            int count = snapshot.CopyContour(points, bulges);
+            for (int index = 0; index < count; index++)
+            {
+                _ = viewport.WorldToScreen(points[index]);
+            }
+            return true;
+        }
+        catch (ArgumentException)
+        {
+            return false;
+        }
+    }
+
+    /// <summary>
     /// Starts one bounded plan-view ELLIPSE or elliptical arc using the complete
     /// Axis/Center, Distance/Rotation, and endpoint-interpretation matrix.
     /// </summary>
@@ -6654,7 +7038,8 @@ public sealed class CadSampleCanvas : FrameworkElement
                 _circleAuthoring is not null ||
                 _arcAuthoring is not null ||
                 _ellipseAuthoring is not null ||
-                _polygonAuthoring is not null) &&
+                _polygonAuthoring is not null ||
+                _rectangleAuthoring is not null) &&
             _hasPointTransformBasePoint
             ? viewport.ScreenToWorld(screenPoint, _pointTransformBasePoint.Z)
             : viewport.ScreenToWorld(screenPoint);
@@ -7293,7 +7678,8 @@ public sealed class CadSampleCanvas : FrameworkElement
                 _circleAuthoring is null &&
                 _arcAuthoring is null &&
                 _ellipseAuthoring is null &&
-                _polygonAuthoring is null)
+                _polygonAuthoring is null &&
+                _rectangleAuthoring is null)
         {
             return;
         }
@@ -7307,7 +7693,8 @@ public sealed class CadSampleCanvas : FrameworkElement
                     _circleAuthoring is not null ||
                     _arcAuthoring is not null ||
                     _ellipseAuthoring is not null ||
-                    _polygonAuthoring is not null) &&
+                    _polygonAuthoring is not null ||
+                    _rectangleAuthoring is not null) &&
                 _hasPointTransformBasePoint
                 ? CreateViewport().ScreenToWorld(
                     screenPoint,
@@ -7417,7 +7804,7 @@ public sealed class CadSampleCanvas : FrameworkElement
                         _ellipseAuthoring?.CurrentPoint,
                         errorMessage: exception.Message));
             }
-            else
+            else if (_polygonAuthoring is not null)
             {
                 PolygonAuthoringChanged?.Invoke(
                     this,
@@ -7430,6 +7817,21 @@ public sealed class CadSampleCanvas : FrameworkElement
                             CadPolygonAuthoringInputKind.CenterPoint,
                         _polygonAuthoring?.AcceptedInputCount ?? 0,
                         _polygonAuthoring?.CurrentPoint,
+                        errorMessage: exception.Message));
+            }
+            else
+            {
+                RectangleAuthoringChanged?.Invoke(
+                    this,
+                    new CadRectangleAuthoringChangedEventArgs(
+                        CadRectangleAuthoringStage.Failed,
+                        _rectangleAuthoring?.Construction ?? default,
+                        _rectangleAuthoring?.CornerTreatment ?? default,
+                        _rectangleAuthoring?.RotationRadians ?? 0.0,
+                        _rectangleAuthoring?.InputKind ??
+                            CadRectangleAuthoringInputKind.FirstCorner,
+                        _rectangleAuthoring?.AcceptedInputCount ?? 0,
+                        _rectangleAuthoring?.CurrentPoint,
                         errorMessage: exception.Message));
             }
             Invalidate();
@@ -7486,6 +7888,11 @@ public sealed class CadSampleCanvas : FrameworkElement
         if (_polygonAuthoring is not null)
         {
             _ = TryAcceptPolygonAuthoringPoint(point, screenPoint, out _);
+            return;
+        }
+        if (_rectangleAuthoring is not null)
+        {
+            _ = TryAcceptRectangleAuthoringPoint(point, screenPoint, out _);
             return;
         }
 
@@ -8304,6 +8711,144 @@ public sealed class CadSampleCanvas : FrameworkElement
         _hasPointTransformBasePoint = true;
     }
 
+    private bool TryAcceptRectangleAuthoringPoint(
+        CadPoint3D point,
+        Vector2? screenPoint,
+        out string? errorMessage)
+    {
+        errorMessage = null;
+        CadRectangleAuthoringSession? authoring = _rectangleAuthoring;
+        if (authoring is null)
+        {
+            errorMessage = "No RECTANG command is active.";
+            return false;
+        }
+
+        try
+        {
+            _ = screenPoint ?? CreateViewport().WorldToScreen(point);
+        }
+        catch (ArgumentException exception)
+        {
+            errorMessage = exception.Message;
+            NotifyRectangleAuthoringFailure(authoring, errorMessage);
+            return false;
+        }
+
+        if (!authoring.TryAcceptPoint(
+                point,
+                out CadRectangleAuthoringSnapshot snapshot,
+                out bool completed,
+                out errorMessage))
+        {
+            NotifyRectangleAuthoringFailure(authoring, errorMessage);
+            return false;
+        }
+        if (completed)
+        {
+            return TryCommitRectangleAuthoringSnapshot(
+                authoring,
+                snapshot,
+                point,
+                out errorMessage);
+        }
+
+        UpdateRectangleAcquisitionBase(authoring);
+        RectangleAuthoringChanged?.Invoke(
+            this,
+            new CadRectangleAuthoringChangedEventArgs(
+                CadRectangleAuthoringStage.AwaitingPlacement,
+                authoring.Construction,
+                authoring.CornerTreatment,
+                authoring.RotationRadians,
+                authoring.InputKind,
+                authoring.AcceptedInputCount,
+                point));
+        Invalidate();
+        return true;
+    }
+
+    private bool TryCommitRectangleAuthoringSnapshot(
+        CadRectangleAuthoringSession authoring,
+        CadRectangleAuthoringSnapshot snapshot,
+        CadPoint3D? finalPoint,
+        out string? errorMessage)
+    {
+        errorMessage = null;
+        CadDocumentSession session = CurrentSession ??
+            throw new InvalidOperationException("No CAD document is loaded.");
+        CadDocumentHistory history = _history ??
+            throw new InvalidOperationException(
+                "The CAD edit history is not initialized.");
+        try
+        {
+            history.Execute(new CadAddPolylineCommand(
+                snapshot.CreatePolylineSnapshot(),
+                description:
+                    $"RECTANG: add {authoring.Construction.Mode} {authoring.CornerTreatment.Mode}"));
+            CadRectangleConstruction construction = authoring.Construction;
+            CadRectangleCornerTreatment cornerTreatment =
+                authoring.CornerTreatment;
+            double rotationRadians = authoring.RotationRadians;
+            CadRectangleAuthoringInputKind inputKind = authoring.InputKind;
+            int acceptedInputCount = authoring.AcceptedInputCount + 1;
+            ResetRectangleAuthoringState();
+            RecompileAfterEdit(session);
+            RectangleAuthoringChanged?.Invoke(
+                this,
+                new CadRectangleAuthoringChangedEventArgs(
+                    CadRectangleAuthoringStage.Completed,
+                    construction,
+                    cornerTreatment,
+                    rotationRadians,
+                    inputKind,
+                    acceptedInputCount,
+                    finalPoint,
+                    snapshot));
+            return true;
+        }
+        catch (Exception exception)
+        {
+            errorMessage = exception.Message;
+            NotifyRectangleAuthoringFailure(authoring, errorMessage);
+            return false;
+        }
+    }
+
+    private void NotifyRectangleAuthoringFailure(
+        CadRectangleAuthoringSession authoring,
+        string? errorMessage)
+    {
+        RectangleAuthoringChanged?.Invoke(
+            this,
+            new CadRectangleAuthoringChangedEventArgs(
+                CadRectangleAuthoringStage.Failed,
+                authoring.Construction,
+                authoring.CornerTreatment,
+                authoring.RotationRadians,
+                authoring.InputKind,
+                authoring.AcceptedInputCount,
+                authoring.CurrentPoint,
+                errorMessage: errorMessage));
+        Invalidate();
+    }
+
+    private void UpdateRectangleAcquisitionBase(
+        CadRectangleAuthoringSession authoring)
+    {
+        ClearPointTransformSnapState();
+        CadPoint3D? acquisitionBase = authoring.AcquisitionBasePoint;
+        if (acquisitionBase is not CadPoint3D point)
+        {
+            _hasPointTransformBasePoint = false;
+            return;
+        }
+
+        _pointTransformBasePoint = point;
+        _pointTransformCurrent = CreateViewport().WorldToScreen(point);
+        _hasPointTransformBasePoint = true;
+    }
+
     private void AcceptPointTransformPoint(
         CadPoint3D point,
         Vector2? screenPoint)
@@ -8668,6 +9213,16 @@ public sealed class CadSampleCanvas : FrameworkElement
         _polygonAuthoring = null;
         _polygonAuthoringPicture?.Dispose();
         _polygonAuthoringPicture = null;
+        _hasPointTransformBasePoint = false;
+        _isPointTransformPointerPressed = false;
+        _pointTransformBasePoint = default;
+        _pointTransformCurrent = default;
+        ClearPointTransformSnapState();
+    }
+
+    private void ResetRectangleAuthoringState()
+    {
+        _rectangleAuthoring = null;
         _hasPointTransformBasePoint = false;
         _isPointTransformPointerPressed = false;
         _pointTransformBasePoint = default;
@@ -9060,6 +9615,7 @@ public sealed class CadSampleCanvas : FrameworkElement
         ResetArcAuthoringState();
         ResetEllipseAuthoringState();
         ResetPolygonAuthoringState();
+        ResetRectangleAuthoringState();
         _picture?.Dispose();
         _picture = null;
         _constructionPicture?.Dispose();
