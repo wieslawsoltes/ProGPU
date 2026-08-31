@@ -2,6 +2,7 @@ using System.Buffers.Binary;
 using System.Drawing.Imaging;
 using System.Reflection;
 using System.Runtime.InteropServices;
+using System.Text;
 using ProGPU.SystemDrawing;
 using Xunit;
 
@@ -332,11 +333,61 @@ public sealed class MetafileParserTests
             graphics.Clear(Color.Blue);
             NotSupportedException exception = Assert.Throws<NotSupportedException>(() =>
                 graphics.DrawImage(metafile, new Rectangle(0, 0, 64, 64)));
-            Assert.Contains(nameof(EmfPlusRecordType.WmfTextOut), exception.Message, StringComparison.Ordinal);
+            Assert.Contains(nameof(EmfPlusRecordType.WmfExtTextOut), exception.Message, StringComparison.Ordinal);
             Assert.Contains("byte offset", exception.Message, StringComparison.Ordinal);
         }
 
         Assert.Equal(Color.Blue.ToArgb(), target.GetPixel(16, 16).ToArgb());
+    }
+
+    [Fact]
+    public void WmfTextOutUsesSelectedFontColorsAndRestoredTextState()
+    {
+        using var metafile = new Metafile(new MemoryStream(CreateTextPlaybackWmf()));
+        using var target = new Bitmap(64, 64);
+        using (Graphics graphics = Graphics.FromImage(target))
+        {
+            graphics.Clear(Color.Transparent);
+            graphics.DrawImage(metafile, new Rectangle(0, 0, 64, 64));
+        }
+
+        Assert.True(CountPixels(target, new Rectangle(2, 2, 28, 18), IsMostlyRed) > 4);
+        Assert.True(CountPixels(target, new Rectangle(2, 22, 28, 18), IsMostlyGreen) > 4);
+        Assert.True(CountPixels(target, new Rectangle(32, 2, 28, 18), IsMostlyRed) > 4);
+    }
+
+    [Fact]
+    public void WmfTextOutPaintsMeasuredOpaqueBackground()
+    {
+        using var metafile = new Metafile(new MemoryStream(CreateOpaqueTextPlaybackWmf()));
+        using var target = new Bitmap(64, 64);
+        using (Graphics graphics = Graphics.FromImage(target))
+        {
+            graphics.Clear(Color.Transparent);
+            graphics.DrawImage(metafile, new Rectangle(0, 0, 64, 64));
+        }
+
+        var textBounds = new Rectangle(2, 2, 36, 22);
+        Assert.True(CountPixels(target, textBounds, IsMostlyBlue) > 4);
+        Assert.True(CountPixels(target, textBounds, IsMostlyYellow) > 4);
+    }
+
+    [Fact]
+    public void WmfInvalidTextAlignmentRollsBackEarlierText()
+    {
+        using var metafile = new Metafile(new MemoryStream(
+            CreateTextPlaybackWmf(includeInvalidAlignment: true)));
+        using var target = new Bitmap(64, 64);
+        using (Graphics graphics = Graphics.FromImage(target))
+        {
+            graphics.Clear(Color.Blue);
+            NotSupportedException exception = Assert.Throws<NotSupportedException>(() =>
+                graphics.DrawImage(metafile, new Rectangle(0, 0, 64, 64)));
+            Assert.Contains(nameof(EmfPlusRecordType.WmfTextOut), exception.Message, StringComparison.Ordinal);
+            Assert.Contains("0x0004", exception.Message, StringComparison.Ordinal);
+        }
+
+        Assert.Equal(Color.Blue.ToArgb(), target.GetPixel(8, 8).ToArgb());
     }
 
     [Fact]
@@ -486,7 +537,7 @@ public sealed class MetafileParserTests
             graphics.Clear(Color.Blue);
             NotSupportedException exception = Assert.Throws<NotSupportedException>(() =>
                 graphics.DrawImage(metafile, new Rectangle(0, 0, 128, 128)));
-            Assert.Contains(nameof(EmfPlusRecordType.WmfTextOut), exception.Message, StringComparison.Ordinal);
+            Assert.Contains(nameof(EmfPlusRecordType.WmfExtTextOut), exception.Message, StringComparison.Ordinal);
         }
 
         Assert.Equal(Color.Blue.ToArgb(), target.GetPixel(16, 8).ToArgb());
@@ -550,7 +601,7 @@ public sealed class MetafileParserTests
             graphics.Clear(Color.Blue);
             NotSupportedException exception = Assert.Throws<NotSupportedException>(() =>
                 graphics.DrawImage(metafile, new Rectangle(0, 0, 64, 64)));
-            Assert.Contains(nameof(EmfPlusRecordType.WmfTextOut), exception.Message, StringComparison.Ordinal);
+            Assert.Contains(nameof(EmfPlusRecordType.WmfExtTextOut), exception.Message, StringComparison.Ordinal);
         }
 
         Assert.Equal(Color.Blue.ToArgb(), target.GetPixel(16, 16).ToArgb());
@@ -664,7 +715,7 @@ public sealed class MetafileParserTests
             graphics.Clear(Color.Blue);
             NotSupportedException exception = Assert.Throws<NotSupportedException>(() =>
                 graphics.DrawImage(metafile, new Rectangle(0, 0, 64, 64)));
-            Assert.Contains(nameof(EmfPlusRecordType.WmfTextOut), exception.Message, StringComparison.Ordinal);
+            Assert.Contains(nameof(EmfPlusRecordType.WmfExtTextOut), exception.Message, StringComparison.Ordinal);
         }
 
         Assert.Equal(Color.Blue.ToArgb(), target.GetPixel(12, 12).ToArgb());
@@ -1085,7 +1136,7 @@ public sealed class MetafileParserTests
         };
         if (includeUnsupportedRecord)
         {
-            records.Add((0x0521, WmfWords(0)));
+            records.Add((0x0A32, WmfWords(0)));
         }
         records.Add((0, []));
 
@@ -1103,6 +1154,46 @@ public sealed class MetafileParserTests
             (0x012D, WmfWords(0)),
             (0x012D, WmfWords(1)),
             (0x061C, WmfWords(16, 16, 52, 52, 12, 12)),
+            (0, [])
+        };
+        return CreatePlaybackWmf(records);
+    }
+
+    private static byte[] CreateTextPlaybackWmf(bool includeInvalidAlignment = false)
+    {
+        var records = new List<(ushort Function, byte[] Payload)>
+        {
+            (0x0102, WmfWords(1)),
+            (0x012E, WmfWords(0)),
+            (0x0209, WmfColor(Color.Red)),
+            (0x02FB, WmfFont(-14, SystemFonts.DefaultFont.Name)),
+            (0x012D, WmfWords(0)),
+            (0x0521, WmfTextOut("WMF", new Point(4, 4))),
+            (0x001E, []),
+            (0x0209, WmfColor(Color.Green)),
+            (0x0521, WmfTextOut("WMF", new Point(4, 24))),
+            (0x0127, WmfWords(-1)),
+            (0x0521, WmfTextOut("WMF", new Point(34, 4)))
+        };
+        if (includeInvalidAlignment)
+        {
+            records.Add((0x012E, WmfWords(4)));
+            records.Add((0x0521, WmfTextOut("WMF", new Point(4, 44))));
+        }
+        records.Add((0, []));
+        return CreatePlaybackWmf(records);
+    }
+
+    private static byte[] CreateOpaqueTextPlaybackWmf()
+    {
+        var records = new List<(ushort Function, byte[] Payload)>
+        {
+            (0x0102, WmfWords(2)),
+            (0x0201, WmfColor(Color.Blue)),
+            (0x0209, WmfColor(Color.Yellow)),
+            (0x02FB, WmfFont(-14, SystemFonts.DefaultFont.Name)),
+            (0x012D, WmfWords(0)),
+            (0x0521, WmfTextOut("WMF", new Point(4, 4))),
             (0, [])
         };
         return CreatePlaybackWmf(records);
@@ -1141,7 +1232,7 @@ public sealed class MetafileParserTests
         };
         if (includeUnsupportedRecord)
         {
-            records.Add((0x0521, WmfWords(0)));
+            records.Add((0x0A32, WmfWords(0)));
         }
         records.Add((0, []));
         return CreatePlaybackWmf(records);
@@ -1165,7 +1256,7 @@ public sealed class MetafileParserTests
         };
         if (includeUnsupportedRecord)
         {
-            records.Add((0x0521, WmfWords(0)));
+            records.Add((0x0A32, WmfWords(0)));
         }
         records.Add((0, []));
         return CreatePlaybackWmf(records);
@@ -1230,7 +1321,7 @@ public sealed class MetafileParserTests
         };
         if (includeUnsupportedRecord)
         {
-            records.Add((0x0521, WmfWords(0)));
+            records.Add((0x0A32, WmfWords(0)));
         }
         records.Add((0, []));
         return CreatePlaybackWmf(records);
@@ -1289,6 +1380,57 @@ public sealed class MetafileParserTests
         WriteUInt32(bytes, 0, (uint)(color.R | color.G << 8 | color.B << 16));
         return bytes;
     }
+
+    private static byte[] WmfFont(short height, string faceName, byte charSet = 1)
+    {
+        byte[] bytes = new byte[50];
+        WriteInt16(bytes, 0, height);
+        WriteInt16(bytes, 8, 400);
+        bytes[13] = charSet;
+        byte[] faceBytes = Encoding.ASCII.GetBytes(faceName);
+        faceBytes.AsSpan(0, Math.Min(faceBytes.Length, 31)).CopyTo(bytes.AsSpan(18));
+        return bytes;
+    }
+
+    private static byte[] WmfTextOut(string text, Point point)
+    {
+        byte[] textBytes = Encoding.ASCII.GetBytes(text);
+        int paddedLength = (textBytes.Length + 1) & ~1;
+        byte[] bytes = new byte[checked(2 + paddedLength + 4)];
+        WriteInt16(bytes, 0, checked((short)textBytes.Length));
+        textBytes.CopyTo(bytes, 2);
+        WriteInt16(bytes, 2 + paddedLength, checked((short)point.Y));
+        WriteInt16(bytes, 2 + paddedLength + 2, checked((short)point.X));
+        return bytes;
+    }
+
+    private static int CountPixels(Bitmap bitmap, Rectangle bounds, Func<Color, bool> predicate)
+    {
+        int count = 0;
+        for (int y = bounds.Top; y < bounds.Bottom; y++)
+        {
+            for (int x = bounds.Left; x < bounds.Right; x++)
+            {
+                if (predicate(bitmap.GetPixel(x, y)))
+                {
+                    count++;
+                }
+            }
+        }
+        return count;
+    }
+
+    private static bool IsMostlyRed(Color color) =>
+        color.A > 0 && color.R > color.G * 2 && color.R > color.B * 2;
+
+    private static bool IsMostlyGreen(Color color) =>
+        color.A > 0 && color.G > color.R * 2 && color.G > color.B * 2;
+
+    private static bool IsMostlyBlue(Color color) =>
+        color.A > 0 && color.B > color.R * 2 && color.B > color.G * 2;
+
+    private static bool IsMostlyYellow(Color color) =>
+        color.A > 0 && color.R > color.B * 2 && color.G > color.B * 2;
 
     private static byte[] WmfSetPixel(Color color, Point point)
     {

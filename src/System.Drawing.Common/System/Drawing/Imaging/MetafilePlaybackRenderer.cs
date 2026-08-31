@@ -1,6 +1,7 @@
 using System.Buffers.Binary;
 using System.Drawing.Drawing2D;
 using System.Numerics;
+using System.Text;
 
 namespace System.Drawing.Imaging;
 
@@ -16,6 +17,9 @@ internal static class MetafilePlaybackRenderer
     private const uint WhitePen = 6;
     private const uint BlackPen = 7;
     private const uint NullPen = 8;
+
+    static MetafilePlaybackRenderer() =>
+        Encoding.RegisterProvider(CodePagesEncodingProvider.Instance);
 
     internal static void Play(Metafile metafile, Graphics graphics)
     {
@@ -94,6 +98,11 @@ internal static class MetafilePlaybackRenderer
             case EmfPlusRecordType.WmfSetBkColor:
                 RequireSize(record, payload, 4);
                 state.BackgroundColor = ReadColor(payload, 0);
+                return;
+
+            case EmfPlusRecordType.WmfSetTextColor:
+                RequireSize(record, payload, 4);
+                state.TextColor = ReadColor(payload, 0);
                 return;
 
             case EmfPlusRecordType.WmfSetWindowOrg:
@@ -203,6 +212,15 @@ internal static class MetafilePlaybackRenderer
             case EmfPlusRecordType.WmfCreateBrushIndirect:
                 RequireSize(record, payload, 8);
                 state.CreateWmfBrush(payload, record);
+                return;
+
+            case EmfPlusRecordType.WmfCreateFontIndirect:
+                RequireSize(record, payload, 50);
+                state.CreateWmfFont(payload, record);
+                return;
+
+            case EmfPlusRecordType.WmfTextOut:
+                DrawWmfTextOut(state, record, payload);
                 return;
 
             case EmfPlusRecordType.WmfPolygon:
@@ -823,6 +841,81 @@ internal static class MetafilePlaybackRenderer
         state.Graphics.FillRectangle(brush, x, y, width, height);
     }
 
+    private static void DrawWmfTextOut(
+        PlaybackState state,
+        in MetafileRecord record,
+        ReadOnlySpan<byte> payload)
+    {
+        if (payload.Length < 6)
+        {
+            throw Invalid(record);
+        }
+
+        int stringLength = ReadInt16(payload, 0);
+        if (stringLength < 0)
+        {
+            throw Invalid(record);
+        }
+
+        int paddedLength;
+        int expectedSize;
+        try
+        {
+            paddedLength = checked((stringLength + 1) & ~1);
+            expectedSize = checked(2 + paddedLength + 4);
+        }
+        catch (OverflowException exception)
+        {
+            throw Invalid(record, exception);
+        }
+        RequireSize(record, payload, expectedSize);
+
+        string text;
+        try
+        {
+            text = GetWmfEncoding(state.SelectedFont.GdiCharSet, record)
+                .GetString(payload.Slice(2, stringLength));
+        }
+        catch (DecoderFallbackException exception)
+        {
+            throw Invalid(record, exception);
+        }
+
+        var referencePoint = new Point(
+            ReadInt16(payload, 2 + paddedLength + 2),
+            ReadInt16(payload, 2 + paddedLength));
+        state.DrawText(record, text, referencePoint);
+    }
+
+    private static Encoding GetWmfEncoding(byte charSet, in MetafileRecord record)
+    {
+        int codePage = charSet switch
+        {
+            0 or 1 => 1252,
+            2 => throw Unsupported(record, "SYMBOL_CHARSET needs glyph-index mapping."),
+            128 => 932,
+            129 => 949,
+            130 => 1361,
+            134 => 936,
+            136 => 950,
+            161 => 1253,
+            162 => 1254,
+            163 => 1258,
+            177 => 1255,
+            178 => 1256,
+            186 => 1257,
+            204 => 1251,
+            222 => 874,
+            238 => 1250,
+            255 => 437,
+            _ => throw Unsupported(record, $"Font charset {charSet} has no defined WMF code page.")
+        };
+        return Encoding.GetEncoding(
+            codePage,
+            EncoderFallback.ExceptionFallback,
+            DecoderFallback.ExceptionFallback);
+    }
+
     private static void DrawWmfArcFamily(
         PlaybackState state,
         in MetafileRecord record,
@@ -1060,6 +1153,7 @@ internal static class MetafilePlaybackRenderer
         private readonly int _wmfObjectCapacity;
         private Pen? _selectedPen = Pens.Black;
         private Brush? _selectedBrush = Brushes.White;
+        private Font _selectedFont = SystemFonts.DefaultFont;
 
         internal PlaybackState(Graphics graphics, int wmfObjectCapacity)
         {
@@ -1080,8 +1174,10 @@ internal static class MetafilePlaybackRenderer
         internal int RasterOperation { get; set; } = 13;
         internal int TextAlignment { get; set; }
         internal Color BackgroundColor { get; set; } = Color.White;
+        internal Color TextColor { get; set; } = Color.Black;
         internal Pen? SelectedPen => _selectedPen;
         internal Brush? SelectedBrush => _selectedBrush;
+        internal Font SelectedFont => _selectedFont;
 
         internal void ApplyTransform(in MetafileRecord record)
         {
@@ -1279,8 +1375,10 @@ internal static class MetafilePlaybackRenderer
                 RasterOperation,
                 TextAlignment,
                 BackgroundColor,
+                TextColor,
                 _selectedPen,
                 _selectedBrush,
+                _selectedFont,
                 graphicsState));
         }
 
@@ -1312,8 +1410,10 @@ internal static class MetafilePlaybackRenderer
             RasterOperation = saved.RasterOperation;
             TextAlignment = saved.TextAlignment;
             BackgroundColor = saved.BackgroundColor;
+            TextColor = saved.TextColor;
             _selectedPen = saved.SelectedPen;
             _selectedBrush = saved.SelectedBrush;
+            _selectedFont = saved.SelectedFont;
             Graphics.Restore(saved.GraphicsState);
         }
 
@@ -1383,6 +1483,129 @@ internal static class MetafilePlaybackRenderer
             AddWmfObject(product, record);
         }
 
+        internal void CreateWmfFont(ReadOnlySpan<byte> payload, in MetafileRecord record)
+        {
+            int height = ReadInt16(payload, 0);
+            int width = ReadInt16(payload, 2);
+            int escapement = ReadInt16(payload, 4);
+            int orientation = ReadInt16(payload, 6);
+            int weight = ReadInt16(payload, 8);
+            bool italic = payload[10] != 0;
+            bool underline = payload[11] != 0;
+            bool strikeout = payload[12] != 0;
+            byte charSet = payload[13];
+            if (height is 0 or short.MinValue || width != 0 ||
+                escapement != 0 || orientation != 0 || weight is < 0 or > 1000 ||
+                underline || strikeout)
+            {
+                throw Unsupported(
+                    record,
+                    "The typed WMF text path supports nonzero unscaled horizontal regular/bold/italic fonts without underline or strikeout.");
+            }
+
+            Encoding encoding = GetWmfEncoding(charSet, record);
+            int terminator = payload[18..50].IndexOf((byte)0);
+            ReadOnlySpan<byte> faceBytes = terminator < 0
+                ? payload[18..50]
+                : payload.Slice(18, terminator);
+            string faceName;
+            try
+            {
+                faceName = encoding.GetString(faceBytes);
+            }
+            catch (DecoderFallbackException exception)
+            {
+                throw Invalid(record, exception);
+            }
+            bool vertical = faceName.StartsWith('@');
+            if (vertical)
+            {
+                throw Unsupported(record, "Vertical WMF fonts require a typed vertical-layout path.");
+            }
+            if (faceName.Length == 0)
+            {
+                faceName = SystemFonts.DefaultFont.Name;
+            }
+
+            FontStyle style = (weight >= 700 ? FontStyle.Bold : FontStyle.Regular) |
+                (italic ? FontStyle.Italic : FontStyle.Regular);
+            float rawSize = Math.Abs(height);
+            Font font = new(faceName, rawSize, style, GraphicsUnit.Pixel, charSet, false);
+            if (height > 0)
+            {
+                int lineUnits = font.TtfFont.Ascender - font.TtfFont.Descender + font.TtfFont.LineGap;
+                if (font.TtfFont.UnitsPerEm <= 0 || lineUnits <= 0)
+                {
+                    font.Dispose();
+                    throw Unsupported(record, "The selected font does not expose cell-height metrics.");
+                }
+
+                float emSize = rawSize * font.TtfFont.UnitsPerEm / lineUnits;
+                font.Dispose();
+                font = new Font(faceName, emSize, style, GraphicsUnit.Pixel, charSet, false);
+            }
+            AddWmfObject(font, record);
+        }
+
+        internal void DrawText(in MetafileRecord record, string text, Point recordPoint)
+        {
+            const int SupportedAlignmentMask = 0x011F;
+            if ((TextAlignment & ~SupportedAlignmentMask) != 0 ||
+                (TextAlignment & 0x0006) == 0x0004 ||
+                (TextAlignment & 0x0018) == 0x0010)
+            {
+                throw Unsupported(record, $"Text alignment 0x{TextAlignment:X4} is not valid.");
+            }
+
+            ApplyTransform(record);
+            SizeF size = Graphics.MeasureString(text, _selectedFont);
+            PointF reference = (TextAlignment & 0x0001) != 0
+                ? CurrentPoint
+                : recordPoint;
+            float x = reference.X;
+            float y = reference.Y;
+            x -= (TextAlignment & 0x0006) switch
+            {
+                0x0002 => size.Width,
+                0x0006 => size.Width / 2f,
+                _ => 0f
+            };
+            y -= (TextAlignment & 0x0018) switch
+            {
+                0x0008 => size.Height,
+                0x0018 => Graphics.ConvertFontSizeToPixels(
+                    _selectedFont.Size,
+                    _selectedFont.Unit,
+                    Graphics.DpiY) * _selectedFont.TtfFont.Ascender /
+                    _selectedFont.TtfFont.UnitsPerEm,
+                _ => 0f
+            };
+
+            if (BackgroundMode == 2 && size.Width > 0f && size.Height > 0f)
+            {
+                using var background = new SolidBrush(BackgroundColor);
+                Graphics.FillRectangle(background, x, y, size.Width, size.Height);
+            }
+            using var foreground = new SolidBrush(TextColor);
+            if ((TextAlignment & 0x0100) != 0)
+            {
+                using var format = new StringFormat(StringFormat.GenericTypographic)
+                {
+                    FormatFlags = StringFormatFlags.DirectionRightToLeft
+                };
+                Graphics.DrawString(text, _selectedFont, foreground, x, y, format);
+            }
+            else
+            {
+                Graphics.DrawString(text, _selectedFont, foreground, x, y);
+            }
+
+            if ((TextAlignment & 0x0001) != 0)
+            {
+                CurrentPoint = Point.Round(new PointF(reference.X + size.Width, reference.Y));
+            }
+        }
+
         internal void SelectObject(uint index, in MetafileRecord record)
         {
             object product;
@@ -1426,7 +1649,8 @@ internal static class MetafilePlaybackRenderer
 
         private bool IsSelected(object product)
         {
-            if (ReferenceEquals(product, _selectedPen) || ReferenceEquals(product, _selectedBrush))
+            if (ReferenceEquals(product, _selectedPen) || ReferenceEquals(product, _selectedBrush) ||
+                ReferenceEquals(product, _selectedFont))
             {
                 return true;
             }
@@ -1434,7 +1658,8 @@ internal static class MetafilePlaybackRenderer
             foreach (SavedState savedState in _savedStates)
             {
                 if (ReferenceEquals(product, savedState.SelectedPen) ||
-                    ReferenceEquals(product, savedState.SelectedBrush))
+                    ReferenceEquals(product, savedState.SelectedBrush) ||
+                    ReferenceEquals(product, savedState.SelectedFont))
                 {
                     return true;
                 }
@@ -1481,6 +1706,9 @@ internal static class MetafilePlaybackRenderer
                 case NullBrushMarker:
                     _selectedBrush = null;
                     break;
+                case Font font:
+                    _selectedFont = font;
+                    break;
                 default:
                     throw Unsupported(record, "The selected GDI object kind is not supported.");
             }
@@ -1522,8 +1750,10 @@ internal static class MetafilePlaybackRenderer
             int RasterOperation,
             int TextAlignment,
             Color BackgroundColor,
+            Color TextColor,
             Pen? SelectedPen,
             Brush? SelectedBrush,
+            Font SelectedFont,
             GraphicsState GraphicsState);
     }
 

@@ -30,6 +30,7 @@ public class MetafileBenchmarks
     private Metafile _wmfMappedPixelPlaybackMetafile = null!;
     private Metafile _wmfPatBltPlaybackMetafile = null!;
     private Metafile _wmfOffsetClipPatBltPlaybackMetafile = null!;
+    private Metafile _wmfTextPlaybackMetafile = null!;
     private readonly Graphics.EnumerateMetafileProc _enumerate = static (_, _, _, _, _) => true;
     private readonly byte[] _comment = new byte[64];
 
@@ -70,6 +71,8 @@ public class MetafileBenchmarks
             new MemoryStream(CreatePlaybackWmfPatBlts(256), writable: false));
         _wmfOffsetClipPatBltPlaybackMetafile = new Metafile(
             new MemoryStream(CreatePlaybackWmfPatBlts(256, includeOffsetClipState: true), writable: false));
+        _wmfTextPlaybackMetafile = new Metafile(
+            new MemoryStream(CreatePlaybackWmfText(256), writable: false));
     }
 
     [GlobalCleanup]
@@ -90,6 +93,7 @@ public class MetafileBenchmarks
         _wmfMappedPixelPlaybackMetafile.Dispose();
         _wmfPatBltPlaybackMetafile.Dispose();
         _wmfOffsetClipPatBltPlaybackMetafile.Dispose();
+        _wmfTextPlaybackMetafile.Dispose();
         _playbackGraphics.Dispose();
         _graphics.Dispose();
         _target.Dispose();
@@ -258,6 +262,16 @@ public class MetafileBenchmarks
     {
         _playbackContext.Clear();
         _playbackGraphics.DrawImage(_wmfOffsetClipPatBltPlaybackMetafile, new Rectangle(0, 0, 640, 480));
+        int commandCount = _playbackContext.Commands.Count;
+        _playbackContext.Clear();
+        return commandCount;
+    }
+
+    [Benchmark]
+    public int Playback256WmfTextOutToRetainedCommands()
+    {
+        _playbackContext.Clear();
+        _playbackGraphics.DrawImage(_wmfTextPlaybackMetafile, new Rectangle(0, 0, 640, 480));
         int commandCount = _playbackContext.Commands.Count;
         _playbackContext.Clear();
         return commandCount;
@@ -799,6 +813,66 @@ public class MetafileBenchmarks
             {
                 cursor += WriteWmfWordsRecord(bytes, cursor, 0x0220, -1, -1);
             }
+        }
+
+        WriteUInt32(bytes, cursor, 3);
+        return bytes;
+    }
+
+    private static byte[] CreatePlaybackWmfText(int recordCount)
+    {
+        const int fontWords = 28;
+        const int textWords = 8;
+        int declaredWords = checked(9 + fontWords + 4 + 4 + 5 + recordCount * textWords + 3);
+        byte[] bytes = new byte[checked(22 + declaredWords * 2)];
+        WriteUInt32(bytes, 0, 0x9AC6_CDD7);
+        WriteInt16(bytes, 10, 640);
+        WriteInt16(bytes, 12, 480);
+        WriteUInt16(bytes, 14, 96);
+        ushort checksum = 0;
+        for (int offset = 0; offset < 20; offset += 2)
+        {
+            checksum ^= BinaryPrimitives.ReadUInt16LittleEndian(bytes.AsSpan(offset, 2));
+        }
+        WriteUInt16(bytes, 20, checksum);
+
+        WriteUInt16(bytes, 22, 1);
+        WriteUInt16(bytes, 24, 9);
+        WriteUInt16(bytes, 26, 0x0300);
+        WriteUInt32(bytes, 28, (uint)declaredWords);
+        WriteUInt16(bytes, 32, 1);
+        WriteUInt32(bytes, 34, fontWords);
+
+        int cursor = 40;
+        WriteUInt32(bytes, cursor, fontWords);
+        WriteUInt16(bytes, cursor + 4, 0x02FB);
+        WriteInt16(bytes, cursor + 6, -14);
+        WriteInt16(bytes, cursor + 14, 400);
+        bytes[cursor + 19] = 1;
+        cursor += fontWords * 2;
+
+        WriteWmfObjectIndexRecord(bytes, cursor, 0x012D, 0);
+        cursor += 8;
+        cursor += WriteWmfWordsRecord(bytes, cursor, 0x0102, 1);
+
+        WriteUInt32(bytes, cursor, 5);
+        WriteUInt16(bytes, cursor + 4, 0x0209);
+        WriteUInt32(bytes, cursor + 6, 0x0044_4444);
+        cursor += 10;
+
+        for (int index = 0; index < recordCount; index++)
+        {
+            short x = checked((short)((index % 16) * 40));
+            short y = checked((short)((index / 16) * 30));
+            WriteUInt32(bytes, cursor, textWords);
+            WriteUInt16(bytes, cursor + 4, 0x0521);
+            WriteInt16(bytes, cursor + 6, 3);
+            bytes[cursor + 8] = (byte)'W';
+            bytes[cursor + 9] = (byte)'M';
+            bytes[cursor + 10] = (byte)'F';
+            WriteInt16(bytes, cursor + 12, y);
+            WriteInt16(bytes, cursor + 14, x);
+            cursor += textWords * 2;
         }
 
         WriteUInt32(bytes, cursor, 3);

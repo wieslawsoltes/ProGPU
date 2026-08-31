@@ -110,7 +110,8 @@ the entire temporary command stream from being appended.
 The initial WMF family follows the official 16-bit record layouts and keeps its
 state/object path separate from EMF. It implements background mode/color,
 `R2_COPYPEN`, `META_SETRELABS` no-op semantics, polygon fill mode, text-alignment
-state, text/anisotropic map modes, set/offset/scale window and viewport state,
+state, text color, `CREATEFONTINDIRECT` object-table fonts, charset-decoded
+`TEXTOUT`, text/anisotropic map modes, set/offset/scale window and viewport state,
 move, lowest-free object-table allocation and slot
 reuse, selection/deletion, solid/null pens and brushes, polygons, polylines,
 poly-polygons, current-position lines, explicit-color device pixels, counterclockwise
@@ -139,11 +140,17 @@ implementation is based on the official
 [META_SETPIXEL](https://learn.microsoft.com/en-us/openspecs/windows_protocols/ms-wmf/de9a67c4-2ddb-4e5b-b5df-eca1772af366),
 [META_PATBLT](https://learn.microsoft.com/en-us/openspecs/windows_protocols/ms-wmf/00e25092-a0d3-4b39-a0cf-ab49be6dddcd),
 [TernaryRasterOperation](https://learn.microsoft.com/en-us/openspecs/windows_protocols/ms-wmf/1605dd68-a635-4639-ab81-99ff3e3fc5a3),
+[META_CREATEFONTINDIRECT](https://learn.microsoft.com/en-us/openspecs/windows_protocols/ms-wmf/6040492f-7b58-49bd-bfef-ef1126bdffe3),
+[Font Object](https://learn.microsoft.com/en-us/openspecs/windows_protocols/ms-wmf/dabb1ed6-e5e8-4243-80ed-e63443e5484f),
+[META_SETTEXTCOLOR](https://learn.microsoft.com/en-us/openspecs/windows_protocols/ms-wmf/2bdfee2b-3016-4a6a-b4cd-c725ce9cb2a0),
+[META_TEXTOUT](https://learn.microsoft.com/en-us/openspecs/windows_protocols/ms-wmf/96531e1a-1875-49e5-b797-b4c4c50fa789),
+[TextAlignmentMode Flags](https://learn.microsoft.com/en-us/openspecs/windows_protocols/ms-wmf/2cf0d802-5db7-42f6-bb75-50ff195a6c7c),
 [META_PIE](https://learn.microsoft.com/en-us/openspecs/windows_protocols/ms-wmf/b3f3e55f-6f69-4678-87ea-e6feb6af6eeb),
 [META_CHORD](https://learn.microsoft.com/en-us/openspecs/windows_protocols/ms-wmf/44aa3feb-ab01-47ca-9386-62acf7df5263),
 [META_ROUNDRECT](https://learn.microsoft.com/en-us/openspecs/windows_protocols/ms-wmf/9c262e3b-e631-4343-8b90-0441872f1e9a), and
 [state record](https://learn.microsoft.com/en-us/openspecs/windows_protocols/ms-wmf/54e4a2e0-5ca9-4c69-b6a8-dc8f938c68ae)
-contracts. Paths, other clipping records, text output, DIB images, richer GDI objects,
+contracts. Paths, other clipping records, `EXTTEXTOUT` spacing/clipping,
+decorated or transformed fonts, SYMBOL glyph-index mapping, DIB images, richer GDI objects,
 other WMF drawing families, and nonstructural EMF+ drawing records remain
 explicit later tranches.
 
@@ -190,7 +197,9 @@ intersect/exclude clip pixels, zero-corner rectangle fallback, invalid-bound rej
 SaveDC/relative RestoreDC scope, and transactional rollback. Saved WMF state
 includes window and viewport origins/extents, current point, world transform,
 fill/map/background/raster/text/background-color settings, selected pen and
-brush, and the typed `GraphicsState` clip. The real
+brush, selected font, text color, and the typed `GraphicsState` clip. Text gates
+cover selected font/color output, transparent and measured opaque backgrounds,
+saved text-state restoration, and invalid-alignment rollback. The real
 LibreWinForms `telescope_01.wmf` fixture renders end to end into a 200-by-267
 bitmap with 6,048 opaque pixels. The focused metafile suite is 30/30 and both
 complete Debug and Release drawing suites are 391/391. Windows differential and
@@ -242,7 +251,7 @@ the saved scope, the outer intersection survives restoration, and a following
 unsupported record still rolls back the complete temporary stream. Restoring
 an unavailable relative level also fails before publishing commands.
 
-`Playback256WmfEllipsesToRetainedCommands` guards the WMF 16-bit bottom/right/top/left parameter order, selected brush and pen lowering, transactional append, and retained curve commands. The 2026-08-31 ARM64/.NET 10.0.11 in-process ShortRun measured a 1.060 millisecond median (1.109 millisecond mean, 0.115 millisecond standard deviation) and 622.14 KB managed allocation for 256 filled and stroked ellipses. One launch and three measured iterations make this a coarse first baseline. Focused gates verify selected fill/outline pixels, reject unordered bounds without publication, and prove that a following unsupported text record does not publish a partially lowered ellipse stream. The complete drawing suite passes 411/411, and ApiCompat remains at 0 missing types, 0 missing members, and 13 reviewed platform-annotation differences.
+`Playback256WmfEllipsesToRetainedCommands` guards the WMF 16-bit bottom/right/top/left parameter order, selected brush and pen lowering, transactional append, and retained curve commands. The 2026-08-31 ARM64/.NET 10.0.11 in-process ShortRun measured a 1.060 millisecond median (1.109 millisecond mean, 0.115 millisecond standard deviation) and 622.14 KB managed allocation for 256 filled and stroked ellipses. One launch and three measured iterations make this a coarse first baseline. Focused gates verify selected fill/outline pixels, reject unordered bounds without publication, and prove that a following unsupported `EXTTEXTOUT` record does not publish a partially lowered ellipse stream. The complete drawing suite passes 414/414, and ApiCompat remains at 0 missing types, 0 missing members, and 13 reviewed platform-annotation differences.
 
 `Playback256WmfRoundRectanglesToRetainedCommands` guards the official height,
 width, bottom, right, top, left `META_ROUNDRECT` payload and typed selected
@@ -318,6 +327,16 @@ MB allocated. Three high-variance iterations make this coarse state-lowering
 evidence and expose Region clone/path repush allocation as an optimization
 target. Exact old/moved/restored clip pixels and rollback after a following
 unsupported record remain the correctness authority.
+
+`Playback256WmfTextOutToRetainedCommands` guards one selected WMF font plus 256
+charset-decoded `TEXTOUT` records lowered through typed measurement, brushes,
+and retained glyph commands. The 2026-08-31 ARM64/.NET 10.0.11 in-process
+ShortRun measured an 884.902 microsecond median (912.665 microsecond mean,
+279.158 microsecond standard deviation) with 562.05 KB allocated. Five measured
+iterations make this high-variance coarse evidence. Exact colored glyphs,
+measured opaque background pixels, SaveDC/RestoreDC text state, and invalid-
+alignment rollback remain the correctness authority. Per-record measurement
+and transient brush allocation are explicit optimization targets.
 
 `RecordAndFinalize256PortableComments` measures the complete portable writer:
 256 owned 64-byte comment copies, EMF+/EMF assembly, validation, and publication
