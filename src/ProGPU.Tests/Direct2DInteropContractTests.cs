@@ -45,7 +45,7 @@ public sealed class Direct2DInteropContractTests
             native,
             StringComparison.Ordinal);
         Assert.Contains(
-            "internal const uint AbiVersion = 49U;",
+            "internal const uint AbiVersion = 50U;",
             native,
             StringComparison.Ordinal);
         Assert.Contains(
@@ -495,6 +495,12 @@ public sealed class Direct2DInteropContractTests
             "src",
             "Scene",
             "progpu_native_semantic_path_stroke.hpp");
+        string curveDash = ReadRepoFile(
+            "src",
+            "ProGPU.Native",
+            "src",
+            "Mil",
+            "progpu_native_mil_curve_dash.hpp");
         string test = ReadRepoFile(
             "src",
             "ProGPU.Native",
@@ -502,7 +508,7 @@ public sealed class Direct2DInteropContractTests
             "progpu_native_direct2d_tests.cpp");
 
         Assert.Contains(
-            "PROGPU_NATIVE_DIRECT2D_ABI_VERSION = 49U",
+            "PROGPU_NATIVE_DIRECT2D_ABI_VERSION = 50U",
             header,
             StringComparison.Ordinal);
         Assert.Contains(
@@ -550,11 +556,19 @@ public sealed class Direct2DInteropContractTests
             semanticStroke,
             StringComparison.Ordinal);
         Assert.Contains(
+            "hairline || fixed_device ? &stroke.transform : nullptr",
+            semanticStroke,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "metric_point(",
+            curveDash,
+            StringComparison.Ordinal);
+        Assert.Contains(
             "PROGPU_NATIVE_GEOMETRY_PATH_JOIN",
             semanticStroke,
             StringComparison.Ordinal);
         Assert.Contains(
-            "ProGPU Direct2D COM recorder omitted the analytic curved stroke",
+            "ProGPU Direct2D COM recorder omitted a curved stroke transform policy",
             test,
             StringComparison.Ordinal);
         Assert.Contains(
