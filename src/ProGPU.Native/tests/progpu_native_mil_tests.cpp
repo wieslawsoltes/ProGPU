@@ -123,6 +123,10 @@ static_assert(command_layouts::bitmap_source::fixed_size == 16U);
 static_assert(command_layouts::bitmap_source::p_i_bitmap_offset == 8U);
 static_assert(command_layouts::bitmap_invalidate::fixed_size == 28U);
 static_assert(command_layouts::bitmap_invalidate::dirty_rect_offset == 12U);
+static_assert(command_layouts::media_player::fixed_size == 20U);
+static_assert(command_layouts::media_player::p_media_offset == 8U);
+static_assert(command_layouts::video_drawing::fixed_size == 48U);
+static_assert(command_layouts::video_drawing::h_player_offset == 40U);
 static_assert(command_layouts::visual_create::fixed_size == 8U);
 static_assert(command_layouts::glyph_run_create::fixed_size == 76U);
 static_assert(command_layouts::draw_rectangle::fixed_size == 44U);
@@ -11443,6 +11447,163 @@ bool render_data_video_uses_live_external_image_sideband() {
     return true;
 }
 
+bool retained_video_drawing_uses_pointer_free_media_packet() {
+    constexpr std::uint32_t visual = 1U;
+    constexpr std::uint32_t content = 2U;
+    constexpr std::uint32_t target = 3U;
+    constexpr std::uint32_t player = 4U;
+    constexpr std::uint32_t rectangle_animation = 5U;
+    constexpr std::uint32_t video_drawing = 6U;
+
+    std::vector<std::byte> batch;
+    append_create(batch, visual, 39U);
+    append_create(batch, content, 43U);
+    append_create(batch, target, 47U);
+    append_create(batch, player, 1U);
+    append_create(batch, rectangle_animation, 52U);
+    append_create(batch, video_drawing, 90U);
+    append_command(
+        batch,
+        command::media_player,
+        player,
+        std::uint64_t{0U},
+        1U);
+    append_command(batch, command::visual_create, visual);
+    append_command(batch, command::visual_set_content, visual, content);
+    append_command(
+        batch,
+        command::rect_resource,
+        rectangle_animation,
+        7.0,
+        9.0,
+        12.0,
+        14.0);
+    append_command(
+        batch,
+        command::video_drawing,
+        video_drawing,
+        3.0,
+        5.0,
+        20.0,
+        10.0,
+        player,
+        0U);
+    std::vector<std::byte> nested;
+    append_command(nested, command::draw_drawing, video_drawing, 0U);
+    append_render_data(batch, content, nested);
+    append_command(
+        batch,
+        command::generic_target_create,
+        target,
+        std::uint64_t{0U},
+        std::uint64_t{0U},
+        64U,
+        64U,
+        0U);
+    append_command(batch, command::target_set_root, target, visual);
+
+    channel state;
+    PROGPU_REQUIRE(state.apply(batch) == status::success);
+    PROGPU_REQUIRE(state.resource_generation(player) == 2U);
+    std::vector<std::byte> stream;
+    PROGPU_REQUIRE(
+        state.build_scene(target, 7016U, 1U, stream) ==
+        status::invalid_handle);
+    PROGPU_REQUIRE(
+        state.set_media_player_external_image(player, 64U, 32U) ==
+        status::success);
+    PROGPU_REQUIRE(state.resource_generation(player) == 3U);
+    PROGPU_REQUIRE(
+        state.build_scene(target, 7016U, 2U, stream) == status::success);
+
+    const auto header = read_value<progpu_native_scene_header>(stream, 0U);
+    std::uint32_t image_count = 0U;
+    bool found_static = false;
+    for (std::uint32_t index = 0U; index < header.command_count; ++index) {
+        const auto record = read_value<progpu_native_scene_command>(
+            stream,
+            header.command_offset +
+                index * sizeof(progpu_native_scene_command));
+        if (record.kind != PROGPU_NATIVE_SCENE_COMMAND_DRAW_IMAGE) {
+            continue;
+        }
+        ++image_count;
+        const auto image = read_value<progpu_native_scene_image_draw>(
+            stream, record.payload_offset);
+        found_static |= image.destination_rect.x == 3.0F &&
+            image.destination_rect.y == 5.0F &&
+            image.destination_rect.width == 20.0F &&
+            image.destination_rect.height == 10.0F;
+    }
+    PROGPU_REQUIRE(image_count == 1U);
+    PROGPU_REQUIRE(found_static);
+
+    std::vector<std::byte> animated;
+    append_command(
+        animated,
+        command::video_drawing,
+        video_drawing,
+        3.0,
+        5.0,
+        20.0,
+        10.0,
+        player,
+        rectangle_animation);
+    PROGPU_REQUIRE(state.apply(animated) == status::success);
+    PROGPU_REQUIRE(
+        state.build_scene(target, 7016U, 3U, stream) == status::success);
+    const auto animated_header = read_value<progpu_native_scene_header>(
+        stream, 0U);
+    bool found_animated = false;
+    for (std::uint32_t index = 0U;
+         index < animated_header.command_count;
+         ++index) {
+        const auto record = read_value<progpu_native_scene_command>(
+            stream,
+            animated_header.command_offset +
+                index * sizeof(progpu_native_scene_command));
+        if (record.kind != PROGPU_NATIVE_SCENE_COMMAND_DRAW_IMAGE) {
+            continue;
+        }
+        const auto image = read_value<progpu_native_scene_image_draw>(
+            stream, record.payload_offset);
+        found_animated |= image.destination_rect.x == 7.0F &&
+            image.destination_rect.y == 9.0F &&
+            image.destination_rect.width == 12.0F &&
+            image.destination_rect.height == 14.0F;
+    }
+    PROGPU_REQUIRE(found_animated);
+
+    std::vector<std::byte> delete_player;
+    append_command(
+        delete_player,
+        command::channel_delete_resource,
+        player,
+        1U);
+    PROGPU_REQUIRE(state.apply(delete_player) == status::invalid_graph);
+
+    std::vector<std::byte> raw_pointer;
+    append_command(
+        raw_pointer,
+        command::media_player,
+        player,
+        std::uint64_t{1U},
+        0U);
+    PROGPU_REQUIRE(state.apply(raw_pointer) == status::invalid_argument);
+    PROGPU_REQUIRE(state.resource_generation(player) == 3U);
+
+    std::vector<std::byte> invalid_notify;
+    append_command(
+        invalid_notify,
+        command::media_player,
+        player,
+        std::uint64_t{0U},
+        2U);
+    PROGPU_REQUIRE(state.apply(invalid_notify) == status::malformed_batch);
+    PROGPU_REQUIRE(state.resource_generation(player) == 3U);
+    return true;
+}
+
 bool retained_drawing_image_maps_vector_content_into_destination() {
     constexpr std::uint32_t visual = 1U;
     constexpr std::uint32_t content = 2U;
@@ -16748,6 +16909,8 @@ int main() {
     PROGPU_REQUIRE(
         canonical_d3d_image_uses_synchronized_external_image_sideband());
     PROGPU_REQUIRE(render_data_video_uses_live_external_image_sideband());
+    PROGPU_REQUIRE(
+        retained_video_drawing_uses_pointer_free_media_packet());
     PROGPU_REQUIRE(
         retained_drawing_image_maps_vector_content_into_destination());
     PROGPU_REQUIRE(retained_drawing_image_infers_line_path_bounds());
