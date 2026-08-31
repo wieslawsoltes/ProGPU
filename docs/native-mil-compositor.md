@@ -5518,6 +5518,34 @@ provider SHA-256 is
 `C42A075E13706B42F7AA617CA437A194B20076BB538F5C2E91520A4F28BFE81E`,
 with an exact 123-export allowlist match.
 
+ABI v40 implementation `21be13a9` adds genuine Direct2D geometric layer masks
+without adding a Direct2D-specific renderer. For per-primitive antialiasing,
+the command sink simplifies the mask geometry to its filled line/cubic path,
+retains fill rule and an eight-sample coverage request, and composes
+`maskTransform * activeDrawTransform` as required by Direct2D's documented
+layer coordinate system. The resulting pointer-free ProGPU vector-mask
+resource is referenced by the existing semantic layer command. Finite content
+bounds intersect exact Direct2D mask bounds, and full-target layers become
+mask-bounded.
+
+The shared ProGPU path rasterizer and layer compositor execute the mask on
+D3D12, Metal, Vulkan, and WebGPU. Translation performs no CPU pixel work,
+readback, repacking, or per-segment submission and retains no COM identity.
+Empty filled geometry produces an exact empty layer. Aliased masks, opacity
+brushes, backdrop initialization, ignored alpha, non-finite transform
+composition, and unsupported geometry fail closed with typed diagnostics.
+
+The Windows Direct2D oracle decodes the mask resource, line/cubic topology,
+fill rule, sample grid, composed transform, and content/mask bounds
+intersection, with bounds independently obtained from the genuine source
+`ID2D1Geometry`. A negative command list requires an aliased mask to emit no
+partial scene. Managed AOT contracts pass 5/5 and build with zero warnings.
+Windows 11 ARM64 Parallels rebuilds the provider and test from deleted objects
+under MSVC 19.44/SDK 10.0.26100.0 `/W4 /WX`; the fresh executable exits zero.
+The 170,496-byte provider SHA-256 is
+`21CB1B6F5DD483A6E6F1F3546D76C1EC158A22F042120AA8A503247CF58B4789`,
+with all 123 exports matching the allowlist.
+
 ## Managed glyph row-reuse SIMD checkpoint
 
 Managed ProGPU checkpoints `2960fb39` and `ffb285af` bring the explicit
