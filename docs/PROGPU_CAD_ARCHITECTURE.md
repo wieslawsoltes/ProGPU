@@ -1,6 +1,6 @@
 # ProGPU.CAD Architecture and Delivery Specification
 
-Status: foundation, 2026-08-30
+Status: foundation, 2026-08-31
 
 ## Scope
 
@@ -1088,8 +1088,21 @@ CLAYER/CECOLOR/CELTYPE/CELTSCALE/CELWEIGHT/PLINEGEN through one reversible
 history entry. Nonzero PLINEWID fails before mutation until filled wide-
 polyline lowering exists, preventing a silent cosmetic-centerline downgrade.
 Exact behavior, cross-engine applicability, and remaining command options are
-in `PROGPU_CAD_POLYLINE_AUTHORING_RESEARCH.md`. One
-`CadDocumentHistory` belongs to the loaded session, so each Move, Copy, Rotate, Scale,
+in `PROGPU_CAD_POLYLINE_AUTHORING_RESEARCH.md`. Shared CIRCLE authoring keeps at
+most two accepted construction points and publishes one exact plan-view
+ACadSharp `Circle` after the final point. It supports center/radius,
+center/diameter, two diameter endpoints, and a normalized large-WCS
+three-circumference-point solve. Pointer feedback uses one analytic
+`DrawEllipse` with O(1) work and no retained tessellation. The final point does
+not mutate prompt state before the one-entity history command succeeds, so
+locked-layer, invalid-CELTSCALE, or nonzero-THICKNESS preflight leaves the
+command recoverable. Current CLAYER/CECOLOR/CELTYPE/CELTSCALE/CELWEIGHT are
+captured once; Axis-Z preserves the accepted WCS-Z plane. TTR and Tan-Tan-Tan
+remain deferred until exact entity-selection and multiple-solution arbitration
+are available. Exact behavior, clean-room sources, managed/native
+applicability, and complexity are in
+`PROGPU_CAD_CIRCLE_AUTHORING_RESEARCH.md`. One `CadDocumentHistory` belongs to
+the loaded session, so each Move, Copy, Rotate, Scale,
 Undo, or Redo publishes exactly one generation and then prepares one complete
 replacement snapshot and picture. The prior picture stays drawable until
 replacement preparation succeeds and is disposed immediately after the atomic

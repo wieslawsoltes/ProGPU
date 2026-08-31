@@ -99,6 +99,19 @@ wide object is silently reduced to a cosmetic centerline. Existing managed and
 native analytic LWPOLYLINE lowering is unchanged; no shader or ABI fork is
 introduced.
 
+Shared desktop/browser ProGPU.CAD now also authors exact plan-view CIRCLEs by
+center/radius, center/diameter, two diameter endpoints, or three circumference
+points. Three-point construction uses a normalized constant-work solve that
+does not square the large absolute WCS origin. The prompt retains at most two
+points, previews one analytic ellipse without tessellation, preserves the first
+point's exact WCS-Z plane, and cancels with Escape. The final point remains
+non-mutating until one entity and one history generation commit successfully;
+locked layers, invalid CELTSCALE, and nonzero THICKNESS therefore fail without
+losing the prompt. Current entity properties are captured once and DXF/DWG
+round trips pass. TTR and Tan-Tan-Tan remain deferred rather than approximated.
+The established managed/native analytic circle lowering is unchanged, so no
+shader, ABI, resource, or device-loss fork is introduced.
+
 The shared ProGPU.CAD plan grid now defaults to AutoCAD's lined model-space
 GRIDSTYLE and exposes a shared desktop/browser Dots toggle. Autodesk documents
 GRIDSTYLE as registry-backed host state, so the toggle intentionally changes no

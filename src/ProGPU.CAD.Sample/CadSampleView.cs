@@ -65,6 +65,10 @@ public sealed class CadSampleView : Grid
     private readonly Button _polylineArcModeButton;
     private readonly Button _polylineCloseButton;
     private readonly Button _polylineFinishButton;
+    private readonly Button _circleButton;
+    private readonly Button _circleDiameterButton;
+    private readonly Button _circleTwoPointButton;
+    private readonly Button _circleThreePointButton;
     private readonly Button[] _drawOrderButtons;
     private readonly Button[] _moveButtons;
     private readonly Button[] _copyButtons;
@@ -305,6 +309,14 @@ public sealed class CadSampleView : Grid
     public Button PolylineCloseButton => _polylineCloseButton;
 
     public Button PolylineFinishButton => _polylineFinishButton;
+
+    public Button CircleButton => _circleButton;
+
+    public Button CircleDiameterButton => _circleDiameterButton;
+
+    public Button CircleTwoPointButton => _circleTwoPointButton;
+
+    public Button CircleThreePointButton => _circleThreePointButton;
 
     public ComboBox SelectionAttributeSelector =>
         _selectionAttributeSelector;
@@ -554,6 +566,10 @@ public sealed class CadSampleView : Grid
         _polylineArcModeButton = CreateButton("PLine arc", font, 82, 30);
         _polylineCloseButton = CreateButton("PLine close", font, 92, 30);
         _polylineFinishButton = CreateButton("PLine finish", font, 92, 30);
+        _circleButton = CreateButton("Circle", font, 72, 30);
+        _circleDiameterButton = CreateButton("Circle D", font, 78, 30);
+        _circleTwoPointButton = CreateButton("Circle 2P", font, 84, 30);
+        _circleThreePointButton = CreateButton("Circle 3P", font, 84, 30);
         Button sendToBack = CreateButton("To back", font, 76, 30);
         Button bringToFront = CreateButton("To front", font, 76, 30);
         Button bringAbove = CreateButton("Above…", font, 82, 30);
@@ -571,6 +587,10 @@ public sealed class CadSampleView : Grid
         _polylineArcModeButton.Margin = new Thickness(0, 0, 4, 0);
         _polylineCloseButton.Margin = new Thickness(0, 0, 4, 0);
         _polylineFinishButton.Margin = new Thickness(0, 0, 12, 0);
+        _circleButton.Margin = new Thickness(0, 0, 4, 0);
+        _circleDiameterButton.Margin = new Thickness(0, 0, 4, 0);
+        _circleTwoPointButton.Margin = new Thickness(0, 0, 4, 0);
+        _circleThreePointButton.Margin = new Thickness(0, 0, 12, 0);
         sendToBack.Margin = new Thickness(0, 0, 4, 0);
         bringToFront.Margin = new Thickness(0, 0, 4, 0);
         bringAbove.Margin = new Thickness(0, 0, 4, 0);
@@ -589,6 +609,10 @@ public sealed class CadSampleView : Grid
         editActions.AddChild(_polylineArcModeButton);
         editActions.AddChild(_polylineCloseButton);
         editActions.AddChild(_polylineFinishButton);
+        editActions.AddChild(_circleButton);
+        editActions.AddChild(_circleDiameterButton);
+        editActions.AddChild(_circleTwoPointButton);
+        editActions.AddChild(_circleThreePointButton);
         editActions.AddChild(sendToBack);
         editActions.AddChild(bringToFront);
         editActions.AddChild(bringAbove);
@@ -2044,6 +2068,14 @@ public sealed class CadSampleView : Grid
             CompletePolylineAuthoring(close: true);
         _polylineFinishButton.Click += (_, _) =>
             CompletePolylineAuthoring(close: false);
+        _circleButton.Click += (_, _) =>
+            BeginCircleAuthoring(CadCircleAuthoringMode.CenterRadius);
+        _circleDiameterButton.Click += (_, _) =>
+            BeginCircleAuthoring(CadCircleAuthoringMode.CenterDiameter);
+        _circleTwoPointButton.Click += (_, _) =>
+            BeginCircleAuthoring(CadCircleAuthoringMode.TwoPoint);
+        _circleThreePointButton.Click += (_, _) =>
+            BeginCircleAuthoring(CadCircleAuthoringMode.ThreePoint);
         sendToBack.Click += (_, _) =>
             SetSelectionDrawOrder(CadDrawOrderPlacement.SendToBack);
         bringToFront.Click += (_, _) =>
@@ -2267,6 +2299,12 @@ public sealed class CadSampleView : Grid
             SetStatus(DescribePolylineAuthoring(args));
             UpdateEditControls();
         };
+        _canvas.CircleAuthoringChanged += (_, args) =>
+        {
+            _pointTransformInput.Text = string.Empty;
+            SetStatus(DescribeCircleAuthoring(args));
+            UpdateEditControls();
+        };
         _canvas.PointTransformInputAvailabilityChanged += (_, _) =>
             UpdateEditControls();
         _canvas.SnapshotChanged += (_, _) =>
@@ -2304,6 +2342,16 @@ public sealed class CadSampleView : Grid
                 _currentDocumentName,
                 _currentDiagnosticCount));
             UpdateEditControls();
+            e.Handled = true;
+            return;
+        }
+
+        if (!e.Handled &&
+            _canvas.IsCircleAuthoring &&
+            e.Key == Key.Escape &&
+            FocusManager.GetFocusedElement() is not TextBox)
+        {
+            _canvas.CancelCircleAuthoring();
             e.Handled = true;
             return;
         }
@@ -4953,6 +5001,28 @@ public sealed class CadSampleView : Grid
         UpdateEditControls();
     }
 
+    private void BeginCircleAuthoring(CadCircleAuthoringMode mode)
+    {
+        if (_isBusy)
+        {
+            return;
+        }
+
+        try
+        {
+            _pointTransformInput.Text = string.Empty;
+            if (!_canvas.BeginCircleAuthoring(mode))
+            {
+                SetStatus("CIRCLE requires a loaded plan-view document.");
+            }
+        }
+        catch (Exception exception)
+        {
+            SetStatus($"CIRCLE could not start: {exception.Message}");
+        }
+        UpdateEditControls();
+    }
+
     private void AcceptPointInput()
     {
         if (_isBusy)
@@ -4963,7 +5033,13 @@ public sealed class CadSampleView : Grid
         string input = _pointTransformInput.Text;
         bool accepted;
         string? errorMessage;
-        if (_canvas.IsPolylineAuthoring)
+        if (_canvas.IsCircleAuthoring)
+        {
+            accepted = _canvas.TryAcceptCircleAuthoringInput(
+                input,
+                out errorMessage);
+        }
+        else if (_canvas.IsPolylineAuthoring)
         {
             accepted = _canvas.TryAcceptPolylineAuthoringInput(
                 input,
@@ -5108,6 +5184,33 @@ public sealed class CadSampleView : Grid
             $"PLINE failed: {args.ErrorMessage}",
         _ => throw new ArgumentOutOfRangeException(nameof(args)),
     };
+
+    private static string DescribeCircleAuthoring(
+        CadCircleAuthoringChangedEventArgs args) => args.Stage switch
+    {
+        CadCircleAuthoringStage.AwaitingFirstPoint =>
+            $"CIRCLE {DescribeCircleMode(args.Mode)}: specify the first point by click or absolute WCS coordinate; Escape cancels.",
+        CadCircleAuthoringStage.AwaitingNextPoint =>
+            $"CIRCLE {DescribeCircleMode(args.Mode)}: accepted point {args.PointCount}; specify the next point; Escape cancels.",
+        CadCircleAuthoringStage.Completed =>
+            $"CIRCLE {DescribeCircleMode(args.Mode)} created center " +
+            $"{FormatPoint(args.Snapshot!.Value.Center)} radius " +
+            $"{args.Snapshot.Value.Radius:G17}.",
+        CadCircleAuthoringStage.Canceled => "CIRCLE canceled.",
+        CadCircleAuthoringStage.Failed =>
+            $"CIRCLE failed: {args.ErrorMessage}",
+        _ => throw new ArgumentOutOfRangeException(nameof(args)),
+    };
+
+    private static string DescribeCircleMode(CadCircleAuthoringMode mode) =>
+        mode switch
+        {
+            CadCircleAuthoringMode.CenterRadius => "center/radius",
+            CadCircleAuthoringMode.CenterDiameter => "center/diameter",
+            CadCircleAuthoringMode.TwoPoint => "2P diameter",
+            CadCircleAuthoringMode.ThreePoint => "3P circumference",
+            _ => throw new ArgumentOutOfRangeException(nameof(mode)),
+        };
 
     private void SelectPolarTrackingIncrement()
     {
@@ -5879,8 +5982,10 @@ public sealed class CadSampleView : Grid
             _canvas.PendingPointTransformOperation is not null;
         bool isLineAuthoring = _canvas.IsLineAuthoring;
         bool isPolylineAuthoring = _canvas.IsPolylineAuthoring;
+        bool isCircleAuthoring = _canvas.IsCircleAuthoring;
         bool isPointInputActive =
-            isPointTransformPicking || isLineAuthoring || isPolylineAuthoring;
+            isPointTransformPicking || isLineAuthoring ||
+            isPolylineAuthoring || isCircleAuthoring;
         bool isInteractivePicking =
             isReferencePicking || isPointInputActive;
         bool canUsePlanTools =
@@ -5978,6 +6083,12 @@ public sealed class CadSampleView : Grid
             _canvas.CanClosePolylineAuthoring;
         _polylineFinishButton.IsEnabled =
             !_isBusy && isPolylineAuthoring;
+        bool canStartCircle = canUsePlanTools && !_is3DView &&
+            _canvas.CurrentSession is not null;
+        _circleButton.IsEnabled = canStartCircle;
+        _circleDiameterButton.IsEnabled = canStartCircle;
+        _circleTwoPointButton.IsEnabled = canStartCircle;
+        _circleThreePointButton.IsEnabled = canStartCircle;
         _selectionColorInput.IsEnabled = canTransform;
         _selectionLineWeightSelector.IsEnabled = canTransform;
         _selectionLayerSelector.IsEnabled = canTransform;
@@ -6228,7 +6339,10 @@ public sealed class CadSampleView : Grid
         _acceptPointTransformInputButton.IsEnabled =
             !_isBusy &&
             isPointInputActive &&
-            (isPolylineAuthoring
+            (isCircleAuthoring
+                ? _canvas.CanAcceptCircleAuthoringInput(
+                    _pointTransformInput.Text)
+                : isPolylineAuthoring
                 ? _canvas.CanAcceptPolylineAuthoringInput(
                     _pointTransformInput.Text)
                 : isLineAuthoring

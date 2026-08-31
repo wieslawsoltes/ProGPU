@@ -148,6 +148,48 @@ public sealed class CadPolylineAuthoringChangedEventArgs : EventArgs
     }
 }
 
+/// <summary>Observable stage of one shared desktop/browser CIRCLE command.</summary>
+public enum CadCircleAuthoringStage : byte
+{
+    AwaitingFirstPoint = 0,
+    AwaitingNextPoint = 1,
+    Completed = 2,
+    Canceled = 3,
+    Failed = 4,
+}
+
+/// <summary>Immutable transition emitted by bounded CIRCLE authoring.</summary>
+public sealed class CadCircleAuthoringChangedEventArgs : EventArgs
+{
+    public CadCircleAuthoringStage Stage { get; }
+
+    public CadCircleAuthoringMode Mode { get; }
+
+    public int PointCount { get; }
+
+    public CadPoint3D? CurrentPoint { get; }
+
+    public CadCircleAuthoringSnapshot? Snapshot { get; }
+
+    public string? ErrorMessage { get; }
+
+    internal CadCircleAuthoringChangedEventArgs(
+        CadCircleAuthoringStage stage,
+        CadCircleAuthoringMode mode,
+        int pointCount,
+        CadPoint3D? currentPoint = null,
+        CadCircleAuthoringSnapshot? snapshot = null,
+        string? errorMessage = null)
+    {
+        Stage = stage;
+        Mode = mode;
+        PointCount = pointCount;
+        CurrentPoint = currentPoint;
+        Snapshot = snapshot;
+        ErrorMessage = errorMessage;
+    }
+}
+
 /// <summary>
 /// Common general properties for the current semantic model-space selection.
 /// A null common property means selected entities have different persisted values;
@@ -247,6 +289,7 @@ public sealed class CadSampleCanvas : FrameworkElement
     private CadDocumentHistory? _history;
     private CadLineAuthoringSession? _lineAuthoring;
     private CadPolylineAuthoringSession? _polylineAuthoring;
+    private CadCircleAuthoringSession? _circleAuthoring;
     private CadBounds3D _bounds;
     private CadBounds3D _selectedBounds;
     private CadBounds3D _drawOrderReferenceBounds;
@@ -379,6 +422,18 @@ public sealed class CadSampleCanvas : FrameworkElement
     public CadPoint3D? PendingPolylineCurrentPoint =>
         _polylineAuthoring?.CurrentPoint;
 
+    /// <summary>Whether one bounded plan-view CIRCLE is active.</summary>
+    public bool IsCircleAuthoring => _circleAuthoring is not null;
+
+    public CadCircleAuthoringMode? PendingCircleAuthoringMode =>
+        _circleAuthoring?.Mode;
+
+    public int PendingCirclePointCount => _circleAuthoring?.PointCount ?? 0;
+
+    public CadPoint3D? PendingCircleFirstPoint => _circleAuthoring?.FirstPoint;
+
+    public CadPoint3D? PendingCircleCurrentPoint => _circleAuthoring?.CurrentPoint;
+
     public CadPolylineAuthoringMode PolylineAuthoringMode
     {
         get => _polylineAuthoring?.Mode ?? CadPolylineAuthoringMode.Line;
@@ -412,7 +467,8 @@ public sealed class CadSampleCanvas : FrameworkElement
     private bool IsPointAcquisitionActive =>
         PendingPointTransformOperation is not null ||
         _lineAuthoring is not null ||
-        _polylineAuthoring is not null;
+        _polylineAuthoring is not null ||
+        _circleAuthoring is not null;
 
     /// <summary>Running object-snap modes used by MOVE/COPY point prompts.</summary>
     public CadObjectSnapModes ObjectSnapModes
@@ -834,6 +890,13 @@ public sealed class CadSampleCanvas : FrameworkElement
         PolylineAuthoringChanged;
 
     /// <summary>
+    /// Raised for accepted CIRCLE points, completion, cancellation, and failure.
+    /// Pointer motion does not allocate events.
+    /// </summary>
+    public event EventHandler<CadCircleAuthoringChangedEventArgs>?
+        CircleAuthoringChanged;
+
+    /// <summary>
     /// Raised when cursor-direction availability changes for typed point input.
     /// </summary>
     public event EventHandler? PointTransformInputAvailabilityChanged;
@@ -1021,6 +1084,7 @@ public sealed class CadSampleCanvas : FrameworkElement
             ResetPointTransformState(notify: false);
             ResetLineAuthoringState();
             ResetPolylineAuthoringState();
+            ResetCircleAuthoringState();
             ResetSelectionState(notify: false);
             _needsFit = true;
         }
@@ -1101,7 +1165,8 @@ public sealed class CadSampleCanvas : FrameworkElement
             _hasPointTransformBasePoint)
         {
             Vector2 basePoint = viewport.WorldToScreen(_pointTransformBasePoint);
-            if (!DrawPendingPolylineArc(context, viewport, basePoint))
+            if (!DrawPendingCircle(context, viewport) &&
+                !DrawPendingPolylineArc(context, viewport, basePoint))
             {
                 context.DrawLine(
                     _drawOrderReferencePen,
@@ -1135,6 +1200,71 @@ public sealed class CadSampleCanvas : FrameworkElement
                 ToScreenRect(_pointerOrigin, _selectionCurrent));
         }
         context.PopClip();
+    }
+
+    private bool DrawPendingCircle(
+        DrawingContext context,
+        CadPlanViewport viewport)
+    {
+        CadCircleAuthoringSession? authoring = _circleAuthoring;
+        if (authoring is null || !authoring.HasFirstPoint)
+        {
+            return false;
+        }
+
+        ReadOnlySpan<CadPoint3D> points = authoring.Points.Span;
+        if (authoring.Mode == CadCircleAuthoringMode.ThreePoint &&
+            points.Length == 2)
+        {
+            context.DrawLine(
+                _drawOrderReferencePen,
+                viewport.WorldToScreen(points[0]),
+                viewport.WorldToScreen(points[1]));
+        }
+
+        CadPoint3D finalPoint;
+        try
+        {
+            finalPoint = viewport.ScreenToWorld(
+                _pointTransformCurrent,
+                authoring.FirstPoint!.Value.Z);
+        }
+        catch (ArgumentException)
+        {
+            return false;
+        }
+        if (!authoring.TryCreateSnapshot(
+                finalPoint,
+                out CadCircleAuthoringSnapshot snapshot,
+                out _))
+        {
+            return false;
+        }
+
+        try
+        {
+            Vector2 center = viewport.WorldToScreen(snapshot.Center);
+            Vector2 edge = viewport.WorldToScreen(new CadPoint3D(
+                snapshot.Center.X + snapshot.Radius,
+                snapshot.Center.Y,
+                snapshot.Center.Z));
+            float radius = Vector2.Distance(center, edge);
+            if (!float.IsFinite(radius) || radius <= 0.0f)
+            {
+                return false;
+            }
+            context.DrawEllipse(
+                null,
+                _drawOrderReferencePen,
+                center,
+                radius,
+                radius);
+            return true;
+        }
+        catch (ArgumentException)
+        {
+            return false;
+        }
     }
 
     private bool DrawPendingPolylineArc(
@@ -1407,6 +1537,7 @@ public sealed class CadSampleCanvas : FrameworkElement
         ResetPointTransformState(notify: true);
         ResetLineAuthoringState();
         ResetPolylineAuthoringState();
+        ResetCircleAuthoringState();
         ResetSelectionState(notify: true);
         Invalidate();
     }
@@ -2118,6 +2249,225 @@ public sealed class CadSampleCanvas : FrameworkElement
                     errorMessage: exception.Message));
             return false;
         }
+    }
+
+    /// <summary>
+    /// Starts one bounded plan-view CIRCLE using an exact center/radius,
+    /// center/diameter, two-diameter-point, or three-circumference-point solve.
+    /// </summary>
+    public bool BeginCircleAuthoring(CadCircleAuthoringMode mode)
+    {
+        if (!Enum.IsDefined(mode))
+        {
+            throw new ArgumentOutOfRangeException(nameof(mode));
+        }
+        if (CurrentSession is null || CurrentSnapshot is null)
+        {
+            return false;
+        }
+        ThrowIfDrawOrderReferenceSelectionPending();
+        if (IsPointAcquisitionActive)
+        {
+            throw new InvalidOperationException(
+                "Complete the pending point-acquisition command first.");
+        }
+
+        _circleAuthoring = new CadCircleAuthoringSession(mode);
+        _hasPointTransformBasePoint = false;
+        _isPointTransformPointerPressed = false;
+        ClearPointTransformSnapState();
+        CircleAuthoringChanged?.Invoke(
+            this,
+            new CadCircleAuthoringChangedEventArgs(
+                CadCircleAuthoringStage.AwaitingFirstPoint,
+                mode,
+                pointCount: 0));
+        Invalidate();
+        return true;
+    }
+
+    public bool CanAcceptCircleAuthoringInput(string? text)
+    {
+        CadCircleAuthoringSession? authoring = _circleAuthoring;
+        if (authoring is null)
+        {
+            return false;
+        }
+
+        CadPoint3D point;
+        if (!CadCoordinateInput.TryParse(text, out CadCoordinateInput coordinate))
+        {
+            if (!CadDirectDistanceInput.TryParse(
+                    text,
+                    out CadDirectDistanceInput distance))
+            {
+                return false;
+            }
+            if (authoring.TryCreateSnapshotFromScalar(
+                    distance.Distance,
+                    out CadCircleAuthoringSnapshot scalarSnapshot,
+                    out _))
+            {
+                try
+                {
+                    _ = CreateViewport().WorldToScreen(scalarSnapshot.Center);
+                    return true;
+                }
+                catch (ArgumentException)
+                {
+                    return false;
+                }
+            }
+            if (!TryResolvePointTransformDirectDistance(distance, out point))
+            {
+                return false;
+            }
+        }
+        else
+        {
+            if (!_hasPointTransformBasePoint && coordinate.IsRelative)
+            {
+                return false;
+            }
+            CadPoint3D origin = _hasPointTransformBasePoint
+                ? _pointTransformBasePoint
+                : CadPoint3D.Zero;
+            if (!coordinate.TryResolve(origin, out point))
+            {
+                return false;
+            }
+        }
+
+        if (!authoring.CanAcceptPoint(point))
+        {
+            return false;
+        }
+        try
+        {
+            _ = CreateViewport().WorldToScreen(point);
+            return true;
+        }
+        catch (ArgumentException)
+        {
+            return false;
+        }
+    }
+
+    public bool TryAcceptCircleAuthoringInput(
+        string? text,
+        out string? errorMessage)
+    {
+        errorMessage = null;
+        CadCircleAuthoringSession? authoring = _circleAuthoring;
+        if (authoring is null)
+        {
+            errorMessage = "No CIRCLE command is awaiting point input.";
+            return false;
+        }
+
+        CadPoint3D point;
+        if (!CadCoordinateInput.TryParse(text, out CadCoordinateInput coordinate))
+        {
+            if (!CadDirectDistanceInput.TryParse(
+                    text,
+                    out CadDirectDistanceInput directDistance))
+            {
+                errorMessage =
+                    "Enter x,y[,z], @dx,dy[,dz], distance<angle, @distance<angle, or a positive direct distance using invariant numbers.";
+                return false;
+            }
+            if (authoring.PointCount == 1 &&
+                authoring.Mode is (CadCircleAuthoringMode.CenterRadius or
+                    CadCircleAuthoringMode.CenterDiameter))
+            {
+                if (!authoring.TryCreateSnapshotFromScalar(
+                        directDistance.Distance,
+                        out CadCircleAuthoringSnapshot scalarSnapshot,
+                        out errorMessage))
+                {
+                    return false;
+                }
+                return TryCommitCircleAuthoringSnapshot(
+                    authoring,
+                    scalarSnapshot,
+                    finalPoint: authoring.CurrentPoint,
+                    out errorMessage);
+            }
+            if (!_hasPointTransformBasePoint)
+            {
+                errorMessage =
+                    "Accept an absolute first point before entering a direct distance.";
+                return false;
+            }
+            if (!_hasPointTransformPointerPosition)
+            {
+                errorMessage =
+                    "Move the cursor from the current CIRCLE point before entering a direct distance.";
+                return false;
+            }
+            if (!TryResolvePointTransformDirectDistance(
+                    directDistance,
+                    out point))
+            {
+                errorMessage =
+                    "The cursor direction and distance do not resolve to a finite WCS point.";
+                return false;
+            }
+        }
+        else
+        {
+            if (!_hasPointTransformBasePoint && coordinate.IsRelative)
+            {
+                errorMessage =
+                    "Enter an absolute first point before using a relative coordinate.";
+                return false;
+            }
+            CadPoint3D origin = _hasPointTransformBasePoint
+                ? _pointTransformBasePoint
+                : CadPoint3D.Zero;
+            if (!coordinate.TryResolve(origin, out point))
+            {
+                errorMessage = "The coordinate resolves outside finite WCS values.";
+                return false;
+            }
+        }
+
+        Vector2 screenPoint;
+        try
+        {
+            screenPoint = CreateViewport().WorldToScreen(point);
+        }
+        catch (ArgumentException)
+        {
+            errorMessage =
+                "The CIRCLE point cannot be represented by the current plan viewport.";
+            return false;
+        }
+        return TryAcceptCircleAuthoringPoint(point, screenPoint, out errorMessage);
+    }
+
+    /// <summary>Cancels CIRCLE without changing the document or history.</summary>
+    public bool CancelCircleAuthoring()
+    {
+        CadCircleAuthoringSession? authoring = _circleAuthoring;
+        if (authoring is null)
+        {
+            return false;
+        }
+
+        CadCircleAuthoringMode mode = authoring.Mode;
+        int pointCount = authoring.PointCount;
+        CadPoint3D? currentPoint = authoring.CurrentPoint;
+        ResetCircleAuthoringState();
+        CircleAuthoringChanged?.Invoke(
+            this,
+            new CadCircleAuthoringChangedEventArgs(
+                CadCircleAuthoringStage.Canceled,
+                mode,
+                pointCount,
+                currentPoint));
+        Invalidate();
+        return true;
     }
 
     /// <summary>
@@ -3764,7 +4114,8 @@ public sealed class CadSampleCanvas : FrameworkElement
         }
 
         CadPlanViewport viewport = CreateViewport();
-        CadPoint3D pointerWorld = _polylineAuthoring is not null &&
+        CadPoint3D pointerWorld = (_polylineAuthoring is not null ||
+                _circleAuthoring is not null) &&
             _hasPointTransformBasePoint
             ? viewport.ScreenToWorld(screenPoint, _pointTransformBasePoint.Z)
             : viewport.ScreenToWorld(screenPoint);
@@ -4243,7 +4594,8 @@ public sealed class CadSampleCanvas : FrameworkElement
         CadPointTransformOperation? operation = PendingPointTransformOperation;
         if (operation is null &&
             _lineAuthoring is null &&
-            _polylineAuthoring is null)
+            _polylineAuthoring is null &&
+            _circleAuthoring is null)
         {
             return;
         }
@@ -4251,7 +4603,8 @@ public sealed class CadSampleCanvas : FrameworkElement
         CadPoint3D point;
         try
         {
-            point = _polylineAuthoring is not null &&
+            point = (_polylineAuthoring is not null ||
+                    _circleAuthoring is not null) &&
                 _hasPointTransformBasePoint
                 ? CreateViewport().ScreenToWorld(
                     screenPoint,
@@ -4280,7 +4633,7 @@ public sealed class CadSampleCanvas : FrameworkElement
                         _lineAuthoring?.CurrentPoint,
                         errorMessage: exception.Message));
             }
-            else
+            else if (_polylineAuthoring is not null)
             {
                 PolylineAuthoringChanged?.Invoke(
                     this,
@@ -4289,6 +4642,18 @@ public sealed class CadSampleCanvas : FrameworkElement
                         _polylineAuthoring?.Mode ?? CadPolylineAuthoringMode.Line,
                         _polylineAuthoring?.SegmentCount ?? 0,
                         _polylineAuthoring?.CurrentPoint,
+                        errorMessage: exception.Message));
+            }
+            else
+            {
+                CircleAuthoringChanged?.Invoke(
+                    this,
+                    new CadCircleAuthoringChangedEventArgs(
+                        CadCircleAuthoringStage.Failed,
+                        _circleAuthoring?.Mode ??
+                            CadCircleAuthoringMode.CenterRadius,
+                        _circleAuthoring?.PointCount ?? 0,
+                        _circleAuthoring?.CurrentPoint,
                         errorMessage: exception.Message));
             }
             Invalidate();
@@ -4310,6 +4675,11 @@ public sealed class CadSampleCanvas : FrameworkElement
         if (_polylineAuthoring is not null)
         {
             _ = TryAcceptPolylineAuthoringPoint(point, screenPoint, out _);
+            return;
+        }
+        if (_circleAuthoring is not null)
+        {
+            _ = TryAcceptCircleAuthoringPoint(point, screenPoint, out _);
             return;
         }
 
@@ -4431,6 +4801,124 @@ public sealed class CadSampleCanvas : FrameworkElement
                 point));
         Invalidate();
         return true;
+    }
+
+    private bool TryAcceptCircleAuthoringPoint(
+        CadPoint3D point,
+        Vector2? screenPoint,
+        out string? errorMessage)
+    {
+        errorMessage = null;
+        CadCircleAuthoringSession? authoring = _circleAuthoring;
+        if (authoring is null)
+        {
+            errorMessage = "No CIRCLE command is active.";
+            return false;
+        }
+
+        Vector2 resolvedScreen;
+        try
+        {
+            resolvedScreen = screenPoint ?? CreateViewport().WorldToScreen(point);
+        }
+        catch (ArgumentException exception)
+        {
+            errorMessage = exception.Message;
+            NotifyCircleAuthoringFailure(authoring, errorMessage);
+            return false;
+        }
+
+        if (authoring.PointCount < authoring.RequiredPointCount - 1)
+        {
+            if (!authoring.TryAcceptIntermediatePoint(point, out errorMessage))
+            {
+                NotifyCircleAuthoringFailure(authoring, errorMessage);
+                return false;
+            }
+
+            ClearPointTransformSnapState();
+            _pointTransformBasePoint = point;
+            _pointTransformCurrent = resolvedScreen;
+            _hasPointTransformBasePoint = true;
+            CircleAuthoringChanged?.Invoke(
+                this,
+                new CadCircleAuthoringChangedEventArgs(
+                    CadCircleAuthoringStage.AwaitingNextPoint,
+                    authoring.Mode,
+                    authoring.PointCount,
+                    point));
+            Invalidate();
+            return true;
+        }
+
+        if (!authoring.TryCreateSnapshot(
+                point,
+                out CadCircleAuthoringSnapshot snapshot,
+                out errorMessage))
+        {
+            NotifyCircleAuthoringFailure(authoring, errorMessage);
+            return false;
+        }
+
+        return TryCommitCircleAuthoringSnapshot(
+            authoring,
+            snapshot,
+            point,
+            out errorMessage);
+    }
+
+    private bool TryCommitCircleAuthoringSnapshot(
+        CadCircleAuthoringSession authoring,
+        CadCircleAuthoringSnapshot snapshot,
+        CadPoint3D? finalPoint,
+        out string? errorMessage)
+    {
+        errorMessage = null;
+        CadDocumentSession session = CurrentSession ??
+            throw new InvalidOperationException("No CAD document is loaded.");
+        CadDocumentHistory history = _history ??
+            throw new InvalidOperationException(
+                "The CAD edit history is not initialized.");
+        try
+        {
+            history.Execute(new CadAddCircleCommand(
+                snapshot,
+                description: $"CIRCLE: add {authoring.Mode}"));
+            CadCircleAuthoringMode mode = authoring.Mode;
+            int pointCount = authoring.RequiredPointCount;
+            ResetCircleAuthoringState();
+            RecompileAfterEdit(session);
+            CircleAuthoringChanged?.Invoke(
+                this,
+                new CadCircleAuthoringChangedEventArgs(
+                    CadCircleAuthoringStage.Completed,
+                    mode,
+                    pointCount,
+                    finalPoint,
+                    snapshot));
+            return true;
+        }
+        catch (Exception exception)
+        {
+            errorMessage = exception.Message;
+            NotifyCircleAuthoringFailure(authoring, errorMessage);
+            return false;
+        }
+    }
+
+    private void NotifyCircleAuthoringFailure(
+        CadCircleAuthoringSession authoring,
+        string? errorMessage)
+    {
+        CircleAuthoringChanged?.Invoke(
+            this,
+            new CadCircleAuthoringChangedEventArgs(
+                CadCircleAuthoringStage.Failed,
+                authoring.Mode,
+                authoring.PointCount,
+                authoring.CurrentPoint,
+                errorMessage: errorMessage));
+        Invalidate();
     }
 
     private void AcceptPointTransformPoint(
@@ -4726,6 +5214,16 @@ public sealed class CadSampleCanvas : FrameworkElement
         ClearPointTransformSnapState();
     }
 
+    private void ResetCircleAuthoringState()
+    {
+        _circleAuthoring = null;
+        _hasPointTransformBasePoint = false;
+        _isPointTransformPointerPressed = false;
+        _pointTransformBasePoint = default;
+        _pointTransformCurrent = default;
+        ClearPointTransformSnapState();
+    }
+
     private void ResetSelectionState(bool notify)
     {
         _selectedHandleCount = 0;
@@ -4975,6 +5473,7 @@ public sealed class CadSampleCanvas : FrameworkElement
         ResetPointTransformState(notify: false);
         ResetLineAuthoringState();
         ResetPolylineAuthoringState();
+        ResetCircleAuthoringState();
         _picture?.Dispose();
         _picture = null;
         _constructionPicture?.Dispose();
