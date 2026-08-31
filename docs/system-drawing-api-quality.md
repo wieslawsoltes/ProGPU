@@ -326,7 +326,7 @@ cover exact bottom-up/top-down pixels and stride, source clipping/crop,
 mirroring, transforms, all six BI_RGB bit depths, partial scan bands in both
 orientations, saved stretch sampling, buffer/range/ROP failures, transactional
 rollback, and a warmed 64-image allocation ceiling. Unsupported compression,
-bitfields, logical-palette color usage, and JPEG/PNG transport fail at named
+logical-palette color usage, and JPEG/PNG transport fail at named
 boundaries. ApiCompat is unaffected because this closes managed behavior behind
 the existing public surface.
 
@@ -342,10 +342,24 @@ elevation, and high timing variance make this coarse ownership/allocation
 evidence. Ten focused cases independently cover all four layouts, bottom-up
 padding, top-down and bottom-up partial bands, packed color tables, retained
 sampling, malformed usage/ROP/scan/buffer inputs, transactional rollback,
-playback-DC-only source boundaries, and a warmed allocation ceiling. Compression,
-bitfields, logical palettes, playback-device-context sources, and
+playback-DC-only source boundaries, and a warmed allocation ceiling.
+RLE/JPEG/PNG/CMYK compression, logical palettes, playback-device-context sources, and
 device-dependent bitmaps remain explicit. ApiCompat remains 0/0/13.
-Both complete Debug and Release drawing suites pass 525/525.
+Both complete Debug and Release drawing suites pass 532/532.
+
+`MetafileBenchmarks.Playback256BitFieldDibImagesToRetainedCommands` extends the
+same shared decoder to 16/32-bit `BI_BITFIELDS`. Forty-byte headers supply three
+external masks; V4/V5 headers supply embedded masks and an optional alpha mask.
+Nonzero RGB masks and any alpha mask must be contiguous, in-range, and disjoint
+before allocation, while arbitrary channel widths scale with rounded integer
+math. Exact packed splitting accounts for external masks and direct-color
+optimization tables. Seven focused cases cover RGB565 through all three header
+sizes, custom 32-bit channel order and alpha, packed WMF tables, malformed-mask
+rollback in both EMF and WMF, and warmed allocation. The 2026-08-31
+ARM64/.NET 10.0.11 ShortRun measured a 17.411 ms median (16.561 ms mean,
+9.096 ms standard deviation) and 501.79 KB allocated for 256 packed RGB565
+images. Three iterations, denied priority elevation, and high timing variance
+make this allocation and ownership evidence, not a throughput comparison.
 
 `MetafileBenchmarks.Playback256EmfPathBracketsToRetainedCommands` guards 256
 Begin/rectangle/End/StrokeAndFill groups. The 2026-08-31 ARM64/.NET 10.0.11

@@ -3268,6 +3268,201 @@ public sealed class MetafileParserTests
         Assert.Equal(Color.Red.ToArgb(), target.GetPixel(8, 8).ToArgb());
     }
 
+    [Theory]
+    [InlineData(40)]
+    [InlineData(108)]
+    [InlineData(124)]
+    public void EmfStretchDibitsDecodesRgb565BitFields(int headerSize)
+    {
+        TestDib dib = CreateBitFieldsDib(
+            2,
+            -1,
+            16,
+            [0, 0xF8, 0xE0, 0x07],
+            0xF800,
+            0x07E0,
+            0x001F,
+            headerSize: headerSize);
+        byte[] fixture = CreateTextPlaybackEmf(
+        [
+            (EmfPlusRecordType.EmfStretchDIBits,
+                EmfStretchDibits(dib, new Rectangle(0, 0, 2, 1), new Rectangle(8, 8, 16, 8)))
+        ]);
+        using var metafile = new Metafile(new MemoryStream(fixture, writable: false));
+        using var target = new Bitmap(32, 24);
+        using (Graphics graphics = Graphics.FromImage(target))
+        {
+            graphics.Clear(Color.Transparent);
+            graphics.DrawImage(metafile, new Rectangle(0, 0, 64, 64));
+        }
+
+        Assert.Equal(Color.Red.ToArgb(), target.GetPixel(10, 10).ToArgb());
+        Assert.Equal(Color.Lime.ToArgb(), target.GetPixel(20, 10).ToArgb());
+    }
+
+    [Fact]
+    public void WmfStretchDibDecodesV4BitFieldAlphaAndCustomChannelOrder()
+    {
+        TestDib dib = CreateBitFieldsDib(
+            1,
+            -1,
+            32,
+            [0x10, 0x20, 0x40, 0x80],
+            0x0000_00FF,
+            0x0000_FF00,
+            0x00FF_0000,
+            0xFF00_0000,
+            headerSize: 108);
+        byte[] fixture = CreatePlaybackWmf(
+        [
+            (0x0F43, WmfStretchDib(
+                dib,
+                new Rectangle(0, 0, 1, 1),
+                new Rectangle(8, 8, 8, 8))),
+            (0, [])
+        ]);
+        using var metafile = new Metafile(new MemoryStream(fixture, writable: false));
+        using var target = new Bitmap(24, 24);
+        using (Graphics graphics = Graphics.FromImage(target))
+        {
+            graphics.Clear(Color.Transparent);
+            graphics.DrawImage(metafile, new Rectangle(0, 0, 64, 64));
+        }
+
+        Color pixel = target.GetPixel(10, 10);
+        Assert.InRange(pixel.A, 127, 129);
+        Assert.InRange(pixel.R, 15, 17);
+        Assert.InRange(pixel.G, 31, 33);
+        Assert.InRange(pixel.B, 63, 65);
+    }
+
+    [Fact]
+    public void WmfPackedBitFieldsSkipExternalMasksAndOptimizationTable()
+    {
+        TestDib dib = CreateBitFieldsDib(
+            1,
+            -1,
+            16,
+            [0, 0xF8, 0, 0],
+            0xF800,
+            0x07E0,
+            0x001F,
+            optimizationPalette: [Color.Magenta]);
+        byte[] fixture = CreatePlaybackWmf(
+        [
+            (0x0940, WmfDibBitBlt(dib, new Rectangle(0, 0, 1, 1), new Point(8, 8))),
+            (0, [])
+        ]);
+        using var metafile = new Metafile(new MemoryStream(fixture, writable: false));
+        using var target = new Bitmap(16, 16);
+        using (Graphics graphics = Graphics.FromImage(target))
+        {
+            graphics.Clear(Color.Transparent);
+            graphics.DrawImage(metafile, new Rectangle(0, 0, 64, 64));
+        }
+
+        Assert.Equal(Color.Red.ToArgb(), target.GetPixel(8, 8).ToArgb());
+    }
+
+    [Fact]
+    public void MalformedBitFieldMasksRollBackEmfAndWmfPlayback()
+    {
+        TestDib valid = CreateBitFieldsDib(
+            1,
+            -1,
+            16,
+            [0, 0xF8, 0, 0],
+            0xF800,
+            0x07E0,
+            0x001F);
+        TestDib[] malformed =
+        [
+            WithBitFieldMasks(valid, 0, 0x07E0, 0x001F),
+            WithBitFieldMasks(valid, 0xF800, 0xF800, 0x001F),
+            WithBitFieldMasks(valid, 0xF801, 0x07E0, 0x001F),
+            WithBitFieldMasks(valid, 0x1_F000, 0x07E0, 0x001F),
+            new TestDib(valid.Info[..48], valid.Bits),
+            CreateBitFieldsDib(1, -1, 24, [0, 0, 0, 0], 0xFF0000, 0x00FF00, 0x0000FF),
+            CreateBitFieldsDib(
+                1,
+                -1,
+                32,
+                [0, 0, 0, 0],
+                0x00FF0000,
+                0x0000FF00,
+                0x000000FF,
+                0x00F00000,
+                headerSize: 108)
+        ];
+
+        foreach (TestDib dib in malformed)
+        {
+            byte[] emfFixture = CreateTextPlaybackEmf(
+            [
+                (EmfPlusRecordType.EmfSetPixelV, EmfSetPixel(new Point(1, 1), Color.Red)),
+                (EmfPlusRecordType.EmfStretchDIBits,
+                    EmfStretchDibits(dib, new Rectangle(0, 0, 1, 1), new Rectangle(0, 0, 8, 8)))
+            ]);
+            AssertBitFieldPlaybackRollsBack(emfFixture);
+
+            byte[] wmfFixture = CreatePlaybackWmf(
+            [
+                (0x041F, WmfSetPixel(Color.Red, new Point(1, 1))),
+                (0x0F43, WmfStretchDib(
+                    dib,
+                    new Rectangle(0, 0, 1, 1),
+                    new Rectangle(0, 0, 8, 8))),
+                (0, [])
+            ]);
+            AssertBitFieldPlaybackRollsBack(wmfFixture);
+        }
+    }
+
+    [Fact]
+    public void BitFieldDibPlaybackHasBoundedWarmedAllocation()
+    {
+        TestDib dib = CreateBitFieldsDib(
+            1,
+            -1,
+            16,
+            [0, 0xF8, 0, 0],
+            0xF800,
+            0x07E0,
+            0x001F);
+        var records = new List<(ushort Function, byte[] Payload)>();
+        for (int index = 0; index < 64; index++)
+        {
+            records.Add((
+                0x0F43,
+                WmfStretchDib(
+                    dib,
+                    new Rectangle(0, 0, 1, 1),
+                    new Rectangle((index % 8) * 8, (index / 8) * 8, 8, 8))));
+        }
+        records.Add((0, []));
+        using var metafile = new Metafile(new MemoryStream(
+            CreatePlaybackWmf(records),
+            writable: false));
+        var context = new DrawingContext();
+        using Graphics graphics = Graphics.FromProGpuDrawingContext(context);
+        for (int iteration = 0; iteration < 4; iteration++)
+        {
+            graphics.DrawImage(metafile, new Rectangle(0, 0, 64, 64));
+            context.Clear();
+        }
+
+        long before = GC.GetAllocatedBytesForCurrentThread();
+        for (int iteration = 0; iteration < 8; iteration++)
+        {
+            graphics.DrawImage(metafile, new Rectangle(0, 0, 64, 64));
+            context.Clear();
+        }
+        long allocatedPerPlayback =
+            (GC.GetAllocatedBytesForCurrentThread() - before) / 8;
+
+        Assert.InRange(allocatedPerPlayback, 64 * 1024, 16 * 1024 * 1024);
+    }
+
     [Fact]
     public void WmfMalformedAndUnsupportedDibRecordsRollBackEarlierCommands()
     {
@@ -4944,6 +5139,74 @@ public sealed class MetafileParserTests
             info[offset + 2] = color.R;
         }
         return new TestDib(info, bits);
+    }
+
+    private static TestDib CreateBitFieldsDib(
+        int width,
+        int signedHeight,
+        ushort bitCount,
+        byte[] bits,
+        uint redMask,
+        uint greenMask,
+        uint blueMask,
+        uint alphaMask = 0,
+        int headerSize = 40,
+        Color[]? optimizationPalette = null)
+    {
+        int externalMaskBytes = headerSize == 40 ? 12 : 0;
+        int paletteCount = optimizationPalette?.Length ?? 0;
+        byte[] info = new byte[checked(headerSize + externalMaskBytes + paletteCount * 4)];
+        WriteUInt32(info, 0, checked((uint)headerSize));
+        WriteInt32(info, 4, width);
+        WriteInt32(info, 8, signedHeight);
+        WriteUInt16(info, 12, 1);
+        WriteUInt16(info, 14, bitCount);
+        WriteUInt32(info, 16, 3);
+        WriteUInt32(info, 20, checked((uint)bits.Length));
+        WriteUInt32(info, 32, checked((uint)paletteCount));
+        WriteUInt32(info, 40, redMask);
+        WriteUInt32(info, 44, greenMask);
+        WriteUInt32(info, 48, blueMask);
+        if (headerSize >= 108)
+        {
+            WriteUInt32(info, 52, alphaMask);
+        }
+        int paletteOffset = headerSize + externalMaskBytes;
+        for (int index = 0; index < paletteCount; index++)
+        {
+            Color color = optimizationPalette![index];
+            int offset = paletteOffset + index * 4;
+            info[offset] = color.B;
+            info[offset + 1] = color.G;
+            info[offset + 2] = color.R;
+        }
+        return new TestDib(info, bits);
+    }
+
+    private static TestDib WithBitFieldMasks(
+        in TestDib dib,
+        uint redMask,
+        uint greenMask,
+        uint blueMask)
+    {
+        byte[] info = dib.Info.ToArray();
+        WriteUInt32(info, 40, redMask);
+        WriteUInt32(info, 44, greenMask);
+        WriteUInt32(info, 48, blueMask);
+        return new TestDib(info, dib.Bits);
+    }
+
+    private static void AssertBitFieldPlaybackRollsBack(byte[] fixture)
+    {
+        using var metafile = new Metafile(new MemoryStream(fixture, writable: false));
+        var context = new DrawingContext();
+        using Graphics graphics = Graphics.FromProGpuDrawingContext(context);
+
+        ArgumentException exception = Assert.Throws<ArgumentException>(() =>
+            graphics.DrawImage(metafile, new Rectangle(0, 0, 64, 64)));
+
+        Assert.Contains("DIB", exception.Message, StringComparison.OrdinalIgnoreCase);
+        Assert.Empty(context.Commands);
     }
 
     private static byte[] EmfStretchDibits(

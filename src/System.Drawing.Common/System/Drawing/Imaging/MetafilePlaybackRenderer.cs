@@ -19,6 +19,7 @@ internal static class MetafilePlaybackRenderer
     private const uint NullPen = 8;
     private const uint DibRgbColors = 0;
     private const uint BiRgb = 0;
+    private const uint BiBitFields = 3;
     private const uint SrcCopy = 0x00CC_0020;
 
     static MetafilePlaybackRenderer() =>
@@ -1255,11 +1256,17 @@ internal static class MetafilePlaybackRenderer
         ushort bitCount = ReadUInt16(bitmapInfo, 14);
         if (bitCount is not 1 and not 4 and not 8 and not 16 and not 24 and not 32)
         {
-            throw Unsupported(record, $"BI_RGB bit depth {bitCount} is not supported.");
+            throw Unsupported(record, $"DIB bit depth {bitCount} is not supported.");
         }
-        if (ReadUInt32(bitmapInfo, 16) != BiRgb)
+        uint compression = ReadUInt32(bitmapInfo, 16);
+        if (compression is not BiRgb and not BiBitFields)
         {
-            throw Unsupported(record, "Only uncompressed BI_RGB DIBs are supported.");
+            throw Unsupported(record, "Only uncompressed BI_RGB and BI_BITFIELDS DIBs are supported.");
+        }
+        bool usesBitFields = compression == BiBitFields;
+        if (usesBitFields && bitCount is not 16 and not 32)
+        {
+            throw Invalid(record);
         }
 
         long rowBits = (long)width * bitCount;
@@ -1293,10 +1300,27 @@ internal static class MetafilePlaybackRenderer
             colorTableCount = (int)colorsUsed;
         }
 
-        long requiredInfoSize = (long)headerSize + colorTableCount * 4L;
+        int externalMaskBytes = usesBitFields && headerSize == bitmapInfoHeaderSize ? 12 : 0;
+        long requiredInfoSize = (long)headerSize + externalMaskBytes + colorTableCount * 4L;
         if (requiredInfoSize > bitmapInfo.Length || requiredInfoSize > int.MaxValue)
         {
             throw Invalid(record);
+        }
+
+        uint redMask = 0;
+        uint greenMask = 0;
+        uint blueMask = 0;
+        uint alphaMask = 0;
+        if (usesBitFields)
+        {
+            int maskOffset = headerSize == bitmapInfoHeaderSize
+                ? bitmapInfoHeaderSize
+                : 40;
+            redMask = ReadUInt32(bitmapInfo, maskOffset);
+            greenMask = ReadUInt32(bitmapInfo, maskOffset + 4);
+            blueMask = ReadUInt32(bitmapInfo, maskOffset + 8);
+            alphaMask = headerSize >= 108 ? ReadUInt32(bitmapInfo, 52) : 0;
+            ValidateDibMasks(record, bitCount, redMask, greenMask, blueMask, alphaMask);
         }
 
         return new DibInfo(
@@ -1307,7 +1331,45 @@ internal static class MetafilePlaybackRenderer
             (int)rowStride,
             (int)headerSize,
             paletteCount,
-            (int)requiredInfoSize);
+            (int)requiredInfoSize,
+            usesBitFields,
+            redMask,
+            greenMask,
+            blueMask,
+            alphaMask);
+    }
+
+    private static void ValidateDibMasks(
+        in MetafileRecord record,
+        ushort bitCount,
+        uint redMask,
+        uint greenMask,
+        uint blueMask,
+        uint alphaMask)
+    {
+        uint pixelMask = bitCount == 32 ? uint.MaxValue : (1u << bitCount) - 1;
+        if (!IsContiguousDibMask(redMask, pixelMask) ||
+            !IsContiguousDibMask(greenMask, pixelMask) ||
+            !IsContiguousDibMask(blueMask, pixelMask) ||
+            alphaMask != 0 && !IsContiguousDibMask(alphaMask, pixelMask) ||
+            (redMask & greenMask) != 0 ||
+            (redMask & blueMask) != 0 ||
+            (greenMask & blueMask) != 0 ||
+            (alphaMask & (redMask | greenMask | blueMask)) != 0)
+        {
+            throw Invalid(record);
+        }
+    }
+
+    private static bool IsContiguousDibMask(uint mask, uint pixelMask)
+    {
+        if (mask == 0 || (mask & ~pixelMask) != 0)
+        {
+            return false;
+        }
+
+        uint shifted = mask >> BitOperations.TrailingZeroCount(mask);
+        return shifted == uint.MaxValue || (shifted & (shifted + 1)) == 0;
     }
 
     private static Bitmap DecodeDibRows(
@@ -1347,6 +1409,7 @@ internal static class MetafilePlaybackRenderer
             byte red;
             byte green;
             byte blue;
+            byte alpha = byte.MaxValue;
             switch (dib.BitCount)
             {
                 case 1:
@@ -1369,9 +1432,19 @@ internal static class MetafilePlaybackRenderer
                     break;
                 case 16:
                     ushort pixel16 = ReadUInt16(source, x * 2);
-                    red = ExpandFiveBits((pixel16 >> 10) & 0x1F);
-                    green = ExpandFiveBits((pixel16 >> 5) & 0x1F);
-                    blue = ExpandFiveBits(pixel16 & 0x1F);
+                    if (dib.UsesBitFields)
+                    {
+                        red = ReadMaskedColor(pixel16, dib.RedMask);
+                        green = ReadMaskedColor(pixel16, dib.GreenMask);
+                        blue = ReadMaskedColor(pixel16, dib.BlueMask);
+                        alpha = ReadMaskedAlpha(pixel16, dib.AlphaMask);
+                    }
+                    else
+                    {
+                        red = ExpandFiveBits((pixel16 >> 10) & 0x1F);
+                        green = ExpandFiveBits((pixel16 >> 5) & 0x1F);
+                        blue = ExpandFiveBits(pixel16 & 0x1F);
+                    }
                     break;
                 case 24:
                     blue = source[x * 3];
@@ -1379,9 +1452,20 @@ internal static class MetafilePlaybackRenderer
                     red = source[x * 3 + 2];
                     break;
                 case 32:
-                    blue = source[x * 4];
-                    green = source[x * 4 + 1];
-                    red = source[x * 4 + 2];
+                    uint pixel32 = ReadUInt32(source, x * 4);
+                    if (dib.UsesBitFields)
+                    {
+                        red = ReadMaskedColor(pixel32, dib.RedMask);
+                        green = ReadMaskedColor(pixel32, dib.GreenMask);
+                        blue = ReadMaskedColor(pixel32, dib.BlueMask);
+                        alpha = ReadMaskedAlpha(pixel32, dib.AlphaMask);
+                    }
+                    else
+                    {
+                        blue = (byte)pixel32;
+                        green = (byte)(pixel32 >> 8);
+                        red = (byte)(pixel32 >> 16);
+                    }
                     break;
                 default:
                     throw Unsupported(record);
@@ -1390,9 +1474,20 @@ internal static class MetafilePlaybackRenderer
             destination[destinationOffset] = red;
             destination[destinationOffset + 1] = green;
             destination[destinationOffset + 2] = blue;
-            destination[destinationOffset + 3] = byte.MaxValue;
+            destination[destinationOffset + 3] = alpha;
         }
     }
+
+    private static byte ReadMaskedColor(uint pixel, uint mask)
+    {
+        int shift = BitOperations.TrailingZeroCount(mask);
+        uint maximum = mask >> shift;
+        uint value = (pixel & mask) >> shift;
+        return (byte)(((ulong)value * byte.MaxValue + maximum / 2) / maximum);
+    }
+
+    private static byte ReadMaskedAlpha(uint pixel, uint mask) =>
+        mask == 0 ? byte.MaxValue : ReadMaskedColor(pixel, mask);
 
     private static void ReadPaletteColor(
         in MetafileRecord record,
@@ -1424,7 +1519,12 @@ internal static class MetafilePlaybackRenderer
         int RowStride,
         int HeaderSize,
         int PaletteCount,
-        int BitmapInfoSize);
+        int BitmapInfoSize,
+        bool UsesBitFields,
+        uint RedMask,
+        uint GreenMask,
+        uint BlueMask,
+        uint AlphaMask);
 
     private static void DrawRectangle(
         PlaybackState state,

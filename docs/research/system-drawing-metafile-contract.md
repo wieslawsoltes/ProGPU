@@ -114,8 +114,10 @@ nonvisual. Typed DIB playback adds `EMR_STRETCHDIBITS`,
 `META_DIBSTRETCHBLT`, `META_STRETCHDIB`, and `META_SETDIBTODEV`, plus EMF/WMF
 stretch-mode state. The shared bounded
 decoder accepts `DIB_RGB_COLORS` with uncompressed `BI_RGB` 1-, 4-, 8-, 16-,
-24-, and 32-bit pixels in `BITMAPINFOHEADER`, `BITMAPV4HEADER`, or
-`BITMAPV5HEADER` envelopes. It handles RGBQUAD palettes, RGB555, DWORD row
+24-, and 32-bit pixels plus `BI_BITFIELDS` 16- and 32-bit pixels in
+`BITMAPINFOHEADER`, `BITMAPV4HEADER`, or `BITMAPV5HEADER` envelopes. It handles
+RGBQUAD palettes, RGB555, RGB565 and arbitrary valid contiguous bit masks,
+optional V4/V5 alpha masks, DWORD row
 stride, bottom-up and top-down storage, source cropping, sign-directed
 mirroring, partial scan bands, destination transforms, and saved nearest or
 halftone sampling state. BI_RGB's unused 32-bit high byte is made opaque rather
@@ -139,6 +141,9 @@ official [EMR_RECTANGLE](https://learn.microsoft.com/en-us/openspecs/windows_pro
 [META_SETDIBTODEV](https://learn.microsoft.com/en-us/openspecs/windows_protocols/ms-wmf/d0e77d4d-653f-4535-a4db-1496af84acdc),
 [DeviceIndependentBitmap](https://learn.microsoft.com/en-us/openspecs/windows_protocols/ms-wmf/7376542a-cce9-4625-8ead-585e9538f9f1),
 [BitmapInfoHeader](https://learn.microsoft.com/en-us/openspecs/windows_protocols/ms-wmf/567172fa-b8a2-4d79-86a2-5e21d6659ef3),
+[BitCount](https://learn.microsoft.com/en-us/openspecs/windows_protocols/ms-wmf/792153f4-1e99-4ec8-93cf-d171a5f33903),
+[Compression](https://learn.microsoft.com/en-us/openspecs/windows_protocols/ms-wmf/4e588f70-bd92-4a6f-b77f-35d0feaf7a57),
+[BitmapV4Header](https://learn.microsoft.com/en-us/openspecs/windows_protocols/ms-wmf/071b0c0d-c2df-4f1c-9828-d03c26002c61),
 [RegionData](https://learn.microsoft.com/en-us/openspecs/windows_protocols/ms-emf/e66601f2-9b5c-4619-8476-ddb7b087551b),
 [RegionMode](https://learn.microsoft.com/en-us/openspecs/windows_protocols/ms-emf/b7f99f50-dd2f-4528-9624-f74140368019),
 [clipping record](https://learn.microsoft.com/en-us/openspecs/windows_protocols/ms-emf/0ca0d18e-324e-452f-9a41-26e1a82e3e03),
@@ -238,8 +243,8 @@ implementation is based on the official
 [state record](https://learn.microsoft.com/en-us/openspecs/windows_protocols/ms-wmf/54e4a2e0-5ca9-4c69-b6a8-dc8f938c68ae)
 contracts. WMF paths and select-clip-region records, `EXTTEXTOUT` glyph-index, numeric-
 substitution, two-dimensional, DBCS-advance, and bidi-advance modes, independent
-escapement/orientation, vertical fonts, SYMBOL glyph-index mapping, compressed,
-bitfield, and logical-palette DIBs, playback-device-context-only
+escapement/orientation, vertical fonts, SYMBOL glyph-index mapping,
+RLE/JPEG/PNG/CMYK and logical-palette DIBs, playback-device-context-only
 `META_DIBBITBLT`/`META_DIBSTRETCHBLT` variants, device-dependent bitmap blits,
 richer GDI objects,
 other WMF drawing families, and nonstructural EMF+ drawing records remain
@@ -752,10 +757,21 @@ operations, transactional rollback, and warmed allocation. The WMF follow-up
 adds all four source-bearing packed-DIB layouts, exact packed header/color-table
 splitting, direct-color optimization tables, both scan orientations, retained
 command shape, and explicit rollback for the two playback-DC-only source forms.
-Compression, bitfields, logical-palette usage, JPEG/PNG transport,
+RLE/JPEG/PNG/CMYK compression and logical-palette usage,
 playback-device-context sources, and device-dependent bitmaps remain named typed
 boundaries. ApiCompat remains at zero missing types, zero missing members, and
 13 reviewed shape differences.
+
+The `BI_BITFIELDS` follow-up validates three external masks after a 40-byte
+header or the embedded V4/V5 masks before decoding any pixels. Red, green, and
+blue masks must be nonzero, contiguous, within the declared 16/32-bit pixel,
+and mutually disjoint; an optional embedded alpha mask obeys the same rules.
+Arbitrary channel widths scale to eight bits with rounded integer math. Exact
+packed-buffer splitting includes external masks and any direct-color
+optimization table, preventing either from being consumed as pixel rows. Seven
+focused cases cover RGB565 through all three accepted header sizes, custom
+32-bit channel order and alpha, packed WMF optimization tables, malformed masks
+with complete EMF/WMF rollback, and warmed allocation.
 
 `Playback256EmfDibImagesToRetainedCommands` measures bounded header/row decode,
 256 owned two-by-two RGBA snapshots, typed retained-texture recording,
@@ -777,8 +793,16 @@ throughput. Ten focused WMF cases independently cover all four record families,
 bottom-up padding, top-down and bottom-up partial bands, packed color-table
 splitting, retained sampling, playback-DC boundaries, malformed input,
 transactional rollback, and the warmed 64-image allocation ceiling.
-Both complete Debug and Release drawing suites pass 525/525; ApiCompat remains
+Both complete Debug and Release drawing suites pass 532/532; ApiCompat remains
 at zero missing types, zero missing members, and 13 reviewed shape differences.
+
+`Playback256BitFieldDibImagesToRetainedCommands` measures 256 packed RGB565
+`META_STRETCHDIB` records including external-mask parsing. The 2026-08-31
+ARM64/.NET 10.0.11 ShortRun measured a 17.411 millisecond median (16.561
+millisecond mean, 9.096 millisecond standard deviation) with 501.79 KB
+allocated. Three iterations, denied priority elevation, and high timing
+variance make allocation and retained ownership authoritative rather than a
+throughput comparison with the BI_RGB fixture.
 
 The EMF path-bracket follow-up adds `EMR_BEGINPATH`, `EMR_ENDPATH`,
 `EMR_CLOSEFIGURE`, `EMR_ABORTPATH`, `EMR_FILLPATH`, `EMR_STROKEPATH`,
