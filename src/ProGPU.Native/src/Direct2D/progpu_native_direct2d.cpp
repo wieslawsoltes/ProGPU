@@ -18,6 +18,7 @@
 #include <cstring>
 #include <iterator>
 #include <limits>
+#include <memory>
 #include <mutex>
 #include <new>
 #include <span>
@@ -1007,6 +1008,1698 @@ private:
     D2D1_MATRIX_3X2_F transform_ = D2D1::Matrix3x2F::Identity();
 };
 
+enum class compat_path_state : uint32_t {
+    fresh = 0U,
+    open = 1U,
+    closed = 2U,
+    failed = 3U
+};
+
+enum class compat_path_segment_kind : uint8_t {
+    line,
+    cubic,
+    quadratic,
+    arc
+};
+
+struct compat_path_segment {
+    compat_path_segment_kind kind = compat_path_segment_kind::line;
+    D2D1_PATH_SEGMENT flags = D2D1_PATH_SEGMENT_NONE;
+    D2D1_POINT_2F start{};
+    D2D1_POINT_2F end{};
+    D2D1_POINT_2F control1{};
+    D2D1_POINT_2F control2{};
+    D2D1_ARC_SEGMENT arc{};
+};
+
+struct compat_path_figure {
+    D2D1_POINT_2F start{};
+    D2D1_FIGURE_BEGIN begin = D2D1_FIGURE_BEGIN_FILLED;
+    D2D1_FIGURE_END end = D2D1_FIGURE_END_OPEN;
+    uint32_t first_segment = 0U;
+    uint32_t first_public_segment = 0U;
+    uint32_t segment_count = 0U;
+};
+
+struct compat_path_data {
+    mutable std::mutex mutex;
+    std::vector<compat_path_figure> figures;
+    std::vector<compat_path_segment> segments;
+    std::atomic<compat_path_state> published_state{compat_path_state::fresh};
+    D2D1_FILL_MODE fill_mode = D2D1_FILL_MODE_ALTERNATE;
+    D2D1_PATH_SEGMENT current_flags = D2D1_PATH_SEGMENT_NONE;
+    D2D1_POINT_2F current_point{};
+    uint32_t public_segment_count = 0U;
+    HRESULT failure = S_OK;
+    bool figure_open = false;
+};
+
+bool compat_finite_point(D2D1_POINT_2F point) noexcept
+{
+    return std::isfinite(point.x) && std::isfinite(point.y);
+}
+
+bool compat_same_point(
+    D2D1_POINT_2F left,
+    D2D1_POINT_2F right) noexcept
+{
+    return left.x == right.x && left.y == right.y;
+}
+
+bool compat_transform_point(
+    D2D1_POINT_2F point,
+    const D2D1_MATRIX_3X2_F* transform,
+    D2D1_POINT_2F& result) noexcept
+{
+    if (!compat_finite_point(point) || !compat_finite_transform(transform)) {
+        return false;
+    }
+    const D2D1_MATRIX_3X2_F matrix = transform == nullptr
+        ? D2D1::Matrix3x2F::Identity()
+        : *transform;
+    const double x = static_cast<double>(point.x) * matrix._11 +
+        static_cast<double>(point.y) * matrix._21 + matrix._31;
+    const double y = static_cast<double>(point.x) * matrix._12 +
+        static_cast<double>(point.y) * matrix._22 + matrix._32;
+    constexpr double maximum =
+        static_cast<double>(std::numeric_limits<float>::max());
+    if (!std::isfinite(x) || !std::isfinite(y) ||
+        std::abs(x) > maximum || std::abs(y) > maximum) {
+        return false;
+    }
+    result = {static_cast<float>(x), static_cast<float>(y)};
+    return true;
+}
+
+bool compat_valid_arc(const D2D1_ARC_SEGMENT& arc) noexcept
+{
+    return compat_finite_point(arc.point) &&
+        std::isfinite(arc.size.width) && std::isfinite(arc.size.height) &&
+        arc.size.width >= 0.0F && arc.size.height >= 0.0F &&
+        std::isfinite(arc.rotationAngle) &&
+        (arc.sweepDirection == D2D1_SWEEP_DIRECTION_COUNTER_CLOCKWISE ||
+            arc.sweepDirection == D2D1_SWEEP_DIRECTION_CLOCKWISE) &&
+        (arc.arcSize == D2D1_ARC_SIZE_SMALL ||
+            arc.arcSize == D2D1_ARC_SIZE_LARGE);
+}
+
+bool compat_arc_to_cubics(
+    D2D1_POINT_2F start,
+    const D2D1_ARC_SEGMENT& arc,
+    std::array<D2D1_BEZIER_SEGMENT, 4U>& cubics,
+    uint32_t& cubic_count) noexcept
+{
+    cubic_count = 0U;
+    if (!compat_finite_point(start) || !compat_valid_arc(arc)) {
+        return false;
+    }
+    if (compat_same_point(start, arc.point) ||
+        arc.size.width == 0.0F || arc.size.height == 0.0F) {
+        return true;
+    }
+
+    constexpr double pi = 3.141592653589793238462643383279502884;
+    const double phi = std::remainder(
+        static_cast<double>(arc.rotationAngle), 360.0) * pi / 180.0;
+    const double cosine = std::cos(phi);
+    const double sine = std::sin(phi);
+    const double half_dx =
+        (static_cast<double>(start.x) - arc.point.x) * 0.5;
+    const double half_dy =
+        (static_cast<double>(start.y) - arc.point.y) * 0.5;
+    const double x1_prime = cosine * half_dx + sine * half_dy;
+    const double y1_prime = -sine * half_dx + cosine * half_dy;
+    double radius_x = std::abs(static_cast<double>(arc.size.width));
+    double radius_y = std::abs(static_cast<double>(arc.size.height));
+    double radius_x_squared = radius_x * radius_x;
+    double radius_y_squared = radius_y * radius_y;
+    const double scale =
+        x1_prime * x1_prime / radius_x_squared +
+        y1_prime * y1_prime / radius_y_squared;
+    if (scale > 1.0) {
+        const double factor = std::sqrt(scale);
+        radius_x *= factor;
+        radius_y *= factor;
+        radius_x_squared = radius_x * radius_x;
+        radius_y_squared = radius_y * radius_y;
+    }
+
+    const bool large = arc.arcSize == D2D1_ARC_SIZE_LARGE;
+    const bool clockwise =
+        arc.sweepDirection == D2D1_SWEEP_DIRECTION_CLOCKWISE;
+    const double numerator = std::max(
+        0.0,
+        radius_x_squared * radius_y_squared -
+            radius_x_squared * y1_prime * y1_prime -
+            radius_y_squared * x1_prime * x1_prime);
+    const double denominator =
+        radius_x_squared * y1_prime * y1_prime +
+        radius_y_squared * x1_prime * x1_prime;
+    const double sign = large == clockwise ? -1.0 : 1.0;
+    const double coefficient = denominator == 0.0
+        ? 0.0
+        : sign * std::sqrt(numerator / denominator);
+    const double center_x_prime =
+        coefficient * radius_x * y1_prime / radius_y;
+    const double center_y_prime =
+        -coefficient * radius_y * x1_prime / radius_x;
+    const double center_x = cosine * center_x_prime -
+        sine * center_y_prime +
+        (static_cast<double>(start.x) + arc.point.x) * 0.5;
+    const double center_y = sine * center_x_prime +
+        cosine * center_y_prime +
+        (static_cast<double>(start.y) + arc.point.y) * 0.5;
+
+    const auto vector_angle = [](double ux, double uy, double vx, double vy) {
+        return std::atan2(ux * vy - uy * vx, ux * vx + uy * vy);
+    };
+    const double ux = (x1_prime - center_x_prime) / radius_x;
+    const double uy = (y1_prime - center_y_prime) / radius_y;
+    const double vx = (-x1_prime - center_x_prime) / radius_x;
+    const double vy = (-y1_prime - center_y_prime) / radius_y;
+    double start_angle = std::atan2(uy, ux);
+    double delta = vector_angle(ux, uy, vx, vy);
+    if (!clockwise && delta > 0.0) {
+        delta -= 2.0 * pi;
+    } else if (clockwise && delta < 0.0) {
+        delta += 2.0 * pi;
+    }
+    cubic_count = static_cast<uint32_t>(std::clamp(
+        std::ceil(std::abs(delta) / (pi * 0.5)),
+        1.0,
+        4.0));
+    const double step = delta / cubic_count;
+    D2D1_POINT_2F current = start;
+    for (uint32_t index = 0U; index < cubic_count; ++index) {
+        const double angle0 = start_angle + step * index;
+        const double angle1 = angle0 + step;
+        const double alpha = 4.0 / 3.0 * std::tan(step * 0.25);
+        const auto evaluate = [&](double angle) {
+            const double local_x = radius_x * std::cos(angle);
+            const double local_y = radius_y * std::sin(angle);
+            return D2D1_POINT_2F{
+                static_cast<float>(
+                    center_x + cosine * local_x - sine * local_y),
+                static_cast<float>(
+                    center_y + sine * local_x + cosine * local_y)};
+        };
+        const auto derivative = [&](double angle) {
+            const double local_x = -radius_x * std::sin(angle);
+            const double local_y = radius_y * std::cos(angle);
+            return D2D1_POINT_2F{
+                static_cast<float>(cosine * local_x - sine * local_y),
+                static_cast<float>(sine * local_x + cosine * local_y)};
+        };
+        const D2D1_POINT_2F end = index + 1U == cubic_count
+            ? arc.point
+            : evaluate(angle1);
+        const D2D1_POINT_2F tangent0 = derivative(angle0);
+        const D2D1_POINT_2F tangent1 = derivative(angle1);
+        cubics[index] = {
+            {static_cast<float>(current.x + alpha * tangent0.x),
+                static_cast<float>(current.y + alpha * tangent0.y)},
+            {static_cast<float>(end.x - alpha * tangent1.x),
+                static_cast<float>(end.y - alpha * tangent1.y)},
+            end};
+        if (!compat_finite_point(cubics[index].point1) ||
+            !compat_finite_point(cubics[index].point2) ||
+            !compat_finite_point(cubics[index].point3)) {
+            cubic_count = 0U;
+            return false;
+        }
+        current = end;
+    }
+    return true;
+}
+
+double compat_point_line_distance_squared(
+    D2D1_POINT_2F point,
+    D2D1_POINT_2F start,
+    D2D1_POINT_2F end) noexcept
+{
+    const double dx = static_cast<double>(end.x) - start.x;
+    const double dy = static_cast<double>(end.y) - start.y;
+    const double length_squared = dx * dx + dy * dy;
+    if (length_squared == 0.0) {
+        const double px = static_cast<double>(point.x) - start.x;
+        const double py = static_cast<double>(point.y) - start.y;
+        return px * px + py * py;
+    }
+    const double cross =
+        (static_cast<double>(point.x) - start.x) * dy -
+        (static_cast<double>(point.y) - start.y) * dx;
+    return cross * cross / length_squared;
+}
+
+template<typename Callback>
+bool compat_flatten_cubic(
+    D2D1_POINT_2F start,
+    D2D1_POINT_2F control1,
+    D2D1_POINT_2F control2,
+    D2D1_POINT_2F end,
+    double tolerance_squared,
+    uint32_t depth,
+    Callback& callback)
+{
+    if (depth == 20U ||
+        (compat_point_line_distance_squared(control1, start, end) <=
+                tolerance_squared &&
+            compat_point_line_distance_squared(control2, start, end) <=
+                tolerance_squared)) {
+        return callback(start, end);
+    }
+    const D2D1_POINT_2F p01 = {
+        (start.x + control1.x) * 0.5F,
+        (start.y + control1.y) * 0.5F};
+    const D2D1_POINT_2F p12 = {
+        (control1.x + control2.x) * 0.5F,
+        (control1.y + control2.y) * 0.5F};
+    const D2D1_POINT_2F p23 = {
+        (control2.x + end.x) * 0.5F,
+        (control2.y + end.y) * 0.5F};
+    const D2D1_POINT_2F p012 = {
+        (p01.x + p12.x) * 0.5F,
+        (p01.y + p12.y) * 0.5F};
+    const D2D1_POINT_2F p123 = {
+        (p12.x + p23.x) * 0.5F,
+        (p12.y + p23.y) * 0.5F};
+    const D2D1_POINT_2F midpoint = {
+        (p012.x + p123.x) * 0.5F,
+        (p012.y + p123.y) * 0.5F};
+    return compat_flatten_cubic(
+               start,
+               p01,
+               p012,
+               midpoint,
+               tolerance_squared,
+               depth + 1U,
+               callback) &&
+        compat_flatten_cubic(
+            midpoint,
+            p123,
+            p23,
+            end,
+            tolerance_squared,
+            depth + 1U,
+            callback);
+}
+
+template<typename BeginCallback, typename LineCallback,
+    typename CubicCallback, typename EndCallback>
+bool compat_visit_path(
+    const compat_path_data& data,
+    const D2D1_MATRIX_3X2_F* transform,
+    bool flatten,
+    float tolerance,
+    BeginCallback&& begin_callback,
+    LineCallback&& line_callback,
+    CubicCallback&& cubic_callback,
+    EndCallback&& end_callback)
+{
+    const double tolerance_squared =
+        static_cast<double>(tolerance) * tolerance;
+    for (size_t figure_offset = 0U;
+         figure_offset < data.figures.size();
+         ++figure_offset) {
+        const uint32_t figure_index =
+            static_cast<uint32_t>(figure_offset);
+        const auto& figure = data.figures[figure_offset];
+        D2D1_POINT_2F transformed_start{};
+        if (!compat_transform_point(
+                figure.start, transform, transformed_start) ||
+            !begin_callback(
+                transformed_start, figure_index, figure)) {
+            return false;
+        }
+        D2D1_POINT_2F current_source = figure.start;
+        D2D1_POINT_2F current_target = transformed_start;
+        for (uint32_t local_index = 0U;
+             local_index < figure.segment_count;
+             ++local_index) {
+            const uint32_t storage_segment_index =
+                figure.first_segment + local_index;
+            const uint32_t segment_index =
+                figure.first_public_segment + local_index;
+            const auto& segment = data.segments[storage_segment_index];
+            D2D1_POINT_2F end_target{};
+            if (!compat_transform_point(
+                    segment.end, transform, end_target)) {
+                return false;
+            }
+            if (segment.kind == compat_path_segment_kind::line ||
+                (segment.kind == compat_path_segment_kind::arc &&
+                    (segment.arc.size.width == 0.0F ||
+                        segment.arc.size.height == 0.0F))) {
+                if (!line_callback(
+                        current_target,
+                        end_target,
+                        segment_index,
+                        figure_index,
+                        segment.flags)) {
+                    return false;
+                }
+            } else if (segment.kind == compat_path_segment_kind::cubic ||
+                       segment.kind ==
+                           compat_path_segment_kind::quadratic) {
+                D2D1_POINT_2F control1_source = segment.control1;
+                D2D1_POINT_2F control2_source = segment.control2;
+                if (segment.kind == compat_path_segment_kind::quadratic) {
+                    control1_source = {
+                        current_source.x +
+                            (segment.control1.x - current_source.x) *
+                                (2.0F / 3.0F),
+                        current_source.y +
+                            (segment.control1.y - current_source.y) *
+                                (2.0F / 3.0F)};
+                    control2_source = {
+                        segment.end.x +
+                            (segment.control1.x - segment.end.x) *
+                                (2.0F / 3.0F),
+                        segment.end.y +
+                            (segment.control1.y - segment.end.y) *
+                                (2.0F / 3.0F)};
+                }
+                D2D1_POINT_2F control1_target{};
+                D2D1_POINT_2F control2_target{};
+                if (!compat_transform_point(
+                        control1_source, transform, control1_target) ||
+                    !compat_transform_point(
+                        control2_source, transform, control2_target)) {
+                    return false;
+                }
+                if (flatten) {
+                    auto callback = [&](D2D1_POINT_2F line_start,
+                                        D2D1_POINT_2F line_end) {
+                        return line_callback(
+                            line_start,
+                            line_end,
+                            segment_index,
+                            figure_index,
+                            segment.flags);
+                    };
+                    if (!compat_flatten_cubic(
+                            current_target,
+                            control1_target,
+                            control2_target,
+                            end_target,
+                            tolerance_squared,
+                            0U,
+                            callback)) {
+                        return false;
+                    }
+                } else if (!cubic_callback(
+                               current_target,
+                               control1_target,
+                               control2_target,
+                               end_target,
+                               segment_index,
+                               figure_index,
+                               segment.flags)) {
+                    return false;
+                }
+            } else {
+                std::array<D2D1_BEZIER_SEGMENT, 4U> cubics{};
+                uint32_t cubic_count = 0U;
+                if (!compat_arc_to_cubics(
+                        current_source,
+                        segment.arc,
+                        cubics,
+                        cubic_count)) {
+                    return false;
+                }
+                D2D1_POINT_2F cubic_start = current_target;
+                for (uint32_t cubic_index = 0U;
+                     cubic_index < cubic_count;
+                     ++cubic_index) {
+                    D2D1_POINT_2F control1_target{};
+                    D2D1_POINT_2F control2_target{};
+                    D2D1_POINT_2F cubic_end_target{};
+                    if (!compat_transform_point(
+                            cubics[cubic_index].point1,
+                            transform,
+                            control1_target) ||
+                        !compat_transform_point(
+                            cubics[cubic_index].point2,
+                            transform,
+                            control2_target) ||
+                        !compat_transform_point(
+                            cubics[cubic_index].point3,
+                            transform,
+                            cubic_end_target)) {
+                        return false;
+                    }
+                    if (flatten) {
+                        auto callback = [&](D2D1_POINT_2F line_start,
+                                            D2D1_POINT_2F line_end) {
+                            return line_callback(
+                                line_start,
+                                line_end,
+                                segment_index,
+                                figure_index,
+                                segment.flags);
+                        };
+                        if (!compat_flatten_cubic(
+                                cubic_start,
+                                control1_target,
+                                control2_target,
+                                cubic_end_target,
+                                tolerance_squared,
+                                0U,
+                                callback)) {
+                            return false;
+                        }
+                    } else if (!cubic_callback(
+                                   cubic_start,
+                                   control1_target,
+                                   control2_target,
+                                   cubic_end_target,
+                                   segment_index,
+                                   figure_index,
+                                   segment.flags)) {
+                        return false;
+                    }
+                    cubic_start = cubic_end_target;
+                }
+            }
+            current_source = segment.end;
+            current_target = end_target;
+        }
+        if (!end_callback(
+                current_target,
+                transformed_start,
+                figure_index,
+                figure)) {
+            return false;
+        }
+    }
+    return true;
+}
+
+class ProGpuD2DGeometrySink final : public ID2D1GeometrySink {
+public:
+    explicit ProGpuD2DGeometrySink(
+        std::shared_ptr<compat_path_data> data) noexcept
+        : data_(std::move(data))
+    {
+    }
+
+    HRESULT STDMETHODCALLTYPE QueryInterface(
+        REFIID interface_id,
+        void** value) noexcept override
+    {
+        if (value == nullptr) {
+            return E_POINTER;
+        }
+        *value = nullptr;
+        if (IsEqualIID(interface_id, IID_IUnknown) ||
+            IsEqualIID(
+                interface_id,
+                __uuidof(ID2D1SimplifiedGeometrySink)) ||
+            IsEqualIID(interface_id, __uuidof(ID2D1GeometrySink))) {
+            *value = static_cast<ID2D1GeometrySink*>(this);
+            AddRef();
+            return S_OK;
+        }
+        return E_NOINTERFACE;
+    }
+
+    ULONG STDMETHODCALLTYPE AddRef() noexcept override
+    {
+        return reference_count_.fetch_add(1U, std::memory_order_relaxed) + 1U;
+    }
+
+    ULONG STDMETHODCALLTYPE Release() noexcept override
+    {
+        const ULONG remaining = reference_count_.fetch_sub(
+            1U,
+            std::memory_order_acq_rel) - 1U;
+        if (remaining == 0U) {
+            delete this;
+        }
+        return remaining;
+    }
+
+    void STDMETHODCALLTYPE SetFillMode(
+        D2D1_FILL_MODE fill_mode) noexcept override
+    {
+        const std::lock_guard lock(data_->mutex);
+        if (!can_record_locked() || data_->figure_open ||
+            !data_->figures.empty() ||
+            (fill_mode != D2D1_FILL_MODE_ALTERNATE &&
+                fill_mode != D2D1_FILL_MODE_WINDING)) {
+            set_failure_locked(E_INVALIDARG);
+            return;
+        }
+        data_->fill_mode = fill_mode;
+    }
+
+    void STDMETHODCALLTYPE SetSegmentFlags(
+        D2D1_PATH_SEGMENT flags) noexcept override
+    {
+        constexpr uint32_t supported_flags =
+            D2D1_PATH_SEGMENT_FORCE_UNSTROKED |
+            D2D1_PATH_SEGMENT_FORCE_ROUND_LINE_JOIN;
+        const std::lock_guard lock(data_->mutex);
+        if (!can_record_locked() ||
+            (static_cast<uint32_t>(flags) & ~supported_flags) != 0U) {
+            set_failure_locked(E_INVALIDARG);
+            return;
+        }
+        data_->current_flags = flags;
+    }
+
+    void STDMETHODCALLTYPE BeginFigure(
+        D2D1_POINT_2F start,
+        D2D1_FIGURE_BEGIN begin) noexcept override
+    {
+        const std::lock_guard lock(data_->mutex);
+        if (!can_record_locked() || data_->figure_open ||
+            !compat_finite_point(start) ||
+            (begin != D2D1_FIGURE_BEGIN_FILLED &&
+                begin != D2D1_FIGURE_BEGIN_HOLLOW) ||
+            data_->figures.size() ==
+                std::numeric_limits<uint32_t>::max()) {
+            set_failure_locked(E_INVALIDARG);
+            return;
+        }
+        try {
+            data_->figures.push_back(
+                {start,
+                    begin,
+                    D2D1_FIGURE_END_OPEN,
+                    static_cast<uint32_t>(data_->segments.size()),
+                    data_->public_segment_count,
+                    0U});
+        } catch (const std::bad_alloc&) {
+            set_failure_locked(E_OUTOFMEMORY);
+            return;
+        } catch (...) {
+            set_failure_locked(E_FAIL);
+            return;
+        }
+        data_->current_point = start;
+        data_->figure_open = true;
+    }
+
+    void STDMETHODCALLTYPE AddLines(
+        const D2D1_POINT_2F* points,
+        UINT32 point_count) noexcept override
+    {
+        const std::lock_guard lock(data_->mutex);
+        if (!can_record_locked() || !data_->figure_open ||
+            (point_count != 0U && points == nullptr)) {
+            set_failure_locked(E_INVALIDARG);
+            return;
+        }
+        for (uint32_t index = 0U; index < point_count; ++index) {
+            if (!compat_finite_point(points[index])) {
+                set_failure_locked(E_INVALIDARG);
+                return;
+            }
+            compat_path_segment segment{};
+            segment.kind = compat_path_segment_kind::line;
+            segment.end = points[index];
+            if (!append_segment_locked(segment)) {
+                return;
+            }
+        }
+    }
+
+    void STDMETHODCALLTYPE AddBeziers(
+        const D2D1_BEZIER_SEGMENT* beziers,
+        UINT32 bezier_count) noexcept override
+    {
+        const std::lock_guard lock(data_->mutex);
+        if (!can_record_locked() || !data_->figure_open ||
+            (bezier_count != 0U && beziers == nullptr)) {
+            set_failure_locked(E_INVALIDARG);
+            return;
+        }
+        for (uint32_t index = 0U; index < bezier_count; ++index) {
+            const auto& bezier = beziers[index];
+            if (!compat_finite_point(bezier.point1) ||
+                !compat_finite_point(bezier.point2) ||
+                !compat_finite_point(bezier.point3)) {
+                set_failure_locked(E_INVALIDARG);
+                return;
+            }
+            compat_path_segment segment{};
+            segment.kind = compat_path_segment_kind::cubic;
+            segment.control1 = bezier.point1;
+            segment.control2 = bezier.point2;
+            segment.end = bezier.point3;
+            if (!append_segment_locked(segment)) {
+                return;
+            }
+        }
+    }
+
+    void STDMETHODCALLTYPE EndFigure(
+        D2D1_FIGURE_END end) noexcept override
+    {
+        const std::lock_guard lock(data_->mutex);
+        if (!can_record_locked() || !data_->figure_open ||
+            (end != D2D1_FIGURE_END_OPEN &&
+                end != D2D1_FIGURE_END_CLOSED)) {
+            set_failure_locked(E_INVALIDARG);
+            return;
+        }
+        if (end == D2D1_FIGURE_END_CLOSED &&
+            data_->public_segment_count ==
+                std::numeric_limits<uint32_t>::max()) {
+            set_failure_locked(E_OUTOFMEMORY);
+            return;
+        }
+        data_->figures.back().end = end;
+        if (end == D2D1_FIGURE_END_CLOSED) {
+            ++data_->public_segment_count;
+        }
+        data_->figure_open = false;
+    }
+
+    HRESULT STDMETHODCALLTYPE Close() noexcept override
+    {
+        const std::lock_guard lock(data_->mutex);
+        if (data_->published_state.load(std::memory_order_relaxed) !=
+            compat_path_state::open) {
+            return D2DERR_WRONG_STATE;
+        }
+        if (data_->figure_open) {
+            set_failure_locked(D2DERR_WRONG_STATE);
+        }
+        const HRESULT result = data_->failure;
+        data_->published_state.store(
+            SUCCEEDED(result)
+                ? compat_path_state::closed
+                : compat_path_state::failed,
+            std::memory_order_release);
+        return result;
+    }
+
+    void STDMETHODCALLTYPE AddLine(
+        D2D1_POINT_2F point) noexcept override
+    {
+        AddLines(&point, 1U);
+    }
+
+    void STDMETHODCALLTYPE AddBezier(
+        const D2D1_BEZIER_SEGMENT* bezier) noexcept override
+    {
+        AddBeziers(bezier, bezier == nullptr ? 0U : 1U);
+        if (bezier == nullptr) {
+            const std::lock_guard lock(data_->mutex);
+            set_failure_locked(E_INVALIDARG);
+        }
+    }
+
+    void STDMETHODCALLTYPE AddQuadraticBezier(
+        const D2D1_QUADRATIC_BEZIER_SEGMENT* bezier) noexcept override
+    {
+        AddQuadraticBeziers(bezier, bezier == nullptr ? 0U : 1U);
+        if (bezier == nullptr) {
+            const std::lock_guard lock(data_->mutex);
+            set_failure_locked(E_INVALIDARG);
+        }
+    }
+
+    void STDMETHODCALLTYPE AddQuadraticBeziers(
+        const D2D1_QUADRATIC_BEZIER_SEGMENT* beziers,
+        UINT32 bezier_count) noexcept override
+    {
+        const std::lock_guard lock(data_->mutex);
+        if (!can_record_locked() || !data_->figure_open ||
+            (bezier_count != 0U && beziers == nullptr)) {
+            set_failure_locked(E_INVALIDARG);
+            return;
+        }
+        for (uint32_t index = 0U; index < bezier_count; ++index) {
+            const auto& bezier = beziers[index];
+            if (!compat_finite_point(bezier.point1) ||
+                !compat_finite_point(bezier.point2)) {
+                set_failure_locked(E_INVALIDARG);
+                return;
+            }
+            compat_path_segment segment{};
+            segment.kind = compat_path_segment_kind::quadratic;
+            segment.control1 = bezier.point1;
+            segment.end = bezier.point2;
+            if (!append_segment_locked(segment)) {
+                return;
+            }
+        }
+    }
+
+    void STDMETHODCALLTYPE AddArc(
+        const D2D1_ARC_SEGMENT* arc) noexcept override
+    {
+        const std::lock_guard lock(data_->mutex);
+        if (!can_record_locked() || !data_->figure_open || arc == nullptr ||
+            !compat_valid_arc(*arc)) {
+            set_failure_locked(E_INVALIDARG);
+            return;
+        }
+        compat_path_segment segment{};
+        segment.kind = compat_path_segment_kind::arc;
+        segment.arc = *arc;
+        segment.end = arc->point;
+        static_cast<void>(append_segment_locked(segment));
+    }
+
+private:
+    ~ProGpuD2DGeometrySink()
+    {
+        const std::lock_guard lock(data_->mutex);
+        if (data_->published_state.load(std::memory_order_relaxed) ==
+            compat_path_state::open) {
+            set_failure_locked(D2DERR_WRONG_STATE);
+            data_->published_state.store(
+                compat_path_state::failed,
+                std::memory_order_release);
+        }
+    }
+
+    bool can_record_locked() const noexcept
+    {
+        return data_->published_state.load(std::memory_order_relaxed) ==
+                compat_path_state::open &&
+            SUCCEEDED(data_->failure);
+    }
+
+    void set_failure_locked(HRESULT failure) noexcept
+    {
+        if (SUCCEEDED(data_->failure)) {
+            data_->failure = failure;
+        }
+    }
+
+    bool append_segment_locked(compat_path_segment segment) noexcept
+    {
+        if (!can_record_locked() || !data_->figure_open ||
+            data_->segments.size() ==
+                std::numeric_limits<uint32_t>::max() ||
+            data_->public_segment_count ==
+                std::numeric_limits<uint32_t>::max()) {
+            set_failure_locked(D2DERR_WRONG_STATE);
+            return false;
+        }
+        segment.start = data_->current_point;
+        segment.flags = data_->current_flags;
+        try {
+            data_->segments.push_back(segment);
+        } catch (const std::bad_alloc&) {
+            set_failure_locked(E_OUTOFMEMORY);
+            return false;
+        } catch (...) {
+            set_failure_locked(E_FAIL);
+            return false;
+        }
+        ++data_->figures.back().segment_count;
+        ++data_->public_segment_count;
+        data_->current_point = segment.end;
+        return true;
+    }
+
+    std::atomic<ULONG> reference_count_{1U};
+    std::shared_ptr<compat_path_data> data_;
+};
+
+double compat_cubic_coordinate(
+    double p0,
+    double p1,
+    double p2,
+    double p3,
+    double t) noexcept
+{
+    const double one_minus_t = 1.0 - t;
+    return one_minus_t * one_minus_t * one_minus_t * p0 +
+        3.0 * one_minus_t * one_minus_t * t * p1 +
+        3.0 * one_minus_t * t * t * p2 + t * t * t * p3;
+}
+
+void compat_include_cubic_bounds(
+    D2D1_POINT_2F start,
+    D2D1_POINT_2F control1,
+    D2D1_POINT_2F control2,
+    D2D1_POINT_2F end,
+    D2D1_RECT_F& bounds) noexcept
+{
+    bounds.left = std::min(bounds.left, std::min(start.x, end.x));
+    bounds.top = std::min(bounds.top, std::min(start.y, end.y));
+    bounds.right = std::max(bounds.right, std::max(start.x, end.x));
+    bounds.bottom = std::max(bounds.bottom, std::max(start.y, end.y));
+    const auto include_axis = [&](double p0,
+                                  double p1,
+                                  double p2,
+                                  double p3,
+                                  bool x_axis) {
+        const double a = -p0 + 3.0 * p1 - 3.0 * p2 + p3;
+        const double b = 3.0 * p0 - 6.0 * p1 + 3.0 * p2;
+        const double c = -3.0 * p0 + 3.0 * p1;
+        std::array<double, 2U> roots{};
+        uint32_t root_count = 0U;
+        const double quadratic = 3.0 * a;
+        const double linear = 2.0 * b;
+        const double scale = std::max(
+            {1.0, std::abs(quadratic), std::abs(linear), std::abs(c)});
+        const double epsilon =
+            std::numeric_limits<double>::epsilon() * scale * 16.0;
+        if (std::abs(quadratic) <= epsilon) {
+            if (std::abs(linear) > epsilon) {
+                roots[root_count++] = -c / linear;
+            }
+        } else {
+            const double discriminant = linear * linear -
+                4.0 * quadratic * c;
+            if (discriminant >= 0.0) {
+                const double root = std::sqrt(discriminant);
+                roots[root_count++] =
+                    (-linear + root) / (2.0 * quadratic);
+                roots[root_count++] =
+                    (-linear - root) / (2.0 * quadratic);
+            }
+        }
+        for (uint32_t index = 0U; index < root_count; ++index) {
+            const double t = roots[index];
+            if (!(t > 0.0 && t < 1.0)) {
+                continue;
+            }
+            const float value = static_cast<float>(compat_cubic_coordinate(
+                p0, p1, p2, p3, t));
+            if (x_axis) {
+                bounds.left = std::min(bounds.left, value);
+                bounds.right = std::max(bounds.right, value);
+            } else {
+                bounds.top = std::min(bounds.top, value);
+                bounds.bottom = std::max(bounds.bottom, value);
+            }
+        }
+    };
+    include_axis(start.x, control1.x, control2.x, end.x, true);
+    include_axis(start.y, control1.y, control2.y, end.y, false);
+}
+
+struct compat_flat_edge {
+    D2D1_POINT_2F start{};
+    D2D1_POINT_2F end{};
+    uint32_t segment_index = 0U;
+    uint32_t figure_index = 0U;
+};
+
+class ProGpuD2DPathGeometry final : public ID2D1PathGeometry1 {
+public:
+    explicit ProGpuD2DPathGeometry(ID2D1Factory1* factory)
+        : factory_(factory), data_(std::make_shared<compat_path_data>())
+    {
+    }
+
+    HRESULT STDMETHODCALLTYPE QueryInterface(
+        REFIID interface_id,
+        void** value) noexcept override
+    {
+        if (value == nullptr) {
+            return E_POINTER;
+        }
+        *value = nullptr;
+        if (IsEqualIID(interface_id, IID_IUnknown) ||
+            IsEqualIID(interface_id, __uuidof(ID2D1Resource)) ||
+            IsEqualIID(interface_id, __uuidof(ID2D1Geometry)) ||
+            IsEqualIID(interface_id, __uuidof(ID2D1PathGeometry)) ||
+            IsEqualIID(interface_id, __uuidof(ID2D1PathGeometry1))) {
+            *value = static_cast<ID2D1PathGeometry1*>(this);
+            AddRef();
+            return S_OK;
+        }
+        return E_NOINTERFACE;
+    }
+
+    ULONG STDMETHODCALLTYPE AddRef() noexcept override
+    {
+        return reference_count_.fetch_add(1U, std::memory_order_relaxed) + 1U;
+    }
+
+    ULONG STDMETHODCALLTYPE Release() noexcept override
+    {
+        const ULONG remaining = reference_count_.fetch_sub(
+            1U,
+            std::memory_order_acq_rel) - 1U;
+        if (remaining == 0U) {
+            delete this;
+        }
+        return remaining;
+    }
+
+    void STDMETHODCALLTYPE GetFactory(
+        ID2D1Factory** factory) const noexcept override
+    {
+        if (factory == nullptr) {
+            return;
+        }
+        *factory = factory_.Get();
+        if (*factory != nullptr) {
+            (*factory)->AddRef();
+        }
+    }
+
+    HRESULT STDMETHODCALLTYPE GetBounds(
+        const D2D1_MATRIX_3X2_F* world_transform,
+        D2D1_RECT_F* bounds) const noexcept override
+    {
+        if (bounds == nullptr) {
+            return E_POINTER;
+        }
+        *bounds = {};
+        if (!is_closed()) {
+            return D2DERR_WRONG_STATE;
+        }
+        if (!compat_finite_transform(world_transform)) {
+            return E_INVALIDARG;
+        }
+        D2D1_RECT_F result = {
+            std::numeric_limits<float>::max(),
+            std::numeric_limits<float>::max(),
+            -std::numeric_limits<float>::max(),
+            -std::numeric_limits<float>::max()};
+        bool has_bounds = false;
+        const auto include = [&](D2D1_POINT_2F point) {
+            result.left = std::min(result.left, point.x);
+            result.top = std::min(result.top, point.y);
+            result.right = std::max(result.right, point.x);
+            result.bottom = std::max(result.bottom, point.y);
+            has_bounds = true;
+        };
+        const bool visited = compat_visit_path(
+            *data_,
+            world_transform,
+            false,
+            D2D1_DEFAULT_FLATTENING_TOLERANCE,
+            [&](D2D1_POINT_2F start, uint32_t, const compat_path_figure&) {
+                include(start);
+                return true;
+            },
+            [&](D2D1_POINT_2F start,
+                D2D1_POINT_2F end,
+                uint32_t,
+                uint32_t,
+                D2D1_PATH_SEGMENT) {
+                include(start);
+                include(end);
+                return true;
+            },
+            [&](D2D1_POINT_2F start,
+                D2D1_POINT_2F control1,
+                D2D1_POINT_2F control2,
+                D2D1_POINT_2F end,
+                uint32_t,
+                uint32_t,
+                D2D1_PATH_SEGMENT) {
+                compat_include_cubic_bounds(
+                    start, control1, control2, end, result);
+                has_bounds = true;
+                return true;
+            },
+            [](D2D1_POINT_2F,
+               D2D1_POINT_2F,
+               uint32_t,
+               const compat_path_figure&) { return true; });
+        if (!visited) {
+            return E_INVALIDARG;
+        }
+        if (has_bounds) {
+            *bounds = result;
+        }
+        return S_OK;
+    }
+
+    HRESULT STDMETHODCALLTYPE GetWidenedBounds(
+        FLOAT,
+        ID2D1StrokeStyle*,
+        const D2D1_MATRIX_3X2_F*,
+        FLOAT,
+        D2D1_RECT_F* bounds) const noexcept override
+    {
+        if (bounds == nullptr) {
+            return E_POINTER;
+        }
+        *bounds = {};
+        return E_NOTIMPL;
+    }
+
+    HRESULT STDMETHODCALLTYPE StrokeContainsPoint(
+        D2D1_POINT_2F,
+        FLOAT,
+        ID2D1StrokeStyle*,
+        const D2D1_MATRIX_3X2_F*,
+        FLOAT,
+        BOOL* contains) const noexcept override
+    {
+        if (contains == nullptr) {
+            return E_POINTER;
+        }
+        *contains = FALSE;
+        return E_NOTIMPL;
+    }
+
+    HRESULT STDMETHODCALLTYPE FillContainsPoint(
+        D2D1_POINT_2F point,
+        const D2D1_MATRIX_3X2_F* world_transform,
+        FLOAT flattening_tolerance,
+        BOOL* contains) const noexcept override
+    {
+        if (contains == nullptr) {
+            return E_POINTER;
+        }
+        *contains = FALSE;
+        if (!compat_finite_point(point) ||
+            !valid_tolerance(flattening_tolerance) ||
+            !compat_finite_transform(world_transform)) {
+            return E_INVALIDARG;
+        }
+        std::vector<compat_flat_edge> edges;
+        HRESULT hr = collect_flat_edges(
+            world_transform,
+            flattening_tolerance,
+            true,
+            edges);
+        if (FAILED(hr)) {
+            return hr;
+        }
+        int64_t winding = 0;
+        bool alternate = false;
+        bool boundary = false;
+        const double tolerance_squared =
+            static_cast<double>(flattening_tolerance) *
+            flattening_tolerance;
+        for (const auto& edge : edges) {
+            if (data_->figures[edge.figure_index].begin !=
+                D2D1_FIGURE_BEGIN_FILLED) {
+                continue;
+            }
+            const double dx = static_cast<double>(edge.end.x) - edge.start.x;
+            const double dy = static_cast<double>(edge.end.y) - edge.start.y;
+            const double px = static_cast<double>(point.x) - edge.start.x;
+            const double py = static_cast<double>(point.y) - edge.start.y;
+            const double projection = px * dx + py * dy;
+            const double length_squared = dx * dx + dy * dy;
+            if (projection >= 0.0 && projection <= length_squared &&
+                compat_point_line_distance_squared(
+                    point, edge.start, edge.end) <= tolerance_squared) {
+                boundary = true;
+                break;
+            }
+            const bool upward = edge.start.y <= point.y &&
+                edge.end.y > point.y;
+            const bool downward = edge.start.y > point.y &&
+                edge.end.y <= point.y;
+            if (!upward && !downward) {
+                continue;
+            }
+            const double cross = dx * py - dy * px;
+            if ((upward && cross > 0.0) ||
+                (downward && cross < 0.0)) {
+                alternate = !alternate;
+                winding += upward ? 1 : -1;
+            }
+        }
+        *contains = boundary ||
+                (data_->fill_mode == D2D1_FILL_MODE_ALTERNATE
+                        ? alternate
+                        : winding != 0)
+            ? TRUE
+            : FALSE;
+        return S_OK;
+    }
+
+    HRESULT STDMETHODCALLTYPE CompareWithGeometry(
+        ID2D1Geometry*,
+        const D2D1_MATRIX_3X2_F*,
+        FLOAT,
+        D2D1_GEOMETRY_RELATION* relation) const noexcept override
+    {
+        if (relation == nullptr) {
+            return E_POINTER;
+        }
+        *relation = D2D1_GEOMETRY_RELATION_UNKNOWN;
+        return E_NOTIMPL;
+    }
+
+    HRESULT STDMETHODCALLTYPE Simplify(
+        D2D1_GEOMETRY_SIMPLIFICATION_OPTION simplification_option,
+        const D2D1_MATRIX_3X2_F* world_transform,
+        FLOAT flattening_tolerance,
+        ID2D1SimplifiedGeometrySink* geometry_sink) const noexcept override
+    {
+        if (geometry_sink == nullptr) {
+            return E_POINTER;
+        }
+        if (!is_closed()) {
+            return D2DERR_WRONG_STATE;
+        }
+        if ((simplification_option !=
+                D2D1_GEOMETRY_SIMPLIFICATION_OPTION_CUBICS_AND_LINES &&
+             simplification_option !=
+                D2D1_GEOMETRY_SIMPLIFICATION_OPTION_LINES) ||
+            !valid_tolerance(flattening_tolerance) ||
+            !compat_finite_transform(world_transform)) {
+            return E_INVALIDARG;
+        }
+        D2D1_PATH_SEGMENT current_flags = D2D1_PATH_SEGMENT_FORCE_DWORD;
+        geometry_sink->SetFillMode(data_->fill_mode);
+        const bool flatten = simplification_option ==
+            D2D1_GEOMETRY_SIMPLIFICATION_OPTION_LINES;
+        const bool visited = compat_visit_path(
+            *data_,
+            world_transform,
+            flatten,
+            flattening_tolerance,
+            [&](D2D1_POINT_2F start,
+                uint32_t,
+                const compat_path_figure& figure) {
+                geometry_sink->BeginFigure(start, figure.begin);
+                return true;
+            },
+            [&](D2D1_POINT_2F,
+                D2D1_POINT_2F end,
+                uint32_t,
+                uint32_t,
+                D2D1_PATH_SEGMENT flags) {
+                if (current_flags != flags) {
+                    geometry_sink->SetSegmentFlags(flags);
+                    current_flags = flags;
+                }
+                geometry_sink->AddLines(&end, 1U);
+                return true;
+            },
+            [&](D2D1_POINT_2F,
+                D2D1_POINT_2F control1,
+                D2D1_POINT_2F control2,
+                D2D1_POINT_2F end,
+                uint32_t,
+                uint32_t,
+                D2D1_PATH_SEGMENT flags) {
+                if (current_flags != flags) {
+                    geometry_sink->SetSegmentFlags(flags);
+                    current_flags = flags;
+                }
+                const D2D1_BEZIER_SEGMENT bezier = {
+                    control1, control2, end};
+                geometry_sink->AddBeziers(&bezier, 1U);
+                return true;
+            },
+            [&](D2D1_POINT_2F,
+                D2D1_POINT_2F,
+                uint32_t,
+                const compat_path_figure& figure) {
+                geometry_sink->EndFigure(figure.end);
+                return true;
+            });
+        return visited ? S_OK : E_INVALIDARG;
+    }
+
+    HRESULT STDMETHODCALLTYPE Tessellate(
+        const D2D1_MATRIX_3X2_F*,
+        FLOAT,
+        ID2D1TessellationSink*) const noexcept override
+    {
+        return E_NOTIMPL;
+    }
+
+    HRESULT STDMETHODCALLTYPE CombineWithGeometry(
+        ID2D1Geometry*,
+        D2D1_COMBINE_MODE,
+        const D2D1_MATRIX_3X2_F*,
+        FLOAT,
+        ID2D1SimplifiedGeometrySink*) const noexcept override
+    {
+        return E_NOTIMPL;
+    }
+
+    HRESULT STDMETHODCALLTYPE Outline(
+        const D2D1_MATRIX_3X2_F*,
+        FLOAT,
+        ID2D1SimplifiedGeometrySink*) const noexcept override
+    {
+        return E_NOTIMPL;
+    }
+
+    HRESULT STDMETHODCALLTYPE ComputeArea(
+        const D2D1_MATRIX_3X2_F* world_transform,
+        FLOAT flattening_tolerance,
+        FLOAT* area) const noexcept override
+    {
+        if (area == nullptr) {
+            return E_POINTER;
+        }
+        *area = 0.0F;
+        if (!valid_tolerance(flattening_tolerance) ||
+            !compat_finite_transform(world_transform)) {
+            return E_INVALIDARG;
+        }
+        std::vector<compat_flat_edge> edges;
+        HRESULT hr = collect_flat_edges(
+            world_transform,
+            flattening_tolerance,
+            true,
+            edges);
+        if (FAILED(hr)) {
+            return hr;
+        }
+        std::vector<double> signed_areas;
+        try {
+            signed_areas.assign(data_->figures.size(), 0.0);
+        } catch (const std::bad_alloc&) {
+            return E_OUTOFMEMORY;
+        } catch (...) {
+            return E_FAIL;
+        }
+        for (const auto& edge : edges) {
+            if (data_->figures[edge.figure_index].begin ==
+                D2D1_FIGURE_BEGIN_FILLED) {
+                signed_areas[edge.figure_index] +=
+                    static_cast<double>(edge.start.x) * edge.end.y -
+                    static_cast<double>(edge.start.y) * edge.end.x;
+            }
+        }
+        double result = 0.0;
+        if (data_->fill_mode == D2D1_FILL_MODE_ALTERNATE) {
+            for (double value : signed_areas) {
+                result += std::abs(value) * 0.5;
+            }
+        } else {
+            for (double value : signed_areas) {
+                result += value * 0.5;
+            }
+            result = std::abs(result);
+        }
+        if (!std::isfinite(result) ||
+            result > std::numeric_limits<float>::max()) {
+            return E_INVALIDARG;
+        }
+        *area = static_cast<float>(result);
+        return S_OK;
+    }
+
+    HRESULT STDMETHODCALLTYPE ComputeLength(
+        const D2D1_MATRIX_3X2_F* world_transform,
+        FLOAT flattening_tolerance,
+        FLOAT* length) const noexcept override
+    {
+        if (length == nullptr) {
+            return E_POINTER;
+        }
+        *length = 0.0F;
+        if (!valid_tolerance(flattening_tolerance) ||
+            !compat_finite_transform(world_transform)) {
+            return E_INVALIDARG;
+        }
+        std::vector<compat_flat_edge> edges;
+        HRESULT hr = collect_flat_edges(
+            world_transform,
+            flattening_tolerance,
+            false,
+            edges);
+        if (FAILED(hr)) {
+            return hr;
+        }
+        double result = 0.0;
+        for (const auto& edge : edges) {
+            result += std::hypot(
+                static_cast<double>(edge.end.x) - edge.start.x,
+                static_cast<double>(edge.end.y) - edge.start.y);
+        }
+        if (!std::isfinite(result) ||
+            result > std::numeric_limits<float>::max()) {
+            return E_INVALIDARG;
+        }
+        *length = static_cast<float>(result);
+        return S_OK;
+    }
+
+    HRESULT STDMETHODCALLTYPE ComputePointAtLength(
+        FLOAT length,
+        const D2D1_MATRIX_3X2_F* world_transform,
+        FLOAT flattening_tolerance,
+        D2D1_POINT_2F* point,
+        D2D1_POINT_2F* unit_tangent_vector) const noexcept override
+    {
+        if (point == nullptr && unit_tangent_vector == nullptr) {
+            return E_POINTER;
+        }
+        if (point != nullptr) {
+            *point = {};
+        }
+        if (unit_tangent_vector != nullptr) {
+            *unit_tangent_vector = {};
+        }
+        if (!std::isfinite(length) ||
+            !valid_tolerance(flattening_tolerance) ||
+            !compat_finite_transform(world_transform)) {
+            return E_INVALIDARG;
+        }
+        std::vector<compat_flat_edge> edges;
+        HRESULT hr = collect_flat_edges(
+            world_transform,
+            flattening_tolerance,
+            false,
+            edges);
+        if (FAILED(hr)) {
+            return hr;
+        }
+        return point_at_length(
+            edges,
+            std::max(length, 0.0F),
+            0U,
+            point,
+            unit_tangent_vector,
+            nullptr);
+    }
+
+    HRESULT STDMETHODCALLTYPE Widen(
+        FLOAT,
+        ID2D1StrokeStyle*,
+        const D2D1_MATRIX_3X2_F*,
+        FLOAT,
+        ID2D1SimplifiedGeometrySink*) const noexcept override
+    {
+        return E_NOTIMPL;
+    }
+
+    HRESULT STDMETHODCALLTYPE Open(
+        ID2D1GeometrySink** geometry_sink) noexcept override
+    {
+        if (geometry_sink == nullptr) {
+            return E_POINTER;
+        }
+        *geometry_sink = nullptr;
+        const std::lock_guard lock(data_->mutex);
+        if (data_->published_state.load(std::memory_order_relaxed) !=
+            compat_path_state::fresh) {
+            return D2DERR_WRONG_STATE;
+        }
+        auto* sink = new (std::nothrow) ProGpuD2DGeometrySink(data_);
+        if (sink == nullptr) {
+            return E_OUTOFMEMORY;
+        }
+        data_->published_state.store(
+            compat_path_state::open,
+            std::memory_order_release);
+        *geometry_sink = sink;
+        return S_OK;
+    }
+
+    HRESULT STDMETHODCALLTYPE Stream(
+        ID2D1GeometrySink* geometry_sink) const noexcept override
+    {
+        if (geometry_sink == nullptr) {
+            return E_POINTER;
+        }
+        if (!is_closed()) {
+            return D2DERR_WRONG_STATE;
+        }
+        geometry_sink->SetFillMode(data_->fill_mode);
+        D2D1_PATH_SEGMENT current_flags = D2D1_PATH_SEGMENT_FORCE_DWORD;
+        for (const auto& figure : data_->figures) {
+            geometry_sink->BeginFigure(figure.start, figure.begin);
+            for (uint32_t local_index = 0U;
+                 local_index < figure.segment_count;
+                 ++local_index) {
+                const auto& segment = data_->segments[
+                    figure.first_segment + local_index];
+                if (segment.flags != current_flags) {
+                    geometry_sink->SetSegmentFlags(segment.flags);
+                    current_flags = segment.flags;
+                }
+                switch (segment.kind) {
+                case compat_path_segment_kind::line:
+                    geometry_sink->AddLine(segment.end);
+                    break;
+                case compat_path_segment_kind::cubic: {
+                    const D2D1_BEZIER_SEGMENT bezier = {
+                        segment.control1,
+                        segment.control2,
+                        segment.end};
+                    geometry_sink->AddBezier(&bezier);
+                    break;
+                }
+                case compat_path_segment_kind::quadratic: {
+                    const D2D1_QUADRATIC_BEZIER_SEGMENT bezier = {
+                        segment.control1,
+                        segment.end};
+                    geometry_sink->AddQuadraticBezier(&bezier);
+                    break;
+                }
+                case compat_path_segment_kind::arc:
+                    geometry_sink->AddArc(&segment.arc);
+                    break;
+                }
+            }
+            geometry_sink->EndFigure(figure.end);
+        }
+        return S_OK;
+    }
+
+    HRESULT STDMETHODCALLTYPE GetSegmentCount(
+        UINT32* count) const noexcept override
+    {
+        if (count == nullptr) {
+            return E_POINTER;
+        }
+        *count = 0U;
+        if (!is_closed()) {
+            return D2DERR_WRONG_STATE;
+        }
+        *count = data_->public_segment_count;
+        return S_OK;
+    }
+
+    HRESULT STDMETHODCALLTYPE GetFigureCount(
+        UINT32* count) const noexcept override
+    {
+        if (count == nullptr) {
+            return E_POINTER;
+        }
+        *count = 0U;
+        if (!is_closed()) {
+            return D2DERR_WRONG_STATE;
+        }
+        *count = static_cast<uint32_t>(data_->figures.size());
+        return S_OK;
+    }
+
+    HRESULT STDMETHODCALLTYPE ComputePointAndSegmentAtLength(
+        FLOAT length,
+        UINT32 start_segment,
+        const D2D1_MATRIX_3X2_F* world_transform,
+        FLOAT flattening_tolerance,
+        D2D1_POINT_DESCRIPTION* point_description) const noexcept override
+    {
+        if (point_description == nullptr) {
+            return E_POINTER;
+        }
+        *point_description = {};
+        if (!is_closed()) {
+            return D2DERR_WRONG_STATE;
+        }
+        if (!std::isfinite(length) ||
+            !valid_tolerance(flattening_tolerance) ||
+            !compat_finite_transform(world_transform) ||
+            static_cast<size_t>(start_segment) >=
+                data_->public_segment_count) {
+            return E_INVALIDARG;
+        }
+        std::vector<compat_flat_edge> edges;
+        HRESULT hr = collect_flat_edges(
+            world_transform,
+            flattening_tolerance,
+            false,
+            edges);
+        if (FAILED(hr)) {
+            return hr;
+        }
+        D2D1_POINT_2F point{};
+        D2D1_POINT_2F tangent{};
+        size_t selected_edge = 0U;
+        hr = point_at_length(
+            edges,
+            std::max(length, 0.0F),
+            start_segment,
+            &point,
+            &tangent,
+            &selected_edge);
+        if (FAILED(hr)) {
+            return hr;
+        }
+        const auto& edge = edges[selected_edge];
+        double length_to_segment_end = 0.0;
+        for (const auto& candidate : edges) {
+            length_to_segment_end += std::hypot(
+                static_cast<double>(candidate.end.x) - candidate.start.x,
+                static_cast<double>(candidate.end.y) - candidate.start.y);
+            if (candidate.segment_index == edge.segment_index) {
+                continue;
+            }
+            if (candidate.segment_index > edge.segment_index) {
+                length_to_segment_end -= std::hypot(
+                    static_cast<double>(candidate.end.x) - candidate.start.x,
+                    static_cast<double>(candidate.end.y) - candidate.start.y);
+                break;
+            }
+        }
+        if (!std::isfinite(length_to_segment_end) ||
+            length_to_segment_end > std::numeric_limits<float>::max()) {
+            return E_INVALIDARG;
+        }
+        point_description->point = point;
+        point_description->unitTangentVector = tangent;
+        point_description->endSegment = edge.segment_index;
+        point_description->endFigure = edge.figure_index;
+        point_description->lengthToEndSegment =
+            static_cast<float>(length_to_segment_end);
+        return S_OK;
+    }
+
+private:
+    bool is_closed() const noexcept
+    {
+        return data_->published_state.load(std::memory_order_acquire) ==
+            compat_path_state::closed;
+    }
+
+    static bool valid_tolerance(float tolerance) noexcept
+    {
+        return std::isfinite(tolerance) && tolerance > 0.0F;
+    }
+
+    HRESULT collect_flat_edges(
+        const D2D1_MATRIX_3X2_F* transform,
+        float tolerance,
+        bool close_open_filled_figures,
+        std::vector<compat_flat_edge>& edges) const noexcept
+    {
+        edges.clear();
+        if (!is_closed()) {
+            return D2DERR_WRONG_STATE;
+        }
+        try {
+            edges.reserve(data_->segments.size() * 2U +
+                data_->figures.size());
+            const bool visited = compat_visit_path(
+                *data_,
+                transform,
+                true,
+                tolerance,
+                [](D2D1_POINT_2F,
+                   uint32_t,
+                   const compat_path_figure&) { return true; },
+                [&](D2D1_POINT_2F start,
+                    D2D1_POINT_2F end,
+                    uint32_t segment_index,
+                    uint32_t figure_index,
+                    D2D1_PATH_SEGMENT) {
+                    edges.push_back(
+                        {start, end, segment_index, figure_index});
+                    return true;
+                },
+                [](D2D1_POINT_2F,
+                   D2D1_POINT_2F,
+                   D2D1_POINT_2F,
+                   D2D1_POINT_2F,
+                   uint32_t,
+                   uint32_t,
+                   D2D1_PATH_SEGMENT) { return true; },
+                [&](D2D1_POINT_2F current,
+                    D2D1_POINT_2F start,
+                    uint32_t figure_index,
+                    const compat_path_figure& figure) {
+                    const bool close =
+                        figure.end == D2D1_FIGURE_END_CLOSED ||
+                        (close_open_filled_figures &&
+                            figure.begin == D2D1_FIGURE_BEGIN_FILLED);
+                    if (close && !compat_same_point(current, start)) {
+                        const uint32_t segment_index =
+                            figure.first_public_segment +
+                            figure.segment_count;
+                        edges.push_back(
+                            {current, start, segment_index, figure_index});
+                    }
+                    return true;
+                });
+            return visited ? S_OK : E_INVALIDARG;
+        } catch (const std::bad_alloc&) {
+            edges.clear();
+            return E_OUTOFMEMORY;
+        } catch (...) {
+            edges.clear();
+            return E_FAIL;
+        }
+    }
+
+    static HRESULT point_at_length(
+        const std::vector<compat_flat_edge>& edges,
+        float length,
+        uint32_t start_segment,
+        D2D1_POINT_2F* point,
+        D2D1_POINT_2F* tangent,
+        size_t* selected_edge) noexcept
+    {
+        if (edges.empty()) {
+            return E_INVALIDARG;
+        }
+        double remaining = length;
+        size_t last_eligible = std::numeric_limits<size_t>::max();
+        for (size_t index = 0U; index < edges.size(); ++index) {
+            const auto& edge = edges[index];
+            if (edge.segment_index < start_segment) {
+                continue;
+            }
+            const double dx = static_cast<double>(edge.end.x) - edge.start.x;
+            const double dy = static_cast<double>(edge.end.y) - edge.start.y;
+            const double edge_length = std::hypot(dx, dy);
+            if (edge_length == 0.0) {
+                continue;
+            }
+            last_eligible = index;
+            if (remaining <= edge_length) {
+                const double ratio = remaining / edge_length;
+                if (point != nullptr) {
+                    point->x = static_cast<float>(edge.start.x + dx * ratio);
+                    point->y = static_cast<float>(edge.start.y + dy * ratio);
+                }
+                if (tangent != nullptr) {
+                    tangent->x = static_cast<float>(dx / edge_length);
+                    tangent->y = static_cast<float>(dy / edge_length);
+                }
+                if (selected_edge != nullptr) {
+                    *selected_edge = index;
+                }
+                return S_OK;
+            }
+            remaining -= edge_length;
+        }
+        if (last_eligible == std::numeric_limits<size_t>::max()) {
+            return E_INVALIDARG;
+        }
+        const auto& edge = edges[last_eligible];
+        const double dx = static_cast<double>(edge.end.x) - edge.start.x;
+        const double dy = static_cast<double>(edge.end.y) - edge.start.y;
+        const double edge_length = std::hypot(dx, dy);
+        if (point != nullptr) {
+            *point = edge.end;
+        }
+        if (tangent != nullptr && edge_length != 0.0) {
+            tangent->x = static_cast<float>(dx / edge_length);
+            tangent->y = static_cast<float>(dy / edge_length);
+        }
+        if (selected_edge != nullptr) {
+            *selected_edge = last_eligible;
+        }
+        return S_OK;
+    }
+
+    std::atomic<ULONG> reference_count_{1U};
+    ComPtr<ID2D1Factory1> factory_;
+    std::shared_ptr<compat_path_data> data_;
+};
+
 class ProGpuD2DFactory final :
     public ID2D1Factory1,
     public ID2D1Multithread,
@@ -1125,7 +2818,19 @@ public:
     HRESULT STDMETHODCALLTYPE CreatePathGeometry(
         ID2D1PathGeometry** value) noexcept override
     {
-        return unsupported(value);
+        if (value == nullptr) {
+            return E_POINTER;
+        }
+        *value = nullptr;
+        try {
+            auto* geometry = new ProGpuD2DPathGeometry(this);
+            *value = static_cast<ID2D1PathGeometry*>(geometry);
+            return S_OK;
+        } catch (const std::bad_alloc&) {
+            return E_OUTOFMEMORY;
+        } catch (...) {
+            return E_FAIL;
+        }
     }
 
     HRESULT STDMETHODCALLTYPE CreateStrokeStyle(
@@ -1195,7 +2900,19 @@ public:
     HRESULT STDMETHODCALLTYPE CreatePathGeometry(
         ID2D1PathGeometry1** value) noexcept override
     {
-        return unsupported(value);
+        if (value == nullptr) {
+            return E_POINTER;
+        }
+        *value = nullptr;
+        try {
+            auto* geometry = new ProGpuD2DPathGeometry(this);
+            *value = static_cast<ID2D1PathGeometry1*>(geometry);
+            return S_OK;
+        } catch (const std::bad_alloc&) {
+            return E_OUTOFMEMORY;
+        } catch (...) {
+            return E_FAIL;
+        }
     }
 
     HRESULT STDMETHODCALLTYPE CreateDrawingStateBlock(
