@@ -877,12 +877,12 @@ int main()
             &invalid_geometry_group) == E_INVALIDARG &&
             invalid_geometry_group == nullptr &&
         compat_factory->CreateGeometryGroup(
-            D2D1_FILL_MODE_WINDING,
+            D2D1_FILL_MODE_ALTERNATE,
             nested_group_source.data(),
             static_cast<UINT32>(nested_group_source.size()),
             &invalid_geometry_group) == E_NOTIMPL &&
             invalid_geometry_group == nullptr,
-        "invalid or fill-incompatible ProGPU geometry group did not fail closed");
+        "invalid or nested ProGPU geometry group did not fail closed");
 
     const progpu_native_direct2d_color_f compat_brush_color = {
         0.25F, 0.5F, 0.75F, 1.0F};

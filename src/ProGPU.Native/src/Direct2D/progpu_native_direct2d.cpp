@@ -4104,26 +4104,24 @@ private:
     ComPtr<ID2D1PathGeometry1> path_;
 };
 
-bool compat_geometry_group_fill_compatible(
+bool compat_geometry_contains_group(
     ID2D1Geometry* geometry,
-    D2D1_FILL_MODE fill_mode,
     uint32_t depth = 0U) noexcept
 {
     if (geometry == nullptr || depth == 64U) {
-        return false;
+        return true;
     }
     ComPtr<ID2D1GeometryGroup> group;
     if (SUCCEEDED(geometry->QueryInterface(IID_PPV_ARGS(&group)))) {
-        return group->GetFillMode() == fill_mode;
+        return true;
     }
     ComPtr<ID2D1TransformedGeometry> transformed;
     if (SUCCEEDED(geometry->QueryInterface(IID_PPV_ARGS(&transformed)))) {
         ComPtr<ID2D1Geometry> source;
         transformed->GetSourceGeometry(&source);
-        return compat_geometry_group_fill_compatible(
-            source.Get(), fill_mode, depth + 1U);
+        return compat_geometry_contains_group(source.Get(), depth + 1U);
     }
-    return true;
+    return false;
 }
 
 class ProGpuD2DFactory final :
@@ -4460,8 +4458,7 @@ public:
                     static_cast<ID2D1Factory*>(this)) {
                     return D2DERR_WRONG_FACTORY;
                 }
-                if (!compat_geometry_group_fill_compatible(
-                        geometries[index], fill_mode)) {
+                if (compat_geometry_contains_group(geometries[index])) {
                     return E_NOTIMPL;
                 }
                 sources.emplace_back(geometries[index]);

@@ -5874,6 +5874,21 @@ contracts pass 5/5. Exact `998c9ec2` passes the hosted
 the provider and tests compile with MSVC, the system-Direct2D differential
 passes, and all 11 native CTests pass. This qualifies ABI v53 on Windows x64.
 
+Direct2D compatibility ABI v54 adds a ProGPU-owned `ID2D1GeometryGroup`.
+The immutable resource retains ordered child and factory COM identities,
+alternate/winding metadata, and one multi-figure path built from its sources.
+Transformed children enter that path through their composed simplification;
+bounds, containment, metrics, topology, and semantic fills then reuse the same
+pointer-free scene path without per-frame child expansion, CPU readback, or a
+backend-specific group command.
+
+Nested groups, null children, invalid modes, and cross-factory resources fail
+closed rather than losing an inner fill predicate. The native oracle compares
+identity, ordered sources, two independently positioned members, analysis,
+simplified topology, failure behavior, and world-transformed output with
+system Direct2D. Focused managed ABI contracts pass 5/5; Windows qualification
+remains pending for exact implementation `501136d3`.
+
 ## Managed glyph row-reuse SIMD checkpoint
 
 Managed ProGPU checkpoints `2960fb39` and `ffb285af` bring the explicit
