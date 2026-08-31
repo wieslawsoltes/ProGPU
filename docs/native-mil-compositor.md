@@ -6158,8 +6158,18 @@ invalid-group rollback, and row-vector composition. The managed differential
 test verifies every packet size, command identifier, representative field
 offset, animation handle, matrix row, resource value, and empty-rectangle wire
 value. The no-provider native test and focused managed test pass on Apple
-Silicon; Windows MSVC/D3D12 qualification remains required before this slice is
-called cross-platform qualified.
+Silicon. Exact implementation checkpoint `8235ca39` is also compiler/runtime
+qualified in the Windows 11 ARM64 Parallels guest (OS build
+`10.0.26200.9168`) with MSVC 19.44, CMake 4.4.3, and Ninja 1.12.1. The
+immutable source archive has SHA-256
+`0aa033b4be7fed56266d0e464318261989742353b49bd24387999444f1b8ff8a`.
+All 136 Release build steps completed with `/W4 /WX`, and the focused
+`progpu_native_mil_tests` CTest passed. This qualification covers the native
+compiler, canonical decoder, transactional retained state, and runtime math;
+it does not by itself claim live D3D12 rendering coverage for this camera and
+transform slice. The existing semantic viewport/D3D12 lane remains the visual
+backend gate until canonical mesh, model, material, and light packets remove
+the typed scene sideband.
 
 ## Invariants
 
