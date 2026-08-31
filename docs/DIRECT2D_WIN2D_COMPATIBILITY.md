@@ -1237,9 +1237,15 @@ and `GetBounds` callbacks produce the existing pointer-free vector-path scene,
 so this adds no backend-specific renderer and retains no COM pointer after
 serialization. The native oracle covers COM identity and ownership, factory
 locking, geometry queries, unsupported-family rejection, and rectangle-to-path
-recording. Windows ARM64 `/W4 /WX`, native runtime, and exact-export
-qualification evidence is recorded after the committed ABI v44 archive is
-rebuilt in the Parallels VM.
+recording. Focused managed contracts pass 5/5. The exact implementation
+checkpoint is `123d2371`; its committed source archive SHA-256 is
+`7F903F5B62FBA969359F8363E4E7C11495F9F76730CDBCADEAE4EA3AE021071A`.
+Windows 11 ARM64 Parallels rebuilds it cleanly with MSVC 19.44/SDK
+10.0.26100.0 `/W4 /WX`, and the native oracle exits zero. `dumpbin` matches all
+128 allowlisted exports exactly. The 191,488-byte provider SHA-256 is
+`3D90668C81E5113EF5A3C1B86EC13CC5B4B6E09B2C070F753CF5276AE8BCB033`;
+the 111,104-byte test executable SHA-256 is
+`7910843D99080398B21DDD8F383FBEBBCB99E662B76338800C97034844B4C722`.
 
 `eng/build-progpu-native-windows.ps1` builds and runs
 the native test on runnable Windows x64/ARM64 agents, stages
