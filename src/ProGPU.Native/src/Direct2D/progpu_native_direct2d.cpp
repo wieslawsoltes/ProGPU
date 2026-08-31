@@ -433,6 +433,48 @@ bool compat_finite_transform(
             std::isfinite(value->_31) && std::isfinite(value->_32));
 }
 
+bool compat_compose_transform(
+    const D2D1_MATRIX_3X2_F& first,
+    const D2D1_MATRIX_3X2_F* second,
+    D2D1_MATRIX_3X2_F& result) noexcept
+{
+    if (!compat_finite_transform(&first) ||
+        !compat_finite_transform(second)) {
+        return false;
+    }
+    const D2D1_MATRIX_3X2_F right = second == nullptr
+        ? D2D1::Matrix3x2F::Identity()
+        : *second;
+    const std::array<double, 6U> values = {{
+        static_cast<double>(first._11) * right._11 +
+            static_cast<double>(first._12) * right._21,
+        static_cast<double>(first._11) * right._12 +
+            static_cast<double>(first._12) * right._22,
+        static_cast<double>(first._21) * right._11 +
+            static_cast<double>(first._22) * right._21,
+        static_cast<double>(first._21) * right._12 +
+            static_cast<double>(first._22) * right._22,
+        static_cast<double>(first._31) * right._11 +
+            static_cast<double>(first._32) * right._21 + right._31,
+        static_cast<double>(first._31) * right._12 +
+            static_cast<double>(first._32) * right._22 + right._32}};
+    constexpr double maximum =
+        static_cast<double>(std::numeric_limits<float>::max());
+    if (!std::all_of(values.begin(), values.end(), [&](double value) {
+            return std::isfinite(value) && value >= -maximum &&
+                value <= maximum;
+        })) {
+        return false;
+    }
+    result._11 = static_cast<float>(values[0]);
+    result._12 = static_cast<float>(values[1]);
+    result._21 = static_cast<float>(values[2]);
+    result._22 = static_cast<float>(values[3]);
+    result._31 = static_cast<float>(values[4]);
+    result._32 = static_cast<float>(values[5]);
+    return true;
+}
+
 bool compat_finite_rectangle(const D2D1_RECT_F* value) noexcept
 {
     return value != nullptr && std::isfinite(value->left) &&
@@ -3455,6 +3497,352 @@ private:
     ComPtr<ID2D1PathGeometry1> path_;
 };
 
+class ProGpuD2DTransformedGeometry final :
+    public ID2D1TransformedGeometry {
+public:
+    ProGpuD2DTransformedGeometry(
+        ID2D1Factory1* factory,
+        ID2D1Geometry* source,
+        const D2D1_MATRIX_3X2_F& transform) noexcept
+        : factory_(factory), source_(source), transform_(transform)
+    {
+    }
+
+    HRESULT STDMETHODCALLTYPE QueryInterface(
+        REFIID interface_id,
+        void** value) noexcept override
+    {
+        if (value == nullptr) {
+            return E_POINTER;
+        }
+        *value = nullptr;
+        if (IsEqualIID(interface_id, IID_IUnknown) ||
+            IsEqualIID(interface_id, __uuidof(ID2D1Resource)) ||
+            IsEqualIID(interface_id, __uuidof(ID2D1Geometry)) ||
+            IsEqualIID(
+                interface_id,
+                __uuidof(ID2D1TransformedGeometry))) {
+            *value = static_cast<ID2D1TransformedGeometry*>(this);
+            AddRef();
+            return S_OK;
+        }
+        return E_NOINTERFACE;
+    }
+
+    ULONG STDMETHODCALLTYPE AddRef() noexcept override
+    {
+        return reference_count_.fetch_add(1U, std::memory_order_relaxed) + 1U;
+    }
+
+    ULONG STDMETHODCALLTYPE Release() noexcept override
+    {
+        const ULONG remaining = reference_count_.fetch_sub(
+            1U,
+            std::memory_order_acq_rel) - 1U;
+        if (remaining == 0U) {
+            delete this;
+        }
+        return remaining;
+    }
+
+    void STDMETHODCALLTYPE GetFactory(
+        ID2D1Factory** factory) const noexcept override
+    {
+        if (factory == nullptr) {
+            return;
+        }
+        *factory = factory_.Get();
+        if (*factory != nullptr) {
+            (*factory)->AddRef();
+        }
+    }
+
+    HRESULT STDMETHODCALLTYPE GetBounds(
+        const D2D1_MATRIX_3X2_F* world_transform,
+        D2D1_RECT_F* bounds) const noexcept override
+    {
+        if (bounds == nullptr) {
+            return E_POINTER;
+        }
+        *bounds = {};
+        D2D1_MATRIX_3X2_F composed{};
+        if (!compose(world_transform, composed)) {
+            return E_INVALIDARG;
+        }
+        return source_->GetBounds(&composed, bounds);
+    }
+
+    HRESULT STDMETHODCALLTYPE GetWidenedBounds(
+        FLOAT stroke_width,
+        ID2D1StrokeStyle* stroke_style,
+        const D2D1_MATRIX_3X2_F* world_transform,
+        FLOAT flattening_tolerance,
+        D2D1_RECT_F* bounds) const noexcept override
+    {
+        if (bounds == nullptr) {
+            return E_POINTER;
+        }
+        *bounds = {};
+        D2D1_MATRIX_3X2_F composed{};
+        if (!compose(world_transform, composed)) {
+            return E_INVALIDARG;
+        }
+        return source_->GetWidenedBounds(
+            stroke_width,
+            stroke_style,
+            &composed,
+            flattening_tolerance,
+            bounds);
+    }
+
+    HRESULT STDMETHODCALLTYPE StrokeContainsPoint(
+        D2D1_POINT_2F point,
+        FLOAT stroke_width,
+        ID2D1StrokeStyle* stroke_style,
+        const D2D1_MATRIX_3X2_F* world_transform,
+        FLOAT flattening_tolerance,
+        BOOL* contains) const noexcept override
+    {
+        if (contains == nullptr) {
+            return E_POINTER;
+        }
+        *contains = FALSE;
+        D2D1_MATRIX_3X2_F composed{};
+        if (!compose(world_transform, composed)) {
+            return E_INVALIDARG;
+        }
+        return source_->StrokeContainsPoint(
+            point,
+            stroke_width,
+            stroke_style,
+            &composed,
+            flattening_tolerance,
+            contains);
+    }
+
+    HRESULT STDMETHODCALLTYPE FillContainsPoint(
+        D2D1_POINT_2F point,
+        const D2D1_MATRIX_3X2_F* world_transform,
+        FLOAT flattening_tolerance,
+        BOOL* contains) const noexcept override
+    {
+        if (contains == nullptr) {
+            return E_POINTER;
+        }
+        *contains = FALSE;
+        D2D1_MATRIX_3X2_F composed{};
+        if (!compose(world_transform, composed)) {
+            return E_INVALIDARG;
+        }
+        return source_->FillContainsPoint(
+            point,
+            &composed,
+            flattening_tolerance,
+            contains);
+    }
+
+    HRESULT STDMETHODCALLTYPE CompareWithGeometry(
+        ID2D1Geometry*,
+        const D2D1_MATRIX_3X2_F*,
+        FLOAT,
+        D2D1_GEOMETRY_RELATION* relation) const noexcept override
+    {
+        if (relation == nullptr) {
+            return E_POINTER;
+        }
+        *relation = D2D1_GEOMETRY_RELATION_UNKNOWN;
+        return E_NOTIMPL;
+    }
+
+    HRESULT STDMETHODCALLTYPE Simplify(
+        D2D1_GEOMETRY_SIMPLIFICATION_OPTION simplification_option,
+        const D2D1_MATRIX_3X2_F* world_transform,
+        FLOAT flattening_tolerance,
+        ID2D1SimplifiedGeometrySink* geometry_sink) const noexcept override
+    {
+        if (geometry_sink == nullptr) {
+            return E_POINTER;
+        }
+        D2D1_MATRIX_3X2_F composed{};
+        if (!compose(world_transform, composed)) {
+            return E_INVALIDARG;
+        }
+        return source_->Simplify(
+            simplification_option,
+            &composed,
+            flattening_tolerance,
+            geometry_sink);
+    }
+
+    HRESULT STDMETHODCALLTYPE Tessellate(
+        const D2D1_MATRIX_3X2_F* world_transform,
+        FLOAT flattening_tolerance,
+        ID2D1TessellationSink* tessellation_sink) const noexcept override
+    {
+        if (tessellation_sink == nullptr) {
+            return E_POINTER;
+        }
+        D2D1_MATRIX_3X2_F composed{};
+        if (!compose(world_transform, composed)) {
+            return E_INVALIDARG;
+        }
+        return source_->Tessellate(
+            &composed,
+            flattening_tolerance,
+            tessellation_sink);
+    }
+
+    HRESULT STDMETHODCALLTYPE CombineWithGeometry(
+        ID2D1Geometry*,
+        D2D1_COMBINE_MODE,
+        const D2D1_MATRIX_3X2_F*,
+        FLOAT,
+        ID2D1SimplifiedGeometrySink*) const noexcept override
+    {
+        return E_NOTIMPL;
+    }
+
+    HRESULT STDMETHODCALLTYPE Outline(
+        const D2D1_MATRIX_3X2_F* world_transform,
+        FLOAT flattening_tolerance,
+        ID2D1SimplifiedGeometrySink* geometry_sink) const noexcept override
+    {
+        if (geometry_sink == nullptr) {
+            return E_POINTER;
+        }
+        D2D1_MATRIX_3X2_F composed{};
+        if (!compose(world_transform, composed)) {
+            return E_INVALIDARG;
+        }
+        return source_->Outline(
+            &composed,
+            flattening_tolerance,
+            geometry_sink);
+    }
+
+    HRESULT STDMETHODCALLTYPE ComputeArea(
+        const D2D1_MATRIX_3X2_F* world_transform,
+        FLOAT flattening_tolerance,
+        FLOAT* area) const noexcept override
+    {
+        if (area == nullptr) {
+            return E_POINTER;
+        }
+        *area = 0.0F;
+        D2D1_MATRIX_3X2_F composed{};
+        if (!compose(world_transform, composed)) {
+            return E_INVALIDARG;
+        }
+        return source_->ComputeArea(
+            &composed,
+            flattening_tolerance,
+            area);
+    }
+
+    HRESULT STDMETHODCALLTYPE ComputeLength(
+        const D2D1_MATRIX_3X2_F* world_transform,
+        FLOAT flattening_tolerance,
+        FLOAT* length) const noexcept override
+    {
+        if (length == nullptr) {
+            return E_POINTER;
+        }
+        *length = 0.0F;
+        D2D1_MATRIX_3X2_F composed{};
+        if (!compose(world_transform, composed)) {
+            return E_INVALIDARG;
+        }
+        return source_->ComputeLength(
+            &composed,
+            flattening_tolerance,
+            length);
+    }
+
+    HRESULT STDMETHODCALLTYPE ComputePointAtLength(
+        FLOAT length,
+        const D2D1_MATRIX_3X2_F* world_transform,
+        FLOAT flattening_tolerance,
+        D2D1_POINT_2F* point,
+        D2D1_POINT_2F* unit_tangent_vector) const noexcept override
+    {
+        if (point == nullptr && unit_tangent_vector == nullptr) {
+            return E_POINTER;
+        }
+        if (point != nullptr) {
+            *point = {};
+        }
+        if (unit_tangent_vector != nullptr) {
+            *unit_tangent_vector = {};
+        }
+        D2D1_MATRIX_3X2_F composed{};
+        if (!compose(world_transform, composed)) {
+            return E_INVALIDARG;
+        }
+        return source_->ComputePointAtLength(
+            length,
+            &composed,
+            flattening_tolerance,
+            point,
+            unit_tangent_vector);
+    }
+
+    HRESULT STDMETHODCALLTYPE Widen(
+        FLOAT stroke_width,
+        ID2D1StrokeStyle* stroke_style,
+        const D2D1_MATRIX_3X2_F* world_transform,
+        FLOAT flattening_tolerance,
+        ID2D1SimplifiedGeometrySink* geometry_sink) const noexcept override
+    {
+        if (geometry_sink == nullptr) {
+            return E_POINTER;
+        }
+        D2D1_MATRIX_3X2_F composed{};
+        if (!compose(world_transform, composed)) {
+            return E_INVALIDARG;
+        }
+        return source_->Widen(
+            stroke_width,
+            stroke_style,
+            &composed,
+            flattening_tolerance,
+            geometry_sink);
+    }
+
+    void STDMETHODCALLTYPE GetSourceGeometry(
+        ID2D1Geometry** source) const noexcept override
+    {
+        if (source == nullptr) {
+            return;
+        }
+        *source = source_.Get();
+        if (*source != nullptr) {
+            (*source)->AddRef();
+        }
+    }
+
+    void STDMETHODCALLTYPE GetTransform(
+        D2D1_MATRIX_3X2_F* transform) const noexcept override
+    {
+        if (transform != nullptr) {
+            *transform = transform_;
+        }
+    }
+
+private:
+    bool compose(
+        const D2D1_MATRIX_3X2_F* world_transform,
+        D2D1_MATRIX_3X2_F& composed) const noexcept
+    {
+        return compat_compose_transform(
+            transform_, world_transform, composed);
+    }
+
+    std::atomic<ULONG> reference_count_{1U};
+    ComPtr<ID2D1Factory1> factory_;
+    ComPtr<ID2D1Geometry> source_;
+    D2D1_MATRIX_3X2_F transform_{};
+};
+
 class ProGpuD2DFactory final :
     public ID2D1Factory1,
     public ID2D1Multithread,
@@ -3771,11 +4159,31 @@ public:
     }
 
     HRESULT STDMETHODCALLTYPE CreateTransformedGeometry(
-        ID2D1Geometry*,
-        const D2D1_MATRIX_3X2_F*,
+        ID2D1Geometry* source_geometry,
+        const D2D1_MATRIX_3X2_F* transform,
         ID2D1TransformedGeometry** value) noexcept override
     {
-        return unsupported(value);
+        if (value == nullptr) {
+            return E_POINTER;
+        }
+        *value = nullptr;
+        if (source_geometry == nullptr || transform == nullptr ||
+            !compat_finite_transform(transform)) {
+            return E_INVALIDARG;
+        }
+        ComPtr<ID2D1Factory> source_factory;
+        source_geometry->GetFactory(&source_factory);
+        if (source_factory.Get() != static_cast<ID2D1Factory*>(this)) {
+            return D2DERR_WRONG_FACTORY;
+        }
+        auto* geometry = new (std::nothrow)
+            ProGpuD2DTransformedGeometry(
+                this, source_geometry, *transform);
+        if (geometry == nullptr) {
+            return E_OUTOFMEMORY;
+        }
+        *value = geometry;
+        return S_OK;
     }
 
     HRESULT STDMETHODCALLTYPE CreatePathGeometry(
