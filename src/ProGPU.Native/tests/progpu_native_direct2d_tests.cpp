@@ -2911,7 +2911,7 @@ int main()
     progpu_native_direct2d_scene_stream_result path_measure{};
     path_measure.struct_size = static_cast<uint32_t>(sizeof(path_measure));
     native_hresult = S_OK;
-    require(
+    const progpu_native_direct2d_status path_measure_status =
         progpu_native_direct2d_command_list_build_scene_stream(
             surface,
             path_list.Get(),
@@ -2920,7 +2920,20 @@ int main()
             nullptr,
             0U,
             &path_measure,
-            &native_hresult) ==
+            &native_hresult);
+    if (path_measure_status !=
+            PROGPU_NATIVE_DIRECT2D_STATUS_INSUFFICIENT_BUFFER ||
+        native_hresult != HRESULT_FROM_WIN32(ERROR_INSUFFICIENT_BUFFER) ||
+        path_measure.translated_draw_count != 2U ||
+        path_measure.failure_reason !=
+            PROGPU_NATIVE_DIRECT2D_SCENE_STREAM_FAILURE_NONE) {
+        std::cerr << "path measure status=" << path_measure_status
+                  << " hr=" << native_hresult
+                  << " draws=" << path_measure.translated_draw_count
+                  << " failure=" << path_measure.failure_reason << '\n';
+    }
+    require(
+        path_measure_status ==
                 PROGPU_NATIVE_DIRECT2D_STATUS_INSUFFICIENT_BUFFER &&
             native_hresult == HRESULT_FROM_WIN32(ERROR_INSUFFICIENT_BUFFER) &&
             path_measure.translated_draw_count == 2U &&
