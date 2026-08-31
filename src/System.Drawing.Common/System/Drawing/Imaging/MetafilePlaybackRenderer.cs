@@ -2,6 +2,7 @@ using System.Buffers.Binary;
 using System.Drawing.Drawing2D;
 using System.Numerics;
 using System.Text;
+using ProGPU.SystemDrawing;
 
 namespace System.Drawing.Imaging;
 
@@ -1090,7 +1091,8 @@ internal static class MetafilePlaybackRenderer
         {
             throw Invalid(record);
         }
-        ValidateBitmap16(record, payload[fixedPayloadSize..]);
+        ReadOnlySpan<byte> bitmap16 = payload[fixedPayloadSize..];
+        WmfBitmap16Info bitmapInfo = ReadBitmap16Info(record, bitmap16);
 
         uint rasterOperation = ReadUInt32(payload, 0);
         int destinationHeight = ReadInt16(payload, stretch ? 12 : 8);
@@ -1108,14 +1110,33 @@ internal static class MetafilePlaybackRenderer
         {
             return;
         }
-        if (rasterOperation is SrcCopy or NotSourceCopy)
+        if (rasterOperation is not SrcCopy and not NotSourceCopy)
         {
-            throw Unsupported(
-                record,
-                "Embedded Bitmap16 source pixels require a typed device-format adapter.");
+            ValidateDibRasterOperation(record, rasterOperation);
+            throw Unsupported(record);
         }
-        ValidateDibRasterOperation(record, rasterOperation);
-        throw Unsupported(record);
+
+        int sourceHeight = stretch ? ReadInt16(payload, 4) : destinationHeight;
+        int sourceWidth = stretch ? ReadInt16(payload, 6) : destinationWidth;
+        int sourceY = ReadInt16(payload, stretch ? 8 : 4);
+        int sourceX = ReadInt16(payload, stretch ? 10 : 6);
+        using Bitmap bitmap = WmfBitmap16DecodeServices.Decode(bitmapInfo, bitmap16[10..]);
+        DrawMappedBitmap(
+            state,
+            record,
+            bitmap,
+            bitmapInfo.Width,
+            bitmapInfo.Height,
+            topDown: true,
+            sourceX,
+            sourceY,
+            sourceWidth,
+            sourceHeight,
+            destinationX,
+            destinationY,
+            destinationWidth,
+            destinationHeight,
+            rasterOperation);
     }
 
     private static bool TryDrawWmfBitmapWithoutSource(
@@ -1151,7 +1172,7 @@ internal static class MetafilePlaybackRenderer
         return true;
     }
 
-    private static void ValidateBitmap16(
+    private static WmfBitmap16Info ReadBitmap16Info(
         in MetafileRecord record,
         ReadOnlySpan<byte> bitmap)
     {
@@ -1160,6 +1181,7 @@ internal static class MetafilePlaybackRenderer
             throw Invalid(record);
         }
 
+        short type = ReadInt16(bitmap, 0);
         int width = ReadInt16(bitmap, 2);
         int height = ReadInt16(bitmap, 4);
         int widthBytes = ReadInt16(bitmap, 6);
@@ -1176,6 +1198,14 @@ internal static class MetafilePlaybackRenderer
         {
             throw Invalid(record);
         }
+
+        return new WmfBitmap16Info(
+            type,
+            width,
+            height,
+            widthBytes,
+            (byte)planes,
+            (byte)bitsPerPixel);
     }
 
     private static void ValidateDibRasterOperation(
@@ -1305,6 +1335,39 @@ internal static class MetafilePlaybackRenderer
         int destinationWidth,
         int destinationHeight,
         uint rasterOperation)
+        => DrawMappedBitmap(
+            state,
+            record,
+            bitmap,
+            dib.Width,
+            dib.Height,
+            dib.TopDown,
+            sourceX,
+            sourceY,
+            sourceWidth,
+            sourceHeight,
+            destinationX,
+            destinationY,
+            destinationWidth,
+            destinationHeight,
+            rasterOperation);
+
+    private static void DrawMappedBitmap(
+        PlaybackState state,
+        in MetafileRecord record,
+        Bitmap bitmap,
+        int bitmapWidth,
+        int bitmapHeight,
+        bool topDown,
+        int sourceX,
+        int sourceY,
+        int sourceWidth,
+        int sourceHeight,
+        int destinationX,
+        int destinationY,
+        int destinationWidth,
+        int destinationHeight,
+        uint rasterOperation)
     {
         if (sourceWidth == 0 || sourceHeight == 0 ||
             destinationWidth == 0 || destinationHeight == 0)
@@ -1325,10 +1388,10 @@ internal static class MetafilePlaybackRenderer
         }
 
         long sourceXEnd = (long)sourceX + sourceWidth;
-        long sourceVisualY0 = dib.TopDown ? sourceY : (long)dib.Height - sourceY;
-        long sourceVisualY1 = dib.TopDown
+        long sourceVisualY0 = topDown ? sourceY : (long)bitmapHeight - sourceY;
+        long sourceVisualY1 = topDown
             ? (long)sourceY + sourceHeight
-            : (long)dib.Height - sourceY - sourceHeight;
+            : (long)bitmapHeight - sourceY - sourceHeight;
         long left = Math.Min(sourceX, sourceXEnd);
         long right = Math.Max(sourceX, sourceXEnd);
         long top = Math.Min(sourceVisualY0, sourceVisualY1);
@@ -1350,8 +1413,8 @@ internal static class MetafilePlaybackRenderer
 
         long clippedLeft = Math.Max(0, left);
         long clippedTop = Math.Max(0, top);
-        long clippedRight = Math.Min(dib.Width, right);
-        long clippedBottom = Math.Min(dib.Height, bottom);
+        long clippedRight = Math.Min(bitmapWidth, right);
+        long clippedBottom = Math.Min(bitmapHeight, bottom);
         if (clippedRight <= clippedLeft || clippedBottom <= clippedTop)
         {
             return;

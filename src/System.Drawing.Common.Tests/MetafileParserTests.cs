@@ -4532,7 +4532,7 @@ public sealed class MetafileParserTests
             var context = new DrawingContext();
             using Graphics graphics = Graphics.FromProGpuDrawingContext(context);
 
-            NotSupportedException exception = Assert.Throws<NotSupportedException>(() =>
+            NotSupportedException exception = Assert.ThrowsAny<NotSupportedException>(() =>
                 graphics.DrawImage(metafile, new Rectangle(0, 0, 64, 64)));
             Assert.Contains("source", exception.Message, StringComparison.OrdinalIgnoreCase);
             Assert.Empty(context.Commands);
@@ -4612,6 +4612,147 @@ public sealed class MetafileParserTests
             (GC.GetAllocatedBytesForCurrentThread() - before) / 8;
 
         Assert.InRange(allocatedPerPlayback, 32 * 1024, 8 * 1024 * 1024);
+    }
+
+    [Fact]
+    public void WmfBitmap16AdapterDrawsTypedBitBltAndStretchBltPixels()
+    {
+        byte[] pixels =
+        [
+            255, 0, 0, 255,
+            0, 255, 0, 255,
+            0, 0, 255, 255,
+            255, 255, 255, 255
+        ];
+        byte[] bitmap = CreateBitmap16(2, 2, 32, pixels);
+        var decoder = new TestWmfBitmap16DecodeService(pixels);
+        Assert.False(WmfBitmap16DecodeServices.IsRegistered);
+        using IDisposable registration = WmfBitmap16DecodeServices.Register(decoder);
+        Assert.True(WmfBitmap16DecodeServices.IsRegistered);
+        Assert.Throws<InvalidOperationException>(() =>
+            WmfBitmap16DecodeServices.Register(new TestWmfBitmap16DecodeService(pixels)));
+
+        byte[] fixture = CreatePlaybackWmf(
+        [
+            (0x0922, WmfBitmap16BitBlt(
+                bitmap,
+                Point.Empty,
+                new Rectangle(4, 4, 2, 2),
+                0x00CC_0020)),
+            (0x0B23, WmfBitmap16StretchBlt(
+                bitmap,
+                new Rectangle(0, 0, 2, 2),
+                new Rectangle(12, 4, 8, 8),
+                0x0033_0008)),
+            (0, [])
+        ]);
+        using var metafile = new Metafile(new MemoryStream(fixture, writable: false));
+        using var target = new Bitmap(32, 20);
+        using (Graphics graphics = Graphics.FromImage(target))
+        {
+            graphics.Clear(Color.Transparent);
+            graphics.DrawImage(metafile, new Rectangle(0, 0, 64, 64));
+        }
+
+        Assert.Equal(Color.Red.ToArgb(), target.GetPixel(4, 4).ToArgb());
+        Assert.Equal(Color.Lime.ToArgb(), target.GetPixel(5, 4).ToArgb());
+        Assert.Equal(Color.Blue.ToArgb(), target.GetPixel(4, 5).ToArgb());
+        Assert.Equal(Color.White.ToArgb(), target.GetPixel(5, 5).ToArgb());
+        Assert.Equal(Color.Cyan.ToArgb(), target.GetPixel(13, 5).ToArgb());
+        Assert.Equal(Color.Magenta.ToArgb(), target.GetPixel(18, 5).ToArgb());
+        Assert.Equal(Color.Yellow.ToArgb(), target.GetPixel(13, 10).ToArgb());
+        Assert.Equal(Color.Black.ToArgb(), target.GetPixel(18, 10).ToArgb());
+        Assert.Equal(2, decoder.Infos.Count);
+        Assert.All(decoder.Infos, info => Assert.Equal(
+            new WmfBitmap16Info(0, 2, 2, 8, 1, 32),
+            info));
+        Assert.All(decoder.Bits, bits => Assert.Equal(pixels, bits));
+        Assert.Throws<InvalidOperationException>(() =>
+            decoder.LastDestination!.SetRgba(pixels));
+    }
+
+    [Fact]
+    public void WmfBitmap16AdapterFailuresRollBackEarlierCommands()
+    {
+        byte[] pixels = [10, 20, 30, 255];
+        byte[] bitmap = CreateBitmap16(1, 1, 32, pixels);
+        byte[] fixture = CreatePlaybackWmf(
+        [
+            (0x041F, WmfSetPixel(Color.Red, new Point(1, 1))),
+            (0x0922, WmfBitmap16BitBlt(
+                bitmap,
+                Point.Empty,
+                new Rectangle(4, 4, 1, 1),
+                0x00CC_0020)),
+            (0, [])
+        ]);
+
+        foreach (Bitmap16DecoderFailure failure in Enum.GetValues<Bitmap16DecoderFailure>())
+        {
+            using IDisposable registration = WmfBitmap16DecodeServices.Register(
+                new TestWmfBitmap16DecodeService(pixels, failure));
+            using var metafile = new Metafile(new MemoryStream(fixture, writable: false));
+            var context = new DrawingContext();
+            using Graphics graphics = Graphics.FromProGpuDrawingContext(context);
+
+            Exception? exception = Record.Exception(() =>
+                graphics.DrawImage(metafile, new Rectangle(0, 0, 64, 64)));
+            if (failure == Bitmap16DecoderFailure.WrongOutputLength)
+            {
+                Assert.IsType<ArgumentException>(exception);
+            }
+            else
+            {
+                Assert.IsType<InvalidOperationException>(exception);
+            }
+            Assert.Empty(context.Commands);
+        }
+    }
+
+    [Fact]
+    public void WmfBitmap16AdapterPlaybackHasBoundedWarmedAllocation()
+    {
+        byte[] pixels = new byte[8 * 8 * 4];
+        for (int offset = 3; offset < pixels.Length; offset += 4)
+        {
+            pixels[offset] = byte.MaxValue;
+        }
+        byte[] bitmap = CreateBitmap16(8, 8, 32, pixels);
+        var records = new List<(ushort Function, byte[] Payload)>();
+        for (int index = 0; index < 64; index++)
+        {
+            records.Add((
+                0x0922,
+                WmfBitmap16BitBlt(
+                    bitmap,
+                    Point.Empty,
+                    new Rectangle((index % 8) * 8, (index / 8) * 8, 8, 8),
+                    0x00CC_0020)));
+        }
+        records.Add((0, []));
+        using var metafile = new Metafile(new MemoryStream(
+            CreatePlaybackWmf(records),
+            writable: false));
+        using IDisposable registration = WmfBitmap16DecodeServices.Register(
+            new TestWmfBitmap16DecodeService(pixels));
+        var context = new DrawingContext();
+        using Graphics graphics = Graphics.FromProGpuDrawingContext(context);
+        for (int iteration = 0; iteration < 4; iteration++)
+        {
+            graphics.DrawImage(metafile, new Rectangle(0, 0, 64, 64));
+            context.Clear();
+        }
+
+        long before = GC.GetAllocatedBytesForCurrentThread();
+        for (int iteration = 0; iteration < 8; iteration++)
+        {
+            graphics.DrawImage(metafile, new Rectangle(0, 0, 64, 64));
+            context.Clear();
+        }
+        long allocatedPerPlayback =
+            (GC.GetAllocatedBytesForCurrentThread() - before) / 8;
+
+        Assert.InRange(allocatedPerPlayback, 64 * 1024, 32 * 1024 * 1024);
     }
 
     [Fact]
@@ -5614,6 +5755,26 @@ public sealed class MetafileParserTests
         WriteInt16(payload, 12, checked((short)destination.Y));
         WriteInt16(payload, 14, checked((short)destination.X));
         bitmap.CopyTo(payload, 16);
+        return payload;
+    }
+
+    private static byte[] WmfBitmap16StretchBlt(
+        byte[] bitmap,
+        Rectangle source,
+        Rectangle destination,
+        uint rasterOperation)
+    {
+        byte[] payload = new byte[checked(20 + bitmap.Length)];
+        WriteUInt32(payload, 0, rasterOperation);
+        WriteInt16(payload, 4, checked((short)source.Height));
+        WriteInt16(payload, 6, checked((short)source.Width));
+        WriteInt16(payload, 8, checked((short)source.Y));
+        WriteInt16(payload, 10, checked((short)source.X));
+        WriteInt16(payload, 12, checked((short)destination.Height));
+        WriteInt16(payload, 14, checked((short)destination.Width));
+        WriteInt16(payload, 16, checked((short)destination.Y));
+        WriteInt16(payload, 18, checked((short)destination.X));
+        bitmap.CopyTo(payload, 20);
         return payload;
     }
 
@@ -7180,6 +7341,49 @@ public sealed class MetafileParserTests
 
     private static void WriteSingle(byte[] target, int offset, float value) =>
         WriteInt32(target, offset, BitConverter.SingleToInt32Bits(value));
+
+    private enum Bitmap16DecoderFailure
+    {
+        MissingOutput,
+        WrongOutputLength,
+        DuplicateOutput
+    }
+
+    private sealed class TestWmfBitmap16DecodeService(
+        byte[] pixels,
+        Bitmap16DecoderFailure? failure = null) : IWmfBitmap16DecodeService
+    {
+        public List<WmfBitmap16Info> Infos { get; } = [];
+
+        public List<byte[]> Bits { get; } = [];
+
+        public WmfBitmap16DecodeDestination? LastDestination { get; private set; }
+
+        public void Decode(
+            in WmfBitmap16Info bitmap,
+            ReadOnlySpan<byte> bits,
+            WmfBitmap16DecodeDestination destination)
+        {
+            Infos.Add(bitmap);
+            Bits.Add(bits.ToArray());
+            LastDestination = destination;
+            switch (failure)
+            {
+                case Bitmap16DecoderFailure.MissingOutput:
+                    return;
+                case Bitmap16DecoderFailure.WrongOutputLength:
+                    destination.SetRgba(pixels.AsSpan(0, pixels.Length - 1));
+                    return;
+                case Bitmap16DecoderFailure.DuplicateOutput:
+                    destination.SetRgba(pixels);
+                    destination.SetRgba(pixels);
+                    return;
+                default:
+                    destination.SetRgba(pixels);
+                    return;
+            }
+        }
+    }
 
     private sealed class NonSeekableReadStream(byte[] source) : Stream
     {

@@ -273,7 +273,7 @@ contracts. WMF paths and select-clip-region records, `EXTTEXTOUT` glyph-index, n
 substitution, two-dimensional, DBCS-advance, and bidi-advance modes, independent
 escapement/orientation, vertical fonts, SYMBOL glyph-index mapping,
 source-required playback-device-context
-`META_DIBBITBLT`/`META_DIBSTRETCHBLT` variants, embedded `Bitmap16` source pixels,
+`META_DIBBITBLT`/`META_DIBSTRETCHBLT` variants,
 richer GDI objects,
 other WMF drawing families, and nonstructural EMF+ drawing records remain
 explicit later tranches. The Win32 contract identifies character extra as
@@ -788,9 +788,9 @@ The WMF follow-up
 adds all four source-bearing packed-DIB layouts, exact packed header/color-table
 splitting, direct-color optimization tables, both scan orientations, retained
 command shape, and explicit rollback for the two source-required playback-DC
-forms. Source-required playback-device-context pixels and embedded `Bitmap16`
-source pixels remain named typed boundaries. ApiCompat remains at zero missing
-types, zero missing members, and 13 reviewed shape differences.
+forms. Source-required playback-device-context pixels remain a named typed
+boundary. ApiCompat remains at zero missing types, zero missing members, and 13
+reviewed shape differences.
 
 The `BI_BITFIELDS` follow-up validates three external masks after a 40-byte
 header or the embedded V4/V5 masks before decoding any pixels. Red, green, and
@@ -871,8 +871,21 @@ planes, bit depth, and exact payload length—even when the raster operation doe
 not consume its pixels. Five focused gates cover exact output from all four
 record families, valid and malformed `Bitmap16` envelopes, transactional
 rejection of source-required operations, rollback of earlier commands, and a
-warmed allocation ceiling. Actual embedded `Bitmap16` pixel decoding remains
-an explicit typed device-format-adapter boundary.
+warmed allocation ceiling.
+
+The typed `Bitmap16` adapter follow-up closes that device-dependent source
+boundary without assuming a pixel layout that the WMF contract does not
+define. `WmfBitmap16DecodeServices` gives one registered
+`IWmfBitmap16DecodeService` the validated signed type, dimensions,
+word-aligned stride, planes, bit depth, and exact raw bit span. The adapter must
+synchronously publish exactly one top-down, straight-alpha RGBA8 snapshot to a
+single-use destination; missing, short, duplicate, late, or retained output
+fails explicitly. `META_BITBLT` and `META_STRETCHBLT` then reuse the same typed
+crop, mirror, stretch-mode, transform, `SRCCOPY`, and `NOTSRCCOPY` path as DIB
+playback. Three focused gates cover exact pixels and metadata for both record
+families, registration/output-contract failures with whole-stream rollback,
+and warmed allocation. The platform-specific device-format interpretation is
+owned by the registered adapter, not inferred by the portable renderer.
 
 `Playback256EmfDibImagesToRetainedCommands` measures bounded header/row decode,
 256 owned two-by-two RGBA snapshots, typed retained-texture recording,
@@ -894,7 +907,7 @@ throughput. Ten focused WMF cases independently cover all four record families,
 bottom-up padding, top-down and bottom-up partial bands, packed color-table
 splitting, retained sampling, playback-DC boundaries, malformed input,
 transactional rollback, and the warmed 64-image allocation ceiling.
-Both complete Debug and Release drawing suites pass 566/566; ApiCompat remains
+Both complete Debug and Release drawing suites pass 569/569; ApiCompat remains
 at zero missing types, zero missing members, and 13 reviewed shape differences.
 
 `Playback256BitFieldDibImagesToRetainedCommands` measures 256 packed RGB565
@@ -954,6 +967,15 @@ microsecond median (859.788 microsecond mean, 104.814 microsecond standard
 deviation) with 464.05 KB allocated. Three iterations and denied priority
 elevation make the focused exact-pixel and warmed-allocation gates
 authoritative; this benchmark is a coarse retained-command baseline.
+
+`Playback256WmfBitmap16AdapterRecordsToRetainedCommands` measures 256 embedded
+8-by-8 `META_BITBLT` sources through the registered typed adapter, synchronous
+owned-pixel transfer, crop, and retained image recording. The 2026-09-01
+ARM64/.NET 10.0.11 in-process ShortRun measured a 23.843 millisecond median
+(27.789 millisecond mean, 9.288 millisecond standard deviation) with 569.88 KB
+allocated. Three iterations, denied priority elevation, and visible timing
+variance make the exact-pixel, provider-contract, rollback, and deterministic
+allocation gates authoritative.
 
 The EMF path-bracket follow-up adds `EMR_BEGINPATH`, `EMR_ENDPATH`,
 `EMR_CLOSEFIGURE`, `EMR_ABORTPATH`, `EMR_FILLPATH`, `EMR_STROKEPATH`,

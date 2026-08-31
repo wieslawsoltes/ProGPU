@@ -117,8 +117,7 @@ member suppression, leaving zero missing types, zero missing members, and 13
     `EXTTEXTOUT` glyph-index, numeric-substitution, two-dimensional, DBCS-
     advance, and bidi-advance modes, independent escapement/orientation,
     vertical fonts, SYMBOL
-    glyph-index mapping, source-required playback-DC pixels and embedded
-    `Bitmap16` source pixels, other
+    glyph-index mapping, source-required playback-DC pixels, other
     WMF drawing families, and nonstructural EMF+ drawing remain
     explicit follow-up work. Contract, security bounds, and benchmark evidence are recorded
 in
@@ -344,10 +343,10 @@ evidence. Ten focused cases independently cover all four layouts, bottom-up
 padding, top-down and bottom-up partial bands, packed color tables, retained
 sampling, malformed usage/ROP/scan/buffer inputs, transactional rollback,
 source-required playback-DC boundaries, and a warmed allocation ceiling.
-Source-required playback-device-context pixels and embedded `Bitmap16` source
-pixels remain explicit typed boundaries.
+Source-required playback-device-context pixels remain an explicit typed
+boundary.
 ApiCompat remains 0/0/13.
-Both complete Debug and Release drawing suites pass 566/566.
+Both complete Debug and Release drawing suites pass 569/569.
 
 `MetafileBenchmarks.Playback256BitFieldDibImagesToRetainedCommands` extends the
 same shared decoder to 16/32-bit `BI_BITFIELDS`. Forty-byte headers supply three
@@ -460,8 +459,7 @@ produce exact output without a fabricated source. Source-bearing
 before drawing even when the operation ignores its pixels. Five focused cases
 cover all four layouts, exact output, valid and malformed envelopes,
 source-required transactional rejection, rollback, and warmed allocation.
-Actual embedded `Bitmap16` pixel decoding remains a typed device-format-adapter
-boundary. The 2026-09-01 ARM64/.NET 10.0.11 in-process ShortRun measured an
+The 2026-09-01 ARM64/.NET 10.0.11 in-process ShortRun measured an
 810.465 microsecond median (859.788 microsecond mean, 104.814 microsecond
 standard deviation) and 464.05 KB allocated for 256 records. Three iterations
 and denied priority elevation make the exact-pixel and deterministic allocation
@@ -469,6 +467,24 @@ gates authoritative. The official contracts are the
 [`Bitmap16 Object`](https://learn.microsoft.com/en-us/openspecs/windows_protocols/ms-wmf/dc487315-3bb9-40c8-9f49-55ffc6152d8c),
 [`META_BITBLT Record`](https://learn.microsoft.com/en-us/openspecs/windows_protocols/ms-wmf/0d703ede-9633-47a0-a92d-c98b2bca6a2b), and
 [`META_STRETCHBLT Record`](https://learn.microsoft.com/en-us/openspecs/windows_protocols/ms-wmf/61370adb-d37d-48c4-b5dd-7f7a64e0a9ea).
+
+`MetafileBenchmarks.Playback256WmfBitmap16AdapterRecordsToRetainedCommands`
+closes embedded device-dependent bitmap-source playback through the public
+typed `WmfBitmap16DecodeServices` registration seam. The decoder receives a
+validated immutable metadata value plus the exact bounded raw bit span and
+must synchronously publish exactly one top-down straight-alpha RGBA8 snapshot.
+The destination owns its copy and rejects missing, wrong-sized, duplicate, or
+late writes. `META_BITBLT` and `META_STRETCHBLT` reuse the established typed
+crop, mirror, transform, stretch-mode, `SRCCOPY`, and `NOTSRCCOPY` path after
+normalization. Three focused gates cover exact pixels and adapter metadata for
+both record families, registration and output failures with whole-stream
+rollback, and warmed allocation. The 2026-09-01 ARM64/.NET 10.0.11 in-process
+ShortRun measured a 23.843 ms median (27.789 ms mean, 9.288 ms standard
+deviation) and 569.88 KB allocated for 256 embedded 8-by-8 sources. Three
+iterations, denied priority elevation, and visible timing variance make exact
+pixels, provider ownership, rollback, and allocation authoritative. The
+portable renderer never guesses the device-dependent bit layout; the
+registered local adapter owns that interpretation.
 
 `MetafileBenchmarks.Playback256EmfPathBracketsToRetainedCommands` guards 256
 Begin/rectangle/End/StrokeAndFill groups. The 2026-08-31 ARM64/.NET 10.0.11
