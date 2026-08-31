@@ -5805,7 +5805,8 @@ so filled and stroked ellipses enter the same backend-neutral vector resources
 as other Direct2D paths. No runtime reflection, widened CPU bitmap, readback,
 or per-frame path reconstruction is introduced. The construction work is a
 fixed four-segment operation rather than a SIMD-eligible bulk loop. Focused
-managed ABI contracts pass 5/5; Windows native qualification is still pending.
+managed ABI contracts pass 5/5; Windows native qualification passes in the
+ABI-v52 MSVC job described below.
 
 Direct2D compatibility ABI v52 adds ProGPU-owned
 `ID2D1RoundedRectangleGeometry`. The immutable COM resource preserves the
@@ -5816,8 +5817,7 @@ containment, tolerance-controlled metrics, fills, and strokes across D3D12,
 Metal, Vulkan, and WebGPU. It performs no reflection, CPU pixel conversion,
 readback, or per-frame path reconstruction. The constant eight-segment
 constructor is scalar because it has no useful independent-lane bulk work.
-Focused managed ABI contracts pass 5/5; the system-Direct2D Windows
-differential remains pending.
+Focused managed ABI contracts pass 5/5.
 
 Ellipse length/point delegation applies the system Direct2D half-tolerance
 subdivision threshold. The Windows ellipse oracle measured `19.2537` at public
@@ -5844,6 +5844,15 @@ as `PATH_BATCH`; the translator correctly emits one fill `PATH_BATCH` and one
 analytic `GEOMETRY_BATCH` stroke. ABI v52 now locks down that resource split,
 while the later recorder checks retain detailed cubic, round-join, gap, dash,
 fixed-device, and hairline assertions.
+
+The hosted Windows
+[`Native C++20 compiler compatibility (MSVC)` job](https://github.com/wieslawsoltes/ProGPU/actions/runs/33417514376/job/99571802634)
+passes at implementation `e5a75a9b`. MSVC builds the complete provider and all
+11 native CTests pass, including the system-Direct2D ellipse and
+rounded-rectangle differentials plus recorder/resource canonicalization. This
+qualifies ABI v52 on Windows x64. The ClangCL x64/ARM64 lanes still stop only
+at the three pre-existing missing-braces warning-as-error sites; this slice
+introduces no additional ClangCL warning.
 
 ## Managed glyph row-reuse SIMD checkpoint
 

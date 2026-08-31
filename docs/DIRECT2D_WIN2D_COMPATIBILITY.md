@@ -1532,8 +1532,7 @@ reflection, CPU pixel work, or a renderer-specific ellipse sideband. Zero-radius
 degenerates use the same fail-closed path semantics. Constant-size construction
 is deliberately scalar; it records exactly four cubic segments and is not a
 data-parallel buffer workload. Focused managed ABI contracts pass 5/5. Exact
-Windows COM/native qualification remains required before this checkpoint is
-described as Windows-qualified.
+Windows COM/native qualification passes as part of the ABI-v52 MSVC run below.
 
 ABI v52 adds a genuine ProGPU-owned
 [`ID2D1RoundedRectangleGeometry`](https://learn.microsoft.com/windows/win32/api/d2d1/nn-d2d1-id2d1roundedrectanglegeometry).
@@ -1553,7 +1552,18 @@ does not introduce CPU pixel readback, per-frame path rebuilding, or
 backend-specific Direct2D branches. Construction is fixed eight-segment scalar
 work rather than a SIMD-eligible bulk loop. The Windows oracle compares bounds,
 area, length, containment, COM identity, and semantic scene translation with
-system Direct2D; Windows qualification remains pending.
+system Direct2D.
+
+Hosted Windows qualification passes in the
+[`Native C++20 compiler compatibility (MSVC)` job](https://github.com/wieslawsoltes/ProGPU/actions/runs/33417514376/job/99571802634)
+for implementation `e5a75a9b`: MSVC builds the provider and all native tests,
+and all 11 CTests pass, including the complete ABI-v52 Direct2D COM/system
+differential. This qualifies ellipse and rounded-rectangle identity, factory
+parentage, metadata, bounds, containment, area, length, semantic fill replay,
+analytic curved strokes, recorder serialization, and resource canonicalization
+on Windows x64. ClangCL x64/ARM64 remain separately blocked by the three
+pre-existing missing-braces warning-as-error sites; ABI v52 added no new
+ClangCL diagnostic.
 
 `eng/build-progpu-native-windows.ps1` builds and runs
 the native test on runnable Windows x64/ARM64 agents, stages
