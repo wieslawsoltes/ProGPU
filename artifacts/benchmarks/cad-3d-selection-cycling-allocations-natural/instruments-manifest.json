@@ -1,0 +1,51 @@
+{
+  "schemaVersion": 2,
+  "capturedUtc": "2026-08-31T23:38:43.122039+00:00",
+  "durationSeconds": 10,
+  "windowSeconds": null,
+  "targetMode": "launch",
+  "target": "/Users/wieslawsoltes/.dotnet/dotnet",
+  "arguments": [
+    "/Users/wieslawsoltes/GitHub/ProGPU/src/ProGPU.CAD.Benchmarks/bin/Release/net10.0/ProGPU.CAD.Benchmarks.dll",
+    "--mesh3d-selection-grid",
+    "128",
+    "--mesh3d-selection-depth-layers",
+    "8",
+    "--warmup",
+    "1",
+    "--iterations",
+    "2",
+    "--queries",
+    "10000"
+  ],
+  "environmentVariableNames": [],
+  "cleanupTraces": true,
+  "cleanupExports": false,
+  "allocationDetails": false,
+  "summary": {
+    "json": "/Users/wieslawsoltes/GitHub/ProGPU/artifacts/benchmarks/cad-3d-selection-cycling-allocations-natural/instruments-summary.json",
+    "markdown": "/Users/wieslawsoltes/GitHub/ProGPU/artifacts/benchmarks/cad-3d-selection-cycling-allocations-natural/instruments-summary.md",
+    "resourceCount": 0,
+    "maximumCurrentAllocatedBytes": 0,
+    "nativeHeapAndAnonymousVmPersistentBytes": 20759088
+  },
+  "captures": [
+    {
+      "Key": "allocations",
+      "Template": "Allocations",
+      "TracePath": "/Users/wieslawsoltes/GitHub/ProGPU/artifacts/benchmarks/cad-3d-selection-cycling-allocations-natural/allocations.trace",
+      "TableOfContentsPath": "/Users/wieslawsoltes/GitHub/ProGPU/artifacts/benchmarks/cad-3d-selection-cycling-allocations-natural/allocations-toc.xml",
+      "LogPath": "/Users/wieslawsoltes/GitHub/ProGPU/artifacts/benchmarks/cad-3d-selection-cycling-allocations-natural/allocations.log",
+      "TargetOutputPath": "/Users/wieslawsoltes/GitHub/ProGPU/artifacts/benchmarks/cad-3d-selection-cycling-allocations-natural/allocations-target.log",
+      "RecordExitCode": 0,
+      "Exports": [
+        "/Users/wieslawsoltes/GitHub/ProGPU/artifacts/benchmarks/cad-3d-selection-cycling-allocations-natural/allocations-statistics.xml"
+      ],
+      "TraceRetained": false,
+      "DeletedTraceBytes": 13345241,
+      "ExportsRetained": true,
+      "DeletedExportBytes": 0,
+      "DeletedTemporaryBytes": 36716464
+    }
+  ]
+}

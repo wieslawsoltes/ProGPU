@@ -450,18 +450,52 @@ public sealed class CadMesh3DViewCoordinator
             viewport,
             viewportSize,
             viewportPoint);
+        RecordSelectionQuery(
+            result.VisitedNodeCount,
+            result.TestedTriangleCount);
+        return result;
+    }
+
+    /// <summary>
+    /// Queries nearest-first unique semantic roots into caller-owned storage.
+    /// </summary>
+    public CadMesh3DSelectionHitQueryResult QuerySelectionHits(
+        Vector2 viewportSize,
+        Vector2 viewportPoint,
+        Span<CadMesh3DSelectionResult> destination)
+    {
+        CadMesh3DSelectionIndex index = SelectionIndex ??
+            throw new InvalidOperationException(
+                "A retained CAD mesh generation is required before selection.");
+        CadMesh3DViewport viewport = Viewport ??
+            throw new InvalidOperationException(
+                "A retained CAD mesh camera is required before selection.");
+        CadMesh3DSelectionHitQueryResult result = index.QueryHits(
+            viewport,
+            viewportSize,
+            viewportPoint,
+            destination);
+        RecordSelectionQuery(
+            result.VisitedNodeCount,
+            result.TestedTriangleCount);
+        return result;
+    }
+
+    private void RecordSelectionQuery(
+        int visitedNodeCount,
+        int testedTriangleCount)
+    {
         _statistics = _statistics with
         {
             SelectionQueryCount = checked(
                 _statistics.SelectionQueryCount + 1),
             SelectionVisitedNodeCount = checked(
                 _statistics.SelectionVisitedNodeCount +
-                result.VisitedNodeCount),
+                visitedNodeCount),
             SelectionTestedTriangleCount = checked(
                 _statistics.SelectionTestedTriangleCount +
-                result.TestedTriangleCount),
+                testedTriangleCount),
         };
-        return result;
     }
 
     public void CaptureCamera(in CadMesh3DProjectionCamera camera)

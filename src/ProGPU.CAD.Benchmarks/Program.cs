@@ -29,6 +29,7 @@ if (mesh3DSelectionGridSize != 0)
 {
     RunMesh3DSelectionBenchmark(
         mesh3DSelectionGridSize,
+        ReadPositiveInt("--mesh3d-selection-depth-layers", 1),
         ReadNonNegativeInt("--warmup", 3),
         ReadPositiveInt("--iterations", 12),
         ReadPositiveInt("--queries", 65_536),
@@ -1291,18 +1292,32 @@ void RunMesh3DReplayBenchmark(
 
 void RunMesh3DSelectionBenchmark(
     int gridSize,
+    int depthLayerCount,
     int warmupCount,
     int iterationCount,
     int queryCount,
     string? reportPath)
 {
+    if (depthLayerCount > CadMesh3DSelectionIndex.MaximumHitCount)
+    {
+        throw new ArgumentOutOfRangeException(
+            nameof(depthLayerCount),
+            $"Selection depth layers cannot exceed {CadMesh3DSelectionIndex.MaximumHitCount}.");
+    }
     var document = new CadDocument();
-    Mesh mesh = CreateMesh3DSelectionGrid(gridSize);
-    document.Entities.Add(mesh);
+    var meshes = new Mesh[depthLayerCount];
+    for (int layer = 0; layer < meshes.Length; layer++)
+    {
+        meshes[layer] = CreateMesh3DSelectionGrid(
+            gridSize,
+            layer * 0.01);
+        document.Entities.Add(meshes[layer]);
+    }
     CadDocumentSnapshot snapshot = new CadSnapshotCompiler().Compile(
         new CadDocumentSession(document));
     CadRecordedMesh3DScene scene = new CadMesh3DSceneCompiler().Compile(snapshot);
-    int expectedTriangleCount = checked(gridSize * gridSize * 2);
+    int expectedTriangleCount = checked(
+        gridSize * gridSize * 2 * depthLayerCount);
     if (scene.Statistics.TriangleCount != expectedTriangleCount)
     {
         throw new InvalidOperationException(
@@ -1323,17 +1338,22 @@ void RunMesh3DSelectionBenchmark(
     Vector2 viewportSize = new(1_920.0f, 1_080.0f);
     var queryPoints = new Vector2[queryCount];
     uint state = 0x9e3779b9U;
+    int interiorSize = Math.Max(1, gridSize - 2);
+    int interiorOffset = gridSize > 2 ? 1 : 0;
     for (int index = 0; index < queryPoints.Length; index++)
     {
         state = unchecked(state * 1_664_525U + 1_013_904_223U);
-        int x = (int)(state % (uint)gridSize);
+        int x = (int)(state % (uint)interiorSize) + interiorOffset;
         state = unchecked(state * 1_664_525U + 1_013_904_223U);
-        int y = (int)(state % (uint)gridSize);
+        int y = (int)(state % (uint)interiorSize) + interiorOffset;
         queryPoints[index] = ProjectMesh3DSelectionPoint(
             viewport,
             scene,
             viewportSize,
-            new CadPoint3D(x + 0.375, y + 0.625, 0.0));
+            new CadPoint3D(
+                x + 0.375,
+                y + 0.625,
+                (depthLayerCount - 1) * 0.01));
     }
 
     for (int index = 0; index < Math.Min(queryCount, 4_096); index++)
@@ -1342,7 +1362,7 @@ void RunMesh3DSelectionBenchmark(
             viewport,
             viewportSize,
             queryPoints[index]);
-        if (!warm.IsHit || warm.Handle != mesh.Handle)
+        if (!warm.IsHit)
         {
             throw new InvalidOperationException(
                 "A warm selection benchmark query missed the retained grid.");
@@ -1364,7 +1384,7 @@ void RunMesh3DSelectionBenchmark(
             viewportSize,
             queryPoints[index]);
         elapsed[index] = Stopwatch.GetElapsedTime(started).TotalNanoseconds;
-        if (!result.IsHit || result.Handle != mesh.Handle)
+        if (!result.IsHit)
         {
             throw new InvalidOperationException(
                 "A measured selection benchmark query missed the retained grid.");
@@ -1383,6 +1403,60 @@ void RunMesh3DSelectionBenchmark(
         GC.GetAllocatedBytesForCurrentThread() - allocationStart;
     GC.KeepAlive(checksum);
 
+    var semanticHits =
+        new CadMesh3DSelectionResult[depthLayerCount];
+    var semanticElapsed = new double[queryCount];
+    long semanticVisitedNodeCount = 0;
+    long semanticTestedTriangleCount = 0;
+    long semanticIntersectedTriangleCount = 0;
+    int semanticMaximumVisitedNodeCount = 0;
+    int semanticMaximumTestedTriangleCount = 0;
+    for (int index = 0; index < Math.Min(queryCount, 4_096); index++)
+    {
+        CadMesh3DSelectionHitQueryResult warm = selectionIndex.QueryHits(
+            viewport,
+            viewportSize,
+            queryPoints[index],
+            semanticHits);
+        if (warm.HitCount != depthLayerCount || warm.WasTruncated)
+        {
+            throw new InvalidOperationException(
+                "A warm semantic-depth benchmark query did not return every layer.");
+        }
+    }
+    long semanticAllocationStart =
+        GC.GetAllocatedBytesForCurrentThread();
+    for (int index = 0; index < queryPoints.Length; index++)
+    {
+        long started = Stopwatch.GetTimestamp();
+        CadMesh3DSelectionHitQueryResult result = selectionIndex.QueryHits(
+            viewport,
+            viewportSize,
+            queryPoints[index],
+            semanticHits);
+        semanticElapsed[index] = Stopwatch.GetElapsedTime(started)
+            .TotalNanoseconds;
+        if (result.HitCount != depthLayerCount || result.WasTruncated)
+        {
+            throw new InvalidOperationException(
+                "A measured semantic-depth benchmark query did not return every layer.");
+        }
+        semanticVisitedNodeCount += result.VisitedNodeCount;
+        semanticTestedTriangleCount += result.TestedTriangleCount;
+        semanticIntersectedTriangleCount += result.IntersectedTriangleCount;
+        semanticMaximumVisitedNodeCount = Math.Max(
+            semanticMaximumVisitedNodeCount,
+            result.VisitedNodeCount);
+        semanticMaximumTestedTriangleCount = Math.Max(
+            semanticMaximumTestedTriangleCount,
+            result.TestedTriangleCount);
+        checksum ^= semanticHits[0].Handle +
+            semanticHits[result.HitCount - 1].Handle;
+    }
+    long semanticAllocatedBytes =
+        GC.GetAllocatedBytesForCurrentThread() - semanticAllocationStart;
+    GC.KeepAlive(checksum);
+
     var report = new CadMesh3DSelectionBenchmarkReport(
         DateTimeOffset.UtcNow,
         Environment.OSVersion.ToString(),
@@ -1390,6 +1464,7 @@ void RunMesh3DSelectionBenchmark(
         HashAssembly(Assembly.GetExecutingAssembly()),
         HashAssembly(typeof(CadMesh3DSelectionIndex).Assembly),
         gridSize,
+        depthLayerCount,
         expectedTriangleCount,
         warmupCount,
         iterationCount,
@@ -1400,11 +1475,21 @@ void RunMesh3DSelectionBenchmark(
             elapsed,
             allocatedBytes / queryCount),
         allocatedBytes,
+        Summarize(
+            "mesh3d-selection-semantic-depth-query-ns",
+            semanticElapsed,
+            semanticAllocatedBytes / queryCount),
+        semanticAllocatedBytes,
         selectionIndex.Statistics,
         (double)visitedNodeCount / queryCount,
         (double)testedTriangleCount / queryCount,
         maximumVisitedNodeCount,
         maximumTestedTriangleCount,
+        (double)semanticVisitedNodeCount / queryCount,
+        (double)semanticTestedTriangleCount / queryCount,
+        (double)semanticIntersectedTriangleCount / queryCount,
+        semanticMaximumVisitedNodeCount,
+        semanticMaximumTestedTriangleCount,
         checksum);
     string json = JsonSerializer.Serialize(
         report,
@@ -1416,7 +1501,7 @@ void RunMesh3DSelectionBenchmark(
     }
 }
 
-Mesh CreateMesh3DSelectionGrid(int gridSize)
+Mesh CreateMesh3DSelectionGrid(int gridSize, double elevation)
 {
     var mesh = new Mesh();
     int stride = checked(gridSize + 1);
@@ -1424,7 +1509,7 @@ Mesh CreateMesh3DSelectionGrid(int gridSize)
     {
         for (int x = 0; x <= gridSize; x++)
         {
-            mesh.Vertices.Add(new XYZ(x, y, 0.0));
+            mesh.Vertices.Add(new XYZ(x, y, elevation));
         }
     }
     for (int y = 0; y < gridSize; y++)
@@ -3310,6 +3395,7 @@ internal sealed record CadMesh3DSelectionBenchmarkReport(
     string BenchmarkBinarySha256,
     string CadBinarySha256,
     int GridSize,
+    int DepthLayerCount,
     int TriangleCount,
     int WarmupCount,
     int BuildIterationCount,
@@ -3317,11 +3403,18 @@ internal sealed record CadMesh3DSelectionBenchmarkReport(
     Measurement IndexBuildMilliseconds,
     Measurement QueryNanoseconds,
     long TotalQueryManagedAllocatedBytes,
+    Measurement SemanticDepthQueryNanoseconds,
+    long TotalSemanticDepthQueryManagedAllocatedBytes,
     CadMesh3DSelectionIndexStatistics IndexStatistics,
     double AverageVisitedNodeCount,
     double AverageTestedTriangleCount,
     int MaximumVisitedNodeCount,
     int MaximumTestedTriangleCount,
+    double SemanticDepthAverageVisitedNodeCount,
+    double SemanticDepthAverageTestedTriangleCount,
+    double SemanticDepthAverageIntersectedTriangleCount,
+    int SemanticDepthMaximumVisitedNodeCount,
+    int SemanticDepthMaximumTestedTriangleCount,
     ulong Checksum);
 
 internal sealed record CadMesh3DReplayBinaryHashes(

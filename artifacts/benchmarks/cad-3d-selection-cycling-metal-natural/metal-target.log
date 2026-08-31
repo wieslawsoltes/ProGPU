@@ -1,0 +1,56 @@
+{
+  "CapturedAt": "2026-08-31T23:36:33.070656+00:00",
+  "OperatingSystem": "Unix 26.6.0",
+  "Runtime": "10.0.5",
+  "BenchmarkBinarySha256": "6742277da72e4aba30b00df669ff1f88cf777a8fc2a921669d01ce1fadbb5a95",
+  "CadBinarySha256": "89433ba0158ebe432689c1d39632954f0b728f309c7aa35761f6127faa21370c",
+  "GridSize": 16,
+  "DepthLayerCount": 8,
+  "TriangleCount": 4096,
+  "WarmupCount": 1,
+  "BuildIterationCount": 2,
+  "QueryCount": 1000,
+  "IndexBuildMilliseconds": {
+    "Name": "mesh3d-selection-index-build-ms",
+    "P50": 2.0289,
+    "P95": 3.8587,
+    "P99": 3.8587,
+    "Mean": 2.9438,
+    "AllocatedBytesPerOperation": 270456
+  },
+  "QueryNanoseconds": {
+    "Name": "mesh3d-selection-query-ns",
+    "P50": 3300,
+    "P95": 4200,
+    "P99": 6000,
+    "Mean": 3540,
+    "AllocatedBytesPerOperation": 0
+  },
+  "TotalQueryManagedAllocatedBytes": 0,
+  "SemanticDepthQueryNanoseconds": {
+    "Name": "mesh3d-selection-semantic-depth-query-ns",
+    "P50": 19600,
+    "P95": 25400,
+    "P99": 56700,
+    "Mean": 21430.7,
+    "AllocatedBytesPerOperation": 0
+  },
+  "TotalSemanticDepthQueryManagedAllocatedBytes": 0,
+  "IndexStatistics": {
+    "TriangleCount": 4096,
+    "NodeCount": 1023,
+    "LeafCount": 512,
+    "MaximumDepth": 10,
+    "RetainedByteCount": 73688
+  },
+  "AverageVisitedNodeCount": 13,
+  "AverageTestedTriangleCount": 8,
+  "MaximumVisitedNodeCount": 13,
+  "MaximumTestedTriangleCount": 8,
+  "SemanticDepthAverageVisitedNodeCount": 43,
+  "SemanticDepthAverageTestedTriangleCount": 64,
+  "SemanticDepthAverageIntersectedTriangleCount": 9.248,
+  "SemanticDepthMaximumVisitedNodeCount": 43,
+  "SemanticDepthMaximumTestedTriangleCount": 64,
+  "Checksum": 387
+}

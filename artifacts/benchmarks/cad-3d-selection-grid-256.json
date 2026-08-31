@@ -1,31 +1,41 @@
 {
-  "CapturedAt": "2026-08-31T23:03:48.865916+00:00",
+  "CapturedAt": "2026-08-31T23:23:56.662362+00:00",
   "OperatingSystem": "Unix 26.6.0",
   "Runtime": "10.0.5",
-  "BenchmarkBinarySha256": "c5bb00239cd4b4d33e9e1df0752649a4a045e2153ceea7720fb35cc422e9eb70",
-  "CadBinarySha256": "fc94cf72edd2d4c5b1af0e3a6bc8798e2a20a74ab5933b4c013d82cc55eb2b69",
+  "BenchmarkBinarySha256": "6742277da72e4aba30b00df669ff1f88cf777a8fc2a921669d01ce1fadbb5a95",
+  "CadBinarySha256": "89433ba0158ebe432689c1d39632954f0b728f309c7aa35761f6127faa21370c",
   "GridSize": 256,
+  "DepthLayerCount": 1,
   "TriangleCount": 131072,
   "WarmupCount": 3,
   "BuildIterationCount": 12,
   "QueryCount": 65536,
   "IndexBuildMilliseconds": {
     "Name": "mesh3d-selection-index-build-ms",
-    "P50": 23.2322,
-    "P95": 41.6313,
-    "P99": 41.6313,
-    "Mean": 27.489733333333334,
-    "AllocatedBytesPerOperation": 8650876
+    "P50": 17.6542,
+    "P95": 53.7173,
+    "P99": 53.7173,
+    "Mean": 28.905375000000003,
+    "AllocatedBytesPerOperation": 8651552
   },
   "QueryNanoseconds": {
     "Name": "mesh3d-selection-query-ns",
-    "P50": 1500,
-    "P95": 9100,
-    "P99": 19400,
-    "Mean": 2839.1265869140625,
+    "P50": 2500,
+    "P95": 9300,
+    "P99": 19000,
+    "Mean": 3422.3129272460938,
     "AllocatedBytesPerOperation": 0
   },
   "TotalQueryManagedAllocatedBytes": 0,
+  "SemanticDepthQueryNanoseconds": {
+    "Name": "mesh3d-selection-semantic-depth-query-ns",
+    "P50": 2300,
+    "P95": 4900,
+    "P99": 20500,
+    "Mean": 2904.9240112304688,
+    "AllocatedBytesPerOperation": 0
+  },
+  "TotalSemanticDepthQueryManagedAllocatedBytes": 0,
   "IndexStatistics": {
     "TriangleCount": 131072,
     "NodeCount": 32767,
@@ -37,5 +47,10 @@
   "AverageTestedTriangleCount": 8,
   "MaximumVisitedNodeCount": 15,
   "MaximumTestedTriangleCount": 8,
-  "Checksum": 0
+  "SemanticDepthAverageVisitedNodeCount": 15,
+  "SemanticDepthAverageTestedTriangleCount": 8,
+  "SemanticDepthAverageIntersectedTriangleCount": 1.0072174072265625,
+  "SemanticDepthMaximumVisitedNodeCount": 15,
+  "SemanticDepthMaximumTestedTriangleCount": 8,
+  "Checksum": 63514
 }

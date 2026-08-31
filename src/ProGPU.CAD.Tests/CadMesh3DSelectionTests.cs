@@ -113,6 +113,65 @@ public sealed class CadMesh3DSelectionTests
     }
 
     [Fact]
+    public void CallerBufferedHitsAreNearestFirstDeduplicatedAndTruncated()
+    {
+        var document = new CadDocument();
+        Mesh repeatedRoot = CreateStackedMesh(2.0, 4.0);
+        Face3D middle = CreateSquareFace(0.0, 3.0);
+        Face3D farthest = CreateSquareFace(0.0, 1.0);
+        document.Entities.Add(farthest);
+        document.Entities.Add(middle);
+        document.Entities.Add(repeatedRoot);
+        CadRecordedMesh3DScene scene = CompileScene(document);
+        CadMesh3DSelectionIndex index = CadMesh3DSelectionIndex.Build(scene);
+        CadMesh3DViewport viewport = CreateTopViewport(
+            scene,
+            cameraDistance: 10.0,
+            near: 0.1f,
+            far: 100.0f);
+        Vector2 point = Project(
+            viewport,
+            scene,
+            new CadPoint3D(0.25, 0.25, 4.0));
+        Span<CadMesh3DSelectionResult> hits =
+            stackalloc CadMesh3DSelectionResult[3];
+
+        CadMesh3DSelectionHitQueryResult query = index.QueryHits(
+            viewport,
+            ViewportSize,
+            point,
+            hits);
+
+        Assert.Equal(3, query.HitCount);
+        Assert.False(query.WasTruncated);
+        Assert.True(query.IntersectedTriangleCount >= query.HitCount + 1);
+        Assert.Equal(repeatedRoot.Handle, hits[0].Handle);
+        Assert.Equal(middle.Handle, hits[1].Handle);
+        Assert.Equal(farthest.Handle, hits[2].Handle);
+        Assert.Equal(4.0, hits[0].Point.Z, 3);
+        Assert.Equal(query.VisitedNodeCount, hits[0].VisitedNodeCount);
+        Assert.Equal(query.TestedTriangleCount, hits[2].TestedTriangleCount);
+
+        Span<CadMesh3DSelectionResult> bounded =
+            stackalloc CadMesh3DSelectionResult[2];
+        CadMesh3DSelectionHitQueryResult truncated = index.QueryHits(
+            viewport,
+            ViewportSize,
+            point,
+            bounded);
+
+        Assert.Equal(2, truncated.HitCount);
+        Assert.True(truncated.WasTruncated);
+        Assert.Equal(repeatedRoot.Handle, bounded[0].Handle);
+        Assert.Equal(middle.Handle, bounded[1].Handle);
+        Assert.Throws<ArgumentOutOfRangeException>(() => index.QueryHits(
+            viewport,
+            ViewportSize,
+            point,
+            Array.Empty<CadMesh3DSelectionResult>()));
+    }
+
+    [Fact]
     public void LargeWcsQueryUsesTheSceneRebaseWithoutLosingRenderedPrecision()
     {
         const double world = 1_000_000_000_000.0;
@@ -192,6 +251,28 @@ public sealed class CadMesh3DSelectionTests
         GC.KeepAlive(observed);
 
         Assert.Equal(0, minimumAllocated);
+
+        var semanticHits = new CadMesh3DSelectionResult[4];
+        _ = index.QueryHits(viewport, ViewportSize, point, semanticHits);
+        long hitQueryMinimumAllocated = long.MaxValue;
+        for (int pass = 0; pass < 4; pass++)
+        {
+            long before = GC.GetAllocatedBytesForCurrentThread();
+            for (int iteration = 0; iteration < 16_384; iteration++)
+            {
+                observed ^= (ulong)index.QueryHits(
+                    viewport,
+                    ViewportSize,
+                    point,
+                    semanticHits).HitCount;
+            }
+            hitQueryMinimumAllocated = Math.Min(
+                hitQueryMinimumAllocated,
+                GC.GetAllocatedBytesForCurrentThread() - before);
+        }
+        GC.KeepAlive(observed);
+
+        Assert.Equal(0, hitQueryMinimumAllocated);
     }
 
     [Fact]
@@ -319,6 +400,74 @@ public sealed class CadMesh3DSelectionTests
         }
     }
 
+    [Fact]
+    public void SharedViewportAltClickCyclesNearestSemanticDepthHits()
+    {
+        var document = new CadDocument();
+        document.Entities.Add(CreateSquareFace(0.0, 0.0));
+        document.Entities.Add(CreateSquareFace(0.0, 0.25));
+        document.Entities.Add(CreateSquareFace(0.0, 0.5));
+        var view = new CadSampleView();
+        bool priorAlt = InputSystem.Current.IsAltPressed;
+        bool priorControl = InputSystem.Current.IsControlPressed;
+        try
+        {
+            view.Arrange(new Rect(0, 0, 1_280, 900));
+            view.Canvas.Load(new CadDocumentSession(document));
+            view.MeshViewport.Size = ViewportSize;
+            PressEnter(FindButton(view, "3D surfaces"));
+            CadRecordedMesh3DScene scene = Assert.IsType<CadRecordedMesh3DScene>(
+                view.MeshScene);
+            CadMesh3DViewport viewport = view.MeshViewportState!.Value;
+            Vector2 point = Project(
+                viewport,
+                scene,
+                new CadPoint3D(0.0, 0.0, 0.5));
+            var expected = new CadMesh3DSelectionResult[4];
+            CadMesh3DSelectionHitQueryResult query =
+                view.MeshSelectionIndex!.QueryHits(
+                    viewport,
+                    ViewportSize,
+                    point,
+                    expected);
+            Assert.Equal(3, query.HitCount);
+
+            InputSystem.Current.IsAltPressed = true;
+            for (int index = 0; index < query.HitCount; index++)
+            {
+                Click(view.MeshViewport, point);
+                Assert.Equal(
+                    expected[index].Handle,
+                    Assert.Single(view.Canvas.SelectedHandles.ToArray()));
+            }
+            Click(view.MeshViewport, point);
+            Assert.Equal(
+                expected[0].Handle,
+                Assert.Single(view.Canvas.SelectedHandles.ToArray()));
+
+            InputSystem.Current.IsAltPressed = false;
+            Click(view.MeshViewport, point);
+            Assert.Equal(
+                expected[0].Handle,
+                Assert.Single(view.Canvas.SelectedHandles.ToArray()));
+
+            InputSystem.Current.IsAltPressed = true;
+            InputSystem.Current.IsControlPressed = true;
+            Click(view.MeshViewport, point);
+            Assert.Empty(view.Canvas.SelectedHandles.ToArray());
+            Click(view.MeshViewport, point);
+            Assert.Equal(
+                expected[1].Handle,
+                Assert.Single(view.Canvas.SelectedHandles.ToArray()));
+        }
+        finally
+        {
+            InputSystem.Current.IsAltPressed = priorAlt;
+            InputSystem.Current.IsControlPressed = priorControl;
+            view.Canvas.FireUnloaded();
+        }
+    }
+
     private static CadRecordedMesh3DScene CompileScene(CadDocument document) =>
         new CadMesh3DSceneCompiler().Compile(
             new CadSnapshotCompiler().Compile(new CadDocumentSession(document)));
@@ -392,6 +541,21 @@ public sealed class CadMesh3DSelectionTests
                     first + stride,
                 ]);
             }
+        }
+        return mesh;
+    }
+
+    private static Mesh CreateStackedMesh(params double[] elevations)
+    {
+        var mesh = new Mesh();
+        foreach (double elevation in elevations)
+        {
+            int first = mesh.Vertices.Count;
+            mesh.Vertices.Add(new XYZ(-2.0, -2.0, elevation));
+            mesh.Vertices.Add(new XYZ(2.0, -2.0, elevation));
+            mesh.Vertices.Add(new XYZ(2.0, 2.0, elevation));
+            mesh.Vertices.Add(new XYZ(-2.0, 2.0, elevation));
+            mesh.Faces.Add([first, first + 1, first + 2, first + 3]);
         }
         return mesh;
     }

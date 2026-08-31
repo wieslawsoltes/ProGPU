@@ -495,12 +495,16 @@ namespace Microsoft.UI.Xaml.Controls
 
         public bool IsControlPressed { get; }
 
+        public bool IsAltPressed { get; }
+
         internal Viewport3DClickEventArgs(
             Vector2 position,
-            bool isControlPressed)
+            bool isControlPressed,
+            bool isAltPressed)
         {
             Position = position;
             IsControlPressed = isControlPressed;
+            IsAltPressed = isAltPressed;
         }
     }
 
@@ -1361,7 +1365,8 @@ namespace Microsoft.UI.Xaml.Controls
                         this,
                         new Viewport3DClickEventArgs(
                             e.Position,
-                            InputSystem.Current.IsControlPressed));
+                            InputSystem.Current.IsControlPressed,
+                            InputSystem.Current.IsAltPressed));
                 }
             }
             base.OnPointerReleased(e);

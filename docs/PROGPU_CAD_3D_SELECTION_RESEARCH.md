@@ -6,9 +6,10 @@ This checkpoint adds whole-entity click selection for the retained Flat
 Mesh3D view. It unprojects one logical viewport position through the exact
 camera matrices already submitted by the managed and native adapters, finds
 the nearest visible retained triangle, and returns its ACadSharp semantic root
-handle. It does not add face/edge/vertex subobject editing, selection cycling,
-marquee/frustum selection, hidden-line selection, or ACIS payload
-tessellation.
+handle. A caller-buffered companion query returns bounded nearest-first unique
+semantic roots, and repeated Alt-clicks cycle that depth order. It does not add
+face/edge/vertex subobject editing, marquee/frustum selection, hidden-line
+selection, or ACIS payload tessellation.
 
 The implementation is original ProGPU code. No third-party implementation
 text, type layout, naming, control flow, lookup-table encoding, or source
@@ -29,9 +30,9 @@ organization was copied. Approved in-repository behavioral provenance is:
   establishes click selection, selection sets, and Window/Crossing behavior.
   Autodesk's [3D subobject selection and cycling contract](https://help.autodesk.com/cloudhelp/2026/ENU/AutoCAD-Core/files/GUID-89EFC58E-D14E-4B62-87D3-A6E26146D85E.htm)
   establishes that the foreground face is detected first and hidden
-  alternatives require an explicit cycling workflow. ProGPU therefore returns
-  the nearest whole semantic entity in this slice and records cycling and
-  subobjects as separate gates.
+  alternatives require an explicit cycling workflow. ProGPU therefore keeps
+  ordinary click on the nearest whole semantic entity and uses explicit
+  Alt-click cycling without conflating hidden alternatives with subobjects.
 - The [WebGPU coordinate-system specification](https://gpuweb.github.io/gpuweb/#coordinate-systems)
   defines top-left framebuffer coordinates, X right, Y down, NDC X/Y in
   `[-1, 1]`, and NDC depth in `[0, 1]`. The picker uses those exact endpoints
@@ -96,6 +97,15 @@ typed miss. Invalid matrices, dimensions, generations, indices, or finite
 contracts fail before traversal rather than silently selecting approximate
 geometry.
 
+`QueryHits` accepts caller-owned storage for one through 256 results, traverses
+the complete clipped ray, keeps the nearest triangle for each semantic root,
+and insertion-sorts the bounded nearest set by distance/batch/triangle. It
+reports exact triangle intersections and traversal work plus explicit
+truncation when more unique roots exist than fit. For destination capacity `K`,
+the added semantic collection work is `O(H*K)` worst case and `O(K)` storage;
+`K` is contractually bounded at 256. The nearest-only API retains its separate
+pruning fast path and unchanged `O(log T + H)` typical contract.
+
 ## Managed/native and interaction applicability
 
 The managed and native renderers consume the same `CadRecordedMesh3DScene`,
@@ -114,6 +124,12 @@ use one dynamic `SystemAccentColor` theme brush while retaining their authored
 geometry and restoring their authored material on deselection. Selection-only
 material invalidation may rebuild bounded viewport records, but it never
 recompiles the ACadSharp snapshot or Mesh3D topology.
+Alt-click queries up to 64 nearest unique roots and advances when generation,
+camera, and the four-logical-pixel click neighborhood are unchanged; a normal
+click, camera change, generation replacement, or displaced click restarts at
+the foreground root. Ctrl remains orthogonal and toggles the cycled root in the
+shared selection set. A truncated cycle is surfaced in status rather than
+silently claiming to enumerate every hidden root.
 
 ## Verification and remaining gates
 
@@ -124,9 +140,9 @@ queries, coordinator replacement, click-versus-drag interaction, selection
 clearing, semantic handle continuity, theme-dynamic highlighting, and retained
 camera/upload counters. The SHA-identified Release 256-by-256 grid lane contains
 131,072 triangles. Its 2,359,256-byte, depth-15 index built at
-23.2322/41.6313/41.6313 ms p50/p95/p99. Across 65,536 exact queries it visited
+17.6542/53.7173/53.7173 ms p50/p95/p99. Across 65,536 exact queries it visited
 15 nodes, tested eight triangles, used zero managed bytes, and measured
-1.5/9.1/19.4 microseconds p50/p95/p99. The checked-in JSON is
+2.5/9.3/19.0 microseconds p50/p95/p99. The checked-in JSON is
 `artifacts/benchmarks/cad-3d-selection-grid-256.json`.
 There is no matched pre-change selection latency because the prior Flat 3D
 viewer had no projected query path; these figures are an acceptance baseline,
@@ -142,9 +158,22 @@ query neither initializes WebGPU nor retains GPU state. Raw traces were removed
 after compact exports; the manifest, notes, tables, and summary remain under
 `artifacts/benchmarks/cad-3d-selection-instruments/`.
 
+The final eight-layer cycling lane contains 262,144 triangles and eight unique
+roots along each ray. Across 65,536 queries, bounded semantic collection
+visited about 91 nodes, tested 64 triangles, returned all eight roots, allocated
+zero managed bytes, and measured 8.0/16.5/27.1 microseconds p50/p95/p99. Its
+SHA-identified JSON is `artifacts/benchmarks/cad-3d-selection-depth-8.json`.
+Final-binary Allocations and Time Profiler captures use the same eight-layer
+fixture; Metal uses the same CPU algorithm and binaries at smaller grid scale
+to avoid an Xcode empty-trace finalization defect. Allocations report
+20,759,088 persistent heap-plus-anonymous-VM bytes and 70,010,656 total bytes
+for startup, fixtures, builds, and both query families; Metal again reports no
+target resource, submission, wait, spill, hang, or error. Compact evidence is
+in the three `cad-3d-selection-cycling-*-natural/` directories.
+
 Still required for full 3D selection fidelity are configurable pick aperture,
-Window/Crossing frustum selection, transparent/hidden-line policy, selection
-cycling, face/edge/vertex subobjects, ACIS analytic topology, material/texture
-alpha semantics, arbitrary non-Mesh3D projected entity selection, matched
+Window/Crossing frustum selection, transparent/hidden-line policy,
+face/edge/vertex subobjects, ACIS analytic topology, material/texture alpha
+semantics, arbitrary non-Mesh3D projected entity selection, matched
 managed/native rendered highlight images, browser interaction/performance
 smoke, and licensed AutoCAD differentials.

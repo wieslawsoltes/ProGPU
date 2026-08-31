@@ -17,6 +17,9 @@ namespace ProGPU.CAD.Sample;
 /// <summary>Shared desktop/browser CAD shell with real stream open and save workflows.</summary>
 public sealed class CadSampleView : Grid
 {
+    private const int MeshSelectionCycleCapacity = 64;
+    private const float MeshSelectionCyclePointTolerance = 4.0f;
+
     private readonly CadDocumentStore _store = new();
     private readonly CadSampleCanvas _canvas;
     private readonly Grid _contentHost;
@@ -25,8 +28,14 @@ public sealed class CadSampleView : Grid
     private readonly Brush _meshSelectionBrush =
         new ThemeResourceBrush("SystemAccentColor");
     private readonly List<MeshMaterialBinding> _meshMaterialBindings = new();
+    private readonly CadMesh3DSelectionResult[] _meshSelectionHits =
+        new CadMesh3DSelectionResult[MeshSelectionCycleCapacity];
     private PerspectiveCamera? _observedMeshCamera;
     private CadMesh3DSelectionResult? _lastMeshSelection;
+    private CadMesh3DViewport? _meshSelectionCycleViewport;
+    private System.Numerics.Vector2 _meshSelectionCyclePoint;
+    private ulong _meshSelectionCycleGeneration;
+    private int _meshSelectionCycleIndex = -1;
     private readonly CadPrintPreviewCanvas _printPreview;
     private readonly Button _viewModeButton;
     private readonly TextBlock _viewModeText;
@@ -4333,6 +4342,7 @@ public sealed class CadSampleView : Grid
         _viewport3D.Children.Clear();
         _meshMaterialBindings.Clear();
         _lastMeshSelection = null;
+        ResetMeshSelectionCycle();
         CadDocumentSnapshot? snapshot = _canvas.CurrentSnapshot;
         if (snapshot is null)
         {
@@ -4410,9 +4420,57 @@ public sealed class CadSampleView : Grid
             return;
         }
 
-        CadMesh3DSelectionResult result = _mesh3DView.QuerySelection(
-            _viewport3D.Size,
-            args.Position);
+        CadMesh3DSelectionHitQueryResult cycleQuery = default;
+        CadMesh3DSelectionResult result;
+        if (args.IsAltPressed)
+        {
+            CadMesh3DViewport viewport = _mesh3DView.Viewport!.Value;
+            cycleQuery = _mesh3DView.QuerySelectionHits(
+                _viewport3D.Size,
+                args.Position,
+                _meshSelectionHits);
+            bool continueCycle =
+                cycleQuery.HitCount > 0 &&
+                _meshSelectionCycleGeneration == cycleQuery.ContentGeneration &&
+                _meshSelectionCycleViewport == viewport &&
+                System.Numerics.Vector2.DistanceSquared(
+                    _meshSelectionCyclePoint,
+                    args.Position) <=
+                MeshSelectionCyclePointTolerance *
+                MeshSelectionCyclePointTolerance;
+            _meshSelectionCycleIndex = cycleQuery.HitCount == 0
+                ? -1
+                : continueCycle
+                    ? (_meshSelectionCycleIndex + 1) % cycleQuery.HitCount
+                    : 0;
+            _meshSelectionCycleGeneration = cycleQuery.ContentGeneration;
+            _meshSelectionCycleViewport = viewport;
+            if (!continueCycle)
+            {
+                _meshSelectionCyclePoint = args.Position;
+            }
+            result = _meshSelectionCycleIndex < 0
+                ? new CadMesh3DSelectionResult(
+                    false,
+                    cycleQuery.ContentGeneration,
+                    0,
+                    -1,
+                    -1,
+                    default,
+                    double.PositiveInfinity,
+                    default,
+                    false,
+                    cycleQuery.VisitedNodeCount,
+                    cycleQuery.TestedTriangleCount)
+                : _meshSelectionHits[_meshSelectionCycleIndex];
+        }
+        else
+        {
+            ResetMeshSelectionCycle();
+            result = _mesh3DView.QuerySelection(
+                _viewport3D.Size,
+                args.Position);
+        }
         _lastMeshSelection = result;
         if (result.IsHit)
         {
@@ -4424,7 +4482,12 @@ public sealed class CadSampleView : Grid
                     "The retained Mesh3D hit does not identify the active CAD generation.");
             }
             SetStatus(
-                $"3D selected {result.Handle:X} at " +
+                $"3D selected {result.Handle:X}" +
+                (args.IsAltPressed
+                    ? $" (depth {_meshSelectionCycleIndex + 1}/{cycleQuery.HitCount}" +
+                      (cycleQuery.WasTruncated ? "+" : string.Empty) + ")"
+                    : string.Empty) +
+                " at " +
                 $"({result.Point.X:G8}, {result.Point.Y:G8}, {result.Point.Z:G8}); " +
                 $"tested {result.TestedTriangleCount:N0} triangles in " +
                 $"{result.VisitedNodeCount:N0} BVH nodes.");
@@ -4434,6 +4497,14 @@ public sealed class CadSampleView : Grid
             _canvas.ClearSelection();
             SetStatus("3D selection cleared.");
         }
+    }
+
+    private void ResetMeshSelectionCycle()
+    {
+        _meshSelectionCycleViewport = null;
+        _meshSelectionCyclePoint = default;
+        _meshSelectionCycleGeneration = 0;
+        _meshSelectionCycleIndex = -1;
     }
 
     private void RefreshMeshSelectionMaterials(bool invalidate = true)

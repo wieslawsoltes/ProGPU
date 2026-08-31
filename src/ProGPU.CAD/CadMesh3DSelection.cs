@@ -54,6 +54,15 @@ public readonly record struct CadMesh3DSelectionResult(
             testedTriangleCount);
 }
 
+/// <summary>Bounded semantic-hit collection and traversal counters.</summary>
+public readonly record struct CadMesh3DSelectionHitQueryResult(
+    ulong ContentGeneration,
+    int HitCount,
+    bool WasTruncated,
+    int IntersectedTriangleCount,
+    int VisitedNodeCount,
+    int TestedTriangleCount);
+
 /// <summary>
 /// Immutable device-independent triangle accelerator for one retained Mesh3D
 /// generation.
@@ -66,6 +75,8 @@ public readonly record struct CadMesh3DSelectionResult(
 /// </remarks>
 public sealed class CadMesh3DSelectionIndex
 {
+    public const int MaximumHitCount = 256;
+
     private const int MortonBitsPerAxis = 10;
     private const int QueryStackCapacity = 64;
     private const double ParallelTolerance = 1e-14;
@@ -451,6 +462,320 @@ public sealed class CadMesh3DSelectionIndex
             bestFrontFace,
             visitedNodes,
             testedTriangles);
+    }
+
+    /// <summary>
+    /// Returns nearest-first unique semantic roots below one logical viewport
+    /// point into caller-owned bounded storage.
+    /// </summary>
+    public CadMesh3DSelectionHitQueryResult QueryHits(
+        in CadMesh3DViewport viewport,
+        Vector2 viewportSize,
+        Vector2 viewportPoint,
+        Span<CadMesh3DSelectionResult> destination)
+    {
+        if (destination.IsEmpty || destination.Length > MaximumHitCount)
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(destination),
+                $"The 3D semantic-hit destination must contain between 1 and {MaximumHitCount} entries.");
+        }
+        return QueryCore(
+            viewport,
+            viewportSize,
+            viewportPoint,
+            destination);
+    }
+
+    private CadMesh3DSelectionHitQueryResult QueryCore(
+        in CadMesh3DViewport viewport,
+        Vector2 viewportSize,
+        Vector2 viewportPoint,
+        Span<CadMesh3DSelectionResult> destination)
+    {
+        if (viewport.RebaseOrigin != RebaseOrigin)
+        {
+            throw new ArgumentException(
+                "The 3D selection viewport does not match the indexed scene rebase origin.",
+                nameof(viewport));
+        }
+        if (!IsFinite(viewportSize) ||
+            viewportSize.X <= 0.0f || viewportSize.Y <= 0.0f)
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(viewportSize),
+                "The 3D selection viewport size must be finite and positive.");
+        }
+        if (!IsFinite(viewportPoint))
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(viewportPoint),
+                "The 3D selection point must be finite.");
+        }
+        if (_nodes.Length == 0 ||
+            viewportPoint.X < 0.0f || viewportPoint.X > viewportSize.X ||
+            viewportPoint.Y < 0.0f || viewportPoint.Y > viewportSize.Y)
+        {
+            return new CadMesh3DSelectionHitQueryResult(
+                ContentGeneration,
+                0,
+                false,
+                0,
+                0,
+                0);
+        }
+
+        CadMesh3DProjectionCamera camera = viewport.CreateProjectionCamera();
+        Matrix4x4 viewProjection = camera.CreateViewMatrix() *
+            camera.CreateProjectionMatrix(viewportSize.X / viewportSize.Y);
+        if (!Matrix4x4.Invert(viewProjection, out Matrix4x4 inverse))
+        {
+            throw new InvalidOperationException(
+                "The retained Mesh3D view-projection matrix is not invertible.");
+        }
+
+        float ndcX = viewportPoint.X / viewportSize.X * 2.0f - 1.0f;
+        float ndcY = 1.0f - viewportPoint.Y / viewportSize.Y * 2.0f;
+        CadPoint3D nearPoint = Unproject(inverse, ndcX, ndcY, 0.0f);
+        CadPoint3D farPoint = Unproject(inverse, ndcX, ndcY, 1.0f);
+        CadPoint3D segment = farPoint - nearPoint;
+        double maximumDistance = segment.Length;
+        if (!double.IsFinite(maximumDistance) || maximumDistance <= 0.0)
+        {
+            throw new InvalidOperationException(
+                "The retained Mesh3D selection ray is not finite and non-degenerate.");
+        }
+        CadPoint3D direction = segment * (1.0 / maximumDistance);
+
+        Span<int> stack = stackalloc int[QueryStackCapacity];
+        int stackCount = 0;
+        if (!IntersectsBounds(
+                _nodes[0],
+                nearPoint,
+                direction,
+                maximumDistance,
+                out _))
+        {
+            return new CadMesh3DSelectionHitQueryResult(
+                ContentGeneration,
+                0,
+                false,
+                0,
+                0,
+                0);
+        }
+        stack[stackCount++] = 0;
+
+        int hitCount = 0;
+        bool wasTruncated = false;
+        int intersectedTriangles = 0;
+        int visitedNodes = 0;
+        int testedTriangles = 0;
+
+        while (stackCount > 0)
+        {
+            int nodeIndex = stack[--stackCount];
+            BvhNode node = _nodes[nodeIndex];
+            visitedNodes++;
+            if (node.Count > 0)
+            {
+                for (int offset = 0; offset < node.Count; offset++)
+                {
+                    TriangleReference reference =
+                        _triangles[node.Start + offset];
+                    testedTriangles++;
+                    if (!TryIntersectTriangle(
+                            reference,
+                            nearPoint,
+                            direction,
+                            maximumDistance,
+                            out double distance,
+                            out double u,
+                            out double v,
+                            out bool frontFace))
+                    {
+                        continue;
+                    }
+
+                    intersectedTriangles++;
+                    InsertSemanticHit(
+                        destination,
+                        ref hitCount,
+                        ref wasTruncated,
+                        CreateHitResult(
+                            camera,
+                            nearPoint,
+                            direction,
+                            reference,
+                            distance,
+                            u,
+                            v,
+                            frontFace,
+                            0,
+                            0));
+                }
+                continue;
+            }
+
+            bool hitLeft = IntersectsBounds(
+                _nodes[node.Left],
+                nearPoint,
+                direction,
+                maximumDistance,
+                out double leftDistance);
+            bool hitRight = IntersectsBounds(
+                _nodes[node.Right],
+                nearPoint,
+                direction,
+                maximumDistance,
+                out double rightDistance);
+            if (!hitLeft && !hitRight)
+            {
+                continue;
+            }
+            if (stackCount + (hitLeft && hitRight ? 2 : 1) > stack.Length)
+            {
+                throw new InvalidOperationException(
+                    "The balanced Mesh3D selection tree exceeds its traversal stack contract.");
+            }
+
+            if (hitLeft && hitRight)
+            {
+                if (leftDistance <= rightDistance)
+                {
+                    stack[stackCount++] = node.Right;
+                    stack[stackCount++] = node.Left;
+                }
+                else
+                {
+                    stack[stackCount++] = node.Left;
+                    stack[stackCount++] = node.Right;
+                }
+            }
+            else
+            {
+                stack[stackCount++] = hitLeft ? node.Left : node.Right;
+            }
+        }
+
+        for (int index = 0; index < hitCount; index++)
+        {
+            destination[index] = destination[index] with
+            {
+                VisitedNodeCount = visitedNodes,
+                TestedTriangleCount = testedTriangles,
+            };
+        }
+        return new CadMesh3DSelectionHitQueryResult(
+            ContentGeneration,
+            hitCount,
+            wasTruncated,
+            intersectedTriangles,
+            visitedNodes,
+            testedTriangles);
+    }
+
+    private CadMesh3DSelectionResult CreateHitResult(
+        in CadMesh3DProjectionCamera camera,
+        CadPoint3D nearPoint,
+        CadPoint3D direction,
+        TriangleReference reference,
+        double distance,
+        double u,
+        double v,
+        bool frontFace,
+        int visitedNodes,
+        int testedTriangles)
+    {
+        CadPoint3D localHit = nearPoint + direction * distance;
+        CadPoint3D cameraLocal = new(
+            camera.Position.X,
+            camera.Position.Y,
+            camera.Position.Z);
+        CadMesh3DDrawBatch batch =
+            _scene.DrawBatches.Span[reference.BatchIndex];
+        return new CadMesh3DSelectionResult(
+            true,
+            ContentGeneration,
+            batch.Handle,
+            reference.BatchIndex,
+            reference.TriangleIndex,
+            RebaseOrigin + localHit,
+            (localHit - cameraLocal).Length,
+            new Vector3(
+                (float)(1.0 - u - v),
+                (float)u,
+                (float)v),
+            frontFace,
+            visitedNodes,
+            testedTriangles);
+    }
+
+    private static void InsertSemanticHit(
+        Span<CadMesh3DSelectionResult> destination,
+        ref int count,
+        ref bool wasTruncated,
+        CadMesh3DSelectionResult candidate)
+    {
+        int existing = -1;
+        for (int index = 0; index < count; index++)
+        {
+            if (destination[index].Handle == candidate.Handle)
+            {
+                existing = index;
+                break;
+            }
+        }
+
+        if (existing >= 0)
+        {
+            if (CompareHits(candidate, destination[existing]) >= 0)
+            {
+                return;
+            }
+            for (int index = existing; index + 1 < count; index++)
+            {
+                destination[index] = destination[index + 1];
+            }
+            count--;
+        }
+        else if (count == destination.Length)
+        {
+            wasTruncated = true;
+            if (CompareHits(candidate, destination[count - 1]) >= 0)
+            {
+                return;
+            }
+            count--;
+        }
+
+        int insertion = count;
+        while (insertion > 0 &&
+               CompareHits(candidate, destination[insertion - 1]) < 0)
+        {
+            destination[insertion] = destination[insertion - 1];
+            insertion--;
+        }
+        destination[insertion] = candidate;
+        count++;
+    }
+
+    private static int CompareHits(
+        in CadMesh3DSelectionResult first,
+        in CadMesh3DSelectionResult second)
+    {
+        double tieWindow = TieTolerance * Math.Max(
+            1.0,
+            Math.Max(first.DistanceFromCamera, second.DistanceFromCamera));
+        double difference = first.DistanceFromCamera - second.DistanceFromCamera;
+        if (Math.Abs(difference) > tieWindow)
+        {
+            return difference < 0.0 ? -1 : 1;
+        }
+        int comparison = first.BatchIndex.CompareTo(second.BatchIndex);
+        return comparison != 0
+            ? comparison
+            : first.TriangleIndex.CompareTo(second.TriangleIndex);
     }
 
     private bool TryIntersectTriangle(

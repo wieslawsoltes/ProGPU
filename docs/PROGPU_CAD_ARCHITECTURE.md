@@ -1235,7 +1235,7 @@ CAD editor shell. They now share plan, Flat 3D, and retained print-preview modes
 with generation-safe layout/named-page-setup selection plus an explicit A4
 model-extents fallback and reversible creation/application of named page setups
 from Model; dedicated dockable property/layer panels, projected
-Window/Crossing, selection cycling and subobjects, broader editing tools,
+Window/Crossing and subobjects, broader editing tools,
 expanded device/media/margin/scale page-setup UI,
 printer/export adapters, and round-trip-certified output remain tracked
 application phases.
@@ -2275,6 +2275,16 @@ double-WCS hit, barycentrics, facing, and work counters. The shared shell uses
 non-Shift stationary left clicks, Ctrl toggling, and a dynamic
 `SystemAccentColor` material; material-only invalidation retains geometry-cache
 identity and records zero geometry upload.
+
+The nearest-only query keeps aggressive closest-distance branch pruning.
+`QueryHits` separately traverses the complete clipped ray into one-through-256
+caller-owned result slots, retains the nearest triangle per semantic root,
+sorts by distance/batch/triangle, reports truncation, and remains zero managed
+allocation. Collection adds bounded `O(H*K)` worst-case work and `O(K)` caller
+storage for `H` intersected triangles and capacity `K`. The shared shell uses a
+reused 64-result buffer; repeated Alt-clicks cycle only while generation,
+camera, and four-logical-pixel neighborhood remain stable, while Ctrl
+independently toggles the cycled root in the common selection set.
 
 The CPU index consumes the same immutable triangles, handle, rebase, and camera
 state as both render adapters and adds no shader, C record, generated wire
