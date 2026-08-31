@@ -87,7 +87,7 @@ member suppression, leaving zero missing types, zero missing members, and 13
     allocation, and supports the state, solid/null pen/brush, polygon, polyline,
     and counterclockwise arc records used by the canonical LibreWinForms
     `telescope_01.wmf` asset, plus filled/stroked rectangles and ellipses and
-    rounded rectangles, pies, chords, current-position lines, and explicit-color
+    rounded rectangles, pies, chords, poly-polygons, current-position lines, and explicit-color
     device pixels, plus intersect/exclude rectangle clip
     state. WMF SaveDC and relative RestoreDC
     snapshot window/viewport origins and extents, current point, world
@@ -219,7 +219,7 @@ measured a 561.572 µs median (599.013 µs mean, 103.320 µs standard deviation)
 with 628.33 KB allocated. Three iterations make this coarse state-lowering
 evidence; independent inside, excluded-hole, restored-clip, intersection-edge,
 invalid-relative-level, and transactional-rollback gates remain authoritative.
-The complete drawing suite passes 402/402, and ApiCompat remains at zero
+The complete drawing suite passes 405/405, and ApiCompat remains at zero
 missing types, zero missing members, and 13 reviewed platform annotations.
 
 `MetafileBenchmarks.Playback256WmfEllipsesToRetainedCommands` guards typed WMF ellipse playback through the selected fill and outline objects. The 2026-08-31 ARM64/.NET 10.0.11 in-process ShortRun measured a 1.060 ms median (1.109 ms mean, 0.115 ms standard deviation) with 622.14 KB allocated for 256 ellipses. The three-iteration result is coarse retained-command evidence; exact pixels and rollback after a later unsupported text record remain the independent correctness gates.
@@ -255,6 +255,16 @@ KB allocated. Three iterations make the line result high-variance coarse
 evidence and the pixel result a local checkpoint. Exact scaled pixels,
 SaveDC/RestoreDC current-point behavior, and rollback after both supported
 records remain the correctness gates.
+
+`MetafileBenchmarks.Playback256WmfPolyPolygonsToRetainedCommands` guards the
+unsigned WMF polygon-count arrays and selected fill/outline lowering for two
+closed figures per record. The 2026-08-31 ARM64/.NET 10.0.11 in-process ShortRun
+measured a 2.405 ms median (2.542 ms mean, 0.463 ms standard deviation) with
+1.85 MB allocated for 256 records and 512 polygons. Three iterations make this
+coarse evidence and expose array/path allocation as an optimization target.
+Exact disjoint pixels, unchanged current-position behavior, invalid count
+rejection, and rollback after a later unsupported record remain the correctness
+gates.
 
 `MetafileBenchmarks.RecordAndFinalize256PortableComments` measures construction,
 256 owned 64-byte comment copies, bounded EMF+ encoding, validation through the

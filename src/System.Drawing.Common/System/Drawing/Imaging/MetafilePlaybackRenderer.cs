@@ -169,6 +169,10 @@ internal static class MetafilePlaybackRenderer
                 DrawWmfPolygon(state, record, payload, close: false);
                 return;
 
+            case EmfPlusRecordType.WmfPolyPolygon:
+                DrawWmfPolyPolygon(state, record, payload);
+                return;
+
             case EmfPlusRecordType.WmfArc:
                 DrawWmfArcFamily(state, record, payload, WmfArcClosure.Open);
                 return;
@@ -645,6 +649,98 @@ internal static class MetafilePlaybackRenderer
             else
             {
                 state.Graphics.DrawLines(pen, points);
+            }
+        }
+    }
+
+    private static void DrawWmfPolyPolygon(
+        PlaybackState state,
+        in MetafileRecord record,
+        ReadOnlySpan<byte> payload)
+    {
+        if (payload.Length < 2)
+        {
+            throw Invalid(record);
+        }
+
+        int polygonCount = ReadUInt16(payload, 0);
+        if (polygonCount == 0)
+        {
+            throw Invalid(record);
+        }
+
+        int pointsOffset;
+        try
+        {
+            pointsOffset = checked(2 + polygonCount * 2);
+        }
+        catch (OverflowException exception)
+        {
+            throw Invalid(record, exception);
+        }
+        if (payload.Length < pointsOffset)
+        {
+            throw Invalid(record);
+        }
+
+        int pointCount = 0;
+        for (int polygonIndex = 0; polygonIndex < polygonCount; polygonIndex++)
+        {
+            int currentCount = ReadUInt16(payload, 2 + polygonIndex * 2);
+            if (currentCount < 2)
+            {
+                throw Invalid(record);
+            }
+
+            try
+            {
+                pointCount = checked(pointCount + currentCount);
+            }
+            catch (OverflowException exception)
+            {
+                throw Invalid(record, exception);
+            }
+        }
+
+        int expectedSize;
+        try
+        {
+            expectedSize = checked(pointsOffset + pointCount * 4);
+        }
+        catch (OverflowException exception)
+        {
+            throw Invalid(record, exception);
+        }
+        RequireSize(record, payload, expectedSize);
+
+        state.ApplyTransform(record);
+        int cursor = pointsOffset;
+        for (int polygonIndex = 0; polygonIndex < polygonCount; polygonIndex++)
+        {
+            int currentCount = ReadUInt16(payload, 2 + polygonIndex * 2);
+            var points = new Point[currentCount];
+            for (int pointIndex = 0; pointIndex < currentCount; pointIndex++)
+            {
+                points[pointIndex] = new Point(
+                    ReadInt16(payload, cursor),
+                    ReadInt16(payload, cursor + 2));
+                cursor += 4;
+            }
+
+            if (currentCount >= 3 && state.SelectedBrush is Brush brush)
+            {
+                state.Graphics.FillPolygon(brush, points, state.FillMode);
+            }
+            if (state.SelectedPen is Pen pen)
+            {
+                if (currentCount >= 3)
+                {
+                    state.Graphics.DrawPolygon(pen, points);
+                }
+                else
+                {
+                    state.Graphics.DrawLines(pen, points);
+                }
             }
         }
     }

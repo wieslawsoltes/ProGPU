@@ -494,6 +494,70 @@ public sealed class MetafileParserTests
     }
 
     [Fact]
+    public void WmfPolyPolygonDrawsEachClosedPolygonWithoutUpdatingCurrentPoint()
+    {
+        using var metafile = new Metafile(new MemoryStream(CreatePolyPolygonPlaybackWmf()));
+        using var target = new Bitmap(64, 64);
+        using (Graphics graphics = Graphics.FromImage(target))
+        {
+            graphics.Clear(Color.Transparent);
+            graphics.DrawImage(metafile, new Rectangle(0, 0, 64, 64));
+        }
+
+        Assert.Equal(Color.Green.ToArgb(), target.GetPixel(16, 16).ToArgb());
+        Assert.Equal(Color.Green.ToArgb(), target.GetPixel(48, 16).ToArgb());
+        Assert.Equal(0, target.GetPixel(32, 16).A);
+        Color preservedCurrentPointPixel = target.GetPixel(10, 60);
+        Assert.True(preservedCurrentPointPixel.A > 0);
+        Assert.Equal((0, 0, 0),
+            (preservedCurrentPointPixel.R, preservedCurrentPointPixel.G, preservedCurrentPointPixel.B));
+    }
+
+    [Fact]
+    public void WmfPolyPolygonRejectsInvalidPerPolygonCountWithoutPublishingCommands()
+    {
+        byte[] bytes = CreatePolyPolygonPlaybackWmf();
+        int polyPolygonDataOffset;
+        using (var parsed = new Metafile(new MemoryStream(bytes, writable: false)))
+        {
+            polyPolygonDataOffset = Assert.Single(
+                parsed.Records.ToArray(),
+                record => record.Type == EmfPlusRecordType.WmfPolyPolygon).DataOffset;
+        }
+        WriteUInt16(bytes, polyPolygonDataOffset + 2, 1);
+
+        using var metafile = new Metafile(new MemoryStream(bytes, writable: false));
+        using var target = new Bitmap(64, 64);
+        using (Graphics graphics = Graphics.FromImage(target))
+        {
+            graphics.Clear(Color.Blue);
+            ArgumentException exception = Assert.Throws<ArgumentException>(() =>
+                graphics.DrawImage(metafile, new Rectangle(0, 0, 64, 64)));
+            Assert.Contains(nameof(EmfPlusRecordType.WmfPolyPolygon), exception.Message, StringComparison.Ordinal);
+        }
+
+        Assert.Equal(Color.Blue.ToArgb(), target.GetPixel(16, 16).ToArgb());
+    }
+
+    [Fact]
+    public void WmfUnsupportedRecordAfterPolyPolygonRollsBackAllPolygons()
+    {
+        using var metafile = new Metafile(new MemoryStream(
+            CreatePolyPolygonPlaybackWmf(includeUnsupportedRecord: true)));
+        using var target = new Bitmap(64, 64);
+        using (Graphics graphics = Graphics.FromImage(target))
+        {
+            graphics.Clear(Color.Blue);
+            NotSupportedException exception = Assert.Throws<NotSupportedException>(() =>
+                graphics.DrawImage(metafile, new Rectangle(0, 0, 64, 64)));
+            Assert.Contains(nameof(EmfPlusRecordType.WmfTextOut), exception.Message, StringComparison.Ordinal);
+        }
+
+        Assert.Equal(Color.Blue.ToArgb(), target.GetPixel(16, 16).ToArgb());
+        Assert.Equal(Color.Blue.ToArgb(), target.GetPixel(48, 16).ToArgb());
+    }
+
+    [Fact]
     public void WmfEllipseRejectsUnorderedBoundsWithoutPublishingCommands()
     {
         byte[] bytes = CreatePlaybackWmf();
@@ -969,6 +1033,30 @@ public sealed class MetafileParserTests
         return CreatePlaybackWmf(records);
     }
 
+    private static byte[] CreatePolyPolygonPlaybackWmf(bool includeUnsupportedRecord = false)
+    {
+        var records = new List<(ushort Function, byte[] Payload)>
+        {
+            (0x020C, WmfWords(64, 64)),
+            (0x020B, WmfWords(0, 0)),
+            (0x02FC, WmfBrush(Color.Green)),
+            (0x02FA, WmfPen(Color.Black, 1)),
+            (0x012D, WmfWords(0)),
+            (0x012D, WmfWords(1)),
+            (0x0214, WmfWords(60, 2)),
+            (0x0538, WmfPolyPolygon(
+                [new Point(8, 8), new Point(24, 8), new Point(24, 24), new Point(8, 24)],
+                [new Point(40, 8), new Point(56, 8), new Point(56, 24), new Point(40, 24)])),
+            (0x0213, WmfWords(60, 20))
+        };
+        if (includeUnsupportedRecord)
+        {
+            records.Add((0x0521, WmfWords(0)));
+        }
+        records.Add((0, []));
+        return CreatePlaybackWmf(records);
+    }
+
     private static byte[] CreatePlaybackWmf(List<(ushort Function, byte[] Payload)> records)
     {
         int maximumRecordWords = records.Max(record => (record.Payload.Length + 6) / 2);
@@ -1029,6 +1117,29 @@ public sealed class MetafileParserTests
         WmfColor(color).CopyTo(bytes, 0);
         WriteInt16(bytes, 4, checked((short)point.Y));
         WriteInt16(bytes, 6, checked((short)point.X));
+        return bytes;
+    }
+
+    private static byte[] WmfPolyPolygon(params Point[][] polygons)
+    {
+        int pointCount = polygons.Sum(polygon => polygon.Length);
+        byte[] bytes = new byte[checked(2 + polygons.Length * 2 + pointCount * 4)];
+        WriteUInt16(bytes, 0, checked((ushort)polygons.Length));
+        int cursor = 2;
+        foreach (Point[] polygon in polygons)
+        {
+            WriteUInt16(bytes, cursor, checked((ushort)polygon.Length));
+            cursor += 2;
+        }
+        foreach (Point[] polygon in polygons)
+        {
+            foreach (Point point in polygon)
+            {
+                WriteInt16(bytes, cursor, checked((short)point.X));
+                WriteInt16(bytes, cursor + 2, checked((short)point.Y));
+                cursor += 4;
+            }
+        }
         return bytes;
     }
 
