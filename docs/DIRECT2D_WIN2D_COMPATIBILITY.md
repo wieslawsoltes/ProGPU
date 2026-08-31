@@ -998,7 +998,47 @@ SHA-256 is
 `12467CF6BE48235928B396A76AD5AE0AAD15CAA3E1949AB8A4E9BA4323EB744A`.
 The same implementation replaces anonymous-union aggregate initialization
 with explicit `D2D1_MATRIX_3X2_F` field assignments after ClangCL exposed the
-ABI v35 portability warning. Clean-checkout ABI v36 qualification is pending.
+ABI v35 portability warning. Clean-checkout Build run `33345291817`, Windows
+x64 job `99348168246`, compiled the provider and focused test under ClangCL
+`/W4 /WX` and passed all 12 native CTests; the Direct2D test passed in 0.17
+seconds. The job became red only later when a managed renderer sample lost the
+Microsoft Basic Render Driver while mapping an unrelated WebGPU readback
+buffer. Dedicated clean MSVC compatibility job `99348168261` also passed.
+
+ABI v37 at implementation `163fa686` adds genuine `ID2D1CommandSink::DrawGeometry`
+translation. The command-list sink validates the typed geometry, brush, finite
+nonnegative stroke width, antialias mode, and then asks `ID2D1Geometry::Widen`
+for Direct2D's exact filled stroke outline. The active draw transform and the
+original `ID2D1StrokeStyle` are supplied to `Widen`, so caps, line joins, miter
+limits, dash pattern/offset, and `ID2D1StrokeStyle1` normal, fixed, or hairline
+transform behavior are resolved by the platform implementation rather than
+reimplemented approximately. `GetWidenedBounds` supplies the target-space
+command bounds.
+
+The widened contour is retained as the same bounded pointer-free ProGPU path
+resource used by filled geometry, with an identity path transform because
+Direct2D has already applied the draw transform during widening. Brush mapping
+continues to use the active draw transform, preserving target-relative solid
+and gradient semantics. Playback therefore stays in ProGPU's shared GPU path
+rasterizer on D3D12, Metal, Vulkan, and WebGPU. No COM object survives stream
+translation and no CPU pixel raster, readback, or repacking path is added.
+Aliased path edges, invalid widths/resources, unsupported widening results,
+and the existing segment cap fail closed with typed diagnostics.
+
+The native oracle records one transformed winding line/cubic geometry twice:
+first filled, then stroked with round/triangle/square caps, bevel join, custom
+dashes, and fixed stroke-transform mode. A second genuine Direct2D path
+geometry receives the same `Widen` call as the independent topology oracle.
+The test requires the translated stroke segment count to match that reference,
+decodes the retained stroke with identity transform, and retains the original
+three-segment fill path with its nonidentity transform. Managed AOT contracts
+pass 5/5 and `ProGPU.Direct2D` builds with zero warnings. The final 95,520-byte
+incremental Windows payload has SHA-256
+`304477EB0796599D9015E7652DF15AEA53A61A79B69B93CFBD52101F7CA41974`.
+Windows 11 ARM64 Parallels with MSVC 19.44/SDK 10.0.26100.0 compiles provider
+and test under `/W4 /WX`; the focused CTest passes 1/1 in 40.29 seconds (78.46
+seconds total under concurrent guest load). No export is added; ABI v37 only
+extends the version and scene-result flag contract.
 
 `eng/build-progpu-native-windows.ps1` builds and runs
 the native test on runnable Windows x64/ARM64 agents, stages

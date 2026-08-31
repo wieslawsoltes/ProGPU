@@ -5438,7 +5438,38 @@ total). The export allowlist remains 123 and provider SHA-256 is
 `12467CF6BE48235928B396A76AD5AE0AAD15CAA3E1949AB8A4E9BA4323EB744A`.
 Explicit matrix field assignment also closes the ClangCL anonymous-union
 warning found by the ABI v35 clean runner. ABI v36 clean qualification is
-pending.
+complete for the Direct2D slice: clean Build run `33345291817`, Windows x64
+job `99348168246`, compiled both provider and test under ClangCL `/W4 /WX` and
+passed all 12 native CTests, including Direct2D in 0.17 seconds. Its later
+managed WebGPU readback lost the Microsoft Basic Render Driver, so the overall
+job is red for an unrelated post-native-test infrastructure failure. Clean
+MSVC compatibility job `99348168261` passed independently.
+
+ABI v37 implementation `163fa686` translates genuine Direct2D stroked geometry
+without introducing a second renderer. `ID2D1CommandSink::DrawGeometry`
+passes the finite nonnegative width, original `ID2D1StrokeStyle`, and active
+draw matrix to `ID2D1Geometry::Widen`. Direct2D therefore owns exact caps,
+joins, miter, dash, and `ID2D1StrokeStyle1` normal/fixed/hairline transform
+semantics. The typed simplified-geometry sink captures the resulting filled
+outline, `GetWidenedBounds` supplies target-space bounds, and the scene retains
+that outline as an identity-transformed pointer-free ProGPU path. Brush
+translation still observes the active draw transform, including gradient
+coordinate mapping.
+
+This is a one-time Direct2D geometry conversion followed by the existing
+cross-backend GPU path rasterizer; no CPU pixel rasterization, readback,
+repacking, or retained COM identity exists. Per-primitive edges use the shared
+eight-sample path lane. Aliased path edges, invalid typed input, unsupported
+widening, and segment-cap overflow fail closed. The Windows oracle compares
+the translated segment count with an independently widened genuine Direct2D
+path and decodes both the original transformed fill and identity-transformed
+custom dashed/beveled/capped stroke. Managed AOT contracts pass 5/5 and the
+package builds with zero warnings. The final 95,520-byte incremental payload
+SHA-256 is
+`304477EB0796599D9015E7652DF15AEA53A61A79B69B93CFBD52101F7CA41974`.
+Windows 11 ARM64 Parallels with MSVC 19.44/SDK 10.0.26100.0 compiles provider
+and test under `/W4 /WX`; focused CTest passes 1/1 in 40.29 seconds (78.46
+seconds total under concurrent guest load). No native export is added.
 
 ## Managed glyph row-reuse SIMD checkpoint
 
