@@ -51,6 +51,17 @@ void require(bool condition, const char* message)
 }
 
 template<typename T>
+T read_value(const std::vector<uint8_t>& bytes, size_t offset)
+{
+    require(
+        offset <= bytes.size() && sizeof(T) <= bytes.size() - offset,
+        "typed Direct2D scene read exceeded the stream");
+    T value{};
+    std::memcpy(&value, bytes.data() + offset, sizeof(value));
+    return value;
+}
+
+template<typename T>
 ComPtr<T> get_interface(
     progpu_native_direct2d_surface* surface,
     progpu_native_direct2d_interface_kind kind)
@@ -2816,6 +2827,141 @@ int main()
             translated_brush_mask.brush.coordinate_transform1[1] == 2.0F &&
             translated_brush_mask.brush.coordinate_transform1[2] == -16.0F,
         "Direct2D opacity-brush layer mask mapping changed");
+
+    void* composite_layer_list_value = nullptr;
+    native_hresult = E_FAIL;
+    require(
+        progpu_native_direct2d_surface_create_command_list(
+            surface,
+            &composite_layer_list_value,
+            &native_hresult) == PROGPU_NATIVE_DIRECT2D_STATUS_SUCCESS &&
+            composite_layer_list_value != nullptr && native_hresult == S_OK,
+        "composite-mask layer command-list creation failed");
+    ComPtr<ID2D1CommandList> composite_layer_list;
+    composite_layer_list.Attach(
+        static_cast<ID2D1CommandList*>(composite_layer_list_value));
+    require(
+        progpu_native_direct2d_surface_begin_command_list_draw(
+            surface,
+            composite_layer_list.Get()) ==
+            PROGPU_NATIVE_DIRECT2D_STATUS_SUCCESS,
+        "composite-mask layer command-list recording did not begin");
+    context->SetTransform(opacity_layer_transform);
+    D2D1_LAYER_PARAMETERS1 composite_layer_parameters =
+        opacity_layer_parameters;
+    composite_layer_parameters.opacityBrush = linear_brush.Get();
+    context->PushLayer(&composite_layer_parameters, nullptr);
+    context->FillRectangle(&opacity_layer_fill0, solid_brush.Get());
+    context->PopLayer();
+    command_tag1 = 0U;
+    command_tag2 = 0U;
+    native_hresult = E_FAIL;
+    require(
+        progpu_native_direct2d_surface_end_command_list_draw(
+            surface,
+            &command_tag1,
+            &command_tag2,
+            &native_hresult) == PROGPU_NATIVE_DIRECT2D_STATUS_SUCCESS &&
+            native_hresult == S_OK,
+        "composite-mask layer command-list recording did not close");
+    progpu_native_direct2d_scene_stream_result composite_layer_measure{};
+    composite_layer_measure.struct_size =
+        static_cast<uint32_t>(sizeof(composite_layer_measure));
+    native_hresult = S_OK;
+    require(
+        progpu_native_direct2d_command_list_build_scene_stream(
+            surface,
+            composite_layer_list.Get(),
+            7011U,
+            1U,
+            nullptr,
+            0U,
+            &composite_layer_measure,
+            &native_hresult) ==
+                PROGPU_NATIVE_DIRECT2D_STATUS_INSUFFICIENT_BUFFER &&
+            native_hresult == HRESULT_FROM_WIN32(ERROR_INSUFFICIENT_BUFFER) &&
+            (composite_layer_measure.flags &
+                PROGPU_NATIVE_DIRECT2D_SCENE_STREAM_FLAG_HAS_GEOMETRIC_LAYER_MASKS) !=
+                0U &&
+            (composite_layer_measure.flags &
+                PROGPU_NATIVE_DIRECT2D_SCENE_STREAM_FLAG_HAS_OPACITY_BRUSH_LAYER_MASKS) !=
+                0U &&
+            (composite_layer_measure.flags &
+                PROGPU_NATIVE_DIRECT2D_SCENE_STREAM_FLAG_HAS_COMPOSITE_LAYER_MASKS) !=
+                0U,
+        "Direct2D composite-mask layer size pass changed");
+    std::vector<uint8_t> composite_layer_stream(
+        static_cast<size_t>(composite_layer_measure.required_bytes));
+    progpu_native_direct2d_scene_stream_result composite_layer_write{};
+    composite_layer_write.struct_size =
+        static_cast<uint32_t>(sizeof(composite_layer_write));
+    native_hresult = E_FAIL;
+    require(
+        progpu_native_direct2d_command_list_build_scene_stream(
+            surface,
+            composite_layer_list.Get(),
+            7011U,
+            1U,
+            composite_layer_stream.data(),
+            composite_layer_stream.size(),
+            &composite_layer_write,
+            &native_hresult) == PROGPU_NATIVE_DIRECT2D_STATUS_SUCCESS &&
+            native_hresult == S_OK,
+        "Direct2D composite-mask layer write pass changed");
+    progpu_native_scene_header composite_layer_header{};
+    std::memcpy(
+        &composite_layer_header,
+        composite_layer_stream.data(),
+        sizeof(composite_layer_header));
+    const progpu_native_scene_command composite_push =
+        read_value<progpu_native_scene_command>(
+            composite_layer_stream,
+            composite_layer_header.command_offset);
+    const progpu_native_scene_layer composite_layer =
+        read_value<progpu_native_scene_layer>(
+            composite_layer_stream,
+            composite_push.payload_offset);
+    require(
+        composite_push.kind == PROGPU_NATIVE_SCENE_COMMAND_PUSH_LAYER &&
+            composite_layer.bounds.x == expected_opacity_layer_left &&
+            composite_layer.bounds.y == expected_opacity_layer_top &&
+            composite_layer.bounds.width == expected_opacity_layer_right -
+                expected_opacity_layer_left &&
+            composite_layer.bounds.height == expected_opacity_layer_bottom -
+                expected_opacity_layer_top &&
+            composite_layer.mask_resource_index <
+                composite_layer_header.resource_count,
+        "Direct2D composite-mask layer bounds/reference changed");
+    const progpu_native_scene_resource composite_mask_resource =
+        read_value<progpu_native_scene_resource>(
+            composite_layer_stream,
+            composite_layer_header.resource_offset +
+                static_cast<size_t>(composite_layer.mask_resource_index) *
+                    composite_layer_header.resource_stride);
+    const progpu_native_scene_layer_composite_mask composite_mask =
+        read_value<progpu_native_scene_layer_composite_mask>(
+            composite_layer_stream,
+            composite_mask_resource.payload_offset);
+    const size_t expected_composite_auxiliary_size =
+        sizeof(progpu_native_scene_layer_brush_mask) +
+        sizeof(progpu_native_scene_clip_path) +
+        3U * sizeof(progpu_native_path_segment) +
+        2U * sizeof(progpu_native_scene_gradient_stop);
+    require(
+        composite_mask_resource.kind ==
+                PROGPU_NATIVE_SCENE_RESOURCE_LAYER_MASK &&
+            composite_mask_resource.payload_size == sizeof(composite_mask) &&
+            composite_mask_resource.auxiliary_size ==
+                expected_composite_auxiliary_size &&
+            composite_mask.kind == PROGPU_NATIVE_SCENE_LAYER_MASK_COMPOSITE &&
+            composite_mask.component_count == 2U &&
+            composite_mask.brush_mask_count == 1U &&
+            composite_mask.path_count == 1U &&
+            composite_mask.segment_count == 3U &&
+            composite_mask.gradient_stop_count == 2U &&
+            composite_mask.geometry_mask_count == 0U &&
+            composite_mask.picture_mask_count == 0U,
+        "Direct2D composite geometric/brush mask layout changed");
 
     void* background_layer_list_value = nullptr;
     native_hresult = E_FAIL;

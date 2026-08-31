@@ -1477,10 +1477,6 @@ public:
         if (!full_target && !axis_preserving_transform(transform_)) {
             return fail_unsupported_state();
         }
-        if (parameters->geometricMask != nullptr &&
-            parameters->opacityBrush != nullptr) {
-            return fail_unsupported_state();
-        }
         if (full_target && parameters->opacityBrush != nullptr) {
             return fail_unsupported_state();
         }
@@ -1517,6 +1513,8 @@ public:
             const HRESULT mask_hr = add_geometric_layer_mask(
                 parameters->geometricMask,
                 parameters->maskTransform,
+                parameters->opacityBrush,
+                parameters->contentBounds,
                 mask_resource_index,
                 mask_bounds,
                 empty_mask);
@@ -1566,6 +1564,8 @@ public:
         has_opacity_layers_ = true;
         has_geometric_layer_masks_ |= parameters->geometricMask != nullptr;
         has_opacity_brush_layer_masks_ |=
+            parameters->opacityBrush != nullptr;
+        has_composite_layer_masks_ |= parameters->geometricMask != nullptr &&
             parameters->opacityBrush != nullptr;
         return S_OK;
     }
@@ -1668,6 +1668,11 @@ public:
     bool has_opacity_brush_layer_masks() const noexcept
     {
         return has_opacity_brush_layer_masks_;
+    }
+
+    bool has_composite_layer_masks() const noexcept
+    {
+        return has_composite_layer_masks_;
     }
 
     D2D1_COLOR_F clear_color() const noexcept
@@ -2333,6 +2338,8 @@ private:
     HRESULT add_geometric_layer_mask(
         ID2D1Geometry* geometry,
         const D2D1_MATRIX_3X2_F& mask_transform,
+        ID2D1Brush* opacity_brush,
+        const D2D1_RECT_F& content_bounds,
         uint32_t& resource_index,
         progpu_native_image_rect& target_bounds,
         bool& empty) noexcept
@@ -2407,12 +2414,50 @@ private:
             8U,
             PROGPU_NATIVE_CLIP_INTERSECT,
             0U};
-        if (!builder_.add_vector_clip_mask(
-                std::span<const progpu_native_scene_clip_path>(&path, 1U),
-                segments,
-                1.0F,
-                resource_index)) {
-            return fail_builder();
+        if (opacity_brush == nullptr) {
+            if (!builder_.add_vector_clip_mask(
+                    std::span<const progpu_native_scene_clip_path>(&path, 1U),
+                    segments,
+                    1.0F,
+                    resource_index)) {
+                return fail_builder();
+            }
+        } else {
+            progpu_native_scene_layer_brush_mask brush_mask{};
+            std::vector<progpu_native_scene_gradient_stop> stops;
+            bool empty_brush = false;
+            bool gradient = false;
+            const HRESULT brush_hr = translate_opacity_brush_layer_mask(
+                opacity_brush,
+                content_bounds,
+                brush_mask,
+                stops,
+                empty_brush,
+                gradient);
+            if (FAILED(brush_hr)) {
+                return brush_hr;
+            }
+            if (empty_brush) {
+                empty = true;
+                return S_OK;
+            }
+            if (!builder_.add_composite_mask(
+                    std::span<const progpu_native_scene_layer_brush_mask>(
+                        &brush_mask,
+                        1U),
+                    {},
+                    {},
+                    {},
+                    {},
+                    std::span<const progpu_native_scene_clip_path>(&path, 1U),
+                    segments,
+                    {},
+                    stops,
+                    1.0F,
+                    resource_index)) {
+                return fail_builder();
+            }
+            has_gradient_brushes_ |= gradient;
         }
         target_bounds = {
             transformed_mask_bounds.left,
@@ -2422,13 +2467,17 @@ private:
         return S_OK;
     }
 
-    HRESULT add_opacity_brush_layer_mask(
+    HRESULT translate_opacity_brush_layer_mask(
         ID2D1Brush* source,
         const D2D1_RECT_F& content_bounds,
-        uint32_t& resource_index,
-        bool& empty) noexcept
+        progpu_native_scene_layer_brush_mask& mask,
+        std::vector<progpu_native_scene_gradient_stop>& stops,
+        bool& empty,
+        bool& gradient) noexcept
     {
-        resource_index = PROGPU_NATIVE_SCENE_NO_INDEX;
+        mask = {};
+        stops.clear();
+        gradient = false;
         empty = content_bounds.right == content_bounds.left ||
             content_bounds.bottom == content_bounds.top;
         if (empty) {
@@ -2436,8 +2485,6 @@ private:
         }
 
         progpu_native_scene_brush brush{};
-        std::vector<progpu_native_scene_gradient_stop> stops;
-        bool gradient = false;
         ComPtr<ID2D1SolidColorBrush> solid;
         HRESULT hr = source->QueryInterface(IID_PPV_ARGS(&solid));
         if (SUCCEEDED(hr)) {
@@ -2512,7 +2559,6 @@ private:
             }
         }
 
-        progpu_native_scene_layer_brush_mask mask{};
         mask.struct_size = sizeof(mask);
         mask.kind = PROGPU_NATIVE_SCENE_LAYER_MASK_BRUSH;
         mask.gradient_stop_count = static_cast<uint32_t>(stops.size());
@@ -2524,6 +2570,29 @@ private:
         mask.transform = native_transform();
         mask.opacity = 1.0F;
         mask.brush = brush;
+        return S_OK;
+    }
+
+    HRESULT add_opacity_brush_layer_mask(
+        ID2D1Brush* source,
+        const D2D1_RECT_F& content_bounds,
+        uint32_t& resource_index,
+        bool& empty) noexcept
+    {
+        resource_index = PROGPU_NATIVE_SCENE_NO_INDEX;
+        progpu_native_scene_layer_brush_mask mask{};
+        std::vector<progpu_native_scene_gradient_stop> stops;
+        bool gradient = false;
+        const HRESULT hr = translate_opacity_brush_layer_mask(
+            source,
+            content_bounds,
+            mask,
+            stops,
+            empty,
+            gradient);
+        if (FAILED(hr) || empty) {
+            return hr;
+        }
         if (!builder_.add_brush_mask(mask, stops, resource_index)) {
             return fail_builder();
         }
@@ -2710,6 +2779,7 @@ private:
     bool has_opacity_layers_ = false;
     bool has_geometric_layer_masks_ = false;
     bool has_opacity_brush_layer_masks_ = false;
+    bool has_composite_layer_masks_ = false;
 };
 
 class CallerTessellationSink final : public ID2D1TessellationSink {
@@ -5587,6 +5657,10 @@ progpu_native_direct2d_command_list_build_scene_stream(
         if (scene_sink->has_opacity_brush_layer_masks()) {
             result->flags |=
                 PROGPU_NATIVE_DIRECT2D_SCENE_STREAM_FLAG_HAS_OPACITY_BRUSH_LAYER_MASKS;
+        }
+        if (scene_sink->has_composite_layer_masks()) {
+            result->flags |=
+                PROGPU_NATIVE_DIRECT2D_SCENE_STREAM_FLAG_HAS_COMPOSITE_LAYER_MASKS;
         }
     }
 
