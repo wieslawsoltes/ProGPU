@@ -2485,8 +2485,9 @@ int main()
     progpu_native_direct2d_command_stream_summary recorder_hint{};
     recorder_hint.struct_size = static_cast<uint32_t>(sizeof(recorder_hint));
     recorder_hint.clear_count = 1U;
+    recorder_hint.draw_count = 1U;
     recorder_hint.fill_count = 2U;
-    recorder_hint.total_command_count = 3U;
+    recorder_hint.total_command_count = 4U;
     progpu_native_direct2d_scene_recorder* direct_recorder = nullptr;
     native_hresult = E_FAIL;
     require(
@@ -2557,6 +2558,13 @@ int main()
             nullptr) == S_OK,
         "ProGPU Direct2D COM FillGeometry callback failed");
     require(
+        direct_sink->DrawGeometry(
+            compat_rectangle_path.Get(),
+            compat_solid_brush.Get(),
+            2.0F,
+            compat_stroke_style.Get()) == S_OK,
+        "ProGPU Direct2D COM retained DrawGeometry callback failed");
+    require(
         direct_sink->EndDraw() == S_OK,
         "ProGPU Direct2D COM EndDraw callback failed");
     progpu_native_direct2d_scene_stream_result direct_measure{};
@@ -2573,7 +2581,7 @@ int main()
             native_hresult == HRESULT_FROM_WIN32(ERROR_INSUFFICIENT_BUFFER) &&
             direct_measure.scene_id == 7002U &&
             direct_measure.generation == 10U &&
-            direct_measure.translated_draw_count == 2U &&
+            direct_measure.translated_draw_count == 3U &&
             direct_measure.failure_reason ==
                 PROGPU_NATIVE_DIRECT2D_SCENE_STREAM_FAILURE_NONE &&
             (direct_measure.flags &
@@ -2581,6 +2589,9 @@ int main()
                 0U &&
             (direct_measure.flags &
                 PROGPU_NATIVE_DIRECT2D_SCENE_STREAM_FLAG_HAS_PATH_GEOMETRY) !=
+                0U &&
+            (direct_measure.flags &
+                PROGPU_NATIVE_DIRECT2D_SCENE_STREAM_FLAG_HAS_STROKED_PATH_GEOMETRY) !=
                 0U &&
             direct_measure.required_bytes >= sizeof(progpu_native_scene_header),
         "ProGPU Direct2D COM recorder size pass changed");
@@ -2598,16 +2609,72 @@ int main()
             &native_hresult) == PROGPU_NATIVE_DIRECT2D_STATUS_SUCCESS &&
             native_hresult == S_OK &&
             direct_write.written_bytes == direct_scene_stream.size() &&
-            direct_write.command_count == 2U &&
+            direct_write.command_count == 3U &&
             direct_write.brush_count == 1U,
         "ProGPU Direct2D COM recorder write pass changed");
     const progpu_native_scene_header direct_scene_header =
         read_value<progpu_native_scene_header>(direct_scene_stream, 0U);
     require(
-        direct_scene_header.scene_id == 7002U &&
+            direct_scene_header.scene_id == 7002U &&
             direct_scene_header.generation == 10U &&
-            direct_scene_header.command_count == 2U,
+            direct_scene_header.command_count == 3U,
         "ProGPU Direct2D COM recorder scene identity changed");
+    bool direct_stroke_found = false;
+    for (uint32_t index = 0U;
+         index < direct_scene_header.resource_count;
+         ++index) {
+        const progpu_native_scene_resource resource =
+            read_value<progpu_native_scene_resource>(
+                direct_scene_stream,
+                direct_scene_header.resource_offset +
+                    static_cast<size_t>(index) *
+                        direct_scene_header.resource_stride);
+        if (resource.kind != PROGPU_NATIVE_SCENE_RESOURCE_STROKE_BATCH) {
+            continue;
+        }
+        require(
+            !direct_stroke_found &&
+                resource.payload_size ==
+                    sizeof(progpu_native_scene_stroke) &&
+                resource.auxiliary_size ==
+                    4U * sizeof(progpu_native_point) +
+                        4U * sizeof(double),
+            "ProGPU Direct2D retained stroke resource layout changed");
+        const progpu_native_scene_stroke stroke =
+            read_value<progpu_native_scene_stroke>(
+                direct_scene_stream,
+                resource.payload_offset);
+        const progpu_native_point first_stroke_point =
+            read_value<progpu_native_point>(
+                direct_scene_stream,
+                resource.auxiliary_offset);
+        const double first_stroke_dash = read_value<double>(
+            direct_scene_stream,
+            resource.auxiliary_offset +
+                4U * sizeof(progpu_native_point));
+        require(
+            stroke.kind == PROGPU_NATIVE_SCENE_STROKE_POLYLINE &&
+                (stroke.flags & PROGPU_NATIVE_POLYLINE_FLAG_CLOSED) != 0U &&
+                (stroke.flags &
+                    PROGPU_NATIVE_POLYLINE_FLAG_FIXED_DEVICE_STROKE) != 0U &&
+                stroke.point_offset == 0U && stroke.point_count == 4U &&
+                stroke.dash_interval_offset == 0U &&
+                stroke.dash_interval_count == 4U &&
+                stroke.stroke_thickness == 2.0F &&
+                stroke.miter_limit == 6.0F &&
+                stroke.dash_offset == 0.5 &&
+                stroke.start_cap == PROGPU_NATIVE_STROKE_CAP_ROUND &&
+                stroke.end_cap == PROGPU_NATIVE_STROKE_CAP_TRIANGLE &&
+                stroke.line_join == PROGPU_NATIVE_STROKE_JOIN_BEVEL &&
+                stroke.dash_cap == PROGPU_NATIVE_STROKE_CAP_SQUARE &&
+                first_stroke_point.x == 0.0F &&
+                first_stroke_point.y == 0.0F &&
+                first_stroke_dash == 2.0,
+            "ProGPU Direct2D retained stroke metadata changed");
+        direct_stroke_found = true;
+    }
+    require(direct_stroke_found,
+        "ProGPU Direct2D COM recorder omitted the retained stroke batch");
     direct_base_sink.Reset();
     direct_sink.Reset();
     progpu_native_direct2d_scene_recorder_destroy(direct_recorder);

@@ -45,7 +45,7 @@ public sealed class Direct2DInteropContractTests
             native,
             StringComparison.Ordinal);
         Assert.Contains(
-            "internal const uint AbiVersion = 47U;",
+            "internal const uint AbiVersion = 48U;",
             native,
             StringComparison.Ordinal);
         Assert.Contains(
@@ -496,7 +496,7 @@ public sealed class Direct2DInteropContractTests
             "progpu_native_direct2d_tests.cpp");
 
         Assert.Contains(
-            "PROGPU_NATIVE_DIRECT2D_ABI_VERSION = 47U",
+            "PROGPU_NATIVE_DIRECT2D_ABI_VERSION = 48U",
             header,
             StringComparison.Ordinal);
         Assert.Contains(
@@ -525,6 +525,10 @@ public sealed class Direct2DInteropContractTests
             StringComparison.Ordinal);
         Assert.Contains(
             "class CommandSceneStreamSink final : public ID2D1CommandSink1",
+            source,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "class CommandSceneStrokeSink final : public ID2D1SimplifiedGeometrySink",
             source,
             StringComparison.Ordinal);
         Assert.Contains(
@@ -561,6 +565,10 @@ public sealed class Direct2DInteropContractTests
             StringComparison.Ordinal);
         Assert.Contains(
             "ProGPU ID2D1StrokeStyle1 creation failed",
+            test,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "ProGPU Direct2D COM recorder omitted the retained stroke batch",
             test,
             StringComparison.Ordinal);
         Assert.Contains(
