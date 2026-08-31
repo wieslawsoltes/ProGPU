@@ -2,14 +2,25 @@
 
 #include <stdint.h>
 
-#if !defined(_WIN32)
-#  error "progpu_native_direct2d.h is a Windows-only native interop contract"
-#endif
-
-#if defined(PROGPU_NATIVE_DIRECT2D_BUILD)
-#  define PROGPU_NATIVE_DIRECT2D_API __declspec(dllexport)
+#if defined(_WIN32)
+#  define PROGPU_NATIVE_DIRECT2D_HAS_WINDOWS_PROVIDER 1
+#  if defined(PROGPU_NATIVE_DIRECT2D_BUILD)
+#    define PROGPU_NATIVE_DIRECT2D_API __declspec(dllexport)
+#  else
+#    define PROGPU_NATIVE_DIRECT2D_API __declspec(dllimport)
+#  endif
 #else
-#  define PROGPU_NATIVE_DIRECT2D_API __declspec(dllimport)
+/* The fixed-layout descriptors and enums are intentionally available to every
+ * target. The current system Direct2D/DXGI provider remains Windows-only;
+ * callers must not attempt to link its functions when this capability is 0.
+ * Keeping one platform-neutral declaration surface is the first migration
+ * seam for the ProGPU-owned COM/resource implementation. */
+#  define PROGPU_NATIVE_DIRECT2D_HAS_WINDOWS_PROVIDER 0
+#  if defined(__GNUC__) || defined(__clang__)
+#    define PROGPU_NATIVE_DIRECT2D_API __attribute__((visibility("default")))
+#  else
+#    define PROGPU_NATIVE_DIRECT2D_API
+#  endif
 #endif
 
 #ifdef __cplusplus
