@@ -3868,6 +3868,218 @@ private:
     bool capacity_exceeded_ = false;
 };
 
+struct command_scene_stroke_figure {
+    size_t point_offset = 0U;
+    size_t point_count = 0U;
+    bool closed = false;
+};
+
+class CommandSceneStrokeSink final : public ID2D1SimplifiedGeometrySink {
+public:
+    HRESULT STDMETHODCALLTYPE QueryInterface(
+        REFIID interface_id,
+        void** value) noexcept override
+    {
+        if (value == nullptr) {
+            return E_POINTER;
+        }
+        *value = nullptr;
+        if (IsEqualIID(interface_id, IID_IUnknown) ||
+            IsEqualIID(
+                interface_id, __uuidof(ID2D1SimplifiedGeometrySink))) {
+            *value = static_cast<ID2D1SimplifiedGeometrySink*>(this);
+            AddRef();
+            return S_OK;
+        }
+        return E_NOINTERFACE;
+    }
+
+    ULONG STDMETHODCALLTYPE AddRef() noexcept override
+    {
+        return reference_count_.fetch_add(1U, std::memory_order_relaxed) + 1U;
+    }
+
+    ULONG STDMETHODCALLTYPE Release() noexcept override
+    {
+        const ULONG remaining = reference_count_.fetch_sub(
+            1U,
+            std::memory_order_acq_rel) - 1U;
+        if (remaining == 0U) {
+            delete this;
+        }
+        return remaining;
+    }
+
+    void STDMETHODCALLTYPE SetFillMode(D2D1_FILL_MODE fill_mode) noexcept override
+    {
+        if (closed_ || figure_open_ ||
+            (fill_mode != D2D1_FILL_MODE_ALTERNATE &&
+                fill_mode != D2D1_FILL_MODE_WINDING)) {
+            set_failure(E_INVALIDARG);
+        }
+    }
+
+    void STDMETHODCALLTYPE SetSegmentFlags(
+        D2D1_PATH_SEGMENT vertex_flags) noexcept override
+    {
+        constexpr uint32_t supported_flags =
+            D2D1_PATH_SEGMENT_FORCE_UNSTROKED |
+            D2D1_PATH_SEGMENT_FORCE_ROUND_LINE_JOIN;
+        const uint32_t flags = static_cast<uint32_t>(vertex_flags);
+        if (closed_ || (flags & ~supported_flags) != 0U) {
+            set_failure(E_INVALIDARG);
+        } else if (flags != D2D1_PATH_SEGMENT_NONE) {
+            unsupported_segment_flags_ = true;
+            set_failure(E_NOTIMPL);
+        }
+    }
+
+    void STDMETHODCALLTYPE BeginFigure(
+        D2D1_POINT_2F start_point,
+        D2D1_FIGURE_BEGIN figure_begin) noexcept override
+    {
+        if (closed_ || figure_open_ || !finite(start_point) ||
+            (figure_begin != D2D1_FIGURE_BEGIN_FILLED &&
+                figure_begin != D2D1_FIGURE_BEGIN_HOLLOW)) {
+            set_failure(E_INVALIDARG);
+            return;
+        }
+        try {
+            if (figures_.size() == maximum_figure_count ||
+                points_.size() == maximum_point_count) {
+                capacity_exceeded_ = true;
+                set_failure(HRESULT_FROM_WIN32(ERROR_ARITHMETIC_OVERFLOW));
+                return;
+            }
+            current_figure_ = {};
+            current_figure_.point_offset = points_.size();
+            points_.push_back({start_point.x, start_point.y});
+            figure_open_ = true;
+        } catch (const std::bad_alloc&) {
+            set_failure(E_OUTOFMEMORY);
+        } catch (...) {
+            set_failure(E_FAIL);
+        }
+    }
+
+    void STDMETHODCALLTYPE AddLines(
+        const D2D1_POINT_2F* points,
+        UINT32 point_count) noexcept override
+    {
+        if (closed_ || !figure_open_ ||
+            (point_count != 0U && points == nullptr)) {
+            set_failure(E_INVALIDARG);
+            return;
+        }
+        if (static_cast<uint64_t>(points_.size()) + point_count >
+            maximum_point_count) {
+            capacity_exceeded_ = true;
+            set_failure(HRESULT_FROM_WIN32(ERROR_ARITHMETIC_OVERFLOW));
+            return;
+        }
+        for (UINT32 index = 0U; index < point_count; ++index) {
+            if (!finite(points[index])) {
+                set_failure(E_INVALIDARG);
+                return;
+            }
+        }
+        try {
+            for (UINT32 index = 0U; index < point_count; ++index) {
+                points_.push_back({points[index].x, points[index].y});
+            }
+        } catch (const std::bad_alloc&) {
+            set_failure(E_OUTOFMEMORY);
+        } catch (...) {
+            set_failure(E_FAIL);
+        }
+    }
+
+    void STDMETHODCALLTYPE AddBeziers(
+        const D2D1_BEZIER_SEGMENT*,
+        UINT32) noexcept override
+    {
+        set_failure(E_NOTIMPL);
+    }
+
+    void STDMETHODCALLTYPE EndFigure(
+        D2D1_FIGURE_END figure_end) noexcept override
+    {
+        if (closed_ || !figure_open_ ||
+            (figure_end != D2D1_FIGURE_END_OPEN &&
+                figure_end != D2D1_FIGURE_END_CLOSED)) {
+            set_failure(E_INVALIDARG);
+            return;
+        }
+        current_figure_.point_count =
+            points_.size() - current_figure_.point_offset;
+        current_figure_.closed =
+            figure_end == D2D1_FIGURE_END_CLOSED;
+        try {
+            figures_.push_back(current_figure_);
+        } catch (const std::bad_alloc&) {
+            set_failure(E_OUTOFMEMORY);
+        } catch (...) {
+            set_failure(E_FAIL);
+        }
+        figure_open_ = false;
+    }
+
+    HRESULT STDMETHODCALLTYPE Close() noexcept override
+    {
+        if (closed_ || figure_open_) {
+            set_failure(D2DERR_WRONG_STATE);
+        }
+        closed_ = true;
+        return failure_;
+    }
+
+    std::span<const command_scene_stroke_figure> figures() const noexcept
+    {
+        return figures_;
+    }
+
+    std::span<const progpu_native_point> points() const noexcept
+    {
+        return points_;
+    }
+
+    bool capacity_exceeded() const noexcept
+    {
+        return capacity_exceeded_;
+    }
+
+    bool unsupported_segment_flags() const noexcept
+    {
+        return unsupported_segment_flags_;
+    }
+
+private:
+    static constexpr uint64_t maximum_figure_count = 1U << 20U;
+    static constexpr uint64_t maximum_point_count = 1U << 24U;
+
+    static bool finite(D2D1_POINT_2F point) noexcept
+    {
+        return std::isfinite(point.x) && std::isfinite(point.y);
+    }
+
+    void set_failure(HRESULT value) noexcept
+    {
+        if (SUCCEEDED(failure_)) {
+            failure_ = value;
+        }
+    }
+
+    std::atomic<ULONG> reference_count_{1U};
+    std::vector<command_scene_stroke_figure> figures_;
+    std::vector<progpu_native_point> points_;
+    command_scene_stroke_figure current_figure_{};
+    HRESULT failure_ = S_OK;
+    bool figure_open_ = false;
+    bool closed_ = false;
+    bool capacity_exceeded_ = false;
+    bool unsupported_segment_flags_ = false;
+};
+
 class CommandSceneStreamSink final : public ID2D1CommandSink1 {
 public:
     CommandSceneStreamSink(
@@ -4537,6 +4749,18 @@ private:
         ComPtr<IUnknown> identity;
         D2D1_MATRIX_3X2_F draw_transform{};
         uint32_t brush_index = PROGPU_NATIVE_SCENE_NO_INDEX;
+    };
+
+    struct command_scene_stroke_style {
+        D2D1_CAP_STYLE start_cap = D2D1_CAP_STYLE_FLAT;
+        D2D1_CAP_STYLE end_cap = D2D1_CAP_STYLE_FLAT;
+        D2D1_CAP_STYLE dash_cap = D2D1_CAP_STYLE_FLAT;
+        D2D1_LINE_JOIN line_join = D2D1_LINE_JOIN_MITER;
+        D2D1_STROKE_TRANSFORM_TYPE transform_type =
+            D2D1_STROKE_TRANSFORM_TYPE_NORMAL;
+        float miter_limit = 10.0F;
+        float dash_offset = 0.0F;
+        std::vector<double> dash_intervals;
     };
 
     static bool finite_point(D2D1_POINT_2F point) noexcept
@@ -5458,6 +5682,12 @@ private:
         float stroke_width,
         ID2D1StrokeStyle* stroke_style) noexcept
     {
+        const HRESULT semantic_hr = draw_semantic_stroked_geometry(
+            geometry, brush, stroke_width, stroke_style);
+        if (semantic_hr != E_NOINTERFACE) {
+            return semantic_hr;
+        }
+
         CommandScenePathSink* raw_sink = new (std::nothrow)
             CommandScenePathSink();
         if (raw_sink == nullptr) {
@@ -5506,6 +5736,291 @@ private:
             target_bounds,
             identity_transform,
             true);
+    }
+
+    static HRESULT translate_stroke_style(
+        ID2D1StrokeStyle* source,
+        command_scene_stroke_style& result) noexcept
+    {
+        result = {};
+        if (source == nullptr) {
+            return S_OK;
+        }
+        result.start_cap = source->GetStartCap();
+        result.end_cap = source->GetEndCap();
+        result.dash_cap = source->GetDashCap();
+        result.line_join = source->GetLineJoin();
+        result.miter_limit = source->GetMiterLimit();
+        result.dash_offset = source->GetDashOffset();
+        const D2D1_DASH_STYLE dash_style = source->GetDashStyle();
+        ComPtr<ID2D1StrokeStyle1> source1;
+        if (SUCCEEDED(source->QueryInterface(IID_PPV_ARGS(&source1)))) {
+            result.transform_type = source1->GetStrokeTransformType();
+        }
+        if (result.start_cap > D2D1_CAP_STYLE_TRIANGLE ||
+            result.end_cap > D2D1_CAP_STYLE_TRIANGLE ||
+            result.dash_cap > D2D1_CAP_STYLE_TRIANGLE ||
+            result.line_join > D2D1_LINE_JOIN_MITER_OR_BEVEL ||
+            result.transform_type > D2D1_STROKE_TRANSFORM_TYPE_HAIRLINE ||
+            !std::isfinite(result.miter_limit) ||
+            result.miter_limit <= 0.0F ||
+            !std::isfinite(result.dash_offset) ||
+            dash_style > D2D1_DASH_STYLE_CUSTOM) {
+            return E_INVALIDARG;
+        }
+        try {
+            switch (dash_style) {
+            case D2D1_DASH_STYLE_SOLID:
+                break;
+            case D2D1_DASH_STYLE_DASH:
+                result.dash_intervals = {2.0, 2.0};
+                break;
+            case D2D1_DASH_STYLE_DOT:
+                result.dash_intervals = {0.0, 2.0};
+                break;
+            case D2D1_DASH_STYLE_DASH_DOT:
+                result.dash_intervals = {2.0, 2.0, 0.0, 2.0};
+                break;
+            case D2D1_DASH_STYLE_DASH_DOT_DOT:
+                result.dash_intervals = {
+                    2.0, 2.0, 0.0, 2.0, 0.0, 2.0};
+                break;
+            case D2D1_DASH_STYLE_CUSTOM: {
+                const UINT32 count = source->GetDashesCount();
+                constexpr UINT32 maximum_dash_count = 1U << 20U;
+                if (count == 0U || count > maximum_dash_count) {
+                    return E_INVALIDARG;
+                }
+                std::vector<FLOAT> dashes(count);
+                source->GetDashes(dashes.data(), count);
+                bool has_positive = false;
+                result.dash_intervals.reserve(count);
+                for (FLOAT dash : dashes) {
+                    if (!std::isfinite(dash) || dash < 0.0F) {
+                        return E_INVALIDARG;
+                    }
+                    has_positive = has_positive || dash > 0.0F;
+                    result.dash_intervals.push_back(dash);
+                }
+                if (!has_positive) {
+                    return E_INVALIDARG;
+                }
+                break;
+            }
+            default:
+                return E_INVALIDARG;
+            }
+        } catch (const std::bad_alloc&) {
+            return E_OUTOFMEMORY;
+        } catch (...) {
+            return E_FAIL;
+        }
+        return S_OK;
+    }
+
+    HRESULT draw_semantic_stroked_geometry(
+        ID2D1Geometry* geometry,
+        ID2D1Brush* brush,
+        float stroke_width,
+        ID2D1StrokeStyle* stroke_style) noexcept
+    {
+        if (stroke_width == 0.0F) {
+            record_draw();
+            return S_OK;
+        }
+        command_scene_stroke_style style{};
+        HRESULT hr = translate_stroke_style(stroke_style, style);
+        if (FAILED(hr)) {
+            return hr == E_OUTOFMEMORY
+                ? fail(
+                    PROGPU_NATIVE_DIRECT2D_SCENE_STREAM_FAILURE_BUILDER,
+                    hr)
+                : fail_invalid_value();
+        }
+
+        auto* raw_sink = new (std::nothrow) CommandSceneStrokeSink();
+        if (raw_sink == nullptr) {
+            return fail(
+                PROGPU_NATIVE_DIRECT2D_SCENE_STREAM_FAILURE_BUILDER,
+                E_OUTOFMEMORY);
+        }
+        ComPtr<CommandSceneStrokeSink> stroke_sink;
+        stroke_sink.Attach(raw_sink);
+        const double transform_norm = std::sqrt(
+            static_cast<double>(transform_._11) * transform_._11 +
+            static_cast<double>(transform_._12) * transform_._12 +
+            static_cast<double>(transform_._21) * transform_._21 +
+            static_cast<double>(transform_._22) * transform_._22);
+        const double tolerance_value =
+            D2D1_DEFAULT_FLATTENING_TOLERANCE /
+            std::max(1.0, transform_norm);
+        const float tolerance = static_cast<float>(std::max(
+            tolerance_value,
+            static_cast<double>(std::numeric_limits<float>::epsilon())));
+        hr = geometry->Simplify(
+            D2D1_GEOMETRY_SIMPLIFICATION_OPTION_LINES,
+            nullptr,
+            tolerance,
+            stroke_sink.Get());
+        const HRESULT close_hr = stroke_sink->Close();
+        if (SUCCEEDED(hr)) {
+            hr = close_hr;
+        }
+        if (FAILED(hr)) {
+            if (stroke_sink->capacity_exceeded()) {
+                return fail_capacity_exceeded();
+            }
+            if (stroke_sink->unsupported_segment_flags() ||
+                hr == E_NOTIMPL) {
+                return fail_unsupported_resource();
+            }
+            if (hr == E_OUTOFMEMORY) {
+                return fail(
+                    PROGPU_NATIVE_DIRECT2D_SCENE_STREAM_FAILURE_BUILDER,
+                    hr);
+            }
+            return E_NOINTERFACE;
+        }
+
+        try {
+            std::vector<progpu_native_scene_stroke> strokes;
+            std::vector<progpu_native_point> points;
+            std::vector<double> doubles;
+            std::vector<uint32_t> brush_indices;
+            strokes.reserve(stroke_sink->figures().size());
+            points.reserve(stroke_sink->points().size());
+            brush_indices.reserve(stroke_sink->figures().size());
+            if (!style.dash_intervals.empty()) {
+                const uint64_t interval_count =
+                    static_cast<uint64_t>(style.dash_intervals.size()) *
+                    stroke_sink->figures().size();
+                if (interval_count >
+                    std::numeric_limits<size_t>::max()) {
+                    return fail_capacity_exceeded();
+                }
+                doubles.reserve(static_cast<size_t>(interval_count));
+            }
+
+            const auto captured_points = stroke_sink->points();
+            for (const auto& figure : stroke_sink->figures()) {
+                if (figure.point_count < 2U ||
+                    figure.point_offset > captured_points.size() ||
+                    figure.point_count >
+                        captured_points.size() - figure.point_offset) {
+                    continue;
+                }
+                progpu_native_scene_stroke stroke{};
+                stroke.struct_size = sizeof(stroke);
+                stroke.kind = PROGPU_NATIVE_SCENE_STROKE_POLYLINE;
+                stroke.flags = figure.closed
+                    ? PROGPU_NATIVE_POLYLINE_FLAG_CLOSED
+                    : 0U;
+                if (style.transform_type ==
+                    D2D1_STROKE_TRANSFORM_TYPE_FIXED) {
+                    stroke.flags |=
+                        PROGPU_NATIVE_POLYLINE_FLAG_FIXED_DEVICE_STROKE;
+                } else if (style.transform_type ==
+                    D2D1_STROKE_TRANSFORM_TYPE_HAIRLINE) {
+                    stroke.flags |= PROGPU_NATIVE_POLYLINE_FLAG_HAIRLINE;
+                }
+                stroke.point_offset = points.size();
+                stroke.point_count = figure.point_count;
+                stroke.dash_interval_offset = doubles.size();
+                stroke.dash_interval_count = style.dash_intervals.size();
+                stroke.color = {1.0F, 1.0F, 1.0F, 1.0F};
+                stroke.transform = native_transform();
+                stroke.stroke_thickness = stroke_width;
+                stroke.miter_limit = std::max(1.0F, style.miter_limit);
+                stroke.dash_offset = style.dash_offset;
+                stroke.start_cap = static_cast<uint32_t>(style.start_cap);
+                stroke.end_cap = static_cast<uint32_t>(style.end_cap);
+                stroke.line_join = style.line_join ==
+                        D2D1_LINE_JOIN_MITER_OR_BEVEL
+                    ? PROGPU_NATIVE_STROKE_JOIN_MITER
+                    : static_cast<uint32_t>(style.line_join);
+                stroke.dash_cap = static_cast<uint32_t>(style.dash_cap);
+                points.insert(
+                    points.end(),
+                    captured_points.begin() + figure.point_offset,
+                    captured_points.begin() + figure.point_offset +
+                        figure.point_count);
+                doubles.insert(
+                    doubles.end(),
+                    style.dash_intervals.begin(),
+                    style.dash_intervals.end());
+                strokes.push_back(stroke);
+                brush_indices.push_back(PROGPU_NATIVE_SCENE_NO_INDEX);
+            }
+            if (strokes.empty()) {
+                record_draw();
+                return S_OK;
+            }
+
+            D2D1_RECT_F geometry_bounds{};
+            progpu_native_image_rect bounds{};
+            const float miter_extent = std::max(1.0F, style.miter_limit);
+            if (style.transform_type ==
+                D2D1_STROKE_TRANSFORM_TYPE_NORMAL) {
+                hr = geometry->GetBounds(nullptr, &geometry_bounds);
+                const float padding =
+                    stroke_width * 0.5F * miter_extent;
+                if (SUCCEEDED(hr)) {
+                    bounds = transformed_bounds(
+                        geometry_bounds.left - padding,
+                        geometry_bounds.top - padding,
+                        geometry_bounds.right + padding,
+                        geometry_bounds.bottom + padding);
+                }
+            } else {
+                hr = geometry->GetBounds(&transform_, &geometry_bounds);
+                const float device_width = style.transform_type ==
+                        D2D1_STROKE_TRANSFORM_TYPE_HAIRLINE
+                    ? 1.0F
+                    : stroke_width;
+                const float padding =
+                    device_width * 0.5F * miter_extent;
+                if (SUCCEEDED(hr)) {
+                    bounds = {
+                        geometry_bounds.left - padding,
+                        geometry_bounds.top - padding,
+                        geometry_bounds.right - geometry_bounds.left +
+                            padding * 2.0F,
+                        geometry_bounds.bottom - geometry_bounds.top +
+                            padding * 2.0F};
+                }
+            }
+            if (FAILED(hr)) {
+                return E_NOINTERFACE;
+            }
+            if (!finite_native_rectangle(bounds)) {
+                return fail_invalid_value();
+            }
+            uint32_t brush_index = PROGPU_NATIVE_SCENE_NO_INDEX;
+            hr = add_brush(brush, brush_index);
+            if (FAILED(hr)) {
+                return hr;
+            }
+            std::fill(
+                brush_indices.begin(), brush_indices.end(), brush_index);
+            if (!builder_.draw_strokes(
+                    strokes,
+                    points,
+                    doubles,
+                    brush_indices,
+                    bounds)) {
+                return fail_builder();
+            }
+            has_path_geometry_ = true;
+            has_stroked_path_geometry_ = true;
+            record_draw();
+            return S_OK;
+        } catch (const std::bad_alloc&) {
+            return fail(
+                PROGPU_NATIVE_DIRECT2D_SCENE_STREAM_FAILURE_BUILDER,
+                E_OUTOFMEMORY);
+        } catch (...) {
+            return fail_builder();
+        }
     }
 
     HRESULT finish_path_capture(
