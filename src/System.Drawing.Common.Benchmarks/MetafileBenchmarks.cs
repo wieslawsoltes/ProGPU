@@ -21,6 +21,7 @@ public class MetafileBenchmarks
     private Metafile _emfExtendedTextPlaybackMetafile = null!;
     private Metafile _emfPdyExtendedTextPlaybackMetafile = null!;
     private Metafile _emfGlyphIndexExtendedTextPlaybackMetafile = null!;
+    private Metafile _emfNaturalGlyphIndexExtendedTextPlaybackMetafile = null!;
     private Metafile _emfAnsiExtendedTextPlaybackMetafile = null!;
     private Metafile _emfPolyTextPlaybackMetafile = null!;
     private Metafile _emfSmallTextPlaybackMetafile = null!;
@@ -65,6 +66,13 @@ public class MetafileBenchmarks
         _emfGlyphIndexExtendedTextPlaybackMetafile = new Metafile(
             new MemoryStream(
                 CreatePlaybackEmfExtendedText(256, glyphIndices: true),
+                writable: false));
+        _emfNaturalGlyphIndexExtendedTextPlaybackMetafile = new Metafile(
+            new MemoryStream(
+                CreatePlaybackEmfExtendedText(
+                    256,
+                    glyphIndices: true,
+                    naturalGlyphAdvances: true),
                 writable: false));
         _emfAnsiExtendedTextPlaybackMetafile = new Metafile(
             new MemoryStream(
@@ -129,6 +137,7 @@ public class MetafileBenchmarks
         _emfExtendedTextPlaybackMetafile.Dispose();
         _emfPdyExtendedTextPlaybackMetafile.Dispose();
         _emfGlyphIndexExtendedTextPlaybackMetafile.Dispose();
+        _emfNaturalGlyphIndexExtendedTextPlaybackMetafile.Dispose();
         _emfAnsiExtendedTextPlaybackMetafile.Dispose();
         _emfPolyTextPlaybackMetafile.Dispose();
         _emfSmallTextPlaybackMetafile.Dispose();
@@ -223,6 +232,18 @@ public class MetafileBenchmarks
         _playbackContext.Clear();
         _playbackGraphics.DrawImage(
             _emfGlyphIndexExtendedTextPlaybackMetafile,
+            new Rectangle(0, 0, 640, 480));
+        int commandCount = _playbackContext.Commands.Count;
+        _playbackContext.Clear();
+        return commandCount;
+    }
+
+    [Benchmark]
+    public int Playback256EmfExtTextOutWNaturalGlyphIndices()
+    {
+        _playbackContext.Clear();
+        _playbackGraphics.DrawImage(
+            _emfNaturalGlyphIndexExtendedTextPlaybackMetafile,
             new Rectangle(0, 0, 640, 480));
         int commandCount = _playbackContext.Commands.Count;
         _playbackContext.Clear();
@@ -535,7 +556,8 @@ public class MetafileBenchmarks
         int recordCount,
         bool unicode = true,
         bool pdy = false,
-        bool glyphIndices = false)
+        bool glyphIndices = false,
+        bool naturalGlyphAdvances = false)
     {
         const int fontRecordSize = 104;
         if (pdy && !unicode)
@@ -546,7 +568,13 @@ public class MetafileBenchmarks
         {
             throw new ArgumentException("The glyph-index benchmark fixture requires Unicode storage.", nameof(unicode));
         }
-        int textRecordSize = pdy ? 108 : unicode ? 96 : 92;
+        if (naturalGlyphAdvances && !glyphIndices)
+        {
+            throw new ArgumentException(
+                "Natural glyph advances require a glyph-index fixture.",
+                nameof(naturalGlyphAdvances));
+        }
+        int textRecordSize = pdy ? 108 : naturalGlyphAdvances ? 84 : unicode ? 96 : 92;
         int totalBytes = checked(
             88 + fontRecordSize + 12 + 12 + 12 + recordCount * textRecordSize + 20);
         byte[] bytes = new byte[totalBytes];
@@ -611,7 +639,10 @@ public class MetafileBenchmarks
                 cursor + 52,
                 glyphIndices ? 0x0000_0010u : pdy ? 0x0000_3000u : 0x0000_1000u);
             int advancesOffset = unicode ? 84 : 80;
-            WriteUInt32(bytes, cursor + 72, checked((uint)advancesOffset));
+            if (!naturalGlyphAdvances)
+            {
+                WriteUInt32(bytes, cursor + 72, checked((uint)advancesOffset));
+            }
             if (glyphIndices)
             {
                 WriteUInt16(bytes, cursor + 76, 1);
@@ -624,7 +655,11 @@ public class MetafileBenchmarks
                 bytes[cursor + (unicode ? 78 : 77)] = (byte)'M';
                 bytes[cursor + (unicode ? 80 : 78)] = (byte)'F';
             }
-            if (pdy)
+            if (naturalGlyphAdvances)
+            {
+                // The record ends after its padded inline glyph-index buffer.
+            }
+            else if (pdy)
             {
                 WriteUInt32(bytes, cursor + advancesOffset, 10);
                 WriteUInt32(bytes, cursor + advancesOffset + 4, 1);

@@ -1540,15 +1540,15 @@ public sealed class MetafileParserTests
     }
 
     [Fact]
-    public void EmfExtTextOutWGlyphIndexRequiresCellsWithoutPublishing()
+    public void EmfExtTextOutWGlyphIndexUsesSelectedFontNaturalCells()
     {
-        ushort glyph = SystemFonts.DefaultFont.TtfFont.GetGlyphIndex('M');
+        ushort firstGlyph = SystemFonts.DefaultFont.TtfFont.GetGlyphIndex('M');
+        ushort secondGlyph = SystemFonts.DefaultFont.TtfFont.GetGlyphIndex('\u03A9');
         byte[] emf = CreateTextPlaybackEmf(
         [
-            (EmfPlusRecordType.EmfRectangle, EmfRectangle(1, 1, 4, 4)),
             (EmfPlusRecordType.EmfExtTextOutW,
                 EmfExtTextOutW(
-                    new string((char)glyph, 1),
+                    new string([(char)firstGlyph, (char)secondGlyph]),
                     new Point(4, 4),
                     0x0000_0010,
                     Rectangle.Empty,
@@ -1558,11 +1558,42 @@ public sealed class MetafileParserTests
         var context = new DrawingContext();
         using Graphics graphics = Graphics.FromProGpuDrawingContext(context);
 
+        graphics.DrawImage(metafile, new Rectangle(0, 0, 64, 64));
+
+        RenderCommand glyphRun = Assert.Single(
+            context.Commands,
+            static command => command.Type == RenderCommandType.DrawGlyphRun);
+        Assert.Equal(
+            new[] { firstGlyph, secondGlyph },
+            Assert.IsType<ushort[]>(glyphRun.GlyphIndices));
+        Vector2[] positions = Assert.IsType<Vector2[]>(glyphRun.GlyphPositions);
+        Assert.True(positions[1].X > positions[0].X);
+    }
+
+    [Fact]
+    public void EmfExtTextOutARejectsGlyphIndexStorageWithoutPublishing()
+    {
+        byte[] emf = CreateTextPlaybackEmf(
+        [
+            (EmfPlusRecordType.EmfRectangle, EmfRectangle(1, 1, 4, 4)),
+            (EmfPlusRecordType.EmfExtTextOutA,
+                EmfExtTextOutA(
+                    "M",
+                    new Point(4, 4),
+                    0x0000_0010,
+                    Rectangle.Empty,
+                    [10],
+                    codePage: 1252))
+        ]);
+        using var metafile = new Metafile(new MemoryStream(emf));
+        var context = new DrawingContext();
+        using Graphics graphics = Graphics.FromProGpuDrawingContext(context);
+
         NotSupportedException exception = Assert.Throws<NotSupportedException>(() =>
             graphics.DrawImage(metafile, new Rectangle(0, 0, 64, 64)));
 
-        Assert.Contains(nameof(EmfPlusRecordType.EmfExtTextOutW), exception.Message);
-        Assert.Contains("requires explicit", exception.Message);
+        Assert.Contains(nameof(EmfPlusRecordType.EmfExtTextOutA), exception.Message);
+        Assert.Contains("ANSI EMF glyph-index", exception.Message);
         Assert.Empty(context.Commands);
     }
 

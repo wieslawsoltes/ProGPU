@@ -1439,12 +1439,6 @@ internal static class MetafilePlaybackRenderer
 
         if (!glyphIndices.IsEmpty)
         {
-            if (advances.IsEmpty)
-            {
-                throw Unsupported(
-                    record,
-                    "Glyph-index EMF text currently requires explicit character-cell advances.");
-            }
             state.DrawGlyphIndexText(
                 record,
                 glyphIndices,
@@ -2324,7 +2318,7 @@ internal static class MetafilePlaybackRenderer
             if ((TextAlignment & ~SupportedAlignmentMask) != 0 ||
                 (TextAlignment & 0x0006) == 0x0004 ||
                 (TextAlignment & 0x0018) == 0x0010 ||
-                advances.Length != glyphIndices.Length ||
+                (!advances.IsEmpty && advances.Length != glyphIndices.Length) ||
                 (!verticalAdvances.IsEmpty && verticalAdvances.Length != glyphIndices.Length))
             {
                 throw Invalid(record);
@@ -2342,27 +2336,48 @@ internal static class MetafilePlaybackRenderer
                     "Glyph-index text with font decorations requires decoration geometry independent of Unicode clusters.");
             }
 
-            long totalX = 0;
-            long totalY = 0;
-            long minimumX = 0;
-            long maximumX = 0;
-            long minimumY = 0;
-            long maximumY = 0;
-            scoped Span<Point> vectorAdvances = advances.Length <= 256
-                ? stackalloc Point[advances.Length]
-                : new Point[advances.Length];
-            for (int index = 0; index < advances.Length; index++)
+            float totalX = 0f;
+            float totalY = 0f;
+            float minimumX = 0f;
+            float maximumX = 0f;
+            float minimumY = 0f;
+            float maximumY = 0f;
+            scoped Span<Vector2> vectorAdvances = glyphIndices.Length <= 256
+                ? stackalloc Vector2[glyphIndices.Length]
+                : new Vector2[glyphIndices.Length];
+            if (advances.IsEmpty)
             {
-                int advanceY = verticalAdvances.IsEmpty ? 0 : verticalAdvances[index];
-                vectorAdvances[index] = new Point(advances[index], advanceY);
-                totalX += advances[index];
-                totalY += advanceY;
+                float fontSize = Graphics.ConvertFontSizeToPixels(
+                    _selectedFont.Size,
+                    _selectedFont.Unit,
+                    Graphics.DpiY);
+                for (int index = 0; index < glyphIndices.Length; index++)
+                {
+                    vectorAdvances[index] = new Vector2(
+                        _selectedFont.TtfFont.GetAdvanceWidth(glyphIndices[index], fontSize),
+                        0f);
+                }
+            }
+            else
+            {
+                for (int index = 0; index < advances.Length; index++)
+                {
+                    vectorAdvances[index] = new Vector2(
+                        advances[index],
+                        verticalAdvances.IsEmpty ? 0 : verticalAdvances[index]);
+                }
+            }
+            for (int index = 0; index < vectorAdvances.Length; index++)
+            {
+                totalX += vectorAdvances[index].X;
+                totalY += vectorAdvances[index].Y;
                 minimumX = Math.Min(minimumX, totalX);
                 maximumX = Math.Max(maximumX, totalX);
                 minimumY = Math.Min(minimumY, totalY);
                 maximumY = Math.Max(maximumY, totalY);
             }
-            if (totalX < int.MinValue || totalX > int.MaxValue ||
+            if (!float.IsFinite(totalX) || !float.IsFinite(totalY) ||
+                totalX < int.MinValue || totalX > int.MaxValue ||
                 totalY < int.MinValue || totalY > int.MaxValue)
             {
                 throw Invalid(record);

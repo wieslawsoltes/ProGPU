@@ -569,22 +569,33 @@ run measured a 4.032 millisecond median (4.449 millisecond mean, 0.850
 millisecond standard deviation) and 1.08 MB allocated. Denied priority
 elevation and three iterations make this coarse local regression evidence.
 
-Unicode `ETO_GLYPH_INDEX` records with explicit character cells now bypass
-Unicode decoding, fallback, and OpenType shaping and write the stored 16-bit
-glyph IDs directly to the selected ProGPU font's retained glyph-run command.
-Scalar and `ETO_PDY` cells share the typed position path, while alignment,
-opaque/clipped rectangles, background mode, escapement, and `TA_UPDATECP`
-remain owned EMF state. ANSI glyph-index storage, missing cells, bidi visual
-ordering, language suppression combined with glyph IDs, and decorated
-glyph-index output remain named boundaries. Exact selected-font glyph IDs,
-20-unit cell placement, a 44-unit current-position update, and transactional
-missing-cell rejection raise the complete drawing suite to 453/453.
+Unicode `ETO_GLYPH_INDEX` records bypass Unicode decoding, fallback, and
+OpenType shaping and write the stored 16-bit glyph IDs directly to the selected
+ProGPU font's retained glyph-run command. Scalar and `ETO_PDY` cells share the
+typed floating-point position path. When `offDx` is zero, the same path derives
+each cell from the selected font's exact glyph advance instead of rounding it
+to an integer character width. Alignment, opaque/clipped rectangles,
+background mode, escapement, and `TA_UPDATECP` remain owned EMF state. ANSI
+glyph-index storage is rejected transactionally because its separately
+specified 16-bit storage contract is not implemented. Bidi visual ordering,
+language suppression combined with glyph IDs, and decorated glyph-index output
+remain named boundaries. Exact selected-font glyph IDs, explicit 20-unit cell
+placement, a 44-unit current-position update, natural positive advance, ANSI
+rejection, and rollback raise the complete drawing suite to 454/454.
 
 `Playback256EmfExtTextOutWGlyphIndices` guards 256 direct three-glyph records.
 The 2026-08-31 ARM64/.NET 10.0.11 in-process run allocated 528.25 KB and
 measured a 3.818 millisecond median (4.194 millisecond mean, 1.187 millisecond
 standard deviation). Timing samples ranged from 3.241 to 5.524 milliseconds,
 so this is coarse allocation/command-shape evidence rather than a latency claim.
+
+`Playback256EmfExtTextOutWNaturalGlyphIndices` guards the matching direct-glyph
+path without an explicit cell array. The 2026-08-31 ARM64/.NET 10.0.11
+in-process run measured a 1.650 millisecond mean (0.324 millisecond standard
+deviation) and 528.24 KB allocated across three measured iterations. The
+short, contended run makes this coarse allocation/command-shape evidence; exact
+glyph identity and selected-font natural positioning remain the correctness
+authority.
 
 `RecordAndFinalize256PortableComments` measures the complete portable writer:
 256 owned 64-byte comment copies, EMF+/EMF assembly, validation, and publication

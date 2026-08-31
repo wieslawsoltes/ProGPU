@@ -2604,7 +2604,7 @@ public partial class Graphics :
         Brush brush,
         float x,
         float y,
-        ReadOnlySpan<Point> advances)
+        ReadOnlySpan<Vector2> advances)
     {
         ArgumentNullException.ThrowIfNull(font);
         ArgumentNullException.ThrowIfNull(brush);
@@ -2624,13 +2624,15 @@ public partial class Graphics :
             ? 0f
             : fontSize * font.TtfFont.Ascender / font.TtfFont.UnitsPerEm;
         Vector2[] positions = new Vector2[glyphIndices.Length];
-        int originX = 0;
-        int originY = 0;
+        Vector2 origin = Vector2.Zero;
         for (int index = 0; index < advances.Length; index++)
         {
-            positions[index] = new Vector2(originX, baseline + originY);
-            originX = checked(originX + advances[index].X);
-            originY = checked(originY + advances[index].Y);
+            positions[index] = new Vector2(origin.X, baseline + origin.Y);
+            origin += advances[index];
+            if (!float.IsFinite(origin.X) || !float.IsFinite(origin.Y))
+            {
+                throw new ArgumentException("Glyph advances must have a finite total.", nameof(advances));
+            }
         }
 
         _context.DrawGlyphRun(

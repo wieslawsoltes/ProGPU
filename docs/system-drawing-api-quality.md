@@ -446,18 +446,27 @@ median (4.449 ms mean, 0.850 ms standard deviation) and 1.08 MB allocated for
 256 records. Three measured iterations and denied priority elevation make this
 coarse local allocation/command-shape evidence.
 
-Unicode `ETO_GLYPH_INDEX` with explicit cells now records the supplied 16-bit
-IDs directly against the selected font, without Unicode lookup, fallback, or
-OpenType substitution. The typed path preserves scalar/PDY cells, alignment,
-background and clip state, escapement, and current-position updates. ANSI
-storage, absent cells, bidi visual order, and decorated glyph-index text remain
-explicit boundaries. Exact IDs, cell origins, `TA_UPDATECP`, and rollback are
-covered by the complete 453/453 suite. ApiCompat remains 0/0/13.
+Unicode `ETO_GLYPH_INDEX` records the supplied 16-bit IDs directly against the
+selected font, without Unicode lookup, fallback, or OpenType substitution. The
+typed floating-point path preserves scalar/PDY cells or, when `offDx` is zero,
+uses each selected-font glyph's natural advance without cumulative integer
+rounding. Alignment, background and clip state, escapement, and current-position
+updates remain intact. ANSI storage is rejected transactionally until its
+separate 16-bit contract is implemented; bidi visual order and decorated
+glyph-index text remain explicit boundaries. Exact IDs, explicit and natural
+cell origins, `TA_UPDATECP`, ANSI rejection, and rollback are covered by the
+complete 454/454 suite. ApiCompat remains 0/0/13.
 
 `MetafileBenchmarks.Playback256EmfExtTextOutWGlyphIndices` measured a 3.818 ms
 median (4.194 ms mean, 1.187 ms standard deviation) and 528.25 KB allocated for
 256 direct three-glyph records. The 3.241-5.524 ms spread makes this coarse
 local allocation evidence, not a portable latency baseline.
+
+`MetafileBenchmarks.Playback256EmfExtTextOutWNaturalGlyphIndices` removes the
+explicit advance array from the same 256-record workload. Its three-iteration
+ARM64/.NET 10.0.11 in-process run measured a 1.650 ms mean (0.324 ms standard
+deviation) and 528.24 KB allocated. This is coarse local allocation and command-
+shape evidence, not a portable latency baseline.
 
 `MetafileBenchmarks.RecordAndFinalize256PortableComments` measures construction,
 256 owned 64-byte comment copies, bounded EMF+ encoding, validation through the
