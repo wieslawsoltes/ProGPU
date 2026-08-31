@@ -2154,16 +2154,22 @@ int main()
                 &direct_transform) == S_OK,
         "ProGPU Direct2D COM recording state initialization failed");
     require(
-        direct_sink->Clear(&direct_clear) == S_OK &&
-            direct_sink->FillRectangle(
-                &direct_fill,
-                solid_brush.Get()) == S_OK &&
-            direct_sink->FillGeometry(
-                compat_rectangle.Get(),
-                solid_brush.Get(),
-                nullptr) == S_OK &&
-            direct_sink->EndDraw() == S_OK,
-        "ProGPU Direct2D COM callbacks did not record a semantic scene");
+        direct_sink->Clear(&direct_clear) == S_OK,
+        "ProGPU Direct2D COM Clear callback failed");
+    require(
+        direct_sink->FillRectangle(
+            &direct_fill,
+            solid_brush.Get()) == S_OK,
+        "ProGPU Direct2D COM FillRectangle callback failed");
+    require(
+        direct_sink->FillGeometry(
+            compat_rectangle.Get(),
+            solid_brush.Get(),
+            nullptr) == S_OK,
+        "ProGPU Direct2D COM FillGeometry callback failed");
+    require(
+        direct_sink->EndDraw() == S_OK,
+        "ProGPU Direct2D COM EndDraw callback failed");
     progpu_native_direct2d_scene_stream_result direct_measure{};
     direct_measure.struct_size = static_cast<uint32_t>(sizeof(direct_measure));
     native_hresult = S_OK;

@@ -657,7 +657,7 @@ public:
             points[0], D2D1_FIGURE_BEGIN_FILLED);
         geometry_sink->AddLines(points.data() + 1U, 3U);
         geometry_sink->EndFigure(D2D1_FIGURE_END_CLOSED);
-        return geometry_sink->Close();
+        return S_OK;
     }
 
     HRESULT STDMETHODCALLTYPE Tessellate(
@@ -682,7 +682,7 @@ public:
             {points[0], points[2], points[3]}}};
         tessellation_sink->AddTriangles(
             triangles.data(), static_cast<UINT32>(triangles.size()));
-        return tessellation_sink->Close();
+        return S_OK;
     }
 
     HRESULT STDMETHODCALLTYPE CombineWithGeometry(
