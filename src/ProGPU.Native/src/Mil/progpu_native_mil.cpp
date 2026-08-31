@@ -2114,6 +2114,27 @@ struct channel::implementation {
         float clear_blue{};
         float clear_alpha{};
         std::uint32_t flags{};
+        std::uint32_t width{};
+        std::uint32_t height{};
+        double dpi_x{1.0};
+        double dpi_y{1.0};
+        std::int32_t dpi_awareness_context{};
+        std::int32_t window_left{};
+        std::int32_t window_top{};
+        std::int32_t window_right{};
+        std::int32_t window_bottom{};
+        std::uint32_t window_layer_type{};
+        std::uint32_t transparency_mode{};
+        float constant_alpha{1.0F};
+        progpu_native_color color_key{};
+        std::uint32_t disable_cookie{};
+        bool is_window_target{};
+        bool suppress_layered{};
+        bool rendering_enabled{true};
+        bool is_child{};
+        bool is_rtl{};
+        bool gdi_blt{};
+        bool dpi_after_parent{};
     };
 
     struct solid_brush_state {
@@ -3923,6 +3944,236 @@ struct channel::implementation {
                 }
             }
             children.insert(children.begin() + index, child);
+            increment_generation(handle);
+            ++metrics.updated_resource_count;
+            return status::success;
+        }
+        case command::hwnd_target_create: {
+            using layout = command_layouts::hwnd_target_create;
+            std::uint64_t hwnd = 0U;
+            std::uint64_t section = 0U;
+            std::uint64_t master_device = 0U;
+            std::uint32_t width = 0U;
+            std::uint32_t height = 0U;
+            std::array<float, 4U> clear_color{};
+            std::uint32_t flags = 0U;
+            std::uint32_t bitmap = 0U;
+            std::uint32_t stride = 0U;
+            std::uint32_t pixel_format = 0U;
+            std::int32_t dpi_awareness_context = 0;
+            double dpi_x = 0.0;
+            double dpi_y = 0.0;
+            if (!has_exact_size(view, layout::fixed_size) ||
+                !read_at(view.packet, layout::handle_offset, handle) ||
+                !read_at(view.packet, layout::hwnd_offset, hwnd) ||
+                !read_at(view.packet, layout::h_section_offset, section) ||
+                !read_at(
+                    view.packet,
+                    layout::master_device_offset,
+                    master_device) ||
+                !read_at(view.packet, layout::width_offset, width) ||
+                !read_at(view.packet, layout::height_offset, height) ||
+                !read_at(
+                    view.packet,
+                    layout::clear_color_offset,
+                    clear_color) ||
+                !read_at(view.packet, layout::flags_offset, flags) ||
+                !read_at(view.packet, layout::h_bitmap_offset, bitmap) ||
+                !read_at(view.packet, layout::stride_offset, stride) ||
+                !read_at(
+                    view.packet,
+                    layout::e_pixel_format_offset,
+                    pixel_format) ||
+                !read_at(
+                    view.packet,
+                    layout::dpi_awareness_context_offset,
+                    dpi_awareness_context) ||
+                !read_at(view.packet, layout::dpi_x_offset, dpi_x) ||
+                !read_at(view.packet, layout::dpi_y_offset, dpi_y)) {
+                return status::malformed_batch;
+            }
+            if (!require_resource(handle, type_hwnd_render_target)) {
+                return status::invalid_handle;
+            }
+            // HWND, shared-section, master-device, and bitmap handles are
+            // process-local Windows state. The source-integrated producer
+            // supplies a typed portable surface and keeps these wire fields
+            // zero instead of leaking them into the native scene graph.
+            if (hwnd != 0U || section != 0U || master_device != 0U ||
+                bitmap != 0U || stride != 0U || pixel_format != 0U) {
+                return status::invalid_argument;
+            }
+            if (!std::ranges::all_of(
+                    clear_color,
+                    [](float component) noexcept {
+                        return std::isfinite(component);
+                    }) ||
+                !std::isfinite(dpi_x) || !std::isfinite(dpi_y) ||
+                dpi_x <= 0.0 || dpi_y <= 0.0) {
+                return status::malformed_batch;
+            }
+            target_state target{};
+            target.clear_red = clear_color[0];
+            target.clear_green = clear_color[1];
+            target.clear_blue = clear_color[2];
+            target.clear_alpha = clear_color[3];
+            target.flags = flags;
+            target.width = width;
+            target.height = height;
+            target.dpi_x = dpi_x;
+            target.dpi_y = dpi_y;
+            target.dpi_awareness_context = dpi_awareness_context;
+            target.is_window_target = true;
+            targets.insert_or_assign(handle, target);
+            increment_generation(handle);
+            ++metrics.updated_resource_count;
+            return status::success;
+        }
+        case command::hwnd_target_suppress_layered: {
+            using layout = command_layouts::hwnd_target_suppress_layered;
+            std::uint32_t suppress = 0U;
+            if (!has_exact_size(view, layout::fixed_size) ||
+                !read_at(view.packet, layout::handle_offset, handle) ||
+                !read_at(view.packet, layout::suppress_offset, suppress)) {
+                return status::malformed_batch;
+            }
+            if (!require_resource(handle, type_hwnd_render_target) ||
+                !targets.contains(handle)) {
+                return status::invalid_handle;
+            }
+            if (suppress > 1U) {
+                return status::malformed_batch;
+            }
+            targets.at(handle).suppress_layered = suppress != 0U;
+            increment_generation(handle);
+            ++metrics.updated_resource_count;
+            return status::success;
+        }
+        case command::target_update_window_settings: {
+            using layout = command_layouts::target_update_window_settings;
+            std::array<std::int32_t, 4U> window_rect{};
+            std::uint32_t window_layer_type = 0U;
+            std::uint32_t transparency_mode = 0U;
+            float constant_alpha = 0.0F;
+            std::uint32_t is_child = 0U;
+            std::uint32_t is_rtl = 0U;
+            std::uint32_t rendering_enabled = 0U;
+            progpu_native_color color_key{};
+            std::uint32_t disable_cookie = 0U;
+            std::uint32_t gdi_blt = 0U;
+            if (!has_exact_size(view, layout::fixed_size) ||
+                !read_at(view.packet, layout::handle_offset, handle) ||
+                !read_at(
+                    view.packet,
+                    layout::window_rect_offset,
+                    window_rect) ||
+                !read_at(
+                    view.packet,
+                    layout::window_layer_type_offset,
+                    window_layer_type) ||
+                !read_at(
+                    view.packet,
+                    layout::transparency_mode_offset,
+                    transparency_mode) ||
+                !read_at(
+                    view.packet,
+                    layout::constant_alpha_offset,
+                    constant_alpha) ||
+                !read_at(view.packet, layout::is_child_offset, is_child) ||
+                !read_at(view.packet, layout::is_rtl_offset, is_rtl) ||
+                !read_at(
+                    view.packet,
+                    layout::rendering_enabled_offset,
+                    rendering_enabled) ||
+                !read_at(
+                    view.packet,
+                    layout::color_key_offset,
+                    color_key) ||
+                !read_at(
+                    view.packet,
+                    layout::disable_cookie_offset,
+                    disable_cookie) ||
+                !read_at(view.packet, layout::gdi_blt_offset, gdi_blt)) {
+                return status::malformed_batch;
+            }
+            if (!require_resource(handle, type_hwnd_render_target) ||
+                !targets.contains(handle)) {
+                return status::invalid_handle;
+            }
+            constexpr std::uint32_t transparency_mask = 0x7U;
+            if (window_layer_type > 2U ||
+                (transparency_mode & ~transparency_mask) != 0U ||
+                is_child > 1U || is_rtl > 1U ||
+                rendering_enabled > 1U || gdi_blt > 1U ||
+                !std::isfinite(constant_alpha) ||
+                !std::isfinite(color_key.r) ||
+                !std::isfinite(color_key.g) ||
+                !std::isfinite(color_key.b) ||
+                !std::isfinite(color_key.a)) {
+                return status::malformed_batch;
+            }
+            auto& target = targets.at(handle);
+            if (is_child != 0U) {
+                target.rendering_enabled = true;
+            } else if (rendering_enabled != 0U) {
+                if (target.disable_cookie != disable_cookie) {
+                    // WPF deliberately ignores a stale out-of-order enable.
+                    return status::success;
+                }
+                target.rendering_enabled = true;
+            } else {
+                target.disable_cookie = disable_cookie;
+                target.rendering_enabled = false;
+            }
+            if (is_child == 0U || window_layer_type == 2U) {
+                if (window_layer_type == 0U) {
+                    transparency_mode = 0U;
+                } else if (window_layer_type == 1U) {
+                    transparency_mode &= ~0x2U;
+                }
+                target.window_layer_type = window_layer_type;
+                target.transparency_mode = transparency_mode;
+                target.constant_alpha = constant_alpha;
+                target.color_key = color_key;
+                target.window_left = window_rect[0];
+                target.window_top = window_rect[1];
+                target.window_right = window_rect[2];
+                target.window_bottom = window_rect[3];
+            }
+            target.is_child = is_child != 0U;
+            target.is_rtl = is_rtl != 0U;
+            target.gdi_blt = gdi_blt != 0U;
+            increment_generation(handle);
+            ++metrics.updated_resource_count;
+            return status::success;
+        }
+        case command::hwnd_target_dpi_changed: {
+            using layout = command_layouts::hwnd_target_dpi_changed;
+            double dpi_x = 0.0;
+            double dpi_y = 0.0;
+            std::uint32_t after_parent = 0U;
+            if (!has_exact_size(view, layout::fixed_size) ||
+                !read_at(view.packet, layout::handle_offset, handle) ||
+                !read_at(view.packet, layout::dpi_x_offset, dpi_x) ||
+                !read_at(view.packet, layout::dpi_y_offset, dpi_y) ||
+                !read_at(
+                    view.packet,
+                    layout::after_parent_offset,
+                    after_parent)) {
+                return status::malformed_batch;
+            }
+            if (!require_resource(handle, type_hwnd_render_target) ||
+                !targets.contains(handle)) {
+                return status::invalid_handle;
+            }
+            if (!std::isfinite(dpi_x) || !std::isfinite(dpi_y) ||
+                dpi_x <= 0.0 || dpi_y <= 0.0 || after_parent > 1U) {
+                return status::malformed_batch;
+            }
+            auto& target = targets.at(handle);
+            target.dpi_x = dpi_x;
+            target.dpi_y = dpi_y;
+            target.dpi_after_parent = after_parent != 0U;
             increment_generation(handle);
             ++metrics.updated_resource_count;
             return status::success;
@@ -16248,7 +16499,9 @@ status channel::build_scene_core(
         std::unordered_map<std::uint64_t,
             implementation::glyph_scene_resource> glyph_resources;
         std::unordered_set<std::uint32_t> active_visuals;
-        if (target->second.root_handle != 0U) {
+        if (target->second.root_handle != 0U &&
+            (!target->second.is_window_target ||
+             target->second.rendering_enabled)) {
             const status append_status = source.append_visual(
                 target->second.root_handle,
                 implementation::render_scope_state{},

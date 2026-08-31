@@ -53,6 +53,44 @@ public enum NativeMilResourceType : uint
     D3DImage = 97
 }
 
+public enum NativeMilWindowLayerType : uint
+{
+    NotLayered,
+    SystemManagedLayer,
+    ApplicationManagedLayer
+}
+
+[Flags]
+public enum NativeMilTransparencyMode : uint
+{
+    Opaque = 0,
+    ConstantAlpha = 1U << 0,
+    PerPixelAlpha = 1U << 1,
+    ColorKey = 1U << 2
+}
+
+public readonly record struct NativeMilWindowRect(
+    int Left,
+    int Top,
+    int Right,
+    int Bottom);
+
+/// <summary>
+/// Canonical HWND-target presentation policy without an HWND or another
+/// process-local Windows handle.
+/// </summary>
+public readonly record struct NativeMilWindowSettings(
+    NativeMilWindowRect WindowRect,
+    NativeMilWindowLayerType LayerType,
+    NativeMilTransparencyMode TransparencyMode,
+    float ConstantAlpha,
+    bool IsChild,
+    bool IsRtl,
+    bool RenderingEnabled,
+    NativeMilColor ColorKey,
+    uint DisableCookie,
+    bool GdiBlt);
+
 public enum NativeMilEffectRenderingBias : uint
 {
     Performance,

@@ -132,9 +132,9 @@ Decoder-coverage checkpoint adds a second generated authority beside the wire
 layout manifest. `eng/progpu-generate-mil-coverage.py` reads the canonical
 command table and bounded regions of the actual C++ channel decoder and nested
 render-data compiler, then emits
-`eng/mil/native-mil-command-coverage.json`. The current implementation has 68
+`eng/mil/native-mil-command-coverage.json`. The current implementation has 72
 explicit top-level decoder cases, explicit framing/dispatch for all 25
-canonical nested render-data opcodes, two non-retail sentinels, and 48 commands
+canonical nested render-data opcodes, two non-retail sentinels, and 44 commands
 with no native top-level dispatch. Nested dispatch does not claim every value
 or resource combination is supported; obsolete effects and other unsupported
 forms continue to fail closed after exact framing.
@@ -193,6 +193,29 @@ wgpu-native and Dawn. Native tests cover copied and zero-payload external
 front buffers, copy-forward, type separation, pointer/event rejection,
 generation, rendering, and rollback. The live ledger is now 68 top-level
 dispatches and 48 undispatched commands.
+
+Portable window-target checkpoint closes canonical `MilCmdHwndTargetCreate`,
+`MilCmdHwndTargetSuppressLayered`, `MilCmdTargetUpdateWindowSettings`, and
+`MilCmdHwndTargetDpiChanged`. The source-integrated packet builder retains
+dimensions, clear color, initialization flags, DPI awareness/scales, signed
+window bounds, layer/transparency policy, constant alpha, color key,
+child/RTL/GDI state, rendering enablement, and the disable cookie, while HWND,
+shared-section, master-device, and bitmap handles remain zero. Surface and
+present ownership stays in the typed portable host instead of entering the
+backend-neutral channel as a Windows pointer.
+
+The decoder follows WPF's native validation and ordering rules: layer kinds
+are bounded, transparency is a three-bit mask, BOOL fields are canonical,
+numeric state is finite, non-layered targets become opaque, system-managed
+layers discard per-pixel alpha, child targets remain enabled, and an
+out-of-order enable with a stale disable cookie is ignored without mutating
+the retained generation. A disabled window target compiles a valid scene with
+no visual work; reenabling with the current cookie restores the retained root
+without rebuilding its resources. Native tests cover the complete lifecycle,
+stale ordering, scene suppression/restoration, invalid enums, process-handle
+rejection, and transactional rollback. Managed tests verify every canonical
+packet offset. The live ledger is now 72 top-level dispatches and 44
+undispatched commands.
 
 Brush-layout checkpoint `1b4ef706` migrates SolidColorBrush,
 LinearGradientBrush, RadialGradientBrush, DashStyle, and Pen packet readers to
