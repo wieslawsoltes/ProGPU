@@ -5735,6 +5735,42 @@ is `ECC61FFBA903F53532094CD5A7492CA1F9DEC828CB1C91BE08EB0241FB020587`;
 the 121,856-byte test executable SHA-256 is
 `21C542CEFF8805DB694A4D449891486F2A4F094BF4A0BD428ABF8F9063B3C23D`.
 
+ABI v49 adds exact normal-transform Direct2D curved-path strokes without a new
+scene record. The COM recorder captures Direct2D's `CUBICS_AND_LINES`
+vocabulary, retains per-segment stroke/join flags, and converts it into the
+same analytic line/cubic/path-cap/path-join primitives already consumed by the
+portable C++ renderer. Un-stroked gaps become bounded open runs with dash caps;
+forced round joins are shifted from Direct2D's incoming-segment convention to
+the semantic compiler's outgoing-edge convention, including both closed-figure
+seams.
+
+The line-only uniform case remains the existing `STROKE_BATCH` fast path, so
+ABI v48 fixed custom rectangles and large WPF polyline workloads do not pay the
+analytic expansion cost. Curves and per-segment joins use the shared
+`progpu_native_semantic_path_stroke.hpp` compiler and MIL curve-dash run
+splitter. The output remains pointer-free and backend-neutral; there is no CPU
+outline widening, pixel readback, repacking, or per-segment GPU submission.
+Fixed/hairline curved paths remain explicitly gated until device-space dash
+distance is qualified, with the genuine Windows `Widen` fallback retained and
+ProGPU-owned unsupported cases failing closed.
+
+The direct COM oracle requires a ProGPU-owned mixed path to serialize a
+`GEOMETRY_BATCH` containing a cubic and forced-round join. A portable native
+MIL unit test independently compiles the shared helper and compares its exact
+primitive sequence. Focused managed contracts pass 5/5 and the native MIL
+oracle exits zero on macOS. Exact implementation checkpoint `aecb6883` has
+committed source archive SHA-256
+`CDE728391DE0F7EE8F9E504BEE215B4E1B6D6C7A81701864FE3516B07700D51C`;
+Windows 11 ARM64 build `10.0.26200.9168` in Parallels 26.4.1 extracts and
+builds its exact 1,731,087-byte native qualification archive, whose SHA-256 is
+`ED54C0F280595EC92B2D182C3E7AC02E49A494F5D969257DD62D9B3ED0B162F1`.
+MSVC 19.44.35228.0 compiles the provider and oracle with `/W4 /WX`; the native
+Direct2D oracle exits zero and the export table contains the expected 129
+symbols. The 265,216-byte `progpu_native_direct2d.dll` SHA-256 is
+`FDA4E04F94D3DA60C6C8574C6D8196ADCB16ACF654DD6DC1A8AF2342017BAFC9`;
+the 122,880-byte test executable SHA-256 is
+`3D285A96AA096967ACB5E4A6AA1DCD46B1D040CA6603AFC54804360707B6A7DA`.
+
 ## Managed glyph row-reuse SIMD checkpoint
 
 Managed ProGPU checkpoints `2960fb39` and `ffb285af` bring the explicit
