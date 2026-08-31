@@ -3355,6 +3355,7 @@ public sealed partial class CadSnapshotCompiler
             basis,
             polyline.IsClosed,
             polyline.Flags.HasFlag(LwPolylineFlags.Plinegen),
+            fillMode,
             constantWidth,
             hasVariableWidth,
             normalizedVertices,
@@ -3480,6 +3481,7 @@ public sealed partial class CadSnapshotCompiler
             basis,
             polyline.IsClosed,
             polyline.Flags.HasFlag(PolylineFlags.ContinuousLinetypePattern),
+            fillMode,
             constantWidth,
             hasVariableWidth,
             normalizedVertices,
@@ -3522,11 +3524,9 @@ public sealed partial class CadSnapshotCompiler
         CadPolylineVertex[] normalizedVertices,
         int segmentCount)
     {
-        bool hasVisibleWidth = constantWidth > 0.0;
         for (int i = 0; i < segmentCount; i++)
         {
             CadPolylineVertex vertex = normalizedVertices[i];
-            hasVisibleWidth |= vertex.StartWidth > 0.0 || vertex.EndWidth > 0.0;
             if (hasVariableWidth && vertex.Bulge != 0.0)
             {
                 throw new CadUnsupportedEntityException(
@@ -3538,11 +3538,23 @@ public sealed partial class CadSnapshotCompiler
                 throw new CadUnsupportedEntityException(
                     $"Variable-width {role}s containing a zero-width segment require mixed filled-outline and skinny-stroke lowering.");
             }
-        }
-        if (hasVisibleWidth && !fillMode)
-        {
-            throw new CadUnsupportedEntityException(
-                $"FILLMODE-off wide {role}s require exact filled-object outline lowering.");
+            if (!fillMode && constantWidth > 0.0 && vertex.Bulge != 0.0)
+            {
+                CadPolylineVertex end = normalizedVertices[(i + 1) % normalizedVertices.Length];
+                GetBulgeArc(
+                    vertex,
+                    end,
+                    out _,
+                    out _,
+                    out double radius,
+                    out _,
+                    out _);
+                if ((constantWidth * 0.5) > radius)
+                {
+                    throw new CadUnsupportedEntityException(
+                        $"FILLMODE-off wide {role} bulges whose width crosses the arc center require signed-inner-boundary topology lowering.");
+                }
+            }
         }
     }
 
@@ -3555,6 +3567,7 @@ public sealed partial class CadSnapshotCompiler
         CadCoordinateSystem basis,
         bool isClosed,
         bool isLineTypeContinuous,
+        bool fillMode,
         double constantWidth,
         bool hasVariableWidth,
         CadPolylineVertex[] normalizedVertices,
@@ -3647,7 +3660,8 @@ public sealed partial class CadSnapshotCompiler
             isClosed,
             isLineTypeContinuous,
             constantWidth,
-            hasVariableWidth));
+            hasVariableWidth,
+            fillMode));
         return new CadEntityHeader(
             handle,
             kind,

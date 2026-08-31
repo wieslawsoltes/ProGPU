@@ -253,7 +253,7 @@ public sealed class CadVariableWidthPolylineTests
     }
 
     [Fact]
-    public void VariableBulgesThicknessFillModeAndOverflowFailTransactionally()
+    public void VariableBulgesThicknessZeroSegmentsAndOverflowFailButFillOffOutlines()
     {
         var bulgeDocument = CreateLightweightTaper();
         Assert.IsType<LwPolyline>(Assert.Single(bulgeDocument.Entities)).Vertices[0].Bulge = 0.5;
@@ -276,7 +276,19 @@ public sealed class CadVariableWidthPolylineTests
 
         AssertUnsupported(bulge, "spiral-boundary");
         AssertUnsupported(thickness, "side-surface");
-        AssertUnsupported(fillOff, "FILLMODE");
+        CadPolylinePrimitive outlinePrimitive = Assert.Single(fillOff.Polylines.ToArray());
+        using CadRecordedPlanScene scene = new CadPlanSceneCompiler().Compile(fillOff);
+        RenderCommand outline = Assert.Single(
+            scene.DrawingContext.Commands.ToArray());
+        Assert.False(outlinePrimitive.IsFillEnabled);
+        Assert.Null(outline.Brush);
+        Assert.NotNull(outline.Pen);
+        Assert.Equal(3, outline.Path!.Figures.Count);
+        Assert.All(outline.Path.Figures, figure =>
+        {
+            Assert.True(figure.IsClosed);
+            Assert.False(figure.IsFilled);
+        });
         AssertUnsupported(zeroSegmentSnapshot, "skinny-stroke");
         Assert.Empty(overflow.Entities.ToArray());
         Assert.Equal(1, overflow.Statistics.InvalidEntityCount);

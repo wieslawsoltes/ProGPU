@@ -2,7 +2,9 @@ using ACadSharp;
 using ACadSharp.Entities;
 using ACadSharp.Tables;
 using CSMath;
+using System.Numerics;
 using ProGPU.Scene;
+using ProGPU.Scene.Native;
 using ProGPU.Vector;
 using Xunit;
 
@@ -63,11 +65,113 @@ public sealed class CadWidePolylineTests
     }
 
     [Fact]
-    public void FillModeOffAndVariableWidthBulgesRemainExplicitlyUnsupported()
+    public void FillModeOffStraightRetainsExactLineweightOutlineAndNativeParity()
     {
         var fillOff = new CadDocument();
         fillOff.Header.FillMode = false;
-        fillOff.Entities.Add(CreateStraight(width: 2.0));
+        LwPolyline straight = CreateStraight(width: 2.0);
+        straight.LineWeight = LineWeightType.W25;
+        fillOff.Entities.Add(straight);
+
+        CadDocumentSnapshot snapshot = Compile(fillOff);
+        CadPolylinePrimitive primitive = Assert.Single(snapshot.Polylines.ToArray());
+        using CadRecordedPlanScene scene = new CadPlanSceneCompiler().Compile(snapshot);
+        RenderCommand command = Assert.Single(scene.DrawingContext.Commands.ToArray());
+
+        Assert.False(primitive.IsFillEnabled);
+        Assert.Null(command.Brush);
+        Assert.NotNull(command.Pen);
+        Assert.Equal(PenStrokeTransformMode.Fixed, command.Pen!.StrokeTransformMode);
+        Assert.Equal(0.25f * 96.0f / 25.4f, command.Pen.Thickness, 5);
+        PathFigure figure = Assert.Single(command.Path!.Figures);
+        Assert.True(figure.IsClosed);
+        Assert.False(figure.IsFilled);
+        Assert.Equal(3, figure.Segments.Count);
+        Assert.All(figure.Segments, segment => Assert.IsType<LineSegment>(segment));
+
+        using GpuPicture picture = scene.CreatePicture();
+        Assert.True(GpuPictureNativeSceneCompiler.TryCompile(
+            picture,
+            96U,
+            1U,
+            out NativeCompiledPicture? native,
+            out NativePictureCompileFailure failure),
+            failure.ToString());
+        Assert.NotNull(native);
+        Assert.Equal(1, native.SourceCommandCount);
+        Assert.True(native.NativeDrawCount > 0);
+
+        using CadPrintPlan print = new CadPrintPlanCompiler().Compile(snapshot);
+        using GpuPicture page = print.CreatePagePicture();
+        RenderCommand replay = page.GetCommand(1);
+        RenderCommand printOutline = replay.Picture!.GetCommand(0);
+        Assert.Null(printOutline.Brush);
+        Assert.NotNull(printOutline.Pen);
+        Assert.True(Assert.Single(printOutline.Path!.Figures).IsClosed);
+    }
+
+    [Fact]
+    public void FillModeOffBulgeRetainsExactConcentricArcSector()
+    {
+        var document = new CadDocument();
+        document.Header.FillMode = false;
+        var polyline = new LwPolyline { ConstantWidth = 2.0 };
+        polyline.Vertices.Add(new LwPolyline.Vertex(0, 0) { Bulge = 1.0 });
+        polyline.Vertices.Add(new LwPolyline.Vertex(10, 0));
+        document.Entities.Add(polyline);
+
+        CadDocumentSnapshot snapshot = Compile(document);
+        using CadRecordedPlanScene scene = new CadPlanSceneCompiler().Compile(snapshot);
+        RenderCommand command = Assert.Single(scene.DrawingContext.Commands.ToArray());
+        PathFigure figure = Assert.Single(command.Path!.Figures);
+        ArcSegment outer = Assert.IsType<ArcSegment>(figure.Segments[0]);
+        Assert.IsType<LineSegment>(figure.Segments[1]);
+        ArcSegment inner = Assert.IsType<ArcSegment>(figure.Segments[2]);
+
+        Assert.Null(command.Brush);
+        Assert.NotNull(command.Pen);
+        Assert.Equal(new Vector2(6, 6), outer.Size);
+        Assert.Equal(new Vector2(4, 4), inner.Size);
+        Assert.NotEqual(outer.SweepDirection, inner.SweepDirection);
+
+        using GpuPicture picture = scene.CreatePicture();
+        Assert.True(GpuPictureNativeSceneCompiler.TryCompile(
+            picture,
+            96U,
+            1U,
+            out NativeCompiledPicture? native,
+            out NativePictureCompileFailure failure),
+            failure.ToString());
+        Assert.NotNull(native);
+        Assert.Equal(1, native.SourceCommandCount);
+    }
+
+    [Fact]
+    public void FillModeOffBulgeAllowsInnerBoundaryToCollapseExactlyAtCenter()
+    {
+        var document = new CadDocument();
+        document.Header.FillMode = false;
+        var polyline = new LwPolyline { ConstantWidth = 10.0 };
+        polyline.Vertices.Add(new LwPolyline.Vertex(0, 0) { Bulge = 1.0 });
+        polyline.Vertices.Add(new LwPolyline.Vertex(10, 0));
+        document.Entities.Add(polyline);
+
+        CadDocumentSnapshot snapshot = Compile(document);
+        using CadRecordedPlanScene scene = new CadPlanSceneCompiler().Compile(snapshot);
+        PathFigure figure = Assert.Single(
+            Assert.Single(scene.DrawingContext.Commands.ToArray()).Path!.Figures);
+
+        Assert.True(figure.IsClosed);
+        ArcSegment outer = Assert.IsType<ArcSegment>(figure.Segments[0]);
+        LineSegment center = Assert.IsType<LineSegment>(figure.Segments[1]);
+        Assert.Equal(new Vector2(10, 10), outer.Size);
+        Assert.Equal(new Vector2(5, 0), center.Point);
+        Assert.Equal(2, figure.Segments.Count);
+    }
+
+    [Fact]
+    public void VariableWidthBulgesAndCenterCrossingOutlinesRemainExplicitlyUnsupported()
+    {
 
         var variable = new CadDocument();
         var tapered = CreateStraight(width: 4.0);
@@ -76,19 +180,25 @@ public sealed class CadWidePolylineTests
         tapered.Vertices[0].Bulge = 0.5;
         variable.Entities.Add(tapered);
 
-        CadDocumentSnapshot fillOffSnapshot = Compile(fillOff);
-        CadDocumentSnapshot variableSnapshot = Compile(variable);
+        var centerCrossing = new CadDocument();
+        centerCrossing.Header.FillMode = false;
+        var crossingBulge = new LwPolyline { ConstantWidth = 12.0 };
+        crossingBulge.Vertices.Add(new LwPolyline.Vertex(0, 0) { Bulge = 1.0 });
+        crossingBulge.Vertices.Add(new LwPolyline.Vertex(10, 0));
+        centerCrossing.Entities.Add(crossingBulge);
 
-        Assert.Empty(fillOffSnapshot.Entities.ToArray());
-        Assert.Equal(1, fillOffSnapshot.Statistics.UnsupportedEntityCount);
-        Assert.Contains(fillOffSnapshot.Diagnostics.ToArray(), diagnostic =>
-            diagnostic.Code == "CADSNAP003" &&
-            diagnostic.Message.Contains("FILLMODE", StringComparison.Ordinal));
+        CadDocumentSnapshot variableSnapshot = Compile(variable);
+        CadDocumentSnapshot crossingSnapshot = Compile(centerCrossing);
+
         Assert.Empty(variableSnapshot.Entities.ToArray());
         Assert.Equal(1, variableSnapshot.Statistics.UnsupportedEntityCount);
         Assert.Contains(variableSnapshot.Diagnostics.ToArray(), diagnostic =>
             diagnostic.Code == "CADSNAP003" &&
             diagnostic.Message.Contains("spiral-boundary", StringComparison.Ordinal));
+        Assert.Empty(crossingSnapshot.Entities.ToArray());
+        Assert.Contains(crossingSnapshot.Diagnostics.ToArray(), diagnostic =>
+            diagnostic.Code == "CADSNAP003" &&
+            diagnostic.Message.Contains("signed-inner-boundary", StringComparison.Ordinal));
     }
 
     [Fact]

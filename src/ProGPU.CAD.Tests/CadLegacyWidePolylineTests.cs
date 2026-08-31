@@ -159,7 +159,7 @@ public sealed class CadLegacyWidePolylineTests
     }
 
     [Fact]
-    public void VariableWidthBulgesAndFillModeOffRemainExplicitlyUnsupported()
+    public void VariableWidthBulgesRemainUnsupportedAndFillModeOffRetainsLegacyOutline()
     {
         var variableDocument = new CadDocument();
         var variable = new Polyline2D { StartWidth = 2.0, EndWidth = 3.0 };
@@ -182,11 +182,14 @@ public sealed class CadLegacyWidePolylineTests
         Assert.Contains(variableSnapshot.Diagnostics.ToArray(), diagnostic =>
             diagnostic.Code == "CADSNAP003" &&
             diagnostic.Message.Contains("spiral-boundary", StringComparison.Ordinal));
-        Assert.Empty(fillOffSnapshot.Entities.ToArray());
-        Assert.Equal(1, fillOffSnapshot.Statistics.UnsupportedEntityCount);
-        Assert.Contains(fillOffSnapshot.Diagnostics.ToArray(), diagnostic =>
-            diagnostic.Code == "CADSNAP003" &&
-            diagnostic.Message.Contains("FILLMODE", StringComparison.Ordinal));
+        CadPolylinePrimitive primitive = Assert.Single(fillOffSnapshot.Polylines.ToArray());
+        using CadRecordedPlanScene scene = new CadPlanSceneCompiler().Compile(fillOffSnapshot);
+        RenderCommand outline = Assert.Single(
+            scene.DrawingContext.Commands.ToArray());
+        Assert.False(primitive.IsFillEnabled);
+        Assert.Null(outline.Brush);
+        Assert.NotNull(outline.Pen);
+        Assert.True(Assert.Single(outline.Path!.Figures).IsClosed);
     }
 
     [Fact]

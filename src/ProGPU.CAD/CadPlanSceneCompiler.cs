@@ -306,7 +306,9 @@ public sealed class CadPlanSceneCompiler
                 snapshot,
                 entity,
                 out CadPolylinePrimitive widePolyline);
-            Pen geometryPen = isWidePolyline && !widePolyline.HasVariableWidth
+            Pen geometryPen = isWidePolyline &&
+                widePolyline.IsFillEnabled &&
+                !widePolyline.HasVariableWidth
                 ? GetWidePolylinePen(
                     entity.StyleIndex,
                     widePolyline.ConstantWidth,
@@ -2255,6 +2257,11 @@ public sealed class CadPlanSceneCompiler
             polyline.WorldOrigin,
             polyline.CoordinateSystem,
             snapshot.RebaseOrigin);
+        if (polyline.IsWide && !polyline.IsFillEnabled)
+        {
+            RecordWidePolylineOutline(context, pen, vertices, polyline, transform);
+            return;
+        }
         if (polyline.HasVariableWidth)
         {
             RecordVariableWidthPolyline(context, pen, vertices, polyline.IsClosed, transform);
@@ -2303,6 +2310,186 @@ public sealed class CadPlanSceneCompiler
     }
 
     /// <summary>
+    /// Records the hollow FILLMODE representation as one retained stroked path.
+    /// Straight segments contribute exact closed trapezoids and constant-width
+    /// bulges contribute exact concentric annular sectors. Straight bevel cells
+    /// remain separate figures so authored segment/join seams remain visible.
+    /// Work and storage are O(S) for S source segments; no curve flattening or
+    /// path boolean is performed.
+    /// </summary>
+    private static void RecordWidePolylineOutline(
+        DrawingContext context,
+        Pen pen,
+        ReadOnlySpan<CadPolylineVertex> vertices,
+        CadPolylinePrimitive polyline,
+        Matrix4x4 transform)
+    {
+        var path = new PathGeometry { FillRule = FillRule.Nonzero };
+        int segmentCount = polyline.IsClosed ? vertices.Length : vertices.Length - 1;
+        for (int i = 0; i < segmentCount; i++)
+        {
+            CadPolylineVertex start = vertices[i];
+            CadPolylineVertex end = vertices[(i + 1) % vertices.Length];
+            double startWidth = polyline.HasVariableWidth
+                ? start.StartWidth
+                : polyline.ConstantWidth;
+            double endWidth = polyline.HasVariableWidth
+                ? start.EndWidth
+                : polyline.ConstantWidth;
+            if (start.Bulge == 0.0)
+            {
+                CadPolylineVertex widened = start with
+                {
+                    StartWidth = startWidth,
+                    EndWidth = endWidth,
+                };
+                if (TryGetLineCorners(
+                        widened,
+                        end,
+                        out Vector2 first,
+                        out Vector2 second,
+                        out Vector2 third,
+                        out Vector2 fourth))
+                {
+                    AddOutlinedQuadrilateral(path, first, second, third, fourth);
+                }
+                continue;
+            }
+
+            AddOutlinedBulgeSector(path, start, end, polyline.ConstantWidth);
+        }
+
+        int firstJoin = polyline.IsClosed ? 0 : 1;
+        int joinEnd = polyline.IsClosed ? vertices.Length : vertices.Length - 1;
+        for (int vertexIndex = firstJoin; vertexIndex < joinEnd; vertexIndex++)
+        {
+            int previousSegment = (vertexIndex + segmentCount - 1) % segmentCount;
+            int nextSegment = vertexIndex % segmentCount;
+            CadPolylineVertex previous = vertices[previousSegment];
+            CadPolylineVertex join = vertices[vertexIndex];
+            CadPolylineVertex next = vertices[(nextSegment + 1) % vertices.Length];
+            if (previous.Bulge != 0.0 || join.Bulge != 0.0)
+            {
+                continue;
+            }
+
+            previous = previous with
+            {
+                EndWidth = polyline.HasVariableWidth
+                    ? previous.EndWidth
+                    : polyline.ConstantWidth,
+            };
+            join = join with
+            {
+                StartWidth = polyline.HasVariableWidth
+                    ? join.StartWidth
+                    : polyline.ConstantWidth,
+            };
+            if (TryGetVariableBevelJoin(
+                    previous,
+                    join,
+                    next,
+                    out Vector2 first,
+                    out Vector2 second,
+                    out Vector2 third))
+            {
+                AddOutlinedTriangle(path, first, second, third);
+            }
+        }
+
+        context.DrawPath(null, pen, path, transform);
+    }
+
+    private static void AddOutlinedBulgeSector(
+        PathGeometry path,
+        CadPolylineVertex start,
+        CadPolylineVertex end,
+        double width)
+    {
+        CadSnapshotCompiler.GetBulgeArc(
+            start,
+            end,
+            out double centerX,
+            out double centerY,
+            out double radius,
+            out _,
+            out double sweep);
+        double halfWidth = width * 0.5;
+        double outerRadius = radius + halfWidth;
+        double innerRadius = radius - halfWidth;
+        double startRadialX = (start.X - centerX) / radius;
+        double startRadialY = (start.Y - centerY) / radius;
+        double endRadialX = (end.X - centerX) / radius;
+        double endRadialY = (end.Y - centerY) / radius;
+        Vector2 outerStart = new(
+            ToFloat(centerX + (startRadialX * outerRadius)),
+            ToFloat(centerY + (startRadialY * outerRadius)));
+        Vector2 outerEnd = new(
+            ToFloat(centerX + (endRadialX * outerRadius)),
+            ToFloat(centerY + (endRadialY * outerRadius)));
+        Vector2 innerEnd = innerRadius == 0.0
+            ? new Vector2(ToFloat(centerX), ToFloat(centerY))
+            : new Vector2(
+                ToFloat(centerX + (endRadialX * innerRadius)),
+                ToFloat(centerY + (endRadialY * innerRadius)));
+        Vector2 innerStart = innerRadius == 0.0
+            ? innerEnd
+            : new Vector2(
+                ToFloat(centerX + (startRadialX * innerRadius)),
+                ToFloat(centerY + (startRadialY * innerRadius)));
+        bool isLargeArc = Math.Abs(sweep) > Math.PI;
+        SweepDirection direction = sweep >= 0.0
+            ? SweepDirection.Counterclockwise
+            : SweepDirection.Clockwise;
+        var figure = new PathFigure(outerStart, isClosed: true) { IsFilled = false };
+        figure.Segments.Add(new ArcSegment(
+            outerEnd,
+            new Vector2(ToFloat(outerRadius), ToFloat(outerRadius)),
+            rotationAngle: 0.0f,
+            isLargeArc: isLargeArc,
+            sweepDirection: direction));
+        figure.Segments.Add(new LineSegment(innerEnd));
+        if (innerRadius > 0.0)
+        {
+            figure.Segments.Add(new ArcSegment(
+                innerStart,
+                new Vector2(ToFloat(innerRadius), ToFloat(innerRadius)),
+                rotationAngle: 0.0f,
+                isLargeArc: isLargeArc,
+                sweepDirection: direction == SweepDirection.Counterclockwise
+                    ? SweepDirection.Clockwise
+                    : SweepDirection.Counterclockwise));
+        }
+        path.Figures.Add(figure);
+    }
+
+    private static void AddOutlinedQuadrilateral(
+        PathGeometry path,
+        Vector2 first,
+        Vector2 second,
+        Vector2 third,
+        Vector2 fourth)
+    {
+        var figure = new PathFigure(first, isClosed: true) { IsFilled = false };
+        figure.Segments.Add(new LineSegment(second));
+        figure.Segments.Add(new LineSegment(third));
+        figure.Segments.Add(new LineSegment(fourth));
+        path.Figures.Add(figure);
+    }
+
+    private static void AddOutlinedTriangle(
+        PathGeometry path,
+        Vector2 first,
+        Vector2 second,
+        Vector2 third)
+    {
+        var figure = new PathFigure(first, isClosed: true) { IsFilled = false };
+        figure.Segments.Add(new LineSegment(second));
+        figure.Segments.Add(new LineSegment(third));
+        path.Figures.Add(figure);
+    }
+
+    /// <summary>
     /// Lowers one exact straight tapered polyline to a single nonzero fill.
     /// Each segment contributes one trapezoid and each non-collinear interior
     /// vertex one bevel triangle. The shared fill command unions overlaps
@@ -2322,7 +2509,7 @@ public sealed class CadPlanSceneCompiler
         {
             CadPolylineVertex start = vertices[i];
             CadPolylineVertex end = vertices[(i + 1) % vertices.Length];
-            if (!TryGetVariableLineCorners(
+            if (!TryGetLineCorners(
                     start,
                     end,
                     out Vector2 first,
@@ -2359,7 +2546,7 @@ public sealed class CadPlanSceneCompiler
         context.DrawPath(pen.Brush, null, path, transform);
     }
 
-    private static bool TryGetVariableLineCorners(
+    private static bool TryGetLineCorners(
         CadPolylineVertex start,
         CadPolylineVertex end,
         out Vector2 first,

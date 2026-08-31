@@ -4,17 +4,21 @@ Date: 2026-08-31
 
 ## Scope
 
-This clean-room work covers fill-on ACadSharp `LwPolyline.ConstantWidth`, legacy
-`Polyline2D` entity defaults, constant per-segment overrides, and exact
-variable-width straight segments. Width is absolute OCS/model-space geometry
-centered on each segment and follows the complete entity, block, camera, and
-print transform. Constant profiles retain the original analytic line-and-bulge
-stroke; tapered straight profiles lower to one filled outline.
+This clean-room work covers ACadSharp `LwPolyline.ConstantWidth`, legacy
+`Polyline2D` entity defaults, constant per-segment overrides, exact
+variable-width straight segments, and drawing-level FILLMODE rendering. Width
+is absolute OCS/model-space geometry centered on each segment and follows the
+complete entity, block, camera, and print transform. Fill-on constant profiles
+retain the original analytic line-and-bulge stroke; tapered straight profiles
+lower to one filled outline. Fill-off profiles retain one hollow entity command
+whose straight/tapered segment cells, straight bevel cells, and constant-width
+annular bulge sectors preserve their authored boundary seams.
 
 Genuinely variable-width bulges, mixed skinny/wide segment streams,
-FILLMODE-off boundary rendering, and patterned-wide cap exceptions remain
-typed unsupported geometry. None is approximated as a constant or cosmetic
-centerline.
+constant-width bulges whose inner signed boundary crosses the arc center, and
+patterned-wide cap exceptions remain typed unsupported geometry. None is
+approximated as a constant, cosmetic centerline, flattened curve, or boolean
+union.
 
 ## Primary sources consulted
 
@@ -41,6 +45,12 @@ centerline.
   documented exceptions; Width/Halfwidth values persist into later segments.
 - Autodesk [`FILLMODE`](https://help.autodesk.com/cloudhelp/2026/ENU/AutoCAD-Core/files/GUID-FC385D70-45AA-4B9A-848A-CA3906C36124.htm):
   wide polylines participate in the drawing-level filled/unfilled policy.
+- Autodesk [`FILL`](https://help.autodesk.com/cloudhelp/2022/ENU/AutoCAD-Core/files/GUID-A09941AF-919C-4E72-96F4-3DF3C11922DE.htm)
+  and the official [wide-polyline display troubleshooting](https://www.autodesk.com/support/technical/article/caas/sfdcarticles/sfdcarticles/Wide-polylines-do-not-appear-as-filled-in-AutoCAD.html):
+  disabling fill displays wide polylines as outlines, while REGEN applies a
+  changed setting. Autodesk's published fill-off sample and independently
+  observed multi-segment output show segment and join boundaries rather than a
+  boolean-unioned exterior perimeter.
 - Autodesk [object-selection guidance](https://help.autodesk.com/cloudhelp/2026/ENU/AutoCAD-OnBoarding/files/ACD_FOUNDATIONS_MAIN7.html):
   crossing selection includes objects within or touching the region, while
   window selection requires complete containment. The visible filled strip,
@@ -56,6 +66,12 @@ centerline.
   centered on the path; explicit widening produces an outline using a caller
   flattening tolerance. ProGPU adopts retained outline lowering for exact
   straight tapers and rejects tolerance-flattened curved taper boundaries.
+- Direct2D [`ID2D1Geometry::Outline`](https://learn.microsoft.com/en-us/windows/win32/direct2d/id2d1geometry-outline)
+  produces a fill-equivalent outline after removing transverse intersections,
+  and Skia [`SkPathOps`](https://github.com/google/skia/blob/main/include/pathops/SkPathOps.h)
+  union/simplify operations construct non-overlapping contours. Both were
+  rejected for FILLMODE lowering because eliminating the original segment and
+  join seams changes the observed CAD output.
 - Direct2D
   [`StrokeContainsPoint`](https://learn.microsoft.com/en-us/windows/win32/direct2d/id2d1geometry-strokecontainspoint)
   and Win2D
@@ -147,6 +163,17 @@ blending overlapping segment draws. Nonuniform and sheared block transforms
 apply to this complete source-space fill. This is exact O(S) work and storage
 for S straight segments with no tessellation tolerance.
 
+The immutable snapshot also captures drawing-level `FILLMODE` on each planar
+polyline. When fill is disabled, the plan and print compilers use the ordinary
+resolved entity lineweight to stroke one retained path containing separate
+closed figures: an exact quadrilateral for each straight or tapered segment,
+an exact concentric annular sector for each constant-width bulge, and an exact
+triangle for each applicable straight bevel cell. Figures are deliberately not
+boolean-unioned, so segment endpoints, join edges, and self-crossing overlap
+remain visible. The analytic arcs retain their original sweep and the complete
+path retains the OCS/block/page transform. A half-width equal to the source arc
+radius is exact because the inner boundary collapses to the center point.
+
 A tapered circular bulge has radius `r +/- w(t)/2`, where width is linear in
 the bulge parameter. Its boundaries are spiral-like rather than finite circular
 or rational-quadratic arcs. Direct2D widening and CPU flatteners would introduce
@@ -176,6 +203,13 @@ covers the complementary case where the selection box lies wholly inside the
 strip without touching its boundary. Window selection remains the inclusive
 containment test against the snapshot's exact expanded WCS bounds.
 
+FILLMODE changes display and plot representation, not the authored polyline's
+geometric width. ProGPU therefore keeps the existing exact filled-strip point,
+Window, and Crossing selection contract when the display is hollow. This is an
+explicit ProGPU inference from Autodesk's separate fill/display and selection
+contracts; it avoids changing editability or spatial bounds when FILLMODE is
+toggled.
+
 Selection is O(S) time for S segments. Each constant-width bulge uses at most eight rational
 quadratic boundary tests plus two endpoint sections; all temporary controls,
 box corners, and roots use bounded stack storage. Warm point and box queries
@@ -192,8 +226,10 @@ allocate zero managed memory and do not initialize a GPU backend.
   segment also remains unsupported: that segment is a skinny stroke, so exact
   output needs a mixed fill/stroke batch contract rather than silently dropping
   a degenerate fill.
-- FILLMODE off remains unsupported because AutoCAD displays/plots the boundary
-  outline of the filled object. Replaying the centerline would be incorrect.
+- For FILLMODE off, a constant-width bulge whose half-width exceeds its source
+  radius remains unsupported. Its inner signed boundary crosses the center and
+  changes topology; a positive-radius annular sector would be incorrect. The
+  equal-radius point collapse is supported.
 - Simple or complex linetypes on a wide polyline emit `CADSCENE009` and replay
   one continuous wide path. Autodesk documents cap/join exceptions for
   dot-dash patterns; the existing zero-width linetype lowerer cannot preserve
@@ -201,15 +237,16 @@ allocate zero managed memory and do not initialize a GPU backend.
 
 ## Complexity, retention, and parity audit
 
-Snapshot width resolution, normalization, and exact bounds are O(V) time for V
+Snapshot width resolution, FILLMODE capture, normalization, and exact bounds are O(V) time for V
 vertices and O(V) retained vertex storage. Widths live beside the existing
 immutable vertex topology rather than in a pointer-bearing parallel object
 graph. Scene recording is O(V): each entity produces one retained command;
 constant profiles use O(U) cached pens for U distinct `(style,width)` pairs,
-while a tapered profile retains at most S trapezoids and S bevel triangles in
-one fill. Stable replay, pan, zoom, and print replay do not rebuild CAD geometry
-and introduce no per-frame managed/native crossing, retained upload, or CAD
-allocation.
+while a tapered fill retains at most S trapezoids and S bevel triangles and a
+hollow profile retains at most S segment cells and S bevel cells in one path.
+Constant bulges add two analytic arcs and two radial edges each. Stable replay,
+pan, zoom, and print replay do not rebuild CAD geometry and introduce no
+per-frame managed/native crossing, retained upload, or CAD allocation.
 
 ## Release measurements and Instruments correlation
 
@@ -258,8 +295,36 @@ Raw `.trace` bundles and XML exports remain task-local; this table is the
 retained compact export. The machine-readable counterpart is
 `artifacts/benchmarks/cad-wide-polyline-comparison.json`.
 
+The FILLMODE checkpoint adds a second same-final-binary, interleaved Release
+comparison with 10,000 entities, five warmups, and 40 measured iterations. Each
+entity contains one straight and one constant-width bulge segment; both modes
+record exactly 10,000 commands. The host remained heavily contended by two
+user-owned virtual machines and an unrelated Mono process, so these values are
+a reproducible contention audit rather than a clean absolute baseline.
+
+| Operation | Filled p50 / p95 / p99 | Hollow p50 / p95 / p99 | Filled / hollow allocation |
+|---|---:|---:|---:|
+| Snapshot compile | 30.018 / 55.460 / 68.713 | 26.451 / 47.107 / 64.927 | 15,354,779 / 15,354,620 B |
+| Plan-scene compile | 25.494 / 48.557 / 55.797 | 48.823 / 75.233 / 79.583 | 10,721,424 / 13,601,402 B |
+| Print-plan compile | 31.935 / 65.331 / 100.914 | 36.713 / 90.528 / 113.264 | 11,966,703 / 14,847,031 B |
+| Stable replay | 118.116 ms | 92.303 ms | 0 / 0 B |
+
+The approximately 2.88 MB plan/print delta is the intended bounded analytic
+outline topology. Snapshot allocation is effectively unchanged, command count
+does not increase, and stable replay remains zero-allocation. Xcode Instruments
+16.0 Time Profiler launched the same final benchmark successfully: the target
+exited with status zero and the exported table contains 7,040 samples spanning
+00:04.286 through 00:12.523. Allocations/VM Tracker launch injection stalled
+before managed initialization, and attach mode required an administrator
+credential unavailable to this run; incomplete traces are not counted as
+evidence. The managed allocation counters above provide the available
+correlation. Metal System Trace remains genuinely inapplicable because this
+CPU-only workload creates no WebGPU device, resource, command buffer,
+submission, or readback. The machine-readable evidence and exact limitation
+are retained in `artifacts/benchmarks/cad-fillmode-outline-comparison.json`.
+
 The managed and native renderers consume the same `GpuPicture` path and the
-same existing ProGPU stroke compiler. No C ABI record, generated C# wire type,
+same existing ProGPU path/stroke compiler. No C ABI record, generated C# wire type,
 C++ CAD frontend, shader, atlas, device-loss contract, or GPU resource owner
 changes. Exact CAD selection is a host-side immutable-snapshot query; there is
 no native CAD selection frontend or managed/native crossing to update. A
@@ -272,12 +337,14 @@ Focused regressions cover straight and bulged bounds, analytic arc retention,
 bevel/butt model-space style, nonuniform and sheared nested block transforms,
 signed-radius bulge selection, bevel and flat-cap selection, whole-box strip
 containment, exact tapered trapezoids and discontinuous bevels, explicit-zero
-DXF/DWG presence, zero warm-query allocation, bounded shared pen identity, print
-replay, managed/native compilation, authoring and Undo/Redo, DXF/DWG round
-trips, recoverable FILLMODE failure, curved-variable rejection, and patterned
-fallback diagnostics. The final focused ProGPU.CAD suite passes 38/38 in both
-Debug and Release, and the full project suite passes 1,359/1,359 in both
-configurations. The ACadSharp width-writer focus passes 5/5 on net48; after the
+DXF/DWG presence, zero warm-query allocation, bounded shared pen identity,
+exact FILLMODE-off straight/tapered cells and concentric bulge sectors,
+lineweight use, print replay, managed/native compilation, authoring and
+Undo/Redo, DXF/DWG round trips, signed-inner-boundary rejection,
+curved-variable rejection, and patterned fallback diagnostics. The final
+focused wide-polyline/authoring suite passes 71/71 in Debug, and the full project suite
+passes 1,362/1,362 in both Debug and Release. The ACadSharp width-writer focus
+passes 5/5 on net48; after the
 public omission-reset API was added, its current width-presence subset passes
 2/2 on net48. A full upstream net48 run was attempted separately, then cancelled
 after 46 minutes when the Rosetta/Mono host reached a 7 GB peak and prolonged

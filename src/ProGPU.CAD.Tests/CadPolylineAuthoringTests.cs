@@ -2,6 +2,7 @@ using ACadSharp;
 using ACadSharp.Entities;
 using ACadSharp.Tables;
 using CSMath;
+using ProGPU.Scene;
 using Xunit;
 
 namespace ProGPU.CAD.Tests;
@@ -125,7 +126,8 @@ public sealed class CadPolylineAuthoringTests
         document.Header.CurrentEntityLineWeight = LineWeightType.W35;
         document.Header.PolylineLineTypeGeneration = true;
         document.Header.PolylineWidthDefault = 2.0;
-        var history = new CadDocumentHistory(new CadDocumentSession(document));
+        var session = new CadDocumentSession(document);
+        var history = new CadDocumentHistory(session);
         var snapshot = new CadPolylineAuthoringSnapshot(
             [
                 new CadPoint3D(1, 2, 3),
@@ -207,25 +209,32 @@ public sealed class CadPolylineAuthoringTests
     }
 
     [Fact]
-    public void CommandRejectsNonzeroPlinewidWithFillModeOffBeforeMutation()
+    public void CommandAuthorsNonzeroPlinewidWithFillModeOffForSnapshotOutline()
     {
         var document = new CadDocument();
         document.Header.PolylineWidthDefault = 2.0;
         document.Header.FillMode = false;
-        var history = new CadDocumentHistory(new CadDocumentSession(document));
+        var session = new CadDocumentSession(document);
+        var history = new CadDocumentHistory(session);
         var command = new CadAddPolylineCommand(
             new CadPolylineAuthoringSnapshot(
                 [CadPoint3D.Zero, new CadPoint3D(10, 0, 0)],
                 [0.0, 0.0],
                 isClosed: false));
 
-        Exception exception = Assert.ThrowsAny<Exception>(() => history.Execute(command));
+        history.Execute(command);
 
-        Assert.Equal("CadUnsupportedEntityException", exception.GetType().Name);
-        Assert.Contains("FILLMODE", exception.Message, StringComparison.Ordinal);
-        Assert.Empty(document.Entities);
-        Assert.Equal(0, history.UndoCount);
-        Assert.Null(command.Polyline);
+        LwPolyline polyline = Assert.IsType<LwPolyline>(Assert.Single(document.Entities));
+        Assert.Equal(2.0, polyline.ConstantWidth);
+        Assert.Equal(1, history.UndoCount);
+        Assert.Same(polyline, command.Polyline);
+        CadDocumentSnapshot snapshot = new CadSnapshotCompiler().Compile(session);
+        Assert.False(Assert.Single(snapshot.Polylines.ToArray()).IsFillEnabled);
+        using CadRecordedPlanScene scene = new CadPlanSceneCompiler().Compile(snapshot);
+        RenderCommand outline = Assert.Single(
+            scene.DrawingContext.Commands.ToArray());
+        Assert.NotNull(outline.Pen);
+        Assert.Null(outline.Brush);
     }
 
     [Theory]

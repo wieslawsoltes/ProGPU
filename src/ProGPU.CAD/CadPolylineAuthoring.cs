@@ -542,8 +542,8 @@ public sealed class CadPolylineAuthoringSession
 /// <remarks>
 /// Current CLAYER, CECOLOR, CELTYPE, CELTSCALE, CELWEIGHT, PLINEGEN, and
 /// PLINEWID are captured atomically on first Apply. A finite constant nonzero
-/// PLINEWID is authored only while FILLMODE is enabled; variable-width and
-/// fill-off outline contracts remain separate explicit gates.
+/// PLINEWID is authored independently of FILLMODE; snapshot compilation retains
+/// the drawing-level fill/outline policy without changing entity geometry.
 /// Apply/Undo/Redo are O(S), and retained command storage is O(S).
 /// </remarks>
 public sealed class CadAddPolylineCommand : CadEditCommand
@@ -621,12 +621,6 @@ public sealed class CadAddPolylineCommand : CadEditCommand
             throw new InvalidOperationException(
                 "Current PLINEWID exceeds the retained float stroke domain.");
         }
-        if (defaultWidth != 0.0 && !document.Header.FillMode)
-        {
-            throw new CadUnsupportedEntityException(
-                "Nonzero PLINEWID with FILLMODE off requires exact wide-polyline outline lowering.");
-        }
-
         double lineTypeScale = document.Header.CurrentEntityLinetypeScale;
         if (!double.IsFinite(lineTypeScale) || lineTypeScale <= 0.0)
         {

@@ -491,7 +491,8 @@ public readonly record struct CadPolylineVertex(
 /// <summary>
 /// One immutable planar polyline. Uniform profiles use <see cref="ConstantWidth"/>
 /// and the analytic stroke fast path; nonuniform straight profiles read start
-/// and end widths from their segment-start vertices.
+/// and end widths from their segment-start vertices. <see cref="IsFillEnabled"/>
+/// captures the drawing-level FILLMODE policy for exact retained replay.
 /// </summary>
 public readonly record struct CadPolylinePrimitive(
     CadPoint3D WorldOrigin,
@@ -501,7 +502,8 @@ public readonly record struct CadPolylinePrimitive(
     bool IsClosed,
     bool IsLineTypeContinuous,
     double ConstantWidth = 0.0,
-    bool HasVariableWidth = false)
+    bool HasVariableWidth = false,
+    bool IsFillEnabled = true)
 {
     public bool IsWide => ConstantWidth > 0.0 || HasVariableWidth;
 }

@@ -239,7 +239,7 @@ public sealed class CadPolygonAuthoringInteractionTests
     }
 
     [Fact]
-    public void PublicationFailureLeavesFinalPromptRecoverable()
+    public void FillModeOffPublicationCompletesWithRetainedWideOutline()
     {
         var document = new CadDocument();
         document.Header.PolylineWidthDefault = 2.0;
@@ -253,18 +253,14 @@ public sealed class CadPolygonAuthoringInteractionTests
             Assert.True(canvas.BeginPolygonAuthoring(5, CadPolygonAuthoringMode.Inscribed));
             Accept(canvas, "0,0");
 
-            Assert.False(canvas.TryAcceptPolygonAuthoringInput("5", out string? error));
-            Assert.Contains("FILLMODE", error, StringComparison.OrdinalIgnoreCase);
-            Assert.True(canvas.IsPolygonAuthoring);
-            Assert.Equal(1, canvas.PendingPolygonAcceptedInputCount);
-            Assert.Equal(0UL, session.ContentGeneration);
-            Assert.Empty(document.Entities);
-
-            document.Header.FillMode = true;
-            Accept(canvas, "5");
+            Assert.True(canvas.TryAcceptPolygonAuthoringInput("5", out string? error), error);
+            Assert.False(canvas.IsPolygonAuthoring);
+            Assert.Equal(1UL, session.ContentGeneration);
             Assert.Equal(
                 2.0,
                 Assert.Single(document.Entities.OfType<LwPolyline>()).ConstantWidth);
+            CadDocumentSnapshot snapshot = new CadSnapshotCompiler().Compile(session);
+            Assert.False(Assert.Single(snapshot.Polylines.ToArray()).IsFillEnabled);
         }
         finally
         {

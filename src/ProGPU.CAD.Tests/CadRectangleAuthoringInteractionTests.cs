@@ -263,7 +263,7 @@ public sealed class CadRectangleAuthoringInteractionTests
     }
 
     [Fact]
-    public void PublicationFailureLeavesPlacementPromptRecoverable()
+    public void FillModeOffFilletPublicationCompletesWithAnalyticWideOutline()
     {
         var document = new CadDocument();
         document.Header.PolylineWidthDefault = 2.0;
@@ -280,20 +280,22 @@ public sealed class CadRectangleAuthoringInteractionTests
                 rotationDegrees: 0));
             Accept(canvas, "0,0");
 
-            Assert.False(canvas.TryAcceptRectangleAuthoringInput(
+            Assert.True(canvas.TryAcceptRectangleAuthoringInput(
                 "1,1",
-                out string? error));
-            Assert.Contains("FILLMODE", error, StringComparison.OrdinalIgnoreCase);
-            Assert.True(canvas.IsRectangleAuthoring);
-            Assert.Equal(1, canvas.PendingRectangleAcceptedInputCount);
-            Assert.Equal(0UL, session.ContentGeneration);
-            Assert.Empty(document.Entities);
-
-            document.Header.FillMode = true;
-            Accept(canvas, "1,1");
+                out string? error), error);
+            Assert.False(canvas.IsRectangleAuthoring);
+            Assert.Equal(1UL, session.ContentGeneration);
             Assert.Equal(
                 2.0,
                 Assert.Single(document.Entities.OfType<LwPolyline>()).ConstantWidth);
+            CadDocumentSnapshot snapshot = new CadSnapshotCompiler().Compile(session);
+            Assert.False(Assert.Single(snapshot.Polylines.ToArray()).IsFillEnabled);
+            using CadRecordedPlanScene scene = new CadPlanSceneCompiler().Compile(snapshot);
+            RenderCommand outline = Assert.Single(
+                scene.DrawingContext.Commands.ToArray());
+            Assert.Contains(
+                outline.Path!.Figures.SelectMany(figure => figure.Segments),
+                segment => segment is ArcSegment);
         }
         finally
         {
