@@ -132,9 +132,9 @@ Decoder-coverage checkpoint adds a second generated authority beside the wire
 layout manifest. `eng/progpu-generate-mil-coverage.py` reads the canonical
 command table and bounded regions of the actual C++ channel decoder and nested
 render-data compiler, then emits
-`eng/mil/native-mil-command-coverage.json`. The current implementation has 72
+`eng/mil/native-mil-command-coverage.json`. The current implementation has 84
 explicit top-level decoder cases, explicit framing/dispatch for all 25
-canonical nested render-data opcodes, two non-retail sentinels, and 44 commands
+canonical nested render-data opcodes, two non-retail sentinels, and 32 commands
 with no native top-level dispatch. Nested dispatch does not claim every value
 or resource combination is supported; obsolete effects and other unsupported
 forms continue to fail closed after exact framing.
@@ -214,7 +214,7 @@ no visual work; reenabling with the current cookie restores the retained root
 without rebuilding its resources. Native tests cover the complete lifecycle,
 stale ordering, scene suppression/restoration, invalid enums, process-handle
 rejection, and transactional rollback. Managed tests verify every canonical
-packet offset. The live ledger is now 72 top-level dispatches and 44
+packet offset. The live ledger was then 72 top-level dispatches and 44
 undispatched commands.
 
 Brush-layout checkpoint `1b4ef706` migrates SolidColorBrush,
@@ -6107,6 +6107,59 @@ were exact and allocation free. The guest executable SHA-256 was
 `E38F889B495687BDFFBE61747FAA51ED3C60446092613B28DA8CEC5E0E56EDD8`;
 the Windows result qualifies emulated x64 correctness and relative performance,
 not physical-x64 performance.
+
+## Canonical MIL 3D camera and transform checkpoint
+
+The portable native channel now decodes and executes twelve additional WPF
+commands: `Viewport3DVisualSetCamera`, `Viewport3DVisualSetViewport`, both
+`Rotation3D` resources, all three camera resources, and the complete five-type
+`Transform3D` family. The generated coverage ledger consequently advances from
+72 to 84 top-level decoder cases and reduces undispatched commands from 44 to
+32. The managed `NativeMilBatchBuilder` writes the exact generated layouts,
+including the mixed double/float projection-camera records, variable group
+children, animation handles, and WPF's positive/negative-infinity
+`Rect.Empty` sentinel.
+
+Execution follows WPF's row-vector conventions. Transform-group children are
+appended in collection order; rotate-about-center and scale-about-center retain
+their pre/core/post composition; camera transforms are inverted and prepended
+to the view matrix. Axis-angle rotations normalize nonzero axes and treat an
+axis whose squared length is at most `FLT_MIN` as identity. Quaternion,
+perspective, orthographic, and matrix cameras all resolve into the existing
+backend-neutral semantic camera ABI. Perspective projection uses WPF's
+horizontal field of view, orthographic height is derived from viewport aspect,
+and positive-infinite far planes retain WPF's unbounded projection form.
+
+Animated packet fields are validated only when their animation handle is zero,
+matching generated WPF producers that may leave the unused static bytes
+unspecified. The referenced `Double`, `Point3D`, `Vector3D`, and `Quaternion`
+resources remain strongly typed. Missing resources, wrong resource kinds,
+cycles, noninvertible camera transforms, invalid camera bases, invalid
+projection domains, and malformed viewports fail transactionally. Dependency
+hashing and deletion protection traverse camera, rotation, transform-group,
+and animation edges, so changing an animation invalidates the retained page
+without rebuilding unrelated resources.
+
+This checkpoint deliberately keeps one typed hybrid boundary. Mesh, model,
+material, and light arrays still enter through the copied pointer-free
+`set_viewport3d_scene` sideband; canonical MIL camera and viewport state
+override the sideband's flattened camera and rectangle during compilation.
+There is no per-frame managed camera flattening, object pointer, reflection,
+or CPU projection. A null camera, `Rect.Empty`, or zero-sized viewport produces
+no mesh draw successfully. Full canonical `Visual3D`, model, mesh, material,
+and light packets are the next 3D slice and will remove the remaining sideband
+scene description.
+
+Native executable coverage resolves animated axis-angle/translation state,
+quaternion rotation, scale, matrix transform, group ordering, perspective,
+orthographic, and matrix cameras into retained mesh draws. It verifies camera
+positions and projection coefficients, viewport override and empty suppression,
+invalid-group rollback, and row-vector composition. The managed differential
+test verifies every packet size, command identifier, representative field
+offset, animation handle, matrix row, resource value, and empty-rectangle wire
+value. The no-provider native test and focused managed test pass on Apple
+Silicon; Windows MSVC/D3D12 qualification remains required before this slice is
+called cross-platform qualified.
 
 ## Invariants
 
