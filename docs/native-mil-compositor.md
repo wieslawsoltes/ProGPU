@@ -5683,6 +5683,30 @@ provider SHA-256 is
 the 118,272-byte test executable SHA-256 is
 `1845C2C96B3B8AA0DA46D909384AB3D417AB607205EAB921C84AC626FB084586`.
 
+ABI v47 adds an immutable ProGPU-owned `ID2D1StrokeStyle1` to both standard
+factory stroke-style creation vtables. It preserves canonical
+resource/stroke/stroke1 identity, factory ownership, cap/join/miter metadata,
+normal/fixed/hairline transform policy, predefined dash kind/offset, and a
+copied custom-dash array. Invalid or non-finite metadata and malformed custom
+patterns fail closed. The Windows differential oracle compares every getter
+and dash interval with a genuine system Direct2D resource.
+
+This resource is the first half of the retained-stroke dependency. ProGPU
+already renders a pointer-free semantic stroke batch with caps, joins, miters,
+dashes, and transforms on every qualified backend; the direct COM recorder
+will translate compatible path figures and this resource into that existing
+batch instead of invoking CPU `Widen`, manufacturing filled outlines, or
+creating a second rendering path. Focused managed contracts pass 5/5; Windows
+11 ARM64 Parallels rebuilds exact implementation checkpoint `71118006` with
+MSVC 19.44/SDK 10.0.26100.0 `/W4 /WX`, and the native differential oracle
+exits zero. `dumpbin` matches all 129 allowlisted exports with zero differences.
+The committed source archive SHA-256 is
+`FF58C3EF89AADB24AA5E1A88416F399F75CCD1D9DB559180333B274441AAF999`;
+the 228,864-byte provider SHA-256 is
+`D259FFBF25B8F9B2950A1DBE876901175D4EC31E7BFBE665324678BAEE68E095`;
+the 120,320-byte test executable SHA-256 is
+`E2C71C12741DB7A71C01EBCE510664BBE20E693131C21DA4DCCC2C1ACAF54CAE`.
+
 ## Managed glyph row-reuse SIMD checkpoint
 
 Managed ProGPU checkpoints `2960fb39` and `ffb285af` bring the explicit
