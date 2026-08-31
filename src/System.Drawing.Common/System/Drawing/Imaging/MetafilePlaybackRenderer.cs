@@ -253,15 +253,15 @@ internal static class MetafilePlaybackRenderer
                 return;
 
             case EmfPlusRecordType.WmfArc:
-                DrawWmfArcFamily(state, record, payload, WmfArcClosure.Open);
+                DrawWmfArcFamily(state, record, payload, ArcClosure.Open);
                 return;
 
             case EmfPlusRecordType.WmfPie:
-                DrawWmfArcFamily(state, record, payload, WmfArcClosure.Pie);
+                DrawWmfArcFamily(state, record, payload, ArcClosure.Pie);
                 return;
 
             case EmfPlusRecordType.WmfChord:
-                DrawWmfArcFamily(state, record, payload, WmfArcClosure.Chord);
+                DrawWmfArcFamily(state, record, payload, ArcClosure.Chord);
                 return;
 
             case EmfPlusRecordType.WmfEllipse:
@@ -304,6 +304,14 @@ internal static class MetafilePlaybackRenderer
             case EmfPlusRecordType.EmfHeader:
             case EmfPlusRecordType.EmfEof:
             case EmfPlusRecordType.EmfGdiComment:
+                return;
+
+            case EmfPlusRecordType.EmfSetPixelV:
+                RequireSize(record, payload, 12);
+                state.ApplyTransform(record);
+                state.Graphics.SetTransformedPixel(
+                    ReadColor(payload, 8),
+                    ReadPoint(payload));
                 return;
 
             case EmfPlusRecordType.EmfSetWindowExtEx:
@@ -397,6 +405,22 @@ internal static class MetafilePlaybackRenderer
                 DrawRectangle(state, record, ReadRectangle(record, payload));
                 return;
 
+            case EmfPlusRecordType.EmfRoundRect:
+                DrawEmfRoundRectangle(state, record, payload);
+                return;
+
+            case EmfPlusRecordType.EmfRoundArc:
+                DrawEmfArcFamily(state, record, payload, ArcClosure.Open);
+                return;
+
+            case EmfPlusRecordType.EmfChord:
+                DrawEmfArcFamily(state, record, payload, ArcClosure.Chord);
+                return;
+
+            case EmfPlusRecordType.EmfPie:
+                DrawEmfArcFamily(state, record, payload, ArcClosure.Pie);
+                return;
+
             case EmfPlusRecordType.EmfEllipse:
                 RequireSize(record, payload, 16);
                 DrawEllipse(state, record, ReadRectangle(record, payload));
@@ -431,6 +455,11 @@ internal static class MetafilePlaybackRenderer
             case EmfPlusRecordType.EmfRestoreDC:
                 RequireSize(record, payload, 4);
                 state.Restore(ReadInt32(payload, 0), record);
+                return;
+
+            case EmfPlusRecordType.EmfSetArcDirection:
+                RequireSize(record, payload, 4);
+                state.SetArcDirection(ReadInt32(payload, 0), record);
                 return;
 
             case EmfPlusRecordType.EmfSetWorldTransform:
@@ -571,6 +600,27 @@ internal static class MetafilePlaybackRenderer
 
         var rectangle = Rectangle.FromLTRB(left, top, right, bottom);
         var cornerEllipse = new Size(width, height);
+        state.ApplyTransform(record);
+        if (state.SelectedBrush is Brush brush)
+        {
+            state.Graphics.FillRoundedRectangle(brush, rectangle, cornerEllipse);
+        }
+        if (state.SelectedPen is Pen pen)
+        {
+            state.Graphics.DrawRoundedRectangle(pen, rectangle, cornerEllipse);
+        }
+    }
+
+    private static void DrawEmfRoundRectangle(
+        PlaybackState state,
+        in MetafileRecord record,
+        ReadOnlySpan<byte> payload)
+    {
+        RequireSize(record, payload, 24);
+        Rectangle rectangle = ReadRectangle(record, payload);
+        Size cornerEllipse = new(
+            ReadInt32(payload, 16),
+            ReadInt32(payload, 20));
         state.ApplyTransform(record);
         if (state.SelectedBrush is Brush brush)
         {
@@ -1511,7 +1561,7 @@ internal static class MetafilePlaybackRenderer
         PlaybackState state,
         in MetafileRecord record,
         ReadOnlySpan<byte> payload,
-        WmfArcClosure closure)
+        ArcClosure closure)
     {
         RequireSize(record, payload, 16);
         int left = ReadInt16(payload, 14);
@@ -1526,6 +1576,48 @@ internal static class MetafilePlaybackRenderer
         var rectangle = Rectangle.FromLTRB(left, top, right, bottom);
         var start = new Point(ReadInt16(payload, 6), ReadInt16(payload, 4));
         var end = new Point(ReadInt16(payload, 2), ReadInt16(payload, 0));
+        DrawArcFamily(
+            state,
+            record,
+            rectangle,
+            start,
+            end,
+            closure,
+            arcDirection: 1);
+    }
+
+    private static void DrawEmfArcFamily(
+        PlaybackState state,
+        in MetafileRecord record,
+        ReadOnlySpan<byte> payload,
+        ArcClosure closure)
+    {
+        RequireSize(record, payload, 32);
+        Rectangle rectangle = ReadRectangle(record, payload);
+        if (rectangle.Width <= 0 || rectangle.Height <= 0)
+        {
+            throw Invalid(record);
+        }
+
+        DrawArcFamily(
+            state,
+            record,
+            rectangle,
+            ReadPoint(payload[16..]),
+            ReadPoint(payload[24..]),
+            closure,
+            state.ArcDirection);
+    }
+
+    private static void DrawArcFamily(
+        PlaybackState state,
+        in MetafileRecord record,
+        Rectangle rectangle,
+        Point start,
+        Point end,
+        ArcClosure closure,
+        int arcDirection)
+    {
         float radiusX = rectangle.Width / 2f;
         float radiusY = rectangle.Height / 2f;
         float centerX = rectangle.Left + radiusX;
@@ -1537,13 +1629,20 @@ internal static class MetafilePlaybackRenderer
             (end.Y - centerY) / radiusY,
             (end.X - centerX) / radiusX) * (180f / MathF.PI);
         float sweepAngle = endAngle - startAngle;
-        if (sweepAngle >= 0f)
+        if (arcDirection == 1)
         {
-            sweepAngle -= 360f;
+            if (sweepAngle >= 0f)
+            {
+                sweepAngle -= 360f;
+            }
+        }
+        else if (sweepAngle <= 0f)
+        {
+            sweepAngle += 360f;
         }
 
         state.ApplyTransform(record);
-        if (closure == WmfArcClosure.Open)
+        if (closure == ArcClosure.Open)
         {
             if (state.SelectedPen is Pen openPen)
             {
@@ -1558,7 +1657,7 @@ internal static class MetafilePlaybackRenderer
         }
 
         using var path = new GraphicsPath();
-        if (closure == WmfArcClosure.Pie)
+        if (closure == ArcClosure.Pie)
         {
             path.AddPie(rectangle, startAngle, sweepAngle);
         }
@@ -1578,7 +1677,7 @@ internal static class MetafilePlaybackRenderer
         }
     }
 
-    private enum WmfArcClosure
+    private enum ArcClosure
     {
         Open,
         Pie,
@@ -1767,6 +1866,7 @@ internal static class MetafilePlaybackRenderer
         internal int MapMode { get; set; } = 1;
         internal int BackgroundMode { get; set; } = 2;
         internal int RasterOperation { get; set; } = 13;
+        internal int ArcDirection { get; private set; } = 1;
         internal int TextAlignment { get; set; }
         internal int TextCharacterExtra { get; set; }
         internal int TextJustificationExtra { get; private set; }
@@ -1922,6 +2022,15 @@ internal static class MetafilePlaybackRenderer
             RasterOperation = operation;
         }
 
+        internal void SetArcDirection(int direction, in MetafileRecord record)
+        {
+            if (direction is not 1 and not 2)
+            {
+                throw Invalid(record);
+            }
+            ArcDirection = direction;
+        }
+
         internal void IntersectClip(in MetafileRecord record, Rectangle rectangle)
         {
             ApplyTransform(record);
@@ -1973,6 +2082,7 @@ internal static class MetafilePlaybackRenderer
                 MapMode,
                 BackgroundMode,
                 RasterOperation,
+                ArcDirection,
                 TextAlignment,
                 TextCharacterExtra,
                 TextJustificationExtra,
@@ -2014,6 +2124,7 @@ internal static class MetafilePlaybackRenderer
             MapMode = saved.MapMode;
             BackgroundMode = saved.BackgroundMode;
             RasterOperation = saved.RasterOperation;
+            ArcDirection = saved.ArcDirection;
             TextAlignment = saved.TextAlignment;
             TextCharacterExtra = saved.TextCharacterExtra;
             TextJustificationExtra = saved.TextJustificationExtra;
@@ -3019,6 +3130,7 @@ internal static class MetafilePlaybackRenderer
             int MapMode,
             int BackgroundMode,
             int RasterOperation,
+            int ArcDirection,
             int TextAlignment,
             int TextCharacterExtra,
             int TextJustificationExtra,

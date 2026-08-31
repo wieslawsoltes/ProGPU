@@ -611,6 +611,34 @@ short, contended run makes this coarse allocation/command-shape evidence; exact
 glyph identity and selected-font natural positioning remain the correctness
 authority.
 
+The fixed-layout EMF geometry follow-up decodes `EMR_SETARCDIRECTION`,
+`EMR_ARC`, `EMR_PIE`, `EMR_CHORD`, `EMR_ROUNDRECT`, and `EMR_SETPIXELV`
+directly into the existing typed `Graphics` path. Arc direction starts at the
+documented counterclockwise default, accepts only the official counterclockwise
+and clockwise values, and participates in SaveDC/RestoreDC. Arc-family records
+share one ellipse-angle decoder while retaining their distinct open, center-
+radial, and straight-chord closures. Rounded rectangles reuse the managed
+rounded-path primitive and pixels reuse the complete transformed one-device-
+pixel path. This follows the Win32
+[`SetArcDirection`](https://learn.microsoft.com/en-us/windows/win32/api/wingdi/nf-wingdi-setarcdirection)
+contract and the fixed
+[`EMRARC`](https://learn.microsoft.com/en-us/windows/win32/api/wingdi/ns-wingdi-emrarc)
+and
+[`EMRROUNDRECT`](https://learn.microsoft.com/en-us/windows/win32/api/wingdi/ns-wingdi-emrroundrect)
+layouts without native handles or compatibility-shaped objects. Focused raster
+and retained-command gates prove both directions across saved state, all three
+closures, a transparent rounded corner and filled center, exact `COLORREF`
+pixel output, invalid-direction rejection, and whole-stream rollback. The
+complete drawing suite passes 462/462.
+
+`Playback256EmfArcFamilyToRetainedCommands` guards 256 alternating open arc,
+pie, and chord records after explicit clockwise state. The 2026-08-31
+ARM64/.NET 10.0.11 ShortRun measured a 129.7 microsecond mean (8.87 microsecond
+standard deviation) and 258.04 KB allocated. Three measured iterations and
+denied priority elevation make this coarse local command-shape/allocation
+evidence; the focused direction, closure, pixel, and rollback gates remain the
+correctness authority.
+
 `RecordAndFinalize256PortableComments` measures the complete portable writer:
 256 owned 64-byte comment copies, EMF+/EMF assembly, validation, and publication
 to a pre-sized memory stream. The 2026-08-27 ARM64/.NET 10.0.11 ShortRun

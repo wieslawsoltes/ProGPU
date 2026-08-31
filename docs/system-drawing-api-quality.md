@@ -122,6 +122,15 @@ member suppression, leaving zero missing types, zero missing members, and 13
 in
 [`docs/research/system-drawing-metafile-contract.md`](research/system-drawing-metafile-contract.md).
 
+The typed EMF fixed-geometry follow-up adds `EMR_SETARCDIRECTION`, `EMR_ARC`,
+`EMR_PIE`, `EMR_CHORD`, `EMR_ROUNDRECT`, and `EMR_SETPIXELV` over the existing
+managed `Graphics` primitives. The official counterclockwise default and
+clockwise alternative survive SaveDC/RestoreDC; malformed directions and
+degenerate bounds abort transactional publication. Open arcs, center-radial
+pies, straight-closure chords, rounded fill/outline geometry, and transformed
+one-device-pixel color output have focused retained-command and raster gates.
+No native handle, runtime reflection, or compatibility-shaped object is added.
+
 The type-scoped bitmap-resource slice restores `Bitmap(Type, string)` as a
 functional managed path for designer and control artwork embedded beside its
 owning type. It performs the exact case-sensitive namespace-scoped manifest
@@ -231,6 +240,15 @@ boundaries, saved clip and multi-polygon behavior, and rollback after partial
 temporary lowering. A local unchanged-asset smoke renders the canonical
 WinForms `milkmateya01.emf` fixture end to end; the repository-owned synthetic
 gates preserve the same required record families for standalone ProGPU CI.
+
+`MetafileBenchmarks.Playback256EmfArcFamilyToRetainedCommands` guards 256
+alternating open arc, pie, and chord records with explicit clockwise state. The
+2026-08-31 ARM64/.NET 10.0.11 ShortRun measured a 129.7 microsecond mean (8.87
+microsecond standard deviation) and 258.04 KB allocated. The three-iteration,
+denied-priority run is coarse local regression evidence; exact direction,
+closure, SaveDC/RestoreDC, rounded-corner, pixel-color, and rollback tests are
+authoritative. The complete drawing suite passes 462/462 and ApiCompat remains
+at zero missing types, zero missing members, and 13 reviewed differences.
 
 `MetafileBenchmarks.Playback256WmfRectanglesToRetainedCommands` guards the shared ordered-box decoder and typed selected brush/pen lowering. The 2026-08-31 ARM64/.NET 10.0.11 in-process ShortRun measured a 757.639 µs median (753.507 µs mean, 139.549 µs standard deviation) with 622.08 KB allocated for 256 rectangles. The three-iteration result is coarse transactional retained-command evidence; exact selected-fill pixels and shared malformed-bound rollback remain the correctness gates.
 

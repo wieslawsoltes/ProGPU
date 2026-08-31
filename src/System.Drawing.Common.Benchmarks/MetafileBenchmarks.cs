@@ -18,6 +18,7 @@ public class MetafileBenchmarks
     private DrawingContext _playbackContext = null!;
     private Graphics _playbackGraphics = null!;
     private Metafile _playbackMetafile = null!;
+    private Metafile _emfArcPlaybackMetafile = null!;
     private Metafile _emfExtendedTextPlaybackMetafile = null!;
     private Metafile _emfPdyExtendedTextPlaybackMetafile = null!;
     private Metafile _emfGlyphIndexExtendedTextPlaybackMetafile = null!;
@@ -57,6 +58,8 @@ public class MetafileBenchmarks
         _playbackGraphics = Graphics.FromProGpuDrawingContext(_playbackContext);
         _playbackMetafile = new Metafile(
             new MemoryStream(CreatePlaybackEmf(256), writable: false));
+        _emfArcPlaybackMetafile = new Metafile(
+            new MemoryStream(CreatePlaybackEmfArcs(256), writable: false));
         _emfExtendedTextPlaybackMetafile = new Metafile(
             new MemoryStream(CreatePlaybackEmfExtendedText(256), writable: false));
         _emfPdyExtendedTextPlaybackMetafile = new Metafile(
@@ -134,6 +137,7 @@ public class MetafileBenchmarks
     {
         _metafile.Dispose();
         _playbackMetafile.Dispose();
+        _emfArcPlaybackMetafile.Dispose();
         _emfExtendedTextPlaybackMetafile.Dispose();
         _emfPdyExtendedTextPlaybackMetafile.Dispose();
         _emfGlyphIndexExtendedTextPlaybackMetafile.Dispose();
@@ -197,6 +201,18 @@ public class MetafileBenchmarks
     {
         _playbackContext.Clear();
         _playbackGraphics.DrawImage(_playbackMetafile, new Rectangle(0, 0, 640, 480));
+        int commandCount = _playbackContext.Commands.Count;
+        _playbackContext.Clear();
+        return commandCount;
+    }
+
+    [Benchmark]
+    public int Playback256EmfArcFamilyToRetainedCommands()
+    {
+        _playbackContext.Clear();
+        _playbackGraphics.DrawImage(
+            _emfArcPlaybackMetafile,
+            new Rectangle(0, 0, 640, 480));
         int commandCount = _playbackContext.Commands.Count;
         _playbackContext.Clear();
         return commandCount;
@@ -544,6 +560,66 @@ public class MetafileBenchmarks
             WriteInt32(bytes, cursor + 16, x + 32);
             WriteInt32(bytes, cursor + 20, y + 22);
             cursor += 24;
+        }
+
+        WriteUInt32(bytes, cursor, (uint)EmfPlusRecordType.EmfEof);
+        WriteUInt32(bytes, cursor + 4, 20);
+        WriteUInt32(bytes, cursor + 16, 20);
+        return bytes;
+    }
+
+    private static byte[] CreatePlaybackEmfArcs(int recordCount)
+    {
+        int totalBytes = checked(88 + 24 + 12 + recordCount * 40 + 20);
+        byte[] bytes = new byte[totalBytes];
+        WriteUInt32(bytes, 0, (uint)EmfPlusRecordType.EmfHeader);
+        WriteUInt32(bytes, 4, 88);
+        WriteInt32(bytes, 16, 640);
+        WriteInt32(bytes, 20, 480);
+        WriteInt32(bytes, 32, 16_933);
+        WriteInt32(bytes, 36, 12_700);
+        WriteUInt32(bytes, 40, 0x464D_4520);
+        WriteUInt32(bytes, 44, 0x0001_0000);
+        WriteUInt32(bytes, 48, (uint)totalBytes);
+        WriteUInt32(bytes, 52, checked((uint)(recordCount + 5)));
+        WriteUInt16(bytes, 56, 1);
+        WriteInt32(bytes, 72, 640);
+        WriteInt32(bytes, 76, 480);
+        WriteInt32(bytes, 80, 169);
+        WriteInt32(bytes, 84, 127);
+
+        int cursor = 88;
+        WriteSelectObject(bytes, cursor, 0x8000_0004);
+        cursor += 12;
+        WriteSelectObject(bytes, cursor, 0x8000_0008);
+        cursor += 12;
+        WriteUInt32(bytes, cursor, (uint)EmfPlusRecordType.EmfSetArcDirection);
+        WriteUInt32(bytes, cursor + 4, 12);
+        WriteInt32(bytes, cursor + 8, 2);
+        cursor += 12;
+        for (int index = 0; index < recordCount; index++)
+        {
+            int left = (index % 16) * 40;
+            int top = (index / 16) * 30;
+            int right = left + 32;
+            int bottom = top + 22;
+            EmfPlusRecordType type = (index % 3) switch
+            {
+                0 => EmfPlusRecordType.EmfRoundArc,
+                1 => EmfPlusRecordType.EmfPie,
+                _ => EmfPlusRecordType.EmfChord
+            };
+            WriteUInt32(bytes, cursor, (uint)type);
+            WriteUInt32(bytes, cursor + 4, 40);
+            WriteInt32(bytes, cursor + 8, left);
+            WriteInt32(bytes, cursor + 12, top);
+            WriteInt32(bytes, cursor + 16, right);
+            WriteInt32(bytes, cursor + 20, bottom);
+            WriteInt32(bytes, cursor + 24, right);
+            WriteInt32(bytes, cursor + 28, top + 11);
+            WriteInt32(bytes, cursor + 32, left + 16);
+            WriteInt32(bytes, cursor + 36, bottom);
+            cursor += 40;
         }
 
         WriteUInt32(bytes, cursor, (uint)EmfPlusRecordType.EmfEof);

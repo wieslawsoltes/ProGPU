@@ -2158,6 +2158,108 @@ public sealed class MetafileParserTests
     }
 
     [Fact]
+    public void EmfPieHonorsArcDirectionAndSavedState()
+    {
+        byte[] emf = CreateTextPlaybackEmf(
+        [
+            (EmfPlusRecordType.EmfSaveDC, []),
+            (EmfPlusRecordType.EmfSetArcDirection, EmfInt32(2)),
+            (EmfPlusRecordType.EmfPie,
+                EmfArc(
+                    new Rectangle(4, 4, 24, 24),
+                    new Point(28, 16),
+                    new Point(16, 28))),
+            (EmfPlusRecordType.EmfRestoreDC, EmfInt32(-1)),
+            (EmfPlusRecordType.EmfPie,
+                EmfArc(
+                    new Rectangle(36, 4, 24, 24),
+                    new Point(60, 16),
+                    new Point(48, 28)))
+        ]);
+        using var metafile = new Metafile(new MemoryStream(emf));
+        using var target = new Bitmap(64, 64);
+        using (Graphics graphics = Graphics.FromImage(target))
+        {
+            graphics.Clear(Color.Transparent);
+            graphics.DrawImage(metafile, new Rectangle(0, 0, 64, 64));
+        }
+
+        Assert.NotEqual(0, target.GetPixel(22, 22).A);
+        Assert.Equal(0, target.GetPixel(10, 10).A);
+        Assert.NotEqual(0, target.GetPixel(42, 10).A);
+        Assert.Equal(0, target.GetPixel(54, 22).A);
+    }
+
+    [Fact]
+    public void EmfArcAndChordPublishTypedPathCommands()
+    {
+        byte[] emf = CreateTextPlaybackEmf(
+        [
+            (EmfPlusRecordType.EmfRoundArc,
+                EmfArc(
+                    new Rectangle(2, 2, 16, 16),
+                    new Point(18, 10),
+                    new Point(10, 18))),
+            (EmfPlusRecordType.EmfChord,
+                EmfArc(
+                    new Rectangle(22, 2, 16, 16),
+                    new Point(38, 10),
+                    new Point(30, 18)))
+        ]);
+        using var metafile = new Metafile(new MemoryStream(emf));
+        var context = new DrawingContext();
+        using Graphics graphics = Graphics.FromProGpuDrawingContext(context);
+
+        graphics.DrawImage(metafile, new Rectangle(0, 0, 64, 32));
+
+        Assert.Equal(
+            3,
+            context.Commands.Count(static command => command.Type == RenderCommandType.DrawPath));
+    }
+
+    [Fact]
+    public void EmfRoundRectangleAndSetPixelVRenderTypedGeometry()
+    {
+        byte[] emf = CreateTextPlaybackEmf(
+        [
+            (EmfPlusRecordType.EmfRoundRect,
+                EmfRoundRectangle(new Rectangle(2, 2, 20, 20), new Size(8, 8))),
+            (EmfPlusRecordType.EmfSetPixelV,
+                EmfSetPixel(new Point(30, 12), Color.Magenta))
+        ]);
+        using var metafile = new Metafile(new MemoryStream(emf));
+        using var target = new Bitmap(64, 64);
+        using (Graphics graphics = Graphics.FromImage(target))
+        {
+            graphics.Clear(Color.Transparent);
+            graphics.DrawImage(metafile, new Rectangle(0, 0, 64, 64));
+        }
+
+        Assert.Equal(0, target.GetPixel(2, 2).A);
+        Assert.Equal(Color.White.ToArgb(), target.GetPixel(12, 12).ToArgb());
+        Assert.Equal(Color.Magenta.ToArgb(), target.GetPixel(30, 12).ToArgb());
+    }
+
+    [Fact]
+    public void EmfInvalidArcDirectionRollsBackEarlierGeometry()
+    {
+        byte[] emf = CreateTextPlaybackEmf(
+        [
+            (EmfPlusRecordType.EmfRectangle, EmfRectangle(1, 1, 4, 4)),
+            (EmfPlusRecordType.EmfSetArcDirection, EmfInt32(3))
+        ]);
+        using var metafile = new Metafile(new MemoryStream(emf));
+        var context = new DrawingContext();
+        using Graphics graphics = Graphics.FromProGpuDrawingContext(context);
+
+        ArgumentException exception = Assert.Throws<ArgumentException>(() =>
+            graphics.DrawImage(metafile, new Rectangle(0, 0, 64, 64)));
+
+        Assert.Contains(nameof(EmfPlusRecordType.EmfSetArcDirection), exception.Message);
+        Assert.Empty(context.Commands);
+    }
+
+    [Fact]
     public void EmfPlaybackRejectsImageAttributesAndPerspectiveMappingExplicitly()
     {
         using var metafile = new Metafile(new MemoryStream(CreatePlaybackEmf()));
@@ -3421,6 +3523,41 @@ public sealed class MetafileParserTests
         WriteInt32(payload, 4, top);
         WriteInt32(payload, 8, right);
         WriteInt32(payload, 12, bottom);
+        return payload;
+    }
+
+    private static byte[] EmfArc(Rectangle rectangle, Point start, Point end)
+    {
+        byte[] payload = new byte[32];
+        WriteInt32(payload, 0, rectangle.Left);
+        WriteInt32(payload, 4, rectangle.Top);
+        WriteInt32(payload, 8, rectangle.Right);
+        WriteInt32(payload, 12, rectangle.Bottom);
+        WriteInt32(payload, 16, start.X);
+        WriteInt32(payload, 20, start.Y);
+        WriteInt32(payload, 24, end.X);
+        WriteInt32(payload, 28, end.Y);
+        return payload;
+    }
+
+    private static byte[] EmfRoundRectangle(Rectangle rectangle, Size cornerEllipse)
+    {
+        byte[] payload = new byte[24];
+        WriteInt32(payload, 0, rectangle.Left);
+        WriteInt32(payload, 4, rectangle.Top);
+        WriteInt32(payload, 8, rectangle.Right);
+        WriteInt32(payload, 12, rectangle.Bottom);
+        WriteInt32(payload, 16, cornerEllipse.Width);
+        WriteInt32(payload, 20, cornerEllipse.Height);
+        return payload;
+    }
+
+    private static byte[] EmfSetPixel(Point point, Color color)
+    {
+        byte[] payload = new byte[12];
+        WriteInt32(payload, 0, point.X);
+        WriteInt32(payload, 4, point.Y);
+        WriteUInt32(payload, 8, (uint)(color.R | color.G << 8 | color.B << 16));
         return payload;
     }
 
