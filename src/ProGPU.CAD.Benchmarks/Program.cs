@@ -28,6 +28,8 @@ if (viewportCount != 0)
 }
 
 int entityCount = ReadNonNegativeInt("--entities", 10_000);
+bool useVariableWidthPolylines = HasFlag("--variable-width-polylines");
+bool useConstantWidthPolylines = HasFlag("--constant-width-polylines");
 bool freezeAlternatingEntityLayers = HasFlag("--alternating-frozen-layers");
 bool resolveDrawOrder = HasFlag("--draw-order");
 int drawOrderEditEntityCount = ReadNonNegativeInt(
@@ -144,6 +146,18 @@ if (compoundPointMarkers && pointEntityCount == 0)
     throw new ArgumentException(
         "--compound-point-markers requires a positive --point-entities count.");
 }
+if ((useVariableWidthPolylines || useConstantWidthPolylines) &&
+    (useWipeouts || lowerLinearSplineLineTypes || lowerNurbsSplineLineTypes ||
+     lowerPeriodicSplineLineTypes || measureSplineSelection))
+{
+    throw new ArgumentException(
+        "Wide-polyline fixtures cannot be combined with ordinary-entity Wipeout or spline fixtures.");
+}
+if (useVariableWidthPolylines && useConstantWidthPolylines)
+{
+    throw new ArgumentException(
+        "Choose either --variable-width-polylines or --constant-width-polylines.");
+}
 
 if (measureSplineSelection &&
     (entityCount == 0 || blockArrayColumnCount != 0 ||
@@ -219,6 +233,8 @@ if (rationalHatchSplineEdges && rationalCubicHatchSplineEdges)
 
 CadDocumentSession session = CreateDocument(
     entityCount,
+    useVariableWidthPolylines,
+    useConstantWidthPolylines,
     blockArrayColumnCount,
     textEntityCount,
     mtextEntityCount,
@@ -491,6 +507,8 @@ var report = new CadBenchmarkReport(
     Environment.OSVersion.ToString(),
     System.Runtime.InteropServices.RuntimeInformation.FrameworkDescription,
     entityCount,
+    useVariableWidthPolylines,
+    useConstantWidthPolylines,
     freezeAlternatingEntityLayers,
     resolveDrawOrder,
     drawOrderEditEntityCount,
@@ -856,6 +874,8 @@ int Pow4(int exponent)
 
 CadDocumentSession CreateDocument(
     int count,
+    bool useVariableWidthPolylines,
+    bool useConstantWidthPolylines,
     int arrayColumns,
     int textCount,
     int mtextCount,
@@ -1018,6 +1038,30 @@ CadDocumentSession CreateDocument(
                 spline.Knots.AddRange([0, 0, 1, 2, 2]);
                 spline.Weights.AddRange([1, 2, 1]);
                 document.Entities.Add(spline);
+                continue;
+            }
+
+            if (useVariableWidthPolylines || useConstantWidthPolylines)
+            {
+                var polyline = new LwPolyline
+                {
+                    ConstantWidth = useConstantWidthPolylines ? 2.5 : 0.0,
+                    LineType = benchmarkLineType ?? document.LineTypes.Continuous,
+                    Flags = LwPolylineFlags.Plinegen,
+                };
+                var first = new LwPolyline.Vertex(x, y);
+                var second = new LwPolyline.Vertex(x + 6, y);
+                if (useVariableWidthPolylines)
+                {
+                    first.StartWidth = 1.0;
+                    first.EndWidth = 3.0;
+                    second.StartWidth = 4.0;
+                    second.EndWidth = 2.0;
+                }
+                polyline.Vertices.Add(first);
+                polyline.Vertices.Add(second);
+                polyline.Vertices.Add(new LwPolyline.Vertex(x + 6, y + 8));
+                document.Entities.Add(polyline);
                 continue;
             }
 
@@ -2128,6 +2172,8 @@ internal sealed record CadBenchmarkReport(
     string OperatingSystem,
     string Runtime,
     int EntityCount,
+    bool VariableWidthPolylines,
+    bool ConstantWidthPolylines,
     bool AlternatingFrozenLayers,
     bool ResolvedDrawOrder,
     int DrawOrderEditEntityCount,

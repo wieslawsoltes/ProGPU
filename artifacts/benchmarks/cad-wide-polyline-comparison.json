@@ -1,0 +1,88 @@
+{
+  "capturedAt": "2026-08-31T13:05:11.151537Z",
+  "operatingSystem": "macOS 26.6 (25G72)",
+  "runtime": ".NET 10.0.5",
+  "configuration": "Release",
+  "entityCount": 10000,
+  "warmupCount": 5,
+  "iterationCount": 40,
+  "queryCount": 1000,
+  "recordedCommandCountPerFixture": 10000,
+  "constantWidth": {
+    "snapshotMilliseconds": {
+      "p50": 10.2036,
+      "p95": 18.1209,
+      "p99": 21.6184,
+      "allocatedBytes": 15354689
+    },
+    "planSceneMilliseconds": {
+      "p50": 5.281,
+      "p95": 20.6683,
+      "p99": 25.8658,
+      "allocatedBytes": 10561366
+    },
+    "printPlanMilliseconds": {
+      "p50": 17.3085,
+      "p95": 38.9066,
+      "p99": 48.6292,
+      "allocatedBytes": 11805670
+    },
+    "spatialQueryNanoseconds": {
+      "p50": 4700,
+      "p95": 7000,
+      "p99": 22000,
+      "allocatedBytes": 0
+    }
+  },
+  "variableWidth": {
+    "snapshotMilliseconds": {
+      "p50": 10.2737,
+      "p95": 14.566,
+      "p99": 18.259,
+      "allocatedBytes": 15354789
+    },
+    "planSceneMilliseconds": {
+      "p50": 6.919,
+      "p95": 27.4613,
+      "p99": 35.6297,
+      "allocatedBytes": 15361217
+    },
+    "printPlanMilliseconds": {
+      "p50": 20.8197,
+      "p95": 42.6458,
+      "p99": 43.6152,
+      "allocatedBytes": 16605867
+    },
+    "spatialQueryNanoseconds": {
+      "p50": 4700,
+      "p95": 6900,
+      "p99": 14700,
+      "allocatedBytes": 0
+    }
+  },
+  "instruments": {
+    "version": "16.0 (17E202)",
+    "timeProfilerIterations": 20,
+    "allocationsVmTrackerIterations": 10,
+    "constantTimeSamples": 3873,
+    "variableTimeSamples": 3845,
+    "potentialHangRows": 0,
+    "metalSystemTrace": "not applicable: CPU-only snapshot and scene compilation; no device or GPU submission"
+  },
+  "finalBinaryVerification": {
+    "capturedAt": "2026-08-31T14:06:11.964400Z/2026-08-31T14:06:18.495972Z",
+    "note": "Same final Release DLL and workload. Absolute timings are retained as a contention audit rather than a replacement baseline because two user-owned VMs and an unrelated long-lived Mono test consumed multiple cores throughout the matched run.",
+    "constantWidth": {
+      "snapshotMilliseconds": { "p50": 22.5917, "p95": 32.383, "p99": 49.056, "allocatedBytes": 15354911 },
+      "planSceneMilliseconds": { "p50": 9.9042, "p95": 30.2743, "p99": 54.718, "allocatedBytes": 10561359 },
+      "printPlanMilliseconds": { "p50": 27.5072, "p95": 61.1751, "p99": 74.4996, "allocatedBytes": 11805805 },
+      "spatialQueryNanoseconds": { "p50": 5900, "p95": 17700, "p99": 87500, "allocatedBytes": 0 }
+    },
+    "variableWidth": {
+      "snapshotMilliseconds": { "p50": 26.3368, "p95": 52.8925, "p99": 63.3775, "allocatedBytes": 15354758 },
+      "planSceneMilliseconds": { "p50": 19.8525, "p95": 49.0392, "p99": 64.389, "allocatedBytes": 15361217 },
+      "printPlanMilliseconds": { "p50": 36.8512, "p95": 75.3744, "p99": 98.4755, "allocatedBytes": 16605860 },
+      "spatialQueryNanoseconds": { "p50": 5000, "p95": 24200, "p99": 112500, "allocatedBytes": 0 }
+    }
+  }
+}

@@ -3259,28 +3259,14 @@ public sealed partial class CadSnapshotCompiler
             throw new ArgumentException("A lightweight polyline must contain at least two vertices.");
         }
 
-        if (polyline.Vertices.Any(
-                vertex => vertex.StartWidth != 0.0 || vertex.EndWidth != 0.0))
+        if (polyline.Thickness != 0.0)
         {
             throw new CadUnsupportedEntityException(
-                "Variable-width lightweight polylines require tapered filled-outline lowering and cannot be treated as constant strokes.");
+                "Extruded lightweight polylines require 3D side-surface lowering.");
         }
+
         double constantWidth = polyline.ConstantWidth;
-        if (!double.IsFinite(constantWidth) || constantWidth < 0.0)
-        {
-            throw new ArgumentException(
-                "Lightweight-polyline constant width must be finite and non-negative.");
-        }
-        if (constantWidth > float.MaxValue)
-        {
-            throw new ArgumentException(
-                "Lightweight-polyline constant width exceeds the retained float stroke domain.");
-        }
-        if (constantWidth > 0.0 && !fillMode)
-        {
-            throw new CadUnsupportedEntityException(
-                "FILLMODE-off wide lightweight polylines require exact filled-object outline lowering.");
-        }
+        ValidatePolylineWidth(constantWidth, "Lightweight-polyline constant");
 
         if (!double.IsFinite(polyline.Elevation))
         {
@@ -3301,7 +3287,21 @@ public sealed partial class CadSnapshotCompiler
         }
         EnsureFinite(worldOrigin);
 
+        int segmentCount = polyline.IsClosed
+            ? polyline.Vertices.Count
+            : polyline.Vertices.Count - 1;
+        bool hasExplicitSegmentWidth = false;
+        for (int i = 0; i < segmentCount; i++)
+        {
+            LwPolyline.Vertex vertex = polyline.Vertices[i];
+            ValidatePolylineWidth(vertex.StartWidth, "Lightweight-polyline vertex start");
+            ValidatePolylineWidth(vertex.EndWidth, "Lightweight-polyline vertex end");
+            hasExplicitSegmentWidth |= vertex.HasStartWidth || vertex.HasEndWidth;
+        }
+
         var normalizedVertices = new CadPolylineVertex[polyline.Vertices.Count];
+        double uniformWidth = double.NaN;
+        bool hasVariableWidth = false;
         for (int i = 0; i < polyline.Vertices.Count; i++)
         {
             LwPolyline.Vertex vertex = polyline.Vertices[i];
@@ -3312,8 +3312,39 @@ public sealed partial class CadSnapshotCompiler
                 throw new ArgumentException("Polyline locations and bulges must be finite.");
             }
 
-            normalizedVertices[i] = new CadPolylineVertex(x, y, vertex.Bulge);
+            double startWidth = 0.0;
+            double endWidth = 0.0;
+            if (hasExplicitSegmentWidth && i < segmentCount)
+            {
+                startWidth = vertex.HasStartWidth ? vertex.StartWidth : 0.0;
+                endWidth = vertex.HasEndWidth ? vertex.EndWidth : 0.0;
+                AccumulatePolylineWidthProfile(
+                    startWidth,
+                    endWidth,
+                    ref uniformWidth,
+                    ref hasVariableWidth);
+            }
+
+            normalizedVertices[i] = new CadPolylineVertex(
+                x,
+                y,
+                vertex.Bulge,
+                startWidth,
+                endWidth);
         }
+
+        if (hasExplicitSegmentWidth)
+        {
+            constantWidth = hasVariableWidth ? 0.0 : uniformWidth;
+        }
+        hasVariableWidth &= hasExplicitSegmentWidth;
+        ValidateVariablePolylineProfile(
+            "lightweight polyline",
+            fillMode,
+            constantWidth,
+            hasVariableWidth,
+            normalizedVertices,
+            segmentCount);
 
         return AddPlanarPolyline(
             handle,
@@ -3325,6 +3356,7 @@ public sealed partial class CadSnapshotCompiler
             polyline.IsClosed,
             polyline.Flags.HasFlag(LwPolylineFlags.Plinegen),
             constantWidth,
+            hasVariableWidth,
             normalizedVertices,
             destination,
             vertices);
@@ -3349,19 +3381,8 @@ public sealed partial class CadSnapshotCompiler
         int widthSegmentCount = polyline.IsClosed
             ? polyline.Vertices.Count
             : polyline.Vertices.Count - 1;
-        double constantWidth = ResolveLegacyPolylineConstantWidth(
-            polyline,
-            widthSegmentCount);
-        if (constantWidth > float.MaxValue)
-        {
-            throw new ArgumentException(
-                "2D-polyline width exceeds the retained float stroke domain.");
-        }
-        if (constantWidth > 0.0 && !fillMode)
-        {
-            throw new CadUnsupportedEntityException(
-                "FILLMODE-off wide 2D polylines require exact filled-object outline lowering.");
-        }
+        ValidatePolylineWidth(polyline.StartWidth, "2D-polyline default start");
+        ValidatePolylineWidth(polyline.EndWidth, "2D-polyline default end");
 
         if (polyline.Thickness != 0.0)
         {
@@ -3396,6 +3417,8 @@ public sealed partial class CadSnapshotCompiler
         EnsureFinite(worldOrigin);
 
         var normalizedVertices = new CadPolylineVertex[polyline.Vertices.Count];
+        double uniformWidth = double.NaN;
+        bool hasVariableWidth = false;
         for (int i = 0; i < polyline.Vertices.Count; i++)
         {
             Vertex2D vertex = polyline.Vertices[i];
@@ -3407,8 +3430,46 @@ public sealed partial class CadSnapshotCompiler
                 throw new ArgumentException("Polyline locations and bulges must be finite.");
             }
 
-            normalizedVertices[i] = new CadPolylineVertex(x, y, vertex.Bulge);
+            double startWidth = 0.0;
+            double endWidth = 0.0;
+            if (i < widthSegmentCount)
+            {
+                ValidatePolylineWidth(vertex.StartWidth, "2D-polyline vertex start");
+                ValidatePolylineWidth(vertex.EndWidth, "2D-polyline vertex end");
+                // Legacy POLYLINE entity widths are defaults only when the
+                // corresponding VERTEX group is absent. Presence must
+                // distinguish omission from an authored endpoint of zero.
+                startWidth = vertex.HasStartWidth
+                    ? vertex.StartWidth
+                    : polyline.StartWidth;
+                endWidth = vertex.HasEndWidth
+                    ? vertex.EndWidth
+                    : polyline.EndWidth;
+                AccumulatePolylineWidthProfile(
+                    startWidth,
+                    endWidth,
+                    ref uniformWidth,
+                    ref hasVariableWidth);
+            }
+
+            normalizedVertices[i] = new CadPolylineVertex(
+                x,
+                y,
+                vertex.Bulge,
+                startWidth,
+                endWidth);
         }
+
+        double constantWidth = hasVariableWidth || double.IsNaN(uniformWidth)
+            ? 0.0
+            : uniformWidth;
+        ValidateVariablePolylineProfile(
+            "2D polyline",
+            fillMode,
+            constantWidth,
+            hasVariableWidth,
+            normalizedVertices,
+            widthSegmentCount);
 
         return AddPlanarPolyline(
             handle,
@@ -3420,57 +3481,68 @@ public sealed partial class CadSnapshotCompiler
             polyline.IsClosed,
             polyline.Flags.HasFlag(PolylineFlags.ContinuousLinetypePattern),
             constantWidth,
+            hasVariableWidth,
             normalizedVertices,
             destination,
             vertices);
     }
 
-    private static double ResolveLegacyPolylineConstantWidth(
-        Polyline2D polyline,
-        int segmentCount)
+    private static void AccumulatePolylineWidthProfile(
+        double startWidth,
+        double endWidth,
+        ref double uniformWidth,
+        ref bool hasVariableWidth)
     {
-        ValidateLegacyPolylineWidth(polyline.StartWidth, "default start");
-        ValidateLegacyPolylineWidth(polyline.EndWidth, "default end");
-
-        double constantWidth = double.NaN;
-        for (int i = 0; i < polyline.Vertices.Count; i++)
+        if (double.IsNaN(uniformWidth))
         {
-            Vertex2D vertex = polyline.Vertices[i];
-            ValidateLegacyPolylineWidth(vertex.StartWidth, "vertex start");
-            ValidateLegacyPolylineWidth(vertex.EndWidth, "vertex end");
-            if (i >= segmentCount)
-            {
-                continue;
-            }
-
-            // Autodesk's legacy POLYLINE group 40/41 values are defaults for
-            // missing VERTEX widths. ACadSharp represents an omitted optional
-            // vertex value as zero, so resolve that public object-model state
-            // before deciding whether the retained stroke is constant.
-            double startWidth = vertex.StartWidth != 0.0
-                ? vertex.StartWidth
-                : polyline.StartWidth;
-            double endWidth = vertex.EndWidth != 0.0
-                ? vertex.EndWidth
-                : polyline.EndWidth;
-            if (startWidth != endWidth ||
-                (!double.IsNaN(constantWidth) && startWidth != constantWidth))
-            {
-                throw new CadUnsupportedEntityException(
-                    "Variable-width 2D polylines require tapered filled-outline lowering and cannot be treated as constant strokes.");
-            }
-            constantWidth = startWidth;
+            uniformWidth = startWidth;
         }
-
-        return double.IsNaN(constantWidth) ? 0.0 : constantWidth;
+        hasVariableWidth |= startWidth != endWidth || startWidth != uniformWidth;
     }
 
-    private static void ValidateLegacyPolylineWidth(double width, string role)
+    private static void ValidatePolylineWidth(double width, string role)
     {
         if (!double.IsFinite(width) || width < 0.0)
         {
             throw new ArgumentException(
-                $"2D-polyline {role} width must be finite and non-negative.");
+                $"{role} width must be finite and non-negative.");
+        }
+        if (width > float.MaxValue)
+        {
+            throw new ArgumentException(
+                $"{role} width exceeds the retained float geometry domain.");
+        }
+    }
+
+    private static void ValidateVariablePolylineProfile(
+        string role,
+        bool fillMode,
+        double constantWidth,
+        bool hasVariableWidth,
+        CadPolylineVertex[] normalizedVertices,
+        int segmentCount)
+    {
+        bool hasVisibleWidth = constantWidth > 0.0;
+        for (int i = 0; i < segmentCount; i++)
+        {
+            CadPolylineVertex vertex = normalizedVertices[i];
+            hasVisibleWidth |= vertex.StartWidth > 0.0 || vertex.EndWidth > 0.0;
+            if (hasVariableWidth && vertex.Bulge != 0.0)
+            {
+                throw new CadUnsupportedEntityException(
+                    $"Variable-width {role} bulges require analytic spiral-boundary lowering.");
+            }
+            if (hasVariableWidth &&
+                vertex.StartWidth == 0.0 && vertex.EndWidth == 0.0)
+            {
+                throw new CadUnsupportedEntityException(
+                    $"Variable-width {role}s containing a zero-width segment require mixed filled-outline and skinny-stroke lowering.");
+            }
+        }
+        if (hasVisibleWidth && !fillMode)
+        {
+            throw new CadUnsupportedEntityException(
+                $"FILLMODE-off wide {role}s require exact filled-object outline lowering.");
         }
     }
 
@@ -3484,6 +3556,7 @@ public sealed partial class CadSnapshotCompiler
         bool isClosed,
         bool isLineTypeContinuous,
         double constantWidth,
+        bool hasVariableWidth,
         CadPolylineVertex[] normalizedVertices,
         List<CadPolylinePrimitive> destination,
         List<CadPolylineVertex> vertices)
@@ -3501,24 +3574,32 @@ public sealed partial class CadSnapshotCompiler
             {
                 CadBounds3D segmentBounds =
                     CadBounds3D.FromPoint(worldStart).Include(worldEnd);
-                if (constantWidth > 0.0)
+                if (constantWidth > 0.0 || hasVariableWidth)
                 {
                     double dx = end.X - start.X;
                     double dy = end.Y - start.Y;
                     double length = Hypot(dx, dy);
                     if (length > 0.0)
                     {
-                        double halfWidth = constantWidth * 0.5;
-                        double offsetX = (-dy / length) * halfWidth;
-                        double offsetY = (dx / length) * halfWidth;
-                        CadPoint3D worldOffset =
-                            (basis.XAxis * offsetX) +
-                            (basis.YAxis * offsetY);
+                        double startHalfWidth = hasVariableWidth
+                            ? start.StartWidth * 0.5
+                            : constantWidth * 0.5;
+                        double endHalfWidth = hasVariableWidth
+                            ? start.EndWidth * 0.5
+                            : constantWidth * 0.5;
+                        double normalX = -dy / length;
+                        double normalY = dx / length;
+                        CadPoint3D worldStartOffset =
+                            (basis.XAxis * (normalX * startHalfWidth)) +
+                            (basis.YAxis * (normalY * startHalfWidth));
+                        CadPoint3D worldEndOffset =
+                            (basis.XAxis * (normalX * endHalfWidth)) +
+                            (basis.YAxis * (normalY * endHalfWidth));
                         segmentBounds = segmentBounds
-                            .Include(worldStart + worldOffset)
-                            .Include(worldStart - worldOffset)
-                            .Include(worldEnd + worldOffset)
-                            .Include(worldEnd - worldOffset);
+                            .Include(worldStart + worldStartOffset)
+                            .Include(worldStart - worldStartOffset)
+                            .Include(worldEnd + worldEndOffset)
+                            .Include(worldEnd - worldEndOffset);
                     }
                 }
                 bounds = bounds.Union(segmentBounds);
@@ -3565,7 +3646,8 @@ public sealed partial class CadSnapshotCompiler
             normalizedVertices.Length,
             isClosed,
             isLineTypeContinuous,
-            constantWidth));
+            constantWidth,
+            hasVariableWidth));
         return new CadEntityHeader(
             handle,
             kind,

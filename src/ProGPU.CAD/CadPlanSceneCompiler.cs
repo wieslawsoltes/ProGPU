@@ -306,7 +306,7 @@ public sealed class CadPlanSceneCompiler
                 snapshot,
                 entity,
                 out CadPolylinePrimitive widePolyline);
-            Pen geometryPen = isWidePolyline
+            Pen geometryPen = isWidePolyline && !widePolyline.HasVariableWidth
                 ? GetWidePolylinePen(
                     entity.StyleIndex,
                     widePolyline.ConstantWidth,
@@ -2251,6 +2251,16 @@ public sealed class CadPlanSceneCompiler
         ReadOnlySpan<CadPolylineVertex> vertices = snapshot.PolylineVertices.Span.Slice(
             polyline.VertexOffset,
             polyline.VertexCount);
+        Matrix4x4 transform = CreateProjectionTransform(
+            polyline.WorldOrigin,
+            polyline.CoordinateSystem,
+            snapshot.RebaseOrigin);
+        if (polyline.HasVariableWidth)
+        {
+            RecordVariableWidthPolyline(context, pen, vertices, polyline.IsClosed, transform);
+            return;
+        }
+
         var path = new PathGeometry();
         var figure = new PathFigure(ToVector(vertices[0]))
         {
@@ -2289,11 +2299,190 @@ public sealed class CadPlanSceneCompiler
         }
 
         path.Figures.Add(figure);
-        Matrix4x4 transform = CreateProjectionTransform(
-            polyline.WorldOrigin,
-            polyline.CoordinateSystem,
-            snapshot.RebaseOrigin);
         context.DrawPath(null, pen, path, transform);
+    }
+
+    /// <summary>
+    /// Lowers one exact straight tapered polyline to a single nonzero fill.
+    /// Each segment contributes one trapezoid and each non-collinear interior
+    /// vertex one bevel triangle. The shared fill command unions overlaps
+    /// without translucent alpha seams. Work and storage are O(S) for S
+    /// segments; no curve approximation is performed.
+    /// </summary>
+    private static void RecordVariableWidthPolyline(
+        DrawingContext context,
+        Pen pen,
+        ReadOnlySpan<CadPolylineVertex> vertices,
+        bool isClosed,
+        Matrix4x4 transform)
+    {
+        var path = new PathGeometry { FillRule = FillRule.Nonzero };
+        int segmentCount = isClosed ? vertices.Length : vertices.Length - 1;
+        for (int i = 0; i < segmentCount; i++)
+        {
+            CadPolylineVertex start = vertices[i];
+            CadPolylineVertex end = vertices[(i + 1) % vertices.Length];
+            if (!TryGetVariableLineCorners(
+                    start,
+                    end,
+                    out Vector2 first,
+                    out Vector2 second,
+                    out Vector2 third,
+                    out Vector2 fourth))
+            {
+                continue;
+            }
+            AddFilledQuadrilateral(path, first, second, third, fourth);
+        }
+
+        int firstJoin = isClosed ? 0 : 1;
+        int joinEnd = isClosed ? vertices.Length : vertices.Length - 1;
+        for (int vertexIndex = firstJoin; vertexIndex < joinEnd; vertexIndex++)
+        {
+            int previousSegment = (vertexIndex + segmentCount - 1) % segmentCount;
+            int nextSegment = vertexIndex % segmentCount;
+            CadPolylineVertex previous = vertices[previousSegment];
+            CadPolylineVertex join = vertices[vertexIndex];
+            CadPolylineVertex next = vertices[(nextSegment + 1) % vertices.Length];
+            if (TryGetVariableBevelJoin(
+                    previous,
+                    join,
+                    next,
+                    out Vector2 first,
+                    out Vector2 second,
+                    out Vector2 third))
+            {
+                AddFilledTriangle(path, first, second, third);
+            }
+        }
+
+        context.DrawPath(pen.Brush, null, path, transform);
+    }
+
+    private static bool TryGetVariableLineCorners(
+        CadPolylineVertex start,
+        CadPolylineVertex end,
+        out Vector2 first,
+        out Vector2 second,
+        out Vector2 third,
+        out Vector2 fourth)
+    {
+        double dx = end.X - start.X;
+        double dy = end.Y - start.Y;
+        double length = PolylineHypot(dx, dy);
+        if (!double.IsFinite(length) || length <= 1e-12)
+        {
+            first = second = third = fourth = default;
+            return false;
+        }
+
+        double normalX = -dy / length;
+        double normalY = dx / length;
+        double startHalfWidth = start.StartWidth * 0.5;
+        double endHalfWidth = start.EndWidth * 0.5;
+        first = new Vector2(
+            ToFloat(start.X + (normalX * startHalfWidth)),
+            ToFloat(start.Y + (normalY * startHalfWidth)));
+        second = new Vector2(
+            ToFloat(start.X - (normalX * startHalfWidth)),
+            ToFloat(start.Y - (normalY * startHalfWidth)));
+        third = new Vector2(
+            ToFloat(end.X - (normalX * endHalfWidth)),
+            ToFloat(end.Y - (normalY * endHalfWidth)));
+        fourth = new Vector2(
+            ToFloat(end.X + (normalX * endHalfWidth)),
+            ToFloat(end.Y + (normalY * endHalfWidth)));
+        return true;
+    }
+
+    private static bool TryGetVariableBevelJoin(
+        CadPolylineVertex previous,
+        CadPolylineVertex join,
+        CadPolylineVertex next,
+        out Vector2 first,
+        out Vector2 second,
+        out Vector2 third)
+    {
+        double incomingX = join.X - previous.X;
+        double incomingY = join.Y - previous.Y;
+        double outgoingX = next.X - join.X;
+        double outgoingY = next.Y - join.Y;
+        double incomingLength = PolylineHypot(incomingX, incomingY);
+        double outgoingLength = PolylineHypot(outgoingX, outgoingY);
+        if (!double.IsFinite(incomingLength) || !double.IsFinite(outgoingLength) ||
+            incomingLength <= 1e-12 || outgoingLength <= 1e-12)
+        {
+            first = second = third = default;
+            return false;
+        }
+        incomingX /= incomingLength;
+        incomingY /= incomingLength;
+        outgoingX /= outgoingLength;
+        outgoingY /= outgoingLength;
+        double turn = (incomingX * outgoingY) - (incomingY * outgoingX);
+        double previousHalfWidth = previous.EndWidth * 0.5;
+        double nextHalfWidth = join.StartWidth * 0.5;
+        if (!double.IsFinite(turn) || Math.Abs(turn) <= 0.0001 ||
+            (previousHalfWidth <= 0.0 && nextHalfWidth <= 0.0))
+        {
+            first = second = third = default;
+            return false;
+        }
+
+        double outerSign = turn > 0.0 ? -1.0 : 1.0;
+        first = new Vector2(
+            ToFloat(join.X + (-incomingY * outerSign * previousHalfWidth)),
+            ToFloat(join.Y + (incomingX * outerSign * previousHalfWidth)));
+        second = new Vector2(
+            ToFloat(join.X + (-outgoingY * outerSign * nextHalfWidth)),
+            ToFloat(join.Y + (outgoingX * outerSign * nextHalfWidth)));
+        third = ToVector(join);
+        return true;
+    }
+
+    private static void AddFilledQuadrilateral(
+        PathGeometry path,
+        Vector2 first,
+        Vector2 second,
+        Vector2 third,
+        Vector2 fourth)
+    {
+        var figure = new PathFigure(first, isClosed: true) { IsFilled = true };
+        figure.Segments.Add(new LineSegment(second));
+        figure.Segments.Add(new LineSegment(third));
+        figure.Segments.Add(new LineSegment(fourth));
+        path.Figures.Add(figure);
+    }
+
+    private static void AddFilledTriangle(
+        PathGeometry path,
+        Vector2 first,
+        Vector2 second,
+        Vector2 third)
+    {
+        if (Cross(second - first, third - first) < 0.0f)
+        {
+            (second, third) = (third, second);
+        }
+        var figure = new PathFigure(first, isClosed: true) { IsFilled = true };
+        figure.Segments.Add(new LineSegment(second));
+        figure.Segments.Add(new LineSegment(third));
+        path.Figures.Add(figure);
+    }
+
+    private static float Cross(Vector2 first, Vector2 second) =>
+        (first.X * second.Y) - (first.Y * second.X);
+
+    private static double PolylineHypot(double x, double y)
+    {
+        double scale = Math.Max(Math.Abs(x), Math.Abs(y));
+        if (scale == 0.0)
+        {
+            return 0.0;
+        }
+        x /= scale;
+        y /= scale;
+        return scale * Math.Sqrt((x * x) + (y * y));
     }
 
     private static void RecordPolyline3D(

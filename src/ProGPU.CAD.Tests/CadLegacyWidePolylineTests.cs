@@ -107,8 +107,8 @@ public sealed class CadLegacyWidePolylineTests
         polyline.Vertices.Add(new Vertex2D(new XYZ(10, 0, 0))
         {
             // An open polyline has no segment beginning at its terminal vertex.
-            StartWidth = 7.0,
-            EndWidth = 7.0,
+            StartWidth = double.NaN,
+            EndWidth = -1.0,
         });
         document.Entities.Add(polyline);
 
@@ -159,11 +159,11 @@ public sealed class CadLegacyWidePolylineTests
     }
 
     [Fact]
-    public void VariableWidthsAndFillModeOffRemainExplicitlyUnsupported()
+    public void VariableWidthBulgesAndFillModeOffRemainExplicitlyUnsupported()
     {
         var variableDocument = new CadDocument();
         var variable = new Polyline2D { StartWidth = 2.0, EndWidth = 3.0 };
-        variable.Vertices.Add(new Vertex2D(XYZ.Zero));
+        variable.Vertices.Add(new Vertex2D(XYZ.Zero) { Bulge = 0.5 });
         variable.Vertices.Add(new Vertex2D(new XYZ(10, 0, 0)));
         variableDocument.Entities.Add(variable);
 
@@ -181,7 +181,7 @@ public sealed class CadLegacyWidePolylineTests
         Assert.Equal(1, variableSnapshot.Statistics.UnsupportedEntityCount);
         Assert.Contains(variableSnapshot.Diagnostics.ToArray(), diagnostic =>
             diagnostic.Code == "CADSNAP003" &&
-            diagnostic.Message.Contains("Variable-width", StringComparison.Ordinal));
+            diagnostic.Message.Contains("spiral-boundary", StringComparison.Ordinal));
         Assert.Empty(fillOffSnapshot.Entities.ToArray());
         Assert.Equal(1, fillOffSnapshot.Statistics.UnsupportedEntityCount);
         Assert.Contains(fillOffSnapshot.Diagnostics.ToArray(), diagnostic =>
@@ -190,7 +190,7 @@ public sealed class CadLegacyWidePolylineTests
     }
 
     [Fact]
-    public void ClosedTerminalVertexWidthParticipatesInTheClosingSegment()
+    public void ClosedTerminalVertexWidthParticipatesInExactClosingSegment()
     {
         var document = new CadDocument();
         var polyline = new Polyline2D
@@ -210,11 +210,13 @@ public sealed class CadLegacyWidePolylineTests
 
         CadDocumentSnapshot snapshot = Compile(document);
 
-        Assert.Empty(snapshot.Entities.ToArray());
-        Assert.Equal(1, snapshot.Statistics.UnsupportedEntityCount);
-        Assert.Contains(snapshot.Diagnostics.ToArray(), diagnostic =>
-            diagnostic.Code == "CADSNAP003" &&
-            diagnostic.Message.Contains("Variable-width", StringComparison.Ordinal));
+        CadPolylinePrimitive primitive = Assert.Single(snapshot.Polylines.ToArray());
+        CadPolylineVertex terminal = snapshot.PolylineVertices.Span[^1];
+
+        Assert.True(primitive.HasVariableWidth);
+        Assert.Equal(3.0, terminal.StartWidth);
+        Assert.Equal(3.0, terminal.EndWidth);
+        Assert.Equal(0, snapshot.Statistics.UnsupportedEntityCount);
     }
 
     [Theory]

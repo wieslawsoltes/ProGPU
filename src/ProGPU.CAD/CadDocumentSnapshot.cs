@@ -476,11 +476,23 @@ public readonly record struct CadSplinePrimitive(
     bool IsClosed,
     bool IsPeriodic);
 
+/// <summary>
+/// One immutable OCS polyline vertex. Widths describe the segment beginning
+/// at this vertex; they are populated only when the owning primitive has a
+/// nonuniform profile.
+/// </summary>
 public readonly record struct CadPolylineVertex(
     double X,
     double Y,
-    double Bulge);
+    double Bulge,
+    double StartWidth = 0.0,
+    double EndWidth = 0.0);
 
+/// <summary>
+/// One immutable planar polyline. Uniform profiles use <see cref="ConstantWidth"/>
+/// and the analytic stroke fast path; nonuniform straight profiles read start
+/// and end widths from their segment-start vertices.
+/// </summary>
 public readonly record struct CadPolylinePrimitive(
     CadPoint3D WorldOrigin,
     CadCoordinateSystem CoordinateSystem,
@@ -488,9 +500,10 @@ public readonly record struct CadPolylinePrimitive(
     int VertexCount,
     bool IsClosed,
     bool IsLineTypeContinuous,
-    double ConstantWidth = 0.0)
+    double ConstantWidth = 0.0,
+    bool HasVariableWidth = false)
 {
-    public bool IsWide => ConstantWidth > 0.0;
+    public bool IsWide => ConstantWidth > 0.0 || HasVariableWidth;
 }
 
 public readonly record struct CadPolyline3DPrimitive(

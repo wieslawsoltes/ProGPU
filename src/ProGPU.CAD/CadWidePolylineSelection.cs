@@ -1,6 +1,6 @@
 namespace ProGPU.CAD;
 
-/// <summary>Exact selection for one retained constant-width 2D polyline.</summary>
+/// <summary>Exact selection for one retained wide 2D polyline.</summary>
 /// <remarks>
 /// Each source-space line strip and bevel join is tested as transformed
 /// triangles. Circular bulge strips retain their two signed-radius rational
@@ -31,19 +31,24 @@ internal static class CadWidePolylineSelection
             return UnsupportedPoint();
         }
 
-        double halfWidth = polyline.ConstantWidth * 0.5;
         double minimum = double.PositiveInfinity;
         int segmentCount = polyline.IsClosed ? vertices.Length : vertices.Length - 1;
         for (int i = 0; i < segmentCount; i++)
         {
             CadPolylineVertex start = vertices[i];
             CadPolylineVertex end = vertices[(i + 1) % vertices.Length];
+            GetSegmentHalfWidths(
+                polyline,
+                start,
+                out double startHalfWidth,
+                out double endHalfWidth);
             if (!TryDistanceToSegmentBody(
                     polyline,
                     plane,
                     start,
                     end,
-                    halfWidth,
+                    startHalfWidth,
+                    endHalfWidth,
                     point,
                     out double distance))
             {
@@ -58,6 +63,12 @@ internal static class CadWidePolylineSelection
         {
             int previousSegment = (vertexIndex + segmentCount - 1) % segmentCount;
             int nextSegment = vertexIndex % segmentCount;
+            double previousHalfWidth = GetSegmentEndHalfWidth(
+                polyline,
+                vertices[previousSegment]);
+            double nextHalfWidth = GetSegmentStartHalfWidth(
+                polyline,
+                vertices[nextSegment]);
             if (!TryGetSegmentEndDirection(
                     vertices[previousSegment],
                     vertices[(previousSegment + 1) % vertices.Length],
@@ -75,7 +86,8 @@ internal static class CadWidePolylineSelection
                     vertices[vertexIndex],
                     incoming,
                     outgoing,
-                    halfWidth,
+                    previousHalfWidth,
+                    nextHalfWidth,
                     out CadPoint3D first,
                     out CadPoint3D second,
                     out CadPoint3D third))
@@ -118,16 +130,22 @@ internal static class CadWidePolylineSelection
             return UnsupportedBounds();
         }
 
-        double halfWidth = polyline.ConstantWidth * 0.5;
         int segmentCount = polyline.IsClosed ? vertices.Length : vertices.Length - 1;
         for (int i = 0; i < segmentCount; i++)
         {
+            CadPolylineVertex start = vertices[i];
+            GetSegmentHalfWidths(
+                polyline,
+                start,
+                out double startHalfWidth,
+                out double endHalfWidth);
             if (!TrySegmentBodyIntersectsBounds(
                     polyline,
                     plane,
-                    vertices[i],
+                    start,
                     vertices[(i + 1) % vertices.Length],
-                    halfWidth,
+                    startHalfWidth,
+                    endHalfWidth,
                     bounds,
                     out bool intersects))
             {
@@ -145,6 +163,12 @@ internal static class CadWidePolylineSelection
         {
             int previousSegment = (vertexIndex + segmentCount - 1) % segmentCount;
             int nextSegment = vertexIndex % segmentCount;
+            double previousHalfWidth = GetSegmentEndHalfWidth(
+                polyline,
+                vertices[previousSegment]);
+            double nextHalfWidth = GetSegmentStartHalfWidth(
+                polyline,
+                vertices[nextSegment]);
             if (TryGetSegmentEndDirection(
                     vertices[previousSegment],
                     vertices[(previousSegment + 1) % vertices.Length],
@@ -158,7 +182,8 @@ internal static class CadWidePolylineSelection
                     vertices[vertexIndex],
                     incoming,
                     outgoing,
-                    halfWidth,
+                    previousHalfWidth,
+                    nextHalfWidth,
                     out CadPoint3D first,
                     out CadPoint3D second,
                     out CadPoint3D third) &&
@@ -180,7 +205,8 @@ internal static class CadWidePolylineSelection
         PlaneMapping plane,
         CadPolylineVertex start,
         CadPolylineVertex end,
-        double halfWidth,
+        double startHalfWidth,
+        double endHalfWidth,
         CadPoint3D point,
         out double distance)
     {
@@ -196,7 +222,8 @@ internal static class CadWidePolylineSelection
                 polyline,
                 start,
                 end,
-                halfWidth,
+                startHalfWidth,
+                endHalfWidth,
                 out CadPoint3D first,
                 out CadPoint3D second,
                 out CadPoint3D third,
@@ -210,14 +237,15 @@ internal static class CadWidePolylineSelection
                     out distance);
         }
 
-        if (!TryGetArc(start, end, out ArcData arc))
+        if (startHalfWidth != endHalfWidth ||
+            !TryGetArc(start, end, out ArcData arc))
         {
             distance = double.NaN;
             return false;
         }
 
-        double innerRadius = arc.Radius - halfWidth;
-        double outerRadius = arc.Radius + halfWidth;
+        double innerRadius = arc.Radius - startHalfWidth;
+        double outerRadius = arc.Radius + startHalfWidth;
         if (TryProjectToLocal(polyline, plane, point, out LocalPoint local, out double planeDistance) &&
             ContainsArcStrip(arc, innerRadius, outerRadius, local))
         {
@@ -250,7 +278,8 @@ internal static class CadWidePolylineSelection
         PlaneMapping plane,
         CadPolylineVertex start,
         CadPolylineVertex end,
-        double halfWidth,
+        double startHalfWidth,
+        double endHalfWidth,
         CadBounds3D bounds,
         out bool intersects)
     {
@@ -265,7 +294,8 @@ internal static class CadWidePolylineSelection
                     polyline,
                     start,
                     end,
-                    halfWidth,
+                    startHalfWidth,
+                    endHalfWidth,
                     out CadPoint3D first,
                     out CadPoint3D second,
                     out CadPoint3D third,
@@ -280,13 +310,14 @@ internal static class CadWidePolylineSelection
             return true;
         }
 
-        if (!TryGetArc(start, end, out ArcData arc))
+        if (startHalfWidth != endHalfWidth ||
+            !TryGetArc(start, end, out ArcData arc))
         {
             intersects = false;
             return false;
         }
-        double innerRadius = arc.Radius - halfWidth;
-        double outerRadius = arc.Radius + halfWidth;
+        double innerRadius = arc.Radius - startHalfWidth;
+        double outerRadius = arc.Radius + startHalfWidth;
         if (PlaneSliceIntersectsArcStrip(
                 polyline,
                 plane,
@@ -325,7 +356,8 @@ internal static class CadWidePolylineSelection
         CadPolylinePrimitive polyline,
         CadPolylineVertex start,
         CadPolylineVertex end,
-        double halfWidth,
+        double startHalfWidth,
+        double endHalfWidth,
         out CadPoint3D first,
         out CadPoint3D second,
         out CadPoint3D third,
@@ -339,12 +371,16 @@ internal static class CadWidePolylineSelection
             first = second = third = fourth = default;
             return false;
         }
-        double nx = (-dy / length) * halfWidth;
-        double ny = (dx / length) * halfWidth;
-        first = ToWorld(polyline, new LocalPoint(start.X + nx, start.Y + ny));
-        second = ToWorld(polyline, new LocalPoint(start.X - nx, start.Y - ny));
-        third = ToWorld(polyline, new LocalPoint(end.X - nx, end.Y - ny));
-        fourth = ToWorld(polyline, new LocalPoint(end.X + nx, end.Y + ny));
+        double normalX = -dy / length;
+        double normalY = dx / length;
+        double startOffsetX = normalX * startHalfWidth;
+        double startOffsetY = normalY * startHalfWidth;
+        double endOffsetX = normalX * endHalfWidth;
+        double endOffsetY = normalY * endHalfWidth;
+        first = ToWorld(polyline, new LocalPoint(start.X + startOffsetX, start.Y + startOffsetY));
+        second = ToWorld(polyline, new LocalPoint(start.X - startOffsetX, start.Y - startOffsetY));
+        third = ToWorld(polyline, new LocalPoint(end.X - endOffsetX, end.Y - endOffsetY));
+        fourth = ToWorld(polyline, new LocalPoint(end.X + endOffsetX, end.Y + endOffsetY));
         return AreFinite(first) && AreFinite(second) && AreFinite(third) && AreFinite(fourth);
     }
 
@@ -561,14 +597,15 @@ internal static class CadWidePolylineSelection
         CadPolylineVertex vertex,
         LocalPoint incoming,
         LocalPoint outgoing,
-        double halfWidth,
+        double previousHalfWidth,
+        double nextHalfWidth,
         out CadPoint3D first,
         out CadPoint3D second,
         out CadPoint3D third)
     {
         double turn = (incoming.X * outgoing.Y) - (incoming.Y * outgoing.X);
         if (!double.IsFinite(turn) || Math.Abs(turn) <= JoinEpsilon ||
-            polyline.ConstantWidth <= JoinEpsilon)
+            (previousHalfWidth <= JoinEpsilon && nextHalfWidth <= JoinEpsilon))
         {
             first = second = third = default;
             return false;
@@ -576,11 +613,11 @@ internal static class CadWidePolylineSelection
         double outerSign = turn > 0.0 ? -1.0 : 1.0;
         var join = new LocalPoint(vertex.X, vertex.Y);
         var previousOuter = new LocalPoint(
-            join.X + (-incoming.Y * outerSign * halfWidth),
-            join.Y + (incoming.X * outerSign * halfWidth));
+            join.X + (-incoming.Y * outerSign * previousHalfWidth),
+            join.Y + (incoming.X * outerSign * previousHalfWidth));
         var nextOuter = new LocalPoint(
-            join.X + (-outgoing.Y * outerSign * halfWidth),
-            join.Y + (outgoing.X * outerSign * halfWidth));
+            join.X + (-outgoing.Y * outerSign * nextHalfWidth),
+            join.Y + (outgoing.X * outerSign * nextHalfWidth));
         first = ToWorld(polyline, previousOuter);
         second = ToWorld(polyline, join);
         third = ToWorld(polyline, nextOuter);
@@ -734,6 +771,26 @@ internal static class CadWidePolylineSelection
         polyline.WorldOrigin +
         (polyline.CoordinateSystem.XAxis * point.X) +
         (polyline.CoordinateSystem.YAxis * point.Y);
+
+    private static void GetSegmentHalfWidths(
+        CadPolylinePrimitive polyline,
+        CadPolylineVertex segmentStart,
+        out double startHalfWidth,
+        out double endHalfWidth)
+    {
+        startHalfWidth = GetSegmentStartHalfWidth(polyline, segmentStart);
+        endHalfWidth = GetSegmentEndHalfWidth(polyline, segmentStart);
+    }
+
+    private static double GetSegmentStartHalfWidth(
+        CadPolylinePrimitive polyline,
+        CadPolylineVertex segmentStart) =>
+        (polyline.HasVariableWidth ? segmentStart.StartWidth : polyline.ConstantWidth) * 0.5;
+
+    private static double GetSegmentEndHalfWidth(
+        CadPolylinePrimitive polyline,
+        CadPolylineVertex segmentStart) =>
+        (polyline.HasVariableWidth ? segmentStart.EndWidth : polyline.ConstantWidth) * 0.5;
 
     private static ReadOnlySpan<CadPolylineVertex> GetVertices(
         CadDocumentSnapshot snapshot,

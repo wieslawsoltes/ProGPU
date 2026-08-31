@@ -63,7 +63,7 @@ public sealed class CadWidePolylineTests
     }
 
     [Fact]
-    public void FillModeOffAndVariableWidthRemainExplicitlyUnsupported()
+    public void FillModeOffAndVariableWidthBulgesRemainExplicitlyUnsupported()
     {
         var fillOff = new CadDocument();
         fillOff.Header.FillMode = false;
@@ -73,6 +73,7 @@ public sealed class CadWidePolylineTests
         var tapered = CreateStraight(width: 4.0);
         tapered.Vertices[0].StartWidth = 1.0;
         tapered.Vertices[0].EndWidth = 3.0;
+        tapered.Vertices[0].Bulge = 0.5;
         variable.Entities.Add(tapered);
 
         CadDocumentSnapshot fillOffSnapshot = Compile(fillOff);
@@ -87,7 +88,7 @@ public sealed class CadWidePolylineTests
         Assert.Equal(1, variableSnapshot.Statistics.UnsupportedEntityCount);
         Assert.Contains(variableSnapshot.Diagnostics.ToArray(), diagnostic =>
             diagnostic.Code == "CADSNAP003" &&
-            diagnostic.Message.Contains("Variable-width", StringComparison.Ordinal));
+            diagnostic.Message.Contains("spiral-boundary", StringComparison.Ordinal));
     }
 
     [Fact]
