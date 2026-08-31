@@ -455,14 +455,14 @@ int main()
             compat_point_description.endFigure == 0U &&
             compat_point_description.lengthToEndSegment == 10.0F,
         "ProGPU path point-and-segment query changed");
-    const D2D1_ROUNDED_RECT rounded_rectangle = D2D1::RoundedRect(
+    const D2D1_ROUNDED_RECT compat_rounded_descriptor = D2D1::RoundedRect(
         D2D1::RectF(0.0F, 0.0F, 12.0F, 8.0F),
         3.0F,
         2.0F);
     ComPtr<ID2D1RoundedRectangleGeometry> compat_rounded_rectangle;
     require(
         compat_factory->CreateRoundedRectangleGeometry(
-            &rounded_rectangle,
+            &compat_rounded_descriptor,
             &compat_rounded_rectangle) == S_OK &&
             compat_rounded_rectangle != nullptr,
         "ProGPU ID2D1RoundedRectangleGeometry creation failed");
@@ -958,7 +958,7 @@ int main()
     BOOL system_rounded_rectangle_contains = FALSE;
     require(
         factory1->CreateRoundedRectangleGeometry(
-            &rounded_rectangle,
+            &compat_rounded_descriptor,
             &system_rounded_rectangle) == S_OK &&
             system_rounded_rectangle != nullptr &&
             system_rounded_rectangle->GetBounds(
