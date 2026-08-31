@@ -93,11 +93,12 @@ uses the entity flag with either a straight or tangent closing segment.
 Accepted arcs use one retained analytic path; only the live pointer arc uses a
 DPI-aware allocation-free approximation capped at 512 lines. Completion
 captures current entity properties plus PLINEGEN and publishes one entity as
-one generation-safe Undo/Redo action with DXF/DWG round trips. Nonzero PLINEWID
-fails before mutation until the renderer supports filled wide-polylines, so no
-wide object is silently reduced to a cosmetic centerline. Existing managed and
-native analytic LWPOLYLINE lowering is unchanged; no shader or ABI fork is
-introduced.
+one generation-safe Undo/Redo action with DXF/DWG round trips. Fill-on constant
+PLINEWID is retained as an absolute model-space bevel/butt stroke through
+affine blocks, camera replay, managed/native compilation, and printing.
+Variable widths, FILLMODE-off outlines, patterned-wide caps, and exact
+point/crossing selection fail explicitly rather than reducing to a cosmetic
+centerline. No shader or ABI fork is introduced.
 
 Shared desktop/browser ProGPU.CAD now also authors exact plan-view CIRCLEs by
 center/radius, center/diameter, two diameter endpoints, or three circumference

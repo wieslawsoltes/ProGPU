@@ -109,8 +109,9 @@ renderer algorithm or shader change applies. Matched replay remains covered.
 - Legacy `PLINETYPE=0` heavyweight `POLYLINE` authoring is not approximated;
   this checkpoint deliberately publishes the established ProGPU LWPOLYLINE
   form. A legacy entity path needs its own persistence and parity contract.
-- Filled nonzero `PLINEWID` output remains fail-closed rather than becoming a
-  cosmetic centerline.
+- Fill-on constant `PLINEWID` now uses the exact retained contract in
+  `PROGPU_CAD_WIDE_POLYLINE_RESEARCH.md`; tapered widths and FILLMODE-off
+  outlines remain fail-closed rather than becoming a cosmetic centerline.
 - Arbitrary 3D UCS/camera authoring, expressions/units, command chaining,
   temporary overrides, object-snap tracking, cursor-side Edge alternatives,
   visual goldens, licensed cross-engine differential fixtures, and sustained

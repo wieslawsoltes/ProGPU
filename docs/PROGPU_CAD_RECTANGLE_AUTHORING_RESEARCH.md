@@ -51,8 +51,8 @@ file representation, and retained-rendering constraints only.
 The implementation directly reuses original ProGPU-owned contracts from:
 
 - `src/ProGPU.CAD/CadPolylineAuthoring.cs` for immutable planar vertices,
-  exact bulges, current-property and PLINEGEN capture, nonzero-PLINEWID
-  preflight, and identity-preserving Undo/Redo;
+  exact bulges, current-property, PLINEGEN, and fill-on constant-PLINEWID
+  capture, FILLMODE-off preflight, and identity-preserving Undo/Redo;
 - the plan point-acquisition stack for WCS input, object/grid snap, Ortho,
   polar tracking, direct distance, and active-plane preservation;
 - the existing LWPOLYLINE snapshot, selection, managed/native scene, print,
@@ -116,9 +116,10 @@ or new managed/native crossing applies.
 
 ## Explicitly deferred and fail-closed
 
-- Nonzero rectangle Width uses DXF polyline width, but ProGPU currently rejects
-  filled wide-polyline lowering. RECTANG therefore reuses the existing
-  nonzero-PLINEWID preflight instead of drawing a cosmetic centerline.
+- Nonzero rectangle Width now publishes through the exact fill-on constant-
+  width LWPOLYLINE contract documented in
+  `PROGPU_CAD_WIDE_POLYLINE_RESEARCH.md`. FILLMODE-off outlines and tapered
+  widths remain fail-closed rather than drawing a cosmetic centerline.
 - Nonzero Thickness is not authored because current LWPOLYLINE compilation
   does not yet lower the extrusion side faces. Silently persisting an ignored
   value would violate rendering/printing parity.

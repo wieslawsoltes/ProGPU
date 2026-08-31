@@ -228,6 +228,7 @@ public sealed class CadPlanSceneCompiler
             snapshot.MLineStrokes.Length +
             snapshot.MLineFillTriangles.Length));
         Pen[] pens = CreatePens(styles, options);
+        var widePolylinePens = new Dictionary<(int StyleIndex, double Width), Pen>();
         var mtextBrushes = new Dictionary<uint, Brush>();
         var diagnostics = new List<CadDiagnostic>();
         var warnedLineTypes = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
@@ -301,6 +302,17 @@ public sealed class CadPlanSceneCompiler
 
             CadStrokeStyle style = styles[entity.StyleIndex];
             Pen pen = pens[entity.StyleIndex];
+            bool isWidePolyline = TryGetWidePolyline(
+                snapshot,
+                entity,
+                out CadPolylinePrimitive widePolyline);
+            Pen geometryPen = isWidePolyline
+                ? GetWidePolylinePen(
+                    entity.StyleIndex,
+                    widePolyline.ConstantWidth,
+                    pen,
+                    widePolylinePens)
+                : pen;
             bool recordedLineType = false;
             CadLineTypeLoweringResult? deferredImageFrame = null;
             CadLineTypePattern? deferredImageFramePattern = null;
@@ -311,7 +323,17 @@ public sealed class CadPlanSceneCompiler
             if (UsesStroke(entity.Kind) || usesWipeoutFrame || usesRasterImageFrame)
             {
                 CadLineTypePattern pattern = lineTypePatterns[style.LineTypePatternIndex];
-                if (pattern.Kind is CadLineTypePatternKind.Simple or CadLineTypePatternKind.Complex)
+                if (isWidePolyline &&
+                    pattern.Kind is (
+                        CadLineTypePatternKind.Simple or
+                        CadLineTypePatternKind.Complex))
+                {
+                    AddUnsupportedLineTypeDiagnostic(
+                        pattern.Name,
+                        "wide-polyline dash, dot, and embedded-content caps require a dedicated filled-width linetype contract",
+                        "CADSCENE009");
+                }
+                else if (pattern.Kind is CadLineTypePatternKind.Simple or CadLineTypePatternKind.Complex)
                 {
                     int remainingFigures = options.MaxLineTypeFigures - lineTypeFigureBudgetUsed;
                     int remainingPatternSteps =
@@ -361,7 +383,11 @@ public sealed class CadPlanSceneCompiler
                         {
                             if (result.Path is not null)
                             {
-                                context.DrawPath(null, pen, result.Path, result.Transform);
+                                context.DrawPath(
+                                    null,
+                                    geometryPen,
+                                    result.Path,
+                                    result.Transform);
                             }
                             RecordLineTypeSplineFragments(context, pen, result);
                             RecordLineTypePlacements(
@@ -626,10 +652,18 @@ public sealed class CadPlanSceneCompiler
                     RecordSpline(context, pen, snapshot, snapshot.Splines.Span[entity.PrimitiveIndex]);
                     break;
                 case CadEntityKind.LightweightPolyline:
-                    RecordPolyline(context, pen, snapshot, snapshot.Polylines.Span[entity.PrimitiveIndex]);
+                    RecordPolyline(
+                        context,
+                        geometryPen,
+                        snapshot,
+                        snapshot.Polylines.Span[entity.PrimitiveIndex]);
                     break;
                 case CadEntityKind.Polyline2D:
-                    RecordPolyline(context, pen, snapshot, snapshot.Polylines.Span[entity.PrimitiveIndex]);
+                    RecordPolyline(
+                        context,
+                        geometryPen,
+                        snapshot,
+                        snapshot.Polylines.Span[entity.PrimitiveIndex]);
                     break;
                 case CadEntityKind.Polyline3D:
                     RecordPolyline3D(context, pen, snapshot, snapshot.Polylines3D.Span[entity.PrimitiveIndex]);
@@ -747,6 +781,46 @@ public sealed class CadPlanSceneCompiler
         }
 
         return pens;
+    }
+
+    private static bool TryGetWidePolyline(
+        CadDocumentSnapshot snapshot,
+        CadEntityHeader entity,
+        out CadPolylinePrimitive polyline)
+    {
+        if (entity.Kind is CadEntityKind.LightweightPolyline or
+                CadEntityKind.Polyline2D)
+        {
+            polyline = snapshot.Polylines.Span[entity.PrimitiveIndex];
+            return polyline.IsWide;
+        }
+
+        polyline = default;
+        return false;
+    }
+
+    private static Pen GetWidePolylinePen(
+        int styleIndex,
+        double width,
+        Pen source,
+        Dictionary<(int StyleIndex, double Width), Pen> cache)
+    {
+        var key = (styleIndex, width);
+        if (cache.TryGetValue(key, out Pen? retained))
+        {
+            return retained;
+        }
+
+        retained = new Pen(
+            source.Brush,
+            checked((float)width),
+            lineJoin: PenLineJoin.Bevel,
+            startLineCap: PenLineCap.Flat,
+            endLineCap: PenLineCap.Flat,
+            dashCap: PenLineCap.Flat,
+            strokeTransformMode: PenStrokeTransformMode.Normal);
+        cache.Add(key, retained);
+        return retained;
     }
 
     internal static void RecordLineTypePlacements(

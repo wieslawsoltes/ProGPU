@@ -745,6 +745,7 @@ public sealed partial class CadSnapshotCompiler
                         hasTransform,
                         layerIndex,
                         styleIndex,
+                        document.Header.FillMode,
                         polylines,
                         polylineVertices),
                     Polyline2D polyline => CompilePolyline2D(
@@ -3248,6 +3249,7 @@ public sealed partial class CadSnapshotCompiler
         bool hasTransform,
         int layerIndex,
         int styleIndex,
+        bool fillMode,
         List<CadPolylinePrimitive> destination,
         List<CadPolylineVertex> vertices)
     {
@@ -3256,11 +3258,27 @@ public sealed partial class CadSnapshotCompiler
             throw new ArgumentException("A lightweight polyline must contain at least two vertices.");
         }
 
-        if (polyline.ConstantWidth != 0.0 ||
-            polyline.Vertices.Any(vertex => vertex.StartWidth != 0.0 || vertex.EndWidth != 0.0))
+        if (polyline.Vertices.Any(
+                vertex => vertex.StartWidth != 0.0 || vertex.EndWidth != 0.0))
         {
             throw new CadUnsupportedEntityException(
-                "Wide lightweight polylines require filled-outline lowering and cannot be treated as cosmetic strokes.");
+                "Variable-width lightweight polylines require tapered filled-outline lowering and cannot be treated as constant strokes.");
+        }
+        double constantWidth = polyline.ConstantWidth;
+        if (!double.IsFinite(constantWidth) || constantWidth < 0.0)
+        {
+            throw new ArgumentException(
+                "Lightweight-polyline constant width must be finite and non-negative.");
+        }
+        if (constantWidth > float.MaxValue)
+        {
+            throw new ArgumentException(
+                "Lightweight-polyline constant width exceeds the retained float stroke domain.");
+        }
+        if (constantWidth > 0.0 && !fillMode)
+        {
+            throw new CadUnsupportedEntityException(
+                "FILLMODE-off wide lightweight polylines require exact filled-object outline lowering.");
         }
 
         if (!double.IsFinite(polyline.Elevation))
@@ -3305,6 +3323,7 @@ public sealed partial class CadSnapshotCompiler
             basis,
             polyline.IsClosed,
             polyline.Flags.HasFlag(LwPolylineFlags.Plinegen),
+            constantWidth,
             normalizedVertices,
             destination,
             vertices);
@@ -3388,6 +3407,7 @@ public sealed partial class CadSnapshotCompiler
             basis,
             polyline.IsClosed,
             polyline.Flags.HasFlag(PolylineFlags.ContinuousLinetypePattern),
+            0.0,
             normalizedVertices,
             destination,
             vertices);
@@ -3402,6 +3422,7 @@ public sealed partial class CadSnapshotCompiler
         CadCoordinateSystem basis,
         bool isClosed,
         bool isLineTypeContinuous,
+        double constantWidth,
         CadPolylineVertex[] normalizedVertices,
         List<CadPolylinePrimitive> destination,
         List<CadPolylineVertex> vertices)
@@ -3417,13 +3438,60 @@ public sealed partial class CadSnapshotCompiler
             CadPoint3D worldEnd = TransformPolylinePoint(worldOrigin, basis, end);
             if (start.Bulge == 0.0)
             {
-                bounds = bounds.Union(CadBounds3D.FromPoint(worldStart).Include(worldEnd));
+                CadBounds3D segmentBounds =
+                    CadBounds3D.FromPoint(worldStart).Include(worldEnd);
+                if (constantWidth > 0.0)
+                {
+                    double dx = end.X - start.X;
+                    double dy = end.Y - start.Y;
+                    double length = Hypot(dx, dy);
+                    if (length > 0.0)
+                    {
+                        double halfWidth = constantWidth * 0.5;
+                        double offsetX = (-dy / length) * halfWidth;
+                        double offsetY = (dx / length) * halfWidth;
+                        CadPoint3D worldOffset =
+                            (basis.XAxis * offsetX) +
+                            (basis.YAxis * offsetY);
+                        segmentBounds = segmentBounds
+                            .Include(worldStart + worldOffset)
+                            .Include(worldStart - worldOffset)
+                            .Include(worldEnd + worldOffset)
+                            .Include(worldEnd - worldOffset);
+                    }
+                }
+                bounds = bounds.Union(segmentBounds);
                 continue;
             }
 
             GetBulgeArc(start, end, out double centerX, out double centerY, out double radius, out double startAngle, out double sweep);
             CadPoint3D center = worldOrigin + (basis.XAxis * centerX) + (basis.YAxis * centerY);
-            bounds = bounds.Union(CadBounds3D.Arc(center, basis, radius, startAngle, sweep));
+            if (constantWidth == 0.0)
+            {
+                bounds = bounds.Union(
+                    CadBounds3D.Arc(
+                        center,
+                        basis,
+                        radius,
+                        startAngle,
+                        sweep));
+                continue;
+            }
+
+            double arcHalfWidth = constantWidth * 0.5;
+            bounds = bounds
+                .Union(CadBounds3D.Arc(
+                    center,
+                    basis,
+                    radius + arcHalfWidth,
+                    startAngle,
+                    sweep))
+                .Union(CadBounds3D.Arc(
+                    center,
+                    basis,
+                    radius - arcHalfWidth,
+                    startAngle,
+                    sweep));
         }
 
         int vertexOffset = vertices.Count;
@@ -3435,7 +3503,8 @@ public sealed partial class CadSnapshotCompiler
             vertexOffset,
             normalizedVertices.Length,
             isClosed,
-            isLineTypeContinuous));
+            isLineTypeContinuous,
+            constantWidth));
         return new CadEntityHeader(
             handle,
             kind,
@@ -4913,6 +4982,16 @@ public sealed partial class CadSnapshotCompiler
         {
             throw new ArithmeticException("Polyline bulge geometry exceeds the supported numeric range.");
         }
+    }
+
+    private static double Hypot(double x, double y)
+    {
+        double scale = Math.Max(Math.Abs(x), Math.Abs(y));
+        return scale == 0.0
+            ? 0.0
+            : scale * Math.Sqrt(
+                ((x / scale) * (x / scale)) +
+                ((y / scale) * (y / scale)));
     }
 
     private static CadPoint3D TransformPolylinePoint(

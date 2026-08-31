@@ -160,7 +160,7 @@ public sealed class CadPolylineAuthoringInteractionTests
     }
 
     [Fact]
-    public void NonzeroPlinewidFailsWithoutPublishingAndKeepsPromptRecoverable()
+    public void NonzeroPlinewidPublishesOneWidePolyline()
     {
         var document = new CadDocument();
         document.Header.PolylineWidthDefault = 2.0;
@@ -174,15 +174,16 @@ public sealed class CadPolylineAuthoringInteractionTests
             Assert.True(canvas.TryAcceptPolylineAuthoringInput("0,0", out _));
             Assert.True(canvas.TryAcceptPolylineAuthoringInput("10,0", out _));
 
-            Assert.False(canvas.CompletePolylineAuthoring(
+            Assert.True(canvas.CompletePolylineAuthoring(
                 close: false,
                 out string? error));
 
-            Assert.Contains("wide-polyline", error, StringComparison.OrdinalIgnoreCase);
-            Assert.True(canvas.IsPolylineAuthoring);
-            Assert.Equal(0UL, session.ContentGeneration);
-            Assert.Empty(document.Entities);
-            Assert.Equal(0, canvas.UndoCount);
+            Assert.Null(error);
+            Assert.False(canvas.IsPolylineAuthoring);
+            Assert.Equal(1UL, session.ContentGeneration);
+            LwPolyline polyline = Assert.Single(document.Entities.OfType<LwPolyline>());
+            Assert.Equal(2.0, polyline.ConstantWidth);
+            Assert.Equal(1, canvas.UndoCount);
         }
         finally
         {

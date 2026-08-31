@@ -45,10 +45,10 @@ point stays on that exact plane.
 
 Completion creates exactly one `LwPolyline` and one history entry. First Apply
 captures current CLAYER, CECOLOR, CELTYPE, CELTSCALE, CELWEIGHT, PLINEGEN, and
-PLINEWID together. A locked current layer, invalid current linetype scale, or
-nonzero PLINEWID fails before document mutation. The width rejection is
-intentional: the current retained renderer rejects filled wide-polyline
-geometry, so authoring a cosmetic centerline would silently change CAD output.
+PLINEWID together. A locked current layer or invalid current linetype scale
+fails before document mutation. Nonzero PLINEWID publishes through the exact
+fill-on retained-stroke contract in `PROGPU_CAD_WIDE_POLYLINE_RESEARCH.md`;
+FILLMODE-off outline rendering remains fail-closed.
 
 The following observable PLINE options remain explicit future work: Halfwidth,
 Width, Length, interactive Angle, Center, Direction, Radius, Second point,
@@ -123,7 +123,8 @@ completed entity path.
 Focused Release regressions cover line plus tangent-arc topology, exact arc
 endpoint tangents, signed-angle bulges, tangent closure, no duplicate closing
 vertex, planar and finite rejection, segment bounds, current properties,
-PLINEGEN, locked-layer and PLINEWID atomic failure, one-entity/one-history
+PLINEGEN/PLINEWID capture, locked-layer and FILLMODE-off atomic failure,
+one-entity/one-history
 Apply/Undo/Redo, typed and pointer interaction, shared buttons and keys, exact
 relative-polar direct distance after an arc, nonzero-Z pointer acquisition, and
 DXF/DWG round trips. Complete-suite and package evidence is recorded after the

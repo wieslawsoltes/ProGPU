@@ -243,6 +243,7 @@ public sealed class CadPolygonAuthoringInteractionTests
     {
         var document = new CadDocument();
         document.Header.PolylineWidthDefault = 2.0;
+        document.Header.FillMode = false;
         var session = new CadDocumentSession(document);
         var canvas = new CadSampleCanvas();
         try
@@ -253,15 +254,17 @@ public sealed class CadPolygonAuthoringInteractionTests
             Accept(canvas, "0,0");
 
             Assert.False(canvas.TryAcceptPolygonAuthoringInput("5", out string? error));
-            Assert.Contains("wide-polyline", error, StringComparison.OrdinalIgnoreCase);
+            Assert.Contains("FILLMODE", error, StringComparison.OrdinalIgnoreCase);
             Assert.True(canvas.IsPolygonAuthoring);
             Assert.Equal(1, canvas.PendingPolygonAcceptedInputCount);
             Assert.Equal(0UL, session.ContentGeneration);
             Assert.Empty(document.Entities);
 
-            document.Header.PolylineWidthDefault = 0.0;
+            document.Header.FillMode = true;
             Accept(canvas, "5");
-            Assert.Single(document.Entities.OfType<LwPolyline>());
+            Assert.Equal(
+                2.0,
+                Assert.Single(document.Entities.OfType<LwPolyline>()).ConstantWidth);
         }
         finally
         {

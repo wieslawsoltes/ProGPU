@@ -1084,9 +1084,11 @@ of the preceding line or arc. Accepted edges replay as one retained analytic
 screen-space path; live pointer arcs use allocation-free DPI-aware bounded
 tessellation only until acceptance. In-command U is O(1), closure uses the
 entity flag rather than a duplicate vertex, and completion captures current
-CLAYER/CECOLOR/CELTYPE/CELTSCALE/CELWEIGHT/PLINEGEN through one reversible
-history entry. Nonzero PLINEWID fails before mutation until filled wide-
-polyline lowering exists, preventing a silent cosmetic-centerline downgrade.
+CLAYER/CECOLOR/CELTYPE/CELTSCALE/CELWEIGHT/PLINEGEN/PLINEWID through one
+reversible history entry. Fill-on constant width is retained in source space
+with exact expanded bounds and one bevel/butt analytic stroke through affine,
+managed/native, and print replay. Variable widths and FILLMODE-off outlines
+remain explicit rather than silently degrading to a cosmetic centerline.
 Exact behavior, cross-engine applicability, and remaining command options are
 in `PROGPU_CAD_POLYLINE_AUTHORING_RESEARCH.md`. Shared CIRCLE authoring keeps at
 most two accepted construction points and publishes one exact plan-view
@@ -1143,9 +1145,11 @@ forms at the maximum valid radius. Caller-owned eight-entry spans make stable
 solve/contour expansion zero-allocation. The shared canvas uses the same
 generation-safe point acquisition and draws the bounded preview as analytic
 line/`ArcSegment` geometry; commit reuses `CadAddPolylineCommand`, current
-entity/PLINEGEN capture, nonzero-PLINEWID failure, DXF/DWG persistence,
-printing, and managed/native replay. Width and Thickness are not cosmetically
-approximated while their complete rendering contracts remain absent. Detailed
+entity/PLINEGEN/PLINEWID capture, DXF/DWG persistence, printing, and
+managed/native replay. Fill-on constant Width follows the shared exact wide-
+polyline contract; FILLMODE-off and tapered outlines plus Thickness are not
+cosmetically approximated while their complete rendering contracts remain
+absent. Detailed
 sources, equations, clean-room provenance, parity, and deferrals are in
 `PROGPU_CAD_POLYGON_AUTHORING_RESEARCH.md` and
 `PROGPU_CAD_RECTANGLE_AUTHORING_RESEARCH.md`. One `CadDocumentHistory` belongs to

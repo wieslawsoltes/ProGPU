@@ -124,6 +124,7 @@ public sealed class CadPolylineAuthoringTests
         document.Header.CurrentEntityLinetypeScale = 2.25;
         document.Header.CurrentEntityLineWeight = LineWeightType.W35;
         document.Header.PolylineLineTypeGeneration = true;
+        document.Header.PolylineWidthDefault = 2.0;
         var history = new CadDocumentHistory(new CadDocumentSession(document));
         var snapshot = new CadPolylineAuthoringSnapshot(
             [
@@ -146,6 +147,7 @@ public sealed class CadPolylineAuthoringTests
         Assert.Equal(LineWeightType.W35, polyline.LineWeight);
         Assert.True(polyline.IsClosed);
         Assert.True(polyline.Flags.HasFlag(LwPolylineFlags.Plinegen));
+        Assert.Equal(2.0, polyline.ConstantWidth);
         Assert.Equal(3.0, polyline.Elevation);
         Assert.Equal(XYZ.AxisZ, polyline.Normal);
         Assert.Equal(3, polyline.Vertices.Count);
@@ -186,21 +188,30 @@ public sealed class CadPolylineAuthoringTests
         Assert.Null(command.Polyline);
     }
 
-    [Theory]
-    [InlineData(true)]
-    [InlineData(false)]
-    public void CommandRejectsLockedLayerOrNonzeroPlinewidBeforeMutation(
-        bool lockedLayer)
+    [Fact]
+    public void CommandRejectsLockedLayerBeforeMutation()
     {
         var document = new CadDocument();
-        if (lockedLayer)
-        {
-            document.Header.CurrentLayer.Flags |= LayerFlags.Locked;
-        }
-        else
-        {
-            document.Header.PolylineWidthDefault = 2.0;
-        }
+        document.Header.CurrentLayer.Flags |= LayerFlags.Locked;
+        var history = new CadDocumentHistory(new CadDocumentSession(document));
+        var command = new CadAddPolylineCommand(
+            new CadPolylineAuthoringSnapshot(
+                [CadPoint3D.Zero, new CadPoint3D(10, 0, 0)],
+                [0.0, 0.0],
+                isClosed: false));
+
+        Assert.Throws<InvalidOperationException>(() => history.Execute(command));
+        Assert.Empty(document.Entities);
+        Assert.Equal(0, history.UndoCount);
+        Assert.Null(command.Polyline);
+    }
+
+    [Fact]
+    public void CommandRejectsNonzeroPlinewidWithFillModeOffBeforeMutation()
+    {
+        var document = new CadDocument();
+        document.Header.PolylineWidthDefault = 2.0;
+        document.Header.FillMode = false;
         var history = new CadDocumentHistory(new CadDocumentSession(document));
         var command = new CadAddPolylineCommand(
             new CadPolylineAuthoringSnapshot(
@@ -209,14 +220,9 @@ public sealed class CadPolylineAuthoringTests
                 isClosed: false));
 
         Exception exception = Assert.ThrowsAny<Exception>(() => history.Execute(command));
-        if (lockedLayer)
-        {
-            Assert.IsType<InvalidOperationException>(exception);
-        }
-        else
-        {
-            Assert.Equal("CadUnsupportedEntityException", exception.GetType().Name);
-        }
+
+        Assert.Equal("CadUnsupportedEntityException", exception.GetType().Name);
+        Assert.Contains("FILLMODE", exception.Message, StringComparison.Ordinal);
         Assert.Empty(document.Entities);
         Assert.Equal(0, history.UndoCount);
         Assert.Null(command.Polyline);
@@ -229,6 +235,9 @@ public sealed class CadPolylineAuthoringTests
         CadDocumentFormat format)
     {
         var session = new CadDocumentSession(new CadDocument());
+        session.Edit(
+            "Set PLINE width",
+            document => document.Header.PolylineWidthDefault = 2.5);
         var history = new CadDocumentHistory(session);
         history.Execute(new CadAddPolylineCommand(
             new CadPolylineAuthoringSnapshot(
@@ -258,6 +267,7 @@ public sealed class CadPolylineAuthoringTests
         Assert.True(polyline.IsClosed);
         Assert.Equal(3, polyline.Vertices.Count);
         Assert.Equal(4.0, polyline.Elevation);
+        Assert.Equal(2.5, polyline.ConstantWidth);
         Assert.Equal(Math.Sqrt(2.0) - 1.0, polyline.Vertices[1].Bulge, 12);
         Assert.Equal(-0.25, polyline.Vertices[2].Bulge, 12);
     }

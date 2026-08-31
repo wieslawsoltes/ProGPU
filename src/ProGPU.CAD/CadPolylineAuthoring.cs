@@ -541,8 +541,9 @@ public sealed class CadPolylineAuthoringSession
 /// </summary>
 /// <remarks>
 /// Current CLAYER, CECOLOR, CELTYPE, CELTSCALE, CELWEIGHT, PLINEGEN, and
-/// PLINEWID are captured atomically on first Apply. Nonzero PLINEWID fails
-/// before mutation until filled wide-polyline rendering is available.
+/// PLINEWID are captured atomically on first Apply. A finite constant nonzero
+/// PLINEWID is authored only while FILLMODE is enabled; variable-width and
+/// fill-off outline contracts remain separate explicit gates.
 /// Apply/Undo/Redo are O(S), and retained command storage is O(S).
 /// </remarks>
 public sealed class CadAddPolylineCommand : CadEditCommand
@@ -615,10 +616,15 @@ public sealed class CadAddPolylineCommand : CadEditCommand
             throw new InvalidOperationException(
                 "Current PLINEWID must be finite and non-negative before creating a PLINE.");
         }
-        if (defaultWidth != 0.0)
+        if (defaultWidth > float.MaxValue)
+        {
+            throw new InvalidOperationException(
+                "Current PLINEWID exceeds the retained float stroke domain.");
+        }
+        if (defaultWidth != 0.0 && !document.Header.FillMode)
         {
             throw new CadUnsupportedEntityException(
-                "Nonzero PLINEWID requires filled wide-polyline lowering and is not authored as a cosmetic centerline.");
+                "Nonzero PLINEWID with FILLMODE off requires exact wide-polyline outline lowering.");
         }
 
         double lineTypeScale = document.Header.CurrentEntityLinetypeScale;
@@ -635,6 +641,7 @@ public sealed class CadAddPolylineCommand : CadEditCommand
             LineType = document.Header.CurrentLineType,
             LineTypeScale = lineTypeScale,
             LineWeight = document.Header.CurrentEntityLineWeight,
+            ConstantWidth = defaultWidth,
             Elevation = _snapshot.Elevation,
             Normal = XYZ.AxisZ,
             Flags = document.Header.PolylineLineTypeGeneration

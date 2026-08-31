@@ -267,6 +267,7 @@ public sealed class CadRectangleAuthoringInteractionTests
     {
         var document = new CadDocument();
         document.Header.PolylineWidthDefault = 2.0;
+        document.Header.FillMode = false;
         var session = new CadDocumentSession(document);
         var canvas = new CadSampleCanvas();
         try
@@ -282,15 +283,17 @@ public sealed class CadRectangleAuthoringInteractionTests
             Assert.False(canvas.TryAcceptRectangleAuthoringInput(
                 "1,1",
                 out string? error));
-            Assert.Contains("wide-polyline", error, StringComparison.OrdinalIgnoreCase);
+            Assert.Contains("FILLMODE", error, StringComparison.OrdinalIgnoreCase);
             Assert.True(canvas.IsRectangleAuthoring);
             Assert.Equal(1, canvas.PendingRectangleAcceptedInputCount);
             Assert.Equal(0UL, session.ContentGeneration);
             Assert.Empty(document.Entities);
 
-            document.Header.PolylineWidthDefault = 0.0;
+            document.Header.FillMode = true;
             Accept(canvas, "1,1");
-            Assert.Single(document.Entities.OfType<LwPolyline>());
+            Assert.Equal(
+                2.0,
+                Assert.Single(document.Entities.OfType<LwPolyline>()).ConstantWidth);
         }
         finally
         {

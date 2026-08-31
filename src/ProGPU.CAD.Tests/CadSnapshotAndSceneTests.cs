@@ -591,7 +591,7 @@ public sealed class CadSnapshotAndSceneTests
     }
 
     [Fact]
-    public void WidePolylineIsReportedInsteadOfMisclassifiedAsLineweight()
+    public void ConstantWidthPolylineRetainsExactSourceSpaceStrokeAndNativeParity()
     {
         CadDocumentSession session = CadDocumentSession.CreateNew();
         session.Edit("Add wide polyline", document =>
@@ -604,10 +604,39 @@ public sealed class CadSnapshotAndSceneTests
 
         CadDocumentSnapshot snapshot = new CadSnapshotCompiler().Compile(session);
 
-        Assert.Empty(snapshot.Entities.ToArray());
-        Assert.Equal(1, snapshot.Statistics.UnsupportedEntityCount);
+        CadEntityHeader entity = Assert.Single(snapshot.Entities.ToArray());
+        CadPolylinePrimitive primitive = Assert.Single(snapshot.Polylines.ToArray());
+        Assert.Equal(CadEntityKind.LightweightPolyline, entity.Kind);
+        Assert.Equal(2.0, primitive.ConstantWidth);
+        Assert.True(primitive.IsWide);
+        AssertPoint(new CadPoint3D(0, -1, 0), entity.Bounds.Min);
+        AssertPoint(new CadPoint3D(10, 1, 0), entity.Bounds.Max);
+        Assert.Equal(0, snapshot.Statistics.UnsupportedEntityCount);
         Assert.Equal(0, snapshot.Statistics.InvalidEntityCount);
-        Assert.Contains(snapshot.Diagnostics.ToArray(), diagnostic => diagnostic.Code == "CADSNAP003");
+        Assert.Empty(snapshot.Diagnostics.ToArray());
+
+        CadRecordedPlanScene scene = new CadPlanSceneCompiler().Compile(snapshot);
+        RenderCommand command = Assert.Single(scene.DrawingContext.Commands.ToArray());
+        Assert.Equal(RenderCommandType.DrawPath, command.Type);
+        Pen pen = Assert.IsType<Pen>(command.Pen);
+        Assert.Equal(2.0f, pen.Thickness);
+        Assert.Equal(PenStrokeTransformMode.Normal, pen.StrokeTransformMode);
+        Assert.Equal(PenLineJoin.Bevel, pen.LineJoin);
+        Assert.Equal(PenLineCap.Flat, pen.StartLineCap);
+        Assert.Equal(PenLineCap.Flat, pen.EndLineCap);
+
+        using GpuPicture picture = scene.CreatePicture();
+        Assert.True(GpuPictureNativeSceneCompiler.TryCompile(
+            picture,
+            96U,
+            scene.ContentGeneration,
+            out NativeCompiledPicture? native,
+            out NativePictureCompileFailure failure),
+            failure.ToString());
+        Assert.NotNull(native);
+        Assert.Equal(1, native.SourceCommandCount);
+        Assert.True(native.NativeDrawCount > 0);
+        Assert.True(native.GeometryPrimitiveCount > 0);
     }
 
     [Fact]

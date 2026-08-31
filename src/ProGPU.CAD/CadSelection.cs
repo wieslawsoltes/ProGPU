@@ -1317,6 +1317,10 @@ public static class CadSelectionHitTester
         }
 
         CadPolylinePrimitive polyline = snapshot.Polylines.Span[header.PrimitiveIndex];
+        if (polyline.IsWide)
+        {
+            return BoundsUnsupportedGeometry();
+        }
         ReadOnlySpan<CadPolylineVertex> vertices = snapshot.PolylineVertices.Span.Slice(
             polyline.VertexOffset,
             polyline.VertexCount);
@@ -1513,6 +1517,10 @@ public static class CadSelectionHitTester
         double tolerance)
     {
         CadPolylinePrimitive polyline = snapshot.Polylines.Span[header.PrimitiveIndex];
+        if (polyline.IsWide)
+        {
+            return UnsupportedGeometry();
+        }
         ReadOnlySpan<CadPolylineVertex> vertices = snapshot.PolylineVertices.Span.Slice(
             polyline.VertexOffset,
             polyline.VertexCount);

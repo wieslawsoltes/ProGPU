@@ -487,7 +487,11 @@ public readonly record struct CadPolylinePrimitive(
     int VertexOffset,
     int VertexCount,
     bool IsClosed,
-    bool IsLineTypeContinuous);
+    bool IsLineTypeContinuous,
+    double ConstantWidth = 0.0)
+{
+    public bool IsWide => ConstantWidth > 0.0;
+}
 
 public readonly record struct CadPolyline3DPrimitive(
     int PointOffset,
