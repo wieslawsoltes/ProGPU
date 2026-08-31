@@ -962,6 +962,44 @@ SHA-256 is
 `E5651DF33F23EB909FF2AB42F2A4E3592CDE81E21B57B3ADABFF38F493FDC2ED`.
 Clean-checkout ABI v35 CI qualification is pending.
 
+ABI v36 at implementation `e9788c5e` adds genuine `ID2D1Geometry`
+`FillGeometry` translation. A typed `ID2D1SimplifiedGeometrySink` receives
+Direct2D's cubic-and-line representation, excludes hollow figures, preserves
+open/closed figure topology and alternate/nonzero fill rules, and writes at
+most 1,048,576 finite segments into ProGPU's existing pointer-free path
+resource. The active Direct2D draw transform remains the retained path
+transform, while `ID2D1Geometry::GetBounds` supplies conservative local and
+target command bounds. Geometry and every COM callback resource are released
+before the stream call returns.
+
+This is retained scene compilation rather than a CPU raster fallback.
+Direct2D performs its device-independent geometry simplification once, and
+ProGPU's shared GPU path rasterizer executes the retained result on D3D12,
+Metal, Vulkan, and WebGPU. Per-primitive antialiasing uses the eight-sample
+path quality lane. Aliased path edges, a non-null `FillGeometry` opacity
+brush, invalid/empty-area data, and segment-cap overflow either become an
+exact no-op where Direct2D has no fill area or fail closed with typed state,
+resource, value, or capacity diagnostics. `DrawGeometry` strokes remain an
+explicit follow-up because stroke styles, caps, joins, and dashes must be
+translated without weakening semantics.
+
+The live positive oracle builds a winding path containing a closed line/cubic
+figure plus a hollow figure, records it under a non-identity transform, and
+decodes one path resource with the exact two source segments and synthesized
+closing line. The negative oracle proves that aliased path fill returns
+unsupported state and no partial scene. Managed AOT contracts pass 5/5 and
+the package builds with zero warnings. A 96 KiB incremental Windows payload
+has SHA-256
+`4BD4A70EE6575824BF33F37118434A185405F4BE3B484ADE2AE4B53374820F54`.
+Windows 11 ARM64 Parallels with MSVC 19.44/SDK 10.0.26100.0 compiles provider
+and test under `/W4 /WX`; CTest passes 1/1 in 3.00 seconds (3.51 seconds
+total). No export was added, so the allowlist remains exactly 123; provider
+SHA-256 is
+`12467CF6BE48235928B396A76AD5AE0AAD15CAA3E1949AB8A4E9BA4323EB744A`.
+The same implementation replaces anonymous-union aggregate initialization
+with explicit `D2D1_MATRIX_3X2_F` field assignments after ClangCL exposed the
+ABI v35 portability warning. Clean-checkout ABI v36 qualification is pending.
+
 `eng/build-progpu-native-windows.ps1` builds and runs
 the native test on runnable Windows x64/ARM64 agents, stages
 `progpu_native_direct2d.dll` in both Windows runtime packages, and rejects any

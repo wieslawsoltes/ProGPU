@@ -5412,6 +5412,34 @@ the resulting provider SHA-256 is
 `E5651DF33F23EB909FF2AB42F2A4E3592CDE81E21B57B3ADABFF38F493FDC2ED`.
 Clean-checkout ABI v35 CI qualification is pending.
 
+ABI v36 at implementation `e9788c5e` translates genuine Direct2D filled
+geometries into the canonical semantic path family. A typed
+`ID2D1SimplifiedGeometrySink` snapshots cubic and line contours during
+command-list streaming, drops hollow figures from fill data, preserves
+open/closed topology and fill rule, and caps the retained resource at
+1,048,576 finite segments. The Direct2D draw matrix remains the path transform
+and typed geometry bounds become conservative command bounds. No COM pointer,
+CPU raster, pixel readback, or Windows-only retained object enters the scene.
+
+Per-primitive edges use the shared eight-sample GPU path lane. Aliased path
+edges and opacity-brush geometry fills remain fail-closed until exact coverage
+and mask semantics exist; stroked `DrawGeometry` remains a separate slice so
+caps, joins, miter limits, and dashes are not silently reduced. The positive
+Windows oracle decodes a transformed winding line/cubic path, its explicit
+closing edge, and the absence of hollow-figure segments. A negative oracle
+proves aliased fill returns typed unsupported state without partial output.
+
+Managed contracts pass 5/5 and the package builds warning-free. The 96 KiB
+incremental payload SHA-256 is
+`4BD4A70EE6575824BF33F37118434A185405F4BE3B484ADE2AE4B53374820F54`.
+Windows 11 ARM64 Parallels with MSVC 19.44/SDK 10.0.26100.0 compiles provider
+and test under `/W4 /WX`; CTest passes 1/1 in 3.00 seconds (3.51 seconds
+total). The export allowlist remains 123 and provider SHA-256 is
+`12467CF6BE48235928B396A76AD5AE0AAD15CAA3E1949AB8A4E9BA4323EB744A`.
+Explicit matrix field assignment also closes the ClangCL anonymous-union
+warning found by the ABI v35 clean runner. ABI v36 clean qualification is
+pending.
+
 ## Managed glyph row-reuse SIMD checkpoint
 
 Managed ProGPU checkpoints `2960fb39` and `ffb285af` bring the explicit
