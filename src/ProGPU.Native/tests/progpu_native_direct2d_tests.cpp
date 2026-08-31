@@ -2155,6 +2155,12 @@ int main()
     context->FillGeometry(
         scene_path_geometry.Get(),
         solid_brush.Get());
+    constexpr float scene_path_stroke_width = 3.0F;
+    context->DrawGeometry(
+        scene_path_geometry.Get(),
+        solid_brush.Get(),
+        scene_path_stroke_width,
+        stroke_style.Get());
     command_tag1 = 0U;
     command_tag2 = 0U;
     native_hresult = E_FAIL;
@@ -2166,6 +2172,31 @@ int main()
             &native_hresult) == PROGPU_NATIVE_DIRECT2D_STATUS_SUCCESS &&
             native_hresult == S_OK,
         "path command-list recording did not close");
+    ComPtr<ID2D1PathGeometry> reference_stroked_path;
+    require(SUCCEEDED(factory1->CreatePathGeometry(
+                reference_stroked_path.GetAddressOf())),
+        "reference stroked path creation failed");
+    ComPtr<ID2D1GeometrySink> reference_stroked_path_sink;
+    require(SUCCEEDED(reference_stroked_path->Open(
+                reference_stroked_path_sink.GetAddressOf())),
+        "reference stroked path did not open");
+    HRESULT reference_widen_hr = scene_path_geometry->Widen(
+        scene_path_stroke_width,
+        stroke_style.Get(),
+        &path_transform,
+        D2D1_DEFAULT_FLATTENING_TOLERANCE,
+        reference_stroked_path_sink.Get());
+    const HRESULT reference_widen_close_hr =
+        reference_stroked_path_sink->Close();
+    require(SUCCEEDED(reference_widen_hr) &&
+            SUCCEEDED(reference_widen_close_hr),
+        "reference Direct2D stroke widening failed");
+    uint32_t reference_stroked_segment_count = 0U;
+    require(SUCCEEDED(reference_stroked_path->GetSegmentCount(
+                &reference_stroked_segment_count)),
+        "reference Direct2D stroke segment count query failed");
+    require(reference_stroked_segment_count != 0U,
+        "reference Direct2D stroke widening produced no segments");
     progpu_native_direct2d_scene_stream_result path_measure{};
     path_measure.struct_size = static_cast<uint32_t>(sizeof(path_measure));
     native_hresult = S_OK;
@@ -2181,11 +2212,14 @@ int main()
             &native_hresult) ==
                 PROGPU_NATIVE_DIRECT2D_STATUS_INSUFFICIENT_BUFFER &&
             native_hresult == HRESULT_FROM_WIN32(ERROR_INSUFFICIENT_BUFFER) &&
-            path_measure.translated_draw_count == 1U &&
+            path_measure.translated_draw_count == 2U &&
             path_measure.failure_reason ==
                 PROGPU_NATIVE_DIRECT2D_SCENE_STREAM_FAILURE_NONE &&
             (path_measure.flags &
                 PROGPU_NATIVE_DIRECT2D_SCENE_STREAM_FLAG_HAS_PATH_GEOMETRY) !=
+                0U &&
+            (path_measure.flags &
+                PROGPU_NATIVE_DIRECT2D_SCENE_STREAM_FLAG_HAS_STROKED_PATH_GEOMETRY) !=
                 0U,
         "Direct2D filled-path scene size pass changed");
     std::vector<uint8_t> path_stream(
@@ -2203,13 +2237,13 @@ int main()
             path_stream.size(),
             &path_write,
             &native_hresult) == PROGPU_NATIVE_DIRECT2D_STATUS_SUCCESS &&
-            native_hresult == S_OK && path_write.command_count == 1U &&
-            path_write.resource_count == 2U && path_write.brush_count == 1U &&
-            path_write.translated_draw_count == 1U,
+            native_hresult == S_OK && path_write.command_count == 2U &&
+            path_write.resource_count == 3U && path_write.brush_count == 1U &&
+            path_write.translated_draw_count == 2U,
         "Direct2D filled-path scene write pass changed");
     progpu_native_scene_header path_header{};
     std::memcpy(&path_header, path_stream.data(), sizeof(path_header));
-    bool path_resource_found = false;
+    uint32_t path_resource_count = 0U;
     for (uint32_t index = 0U; index < path_header.resource_count; ++index) {
         progpu_native_scene_resource resource{};
         std::memcpy(
@@ -2221,55 +2255,78 @@ int main()
             continue;
         }
         require(
-            !path_resource_found &&
+            path_resource_count < 2U &&
                 resource.payload_size == sizeof(progpu_native_scene_path_fill) &&
-                resource.auxiliary_size ==
-                    3U * sizeof(progpu_native_path_segment) &&
                 static_cast<uint64_t>(resource.payload_offset) +
                     resource.payload_size <= path_stream.size() &&
                 static_cast<uint64_t>(resource.auxiliary_offset) +
                     resource.auxiliary_size <= path_stream.size(),
             "translated Direct2D path resource layout changed");
         progpu_native_scene_path_fill translated_path{};
-        std::array<progpu_native_path_segment, 3U> translated_segments{};
         std::memcpy(
             &translated_path,
             path_stream.data() + resource.payload_offset,
             sizeof(translated_path));
-        std::memcpy(
-            translated_segments.data(),
-            path_stream.data() + resource.auxiliary_offset,
-            sizeof(translated_segments));
-        require(
-            translated_path.segment_offset == 0U &&
-                translated_path.segment_count == translated_segments.size() &&
-                translated_path.fill_rule == PROGPU_NATIVE_FILL_RULE_NON_ZERO &&
-                translated_path.sample_grid == 8U &&
-                translated_path.transform.m11 == path_transform._11 &&
-                translated_path.transform.m22 == path_transform._22 &&
-                translated_path.transform.m31 == path_transform._31 &&
-                translated_path.transform.m32 == path_transform._32 &&
-                translated_segments[0].kind ==
-                    PROGPU_NATIVE_PATH_SEGMENT_LINE &&
-                translated_segments[0].p0.x == 5.0F &&
-                translated_segments[0].p0.y == 6.0F &&
-                translated_segments[0].p1.x == 20.0F &&
-                translated_segments[0].p1.y == 6.0F &&
-                translated_segments[1].kind ==
-                    PROGPU_NATIVE_PATH_SEGMENT_CUBIC &&
-                translated_segments[1].p3.x == 5.0F &&
-                translated_segments[1].p3.y == 18.0F &&
-                translated_segments[2].kind ==
-                    PROGPU_NATIVE_PATH_SEGMENT_LINE &&
-                translated_segments[2].p0.x == 5.0F &&
-                translated_segments[2].p0.y == 18.0F &&
-                translated_segments[2].p1.x == 5.0F &&
-                translated_segments[2].p1.y == 6.0F,
-            "Direct2D filled-path contour translation changed");
-        path_resource_found = true;
+        if (path_resource_count == 0U) {
+            require(
+                resource.auxiliary_size ==
+                    3U * sizeof(progpu_native_path_segment),
+                "translated Direct2D fill-path segment layout changed");
+            std::array<progpu_native_path_segment, 3U>
+                translated_segments{};
+            std::memcpy(
+                translated_segments.data(),
+                path_stream.data() + resource.auxiliary_offset,
+                sizeof(translated_segments));
+            require(
+                translated_path.segment_offset == 0U &&
+                    translated_path.segment_count ==
+                        translated_segments.size() &&
+                    translated_path.fill_rule ==
+                        PROGPU_NATIVE_FILL_RULE_NON_ZERO &&
+                    translated_path.sample_grid == 8U &&
+                    translated_path.transform.m11 == path_transform._11 &&
+                    translated_path.transform.m22 == path_transform._22 &&
+                    translated_path.transform.m31 == path_transform._31 &&
+                    translated_path.transform.m32 == path_transform._32 &&
+                    translated_segments[0].kind ==
+                        PROGPU_NATIVE_PATH_SEGMENT_LINE &&
+                    translated_segments[0].p0.x == 5.0F &&
+                    translated_segments[0].p0.y == 6.0F &&
+                    translated_segments[0].p1.x == 20.0F &&
+                    translated_segments[0].p1.y == 6.0F &&
+                    translated_segments[1].kind ==
+                        PROGPU_NATIVE_PATH_SEGMENT_CUBIC &&
+                    translated_segments[1].p3.x == 5.0F &&
+                    translated_segments[1].p3.y == 18.0F &&
+                    translated_segments[2].kind ==
+                        PROGPU_NATIVE_PATH_SEGMENT_LINE &&
+                    translated_segments[2].p0.x == 5.0F &&
+                    translated_segments[2].p0.y == 18.0F &&
+                    translated_segments[2].p1.x == 5.0F &&
+                    translated_segments[2].p1.y == 6.0F,
+                "Direct2D filled-path contour translation changed");
+        } else {
+            require(
+                translated_path.segment_offset == 0U &&
+                    translated_path.segment_count ==
+                        reference_stroked_segment_count &&
+                    resource.auxiliary_size ==
+                        static_cast<uint64_t>(reference_stroked_segment_count) *
+                            sizeof(progpu_native_path_segment) &&
+                    translated_path.sample_grid == 8U &&
+                    translated_path.transform.m11 == 1.0F &&
+                    translated_path.transform.m12 == 0.0F &&
+                    translated_path.transform.m21 == 0.0F &&
+                    translated_path.transform.m22 == 1.0F &&
+                    translated_path.transform.m31 == 0.0F &&
+                    translated_path.transform.m32 == 0.0F,
+                "Direct2D transformed custom stroke widening changed");
+        }
+        ++path_resource_count;
     }
-    require(path_resource_found,
-        "translated Direct2D scene omitted its path resource");
+    require(path_resource_count == 2U,
+        "translated Direct2D scene omitted a fill/stroke path resource");
 
     void* aliased_path_list_value = nullptr;
     native_hresult = E_FAIL;

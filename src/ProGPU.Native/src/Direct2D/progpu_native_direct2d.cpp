@@ -1287,12 +1287,27 @@ public:
     }
 
     HRESULT STDMETHODCALLTYPE DrawGeometry(
-        ID2D1Geometry*,
-        ID2D1Brush*,
-        FLOAT,
-        ID2D1StrokeStyle*) noexcept override
+        ID2D1Geometry* geometry,
+        ID2D1Brush* brush,
+        FLOAT stroke_width,
+        ID2D1StrokeStyle* stroke_style) noexcept override
     {
-        return unsupported_resource_callback();
+        begin_callback();
+        if (!can_record()) {
+            return fail_drawing_state();
+        }
+        if (geometry == nullptr || brush == nullptr ||
+            !std::isfinite(stroke_width) || stroke_width < 0.0F) {
+            return fail_invalid_value();
+        }
+        if (antialias_mode_ != D2D1_ANTIALIAS_MODE_PER_PRIMITIVE) {
+            return fail_unsupported_state();
+        }
+        return draw_stroked_geometry(
+            geometry,
+            brush,
+            stroke_width,
+            stroke_style);
     }
 
     HRESULT STDMETHODCALLTYPE DrawRectangle(
@@ -1512,6 +1527,11 @@ public:
     bool has_path_geometry() const noexcept
     {
         return has_path_geometry_;
+    }
+
+    bool has_stroked_path_geometry() const noexcept
+    {
+        return has_stroked_path_geometry_;
     }
 
     D2D1_COLOR_F clear_color() const noexcept
@@ -2115,20 +2135,9 @@ private:
             nullptr,
             D2D1_DEFAULT_FLATTENING_TOLERANCE,
             path_sink.Get());
-        const HRESULT close_hr = path_sink->Close();
-        if (SUCCEEDED(hr)) {
-            hr = close_hr;
-        }
+        hr = finish_path_capture(path_sink.Get(), hr);
         if (FAILED(hr)) {
-            if (path_sink->capacity_exceeded()) {
-                return fail_capacity_exceeded();
-            }
-            if (hr == E_OUTOFMEMORY) {
-                return fail(
-                    PROGPU_NATIVE_DIRECT2D_SCENE_STREAM_FAILURE_BUILDER,
-                    hr);
-            }
-            return fail_unsupported_resource();
+            return hr;
         }
         const auto segments = path_sink->segments();
         if (segments.empty()) {
@@ -2142,7 +2151,110 @@ private:
         if (SUCCEEDED(hr)) {
             hr = geometry->GetBounds(&transform_, &target_bounds);
         }
-        if (FAILED(hr) || !finite_rectangle(&local_bounds) ||
+        if (FAILED(hr)) {
+            return fail_unsupported_resource();
+        }
+        return draw_captured_path(
+            path_sink.Get(),
+            brush,
+            local_bounds,
+            target_bounds,
+            native_transform(),
+            false);
+    }
+
+    HRESULT draw_stroked_geometry(
+        ID2D1Geometry* geometry,
+        ID2D1Brush* brush,
+        float stroke_width,
+        ID2D1StrokeStyle* stroke_style) noexcept
+    {
+        CommandScenePathSink* raw_sink = new (std::nothrow)
+            CommandScenePathSink();
+        if (raw_sink == nullptr) {
+            return fail(
+                PROGPU_NATIVE_DIRECT2D_SCENE_STREAM_FAILURE_BUILDER,
+                E_OUTOFMEMORY);
+        }
+        ComPtr<CommandScenePathSink> path_sink;
+        path_sink.Attach(raw_sink);
+        HRESULT hr = geometry->Widen(
+            stroke_width,
+            stroke_style,
+            &transform_,
+            D2D1_DEFAULT_FLATTENING_TOLERANCE,
+            path_sink.Get());
+        hr = finish_path_capture(path_sink.Get(), hr);
+        if (FAILED(hr)) {
+            return hr;
+        }
+        if (path_sink->segments().empty()) {
+            record_draw();
+            return S_OK;
+        }
+
+        D2D1_RECT_F target_bounds{};
+        hr = geometry->GetWidenedBounds(
+            stroke_width,
+            stroke_style,
+            &transform_,
+            D2D1_DEFAULT_FLATTENING_TOLERANCE,
+            &target_bounds);
+        if (FAILED(hr)) {
+            return fail_unsupported_resource();
+        }
+        const progpu_native_affine_2d identity_transform{
+            1.0F,
+            0.0F,
+            0.0F,
+            1.0F,
+            0.0F,
+            0.0F};
+        return draw_captured_path(
+            path_sink.Get(),
+            brush,
+            target_bounds,
+            target_bounds,
+            identity_transform,
+            true);
+    }
+
+    HRESULT finish_path_capture(
+        CommandScenePathSink* path_sink,
+        HRESULT operation_hr) noexcept
+    {
+        const HRESULT close_hr = path_sink->Close();
+        if (SUCCEEDED(operation_hr)) {
+            operation_hr = close_hr;
+        }
+        if (SUCCEEDED(operation_hr)) {
+            return S_OK;
+        }
+        if (path_sink->capacity_exceeded()) {
+            return fail_capacity_exceeded();
+        }
+        if (operation_hr == E_OUTOFMEMORY) {
+            return fail(
+                PROGPU_NATIVE_DIRECT2D_SCENE_STREAM_FAILURE_BUILDER,
+                operation_hr);
+        }
+        return fail_unsupported_resource();
+    }
+
+    HRESULT draw_captured_path(
+        CommandScenePathSink* path_sink,
+        ID2D1Brush* brush,
+        const D2D1_RECT_F& local_bounds,
+        const D2D1_RECT_F& target_bounds,
+        const progpu_native_affine_2d& path_transform,
+        bool stroked) noexcept
+    {
+        const auto segments = path_sink->segments();
+        if (segments.empty()) {
+            record_draw();
+            return S_OK;
+        }
+        if (!finite_rectangle(&local_bounds) ||
             !finite_rectangle(&target_bounds)) {
             return fail_invalid_value();
         }
@@ -2155,7 +2267,7 @@ private:
         }
 
         uint32_t brush_index = PROGPU_NATIVE_SCENE_NO_INDEX;
-        hr = add_brush(brush, brush_index);
+        HRESULT hr = add_brush(brush, brush_index);
         if (FAILED(hr)) {
             return hr;
         }
@@ -2169,7 +2281,7 @@ private:
             local_bounds.right,
             local_bounds.bottom,
             {1.0F, 1.0F, 1.0F, 1.0F},
-            native_transform(),
+            path_transform,
             path_sink->fill_rule(),
             8U};
         const progpu_native_image_rect bounds{
@@ -2185,6 +2297,7 @@ private:
             return fail_builder();
         }
         has_path_geometry_ = true;
+        has_stroked_path_geometry_ |= stroked;
         record_draw();
         return S_OK;
     }
@@ -2220,6 +2333,7 @@ private:
     bool has_axis_aligned_clips_ = false;
     bool has_gradient_brushes_ = false;
     bool has_path_geometry_ = false;
+    bool has_stroked_path_geometry_ = false;
 };
 
 class CallerTessellationSink final : public ID2D1TessellationSink {
@@ -5081,6 +5195,10 @@ progpu_native_direct2d_command_list_build_scene_stream(
         if (scene_sink->has_path_geometry()) {
             result->flags |=
                 PROGPU_NATIVE_DIRECT2D_SCENE_STREAM_FLAG_HAS_PATH_GEOMETRY;
+        }
+        if (scene_sink->has_stroked_path_geometry()) {
+            result->flags |=
+                PROGPU_NATIVE_DIRECT2D_SCENE_STREAM_FLAG_HAS_STROKED_PATH_GEOMETRY;
         }
     }
 
