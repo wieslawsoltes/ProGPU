@@ -1116,7 +1116,21 @@ commit. One successful final solve captures current entity properties and adds
 one Axis-Z ACadSharp `Arc`; preflight failure retains the prompt. Tangent
 Continue remains deferred to the separate global command-chaining contract.
 Exact clean-room sources, formulas, applicability, and complexity are in
-`PROGPU_CAD_ARC_AUTHORING_RESEARCH.md`. One `CadDocumentHistory` belongs to
+`PROGPU_CAD_ARC_AUTHORING_RESEARCH.md`. `CadEllipseAuthoringSession` adds the
+corresponding bounded full-ellipse and elliptical-arc authoring contract.
+Axis/endpoints and Center constructions use either an exact point-defined
+other-axis distance or the circle-rotation ratio; the result is canonicalized
+to one center-relative major-axis vector and a minor/major ratio in `(0, 1]`.
+Arc Angle input converts accepted rays to parameters analytically, Parameter
+input retains explicit parametric angles, and Included Angle rotates the start
+ray without sampling. ANGBASE/ANGDIR and the current UCS basis are applied only
+at the host scalar-to-direction seam. Live feedback is one transformed analytic
+ellipse or one unit `ArcSegment`, with no tessellation, document compile,
+upload, or native crossing. The final solve remains non-mutating until
+`CadAddEllipseCommand` preflight and one history generation succeed. Isocircle
+stays deferred to an explicit SNAPSTYL/SNAPISOPAIR drafting-plane contract.
+Exact clean-room sources, formulas, applicability, and complexity are in
+`PROGPU_CAD_ELLIPSE_AUTHORING_RESEARCH.md`. One `CadDocumentHistory` belongs to
 the loaded session, so each Move, Copy, Rotate, Scale,
 Undo, or Redo publishes exactly one generation and then prepares one complete
 replacement snapshot and picture. The prior picture stays drawable until

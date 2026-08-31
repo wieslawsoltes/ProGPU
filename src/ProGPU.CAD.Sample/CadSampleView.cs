@@ -71,6 +71,9 @@ public sealed class CadSampleView : Grid
     private readonly Button _circleThreePointButton;
     private readonly ComboBox _arcModeSelector;
     private readonly Button _arcButton;
+    private readonly ComboBox _ellipseModeSelector;
+    private readonly ComboBox _ellipseArcInputSelector;
+    private readonly Button _ellipseButton;
     private readonly Button[] _drawOrderButtons;
     private readonly Button[] _moveButtons;
     private readonly Button[] _copyButtons;
@@ -323,6 +326,12 @@ public sealed class CadSampleView : Grid
     public ComboBox ArcModeSelector => _arcModeSelector;
 
     public Button ArcButton => _arcButton;
+
+    public ComboBox EllipseModeSelector => _ellipseModeSelector;
+
+    public ComboBox EllipseArcInputSelector => _ellipseArcInputSelector;
+
+    public Button EllipseButton => _ellipseButton;
 
     public ComboBox SelectionAttributeSelector =>
         _selectionAttributeSelector;
@@ -605,6 +614,51 @@ public sealed class CadSampleView : Grid
         }
         _arcModeSelector.SelectedIndex = 0;
         _arcButton = CreateButton("Arc", font, 64, 30);
+        _ellipseModeSelector = new ComboBox
+        {
+            WidthConstraint = 166,
+            HeightConstraint = 30,
+            Font = font,
+            FontSize = 11,
+            Margin = new Thickness(0, 0, 4, 0),
+        };
+        foreach ((CadEllipseAuthoringMode mode, string label) in new[]
+        {
+            (CadEllipseAuthoringMode.AxisEndpointsDistance, "Ellipse Axis/Distance"),
+            (CadEllipseAuthoringMode.AxisEndpointsRotation, "Ellipse Axis/Rotation"),
+            (CadEllipseAuthoringMode.CenterDistance, "Ellipse Center/Distance"),
+            (CadEllipseAuthoringMode.CenterRotation, "Ellipse Center/Rotation"),
+        })
+        {
+            _ellipseModeSelector.Items.Add(new ComboBoxItem(label)
+            {
+                Tag = mode,
+            });
+        }
+        _ellipseModeSelector.SelectedIndex = 0;
+        _ellipseArcInputSelector = new ComboBox
+        {
+            WidthConstraint = 150,
+            HeightConstraint = 30,
+            Font = font,
+            FontSize = 11,
+            Margin = new Thickness(0, 0, 4, 0),
+        };
+        foreach ((CadEllipseArcInputMode mode, string label) in new[]
+        {
+            (CadEllipseArcInputMode.Full, "Ellipse Full"),
+            (CadEllipseArcInputMode.Angle, "Ellipse Arc Angle"),
+            (CadEllipseArcInputMode.Parameter, "Ellipse Arc Parameter"),
+            (CadEllipseArcInputMode.IncludedAngle, "Ellipse Arc Included"),
+        })
+        {
+            _ellipseArcInputSelector.Items.Add(new ComboBoxItem(label)
+            {
+                Tag = mode,
+            });
+        }
+        _ellipseArcInputSelector.SelectedIndex = 0;
+        _ellipseButton = CreateButton("Ellipse", font, 76, 30);
         Button sendToBack = CreateButton("To back", font, 76, 30);
         Button bringToFront = CreateButton("To front", font, 76, 30);
         Button bringAbove = CreateButton("Above…", font, 82, 30);
@@ -627,6 +681,7 @@ public sealed class CadSampleView : Grid
         _circleTwoPointButton.Margin = new Thickness(0, 0, 4, 0);
         _circleThreePointButton.Margin = new Thickness(0, 0, 4, 0);
         _arcButton.Margin = new Thickness(0, 0, 12, 0);
+        _ellipseButton.Margin = new Thickness(0, 0, 12, 0);
         sendToBack.Margin = new Thickness(0, 0, 4, 0);
         bringToFront.Margin = new Thickness(0, 0, 4, 0);
         bringAbove.Margin = new Thickness(0, 0, 4, 0);
@@ -651,6 +706,9 @@ public sealed class CadSampleView : Grid
         editActions.AddChild(_circleThreePointButton);
         editActions.AddChild(_arcModeSelector);
         editActions.AddChild(_arcButton);
+        editActions.AddChild(_ellipseModeSelector);
+        editActions.AddChild(_ellipseArcInputSelector);
+        editActions.AddChild(_ellipseButton);
         editActions.AddChild(sendToBack);
         editActions.AddChild(bringToFront);
         editActions.AddChild(bringAbove);
@@ -2123,6 +2181,19 @@ public sealed class CadSampleView : Grid
             }
         };
         _arcModeSelector.SelectionChanged += (_, _) => UpdateEditControls();
+        _ellipseButton.Click += (_, _) =>
+        {
+            if ((_ellipseModeSelector.SelectedItem as ComboBoxItem)?.Tag is
+                    CadEllipseAuthoringMode mode &&
+                (_ellipseArcInputSelector.SelectedItem as ComboBoxItem)?.Tag is
+                    CadEllipseArcInputMode arcInputMode)
+            {
+                BeginEllipseAuthoring(mode, arcInputMode);
+            }
+        };
+        _ellipseModeSelector.SelectionChanged += (_, _) => UpdateEditControls();
+        _ellipseArcInputSelector.SelectionChanged += (_, _) =>
+            UpdateEditControls();
         sendToBack.Click += (_, _) =>
             SetSelectionDrawOrder(CadDrawOrderPlacement.SendToBack);
         bringToFront.Click += (_, _) =>
@@ -2358,6 +2429,12 @@ public sealed class CadSampleView : Grid
             SetStatus(DescribeArcAuthoring(args));
             UpdateEditControls();
         };
+        _canvas.EllipseAuthoringChanged += (_, args) =>
+        {
+            _pointTransformInput.Text = string.Empty;
+            SetStatus(DescribeEllipseAuthoring(args));
+            UpdateEditControls();
+        };
         _canvas.PointTransformInputAvailabilityChanged += (_, _) =>
             UpdateEditControls();
         _canvas.SnapshotChanged += (_, _) =>
@@ -2395,6 +2472,16 @@ public sealed class CadSampleView : Grid
                 _currentDocumentName,
                 _currentDiagnosticCount));
             UpdateEditControls();
+            e.Handled = true;
+            return;
+        }
+
+        if (!e.Handled &&
+            _canvas.IsEllipseAuthoring &&
+            e.Key == Key.Escape &&
+            FocusManager.GetFocusedElement() is not TextBox)
+        {
+            _canvas.CancelEllipseAuthoring();
             e.Handled = true;
             return;
         }
@@ -5108,6 +5195,30 @@ public sealed class CadSampleView : Grid
         UpdateEditControls();
     }
 
+    private void BeginEllipseAuthoring(
+        CadEllipseAuthoringMode mode,
+        CadEllipseArcInputMode arcInputMode)
+    {
+        if (_isBusy)
+        {
+            return;
+        }
+
+        try
+        {
+            _pointTransformInput.Text = string.Empty;
+            if (!_canvas.BeginEllipseAuthoring(mode, arcInputMode))
+            {
+                SetStatus("ELLIPSE requires a loaded plan-view document.");
+            }
+        }
+        catch (Exception exception)
+        {
+            SetStatus($"ELLIPSE could not start: {exception.Message}");
+        }
+        UpdateEditControls();
+    }
+
     private void AcceptPointInput()
     {
         if (_isBusy)
@@ -5118,7 +5229,13 @@ public sealed class CadSampleView : Grid
         string input = _pointTransformInput.Text;
         bool accepted;
         string? errorMessage;
-        if (_canvas.IsArcAuthoring)
+        if (_canvas.IsEllipseAuthoring)
+        {
+            accepted = _canvas.TryAcceptEllipseAuthoringInput(
+                input,
+                out errorMessage);
+        }
+        else if (_canvas.IsArcAuthoring)
         {
             accepted = _canvas.TryAcceptArcAuthoringInput(
                 input,
@@ -5383,6 +5500,79 @@ public sealed class CadSampleView : Grid
                 "enter a signed radius (positive minor, negative major)",
             _ => throw new ArgumentOutOfRangeException(nameof(mode)),
         };
+
+    private static string DescribeEllipseAuthoring(
+        CadEllipseAuthoringChangedEventArgs args) => args.Stage switch
+    {
+        CadEllipseAuthoringStage.AwaitingFirstPoint or
+        CadEllipseAuthoringStage.AwaitingNextInput =>
+            $"ELLIPSE {DescribeEllipseMode(args.Mode)} " +
+            $"{DescribeEllipseArcInputMode(args.ArcInputMode)}: " +
+            $"{DescribeEllipsePrompt(args.Mode, args.InputKind)}; Escape cancels.",
+        CadEllipseAuthoringStage.Completed =>
+            $"ELLIPSE {DescribeEllipseMode(args.Mode)} " +
+            $"{DescribeEllipseArcInputMode(args.ArcInputMode)} created center " +
+            $"{FormatPoint(args.Snapshot!.Value.Center)}, major axis " +
+            $"{args.Snapshot.Value.MajorRadius:G17}, ratio " +
+            $"{args.Snapshot.Value.RadiusRatio:G17}.",
+        CadEllipseAuthoringStage.Canceled => "ELLIPSE canceled.",
+        CadEllipseAuthoringStage.Failed =>
+            $"ELLIPSE failed: {args.ErrorMessage}",
+        _ => throw new ArgumentOutOfRangeException(nameof(args)),
+    };
+
+    private static string DescribeEllipseMode(CadEllipseAuthoringMode mode) =>
+        mode switch
+        {
+            CadEllipseAuthoringMode.AxisEndpointsDistance => "Axis/Distance",
+            CadEllipseAuthoringMode.AxisEndpointsRotation => "Axis/Rotation",
+            CadEllipseAuthoringMode.CenterDistance => "Center/Distance",
+            CadEllipseAuthoringMode.CenterRotation => "Center/Rotation",
+            _ => throw new ArgumentOutOfRangeException(nameof(mode)),
+        };
+
+    private static string DescribeEllipseArcInputMode(
+        CadEllipseArcInputMode mode) => mode switch
+    {
+        CadEllipseArcInputMode.Full => "Full",
+        CadEllipseArcInputMode.Angle => "Arc/Angle",
+        CadEllipseArcInputMode.Parameter => "Arc/Parameter",
+        CadEllipseArcInputMode.IncludedAngle => "Arc/Included",
+        _ => throw new ArgumentOutOfRangeException(nameof(mode)),
+    };
+
+    private static string DescribeEllipsePrompt(
+        CadEllipseAuthoringMode mode,
+        CadEllipseAuthoringInputKind inputKind) => inputKind switch
+    {
+        CadEllipseAuthoringInputKind.FirstAxisPoint when mode is
+            CadEllipseAuthoringMode.CenterDistance or
+            CadEllipseAuthoringMode.CenterRotation =>
+                "specify the center point by click or coordinate",
+        CadEllipseAuthoringInputKind.FirstAxisPoint =>
+            "specify the first endpoint of the first axis by click or coordinate",
+        CadEllipseAuthoringInputKind.SecondAxisPoint when mode is
+            CadEllipseAuthoringMode.CenterDistance or
+            CadEllipseAuthoringMode.CenterRotation =>
+                "specify the endpoint of the first axis by click or coordinate",
+        CadEllipseAuthoringInputKind.SecondAxisPoint =>
+            "specify the second endpoint of the first axis by click or coordinate",
+        CadEllipseAuthoringInputKind.OtherAxisPoint =>
+            "specify the other-axis distance by click, coordinate, or direct distance",
+        CadEllipseAuthoringInputKind.RotationRadians =>
+            "enter the rotation angle in degrees (0 is circular; edge-on is invalid)",
+        CadEllipseAuthoringInputKind.StartDirection =>
+            "specify the start direction by point or angle in degrees",
+        CadEllipseAuthoringInputKind.StartParameterRadians =>
+            "enter the start parameter in degrees",
+        CadEllipseAuthoringInputKind.EndDirection =>
+            "specify the end direction by point or angle in degrees",
+        CadEllipseAuthoringInputKind.EndParameterRadians =>
+            "enter the end parameter in degrees",
+        CadEllipseAuthoringInputKind.IncludedAngleRadians =>
+            "enter the signed included angle in degrees",
+        _ => throw new ArgumentOutOfRangeException(nameof(inputKind)),
+    };
 
     private void SelectPolarTrackingIncrement()
     {
@@ -6156,9 +6346,11 @@ public sealed class CadSampleView : Grid
         bool isPolylineAuthoring = _canvas.IsPolylineAuthoring;
         bool isCircleAuthoring = _canvas.IsCircleAuthoring;
         bool isArcAuthoring = _canvas.IsArcAuthoring;
+        bool isEllipseAuthoring = _canvas.IsEllipseAuthoring;
         bool isPointInputActive =
             isPointTransformPicking || isLineAuthoring ||
-            isPolylineAuthoring || isCircleAuthoring || isArcAuthoring;
+            isPolylineAuthoring || isCircleAuthoring || isArcAuthoring ||
+            isEllipseAuthoring;
         bool isInteractivePicking =
             isReferencePicking || isPointInputActive;
         bool canUsePlanTools =
@@ -6268,6 +6460,15 @@ public sealed class CadSampleView : Grid
         _arcButton.IsEnabled = canStartArc &&
             (_arcModeSelector.SelectedItem as ComboBoxItem)?.Tag is
                 CadArcAuthoringMode;
+        bool canStartEllipse = canUsePlanTools && !_is3DView &&
+            _canvas.CurrentSession is not null;
+        _ellipseModeSelector.IsEnabled = canStartEllipse;
+        _ellipseArcInputSelector.IsEnabled = canStartEllipse;
+        _ellipseButton.IsEnabled = canStartEllipse &&
+            (_ellipseModeSelector.SelectedItem as ComboBoxItem)?.Tag is
+                CadEllipseAuthoringMode &&
+            (_ellipseArcInputSelector.SelectedItem as ComboBoxItem)?.Tag is
+                CadEllipseArcInputMode;
         _selectionColorInput.IsEnabled = canTransform;
         _selectionLineWeightSelector.IsEnabled = canTransform;
         _selectionLayerSelector.IsEnabled = canTransform;
@@ -6518,7 +6719,10 @@ public sealed class CadSampleView : Grid
         _acceptPointTransformInputButton.IsEnabled =
             !_isBusy &&
             isPointInputActive &&
-            (isArcAuthoring
+            (isEllipseAuthoring
+                ? _canvas.CanAcceptEllipseAuthoringInput(
+                    _pointTransformInput.Text)
+                : isArcAuthoring
                 ? _canvas.CanAcceptArcAuthoringInput(
                     _pointTransformInput.Text)
                 : isCircleAuthoring

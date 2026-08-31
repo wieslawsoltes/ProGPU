@@ -126,6 +126,21 @@ deferred to the global command-chaining contract rather than approximated. The
 existing managed/native analytic ARC lowering is unchanged, so no shader, ABI,
 resource, cache, upload, or device-loss fork is introduced.
 
+Shared desktop/browser ProGPU.CAD now also authors exact plan-view full
+ELLIPSEs and elliptical ARCs through axis-endpoint or Center construction,
+point-defined other-axis distance or Rotation, and Angle, Parameter, or
+Included Angle arc input. Large-WCS midpoint and direction solves avoid
+origin-relative precision loss, longer point-defined axes are canonicalized
+without changing geometry, and scalar direction input honors the current UCS,
+ANGBASE, and ANGDIR. The prompt uses the shared object-snap/grid/Ortho/polar/
+PolarSnap/direct-distance pipeline and previews one transformed analytic
+ellipse or `ArcSegment` without tessellation or model mutation. A successful
+final solve publishes one Axis-Z `Ellipse` and one history generation; locked
+layer, invalid CELTSCALE, and nonzero THICKNESS failures retain the prompt.
+Isocircle remains deferred to its SNAPSTYL/SNAPISOPAIR contract. The established
+managed/native analytic ellipse lowering is unchanged, so no shader, ABI,
+resource, cache, upload, or device-loss fork is introduced.
+
 The shared ProGPU.CAD plan grid now defaults to AutoCAD's lined model-space
 GRIDSTYLE and exposes a shared desktop/browser Dots toggle. Autodesk documents
 GRIDSTYLE as registry-backed host state, so the toggle intentionally changes no

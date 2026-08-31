@@ -232,6 +232,56 @@ public sealed class CadArcAuthoringChangedEventArgs : EventArgs
     }
 }
 
+/// <summary>Observable stage of one shared desktop/browser ELLIPSE command.</summary>
+public enum CadEllipseAuthoringStage : byte
+{
+    AwaitingFirstPoint = 0,
+    AwaitingNextInput = 1,
+    Completed = 2,
+    Canceled = 3,
+    Failed = 4,
+}
+
+/// <summary>Immutable transition emitted by bounded ELLIPSE authoring.</summary>
+public sealed class CadEllipseAuthoringChangedEventArgs : EventArgs
+{
+    public CadEllipseAuthoringStage Stage { get; }
+
+    public CadEllipseAuthoringMode Mode { get; }
+
+    public CadEllipseArcInputMode ArcInputMode { get; }
+
+    public CadEllipseAuthoringInputKind InputKind { get; }
+
+    public int AcceptedInputCount { get; }
+
+    public CadPoint3D? CurrentPoint { get; }
+
+    public CadEllipseAuthoringSnapshot? Snapshot { get; }
+
+    public string? ErrorMessage { get; }
+
+    internal CadEllipseAuthoringChangedEventArgs(
+        CadEllipseAuthoringStage stage,
+        CadEllipseAuthoringMode mode,
+        CadEllipseArcInputMode arcInputMode,
+        CadEllipseAuthoringInputKind inputKind,
+        int acceptedInputCount,
+        CadPoint3D? currentPoint = null,
+        CadEllipseAuthoringSnapshot? snapshot = null,
+        string? errorMessage = null)
+    {
+        Stage = stage;
+        Mode = mode;
+        ArcInputMode = arcInputMode;
+        InputKind = inputKind;
+        AcceptedInputCount = acceptedInputCount;
+        CurrentPoint = currentPoint;
+        Snapshot = snapshot;
+        ErrorMessage = errorMessage;
+    }
+}
+
 /// <summary>
 /// Common general properties for the current semantic model-space selection.
 /// A null common property means selected entities have different persisted values;
@@ -333,6 +383,7 @@ public sealed class CadSampleCanvas : FrameworkElement
     private CadPolylineAuthoringSession? _polylineAuthoring;
     private CadCircleAuthoringSession? _circleAuthoring;
     private CadArcAuthoringSession? _arcAuthoring;
+    private CadEllipseAuthoringSession? _ellipseAuthoring;
     private CadBounds3D _bounds;
     private CadBounds3D _selectedBounds;
     private CadBounds3D _drawOrderReferenceBounds;
@@ -492,6 +543,27 @@ public sealed class CadSampleCanvas : FrameworkElement
 
     public CadPoint3D? PendingArcCurrentPoint => _arcAuthoring?.CurrentPoint;
 
+    /// <summary>Whether one bounded plan-view ELLIPSE is active.</summary>
+    public bool IsEllipseAuthoring => _ellipseAuthoring is not null;
+
+    public CadEllipseAuthoringMode? PendingEllipseAuthoringMode =>
+        _ellipseAuthoring?.Mode;
+
+    public CadEllipseArcInputMode? PendingEllipseArcInputMode =>
+        _ellipseAuthoring?.ArcInputMode;
+
+    public CadEllipseAuthoringInputKind? PendingEllipseInputKind =>
+        _ellipseAuthoring?.InputKind;
+
+    public int PendingEllipseAcceptedInputCount =>
+        _ellipseAuthoring?.AcceptedInputCount ?? 0;
+
+    public int PendingEllipsePointCount =>
+        _ellipseAuthoring?.PointCount ?? 0;
+
+    public CadPoint3D? PendingEllipseCurrentPoint =>
+        _ellipseAuthoring?.CurrentPoint;
+
     public CadPolylineAuthoringMode PolylineAuthoringMode
     {
         get => _polylineAuthoring?.Mode ?? CadPolylineAuthoringMode.Line;
@@ -527,7 +599,8 @@ public sealed class CadSampleCanvas : FrameworkElement
         _lineAuthoring is not null ||
         _polylineAuthoring is not null ||
         _circleAuthoring is not null ||
-        _arcAuthoring is not null;
+        _arcAuthoring is not null ||
+        _ellipseAuthoring is not null;
 
     /// <summary>Running object-snap modes used by MOVE/COPY point prompts.</summary>
     public CadObjectSnapModes ObjectSnapModes
@@ -963,6 +1036,13 @@ public sealed class CadSampleCanvas : FrameworkElement
         ArcAuthoringChanged;
 
     /// <summary>
+    /// Raised for accepted ELLIPSE inputs, completion, cancellation, and failure.
+    /// Pointer motion does not allocate events.
+    /// </summary>
+    public event EventHandler<CadEllipseAuthoringChangedEventArgs>?
+        EllipseAuthoringChanged;
+
+    /// <summary>
     /// Raised when cursor-direction availability changes for typed point input.
     /// </summary>
     public event EventHandler? PointTransformInputAvailabilityChanged;
@@ -1152,6 +1232,7 @@ public sealed class CadSampleCanvas : FrameworkElement
             ResetPolylineAuthoringState();
             ResetCircleAuthoringState();
             ResetArcAuthoringState();
+            ResetEllipseAuthoringState();
             ResetSelectionState(notify: false);
             _needsFit = true;
         }
@@ -1232,7 +1313,8 @@ public sealed class CadSampleCanvas : FrameworkElement
             _hasPointTransformBasePoint)
         {
             Vector2 basePoint = viewport.WorldToScreen(_pointTransformBasePoint);
-            if (!DrawPendingArc(context, viewport) &&
+            if (!DrawPendingEllipse(context, viewport) &&
+                !DrawPendingArc(context, viewport) &&
                 !DrawPendingCircle(context, viewport) &&
                 !DrawPendingPolylineArc(context, viewport, basePoint))
             {
@@ -1429,6 +1511,168 @@ public sealed class CadSampleCanvas : FrameworkElement
             // cannot be represented by the current float viewport.
         }
         return true;
+    }
+
+    private bool DrawPendingEllipse(
+        DrawingContext context,
+        CadPlanViewport viewport)
+    {
+        CadEllipseAuthoringSession? authoring = _ellipseAuthoring;
+        if (authoring is null || authoring.PointCount == 0)
+        {
+            return false;
+        }
+
+        ReadOnlySpan<CadPoint3D> points = authoring.Points.Span;
+        if (authoring.PointCount == 1)
+        {
+            try
+            {
+                context.DrawLine(
+                    _drawOrderReferencePen,
+                    viewport.WorldToScreen(points[0]),
+                    _pointTransformCurrent);
+            }
+            catch (ArgumentException)
+            {
+                // The accepted point remains valid if its live guide cannot be
+                // represented by the current float viewport.
+            }
+            return true;
+        }
+
+        try
+        {
+            context.DrawLine(
+                _drawOrderReferencePen,
+                viewport.WorldToScreen(points[0]),
+                viewport.WorldToScreen(points[1]));
+        }
+        catch (ArgumentException)
+        {
+            return true;
+        }
+
+        CadEllipseAuthoringSnapshot snapshot;
+        bool hasSnapshot = false;
+        if (authoring.AcceptsPointInput)
+        {
+            try
+            {
+                CadPoint3D previewPoint = viewport.ScreenToWorld(
+                    _pointTransformCurrent,
+                    authoring.FirstPoint!.Value.Z);
+                hasSnapshot = authoring.TryPreviewPoint(
+                    previewPoint,
+                    out snapshot);
+            }
+            catch (ArgumentException)
+            {
+                snapshot = default;
+            }
+        }
+        else
+        {
+            snapshot = default;
+        }
+
+        if (!hasSnapshot)
+        {
+            hasSnapshot = authoring.TryGetAxesSnapshot(out snapshot);
+        }
+        if (hasSnapshot)
+        {
+            DrawEllipseAuthoringSnapshot(context, viewport, snapshot);
+        }
+
+        if (authoring.AcceptsPointInput &&
+            authoring.AcquisitionBasePoint is CadPoint3D acquisitionBase)
+        {
+            try
+            {
+                context.DrawLine(
+                    _drawOrderReferencePen,
+                    viewport.WorldToScreen(acquisitionBase),
+                    _pointTransformCurrent);
+            }
+            catch (ArgumentException)
+            {
+                // The accepted first-axis guide remains valid.
+            }
+        }
+        return true;
+    }
+
+    private void DrawEllipseAuthoringSnapshot(
+        DrawingContext context,
+        CadPlanViewport viewport,
+        CadEllipseAuthoringSnapshot snapshot)
+    {
+        try
+        {
+            Vector2 center = viewport.WorldToScreen(snapshot.Center);
+            Vector2 majorEnd = viewport.WorldToScreen(
+                snapshot.Center + snapshot.MajorAxisEndPoint);
+            Vector2 minorEnd = viewport.WorldToScreen(
+                snapshot.Center + snapshot.MinorAxisEndPoint);
+            Vector2 major = majorEnd - center;
+            Vector2 minor = minorEnd - center;
+            if (!float.IsFinite(major.X) || !float.IsFinite(major.Y) ||
+                !float.IsFinite(minor.X) || !float.IsFinite(minor.Y) ||
+                major.LengthSquared() <= 0.0f ||
+                minor.LengthSquared() <= 0.0f)
+            {
+                return;
+            }
+
+            var transform = new Matrix4x4(
+                major.X, major.Y, 0.0f, 0.0f,
+                minor.X, minor.Y, 0.0f, 0.0f,
+                0.0f, 0.0f, 1.0f, 0.0f,
+                center.X, center.Y, 0.0f, 1.0f);
+            if (snapshot.IsFullEllipse)
+            {
+                context.DrawEllipse(
+                    null,
+                    _drawOrderReferencePen,
+                    Vector2.Zero,
+                    1.0f,
+                    1.0f,
+                    transform);
+                return;
+            }
+
+            Vector2 start = new(
+                MathF.Cos((float)snapshot.StartParameter),
+                MathF.Sin((float)snapshot.StartParameter));
+            double endParameter =
+                snapshot.StartParameter + snapshot.SweepParameter;
+            Vector2 end = new(
+                MathF.Cos((float)endParameter),
+                MathF.Sin((float)endParameter));
+            var path = new PathGeometry();
+            var figure = new PathFigure(start)
+            {
+                IsFilled = false,
+                IsClosed = false,
+            };
+            figure.Segments.Add(new ArcSegment(
+                end,
+                Vector2.One,
+                rotationAngle: 0.0f,
+                isLargeArc: snapshot.SweepParameter > Math.PI,
+                sweepDirection: SweepDirection.Counterclockwise));
+            path.Figures.Add(figure);
+            context.DrawPath(
+                null,
+                _drawOrderReferencePen,
+                path,
+                transform);
+        }
+        catch (ArgumentException)
+        {
+            // A non-representable float preview never mutates accepted state.
+        }
     }
 
     private bool DrawPendingPolylineArc(
@@ -1703,6 +1947,7 @@ public sealed class CadSampleCanvas : FrameworkElement
         ResetPolylineAuthoringState();
         ResetCircleAuthoringState();
         ResetArcAuthoringState();
+        ResetEllipseAuthoringState();
         ResetSelectionState(notify: true);
         Invalidate();
     }
@@ -2902,6 +3147,372 @@ public sealed class CadSampleCanvas : FrameworkElement
             _ = viewport.WorldToScreen(snapshot.Center);
             _ = viewport.WorldToScreen(snapshot.StartPoint);
             _ = viewport.WorldToScreen(snapshot.EndPoint);
+            return true;
+        }
+        catch (ArgumentException)
+        {
+            return false;
+        }
+    }
+
+    /// <summary>
+    /// Starts one bounded plan-view ELLIPSE or elliptical arc using the complete
+    /// Axis/Center, Distance/Rotation, and endpoint-interpretation matrix.
+    /// </summary>
+    public bool BeginEllipseAuthoring(
+        CadEllipseAuthoringMode mode,
+        CadEllipseArcInputMode arcInputMode = CadEllipseArcInputMode.Full)
+    {
+        if (!Enum.IsDefined(mode))
+        {
+            throw new ArgumentOutOfRangeException(nameof(mode));
+        }
+        if (!Enum.IsDefined(arcInputMode))
+        {
+            throw new ArgumentOutOfRangeException(nameof(arcInputMode));
+        }
+        if (CurrentSession is null || CurrentSnapshot is null)
+        {
+            return false;
+        }
+        ThrowIfDrawOrderReferenceSelectionPending();
+        if (IsPointAcquisitionActive)
+        {
+            throw new InvalidOperationException(
+                "Complete the pending point-acquisition command first.");
+        }
+
+        _ellipseAuthoring = new CadEllipseAuthoringSession(
+            mode,
+            arcInputMode);
+        _hasPointTransformBasePoint = false;
+        _isPointTransformPointerPressed = false;
+        ClearPointTransformSnapState();
+        EllipseAuthoringChanged?.Invoke(
+            this,
+            new CadEllipseAuthoringChangedEventArgs(
+                CadEllipseAuthoringStage.AwaitingFirstPoint,
+                mode,
+                arcInputMode,
+                _ellipseAuthoring.InputKind,
+                acceptedInputCount: 0));
+        Invalidate();
+        return true;
+    }
+
+    public bool CanAcceptEllipseAuthoringInput(string? text)
+    {
+        CadEllipseAuthoringSession? authoring = _ellipseAuthoring;
+        if (authoring is null)
+        {
+            return false;
+        }
+
+        if (authoring.AcceptsScalarInput &&
+            CadEllipseScalarInput.TryParse(
+                text,
+                out CadEllipseScalarInput scalar) &&
+            TryConvertEllipseScalar(
+                authoring.InputKind,
+                scalar.Value,
+                out double converted,
+                out CadPoint3D direction,
+                out bool isDirection))
+        {
+            bool accepted = isDirection
+                ? authoring.TryPreviewDirection(
+                    direction,
+                    out CadEllipseAuthoringSnapshot preview,
+                    out bool completed)
+                : authoring.TryPreviewScalar(
+                    converted,
+                    out preview,
+                    out completed);
+            return accepted &&
+                (!completed || CanRepresentEllipseSnapshot(preview));
+        }
+
+        CadPoint3D point;
+        if (!CadCoordinateInput.TryParse(text, out CadCoordinateInput coordinate))
+        {
+            if (!CadDirectDistanceInput.TryParse(
+                    text,
+                    out CadDirectDistanceInput distance) ||
+                !TryResolvePointTransformDirectDistance(distance, out point))
+            {
+                return false;
+            }
+        }
+        else
+        {
+            if (!_hasPointTransformBasePoint && coordinate.IsRelative)
+            {
+                return false;
+            }
+            CadPoint3D origin = _hasPointTransformBasePoint
+                ? _pointTransformBasePoint
+                : CadPoint3D.Zero;
+            if (!coordinate.TryResolve(origin, out point))
+            {
+                return false;
+            }
+        }
+
+        if (!authoring.CanAcceptPoint(point))
+        {
+            return false;
+        }
+        try
+        {
+            _ = CreateViewport().WorldToScreen(point);
+            return true;
+        }
+        catch (ArgumentException)
+        {
+            return false;
+        }
+    }
+
+    public bool TryAcceptEllipseAuthoringInput(
+        string? text,
+        out string? errorMessage)
+    {
+        errorMessage = null;
+        CadEllipseAuthoringSession? authoring = _ellipseAuthoring;
+        if (authoring is null)
+        {
+            errorMessage = "No ELLIPSE command is awaiting input.";
+            return false;
+        }
+
+        if (authoring.AcceptsScalarInput &&
+            CadEllipseScalarInput.TryParse(
+                text,
+                out CadEllipseScalarInput scalar))
+        {
+            if (!TryAcceptEllipseScalar(
+                    authoring,
+                    scalar.Value,
+                    out CadEllipseAuthoringSnapshot scalarSnapshot,
+                    out bool scalarCompleted,
+                    out errorMessage))
+            {
+                NotifyEllipseAuthoringFailure(authoring, errorMessage);
+                return false;
+            }
+            if (scalarCompleted)
+            {
+                return TryCommitEllipseAuthoringSnapshot(
+                    authoring,
+                    scalarSnapshot,
+                    finalPoint: null,
+                    out errorMessage);
+            }
+
+            UpdateEllipseAcquisitionBase(authoring);
+            EllipseAuthoringChanged?.Invoke(
+                this,
+                new CadEllipseAuthoringChangedEventArgs(
+                    CadEllipseAuthoringStage.AwaitingNextInput,
+                    authoring.Mode,
+                    authoring.ArcInputMode,
+                    authoring.InputKind,
+                    authoring.AcceptedInputCount,
+                    authoring.CurrentPoint));
+            Invalidate();
+            return true;
+        }
+
+        CadPoint3D point;
+        if (!CadCoordinateInput.TryParse(text, out CadCoordinateInput coordinate))
+        {
+            if (!CadDirectDistanceInput.TryParse(
+                    text,
+                    out CadDirectDistanceInput directDistance))
+            {
+                errorMessage = authoring.AcceptsScalarInput
+                    ? "Enter the requested ELLIPSE angle/parameter in degrees using a bounded invariant number, or enter an accepted point coordinate."
+                    : "Enter x,y[,z], @dx,dy[,dz], distance<angle, @distance<angle, or a positive direct distance using invariant numbers.";
+                return false;
+            }
+            if (!_hasPointTransformBasePoint)
+            {
+                errorMessage =
+                    "Accept an absolute first point before entering a direct distance.";
+                return false;
+            }
+            if (!_hasPointTransformPointerPosition)
+            {
+                errorMessage =
+                    "Move the cursor from the current ELLIPSE base before entering a direct distance.";
+                return false;
+            }
+            if (!TryResolvePointTransformDirectDistance(
+                    directDistance,
+                    out point))
+            {
+                errorMessage =
+                    "The cursor direction and distance do not resolve to a finite WCS point.";
+                return false;
+            }
+        }
+        else
+        {
+            if (!_hasPointTransformBasePoint && coordinate.IsRelative)
+            {
+                errorMessage =
+                    "Enter an absolute first point before using a relative coordinate.";
+                return false;
+            }
+            CadPoint3D origin = _hasPointTransformBasePoint
+                ? _pointTransformBasePoint
+                : CadPoint3D.Zero;
+            if (!coordinate.TryResolve(origin, out point))
+            {
+                errorMessage = "The coordinate resolves outside finite WCS values.";
+                return false;
+            }
+        }
+
+        Vector2 screenPoint;
+        try
+        {
+            screenPoint = CreateViewport().WorldToScreen(point);
+        }
+        catch (ArgumentException)
+        {
+            errorMessage =
+                "The ELLIPSE point cannot be represented by the current plan viewport.";
+            return false;
+        }
+        return TryAcceptEllipseAuthoringPoint(
+            point,
+            screenPoint,
+            out errorMessage);
+    }
+
+    /// <summary>Cancels ELLIPSE without changing the document or history.</summary>
+    public bool CancelEllipseAuthoring()
+    {
+        CadEllipseAuthoringSession? authoring = _ellipseAuthoring;
+        if (authoring is null)
+        {
+            return false;
+        }
+
+        CadEllipseAuthoringMode mode = authoring.Mode;
+        CadEllipseArcInputMode arcInputMode = authoring.ArcInputMode;
+        CadEllipseAuthoringInputKind inputKind = authoring.InputKind;
+        int acceptedInputCount = authoring.AcceptedInputCount;
+        CadPoint3D? currentPoint = authoring.CurrentPoint;
+        ResetEllipseAuthoringState();
+        EllipseAuthoringChanged?.Invoke(
+            this,
+            new CadEllipseAuthoringChangedEventArgs(
+                CadEllipseAuthoringStage.Canceled,
+                mode,
+                arcInputMode,
+                inputKind,
+                acceptedInputCount,
+                currentPoint));
+        Invalidate();
+        return true;
+    }
+
+    private bool TryAcceptEllipseScalar(
+        CadEllipseAuthoringSession authoring,
+        double value,
+        out CadEllipseAuthoringSnapshot snapshot,
+        out bool completed,
+        out string? errorMessage)
+    {
+        snapshot = default;
+        completed = false;
+        if (!TryConvertEllipseScalar(
+                authoring.InputKind,
+                value,
+                out double converted,
+                out CadPoint3D direction,
+                out bool isDirection))
+        {
+            errorMessage = "The ELLIPSE scalar does not match the current prompt.";
+            return false;
+        }
+
+        return isDirection
+            ? authoring.TryAcceptDirection(
+                direction,
+                out snapshot,
+                out completed,
+                out errorMessage)
+            : authoring.TryAcceptScalar(
+                converted,
+                out snapshot,
+                out completed,
+                out errorMessage);
+    }
+
+    private bool TryConvertEllipseScalar(
+        CadEllipseAuthoringInputKind inputKind,
+        double value,
+        out double converted,
+        out CadPoint3D direction,
+        out bool isDirection)
+    {
+        converted = 0.0;
+        direction = default;
+        isDirection = false;
+        if (!double.IsFinite(value))
+        {
+            return false;
+        }
+
+        double reducedDegrees = Math.IEEERemainder(value, 360.0);
+        double radians = reducedDegrees * (Math.PI / 180.0);
+        switch (inputKind)
+        {
+            case CadEllipseAuthoringInputKind.RotationRadians:
+                converted = radians;
+                return true;
+            case CadEllipseAuthoringInputKind.StartDirection:
+            case CadEllipseAuthoringInputKind.EndDirection:
+            {
+                double sine = Math.Sin(radians);
+                if (_planPolarTrackingSettings.IsClockwise)
+                {
+                    sine = -sine;
+                }
+                direction =
+                    (_planPolarTrackingSettings.XAxis * Math.Cos(radians)) +
+                    (_planPolarTrackingSettings.YAxis * sine);
+                isDirection = true;
+                return true;
+            }
+            case CadEllipseAuthoringInputKind.StartParameterRadians:
+            case CadEllipseAuthoringInputKind.EndParameterRadians:
+            case CadEllipseAuthoringInputKind.IncludedAngleRadians:
+                converted = _planPolarTrackingSettings.IsClockwise
+                    ? -radians
+                    : radians;
+                return true;
+            default:
+                return false;
+        }
+    }
+
+    private bool CanRepresentEllipseSnapshot(
+        CadEllipseAuthoringSnapshot snapshot)
+    {
+        try
+        {
+            CadPlanViewport viewport = CreateViewport();
+            _ = viewport.WorldToScreen(snapshot.Center);
+            _ = viewport.WorldToScreen(snapshot.StartPoint);
+            _ = viewport.WorldToScreen(snapshot.EndPoint);
+            _ = viewport.WorldToScreen(
+                snapshot.Center + snapshot.MajorAxisEndPoint);
+            _ = viewport.WorldToScreen(
+                snapshot.Center + snapshot.MinorAxisEndPoint);
             return true;
         }
         catch (ArgumentException)
@@ -4556,7 +5167,8 @@ public sealed class CadSampleCanvas : FrameworkElement
         CadPlanViewport viewport = CreateViewport();
         CadPoint3D pointerWorld = (_polylineAuthoring is not null ||
                 _circleAuthoring is not null ||
-                _arcAuthoring is not null) &&
+                _arcAuthoring is not null ||
+                _ellipseAuthoring is not null) &&
             _hasPointTransformBasePoint
             ? viewport.ScreenToWorld(screenPoint, _pointTransformBasePoint.Z)
             : viewport.ScreenToWorld(screenPoint);
@@ -5037,7 +5649,8 @@ public sealed class CadSampleCanvas : FrameworkElement
             _lineAuthoring is null &&
             _polylineAuthoring is null &&
             _circleAuthoring is null &&
-            _arcAuthoring is null)
+            _arcAuthoring is null &&
+            _ellipseAuthoring is null)
         {
             return;
         }
@@ -5047,7 +5660,8 @@ public sealed class CadSampleCanvas : FrameworkElement
         {
             point = (_polylineAuthoring is not null ||
                     _circleAuthoring is not null ||
-                    _arcAuthoring is not null) &&
+                    _arcAuthoring is not null ||
+                    _ellipseAuthoring is not null) &&
                 _hasPointTransformBasePoint
                 ? CreateViewport().ScreenToWorld(
                     screenPoint,
@@ -5099,7 +5713,7 @@ public sealed class CadSampleCanvas : FrameworkElement
                         _circleAuthoring?.CurrentPoint,
                         errorMessage: exception.Message));
             }
-            else
+            else if (_arcAuthoring is not null)
             {
                 ArcAuthoringChanged?.Invoke(
                     this,
@@ -5109,6 +5723,22 @@ public sealed class CadSampleCanvas : FrameworkElement
                             CadArcAuthoringMode.ThreePoint,
                         _arcAuthoring?.PointCount ?? 0,
                         _arcAuthoring?.CurrentPoint,
+                        errorMessage: exception.Message));
+            }
+            else
+            {
+                EllipseAuthoringChanged?.Invoke(
+                    this,
+                    new CadEllipseAuthoringChangedEventArgs(
+                        CadEllipseAuthoringStage.Failed,
+                        _ellipseAuthoring?.Mode ??
+                            CadEllipseAuthoringMode.AxisEndpointsDistance,
+                        _ellipseAuthoring?.ArcInputMode ??
+                            CadEllipseArcInputMode.Full,
+                        _ellipseAuthoring?.InputKind ??
+                            CadEllipseAuthoringInputKind.FirstAxisPoint,
+                        _ellipseAuthoring?.AcceptedInputCount ?? 0,
+                        _ellipseAuthoring?.CurrentPoint,
                         errorMessage: exception.Message));
             }
             Invalidate();
@@ -5140,6 +5770,11 @@ public sealed class CadSampleCanvas : FrameworkElement
         if (_arcAuthoring is not null)
         {
             _ = TryAcceptArcAuthoringPoint(point, screenPoint, out _);
+            return;
+        }
+        if (_ellipseAuthoring is not null)
+        {
+            _ = TryAcceptEllipseAuthoringPoint(point, screenPoint, out _);
             return;
         }
 
@@ -5499,6 +6134,139 @@ public sealed class CadSampleCanvas : FrameworkElement
         Invalidate();
     }
 
+    private bool TryAcceptEllipseAuthoringPoint(
+        CadPoint3D point,
+        Vector2? screenPoint,
+        out string? errorMessage)
+    {
+        errorMessage = null;
+        CadEllipseAuthoringSession? authoring = _ellipseAuthoring;
+        if (authoring is null)
+        {
+            errorMessage = "No ELLIPSE command is active.";
+            return false;
+        }
+
+        try
+        {
+            _ = screenPoint ?? CreateViewport().WorldToScreen(point);
+        }
+        catch (ArgumentException exception)
+        {
+            errorMessage = exception.Message;
+            NotifyEllipseAuthoringFailure(authoring, errorMessage);
+            return false;
+        }
+
+        if (!authoring.TryAcceptPoint(
+                point,
+                out CadEllipseAuthoringSnapshot snapshot,
+                out bool completed,
+                out errorMessage))
+        {
+            NotifyEllipseAuthoringFailure(authoring, errorMessage);
+            return false;
+        }
+        if (completed)
+        {
+            return TryCommitEllipseAuthoringSnapshot(
+                authoring,
+                snapshot,
+                point,
+                out errorMessage);
+        }
+
+        UpdateEllipseAcquisitionBase(authoring);
+        EllipseAuthoringChanged?.Invoke(
+            this,
+            new CadEllipseAuthoringChangedEventArgs(
+                CadEllipseAuthoringStage.AwaitingNextInput,
+                authoring.Mode,
+                authoring.ArcInputMode,
+                authoring.InputKind,
+                authoring.AcceptedInputCount,
+                point));
+        Invalidate();
+        return true;
+    }
+
+    private bool TryCommitEllipseAuthoringSnapshot(
+        CadEllipseAuthoringSession authoring,
+        CadEllipseAuthoringSnapshot snapshot,
+        CadPoint3D? finalPoint,
+        out string? errorMessage)
+    {
+        errorMessage = null;
+        CadDocumentSession session = CurrentSession ??
+            throw new InvalidOperationException("No CAD document is loaded.");
+        CadDocumentHistory history = _history ??
+            throw new InvalidOperationException(
+                "The CAD edit history is not initialized.");
+        try
+        {
+            history.Execute(new CadAddEllipseCommand(
+                snapshot,
+                description:
+                    $"ELLIPSE: add {authoring.Mode}/{authoring.ArcInputMode}"));
+            CadEllipseAuthoringMode mode = authoring.Mode;
+            CadEllipseArcInputMode arcInputMode = authoring.ArcInputMode;
+            CadEllipseAuthoringInputKind inputKind = authoring.InputKind;
+            int acceptedInputCount = authoring.AcceptedInputCount + 1;
+            ResetEllipseAuthoringState();
+            RecompileAfterEdit(session);
+            EllipseAuthoringChanged?.Invoke(
+                this,
+                new CadEllipseAuthoringChangedEventArgs(
+                    CadEllipseAuthoringStage.Completed,
+                    mode,
+                    arcInputMode,
+                    inputKind,
+                    acceptedInputCount,
+                    finalPoint,
+                    snapshot));
+            return true;
+        }
+        catch (Exception exception)
+        {
+            errorMessage = exception.Message;
+            NotifyEllipseAuthoringFailure(authoring, errorMessage);
+            return false;
+        }
+    }
+
+    private void NotifyEllipseAuthoringFailure(
+        CadEllipseAuthoringSession authoring,
+        string? errorMessage)
+    {
+        EllipseAuthoringChanged?.Invoke(
+            this,
+            new CadEllipseAuthoringChangedEventArgs(
+                CadEllipseAuthoringStage.Failed,
+                authoring.Mode,
+                authoring.ArcInputMode,
+                authoring.InputKind,
+                authoring.AcceptedInputCount,
+                authoring.CurrentPoint,
+                errorMessage: errorMessage));
+        Invalidate();
+    }
+
+    private void UpdateEllipseAcquisitionBase(
+        CadEllipseAuthoringSession authoring)
+    {
+        ClearPointTransformSnapState();
+        CadPoint3D? acquisitionBase = authoring.AcquisitionBasePoint;
+        if (acquisitionBase is not CadPoint3D point)
+        {
+            _hasPointTransformBasePoint = false;
+            return;
+        }
+
+        _pointTransformBasePoint = point;
+        _pointTransformCurrent = CreateViewport().WorldToScreen(point);
+        _hasPointTransformBasePoint = true;
+    }
+
     private void AcceptPointTransformPoint(
         CadPoint3D point,
         Vector2? screenPoint)
@@ -5812,6 +6580,16 @@ public sealed class CadSampleCanvas : FrameworkElement
         ClearPointTransformSnapState();
     }
 
+    private void ResetEllipseAuthoringState()
+    {
+        _ellipseAuthoring = null;
+        _hasPointTransformBasePoint = false;
+        _isPointTransformPointerPressed = false;
+        _pointTransformBasePoint = default;
+        _pointTransformCurrent = default;
+        ClearPointTransformSnapState();
+    }
+
     private void ResetSelectionState(bool notify)
     {
         _selectedHandleCount = 0;
@@ -6063,6 +6841,7 @@ public sealed class CadSampleCanvas : FrameworkElement
         ResetPolylineAuthoringState();
         ResetCircleAuthoringState();
         ResetArcAuthoringState();
+        ResetEllipseAuthoringState();
         _picture?.Dispose();
         _picture = null;
         _constructionPicture?.Dispose();
