@@ -2625,27 +2625,46 @@ public partial class Graphics :
             : fontSize * font.TtfFont.Ascender / font.TtfFont.UnitsPerEm;
         Vector2[] positions = new Vector2[glyphIndices.Length];
         Vector2 origin = Vector2.Zero;
+        float minimumX = 0f;
+        float maximumX = 0f;
+        bool hasVerticalAdvance = false;
         for (int index = 0; index < advances.Length; index++)
         {
             positions[index] = new Vector2(origin.X, baseline + origin.Y);
+            hasVerticalAdvance |= advances[index].Y != 0f;
             origin += advances[index];
             if (!float.IsFinite(origin.X) || !float.IsFinite(origin.Y))
             {
                 throw new ArgumentException("Glyph advances must have a finite total.", nameof(advances));
             }
+            minimumX = MathF.Min(minimumX, origin.X);
+            maximumX = MathF.Max(maximumX, origin.X);
         }
 
+        ProGPU.Vector.Brush nativeBrush = TransformBrush(brush);
+        Matrix4x4 transform = CurrentTransform4x4();
         _context.DrawGlyphRun(
             glyphIndices.ToArray(),
             positions,
             font.TtfFont,
             fontSize,
-            TransformBrush(brush),
+            nativeBrush,
             new Vector2(x, y),
-            CurrentTransform4x4(),
+            transform,
             isBold: (font.Style & FontStyle.Bold) != 0,
             isItalic: (font.Style & FontStyle.Italic) != 0,
             preferGlyphAtlas: true);
+        if (!hasVerticalAdvance)
+        {
+            DrawHorizontalGlyphDecorations(
+                font,
+                nativeBrush,
+                new Vector2(x, y),
+                transform,
+                baseline,
+                minimumX,
+                maximumX);
+        }
     }
 
     internal void DrawStringWithCharacterSpacing(
@@ -3236,6 +3255,59 @@ public partial class Graphics :
                 }
             }
             lineStart = lineEnd;
+        }
+    }
+
+    private void DrawHorizontalGlyphDecorations(
+        Font font,
+        ProGPU.Vector.Brush brush,
+        Vector2 origin,
+        Matrix4x4 transform,
+        float baseline,
+        float left,
+        float right)
+    {
+        if ((!font.Underline && !font.Strikeout) || right <= left ||
+            font.TtfFont.UnitsPerEm <= 0)
+        {
+            return;
+        }
+
+        float fontSize = GetFontPixelSize(font);
+        float scale = MathF.Abs(fontSize) / font.TtfFont.UnitsPerEm;
+        float underlineThickness = MathF.Max(
+            1f,
+            MathF.Abs(font.TtfFont.UnderlineThickness ?? 0) * scale);
+        float underlinePosition = font.TtfFont.UnderlinePosition ??
+            (short)(-font.TtfFont.UnitsPerEm / 10);
+        float strikeoutThickness = MathF.Max(
+            1f,
+            MathF.Abs(font.TtfFont.StrikeoutThickness ?? 0) * scale);
+        float strikeoutPosition = font.TtfFont.StrikeoutPosition ??
+            (short)(font.TtfFont.UnitsPerEm / 3);
+        if (font.Underline)
+        {
+            _context.DrawRectangle(
+                brush,
+                null,
+                new Rect(
+                    origin.X + left,
+                    origin.Y + baseline - underlinePosition * scale,
+                    right - left,
+                    underlineThickness),
+                transform);
+        }
+        if (font.Strikeout)
+        {
+            _context.DrawRectangle(
+                brush,
+                null,
+                new Rect(
+                    origin.X + left,
+                    origin.Y + baseline - strikeoutPosition * scale,
+                    right - left,
+                    strikeoutThickness),
+                transform);
         }
     }
 

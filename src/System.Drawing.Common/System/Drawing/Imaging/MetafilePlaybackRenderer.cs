@@ -2329,11 +2329,12 @@ internal static class MetafilePlaybackRenderer
                     record,
                     "Glyph-index text combined with right-to-left layout requires explicit visual-order semantics.");
             }
-            if ((_selectedFont.Style & (FontStyle.Underline | FontStyle.Strikeout)) != 0)
+            if (!verticalAdvances.IsEmpty &&
+                (_selectedFont.Style & (FontStyle.Underline | FontStyle.Strikeout)) != 0)
             {
                 throw Unsupported(
                     record,
-                    "Glyph-index text with font decorations requires decoration geometry independent of Unicode clusters.");
+                    "Glyph-index text with two-dimensional cells requires per-cell decoration geometry.");
             }
 
             float totalX = 0f;

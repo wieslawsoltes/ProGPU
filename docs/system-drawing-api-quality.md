@@ -453,14 +453,22 @@ uses each selected-font glyph's natural advance without cumulative integer
 rounding. Alignment, background and clip state, escapement, and current-position
 updates remain intact. ANSI storage is rejected transactionally until its
 separate 16-bit contract is implemented; bidi visual order and decorated
-glyph-index text remain explicit boundaries. Exact IDs, explicit and natural
-cell origins, `TA_UPDATECP`, ANSI rejection, and rollback are covered by the
-complete 454/454 suite. ApiCompat remains 0/0/13.
+two-dimensional glyph-index text remain explicit boundaries. Horizontal
+explicit and natural cells now use selected-font OpenType metrics for retained
+underline/strikeout rectangles without reconstructing Unicode; decorated PDY
+rejects until per-cell vertical geometry is defined. Exact IDs, explicit and
+natural cell origins, `TA_UPDATECP`, both horizontal decoration forms, ANSI and
+PDY-decoration rejection, and rollback are covered by the complete 457/457
+suite. ApiCompat remains 0/0/13.
 
 `MetafileBenchmarks.Playback256EmfExtTextOutWGlyphIndices` measured a 3.818 ms
 median (4.194 ms mean, 1.187 ms standard deviation) and 528.25 KB allocated for
 256 direct three-glyph records. The 3.241-5.524 ms spread makes this coarse
 local allocation evidence, not a portable latency baseline.
+The post-decoration undecorated rerun retains 528.24 KB allocation and measures
+a 1.069 ms median (1.187 ms mean, 0.334 ms standard deviation). Three samples
+and denied priority elevation make this allocation/command-shape confirmation,
+not a throughput claim.
 
 `MetafileBenchmarks.Playback256EmfExtTextOutWNaturalGlyphIndices` removes the
 explicit advance array from the same 256-record workload. Its three-iteration

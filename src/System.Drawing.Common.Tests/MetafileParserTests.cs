@@ -1570,6 +1570,80 @@ public sealed class MetafileParserTests
         Assert.True(positions[1].X > positions[0].X);
     }
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void EmfExtTextOutWGlyphIndexDecoratesHorizontalCells(bool naturalAdvances)
+    {
+        ushort firstGlyph = SystemFonts.DefaultFont.TtfFont.GetGlyphIndex('M');
+        ushort secondGlyph = SystemFonts.DefaultFont.TtfFont.GetGlyphIndex('\u03A9');
+        byte[] emf = CreateTextPlaybackEmf(
+        [
+            (EmfPlusRecordType.EmfSetBkMode, EmfInt32(1)),
+            (EmfPlusRecordType.EmfExtCreateFontIndirect,
+                EmfFont(
+                    1,
+                    -14,
+                    SystemFonts.DefaultFont.Name,
+                    underline: true,
+                    strikeout: true)),
+            (EmfPlusRecordType.EmfSelectObject, EmfUInt32(1)),
+            (EmfPlusRecordType.EmfExtTextOutW,
+                EmfExtTextOutW(
+                    new string([(char)firstGlyph, (char)secondGlyph]),
+                    new Point(4, 4),
+                    0x0000_0010,
+                    Rectangle.Empty,
+                    naturalAdvances ? null : [20, 24]))
+        ]);
+        using var metafile = new Metafile(new MemoryStream(emf));
+        var context = new DrawingContext();
+        using Graphics graphics = Graphics.FromProGpuDrawingContext(context);
+
+        graphics.DrawImage(metafile, new Rectangle(0, 0, 64, 64));
+
+        RenderCommand glyphRun = Assert.Single(
+            context.Commands,
+            static command => command.Type == RenderCommandType.DrawGlyphRun);
+        Assert.Equal(
+            new[] { firstGlyph, secondGlyph },
+            Assert.IsType<ushort[]>(glyphRun.GlyphIndices));
+        RenderCommand[] decorations = context.Commands
+            .Where(static command => command.Type == RenderCommandType.DrawRect)
+            .ToArray();
+        Assert.Equal(2, decorations.Length);
+        Assert.All(decorations, decoration => Assert.Equal(glyphRun.Transform, decoration.Transform));
+    }
+
+    [Fact]
+    public void EmfExtTextOutWGlyphIndexRejectsDecoratedPdyWithoutPublishing()
+    {
+        ushort glyph = SystemFonts.DefaultFont.TtfFont.GetGlyphIndex('M');
+        byte[] emf = CreateTextPlaybackEmf(
+        [
+            (EmfPlusRecordType.EmfRectangle, EmfRectangle(1, 1, 4, 4)),
+            (EmfPlusRecordType.EmfExtCreateFontIndirect,
+                EmfFont(1, -14, SystemFonts.DefaultFont.Name, underline: true)),
+            (EmfPlusRecordType.EmfSelectObject, EmfUInt32(1)),
+            (EmfPlusRecordType.EmfExtTextOutW,
+                EmfExtTextOutWPdy(
+                    new string((char)glyph, 1),
+                    new Point(4, 4),
+                    [new Point(10, 2)],
+                    options: 0x0000_2010))
+        ]);
+        using var metafile = new Metafile(new MemoryStream(emf));
+        var context = new DrawingContext();
+        using Graphics graphics = Graphics.FromProGpuDrawingContext(context);
+
+        NotSupportedException exception = Assert.Throws<NotSupportedException>(() =>
+            graphics.DrawImage(metafile, new Rectangle(0, 0, 64, 64)));
+
+        Assert.Contains(nameof(EmfPlusRecordType.EmfExtTextOutW), exception.Message);
+        Assert.Contains("per-cell decoration geometry", exception.Message);
+        Assert.Empty(context.Commands);
+    }
+
     [Fact]
     public void EmfExtTextOutARejectsGlyphIndexStorageWithoutPublishing()
     {
@@ -2983,7 +3057,9 @@ public sealed class MetafileParserTests
         uint index,
         int height,
         string faceName,
-        byte charSet = 1)
+        byte charSet = 1,
+        bool underline = false,
+        bool strikeout = false)
     {
         byte[] faceNameBytes = Encoding.Unicode.GetBytes(faceName);
         if (faceNameBytes.Length > 62)
@@ -2997,6 +3073,8 @@ public sealed class MetafileParserTests
         WriteInt32(payload, 12, 0);
         WriteInt32(payload, 16, 0);
         WriteInt32(payload, 20, 400);
+        payload[25] = underline ? (byte)1 : (byte)0;
+        payload[26] = strikeout ? (byte)1 : (byte)0;
         payload[27] = charSet;
         faceNameBytes.CopyTo(payload, 32);
         return payload;
@@ -3053,7 +3131,8 @@ public sealed class MetafileParserTests
     private static byte[] EmfExtTextOutWPdy(
         string text,
         Point reference,
-        Point[] advances)
+        Point[] advances,
+        uint options = 0x0000_2000)
     {
         if (advances.Length != text.Length)
         {
@@ -3064,7 +3143,7 @@ public sealed class MetafileParserTests
         byte[] payload = EmfExtTextOutW(
             text,
             reference,
-            0x0000_2000,
+            options,
             Rectangle.Empty,
             null);
         int advancesOffset = payload.Length;

@@ -578,16 +578,24 @@ to an integer character width. Alignment, opaque/clipped rectangles,
 background mode, escapement, and `TA_UPDATECP` remain owned EMF state. ANSI
 glyph-index storage is rejected transactionally because its separately
 specified 16-bit storage contract is not implemented. Bidi visual ordering,
-language suppression combined with glyph IDs, and decorated glyph-index output
-remain named boundaries. Exact selected-font glyph IDs, explicit 20-unit cell
-placement, a 44-unit current-position update, natural positive advance, ANSI
-rejection, and rollback raise the complete drawing suite to 454/454.
+language suppression combined with glyph IDs, and decorated two-dimensional
+cells remain named boundaries. Horizontal explicit or natural cells now lower
+underline and strikeout through selected-font OpenType metrics without Unicode
+clusters; PDY decorations reject until per-cell vertical geometry is defined.
+Exact selected-font glyph IDs, explicit 20-unit cell placement, a 44-unit
+current-position update, natural positive advance, both horizontal decoration
+forms, ANSI/PDY-decoration rejection, and rollback raise the complete drawing
+suite to 457/457.
 
 `Playback256EmfExtTextOutWGlyphIndices` guards 256 direct three-glyph records.
 The 2026-08-31 ARM64/.NET 10.0.11 in-process run allocated 528.25 KB and
 measured a 3.818 millisecond median (4.194 millisecond mean, 1.187 millisecond
 standard deviation). Timing samples ranged from 3.241 to 5.524 milliseconds,
 so this is coarse allocation/command-shape evidence rather than a latency claim.
+After horizontal decoration support, the unchanged undecorated workload still
+allocates 528.24 KB. Its three-sample rerun measured a 1.069 millisecond median
+(1.187 millisecond mean, 0.334 millisecond standard deviation); the short run
+confirms allocation shape but does not establish a throughput improvement.
 
 `Playback256EmfExtTextOutWNaturalGlyphIndices` guards the matching direct-glyph
 path without an explicit cell array. The 2026-08-31 ARM64/.NET 10.0.11
