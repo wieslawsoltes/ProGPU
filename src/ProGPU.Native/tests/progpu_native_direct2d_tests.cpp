@@ -466,18 +466,18 @@ int main()
     ComPtr<ID2D1Geometry> compat_ellipse_base;
     ComPtr<ID2D1Factory> compat_ellipse_factory;
     compat_ellipse->GetFactory(&compat_ellipse_factory);
-    D2D1_ELLIPSE returned_ellipse{};
-    compat_ellipse->GetEllipse(&returned_ellipse);
+    D2D1_ELLIPSE compat_returned_ellipse{};
+    compat_ellipse->GetEllipse(&compat_returned_ellipse);
     require(
         SUCCEEDED(compat_ellipse.As(&compat_ellipse_base)) &&
             has_same_com_identity(
                 compat_ellipse.Get(), compat_ellipse_base.Get()) &&
             has_same_com_identity(
                 compat_ellipse_factory.Get(), compat_factory.Get()) &&
-            returned_ellipse.point.x == 2.0F &&
-            returned_ellipse.point.y == 3.0F &&
-            returned_ellipse.radiusX == 4.0F &&
-            returned_ellipse.radiusY == 2.0F,
+            compat_returned_ellipse.point.x == 2.0F &&
+            compat_returned_ellipse.point.y == 3.0F &&
+            compat_returned_ellipse.radiusX == 4.0F &&
+            compat_returned_ellipse.radiusY == 2.0F,
         "ProGPU ellipse state, factory, or COM identity changed");
     D2D1_RECT_F compat_ellipse_bounds{};
     const D2D1_MATRIX_3X2_F compat_ellipse_transform = {
