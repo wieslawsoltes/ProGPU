@@ -1,5 +1,6 @@
 #include "progpu_native_direct2d.h"
 #include "progpu_native_scene_builder.hpp"
+#include "../Scene/progpu_native_semantic_path_stroke.hpp"
 
 #include <d2d1_3.h>
 #include <d3d11_4.h>
@@ -208,6 +209,9 @@ struct progpu_native_direct2d_scene_recorder {
 };
 
 namespace {
+
+namespace semantic_path_stroke =
+    progpu::native::semantic_path_stroke;
 
 constexpr uint32_t dxgi_format_b8g8r8a8_unorm = 87U;
 constexpr uint32_t d2d_alpha_mode_premultiplied = 1U;
@@ -3869,8 +3873,10 @@ private:
 };
 
 struct command_scene_stroke_figure {
-    size_t point_offset = 0U;
-    size_t point_count = 0U;
+    size_t segment_offset = 0U;
+    size_t segment_count = 0U;
+    D2D1_POINT_2F start{};
+    D2D1_PATH_SEGMENT closing_flags = D2D1_PATH_SEGMENT_NONE;
     bool closed = false;
 };
 
@@ -3928,9 +3934,8 @@ public:
         const uint32_t flags = static_cast<uint32_t>(vertex_flags);
         if (closed_ || (flags & ~supported_flags) != 0U) {
             set_failure(E_INVALIDARG);
-        } else if (flags != D2D1_PATH_SEGMENT_NONE) {
-            unsupported_segment_flags_ = true;
-            set_failure(E_NOTIMPL);
+        } else {
+            current_flags_ = vertex_flags;
         }
     }
 
@@ -3946,14 +3951,15 @@ public:
         }
         try {
             if (figures_.size() == maximum_figure_count ||
-                points_.size() == maximum_point_count) {
+                segments_.size() == maximum_segment_count) {
                 capacity_exceeded_ = true;
                 set_failure(HRESULT_FROM_WIN32(ERROR_ARITHMETIC_OVERFLOW));
                 return;
             }
             current_figure_ = {};
-            current_figure_.point_offset = points_.size();
-            points_.push_back({start_point.x, start_point.y});
+            current_figure_.segment_offset = segments_.size();
+            current_figure_.start = start_point;
+            current_point_ = start_point;
             figure_open_ = true;
         } catch (const std::bad_alloc&) {
             set_failure(E_OUTOFMEMORY);
@@ -3971,8 +3977,8 @@ public:
             set_failure(E_INVALIDARG);
             return;
         }
-        if (static_cast<uint64_t>(points_.size()) + point_count >
-            maximum_point_count) {
+        if (static_cast<uint64_t>(segments_.size()) + point_count >
+            maximum_segment_count) {
             capacity_exceeded_ = true;
             set_failure(HRESULT_FROM_WIN32(ERROR_ARITHMETIC_OVERFLOW));
             return;
@@ -3984,8 +3990,16 @@ public:
             }
         }
         try {
+            segments_.reserve(segments_.size() + point_count);
+            segment_flags_.reserve(segment_flags_.size() + point_count);
             for (UINT32 index = 0U; index < point_count; ++index) {
-                points_.push_back({points[index].x, points[index].y});
+                progpu_native_path_segment segment{};
+                segment.p0 = {current_point_.x, current_point_.y};
+                segment.p1 = {points[index].x, points[index].y};
+                segment.kind = PROGPU_NATIVE_PATH_SEGMENT_LINE;
+                segments_.push_back(segment);
+                segment_flags_.push_back(current_flags_);
+                current_point_ = points[index];
             }
         } catch (const std::bad_alloc&) {
             set_failure(E_OUTOFMEMORY);
@@ -3995,10 +4009,53 @@ public:
     }
 
     void STDMETHODCALLTYPE AddBeziers(
-        const D2D1_BEZIER_SEGMENT*,
-        UINT32) noexcept override
+        const D2D1_BEZIER_SEGMENT* beziers,
+        UINT32 bezier_count) noexcept override
     {
-        set_failure(E_NOTIMPL);
+        if (closed_ || !figure_open_ ||
+            (bezier_count != 0U && beziers == nullptr)) {
+            set_failure(E_INVALIDARG);
+            return;
+        }
+        if (static_cast<uint64_t>(segments_.size()) + bezier_count >
+            maximum_segment_count) {
+            capacity_exceeded_ = true;
+            set_failure(HRESULT_FROM_WIN32(ERROR_ARITHMETIC_OVERFLOW));
+            return;
+        }
+        for (UINT32 index = 0U; index < bezier_count; ++index) {
+            if (!finite(beziers[index].point1) ||
+                !finite(beziers[index].point2) ||
+                !finite(beziers[index].point3)) {
+                set_failure(E_INVALIDARG);
+                return;
+            }
+        }
+        try {
+            segments_.reserve(segments_.size() + bezier_count);
+            segment_flags_.reserve(segment_flags_.size() + bezier_count);
+            for (UINT32 index = 0U; index < bezier_count; ++index) {
+                progpu_native_path_segment segment{};
+                segment.p0 = {current_point_.x, current_point_.y};
+                segment.p1 = {
+                    beziers[index].point1.x,
+                    beziers[index].point1.y};
+                segment.p2 = {
+                    beziers[index].point2.x,
+                    beziers[index].point2.y};
+                segment.p3 = {
+                    beziers[index].point3.x,
+                    beziers[index].point3.y};
+                segment.kind = PROGPU_NATIVE_PATH_SEGMENT_CUBIC;
+                segments_.push_back(segment);
+                segment_flags_.push_back(current_flags_);
+                current_point_ = beziers[index].point3;
+            }
+        } catch (const std::bad_alloc&) {
+            set_failure(E_OUTOFMEMORY);
+        } catch (...) {
+            set_failure(E_FAIL);
+        }
     }
 
     void STDMETHODCALLTYPE EndFigure(
@@ -4010,8 +4067,9 @@ public:
             set_failure(E_INVALIDARG);
             return;
         }
-        current_figure_.point_count =
-            points_.size() - current_figure_.point_offset;
+        current_figure_.segment_count =
+            segments_.size() - current_figure_.segment_offset;
+        current_figure_.closing_flags = current_flags_;
         current_figure_.closed =
             figure_end == D2D1_FIGURE_END_CLOSED;
         try {
@@ -4038,9 +4096,14 @@ public:
         return figures_;
     }
 
-    std::span<const progpu_native_point> points() const noexcept
+    std::span<const progpu_native_path_segment> segments() const noexcept
     {
-        return points_;
+        return segments_;
+    }
+
+    std::span<const D2D1_PATH_SEGMENT> segment_flags() const noexcept
+    {
+        return segment_flags_;
     }
 
     bool capacity_exceeded() const noexcept
@@ -4048,14 +4111,9 @@ public:
         return capacity_exceeded_;
     }
 
-    bool unsupported_segment_flags() const noexcept
-    {
-        return unsupported_segment_flags_;
-    }
-
 private:
     static constexpr uint64_t maximum_figure_count = 1U << 20U;
-    static constexpr uint64_t maximum_point_count = 1U << 24U;
+    static constexpr uint64_t maximum_segment_count = 1U << 24U;
 
     static bool finite(D2D1_POINT_2F point) noexcept
     {
@@ -4071,13 +4129,15 @@ private:
 
     std::atomic<ULONG> reference_count_{1U};
     std::vector<command_scene_stroke_figure> figures_;
-    std::vector<progpu_native_point> points_;
+    std::vector<progpu_native_path_segment> segments_;
+    std::vector<D2D1_PATH_SEGMENT> segment_flags_;
     command_scene_stroke_figure current_figure_{};
+    D2D1_POINT_2F current_point_{};
+    D2D1_PATH_SEGMENT current_flags_ = D2D1_PATH_SEGMENT_NONE;
     HRESULT failure_ = S_OK;
     bool figure_open_ = false;
     bool closed_ = false;
     bool capacity_exceeded_ = false;
-    bool unsupported_segment_flags_ = false;
 };
 
 class CommandSceneStreamSink final : public ID2D1CommandSink1 {
@@ -5846,21 +5906,10 @@ private:
         }
         ComPtr<CommandSceneStrokeSink> stroke_sink;
         stroke_sink.Attach(raw_sink);
-        const double transform_norm = std::sqrt(
-            static_cast<double>(transform_._11) * transform_._11 +
-            static_cast<double>(transform_._12) * transform_._12 +
-            static_cast<double>(transform_._21) * transform_._21 +
-            static_cast<double>(transform_._22) * transform_._22);
-        const double tolerance_value =
-            D2D1_DEFAULT_FLATTENING_TOLERANCE /
-            std::max(1.0, transform_norm);
-        const float tolerance = static_cast<float>(std::max(
-            tolerance_value,
-            static_cast<double>(std::numeric_limits<float>::epsilon())));
         hr = geometry->Simplify(
-            D2D1_GEOMETRY_SIMPLIFICATION_OPTION_LINES,
+            D2D1_GEOMETRY_SIMPLIFICATION_OPTION_CUBICS_AND_LINES,
             nullptr,
-            tolerance,
+            D2D1_DEFAULT_FLATTENING_TOLERANCE,
             stroke_sink.Get());
         const HRESULT close_hr = stroke_sink->Close();
         if (SUCCEEDED(hr)) {
@@ -5870,8 +5919,7 @@ private:
             if (stroke_sink->capacity_exceeded()) {
                 return fail_capacity_exceeded();
             }
-            if (stroke_sink->unsupported_segment_flags() ||
-                hr == E_NOTIMPL) {
+            if (hr == E_NOTIMPL) {
                 return E_NOINTERFACE;
             }
             if (hr == E_OUTOFMEMORY) {
@@ -5883,77 +5931,186 @@ private:
         }
 
         try {
-            std::vector<progpu_native_scene_stroke> strokes;
-            std::vector<progpu_native_point> points;
-            std::vector<double> doubles;
-            std::vector<uint32_t> brush_indices;
-            strokes.reserve(stroke_sink->figures().size());
-            points.reserve(stroke_sink->points().size());
-            brush_indices.reserve(stroke_sink->figures().size());
-            if (!style.dash_intervals.empty()) {
-                const uint64_t interval_count =
-                    static_cast<uint64_t>(style.dash_intervals.size()) *
-                    stroke_sink->figures().size();
-                if (interval_count >
-                    std::numeric_limits<size_t>::max()) {
-                    return fail_capacity_exceeded();
-                }
-                doubles.reserve(static_cast<size_t>(interval_count));
+            struct stroke_run {
+                size_t segment_offset{};
+                size_t segment_count{};
+                size_t smooth_join_offset{};
+                bool closed{};
+                bool start_uses_dash_cap{};
+                bool end_uses_dash_cap{};
+            };
+            std::vector<stroke_run> runs;
+            std::vector<progpu_native_path_segment> run_segments;
+            std::vector<uint8_t> run_smooth_joins;
+            const auto captured_segments = stroke_sink->segments();
+            const auto captured_flags = stroke_sink->segment_flags();
+            if (captured_segments.size() != captured_flags.size()) {
+                return E_NOINTERFACE;
             }
+            run_segments.reserve(captured_segments.size() +
+                stroke_sink->figures().size());
+            run_smooth_joins.reserve(captured_segments.size() +
+                stroke_sink->figures().size());
+            runs.reserve(stroke_sink->figures().size());
 
-            const auto captured_points = stroke_sink->points();
             for (const auto& figure : stroke_sink->figures()) {
-                if (figure.point_count < 2U ||
-                    figure.point_offset > captured_points.size() ||
-                    figure.point_count >
-                        captured_points.size() - figure.point_offset) {
+                if (figure.segment_offset > captured_segments.size() ||
+                    figure.segment_count > captured_segments.size() -
+                        figure.segment_offset) {
+                    return E_NOINTERFACE;
+                }
+                if (figure.segment_count == 0U) {
                     continue;
                 }
-                progpu_native_scene_stroke stroke{};
-                stroke.struct_size = sizeof(stroke);
-                stroke.kind = PROGPU_NATIVE_SCENE_STROKE_POLYLINE;
-                stroke.flags = figure.closed
-                    ? PROGPU_NATIVE_POLYLINE_FLAG_CLOSED
-                    : 0U;
-                if (style.transform_type ==
-                    D2D1_STROKE_TRANSFORM_TYPE_FIXED) {
-                    stroke.flags |=
-                        PROGPU_NATIVE_POLYLINE_FLAG_FIXED_DEVICE_STROKE;
-                } else if (style.transform_type ==
-                    D2D1_STROKE_TRANSFORM_TYPE_HAIRLINE) {
-                    stroke.flags |= PROGPU_NATIVE_POLYLINE_FLAG_HAIRLINE;
+                const auto figure_segments = captured_segments.subspan(
+                    figure.segment_offset,
+                    figure.segment_count);
+                const auto figure_flags = captured_flags.subspan(
+                    figure.segment_offset,
+                    figure.segment_count);
+                const auto last_point =
+                    semantic_path_stroke::segment_end(figure_segments.back());
+                const bool needs_closing_segment = figure.closed &&
+                    (last_point.x != figure.start.x ||
+                        last_point.y != figure.start.y);
+                const size_t edge_count = figure.segment_count +
+                    (needs_closing_segment ? 1U : 0U);
+                const auto edge_segment = [&](size_t index) {
+                    if (index < figure.segment_count) {
+                        return figure_segments[index];
+                    }
+                    progpu_native_path_segment closing{};
+                    closing.p0 = last_point;
+                    closing.p1 = {figure.start.x, figure.start.y};
+                    closing.kind = PROGPU_NATIVE_PATH_SEGMENT_LINE;
+                    return closing;
+                };
+                const auto edge_flags = [&](size_t index) {
+                    return index < figure.segment_count
+                        ? figure_flags[index]
+                        : figure.closing_flags;
+                };
+                const auto edge_stroked = [&](size_t index) {
+                    return (edge_flags(index) &
+                        D2D1_PATH_SEGMENT_FORCE_UNSTROKED) == 0U;
+                };
+                const auto edge_round_join = [&](size_t index) {
+                    return (edge_flags(index) &
+                        D2D1_PATH_SEGMENT_FORCE_ROUND_LINE_JOIN) != 0U;
+                };
+                const auto append_run = [&](size_t first,
+                                            size_t count,
+                                            bool closed,
+                                            bool start_uses_dash_cap,
+                                            bool end_uses_dash_cap) {
+                    if (count == 0U) {
+                        return;
+                    }
+                    const size_t segment_offset = run_segments.size();
+                    const size_t smooth_join_offset =
+                        run_smooth_joins.size();
+                    for (size_t index = 0U; index < count; ++index) {
+                        run_segments.push_back(
+                            edge_segment((first + index) % edge_count));
+                    }
+                    for (size_t index = 0U; index < count; ++index) {
+                        const bool smooth = index + 1U < count
+                            ? edge_round_join(
+                                (first + index + 1U) % edge_count)
+                            : closed && edge_round_join(first % edge_count);
+                        run_smooth_joins.push_back(smooth ? 1U : 0U);
+                    }
+                    runs.push_back({
+                        segment_offset,
+                        count,
+                        smooth_join_offset,
+                        closed,
+                        start_uses_dash_cap,
+                        end_uses_dash_cap});
+                };
+
+                bool all_stroked = true;
+                for (size_t index = 0U; index < edge_count; ++index) {
+                    all_stroked = all_stroked && edge_stroked(index);
                 }
-                stroke.point_offset = points.size();
-                stroke.point_count = figure.point_count;
-                stroke.dash_interval_offset = doubles.size();
-                stroke.dash_interval_count = style.dash_intervals.size();
-                stroke.color = {1.0F, 1.0F, 1.0F, 1.0F};
-                stroke.transform = native_transform();
-                stroke.stroke_thickness = stroke_width;
-                stroke.miter_limit = std::max(1.0F, style.miter_limit);
-                stroke.dash_offset = style.dash_offset;
-                stroke.start_cap = static_cast<uint32_t>(style.start_cap);
-                stroke.end_cap = static_cast<uint32_t>(style.end_cap);
-                stroke.line_join = style.line_join ==
-                        D2D1_LINE_JOIN_MITER_OR_BEVEL
-                    ? PROGPU_NATIVE_STROKE_JOIN_MITER
-                    : static_cast<uint32_t>(style.line_join);
-                stroke.dash_cap = static_cast<uint32_t>(style.dash_cap);
-                points.insert(
-                    points.end(),
-                    captured_points.begin() + figure.point_offset,
-                    captured_points.begin() + figure.point_offset +
-                        figure.point_count);
-                doubles.insert(
-                    doubles.end(),
-                    style.dash_intervals.begin(),
-                    style.dash_intervals.end());
-                strokes.push_back(stroke);
-                brush_indices.push_back(PROGPU_NATIVE_SCENE_NO_INDEX);
+                if (all_stroked) {
+                    append_run(0U, edge_count, figure.closed, false, false);
+                    continue;
+                }
+                if (figure.closed) {
+                    size_t gap = 0U;
+                    while (gap < edge_count && edge_stroked(gap)) {
+                        ++gap;
+                    }
+                    const size_t first_after_gap = (gap + 1U) % edge_count;
+                    size_t consumed = 0U;
+                    while (consumed < edge_count) {
+                        while (consumed < edge_count && !edge_stroked(
+                                (first_after_gap + consumed) % edge_count)) {
+                            ++consumed;
+                        }
+                        const size_t first = consumed;
+                        while (consumed < edge_count && edge_stroked(
+                                (first_after_gap + consumed) % edge_count)) {
+                            ++consumed;
+                        }
+                        append_run(
+                            first_after_gap + first,
+                            consumed - first,
+                            false,
+                            true,
+                            true);
+                    }
+                    continue;
+                }
+                size_t index = 0U;
+                while (index < edge_count) {
+                    while (index < edge_count && !edge_stroked(index)) {
+                        ++index;
+                    }
+                    const size_t first = index;
+                    while (index < edge_count && edge_stroked(index)) {
+                        ++index;
+                    }
+                    append_run(
+                        first,
+                        index - first,
+                        false,
+                        first != 0U,
+                        index != edge_count);
+                }
             }
-            if (strokes.empty()) {
+            if (runs.empty()) {
                 record_draw();
                 return S_OK;
+            }
+
+            bool use_polyline_batch = true;
+            for (const auto& run : runs) {
+                const auto segments = std::span(run_segments).subspan(
+                    run.segment_offset,
+                    run.segment_count);
+                const auto smooth_joins = std::span(run_smooth_joins).subspan(
+                    run.smooth_join_offset,
+                    run.segment_count);
+                use_polyline_batch = use_polyline_batch &&
+                    (!run.closed || run.segment_count >= 2U) &&
+                    std::all_of(
+                        segments.begin(),
+                        segments.end(),
+                        [](const progpu_native_path_segment& segment) {
+                            return segment.kind ==
+                                PROGPU_NATIVE_PATH_SEGMENT_LINE;
+                        }) &&
+                    (style.line_join == D2D1_LINE_JOIN_ROUND ||
+                        std::none_of(
+                            smooth_joins.begin(),
+                            smooth_joins.end(),
+                            [](uint8_t smooth) { return smooth != 0U; }));
+            }
+            if (!use_polyline_batch && style.transform_type !=
+                D2D1_STROKE_TRANSFORM_TYPE_NORMAL) {
+                return E_NOINTERFACE;
             }
 
             D2D1_RECT_F geometry_bounds{};
@@ -5995,20 +6152,161 @@ private:
             if (!finite_native_rectangle(bounds)) {
                 return fail_invalid_value();
             }
-            uint32_t brush_index = PROGPU_NATIVE_SCENE_NO_INDEX;
-            hr = add_brush(brush, brush_index);
-            if (FAILED(hr)) {
-                return hr;
-            }
-            std::fill(
-                brush_indices.begin(), brush_indices.end(), brush_index);
-            if (!builder_.draw_strokes(
-                    strokes,
-                    points,
-                    doubles,
-                    brush_indices,
-                    bounds)) {
-                return fail_builder();
+
+            if (use_polyline_batch) {
+                std::vector<progpu_native_scene_stroke> strokes;
+                std::vector<progpu_native_point> points;
+                std::vector<double> doubles;
+                std::vector<uint32_t> brush_indices;
+                strokes.reserve(runs.size());
+                brush_indices.reserve(runs.size());
+                points.reserve(run_segments.size() + runs.size());
+                if (!style.dash_intervals.empty()) {
+                    const uint64_t interval_count =
+                        static_cast<uint64_t>(style.dash_intervals.size()) *
+                        runs.size();
+                    if (interval_count >
+                        std::numeric_limits<size_t>::max()) {
+                        return fail_capacity_exceeded();
+                    }
+                    doubles.reserve(static_cast<size_t>(interval_count));
+                }
+                for (const auto& run : runs) {
+                    const auto segments = std::span(run_segments).subspan(
+                        run.segment_offset,
+                        run.segment_count);
+                    progpu_native_scene_stroke stroke{};
+                    stroke.struct_size = sizeof(stroke);
+                    stroke.kind = PROGPU_NATIVE_SCENE_STROKE_POLYLINE;
+                    stroke.flags = run.closed
+                        ? PROGPU_NATIVE_POLYLINE_FLAG_CLOSED
+                        : 0U;
+                    if (style.transform_type ==
+                        D2D1_STROKE_TRANSFORM_TYPE_FIXED) {
+                        stroke.flags |=
+                            PROGPU_NATIVE_POLYLINE_FLAG_FIXED_DEVICE_STROKE;
+                    } else if (style.transform_type ==
+                        D2D1_STROKE_TRANSFORM_TYPE_HAIRLINE) {
+                        stroke.flags |= PROGPU_NATIVE_POLYLINE_FLAG_HAIRLINE;
+                    }
+                    stroke.point_offset = points.size();
+                    stroke.point_count = segments.size() +
+                        (run.closed ? 0U : 1U);
+                    stroke.dash_interval_offset = doubles.size();
+                    stroke.dash_interval_count = style.dash_intervals.size();
+                    stroke.color = {1.0F, 1.0F, 1.0F, 1.0F};
+                    stroke.transform = native_transform();
+                    stroke.stroke_thickness = stroke_width;
+                    stroke.miter_limit = std::max(1.0F, style.miter_limit);
+                    stroke.dash_offset = style.dash_offset;
+                    stroke.start_cap = run.start_uses_dash_cap
+                        ? static_cast<uint32_t>(style.dash_cap)
+                        : static_cast<uint32_t>(style.start_cap);
+                    stroke.end_cap = run.end_uses_dash_cap
+                        ? static_cast<uint32_t>(style.dash_cap)
+                        : static_cast<uint32_t>(style.end_cap);
+                    stroke.line_join = style.line_join ==
+                            D2D1_LINE_JOIN_MITER_OR_BEVEL
+                        ? PROGPU_NATIVE_STROKE_JOIN_MITER
+                        : static_cast<uint32_t>(style.line_join);
+                    stroke.dash_cap = static_cast<uint32_t>(style.dash_cap);
+                    points.push_back(segments.front().p0);
+                    const size_t end_count = segments.size() -
+                        (run.closed ? 1U : 0U);
+                    for (size_t index = 0U; index < end_count; ++index) {
+                        points.push_back(
+                            semantic_path_stroke::segment_end(segments[index]));
+                    }
+                    doubles.insert(
+                        doubles.end(),
+                        style.dash_intervals.begin(),
+                        style.dash_intervals.end());
+                    strokes.push_back(stroke);
+                    brush_indices.push_back(PROGPU_NATIVE_SCENE_NO_INDEX);
+                }
+                uint32_t brush_index = PROGPU_NATIVE_SCENE_NO_INDEX;
+                hr = add_brush(brush, brush_index);
+                if (FAILED(hr)) {
+                    return hr;
+                }
+                std::fill(
+                    brush_indices.begin(), brush_indices.end(), brush_index);
+                if (!builder_.draw_strokes(
+                        strokes,
+                        points,
+                        doubles,
+                        brush_indices,
+                        bounds)) {
+                    return fail_builder();
+                }
+            } else {
+                semantic_path_stroke::style semantic_style{};
+                semantic_style.transform = native_transform();
+                semantic_style.thickness = stroke_width;
+                semantic_style.miter_limit =
+                    std::max(1.0F, style.miter_limit);
+                semantic_style.dash_offset = style.dash_offset;
+                semantic_style.dash_cap =
+                    static_cast<uint32_t>(style.dash_cap);
+                semantic_style.line_join = style.line_join ==
+                        D2D1_LINE_JOIN_MITER_OR_BEVEL
+                    ? PROGPU_NATIVE_STROKE_JOIN_MITER
+                    : static_cast<uint32_t>(style.line_join);
+                semantic_style.primitive_flags = primitive_flags();
+                progpu::native::mil::curve_dash::run_buffer dash_scratch;
+                std::vector<progpu_native_geometry_primitive> primitives;
+                std::vector<uint32_t> brush_indices;
+                primitives.reserve(run_segments.size() * 2U +
+                    runs.size() * 2U);
+                brush_indices.reserve(primitives.capacity());
+                for (const auto& run : runs) {
+                    semantic_style.start_cap = run.start_uses_dash_cap
+                        ? static_cast<uint32_t>(style.dash_cap)
+                        : static_cast<uint32_t>(style.start_cap);
+                    semantic_style.end_cap = run.end_uses_dash_cap
+                        ? static_cast<uint32_t>(style.dash_cap)
+                        : static_cast<uint32_t>(style.end_cap);
+                    const auto compile_result =
+                        semantic_path_stroke::compile(
+                            std::span(run_segments).subspan(
+                                run.segment_offset,
+                                run.segment_count),
+                            std::span(run_smooth_joins).subspan(
+                                run.smooth_join_offset,
+                                run.segment_count),
+                            run.closed,
+                            style.dash_intervals,
+                            semantic_style,
+                            PROGPU_NATIVE_SCENE_NO_INDEX,
+                            dash_scratch,
+                            primitives,
+                            brush_indices);
+                    if (compile_result ==
+                        semantic_path_stroke::result::capacity_exceeded) {
+                        return fail_capacity_exceeded();
+                    }
+                    if (compile_result !=
+                        semantic_path_stroke::result::success) {
+                        return E_NOINTERFACE;
+                    }
+                }
+                if (primitives.empty()) {
+                    record_draw();
+                    return S_OK;
+                }
+                uint32_t brush_index = PROGPU_NATIVE_SCENE_NO_INDEX;
+                hr = add_brush(brush, brush_index);
+                if (FAILED(hr)) {
+                    return hr;
+                }
+                std::fill(
+                    brush_indices.begin(), brush_indices.end(), brush_index);
+                if (!builder_.draw_geometry(
+                        primitives,
+                        brush_indices,
+                        bounds)) {
+                    return fail_builder();
+                }
             }
             has_path_geometry_ = true;
             has_stroked_path_geometry_ = true;

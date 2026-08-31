@@ -1,6 +1,7 @@
 #include "progpu_native_mil.hpp"
 #include "progpu_native_mil.h"
 #include "../src/Mil/progpu_native_mil_curve_dash.hpp"
+#include "../src/Scene/progpu_native_semantic_path_stroke.hpp"
 #include "progpu_native_text.hpp"
 #include "../src/Geometry/progpu_native_arc.hpp"
 
@@ -1032,6 +1033,79 @@ bool curve_dashes_match_managed_reference_contracts() {
         PROGPU_REQUIRE(runs.segments.capacity() == segment_capacity);
         PROGPU_REQUIRE(runs.smooth_joins.capacity() == join_capacity);
     }
+    return true;
+}
+
+bool semantic_path_strokes_preserve_curves_and_forced_joins() {
+    namespace semantic_path_stroke =
+        progpu::native::semantic_path_stroke;
+    const std::array<progpu_native_path_segment, 2U> segments = {{
+        {
+            {0.0F, 0.0F},
+            {8.0F, 0.0F},
+            {},
+            {},
+            PROGPU_NATIVE_PATH_SEGMENT_LINE,
+            0U,
+            0U,
+            0U},
+        {
+            {8.0F, 0.0F},
+            {12.0F, 0.0F},
+            {12.0F, 8.0F},
+            {8.0F, 8.0F},
+            PROGPU_NATIVE_PATH_SEGMENT_CUBIC,
+            0U,
+            0U,
+            0U}}};
+    const std::array<std::uint8_t, 2U> smooth_joins = {1U, 0U};
+    semantic_path_stroke::style style{};
+    style.transform = {1.0F, 0.0F, 0.0F, 1.0F, 0.0F, 0.0F};
+    style.thickness = 3.0F;
+    style.miter_limit = 4.0F;
+    style.line_join = PROGPU_NATIVE_STROKE_JOIN_BEVEL;
+    progpu::native::mil::curve_dash::run_buffer dash_scratch;
+    std::vector<progpu_native_geometry_primitive> primitives;
+    std::vector<std::uint32_t> brushes;
+    PROGPU_REQUIRE(
+        semantic_path_stroke::compile(
+            segments,
+            smooth_joins,
+            false,
+            {},
+            style,
+            7U,
+            dash_scratch,
+            primitives,
+            brushes) == semantic_path_stroke::result::success);
+    PROGPU_REQUIRE(primitives.size() == 3U && brushes.size() == 3U);
+    PROGPU_REQUIRE(
+        primitives[0].kind == PROGPU_NATIVE_GEOMETRY_LINE &&
+        primitives[1].kind == PROGPU_NATIVE_GEOMETRY_PATH_JOIN &&
+        primitives[2].kind == PROGPU_NATIVE_GEOMETRY_CUBIC_BEZIER);
+    PROGPU_REQUIRE(
+        ((primitives[1].flags >>
+            PROGPU_NATIVE_PRIMITIVE_START_CAP_SHIFT) & 0x3U) ==
+            PROGPU_NATIVE_STROKE_JOIN_ROUND &&
+        primitives[2].stroke_thickness == 3.0F &&
+        std::ranges::all_of(
+            brushes,
+            [](std::uint32_t brush) { return brush == 7U; }));
+    style.primitive_flags =
+        PROGPU_NATIVE_PRIMITIVE_FLAG_HAIRLINE |
+        PROGPU_NATIVE_PRIMITIVE_FLAG_FIXED_DEVICE_STROKE;
+    PROGPU_REQUIRE(
+        semantic_path_stroke::compile(
+            segments,
+            smooth_joins,
+            false,
+            {},
+            style,
+            9U,
+            dash_scratch,
+            primitives,
+            brushes) == semantic_path_stroke::result::invalid &&
+        primitives.size() == 3U && brushes.size() == 3U);
     return true;
 }
 
@@ -16447,6 +16521,8 @@ bool c_abi_is_typed_and_size_versioned() {
 
 int main() {
     PROGPU_REQUIRE(curve_dashes_match_managed_reference_contracts());
+    PROGPU_REQUIRE(
+        semantic_path_strokes_preserve_curves_and_forced_joins());
     PROGPU_REQUIRE(channel_retains_visual_target_graph());
     PROGPU_REQUIRE(failed_batches_roll_back());
     PROGPU_REQUIRE(invalid_visual_graphs_fail_closed());

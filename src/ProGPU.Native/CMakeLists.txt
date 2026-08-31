@@ -975,6 +975,7 @@ progpu_native_enable_sanitizers(progpu_native_mil)
 if(WIN32)
     add_library(progpu_native_direct2d SHARED
         include/progpu_native_direct2d.h
+        src/Scene/progpu_native_semantic_path_stroke.hpp
         src/Direct2D/progpu_native_direct2d.cpp)
     target_compile_features(progpu_native_direct2d PRIVATE cxx_std_20)
     target_compile_definitions(progpu_native_direct2d PRIVATE
