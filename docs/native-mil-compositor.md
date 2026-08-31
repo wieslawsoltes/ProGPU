@@ -5869,8 +5869,10 @@ The native oracle covers COM/source/factory identity, metadata, exact affine
 bounds, containment, area, length, point-at-length, simplified topology,
 invalid creation, pointer-free semantic fill translation, and a non-commuting
 stored-plus-world differential against system Direct2D. Focused managed ABI
-contracts pass 5/5. Exact Windows MSVC/native qualification remains pending for
-this ABI-v53 checkpoint.
+contracts pass 5/5. Exact `998c9ec2` passes the hosted
+[`Native C++20 compiler compatibility (MSVC)` job](https://github.com/wieslawsoltes/ProGPU/actions/runs/33420113029/job/99580305821):
+the provider and tests compile with MSVC, the system-Direct2D differential
+passes, and all 11 native CTests pass. This qualifies ABI v53 on Windows x64.
 
 ## Managed glyph row-reuse SIMD checkpoint
 

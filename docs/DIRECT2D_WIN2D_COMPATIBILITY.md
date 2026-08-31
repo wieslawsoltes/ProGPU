@@ -1589,8 +1589,11 @@ The native oracle checks source/factory lifetime and COM identity, exact
 metadata, bounds, containment, area, length, point-at-length, simplified path
 topology, invalid creation, semantic recorder lowering, and a non-commuting
 stored-plus-world transform against system Direct2D. Focused managed ABI
-contracts pass 5/5. Windows MSVC/native qualification is pending for the exact
-ABI-v53 implementation checkpoint.
+contracts pass 5/5. The exact `998c9ec2` checkpoint passes the hosted
+[`Native C++20 compiler compatibility (MSVC)` job](https://github.com/wieslawsoltes/ProGPU/actions/runs/33420113029/job/99580305821):
+the complete provider and oracle compile with MSVC, the transformed-geometry
+system differential passes, and all 11 native CTests pass. This qualifies ABI
+v53 on Windows x64.
 
 `eng/build-progpu-native-windows.ps1` builds and runs
 the native test on runnable Windows x64/ARM64 agents, stages
