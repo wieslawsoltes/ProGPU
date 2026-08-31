@@ -90,7 +90,9 @@ typedef enum progpu_native_direct2d_scene_stream_flags {
     PROGPU_NATIVE_DIRECT2D_SCENE_STREAM_FLAG_HAS_PATH_GEOMETRY = 1U << 4U,
     PROGPU_NATIVE_DIRECT2D_SCENE_STREAM_FLAG_HAS_STROKED_PATH_GEOMETRY =
         1U << 5U,
-    PROGPU_NATIVE_DIRECT2D_SCENE_STREAM_FLAG_HAS_OPACITY_LAYERS = 1U << 6U
+    PROGPU_NATIVE_DIRECT2D_SCENE_STREAM_FLAG_HAS_OPACITY_LAYERS = 1U << 6U,
+    PROGPU_NATIVE_DIRECT2D_SCENE_STREAM_FLAG_HAS_GEOMETRIC_LAYER_MASKS =
+        1U << 7U
 } progpu_native_direct2d_scene_stream_flags;
 
 typedef enum progpu_native_direct2d_scene_stream_failure_reason {
@@ -767,7 +769,7 @@ typedef struct progpu_native_direct2d_stroke_style_properties {
 } progpu_native_direct2d_stroke_style_properties;
 
 enum {
-    PROGPU_NATIVE_DIRECT2D_ABI_VERSION = 39U
+    PROGPU_NATIVE_DIRECT2D_ABI_VERSION = 40U
 };
 
 PROGPU_NATIVE_DIRECT2D_API uint32_t

@@ -2413,8 +2413,10 @@ int main()
         D2D1::RectF(1.0F, 2.0F, 21.0F, 22.0F);
     opacity_layer_parameters.maskAntialiasMode =
         D2D1_ANTIALIAS_MODE_PER_PRIMITIVE;
-    opacity_layer_parameters.maskTransform =
-        D2D1::Matrix3x2F::Identity();
+    const D2D1_MATRIX_3X2_F opacity_layer_mask_transform =
+        D2D1::Matrix3x2F::Translation(2.0F, 3.0F);
+    opacity_layer_parameters.geometricMask = scene_path_geometry.Get();
+    opacity_layer_parameters.maskTransform = opacity_layer_mask_transform;
     opacity_layer_parameters.opacity = 0.375F;
     opacity_layer_parameters.layerOptions = D2D1_LAYER_OPTIONS1_NONE;
     const D2D1_RECT_F opacity_layer_clip =
@@ -2424,6 +2426,30 @@ int main()
         D2D1_ANTIALIAS_MODE_ALIASED);
     const D2D1_MATRIX_3X2_F opacity_layer_transform =
         D2D1::Matrix3x2F(2.0F, 0.0F, 0.0F, 0.5F, 7.0F, 9.0F);
+    D2D1_MATRIX_3X2_F opacity_layer_mask_target_transform{};
+    opacity_layer_mask_target_transform._11 = 2.0F;
+    opacity_layer_mask_target_transform._12 = 0.0F;
+    opacity_layer_mask_target_transform._21 = 0.0F;
+    opacity_layer_mask_target_transform._22 = 0.5F;
+    opacity_layer_mask_target_transform._31 = 11.0F;
+    opacity_layer_mask_target_transform._32 = 10.5F;
+    D2D1_RECT_F expected_opacity_mask_bounds{};
+    require(SUCCEEDED(scene_path_geometry->GetBounds(
+                &opacity_layer_mask_target_transform,
+                &expected_opacity_mask_bounds)),
+        "Direct2D opacity-layer mask bounds query failed");
+    const float expected_opacity_layer_left = std::max(
+        9.0F,
+        expected_opacity_mask_bounds.left);
+    const float expected_opacity_layer_top = std::max(
+        10.0F,
+        expected_opacity_mask_bounds.top);
+    const float expected_opacity_layer_right = std::min(
+        49.0F,
+        expected_opacity_mask_bounds.right);
+    const float expected_opacity_layer_bottom = std::min(
+        20.0F,
+        expected_opacity_mask_bounds.bottom);
     context->SetTransform(opacity_layer_transform);
     context->PushLayer(&opacity_layer_parameters, nullptr);
     const D2D1_RECT_F opacity_layer_fill0 =
@@ -2469,6 +2495,9 @@ int main()
                 0U &&
             (opacity_layer_measure.flags &
                 PROGPU_NATIVE_DIRECT2D_SCENE_STREAM_FLAG_HAS_AXIS_ALIGNED_CLIPS) !=
+                0U &&
+            (opacity_layer_measure.flags &
+                PROGPU_NATIVE_DIRECT2D_SCENE_STREAM_FLAG_HAS_GEOMETRIC_LAYER_MASKS) !=
                 0U,
         "Direct2D opacity-layer scene size pass changed");
     std::vector<uint8_t> opacity_layer_stream(
@@ -2501,6 +2530,8 @@ int main()
     uint32_t push_layer_index = std::numeric_limits<uint32_t>::max();
     uint32_t pop_layer_index = std::numeric_limits<uint32_t>::max();
     uint32_t restore_index = std::numeric_limits<uint32_t>::max();
+    uint32_t translated_mask_resource_index =
+        PROGPU_NATIVE_SCENE_NO_INDEX;
     for (uint32_t index = 0U;
          index < opacity_layer_header.command_count;
          ++index) {
@@ -2526,18 +2557,26 @@ int main()
                 sizeof(translated_layer));
             require(
                 translated_layer.flags == PROGPU_NATIVE_SCENE_LAYER_BOUNDS &&
-                    translated_layer.bounds.x == 9.0F &&
-                    translated_layer.bounds.y == 10.0F &&
-                    translated_layer.bounds.width == 40.0F &&
-                    translated_layer.bounds.height == 10.0F &&
+                    translated_layer.bounds.x ==
+                        expected_opacity_layer_left &&
+                    translated_layer.bounds.y ==
+                        expected_opacity_layer_top &&
+                    translated_layer.bounds.width ==
+                        expected_opacity_layer_right -
+                            expected_opacity_layer_left &&
+                    translated_layer.bounds.height ==
+                        expected_opacity_layer_bottom -
+                            expected_opacity_layer_top &&
                     translated_layer.opacity == 0.375F &&
                     translated_layer.blend_mode ==
                         PROGPU_NATIVE_BLEND_SRC_OVER &&
-                    translated_layer.mask_resource_index ==
+                    translated_layer.mask_resource_index !=
                         PROGPU_NATIVE_SCENE_NO_INDEX &&
                     translated_layer.effect_resource_index ==
                         PROGPU_NATIVE_SCENE_NO_INDEX,
                 "Direct2D grouped opacity translation changed");
+            translated_mask_resource_index =
+                translated_layer.mask_resource_index;
             push_layer_index = index;
             ++push_layer_count;
         } else if (command.kind == PROGPU_NATIVE_SCENE_COMMAND_POP_LAYER) {
@@ -2555,6 +2594,74 @@ int main()
             push_layer_index < pop_layer_index &&
             pop_layer_index < restore_index,
         "translated Direct2D clip/layer scopes were not balanced and nested");
+    require(
+        translated_mask_resource_index < opacity_layer_header.resource_count,
+        "translated Direct2D layer omitted its geometric mask resource");
+    progpu_native_scene_resource translated_mask_resource{};
+    std::memcpy(
+        &translated_mask_resource,
+        opacity_layer_stream.data() + opacity_layer_header.resource_offset +
+            static_cast<size_t>(translated_mask_resource_index) *
+                opacity_layer_header.resource_stride,
+        sizeof(translated_mask_resource));
+    require(
+        translated_mask_resource.kind ==
+                PROGPU_NATIVE_SCENE_RESOURCE_LAYER_MASK &&
+            translated_mask_resource.payload_size ==
+                sizeof(progpu_native_scene_layer_vector_mask) &&
+            translated_mask_resource.auxiliary_size ==
+                sizeof(progpu_native_scene_clip_path) +
+                    3U * sizeof(progpu_native_path_segment) &&
+            static_cast<uint64_t>(translated_mask_resource.payload_offset) +
+                translated_mask_resource.payload_size <=
+                    opacity_layer_stream.size() &&
+            static_cast<uint64_t>(translated_mask_resource.auxiliary_offset) +
+                translated_mask_resource.auxiliary_size <=
+                    opacity_layer_stream.size(),
+        "translated Direct2D geometric layer-mask layout changed");
+    progpu_native_scene_layer_vector_mask translated_vector_mask{};
+    progpu_native_scene_clip_path translated_mask_path{};
+    std::array<progpu_native_path_segment, 3U> translated_mask_segments{};
+    std::memcpy(
+        &translated_vector_mask,
+        opacity_layer_stream.data() + translated_mask_resource.payload_offset,
+        sizeof(translated_vector_mask));
+    std::memcpy(
+        &translated_mask_path,
+        opacity_layer_stream.data() + translated_mask_resource.auxiliary_offset,
+        sizeof(translated_mask_path));
+    std::memcpy(
+        translated_mask_segments.data(),
+        opacity_layer_stream.data() + translated_mask_resource.auxiliary_offset +
+            sizeof(translated_mask_path),
+        sizeof(translated_mask_segments));
+    require(
+        translated_vector_mask.kind ==
+                PROGPU_NATIVE_SCENE_LAYER_MASK_VECTOR_CLIP_CHAIN &&
+            translated_vector_mask.path_count == 1U &&
+            translated_vector_mask.segment_count == 3U &&
+            translated_vector_mask.opacity == 1.0F &&
+            translated_mask_path.segment_offset == 0U &&
+            translated_mask_path.segment_count == 3U &&
+            translated_mask_path.fill_rule ==
+                PROGPU_NATIVE_FILL_RULE_NON_ZERO &&
+            translated_mask_path.sample_grid == 8U &&
+            translated_mask_path.operation == PROGPU_NATIVE_CLIP_INTERSECT &&
+            translated_mask_path.transform.m11 ==
+                opacity_layer_mask_target_transform._11 &&
+            translated_mask_path.transform.m22 ==
+                opacity_layer_mask_target_transform._22 &&
+            translated_mask_path.transform.m31 ==
+                opacity_layer_mask_target_transform._31 &&
+            translated_mask_path.transform.m32 ==
+                opacity_layer_mask_target_transform._32 &&
+            translated_mask_segments[0].kind ==
+                PROGPU_NATIVE_PATH_SEGMENT_LINE &&
+            translated_mask_segments[1].kind ==
+                PROGPU_NATIVE_PATH_SEGMENT_CUBIC &&
+            translated_mask_segments[2].kind ==
+                PROGPU_NATIVE_PATH_SEGMENT_LINE,
+        "Direct2D geometric layer-mask topology/transform changed");
 
     void* background_layer_list_value = nullptr;
     native_hresult = E_FAIL;
@@ -2614,6 +2721,65 @@ int main()
             background_layer_scene.failure_callback_index != 0U &&
             background_layer_scene.written_bytes == 0U,
         "Direct2D background-initialized layer did not fail closed");
+
+    void* aliased_mask_layer_list_value = nullptr;
+    native_hresult = E_FAIL;
+    require(
+        progpu_native_direct2d_surface_create_command_list(
+            surface,
+            &aliased_mask_layer_list_value,
+            &native_hresult) == PROGPU_NATIVE_DIRECT2D_STATUS_SUCCESS &&
+            aliased_mask_layer_list_value != nullptr && native_hresult == S_OK,
+        "aliased-mask layer command-list creation failed");
+    ComPtr<ID2D1CommandList> aliased_mask_layer_list;
+    aliased_mask_layer_list.Attach(
+        static_cast<ID2D1CommandList*>(aliased_mask_layer_list_value));
+    require(
+        progpu_native_direct2d_surface_begin_command_list_draw(
+            surface,
+            aliased_mask_layer_list.Get()) ==
+            PROGPU_NATIVE_DIRECT2D_STATUS_SUCCESS,
+        "aliased-mask layer command-list recording did not begin");
+    context->SetTransform(opacity_layer_transform);
+    D2D1_LAYER_PARAMETERS1 aliased_mask_layer_parameters =
+        opacity_layer_parameters;
+    aliased_mask_layer_parameters.maskAntialiasMode =
+        D2D1_ANTIALIAS_MODE_ALIASED;
+    context->PushLayer(&aliased_mask_layer_parameters, nullptr);
+    context->FillRectangle(&opacity_layer_fill0, solid_brush.Get());
+    context->PopLayer();
+    command_tag1 = 0U;
+    command_tag2 = 0U;
+    native_hresult = E_FAIL;
+    require(
+        progpu_native_direct2d_surface_end_command_list_draw(
+            surface,
+            &command_tag1,
+            &command_tag2,
+            &native_hresult) == PROGPU_NATIVE_DIRECT2D_STATUS_SUCCESS &&
+            native_hresult == S_OK,
+        "aliased-mask layer command-list recording did not close");
+    progpu_native_direct2d_scene_stream_result aliased_mask_layer_scene{};
+    aliased_mask_layer_scene.struct_size =
+        static_cast<uint32_t>(sizeof(aliased_mask_layer_scene));
+    native_hresult = S_OK;
+    require(
+        progpu_native_direct2d_command_list_build_scene_stream(
+            surface,
+            aliased_mask_layer_list.Get(),
+            7009U,
+            1U,
+            nullptr,
+            0U,
+            &aliased_mask_layer_scene,
+            &native_hresult) ==
+                PROGPU_NATIVE_DIRECT2D_STATUS_INTERFACE_NOT_SUPPORTED &&
+            native_hresult == E_NOTIMPL &&
+            aliased_mask_layer_scene.failure_reason ==
+                PROGPU_NATIVE_DIRECT2D_SCENE_STREAM_FAILURE_UNSUPPORTED_STATE &&
+            aliased_mask_layer_scene.failure_callback_index != 0U &&
+            aliased_mask_layer_scene.written_bytes == 0U,
+        "Direct2D aliased geometric layer mask did not fail closed");
 
     progpu_native_direct2d_scene_stream_result scene_short{};
     scene_short.struct_size = static_cast<uint32_t>(sizeof(scene_short));
