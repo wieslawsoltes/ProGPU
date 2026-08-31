@@ -215,6 +215,14 @@ internal static class MetafilePlaybackRenderer
                 DrawWmfDibStretchBlt(state, record, payload);
                 return;
 
+            case EmfPlusRecordType.WmfBitBlt:
+                DrawWmfBitmap16Blt(state, record, payload, stretch: false);
+                return;
+
+            case EmfPlusRecordType.WmfStretchBlt:
+                DrawWmfBitmap16Blt(state, record, payload, stretch: true);
+                return;
+
             case EmfPlusRecordType.WmfStretchDib:
                 DrawWmfStretchDib(state, record, payload);
                 return;
@@ -890,7 +898,14 @@ internal static class MetafilePlaybackRenderer
         ReadOnlySpan<byte> payload)
     {
         const int fixedPayloadSize = 16;
-        RequireWmfSourceDib(record, payload, fixedPayloadSize, playbackDcPayloadSize: 18);
+        if (TryDrawWmfBitmapWithoutSource(state, record, payload, stretch: false))
+        {
+            return;
+        }
+        if (payload.Length < fixedPayloadSize)
+        {
+            throw Invalid(record);
+        }
         uint rasterOperation = ReadUInt32(payload, 0);
         ValidateDibRasterOperation(record, rasterOperation);
 
@@ -927,7 +942,14 @@ internal static class MetafilePlaybackRenderer
         ReadOnlySpan<byte> payload)
     {
         const int fixedPayloadSize = 20;
-        RequireWmfSourceDib(record, payload, fixedPayloadSize, playbackDcPayloadSize: 22);
+        if (TryDrawWmfBitmapWithoutSource(state, record, payload, stretch: true))
+        {
+            return;
+        }
+        if (payload.Length < fixedPayloadSize)
+        {
+            throw Invalid(record);
+        }
         uint rasterOperation = ReadUInt32(payload, 0);
         ValidateDibRasterOperation(record, rasterOperation);
 
@@ -1048,17 +1070,109 @@ internal static class MetafilePlaybackRenderer
         throw Invalid(record);
     }
 
-    private static void RequireWmfSourceDib(
+    private static void DrawWmfBitmap16Blt(
+        PlaybackState state,
         in MetafileRecord record,
         ReadOnlySpan<byte> payload,
-        int fixedPayloadSize,
-        int playbackDcPayloadSize)
+        bool stretch)
     {
-        if (payload.Length == playbackDcPayloadSize)
+        if (TryDrawWmfBitmapWithoutSource(state, record, payload, stretch))
         {
-            throw Unsupported(record, "Playback-device-context bitmap sources are not supported.");
+            return;
         }
-        if (payload.Length < fixedPayloadSize)
+
+        int fixedPayloadSize = stretch ? 20 : 16;
+        if (payload.IsEmpty)
+        {
+            throw Unsupported(record, "Bitmap16 source playback is not available for an empty record.");
+        }
+        if (payload.Length < fixedPayloadSize + 10)
+        {
+            throw Invalid(record);
+        }
+        ValidateBitmap16(record, payload[fixedPayloadSize..]);
+
+        uint rasterOperation = ReadUInt32(payload, 0);
+        int destinationHeight = ReadInt16(payload, stretch ? 12 : 8);
+        int destinationWidth = ReadInt16(payload, stretch ? 14 : 10);
+        int destinationY = ReadInt16(payload, stretch ? 16 : 12);
+        int destinationX = ReadInt16(payload, stretch ? 18 : 14);
+        if (TryDrawSourceIndependentRasterOperation(
+            state,
+            record,
+            rasterOperation,
+            destinationX,
+            destinationY,
+            destinationWidth,
+            destinationHeight))
+        {
+            return;
+        }
+        if (rasterOperation is SrcCopy or NotSourceCopy)
+        {
+            throw Unsupported(
+                record,
+                "Embedded Bitmap16 source pixels require a typed device-format adapter.");
+        }
+        ValidateDibRasterOperation(record, rasterOperation);
+        throw Unsupported(record);
+    }
+
+    private static bool TryDrawWmfBitmapWithoutSource(
+        PlaybackState state,
+        in MetafileRecord record,
+        ReadOnlySpan<byte> payload,
+        bool stretch)
+    {
+        int expectedSize = stretch ? 22 : 18;
+        if (payload.Length != expectedSize)
+        {
+            return false;
+        }
+
+        uint rasterOperation = ReadUInt32(payload, 0);
+        int destinationHeight = ReadInt16(payload, stretch ? 14 : 10);
+        int destinationWidth = ReadInt16(payload, stretch ? 16 : 12);
+        int destinationY = ReadInt16(payload, stretch ? 18 : 14);
+        int destinationX = ReadInt16(payload, stretch ? 20 : 16);
+        if (!TryDrawSourceIndependentRasterOperation(
+            state,
+            record,
+            rasterOperation,
+            destinationX,
+            destinationY,
+            destinationWidth,
+            destinationHeight))
+        {
+            throw Unsupported(
+                record,
+                $"Ternary raster operation 0x{rasterOperation:X8} requires an embedded bitmap source or destination-dependent compositing.");
+        }
+        return true;
+    }
+
+    private static void ValidateBitmap16(
+        in MetafileRecord record,
+        ReadOnlySpan<byte> bitmap)
+    {
+        if (bitmap.Length < 10)
+        {
+            throw Invalid(record);
+        }
+
+        int width = ReadInt16(bitmap, 2);
+        int height = ReadInt16(bitmap, 4);
+        int widthBytes = ReadInt16(bitmap, 6);
+        int planes = bitmap[8];
+        int bitsPerPixel = bitmap[9];
+        if (width <= 0 || height <= 0 || widthBytes <= 0 || planes != 1 || bitsPerPixel == 0)
+        {
+            throw Invalid(record);
+        }
+
+        long computedWidthBytes = (((long)width * bitsPerPixel + 15) >> 4) << 1;
+        long expectedSize = 10 + computedWidthBytes * height;
+        if (computedWidthBytes != widthBytes || expectedSize != bitmap.Length)
         {
             throw Invalid(record);
         }
@@ -1198,39 +1312,15 @@ internal static class MetafilePlaybackRenderer
             return;
         }
 
-        if (rasterOperation is Blackness or PatCopy or Whiteness)
+        if (TryDrawSourceIndependentRasterOperation(
+            state,
+            record,
+            rasterOperation,
+            destinationX,
+            destinationY,
+            destinationWidth,
+            destinationHeight))
         {
-            Brush? brush = rasterOperation switch
-            {
-                Blackness => Brushes.Black,
-                PatCopy => state.SelectedBrush,
-                Whiteness => Brushes.White,
-                _ => null
-            };
-            if (brush is null)
-            {
-                return;
-            }
-
-            PointF destinationTopLeft = new(destinationX, destinationY);
-            PointF destinationTopRight = new(
-                AddCoordinate(record, destinationX, destinationWidth),
-                destinationY);
-            PointF destinationBottomLeft = new(
-                destinationX,
-                AddCoordinate(record, destinationY, destinationHeight));
-            PointF destinationBottomRight = new(
-                destinationTopRight.X + destinationBottomLeft.X - destinationTopLeft.X,
-                destinationTopRight.Y + destinationBottomLeft.Y - destinationTopLeft.Y);
-            state.ApplyTransform(record);
-            state.Graphics.FillPolygon(
-                brush,
-                [
-                    destinationTopLeft,
-                    destinationTopRight,
-                    destinationBottomRight,
-                    destinationBottomLeft
-                ]);
             return;
         }
 
@@ -1291,6 +1381,53 @@ internal static class MetafilePlaybackRenderer
                 clippedRight - clippedLeft,
                 clippedBottom - clippedTop),
             GraphicsUnit.Pixel);
+    }
+
+    private static bool TryDrawSourceIndependentRasterOperation(
+        PlaybackState state,
+        in MetafileRecord record,
+        uint rasterOperation,
+        int destinationX,
+        int destinationY,
+        int destinationWidth,
+        int destinationHeight)
+    {
+        Brush? brush = rasterOperation switch
+        {
+            Blackness => Brushes.Black,
+            PatCopy => state.SelectedBrush,
+            Whiteness => Brushes.White,
+            _ => null
+        };
+        if (rasterOperation is not Blackness and not PatCopy and not Whiteness)
+        {
+            return false;
+        }
+        if (brush is null || destinationWidth == 0 || destinationHeight == 0)
+        {
+            return true;
+        }
+
+        PointF destinationTopLeft = new(destinationX, destinationY);
+        PointF destinationTopRight = new(
+            AddCoordinate(record, destinationX, destinationWidth),
+            destinationY);
+        PointF destinationBottomLeft = new(
+            destinationX,
+            AddCoordinate(record, destinationY, destinationHeight));
+        PointF destinationBottomRight = new(
+            destinationTopRight.X + destinationBottomLeft.X - destinationTopLeft.X,
+            destinationTopRight.Y + destinationBottomLeft.Y - destinationTopLeft.Y);
+        state.ApplyTransform(record);
+        state.Graphics.FillPolygon(
+            brush,
+            [
+                destinationTopLeft,
+                destinationTopRight,
+                destinationBottomRight,
+                destinationBottomLeft
+            ]);
+        return true;
     }
 
     private static PointF InterpolateDestination(

@@ -3220,7 +3220,7 @@ public sealed class MetafileParserTests
     [Theory]
     [InlineData(0x0940, 18)]
     [InlineData(0x0B41, 22)]
-    public void WmfDibPlaybackDcSourcesRemainExplicitAndTransactional(
+    public void WmfDibSourceRequiredPlaybackDcRecordsRemainTransactional(
         ushort function,
         int payloadSize)
     {
@@ -3239,7 +3239,7 @@ public sealed class MetafileParserTests
         NotSupportedException exception = Assert.Throws<NotSupportedException>(() =>
             graphics.DrawImage(metafile, new Rectangle(0, 0, 64, 64)));
 
-        Assert.Contains("Playback-device-context", exception.Message, StringComparison.Ordinal);
+        Assert.Contains("embedded bitmap source", exception.Message, StringComparison.OrdinalIgnoreCase);
         Assert.Empty(context.Commands);
     }
 
@@ -4437,6 +4437,184 @@ public sealed class MetafileParserTests
     }
 
     [Fact]
+    public void WmfBitmapRecordsDrawSourceIndependentOperationsWithoutBitmapSources()
+    {
+        byte[] fixture = CreatePlaybackWmf(
+        [
+            (0x02FC, WmfBrush(Color.Green)),
+            (0x012D, WmfWords(0)),
+            (0x0922, WmfBitBltWithoutBitmap(
+                Point.Empty,
+                new Rectangle(4, 4, 8, 8),
+                0x00F0_0021)),
+            (0x0B23, WmfStretchBltWithoutBitmap(
+                new Rectangle(2, 2, 4, 4),
+                new Rectangle(16, 4, 8, 8),
+                0x0000_0042)),
+            (0x0940, WmfBitBltWithoutBitmap(
+                new Point(8, 8),
+                new Rectangle(28, 4, 8, 8),
+                0x00FF_0062)),
+            (0x0B41, WmfStretchBltWithoutBitmap(
+                new Rectangle(12, 12, 4, 4),
+                new Rectangle(40, 4, 8, 8),
+                0x00F0_0021)),
+            (0, [])
+        ]);
+        using var metafile = new Metafile(new MemoryStream(fixture, writable: false));
+        using var target = new Bitmap(56, 20);
+        using (Graphics graphics = Graphics.FromImage(target))
+        {
+            graphics.Clear(Color.Transparent);
+            graphics.DrawImage(metafile, new Rectangle(0, 0, 64, 64));
+        }
+
+        Assert.Equal(Color.Green.ToArgb(), target.GetPixel(6, 6).ToArgb());
+        Assert.Equal(Color.Black.ToArgb(), target.GetPixel(18, 6).ToArgb());
+        Assert.Equal(Color.White.ToArgb(), target.GetPixel(30, 6).ToArgb());
+        Assert.Equal(Color.Green.ToArgb(), target.GetPixel(42, 6).ToArgb());
+        Assert.Equal(0, target.GetPixel(2, 2).A);
+    }
+
+    [Fact]
+    public void WmfBitmap16EnvelopeIsValidatedBeforeSourceIndependentDrawing()
+    {
+        byte[] bitmap = CreateBitmap16(2, 1, 24, [0, 0, 255, 0, 255, 0]);
+        byte[] fixture = CreatePlaybackWmf(
+        [
+            (0x02FC, WmfBrush(Color.Blue)),
+            (0x012D, WmfWords(0)),
+            (0x0922, WmfBitmap16BitBlt(
+                bitmap,
+                new Point(50, 50),
+                new Rectangle(8, 8, 12, 8),
+                0x00F0_0021)),
+            (0, [])
+        ]);
+        using var metafile = new Metafile(new MemoryStream(fixture, writable: false));
+        using var target = new Bitmap(32, 24);
+        using (Graphics graphics = Graphics.FromImage(target))
+        {
+            graphics.Clear(Color.Transparent);
+            graphics.DrawImage(metafile, new Rectangle(0, 0, 64, 64));
+        }
+
+        Assert.Equal(Color.Blue.ToArgb(), target.GetPixel(10, 10).ToArgb());
+        Assert.Equal(0, target.GetPixel(4, 4).A);
+    }
+
+    [Fact]
+    public void WmfSourceRequiredBitmapRecordsRejectTransactionally()
+    {
+        byte[] bitmap = CreateBitmap16(2, 1, 24, [0, 0, 255, 0, 255, 0]);
+        (ushort Function, byte[] Payload)[] unsupported =
+        [
+            (0x0940, WmfBitBltWithoutBitmap(
+                Point.Empty,
+                new Rectangle(8, 8, 8, 8),
+                0x00CC_0020)),
+            (0x0922, WmfBitmap16BitBlt(
+                bitmap,
+                Point.Empty,
+                new Rectangle(8, 8, 8, 8),
+                0x00CC_0020))
+        ];
+
+        foreach ((ushort function, byte[] payload) in unsupported)
+        {
+            byte[] fixture = CreatePlaybackWmf(
+            [
+                (0x041F, WmfSetPixel(Color.Red, new Point(1, 1))),
+                (function, payload),
+                (0, [])
+            ]);
+            using var metafile = new Metafile(new MemoryStream(fixture, writable: false));
+            var context = new DrawingContext();
+            using Graphics graphics = Graphics.FromProGpuDrawingContext(context);
+
+            NotSupportedException exception = Assert.Throws<NotSupportedException>(() =>
+                graphics.DrawImage(metafile, new Rectangle(0, 0, 64, 64)));
+            Assert.Contains("source", exception.Message, StringComparison.OrdinalIgnoreCase);
+            Assert.Empty(context.Commands);
+        }
+    }
+
+    [Fact]
+    public void WmfMalformedBitmap16RecordsRollBackEarlierCommands()
+    {
+        byte[] valid = CreateBitmap16(2, 1, 24, [0, 0, 255, 0, 255, 0]);
+        byte[] wrongStride = (byte[])valid.Clone();
+        WriteInt16(wrongStride, 6, 8);
+        byte[] wrongPlanes = (byte[])valid.Clone();
+        wrongPlanes[8] = 2;
+        byte[] zeroHeight = (byte[])valid.Clone();
+        WriteInt16(zeroHeight, 4, 0);
+        byte[] truncated = valid[..^2];
+
+        foreach (byte[] bitmap in new[] { wrongStride, wrongPlanes, zeroHeight, truncated })
+        {
+            byte[] fixture = CreatePlaybackWmf(
+            [
+                (0x041F, WmfSetPixel(Color.Red, new Point(1, 1))),
+                (0x0922, WmfBitmap16BitBlt(
+                    bitmap,
+                    Point.Empty,
+                    new Rectangle(8, 8, 8, 8),
+                    0x00F0_0021)),
+                (0, [])
+            ]);
+            using var metafile = new Metafile(new MemoryStream(fixture, writable: false));
+            var context = new DrawingContext();
+            using Graphics graphics = Graphics.FromProGpuDrawingContext(context);
+
+            Assert.Throws<ArgumentException>(() =>
+                graphics.DrawImage(metafile, new Rectangle(0, 0, 64, 64)));
+            Assert.Empty(context.Commands);
+        }
+    }
+
+    [Fact]
+    public void WmfSourceIndependentBitmapPlaybackHasBoundedWarmedAllocation()
+    {
+        var records = new List<(ushort Function, byte[] Payload)>
+        {
+            (0x02FC, WmfBrush(Color.Green)),
+            (0x012D, WmfWords(0))
+        };
+        for (int index = 0; index < 64; index++)
+        {
+            records.Add((
+                0x0922,
+                WmfBitBltWithoutBitmap(
+                    Point.Empty,
+                    new Rectangle((index % 8) * 8, (index / 8) * 8, 8, 8),
+                    0x00F0_0021)));
+        }
+        records.Add((0, []));
+        using var metafile = new Metafile(new MemoryStream(
+            CreatePlaybackWmf(records),
+            writable: false));
+        var context = new DrawingContext();
+        using Graphics graphics = Graphics.FromProGpuDrawingContext(context);
+        for (int iteration = 0; iteration < 4; iteration++)
+        {
+            graphics.DrawImage(metafile, new Rectangle(0, 0, 64, 64));
+            context.Clear();
+        }
+
+        long before = GC.GetAllocatedBytesForCurrentThread();
+        for (int iteration = 0; iteration < 8; iteration++)
+        {
+            graphics.DrawImage(metafile, new Rectangle(0, 0, 64, 64));
+            context.Clear();
+        }
+        long allocatedPerPlayback =
+            (GC.GetAllocatedBytesForCurrentThread() - before) / 8;
+
+        Assert.InRange(allocatedPerPlayback, 32 * 1024, 8 * 1024 * 1024);
+    }
+
+    [Fact]
     public void WmfDibPlaybackHasBoundedWarmedAllocation()
     {
         TestDib dib = CreateRgbDib(1, -1, 32, [0, 0, 255, 0]);
@@ -5385,6 +5563,75 @@ public sealed class MetafileParserTests
         WriteInt16(payload, 12, checked((short)destination.Y));
         WriteInt16(payload, 14, checked((short)destination.X));
         return payload;
+    }
+
+    private static byte[] WmfBitBltWithoutBitmap(
+        Point source,
+        Rectangle destination,
+        uint rasterOperation)
+    {
+        byte[] payload = new byte[18];
+        WriteUInt32(payload, 0, rasterOperation);
+        WriteInt16(payload, 4, checked((short)source.Y));
+        WriteInt16(payload, 6, checked((short)source.X));
+        WriteInt16(payload, 10, checked((short)destination.Height));
+        WriteInt16(payload, 12, checked((short)destination.Width));
+        WriteInt16(payload, 14, checked((short)destination.Y));
+        WriteInt16(payload, 16, checked((short)destination.X));
+        return payload;
+    }
+
+    private static byte[] WmfStretchBltWithoutBitmap(
+        Rectangle source,
+        Rectangle destination,
+        uint rasterOperation)
+    {
+        byte[] payload = new byte[22];
+        WriteUInt32(payload, 0, rasterOperation);
+        WriteInt16(payload, 4, checked((short)source.Height));
+        WriteInt16(payload, 6, checked((short)source.Width));
+        WriteInt16(payload, 8, checked((short)source.Y));
+        WriteInt16(payload, 10, checked((short)source.X));
+        WriteInt16(payload, 14, checked((short)destination.Height));
+        WriteInt16(payload, 16, checked((short)destination.Width));
+        WriteInt16(payload, 18, checked((short)destination.Y));
+        WriteInt16(payload, 20, checked((short)destination.X));
+        return payload;
+    }
+
+    private static byte[] WmfBitmap16BitBlt(
+        byte[] bitmap,
+        Point source,
+        Rectangle destination,
+        uint rasterOperation)
+    {
+        byte[] payload = new byte[checked(16 + bitmap.Length)];
+        WriteUInt32(payload, 0, rasterOperation);
+        WriteInt16(payload, 4, checked((short)source.Y));
+        WriteInt16(payload, 6, checked((short)source.X));
+        WriteInt16(payload, 8, checked((short)destination.Height));
+        WriteInt16(payload, 10, checked((short)destination.Width));
+        WriteInt16(payload, 12, checked((short)destination.Y));
+        WriteInt16(payload, 14, checked((short)destination.X));
+        bitmap.CopyTo(payload, 16);
+        return payload;
+    }
+
+    private static byte[] CreateBitmap16(
+        short width,
+        short height,
+        byte bitsPerPixel,
+        byte[] bits)
+    {
+        int widthBytes = checked((int)((((long)width * bitsPerPixel + 15) >> 4) << 1));
+        byte[] bitmap = new byte[checked(10 + bits.Length)];
+        WriteInt16(bitmap, 2, width);
+        WriteInt16(bitmap, 4, height);
+        WriteInt16(bitmap, 6, checked((short)widthBytes));
+        bitmap[8] = 1;
+        bitmap[9] = bitsPerPixel;
+        bits.CopyTo(bitmap, 10);
+        return bitmap;
     }
 
     private static byte[] WmfDibStretchBlt(

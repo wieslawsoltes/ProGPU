@@ -272,8 +272,8 @@ implementation is based on the official
 contracts. WMF paths and select-clip-region records, `EXTTEXTOUT` glyph-index, numeric-
 substitution, two-dimensional, DBCS-advance, and bidi-advance modes, independent
 escapement/orientation, vertical fonts, SYMBOL glyph-index mapping,
-Playback-device-context-only
-`META_DIBBITBLT`/`META_DIBSTRETCHBLT` variants, device-dependent bitmap blits,
+source-required playback-device-context
+`META_DIBBITBLT`/`META_DIBSTRETCHBLT` variants, embedded `Bitmap16` source pixels,
 richer GDI objects,
 other WMF drawing families, and nonstructural EMF+ drawing records remain
 explicit later tranches. The Win32 contract identifies character extra as
@@ -787,10 +787,10 @@ destination-dependent operations, transactional rollback, and warmed allocation.
 The WMF follow-up
 adds all four source-bearing packed-DIB layouts, exact packed header/color-table
 splitting, direct-color optimization tables, both scan orientations, retained
-command shape, and explicit rollback for the two playback-DC-only source forms.
-Playback-device-context sources and device-dependent bitmaps remain named typed
-boundaries. ApiCompat remains at zero missing types, zero missing members, and
-13 reviewed shape differences.
+command shape, and explicit rollback for the two source-required playback-DC
+forms. Source-required playback-device-context pixels and embedded `Bitmap16`
+source pixels remain named typed boundaries. ApiCompat remains at zero missing
+types, zero missing members, and 13 reviewed shape differences.
 
 The `BI_BITFIELDS` follow-up validates three external masks after a 40-byte
 header or the embedded V4/V5 masks before decoding any pixels. Red, green, and
@@ -861,6 +861,19 @@ typed destination-read composition seam exists. Three focused gates cover
 exact channel inversion, black/white/pattern pixels, and warmed allocation;
 the existing malformed-stream matrix guards rollback for `SRCINVERT`.
 
+The source-omitted WMF bitmap-record follow-up covers the official no-source
+layouts of `META_BITBLT`, `META_STRETCHBLT`, `META_DIBBITBLT`, and
+`META_DIBSTRETCHBLT`. `BLACKNESS`, `WHITENESS`, and selected-brush `PATCOPY`
+render without inventing source pixels, including the reserved-word field shift
+in the DIB forms. Source-bearing `META_BITBLT` and `META_STRETCHBLT` records
+validate the complete `Bitmap16` envelope—dimensions, word-aligned stride,
+planes, bit depth, and exact payload length—even when the raster operation does
+not consume its pixels. Five focused gates cover exact output from all four
+record families, valid and malformed `Bitmap16` envelopes, transactional
+rejection of source-required operations, rollback of earlier commands, and a
+warmed allocation ceiling. Actual embedded `Bitmap16` pixel decoding remains
+an explicit typed device-format-adapter boundary.
+
 `Playback256EmfDibImagesToRetainedCommands` measures bounded header/row decode,
 256 owned two-by-two RGBA snapshots, typed retained-texture recording,
 transactional append, and cleanup. The 2026-08-31 ARM64/.NET 10.0.11 ShortRun
@@ -881,7 +894,7 @@ throughput. Ten focused WMF cases independently cover all four record families,
 bottom-up padding, top-down and bottom-up partial bands, packed color-table
 splitting, retained sampling, playback-DC boundaries, malformed input,
 transactional rollback, and the warmed 64-image allocation ceiling.
-Both complete Debug and Release drawing suites pass 561/561; ApiCompat remains
+Both complete Debug and Release drawing suites pass 566/566; ApiCompat remains
 at zero missing types, zero missing members, and 13 reviewed shape differences.
 
 `Playback256BitFieldDibImagesToRetainedCommands` measures 256 packed RGB565
@@ -933,6 +946,14 @@ ShortRun measured a 51.551 millisecond median (61.174 millisecond mean, 23.446
 millisecond standard deviation) with 605.85 KB allocated. Three iterations,
 denied priority elevation, and high timing variance make allocation and exact
 focused pixels authoritative rather than throughput.
+
+`Playback256WmfSourceIndependentBitmapRecordsToRetainedCommands` measures 256
+source-omitted `META_BITBLT` records using selected-brush `PATCOPY`. The
+2026-09-01 ARM64/.NET 10.0.11 in-process ShortRun measured an 810.465
+microsecond median (859.788 microsecond mean, 104.814 microsecond standard
+deviation) with 464.05 KB allocated. Three iterations and denied priority
+elevation make the focused exact-pixel and warmed-allocation gates
+authoritative; this benchmark is a coarse retained-command baseline.
 
 The EMF path-bracket follow-up adds `EMR_BEGINPATH`, `EMR_ENDPATH`,
 `EMR_CLOSEFIGURE`, `EMR_ABORTPATH`, `EMR_FILLPATH`, `EMR_STROKEPATH`,

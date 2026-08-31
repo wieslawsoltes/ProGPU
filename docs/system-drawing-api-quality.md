@@ -117,7 +117,8 @@ member suppression, leaving zero missing types, zero missing members, and 13
     `EXTTEXTOUT` glyph-index, numeric-substitution, two-dimensional, DBCS-
     advance, and bidi-advance modes, independent escapement/orientation,
     vertical fonts, SYMBOL
-    glyph-index mapping, playback-DC and device-dependent bitmap sources, other
+    glyph-index mapping, source-required playback-DC pixels and embedded
+    `Bitmap16` source pixels, other
     WMF drawing families, and nonstructural EMF+ drawing remain
     explicit follow-up work. Contract, security bounds, and benchmark evidence are recorded
 in
@@ -342,10 +343,11 @@ elevation, and high timing variance make this coarse ownership/allocation
 evidence. Ten focused cases independently cover all four layouts, bottom-up
 padding, top-down and bottom-up partial bands, packed color tables, retained
 sampling, malformed usage/ROP/scan/buffer inputs, transactional rollback,
-playback-DC-only source boundaries, and a warmed allocation ceiling.
-Playback-device-context sources and device-dependent bitmaps remain explicit.
+source-required playback-DC boundaries, and a warmed allocation ceiling.
+Source-required playback-device-context pixels and embedded `Bitmap16` source
+pixels remain explicit typed boundaries.
 ApiCompat remains 0/0/13.
-Both complete Debug and Release drawing suites pass 561/561.
+Both complete Debug and Release drawing suites pass 566/566.
 
 `MetafileBenchmarks.Playback256BitFieldDibImagesToRetainedCommands` extends the
 same shared decoder to 16/32-bit `BI_BITFIELDS`. Forty-byte headers supply three
@@ -448,6 +450,25 @@ packed two-by-two images. Three iterations, denied priority elevation, and high
 variance make correctness and allocation authoritative. The official contract
 is the
 [`TernaryRasterOperation enumeration`](https://learn.microsoft.com/en-us/openspecs/windows_protocols/ms-wmf/1605dd68-a635-4639-ab81-99ff3e3fc5a3).
+
+`MetafileBenchmarks.Playback256WmfSourceIndependentBitmapRecordsToRetainedCommands`
+extends source-independent playback to the official no-source layouts of
+`META_BITBLT`, `META_STRETCHBLT`, `META_DIBBITBLT`, and
+`META_DIBSTRETCHBLT`. `BLACKNESS`, `WHITENESS`, and selected-brush `PATCOPY`
+produce exact output without a fabricated source. Source-bearing
+`META_BITBLT`/`META_STRETCHBLT` records validate the full `Bitmap16` envelope
+before drawing even when the operation ignores its pixels. Five focused cases
+cover all four layouts, exact output, valid and malformed envelopes,
+source-required transactional rejection, rollback, and warmed allocation.
+Actual embedded `Bitmap16` pixel decoding remains a typed device-format-adapter
+boundary. The 2026-09-01 ARM64/.NET 10.0.11 in-process ShortRun measured an
+810.465 microsecond median (859.788 microsecond mean, 104.814 microsecond
+standard deviation) and 464.05 KB allocated for 256 records. Three iterations
+and denied priority elevation make the exact-pixel and deterministic allocation
+gates authoritative. The official contracts are the
+[`Bitmap16 Object`](https://learn.microsoft.com/en-us/openspecs/windows_protocols/ms-wmf/dc487315-3bb9-40c8-9f49-55ffc6152d8c),
+[`META_BITBLT Record`](https://learn.microsoft.com/en-us/openspecs/windows_protocols/ms-wmf/0d703ede-9633-47a0-a92d-c98b2bca6a2b), and
+[`META_STRETCHBLT Record`](https://learn.microsoft.com/en-us/openspecs/windows_protocols/ms-wmf/61370adb-d37d-48c4-b5dd-7f7a64e0a9ea).
 
 `MetafileBenchmarks.Playback256EmfPathBracketsToRetainedCommands` guards 256
 Begin/rectangle/End/StrokeAndFill groups. The 2026-08-31 ARM64/.NET 10.0.11
