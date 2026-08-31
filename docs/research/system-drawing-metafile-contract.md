@@ -116,7 +116,7 @@ reuse, selection/deletion, solid/null pens and brushes, polygons, polylines,
 poly-polygons, current-position lines, explicit-color device pixels, counterclockwise
 elliptical arcs, filled/stroked pies and chords, rectangles, ellipses, and
 rounded rectangles, plus exact pattern-copy/blackness/whiteness rectangle
-blits. Intersect- and exclude-clip
+blits. Intersect-, exclude-, and logical-offset clip
 rectangles lower through the retained Region clip path, and SaveDC/relative
 RestoreDC uses the complete managed state snapshot described below. The record
 inventory used by the canonical LibreWinForms `telescope_01.wmf` asset remains
@@ -133,6 +133,7 @@ implementation is based on the official
 [META_OFFSETWINDOWORG](https://learn.microsoft.com/en-us/openspecs/windows_protocols/ms-wmf/6a411d75-d922-4f6a-8fc2-4360766499de),
 [META_SCALEVIEWPORTEXT](https://learn.microsoft.com/en-us/openspecs/windows_protocols/ms-wmf/3742ef91-28b9-4a54-97d8-35959662b8c1),
 [META_SCALEWINDOWEXT](https://learn.microsoft.com/en-us/openspecs/windows_protocols/ms-wmf/8e5dfa2b-2107-4726-86c3-81ec3380016a),
+[META_OFFSETCLIPRGN](https://learn.microsoft.com/en-us/openspecs/windows_protocols/ms-wmf/63e5f3cc-7b05-48b8-b602-fdd983eb3bd0),
 [META_ARC](https://learn.microsoft.com/en-us/openspecs/windows_protocols/ms-wmf/742097b4-5879-4c36-b57e-77e7cc152253),
 [META_LINETO](https://learn.microsoft.com/en-us/openspecs/windows_protocols/ms-wmf/bf92fda0-2d68-4ea2-8b31-6a0a22574d7f),
 [META_SETPIXEL](https://learn.microsoft.com/en-us/openspecs/windows_protocols/ms-wmf/de9a67c4-2ddb-4e5b-b5df-eca1772af366),
@@ -241,7 +242,7 @@ the saved scope, the outer intersection survives restoration, and a following
 unsupported record still rolls back the complete temporary stream. Restoring
 an unavailable relative level also fails before publishing commands.
 
-`Playback256WmfEllipsesToRetainedCommands` guards the WMF 16-bit bottom/right/top/left parameter order, selected brush and pen lowering, transactional append, and retained curve commands. The 2026-08-31 ARM64/.NET 10.0.11 in-process ShortRun measured a 1.060 millisecond median (1.109 millisecond mean, 0.115 millisecond standard deviation) and 622.14 KB managed allocation for 256 filled and stroked ellipses. One launch and three measured iterations make this a coarse first baseline. Focused gates verify selected fill/outline pixels, reject unordered bounds without publication, and prove that a following unsupported text record does not publish a partially lowered ellipse stream. The complete drawing suite passes 409/409, and ApiCompat remains at 0 missing types, 0 missing members, and 13 reviewed platform-annotation differences.
+`Playback256WmfEllipsesToRetainedCommands` guards the WMF 16-bit bottom/right/top/left parameter order, selected brush and pen lowering, transactional append, and retained curve commands. The 2026-08-31 ARM64/.NET 10.0.11 in-process ShortRun measured a 1.060 millisecond median (1.109 millisecond mean, 0.115 millisecond standard deviation) and 622.14 KB managed allocation for 256 filled and stroked ellipses. One launch and three measured iterations make this a coarse first baseline. Focused gates verify selected fill/outline pixels, reject unordered bounds without publication, and prove that a following unsupported text record does not publish a partially lowered ellipse stream. The complete drawing suite passes 411/411, and ApiCompat remains at 0 missing types, 0 missing members, and 13 reviewed platform-annotation differences.
 
 `Playback256WmfRoundRectanglesToRetainedCommands` guards the official height,
 width, bottom, right, top, left `META_ROUNDRECT` payload and typed selected
@@ -308,6 +309,15 @@ iterations make this a coarse local fill checkpoint. Exact pattern-copy,
 `BLACKNESS`, and `WHITENESS` pixels remain the rendering authority, while a
 destination-dependent `PATINVERT` record fails explicitly and rolls back an
 earlier supported fill rather than silently approximating XOR composition.
+
+`Playback256WmfPatternCopiesWithOffsetClipState` guards 256 pattern fills, each
+surrounded by balanced signed logical clip offsets over one finite Region. Its
+2026-08-31 ARM64/.NET 10.0.11 in-process ShortRun measured a 4.148 millisecond
+median (4.425 millisecond mean, 1.005 millisecond standard deviation) with 2.12
+MB allocated. Three high-variance iterations make this coarse state-lowering
+evidence and expose Region clone/path repush allocation as an optimization
+target. Exact old/moved/restored clip pixels and rollback after a following
+unsupported record remain the correctness authority.
 
 `RecordAndFinalize256PortableComments` measures the complete portable writer:
 256 owned 64-byte comment copies, EMF+/EMF assembly, validation, and publication

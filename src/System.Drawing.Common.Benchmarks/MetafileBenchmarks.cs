@@ -29,6 +29,7 @@ public class MetafileBenchmarks
     private Metafile _wmfPolyPolygonPlaybackMetafile = null!;
     private Metafile _wmfMappedPixelPlaybackMetafile = null!;
     private Metafile _wmfPatBltPlaybackMetafile = null!;
+    private Metafile _wmfOffsetClipPatBltPlaybackMetafile = null!;
     private readonly Graphics.EnumerateMetafileProc _enumerate = static (_, _, _, _, _) => true;
     private readonly byte[] _comment = new byte[64];
 
@@ -67,6 +68,8 @@ public class MetafileBenchmarks
             new MemoryStream(CreatePlaybackWmfMappedPixels(256), writable: false));
         _wmfPatBltPlaybackMetafile = new Metafile(
             new MemoryStream(CreatePlaybackWmfPatBlts(256), writable: false));
+        _wmfOffsetClipPatBltPlaybackMetafile = new Metafile(
+            new MemoryStream(CreatePlaybackWmfPatBlts(256, includeOffsetClipState: true), writable: false));
     }
 
     [GlobalCleanup]
@@ -86,6 +89,7 @@ public class MetafileBenchmarks
         _wmfPolyPolygonPlaybackMetafile.Dispose();
         _wmfMappedPixelPlaybackMetafile.Dispose();
         _wmfPatBltPlaybackMetafile.Dispose();
+        _wmfOffsetClipPatBltPlaybackMetafile.Dispose();
         _playbackGraphics.Dispose();
         _graphics.Dispose();
         _target.Dispose();
@@ -244,6 +248,16 @@ public class MetafileBenchmarks
     {
         _playbackContext.Clear();
         _playbackGraphics.DrawImage(_wmfPatBltPlaybackMetafile, new Rectangle(0, 0, 640, 480));
+        int commandCount = _playbackContext.Commands.Count;
+        _playbackContext.Clear();
+        return commandCount;
+    }
+
+    [Benchmark]
+    public int Playback256WmfPatternCopiesWithOffsetClipState()
+    {
+        _playbackContext.Clear();
+        _playbackGraphics.DrawImage(_wmfOffsetClipPatBltPlaybackMetafile, new Rectangle(0, 0, 640, 480));
         int commandCount = _playbackContext.Commands.Count;
         _playbackContext.Clear();
         return commandCount;
@@ -725,10 +739,14 @@ public class MetafileBenchmarks
         return bytes;
     }
 
-    private static byte[] CreatePlaybackWmfPatBlts(int recordCount)
+    private static byte[] CreatePlaybackWmfPatBlts(
+        int recordCount,
+        bool includeOffsetClipState = false)
     {
         const int recordWords = 9;
-        int declaredWords = checked(9 + 7 + 4 + recordCount * recordWords + 3);
+        int clipSetupWords = includeOffsetClipState ? 7 : 0;
+        int perRecordWords = includeOffsetClipState ? 19 : recordWords;
+        int declaredWords = checked(9 + 7 + 4 + clipSetupWords + recordCount * perRecordWords + 3);
         byte[] bytes = new byte[checked(22 + declaredWords * 2)];
         WriteUInt32(bytes, 0, 0x9AC6_CDD7);
         WriteInt16(bytes, 10, 640);
@@ -755,9 +773,18 @@ public class MetafileBenchmarks
         cursor += 14;
         WriteWmfObjectIndexRecord(bytes, cursor, 0x012D, 0);
         cursor += 8;
+        if (includeOffsetClipState)
+        {
+            WriteWmfBoxRecord(bytes, cursor, 0x0416, left: 0, top: 0, right: 640, bottom: 480);
+            cursor += 14;
+        }
 
         for (int index = 0; index < recordCount; index++)
         {
+            if (includeOffsetClipState)
+            {
+                cursor += WriteWmfWordsRecord(bytes, cursor, 0x0220, 1, 1);
+            }
             short x = checked((short)((index % 16) * 40));
             short y = checked((short)((index / 16) * 30));
             WriteUInt32(bytes, cursor, recordWords);
@@ -768,6 +795,10 @@ public class MetafileBenchmarks
             WriteInt16(bytes, cursor + 14, y);
             WriteInt16(bytes, cursor + 16, x);
             cursor += recordWords * 2;
+            if (includeOffsetClipState)
+            {
+                cursor += WriteWmfWordsRecord(bytes, cursor, 0x0220, -1, -1);
+            }
         }
 
         WriteUInt32(bytes, cursor, 3);

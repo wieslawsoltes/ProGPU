@@ -638,6 +638,40 @@ public sealed class MetafileParserTests
     }
 
     [Fact]
+    public void WmfOffsetClipRegionMovesAndRestoresTypedClip()
+    {
+        using var metafile = new Metafile(new MemoryStream(CreateOffsetClipPlaybackWmf()));
+        using var target = new Bitmap(64, 64);
+        using (Graphics graphics = Graphics.FromImage(target))
+        {
+            graphics.Clear(Color.Transparent);
+            graphics.DrawImage(metafile, new Rectangle(0, 0, 64, 64));
+        }
+
+        Assert.Equal(Color.Black.ToArgb(), target.GetPixel(12, 12).ToArgb());
+        Assert.Equal(Color.White.ToArgb(), target.GetPixel(28, 28).ToArgb());
+        Assert.Equal(0, target.GetPixel(44, 44).A);
+    }
+
+    [Fact]
+    public void WmfUnsupportedRecordAfterOffsetClipRollsBackAllClipScopes()
+    {
+        using var metafile = new Metafile(new MemoryStream(
+            CreateOffsetClipPlaybackWmf(includeUnsupportedRecord: true)));
+        using var target = new Bitmap(64, 64);
+        using (Graphics graphics = Graphics.FromImage(target))
+        {
+            graphics.Clear(Color.Blue);
+            NotSupportedException exception = Assert.Throws<NotSupportedException>(() =>
+                graphics.DrawImage(metafile, new Rectangle(0, 0, 64, 64)));
+            Assert.Contains(nameof(EmfPlusRecordType.WmfTextOut), exception.Message, StringComparison.Ordinal);
+        }
+
+        Assert.Equal(Color.Blue.ToArgb(), target.GetPixel(12, 12).ToArgb());
+        Assert.Equal(Color.Blue.ToArgb(), target.GetPixel(28, 28).ToArgb());
+    }
+
+    [Fact]
     public void WmfEllipseRejectsUnorderedBoundsWithoutPublishingCommands()
     {
         byte[] bytes = CreatePlaybackWmf();
@@ -1175,6 +1209,28 @@ public sealed class MetafileParserTests
         if (includeDestinationDependentRecord)
         {
             records.Add((0x061D, WmfPatBlt(0x005A_0049, new Rectangle(4, 4, 16, 16))));
+        }
+        records.Add((0, []));
+        return CreatePlaybackWmf(records);
+    }
+
+    private static byte[] CreateOffsetClipPlaybackWmf(bool includeUnsupportedRecord = false)
+    {
+        var records = new List<(ushort Function, byte[] Payload)>
+        {
+            (0x02FC, WmfBrush(Color.Green)),
+            (0x012D, WmfWords(0)),
+            (0x0416, WmfWords(24, 24, 8, 8)),
+            (0x061D, WmfPatBlt(0x00F0_0021, new Rectangle(0, 0, 64, 64))),
+            (0x001E, []),
+            (0x0220, WmfWords(16, 16)),
+            (0x061D, WmfPatBlt(0x00FF_0062, new Rectangle(0, 0, 64, 64))),
+            (0x0127, WmfWords(-1)),
+            (0x061D, WmfPatBlt(0x0000_0042, new Rectangle(0, 0, 64, 64)))
+        };
+        if (includeUnsupportedRecord)
+        {
+            records.Add((0x0521, WmfWords(0)));
         }
         records.Add((0, []));
         return CreatePlaybackWmf(records);

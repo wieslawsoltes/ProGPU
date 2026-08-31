@@ -170,6 +170,11 @@ internal static class MetafilePlaybackRenderer
                 state.ExcludeClip(record, ReadWmfRectangle(record, payload));
                 return;
 
+            case EmfPlusRecordType.WmfOffsetCilpRgn:
+                RequireSize(record, payload, 4);
+                state.OffsetClip(record, ReadWmfYxPoint(payload));
+                return;
+
             case EmfPlusRecordType.WmfSaveDC:
                 RequireSize(record, payload, 0);
                 state.Save();
@@ -1231,6 +1236,12 @@ internal static class MetafilePlaybackRenderer
         {
             ApplyTransform(record);
             Graphics.ExcludeClip(rectangle);
+        }
+
+        internal void OffsetClip(in MetafileRecord record, Point offset)
+        {
+            ApplyTransform(record);
+            Graphics.TranslateClip(offset.X, offset.Y);
         }
 
         internal void ModifyWorldTransform(
