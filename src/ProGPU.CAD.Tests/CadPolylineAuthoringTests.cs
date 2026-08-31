@@ -317,6 +317,91 @@ public sealed class CadPolylineAuthoringTests
         Assert.Equal(CadPolylineArcConstruction.TangentEndpoint, authoring.ArcConstruction);
     }
 
+    [Theory]
+    [InlineData(10.0, Math.PI / 3.0)]
+    [InlineData(-10.0, Math.PI * 5.0 / 3.0)]
+    public void SignedRadiusAndClockwiseOverrideAreIndependent(
+        double signedRadius,
+        double expectedSweepMagnitude)
+    {
+        CadPoint3D start = CadPoint3D.Zero;
+        CadPoint3D end = new(10, 0, 0);
+        var authoring = new CadPolylineAuthoringSession();
+        Assert.True(authoring.TryAcceptPoint(start, out _));
+        authoring.Mode = CadPolylineAuthoringMode.TangentArc;
+        Assert.True(authoring.TryBeginArcConstruction(
+            CadPolylineArcConstruction.Radius,
+            out _));
+        Assert.True(authoring.TryAcceptArcScalar(signedRadius, out _));
+        Assert.True(authoring.CanApplyArcClockwiseOverride);
+
+        Assert.True(authoring.TryResolvePendingSegment(
+            end,
+            clockwiseOverride: false,
+            out CadPoint3D defaultEndpoint,
+            out double defaultBulge,
+            out _));
+        Assert.True(authoring.TryResolvePendingSegment(
+            end,
+            clockwiseOverride: true,
+            out CadPoint3D clockwiseEndpoint,
+            out double clockwiseBulge,
+            out _));
+
+        Assert.Equal(end, defaultEndpoint);
+        Assert.Equal(end, clockwiseEndpoint);
+        Assert.True(defaultBulge > 0.0);
+        Assert.True(clockwiseBulge < 0.0);
+        Assert.Equal(Math.Abs(defaultBulge), Math.Abs(clockwiseBulge), 12);
+        Assert.True(CadPolylineAuthoringSession.TryGetBulgeGeometry(
+            start,
+            defaultEndpoint,
+            defaultBulge,
+            out _,
+            out double defaultRadius,
+            out _,
+            out double defaultSweep));
+        Assert.True(CadPolylineAuthoringSession.TryGetBulgeGeometry(
+            start,
+            clockwiseEndpoint,
+            clockwiseBulge,
+            out _,
+            out double clockwiseRadius,
+            out _,
+            out double clockwiseSweep));
+        Assert.Equal(10.0, defaultRadius, 12);
+        Assert.Equal(defaultRadius, clockwiseRadius, 12);
+        Assert.Equal(expectedSweepMagnitude, defaultSweep, 12);
+        Assert.Equal(-expectedSweepMagnitude, clockwiseSweep, 12);
+
+        AssertMatchesArcSolver(
+            (start, defaultEndpoint, defaultBulge),
+            CreateScalarArc(
+                CadArcAuthoringMode.StartEndRadius,
+                start,
+                end,
+                signedRadius));
+    }
+
+    [Fact]
+    public void ClockwiseOverridePreservesCenterAndDirectionCircle()
+    {
+        AssertClockwiseCounterpart(
+            CadPolylineArcConstruction.Center,
+            new CadPoint3D(10, 0, 0),
+            CadPoint3D.Zero,
+            new CadPoint3D(0, 10, 0),
+            expectedDefaultSweep: Math.PI / 2.0,
+            expectedClockwiseSweep: -Math.PI * 3.0 / 2.0);
+        AssertClockwiseCounterpart(
+            CadPolylineArcConstruction.Direction,
+            CadPoint3D.Zero,
+            new CadPoint3D(10, 0, 0),
+            new CadPoint3D(10, 10, 0),
+            expectedDefaultSweep: Math.PI / 2.0,
+            expectedClockwiseSweep: -Math.PI * 3.0 / 2.0);
+    }
+
     [Fact]
     public void ExplicitThreePointArcIsStableAtLargeWcsOrigin()
     {
@@ -932,5 +1017,54 @@ public sealed class CadPolylineAuthoringTests
         Assert.Equal(arc.Center.Z, center.Z, 10);
         Assert.Equal(arc.Radius, radius, 10);
         Assert.Equal(arc.SweepAngle, Math.Abs(sweep), 10);
+    }
+
+    private static void AssertClockwiseCounterpart(
+        CadPolylineArcConstruction construction,
+        CadPoint3D start,
+        CadPoint3D control,
+        CadPoint3D endpointInput,
+        double expectedDefaultSweep,
+        double expectedClockwiseSweep)
+    {
+        var authoring = new CadPolylineAuthoringSession();
+        Assert.True(authoring.TryAcceptPoint(start, out _));
+        authoring.Mode = CadPolylineAuthoringMode.TangentArc;
+        Assert.True(authoring.TryBeginArcConstruction(construction, out _));
+        Assert.True(authoring.TryAcceptArcControlPoint(control, out _));
+        Assert.True(authoring.TryResolvePendingSegment(
+            endpointInput,
+            clockwiseOverride: false,
+            out CadPoint3D defaultEndpoint,
+            out double defaultBulge,
+            out _));
+        Assert.True(authoring.TryResolvePendingSegment(
+            endpointInput,
+            clockwiseOverride: true,
+            out CadPoint3D clockwiseEndpoint,
+            out double clockwiseBulge,
+            out _));
+        Assert.Equal(defaultEndpoint, clockwiseEndpoint);
+        Assert.True(CadPolylineAuthoringSession.TryGetBulgeGeometry(
+            start,
+            defaultEndpoint,
+            defaultBulge,
+            out CadPoint3D defaultCenter,
+            out double defaultRadius,
+            out _,
+            out double defaultSweep));
+        Assert.True(CadPolylineAuthoringSession.TryGetBulgeGeometry(
+            start,
+            clockwiseEndpoint,
+            clockwiseBulge,
+            out CadPoint3D clockwiseCenter,
+            out double clockwiseRadius,
+            out _,
+            out double clockwiseSweep));
+        Assert.Equal(defaultCenter.X, clockwiseCenter.X, 12);
+        Assert.Equal(defaultCenter.Y, clockwiseCenter.Y, 12);
+        Assert.Equal(defaultRadius, clockwiseRadius, 12);
+        Assert.Equal(expectedDefaultSweep, defaultSweep, 12);
+        Assert.Equal(expectedClockwiseSweep, clockwiseSweep, 12);
     }
 }

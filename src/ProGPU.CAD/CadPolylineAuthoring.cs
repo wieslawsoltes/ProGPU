@@ -325,6 +325,17 @@ public sealed class CadPolylineAuthoringSession
         (_arcNestedOption == CadPolylineArcNestedOption.ChordLength &&
          Prompt == CadPolylineAuthoringPrompt.ArcChordLength);
 
+    /// <summary>
+    /// Whether the active point-final construction has an alternate clockwise
+    /// circular solution selected by AutoCAD's transient Ctrl override.
+    /// </summary>
+    public bool CanApplyArcClockwiseOverride =>
+        Prompt == CadPolylineAuthoringPrompt.ArcEndpoint &&
+        _arcNestedOption == CadPolylineArcNestedOption.None &&
+        _arcConstruction is (CadPolylineArcConstruction.Center or
+            CadPolylineArcConstruction.Direction or
+            CadPolylineArcConstruction.Radius);
+
     public bool CanUndo =>
         Prompt == CadPolylineAuthoringPrompt.Point && SegmentCount > 0;
 
@@ -531,9 +542,14 @@ public sealed class CadPolylineAuthoringSession
         }
         else if (Prompt == CadPolylineAuthoringPrompt.ArcRadius)
         {
-            if (!double.IsFinite(value) || value <= 0.0)
+            bool requiresPositiveRadius =
+                _arcNestedOption == CadPolylineArcNestedOption.Radius;
+            if (!double.IsFinite(value) || value == 0.0 ||
+                (requiresPositiveRadius && value < 0.0))
             {
-                errorMessage = "A PLINE arc radius must be finite and positive.";
+                errorMessage = requiresPositiveRadius
+                    ? "A PLINE Angle/Radius value must be finite and positive."
+                    : "A PLINE arc radius must be finite and nonzero; a negative value selects the major arc.";
                 return false;
             }
         }
@@ -732,8 +748,22 @@ public sealed class CadPolylineAuthoringSession
         out CadPoint3D endpoint,
         out string? errorMessage)
     {
+        return TryAcceptArcEndpoint(
+            inputPoint,
+            clockwiseOverride: false,
+            out endpoint,
+            out errorMessage);
+    }
+
+    public bool TryAcceptArcEndpoint(
+        CadPoint3D inputPoint,
+        bool clockwiseOverride,
+        out CadPoint3D endpoint,
+        out string? errorMessage)
+    {
         if (!TryResolvePendingSegment(
                 inputPoint,
+                clockwiseOverride,
                 out endpoint,
                 out double bulge,
                 out errorMessage))
@@ -755,6 +785,25 @@ public sealed class CadPolylineAuthoringSession
     /// </summary>
     public bool TryResolvePendingSegment(
         CadPoint3D inputPoint,
+        out CadPoint3D endpoint,
+        out double bulge,
+        out string? errorMessage)
+    {
+        return TryResolvePendingSegment(
+            inputPoint,
+            clockwiseOverride: false,
+            out endpoint,
+            out bulge,
+            out errorMessage);
+    }
+
+    /// <summary>
+    /// Resolves a point-final arc with the transient clockwise override used by
+    /// Center, Direction, and Radius. Other constructions ignore the override.
+    /// </summary>
+    public bool TryResolvePendingSegment(
+        CadPoint3D inputPoint,
+        bool clockwiseOverride,
         out CadPoint3D endpoint,
         out double bulge,
         out string? errorMessage)
@@ -794,11 +843,27 @@ public sealed class CadPolylineAuthoringSession
                 CadPolylineArcConstruction.IncludedAngle =>
                     TryGetSweepBulge(_arcScalar, out bulge),
                 CadPolylineArcConstruction.Center =>
-                    TryGetCenterArc(start, _arcControlPoint, inputPoint, out endpoint, out bulge),
+                    TryGetCenterArc(
+                        start,
+                        _arcControlPoint,
+                        inputPoint,
+                        clockwiseOverride,
+                        out endpoint,
+                        out bulge),
                 CadPolylineArcConstruction.Direction =>
-                    TryGetTangentBulge(start, inputPoint, _arcControlPoint - start, out bulge),
+                    TryGetTangentBulge(
+                        start,
+                        inputPoint,
+                        _arcControlPoint - start,
+                        clockwiseOverride,
+                        out bulge),
                 CadPolylineArcConstruction.Radius =>
-                    TryGetRadiusBulge(start, inputPoint, _arcScalar, out bulge),
+                    TryGetRadiusBulge(
+                        start,
+                        inputPoint,
+                        _arcScalar,
+                        clockwiseOverride,
+                        out bulge),
                 CadPolylineArcConstruction.ThreePoint =>
                     TryGetThreePointBulge(start, _arcControlPoint, inputPoint, out bulge),
                 _ => false,
@@ -1363,6 +1428,21 @@ public sealed class CadPolylineAuthoringSession
         CadPoint3D tangent,
         out double bulge)
     {
+        return TryGetTangentBulge(
+            start,
+            end,
+            tangent,
+            clockwiseOverride: false,
+            out bulge);
+    }
+
+    private static bool TryGetTangentBulge(
+        CadPoint3D start,
+        CadPoint3D end,
+        CadPoint3D tangent,
+        bool clockwiseOverride,
+        out double bulge)
+    {
         bulge = 0.0;
         double tangentLength = Hypot(tangent.X, tangent.Y);
         CadPoint3D chord = end - start;
@@ -1386,6 +1466,10 @@ public sealed class CadPolylineAuthoringSession
         }
 
         bulge = y / denominator;
+        if (clockwiseOverride && bulge > 0.0)
+        {
+            bulge = -1.0 / bulge;
+        }
         return double.IsFinite(bulge) && bulge != 0.0;
     }
 
@@ -1403,6 +1487,7 @@ public sealed class CadPolylineAuthoringSession
         CadPoint3D start,
         CadPoint3D center,
         CadPoint3D endRayPoint,
+        bool clockwiseOverride,
         out CadPoint3D endpoint,
         out double bulge)
     {
@@ -1424,8 +1509,13 @@ public sealed class CadPolylineAuthoringSession
             start.Z);
         double startAngle = Math.Atan2(start.Y - center.Y, start.X - center.X);
         double endAngle = Math.Atan2(endpoint.Y - center.Y, endpoint.X - center.X);
+        double sweep = PositiveAngle(endAngle - startAngle);
+        if (clockwiseOverride)
+        {
+            sweep -= Math.Tau;
+        }
         return IsFinite(endpoint) &&
-            TryGetSweepBulge(PositiveAngle(endAngle - startAngle), out bulge);
+            TryGetSweepBulge(sweep, out bulge);
     }
 
     private static bool TryGetCenterSweepArc(
@@ -1552,10 +1642,12 @@ public sealed class CadPolylineAuthoringSession
     private static bool TryGetRadiusBulge(
         CadPoint3D start,
         CadPoint3D end,
-        double radius,
+        double signedRadius,
+        bool clockwiseOverride,
         out double bulge)
     {
         bulge = 0.0;
+        double radius = Math.Abs(signedRadius);
         double chordLength = Hypot(end.X - start.X, end.Y - start.Y);
         double halfChord = chordLength * 0.5;
         if (!double.IsFinite(radius) || radius <= 0.0 ||
@@ -1565,8 +1657,17 @@ public sealed class CadPolylineAuthoringSession
             return false;
         }
 
-        double sweep = 2.0 * Math.Asin(Math.Min(1.0, halfChord / radius));
-        return TryGetSweepBulge(sweep, out bulge);
+        double minorSweep = 2.0 * Math.Asin(
+            Math.Min(1.0, halfChord / radius));
+        if (!TryGetSweepBulge(minorSweep, out double minorBulge))
+        {
+            return false;
+        }
+        double magnitude = signedRadius > 0.0
+            ? minorBulge
+            : 1.0 / minorBulge;
+        bulge = clockwiseOverride ? -magnitude : magnitude;
+        return double.IsFinite(bulge) && bulge != 0.0;
     }
 
     private static bool TryGetThreePointBulge(

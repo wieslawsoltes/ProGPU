@@ -207,6 +207,62 @@ public sealed class CadPolylineAuthoringInteractionTests
     }
 
     [Fact]
+    public void SharedCanvasAppliesCtrlClockwiseAndSignedRadiusIndependently()
+    {
+        bool previousControl = InputSystem.Current.IsControlPressed;
+        var session = new CadDocumentSession(new CadDocument());
+        var canvas = new CadSampleCanvas();
+        try
+        {
+            canvas.Load(session);
+            canvas.Arrange(new Rect(0, 0, 800, 600));
+            canvas.ObjectSnapModes = CadObjectSnapModes.None;
+            Assert.True(canvas.BeginPolylineAuthoring());
+            Assert.True(canvas.TryAcceptPolylineAuthoringInput("0,0", out _));
+            Assert.True(canvas.TryAcceptPolylineAuthoringInput("A", out _));
+            Assert.True(canvas.TryAcceptPolylineAuthoringInput("R", out _));
+            Assert.True(canvas.CanAcceptPolylineAuthoringInput("10"));
+            Assert.True(canvas.TryAcceptPolylineAuthoringInput("10", out _));
+            Assert.True(canvas.CanApplyPolylineArcClockwiseOverride);
+
+            InputSystem.Current.IsControlPressed = true;
+            canvas.RefreshPolylineArcClockwiseOverride();
+            Assert.True(canvas.IsPolylineArcClockwiseOverrideActive);
+            Click(
+                canvas,
+                canvas.CurrentViewport.WorldToScreen(new CadPoint3D(10, 0, 0)));
+            AssertPointClose(
+                new CadPoint3D(10, 0, 0),
+                canvas.PendingPolylineCurrentPoint!.Value);
+
+            InputSystem.Current.IsControlPressed = false;
+            Assert.True(canvas.TryAcceptPolylineAuthoringInput("R", out _));
+            Assert.True(canvas.CanAcceptPolylineAuthoringInput("-10"));
+            Assert.True(canvas.TryAcceptPolylineAuthoringInput("-10", out _));
+            Assert.True(canvas.TryAcceptPolylineAuthoringInput("20,0", out _));
+
+            Assert.True(canvas.TryAcceptPolylineAuthoringInput("R", out _));
+            Assert.True(canvas.TryAcceptPolylineAuthoringInput("-10", out _));
+            InputSystem.Current.IsControlPressed = true;
+            canvas.RefreshPolylineArcClockwiseOverride();
+            Assert.True(canvas.TryAcceptPolylineAuthoringInput("30,0", out _));
+            Assert.True(canvas.CompletePolylineAuthoring(false, out _));
+
+            LwPolyline polyline = Assert.Single(session.Read(document =>
+                document.Entities.OfType<LwPolyline>().ToArray()));
+            Assert.Equal(4, polyline.Vertices.Count);
+            Assert.Equal(-Math.Tan(Math.PI / 12.0), polyline.Vertices[0].Bulge, 12);
+            Assert.Equal(Math.Tan(Math.PI * 5.0 / 12.0), polyline.Vertices[1].Bulge, 12);
+            Assert.Equal(-Math.Tan(Math.PI * 5.0 / 12.0), polyline.Vertices[2].Bulge, 12);
+        }
+        finally
+        {
+            InputSystem.Current.IsControlPressed = previousControl;
+            canvas.FireUnloaded();
+        }
+    }
+
+    [Fact]
     public void RelativePolarUsesActualArcEndTangentForDirectDistance()
     {
         var session = new CadDocumentSession(new CadDocument());

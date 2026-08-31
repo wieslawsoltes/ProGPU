@@ -111,7 +111,11 @@ Arc construction now also follows the contextual nested PLINE prompts: Angle
 can finish from a fixed Center or from Radius plus chord direction, while
 Center can finish from a signed Angle or signed chord Length. Positive chord
 length selects the minor counterclockwise interval and negative length the
-major interval. The shared selector, typed keywords, pointer preview, viewport
+major interval. Point-final Radius now likewise uses a positive value for the
+minor interval and a negative value for the major interval, while holding Ctrl
+independently selects the clockwise solution for Center, Direction, or Radius.
+The modifier refreshes live preview and applies equally to typed or pointer
+acceptance. The shared selector, typed keywords, pointer preview, viewport
 validation, and recoverable prompt state all use the same exact O(1) solver.
 Constant and straight tapered widths retain exact filled or FILLMODE-off
 model-space outlines through affine blocks, camera replay, managed/native

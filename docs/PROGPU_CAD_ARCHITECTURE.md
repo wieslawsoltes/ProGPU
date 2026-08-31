@@ -1104,6 +1104,11 @@ Line-mode Length continues the actual endpoint tangent of either a line or arc.
 Arc prompts also retain Autodesk's contextual nesting without a second command
 object: Angle can resolve from a fixed Center or from Radius plus chord
 direction, and Center can resolve from a signed Angle or signed chord Length.
+For point-final Radius, the signed radius selects the minor or major interval;
+an explicit transient clockwise flag independently selects direction. The same
+flag selects the clockwise counterpart of Center and Direction while preserving
+their solved circle. The shared host maps current Ctrl state into that typed
+host-neutral seam for live preview and point acceptance.
 The O(1) normalized solvers are derived from the original ProGPU-owned
 `CadArcAuthoring.cs`; point-final workflows feed the solved endpoint through
 the shared viewport and preview seams, scalar-final workflows commit the same

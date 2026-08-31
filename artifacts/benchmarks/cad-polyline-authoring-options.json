@@ -1,5 +1,5 @@
 {
-  "CapturedAt": "2026-08-31T17:44:23.138844+00:00",
+  "CapturedAt": "2026-08-31T18:18:34.120336+00:00",
   "OperatingSystem": "Unix 26.6.0",
   "Runtime": ".NET 10.0.5",
   "SegmentCount": 65536,
@@ -7,34 +7,42 @@
   "IterationCount": 40,
   "InheritedWidthMilliseconds": {
     "Name": "polyline-authoring-inherited-width",
-    "P50": 3.2097,
-    "P95": 6.7376,
-    "P99": 7.762,
-    "Mean": 3.6149175,
-    "AllocatedBytesPerOperation": 17501113
+    "P50": 4.4878,
+    "P95": 17.3738,
+    "P99": 21.5204,
+    "Mean": 7.93476,
+    "AllocatedBytesPerOperation": 17501456
   },
   "WidthOptionEverySegmentMilliseconds": {
     "Name": "polyline-authoring-width-option-every-segment",
-    "P50": 4.0228,
-    "P95": 9.6855,
-    "P99": 11.8183,
-    "Mean": 4.8861925,
-    "AllocatedBytesPerOperation": 17501519
+    "P50": 3.6531,
+    "P95": 15.6571,
+    "P99": 20.9222,
+    "Mean": 5.523064999999999,
+    "AllocatedBytesPerOperation": 17500901
   },
   "ExplicitAngleArcMilliseconds": {
     "Name": "polyline-authoring-explicit-angle-arcs",
-    "P50": 5.2609,
-    "P95": 11.3247,
-    "P99": 14.6625,
-    "Mean": 6.288995000000002,
-    "AllocatedBytesPerOperation": 17501670
+    "P50": 9.0618,
+    "P95": 21.68,
+    "P99": 28.426,
+    "Mean": 11.315599999999998,
+    "AllocatedBytesPerOperation": 17501836
   },
   "NestedCenterAngleArcMilliseconds": {
     "Name": "polyline-authoring-nested-center-angle-arcs",
-    "P50": 7.5257,
-    "P95": 14.0305,
-    "P99": 15.4846,
-    "Mean": 8.292665,
-    "AllocatedBytesPerOperation": 17502664
+    "P50": 13.6242,
+    "P95": 23.7172,
+    "P99": 28.3498,
+    "Mean": 14.174262500000001,
+    "AllocatedBytesPerOperation": 17501799
+  },
+  "ClockwiseMajorRadiusArcMilliseconds": {
+    "Name": "polyline-authoring-clockwise-major-radius-arcs",
+    "P50": 11.8405,
+    "P95": 23.798,
+    "P99": 29.671,
+    "Mean": 14.197062500000001,
+    "AllocatedBytesPerOperation": 17501748
   }
 }

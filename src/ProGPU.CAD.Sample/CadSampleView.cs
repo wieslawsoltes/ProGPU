@@ -2839,6 +2839,10 @@ public sealed class CadSampleView : Grid
 
     public override void OnKeyDown(KeyRoutedEventArgs e)
     {
+        if (e.Key is Key.ControlLeft or Key.ControlRight)
+        {
+            _canvas.RefreshPolylineArcClockwiseOverride();
+        }
         if (!e.Handled &&
             _isPrintPreview &&
             e.Key == Key.Escape &&
@@ -3169,6 +3173,15 @@ public sealed class CadSampleView : Grid
         }
 
         base.OnKeyDown(e);
+    }
+
+    public override void OnKeyUp(KeyRoutedEventArgs e)
+    {
+        if (e.Key is Key.ControlLeft or Key.ControlRight)
+        {
+            _canvas.RefreshPolylineArcClockwiseOverride();
+        }
+        base.OnKeyUp(e);
     }
 
     private void CyclePlanIsoplaneFromKeyboard()
@@ -6377,7 +6390,7 @@ public sealed class CadSampleView : Grid
             "PLINE Arc/Direction: specify a point establishing the start tangent.",
         CadPolylineAuthoringStage.PromptChanged when
             args.Prompt == CadPolylineAuthoringPrompt.ArcRadius =>
-            "PLINE Arc/Radius: enter a finite positive radius; after Angle, next specify the chord direction.",
+            "PLINE Arc/Radius: enter a nonzero signed radius (negative selects major); after Angle, radius must be positive and next specifies chord direction.",
         CadPolylineAuthoringStage.PromptChanged when
             args.Prompt == CadPolylineAuthoringPrompt.ArcChordDirection =>
             "PLINE Arc/Angle/Radius: specify a point establishing the chord direction.",
@@ -6389,7 +6402,7 @@ public sealed class CadSampleView : Grid
             "PLINE Arc/Second pt: specify a second point on the arc.",
         CadPolylineAuthoringStage.PromptChanged when
             args.Prompt == CadPolylineAuthoringPrompt.ArcEndpoint =>
-            "PLINE Arc: specify the endpoint, or choose a contextual Angle, Center, Radius, or Length option when available.",
+            "PLINE Arc: specify the endpoint, or choose a contextual Angle, Center, Radius, or Length option; hold Ctrl for the clockwise Center, Direction, or Radius solution.",
         CadPolylineAuthoringStage.PromptChanged =>
             "PLINE: specify the requested input.",
         CadPolylineAuthoringStage.SegmentUndone =>

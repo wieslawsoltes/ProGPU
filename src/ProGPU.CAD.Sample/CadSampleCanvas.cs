@@ -823,6 +823,13 @@ public sealed class CadSampleCanvas : FrameworkElement
         _polylineAuthoring?.ArcConstruction ??
             CadPolylineArcConstruction.TangentEndpoint;
 
+    public bool CanApplyPolylineArcClockwiseOverride =>
+        _polylineAuthoring?.CanApplyArcClockwiseOverride == true;
+
+    public bool IsPolylineArcClockwiseOverrideActive =>
+        CanApplyPolylineArcClockwiseOverride &&
+        InputSystem.Current.IsControlPressed;
+
     public CadPolylineWidthInputMode PendingPolylineWidthInputMode =>
         _polylineAuthoring?.WidthInputMode ?? CadPolylineWidthInputMode.Width;
 
@@ -2364,6 +2371,7 @@ public sealed class CadSampleCanvas : FrameworkElement
                 out _)
             : authoring.TryResolvePendingSegment(
                 inputPoint,
+                IsPolylineArcClockwiseOverrideActive,
                 out endpoint,
                 out bulge,
                 out _);
@@ -3980,9 +3988,13 @@ public sealed class CadSampleCanvas : FrameworkElement
                     out _,
                     out _) && CanProjectPolylinePoint(endpoint);
             }
-            return authoring.Prompt == CadPolylineAuthoringPrompt.ArcIncludedAngle
-                ? scalar != 0.0 && Math.Abs(scalar) < Math.Tau
-                : scalar > 0.0;
+            if (authoring.Prompt == CadPolylineAuthoringPrompt.ArcIncludedAngle)
+            {
+                return scalar != 0.0 && Math.Abs(scalar) < Math.Tau;
+            }
+            return authoring.ArcNestedOption == CadPolylineArcNestedOption.Radius
+                ? scalar > 0.0
+                : scalar != 0.0;
         }
         if (IsPolylineKeyword(value, "Width", "W") ||
             IsPolylineKeyword(value, "Halfwidth", "H"))
@@ -4086,7 +4098,12 @@ public sealed class CadSampleCanvas : FrameworkElement
             CadPolylineAuthoringPrompt.ArcEndpoint;
         if (authoring.HasFirstPoint &&
             (authoring.Prompt == CadPolylineAuthoringPrompt.Point || isArcEndpoint) &&
-            !authoring.TryResolvePendingSegment(point, out point, out _, out _))
+            !authoring.TryResolvePendingSegment(
+                point,
+                IsPolylineArcClockwiseOverrideActive,
+                out point,
+                out _,
+                out _))
         {
             return false;
         }
@@ -4199,7 +4216,11 @@ public sealed class CadSampleCanvas : FrameworkElement
                         "Enter a finite nonzero PLINE included angle in degrees.",
                     CadPolylineAuthoringPrompt.ArcChordLength =>
                         "Enter a finite nonzero signed PLINE arc chord length.",
-                    _ => "Enter a finite positive PLINE arc radius.",
+                    _ when authoring.ArcNestedOption ==
+                        CadPolylineArcNestedOption.Radius =>
+                        "Enter a finite positive PLINE Angle/Radius value.",
+                    _ =>
+                        "Enter a finite nonzero PLINE arc radius; negative selects the major arc.",
                 };
                 return false;
             }
@@ -4451,6 +4472,19 @@ public sealed class CadSampleCanvas : FrameworkElement
         {
             return false;
         }
+    }
+
+    public void RefreshPolylineArcClockwiseOverride()
+    {
+        if (!CanApplyPolylineArcClockwiseOverride)
+        {
+            return;
+        }
+        if (_hasPointTransformPointerPosition)
+        {
+            UpdatePointTransformPointer(_pointTransformPointerPosition);
+        }
+        Invalidate();
     }
 
     public bool UndoPolylineAuthoringSegment()
@@ -8746,6 +8780,7 @@ public sealed class CadSampleCanvas : FrameworkElement
         if (isArcEndpoint &&
             !authoring.TryResolvePendingSegment(
                 point,
+                IsPolylineArcClockwiseOverrideActive,
                 out resolvedPoint,
                 out _,
                 out errorMessage))
@@ -8776,7 +8811,11 @@ public sealed class CadSampleCanvas : FrameworkElement
         bool accepted = isNestedFinalPoint
             ? authoring.TryAcceptArcNestedPoint(point, out _, out errorMessage)
             : isArcEndpoint
-            ? authoring.TryAcceptArcEndpoint(point, out _, out errorMessage)
+            ? authoring.TryAcceptArcEndpoint(
+                point,
+                IsPolylineArcClockwiseOverrideActive,
+                out _,
+                out errorMessage)
             : authoring.TryAcceptPoint(point, out errorMessage);
         if (!accepted)
         {

@@ -14,13 +14,15 @@ public contracts rather than third-party implementation source:
   defines one 2D polyline object, line/arc modes, tangent continuation, signed
   included angles, fixed-center endpoint projection, tangent directions,
   radius and three-point constructions, nested angle/center/radius/length
-  prompts, Width/Halfwidth state, tangent Length,
+  prompts, the Direction-tip Ctrl clockwise override, Width/Halfwidth state, tangent Length,
   `Undo`, `Close`, and `PLINEGEN` behavior.
 - Autodesk's [ARC command reference](https://help.autodesk.com/cloudhelp/2022/ENU/AutoCAD-Core/files/GUID-30ECFD30-A1D6-4D60-9DD1-B487603F6772.htm)
   independently confirms positive counterclockwise and negative clockwise
   angles, center/start/end projection, signed center/start chord minor/major
-  selection, start/end/direction tangency, start/end/radius, and three-point
-  circular construction behavior used by the differential tests.
+  selection, start/end/direction tangency, positive-radius minor and negative-
+  radius major Start/End/Radius selection, the transient Ctrl clockwise drag
+  override, and three-point circular construction behavior used by the
+  differential tests.
 - Autodesk's [SetWidth API contract](https://help.autodesk.com/cloudhelp/2022/ENU/AutoCAD-ActiveX-Reference/files/GUID-ED45F9D1-AE03-4DF0-9F2D-2019BD42CD52E.htm)
   confirms per-segment start/end width ownership, while the
   [PLINEWID system-variable contract](https://help.autodesk.com/view/ACD/2026/ENU/?caas=caas%2Fdocumentation%2FACDLT%2F2014%2FENU%2Ffiles%2FGUID-35EEB892-15C9-442F-847D-2F4DC52E9690-htm.html)
@@ -62,7 +64,7 @@ The shared shell exposes `PLine`, line/arc mode, a typed arc-option selector,
 stores a signed included angle before accepting an endpoint; Center fixes the
 start-center radius and projects the endpoint input onto its ray; Direction
 uses the start-to-direction-point vector as the exact starting tangent; Radius
-creates the positive-radius minor counterclockwise interval; and Second point
+uses radius sign to select the minor or major interval; and Second point
 solves the unique oriented circumcircle through start, second, and end. These
 explicit options work immediately after the first vertex; only the default
 tangent endpoint requires a preceding segment. Click
@@ -83,6 +85,14 @@ validates the resolved endpoint and retained float radius before mutation, and
 keeps the active prompt unchanged after failure. Shared typed keywords,
 selector/button availability, pointer acquisition, viewport validation, and
 live preview all use the same state machine.
+
+At point-final Center, Direction, and Radius prompts, holding Ctrl selects the
+clockwise circular solution without changing the retained construction inputs.
+Radius sign and direction are independent: positive radius selects the minor
+interval, negative radius selects the major interval, and Ctrl negates the
+selected interval's direction. Center and Direction keep the same solved
+circle while Ctrl selects its clockwise counterpart. The host-neutral session
+receives this modifier as an explicit boolean; it does not query keyboard state.
 
 Width and Halfwidth use a two-scalar prompt. The prior ending width is the next
 starting default; the accepted starting width is the ending default; and the
@@ -105,9 +115,8 @@ fails before document mutation. Nonzero PLINEWID publishes through the exact
 filled or FILLMODE-off outline contract in
 `PROGPU_CAD_WIDE_POLYLINE_RESEARCH.md`.
 
-The following observable PLINE options remain explicit future work: clockwise
-radius toggling, command chaining from the
-prior endpoint, temporary overrides, expressions and
+The following observable PLINE options remain explicit future work: command
+chaining from the prior endpoint, other temporary overrides, expressions and
 drawing units, legacy PLINETYPE output, 3D polyline authoring, and arbitrary
 UCS/camera acquisition. Variable-width arc publication also remains explicitly
 unsupported: exact tapered circular-arc boundaries are spirals, and signed
@@ -192,11 +201,12 @@ all five explicit arc prompt state machines, all four nested arc workflows,
 differential center/radius/sweep parity with the authoritative ARC command,
 Center endpoint projection, signed chord minor/major selection, large-WCS
 center/angle stability, recoverable nested failure, contextual shared controls,
-shared typed arc-option interaction, one-entity/one-history
+independent signed-radius minor/major and transient Ctrl clockwise selection,
+live modifier refresh, shared typed/pointer arc-option interaction, one-entity/one-history
 Apply/Undo/Redo, typed and pointer interaction, shared buttons and keys, exact
 relative-polar direct distance after an arc, nonzero-Z pointer acquisition, and
 DXF/DWG entity-width and PLINEWID round trips. The focused authoring gate passes
-34/34 in both configurations; the complete suite passes 1,381/1,381 in both Debug and Release
+38/38 in both configurations; the complete suite passes 1,381/1,381 in both Debug and Release
 on macOS arm64. The Release `ACadSharp.ProGPU` and `ProGPU.CAD`
 packages build at `0.1.0-preview.62`; an isolated consumer resolves the reviewed
 `ACadSharp.ProGPU` identity, builds with zero warnings, and creates an AC1032
@@ -205,12 +215,14 @@ document.
 The checked-in Release benchmark
 `artifacts/benchmarks/cad-polyline-authoring-options.json` measures the maximum
 65,536-segment bound over five warmups and forty iterations on macOS arm64/.NET
-10. Inherited-width acquisition plus snapshot completion is p50 3.2097 ms,
-p95 6.7376 ms, and p99 7.7620 ms; changing Width on every segment is p50
-4.0228 ms, p95 9.6855 ms, and p99 11.8183 ms. An explicit 60-degree Angle
-arc at every segment is p50 5.2609 ms, p95 11.3247 ms, and p99 14.6625 ms.
-The nested Center/Angle solve at every segment is p50 7.5257 ms, p95
-14.0305 ms, and p99 15.4846 ms. All four allocate about 17.5 MB per
+10. Inherited-width acquisition plus snapshot completion is p50 4.4878 ms,
+p95 17.3738 ms, and p99 21.5204 ms; changing Width on every segment is p50
+3.6531 ms, p95 15.6571 ms, and p99 20.9222 ms. An explicit 60-degree Angle
+arc at every segment is p50 9.0618 ms, p95 21.6800 ms, and p99 28.4260 ms.
+The nested Center/Angle solve at every segment is p50 13.6242 ms, p95
+23.7172 ms, and p99 28.3498 ms. A clockwise major-radius solve at every
+segment is p50 11.8405 ms, p95 23.7980 ms, and p99 29.6710 ms. All five
+allocate about 17.5 MB per
 completed maximum-size snapshot, dominated by geometrically grown retained
 arrays and the immutable O(S) snapshot copies. The result is complexity and
 bounded-throughput evidence, not an interactive rendering-speed claim; the
