@@ -75,6 +75,24 @@ static_assert(
     command_layouts::viewport3d_visual_set_camera::fixed_size == 12U);
 static_assert(
     command_layouts::viewport3d_visual_set_viewport::fixed_size == 40U);
+static_assert(
+    command_layouts::viewport3d_visual_set_3d_child::fixed_size == 12U);
+static_assert(command_layouts::visual3d_set_content::fixed_size == 12U);
+static_assert(command_layouts::visual3d_set_transform::fixed_size == 12U);
+static_assert(command_layouts::visual3d_remove_all_children::fixed_size == 8U);
+static_assert(command_layouts::visual3d_remove_child::fixed_size == 12U);
+static_assert(command_layouts::visual3d_insert_child_at::fixed_size == 16U);
+static_assert(command_layouts::model3d_group::fixed_size == 16U);
+static_assert(command_layouts::ambient_light::fixed_size == 32U);
+static_assert(command_layouts::directional_light::fixed_size == 48U);
+static_assert(command_layouts::point_light::fixed_size == 96U);
+static_assert(command_layouts::spot_light::fixed_size == 136U);
+static_assert(command_layouts::geometry_model3d::fixed_size == 24U);
+static_assert(command_layouts::mesh_geometry3d::fixed_size == 24U);
+static_assert(command_layouts::material_group::fixed_size == 12U);
+static_assert(command_layouts::diffuse_material::fixed_size == 44U);
+static_assert(command_layouts::specular_material::fixed_size == 36U);
+static_assert(command_layouts::emissive_material::fixed_size == 28U);
 static_assert(command_layouts::line_geometry::fixed_size == 52U);
 static_assert(command_layouts::line_geometry::end_point_offset == 24U);
 static_assert(command_layouts::rectangle_geometry::fixed_size == 72U);
@@ -672,6 +690,78 @@ void append_transform_group(
         static_cast<std::uint32_t>(children.size_bytes()));
     for (const std::uint32_t child : children) {
         append_value(packet, child);
+    }
+    append_value(
+        batch,
+        static_cast<std::uint32_t>(packet.size() + sizeof(std::uint32_t)));
+    batch.insert(batch.end(), packet.begin(), packet.end());
+}
+
+void append_model3d_group(
+    std::vector<std::byte>& batch,
+    std::uint32_t handle,
+    std::uint32_t transform,
+    std::span<const std::uint32_t> children) {
+    std::vector<std::byte> packet;
+    append_value(packet, static_cast<std::uint32_t>(command::model3d_group));
+    append_value(packet, handle);
+    append_value(packet, transform);
+    append_value(packet, static_cast<std::uint32_t>(children.size_bytes()));
+    for (const std::uint32_t child : children) {
+        append_value(packet, child);
+    }
+    append_value(
+        batch,
+        static_cast<std::uint32_t>(packet.size() + sizeof(std::uint32_t)));
+    batch.insert(batch.end(), packet.begin(), packet.end());
+}
+
+void append_material_group(
+    std::vector<std::byte>& batch,
+    std::uint32_t handle,
+    std::span<const std::uint32_t> children) {
+    std::vector<std::byte> packet;
+    append_value(packet, static_cast<std::uint32_t>(command::material_group));
+    append_value(packet, handle);
+    append_value(packet, static_cast<std::uint32_t>(children.size_bytes()));
+    for (const std::uint32_t child : children) {
+        append_value(packet, child);
+    }
+    append_value(
+        batch,
+        static_cast<std::uint32_t>(packet.size() + sizeof(std::uint32_t)));
+    batch.insert(batch.end(), packet.begin(), packet.end());
+}
+
+void append_mesh_geometry3d(
+    std::vector<std::byte>& batch,
+    std::uint32_t handle,
+    std::span<const std::array<float, 3U>> positions,
+    std::span<const std::array<float, 3U>> normals,
+    std::span<const std::array<double, 2U>> texture_coordinates,
+    std::span<const std::uint32_t> indices) {
+    std::vector<std::byte> packet;
+    append_value(
+        packet,
+        static_cast<std::uint32_t>(command::mesh_geometry3d));
+    append_value(packet, handle);
+    append_value(packet, static_cast<std::uint32_t>(positions.size_bytes()));
+    append_value(packet, static_cast<std::uint32_t>(normals.size_bytes()));
+    append_value(
+        packet,
+        static_cast<std::uint32_t>(texture_coordinates.size_bytes()));
+    append_value(packet, static_cast<std::uint32_t>(indices.size_bytes()));
+    for (const auto& position : positions) {
+        append_value(packet, position);
+    }
+    for (const auto& normal : normals) {
+        append_value(packet, normal);
+    }
+    for (const auto& coordinate : texture_coordinates) {
+        append_value(packet, coordinate);
+    }
+    for (const std::uint32_t index : indices) {
+        append_value(packet, index);
     }
     append_value(
         batch,
@@ -17358,6 +17448,421 @@ bool canonical_viewport3d_camera_uses_wpf_transform_resources() {
     return true;
 }
 
+bool canonical_viewport3d_scene_uses_wpf_resources() {
+    constexpr std::uint32_t viewport = 960U;
+    constexpr std::uint32_t root_visual3d = 961U;
+    constexpr std::uint32_t child_visual3d = 962U;
+    constexpr std::uint32_t target = 963U;
+    constexpr std::uint32_t camera = 964U;
+    constexpr std::uint32_t visual_transform = 965U;
+    constexpr std::uint32_t model_group = 966U;
+    constexpr std::uint32_t ambient = 967U;
+    constexpr std::uint32_t directional = 968U;
+    constexpr std::uint32_t point = 969U;
+    constexpr std::uint32_t spot = 970U;
+    constexpr std::uint32_t geometry_model = 971U;
+    constexpr std::uint32_t mesh_geometry = 972U;
+    constexpr std::uint32_t material_group = 973U;
+    constexpr std::uint32_t diffuse = 974U;
+    constexpr std::uint32_t specular = 975U;
+    constexpr std::uint32_t emissive = 976U;
+    constexpr std::uint32_t brush = 977U;
+
+    const std::array<std::array<float, 3U>, 6U> positions{{
+        {-0.5F, -0.5F, 0.0F},
+        {0.5F, -0.5F, 0.0F},
+        {0.0F, 0.5F, 0.0F},
+        {0.5F, -0.5F, 0.0F},
+        {1.5F, -0.5F, 0.0F},
+        {1.0F, 0.5F, 0.0F}}};
+    const std::array<std::array<float, 3U>, 4U> normals{{
+        {1.0F, 2.0F, 3.0F},
+        {0.0F, 3.0F, 4.0F},
+        {5.0F, 0.0F, 12.0F},
+        {8.0F, 15.0F, 0.0F}}};
+    const std::array<std::array<double, 2U>, 6U> texture_coordinates{{
+        {0.0, 1.0},
+        {1.0, 1.0},
+        {0.5, 0.0},
+        {0.0, 1.0},
+        {1.0, 1.0},
+        {0.5, 0.0}}};
+    const std::array<std::uint32_t, 6U> indices{
+        0U, 1U, 2U, 3U, 4U, 5U};
+    const std::array<std::uint32_t, 3U> material_children{
+        diffuse, specular, emissive};
+    const std::array<std::uint32_t, 5U> model_children{
+        ambient, directional, point, spot, geometry_model};
+    const std::array<float, 3U> camera_position{0.0F, 0.0F, 5.0F};
+    const std::array<float, 3U> look_direction{0.0F, 0.0F, -1.0F};
+    const std::array<float, 3U> up_direction{0.0F, 1.0F, 0.0F};
+    const progpu_native_color white{1.0F, 1.0F, 1.0F, 1.0F};
+
+    std::vector<std::byte> batch;
+    append_create(batch, viewport, 40U);
+    append_create(batch, root_visual3d, 41U);
+    append_create(batch, child_visual3d, 41U);
+    append_create(batch, target, 47U);
+    append_create(batch, camera, 7U);
+    append_create(batch, visual_transform, 29U);
+    append_create(batch, model_group, 11U);
+    append_create(batch, ambient, 13U);
+    append_create(batch, directional, 14U);
+    append_create(batch, point, 16U);
+    append_create(batch, spot, 17U);
+    append_create(batch, geometry_model, 18U);
+    append_create(batch, mesh_geometry, 20U);
+    append_create(batch, material_group, 22U);
+    append_create(batch, diffuse, 23U);
+    append_create(batch, specular, 24U);
+    append_create(batch, emissive, 25U);
+    append_create(batch, brush, 75U);
+    append_command(batch, command::visual_create, viewport);
+    append_command(
+        batch,
+        command::solid_color_brush,
+        brush,
+        0.8,
+        progpu_native_color{0.5F, 0.25F, 1.0F, 0.75F},
+        0U,
+        0U,
+        0U,
+        0U);
+    append_command(
+        batch,
+        command::perspective_camera,
+        camera,
+        0.1,
+        100.0,
+        45.0,
+        camera_position,
+        0U,
+        look_direction,
+        0U,
+        up_direction,
+        0U,
+        0U,
+        0U,
+        0U,
+        0U);
+    append_command(
+        batch,
+        command::translate_transform3d,
+        visual_transform,
+        1.0,
+        2.0,
+        3.0,
+        0U,
+        0U,
+        0U);
+    append_mesh_geometry3d(
+        batch,
+        mesh_geometry,
+        positions,
+        normals,
+        texture_coordinates,
+        indices);
+    append_command(
+        batch,
+        command::diffuse_material,
+        diffuse,
+        progpu_native_color{0.5F, 1.0F, 0.5F, 0.5F},
+        progpu_native_color{0.2F, 0.3F, 0.4F, 1.0F},
+        brush);
+    append_command(
+        batch,
+        command::specular_material,
+        specular,
+        progpu_native_color{0.25F, 0.5F, 1.0F, 1.0F},
+        32.0,
+        brush);
+    append_command(
+        batch,
+        command::emissive_material,
+        emissive,
+        progpu_native_color{1.0F, 0.5F, 0.25F, 1.0F},
+        brush);
+    append_material_group(batch, material_group, material_children);
+    append_command(
+        batch,
+        command::geometry_model3d,
+        geometry_model,
+        0U,
+        mesh_geometry,
+        material_group,
+        diffuse);
+    append_command(
+        batch,
+        command::ambient_light,
+        ambient,
+        progpu_native_color{0.1F, 0.2F, 0.3F, 1.0F},
+        0U,
+        0U);
+    append_command(
+        batch,
+        command::directional_light,
+        directional,
+        white,
+        std::array<float, 3U>{0.0F, 0.0F, -1.0F},
+        0U,
+        0U,
+        0U);
+    append_command(
+        batch,
+        command::point_light,
+        point,
+        white,
+        20.0,
+        1.0,
+        0.1,
+        0.01,
+        std::array<float, 3U>{0.0F, 0.0F, 2.0F},
+        0U,
+        0U,
+        0U,
+        0U,
+        0U,
+        0U,
+        0U);
+    append_command(
+        batch,
+        command::spot_light,
+        spot,
+        white,
+        30.0,
+        1.0,
+        0.05,
+        0.005,
+        60.0,
+        30.0,
+        std::array<float, 3U>{0.0F, 1.0F, 3.0F},
+        0U,
+        std::array<float, 3U>{0.0F, 0.0F, -1.0F},
+        0U,
+        0U,
+        0U,
+        0U,
+        0U,
+        0U,
+        0U,
+        0U,
+        0U);
+    append_model3d_group(batch, model_group, 0U, model_children);
+    append_command(
+        batch,
+        command::visual3d_set_content,
+        child_visual3d,
+        model_group);
+    append_command(
+        batch,
+        command::visual3d_set_transform,
+        child_visual3d,
+        visual_transform);
+    append_command(
+        batch,
+        command::visual3d_insert_child_at,
+        root_visual3d,
+        child_visual3d,
+        0U);
+    append_command(
+        batch,
+        command::viewport3d_visual_set_3d_child,
+        viewport,
+        root_visual3d);
+    append_command(
+        batch,
+        command::viewport3d_visual_set_camera,
+        viewport,
+        camera);
+    append_command(
+        batch,
+        command::viewport3d_visual_set_viewport,
+        viewport,
+        10.0,
+        20.0,
+        120.0,
+        80.0);
+    append_command(
+        batch,
+        command::generic_target_create,
+        target,
+        std::uint64_t{0U},
+        std::uint64_t{0U},
+        160U,
+        120U,
+        0U);
+    append_command(batch, command::target_set_root, target, viewport);
+
+    channel state;
+    PROGPU_REQUIRE(state.apply(batch) == status::success);
+    std::vector<std::byte> stream;
+    PROGPU_REQUIRE(
+        state.build_scene(target, 8'400U, 1U, stream) == status::success);
+    const auto header = read_value<progpu_native_scene_header>(stream, 0U);
+    bool found_mesh_batch = false;
+    bool found_draw = false;
+    for (std::uint32_t index = 0U; index < header.resource_count; ++index) {
+        const auto resource = read_value<progpu_native_scene_resource>(
+            stream,
+            header.resource_offset +
+                index * sizeof(progpu_native_scene_resource));
+        if (resource.kind != PROGPU_NATIVE_SCENE_RESOURCE_MESH_3D_BATCH) {
+            continue;
+        }
+        PROGPU_REQUIRE(
+            resource.payload_size ==
+            4U * sizeof(progpu_native_scene_mesh_3d));
+        PROGPU_REQUIRE(
+            resource.auxiliary_size ==
+            6U * sizeof(progpu_native_scene_mesh_3d_vertex) +
+            6U * sizeof(std::uint32_t) +
+            4U * sizeof(progpu_native_scene_light_3d));
+        const auto front_diffuse = read_value<progpu_native_scene_mesh_3d>(
+            stream, resource.payload_offset);
+        const auto front_specular = read_value<progpu_native_scene_mesh_3d>(
+            stream,
+            resource.payload_offset + sizeof(progpu_native_scene_mesh_3d));
+        const auto front_emissive = read_value<progpu_native_scene_mesh_3d>(
+            stream,
+            resource.payload_offset +
+                2U * sizeof(progpu_native_scene_mesh_3d));
+        const auto back_diffuse = read_value<progpu_native_scene_mesh_3d>(
+            stream,
+            resource.payload_offset +
+                3U * sizeof(progpu_native_scene_mesh_3d));
+        PROGPU_REQUIRE(
+            front_diffuse.flags == PROGPU_NATIVE_MESH_3D_FRONT_FACE);
+        PROGPU_REQUIRE(
+            (front_specular.flags &
+                PROGPU_NATIVE_MESH_3D_SPECULAR_MATERIAL) != 0U);
+        PROGPU_REQUIRE(front_emissive.shading_mode == 0U);
+        PROGPU_REQUIRE(
+            back_diffuse.flags == PROGPU_NATIVE_MESH_3D_BACK_FACE);
+        PROGPU_REQUIRE(front_diffuse.light_count == 4U);
+        PROGPU_REQUIRE(front_diffuse.model_transform.m41 == 1.0F);
+        PROGPU_REQUIRE(front_diffuse.model_transform.m42 == 2.0F);
+        PROGPU_REQUIRE(front_diffuse.model_transform.m43 == 3.0F);
+        PROGPU_REQUIRE(std::abs(front_diffuse.opacity - 0.3F) < 0.0001F);
+        const auto first_vertex =
+            read_value<progpu_native_scene_mesh_3d_vertex>(
+                stream, resource.auxiliary_offset);
+        const float inverse_root_fourteen = 1.0F / std::sqrt(14.0F);
+        PROGPU_REQUIRE(
+            std::abs(first_vertex.normal.x - inverse_root_fourteen) <
+            0.000001F);
+        PROGPU_REQUIRE(
+            std::abs(first_vertex.normal.y -
+                2.0F * inverse_root_fourteen) < 0.000001F);
+        PROGPU_REQUIRE(
+            std::abs(first_vertex.normal.z -
+                3.0F * inverse_root_fourteen) < 0.000001F);
+        const auto fifth_vertex =
+            read_value<progpu_native_scene_mesh_3d_vertex>(
+                stream,
+                resource.auxiliary_offset +
+                    4U * sizeof(progpu_native_scene_mesh_3d_vertex));
+        PROGPU_REQUIRE(fifth_vertex.normal.z > 0.999F);
+        const std::size_t light_offset = resource.auxiliary_offset +
+            6U * sizeof(progpu_native_scene_mesh_3d_vertex) +
+            6U * sizeof(std::uint32_t);
+        for (std::uint32_t light_index = 0U;
+             light_index < 4U;
+             ++light_index) {
+            const auto native_light =
+                read_value<progpu_native_scene_light_3d>(
+                    stream,
+                    light_offset + light_index *
+                        sizeof(progpu_native_scene_light_3d));
+            PROGPU_REQUIRE(native_light.kind == light_index);
+        }
+        found_mesh_batch = true;
+    }
+    for (std::uint32_t index = 0U; index < header.command_count; ++index) {
+        const auto scene_command = read_value<progpu_native_scene_command>(
+            stream,
+            header.command_offset +
+                index * sizeof(progpu_native_scene_command));
+        if (scene_command.kind !=
+            PROGPU_NATIVE_SCENE_COMMAND_DRAW_MESH_3D_BATCH) {
+            continue;
+        }
+        PROGPU_REQUIRE(scene_command.bounds_x == 10.0F);
+        PROGPU_REQUIRE(scene_command.bounds_y == 20.0F);
+        PROGPU_REQUIRE(scene_command.bounds_width == 120.0F);
+        PROGPU_REQUIRE(scene_command.bounds_height == 80.0F);
+        const auto mapping =
+            read_value<progpu_native_scene_mesh_3d_materials>(
+                stream,
+                scene_command.payload_offset +
+                    sizeof(progpu_native_scene_camera_3d));
+        PROGPU_REQUIRE(mapping.brush_count == 4U);
+        found_draw = true;
+    }
+    PROGPU_REQUIRE(found_mesh_batch);
+    PROGPU_REQUIRE(found_draw);
+
+    std::vector<std::byte> invalid_material_update;
+    const std::array<std::uint32_t, 1U> invalid_material_child{camera};
+    append_material_group(
+        invalid_material_update,
+        material_group,
+        invalid_material_child);
+    PROGPU_REQUIRE(
+        state.apply(invalid_material_update) == status::invalid_handle);
+    PROGPU_REQUIRE(
+        state.build_scene(target, 8'400U, 2U, stream) == status::success);
+
+    std::vector<std::byte> invalid_cycle;
+    append_command(
+        invalid_cycle,
+        command::visual3d_insert_child_at,
+        child_visual3d,
+        root_visual3d,
+        0U);
+    PROGPU_REQUIRE(state.apply(invalid_cycle) == status::invalid_graph);
+
+    std::vector<std::byte> delete_dependency;
+    append_command(
+        delete_dependency,
+        command::channel_delete_resource,
+        brush,
+        75U);
+    PROGPU_REQUIRE(state.apply(delete_dependency) == status::invalid_graph);
+
+    std::vector<std::byte> remove_child;
+    append_command(
+        remove_child,
+        command::visual3d_remove_child,
+        root_visual3d,
+        child_visual3d);
+    PROGPU_REQUIRE(state.apply(remove_child) == status::success);
+    PROGPU_REQUIRE(
+        state.build_scene(target, 8'400U, 3U, stream) == status::success);
+    const auto empty_header = read_value<progpu_native_scene_header>(
+        stream, 0U);
+    for (std::uint32_t index = 0U;
+         index < empty_header.command_count;
+         ++index) {
+        const auto scene_command = read_value<progpu_native_scene_command>(
+            stream,
+            empty_header.command_offset +
+                index * sizeof(progpu_native_scene_command));
+        PROGPU_REQUIRE(scene_command.kind !=
+            PROGPU_NATIVE_SCENE_COMMAND_DRAW_MESH_3D_BATCH);
+    }
+    std::vector<std::byte> restore_child;
+    append_command(
+        restore_child,
+        command::visual3d_insert_child_at,
+        root_visual3d,
+        child_visual3d,
+        0U);
+    PROGPU_REQUIRE(state.apply(restore_child) == status::success);
+    PROGPU_REQUIRE(
+        state.build_scene(target, 8'400U, 4U, stream) == status::success);
+    return true;
+}
+
 bool malformed_and_unsupported_packets_fail_closed() {
     channel state;
     const std::array malformed{
@@ -17717,6 +18222,7 @@ int main() {
     PROGPU_REQUIRE(retained_viewport3d_uses_pointer_free_mesh_sideband());
     PROGPU_REQUIRE(
         canonical_viewport3d_camera_uses_wpf_transform_resources());
+    PROGPU_REQUIRE(canonical_viewport3d_scene_uses_wpf_resources());
     PROGPU_REQUIRE(render_data_scope_errors_fail_closed());
     PROGPU_REQUIRE(malformed_and_unsupported_packets_fail_closed());
     PROGPU_REQUIRE(c_abi_is_typed_and_size_versioned());
