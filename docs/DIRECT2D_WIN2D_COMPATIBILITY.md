@@ -1480,6 +1480,19 @@ requires the corresponding distinct flags, thickness, and cubic bodies.
 Focused managed ABI contracts pass 5/5 and the native MIL oracle exits zero on
 macOS.
 
+The exact ABI v50 implementation archive for `0e3906bc` was also rebuilt in
+Windows 11 ARM64 Parallels with MSVC 19.44.35228.0. Its 1,732,223-byte archive
+has SHA-256
+`1CBC6FF1998D2DEB84279E051FF84E82D695C47EC47AD471F4E0EFB89F63D946`.
+Compilation and linking completed, but the native oracle exited 1 at
+`ProGPU Direct2D COM recorder write pass changed`; this is retained as negative
+qualification evidence, not a Windows pass. The resulting 266,240-byte DLL is
+`7130146F32B31597C5B716B6569D285EAD4A9D750F6911AD8C0A8F2847094157`
+and the 122,880-byte test executable is
+`7A39E6AB242413EAF9704FC43C4FCCCF8DE1C507CCCE08BDB7C59B8AE282FF70`.
+ABI v52 adds field-level recorder diagnostics so the next Windows run reports
+status, HRESULT, written/capacity bytes, command count, and brush count.
+
 ABI v51 extends the ProGPU-owned factory with a genuine
 [`ID2D1EllipseGeometry`](https://learn.microsoft.com/windows/win32/api/d2d1/nn-d2d1-id2d1ellipsegeometry)
 implementation. The immutable, device-independent COM object follows
