@@ -19,6 +19,12 @@ extern "C" {
 typedef struct progpu_native_direct2d_surface
     progpu_native_direct2d_surface;
 
+/* Owns one ProGPU-implemented ID2D1CommandSink1 and the pointer-free semantic
+ * scene it records. This is a genuine COM callback endpoint implemented by
+ * the ProGPU C++ backend; it is not a d2d1.dll replacement. */
+typedef struct progpu_native_direct2d_scene_recorder
+    progpu_native_direct2d_scene_recorder;
+
 typedef enum progpu_native_direct2d_status {
     PROGPU_NATIVE_DIRECT2D_STATUS_SUCCESS = 0,
     PROGPU_NATIVE_DIRECT2D_STATUS_INVALID_ARGUMENT = 1,
@@ -773,11 +779,46 @@ typedef struct progpu_native_direct2d_stroke_style_properties {
 } progpu_native_direct2d_stroke_style_properties;
 
 enum {
-    PROGPU_NATIVE_DIRECT2D_ABI_VERSION = 42U
+    PROGPU_NATIVE_DIRECT2D_ABI_VERSION = 43U
 };
 
 PROGPU_NATIVE_DIRECT2D_API uint32_t
 progpu_native_direct2d_get_abi_version(void);
+
+/* Creates a retained ProGPU scene recorder. capacity_hint is optional and is
+ * used only to reserve storage; recording remains bounded by the semantic
+ * scene ABI even when the actual callback counts differ from the hint. */
+PROGPU_NATIVE_DIRECT2D_API progpu_native_direct2d_status
+progpu_native_direct2d_scene_recorder_create(
+    uint64_t scene_id,
+    uint64_t generation,
+    const progpu_native_direct2d_command_stream_summary* capacity_hint,
+    progpu_native_direct2d_scene_recorder** recorder,
+    int32_t* native_hresult);
+
+PROGPU_NATIVE_DIRECT2D_API void
+progpu_native_direct2d_scene_recorder_destroy(
+    progpu_native_direct2d_scene_recorder* recorder);
+
+/* Returns a caller-owned genuine ID2D1CommandSink1 reference implemented by
+ * ProGPU. Call BeginDraw, the supported command callbacks, and EndDraw before
+ * building the scene stream. Release the returned pointer through IUnknown. */
+PROGPU_NATIVE_DIRECT2D_API progpu_native_direct2d_status
+progpu_native_direct2d_scene_recorder_get_command_sink(
+    progpu_native_direct2d_scene_recorder* recorder,
+    void** command_sink,
+    int32_t* native_hresult);
+
+/* Serializes a completed recorder into ProGPU's portable semantic scene. A
+ * null destination with zero capacity performs the required-size pass. The
+ * recorder and its COM sink must not be mutated concurrently with this call. */
+PROGPU_NATIVE_DIRECT2D_API progpu_native_direct2d_status
+progpu_native_direct2d_scene_recorder_build_stream(
+    progpu_native_direct2d_scene_recorder* recorder,
+    uint8_t* destination,
+    uint64_t destination_capacity,
+    progpu_native_direct2d_scene_stream_result* result,
+    int32_t* native_hresult);
 
 PROGPU_NATIVE_DIRECT2D_API progpu_native_direct2d_status
 progpu_native_direct2d_surface_create(

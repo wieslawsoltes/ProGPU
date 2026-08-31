@@ -1980,6 +1980,125 @@ int main()
             scene_write.brush_count == 4U &&
             scene_write.translated_draw_count == 6U,
         "Direct2D command-list semantic scene write pass changed");
+
+    progpu_native_direct2d_command_stream_summary recorder_hint{};
+    recorder_hint.struct_size = static_cast<uint32_t>(sizeof(recorder_hint));
+    recorder_hint.clear_count = 1U;
+    recorder_hint.fill_count = 1U;
+    recorder_hint.total_command_count = 2U;
+    progpu_native_direct2d_scene_recorder* direct_recorder = nullptr;
+    native_hresult = E_FAIL;
+    require(
+        progpu_native_direct2d_scene_recorder_create(
+            7002U,
+            10U,
+            &recorder_hint,
+            &direct_recorder,
+            &native_hresult) == PROGPU_NATIVE_DIRECT2D_STATUS_SUCCESS &&
+            direct_recorder != nullptr && native_hresult == S_OK,
+        "ProGPU Direct2D COM scene recorder creation failed");
+    void* direct_sink_value = nullptr;
+    require(
+        progpu_native_direct2d_scene_recorder_get_command_sink(
+            direct_recorder,
+            &direct_sink_value,
+            &native_hresult) == PROGPU_NATIVE_DIRECT2D_STATUS_SUCCESS &&
+            direct_sink_value != nullptr && native_hresult == S_OK,
+        "ProGPU ID2D1CommandSink1 acquisition failed");
+    ComPtr<ID2D1CommandSink1> direct_sink;
+    direct_sink.Attach(static_cast<ID2D1CommandSink1*>(direct_sink_value));
+    ComPtr<ID2D1CommandSink> direct_base_sink;
+    require(
+        SUCCEEDED(direct_sink.As(&direct_base_sink)) &&
+            has_same_com_identity(direct_sink.Get(), direct_base_sink.Get()),
+        "ProGPU command sink did not expose genuine Direct2D COM identity");
+    progpu_native_direct2d_scene_stream_result incomplete_recorder{};
+    incomplete_recorder.struct_size =
+        static_cast<uint32_t>(sizeof(incomplete_recorder));
+    native_hresult = S_OK;
+    require(
+        progpu_native_direct2d_scene_recorder_build_stream(
+            direct_recorder,
+            nullptr,
+            0U,
+            &incomplete_recorder,
+            &native_hresult) ==
+                PROGPU_NATIVE_DIRECT2D_STATUS_DRAWING_STATE_MISMATCH &&
+            native_hresult == D2DERR_WRONG_STATE &&
+            incomplete_recorder.failure_reason ==
+                PROGPU_NATIVE_DIRECT2D_SCENE_STREAM_FAILURE_DRAWING_STATE,
+        "incomplete ProGPU Direct2D COM recording did not fail closed");
+    const D2D1_COLOR_F direct_clear =
+        D2D1::ColorF(0.0625F, 0.125F, 0.25F, 1.0F);
+    const D2D1_RECT_F direct_fill = {4.0F, 6.0F, 20.0F, 18.0F};
+    const D2D1_MATRIX_3X2_F direct_transform =
+        D2D1::Matrix3x2F::Identity();
+    require(
+        direct_sink->BeginDraw() == S_OK &&
+            direct_sink->SetPrimitiveBlend(
+                D2D1_PRIMITIVE_BLEND_SOURCE_OVER) == S_OK &&
+            direct_sink->SetUnitMode(D2D1_UNIT_MODE_DIPS) == S_OK &&
+            direct_sink->SetTransform(
+                &direct_transform) == S_OK,
+        "ProGPU Direct2D COM recording state initialization failed");
+    require(
+        direct_sink->Clear(&direct_clear) == S_OK &&
+            direct_sink->FillRectangle(
+                &direct_fill,
+                solid_brush.Get()) == S_OK &&
+            direct_sink->EndDraw() == S_OK,
+        "ProGPU Direct2D COM callbacks did not record a semantic scene");
+    progpu_native_direct2d_scene_stream_result direct_measure{};
+    direct_measure.struct_size = static_cast<uint32_t>(sizeof(direct_measure));
+    native_hresult = S_OK;
+    require(
+        progpu_native_direct2d_scene_recorder_build_stream(
+            direct_recorder,
+            nullptr,
+            0U,
+            &direct_measure,
+            &native_hresult) ==
+                PROGPU_NATIVE_DIRECT2D_STATUS_INSUFFICIENT_BUFFER &&
+            native_hresult == HRESULT_FROM_WIN32(ERROR_INSUFFICIENT_BUFFER) &&
+            direct_measure.scene_id == 7002U &&
+            direct_measure.generation == 10U &&
+            direct_measure.translated_draw_count == 1U &&
+            direct_measure.failure_reason ==
+                PROGPU_NATIVE_DIRECT2D_SCENE_STREAM_FAILURE_NONE &&
+            (direct_measure.flags &
+                PROGPU_NATIVE_DIRECT2D_SCENE_STREAM_FLAG_HAS_LEADING_CLEAR) !=
+                0U &&
+            direct_measure.required_bytes >= sizeof(progpu_native_scene_header),
+        "ProGPU Direct2D COM recorder size pass changed");
+    std::vector<uint8_t> direct_scene_stream(
+        static_cast<size_t>(direct_measure.required_bytes));
+    progpu_native_direct2d_scene_stream_result direct_write{};
+    direct_write.struct_size = static_cast<uint32_t>(sizeof(direct_write));
+    native_hresult = E_FAIL;
+    require(
+        progpu_native_direct2d_scene_recorder_build_stream(
+            direct_recorder,
+            direct_scene_stream.data(),
+            direct_scene_stream.size(),
+            &direct_write,
+            &native_hresult) == PROGPU_NATIVE_DIRECT2D_STATUS_SUCCESS &&
+            native_hresult == S_OK &&
+            direct_write.written_bytes == direct_scene_stream.size() &&
+            direct_write.command_count == 1U &&
+            direct_write.brush_count == 1U,
+        "ProGPU Direct2D COM recorder write pass changed");
+    const progpu_native_scene_header direct_scene_header =
+        read_value<progpu_native_scene_header>(direct_scene_stream, 0U);
+    require(
+        direct_scene_header.scene_id == 7002U &&
+            direct_scene_header.generation == 10U &&
+            direct_scene_header.command_count == 1U,
+        "ProGPU Direct2D COM recorder scene identity changed");
+    direct_base_sink.Reset();
+    direct_sink.Reset();
+    progpu_native_direct2d_scene_recorder_destroy(direct_recorder);
+    direct_recorder = nullptr;
+
     progpu_native_scene_header scene_header{};
     std::memcpy(&scene_header, scene_stream.data(), sizeof(scene_header));
     require(

@@ -45,7 +45,7 @@ public sealed class Direct2DInteropContractTests
             native,
             StringComparison.Ordinal);
         Assert.Contains(
-            "internal const uint AbiVersion = 42U;",
+            "internal const uint AbiVersion = 43U;",
             native,
             StringComparison.Ordinal);
         Assert.Contains(
@@ -431,8 +431,16 @@ public sealed class Direct2DInteropContractTests
             "progpu_native_direct2d_surface_try_get_win2d_native_resource",
             exports,
             StringComparison.Ordinal);
+        Assert.Contains(
+            "progpu_native_direct2d_scene_recorder_get_command_sink",
+            exports,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "progpu_native_direct2d_scene_recorder_build_stream",
+            exports,
+            StringComparison.Ordinal);
         Assert.Equal(
-            123,
+            127,
             exports.Split(
                 '\n',
                 StringSplitOptions.RemoveEmptyEntries |
@@ -480,7 +488,7 @@ public sealed class Direct2DInteropContractTests
             "progpu_native_direct2d_tests.cpp");
 
         Assert.Contains(
-            "PROGPU_NATIVE_DIRECT2D_ABI_VERSION = 42U",
+            "PROGPU_NATIVE_DIRECT2D_ABI_VERSION = 43U",
             header,
             StringComparison.Ordinal);
         Assert.Contains(
@@ -502,6 +510,18 @@ public sealed class Direct2DInteropContractTests
         Assert.Contains(
             "progpu_native_direct2d_surface_end_draw",
             header,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "progpu_native_direct2d_scene_recorder_get_command_sink",
+            header,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "class CommandSceneStreamSink final : public ID2D1CommandSink1",
+            source,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "ProGPU command sink did not expose genuine Direct2D COM identity",
+            test,
             StringComparison.Ordinal);
         Assert.Contains(
             "progpu_native_direct2d_com_release",
