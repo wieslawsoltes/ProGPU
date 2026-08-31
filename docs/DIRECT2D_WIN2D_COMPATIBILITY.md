@@ -1096,6 +1096,45 @@ Provider SHA-256 is
 `C42A075E13706B42F7AA617CA437A194B20076BB538F5C2E91520A4F28BFE81E`;
 all 123 exports exactly match the allowlist.
 
+ABI v40 at implementation `21be13a9` adds per-primitive geometric masks to
+the retained Direct2D layer path. This follows the documented
+[`D2D1_LAYER_PARAMETERS1`](https://learn.microsoft.com/en-us/windows/win32/api/d2d1_1/ns-d2d1_1-d2d1_layer_parameters1)
+ordering: the mask transform is relative to the active world transform, so
+the sink retains `maskTransform * drawTransform` over geometry captured by
+`ID2D1Geometry::Simplify(CUBICS_AND_LINES)`. Filled figures, fill rule, lines,
+and cubics become one pointer-free ProGPU vector layer-mask resource. The
+Direct2D geometry is not retained after command-list translation.
+
+The mask executes through ProGPU's existing eight-sample GPU vector-mask
+rasterizer and isolated-layer compositor on D3D12, Metal, Vulkan, and WebGPU.
+There is no CPU pixel rasterization, readback, repack, or per-segment GPU
+submission. Direct2D `GetBounds` supplies target mask bounds; finite layer
+content bounds are intersected with them, while a full-target layer becomes
+mask-bounded. Empty filled geometry becomes an exact empty layer. Non-finite
+composition and unsupported geometry fail closed without emitting a partial
+scene.
+
+This checkpoint intentionally admits `D2D1_ANTIALIAS_MODE_PER_PRIMITIVE` only.
+Aliased masks remain typed unsupported state until the semantic layer-mask ABI
+has an exact hard-edge coverage mode. Opacity brushes,
+`INITIALIZE_FROM_BACKGROUND`, and `IGNORE_ALPHA` remain separate unsupported
+contracts. This preserves the distinction in Microsoft's
+[layer overview](https://learn.microsoft.com/en-us/windows/win32/direct2d/direct2d-layers-overview)
+between geometric coverage, uniform group opacity, and backdrop behavior.
+
+The Windows oracle uses a genuine filled Direct2D line/cubic geometry, a
+nonidentity mask transform, and a nonidentity active draw transform. It asks
+the same `ID2D1Geometry` for independently transformed bounds, then decodes
+the ProGPU layer, intersected bounds, vector-mask payload, three retained path
+segments, fill rule, eight-sample mode, and composed transform. A second
+command list proves aliased geometric masks emit typed unsupported state and
+zero scene bytes. Managed AOT contracts pass 5/5 and the package builds with
+zero warnings. Windows 11 ARM64 Parallels rebuilds provider and test from
+deleted objects under MSVC 19.44/SDK 10.0.26100.0 `/W4 /WX`; the fresh native
+test exits zero. The 170,496-byte provider SHA-256 is
+`21CB1B6F5DD483A6E6F1F3546D76C1EC158A22F042120AA8A503247CF58B4789`,
+and all 123 exports match the allowlist.
+
 `eng/build-progpu-native-windows.ps1` builds and runs
 the native test on runnable Windows x64/ARM64 agents, stages
 `progpu_native_direct2d.dll` in both Windows runtime packages, and rejects any
