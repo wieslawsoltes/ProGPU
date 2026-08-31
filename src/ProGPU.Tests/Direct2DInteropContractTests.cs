@@ -6,6 +6,44 @@ namespace ProGPU.Tests;
 public sealed class Direct2DInteropContractTests
 {
     [Fact]
+    public void PortableComFoundationPreservesIdentityLifetimeAndInstallContract()
+    {
+        string header = ReadRepoFile(
+            "src",
+            "ProGPU.Native",
+            "include",
+            "progpu_native_com.hpp");
+        string cmake = ReadRepoFile(
+            "src",
+            "ProGPU.Native",
+            "CMakeLists.txt");
+        string nativeTest = ReadRepoFile(
+            "src",
+            "ProGPU.Native",
+            "tests",
+            "progpu_native_com_tests.cpp");
+
+        Assert.Contains("using unknown = IUnknown;", header, StringComparison.Ordinal);
+        Assert.Contains("struct unknown", header, StringComparison.Ordinal);
+        Assert.Contains("atomic_reference_count", header, StringComparison.Ordinal);
+        Assert.Contains("class pointer final", header, StringComparison.Ordinal);
+        Assert.Contains("unknown_interface_id()", header, StringComparison.Ordinal);
+        Assert.Contains(
+            "include/progpu_native_com.hpp",
+            cmake,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "add_executable(progpu_native_com_tests",
+            cmake,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "identity.get() != static_cast<com::unknown*>(raw)",
+            nativeTest,
+            StringComparison.Ordinal);
+        Assert.Contains("return destroyed ? 0 : 6;", nativeTest, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void NativeDirect2DHeaderExposesPortableLayoutsAndExplicitProviderCapability()
     {
         string header = ReadRepoFile(
