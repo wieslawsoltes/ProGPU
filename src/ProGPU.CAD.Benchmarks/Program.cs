@@ -22,6 +22,20 @@ using ProGPU.Scene.Extensions;
 using ProGPU.Text;
 using ProGPU.Tests.Headless;
 
+int mesh3DSelectionGridSize = ReadNonNegativeInt(
+    "--mesh3d-selection-grid",
+    0);
+if (mesh3DSelectionGridSize != 0)
+{
+    RunMesh3DSelectionBenchmark(
+        mesh3DSelectionGridSize,
+        ReadNonNegativeInt("--warmup", 3),
+        ReadPositiveInt("--iterations", 12),
+        ReadPositiveInt("--queries", 65_536),
+        ReadString("--output-json"));
+    return;
+}
+
 int mesh3DReplayBatchCount = ReadNonNegativeInt(
     "--mesh3d-replay-batches",
     0);
@@ -1273,6 +1287,188 @@ void RunMesh3DReplayBenchmark(
         File.WriteAllText(reportPath, json);
     }
     window.Content = null;
+}
+
+void RunMesh3DSelectionBenchmark(
+    int gridSize,
+    int warmupCount,
+    int iterationCount,
+    int queryCount,
+    string? reportPath)
+{
+    var document = new CadDocument();
+    Mesh mesh = CreateMesh3DSelectionGrid(gridSize);
+    document.Entities.Add(mesh);
+    CadDocumentSnapshot snapshot = new CadSnapshotCompiler().Compile(
+        new CadDocumentSession(document));
+    CadRecordedMesh3DScene scene = new CadMesh3DSceneCompiler().Compile(snapshot);
+    int expectedTriangleCount = checked(gridSize * gridSize * 2);
+    if (scene.Statistics.TriangleCount != expectedTriangleCount)
+    {
+        throw new InvalidOperationException(
+            $"The selection benchmark expected {expectedTriangleCount} triangles but compiled {scene.Statistics.TriangleCount}.");
+    }
+
+    for (int index = 0; index < warmupCount; index++)
+    {
+        _ = CadMesh3DSelectionIndex.Build(scene);
+    }
+    Measurement buildMeasurement = Measure(
+        "mesh3d-selection-index-build-ms",
+        iterationCount,
+        () => CadMesh3DSelectionIndex.Build(scene));
+    CadMesh3DSelectionIndex selectionIndex =
+        CadMesh3DSelectionIndex.Build(scene);
+    CadMesh3DViewport viewport = CadMesh3DViewport.Fit(scene);
+    Vector2 viewportSize = new(1_920.0f, 1_080.0f);
+    var queryPoints = new Vector2[queryCount];
+    uint state = 0x9e3779b9U;
+    for (int index = 0; index < queryPoints.Length; index++)
+    {
+        state = unchecked(state * 1_664_525U + 1_013_904_223U);
+        int x = (int)(state % (uint)gridSize);
+        state = unchecked(state * 1_664_525U + 1_013_904_223U);
+        int y = (int)(state % (uint)gridSize);
+        queryPoints[index] = ProjectMesh3DSelectionPoint(
+            viewport,
+            scene,
+            viewportSize,
+            new CadPoint3D(x + 0.375, y + 0.625, 0.0));
+    }
+
+    for (int index = 0; index < Math.Min(queryCount, 4_096); index++)
+    {
+        CadMesh3DSelectionResult warm = selectionIndex.Query(
+            viewport,
+            viewportSize,
+            queryPoints[index]);
+        if (!warm.IsHit || warm.Handle != mesh.Handle)
+        {
+            throw new InvalidOperationException(
+                "A warm selection benchmark query missed the retained grid.");
+        }
+    }
+
+    var elapsed = new double[queryCount];
+    long visitedNodeCount = 0;
+    long testedTriangleCount = 0;
+    int maximumVisitedNodeCount = 0;
+    int maximumTestedTriangleCount = 0;
+    ulong checksum = 0;
+    long allocationStart = GC.GetAllocatedBytesForCurrentThread();
+    for (int index = 0; index < queryPoints.Length; index++)
+    {
+        long started = Stopwatch.GetTimestamp();
+        CadMesh3DSelectionResult result = selectionIndex.Query(
+            viewport,
+            viewportSize,
+            queryPoints[index]);
+        elapsed[index] = Stopwatch.GetElapsedTime(started).TotalNanoseconds;
+        if (!result.IsHit || result.Handle != mesh.Handle)
+        {
+            throw new InvalidOperationException(
+                "A measured selection benchmark query missed the retained grid.");
+        }
+        visitedNodeCount += result.VisitedNodeCount;
+        testedTriangleCount += result.TestedTriangleCount;
+        maximumVisitedNodeCount = Math.Max(
+            maximumVisitedNodeCount,
+            result.VisitedNodeCount);
+        maximumTestedTriangleCount = Math.Max(
+            maximumTestedTriangleCount,
+            result.TestedTriangleCount);
+        checksum ^= result.Handle + (uint)result.TriangleIndex;
+    }
+    long allocatedBytes =
+        GC.GetAllocatedBytesForCurrentThread() - allocationStart;
+    GC.KeepAlive(checksum);
+
+    var report = new CadMesh3DSelectionBenchmarkReport(
+        DateTimeOffset.UtcNow,
+        Environment.OSVersion.ToString(),
+        Environment.Version.ToString(),
+        HashAssembly(Assembly.GetExecutingAssembly()),
+        HashAssembly(typeof(CadMesh3DSelectionIndex).Assembly),
+        gridSize,
+        expectedTriangleCount,
+        warmupCount,
+        iterationCount,
+        queryCount,
+        buildMeasurement,
+        Summarize(
+            "mesh3d-selection-query-ns",
+            elapsed,
+            allocatedBytes / queryCount),
+        allocatedBytes,
+        selectionIndex.Statistics,
+        (double)visitedNodeCount / queryCount,
+        (double)testedTriangleCount / queryCount,
+        maximumVisitedNodeCount,
+        maximumTestedTriangleCount,
+        checksum);
+    string json = JsonSerializer.Serialize(
+        report,
+        new JsonSerializerOptions { WriteIndented = true });
+    Console.WriteLine(json);
+    if (reportPath is not null)
+    {
+        File.WriteAllText(reportPath, json);
+    }
+}
+
+Mesh CreateMesh3DSelectionGrid(int gridSize)
+{
+    var mesh = new Mesh();
+    int stride = checked(gridSize + 1);
+    for (int y = 0; y <= gridSize; y++)
+    {
+        for (int x = 0; x <= gridSize; x++)
+        {
+            mesh.Vertices.Add(new XYZ(x, y, 0.0));
+        }
+    }
+    for (int y = 0; y < gridSize; y++)
+    {
+        for (int x = 0; x < gridSize; x++)
+        {
+            int first = checked(y * stride + x);
+            mesh.Faces.Add([
+                first,
+                first + 1,
+                first + stride + 1,
+                first + stride,
+            ]);
+        }
+    }
+    return mesh;
+}
+
+Vector2 ProjectMesh3DSelectionPoint(
+    CadMesh3DViewport viewport,
+    CadRecordedMesh3DScene scene,
+    Vector2 viewportSize,
+    CadPoint3D worldPoint)
+{
+    CadPoint3D local = worldPoint - scene.RebaseOrigin;
+    CadMesh3DProjectionCamera camera = viewport.CreateProjectionCamera();
+    Matrix4x4 matrix = camera.CreateViewMatrix() *
+        camera.CreateProjectionMatrix(viewportSize.X / viewportSize.Y);
+    Vector4 clip = Vector4.Transform(
+        new Vector4(
+            (float)local.X,
+            (float)local.Y,
+            (float)local.Z,
+            1.0f),
+        matrix);
+    if (!float.IsFinite(clip.W) || clip.W == 0.0f)
+    {
+        throw new InvalidOperationException(
+            "The selection benchmark projection is not finite.");
+    }
+    float inverseW = 1.0f / clip.W;
+    return new Vector2(
+        (clip.X * inverseW + 1.0f) * 0.5f * viewportSize.X,
+        (1.0f - clip.Y * inverseW) * 0.5f * viewportSize.Y);
 }
 
 CadMesh3DReplayBinaryHashes CaptureMesh3DReplayBinaryHashes() =>
@@ -3106,6 +3302,27 @@ internal sealed record CadMesh3DReplayBenchmarkReport(
     ulong TotalUniformUploadBytes,
     Mesh3DFrameMetrics InitialFrame,
     Mesh3DFrameMetrics StableFrame);
+
+internal sealed record CadMesh3DSelectionBenchmarkReport(
+    DateTimeOffset CapturedAt,
+    string OperatingSystem,
+    string Runtime,
+    string BenchmarkBinarySha256,
+    string CadBinarySha256,
+    int GridSize,
+    int TriangleCount,
+    int WarmupCount,
+    int BuildIterationCount,
+    int QueryCount,
+    Measurement IndexBuildMilliseconds,
+    Measurement QueryNanoseconds,
+    long TotalQueryManagedAllocatedBytes,
+    CadMesh3DSelectionIndexStatistics IndexStatistics,
+    double AverageVisitedNodeCount,
+    double AverageTestedTriangleCount,
+    int MaximumVisitedNodeCount,
+    int MaximumTestedTriangleCount,
+    ulong Checksum);
 
 internal sealed record CadMesh3DReplayBinaryHashes(
     string Benchmark,

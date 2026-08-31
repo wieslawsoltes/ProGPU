@@ -122,9 +122,25 @@ near/far clipping, deterministic shared-edge ties, large-WCS rebasing,
 generation/rebase validation, dense-scene pruning, zero-allocation warm
 queries, coordinator replacement, click-versus-drag interaction, selection
 clearing, semantic handle continuity, theme-dynamic highlighting, and retained
-camera/upload counters. A Release dense-scene lane records build cost, index
-bytes/nodes/depth, query p50/p95/p99, nodes visited, triangles tested, and
-managed allocation from SHA-identified final binaries.
+camera/upload counters. The SHA-identified Release 256-by-256 grid lane contains
+131,072 triangles. Its 2,359,256-byte, depth-15 index built at
+23.2322/41.6313/41.6313 ms p50/p95/p99. Across 65,536 exact queries it visited
+15 nodes, tested eight triangles, used zero managed bytes, and measured
+1.5/9.1/19.4 microseconds p50/p95/p99. The checked-in JSON is
+`artifacts/benchmarks/cad-3d-selection-grid-256.json`.
+There is no matched pre-change selection latency because the prior Flat 3D
+viewer had no projected query path; these figures are an acceptance baseline,
+not a claimed before/after speedup.
+
+Matched macOS Allocations, Time Profiler, and Metal System Trace captures use a
+larger 524,288-triangle workload from the same final binaries. Allocations
+reported 19,788,704 persistent heap-plus-anonymous-VM bytes and 60,382,960
+total bytes while repeatedly constructing the bounded index. Metal observed no
+target resource allocation, current allocated size, application command
+submission, drawable wait, compiler spill, hang, or error, confirming that a
+query neither initializes WebGPU nor retains GPU state. Raw traces were removed
+after compact exports; the manifest, notes, tables, and summary remain under
+`artifacts/benchmarks/cad-3d-selection-instruments/`.
 
 Still required for full 3D selection fidelity are configurable pick aperture,
 Window/Crossing frustum selection, transparent/hidden-line policy, selection

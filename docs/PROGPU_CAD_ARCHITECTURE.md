@@ -1234,8 +1234,9 @@ The hosts remain an executable engine-integration baseline, not yet the complete
 CAD editor shell. They now share plan, Flat 3D, and retained print-preview modes
 with generation-safe layout/named-page-setup selection plus an explicit A4
 model-extents fallback and reversible creation/application of named page setups
-from Model; dedicated dockable property/layer panels, arbitrary-camera projected
-selection, broader editing tools, expanded device/media/margin/scale page-setup UI,
+from Model; dedicated dockable property/layer panels, projected
+Window/Crossing, selection cycling and subobjects, broader editing tools,
+expanded device/media/margin/scale page-setup UI,
 printer/export adapters, and round-trip-certified output remain tracked
 application phases.
 
@@ -2259,6 +2260,32 @@ The coordinator intentionally reports actual generation-compilation/entity
 work separately; it does not mislabel GPU draw submission as entity-independent.
 The clean-room research, two-part arithmetic, parity audit, and evidence are in
 [`PROGPU_CAD_3D_CAMERA_RESEARCH.md`](PROGPU_CAD_3D_CAMERA_RESEARCH.md).
+
+`CadMesh3DSelectionIndex` attaches one immutable, device-independent projected
+selection accelerator to that same geometry generation. It sorts finite local
+triangle centroids by a deterministic 30-bit Morton key and builds a balanced
+binary AABB tree with at most eight triangle references per leaf. Construction
+is `O(T log T)` time and `O(T)` retained storage for `T` triangles; exact
+two-sided nearest-hit queries are typically `O(log T + H)` for `H` candidates,
+conservatively `O(T)`, and use a fixed stack with zero warm managed allocation.
+Each logical click unprojects WebGPU depth zero and one through the current
+view-projection matrix, clips traversal to that segment, resolves equal-depth
+hits by stable batch/triangle order, and returns the semantic root handle,
+double-WCS hit, barycentrics, facing, and work counters. The shared shell uses
+non-Shift stationary left clicks, Ctrl toggling, and a dynamic
+`SystemAccentColor` material; material-only invalidation retains geometry-cache
+identity and records zero geometry upload.
+
+The CPU index consumes the same immutable triangles, handle, rebase, and camera
+state as both render adapters and adds no shader, C record, generated wire
+declaration, P/Invoke, or GPU lifetime. A duplicate native C++ index would add
+semantic drift without reducing a boundary crossing, so the native host uses
+the same managed pre-submission query seam. Matched tests cover ordering,
+clipping, large-WCS precision, non-power-of-two topology, dense pruning,
+interaction, dynamic highlighting, and record-only replay. The primary-source
+research, native applicability audit, Release percentiles, and macOS
+Allocations/Time Profiler/Metal evidence are in
+[`PROGPU_CAD_3D_SELECTION_RESEARCH.md`](PROGPU_CAD_3D_SELECTION_RESEARCH.md).
 
 The shared CAD host enables the managed `Viewport3D` generation-retained scene
 contract after replacing its immutable batch generation. A camera-only frame

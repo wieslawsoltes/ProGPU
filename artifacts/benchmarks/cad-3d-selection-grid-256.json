@@ -1,0 +1,41 @@
+{
+  "CapturedAt": "2026-08-31T23:03:48.865916+00:00",
+  "OperatingSystem": "Unix 26.6.0",
+  "Runtime": "10.0.5",
+  "BenchmarkBinarySha256": "c5bb00239cd4b4d33e9e1df0752649a4a045e2153ceea7720fb35cc422e9eb70",
+  "CadBinarySha256": "fc94cf72edd2d4c5b1af0e3a6bc8798e2a20a74ab5933b4c013d82cc55eb2b69",
+  "GridSize": 256,
+  "TriangleCount": 131072,
+  "WarmupCount": 3,
+  "BuildIterationCount": 12,
+  "QueryCount": 65536,
+  "IndexBuildMilliseconds": {
+    "Name": "mesh3d-selection-index-build-ms",
+    "P50": 23.2322,
+    "P95": 41.6313,
+    "P99": 41.6313,
+    "Mean": 27.489733333333334,
+    "AllocatedBytesPerOperation": 8650876
+  },
+  "QueryNanoseconds": {
+    "Name": "mesh3d-selection-query-ns",
+    "P50": 1500,
+    "P95": 9100,
+    "P99": 19400,
+    "Mean": 2839.1265869140625,
+    "AllocatedBytesPerOperation": 0
+  },
+  "TotalQueryManagedAllocatedBytes": 0,
+  "IndexStatistics": {
+    "TriangleCount": 131072,
+    "NodeCount": 32767,
+    "LeafCount": 16384,
+    "MaximumDepth": 15,
+    "RetainedByteCount": 2359256
+  },
+  "AverageVisitedNodeCount": 15,
+  "AverageTestedTriangleCount": 8,
+  "MaximumVisitedNodeCount": 15,
+  "MaximumTestedTriangleCount": 8,
+  "Checksum": 0
+}
