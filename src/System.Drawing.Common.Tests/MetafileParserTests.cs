@@ -1658,6 +1658,105 @@ public sealed class MetafileParserTests
     }
 
     [Fact]
+    public void EmfPolyTextOutWDrawsCountedUnicodeStringsWithIndependentCells()
+    {
+        byte[] emf = CreateTextPlaybackEmf(
+        [
+            (EmfPlusRecordType.EmfSetBkMode, EmfInt32(1)),
+            (EmfPlusRecordType.EmfExtCreateFontIndirect,
+                EmfFont(1, -14, SystemFonts.DefaultFont.Name)),
+            (EmfPlusRecordType.EmfSelectObject, EmfUInt32(1)),
+            (EmfPlusRecordType.EmfSetTextColor, EmfUInt32(0x0000_00FF)),
+            (EmfPlusRecordType.EmfPolyTextOutW,
+                EmfPolyTextOutW(
+                    ("M\u03A9", new Point(4, 4), [20, 24]),
+                    ("MM", new Point(8, 28), [12, 16])))
+        ]);
+        using var metafile = new Metafile(new MemoryStream(emf));
+        var context = new DrawingContext();
+        using Graphics graphics = Graphics.FromProGpuDrawingContext(context);
+
+        graphics.DrawImage(metafile, new Rectangle(0, 0, 64, 64));
+
+        RenderCommand[] glyphRuns = context.Commands
+            .Where(static command => command.Type == RenderCommandType.DrawGlyphRun)
+            .ToArray();
+        Assert.Equal(2, glyphRuns.Length);
+        ushort[] firstIndices = Assert.IsType<ushort[]>(glyphRuns[0].GlyphIndices);
+        Vector2[] firstPositions = Assert.IsType<Vector2[]>(glyphRuns[0].GlyphPositions);
+        Vector2[] secondPositions = Assert.IsType<Vector2[]>(glyphRuns[1].GlyphPositions);
+        Assert.Equal(2, firstIndices.Length);
+        Assert.NotEqual(firstIndices[0], firstIndices[1]);
+        Assert.Equal(4f, glyphRuns[0].Position.X, 3);
+        Assert.Equal(4f, glyphRuns[0].Position.Y, 3);
+        Assert.Equal(0f, firstPositions[0].X, 3);
+        Assert.Equal(20f, firstPositions[1].X - firstPositions[0].X, 3);
+        Assert.Equal(8f, glyphRuns[1].Position.X, 3);
+        Assert.Equal(28f, glyphRuns[1].Position.Y, 3);
+        Assert.Equal(0f, secondPositions[0].X, 3);
+        Assert.Equal(12f, secondPositions[1].X - secondPositions[0].X, 3);
+    }
+
+    [Fact]
+    public void EmfPolyTextOutAUsesSelectedCharsetAndOddStringOffset()
+    {
+        byte[] emf = CreateTextPlaybackEmf(
+        [
+            (EmfPlusRecordType.EmfSetBkMode, EmfInt32(1)),
+            (EmfPlusRecordType.EmfExtCreateFontIndirect,
+                EmfFont(1, -14, SystemFonts.DefaultFont.Name)),
+            (EmfPlusRecordType.EmfSelectObject, EmfUInt32(1)),
+            (EmfPlusRecordType.EmfPolyTextOutA,
+                EmfPolyTextOutA(
+                    "M\u20AC",
+                    new Point(5, 7),
+                    [18, 22],
+                    codePage: 1252,
+                    stringPadding: 1))
+        ]);
+        using var metafile = new Metafile(new MemoryStream(emf));
+        var context = new DrawingContext();
+        using Graphics graphics = Graphics.FromProGpuDrawingContext(context);
+
+        graphics.DrawImage(metafile, new Rectangle(0, 0, 64, 64));
+
+        RenderCommand glyphRun = Assert.Single(
+            context.Commands,
+            static command => command.Type == RenderCommandType.DrawGlyphRun);
+        ushort[] glyphIndices = Assert.IsType<ushort[]>(glyphRun.GlyphIndices);
+        Vector2[] glyphPositions = Assert.IsType<Vector2[]>(glyphRun.GlyphPositions);
+        Assert.Equal(2, glyphIndices.Length);
+        Assert.NotEqual(glyphIndices[0], glyphIndices[1]);
+        Assert.Equal(5f, glyphRun.Position.X, 3);
+        Assert.Equal(7f, glyphRun.Position.Y, 3);
+        Assert.Equal(0f, glyphPositions[0].X, 3);
+        Assert.Equal(18f, glyphPositions[1].X - glyphPositions[0].X, 3);
+    }
+
+    [Fact]
+    public void EmfPolyTextOutRejectsLaterDescriptorOverlapWithoutPublishingCommands()
+    {
+        byte[] malformed = EmfPolyTextOutW(
+            ("M", new Point(4, 4), null),
+            ("M", new Point(20, 4), null));
+        WriteUInt32(malformed, 84, 80);
+        byte[] emf = CreateTextPlaybackEmf(
+        [
+            (EmfPlusRecordType.EmfRectangle, EmfRectangle(1, 1, 4, 4)),
+            (EmfPlusRecordType.EmfPolyTextOutW, malformed)
+        ]);
+        using var metafile = new Metafile(new MemoryStream(emf));
+        var context = new DrawingContext();
+        using Graphics graphics = Graphics.FromProGpuDrawingContext(context);
+
+        ArgumentException exception = Assert.Throws<ArgumentException>(() =>
+            graphics.DrawImage(metafile, new Rectangle(0, 0, 64, 64)));
+
+        Assert.Contains(nameof(EmfPlusRecordType.EmfPolyTextOutW), exception.Message);
+        Assert.Empty(context.Commands);
+    }
+
+    [Fact]
     public void EmfPlaybackRejectsImageAttributesAndPerspectiveMappingExplicitly()
     {
         using var metafile = new Metafile(new MemoryStream(CreatePlaybackEmf()));
@@ -2699,6 +2798,115 @@ public sealed class MetafileParserTests
             for (int index = 0; index < advances.Length; index++)
             {
                 WriteUInt32(payload, advancesOffset + index * 4, checked((uint)advances[index]));
+            }
+        }
+        return payload;
+    }
+
+    private static byte[] EmfPolyTextOutW(
+        params (string Text, Point Reference, int[]? Advances)[] entries)
+    {
+        byte[][] stringBytes = entries
+            .Select(static entry => Encoding.Unicode.GetBytes(entry.Text))
+            .ToArray();
+        return EmfPolyTextOut(entries, stringBytes, unicode: true, stringPadding: 0);
+    }
+
+    private static byte[] EmfPolyTextOutA(
+        string text,
+        Point reference,
+        int[]? advances,
+        int codePage,
+        int stringPadding)
+    {
+        Encoding.RegisterProvider(CodePagesEncodingProvider.Instance);
+        Encoding encoding = Encoding.GetEncoding(
+            codePage,
+            EncoderFallback.ExceptionFallback,
+            DecoderFallback.ExceptionFallback);
+        (string Text, Point Reference, int[]? Advances)[] entries =
+            [(text, reference, advances)];
+        return EmfPolyTextOut(
+            entries,
+            [encoding.GetBytes(text)],
+            unicode: false,
+            stringPadding);
+    }
+
+    private static byte[] EmfPolyTextOut(
+        (string Text, Point Reference, int[]? Advances)[] entries,
+        byte[][] stringBytes,
+        bool unicode,
+        int stringPadding)
+    {
+        const int EmrTextArrayOffset = 32;
+        const int EmrTextSize = 40;
+        if (stringPadding < 0 || entries.Length != stringBytes.Length)
+        {
+            throw new ArgumentOutOfRangeException(nameof(stringPadding));
+        }
+
+        int dataOffset = checked(EmrTextArrayOffset + entries.Length * EmrTextSize + stringPadding);
+        int[] stringOffsets = new int[entries.Length];
+        int[] advancesOffsets = new int[entries.Length];
+        for (int index = 0; index < entries.Length; index++)
+        {
+            if (unicode && (dataOffset & 1) != 0)
+            {
+                dataOffset++;
+            }
+            stringOffsets[index] = dataOffset;
+            dataOffset = checked(dataOffset + stringBytes[index].Length);
+            int alignedOffset = checked((dataOffset + 3) & ~3);
+            if (entries[index].Advances is int[] advances)
+            {
+                int characterCount = unicode
+                    ? entries[index].Text.Length
+                    : stringBytes[index].Length;
+                if (advances.Length != characterCount)
+                {
+                    throw new ArgumentException(
+                        "One EMF advance is required per encoded character.",
+                        nameof(entries));
+                }
+                advancesOffsets[index] = alignedOffset;
+                dataOffset = checked(alignedOffset + advances.Length * 4);
+            }
+            else
+            {
+                dataOffset = alignedOffset;
+            }
+        }
+
+        byte[] payload = new byte[dataOffset];
+        WriteUInt32(payload, 16, 1);
+        WriteSingle(payload, 20, 1f);
+        WriteSingle(payload, 24, 1f);
+        WriteUInt32(payload, 28, checked((uint)entries.Length));
+        for (int index = 0; index < entries.Length; index++)
+        {
+            int descriptorOffset = EmrTextArrayOffset + index * EmrTextSize;
+            WriteInt32(payload, descriptorOffset, entries[index].Reference.X);
+            WriteInt32(payload, descriptorOffset + 4, entries[index].Reference.Y);
+            int characterCount = unicode
+                ? entries[index].Text.Length
+                : stringBytes[index].Length;
+            WriteUInt32(payload, descriptorOffset + 8, checked((uint)characterCount));
+            WriteUInt32(payload, descriptorOffset + 12, checked((uint)stringOffsets[index] + 8));
+            WriteUInt32(payload, descriptorOffset + 36,
+                advancesOffsets[index] == 0
+                    ? 0
+                    : checked((uint)advancesOffsets[index] + 8));
+            stringBytes[index].CopyTo(payload, stringOffsets[index]);
+            if (entries[index].Advances is int[] advances)
+            {
+                for (int advanceIndex = 0; advanceIndex < advances.Length; advanceIndex++)
+                {
+                    WriteUInt32(
+                        payload,
+                        advancesOffsets[index] + advanceIndex * 4,
+                        checked((uint)advances[advanceIndex]));
+                }
             }
         }
         return payload;

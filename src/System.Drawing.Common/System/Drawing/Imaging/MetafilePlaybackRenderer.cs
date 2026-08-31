@@ -473,6 +473,14 @@ internal static class MetafilePlaybackRenderer
                 DrawEmfExtTextOut(state, record, payload, unicode: false);
                 return;
 
+            case EmfPlusRecordType.EmfPolyTextOutW:
+                DrawEmfPolyTextOut(state, record, payload, unicode: true);
+                return;
+
+            case EmfPlusRecordType.EmfPolyTextOutA:
+                DrawEmfPolyTextOut(state, record, payload, unicode: false);
+                return;
+
             case EmfPlusRecordType.EmfSetTextJustification:
                 RequireSize(record, payload, 8);
                 state.SetTextJustification(
@@ -1037,17 +1045,69 @@ internal static class MetafilePlaybackRenderer
         ReadOnlySpan<byte> payload,
         bool unicode)
     {
-        const uint EtoOpaque = 0x0000_0002;
-        const uint EtoClipped = 0x0000_0004;
-        const uint EtoRtlReading = 0x0000_0080;
-        const uint EtoIgnoreLanguage = 0x0000_1000;
-        const uint SupportedOptions =
-            EtoOpaque | EtoClipped | EtoRtlReading | EtoIgnoreLanguage;
         const int EmrTextOffset = 28;
         const int EmrTextSize = 40;
-        const int RecordHeaderSize = 8;
 
-        if (payload.Length < EmrTextOffset + EmrTextSize)
+        ValidateEmfTextHeader(record, payload, EmrTextOffset + EmrTextSize);
+        DrawEmfText(
+            state,
+            record,
+            payload,
+            EmrTextOffset,
+            EmrTextOffset + EmrTextSize,
+            unicode);
+    }
+
+    private static void DrawEmfPolyTextOut(
+        PlaybackState state,
+        in MetafileRecord record,
+        ReadOnlySpan<byte> payload,
+        bool unicode)
+    {
+        const int EmrTextArrayOffset = 32;
+        const int EmrTextSize = 40;
+
+        ValidateEmfTextHeader(record, payload, EmrTextArrayOffset);
+        uint stringCountValue = ReadUInt32(payload, 28);
+        if (stringCountValue > 1_000_000)
+        {
+            throw Invalid(record);
+        }
+
+        int stringCount;
+        int dataOffset;
+        try
+        {
+            stringCount = checked((int)stringCountValue);
+            dataOffset = checked(EmrTextArrayOffset + stringCount * EmrTextSize);
+        }
+        catch (OverflowException exception)
+        {
+            throw Invalid(record, exception);
+        }
+        if (dataOffset > payload.Length)
+        {
+            throw Invalid(record);
+        }
+
+        for (int index = 0; index < stringCount; index++)
+        {
+            DrawEmfText(
+                state,
+                record,
+                payload,
+                EmrTextArrayOffset + index * EmrTextSize,
+                dataOffset,
+                unicode);
+        }
+    }
+
+    private static void ValidateEmfTextHeader(
+        in MetafileRecord record,
+        ReadOnlySpan<byte> payload,
+        int minimumSize)
+    {
+        if (payload.Length < minimumSize)
         {
             throw Invalid(record);
         }
@@ -1062,13 +1122,30 @@ internal static class MetafilePlaybackRenderer
         {
             throw Invalid(record);
         }
+    }
 
-        int referenceX = ReadInt32(payload, EmrTextOffset);
-        int referenceY = ReadInt32(payload, EmrTextOffset + 4);
-        uint characterCountValue = ReadUInt32(payload, EmrTextOffset + 8);
-        uint stringOffsetValue = ReadUInt32(payload, EmrTextOffset + 12);
-        uint options = ReadUInt32(payload, EmrTextOffset + 16);
-        uint advancesOffsetValue = ReadUInt32(payload, EmrTextOffset + 36);
+    private static void DrawEmfText(
+        PlaybackState state,
+        in MetafileRecord record,
+        ReadOnlySpan<byte> payload,
+        int emrTextOffset,
+        int minimumDataOffset,
+        bool unicode)
+    {
+        const uint EtoOpaque = 0x0000_0002;
+        const uint EtoClipped = 0x0000_0004;
+        const uint EtoRtlReading = 0x0000_0080;
+        const uint EtoIgnoreLanguage = 0x0000_1000;
+        const uint SupportedOptions =
+            EtoOpaque | EtoClipped | EtoRtlReading | EtoIgnoreLanguage;
+        const int RecordHeaderSize = 8;
+
+        int referenceX = ReadInt32(payload, emrTextOffset);
+        int referenceY = ReadInt32(payload, emrTextOffset + 4);
+        uint characterCountValue = ReadUInt32(payload, emrTextOffset + 8);
+        uint stringOffsetValue = ReadUInt32(payload, emrTextOffset + 12);
+        uint options = ReadUInt32(payload, emrTextOffset + 16);
+        uint advancesOffsetValue = ReadUInt32(payload, emrTextOffset + 36);
         if (characterCountValue > 1_000_000 || (options & ~SupportedOptions) != 0)
         {
             if ((options & ~SupportedOptions) != 0)
@@ -1087,7 +1164,7 @@ internal static class MetafilePlaybackRenderer
         {
             characterCount = checked((int)characterCountValue);
             stringOffset = characterCount == 0 && stringOffsetValue == 0
-                ? EmrTextOffset + EmrTextSize
+                ? minimumDataOffset
                 : checked((int)stringOffsetValue - RecordHeaderSize);
             stringSize = checked(characterCount * (unicode ? 2 : 1));
         }
@@ -1096,7 +1173,7 @@ internal static class MetafilePlaybackRenderer
             throw Invalid(record, exception);
         }
         if ((unicode && (stringOffsetValue & 1) != 0) ||
-            stringOffset < EmrTextOffset + EmrTextSize ||
+            stringOffset < minimumDataOffset ||
             stringOffset > payload.Length - stringSize)
         {
             throw Invalid(record);
@@ -1152,7 +1229,7 @@ internal static class MetafilePlaybackRenderer
                 throw Invalid(record, exception);
             }
             if ((advancesOffsetValue & 3) != 0 ||
-                advancesOffset < EmrTextOffset + EmrTextSize ||
+                advancesOffset < minimumDataOffset ||
                 advancesOffset > payload.Length - advancesSize)
             {
                 throw Invalid(record);
@@ -1201,10 +1278,10 @@ internal static class MetafilePlaybackRenderer
         Rectangle rectangle = Rectangle.Empty;
         if ((options & (EtoOpaque | EtoClipped)) != 0)
         {
-            int left = ReadInt32(payload, EmrTextOffset + 20);
-            int top = ReadInt32(payload, EmrTextOffset + 24);
-            int right = ReadInt32(payload, EmrTextOffset + 28);
-            int bottom = ReadInt32(payload, EmrTextOffset + 32);
+            int left = ReadInt32(payload, emrTextOffset + 20);
+            int top = ReadInt32(payload, emrTextOffset + 24);
+            int right = ReadInt32(payload, emrTextOffset + 28);
+            int bottom = ReadInt32(payload, emrTextOffset + 32);
             if (right < left || bottom < top)
             {
                 throw Invalid(record);

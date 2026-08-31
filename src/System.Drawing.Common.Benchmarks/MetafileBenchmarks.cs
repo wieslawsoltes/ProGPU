@@ -20,6 +20,7 @@ public class MetafileBenchmarks
     private Metafile _playbackMetafile = null!;
     private Metafile _emfExtendedTextPlaybackMetafile = null!;
     private Metafile _emfAnsiExtendedTextPlaybackMetafile = null!;
+    private Metafile _emfPolyTextPlaybackMetafile = null!;
     private Metafile _wmfPlaybackMetafile = null!;
     private Metafile _wmfRectanglePlaybackMetafile = null!;
     private Metafile _wmfClippedRectanglePlaybackMetafile = null!;
@@ -58,6 +59,8 @@ public class MetafileBenchmarks
             new MemoryStream(
                 CreatePlaybackEmfExtendedText(256, unicode: false),
                 writable: false));
+        _emfPolyTextPlaybackMetafile = new Metafile(
+            new MemoryStream(CreatePlaybackEmfPolyText(256), writable: false));
         _wmfPlaybackMetafile = new Metafile(
             new MemoryStream(CreatePlaybackWmf(256), writable: false));
         _wmfRectanglePlaybackMetafile = new Metafile(
@@ -112,6 +115,7 @@ public class MetafileBenchmarks
         _playbackMetafile.Dispose();
         _emfExtendedTextPlaybackMetafile.Dispose();
         _emfAnsiExtendedTextPlaybackMetafile.Dispose();
+        _emfPolyTextPlaybackMetafile.Dispose();
         _wmfPlaybackMetafile.Dispose();
         _wmfRectanglePlaybackMetafile.Dispose();
         _wmfClippedRectanglePlaybackMetafile.Dispose();
@@ -191,6 +195,18 @@ public class MetafileBenchmarks
         _playbackContext.Clear();
         _playbackGraphics.DrawImage(
             _emfAnsiExtendedTextPlaybackMetafile,
+            new Rectangle(0, 0, 640, 480));
+        int commandCount = _playbackContext.Commands.Count;
+        _playbackContext.Clear();
+        return commandCount;
+    }
+
+    [Benchmark]
+    public int Playback256EmfPolyTextOutWTwoStringsWithAdvances()
+    {
+        _playbackContext.Clear();
+        _playbackGraphics.DrawImage(
+            _emfPolyTextPlaybackMetafile,
             new Rectangle(0, 0, 640, 480));
         int commandCount = _playbackContext.Commands.Count;
         _playbackContext.Clear();
@@ -544,6 +560,106 @@ public class MetafileBenchmarks
         WriteUInt32(bytes, cursor + 4, 20);
         WriteUInt32(bytes, cursor + 16, 20);
         return bytes;
+    }
+
+    private static byte[] CreatePlaybackEmfPolyText(int recordCount)
+    {
+        const int fontRecordSize = 104;
+        const int textRecordSize = 160;
+        int totalBytes = checked(
+            88 + fontRecordSize + 12 + 12 + 12 + recordCount * textRecordSize + 20);
+        byte[] bytes = new byte[totalBytes];
+        WriteUInt32(bytes, 0, (uint)EmfPlusRecordType.EmfHeader);
+        WriteUInt32(bytes, 4, 88);
+        WriteInt32(bytes, 16, 640);
+        WriteInt32(bytes, 20, 480);
+        WriteInt32(bytes, 32, 16_933);
+        WriteInt32(bytes, 36, 12_700);
+        WriteUInt32(bytes, 40, 0x464D_4520);
+        WriteUInt32(bytes, 44, 0x0001_0000);
+        WriteUInt32(bytes, 48, (uint)totalBytes);
+        WriteUInt32(bytes, 52, checked((uint)recordCount + 6));
+        WriteUInt16(bytes, 56, 2);
+        WriteInt32(bytes, 72, 640);
+        WriteInt32(bytes, 76, 480);
+        WriteInt32(bytes, 80, 169);
+        WriteInt32(bytes, 84, 127);
+
+        int cursor = 88;
+        WriteUInt32(bytes, cursor, (uint)EmfPlusRecordType.EmfExtCreateFontIndirect);
+        WriteUInt32(bytes, cursor + 4, fontRecordSize);
+        WriteUInt32(bytes, cursor + 8, 1);
+        WriteInt32(bytes, cursor + 12, -14);
+        WriteInt32(bytes, cursor + 28, 400);
+        bytes[cursor + 35] = 1;
+        byte[] faceName = Encoding.Unicode.GetBytes(SystemFonts.DefaultFont.Name);
+        faceName.AsSpan(0, Math.Min(faceName.Length, 62)).CopyTo(bytes.AsSpan(cursor + 40, 62));
+        cursor += fontRecordSize;
+
+        WriteSelectObject(bytes, cursor, 1);
+        cursor += 12;
+        WriteUInt32(bytes, cursor, (uint)EmfPlusRecordType.EmfSetBkMode);
+        WriteUInt32(bytes, cursor + 4, 12);
+        WriteInt32(bytes, cursor + 8, 1);
+        cursor += 12;
+        WriteUInt32(bytes, cursor, (uint)EmfPlusRecordType.EmfSetTextColor);
+        WriteUInt32(bytes, cursor + 4, 12);
+        WriteUInt32(bytes, cursor + 8, 0x0044_4444);
+        cursor += 12;
+
+        for (int index = 0; index < recordCount; index++)
+        {
+            int x = (index % 16) * 40;
+            int y = (index / 16) * 30;
+            WriteUInt32(bytes, cursor, (uint)EmfPlusRecordType.EmfPolyTextOutW);
+            WriteUInt32(bytes, cursor + 4, textRecordSize);
+            WriteUInt32(bytes, cursor + 24, 1);
+            WriteSingle(bytes, cursor + 28, 1f);
+            WriteSingle(bytes, cursor + 32, 1f);
+            WriteUInt32(bytes, cursor + 36, 2);
+            WritePolyTextDescriptor(bytes, cursor + 40, x, y, 120, 128);
+            WritePolyTextDescriptor(bytes, cursor + 80, x + 18, y + 14, 140, 148);
+            WriteUnicodeWmf(bytes, cursor + 120);
+            WriteAdvances(bytes, cursor + 128);
+            WriteUnicodeWmf(bytes, cursor + 140);
+            WriteAdvances(bytes, cursor + 148);
+            cursor += textRecordSize;
+        }
+
+        WriteUInt32(bytes, cursor, (uint)EmfPlusRecordType.EmfEof);
+        WriteUInt32(bytes, cursor + 4, 20);
+        WriteUInt32(bytes, cursor + 16, 20);
+        return bytes;
+    }
+
+    private static void WritePolyTextDescriptor(
+        byte[] target,
+        int offset,
+        int x,
+        int y,
+        uint stringOffset,
+        uint advancesOffset)
+    {
+        WriteInt32(target, offset, x);
+        WriteInt32(target, offset + 4, y);
+        WriteUInt32(target, offset + 8, 3);
+        WriteUInt32(target, offset + 12, stringOffset);
+        WriteUInt32(target, offset + 16, 0x0000_1000);
+        WriteUInt32(target, offset + 36, advancesOffset);
+    }
+
+    private static void WriteUnicodeWmf(byte[] target, int offset)
+    {
+        WriteUInt16(target, offset, 'W');
+        WriteUInt16(target, offset + 2, 'M');
+        WriteUInt16(target, offset + 4, 'F');
+    }
+
+    private static void WriteAdvances(byte[] target, int offset)
+    {
+        WriteUInt32(target, offset, 10);
+        WriteUInt32(target, offset + 4, 10);
+        WriteUInt32(target, offset + 8, 10);
     }
 
     private static byte[] CreatePlaybackWmf(int polygonCount)

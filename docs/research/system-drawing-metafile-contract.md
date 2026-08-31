@@ -510,6 +510,31 @@ odd-byte offsets, explicit advances, Shift-JIS decoding without explicit
 advances, invalid Shift-JIS input, DBCS-advance rejection, and rollback raise
 the authoritative drawing suite to 442/442.
 
+`EMR_POLYTEXTOUTA` and `EMR_POLYTEXTOUTW` now follow the official counted-array
+layout: one common graphics-mode header, a bounded contiguous array of 40-byte
+[`EmrText`](https://learn.microsoft.com/en-us/openspecs/windows_protocols/ms-emf/dd585d0a-5d7c-4034-963a-1141af836972)
+objects, and record-relative string/advance buffers that cannot overlap the
+descriptor array. Each entry executes through the same typed font, charset,
+alignment, background, clipping, shaping, and explicit-cell path as
+`EMR_EXTTEXTOUT`; this matches the specification's recommended series-of-text
+operations model for
+[`EMR_POLYTEXTOUTA`](https://learn.microsoft.com/en-us/openspecs/windows_protocols/ms-emf/d8b7ac21-76b8-4f9a-a7cc-05f9d2d5627e)
+and
+[`EMR_POLYTEXTOUTW`](https://learn.microsoft.com/en-us/openspecs/windows_protocols/ms-emf/381015eb-29a7-4774-93ad-a210697f5972).
+Focused Unicode and CP1252 gates prove independent anchors, glyph identity,
+odd-byte ANSI offsets, and exact advances; a malformed later descriptor proves
+whole-stream rollback after an earlier entry would otherwise draw. The complete
+drawing suite passes 445/445.
+
+`Playback256EmfPolyTextOutWTwoStringsWithAdvances` guards 256 records, two
+three-character descriptors per record, and two independent advance buffers.
+The 2026-08-31 ARM64/.NET 10.0.11 in-process run allocated 2.17 MB per complete
+512-command playback. Its three timing samples ranged from 117.397 to 519.049
+milliseconds with a 215.618 millisecond standard deviation under severe host
+contention, so no latency baseline is claimed. The default isolated harness
+could not restore its generated project without network access; the recorded
+in-process allocation and the deterministic correctness gates are the evidence.
+
 `RecordAndFinalize256PortableComments` measures the complete portable writer:
 256 owned 64-byte comment copies, EMF+/EMF assembly, validation, and publication
 to a pre-sized memory stream. The 2026-08-27 ARM64/.NET 10.0.11 ShortRun

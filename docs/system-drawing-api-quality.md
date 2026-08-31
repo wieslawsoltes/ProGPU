@@ -403,6 +403,23 @@ without explicit advances, invalid Shift-JIS, explicit DBCS-advance rejection,
 and transaction rollback are covered by the complete 442/442 suite. ApiCompat
 remains 0/0/13.
 
+`EMR_POLYTEXTOUTA/W` now parse the official counted array of fixed `EmrText`
+descriptors and execute each entry through the existing typed EMF text engine.
+Record-relative buffers are bounded, Unicode remains 16-bit aligned, ANSI
+remains byte aligned and selected-font-charset driven, advances remain 32-bit
+aligned, and no variable data may overlap the complete descriptor array.
+Independent Unicode anchors/advances, CP1252 euro conversion at an odd offset,
+and malformed-later-entry rollback are covered by the complete 445/445 suite.
+ApiCompat remains 0/0/13.
+
+`MetafileBenchmarks.Playback256EmfPolyTextOutWTwoStringsWithAdvances` records
+2.17 MB allocated for 256 two-string records producing 512 retained commands.
+The in-process timing samples ranged from 117.397 to 519.049 ms with 215.618 ms
+standard deviation under severe contention, so no latency baseline is claimed.
+The default isolated harness could not restore its generated project while
+network access was unavailable; the allocation result and focused command and
+rollback gates remain the authoritative local evidence.
+
 `MetafileBenchmarks.RecordAndFinalize256PortableComments` measures construction,
 256 owned 64-byte comment copies, bounded EMF+ encoding, validation through the
 same parser used by consumers, and final stream publication. The 2026-08-27
