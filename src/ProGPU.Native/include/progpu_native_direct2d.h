@@ -779,7 +779,7 @@ typedef struct progpu_native_direct2d_stroke_style_properties {
 } progpu_native_direct2d_stroke_style_properties;
 
 enum {
-    PROGPU_NATIVE_DIRECT2D_ABI_VERSION = 46U
+    PROGPU_NATIVE_DIRECT2D_ABI_VERSION = 47U
 };
 
 PROGPU_NATIVE_DIRECT2D_API uint32_t

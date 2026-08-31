@@ -1008,6 +1008,164 @@ private:
     D2D1_MATRIX_3X2_F transform_ = D2D1::Matrix3x2F::Identity();
 };
 
+class ProGpuD2DStrokeStyle final : public ID2D1StrokeStyle1 {
+public:
+    ProGpuD2DStrokeStyle(
+        ID2D1Factory1* factory,
+        const D2D1_STROKE_STYLE_PROPERTIES1& properties,
+        const FLOAT* dashes,
+        UINT32 dash_count)
+        : factory_(factory), properties_(properties)
+    {
+        if (dash_count != 0U) {
+            dashes_.assign(dashes, dashes + dash_count);
+        }
+    }
+
+    HRESULT STDMETHODCALLTYPE QueryInterface(
+        REFIID interface_id,
+        void** value) noexcept override
+    {
+        if (value == nullptr) {
+            return E_POINTER;
+        }
+        *value = nullptr;
+        if (IsEqualIID(interface_id, IID_IUnknown) ||
+            IsEqualIID(interface_id, __uuidof(ID2D1Resource)) ||
+            IsEqualIID(interface_id, __uuidof(ID2D1StrokeStyle)) ||
+            IsEqualIID(interface_id, __uuidof(ID2D1StrokeStyle1))) {
+            *value = static_cast<ID2D1StrokeStyle1*>(this);
+            AddRef();
+            return S_OK;
+        }
+        return E_NOINTERFACE;
+    }
+
+    ULONG STDMETHODCALLTYPE AddRef() noexcept override
+    {
+        return reference_count_.fetch_add(1U, std::memory_order_relaxed) + 1U;
+    }
+
+    ULONG STDMETHODCALLTYPE Release() noexcept override
+    {
+        const ULONG remaining = reference_count_.fetch_sub(
+            1U,
+            std::memory_order_acq_rel) - 1U;
+        if (remaining == 0U) {
+            delete this;
+        }
+        return remaining;
+    }
+
+    void STDMETHODCALLTYPE GetFactory(
+        ID2D1Factory** factory) const noexcept override
+    {
+        if (factory == nullptr) {
+            return;
+        }
+        *factory = factory_.Get();
+        if (*factory != nullptr) {
+            (*factory)->AddRef();
+        }
+    }
+
+    D2D1_CAP_STYLE STDMETHODCALLTYPE GetStartCap() const noexcept override
+    {
+        return properties_.startCap;
+    }
+
+    D2D1_CAP_STYLE STDMETHODCALLTYPE GetEndCap() const noexcept override
+    {
+        return properties_.endCap;
+    }
+
+    D2D1_CAP_STYLE STDMETHODCALLTYPE GetDashCap() const noexcept override
+    {
+        return properties_.dashCap;
+    }
+
+    FLOAT STDMETHODCALLTYPE GetMiterLimit() const noexcept override
+    {
+        return properties_.miterLimit;
+    }
+
+    D2D1_LINE_JOIN STDMETHODCALLTYPE GetLineJoin() const noexcept override
+    {
+        return properties_.lineJoin;
+    }
+
+    FLOAT STDMETHODCALLTYPE GetDashOffset() const noexcept override
+    {
+        return properties_.dashOffset;
+    }
+
+    D2D1_DASH_STYLE STDMETHODCALLTYPE GetDashStyle() const noexcept override
+    {
+        return properties_.dashStyle;
+    }
+
+    UINT32 STDMETHODCALLTYPE GetDashesCount() const noexcept override
+    {
+        return static_cast<UINT32>(dashes_.size());
+    }
+
+    void STDMETHODCALLTYPE GetDashes(
+        FLOAT* dashes,
+        UINT32 dash_count) const noexcept override
+    {
+        if (dashes == nullptr || dash_count == 0U) {
+            return;
+        }
+        std::copy_n(
+            dashes_.data(),
+            std::min<size_t>(dashes_.size(), dash_count),
+            dashes);
+    }
+
+    D2D1_STROKE_TRANSFORM_TYPE STDMETHODCALLTYPE
+    GetStrokeTransformType() const noexcept override
+    {
+        return properties_.transformType;
+    }
+
+private:
+    std::atomic<ULONG> reference_count_{1U};
+    ComPtr<ID2D1Factory1> factory_;
+    D2D1_STROKE_STYLE_PROPERTIES1 properties_{};
+    std::vector<FLOAT> dashes_;
+};
+
+bool compat_valid_stroke_style(
+    const D2D1_STROKE_STYLE_PROPERTIES1* properties,
+    const FLOAT* dashes,
+    UINT32 dash_count) noexcept
+{
+    if (properties == nullptr ||
+        properties->startCap > D2D1_CAP_STYLE_TRIANGLE ||
+        properties->endCap > D2D1_CAP_STYLE_TRIANGLE ||
+        properties->dashCap > D2D1_CAP_STYLE_TRIANGLE ||
+        properties->lineJoin > D2D1_LINE_JOIN_MITER_OR_BEVEL ||
+        !std::isfinite(properties->miterLimit) ||
+        properties->miterLimit <= 0.0F ||
+        properties->dashStyle > D2D1_DASH_STYLE_CUSTOM ||
+        !std::isfinite(properties->dashOffset) ||
+        properties->transformType > D2D1_STROKE_TRANSFORM_TYPE_HAIRLINE ||
+        ((properties->dashStyle == D2D1_DASH_STYLE_CUSTOM) !=
+            (dashes != nullptr && dash_count != 0U)) ||
+        (properties->dashStyle != D2D1_DASH_STYLE_CUSTOM &&
+            (dashes != nullptr || dash_count != 0U))) {
+        return false;
+    }
+    bool has_positive_dash = false;
+    for (UINT32 index = 0U; index < dash_count; ++index) {
+        if (!std::isfinite(dashes[index]) || dashes[index] < 0.0F) {
+            return false;
+        }
+        has_positive_dash = has_positive_dash || dashes[index] > 0.0F;
+    }
+    return dash_count == 0U || has_positive_dash;
+}
+
 enum class compat_path_state : uint32_t {
     fresh = 0U,
     open = 1U,
@@ -2834,12 +2992,41 @@ public:
     }
 
     HRESULT STDMETHODCALLTYPE CreateStrokeStyle(
-        const D2D1_STROKE_STYLE_PROPERTIES*,
-        const FLOAT*,
-        UINT32,
+        const D2D1_STROKE_STYLE_PROPERTIES* properties,
+        const FLOAT* dashes,
+        UINT32 dash_count,
         ID2D1StrokeStyle** value) noexcept override
     {
-        return unsupported(value);
+        if (value == nullptr) {
+            return E_POINTER;
+        }
+        *value = nullptr;
+        if (properties == nullptr) {
+            return E_INVALIDARG;
+        }
+        const D2D1_STROKE_STYLE_PROPERTIES1 properties1 = {
+            properties->startCap,
+            properties->endCap,
+            properties->dashCap,
+            properties->lineJoin,
+            properties->miterLimit,
+            properties->dashStyle,
+            properties->dashOffset,
+            D2D1_STROKE_TRANSFORM_TYPE_NORMAL};
+        if (!compat_valid_stroke_style(
+                &properties1, dashes, dash_count)) {
+            return E_INVALIDARG;
+        }
+        try {
+            auto* stroke_style = new ProGpuD2DStrokeStyle(
+                this, properties1, dashes, dash_count);
+            *value = static_cast<ID2D1StrokeStyle*>(stroke_style);
+            return S_OK;
+        } catch (const std::bad_alloc&) {
+            return E_OUTOFMEMORY;
+        } catch (...) {
+            return E_FAIL;
+        }
     }
 
     HRESULT STDMETHODCALLTYPE CreateDrawingStateBlock(
@@ -2889,12 +3076,28 @@ public:
     }
 
     HRESULT STDMETHODCALLTYPE CreateStrokeStyle(
-        const D2D1_STROKE_STYLE_PROPERTIES1*,
-        const FLOAT*,
-        UINT32,
+        const D2D1_STROKE_STYLE_PROPERTIES1* properties,
+        const FLOAT* dashes,
+        UINT32 dash_count,
         ID2D1StrokeStyle1** value) noexcept override
     {
-        return unsupported(value);
+        if (value == nullptr) {
+            return E_POINTER;
+        }
+        *value = nullptr;
+        if (!compat_valid_stroke_style(properties, dashes, dash_count)) {
+            return E_INVALIDARG;
+        }
+        try {
+            auto* stroke_style = new ProGpuD2DStrokeStyle(
+                this, *properties, dashes, dash_count);
+            *value = stroke_style;
+            return S_OK;
+        } catch (const std::bad_alloc&) {
+            return E_OUTOFMEMORY;
+        } catch (...) {
+            return E_FAIL;
+        }
     }
 
     HRESULT STDMETHODCALLTYPE CreatePathGeometry(
