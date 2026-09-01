@@ -13,6 +13,12 @@ internal static class Win2DCanvasQualification
 
     public static void Run(string[] args)
     {
+        bool partitionSoftwareAdapterSubmissions = Array.Exists(
+            args,
+            static value => string.Equals(
+                value,
+                "--software-adapter-ci",
+                StringComparison.OrdinalIgnoreCase));
         using var context = new WgpuContext();
         context.Initialize(window: null);
         using var device = CanvasDevice.FromContext(context);
@@ -126,6 +132,7 @@ internal static class Win2DCanvasQualification
             26f,
             "command-list transformed bounds");
 
+        ProGpuCanvasRenderMetrics first = default;
         using (CanvasDrawingSession drawingSession =
                target.CreateDrawingSession())
         {
@@ -153,6 +160,11 @@ internal static class Win2DCanvasQualification
                 new Windows.Foundation.Rect(0, 0, 6, 12),
                 1f,
                 CanvasImageInterpolation.Linear);
+            FlushPartitionedBatch(
+                partitionSoftwareAdapterSubmissions,
+                drawingSession,
+                target,
+                ref first);
             using (var pathBuilder = new CanvasPathBuilder(device))
             {
                 pathBuilder.BeginFigure(16, 156);
@@ -176,6 +188,11 @@ internal static class Win2DCanvasQualification
                     Color.FromArgb(255, 255, 255, 255),
                     2);
             }
+            FlushPartitionedBatch(
+                partitionSoftwareAdapterSubmissions,
+                drawingSession,
+                target,
+                ref first);
             using (CanvasGeometry clip = CanvasGeometry.CreateCircle(
                        device,
                        152,
@@ -190,6 +207,11 @@ internal static class Win2DCanvasQualification
                     48,
                     Color.FromArgb(255, 0, 255, 0));
             }
+            FlushPartitionedBatch(
+                partitionSoftwareAdapterSubmissions,
+                drawingSession,
+                target,
+                ref first);
             using (drawingSession.CreateLayer(
                        1f,
                        new Windows.Foundation.Rect(192, 156, 24, 48)))
@@ -201,6 +223,11 @@ internal static class Win2DCanvasQualification
                     48,
                     Color.FromArgb(255, 255, 0, 0));
             }
+            FlushPartitionedBatch(
+                partitionSoftwareAdapterSubmissions,
+                drawingSession,
+                target,
+                ref first);
             using (var dashBuilder = new CanvasPathBuilder(device))
             using (var dashStyle = new CanvasStrokeStyle
                    {
@@ -221,6 +248,11 @@ internal static class Win2DCanvasQualification
                     4,
                     dashStyle);
             }
+            FlushPartitionedBatch(
+                partitionSoftwareAdapterSubmissions,
+                drawingSession,
+                target,
+                ref first);
             using (CanvasGeometry outer = CanvasGeometry.CreateRectangle(
                        device,
                        240,
@@ -241,6 +273,11 @@ internal static class Win2DCanvasQualification
                     difference,
                     Color.FromArgb(255, 160, 32, 192));
             }
+            FlushPartitionedBatch(
+                partitionSoftwareAdapterSubmissions,
+                drawingSession,
+                target,
+                ref first);
             using (var linear = new CanvasLinearGradientBrush(
                        device,
                        Color.FromArgb(255, 255, 0, 0),
@@ -252,6 +289,11 @@ internal static class Win2DCanvasQualification
             {
                 drawingSession.FillRectangle(240, 8, 72, 32, linear);
             }
+            FlushPartitionedBatch(
+                partitionSoftwareAdapterSubmissions,
+                drawingSession,
+                target,
+                ref first);
             using (var radial = new CanvasRadialGradientBrush(
                        device,
                        Color.FromArgb(255, 0, 255, 0),
@@ -264,6 +306,11 @@ internal static class Win2DCanvasQualification
             {
                 drawingSession.FillEllipse(276, 72, 28, 24, radial);
             }
+            FlushPartitionedBatch(
+                partitionSoftwareAdapterSubmissions,
+                drawingSession,
+                target,
+                ref first);
             using (var imageBrush = new CanvasImageBrush(device, checker)
                    {
                        ExtendX = CanvasEdgeBehavior.Wrap,
@@ -285,9 +332,17 @@ internal static class Win2DCanvasQualification
             // without a staging readback after the public resource is closed.
             source.Dispose();
             commandList.Dispose();
+            FlushPartitionedBatch(
+                partitionSoftwareAdapterSubmissions,
+                drawingSession,
+                target,
+                ref first);
         }
 
-        ProGpuCanvasRenderMetrics first = target.LastRenderMetrics;
+        if (!partitionSoftwareAdapterSubmissions)
+        {
+            first = target.LastRenderMetrics;
+        }
         using (CanvasDrawingSession drawingSession =
                target.CreateDrawingSession())
         {
@@ -418,6 +473,37 @@ internal static class Win2DCanvasQualification
             100,
             100,
             Color.FromArgb(255, 255, 255, 0));
+    }
+
+    private static void FlushPartitionedBatch(
+        bool enabled,
+        CanvasDrawingSession drawingSession,
+        CanvasRenderTarget target,
+        ref ProGpuCanvasRenderMetrics accumulated)
+    {
+        if (!enabled)
+        {
+            return;
+        }
+
+        drawingSession.Flush();
+        ProGpuCanvasRenderMetrics current = target.LastRenderMetrics;
+        if (current.SourceCommandCount == 0 &&
+            current.NativeCommandCount == 0 &&
+            current.NativeDrawCount == 0 &&
+            current.SubmissionCount == 0)
+        {
+            return;
+        }
+
+        accumulated = new ProGpuCanvasRenderMetrics(
+            current.ExecutionPath,
+            checked(accumulated.SourceCommandCount + current.SourceCommandCount),
+            checked(accumulated.NativeCommandCount + current.NativeCommandCount),
+            checked(accumulated.NativeDrawCount + current.NativeDrawCount),
+            checked(accumulated.SubmissionCount + current.SubmissionCount),
+            checked(accumulated.DrawCallCount + current.DrawCallCount),
+            accumulated.PayloadHash ^ current.PayloadHash);
     }
 
     private static int CountYellowPixels(

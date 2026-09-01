@@ -1496,7 +1496,7 @@ progpu_native_status render_scene(
     const bool semantic_partial_damage_active =
         damage_requested && semantic_partial_replay_supported;
     const bool semantic_preserve_target_active =
-        preserve_requested && semantic_partial_replay_supported &&
+        preserve_requested &&
         (!damage_requested || semantic_partial_damage_active);
     semantic_scissor semantic_frame_damage{
         0U, 0U, frame->width, frame->height, true};
@@ -5007,7 +5007,9 @@ progpu_native_status render_scene(
 
         if (!begin_pass(
                 PROGPU_NATIVE_SCENE_NO_INDEX,
-                WGPULoadOp_Clear)) {
+                semantic_preserve_target_active
+                    ? WGPULoadOp_Load
+                    : WGPULoadOp_Clear)) {
             return fail_replay(
                 "The semantic isolated-layer root pass could not be created.");
         }

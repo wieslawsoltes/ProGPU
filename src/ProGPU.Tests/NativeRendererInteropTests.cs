@@ -6672,19 +6672,44 @@ public class NativeRendererInteropTests
             windowsBuild,
             StringComparison.Ordinal);
         Assert.Contains(
-            "$PreviousWin2DComputeExecution = " +
-            "$env:PROGPU_COMPUTE_EXECUTION",
+            "Partitioned the full Win2D Canvas oracle into bounded " +
+            "submissions on Microsoft Basic Render Driver.",
             windowsBuild,
             StringComparison.Ordinal);
         Assert.Contains(
-            "Selected intrinsic-SIMD coverage for the full Win2D Canvas " +
-            "oracle on Microsoft Basic Render Driver.",
+            "$Win2DCanvasArguments += \"--software-adapter-ci\"",
             windowsBuild,
             StringComparison.Ordinal);
+        string win2DCanvasQualification = File.ReadAllText(FindRepoFile(
+            "src", "ProGPU.Native.Benchmarks",
+            "Win2DCanvasQualification.cs"));
+        string nativeCompositor = File.ReadAllText(FindRepoFile(
+            "src", "ProGPU.Backend.Native", "NativeCompositor.cs"));
+        string canvasDevice = File.ReadAllText(FindRepoFile(
+            "src", "ProGPU.Win2D", "CanvasDevice.cs"));
+        string semanticRenderer = File.ReadAllText(FindRepoFile(
+            "src", "ProGPU.Native", "src", "Scene",
+            "progpu_native_semantic_render_execution.cpp"));
         Assert.Contains(
-            "$env:PROGPU_COMPUTE_EXECUTION = " +
-            "$PreviousWin2DComputeExecution",
-            windowsBuild,
+            "FlushPartitionedBatch(",
+            win2DCanvasQualification,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "accumulated.NativeDrawCount + current.NativeDrawCount",
+            win2DCanvasQualification,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "RenderScenePreservingTarget(",
+            nativeCompositor,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "compositor.RenderScenePreservingTarget(",
+            canvasDevice,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "semantic_preserve_target_active\n" +
+            "                    ? WGPULoadOp_Load",
+            semanticRenderer,
             StringComparison.Ordinal);
         Assert.Contains(
             "Qualified the constrained D3D12 mixed-picture profile with " +

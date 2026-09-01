@@ -591,13 +591,50 @@ public sealed unsafe class NativeCompositor : IDisposable
         float dpiScale,
         ulong sceneId,
         ulong generation,
-        Vector4 clearColor) => RenderScene(
-            target,
+        Vector4 clearColor)
+    {
+        ValidateTarget(target);
+        NativeSceneFrameMetrics metrics = RenderSceneCore(
+            new NativeSceneExternalTarget(
+                (nuint)target.ViewPtr,
+                target.Width,
+                target.Height),
             dpiScale,
             sceneId,
             generation,
             clearColor,
+            preserveTarget: false,
             damage: null);
+        target.NotifyExternalContentChanged();
+        return metrics;
+    }
+
+    /// <summary>
+    /// Renders the installed immutable semantic scene generation while loading
+    /// and preserving the complete target before replay.
+    /// </summary>
+    public NativeSceneFrameMetrics RenderScenePreservingTarget(
+        GpuTexture target,
+        float dpiScale,
+        ulong sceneId,
+        ulong generation,
+        Vector4 clearColor)
+    {
+        ValidateTarget(target);
+        NativeSceneFrameMetrics metrics = RenderSceneCore(
+            new NativeSceneExternalTarget(
+                (nuint)target.ViewPtr,
+                target.Width,
+                target.Height),
+            dpiScale,
+            sceneId,
+            generation,
+            clearColor,
+            preserveTarget: true,
+            damage: null);
+        target.NotifyExternalContentChanged();
+        return metrics;
+    }
 
     /// <summary>
     /// Renders the installed immutable semantic scene generation while
@@ -624,6 +661,7 @@ public sealed unsafe class NativeCompositor : IDisposable
             sceneId,
             generation,
             clearColor,
+            preserveTarget: true,
             damage);
         target.NotifyExternalContentChanged();
         return metrics;
@@ -638,13 +676,18 @@ public sealed unsafe class NativeCompositor : IDisposable
         float dpiScale,
         ulong sceneId,
         ulong generation,
-        Vector4 clearColor) => RenderScene(
+        Vector4 clearColor)
+    {
+        ValidateExternalTarget(target);
+        return RenderSceneCore(
             target,
             dpiScale,
             sceneId,
             generation,
             clearColor,
+            preserveTarget: false,
             damage: null);
+    }
 
     /// <summary>
     /// Renders the installed immutable semantic scene generation directly to
@@ -673,6 +716,7 @@ public sealed unsafe class NativeCompositor : IDisposable
             sceneId,
             generation,
             clearColor,
+            preserveTarget: true,
             damage);
     }
 
@@ -682,6 +726,7 @@ public sealed unsafe class NativeCompositor : IDisposable
         ulong sceneId,
         ulong generation,
         Vector4 clearColor,
+        bool preserveTarget,
         NativeSceneDamageRect? damage)
     {
         if (damage is { } value &&
@@ -707,9 +752,8 @@ public sealed unsafe class NativeCompositor : IDisposable
             },
             SceneId = sceneId,
             Generation = generation,
-            Flags = damage.HasValue
-                ? SceneFramePreserveTargetFlag | SceneFrameDamageRectFlag
-                : 0U,
+            Flags = (preserveTarget ? SceneFramePreserveTargetFlag : 0U) |
+                (damage.HasValue ? SceneFrameDamageRectFlag : 0U),
             DamageX = damage?.X ?? 0f,
             DamageY = damage?.Y ?? 0f,
             DamageWidth = damage?.Width ?? 0f,

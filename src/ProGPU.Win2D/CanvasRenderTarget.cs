@@ -122,9 +122,7 @@ public sealed class CanvasRenderTarget :
                 _sceneId,
                 generation,
                 clearColor,
-                preserveTarget: !hasClear,
-                logicalWidth: (float)Size.Width,
-                logicalHeight: (float)Size.Height);
+                preserveTarget: !hasClear);
         }
         finally
         {
