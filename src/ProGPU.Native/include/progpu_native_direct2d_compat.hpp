@@ -23,6 +23,18 @@ using line_join = core::line_join;
 using dash_style = core::dash_style;
 using stroke_style_properties = core::stroke_style_properties_f;
 
+struct color_f final {
+    float red;
+    float green;
+    float blue;
+    float alpha;
+};
+
+struct brush_properties final {
+    float opacity;
+    matrix_3x2_f transform;
+};
+
 inline constexpr com::result not_implemented = -2147467263;
 inline constexpr com::result failure = -2147467259;
 inline constexpr com::result wrong_factory = -2003238894;
@@ -88,11 +100,26 @@ inline constexpr com::guid drawing_state_block_interface_id{
     0xEBF6U,
     0x46A1U,
     {0xBBU, 0x47U, 0xFDU, 0x85U, 0x56U, 0x5AU, 0xB9U, 0x57U}};
+inline constexpr com::guid brush_interface_id{
+    0x2CD906A8U,
+    0x12E2U,
+    0x11DCU,
+    {0x9FU, 0xEDU, 0x00U, 0x11U, 0x43U, 0xA0U, 0x55U, 0xF9U}};
+inline constexpr com::guid solid_color_brush_interface_id{
+    0x2CD906A9U,
+    0x12E2U,
+    0x11DCU,
+    {0x9FU, 0xEDU, 0x00U, 0x11U, 0x43U, 0xA0U, 0x55U, 0xF9U}};
 inline constexpr com::guid factory_interface_id{
     0x06152247U,
     0x6F50U,
     0x465AU,
     {0x92U, 0x45U, 0x11U, 0x8BU, 0xFDU, 0x3BU, 0x60U, 0x07U}};
+inline constexpr com::guid factory_native_interface_id{
+    0x19967CEEU,
+    0xEA52U,
+    0x45DDU,
+    {0x9FU, 0xDAU, 0xD9U, 0x70U, 0x3AU, 0x9FU, 0xD1U, 0x50U}};
 
 enum class fill_mode : std::uint32_t {
     alternate = 0U,
@@ -172,6 +199,8 @@ struct rounded_rectangle_geometry;
 struct geometry_sink;
 struct stroke_style;
 struct drawing_state_block;
+struct brush;
+struct solid_color_brush;
 struct render_target;
 struct hwnd_render_target;
 struct dc_render_target;
@@ -351,6 +380,32 @@ struct drawing_state_block : resource {
         com::unknown* parameters) noexcept = 0;
     virtual void PROGPU_NATIVE_COM_CALL GetTextRenderingParams(
         com::unknown** parameters) const noexcept = 0;
+};
+
+struct brush : resource {
+    virtual void PROGPU_NATIVE_COM_CALL SetOpacity(float opacity)
+        noexcept = 0;
+    virtual void PROGPU_NATIVE_COM_CALL SetTransform(
+        const matrix_3x2_f* transform) noexcept = 0;
+    virtual float PROGPU_NATIVE_COM_CALL GetOpacity() const noexcept = 0;
+    virtual void PROGPU_NATIVE_COM_CALL GetTransform(
+        matrix_3x2_f* transform) const noexcept = 0;
+};
+
+struct solid_color_brush : brush {
+    virtual void PROGPU_NATIVE_COM_CALL SetColor(
+        const color_f* color) noexcept = 0;
+    virtual color_f PROGPU_NATIVE_COM_CALL GetColor() const noexcept = 0;
+};
+
+/* ProGPU's stable activation seam for resources that the original factory
+ * cannot create. Its IID and method order match the Windows provider's
+ * IProGpuD2DCompatFactoryNative contract. */
+struct factory_native : com::unknown {
+    virtual com::result PROGPU_NATIVE_COM_CALL CreateSolidColorBrush(
+        const color_f* color,
+        const brush_properties* properties,
+        solid_color_brush** value) noexcept = 0;
 };
 
 struct path_geometry : geometry {
