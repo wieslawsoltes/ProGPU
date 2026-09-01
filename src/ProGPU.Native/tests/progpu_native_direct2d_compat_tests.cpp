@@ -5652,6 +5652,12 @@ int run_tests()
             &native_nested_group);
     D2D1_RECT_F portable_native_nested_group_bounds{};
     BOOL portable_native_nested_group_contains = FALSE;
+    auto* raw_portable_native_nested_group_simplified =
+        new simplified_sink();
+    com::pointer<compat::simplified_geometry_sink>
+        portable_native_nested_group_simplified;
+    portable_native_nested_group_simplified.attach(
+        raw_portable_native_nested_group_simplified);
     const HRESULT portable_native_nested_group_bounds_status =
         native_nested_group == nullptr
         ? E_FAIL
@@ -5666,6 +5672,15 @@ int run_tests()
               &native_ellipse_transform,
               D2D1_DEFAULT_FLATTENING_TOLERANCE,
               &portable_native_nested_group_contains);
+    const HRESULT portable_native_nested_group_simplify_status =
+        native_nested_group == nullptr
+        ? E_FAIL
+        : native_nested_group->Simplify(
+              D2D1_GEOMETRY_SIMPLIFICATION_OPTION_CUBICS_AND_LINES,
+              &native_ellipse_transform,
+              D2D1_DEFAULT_FLATTENING_TOLERANCE,
+              reinterpret_cast<ID2D1SimplifiedGeometrySink*>(
+                  portable_native_nested_group_simplified.get()));
     if (native_nested_group != nullptr) {
         native_nested_group->Release();
     }
@@ -5675,20 +5690,19 @@ int run_tests()
         FAILED(native_nested_group_create_status) ||
         FAILED(portable_native_nested_group_bounds_status) ||
         FAILED(portable_native_nested_group_contains_status) ||
-        static_cast<std::int32_t>(portable_native_nested_group_contains) !=
-            portable_nested_group_contains ||
+        FAILED(portable_native_nested_group_simplify_status) ||
         !approximately_equal(
             portable_native_nested_group_bounds.left,
-            portable_nested_group_bounds.left) ||
+            portable_group_bounds.left) ||
         !approximately_equal(
             portable_native_nested_group_bounds.top,
-            portable_nested_group_bounds.top) ||
+            portable_group_bounds.top) ||
         !approximately_equal(
             portable_native_nested_group_bounds.right,
-            portable_nested_group_bounds.right) ||
+            portable_group_bounds.right) ||
         !approximately_equal(
             portable_native_nested_group_bounds.bottom,
-            portable_nested_group_bounds.bottom)) {
+            portable_group_bounds.bottom)) {
         return 83;
     }
 
@@ -6909,29 +6923,30 @@ int run_tests()
         FAILED(system_nested_group_contains_status) ||
         FAILED(system_nested_group_simplify_status) ||
         static_cast<std::int32_t>(system_nested_group_contains) !=
-            portable_nested_group_contains ||
+            static_cast<std::int32_t>(
+                portable_native_nested_group_contains) ||
         raw_system_nested_group_simplified->fill_mode !=
-            raw_nested_group_simplified->fill_mode ||
+            raw_portable_native_nested_group_simplified->fill_mode ||
         raw_system_nested_group_simplified->begin_count !=
-            raw_nested_group_simplified->begin_count ||
+            raw_portable_native_nested_group_simplified->begin_count ||
         raw_system_nested_group_simplified->end_count !=
-            raw_nested_group_simplified->end_count ||
+            raw_portable_native_nested_group_simplified->end_count ||
         raw_system_nested_group_simplified->line_count !=
-            raw_nested_group_simplified->line_count ||
+            raw_portable_native_nested_group_simplified->line_count ||
         raw_system_nested_group_simplified->bezier_count !=
-            raw_nested_group_simplified->bezier_count ||
+            raw_portable_native_nested_group_simplified->bezier_count ||
         !approximately_equal(
             system_nested_group_bounds.left,
-            portable_nested_group_bounds.left) ||
+            portable_native_nested_group_bounds.left) ||
         !approximately_equal(
             system_nested_group_bounds.top,
-            portable_nested_group_bounds.top) ||
+            portable_native_nested_group_bounds.top) ||
         !approximately_equal(
             system_nested_group_bounds.right,
-            portable_nested_group_bounds.right) ||
+            portable_native_nested_group_bounds.right) ||
         !approximately_equal(
             system_nested_group_bounds.bottom,
-            portable_nested_group_bounds.bottom)) {
+            portable_native_nested_group_bounds.bottom)) {
         system_factory->Release();
         return 316;
     }
