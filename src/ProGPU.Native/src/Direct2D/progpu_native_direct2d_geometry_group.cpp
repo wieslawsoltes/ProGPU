@@ -15,12 +15,12 @@ namespace {
     return value == fill_mode::alternate || value == fill_mode::winding;
 }
 
-[[nodiscard]] bool geometry_contains_group(
+[[nodiscard]] bool geometry_source_chain_supported(
     geometry* value,
     std::uint32_t depth = 0U) noexcept
 {
     if (value == nullptr || depth == 64U) {
-        return true;
+        return false;
     }
     void* queried = nullptr;
     if (com::succeeded(value->QueryInterface(
@@ -37,9 +37,10 @@ namespace {
         transformed->Release();
         com::pointer<geometry> retained_source;
         retained_source.attach(source);
-        return geometry_contains_group(retained_source.get(), depth + 1U);
+        return geometry_source_chain_supported(
+            retained_source.get(), depth + 1U);
     }
-    return false;
+    return true;
 }
 
 class group_geometry_sink final : public simplified_geometry_sink {
@@ -409,7 +410,7 @@ com::result create_geometry_group(
             if (!source_factory || source_factory.get() != owner) {
                 return wrong_factory;
             }
-            if (geometry_contains_group(source)) {
+            if (!geometry_source_chain_supported(source)) {
                 return not_implemented;
             }
             sources.emplace_back(source);
