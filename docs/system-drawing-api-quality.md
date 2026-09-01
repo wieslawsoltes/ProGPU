@@ -1009,6 +1009,22 @@ exactly zero managed bytes across 10,000 warmed palette dispatches. Contract
 and platform-boundary evidence is recorded in
 [`docs/research/system-drawing-native-interop-contract.md`](research/system-drawing-native-interop-contract.md).
 
+The current metafile pattern slice materializes `EMR_CREATEDIBPATTERNBRUSHPT`
+and `META_DIBCREATEPATTERNBRUSH` through the existing managed DIB decoder and
+typed `TextureBrush` fill path. Pattern bitmaps are decoded before object-table
+publication, owned by the playback object, cached as a selected texture brush by
+brush origin, and disposed with normal GDI object lifetime. Exact 2-by-2 RGB
+tiles verify EMF origin phase and WMF `PATCOPY`; a malformed EMF bit buffer
+verifies rollback of earlier retained commands. The serial Debug test-project
+build completes with zero errors; its only current warnings are NuGet audit-feed
+lookups blocked by the offline sandbox. Both focused test methods execute
+successfully in-process where the sandbox forbids vstest's localhost transport.
+
+This does not yet claim arbitrary bitmap-pattern ROP3. That operation needs a
+typed pattern texture in the advanced-composition bind group. WMF
+`META_CREATEPATTERNBRUSH` and EMF `EMR_CREATEMONOBRUSH` also remain named follow-up
+record forms rather than being silently treated as DIB pattern brushes.
+
 ## Implementation order
 
 API work should proceed in dependency groups:

@@ -4516,6 +4516,86 @@ public sealed class MetafileParserTests
     }
 
     [Fact]
+    public void EmfAndWmfDibPatternBrushesTileExactPixels()
+    {
+        TestDib pattern = CreateRgbDib(
+            2,
+            -2,
+            24,
+            [
+                0x00, 0x00, 0xFF, 0x00, 0xFF, 0x00, 0x00, 0x00,
+                0xFF, 0x00, 0x00, 0x00, 0xFF, 0xFF, 0x00, 0x00
+            ]);
+        byte[] emf = CreateTextPlaybackEmf(
+        [
+            (EmfPlusRecordType.EmfCreateDibPatternBrushPt,
+                EmfDibPatternBrush(1, pattern)),
+            (EmfPlusRecordType.EmfSelectObject, EmfUInt32(1)),
+            (EmfPlusRecordType.EmfSetBrushOrgEx, EmfPoint(1, 1)),
+            (EmfPlusRecordType.EmfRectangle, EmfRectangle(0, 0, 16, 16))
+        ]);
+        byte[] wmf = CreatePlaybackWmf(
+        [
+            (0x0142, WmfDibPatternBrush(pattern)),
+            (0x012D, WmfWords(0)),
+            (0x061D, WmfPatBlt(0x00F0_0021, new Rectangle(0, 0, 16, 16))),
+            (0, [])
+        ]);
+
+        using (var metafile = new Metafile(new MemoryStream(emf, writable: false)))
+        using (var target = new Bitmap(20, 20))
+        {
+            using (Graphics graphics = Graphics.FromImage(target))
+            {
+                graphics.DrawImage(metafile, new Rectangle(0, 0, 64, 64));
+            }
+
+            Assert.Equal(Color.Yellow.ToArgb(), target.GetPixel(4, 4).ToArgb());
+            Assert.Equal(Color.Blue.ToArgb(), target.GetPixel(5, 4).ToArgb());
+            Assert.Equal(Color.Lime.ToArgb(), target.GetPixel(4, 5).ToArgb());
+            Assert.Equal(Color.Red.ToArgb(), target.GetPixel(5, 5).ToArgb());
+        }
+
+        using (var metafile = new Metafile(new MemoryStream(wmf, writable: false)))
+        using (var target = new Bitmap(20, 20))
+        {
+            using (Graphics graphics = Graphics.FromImage(target))
+            {
+                graphics.DrawImage(metafile, new Rectangle(0, 0, 64, 64));
+            }
+
+            Assert.Equal(Color.Red.ToArgb(), target.GetPixel(4, 4).ToArgb());
+            Assert.Equal(Color.Lime.ToArgb(), target.GetPixel(5, 4).ToArgb());
+            Assert.Equal(Color.Blue.ToArgb(), target.GetPixel(4, 5).ToArgb());
+            Assert.Equal(Color.Yellow.ToArgb(), target.GetPixel(5, 5).ToArgb());
+        }
+    }
+
+    [Fact]
+    public void InvalidDibPatternBrushRollsBackEarlierCommands()
+    {
+        TestDib pattern = CreateRgbDib(
+            1,
+            -1,
+            24,
+            [0x00, 0x00, 0xFF, 0x00]);
+        byte[] invalidPattern = EmfDibPatternBrush(1, pattern);
+        WriteUInt32(invalidPattern, 20, checked((uint)pattern.Bits.Length + 1));
+        byte[] fixture = CreateTextPlaybackEmf(
+        [
+            (EmfPlusRecordType.EmfSetPixelV, EmfSetPixel(new Point(1, 1), Color.Red)),
+            (EmfPlusRecordType.EmfCreateDibPatternBrushPt, invalidPattern)
+        ]);
+        using var metafile = new Metafile(new MemoryStream(fixture, writable: false));
+        var context = new DrawingContext();
+        using Graphics graphics = Graphics.FromProGpuDrawingContext(context);
+
+        Assert.Throws<ArgumentException>(() =>
+            graphics.DrawImage(metafile, new Rectangle(0, 0, 64, 64)));
+        Assert.Empty(context.Commands);
+    }
+
+    [Fact]
     public void WmfHatchPatternPlaybackHasBoundedWarmedAllocation()
     {
         var records = new List<(ushort Function, byte[] Payload)>
@@ -6480,6 +6560,16 @@ public sealed class MetafileParserTests
         return bytes;
     }
 
+    private static byte[] WmfDibPatternBrush(in TestDib dib)
+    {
+        byte[] bytes = new byte[checked(4 + dib.Info.Length + dib.Bits.Length)];
+        WriteUInt16(bytes, 0, 6);
+        WriteUInt16(bytes, 2, 0);
+        dib.Info.CopyTo(bytes, 4);
+        dib.Bits.CopyTo(bytes, 4 + dib.Info.Length);
+        return bytes;
+    }
+
     private static byte[] WmfPalette(
         ushort start,
         Color[] colors,
@@ -7257,6 +7347,26 @@ public sealed class MetafileParserTests
         WriteUInt32(payload, 56, usage);
         WriteUInt32(payload, 60, startScan);
         WriteUInt32(payload, 64, scanCount);
+        dib.Info.CopyTo(payload, fixedPayloadSize);
+        dib.Bits.CopyTo(payload, fixedPayloadSize + dib.Info.Length);
+        return payload;
+    }
+
+    private static byte[] EmfDibPatternBrush(uint index, in TestDib dib)
+    {
+        const int fixedPayloadSize = 24;
+        const int recordHeaderSize = 8;
+        int unalignedPayloadSize = checked(fixedPayloadSize + dib.Info.Length + dib.Bits.Length);
+        byte[] payload = new byte[checked((unalignedPayloadSize + 3) & ~3)];
+        WriteUInt32(payload, 0, index);
+        WriteUInt32(payload, 4, 0);
+        WriteUInt32(payload, 8, recordHeaderSize + fixedPayloadSize);
+        WriteUInt32(payload, 12, checked((uint)dib.Info.Length));
+        WriteUInt32(
+            payload,
+            16,
+            checked((uint)(recordHeaderSize + fixedPayloadSize + dib.Info.Length)));
+        WriteUInt32(payload, 20, checked((uint)dib.Bits.Length));
         dib.Info.CopyTo(payload, fixedPayloadSize);
         dib.Bits.CopyTo(payload, fixedPayloadSize + dib.Info.Length);
         return payload;

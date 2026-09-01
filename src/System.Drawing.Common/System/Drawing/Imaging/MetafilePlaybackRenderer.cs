@@ -277,6 +277,10 @@ internal static class MetafilePlaybackRenderer
                 state.CreateWmfBrush(payload, record);
                 return;
 
+            case EmfPlusRecordType.WmfDibCreatePatternBrush:
+                state.CreateWmfDibPatternBrush(payload, record);
+                return;
+
             case EmfPlusRecordType.WmfCreateFontIndirect:
                 RequireSize(record, payload, 50);
                 state.CreateWmfFont(payload, record);
@@ -727,6 +731,10 @@ internal static class MetafilePlaybackRenderer
             case EmfPlusRecordType.EmfCreateBrushIndirect:
                 RequireSize(record, payload, 16);
                 state.CreateBrush(payload, record);
+                return;
+
+            case EmfPlusRecordType.EmfCreateDibPatternBrushPt:
+                state.CreateEmfDibPatternBrush(payload, record);
                 return;
 
             case EmfPlusRecordType.EmfCreatePalette:
@@ -4298,6 +4306,9 @@ internal static class MetafilePlaybackRenderer
         private HatchBrush? _resolvedHatchBrush;
         private GdiHatchBrushObject? _resolvedHatchBrushObject;
         private Color _resolvedHatchBackground;
+        private TextureBrush? _resolvedPatternBrush;
+        private GdiPatternBrushObject? _resolvedPatternBrushObject;
+        private Point _resolvedPatternBrushOrigin;
         private HatchBrush? _resolvedRasterOperationHatchBrush;
         private Point _resolvedRasterOperationOrigin;
         private TilePatternBrush? _resolvedRasterOperationPattern;
@@ -4352,7 +4363,7 @@ internal static class MetafilePlaybackRenderer
                 if (_backgroundColor != value)
                 {
                     _backgroundColor = value;
-                    InvalidateResolvedHatchBrush();
+                    InvalidateResolvedBrushes();
                 }
             }
         }
@@ -4365,6 +4376,21 @@ internal static class MetafilePlaybackRenderer
 
         private Brush? ResolveSelectedBrush()
         {
+            if (_selectedBrushObject is GdiPatternBrushObject patternBrush)
+            {
+                Point origin = Graphics.RenderingOrigin;
+                if (!ReferenceEquals(_resolvedPatternBrushObject, patternBrush) ||
+                    _resolvedPatternBrushOrigin != origin)
+                {
+                    _resolvedPatternBrush?.Dispose();
+                    _resolvedPatternBrush = new TextureBrush(patternBrush.Bitmap, WrapMode.Tile);
+                    _resolvedPatternBrush.TranslateTransform(origin.X, origin.Y);
+                    _resolvedPatternBrushObject = patternBrush;
+                    _resolvedPatternBrushOrigin = origin;
+                }
+                return _resolvedPatternBrush;
+            }
+
             if (_selectedBrushObject is not GdiHatchBrushObject hatchBrush)
             {
                 return _selectedBrushObject as Brush;
@@ -4376,7 +4402,7 @@ internal static class MetafilePlaybackRenderer
             if (!ReferenceEquals(_resolvedHatchBrushObject, hatchBrush) ||
                 _resolvedHatchBackground != background)
             {
-                InvalidateResolvedHatchBrush();
+                InvalidateResolvedBrushes();
                 _resolvedHatchBrush = new HatchBrush(
                     hatchBrush.Style,
                     hatchBrush.ForegroundColor,
@@ -4387,7 +4413,7 @@ internal static class MetafilePlaybackRenderer
             return _resolvedHatchBrush;
         }
 
-        private void InvalidateResolvedHatchBrush()
+        private void InvalidateResolvedBrushes()
         {
             _resolvedHatchBrush?.Dispose();
             _resolvedHatchBrush = null;
@@ -4395,6 +4421,10 @@ internal static class MetafilePlaybackRenderer
             _resolvedHatchBackground = default;
             _resolvedRasterOperationHatchBrush = null;
             _resolvedRasterOperationPattern = null;
+            _resolvedPatternBrush?.Dispose();
+            _resolvedPatternBrush = null;
+            _resolvedPatternBrushObject = null;
+            _resolvedPatternBrushOrigin = default;
         }
 
         internal TilePatternBrush ResolveRasterOperationPattern(HatchBrush hatchBrush)
@@ -4578,7 +4608,7 @@ internal static class MetafilePlaybackRenderer
             if (BackgroundMode != mode)
             {
                 BackgroundMode = mode;
-                InvalidateResolvedHatchBrush();
+                InvalidateResolvedBrushes();
             }
         }
 
@@ -5122,7 +5152,7 @@ internal static class MetafilePlaybackRenderer
             TextColor = saved.TextColor;
             _selectedPen = saved.SelectedPen;
             _selectedBrushObject = saved.SelectedBrushObject;
-            InvalidateResolvedHatchBrush();
+            InvalidateResolvedBrushes();
             _selectedFont = saved.SelectedFont;
             _selectedFontObject = saved.SelectedFontObject;
             _selectedFontEscapement = saved.SelectedFontEscapement;
@@ -5174,6 +5204,56 @@ internal static class MetafilePlaybackRenderer
                 _ => throw Unsupported(record, "The typed player supports solid, null, or hatched brushes only.")
             };
             AddObject(index, product, record);
+        }
+
+        internal void CreateEmfDibPatternBrush(
+            ReadOnlySpan<byte> payload,
+            in MetafileRecord record)
+        {
+            const int fixedPayloadSize = 24;
+            if (payload.Length < fixedPayloadSize)
+            {
+                throw Invalid(record);
+            }
+
+            uint bitmapInfoOffset = ReadUInt32(payload, 8);
+            uint bitmapInfoSize = ReadUInt32(payload, 12);
+            uint bitmapBitsOffset = ReadUInt32(payload, 16);
+            uint bitmapBitsSize = ReadUInt32(payload, 20);
+            ReadOnlySpan<byte> bitmapInfo = ReadEmfBuffer(
+                record,
+                payload,
+                bitmapInfoOffset,
+                bitmapInfoSize,
+                fixedPayloadSize);
+            ReadOnlySpan<byte> bitmapBits = ReadEmfBuffer(
+                record,
+                payload,
+                bitmapBitsOffset,
+                bitmapBitsSize,
+                fixedPayloadSize);
+            EnsureDisjointEmfBuffers(
+                record,
+                bitmapInfoOffset,
+                bitmapInfoSize,
+                bitmapBitsOffset,
+                bitmapBitsSize);
+
+            DibInfo dib = ReadDibInfo(
+                record,
+                bitmapInfo,
+                ReadUInt32(payload, 4),
+                SelectedPalette);
+            Bitmap bitmap = DecodeDibRows(
+                record,
+                dib,
+                bitmapInfo,
+                bitmapBits,
+                dib.Height);
+            AddObject(
+                ReadUInt32(payload, 0),
+                new GdiPatternBrushObject(bitmap),
+                record);
         }
 
         internal void CreateEmfPalette(ReadOnlySpan<byte> payload, in MetafileRecord record)
@@ -5442,6 +5522,32 @@ internal static class MetafilePlaybackRenderer
                 _ => throw Unsupported(record, "The typed WMF player supports solid, null, or hatched brushes only.")
             };
             AddWmfObject(product, record);
+        }
+
+        internal void CreateWmfDibPatternBrush(
+            ReadOnlySpan<byte> payload,
+            in MetafileRecord record)
+        {
+            const int fixedPayloadSize = 4;
+            if (payload.Length < fixedPayloadSize)
+            {
+                throw Invalid(record);
+            }
+
+            ushort style = ReadUInt16(payload, 0);
+            uint usage = style == 3
+                ? DibRgbColors
+                : ReadUInt16(payload, 2);
+            ReadOnlySpan<byte> packedDib = payload[fixedPayloadSize..];
+            DibInfo dib = ReadDibInfo(record, packedDib, usage, SelectedPalette);
+            ReadOnlySpan<byte> bitmapBits = ReadWmfDibBits(record, dib, packedDib);
+            Bitmap bitmap = DecodeDibRows(
+                record,
+                dib,
+                packedDib[..dib.BitmapInfoSize],
+                bitmapBits,
+                dib.Height);
+            AddWmfObject(new GdiPatternBrushObject(bitmap), record);
         }
 
         private static GdiHatchBrushObject CreateHatchBrushObject(
@@ -6329,15 +6435,19 @@ internal static class MetafilePlaybackRenderer
                     break;
                 case Brush brush:
                     _selectedBrushObject = brush;
-                    InvalidateResolvedHatchBrush();
+                    InvalidateResolvedBrushes();
                     break;
                 case GdiHatchBrushObject hatchBrush:
                     _selectedBrushObject = hatchBrush;
-                    InvalidateResolvedHatchBrush();
+                    InvalidateResolvedBrushes();
+                    break;
+                case GdiPatternBrushObject patternBrush:
+                    _selectedBrushObject = patternBrush;
+                    InvalidateResolvedBrushes();
                     break;
                 case NullBrushMarker:
                     _selectedBrushObject = null;
-                    InvalidateResolvedHatchBrush();
+                    InvalidateResolvedBrushes();
                     break;
                 case Font font:
                     _selectedFont = font;
@@ -6373,6 +6483,7 @@ internal static class MetafilePlaybackRenderer
             _textBrush?.Dispose();
             _backgroundBrush?.Dispose();
             _resolvedHatchBrush?.Dispose();
+            _resolvedPatternBrush?.Dispose();
             _rasterOperationCoverageBitmap?.Dispose();
             _buildingPath?.Dispose();
             _selectedPath?.Dispose();
@@ -6437,6 +6548,13 @@ internal static class MetafilePlaybackRenderer
     private sealed record GdiHatchBrushObject(
         HatchStyle Style,
         Color ForegroundColor);
+
+    private sealed class GdiPatternBrushObject(Bitmap bitmap) : IDisposable
+    {
+        internal Bitmap Bitmap { get; } = bitmap;
+
+        public void Dispose() => Bitmap.Dispose();
+    }
 
     private sealed class LogicalPalette
     {

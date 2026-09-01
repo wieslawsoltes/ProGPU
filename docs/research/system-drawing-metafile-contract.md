@@ -1146,6 +1146,35 @@ bytes, compare exact copied payloads after caller mutation, exercise a
 non-seekable target and zero-length comment, and prove that unsupported drawing
 aborts without partial output.
 
+### Typed DIB pattern-brush materialization
+
+The official
+[`EMR_CREATEDIBPATTERNBRUSHPT`](https://learn.microsoft.com/en-us/openspecs/windows_protocols/ms-emf/332116b4-c6f9-4b18-a7cc-22c531b52afc)
+and
+[`META_DIBCREATEPATTERNBRUSH`](https://learn.microsoft.com/en-us/openspecs/windows_protocols/ms-wmf/aeab62b8-03ab-48c0-8176-09c392f3c9da)
+records enter the same
+bounded DIB header, palette, compression, and row decoder used by image records.
+The EMF path validates the four official offset/size fields and rejects
+overlapping buffers. The WMF path validates its style/color-usage prefix and
+packed DIB envelope. A successfully decoded bitmap is owned by a typed playback
+pattern object and is not published into the object table until decoding has
+completed, preserving whole-stream rollback.
+
+Selection resolves that object to the managed `TextureBrush` path. Resolution
+is cached by selected object and `RenderingOrigin`; a brush-origin change creates
+one new typed texture transform and disposes the preceding cached brush. Ordinary
+vector fills and `PATCOPY` therefore tile exact decoded pixels without an HDC,
+native brush handle, runtime reflection, private-field scan, or compatibility
+object. The selected object and every SaveDC snapshot retain the owning pattern
+object, so delete and disposal rules remain the same as other GDI objects.
+
+The deprecated WMF `META_CREATEPATTERNBRUSH` `Bitmap16` form and EMF
+`EMR_CREATEMONOBRUSH` remain separate explicit inputs because the former needs
+the registered device-format decoder and the latter has monochrome color-mapping
+semantics. Destination-reading ROP3 with an arbitrary bitmap pattern also remains
+explicit until the advanced-composition bind group carries a second typed
+pattern texture; it is not approximated by a solid color or an 8-by-8 hatch mask.
+
 ## Delivery checkpoints
 
 1. Restore the eight missing public identities and a bounded header/record
