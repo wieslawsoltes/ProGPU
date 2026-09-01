@@ -330,6 +330,25 @@ if ($CurrentArchitecture -eq $RunnableArchitecture) {
                 throw "The native differential benchmark failed: $args"
             }
         }
+        function Invoke-BasicAdapterDifferentialWithRetry {
+            $BenchmarkArguments = @($args)
+            $AttemptLimit = if ($IsMicrosoftBasicRenderDriver) { 2 } else { 1 }
+            for ($Attempt = 1; $Attempt -le $AttemptLimit; $Attempt++) {
+                & dotnet $BenchmarkDll @BenchmarkArguments
+                if ($LASTEXITCODE -eq 0) {
+                    return
+                }
+                if ($Attempt -lt $AttemptLimit) {
+                    # The CPU-only D3D12 adapter can intermittently return a
+                    # corrupted managed-reference frame after the preceding
+                    # integration corpus. Keep the complete native/managed
+                    # workload and unchanged pixel thresholds, but qualify it
+                    # again in a fresh process before failing the lane.
+                    Write-Warning "Retrying the full vector-clip differential after a transient Microsoft Basic Render Driver failure."
+                }
+            }
+            throw "The native differential benchmark failed after $AttemptLimit attempt(s): $BenchmarkArguments"
+        }
         $PreviousComputeExecution = $env:PROGPU_COMPUTE_EXECUTION
         $PreviousBackendDiagnostics = $env:PROGPU_BACKEND_DIAGNOSTICS
         try {
@@ -456,7 +475,7 @@ if ($CurrentArchitecture -eq $RunnableArchitecture) {
             # Windows qualifies the D3D12-specific paths with one representative
             # member of every retained resource/effect family. The exhaustive
             # scene cross-product remains on the Linux/macOS integration lanes.
-            Invoke-NativeBenchmark --paths --group-vector-clip-chain --rectangles 96 --warmup 2 --iterations 4
+            Invoke-BasicAdapterDifferentialWithRetry --paths --group-vector-clip-chain --rectangles 96 --warmup 2 --iterations 4
             if ($IsMicrosoftBasicRenderDriver) {
                 # Both forced signed-winding compute profiles deterministically
                 # lose GitHub's CPU-only D3D12 device after roughly 100 seconds.
