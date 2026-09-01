@@ -365,6 +365,8 @@ public sealed class Direct2DInteropContractTests
         Assert.Contains("widen_rectangle(", source, StringComparison.Ordinal);
         Assert.Contains("widen_transformed_rectangle(", source, StringComparison.Ordinal);
         Assert.Contains("compare_rectangle_with_geometry(", source, StringComparison.Ordinal);
+        Assert.Contains("get_rectangle_vertices(", source, StringComparison.Ordinal);
+        Assert.Contains("convex_quadrilaterals_are_disjoint(", source, StringComparison.Ordinal);
         Assert.Contains("get_axis_aligned_rectangle(", source, StringComparison.Ordinal);
         Assert.Contains("combine_rectangle_with_geometry(", source, StringComparison.Ordinal);
         Assert.Contains("struct orthogonal_edge final", source, StringComparison.Ordinal);

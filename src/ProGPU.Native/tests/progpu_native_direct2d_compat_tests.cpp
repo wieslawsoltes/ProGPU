@@ -1614,6 +1614,63 @@ int run_tests()
         transformed_source_relation != compat::geometry_relation::disjoint) {
         return 278;
     }
+    const compat::matrix_3x2_f general_relation_transform{
+        1.0F, 0.5F, 0.0F, 1.0F, 0.0F, 0.0F};
+    const compat::matrix_3x2_f reflected_relation_transform{
+        -1.0F, 0.0F, 0.0F, 1.0F, 6.0F, 0.0F};
+    compat::geometry_relation general_relation =
+        compat::geometry_relation::unknown;
+    compat::geometry_relation shear_overlap_relation =
+        compat::geometry_relation::unknown;
+    compat::geometry_relation reflected_relation =
+        compat::geometry_relation::unknown;
+    compat::geometry_relation sheared_source_relation =
+        compat::geometry_relation::unknown;
+    compat::rectangle_geometry* raw_shear_overlap_rectangle = nullptr;
+    if (factory->CreateRectangleGeometry(
+            &relation_rectangles[1U],
+            &raw_shear_overlap_rectangle) != com::ok ||
+        raw_shear_overlap_rectangle == nullptr) {
+        return 294;
+    }
+    com::pointer<compat::rectangle_geometry> shear_overlap_rectangle;
+    shear_overlap_rectangle.attach(raw_shear_overlap_rectangle);
+    compat::transformed_geometry* raw_sheared_source = nullptr;
+    if (factory->CreateTransformedGeometry(
+            geometry_base.get(),
+            &general_relation_transform,
+            &raw_sheared_source) != com::ok ||
+        raw_sheared_source == nullptr) {
+        return 295;
+    }
+    com::pointer<compat::transformed_geometry> sheared_source;
+    sheared_source.attach(raw_sheared_source);
+    if (geometry->CompareWithGeometry(
+            translated_relation_geometry.get(),
+            &general_relation_transform,
+            core::default_flattening_tolerance,
+            &general_relation) != com::ok ||
+        general_relation != compat::geometry_relation::disjoint ||
+        geometry->CompareWithGeometry(
+            shear_overlap_rectangle.get(),
+            &general_relation_transform,
+            core::default_flattening_tolerance,
+            &shear_overlap_relation) != com::ok ||
+        shear_overlap_relation != compat::geometry_relation::overlap ||
+        geometry->CompareWithGeometry(
+            geometry_base.get(),
+            &reflected_relation_transform,
+            core::default_flattening_tolerance,
+            &reflected_relation) != com::ok ||
+        reflected_relation != compat::geometry_relation::is_contained ||
+        sheared_source->CompareWithGeometry(
+            geometry_base.get(),
+            nullptr,
+            core::default_flattening_tolerance,
+            &sheared_source_relation) != com::ok ||
+        sheared_source_relation != compat::geometry_relation::overlap) {
+        return 296;
+    }
     auto* raw_transformed_union_sink = new simplified_sink();
     com::pointer<compat::simplified_geometry_sink> transformed_union_sink;
     transformed_union_sink.attach(raw_transformed_union_sink);
@@ -1693,8 +1750,6 @@ int run_tests()
     cross_factory_rectangle.attach(raw_cross_factory_rectangle);
     compat::geometry_relation rejected_relation =
         compat::geometry_relation::contains;
-    const compat::matrix_3x2_f general_relation_transform{
-        1.0F, 0.5F, 0.0F, 1.0F, 0.0F, 0.0F};
     if (geometry->CompareWithGeometry(
             cross_factory_rectangle.get(),
             nullptr,
@@ -1705,9 +1760,12 @@ int run_tests()
             translated_relation_geometry.get(),
             &general_relation_transform,
             core::default_flattening_tolerance,
-            &rejected_relation) != compat::not_implemented ||
-        rejected_relation != compat::geometry_relation::unknown ||
-        geometry->CompareWithGeometry(
+            &rejected_relation) != com::ok ||
+        rejected_relation != compat::geometry_relation::disjoint) {
+        return 283;
+    }
+    rejected_relation = compat::geometry_relation::contains;
+    if (geometry->CompareWithGeometry(
             translated_relation_geometry.get(),
             nullptr,
             0.0F,
@@ -5803,6 +5861,85 @@ int run_tests()
         system_group_ellipse->Release();
         system_factory->Release();
         return 281;
+    }
+    const D2D1_MATRIX_3X2_F system_general_relation_transform =
+        make_native_matrix(
+            general_relation_transform.m11,
+            general_relation_transform.m12,
+            general_relation_transform.m21,
+            general_relation_transform.m22,
+            general_relation_transform.m31,
+            general_relation_transform.m32);
+    const D2D1_MATRIX_3X2_F system_reflected_relation_transform =
+        make_native_matrix(
+            reflected_relation_transform.m11,
+            reflected_relation_transform.m12,
+            reflected_relation_transform.m21,
+            reflected_relation_transform.m22,
+            reflected_relation_transform.m31,
+            reflected_relation_transform.m32);
+    const auto compare_system_rectangle = [system_factory,
+                                            system_group_rectangle](
+        const D2D1_RECT_F& value,
+        const D2D1_MATRIX_3X2_F* transform,
+        compat::geometry_relation expected) {
+        ID2D1RectangleGeometry* candidate = nullptr;
+        D2D1_GEOMETRY_RELATION relation = D2D1_GEOMETRY_RELATION_UNKNOWN;
+        const HRESULT create_status = system_factory->CreateRectangleGeometry(
+            &value, &candidate);
+        const HRESULT compare_status = candidate == nullptr
+            ? create_status
+            : system_group_rectangle->CompareWithGeometry(
+                  candidate,
+                  transform,
+                  D2D1_DEFAULT_FLATTENING_TOLERANCE,
+                  &relation);
+        if (candidate != nullptr) {
+            candidate->Release();
+        }
+        return SUCCEEDED(create_status) && SUCCEEDED(compare_status) &&
+            static_cast<std::uint32_t>(relation) ==
+                static_cast<std::uint32_t>(expected);
+    };
+    ID2D1TransformedGeometry* system_sheared_source = nullptr;
+    D2D1_GEOMETRY_RELATION system_sheared_source_relation =
+        D2D1_GEOMETRY_RELATION_UNKNOWN;
+    const HRESULT system_sheared_source_create_status =
+        system_factory->CreateTransformedGeometry(
+            system_group_rectangle,
+            &system_general_relation_transform,
+            &system_sheared_source);
+    const HRESULT system_sheared_source_compare_status =
+        system_sheared_source == nullptr
+        ? system_sheared_source_create_status
+        : system_sheared_source->CompareWithGeometry(
+              system_group_rectangle,
+              nullptr,
+              D2D1_DEFAULT_FLATTENING_TOLERANCE,
+              &system_sheared_source_relation);
+    if (system_sheared_source != nullptr) {
+        system_sheared_source->Release();
+    }
+    if (!compare_system_rectangle(
+            system_relation_rectangles[4U],
+            &system_general_relation_transform,
+            general_relation) ||
+        !compare_system_rectangle(
+            system_relation_rectangles[1U],
+            &system_general_relation_transform,
+            shear_overlap_relation) ||
+        !compare_system_rectangle(
+            system_group_rectangle_value,
+            &system_reflected_relation_transform,
+            reflected_relation) ||
+        FAILED(system_sheared_source_create_status) ||
+        FAILED(system_sheared_source_compare_status) ||
+        static_cast<std::uint32_t>(system_sheared_source_relation) !=
+            static_cast<std::uint32_t>(sheared_source_relation)) {
+        system_group_rectangle->Release();
+        system_group_ellipse->Release();
+        system_factory->Release();
+        return 297;
     }
     ID2D1RectangleGeometry* system_combination_rectangle = nullptr;
     if (FAILED(system_factory->CreateRectangleGeometry(

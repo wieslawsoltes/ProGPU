@@ -97,9 +97,168 @@ class portable_factory;
         : failure;
 }
 
-[[nodiscard]] com::result compare_rectangle_with_geometry(
+using rectangle_vertices = std::array<point_2f, 4U>;
+
+[[nodiscard]] com::result get_rectangle_vertices(
     factory* owner,
-    const rectangle_f& rectangle,
+    geometry* candidate,
+    const matrix_3x2_f* transform,
+    std::uint32_t depth,
+    rectangle_vertices* vertices) noexcept
+{
+    if (candidate == nullptr || vertices == nullptr) {
+        return com::pointer_error;
+    }
+    *vertices = {};
+    if (depth > 16U || !core::valid_transform(transform)) {
+        return depth > 16U ? not_implemented : com::invalid_argument;
+    }
+    factory* raw_factory = nullptr;
+    candidate->GetFactory(&raw_factory);
+    com::pointer<factory> candidate_factory;
+    candidate_factory.attach(raw_factory);
+    if (candidate_factory.get() != owner) {
+        return wrong_factory;
+    }
+
+    rectangle_geometry* raw_rectangle = nullptr;
+    const com::result rectangle_query = candidate->QueryInterface(
+        rectangle_geometry_interface_id,
+        reinterpret_cast<void**>(&raw_rectangle));
+    com::pointer<rectangle_geometry> rectangle_geometry_value;
+    rectangle_geometry_value.attach(raw_rectangle);
+    if (com::succeeded(rectangle_query) && rectangle_geometry_value) {
+        rectangle_f source{};
+        rectangle_geometry_value->GetRect(&source);
+        if (source.right <= source.left || source.bottom <= source.top) {
+            return not_implemented;
+        }
+        return core::rectangle_geometry(source).vertices(transform, *vertices);
+    }
+    if (com::failed(rectangle_query) && rectangle_query != com::no_interface) {
+        return rectangle_query;
+    }
+
+    transformed_geometry* raw_transformed = nullptr;
+    const com::result transformed_query = candidate->QueryInterface(
+        transformed_geometry_interface_id,
+        reinterpret_cast<void**>(&raw_transformed));
+    com::pointer<transformed_geometry> transformed;
+    transformed.attach(raw_transformed);
+    if (com::failed(transformed_query) || !transformed) {
+        return com::failed(transformed_query) &&
+                transformed_query != com::no_interface
+            ? transformed_query
+            : not_implemented;
+    }
+    matrix_3x2_f local{};
+    transformed->GetTransform(&local);
+    matrix_3x2_f composed{};
+    const com::result compose_result = core::compose_transform(
+        local, transform, &composed);
+    if (com::failed(compose_result)) {
+        return compose_result;
+    }
+    geometry* raw_source = nullptr;
+    transformed->GetSourceGeometry(&raw_source);
+    com::pointer<geometry> source;
+    source.attach(raw_source);
+    return source
+        ? get_rectangle_vertices(
+              owner, source.get(), &composed, depth + 1U, vertices)
+        : failure;
+}
+
+[[nodiscard]] double signed_twice_area(
+    const rectangle_vertices& vertices) noexcept
+{
+    double result = 0.0;
+    for (std::size_t index = 0U; index < vertices.size(); ++index) {
+        const point_2f current = vertices[index];
+        const point_2f next = vertices[(index + 1U) % vertices.size()];
+        result += static_cast<double>(current.x) * next.y -
+            static_cast<double>(next.x) * current.y;
+    }
+    return result;
+}
+
+[[nodiscard]] double edge_cross(
+    point_2f start,
+    point_2f end,
+    point_2f point) noexcept
+{
+    return (static_cast<double>(end.x) - start.x) *
+            (static_cast<double>(point.y) - start.y) -
+        (static_cast<double>(end.y) - start.y) *
+            (static_cast<double>(point.x) - start.x);
+}
+
+[[nodiscard]] bool convex_contains_point(
+    const rectangle_vertices& vertices,
+    double orientation,
+    point_2f point) noexcept
+{
+    for (std::size_t index = 0U; index < vertices.size(); ++index) {
+        const double cross = edge_cross(
+            vertices[index],
+            vertices[(index + 1U) % vertices.size()],
+            point);
+        if ((orientation > 0.0 && cross < 0.0) ||
+            (orientation < 0.0 && cross > 0.0)) {
+            return false;
+        }
+    }
+    return true;
+}
+
+[[nodiscard]] bool convex_quadrilaterals_are_disjoint(
+    const rectangle_vertices& first,
+    const rectangle_vertices& second) noexcept
+{
+    const auto has_separating_axis = [](
+        const rectangle_vertices& axes,
+        const rectangle_vertices& left,
+        const rectangle_vertices& right) {
+        for (std::size_t index = 0U; index < axes.size(); ++index) {
+            const point_2f start = axes[index];
+            const point_2f end = axes[(index + 1U) % axes.size()];
+            const double axis_x =
+                -(static_cast<double>(end.y) - start.y);
+            const double axis_y =
+                static_cast<double>(end.x) - start.x;
+            double left_min = static_cast<double>(left[0U].x) * axis_x +
+                static_cast<double>(left[0U].y) * axis_y;
+            double left_max = left_min;
+            double right_min = static_cast<double>(right[0U].x) * axis_x +
+                static_cast<double>(right[0U].y) * axis_y;
+            double right_max = right_min;
+            for (std::size_t point = 1U; point < left.size(); ++point) {
+                const double projection =
+                    static_cast<double>(left[point].x) * axis_x +
+                    static_cast<double>(left[point].y) * axis_y;
+                left_min = std::min(left_min, projection);
+                left_max = std::max(left_max, projection);
+            }
+            for (std::size_t point = 1U; point < right.size(); ++point) {
+                const double projection =
+                    static_cast<double>(right[point].x) * axis_x +
+                    static_cast<double>(right[point].y) * axis_y;
+                right_min = std::min(right_min, projection);
+                right_max = std::max(right_max, projection);
+            }
+            if (left_max < right_min || right_max < left_min) {
+                return true;
+            }
+        }
+        return false;
+    };
+    return has_separating_axis(first, first, second) ||
+        has_separating_axis(second, first, second);
+}
+
+[[nodiscard]] com::result compare_rectangle_vertices_with_geometry(
+    factory* owner,
+    const rectangle_vertices& first,
     geometry* candidate,
     const matrix_3x2_f* candidate_transform,
     float flattening_tolerance,
@@ -114,35 +273,61 @@ class portable_factory;
         !core::valid_transform(candidate_transform)) {
         return com::invalid_argument;
     }
-    if (rectangle.right <= rectangle.left ||
-        rectangle.bottom <= rectangle.top) {
-        return not_implemented;
-    }
-    rectangle_f other{};
-    const com::result rectangle_result = get_axis_aligned_rectangle(
-        owner, candidate, candidate_transform, 0U, &other);
+    rectangle_vertices second{};
+    const com::result rectangle_result = get_rectangle_vertices(
+        owner, candidate, candidate_transform, 0U, &second);
     if (com::failed(rectangle_result)) {
         return rectangle_result;
     }
-    if (other.right <= other.left || other.bottom <= other.top) {
+    const double first_orientation = signed_twice_area(first);
+    const double second_orientation = signed_twice_area(second);
+    if (first_orientation == 0.0 || second_orientation == 0.0) {
         return not_implemented;
     }
-    if (other.left <= rectangle.left && other.top <= rectangle.top &&
-        other.right >= rectangle.right &&
-        other.bottom >= rectangle.bottom) {
+    const bool first_in_second = std::all_of(
+        first.begin(),
+        first.end(),
+        [&](point_2f point) {
+            return convex_contains_point(second, second_orientation, point);
+        });
+    const bool second_in_first = std::all_of(
+        second.begin(),
+        second.end(),
+        [&](point_2f point) {
+            return convex_contains_point(first, first_orientation, point);
+        });
+    if (first_in_second) {
         *relation = geometry_relation::is_contained;
-    } else if (rectangle.left <= other.left &&
-        rectangle.top <= other.top && rectangle.right >= other.right &&
-        rectangle.bottom >= other.bottom) {
+    } else if (second_in_first) {
         *relation = geometry_relation::contains;
-    } else if (rectangle.right < other.left ||
-        other.right < rectangle.left || rectangle.bottom < other.top ||
-        other.bottom < rectangle.top) {
+    } else if (convex_quadrilaterals_are_disjoint(first, second)) {
         *relation = geometry_relation::disjoint;
     } else {
         *relation = geometry_relation::overlap;
     }
     return com::ok;
+}
+
+[[nodiscard]] com::result compare_rectangle_with_geometry(
+    factory* owner,
+    const rectangle_f& rectangle,
+    geometry* candidate,
+    const matrix_3x2_f* candidate_transform,
+    float flattening_tolerance,
+    geometry_relation* relation) noexcept
+{
+    rectangle_vertices first{};
+    const com::result vertex_result = core::rectangle_geometry(rectangle)
+        .vertices(nullptr, first);
+    return com::failed(vertex_result)
+        ? vertex_result
+        : compare_rectangle_vertices_with_geometry(
+              owner,
+              first,
+              candidate,
+              candidate_transform,
+              flattening_tolerance,
+              relation);
 }
 
 struct orthogonal_edge final {
@@ -1297,14 +1482,14 @@ public:
             return com::pointer_error;
         }
         *relation = geometry_relation::unknown;
-        rectangle_f transformed_rectangle{};
-        const com::result rectangle_result =
-            get_axis_preserving_rectangle(&transformed_rectangle);
+        rectangle_vertices first{};
+        const com::result rectangle_result = get_rectangle_vertices(
+            owner_.get(), source_.get(), &transform_, 0U, &first);
         return com::failed(rectangle_result)
             ? rectangle_result
-            : compare_rectangle_with_geometry(
+            : compare_rectangle_vertices_with_geometry(
                   owner_.get(),
-                  transformed_rectangle,
+                  first,
                   candidate,
                   candidate_transform,
                   flattening_tolerance,
