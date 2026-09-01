@@ -3155,7 +3155,7 @@ public sealed class MediaPlaybackEngineTests
         Assert.Equal(
             GetRecordDeclaration(solid),
             GetRecordDeclaration(edges));
-        Assert.Equal(208, System.Runtime.InteropServices.Marshal
+        Assert.Equal(224, System.Runtime.InteropServices.Marshal
             .SizeOf<GpuMesh3DUniforms>());
         Assert.Equal(80, System.Runtime.InteropServices.Marshal
             .SizeOf<GpuMesh3DEdge>());
