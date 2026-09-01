@@ -115,5 +115,24 @@ int main()
         !approximately_equal(tangent.y, 0.0F)) {
         return 9;
     }
+
+    const progpu_native_direct2d_matrix_3x2_f first{
+        2.0F, 0.0F, 0.0F, 3.0F, 10.0F, -4.0F};
+    const progpu_native_direct2d_matrix_3x2_f second{
+        0.0F, 1.0F, -1.0F, 0.0F, 5.0F, 6.0F};
+    progpu_native_direct2d_matrix_3x2_f composed{};
+    if (core::compose_transform(first, &second, &composed) != com::ok ||
+        !approximately_equal(composed.m11, 0.0F) ||
+        !approximately_equal(composed.m12, 2.0F) ||
+        !approximately_equal(composed.m21, -3.0F) ||
+        !approximately_equal(composed.m22, 0.0F) ||
+        !approximately_equal(composed.m31, 9.0F) ||
+        !approximately_equal(composed.m32, 16.0F) ||
+        core::compose_transform(first, &second, nullptr) !=
+            com::pointer_error ||
+        core::compose_transform(first, &invalid_transform, &composed) !=
+            com::invalid_argument) {
+        return 10;
+    }
     return 0;
 }

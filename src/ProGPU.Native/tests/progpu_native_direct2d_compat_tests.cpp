@@ -303,6 +303,54 @@ int main()
         return 12;
     }
 
+    const compat::matrix_3x2_f local_transform{
+        1.0F, 0.0F, 0.0F, 1.0F, 5.0F, 7.0F};
+    compat::transformed_geometry* raw_transformed = nullptr;
+    if (factory->CreateTransformedGeometry(
+            geometry_base.get(), &local_transform, &raw_transformed) !=
+            com::ok ||
+        raw_transformed == nullptr) {
+        return 13;
+    }
+    com::pointer<compat::transformed_geometry> transformed;
+    transformed.attach(raw_transformed);
+    com::pointer<compat::geometry> transformed_base;
+    if (transformed.as(
+            compat::geometry_interface_id, transformed_base) != com::ok ||
+        !transformed_base) {
+        return 14;
+    }
+    compat::geometry* raw_source = nullptr;
+    transformed->GetSourceGeometry(&raw_source);
+    com::pointer<compat::geometry> returned_source;
+    returned_source.attach(raw_source);
+    compat::matrix_3x2_f returned_transform{};
+    transformed->GetTransform(&returned_transform);
+    if (returned_source.get() != geometry_base.get() ||
+        !approximately_equal(returned_transform.m31, 5.0F) ||
+        transformed->GetBounds(&transform, &returned) != com::ok ||
+        !approximately_equal(returned.left, 22.0F) ||
+        !approximately_equal(returned.top, 23.0F) ||
+        !approximately_equal(returned.right, 30.0F) ||
+        !approximately_equal(returned.bottom, 41.0F)) {
+        return 15;
+    }
+
+    compat::factory* second_raw_factory = nullptr;
+    if (compat::create_factory(&second_raw_factory) != com::ok) {
+        return 16;
+    }
+    com::pointer<compat::factory> second_factory;
+    second_factory.attach(second_raw_factory);
+    compat::transformed_geometry* wrong_factory_geometry = nullptr;
+    if (second_factory->CreateTransformedGeometry(
+            geometry_base.get(),
+            &local_transform,
+            &wrong_factory_geometry) != compat::wrong_factory ||
+        wrong_factory_geometry != nullptr) {
+        return 17;
+    }
+
     compat::geometry* unsupported = reinterpret_cast<compat::geometry*>(
         static_cast<std::uintptr_t>(1U));
     if (factory->CreateEllipseGeometry(nullptr, &unsupported) !=
@@ -310,7 +358,7 @@ int main()
         unsupported != nullptr ||
         factory->CreateEllipseGeometry(nullptr, nullptr) !=
             com::pointer_error) {
-        return 13;
+        return 18;
     }
 
 #if defined(_WIN32)
@@ -319,9 +367,12 @@ int main()
         !com::guid_equal(
             compat::rectangle_geometry_interface_id,
             __uuidof(ID2D1RectangleGeometry)) ||
+        !com::guid_equal(
+            compat::transformed_geometry_interface_id,
+            __uuidof(ID2D1TransformedGeometry)) ||
         sizeof(compat::rectangle_f) != sizeof(D2D1_RECT_F) ||
         sizeof(compat::triangle) != sizeof(D2D1_TRIANGLE)) {
-        return 14;
+        return 19;
     }
     auto* native_factory = reinterpret_cast<ID2D1Factory*>(factory.get());
     const D2D1_RECT_F native_rectangle{2.0F, 3.0F, 6.0F, 8.0F};
@@ -329,14 +380,35 @@ int main()
     if (FAILED(native_factory->CreateRectangleGeometry(
             &native_rectangle, &native_geometry)) ||
         native_geometry == nullptr) {
-        return 15;
+        return 20;
     }
     float native_area = 0.0F;
     const HRESULT native_status = native_geometry->ComputeArea(
         nullptr, D2D1_DEFAULT_FLATTENING_TOLERANCE, &native_area);
-    native_geometry->Release();
     if (FAILED(native_status) || !approximately_equal(native_area, 20.0F)) {
-        return 16;
+        native_geometry->Release();
+        return 21;
+    }
+    const D2D1_MATRIX_3X2_F native_transform{
+        1.0F, 0.0F, 0.0F, 1.0F, 4.0F, -2.0F};
+    ID2D1TransformedGeometry* native_transformed = nullptr;
+    const HRESULT native_transformed_status =
+        native_factory->CreateTransformedGeometry(
+            native_geometry, &native_transform, &native_transformed);
+    native_geometry->Release();
+    if (FAILED(native_transformed_status) || native_transformed == nullptr) {
+        return 22;
+    }
+    D2D1_RECT_F native_bounds{};
+    const HRESULT native_bounds_status =
+        native_transformed->GetBounds(nullptr, &native_bounds);
+    native_transformed->Release();
+    if (FAILED(native_bounds_status) ||
+        !approximately_equal(native_bounds.left, 6.0F) ||
+        !approximately_equal(native_bounds.top, 1.0F) ||
+        !approximately_equal(native_bounds.right, 10.0F) ||
+        !approximately_equal(native_bounds.bottom, 6.0F)) {
+        return 23;
     }
 #endif
     return 0;

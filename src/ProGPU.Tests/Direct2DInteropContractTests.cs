@@ -170,12 +170,17 @@ public sealed class Direct2DInteropContractTests
         Assert.Contains("struct rectangle_geometry : geometry", header, StringComparison.Ordinal);
         Assert.Contains("0x06152247U", header, StringComparison.Ordinal);
         Assert.Contains("0x2CD906A2U", header, StringComparison.Ordinal);
+        Assert.Contains("0x2CD906BBU", header, StringComparison.Ordinal);
+        Assert.Contains("struct transformed_geometry : geometry", header, StringComparison.Ordinal);
         Assert.Contains("class portable_factory final", source, StringComparison.Ordinal);
+        Assert.Contains("class portable_transformed_geometry final", source, StringComparison.Ordinal);
         Assert.Contains("core::rectangle_geometry geometry_", source, StringComparison.Ordinal);
+        Assert.Contains("core::compose_transform", source, StringComparison.Ordinal);
         Assert.Contains("return not_implemented;", source, StringComparison.Ordinal);
         Assert.Contains("progpu_native_direct2d_compat_tests", cmake, StringComparison.Ordinal);
         Assert.Contains("include/progpu_native_direct2d_compat.hpp", cmake, StringComparison.Ordinal);
         Assert.Contains("reinterpret_cast<ID2D1Factory*>", nativeTest, StringComparison.Ordinal);
+        Assert.Contains("ID2D1TransformedGeometry*", nativeTest, StringComparison.Ordinal);
         Assert.Contains("factory.Reset();", nativeTest, StringComparison.Ordinal);
     }
 

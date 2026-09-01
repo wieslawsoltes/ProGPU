@@ -437,45 +437,39 @@ bool compat_finite_transform(
             std::isfinite(value->_31) && std::isfinite(value->_32));
 }
 
+const progpu_native_direct2d_matrix_3x2_f* compat_core_transform(
+    const D2D1_MATRIX_3X2_F* transform,
+    progpu_native_direct2d_matrix_3x2_f& storage) noexcept;
+
 bool compat_compose_transform(
     const D2D1_MATRIX_3X2_F& first,
     const D2D1_MATRIX_3X2_F* second,
     D2D1_MATRIX_3X2_F& result) noexcept
 {
-    if (!compat_finite_transform(&first) ||
-        !compat_finite_transform(second)) {
+    const progpu_native_direct2d_matrix_3x2_f portable_first{
+        first._11,
+        first._12,
+        first._21,
+        first._22,
+        first._31,
+        first._32};
+    progpu_native_direct2d_matrix_3x2_f portable_second{};
+    const auto* portable_second_pointer = compat_core_transform(
+        second, portable_second);
+    progpu_native_direct2d_matrix_3x2_f portable_result{};
+    if (FAILED(direct2d_core::compose_transform(
+            portable_first,
+            portable_second_pointer,
+            &portable_result))) {
         return false;
     }
-    const D2D1_MATRIX_3X2_F right = second == nullptr
-        ? D2D1::Matrix3x2F::Identity()
-        : *second;
-    const std::array<double, 6U> values = {{
-        static_cast<double>(first._11) * right._11 +
-            static_cast<double>(first._12) * right._21,
-        static_cast<double>(first._11) * right._12 +
-            static_cast<double>(first._12) * right._22,
-        static_cast<double>(first._21) * right._11 +
-            static_cast<double>(first._22) * right._21,
-        static_cast<double>(first._21) * right._12 +
-            static_cast<double>(first._22) * right._22,
-        static_cast<double>(first._31) * right._11 +
-            static_cast<double>(first._32) * right._21 + right._31,
-        static_cast<double>(first._31) * right._12 +
-            static_cast<double>(first._32) * right._22 + right._32}};
-    constexpr double maximum =
-        static_cast<double>(std::numeric_limits<float>::max());
-    if (!std::all_of(values.begin(), values.end(), [&](double value) {
-            return std::isfinite(value) && value >= -maximum &&
-                value <= maximum;
-        })) {
-        return false;
-    }
-    result._11 = static_cast<float>(values[0]);
-    result._12 = static_cast<float>(values[1]);
-    result._21 = static_cast<float>(values[2]);
-    result._22 = static_cast<float>(values[3]);
-    result._31 = static_cast<float>(values[4]);
-    result._32 = static_cast<float>(values[5]);
+    result = {
+        portable_result.m11,
+        portable_result.m12,
+        portable_result.m21,
+        portable_result.m22,
+        portable_result.m31,
+        portable_result.m32};
     return true;
 }
 
