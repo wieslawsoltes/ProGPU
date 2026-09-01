@@ -476,6 +476,7 @@ struct progpu_native_engine {
     std::uint32_t semantic_render_bundle_draw_call_count = 0U;
     std::uint32_t semantic_render_bundle_family_switch_count = 0U;
     WGPUCommandEncoder semantic_encoder = nullptr;
+    bool semantic_vector_mask_uses_shared_clip_resources = false;
     bool semantic_load_target = false;
     bool semantic_prepare_only = false;
     bool semantic_path_draw_active = false;

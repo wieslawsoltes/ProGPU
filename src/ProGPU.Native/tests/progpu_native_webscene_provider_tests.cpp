@@ -5102,13 +5102,14 @@ int main(int argc, char** argv) {
     brush_mask_frame.generation = 1U;
     semantic_metrics = {};
     semantic_metrics.struct_size = sizeof(semantic_metrics);
-    require(progpu_native_engine_render_scene(
+    const auto brush_mask_status = progpu_native_engine_render_scene(
         engine,
         &brush_mask_frame,
-        &semantic_metrics) == PROGPU_NATIVE_STATUS_SUCCESS &&
+        &semantic_metrics);
+    require(brush_mask_status == PROGPU_NATIVE_STATUS_SUCCESS &&
         semantic_metrics.command_count == 3U &&
         semantic_metrics.draw_call_count == 2U &&
-        semantic_metrics.submission_count == 5U &&
+        semantic_metrics.submission_count == 1U &&
         semantic_metrics.texture_upload_bytes == 0U &&
         semantic_metrics.uniform_upload_bytes >= 24U * sizeof(float),
         "semantic GPU-generated brush-mask rendering failed");

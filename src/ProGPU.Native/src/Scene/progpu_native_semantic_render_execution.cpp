@@ -3193,6 +3193,7 @@ progpu_native_status render_scene(
             wgpuCommandEncoderRelease(engine->semantic_encoder);
             engine->semantic_encoder = nullptr;
         }
+        engine->semantic_vector_mask_uses_shared_clip_resources = false;
     };
     const auto begin_encoder = [&]() noexcept {
         if (engine->semantic_encoder != nullptr) {
@@ -3212,6 +3213,7 @@ progpu_native_status render_scene(
         }
         WGPUCommandEncoder encoder = engine->semantic_encoder;
         engine->semantic_encoder = nullptr;
+        engine->semantic_vector_mask_uses_shared_clip_resources = false;
         WGPUCommandBufferDescriptor descriptor{};
         descriptor.label = progpu::native::webgpu::string_view(
             "ProGPU native semantic scene commands");

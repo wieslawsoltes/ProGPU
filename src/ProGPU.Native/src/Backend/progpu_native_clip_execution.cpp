@@ -837,6 +837,7 @@ bool rebuild_vector_clip_chain(
         if (restore_semantic_encoder) {
             WGPUCommandEncoder semantic_encoder = engine.semantic_encoder;
             engine.semantic_encoder = nullptr;
+            engine.semantic_vector_mask_uses_shared_clip_resources = false;
             WGPUCommandBufferDescriptor command_descriptor{};
             command_descriptor.label =
                 ::progpu::native::webgpu::string_view(
