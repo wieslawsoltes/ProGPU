@@ -24,7 +24,7 @@ namespace native_com = progpu::native::com;
 namespace {
 
 constexpr std::uint32_t width = 64U;
-constexpr std::uint32_t height = 48U;
+constexpr std::uint32_t height = 64U;
 constexpr std::uint32_t row_bytes = width * 4U;
 constexpr auto gpu_timeout = std::chrono::seconds(30);
 
@@ -237,10 +237,12 @@ struct portable_scene final {
     native_com::pointer<d2d::render_target> target;
     target.attach(raw_target);
 
-    constexpr std::array<d2d::color_f, 2U> colors{
+    constexpr std::array<d2d::color_f, 4U> colors{
         d2d::color_f{0.0F, 0.0F, 1.0F, 1.0F},
-        d2d::color_f{1.0F, 0.0F, 1.0F, 1.0F}};
-    std::array<native_com::pointer<d2d::solid_color_brush>, 2U> brushes;
+        d2d::color_f{1.0F, 0.0F, 1.0F, 1.0F},
+        d2d::color_f{1.0F, 1.0F, 0.0F, 1.0F},
+        d2d::color_f{1.0F, 1.0F, 1.0F, 0.5F}};
+    std::array<native_com::pointer<d2d::solid_color_brush>, 4U> brushes;
     for (std::size_t index = 0U; index < brushes.size(); ++index) {
         d2d::solid_color_brush* raw_brush = nullptr;
         require(target->CreateSolidColorBrush(
@@ -362,6 +364,36 @@ struct portable_scene final {
         "portable bitmap-brush path close failed");
     bitmap_brush_path_sink.Reset();
 
+    d2d::path_geometry* raw_layer_mask_path = nullptr;
+    require(factory->CreatePathGeometry(&raw_layer_mask_path) ==
+            native_com::ok &&
+        raw_layer_mask_path != nullptr,
+        "portable layer-mask path creation failed");
+    native_com::pointer<d2d::path_geometry> layer_mask_path;
+    layer_mask_path.attach(raw_layer_mask_path);
+    d2d::geometry_sink* raw_layer_mask_sink = nullptr;
+    require(layer_mask_path->Open(&raw_layer_mask_sink) == native_com::ok &&
+        raw_layer_mask_sink != nullptr,
+        "portable layer-mask path sink creation failed");
+    native_com::pointer<d2d::geometry_sink> layer_mask_sink;
+    layer_mask_sink.attach(raw_layer_mask_sink);
+    layer_mask_sink->SetFillMode(d2d::fill_mode::winding);
+    layer_mask_sink->BeginFigure(
+        {49.0F, 62.0F}, d2d::figure_begin::filled);
+    const d2d::point_2f layer_mask_points[]{
+        {56.0F, 49.0F}, {63.0F, 62.0F}};
+    layer_mask_sink->AddLines(layer_mask_points, 2U);
+    layer_mask_sink->EndFigure(d2d::figure_end::closed);
+    require(layer_mask_sink->Close() == native_com::ok,
+        "portable layer-mask path close failed");
+    layer_mask_sink.Reset();
+
+    d2d::layer* raw_layer = nullptr;
+    require(target->CreateLayer(nullptr, &raw_layer) == native_com::ok &&
+        raw_layer != nullptr, "portable layer creation failed");
+    native_com::pointer<d2d::layer> layer;
+    layer.attach(raw_layer);
+
     const d2d::color_f clear{0.05F, 0.1F, 0.15F, 1.0F};
     const d2d::rectangle_f rectangle{4.0F, 4.0F, 20.0F, 20.0F};
     const d2d::ellipse ellipse_value{{40.0F, 14.0F}, 8.0F, 8.0F};
@@ -373,6 +405,31 @@ struct portable_scene final {
     const d2d::rectangle_f bitmap_brush_rectangle{
         22.0F, 12.0F, 30.0F, 20.0F};
     const d2d::ellipse bitmap_brush_ellipse{{26.0F, 24.0F}, 4.0F, 4.0F};
+    const d2d::rectangle_f aliased_fill{0.0F, 48.0F, 16.0F, 64.0F};
+    const d2d::rectangle_f aliased_clip{3.0F, 51.0F, 13.0F, 61.0F};
+    const d2d::rectangle_f antialiased_fill{16.0F, 48.0F, 32.0F, 64.0F};
+    const d2d::rectangle_f antialiased_clip{
+        19.5F, 51.5F, 29.5F, 61.5F};
+    const d2d::rectangle_f opacity_layer_bounds{
+        34.0F, 50.0F, 46.0F, 62.0F};
+    const d2d::rectangle_f mask_layer_bounds{
+        48.0F, 48.0F, 64.0F, 64.0F};
+    const d2d::layer_parameters opacity_layer_parameters{
+        opacity_layer_bounds,
+        nullptr,
+        d2d::antialias_mode::per_primitive,
+        {1.0F, 0.0F, 0.0F, 1.0F, 0.0F, 0.0F},
+        0.5F,
+        nullptr,
+        d2d::layer_options::none};
+    const d2d::layer_parameters mask_layer_parameters{
+        mask_layer_bounds,
+        static_cast<d2d::geometry*>(layer_mask_path.get()),
+        d2d::antialias_mode::per_primitive,
+        {1.0F, 0.0F, 0.0F, 1.0F, 0.0F, 0.0F},
+        1.0F,
+        static_cast<d2d::brush*>(brushes[3U].get()),
+        d2d::layer_options::none};
     target->BeginDraw();
     target->Clear(&clear);
     target->FillRectangle(
@@ -409,6 +466,26 @@ struct portable_scene final {
         static_cast<d2d::brush*>(brushes[1U].get()),
         2.0F,
         nullptr);
+    target->PushAxisAlignedClip(
+        &aliased_clip, d2d::antialias_mode::aliased);
+    target->FillRectangle(
+        &aliased_fill, static_cast<d2d::brush*>(brushes[2U].get()));
+    target->PopAxisAlignedClip();
+    target->PushAxisAlignedClip(
+        &antialiased_clip, d2d::antialias_mode::per_primitive);
+    target->FillRectangle(
+        &antialiased_fill, static_cast<d2d::brush*>(brushes[0U].get()));
+    target->PopAxisAlignedClip();
+    target->PushLayer(&opacity_layer_parameters, layer.get());
+    target->FillRectangle(
+        &opacity_layer_bounds,
+        static_cast<d2d::brush*>(brushes[1U].get()));
+    target->PopLayer();
+    target->PushLayer(&mask_layer_parameters, layer.get());
+    target->FillRectangle(
+        &mask_layer_bounds,
+        static_cast<d2d::brush*>(brushes[2U].get()));
+    target->PopLayer();
     require(target->EndDraw(nullptr, nullptr) == native_com::ok,
         "portable scene recording failed");
     native_com::pointer<d2d::scene_render_target_native> scene_target;
@@ -485,9 +562,9 @@ struct portable_scene final {
     const bool render_matches = render_status ==
             PROGPU_NATIVE_STATUS_SUCCESS &&
         diagnostics.stage == d2d::scene_submission_stage::none &&
-        scene_metrics.draw_count == 9U &&
-        frame_metrics.command_count == 9U &&
-        frame_metrics.submission_count == 1U;
+        scene_metrics.draw_count == 13U &&
+        frame_metrics.command_count == 21U &&
+        frame_metrics.submission_count == 2U;
     if (!render_matches) {
         std::fprintf(
             stderr,
@@ -596,6 +673,18 @@ void verify_pixels(std::span<const std::uint8_t> pixels)
         "portable Direct2D bitmap-brush path fill is missing");
     require(near_rgba(pixel(2U, 34U), 255, 0, 255),
         "portable Direct2D geometry stroke is missing");
+    require(near_rgba(pixel(8U, 56U), 255, 255, 0),
+        "portable Direct2D aliased clip is missing");
+    require(near_rgba(pixel(1U, 56U), 13, 26, 38),
+        "portable Direct2D aliased clip leaked outside its bounds");
+    require(near_rgba(pixel(24U, 56U), 0, 0, 255),
+        "portable Direct2D antialiased clip is missing");
+    require(near_rgba(pixel(38U, 56U), 134, 13, 147),
+        "portable Direct2D opacity layer is missing");
+    require(near_rgba(pixel(56U, 56U), 134, 140, 19),
+        "portable Direct2D geometric/opacity mask layer is missing");
+    require(near_rgba(pixel(63U, 50U), 13, 26, 38),
+        "portable Direct2D geometric mask leaked outside its path");
 }
 
 void write_capture(
@@ -632,14 +721,14 @@ int main(int argc, char** argv)
     portable_scene scene = record_scene();
     const std::vector<std::uint8_t> pixels = render_scene(
         gpu, scene.scene_target.get());
-    verify_pixels(pixels);
     write_capture(argc == 2 ? argv[1] : nullptr, pixels);
+    verify_pixels(pixels);
     const char* adapter_name = gpu.properties.name == nullptr
         ? "unknown"
         : gpu.properties.name;
     std::printf(
         "Portable Direct2D WebGPU passed: backend=%s adapter=%s "
-        "draws=9 submissions=1 bytes=%zu\n",
+        "draws=13 submissions=2 bytes=%zu\n",
         backend_name(gpu.properties.backendType),
         adapter_name,
         pixels.size());
