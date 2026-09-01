@@ -330,6 +330,29 @@ fails at a named boundary; logical-palette color usage and JPEG/PNG transport
 are covered by subsequent typed checkpoints. ApiCompat is unaffected because this closes managed behavior behind
 the existing public surface.
 
+`MetafileBenchmarks.Playback256EmfBitmapBltsToRetainedCommands` extends the
+bounded EMF source-image path to `EMR_BITBLT` and `EMR_STRETCHBLT`. The records
+validate disjoint record-relative bitmap buffers, decode through the shared DIB
+and logical-palette path, retain fractional source rectangles, and support
+source-XFORM scale, translation, and mirroring. Rotation and shear are rejected
+at the same explicit source-transform boundary documented by native BitBlt, and
+source-independent ROP3 records may omit the source buffers without sampling a
+fake device context. Focused gates cover both records, crop/stretch pixels,
+transform mirroring, omitted-source pattern copy, malformed-record transactional
+rollback, and warmed allocation.
+
+The 2026-09-01 ARM64/.NET 10.0.11 in-process ShortRun measured a 6.037 ms median
+(6.721 ms mean, 3.214 ms standard deviation) and 501.77 KB allocated for 256
+alternating records. Three iterations, denied priority elevation, a
+minimum-iteration warning, and high variance make this allocation/command-shape
+evidence rather than a throughput claim. The isolated toolchain exceeded its
+120-second generated-build timeout before measurement on this host. The full
+System.Drawing suite passes 600/600 in Debug and Release; ApiCompat remains at
+zero missing types, zero missing members, and 13 reviewed shape diagnostics.
+The current enum/switch inventory is 147 handled of 192 enum-backed EMF/WMF
+records, with 45 explicit unsupported boundaries; handled does not imply full
+semantic parity.
+
 `MetafileBenchmarks.Playback256WmfDibImagesToRetainedCommands` extends that
 same decoder and retained-texture gate to source-bearing `META_DIBBITBLT`,
 `META_DIBSTRETCHBLT`, `META_STRETCHDIB`, and `META_SETDIBTODEV`. Packed
@@ -1048,7 +1071,7 @@ microsecond mean, 172.568 microsecond standard deviation) and 305,349 bytes
 allocated. The complete 102-benchmark Release run finished successfully in
 14 minutes 34 seconds; three iterations, denied priority elevation, and high
 variance keep the exact-pixel, retained-resource, and allocation gates
-authoritative. The complete System.Drawing suite passes 593/593 in both Debug
+authoritative. The complete System.Drawing suite passes 600/600 in both Debug
 and Release, the Linux-equivalent ProGPU Release lane passes 3,759/3,759, the
 headless lane passes 240/240, and ApiCompat remains at zero missing types and
 zero missing members.

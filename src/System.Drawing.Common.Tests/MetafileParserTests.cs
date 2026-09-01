@@ -3053,6 +3053,194 @@ public sealed class MetafileParserTests
         Assert.Equal(TextureSamplingMode.Nearest, images[1].TextureSamplingMode);
     }
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void EmfBitmapBltRecordsDecodeTheEmbeddedDib(bool stretch)
+    {
+        TestDib dib = CreateRgbDib(
+            4,
+            -1,
+            24,
+            [0, 0, 255, 0, 255, 0, 255, 0, 0, 255, 255, 255]);
+        Rectangle source = new(1, 0, 2, 1);
+        Rectangle destination = stretch
+            ? new Rectangle(8, 8, 8, 4)
+            : new Rectangle(8, 8, 2, 1);
+        EmfPlusRecordType type = stretch
+            ? EmfPlusRecordType.EmfStretchBlt
+            : EmfPlusRecordType.EmfBitBlt;
+        byte[] fixture = CreateTextPlaybackEmf(
+        [
+            (type, EmfBitmapBlt(dib, source, destination, stretch))
+        ]);
+        using var metafile = new Metafile(new MemoryStream(fixture, writable: false));
+        using var target = new Bitmap(24, 16);
+        using (Graphics graphics = Graphics.FromImage(target))
+        {
+            graphics.Clear(Color.Transparent);
+            graphics.DrawImage(metafile, new Rectangle(0, 0, 64, 64));
+        }
+
+        Assert.Equal(Color.Lime.ToArgb(), target.GetPixel(8, 8).ToArgb());
+        Assert.Equal(Color.Blue.ToArgb(), target.GetPixel(destination.Right - 1, 8).ToArgb());
+        Assert.Equal(0, target.GetPixel(destination.Right, 8).A);
+    }
+
+    [Fact]
+    public void EmfStretchBltAppliesScaleTranslationAndMirroringFromTheSourceTransform()
+    {
+        TestDib dib = CreateRgbDib(
+            4,
+            -1,
+            24,
+            [0, 0, 255, 0, 255, 0, 255, 0, 0, 255, 255, 255]);
+        var sourceTransform = new Matrix3x2(-1f, 0f, 0f, 1f, 4f, 0f);
+        byte[] fixture = CreateTextPlaybackEmf(
+        [
+            (EmfPlusRecordType.EmfStretchBlt,
+                EmfBitmapBlt(
+                    dib,
+                    new Rectangle(1, 0, 2, 1),
+                    new Rectangle(8, 8, 8, 4),
+                    stretch: true,
+                    sourceTransform: sourceTransform))
+        ]);
+        using var metafile = new Metafile(new MemoryStream(fixture, writable: false));
+        using var target = new Bitmap(24, 16);
+        using (Graphics graphics = Graphics.FromImage(target))
+        {
+            graphics.Clear(Color.Transparent);
+            graphics.DrawImage(metafile, new Rectangle(0, 0, 64, 64));
+        }
+
+        Assert.Equal(Color.Blue.ToArgb(), target.GetPixel(8, 8).ToArgb());
+        Assert.Equal(Color.Lime.ToArgb(), target.GetPixel(15, 8).ToArgb());
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void EmfBitmapBltSourceIndependentRasterOperationAllowsAnOmittedDib(bool stretch)
+    {
+        TestDib unused = CreateRgbDib(1, -1, 24, [0, 0, 255, 0]);
+        EmfPlusRecordType type = stretch
+            ? EmfPlusRecordType.EmfStretchBlt
+            : EmfPlusRecordType.EmfBitBlt;
+        byte[] fixture = CreateTextPlaybackEmf(
+        [
+            (EmfPlusRecordType.EmfCreateBrushIndirect, EmfBrush(1, Color.Red)),
+            (EmfPlusRecordType.EmfSelectObject, EmfUInt32(1)),
+            (type,
+                EmfBitmapBlt(
+                    unused,
+                    new Rectangle(0, 0, 4, 4),
+                    new Rectangle(8, 8, 8, 8),
+                    stretch,
+                    rasterOperation: 0x00F0_0021,
+                    includeSource: false))
+        ]);
+        using var metafile = new Metafile(new MemoryStream(fixture, writable: false));
+        using var target = new Bitmap(24, 24);
+        using (Graphics graphics = Graphics.FromImage(target))
+        {
+            graphics.Clear(Color.Transparent);
+            graphics.DrawImage(metafile, new Rectangle(0, 0, 64, 64));
+        }
+
+        Assert.Equal(Color.Red.ToArgb(), target.GetPixel(10, 10).ToArgb());
+        Assert.Equal(0, target.GetPixel(7, 10).A);
+    }
+
+    [Fact]
+    public void EmfMalformedBitmapBltRecordsRollBackEarlierCommands()
+    {
+        TestDib dib = CreateRgbDib(2, -1, 24, [0, 0, 255, 0, 255, 0, 0, 0]);
+        byte[] missingSource = EmfBitmapBlt(
+            dib,
+            new Rectangle(0, 0, 2, 1),
+            new Rectangle(8, 8, 8, 4),
+            stretch: true,
+            includeSource: false);
+        byte[] overlappingBuffers = EmfBitmapBlt(
+            dib,
+            new Rectangle(0, 0, 2, 1),
+            new Rectangle(8, 8, 8, 4),
+            stretch: true);
+        WriteUInt32(
+            overlappingBuffers,
+            84,
+            BinaryPrimitives.ReadUInt32LittleEndian(overlappingBuffers.AsSpan(76, 4)));
+        byte[] rotatedSource = EmfBitmapBlt(
+            dib,
+            new Rectangle(0, 0, 2, 1),
+            new Rectangle(8, 8, 8, 4),
+            stretch: true,
+            sourceTransform: Matrix3x2.CreateRotation(0.25f));
+
+        foreach (byte[] payload in new[] { missingSource, overlappingBuffers, rotatedSource })
+        {
+            byte[] fixture = CreateTextPlaybackEmf(
+            [
+                (EmfPlusRecordType.EmfSetPixelV, EmfSetPixel(new Point(1, 1), Color.Red)),
+                (EmfPlusRecordType.EmfStretchBlt, payload)
+            ]);
+            using var metafile = new Metafile(new MemoryStream(fixture, writable: false));
+            var context = new DrawingContext();
+            using Graphics graphics = Graphics.FromProGpuDrawingContext(context);
+
+            Exception exception = Assert.ThrowsAny<Exception>(() =>
+                graphics.DrawImage(metafile, new Rectangle(0, 0, 64, 64)));
+
+            Assert.True(exception is ArgumentException or NotSupportedException);
+            Assert.Contains(nameof(EmfPlusRecordType.EmfStretchBlt), exception.Message);
+            Assert.Empty(context.Commands);
+        }
+    }
+
+    [Fact]
+    public void EmfBitmapBltPlaybackHasBoundedWarmedAllocation()
+    {
+        TestDib dib = CreateRgbDib(
+            2,
+            -2,
+            32,
+            [0, 0, 255, 0, 0, 255, 0, 0, 255, 0, 0, 0, 255, 255, 255, 0]);
+        var records = new List<(EmfPlusRecordType Type, byte[] Payload)>();
+        for (int index = 0; index < 64; index++)
+        {
+            bool stretch = (index & 1) != 0;
+            records.Add((
+                stretch ? EmfPlusRecordType.EmfStretchBlt : EmfPlusRecordType.EmfBitBlt,
+                EmfBitmapBlt(
+                    dib,
+                    new Rectangle(0, 0, 2, 2),
+                    new Rectangle((index % 8) * 8, (index / 8) * 8, stretch ? 8 : 2, stretch ? 8 : 2),
+                    stretch)));
+        }
+        using var metafile = new Metafile(new MemoryStream(
+            CreateTextPlaybackEmf(records),
+            writable: false));
+        var context = new DrawingContext();
+        using Graphics graphics = Graphics.FromProGpuDrawingContext(context);
+        for (int iteration = 0; iteration < 4; iteration++)
+        {
+            graphics.DrawImage(metafile, new Rectangle(0, 0, 64, 64));
+            context.Clear();
+        }
+
+        long before = GC.GetAllocatedBytesForCurrentThread();
+        for (int iteration = 0; iteration < 8; iteration++)
+        {
+            graphics.DrawImage(metafile, new Rectangle(0, 0, 64, 64));
+            context.Clear();
+        }
+        long allocatedPerPlayback =
+            (GC.GetAllocatedBytesForCurrentThread() - before) / 8;
+
+        Assert.InRange(allocatedPerPlayback, 64 * 1024, 32 * 1024 * 1024);
+    }
+
     [Fact]
     public void EmfMalformedAndUnsupportedDibRecordsRollBackEarlierGeometry()
     {
@@ -7669,6 +7857,55 @@ public sealed class MetafileParserTests
         WriteInt32(payload, 68, destination.Height);
         dib.Info.CopyTo(payload, fixedPayloadSize);
         dib.Bits.CopyTo(payload, fixedPayloadSize + dib.Info.Length);
+        return payload;
+    }
+
+    private static byte[] EmfBitmapBlt(
+        in TestDib dib,
+        Rectangle source,
+        Rectangle destination,
+        bool stretch,
+        uint rasterOperation = 0x00CC_0020,
+        Matrix3x2? sourceTransform = null,
+        bool includeSource = true)
+    {
+        const int bitBltPayloadSize = 92;
+        const int stretchBltPayloadSize = 100;
+        const int recordHeaderSize = 8;
+        int fixedPayloadSize = stretch ? stretchBltPayloadSize : bitBltPayloadSize;
+        int sourceSize = includeSource ? checked(dib.Info.Length + dib.Bits.Length) : 0;
+        byte[] payload = new byte[checked((fixedPayloadSize + sourceSize + 3) & ~3)];
+        WriteInt32(payload, 16, destination.X);
+        WriteInt32(payload, 20, destination.Y);
+        WriteInt32(payload, 24, destination.Width);
+        WriteInt32(payload, 28, destination.Height);
+        WriteUInt32(payload, 32, rasterOperation);
+        WriteInt32(payload, 36, source.X);
+        WriteInt32(payload, 40, source.Y);
+        Matrix3x2 transform = sourceTransform ?? Matrix3x2.Identity;
+        WriteSingle(payload, 44, transform.M11);
+        WriteSingle(payload, 48, transform.M12);
+        WriteSingle(payload, 52, transform.M21);
+        WriteSingle(payload, 56, transform.M22);
+        WriteSingle(payload, 60, transform.M31);
+        WriteSingle(payload, 64, transform.M32);
+        if (includeSource)
+        {
+            WriteUInt32(payload, 76, checked((uint)(recordHeaderSize + fixedPayloadSize)));
+            WriteUInt32(payload, 80, checked((uint)dib.Info.Length));
+            WriteUInt32(
+                payload,
+                84,
+                checked((uint)(recordHeaderSize + fixedPayloadSize + dib.Info.Length)));
+            WriteUInt32(payload, 88, checked((uint)dib.Bits.Length));
+            dib.Info.CopyTo(payload, fixedPayloadSize);
+            dib.Bits.CopyTo(payload, fixedPayloadSize + dib.Info.Length);
+        }
+        if (stretch)
+        {
+            WriteInt32(payload, 92, source.Width);
+            WriteInt32(payload, 96, source.Height);
+        }
         return payload;
     }
 

@@ -110,7 +110,8 @@ axis-aligned scans before recording while rotated or curved regions retain the
 deferred-vector path. An omitted `RGN_COPY` restores the default application
 clip without escaping the metaclip. EMF/EMF+ structural and comment records are
 nonvisual. Typed DIB playback adds `EMR_STRETCHDIBITS`,
-`EMR_SETDIBITSTODEVICE`, source-bearing `META_DIBBITBLT`,
+`EMR_SETDIBITSTODEVICE`, `EMR_BITBLT`, `EMR_STRETCHBLT`, source-bearing
+`META_DIBBITBLT`,
 `META_DIBSTRETCHBLT`, `META_STRETCHDIB`, and `META_SETDIBTODEV`, plus EMF/WMF
 stretch-mode state. The shared bounded
 decoder accepts `DIB_RGB_COLORS`, `DIB_PAL_COLORS`, and `DIB_PAL_INDICES`
@@ -156,6 +157,8 @@ official [EMR_RECTANGLE](https://learn.microsoft.com/en-us/openspecs/windows_pro
 [EMR_EXTSELECTCLIPRGN](https://learn.microsoft.com/en-us/openspecs/windows_protocols/ms-emf/c6b9f4e6-27f6-4a4d-a383-c2daf5da11d9),
 [EMR_STRETCHDIBITS](https://learn.microsoft.com/en-us/openspecs/windows_protocols/ms-emf/89c0d808-0dea-413f-be40-2e9e51fa36ac),
 [EMR_SETDIBITSTODEVICE](https://learn.microsoft.com/en-us/openspecs/windows_protocols/ms-emf/e8816cc6-35d2-43e6-8d88-d69cd342372e),
+[EMR_BITBLT](https://learn.microsoft.com/en-us/openspecs/windows_protocols/ms-emf/347d1c44-1847-47ec-8762-7059e9e9b185),
+[EMR_STRETCHBLT](https://learn.microsoft.com/en-us/windows/win32/api/wingdi/ns-wingdi-emrstretchblt),
 [META_DIBBITBLT](https://learn.microsoft.com/en-us/openspecs/windows_protocols/ms-wmf/524aa748-f274-4bd3-a4c1-f280bd6cac09),
 [META_DIBSTRETCHBLT](https://learn.microsoft.com/en-us/openspecs/windows_protocols/ms-wmf/e666a66f-b29d-4adb-82da-e00eaf032ea6),
 [META_STRETCHDIB](https://learn.microsoft.com/en-us/openspecs/windows_protocols/ms-wmf/7ebae08d-61ee-4d82-9aa5-9217ba2aa8c1),
@@ -1224,9 +1227,52 @@ allocated. All 102 System.Drawing benchmarks completed on the same Release
 run. Three measured iterations, denied priority elevation, and high variance
 make the exact device/metafile pixels, resource-sharing assertions, command-size
 gate, and allocation bounds authoritative rather than this local timing sample.
-The complete System.Drawing suite passes 593/593 in Debug and Release;
+The complete System.Drawing suite passes 600/600 in Debug and Release;
 ApiCompat remains at zero missing types, zero missing members, and 13 reviewed
 shape diagnostics.
+
+### EMF source-DC bitmap transfers
+
+`EMR_BITBLT` and `EMR_STRETCHBLT` now reuse the same bounded DIB decoder,
+logical-palette resolution, source clipping, mirroring, sampling, and typed
+ROP3 compositor as the established DIB record families. Both official
+record-relative bitmap-info and bitmap-bits ranges must be present,
+nonoverlapping, in bounds, and structurally valid before source-dependent
+output can publish. A source-independent ROP3 is resolved before those ranges
+are read, matching the official omitted-source record shape without inventing
+a device-context bitmap.
+
+The source `XFORM` supports finite invertible axis scale, translation, and
+mirroring. Rotation and shear fail at an explicit named boundary because native
+BitBlt/StretchBlt do not accept those source transformations. BitBlt derives its
+source extent from the destination extent; StretchBlt consumes its explicit
+source extent. Fractional transformed source rectangles remain fractional
+through clipping and retained texture sampling instead of being rounded early.
+The embedded DIB palette remains the color authority; source-DC background-color
+conversion beyond that DIB description is still a documented fidelity boundary.
+
+Six focused cases cover both record types, exact crop/stretch pixels,
+scale/translation/mirroring, source-independent pattern copy with omitted
+buffers, overlapping/missing buffers, transform rejection, whole-playback
+rollback, and a warmed 64-record allocation window. The 2026-09-01 ARM64/.NET
+10.0.11 in-process ShortRun for
+`Playback256EmfBitmapBltsToRetainedCommands` measured a 6.037 ms median
+(6.721 ms mean, 3.214 ms standard deviation) and 501.77 KB allocated. The
+three measured iterations, denied priority elevation, minimum-iteration warning,
+and 47.8% relative standard deviation make this allocation and command-shape
+evidence only, not a throughput claim. The isolated BenchmarkDotNet toolchain
+also hit its 120-second generated-build timeout before measurement on this host;
+the successful in-process raw result is retained under
+`artifacts/performance/system-drawing-emf-bitmap-blt-inprocess-20260901`.
+
+The enum/switch coverage inventory now finds 147 explicitly handled records out
+of 192 enum-backed EMF/WMF record identities, leaving 45 explicit unsupported
+boundaries. A handled switch case is not a claim of complete semantics. The
+largest remaining groups are alpha/mask/plg/transparent/gradient transfers,
+region paint and flood fill, extended pens, color-management and pixel-format
+state, escape/OpenGL records, and WMF region/layout/mapper records. This count
+keeps the remaining playback work visible while the public API contract stays
+at zero missing types and members.
 
 ## Delivery checkpoints
 

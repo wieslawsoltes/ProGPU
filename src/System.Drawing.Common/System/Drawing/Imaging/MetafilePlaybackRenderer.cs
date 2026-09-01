@@ -631,6 +631,14 @@ internal static class MetafilePlaybackRenderer
                 SelectEmfClipRegion(state, record, payload);
                 return;
 
+            case EmfPlusRecordType.EmfBitBlt:
+                DrawEmfBitmapBlt(state, record, payload, stretch: false);
+                return;
+
+            case EmfPlusRecordType.EmfStretchBlt:
+                DrawEmfBitmapBlt(state, record, payload, stretch: true);
+                return;
+
             case EmfPlusRecordType.EmfSetDIBitsToDevice:
                 DrawEmfSetDibitsToDevice(state, record, payload);
                 return;
@@ -811,6 +819,135 @@ internal static class MetafilePlaybackRenderer
             default:
                 throw Unsupported(record);
         }
+    }
+
+    private static void DrawEmfBitmapBlt(
+        PlaybackState state,
+        in MetafileRecord record,
+        ReadOnlySpan<byte> payload,
+        bool stretch)
+    {
+        const int bitBltPayloadSize = 92;
+        const int stretchBltPayloadSize = 100;
+        int fixedPayloadSize = stretch ? stretchBltPayloadSize : bitBltPayloadSize;
+        if (payload.Length < fixedPayloadSize)
+        {
+            throw Invalid(record);
+        }
+
+        string operation = stretch ? "StretchBlt" : "BitBlt";
+        state.EnsurePathCaptureSupported(record, operation);
+        int destinationX = ReadInt32(payload, 16);
+        int destinationY = ReadInt32(payload, 20);
+        int destinationWidth = ReadInt32(payload, 24);
+        int destinationHeight = ReadInt32(payload, 28);
+        uint rasterOperation = ReadUInt32(payload, 32);
+        ValidateDibRasterOperation(record, rasterOperation);
+        if (TryDrawSourceIndependentRasterOperation(
+            state,
+            record,
+            rasterOperation,
+            destinationX,
+            destinationY,
+            destinationWidth,
+            destinationHeight))
+        {
+            return;
+        }
+
+        Matrix3x2 sourceTransform = ReadTransform(record, payload[44..68]);
+        if (sourceTransform.M12 != 0f || sourceTransform.M21 != 0f)
+        {
+            throw Unsupported(
+                record,
+                $"{operation} source transforms do not permit rotation or shear.");
+        }
+
+        uint bitmapInfoOffset = ReadUInt32(payload, 76);
+        uint bitmapInfoSize = ReadUInt32(payload, 80);
+        uint bitmapBitsOffset = ReadUInt32(payload, 84);
+        uint bitmapBitsSize = ReadUInt32(payload, 88);
+        ReadOnlySpan<byte> bitmapInfo = ReadEmfBuffer(
+            record,
+            payload,
+            bitmapInfoOffset,
+            bitmapInfoSize,
+            fixedPayloadSize);
+        ReadOnlySpan<byte> bitmapBits = ReadEmfBuffer(
+            record,
+            payload,
+            bitmapBitsOffset,
+            bitmapBitsSize,
+            fixedPayloadSize);
+        EnsureDisjointEmfBuffers(
+            record,
+            bitmapInfoOffset,
+            bitmapInfoSize,
+            bitmapBitsOffset,
+            bitmapBitsSize);
+
+        uint usage = ReadUInt32(payload, 72);
+        DibInfo dib = ReadDibInfo(record, bitmapInfo, usage, state.SelectedPalette);
+        using Bitmap bitmap = DecodeDibRows(record, dib, bitmapInfo, bitmapBits, dib.Height);
+        float sourceX = TransformAxisCoordinate(
+            record,
+            ReadInt32(payload, 36),
+            sourceTransform.M11,
+            sourceTransform.M31);
+        float sourceY = TransformAxisCoordinate(
+            record,
+            ReadInt32(payload, 40),
+            sourceTransform.M22,
+            sourceTransform.M32);
+        float sourceWidth = TransformAxisExtent(
+            record,
+            stretch ? ReadInt32(payload, 92) : destinationWidth,
+            sourceTransform.M11);
+        float sourceHeight = TransformAxisExtent(
+            record,
+            stretch ? ReadInt32(payload, 96) : destinationHeight,
+            sourceTransform.M22);
+        DrawMappedDib(
+            state,
+            record,
+            bitmap,
+            dib,
+            sourceX,
+            sourceY,
+            sourceWidth,
+            sourceHeight,
+            destinationX,
+            destinationY,
+            destinationWidth,
+            destinationHeight,
+            rasterOperation);
+    }
+
+    private static float TransformAxisCoordinate(
+        in MetafileRecord record,
+        int coordinate,
+        float scale,
+        float translation)
+    {
+        double transformed = (double)coordinate * scale + translation;
+        if (!double.IsFinite(transformed) || transformed is < -float.MaxValue or > float.MaxValue)
+        {
+            throw Invalid(record);
+        }
+        return (float)transformed;
+    }
+
+    private static float TransformAxisExtent(
+        in MetafileRecord record,
+        int extent,
+        float scale)
+    {
+        double transformed = (double)extent * scale;
+        if (!double.IsFinite(transformed) || transformed is < -float.MaxValue or > float.MaxValue)
+        {
+            throw Invalid(record);
+        }
+        return (float)transformed;
     }
 
     private static void DrawEmfStretchDibits(
@@ -1346,10 +1483,10 @@ internal static class MetafilePlaybackRenderer
         in MetafileRecord record,
         Bitmap bitmap,
         in DibInfo dib,
-        int sourceX,
-        int sourceY,
-        int sourceWidth,
-        int sourceHeight,
+        float sourceX,
+        float sourceY,
+        float sourceWidth,
+        float sourceHeight,
         int destinationX,
         int destinationY,
         int destinationWidth,
@@ -1379,10 +1516,10 @@ internal static class MetafilePlaybackRenderer
         int bitmapWidth,
         int bitmapHeight,
         bool topDown,
-        int sourceX,
-        int sourceY,
-        int sourceWidth,
-        int sourceHeight,
+        float sourceX,
+        float sourceY,
+        float sourceWidth,
+        float sourceHeight,
         int destinationX,
         int destinationY,
         int destinationWidth,
@@ -1411,15 +1548,21 @@ internal static class MetafilePlaybackRenderer
             return;
         }
 
-        long sourceXEnd = (long)sourceX + sourceWidth;
-        long sourceVisualY0 = topDown ? sourceY : (long)bitmapHeight - sourceY;
-        long sourceVisualY1 = topDown
-            ? (long)sourceY + sourceHeight
-            : (long)bitmapHeight - sourceY - sourceHeight;
-        long left = Math.Min(sourceX, sourceXEnd);
-        long right = Math.Max(sourceX, sourceXEnd);
-        long top = Math.Min(sourceVisualY0, sourceVisualY1);
-        long bottom = Math.Max(sourceVisualY0, sourceVisualY1);
+        double sourceXEnd = (double)sourceX + sourceWidth;
+        double sourceVisualY0 = topDown ? sourceY : (double)bitmapHeight - sourceY;
+        double sourceVisualY1 = topDown
+            ? (double)sourceY + sourceHeight
+            : (double)bitmapHeight - sourceY - sourceHeight;
+        if (!double.IsFinite(sourceXEnd) ||
+            !double.IsFinite(sourceVisualY0) ||
+            !double.IsFinite(sourceVisualY1))
+        {
+            throw Invalid(record);
+        }
+        double left = Math.Min(sourceX, sourceXEnd);
+        double right = Math.Max(sourceX, sourceXEnd);
+        double top = Math.Min(sourceVisualY0, sourceVisualY1);
+        double bottom = Math.Max(sourceVisualY0, sourceVisualY1);
         if (right == left || bottom == top)
         {
             throw Invalid(record);
@@ -1435,10 +1578,10 @@ internal static class MetafilePlaybackRenderer
             topLeft.X,
             sourceHeight > 0 ? AddCoordinate(record, destinationY, destinationHeight) : destinationY);
 
-        long clippedLeft = Math.Max(0, left);
-        long clippedTop = Math.Max(0, top);
-        long clippedRight = Math.Min(bitmapWidth, right);
-        long clippedBottom = Math.Min(bitmapHeight, bottom);
+        double clippedLeft = Math.Max(0, left);
+        double clippedTop = Math.Max(0, top);
+        double clippedRight = Math.Min(bitmapWidth, right);
+        double clippedBottom = Math.Min(bitmapHeight, bottom);
         if (clippedRight <= clippedLeft || clippedBottom <= clippedTop)
         {
             return;
@@ -1457,10 +1600,10 @@ internal static class MetafilePlaybackRenderer
         state.ApplyTransform(record);
         state.Graphics.InterpolationMode = state.DibInterpolationMode;
         RectangleF clippedSource = new(
-            clippedLeft,
-            clippedTop,
-            clippedRight - clippedLeft,
-            clippedBottom - clippedTop);
+            (float)clippedLeft,
+            (float)clippedTop,
+            (float)(clippedRight - clippedLeft),
+            (float)(clippedBottom - clippedTop));
         if (rasterOperation is SrcCopy or NotSourceCopy)
         {
             using Bitmap? inverted = rasterOperation == NotSourceCopy
