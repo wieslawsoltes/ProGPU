@@ -1532,14 +1532,61 @@ public sealed class CadSampleCanvas : FrameworkElement
     public void Load(CadDocumentSession session)
     {
         ArgumentNullException.ThrowIfNull(session);
-        CompileAndReplace(session, resetViewSelectionAndHistory: true);
+        _ = CompileAndReplace(session, resetViewSelectionAndHistory: true);
     }
 
-    private void CompileAndReplace(
+    /// <summary>
+    /// Prepares the immutable document snapshot away from the UI thread on
+    /// desktop hosts, then publishes only if this request and document
+    /// generation are still current. Browser hosts preserve the same contract
+    /// without requiring multithreaded Wasm.
+    /// </summary>
+    public async Task<bool> LoadAsync(
+        CadDocumentSession session,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(session);
+        CadScenePublicationTicket publicationTicket =
+            _scenePublicationGate.Begin(session);
+        var compiler = new CadSnapshotCompiler();
+        CadDocumentSnapshot snapshot;
+        if (OperatingSystem.IsBrowser())
+        {
+            snapshot = compiler.Compile(
+                session,
+                _snapshotOptions,
+                cancellationToken);
+        }
+        else
+        {
+            snapshot = await Task.Run(
+                () => compiler.Compile(
+                    session,
+                    _snapshotOptions,
+                    cancellationToken),
+                cancellationToken);
+        }
+
+        cancellationToken.ThrowIfCancellationRequested();
+        if (!_scenePublicationGate.IsCurrent(publicationTicket))
+        {
+            return false;
+        }
+
+        return CompileAndReplace(
+            session,
+            resetViewSelectionAndHistory: true,
+            preparedSnapshot: snapshot,
+            preparedPublicationTicket: publicationTicket);
+    }
+
+    private bool CompileAndReplace(
         CadDocumentSession session,
         bool resetViewSelectionAndHistory,
         bool synchronizePlanOrthoMode = false,
-        bool synchronizePlanSnapMode = false)
+        bool synchronizePlanSnapMode = false,
+        CadDocumentSnapshot? preparedSnapshot = null,
+        CadScenePublicationTicket? preparedPublicationTicket = null)
     {
         if (!resetViewSelectionAndHistory && !ReferenceEquals(session, CurrentSession))
         {
@@ -1548,9 +1595,10 @@ public sealed class CadSampleCanvas : FrameworkElement
         }
 
         CadScenePublicationTicket publicationTicket =
-            _scenePublicationGate.Begin(session);
+            preparedPublicationTicket ?? _scenePublicationGate.Begin(session);
 
-        CadDocumentSnapshot snapshot = new CadSnapshotCompiler().Compile(session, _snapshotOptions);
+        CadDocumentSnapshot snapshot = preparedSnapshot ??
+            new CadSnapshotCompiler().Compile(session, _snapshotOptions);
         int selectionCapacity = snapshot.Entities.Length;
         int requiredHandleScratch = CadSelectionQuery.GetUniqueHandleScratchLength(
             selectionCapacity);
@@ -1625,7 +1673,7 @@ public sealed class CadSampleCanvas : FrameworkElement
                 }))
         {
             picture.Dispose();
-            return;
+            return false;
         }
         _residentSemanticHandleSet.Clear();
         _residentSemanticHandleSet.EnsureCapacity(selectionCapacity);
@@ -1711,6 +1759,7 @@ public sealed class CadSampleCanvas : FrameworkElement
                 : CadSnapshotChangedEventArgs.PreserveView);
         SelectionChanged?.Invoke(this, EventArgs.Empty);
         EditStateChanged?.Invoke(this, EventArgs.Empty);
+        return true;
     }
 
     protected override void ArrangeOverride(Rect arrangeRect)

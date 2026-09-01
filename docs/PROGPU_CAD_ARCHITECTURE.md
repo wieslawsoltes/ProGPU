@@ -1794,10 +1794,13 @@ an interactive browser picker/download smoke remains open.
   request identity before complete scene preparation. The shared canvas swaps
   its snapshot and picture only through the one-shot O(1) gate; superseded,
   invalidated, mismatched, or document-advanced results are rejected under the
-  document gate before retained state changes. The current canvas compilation
-  call remains synchronous. Worker scheduling and generation-keyed reusable
-  chunks remain explicit follow-up work; their future results must pass this
-  same gate while the UI continues drawing the prior immutable picture.
+  document gate before retained state changes. File open prepares its immutable
+  snapshot and shaped content on a desktop worker while the prior picture stays
+  drawable, then rejects stale work before UI-thread plan-scene/GPU-resource
+  recording and again before the final swap. Browser/Wasm uses the same path
+  without requiring threads. Background plan-scene recording, worker-prepared
+  edit replacements, and generation-keyed reusable chunks remain explicit
+  follow-up work and must pass the same gate.
 - Collaboration and scripting consume the same command contracts. Neither is
   allowed to mutate ACadSharp collections behind the transaction boundary.
 

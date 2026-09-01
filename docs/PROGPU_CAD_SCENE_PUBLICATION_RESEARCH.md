@@ -50,11 +50,15 @@ edit cannot interleave between validation and publication. Publication is
 one-shot and O(1), with O(1) storage and no document, entity, glyph, shader, or
 resource traversal.
 
-The current shared canvas uses the gate on its synchronous complete-scene
-replacement path. This establishes the correctness boundary needed by future
-worker preparation without claiming that compilation has already moved off the
-UI thread. Generation-keyed reusable chunks, worker scheduling, and matched
-edit-latency measurements remain separate work.
+The shared canvas uses the gate on every complete-scene replacement path.
+File-open snapshot traversal and shaping run through `LoadAsync` on a worker for
+desktop hosts; browser/Wasm uses the same cancellation and publication contract
+synchronously because multithreaded Wasm is not required. The continuation
+checks the ticket before plan-scene recording or GPU-resource resolution and
+checks it again at the final swap. Existing synchronous edit APIs use the same
+gate. Moving plan-scene recording and all edit-triggered preparation to workers,
+generation-keyed reusable chunks, and matched edit-latency measurements remain
+separate work.
 
 ## Managed/native applicability
 

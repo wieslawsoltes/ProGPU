@@ -19,6 +19,31 @@ namespace ProGPU.CAD.Tests;
 public sealed class CadSampleSelectionTests
 {
     [Fact]
+    public async Task AsyncLoadPublishesTheMatchingPreparedGeneration()
+    {
+        var document = new CadDocument();
+        var line = new Line(new XYZ(-10, 0, 0), new XYZ(10, 0, 0));
+        document.Entities.Add(line);
+        var session = new CadDocumentSession(document);
+        var canvas = new CadSampleCanvas();
+        try
+        {
+            Assert.True(await canvas.LoadAsync(session));
+            Assert.Same(session, canvas.CurrentSession);
+            Assert.Equal(
+                session.ContentGeneration,
+                canvas.CurrentSnapshot?.ContentGeneration);
+            Assert.Contains(
+                canvas.CurrentSnapshot!.Entities.ToArray(),
+                entity => entity.Handle == line.Handle);
+        }
+        finally
+        {
+            canvas.FireUnloaded();
+        }
+    }
+
+    [Fact]
     public void LeftClickSelectsSemanticHandleAndEmptyClickClearsIt()
     {
         var document = new CadDocument();

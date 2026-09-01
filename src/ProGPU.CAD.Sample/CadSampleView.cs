@@ -8497,7 +8497,11 @@ public sealed class CadSampleView : Grid
                 sourceName: file.Name);
             CadShxFontDiscoveryResult? shxDiscovery =
                 await DiscoverLocalShxFontsAsync(file, result.Session);
-            _canvas.Load(result.Session);
+            if (!await _canvas.LoadAsync(result.Session))
+            {
+                SetStatus("Open result was superseded before scene publication.");
+                return;
+            }
             int diagnosticCount = result.Diagnostics.Count +
                 (shxDiscovery?.Diagnostics.Length ?? 0);
             _currentDocumentName = file.Name;
