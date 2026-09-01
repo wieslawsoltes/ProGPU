@@ -867,8 +867,14 @@ join wedges without changing cap semantics on a closed figure. The Windows
 oracle distinguishes a point clipped by a bevel from one inside its wedge and
 matches system Direct2D. Round joins reuse an exact vertex disk on top of the
 SIMD segment body; inside/outside arc probes also match the system. Dashed
-styles remain fail closed until their shared run geometry is reused by
-containment, bounds, and `Widen`.
+closed-path containment now reuses the renderer's native curve-dash run
+splitter for the built-in and custom patterns, including offset and flat,
+square, round, or triangle dash caps. All visible run bodies are packed into
+the same four-lane NEON/SSE2 distance pass; only ordered joins and caps remain
+scalar. Optimized and sanitizer suites pass, and Windows x64 plus ARM64 match
+genuine Direct2D for body, gap, flat-cap, and round-cap probes at an explicit
+0.001 flattening tolerance. Styled widened bounds and `Widen` remain fail
+closed until they consume the same run geometry.
 
 The identical simple closed/default-miter domain now implements
 `GetWidenedBounds`. It derives segment offset endpoints plus qualified miter

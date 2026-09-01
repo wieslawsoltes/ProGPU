@@ -2305,6 +2305,31 @@ int run_tests()
   }
   com::pointer<compat::stroke_style> round_path_stroke_style;
   round_path_stroke_style.attach(raw_round_path_stroke_style);
+  compat::stroke_style_properties dashed_path_stroke_properties =
+      bevel_path_stroke_properties;
+  dashed_path_stroke_properties.dash = compat::dash_style::dash;
+  compat::stroke_style *raw_dashed_path_stroke_style = nullptr;
+  if (factory->CreateStrokeStyle(
+          &dashed_path_stroke_properties, nullptr, 0U,
+          &raw_dashed_path_stroke_style) != com::ok ||
+      raw_dashed_path_stroke_style == nullptr) {
+    return 360;
+  }
+  com::pointer<compat::stroke_style> dashed_path_stroke_style;
+  dashed_path_stroke_style.attach(raw_dashed_path_stroke_style);
+  compat::stroke_style_properties round_dashed_path_stroke_properties =
+      dashed_path_stroke_properties;
+  round_dashed_path_stroke_properties.dash_cap = compat::cap_style::round;
+  compat::stroke_style *raw_round_dashed_path_stroke_style = nullptr;
+  if (factory->CreateStrokeStyle(
+          &round_dashed_path_stroke_properties, nullptr, 0U,
+          &raw_round_dashed_path_stroke_style) != com::ok ||
+      raw_round_dashed_path_stroke_style == nullptr) {
+    return 361;
+  }
+  com::pointer<compat::stroke_style> round_dashed_path_stroke_style;
+  round_dashed_path_stroke_style.attach(
+      raw_round_dashed_path_stroke_style);
   const compat::matrix_3x2_f disjoint_path_transform{
       1.0F, 0.0F, 0.0F, 1.0F, 10.0F, 0.0F};
   const compat::matrix_3x2_f contained_path_transform{
@@ -2391,6 +2416,27 @@ int run_tests()
           com::ok ||
       round_corner_outside != 0 || round_corner_inside == 0) {
     return 357;
+  }
+  std::int32_t dash_body = 0;
+  std::int32_t dash_gap = 0;
+  std::int32_t flat_dash_cap_gap = 0;
+  std::int32_t round_dash_cap_gap = 0;
+  constexpr float dash_hit_tolerance = 0.001F;
+  if (query_path->StrokeContainsPoint(
+          {1.5F, 2.0F}, 0.5F, dashed_path_stroke_style.get(), nullptr,
+          dash_hit_tolerance, &dash_body) != com::ok ||
+      query_path->StrokeContainsPoint(
+          {2.5F, 2.0F}, 0.5F, dashed_path_stroke_style.get(), nullptr,
+          dash_hit_tolerance, &dash_gap) != com::ok ||
+      query_path->StrokeContainsPoint(
+          {2.2F, 2.0F}, 0.5F, dashed_path_stroke_style.get(), nullptr,
+          dash_hit_tolerance, &flat_dash_cap_gap) != com::ok ||
+      query_path->StrokeContainsPoint(
+          {2.2F, 2.0F}, 0.5F, round_dashed_path_stroke_style.get(), nullptr,
+          dash_hit_tolerance, &round_dash_cap_gap) != com::ok ||
+      dash_body == 0 || dash_gap != 0 || flat_dash_cap_gap != 0 ||
+      round_dash_cap_gap == 0) {
+    return 362;
   }
   std::int32_t zero_width_edge = 0;
   std::int32_t zero_width_interior = 0;
@@ -6468,6 +6514,81 @@ int run_tests()
     return 359;
   }
   system_round_path_stroke_style->Release();
+  D2D1_STROKE_STYLE_PROPERTIES system_dashed_path_properties =
+      system_bevel_path_properties;
+  system_dashed_path_properties.dashStyle = D2D1_DASH_STYLE_DASH;
+  ID2D1StrokeStyle *system_dashed_path_stroke_style = nullptr;
+  if (FAILED(system_factory->CreateStrokeStyle(
+          &system_dashed_path_properties, nullptr, 0U,
+          &system_dashed_path_stroke_style)) ||
+      system_dashed_path_stroke_style == nullptr) {
+    system_query_boolean_path->Release();
+    system_input_boolean_path->Release();
+    system_factory->Release();
+    return 363;
+  }
+  D2D1_STROKE_STYLE_PROPERTIES system_round_dashed_path_properties =
+      system_dashed_path_properties;
+  system_round_dashed_path_properties.dashCap = D2D1_CAP_STYLE_ROUND;
+  ID2D1StrokeStyle *system_round_dashed_path_stroke_style = nullptr;
+  if (FAILED(system_factory->CreateStrokeStyle(
+          &system_round_dashed_path_properties, nullptr, 0U,
+          &system_round_dashed_path_stroke_style)) ||
+      system_round_dashed_path_stroke_style == nullptr) {
+    system_dashed_path_stroke_style->Release();
+    system_query_boolean_path->Release();
+    system_input_boolean_path->Release();
+    system_factory->Release();
+    return 364;
+  }
+  BOOL system_dash_body = FALSE;
+  BOOL system_dash_gap = FALSE;
+  BOOL system_flat_dash_cap_gap = FALSE;
+  BOOL system_round_dash_cap_gap = FALSE;
+  const HRESULT system_dash_body_status =
+      system_query_boolean_path->StrokeContainsPoint(
+          D2D1_POINT_2F{1.5F, 2.0F}, 0.5F,
+          system_dashed_path_stroke_style, nullptr,
+          dash_hit_tolerance, &system_dash_body);
+  const HRESULT system_dash_gap_status =
+      system_query_boolean_path->StrokeContainsPoint(
+          D2D1_POINT_2F{2.5F, 2.0F}, 0.5F,
+          system_dashed_path_stroke_style, nullptr,
+          dash_hit_tolerance, &system_dash_gap);
+  const HRESULT system_flat_dash_cap_status =
+      system_query_boolean_path->StrokeContainsPoint(
+          D2D1_POINT_2F{2.2F, 2.0F}, 0.5F,
+          system_dashed_path_stroke_style, nullptr,
+          dash_hit_tolerance,
+          &system_flat_dash_cap_gap);
+  const HRESULT system_round_dash_cap_status =
+      system_query_boolean_path->StrokeContainsPoint(
+          D2D1_POINT_2F{2.2F, 2.0F}, 0.5F,
+          system_round_dashed_path_stroke_style, nullptr,
+          dash_hit_tolerance,
+          &system_round_dash_cap_gap);
+  system_round_dashed_path_stroke_style->Release();
+  system_dashed_path_stroke_style->Release();
+  if (FAILED(system_dash_body_status) || FAILED(system_dash_gap_status) ||
+      FAILED(system_flat_dash_cap_status) ||
+      FAILED(system_round_dash_cap_status) ||
+      (system_dash_body != FALSE) != (dash_body != 0) ||
+      (system_dash_gap != FALSE) != (dash_gap != 0) ||
+      (system_flat_dash_cap_gap != FALSE) != (flat_dash_cap_gap != 0) ||
+      (system_round_dash_cap_gap != FALSE) != (round_dash_cap_gap != 0)) {
+    std::fprintf(stderr,
+                 "dashed stroke parity portable=%d,%d,%d,%d "
+                 "system=%d,%d,%d,%d\n",
+                 dash_body, dash_gap, flat_dash_cap_gap,
+                 round_dash_cap_gap, static_cast<int>(system_dash_body),
+                 static_cast<int>(system_dash_gap),
+                 static_cast<int>(system_flat_dash_cap_gap),
+                 static_cast<int>(system_round_dash_cap_gap));
+    system_query_boolean_path->Release();
+    system_input_boolean_path->Release();
+    system_factory->Release();
+    return 365;
+  }
   BOOL system_zero_width_edge = FALSE;
   BOOL system_zero_width_interior = FALSE;
   const HRESULT system_zero_edge_status =

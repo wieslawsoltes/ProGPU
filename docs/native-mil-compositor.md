@@ -6392,7 +6392,17 @@ miter extension and limit. Windows probes distinguish a bevel-clipped corner
 from its included wedge and match genuine Direct2D after another clean ARM64
 30-target rebuild. Round joins add an exact vertex disk over the same SIMD
 body, and Windows inside/outside arc probes also match. Dashed styles remain
-fail closed pending common run geometry.
+fail closed at that checkpoint pending common run geometry.
+
+The dashed containment follow-up now consumes the compositor's existing
+`curve_dash::try_create_runs(...)` output instead of maintaining a second dash
+algorithm. Built-in and custom patterns, offsets, and all four dash-cap modes
+share renderer-exact visible runs. Their independent line bodies are packed
+into the existing four-wide NEON/SSE2 stroke-distance pass, while the ordered
+cap and join topology remains scalar. The optimized and sanitizer suites pass;
+genuine Windows Direct2D x64 and ARM64 differentials match body, gap, flat-cap,
+and round-cap probes at a 0.001 flattening tolerance. Dashed widened bounds and
+`Widen` remain the next analysis gap.
 
 `GetWidenedBounds` now shares that default-miter path domain. Segment offsets
 and miter extrema are constructed before the world transform; independent
