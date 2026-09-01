@@ -2029,21 +2029,25 @@ public sealed partial class CadSnapshotCompiler
                     "A MESH texture-coordinate count must match its control-vertex count.");
             }
             var sourceTextureCoordinates = textureValues.Length == 0
-                ? Array.Empty<Vector2>()
-                : new Vector2[textureValues.Length];
+                ? Array.Empty<CadPoint3D>()
+                : new CadPoint3D[textureValues.Length];
             for (int i = 0; i < textureValues.Length; i++)
             {
-                float u = checked((float)textureValues[i].X);
-                float v = checked((float)textureValues[i].Y);
-                if (!float.IsFinite(u) || !float.IsFinite(v))
+                XYZ texture = textureValues[i];
+                if (!double.IsFinite(texture.X) ||
+                    !double.IsFinite(texture.Y) ||
+                    !double.IsFinite(texture.Z))
                 {
                     throw new ArgumentException("A MESH texture coordinate must be finite.");
                 }
-                sourceTextureCoordinates[i] = new Vector2(u, v);
+                sourceTextureCoordinates[i] = new CadPoint3D(
+                    texture.X,
+                    texture.Y,
+                    texture.Z);
             }
 
             CadPoint3D[] displayVertices = worldVertices;
-            Vector2[] displayTextureCoordinates = sourceTextureCoordinates;
+            CadPoint3D[] displayTextureCoordinates = sourceTextureCoordinates;
             IReadOnlyList<int[]> displayFaces = mesh.Faces;
             CadPoint3D[][] displayNormals = Array.Empty<CadPoint3D[]>();
             CadMeshSourceTopology authoredSubobjectTopology =
@@ -2148,7 +2152,16 @@ public sealed partial class CadSnapshotCompiler
                     facePoints[i] = displayVertices[sourceIndex];
                     if (displayTextureCoordinates.Length != 0)
                     {
-                        faceTextureCoordinates[i] = displayTextureCoordinates[sourceIndex];
+                        CadPoint3D texture =
+                            displayTextureCoordinates[sourceIndex];
+                        float u = checked((float)texture.X);
+                        float v = checked((float)texture.Y);
+                        if (!float.IsFinite(u) || !float.IsFinite(v))
+                        {
+                            throw new ArgumentException(
+                                "A MESH texture coordinate cannot be represented by the retained GPU scene.");
+                        }
+                        faceTextureCoordinates[i] = new Vector2(u, v);
                     }
                 }
                 var vertexSubobjectIndices = new int[face.Length];

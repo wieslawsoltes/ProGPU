@@ -212,8 +212,8 @@ packages build at `0.1.0-preview.62`; an isolated consumer resolves the reviewed
 `ACadSharp.ProGPU` identity, builds with zero warnings, and creates an AC1032
 document.
 
-The checked-in Release benchmark
-`artifacts/benchmarks/cad-polyline-authoring-options.json` measures the maximum
+The reproducible Release benchmark writes its ignored local report to
+`artifacts/benchmarks/cad-polyline-authoring-options.json` and measures the maximum
 65,536-segment bound over five warmups and forty iterations on macOS arm64/.NET
 10. Inherited-width acquisition plus snapshot completion is p50 4.4878 ms,
 p95 17.3738 ms, and p99 21.5204 ms; changing Width on every segment is p50

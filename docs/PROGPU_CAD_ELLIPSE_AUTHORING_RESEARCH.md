@@ -176,8 +176,8 @@ managed scene and native picture compiler.
 - stable completed replay: the unchanged retained ProGPU ellipse path, with
   zero new managed/native crossings or retained uploads.
 
-The checked-in Release lane at
-`artifacts/benchmarks/cad-isocircle-authoring.json` solves 65,536 rotated mixed-
+The reproducible Release lane writes its ignored local report to
+`artifacts/benchmarks/cad-isocircle-authoring.json` and solves 65,536 rotated mixed-
 isoplane sessions per iteration. Across 48 measured iterations after six
 warmups, Radius records p50/p95/p99 6.3054/8.2485/10.3219 ms and Diameter
 5.7855/9.2371/10.2220 ms. Each batch allocates about 22.55 MB from the existing

@@ -149,7 +149,8 @@ shared geometry buffer, 462,992 viewport-buffer bytes, and 33,177,600 logical
 target bytes; draw encoding remains intentionally `O(B)`.
 
 Matched macOS Allocations, Time Profiler, and Metal System Trace exports are
-retained under `artifacts/benchmarks/cad-3d-gpu-replay-instruments`. Instruments
+generated locally under the ignored
+`artifacts/benchmarks/cad-3d-gpu-replay-instruments` path. Instruments
 reports 88,533,920 bytes of persistent heap/anonymous VM during the extended
 instrumented process, 1,229,502,160 aggregate allocated bytes, and
 1,140,878,928 transient bytes; none of these values is managed-object residency.

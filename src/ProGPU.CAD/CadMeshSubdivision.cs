@@ -1,5 +1,3 @@
-using System.Numerics;
-
 namespace ProGPU.CAD;
 
 internal readonly record struct CadMeshSubdivisionEdge(
@@ -10,7 +8,7 @@ internal readonly record struct CadMeshSubdivisionEdge(
 internal sealed class CadMeshSubdivisionResult
 {
     public required CadPoint3D[] Vertices { get; init; }
-    public required Vector2[] TextureCoordinates { get; init; }
+    public required CadPoint3D[] TextureCoordinates { get; init; }
     public required int[][] Faces { get; init; }
     public required CadPoint3D[][] FaceCornerNormals { get; init; }
     public required int[] FaceSourceIndices { get; init; }
@@ -71,7 +69,7 @@ internal static class CadMeshSubdivision
 
     public static CadMeshSubdivisionResult Refine(
         ReadOnlySpan<CadPoint3D> sourceVertices,
-        ReadOnlySpan<Vector2> sourceTextureCoordinates,
+        ReadOnlySpan<CadPoint3D> sourceTextureCoordinates,
         IReadOnlyList<int[]> sourceFaces,
         ReadOnlySpan<CadMeshSubdivisionEdge> sourceEdges,
         int subdivisionLevel,
@@ -101,7 +99,7 @@ internal static class CadMeshSubdivision
         }
 
         CadPoint3D[] vertices = sourceVertices.ToArray();
-        Vector2[] textureCoordinates = sourceTextureCoordinates.ToArray();
+        CadPoint3D[] textureCoordinates = sourceTextureCoordinates.ToArray();
         int[][] faces = CloneFaces(sourceFaces);
         CadMeshSourceTopology sourceTopology = CreateSourceTopology(faces);
         int[] faceSourceIndices = sourceTopology.FaceSourceIndices;
@@ -211,7 +209,7 @@ internal static class CadMeshSubdivision
 
     private static void RefineOneLevel(
         CadPoint3D[] vertices,
-        Vector2[] textureCoordinates,
+        CadPoint3D[] textureCoordinates,
         int[][] faces,
         Topology topology,
         Dictionary<EdgeKey, double> creases,
@@ -223,7 +221,7 @@ internal static class CadMeshSubdivision
         ref int visits,
         CancellationToken cancellationToken,
         out CadPoint3D[] refinedVertices,
-        out Vector2[] refinedTextureCoordinates,
+        out CadPoint3D[] refinedTextureCoordinates,
         out int[][] refinedFaces,
         out Dictionary<EdgeKey, double> refinedCreases,
         out HashSet<EdgeKey> displayedSharpEdges,
@@ -243,8 +241,8 @@ internal static class CadMeshSubdivision
 
         var facePoints = new CadPoint3D[faces.Length];
         var faceTexturePoints = textureCoordinates.Length == 0
-            ? Array.Empty<Vector2>()
-            : new Vector2[faces.Length];
+            ? Array.Empty<CadPoint3D>()
+            : new CadPoint3D[faces.Length];
         for (int faceIndex = 0; faceIndex < faces.Length; faceIndex++)
         {
             if ((faceIndex & 1023) == 0)
@@ -253,7 +251,7 @@ internal static class CadMeshSubdivision
             }
             int[] face = faces[faceIndex];
             CadPoint3D position = CadPoint3D.Zero;
-            Vector2 texture = Vector2.Zero;
+            CadPoint3D texture = CadPoint3D.Zero;
             for (int corner = 0; corner < face.Length; corner++)
             {
                 position += vertices[face[corner]];
@@ -275,8 +273,8 @@ internal static class CadMeshSubdivision
         int facePointOffset = checked(edgePointOffset + orderedEdges.Count);
         refinedVertices = new CadPoint3D[checked(facePointOffset + faces.Length)];
         refinedTextureCoordinates = textureCoordinates.Length == 0
-            ? Array.Empty<Vector2>()
-            : new Vector2[refinedVertices.Length];
+            ? Array.Empty<CadPoint3D>()
+            : new CadPoint3D[refinedVertices.Length];
 
         for (int vertexIndex = 0; vertexIndex < vertices.Length; vertexIndex++)
         {
@@ -326,7 +324,7 @@ internal static class CadMeshSubdivision
             {
                 refinedTextureCoordinates[outputIndex] =
                     (textureCoordinates[edge.Key.First] +
-                    textureCoordinates[edge.Key.Second]) * 0.5f;
+                    textureCoordinates[edge.Key.Second]) / 2.0;
             }
 
             double currentCrease = creases.GetValueOrDefault(edge.Key);

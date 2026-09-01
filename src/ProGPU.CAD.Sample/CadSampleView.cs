@@ -167,6 +167,7 @@ public sealed class CadSampleView : Grid
     private readonly Button[] _scaleButtons;
     private readonly Button _meshSmoothMoreButton;
     private readonly Button _meshSmoothLessButton;
+    private readonly Button _meshRefineButton;
     private readonly TextBox _meshCreaseInput;
     private readonly Button _setMeshCreaseButton;
     private readonly Button _removeMeshCreaseButton;
@@ -1267,6 +1268,7 @@ public sealed class CadSampleView : Grid
         });
         _meshSmoothMoreButton = CreateButton("Smooth +", font, 78, 30);
         _meshSmoothLessButton = CreateButton("Smooth −", font, 78, 30);
+        _meshRefineButton = CreateButton("Refine", font, 66, 30);
         _meshCreaseInput = new TextBox
         {
             Text = "-1",
@@ -1279,10 +1281,12 @@ public sealed class CadSampleView : Grid
         _setMeshCreaseButton = CreateButton("Set crease", font, 86, 30);
         _removeMeshCreaseButton = CreateButton("Uncrease", font, 82, 30);
         _meshSmoothMoreButton.Margin = new Thickness(0, 0, 4, 0);
-        _meshSmoothLessButton.Margin = new Thickness(0, 0, 8, 0);
+        _meshSmoothLessButton.Margin = new Thickness(0, 0, 4, 0);
+        _meshRefineButton.Margin = new Thickness(0, 0, 8, 0);
         _setMeshCreaseButton.Margin = new Thickness(0, 0, 4, 0);
         transformActions.AddChild(_meshSmoothMoreButton);
         transformActions.AddChild(_meshSmoothLessButton);
+        transformActions.AddChild(_meshRefineButton);
         transformActions.AddChild(_meshCreaseInput);
         transformActions.AddChild(_setMeshCreaseButton);
         transformActions.AddChild(_removeMeshCreaseButton);
@@ -2684,6 +2688,7 @@ public sealed class CadSampleView : Grid
             AdjustSelectedMeshSmoothness(1);
         _meshSmoothLessButton.Click += (_, _) =>
             AdjustSelectedMeshSmoothness(-1);
+        _meshRefineButton.Click += (_, _) => RefineSelectedMeshes();
         _meshCreaseInput.TextChanged += (_, _) => UpdateEditControls();
         _setMeshCreaseButton.Click += (_, _) => SetSelectedMeshCrease();
         _removeMeshCreaseButton.Click += (_, _) =>
@@ -8001,6 +8006,31 @@ public sealed class CadSampleView : Grid
         }
     }
 
+    private void RefineSelectedMeshes()
+    {
+        if (_isBusy)
+        {
+            return;
+        }
+        try
+        {
+            CadMesh3DRefinementSummary summary =
+                _canvas.RefineSelectedMeshes();
+            SetStatus(
+                $"Refined {summary.AffectedMeshCount:N0} modern mesh(es): " +
+                $"{summary.SourceFaceCount:N0} source face(s) became " +
+                $"{summary.ResultFaceCount:N0} editable level-zero face(s).");
+        }
+        catch (Exception exception)
+        {
+            SetStatus($"Mesh refinement failed: {exception.Message}");
+        }
+        finally
+        {
+            UpdateEditControls();
+        }
+    }
+
     private void SetSelectedMeshCrease()
     {
         if (!TryParseMeshCrease(_meshCreaseInput.Text, out double creaseValue))
@@ -8690,6 +8720,8 @@ public sealed class CadSampleView : Grid
             (_commonMeshSubdivisionLevel is null or <
                 CadSnapshotOptions.DefaultMaxMeshSubdivisionLevel);
         _meshSmoothLessButton.IsEnabled = canEditSelectedMeshes &&
+            (_commonMeshSubdivisionLevel is null or > 0);
+        _meshRefineButton.IsEnabled = canEditSelectedMeshes &&
             (_commonMeshSubdivisionLevel is null or > 0);
         _meshCreaseInput.IsEnabled = canEditMeshSubobjects;
         _setMeshCreaseButton.IsEnabled = canEditMeshSubobjects &&

@@ -6683,6 +6683,32 @@ public sealed class CadSampleCanvas : FrameworkElement
     }
 
     /// <summary>
+    /// Bakes the displayed subdivision of every eligible selected modern MESH
+    /// into editable level-zero topology and rebuilds the canonical scene.
+    /// </summary>
+    public CadMesh3DRefinementSummary RefineSelectedMeshes()
+    {
+        ThrowIfDrawOrderReferencePickPending();
+        if (_selectedHandleCount == 0)
+        {
+            throw new InvalidOperationException(
+                "Mesh refinement requires at least one selected entity.");
+        }
+        CadDocumentSession session = CurrentSession ??
+            throw new InvalidOperationException("No CAD document is loaded.");
+        CadDocumentHistory history = _history ??
+            throw new InvalidOperationException("The CAD edit history is not initialized.");
+        var command = new CadRefineMesh3DCommand(
+            new ArraySegment<ulong>(
+                _selectedHandles,
+                0,
+                _selectedHandleCount));
+        history.Execute(command);
+        RecompileAfterEdit(session);
+        return command.Summary;
+    }
+
+    /// <summary>
     /// Sets or removes creases addressed by generation-owned modern-MESH
     /// vertex, edge, and face subobjects.
     /// </summary>

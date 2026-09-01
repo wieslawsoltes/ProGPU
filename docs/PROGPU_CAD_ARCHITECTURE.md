@@ -2255,6 +2255,25 @@ Undo/Redo `O(K)`. Both commands invalidate one document generation and feed the
 same canonical managed/native scene; no backend-specific editor, shader, or ABI
 surface is introduced.
 
+`CadRefineMesh3DCommand` implements the whole-object route of `MESHREFINE` by
+baking each eligible mesh's currently displayed uniform subdivision into
+persisted editable topology and resetting its level to zero. The command uses
+the same ProGPU-owned subdivision result consumed by rendering, including its
+source-edge ancestry, rather than reconstructing topology from render
+triangles. A finite authored crease `s` becomes `max(0, s-L)` across its
+ordered `2^L` child edges after baking level `L`; Always remains `-1`, exhausted
+and unset records disappear, and implicit sharp boundaries do not become
+authored records. Per-control-vertex UVW is refined in all three components at
+double precision; float U/V conversion remains solely at the immutable GPU
+scene boundary. The command prebuilds every selected result under aggregate
+one-million visit/vertex/face/crease limits, validates complete retained state,
+and only then mutates one document generation. Undo/Redo replace exact level,
+blend flag, vertex, face, edge, and UVW arrays in `O(R)` for retained result
+state `R`. Face-local refinement has different locality and level semantics and
+remains explicit future work rather than a whole-object approximation. The
+managed and native renderers continue consuming the same canonical scene, so
+no shader, ABI, resource, or C++ implementation change applies.
+
 `CadMesh3DSceneCompiler` copies one immutable generation into consecutive
 same-style, float-rebased triangle-list batches in `O(M + R + V + I)` time and
 `O(V + I + B)` storage for mesh instances `M`, face ranges `R`, flat vertices

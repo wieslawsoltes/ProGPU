@@ -292,8 +292,8 @@ workload: it creates no device, GPU resource, command buffer, submission, or
 readback, and the change adds no shader or native GPU contract. Managed/native
 picture compilation is instead covered by the focused semantic regression.
 Raw `.trace` bundles and XML exports remain task-local; this table is the
-retained compact export. The machine-readable counterpart is
-`artifacts/benchmarks/cad-wide-polyline-comparison.json`.
+retained compact export. The machine-readable counterpart is generated locally
+under the ignored `artifacts/benchmarks/cad-wide-polyline-comparison.json` path.
 
 The FILLMODE checkpoint adds a second same-final-binary, interleaved Release
 comparison with 10,000 entities, five warmups, and 40 measured iterations. Each
@@ -321,7 +321,8 @@ evidence. The managed allocation counters above provide the available
 correlation. Metal System Trace remains genuinely inapplicable because this
 CPU-only workload creates no WebGPU device, resource, command buffer,
 submission, or readback. The machine-readable evidence and exact limitation
-are retained in `artifacts/benchmarks/cad-fillmode-outline-comparison.json`.
+are generated locally under the ignored
+`artifacts/benchmarks/cad-fillmode-outline-comparison.json` path.
 
 The managed and native renderers consume the same `GpuPicture` path and the
 same existing ProGPU path/stroke compiler. No C ABI record, generated C# wire type,

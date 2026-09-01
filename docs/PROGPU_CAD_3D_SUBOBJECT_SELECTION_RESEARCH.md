@@ -369,8 +369,8 @@ microseconds p50/p95/p99. Exact face Crossing rectangles measured
 245/245/154 triangles and returned about 77/53/20 authored faces on average;
 the intentional `O(S)` dense-state clear and result scan are included. The
 11,870,568-byte index built at 23.47/51.79/51.79 milliseconds. The complete
-SHA-identified acceptance result is
-`artifacts/benchmarks/cad-3d-subobject-selection/final-release.json`. This is
+SHA-identified acceptance result is generated locally at the ignored
+`artifacts/benchmarks/cad-3d-subobject-selection/final-release.json` path. This is
 an acceptance baseline, not a before/after speedup claim, because the previous
 generation had no exact subobject-region query.
 
@@ -384,8 +384,8 @@ Trace confirmed zero target resource allocations, current allocated bytes,
 application submissions, waits, compiler spills, hangs, or errors. Its 8,649
 completion rows are unrelated system activity because no target application
 submission exists. All targets exited zero. Compact summaries, manifests, and
-exported tables are retained under
-`artifacts/benchmarks/cad-3d-subobject-selection/instruments-region/`.
+exported tables are generated locally under the ignored
+`artifacts/benchmarks/cad-3d-subobject-selection/instruments-region/` path.
 
 The transform extension adds focused regressions for mixed vertex/edge/face
 deduplication, normalized-axis and exact-pivot math, invalid parameter rejection,
@@ -412,8 +412,8 @@ allocation cost. Exact retained undo+redo measured
 0.0286/0.0710/0.0736 with 288 bytes for rotation, and
 0.0090/0.0113/0.0142 with 288 bytes for scale. Allocation is from history
 reason strings and session events; retained coordinate replay creates no new
-coordinate storage. The acceptance result is
-`artifacts/benchmarks/cad-3d-subobject-transform/final-release.json`, whose
+coordinate storage. The acceptance result is generated locally at the ignored
+`artifacts/benchmarks/cad-3d-subobject-transform/final-release.json` path, whose
 SHA-256 is
 `d2ffaa7eae661831ecc61e973c0f9f2df585ce434e44740171b84d17ab72b3d7`.
 
@@ -425,16 +425,17 @@ System Trace found zero target resource allocations, current allocated bytes,
 application submissions, drawable waits, compiler spills, hangs, or errors,
 as expected for CPU editing and immutable scene compilation. All recordings
 exited zero; compact manifests, target logs, summaries, and exported tables are
-retained under
-`artifacts/benchmarks/cad-3d-subobject-transform/instruments-final/`.
+generated locally under the ignored
+`artifacts/benchmarks/cad-3d-subobject-transform/instruments-final/` path.
 
 The topology-deletion acceptance lane uses the same 128-by-128 mesh and 1,024
 selected faces. Across 24 Release iterations, deletion plus pre/post snapshot
 and Mesh3D scene rebuild measured 451.6070/467.5489/471.1918 milliseconds
 p50/p95/p99 and 202,986,371 managed bytes per operation. Exact retained
 Undo+Redo measured 0.0255/0.0272/0.0294 milliseconds with 496 bytes from
-history/session publication. The SHA-identified result is
-`artifacts/benchmarks/cad-3d-subobject-delete/final-release.json` with SHA-256
+history/session publication. The SHA-identified result is generated locally at
+the ignored `artifacts/benchmarks/cad-3d-subobject-delete/final-release.json`
+path with SHA-256
 `bc56c4e2b0b38587a3b94f62af6a063ebc19bf5dae905d025dff969826a25618`.
 This is an acceptance baseline for new behavior, not a speedup claim.
 
@@ -445,8 +446,8 @@ retry of the same grid/selection workload found zero target allocations,
 current allocated bytes, application submissions, waits, spills, hangs, or
 errors; the initial target also exited zero but Xcode failed to finalize its
 large system-wide trace, which the helper removed. The exact retry rationale,
-manifests, logs, summaries, and compact exports are retained under
-`artifacts/benchmarks/cad-3d-subobject-delete/`.
+manifests, logs, summaries, and compact exports are generated locally under the
+ignored `artifacts/benchmarks/cad-3d-subobject-delete/` path.
 
 Deletion regressions cover face/edge/vertex incidence, deterministic
 vertex/UV/crease remapping, preservation of unrelated isolated vertices,

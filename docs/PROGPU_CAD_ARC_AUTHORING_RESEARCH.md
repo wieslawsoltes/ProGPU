@@ -173,8 +173,8 @@ have since changed.
 - apply, Undo, and Redo: O(1), one entity and one history record;
 - completed replay: the unchanged existing analytic managed/native ARC path.
 
-The checked-in Release benchmark
-`artifacts/benchmarks/cad-arc-authoring-clockwise.json` measures batches of
+The reproducible Release benchmark writes its ignored local report to
+`artifacts/benchmarks/cad-arc-authoring-clockwise.json` and measures batches of
 65,536 mixed Center/Start/End, Start/Center/End, and Start/End/Direction
 sessions over five warmups and forty iterations on macOS arm64/.NET 10.
 Default point-final routes are p50 3.0400 ms, p95 3.4053 ms, and p99 3.6508 ms;

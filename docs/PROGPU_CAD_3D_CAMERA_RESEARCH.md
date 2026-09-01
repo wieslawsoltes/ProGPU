@@ -141,8 +141,8 @@ no native-heap number is claimed; the explicit managed counter is the
 allocation correlation. Metal System Trace is genuinely inapplicable because
 this CPU benchmark never initializes WebGPU or encodes, submits, presents, or
 reads back GPU work. The machine-readable distribution and exported
-Instruments evidence are under
-`artifacts/benchmarks/cad-3d-camera-*`. GPU submission, residency, and frame
+Instruments evidence are generated locally under the ignored
+`artifacts/benchmarks/cad-3d-camera-*` paths. GPU submission, residency, and frame
 percentiles remain open rather than being inferred from this CPU qualification.
 
 Final Debug and Release `ProGPU.CAD.Tests` runs each passed 1,403/1,403. The

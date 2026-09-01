@@ -54,6 +54,16 @@ mutation, retains exact Undo/Redo state, remaps stable-topology selections, and
 round-trips through DXF/DWG. The shared desktop/browser controls rebuild the
 single canonical managed/native scene and require no ABI or shader fork.
 
+Whole-object modern-MESH refinement now bakes every eligible selected object's
+displayed subdivision into editable level-zero topology. It preserves entity
+identity and double-precision UVW, maps authored creases through exact source-
+edge child chains with finite level decay and infinite sharpness, omits
+implicit boundary creases, preflights bounded complete multi-mesh results, and
+retains exact whole-state Undo/Redo plus DXF/DWG round trips. The shared Refine
+control preserves whole-object selection across one canonical managed/native
+scene replacement. Face-local refinement remains explicitly pending because
+it has different locality and smoothness-level semantics.
+
 The 3D selection, rendering, Desktop app, and Browser app rows also include a
 shared configurable exact-first projected pick target. It uses AutoCAD-style
 complete logical-pixel height semantics, defaults to three, supports zero for

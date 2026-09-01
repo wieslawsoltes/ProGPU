@@ -252,7 +252,7 @@ about 59 intersections and one root, and measured 34.5/97.8/139.1
 microseconds. The two-point Fence visited about 54 nodes, tested about 86
 triangles, found about 13 intersections and one root, and measured
 17.4/47.2/74.7 microseconds. Both new lanes allocated zero managed bytes. The
-checked-in JSON is
+ignored local JSON is generated at
 `artifacts/benchmarks/cad-3d-selection-grid-256.json`.
 There is no matched pre-change selection latency because the prior Flat 3D
 viewer had no projected query path; these figures are an acceptance baseline,
@@ -273,7 +273,7 @@ found about 169 intersections and all eight roots, and measured
 triangles, found about 62 intersections and all eight roots, and measured
 80.6/219.8/300.4 microseconds. Both allocated zero managed bytes. Its
 4,718,712-byte index built at 22.4764/36.5025/36.5025 ms p50/p95/p99. The
-SHA-identified JSON is
+SHA-identified ignored local JSON is generated at
 `artifacts/benchmarks/cad-3d-selection-depth-8.json`. The point/depth query
 implementation is unchanged by this slice; an attempted historical-commit
 rebuild could not resolve that revision's dependency layout, so the new

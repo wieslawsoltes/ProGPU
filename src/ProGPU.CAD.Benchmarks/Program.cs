@@ -22,6 +22,20 @@ using ProGPU.Scene.Extensions;
 using ProGPU.Text;
 using ProGPU.Tests.Headless;
 
+int mesh3DRefinementGridSize = ReadNonNegativeInt(
+    "--mesh3d-refinement-grid",
+    0);
+if (mesh3DRefinementGridSize != 0)
+{
+    RunMesh3DRefinementBenchmark(
+        mesh3DRefinementGridSize,
+        ReadPositiveInt("--mesh3d-refinement-level", 1),
+        ReadNonNegativeInt("--warmup", 3),
+        ReadPositiveInt("--iterations", 12),
+        ReadString("--output-json"));
+    return;
+}
+
 int mesh3DSmoothingGridSize = ReadNonNegativeInt(
     "--mesh3d-smoothing-grid",
     0);
@@ -63,6 +77,136 @@ if (mesh3DSelectionGridSize != 0)
         ReadPositiveInt("--queries", 65_536),
         ReadString("--output-json"));
     return;
+}
+
+void RunMesh3DRefinementBenchmark(
+    int gridSize,
+    int subdivisionLevel,
+    int warmups,
+    int iterations,
+    string? reportPath)
+{
+    if (subdivisionLevel is < 1 or >
+        CadSnapshotOptions.DefaultMaxMeshSubdivisionLevel)
+    {
+        throw new ArgumentOutOfRangeException(nameof(subdivisionLevel));
+    }
+    var document = new CadDocument(ACadVersion.AC1032);
+    Mesh mesh = CreateMesh3DSubobjectEditGrid(gridSize);
+    mesh.SubdivisionLevel = subdivisionLevel;
+    int sourceControlVertexCount = mesh.Vertices.Count;
+    int sourceFaceCount = mesh.Faces.Count;
+    document.Entities.Add(mesh);
+    var session = new CadDocumentSession(document);
+    var history = new CadDocumentHistory(session, capacity: 4);
+
+    (CadMesh3DRefinementSummary Summary, int TriangleCount) RefineAndRebuild()
+    {
+        var command = new CadRefineMesh3DCommand([mesh.Handle]);
+        history.Execute(command);
+        CadDocumentSnapshot snapshot = new CadSnapshotCompiler().Compile(session);
+        CadRecordedMesh3DScene scene =
+            new CadMesh3DSceneCompiler().Compile(snapshot);
+        return (command.Summary, scene.Statistics.TriangleCount);
+    }
+
+    for (int index = 0; index < warmups; index++)
+    {
+        _ = RefineAndRebuild();
+        if (!history.TryUndo(out _))
+        {
+            throw new InvalidOperationException(
+                "Mesh-refinement benchmark warmup undo failed.");
+        }
+    }
+
+    var editElapsed = new double[iterations];
+    long editAllocated = 0;
+    int checksum = 0;
+    CadMesh3DRefinementSummary finalSummary = default;
+    int finalTriangleCount = 0;
+    for (int index = 0; index < iterations; index++)
+    {
+        long allocatedStart = GC.GetAllocatedBytesForCurrentThread();
+        long started = Stopwatch.GetTimestamp();
+        (finalSummary, finalTriangleCount) = RefineAndRebuild();
+        editElapsed[index] = Stopwatch.GetElapsedTime(started).TotalMilliseconds;
+        editAllocated +=
+            GC.GetAllocatedBytesForCurrentThread() - allocatedStart;
+        checksum ^= HashCode.Combine(
+            finalSummary.ResultControlVertexCount,
+            finalSummary.ResultFaceCount,
+            finalTriangleCount);
+        if (!history.TryUndo(out _))
+        {
+            throw new InvalidOperationException(
+                "Mesh-refinement benchmark iteration undo failed.");
+        }
+    }
+    Measurement editAndRebuild = Summarize(
+        "mesh-refinement-snapshot-scene-ms",
+        editElapsed,
+        editAllocated / iterations);
+
+    _ = RefineAndRebuild();
+    for (int index = 0; index < warmups; index++)
+    {
+        if (!history.TryUndo(out _) || !history.TryRedo(out _))
+        {
+            throw new InvalidOperationException(
+                "Mesh-refinement undo/redo benchmark warmup failed.");
+        }
+    }
+    var undoRedoElapsed = new double[iterations];
+    long undoRedoAllocatedStart = GC.GetAllocatedBytesForCurrentThread();
+    ulong undoRedoChecksum = 0;
+    for (int index = 0; index < iterations; index++)
+    {
+        long started = Stopwatch.GetTimestamp();
+        if (!history.TryUndo(out ulong undoGeneration) ||
+            !history.TryRedo(out ulong redoGeneration))
+        {
+            throw new InvalidOperationException(
+                "Mesh-refinement undo/redo benchmark iteration failed.");
+        }
+        undoRedoElapsed[index] =
+            Stopwatch.GetElapsedTime(started).TotalMilliseconds;
+        undoRedoChecksum ^= undoGeneration ^ redoGeneration;
+    }
+    long undoRedoAllocated =
+        GC.GetAllocatedBytesForCurrentThread() - undoRedoAllocatedStart;
+    GC.KeepAlive(checksum ^ undoRedoChecksum.GetHashCode());
+    Measurement undoRedo = Summarize(
+        "mesh-refinement-undo-redo-ms",
+        undoRedoElapsed,
+        undoRedoAllocated / iterations);
+
+    var report = new CadMesh3DRefinementBenchmarkReport(
+        DateTimeOffset.UtcNow,
+        Environment.OSVersion.ToString(),
+        RuntimeInformation.FrameworkDescription,
+        gridSize,
+        subdivisionLevel,
+        sourceControlVertexCount,
+        sourceFaceCount,
+        finalSummary.ResultControlVertexCount,
+        finalSummary.ResultFaceCount,
+        finalSummary.TopologyVisitCount,
+        finalTriangleCount,
+        warmups,
+        iterations,
+        editAndRebuild,
+        undoRedo,
+        session.ContentGeneration,
+        CaptureMesh3DReplayBinaryHashes());
+    string json = JsonSerializer.Serialize(
+        report,
+        new JsonSerializerOptions { WriteIndented = true });
+    Console.WriteLine(json);
+    if (reportPath is not null)
+    {
+        File.WriteAllText(reportPath, json);
+    }
 }
 
 void RunMesh3DSmoothingBenchmark(
@@ -4691,6 +4835,25 @@ internal sealed record CadMesh3DSmoothingBenchmarkReport(
     Measurement CreaseUndoRedoMilliseconds,
     ulong SmoothMoreFinalContentGeneration,
     ulong CreaseFinalContentGeneration,
+    CadMesh3DReplayBinaryHashes RelevantBinarySha256);
+
+internal sealed record CadMesh3DRefinementBenchmarkReport(
+    DateTimeOffset CapturedAt,
+    string OperatingSystem,
+    string Runtime,
+    int GridSize,
+    int SubdivisionLevel,
+    int SourceControlVertexCount,
+    int SourceFaceCount,
+    int ResultControlVertexCount,
+    int ResultFaceCount,
+    int TopologyVisitCount,
+    int ResultTriangleCount,
+    int WarmupCount,
+    int IterationCount,
+    Measurement RefineSnapshotSceneMilliseconds,
+    Measurement UndoRedoMilliseconds,
+    ulong FinalContentGeneration,
     CadMesh3DReplayBinaryHashes RelevantBinarySha256);
 
 internal enum CadMesh3DSubobjectTransform

@@ -118,7 +118,7 @@ remapping, canonical subdivision rebuild, and DXF/DWG round trips. The focused
 set passes 11 tests; the complete Release ProGPU.CAD and core suites pass 1,469
 and 3,848 tests respectively with no failures or skips.
 
-The checked-in 64 by 64 grid benchmark contains 4,225 control vertices, 4,096
+The reproducible 64 by 64 grid benchmark contains 4,225 control vertices, 4,096
 authored faces, and 512 selected faces. Across three warmups and twelve measured
 iterations, Smooth More plus canonical snapshot/scene rebuild measured
 110.8749 ms p50 and 128.4133 ms p95/p99; face crease plus rebuild measured
@@ -136,5 +136,5 @@ no Metal commands and allocated no observed Metal resources. A separate Metal
 System Trace attempt did not finalize within the profiler's bounded cleanup
 window; the incomplete 53,248-byte trace and 293,952,056 bytes of Xcode scratch
 data were removed, its logs were retained, and no Metal result is claimed.
-Exact commands, exports, hashes, and cleanup accounting are in
-`artifacts/benchmarks/cad-3d-mesh-smoothing/`.
+Exact commands, exports, hashes, and cleanup accounting are generated locally
+under the ignored `artifacts/benchmarks/cad-3d-mesh-smoothing/` path.

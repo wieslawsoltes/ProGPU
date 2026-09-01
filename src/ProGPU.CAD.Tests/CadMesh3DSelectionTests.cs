@@ -2062,6 +2062,57 @@ public sealed class CadMesh3DSelectionTests
     }
 
     [Fact]
+    public void SharedViewportRefinesWholeMeshAndRetainsSelectionAcrossUndo()
+    {
+        var document = new CadDocument();
+        Mesh mesh = CreateStackedMesh(0.0);
+        document.Entities.Add(mesh);
+        var session = new CadDocumentSession(document);
+        var view = new CadSampleView();
+        try
+        {
+            view.Arrange(new Rect(0, 0, 1_280, 900));
+            view.Canvas.Load(session);
+            view.MeshViewport.Size = ViewportSize;
+            PressEnter(FindButton(view, "3D surfaces"));
+            CadRecordedMesh3DScene scene = Assert.IsType<CadRecordedMesh3DScene>(
+                view.MeshScene);
+            Click(
+                view.MeshViewport,
+                Project(
+                    view.MeshViewportState!.Value,
+                    scene,
+                    new CadPoint3D(0.25, 0.25, 0.0)));
+            PressEnter(FindButton(view, "Smooth +"));
+            Button refine = FindButton(view, "Refine");
+            Assert.True(refine.IsEnabled);
+
+            PressEnter(refine);
+
+            Assert.Equal(0, mesh.SubdivisionLevel);
+            Assert.Equal(9, mesh.Vertices.Count);
+            Assert.Equal(4, mesh.Faces.Count);
+            Assert.Equal(8, view.MeshScene!.Statistics.TriangleCount);
+            Assert.Equal(mesh.Handle, Assert.Single(
+                view.Canvas.SelectedHandles.ToArray()));
+            Assert.False(refine.IsEnabled);
+
+            PressEnter(FindButton(view, "Undo"));
+
+            Assert.Equal(1, mesh.SubdivisionLevel);
+            Assert.Equal(4, mesh.Vertices.Count);
+            Assert.Single(mesh.Faces);
+            Assert.True(refine.IsEnabled);
+            Assert.Equal(mesh.Handle, Assert.Single(
+                view.Canvas.SelectedHandles.ToArray()));
+        }
+        finally
+        {
+            view.Canvas.FireUnloaded();
+        }
+    }
+
+    [Fact]
     public void SharedViewportAltClickCyclesNearestSemanticDepthHits()
     {
         var document = new CadDocument();
