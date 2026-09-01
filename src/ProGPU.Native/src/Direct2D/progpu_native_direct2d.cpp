@@ -4197,8 +4197,12 @@ public:
         sink->SetFillMode(D2D1_FILL_MODE_WINDING);
         sink->SetSegmentFlags(D2D1_PATH_SEGMENT_NONE);
         sink->BeginFigure(start, D2D1_FIGURE_BEGIN_FILLED);
-        sink->AddBeziers(
-            segments.data(), static_cast<UINT32>(segments.size()));
+        for (std::size_t index = 0U; index < segments.size(); ++index) {
+            sink->AddBeziers(&segments[index], 1U);
+            if (index + 1U < segments.size()) {
+                sink->AddLine(segments[index].point3);
+            }
+        }
         sink->EndFigure(D2D1_FIGURE_END_CLOSED);
         hr = sink->Close();
         if (FAILED(hr)) {

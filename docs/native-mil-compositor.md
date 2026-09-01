@@ -5936,7 +5936,9 @@ Direct2D compatibility ABI v51 adds a ProGPU-owned
 identity and factory parentage, exact affine support-function bounds,
 inverse-transform containment, tolerance-controlled path metrics, and the original
 ellipse descriptor. A closed four-cubic path is constructed once with the
-resource and is then reused by the shared path simplifier and scene compiler,
+resource, with a zero-length endpoint line after each of the first three cubics
+to match the system `Simplify(CUBICS_AND_LINES)` transcript. It is then reused
+by the shared path simplifier and scene compiler,
 so filled and stroked ellipses enter the same backend-neutral vector resources
 as other Direct2D paths. No runtime reflection, widened CPU bitmap, readback,
 or per-frame path reconstruction is introduced. The construction work is a
