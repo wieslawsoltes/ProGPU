@@ -519,12 +519,25 @@ internal static class CadPlanChunkKeyBuilder
                 return true;
             case CadEntityKind.Solid:
             case CadEntityKind.Face3D:
-                if (worldToChunk is not null)
+                CadFacePrimitive face = snapshot.Faces.Span[entity.PrimitiveIndex];
+                if (worldToChunk is null)
+                {
+                    Append(writer, face);
+                    return true;
+                }
+                if (face.Extrusion != CadPoint3D.Zero)
                 {
                     return false;
                 }
-                CadFacePrimitive face = snapshot.Faces.Span[entity.PrimitiveIndex];
-                Append(writer, face);
+                AppendProjectedPoint(writer, face.First, snapshot.RebaseOrigin, worldToChunk);
+                AppendProjectedPoint(writer, face.Second, snapshot.RebaseOrigin, worldToChunk);
+                AppendProjectedPoint(writer, face.Third, snapshot.RebaseOrigin, worldToChunk);
+                AppendProjectedPoint(writer, face.Fourth, snapshot.RebaseOrigin, worldToChunk);
+                Append(writer, face.InvisibleEdgeMask);
+                Append(writer, face.First == face.Second);
+                Append(writer, face.Second == face.Third);
+                Append(writer, face.Third == face.Fourth);
+                Append(writer, face.Fourth == face.First);
                 return true;
             case CadEntityKind.Spline:
                 CadSplinePrimitive spline =

@@ -10,7 +10,7 @@ ARC, ELLIPSE, SOLID, 3DFACE, SPLINE, LWPOLYLINE, 2D POLYLINE, and 3D POLYLINE
 roots whose complete canonical rendering inputs match byte-for-byte. Top-level
 INSERT and MINSERT cells additionally share one definition-local fragment across
 translation, rotation, reflection, and nonuniform affine scale when every expanded
-child is one of the eligible non-face analytic families. Instance-owned ATTRIBs are
+child is an eligible analytic family, including flat SOLID/3DFACE. Instance-owned ATTRIBs are
 excluded from the definition range. Unsupported
 families take the ordinary full-recording path and are never guessed reusable.
 
@@ -43,7 +43,7 @@ normalize projected points and basis vectors through a double-precision inverse,
 then compare the same retained float values consumed by plan recording. Cached
 fragments compose through the existing nested-picture transform; fixed-device CAD
 lineweights remain device-space while local wide-polyline geometry follows the
-instance affine. Singular/projectively collapsed placements and face/surface or
+instance affine. Singular/projectively collapsed placements and extruded face/surface or
 resource-bearing definitions fail closed.
 
 Key construction is O(P) time and storage for P primitive/range values in the
@@ -76,5 +76,5 @@ semantics. MINSERT and distinct affine INSERT regressions prove one shared child
 identity, exact composed managed endpoints within retained-float tolerance, and
 matched native primitive/draw counts.
 
-Definition-local face/surface, text/SHX, hatch, complex-linetype, raster, and other
+Definition-local extruded surface, text/SHX, hatch, complex-linetype, raster, and other
 resource- or global-budget-dependent families remain the next chunk-coverage work.

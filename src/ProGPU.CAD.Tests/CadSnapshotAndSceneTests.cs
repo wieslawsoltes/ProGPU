@@ -1965,6 +1965,11 @@ public sealed class CadSnapshotAndSceneTests
             block.Entities.Add(new Line(
                 new XYZ(1, 2, 0),
                 new XYZ(4, 6, 0)));
+            block.Entities.Add(new Solid(
+                new XYZ(1, 2, 0),
+                new XYZ(3, 2, 0),
+                new XYZ(1, 5, 0),
+                new XYZ(3, 5, 0)));
             document.Entities.Add(new Insert(block)
             {
                 InsertPoint = new XYZ(100, 200, 0),
@@ -1981,8 +1986,11 @@ public sealed class CadSnapshotAndSceneTests
             });
         });
         CadDocumentSnapshot snapshot = new CadSnapshotCompiler().Compile(session);
+        var sceneCompiler = new CadPlanSceneCompiler();
+        using CadRecordedPlanScene baselineScene = sceneCompiler.Compile(snapshot);
+        using GpuPicture baselinePicture = baselineScene.CreatePicture();
         using var cache = new CadPlanChunkCache();
-        using CadRecordedPlanScene scene = new CadPlanSceneCompiler().Compile(
+        using CadRecordedPlanScene scene = sceneCompiler.Compile(
             snapshot,
             new CadPlanSceneOptions { ChunkCache = cache });
         using GpuPicture picture = scene.CreatePicture();
@@ -2037,14 +2045,24 @@ public sealed class CadSnapshotAndSceneTests
                 0.0001);
         }
         Assert.True(GpuPictureNativeSceneCompiler.TryCompile(
-            picture,
+            baselinePicture,
             603U,
+            snapshot.ContentGeneration,
+            out NativeCompiledPicture? baselineNative,
+            out NativePictureCompileFailure baselineFailure),
+            baselineFailure.ToString());
+        Assert.True(GpuPictureNativeSceneCompiler.TryCompile(
+            picture,
+            604U,
             snapshot.ContentGeneration,
             out NativeCompiledPicture? native,
             out NativePictureCompileFailure failure),
             failure.ToString());
+        Assert.NotNull(baselineNative);
         Assert.NotNull(native);
-        Assert.Equal(1, native.NativeDrawCount);
+        Assert.Equal(baselineNative.NativeDrawCount, native.NativeDrawCount);
+        Assert.Equal(baselineNative.PathCount, native.PathCount);
+        Assert.Equal(baselineNative.PathSegmentCount, native.PathSegmentCount);
     }
 
     [Fact]
