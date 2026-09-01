@@ -860,6 +860,14 @@ fail closed. Straight, miter-corner, interior, exterior, concave-corner, and
 nonuniform transformed probes pass locally under optimization and sanitizers
 and match genuine system Direct2D on Windows ARM64.
 
+Closed-path stroke containment also accepts same-factory solid bevel, miter,
+and miter-or-bevel styles. It reads the typed COM line-join and miter-limit
+state, preserves the SIMD segment body, and selects bevel-only or limited-miter
+join wedges without changing cap semantics on a closed figure. The Windows
+oracle distinguishes a point clipped by a bevel from one inside its wedge and
+matches system Direct2D. Dashed and round-join styles remain fail closed until
+their shared run/arc geometry is reused by containment, bounds, and `Widen`.
+
 The identical simple closed/default-miter domain now implements
 `GetWidenedBounds`. It derives segment offset endpoints plus qualified miter
 extrema in local geometry space, then transforms and reduces independent
@@ -872,7 +880,8 @@ styles and topology retain initialized empty output and fail closed.
 
 `ID2D1PathGeometry::Widen` now covers one simple closed contour with the
 null/default solid miter stroke and a positive width, including concave input
-whose outer and inner offsets remain simple and non-collapsed. The path is tolerance-flattened locally;
+whose outer and inner offsets remain simple and non-collapsed. The path is
+tolerance-flattened locally;
 outer and inner offset intersections are fully validated, including miter
 limit and surviving inner topology, before either contour touches the caller
 sink. Both contours are transformed four points at a time through NEON or SSE2
@@ -2174,8 +2183,8 @@ ownership, exact vocabulary `Stream`, line/cubic/arc-aware transformed bounds,
 `Simplify` to cubics-and-lines or flattened lines, fill containment, area,
 length, point-at-length, and point-plus-segment queries. Area and containment
 are qualified for ordinary non-overlapping figures; exact self-intersection
-and overlapping-figure fill analysis remains a separate gate. General styled,
-open, or multi-figure path stroke containment, collapsed/styled/open/
+and overlapping-figure fill analysis remains a separate gate. Dashed,
+round-join, open, or multi-figure path stroke containment, collapsed/styled/open/
 multi-figure path widening, and styled/open/multi-figure widened bounds,
 multi-contour outline/Boolean normalization, and unsupported tessellation
 topologies still return `E_NOTIMPL` with initialized outputs where applicable.

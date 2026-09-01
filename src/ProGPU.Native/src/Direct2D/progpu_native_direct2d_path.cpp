@@ -2084,6 +2084,8 @@ public:
             !core::valid_transform(world_transform)) {
             return com::invalid_argument;
         }
+        line_join join = line_join::miter;
+        double miter_limit = 10.0;
         if (style != nullptr) {
             factory* raw_style_factory = nullptr;
             style->GetFactory(&raw_style_factory);
@@ -2092,7 +2094,12 @@ public:
             if (style_factory.get() != owner_.get()) {
                 return wrong_factory;
             }
-            return not_implemented;
+            if (style->GetDashStyle() != dash_style::solid ||
+                style->GetLineJoin() == line_join::round) {
+                return not_implemented;
+            }
+            join = style->GetLineJoin();
+            miter_limit = style->GetMiterLimit();
         }
         if (data_->figures.size() != 1U ||
             data_->figures.front().end != figure_end::closed) {
@@ -2142,7 +2149,6 @@ public:
                 return com::ok;
             }
             const double half_width_double = half_width;
-            constexpr double default_miter_limit = 10.0;
             for (std::size_t index = 0U;
                  index < polygon.size();
                  ++index) {
@@ -2203,6 +2209,9 @@ public:
                         *contains = 1;
                         return com::ok;
                     }
+                    if (join == line_join::bevel) {
+                        continue;
+                    }
                     const double offset_x =
                         static_cast<double>(outgoing_offset.x) -
                         incoming_offset.x;
@@ -2224,7 +2233,7 @@ public:
                         static_cast<double>(miter.x) - vertex.x,
                         static_cast<double>(miter.y) - vertex.y);
                     if (miter_length <=
-                            default_miter_limit * half_width_double &&
+                            miter_limit * half_width_double &&
                         point_in_closed_triangle(
                             local_point,
                             incoming_offset,

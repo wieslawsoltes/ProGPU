@@ -2276,6 +2276,23 @@ int run_tests()
       !boolean_path_base) {
     return 320;
   }
+  const compat::stroke_style_properties bevel_path_stroke_properties{
+      compat::cap_style::flat,
+      compat::cap_style::flat,
+      compat::cap_style::flat,
+      compat::line_join::bevel,
+      4.0F,
+      compat::dash_style::solid,
+      0.0F};
+  compat::stroke_style *raw_bevel_path_stroke_style = nullptr;
+  if (factory->CreateStrokeStyle(
+          &bevel_path_stroke_properties, nullptr, 0U,
+          &raw_bevel_path_stroke_style) != com::ok ||
+      raw_bevel_path_stroke_style == nullptr) {
+    return 352;
+  }
+  com::pointer<compat::stroke_style> bevel_path_stroke_style;
+  bevel_path_stroke_style.attach(raw_bevel_path_stroke_style);
   const compat::matrix_3x2_f disjoint_path_transform{
       1.0F, 0.0F, 0.0F, 1.0F, 10.0F, 0.0F};
   const compat::matrix_3x2_f contained_path_transform{
@@ -2336,6 +2353,19 @@ int run_tests()
         (stroke_contains != 0) != stroke_case.expected) {
       return 330;
     }
+  }
+  std::int32_t bevel_corner_outside = 0;
+  std::int32_t bevel_corner_inside = 0;
+  if (query_path->StrokeContainsPoint(
+          {0.1F, 1.1F}, 2.0F, bevel_path_stroke_style.get(), nullptr,
+          core::default_flattening_tolerance, &bevel_corner_outside) !=
+          com::ok ||
+      query_path->StrokeContainsPoint(
+          {0.6F, 1.6F}, 2.0F, bevel_path_stroke_style.get(), nullptr,
+          core::default_flattening_tolerance, &bevel_corner_inside) !=
+          com::ok ||
+      bevel_corner_outside != 0 || bevel_corner_inside == 0) {
+    return 353;
   }
   std::int32_t zero_width_edge = 0;
   std::int32_t zero_width_interior = 0;
@@ -6285,6 +6315,24 @@ int run_tests()
     system_factory->Release();
     return 325;
   }
+  const D2D1_STROKE_STYLE_PROPERTIES system_bevel_path_properties{
+      D2D1_CAP_STYLE_FLAT,
+      D2D1_CAP_STYLE_FLAT,
+      D2D1_CAP_STYLE_FLAT,
+      D2D1_LINE_JOIN_BEVEL,
+      4.0F,
+      D2D1_DASH_STYLE_SOLID,
+      0.0F};
+  ID2D1StrokeStyle *system_bevel_path_stroke_style = nullptr;
+  if (FAILED(system_factory->CreateStrokeStyle(
+          &system_bevel_path_properties, nullptr, 0U,
+          &system_bevel_path_stroke_style)) ||
+      system_bevel_path_stroke_style == nullptr) {
+    system_query_boolean_path->Release();
+    system_input_boolean_path->Release();
+    system_factory->Release();
+    return 354;
+  }
   const std::array<ID2D1Geometry *, 6U> system_relation_inputs{{
       system_input_boolean_path,
       system_query_boolean_path,
@@ -6339,6 +6387,27 @@ int run_tests()
       return static_cast<int>(331U + stroke_case_index);
     }
   }
+  BOOL system_bevel_corner_outside = FALSE;
+  BOOL system_bevel_corner_inside = FALSE;
+  if (FAILED(system_query_boolean_path->StrokeContainsPoint(
+          D2D1_POINT_2F{0.1F, 1.1F}, 2.0F,
+          system_bevel_path_stroke_style, nullptr,
+          D2D1_DEFAULT_FLATTENING_TOLERANCE,
+          &system_bevel_corner_outside)) ||
+      FAILED(system_query_boolean_path->StrokeContainsPoint(
+          D2D1_POINT_2F{0.6F, 1.6F}, 2.0F,
+          system_bevel_path_stroke_style, nullptr,
+          D2D1_DEFAULT_FLATTENING_TOLERANCE,
+          &system_bevel_corner_inside)) ||
+      system_bevel_corner_outside != FALSE ||
+      system_bevel_corner_inside == FALSE) {
+    system_bevel_path_stroke_style->Release();
+    system_query_boolean_path->Release();
+    system_input_boolean_path->Release();
+    system_factory->Release();
+    return 355;
+  }
+  system_bevel_path_stroke_style->Release();
   BOOL system_zero_width_edge = FALSE;
   BOOL system_zero_width_interior = FALSE;
   const HRESULT system_zero_edge_status =

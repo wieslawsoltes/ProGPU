@@ -6385,6 +6385,14 @@ oracle confirms the same results through genuine Direct2D; probes are kept
 outside Direct2D's flattening-tolerance fuzz band when asserting strict
 exterior results.
 
+Same-factory solid bevel, miter, and miter-or-bevel style state now enters the
+closed-path containment lane through typed COM getters. The SIMD body remains
+shared while the dependent join pass selects the bevel wedge or qualified
+miter extension and limit. Windows probes distinguish a bevel-clipped corner
+from its included wedge and match genuine Direct2D after another clean ARM64
+30-target rebuild. Dashed and round joins remain fail closed pending common
+run/arc output geometry.
+
 `GetWidenedBounds` now shares that default-miter path domain. Segment offsets
 and miter extrema are constructed before the world transform; independent
 candidate transforms and min/max reductions execute four-wide through NEON or
