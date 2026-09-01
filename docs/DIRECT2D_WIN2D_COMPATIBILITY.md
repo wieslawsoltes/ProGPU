@@ -383,6 +383,28 @@ finishes the device-independent resource slots of the portable base factory;
 WIC/HWND/DXGI/DC targets and their draw-resource families remain explicit
 platform or portable-render-target gates.
 
+ProGPU `a8d94060` begins the portable draw-resource family with canonical
+`ID2D1Brush` and `ID2D1SolidColorBrush` identity and vtables. Creation uses the
+same stable `IProGpuD2DCompatFactoryNative` extension IID and method slot as
+the existing Windows provider because the original `ID2D1Factory` does not
+create brushes. The fixed-layout 16-byte color and 28-byte brush-property
+descriptors map directly onto `D2D1_COLOR_F` and `D2D1_BRUSH_PROPERTIES`.
+Null properties select opacity one and the identity transform.
+
+Color, opacity, and transform mutation is serialized. Nonfinite colors,
+opacity outside `[0, 1]`, and nonfinite transforms fail closed at creation or
+leave an existing resource unchanged. Each brush owns its parent factory and
+can be queried through resource, brush, solid-brush, and canonical `IUnknown`
+identity without a Windows COM runtime. This is resource state only: it does
+not perform CPU rasterization or promise a portable render target before that
+recording gate is implemented.
+
+The Apple Silicon warning-as-error tree remains 14/14. Windows 11 ARM64 MSVC
+19.44 `/W4 /WX` creates, queries, reads, and mutates the same object through
+real SDK `ID2D1Brush*` and `ID2D1SolidColorBrush*` pointers. A system Direct2D
+pixel oracle remains coupled to the next portable render-target checkpoint,
+because system solid brushes are device-dependent render-target resources.
+
 ## Current support matrix
 
 | Surface | Status | Contract |
@@ -390,7 +412,7 @@ platform or portable-render-target gates.
 | `ProGPU.DirectX` D3D-style device/resources/pipelines | Implemented | Portable typed facade backed by WebGPU; D3D12 on qualified Windows adapters |
 | Native C++ MIL/retained scene on D3D12 | Implemented | Same backend-neutral scene ABI used on Metal, Vulkan, and browser WebGPU |
 | DXGI shared-handle import | Implemented building block | `ProGpuExternalTextureDescriptor` plus Dawn shared-texture memory, keyed-mutex ownership, and no CPU readback |
-| Direct2D `ID2D1*` and DirectWrite text API | Portable COM lifetime, ABI-compatible base factory, rectangle, ellipse, rounded-rectangle, transformed, grouped, one-shot path geometry/sinks, immutable stroke styles, and drawing-state blocks; Windows bitmap/brush/geometry/stroke/command-list/effect/layer/state/text/SVG resources, geometry analysis/realization, vector drawing, and typed device-loss domains implemented | The installed portable C++ target exposes canonical `ID2D1Factory`, resource, geometry, rectangle, ellipse, rounded-rectangle, transformed-geometry, geometry-group, path-geometry, sink, stroke-style, and drawing-state-block IIDs/vtables. Shared allocation-free primitive/affine/stroke validation and portable line/cubic/quadratic/arc path bounds and cubic simplification are qualified through real Windows SDK pointers and system-Direct2D path/ellipse/rounded-rectangle/group/stroke-style/state oracles. The Windows provider independently supplies the broader ABI v54 factory/geometry/brush/path/stroke/recorder family and genuine system device/context/target interop. Remaining portable render-target/device-context vtables and path operations fail closed; there is no fake `d2d1.dll` or `dwrite.dll` |
+| Direct2D `ID2D1*` and DirectWrite text API | Portable COM lifetime, ABI-compatible base factory, rectangle, ellipse, rounded-rectangle, transformed, grouped, one-shot path geometry/sinks, immutable stroke styles, drawing-state blocks, and mutable solid-color brushes; Windows bitmap/brush/geometry/stroke/command-list/effect/layer/state/text/SVG resources, geometry analysis/realization, vector drawing, and typed device-loss domains implemented | The installed portable C++ target exposes canonical `ID2D1Factory`, resource, geometry, rectangle, ellipse, rounded-rectangle, transformed-geometry, geometry-group, path-geometry, sink, stroke-style, drawing-state-block, brush, solid-color-brush, and stable ProGPU native-factory-extension IIDs/vtables. Shared allocation-free primitive/affine/stroke validation and portable line/cubic/quadratic/arc path bounds and cubic simplification are qualified through real Windows SDK pointers and system-Direct2D geometry/stroke/state oracles. The Windows provider independently supplies the broader ABI v54 factory/geometry/brush/path/stroke/recorder family and genuine system device/context/target interop. Remaining portable render-target/device-context vtables and path operations fail closed; there is no fake `d2d1.dll` or `dwrite.dll` |
 | Native Win2D binary interop | Device/target/bitmap/brush/geometry/stroke/command-list/effect-output/text-format/text-layout/typography round trips plus layer/state/text draws package-qualified | The official factory/resource-wrapper contracts preserve exact provider identities through real `CanvasDevice`, `CanvasRenderTarget`, `CanvasBitmap`, brush, `CanvasGeometry`, `CanvasStrokeStyle`, `CanvasCommandList`, device-independent `CanvasTextFormat`/`CanvasTypography`, and device-associated `CanvasTextLayout` projections. The packaged Microsoft Win2D 1.4.0 oracle also wraps effect-output image brushes, executes typed ProGPU layer/state and native-text command-list scopes, observes ProGPU range formatting/OpenType features through the projected layout and typography, mutates that same native layout through Win2D, and draws it. It qualifies identities, resource metadata, boolean geometry/styled-stroke/image-brush/command-list/effect/text drawing and pixels, exclusive producer ownership, and zero-copy Dawn import; glyph runs/color fonts, remaining typography, the full effect catalog, custom effects, and full device-loss recreation remain gated work |
 | Portable Win2D-style Canvas source API | MVP implemented | `ProGPU.Win2D` records Win2D-shaped commands, compiles them with `ProGPU.Scene.Native`, and submits the retained scene to the C++ renderer |
 | Portable Win2D bitmap in LibreWPF native MIL | Implemented | Wrap a same-device `CanvasBitmap` lease source in `IPortableNativeImageSource`; canonical `TYPE_BITMAPSOURCE` lowers to a zero-payload external scene image with no readback or repack |
