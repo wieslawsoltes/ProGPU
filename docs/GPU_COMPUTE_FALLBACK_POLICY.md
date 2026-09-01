@@ -196,6 +196,14 @@ both forced inline/staged executions with an explicit diagnostic. Live forced
 profiles remain mandatory on Windows Parallels/hardware plus Metal and Vulkan;
 automatic production policy is not changed, and no CPU result is substituted.
 
+The same hosted adapter uses the constrained mixed-picture qualification used
+by Parallels: the complete 384-item stress executes in the C++ renderer, then a
+one-item managed/native GPU differential runs after one warm frame. The dense
+managed 384-item profile was removed only from this named adapter after it
+spent roughly 96 seconds in glyph coverage and lost the device; physical
+Windows keeps the complete differential. This is a test-workload boundary,
+not a compute-policy fallback.
+
 `--rerasterize-glyphs` is the component-performance form of the glyph gate. It
 increments the native content revision for every render so each measured frame
 must rebuild and upload the 247,808-byte coverage batch; without this option,

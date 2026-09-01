@@ -1577,6 +1577,16 @@ that software device after roughly 80 seconds even at half resolution, so it
 remains a hardware/Parallels GPU gate. The independent full C++ renderer stays
 mandatory on Basic Render Driver; no CPU rendering fallback is introduced.
 
+The separate mixed-picture differential follows the same adapter boundary.
+Microsoft Basic Render Driver and Parallels execute the full 384-item,
+four-warmup/eight-iteration stress through the C++ renderer, then require a
+live one-item managed/native differential after one cache-establishing warm
+frame. Hardware Windows keeps the full managed/native 384-item differential.
+The hosted software adapter otherwise spends roughly 96 seconds in the dense
+managed glyph path before device removal. The bounded lane still submits both
+renderers and compares pixels; it is not a CPU-rendered or validation-only
+replacement.
+
 Microsoft Basic Render Driver also defers only the two forced signed-winding
 compute execution profiles after its inline four-rectangle rerasterization
 deterministically spent roughly 100 seconds and lost the device during final
