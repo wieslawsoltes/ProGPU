@@ -6419,7 +6419,11 @@ semantics. Bevel, qualified miter, and miter-or-bevel joins now share one typed
 offset-side builder. The low-limit miter-or-bevel path emits the two bevel
 vertices, while qualifying miters emit the exact offset-line intersection;
 dense containment and genuine Direct2D x64/ARM64 corner differentials pass.
-Round joins and over-limit clipped `Miter` output remain the next analysis gap.
+Round joins annotate the outer side edge with its typed center and emit one or
+two cubic circular spans during outline assembly. Their dense widened-region
+probes and genuine Direct2D x64/ARM64 corner/widen differentials pass. Only
+over-limit clipped `Miter` output remains the next analysis gap in this dashed
+line-run domain.
 
 `GetWidenedBounds` now shares that default-miter path domain. Segment offsets
 and miter extrema are constructed before the world transform; independent
