@@ -2165,6 +2165,135 @@ int main()
         return 198;
     }
 
+    compat::layer_parameters opacity_brush_layer_parameters =
+        layer_parameters;
+    opacity_brush_layer_parameters.opacity_brush =
+        static_cast<compat::brush*>(target_brush.get());
+    target->BeginDraw();
+    target->PushLayer(
+        &opacity_brush_layer_parameters, target_layer.get());
+    target->FillRectangle(
+        &layer_bounds, static_cast<compat::brush*>(target_brush.get()));
+    target->PopLayer();
+    if (target->EndDraw(nullptr, nullptr) != com::ok ||
+        scene_target->GetRequiredSceneSize() == 0U) {
+        return 200;
+    }
+    const std::uint64_t opacity_brush_scene_size =
+        scene_target->GetRequiredSceneSize();
+    std::vector<std::byte> opacity_brush_scene(
+        static_cast<std::size_t>(opacity_brush_scene_size));
+    std::uint64_t opacity_brush_scene_written = 0U;
+    if (scene_target->BuildScene(
+            opacity_brush_scene.data(),
+            opacity_brush_scene.size(),
+            &opacity_brush_scene_written) != com::ok ||
+        opacity_brush_scene_written != opacity_brush_scene_size) {
+        return 201;
+    }
+    const auto* opacity_brush_header = reinterpret_cast<
+        const progpu_native_scene_header*>(opacity_brush_scene.data());
+    const auto* opacity_brush_push = reinterpret_cast<
+        const progpu_native_scene_command*>(
+            opacity_brush_scene.data() +
+            opacity_brush_header->command_offset);
+    const auto* opacity_brush_layer = reinterpret_cast<
+        const progpu_native_scene_layer*>(
+            opacity_brush_scene.data() +
+            opacity_brush_push->payload_offset);
+    if (opacity_brush_push->kind !=
+            PROGPU_NATIVE_SCENE_COMMAND_PUSH_LAYER ||
+        opacity_brush_layer->mask_resource_index ==
+            PROGPU_NATIVE_SCENE_NO_INDEX ||
+        opacity_brush_layer->mask_resource_index >=
+            opacity_brush_header->resource_count) {
+        return 202;
+    }
+    const auto* opacity_brush_resource = reinterpret_cast<
+        const progpu_native_scene_resource*>(
+            opacity_brush_scene.data() +
+            opacity_brush_header->resource_offset +
+            static_cast<std::size_t>(
+                opacity_brush_layer->mask_resource_index) *
+                opacity_brush_header->resource_stride);
+    const auto* opacity_brush_mask = reinterpret_cast<
+        const progpu_native_scene_layer_brush_mask*>(
+            opacity_brush_scene.data() +
+            opacity_brush_resource->payload_offset);
+    if (opacity_brush_resource->kind !=
+            PROGPU_NATIVE_SCENE_RESOURCE_LAYER_MASK ||
+        opacity_brush_resource->payload_size <
+            sizeof(progpu_native_scene_layer_brush_mask) ||
+        opacity_brush_mask->kind != PROGPU_NATIVE_SCENE_LAYER_MASK_BRUSH ||
+        opacity_brush_mask->brush.type != PROGPU_NATIVE_SCENE_BRUSH_SOLID) {
+        return 203;
+    }
+
+    compat::layer_parameters composite_mask_layer_parameters =
+        masked_layer_parameters;
+    composite_mask_layer_parameters.opacity_brush =
+        static_cast<compat::brush*>(linear_brush.get());
+    target->BeginDraw();
+    target->PushLayer(
+        &composite_mask_layer_parameters, target_layer.get());
+    target->FillRectangle(
+        &layer_bounds, static_cast<compat::brush*>(target_brush.get()));
+    target->PopLayer();
+    if (target->EndDraw(nullptr, nullptr) != com::ok ||
+        scene_target->GetRequiredSceneSize() == 0U) {
+        return 204;
+    }
+    const std::uint64_t composite_mask_scene_size =
+        scene_target->GetRequiredSceneSize();
+    std::vector<std::byte> composite_mask_scene(
+        static_cast<std::size_t>(composite_mask_scene_size));
+    std::uint64_t composite_mask_scene_written = 0U;
+    if (scene_target->BuildScene(
+            composite_mask_scene.data(),
+            composite_mask_scene.size(),
+            &composite_mask_scene_written) != com::ok ||
+        composite_mask_scene_written != composite_mask_scene_size) {
+        return 205;
+    }
+    const auto* composite_mask_header = reinterpret_cast<
+        const progpu_native_scene_header*>(composite_mask_scene.data());
+    const auto* composite_mask_push = reinterpret_cast<
+        const progpu_native_scene_command*>(
+            composite_mask_scene.data() +
+            composite_mask_header->command_offset);
+    const auto* composite_mask_layer = reinterpret_cast<
+        const progpu_native_scene_layer*>(
+            composite_mask_scene.data() +
+            composite_mask_push->payload_offset);
+    if (composite_mask_layer->mask_resource_index ==
+            PROGPU_NATIVE_SCENE_NO_INDEX ||
+        composite_mask_layer->mask_resource_index >=
+            composite_mask_header->resource_count) {
+        return 206;
+    }
+    const auto* composite_mask_resource = reinterpret_cast<
+        const progpu_native_scene_resource*>(
+            composite_mask_scene.data() +
+            composite_mask_header->resource_offset +
+            static_cast<std::size_t>(
+                composite_mask_layer->mask_resource_index) *
+                composite_mask_header->resource_stride);
+    const auto* composite_mask = reinterpret_cast<
+        const progpu_native_scene_layer_composite_mask*>(
+            composite_mask_scene.data() +
+            composite_mask_resource->payload_offset);
+    if (composite_mask_resource->kind !=
+            PROGPU_NATIVE_SCENE_RESOURCE_LAYER_MASK ||
+        composite_mask_resource->payload_size <
+            sizeof(progpu_native_scene_layer_composite_mask) ||
+        composite_mask->kind != PROGPU_NATIVE_SCENE_LAYER_MASK_COMPOSITE ||
+        composite_mask->component_count != 2U ||
+        composite_mask->brush_mask_count != 1U ||
+        composite_mask->path_count != 1U ||
+        composite_mask->gradient_stop_count != 3U) {
+        return 207;
+    }
+
     masked_layer_parameters.mask_antialias_mode =
         compat::antialias_mode::aliased;
     target->BeginDraw();
