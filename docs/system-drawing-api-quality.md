@@ -497,9 +497,10 @@ quantizes source, solid pattern, and current destination to bytes, evaluates any
 of the 256 ternary Boolean functions, and publishes opaque device pixels.
 `SRCINVERT` and selected-solid-brush `PATINVERT` have exact pixel gates; retained
 round trips, clipped GPU source-memory sizing, malformed-record rollback, and a
-warmed 64-record allocation ceiling guard the non-pixel contracts. A direct
-swapchain target cannot be sampled and rejects the command explicitly;
-non-solid WMF pattern materialization remains future typed work. Both complete
+warmed 64-record allocation ceiling guard the non-pixel contracts. Raw
+swapchain views use one bounded bindable presentation texture plus a GPU-only
+viewport blit; offset HiDPI output has an exact pixel gate and the texture is
+memory-accounted and retired after 240 idle frames. Both complete
 Debug and Release drawing suites pass 574/574, and ApiCompat remains 0 missing
 types, 0 missing members, and 13 reviewed shape differences. The 2026-09-01
 ARM64/.NET 10.0.11 ShortRun measured a 21.579 ms median (20.781 ms mean, 1.680
@@ -510,6 +511,10 @@ correctness and allocation gates authoritative.
 `MetafileBenchmarks.Playback256WmfDestinationOnlyBitmapRecordsToRetainedCommands`
 extends that truth-table path to every WMF bitmap record whose ROP3 byte does
 not depend on source input, even when the official record omits its bitmap.
+The official
+[`META_BITBLT` without-bitmap contract](https://learn.microsoft.com/en-us/openspecs/windows_protocols/ms-wmf/e6dd5312-c622-4fb9-9945-22297cee3ad4)
+requires source-dependent operations in that form to fail; no playback-DC
+snapshot seam is therefore missing from the conforming portable path.
 The renderer classifies `S` dependency directly from the eight truth-table
 bits before source clipping, preserves the existing black/white/pattern fast
 paths, and uses one typed one-pixel coverage bitmap per playback for operations
@@ -1009,21 +1014,35 @@ exactly zero managed bytes across 10,000 warmed palette dispatches. Contract
 and platform-boundary evidence is recorded in
 [`docs/research/system-drawing-native-interop-contract.md`](research/system-drawing-native-interop-contract.md).
 
-The current metafile pattern slice materializes `EMR_CREATEDIBPATTERNBRUSHPT`
-and `META_DIBCREATEPATTERNBRUSH` through the existing managed DIB decoder and
-typed `TextureBrush` fill path. Pattern bitmaps are decoded before object-table
-publication, owned by the playback object, cached as a selected texture brush by
-brush origin, and disposed with normal GDI object lifetime. Exact 2-by-2 RGB
-tiles verify EMF origin phase and WMF `PATCOPY`; a malformed EMF bit buffer
-verifies rollback of earlier retained commands. The serial Debug test-project
-build completes with zero errors; its only current warnings are NuGet audit-feed
-lookups blocked by the offline sandbox. Both focused test methods execute
-successfully in-process where the sandbox forbids vstest's localhost transport.
+The current metafile pattern slice materializes `EMR_CREATEDIBPATTERNBRUSHPT`,
+`EMR_CREATEMONOBRUSH`, `META_DIBCREATEPATTERNBRUSH`, and
+`META_CREATEPATTERNBRUSH` through typed managed paths. Packed DIB records reuse
+the bounded DIB decoder; the legacy WMF form validates the official partial
+`Bitmap16`/reserved envelope before invoking the registered device-format
+decoder. Pattern bitmaps are decoded before object-table publication, owned by
+the playback object, cached by selected brush and origin, and disposed with
+normal GDI object lifetime.
 
-This does not yet claim arbitrary bitmap-pattern ROP3. That operation needs a
-typed pattern texture in the advanced-composition bind group. WMF
-`META_CREATEPATTERNBRUSH` and EMF `EMR_CREATEMONOBRUSH` also remain named follow-up
-record forms rather than being silently treated as DIB pattern brushes.
+Arbitrary bitmap-pattern ROP3 uses a typed ProGPU texture payload in the
+destination-composition bind group. It keeps the advanced uniform at 96 bytes,
+does not enlarge the hot `RenderCommand`, performs exact repeating device-pixel
+loads in WGSL, and reuses one retained pattern texture across repeated commands.
+Focused device tests cover source/pattern/destination XOR, origin phase, exact
+2-by-2 RGB tiles, one-bit EMF rejection, legacy-WMF adapter input, unchanged
+outside pixels, retained-command round trips, texture-lease sharing, and
+transactional malformed-input rollback. A dedicated
+`Playback256WmfDibPatternInvertsToRetainedCommands` benchmark guards decode,
+pattern caching, retained ROP publication, and cleanup without treating a
+short-run timing sample as a portable throughput claim. The 2026-09-01
+ARM64/.NET 10.0.11 ShortRun measured a 579.442 microsecond median (482.158
+microsecond mean, 172.568 microsecond standard deviation) and 305,349 bytes
+allocated. The complete 102-benchmark Release run finished successfully in
+14 minutes 34 seconds; three iterations, denied priority elevation, and high
+variance keep the exact-pixel, retained-resource, and allocation gates
+authoritative. The complete System.Drawing suite passes 586/586 in both Debug
+and Release, the Linux-equivalent ProGPU Release lane passes 3,759/3,759, the
+headless lane passes 240/240, and ApiCompat remains at zero missing types and
+zero missing members.
 
 ## Implementation order
 

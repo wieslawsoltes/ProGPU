@@ -9,6 +9,7 @@ using ProGPU.Vector;
 using ProGPU.Text;
 using ProGPU.Backend;
 using ProGPU.Scene.Extensions;
+using Silk.NET.WebGPU;
 
 namespace ProGPU.Scene;
 
@@ -94,6 +95,42 @@ public enum VertexColorBlendMode
 }
 
 /// <summary>
+/// Describes an immutable same-device texture used as the pattern input of a
+/// Win32/GDI ternary raster operation.
+/// </summary>
+/// <remarks>
+/// The texture is sampled as a repeating device-pixel tile. Its owner must
+/// retain the texture lease for every command or picture that references this
+/// value.
+/// </remarks>
+public sealed class GpuRasterTexturePattern
+{
+    public GpuTexture Texture { get; }
+    public Vector2 Origin { get; }
+
+    public GpuRasterTexturePattern(GpuTexture texture, Vector2 origin = default)
+    {
+        ArgumentNullException.ThrowIfNull(texture);
+        if (texture.IsDisposed ||
+            (texture.Usage & TextureUsage.TextureBinding) == 0)
+        {
+            throw new ArgumentException(
+                "The raster pattern texture must be live and texture-bindable.",
+                nameof(texture));
+        }
+        if (!float.IsFinite(origin.X) || !float.IsFinite(origin.Y))
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(origin),
+                "The raster pattern origin must be finite.");
+        }
+
+        Texture = texture;
+        Origin = origin;
+    }
+}
+
+/// <summary>
 /// Describes an exact Win32/GDI ternary raster operation for a texture draw.
 /// </summary>
 /// <remarks>
@@ -101,7 +138,8 @@ public enum VertexColorBlendMode
 /// the conventional pattern/source/destination input order. Pattern colors
 /// are straight, normalized RGBA values; GDI raster-operation output is
 /// treated as an opaque device pixel. <see cref="PatternBrush"/> carries an
-/// optional immutable 8 by 8 pattern without expanding the retained
+/// optional immutable 8 by 8 pattern and <see cref="TexturePattern"/> carries
+/// an arbitrary typed texture tile without expanding the retained
 /// <see cref="RenderCommand"/> union.
 /// </remarks>
 public readonly struct GpuRasterOperation : IEquatable<GpuRasterOperation>
@@ -110,6 +148,7 @@ public readonly struct GpuRasterOperation : IEquatable<GpuRasterOperation>
     public byte Code { get; }
     public Vector4 PatternColor { get; }
     public TilePatternBrush? PatternBrush { get; }
+    public GpuRasterTexturePattern? TexturePattern { get; }
 
     public GpuRasterOperation(byte code, Vector4 patternColor)
     {
@@ -124,6 +163,7 @@ public readonly struct GpuRasterOperation : IEquatable<GpuRasterOperation>
         Code = code;
         PatternColor = patternColor;
         PatternBrush = null;
+        TexturePattern = null;
     }
 
     public GpuRasterOperation(byte code, TilePatternBrush patternBrush)
@@ -143,13 +183,34 @@ public readonly struct GpuRasterOperation : IEquatable<GpuRasterOperation>
         Code = code;
         PatternColor = patternBrush.ForegroundColor;
         PatternBrush = patternBrush;
+        TexturePattern = null;
+    }
+
+    public GpuRasterOperation(byte code, GpuRasterTexturePattern texturePattern)
+    {
+        ArgumentNullException.ThrowIfNull(texturePattern);
+        if (texturePattern.Texture.IsDisposed ||
+            !float.IsFinite(texturePattern.Origin.X) ||
+            !float.IsFinite(texturePattern.Origin.Y))
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(texturePattern),
+                "The pattern texture must be live and its origin must be finite.");
+        }
+
+        IsEnabled = true;
+        Code = code;
+        PatternColor = default;
+        PatternBrush = null;
+        TexturePattern = texturePattern;
     }
 
     public bool Equals(GpuRasterOperation other) =>
         IsEnabled == other.IsEnabled &&
         Code == other.Code &&
         PatternColor == other.PatternColor &&
-        PatternBrushesEqual(PatternBrush, other.PatternBrush);
+        PatternBrushesEqual(PatternBrush, other.PatternBrush) &&
+        TexturePatternsEqual(TexturePattern, other.TexturePattern);
 
     public override bool Equals(object? obj) =>
         obj is GpuRasterOperation other && Equals(other);
@@ -166,6 +227,11 @@ public readonly struct GpuRasterOperation : IEquatable<GpuRasterOperation>
             hash.Add(PatternBrush.ForegroundColor);
             hash.Add(PatternBrush.BackgroundColor);
             hash.Add(PatternBrush.Origin);
+        }
+        if (TexturePattern is not null)
+        {
+            hash.Add(TexturePattern.Texture);
+            hash.Add(TexturePattern.Origin);
         }
         return hash.ToHashCode();
     }
@@ -191,6 +257,15 @@ public readonly struct GpuRasterOperation : IEquatable<GpuRasterOperation>
         left.Pattern == right.Pattern &&
         left.ForegroundColor == right.ForegroundColor &&
         left.BackgroundColor == right.BackgroundColor &&
+        left.Origin == right.Origin;
+
+    private static bool TexturePatternsEqual(
+        GpuRasterTexturePattern? left,
+        GpuRasterTexturePattern? right) =>
+        ReferenceEquals(left, right) ||
+        left is not null &&
+        right is not null &&
+        ReferenceEquals(left.Texture, right.Texture) &&
         left.Origin == right.Origin;
 }
 
@@ -861,11 +936,16 @@ public struct RenderCommand
             {
                 return default;
             }
-            return DataParam is TilePatternBrush patternBrush
-                ? new GpuRasterOperation((byte)IntParam, patternBrush)
-                : new GpuRasterOperation(
+            return DataParam switch
+            {
+                TilePatternBrush patternBrush =>
+                    new GpuRasterOperation((byte)IntParam, patternBrush),
+                GpuRasterTexturePattern texturePattern =>
+                    new GpuRasterOperation((byte)IntParam, texturePattern),
+                _ => new GpuRasterOperation(
                     (byte)IntParam,
-                    new Vector4(Position3D1, FloatParam));
+                    new Vector4(Position3D1, FloatParam))
+            };
         }
         set
         {
@@ -877,7 +957,7 @@ public struct RenderCommand
                     Position3D1 = default;
                     FloatParam = 0f;
                 }
-                if (DataParam is TilePatternBrush)
+                if (DataParam is TilePatternBrush or GpuRasterTexturePattern)
                 {
                     DataParam = null;
                 }
@@ -894,7 +974,11 @@ public struct RenderCommand
             {
                 DataParam = value.PatternBrush;
             }
-            else if (DataParam is TilePatternBrush)
+            else if (value.TexturePattern is not null)
+            {
+                DataParam = value.TexturePattern;
+            }
+            else if (DataParam is TilePatternBrush or GpuRasterTexturePattern)
             {
                 DataParam = null;
             }
@@ -1708,7 +1792,8 @@ internal readonly struct RetainedRenderCommand
         (!allowIntParam && !allowTextureRasterOperation && command.IntParam != 0) ||
         (!allowTextureRasterOperation && command.FloatParam != 0f) ||
         command.DataParam is not null &&
-        (!allowTextureRasterOperation || command.DataParam is not TilePatternBrush);
+        (!allowTextureRasterOperation ||
+            command.DataParam is not TilePatternBrush and not GpuRasterTexturePattern);
 }
 
 internal readonly struct RetainedTextRenderCommand

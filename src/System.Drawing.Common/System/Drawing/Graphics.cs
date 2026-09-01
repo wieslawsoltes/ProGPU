@@ -4897,6 +4897,23 @@ public partial class Graphics :
         };
     }
 
+    internal GpuRasterTexturePattern RetainRasterOperationPattern(TextureBrush brush)
+    {
+        ArgumentNullException.ThrowIfNull(brush);
+        ThrowIfDisposed();
+        Matrix3x2 transform = brush.TransformValue;
+        if (transform.M11 != 1f || transform.M12 != 0f ||
+            transform.M21 != 0f || transform.M22 != 1f)
+        {
+            throw new NotSupportedException(
+                "Raster-operation texture patterns currently require a translation-only brush transform.");
+        }
+
+        return new GpuRasterTexturePattern(
+            RetainBitmapTexture(brush.Bitmap),
+            new Vector2(transform.M31, transform.M32));
+    }
+
     private GpuTexture RetainBitmapTexture(Bitmap bitmap)
     {
         var targetContext = _bitmap?.GetDrawingContext() ?? _targetContext ?? GpuProvider.Context;

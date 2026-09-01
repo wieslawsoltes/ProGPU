@@ -281,6 +281,10 @@ internal static class MetafilePlaybackRenderer
                 state.CreateWmfDibPatternBrush(payload, record);
                 return;
 
+            case EmfPlusRecordType.WmfCreatePatternBrush:
+                state.CreateWmfBitmap16PatternBrush(payload, record);
+                return;
+
             case EmfPlusRecordType.WmfCreateFontIndirect:
                 RequireSize(record, payload, 50);
                 state.CreateWmfFont(payload, record);
@@ -733,8 +737,12 @@ internal static class MetafilePlaybackRenderer
                 state.CreateBrush(payload, record);
                 return;
 
+            case EmfPlusRecordType.EmfCreateMonoBrush:
+                state.CreateEmfDibPatternBrush(payload, record, requireMonochrome: true);
+                return;
+
             case EmfPlusRecordType.EmfCreateDibPatternBrushPt:
-                state.CreateEmfDibPatternBrush(payload, record);
+                state.CreateEmfDibPatternBrush(payload, record, requireMonochrome: false);
                 return;
 
             case EmfPlusRecordType.EmfCreatePalette:
@@ -1179,16 +1187,18 @@ internal static class MetafilePlaybackRenderer
         {
             throw Unsupported(
                 record,
-                $"Ternary raster operation 0x{rasterOperation:X8} requires an embedded bitmap source.");
+                $"Ternary raster operation 0x{rasterOperation:X8} requires an embedded bitmap source; " +
+                "the source-omitted WMF record must fail instead of sampling the playback device context.");
         }
         return true;
     }
 
     private static WmfBitmap16Info ReadBitmap16Info(
         in MetafileRecord record,
-        ReadOnlySpan<byte> bitmap)
+        ReadOnlySpan<byte> bitmap,
+        int bitsOffset = 10)
     {
-        if (bitmap.Length < 10)
+        if (bitsOffset < 10 || bitmap.Length < bitsOffset)
         {
             throw Invalid(record);
         }
@@ -1205,7 +1215,7 @@ internal static class MetafilePlaybackRenderer
         }
 
         long computedWidthBytes = (((long)width * bitsPerPixel + 15) >> 4) << 1;
-        long expectedSize = 10 + computedWidthBytes * height;
+        long expectedSize = bitsOffset + computedWidthBytes * height;
         if (computedWidthBytes != widthBytes || expectedSize != bitmap.Length)
         {
             throw Invalid(record);
@@ -1491,9 +1501,12 @@ internal static class MetafilePlaybackRenderer
             HatchBrush hatchBrush => new GpuRasterOperation(
                 code,
                 state.ResolveRasterOperationPattern(hatchBrush)),
+            TextureBrush textureBrush => new GpuRasterOperation(
+                code,
+                state.ResolveRasterOperationPattern(textureBrush)),
             _ => throw Unsupported(
                 record,
-                $"Ternary raster operation 0x{rasterOperation:X8} requires a selected solid or hatch brush pattern.")
+                $"Ternary raster operation 0x{rasterOperation:X8} requires a selected solid, hatch, or texture brush pattern.")
         };
     }
 
@@ -4312,6 +4325,8 @@ internal static class MetafilePlaybackRenderer
         private HatchBrush? _resolvedRasterOperationHatchBrush;
         private Point _resolvedRasterOperationOrigin;
         private TilePatternBrush? _resolvedRasterOperationPattern;
+        private TextureBrush? _resolvedRasterOperationTextureBrush;
+        private GpuRasterTexturePattern? _resolvedRasterOperationTexturePattern;
         private Bitmap? _rasterOperationCoverageBitmap;
         private GraphicsPath? _buildingPath;
         private GraphicsPath? _selectedPath;
@@ -4421,6 +4436,8 @@ internal static class MetafilePlaybackRenderer
             _resolvedHatchBackground = default;
             _resolvedRasterOperationHatchBrush = null;
             _resolvedRasterOperationPattern = null;
+            _resolvedRasterOperationTextureBrush = null;
+            _resolvedRasterOperationTexturePattern = null;
             _resolvedPatternBrush?.Dispose();
             _resolvedPatternBrush = null;
             _resolvedPatternBrushObject = null;
@@ -4442,6 +4459,18 @@ internal static class MetafilePlaybackRenderer
                 _resolvedRasterOperationOrigin = origin;
             }
             return _resolvedRasterOperationPattern!;
+        }
+
+        internal GpuRasterTexturePattern ResolveRasterOperationPattern(
+            TextureBrush textureBrush)
+        {
+            if (!ReferenceEquals(_resolvedRasterOperationTextureBrush, textureBrush))
+            {
+                _resolvedRasterOperationTexturePattern =
+                    Graphics.RetainRasterOperationPattern(textureBrush);
+                _resolvedRasterOperationTextureBrush = textureBrush;
+            }
+            return _resolvedRasterOperationTexturePattern!;
         }
 
         internal Matrix3x2 ApplyTransform(in MetafileRecord record)
@@ -5208,7 +5237,8 @@ internal static class MetafilePlaybackRenderer
 
         internal void CreateEmfDibPatternBrush(
             ReadOnlySpan<byte> payload,
-            in MetafileRecord record)
+            in MetafileRecord record,
+            bool requireMonochrome)
         {
             const int fixedPayloadSize = 24;
             if (payload.Length < fixedPayloadSize)
@@ -5244,6 +5274,10 @@ internal static class MetafilePlaybackRenderer
                 bitmapInfo,
                 ReadUInt32(payload, 4),
                 SelectedPalette);
+            if (requireMonochrome && dib.BitCount != 1)
+            {
+                throw Invalid(record);
+            }
             Bitmap bitmap = DecodeDibRows(
                 record,
                 dib,
@@ -5547,6 +5581,26 @@ internal static class MetafilePlaybackRenderer
                 packedDib[..dib.BitmapInfoSize],
                 bitmapBits,
                 dib.Height);
+            AddWmfObject(new GdiPatternBrushObject(bitmap), record);
+        }
+
+        internal void CreateWmfBitmap16PatternBrush(
+            ReadOnlySpan<byte> payload,
+            in MetafileRecord record)
+        {
+            const int patternBitsOffset = 32;
+            if (payload.Length < patternBitsOffset)
+            {
+                throw Invalid(record);
+            }
+
+            WmfBitmap16Info bitmapInfo = ReadBitmap16Info(
+                record,
+                payload,
+                patternBitsOffset);
+            Bitmap bitmap = WmfBitmap16DecodeServices.Decode(
+                bitmapInfo,
+                payload[patternBitsOffset..]);
             AddWmfObject(new GdiPatternBrushObject(bitmap), record);
         }
 

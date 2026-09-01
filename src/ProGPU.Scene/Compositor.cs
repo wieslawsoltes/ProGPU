@@ -120,6 +120,7 @@ internal struct AdvancedBlendSamplingUniforms
     [FieldOffset(72)] public uint PatternMaskLow;
     [FieldOffset(76)] public uint PatternMaskHigh;
     [FieldOffset(80)] public uint PatternFlags;
+    [FieldOffset(88)] public Vector2 PatternTextureExtent;
 }
 
 [StructLayout(LayoutKind.Sequential, Pack = 16)]
@@ -309,6 +310,7 @@ public struct CompositorMetrics
     public ulong AdvancedBlendScratchTextureBytes;
     public ulong AdvancedBlendSourceTextureBytes;
     public ulong AdvancedBlendTextureBytes;
+    public ulong RasterPresentationTextureBytes;
     public ulong WavefrontTextureBytes;
     public ulong MsaaTextureBytes;
     public ulong TrackedIntermediateTextureBytes;
@@ -419,6 +421,16 @@ public unsafe partial class Compositor : IDisposable
 
         private WavefrontFrameFallbackException()
             : base("The experimental Wavefront engine requires an Atlas frame fallback for this command stream.")
+        {
+        }
+    }
+
+    private sealed class RasterOperationPresentationFallbackException : InvalidOperationException
+    {
+        public static RasterOperationPresentationFallbackException Instance { get; } = new();
+
+        private RasterOperationPresentationFallbackException()
+            : base("Ternary raster operations require bindable presentation composition.")
         {
         }
     }
@@ -1085,6 +1097,7 @@ public unsafe partial class Compositor : IDisposable
     private uint _msaaHeight;
     private GpuTexture? _advancedBlendScratchTexture;
     private GpuTexture? _advancedBlendSourceTexture;
+    private GpuTexture? _rasterPresentationTexture;
     private BindGroupLayout* _advancedBlendBindGroupLayout;
     private PipelineLayout* _advancedBlendPipelineLayout;
     private RenderPipeline* _advancedBlendPipeline;
@@ -1092,6 +1105,7 @@ public unsafe partial class Compositor : IDisposable
     private int _advancedBlendPassResourceCount;
     private uint _advancedBlendSourceUnderutilizedFrames;
     private ulong _advancedBlendLastUsedFrame;
+    private ulong _rasterPresentationLastUsedFrame;
     private const uint AdvancedBlendShrinkDelayFrames = 240;
 
     // Uniform buffer (Projection Matrix)
@@ -1389,6 +1403,7 @@ public unsafe partial class Compositor : IDisposable
     {
         public required GpuBuffer UniformBuffer { get; init; }
         public nint TextureUniformBindGroupPtr { get; init; }
+        public GpuTexture? RasterPatternTexture { get; set; }
     }
 
     private readonly List<CompositorDrawCall> _drawCalls = new();
@@ -2856,6 +2871,15 @@ public unsafe partial class Compositor : IDisposable
                 ProGpuSceneDiagnostics.WriteLine(
                     "[Compositor] Retrying the experimental Wavefront frame with the ordered Atlas renderer because the scene uses unsupported or mixed content.");
             }
+            catch (RasterOperationPresentationFallbackException)
+            {
+                RenderRasterOperationPresentation(
+                    root,
+                    width,
+                    height,
+                    targetView);
+                return;
+            }
             catch (PathAtlasCapacityExceededException)
             {
                 if (retriedAfterPathAtlasReset)
@@ -2887,6 +2911,82 @@ public unsafe partial class Compositor : IDisposable
             _frameRetainedResources[index].Dispose();
         }
         _frameRetainedResources.Clear();
+    }
+
+    private void RenderRasterOperationPresentation(
+        Visual root,
+        uint logicalWidth,
+        uint logicalHeight,
+        TextureView* targetView)
+    {
+        uint targetWidth = _explicitRenderTargetWidth ?? Math.Max(1u, logicalWidth);
+        uint targetHeight = _explicitRenderTargetHeight ?? Math.Max(1u, logicalHeight);
+        RenderTargetViewport viewport = NormalizeRenderTargetViewport(
+            _explicitRenderTargetViewport ?? RenderTargetViewport.Full(targetWidth, targetHeight),
+            targetWidth,
+            targetHeight);
+        uint presentationWidth = Math.Max(1u, RoundNonNegativeToUInt(viewport.Width));
+        uint presentationHeight = Math.Max(1u, RoundNonNegativeToUInt(viewport.Height));
+        if (_rasterPresentationTexture is null ||
+            _rasterPresentationTexture.Width != presentationWidth ||
+            _rasterPresentationTexture.Height != presentationHeight ||
+            _rasterPresentationTexture.Format != RenderFormat)
+        {
+            _rasterPresentationTexture?.Dispose();
+            _rasterPresentationTexture = new GpuTexture(
+                _context,
+                presentationWidth,
+                presentationHeight,
+                RenderFormat,
+                TextureUsage.RenderAttachment | TextureUsage.TextureBinding,
+                "Raster-operation presentation",
+                alphaMode: GpuTextureAlphaMode.Premultiplied);
+        }
+        _rasterPresentationLastUsedFrame = _frameNumber;
+
+        float dpiScale = _explicitDpiScale ?? _currentDpiScale;
+        RenderOffscreen(
+            root,
+            logicalWidth,
+            logicalHeight,
+            _rasterPresentationTexture,
+            padding: 0f,
+            dpiScale: dpiScale,
+            clearColor: ClearColor,
+            loadExistingContents: false,
+            includeRootTransform: true,
+            includeRootVisualState: true);
+
+        Vector4 clear = ClearColor;
+        GpuTextureBlitter.Blit(
+            _rasterPresentationTexture,
+            targetView,
+            RenderFormat,
+            new GpuTextureBlitViewport(
+                viewport.X,
+                viewport.Y,
+                viewport.Width,
+                viewport.Height),
+            new Color
+            {
+                R = clear.X,
+                G = clear.Y,
+                B = clear.Z,
+                A = clear.W
+            });
+    }
+
+    private void ReleaseIdleRasterPresentationTexture()
+    {
+        if (_rasterPresentationTexture is null ||
+            _frameNumber - _rasterPresentationLastUsedFrame <
+                AdvancedBlendShrinkDelayFrames)
+        {
+            return;
+        }
+
+        _rasterPresentationTexture.Dispose();
+        _rasterPresentationTexture = null;
     }
 
     private void RenderSceneCore(Visual root, uint width, uint height, TextureView* targetView)
@@ -3279,6 +3379,11 @@ SceneCompilationComplete:
             throw WavefrontFrameFallbackException.Instance;
         }
 
+        if (HasRasterOperationDrawCall())
+        {
+            throw RasterOperationPresentationFallbackException.Instance;
+        }
+
         if (_pathAtlas.CapacityExceeded ||
             _pathAtlas.Generation != pathAtlasGenerationAtCompilationStart)
         {
@@ -3435,11 +3540,7 @@ DynamicBufferUploadComplete:
         }
 
 SceneStateUploadComplete:
-        if (HasRasterOperationDrawCall())
-        {
-            throw new NotSupportedException(
-                "Ternary raster operations require a bindable offscreen render target.");
-        }
+        ReleaseIdleRasterPresentationTexture();
         RefreshAtlasBindGroupsIfNeeded();
         if (_compiledRenderBundle == null &&
             _compiledSceneReusable &&
@@ -3948,6 +4049,7 @@ SceneStateUploadComplete:
             AdvancedBlendScratchTextureBytes = GetTextureBytes(_advancedBlendScratchTexture),
             AdvancedBlendSourceTextureBytes = GetTextureBytes(_advancedBlendSourceTexture),
             AdvancedBlendTextureBytes = GetAdvancedBlendTextureBytes(),
+            RasterPresentationTextureBytes = GetTextureBytes(_rasterPresentationTexture),
             WavefrontTextureBytes = GetTextureBytes(_wavefrontColorTexture),
             MsaaTextureBytes = GetMsaaTextureBytes(),
             TrackedIntermediateTextureBytes = GetTrackedIntermediateTextureBytes(),
@@ -4485,6 +4587,7 @@ SceneStateUploadComplete:
             GetEffectTextureBytes() +
             GetLayerTextureBytes() +
             GetAdvancedBlendTextureBytes() +
+            GetTextureBytes(_rasterPresentationTexture) +
             GetTextureBytes(_wavefrontColorTexture) +
             GetMsaaTextureBytes();
     }
@@ -14538,6 +14641,8 @@ SceneStateUploadComplete:
             }
 
             ReleaseMsaaResources();
+            _rasterPresentationTexture?.Dispose();
+            _rasterPresentationTexture = null;
 
             _uniformBuffer.Dispose();
             _brushesStorageBuffer.Dispose();
@@ -14861,8 +14966,10 @@ SceneStateUploadComplete:
 
     private bool CanEncodeAdvancedBlend(in CompositorDrawCall drawCall, GpuTexture targetTexture)
     {
+        GpuTexture? patternTexture = drawCall.RasterOperation.TexturePattern?.Texture;
         return drawCall.Type == DrawCallType.Texture &&
             IsTextureBindable(drawCall.Texture) &&
+            (patternTexture is null || IsTextureBindable(patternTexture)) &&
             (RequiresDestinationSampling(drawCall.BlendMode) ||
                 drawCall.RasterOperation.IsEnabled) &&
             (targetTexture.Usage & TextureUsage.TextureBinding) != 0;
@@ -15098,8 +15205,8 @@ SceneStateUploadComplete:
             return;
         }
 
-        var entries = stackalloc BindGroupLayoutEntry[3];
-        for (var index = 0; index < 2; index++)
+        var entries = stackalloc BindGroupLayoutEntry[4];
+        for (var index = 0; index < 3; index++)
         {
             entries[index] = new BindGroupLayoutEntry
             {
@@ -15113,9 +15220,9 @@ SceneStateUploadComplete:
                 }
             };
         }
-        entries[2] = new BindGroupLayoutEntry
+        entries[3] = new BindGroupLayoutEntry
         {
-            Binding = 2,
+            Binding = 3,
             Visibility = ShaderStage.Fragment,
             Buffer = new BufferBindingLayout
             {
@@ -15127,7 +15234,7 @@ SceneStateUploadComplete:
 
         var bindGroupLayoutDescriptor = new BindGroupLayoutDescriptor
         {
-            EntryCount = 3,
+            EntryCount = 4,
             Entries = entries
         };
         _advancedBlendBindGroupLayout = _context.Api.DeviceCreateBindGroupLayout(
@@ -15204,6 +15311,7 @@ SceneStateUploadComplete:
         }
 
         _advancedBlendPassResourceCount++;
+        resource.RasterPatternTexture = rasterOperation.TexturePattern?.Texture;
         float dpiScale = _currentDpiScale;
         float sourceWidth = sourceTarget.Width;
         float sourceHeight = sourceTarget.Height;
@@ -15228,6 +15336,7 @@ SceneStateUploadComplete:
         };
         resource.UniformBuffer.WriteSingle(sourceUniforms);
         TilePatternBrush? patternBrush = rasterOperation.PatternBrush;
+        GpuRasterTexturePattern? texturePattern = rasterOperation.TexturePattern;
         resource.UniformBuffer.WriteSingle(
             new AdvancedBlendSamplingUniforms
             {
@@ -15236,12 +15345,16 @@ SceneStateUploadComplete:
                 BlendMode = (uint)blendMode,
                 OperationKind = rasterOperation.IsEnabled ? 1u : 0u,
                 RasterOperationCode = rasterOperation.Code,
-                PatternKind = patternBrush is null ? 0u : 1u,
+                PatternKind = texturePattern is not null
+                    ? 2u
+                    : patternBrush is null ? 0u : 1u,
                 PatternColor = rasterOperation.PatternColor,
                 PatternBackgroundColor = patternBrush?.BackgroundColor ?? default,
-                PatternOrigin = patternBrush is null
-                    ? default
-                    : patternBrush.Origin * dpiScale,
+                PatternOrigin = texturePattern is not null
+                    ? texturePattern.Origin * dpiScale
+                    : patternBrush is null
+                        ? default
+                        : patternBrush.Origin * dpiScale,
                 PatternMaskLow = patternBrush is null
                     ? 0u
                     : (uint)patternBrush.Pattern,
@@ -15251,7 +15364,12 @@ SceneStateUploadComplete:
                 PatternFlags = patternBrush is not null &&
                     patternBrush.BackgroundColor.W <= 0f
                     ? 1u
-                    : 0u
+                    : 0u,
+                PatternTextureExtent = texturePattern is null
+                    ? default
+                    : new Vector2(
+                        texturePattern.Texture.Width,
+                        texturePattern.Texture.Height)
             },
             256);
         return resource;
@@ -15397,7 +15515,7 @@ SceneStateUploadComplete:
         AdvancedBlendPassResource passResource)
     {
         EnsureAdvancedBlendLayout();
-        var entries = stackalloc BindGroupEntry[3];
+        var entries = stackalloc BindGroupEntry[4];
         entries[0] = new BindGroupEntry
         {
             Binding = 0,
@@ -15411,6 +15529,11 @@ SceneStateUploadComplete:
         entries[2] = new BindGroupEntry
         {
             Binding = 2,
+            TextureView = (passResource.RasterPatternTexture ?? source).ViewPtr
+        };
+        entries[3] = new BindGroupEntry
+        {
+            Binding = 3,
             Buffer = passResource.UniformBuffer.BufferPtr,
             Offset = 256,
             Size = (uint)Marshal.SizeOf<AdvancedBlendSamplingUniforms>()
@@ -15418,7 +15541,7 @@ SceneStateUploadComplete:
         var bindGroupDescriptor = new BindGroupDescriptor
         {
             Layout = _advancedBlendBindGroupLayout,
-            EntryCount = 3,
+            EntryCount = 4,
             Entries = entries
         };
         var bindGroup = _context.Api.DeviceCreateBindGroup(
@@ -17655,6 +17778,7 @@ SceneStateUploadComplete:
             AdvancedBlendScratchTextureBytes = GetTextureBytes(_advancedBlendScratchTexture),
             AdvancedBlendSourceTextureBytes = GetTextureBytes(_advancedBlendSourceTexture),
             AdvancedBlendTextureBytes = GetAdvancedBlendTextureBytes(),
+            RasterPresentationTextureBytes = GetTextureBytes(_rasterPresentationTexture),
             WavefrontTextureBytes = GetTextureBytes(_wavefrontColorTexture),
             MsaaTextureBytes = GetMsaaTextureBytes(),
             TrackedIntermediateTextureBytes = GetTrackedIntermediateTextureBytes(),

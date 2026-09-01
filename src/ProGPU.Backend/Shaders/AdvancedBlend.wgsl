@@ -1,8 +1,10 @@
 // Algorithm: Sample a full-size destination and a bounded source region, then evaluate one runtime-selected advanced Porter-Duff blend function.
 // Time complexity: O(1) per vertex and fragment.
-// Space complexity: O(1) local storage with two texture reads per fragment.
+// Space complexity: O(1) local storage with two texture reads per fragment,
+// plus one exact pattern read when an arbitrary raster tile is selected.
 @group(0) @binding(0) var destinationTexture: texture_2d<f32>;
 @group(0) @binding(1) var sourceTexture: texture_2d<f32>;
+@group(0) @binding(2) var patternTexture: texture_2d<f32>;
 
 struct SamplingUniforms {
     sourceOrigin: vec2<f32>,
@@ -18,11 +20,10 @@ struct SamplingUniforms {
     patternMaskHigh: u32,
     patternFlags: u32,
     pad0: u32,
-    pad1: u32,
-    pad2: u32,
+    patternTextureExtent: vec2<f32>,
 };
 
-@group(0) @binding(2) var<uniform> sampling: SamplingUniforms;
+@group(0) @binding(3) var<uniform> sampling: SamplingUniforms;
 
 @vertex
 fn vs_main(@builtin(vertex_index) vertexIndex: u32) -> @builtin(position) vec4<f32> {
@@ -280,6 +281,15 @@ fn fs_main(@builtin(position) position: vec4<f32>) -> @location(0) vec4<f32> {
                 sampling.patternBackgroundColor,
                 sampling.patternColor,
                 patternBit != 0u);
+        } else if (sampling.patternKind == 2u) {
+            let integerCoordinate = vec2<i32>(floor(position.xy - sampling.patternOrigin));
+            let extent = max(
+                vec2<i32>(sampling.patternTextureExtent),
+                vec2<i32>(1, 1));
+            let tileCoordinate = vec2<i32>(
+                ((integerCoordinate.x % extent.x) + extent.x) % extent.x,
+                ((integerCoordinate.y % extent.y) + extent.y) % extent.y);
+            patternColor = textureLoad(patternTexture, tileCoordinate, 0);
         }
         let result = evaluate_rop3(
             sampling.rasterOperationCode,

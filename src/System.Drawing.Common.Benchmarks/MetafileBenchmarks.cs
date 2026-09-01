@@ -45,6 +45,7 @@ public class MetafileBenchmarks
     private Metafile _wmfPatBltPlaybackMetafile = null!;
     private Metafile _wmfHatchPatBltPlaybackMetafile = null!;
     private Metafile _wmfHatchPatInvertPlaybackMetafile = null!;
+    private Metafile _wmfDibPatternPatInvertPlaybackMetafile = null!;
     private Metafile _wmfOffsetClipPatBltPlaybackMetafile = null!;
     private Metafile _wmfSourceIndependentBitmapPlaybackMetafile = null!;
     private Metafile _wmfDestinationOnlyBitmapPlaybackMetafile = null!;
@@ -147,6 +148,10 @@ public class MetafileBenchmarks
                     hatch: true,
                     rasterOperation: 0x005A_0049),
                 writable: false));
+        _wmfDibPatternPatInvertPlaybackMetafile = new Metafile(
+            new MemoryStream(
+                CreatePlaybackWmfDibPatternPatBlts(256, 0x005A_0049),
+                writable: false));
         _wmfOffsetClipPatBltPlaybackMetafile = new Metafile(
             new MemoryStream(CreatePlaybackWmfPatBlts(256, includeOffsetClipState: true), writable: false));
         _wmfSourceIndependentBitmapPlaybackMetafile = new Metafile(
@@ -234,6 +239,7 @@ public class MetafileBenchmarks
         _wmfPatBltPlaybackMetafile.Dispose();
         _wmfHatchPatBltPlaybackMetafile.Dispose();
         _wmfHatchPatInvertPlaybackMetafile.Dispose();
+        _wmfDibPatternPatInvertPlaybackMetafile.Dispose();
         _wmfOffsetClipPatBltPlaybackMetafile.Dispose();
         _wmfSourceIndependentBitmapPlaybackMetafile.Dispose();
         _wmfDestinationOnlyBitmapPlaybackMetafile.Dispose();
@@ -731,6 +737,18 @@ public class MetafileBenchmarks
         _playbackContext.Clear();
         _playbackGraphics.DrawImage(
             _wmfBitmap16AdapterPlaybackMetafile,
+            new Rectangle(0, 0, 640, 480));
+        int commandCount = _playbackContext.Commands.Count;
+        _playbackContext.Clear();
+        return commandCount;
+    }
+
+    [Benchmark]
+    public int Playback256WmfDibPatternInvertsToRetainedCommands()
+    {
+        _playbackContext.Clear();
+        _playbackGraphics.DrawImage(
+            _wmfDibPatternPatInvertPlaybackMetafile,
             new Rectangle(0, 0, 640, 480));
         int commandCount = _playbackContext.Commands.Count;
         _playbackContext.Clear();
@@ -2410,6 +2428,73 @@ public class MetafileBenchmarks
             {
                 cursor += WriteWmfWordsRecord(bytes, cursor, 0x0220, -1, -1);
             }
+        }
+
+        WriteUInt32(bytes, cursor, 3);
+        return bytes;
+    }
+
+    private static byte[] CreatePlaybackWmfDibPatternPatBlts(
+        int recordCount,
+        uint rasterOperation)
+    {
+        const int patternRecordWords = 33;
+        const int selectRecordWords = 4;
+        const int patBltRecordWords = 9;
+        int declaredWords = checked(
+            9 + patternRecordWords + selectRecordWords +
+            recordCount * patBltRecordWords + 3);
+        byte[] bytes = new byte[checked(22 + declaredWords * 2)];
+        WriteUInt32(bytes, 0, 0x9AC6_CDD7);
+        WriteInt16(bytes, 10, 640);
+        WriteInt16(bytes, 12, 480);
+        WriteUInt16(bytes, 14, 96);
+        ushort checksum = 0;
+        for (int offset = 0; offset < 20; offset += 2)
+        {
+            checksum ^= BinaryPrimitives.ReadUInt16LittleEndian(bytes.AsSpan(offset, 2));
+        }
+        WriteUInt16(bytes, 20, checksum);
+
+        WriteUInt16(bytes, 22, 1);
+        WriteUInt16(bytes, 24, 9);
+        WriteUInt16(bytes, 26, 0x0300);
+        WriteUInt32(bytes, 28, (uint)declaredWords);
+        WriteUInt16(bytes, 32, 1);
+        WriteUInt32(bytes, 34, patternRecordWords);
+
+        int cursor = 40;
+        WriteUInt32(bytes, cursor, patternRecordWords);
+        WriteUInt16(bytes, cursor + 4, 0x0142);
+        WriteUInt16(bytes, cursor + 6, 6);
+        WriteUInt16(bytes, cursor + 8, 0);
+        int info = cursor + 10;
+        WriteUInt32(bytes, info, 40);
+        WriteInt32(bytes, info + 4, 2);
+        WriteInt32(bytes, info + 8, -2);
+        WriteUInt16(bytes, info + 12, 1);
+        WriteUInt16(bytes, info + 14, 32);
+        WriteUInt32(bytes, info + 20, 16);
+        WriteUInt32(bytes, info + 40, 0x0000_00FF);
+        WriteUInt32(bytes, info + 44, 0x0000_FF00);
+        WriteUInt32(bytes, info + 48, 0x00FF_0000);
+        WriteUInt32(bytes, info + 52, 0x00FF_FFFF);
+        cursor += patternRecordWords * 2;
+        WriteWmfObjectIndexRecord(bytes, cursor, 0x012D, 0);
+        cursor += selectRecordWords * 2;
+
+        for (int index = 0; index < recordCount; index++)
+        {
+            short x = checked((short)((index % 16) * 40));
+            short y = checked((short)((index / 16) * 30));
+            WriteUInt32(bytes, cursor, patBltRecordWords);
+            WriteUInt16(bytes, cursor + 4, 0x061D);
+            WriteUInt32(bytes, cursor + 6, rasterOperation);
+            WriteInt16(bytes, cursor + 10, 22);
+            WriteInt16(bytes, cursor + 12, 32);
+            WriteInt16(bytes, cursor + 14, y);
+            WriteInt16(bytes, cursor + 16, x);
+            cursor += patBltRecordWords * 2;
         }
 
         WriteUInt32(bytes, cursor, 3);

@@ -5,6 +5,30 @@ using Silk.NET.WebGPU;
 
 namespace ProGPU.Backend;
 
+/// <summary>
+/// Describes the destination rectangle of a fullscreen texture blit in
+/// physical render-target pixels.
+/// </summary>
+public readonly record struct GpuTextureBlitViewport(
+    float X,
+    float Y,
+    float Width,
+    float Height)
+{
+    internal void Validate(string parameterName)
+    {
+        if (!float.IsFinite(X) || !float.IsFinite(Y) ||
+            !float.IsFinite(Width) || !float.IsFinite(Height) ||
+            X < 0f || Y < 0f || Width <= 0f || Height <= 0f ||
+            X + Width > uint.MaxValue || Y + Height > uint.MaxValue)
+        {
+            throw new ArgumentOutOfRangeException(
+                parameterName,
+                "The texture-blit viewport must be finite, positive, and representable in physical pixels.");
+        }
+    }
+}
+
 public static unsafe class GpuTextureBlitter
 {
     private static readonly string ShaderSource = ShaderResource.Load(typeof(GpuTextureBlitter), "TextureBlitter.wgsl");
@@ -29,6 +53,27 @@ public static unsafe class GpuTextureBlitter
             destinationFormat,
             GpuTextureColorTransform.Identity,
             clearColor: clearColor);
+    }
+
+    /// <summary>
+    /// Performs one GPU blit into a bounded physical-pixel destination
+    /// viewport while clearing the complete destination attachment.
+    /// </summary>
+    public static void Blit(
+        GpuTexture source,
+        TextureView* destinationView,
+        TextureFormat destinationFormat,
+        GpuTextureBlitViewport destinationViewport,
+        Color clearColor = default)
+    {
+        destinationViewport.Validate(nameof(destinationViewport));
+        Blit(
+            source,
+            destinationView,
+            destinationFormat,
+            GpuTextureColorTransform.Identity,
+            (GpuTextureBlitViewport?)destinationViewport,
+            clearColor);
     }
 
     /// <summary>
@@ -71,20 +116,17 @@ public static unsafe class GpuTextureBlitter
             destinationView,
             destinationFormat,
             colorTransform,
+            destinationViewport: null,
             clearColor);
     }
 
-    /// <summary>
-    /// Performs one fullscreen GPU blit and applies one affine straight-RGB
-    /// transform. The retained shader performs one sample and one write per
-    /// output pixel; no intermediate texture or managed pixel buffer exists.
-    /// </summary>
-    public static void Blit(
+    private static void Blit(
         GpuTexture source,
         TextureView* destinationView,
         TextureFormat destinationFormat,
         in GpuTextureColorTransform colorTransform,
-        Color clearColor = default)
+        GpuTextureBlitViewport? destinationViewport,
+        Color clearColor)
     {
         ArgumentNullException.ThrowIfNull(source);
         if (source.IsDisposed)
@@ -117,8 +159,30 @@ public static unsafe class GpuTextureBlitter
                 destinationView,
                 destinationFormat,
                 colorTransform,
+                destinationViewport,
                 clearColor);
         }
+    }
+
+    /// <summary>
+    /// Performs one fullscreen GPU blit and applies one affine straight-RGB
+    /// transform. The retained shader performs one sample and one write per
+    /// output pixel; no intermediate texture or managed pixel buffer exists.
+    /// </summary>
+    public static void Blit(
+        GpuTexture source,
+        TextureView* destinationView,
+        TextureFormat destinationFormat,
+        in GpuTextureColorTransform colorTransform,
+        Color clearColor = default)
+    {
+        Blit(
+            source,
+            destinationView,
+            destinationFormat,
+            colorTransform,
+            destinationViewport: null,
+            clearColor);
     }
 
     private static void BlitCore(
@@ -126,6 +190,7 @@ public static unsafe class GpuTextureBlitter
         TextureView* destinationView,
         TextureFormat destinationFormat,
         in GpuTextureColorTransform colorTransform,
+        GpuTextureBlitViewport? destinationViewport,
         Color clearColor)
     {
         var context = source.Context;
@@ -209,6 +274,30 @@ public static unsafe class GpuTextureBlitter
             if (pass == null)
             {
                 throw new InvalidOperationException("Failed to begin render pass for GPU texture blit.");
+            }
+
+            if (destinationViewport is { } viewport)
+            {
+                uint scissorX = checked((uint)MathF.Floor(viewport.X));
+                uint scissorY = checked((uint)MathF.Floor(viewport.Y));
+                uint scissorRight = checked((uint)MathF.Ceiling(viewport.X + viewport.Width));
+                uint scissorBottom = checked((uint)MathF.Ceiling(viewport.Y + viewport.Height));
+                uint scissorWidth = Math.Max(1u, scissorRight - scissorX);
+                uint scissorHeight = Math.Max(1u, scissorBottom - scissorY);
+                wgpu.RenderPassEncoderSetViewport(
+                    pass,
+                    viewport.X,
+                    viewport.Y,
+                    viewport.Width,
+                    viewport.Height,
+                    0f,
+                    1f);
+                wgpu.RenderPassEncoderSetScissorRect(
+                    pass,
+                    scissorX,
+                    scissorY,
+                    scissorWidth,
+                    scissorHeight);
             }
 
             wgpu.RenderPassEncoderSetPipeline(pass, resources.Pipeline);

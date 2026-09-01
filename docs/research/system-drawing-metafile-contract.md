@@ -866,7 +866,12 @@ The source-omitted WMF bitmap-record follow-up covers the official no-source
 layouts of `META_BITBLT`, `META_STRETCHBLT`, `META_DIBBITBLT`, and
 `META_DIBSTRETCHBLT`. `BLACKNESS`, `WHITENESS`, and selected-brush `PATCOPY`
 render without inventing source pixels, including the reserved-word field shift
-in the DIB forms. Source-bearing `META_BITBLT` and `META_STRETCHBLT` records
+in the DIB forms. Although the specification describes the omitted source as
+the current playback-device-context region, its
+[`META_BITBLT` without-bitmap contract](https://learn.microsoft.com/en-us/openspecs/windows_protocols/ms-wmf/e6dd5312-c622-4fb9-9945-22297cee3ad4)
+requires processing to fail when the ROP actually depends on source pixels;
+the portable renderer therefore does not invent a destination snapshot or a
+platform DC source. Source-bearing `META_BITBLT` and `META_STRETCHBLT` records
 validate the complete `Bitmap16` envelope—dimensions, word-aligned stride,
 planes, bit depth, and exact payload length—even when the raster operation does
 not consume its pixels. Five focused gates cover exact output from all four
@@ -989,9 +994,15 @@ ping-pong texture, quantizes straight source/pattern/destination RGB to exact
 eight-bit device values, evaluates all 256 Boolean truth tables, and writes an
 opaque GDI device pixel. Source alpha is excluded from the truth table while
 geometry and mask coverage remain explicit. The ordinary advanced-blend shader
-path remains unchanged. Direct swapchain composition has no bindable
-destination and rejects ROP commands explicitly instead of using a fixed-blend
-approximation.
+path remains unchanged.
+
+Direct presentation detects a compiled ROP draw before scene uploads, renders
+the ordered frame into one reusable bindable texture sized to the physical host
+viewport, and uses the typed GPU blitter to place it into the raw swapchain view.
+Offset and HiDPI viewports remain explicit through `GpuTextureBlitViewport`; the
+rest of the attachment retains the compositor clear color. There is no CPU
+readback or approximate fixed blend. The presentation texture is reported in
+intermediate-memory metrics, resized exactly, and retired after 240 idle frames.
 
 WMF/EMF DIB and typed `Bitmap16` source-bearing records now accept every valid
 ROP3 truth-table byte. Existing `SRCCOPY`, `NOTSRCCOPY`, and source-independent
@@ -1168,12 +1179,44 @@ native brush handle, runtime reflection, private-field scan, or compatibility
 object. The selected object and every SaveDC snapshot retain the owning pattern
 object, so delete and disposal rules remain the same as other GDI objects.
 
-The deprecated WMF `META_CREATEPATTERNBRUSH` `Bitmap16` form and EMF
-`EMR_CREATEMONOBRUSH` remain separate explicit inputs because the former needs
-the registered device-format decoder and the latter has monochrome color-mapping
-semantics. Destination-reading ROP3 with an arbitrary bitmap pattern also remains
-explicit until the advanced-composition bind group carries a second typed
-pattern texture; it is not approximated by a solid color or an 8-by-8 hatch mask.
+The deprecated
+[`META_CREATEPATTERNBRUSH`](https://learn.microsoft.com/en-us/openspecs/windows_protocols/ms-wmf/6f1c6ba3-7710-42c1-b6e2-1b776c2f769b)
+form validates its partial
+[`Bitmap16`](https://learn.microsoft.com/en-us/openspecs/windows_protocols/ms-wmf/dc487315-3bb9-40c8-9f49-55ffc6152d8c),
+four-byte ignored `Bits` field, 18-byte reserved area, and exact trailing pattern
+length before invoking the registered typed device-format decoder. The decoder
+is not called for malformed envelopes and object publication remains
+transactional. The
+[`EMR_CREATEMONOBRUSH`](https://learn.microsoft.com/en-us/openspecs/windows_protocols/ms-emf/49b42277-31b0-4eb9-a6af-86d9be9b568f)
+path reuses the offset-checked EMF packed-DIB envelope but requires an actual
+one-bit DIB before materialization.
+
+Destination-reading ROP3 now carries an arbitrary bitmap pattern as
+`GpuRasterTexturePattern`: one immutable, texture-bindable ProGPU resource plus
+its finite device-space origin. `RenderCommand` reuses its existing object-union
+slot, so the hot command layout does not grow. The destination-composition bind
+group adds a typed pattern texture and retains the existing 96-byte uniform by
+using its final eight bytes for the pattern extent. The WGSL path uses signed
+repeating modulo and exact `textureLoad`, then feeds the resulting RGB bytes into
+the existing ternary truth-table evaluator. Playback caches one typed pattern
+payload per selected `TextureBrush`; 64 `PATINVERT` commands therefore share the
+same object and texture lease rather than cloning pixels or commands.
+The same exact path now reaches raw presentation views through the bounded
+bindable presentation texture, so metafile ROP output is not limited to tests or
+offscreen consumers.
+
+`Playback256WmfDibPatternInvertsToRetainedCommands` measures 256 packed
+two-by-two DIB-pattern `PATINVERT` records through bounded decode, one cached
+typed texture payload, retained ROP publication, and cleanup. The 2026-09-01
+ARM64/.NET 10.0.11 ShortRun measured a 579.442 microsecond median (482.158
+microsecond mean, 172.568 microsecond standard deviation) and 305,349 bytes
+allocated. All 102 System.Drawing benchmarks completed on the same Release
+run. Three measured iterations, denied priority elevation, and high variance
+make the exact device/metafile pixels, resource-sharing assertions, command-size
+gate, and allocation bounds authoritative rather than this local timing sample.
+The complete System.Drawing suite passes 586/586 in Debug and Release;
+ApiCompat remains at zero missing types, zero missing members, and 13 reviewed
+shape diagnostics.
 
 ## Delivery checkpoints
 

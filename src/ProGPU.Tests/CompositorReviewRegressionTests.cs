@@ -4673,6 +4673,40 @@ fn mainImage(fragCoord: vec2<f32>) -> vec4<f32> {
     }
 
     [Fact]
+    public unsafe void GpuTextureBlitterBoundsFractionalViewportWithoutClippingEdgePixels()
+    {
+        using var window = new HeadlessWindow(5, 5);
+        using var source = new GpuTexture(
+            window.Context,
+            1,
+            1,
+            TextureFormat.Rgba8Unorm,
+            TextureUsage.TextureBinding | TextureUsage.CopyDst,
+            "GPU bounded-blit source");
+        using var destination = new GpuTexture(
+            window.Context,
+            5,
+            5,
+            TextureFormat.Rgba8Unorm,
+            TextureUsage.RenderAttachment | TextureUsage.CopySrc,
+            "GPU bounded-blit destination");
+        source.WritePixels<byte>([255, 0, 0, 255]);
+
+        GpuTextureBlitter.Blit(
+            source,
+            destination.ViewPtr,
+            destination.Format,
+            new GpuTextureBlitViewport(1.25f, 1.25f, 2.5f, 2.5f),
+            new Silk.NET.WebGPU.Color { B = 1f, A = 1f });
+
+        byte[] pixels = destination.ReadPixels();
+        Assert.Equal(new RgbaPixel(255, 0, 0, 255), ReadPixel(pixels, 5, 1, 1));
+        Assert.Equal(new RgbaPixel(255, 0, 0, 255), ReadPixel(pixels, 5, 3, 3));
+        Assert.Equal(new RgbaPixel(0, 0, 255, 255), ReadPixel(pixels, 5, 0, 0));
+        Assert.Equal(new RgbaPixel(0, 0, 255, 255), ReadPixel(pixels, 5, 4, 4));
+    }
+
+    [Fact]
     public unsafe void GpuTextureBlitterFusesMediaColorEffectsOnGpu()
     {
         using var window = new HeadlessWindow(1, 1);

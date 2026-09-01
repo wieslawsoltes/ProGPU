@@ -36,6 +36,10 @@ public sealed class CompositorClipTests
             80,
             Marshal.OffsetOf<AdvancedBlendSamplingUniforms>(
                 nameof(AdvancedBlendSamplingUniforms.PatternFlags)).ToInt32());
+        Assert.Equal(
+            88,
+            Marshal.OffsetOf<AdvancedBlendSamplingUniforms>(
+                nameof(AdvancedBlendSamplingUniforms.PatternTextureExtent)).ToInt32());
     }
 
     [Fact]
