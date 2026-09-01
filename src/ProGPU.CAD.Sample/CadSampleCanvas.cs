@@ -44,11 +44,13 @@ public readonly record struct CadBackgroundEditResult(
     ulong ContentGeneration,
     bool ScenePublished);
 
-/// <summary>Selected-set operation driven by two WCS plan-view points.</summary>
+/// <summary>Selected-set operation driven by bounded plan-view input.</summary>
 public enum CadPointTransformOperation : byte
 {
     Move = 0,
     Copy = 1,
+    Rotate = 2,
+    Scale = 3,
 }
 
 /// <summary>Placement lifetime for a two-point COPY interaction.</summary>
@@ -67,6 +69,11 @@ public enum CadPointTransformStage : byte
     Canceled = 3,
     Failed = 4,
     PlacementCompleted = 5,
+    AwaitingReferenceValueOrFirstPoint = 6,
+    AwaitingReferenceSecondPoint = 7,
+    AwaitingNewValue = 8,
+    AwaitingNewLengthFirstPoint = 9,
+    AwaitingNewLengthSecondPoint = 10,
 }
 
 /// <summary>
@@ -84,6 +91,8 @@ public sealed class CadPointTransformChangedEventArgs : EventArgs
 
     public CadPoint3D? Displacement { get; }
 
+    public double? TransformValue { get; }
+
     public string? ErrorMessage { get; }
 
     public CadPointTransformCopyMode CopyMode { get; }
@@ -98,13 +107,15 @@ public sealed class CadPointTransformChangedEventArgs : EventArgs
         CadPoint3D? displacement = null,
         string? errorMessage = null,
         CadPointTransformCopyMode copyMode = CadPointTransformCopyMode.Single,
-        int placementCount = 0)
+        int placementCount = 0,
+        double? transformValue = null)
     {
         Operation = operation;
         Stage = stage;
         BasePoint = basePoint;
         SecondPoint = secondPoint;
         Displacement = displacement;
+        TransformValue = transformValue;
         ErrorMessage = errorMessage;
         CopyMode = copyMode;
         PlacementCount = placementCount;
@@ -729,6 +740,8 @@ public sealed class CadSampleCanvas : FrameworkElement
     private Vector2 _pointTransformCurrent;
     private Vector2 _pointTransformPointerPosition;
     private CadPoint3D _pointTransformBasePoint;
+    private CadPoint3D _pointTransformReferenceFirstPoint;
+    private CadPoint3D _pointTransformNewLengthFirstPoint;
     private CadPoint3D _globalLastPoint;
     private CadPoint3D _pointTransformGridSnap;
     private CadPlanOrthoResult _pointTransformOrtho;
@@ -761,16 +774,21 @@ public sealed class CadSampleCanvas : FrameworkElement
     private int _lastUnsupportedPrimitiveCount;
     private int _pointTransformCopyPlacementCount;
     private int _pointTransformMaximumCopyPlacementCount;
+    private double _pointTransformReferenceValue;
     private bool _lastSelectionWasTruncated;
     private bool _isPanning;
     private bool _isSelecting;
     private bool _isPointTransformPointerPressed;
     private bool _hasPointTransformPointerPosition;
     private bool _hasPointTransformBasePoint;
+    private bool _hasPointTransformReferenceFirstPoint;
+    private bool _hasPointTransformNewLengthFirstPoint;
+    private bool _hasPointTransformReferenceValue;
     private bool _hasPointTransformGridSnap;
     private bool _hasPointTransformOrtho;
     private bool _hasPointTransformPolarTracking;
     private bool _hasGlobalLastPoint;
+    private CadPointTransformStage _pointTransformStage;
     private CadPointTransformCopyMode _pointTransformCopyMode;
     private bool _isPlanOrthoEnabled;
     private bool _hasSelectionDrag;
@@ -828,12 +846,15 @@ public sealed class CadSampleCanvas : FrameworkElement
     public CadPointTransformStage? PendingPointTransformStage =>
         PendingPointTransformOperation is null
             ? null
-            : _hasPointTransformBasePoint
-                ? CadPointTransformStage.AwaitingSecondPoint
-                : CadPointTransformStage.AwaitingBasePoint;
+            : _pointTransformStage;
 
     public CadPoint3D? PendingPointTransformBasePoint =>
         _hasPointTransformBasePoint ? _pointTransformBasePoint : null;
+
+    public double? PendingPointTransformReferenceValue =>
+        _hasPointTransformReferenceValue
+            ? _pointTransformReferenceValue
+            : null;
 
     public CadPoint3D? GlobalLastPoint =>
         _hasGlobalLastPoint ? _globalLastPoint : null;
@@ -2126,6 +2147,9 @@ public sealed class CadSampleCanvas : FrameworkElement
         }
 
         CadPlanViewport viewport = CreateViewport();
+        CadPoint3D acquisitionBasePoint = _hasPointTransformBasePoint
+            ? GetPointTransformAcquisitionBasePoint()
+            : default;
         context.PushClip(new Rect(0, 0, Size.X, Size.Y));
         DrawPlanGridDisplay(context, viewport);
         context.DrawPicture(_picture, viewport.CreateCameraMatrix());
@@ -2172,7 +2196,7 @@ public sealed class CadSampleCanvas : FrameworkElement
             _hasPointTransformBasePoint &&
             !drewPendingXLine)
         {
-            Vector2 basePoint = viewport.WorldToScreen(_pointTransformBasePoint);
+            Vector2 basePoint = viewport.WorldToScreen(acquisitionBasePoint);
             if (!DrawPendingRectangle(context, viewport) &&
                 !DrawPendingPolygon(context, viewport) &&
                 !DrawPendingEllipse(context, viewport) &&
@@ -2185,7 +2209,10 @@ public sealed class CadSampleCanvas : FrameworkElement
                     basePoint,
                     _pointTransformCurrent);
             }
-            if (!_selectedBounds.IsEmpty)
+            if (!_selectedBounds.IsEmpty &&
+                PendingPointTransformOperation is
+                    CadPointTransformOperation.Move or
+                    CadPointTransformOperation.Copy)
             {
                 Vector2 displacement = _pointTransformCurrent - basePoint;
                 Rect preview = ToScreenRect(viewport, _selectedBounds);
@@ -3286,6 +3313,7 @@ public sealed class CadSampleCanvas : FrameworkElement
         }
 
         PendingPointTransformOperation = operation;
+        _pointTransformStage = CadPointTransformStage.AwaitingBasePoint;
         _pointTransformCopyMode = copyMode;
         _pointTransformCopyPlacementCount = 0;
         _pointTransformMaximumCopyPlacementCount =
@@ -3293,6 +3321,9 @@ public sealed class CadSampleCanvas : FrameworkElement
                 ? maximumCopyPlacementCount
                 : 1;
         _hasPointTransformBasePoint = false;
+        _hasPointTransformReferenceFirstPoint = false;
+        _hasPointTransformNewLengthFirstPoint = false;
+        _hasPointTransformReferenceValue = false;
         _isPointTransformPointerPressed = false;
         _hasPointTransformPointerPosition = false;
         _pointTransformObjectSnap = default;
@@ -3532,21 +3563,46 @@ public sealed class CadSampleCanvas : FrameworkElement
     /// </summary>
     public bool CanAcceptSelectionPointTransformInput(string? text)
     {
-        if (PendingPointTransformOperation is null)
+        if (PendingPointTransformOperation is not
+            CadPointTransformOperation operation)
         {
             return false;
         }
 
+        if (_hasPointTransformBasePoint &&
+            operation is CadPointTransformOperation.Rotate or
+                CadPointTransformOperation.Scale)
+        {
+            if (IsPointTransformKeyword(text, "R"))
+            {
+                return _pointTransformStage ==
+                    CadPointTransformStage.AwaitingSecondPoint;
+            }
+            if (IsPointTransformKeyword(text, "P"))
+            {
+                return operation == CadPointTransformOperation.Scale &&
+                    _pointTransformStage ==
+                        CadPointTransformStage.AwaitingNewValue;
+            }
+            if (TryParsePointTransformScalar(text, out double scalar))
+            {
+                return CanAcceptPointTransformScalar(operation, scalar);
+            }
+        }
+
         if (!CadCoordinateInput.TryParse(text, out CadCoordinateInput coordinate))
         {
+            if (operation is CadPointTransformOperation.Rotate or
+                CadPointTransformOperation.Scale)
+            {
+                return false;
+            }
             return CadDirectDistanceInput.TryParse(
                     text,
                     out CadDirectDistanceInput distance) &&
                 TryResolvePointTransformDirectDistance(distance, out _);
         }
-        CadPoint3D relativeOrigin = _hasPointTransformBasePoint
-            ? _pointTransformBasePoint
-            : _globalLastPoint;
+        CadPoint3D relativeOrigin = GetPointTransformRelativeOrigin(operation);
         if (!TryResolveCurrentCoordinate(
                 coordinate,
                 relativeOrigin,
@@ -3556,7 +3612,10 @@ public sealed class CadSampleCanvas : FrameworkElement
         }
         if (_hasPointTransformBasePoint)
         {
-            return IsFinite(point - _pointTransformBasePoint);
+            return operation is CadPointTransformOperation.Rotate or
+                    CadPointTransformOperation.Scale
+                ? CanAcceptScalarTransformPoint(operation, point)
+                : IsFinite(point - _pointTransformBasePoint);
         }
 
         try
@@ -3582,13 +3641,43 @@ public sealed class CadSampleCanvas : FrameworkElement
         out string? errorMessage)
     {
         errorMessage = null;
-        if (PendingPointTransformOperation is null)
+        if (PendingPointTransformOperation is not
+            CadPointTransformOperation operation)
         {
             errorMessage = "No point transform is awaiting coordinate input.";
             return false;
         }
+        if (_hasPointTransformBasePoint &&
+            operation is CadPointTransformOperation.Rotate or
+                CadPointTransformOperation.Scale)
+        {
+            if (IsPointTransformKeyword(text, "R"))
+            {
+                return BeginPointTransformReference(operation, out errorMessage);
+            }
+            if (IsPointTransformKeyword(text, "P"))
+            {
+                return BeginPointTransformNewLengthPoints(
+                    operation,
+                    out errorMessage);
+            }
+            if (TryParsePointTransformScalar(text, out double scalar))
+            {
+                return TryAcceptPointTransformScalar(
+                    operation,
+                    scalar,
+                    out errorMessage);
+            }
+        }
+
         if (!CadCoordinateInput.TryParse(text, out CadCoordinateInput coordinate))
         {
+            if (operation is CadPointTransformOperation.Rotate or
+                CadPointTransformOperation.Scale)
+            {
+                errorMessage = DescribeScalarTransformInputError(operation);
+                return false;
+            }
             if (CadDirectDistanceInput.TryParse(
                     text,
                     out CadDirectDistanceInput directDistance))
@@ -3622,9 +3711,7 @@ public sealed class CadSampleCanvas : FrameworkElement
                 "Enter x,y[,z], @dx,dy[,dz], distance<angle, @distance<angle, or a positive direct distance using invariant numbers.";
             return false;
         }
-        CadPoint3D relativeOrigin = _hasPointTransformBasePoint
-            ? _pointTransformBasePoint
-            : _globalLastPoint;
+        CadPoint3D relativeOrigin = GetPointTransformRelativeOrigin(operation);
         if (!TryResolveCurrentCoordinate(
                 coordinate,
                 relativeOrigin,
@@ -3647,6 +3734,19 @@ public sealed class CadSampleCanvas : FrameworkElement
                     "The first point cannot be represented by the current plan viewport.";
                 return false;
             }
+        }
+        else if (operation is CadPointTransformOperation.Rotate or
+            CadPointTransformOperation.Scale)
+        {
+            if (!TryAcceptScalarTransformPoint(
+                    operation,
+                    point,
+                    screenPoint: null,
+                    out errorMessage))
+            {
+                return false;
+            }
+            return true;
         }
         else if (!IsFinite(point - _pointTransformBasePoint))
         {
@@ -7435,6 +7535,25 @@ public sealed class CadSampleCanvas : FrameworkElement
     /// </summary>
     public bool RotateSelection(double radians)
     {
+        if (_selectedHandleCount == 0)
+        {
+            return false;
+        }
+        return RotateSelection(
+            radians,
+            GetSelectionCenter(),
+            new CadPoint3D(0, 0, 1));
+    }
+
+    /// <summary>
+    /// Rotates all selected semantic model-space entities around one explicit
+    /// finite pivot and axis as one edit.
+    /// </summary>
+    public bool RotateSelection(
+        double radians,
+        CadPoint3D pivot,
+        CadPoint3D axis)
+    {
         ThrowIfDrawOrderReferencePickPending();
         if (_selectedHandleCount == 0)
         {
@@ -7447,9 +7566,9 @@ public sealed class CadSampleCanvas : FrameworkElement
             throw new InvalidOperationException("The CAD edit history is not initialized.");
         history.Execute(new CadRotateEntitiesCommand(
             new ArraySegment<ulong>(_selectedHandles, 0, _selectedHandleCount),
-            new CadPoint3D(0, 0, 1),
+            axis,
             radians,
-            GetSelectionCenter(),
+            pivot,
             _selectedHandleCount == 1
                 ? "Rotate selected entity"
                 : $"Rotate {_selectedHandleCount} selected entities"));
@@ -7462,6 +7581,19 @@ public sealed class CadSampleCanvas : FrameworkElement
     /// complete selection-bounds center as one edit.
     /// </summary>
     public bool ScaleSelection(double factor)
+    {
+        if (_selectedHandleCount == 0)
+        {
+            return false;
+        }
+        return ScaleSelection(factor, GetSelectionCenter());
+    }
+
+    /// <summary>
+    /// Uniformly scales all selected semantic model-space entities around one
+    /// explicit finite origin as one edit.
+    /// </summary>
+    public bool ScaleSelection(double factor, CadPoint3D origin)
     {
         ThrowIfDrawOrderReferencePickPending();
         if (_selectedHandleCount == 0)
@@ -7476,7 +7608,7 @@ public sealed class CadSampleCanvas : FrameworkElement
         history.Execute(new CadScaleEntitiesCommand(
             new ArraySegment<ulong>(_selectedHandles, 0, _selectedHandleCount),
             factor,
-            GetSelectionCenter(),
+            origin,
             _selectedHandleCount == 1
                 ? "Scale selected entity"
                 : $"Scale {_selectedHandleCount} selected entities"));
@@ -8680,6 +8812,9 @@ public sealed class CadSampleCanvas : FrameworkElement
         }
 
         CadPlanViewport viewport = CreateViewport();
+        CadPoint3D acquisitionBasePoint = _hasPointTransformBasePoint
+            ? GetPointTransformAcquisitionBasePoint()
+            : default;
         CadPoint3D pointerWorld = (_rayAuthoring is not null ||
                 _xlineAuthoring is not null ||
                 _polylineAuthoring is not null ||
@@ -8705,7 +8840,7 @@ public sealed class CadSampleCanvas : FrameworkElement
                 _objectSnapModes,
                 _selectionEntityScratch,
                 _hasPointTransformBasePoint
-                    ? _pointTransformBasePoint
+                    ? acquisitionBasePoint
                     : null);
             if (_pointTransformObjectSnap.AreCandidatesTruncated ||
                 _pointTransformObjectSnap.AreIntersectionPairsTruncated)
@@ -8724,7 +8859,7 @@ public sealed class CadSampleCanvas : FrameworkElement
         if (_isPlanOrthoEnabled &&
             _hasPointTransformBasePoint &&
             CadPlanOrthoConstraint.TryConstrain(
-                _pointTransformBasePoint,
+                acquisitionBasePoint,
                 pointerWorld,
                 _planGridSnapSettings,
                 out _pointTransformOrtho))
@@ -8744,7 +8879,7 @@ public sealed class CadSampleCanvas : FrameworkElement
         if (_planPolarTrackingSettings.IsEnabled &&
             _hasPointTransformBasePoint &&
             TryTrackActivePolar(
-                _pointTransformBasePoint,
+                acquisitionBasePoint,
                 pointerWorld,
                 out CadPlanPolarTrackingResult polarTracking))
         {
@@ -8754,7 +8889,7 @@ public sealed class CadSampleCanvas : FrameworkElement
             {
                 bool hasPolarSnap = _planPolarSnapSettings.IsEnabled;
                 if (!hasPolarSnap || _planPolarSnapSettings.TrySnap(
-                        _pointTransformBasePoint,
+                        acquisitionBasePoint,
                         polarTracking,
                         _planGridSnapSettings.SpacingX,
                         out polarTracking))
@@ -8944,7 +9079,8 @@ public sealed class CadSampleCanvas : FrameworkElement
             return;
         }
 
-        Vector2 basePoint = CreateViewport().WorldToScreen(_pointTransformBasePoint);
+        Vector2 basePoint = CreateViewport().WorldToScreen(
+            GetPointTransformAcquisitionBasePoint());
         Vector2 delta = _pointTransformCurrent - basePoint;
         float length = delta.Length();
         if (!float.IsFinite(length) || length <= float.Epsilon)
@@ -10661,6 +10797,578 @@ public sealed class CadSampleCanvas : FrameworkElement
         _hasPointTransformBasePoint = true;
     }
 
+    private static bool IsPointTransformKeyword(string? text, string keyword) =>
+        string.Equals(text?.Trim(), keyword, StringComparison.OrdinalIgnoreCase);
+
+    private static bool TryParsePointTransformScalar(
+        string? text,
+        out double value)
+    {
+        value = default;
+        if (string.IsNullOrWhiteSpace(text) || text.Length > 128)
+        {
+            return false;
+        }
+        return double.TryParse(
+                text,
+                NumberStyles.Float,
+                CultureInfo.InvariantCulture,
+                out value) &&
+            double.IsFinite(value);
+    }
+
+    private bool CanAcceptPointTransformScalar(
+        CadPointTransformOperation operation,
+        double scalar)
+    {
+        if (_pointTransformStage is not (
+                CadPointTransformStage.AwaitingSecondPoint or
+                CadPointTransformStage.AwaitingReferenceValueOrFirstPoint or
+                CadPointTransformStage.AwaitingNewValue))
+        {
+            return false;
+        }
+        if (operation == CadPointTransformOperation.Rotate)
+        {
+            return double.IsFinite(scalar);
+        }
+        if (operation != CadPointTransformOperation.Scale || scalar <= 0.0)
+        {
+            return false;
+        }
+        return _pointTransformStage != CadPointTransformStage.AwaitingSecondPoint ||
+            IsValidScaleFactor(scalar);
+    }
+
+    private bool BeginPointTransformReference(
+        CadPointTransformOperation operation,
+        out string? errorMessage)
+    {
+        errorMessage = null;
+        if (_pointTransformStage != CadPointTransformStage.AwaitingSecondPoint)
+        {
+            errorMessage = "Reference is available only after the transform base point.";
+            return false;
+        }
+        _pointTransformStage =
+            CadPointTransformStage.AwaitingReferenceValueOrFirstPoint;
+        _hasPointTransformReferenceFirstPoint = false;
+        _hasPointTransformReferenceValue = false;
+        ClearPointTransformSnapState();
+        PointTransformChanged?.Invoke(
+            this,
+            new CadPointTransformChangedEventArgs(
+                operation,
+                _pointTransformStage,
+                _pointTransformBasePoint));
+        Invalidate();
+        return true;
+    }
+
+    private bool BeginPointTransformNewLengthPoints(
+        CadPointTransformOperation operation,
+        out string? errorMessage)
+    {
+        errorMessage = null;
+        if (operation != CadPointTransformOperation.Scale ||
+            _pointTransformStage != CadPointTransformStage.AwaitingNewValue ||
+            !_hasPointTransformReferenceValue)
+        {
+            errorMessage =
+                "Points is available only for a SCALE reference new length.";
+            return false;
+        }
+        _pointTransformStage =
+            CadPointTransformStage.AwaitingNewLengthFirstPoint;
+        _hasPointTransformNewLengthFirstPoint = false;
+        ClearPointTransformSnapState();
+        PointTransformChanged?.Invoke(
+            this,
+            new CadPointTransformChangedEventArgs(
+                operation,
+                _pointTransformStage,
+                _pointTransformBasePoint,
+                transformValue: _pointTransformReferenceValue));
+        Invalidate();
+        return true;
+    }
+
+    private bool TryAcceptPointTransformScalar(
+        CadPointTransformOperation operation,
+        double scalar,
+        out string? errorMessage)
+    {
+        errorMessage = null;
+        if (!CanAcceptPointTransformScalar(operation, scalar))
+        {
+            errorMessage = DescribeScalarTransformInputError(operation);
+            return false;
+        }
+
+        if (_pointTransformStage ==
+            CadPointTransformStage.AwaitingReferenceValueOrFirstPoint)
+        {
+            double referenceValue = operation == CadPointTransformOperation.Rotate
+                ? DegreesToUserRadians(scalar)
+                : scalar;
+            if (operation == CadPointTransformOperation.Scale &&
+                referenceValue <= 0.0)
+            {
+                errorMessage = "The SCALE reference length must be positive.";
+                return false;
+            }
+            _pointTransformReferenceValue = referenceValue;
+            _hasPointTransformReferenceValue = true;
+            _pointTransformStage = CadPointTransformStage.AwaitingNewValue;
+            ClearPointTransformSnapState();
+            PointTransformChanged?.Invoke(
+                this,
+                new CadPointTransformChangedEventArgs(
+                    operation,
+                    _pointTransformStage,
+                    _pointTransformBasePoint,
+                    transformValue: referenceValue));
+            Invalidate();
+            return true;
+        }
+
+        double transformValue;
+        if (_pointTransformStage == CadPointTransformStage.AwaitingSecondPoint)
+        {
+            transformValue = operation == CadPointTransformOperation.Rotate
+                ? UserRadiansToPhysical(DegreesToReducedRadians(scalar))
+                : scalar;
+        }
+        else
+        {
+            if (!_hasPointTransformReferenceValue)
+            {
+                errorMessage = "No reference value is available.";
+                return false;
+            }
+            transformValue = operation == CadPointTransformOperation.Rotate
+                ? UserRadiansToPhysical(
+                    DegreesToUserRadians(scalar) -
+                    _pointTransformReferenceValue)
+                : scalar / _pointTransformReferenceValue;
+        }
+        return CompleteScalarPointTransform(
+            operation,
+            transformValue,
+            secondPoint: null,
+            out errorMessage);
+    }
+
+    private bool CanAcceptScalarTransformPoint(
+        CadPointTransformOperation operation,
+        CadPoint3D point)
+    {
+        if (!TryResolveScalarTransformPoint(operation, point, out _))
+        {
+            return false;
+        }
+        if (_pointTransformStage is not (
+                CadPointTransformStage.AwaitingReferenceValueOrFirstPoint or
+                CadPointTransformStage.AwaitingNewLengthFirstPoint))
+        {
+            return true;
+        }
+        try
+        {
+            _ = CreateViewport().WorldToScreen(point);
+            return true;
+        }
+        catch (ArgumentException)
+        {
+            return false;
+        }
+    }
+
+    private bool TryAcceptScalarTransformPoint(
+        CadPointTransformOperation operation,
+        CadPoint3D point,
+        Vector2? screenPoint,
+        out string? errorMessage)
+    {
+        errorMessage = null;
+        if (_pointTransformStage is
+            CadPointTransformStage.AwaitingReferenceValueOrFirstPoint or
+            CadPointTransformStage.AwaitingNewLengthFirstPoint)
+        {
+            Vector2 resolvedScreen;
+            try
+            {
+                resolvedScreen = screenPoint ??
+                    CreateViewport().WorldToScreen(point);
+            }
+            catch (ArgumentException)
+            {
+                errorMessage =
+                    "The reference point cannot be represented by the current plan viewport.";
+                return false;
+            }
+
+            SetGlobalLastPoint(point);
+            if (_pointTransformStage ==
+                CadPointTransformStage.AwaitingReferenceValueOrFirstPoint)
+            {
+                _pointTransformReferenceFirstPoint = point;
+                _hasPointTransformReferenceFirstPoint = true;
+                _pointTransformStage =
+                    CadPointTransformStage.AwaitingReferenceSecondPoint;
+            }
+            else
+            {
+                _pointTransformNewLengthFirstPoint = point;
+                _hasPointTransformNewLengthFirstPoint = true;
+                _pointTransformStage =
+                    CadPointTransformStage.AwaitingNewLengthSecondPoint;
+            }
+            _pointTransformCurrent = resolvedScreen;
+            ClearPointTransformSnapState();
+            PointTransformChanged?.Invoke(
+                this,
+                new CadPointTransformChangedEventArgs(
+                    operation,
+                    _pointTransformStage,
+                    _pointTransformBasePoint,
+                    point,
+                    transformValue: _hasPointTransformReferenceValue
+                        ? _pointTransformReferenceValue
+                        : null));
+            Invalidate();
+            return true;
+        }
+
+        if (!TryResolveScalarTransformPoint(
+                operation,
+                point,
+                out double value))
+        {
+            errorMessage = operation == CadPointTransformOperation.Rotate
+                ? "The points must define a finite non-zero current-UCS angle."
+                : "The points must define a finite positive current-UCS length and scale factor.";
+            return false;
+        }
+
+        SetGlobalLastPoint(point);
+        if (_pointTransformStage ==
+            CadPointTransformStage.AwaitingReferenceSecondPoint)
+        {
+            _pointTransformReferenceValue = value;
+            _hasPointTransformReferenceValue = true;
+            _pointTransformStage = CadPointTransformStage.AwaitingNewValue;
+            ClearPointTransformSnapState();
+            PointTransformChanged?.Invoke(
+                this,
+                new CadPointTransformChangedEventArgs(
+                    operation,
+                    _pointTransformStage,
+                    _pointTransformBasePoint,
+                    point,
+                    transformValue: value));
+            Invalidate();
+            return true;
+        }
+
+        return CompleteScalarPointTransform(
+            operation,
+            value,
+            point,
+            out errorMessage);
+    }
+
+    private bool TryResolveScalarTransformPoint(
+        CadPointTransformOperation operation,
+        CadPoint3D point,
+        out double value)
+    {
+        value = default;
+        CadDocumentSnapshot? snapshot = CurrentSnapshot;
+        if (snapshot is null || !snapshot.PlanAuthoringContext.IsSupported)
+        {
+            return false;
+        }
+        CadPlanAuthoringContext context = snapshot.PlanAuthoringContext;
+        switch (_pointTransformStage)
+        {
+            case CadPointTransformStage.AwaitingSecondPoint:
+                if (!TryMeasureScalarTransformPoint(
+                        operation,
+                        _pointTransformBasePoint,
+                        point,
+                        context,
+                        out double directValue))
+                {
+                    return false;
+                }
+                value = operation == CadPointTransformOperation.Rotate
+                    ? UserRadiansToPhysical(directValue)
+                    : directValue;
+                return operation != CadPointTransformOperation.Scale ||
+                    IsValidScaleFactor(value);
+
+            case CadPointTransformStage.AwaitingReferenceValueOrFirstPoint:
+            case CadPointTransformStage.AwaitingNewLengthFirstPoint:
+                return IsFinite(point);
+
+            case CadPointTransformStage.AwaitingReferenceSecondPoint:
+                if (!_hasPointTransformReferenceFirstPoint ||
+                    !TryMeasureScalarTransformPoint(
+                        operation,
+                        _pointTransformReferenceFirstPoint,
+                        point,
+                        context,
+                        out value))
+                {
+                    return false;
+                }
+                return operation != CadPointTransformOperation.Scale || value > 0.0;
+
+            case CadPointTransformStage.AwaitingNewValue:
+                if (!_hasPointTransformReferenceValue ||
+                    !TryMeasureScalarTransformPoint(
+                        operation,
+                        _pointTransformBasePoint,
+                        point,
+                        context,
+                        out double newValue))
+                {
+                    return false;
+                }
+                value = operation == CadPointTransformOperation.Rotate
+                    ? UserRadiansToPhysical(
+                        newValue - _pointTransformReferenceValue)
+                    : newValue / _pointTransformReferenceValue;
+                return operation != CadPointTransformOperation.Scale ||
+                    IsValidScaleFactor(value);
+
+            case CadPointTransformStage.AwaitingNewLengthSecondPoint:
+                if (operation != CadPointTransformOperation.Scale ||
+                    !_hasPointTransformNewLengthFirstPoint ||
+                    !_hasPointTransformReferenceValue ||
+                    !TryMeasurePlanDistance(
+                        _pointTransformNewLengthFirstPoint,
+                        point,
+                        context,
+                        out double newLength))
+                {
+                    return false;
+                }
+                value = newLength / _pointTransformReferenceValue;
+                return IsValidScaleFactor(value);
+
+            default:
+                return false;
+        }
+    }
+
+    private static bool TryMeasureScalarTransformPoint(
+        CadPointTransformOperation operation,
+        CadPoint3D origin,
+        CadPoint3D point,
+        CadPlanAuthoringContext context,
+        out double value) =>
+        operation == CadPointTransformOperation.Rotate
+            ? TryMeasureUserAngle(origin, point, context, out value)
+            : TryMeasurePlanDistance(origin, point, context, out value);
+
+    private static bool TryMeasureUserAngle(
+        CadPoint3D origin,
+        CadPoint3D point,
+        CadPlanAuthoringContext context,
+        out double radians)
+    {
+        radians = default;
+        CadPoint3D delta = point - origin;
+        double x = Dot(delta, context.AngleXAxis);
+        double y = Dot(delta, context.AngleYAxis);
+        if (!TryHypot(x, y, out double length) || length == 0.0)
+        {
+            return false;
+        }
+        radians = Math.Atan2(context.IsClockwise ? -y : y, x);
+        return double.IsFinite(radians);
+    }
+
+    private static bool TryMeasurePlanDistance(
+        CadPoint3D first,
+        CadPoint3D second,
+        CadPlanAuthoringContext context,
+        out double distance)
+    {
+        CadPoint3D delta = second - first;
+        return TryHypot(
+                Dot(delta, context.HorizontalAxis),
+                Dot(delta, context.VerticalAxis),
+                out distance) &&
+            distance > 0.0;
+    }
+
+    private static bool TryHypot(double x, double y, out double length)
+    {
+        length = default;
+        double scale = Math.Max(Math.Abs(x), Math.Abs(y));
+        if (!double.IsFinite(scale) || scale == 0.0)
+        {
+            return scale == 0.0;
+        }
+        double scaledX = x / scale;
+        double scaledY = y / scale;
+        length = scale * Math.Sqrt(
+            (scaledX * scaledX) + (scaledY * scaledY));
+        return double.IsFinite(length);
+    }
+
+    private static double Dot(CadPoint3D left, CadPoint3D right) =>
+        (left.X * right.X) +
+        (left.Y * right.Y) +
+        (left.Z * right.Z);
+
+    private double UserRadiansToPhysical(double userRadians)
+    {
+        CadDocumentSnapshot? snapshot = CurrentSnapshot;
+        return snapshot?.PlanAuthoringContext.IsClockwise == true
+            ? -userRadians
+            : userRadians;
+    }
+
+    private static double DegreesToUserRadians(double degrees) =>
+        degrees * (Math.PI / 180.0);
+
+    private static double DegreesToReducedRadians(double degrees)
+    {
+        double radians = DegreesToUserRadians(degrees);
+        return double.IsFinite(radians)
+            ? Math.IEEERemainder(radians, Math.Tau)
+            : double.NaN;
+    }
+
+    private static bool IsValidScaleFactor(double factor)
+    {
+        double inverse = 1.0 / factor;
+        return double.IsFinite(factor) &&
+            factor > 0.0 &&
+            double.IsFinite(inverse);
+    }
+
+    private static string DescribeScalarTransformInputError(
+        CadPointTransformOperation operation) =>
+        operation == CadPointTransformOperation.Rotate
+            ? "Enter a finite invariant angle in degrees, a current-UCS point, or R for Reference."
+            : "Enter a positive finite invariant factor, a current-UCS point, R for Reference, or P for reference new-length Points.";
+
+    private bool CompleteScalarPointTransform(
+        CadPointTransformOperation operation,
+        double transformValue,
+        CadPoint3D? secondPoint,
+        out string? errorMessage)
+    {
+        errorMessage = null;
+        CadDocumentSnapshot? snapshot = CurrentSnapshot;
+        if (snapshot is null || !snapshot.PlanAuthoringContext.IsSupported)
+        {
+            errorMessage = "The current UCS cannot define this transform.";
+            return false;
+        }
+        if (!double.IsFinite(transformValue) ||
+            (operation == CadPointTransformOperation.Scale &&
+                !IsValidScaleFactor(transformValue)))
+        {
+            errorMessage = DescribeScalarTransformInputError(operation);
+            return false;
+        }
+
+        CadPoint3D basePoint = _pointTransformBasePoint;
+        CadPoint3D axis = snapshot.PlanAuthoringContext.Normal;
+        double normalizedValue = operation == CadPointTransformOperation.Rotate
+            ? Math.IEEERemainder(transformValue, Math.Tau)
+            : transformValue;
+        ResetPointTransformState(notify: false);
+        try
+        {
+            bool applied = operation == CadPointTransformOperation.Rotate
+                ? normalizedValue != 0.0 &&
+                    RotateSelection(normalizedValue, basePoint, axis)
+                : normalizedValue != 1.0 &&
+                    ScaleSelection(normalizedValue, basePoint);
+            PointTransformChanged?.Invoke(
+                this,
+                new CadPointTransformChangedEventArgs(
+                    operation,
+                    CadPointTransformStage.Completed,
+                    basePoint,
+                    secondPoint,
+                    errorMessage: applied
+                        ? null
+                        : "The point transform did not change the selection.",
+                    transformValue: normalizedValue));
+            Invalidate();
+            return true;
+        }
+        catch (Exception exception)
+        {
+            errorMessage = exception.Message;
+            PointTransformChanged?.Invoke(
+                this,
+                new CadPointTransformChangedEventArgs(
+                    operation,
+                    CadPointTransformStage.Failed,
+                    basePoint,
+                    secondPoint,
+                    errorMessage: exception.Message,
+                    transformValue: normalizedValue));
+            Invalidate();
+            return false;
+        }
+    }
+
+    private CadPoint3D GetPointTransformRelativeOrigin(
+        CadPointTransformOperation operation)
+    {
+        if (!_hasPointTransformBasePoint)
+        {
+            return _globalLastPoint;
+        }
+        if (operation is CadPointTransformOperation.Move or
+            CadPointTransformOperation.Copy)
+        {
+            return _pointTransformBasePoint;
+        }
+        return _pointTransformStage switch
+        {
+            CadPointTransformStage.AwaitingReferenceSecondPoint
+                when _hasPointTransformReferenceFirstPoint =>
+                    _pointTransformReferenceFirstPoint,
+            CadPointTransformStage.AwaitingNewLengthSecondPoint
+                when _hasPointTransformNewLengthFirstPoint =>
+                    _pointTransformNewLengthFirstPoint,
+            _ => _globalLastPoint,
+        };
+    }
+
+    private CadPoint3D GetPointTransformAcquisitionBasePoint()
+    {
+        if (PendingPointTransformOperation is
+            CadPointTransformOperation.Rotate or
+            CadPointTransformOperation.Scale)
+        {
+            if (_pointTransformStage ==
+                    CadPointTransformStage.AwaitingReferenceSecondPoint &&
+                _hasPointTransformReferenceFirstPoint)
+            {
+                return _pointTransformReferenceFirstPoint;
+            }
+            if (_pointTransformStage ==
+                    CadPointTransformStage.AwaitingNewLengthSecondPoint &&
+                _hasPointTransformNewLengthFirstPoint)
+            {
+                return _pointTransformNewLengthFirstPoint;
+            }
+        }
+        return _pointTransformBasePoint;
+    }
+
     private void AcceptPointTransformPoint(
         CadPoint3D point,
         Vector2? screenPoint)
@@ -10680,6 +11388,7 @@ public sealed class CadSampleCanvas : FrameworkElement
             _pointTransformCurrent = screenPoint ??
                 CreateViewport().WorldToScreen(point);
             _hasPointTransformBasePoint = true;
+            _pointTransformStage = CadPointTransformStage.AwaitingSecondPoint;
             PointTransformChanged?.Invoke(
                 this,
                 new CadPointTransformChangedEventArgs(
@@ -10689,6 +11398,28 @@ public sealed class CadSampleCanvas : FrameworkElement
                     copyMode: _pointTransformCopyMode,
                     placementCount: _pointTransformCopyPlacementCount));
             Invalidate();
+            return;
+        }
+
+        if (operation is CadPointTransformOperation.Rotate or
+            CadPointTransformOperation.Scale)
+        {
+            if (!TryAcceptScalarTransformPoint(
+                    operation.Value,
+                    point,
+                    screenPoint,
+                    out string? errorMessage))
+            {
+                PointTransformChanged?.Invoke(
+                    this,
+                    new CadPointTransformChangedEventArgs(
+                        operation.Value,
+                        CadPointTransformStage.Failed,
+                        _pointTransformBasePoint,
+                        point,
+                        errorMessage: errorMessage));
+                Invalidate();
+            }
             return;
         }
 
@@ -10978,12 +11709,19 @@ public sealed class CadSampleCanvas : FrameworkElement
         CadPointTransformCopyMode copyMode = _pointTransformCopyMode;
         int placementCount = _pointTransformCopyPlacementCount;
         PendingPointTransformOperation = null;
+        _pointTransformStage = default;
         _pointTransformCopyMode = CadPointTransformCopyMode.Single;
         _pointTransformCopyPlacementCount = 0;
         _pointTransformMaximumCopyPlacementCount = 0;
         _hasPointTransformBasePoint = false;
         _isPointTransformPointerPressed = false;
         _pointTransformBasePoint = default;
+        _pointTransformReferenceFirstPoint = default;
+        _pointTransformNewLengthFirstPoint = default;
+        _pointTransformReferenceValue = default;
+        _hasPointTransformReferenceFirstPoint = false;
+        _hasPointTransformNewLengthFirstPoint = false;
+        _hasPointTransformReferenceValue = false;
         _pointTransformCurrent = default;
         _pointTransformPointerPosition = default;
         _pointTransformObjectSnap = default;

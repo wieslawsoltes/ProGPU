@@ -169,6 +169,8 @@ public sealed class CadSampleView : Grid
     private readonly Button _acceptPointTransformInputButton;
     private readonly Button[] _rotateButtons;
     private readonly Button[] _scaleButtons;
+    private readonly Button _rotateByPointsButton;
+    private readonly Button _scaleByPointsButton;
     private readonly Button _meshSmoothMoreButton;
     private readonly Button _meshSmoothLessButton;
     private readonly Button _meshRefineButton;
@@ -1279,7 +1281,7 @@ public sealed class CadSampleView : Grid
 
         transformActions.AddChild(new TextBlock
         {
-            Text = "Rotate (degrees, selection center)",
+            Text = "Rotate (degrees or base point)",
             Font = font,
             FontSize = 11,
             Foreground = new ThemeResourceBrush("TextSecondary"),
@@ -1297,14 +1299,20 @@ public sealed class CadSampleView : Grid
         transformActions.AddChild(_rotationStepInput);
         Button rotateCounterclockwise = CreateButton("↺", font, 48, 30);
         Button rotateClockwise = CreateButton("↻", font, 48, 30);
+        _rotateByPointsButton = CreateButton("Rotate points…", font, 112, 30);
         rotateCounterclockwise.Margin = new Thickness(0, 0, 4, 0);
         rotateClockwise.Margin = new Thickness(0, 0, 12, 0);
-        _rotateButtons = [rotateCounterclockwise, rotateClockwise];
+        _rotateButtons = [
+            rotateCounterclockwise,
+            rotateClockwise,
+            _rotateByPointsButton,
+        ];
         transformActions.AddChild(rotateCounterclockwise);
         transformActions.AddChild(rotateClockwise);
+        transformActions.AddChild(_rotateByPointsButton);
         transformActions.AddChild(new TextBlock
         {
-            Text = "Scale factor (selection center)",
+            Text = "Scale factor or base point",
             Font = font,
             FontSize = 11,
             Foreground = new ThemeResourceBrush("TextSecondary"),
@@ -1322,10 +1330,12 @@ public sealed class CadSampleView : Grid
         transformActions.AddChild(_scaleFactorInput);
         Button scaleUp = CreateButton("×", font, 48, 30);
         Button scaleDown = CreateButton("÷", font, 48, 30);
+        _scaleByPointsButton = CreateButton("Scale points…", font, 104, 30);
         scaleUp.Margin = new Thickness(0, 0, 4, 0);
-        _scaleButtons = [scaleUp, scaleDown];
+        _scaleButtons = [scaleUp, scaleDown, _scaleByPointsButton];
         transformActions.AddChild(scaleUp);
         transformActions.AddChild(scaleDown);
+        transformActions.AddChild(_scaleByPointsButton);
         transformActions.AddChild(new TextBlock
         {
             Text = "Mesh smoothing / crease",
@@ -1574,7 +1584,7 @@ public sealed class CadSampleView : Grid
         transformActions.AddChild(_planPolarSnapDistanceInput);
         transformActions.AddChild(new TextBlock
         {
-            Text = "Point / displacement",
+            Text = "Point / displacement / value",
             Font = font,
             FontSize = 11,
             Foreground = new ThemeResourceBrush("TextSecondary"),
@@ -3076,8 +3086,12 @@ public sealed class CadSampleView : Grid
             AcceptPointInput();
         rotateCounterclockwise.Click += (_, _) => RotateSelection(1);
         rotateClockwise.Click += (_, _) => RotateSelection(-1);
+        _rotateByPointsButton.Click += (_, _) =>
+            BeginSelectionPointTransform(CadPointTransformOperation.Rotate);
         scaleUp.Click += (_, _) => ScaleSelection(useReciprocal: false);
         scaleDown.Click += (_, _) => ScaleSelection(useReciprocal: true);
+        _scaleByPointsButton.Click += (_, _) =>
+            BeginSelectionPointTransform(CadPointTransformOperation.Scale);
         _canvas.SelectionChanged += (_, _) =>
         {
             RefreshMeshSelectionMaterials();
@@ -7398,15 +7412,42 @@ public sealed class CadSampleView : Grid
                 args.CopyMode == CadPointTransformCopyMode.Multiple =>
                 $"{operation}: base {FormatPoint(args.BasePoint!.Value)}; " +
                 "specify each second point by click/coordinate/direct distance; Enter or Escape finishes after placed copies.",
+            CadPointTransformStage.AwaitingSecondPoint when
+                args.Operation == CadPointTransformOperation.Rotate =>
+                $"{operation}: base {FormatPoint(args.BasePoint!.Value)}; specify a point or relative angle in degrees, or enter R for Reference; Escape cancels.",
+            CadPointTransformStage.AwaitingSecondPoint when
+                args.Operation == CadPointTransformOperation.Scale =>
+                $"{operation}: base {FormatPoint(args.BasePoint!.Value)}; specify a point or positive factor, or enter R for Reference; Escape cancels.",
             CadPointTransformStage.AwaitingSecondPoint =>
                 $"{operation}: base {FormatPoint(args.BasePoint!.Value)}; " +
                 "click (object snap overrides grid/Ortho/polar), enter a current-UCS point or base-relative @dx,dy[,dz] / @distance<angle, or move the cursor and enter a positive distance; Escape cancels.",
+            CadPointTransformStage.AwaitingReferenceValueOrFirstPoint =>
+                $"{operation}: specify a reference {(args.Operation == CadPointTransformOperation.Rotate ? "angle" : "length")} or first reference point.",
+            CadPointTransformStage.AwaitingReferenceSecondPoint =>
+                $"{operation}: specify the second reference point.",
+            CadPointTransformStage.AwaitingNewValue when
+                args.Operation == CadPointTransformOperation.Rotate =>
+                $"{operation}: specify the new absolute angle or point.",
+            CadPointTransformStage.AwaitingNewValue =>
+                $"{operation}: specify the new length or point, or enter P for two new-length points.",
+            CadPointTransformStage.AwaitingNewLengthFirstPoint =>
+                $"{operation}: specify the first new-length point.",
+            CadPointTransformStage.AwaitingNewLengthSecondPoint =>
+                $"{operation}: specify the second new-length point.",
             CadPointTransformStage.PlacementCompleted =>
                 $"{operation}: placed {args.PlacementCount} copy/copies; " +
                 $"base remains {FormatPoint(args.BasePoint!.Value)}; specify another second point, or press Enter/Escape to finish.",
             CadPointTransformStage.Completed when
                 args.CopyMode == CadPointTransformCopyMode.Multiple =>
                 $"{operation} completed with {args.PlacementCount} placement(s).",
+            CadPointTransformStage.Completed when
+                args.ErrorMessage is null &&
+                args.Operation == CadPointTransformOperation.Rotate =>
+                $"{operation} completed by {(args.TransformValue!.Value * 180.0 / Math.PI):G} degrees.",
+            CadPointTransformStage.Completed when
+                args.ErrorMessage is null &&
+                args.Operation == CadPointTransformOperation.Scale =>
+                $"{operation} completed with factor {args.TransformValue!.Value:G}.",
             CadPointTransformStage.Completed when args.ErrorMessage is null =>
                 $"{operation} completed with WCS displacement " +
                 $"{FormatPoint(args.Displacement!.Value)}.",
@@ -7947,6 +7988,8 @@ public sealed class CadSampleView : Grid
     {
         CadPointTransformOperation.Move => "Move by points",
         CadPointTransformOperation.Copy => "Copy by points",
+        CadPointTransformOperation.Rotate => "Rotate by base point",
+        CadPointTransformOperation.Scale => "Scale by base point",
         _ => throw new ArgumentOutOfRangeException(nameof(operation)),
     };
 
@@ -9452,13 +9495,15 @@ public sealed class CadSampleView : Grid
         }
         _copyBaseButton.IsEnabled = canTransform;
         _pasteButton.IsEnabled = canUsePlanTools;
-        foreach (Button rotateButton in _rotateButtons)
+        for (int index = 0; index < _rotateButtons.Length; index++)
         {
-            rotateButton.IsEnabled = canTransform || canMoveMeshSubobjects;
+            _rotateButtons[index].IsEnabled = canTransform ||
+                (canMoveMeshSubobjects && index < 2);
         }
-        foreach (Button scaleButton in _scaleButtons)
+        for (int index = 0; index < _scaleButtons.Length; index++)
         {
-            scaleButton.IsEnabled = canTransform || canMoveMeshSubobjects;
+            _scaleButtons[index].IsEnabled = canTransform ||
+                (canMoveMeshSubobjects && index < 2);
         }
     }
 

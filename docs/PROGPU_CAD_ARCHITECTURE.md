@@ -1036,11 +1036,14 @@ through the existing desktop/browser text clipboard seam. Paste decodes and
 translates every detached graph before publishing one reversible model-space
 batch; existing destination named records win name conflicts, while missing
 dependencies are registered. Foreign, malformed, oversized, count-mismatched,
-or checksum-invalid content fails before mutation. A third row rotates the same selection in either
-direction by an invariant degree step around WCS +Z and uniformly enlarges or
-shrinks it by an invariant factor. Both use the center of the complete retained
-bounds for every selected semantic root as their base point, including all
-expanded primitives of a selected INSERT. The shared plan shell now captures
+or checksum-invalid content fails before mutation. A third row retains the
+selection-centered step shortcuts and adds `Rotate points…` and `Scale points…`.
+Both accept an explicit snapped or current-UCS/global-last-relative base point.
+ROTATE accepts a relative angle or point around the current-UCS normal and a
+Reference angle mapped to a new absolute angle. SCALE accepts a factor or point
+distance and a numeric or two-point reference/new-length ratio. Every completed
+operation dispatches the existing exact pivoted command as one history edit.
+The shared plan shell now captures
 the active rectangular or isometric UCS/SNAPANG basis and persisted ORTHOMODE.
 F8 and the shared Ortho control edit that drawing value through one O(1),
 generation-safe command whose exact header identity and pre/post state are
@@ -1087,9 +1090,8 @@ active Ortho axis, or an actually acquired polar path. It preserves the base Z
 plane, ignores object/grid point quantization for length and direction, uses an
 overflow-safe O(1) normalization, and leaves the explicit coordinate grammar
 unchanged. Object-snap tracking, broader authoring adoption of the shared
-global-last-point/current-UCS contract, 3D UCS Z acquisition,
-arbitrary-camera planes, reference-angle, and
-reference-length input remain later editor tools. The exact clean-room behavior
+global-last-point/current-UCS contract, 3D UCS Z acquisition, and
+arbitrary-camera planes remain later editor tools. The exact clean-room behavior
 and applicability records are in `PROGPU_CAD_ORTHO_RESEARCH.md`,
 `PROGPU_CAD_POLAR_TRACKING_RESEARCH.md`,
 `PROGPU_CAD_ADDITIONAL_POLAR_ANGLES_RESEARCH.md`,
@@ -5243,13 +5245,13 @@ Sources consulted on 2026-08-27 through 2026-08-30:
   [rotation behavior](https://help.autodesk.com/cloudhelp/2022/ENU/AutoCAD-Core/files/GUID-9DB2CB8C-7FB7-45A4-83A7-82FFC53FC7E1.htm),
   and [SCALE](https://help.autodesk.com/cloudhelp/2016/ENU/AutoCAD-Core/files/GUID-D4E17E51-5000-4AB6-8D6A-6D2AB4863C75.htm):
   adopted selected-object transforms around a stationary caller-visible base
-  point, a rotation axis parallel to the coordinate system's Z axis, and uniform
-  factors above/below one for enlargement/reduction. Adapted the initial shared
-  plan shell to use the complete semantic selection-bounds center and WCS +Z,
-  because ROTATE/SCALE still have no typed caller base point or UCS interaction.
-  The separate MOVE/COPY workflow now accepts an arbitrary WCS-XY base and
-  second point. Rejected silently presenting either plan contract as full UCS,
-  reference-angle, or reference-length behavior. The implementation calls only
+  point, a rotation axis parallel to the current coordinate system's Z axis,
+  uniform factors above/below one, and angle/length Reference ratios. The shared
+  plan shell retains selection-centered step shortcuts and adds snapped or typed
+  current-UCS base points, direct angle/factor or point input, two-point
+  reference measurement, absolute new angles, and numeric or two-point new
+  lengths. Rejected annotative-object exceptions, arbitrary-camera axes, and
+  silent zero-length ratios. The implementation calls only
   existing original ProGPU transform commands and does not reproduce Autodesk
   implementation code.
 - [Autodesk COPY](https://help.autodesk.com/cloudhelp/2026/ENU/AutoCAD-Core/files/GUID-1CF9287F-06E8-4D03-8377-2E130862FE02.htm):

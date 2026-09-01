@@ -1014,6 +1014,164 @@ public sealed class CadSampleSelectionTests
     }
 
     [Fact]
+    public void RotateByBasePointUsesCurrentUcsNormalAndAngularDirection()
+    {
+        var document = new CadDocument();
+        document.Header.AngularDirection = AngularDirection.ClockWise;
+        VPort active = document.VPorts[VPort.DefaultName];
+        active.XAxis = XYZ.AxisX;
+        active.YAxis = XYZ.AxisZ;
+        var line = new Line(XYZ.Zero, XYZ.AxisX);
+        document.Entities.Add(line);
+        var session = new CadDocumentSession(document);
+        var canvas = new CadSampleCanvas();
+        try
+        {
+            canvas.Load(session);
+            canvas.Arrange(new Rect(0, 0, 800, 600));
+            Click(
+                canvas,
+                canvas.CurrentViewport.WorldToScreen(
+                    new CadPoint3D(0.5, 0, 0)));
+            Assert.True(canvas.BeginSelectionPointTransform(
+                CadPointTransformOperation.Rotate));
+            Assert.True(canvas.TryAcceptSelectionPointTransformInput(
+                "0,0,0",
+                out _));
+            Assert.True(canvas.CanAcceptSelectionPointTransformInput("90"));
+            Assert.True(canvas.TryAcceptSelectionPointTransformInput(
+                "90",
+                out string? error));
+
+            Assert.Null(error);
+            AssertPoint(XYZ.Zero, line.StartPoint);
+            AssertPoint(new XYZ(0, 0, -1), line.EndPoint);
+            Assert.Equal(1UL, session.ContentGeneration);
+            Assert.True(canvas.TryUndo());
+            AssertPoint(XYZ.AxisX, line.EndPoint);
+        }
+        finally
+        {
+            canvas.FireUnloaded();
+        }
+    }
+
+    [Fact]
+    public void RotateReferenceMapsTwoPointAngleToNewAbsoluteAngle()
+    {
+        var document = new CadDocument();
+        var line = new Line(XYZ.Zero, new XYZ(1, 1, 0));
+        document.Entities.Add(line);
+        var session = new CadDocumentSession(document);
+        var canvas = new CadSampleCanvas();
+        try
+        {
+            canvas.Load(session);
+            canvas.Arrange(new Rect(0, 0, 800, 600));
+            Click(
+                canvas,
+                canvas.CurrentViewport.WorldToScreen(
+                    new CadPoint3D(0.5, 0.5, 0)));
+            Assert.True(canvas.BeginSelectionPointTransform(
+                CadPointTransformOperation.Rotate));
+            Assert.True(canvas.TryAcceptSelectionPointTransformInput("0,0", out _));
+            Assert.True(canvas.TryAcceptSelectionPointTransformInput("R", out _));
+            Assert.Equal(
+                CadPointTransformStage.AwaitingReferenceValueOrFirstPoint,
+                canvas.PendingPointTransformStage);
+            Assert.True(canvas.TryAcceptSelectionPointTransformInput("@", out _));
+            Assert.False(canvas.TryAcceptSelectionPointTransformInput(
+                "@",
+                out string? degenerateError));
+            Assert.Contains("non-zero", degenerateError);
+            Assert.Equal(
+                CadPointTransformStage.AwaitingReferenceSecondPoint,
+                canvas.PendingPointTransformStage);
+            Assert.True(canvas.TryAcceptSelectionPointTransformInput("1,1", out _));
+            Assert.Equal(
+                CadPointTransformStage.AwaitingNewValue,
+                canvas.PendingPointTransformStage);
+            Assert.Equal(
+                Math.PI / 4.0,
+                canvas.PendingPointTransformReferenceValue!.Value,
+                10);
+            Assert.True(canvas.TryAcceptSelectionPointTransformInput(
+                "0",
+                out string? error));
+
+            Assert.Null(error);
+            AssertPoint(
+                new XYZ(Math.Sqrt(2.0), 0, 0),
+                line.EndPoint);
+            Assert.Equal(new CadPoint3D(1, 1, 0), canvas.GlobalLastPoint);
+            Assert.True(canvas.TryUndo());
+            AssertPoint(new XYZ(1, 1, 0), line.EndPoint);
+        }
+        finally
+        {
+            canvas.FireUnloaded();
+        }
+    }
+
+    [Fact]
+    public void ScaleReferenceSupportsTwoPointReferenceAndNewLengths()
+    {
+        var document = new CadDocument();
+        var line = new Line(new XYZ(1, 0, 0), new XYZ(3, 0, 0));
+        document.Entities.Add(line);
+        var session = new CadDocumentSession(document);
+        var view = new CadSampleView();
+        try
+        {
+            Button scaleByPoints = FindButton(view, "Scale points…");
+            view.Canvas.Load(session);
+            view.Canvas.Arrange(new Rect(0, 0, 800, 600));
+            Click(
+                view.Canvas,
+                view.Canvas.CurrentViewport.WorldToScreen(
+                    new CadPoint3D(2, 0, 0)));
+            Assert.True(scaleByPoints.IsEnabled);
+            PressEnter(scaleByPoints);
+            Assert.Equal(
+                CadPointTransformOperation.Scale,
+                view.Canvas.PendingPointTransformOperation);
+            Assert.True(view.Canvas.TryAcceptSelectionPointTransformInput("1,0", out _));
+            Assert.True(view.Canvas.TryAcceptSelectionPointTransformInput("R", out _));
+            Assert.True(view.Canvas.TryAcceptSelectionPointTransformInput("@", out _));
+            Assert.True(view.Canvas.TryAcceptSelectionPointTransformInput("@2,0", out _));
+            Assert.Equal(
+                2.0,
+                view.Canvas.PendingPointTransformReferenceValue!.Value);
+            Assert.True(view.Canvas.TryAcceptSelectionPointTransformInput("P", out _));
+            Assert.True(view.Canvas.TryAcceptSelectionPointTransformInput("0,0", out _));
+            Assert.True(view.Canvas.TryAcceptSelectionPointTransformInput("0,1", out _));
+
+            AssertPoint(new XYZ(1, 0, 0), line.StartPoint);
+            AssertPoint(new XYZ(2, 0, 0), line.EndPoint);
+            Assert.Equal(1UL, session.ContentGeneration);
+            Assert.True(view.Canvas.TryUndo());
+            AssertPoint(new XYZ(3, 0, 0), line.EndPoint);
+
+            Assert.True(view.Canvas.BeginSelectionPointTransform(
+                CadPointTransformOperation.Scale));
+            Assert.True(view.Canvas.TryAcceptSelectionPointTransformInput("1,0", out _));
+            Assert.False(view.Canvas.TryAcceptSelectionPointTransformInput(
+                "1e-320",
+                out string? tinyFactorError));
+            Assert.Contains("positive", tinyFactorError);
+            Assert.Equal(
+                CadPointTransformStage.AwaitingSecondPoint,
+                view.Canvas.PendingPointTransformStage);
+            Assert.True(view.Canvas.TryAcceptSelectionPointTransformInput("2", out _));
+            AssertPoint(new XYZ(5, 0, 0), line.EndPoint);
+        }
+        finally
+        {
+            view.Canvas.FireUnloaded();
+        }
+    }
+
+    [Fact]
     public void PointCopyMixesPointerBaseWithTypedRelativePolarTarget()
     {
         var document = new CadDocument();

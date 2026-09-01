@@ -45,9 +45,11 @@ reference exactly. Absolute input never uses the prior point.
 
 Clicks and snap results remain exact WCS values and are not transformed a
 second time. Direct distance remains a distinct post-base cursor operation.
-Broader authoring commands, current-elevation/default-Z policy, explicit WCS
-coordinate overrides, arbitrary-camera construction planes, and persisted host
-profile restoration remain separate work.
+The later ROTATE/SCALE interaction reuses the same base-point resolver; see
+`PROGPU_CAD_ROTATE_SCALE_INTERACTION_RESEARCH.md`. Broader authoring commands,
+current-elevation/default-Z policy, explicit WCS coordinate overrides,
+arbitrary-camera construction planes, and persisted host profile restoration
+remain separate work.
 
 ## Complexity, rendering parity, and validation
 
