@@ -440,18 +440,25 @@ if ($CurrentArchitecture -eq $RunnableArchitecture) {
             Write-Host "Partitioned the full Win2D Canvas oracle into bounded submissions on Microsoft Basic Render Driver."
         }
         Invoke-NativeBenchmark @Win2DCanvasArguments
-        if ($IsParallelsDisplayAdapter -or $IsMicrosoftBasicRenderDriver) {
-            # The Parallels D3D12 driver and GitHub's CPU-only D3D12 adapter
-            # remove the device in the legacy managed renderer's dense
-            # mixed-picture path. Keep the full 384-command stress on the C++
-            # renderer, then require a bounded live pixel differential without
-            # executing that unsafe managed workload.
+        if ($IsMicrosoftBasicRenderDriver) {
+            # The hosted CPU-only D3D12 adapter can remove the device during
+            # either side of the dense live workload. Validate the complete
+            # 384-item compiler/parser/retention contract without submission,
+            # then require a bounded live native/managed pixel differential.
+            Invoke-NativeBenchmark --managed-picture --validate-native-stream-only --rectangles 384
+            Invoke-NativeBenchmark --managed-picture --rectangles 1 --warmup 1 --iterations 1
+            Write-Host "Qualified the Basic Render Driver mixed-picture profile with full native stream validation plus bounded live differential parity."
+        } elseif ($IsParallelsDisplayAdapter) {
+            # The Parallels D3D12 driver removes the device only in the legacy
+            # managed renderer's dense mixed-picture path. Keep the full
+            # 384-item stress on the C++ renderer, then require a bounded live
+            # pixel differential without executing that unsafe managed load.
             Invoke-NativeBenchmark --managed-picture --profile-native-only --rectangles 384 --warmup 4 --iterations 8
             # GPU glyph stages advance the atlas generation on their first render. One
             # additional warm frame establishes the compiled-scene cache generation so
             # this bounded differential measures allocation-free stable replay.
             Invoke-NativeBenchmark --managed-picture --rectangles 1 --warmup 1 --iterations 1
-            Write-Host "Qualified the constrained D3D12 mixed-picture profile with native stress plus bounded differential parity."
+            Write-Host "Qualified the Parallels D3D12 mixed-picture profile with native stress plus bounded differential parity."
         } else {
             Invoke-NativeBenchmark --managed-picture --rectangles 384 --warmup 4 --iterations 8
         }

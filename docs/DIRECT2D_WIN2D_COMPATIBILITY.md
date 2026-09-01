@@ -778,12 +778,15 @@ on that adapter, and every hardware/Parallels lane keeps the complete managed
 GPU scene.
 
 The later mixed-picture benchmark is independently bounded on the two known
-constrained D3D12 adapters. Microsoft Basic Render Driver and Parallels run the
-full 384-item stress through the C++ renderer, then a one-item live
-managed/native pixel differential after one cache warm frame. Hardware Windows
-retains the full 384-item managed/native differential. This prevents the
-hosted CPU-only adapter's repeatable roughly 96-second glyph-path device loss
-without treating a validation-only or CPU-rendered result as parity.
+constrained D3D12 adapters. Microsoft Basic Render Driver validates the full
+384-item compiler/parser/retained-snapshot stream without submitting the dense
+device-removing profile, then runs a one-item live managed/native pixel
+differential after one cache warm frame. Parallels still runs the full
+384-item stress through the C++ renderer before that bounded differential, and
+hardware Windows retains the full 384-item managed/native differential. The
+Basic lane initializes the real D3D12 native compositor for stream update and
+the bounded live comparison; it does not treat validation-only or CPU-rendered
+output as pixel parity.
 
 The same rectangle domain implements `CombineWithGeometry` for union,
 intersection, xor, and exclusion. Axis-preserving inputs keep the exact fixed
