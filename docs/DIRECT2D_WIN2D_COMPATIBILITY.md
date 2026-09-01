@@ -309,6 +309,9 @@ shared cubic core. `CUBICS_AND_LINES` also matches system Direct2D's exact
 `B,L,B,L,B,L,B` transcript: each of the first three cubic endpoints is followed
 by a zero-length line. These markers preserve pixels and metrics while keeping
 direct ellipse, group, and nested-group simplification structurally identical.
+The fill/stroke scene sinks recognize the zero-length continuation markers and
+elide them after a real segment, preserving the exact public transcript without
+adding GPU path work or disrupting curved-stroke tangent selection.
 Apple Silicon passes 12/12 warning-as-error CTests, the
 managed source contract passes 9/9, and Windows 11 ARM64 MSVC 19.44 `/W4 /WX`
 builds and passes the focused core/compatibility executables through real SDK

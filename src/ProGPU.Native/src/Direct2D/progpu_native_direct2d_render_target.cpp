@@ -279,6 +279,10 @@ public:
                 set_failure(com::invalid_argument);
                 return;
             }
+            if (same_point(current_point_, points[index])) {
+                current_point_ = points[index];
+                continue;
+            }
             if (figure_filled_ &&
                 !append_line(current_point_, points[index])) {
                 return;
@@ -527,6 +531,12 @@ public:
             segments_.reserve(segments_.size() + point_count);
             segment_flags_.reserve(segment_flags_.size() + point_count);
             for (std::uint32_t index = 0U; index < point_count; ++index) {
+                if (current_point_.x == points[index].x &&
+                    current_point_.y == points[index].y &&
+                    segments_.size() > current_figure_.segment_offset) {
+                    current_point_ = points[index];
+                    continue;
+                }
                 progpu_native_path_segment segment{};
                 segment.p0 = {current_point_.x, current_point_.y};
                 segment.p1 = {points[index].x, points[index].y};

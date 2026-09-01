@@ -5939,6 +5939,8 @@ ellipse descriptor. A closed four-cubic path is constructed once with the
 resource, with a zero-length endpoint line after each of the first three cubics
 to match the system `Simplify(CUBICS_AND_LINES)` transcript. It is then reused
 by the shared path simplifier and scene compiler,
+whose typed fill/stroke sinks elide those zero-length continuation markers
+after a real segment so they add no GPU primitive or invalid tangent,
 so filled and stroked ellipses enter the same backend-neutral vector resources
 as other Direct2D paths. No runtime reflection, widened CPU bitmap, readback,
 or per-frame path reconstruction is introduced. The construction work is a
