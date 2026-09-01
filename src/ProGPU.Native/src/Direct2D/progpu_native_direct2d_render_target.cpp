@@ -3869,9 +3869,107 @@ public:
     }
 
     void PROGPU_NATIVE_COM_CALL DrawGlyphRun(
-        point_2f, const glyph_run*, brush*, measuring_mode) noexcept override
+        point_2f baseline_origin,
+        const glyph_run* glyphs,
+        brush* foreground,
+        measuring_mode measuring) noexcept override
     {
-        unsupported_draw();
+        {
+            const std::lock_guard lock(mutex_);
+            if (!can_draw()) {
+                return;
+            }
+            if (!valid_point(baseline_origin) || glyphs == nullptr ||
+                foreground == nullptr ||
+                (measuring != measuring_mode::natural &&
+                    measuring != measuring_mode::gdi_classic &&
+                    measuring != measuring_mode::gdi_natural) ||
+                glyphs->font_face_value == nullptr ||
+                !std::isfinite(glyphs->font_em_size) ||
+                glyphs->font_em_size <= 0.0F ||
+                (glyphs->glyph_count != 0U &&
+                    glyphs->glyph_indices == nullptr) ||
+                (glyphs->is_sideways != 0 && glyphs->is_sideways != 1)) {
+                latch(com::invalid_argument);
+                return;
+            }
+            if (glyphs->glyph_count > maximum_glyph_count) {
+                latch(com::invalid_argument);
+                return;
+            }
+            for (std::uint32_t index = 0U;
+                 index < glyphs->glyph_count;
+                 ++index) {
+                if ((glyphs->glyph_advances != nullptr &&
+                        !std::isfinite(glyphs->glyph_advances[index])) ||
+                    (glyphs->glyph_offsets != nullptr &&
+                        (!std::isfinite(
+                            glyphs->glyph_offsets[index].advance_offset) ||
+                            !std::isfinite(glyphs->glyph_offsets[index]
+                                .ascender_offset)))) {
+                    latch(com::invalid_argument);
+                    return;
+                }
+            }
+            if (glyphs->glyph_count == 0U) {
+                return;
+            }
+        }
+
+        path_geometry* raw_path = nullptr;
+        com::result result = owner_->CreatePathGeometry(&raw_path);
+        com::pointer<path_geometry> path;
+        path.attach(raw_path);
+        if (com::failed(result) || !path) {
+            latch_external_draw_failure(
+                com::failed(result) ? result : failure);
+            return;
+        }
+        geometry_sink* raw_sink = nullptr;
+        result = path->Open(&raw_sink);
+        com::pointer<geometry_sink> sink;
+        sink.attach(raw_sink);
+        if (com::failed(result) || !sink) {
+            latch_external_draw_failure(
+                com::failed(result) ? result : failure);
+            return;
+        }
+        result = glyphs->font_face_value->GetGlyphRunOutline(
+            glyphs->font_em_size,
+            glyphs->glyph_indices,
+            glyphs->glyph_advances,
+            glyphs->glyph_offsets,
+            glyphs->glyph_count,
+            glyphs->is_sideways,
+            (glyphs->bidi_level & 1U) != 0U ? 1 : 0,
+            static_cast<simplified_geometry_sink*>(sink.get()));
+        const com::result close_result = sink->Close();
+        if (com::succeeded(result)) {
+            result = close_result;
+        }
+        if (com::failed(result)) {
+            latch_external_draw_failure(result);
+            return;
+        }
+
+        const matrix_3x2_f baseline_transform{
+            1.0F,
+            0.0F,
+            0.0F,
+            1.0F,
+            baseline_origin.x,
+            baseline_origin.y};
+        transformed_geometry* raw_transformed = nullptr;
+        result = owner_->CreateTransformedGeometry(
+            path.get(), &baseline_transform, &raw_transformed);
+        com::pointer<transformed_geometry> transformed;
+        transformed.attach(raw_transformed);
+        if (com::failed(result) || !transformed) {
+            latch_external_draw_failure(
+                com::failed(result) ? result : failure);
+            return;
+        }
+        draw_filled_geometry(transformed.get(), foreground, nullptr);
     }
 
     void PROGPU_NATIVE_COM_CALL SetTransform(
@@ -4574,6 +4672,14 @@ private:
         }
     }
 
+    void latch_external_draw_failure(com::result value) noexcept
+    {
+        const std::lock_guard lock(mutex_);
+        if (can_draw()) {
+            latch(value);
+        }
+    }
+
     [[nodiscard]] com::result builder_failure() const noexcept
     {
         return builder_.last_error() == scene_build_error::out_of_memory
@@ -4695,6 +4801,8 @@ private:
         drawn,
         failed
     };
+
+    static constexpr std::uint32_t maximum_glyph_count = 1U << 20U;
 
     [[nodiscard]] static std::uint32_t image_address_flags(
         extend_mode extend,

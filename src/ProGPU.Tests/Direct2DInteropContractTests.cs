@@ -284,6 +284,9 @@ public sealed class Direct2DInteropContractTests
         Assert.Contains("wic_bitmap_source_interface_id", header, StringComparison.Ordinal);
         Assert.Contains("wic_pixel_format_32bpp_pbgra", header, StringComparison.Ordinal);
         Assert.Contains("wic_pixel_format_32bpp_prgba", header, StringComparison.Ordinal);
+        Assert.Contains("struct glyph_run final", header, StringComparison.Ordinal);
+        Assert.Contains("struct font_face : com::unknown", header, StringComparison.Ordinal);
+        Assert.Contains("font_face_interface_id", header, StringComparison.Ordinal);
         Assert.Contains("struct gradient_stop_collection : resource", header, StringComparison.Ordinal);
         Assert.Contains("struct linear_gradient_brush : brush", header, StringComparison.Ordinal);
         Assert.Contains("struct radial_gradient_brush : brush", header, StringComparison.Ordinal);
@@ -308,6 +311,8 @@ public sealed class Direct2DInteropContractTests
         Assert.Contains("builder_.draw_analytic", renderTargetSource, StringComparison.Ordinal);
         Assert.Contains("builder_.draw_geometry", renderTargetSource, StringComparison.Ordinal);
         Assert.Contains("wic_source->CopyPixels(", renderTargetSource, StringComparison.Ordinal);
+        Assert.Contains("font_face_value->GetGlyphRunOutline(", renderTargetSource, StringComparison.Ordinal);
+        Assert.Contains("draw_filled_geometry(transformed.get(), foreground, nullptr)", renderTargetSource, StringComparison.Ordinal);
         Assert.Contains("class portable_shared_bitmap final", renderTargetSource, StringComparison.Ordinal);
         Assert.Contains("class portable_shared_render_target_bitmap final", renderTargetSource, StringComparison.Ordinal);
         Assert.Contains("GetStorageIdentity()", renderTargetSource, StringComparison.Ordinal);
@@ -315,6 +320,9 @@ public sealed class Direct2DInteropContractTests
         Assert.Contains("class fake_wic_bitmap_source final", nativeTest, StringComparison.Ordinal);
         Assert.Contains("__uuidof(IWICBitmapSource)", nativeTest, StringComparison.Ordinal);
         Assert.Contains("native_target->CreateSharedBitmap(", nativeTest, StringComparison.Ordinal);
+        Assert.Contains("class fake_font_face final", nativeTest, StringComparison.Ordinal);
+        Assert.Contains("native_target->DrawGlyphRun(", nativeTest, StringComparison.Ordinal);
+        Assert.Contains("sizeof(compat::glyph_run) == sizeof(DWRITE_GLYPH_RUN)", nativeTest, StringComparison.Ordinal);
         Assert.Contains("render_scene_target(", submissionHeader, StringComparison.Ordinal);
         Assert.Contains("progpu_native_engine_update_scene", submissionHeader, StringComparison.Ordinal);
         Assert.Contains("progpu_native_engine_render_scene", submissionHeader, StringComparison.Ordinal);
