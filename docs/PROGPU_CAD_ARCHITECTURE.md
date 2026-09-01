@@ -1853,7 +1853,7 @@ diagnosed rather than rendered approximately. The snapshot additionally emits
 non-overlapping top-level definition ranges per INSERT/MINSERT cell, excluding
 instance-owned ATTRIBs. Eligible continuous analytic POINT/line/curve/flat-face/
 spline/polyline, vector-outline TrueType TEXT/MTEXT, retained analytic SHX
-TEXT/MTEXT/SHAPE, HATCH, and prepared raster IMAGE ranges use exact
+TEXT/MTEXT/SHAPE, HATCH, WIPEOUT, and prepared raster IMAGE ranges use exact
 resolved-style/content/resource keys and a double-precision inverse to
 share one definition-local nested picture across translation, rotation,
 reflection, and nonuniform scale; singular or unencoded families fail closed to

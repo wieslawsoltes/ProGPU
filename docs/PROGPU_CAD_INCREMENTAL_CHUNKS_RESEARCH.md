@@ -11,13 +11,13 @@ GPU texture residency, and 8 MiB
 per encoded key. Reuse is
 admitted only for continuous-style POINT, LINE, CIRCLE, ARC, ELLIPSE, SOLID,
 3DFACE, SPLINE, LWPOLYLINE, 2D/3D POLYLINE, vector-outline TEXT/MTEXT,
-SHX TEXT/MTEXT, SHAPE, solid or patterned HATCH, and prepared raster IMAGE
+SHX TEXT/MTEXT, SHAPE, solid or patterned HATCH, WIPEOUT, and prepared raster IMAGE
 roots whose complete canonical rendering inputs match byte-for-byte. Top-level
 INSERT and MINSERT cells additionally share one definition-local fragment across
 translation, rotation, reflection, and nonuniform affine scale when every expanded
 child is an eligible analytic family, including flat SOLID/3DFACE,
 vector-outline TrueType TEXT/MTEXT, retained analytic SHX TEXT/MTEXT/SHAPE,
-and HATCH boundary/pattern streams.
+HATCH boundary/pattern streams, and WIPEOUT masks/frames.
 Instance-owned ATTRIBs are
 excluded from the definition range. Unsupported
 families take the ordinary full-recording path and are never guessed reusable.
@@ -75,6 +75,13 @@ or ignored loop, analytic segment, pattern family, and dash value independently
 of snapshot-global offsets. Replayed chunks restore the exact complex-pattern
 auxiliary-record charge and are admitted only when the remaining document budget
 can reproduce the original result.
+
+WIPEOUT identity normalizes the image-plane origin and independent pixel axes and
+encodes its dimensions, active clip grammar, mask/frame/alignment flags, inversion,
+and exact mask color. Clip points remain in their authored image-plane coordinate
+system. This makes the retained mask and frame safe to share across translation,
+rotation, reflection, and nonuniform affine block instances without allocating a
+raster mask or introducing a device resource.
 
 Semantic-root simple and complex linetypes encode the complete A-aligned pattern,
 element transforms, shaped TrueType or SHX text, SHX shape paths, substitution

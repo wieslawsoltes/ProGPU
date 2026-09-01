@@ -671,6 +671,7 @@ internal static class CadPlanChunkKeyBuilder
                 CadEntityKind.ShxMText or
                 CadEntityKind.ShxShape or
                 CadEntityKind.Hatch or
+                CadEntityKind.Wipeout or
                 CadEntityKind.RasterImage) ||
             (entity.Kind != CadEntityKind.Hatch &&
              pattern.Kind != CadLineTypePatternKind.Continuous &&
@@ -950,9 +951,43 @@ internal static class CadPlanChunkKeyBuilder
                     worldToChunk,
                     ref textureDependencies,
                     maximumKeyBytes);
+            case CadEntityKind.Wipeout:
+                return TryAppendWipeout(
+                    writer,
+                    snapshot,
+                    snapshot.Wipeouts.Span[entity.PrimitiveIndex],
+                    worldToChunk,
+                    maximumKeyBytes);
             default:
                 return false;
         }
+    }
+
+    private static bool TryAppendWipeout(
+        ArrayBufferWriter<byte> writer,
+        CadDocumentSnapshot snapshot,
+        in CadWipeoutPrimitive wipeout,
+        CadPlanChunkNormalization? worldToChunk,
+        int maximumKeyBytes)
+    {
+        AppendProjectedPoint(writer, wipeout.Origin, snapshot.RebaseOrigin, worldToChunk);
+        AppendProjectedVector(writer, wipeout.UVector, worldToChunk);
+        AppendProjectedVector(writer, wipeout.VVector, worldToChunk);
+        Append(writer, wipeout.Width);
+        Append(writer, wipeout.Height);
+        Append(writer, wipeout.ClipPointCount);
+        Append(writer, wipeout.IsClipped);
+        Append(writer, wipeout.IsInverted);
+        Append(writer, wipeout.DrawMask);
+        Append(writer, wipeout.ShowWhenNotAligned);
+        Append(writer, wipeout.DrawFrame);
+        Append(writer, wipeout.MaskColor);
+        return !wipeout.IsClipped || TryAppend(
+            writer,
+            snapshot.WipeoutClipPoints.Span.Slice(
+                wipeout.ClipPointOffset,
+                wipeout.ClipPointCount),
+            maximumKeyBytes);
     }
 
     private static bool TryAppendRasterImage(
