@@ -108,8 +108,8 @@ managed/native replay, and DXF/DWG round trips.
 
 The later documented slices implement object/grid snaps, direct-distance cursor
 entry, and Ortho/polar tracking on this state. Global-last-point state, UCS or
-arbitrary-camera planes, 3D point acquisition, Clipboard COPYBASE, associative
-arrays, full transformed-geometry ghosting, and grip editing remain explicit
+arbitrary-camera planes, 3D point acquisition, associative arrays, full
+transformed-geometry ghosting, and grip editing remain explicit
 follow-ups. This is a behavior and
 workflow checkpoint, not a before/after performance improvement; macOS
 Instruments evidence is therefore not claimed.

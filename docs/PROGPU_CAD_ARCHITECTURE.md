@@ -1026,7 +1026,14 @@ selection-bounds rectangle: it is O(1), allocation-free with respect to point
 state, and never recompiles, clones, or mutates retained geometry. Escape,
 selection clear, document replacement, and resource release cancel without a
 generation. Coincident MOVE points are a no-op; coincident COPY points create
-one exact overlapping copy. A third row rotates the same selection in either
+one exact overlapping copy. The same shared shell exposes `Copy base…` and
+`Paste…` as single absolute-WCS point prompts. A bounded, checksummed versioned
+text envelope carries exact base-point bits plus dependency-complete binary DXF
+through the existing desktop/browser text clipboard seam. Paste decodes and
+translates every detached graph before publishing one reversible model-space
+batch; existing destination named records win name conflicts, while missing
+dependencies are registered. Foreign, malformed, oversized, count-mismatched,
+or checksum-invalid content fails before mutation. A third row rotates the same selection in either
 direction by an invariant degree step around WCS +Z and uniformly enlarges or
 shrinks it by an invariant factor. Both use the center of the complete retained
 bounds for every selected semantic root as their base point, including all

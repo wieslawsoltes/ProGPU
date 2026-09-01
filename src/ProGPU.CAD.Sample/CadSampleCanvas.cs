@@ -111,6 +111,47 @@ public sealed class CadPointTransformChangedEventArgs : EventArgs
     }
 }
 
+public enum CadClipboardPointOperation : byte
+{
+    CopyBase = 0,
+    Paste = 1,
+}
+
+public enum CadClipboardPointStage : byte
+{
+    AwaitingPoint = 0,
+    Completed = 1,
+    Canceled = 2,
+    Failed = 3,
+}
+
+public sealed class CadClipboardPointChangedEventArgs : EventArgs
+{
+    public CadClipboardPointOperation Operation { get; }
+
+    public CadClipboardPointStage Stage { get; }
+
+    public CadPoint3D? Point { get; }
+
+    public int EntityCount { get; }
+
+    public string? ErrorMessage { get; }
+
+    internal CadClipboardPointChangedEventArgs(
+        CadClipboardPointOperation operation,
+        CadClipboardPointStage stage,
+        CadPoint3D? point = null,
+        int entityCount = 0,
+        string? errorMessage = null)
+    {
+        Operation = operation;
+        Stage = stage;
+        Point = point;
+        EntityCount = entityCount;
+        ErrorMessage = errorMessage;
+    }
+}
+
 /// <summary>Observable stage of one shared desktop/browser LINE command.</summary>
 public enum CadLineAuthoringStage : byte
 {
@@ -792,6 +833,12 @@ public sealed class CadSampleCanvas : FrameworkElement
     public CadPoint3D? PendingPointTransformBasePoint =>
         _hasPointTransformBasePoint ? _pointTransformBasePoint : null;
 
+    public CadClipboardPointOperation? PendingClipboardPointOperation
+    {
+        get;
+        private set;
+    }
+
     public CadPointTransformCopyMode PendingPointTransformCopyMode =>
         _pointTransformCopyMode;
 
@@ -1026,6 +1073,7 @@ public sealed class CadSampleCanvas : FrameworkElement
 
     private bool IsPointAcquisitionActive =>
         PendingPointTransformOperation is not null ||
+        PendingClipboardPointOperation is not null ||
         _lineAuthoring is not null ||
         _rayAuthoring is not null ||
         _xlineAuthoring is not null ||
@@ -1441,6 +1489,9 @@ public sealed class CadSampleCanvas : FrameworkElement
     /// </summary>
     public event EventHandler<CadPointTransformChangedEventArgs>?
         PointTransformChanged;
+
+    public event EventHandler<CadClipboardPointChangedEventArgs>?
+        ClipboardPointChanged;
 
     /// <summary>
     /// Raised for accepted LINE points, segment Undo, completion, and failure.
@@ -1996,6 +2047,7 @@ public sealed class CadSampleCanvas : FrameworkElement
         {
             ResetDrawOrderReferencePickState(notify: false);
             ResetPointTransformState(notify: false);
+            ResetClipboardPointState();
             ResetLineAuthoringState();
             ResetRayAuthoringState();
             ResetXLineAuthoringState();
@@ -3016,6 +3068,7 @@ public sealed class CadSampleCanvas : FrameworkElement
     {
         ResetDrawOrderReferencePickState(notify: true);
         ResetPointTransformState(notify: true);
+        ResetClipboardPointState();
         ResetLineAuthoringState();
         ResetRayAuthoringState();
         ResetXLineAuthoringState();
@@ -3306,6 +3359,158 @@ public sealed class CadSampleCanvas : FrameworkElement
                 placementCount: placementCount));
         Invalidate();
         return true;
+    }
+
+    public bool BeginClipboardPointOperation(CadClipboardPointOperation operation)
+    {
+        if (!Enum.IsDefined(operation))
+        {
+            throw new ArgumentOutOfRangeException(nameof(operation));
+        }
+        if (CurrentSession is null || CurrentSnapshot is null)
+        {
+            return false;
+        }
+        if (operation == CadClipboardPointOperation.CopyBase &&
+            _selectedHandleCount == 0)
+        {
+            return false;
+        }
+        if (PendingDrawOrderPlacement is not null)
+        {
+            throw new InvalidOperationException(
+                "Commit or cancel the pending draw-order reference selection first.");
+        }
+        if (IsPointAcquisitionActive)
+        {
+            throw new InvalidOperationException(
+                "Complete or cancel the pending point-acquisition command first.");
+        }
+
+        PendingClipboardPointOperation = operation;
+        _isPointTransformPointerPressed = false;
+        _hasPointTransformBasePoint = false;
+        _hasPointTransformPointerPosition = false;
+        ClearPointTransformSnapState();
+        ClipboardPointChanged?.Invoke(
+            this,
+            new CadClipboardPointChangedEventArgs(
+                operation,
+                CadClipboardPointStage.AwaitingPoint));
+        Invalidate();
+        return true;
+    }
+
+    public bool CancelClipboardPointOperation()
+    {
+        CadClipboardPointOperation? operation = PendingClipboardPointOperation;
+        if (operation is null)
+        {
+            return false;
+        }
+        ResetClipboardPointState();
+        ClipboardPointChanged?.Invoke(
+            this,
+            new CadClipboardPointChangedEventArgs(
+                operation.Value,
+                CadClipboardPointStage.Canceled));
+        Invalidate();
+        return true;
+    }
+
+    public bool CanAcceptClipboardPointInput(string? text)
+    {
+        if (PendingClipboardPointOperation is null ||
+            !CadCoordinateInput.TryParse(text, out CadCoordinateInput coordinate) ||
+            coordinate.IsRelative ||
+            !coordinate.TryResolve(CadPoint3D.Zero, out CadPoint3D point))
+        {
+            return false;
+        }
+        try
+        {
+            _ = CreateViewport().WorldToScreen(point);
+            return true;
+        }
+        catch (ArgumentException)
+        {
+            return false;
+        }
+    }
+
+    public bool TryAcceptClipboardPointInput(
+        string? text,
+        out string? errorMessage)
+    {
+        errorMessage = null;
+        if (PendingClipboardPointOperation is null)
+        {
+            errorMessage = "No CAD clipboard point is awaiting input.";
+            return false;
+        }
+        if (!CadCoordinateInput.TryParse(text, out CadCoordinateInput coordinate) ||
+            coordinate.IsRelative)
+        {
+            errorMessage =
+                "Enter an absolute WCS x,y[,z] or distance<angle coordinate.";
+            return false;
+        }
+        if (!coordinate.TryResolve(CadPoint3D.Zero, out CadPoint3D point))
+        {
+            errorMessage = "The CAD clipboard point resolves outside finite WCS values.";
+            return false;
+        }
+        try
+        {
+            _ = CreateViewport().WorldToScreen(point);
+        }
+        catch (ArgumentException exception)
+        {
+            errorMessage = exception.Message;
+            return false;
+        }
+
+        AcceptClipboardPoint(point);
+        return true;
+    }
+
+    public string CopySelectionToClipboard(CadPoint3D basePoint)
+    {
+        ThrowIfDrawOrderReferencePickPending();
+        if (_selectedHandleCount == 0)
+        {
+            throw new InvalidOperationException(
+                "COPYBASE requires at least one selected entity.");
+        }
+        CadDocumentSession session = CurrentSession ??
+            throw new InvalidOperationException("No CAD document is loaded.");
+        return CadClipboardCodec.Encode(
+            session,
+            new ArraySegment<ulong>(_selectedHandles, 0, _selectedHandleCount),
+            basePoint);
+    }
+
+    public CadPasteModelSpaceEntitiesCommand PasteClipboard(
+        string text,
+        CadPoint3D insertionPoint)
+    {
+        ThrowIfDrawOrderReferencePickPending();
+        if (!CadClipboardCodec.TryDecode(
+                text,
+                out CadClipboardPayload? payload,
+                out string? errorMessage) ||
+            payload is null)
+        {
+            throw new InvalidDataException(errorMessage);
+        }
+        CadDocumentSession session = CurrentSession ??
+            throw new InvalidOperationException("No CAD document is loaded.");
+        CadDocumentHistory history = _history ??
+            throw new InvalidOperationException("The CAD edit history is not initialized.");
+        var command = new CadPasteModelSpaceEntitiesCommand(payload, insertionPoint);
+        history.Execute(command);
+        RecompileAfterEdit(session);
+        return command;
     }
 
     /// <summary>
@@ -9105,6 +9310,7 @@ public sealed class CadSampleCanvas : FrameworkElement
     {
         CadPointTransformOperation? operation = PendingPointTransformOperation;
         if (operation is null &&
+            PendingClipboardPointOperation is null &&
             _lineAuthoring is null &&
             _rayAuthoring is null &&
             _xlineAuthoring is null &&
@@ -9138,7 +9344,18 @@ public sealed class CadSampleCanvas : FrameworkElement
         }
         catch (Exception exception)
         {
-            if (operation is CadPointTransformOperation value)
+            if (PendingClipboardPointOperation is
+                CadClipboardPointOperation clipboardOperation)
+            {
+                ResetClipboardPointState();
+                ClipboardPointChanged?.Invoke(
+                    this,
+                    new CadClipboardPointChangedEventArgs(
+                        clipboardOperation,
+                        CadClipboardPointStage.Failed,
+                        errorMessage: exception.Message));
+            }
+            else if (operation is CadPointTransformOperation value)
             {
                 CadPointTransformCopyMode copyMode = _pointTransformCopyMode;
                 int placementCount = _pointTransformCopyPlacementCount;
@@ -9284,6 +9501,11 @@ public sealed class CadSampleCanvas : FrameworkElement
         CadPoint3D point,
         Vector2? screenPoint)
     {
+        if (PendingClipboardPointOperation is not null)
+        {
+            AcceptClipboardPoint(point);
+            return;
+        }
         if (_lineAuthoring is not null)
         {
             _ = TryAcceptLineAuthoringPoint(point, screenPoint, out _);
@@ -9336,6 +9558,52 @@ public sealed class CadSampleCanvas : FrameworkElement
         }
 
         AcceptPointTransformPoint(point, screenPoint);
+    }
+
+    private void AcceptClipboardPoint(CadPoint3D point)
+    {
+        CadClipboardPointOperation? operation = PendingClipboardPointOperation;
+        if (operation is null)
+        {
+            return;
+        }
+
+        ResetClipboardPointState();
+        try
+        {
+            int entityCount;
+            if (operation == CadClipboardPointOperation.CopyBase)
+            {
+                string text = CopySelectionToClipboard(point);
+                ClipboardHelper.SetText(text);
+                entityCount = _selectedHandleCount;
+            }
+            else
+            {
+                CadPasteModelSpaceEntitiesCommand command = PasteClipboard(
+                    ClipboardHelper.GetText(),
+                    point);
+                entityCount = command.EntityCount;
+            }
+            ClipboardPointChanged?.Invoke(
+                this,
+                new CadClipboardPointChangedEventArgs(
+                    operation.Value,
+                    CadClipboardPointStage.Completed,
+                    point,
+                    entityCount));
+        }
+        catch (Exception exception)
+        {
+            ClipboardPointChanged?.Invoke(
+                this,
+                new CadClipboardPointChangedEventArgs(
+                    operation.Value,
+                    CadClipboardPointStage.Failed,
+                    point,
+                    errorMessage: exception.Message));
+        }
+        Invalidate();
     }
 
     private bool TryAcceptPointAuthoringPoint(
@@ -10701,6 +10969,17 @@ public sealed class CadSampleCanvas : FrameworkElement
         }
     }
 
+    private void ResetClipboardPointState()
+    {
+        PendingClipboardPointOperation = null;
+        _hasPointTransformBasePoint = false;
+        _isPointTransformPointerPressed = false;
+        _pointTransformBasePoint = default;
+        _pointTransformCurrent = default;
+        _pointTransformPointerPosition = default;
+        ClearPointTransformSnapState();
+    }
+
     private void ResetLineAuthoringState()
     {
         _lineAuthoring = null;
@@ -11190,6 +11469,7 @@ public sealed class CadSampleCanvas : FrameworkElement
         ReleasePointerCaptures();
         ResetDrawOrderReferencePickState(notify: false);
         ResetPointTransformState(notify: false);
+        ResetClipboardPointState();
         ResetLineAuthoringState();
         ResetRayAuthoringState();
         ResetXLineAuthoringState();

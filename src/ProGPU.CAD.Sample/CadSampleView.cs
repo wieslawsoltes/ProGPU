@@ -140,6 +140,8 @@ public sealed class CadSampleView : Grid
     private readonly Button _moveByPointsButton;
     private readonly Button _copyByPointsButton;
     private readonly Button _copyMultipleByPointsButton;
+    private readonly Button _copyBaseButton;
+    private readonly Button _pasteButton;
     private readonly ComboBox _objectSnapSelector;
     private readonly CheckBox _planGridSnapCheckBox;
     private readonly CheckBox _planGridDisplayCheckBox;
@@ -1399,6 +1401,8 @@ public sealed class CadSampleView : Grid
         _copyByPointsButton = CreateButton("Copy points…", font, 104, 30);
         _copyMultipleByPointsButton =
             CreateButton("Copy multiple…", font, 112, 30);
+        _copyBaseButton = CreateButton("Copy base…", font, 96, 30);
+        _pasteButton = CreateButton("Paste…", font, 72, 30);
         copyNegativeX.Margin = new Thickness(0, 0, 4, 0);
         copyPositiveX.Margin = new Thickness(0, 0, 8, 0);
         copyNegativeY.Margin = new Thickness(0, 0, 4, 0);
@@ -1416,6 +1420,9 @@ public sealed class CadSampleView : Grid
         {
             transformActions.AddChild(copyButton);
         }
+        _copyBaseButton.Margin = new Thickness(8, 0, 4, 0);
+        transformActions.AddChild(_copyBaseButton);
+        transformActions.AddChild(_pasteButton);
         _objectSnapSelector = new ComboBox
         {
             Font = font,
@@ -2884,6 +2891,10 @@ public sealed class CadSampleView : Grid
             BeginSelectionPointTransform(
                 CadPointTransformOperation.Copy,
                 CadPointTransformCopyMode.Multiple);
+        _copyBaseButton.Click += (_, _) =>
+            BeginClipboardPointOperation(CadClipboardPointOperation.CopyBase);
+        _pasteButton.Click += (_, _) =>
+            BeginClipboardPointOperation(CadClipboardPointOperation.Paste);
         _objectSnapSelector.SelectionChanged += (_, _) =>
         {
             if ((_objectSnapSelector.SelectedItem as ComboBoxItem)?.Tag is
@@ -3092,6 +3103,12 @@ public sealed class CadSampleView : Grid
         {
             _pointTransformInput.Text = string.Empty;
             SetStatus(DescribePointTransform(args));
+            UpdateEditControls();
+        };
+        _canvas.ClipboardPointChanged += (_, args) =>
+        {
+            _pointTransformInput.Text = string.Empty;
+            SetStatus(DescribeClipboardPoint(args));
             UpdateEditControls();
         };
         _canvas.LineAuthoringChanged += (_, args) =>
@@ -3431,6 +3448,16 @@ public sealed class CadSampleView : Grid
                 e.Handled = true;
                 return;
             }
+        }
+
+        if (!e.Handled &&
+            _canvas.PendingClipboardPointOperation is not null &&
+            e.Key == Key.Escape &&
+            FocusManager.GetFocusedElement() is not TextBox)
+        {
+            _canvas.CancelClipboardPointOperation();
+            e.Handled = true;
+            return;
         }
 
         if (!e.Handled &&
@@ -6736,6 +6763,33 @@ public sealed class CadSampleView : Grid
         }
     }
 
+    private void BeginClipboardPointOperation(CadClipboardPointOperation operation)
+    {
+        if (_isBusy)
+        {
+            return;
+        }
+
+        try
+        {
+            _pointTransformInput.Text = string.Empty;
+            if (!_canvas.BeginClipboardPointOperation(operation))
+            {
+                SetStatus(operation == CadClipboardPointOperation.CopyBase
+                    ? "Copy base requires at least one selected entity."
+                    : "Paste requires an open CAD document.");
+            }
+        }
+        catch (Exception exception)
+        {
+            SetStatus($"CAD clipboard command failed: {exception.Message}");
+        }
+        finally
+        {
+            UpdateEditControls();
+        }
+    }
+
     private void BeginLineAuthoring()
     {
         if (_isBusy)
@@ -7121,7 +7175,13 @@ public sealed class CadSampleView : Grid
         string input = _pointTransformInput.Text;
         bool accepted;
         string? errorMessage;
-        if (_canvas.IsPointAuthoring)
+        if (_canvas.PendingClipboardPointOperation is not null)
+        {
+            accepted = _canvas.TryAcceptClipboardPointInput(
+                input,
+                out errorMessage);
+        }
+        else if (_canvas.IsPointAuthoring)
         {
             accepted = _canvas.TryAcceptPointAuthoringInput(
                 input,
@@ -7354,6 +7414,26 @@ public sealed class CadSampleView : Grid
                 $"{operation} completed without changes: {args.ErrorMessage}",
             CadPointTransformStage.Canceled => $"{operation} canceled.",
             CadPointTransformStage.Failed =>
+                $"{operation} failed: {args.ErrorMessage}",
+            _ => throw new ArgumentOutOfRangeException(nameof(args)),
+        };
+    }
+
+    private static string DescribeClipboardPoint(
+        CadClipboardPointChangedEventArgs args)
+    {
+        string operation = args.Operation == CadClipboardPointOperation.CopyBase
+            ? "Copy base"
+            : "Paste";
+        return args.Stage switch
+        {
+            CadClipboardPointStage.AwaitingPoint =>
+                $"{operation}: click an insertion/base point or enter an absolute WCS coordinate; Escape cancels.",
+            CadClipboardPointStage.Completed =>
+                $"{operation} completed for {args.EntityCount} entity/entities at " +
+                $"{FormatPoint(args.Point!.Value)}.",
+            CadClipboardPointStage.Canceled => $"{operation} canceled.",
+            CadClipboardPointStage.Failed =>
                 $"{operation} failed: {args.ErrorMessage}",
             _ => throw new ArgumentOutOfRangeException(nameof(args)),
         };
@@ -8831,6 +8911,8 @@ public sealed class CadSampleView : Grid
             _canvas.PendingDrawOrderPlacement is not null;
         bool isPointTransformPicking =
             _canvas.PendingPointTransformOperation is not null;
+        bool isClipboardPointPicking =
+            _canvas.PendingClipboardPointOperation is not null;
         bool isLineAuthoring = _canvas.IsLineAuthoring;
         bool isRayAuthoring = _canvas.IsRayAuthoring;
         bool isXLineAuthoring = _canvas.IsXLineAuthoring;
@@ -8842,7 +8924,8 @@ public sealed class CadSampleView : Grid
         bool isPolygonAuthoring = _canvas.IsPolygonAuthoring;
         bool isRectangleAuthoring = _canvas.IsRectangleAuthoring;
         bool isPointInputActive =
-            isPointTransformPicking || isLineAuthoring || isRayAuthoring ||
+            isPointTransformPicking || isClipboardPointPicking ||
+            isLineAuthoring || isRayAuthoring ||
             isXLineAuthoring ||
             isPointAuthoring ||
             isPolylineAuthoring || isCircleAuthoring || isArcAuthoring ||
@@ -9321,7 +9404,10 @@ public sealed class CadSampleView : Grid
         _acceptPointTransformInputButton.IsEnabled =
             !_isBusy &&
             isPointInputActive &&
-            (isPointAuthoring
+            (isClipboardPointPicking
+                ? _canvas.CanAcceptClipboardPointInput(
+                    _pointTransformInput.Text)
+                : isPointAuthoring
                 ? _canvas.CanAcceptPointAuthoringInput(
                     _pointTransformInput.Text)
                 : isPolygonAuthoring
@@ -9364,6 +9450,8 @@ public sealed class CadSampleView : Grid
         {
             copyButton.IsEnabled = canTransform;
         }
+        _copyBaseButton.IsEnabled = canTransform;
+        _pasteButton.IsEnabled = canUsePlanTools;
         foreach (Button rotateButton in _rotateButtons)
         {
             rotateButton.IsEnabled = canTransform || canMoveMeshSubobjects;

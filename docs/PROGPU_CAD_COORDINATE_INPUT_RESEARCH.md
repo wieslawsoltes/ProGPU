@@ -93,5 +93,6 @@ later documented slices. Direct-distance cursor entry is now implemented as a
 separate context-sensitive modifier without changing this grammar; see
 `PROGPU_CAD_DIRECT_DISTANCE_RESEARCH.md`. Global last-point and UCS state,
 coordinate filters, arbitrary-camera
-planes, 3D pointer acquisition, COPYBASE clipboard behavior,
-grips, and typed ROTATE/SCALE base/reference prompts remain follow-ups.
+planes, 3D pointer acquisition, grips, and typed ROTATE/SCALE base/reference
+prompts remain follow-ups. CAD-object COPYBASE/PASTECLIP is specified in
+`PROGPU_CAD_CLIPBOARD_RESEARCH.md`.

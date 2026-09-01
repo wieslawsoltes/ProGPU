@@ -251,6 +251,14 @@ This workflow changes no renderer,
 shader, GPU/native ABI, or persistence contract and makes no performance-
 improvement claim.
 
+The shared editor now also provides CAD-object `Copy base…` and `Paste…` point
+prompts. A bounded, versioned, SHA-256-checked text envelope transports exact
+base-point bits and dependency-complete binary DXF through the same desktop and
+browser clipboard seam. Cross-document paste translates complete detached
+graphs before one reversible batch, reuses destination named records on name
+conflicts, retains exact entity identity through Undo/Redo, and rebuilds the
+single managed/native retained scene only after commit.
+
 The same continuation adds bounded external `.lin` library loading and reload to
 the shared desktop/browser shell. A clean-room ASCII parser retains simple,
 text, and SHX-shape descriptors; one reversible command rejects collisions or

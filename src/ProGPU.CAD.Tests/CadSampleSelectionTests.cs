@@ -805,6 +805,78 @@ public sealed class CadSampleSelectionTests
     }
 
     [Fact]
+    public void SharedViewCopyBaseAndPasteUseExactPointPrompts()
+    {
+        var document = new CadDocument();
+        var line = new Line(new XYZ(1, 2, 0), new XYZ(4, 2, 0));
+        document.Entities.Add(line);
+        var session = new CadDocumentSession(document);
+        var view = new CadSampleView();
+        string clipboard = string.Empty;
+        Action<string>? previousSet = ClipboardHelper.PlatformSetText;
+        Func<string>? previousGet = ClipboardHelper.PlatformGetText;
+        ClipboardHelper.PlatformSetText = value => clipboard = value;
+        ClipboardHelper.PlatformGetText = () => clipboard;
+        try
+        {
+            Button copyBase = FindButton(view, "Copy base…");
+            Button paste = FindButton(view, "Paste…");
+            Assert.False(copyBase.IsEnabled);
+
+            view.Canvas.Load(session);
+            view.Canvas.Arrange(new Rect(0, 0, 800, 600));
+            CadPlanViewport viewport = view.Canvas.CurrentViewport;
+            Click(
+                view.Canvas,
+                viewport.WorldToScreen(new CadPoint3D(2.5, 2, 0)));
+
+            Assert.True(copyBase.IsEnabled);
+            Assert.True(paste.IsEnabled);
+            PressEnter(copyBase);
+            Assert.Equal(
+                CadClipboardPointOperation.CopyBase,
+                view.Canvas.PendingClipboardPointOperation);
+            Click(
+                view.Canvas,
+                viewport.WorldToScreen(new CadPoint3D(1, 2, 0)));
+
+            Assert.Null(view.Canvas.PendingClipboardPointOperation);
+            Assert.StartsWith(
+                "PROGPU-CAD-CLIPBOARD\t1\t",
+                clipboard,
+                StringComparison.Ordinal);
+            Assert.Equal(0UL, session.ContentGeneration);
+            Assert.Single(document.Entities);
+
+            PressEnter(paste);
+            Assert.Equal(
+                CadClipboardPointOperation.Paste,
+                view.Canvas.PendingClipboardPointOperation);
+            view.PointTransformInput.Text = "11,22,0";
+            view.PointTransformInput.OnKeyDown(new KeyRoutedEventArgs
+            {
+                Key = Silk.NET.Input.Key.Enter,
+            });
+
+            Assert.Null(view.Canvas.PendingClipboardPointOperation);
+            Assert.Equal(1UL, session.ContentGeneration);
+            Assert.Equal(2, document.Entities.Count);
+            Assert.Contains(
+                document.Entities.OfType<Line>(),
+                candidate => candidate.StartPoint == new XYZ(11, 22, 0) &&
+                    candidate.EndPoint == new XYZ(14, 22, 0));
+            Assert.True(view.Canvas.TryUndo());
+            Assert.Single(document.Entities);
+        }
+        finally
+        {
+            ClipboardHelper.PlatformSetText = previousSet;
+            ClipboardHelper.PlatformGetText = previousGet;
+            view.Canvas.FireUnloaded();
+        }
+    }
+
+    [Fact]
     public void TypedPointMoveRejectsInvalidInputThenCommitsOneExactWcsEdit()
     {
         var document = new CadDocument();

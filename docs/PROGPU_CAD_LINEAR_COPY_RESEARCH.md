@@ -131,8 +131,9 @@ native source-command count remain identical.
 - Implemented subsequently: shared WCS-XY base/second-point acquisition for
   single MOVE/COPY and bounded repeated Multiple COPY, documented in
   [`PROGPU_CAD_POINT_TRANSFORM_RESEARCH.md`](PROGPU_CAD_POINT_TRANSFORM_RESEARCH.md).
-  UCS and arbitrary-camera interaction, clipboard exchange, and rectangular,
-  polar, or path associative ARRAY entities remain.
+  UCS and arbitrary-camera interaction plus rectangular, polar, or path
+  associative ARRAY entities remain. CAD-object clipboard exchange is specified
+  in `PROGPU_CAD_CLIPBOARD_RESEARCH.md`.
 
 ## Verification evidence
 
