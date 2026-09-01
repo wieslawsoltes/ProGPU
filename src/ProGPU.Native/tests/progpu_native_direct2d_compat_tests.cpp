@@ -1453,12 +1453,12 @@ int main()
     for (std::uint32_t index = 0U;
          index < bitmap_header->resource_count;
          ++index) {
-        const auto* resource = reinterpret_cast<
+        const auto* candidate_resource = reinterpret_cast<
             const progpu_native_scene_resource*>(
             bitmap_scene.data() + bitmap_header->resource_offset +
             index * bitmap_header->resource_stride);
-        if (resource->kind == PROGPU_NATIVE_SCENE_RESOURCE_IMAGE) {
-            image_resource = resource;
+        if (candidate_resource->kind == PROGPU_NATIVE_SCENE_RESOURCE_IMAGE) {
+            image_resource = candidate_resource;
             ++bitmap_resource_count;
         }
     }
