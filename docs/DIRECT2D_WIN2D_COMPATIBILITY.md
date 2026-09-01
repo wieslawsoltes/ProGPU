@@ -907,8 +907,12 @@ use `DashCap`, and the shared curve-dash walker runs with open-source seam
 semantics. Portable tests cover solid body, flat source caps, miter and round
 joins, dashed body/gap, and square dash-cap extension. A genuine Direct2D
 differential builds and runs the same probes through ProGPU and system
-factories on Windows ARM64 and x64. `GetWidenedBounds` and `Widen` for open
-figures remain the next output operations; unsupported multi-figure and
+factories on Windows ARM64 and x64. Open `GetWidenedBounds` shares the same
+body/cap/join extrema, including clipped miters, round affine support points,
+and the SIMD transform/reduction pass. Dashed bounds retain Direct2D's
+conservative source-path envelope even when the final endpoint lies in a gap;
+default, round-join, dashed-square-cap, and nonuniform transformed cases match
+the system on ARM64 and x64. Open `Widen`, unsupported multi-figure, and
 flagged paths still fail closed.
 
 The identical simple closed/default-miter domain now implements

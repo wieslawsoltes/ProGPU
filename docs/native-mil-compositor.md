@@ -6438,8 +6438,13 @@ and `DashCap` at internal splits. Optimized and ASan/UBSan fixtures cover
 solid/dashed body, gap, miter/round joins, flat source caps, and square dash
 caps. The Windows 11 Parallels oracle recompiles and compares the same
 portable/system `ID2D1PathGeometry::StrokeContainsPoint` probes successfully
-on ARM64 and x64. Open `GetWidenedBounds`/`Widen`, multiple figures, and
-flagged paths remain typed fail-closed domains for subsequent increments.
+on ARM64 and x64. Open `GetWidenedBounds` now shares the typed cap/join extrema
+and four-wide affine transform/reduction path. It also preserves the
+system-observed conservative source envelope for an endpoint inside a dash
+gap. Default, round-join, dashed-square-cap, and nonuniform transformed bounds
+pass locally and against genuine Direct2D on both Windows architectures. Open
+`Widen`, multiple figures, and flagged paths remain typed fail-closed domains
+for subsequent increments.
 
 `GetWidenedBounds` now shares that default-miter path domain. Segment offsets
 and miter extrema are constructed before the world transform; independent

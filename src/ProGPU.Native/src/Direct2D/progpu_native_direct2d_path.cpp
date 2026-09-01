@@ -1266,123 +1266,6 @@ struct polygon_stroke_edges final {
     return com::ok;
 }
 
-[[nodiscard]] com::result collect_default_miter_stroke_points(
-    std::span<const point_2f> polygon,
-    float half_width,
-    std::vector<point_2f>& points) noexcept
-{
-    try {
-        points.clear();
-        points.reserve(polygon.size() * 6U);
-        if (half_width == 0.0F) {
-            points.assign(polygon.begin(), polygon.end());
-            return com::ok;
-        }
-        const double half_width_double = half_width;
-        constexpr double default_miter_limit = 10.0;
-        for (std::size_t index = 0U; index < polygon.size(); ++index) {
-            const point_2f start = polygon[index];
-            const point_2f end =
-                polygon[(index + 1U) % polygon.size()];
-            const double delta_x = static_cast<double>(end.x) - start.x;
-            const double delta_y = static_cast<double>(end.y) - start.y;
-            const double length = std::hypot(delta_x, delta_y);
-            if (length == 0.0) {
-                return not_implemented;
-            }
-            const double normal_x = -delta_y / length * half_width_double;
-            const double normal_y = delta_x / length * half_width_double;
-            points.push_back({
-                static_cast<float>(start.x + normal_x),
-                static_cast<float>(start.y + normal_y)});
-            points.push_back({
-                static_cast<float>(start.x - normal_x),
-                static_cast<float>(start.y - normal_y)});
-            points.push_back({
-                static_cast<float>(end.x + normal_x),
-                static_cast<float>(end.y + normal_y)});
-            points.push_back({
-                static_cast<float>(end.x - normal_x),
-                static_cast<float>(end.y - normal_y)});
-        }
-        for (std::size_t index = 0U; index < polygon.size(); ++index) {
-            const point_2f previous = polygon[
-                (index + polygon.size() - 1U) % polygon.size()];
-            const point_2f vertex = polygon[index];
-            const point_2f next =
-                polygon[(index + 1U) % polygon.size()];
-            const double incoming_x =
-                static_cast<double>(vertex.x) - previous.x;
-            const double incoming_y =
-                static_cast<double>(vertex.y) - previous.y;
-            const double outgoing_x =
-                static_cast<double>(next.x) - vertex.x;
-            const double outgoing_y =
-                static_cast<double>(next.y) - vertex.y;
-            const double incoming_length =
-                std::hypot(incoming_x, incoming_y);
-            const double outgoing_length =
-                std::hypot(outgoing_x, outgoing_y);
-            if (incoming_length == 0.0 || outgoing_length == 0.0) {
-                return not_implemented;
-            }
-            const double incoming_unit_x = incoming_x / incoming_length;
-            const double incoming_unit_y = incoming_y / incoming_length;
-            const double outgoing_unit_x = outgoing_x / outgoing_length;
-            const double outgoing_unit_y = outgoing_y / outgoing_length;
-            const double denominator =
-                incoming_unit_x * outgoing_unit_y -
-                incoming_unit_y * outgoing_unit_x;
-            if (denominator == 0.0) {
-                continue;
-            }
-            for (const double side : {-1.0, 1.0}) {
-                const point_2f incoming_offset{
-                    static_cast<float>(
-                        vertex.x - incoming_unit_y *
-                            half_width_double * side),
-                    static_cast<float>(
-                        vertex.y + incoming_unit_x *
-                            half_width_double * side)};
-                const point_2f outgoing_offset{
-                    static_cast<float>(
-                        vertex.x - outgoing_unit_y *
-                            half_width_double * side),
-                    static_cast<float>(
-                        vertex.y + outgoing_unit_x *
-                            half_width_double * side)};
-                const double offset_x =
-                    static_cast<double>(outgoing_offset.x) -
-                    incoming_offset.x;
-                const double offset_y =
-                    static_cast<double>(outgoing_offset.y) -
-                    incoming_offset.y;
-                const double parameter =
-                    (offset_x * outgoing_unit_y -
-                        offset_y * outgoing_unit_x) /
-                    denominator;
-                const point_2f miter{
-                    static_cast<float>(
-                        incoming_offset.x + incoming_unit_x * parameter),
-                    static_cast<float>(
-                        incoming_offset.y + incoming_unit_y * parameter)};
-                const double miter_length = std::hypot(
-                    static_cast<double>(miter.x) - vertex.x,
-                    static_cast<double>(miter.y) - vertex.y);
-                if (miter_length <=
-                    default_miter_limit * half_width_double) {
-                    points.push_back(miter);
-                }
-            }
-        }
-        return com::ok;
-    } catch (const std::bad_alloc&) {
-        return com::out_of_memory;
-    } catch (...) {
-        return failure;
-    }
-}
-
 [[nodiscard]] com::result transformed_point_bounds(
     std::span<const point_2f> points,
     const matrix_3x2_f* transform,
@@ -1629,31 +1512,134 @@ void append_stroke_join_bounds_points(
                 incoming_offset.x + incoming_unit_x * parameter),
             static_cast<float>(
                 incoming_offset.y + incoming_unit_y * parameter)};
-        if (std::hypot(
+        const double miter_length = std::hypot(
                 static_cast<double>(miter.x) - vertex.x,
-                static_cast<double>(miter.y) - vertex.y) <=
-            miter_limit * half_width) {
+                static_cast<double>(miter.y) - vertex.y);
+        if (miter_length <= miter_limit * half_width) {
             points.push_back(miter);
+            continue;
         }
+        if (join != line_join::miter || miter_length == 0.0) {
+            continue;
+        }
+        const double bisector_x =
+            (static_cast<double>(miter.x) - vertex.x) / miter_length;
+        const double bisector_y =
+            (static_cast<double>(miter.y) - vertex.y) / miter_length;
+        const double clip_distance = miter_limit * half_width;
+        const auto append_clipped = [&](point_2f offset) {
+            const double offset_x =
+                static_cast<double>(offset.x) - vertex.x;
+            const double offset_y =
+                static_cast<double>(offset.y) - vertex.y;
+            const double projection =
+                offset_x * bisector_x + offset_y * bisector_y;
+            const double divisor = miter_length - projection;
+            if (divisor <= 0.0) {
+                return;
+            }
+            const double amount =
+                (clip_distance - projection) / divisor;
+            if (std::isfinite(amount) && amount >= 0.0 && amount <= 1.0) {
+                points.push_back({
+                    static_cast<float>(
+                        offset.x + (miter.x - offset.x) * amount),
+                    static_cast<float>(
+                        offset.y + (miter.y - offset.y) * amount)});
+            }
+        };
+        append_clipped(incoming_offset);
+        append_clipped(outgoing_offset);
     }
 }
 
-[[nodiscard]] com::result dashed_polygon_widened_bounds(
+[[nodiscard]] com::result solid_polyline_widened_bounds(
+    std::span<const point_2f> points_source,
+    bool closed,
+    float stroke_width,
+    line_join join,
+    double miter_limit,
+    cap_style start_cap,
+    cap_style end_cap,
+    const matrix_3x2_f* transform,
+    rectangle_f& bounds)
+{
+    const double half_width = static_cast<double>(stroke_width) * 0.5;
+    const std::size_t edge_count =
+        closed ? points_source.size() : points_source.size() - 1U;
+    std::vector<point_2f> points;
+    points.reserve(edge_count * 6U + 8U);
+    for (std::size_t index = 0U; index < edge_count; ++index) {
+        progpu_native_path_segment segment{};
+        segment.kind = PROGPU_NATIVE_PATH_SEGMENT_LINE;
+        segment.p0 = {
+            points_source[index].x,
+            points_source[index].y};
+        const point_2f end =
+            points_source[(index + 1U) % points_source.size()];
+        segment.p1 = {end.x, end.y};
+        const com::result segment_status =
+            append_stroke_segment_bounds_points(
+                segment, half_width, points);
+        if (com::failed(segment_status)) {
+            return segment_status;
+        }
+    }
+    const std::size_t first_join = closed ? 0U : 1U;
+    const std::size_t join_end =
+        closed ? points_source.size() : points_source.size() - 1U;
+    for (std::size_t index = first_join; index < join_end; ++index) {
+        append_stroke_join_bounds_points(
+            points_source[closed
+                ? (index + points_source.size() - 1U) % points_source.size()
+                : index - 1U],
+            points_source[index],
+            points_source[closed
+                ? (index + 1U) % points_source.size()
+                : index + 1U],
+            half_width,
+            join,
+            miter_limit,
+            transform,
+            points);
+    }
+    if (!closed) {
+        append_stroke_cap_bounds_points(
+            points_source.front(),
+            points_source[1U],
+            half_width,
+            start_cap,
+            transform,
+            points);
+        append_stroke_cap_bounds_points(
+            points_source.back(),
+            points_source[points_source.size() - 2U],
+            half_width,
+            end_cap,
+            transform,
+            points);
+    }
+    return transformed_point_bounds(points, transform, bounds);
+}
+
+[[nodiscard]] com::result dashed_polyline_widened_bounds(
     std::span<const point_2f> polygon,
+    bool closed,
     float stroke_width,
     stroke_style& style,
     const matrix_3x2_f* transform,
     rectangle_f& bounds)
 {
     curve_dash::run_buffer dash_runs;
-    const com::result dash_status = create_dashed_polygon_runs(
-        polygon, stroke_width, style, dash_runs);
+    const com::result dash_status = create_dashed_polyline_runs(
+        polygon, closed, stroke_width, style, dash_runs);
     if (com::failed(dash_status)) {
         return dash_status;
     }
     const double half_width = static_cast<double>(stroke_width) * 0.5;
     std::vector<point_2f> points;
     points.reserve(dash_runs.segments.size() * 8U);
+    points.insert(points.end(), polygon.begin(), polygon.end());
     for (const curve_dash::run& run : dash_runs.runs) {
         const auto segments = dash_runs.segments_for(run);
         if (segments.empty()) {
@@ -1689,24 +1675,24 @@ void append_stroke_join_bounds_points(
                 transform,
                 points);
         } else {
-            const cap_style start_cap = run.starts_at_source_start
+            const cap_style run_start_cap = run.starts_at_source_start
                 ? style.GetStartCap()
                 : style.GetDashCap();
-            const cap_style end_cap = run.ends_at_source_end
+            const cap_style run_end_cap = run.ends_at_source_end
                 ? style.GetEndCap()
                 : style.GetDashCap();
             append_stroke_cap_bounds_points(
                 {segments.front().p0.x, segments.front().p0.y},
                 {segments.front().p1.x, segments.front().p1.y},
                 half_width,
-                start_cap,
+                run_start_cap,
                 transform,
                 points);
             append_stroke_cap_bounds_points(
                 {segments.back().p1.x, segments.back().p1.y},
                 {segments.back().p0.x, segments.back().p0.y},
                 half_width,
-                end_cap,
+                run_end_cap,
                 transform,
                 points);
         }
@@ -3287,6 +3273,10 @@ public:
             return com::invalid_argument;
         }
         bool dashed = false;
+        line_join join = line_join::miter;
+        double miter_limit = 10.0;
+        cap_style start_cap = cap_style::flat;
+        cap_style end_cap = cap_style::flat;
         if (style != nullptr) {
             factory* raw_style_factory = nullptr;
             style->GetFactory(&raw_style_factory);
@@ -3296,9 +3286,10 @@ public:
                 return wrong_factory;
             }
             dashed = style->GetDashStyle() != dash_style::solid;
-            if (!dashed) {
-                return not_implemented;
-            }
+            join = style->GetLineJoin();
+            miter_limit = style->GetMiterLimit();
+            start_cap = style->GetStartCap();
+            end_cap = style->GetEndCap();
             if (style->GetLineJoin() > line_join::miter_or_bevel ||
                 !std::isfinite(style->GetMiterLimit()) ||
                 style->GetMiterLimit() < 1.0F ||
@@ -3309,14 +3300,15 @@ public:
                 return com::invalid_argument;
             }
         }
-        if (data_->figures.size() != 1U ||
-            data_->figures.front().end != figure_end::closed) {
+        if (data_->figures.size() != 1U) {
             return not_implemented;
         }
+        const bool closed_figure =
+            data_->figures.front().end == figure_end::closed;
         try {
             std::vector<flat_edge> edges;
             const com::result edge_status = collect_flat_edges(
-                nullptr, flattening_tolerance, true, edges);
+                nullptr, flattening_tolerance, false, edges);
             if (com::failed(edge_status)) {
                 return edge_status;
             }
@@ -3337,26 +3329,37 @@ public:
                 }
                 polygon.push_back(edge.end);
             }
-            if (!normalize_simple_polygon(polygon)) {
-                return not_implemented;
+            if (closed_figure) {
+                if (!normalize_simple_polygon(polygon)) {
+                    return not_implemented;
+                }
+            } else {
+                polygon.erase(
+                    std::unique(polygon.begin(), polygon.end(), same_point),
+                    polygon.end());
+                if (polygon.size() < 2U) {
+                    return not_implemented;
+                }
             }
             if (dashed && stroke_width != 0.0F) {
-                return dashed_polygon_widened_bounds(
+                return dashed_polyline_widened_bounds(
                     polygon,
+                    closed_figure,
                     stroke_width,
                     *style,
                     world_transform,
                     *bounds);
             }
-            std::vector<point_2f> widened_points;
-            const com::result widen_status =
-                collect_default_miter_stroke_points(
-                    polygon, stroke_width * 0.5F, widened_points);
-            if (com::failed(widen_status)) {
-                return widen_status;
-            }
-            return transformed_point_bounds(
-                widened_points, world_transform, *bounds);
+            return solid_polyline_widened_bounds(
+                polygon,
+                closed_figure,
+                stroke_width,
+                join,
+                miter_limit,
+                start_cap,
+                end_cap,
+                world_transform,
+                *bounds);
         } catch (const std::bad_alloc&) {
             return com::out_of_memory;
         } catch (...) {

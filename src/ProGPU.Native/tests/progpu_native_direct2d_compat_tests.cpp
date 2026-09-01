@@ -2535,6 +2535,43 @@ int run_tests()
       open_square_dash_cap == 0) {
     return 384;
   }
+  compat::rectangle_f open_default_bounds{};
+  compat::rectangle_f open_round_bounds{};
+  compat::rectangle_f open_dashed_bounds{};
+  compat::rectangle_f open_transformed_bounds{};
+  if (open_query_path->GetWidenedBounds(
+          2.0F, nullptr, nullptr,
+          core::default_flattening_tolerance,
+          &open_default_bounds) != com::ok ||
+      open_query_path->GetWidenedBounds(
+          2.0F, round_path_stroke_style.get(), nullptr,
+          core::default_flattening_tolerance,
+          &open_round_bounds) != com::ok ||
+      open_query_path->GetWidenedBounds(
+          0.5F, square_dashed_path_stroke_style.get(), nullptr,
+          0.001F, &open_dashed_bounds) != com::ok ||
+      open_query_path->GetWidenedBounds(
+          2.0F, nullptr, &transform,
+          core::default_flattening_tolerance,
+          &open_transformed_bounds) != com::ok ||
+      !approximately_equal(open_default_bounds.left, 0.0F) ||
+      !approximately_equal(open_default_bounds.top, -1.0F) ||
+      !approximately_equal(open_default_bounds.right, 5.0F) ||
+      !approximately_equal(open_default_bounds.bottom, 4.0F) ||
+      !approximately_equal(open_round_bounds.left, 0.0F) ||
+      !approximately_equal(open_round_bounds.top, -1.0F) ||
+      !approximately_equal(open_round_bounds.right, 5.0F) ||
+      !approximately_equal(open_round_bounds.bottom, 4.0F) ||
+      !approximately_equal(open_dashed_bounds.left, 0.0F) ||
+      !approximately_equal(open_dashed_bounds.top, -0.25F) ||
+      !approximately_equal(open_dashed_bounds.right, 4.25F) ||
+      !approximately_equal(open_dashed_bounds.bottom, 4.0F) ||
+      !approximately_equal(open_transformed_bounds.left, 10.0F) ||
+      !approximately_equal(open_transformed_bounds.top, -7.0F) ||
+      !approximately_equal(open_transformed_bounds.right, 20.0F) ||
+      !approximately_equal(open_transformed_bounds.bottom, 8.0F)) {
+    return 388;
+  }
   const compat::matrix_3x2_f disjoint_path_transform{
       1.0F, 0.0F, 0.0F, 1.0F, 10.0F, 0.0F};
   const compat::matrix_3x2_f contained_path_transform{
@@ -6933,11 +6970,97 @@ int run_tests()
           SUCCEEDED(portable_status) && SUCCEEDED(system_status) &&
           portable_contains == system_contains;
     }
+    D2D1_RECT_F portable_open_default_bounds{};
+    D2D1_RECT_F system_open_default_bounds{};
+    D2D1_RECT_F portable_open_dashed_bounds{};
+    D2D1_RECT_F system_open_dashed_bounds{};
+    const HRESULT portable_open_default_bounds_status =
+        portable_open_query_path->GetWidenedBounds(
+            2.0F,
+            nullptr,
+            nullptr,
+            0.001F,
+            &portable_open_default_bounds);
+    const HRESULT system_open_default_bounds_status =
+        system_open_query_path->GetWidenedBounds(
+            2.0F,
+            nullptr,
+            nullptr,
+            0.001F,
+            &system_open_default_bounds);
+    const HRESULT portable_open_dashed_bounds_status =
+        portable_open_query_path->GetWidenedBounds(
+            0.5F,
+            portable_open_dash_style,
+            nullptr,
+            0.001F,
+            &portable_open_dashed_bounds);
+    const HRESULT system_open_dashed_bounds_status =
+        system_open_query_path->GetWidenedBounds(
+            0.5F,
+            system_open_dash_style,
+            nullptr,
+            0.001F,
+            &system_open_dashed_bounds);
+    open_probe_matches = open_probe_matches &&
+        SUCCEEDED(portable_open_default_bounds_status) &&
+        SUCCEEDED(system_open_default_bounds_status) &&
+        SUCCEEDED(portable_open_dashed_bounds_status) &&
+        SUCCEEDED(system_open_dashed_bounds_status) &&
+        approximately_equal(
+            portable_open_default_bounds.left,
+            system_open_default_bounds.left) &&
+        approximately_equal(
+            portable_open_default_bounds.top,
+            system_open_default_bounds.top) &&
+        approximately_equal(
+            portable_open_default_bounds.right,
+            system_open_default_bounds.right) &&
+        approximately_equal(
+            portable_open_default_bounds.bottom,
+            system_open_default_bounds.bottom) &&
+        approximately_equal(
+            portable_open_dashed_bounds.left,
+            system_open_dashed_bounds.left) &&
+        approximately_equal(
+            portable_open_dashed_bounds.top,
+            system_open_dashed_bounds.top) &&
+        approximately_equal(
+            portable_open_dashed_bounds.right,
+            system_open_dashed_bounds.right) &&
+        approximately_equal(
+            portable_open_dashed_bounds.bottom,
+            system_open_dashed_bounds.bottom);
     portable_open_dash_style->Release();
     system_open_dash_style->Release();
     portable_open_query_path->Release();
     system_open_query_path->Release();
     if (!open_probe_matches) {
+      std::fprintf(
+          stderr,
+          "open bounds portable default=%g,%g,%g,%g dashed=%g,%g,%g,%g "
+          "system default=%g,%g,%g,%g dashed=%g,%g,%g,%g statuses="
+          "%08lx/%08lx/%08lx/%08lx\n",
+          portable_open_default_bounds.left,
+          portable_open_default_bounds.top,
+          portable_open_default_bounds.right,
+          portable_open_default_bounds.bottom,
+          portable_open_dashed_bounds.left,
+          portable_open_dashed_bounds.top,
+          portable_open_dashed_bounds.right,
+          portable_open_dashed_bounds.bottom,
+          system_open_default_bounds.left,
+          system_open_default_bounds.top,
+          system_open_default_bounds.right,
+          system_open_default_bounds.bottom,
+          system_open_dashed_bounds.left,
+          system_open_dashed_bounds.top,
+          system_open_dashed_bounds.right,
+          system_open_dashed_bounds.bottom,
+          static_cast<unsigned long>(portable_open_default_bounds_status),
+          static_cast<unsigned long>(system_open_default_bounds_status),
+          static_cast<unsigned long>(portable_open_dashed_bounds_status),
+          static_cast<unsigned long>(system_open_dashed_bounds_status));
       system_factory->Release();
       return 387;
     }
