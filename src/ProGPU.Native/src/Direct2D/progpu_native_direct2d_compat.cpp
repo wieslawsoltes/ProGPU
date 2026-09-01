@@ -7,6 +7,7 @@
 #include "progpu_native_direct2d_rounded_rectangle.hpp"
 #include "progpu_native_direct2d_stroke_style.hpp"
 
+#include <algorithm>
 #include <array>
 #include <cmath>
 #include <limits>
@@ -140,6 +141,242 @@ class portable_factory;
         *relation = geometry_relation::disjoint;
     } else {
         *relation = geometry_relation::overlap;
+    }
+    return com::ok;
+}
+
+struct orthogonal_edge final {
+    std::uint8_t start_x = 0U;
+    std::uint8_t start_y = 0U;
+    std::uint8_t end_x = 0U;
+    std::uint8_t end_y = 0U;
+    bool used = false;
+};
+
+[[nodiscard]] com::result combine_rectangle_with_geometry(
+    factory* owner,
+    const rectangle_f& rectangle,
+    geometry* candidate,
+    combine_mode mode,
+    const matrix_3x2_f* candidate_transform,
+    float flattening_tolerance,
+    simplified_geometry_sink* sink) noexcept
+{
+    if (sink == nullptr) {
+        return com::pointer_error;
+    }
+    if (candidate == nullptr ||
+        (mode != combine_mode::union_value &&
+            mode != combine_mode::intersect && mode != combine_mode::xor_value &&
+            mode != combine_mode::exclude) ||
+        !std::isfinite(flattening_tolerance) ||
+        flattening_tolerance <= 0.0F ||
+        !core::valid_transform(candidate_transform)) {
+        return com::invalid_argument;
+    }
+    if (rectangle.right <= rectangle.left ||
+        rectangle.bottom <= rectangle.top) {
+        return not_implemented;
+    }
+    rectangle_f other{};
+    const com::result rectangle_result = get_axis_aligned_rectangle(
+        owner, candidate, candidate_transform, 0U, &other);
+    if (com::failed(rectangle_result)) {
+        return rectangle_result;
+    }
+    if (other.right <= other.left || other.bottom <= other.top) {
+        return not_implemented;
+    }
+
+    std::array<float, 4U> x_values{
+        rectangle.left, rectangle.right, other.left, other.right};
+    std::array<float, 4U> y_values{
+        rectangle.top, rectangle.bottom, other.top, other.bottom};
+    std::sort(x_values.begin(), x_values.end());
+    std::sort(y_values.begin(), y_values.end());
+    const std::size_t x_count = static_cast<std::size_t>(
+        std::unique(x_values.begin(), x_values.end()) - x_values.begin());
+    const std::size_t y_count = static_cast<std::size_t>(
+        std::unique(y_values.begin(), y_values.end()) - y_values.begin());
+    std::array<std::array<bool, 3U>, 3U> selected{};
+    for (std::size_t y = 0U; y + 1U < y_count; ++y) {
+        for (std::size_t x = 0U; x + 1U < x_count; ++x) {
+            const double center_x =
+                (static_cast<double>(x_values[x]) + x_values[x + 1U]) * 0.5;
+            const double center_y =
+                (static_cast<double>(y_values[y]) + y_values[y + 1U]) * 0.5;
+            const bool in_first =
+                center_x > rectangle.left && center_x < rectangle.right &&
+                center_y > rectangle.top && center_y < rectangle.bottom;
+            const bool in_second =
+                center_x > other.left && center_x < other.right &&
+                center_y > other.top && center_y < other.bottom;
+            switch (mode) {
+            case combine_mode::union_value:
+                selected[y][x] = in_first || in_second;
+                break;
+            case combine_mode::intersect:
+                selected[y][x] = in_first && in_second;
+                break;
+            case combine_mode::xor_value:
+                selected[y][x] = in_first != in_second;
+                break;
+            case combine_mode::exclude:
+                selected[y][x] = in_first && !in_second;
+                break;
+            }
+        }
+    }
+
+    std::array<std::array<std::int8_t, 3U>, 3U> labels{};
+    for (auto& row : labels) {
+        row.fill(-1);
+    }
+    std::array<std::uint8_t, 9U> queue_x{};
+    std::array<std::uint8_t, 9U> queue_y{};
+    std::int8_t component_count = 0;
+    constexpr std::array<std::int8_t, 4U> offsets_x{-1, 1, 0, 0};
+    constexpr std::array<std::int8_t, 4U> offsets_y{0, 0, -1, 1};
+    for (std::size_t start_y = 0U; start_y + 1U < y_count; ++start_y) {
+        for (std::size_t start_x = 0U; start_x + 1U < x_count; ++start_x) {
+            if (!selected[start_y][start_x] ||
+                labels[start_y][start_x] >= 0) {
+                continue;
+            }
+            std::size_t queue_begin = 0U;
+            std::size_t queue_end = 1U;
+            queue_x[0U] = static_cast<std::uint8_t>(start_x);
+            queue_y[0U] = static_cast<std::uint8_t>(start_y);
+            labels[start_y][start_x] = component_count;
+            while (queue_begin < queue_end) {
+                const std::int8_t x = static_cast<std::int8_t>(
+                    queue_x[queue_begin]);
+                const std::int8_t y = static_cast<std::int8_t>(
+                    queue_y[queue_begin]);
+                ++queue_begin;
+                for (std::size_t direction = 0U;
+                     direction < offsets_x.size();
+                     ++direction) {
+                    const std::int8_t next_x = x + offsets_x[direction];
+                    const std::int8_t next_y = y + offsets_y[direction];
+                    if (next_x < 0 || next_y < 0 ||
+                        next_x >= static_cast<std::int8_t>(x_count - 1U) ||
+                        next_y >= static_cast<std::int8_t>(y_count - 1U) ||
+                        !selected[static_cast<std::size_t>(next_y)]
+                            [static_cast<std::size_t>(next_x)] ||
+                        labels[static_cast<std::size_t>(next_y)]
+                            [static_cast<std::size_t>(next_x)] >= 0) {
+                        continue;
+                    }
+                    labels[static_cast<std::size_t>(next_y)]
+                        [static_cast<std::size_t>(next_x)] = component_count;
+                    queue_x[queue_end] = static_cast<std::uint8_t>(next_x);
+                    queue_y[queue_end] = static_cast<std::uint8_t>(next_y);
+                    ++queue_end;
+                }
+            }
+            ++component_count;
+        }
+    }
+
+    sink->SetFillMode(fill_mode::alternate);
+    sink->SetSegmentFlags(path_segment::force_unstroked);
+    for (std::int8_t component = 0; component < component_count; ++component) {
+        std::array<orthogonal_edge, 36U> edges{};
+        std::size_t edge_count = 0U;
+        const auto append_edge = [&](std::size_t start_x,
+                                     std::size_t start_y,
+                                     std::size_t end_x,
+                                     std::size_t end_y) {
+            edges[edge_count++] = {
+                static_cast<std::uint8_t>(start_x),
+                static_cast<std::uint8_t>(start_y),
+                static_cast<std::uint8_t>(end_x),
+                static_cast<std::uint8_t>(end_y),
+                false};
+        };
+        for (std::size_t y = 0U; y + 1U < y_count; ++y) {
+            for (std::size_t x = 0U; x + 1U < x_count; ++x) {
+                if (labels[y][x] != component) {
+                    continue;
+                }
+                if (y == 0U || labels[y - 1U][x] != component) {
+                    append_edge(x, y, x + 1U, y);
+                }
+                if (x + 2U > x_count - 1U ||
+                    labels[y][x + 1U] != component) {
+                    append_edge(x + 1U, y, x + 1U, y + 1U);
+                }
+                if (y + 2U > y_count - 1U ||
+                    labels[y + 1U][x] != component) {
+                    append_edge(x + 1U, y + 1U, x, y + 1U);
+                }
+                if (x == 0U || labels[y][x - 1U] != component) {
+                    append_edge(x, y + 1U, x, y);
+                }
+            }
+        }
+        for (std::size_t first_edge = 0U;
+             first_edge < edge_count;
+             ++first_edge) {
+            if (edges[first_edge].used) {
+                continue;
+            }
+            orthogonal_edge* current = &edges[first_edge];
+            current->used = true;
+            const std::uint8_t first_x = current->start_x;
+            const std::uint8_t first_y = current->start_y;
+            std::array<std::array<std::uint8_t, 2U>, 36U> vertices{};
+            std::size_t vertex_count = 1U;
+            vertices[0U] = {first_x, first_y};
+            while (current->end_x != first_x || current->end_y != first_y) {
+                vertices[vertex_count++] = {
+                    current->end_x, current->end_y};
+                orthogonal_edge* next = nullptr;
+                for (std::size_t candidate_edge = 0U;
+                     candidate_edge < edge_count;
+                     ++candidate_edge) {
+                    if (!edges[candidate_edge].used &&
+                        edges[candidate_edge].start_x == current->end_x &&
+                        edges[candidate_edge].start_y == current->end_y) {
+                        next = &edges[candidate_edge];
+                        break;
+                    }
+                }
+                if (next == nullptr) {
+                    return failure;
+                }
+                next->used = true;
+                current = next;
+            }
+            std::array<point_2f, 36U> compact{};
+            std::size_t compact_count = 0U;
+            for (std::size_t index = 0U; index < vertex_count; ++index) {
+                const auto& previous = vertices[
+                    (index + vertex_count - 1U) % vertex_count];
+                const auto& value = vertices[index];
+                const auto& next = vertices[(index + 1U) % vertex_count];
+                const bool vertical =
+                    previous[0U] == value[0U] &&
+                    value[0U] == next[0U];
+                const bool horizontal =
+                    previous[1U] == value[1U] &&
+                    value[1U] == next[1U];
+                if (!vertical && !horizontal) {
+                    compact[compact_count++] = {
+                        x_values[value[0U]], y_values[value[1U]]};
+                }
+            }
+            if (compact_count < 4U) {
+                return failure;
+            }
+            sink->BeginFigure(compact[0U], figure_begin::filled);
+            sink->AddLines(
+                compact.data() + 1U,
+                static_cast<std::uint32_t>(compact_count - 1U));
+            sink->AddLines(compact.data(), 1U);
+            sink->EndFigure(figure_end::closed);
+        }
     }
     return com::ok;
 }
@@ -811,13 +1048,20 @@ public:
     }
 
     com::result PROGPU_NATIVE_COM_CALL CombineWithGeometry(
-        geometry*,
-        combine_mode,
-        const matrix_3x2_f*,
-        float,
-        simplified_geometry_sink*) const noexcept override
+        geometry* candidate,
+        combine_mode mode,
+        const matrix_3x2_f* candidate_transform,
+        float flattening_tolerance,
+        simplified_geometry_sink* sink) const noexcept override
     {
-        return not_implemented;
+        return combine_rectangle_with_geometry(
+            owner_.get(),
+            geometry_.rectangle(),
+            candidate,
+            mode,
+            candidate_transform,
+            flattening_tolerance,
+            sink);
     }
 
     com::result PROGPU_NATIVE_COM_CALL Outline(
@@ -1094,13 +1338,25 @@ public:
     }
 
     com::result PROGPU_NATIVE_COM_CALL CombineWithGeometry(
-        geometry*,
-        combine_mode,
-        const matrix_3x2_f*,
-        float,
-        simplified_geometry_sink*) const noexcept override
+        geometry* candidate,
+        combine_mode mode,
+        const matrix_3x2_f* candidate_transform,
+        float flattening_tolerance,
+        simplified_geometry_sink* sink) const noexcept override
     {
-        return not_implemented;
+        rectangle_f transformed_rectangle{};
+        const com::result rectangle_result =
+            get_axis_preserving_rectangle(&transformed_rectangle);
+        return com::failed(rectangle_result)
+            ? rectangle_result
+            : combine_rectangle_with_geometry(
+                  owner_.get(),
+                  transformed_rectangle,
+                  candidate,
+                  mode,
+                  candidate_transform,
+                  flattening_tolerance,
+                  sink);
     }
 
     com::result PROGPU_NATIVE_COM_CALL Outline(
