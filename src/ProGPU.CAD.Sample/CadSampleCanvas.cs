@@ -623,6 +623,7 @@ public sealed class CadSampleCanvas : FrameworkElement
         Opacity = 0.45f,
     };
     private readonly CadSnapshotOptions _snapshotOptions;
+    private readonly CadScenePublicationGate _scenePublicationGate = new();
     private readonly HashSet<ulong> _selectedHandleSet = new();
     private readonly HashSet<ulong> _residentSemanticHandleSet = new();
     private readonly HashSet<ulong> _semanticSelectionInputSet = new();
@@ -1546,6 +1547,9 @@ public sealed class CadSampleCanvas : FrameworkElement
                 "An edited CAD scene can only replace the current document session.");
         }
 
+        CadScenePublicationTicket publicationTicket =
+            _scenePublicationGate.Begin(session);
+
         CadDocumentSnapshot snapshot = new CadSnapshotCompiler().Compile(session, _snapshotOptions);
         int selectionCapacity = snapshot.Entities.Length;
         int requiredHandleScratch = CadSelectionQuery.GetUniqueHandleScratchLength(
@@ -1608,10 +1612,21 @@ public sealed class CadSampleCanvas : FrameworkElement
                 RasterImageContext = WgpuContext.Current,
             });
         GpuPicture picture = scene.CreatePicture();
-        GpuPicture? previous = _picture;
-        _picture = picture;
-        CurrentSession = session;
-        CurrentSnapshot = snapshot;
+        GpuPicture? previous = null;
+        if (!_scenePublicationGate.TryPublish(
+                publicationTicket,
+                snapshot.ContentGeneration,
+                () =>
+                {
+                    previous = _picture;
+                    _picture = picture;
+                    CurrentSession = session;
+                    CurrentSnapshot = snapshot;
+                }))
+        {
+            picture.Dispose();
+            return;
+        }
         _residentSemanticHandleSet.Clear();
         _residentSemanticHandleSet.EnsureCapacity(selectionCapacity);
         _semanticSelectionInputSet.Clear();
@@ -10715,6 +10730,7 @@ public sealed class CadSampleCanvas : FrameworkElement
 
     private void ReleaseResources()
     {
+        _scenePublicationGate.Invalidate();
         ReleasePointerCaptures();
         ResetDrawOrderReferencePickState(notify: false);
         ResetPointTransformState(notify: false);

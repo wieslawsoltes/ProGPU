@@ -118,6 +118,33 @@ public sealed class CadDocumentSession
         }
     }
 
+    /// <summary>
+    /// Runs one bounded immutable-state publication only while the document is
+    /// still at <paramref name="expectedGeneration"/>.
+    /// </summary>
+    /// <remarks>
+    /// The callback must not edit this session or retain the mutable document.
+    /// Holding the document gate across the callback closes the check/publish
+    /// race without exposing document ownership to background workers.
+    /// </remarks>
+    internal bool TryPublishGeneration(
+        ulong expectedGeneration,
+        Action publish)
+    {
+        ArgumentNullException.ThrowIfNull(publish);
+
+        lock (_gate)
+        {
+            if (_contentGeneration != expectedGeneration)
+            {
+                return false;
+            }
+
+            publish();
+            return true;
+        }
+    }
+
     public ulong Edit(string reason, CadDocumentEdit edit)
         => EditCore(reason, expectedGeneration: null, edit);
 

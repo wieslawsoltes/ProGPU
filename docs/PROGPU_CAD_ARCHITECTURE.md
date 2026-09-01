@@ -1790,9 +1790,14 @@ an interactive browser picker/download smoke remains open.
   object attached with its original handle and publishes no generation. Work is
   O(N + E + G) for N deleted roots and the current whole-snapshot O(E + G)
   replacement; no per-entity retained-scene mutation occurs.
-- Background compilation captures a generation and publishes only if it still
-  matches; obsolete work is discarded. The UI may continue drawing the previous
-  immutable snapshot while the next generation compiles.
+- `CadScenePublicationGate` now captures session, generation, and monotonic
+  request identity before complete scene preparation. The shared canvas swaps
+  its snapshot and picture only through the one-shot O(1) gate; superseded,
+  invalidated, mismatched, or document-advanced results are rejected under the
+  document gate before retained state changes. The current canvas compilation
+  call remains synchronous. Worker scheduling and generation-keyed reusable
+  chunks remain explicit follow-up work; their future results must pass this
+  same gate while the UI continues drawing the prior immutable picture.
 - Collaboration and scripting consume the same command contracts. Neither is
   allowed to mutate ACadSharp collections behind the transaction boundary.
 
