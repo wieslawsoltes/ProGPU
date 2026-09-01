@@ -536,7 +536,8 @@ bool is_valid_semantic_mesh_3d(
     const bool is_edge_list =
         mesh.topology == PROGPU_NATIVE_MESH_3D_EDGE_LIST;
     const std::uint32_t known_flags = is_edge_list
-        ? PROGPU_NATIVE_MESH_3D_EDGE_DISPLAY_MASK
+        ? static_cast<std::uint32_t>(
+            PROGPU_NATIVE_MESH_3D_EDGE_DISPLAY_MASK)
         : material_flags;
     const bool has_material_image =
         (mesh.flags & PROGPU_NATIVE_MESH_3D_MATERIAL_IMAGE) != 0U;
