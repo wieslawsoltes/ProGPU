@@ -244,6 +244,9 @@ static_assert(sizeof(compat::stroke_style_properties) == 28U);
 static_assert(sizeof(compat::drawing_state_description) == 48U);
 static_assert(sizeof(compat::color_f) == 16U);
 static_assert(sizeof(compat::brush_properties) == 28U);
+static_assert(sizeof(compat::gradient_stop) == 20U);
+static_assert(sizeof(compat::linear_gradient_brush_properties) == 16U);
+static_assert(sizeof(compat::radial_gradient_brush_properties) == 24U);
 static_assert(sizeof(compat::pixel_format) == 8U);
 static_assert(sizeof(compat::size_u) == 8U);
 static_assert(sizeof(compat::scene_render_target_properties) == 32U);
@@ -1116,6 +1119,134 @@ int main()
     }
     com::pointer<compat::solid_color_brush> target_brush;
     target_brush.attach(raw_target_brush);
+    const compat::gradient_stop gradient_stops[]{
+        {0.0F, {1.0F, 0.0F, 0.0F, 1.0F}},
+        {0.5F, {0.0F, 1.0F, 0.0F, 0.75F}},
+        {1.0F, {0.0F, 0.0F, 1.0F, 1.0F}}};
+    compat::gradient_stop_collection* raw_gradient_stops = nullptr;
+    if (target->CreateGradientStopCollection(
+            gradient_stops,
+            3U,
+            compat::gamma::gamma_2_2,
+            compat::extend_mode::mirror,
+            &raw_gradient_stops) != com::ok ||
+        raw_gradient_stops == nullptr) {
+        return 131;
+    }
+    com::pointer<compat::gradient_stop_collection> gradient_collection;
+    gradient_collection.attach(raw_gradient_stops);
+    compat::gradient_stop copied_gradient_stops[3]{};
+    gradient_collection->GetGradientStops(copied_gradient_stops, 3U);
+    if (gradient_collection->GetGradientStopCount() != 3U ||
+        gradient_collection->GetColorInterpolationGamma() !=
+            compat::gamma::gamma_2_2 ||
+        gradient_collection->GetExtendMode() !=
+            compat::extend_mode::mirror ||
+        !approximately_equal(copied_gradient_stops[1].position, 0.5F) ||
+        !approximately_equal(copied_gradient_stops[1].color.alpha, 0.75F)) {
+        return 132;
+    }
+    const compat::linear_gradient_brush_properties linear_properties{
+        {2.0F, 3.0F}, {30.0F, 21.0F}};
+    compat::linear_gradient_brush* raw_linear_brush = nullptr;
+    if (target->CreateLinearGradientBrush(
+            &linear_properties,
+            nullptr,
+            gradient_collection.get(),
+            &raw_linear_brush) != com::ok ||
+        raw_linear_brush == nullptr) {
+        return 133;
+    }
+    com::pointer<compat::linear_gradient_brush> linear_brush;
+    linear_brush.attach(raw_linear_brush);
+    linear_brush->SetStartPoint({4.0F, 5.0F});
+    linear_brush->SetEndPoint({32.0F, 23.0F});
+    linear_brush->SetStartPoint(
+        {std::numeric_limits<float>::infinity(), 0.0F});
+    if (!approximately_equal(linear_brush->GetStartPoint().x, 4.0F) ||
+        !approximately_equal(linear_brush->GetEndPoint().y, 23.0F)) {
+        return 134;
+    }
+    const compat::radial_gradient_brush_properties radial_properties{
+        {17.0F, 14.0F}, {-2.0F, 1.0F}, 12.0F, 8.0F};
+    const compat::brush_properties radial_brush_properties{
+        0.875F, {1.0F, 0.0F, 0.0F, 1.0F, 1.0F, -1.0F}};
+    compat::radial_gradient_brush* raw_radial_brush = nullptr;
+    if (target->CreateRadialGradientBrush(
+            &radial_properties,
+            &radial_brush_properties,
+            gradient_collection.get(),
+            &raw_radial_brush) != com::ok ||
+        raw_radial_brush == nullptr) {
+        return 135;
+    }
+    com::pointer<compat::radial_gradient_brush> radial_brush;
+    radial_brush.attach(raw_radial_brush);
+    radial_brush->SetRadiusX(10.0F);
+    radial_brush->SetRadiusY(-1.0F);
+    if (!approximately_equal(radial_brush->GetRadiusX(), 10.0F) ||
+        !approximately_equal(radial_brush->GetRadiusY(), 8.0F) ||
+        !approximately_equal(radial_brush->GetOpacity(), 0.875F)) {
+        return 136;
+    }
+    compat::gradient_stop invalid_gradient_stops[]{
+        {0.75F, {1.0F, 0.0F, 0.0F, 1.0F}},
+        {0.25F, {0.0F, 0.0F, 1.0F, 1.0F}}};
+    raw_gradient_stops = reinterpret_cast<compat::gradient_stop_collection*>(
+        static_cast<std::uintptr_t>(1U));
+    if (target->CreateGradientStopCollection(
+            invalid_gradient_stops,
+            2U,
+            compat::gamma::gamma_2_2,
+            compat::extend_mode::clamp,
+            &raw_gradient_stops) != com::invalid_argument ||
+        raw_gradient_stops != nullptr) {
+        return 137;
+    }
+    compat::factory* raw_other_factory = nullptr;
+    if (compat::create_factory(&raw_other_factory) != com::ok ||
+        raw_other_factory == nullptr) {
+        return 140;
+    }
+    com::pointer<compat::factory> other_factory;
+    other_factory.attach(raw_other_factory);
+    com::pointer<compat::scene_factory_native> other_scene_factory;
+    if (other_factory.as(
+            compat::scene_factory_native_interface_id,
+            other_scene_factory) != com::ok ||
+        !other_scene_factory) {
+        return 141;
+    }
+    compat::render_target* raw_other_target = nullptr;
+    if (other_scene_factory->CreateSceneRenderTarget(
+            &target_properties, &raw_other_target) != com::ok ||
+        raw_other_target == nullptr) {
+        return 142;
+    }
+    com::pointer<compat::render_target> other_target;
+    other_target.attach(raw_other_target);
+    compat::gradient_stop_collection* raw_foreign_stops = nullptr;
+    if (other_target->CreateGradientStopCollection(
+            gradient_stops,
+            3U,
+            compat::gamma::gamma_2_2,
+            compat::extend_mode::clamp,
+            &raw_foreign_stops) != com::ok ||
+        raw_foreign_stops == nullptr) {
+        return 143;
+    }
+    com::pointer<compat::gradient_stop_collection> foreign_stops;
+    foreign_stops.attach(raw_foreign_stops);
+    raw_linear_brush = reinterpret_cast<compat::linear_gradient_brush*>(
+        static_cast<std::uintptr_t>(1U));
+    if (target->CreateLinearGradientBrush(
+            &linear_properties,
+            nullptr,
+            foreign_stops.get(),
+            &raw_linear_brush) != compat::wrong_factory ||
+        raw_linear_brush != nullptr) {
+        return 144;
+    }
     target->BeginDraw();
     const compat::color_f clear_color{0.05F, 0.1F, 0.15F, 1.0F};
     target->Clear(&clear_color);
@@ -1136,6 +1267,10 @@ int main()
         nullptr);
     target->FillEllipse(
         &ellipse_value, static_cast<compat::brush*>(target_brush.get()));
+    target->FillRectangle(
+        &rectangle, static_cast<compat::brush*>(linear_brush.get()));
+    target->FillEllipse(
+        &ellipse_value, static_cast<compat::brush*>(radial_brush.get()));
     if (target->EndDraw(nullptr, nullptr) != com::ok) {
         return 123;
     }
@@ -1145,7 +1280,7 @@ int main()
         scene_target->GetRequiredSceneSize();
     if (target_summary.scene_id != 7001U ||
         target_summary.generation != 11U ||
-        target_summary.draw_count != 4U || target_summary.has_clear != 1 ||
+        target_summary.draw_count != 6U || target_summary.has_clear != 1 ||
         !approximately_equal(target_summary.clear_color.green, 0.1F) ||
         required_scene_size < sizeof(progpu_native_scene_header)) {
         return 124;
@@ -1164,9 +1299,55 @@ int main()
         const progpu_native_scene_header*>(scene_bytes.data());
     if (scene_header->scene_id != 7001U ||
         scene_header->generation != 11U ||
-        scene_header->command_count != 4U ||
+        scene_header->command_count != 6U ||
         scene_header->total_size != written_scene_size) {
         return 126;
+    }
+    const auto* scene_resources = reinterpret_cast<
+        const progpu_native_scene_resource*>(
+        scene_bytes.data() + scene_header->resource_offset);
+    const progpu_native_scene_resource* brush_table = nullptr;
+    for (std::uint32_t index = 0U;
+         index < scene_header->resource_count;
+         ++index) {
+        const auto* scene_resource = reinterpret_cast<
+            const progpu_native_scene_resource*>(
+            reinterpret_cast<const std::byte*>(scene_resources) +
+            index * scene_header->resource_stride);
+        if (scene_resource->kind ==
+            PROGPU_NATIVE_SCENE_RESOURCE_BRUSH_TABLE) {
+            brush_table = scene_resource;
+            break;
+        }
+    }
+    if (brush_table == nullptr ||
+        brush_table->payload_size % sizeof(progpu_native_scene_brush) != 0U ||
+        brush_table->auxiliary_size !=
+            6U * sizeof(progpu_native_scene_gradient_stop)) {
+        return 138;
+    }
+    const auto* scene_brushes = reinterpret_cast<
+        const progpu_native_scene_brush*>(
+        scene_bytes.data() + brush_table->payload_offset);
+    const std::size_t scene_brush_count = brush_table->payload_size /
+        sizeof(progpu_native_scene_brush);
+    bool found_linear = false;
+    bool found_radial = false;
+    for (std::size_t index = 0U; index < scene_brush_count; ++index) {
+        found_linear = found_linear ||
+            (scene_brushes[index].type ==
+                    PROGPU_NATIVE_SCENE_BRUSH_LINEAR_GRADIENT &&
+                scene_brushes[index].spread_method ==
+                    PROGPU_NATIVE_SCENE_GRADIENT_REFLECT &&
+                scene_brushes[index].stop_count == 3U);
+        found_radial = found_radial ||
+            (scene_brushes[index].type ==
+                    PROGPU_NATIVE_SCENE_BRUSH_RADIAL_GRADIENT &&
+                approximately_equal(scene_brushes[index].radius, 10.0F) &&
+                approximately_equal(scene_brushes[index].radius_y, 8.0F));
+    }
+    if (!found_linear || !found_radial) {
+        return 139;
     }
     target->BeginDraw();
     target->DrawRectangle(
@@ -1230,6 +1411,15 @@ int main()
             compat::solid_color_brush_interface_id,
             __uuidof(ID2D1SolidColorBrush)) ||
         !com::guid_equal(
+            compat::gradient_stop_collection_interface_id,
+            __uuidof(ID2D1GradientStopCollection)) ||
+        !com::guid_equal(
+            compat::linear_gradient_brush_interface_id,
+            __uuidof(ID2D1LinearGradientBrush)) ||
+        !com::guid_equal(
+            compat::radial_gradient_brush_interface_id,
+            __uuidof(ID2D1RadialGradientBrush)) ||
+        !com::guid_equal(
             compat::render_target_interface_id,
             __uuidof(ID2D1RenderTarget)) ||
         !com::guid_equal(
@@ -1253,6 +1443,11 @@ int main()
             sizeof(D2D1_DRAWING_STATE_DESCRIPTION) ||
         sizeof(compat::color_f) != sizeof(D2D1_COLOR_F) ||
         sizeof(compat::brush_properties) != sizeof(D2D1_BRUSH_PROPERTIES) ||
+        sizeof(compat::gradient_stop) != sizeof(D2D1_GRADIENT_STOP) ||
+        sizeof(compat::linear_gradient_brush_properties) !=
+            sizeof(D2D1_LINEAR_GRADIENT_BRUSH_PROPERTIES) ||
+        sizeof(compat::radial_gradient_brush_properties) !=
+            sizeof(D2D1_RADIAL_GRADIENT_BRUSH_PROPERTIES) ||
         sizeof(compat::pixel_format) != sizeof(D2D1_PIXEL_FORMAT) ||
         sizeof(compat::size_u) != sizeof(D2D1_SIZE_U) ||
         sizeof(compat::triangle) != sizeof(D2D1_TRIANGLE) ||
@@ -1282,6 +1477,37 @@ int main()
         !approximately_equal(native_portable_brush_opacity, 0.5F) ||
         !approximately_equal(native_portable_brush_transform._22, 3.0F)) {
         return 117;
+    }
+    auto* native_gradient_collection = reinterpret_cast<
+        ID2D1GradientStopCollection*>(gradient_collection.get());
+    D2D1_GRADIENT_STOP native_gradient_stops[3]{};
+    native_gradient_collection->GetGradientStops(native_gradient_stops, 3U);
+    auto* native_linear_brush = reinterpret_cast<
+        ID2D1LinearGradientBrush*>(linear_brush.get());
+    auto* native_radial_brush = reinterpret_cast<
+        ID2D1RadialGradientBrush*>(radial_brush.get());
+    ID2D1GradientStopCollection* returned_native_collection = nullptr;
+    native_linear_brush->GetGradientStopCollection(
+        &returned_native_collection);
+    const D2D1_POINT_2F native_linear_start =
+        native_linear_brush->GetStartPoint();
+    const D2D1_POINT_2F native_radial_center =
+        native_radial_brush->GetCenter();
+    const float native_radial_radius_x = native_radial_brush->GetRadiusX();
+    if (returned_native_collection != nullptr) {
+        returned_native_collection->Release();
+    }
+    if (native_gradient_collection->GetGradientStopCount() != 3U ||
+        native_gradient_collection->GetColorInterpolationGamma() !=
+            D2D1_GAMMA_2_2 ||
+        native_gradient_collection->GetExtendMode() !=
+            D2D1_EXTEND_MODE_MIRROR ||
+        !approximately_equal(native_gradient_stops[1].position, 0.5F) ||
+        !approximately_equal(native_linear_start.x, 4.0F) ||
+        !approximately_equal(native_radial_center.x, 17.0F) ||
+        !approximately_equal(native_radial_radius_x, 10.0F) ||
+        returned_native_collection == nullptr) {
+        return 145;
     }
     auto* native_target = reinterpret_cast<ID2D1RenderTarget*>(target.get());
     const D2D1_SIZE_U native_target_pixel_size = native_target->GetPixelSize();

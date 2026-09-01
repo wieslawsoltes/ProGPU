@@ -33,12 +33,17 @@ public sealed class Direct2DInteropContractTests
         Assert.Contains("WGPUInstanceBackend_Metal", nativeTest, StringComparison.Ordinal);
         Assert.Contains("WGPUInstanceBackend_Vulkan", nativeTest, StringComparison.Ordinal);
         Assert.Contains("d2d::render_scene_target(", nativeTest, StringComparison.Ordinal);
+        Assert.Contains("CreateLinearGradientBrush(", nativeTest, StringComparison.Ordinal);
+        Assert.Contains("CreateRadialGradientBrush(", nativeTest, StringComparison.Ordinal);
+        Assert.Contains("pixel(46U, 14U)", nativeTest, StringComparison.Ordinal);
         Assert.Contains("frame_metrics.submission_count == 1U", nativeTest, StringComparison.Ordinal);
         Assert.Contains("progpu_native_direct2d_webgpu_tests", cmake, StringComparison.Ordinal);
         Assert.Contains("progpu-direct2d-metal.ppm", unixBuild, StringComparison.Ordinal);
         Assert.Contains("progpu-direct2d-vulkan.ppm", unixBuild, StringComparison.Ordinal);
         Assert.Contains("progpu-direct2d-d3d12.ppm", windowsBuild, StringComparison.Ordinal);
         Assert.Contains("MaximumChannelDifference\": 1", comparator, StringComparison.Ordinal);
+        Assert.Contains("linear-gradient rectangle", comparator, StringComparison.Ordinal);
+        Assert.Contains("(46, 14)", comparator, StringComparison.Ordinal);
         Assert.Contains("native-direct2d-webgpu-parity", workflow, StringComparison.Ordinal);
         Assert.Contains("progpu-compare-direct2d-webgpu.py", workflow, StringComparison.Ordinal);
     }
@@ -275,6 +280,9 @@ public sealed class Direct2DInteropContractTests
         Assert.Contains("struct stroke_style : resource", header, StringComparison.Ordinal);
         Assert.Contains("struct drawing_state_block : resource", header, StringComparison.Ordinal);
         Assert.Contains("struct render_target : resource", header, StringComparison.Ordinal);
+        Assert.Contains("struct gradient_stop_collection : resource", header, StringComparison.Ordinal);
+        Assert.Contains("struct linear_gradient_brush : brush", header, StringComparison.Ordinal);
+        Assert.Contains("struct radial_gradient_brush : brush", header, StringComparison.Ordinal);
         Assert.Contains("struct scene_render_target_native : com::unknown", header, StringComparison.Ordinal);
         Assert.Contains("struct geometry_sink : simplified_geometry_sink", header, StringComparison.Ordinal);
         Assert.Contains("class portable_factory final", source, StringComparison.Ordinal);
@@ -288,6 +296,11 @@ public sealed class Direct2DInteropContractTests
         Assert.Contains("core::valid_stroke_style", strokeStyleSource, StringComparison.Ordinal);
         Assert.Contains("class portable_drawing_state_block final", drawingStateSource, StringComparison.Ordinal);
         Assert.Contains("class portable_scene_render_target final", renderTargetSource, StringComparison.Ordinal);
+        Assert.Contains("class portable_gradient_stop_collection final", renderTargetSource, StringComparison.Ordinal);
+        Assert.Contains("class portable_linear_gradient_brush final", renderTargetSource, StringComparison.Ordinal);
+        Assert.Contains("class portable_radial_gradient_brush final", renderTargetSource, StringComparison.Ordinal);
+        Assert.Contains("PROGPU_NATIVE_SCENE_BRUSH_LINEAR_GRADIENT", renderTargetSource, StringComparison.Ordinal);
+        Assert.Contains("PROGPU_NATIVE_SCENE_BRUSH_RADIAL_GRADIENT", renderTargetSource, StringComparison.Ordinal);
         Assert.Contains("builder_.draw_analytic", renderTargetSource, StringComparison.Ordinal);
         Assert.Contains("builder_.draw_geometry", renderTargetSource, StringComparison.Ordinal);
         Assert.Contains("render_scene_target(", submissionHeader, StringComparison.Ordinal);
@@ -316,6 +329,9 @@ public sealed class Direct2DInteropContractTests
         Assert.Contains("ID2D1StrokeStyle*", nativeTest, StringComparison.Ordinal);
         Assert.Contains("ID2D1DrawingStateBlock*", nativeTest, StringComparison.Ordinal);
         Assert.Contains("ID2D1RenderTarget*", nativeTest, StringComparison.Ordinal);
+        Assert.Contains("ID2D1GradientStopCollection", nativeTest, StringComparison.Ordinal);
+        Assert.Contains("ID2D1LinearGradientBrush", nativeTest, StringComparison.Ordinal);
+        Assert.Contains("ID2D1RadialGradientBrush", nativeTest, StringComparison.Ordinal);
         Assert.Contains("ID2D1GeometrySink*", nativeTest, StringComparison.Ordinal);
         Assert.Contains("native_path->Stream", nativeTest, StringComparison.Ordinal);
         Assert.Contains("factory.Reset();", nativeTest, StringComparison.Ordinal);

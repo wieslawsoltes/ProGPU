@@ -9,6 +9,8 @@
 #include <mutex>
 #include <new>
 #include <span>
+#include <utility>
+#include <vector>
 
 namespace progpu::native::direct2d::compat::detail {
 namespace {
@@ -37,6 +39,452 @@ constexpr matrix_3x2_f identity_transform{
     return std::isfinite(dpi_x) && std::isfinite(dpi_y) &&
         dpi_x > 0.0F && dpi_y > 0.0F;
 }
+
+[[nodiscard]] bool valid_opacity(float value) noexcept
+{
+    return std::isfinite(value) && value >= 0.0F && value <= 1.0F;
+}
+
+[[nodiscard]] bool valid_brush_properties(
+    const brush_properties& value) noexcept
+{
+    return valid_opacity(value.opacity) &&
+        core::valid_transform(&value.transform);
+}
+
+class portable_gradient_stop_collection final :
+    public gradient_stop_collection {
+public:
+    portable_gradient_stop_collection(
+        factory* owner,
+        std::vector<gradient_stop> stops,
+        gamma interpolation_gamma,
+        extend_mode extend) noexcept
+        : owner_(owner),
+          stops_(std::move(stops)),
+          interpolation_gamma_(interpolation_gamma),
+          extend_(extend)
+    {
+    }
+
+    com::result PROGPU_NATIVE_COM_CALL QueryInterface(
+        com::guid_ref interface_id,
+        void** value) noexcept override
+    {
+        if (value == nullptr) {
+            return com::pointer_error;
+        }
+        *value = nullptr;
+        if (com::guid_equal(interface_id, com::unknown_interface_id()) ||
+            com::guid_equal(interface_id, resource_interface_id) ||
+            com::guid_equal(
+                interface_id, gradient_stop_collection_interface_id)) {
+            *value = static_cast<gradient_stop_collection*>(this);
+            AddRef();
+            return com::ok;
+        }
+        return com::no_interface;
+    }
+
+    com::reference_count_value PROGPU_NATIVE_COM_CALL AddRef()
+        noexcept override
+    {
+        return reference_count_.add_ref();
+    }
+
+    com::reference_count_value PROGPU_NATIVE_COM_CALL Release()
+        noexcept override
+    {
+        return reference_count_.release(this);
+    }
+
+    void PROGPU_NATIVE_COM_CALL GetFactory(factory** value) const
+        noexcept override
+    {
+        if (value == nullptr) {
+            return;
+        }
+        *value = owner_.get();
+        if (*value != nullptr) {
+            (*value)->AddRef();
+        }
+    }
+
+    std::uint32_t PROGPU_NATIVE_COM_CALL GetGradientStopCount()
+        const noexcept override
+    {
+        return static_cast<std::uint32_t>(stops_.size());
+    }
+
+    void PROGPU_NATIVE_COM_CALL GetGradientStops(
+        gradient_stop* gradient_stops,
+        std::uint32_t gradient_stop_count) const noexcept override
+    {
+        if (gradient_stops == nullptr || gradient_stop_count == 0U) {
+            return;
+        }
+        const std::size_t copy_count = std::min<std::size_t>(
+            gradient_stop_count, stops_.size());
+        std::copy_n(stops_.begin(), copy_count, gradient_stops);
+    }
+
+    gamma PROGPU_NATIVE_COM_CALL GetColorInterpolationGamma()
+        const noexcept override
+    {
+        return interpolation_gamma_;
+    }
+
+    extend_mode PROGPU_NATIVE_COM_CALL GetExtendMode()
+        const noexcept override
+    {
+        return extend_;
+    }
+
+private:
+    friend class com::atomic_reference_count<
+        portable_gradient_stop_collection>;
+    ~portable_gradient_stop_collection() = default;
+
+    com::atomic_reference_count<portable_gradient_stop_collection>
+        reference_count_;
+    com::pointer<factory> owner_;
+    std::vector<gradient_stop> stops_;
+    gamma interpolation_gamma_ = gamma::gamma_2_2;
+    extend_mode extend_ = extend_mode::clamp;
+};
+
+class portable_linear_gradient_brush final :
+    public linear_gradient_brush {
+public:
+    portable_linear_gradient_brush(
+        factory* owner,
+        const linear_gradient_brush_properties& gradient_properties,
+        const brush_properties& properties,
+        gradient_stop_collection* stops) noexcept
+        : owner_(owner),
+          stops_(stops),
+          start_(gradient_properties.start_point),
+          end_(gradient_properties.end_point),
+          opacity_(properties.opacity),
+          transform_(properties.transform)
+    {
+    }
+
+    com::result PROGPU_NATIVE_COM_CALL QueryInterface(
+        com::guid_ref interface_id,
+        void** value) noexcept override
+    {
+        if (value == nullptr) {
+            return com::pointer_error;
+        }
+        *value = nullptr;
+        if (com::guid_equal(interface_id, com::unknown_interface_id()) ||
+            com::guid_equal(interface_id, resource_interface_id) ||
+            com::guid_equal(interface_id, brush_interface_id) ||
+            com::guid_equal(
+                interface_id, linear_gradient_brush_interface_id)) {
+            *value = static_cast<linear_gradient_brush*>(this);
+            AddRef();
+            return com::ok;
+        }
+        return com::no_interface;
+    }
+
+    com::reference_count_value PROGPU_NATIVE_COM_CALL AddRef()
+        noexcept override
+    {
+        return reference_count_.add_ref();
+    }
+
+    com::reference_count_value PROGPU_NATIVE_COM_CALL Release()
+        noexcept override
+    {
+        return reference_count_.release(this);
+    }
+
+    void PROGPU_NATIVE_COM_CALL GetFactory(factory** value) const
+        noexcept override
+    {
+        if (value == nullptr) {
+            return;
+        }
+        *value = owner_.get();
+        if (*value != nullptr) {
+            (*value)->AddRef();
+        }
+    }
+
+    void PROGPU_NATIVE_COM_CALL SetOpacity(float opacity) noexcept override
+    {
+        if (valid_opacity(opacity)) {
+            const std::lock_guard lock(mutex_);
+            opacity_ = opacity;
+        }
+    }
+
+    void PROGPU_NATIVE_COM_CALL SetTransform(
+        const matrix_3x2_f* transform) noexcept override
+    {
+        if (transform != nullptr && core::valid_transform(transform)) {
+            const std::lock_guard lock(mutex_);
+            transform_ = *transform;
+        }
+    }
+
+    float PROGPU_NATIVE_COM_CALL GetOpacity() const noexcept override
+    {
+        const std::lock_guard lock(mutex_);
+        return opacity_;
+    }
+
+    void PROGPU_NATIVE_COM_CALL GetTransform(
+        matrix_3x2_f* transform) const noexcept override
+    {
+        if (transform != nullptr) {
+            const std::lock_guard lock(mutex_);
+            *transform = transform_;
+        }
+    }
+
+    void PROGPU_NATIVE_COM_CALL SetStartPoint(point_2f start_point)
+        noexcept override
+    {
+        if (valid_point(start_point)) {
+            const std::lock_guard lock(mutex_);
+            start_ = start_point;
+        }
+    }
+
+    void PROGPU_NATIVE_COM_CALL SetEndPoint(point_2f end_point)
+        noexcept override
+    {
+        if (valid_point(end_point)) {
+            const std::lock_guard lock(mutex_);
+            end_ = end_point;
+        }
+    }
+
+    point_2f PROGPU_NATIVE_COM_CALL GetStartPoint()
+        const noexcept override
+    {
+        const std::lock_guard lock(mutex_);
+        return start_;
+    }
+
+    point_2f PROGPU_NATIVE_COM_CALL GetEndPoint() const noexcept override
+    {
+        const std::lock_guard lock(mutex_);
+        return end_;
+    }
+
+    void PROGPU_NATIVE_COM_CALL GetGradientStopCollection(
+        gradient_stop_collection** collection) const noexcept override
+    {
+        if (collection == nullptr) {
+            return;
+        }
+        *collection = stops_.get();
+        if (*collection != nullptr) {
+            (*collection)->AddRef();
+        }
+    }
+
+private:
+    friend class com::atomic_reference_count<portable_linear_gradient_brush>;
+    ~portable_linear_gradient_brush() = default;
+
+    com::atomic_reference_count<portable_linear_gradient_brush>
+        reference_count_;
+    com::pointer<factory> owner_;
+    com::pointer<gradient_stop_collection> stops_;
+    mutable std::mutex mutex_;
+    point_2f start_{};
+    point_2f end_{};
+    float opacity_ = 1.0F;
+    matrix_3x2_f transform_ = identity_transform;
+};
+
+class portable_radial_gradient_brush final :
+    public radial_gradient_brush {
+public:
+    portable_radial_gradient_brush(
+        factory* owner,
+        const radial_gradient_brush_properties& gradient_properties,
+        const brush_properties& properties,
+        gradient_stop_collection* stops) noexcept
+        : owner_(owner),
+          stops_(stops),
+          center_(gradient_properties.center),
+          origin_offset_(gradient_properties.gradient_origin_offset),
+          radius_x_(gradient_properties.radius_x),
+          radius_y_(gradient_properties.radius_y),
+          opacity_(properties.opacity),
+          transform_(properties.transform)
+    {
+    }
+
+    com::result PROGPU_NATIVE_COM_CALL QueryInterface(
+        com::guid_ref interface_id,
+        void** value) noexcept override
+    {
+        if (value == nullptr) {
+            return com::pointer_error;
+        }
+        *value = nullptr;
+        if (com::guid_equal(interface_id, com::unknown_interface_id()) ||
+            com::guid_equal(interface_id, resource_interface_id) ||
+            com::guid_equal(interface_id, brush_interface_id) ||
+            com::guid_equal(
+                interface_id, radial_gradient_brush_interface_id)) {
+            *value = static_cast<radial_gradient_brush*>(this);
+            AddRef();
+            return com::ok;
+        }
+        return com::no_interface;
+    }
+
+    com::reference_count_value PROGPU_NATIVE_COM_CALL AddRef()
+        noexcept override
+    {
+        return reference_count_.add_ref();
+    }
+
+    com::reference_count_value PROGPU_NATIVE_COM_CALL Release()
+        noexcept override
+    {
+        return reference_count_.release(this);
+    }
+
+    void PROGPU_NATIVE_COM_CALL GetFactory(factory** value) const
+        noexcept override
+    {
+        if (value == nullptr) {
+            return;
+        }
+        *value = owner_.get();
+        if (*value != nullptr) {
+            (*value)->AddRef();
+        }
+    }
+
+    void PROGPU_NATIVE_COM_CALL SetOpacity(float opacity) noexcept override
+    {
+        if (valid_opacity(opacity)) {
+            const std::lock_guard lock(mutex_);
+            opacity_ = opacity;
+        }
+    }
+
+    void PROGPU_NATIVE_COM_CALL SetTransform(
+        const matrix_3x2_f* transform) noexcept override
+    {
+        if (transform != nullptr && core::valid_transform(transform)) {
+            const std::lock_guard lock(mutex_);
+            transform_ = *transform;
+        }
+    }
+
+    float PROGPU_NATIVE_COM_CALL GetOpacity() const noexcept override
+    {
+        const std::lock_guard lock(mutex_);
+        return opacity_;
+    }
+
+    void PROGPU_NATIVE_COM_CALL GetTransform(
+        matrix_3x2_f* transform) const noexcept override
+    {
+        if (transform != nullptr) {
+            const std::lock_guard lock(mutex_);
+            *transform = transform_;
+        }
+    }
+
+    void PROGPU_NATIVE_COM_CALL SetCenter(point_2f center) noexcept override
+    {
+        if (valid_point(center)) {
+            const std::lock_guard lock(mutex_);
+            center_ = center;
+        }
+    }
+
+    void PROGPU_NATIVE_COM_CALL SetGradientOriginOffset(
+        point_2f gradient_origin_offset) noexcept override
+    {
+        if (valid_point(gradient_origin_offset)) {
+            const std::lock_guard lock(mutex_);
+            origin_offset_ = gradient_origin_offset;
+        }
+    }
+
+    void PROGPU_NATIVE_COM_CALL SetRadiusX(float radius_x) noexcept override
+    {
+        if (std::isfinite(radius_x) && radius_x >= 0.0F) {
+            const std::lock_guard lock(mutex_);
+            radius_x_ = radius_x;
+        }
+    }
+
+    void PROGPU_NATIVE_COM_CALL SetRadiusY(float radius_y) noexcept override
+    {
+        if (std::isfinite(radius_y) && radius_y >= 0.0F) {
+            const std::lock_guard lock(mutex_);
+            radius_y_ = radius_y;
+        }
+    }
+
+    point_2f PROGPU_NATIVE_COM_CALL GetCenter() const noexcept override
+    {
+        const std::lock_guard lock(mutex_);
+        return center_;
+    }
+
+    point_2f PROGPU_NATIVE_COM_CALL GetGradientOriginOffset()
+        const noexcept override
+    {
+        const std::lock_guard lock(mutex_);
+        return origin_offset_;
+    }
+
+    float PROGPU_NATIVE_COM_CALL GetRadiusX() const noexcept override
+    {
+        const std::lock_guard lock(mutex_);
+        return radius_x_;
+    }
+
+    float PROGPU_NATIVE_COM_CALL GetRadiusY() const noexcept override
+    {
+        const std::lock_guard lock(mutex_);
+        return radius_y_;
+    }
+
+    void PROGPU_NATIVE_COM_CALL GetGradientStopCollection(
+        gradient_stop_collection** collection) const noexcept override
+    {
+        if (collection == nullptr) {
+            return;
+        }
+        *collection = stops_.get();
+        if (*collection != nullptr) {
+            (*collection)->AddRef();
+        }
+    }
+
+private:
+    friend class com::atomic_reference_count<portable_radial_gradient_brush>;
+    ~portable_radial_gradient_brush() = default;
+
+    com::atomic_reference_count<portable_radial_gradient_brush>
+        reference_count_;
+    com::pointer<factory> owner_;
+    com::pointer<gradient_stop_collection> stops_;
+    mutable std::mutex mutex_;
+    point_2f center_{};
+    point_2f origin_offset_{};
+    float radius_x_ = 0.0F;
+    float radius_y_ = 0.0F;
+    float opacity_ = 1.0F;
+    matrix_3x2_f transform_ = identity_transform;
+};
 
 class portable_scene_render_target final :
     public render_target,
@@ -152,31 +600,130 @@ public:
     }
 
     com::result PROGPU_NATIVE_COM_CALL CreateGradientStopCollection(
-        const void*,
-        std::uint32_t,
-        std::uint32_t,
-        std::uint32_t,
+        const gradient_stop* gradient_stops,
+        std::uint32_t gradient_stop_count,
+        gamma color_interpolation_gamma,
+        extend_mode extend_mode_value,
         gradient_stop_collection** value) noexcept override
     {
-        return unsupported_output(value);
+        if (value == nullptr) {
+            return com::pointer_error;
+        }
+        *value = nullptr;
+        if (gradient_stops == nullptr || gradient_stop_count == 0U ||
+            gradient_stop_count > PROGPU_NATIVE_SCENE_MAX_GRADIENT_STOPS ||
+            (color_interpolation_gamma != gamma::gamma_2_2 &&
+                color_interpolation_gamma != gamma::gamma_1_0) ||
+            (extend_mode_value != extend_mode::clamp &&
+                extend_mode_value != extend_mode::wrap &&
+                extend_mode_value != extend_mode::mirror)) {
+            return com::invalid_argument;
+        }
+        float previous = -std::numeric_limits<float>::infinity();
+        for (std::uint32_t index = 0U;
+             index < gradient_stop_count;
+             ++index) {
+            const gradient_stop& stop = gradient_stops[index];
+            if (!std::isfinite(stop.position) || stop.position < 0.0F ||
+                stop.position > 1.0F || stop.position < previous ||
+                !valid_color(stop.color)) {
+                return com::invalid_argument;
+            }
+            previous = stop.position;
+        }
+        try {
+            std::vector<gradient_stop> stops(
+                gradient_stops, gradient_stops + gradient_stop_count);
+            auto* created = new (std::nothrow)
+                portable_gradient_stop_collection(
+                    owner_.get(), std::move(stops),
+                    color_interpolation_gamma, extend_mode_value);
+            if (created == nullptr) {
+                return com::out_of_memory;
+            }
+            *value = created;
+            return com::ok;
+        } catch (const std::bad_alloc&) {
+            return com::out_of_memory;
+        } catch (...) {
+            return failure;
+        }
     }
 
     com::result PROGPU_NATIVE_COM_CALL CreateLinearGradientBrush(
-        const linear_gradient_brush_properties*,
-        const brush_properties*,
-        gradient_stop_collection*,
+        const linear_gradient_brush_properties* gradient_properties,
+        const brush_properties* properties,
+        gradient_stop_collection* stops,
         linear_gradient_brush** value) noexcept override
     {
-        return unsupported_output(value);
+        if (value == nullptr) {
+            return com::pointer_error;
+        }
+        *value = nullptr;
+        const brush_properties actual_properties = properties == nullptr
+            ? brush_properties{1.0F, identity_transform}
+            : *properties;
+        if (gradient_properties == nullptr || stops == nullptr ||
+            !valid_point(gradient_properties->start_point) ||
+            !valid_point(gradient_properties->end_point) ||
+            !valid_brush_properties(actual_properties)) {
+            return com::invalid_argument;
+        }
+        factory* raw_factory = nullptr;
+        stops->GetFactory(&raw_factory);
+        com::pointer<factory> stop_factory;
+        stop_factory.attach(raw_factory);
+        if (stop_factory.get() != owner_.get()) {
+            return wrong_factory;
+        }
+        auto* created = new (std::nothrow) portable_linear_gradient_brush(
+            owner_.get(), *gradient_properties, actual_properties, stops);
+        if (created == nullptr) {
+            return com::out_of_memory;
+        }
+        *value = created;
+        return com::ok;
     }
 
     com::result PROGPU_NATIVE_COM_CALL CreateRadialGradientBrush(
-        const radial_gradient_brush_properties*,
-        const brush_properties*,
-        gradient_stop_collection*,
+        const radial_gradient_brush_properties* gradient_properties,
+        const brush_properties* properties,
+        gradient_stop_collection* stops,
         radial_gradient_brush** value) noexcept override
     {
-        return unsupported_output(value);
+        if (value == nullptr) {
+            return com::pointer_error;
+        }
+        *value = nullptr;
+        const brush_properties actual_properties = properties == nullptr
+            ? brush_properties{1.0F, identity_transform}
+            : *properties;
+        if (gradient_properties == nullptr || stops == nullptr ||
+            !valid_point(gradient_properties->center) ||
+            !valid_point(gradient_properties->gradient_origin_offset) ||
+            !std::isfinite(gradient_properties->radius_x) ||
+            !std::isfinite(gradient_properties->radius_y) ||
+            gradient_properties->radius_x < 0.0F ||
+            gradient_properties->radius_y < 0.0F ||
+            (gradient_properties->radius_x == 0.0F &&
+                gradient_properties->radius_y == 0.0F) ||
+            !valid_brush_properties(actual_properties)) {
+            return com::invalid_argument;
+        }
+        factory* raw_factory = nullptr;
+        stops->GetFactory(&raw_factory);
+        com::pointer<factory> stop_factory;
+        stop_factory.attach(raw_factory);
+        if (stop_factory.get() != owner_.get()) {
+            return wrong_factory;
+        }
+        auto* created = new (std::nothrow) portable_radial_gradient_brush(
+            owner_.get(), *gradient_properties, actual_properties, stops);
+        if (created == nullptr) {
+            return com::out_of_memory;
+        }
+        *value = created;
+        return com::ok;
     }
 
     com::result PROGPU_NATIVE_COM_CALL CreateCompatibleRenderTarget(
@@ -750,6 +1297,190 @@ private:
             : failure;
     }
 
+    [[nodiscard]] static bool try_invert_transform(
+        const matrix_3x2_f& source,
+        matrix_3x2_f& inverse) noexcept
+    {
+        const double determinant =
+            static_cast<double>(source.m11) * source.m22 -
+            static_cast<double>(source.m12) * source.m21;
+        if (!std::isfinite(determinant) || determinant == 0.0) {
+            return false;
+        }
+        const double reciprocal = 1.0 / determinant;
+        const double m11 = static_cast<double>(source.m22) * reciprocal;
+        const double m12 = -static_cast<double>(source.m12) * reciprocal;
+        const double m21 = -static_cast<double>(source.m21) * reciprocal;
+        const double m22 = static_cast<double>(source.m11) * reciprocal;
+        const double m31 =
+            (static_cast<double>(source.m21) * source.m32 -
+                static_cast<double>(source.m31) * source.m22) * reciprocal;
+        const double m32 =
+            (static_cast<double>(source.m31) * source.m12 -
+                static_cast<double>(source.m11) * source.m32) * reciprocal;
+        constexpr double maximum = std::numeric_limits<float>::max();
+        const double values[]{m11, m12, m21, m22, m31, m32};
+        if (!std::all_of(
+                std::begin(values), std::end(values),
+                [](double value) {
+                    return std::isfinite(value) && value >= -maximum &&
+                        value <= maximum;
+                })) {
+            return false;
+        }
+        inverse = {
+            static_cast<float>(m11),
+            static_cast<float>(m12),
+            static_cast<float>(m21),
+            static_cast<float>(m22),
+            static_cast<float>(m31),
+            static_cast<float>(m32)};
+        return true;
+    }
+
+    [[nodiscard]] static matrix_3x2_f compose_transform(
+        const matrix_3x2_f& first,
+        const matrix_3x2_f& second) noexcept
+    {
+        return {
+            first.m11 * second.m11 + first.m12 * second.m21,
+            first.m11 * second.m12 + first.m12 * second.m22,
+            first.m21 * second.m11 + first.m22 * second.m21,
+            first.m21 * second.m12 + first.m22 * second.m22,
+            first.m31 * second.m11 + first.m32 * second.m21 + second.m31,
+            first.m31 * second.m12 + first.m32 * second.m22 + second.m32};
+    }
+
+    [[nodiscard]] bool set_gradient_coordinate_transform(
+        brush* source,
+        progpu_native_scene_brush& destination) noexcept
+    {
+        matrix_3x2_f brush_transform{};
+        source->GetTransform(&brush_transform);
+        matrix_3x2_f inverse_draw{};
+        matrix_3x2_f inverse_brush{};
+        if (!core::valid_transform(&brush_transform) ||
+            !try_invert_transform(transform_, inverse_draw) ||
+            !try_invert_transform(brush_transform, inverse_brush)) {
+            latch(com::invalid_argument);
+            return false;
+        }
+        const matrix_3x2_f coordinate =
+            compose_transform(inverse_draw, inverse_brush);
+        if (!core::valid_transform(&coordinate)) {
+            latch(com::invalid_argument);
+            return false;
+        }
+        destination.coordinate_transform0[0] = coordinate.m11;
+        destination.coordinate_transform0[1] = coordinate.m21;
+        destination.coordinate_transform0[2] = coordinate.m31;
+        destination.coordinate_transform1[0] = coordinate.m12;
+        destination.coordinate_transform1[1] = coordinate.m22;
+        destination.coordinate_transform1[2] = coordinate.m32;
+        return true;
+    }
+
+    [[nodiscard]] bool add_gradient_brush(
+        brush* source,
+        gradient_stop_collection* collection,
+        progpu_native_scene_brush& native,
+        std::uint32_t& brush_index) noexcept
+    {
+        if (collection == nullptr) {
+            latch(com::invalid_argument);
+            return false;
+        }
+        factory* raw_factory = nullptr;
+        collection->GetFactory(&raw_factory);
+        com::pointer<factory> collection_factory;
+        collection_factory.attach(raw_factory);
+        if (collection_factory.get() != owner_.get()) {
+            latch(wrong_factory);
+            return false;
+        }
+        const std::uint32_t stop_count = collection->GetGradientStopCount();
+        if (stop_count == 0U ||
+            stop_count > PROGPU_NATIVE_SCENE_MAX_GRADIENT_STOPS) {
+            latch(com::invalid_argument);
+            return false;
+        }
+        switch (collection->GetExtendMode()) {
+        case extend_mode::clamp:
+            native.spread_method = PROGPU_NATIVE_SCENE_GRADIENT_PAD;
+            break;
+        case extend_mode::wrap:
+            native.spread_method = PROGPU_NATIVE_SCENE_GRADIENT_REPEAT;
+            break;
+        case extend_mode::mirror:
+            native.spread_method = PROGPU_NATIVE_SCENE_GRADIENT_REFLECT;
+            break;
+        default:
+            latch(com::invalid_argument);
+            return false;
+        }
+        switch (collection->GetColorInterpolationGamma()) {
+        case gamma::gamma_2_2:
+            native.color_interpolation_mode =
+                PROGPU_NATIVE_SCENE_GRADIENT_INTERPOLATE_SRGB;
+            break;
+        case gamma::gamma_1_0:
+            native.color_interpolation_mode =
+                PROGPU_NATIVE_SCENE_GRADIENT_INTERPOLATE_SCRGB;
+            break;
+        default:
+            latch(com::invalid_argument);
+            return false;
+        }
+        try {
+            std::vector<gradient_stop> stops(stop_count);
+            collection->GetGradientStops(stops.data(), stop_count);
+            std::vector<progpu_native_scene_gradient_stop> native_stops;
+            native_stops.reserve(stop_count);
+            float previous = -std::numeric_limits<float>::infinity();
+            for (const gradient_stop& stop : stops) {
+                if (!std::isfinite(stop.position) || stop.position < 0.0F ||
+                    stop.position > 1.0F || stop.position < previous ||
+                    !valid_color(stop.color)) {
+                    latch(com::invalid_argument);
+                    return false;
+                }
+                native_stops.push_back({
+                    {stop.color.red, stop.color.green, stop.color.blue,
+                        stop.color.alpha},
+                    stop.position,
+                    0U,
+                    0U,
+                    0U});
+                previous = stop.position;
+            }
+            native.stop_count = stop_count;
+            const std::size_t inline_count = std::min<std::size_t>(
+                native_stops.size(), 8U);
+            for (std::size_t index = 0U; index < inline_count; ++index) {
+                native.colors[index] = native_stops[index].color;
+                if (index < 4U) {
+                    native.offsets0[index] = native_stops[index].offset;
+                } else {
+                    native.offsets1[index - 4U] = native_stops[index].offset;
+                }
+            }
+            if (!set_gradient_coordinate_transform(source, native)) {
+                return false;
+            }
+            if (!builder_.add_brush(native, native_stops, brush_index)) {
+                latch(builder_failure());
+                return false;
+            }
+            return true;
+        } catch (const std::bad_alloc&) {
+            latch(com::out_of_memory);
+            return false;
+        } catch (...) {
+            latch(failure);
+            return false;
+        }
+    }
+
     [[nodiscard]] bool add_brush(
         brush* brush_value,
         std::uint32_t& brush_index) noexcept
@@ -758,6 +1489,80 @@ private:
             latch(com::invalid_argument);
             return false;
         }
+        factory* raw_factory = nullptr;
+        brush_value->GetFactory(&raw_factory);
+        com::pointer<factory> brush_factory;
+        brush_factory.attach(raw_factory);
+        if (brush_factory.get() != owner_.get()) {
+            latch(wrong_factory);
+            return false;
+        }
+
+        linear_gradient_brush* raw_linear = nullptr;
+        const com::result linear_query = brush_value->QueryInterface(
+            linear_gradient_brush_interface_id,
+            reinterpret_cast<void**>(&raw_linear));
+        com::pointer<linear_gradient_brush> linear;
+        linear.attach(raw_linear);
+        if (com::succeeded(linear_query) && linear) {
+            const point_2f start = linear->GetStartPoint();
+            const point_2f end = linear->GetEndPoint();
+            const float opacity = linear->GetOpacity();
+            if (!valid_point(start) || !valid_point(end) ||
+                !valid_opacity(opacity)) {
+                latch(com::invalid_argument);
+                return false;
+            }
+            gradient_stop_collection* raw_collection = nullptr;
+            linear->GetGradientStopCollection(&raw_collection);
+            com::pointer<gradient_stop_collection> collection;
+            collection.attach(raw_collection);
+            progpu_native_scene_brush native{};
+            native.type = PROGPU_NATIVE_SCENE_BRUSH_LINEAR_GRADIENT;
+            native.opacity = opacity;
+            native.start_point = {start.x, start.y};
+            native.end_point = {end.x, end.y};
+            return add_gradient_brush(
+                linear.get(), collection.get(), native, brush_index);
+        }
+
+        radial_gradient_brush* raw_radial = nullptr;
+        const com::result radial_query = brush_value->QueryInterface(
+            radial_gradient_brush_interface_id,
+            reinterpret_cast<void**>(&raw_radial));
+        com::pointer<radial_gradient_brush> radial;
+        radial.attach(raw_radial);
+        if (com::succeeded(radial_query) && radial) {
+            const point_2f center = radial->GetCenter();
+            const point_2f offset = radial->GetGradientOriginOffset();
+            const point_2f origin{center.x + offset.x, center.y + offset.y};
+            const float radius_x = radial->GetRadiusX();
+            const float radius_y = radial->GetRadiusY();
+            const float opacity = radial->GetOpacity();
+            if (!valid_point(center) || !valid_point(offset) ||
+                !valid_point(origin) || !std::isfinite(radius_x) ||
+                !std::isfinite(radius_y) || radius_x < 0.0F ||
+                radius_y < 0.0F ||
+                (radius_x == 0.0F && radius_y == 0.0F) ||
+                !valid_opacity(opacity)) {
+                latch(com::invalid_argument);
+                return false;
+            }
+            gradient_stop_collection* raw_collection = nullptr;
+            radial->GetGradientStopCollection(&raw_collection);
+            com::pointer<gradient_stop_collection> collection;
+            collection.attach(raw_collection);
+            progpu_native_scene_brush native{};
+            native.type = PROGPU_NATIVE_SCENE_BRUSH_RADIAL_GRADIENT;
+            native.opacity = opacity;
+            native.start_point = {origin.x, origin.y};
+            native.center = {center.x, center.y};
+            native.radius = radius_x;
+            native.radius_y = radius_y;
+            return add_gradient_brush(
+                radial.get(), collection.get(), native, brush_index);
+        }
+
         solid_color_brush* raw_solid = nullptr;
         const com::result query = brush_value->QueryInterface(
             solid_color_brush_interface_id,
@@ -766,14 +1571,6 @@ private:
         solid.attach(raw_solid);
         if (com::failed(query) || !solid) {
             latch(not_implemented);
-            return false;
-        }
-        factory* raw_factory = nullptr;
-        solid->GetFactory(&raw_factory);
-        com::pointer<factory> brush_factory;
-        brush_factory.attach(raw_factory);
-        if (brush_factory.get() != owner_.get()) {
-            latch(wrong_factory);
             return false;
         }
         const color_f color = solid->GetColor();

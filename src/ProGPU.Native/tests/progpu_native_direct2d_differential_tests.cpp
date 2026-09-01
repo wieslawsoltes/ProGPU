@@ -279,12 +279,10 @@ portable_scene record_portable_scene()
     native_com::pointer<d2d::render_target> target;
     target.attach(raw_target);
 
-    const std::array<d2d::color_f, 4U> colors{
-        d2d::color_f{1.0F, 0.0F, 0.0F, 1.0F},
-        d2d::color_f{0.0F, 1.0F, 0.0F, 1.0F},
+    const std::array<d2d::color_f, 2U> colors{
         d2d::color_f{0.0F, 0.0F, 1.0F, 1.0F},
         d2d::color_f{1.0F, 0.0F, 1.0F, 1.0F}};
-    std::array<native_com::pointer<d2d::solid_color_brush>, 4U> brushes;
+    std::array<native_com::pointer<d2d::solid_color_brush>, 2U> brushes;
     for (std::size_t index = 0U; index < brushes.size(); ++index) {
         d2d::solid_color_brush* raw_brush = nullptr;
         require(target->CreateSolidColorBrush(
@@ -292,6 +290,59 @@ portable_scene record_portable_scene()
             raw_brush != nullptr, "portable brush creation failed");
         brushes[index].attach(raw_brush);
     }
+    const d2d::gradient_stop linear_stops[]{
+        {0.0F, {1.0F, 0.0F, 0.0F, 1.0F}},
+        {1.0F, {1.0F, 1.0F, 0.0F, 1.0F}}};
+    d2d::gradient_stop_collection* raw_linear_stops = nullptr;
+    require(target->CreateGradientStopCollection(
+            linear_stops,
+            2U,
+            d2d::gamma::gamma_2_2,
+            d2d::extend_mode::clamp,
+            &raw_linear_stops) == native_com::ok &&
+        raw_linear_stops != nullptr,
+        "portable linear gradient stops creation failed");
+    native_com::pointer<d2d::gradient_stop_collection> linear_collection;
+    linear_collection.attach(raw_linear_stops);
+    const d2d::linear_gradient_brush_properties linear_properties{
+        {4.0F, 12.0F}, {20.0F, 12.0F}};
+    d2d::linear_gradient_brush* raw_linear = nullptr;
+    require(target->CreateLinearGradientBrush(
+            &linear_properties,
+            nullptr,
+            linear_collection.get(),
+            &raw_linear) == native_com::ok &&
+        raw_linear != nullptr,
+        "portable linear gradient brush creation failed");
+    native_com::pointer<d2d::linear_gradient_brush> linear;
+    linear.attach(raw_linear);
+
+    const d2d::gradient_stop radial_stops[]{
+        {0.0F, {0.0F, 1.0F, 0.0F, 1.0F}},
+        {1.0F, {0.0F, 1.0F, 1.0F, 1.0F}}};
+    d2d::gradient_stop_collection* raw_radial_stops = nullptr;
+    require(target->CreateGradientStopCollection(
+            radial_stops,
+            2U,
+            d2d::gamma::gamma_2_2,
+            d2d::extend_mode::clamp,
+            &raw_radial_stops) == native_com::ok &&
+        raw_radial_stops != nullptr,
+        "portable radial gradient stops creation failed");
+    native_com::pointer<d2d::gradient_stop_collection> radial_collection;
+    radial_collection.attach(raw_radial_stops);
+    const d2d::radial_gradient_brush_properties radial_properties{
+        {40.0F, 14.0F}, {0.0F, 0.0F}, 8.0F, 8.0F};
+    d2d::radial_gradient_brush* raw_radial = nullptr;
+    require(target->CreateRadialGradientBrush(
+            &radial_properties,
+            nullptr,
+            radial_collection.get(),
+            &raw_radial) == native_com::ok &&
+        raw_radial != nullptr,
+        "portable radial gradient brush creation failed");
+    native_com::pointer<d2d::radial_gradient_brush> radial;
+    radial.attach(raw_radial);
     const d2d::color_f clear{0.05F, 0.1F, 0.15F, 1.0F};
     const d2d::rectangle_f rectangle{4.0F, 4.0F, 20.0F, 20.0F};
     const d2d::ellipse ellipse_value{{40.0F, 14.0F}, 8.0F, 8.0F};
@@ -301,16 +352,16 @@ portable_scene record_portable_scene()
     target->BeginDraw();
     target->Clear(&clear);
     target->FillRectangle(
-        &rectangle, static_cast<d2d::brush*>(brushes[0U].get()));
+        &rectangle, static_cast<d2d::brush*>(linear.get()));
     target->FillEllipse(
-        &ellipse_value, static_cast<d2d::brush*>(brushes[1U].get()));
+        &ellipse_value, static_cast<d2d::brush*>(radial.get()));
     target->DrawRectangle(
         &stroked,
-        static_cast<d2d::brush*>(brushes[2U].get()),
+        static_cast<d2d::brush*>(brushes[0U].get()),
         3.0F,
         nullptr);
     target->FillRoundedRectangle(
-        &rounded, static_cast<d2d::brush*>(brushes[3U].get()));
+        &rounded, static_cast<d2d::brush*>(brushes[1U].get()));
     require(target->EndDraw(nullptr, nullptr) == native_com::ok,
         "portable scene recording failed");
     native_com::pointer<d2d::scene_render_target_native> scene_target;
@@ -521,12 +572,10 @@ std::vector<std::uint8_t> render_system_direct2d()
     native_com::pointer<ID2D1RenderTarget> target;
     target.attach(raw_target);
 
-    const std::array<D2D1_COLOR_F, 4U> colors{
-        D2D1_COLOR_F{1.0F, 0.0F, 0.0F, 1.0F},
-        D2D1_COLOR_F{0.0F, 1.0F, 0.0F, 1.0F},
+    const std::array<D2D1_COLOR_F, 2U> colors{
         D2D1_COLOR_F{0.0F, 0.0F, 1.0F, 1.0F},
         D2D1_COLOR_F{1.0F, 0.0F, 1.0F, 1.0F}};
-    std::array<native_com::pointer<ID2D1SolidColorBrush>, 4U> brushes;
+    std::array<native_com::pointer<ID2D1SolidColorBrush>, 2U> brushes;
     for (std::size_t index = 0U; index < brushes.size(); ++index) {
         ID2D1SolidColorBrush* raw_brush = nullptr;
         require(SUCCEEDED(target->CreateSolidColorBrush(
@@ -534,6 +583,59 @@ std::vector<std::uint8_t> render_system_direct2d()
             raw_brush != nullptr, "system Direct2D brush creation failed");
         brushes[index].attach(raw_brush);
     }
+    const D2D1_GRADIENT_STOP linear_stops[]{
+        {0.0F, {1.0F, 0.0F, 0.0F, 1.0F}},
+        {1.0F, {1.0F, 1.0F, 0.0F, 1.0F}}};
+    ID2D1GradientStopCollection* raw_linear_stops = nullptr;
+    require(SUCCEEDED(target->CreateGradientStopCollection(
+            linear_stops,
+            2U,
+            D2D1_GAMMA_2_2,
+            D2D1_EXTEND_MODE_CLAMP,
+            &raw_linear_stops)) &&
+        raw_linear_stops != nullptr,
+        "system linear gradient stops creation failed");
+    native_com::pointer<ID2D1GradientStopCollection> linear_collection;
+    linear_collection.attach(raw_linear_stops);
+    const D2D1_LINEAR_GRADIENT_BRUSH_PROPERTIES linear_properties{
+        {4.0F, 12.0F}, {20.0F, 12.0F}};
+    ID2D1LinearGradientBrush* raw_linear = nullptr;
+    require(SUCCEEDED(target->CreateLinearGradientBrush(
+            &linear_properties,
+            nullptr,
+            linear_collection.get(),
+            &raw_linear)) &&
+        raw_linear != nullptr,
+        "system linear gradient brush creation failed");
+    native_com::pointer<ID2D1LinearGradientBrush> linear;
+    linear.attach(raw_linear);
+
+    const D2D1_GRADIENT_STOP radial_stops[]{
+        {0.0F, {0.0F, 1.0F, 0.0F, 1.0F}},
+        {1.0F, {0.0F, 1.0F, 1.0F, 1.0F}}};
+    ID2D1GradientStopCollection* raw_radial_stops = nullptr;
+    require(SUCCEEDED(target->CreateGradientStopCollection(
+            radial_stops,
+            2U,
+            D2D1_GAMMA_2_2,
+            D2D1_EXTEND_MODE_CLAMP,
+            &raw_radial_stops)) &&
+        raw_radial_stops != nullptr,
+        "system radial gradient stops creation failed");
+    native_com::pointer<ID2D1GradientStopCollection> radial_collection;
+    radial_collection.attach(raw_radial_stops);
+    const D2D1_RADIAL_GRADIENT_BRUSH_PROPERTIES radial_properties{
+        {40.0F, 14.0F}, {0.0F, 0.0F}, 8.0F, 8.0F};
+    ID2D1RadialGradientBrush* raw_radial = nullptr;
+    require(SUCCEEDED(target->CreateRadialGradientBrush(
+            &radial_properties,
+            nullptr,
+            radial_collection.get(),
+            &raw_radial)) &&
+        raw_radial != nullptr,
+        "system radial gradient brush creation failed");
+    native_com::pointer<ID2D1RadialGradientBrush> radial;
+    radial.attach(raw_radial);
     const D2D1_COLOR_F clear{0.05F, 0.1F, 0.15F, 1.0F};
     const D2D1_RECT_F rectangle{4.0F, 4.0F, 20.0F, 20.0F};
     const D2D1_ELLIPSE ellipse_value{{40.0F, 14.0F}, 8.0F, 8.0F};
@@ -542,10 +644,10 @@ std::vector<std::uint8_t> render_system_direct2d()
         {36.0F, 28.0F, 56.0F, 44.0F}, 4.0F, 4.0F};
     target->BeginDraw();
     target->Clear(&clear);
-    target->FillRectangle(&rectangle, brushes[0U].get());
-    target->FillEllipse(&ellipse_value, brushes[1U].get());
-    target->DrawRectangle(&stroked, brushes[2U].get(), 3.0F);
-    target->FillRoundedRectangle(&rounded, brushes[3U].get());
+    target->FillRectangle(&rectangle, linear.get());
+    target->FillEllipse(&ellipse_value, radial.get());
+    target->DrawRectangle(&stroked, brushes[0U].get(), 3.0F);
+    target->FillRoundedRectangle(&rounded, brushes[1U].get());
     require(SUCCEEDED(target->EndDraw()), "system Direct2D draw failed");
 
     WICRect lock_rectangle{0, 0, static_cast<INT>(width),
@@ -580,10 +682,11 @@ void compare_images(
 {
     require(progpu.size() == static_cast<std::size_t>(row_bytes) * height &&
         system.size() == progpu.size(), "differential image size mismatch");
-    constexpr std::array<std::array<std::uint32_t, 2U>, 5U> probes{{
+    constexpr std::array<std::array<std::uint32_t, 2U>, 6U> probes{{
         {2U, 2U},
         {10U, 10U},
         {40U, 14U},
+        {46U, 14U},
         {18U, 28U},
         {46U, 36U}}};
     for (const auto& probe : probes) {

@@ -35,6 +35,23 @@ struct brush_properties final {
     matrix_3x2_f transform;
 };
 
+struct gradient_stop final {
+    float position;
+    color_f color;
+};
+
+struct linear_gradient_brush_properties final {
+    point_2f start_point;
+    point_2f end_point;
+};
+
+struct radial_gradient_brush_properties final {
+    point_2f center;
+    point_2f gradient_origin_offset;
+    float radius_x;
+    float radius_y;
+};
+
 inline constexpr com::result not_implemented = -2147467263;
 inline constexpr com::result failure = -2147467259;
 inline constexpr com::result wrong_factory = -2003238894;
@@ -107,6 +124,21 @@ inline constexpr com::guid brush_interface_id{
     {0x9FU, 0xEDU, 0x00U, 0x11U, 0x43U, 0xA0U, 0x55U, 0xF9U}};
 inline constexpr com::guid solid_color_brush_interface_id{
     0x2CD906A9U,
+    0x12E2U,
+    0x11DCU,
+    {0x9FU, 0xEDU, 0x00U, 0x11U, 0x43U, 0xA0U, 0x55U, 0xF9U}};
+inline constexpr com::guid gradient_stop_collection_interface_id{
+    0x2CD906A7U,
+    0x12E2U,
+    0x11DCU,
+    {0x9FU, 0xEDU, 0x00U, 0x11U, 0x43U, 0xA0U, 0x55U, 0xF9U}};
+inline constexpr com::guid linear_gradient_brush_interface_id{
+    0x2CD906ABU,
+    0x12E2U,
+    0x11DCU,
+    {0x9FU, 0xEDU, 0x00U, 0x11U, 0x43U, 0xA0U, 0x55U, 0xF9U}};
+inline constexpr com::guid radial_gradient_brush_interface_id{
+    0x2CD906ACU,
     0x12E2U,
     0x11DCU,
     {0x9FU, 0xEDU, 0x00U, 0x11U, 0x43U, 0xA0U, 0x55U, 0xF9U}};
@@ -226,6 +258,17 @@ enum class compatible_render_target_options : std::uint32_t {
     gdi_compatible = 1U
 };
 
+enum class gamma : std::uint32_t {
+    gamma_2_2 = 0U,
+    gamma_1_0 = 1U
+};
+
+enum class extend_mode : std::uint32_t {
+    clamp = 0U,
+    wrap = 1U,
+    mirror = 2U
+};
+
 struct pixel_format final {
     std::uint32_t format;
     alpha_mode alpha;
@@ -297,8 +340,6 @@ struct rendering_parameters;
 struct glyph_run;
 struct bitmap_properties;
 struct bitmap_brush_properties;
-struct linear_gradient_brush_properties;
-struct radial_gradient_brush_properties;
 struct layer_parameters;
 
 struct simplified_geometry_sink : com::unknown {
@@ -494,6 +535,49 @@ struct solid_color_brush : brush {
     virtual color_f PROGPU_NATIVE_COM_CALL GetColor() const noexcept = 0;
 };
 
+struct gradient_stop_collection : resource {
+    virtual std::uint32_t PROGPU_NATIVE_COM_CALL GetGradientStopCount()
+        const noexcept = 0;
+    virtual void PROGPU_NATIVE_COM_CALL GetGradientStops(
+        gradient_stop* gradient_stops,
+        std::uint32_t gradient_stop_count) const noexcept = 0;
+    virtual gamma PROGPU_NATIVE_COM_CALL GetColorInterpolationGamma()
+        const noexcept = 0;
+    virtual extend_mode PROGPU_NATIVE_COM_CALL GetExtendMode()
+        const noexcept = 0;
+};
+
+struct linear_gradient_brush : brush {
+    virtual void PROGPU_NATIVE_COM_CALL SetStartPoint(point_2f start_point)
+        noexcept = 0;
+    virtual void PROGPU_NATIVE_COM_CALL SetEndPoint(point_2f end_point)
+        noexcept = 0;
+    virtual point_2f PROGPU_NATIVE_COM_CALL GetStartPoint()
+        const noexcept = 0;
+    virtual point_2f PROGPU_NATIVE_COM_CALL GetEndPoint()
+        const noexcept = 0;
+    virtual void PROGPU_NATIVE_COM_CALL GetGradientStopCollection(
+        gradient_stop_collection** collection) const noexcept = 0;
+};
+
+struct radial_gradient_brush : brush {
+    virtual void PROGPU_NATIVE_COM_CALL SetCenter(point_2f center)
+        noexcept = 0;
+    virtual void PROGPU_NATIVE_COM_CALL SetGradientOriginOffset(
+        point_2f gradient_origin_offset) noexcept = 0;
+    virtual void PROGPU_NATIVE_COM_CALL SetRadiusX(float radius_x)
+        noexcept = 0;
+    virtual void PROGPU_NATIVE_COM_CALL SetRadiusY(float radius_y)
+        noexcept = 0;
+    virtual point_2f PROGPU_NATIVE_COM_CALL GetCenter() const noexcept = 0;
+    virtual point_2f PROGPU_NATIVE_COM_CALL GetGradientOriginOffset()
+        const noexcept = 0;
+    virtual float PROGPU_NATIVE_COM_CALL GetRadiusX() const noexcept = 0;
+    virtual float PROGPU_NATIVE_COM_CALL GetRadiusY() const noexcept = 0;
+    virtual void PROGPU_NATIVE_COM_CALL GetGradientStopCollection(
+        gradient_stop_collection** collection) const noexcept = 0;
+};
+
 /* ProGPU's stable activation seam for resources that the original factory
  * cannot create. Its IID and method order match the Windows provider's
  * IProGpuD2DCompatFactoryNative contract. */
@@ -562,10 +646,10 @@ struct render_target : resource {
         const brush_properties* properties,
         solid_color_brush** value) noexcept = 0;
     virtual com::result PROGPU_NATIVE_COM_CALL CreateGradientStopCollection(
-        const void* gradient_stops,
+        const gradient_stop* gradient_stops,
         std::uint32_t gradient_stop_count,
-        std::uint32_t color_interpolation_gamma,
-        std::uint32_t extend_mode_value,
+        gamma color_interpolation_gamma,
+        extend_mode extend_mode_value,
         gradient_stop_collection** value) noexcept = 0;
     virtual com::result PROGPU_NATIVE_COM_CALL CreateLinearGradientBrush(
         const linear_gradient_brush_properties* gradient_properties,
