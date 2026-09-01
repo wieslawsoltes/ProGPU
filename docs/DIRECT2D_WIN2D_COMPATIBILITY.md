@@ -88,7 +88,7 @@ process:
 
 | Application call shape | macOS/Linux behavior | Required application change |
 | --- | --- | --- |
-| `IUnknown`, `QueryInterface`, `AddRef`/`Release`, and supported ProGPU-owned `ID2D1*` resources | Target: run in-process through portable C++ compatibility objects and record the same pointer-free scene used on Windows. Current ABI v54: the COM object library and compatibility header are still `WIN32`-only; macOS/Linux consume the resulting scene/vector contracts through typed ProGPU APIs | Today, rebuild against `ProGPU.DirectX`, `ProGPU.Win2D`, or the scene API on portable targets. Once the portable COM header/object target lands, rebuild against that SDK and preserve COM ownership rules |
+| `IUnknown`, `QueryInterface`, `AddRef`/`Release`, and supported ProGPU-owned `ID2D1*` resources | The installed portable C++ target now provides the base `ID2D1Factory` vtable plus `ID2D1Resource`/`ID2D1Geometry`/`ID2D1RectangleGeometry`-ABI-compatible interfaces and rectangle behavior. Other resource families still fail closed or use typed scene/Canvas APIs | Rebuild against `progpu_native_direct2d_compat.hpp` for the implemented C++ subset, or use `ProGPU.DirectX`, `ProGPU.Win2D`, or the scene API. Global Windows SDK names and broader factory/device-context families remain incremental |
 | Supported Direct3D-style buffers, textures, pipelines, descriptors, and command recording | Lowers to WebGPU and selects Metal on macOS or Vulkan on Linux | Rebuild against `ProGPU.DirectX`; replace raw native handles with typed ProGPU resource leases |
 | Win2D drawing expressed through the portable `ProGPU.Win2D` Canvas API | Runs in-process and lowers to the shared scene/vector/text/effect implementation | Rebuild source against the portable Canvas projection |
 | System `ID2D1*`, DXGI shared handles, D3D11 keyed mutexes, HWND/HDC targets, or native Win2D resource wrapping | No native in-process equivalent; the call fails closed at the typed platform boundary | Select a ProGPU-owned resource on portable targets, or keep a Windows implementation behind a platform service |
@@ -191,6 +191,34 @@ continues to stop before adapter qualification at the separately tracked
 Windows SDK `near` macro collision in
 `progpu_native_mil_curve_dash.hpp`; this slice does not hide or work around
 that existing failure.
+
+The following compatibility slice adds installed header
+`progpu_native_direct2d_compat.hpp` and portable factory activation through
+`progpu::native::direct2d::compat::create_factory(...)`. The interfaces carry
+the canonical `ID2D1Factory`, `ID2D1Resource`, `ID2D1Geometry`, and
+`ID2D1RectangleGeometry` IIDs. Their inherited method order, calling
+convention, pointer widths, enums, matrices, rectangles, triangles, HRESULTs,
+and signed `BOOL` outputs match the Windows SDK ABI for the implemented subset.
+The base factory retains every original vtable slot; unsupported rounded,
+ellipse, group, transformed, path, stroke-style, drawing-state, WIC, HWND,
+DXGI, and DC creation methods return `E_NOTIMPL` and clear their output instead
+of shifting slots or returning fake resources.
+
+Portable rectangle resources keep their factory alive, return canonical COM
+identity through every advertised IID, and delegate bounds, fill hit testing,
+simplification, tessellation, area, length, and point-at-length to the shared
+allocation-free core. On Windows ARM64 the warning-as-error test casts the
+portable object directly to the system SDK `ID2D1Factory*`, creates a system-
+typed `ID2D1RectangleGeometry*`, and calls `ComputeArea`; no adapter thunk,
+reflection, or copied scene is involved. The same test runs through the
+portable declarations on macOS. The no-provider tree now passes 12/12 CTests
+and the managed contract passes 9/9.
+
+This proves binary call compatibility for the first device-independent
+resource family, but it is not yet a drop-in global `d2d1.h`. Portable source
+must include the ProGPU compatibility header and use its namespace until the
+remaining Direct2D data declarations, resource families, device contexts, and
+optional source-name projection are complete.
 
 ## Current support matrix
 

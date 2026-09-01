@@ -6,6 +6,7 @@
 
 #include <cmath>
 #include <cstdint>
+#include <limits>
 
 namespace compat = progpu::native::direct2d::compat;
 namespace core = progpu::native::direct2d::core;
@@ -280,7 +281,13 @@ int main()
         raw_simplified_sink->begin_count != 1U ||
         raw_simplified_sink->end_count != 1U ||
         raw_simplified_sink->line_count != 3U ||
-        raw_simplified_sink->bezier_count != 0U) {
+        raw_simplified_sink->bezier_count != 0U ||
+        geometry->Simplify(
+            compat::geometry_simplification_option::lines,
+            &transform,
+            std::numeric_limits<float>::infinity(),
+            simplified.get()) != com::invalid_argument ||
+        raw_simplified_sink->begin_count != 1U) {
         return 11;
     }
 

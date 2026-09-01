@@ -1,6 +1,7 @@
 #include "progpu_native_direct2d_compat.hpp"
 
 #include <array>
+#include <cmath>
 #include <new>
 
 namespace progpu::native::direct2d::compat {
@@ -136,7 +137,8 @@ public:
         }
         if ((option != geometry_simplification_option::cubics_and_lines &&
                 option != geometry_simplification_option::lines) ||
-            !(flattening_tolerance > 0.0F)) {
+            !std::isfinite(flattening_tolerance) ||
+            flattening_tolerance <= 0.0F) {
             return com::invalid_argument;
         }
         std::array<point_2f, 4U> points{};
