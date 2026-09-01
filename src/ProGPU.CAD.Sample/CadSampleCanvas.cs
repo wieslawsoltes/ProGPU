@@ -729,6 +729,7 @@ public sealed class CadSampleCanvas : FrameworkElement
     private Vector2 _pointTransformCurrent;
     private Vector2 _pointTransformPointerPosition;
     private CadPoint3D _pointTransformBasePoint;
+    private CadPoint3D _globalLastPoint;
     private CadPoint3D _pointTransformGridSnap;
     private CadPlanOrthoResult _pointTransformOrtho;
     private CadPlanPolarTrackingResult _pointTransformPolarTracking;
@@ -769,6 +770,7 @@ public sealed class CadSampleCanvas : FrameworkElement
     private bool _hasPointTransformGridSnap;
     private bool _hasPointTransformOrtho;
     private bool _hasPointTransformPolarTracking;
+    private bool _hasGlobalLastPoint;
     private CadPointTransformCopyMode _pointTransformCopyMode;
     private bool _isPlanOrthoEnabled;
     private bool _hasSelectionDrag;
@@ -832,6 +834,9 @@ public sealed class CadSampleCanvas : FrameworkElement
 
     public CadPoint3D? PendingPointTransformBasePoint =>
         _hasPointTransformBasePoint ? _pointTransformBasePoint : null;
+
+    public CadPoint3D? GlobalLastPoint =>
+        _hasGlobalLastPoint ? _globalLastPoint : null;
 
     public CadClipboardPointOperation? PendingClipboardPointOperation
     {
@@ -2045,6 +2050,10 @@ public sealed class CadSampleCanvas : FrameworkElement
         _pan = replacementPan;
         if (resetViewSelectionAndHistory)
         {
+            _globalLastPoint = snapshot.PlanAuthoringContext.IsSupported
+                ? snapshot.PlanAuthoringContext.Origin
+                : CadPoint3D.Zero;
+            _hasGlobalLastPoint = true;
             ResetDrawOrderReferencePickState(notify: false);
             ResetPointTransformState(notify: false);
             ResetClipboardPointState();
@@ -3422,8 +3431,10 @@ public sealed class CadSampleCanvas : FrameworkElement
     {
         if (PendingClipboardPointOperation is null ||
             !CadCoordinateInput.TryParse(text, out CadCoordinateInput coordinate) ||
-            coordinate.IsRelative ||
-            !coordinate.TryResolve(CadPoint3D.Zero, out CadPoint3D point))
+            !TryResolveCurrentCoordinate(
+                coordinate,
+                _globalLastPoint,
+                out CadPoint3D point))
         {
             return false;
         }
@@ -3448,14 +3459,16 @@ public sealed class CadSampleCanvas : FrameworkElement
             errorMessage = "No CAD clipboard point is awaiting input.";
             return false;
         }
-        if (!CadCoordinateInput.TryParse(text, out CadCoordinateInput coordinate) ||
-            coordinate.IsRelative)
+        if (!CadCoordinateInput.TryParse(text, out CadCoordinateInput coordinate))
         {
             errorMessage =
-                "Enter an absolute WCS x,y[,z] or distance<angle coordinate.";
+                "Enter an absolute or last-point-relative current-UCS coordinate.";
             return false;
         }
-        if (!coordinate.TryResolve(CadPoint3D.Zero, out CadPoint3D point))
+        if (!TryResolveCurrentCoordinate(
+                coordinate,
+                _globalLastPoint,
+                out CadPoint3D point))
         {
             errorMessage = "The CAD clipboard point resolves outside finite WCS values.";
             return false;
@@ -3531,15 +3544,13 @@ public sealed class CadSampleCanvas : FrameworkElement
                     out CadDirectDistanceInput distance) &&
                 TryResolvePointTransformDirectDistance(distance, out _);
         }
-        if (!_hasPointTransformBasePoint && coordinate.IsRelative)
-        {
-            return false;
-        }
-
         CadPoint3D relativeOrigin = _hasPointTransformBasePoint
             ? _pointTransformBasePoint
-            : CadPoint3D.Zero;
-        if (!coordinate.TryResolve(relativeOrigin, out CadPoint3D point))
+            : _globalLastPoint;
+        if (!TryResolveCurrentCoordinate(
+                coordinate,
+                relativeOrigin,
+                out CadPoint3D point))
         {
             return false;
         }
@@ -3560,10 +3571,11 @@ public sealed class CadSampleCanvas : FrameworkElement
     }
 
     /// <summary>
-    /// Accepts an absolute WCS first point, an absolute/relative WCS second
-    /// point, or a positive second-point distance along the current raw,
-    /// Ortho, or acquired polar cursor direction. Rejection leaves the prompt
-    /// and document unchanged.
+    /// Accepts a current-UCS first point, including a relative coordinate from
+    /// the global last point, a current-UCS second point relative to the base,
+    /// or a positive second-point distance along the current raw, Ortho, or
+    /// acquired polar cursor direction. Rejection leaves the prompt and
+    /// document unchanged.
     /// </summary>
     public bool TryAcceptSelectionPointTransformInput(
         string? text,
@@ -3584,7 +3596,7 @@ public sealed class CadSampleCanvas : FrameworkElement
                 if (!_hasPointTransformBasePoint)
                 {
                     errorMessage =
-                        "Accept an absolute first point before entering a direct distance.";
+                        "Accept a base point before entering a direct distance.";
                     return false;
                 }
                 if (!_hasPointTransformPointerPosition)
@@ -3610,17 +3622,13 @@ public sealed class CadSampleCanvas : FrameworkElement
                 "Enter x,y[,z], @dx,dy[,dz], distance<angle, @distance<angle, or a positive direct distance using invariant numbers.";
             return false;
         }
-        if (!_hasPointTransformBasePoint && coordinate.IsRelative)
-        {
-            errorMessage =
-                "Enter an absolute first point before using a relative coordinate.";
-            return false;
-        }
-
         CadPoint3D relativeOrigin = _hasPointTransformBasePoint
             ? _pointTransformBasePoint
-            : CadPoint3D.Zero;
-        if (!coordinate.TryResolve(relativeOrigin, out CadPoint3D point))
+            : _globalLastPoint;
+        if (!TryResolveCurrentCoordinate(
+                coordinate,
+                relativeOrigin,
+                out CadPoint3D point))
         {
             errorMessage = "The coordinate resolves outside finite WCS values.";
             return false;
@@ -9568,6 +9576,7 @@ public sealed class CadSampleCanvas : FrameworkElement
             return;
         }
 
+        SetGlobalLastPoint(point);
         ResetClipboardPointState();
         try
         {
@@ -10666,6 +10675,7 @@ public sealed class CadSampleCanvas : FrameworkElement
 
         if (!_hasPointTransformBasePoint)
         {
+            SetGlobalLastPoint(point);
             _pointTransformBasePoint = point;
             _pointTransformCurrent = screenPoint ??
                 CreateViewport().WorldToScreen(point);
@@ -10683,6 +10693,7 @@ public sealed class CadSampleCanvas : FrameworkElement
         }
 
         CadPoint3D basePoint = _pointTransformBasePoint;
+        SetGlobalLastPoint(point);
         var displacement = new CadPoint3D(
             point.X - basePoint.X,
             point.Y - basePoint.Y,
@@ -10764,6 +10775,33 @@ public sealed class CadSampleCanvas : FrameworkElement
         double.IsFinite(point.X) &&
         double.IsFinite(point.Y) &&
         double.IsFinite(point.Z);
+
+    private bool TryResolveCurrentCoordinate(
+        CadCoordinateInput coordinate,
+        CadPoint3D relativeOrigin,
+        out CadPoint3D point)
+    {
+        point = default;
+        CadDocumentSnapshot? snapshot = CurrentSnapshot;
+        return snapshot is not null &&
+            (!coordinate.IsRelative || _hasGlobalLastPoint) &&
+            coordinate.TryResolve(
+                snapshot.PlanAuthoringContext,
+                relativeOrigin,
+                out point);
+    }
+
+    private void SetGlobalLastPoint(CadPoint3D point)
+    {
+        if (!IsFinite(point))
+        {
+            throw new ArgumentException(
+                "The global CAD last point must be finite.",
+                nameof(point));
+        }
+        _globalLastPoint = point;
+        _hasGlobalLastPoint = true;
+    }
 
     private void CompleteSelection()
     {

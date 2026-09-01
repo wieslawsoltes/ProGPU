@@ -30,8 +30,8 @@ ProGPU-owned implementation provenance:
   commands supply exact retained graph identity and one-generation
   Apply/Undo/Redo ownership.
 - `CadCoordinateInput`, `CadSampleCanvas`, and `CadSampleView` supply the shared
-  absolute-WCS point grammar, object/grid acquisition precedence, pointer
-  routing, and desktop/browser controls.
+  current-UCS/global-last-point grammar, object/grid acquisition precedence,
+  pointer routing, and desktop/browser controls.
 - The existing ACadSharp dependency is consumed only through its public
   clone, collection, and DXF reader/writer APIs.
 
@@ -73,7 +73,8 @@ rewriting existing drawing-wide definitions. A later explicit import-conflict
 UI may offer rename or replacement; it is not inferred during ordinary paste.
 
 The shared shell exposes `Copy base…` and `Paste…`. Each accepts one snapped
-pointer point or bounded absolute WCS coordinate. COPYBASE changes no document
+pointer point or bounded absolute/current-UCS or global-last-relative typed
+coordinate. COPYBASE changes no document
 generation. PASTECLIP commits one history action and one snapshot/picture
 replacement. Escape, document replacement, or selection teardown discards an
 uncommitted prompt. The current scope intentionally rejects ordinary text,

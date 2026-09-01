@@ -7393,14 +7393,14 @@ public sealed class CadSampleView : Grid
         return args.Stage switch
         {
             CadPointTransformStage.AwaitingBasePoint =>
-                $"{operation}: click (object snap overrides grid/Ortho/polar) or enter absolute WCS x,y[,z] / distance<angle; Escape cancels.",
+                $"{operation}: click (object snap overrides grid/Ortho/polar), enter a current-UCS coordinate, or use @ relative to the global last point; Escape cancels.",
             CadPointTransformStage.AwaitingSecondPoint when
                 args.CopyMode == CadPointTransformCopyMode.Multiple =>
                 $"{operation}: base {FormatPoint(args.BasePoint!.Value)}; " +
                 "specify each second point by click/coordinate/direct distance; Enter or Escape finishes after placed copies.",
             CadPointTransformStage.AwaitingSecondPoint =>
                 $"{operation}: base {FormatPoint(args.BasePoint!.Value)}; " +
-                "click (object snap overrides grid/Ortho/polar), enter an absolute point or relative @dx,dy[,dz] / @distance<angle, or move the cursor and enter a positive distance; Escape cancels.",
+                "click (object snap overrides grid/Ortho/polar), enter a current-UCS point or base-relative @dx,dy[,dz] / @distance<angle, or move the cursor and enter a positive distance; Escape cancels.",
             CadPointTransformStage.PlacementCompleted =>
                 $"{operation}: placed {args.PlacementCount} copy/copies; " +
                 $"base remains {FormatPoint(args.BasePoint!.Value)}; specify another second point, or press Enter/Escape to finish.",
@@ -7428,7 +7428,7 @@ public sealed class CadSampleView : Grid
         return args.Stage switch
         {
             CadClipboardPointStage.AwaitingPoint =>
-                $"{operation}: click an insertion/base point or enter an absolute WCS coordinate; Escape cancels.",
+                $"{operation}: click an insertion/base point, enter a current-UCS coordinate, or use @ relative to the global last point; Escape cancels.",
             CadClipboardPointStage.Completed =>
                 $"{operation} completed for {args.EntityCount} entity/entities at " +
                 $"{FormatPoint(args.Point!.Value)}.",

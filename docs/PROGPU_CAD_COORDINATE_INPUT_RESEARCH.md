@@ -5,9 +5,11 @@ Date: 2026-08-30
 ## Scope and clean-room provenance
 
 This slice adds bounded typed coordinate entry to the existing shared
-desktop/browser two-point MOVE and COPY workflow. It does not add object snaps,
-grid snaps, tracking, UCS state, arbitrary-camera picking, a renderer, a scene
-format, a shader, a native ABI, or an ACadSharp change.
+desktop/browser two-point MOVE and COPY workflow. A later checkpoint resolves
+that grammar through the current UCS and supplies a non-persisted global last
+point to MOVE/COPY and COPYBASE/PASTECLIP. It does not add arbitrary-camera
+picking, a renderer, a scene format, a shader, a native ABI, or an ACadSharp
+change.
 
 The implementation was designed from the public behavior contracts below and
 from these original ProGPU-owned sources in this repository:
@@ -37,25 +39,27 @@ or control flow was consulted or used.
   the previously supplied reference point.
 
 ProGPU adopts the common explicit syntax rather than AutoCAD's dynamic-input
-mode-dependent defaults. A first point must be absolute because this bounded
-workflow has no global "last point" or QCAD relative-zero state. At the second
-prompt, relative Cartesian or polar input resolves against the retained base
-point and therefore represents an exact typed displacement. Absolute polar
-input is measured counterclockwise in degrees from WCS +X around the WCS
-origin. Cartesian input may carry two or three components; omitted Z is zero.
+mode-dependent defaults. Absolute Cartesian tuples resolve from the current
+UCS origin through its raw X/Y/normal basis. Absolute polar input additionally
+honors ANGBASE and ANGDIR. At a first MOVE/COPY or clipboard prompt, relative
+input resolves from the global last accepted point; a bare `@` recalls that
+point. At the second MOVE/COPY prompt it resolves from the retained base point
+and therefore represents an exact typed displacement. Cartesian input may
+carry two or three components; omitted Z is zero.
 
 The parser intentionally rejects locale-dependent decimal separators,
 expressions, unit suffixes, incomplete components, negative polar distance,
 non-finite results, more than three Cartesian components, and input longer
 than 128 UTF-16 code units. Dynamic-input `#`, direct-distance cursor input,
-coordinate filters, and a global last-point state remain separate contracts.
+coordinate filters, drawing-persisted LASTPOINT, and current-elevation/default-Z
+policy remain separate contracts.
 
 ## State, ownership, and failure semantics
 
 `CadCoordinateInput` is an immutable, allocation-free parsed value. Parsing is
-O(L) time and O(1) storage for at most 128 code units. Relative resolution is
-one checked double-precision vector addition. Large angles are reduced to one
-turn before trigonometric evaluation.
+O(L) time and O(1) storage for at most 128 code units. UCS resolution is a
+bounded affine basis evaluation and one checked double-precision addition.
+Large angles are reduced to one turn before trigonometric evaluation.
 
 `CadSampleCanvas` accepts the parsed point through the same state transition
 and command dispatch used by pointer input. The first typed point must also be
@@ -89,10 +93,11 @@ selection preservation, input rejection without publication, stage-specific
 enablement, and Enter submission.
 
 Object/grid/intersection snaps and Ortho/polar tracking are implemented by
-later documented slices. Direct-distance cursor entry is now implemented as a
-separate context-sensitive modifier without changing this grammar; see
-`PROGPU_CAD_DIRECT_DISTANCE_RESEARCH.md`. Global last-point and UCS state,
-coordinate filters, arbitrary-camera
-planes, 3D pointer acquisition, grips, and typed ROTATE/SCALE base/reference
-prompts remain follow-ups. CAD-object COPYBASE/PASTECLIP is specified in
-`PROGPU_CAD_CLIPBOARD_RESEARCH.md`.
+later documented slices. Direct-distance cursor entry is a separate
+context-sensitive modifier without changing this grammar; see
+`PROGPU_CAD_DIRECT_DISTANCE_RESEARCH.md`. Current-UCS/global-last-point behavior
+for MOVE/COPY and COPYBASE/PASTECLIP is specified in
+`PROGPU_CAD_UCS_LAST_POINT_RESEARCH.md`. Broader authoring adoption, coordinate
+filters, arbitrary-camera planes, 3D pointer acquisition, grips, and typed
+ROTATE/SCALE base/reference prompts remain follow-ups. CAD-object
+COPYBASE/PASTECLIP is specified in `PROGPU_CAD_CLIPBOARD_RESEARCH.md`.

@@ -1015,11 +1015,13 @@ viewport, and commits their difference through the existing transactional MOVE
 or COPY command. `Copy multiple…` retains that exact base for a caller-bounded
 sequence of independently reversible placements; Enter or Escape ends after
 accepted copies, while Escape before the first placement cancels. The same
-prompt accepts bounded invariant absolute Cartesian
-`x,y[,z]` or polar `distance<angle` input at either stage; after the base point,
-relative Cartesian `@dx,dy[,dz]` or polar `@distance<angle` resolves against
-that retained base and supplies an exact typed displacement. The first point is
-deliberately absolute because the shared shell owns no global last-point state.
+prompt accepts bounded invariant absolute Cartesian `x,y[,z]` or polar
+`distance<angle` input through the current UCS at either stage. At the first
+stage, relative Cartesian `@dx,dy[,dz]`, relative polar `@distance<angle`, or
+bare `@` resolves from the non-persisted global last accepted point. After the
+base point, it resolves from that retained base and supplies an exact typed
+displacement. Cartesian axes use the raw UCS basis; polar axes additionally
+honor ANGBASE and ANGDIR.
 Invalid, non-finite, overflowing, or overlong input leaves the prompt,
 generation, snapshot, and history unchanged. Hover motion records only one fixed-device guide and translated
 selection-bounds rectangle: it is O(1), allocation-free with respect to point
@@ -1027,7 +1029,8 @@ state, and never recompiles, clones, or mutates retained geometry. Escape,
 selection clear, document replacement, and resource release cancel without a
 generation. Coincident MOVE points are a no-op; coincident COPY points create
 one exact overlapping copy. The same shared shell exposes `Copy base…` and
-`Paste…` as single absolute-WCS point prompts. A bounded, checksummed versioned
+`Paste…` as single snapped-WCS or current-UCS/global-last-relative typed point
+prompts. A bounded, checksummed versioned
 text envelope carries exact base-point bits plus dependency-complete binary DXF
 through the existing desktop/browser text clipboard seam. Paste decodes and
 translates every detached graph before publishing one reversible model-space
@@ -1083,8 +1086,9 @@ distance along the post-base raw cursor ray, the
 active Ortho axis, or an actually acquired polar path. It preserves the base Z
 plane, ignores object/grid point quantization for length and direction, uses an
 overflow-safe O(1) normalization, and leaves the explicit coordinate grammar
-unchanged. Object-snap tracking, 3D UCS Z acquisition,
-global-last-point state, arbitrary-camera planes, reference-angle, and
+unchanged. Object-snap tracking, broader authoring adoption of the shared
+global-last-point/current-UCS contract, 3D UCS Z acquisition,
+arbitrary-camera planes, reference-angle, and
 reference-length input remain later editor tools. The exact clean-room behavior
 and applicability records are in `PROGPU_CAD_ORTHO_RESEARCH.md`,
 `PROGPU_CAD_POLAR_TRACKING_RESEARCH.md`,
@@ -1678,19 +1682,22 @@ an interactive browser picker/download smoke remains open.
   [PROGPU_CAD_LINEAR_COPY_RESEARCH.md](PROGPU_CAD_LINEAR_COPY_RESEARCH.md).
 - The same shell now closes the first interactive placement gap with
   `Move points…` and `Copy points…`. The selected semantic roots stay fixed
-  while the user clicks or enters a WCS-XY base point and second point. Typed
-  input accepts bounded invariant absolute Cartesian/polar points and, after
-  the base, relative Cartesian/polar displacement. Hover records a
+  while the user clicks or enters a base point and second point. Typed input
+  resolves bounded invariant absolute Cartesian/polar points through the current
+  UCS, first-point relative input through the global last point, and second-point
+  relative input through the retained base. Hover records a
   constant-size guide and translated-bounds preview without publishing a
   snapshot; the second click dispatches the exact double-WCS difference through
   the existing transactional command, and Escape cancels without an edit.
   MOVE, COPY, Undo/Redo, source-selection retention, coincident-point behavior,
   shared desktop/browser enablement, typed/pointer mixing, rejected-input
   atomicity, and zero pre-commit recompilation have focused regressions. The
-  clean-room behavior records and remaining snap/UCS/COPY-Multiple gates are in
+  clean-room behavior records are in
   [PROGPU_CAD_POINT_TRANSFORM_RESEARCH.md](PROGPU_CAD_POINT_TRANSFORM_RESEARCH.md)
   and
-  [PROGPU_CAD_COORDINATE_INPUT_RESEARCH.md](PROGPU_CAD_COORDINATE_INPUT_RESEARCH.md).
+  [PROGPU_CAD_COORDINATE_INPUT_RESEARCH.md](PROGPU_CAD_COORDINATE_INPUT_RESEARCH.md),
+  with UCS/LASTPOINT behavior in
+  [PROGPU_CAD_UCS_LAST_POINT_RESEARCH.md](PROGPU_CAD_UCS_LAST_POINT_RESEARCH.md).
 - The clean-room behavior source for this workflow is Autodesk's public
   [Properties palette](https://help.autodesk.com/cloudhelp/2024/ENU/AutoCAD-DidYouKnow/files/GUID-94C065AB-FF9E-4752-B778-23D2FBB87E18.htm),
   [object-property tools](https://help.autodesk.com/cloudhelp/2024/ENU/AutoCAD-Core/files/GUID-81585857-F1B1-44F4-B7D0-B707386CA721.htm),
@@ -5252,12 +5259,13 @@ Sources consulted on 2026-08-27 through 2026-08-30:
   WCS-XY base/second-point prompt while preserving the source selection for
   deterministic repeated copies and generation-safe Undo/Redo. The separate
   bounded array command implements item-count-includes-source Step/Fit.
-  Typed point input now adopts Autodesk's documented absolute/relative
-  Cartesian grammar plus QCAD's matching explicit polar grammar through an
-  original bounded invariant parser. Multiple-mode prompting, clipboard
-  transfer, object/grid/intersection snaps, tracking, direct-distance cursor
-  entry, UCS input, and arbitrary 3D picking remain until their own interaction
-  contracts exist. The implementation is original ProGPU
+  Typed point input adopts Autodesk's documented absolute/relative Cartesian
+  grammar plus QCAD's matching explicit polar grammar through an original
+  bounded invariant parser, resolves it through current UCS/ANGBASE/ANGDIR, and
+  retains one non-persisted global last point. Multiple-mode prompting,
+  clipboard transfer, object/grid/intersection snaps, tracking, and
+  direct-distance cursor entry are implemented by linked clean-room slices;
+  arbitrary 3D picking remains. The implementation is original ProGPU
   command/history/UI code over the pinned ACadSharp detached-clone and collection
   contracts; no Autodesk implementation text or structure was used.
 - [HarfBuzz shaping](https://harfbuzz.github.io/what-is-harfbuzz.html),

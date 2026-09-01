@@ -25,8 +25,9 @@ public readonly record struct CadCoordinateInput
     public CadCoordinateInputKind Kind { get; }
 
     /// <summary>
-    /// Absolute WCS point or relative WCS displacement. Polar input is converted
-    /// to this Cartesian representation during parsing.
+    /// Neutral parsed coordinate tuple. Polar input is converted to its
+    /// unit-angle Cartesian components during parsing; the caller chooses WCS
+    /// or current-UCS resolution.
     /// </summary>
     public CadPoint3D Value { get; }
 
@@ -68,6 +69,56 @@ public readonly record struct CadCoordinateInput
         return true;
     }
 
+    /// <summary>
+    /// Resolves this coordinate through one immutable current-UCS basis.
+    /// Cartesian coordinates use raw UCS axes; polar coordinates additionally
+    /// use ANGBASE and ANGDIR. Relative coordinates start at a caller-owned WCS
+    /// last point while absolute coordinates start at the UCS origin.
+    /// </summary>
+    public bool TryResolve(
+        CadPlanAuthoringContext context,
+        CadPoint3D relativeOrigin,
+        out CadPoint3D point)
+    {
+        point = default;
+        if (!context.IsSupported ||
+            (IsRelative && !IsFinite(relativeOrigin)))
+        {
+            return false;
+        }
+
+        CadPoint3D xAxis;
+        CadPoint3D yAxis;
+        if (Kind is CadCoordinateInputKind.AbsolutePolar or
+            CadCoordinateInputKind.RelativePolar)
+        {
+            xAxis = context.AngleXAxis;
+            yAxis = context.IsClockwise
+                ? context.AngleYAxis * -1.0
+                : context.AngleYAxis;
+        }
+        else
+        {
+            xAxis = context.HorizontalAxis;
+            yAxis = context.VerticalAxis;
+        }
+
+        CadPoint3D offset =
+            (xAxis * Value.X) +
+            (yAxis * Value.Y) +
+            (context.Normal * Value.Z);
+        CadPoint3D candidate = IsRelative
+            ? relativeOrigin + offset
+            : context.Origin + offset;
+        if (!IsFinite(candidate))
+        {
+            return false;
+        }
+
+        point = candidate;
+        return true;
+    }
+
     public static bool TryParse(
         string? text,
         out CadCoordinateInput coordinate)
@@ -93,7 +144,10 @@ public readonly record struct CadCoordinateInput
             text = text[1..].TrimStart();
             if (text.IsEmpty)
             {
-                return false;
+                coordinate = new CadCoordinateInput(
+                    CadCoordinateInputKind.RelativeCartesian,
+                    CadPoint3D.Zero);
+                return true;
             }
         }
 

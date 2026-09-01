@@ -9,6 +9,7 @@ public sealed class CadCoordinateInputTests
     [InlineData(" 1e2 , -2.5e-1 , 3 ", CadCoordinateInputKind.AbsoluteCartesian, 100.0, -0.25, 3.0)]
     [InlineData("@4,5", CadCoordinateInputKind.RelativeCartesian, 4.0, 5.0, 0.0)]
     [InlineData(" @ 4, 5, -6 ", CadCoordinateInputKind.RelativeCartesian, 4.0, 5.0, -6.0)]
+    [InlineData("@", CadCoordinateInputKind.RelativeCartesian, 0.0, 0.0, 0.0)]
     [InlineData("5<0", CadCoordinateInputKind.AbsolutePolar, 5.0, 0.0, 0.0)]
     [InlineData("@5<450", CadCoordinateInputKind.RelativePolar, 0.0, 5.0, 0.0)]
     public void ParserAcceptsBoundedInvariantCartesianAndPolarGrammar(
@@ -52,9 +53,52 @@ public sealed class CadCoordinateInputTests
         Assert.Equal(new CadPoint3D(2.5, -4, 6), resolved);
     }
 
+    [Fact]
+    public void CurrentUcsResolutionUsesRawCartesianAndAngularPolarBases()
+    {
+        var context = new CadPlanAuthoringContext(
+            new CadPoint3D(100, 200, 300),
+            new CadPoint3D(0, 1, 0),
+            new CadPoint3D(-1, 0, 0),
+            angleBaseRadians: Math.PI / 2.0,
+            isClockwise: true);
+        Assert.True(CadCoordinateInput.TryParse(
+            "2,3,4",
+            out CadCoordinateInput absoluteCartesian));
+        Assert.True(absoluteCartesian.TryResolve(
+            context,
+            new CadPoint3D(double.NaN, 0, 0),
+            out CadPoint3D resolved));
+        Assert.Equal(new CadPoint3D(97, 202, 304), resolved);
+
+        Assert.True(CadCoordinateInput.TryParse(
+            "@2,3,4",
+            out CadCoordinateInput relativeCartesian));
+        Assert.True(relativeCartesian.TryResolve(
+            context,
+            new CadPoint3D(10, 20, 30),
+            out resolved));
+        Assert.Equal(new CadPoint3D(7, 22, 34), resolved);
+
+        Assert.True(CadCoordinateInput.TryParse(
+            "5<90",
+            out CadCoordinateInput absolutePolar));
+        Assert.True(absolutePolar.TryResolve(
+            context,
+            CadPoint3D.Zero,
+            out resolved));
+        Assert.Equal(100, resolved.X, 12);
+        Assert.Equal(205, resolved.Y, 12);
+        Assert.Equal(300, resolved.Z, 12);
+
+        Assert.False(absoluteCartesian.TryResolve(
+            default,
+            CadPoint3D.Zero,
+            out _));
+    }
+
     [Theory]
     [InlineData("")]
-    [InlineData("@")]
     [InlineData("1")]
     [InlineData(",2")]
     [InlineData("1,")]

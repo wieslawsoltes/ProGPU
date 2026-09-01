@@ -4,6 +4,7 @@ using ACadSharp;
 using ACadSharp.Entities;
 using ACadSharp.Header;
 using ACadSharp.Tables;
+using ACadSharp.Types.Units;
 using ACadSharp.XData;
 using CSMath;
 using Microsoft.UI.Xaml;
@@ -852,7 +853,7 @@ public sealed class CadSampleSelectionTests
             Assert.Equal(
                 CadClipboardPointOperation.Paste,
                 view.Canvas.PendingClipboardPointOperation);
-            view.PointTransformInput.Text = "11,22,0";
+            view.PointTransformInput.Text = "@10,20,0";
             view.PointTransformInput.OnKeyDown(new KeyRoutedEventArgs
             {
                 Key = Silk.NET.Input.Key.Enter,
@@ -895,11 +896,11 @@ public sealed class CadSampleSelectionTests
 
             Assert.True(canvas.BeginSelectionPointTransform(
                 CadPointTransformOperation.Move));
-            Assert.False(canvas.CanAcceptSelectionPointTransformInput("@1,2"));
+            Assert.False(canvas.CanAcceptSelectionPointTransformInput("@bad"));
             Assert.False(canvas.TryAcceptSelectionPointTransformInput(
-                "@1,2",
+                "@bad",
                 out string? firstError));
-            Assert.Contains("absolute first point", firstError);
+            Assert.Contains("Enter x,y", firstError);
             Assert.Same(snapshot, canvas.CurrentSnapshot);
             Assert.Equal(0UL, session.ContentGeneration);
             Assert.Equal(
@@ -938,6 +939,73 @@ public sealed class CadSampleSelectionTests
             AssertPoint(new XYZ(-2, 0, 0), line.StartPoint);
             Assert.True(canvas.TryRedo());
             AssertPoint(new XYZ(2.25, 5.5, -1), line.StartPoint);
+        }
+        finally
+        {
+            canvas.FireUnloaded();
+        }
+    }
+
+    [Fact]
+    public void PointTransformTypedInputUsesCurrentUcsAndGlobalLastPoint()
+    {
+        var document = new CadDocument();
+        document.Header.AngleBase = Math.PI / 2.0;
+        document.Header.AngularDirection = AngularDirection.ClockWise;
+        VPort active = document.VPorts[VPort.DefaultName];
+        active.Origin = new XYZ(100, 200, 10);
+        active.XAxis = new XYZ(0, 1, 0);
+        active.YAxis = new XYZ(-1, 0, 0);
+        var line = new Line(XYZ.Zero, XYZ.AxisX);
+        document.Entities.Add(line);
+        var session = new CadDocumentSession(document);
+        var canvas = new CadSampleCanvas();
+        try
+        {
+            canvas.Load(session);
+            canvas.Arrange(new Rect(0, 0, 800, 600));
+            Click(canvas, canvas.CurrentViewport.WorldToScreen(CadPoint3D.Zero));
+
+            Assert.Equal(
+                new CadPoint3D(100, 200, 10),
+                canvas.GlobalLastPoint);
+            Assert.True(canvas.BeginSelectionPointTransform(
+                CadPointTransformOperation.Move));
+            Assert.True(canvas.TryAcceptSelectionPointTransformInput(
+                "@",
+                out string? baseError));
+            Assert.Null(baseError);
+            Assert.True(canvas.TryAcceptSelectionPointTransformInput(
+                "@2,3,4",
+                out string? moveError));
+
+            Assert.Null(moveError);
+            AssertPoint(new XYZ(-3, 2, 4), line.StartPoint);
+            AssertPoint(new XYZ(-2, 2, 4), line.EndPoint);
+            Assert.Equal(
+                new CadPoint3D(97, 202, 14),
+                canvas.GlobalLastPoint);
+            Assert.True(canvas.TryUndo());
+
+            Assert.True(canvas.BeginSelectionPointTransform(
+                CadPointTransformOperation.Copy));
+            Assert.True(canvas.TryAcceptSelectionPointTransformInput(
+                "0,0,0",
+                out baseError));
+            Assert.Null(baseError);
+            Assert.True(canvas.TryAcceptSelectionPointTransformInput(
+                "5<90",
+                out string? copyError));
+
+            Assert.Null(copyError);
+            Line copy = document.Entities
+                .OfType<Line>()
+                .Single(candidate => !ReferenceEquals(candidate, line));
+            AssertPoint(new XYZ(0, 5, 0), copy.StartPoint);
+            AssertPoint(new XYZ(1, 5, 0), copy.EndPoint);
+            Assert.Equal(
+                new CadPoint3D(100, 205, 10),
+                canvas.GlobalLastPoint);
         }
         finally
         {
@@ -1008,7 +1076,7 @@ public sealed class CadSampleSelectionTests
             Assert.False(canvas.TryAcceptSelectionPointTransformInput(
                 "10",
                 out string? firstError));
-            Assert.Contains("absolute first point", firstError);
+            Assert.Contains("base point", firstError);
             Assert.True(canvas.TryAcceptSelectionPointTransformInput(
                 "0,0,7",
                 out string? baseError));
@@ -3578,7 +3646,7 @@ public sealed class CadSampleSelectionTests
 
             Assert.True(input.IsEnabled);
             input.Text = "@3,4";
-            Assert.False(enterPoint.IsEnabled);
+            Assert.True(enterPoint.IsEnabled);
             input.Text = "-1,0";
             Assert.True(enterPoint.IsEnabled);
             input.OnKeyDown(new KeyRoutedEventArgs
