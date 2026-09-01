@@ -950,6 +950,7 @@ public sealed class CadPlanSceneCompiler
                 snapshot,
                 options,
                 excludedLayerNames,
+                viewportBoundaryHandles,
                 chunkEntities.Slice(startIndex, endIndex - startIndex),
                 options.ChunkCache!.MaximumSingleKeyBytes,
                 cancellationToken,

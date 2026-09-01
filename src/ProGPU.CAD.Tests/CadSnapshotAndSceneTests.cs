@@ -28,7 +28,11 @@ public sealed class CadSnapshotAndSceneTests
         var session = new CadDocumentSession(document);
         var history = new CadDocumentHistory(session);
         using var cache = new CadPlanChunkCache();
-        var options = new CadPlanSceneOptions { ChunkCache = cache };
+        var options = new CadPlanSceneOptions
+        {
+            ChunkCache = cache,
+            IncludeViewportFrames = false,
+        };
         var snapshotCompiler = new CadSnapshotCompiler();
         var sceneCompiler = new CadPlanSceneCompiler();
 
@@ -68,6 +72,14 @@ public sealed class CadSnapshotAndSceneTests
         Assert.Same(
             secondPicture.GetCommand(1).Picture,
             editedPicture.GetCommand(1).Picture);
+        using CadRecordedPlanScene changedPolicyScene = sceneCompiler.Compile(
+            editedSnapshot,
+            new CadPlanSceneOptions
+            {
+                ChunkCache = cache,
+                IncludeViewportFrames = true,
+            });
+        Assert.Equal(0, changedPolicyScene.Statistics.ReusedRetainedChunkCount);
         cache.Clear();
         Assert.Equal(0, cache.Count);
         Assert.True(GpuPictureNativeSceneCompiler.TryCompile(

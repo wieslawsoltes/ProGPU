@@ -196,6 +196,7 @@ internal static class CadPlanChunkKeyBuilder
         CadDocumentSnapshot snapshot,
         CadPlanSceneOptions options,
         IReadOnlySet<string>? excludedLayerNames,
+        IReadOnlySet<ulong> viewportBoundaryHandles,
         ReadOnlySpan<CadEntityHeader> entities,
         int maximumKeyBytes,
         CancellationToken cancellationToken,
@@ -207,6 +208,7 @@ internal static class CadPlanChunkKeyBuilder
         Append(writer, options.LineWeightScale);
         Append(writer, (byte)options.LineWeightMode);
         Append(writer, options.IncludeNonPlottableLayers);
+        Append(writer, options.IncludeViewportFrames);
 
         ReadOnlySpan<CadLayerSnapshot> layers = snapshot.Layers.Span;
         ReadOnlySpan<CadStrokeStyle> styles = snapshot.Styles.Span;
@@ -224,6 +226,7 @@ internal static class CadPlanChunkKeyBuilder
                     snapshot,
                     options,
                     excludedLayerNames,
+                    viewportBoundaryHandles,
                     layers,
                     styles,
                     patterns,
@@ -245,6 +248,7 @@ internal static class CadPlanChunkKeyBuilder
         CadDocumentSnapshot snapshot,
         CadPlanSceneOptions options,
         IReadOnlySet<string>? excludedLayerNames,
+        IReadOnlySet<ulong> viewportBoundaryHandles,
         ReadOnlySpan<CadLayerSnapshot> layers,
         ReadOnlySpan<CadStrokeStyle> styles,
         ReadOnlySpan<CadLineTypePattern> patterns,
@@ -275,6 +279,7 @@ internal static class CadPlanChunkKeyBuilder
         Append(writer, (byte)entity.Kind);
         Append(writer, entity.IsVisible);
         Append(writer, entity.Bounds);
+        Append(writer, viewportBoundaryHandles.Contains(entity.Handle));
         if (!TryAppendString(writer, layer.Name, maximumKeyBytes))
         {
             return false;
