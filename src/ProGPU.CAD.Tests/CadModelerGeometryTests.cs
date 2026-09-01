@@ -159,6 +159,59 @@ public sealed class CadModelerGeometryTests
     }
 
     [Fact]
+    public void PlanChunkCacheReusesExactModelerWiresPayloadsAndDiagnostics()
+    {
+        var document = new CadDocument();
+        document.Entities.Add(CreateSolid("ACIS BinaryFile-cache"u8.ToArray()));
+        document.Entities.Add(new Region
+        {
+            AcisData = "400 0 1 0\nbody $-1 $-1 $-1 $-1 #\n"u8.ToArray(),
+            ModelerFormatVersion = 1,
+        });
+        CadDocumentSnapshot snapshot = new CadSnapshotCompiler().Compile(
+            new CadDocumentSession(document));
+        var compiler = new CadPlanSceneCompiler();
+        using CadRecordedPlanScene baseline = compiler.Compile(snapshot);
+        using GpuPicture baselinePicture = baseline.CreatePicture();
+        using var cache = new CadPlanChunkCache();
+        var options = new CadPlanSceneOptions { ChunkCache = cache };
+        using CadRecordedPlanScene first = compiler.Compile(snapshot, options);
+        using CadRecordedPlanScene second = compiler.Compile(snapshot, options);
+        using GpuPicture firstPicture = first.CreatePicture();
+        using GpuPicture secondPicture = second.CreatePicture();
+
+        Assert.Equal(2, first.Statistics.RetainedChunkCount);
+        Assert.Equal(2, second.Statistics.ReusedRetainedChunkCount);
+        Assert.Equal(1, second.Statistics.ModelerGeometryWireframeCount);
+        Assert.Equal(2, second.Statistics.DeferredModelerSurfaceCount);
+        Assert.Equal(
+            ["CADSCENE007", "CADSCENE008"],
+            second.Diagnostics.ToArray().Select(item => item.Code).ToArray());
+        Assert.Same(
+            firstPicture.GetCommand(0).Picture,
+            secondPicture.GetCommand(0).Picture);
+        Assert.Same(
+            firstPicture.GetCommand(1).Picture,
+            secondPicture.GetCommand(1).Picture);
+        Assert.True(GpuPictureNativeSceneCompiler.TryCompile(
+            baselinePicture,
+            702U,
+            1U,
+            out NativeCompiledPicture? baselineNative,
+            out NativePictureCompileFailure baselineFailure),
+            baselineFailure.ToString());
+        Assert.True(GpuPictureNativeSceneCompiler.TryCompile(
+            secondPicture,
+            703U,
+            1U,
+            out NativeCompiledPicture? cachedNative,
+            out NativePictureCompileFailure cachedFailure),
+            cachedFailure.ToString());
+        Assert.Equal(baselineNative!.NativeDrawCount, cachedNative!.NativeDrawCount);
+        Assert.Equal(baselineNative.Line3DCount, cachedNative.Line3DCount);
+    }
+
+    [Fact]
     public void DisplayWireSelectionUsesExactSegmentsAndWholeWireWindowRules()
     {
         var document = new CadDocument();

@@ -436,7 +436,9 @@ internal readonly record struct CadPlanChunkReplayCounters(
     int LoweredLineTypePlacementCount,
     int LineTypePatternStepCount,
     int LineTypeSourceSegmentCount,
-    int HatchPatternAuxiliaryRecordCount)
+    int HatchPatternAuxiliaryRecordCount,
+    int ModelerGeometryWireframeCount,
+    int DeferredModelerSurfaceCount)
 {
     public static CadPlanChunkReplayCounters operator -(
         CadPlanChunkReplayCounters left,
@@ -446,7 +448,9 @@ internal readonly record struct CadPlanChunkReplayCounters(
             checked(left.LoweredLineTypePlacementCount - right.LoweredLineTypePlacementCount),
             checked(left.LineTypePatternStepCount - right.LineTypePatternStepCount),
             checked(left.LineTypeSourceSegmentCount - right.LineTypeSourceSegmentCount),
-            checked(left.HatchPatternAuxiliaryRecordCount - right.HatchPatternAuxiliaryRecordCount));
+            checked(left.HatchPatternAuxiliaryRecordCount - right.HatchPatternAuxiliaryRecordCount),
+            checked(left.ModelerGeometryWireframeCount - right.ModelerGeometryWireframeCount),
+            checked(left.DeferredModelerSurfaceCount - right.DeferredModelerSurfaceCount));
 }
 
 internal readonly record struct CadPlanChunkIdentity(
@@ -677,6 +681,7 @@ internal static class CadPlanChunkKeyBuilder
                 CadEntityKind.ShxShape or
                 CadEntityKind.Hatch or
                 CadEntityKind.Wipeout or
+                CadEntityKind.ModelerGeometry or
                 CadEntityKind.RasterImage) ||
             (entity.Kind != CadEntityKind.Hatch &&
              pattern.Kind != CadLineTypePatternKind.Continuous &&
@@ -983,9 +988,72 @@ internal static class CadPlanChunkKeyBuilder
                     snapshot.Wipeouts.Span[entity.PrimitiveIndex],
                     worldToChunk,
                     maximumKeyBytes);
+            case CadEntityKind.ModelerGeometry:
+                return TryAppendModelerGeometry(
+                    writer,
+                    snapshot,
+                    snapshot.ModelerGeometries.Span[entity.PrimitiveIndex],
+                    worldToChunk,
+                    cancellationToken,
+                    maximumKeyBytes);
             default:
                 return false;
         }
+    }
+
+    private static bool TryAppendModelerGeometry(
+        ArrayBufferWriter<byte> writer,
+        CadDocumentSnapshot snapshot,
+        in CadModelerGeometryPrimitive geometry,
+        CadPlanChunkNormalization? worldToChunk,
+        CancellationToken cancellationToken,
+        int maximumKeyBytes)
+    {
+        if (worldToChunk is not null)
+        {
+            return false;
+        }
+        Append(writer, (byte)geometry.Kind);
+        Append(writer, geometry.ModelerFormatVersion);
+        Append(writer, geometry.WireCount);
+        Append(writer, geometry.PayloadCount);
+        Append(writer, geometry.IsBinaryPayload);
+        if (!TryAppend(
+                writer,
+                snapshot.ModelerGeometryPayloadBytes.Span.Slice(
+                    geometry.PayloadOffset,
+                    geometry.PayloadCount),
+                maximumKeyBytes))
+        {
+            return false;
+        }
+
+        ReadOnlySpan<CadModelerGeometryWire> wires =
+            snapshot.ModelerGeometryWires.Span.Slice(
+                geometry.WireOffset,
+                geometry.WireCount);
+        for (int wireIndex = 0; wireIndex < wires.Length; wireIndex++)
+        {
+            if ((wireIndex & 255) == 0)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+            }
+            CadModelerGeometryWire wire = wires[wireIndex];
+            Append(writer, wire.PointCount);
+            Append(writer, wire.SelectionMarker);
+            Append(writer, wire.AcisIndex);
+            Append(writer, wire.Type);
+            if (!TryAppend(
+                    writer,
+                    snapshot.ModelerGeometryPoints.Span.Slice(
+                        wire.PointOffset,
+                        wire.PointCount),
+                    maximumKeyBytes))
+            {
+                return false;
+            }
+        }
+        return writer.WrittenCount <= maximumKeyBytes;
     }
 
     private static bool TryAppendMLine(

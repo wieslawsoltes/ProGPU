@@ -1164,7 +1164,9 @@ public sealed class CadPlanSceneCompiler
             loweredLineTypePlacements,
             lineTypePatternSteps,
             lineTypeSourceSegments,
-            hatchPatternAuxiliaryRecords);
+            hatchPatternAuxiliaryRecords,
+            modelerGeometryWireframes,
+            deferredModelerSurfaces);
 
         bool CanApplyChunkReplayCounters(CadPlanChunkReplayCounters counters) =>
             counters.LoweredLineTypeFigureCount <=
@@ -1196,6 +1198,10 @@ public sealed class CadPlanSceneCompiler
                 lineTypePlacementBudgetUsed + counters.LoweredLineTypePlacementCount);
             hatchPatternAuxiliaryRecords = checked(
                 hatchPatternAuxiliaryRecords + counters.HatchPatternAuxiliaryRecordCount);
+            modelerGeometryWireframes = checked(
+                modelerGeometryWireframes + counters.ModelerGeometryWireframeCount);
+            deferredModelerSurfaces = checked(
+                deferredModelerSurfaces + counters.DeferredModelerSurfaceCount);
         }
 
         void RestoreChunkLineTypeSubstitutionDiagnostics(
@@ -1204,6 +1210,31 @@ public sealed class CadPlanSceneCompiler
             for (int entityIndex = 0; entityIndex < entities.Length; entityIndex++)
             {
                 CadEntityHeader entity = entities[entityIndex];
+                if (entity.Kind == CadEntityKind.ModelerGeometry)
+                {
+                    CadModelerGeometryPrimitive geometry =
+                        snapshot.ModelerGeometries.Span[entity.PrimitiveIndex];
+                    bool hasWireframe = false;
+                    ReadOnlySpan<CadModelerGeometryWire> wires =
+                        snapshot.ModelerGeometryWires.Span.Slice(
+                            geometry.WireOffset,
+                            geometry.WireCount);
+                    for (int wireIndex = 0; wireIndex < wires.Length; wireIndex++)
+                    {
+                        if (wires[wireIndex].PointCount > 1)
+                        {
+                            hasWireframe = true;
+                            break;
+                        }
+                    }
+                    diagnostics.Add(new CadDiagnostic(
+                        CadDiagnosticSeverity.Information,
+                        hasWireframe ? "CADSCENE007" : "CADSCENE008",
+                        hasWireframe
+                            ? $"{geometry.Kind} handle {entity.Handle:X} is retained as batched display-wire topology; ACIS face tessellation remains deferred."
+                            : $"{geometry.Kind} handle {entity.Handle:X} retains its byte-exact ACIS payload but has no display-wire topology; surface tessellation remains deferred."));
+                    continue;
+                }
                 if (entity.Kind == CadEntityKind.MLine)
                 {
                     CadMLinePrimitive mline =

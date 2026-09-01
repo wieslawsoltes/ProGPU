@@ -1865,6 +1865,9 @@ research, parity, and remaining families are in
 [`PROGPU_CAD_INCREMENTAL_CHUNKS_RESEARCH.md`](PROGPU_CAD_INCREMENTAL_CHUNKS_RESEARCH.md).
 Root-local paper VIEWPORT frames use the same cache with exact camera/status/frozen-
 layer identity but intentionally do not participate in definition-affine sharing.
+BODY/REGION/3DSOLID roots reuse byte-exact ACIS payload and display-wire chunks,
+including deferred-surface/wireframe counters and diagnostics, but remain root-local
+because their retained extension commands carry full 3D line coordinates.
 Patterned MLINE elements use exact semantic-root chunks and replay their per-element
 global linetype budget charges and substitution diagnostics; they remain outside
 definition-affine sharing for the same final-space dash-length reason.
