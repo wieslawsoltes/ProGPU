@@ -1117,6 +1117,45 @@ if(NOT EMSCRIPTEN AND PROGPU_NATIVE_DAWN_WEBGPU_INCLUDE_DIR)
             progpu_native_dawn_contract_tests
             PROPERTIES TIMEOUT 60)
 
+        if(WIN32)
+            set(PROGPU_NATIVE_DIRECT2D_DAWN_RUNTIME "" CACHE FILEPATH
+                "Optional webgpu_dawn.dll for the Direct2D D3D12 differential gate")
+            add_executable(progpu_native_direct2d_differential_tests
+                tests/progpu_native_direct2d_differential_tests.cpp)
+            target_compile_features(
+                progpu_native_direct2d_differential_tests PRIVATE cxx_std_20)
+            target_include_directories(
+                progpu_native_direct2d_differential_tests PRIVATE
+                "${CMAKE_CURRENT_SOURCE_DIR}/include")
+            target_include_directories(
+                progpu_native_direct2d_differential_tests SYSTEM PRIVATE
+                "${PROGPU_NATIVE_DAWN_WEBGPU_INCLUDE_DIR}")
+            target_link_libraries(
+                progpu_native_direct2d_differential_tests PRIVATE
+                progpu_native_dawn
+                progpu_native_direct2d_core
+                d2d1
+                ole32
+                windowscodecs)
+            progpu_native_enable_warnings(
+                progpu_native_direct2d_differential_tests)
+            progpu_native_enable_sanitizers(
+                progpu_native_direct2d_differential_tests)
+            if(PROGPU_NATIVE_DIRECT2D_DAWN_RUNTIME)
+                if(NOT EXISTS "${PROGPU_NATIVE_DIRECT2D_DAWN_RUNTIME}")
+                    message(FATAL_ERROR
+                        "PROGPU_NATIVE_DIRECT2D_DAWN_RUNTIME does not exist")
+                endif()
+                add_test(
+                    NAME progpu_native_direct2d_differential_tests
+                    COMMAND progpu_native_direct2d_differential_tests
+                        "${PROGPU_NATIVE_DIRECT2D_DAWN_RUNTIME}")
+                set_tests_properties(
+                    progpu_native_direct2d_differential_tests
+                    PROPERTIES TIMEOUT 90)
+            endif()
+        endif()
+
         if(APPLE
             AND PROGPU_NATIVE_WEBSCENE_PROVIDER_INCLUDE_DIR
             AND PROGPU_NATIVE_WEBSCENE_PROVIDER_LIBRARY)
