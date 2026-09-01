@@ -234,8 +234,8 @@ This is a portable CPU publishing adapter; vector PDF/SVG, printer submission,
 GPU readback, color management, and GPU/native pixel certification remain.
 
 The shared ProGPU.CAD desktop/browser editor now supports selected-set
-`Move points…` and `Copy points…`: one WCS-XY base point plus one second point
-define the exact displacement. Hovering records only a fixed-device guide and
+`Move points…`, `Copy points…`, and bounded `Copy multiple…`: one WCS-XY base
+point plus one second point define the exact displacement. Hovering records only a fixed-device guide and
 translated selection bounds, with no entity mutation, snapshot publication, or
 scene rebuild; the second click commits through the existing one-generation
 transactional MOVE/COPY commands. Escape and document/selection teardown cancel
@@ -245,8 +245,8 @@ running Intersection/Endpoint/Midpoint/Center/Quadrant/Node/Nearest points and
 base-referenced Perpendicular or Tangent second points;
 Nearest covers documented linear, conic, polyline, POINT, and rational-spline
 families without flattening; Tangent keeps every exact root on documented conic,
-bulge-arc, and rational-spline families. Grid, remaining object snaps,
-UCS/arbitrary-camera planes, COPY Multiple, and full geometry ghosting remain.
+bulge-arc, and rational-spline families. UCS/arbitrary-camera planes and full
+geometry ghosting remain.
 This workflow changes no renderer,
 shader, GPU/native ABI, or persistence contract and makes no performance-
 improvement claim.

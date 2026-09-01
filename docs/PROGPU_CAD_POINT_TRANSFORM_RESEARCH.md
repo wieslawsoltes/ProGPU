@@ -35,13 +35,14 @@ flow was consulted or used.
   likewise starts from an existing selection, accepts a reference point and a
   target point, then chooses whether to retain the original entities.
 
-The adopted observable contract is the common subset: preserve the prepared
-selection, accept two points, compute `second - base`, and commit one atomic
-MOVE or COPY. ProGPU chooses the operation before point acquisition because its
-shared shell already exposes separate typed commands. Autodesk's displacement
-shortcut, COPY Multiple prompt loop, snapping, UCS, and QCAD's post-point
-option dialog remain separate future interaction contracts. Bounded explicit
-absolute/relative Cartesian and polar coordinate entry was added in the next
+The adopted observable contract preserves the prepared selection, accepts two
+points, computes `second - base`, and commits one atomic MOVE or COPY. ProGPU
+chooses the operation before point acquisition because its shared shell already
+exposes separate typed commands. The later explicit Multiple COPY mode retains
+the same base and repeats independently reversible placements until Enter,
+Escape, or the caller's placement bound. Autodesk's displacement shortcut, UCS,
+and QCAD's post-point option dialog remain separate interaction contracts.
+Bounded explicit absolute/relative Cartesian and polar coordinate entry was added in the next
 checkpoint and is specified independently in
 [`PROGPU_CAD_COORDINATE_INPUT_RESEARCH.md`](PROGPU_CAD_COORDINATE_INPUT_RESEARCH.md).
 
@@ -56,13 +57,16 @@ checkpoint and is specified independently in
    mutates no entity, publishes no generation, and performs no snapshot or
    picture compilation.
 4. The second click converts through the current viewport, subtracts the
-   retained base point, clears the interaction state, and dispatches the
-   existing `CadTranslateEntitiesCommand` or
-   `CadDuplicateModelSpaceEntitiesCommand` through the synchronized history.
+   retained base point, and dispatches the existing
+   `CadTranslateEntitiesCommand` or `CadDuplicateModelSpaceEntitiesCommand`
+   through the synchronized history. Single mode then clears the state.
+   Multiple COPY keeps the base, reports the completed placement, and accepts
+   another second point without changing the source selection.
 5. Escape, selection clear, document replacement, and resource release discard
-   the bounded state without an edit. A failed semantic command reports a typed
-   `Failed` transition after the existing command has preserved transaction
-   atomicity.
+   uncommitted point state without an edit. Escape after one or more Multiple
+   placements ends the prompt and retains those already committed edits. A
+   failed semantic command reports a typed `Failed` transition after the
+   existing command has preserved transaction atomicity.
 
 The preview is intentionally one fixed-device guide plus the translated
 selection bounds. It is O(1), does not clone entity graphs, does not mutate a
@@ -102,9 +106,10 @@ direct cancellation, and shared desktop/browser button enablement. Existing
 command tests cover nested/attributed entities, transaction rollback,
 managed/native replay, and DXF/DWG round trips.
 
-Object/grid/intersection snaps, direct-distance cursor entry, Ortho/polar
-tracking, global-last-point state, UCS or arbitrary-camera planes, 3D point acquisition,
-COPY Multiple, clipboard COPYBASE, associative arrays, full transformed-geometry
-ghosting, and grip editing remain explicit follow-ups. This is a behavior and
+The later documented slices implement object/grid snaps, direct-distance cursor
+entry, and Ortho/polar tracking on this state. Global-last-point state, UCS or
+arbitrary-camera planes, 3D point acquisition, Clipboard COPYBASE, associative
+arrays, full transformed-geometry ghosting, and grip editing remain explicit
+follow-ups. This is a behavior and
 workflow checkpoint, not a before/after performance improvement; macOS
 Instruments evidence is therefore not claimed.

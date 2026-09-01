@@ -139,6 +139,7 @@ public sealed class CadSampleView : Grid
     private readonly Button[] _copyButtons;
     private readonly Button _moveByPointsButton;
     private readonly Button _copyByPointsButton;
+    private readonly Button _copyMultipleByPointsButton;
     private readonly ComboBox _objectSnapSelector;
     private readonly CheckBox _planGridSnapCheckBox;
     private readonly CheckBox _planGridDisplayCheckBox;
@@ -1396,16 +1397,20 @@ public sealed class CadSampleView : Grid
         Button copyNegativeY = CreateButton("Copy −Y", font, 72, 30);
         Button copyPositiveY = CreateButton("Copy +Y", font, 72, 30);
         _copyByPointsButton = CreateButton("Copy points…", font, 104, 30);
+        _copyMultipleByPointsButton =
+            CreateButton("Copy multiple…", font, 112, 30);
         copyNegativeX.Margin = new Thickness(0, 0, 4, 0);
         copyPositiveX.Margin = new Thickness(0, 0, 8, 0);
         copyNegativeY.Margin = new Thickness(0, 0, 4, 0);
         copyPositiveY.Margin = new Thickness(0, 0, 8, 0);
+        _copyByPointsButton.Margin = new Thickness(0, 0, 4, 0);
         _copyButtons = [
             copyNegativeX,
             copyPositiveX,
             copyNegativeY,
             copyPositiveY,
             _copyByPointsButton,
+            _copyMultipleByPointsButton,
         ];
         foreach (Button copyButton in _copyButtons)
         {
@@ -2875,6 +2880,10 @@ public sealed class CadSampleView : Grid
         copyPositiveY.Click += (_, _) => CopySelection(0, 1);
         _copyByPointsButton.Click += (_, _) =>
             BeginSelectionPointTransform(CadPointTransformOperation.Copy);
+        _copyMultipleByPointsButton.Click += (_, _) =>
+            BeginSelectionPointTransform(
+                CadPointTransformOperation.Copy,
+                CadPointTransformCopyMode.Multiple);
         _objectSnapSelector.SelectionChanged += (_, _) =>
         {
             if ((_objectSnapSelector.SelectedItem as ComboBoxItem)?.Tag is
@@ -3015,7 +3024,15 @@ public sealed class CadSampleView : Grid
         {
             if (!args.Handled && args.Key == Key.Enter)
             {
-                if ((_canvas.IsLineAuthoring || _canvas.IsRayAuthoring ||
+                if (_canvas.PendingPointTransformOperation ==
+                        CadPointTransformOperation.Copy &&
+                    _canvas.PendingPointTransformCopyMode ==
+                        CadPointTransformCopyMode.Multiple &&
+                    string.IsNullOrWhiteSpace(_pointTransformInput.Text))
+                {
+                    _canvas.CompleteSelectionPointTransform();
+                }
+                else if ((_canvas.IsLineAuthoring || _canvas.IsRayAuthoring ||
                         _canvas.IsXLineAuthoring ||
                         _canvas.IsPolylineAuthoring) &&
                     string.IsNullOrWhiteSpace(_pointTransformInput.Text))
@@ -3418,12 +3435,22 @@ public sealed class CadSampleView : Grid
 
         if (!e.Handled &&
             _canvas.PendingPointTransformOperation is not null &&
-            e.Key == Key.Escape &&
             FocusManager.GetFocusedElement() is not TextBox)
         {
-            _canvas.CancelSelectionPointTransform();
-            e.Handled = true;
-            return;
+            if (e.Key == Key.Enter &&
+                _canvas.PendingPointTransformCopyMode ==
+                    CadPointTransformCopyMode.Multiple)
+            {
+                _canvas.CompleteSelectionPointTransform();
+                e.Handled = true;
+                return;
+            }
+            if (e.Key == Key.Escape)
+            {
+                _canvas.CancelSelectionPointTransform();
+                e.Handled = true;
+                return;
+            }
         }
 
         if (!e.Handled &&
@@ -6681,7 +6708,8 @@ public sealed class CadSampleView : Grid
     }
 
     private void BeginSelectionPointTransform(
-        CadPointTransformOperation operation)
+        CadPointTransformOperation operation,
+        CadPointTransformCopyMode copyMode = CadPointTransformCopyMode.Single)
     {
         if (_isBusy)
         {
@@ -6691,7 +6719,7 @@ public sealed class CadSampleView : Grid
         try
         {
             _pointTransformInput.Text = string.Empty;
-            if (!_canvas.BeginSelectionPointTransform(operation))
+            if (!_canvas.BeginSelectionPointTransform(operation, copyMode))
             {
                 SetStatus(
                     $"{DescribePointTransformOperation(operation)} requires at least one selected entity.");
@@ -7298,14 +7326,27 @@ public sealed class CadSampleView : Grid
     private static string DescribePointTransform(
         CadPointTransformChangedEventArgs args)
     {
-        string operation = DescribePointTransformOperation(args.Operation);
+        string operation = args.Operation == CadPointTransformOperation.Copy &&
+            args.CopyMode == CadPointTransformCopyMode.Multiple
+                ? "Copy multiple by points"
+                : DescribePointTransformOperation(args.Operation);
         return args.Stage switch
         {
             CadPointTransformStage.AwaitingBasePoint =>
                 $"{operation}: click (object snap overrides grid/Ortho/polar) or enter absolute WCS x,y[,z] / distance<angle; Escape cancels.",
+            CadPointTransformStage.AwaitingSecondPoint when
+                args.CopyMode == CadPointTransformCopyMode.Multiple =>
+                $"{operation}: base {FormatPoint(args.BasePoint!.Value)}; " +
+                "specify each second point by click/coordinate/direct distance; Enter or Escape finishes after placed copies.",
             CadPointTransformStage.AwaitingSecondPoint =>
                 $"{operation}: base {FormatPoint(args.BasePoint!.Value)}; " +
                 "click (object snap overrides grid/Ortho/polar), enter an absolute point or relative @dx,dy[,dz] / @distance<angle, or move the cursor and enter a positive distance; Escape cancels.",
+            CadPointTransformStage.PlacementCompleted =>
+                $"{operation}: placed {args.PlacementCount} copy/copies; " +
+                $"base remains {FormatPoint(args.BasePoint!.Value)}; specify another second point, or press Enter/Escape to finish.",
+            CadPointTransformStage.Completed when
+                args.CopyMode == CadPointTransformCopyMode.Multiple =>
+                $"{operation} completed with {args.PlacementCount} placement(s).",
             CadPointTransformStage.Completed when args.ErrorMessage is null =>
                 $"{operation} completed with WCS displacement " +
                 $"{FormatPoint(args.Displacement!.Value)}.",

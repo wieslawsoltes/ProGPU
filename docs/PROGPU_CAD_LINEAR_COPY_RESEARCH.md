@@ -97,7 +97,12 @@ For `S` unique source roots and `C` total items:
 The shared desktop/browser shell uses the existing finite positive WCS step as
 the X/Y displacement magnitude, exposes item count and Step/Fit mode, preserves
 the original semantic selection, and triggers one snapshot/picture replacement
-per committed command.
+per committed command. Its explicit Multiple point mode retains one exact WCS
+base and accepts up to 65,536 independently committed second-point placements.
+Enter or Escape ends the prompt after any accepted copies; Escape before the
+first placement cancels without an edit. Each placement is its own exact
+Undo/Redo history action, so finishing the prompt never creates a synthetic
+aggregate mutation or rewrites prior history.
 
 ## Managed/native applicability audit
 
@@ -124,10 +129,10 @@ native source-command count remain identical.
   created handles, clipboard transport, and tessellated or renderer-specific
   copies.
 - Implemented subsequently: shared WCS-XY base/second-point acquisition for
-  single MOVE/COPY, documented in
+  single MOVE/COPY and bounded repeated Multiple COPY, documented in
   [`PROGPU_CAD_POINT_TRANSFORM_RESEARCH.md`](PROGPU_CAD_POINT_TRANSFORM_RESEARCH.md).
-  UCS and arbitrary-camera interaction, COPY Multiple prompt state, clipboard
-  exchange, and rectangular, polar, or path associative ARRAY entities remain.
+  UCS and arbitrary-camera interaction, clipboard exchange, and rectangular,
+  polar, or path associative ARRAY entities remain.
 
 ## Verification evidence
 
@@ -143,5 +148,7 @@ native source-command count remain identical.
 - a 10,000-copy bounded batch;
 - shared desktop/browser controls, invalid item rejection, source-selection
   preservation, and one snapshot rebuild per history action;
+- exact retained-base Multiple prompt transitions, caller placement bounds,
+  Enter/Escape termination, and independent placement Undo/Redo;
 - matched managed/native retained-picture compilation; and
 - DXF and DWG round trips of Fit results.

@@ -657,6 +657,154 @@ public sealed class CadSampleSelectionTests
     }
 
     [Fact]
+    public void MultiplePointCopyRetainsBaseAcrossBoundedReversiblePlacements()
+    {
+        var document = new CadDocument();
+        var line = new Line(XYZ.Zero, XYZ.AxisX);
+        document.Entities.Add(line);
+        var session = new CadDocumentSession(document);
+        var canvas = new CadSampleCanvas();
+        try
+        {
+            canvas.Load(session);
+            canvas.Arrange(new Rect(0, 0, 800, 600));
+            Click(
+                canvas,
+                canvas.CurrentViewport.WorldToScreen(
+                    new CadPoint3D(0.5, 0, 0)));
+            var transitions = new List<CadPointTransformChangedEventArgs>();
+            canvas.PointTransformChanged += (_, args) => transitions.Add(args);
+
+            Assert.Throws<ArgumentException>(() =>
+                canvas.BeginSelectionPointTransform(
+                    CadPointTransformOperation.Move,
+                    CadPointTransformCopyMode.Multiple));
+            Assert.Throws<ArgumentOutOfRangeException>(() =>
+                canvas.BeginSelectionPointTransform(
+                    CadPointTransformOperation.Copy,
+                    CadPointTransformCopyMode.Multiple,
+                    maximumCopyPlacementCount: 0));
+            Assert.True(canvas.BeginSelectionPointTransform(
+                CadPointTransformOperation.Copy,
+                CadPointTransformCopyMode.Multiple,
+                maximumCopyPlacementCount: 2));
+            Assert.True(canvas.TryAcceptSelectionPointTransformInput(
+                "0,0",
+                out string? baseError));
+            Assert.Null(baseError);
+
+            Assert.True(canvas.TryAcceptSelectionPointTransformInput(
+                "@2,0",
+                out string? firstError));
+
+            Assert.Null(firstError);
+            Assert.Equal(
+                CadPointTransformOperation.Copy,
+                canvas.PendingPointTransformOperation);
+            Assert.Equal(
+                CadPointTransformCopyMode.Multiple,
+                canvas.PendingPointTransformCopyMode);
+            Assert.Equal(CadPoint3D.Zero, canvas.PendingPointTransformBasePoint);
+            Assert.Equal(1, canvas.PendingPointTransformCopyPlacementCount);
+            Assert.Equal(1UL, session.ContentGeneration);
+            Assert.Equal(2, document.Entities.Count);
+            Assert.Equal([line.Handle], canvas.SelectedHandles.ToArray());
+
+            Assert.True(canvas.TryAcceptSelectionPointTransformInput(
+                "@0,3",
+                out string? secondError));
+
+            Assert.Null(secondError);
+            Assert.Null(canvas.PendingPointTransformOperation);
+            Assert.Equal(2UL, session.ContentGeneration);
+            Assert.Equal(3, document.Entities.Count);
+            Assert.Contains(
+                document.Entities.OfType<Line>(),
+                candidate => candidate.StartPoint == new XYZ(2, 0, 0) &&
+                    candidate.EndPoint == new XYZ(3, 0, 0));
+            Assert.Contains(
+                document.Entities.OfType<Line>(),
+                candidate => candidate.StartPoint == new XYZ(0, 3, 0) &&
+                    candidate.EndPoint == new XYZ(1, 3, 0));
+            Assert.Equal([line.Handle], canvas.SelectedHandles.ToArray());
+            Assert.Equal(2, canvas.UndoCount);
+            Assert.Equal([
+                CadPointTransformStage.AwaitingBasePoint,
+                CadPointTransformStage.AwaitingSecondPoint,
+                CadPointTransformStage.PlacementCompleted,
+                CadPointTransformStage.Completed,
+            ], transitions.Select(static transition => transition.Stage));
+            Assert.All(
+                transitions,
+                transition => Assert.Equal(
+                    CadPointTransformCopyMode.Multiple,
+                    transition.CopyMode));
+            Assert.Equal(1, transitions[^2].PlacementCount);
+            Assert.Equal(2, transitions[^1].PlacementCount);
+
+            Assert.True(canvas.TryUndo());
+            Assert.Equal(2, document.Entities.Count);
+            Assert.True(canvas.TryUndo());
+            Assert.Single(document.Entities);
+            Assert.True(canvas.TryRedo());
+            Assert.True(canvas.TryRedo());
+            Assert.Equal(3, document.Entities.Count);
+        }
+        finally
+        {
+            canvas.FireUnloaded();
+        }
+    }
+
+    [Fact]
+    public void MultiplePointCopyEscapeEndsAfterCommittedPlacements()
+    {
+        var document = new CadDocument();
+        var line = new Line(XYZ.Zero, XYZ.AxisX);
+        document.Entities.Add(line);
+        var session = new CadDocumentSession(document);
+        var view = new CadSampleView();
+        try
+        {
+            Button copyMultiple = FindButton(view, "Copy multiple…");
+            view.Canvas.Load(session);
+            view.Canvas.Arrange(new Rect(0, 0, 800, 600));
+            CadPlanViewport viewport = view.Canvas.CurrentViewport;
+            Click(
+                view.Canvas,
+                viewport.WorldToScreen(new CadPoint3D(0.5, 0, 0)));
+
+            PressEnter(copyMultiple);
+            Click(view.Canvas, viewport.WorldToScreen(CadPoint3D.Zero));
+            Click(
+                view.Canvas,
+                viewport.WorldToScreen(new CadPoint3D(4, 2, 0)));
+
+            Assert.Equal(
+                CadPointTransformOperation.Copy,
+                view.Canvas.PendingPointTransformOperation);
+            Assert.Equal(1, view.Canvas.PendingPointTransformCopyPlacementCount);
+            Assert.Equal(2, document.Entities.Count);
+            var escape = new KeyRoutedEventArgs
+            {
+                Key = Silk.NET.Input.Key.Escape,
+            };
+
+            view.OnKeyDown(escape);
+
+            Assert.True(escape.Handled);
+            Assert.Null(view.Canvas.PendingPointTransformOperation);
+            Assert.Equal(1UL, session.ContentGeneration);
+            Assert.Equal(2, document.Entities.Count);
+            Assert.Equal([line.Handle], view.Canvas.SelectedHandles.ToArray());
+        }
+        finally
+        {
+            view.Canvas.FireUnloaded();
+        }
+    }
+
+    [Fact]
     public void TypedPointMoveRejectsInvalidInputThenCommitsOneExactWcsEdit()
     {
         var document = new CadDocument();

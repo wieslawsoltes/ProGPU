@@ -1012,7 +1012,10 @@ second shared toolbar row applies a finite positive invariant WCS step along
 `Copy points…` commands. Each preserves the prepared semantic selection,
 accepts one double-WCS base point and one second point through the current plan
 viewport, and commits their difference through the existing transactional MOVE
-or COPY command. The same prompt accepts bounded invariant absolute Cartesian
+or COPY command. `Copy multiple…` retains that exact base for a caller-bounded
+sequence of independently reversible placements; Enter or Escape ends after
+accepted copies, while Escape before the first placement cancels. The same
+prompt accepts bounded invariant absolute Cartesian
 `x,y[,z]` or polar `distance<angle` input at either stage; after the base point,
 relative Cartesian `@dx,dy[,dz]` or polar `@distance<angle` resolves against
 that retained base and supplies an exact typed displacement. The first point is

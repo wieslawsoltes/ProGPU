@@ -51,6 +51,13 @@ public enum CadPointTransformOperation : byte
     Copy = 1,
 }
 
+/// <summary>Placement lifetime for a two-point COPY interaction.</summary>
+public enum CadPointTransformCopyMode : byte
+{
+    Single = 0,
+    Multiple = 1,
+}
+
 /// <summary>Observable stage of a bounded two-point transform interaction.</summary>
 public enum CadPointTransformStage : byte
 {
@@ -59,6 +66,7 @@ public enum CadPointTransformStage : byte
     Completed = 2,
     Canceled = 3,
     Failed = 4,
+    PlacementCompleted = 5,
 }
 
 /// <summary>
@@ -78,13 +86,19 @@ public sealed class CadPointTransformChangedEventArgs : EventArgs
 
     public string? ErrorMessage { get; }
 
+    public CadPointTransformCopyMode CopyMode { get; }
+
+    public int PlacementCount { get; }
+
     internal CadPointTransformChangedEventArgs(
         CadPointTransformOperation operation,
         CadPointTransformStage stage,
         CadPoint3D? basePoint = null,
         CadPoint3D? secondPoint = null,
         CadPoint3D? displacement = null,
-        string? errorMessage = null)
+        string? errorMessage = null,
+        CadPointTransformCopyMode copyMode = CadPointTransformCopyMode.Single,
+        int placementCount = 0)
     {
         Operation = operation;
         Stage = stage;
@@ -92,6 +106,8 @@ public sealed class CadPointTransformChangedEventArgs : EventArgs
         SecondPoint = secondPoint;
         Displacement = displacement;
         ErrorMessage = errorMessage;
+        CopyMode = copyMode;
+        PlacementCount = placementCount;
     }
 }
 
@@ -605,6 +621,8 @@ public sealed class CadSelectionPropertyCatalog
 /// <summary>Shared interactive retained CAD surface used by desktop and browser hosts.</summary>
 public sealed class CadSampleCanvas : FrameworkElement
 {
+    public const int DefaultMaximumMultipleCopyPlacementCount = 65_536;
+
     private const double PolylinePreviewMaximumPhysicalError = 0.25;
     private const int PolylinePreviewMaximumStepCount = 512;
 
@@ -699,6 +717,8 @@ public sealed class CadSampleCanvas : FrameworkElement
     private int _selectedHandleCount;
     private int _drawOrderReferenceHandleCount;
     private int _lastUnsupportedPrimitiveCount;
+    private int _pointTransformCopyPlacementCount;
+    private int _pointTransformMaximumCopyPlacementCount;
     private bool _lastSelectionWasTruncated;
     private bool _isPanning;
     private bool _isSelecting;
@@ -708,6 +728,7 @@ public sealed class CadSampleCanvas : FrameworkElement
     private bool _hasPointTransformGridSnap;
     private bool _hasPointTransformOrtho;
     private bool _hasPointTransformPolarTracking;
+    private CadPointTransformCopyMode _pointTransformCopyMode;
     private bool _isPlanOrthoEnabled;
     private bool _hasSelectionDrag;
     private bool _needsFit = true;
@@ -770,6 +791,12 @@ public sealed class CadSampleCanvas : FrameworkElement
 
     public CadPoint3D? PendingPointTransformBasePoint =>
         _hasPointTransformBasePoint ? _pointTransformBasePoint : null;
+
+    public CadPointTransformCopyMode PendingPointTransformCopyMode =>
+        _pointTransformCopyMode;
+
+    public int PendingPointTransformCopyPlacementCount =>
+        _pointTransformCopyPlacementCount;
 
     /// <summary>Whether one bounded model-space LINE sequence is active.</summary>
     public bool IsLineAuthoring => _lineAuthoring is not null;
@@ -3153,11 +3180,33 @@ public sealed class CadSampleCanvas : FrameworkElement
     /// current semantic selection. The document remains unchanged until the
     /// second point is accepted.
     /// </summary>
-    public bool BeginSelectionPointTransform(CadPointTransformOperation operation)
+    public bool BeginSelectionPointTransform(
+        CadPointTransformOperation operation,
+        CadPointTransformCopyMode copyMode = CadPointTransformCopyMode.Single,
+        int maximumCopyPlacementCount =
+            DefaultMaximumMultipleCopyPlacementCount)
     {
         if (!Enum.IsDefined(operation))
         {
             throw new ArgumentOutOfRangeException(nameof(operation));
+        }
+        if (!Enum.IsDefined(copyMode))
+        {
+            throw new ArgumentOutOfRangeException(nameof(copyMode));
+        }
+        if (operation != CadPointTransformOperation.Copy &&
+            copyMode != CadPointTransformCopyMode.Single)
+        {
+            throw new ArgumentException(
+                "Multiple placement applies only to COPY.",
+                nameof(copyMode));
+        }
+        if (copyMode == CadPointTransformCopyMode.Multiple &&
+            maximumCopyPlacementCount <= 0)
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(maximumCopyPlacementCount),
+                "The multiple-copy placement bound must be positive.");
         }
         if (_selectedHandleCount == 0)
         {
@@ -3175,6 +3224,12 @@ public sealed class CadSampleCanvas : FrameworkElement
         }
 
         PendingPointTransformOperation = operation;
+        _pointTransformCopyMode = copyMode;
+        _pointTransformCopyPlacementCount = 0;
+        _pointTransformMaximumCopyPlacementCount =
+            copyMode == CadPointTransformCopyMode.Multiple
+                ? maximumCopyPlacementCount
+                : 1;
         _hasPointTransformBasePoint = false;
         _isPointTransformPointerPressed = false;
         _hasPointTransformPointerPosition = false;
@@ -3186,12 +3241,16 @@ public sealed class CadSampleCanvas : FrameworkElement
             this,
             new CadPointTransformChangedEventArgs(
                 operation,
-                CadPointTransformStage.AwaitingBasePoint));
+                CadPointTransformStage.AwaitingBasePoint,
+                copyMode: copyMode));
         Invalidate();
         return true;
     }
 
-    /// <summary>Cancels a pending point transform without editing the document.</summary>
+    /// <summary>
+    /// Cancels an uncommitted point transform. Multiple COPY ends while
+    /// retaining any placements already committed to history.
+    /// </summary>
     public bool CancelSelectionPointTransform()
     {
         CadPointTransformOperation? operation = PendingPointTransformOperation;
@@ -3200,14 +3259,51 @@ public sealed class CadSampleCanvas : FrameworkElement
             return false;
         }
 
+        if (_pointTransformCopyMode == CadPointTransformCopyMode.Multiple &&
+            _pointTransformCopyPlacementCount > 0)
+        {
+            return CompleteSelectionPointTransform();
+        }
+
         CadPoint3D? basePoint = PendingPointTransformBasePoint;
+        CadPointTransformCopyMode copyMode = _pointTransformCopyMode;
         ResetPointTransformState(notify: false);
         PointTransformChanged?.Invoke(
             this,
             new CadPointTransformChangedEventArgs(
                 operation.Value,
                 CadPointTransformStage.Canceled,
-                basePoint));
+                basePoint,
+                copyMode: copyMode));
+        Invalidate();
+        return true;
+    }
+
+    /// <summary>
+    /// Ends an active Multiple COPY prompt while retaining every already
+    /// committed placement as an independent history edit.
+    /// </summary>
+    public bool CompleteSelectionPointTransform()
+    {
+        if (PendingPointTransformOperation != CadPointTransformOperation.Copy ||
+            _pointTransformCopyMode != CadPointTransformCopyMode.Multiple)
+        {
+            return false;
+        }
+
+        CadPoint3D? basePoint = PendingPointTransformBasePoint;
+        int placementCount = _pointTransformCopyPlacementCount;
+        ResetPointTransformState(notify: false);
+        PointTransformChanged?.Invoke(
+            this,
+            new CadPointTransformChangedEventArgs(
+                CadPointTransformOperation.Copy,
+                placementCount == 0
+                    ? CadPointTransformStage.Canceled
+                    : CadPointTransformStage.Completed,
+                basePoint,
+                copyMode: CadPointTransformCopyMode.Multiple,
+                placementCount: placementCount));
         Invalidate();
         return true;
     }
@@ -7057,6 +7153,12 @@ public sealed class CadSampleCanvas : FrameworkElement
     public bool DuplicateSelection(CadPoint3D translation)
     {
         ThrowIfDrawOrderReferencePickPending();
+        return DuplicateSelectionCore(translation);
+    }
+
+    private bool DuplicateSelectionCore(CadPoint3D translation)
+    {
+        ThrowIfDrawOrderReferenceSelectionPending();
         if (_selectedHandleCount == 0)
         {
             return false;
@@ -9038,13 +9140,17 @@ public sealed class CadSampleCanvas : FrameworkElement
         {
             if (operation is CadPointTransformOperation value)
             {
+                CadPointTransformCopyMode copyMode = _pointTransformCopyMode;
+                int placementCount = _pointTransformCopyPlacementCount;
                 ResetPointTransformState(notify: false);
                 PointTransformChanged?.Invoke(
                     this,
                     new CadPointTransformChangedEventArgs(
                         value,
                         CadPointTransformStage.Failed,
-                        errorMessage: exception.Message));
+                        errorMessage: exception.Message,
+                        copyMode: copyMode,
+                        placementCount: placementCount));
             }
             else if (_lineAuthoring is not null)
             {
@@ -10301,7 +10407,9 @@ public sealed class CadSampleCanvas : FrameworkElement
                 new CadPointTransformChangedEventArgs(
                     operation.Value,
                     CadPointTransformStage.AwaitingSecondPoint,
-                    point));
+                    point,
+                    copyMode: _pointTransformCopyMode,
+                    placementCount: _pointTransformCopyPlacementCount));
             Invalidate();
             return;
         }
@@ -10311,13 +10419,44 @@ public sealed class CadSampleCanvas : FrameworkElement
             point.X - basePoint.X,
             point.Y - basePoint.Y,
             point.Z - basePoint.Z);
-        ResetPointTransformState(notify: false);
+        bool isMultipleCopy =
+            operation == CadPointTransformOperation.Copy &&
+            _pointTransformCopyMode == CadPointTransformCopyMode.Multiple;
+        CadPointTransformCopyMode copyMode = _pointTransformCopyMode;
+        if (!isMultipleCopy)
+        {
+            ResetPointTransformState(notify: false);
+        }
         try
         {
             bool applied = operation == CadPointTransformOperation.Copy
-                ? DuplicateSelection(displacement)
+                ? DuplicateSelectionCore(displacement)
                 : displacement != CadPoint3D.Zero &&
                     TranslateSelection(displacement);
+            if (isMultipleCopy && applied)
+            {
+                int placementCount = ++_pointTransformCopyPlacementCount;
+                bool reachedBound = placementCount >=
+                    _pointTransformMaximumCopyPlacementCount;
+                if (reachedBound)
+                {
+                    ResetPointTransformState(notify: false);
+                }
+                PointTransformChanged?.Invoke(
+                    this,
+                    new CadPointTransformChangedEventArgs(
+                        operation.Value,
+                        reachedBound
+                            ? CadPointTransformStage.Completed
+                            : CadPointTransformStage.PlacementCompleted,
+                        basePoint,
+                        point,
+                        displacement,
+                        copyMode: copyMode,
+                        placementCount: placementCount));
+                Invalidate();
+                return;
+            }
             PointTransformChanged?.Invoke(
                 this,
                 new CadPointTransformChangedEventArgs(
@@ -10328,10 +10467,16 @@ public sealed class CadSampleCanvas : FrameworkElement
                     displacement,
                     applied
                         ? null
-                        : "The point transform did not change the selection."));
+                        : "The point transform did not change the selection.",
+                    copyMode,
+                    _pointTransformCopyPlacementCount));
         }
         catch (Exception exception)
         {
+            if (!isMultipleCopy)
+            {
+                ResetPointTransformState(notify: false);
+            }
             PointTransformChanged?.Invoke(
                 this,
                 new CadPointTransformChangedEventArgs(
@@ -10340,7 +10485,9 @@ public sealed class CadSampleCanvas : FrameworkElement
                     basePoint,
                     point,
                     displacement,
-                    exception.Message));
+                    exception.Message,
+                    copyMode,
+                    _pointTransformCopyPlacementCount));
         }
         Invalidate();
     }
@@ -10522,7 +10669,12 @@ public sealed class CadSampleCanvas : FrameworkElement
     {
         CadPointTransformOperation? operation = PendingPointTransformOperation;
         CadPoint3D? basePoint = PendingPointTransformBasePoint;
+        CadPointTransformCopyMode copyMode = _pointTransformCopyMode;
+        int placementCount = _pointTransformCopyPlacementCount;
         PendingPointTransformOperation = null;
+        _pointTransformCopyMode = CadPointTransformCopyMode.Single;
+        _pointTransformCopyPlacementCount = 0;
+        _pointTransformMaximumCopyPlacementCount = 0;
         _hasPointTransformBasePoint = false;
         _isPointTransformPointerPressed = false;
         _pointTransformBasePoint = default;
@@ -10543,7 +10695,9 @@ public sealed class CadSampleCanvas : FrameworkElement
                 new CadPointTransformChangedEventArgs(
                     value,
                     CadPointTransformStage.Canceled,
-                    basePoint));
+                    basePoint,
+                    copyMode: copyMode,
+                    placementCount: placementCount));
         }
     }
 
