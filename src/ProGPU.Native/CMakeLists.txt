@@ -1166,6 +1166,7 @@ if(NOT EMSCRIPTEN AND PROGPU_NATIVE_DAWN_WEBGPU_INCLUDE_DIR)
             find_library(PROGPU_NATIVE_IOSURFACE_FRAMEWORK IOSurface REQUIRED)
             target_link_libraries(progpu_native_webscene_provider_tests PRIVATE
                 progpu_native_dawn
+                progpu_native_direct2d_core
                 progpu_native_scene_builder
                 "${PROGPU_NATIVE_IOSURFACE_FRAMEWORK}"
                 "${CMAKE_DL_LIBS}")
@@ -1770,6 +1771,7 @@ if(NOT EMSCRIPTEN)
         include/progpu_native_com.hpp
         include/progpu_native_direct2d_compat.hpp
         include/progpu_native_direct2d_core.hpp
+        include/progpu_native_direct2d_scene_submission.hpp
         include/progpu_native_dawn.h
         include/progpu_native_compression.hpp
         include/progpu_native_hit_testing.hpp

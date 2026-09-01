@@ -1,4 +1,5 @@
 #include "progpu_native_dawn.h"
+#include "progpu_native_direct2d_scene_submission.hpp"
 #include "progpu_native_scene_builder.hpp"
 #include "progpu_native_semantic_backdrop_scene.hpp"
 #include "progpu_native_semantic_color_glyph_scene.hpp"
@@ -3010,6 +3011,45 @@ void verify_and_capture(IOSurfaceRef surface, const char* output_path) {
         kIOReturnSuccess, "could not unlock IOSurface");
 }
 
+void verify_direct2d_scene(IOSurfaceRef surface) {
+    require(surface != nullptr, "Direct2D scene has no IOSurface");
+    require(IOSurfaceLock(surface, kIOSurfaceLockReadOnly, nullptr) ==
+        kIOReturnSuccess, "could not lock Direct2D scene IOSurface");
+    const auto* bytes = static_cast<const std::uint8_t*>(
+        IOSurfaceGetBaseAddress(surface));
+    const std::size_t width = IOSurfaceGetWidth(surface);
+    const std::size_t height = IOSurfaceGetHeight(surface);
+    const std::size_t row_bytes = IOSurfaceGetBytesPerRow(surface);
+    require(bytes != nullptr && width == 64U && height == 48U &&
+        row_bytes >= width * 4U,
+        "unexpected Direct2D scene IOSurface storage");
+    const auto pixel = [bytes, row_bytes](std::size_t x, std::size_t y) {
+        return bytes + y * row_bytes + x * 4U;
+    };
+    const auto near_bgra = [](const std::uint8_t* value,
+                              int blue,
+                              int green,
+                              int red) {
+        constexpr int tolerance = 48;
+        return std::abs(static_cast<int>(value[0]) - blue) <= tolerance &&
+            std::abs(static_cast<int>(value[1]) - green) <= tolerance &&
+            std::abs(static_cast<int>(value[2]) - red) <= tolerance &&
+            value[3] >= 240U;
+    };
+    require(near_bgra(pixel(2U, 2U), 38, 26, 13),
+        "Direct2D target clear color is missing");
+    require(near_bgra(pixel(10U, 10U), 0, 0, 255),
+        "Direct2D FillRectangle did not reach Metal");
+    require(near_bgra(pixel(40U, 14U), 0, 255, 0),
+        "Direct2D FillEllipse did not reach Metal");
+    require(near_bgra(pixel(18U, 28U), 255, 0, 0),
+        "Direct2D DrawRectangle did not reach Metal");
+    require(near_bgra(pixel(46U, 36U), 255, 0, 255),
+        "Direct2D FillRoundedRectangle did not reach Metal");
+    require(IOSurfaceUnlock(surface, kIOSurfaceLockReadOnly, nullptr) ==
+        kIOReturnSuccess, "could not unlock Direct2D scene IOSurface");
+}
+
 } // namespace
 
 int main(int argc, char** argv) {
@@ -3058,6 +3098,164 @@ int main(int argc, char** argv) {
     require(progpu_native_dawn_engine_create(&engine_options, &engine) ==
         PROGPU_NATIVE_STATUS_SUCCESS && engine != nullptr,
         "ProGPU Dawn engine creation failed");
+
+    namespace d2d = progpu::native::direct2d::compat;
+    namespace native_com = progpu::native::com;
+    d2d::factory* raw_d2d_factory = nullptr;
+    require(d2d::create_factory(&raw_d2d_factory) == native_com::ok &&
+        raw_d2d_factory != nullptr,
+        "portable Direct2D factory creation failed");
+    native_com::pointer<d2d::factory> d2d_factory;
+    d2d_factory.attach(raw_d2d_factory);
+    native_com::pointer<d2d::scene_factory_native> d2d_scene_factory;
+    require(d2d_factory.as(
+            d2d::scene_factory_native_interface_id,
+            d2d_scene_factory) == native_com::ok &&
+        d2d_scene_factory,
+        "portable Direct2D scene factory query failed");
+    const d2d::scene_render_target_properties d2d_target_properties{
+        64U, 48U, 96.0F, 96.0F, 9001U, 1U};
+    d2d::render_target* raw_d2d_target = nullptr;
+    require(d2d_scene_factory->CreateSceneRenderTarget(
+            &d2d_target_properties,
+            &raw_d2d_target) == native_com::ok &&
+        raw_d2d_target != nullptr,
+        "portable Direct2D target creation failed");
+    native_com::pointer<d2d::render_target> d2d_target;
+    d2d_target.attach(raw_d2d_target);
+
+    const d2d::color_f d2d_red{1.0F, 0.0F, 0.0F, 1.0F};
+    const d2d::color_f d2d_green{0.0F, 1.0F, 0.0F, 1.0F};
+    const d2d::color_f d2d_blue{0.0F, 0.0F, 1.0F, 1.0F};
+    const d2d::color_f d2d_magenta{1.0F, 0.0F, 1.0F, 1.0F};
+    d2d::solid_color_brush* raw_d2d_red_brush = nullptr;
+    d2d::solid_color_brush* raw_d2d_green_brush = nullptr;
+    d2d::solid_color_brush* raw_d2d_blue_brush = nullptr;
+    d2d::solid_color_brush* raw_d2d_magenta_brush = nullptr;
+    require(d2d_target->CreateSolidColorBrush(
+            &d2d_red, nullptr, &raw_d2d_red_brush) == native_com::ok &&
+        d2d_target->CreateSolidColorBrush(
+            &d2d_green, nullptr, &raw_d2d_green_brush) == native_com::ok &&
+        d2d_target->CreateSolidColorBrush(
+            &d2d_blue, nullptr, &raw_d2d_blue_brush) == native_com::ok &&
+        d2d_target->CreateSolidColorBrush(
+            &d2d_magenta, nullptr, &raw_d2d_magenta_brush) == native_com::ok &&
+        raw_d2d_red_brush != nullptr && raw_d2d_green_brush != nullptr &&
+        raw_d2d_blue_brush != nullptr && raw_d2d_magenta_brush != nullptr,
+        "portable Direct2D brush creation failed");
+    native_com::pointer<d2d::solid_color_brush> d2d_red_brush;
+    native_com::pointer<d2d::solid_color_brush> d2d_green_brush;
+    native_com::pointer<d2d::solid_color_brush> d2d_blue_brush;
+    native_com::pointer<d2d::solid_color_brush> d2d_magenta_brush;
+    d2d_red_brush.attach(raw_d2d_red_brush);
+    d2d_green_brush.attach(raw_d2d_green_brush);
+    d2d_blue_brush.attach(raw_d2d_blue_brush);
+    d2d_magenta_brush.attach(raw_d2d_magenta_brush);
+    d2d_target->BeginDraw();
+    const d2d::color_f d2d_clear{0.05F, 0.1F, 0.15F, 1.0F};
+    const d2d::rectangle_f d2d_rectangle{4.0F, 4.0F, 20.0F, 20.0F};
+    const d2d::ellipse d2d_ellipse{{40.0F, 14.0F}, 8.0F, 8.0F};
+    const d2d::rectangle_f d2d_stroked_rectangle{
+        8.0F, 28.0F, 28.0F, 42.0F};
+    const d2d::rounded_rectangle d2d_rounded_rectangle{
+        {36.0F, 28.0F, 56.0F, 44.0F}, 4.0F, 4.0F};
+    d2d_target->Clear(&d2d_clear);
+    d2d_target->FillRectangle(
+        &d2d_rectangle, static_cast<d2d::brush*>(d2d_red_brush.get()));
+    d2d_target->FillEllipse(
+        &d2d_ellipse, static_cast<d2d::brush*>(d2d_green_brush.get()));
+    d2d_target->DrawRectangle(
+        &d2d_stroked_rectangle,
+        static_cast<d2d::brush*>(d2d_blue_brush.get()),
+        3.0F,
+        nullptr);
+    d2d_target->FillRoundedRectangle(
+        &d2d_rounded_rectangle,
+        static_cast<d2d::brush*>(d2d_magenta_brush.get()));
+    require(d2d_target->EndDraw(nullptr, nullptr) == native_com::ok,
+        "portable Direct2D recording failed");
+    native_com::pointer<d2d::scene_render_target_native> d2d_scene_target;
+    require(d2d_target.as(
+            d2d::scene_render_target_native_interface_id,
+            d2d_scene_target) == native_com::ok &&
+        d2d_scene_target,
+        "portable Direct2D scene target query failed");
+
+    webscene_gpu_canvas_configuration d2d_canvas_configuration{};
+    d2d_canvas_configuration.struct_size = sizeof(d2d_canvas_configuration);
+    d2d_canvas_configuration.device = reinterpret_cast<std::uintptr_t>(device);
+    d2d_canvas_configuration.usage = WGPUTextureUsage_RenderAttachment |
+        WGPUTextureUsage_CopySrc;
+    d2d_canvas_configuration.pixel_format =
+        WEBSCENE_GPU_PIXEL_FORMAT_BGRA8_UNORM;
+    d2d_canvas_configuration.alpha_mode =
+        WEBSCENE_GPU_ALPHA_MODE_PREMULTIPLIED;
+    d2d_canvas_configuration.buffer_count = 2U;
+    webscene_gpu_canvas* d2d_canvas = api.create_canvas(
+        provider, &d2d_canvas_configuration, 64U, 48U);
+    require(d2d_canvas != nullptr, "Direct2D canvas creation failed");
+    std::uintptr_t d2d_texture_handle = 0U;
+    require(api.acquire(provider, d2d_canvas, &d2d_texture_handle) ==
+            WEBSCENE_GPU_STATUS_SUCCESS &&
+        d2d_texture_handle != 0U,
+        "Direct2D canvas acquisition failed");
+    auto d2d_texture = reinterpret_cast<WGPUTexture>(d2d_texture_handle);
+    WGPUTextureViewDescriptor d2d_view_descriptor =
+        WGPU_TEXTURE_VIEW_DESCRIPTOR_INIT;
+    WGPUTextureView d2d_view = resolve<WGPUProcTextureCreateView>(
+        api, provider, "wgpuTextureCreateView")(
+        d2d_texture, &d2d_view_descriptor);
+    require(d2d_view != nullptr, "Direct2D target view creation failed");
+    std::vector<std::byte> d2d_scene_scratch(
+        static_cast<std::size_t>(d2d_scene_target->GetRequiredSceneSize()));
+    progpu_native_scene_metrics d2d_scene_metrics{};
+    d2d_scene_metrics.struct_size = sizeof(d2d_scene_metrics);
+    progpu_native_scene_frame_metrics d2d_frame_metrics{};
+    d2d_frame_metrics.struct_size = sizeof(d2d_frame_metrics);
+    d2d::scene_submission_diagnostics d2d_diagnostics{};
+    const d2d::scene_render_options d2d_render_options{
+        reinterpret_cast<std::uintptr_t>(d2d_view),
+        PROGPU_NATIVE_SCENE_FRAME_PRESERVE_TARGET};
+    require(d2d::render_scene_target(
+            d2d_scene_target.get(),
+            engine,
+            d2d_render_options,
+            d2d_scene_scratch,
+            &d2d_scene_metrics,
+            &d2d_frame_metrics,
+            &d2d_diagnostics) == PROGPU_NATIVE_STATUS_SUCCESS &&
+        d2d_diagnostics.stage == d2d::scene_submission_stage::none &&
+        d2d_scene_metrics.draw_count == 4U &&
+        d2d_frame_metrics.command_count == 4U &&
+        d2d_frame_metrics.submission_count == 1U,
+        "portable Direct2D scene submission failed");
+    std::uint64_t d2d_submission = 0U;
+    require(progpu_native_engine_get_last_submission(
+            engine, &d2d_submission) == PROGPU_NATIVE_STATUS_SUCCESS &&
+        d2d_submission != 0U,
+        "Direct2D submission token unavailable");
+    std::uint8_t d2d_complete = 0U;
+    require(progpu_native_engine_poll_submission(
+            engine, d2d_submission, 1U, &d2d_complete) ==
+            PROGPU_NATIVE_STATUS_SUCCESS &&
+        d2d_complete != 0U,
+        "Direct2D scene submission did not complete");
+    resolve<WGPUProcTextureViewRelease>(
+        api, provider, "wgpuTextureViewRelease")(d2d_view);
+    resolve<WGPUProcTextureRelease>(
+        api, provider, "wgpuTextureRelease")(d2d_texture);
+    webscene_gpu_external_texture d2d_external{};
+    d2d_external.struct_size = sizeof(d2d_external);
+    require(api.present(provider, d2d_canvas, &d2d_external) ==
+            WEBSCENE_GPU_STATUS_SUCCESS &&
+        d2d_external.handle_kind == WEBSCENE_GPU_HANDLE_IOSURFACE &&
+        (d2d_external.flags &
+            WEBSCENE_GPU_EXTERNAL_TEXTURE_GPU_COMPLETE) != 0U,
+        "Direct2D canvas presentation failed");
+    verify_direct2d_scene(
+        reinterpret_cast<IOSurfaceRef>(d2d_external.shared_handle));
+    api.release_external(provider, &d2d_external);
+    api.destroy_canvas(provider, d2d_canvas);
 
     auto semantic_scene = create_semantic_scene_stream(1U, 2U);
     progpu_native_scene_metrics scene_metrics{};
