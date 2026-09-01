@@ -5301,6 +5301,15 @@ retry is substituted; the full C++ D3D12 sample still runs on the software
 adapter, and full managed GPU execution remains mandatory on hardware and
 Parallels.
 
+The same hosted CPU-only adapter explicitly defers the two forced
+signed-winding compute profiles. Its inline four-rectangle rerasterization
+reached the final readback only after roughly 100 seconds and then lost the
+device, after every preceding differential had passed. Exact native
+validators and compiler contracts still run there; forced inline and staged
+GPU execution remain required on Windows Parallels/hardware, Metal, and
+Vulkan. This is a named CI-adapter limitation, not an automatic-policy change
+or a CPU fallback.
+
 ABI v25 closes that follow-up without publishing arbitrary COM sink pointers.
 The provider materializes simplify, outline, and widen results as genuine
 same-factory `ID2D1PathGeometry1` resources. Its tessellation sink writes

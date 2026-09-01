@@ -6666,6 +6666,15 @@ public class NativeRendererInteropTests
             "--managed-picture --profile-native-only --rectangles 384",
             windowsBuild,
             StringComparison.Ordinal);
+        Assert.Contains(
+            "Deferred forced signed-winding compute execution on " +
+            "Microsoft Basic Render Driver",
+            windowsBuild,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "if ($IsMicrosoftBasicRenderDriver)",
+            windowsBuild,
+            StringComparison.Ordinal);
 
         using JsonDocument manifest = JsonDocument.Parse(File.ReadAllText(
             FindRepoFile("eng", "progpu-native-dawn.version.json")));

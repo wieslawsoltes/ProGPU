@@ -187,6 +187,15 @@ to 67 seconds (about 45%) while preserving exact pixels. Forced native compute
 then failed closed with the typed incompatibility exception and emitted no
 WebGPU validation or device errors.
 
+GitHub's x64 Microsoft Basic Render Driver is not a forced signed-winding
+compute qualification adapter. A four-rectangle inline rerasterization
+completed all preceding smoke differentials, then spent roughly 100 seconds
+before the CPU-only D3D12 device was removed during readback. The hosted x64
+lane therefore keeps exact native validators and compiler contracts but defers
+both forced inline/staged executions with an explicit diagnostic. Live forced
+profiles remain mandatory on Windows Parallels/hardware plus Metal and Vulkan;
+automatic production policy is not changed, and no CPU result is substituted.
+
 `--rerasterize-glyphs` is the component-performance form of the glyph gate. It
 increments the native content revision for every render so each measured frame
 must rebuild and upload the 247,808-byte coverage batch; without this option,
