@@ -19,7 +19,7 @@ namespace {
     return std::abs(left - right) <= 0.0001F;
 }
 
-class simplified_sink final : public compat::simplified_geometry_sink {
+class simplified_sink final : public compat::geometry_sink {
 public:
     com::result PROGPU_NATIVE_COM_CALL QueryInterface(
         com::guid_ref interface_id,
@@ -29,8 +29,13 @@ public:
             return com::pointer_error;
         }
         *value = nullptr;
-        if (com::guid_equal(interface_id, com::unknown_interface_id())) {
-            *value = static_cast<compat::simplified_geometry_sink*>(this);
+        if (com::guid_equal(interface_id, com::unknown_interface_id()) ||
+            com::guid_equal(
+                interface_id,
+                compat::simplified_geometry_sink_interface_id) ||
+            com::guid_equal(
+                interface_id, compat::geometry_sink_interface_id)) {
+            *value = static_cast<compat::geometry_sink*>(this);
             AddRef();
             return com::ok;
         }
@@ -71,17 +76,23 @@ public:
     }
 
     void PROGPU_NATIVE_COM_CALL AddLines(
-        const compat::point_2f*,
+        const compat::point_2f* points,
         std::uint32_t point_count) noexcept override
     {
         line_count += point_count;
+        if (points != nullptr && point_count != 0U) {
+            last = points[point_count - 1U];
+        }
     }
 
     void PROGPU_NATIVE_COM_CALL AddBeziers(
-        const compat::bezier_segment*,
+        const compat::bezier_segment* beziers,
         std::uint32_t value_count) noexcept override
     {
         bezier_count += value_count;
+        if (beziers != nullptr && value_count != 0U) {
+            last = beziers[value_count - 1U].point3;
+        }
     }
 
     void PROGPU_NATIVE_COM_CALL EndFigure(compat::figure_end end)
@@ -93,7 +104,52 @@ public:
 
     com::result PROGPU_NATIVE_COM_CALL Close() noexcept override
     {
+        ++close_count;
         return com::ok;
+    }
+
+    void PROGPU_NATIVE_COM_CALL AddLine(compat::point_2f point)
+        noexcept override
+    {
+        ++line_count;
+        last = point;
+    }
+
+    void PROGPU_NATIVE_COM_CALL AddBezier(
+        const compat::bezier_segment* bezier) noexcept override
+    {
+        ++bezier_count;
+        if (bezier != nullptr) {
+            last = bezier->point3;
+        }
+    }
+
+    void PROGPU_NATIVE_COM_CALL AddQuadraticBezier(
+        const compat::quadratic_bezier_segment* bezier) noexcept override
+    {
+        ++quadratic_count;
+        if (bezier != nullptr) {
+            last = bezier->point2;
+        }
+    }
+
+    void PROGPU_NATIVE_COM_CALL AddQuadraticBeziers(
+        const compat::quadratic_bezier_segment* beziers,
+        std::uint32_t value_count) noexcept override
+    {
+        quadratic_count += value_count;
+        if (beziers != nullptr && value_count != 0U) {
+            last = beziers[value_count - 1U].point2;
+        }
+    }
+
+    void PROGPU_NATIVE_COM_CALL AddArc(
+        const compat::arc_segment* arc) noexcept override
+    {
+        ++arc_count;
+        if (arc != nullptr) {
+            last = arc->point;
+        }
     }
 
     compat::fill_mode fill_mode = compat::fill_mode::alternate;
@@ -102,10 +158,14 @@ public:
     compat::figure_begin figure_begin = compat::figure_begin::hollow;
     compat::figure_end figure_end = compat::figure_end::open;
     compat::point_2f first{};
+    compat::point_2f last{};
     std::uint32_t begin_count = 0U;
     std::uint32_t end_count = 0U;
     std::uint32_t line_count = 0U;
     std::uint32_t bezier_count = 0U;
+    std::uint32_t quadratic_count = 0U;
+    std::uint32_t arc_count = 0U;
+    std::uint32_t close_count = 0U;
 
 private:
     friend class com::atomic_reference_count<simplified_sink>;
@@ -172,6 +232,8 @@ private:
 static_assert(sizeof(compat::rectangle_f) == 16U);
 static_assert(sizeof(compat::matrix_3x2_f) == 24U);
 static_assert(sizeof(compat::geometry_relation) == 4U);
+static_assert(sizeof(compat::quadratic_bezier_segment) == 16U);
+static_assert(sizeof(compat::arc_segment) == 28U);
 
 int main()
 {
@@ -351,6 +413,176 @@ int main()
         return 17;
     }
 
+    compat::path_geometry* raw_path = nullptr;
+    if (factory->CreatePathGeometry(&raw_path) != com::ok ||
+        raw_path == nullptr) {
+        return 24;
+    }
+    com::pointer<compat::path_geometry> path;
+    path.attach(raw_path);
+    com::pointer<compat::resource> path_resource;
+    com::pointer<compat::geometry> path_base;
+    if (path.as(compat::resource_interface_id, path_resource) != com::ok ||
+        path.as(compat::geometry_interface_id, path_base) != com::ok ||
+        !path_resource || !path_base) {
+        return 25;
+    }
+    compat::factory* raw_path_factory = nullptr;
+    path->GetFactory(&raw_path_factory);
+    com::pointer<compat::factory> path_factory;
+    path_factory.attach(raw_path_factory);
+    if (path_factory.get() != factory.get()) {
+        return 26;
+    }
+
+    std::uint32_t path_segment_count = 99U;
+    std::uint32_t path_figure_count = 99U;
+    if (path->GetSegmentCount(&path_segment_count) != compat::wrong_state ||
+        path_segment_count != 0U ||
+        path->GetFigureCount(&path_figure_count) != compat::wrong_state ||
+        path_figure_count != 0U) {
+        return 27;
+    }
+    compat::geometry_sink* raw_path_sink = nullptr;
+    if (path->Open(&raw_path_sink) != com::ok || raw_path_sink == nullptr) {
+        return 28;
+    }
+    com::pointer<compat::geometry_sink> path_sink;
+    path_sink.attach(raw_path_sink);
+    compat::geometry_sink* duplicate_sink =
+        reinterpret_cast<compat::geometry_sink*>(
+            static_cast<std::uintptr_t>(1U));
+    if (path->Open(&duplicate_sink) != compat::wrong_state ||
+        duplicate_sink != nullptr) {
+        return 29;
+    }
+    com::pointer<compat::simplified_geometry_sink> path_sink_base;
+    if (path_sink.as(
+            compat::simplified_geometry_sink_interface_id,
+            path_sink_base) != com::ok ||
+        !path_sink_base) {
+        return 30;
+    }
+
+    path_sink->SetFillMode(compat::fill_mode::winding);
+    path_sink->SetSegmentFlags(compat::path_segment::none);
+    path_sink->BeginFigure({0.0F, 0.0F}, compat::figure_begin::filled);
+    path_sink->AddLine({2.0F, 0.0F});
+    const compat::bezier_segment cubic{
+        {2.0F, 2.0F}, {4.0F, 2.0F}, {4.0F, 0.0F}};
+    path_sink->AddBezier(&cubic);
+    path_sink->SetSegmentFlags(
+        compat::path_segment::force_round_line_join);
+    const compat::quadratic_bezier_segment quadratic{
+        {5.0F, -2.0F}, {6.0F, 0.0F}};
+    path_sink->AddQuadraticBezier(&quadratic);
+    path_sink->EndFigure(compat::figure_end::closed);
+    if (path_sink->Close() != com::ok ||
+        path_sink->Close() != compat::wrong_state) {
+        return 31;
+    }
+    path_sink_base.Reset();
+    path_sink.Reset();
+
+    if (path->GetSegmentCount(&path_segment_count) != com::ok ||
+        path_segment_count != 4U ||
+        path->GetFigureCount(&path_figure_count) != com::ok ||
+        path_figure_count != 1U) {
+        return 32;
+    }
+    compat::rectangle_f path_bounds{};
+    if (path->GetBounds(&transform, &path_bounds) != com::ok ||
+        !approximately_equal(path_bounds.left, 10.0F) ||
+        !approximately_equal(path_bounds.top, -7.0F) ||
+        !approximately_equal(path_bounds.right, 22.0F) ||
+        !approximately_equal(path_bounds.bottom, 0.5F)) {
+        return 33;
+    }
+
+    auto* raw_path_stream = new simplified_sink();
+    com::pointer<compat::geometry_sink> path_stream;
+    path_stream.attach(raw_path_stream);
+    if (path->Stream(path_stream.get()) != com::ok ||
+        raw_path_stream->fill_mode != compat::fill_mode::winding ||
+        raw_path_stream->begin_count != 1U ||
+        raw_path_stream->end_count != 1U ||
+        raw_path_stream->line_count != 1U ||
+        raw_path_stream->bezier_count != 1U ||
+        raw_path_stream->quadratic_count != 1U ||
+        raw_path_stream->arc_count != 0U ||
+        !approximately_equal(raw_path_stream->last.x, 6.0F)) {
+        return 34;
+    }
+
+    auto* raw_path_simplified = new simplified_sink();
+    com::pointer<compat::simplified_geometry_sink> path_simplified;
+    path_simplified.attach(raw_path_simplified);
+    if (path->Simplify(
+            compat::geometry_simplification_option::cubics_and_lines,
+            &transform,
+            core::default_flattening_tolerance,
+            path_simplified.get()) != com::ok ||
+        raw_path_simplified->begin_count != 1U ||
+        raw_path_simplified->line_count != 1U ||
+        raw_path_simplified->bezier_count != 2U ||
+        raw_path_simplified->quadratic_count != 0U ||
+        !approximately_equal(raw_path_simplified->first.x, 10.0F) ||
+        !approximately_equal(raw_path_simplified->last.x, 22.0F) ||
+        !approximately_equal(raw_path_simplified->last.y, -4.0F)) {
+        return 35;
+    }
+
+    compat::path_geometry* raw_arc_path = nullptr;
+    if (factory->CreatePathGeometry(&raw_arc_path) != com::ok ||
+        raw_arc_path == nullptr) {
+        return 36;
+    }
+    com::pointer<compat::path_geometry> arc_path;
+    arc_path.attach(raw_arc_path);
+    compat::geometry_sink* raw_arc_sink = nullptr;
+    if (arc_path->Open(&raw_arc_sink) != com::ok ||
+        raw_arc_sink == nullptr) {
+        return 37;
+    }
+    com::pointer<compat::geometry_sink> arc_sink;
+    arc_sink.attach(raw_arc_sink);
+    arc_sink->BeginFigure({0.0F, 0.0F}, compat::figure_begin::filled);
+    const compat::arc_segment arc{
+        {2.0F, 0.0F},
+        {1.0F, 1.0F},
+        0.0F,
+        compat::sweep_direction::clockwise,
+        compat::arc_size::small_value};
+    arc_sink->AddArc(&arc);
+    arc_sink->EndFigure(compat::figure_end::open);
+    if (arc_sink->Close() != com::ok) {
+        return 38;
+    }
+    arc_sink.Reset();
+    path_bounds = {1.0F, 1.0F, 1.0F, 1.0F};
+    auto* raw_arc_simplified = new simplified_sink();
+    com::pointer<compat::simplified_geometry_sink> arc_simplified;
+    arc_simplified.attach(raw_arc_simplified);
+    if (arc_path->GetBounds(nullptr, &path_bounds) !=
+            compat::not_implemented ||
+        !approximately_equal(path_bounds.left, 0.0F) ||
+        arc_path->Simplify(
+            compat::geometry_simplification_option::cubics_and_lines,
+            nullptr,
+            core::default_flattening_tolerance,
+            arc_simplified.get()) != compat::not_implemented ||
+        raw_arc_simplified->begin_count != 0U) {
+        return 39;
+    }
+    auto* raw_arc_stream = new simplified_sink();
+    com::pointer<compat::geometry_sink> arc_stream;
+    arc_stream.attach(raw_arc_stream);
+    if (arc_path->Stream(arc_stream.get()) != com::ok ||
+        raw_arc_stream->arc_count != 1U ||
+        !approximately_equal(raw_arc_stream->last.x, 2.0F)) {
+        return 40;
+    }
+
     compat::geometry* unsupported = reinterpret_cast<compat::geometry*>(
         static_cast<std::uintptr_t>(1U));
     if (factory->CreateEllipseGeometry(nullptr, &unsupported) !=
@@ -370,8 +602,20 @@ int main()
         !com::guid_equal(
             compat::transformed_geometry_interface_id,
             __uuidof(ID2D1TransformedGeometry)) ||
+        !com::guid_equal(
+            compat::path_geometry_interface_id,
+            __uuidof(ID2D1PathGeometry)) ||
+        !com::guid_equal(
+            compat::simplified_geometry_sink_interface_id,
+            __uuidof(ID2D1SimplifiedGeometrySink)) ||
+        !com::guid_equal(
+            compat::geometry_sink_interface_id,
+            __uuidof(ID2D1GeometrySink)) ||
         sizeof(compat::rectangle_f) != sizeof(D2D1_RECT_F) ||
-        sizeof(compat::triangle) != sizeof(D2D1_TRIANGLE)) {
+        sizeof(compat::triangle) != sizeof(D2D1_TRIANGLE) ||
+        sizeof(compat::quadratic_bezier_segment) !=
+            sizeof(D2D1_QUADRATIC_BEZIER_SEGMENT) ||
+        sizeof(compat::arc_segment) != sizeof(D2D1_ARC_SEGMENT)) {
         return 19;
     }
     auto* native_factory = reinterpret_cast<ID2D1Factory*>(factory.get());
@@ -409,6 +653,135 @@ int main()
         !approximately_equal(native_bounds.right, 10.0F) ||
         !approximately_equal(native_bounds.bottom, 6.0F)) {
         return 23;
+    }
+
+    ID2D1PathGeometry* native_path = nullptr;
+    if (FAILED(native_factory->CreatePathGeometry(&native_path)) ||
+        native_path == nullptr) {
+        return 41;
+    }
+    ID2D1GeometrySink* native_path_sink = nullptr;
+    if (FAILED(native_path->Open(&native_path_sink)) ||
+        native_path_sink == nullptr) {
+        native_path->Release();
+        return 42;
+    }
+    ID2D1SimplifiedGeometrySink* native_path_sink_base = nullptr;
+    if (FAILED(native_path_sink->QueryInterface(
+            __uuidof(ID2D1SimplifiedGeometrySink),
+            reinterpret_cast<void**>(&native_path_sink_base))) ||
+        native_path_sink_base == nullptr) {
+        native_path_sink->Release();
+        native_path->Release();
+        return 43;
+    }
+    native_path_sink_base->Release();
+    native_path_sink->SetFillMode(D2D1_FILL_MODE_WINDING);
+    native_path_sink->BeginFigure(
+        D2D1_POINT_2F{0.0F, 0.0F}, D2D1_FIGURE_BEGIN_FILLED);
+    native_path_sink->AddLine(D2D1_POINT_2F{2.0F, 0.0F});
+    const D2D1_QUADRATIC_BEZIER_SEGMENT native_quadratic{
+        D2D1_POINT_2F{3.0F, 2.0F}, D2D1_POINT_2F{4.0F, 0.0F}};
+    native_path_sink->SetSegmentFlags(
+        D2D1_PATH_SEGMENT_FORCE_ROUND_LINE_JOIN);
+    native_path_sink->AddQuadraticBezier(&native_quadratic);
+    native_path_sink->EndFigure(D2D1_FIGURE_END_CLOSED);
+    const HRESULT native_path_close_status = native_path_sink->Close();
+    native_path_sink->Release();
+    if (FAILED(native_path_close_status)) {
+        native_path->Release();
+        return 44;
+    }
+    UINT32 native_path_segments = 0U;
+    UINT32 native_path_figures = 0U;
+    D2D1_RECT_F native_path_bounds{};
+    if (FAILED(native_path->GetSegmentCount(&native_path_segments)) ||
+        native_path_segments != 3U ||
+        FAILED(native_path->GetFigureCount(&native_path_figures)) ||
+        native_path_figures != 1U ||
+        FAILED(native_path->GetBounds(nullptr, &native_path_bounds)) ||
+        !approximately_equal(native_path_bounds.left, 0.0F) ||
+        !approximately_equal(native_path_bounds.top, 0.0F) ||
+        !approximately_equal(native_path_bounds.right, 4.0F) ||
+        !approximately_equal(native_path_bounds.bottom, 1.0F)) {
+        native_path->Release();
+        return 45;
+    }
+
+    ID2D1PathGeometry* native_streamed_path = nullptr;
+    ID2D1GeometrySink* native_streamed_sink = nullptr;
+    if (FAILED(native_factory->CreatePathGeometry(&native_streamed_path)) ||
+        native_streamed_path == nullptr ||
+        FAILED(native_streamed_path->Open(&native_streamed_sink)) ||
+        native_streamed_sink == nullptr) {
+        if (native_streamed_path != nullptr) {
+            native_streamed_path->Release();
+        }
+        native_path->Release();
+        return 46;
+    }
+    const HRESULT native_stream_status =
+        native_path->Stream(native_streamed_sink);
+    const HRESULT native_stream_close_status = native_streamed_sink->Close();
+    native_streamed_sink->Release();
+    native_path->Release();
+    native_path_segments = 0U;
+    const HRESULT native_stream_count_status =
+        native_streamed_path->GetSegmentCount(&native_path_segments);
+    native_streamed_path->Release();
+    if (FAILED(native_stream_status) || FAILED(native_stream_close_status) ||
+        FAILED(native_stream_count_status) || native_path_segments != 3U) {
+        return 47;
+    }
+
+    ID2D1Factory* system_factory = nullptr;
+    if (FAILED(D2D1CreateFactory(
+            D2D1_FACTORY_TYPE_SINGLE_THREADED,
+            &system_factory)) ||
+        system_factory == nullptr) {
+        return 48;
+    }
+    ID2D1PathGeometry* system_path = nullptr;
+    ID2D1GeometrySink* system_sink = nullptr;
+    if (FAILED(system_factory->CreatePathGeometry(&system_path)) ||
+        system_path == nullptr || FAILED(system_path->Open(&system_sink)) ||
+        system_sink == nullptr) {
+        if (system_path != nullptr) {
+            system_path->Release();
+        }
+        system_factory->Release();
+        return 49;
+    }
+    system_sink->SetFillMode(D2D1_FILL_MODE_WINDING);
+    system_sink->BeginFigure(
+        D2D1_POINT_2F{0.0F, 0.0F}, D2D1_FIGURE_BEGIN_FILLED);
+    system_sink->AddLine(D2D1_POINT_2F{2.0F, 0.0F});
+    system_sink->SetSegmentFlags(
+        D2D1_PATH_SEGMENT_FORCE_ROUND_LINE_JOIN);
+    system_sink->AddQuadraticBezier(&native_quadratic);
+    system_sink->EndFigure(D2D1_FIGURE_END_CLOSED);
+    const HRESULT system_close_status = system_sink->Close();
+    system_sink->Release();
+    UINT32 system_segments = 0U;
+    UINT32 system_figures = 0U;
+    D2D1_RECT_F system_bounds{};
+    const HRESULT system_segment_status =
+        system_path->GetSegmentCount(&system_segments);
+    const HRESULT system_figure_status =
+        system_path->GetFigureCount(&system_figures);
+    const HRESULT system_bounds_status =
+        system_path->GetBounds(nullptr, &system_bounds);
+    system_path->Release();
+    system_factory->Release();
+    if (FAILED(system_close_status) || FAILED(system_segment_status) ||
+        FAILED(system_figure_status) || FAILED(system_bounds_status) ||
+        system_segments != native_path_segments || system_figures != 1U ||
+        !approximately_equal(system_bounds.left, native_path_bounds.left) ||
+        !approximately_equal(system_bounds.top, native_path_bounds.top) ||
+        !approximately_equal(system_bounds.right, native_path_bounds.right) ||
+        !approximately_equal(
+            system_bounds.bottom, native_path_bounds.bottom)) {
+        return 50;
     }
 #endif
     return 0;

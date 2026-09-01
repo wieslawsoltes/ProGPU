@@ -1,4 +1,5 @@
 #include "progpu_native_direct2d_compat.hpp"
+#include "progpu_native_direct2d_path.hpp"
 
 #include <array>
 #include <cmath>
@@ -658,7 +659,7 @@ public:
     com::result PROGPU_NATIVE_COM_CALL CreatePathGeometry(
         path_geometry** value) noexcept override
     {
-        return unsupported_output(value);
+        return detail::create_path_geometry(this, value);
     }
 
     com::result PROGPU_NATIVE_COM_CALL CreateStrokeStyle(

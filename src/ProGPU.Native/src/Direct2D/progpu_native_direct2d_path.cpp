@@ -1,0 +1,1021 @@
+#include "progpu_native_direct2d_path.hpp"
+
+#include <algorithm>
+#include <array>
+#include <atomic>
+#include <cmath>
+#include <limits>
+#include <memory>
+#include <mutex>
+#include <new>
+#include <utility>
+#include <vector>
+
+namespace progpu::native::direct2d::compat::detail {
+namespace {
+
+enum class path_state : std::uint32_t {
+    fresh,
+    open,
+    closed,
+    failed
+};
+
+enum class segment_kind : std::uint8_t {
+    line,
+    cubic,
+    quadratic,
+    arc
+};
+
+struct stored_segment final {
+    segment_kind kind = segment_kind::line;
+    path_segment flags = path_segment::none;
+    point_2f end{};
+    point_2f control1{};
+    point_2f control2{};
+    arc_segment arc{};
+};
+
+struct stored_figure final {
+    point_2f start{};
+    figure_begin begin = figure_begin::filled;
+    figure_end end = figure_end::open;
+    std::uint32_t first_segment = 0U;
+    std::uint32_t segment_count = 0U;
+};
+
+struct path_data final {
+    mutable std::mutex mutex;
+    std::vector<stored_figure> figures;
+    std::vector<stored_segment> segments;
+    std::atomic<path_state> state{path_state::fresh};
+    fill_mode mode = fill_mode::alternate;
+    path_segment current_flags = path_segment::none;
+    std::uint32_t public_segment_count = 0U;
+    com::result recording_failure = com::ok;
+    bool figure_open = false;
+};
+
+[[nodiscard]] bool finite_point(point_2f point) noexcept
+{
+    return std::isfinite(point.x) && std::isfinite(point.y);
+}
+
+[[nodiscard]] bool valid_tolerance(float tolerance) noexcept
+{
+    return std::isfinite(tolerance) && tolerance > 0.0F;
+}
+
+[[nodiscard]] bool valid_arc(const arc_segment& arc) noexcept
+{
+    return finite_point(arc.point) && std::isfinite(arc.size.width) &&
+        std::isfinite(arc.size.height) && arc.size.width >= 0.0F &&
+        arc.size.height >= 0.0F && std::isfinite(arc.rotation_angle) &&
+        (arc.sweep == sweep_direction::counter_clockwise ||
+            arc.sweep == sweep_direction::clockwise) &&
+        (arc.size_kind == arc_size::small_value ||
+            arc.size_kind == arc_size::large_value);
+}
+
+[[nodiscard]] com::result transform_point(
+    point_2f point,
+    const matrix_3x2_f* transform,
+    point_2f* result) noexcept
+{
+    if (result == nullptr) {
+        return com::pointer_error;
+    }
+    *result = {};
+    if (!finite_point(point) || !core::valid_transform(transform)) {
+        return com::invalid_argument;
+    }
+    const matrix_3x2_f identity{
+        1.0F, 0.0F, 0.0F, 1.0F, 0.0F, 0.0F};
+    const auto& matrix = transform == nullptr ? identity : *transform;
+    const double x = static_cast<double>(point.x) * matrix.m11 +
+        static_cast<double>(point.y) * matrix.m21 + matrix.m31;
+    const double y = static_cast<double>(point.x) * matrix.m12 +
+        static_cast<double>(point.y) * matrix.m22 + matrix.m32;
+    constexpr double maximum =
+        static_cast<double>((std::numeric_limits<float>::max)());
+    if (!std::isfinite(x) || !std::isfinite(y) ||
+        std::abs(x) > maximum || std::abs(y) > maximum) {
+        return com::invalid_argument;
+    }
+    *result = {static_cast<float>(x), static_cast<float>(y)};
+    return com::ok;
+}
+
+[[nodiscard]] double cubic_coordinate(
+    double p0,
+    double p1,
+    double p2,
+    double p3,
+    double t) noexcept
+{
+    const double one_minus_t = 1.0 - t;
+    return one_minus_t * one_minus_t * one_minus_t * p0 +
+        3.0 * one_minus_t * one_minus_t * t * p1 +
+        3.0 * one_minus_t * t * t * p2 + t * t * t * p3;
+}
+
+void include_cubic_bounds(
+    point_2f start,
+    point_2f control1,
+    point_2f control2,
+    point_2f end,
+    rectangle_f& bounds) noexcept
+{
+    bounds.left = std::min(bounds.left, std::min(start.x, end.x));
+    bounds.top = std::min(bounds.top, std::min(start.y, end.y));
+    bounds.right = std::max(bounds.right, std::max(start.x, end.x));
+    bounds.bottom = std::max(bounds.bottom, std::max(start.y, end.y));
+    const auto include_axis = [&](double p0,
+                                  double p1,
+                                  double p2,
+                                  double p3,
+                                  bool x_axis) {
+        const double quadratic = 3.0 * (-p0 + 3.0 * p1 - 3.0 * p2 + p3);
+        const double linear = 2.0 * (3.0 * p0 - 6.0 * p1 + 3.0 * p2);
+        const double constant = -3.0 * p0 + 3.0 * p1;
+        const double scale = std::max(
+            {1.0, std::abs(quadratic), std::abs(linear),
+                std::abs(constant)});
+        const double epsilon =
+            (std::numeric_limits<double>::epsilon)() * scale * 16.0;
+        std::array<double, 2U> roots{};
+        std::uint32_t count = 0U;
+        if (std::abs(quadratic) <= epsilon) {
+            if (std::abs(linear) > epsilon) {
+                roots[count++] = -constant / linear;
+            }
+        } else {
+            const double discriminant =
+                linear * linear - 4.0 * quadratic * constant;
+            if (discriminant >= 0.0) {
+                const double root = std::sqrt(discriminant);
+                roots[count++] = (-linear + root) / (2.0 * quadratic);
+                roots[count++] = (-linear - root) / (2.0 * quadratic);
+            }
+        }
+        for (std::uint32_t index = 0U; index < count; ++index) {
+            const double t = roots[index];
+            if (!(t > 0.0 && t < 1.0)) {
+                continue;
+            }
+            const float value = static_cast<float>(cubic_coordinate(
+                p0, p1, p2, p3, t));
+            if (x_axis) {
+                bounds.left = std::min(bounds.left, value);
+                bounds.right = std::max(bounds.right, value);
+            } else {
+                bounds.top = std::min(bounds.top, value);
+                bounds.bottom = std::max(bounds.bottom, value);
+            }
+        }
+    };
+    include_axis(start.x, control1.x, control2.x, end.x, true);
+    include_axis(start.y, control1.y, control2.y, end.y, false);
+}
+
+class portable_geometry_sink final : public geometry_sink {
+public:
+    explicit portable_geometry_sink(std::shared_ptr<path_data> data) noexcept
+        : data_(std::move(data))
+    {
+    }
+
+    com::result PROGPU_NATIVE_COM_CALL QueryInterface(
+        com::guid_ref interface_id,
+        void** value) noexcept override
+    {
+        if (value == nullptr) {
+            return com::pointer_error;
+        }
+        *value = nullptr;
+        if (com::guid_equal(interface_id, com::unknown_interface_id()) ||
+            com::guid_equal(
+                interface_id, simplified_geometry_sink_interface_id) ||
+            com::guid_equal(interface_id, geometry_sink_interface_id)) {
+            *value = static_cast<geometry_sink*>(this);
+            AddRef();
+            return com::ok;
+        }
+        return com::no_interface;
+    }
+
+    com::reference_count_value PROGPU_NATIVE_COM_CALL AddRef()
+        noexcept override
+    {
+        return reference_count_.add_ref();
+    }
+
+    com::reference_count_value PROGPU_NATIVE_COM_CALL Release()
+        noexcept override
+    {
+        return reference_count_.release(this);
+    }
+
+    void PROGPU_NATIVE_COM_CALL SetFillMode(fill_mode value)
+        noexcept override
+    {
+        const std::lock_guard lock(data_->mutex);
+        if (!can_record() || data_->figure_open || !data_->figures.empty()) {
+            fail(wrong_state);
+            return;
+        }
+        if (value != fill_mode::alternate && value != fill_mode::winding) {
+            fail(com::invalid_argument);
+            return;
+        }
+        data_->mode = value;
+    }
+
+    void PROGPU_NATIVE_COM_CALL SetSegmentFlags(path_segment value)
+        noexcept override
+    {
+        constexpr std::uint32_t supported = 3U;
+        const std::lock_guard lock(data_->mutex);
+        if (!can_record()) {
+            fail(wrong_state);
+            return;
+        }
+        if ((static_cast<std::uint32_t>(value) & ~supported) != 0U) {
+            fail(com::invalid_argument);
+            return;
+        }
+        data_->current_flags = value;
+    }
+
+    void PROGPU_NATIVE_COM_CALL BeginFigure(
+        point_2f start,
+        figure_begin begin) noexcept override
+    {
+        const std::lock_guard lock(data_->mutex);
+        if (!can_record() || data_->figure_open) {
+            fail(wrong_state);
+            return;
+        }
+        if (!finite_point(start) ||
+            (begin != figure_begin::filled && begin != figure_begin::hollow)) {
+            fail(com::invalid_argument);
+            return;
+        }
+        if (data_->figures.size() ==
+            (std::numeric_limits<std::uint32_t>::max)()) {
+            fail(com::out_of_memory);
+            return;
+        }
+        try {
+            stored_figure figure{};
+            figure.start = start;
+            figure.begin = begin;
+            figure.end = figure_end::open;
+            figure.first_segment =
+                static_cast<std::uint32_t>(data_->segments.size());
+            data_->figures.push_back(figure);
+        } catch (const std::bad_alloc&) {
+            fail(com::out_of_memory);
+            return;
+        } catch (...) {
+            fail(failure);
+            return;
+        }
+        data_->figure_open = true;
+    }
+
+    void PROGPU_NATIVE_COM_CALL AddLines(
+        const point_2f* points,
+        std::uint32_t point_count) noexcept override
+    {
+        const std::lock_guard lock(data_->mutex);
+        if (!can_record() || !data_->figure_open) {
+            fail(wrong_state);
+            return;
+        }
+        if (point_count != 0U && points == nullptr) {
+            fail(com::invalid_argument);
+            return;
+        }
+        for (std::uint32_t index = 0U; index < point_count; ++index) {
+            if (!finite_point(points[index])) {
+                fail(com::invalid_argument);
+                return;
+            }
+            stored_segment segment{};
+            segment.kind = segment_kind::line;
+            segment.flags = data_->current_flags;
+            segment.end = points[index];
+            if (!append(segment)) {
+                return;
+            }
+        }
+    }
+
+    void PROGPU_NATIVE_COM_CALL AddBeziers(
+        const bezier_segment* beziers,
+        std::uint32_t bezier_count) noexcept override
+    {
+        const std::lock_guard lock(data_->mutex);
+        if (!can_record() || !data_->figure_open) {
+            fail(wrong_state);
+            return;
+        }
+        if (bezier_count != 0U && beziers == nullptr) {
+            fail(com::invalid_argument);
+            return;
+        }
+        for (std::uint32_t index = 0U; index < bezier_count; ++index) {
+            const auto& value = beziers[index];
+            if (!finite_point(value.point1) || !finite_point(value.point2) ||
+                !finite_point(value.point3)) {
+                fail(com::invalid_argument);
+                return;
+            }
+            stored_segment segment{};
+            segment.kind = segment_kind::cubic;
+            segment.flags = data_->current_flags;
+            segment.control1 = value.point1;
+            segment.control2 = value.point2;
+            segment.end = value.point3;
+            if (!append(segment)) {
+                return;
+            }
+        }
+    }
+
+    void PROGPU_NATIVE_COM_CALL EndFigure(figure_end end) noexcept override
+    {
+        const std::lock_guard lock(data_->mutex);
+        if (!can_record() || !data_->figure_open) {
+            fail(wrong_state);
+            return;
+        }
+        if (end != figure_end::open && end != figure_end::closed) {
+            fail(com::invalid_argument);
+            return;
+        }
+        if (end == figure_end::closed && data_->public_segment_count ==
+                (std::numeric_limits<std::uint32_t>::max)()) {
+            fail(com::out_of_memory);
+            return;
+        }
+        data_->figures.back().end = end;
+        if (end == figure_end::closed) {
+            ++data_->public_segment_count;
+        }
+        data_->figure_open = false;
+    }
+
+    com::result PROGPU_NATIVE_COM_CALL Close() noexcept override
+    {
+        const std::lock_guard lock(data_->mutex);
+        if (data_->state.load(std::memory_order_relaxed) != path_state::open) {
+            return wrong_state;
+        }
+        if (data_->figure_open) {
+            fail(wrong_state);
+        }
+        const com::result result = data_->recording_failure;
+        data_->state.store(
+            com::succeeded(result) ? path_state::closed : path_state::failed,
+            std::memory_order_release);
+        return result;
+    }
+
+    void PROGPU_NATIVE_COM_CALL AddLine(point_2f point) noexcept override
+    {
+        AddLines(&point, 1U);
+    }
+
+    void PROGPU_NATIVE_COM_CALL AddBezier(
+        const bezier_segment* bezier) noexcept override
+    {
+        AddBeziers(bezier, bezier == nullptr ? 0U : 1U);
+        if (bezier == nullptr) {
+            const std::lock_guard lock(data_->mutex);
+            fail(com::invalid_argument);
+        }
+    }
+
+    void PROGPU_NATIVE_COM_CALL AddQuadraticBezier(
+        const quadratic_bezier_segment* bezier) noexcept override
+    {
+        AddQuadraticBeziers(bezier, bezier == nullptr ? 0U : 1U);
+        if (bezier == nullptr) {
+            const std::lock_guard lock(data_->mutex);
+            fail(com::invalid_argument);
+        }
+    }
+
+    void PROGPU_NATIVE_COM_CALL AddQuadraticBeziers(
+        const quadratic_bezier_segment* beziers,
+        std::uint32_t bezier_count) noexcept override
+    {
+        const std::lock_guard lock(data_->mutex);
+        if (!can_record() || !data_->figure_open) {
+            fail(wrong_state);
+            return;
+        }
+        if (bezier_count != 0U && beziers == nullptr) {
+            fail(com::invalid_argument);
+            return;
+        }
+        for (std::uint32_t index = 0U; index < bezier_count; ++index) {
+            const auto& value = beziers[index];
+            if (!finite_point(value.point1) || !finite_point(value.point2)) {
+                fail(com::invalid_argument);
+                return;
+            }
+            stored_segment segment{};
+            segment.kind = segment_kind::quadratic;
+            segment.flags = data_->current_flags;
+            segment.control1 = value.point1;
+            segment.end = value.point2;
+            if (!append(segment)) {
+                return;
+            }
+        }
+    }
+
+    void PROGPU_NATIVE_COM_CALL AddArc(const arc_segment* arc)
+        noexcept override
+    {
+        const std::lock_guard lock(data_->mutex);
+        if (!can_record() || !data_->figure_open) {
+            fail(wrong_state);
+            return;
+        }
+        if (arc == nullptr || !valid_arc(*arc)) {
+            fail(com::invalid_argument);
+            return;
+        }
+        stored_segment segment{};
+        segment.kind = segment_kind::arc;
+        segment.flags = data_->current_flags;
+        segment.end = arc->point;
+        segment.arc = *arc;
+        static_cast<void>(append(segment));
+    }
+
+private:
+    friend class com::atomic_reference_count<portable_geometry_sink>;
+    ~portable_geometry_sink()
+    {
+        const std::lock_guard lock(data_->mutex);
+        if (data_->state.load(std::memory_order_relaxed) == path_state::open) {
+            fail(wrong_state);
+            data_->state.store(path_state::failed, std::memory_order_release);
+        }
+    }
+
+    [[nodiscard]] bool can_record() const noexcept
+    {
+        return data_->state.load(std::memory_order_relaxed) ==
+                path_state::open &&
+            com::succeeded(data_->recording_failure);
+    }
+
+    void fail(com::result value) noexcept
+    {
+        if (com::succeeded(data_->recording_failure)) {
+            data_->recording_failure = value;
+        }
+    }
+
+    [[nodiscard]] bool append(const stored_segment& segment) noexcept
+    {
+        if (data_->segments.size() ==
+                (std::numeric_limits<std::uint32_t>::max)() ||
+            data_->public_segment_count ==
+                (std::numeric_limits<std::uint32_t>::max)()) {
+            fail(com::out_of_memory);
+            return false;
+        }
+        try {
+            data_->segments.push_back(segment);
+        } catch (const std::bad_alloc&) {
+            fail(com::out_of_memory);
+            return false;
+        } catch (...) {
+            fail(failure);
+            return false;
+        }
+        ++data_->figures.back().segment_count;
+        ++data_->public_segment_count;
+        return true;
+    }
+
+    com::atomic_reference_count<portable_geometry_sink> reference_count_;
+    std::shared_ptr<path_data> data_;
+};
+
+class portable_path_geometry final : public path_geometry {
+public:
+    explicit portable_path_geometry(factory* owner)
+        : owner_(owner), data_(std::make_shared<path_data>())
+    {
+    }
+
+    com::result PROGPU_NATIVE_COM_CALL QueryInterface(
+        com::guid_ref interface_id,
+        void** value) noexcept override
+    {
+        if (value == nullptr) {
+            return com::pointer_error;
+        }
+        *value = nullptr;
+        if (com::guid_equal(interface_id, com::unknown_interface_id()) ||
+            com::guid_equal(interface_id, resource_interface_id) ||
+            com::guid_equal(interface_id, geometry_interface_id) ||
+            com::guid_equal(interface_id, path_geometry_interface_id)) {
+            *value = static_cast<path_geometry*>(this);
+            AddRef();
+            return com::ok;
+        }
+        return com::no_interface;
+    }
+
+    com::reference_count_value PROGPU_NATIVE_COM_CALL AddRef()
+        noexcept override
+    {
+        return reference_count_.add_ref();
+    }
+
+    com::reference_count_value PROGPU_NATIVE_COM_CALL Release()
+        noexcept override
+    {
+        return reference_count_.release(this);
+    }
+
+    void PROGPU_NATIVE_COM_CALL GetFactory(factory** value) const
+        noexcept override
+    {
+        if (value == nullptr) {
+            return;
+        }
+        *value = owner_.get();
+        if (*value != nullptr) {
+            (*value)->AddRef();
+        }
+    }
+
+    com::result PROGPU_NATIVE_COM_CALL GetBounds(
+        const matrix_3x2_f* world_transform,
+        rectangle_f* bounds) const noexcept override
+    {
+        if (bounds == nullptr) {
+            return com::pointer_error;
+        }
+        *bounds = {};
+        if (!closed()) {
+            return wrong_state;
+        }
+        if (!core::valid_transform(world_transform)) {
+            return com::invalid_argument;
+        }
+        if (contains_arc()) {
+            return not_implemented;
+        }
+        rectangle_f result{
+            (std::numeric_limits<float>::max)(),
+            (std::numeric_limits<float>::max)(),
+            -(std::numeric_limits<float>::max)(),
+            -(std::numeric_limits<float>::max)()};
+        bool has_bounds = false;
+        for (const auto& figure : data_->figures) {
+            point_2f current_source = figure.start;
+            point_2f current{};
+            if (com::failed(transform_point(
+                    figure.start, world_transform, &current))) {
+                return com::invalid_argument;
+            }
+            result.left = std::min(result.left, current.x);
+            result.top = std::min(result.top, current.y);
+            result.right = std::max(result.right, current.x);
+            result.bottom = std::max(result.bottom, current.y);
+            has_bounds = true;
+            for (std::uint32_t offset = 0U;
+                 offset < figure.segment_count;
+                 ++offset) {
+                const auto& segment =
+                    data_->segments[figure.first_segment + offset];
+                point_2f end{};
+                if (com::failed(transform_point(
+                        segment.end, world_transform, &end))) {
+                    return com::invalid_argument;
+                }
+                if (segment.kind == segment_kind::line) {
+                    result.left = std::min(result.left, end.x);
+                    result.top = std::min(result.top, end.y);
+                    result.right = std::max(result.right, end.x);
+                    result.bottom = std::max(result.bottom, end.y);
+                } else {
+                    point_2f control1_source = segment.control1;
+                    point_2f control2_source = segment.control2;
+                    if (segment.kind == segment_kind::quadratic) {
+                        control1_source = {
+                            current_source.x +
+                                (segment.control1.x - current_source.x) *
+                                    (2.0F / 3.0F),
+                            current_source.y +
+                                (segment.control1.y - current_source.y) *
+                                    (2.0F / 3.0F)};
+                        control2_source = {
+                            segment.end.x +
+                                (segment.control1.x - segment.end.x) *
+                                    (2.0F / 3.0F),
+                            segment.end.y +
+                                (segment.control1.y - segment.end.y) *
+                                    (2.0F / 3.0F)};
+                    }
+                    point_2f control1{};
+                    point_2f control2{};
+                    if (com::failed(transform_point(
+                            control1_source, world_transform, &control1)) ||
+                        com::failed(transform_point(
+                            control2_source, world_transform, &control2))) {
+                        return com::invalid_argument;
+                    }
+                    include_cubic_bounds(
+                        current, control1, control2, end, result);
+                }
+                current_source = segment.end;
+                current = end;
+            }
+        }
+        if (has_bounds) {
+            *bounds = result;
+        }
+        return com::ok;
+    }
+
+    com::result PROGPU_NATIVE_COM_CALL GetWidenedBounds(
+        float,
+        stroke_style*,
+        const matrix_3x2_f*,
+        float,
+        rectangle_f* bounds) const noexcept override
+    {
+        if (bounds == nullptr) {
+            return com::pointer_error;
+        }
+        *bounds = {};
+        return not_implemented;
+    }
+
+    com::result PROGPU_NATIVE_COM_CALL StrokeContainsPoint(
+        point_2f,
+        float,
+        stroke_style*,
+        const matrix_3x2_f*,
+        float,
+        std::int32_t* contains) const noexcept override
+    {
+        if (contains == nullptr) {
+            return com::pointer_error;
+        }
+        *contains = 0;
+        return not_implemented;
+    }
+
+    com::result PROGPU_NATIVE_COM_CALL FillContainsPoint(
+        point_2f,
+        const matrix_3x2_f*,
+        float,
+        std::int32_t* contains) const noexcept override
+    {
+        if (contains == nullptr) {
+            return com::pointer_error;
+        }
+        *contains = 0;
+        return not_implemented;
+    }
+
+    com::result PROGPU_NATIVE_COM_CALL CompareWithGeometry(
+        geometry*,
+        const matrix_3x2_f*,
+        float,
+        geometry_relation* relation) const noexcept override
+    {
+        if (relation == nullptr) {
+            return com::pointer_error;
+        }
+        *relation = geometry_relation::unknown;
+        return not_implemented;
+    }
+
+    com::result PROGPU_NATIVE_COM_CALL Simplify(
+        geometry_simplification_option option,
+        const matrix_3x2_f* world_transform,
+        float flattening_tolerance,
+        simplified_geometry_sink* sink) const noexcept override
+    {
+        if (sink == nullptr) {
+            return com::pointer_error;
+        }
+        if (!closed()) {
+            return wrong_state;
+        }
+        if ((option != geometry_simplification_option::cubics_and_lines &&
+                option != geometry_simplification_option::lines) ||
+            !valid_tolerance(flattening_tolerance) ||
+            !core::valid_transform(world_transform)) {
+            return com::invalid_argument;
+        }
+        if (option == geometry_simplification_option::lines) {
+            return not_implemented;
+        }
+        if (contains_arc()) {
+            return not_implemented;
+        }
+        sink->SetFillMode(data_->mode);
+        path_segment current_flags = static_cast<path_segment>(
+            (std::numeric_limits<std::uint32_t>::max)());
+        for (const auto& figure : data_->figures) {
+            point_2f current_source = figure.start;
+            point_2f current{};
+            if (com::failed(transform_point(
+                    figure.start, world_transform, &current))) {
+                return com::invalid_argument;
+            }
+            sink->BeginFigure(current, figure.begin);
+            for (std::uint32_t offset = 0U;
+                 offset < figure.segment_count;
+                 ++offset) {
+                const auto& segment =
+                    data_->segments[figure.first_segment + offset];
+                if (segment.flags != current_flags) {
+                    sink->SetSegmentFlags(segment.flags);
+                    current_flags = segment.flags;
+                }
+                point_2f end{};
+                if (com::failed(transform_point(
+                        segment.end, world_transform, &end))) {
+                    return com::invalid_argument;
+                }
+                if (segment.kind == segment_kind::line) {
+                    sink->AddLines(&end, 1U);
+                } else {
+                    point_2f control1_source = segment.control1;
+                    point_2f control2_source = segment.control2;
+                    if (segment.kind == segment_kind::quadratic) {
+                        control1_source = {
+                            current_source.x +
+                                (segment.control1.x - current_source.x) *
+                                    (2.0F / 3.0F),
+                            current_source.y +
+                                (segment.control1.y - current_source.y) *
+                                    (2.0F / 3.0F)};
+                        control2_source = {
+                            segment.end.x +
+                                (segment.control1.x - segment.end.x) *
+                                    (2.0F / 3.0F),
+                            segment.end.y +
+                                (segment.control1.y - segment.end.y) *
+                                    (2.0F / 3.0F)};
+                    }
+                    bezier_segment bezier{};
+                    if (com::failed(transform_point(
+                            control1_source,
+                            world_transform,
+                            &bezier.point1)) ||
+                        com::failed(transform_point(
+                            control2_source,
+                            world_transform,
+                            &bezier.point2))) {
+                        return com::invalid_argument;
+                    }
+                    bezier.point3 = end;
+                    sink->AddBeziers(&bezier, 1U);
+                }
+                current_source = segment.end;
+                current = end;
+            }
+            sink->EndFigure(figure.end);
+        }
+        return com::ok;
+    }
+
+    com::result PROGPU_NATIVE_COM_CALL Tessellate(
+        const matrix_3x2_f*,
+        float,
+        tessellation_sink*) const noexcept override
+    {
+        return not_implemented;
+    }
+
+    com::result PROGPU_NATIVE_COM_CALL CombineWithGeometry(
+        geometry*, combine_mode, const matrix_3x2_f*, float,
+        simplified_geometry_sink*) const noexcept override
+    {
+        return not_implemented;
+    }
+
+    com::result PROGPU_NATIVE_COM_CALL Outline(
+        const matrix_3x2_f*, float, simplified_geometry_sink*) const
+        noexcept override
+    {
+        return not_implemented;
+    }
+
+    com::result PROGPU_NATIVE_COM_CALL ComputeArea(
+        const matrix_3x2_f*, float, float* area) const noexcept override
+    {
+        if (area == nullptr) {
+            return com::pointer_error;
+        }
+        *area = 0.0F;
+        return not_implemented;
+    }
+
+    com::result PROGPU_NATIVE_COM_CALL ComputeLength(
+        const matrix_3x2_f*, float, float* length) const noexcept override
+    {
+        if (length == nullptr) {
+            return com::pointer_error;
+        }
+        *length = 0.0F;
+        return not_implemented;
+    }
+
+    com::result PROGPU_NATIVE_COM_CALL ComputePointAtLength(
+        float,
+        const matrix_3x2_f*,
+        float,
+        point_2f* point,
+        point_2f* tangent) const noexcept override
+    {
+        if (point == nullptr && tangent == nullptr) {
+            return com::pointer_error;
+        }
+        if (point != nullptr) {
+            *point = {};
+        }
+        if (tangent != nullptr) {
+            *tangent = {};
+        }
+        return not_implemented;
+    }
+
+    com::result PROGPU_NATIVE_COM_CALL Widen(
+        float,
+        stroke_style*,
+        const matrix_3x2_f*,
+        float,
+        simplified_geometry_sink*) const noexcept override
+    {
+        return not_implemented;
+    }
+
+    com::result PROGPU_NATIVE_COM_CALL Open(
+        geometry_sink** sink) noexcept override
+    {
+        if (sink == nullptr) {
+            return com::pointer_error;
+        }
+        *sink = nullptr;
+        const std::lock_guard lock(data_->mutex);
+        if (data_->state.load(std::memory_order_relaxed) != path_state::fresh) {
+            return wrong_state;
+        }
+        auto* created = new (std::nothrow) portable_geometry_sink(data_);
+        if (created == nullptr) {
+            return com::out_of_memory;
+        }
+        data_->state.store(path_state::open, std::memory_order_release);
+        *sink = created;
+        return com::ok;
+    }
+
+    com::result PROGPU_NATIVE_COM_CALL Stream(
+        geometry_sink* sink) const noexcept override
+    {
+        if (sink == nullptr) {
+            return com::pointer_error;
+        }
+        if (!closed()) {
+            return wrong_state;
+        }
+        sink->SetFillMode(data_->mode);
+        path_segment current_flags = static_cast<path_segment>(
+            (std::numeric_limits<std::uint32_t>::max)());
+        for (const auto& figure : data_->figures) {
+            sink->BeginFigure(figure.start, figure.begin);
+            for (std::uint32_t offset = 0U;
+                 offset < figure.segment_count;
+                 ++offset) {
+                const auto& segment =
+                    data_->segments[figure.first_segment + offset];
+                if (segment.flags != current_flags) {
+                    sink->SetSegmentFlags(segment.flags);
+                    current_flags = segment.flags;
+                }
+                switch (segment.kind) {
+                case segment_kind::line:
+                    sink->AddLine(segment.end);
+                    break;
+                case segment_kind::cubic: {
+                    const bezier_segment value{
+                        segment.control1, segment.control2, segment.end};
+                    sink->AddBezier(&value);
+                    break;
+                }
+                case segment_kind::quadratic: {
+                    const quadratic_bezier_segment value{
+                        segment.control1, segment.end};
+                    sink->AddQuadraticBezier(&value);
+                    break;
+                }
+                case segment_kind::arc:
+                    sink->AddArc(&segment.arc);
+                    break;
+                }
+            }
+            sink->EndFigure(figure.end);
+        }
+        return com::ok;
+    }
+
+    com::result PROGPU_NATIVE_COM_CALL GetSegmentCount(
+        std::uint32_t* count) const noexcept override
+    {
+        if (count == nullptr) {
+            return com::pointer_error;
+        }
+        *count = 0U;
+        if (!closed()) {
+            return wrong_state;
+        }
+        *count = data_->public_segment_count;
+        return com::ok;
+    }
+
+    com::result PROGPU_NATIVE_COM_CALL GetFigureCount(
+        std::uint32_t* count) const noexcept override
+    {
+        if (count == nullptr) {
+            return com::pointer_error;
+        }
+        *count = 0U;
+        if (!closed()) {
+            return wrong_state;
+        }
+        *count = static_cast<std::uint32_t>(data_->figures.size());
+        return com::ok;
+    }
+
+private:
+    [[nodiscard]] bool contains_arc() const noexcept
+    {
+        return std::any_of(
+            data_->segments.begin(),
+            data_->segments.end(),
+            [](const stored_segment& segment) {
+                return segment.kind == segment_kind::arc;
+            });
+    }
+
+    [[nodiscard]] bool closed() const noexcept
+    {
+        return data_->state.load(std::memory_order_acquire) ==
+            path_state::closed;
+    }
+
+    friend class com::atomic_reference_count<portable_path_geometry>;
+    ~portable_path_geometry() = default;
+
+    com::atomic_reference_count<portable_path_geometry> reference_count_;
+    com::pointer<factory> owner_;
+    std::shared_ptr<path_data> data_;
+};
+
+} // namespace
+
+com::result create_path_geometry(
+    factory* owner,
+    path_geometry** value) noexcept
+{
+    if (value == nullptr) {
+        return com::pointer_error;
+    }
+    *value = nullptr;
+    if (owner == nullptr) {
+        return com::invalid_argument;
+    }
+    try {
+        auto* created = new (std::nothrow) portable_path_geometry(owner);
+        if (created == nullptr) {
+            return com::out_of_memory;
+        }
+        *value = created;
+        return com::ok;
+    } catch (const std::bad_alloc&) {
+        return com::out_of_memory;
+    } catch (...) {
+        return failure;
+    }
+}
+
+} // namespace progpu::native::direct2d::compat::detail

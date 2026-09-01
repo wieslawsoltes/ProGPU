@@ -13,7 +13,9 @@ using triangle = progpu_native_direct2d_triangle;
 using rectangle_f = core::rectangle_edges_f;
 
 inline constexpr com::result not_implemented = -2147467263;
+inline constexpr com::result failure = -2147467259;
 inline constexpr com::result wrong_factory = -2003238894;
+inline constexpr com::result wrong_state = -2003238911;
 
 inline constexpr com::guid resource_interface_id{
     0x2CD90691U,
@@ -32,6 +34,21 @@ inline constexpr com::guid rectangle_geometry_interface_id{
     {0x9FU, 0xEDU, 0x00U, 0x11U, 0x43U, 0xA0U, 0x55U, 0xF9U}};
 inline constexpr com::guid transformed_geometry_interface_id{
     0x2CD906BBU,
+    0x12E2U,
+    0x11DCU,
+    {0x9FU, 0xEDU, 0x00U, 0x11U, 0x43U, 0xA0U, 0x55U, 0xF9U}};
+inline constexpr com::guid path_geometry_interface_id{
+    0x2CD906A5U,
+    0x12E2U,
+    0x11DCU,
+    {0x9FU, 0xEDU, 0x00U, 0x11U, 0x43U, 0xA0U, 0x55U, 0xF9U}};
+inline constexpr com::guid simplified_geometry_sink_interface_id{
+    0x2CD9069EU,
+    0x12E2U,
+    0x11DCU,
+    {0x9FU, 0xEDU, 0x00U, 0x11U, 0x43U, 0xA0U, 0x55U, 0xF9U}};
+inline constexpr com::guid geometry_sink_interface_id{
+    0x2CD9069FU,
     0x12E2U,
     0x11DCU,
     {0x9FU, 0xEDU, 0x00U, 0x11U, 0x43U, 0xA0U, 0x55U, 0xF9U}};
@@ -88,6 +105,34 @@ struct bezier_segment final {
     point_2f point3;
 };
 
+struct quadratic_bezier_segment final {
+    point_2f point1;
+    point_2f point2;
+};
+
+struct size_f final {
+    float width;
+    float height;
+};
+
+enum class sweep_direction : std::uint32_t {
+    counter_clockwise = 0U,
+    clockwise = 1U
+};
+
+enum class arc_size : std::uint32_t {
+    small_value = 0U,
+    large_value = 1U
+};
+
+struct arc_segment final {
+    point_2f point;
+    size_f size;
+    float rotation_angle;
+    sweep_direction sweep;
+    arc_size size_kind;
+};
+
 struct rounded_rectangle;
 struct ellipse;
 struct stroke_style_properties;
@@ -99,6 +144,7 @@ struct factory;
 struct geometry;
 struct geometry_group;
 struct path_geometry;
+struct geometry_sink;
 struct stroke_style;
 struct drawing_state_block;
 struct render_target;
@@ -122,6 +168,19 @@ struct simplified_geometry_sink : com::unknown {
     virtual void PROGPU_NATIVE_COM_CALL EndFigure(figure_end end)
         noexcept = 0;
     virtual com::result PROGPU_NATIVE_COM_CALL Close() noexcept = 0;
+};
+
+struct geometry_sink : simplified_geometry_sink {
+    virtual void PROGPU_NATIVE_COM_CALL AddLine(point_2f point) noexcept = 0;
+    virtual void PROGPU_NATIVE_COM_CALL AddBezier(
+        const bezier_segment* bezier) noexcept = 0;
+    virtual void PROGPU_NATIVE_COM_CALL AddQuadraticBezier(
+        const quadratic_bezier_segment* bezier) noexcept = 0;
+    virtual void PROGPU_NATIVE_COM_CALL AddQuadraticBeziers(
+        const quadratic_bezier_segment* beziers,
+        std::uint32_t bezier_count) noexcept = 0;
+    virtual void PROGPU_NATIVE_COM_CALL AddArc(
+        const arc_segment* arc) noexcept = 0;
 };
 
 struct tessellation_sink : com::unknown {
@@ -216,9 +275,20 @@ struct transformed_geometry : geometry {
         matrix_3x2_f* transform) const noexcept = 0;
 };
 
+struct path_geometry : geometry {
+    virtual com::result PROGPU_NATIVE_COM_CALL Open(
+        geometry_sink** sink) noexcept = 0;
+    virtual com::result PROGPU_NATIVE_COM_CALL Stream(
+        geometry_sink* sink) const noexcept = 0;
+    virtual com::result PROGPU_NATIVE_COM_CALL GetSegmentCount(
+        std::uint32_t* count) const noexcept = 0;
+    virtual com::result PROGPU_NATIVE_COM_CALL GetFigureCount(
+        std::uint32_t* count) const noexcept = 0;
+};
+
 /* The method order matches the original ID2D1Factory vtable. Unsupported
  * resource families are deliberately present and return not_implemented so
- * adding rectangle support cannot shift later ABI slots. Opaque descriptor
+ * adding resource support cannot shift later ABI slots. Opaque descriptor
  * declarations are expanded only as their resource families become portable. */
 struct factory : com::unknown {
     virtual com::result PROGPU_NATIVE_COM_CALL ReloadSystemMetrics()
