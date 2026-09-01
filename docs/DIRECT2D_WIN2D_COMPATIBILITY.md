@@ -890,8 +890,14 @@ same offset-side builder; a low-limit miter-or-bevel run emits the bevel pair.
 Dense region probes and genuine Direct2D x64/ARM64 corner probes match for both
 miter outcomes. Round joins now retain typed arc edges on the outer offset
 side and emit one or two cubic circular spans, with dense region probes and
-genuine Direct2D x64/ARM64 corner/widen validation. Only over-limit clipped
-`Miter` output remains fail closed in this dashed line-run domain.
+genuine Direct2D x64/ARM64 corner/widen validation. Over-limit `Miter` joins
+now intersect a limit-normal clipping plane with both outer offset edges;
+inside-tip/outside-tip probes distinguish that shape from both a full miter
+and `MiterOrBevel`. The behavior follows Microsoft's documented distinction
+between clamped miters and bevel conversion, and passes portable dense-region
+plus genuine Direct2D x64/ARM64 validation. All cap/join combinations are now
+covered for dashed line runs in this simple closed-path domain; curved,
+multi-figure, and general open-path widening remain broader geometry work.
 
 The identical simple closed/default-miter domain now implements
 `GetWidenedBounds`. It derives segment offset endpoints plus qualified miter
