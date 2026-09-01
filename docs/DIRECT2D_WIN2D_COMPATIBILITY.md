@@ -182,6 +182,16 @@ macOS/Linux applications still use the typed ProGPU geometry/Canvas API until
 the compatibility interface declarations and factory activation target are
 extracted.
 
+Qualification for this slice builds the no-provider Apple Silicon tree with
+AppleClang warnings-as-errors and passes 11/11 native CTests. The focused
+managed `Direct2DInteropContractTests` pass 8/8. The exact source archive also
+builds and runs `progpu_native_direct2d_core_tests.exe` under Windows 11 ARM64,
+MSVC 19.44, and `/W4 /WX`. Building the complete Windows Direct2D provider
+continues to stop before adapter qualification at the separately tracked
+Windows SDK `near` macro collision in
+`progpu_native_mil_curve_dash.hpp`; this slice does not hide or work around
+that existing failure.
+
 ## Current support matrix
 
 | Surface | Status | Contract |
