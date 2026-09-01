@@ -2101,14 +2101,133 @@ int run_tests()
         return 251;
     }
 
+    const compat::bitmap_properties shared_bitmap_properties{
+        {0U, compat::alpha_mode::unknown}, 144.0F, 120.0F};
+    compat::bitmap* raw_shared_bitmap = nullptr;
+    if (target->CreateSharedBitmap(
+            compat::bitmap_interface_id,
+            portable_bitmap.get(),
+            &shared_bitmap_properties,
+            &raw_shared_bitmap) != com::ok ||
+        raw_shared_bitmap == nullptr ||
+        raw_shared_bitmap == portable_bitmap.get()) {
+        return 252;
+    }
+    com::pointer<compat::bitmap> shared_bitmap;
+    shared_bitmap.attach(raw_shared_bitmap);
+    float shared_dpi_x = 0.0F;
+    float shared_dpi_y = 0.0F;
+    shared_bitmap->GetDpi(&shared_dpi_x, &shared_dpi_y);
+    compat::bitmap* rejected_shared_bitmap =
+        reinterpret_cast<compat::bitmap*>(static_cast<std::uintptr_t>(1U));
+    const compat::bitmap_properties rejected_shared_properties{
+        {28U, compat::alpha_mode::premultiplied}, 96.0F, 96.0F};
+    if (shared_bitmap->GetPixelSize().width != 2U ||
+        shared_bitmap->GetPixelFormat().format != 87U ||
+        shared_bitmap->GetPixelFormat().alpha !=
+            compat::alpha_mode::premultiplied ||
+        !approximately_equal(shared_dpi_x, 144.0F) ||
+        !approximately_equal(shared_dpi_y, 120.0F) ||
+        target->CreateSharedBitmap(
+            compat::bitmap_interface_id,
+            portable_bitmap.get(),
+            &rejected_shared_properties,
+            &rejected_shared_bitmap) != compat::not_implemented ||
+        rejected_shared_bitmap != nullptr ||
+        target->CreateSharedBitmap(
+            compat::wic_bitmap_source_interface_id,
+            portable_bitmap.get(),
+            nullptr,
+            &rejected_shared_bitmap) != com::no_interface ||
+        rejected_shared_bitmap != nullptr ||
+        target->CreateSharedBitmap(
+            compat::bitmap_interface_id,
+            nullptr,
+            nullptr,
+            &rejected_shared_bitmap) != com::invalid_argument ||
+        rejected_shared_bitmap != nullptr) {
+        return 253;
+    }
+
     const std::byte replacement[]{
         std::byte{0x30}, std::byte{0x20}, std::byte{0x10}, std::byte{0xff}};
     const compat::rectangle_u replacement_rectangle{1U, 0U, 2U, 1U};
-    if (portable_bitmap->CopyFromMemory(
+    if (shared_bitmap->CopyFromMemory(
             &replacement_rectangle, replacement, 4U) != com::ok ||
-        portable_bitmap->CopyFromRenderTarget(
+        shared_bitmap->CopyFromRenderTarget(
             nullptr, target.get(), nullptr) != compat::not_implemented) {
         return 148;
+    }
+    const compat::rectangle_f source_view_destination{
+        2.0F, 3.0F, 18.0F, 19.0F};
+    const compat::rectangle_f shared_view_destination{
+        20.0F, 3.0F, 36.0F, 19.0F};
+    target->BeginDraw();
+    target->DrawBitmap(
+        portable_bitmap.get(),
+        &source_view_destination,
+        1.0F,
+        compat::bitmap_interpolation_mode::nearest_neighbor,
+        nullptr);
+    target->DrawBitmap(
+        shared_bitmap.get(),
+        &shared_view_destination,
+        1.0F,
+        compat::bitmap_interpolation_mode::nearest_neighbor,
+        nullptr);
+    if (target->EndDraw(nullptr, nullptr) != com::ok ||
+        scene_target->GetRequiredSceneSize() == 0U) {
+        return 255;
+    }
+    const std::uint64_t shared_scene_size =
+        scene_target->GetRequiredSceneSize();
+    std::vector<std::byte> shared_scene(
+        static_cast<std::size_t>(shared_scene_size));
+    std::uint64_t shared_scene_written = 0U;
+    if (scene_target->BuildScene(
+            shared_scene.data(),
+            shared_scene.size(),
+            &shared_scene_written) != com::ok ||
+        shared_scene_written != shared_scene_size) {
+        return 255;
+    }
+    const auto* shared_header = reinterpret_cast<
+        const progpu_native_scene_header*>(shared_scene.data());
+    std::uint32_t shared_image_count = 0U;
+    const progpu_native_scene_resource* shared_image_resource = nullptr;
+    for (std::uint32_t index = 0U;
+         index < shared_header->resource_count;
+         ++index) {
+        const auto* candidate_resource = reinterpret_cast<
+            const progpu_native_scene_resource*>(
+            shared_scene.data() + shared_header->resource_offset +
+            static_cast<std::size_t>(index) *
+                shared_header->resource_stride);
+        if (candidate_resource->kind == PROGPU_NATIVE_SCENE_RESOURCE_IMAGE) {
+            shared_image_resource = candidate_resource;
+            ++shared_image_count;
+        }
+    }
+    compat::scene_render_target_summary shared_scene_summary{};
+    scene_target->GetSummary(&shared_scene_summary);
+    if (shared_scene_summary.draw_count != 2U ||
+        shared_header->command_count != 1U || shared_image_count != 1U ||
+        shared_image_resource == nullptr ||
+        shared_scene[shared_image_resource->payload_offset + 4U] !=
+            replacement[0]) {
+        std::fprintf(
+            stderr,
+            "shared bitmap scene commands=%u images=%u resources=%u payload=%u\n",
+            shared_header->command_count,
+            shared_image_count,
+            shared_header->resource_count,
+            shared_image_resource == nullptr
+                ? 0U
+                : static_cast<unsigned int>(
+                    std::to_integer<std::uint8_t>(
+                        shared_scene[
+                            shared_image_resource->payload_offset + 4U])));
+        return 255;
     }
     compat::bitmap* raw_bitmap_copy = nullptr;
     if (target->CreateBitmap(
@@ -2120,7 +2239,7 @@ int run_tests()
     com::pointer<compat::bitmap> bitmap_copy;
     bitmap_copy.attach(raw_bitmap_copy);
     if (bitmap_copy->CopyFromBitmap(
-            nullptr, portable_bitmap.get(), nullptr) != com::ok) {
+            nullptr, shared_bitmap.get(), nullptr) != com::ok) {
         return 155;
     }
     target->BeginDraw();
@@ -2466,6 +2585,16 @@ int run_tests()
     }
     com::pointer<compat::bitmap> foreign_bitmap;
     foreign_bitmap.attach(raw_foreign_bitmap);
+    rejected_shared_bitmap = reinterpret_cast<compat::bitmap*>(
+        static_cast<std::uintptr_t>(1U));
+    if (target->CreateSharedBitmap(
+            compat::bitmap_interface_id,
+            foreign_bitmap.get(),
+            nullptr,
+            &rejected_shared_bitmap) != compat::wrong_factory ||
+        rejected_shared_bitmap != nullptr) {
+        return 253;
+    }
     raw_bitmap_brush = reinterpret_cast<compat::bitmap_brush*>(
         static_cast<std::uintptr_t>(1U));
     if (target->CreateBitmapBrush(
@@ -3278,6 +3407,23 @@ int run_tests()
         return 153;
     }
     queried_native_bitmap->Release();
+    ID2D1Bitmap* native_shared_bitmap = nullptr;
+    if (FAILED(native_target->CreateSharedBitmap(
+            __uuidof(ID2D1Bitmap),
+            native_bitmap,
+            nullptr,
+            &native_shared_bitmap)) ||
+        native_shared_bitmap == nullptr ||
+        native_shared_bitmap == native_bitmap ||
+        native_shared_bitmap->GetPixelSize().width != 2U ||
+        native_shared_bitmap->GetPixelFormat().format !=
+            DXGI_FORMAT_B8G8R8A8_UNORM) {
+        if (native_shared_bitmap != nullptr) {
+            native_shared_bitmap->Release();
+        }
+        return 254;
+    }
+    native_shared_bitmap->Release();
     auto* native_bitmap_brush = reinterpret_cast<ID2D1BitmapBrush*>(
         bitmap_brush.get());
     ID2D1BitmapBrush* queried_native_bitmap_brush = nullptr;
@@ -3420,6 +3566,8 @@ int run_tests()
         return 217;
     }
     native_mesh_sink->Release();
+    compat::scene_render_target_summary native_target_baseline{};
+    scene_target->GetSummary(&native_target_baseline);
     native_target->BeginDraw();
     const D2D1_RECT_F native_target_rectangle{8.0F, 9.0F, 30.0F, 40.0F};
     native_target->FillRectangle(
@@ -3441,9 +3589,19 @@ int run_tests()
     native_target_brush->Release();
     scene_target->GetSummary(&target_summary);
     if (FAILED(native_target_end_status) ||
-        target_summary.generation != 20U ||
+        target_summary.generation != native_target_baseline.generation + 1U ||
         target_summary.draw_count != 4U ||
         scene_target->GetRequiredSceneSize() == 0U) {
+        std::fprintf(
+            stderr,
+            "portable Windows target draw status=%d generation=%llu/%llu draws=%u scene=%llu\n",
+            static_cast<int>(native_target_end_status),
+            static_cast<unsigned long long>(target_summary.generation),
+            static_cast<unsigned long long>(
+                native_target_baseline.generation + 1U),
+            target_summary.draw_count,
+            static_cast<unsigned long long>(
+                scene_target->GetRequiredSceneSize()));
         return 129;
     }
     auto* native_factory = reinterpret_cast<ID2D1Factory*>(factory.get());
