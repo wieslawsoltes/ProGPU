@@ -6631,6 +6631,26 @@ public class NativeRendererInteropTests
             windowsBuild,
             StringComparison.Ordinal);
         Assert.Contains(
+            "adapter=Microsoft Basic Render Driver",
+            windowsBuild,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "--software-adapter-ci",
+            windowsBuild,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "softwareAdapterQualification",
+            managedSample,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "40f * dpiScale * dpiScale",
+            managedSample,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "dpiScale < 1f ? (byte)180 : (byte)220",
+            managedSample,
+            StringComparison.Ordinal);
+        Assert.Contains(
             "--managed-picture --profile-native-only --rectangles 384",
             windowsBuild,
             StringComparison.Ordinal);
