@@ -6394,6 +6394,17 @@ bounds match the genuine Windows system implementation after a clean 30-step
 ARM64 core/provider rebuild, while optimized and sanitizer tests remain green
 locally.
 
+The first general-path `Widen` output lane now accepts one strictly convex
+simple closed contour with a positive-width null/default miter stroke. Outer
+and inner offset contours, miter limits, and surviving inner topology are
+validated transactionally before the caller sink is touched. Their independent
+world transforms execute four-wide through NEON or SSE2, after which the sink
+receives alternate-fill force-unstroked closed figures. Local tests compare a
+dense widened-fill lattice with `StrokeContainsPoint`; the Windows ARM64 oracle
+compares the same lattice with genuine system Direct2D after a clean 30-step
+provider/core build. Unsupported concave, styled, flagged, zero-width, or
+multi-figure cases remain fail closed.
+
 ## Invariants
 
 - No reflection or private managed field scanning in the product bridge.

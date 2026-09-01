@@ -1026,6 +1026,157 @@ struct polygon_stroke_edges final {
     return com::ok;
 }
 
+[[nodiscard]] com::result build_default_miter_offset_contour(
+    std::span<const point_2f> polygon,
+    double offset,
+    std::vector<point_2f>& contour) noexcept
+{
+    try {
+        contour.clear();
+        contour.reserve(polygon.size());
+        constexpr double default_miter_limit = 10.0;
+        for (std::size_t index = 0U; index < polygon.size(); ++index) {
+            const point_2f previous = polygon[
+                (index + polygon.size() - 1U) % polygon.size()];
+            const point_2f vertex = polygon[index];
+            const point_2f next =
+                polygon[(index + 1U) % polygon.size()];
+            if (triangle_cross(previous, vertex, next) <= 0.0) {
+                return not_implemented;
+            }
+            const double incoming_x =
+                static_cast<double>(vertex.x) - previous.x;
+            const double incoming_y =
+                static_cast<double>(vertex.y) - previous.y;
+            const double outgoing_x =
+                static_cast<double>(next.x) - vertex.x;
+            const double outgoing_y =
+                static_cast<double>(next.y) - vertex.y;
+            const double incoming_length =
+                std::hypot(incoming_x, incoming_y);
+            const double outgoing_length =
+                std::hypot(outgoing_x, outgoing_y);
+            if (incoming_length == 0.0 || outgoing_length == 0.0) {
+                return not_implemented;
+            }
+            const double incoming_unit_x = incoming_x / incoming_length;
+            const double incoming_unit_y = incoming_y / incoming_length;
+            const double outgoing_unit_x = outgoing_x / outgoing_length;
+            const double outgoing_unit_y = outgoing_y / outgoing_length;
+            const double denominator =
+                incoming_unit_x * outgoing_unit_y -
+                incoming_unit_y * outgoing_unit_x;
+            if (denominator == 0.0) {
+                return not_implemented;
+            }
+            const point_2f incoming_offset{
+                static_cast<float>(vertex.x - incoming_unit_y * offset),
+                static_cast<float>(vertex.y + incoming_unit_x * offset)};
+            const point_2f outgoing_offset{
+                static_cast<float>(vertex.x - outgoing_unit_y * offset),
+                static_cast<float>(vertex.y + outgoing_unit_x * offset)};
+            const double offset_x =
+                static_cast<double>(outgoing_offset.x) - incoming_offset.x;
+            const double offset_y =
+                static_cast<double>(outgoing_offset.y) - incoming_offset.y;
+            const double parameter =
+                (offset_x * outgoing_unit_y -
+                    offset_y * outgoing_unit_x) /
+                denominator;
+            const point_2f miter{
+                static_cast<float>(
+                    incoming_offset.x + incoming_unit_x * parameter),
+                static_cast<float>(
+                    incoming_offset.y + incoming_unit_y * parameter)};
+            const double miter_length = std::hypot(
+                static_cast<double>(miter.x) - vertex.x,
+                static_cast<double>(miter.y) - vertex.y);
+            if (!finite_point(miter) || miter_length >
+                default_miter_limit * std::abs(offset)) {
+                return not_implemented;
+            }
+            contour.push_back(miter);
+        }
+        return com::ok;
+    } catch (const std::bad_alloc&) {
+        return com::out_of_memory;
+    } catch (...) {
+        return failure;
+    }
+}
+
+[[nodiscard]] com::result transform_points_in_place(
+    std::vector<point_2f>& points,
+    const matrix_3x2_f* transform) noexcept
+{
+    if (transform == nullptr) {
+        return com::ok;
+    }
+    std::size_t index = 0U;
+#if defined(PROGPU_NATIVE_DIRECT2D_PATH_INTRINSICS_NEON)
+    static_assert(sizeof(point_2f) == sizeof(float) * 2U);
+    for (; index + 4U <= points.size(); index += 4U) {
+        float* destination =
+            reinterpret_cast<float*>(points.data() + index);
+        const float32x4x2_t source = vld2q_f32(destination);
+        float32x4x2_t transformed{};
+        transformed.val[0] = vaddq_f32(
+            vaddq_f32(
+                vmulq_n_f32(source.val[0], transform->m11),
+                vmulq_n_f32(source.val[1], transform->m21)),
+            vdupq_n_f32(transform->m31));
+        transformed.val[1] = vaddq_f32(
+            vaddq_f32(
+                vmulq_n_f32(source.val[0], transform->m12),
+                vmulq_n_f32(source.val[1], transform->m22)),
+            vdupq_n_f32(transform->m32));
+        vst2q_f32(destination, transformed);
+    }
+#elif defined(PROGPU_NATIVE_DIRECT2D_PATH_INTRINSICS_SSE2)
+    static_assert(sizeof(point_2f) == sizeof(float) * 2U);
+    for (; index + 4U <= points.size(); index += 4U) {
+        float* destination =
+            reinterpret_cast<float*>(points.data() + index);
+        const __m128 first = _mm_loadu_ps(destination);
+        const __m128 second = _mm_loadu_ps(destination + 4U);
+        const __m128 source_x =
+            _mm_shuffle_ps(first, second, _MM_SHUFFLE(2, 0, 2, 0));
+        const __m128 source_y =
+            _mm_shuffle_ps(first, second, _MM_SHUFFLE(3, 1, 3, 1));
+        const __m128 transformed_x = _mm_add_ps(
+            _mm_add_ps(
+                _mm_mul_ps(source_x, _mm_set1_ps(transform->m11)),
+                _mm_mul_ps(source_y, _mm_set1_ps(transform->m21))),
+            _mm_set1_ps(transform->m31));
+        const __m128 transformed_y = _mm_add_ps(
+            _mm_add_ps(
+                _mm_mul_ps(source_x, _mm_set1_ps(transform->m12)),
+                _mm_mul_ps(source_y, _mm_set1_ps(transform->m22))),
+            _mm_set1_ps(transform->m32));
+        _mm_storeu_ps(
+            destination, _mm_unpacklo_ps(transformed_x, transformed_y));
+        _mm_storeu_ps(
+            destination + 4U,
+            _mm_unpackhi_ps(transformed_x, transformed_y));
+    }
+#endif
+    for (; index < points.size(); ++index) {
+        point_2f transformed{};
+        const com::result result = transform_point(
+            points[index], transform, &transformed);
+        if (com::failed(result)) {
+            return result;
+        }
+        points[index] = transformed;
+    }
+    return std::all_of(
+               points.begin(),
+               points.end(),
+               finite_point)
+        ? com::ok
+        : com::invalid_argument;
+}
+
 [[nodiscard]] polygon_edge_bounds
 make_polygon_edge_bounds(std::span<const point_2f> polygon) {
   polygon_edge_bounds result{};
@@ -3245,13 +3396,124 @@ public:
     }
 
     com::result PROGPU_NATIVE_COM_CALL Widen(
-        float,
-        stroke_style*,
-        const matrix_3x2_f*,
-        float,
-        simplified_geometry_sink*) const noexcept override
+        float stroke_width,
+        stroke_style* style,
+        const matrix_3x2_f* world_transform,
+        float flattening_tolerance,
+        simplified_geometry_sink* sink) const noexcept override
     {
-        return not_implemented;
+        if (sink == nullptr) {
+            return com::pointer_error;
+        }
+        if (!closed()) {
+            return wrong_state;
+        }
+        if (!std::isfinite(stroke_width) || stroke_width < 0.0F ||
+            !valid_tolerance(flattening_tolerance) ||
+            !core::valid_transform(world_transform)) {
+            return com::invalid_argument;
+        }
+        if (stroke_width == 0.0F) {
+            return not_implemented;
+        }
+        if (style != nullptr) {
+            factory* raw_style_factory = nullptr;
+            style->GetFactory(&raw_style_factory);
+            com::pointer<factory> style_factory;
+            style_factory.attach(raw_style_factory);
+            if (style_factory.get() != owner_.get()) {
+                return wrong_factory;
+            }
+            return not_implemented;
+        }
+        if (data_->figures.size() != 1U ||
+            data_->figures.front().end != figure_end::closed) {
+            return not_implemented;
+        }
+        try {
+            std::vector<flat_edge> edges;
+            const com::result edge_status = collect_flat_edges(
+                nullptr, flattening_tolerance, true, edges);
+            if (com::failed(edge_status)) {
+                return edge_status;
+            }
+            std::vector<point_2f> polygon;
+            for (const auto& edge : edges) {
+                if (edge.figure_index != 0U ||
+                    edge.flags != path_segment::none ||
+                    same_point(edge.start, edge.end)) {
+                    if (edge.flags != path_segment::none) {
+                        return not_implemented;
+                    }
+                    continue;
+                }
+                if (polygon.empty()) {
+                    polygon.push_back(edge.start);
+                } else if (!same_point(polygon.back(), edge.start)) {
+                    return not_implemented;
+                }
+                polygon.push_back(edge.end);
+            }
+            if (!normalize_simple_polygon(polygon)) {
+                return not_implemented;
+            }
+            const double half_width =
+                static_cast<double>(stroke_width) * 0.5;
+            std::vector<point_2f> outer;
+            std::vector<point_2f> inner;
+            com::result result = build_default_miter_offset_contour(
+                polygon, -half_width, outer);
+            if (com::failed(result)) {
+                return result;
+            }
+            result = build_default_miter_offset_contour(
+                polygon, half_width, inner);
+            if (com::failed(result)) {
+                return result;
+            }
+            if (!normalize_simple_polygon(outer) ||
+                !normalize_simple_polygon(inner)) {
+                return not_implemented;
+            }
+            for (const point_2f point : inner) {
+                if (classify_polygon_point(outer, point) ==
+                    polygon_point_relation::outside) {
+                    return not_implemented;
+                }
+            }
+            result = transform_points_in_place(outer, world_transform);
+            if (com::failed(result)) {
+                return result;
+            }
+            result = transform_points_in_place(inner, world_transform);
+            if (com::failed(result)) {
+                return result;
+            }
+            if (outer.size() >
+                    (std::numeric_limits<std::uint32_t>::max)() ||
+                inner.size() >
+                    (std::numeric_limits<std::uint32_t>::max)()) {
+                return com::out_of_memory;
+            }
+
+            sink->SetFillMode(fill_mode::alternate);
+            sink->SetSegmentFlags(path_segment::force_unstroked);
+            sink->BeginFigure(outer.front(), figure_begin::filled);
+            sink->AddLines(
+                outer.data() + 1U,
+                static_cast<std::uint32_t>(outer.size() - 1U));
+            sink->EndFigure(figure_end::closed);
+            sink->BeginFigure(inner.front(), figure_begin::filled);
+            sink->AddLines(
+                inner.data() + 1U,
+                static_cast<std::uint32_t>(inner.size() - 1U));
+            sink->EndFigure(figure_end::closed);
+            return com::ok;
+        } catch (const std::bad_alloc&) {
+            return com::out_of_memory;
+        } catch (...) {
+            return failure;
+        }
     }
 
     com::result PROGPU_NATIVE_COM_CALL Open(
