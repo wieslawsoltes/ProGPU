@@ -1,5 +1,6 @@
 #include "progpu_native_direct2d.h"
 #include "progpu_native_com.hpp"
+#include "progpu_native_direct2d_core.hpp"
 #include "progpu_native_scene_builder.hpp"
 #include "../Scene/progpu_native_semantic_path_stroke.hpp"
 
@@ -29,6 +30,8 @@
 
 template<typename Interface>
 using ComPtr = progpu::native::com::pointer<Interface>;
+
+namespace direct2d_core = progpu::native::direct2d::core;
 
 MIDL_INTERFACE("A27F0B5D-EC2C-4D4F-948F-0AA1E95E33E6")
 IProGpuWin2DCanvasDevice : public IInspectable {
@@ -512,39 +515,31 @@ bool compat_finite_rounded_rectangle(
         std::isfinite(value->radiusY) && value->radiusY >= 0.0F;
 }
 
-bool compat_transform_rectangle(
-    const D2D1_RECT_F& rectangle,
-    const D2D1_MATRIX_3X2_F* transform,
-    std::array<D2D1_POINT_2F, 4U>& points) noexcept
+direct2d_core::rectangle_edges_f compat_core_rectangle(
+    const D2D1_RECT_F& rectangle) noexcept
 {
-    if (!compat_finite_rectangle(&rectangle) ||
-        !compat_finite_transform(transform)) {
-        return false;
+    return {
+        rectangle.left,
+        rectangle.top,
+        rectangle.right,
+        rectangle.bottom};
+}
+
+const progpu_native_direct2d_matrix_3x2_f* compat_core_transform(
+    const D2D1_MATRIX_3X2_F* transform,
+    progpu_native_direct2d_matrix_3x2_f& storage) noexcept
+{
+    if (transform == nullptr) {
+        return nullptr;
     }
-    const D2D1_MATRIX_3X2_F matrix = transform == nullptr
-        ? D2D1::Matrix3x2F::Identity()
-        : *transform;
-    const std::array<D2D1_POINT_2F, 4U> source = {
-        D2D1::Point2F(rectangle.left, rectangle.top),
-        D2D1::Point2F(rectangle.right, rectangle.top),
-        D2D1::Point2F(rectangle.right, rectangle.bottom),
-        D2D1::Point2F(rectangle.left, rectangle.bottom)};
-    constexpr double maximum =
-        static_cast<double>(std::numeric_limits<float>::max());
-    for (size_t index = 0U; index < source.size(); ++index) {
-        const double x = static_cast<double>(source[index].x) * matrix._11 +
-            static_cast<double>(source[index].y) * matrix._21 + matrix._31;
-        const double y = static_cast<double>(source[index].x) * matrix._12 +
-            static_cast<double>(source[index].y) * matrix._22 + matrix._32;
-        if (!std::isfinite(x) || !std::isfinite(y) ||
-            std::abs(x) > maximum || std::abs(y) > maximum) {
-            return false;
-        }
-        points[index] = {
-            static_cast<float>(x),
-            static_cast<float>(y)};
-    }
-    return true;
+    storage = {
+        transform->_11,
+        transform->_12,
+        transform->_21,
+        transform->_22,
+        transform->_31,
+        transform->_32};
+    return &storage;
 }
 
 class ProGpuD2DRectangleGeometry final : public ID2D1RectangleGeometry {
@@ -611,22 +606,18 @@ public:
             return E_POINTER;
         }
         *bounds = {};
-        std::array<D2D1_POINT_2F, 4U> points{};
-        if (!compat_transform_rectangle(
-                rectangle_, world_transform, points)) {
-            return E_INVALIDARG;
+        progpu_native_direct2d_matrix_3x2_f transform{};
+        direct2d_core::rectangle_edges_f result{};
+        const direct2d_core::rectangle_geometry geometry(
+            compat_core_rectangle(rectangle_));
+        const HRESULT status = geometry.bounds(
+            compat_core_transform(world_transform, transform), &result);
+        if (FAILED(status)) {
+            return status;
         }
-        bounds->left = points[0].x;
-        bounds->top = points[0].y;
-        bounds->right = points[0].x;
-        bounds->bottom = points[0].y;
-        for (size_t index = 1U; index < points.size(); ++index) {
-            bounds->left = std::min(bounds->left, points[index].x);
-            bounds->top = std::min(bounds->top, points[index].y);
-            bounds->right = std::max(bounds->right, points[index].x);
-            bounds->bottom = std::max(bounds->bottom, points[index].y);
-        }
-        return S_OK;
+        *bounds = {
+            result.left, result.top, result.right, result.bottom};
+        return status;
     }
 
     HRESULT STDMETHODCALLTYPE GetWidenedBounds(
@@ -667,42 +658,17 @@ public:
         if (contains == nullptr) {
             return E_POINTER;
         }
-        *contains = FALSE;
-        if (!std::isfinite(point.x) || !std::isfinite(point.y) ||
-            !std::isfinite(flattening_tolerance) ||
-            flattening_tolerance <= 0.0F) {
-            return E_INVALIDARG;
-        }
-        std::array<D2D1_POINT_2F, 4U> points{};
-        if (!compat_transform_rectangle(
-                rectangle_, world_transform, points)) {
-            return E_INVALIDARG;
-        }
-        double twice_area = 0.0;
-        for (size_t index = 0U; index < points.size(); ++index) {
-            const auto& start = points[index];
-            const auto& end = points[(index + 1U) % points.size()];
-            twice_area += static_cast<double>(start.x) * end.y -
-                static_cast<double>(start.y) * end.x;
-        }
-        if (twice_area == 0.0) {
-            return S_OK;
-        }
-        bool positive = false;
-        bool negative = false;
-        for (size_t index = 0U; index < points.size(); ++index) {
-            const auto& start = points[index];
-            const auto& end = points[(index + 1U) % points.size()];
-            const double cross =
-                (static_cast<double>(end.x) - start.x) *
-                    (static_cast<double>(point.y) - start.y) -
-                (static_cast<double>(end.y) - start.y) *
-                    (static_cast<double>(point.x) - start.x);
-            positive |= cross > 0.0;
-            negative |= cross < 0.0;
-        }
-        *contains = positive && negative ? FALSE : TRUE;
-        return S_OK;
+        progpu_native_direct2d_matrix_3x2_f transform{};
+        std::uint32_t result = 0U;
+        const direct2d_core::rectangle_geometry geometry(
+            compat_core_rectangle(rectangle_));
+        const HRESULT status = geometry.fill_contains_point(
+            {point.x, point.y},
+            compat_core_transform(world_transform, transform),
+            flattening_tolerance,
+            &result);
+        *contains = result == 0U ? FALSE : TRUE;
+        return status;
     }
 
     HRESULT STDMETHODCALLTYPE CompareWithGeometry(
@@ -735,16 +701,25 @@ public:
             flattening_tolerance <= 0.0F) {
             return E_INVALIDARG;
         }
-        std::array<D2D1_POINT_2F, 4U> points{};
-        if (!compat_transform_rectangle(
-                rectangle_, world_transform, points)) {
-            return E_INVALIDARG;
+        progpu_native_direct2d_matrix_3x2_f transform{};
+        std::array<progpu_native_direct2d_point_2f, 4U> points{};
+        const direct2d_core::rectangle_geometry geometry(
+            compat_core_rectangle(rectangle_));
+        const HRESULT status = geometry.vertices(
+            compat_core_transform(world_transform, transform), points);
+        if (FAILED(status)) {
+            return status;
         }
+        const std::array<D2D1_POINT_2F, 4U> native_points{{
+            {points[0U].x, points[0U].y},
+            {points[1U].x, points[1U].y},
+            {points[2U].x, points[2U].y},
+            {points[3U].x, points[3U].y}}};
         geometry_sink->SetFillMode(D2D1_FILL_MODE_WINDING);
         geometry_sink->SetSegmentFlags(D2D1_PATH_SEGMENT_NONE);
         geometry_sink->BeginFigure(
-            points[0], D2D1_FIGURE_BEGIN_FILLED);
-        geometry_sink->AddLines(points.data() + 1U, 3U);
+            native_points[0U], D2D1_FIGURE_BEGIN_FILLED);
+        geometry_sink->AddLines(native_points.data() + 1U, 3U);
         geometry_sink->EndFigure(D2D1_FIGURE_END_CLOSED);
         return S_OK;
     }
@@ -757,18 +732,24 @@ public:
         if (tessellation_sink == nullptr) {
             return E_POINTER;
         }
-        if (!std::isfinite(flattening_tolerance) ||
-            flattening_tolerance <= 0.0F) {
-            return E_INVALIDARG;
+        progpu_native_direct2d_matrix_3x2_f transform{};
+        std::array<progpu_native_direct2d_triangle, 2U> core_triangles{};
+        const direct2d_core::rectangle_geometry geometry(
+            compat_core_rectangle(rectangle_));
+        const HRESULT status = geometry.tessellate(
+            compat_core_transform(world_transform, transform),
+            flattening_tolerance,
+            &core_triangles);
+        if (FAILED(status)) {
+            return status;
         }
-        std::array<D2D1_POINT_2F, 4U> points{};
-        if (!compat_transform_rectangle(
-                rectangle_, world_transform, points)) {
-            return E_INVALIDARG;
-        }
-        const std::array<D2D1_TRIANGLE, 2U> triangles = {{
-            {points[0], points[1], points[2]},
-            {points[0], points[2], points[3]}}};
+        const std::array<D2D1_TRIANGLE, 2U> triangles{{
+            {{core_triangles[0U].point1.x, core_triangles[0U].point1.y},
+                {core_triangles[0U].point2.x, core_triangles[0U].point2.y},
+                {core_triangles[0U].point3.x, core_triangles[0U].point3.y}},
+            {{core_triangles[1U].point1.x, core_triangles[1U].point1.y},
+                {core_triangles[1U].point2.x, core_triangles[1U].point2.y},
+                {core_triangles[1U].point3.x, core_triangles[1U].point3.y}}}};
         tessellation_sink->AddTriangles(
             triangles.data(), static_cast<UINT32>(triangles.size()));
         return S_OK;
@@ -800,30 +781,13 @@ public:
         if (area == nullptr) {
             return E_POINTER;
         }
-        *area = 0.0F;
-        if (!std::isfinite(flattening_tolerance) ||
-            flattening_tolerance <= 0.0F) {
-            return E_INVALIDARG;
-        }
-        std::array<D2D1_POINT_2F, 4U> points{};
-        if (!compat_transform_rectangle(
-                rectangle_, world_transform, points)) {
-            return E_INVALIDARG;
-        }
-        double twice_area = 0.0;
-        for (size_t index = 0U; index < points.size(); ++index) {
-            const auto& start = points[index];
-            const auto& end = points[(index + 1U) % points.size()];
-            twice_area += static_cast<double>(start.x) * end.y -
-                static_cast<double>(start.y) * end.x;
-        }
-        const double result = std::abs(twice_area) * 0.5;
-        if (!std::isfinite(result) ||
-            result > std::numeric_limits<float>::max()) {
-            return E_INVALIDARG;
-        }
-        *area = static_cast<float>(result);
-        return S_OK;
+        progpu_native_direct2d_matrix_3x2_f transform{};
+        const direct2d_core::rectangle_geometry geometry(
+            compat_core_rectangle(rectangle_));
+        return geometry.area(
+            compat_core_transform(world_transform, transform),
+            flattening_tolerance,
+            area);
     }
 
     HRESULT STDMETHODCALLTYPE ComputeLength(
@@ -834,30 +798,13 @@ public:
         if (length == nullptr) {
             return E_POINTER;
         }
-        *length = 0.0F;
-        if (!std::isfinite(flattening_tolerance) ||
-            flattening_tolerance <= 0.0F) {
-            return E_INVALIDARG;
-        }
-        std::array<D2D1_POINT_2F, 4U> points{};
-        if (!compat_transform_rectangle(
-                rectangle_, world_transform, points)) {
-            return E_INVALIDARG;
-        }
-        double result = 0.0;
-        for (size_t index = 0U; index < points.size(); ++index) {
-            const auto& start = points[index];
-            const auto& end = points[(index + 1U) % points.size()];
-            result += std::hypot(
-                static_cast<double>(end.x) - start.x,
-                static_cast<double>(end.y) - start.y);
-        }
-        if (!std::isfinite(result) ||
-            result > std::numeric_limits<float>::max()) {
-            return E_INVALIDARG;
-        }
-        *length = static_cast<float>(result);
-        return S_OK;
+        progpu_native_direct2d_matrix_3x2_f transform{};
+        const direct2d_core::rectangle_geometry geometry(
+            compat_core_rectangle(rectangle_));
+        return geometry.length(
+            compat_core_transform(world_transform, transform),
+            flattening_tolerance,
+            length);
     }
 
     HRESULT STDMETHODCALLTYPE ComputePointAtLength(
@@ -870,65 +817,24 @@ public:
         if (point == nullptr && unit_tangent_vector == nullptr) {
             return E_POINTER;
         }
+        progpu_native_direct2d_matrix_3x2_f transform{};
+        progpu_native_direct2d_point_2f core_point{};
+        progpu_native_direct2d_point_2f core_tangent{};
+        const direct2d_core::rectangle_geometry geometry(
+            compat_core_rectangle(rectangle_));
+        const HRESULT status = geometry.point_at_length(
+            length,
+            compat_core_transform(world_transform, transform),
+            flattening_tolerance,
+            point == nullptr ? nullptr : &core_point,
+            unit_tangent_vector == nullptr ? nullptr : &core_tangent);
         if (point != nullptr) {
-            *point = {};
+            *point = {core_point.x, core_point.y};
         }
         if (unit_tangent_vector != nullptr) {
-            *unit_tangent_vector = {};
+            *unit_tangent_vector = {core_tangent.x, core_tangent.y};
         }
-        if (!std::isfinite(length) || length < 0.0F ||
-            !std::isfinite(flattening_tolerance) ||
-            flattening_tolerance <= 0.0F) {
-            return E_INVALIDARG;
-        }
-        std::array<D2D1_POINT_2F, 4U> points{};
-        if (!compat_transform_rectangle(
-                rectangle_, world_transform, points)) {
-            return E_INVALIDARG;
-        }
-        std::array<double, 4U> edge_lengths{};
-        double perimeter = 0.0;
-        for (size_t index = 0U; index < points.size(); ++index) {
-            const auto& start = points[index];
-            const auto& end = points[(index + 1U) % points.size()];
-            edge_lengths[index] = std::hypot(
-                static_cast<double>(end.x) - start.x,
-                static_cast<double>(end.y) - start.y);
-            perimeter += edge_lengths[index];
-        }
-        if (perimeter == 0.0) {
-            if (point != nullptr) {
-                *point = points[0];
-            }
-            return S_OK;
-        }
-        double remaining = std::min(static_cast<double>(length), perimeter);
-        for (size_t index = 0U; index < points.size(); ++index) {
-            const auto& start = points[index];
-            const auto& end = points[(index + 1U) % points.size()];
-            const double edge_length = edge_lengths[index];
-            if (edge_length == 0.0) {
-                continue;
-            }
-            if (remaining <= edge_length || index + 1U == points.size()) {
-                const double ratio = std::min(remaining / edge_length, 1.0);
-                if (point != nullptr) {
-                    point->x = static_cast<float>(
-                        start.x + (end.x - start.x) * ratio);
-                    point->y = static_cast<float>(
-                        start.y + (end.y - start.y) * ratio);
-                }
-                if (unit_tangent_vector != nullptr) {
-                    unit_tangent_vector->x = static_cast<float>(
-                        (end.x - start.x) / edge_length);
-                    unit_tangent_vector->y = static_cast<float>(
-                        (end.y - start.y) / edge_length);
-                }
-                return S_OK;
-            }
-            remaining -= edge_length;
-        }
-        return E_UNEXPECTED;
+        return status;
     }
 
     HRESULT STDMETHODCALLTYPE Widen(

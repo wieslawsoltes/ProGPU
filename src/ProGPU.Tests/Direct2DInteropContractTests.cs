@@ -103,6 +103,46 @@ public sealed class Direct2DInteropContractTests
     }
 
     [Fact]
+    public void PortableRectangleCoreIsSharedByWindowsComAdapter()
+    {
+        string coreHeader = ReadRepoFile(
+            "src",
+            "ProGPU.Native",
+            "include",
+            "progpu_native_direct2d_core.hpp");
+        string coreSource = ReadRepoFile(
+            "src",
+            "ProGPU.Native",
+            "src",
+            "Direct2D",
+            "progpu_native_direct2d_core.cpp");
+        string nativeTest = ReadRepoFile(
+            "src",
+            "ProGPU.Native",
+            "tests",
+            "progpu_native_direct2d_core_tests.cpp");
+        string provider = ReadRepoFile(
+            "src",
+            "ProGPU.Native",
+            "src",
+            "Direct2D",
+            "progpu_native_direct2d.cpp");
+        string cmake = ReadRepoFile(
+            "src",
+            "ProGPU.Native",
+            "CMakeLists.txt");
+
+        Assert.Contains("class rectangle_geometry final", coreHeader, StringComparison.Ordinal);
+        Assert.Contains("rectangle_geometry::tessellate", coreSource, StringComparison.Ordinal);
+        Assert.Contains("rectangle_geometry::point_at_length", coreSource, StringComparison.Ordinal);
+        Assert.Contains("progpu_native_direct2d_core_tests", cmake, StringComparison.Ordinal);
+        Assert.Contains("include/progpu_native_direct2d_core.hpp", cmake, StringComparison.Ordinal);
+        Assert.Contains("direct2d_core::rectangle_geometry geometry", provider, StringComparison.Ordinal);
+        Assert.DoesNotContain("compat_transform_rectangle", provider, StringComparison.Ordinal);
+        Assert.Contains("degenerate.point_at_length", nativeTest, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void ManagedProviderUsesTypedAotSafeNativeAbi()
     {
         string project = ReadRepoFile(
