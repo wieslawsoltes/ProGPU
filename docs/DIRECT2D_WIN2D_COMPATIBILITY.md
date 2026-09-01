@@ -873,8 +873,12 @@ square, round, or triangle dash caps. All visible run bodies are packed into
 the same four-lane NEON/SSE2 distance pass; only ordered joins and caps remain
 scalar. Optimized and sanitizer suites pass, and Windows x64 plus ARM64 match
 genuine Direct2D for body, gap, flat-cap, and round-cap probes at an explicit
-0.001 flattening tolerance. Styled widened bounds and `Widen` remain fail
-closed until they consume the same run geometry.
+0.001 flattening tolerance. `GetWidenedBounds` now consumes those same runs for
+dashed closed paths, includes exact line-body, cap, and join extrema, and adds
+affine support points for round geometry before the SIMD transform/reduction
+pass. Flat and round styles, including a non-uniform transform, match genuine
+Direct2D on Windows x64 and ARM64. Dashed `Widen` remains fail closed until it
+emits these run outlines through the simplified geometry sink.
 
 The identical simple closed/default-miter domain now implements
 `GetWidenedBounds`. It derives segment offset endpoints plus qualified miter

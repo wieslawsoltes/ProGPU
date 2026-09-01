@@ -1014,14 +1014,11 @@ struct polygon_stroke_edges final {
     return has_positive ? com::ok : com::invalid_argument;
 }
 
-[[nodiscard]] com::result dashed_polygon_stroke_contains(
+[[nodiscard]] com::result create_dashed_polygon_runs(
     std::span<const point_2f> polygon,
-    point_2f point,
     float stroke_width,
     stroke_style& style,
-    line_join join,
-    double miter_limit,
-    std::int32_t& contains)
+    curve_dash::run_buffer& dash_runs)
 {
     std::vector<double> intervals;
     const com::result interval_status = read_dash_intervals(style, intervals);
@@ -1044,7 +1041,6 @@ struct polygon_stroke_edges final {
         segment.p1 = {end.x, end.y};
         segments.push_back(segment);
     }
-    curve_dash::run_buffer dash_runs;
     const curve_dash::result dash_status = curve_dash::try_create_runs(
         segments,
         smooth_joins,
@@ -1056,8 +1052,25 @@ struct polygon_stroke_edges final {
     if (dash_status == curve_dash::result::capacity_exceeded) {
         return com::out_of_memory;
     }
-    if (dash_status != curve_dash::result::success) {
-        return com::invalid_argument;
+    return dash_status == curve_dash::result::success
+        ? com::ok
+        : com::invalid_argument;
+}
+
+[[nodiscard]] com::result dashed_polygon_stroke_contains(
+    std::span<const point_2f> polygon,
+    point_2f point,
+    float stroke_width,
+    stroke_style& style,
+    line_join join,
+    double miter_limit,
+    std::int32_t& contains)
+{
+    curve_dash::run_buffer dash_runs;
+    const com::result dash_status = create_dashed_polygon_runs(
+        polygon, stroke_width, style, dash_runs);
+    if (com::failed(dash_status)) {
+        return dash_status;
     }
     const double half_width = static_cast<double>(stroke_width) * 0.5;
     const polygon_stroke_edges stroke_edges =
@@ -1326,6 +1339,242 @@ struct polygon_stroke_edges final {
     }
     bounds = {minimum_x, minimum_y, maximum_x, maximum_y};
     return com::ok;
+}
+
+void append_round_support_points(
+    point_2f center,
+    double radius,
+    const matrix_3x2_f* transform,
+    std::vector<point_2f>& points)
+{
+    const matrix_3x2_f identity{
+        1.0F, 0.0F, 0.0F, 1.0F, 0.0F, 0.0F};
+    const matrix_3x2_f& matrix = transform == nullptr ? identity : *transform;
+    const auto append_axis = [&](double first, double second) {
+        const double length = std::hypot(first, second);
+        if (length == 0.0) {
+            return;
+        }
+        const double scale = radius / length;
+        const float offset_x = static_cast<float>(first * scale);
+        const float offset_y = static_cast<float>(second * scale);
+        points.push_back({center.x + offset_x, center.y + offset_y});
+        points.push_back({center.x - offset_x, center.y - offset_y});
+    };
+    points.push_back(center);
+    append_axis(matrix.m11, matrix.m21);
+    append_axis(matrix.m12, matrix.m22);
+}
+
+[[nodiscard]] com::result append_stroke_segment_bounds_points(
+    const progpu_native_path_segment& segment,
+    double half_width,
+    std::vector<point_2f>& points)
+{
+    if (segment.kind != PROGPU_NATIVE_PATH_SEGMENT_LINE) {
+        return not_implemented;
+    }
+    const double delta_x = static_cast<double>(segment.p1.x) - segment.p0.x;
+    const double delta_y = static_cast<double>(segment.p1.y) - segment.p0.y;
+    const double length = std::hypot(delta_x, delta_y);
+    if (length == 0.0) {
+        return not_implemented;
+    }
+    const double normal_x = -delta_y / length * half_width;
+    const double normal_y = delta_x / length * half_width;
+    points.push_back({
+        static_cast<float>(segment.p0.x + normal_x),
+        static_cast<float>(segment.p0.y + normal_y)});
+    points.push_back({
+        static_cast<float>(segment.p0.x - normal_x),
+        static_cast<float>(segment.p0.y - normal_y)});
+    points.push_back({
+        static_cast<float>(segment.p1.x + normal_x),
+        static_cast<float>(segment.p1.y + normal_y)});
+    points.push_back({
+        static_cast<float>(segment.p1.x - normal_x),
+        static_cast<float>(segment.p1.y - normal_y)});
+    return com::ok;
+}
+
+void append_stroke_cap_bounds_points(
+    point_2f endpoint,
+    point_2f adjacent,
+    double half_width,
+    cap_style cap,
+    const matrix_3x2_f* transform,
+    std::vector<point_2f>& points)
+{
+    if (cap == cap_style::flat) {
+        return;
+    }
+    if (cap == cap_style::round) {
+        append_round_support_points(endpoint, half_width, transform, points);
+        return;
+    }
+    const double direction_x =
+        static_cast<double>(endpoint.x) - adjacent.x;
+    const double direction_y =
+        static_cast<double>(endpoint.y) - adjacent.y;
+    const double length = std::hypot(direction_x, direction_y);
+    if (length == 0.0) {
+        return;
+    }
+    const double unit_x = direction_x / length;
+    const double unit_y = direction_y / length;
+    const point_2f extension{
+        static_cast<float>(endpoint.x + unit_x * half_width),
+        static_cast<float>(endpoint.y + unit_y * half_width)};
+    if (cap == cap_style::triangle) {
+        points.push_back(extension);
+        return;
+    }
+    if (cap != cap_style::square) {
+        return;
+    }
+    points.push_back({
+        static_cast<float>(extension.x - unit_y * half_width),
+        static_cast<float>(extension.y + unit_x * half_width)});
+    points.push_back({
+        static_cast<float>(extension.x + unit_y * half_width),
+        static_cast<float>(extension.y - unit_x * half_width)});
+}
+
+void append_stroke_join_bounds_points(
+    point_2f previous,
+    point_2f vertex,
+    point_2f next,
+    double half_width,
+    line_join join,
+    double miter_limit,
+    const matrix_3x2_f* transform,
+    std::vector<point_2f>& points)
+{
+    if (join == line_join::round) {
+        append_round_support_points(vertex, half_width, transform, points);
+        return;
+    }
+    if (join == line_join::bevel) {
+        return;
+    }
+    const double incoming_x = static_cast<double>(vertex.x) - previous.x;
+    const double incoming_y = static_cast<double>(vertex.y) - previous.y;
+    const double outgoing_x = static_cast<double>(next.x) - vertex.x;
+    const double outgoing_y = static_cast<double>(next.y) - vertex.y;
+    const double incoming_length = std::hypot(incoming_x, incoming_y);
+    const double outgoing_length = std::hypot(outgoing_x, outgoing_y);
+    if (incoming_length == 0.0 || outgoing_length == 0.0) {
+        return;
+    }
+    const double incoming_unit_x = incoming_x / incoming_length;
+    const double incoming_unit_y = incoming_y / incoming_length;
+    const double outgoing_unit_x = outgoing_x / outgoing_length;
+    const double outgoing_unit_y = outgoing_y / outgoing_length;
+    const double denominator = incoming_unit_x * outgoing_unit_y -
+        incoming_unit_y * outgoing_unit_x;
+    if (denominator == 0.0) {
+        return;
+    }
+    for (const double side : {-1.0, 1.0}) {
+        const point_2f incoming_offset{
+            static_cast<float>(
+                vertex.x - incoming_unit_y * half_width * side),
+            static_cast<float>(
+                vertex.y + incoming_unit_x * half_width * side)};
+        const point_2f outgoing_offset{
+            static_cast<float>(
+                vertex.x - outgoing_unit_y * half_width * side),
+            static_cast<float>(
+                vertex.y + outgoing_unit_x * half_width * side)};
+        const double offset_x =
+            static_cast<double>(outgoing_offset.x) - incoming_offset.x;
+        const double offset_y =
+            static_cast<double>(outgoing_offset.y) - incoming_offset.y;
+        const double parameter =
+            (offset_x * outgoing_unit_y - offset_y * outgoing_unit_x) /
+            denominator;
+        const point_2f miter{
+            static_cast<float>(
+                incoming_offset.x + incoming_unit_x * parameter),
+            static_cast<float>(
+                incoming_offset.y + incoming_unit_y * parameter)};
+        if (std::hypot(
+                static_cast<double>(miter.x) - vertex.x,
+                static_cast<double>(miter.y) - vertex.y) <=
+            miter_limit * half_width) {
+            points.push_back(miter);
+        }
+    }
+}
+
+[[nodiscard]] com::result dashed_polygon_widened_bounds(
+    std::span<const point_2f> polygon,
+    float stroke_width,
+    stroke_style& style,
+    const matrix_3x2_f* transform,
+    rectangle_f& bounds)
+{
+    curve_dash::run_buffer dash_runs;
+    const com::result dash_status = create_dashed_polygon_runs(
+        polygon, stroke_width, style, dash_runs);
+    if (com::failed(dash_status)) {
+        return dash_status;
+    }
+    const double half_width = static_cast<double>(stroke_width) * 0.5;
+    std::vector<point_2f> points;
+    points.reserve(dash_runs.segments.size() * 8U);
+    for (const curve_dash::run& run : dash_runs.runs) {
+        const auto segments = dash_runs.segments_for(run);
+        if (segments.empty()) {
+            return com::invalid_argument;
+        }
+        for (const auto& segment : segments) {
+            const com::result segment_status =
+                append_stroke_segment_bounds_points(
+                    segment, half_width, points);
+            if (com::failed(segment_status)) {
+                return segment_status;
+            }
+        }
+        for (std::size_t index = 1U; index < segments.size(); ++index) {
+            append_stroke_join_bounds_points(
+                {segments[index - 1U].p0.x, segments[index - 1U].p0.y},
+                {segments[index - 1U].p1.x, segments[index - 1U].p1.y},
+                {segments[index].p1.x, segments[index].p1.y},
+                half_width,
+                style.GetLineJoin(),
+                style.GetMiterLimit(),
+                transform,
+                points);
+        }
+        if (run.closed) {
+            append_stroke_join_bounds_points(
+                {segments.back().p0.x, segments.back().p0.y},
+                {segments.back().p1.x, segments.back().p1.y},
+                {segments.front().p1.x, segments.front().p1.y},
+                half_width,
+                style.GetLineJoin(),
+                style.GetMiterLimit(),
+                transform,
+                points);
+        } else {
+            append_stroke_cap_bounds_points(
+                {segments.front().p0.x, segments.front().p0.y},
+                {segments.front().p1.x, segments.front().p1.y},
+                half_width,
+                style.GetDashCap(),
+                transform,
+                points);
+            append_stroke_cap_bounds_points(
+                {segments.back().p1.x, segments.back().p1.y},
+                {segments.back().p0.x, segments.back().p0.y},
+                half_width,
+                style.GetDashCap(),
+                transform,
+                points);
+        }
+    }
+    return transformed_point_bounds(points, transform, bounds);
 }
 
 [[nodiscard]] com::result build_default_miter_offset_contour(
@@ -2308,6 +2557,7 @@ public:
             !core::valid_transform(world_transform)) {
             return com::invalid_argument;
         }
+        bool dashed = false;
         if (style != nullptr) {
             factory* raw_style_factory = nullptr;
             style->GetFactory(&raw_style_factory);
@@ -2316,7 +2566,17 @@ public:
             if (style_factory.get() != owner_.get()) {
                 return wrong_factory;
             }
-            return not_implemented;
+            dashed = style->GetDashStyle() != dash_style::solid;
+            if (!dashed) {
+                return not_implemented;
+            }
+            if (style->GetLineJoin() > line_join::miter_or_bevel ||
+                !std::isfinite(style->GetMiterLimit()) ||
+                style->GetMiterLimit() < 1.0F ||
+                style->GetDashCap() > cap_style::triangle ||
+                !std::isfinite(style->GetDashOffset())) {
+                return com::invalid_argument;
+            }
         }
         if (data_->figures.size() != 1U ||
             data_->figures.front().end != figure_end::closed) {
@@ -2348,6 +2608,14 @@ public:
             }
             if (!normalize_simple_polygon(polygon)) {
                 return not_implemented;
+            }
+            if (dashed && stroke_width != 0.0F) {
+                return dashed_polygon_widened_bounds(
+                    polygon,
+                    stroke_width,
+                    *style,
+                    world_transform,
+                    *bounds);
             }
             std::vector<point_2f> widened_points;
             const com::result widen_status =
