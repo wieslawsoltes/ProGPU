@@ -599,6 +599,79 @@ int main()
         return 35;
     }
 
+    compat::path_geometry* raw_query_path = nullptr;
+    if (factory->CreatePathGeometry(&raw_query_path) != com::ok ||
+        raw_query_path == nullptr) {
+        return 208;
+    }
+    com::pointer<compat::path_geometry> query_path;
+    query_path.attach(raw_query_path);
+    compat::geometry_sink* raw_query_sink = nullptr;
+    if (query_path->Open(&raw_query_sink) != com::ok ||
+        raw_query_sink == nullptr) {
+        return 209;
+    }
+    com::pointer<compat::geometry_sink> query_sink;
+    query_sink.attach(raw_query_sink);
+    query_sink->SetFillMode(compat::fill_mode::winding);
+    query_sink->BeginFigure({1.0F, 2.0F}, compat::figure_begin::filled);
+    const compat::point_2f query_points[]{
+        {5.0F, 2.0F}, {5.0F, 8.0F}, {1.0F, 8.0F}};
+    query_sink->AddLines(query_points, 3U);
+    query_sink->EndFigure(compat::figure_end::closed);
+    if (query_sink->Close() != com::ok) {
+        return 210;
+    }
+    query_sink.Reset();
+    contains = 0;
+    area = 0.0F;
+    length = 0.0F;
+    compat::point_2f query_point{};
+    compat::point_2f query_tangent{};
+    if (query_path->FillContainsPoint(
+            {16.0F, 10.0F},
+            &transform,
+            core::default_flattening_tolerance,
+            &contains) != com::ok ||
+        contains != 1 ||
+        query_path->ComputeArea(
+            &transform,
+            core::default_flattening_tolerance,
+            &area) != com::ok ||
+        query_path->ComputeLength(
+            &transform,
+            core::default_flattening_tolerance,
+            &length) != com::ok ||
+        query_path->ComputePointAtLength(
+            4.0F,
+            &transform,
+            core::default_flattening_tolerance,
+            &query_point,
+            &query_tangent) != com::ok ||
+        !approximately_equal(area, 144.0F) ||
+        !approximately_equal(length, 52.0F) ||
+        !approximately_equal(query_point.x, 16.0F) ||
+        !approximately_equal(query_point.y, 2.0F) ||
+        !approximately_equal(query_tangent.x, 1.0F) ||
+        !approximately_equal(query_tangent.y, 0.0F)) {
+        return 211;
+    }
+    auto* raw_query_simplified = new simplified_sink();
+    com::pointer<compat::simplified_geometry_sink> query_simplified;
+    query_simplified.attach(raw_query_simplified);
+    if (query_path->Simplify(
+            compat::geometry_simplification_option::lines,
+            &transform,
+            core::default_flattening_tolerance,
+            query_simplified.get()) != com::ok ||
+        raw_query_simplified->fill_mode != compat::fill_mode::winding ||
+        raw_query_simplified->begin_count != 1U ||
+        raw_query_simplified->line_count != 3U ||
+        raw_query_simplified->bezier_count != 0U ||
+        raw_query_simplified->end_count != 1U) {
+        return 212;
+    }
+
     compat::path_geometry* raw_arc_path = nullptr;
     if (factory->CreatePathGeometry(&raw_arc_path) != com::ok ||
         raw_arc_path == nullptr) {
@@ -838,7 +911,7 @@ int main()
             {16.0F, 10.0F},
             &transform,
             core::default_flattening_tolerance,
-            &contains) != compat::not_implemented ||
+            &contains) != com::ok ||
         contains != 0) {
         return 87;
     }
@@ -2308,8 +2381,8 @@ int main()
         path_base.get(),
         static_cast<compat::brush*>(target_brush.get()),
         static_cast<compat::brush*>(target_brush.get()));
-    if (target->EndDraw(nullptr, nullptr) != compat::not_implemented ||
-        scene_target->GetRequiredSceneSize() != 0U) {
+    if (target->EndDraw(nullptr, nullptr) != com::ok ||
+        scene_target->GetRequiredSceneSize() == 0U) {
         return 170;
     }
 

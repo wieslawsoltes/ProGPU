@@ -2575,7 +2575,10 @@ public:
         }
         const progpu_native_scene_layer native_layer{
             sizeof(progpu_native_scene_layer),
-            has_bounds ? PROGPU_NATIVE_SCENE_LAYER_BOUNDS : 0U,
+            has_bounds
+                ? static_cast<std::uint32_t>(
+                    PROGPU_NATIVE_SCENE_LAYER_BOUNDS)
+                : 0U,
             bounds,
             parameters->opacity,
             PROGPU_NATIVE_BLEND_SRC_OVER,
@@ -3391,6 +3394,7 @@ private:
 
     [[nodiscard]] bitmap_brush_draw_result draw_bitmap_brush_path(
         brush* brush_value,
+        brush* opacity_brush,
         std::span<const progpu_native_path_segment> segments,
         std::uint32_t fill_rule,
         const rectangle_f& local_bounds) noexcept
@@ -3427,12 +3431,50 @@ private:
             PROGPU_NATIVE_CLIP_INTERSECT,
             0U};
         std::uint32_t mask_resource_index = PROGPU_NATIVE_SCENE_NO_INDEX;
-        if (!builder_.add_vector_clip_mask(
-                std::span<const progpu_native_scene_clip_path>(&path, 1U),
-                segments,
-                1.0F,
-                mask_resource_index) ||
-            !draw_bitmap_brush_image(
+        if (opacity_brush == nullptr) {
+            if (!builder_.add_vector_clip_mask(
+                    std::span<const progpu_native_scene_clip_path>(
+                        &path, 1U),
+                    segments,
+                    1.0F,
+                    mask_resource_index)) {
+                latch(builder_failure());
+                return bitmap_brush_draw_result::failed;
+            }
+        } else {
+            progpu_native_scene_layer_brush_mask brush_mask{};
+            std::vector<progpu_native_scene_gradient_stop> stops;
+            bool empty = false;
+            if (!translate_opacity_brush_layer_mask(
+                    opacity_brush,
+                    local_bounds,
+                    brush_mask,
+                    stops,
+                    empty)) {
+                return bitmap_brush_draw_result::failed;
+            }
+            if (empty) {
+                return bitmap_brush_draw_result::drawn;
+            }
+            if (!builder_.add_composite_mask(
+                    std::span<const progpu_native_scene_layer_brush_mask>(
+                        &brush_mask, 1U),
+                    {},
+                    {},
+                    {},
+                    {},
+                    std::span<const progpu_native_scene_clip_path>(
+                        &path, 1U),
+                    segments,
+                    {},
+                    stops,
+                    1.0F,
+                    mask_resource_index)) {
+                latch(builder_failure());
+                return bitmap_brush_draw_result::failed;
+            }
+        }
+        if (!draw_bitmap_brush_image(
                 native.get(), mask_resource_index, local_bounds)) {
             if (!com::failed(failure_)) {
                 latch(builder_failure());
@@ -3756,10 +3798,6 @@ private:
             latch(com::invalid_argument);
             return;
         }
-        if (opacity_brush != nullptr) {
-            latch(not_implemented);
-            return;
-        }
         factory* raw_factory = nullptr;
         geometry_value->GetFactory(&raw_factory);
         com::pointer<factory> geometry_factory;
@@ -3821,6 +3859,7 @@ private:
         const bitmap_brush_draw_result bitmap_result =
             draw_bitmap_brush_path(
                 brush_value,
+                opacity_brush,
                 segments,
                 sink->native_fill_rule(),
                 local_bounds);
@@ -3831,6 +3870,29 @@ private:
         std::uint32_t brush_index = PROGPU_NATIVE_SCENE_NO_INDEX;
         if (!add_brush(brush_value, brush_index)) {
             return;
+        }
+        std::uint32_t state_index = PROGPU_NATIVE_SCENE_NO_INDEX;
+        if (opacity_brush != nullptr) {
+            std::uint32_t mask_resource_index =
+                PROGPU_NATIVE_SCENE_NO_INDEX;
+            bool empty = false;
+            if (!add_opacity_brush_layer_mask(
+                    opacity_brush,
+                    local_bounds,
+                    mask_resource_index,
+                    empty)) {
+                return;
+            }
+            if (empty) {
+                return;
+            }
+            auto state = semantic_scene_builder::identity_state();
+            state.flags = PROGPU_NATIVE_SCENE_STATE_MASK;
+            state.mask_resource_index = mask_resource_index;
+            if (!builder_.add_state(state, state_index)) {
+                latch(builder_failure());
+                return;
+            }
         }
         const progpu_native_scene_path_fill path{
             0U,
@@ -3854,7 +3916,8 @@ private:
                 std::span<const progpu_native_scene_path_fill>(&path, 1U),
                 segments,
                 std::span<const std::uint32_t>(&brush_index, 1U),
-                bounds)) {
+                bounds,
+                state_index)) {
             latch(builder_failure());
             return;
         }
