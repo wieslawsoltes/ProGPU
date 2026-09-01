@@ -6672,6 +6672,21 @@ public class NativeRendererInteropTests
             windowsBuild,
             StringComparison.Ordinal);
         Assert.Contains(
+            "$PreviousWin2DComputeExecution = " +
+            "$env:PROGPU_COMPUTE_EXECUTION",
+            windowsBuild,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "Selected intrinsic-SIMD coverage for the full Win2D Canvas " +
+            "oracle on Microsoft Basic Render Driver.",
+            windowsBuild,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "$env:PROGPU_COMPUTE_EXECUTION = " +
+            "$PreviousWin2DComputeExecution",
+            windowsBuild,
+            StringComparison.Ordinal);
+        Assert.Contains(
             "Qualified the constrained D3D12 mixed-picture profile with " +
             "native stress plus bounded differential parity.",
             windowsBuild,

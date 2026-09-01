@@ -1587,6 +1587,16 @@ managed glyph path before device removal. The bounded lane still submits both
 renderers and compares pixels; it is not a CPU-rendered or validation-only
 replacement.
 
+The full portable Win2D Canvas frame remains a D3D12/Metal/Vulkan pixel gate.
+On Microsoft Basic Render Driver only, CI forces the qualified intrinsic-SIMD
+glyph-coverage policy for that unchanged 16+2-draw frame: its software GPU
+coverage route intermittently loses the CPU-only device after roughly 79
+seconds at final readback. Geometry, textures, gradients, command lists,
+layers, native rendering, submission, and readback still execute through the
+D3D12 C++ backend, and the resulting full frame remains in the cross-backend
+differential. Hardware/Parallels and Metal/Vulkan retain automatic fastest
+selection. The environment setting is scoped to this process and restored.
+
 Microsoft Basic Render Driver also defers only the two forced signed-winding
 compute execution profiles after its inline four-rectangle rerasterization
 deterministically spent roughly 100 seconds and lost the device during final

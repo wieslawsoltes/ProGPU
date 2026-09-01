@@ -5310,6 +5310,16 @@ hosted software adapter otherwise loses its D3D12 device after roughly 96
 seconds in the dense managed glyph path; the bounded check still performs GPU
 submission and pixel comparison and is not a CPU substitute.
 
+The portable Win2D oracle separately preserves its complete 16+2-draw frame
+on every backend. Only Microsoft Basic Render Driver forces the qualified
+intrinsic-SIMD glyph-coverage policy because that CPU-only adapter's software
+GPU coverage route intermittently loses the device at final readback after
+roughly 79 seconds. All geometry, image, gradient, command-list, layer, D3D12
+rendering, submission, and readback work remains live, and the resulting full
+frame still participates in D3D12/Metal/Vulkan comparison. The setting is
+process-scoped and restored; hardware/Parallels automatic selection is not
+changed.
+
 The same hosted CPU-only adapter explicitly defers the two forced
 signed-winding compute profiles. Its inline four-rectangle rerasterization
 reached the final readback only after roughly 100 seconds and then lost the

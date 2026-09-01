@@ -2801,6 +2801,18 @@ closed rather than returning a partial COM object.
    interiors and clips exact while allowing only bounded shader rounding on
    antialiased edges.
 
+Microsoft Basic Render Driver keeps that complete 16+2-draw Canvas frame and
+the same cross-backend differential, but the Windows CI process explicitly
+selects intrinsic-SIMD glyph coverage for it. The CPU-only adapter's software
+GPU coverage path intermittently reaches final readback only after roughly 79
+seconds and then loses the device. Geometry, bitmap copies/leases, gradients,
+command lists, clips/layers, D3D12 rendering, submission, and readback remain
+live; only glyph coverage takes the already differential-tested SIMD route.
+The scoped execution setting is restored afterward. Forced-SIMD Metal
+reproduces the exact qualified
+`D72F667FCB6AC14B2C28A1C45001734C3B62B85B1816069521C9019985D1B39B`
+hash, while hardware/Parallels and Metal/Vulkan automatic gates are unchanged.
+
 1. Build and capture the pinned unmodified SimpleSample plus selected
    ExampleGallery scenes with real Win2D on Windows. Shapes, geometry
    operations, layers, effects, text layout, and Direct3D interop are separate
