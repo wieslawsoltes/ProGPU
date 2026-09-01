@@ -3816,25 +3816,117 @@ public sealed class MetafileParserTests
     }
 
     [Theory]
-    [InlineData(false)]
-    [InlineData(true)]
-    public void PartialEncodedScanBandsRollBackPlayback(bool wmf)
+    [InlineData(false, 4)]
+    [InlineData(false, 5)]
+    [InlineData(true, 4)]
+    [InlineData(true, 5)]
+    public void PartialEncodedScanBandsDecodeTheCompleteFileAndDrawOnlySelectedRows(
+        bool wmf,
+        int compression)
     {
         TestDib dib = CreateEncodedDib(
-            2,
-            2,
-            5,
-            [Color.Red, Color.Lime, Color.Blue, Color.White]);
+            4,
+            4,
+            checked((uint)compression),
+            Enumerable.Range(0, 16)
+                .Select(static index => index < 8
+                    ? Color.FromArgb(255, 230, 20, 20)
+                    : Color.FromArgb(255, 20, 20, 230))
+                .ToArray());
+        byte[] fixture = wmf
+            ? CreatePlaybackWmf(
+            [
+                (0x0D33, WmfSetDibToDevice(
+                    dib,
+                    new Rectangle(0, 0, 4, 4),
+                    new Point(4, 4),
+                    0,
+                    2)),
+                (0x0D33, WmfSetDibToDevice(
+                    dib,
+                    new Rectangle(0, 0, 4, 4),
+                    new Point(12, 4),
+                    2,
+                    2)),
+                (0, [])
+            ])
+            : CreateTextPlaybackEmf(
+            [
+                (EmfPlusRecordType.EmfSetDIBitsToDevice,
+                    EmfSetDibitsToDevice(
+                        dib,
+                        new Rectangle(0, 0, 4, 4),
+                        new Point(4, 4),
+                        0,
+                        2)),
+                (EmfPlusRecordType.EmfSetDIBitsToDevice,
+                    EmfSetDibitsToDevice(
+                        dib,
+                        new Rectangle(0, 0, 4, 4),
+                        new Point(12, 4),
+                        2,
+                        2))
+            ]);
+        using var metafile = new Metafile(new MemoryStream(fixture, writable: false));
+        using var target = new Bitmap(24, 12);
+        using (Graphics graphics = Graphics.FromImage(target))
+        {
+            graphics.Clear(Color.Transparent);
+            graphics.DrawImage(metafile, new Rectangle(0, 0, 64, 64));
+        }
+
+        Assert.Equal(0, target.GetPixel(5, 4).A);
+        Assert.Equal(0, target.GetPixel(5, 5).A);
+        AssertEncodedBandColor(target.GetPixel(5, 6), blue: true, compression);
+        AssertEncodedBandColor(target.GetPixel(5, 7), blue: true, compression);
+
+        AssertEncodedBandColor(target.GetPixel(13, 4), blue: false, compression);
+        AssertEncodedBandColor(target.GetPixel(13, 5), blue: false, compression);
+        Assert.Equal(0, target.GetPixel(13, 6).A);
+        Assert.Equal(0, target.GetPixel(13, 7).A);
+
+        static void AssertEncodedBandColor(Color actual, bool blue, int compression)
+        {
+            if (compression == 5)
+            {
+                Assert.Equal(
+                    (blue
+                        ? Color.FromArgb(255, 20, 20, 230)
+                        : Color.FromArgb(255, 230, 20, 20)).ToArgb(),
+                    actual.ToArgb());
+                return;
+            }
+
+            Assert.Equal(byte.MaxValue, actual.A);
+            Assert.InRange(blue ? actual.B : actual.R, 170, byte.MaxValue);
+            Assert.InRange(blue ? actual.R : actual.B, 0, 90);
+        }
+    }
+
+    [Theory]
+    [InlineData(false, 4)]
+    [InlineData(false, 5)]
+    [InlineData(true, 4)]
+    [InlineData(true, 5)]
+    public void OutOfRangeEncodedScanBandsRollBackPlayback(
+        bool wmf,
+        int compression)
+    {
+        TestDib dib = CreateEncodedDib(
+            4,
+            4,
+            checked((uint)compression),
+            Enumerable.Repeat(Color.Red, 16).ToArray());
         byte[] fixture = wmf
             ? CreatePlaybackWmf(
             [
                 (0x041F, WmfSetPixel(Color.Red, new Point(1, 1))),
                 (0x0D33, WmfSetDibToDevice(
                     dib,
-                    new Rectangle(0, 0, 2, 2),
-                    new Point(8, 8),
-                    0,
-                    1)),
+                    new Rectangle(0, 0, 4, 4),
+                    new Point(4, 4),
+                    3,
+                    2)),
                 (0, [])
             ])
             : CreateTextPlaybackEmf(
@@ -3843,10 +3935,10 @@ public sealed class MetafileParserTests
                 (EmfPlusRecordType.EmfSetDIBitsToDevice,
                     EmfSetDibitsToDevice(
                         dib,
-                        new Rectangle(0, 0, 2, 2),
-                        new Point(8, 8),
-                        0,
-                        1))
+                        new Rectangle(0, 0, 4, 4),
+                        new Point(4, 4),
+                        3,
+                        2))
             ]);
 
         AssertDibPlaybackRollsBack(fixture);
@@ -3869,6 +3961,52 @@ public sealed class MetafileParserTests
                     dib,
                     new Rectangle(0, 0, 2, 2),
                     new Rectangle((index % 8) * 8, (index / 8) * 8, 8, 8))));
+        }
+        records.Add((0, []));
+        using var metafile = new Metafile(new MemoryStream(
+            CreatePlaybackWmf(records),
+            writable: false));
+        var context = new DrawingContext();
+        using Graphics graphics = Graphics.FromProGpuDrawingContext(context);
+        for (int iteration = 0; iteration < 4; iteration++)
+        {
+            graphics.DrawImage(metafile, new Rectangle(0, 0, 64, 64));
+            context.Clear();
+        }
+
+        long before = GC.GetAllocatedBytesForCurrentThread();
+        for (int iteration = 0; iteration < 8; iteration++)
+        {
+            graphics.DrawImage(metafile, new Rectangle(0, 0, 64, 64));
+            context.Clear();
+        }
+        long allocatedPerPlayback =
+            (GC.GetAllocatedBytesForCurrentThread() - before) / 8;
+
+        Assert.InRange(allocatedPerPlayback, 64 * 1024, 32 * 1024 * 1024);
+    }
+
+    [Fact]
+    public void PartialEncodedScanBandPlaybackHasBoundedWarmedAllocation()
+    {
+        TestDib dib = CreateEncodedDib(
+            4,
+            4,
+            5,
+            Enumerable.Range(0, 16)
+                .Select(static index => index < 8 ? Color.Red : Color.Blue)
+                .ToArray());
+        var records = new List<(ushort Function, byte[] Payload)>();
+        for (int index = 0; index < 64; index++)
+        {
+            records.Add((
+                0x0D33,
+                WmfSetDibToDevice(
+                    dib,
+                    new Rectangle(0, 0, 4, 4),
+                    new Point((index % 8) * 8, (index / 8) * 8),
+                    checked((ushort)((index & 1) * 2)),
+                    2)));
         }
         records.Add((0, []));
         using var metafile = new Metafile(new MemoryStream(

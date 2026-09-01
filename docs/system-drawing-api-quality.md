@@ -384,12 +384,13 @@ same DIB records to complete `BI_JPEG` and `BI_PNG` file buffers. The metafile
 layer requires bit count zero, positive dimensions, no color table, exact
 nonzero `biSizeImage`, a compression-matching signature, and codec dimensions
 equal to the header before pixel allocation. WMF word padding is excluded from
-the encoded buffer, decode failures roll back the complete temporary command
-stream, and partial encoded `SetDIBitsToDevice` bands remain explicit because a
-file stream is not independently decodable scan rows. Eight focused cases cover
-PNG pixels, crop/mirroring, JPEG color bounds, odd-sized WMF buffers, complete
-EMF/WMF set-DIB images, malformed transactional rollback in both formats,
-partial-band rollback, and warmed allocation. The 2026-08-31 ARM64/.NET 10.0.11
+the encoded buffer and decode failures roll back the complete temporary command
+stream. For `SetDIBitsToDevice`, the complete validated JPEG/PNG file is decoded
+once per record and `StartScan`/`cScans` selects only the requested decoded rows.
+Focused cases cover PNG pixels, crop/mirroring, JPEG color bounds, odd-sized WMF
+buffers, complete and partial EMF/WMF set-DIB images for both encoded formats,
+malformed buffer/codec and out-of-range scan rollback in both formats, and
+warmed allocation. The 2026-08-31 ARM64/.NET 10.0.11
 ShortRun measured a 19.527 ms median (18.959 ms mean, 3.838 ms standard
 deviation) and 743.78 KB allocated for 256 packed two-by-two PNG images. Three
 iterations and timing variance make this allocation and command-ownership
@@ -397,6 +398,14 @@ evidence rather than a throughput claim. The official contracts are the
 [`BITMAPINFOHEADER`](https://learn.microsoft.com/en-us/previous-versions/dd183376%28v%3Dvs.85%29),
 [`SetDIBitsToDevice`](https://learn.microsoft.com/en-us/windows/win32/api/wingdi/nf-wingdi-setdibitstodevice), and
 [`JPEG and PNG bitmap extensions`](https://learn.microsoft.com/en-us/windows/win32/gdi/jpeg-and-png-extensions-for-specific-bitmap-functions-and-structures).
+
+`MetafileBenchmarks.Playback256EncodedDibScanBandsToRetainedCommands` guards
+that scan-band continuation with 256 packed `BI_PNG` `META_SETDIBTODEV`
+records. The 2026-09-01 ARM64/.NET 10.0.11 ShortRun measured a 21.815 ms median
+(28.512 ms mean, 15.321 ms standard deviation) and 743.85 KB allocated. Three
+iterations, denied priority elevation, and high variance make this a component
+checkpoint; exact JPEG/PNG pixels, transactional failure, and the warmed
+allocation ceiling remain the quality gates.
 
 `MetafileBenchmarks.Playback256LogicalPaletteDibImagesToRetainedCommands`
 extends the shared indexed-image path to `DIB_PAL_COLORS` and
@@ -1039,7 +1048,7 @@ microsecond mean, 172.568 microsecond standard deviation) and 305,349 bytes
 allocated. The complete 102-benchmark Release run finished successfully in
 14 minutes 34 seconds; three iterations, denied priority elevation, and high
 variance keep the exact-pixel, retained-resource, and allocation gates
-authoritative. The complete System.Drawing suite passes 586/586 in both Debug
+authoritative. The complete System.Drawing suite passes 593/593 in both Debug
 and Release, the Linux-equivalent ProGPU Release lane passes 3,759/3,759, the
 headless lane passes 240/240, and ApiCompat remains at zero missing types and
 zero missing members.

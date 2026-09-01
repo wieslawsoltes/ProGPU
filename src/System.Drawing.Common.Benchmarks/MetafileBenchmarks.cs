@@ -54,6 +54,7 @@ public class MetafileBenchmarks
     private Metafile _bitFieldDibPlaybackMetafile = null!;
     private Metafile _rleDibPlaybackMetafile = null!;
     private Metafile _encodedDibPlaybackMetafile = null!;
+    private Metafile _encodedDibScanBandPlaybackMetafile = null!;
     private Metafile _logicalPaletteDibPlaybackMetafile = null!;
     private Metafile _cmykDibPlaybackMetafile = null!;
     private Metafile _notSourceCopyDibPlaybackMetafile = null!;
@@ -174,6 +175,8 @@ public class MetafileBenchmarks
             new MemoryStream(CreatePlaybackWmfRleImages(256), writable: false));
         _encodedDibPlaybackMetafile = new Metafile(
             new MemoryStream(CreatePlaybackWmfEncodedImages(256), writable: false));
+        _encodedDibScanBandPlaybackMetafile = new Metafile(
+            new MemoryStream(CreatePlaybackWmfEncodedImages(256, partialScanBands: true), writable: false));
         _logicalPaletteDibPlaybackMetafile = new Metafile(
             new MemoryStream(CreatePlaybackWmfLogicalPaletteImages(256), writable: false));
         _cmykDibPlaybackMetafile = new Metafile(
@@ -249,6 +252,7 @@ public class MetafileBenchmarks
         _bitFieldDibPlaybackMetafile.Dispose();
         _rleDibPlaybackMetafile.Dispose();
         _encodedDibPlaybackMetafile.Dispose();
+        _encodedDibScanBandPlaybackMetafile.Dispose();
         _logicalPaletteDibPlaybackMetafile.Dispose();
         _cmykDibPlaybackMetafile.Dispose();
         _notSourceCopyDibPlaybackMetafile.Dispose();
@@ -403,6 +407,18 @@ public class MetafileBenchmarks
         _playbackContext.Clear();
         _playbackGraphics.DrawImage(
             _encodedDibPlaybackMetafile,
+            new Rectangle(0, 0, 640, 480));
+        int commandCount = _playbackContext.Commands.Count;
+        _playbackContext.Clear();
+        return commandCount;
+    }
+
+    [Benchmark]
+    public int Playback256EncodedDibScanBandsToRetainedCommands()
+    {
+        _playbackContext.Clear();
+        _playbackGraphics.DrawImage(
+            _encodedDibScanBandPlaybackMetafile,
             new Rectangle(0, 0, 640, 480));
         int commandCount = _playbackContext.Commands.Count;
         _playbackContext.Clear();
@@ -1899,7 +1915,9 @@ public class MetafileBenchmarks
         return bytes;
     }
 
-    private static byte[] CreatePlaybackWmfEncodedImages(int recordCount)
+    private static byte[] CreatePlaybackWmfEncodedImages(
+        int recordCount,
+        bool partialScanBands = false)
     {
         byte[] encodedImage;
         using (var source = new Bitmap(2, 2))
@@ -1913,7 +1931,8 @@ public class MetafileBenchmarks
             encodedImage = stream.ToArray();
         }
 
-        int recordBytes = checked((6 + 22 + 40 + encodedImage.Length + 1) & ~1);
+        int fixedPayloadSize = partialScanBands ? 18 : 22;
+        int recordBytes = checked((6 + fixedPayloadSize + 40 + encodedImage.Length + 1) & ~1);
         int recordWords = recordBytes / 2;
         int declaredWords = checked(9 + recordCount * recordWords + 3);
         byte[] bytes = new byte[checked(22 + declaredWords * 2)];
@@ -1941,16 +1960,28 @@ public class MetafileBenchmarks
             short x = checked((short)((index % 16) * 40));
             short y = checked((short)((index / 16) * 30));
             WriteUInt32(bytes, cursor, checked((uint)recordWords));
-            WriteUInt16(bytes, cursor + 4, 0x0F43);
-            WriteUInt32(bytes, cursor + 6, 0x00CC_0020);
-            WriteInt16(bytes, cursor + 12, 2);
-            WriteInt16(bytes, cursor + 14, 2);
-            WriteInt16(bytes, cursor + 20, 22);
-            WriteInt16(bytes, cursor + 22, 32);
-            WriteInt16(bytes, cursor + 24, y);
-            WriteInt16(bytes, cursor + 26, x);
+            WriteUInt16(bytes, cursor + 4, partialScanBands ? (ushort)0x0D33 : (ushort)0x0F43);
+            if (partialScanBands)
+            {
+                WriteUInt16(bytes, cursor + 8, 1);
+                WriteUInt16(bytes, cursor + 10, checked((ushort)(index & 1)));
+                WriteInt16(bytes, cursor + 16, 2);
+                WriteInt16(bytes, cursor + 18, 2);
+                WriteInt16(bytes, cursor + 20, y);
+                WriteInt16(bytes, cursor + 22, x);
+            }
+            else
+            {
+                WriteUInt32(bytes, cursor + 6, 0x00CC_0020);
+                WriteInt16(bytes, cursor + 12, 2);
+                WriteInt16(bytes, cursor + 14, 2);
+                WriteInt16(bytes, cursor + 20, 22);
+                WriteInt16(bytes, cursor + 22, 32);
+                WriteInt16(bytes, cursor + 24, y);
+                WriteInt16(bytes, cursor + 26, x);
+            }
 
-            int info = cursor + 28;
+            int info = cursor + 6 + fixedPayloadSize;
             WriteUInt32(bytes, info, 40);
             WriteInt32(bytes, info + 4, 2);
             WriteInt32(bytes, info + 8, 2);

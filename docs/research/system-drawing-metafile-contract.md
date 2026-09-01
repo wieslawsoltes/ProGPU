@@ -136,8 +136,9 @@ zero and supports supplied scan bands without assuming DWORD-aligned compressed
 rows. `BI_JPEG` and `BI_PNG` accept bit-count-zero positive-height headers with
 no color table, exact declared buffer sizes and matching file signatures. Codec
 dimensions are checked against the DIB header before pixel allocation; decode
-failure and partial encoded scan bands roll back transactionally. Uncompressed
-and bit-field paths handle DWORD row
+failure rolls back transactionally. For `SetDIBitsToDevice`, the complete
+JPEG/PNG file is decoded and `StartScan`/`cScans` selects only the requested
+rows from that validated image. Uncompressed and bit-field paths handle DWORD row
 stride, bottom-up and top-down storage, source cropping, sign-directed
 mirroring, partial scan bands, destination transforms, and saved nearest or
 halftone sampling state. BI_RGB's unused 32-bit high byte is made opaque rather
@@ -822,12 +823,13 @@ official compression/header combination. The decoder requires bit count zero,
 positive dimensions, no color table, exact nonzero `biSizeImage`, a matching
 JPEG or PNG signature, and codec dimensions equal to the declared DIB before
 allocating the pixel bitmap. WMF's optional final word-alignment byte is kept
-outside the declared encoded buffer. Complete `SetDIBitsToDevice` images reuse
-the typed source/destination lowering; partial encoded scan bands fail instead
-of pretending a file stream is independently decodable rows. Eight focused
-cases cover exact PNG pixels, crop/mirroring, lossy JPEG color bounds, odd-sized
-WMF buffers, complete EMF/WMF set-DIB records, malformed header/buffer/codec
-rollback in both formats, partial-band rollback, and warmed allocation.
+outside the declared encoded buffer. `SetDIBitsToDevice` decodes that complete
+file once per record, then applies `StartScan`/`cScans` to the decoded bitmap so
+only the selected destination rows publish. Focused cases cover exact PNG
+pixels, crop/mirroring, lossy JPEG color bounds, odd-sized WMF buffers, complete
+and partial EMF/WMF set-DIB records for both encoded formats, malformed
+header/buffer/codec and out-of-range scan rollback in both formats, and warmed
+allocation.
 
 The logical-palette follow-up implements the complete core palette record
 families used by indexed DIB playback: EMF create/select/set/resize/realize and
@@ -940,6 +942,14 @@ ARM64/.NET 10.0.11 ShortRun measured a 19.527 millisecond median (18.959
 millisecond mean, 3.838 millisecond standard deviation) with 743.78 KB
 allocated. Three iterations and timing variance make allocation and command
 ownership authoritative rather than throughput.
+
+`Playback256EncodedDibScanBandsToRetainedCommands` measures 256 packed
+two-by-two `BI_PNG` `META_SETDIBTODEV` records that alternate the selected scan
+row. The 2026-09-01 ARM64/.NET 10.0.11 ShortRun measured a 21.815 millisecond
+median (28.512 millisecond mean, 15.321 millisecond standard deviation) with
+743.85 KB allocated. Three measured iterations, denied priority elevation, and
+high timing variance make the exact-pixel, transactional, and bounded warmed
+allocation tests authoritative rather than this local throughput sample.
 
 `Playback256LogicalPaletteDibImagesToRetainedCommands` measures 256 packed
 two-by-two `DIB_PAL_INDICES` images after one typed WMF palette creation and
@@ -1214,7 +1224,7 @@ allocated. All 102 System.Drawing benchmarks completed on the same Release
 run. Three measured iterations, denied priority elevation, and high variance
 make the exact device/metafile pixels, resource-sharing assertions, command-size
 gate, and allocation bounds authoritative rather than this local timing sample.
-The complete System.Drawing suite passes 586/586 in Debug and Release;
+The complete System.Drawing suite passes 593/593 in Debug and Release;
 ApiCompat remains at zero missing types, zero missing members, and 13 reviewed
 shape diagnostics.
 

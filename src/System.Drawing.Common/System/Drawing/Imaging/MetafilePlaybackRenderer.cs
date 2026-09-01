@@ -1273,12 +1273,13 @@ internal static class MetafilePlaybackRenderer
             throw Invalid(record);
         }
 
-        using Bitmap band = DecodeDibRows(
+        bool encodedFile = dib.Compression is BiJpeg or BiPng;
+        using Bitmap decoded = DecodeDibRows(
             record,
             dib,
             bitmapInfo,
             bitmapBits,
-            checked((int)scanCount));
+            encodedFile ? dib.Height : checked((int)scanCount));
         int bandTop = dib.TopDown
             ? checked((int)startScan)
             : checked(dib.Height - (int)(startScan + scanCount));
@@ -1299,7 +1300,7 @@ internal static class MetafilePlaybackRenderer
 
         Rectangle bandSource = new(
             availableSource.X,
-            availableSource.Y - bandTop,
+            encodedFile ? availableSource.Y : availableSource.Y - bandTop,
             availableSource.Width,
             availableSource.Height);
         Rectangle destination = new(
@@ -1315,7 +1316,7 @@ internal static class MetafilePlaybackRenderer
             availableSource.Height);
         state.ApplyTransform(record);
         state.Graphics.InterpolationMode = InterpolationMode.NearestNeighbor;
-        state.Graphics.DrawImage(band, destination, bandSource, GraphicsUnit.Pixel);
+        state.Graphics.DrawImage(decoded, destination, bandSource, GraphicsUnit.Pixel);
     }
 
     private static Rectangle GetSetDibSourceRectangle(
