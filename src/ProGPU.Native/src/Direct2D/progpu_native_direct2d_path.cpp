@@ -1263,6 +1263,28 @@ struct polygon_stroke_edges final {
             return com::ok;
         }
     }
+    if (dash_runs.terminal_visible_point &&
+        style.GetDashCap() != cap_style::flat) {
+        const point_2f endpoint = points.back();
+        const point_2f adjacent = points[points.size() - 2U];
+        const point_2f opposite_adjacent{
+            endpoint.x + (endpoint.x - adjacent.x),
+            endpoint.y + (endpoint.y - adjacent.y)};
+        if (stroke_cap_contains(
+                endpoint,
+                opposite_adjacent,
+                point,
+                half_width,
+                style.GetDashCap()) ||
+            stroke_cap_contains(
+                endpoint,
+                adjacent,
+                point,
+                half_width,
+                style.GetEndCap())) {
+            contains = 1;
+        }
+    }
     return com::ok;
 }
 
@@ -1694,8 +1716,18 @@ void append_stroke_join_bounds_points(
                 half_width,
                 run_end_cap,
                 transform,
-                points);
+            points);
         }
+    }
+    if (!closed && dash_runs.terminal_visible_point &&
+        style.GetEndCap() != cap_style::flat) {
+        append_stroke_cap_bounds_points(
+            polygon.back(),
+            polygon[polygon.size() - 2U],
+            half_width,
+            style.GetEndCap(),
+            transform,
+            points);
     }
     return transformed_point_bounds(points, transform, bounds);
 }
@@ -2195,6 +2227,73 @@ void append_outline_line(
     return com::ok;
 }
 
+[[nodiscard]] com::result build_terminal_dash_outline(
+    point_2f endpoint,
+    point_2f adjacent,
+    double half_width,
+    cap_style cap,
+    bool at_start,
+    widened_outline& outline)
+{
+    const double delta_x = static_cast<double>(endpoint.x) - adjacent.x;
+    const double delta_y = static_cast<double>(endpoint.y) - adjacent.y;
+    const double length = std::hypot(delta_x, delta_y);
+    if (length == 0.0 || cap == cap_style::flat) {
+        return not_implemented;
+    }
+    const double unit_x = delta_x / length;
+    const double unit_y = delta_y / length;
+    const double normal_x = -unit_y * half_width;
+    const double normal_y = unit_x * half_width;
+    const double tangent_x = unit_x * half_width;
+    const double tangent_y = unit_y * half_width;
+    const point_2f positive_normal{
+        static_cast<float>(endpoint.x + normal_x),
+        static_cast<float>(endpoint.y + normal_y)};
+    const point_2f negative_normal{
+        static_cast<float>(endpoint.x - normal_x),
+        static_cast<float>(endpoint.y - normal_y)};
+    const double extension_sign = at_start ? -1.0 : 1.0;
+    if (cap == cap_style::round) {
+        outline.start = positive_normal;
+        const point_2f opposite_adjacent{
+            endpoint.x + (endpoint.x - adjacent.x),
+            endpoint.y + (endpoint.y - adjacent.y)};
+        return append_round_cap_segments(
+            outline,
+            endpoint,
+            at_start ? opposite_adjacent : adjacent,
+            negative_normal,
+            half_width);
+    }
+    if (cap == cap_style::triangle) {
+        outline.start = positive_normal;
+        append_outline_line(outline, negative_normal);
+        append_outline_line(outline, {
+            static_cast<float>(
+                endpoint.x + tangent_x * extension_sign),
+            static_cast<float>(
+                endpoint.y + tangent_y * extension_sign)});
+        return com::ok;
+    }
+    if (cap != cap_style::square) {
+        return com::invalid_argument;
+    }
+    outline.start = positive_normal;
+    append_outline_line(outline, negative_normal);
+    append_outline_line(outline, {
+        static_cast<float>(
+            negative_normal.x + tangent_x * extension_sign),
+        static_cast<float>(
+            negative_normal.y + tangent_y * extension_sign)});
+    append_outline_line(outline, {
+        static_cast<float>(
+            positive_normal.x + tangent_x * extension_sign),
+        static_cast<float>(
+            positive_normal.y + tangent_y * extension_sign)});
+    return com::ok;
+}
+
 [[nodiscard]] com::result transform_widened_outline(
     widened_outline& outline,
     const matrix_3x2_f* transform)
@@ -2230,20 +2329,21 @@ void append_outline_line(
 }
 
 [[nodiscard]] com::result emit_joined_dashed_widen(
-    std::span<const point_2f> polygon,
+    std::span<const point_2f> points,
+    bool closed,
     float stroke_width,
     stroke_style& style,
     const matrix_3x2_f* transform,
     simplified_geometry_sink& sink)
 {
     curve_dash::run_buffer dash_runs;
-    const com::result dash_status = create_dashed_polygon_runs(
-        polygon, stroke_width, style, dash_runs);
+    const com::result dash_status = create_dashed_polyline_runs(
+        points, closed, stroke_width, style, dash_runs);
     if (com::failed(dash_status)) {
         return dash_status;
     }
     std::vector<widened_outline> outlines;
-    outlines.reserve(dash_runs.runs.size());
+    outlines.reserve(dash_runs.runs.size() + 2U);
     const double half_width = static_cast<double>(stroke_width) * 0.5;
     for (const curve_dash::run& run : dash_runs.runs) {
         if (run.closed) {
@@ -2272,6 +2372,40 @@ void append_outline_line(
             return result;
         }
     }
+    const auto append_terminal_cap = [&](cap_style cap, bool at_start) {
+        outlines.emplace_back();
+        com::result result = build_terminal_dash_outline(
+            points.back(),
+            points[points.size() - 2U],
+            half_width,
+            cap,
+            at_start,
+            outlines.back());
+        if (com::failed(result)) {
+            return result;
+        }
+        result = transform_widened_outline(outlines.back(), transform);
+        if (com::failed(result)) {
+            return result;
+        }
+        return com::ok;
+    };
+    if (dash_runs.terminal_visible_point) {
+        if (style.GetDashCap() != cap_style::flat) {
+            const com::result result = append_terminal_cap(
+                style.GetDashCap(), true);
+            if (com::failed(result)) {
+                return result;
+            }
+        }
+        if (style.GetEndCap() != cap_style::flat) {
+            const com::result result = append_terminal_cap(
+                style.GetEndCap(), false);
+            if (com::failed(result)) {
+                return result;
+            }
+        }
+    }
     sink.SetFillMode(fill_mode::alternate);
     sink.SetSegmentFlags(path_segment::force_unstroked);
     for (const auto& outline : outlines) {
@@ -2289,6 +2423,59 @@ void append_outline_line(
         }
         sink.EndFigure(figure_end::closed);
     }
+    return com::ok;
+}
+
+[[nodiscard]] com::result emit_joined_open_solid_widen(
+    std::span<const point_2f> points,
+    float stroke_width,
+    line_join join,
+    double miter_limit,
+    cap_style start_cap,
+    cap_style end_cap,
+    const matrix_3x2_f* transform,
+    simplified_geometry_sink& sink)
+{
+    std::vector<progpu_native_path_segment> segments;
+    segments.reserve(points.size() - 1U);
+    for (std::size_t index = 0U; index + 1U < points.size(); ++index) {
+        progpu_native_path_segment segment{};
+        segment.kind = PROGPU_NATIVE_PATH_SEGMENT_LINE;
+        segment.p0 = {points[index].x, points[index].y};
+        segment.p1 = {points[index + 1U].x, points[index + 1U].y};
+        segments.push_back(segment);
+    }
+    widened_outline outline;
+    com::result result = build_joined_dash_outline(
+        segments,
+        static_cast<double>(stroke_width) * 0.5,
+        join,
+        miter_limit,
+        start_cap,
+        end_cap,
+        outline);
+    if (com::failed(result)) {
+        return result;
+    }
+    result = transform_widened_outline(outline, transform);
+    if (com::failed(result)) {
+        return result;
+    }
+    sink.SetFillMode(fill_mode::alternate);
+    sink.SetSegmentFlags(path_segment::force_unstroked);
+    sink.BeginFigure(outline.start, figure_begin::filled);
+    for (const widened_outline_segment& segment : outline.segments) {
+        if (segment.cubic) {
+            const bezier_segment bezier{
+                segment.control1,
+                segment.control2,
+                segment.end};
+            sink.AddBeziers(&bezier, 1U);
+        } else {
+            sink.AddLines(&segment.end, 1U);
+        }
+    }
+    sink.EndFigure(figure_end::closed);
     return com::ok;
 }
 
@@ -4714,6 +4901,10 @@ public:
             return not_implemented;
         }
         bool dashed = false;
+        line_join join = line_join::miter;
+        double miter_limit = 10.0;
+        cap_style start_cap = cap_style::flat;
+        cap_style end_cap = cap_style::flat;
         if (style != nullptr) {
             factory* raw_style_factory = nullptr;
             style->GetFactory(&raw_style_factory);
@@ -4723,8 +4914,11 @@ public:
                 return wrong_factory;
             }
             dashed = style->GetDashStyle() != dash_style::solid;
-            if (!dashed ||
-                style->GetLineJoin() > line_join::miter_or_bevel ||
+            join = style->GetLineJoin();
+            miter_limit = style->GetMiterLimit();
+            start_cap = style->GetStartCap();
+            end_cap = style->GetEndCap();
+            if (style->GetLineJoin() > line_join::miter_or_bevel ||
                 !std::isfinite(style->GetMiterLimit()) ||
                 style->GetMiterLimit() < 1.0F ||
                 style->GetStartCap() > cap_style::triangle ||
@@ -4734,14 +4928,18 @@ public:
                 return not_implemented;
             }
         }
-        if (data_->figures.size() != 1U ||
-            data_->figures.front().end != figure_end::closed) {
+        if (data_->figures.size() != 1U) {
+            return not_implemented;
+        }
+        const bool closed_figure =
+            data_->figures.front().end == figure_end::closed;
+        if (closed_figure && style != nullptr && !dashed) {
             return not_implemented;
         }
         try {
             std::vector<flat_edge> edges;
             const com::result edge_status = collect_flat_edges(
-                nullptr, flattening_tolerance, true, edges);
+                nullptr, flattening_tolerance, false, edges);
             if (com::failed(edge_status)) {
                 return edge_status;
             }
@@ -4762,14 +4960,35 @@ public:
                 }
                 polygon.push_back(edge.end);
             }
-            if (!normalize_simple_polygon(polygon)) {
-                return not_implemented;
+            if (closed_figure) {
+                if (!normalize_simple_polygon(polygon)) {
+                    return not_implemented;
+                }
+            } else {
+                polygon.erase(
+                    std::unique(polygon.begin(), polygon.end(), same_point),
+                    polygon.end());
+                if (polygon.size() < 2U) {
+                    return not_implemented;
+                }
             }
             if (dashed) {
                 return emit_joined_dashed_widen(
                     polygon,
+                    closed_figure,
                     stroke_width,
                     *style,
+                    world_transform,
+                    *sink);
+            }
+            if (!closed_figure) {
+                return emit_joined_open_solid_widen(
+                    polygon,
+                    stroke_width,
+                    join,
+                    miter_limit,
+                    start_cap,
+                    end_cap,
                     world_transform,
                     *sink);
             }

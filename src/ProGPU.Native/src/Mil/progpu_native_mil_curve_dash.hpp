@@ -41,11 +41,13 @@ struct run_buffer {
     std::vector<progpu_native_path_segment> segments;
     // Each run owns segment_count - 1 entries beginning at smooth_join_offset.
     std::vector<std::uint8_t> smooth_joins;
+    bool terminal_visible_point{};
 
     void clear() noexcept {
         runs.clear();
         segments.clear();
         smooth_joins.clear();
+        terminal_visible_point = false;
     }
 
     [[nodiscard]] std::span<const progpu_native_path_segment> segments_for(
@@ -676,6 +678,8 @@ inline result try_create_runs(
             traveled += step;
         }
     }
+    output.terminal_visible_point = !closed &&
+        (pattern.index & 1U) == 0U && pattern.distance <= epsilon;
     if (output.runs.empty()) {
         return result::success;
     }

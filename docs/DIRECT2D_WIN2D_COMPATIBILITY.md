@@ -912,8 +912,20 @@ body/cap/join extrema, including clipped miters, round affine support points,
 and the SIMD transform/reduction pass. Dashed bounds retain Direct2D's
 conservative source-path envelope even when the final endpoint lies in a gap;
 default, round-join, dashed-square-cap, and nonuniform transformed cases match
-the system on ARM64 and x64. Open `Widen`, unsupported multi-figure, and
-flagged paths still fail closed.
+the system on ARM64 and x64. Open `Widen` emits the same transactional
+alternate-fill, force-unstroked outlines used by closed dash runs. Solid and
+dashed bodies share the typed miter/bevel/round join and flat/square/triangle/
+round cap builders; round edges remain cubic and all endpoints and controls
+are SIMD-transformed before sink replay. Dense portable regions match
+`StrokeContainsPoint`, while default and square-dashed output regions match a
+genuine Direct2D sink on Windows ARM64 and x64. The shared dash-run DTO now
+records an exact terminal transition from a gap to an on-dash: Direct2D gives
+that zero-length run `DashCap` at its start and the source `EndCap` at its end.
+Dedicated containment, widened-output, and shared-walker tests preserve this
+otherwise easy-to-miss half-cap rule. The retained semantic-scene and native
+MIL stroke compilers consume the same bit and append cap-only GPU primitives,
+so the compatibility facade and production renderer cannot diverge here.
+Unsupported multi-figure and flagged paths still fail closed.
 
 The identical simple closed/default-miter domain now implements
 `GetWidenedBounds`. It derives segment offset endpoints plus qualified miter

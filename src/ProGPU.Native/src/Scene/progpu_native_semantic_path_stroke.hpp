@@ -346,6 +346,32 @@ inline result compile(
                     return rollback(result::invalid);
                 }
             }
+            if (dash_scratch.terminal_visible_point) {
+                progpu_native_point tangent{};
+                if (!try_tangent(segments.back(), false, tangent)) {
+                    return rollback(result::invalid);
+                }
+                const progpu_native_point endpoint =
+                    segment_end(segments.back());
+                progpu_native_path_segment terminal_start{};
+                terminal_start.kind = PROGPU_NATIVE_PATH_SEGMENT_LINE;
+                terminal_start.p0 = endpoint;
+                terminal_start.p1 = {
+                    endpoint.x + tangent.x,
+                    endpoint.y + tangent.y};
+                progpu_native_path_segment terminal_end{};
+                terminal_end.kind = PROGPU_NATIVE_PATH_SEGMENT_LINE;
+                terminal_end.p0 = {
+                    endpoint.x - tangent.x,
+                    endpoint.y - tangent.y};
+                terminal_end.p1 = endpoint;
+                if (!append_cap(
+                        terminal_start, stroke.dash_cap, true) ||
+                    !append_cap(
+                        terminal_end, stroke.end_cap, false)) {
+                    return rollback(result::invalid);
+                }
+            }
             return result::success;
         }
         if (!append_run(
