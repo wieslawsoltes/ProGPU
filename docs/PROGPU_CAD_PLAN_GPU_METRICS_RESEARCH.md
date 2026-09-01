@@ -54,8 +54,11 @@ the current-frame page compilation/upload and scene/render-bundle reuse values;
 cumulative or logical allocation values are not misread as per-frame uploads or
 physical residency.
 
-Physical driver-residency telemetry remains separate. On macOS it still
-requires matched Instruments Allocations/VM Tracker, Time Profiler, and Metal
-System Trace captures correlated with backend/Metal allocation values. The
-full managed/native CAD pixel differential and p50/p95/p99 suite also remains a
-release gate rather than an inference from telemetry alone.
+Driver/resource telemetry is implemented as a separate explicitly invoked
+diagnostic described in
+[`PROGPU_CAD_GPU_DRIVER_METRICS_RESEARCH.md`](PROGPU_CAD_GPU_DRIVER_METRICS_RESEARCH.md).
+On macOS it still requires matched Instruments Allocations/VM Tracker, Time
+Profiler, and Metal System Trace captures correlated with backend/Metal
+allocation values. Cross-platform physical allocation, the full managed/native
+CAD pixel differential, and the p50/p95/p99 suite remain release gates rather
+than inferences from telemetry alone.

@@ -1,3 +1,4 @@
+using ProGPU.Backend;
 using ProGPU.CAD;
 using ProGPU.Scene;
 using Xunit;
@@ -94,5 +95,71 @@ public sealed class CadPlanGpuFrameMetricsTests
         Assert.Equal(ulong.MaxValue, result.LogicalRgbaTargetBytes);
         Assert.Throws<ArgumentOutOfRangeException>(() =>
             CadPlanGpuFrameMetrics.Capture(1, -1, source));
+    }
+}
+
+public sealed class CadGpuDriverResourceMetricsTests
+{
+    [Fact]
+    public void FromNativePreservesScopeAndPhysicalAvailability()
+    {
+        var registry = new WgpuRegistrySnapshot(
+            AllocatedSlots: 3,
+            KeptFromUser: 2,
+            ReleasedFromUser: 1,
+            ErrorSlots: 0,
+            ElementSize: 16);
+        var source = new WgpuNativeResourceSnapshot(
+            registry,
+            registry,
+            registry,
+            registry,
+            registry,
+            registry,
+            registry,
+            registry,
+            registry,
+            MetalAllocatedBytes: 4_096)
+        {
+            MetalAllocatedBytesAvailable = true,
+        };
+
+        CadGpuDriverResourceMetrics result =
+            CadGpuDriverResourceMetrics.FromNative(source);
+
+        Assert.Equal(3UL, result.BufferCount);
+        Assert.Equal(9UL * 3UL * 16UL, result.NativeRegistrySlotBytes);
+        Assert.True(result.PhysicalDeviceAllocatedBytesAvailable);
+        Assert.Equal(4_096UL, result.PhysicalDeviceAllocatedBytes);
+    }
+
+    [Fact]
+    public void FromNativeDistinguishesUnavailableZeroAndSaturates()
+    {
+        var huge = new WgpuRegistrySnapshot(
+            AllocatedSlots: ulong.MaxValue,
+            KeptFromUser: 0,
+            ReleasedFromUser: 0,
+            ErrorSlots: 0,
+            ElementSize: 2);
+        var empty = new WgpuRegistrySnapshot(0, 0, 0, 0, 0);
+        var source = new WgpuNativeResourceSnapshot(
+            huge,
+            empty,
+            empty,
+            empty,
+            empty,
+            empty,
+            empty,
+            empty,
+            empty,
+            MetalAllocatedBytes: 123);
+
+        CadGpuDriverResourceMetrics result =
+            CadGpuDriverResourceMetrics.FromNative(source);
+
+        Assert.Equal(ulong.MaxValue, result.NativeRegistrySlotBytes);
+        Assert.False(result.PhysicalDeviceAllocatedBytesAvailable);
+        Assert.Equal(0UL, result.PhysicalDeviceAllocatedBytes);
     }
 }

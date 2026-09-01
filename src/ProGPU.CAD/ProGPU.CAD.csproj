@@ -51,6 +51,7 @@
     <PackageReleaseNotes>$(PackageReleaseNotes) Adds matched managed/native retained CAD edge overhang and deterministic three-stroke jitter in physical framebuffer pixels, with bounded style validation, short-edge suppression, zero geometry re-upload on camera replay, and no stable native ABI size change.</PackageReleaseNotes>
     <PackageReleaseNotes>$(PackageReleaseNotes) Adds a one-shot O(1) CAD retained-scene publication gate keyed by session, request, and immutable document generation, rejecting superseded, invalidated, mismatched, edited, or duplicate prepared results before shared desktop/browser state replacement.</PackageReleaseNotes>
     <PackageReleaseNotes>$(PackageReleaseNotes) Moves shared CAD file-open snapshot traversal and shaping to cancellable desktop worker preparation while retaining a thread-optional browser path, the previous drawable picture, UI-thread plan-scene/GPU resource recording, and double-checked generation-safe publication.</PackageReleaseNotes>
+    <PackageReleaseNotes>$(PackageReleaseNotes) Adds explicit backend-instance native registry diagnostics and availability-tagged whole-device Metal allocation telemetry, kept separate from CAD frame logical bytes and excluded from render/update hot paths.</PackageReleaseNotes>
     <PackageTags>progpu;cad;dxf;dwg;acadsharp;webgpu;rendering;editing</PackageTags>
   </PropertyGroup>
 
