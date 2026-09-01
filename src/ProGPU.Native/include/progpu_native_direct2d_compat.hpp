@@ -17,6 +17,7 @@ using sweep_direction = core::arc_sweep_direction;
 using arc_size = core::arc_size_kind;
 using arc_segment = core::arc_segment_f;
 using ellipse = core::ellipse_f;
+using rounded_rectangle = core::rounded_rectangle_f;
 
 inline constexpr com::result not_implemented = -2147467263;
 inline constexpr com::result failure = -2147467259;
@@ -40,6 +41,11 @@ inline constexpr com::guid rectangle_geometry_interface_id{
     {0x9FU, 0xEDU, 0x00U, 0x11U, 0x43U, 0xA0U, 0x55U, 0xF9U}};
 inline constexpr com::guid ellipse_geometry_interface_id{
     0x2CD906A4U,
+    0x12E2U,
+    0x11DCU,
+    {0x9FU, 0xEDU, 0x00U, 0x11U, 0x43U, 0xA0U, 0x55U, 0xF9U}};
+inline constexpr com::guid rounded_rectangle_geometry_interface_id{
+    0x2CD906A3U,
     0x12E2U,
     0x11DCU,
     {0x9FU, 0xEDU, 0x00U, 0x11U, 0x43U, 0xA0U, 0x55U, 0xF9U}};
@@ -115,7 +121,6 @@ struct quadratic_bezier_segment final {
     point_2f point2;
 };
 
-struct rounded_rectangle;
 struct stroke_style_properties;
 struct drawing_state_description;
 struct render_target_properties;
@@ -126,6 +131,7 @@ struct geometry;
 struct geometry_group;
 struct path_geometry;
 struct ellipse_geometry;
+struct rounded_rectangle_geometry;
 struct geometry_sink;
 struct stroke_style;
 struct drawing_state_block;
@@ -262,6 +268,11 @@ struct ellipse_geometry : geometry {
         noexcept = 0;
 };
 
+struct rounded_rectangle_geometry : geometry {
+    virtual void PROGPU_NATIVE_COM_CALL GetRoundedRect(
+        rounded_rectangle* value) const noexcept = 0;
+};
+
 struct path_geometry : geometry {
     virtual com::result PROGPU_NATIVE_COM_CALL Open(
         geometry_sink** sink) noexcept = 0;
@@ -288,7 +299,7 @@ struct factory : com::unknown {
         rectangle_geometry** value) noexcept = 0;
     virtual com::result PROGPU_NATIVE_COM_CALL CreateRoundedRectangleGeometry(
         const rounded_rectangle* rectangle,
-        geometry** value) noexcept = 0;
+        rounded_rectangle_geometry** value) noexcept = 0;
     virtual com::result PROGPU_NATIVE_COM_CALL CreateEllipseGeometry(
         const ellipse* ellipse_value,
         ellipse_geometry** value) noexcept = 0;

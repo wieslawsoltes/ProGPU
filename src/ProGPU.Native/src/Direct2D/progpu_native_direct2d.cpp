@@ -492,9 +492,13 @@ bool compat_finite_ellipse(const D2D1_ELLIPSE* value) noexcept
 bool compat_finite_rounded_rectangle(
     const D2D1_ROUNDED_RECT* value) noexcept
 {
-    return value != nullptr && compat_finite_rectangle(&value->rect) &&
-        std::isfinite(value->radiusX) && value->radiusX >= 0.0F &&
-        std::isfinite(value->radiusY) && value->radiusY >= 0.0F;
+    return value != nullptr && direct2d_core::valid_rounded_rectangle({
+        {value->rect.left,
+            value->rect.top,
+            value->rect.right,
+            value->rect.bottom},
+        value->radiusX,
+        value->radiusY});
 }
 
 direct2d_core::rectangle_edges_f compat_core_rectangle(
@@ -514,6 +518,15 @@ direct2d_core::ellipse_f compat_core_ellipse(
         {ellipse.point.x, ellipse.point.y},
         ellipse.radiusX,
         ellipse.radiusY};
+}
+
+direct2d_core::rounded_rectangle_f compat_core_rounded_rectangle(
+    const D2D1_ROUNDED_RECT& rectangle) noexcept
+{
+    return {
+        compat_core_rectangle(rectangle.rect),
+        rectangle.radiusX,
+        rectangle.radiusY};
 }
 
 const progpu_native_direct2d_matrix_3x2_f* compat_core_transform(
@@ -2838,11 +2851,24 @@ public:
         FLOAT flattening_tolerance,
         BOOL* contains) const noexcept override
     {
-        return path_->FillContainsPoint(
-            point,
-            world_transform,
-            flattening_tolerance,
-            contains);
+        if (contains == nullptr) {
+            return E_POINTER;
+        }
+        *contains = FALSE;
+        progpu_native_direct2d_matrix_3x2_f transform_storage{};
+        uint32_t core_contains = 0U;
+        const HRESULT result =
+            direct2d_core::rounded_rectangle_fill_contains_point(
+                compat_core_rounded_rectangle(rounded_rectangle_),
+                {point.x, point.y},
+                compat_core_transform(
+                    world_transform, transform_storage),
+                flattening_tolerance,
+                &core_contains);
+        if (SUCCEEDED(result)) {
+            *contains = core_contains == 0U ? FALSE : TRUE;
+        }
+        return result;
     }
 
     HRESULT STDMETHODCALLTYPE CompareWithGeometry(
@@ -4070,79 +4096,31 @@ public:
             return E_INVALIDARG;
         }
 
-        const double width =
-            static_cast<double>(rounded_rectangle->rect.right) -
-            rounded_rectangle->rect.left;
-        const double height =
-            static_cast<double>(rounded_rectangle->rect.bottom) -
-            rounded_rectangle->rect.top;
-        const float radius_x = static_cast<float>(std::min(
-            static_cast<double>(rounded_rectangle->radiusX),
-            width * 0.5));
-        const float radius_y = static_cast<float>(std::min(
-            static_cast<double>(rounded_rectangle->radiusY),
-            height * 0.5));
-        constexpr float control_scale = 0.5522847498307936F;
-        const float control_x = radius_x * control_scale;
-        const float control_y = radius_y * control_scale;
-        const auto& rectangle = rounded_rectangle->rect;
-        const D2D1_POINT_2F start = D2D1::Point2F(
-            rectangle.left + radius_x,
-            rectangle.top);
-        const std::array<D2D1_POINT_2F, 4U> line_ends = {{
-            D2D1::Point2F(rectangle.right - radius_x, rectangle.top),
-            D2D1::Point2F(rectangle.right, rectangle.bottom - radius_y),
-            D2D1::Point2F(rectangle.left + radius_x, rectangle.bottom),
-            D2D1::Point2F(rectangle.left, rectangle.top + radius_y)}};
+        progpu_native_direct2d_point_2f core_start{};
+        std::array<progpu_native_direct2d_point_2f, 4U> core_line_ends{};
+        std::array<direct2d_core::cubic_bezier_segment_f, 4U>
+            core_corners{};
+        HRESULT hr = direct2d_core::rounded_rectangle_to_path(
+            compat_core_rounded_rectangle(*rounded_rectangle),
+            &core_start,
+            &core_line_ends,
+            &core_corners);
+        if (FAILED(hr)) {
+            return hr;
+        }
+        const D2D1_POINT_2F start{core_start.x, core_start.y};
+        std::array<D2D1_POINT_2F, 4U> line_ends{};
         std::array<D2D1_BEZIER_SEGMENT, 4U> corners{};
-        corners[0U].point1 = D2D1::Point2F(
-            rectangle.right - radius_x + control_x,
-            rectangle.top);
-        corners[0U].point2 = D2D1::Point2F(
-            rectangle.right,
-            rectangle.top + radius_y - control_y);
-        corners[0U].point3 = D2D1::Point2F(
-            rectangle.right,
-            rectangle.top + radius_y);
-        corners[1U].point1 = D2D1::Point2F(
-            rectangle.right,
-            rectangle.bottom - radius_y + control_y);
-        corners[1U].point2 = D2D1::Point2F(
-            rectangle.right - radius_x + control_x,
-            rectangle.bottom);
-        corners[1U].point3 = D2D1::Point2F(
-            rectangle.right - radius_x,
-            rectangle.bottom);
-        corners[2U].point1 = D2D1::Point2F(
-            rectangle.left + radius_x - control_x,
-            rectangle.bottom);
-        corners[2U].point2 = D2D1::Point2F(
-            rectangle.left,
-            rectangle.bottom - radius_y + control_y);
-        corners[2U].point3 = D2D1::Point2F(
-            rectangle.left,
-            rectangle.bottom - radius_y);
-        corners[3U].point1 = D2D1::Point2F(
-            rectangle.left,
-            rectangle.top + radius_y - control_y);
-        corners[3U].point2 = D2D1::Point2F(
-            rectangle.left + radius_x - control_x,
-            rectangle.top);
-        corners[3U].point3 = start;
-        if (!compat_finite_point(start) ||
-            !std::all_of(
-                line_ends.begin(),
-                line_ends.end(),
-                compat_finite_point) ||
-            !std::all_of(
-                corners.begin(),
-                corners.end(),
-                [](const D2D1_BEZIER_SEGMENT& segment) {
-                    return compat_finite_point(segment.point1) &&
-                        compat_finite_point(segment.point2) &&
-                        compat_finite_point(segment.point3);
-                })) {
-            return E_INVALIDARG;
+        for (std::size_t index = 0U; index < corners.size(); ++index) {
+            line_ends[index] = {
+                core_line_ends[index].x, core_line_ends[index].y};
+            corners[index] = {
+                {core_corners[index].point1.x,
+                    core_corners[index].point1.y},
+                {core_corners[index].point2.x,
+                    core_corners[index].point2.y},
+                {core_corners[index].point3.x,
+                    core_corners[index].point3.y}};
         }
 
         ComPtr<ID2D1PathGeometry1> path;
@@ -4152,7 +4130,7 @@ public:
         }
         path.Attach(raw_path);
         ComPtr<ID2D1GeometrySink> sink;
-        HRESULT hr = path->Open(&sink);
+        hr = path->Open(&sink);
         if (FAILED(hr)) {
             return hr;
         }
