@@ -633,6 +633,7 @@ public sealed class CadSampleCanvas : FrameworkElement
     };
     private readonly CadSnapshotOptions _snapshotOptions;
     private readonly CadScenePublicationGate _scenePublicationGate = new();
+    private readonly CadPlanChunkCache _planChunkCache = new();
     private readonly SemaphoreSlim _backgroundEditGate = new(1, 1);
     private readonly HashSet<ulong> _selectedHandleSet = new();
     private readonly HashSet<ulong> _residentSemanticHandleSet = new();
@@ -2011,6 +2012,7 @@ public sealed class CadSampleCanvas : FrameworkElement
     {
         RasterImageSourceResolver = RasterImages,
         RasterImageContext = rasterImageContext,
+        ChunkCache = _planChunkCache,
     };
 
     protected override void ArrangeOverride(Rect arrangeRect)
@@ -11046,6 +11048,7 @@ public sealed class CadSampleCanvas : FrameworkElement
         ResetRectangleAuthoringState();
         _picture?.Dispose();
         _picture = null;
+        _planChunkCache.Clear();
         _constructionPicture?.Dispose();
         _constructionPicture = null;
         _pointMarkerPicture?.Dispose();

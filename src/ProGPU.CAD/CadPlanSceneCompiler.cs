@@ -33,6 +33,7 @@ public sealed class CadPlanSceneOptions
         DefaultMaxHatchPatternAuxiliaryRecords;
     public ICadRasterImageSourceResolver? RasterImageSourceResolver { get; init; }
     public WgpuContext? RasterImageContext { get; init; }
+    public CadPlanChunkCache? ChunkCache { get; init; }
 }
 
 public readonly record struct CadPlanSceneStatistics(
@@ -48,6 +49,8 @@ public readonly record struct CadPlanSceneStatistics(
     public int UnsupportedRasterImageCount { get; init; }
     public int ModelerGeometryWireframeCount { get; init; }
     public int DeferredModelerSurfaceCount { get; init; }
+    public int RetainedChunkCount { get; init; }
+    public int ReusedRetainedChunkCount { get; init; }
 
     public CadPlanSceneStatistics(
         int recordedEntityCount,
@@ -168,7 +171,25 @@ public sealed class CadPlanSceneCompiler
 
     private sealed class RecordingLeaseGuard(DrawingContext context) : IDisposable
     {
+        private DrawingContext? _activeAdditionalContext;
         private bool _completed;
+
+        public void Track(DrawingContext additionalContext)
+        {
+            if (ReferenceEquals(context, additionalContext))
+            {
+                return;
+            }
+            _activeAdditionalContext = additionalContext;
+        }
+
+        public void Untrack(DrawingContext additionalContext)
+        {
+            if (ReferenceEquals(_activeAdditionalContext, additionalContext))
+            {
+                _activeAdditionalContext = null;
+            }
+        }
 
         public void Complete() => _completed = true;
 
@@ -177,6 +198,7 @@ public sealed class CadPlanSceneCompiler
             if (!_completed)
             {
                 context.Clear();
+                _activeAdditionalContext?.Clear();
             }
         }
     }
@@ -328,7 +350,8 @@ public sealed class CadPlanSceneCompiler
         options ??= new CadPlanSceneOptions();
         ValidateOptions(options);
 
-        ReadOnlySpan<CadEntityHeader> entities = snapshot.Entities.Span;
+        ReadOnlyMemory<CadEntityHeader> entityMemory = snapshot.Entities;
+        ReadOnlySpan<CadEntityHeader> entities = entityMemory.Span;
         ReadOnlySpan<CadLayerSnapshot> layers = snapshot.Layers.Span;
         ReadOnlySpan<CadStrokeStyle> styles = snapshot.Styles.Span;
         ReadOnlySpan<CadLineTypePattern> lineTypePatterns = snapshot.LineTypePatterns.Span;
@@ -351,8 +374,9 @@ public sealed class CadPlanSceneCompiler
                 : options.RasterImageSourceResolver is CadRasterImageCatalog catalog
                     ? catalog.CreateResolverSnapshot()
                     : options.RasterImageSourceResolver;
-        var context = new DrawingContext();
-        context.EnsureCommandCapacity(checked(
+        var sceneContext = new DrawingContext();
+        DrawingContext context = sceneContext;
+        sceneContext.EnsureCommandCapacity(checked(
             Math.Max(
                 0,
                 entities.Length - snapshot.ConstructionLines.Length - snapshot.Meshes3D.Length) +
@@ -389,15 +413,37 @@ public sealed class CadPlanSceneCompiler
         int unsupportedRasterImages = 0;
         int modelerGeometryWireframes = 0;
         int deferredModelerSurfaces = 0;
+        int retainedChunkCount = 0;
+        int reusedRetainedChunkCount = 0;
+        int retainedChunkCommandCount = 0;
+        GpuPictureRecorder? chunkRecorder = null;
+        GpuPictureRecorder? reusableChunkRecorder =
+            options.ChunkCache is null ? null : new GpuPictureRecorder();
+        ulong chunkHandle = 0;
+        byte[]? chunkKey = null;
+        int chunkEndIndex = 0;
+        int chunkRecordedStart = 0;
 
-        using var recordingLeaseGuard = new RecordingLeaseGuard(context);
+        using var recordingLeaseGuard = new RecordingLeaseGuard(sceneContext);
         GpuTexture?[]? preparedRasterImageTextures =
             preparedResources?.TransferTo(
-                context,
+                sceneContext,
                 snapshot,
                 options.RasterImageContext);
-        foreach (CadEntityHeader entity in entities)
+        for (int entityIndex = 0; entityIndex < entities.Length; entityIndex++)
         {
+            CadEntityHeader entity = entities[entityIndex];
+            if (options.ChunkCache is not null &&
+                (chunkRecorder is null || entity.Handle != chunkHandle))
+            {
+                CompleteChunk();
+                BeginChunk(entityIndex);
+                if (chunkRecorder is null)
+                {
+                    entityIndex = chunkEndIndex - 1;
+                    continue;
+                }
+            }
             cancellationToken.ThrowIfCancellationRequested();
             if (!entity.IsVisible || !layers[entity.LayerIndex].IsVisible ||
                 (!options.IncludeNonPlottableLayers &&
@@ -859,14 +905,18 @@ public sealed class CadPlanSceneCompiler
             recorded++;
         }
 
-        context.TrimRetainedCommandCapacity();
+        CompleteChunk();
+
+        sceneContext.TrimRetainedCommandCapacity();
         var scene = new CadRecordedPlanScene(
             snapshot.ContentGeneration,
             snapshot.RebaseOrigin,
-            context,
+            sceneContext,
             new CadPlanSceneStatistics(
                 recorded,
-                context.Commands.Count,
+                options.ChunkCache is null
+                    ? sceneContext.Commands.Count
+                    : retainedChunkCommandCount,
                 unsupportedLineTypes,
                 loweredLineTypeEntities,
                 loweredLineTypeFigures,
@@ -877,10 +927,101 @@ public sealed class CadPlanSceneCompiler
             {
                 ModelerGeometryWireframeCount = modelerGeometryWireframes,
                 DeferredModelerSurfaceCount = deferredModelerSurfaces,
+                RetainedChunkCount = retainedChunkCount,
+                ReusedRetainedChunkCount = reusedRetainedChunkCount,
             },
             diagnostics.ToArray());
         recordingLeaseGuard.Complete();
         return scene;
+
+        void BeginChunk(int startIndex)
+        {
+            ReadOnlySpan<CadEntityHeader> chunkEntities = entityMemory.Span;
+            int endIndex = startIndex + 1;
+            chunkHandle = chunkEntities[startIndex].Handle;
+            while (endIndex < chunkEntities.Length &&
+                   chunkEntities[endIndex].Handle == chunkHandle)
+            {
+                endIndex++;
+            }
+            chunkEndIndex = endIndex;
+
+            chunkKey = CadPlanChunkKeyBuilder.TryCreate(
+                snapshot,
+                options,
+                excludedLayerNames,
+                chunkEntities.Slice(startIndex, endIndex - startIndex),
+                options.ChunkCache!.MaximumSingleKeyBytes,
+                cancellationToken,
+                out byte[] createdKey)
+                    ? createdKey
+                    : null;
+            if (chunkKey is not null &&
+                options.ChunkCache!.TryGet(
+                    chunkHandle,
+                    chunkKey,
+                    out GpuPicture cachedPicture,
+                    out int cachedCommandCount,
+                    out int cachedRecordedEntityCount))
+            {
+                sceneContext.DrawPicture(cachedPicture);
+                retainedChunkCommandCount = checked(
+                    retainedChunkCommandCount + cachedCommandCount);
+                recorded = checked(recorded + cachedRecordedEntityCount);
+                retainedChunkCount++;
+                reusedRetainedChunkCount++;
+                chunkKey = null;
+                chunkRecorder = null;
+                context = sceneContext;
+                return;
+            }
+
+            chunkRecordedStart = recorded;
+            chunkRecorder = reusableChunkRecorder!;
+            context = chunkRecorder.BeginRecording(new Rect(0, 0, 1, 1));
+            recordingLeaseGuard.Track(context);
+        }
+
+        void CompleteChunk()
+        {
+            if (chunkRecorder is null)
+            {
+                return;
+            }
+
+            context.TrimRetainedCommandCapacity();
+            GpuPicture candidate = chunkRecorder.EndRecording();
+            recordingLeaseGuard.Untrack(context);
+            retainedChunkCommandCount = checked(
+                retainedChunkCommandCount + candidate.CommandCount);
+            GpuPicture retained = candidate;
+            bool cacheOwnsResult = false;
+            bool reused = false;
+            if (chunkKey is not null)
+            {
+                retained = options.ChunkCache!.Intern(
+                    chunkHandle,
+                    chunkKey,
+                    candidate,
+                    recorded - chunkRecordedStart,
+                    out reused,
+                    out cacheOwnsResult);
+            }
+
+            sceneContext.DrawPicture(retained);
+            if (!cacheOwnsResult)
+            {
+                retained.Dispose();
+            }
+            retainedChunkCount++;
+            if (reused)
+            {
+                reusedRetainedChunkCount++;
+            }
+            chunkRecorder = null;
+            chunkKey = null;
+            context = sceneContext;
+        }
 
         void AddUnsupportedLineTypeDiagnostic(
             string lineTypeName,

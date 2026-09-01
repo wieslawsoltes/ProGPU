@@ -18,6 +18,71 @@ public sealed class CadSnapshotAndSceneTests
     private const double Tolerance = 1e-10;
 
     [Fact]
+    public void PlanChunkCacheReusesOnlyCanonicalUnchangedSemanticRoots()
+    {
+        var document = new CadDocument();
+        var changedLine = new Line(new XYZ(0, 0, 0), new XYZ(1, 0, 0));
+        var stableLine = new Line(new XYZ(-100, -100, 0), new XYZ(100, 100, 0));
+        document.Entities.Add(changedLine);
+        document.Entities.Add(stableLine);
+        var session = new CadDocumentSession(document);
+        var history = new CadDocumentHistory(session);
+        using var cache = new CadPlanChunkCache();
+        var options = new CadPlanSceneOptions { ChunkCache = cache };
+        var snapshotCompiler = new CadSnapshotCompiler();
+        var sceneCompiler = new CadPlanSceneCompiler();
+
+        CadDocumentSnapshot firstSnapshot = snapshotCompiler.Compile(session);
+        using CadRecordedPlanScene firstScene =
+            sceneCompiler.Compile(firstSnapshot, options);
+        using GpuPicture firstPicture = firstScene.CreatePicture();
+        CadDocumentSnapshot secondSnapshot = snapshotCompiler.Compile(session);
+        using CadRecordedPlanScene secondScene =
+            sceneCompiler.Compile(secondSnapshot, options);
+        using GpuPicture secondPicture = secondScene.CreatePicture();
+
+        Assert.Equal(2, firstScene.Statistics.RetainedChunkCount);
+        Assert.Equal(0, firstScene.Statistics.ReusedRetainedChunkCount);
+        Assert.Equal(2, secondScene.Statistics.ReusedRetainedChunkCount);
+        Assert.Equal(2, cache.Count);
+        Assert.Equal(RenderCommandType.DrawPicture, firstPicture.GetCommand(0).Type);
+        Assert.Same(
+            firstPicture.GetCommand(0).Picture,
+            secondPicture.GetCommand(0).Picture);
+        Assert.Same(
+            firstPicture.GetCommand(1).Picture,
+            secondPicture.GetCommand(1).Picture);
+
+        history.Execute(new CadTranslateEntitiesCommand(
+            [changedLine.Handle],
+            new CadPoint3D(2, 0, 0)));
+        CadDocumentSnapshot editedSnapshot = snapshotCompiler.Compile(session);
+        using CadRecordedPlanScene editedScene =
+            sceneCompiler.Compile(editedSnapshot, options);
+        using GpuPicture editedPicture = editedScene.CreatePicture();
+
+        Assert.Equal(1, editedScene.Statistics.ReusedRetainedChunkCount);
+        Assert.NotSame(
+            secondPicture.GetCommand(0).Picture,
+            editedPicture.GetCommand(0).Picture);
+        Assert.Same(
+            secondPicture.GetCommand(1).Picture,
+            editedPicture.GetCommand(1).Picture);
+        cache.Clear();
+        Assert.Equal(0, cache.Count);
+        Assert.True(GpuPictureNativeSceneCompiler.TryCompile(
+            editedPicture,
+            501U,
+            editedSnapshot.ContentGeneration,
+            out NativeCompiledPicture? native,
+            out NativePictureCompileFailure failure),
+            failure.ToString());
+        Assert.NotNull(native);
+        Assert.Equal(1, native.NativeDrawCount);
+        Assert.Equal(4, native.SourceCommandCount);
+    }
+
+    [Fact]
     public void ArbitraryAxisBasisIsOrthonormalAndTransformsOcsToWcs()
     {
         CadCoordinateSystem basis = CadCoordinateSystem.FromNormal(new CadPoint3D(0, 1, 0));
