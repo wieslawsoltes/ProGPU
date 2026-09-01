@@ -237,6 +237,35 @@ portable core test for composition order, null outputs, non-finite matrices,
 source identity, and wrong-factory rejection. The macOS no-provider suite
 remains 12/12 and the managed Direct2D contract remains 9/9.
 
+ProGPU `bd16f5d8` adds the canonical `ID2D1PathGeometry`,
+`ID2D1GeometrySink`, and `ID2D1SimplifiedGeometrySink` interfaces to the same
+installed portable COM family. `CreatePathGeometry` returns a one-shot path:
+`Open` succeeds exactly once, the retained sink records fill mode, segment
+flags, figures, lines, cubic and quadratic Beziers, and arcs, and `Close`
+publishes an immutable stream. Premature queries, duplicate opens/closes,
+unbalanced figures, invalid values, allocation failure, and abandoned open
+sinks leave the path unavailable with the matching HRESULT instead of
+publishing partial geometry.
+
+Closed line/cubic/quadratic paths expose figure and Direct2D segment counts,
+round-trip their original segment types through `Stream`, compute exact affine
+bounds (including curve extrema), and simplify quadratics to equivalent
+cubics in source space before applying the caller transform. Arc commands are
+retained and streamed without loss, but arc bounds and simplification return
+`E_NOTIMPL` before touching the caller sink until the shared native arc
+converter is extracted. The remaining path analysis, tessellation, boolean,
+outline, metric, and widen methods also fail closed and clear scalar/pointer
+outputs where applicable.
+
+The Apple Silicon warning-as-error tree passes all 12 CTests and the focused
+managed Direct2D contract passes 9/9. Windows 11 ARM64 with MSVC 19.44 and
+`/W4 /WX` builds and runs both focused executables through the real SDK
+`ID2D1Factory*`, `ID2D1PathGeometry*`, and sink vtables. That Windows test also
+constructs the same closed line/quadratic path with the system
+`D2D1CreateFactory` implementation and requires identical segment/figure
+counts and exact bounds. The gate caught and removed a legacy Windows SDK
+`small` macro collision from the portable arc enum before qualification.
+
 ## Current support matrix
 
 | Surface | Status | Contract |
@@ -244,7 +273,7 @@ remains 12/12 and the managed Direct2D contract remains 9/9.
 | `ProGPU.DirectX` D3D-style device/resources/pipelines | Implemented | Portable typed facade backed by WebGPU; D3D12 on qualified Windows adapters |
 | Native C++ MIL/retained scene on D3D12 | Implemented | Same backend-neutral scene ABI used on Metal, Vulkan, and browser WebGPU |
 | DXGI shared-handle import | Implemented building block | `ProGpuExternalTextureDescriptor` plus Dawn shared-texture memory, keyed-mutex ownership, and no CPU readback |
-| Direct2D `ID2D1*` and DirectWrite text API | Portable COM lifetime, ABI-compatible base factory, rectangle and transformed geometry; Windows bitmap/brush/geometry/stroke/command-list/effect/layer/state/text/SVG resources, geometry analysis/realization, vector drawing, and typed device-loss domains implemented | The installed portable C++ target exposes canonical `ID2D1Factory`, resource, geometry, rectangle, and transformed-geometry IIDs/vtables, with shared allocation-free rectangle and affine behavior qualified by real Windows SDK pointer calls. The Windows provider independently supplies the broader ABI v54 factory/geometry/brush/path/stroke/recorder family and genuine system device/context/target interop. Remaining portable resource/device-context vtables fail closed; there is no fake `d2d1.dll` or `dwrite.dll` |
+| Direct2D `ID2D1*` and DirectWrite text API | Portable COM lifetime, ABI-compatible base factory, rectangle, transformed, and one-shot path geometry/sinks; Windows bitmap/brush/geometry/stroke/command-list/effect/layer/state/text/SVG resources, geometry analysis/realization, vector drawing, and typed device-loss domains implemented | The installed portable C++ target exposes canonical `ID2D1Factory`, resource, geometry, rectangle, transformed-geometry, path-geometry, and sink IIDs/vtables. Shared allocation-free rectangle/affine behavior and portable line/cubic/quadratic path behavior are qualified through real Windows SDK pointers and a system-Direct2D path oracle. Portable arcs currently round-trip but fail closed for analysis. The Windows provider independently supplies the broader ABI v54 factory/geometry/brush/path/stroke/recorder family and genuine system device/context/target interop. Remaining portable resource/device-context vtables fail closed; there is no fake `d2d1.dll` or `dwrite.dll` |
 | Native Win2D binary interop | Device/target/bitmap/brush/geometry/stroke/command-list/effect-output/text-format/text-layout/typography round trips plus layer/state/text draws package-qualified | The official factory/resource-wrapper contracts preserve exact provider identities through real `CanvasDevice`, `CanvasRenderTarget`, `CanvasBitmap`, brush, `CanvasGeometry`, `CanvasStrokeStyle`, `CanvasCommandList`, device-independent `CanvasTextFormat`/`CanvasTypography`, and device-associated `CanvasTextLayout` projections. The packaged Microsoft Win2D 1.4.0 oracle also wraps effect-output image brushes, executes typed ProGPU layer/state and native-text command-list scopes, observes ProGPU range formatting/OpenType features through the projected layout and typography, mutates that same native layout through Win2D, and draws it. It qualifies identities, resource metadata, boolean geometry/styled-stroke/image-brush/command-list/effect/text drawing and pixels, exclusive producer ownership, and zero-copy Dawn import; glyph runs/color fonts, remaining typography, the full effect catalog, custom effects, and full device-loss recreation remain gated work |
 | Portable Win2D-style Canvas source API | MVP implemented | `ProGPU.Win2D` records Win2D-shaped commands, compiles them with `ProGPU.Scene.Native`, and submits the retained scene to the C++ renderer |
 | Portable Win2D bitmap in LibreWPF native MIL | Implemented | Wrap a same-device `CanvasBitmap` lease source in `IPortableNativeImageSource`; canonical `TYPE_BITMAPSOURCE` lowers to a zero-payload external scene image with no readback or repack |
