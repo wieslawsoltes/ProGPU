@@ -6407,7 +6407,14 @@ extrema. Round caps and joins add transform-dependent support points so affine
 rotation, skew, and non-uniform scaling remain exact while the final transform
 and bounds reduction keeps its four-wide NEON/SSE2 implementation. Flat and
 round bounds, including a non-uniform transform, match genuine Direct2D on
-Windows x64 and ARM64. Dashed `Widen` remains the next analysis gap.
+Windows x64 and ARM64. Dashed `Widen` now emits isolated closed outlines for
+bevel-joined line runs with flat, square, or triangle caps. It constructs and
+transforms the complete output before calling the sink, so unsupported
+round/miter topology still fails without partial output. Dense portable
+containment probes and genuine Direct2D x64/ARM64 widen calls pass. The shared
+dash splitter also marks one-sided closed-source seam runs so start/end caps
+agree across the compositor, Direct2D queries, and widened output. Round caps,
+round joins, and miter-joined dashed widen output remain the next analysis gap.
 
 `GetWidenedBounds` now shares that default-miter path domain. Segment offsets
 and miter extrema are constructed before the world transform; independent

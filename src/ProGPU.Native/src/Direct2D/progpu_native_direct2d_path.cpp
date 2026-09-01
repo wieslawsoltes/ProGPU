@@ -1080,7 +1080,6 @@ struct polygon_stroke_edges final {
         contains = 1;
         return com::ok;
     }
-    const cap_style dash_cap = style.GetDashCap();
     for (const curve_dash::run& run : dash_runs.runs) {
         const auto run_segments = dash_runs.segments_for(run);
         for (std::size_t index = 1U; index < run_segments.size(); ++index) {
@@ -1116,18 +1115,24 @@ struct polygon_stroke_edges final {
         }
         const auto& first = run_segments.front();
         const auto& last = run_segments.back();
+        const cap_style start_cap = run.starts_at_source_start
+            ? style.GetStartCap()
+            : style.GetDashCap();
+        const cap_style end_cap = run.ends_at_source_end
+            ? style.GetEndCap()
+            : style.GetDashCap();
         if (stroke_cap_contains(
                 {first.p0.x, first.p0.y},
                 {first.p1.x, first.p1.y},
                 point,
                 half_width,
-                dash_cap) ||
+                start_cap) ||
             stroke_cap_contains(
                 {last.p1.x, last.p1.y},
                 {last.p0.x, last.p0.y},
                 point,
                 half_width,
-                dash_cap)) {
+                end_cap)) {
             contains = 1;
             return com::ok;
         }
@@ -1558,23 +1563,299 @@ void append_stroke_join_bounds_points(
                 transform,
                 points);
         } else {
+            const cap_style start_cap = run.starts_at_source_start
+                ? style.GetStartCap()
+                : style.GetDashCap();
+            const cap_style end_cap = run.ends_at_source_end
+                ? style.GetEndCap()
+                : style.GetDashCap();
             append_stroke_cap_bounds_points(
                 {segments.front().p0.x, segments.front().p0.y},
                 {segments.front().p1.x, segments.front().p1.y},
                 half_width,
-                style.GetDashCap(),
+                start_cap,
                 transform,
                 points);
             append_stroke_cap_bounds_points(
                 {segments.back().p1.x, segments.back().p1.y},
                 {segments.back().p0.x, segments.back().p0.y},
                 half_width,
-                style.GetDashCap(),
+                end_cap,
                 transform,
                 points);
         }
     }
     return transformed_point_bounds(points, transform, bounds);
+}
+
+void append_distinct_point(
+    std::vector<point_2f>& points,
+    point_2f point)
+{
+    if (points.empty() || !same_point(points.back(), point)) {
+        points.push_back(point);
+    }
+}
+
+[[nodiscard]] com::result append_flat_bevel_run_side(
+    std::span<const progpu_native_path_segment> segments,
+    double half_width,
+    double side,
+    cap_style start_cap,
+    cap_style end_cap,
+    std::vector<point_2f>& points)
+{
+    if (segments.empty()) {
+        return com::invalid_argument;
+    }
+    const auto unit_and_normal = [half_width](
+        const progpu_native_path_segment& segment,
+        double& unit_x,
+        double& unit_y,
+        double& normal_x,
+        double& normal_y) {
+        if (segment.kind != PROGPU_NATIVE_PATH_SEGMENT_LINE) {
+            return false;
+        }
+        const double delta_x =
+            static_cast<double>(segment.p1.x) - segment.p0.x;
+        const double delta_y =
+            static_cast<double>(segment.p1.y) - segment.p0.y;
+        const double length = std::hypot(delta_x, delta_y);
+        if (length == 0.0) {
+            return false;
+        }
+        unit_x = delta_x / length;
+        unit_y = delta_y / length;
+        normal_x = -unit_y * half_width;
+        normal_y = unit_x * half_width;
+        return true;
+    };
+    double first_unit_x = 0.0;
+    double first_unit_y = 0.0;
+    double first_normal_x = 0.0;
+    double first_normal_y = 0.0;
+    if (!unit_and_normal(
+            segments.front(),
+            first_unit_x,
+            first_unit_y,
+            first_normal_x,
+            first_normal_y)) {
+        return not_implemented;
+    }
+    const double start_extension = start_cap == cap_style::square
+        ? half_width
+        : 0.0;
+    append_distinct_point(points, {
+        static_cast<float>(
+            segments.front().p0.x + first_normal_x * side -
+            first_unit_x * start_extension),
+        static_cast<float>(
+            segments.front().p0.y + first_normal_y * side -
+            first_unit_y * start_extension)});
+    for (std::size_t index = 1U; index < segments.size(); ++index) {
+        const auto& incoming = segments[index - 1U];
+        const auto& outgoing = segments[index];
+        if (!same_point(
+                {incoming.p1.x, incoming.p1.y},
+                {outgoing.p0.x, outgoing.p0.y})) {
+            return not_implemented;
+        }
+        double incoming_unit_x = 0.0;
+        double incoming_unit_y = 0.0;
+        double incoming_normal_x = 0.0;
+        double incoming_normal_y = 0.0;
+        double outgoing_unit_x = 0.0;
+        double outgoing_unit_y = 0.0;
+        double outgoing_normal_x = 0.0;
+        double outgoing_normal_y = 0.0;
+        if (!unit_and_normal(
+                incoming,
+                incoming_unit_x,
+                incoming_unit_y,
+                incoming_normal_x,
+                incoming_normal_y) ||
+            !unit_and_normal(
+                outgoing,
+                outgoing_unit_x,
+                outgoing_unit_y,
+                outgoing_normal_x,
+                outgoing_normal_y)) {
+            return not_implemented;
+        }
+        const point_2f vertex{incoming.p1.x, incoming.p1.y};
+        const point_2f incoming_offset{
+            static_cast<float>(vertex.x + incoming_normal_x * side),
+            static_cast<float>(vertex.y + incoming_normal_y * side)};
+        const point_2f outgoing_offset{
+            static_cast<float>(vertex.x + outgoing_normal_x * side),
+            static_cast<float>(vertex.y + outgoing_normal_y * side)};
+        const double cross = incoming_unit_x * outgoing_unit_y -
+            incoming_unit_y * outgoing_unit_x;
+        if (cross == 0.0) {
+            append_distinct_point(points, outgoing_offset);
+            continue;
+        }
+        const bool outer_side = cross * side < 0.0;
+        if (outer_side) {
+            append_distinct_point(points, incoming_offset);
+            append_distinct_point(points, outgoing_offset);
+            continue;
+        }
+        const double offset_x =
+            static_cast<double>(outgoing_offset.x) - incoming_offset.x;
+        const double offset_y =
+            static_cast<double>(outgoing_offset.y) - incoming_offset.y;
+        const double parameter =
+            (offset_x * outgoing_unit_y - offset_y * outgoing_unit_x) /
+            cross;
+        append_distinct_point(points, {
+            static_cast<float>(
+                incoming_offset.x + incoming_unit_x * parameter),
+            static_cast<float>(
+                incoming_offset.y + incoming_unit_y * parameter)});
+    }
+    double last_unit_x = 0.0;
+    double last_unit_y = 0.0;
+    double last_normal_x = 0.0;
+    double last_normal_y = 0.0;
+    if (!unit_and_normal(
+            segments.back(),
+            last_unit_x,
+            last_unit_y,
+            last_normal_x,
+            last_normal_y)) {
+        return not_implemented;
+    }
+    const double end_extension = end_cap == cap_style::square
+        ? half_width
+        : 0.0;
+    append_distinct_point(points, {
+        static_cast<float>(
+            segments.back().p1.x + last_normal_x * side +
+            last_unit_x * end_extension),
+        static_cast<float>(
+            segments.back().p1.y + last_normal_y * side +
+            last_unit_y * end_extension)});
+    return com::ok;
+}
+
+[[nodiscard]] com::result build_flat_bevel_dash_outline(
+    std::span<const progpu_native_path_segment> segments,
+    double half_width,
+    cap_style start_cap,
+    cap_style end_cap,
+    std::vector<point_2f>& outline)
+{
+    std::vector<point_2f> left;
+    std::vector<point_2f> right;
+    const com::result left_status = append_flat_bevel_run_side(
+        segments, half_width, 1.0, start_cap, end_cap, left);
+    if (com::failed(left_status)) {
+        return left_status;
+    }
+    const com::result right_status = append_flat_bevel_run_side(
+        segments, half_width, -1.0, start_cap, end_cap, right);
+    if (com::failed(right_status)) {
+        return right_status;
+    }
+    outline.clear();
+    outline.reserve(left.size() + right.size() + 2U);
+    for (const point_2f point : left) {
+        append_distinct_point(outline, point);
+    }
+    if (end_cap == cap_style::triangle) {
+        const auto& last = segments.back();
+        const double delta_x = static_cast<double>(last.p1.x) - last.p0.x;
+        const double delta_y = static_cast<double>(last.p1.y) - last.p0.y;
+        const double length = std::hypot(delta_x, delta_y);
+        if (length == 0.0) {
+            return not_implemented;
+        }
+        append_distinct_point(outline, {
+            static_cast<float>(last.p1.x + delta_x / length * half_width),
+            static_cast<float>(last.p1.y + delta_y / length * half_width)});
+    }
+    for (auto iterator = right.rbegin(); iterator != right.rend(); ++iterator) {
+        append_distinct_point(outline, *iterator);
+    }
+    if (start_cap == cap_style::triangle) {
+        const auto& first = segments.front();
+        const double delta_x = static_cast<double>(first.p1.x) - first.p0.x;
+        const double delta_y = static_cast<double>(first.p1.y) - first.p0.y;
+        const double length = std::hypot(delta_x, delta_y);
+        if (length == 0.0) {
+            return not_implemented;
+        }
+        append_distinct_point(outline, {
+            static_cast<float>(first.p0.x - delta_x / length * half_width),
+            static_cast<float>(first.p0.y - delta_y / length * half_width)});
+    }
+    if (outline.size() < 3U) {
+        return not_implemented;
+    }
+    return com::ok;
+}
+
+[[nodiscard]] com::result transform_points_in_place(
+    std::vector<point_2f>& points,
+    const matrix_3x2_f* transform) noexcept;
+
+[[nodiscard]] com::result emit_flat_bevel_dashed_widen(
+    std::span<const point_2f> polygon,
+    float stroke_width,
+    stroke_style& style,
+    const matrix_3x2_f* transform,
+    simplified_geometry_sink& sink)
+{
+    curve_dash::run_buffer dash_runs;
+    const com::result dash_status = create_dashed_polygon_runs(
+        polygon, stroke_width, style, dash_runs);
+    if (com::failed(dash_status)) {
+        return dash_status;
+    }
+    std::vector<std::vector<point_2f>> outlines;
+    outlines.reserve(dash_runs.runs.size());
+    const double half_width = static_cast<double>(stroke_width) * 0.5;
+    for (const curve_dash::run& run : dash_runs.runs) {
+        if (run.closed) {
+            return not_implemented;
+        }
+        outlines.emplace_back();
+        const cap_style start_cap = run.starts_at_source_start
+            ? style.GetStartCap()
+            : style.GetDashCap();
+        const cap_style end_cap = run.ends_at_source_end
+            ? style.GetEndCap()
+            : style.GetDashCap();
+        com::result result = build_flat_bevel_dash_outline(
+            dash_runs.segments_for(run),
+            half_width,
+            start_cap,
+            end_cap,
+            outlines.back());
+        if (com::failed(result)) {
+            return result;
+        }
+        result = transform_points_in_place(outlines.back(), transform);
+        if (com::failed(result)) {
+            return result;
+        }
+        if (outlines.back().size() - 1U >
+            (std::numeric_limits<std::uint32_t>::max)()) {
+            return com::out_of_memory;
+        }
+    }
+    sink.SetFillMode(fill_mode::alternate);
+    sink.SetSegmentFlags(path_segment::force_unstroked);
+    for (const auto& outline : outlines) {
+        sink.BeginFigure(outline.front(), figure_begin::filled);
+        sink.AddLines(
+            outline.data() + 1U,
+            static_cast<std::uint32_t>(outline.size() - 1U));
+        sink.EndFigure(figure_end::closed);
+    }
+    return com::ok;
 }
 
 [[nodiscard]] com::result build_default_miter_offset_contour(
@@ -2573,6 +2854,8 @@ public:
             if (style->GetLineJoin() > line_join::miter_or_bevel ||
                 !std::isfinite(style->GetMiterLimit()) ||
                 style->GetMiterLimit() < 1.0F ||
+                style->GetStartCap() > cap_style::triangle ||
+                style->GetEndCap() > cap_style::triangle ||
                 style->GetDashCap() > cap_style::triangle ||
                 !std::isfinite(style->GetDashOffset())) {
                 return com::invalid_argument;
@@ -2670,6 +2953,8 @@ public:
             dashed = style->GetDashStyle() != dash_style::solid;
             if (join > line_join::miter_or_bevel ||
                 !std::isfinite(miter_limit) || miter_limit < 1.0 ||
+                style->GetStartCap() > cap_style::triangle ||
+                style->GetEndCap() > cap_style::triangle ||
                 style->GetDashCap() > cap_style::triangle ||
                 !std::isfinite(style->GetDashOffset())) {
                 return com::invalid_argument;
@@ -4021,6 +4306,7 @@ public:
         if (stroke_width == 0.0F) {
             return not_implemented;
         }
+        bool dashed = false;
         if (style != nullptr) {
             factory* raw_style_factory = nullptr;
             style->GetFactory(&raw_style_factory);
@@ -4029,7 +4315,17 @@ public:
             if (style_factory.get() != owner_.get()) {
                 return wrong_factory;
             }
-            return not_implemented;
+            dashed = style->GetDashStyle() != dash_style::solid;
+            if (!dashed || style->GetLineJoin() != line_join::bevel ||
+                style->GetStartCap() == cap_style::round ||
+                style->GetEndCap() == cap_style::round ||
+                style->GetDashCap() == cap_style::round ||
+                style->GetStartCap() > cap_style::triangle ||
+                style->GetEndCap() > cap_style::triangle ||
+                style->GetDashCap() > cap_style::triangle ||
+                !std::isfinite(style->GetDashOffset())) {
+                return not_implemented;
+            }
         }
         if (data_->figures.size() != 1U ||
             data_->figures.front().end != figure_end::closed) {
@@ -4061,6 +4357,14 @@ public:
             }
             if (!normalize_simple_polygon(polygon)) {
                 return not_implemented;
+            }
+            if (dashed) {
+                return emit_flat_bevel_dashed_widen(
+                    polygon,
+                    stroke_width,
+                    *style,
+                    world_transform,
+                    *sink);
             }
             const double half_width =
                 static_cast<double>(stroke_width) * 0.5;

@@ -703,6 +703,8 @@ inline result try_create_runs(
         output.runs.back(),
         source_end);
     if (!first_touches_seam || !last_touches_seam) {
+        output.runs.front().starts_at_source_start = first_touches_seam;
+        output.runs.back().ends_at_source_end = last_touches_seam;
         return result::success;
     }
     if (output.runs.size() == 1U) {
