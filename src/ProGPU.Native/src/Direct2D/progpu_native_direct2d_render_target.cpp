@@ -5051,11 +5051,12 @@ private:
     }
 
     template<typename Geometry, typename Description, typename Create>
-    void draw_styled_shape(
+    void draw_geometry_shape(
         const Description* description,
         brush* brush_value,
         float stroke_width,
         stroke_style* style,
+        bool fill,
         Create create) noexcept
     {
         Geometry* raw_geometry = nullptr;
@@ -5067,11 +5068,18 @@ private:
             latch_draw_failure(result);
             return;
         }
-        draw_stroked_geometry(
-            static_cast<geometry*>(geometry_value.get()),
-            brush_value,
-            stroke_width,
-            style);
+        if (fill) {
+            draw_filled_geometry(
+                static_cast<geometry*>(geometry_value.get()),
+                brush_value,
+                nullptr);
+        } else {
+            draw_stroked_geometry(
+                static_cast<geometry*>(geometry_value.get()),
+                brush_value,
+                stroke_width,
+                style);
+        }
     }
 
     void draw_stroked_geometry(
@@ -5793,11 +5801,12 @@ private:
         bool fill) noexcept
     {
         if (!fill && style != nullptr) {
-            draw_styled_shape<rectangle_geometry>(
+            draw_geometry_shape<rectangle_geometry>(
                 rectangle,
                 brush_value,
                 stroke_width,
                 style,
+                false,
                 &factory::CreateRectangleGeometry);
             return;
         }
@@ -5894,11 +5903,12 @@ private:
         bool fill) noexcept
     {
         if (!fill && style != nullptr) {
-            draw_styled_shape<rounded_rectangle_geometry>(
+            draw_geometry_shape<rounded_rectangle_geometry>(
                 rectangle,
                 brush_value,
                 stroke_width,
                 style,
+                false,
                 &factory::CreateRoundedRectangleGeometry);
             return;
         }
@@ -5912,10 +5922,13 @@ private:
             return;
         }
         if (rectangle->radius_x != rectangle->radius_y) {
-            const std::lock_guard lock(mutex_);
-            if (can_draw()) {
-                latch(not_implemented);
-            }
+            draw_geometry_shape<rounded_rectangle_geometry>(
+                rectangle,
+                brush_value,
+                stroke_width,
+                nullptr,
+                fill,
+                &factory::CreateRoundedRectangleGeometry);
             return;
         }
         const std::lock_guard lock(mutex_);
@@ -6068,11 +6081,12 @@ private:
         bool fill) noexcept
     {
         if (!fill && style != nullptr) {
-            draw_styled_shape<ellipse_geometry>(
+            draw_geometry_shape<ellipse_geometry>(
                 ellipse_value,
                 brush_value,
                 stroke_width,
                 style,
+                false,
                 &factory::CreateEllipseGeometry);
             return;
         }
