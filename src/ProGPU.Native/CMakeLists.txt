@@ -1433,6 +1433,43 @@ if(BUILD_TESTING AND NOT EMSCRIPTEN)
     set_tests_properties(
         progpu_native_direct2d_header_tests PROPERTIES TIMEOUT 60)
 
+    if(PROGPU_NATIVE_BUILD_WGPU_TARGET)
+        add_executable(progpu_native_direct2d_webgpu_tests
+            tests/progpu_native_direct2d_webgpu_tests.cpp)
+        target_compile_features(
+            progpu_native_direct2d_webgpu_tests PRIVATE cxx_std_20)
+        target_include_directories(
+            progpu_native_direct2d_webgpu_tests PRIVATE
+            "${CMAKE_CURRENT_SOURCE_DIR}/include")
+        target_include_directories(
+            progpu_native_direct2d_webgpu_tests SYSTEM PRIVATE
+            "${PROGPU_NATIVE_WEBGPU_INCLUDE_DIR}")
+        target_link_libraries(
+            progpu_native_direct2d_webgpu_tests PRIVATE
+            progpu_native
+            progpu_native_direct2d_core
+            "${PROGPU_NATIVE_WEBGPU_LIBRARY}")
+        progpu_native_enable_warnings(
+            progpu_native_direct2d_webgpu_tests)
+        progpu_native_enable_sanitizers(
+            progpu_native_direct2d_webgpu_tests)
+        get_filename_component(
+            _progpu_native_direct2d_webgpu_library_directory
+            "${PROGPU_NATIVE_WEBGPU_LIBRARY}" DIRECTORY)
+        if(APPLE OR UNIX)
+            set_target_properties(
+                progpu_native_direct2d_webgpu_tests PROPERTIES
+                BUILD_RPATH
+                    "${_progpu_native_direct2d_webgpu_library_directory}")
+        endif()
+        add_test(
+            NAME progpu_native_direct2d_webgpu_tests
+            COMMAND progpu_native_direct2d_webgpu_tests
+                "${CMAKE_CURRENT_BINARY_DIR}/progpu-native-direct2d-webgpu.ppm")
+        set_tests_properties(
+            progpu_native_direct2d_webgpu_tests PROPERTIES TIMEOUT 60)
+    endif()
+
     add_executable(progpu_native_direct2d_core_tests
         tests/progpu_native_direct2d_core_tests.cpp)
     target_compile_features(

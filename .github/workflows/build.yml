@@ -170,6 +170,14 @@ jobs:
           path: artifacts/progpu-native/win2d-oracle
           if-no-files-found: error
 
+      - name: Upload portable Direct2D WebGPU evidence
+        if: matrix.rid == 'linux-x64' || matrix.rid == 'osx-arm64' || matrix.rid == 'win-x64'
+        uses: actions/upload-artifact@v7
+        with:
+          name: progpu-direct2d-webgpu-${{ matrix.rid }}
+          path: artifacts/progpu-native/direct2d-oracle
+          if-no-files-found: error
+
       - name: Verify exact WebScene provider on Metal
         if: matrix.rid == 'osx-arm64'
         shell: bash
@@ -289,6 +297,41 @@ jobs:
         with:
           name: progpu-win2d-canvas-differential
           path: artifacts/progpu-native/win2d-oracle
+          if-no-files-found: error
+
+  native-direct2d-webgpu-parity:
+    name: Portable Direct2D COM parity (D3D12/Metal/Vulkan)
+    needs: native-cpp
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ env.PROGPU_QUALIFIED_COMMIT }}
+
+      - name: Download portable Direct2D frames
+        uses: actions/download-artifact@v8
+        with:
+          pattern: progpu-direct2d-webgpu-*
+          path: artifacts/progpu-native/direct2d-oracle
+          merge-multiple: true
+
+      - name: Compare D3D12, Metal, and Vulkan Direct2D frames
+        shell: bash
+        run: |
+          python3 eng/progpu-compare-direct2d-webgpu.py \
+            --reference artifacts/progpu-native/direct2d-oracle/progpu-direct2d-d3d12.ppm \
+            --candidate artifacts/progpu-native/direct2d-oracle/progpu-direct2d-metal.ppm \
+            --candidate artifacts/progpu-native/direct2d-oracle/progpu-direct2d-vulkan.ppm \
+            --output artifacts/progpu-native/direct2d-oracle/direct2d-webgpu-differential.json
+
+      - name: Upload portable Direct2D differential
+        uses: actions/upload-artifact@v7
+        with:
+          name: progpu-direct2d-webgpu-differential
+          path: artifacts/progpu-native/direct2d-oracle
           if-no-files-found: error
 
   native-cpp-compiler-compat:

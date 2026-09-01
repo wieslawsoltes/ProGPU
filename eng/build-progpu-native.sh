@@ -121,6 +121,26 @@ fi
 cmake "${cmake_options[@]}"
 cmake --build "${build_dir}" --config Release --parallel
 ctest --test-dir "${build_dir}" -C Release --output-on-failure
+direct2d_oracle_dir="${repo_root}/artifacts/progpu-native/direct2d-oracle"
+mkdir -p "${direct2d_oracle_dir}"
+case "$(uname -s)" in
+  Darwin)
+    direct2d_oracle_name="progpu-direct2d-metal.ppm"
+    ;;
+  Linux)
+    direct2d_oracle_name="progpu-direct2d-vulkan.ppm"
+    ;;
+  *)
+    echo "Unsupported portable Direct2D oracle host." >&2
+    exit 1
+    ;;
+esac
+direct2d_capture="${build_dir}/progpu-native-direct2d-webgpu.ppm"
+if [[ ! -s "${direct2d_capture}" ]]; then
+  echo "Portable Direct2D WebGPU CTest did not produce ${direct2d_capture}." >&2
+  exit 1
+fi
+cp "${direct2d_capture}" "${direct2d_oracle_dir}/${direct2d_oracle_name}"
 PROGPU_NATIVE_BUILD_DIR="${build_dir}" \
   "${repo_root}/eng/progpu-verify-native-exports.sh"
 

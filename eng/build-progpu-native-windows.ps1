@@ -268,6 +268,14 @@ if ($CurrentArchitecture -eq $RunnableArchitecture) {
     if ($LASTEXITCODE -ne 0) {
         throw "Native C++20 tests failed for $Compiler/$Rid."
     }
+    $Direct2DWebGpuCapture = Join-Path $BuildDir "progpu-native-direct2d-webgpu.ppm"
+    if (-not (Test-Path $Direct2DWebGpuCapture)) {
+        throw "Portable Direct2D WebGPU CTest did not produce $Direct2DWebGpuCapture."
+    }
+    $Direct2DOracleDirectory = Join-Path $RepoRoot "artifacts/progpu-native/direct2d-oracle"
+    New-Item -ItemType Directory -Force -Path $Direct2DOracleDirectory | Out-Null
+    Copy-Item $Direct2DWebGpuCapture `
+        (Join-Path $Direct2DOracleDirectory "progpu-direct2d-d3d12.ppm") -Force
     if ($SkipExtendedIntegration) {
         Write-Host "MSVC compiler qualification passed without rebuilding the Dawn ABI, packaging, sample, or managed differential matrix."
     } else {

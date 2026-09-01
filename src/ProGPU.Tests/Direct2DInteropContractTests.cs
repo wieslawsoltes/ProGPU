@@ -6,6 +6,44 @@ namespace ProGPU.Tests;
 public sealed class Direct2DInteropContractTests
 {
     [Fact]
+    public void PortableDirect2DWebGpuGateCoversD3D12MetalAndVulkan()
+    {
+        string nativeTest = ReadRepoFile(
+            "src",
+            "ProGPU.Native",
+            "tests",
+            "progpu_native_direct2d_webgpu_tests.cpp");
+        string cmake = ReadRepoFile(
+            "src",
+            "ProGPU.Native",
+            "CMakeLists.txt");
+        string unixBuild = ReadRepoFile("eng", "build-progpu-native.sh");
+        string windowsBuild = ReadRepoFile(
+            "eng",
+            "build-progpu-native-windows.ps1");
+        string comparator = ReadRepoFile(
+            "eng",
+            "progpu-compare-direct2d-webgpu.py");
+        string workflow = ReadRepoFile(
+            ".github",
+            "workflows",
+            "build.yml");
+
+        Assert.Contains("WGPUInstanceBackend_DX12", nativeTest, StringComparison.Ordinal);
+        Assert.Contains("WGPUInstanceBackend_Metal", nativeTest, StringComparison.Ordinal);
+        Assert.Contains("WGPUInstanceBackend_Vulkan", nativeTest, StringComparison.Ordinal);
+        Assert.Contains("d2d::render_scene_target(", nativeTest, StringComparison.Ordinal);
+        Assert.Contains("frame_metrics.submission_count == 1U", nativeTest, StringComparison.Ordinal);
+        Assert.Contains("progpu_native_direct2d_webgpu_tests", cmake, StringComparison.Ordinal);
+        Assert.Contains("progpu-direct2d-metal.ppm", unixBuild, StringComparison.Ordinal);
+        Assert.Contains("progpu-direct2d-vulkan.ppm", unixBuild, StringComparison.Ordinal);
+        Assert.Contains("progpu-direct2d-d3d12.ppm", windowsBuild, StringComparison.Ordinal);
+        Assert.Contains("MaximumChannelDifference\": 1", comparator, StringComparison.Ordinal);
+        Assert.Contains("native-direct2d-webgpu-parity", workflow, StringComparison.Ordinal);
+        Assert.Contains("progpu-compare-direct2d-webgpu.py", workflow, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void PortableComFoundationPreservesIdentityLifetimeAndInstallContract()
     {
         string header = ReadRepoFile(
