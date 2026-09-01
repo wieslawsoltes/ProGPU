@@ -13,6 +13,7 @@ using triangle = progpu_native_direct2d_triangle;
 using rectangle_f = core::rectangle_edges_f;
 
 inline constexpr com::result not_implemented = -2147467263;
+inline constexpr com::result wrong_factory = -2003238894;
 
 inline constexpr com::guid resource_interface_id{
     0x2CD90691U,
@@ -26,6 +27,11 @@ inline constexpr com::guid geometry_interface_id{
     {0x9FU, 0xEDU, 0x00U, 0x11U, 0x43U, 0xA0U, 0x55U, 0xF9U}};
 inline constexpr com::guid rectangle_geometry_interface_id{
     0x2CD906A2U,
+    0x12E2U,
+    0x11DCU,
+    {0x9FU, 0xEDU, 0x00U, 0x11U, 0x43U, 0xA0U, 0x55U, 0xF9U}};
+inline constexpr com::guid transformed_geometry_interface_id{
+    0x2CD906BBU,
     0x12E2U,
     0x11DCU,
     {0x9FU, 0xEDU, 0x00U, 0x11U, 0x43U, 0xA0U, 0x55U, 0xF9U}};
@@ -92,7 +98,6 @@ struct hwnd_render_target_properties;
 struct factory;
 struct geometry;
 struct geometry_group;
-struct transformed_geometry;
 struct path_geometry;
 struct stroke_style;
 struct drawing_state_block;
@@ -202,6 +207,13 @@ struct geometry : resource {
 struct rectangle_geometry : geometry {
     virtual void PROGPU_NATIVE_COM_CALL GetRect(rectangle_f* rectangle) const
         noexcept = 0;
+};
+
+struct transformed_geometry : geometry {
+    virtual void PROGPU_NATIVE_COM_CALL GetSourceGeometry(
+        geometry** source) const noexcept = 0;
+    virtual void PROGPU_NATIVE_COM_CALL GetTransform(
+        matrix_3x2_f* transform) const noexcept = 0;
 };
 
 /* The method order matches the original ID2D1Factory vtable. Unsupported

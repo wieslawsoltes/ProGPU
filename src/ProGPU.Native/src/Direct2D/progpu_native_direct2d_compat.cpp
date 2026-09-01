@@ -251,6 +251,288 @@ private:
     core::rectangle_geometry geometry_;
 };
 
+class portable_transformed_geometry final : public transformed_geometry {
+public:
+    portable_transformed_geometry(
+        factory* owner,
+        geometry* source,
+        matrix_3x2_f transform) noexcept
+        : owner_(owner), source_(source), transform_(transform)
+    {
+    }
+
+    com::result PROGPU_NATIVE_COM_CALL QueryInterface(
+        com::guid_ref interface_id,
+        void** value) noexcept override
+    {
+        if (value == nullptr) {
+            return com::pointer_error;
+        }
+        *value = nullptr;
+        if (com::guid_equal(interface_id, com::unknown_interface_id()) ||
+            com::guid_equal(interface_id, resource_interface_id) ||
+            com::guid_equal(interface_id, geometry_interface_id) ||
+            com::guid_equal(interface_id, transformed_geometry_interface_id)) {
+            *value = static_cast<transformed_geometry*>(this);
+            AddRef();
+            return com::ok;
+        }
+        return com::no_interface;
+    }
+
+    com::reference_count_value PROGPU_NATIVE_COM_CALL AddRef()
+        noexcept override
+    {
+        return reference_count_.add_ref();
+    }
+
+    com::reference_count_value PROGPU_NATIVE_COM_CALL Release()
+        noexcept override
+    {
+        return reference_count_.release(this);
+    }
+
+    void PROGPU_NATIVE_COM_CALL GetFactory(factory** value) const
+        noexcept override
+    {
+        if (value == nullptr) {
+            return;
+        }
+        *value = owner_.get();
+        if (*value != nullptr) {
+            (*value)->AddRef();
+        }
+    }
+
+    com::result PROGPU_NATIVE_COM_CALL GetBounds(
+        const matrix_3x2_f* world_transform,
+        rectangle_f* bounds) const noexcept override
+    {
+        matrix_3x2_f composed{};
+        const com::result status = compose(world_transform, &composed);
+        return com::failed(status)
+            ? status
+            : source_->GetBounds(&composed, bounds);
+    }
+
+    com::result PROGPU_NATIVE_COM_CALL GetWidenedBounds(
+        float stroke_width,
+        stroke_style* style,
+        const matrix_3x2_f* world_transform,
+        float flattening_tolerance,
+        rectangle_f* bounds) const noexcept override
+    {
+        matrix_3x2_f composed{};
+        const com::result status = compose(world_transform, &composed);
+        return com::failed(status)
+            ? status
+            : source_->GetWidenedBounds(
+                  stroke_width,
+                  style,
+                  &composed,
+                  flattening_tolerance,
+                  bounds);
+    }
+
+    com::result PROGPU_NATIVE_COM_CALL StrokeContainsPoint(
+        point_2f point,
+        float stroke_width,
+        stroke_style* style,
+        const matrix_3x2_f* world_transform,
+        float flattening_tolerance,
+        std::int32_t* contains) const noexcept override
+    {
+        matrix_3x2_f composed{};
+        const com::result status = compose(world_transform, &composed);
+        return com::failed(status)
+            ? status
+            : source_->StrokeContainsPoint(
+                  point,
+                  stroke_width,
+                  style,
+                  &composed,
+                  flattening_tolerance,
+                  contains);
+    }
+
+    com::result PROGPU_NATIVE_COM_CALL FillContainsPoint(
+        point_2f point,
+        const matrix_3x2_f* world_transform,
+        float flattening_tolerance,
+        std::int32_t* contains) const noexcept override
+    {
+        matrix_3x2_f composed{};
+        const com::result status = compose(world_transform, &composed);
+        return com::failed(status)
+            ? status
+            : source_->FillContainsPoint(
+                  point, &composed, flattening_tolerance, contains);
+    }
+
+    com::result PROGPU_NATIVE_COM_CALL CompareWithGeometry(
+        geometry*,
+        const matrix_3x2_f*,
+        float,
+        geometry_relation* relation) const noexcept override
+    {
+        if (relation == nullptr) {
+            return com::pointer_error;
+        }
+        *relation = geometry_relation::unknown;
+        return not_implemented;
+    }
+
+    com::result PROGPU_NATIVE_COM_CALL Simplify(
+        geometry_simplification_option option,
+        const matrix_3x2_f* world_transform,
+        float flattening_tolerance,
+        simplified_geometry_sink* sink) const noexcept override
+    {
+        matrix_3x2_f composed{};
+        const com::result status = compose(world_transform, &composed);
+        return com::failed(status)
+            ? status
+            : source_->Simplify(
+                  option, &composed, flattening_tolerance, sink);
+    }
+
+    com::result PROGPU_NATIVE_COM_CALL Tessellate(
+        const matrix_3x2_f* world_transform,
+        float flattening_tolerance,
+        tessellation_sink* sink) const noexcept override
+    {
+        matrix_3x2_f composed{};
+        const com::result status = compose(world_transform, &composed);
+        return com::failed(status)
+            ? status
+            : source_->Tessellate(&composed, flattening_tolerance, sink);
+    }
+
+    com::result PROGPU_NATIVE_COM_CALL CombineWithGeometry(
+        geometry*,
+        combine_mode,
+        const matrix_3x2_f*,
+        float,
+        simplified_geometry_sink*) const noexcept override
+    {
+        return not_implemented;
+    }
+
+    com::result PROGPU_NATIVE_COM_CALL Outline(
+        const matrix_3x2_f* world_transform,
+        float flattening_tolerance,
+        simplified_geometry_sink* sink) const noexcept override
+    {
+        matrix_3x2_f composed{};
+        const com::result status = compose(world_transform, &composed);
+        return com::failed(status)
+            ? status
+            : source_->Outline(&composed, flattening_tolerance, sink);
+    }
+
+    com::result PROGPU_NATIVE_COM_CALL ComputeArea(
+        const matrix_3x2_f* world_transform,
+        float flattening_tolerance,
+        float* area) const noexcept override
+    {
+        matrix_3x2_f composed{};
+        const com::result status = compose(world_transform, &composed);
+        return com::failed(status)
+            ? status
+            : source_->ComputeArea(
+                  &composed, flattening_tolerance, area);
+    }
+
+    com::result PROGPU_NATIVE_COM_CALL ComputeLength(
+        const matrix_3x2_f* world_transform,
+        float flattening_tolerance,
+        float* length) const noexcept override
+    {
+        matrix_3x2_f composed{};
+        const com::result status = compose(world_transform, &composed);
+        return com::failed(status)
+            ? status
+            : source_->ComputeLength(
+                  &composed, flattening_tolerance, length);
+    }
+
+    com::result PROGPU_NATIVE_COM_CALL ComputePointAtLength(
+        float length,
+        const matrix_3x2_f* world_transform,
+        float flattening_tolerance,
+        point_2f* point,
+        point_2f* unit_tangent) const noexcept override
+    {
+        matrix_3x2_f composed{};
+        const com::result status = compose(world_transform, &composed);
+        return com::failed(status)
+            ? status
+            : source_->ComputePointAtLength(
+                  length,
+                  &composed,
+                  flattening_tolerance,
+                  point,
+                  unit_tangent);
+    }
+
+    com::result PROGPU_NATIVE_COM_CALL Widen(
+        float stroke_width,
+        stroke_style* style,
+        const matrix_3x2_f* world_transform,
+        float flattening_tolerance,
+        simplified_geometry_sink* sink) const noexcept override
+    {
+        matrix_3x2_f composed{};
+        const com::result status = compose(world_transform, &composed);
+        return com::failed(status)
+            ? status
+            : source_->Widen(
+                  stroke_width,
+                  style,
+                  &composed,
+                  flattening_tolerance,
+                  sink);
+    }
+
+    void PROGPU_NATIVE_COM_CALL GetSourceGeometry(geometry** source) const
+        noexcept override
+    {
+        if (source == nullptr) {
+            return;
+        }
+        *source = source_.get();
+        if (*source != nullptr) {
+            (*source)->AddRef();
+        }
+    }
+
+    void PROGPU_NATIVE_COM_CALL GetTransform(
+        matrix_3x2_f* transform) const noexcept override
+    {
+        if (transform != nullptr) {
+            *transform = transform_;
+        }
+    }
+
+private:
+    [[nodiscard]] com::result compose(
+        const matrix_3x2_f* world_transform,
+        matrix_3x2_f* composed) const noexcept
+    {
+        return core::compose_transform(
+            transform_, world_transform, composed);
+    }
+
+    friend class com::atomic_reference_count<portable_transformed_geometry>;
+    ~portable_transformed_geometry() = default;
+
+    com::atomic_reference_count<portable_transformed_geometry>
+        reference_count_;
+    com::pointer<factory> owner_;
+    com::pointer<geometry> source_;
+    matrix_3x2_f transform_{};
+};
+
 class portable_factory final : public factory {
 public:
     com::result PROGPU_NATIVE_COM_CALL QueryInterface(
@@ -345,11 +627,32 @@ public:
     }
 
     com::result PROGPU_NATIVE_COM_CALL CreateTransformedGeometry(
-        geometry*,
-        const matrix_3x2_f*,
+        geometry* source,
+        const matrix_3x2_f* transform,
         transformed_geometry** value) noexcept override
     {
-        return unsupported_output(value);
+        if (value == nullptr) {
+            return com::pointer_error;
+        }
+        *value = nullptr;
+        if (source == nullptr || transform == nullptr ||
+            !core::valid_transform(transform)) {
+            return com::invalid_argument;
+        }
+        com::pointer<factory> source_factory;
+        factory* raw_source_factory = nullptr;
+        source->GetFactory(&raw_source_factory);
+        source_factory.attach(raw_source_factory);
+        if (!source_factory || source_factory.get() != this) {
+            return wrong_factory;
+        }
+        auto* created = new (std::nothrow) portable_transformed_geometry(
+            this, source, *transform);
+        if (created == nullptr) {
+            return com::out_of_memory;
+        }
+        *value = created;
+        return com::ok;
     }
 
     com::result PROGPU_NATIVE_COM_CALL CreatePathGeometry(

@@ -13,18 +13,6 @@ namespace {
     return std::isfinite(point.x) && std::isfinite(point.y);
 }
 
-[[nodiscard]] bool finite_transform(
-    const progpu_native_direct2d_matrix_3x2_f* transform) noexcept
-{
-    return transform == nullptr ||
-        (std::isfinite(transform->m11) &&
-            std::isfinite(transform->m12) &&
-            std::isfinite(transform->m21) &&
-            std::isfinite(transform->m22) &&
-            std::isfinite(transform->m31) &&
-            std::isfinite(transform->m32));
-}
-
 [[nodiscard]] bool valid_tolerance(float value) noexcept
 {
     return std::isfinite(value) && value > 0.0F;
@@ -44,6 +32,64 @@ namespace {
 }
 
 } // namespace
+
+bool valid_transform(
+    const progpu_native_direct2d_matrix_3x2_f* transform) noexcept
+{
+    return transform == nullptr ||
+        (std::isfinite(transform->m11) &&
+            std::isfinite(transform->m12) &&
+            std::isfinite(transform->m21) &&
+            std::isfinite(transform->m22) &&
+            std::isfinite(transform->m31) &&
+            std::isfinite(transform->m32));
+}
+
+com::result compose_transform(
+    const progpu_native_direct2d_matrix_3x2_f& first,
+    const progpu_native_direct2d_matrix_3x2_f* second,
+    progpu_native_direct2d_matrix_3x2_f* result) noexcept
+{
+    if (result == nullptr) {
+        return com::pointer_error;
+    }
+    *result = {};
+    if (!valid_transform(&first) || !valid_transform(second)) {
+        return com::invalid_argument;
+    }
+    const progpu_native_direct2d_matrix_3x2_f identity{
+        1.0F, 0.0F, 0.0F, 1.0F, 0.0F, 0.0F};
+    const auto& right = second == nullptr ? identity : *second;
+    const std::array<double, 6U> values{{
+        static_cast<double>(first.m11) * right.m11 +
+            static_cast<double>(first.m12) * right.m21,
+        static_cast<double>(first.m11) * right.m12 +
+            static_cast<double>(first.m12) * right.m22,
+        static_cast<double>(first.m21) * right.m11 +
+            static_cast<double>(first.m22) * right.m21,
+        static_cast<double>(first.m21) * right.m12 +
+            static_cast<double>(first.m22) * right.m22,
+        static_cast<double>(first.m31) * right.m11 +
+            static_cast<double>(first.m32) * right.m21 + right.m31,
+        static_cast<double>(first.m31) * right.m12 +
+            static_cast<double>(first.m32) * right.m22 + right.m32}};
+    constexpr double maximum =
+        static_cast<double>((std::numeric_limits<float>::max)());
+    if (!std::all_of(values.begin(), values.end(), [&](double value) {
+            return std::isfinite(value) && value >= -maximum &&
+                value <= maximum;
+        })) {
+        return com::invalid_argument;
+    }
+    *result = {
+        static_cast<float>(values[0U]),
+        static_cast<float>(values[1U]),
+        static_cast<float>(values[2U]),
+        static_cast<float>(values[3U]),
+        static_cast<float>(values[4U]),
+        static_cast<float>(values[5U])};
+    return com::ok;
+}
 
 rectangle_geometry::rectangle_geometry(
     rectangle_edges_f rectangle) noexcept
@@ -67,7 +113,7 @@ com::result rectangle_geometry::vertices(
 {
     value = {};
     if (!valid_rectangle(rectangle_) ||
-        !finite_transform(world_transform)) {
+        !valid_transform(world_transform)) {
         return com::invalid_argument;
     }
     const progpu_native_direct2d_matrix_3x2_f identity{

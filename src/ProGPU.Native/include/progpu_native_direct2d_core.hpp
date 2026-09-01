@@ -20,6 +20,16 @@ struct rectangle_edges_f final {
     float bottom;
 };
 
+[[nodiscard]] bool valid_transform(
+    const progpu_native_direct2d_matrix_3x2_f* transform) noexcept;
+
+/* Direct2D uses row-vector affine matrices. The returned matrix applies
+ * first, followed by second (or identity when second is null). */
+[[nodiscard]] com::result compose_transform(
+    const progpu_native_direct2d_matrix_3x2_f& first,
+    const progpu_native_direct2d_matrix_3x2_f* second,
+    progpu_native_direct2d_matrix_3x2_f* result) noexcept;
+
 class rectangle_geometry final {
 public:
     explicit rectangle_geometry(rectangle_edges_f rectangle) noexcept;
