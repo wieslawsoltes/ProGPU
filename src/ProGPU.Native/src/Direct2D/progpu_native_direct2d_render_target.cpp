@@ -2519,6 +2519,33 @@ struct inline_object_value final {
         : reinterpret_cast<const text_layout_object*>(layout)->vtable;
 }
 
+class text_layout_reference final {
+public:
+    explicit text_layout_reference(text_layout* value) noexcept
+        : value_(value)
+    {
+    }
+
+    text_layout_reference(const text_layout_reference&) = delete;
+    text_layout_reference& operator=(const text_layout_reference&) = delete;
+
+    ~text_layout_reference()
+    {
+        const auto* vtable = read_text_layout_vtable(value_);
+        if (vtable != nullptr && vtable->release != nullptr) {
+            vtable->release(value_);
+        }
+    }
+
+    [[nodiscard]] explicit operator bool() const noexcept
+    {
+        return value_ != nullptr;
+    }
+
+private:
+    text_layout* value_ = nullptr;
+};
+
 class portable_text_renderer final : public text_renderer {
 public:
     portable_text_renderer(
@@ -4192,8 +4219,7 @@ public:
             height,
             measuring,
             &raw_layout);
-        com::pointer<com::unknown> layout_owner;
-        layout_owner.attach(reinterpret_cast<com::unknown*>(raw_layout));
+        const text_layout_reference layout_owner(raw_layout);
         if (com::failed(create_result) || !layout_owner) {
             latch_external_draw_failure(
                 com::failed(create_result) ? create_result : failure);
