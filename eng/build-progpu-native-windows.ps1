@@ -292,6 +292,8 @@ if ($CurrentArchitecture -eq $RunnableArchitecture) {
         $NativeProviderReport = Get-Content $NativeProviderEvidence -Raw
         $IsParallelsDisplayAdapter =
             $NativeProviderReport -match "(?m)^adapter=Parallels Display Adapter"
+        $IsMicrosoftBasicRenderDriver =
+            $NativeProviderReport -match "(?m)^adapter=Microsoft Basic Render Driver"
         $SampleOutput = Join-Path $RepoRoot "artifacts/progpu-native/sample/progpu-native-managed-$Rid.ppm"
         New-Item -ItemType Directory -Force -Path (Split-Path -Parent $SampleOutput) | Out-Null
         $ManagedSampleProject = Join-Path $RepoRoot "src/ProGPU.Native.ManagedSample/ProGPU.Native.ManagedSample.csproj"
@@ -308,20 +310,18 @@ if ($CurrentArchitecture -eq $RunnableArchitecture) {
         if ($LASTEXITCODE -ne 0 -or -not (Test-Path $BenchmarkDll)) {
             throw "The native differential benchmark build failed."
         }
-        $ManagedSampleSucceeded = $false
-        for ($ManagedSampleAttempt = 1; $ManagedSampleAttempt -le 2; $ManagedSampleAttempt++) {
-            & dotnet $ManagedSampleDll $SampleOutput
-            if ($LASTEXITCODE -eq 0) {
-                $ManagedSampleSucceeded = $true
-                break
-            }
-            if ($ManagedSampleAttempt -lt 2) {
-                Write-Warning "The managed native-renderer sample lost its first disposable CI device; retrying once with a fresh process."
-                Start-Sleep -Seconds 2
-            }
+        $ManagedSampleArguments = @($SampleOutput)
+        if ($IsMicrosoftBasicRenderDriver) {
+            # GitHub's software-only D3D12 adapter executes the same retained
+            # scene at half physical resolution. The 640x360 full-resolution
+            # workload remains mandatory on Parallels and hardware adapters;
+            # this lane still validates scene compilation, native submission,
+            # stable retained resources, readback, and exact pixel probes.
+            $ManagedSampleArguments += "--software-adapter-ci"
         }
-        if (-not $ManagedSampleSucceeded) {
-            throw "The managed native-renderer sample failed twice."
+        & dotnet $ManagedSampleDll @ManagedSampleArguments
+        if ($LASTEXITCODE -ne 0) {
+            throw "The managed native-renderer sample failed."
         }
         function Invoke-NativeBenchmark {
             & dotnet $BenchmarkDll @args

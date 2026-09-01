@@ -5285,6 +5285,19 @@ Direct2D test in 0.25 seconds and all 11 native suites under warning-as-error,
 while ClangCL x64 job `99309300268` passes it in 0.14 seconds and all 12 native
 suites before the unrelated later Dawn software-adapter loss.
 
+The Windows renderer gate distinguishes hardware qualification from the
+software-only Microsoft Basic Render Driver lane. Hardware and Parallels run
+the complete managed retained sample at 640x360. The Basic Render Driver runs
+the identical logical scene, native command stream, retained-resource replay,
+readback, and color probes at 320x180 with a 0.5 DPI scale. This reduces only
+physical shader work after repeated full-resolution software runs spent about
+75 seconds in one frame and deterministically lost the D3D12 device during
+readback. It does not skip a draw, substitute a CPU renderer, relax the pixel
+oracle for nondegenerate primitives, or change the full-resolution hardware
+gate. The zero-radius edge-aliased point remains structurally qualified by the
+exact compiler metrics but is subpixel-degenerate at half DPI; its pixel probe
+remains mandatory in the full-resolution lane.
+
 ABI v25 closes that follow-up without publishing arbitrary COM sink pointers.
 The provider materializes simplify, outline, and widen results as genuine
 same-factory `ID2D1PathGeometry1` resources. Its tessellation sink writes

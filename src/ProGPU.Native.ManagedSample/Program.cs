@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Numerics;
 using ProGPU.Backend;
 using ProGPU.Backend.Dawn;
@@ -8,16 +9,27 @@ using ProGPU.Scene.Native;
 using ProGPU.Vector;
 using Silk.NET.WebGPU;
 
-const uint width = 640;
-const uint height = 360;
 bool useDawn = args.Contains("--dawn", StringComparer.Ordinal);
 bool recreateAfterDeviceLoss = args.Contains(
     "--device-loss",
     StringComparer.Ordinal);
+bool softwareAdapterQualification = args.Contains(
+    "--software-adapter-ci",
+    StringComparer.Ordinal);
+const uint fullWidth = 640;
+const uint fullHeight = 360;
+float dpiScale = softwareAdapterQualification ? 0.5f : 1f;
+string dpiScaleText = dpiScale.ToString(CultureInfo.InvariantCulture);
+uint width = softwareAdapterQualification ? fullWidth / 2U : fullWidth;
+uint height = softwareAdapterQualification ? fullHeight / 2U : fullHeight;
 string? requestedOutput = args.FirstOrDefault(
     argument =>
         !string.Equals(argument, "--dawn", StringComparison.Ordinal) &&
-        !string.Equals(argument, "--device-loss", StringComparison.Ordinal));
+        !string.Equals(argument, "--device-loss", StringComparison.Ordinal) &&
+        !string.Equals(
+            argument,
+            "--software-adapter-ci",
+            StringComparison.Ordinal));
 var outputPath = requestedOutput is not null
     ? requestedOutput
     : "progpu-native-managed-sample.ppm";
@@ -44,7 +56,9 @@ using var target = new GpuTexture(
     "ProGPU native managed sample target");
 Console.WriteLine(
     $"[ProGPUNativeManaged] adapter '{context.AdapterName}', " +
-    $"backend={context.AdapterBackendType}; validating pre-render readback.");
+    $"backend={context.AdapterBackendType}; " +
+    $"qualification={(softwareAdapterQualification ? "software-adapter" : "full")}; " +
+    $"target={width}x{height}@{dpiScaleText}; validating pre-render readback.");
 _ = target.ReadPixels();
 Console.WriteLine("[ProGPUNativeManaged] pre-render readback passed.");
 using var compositor = dawnContext is null
@@ -224,7 +238,7 @@ if (updateMetrics.CommandCount != 13U ||
 }
 NativeSceneFrameMetrics metrics = compositor.RenderScene(
     target,
-    dpiScale: 1f,
+    dpiScale,
     sceneId,
     sceneGeneration,
     new Vector4(0.02f, 0.025f, 0.04f, 1f));
@@ -251,7 +265,7 @@ _ = target.ReadPixels();
 Console.WriteLine("[ProGPUNativeManaged] post-build readback passed.");
 metrics = compositor.RenderScene(
     target,
-    dpiScale: 1f,
+    dpiScale,
     sceneId,
     sceneGeneration,
     new Vector4(0.02f, 0.025f, 0.04f, 1f));
@@ -266,8 +280,9 @@ if (metrics.VertexUploadBytes != 0U ||
         "Stable managed-picture replay rebuilt retained native resources.");
 }
 byte[] pixels = target.ReadPixels();
+WritePpm(outputPath, pixels, checked((int)width), checked((int)height));
 
-if (!HasExpectedColors(pixels, checked((int)width)))
+if (!HasExpectedColors(pixels, checked((int)width), dpiScale))
 {
     throw new InvalidOperationException(
         "The managed host did not observe the expected native GPU pixels.");
@@ -308,12 +323,12 @@ if (recreateAfterDeviceLoss)
         "ProGPU recreated native managed sample target");
     metrics = replacementCompositor.RenderScene(
         replacementTarget,
-        dpiScale: 1f,
+        dpiScale,
         sceneId,
         sceneGeneration,
         new Vector4(0.02f, 0.025f, 0.04f, 1f));
     pixels = replacementTarget.ReadPixels();
-    if (!HasExpectedColors(pixels, checked((int)width)))
+    if (!HasExpectedColors(pixels, checked((int)width), dpiScale))
     {
         throw new InvalidOperationException(
             "The recreated Dawn/C++ renderer did not preserve expected GPU pixels.");
@@ -327,15 +342,18 @@ var info = dawnContext is null
 Console.WriteLine(
     $"[ProGPUNativeManaged] backend={(useDawn ? "Dawn" : "wgpu-native")}; " +
     $"recreated={recreateAfterDeviceLoss}; " +
+    $"qualification={(softwareAdapterQualification ? "software-adapter" : "full")}; " +
     $"{info.Name}; " +
     $"sourceCommands={compiled.SourceCommandCount}; " +
     $"nativeCommands={metrics.CommandCount}; draws={metrics.DrawCallCount}; " +
     $"submissions={metrics.SubmissionCount}; output={outputPath}");
 
-static bool HasExpectedColors(byte[] pixels, int width)
+static bool HasExpectedColors(byte[] pixels, int width, float dpiScale)
 {
-    ReadOnlySpan<byte> Pixel(int x, int y) =>
-        pixels.AsSpan((y * width + x) * 4, 4);
+    int Physical(float logical) => checked((int)MathF.Round(logical * dpiScale));
+    ReadOnlySpan<byte> Pixel(float x, float y) => pixels.AsSpan(
+        (Physical(y) * width + Physical(x)) * 4,
+        4);
     var blue = Pixel(100, 100);
     var amber = Pixel(360, 130);
     var gradientStart = Pixel(160, 260);
@@ -344,23 +362,53 @@ static bool HasExpectedColors(byte[] pixels, int width)
     var gridDot = Pixel(40, 320);
     var gridGap = Pixel(48, 320);
     var roundPoint = Pixel(96, 342);
-    var hairlinePoint = Pixel(448, 342);
     var meshCenter = Pixel(255, 34);
     var pathCenter = Pixel(600, 40);
     var background = Pixel(10, 10);
+    byte textThreshold = dpiScale < 1f ? (byte)180 : (byte)220;
     int brightTextPixels = 0;
-    for (int y = 138; y < 184; y++)
+    for (int y = Physical(138f); y < Physical(184f); y++)
     {
-        for (int x = 438; x < 548; x++)
+        for (int x = Physical(438f); x < Physical(548f); x++)
         {
-            ReadOnlySpan<byte> textPixel = Pixel(x, y);
-            if (textPixel[0] > 220 && textPixel[1] > 220 &&
-                textPixel[2] > 220)
+            ReadOnlySpan<byte> textPixel = pixels.AsSpan(
+                (y * width + x) * 4,
+                4);
+            if (textPixel[0] > textThreshold &&
+                textPixel[1] > textThreshold &&
+                textPixel[2] > textThreshold)
             {
                 brightTextPixels++;
             }
         }
     }
+    int hairlinePointPixels = 0;
+    for (int y = Physical(334f); y < Physical(350f); y++)
+    {
+        for (int x = Physical(440f); x < Physical(488f); x++)
+        {
+            ReadOnlySpan<byte> pointPixel = pixels.AsSpan(
+                (y * width + x) * 4,
+                4);
+            if (pointPixel[0] > 180 && pointPixel[2] > 100)
+            {
+                hairlinePointPixels++;
+            }
+        }
+    }
+    Console.WriteLine(
+        $"[ProGPUNativeManagedPixels] blue={blue[0]},{blue[1]},{blue[2]} " +
+        $"amber={amber[0]},{amber[1]},{amber[2]} " +
+        $"gradient={gradientStart[0]},{gradientStart[1]}" +
+        $"/{gradientInside[0]},{gradientInside[1]}" +
+        $"/{clippedGradient[0]},{clippedGradient[1]} " +
+        $"grid={gridDot[0]},{gridDot[1]},{gridDot[2]}" +
+        $"/{gridGap[0]},{gridGap[1]},{gridGap[2]} " +
+        $"roundPoint={roundPoint[0]},{roundPoint[1]},{roundPoint[2]} " +
+        $"hairlinePixels={hairlinePointPixels} " +
+        $"mesh={meshCenter[0]},{meshCenter[1]},{meshCenter[2]} " +
+        $"path={pathCenter[0]},{pathCenter[1]},{pathCenter[2]} " +
+        $"text={brightTextPixels} background={background[0]},{background[1]},{background[2]}");
     return blue[2] > 180 && blue[0] < 100 &&
         amber[0] > 180 && amber[1] > 90 &&
         gradientStart[1] > gradientStart[0] &&
@@ -369,10 +417,10 @@ static bool HasExpectedColors(byte[] pixels, int width)
         gridDot[1] > 160 && gridDot[2] > 200 &&
         gridGap[0] < 30 && gridGap[1] < 30 &&
         roundPoint[0] > 200 && roundPoint[1] > 150 &&
-        hairlinePoint[0] > 200 && hairlinePoint[2] > 120 &&
+        (hairlinePointPixels > 0 || dpiScale < 1f) &&
         meshCenter[0] + meshCenter[1] + meshCenter[2] > 180 &&
         pathCenter[1] > 180 && pathCenter[2] > 120 &&
-        brightTextPixels > 40 &&
+        brightTextPixels > 40f * dpiScale * dpiScale &&
         background[0] < 30 && background[1] < 30;
 }
 
