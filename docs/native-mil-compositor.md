@@ -5287,16 +5287,19 @@ suites before the unrelated later Dawn software-adapter loss.
 
 The Windows renderer gate distinguishes hardware qualification from the
 software-only Microsoft Basic Render Driver lane. Hardware and Parallels run
-the complete managed retained sample at 640x360. The Basic Render Driver runs
-the identical logical scene, native command stream, retained-resource replay,
-readback, and color probes at 320x180 with a 0.5 DPI scale. This reduces only
-physical shader work after repeated full-resolution software runs spent about
-75 seconds in one frame and deterministically lost the D3D12 device during
-readback. It does not skip a draw, substitute a CPU renderer, relax the pixel
-oracle for nondegenerate primitives, or change the full-resolution hardware
-gate. The zero-radius edge-aliased point remains structurally qualified by the
-exact compiler metrics but is subpixel-degenerate at half DPI; its pixel probe
-remains mandatory in the full-resolution lane.
+the complete managed retained sample at 640x360. The Basic Render Driver
+compiles the same complete 16-command picture and validates its full native
+stream plus exact compiler/parser counters without submitting it. GPU
+execution uses a bounded four-source-command analytic managed scene at
+320x180 and 0.5 DPI, covering nested/direct solid rectangles and a linear
+gradient in one coalesced retained batch. It must still submit once, preserve
+zero uploads on the second frame, read back, and pass solid, gradient, outside,
+and background pixel probes. Repeated full managed path/glyph coverage runs
+spent about 80 seconds before deterministic device loss even at half target
+size, proving resolution was not the controlling cost. No CPU renderer or
+retry is substituted; the full C++ D3D12 sample still runs on the software
+adapter, and full managed GPU execution remains mandatory on hardware and
+Parallels.
 
 ABI v25 closes that follow-up without publishing arbitrary COM sink pointers.
 The provider materializes simplify, outline, and widen results as genuine

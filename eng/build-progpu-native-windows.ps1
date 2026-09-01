@@ -312,10 +312,11 @@ if ($CurrentArchitecture -eq $RunnableArchitecture) {
         }
         $ManagedSampleArguments = @($SampleOutput)
         if ($IsMicrosoftBasicRenderDriver) {
-            # GitHub's software-only D3D12 adapter executes the same retained
-            # scene at half physical resolution. The 640x360 full-resolution
-            # workload remains mandatory on Parallels and hardware adapters;
-            # this lane still validates scene compilation, native submission,
+            # GitHub's software-only D3D12 adapter validates the complete
+            # managed scene stream, then GPU-executes the bounded analytic
+            # qualification scene at half physical resolution. The complete
+            # 640x360 managed GPU workload remains mandatory on Parallels and
+            # hardware adapters; this lane still validates native submission,
             # stable retained resources, readback, and exact pixel probes.
             $ManagedSampleArguments += "--software-adapter-ci"
         }
