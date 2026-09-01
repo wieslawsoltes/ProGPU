@@ -1588,14 +1588,17 @@ renderers and compares pixels; it is not a CPU-rendered or validation-only
 replacement.
 
 The full portable Win2D Canvas frame remains a D3D12/Metal/Vulkan pixel gate.
-On Microsoft Basic Render Driver only, CI forces the qualified intrinsic-SIMD
-glyph-coverage policy for that unchanged 16+2-draw frame: its software GPU
-coverage route intermittently loses the CPU-only device after roughly 79
-seconds at final readback. Geometry, textures, gradients, command lists,
-layers, native rendering, submission, and readback still execute through the
-D3D12 C++ backend, and the resulting full frame remains in the cross-backend
-differential. Hardware/Parallels and Metal/Vulkan retain automatic fastest
-selection. The environment setting is scoped to this process and restored.
+On Microsoft Basic Render Driver only, CI partitions its independent feature
+groups with `CanvasDrawingSession.Flush()` so no single CPU-D3D12 command
+batch contains the complete path/text/layer workload. Every original command
+and pixel probe remains, automatic GPU-first execution is unchanged, and no
+intermediate readback or CPU composition is introduced. This exposed and
+fixed an incremental-target defect: `NativeCompositor` now has a typed
+full-target-preserve entry, Canvas no longer models preservation as a full
+damage rectangle, and isolated-layer root replay selects `WGPULoadOp_Load`
+when preservation is requested. A partitioned Metal run retains the exact
+qualified `D72F667FCB6AC14B2C28A1C45001734C3B62B85B1816069521C9019985D1B39B`
+frame hash and reports all work as 17+2 native draws after batch boundaries.
 
 Microsoft Basic Render Driver also defers only the two forced signed-winding
 compute execution profiles after its inline four-rectangle rerasterization

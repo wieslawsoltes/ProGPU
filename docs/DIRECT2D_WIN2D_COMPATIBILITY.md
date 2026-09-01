@@ -2801,17 +2801,18 @@ closed rather than returning a partial COM object.
    interiors and clips exact while allowing only bounded shader rounding on
    antialiased edges.
 
-Microsoft Basic Render Driver keeps that complete 16+2-draw Canvas frame and
-the same cross-backend differential, but the Windows CI process explicitly
-selects intrinsic-SIMD glyph coverage for it. The CPU-only adapter's software
-GPU coverage path intermittently reaches final readback only after roughly 79
-seconds and then loses the device. Geometry, bitmap copies/leases, gradients,
-command lists, clips/layers, D3D12 rendering, submission, and readback remain
-live; only glyph coverage takes the already differential-tested SIMD route.
-The scoped execution setting is restored afterward. Forced-SIMD Metal
-reproduces the exact qualified
+Microsoft Basic Render Driver keeps the complete Canvas frame and the same
+cross-backend differential, but partitions independent feature groups with
+`CanvasDrawingSession.Flush()` so its CPU-D3D12 backend does not receive one
+oversized path/text/layer batch. All original draw calls and pixel probes stay
+live under automatic GPU-first selection; no intermediate readback, repacking,
+or CPU composition occurs. The split uncovered a real incremental Canvas
+defect: preserved commits containing isolated layers cleared earlier target
+contents. The managed backend now requests typed full-target preservation and
+the native isolated-layer root pass uses `WGPULoadOp_Load`. A partitioned
+Metal run reproduces the exact qualified
 `D72F667FCB6AC14B2C28A1C45001734C3B62B85B1816069521C9019985D1B39B`
-hash, while hardware/Parallels and Metal/Vulkan automatic gates are unchanged.
+hash with 17+2 native draws after submission boundaries.
 
 1. Build and capture the pinned unmodified SimpleSample plus selected
    ExampleGallery scenes with real Win2D on Windows. Shapes, geometry

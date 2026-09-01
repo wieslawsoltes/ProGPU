@@ -127,9 +127,7 @@ public sealed class CanvasDevice : ICanvasResourceCreator, IDisposable
         ulong sceneId,
         ulong generation,
         Vector4 clearColor,
-        bool preserveTarget,
-        float logicalWidth,
-        float logicalHeight)
+        bool preserveTarget)
     {
         ThrowIfDisposed();
         ArgumentNullException.ThrowIfNull(picture);
@@ -167,17 +165,12 @@ public sealed class CanvasDevice : ICanvasResourceCreator, IDisposable
             }
 
             NativeSceneFrameMetrics frame = preserveTarget
-                ? compositor.RenderScene(
+                ? compositor.RenderScenePreservingTarget(
                     target,
                     dpiScale,
                     sceneId,
                     generation,
-                    clearColor,
-                    new NativeSceneDamageRect(
-                        0f,
-                        0f,
-                        logicalWidth,
-                        logicalHeight))
+                    clearColor)
                 : compositor.RenderScene(
                     target,
                     dpiScale,
