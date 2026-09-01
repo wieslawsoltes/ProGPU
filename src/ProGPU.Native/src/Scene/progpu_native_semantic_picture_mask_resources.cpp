@@ -18,6 +18,7 @@
 #include "progpu_webgpu_compat.hpp"
 
 #include <algorithm>
+#include <array>
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
@@ -82,10 +83,14 @@ bool create_semantic_picture_mask_binding(
         return false;
     }
 
-    const std::uint32_t source_width =
-        target_extent.x + target_extent.width;
-    const std::uint32_t source_height =
-        target_extent.y + target_extent.height;
+    const bool source_extent =
+        (picture.flags & PROGPU_NATIVE_SCENE_PICTURE_MASK_SOURCE_EXTENT) != 0U;
+    const std::uint32_t source_width = source_extent
+        ? picture.reserved0
+        : target_extent.x + target_extent.width;
+    const std::uint32_t source_height = source_extent
+        ? picture.reserved1
+        : target_extent.y + target_extent.height;
     const std::uint64_t source_bytes =
         static_cast<std::uint64_t>(source_width) * source_height * 4U;
     if (source_bytes > PROGPU_NATIVE_SCENE_MAX_LAYER_BYTES) {
@@ -170,7 +175,19 @@ bool create_semantic_picture_mask_binding(
     child_frame.struct_size = sizeof(child_frame);
     child_frame.width = source_width;
     child_frame.height = source_height;
-    child_frame.dpi_scale = dpi_scale;
+    const float source_dpi_scale = source_extent
+        ? static_cast<float>(source_width) / picture.bounds.width
+        : dpi_scale;
+    const float source_dpi_scale_y = source_extent
+        ? static_cast<float>(source_height) / picture.bounds.height
+        : dpi_scale;
+    if (!std::isfinite(source_dpi_scale) || source_dpi_scale <= 0.0F ||
+        !std::isfinite(source_dpi_scale_y) || source_dpi_scale_y <= 0.0F ||
+        std::abs(source_dpi_scale - source_dpi_scale_y) > 0.0001F) {
+        cleanup();
+        return false;
+    }
+    child_frame.dpi_scale = source_dpi_scale;
     child_frame.target_view = reinterpret_cast<std::uintptr_t>(source_view);
     child_frame.scene_id = nested_header.scene_id;
     child_frame.generation = nested_header.generation;
@@ -187,10 +204,54 @@ bool create_semantic_picture_mask_binding(
     child.reset();
 
     gpu_mask_sampling_uniforms sampling{};
-    sampling.coordinate1[0] =
-        1.0F / static_cast<float>(source_width);
-    sampling.coordinate1[1] =
-        1.0F / static_cast<float>(source_height);
+    if (source_extent) {
+        const double m11 = picture.transform.m11;
+        const double m12 = picture.transform.m12;
+        const double m21 = picture.transform.m21;
+        const double m22 = picture.transform.m22;
+        const double m31 = picture.transform.m31;
+        const double m32 = picture.transform.m32;
+        const double determinant = m11 * m22 - m12 * m21;
+        if (!std::isfinite(determinant) || std::abs(determinant) < 1.0e-12) {
+            cleanup();
+            return false;
+        }
+        const double inverse_m11 = m22 / determinant;
+        const double inverse_m12 = -m12 / determinant;
+        const double inverse_m21 = -m21 / determinant;
+        const double inverse_m22 = m11 / determinant;
+        const double inverse_m31 =
+            (m21 * m32 - m22 * m31) / determinant;
+        const double inverse_m32 =
+            (m12 * m31 - m11 * m32) / determinant;
+        const std::array<double, 6U> uv_transform{
+            inverse_m11 / (dpi_scale * picture.bounds.width),
+            inverse_m21 / (dpi_scale * picture.bounds.width),
+            (inverse_m31 - picture.bounds.x) / picture.bounds.width,
+            inverse_m12 / (dpi_scale * picture.bounds.height),
+            inverse_m22 / (dpi_scale * picture.bounds.height),
+            (inverse_m32 - picture.bounds.y) / picture.bounds.height};
+        for (double value : uv_transform) {
+            if (!std::isfinite(value) ||
+                value < -std::numeric_limits<float>::max() ||
+                value > std::numeric_limits<float>::max()) {
+                cleanup();
+                return false;
+            }
+        }
+        sampling.coordinate0[0] = static_cast<float>(uv_transform[0]);
+        sampling.coordinate0[1] = static_cast<float>(uv_transform[1]);
+        sampling.coordinate0[2] = static_cast<float>(uv_transform[2]);
+        sampling.coordinate1[0] = static_cast<float>(uv_transform[3]);
+        sampling.coordinate1[1] = static_cast<float>(uv_transform[4]);
+        sampling.coordinate1[2] = static_cast<float>(uv_transform[5]);
+        sampling.options[2] = 1.0F;
+    } else {
+        sampling.coordinate1[0] =
+            1.0F / static_cast<float>(source_width);
+        sampling.coordinate1[1] =
+            1.0F / static_cast<float>(source_height);
+    }
     sampling.options[0] = 1.0F;
     sampling.options[1] = picture.opacity;
     // Two selects the RGBA source alpha channel; one retains the existing R8
@@ -229,8 +290,8 @@ bool create_semantic_picture_mask_binding(
         std::min<std::uint64_t>(
             uniform_upload_bytes,
             std::numeric_limits<std::uint32_t>::max()));
-    operation.mask_source_x = target_extent.x;
-    operation.mask_source_y = target_extent.y;
+    operation.mask_source_x = source_extent ? 0U : target_extent.x;
+    operation.mask_source_y = source_extent ? 0U : target_extent.y;
     operation.mask_uses_alpha_channel = true;
     source_texture = nullptr;
     source_view = nullptr;

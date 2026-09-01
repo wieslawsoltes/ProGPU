@@ -231,11 +231,8 @@ bool semantic_scene_builder::add_picture_mask(
     progpu_native_scene_layer_picture_mask mask = source;
     mask.struct_size = sizeof(mask);
     mask.kind = PROGPU_NATIVE_SCENE_LAYER_MASK_PICTURE;
-    mask.flags = 0U;
     mask.stream_offset = 0U;
     mask.stream_size = static_cast<std::uint32_t>(nested_scene.size());
-    mask.reserved0 = 0U;
-    mask.reserved1 = 0U;
     if (!semantic::is_valid_semantic_layer_picture_mask(
             mask, nested_scene)) {
         return implementation_->fail(scene_build_error::invalid_argument);

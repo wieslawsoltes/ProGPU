@@ -1,0 +1,5 @@
+# The Vulkan loader used by the pinned Linux wgpu-native runtime retains one
+# process-global physical-device enumeration allocation after a second engine
+# renders a nested picture mask. ProGPU releases both engines and all WebGPU
+# handles; suppress only the loader's symbolized ash allocation.
+leak:ash::prelude::read_into_uninitialized_vector
