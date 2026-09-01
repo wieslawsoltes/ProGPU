@@ -1490,8 +1490,46 @@ int main()
     target->BeginDraw();
     target->PushAxisAlignedClip(
         &outer_clip, compat::antialias_mode::per_primitive);
-    if (target->EndDraw(nullptr, nullptr) != compat::not_implemented ||
-        scene_target->GetRequiredSceneSize() != 0U) {
+    target->FillRectangle(
+        &rectangle, static_cast<compat::brush*>(target_brush.get()));
+    target->PopAxisAlignedClip();
+    if (target->EndDraw(nullptr, nullptr) != com::ok) {
+        return 179;
+    }
+    const std::uint64_t antialiased_clip_size =
+        scene_target->GetRequiredSceneSize();
+    std::vector<std::byte> antialiased_clip_scene(
+        static_cast<std::size_t>(antialiased_clip_size));
+    std::uint64_t antialiased_clip_written = 0U;
+    if (antialiased_clip_size < sizeof(progpu_native_scene_header) ||
+        scene_target->BuildScene(
+            antialiased_clip_scene.data(),
+            antialiased_clip_scene.size(),
+            &antialiased_clip_written) != com::ok ||
+        antialiased_clip_written != antialiased_clip_size) {
+        return 179;
+    }
+    const auto* antialiased_clip_header = reinterpret_cast<
+        const progpu_native_scene_header*>(antialiased_clip_scene.data());
+    const auto* antialiased_clip_push = reinterpret_cast<
+        const progpu_native_scene_command*>(
+            antialiased_clip_scene.data() +
+            antialiased_clip_header->command_offset);
+    const auto* antialiased_clip_draw = reinterpret_cast<
+        const progpu_native_scene_command*>(
+            reinterpret_cast<const std::byte*>(antialiased_clip_push) +
+            antialiased_clip_header->command_stride);
+    const auto* antialiased_clip_pop = reinterpret_cast<
+        const progpu_native_scene_command*>(
+            reinterpret_cast<const std::byte*>(antialiased_clip_draw) +
+            antialiased_clip_header->command_stride);
+    if (antialiased_clip_header->command_count != 3U ||
+        antialiased_clip_push->kind !=
+            PROGPU_NATIVE_SCENE_COMMAND_PUSH_LAYER ||
+        antialiased_clip_draw->kind !=
+            PROGPU_NATIVE_SCENE_COMMAND_DRAW_ANALYTIC ||
+        antialiased_clip_pop->kind !=
+            PROGPU_NATIVE_SCENE_COMMAND_POP_LAYER) {
         return 179;
     }
     target->BeginDraw();
