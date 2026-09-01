@@ -2310,6 +2310,168 @@ private:
     float dpi_y_ = 96.0F;
 };
 
+class portable_shared_render_target_bitmap final :
+    public bitmap,
+    public scene_render_target_native {
+public:
+    portable_shared_render_target_bitmap(
+        factory* owner,
+        bitmap* source,
+        com::pointer<scene_render_target_native> scene,
+        size_u pixel_size,
+        pixel_format format,
+        float dpi_x,
+        float dpi_y) noexcept
+        : owner_(owner),
+          source_(source),
+          scene_(std::move(scene)),
+          pixel_size_(pixel_size),
+          format_(format),
+          dpi_x_(dpi_x),
+          dpi_y_(dpi_y)
+    {
+    }
+
+    com::result PROGPU_NATIVE_COM_CALL QueryInterface(
+        com::guid_ref interface_id,
+        void** value) noexcept override
+    {
+        if (value == nullptr) {
+            return com::pointer_error;
+        }
+        *value = nullptr;
+        if (com::guid_equal(interface_id, com::unknown_interface_id()) ||
+            com::guid_equal(interface_id, resource_interface_id) ||
+            com::guid_equal(interface_id, bitmap_interface_id)) {
+            *value = static_cast<bitmap*>(this);
+        } else if (com::guid_equal(
+                interface_id, scene_render_target_native_interface_id)) {
+            *value = static_cast<scene_render_target_native*>(this);
+        } else {
+            return com::no_interface;
+        }
+        AddRef();
+        return com::ok;
+    }
+
+    com::reference_count_value PROGPU_NATIVE_COM_CALL AddRef()
+        noexcept override
+    {
+        return reference_count_.add_ref();
+    }
+
+    com::reference_count_value PROGPU_NATIVE_COM_CALL Release()
+        noexcept override
+    {
+        return reference_count_.release(this);
+    }
+
+    void PROGPU_NATIVE_COM_CALL GetFactory(factory** value) const
+        noexcept override
+    {
+        if (value == nullptr) {
+            return;
+        }
+        *value = owner_.get();
+        if (*value != nullptr) {
+            (*value)->AddRef();
+        }
+    }
+
+    size_f PROGPU_NATIVE_COM_CALL GetSize() const noexcept override
+    {
+        return {
+            static_cast<float>(pixel_size_.width) * 96.0F / dpi_x_,
+            static_cast<float>(pixel_size_.height) * 96.0F / dpi_y_};
+    }
+
+    size_u PROGPU_NATIVE_COM_CALL GetPixelSize() const noexcept override
+    {
+        return pixel_size_;
+    }
+
+    pixel_format PROGPU_NATIVE_COM_CALL GetPixelFormat()
+        const noexcept override
+    {
+        return format_;
+    }
+
+    void PROGPU_NATIVE_COM_CALL GetDpi(
+        float* dpi_x,
+        float* dpi_y) const noexcept override
+    {
+        if (dpi_x != nullptr) {
+            *dpi_x = dpi_x_;
+        }
+        if (dpi_y != nullptr) {
+            *dpi_y = dpi_y_;
+        }
+    }
+
+    com::result PROGPU_NATIVE_COM_CALL CopyFromBitmap(
+        const point_2u* destination_point,
+        bitmap* source,
+        const rectangle_u* source_rectangle) noexcept override
+    {
+        return source_->CopyFromBitmap(
+            destination_point, source, source_rectangle);
+    }
+
+    com::result PROGPU_NATIVE_COM_CALL CopyFromRenderTarget(
+        const point_2u* destination_point,
+        render_target* source,
+        const rectangle_u* source_rectangle) noexcept override
+    {
+        return source_->CopyFromRenderTarget(
+            destination_point, source, source_rectangle);
+    }
+
+    com::result PROGPU_NATIVE_COM_CALL CopyFromMemory(
+        const rectangle_u* destination_rectangle,
+        const void* source_data,
+        std::uint32_t pitch) noexcept override
+    {
+        return source_->CopyFromMemory(
+            destination_rectangle, source_data, pitch);
+    }
+
+    std::uint64_t PROGPU_NATIVE_COM_CALL GetRequiredSceneSize()
+        const noexcept override
+    {
+        return scene_->GetRequiredSceneSize();
+    }
+
+    com::result PROGPU_NATIVE_COM_CALL BuildScene(
+        void* destination,
+        std::uint64_t destination_size,
+        std::uint64_t* bytes_written) const noexcept override
+    {
+        return scene_->BuildScene(
+            destination, destination_size, bytes_written);
+    }
+
+    void PROGPU_NATIVE_COM_CALL GetSummary(
+        scene_render_target_summary* summary) const noexcept override
+    {
+        scene_->GetSummary(summary);
+    }
+
+private:
+    friend class com::atomic_reference_count<
+        portable_shared_render_target_bitmap>;
+    ~portable_shared_render_target_bitmap() = default;
+
+    com::atomic_reference_count<portable_shared_render_target_bitmap>
+        reference_count_;
+    com::pointer<factory> owner_;
+    com::pointer<bitmap> source_;
+    com::pointer<scene_render_target_native> scene_;
+    size_u pixel_size_{};
+    pixel_format format_{};
+    float dpi_x_ = 96.0F;
+    float dpi_y_ = 96.0F;
+};
+
 class portable_scene_render_target final :
     public bitmap_render_target,
     public scene_render_target_native {
@@ -2589,15 +2751,31 @@ public:
             reinterpret_cast<void**>(&raw_source_native));
         com::pointer<scene_bitmap_native> source_native;
         source_native.attach(raw_source_native);
-        if (com::failed(query_result) || !source_native) {
-            return not_implemented;
+        if (com::failed(query_result) && query_result != com::no_interface) {
+            return query_result;
+        }
+        scene_render_target_native* raw_source_scene = nullptr;
+        const com::result scene_query_result = source_native
+            ? com::no_interface
+            : source->QueryInterface(
+                scene_render_target_native_interface_id,
+                reinterpret_cast<void**>(&raw_source_scene));
+        com::pointer<scene_render_target_native> source_scene;
+        source_scene.attach(raw_source_scene);
+        if (!source_native &&
+            (com::failed(scene_query_result) || !source_scene)) {
+            return com::failed(scene_query_result)
+                ? scene_query_result
+                : not_implemented;
         }
 
         const size_u source_size = source->GetPixelSize();
         const pixel_format source_format = source->GetPixelFormat();
         if (source_size.width == 0U || source_size.height == 0U ||
             (source_format.format != dxgi_format_r8g8b8a8_unorm &&
-                source_format.format != dxgi_format_b8g8r8a8_unorm) ||
+                source_format.format != dxgi_format_b8g8r8a8_unorm &&
+                (!source_scene ||
+                    source_format.format != dxgi_format_a8_unorm)) ||
             source_format.alpha != alpha_mode::premultiplied) {
             return not_implemented;
         }
@@ -2627,17 +2805,33 @@ public:
             return com::invalid_argument;
         }
 
-        auto* created = new (std::nothrow) portable_shared_bitmap(
-            owner_.get(),
-            source,
-            std::move(source_native),
-            source_size,
-            actual,
-            source_format);
-        if (created == nullptr) {
-            return com::out_of_memory;
+        if (source_native) {
+            auto* created = new (std::nothrow) portable_shared_bitmap(
+                owner_.get(),
+                source,
+                std::move(source_native),
+                source_size,
+                actual,
+                source_format);
+            if (created == nullptr) {
+                return com::out_of_memory;
+            }
+            *value = created;
+        } else {
+            auto* created = new (std::nothrow)
+                portable_shared_render_target_bitmap(
+                    owner_.get(),
+                    source,
+                    std::move(source_scene),
+                    source_size,
+                    actual.pixel_format_value,
+                    actual.dpi_x,
+                    actual.dpi_y);
+            if (created == nullptr) {
+                return com::out_of_memory;
+            }
+            *value = created;
         }
-        *value = created;
         return com::ok;
     }
 

@@ -2457,13 +2457,36 @@ int run_tests()
         compatible_bitmap->GetPixelFormat().format != 65U) {
         return 228;
     }
+    compat::bitmap* raw_shared_compatible_bitmap = nullptr;
+    if (target->CreateSharedBitmap(
+            compat::bitmap_interface_id,
+            compatible_bitmap.get(),
+            nullptr,
+            &raw_shared_compatible_bitmap) != com::ok ||
+        raw_shared_compatible_bitmap == nullptr ||
+        raw_shared_compatible_bitmap == compatible_bitmap.get()) {
+        return 228;
+    }
+    com::pointer<compat::bitmap> shared_compatible_bitmap;
+    shared_compatible_bitmap.attach(raw_shared_compatible_bitmap);
+    com::pointer<compat::scene_render_target_native>
+        shared_compatible_scene;
+    if (shared_compatible_bitmap.as(
+            compat::scene_render_target_native_interface_id,
+            shared_compatible_scene) != com::ok ||
+        !shared_compatible_scene ||
+        shared_compatible_scene->GetRequiredSceneSize() !=
+            compatible_bitmap_scene->GetRequiredSceneSize() ||
+        shared_compatible_bitmap->GetPixelFormat().format != 65U) {
+        return 228;
+    }
     const compat::rectangle_f compatible_source{2.0F, 1.0F, 10.0F, 9.0F};
     const compat::rectangle_f compatible_destination{
         60.0F, 4.0F, 84.0F, 20.0F};
     target->BeginDraw();
     target->SetAntialiasMode(compat::antialias_mode::aliased);
     target->FillOpacityMask(
-        compatible_bitmap.get(),
+        shared_compatible_bitmap.get(),
         static_cast<compat::brush*>(target_brush.get()),
         compat::opacity_mask_content::graphics,
         &compatible_destination,
@@ -3514,17 +3537,37 @@ int run_tests()
             "portable Windows ID2D1BitmapRenderTarget GetBitmap failed\n");
         return 234;
     }
+    ID2D1Bitmap* native_shared_compatible_bitmap = nullptr;
+    if (FAILED(native_target->CreateSharedBitmap(
+            __uuidof(ID2D1Bitmap),
+            native_compatible_bitmap,
+            nullptr,
+            &native_shared_compatible_bitmap)) ||
+        native_shared_compatible_bitmap == nullptr ||
+        native_shared_compatible_bitmap->GetPixelFormat().format !=
+            DXGI_FORMAT_A8_UNORM) {
+        if (native_shared_compatible_bitmap != nullptr) {
+            native_shared_compatible_bitmap->Release();
+        }
+        native_compatible_bitmap->Release();
+        native_compatible_target->Release();
+        native_target_brush->Release();
+        std::fprintf(stderr,
+            "portable Windows shared compatible bitmap failed\n");
+        return 234;
+    }
     native_target->BeginDraw();
     native_target->SetAntialiasMode(D2D1_ANTIALIAS_MODE_ALIASED);
     const D2D1_RECT_F native_compatible_destination{
         76.0F, 28.0F, 92.0F, 40.0F};
     native_target->FillOpacityMask(
-        native_compatible_bitmap,
+        native_shared_compatible_bitmap,
         native_target_brush,
         D2D1_OPACITY_MASK_CONTENT_GRAPHICS,
         &native_compatible_destination,
         nullptr);
     const HRESULT native_compatible_draw_status = native_target->EndDraw();
+    native_shared_compatible_bitmap->Release();
     native_compatible_bitmap->Release();
     native_compatible_target->Release();
     if (FAILED(native_compatible_draw_status)) {
