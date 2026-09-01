@@ -888,8 +888,10 @@ closed-source seam endpoints keep `DashCap`; they do not acquire open-figure
 `StartCap`/`EndCap`. Bevel, qualified miter, and miter-or-bevel joins share the
 same offset-side builder; a low-limit miter-or-bevel run emits the bevel pair.
 Dense region probes and genuine Direct2D x64/ARM64 corner probes match for both
-miter outcomes. Round joins and over-limit clipped `Miter` output remain fail
-closed.
+miter outcomes. Round joins now retain typed arc edges on the outer offset
+side and emit one or two cubic circular spans, with dense region probes and
+genuine Direct2D x64/ARM64 corner/widen validation. Only over-limit clipped
+`Miter` output remains fail closed in this dashed line-run domain.
 
 The identical simple closed/default-miter domain now implements
 `GetWidenedBounds`. It derives segment offset endpoints plus qualified miter

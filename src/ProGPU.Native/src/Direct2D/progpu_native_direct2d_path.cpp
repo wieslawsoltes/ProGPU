@@ -1588,12 +1588,29 @@ void append_stroke_join_bounds_points(
     return transformed_point_bounds(points, transform, bounds);
 }
 
-void append_distinct_point(
-    std::vector<point_2f>& points,
-    point_2f point)
+struct dash_side_edge final {
+    bool round{};
+    point_2f center{};
+};
+
+struct dash_side final {
+    std::vector<point_2f> points;
+    std::vector<dash_side_edge> edges;
+};
+
+void append_dash_side_point(
+    dash_side& side,
+    point_2f point,
+    bool round = false,
+    point_2f center = {})
 {
-    if (points.empty() || !same_point(points.back(), point)) {
-        points.push_back(point);
+    if (side.points.empty()) {
+        side.points.push_back(point);
+        return;
+    }
+    if (!same_point(side.points.back(), point)) {
+        side.edges.push_back({round, center});
+        side.points.push_back(point);
     }
 }
 
@@ -1605,7 +1622,7 @@ void append_distinct_point(
     double miter_limit,
     cap_style start_cap,
     cap_style end_cap,
-    std::vector<point_2f>& points)
+    dash_side& output)
 {
     if (segments.empty()) {
         return com::invalid_argument;
@@ -1648,7 +1665,7 @@ void append_distinct_point(
     const double start_extension = start_cap == cap_style::square
         ? half_width
         : 0.0;
-    append_distinct_point(points, {
+    append_dash_side_point(output, {
         static_cast<float>(
             segments.front().p0.x + first_normal_x * side -
             first_unit_x * start_extension),
@@ -1695,13 +1712,18 @@ void append_distinct_point(
         const double cross = incoming_unit_x * outgoing_unit_y -
             incoming_unit_y * outgoing_unit_x;
         if (cross == 0.0) {
-            append_distinct_point(points, outgoing_offset);
+            append_dash_side_point(output, outgoing_offset);
             continue;
         }
         const bool outer_side = cross * side < 0.0;
+        if (outer_side && join == line_join::round) {
+            append_dash_side_point(output, incoming_offset);
+            append_dash_side_point(output, outgoing_offset, true, vertex);
+            continue;
+        }
         if (outer_side && join == line_join::bevel) {
-            append_distinct_point(points, incoming_offset);
-            append_distinct_point(points, outgoing_offset);
+            append_dash_side_point(output, incoming_offset);
+            append_dash_side_point(output, outgoing_offset);
             continue;
         }
         const double offset_x =
@@ -1723,11 +1745,11 @@ void append_distinct_point(
             if (join != line_join::miter_or_bevel) {
                 return not_implemented;
             }
-            append_distinct_point(points, incoming_offset);
-            append_distinct_point(points, outgoing_offset);
+            append_dash_side_point(output, incoming_offset);
+            append_dash_side_point(output, outgoing_offset);
             continue;
         }
-        append_distinct_point(points, intersection);
+        append_dash_side_point(output, intersection);
     }
     double last_unit_x = 0.0;
     double last_unit_y = 0.0;
@@ -1744,7 +1766,7 @@ void append_distinct_point(
     const double end_extension = end_cap == cap_style::square
         ? half_width
         : 0.0;
-    append_distinct_point(points, {
+    append_dash_side_point(output, {
         static_cast<float>(
             segments.back().p1.x + last_normal_x * side +
             last_unit_x * end_extension),
@@ -1833,6 +1855,71 @@ void append_outline_line(
     return com::ok;
 }
 
+[[nodiscard]] com::result append_circular_arc_segments(
+    widened_outline& outline,
+    point_2f center,
+    point_2f destination)
+{
+    const point_2f start = outline.segments.empty()
+        ? outline.start
+        : outline.segments.back().end;
+    const double start_x = static_cast<double>(start.x) - center.x;
+    const double start_y = static_cast<double>(start.y) - center.y;
+    const double end_x = static_cast<double>(destination.x) - center.x;
+    const double end_y = static_cast<double>(destination.y) - center.y;
+    const double start_radius = std::hypot(start_x, start_y);
+    const double end_radius = std::hypot(end_x, end_y);
+    if (start_radius == 0.0 || end_radius == 0.0) {
+        return not_implemented;
+    }
+    const double radius = (start_radius + end_radius) * 0.5;
+    const double angle = std::atan2(
+        start_x * end_y - start_y * end_x,
+        start_x * end_x + start_y * end_y);
+    if (!std::isfinite(angle) || angle == 0.0) {
+        return not_implemented;
+    }
+    const std::uint32_t span_count = static_cast<std::uint32_t>(
+        std::ceil(std::abs(angle) / (std::numbers::pi / 2.0)));
+    if (span_count == 0U || span_count > 2U) {
+        return not_implemented;
+    }
+    const double delta = angle / span_count;
+    double current_angle = std::atan2(start_y, start_x);
+    point_2f current = start;
+    for (std::uint32_t span = 0U; span < span_count; ++span) {
+        const double next_angle = current_angle + delta;
+        const point_2f next = span + 1U == span_count
+            ? destination
+            : point_2f{
+                static_cast<float>(center.x + radius * std::cos(next_angle)),
+                static_cast<float>(center.y + radius * std::sin(next_angle))};
+        const double factor = 4.0 / 3.0 * std::tan(delta * 0.25);
+        const double current_unit_x =
+            (static_cast<double>(current.x) - center.x) / radius;
+        const double current_unit_y =
+            (static_cast<double>(current.y) - center.y) / radius;
+        const double next_unit_x =
+            (static_cast<double>(next.x) - center.x) / radius;
+        const double next_unit_y =
+            (static_cast<double>(next.y) - center.y) / radius;
+        outline.segments.push_back({
+            true,
+            {
+                static_cast<float>(
+                    current.x - current_unit_y * radius * factor),
+                static_cast<float>(
+                    current.y + current_unit_x * radius * factor)},
+            {
+                static_cast<float>(next.x + next_unit_y * radius * factor),
+                static_cast<float>(next.y - next_unit_x * radius * factor)},
+            next});
+        current = next;
+        current_angle = next_angle;
+    }
+    return com::ok;
+}
+
 [[nodiscard]] com::result build_joined_dash_outline(
     std::span<const progpu_native_path_segment> segments,
     double half_width,
@@ -1842,8 +1929,8 @@ void append_outline_line(
     cap_style end_cap,
     widened_outline& outline)
 {
-    std::vector<point_2f> left;
-    std::vector<point_2f> right;
+    dash_side left;
+    dash_side right;
     const com::result left_status = append_dash_run_side(
         segments,
         half_width,
@@ -1868,14 +1955,27 @@ void append_outline_line(
     if (com::failed(right_status)) {
         return right_status;
     }
-    if (left.empty() || right.empty()) {
+    if (left.points.empty() || right.points.empty() ||
+        left.edges.size() + 1U != left.points.size() ||
+        right.edges.size() + 1U != right.points.size()) {
         return not_implemented;
     }
     outline = {};
-    outline.start = left.front();
-    outline.segments.reserve(left.size() + right.size() + 4U);
-    for (std::size_t index = 1U; index < left.size(); ++index) {
-        append_outline_line(outline, left[index]);
+    outline.start = left.points.front();
+    outline.segments.reserve(
+        left.points.size() + right.points.size() + 6U);
+    for (std::size_t index = 1U; index < left.points.size(); ++index) {
+        if (left.edges[index - 1U].round) {
+            const com::result arc_status = append_circular_arc_segments(
+                outline,
+                left.edges[index - 1U].center,
+                left.points[index]);
+            if (com::failed(arc_status)) {
+                return arc_status;
+            }
+        } else {
+            append_outline_line(outline, left.points[index]);
+        }
     }
     const auto& last = segments.back();
     if (end_cap == cap_style::triangle) {
@@ -1894,16 +1994,27 @@ void append_outline_line(
             outline,
             {last.p1.x, last.p1.y},
             {last.p0.x, last.p0.y},
-            right.back(),
+            right.points.back(),
             half_width);
         if (com::failed(cap_status)) {
             return cap_status;
         }
     } else {
-        append_outline_line(outline, right.back());
+        append_outline_line(outline, right.points.back());
     }
-    for (std::size_t index = right.size() - 1U; index != 0U; --index) {
-        append_outline_line(outline, right[index - 1U]);
+    for (std::size_t index = right.points.size() - 1U;
+         index != 0U;
+         --index) {
+        const dash_side_edge& edge = right.edges[index - 1U];
+        if (edge.round) {
+            const com::result arc_status = append_circular_arc_segments(
+                outline, edge.center, right.points[index - 1U]);
+            if (com::failed(arc_status)) {
+                return arc_status;
+            }
+        } else {
+            append_outline_line(outline, right.points[index - 1U]);
+        }
     }
     const auto& first = segments.front();
     if (start_cap == cap_style::triangle) {
@@ -1922,7 +2033,7 @@ void append_outline_line(
             outline,
             {first.p0.x, first.p0.y},
             {first.p1.x, first.p1.y},
-            left.front(),
+            left.points.front(),
             half_width);
         if (com::failed(cap_status)) {
             return cap_status;
@@ -4489,7 +4600,7 @@ public:
                 return wrong_factory;
             }
             dashed = style->GetDashStyle() != dash_style::solid;
-            if (!dashed || style->GetLineJoin() == line_join::round ||
+            if (!dashed ||
                 style->GetLineJoin() > line_join::miter_or_bevel ||
                 !std::isfinite(style->GetMiterLimit()) ||
                 style->GetMiterLimit() < 1.0F ||
