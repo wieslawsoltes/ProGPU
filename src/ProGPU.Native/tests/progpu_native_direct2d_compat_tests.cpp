@@ -2485,15 +2485,48 @@ int run_tests()
         return 87;
     }
     std::array<compat::geometry*, 1U> nested_group_source{group_base.get()};
-    raw_group = reinterpret_cast<compat::geometry_group*>(
-        static_cast<std::uintptr_t>(1U));
+    raw_group = nullptr;
     if (factory->CreateGeometryGroup(
             compat::fill_mode::winding,
             nested_group_source.data(),
             1U,
-            &raw_group) != compat::not_implemented ||
-        raw_group != nullptr) {
+            &raw_group) != com::ok ||
+        raw_group == nullptr) {
         return 81;
+    }
+    com::pointer<compat::geometry_group> nested_group;
+    nested_group.attach(raw_group);
+    std::int32_t portable_nested_group_contains = 0;
+    compat::rectangle_f portable_nested_group_bounds{};
+    auto* raw_nested_group_simplified = new simplified_sink();
+    com::pointer<compat::simplified_geometry_sink>
+        nested_group_simplified;
+    nested_group_simplified.attach(raw_nested_group_simplified);
+    if (nested_group->GetFillMode() != compat::fill_mode::winding ||
+        nested_group->GetSourceGeometryCount() != 1U ||
+        nested_group->GetBounds(
+            &transform, &portable_nested_group_bounds) != com::ok ||
+        !approximately_equal(portable_nested_group_bounds.left, 6.0F) ||
+        !approximately_equal(portable_nested_group_bounds.top, -1.0F) ||
+        !approximately_equal(portable_nested_group_bounds.right, 22.0F) ||
+        !approximately_equal(portable_nested_group_bounds.bottom, 20.0F) ||
+        nested_group->FillContainsPoint(
+            {16.0F, 10.0F},
+            &transform,
+            core::default_flattening_tolerance,
+            &portable_nested_group_contains) != com::ok ||
+        nested_group->Simplify(
+            compat::geometry_simplification_option::cubics_and_lines,
+            &transform,
+            core::default_flattening_tolerance,
+            nested_group_simplified.get()) != com::ok ||
+        raw_nested_group_simplified->fill_mode !=
+            compat::fill_mode::winding ||
+        raw_nested_group_simplified->begin_count != 2U ||
+        raw_nested_group_simplified->end_count != 2U ||
+        raw_nested_group_simplified->line_count != 3U ||
+        raw_nested_group_simplified->bezier_count != 4U) {
+        return 315;
     }
     raw_group = reinterpret_cast<compat::geometry_group*>(
         static_cast<std::uintptr_t>(1U));
@@ -5608,9 +5641,54 @@ int run_tests()
             returned_native_source->Release();
         }
     }
+    std::array<ID2D1Geometry*, 1U> native_nested_group_sources{
+        native_group};
+    ID2D1GeometryGroup* native_nested_group = nullptr;
+    const HRESULT native_nested_group_create_status =
+        native_factory->CreateGeometryGroup(
+            D2D1_FILL_MODE_WINDING,
+            native_nested_group_sources.data(),
+            static_cast<UINT32>(native_nested_group_sources.size()),
+            &native_nested_group);
+    D2D1_RECT_F portable_native_nested_group_bounds{};
+    BOOL portable_native_nested_group_contains = FALSE;
+    const HRESULT portable_native_nested_group_bounds_status =
+        native_nested_group == nullptr
+        ? E_FAIL
+        : native_nested_group->GetBounds(
+              &native_ellipse_transform,
+              &portable_native_nested_group_bounds);
+    const HRESULT portable_native_nested_group_contains_status =
+        native_nested_group == nullptr
+        ? E_FAIL
+        : native_nested_group->FillContainsPoint(
+              D2D1_POINT_2F{16.0F, 10.0F},
+              &native_ellipse_transform,
+              D2D1_DEFAULT_FLATTENING_TOLERANCE,
+              &portable_native_nested_group_contains);
+    if (native_nested_group != nullptr) {
+        native_nested_group->Release();
+    }
     native_group->Release();
     if (FAILED(portable_group_bounds_status) ||
-        !native_group_metadata_matches) {
+        !native_group_metadata_matches ||
+        FAILED(native_nested_group_create_status) ||
+        FAILED(portable_native_nested_group_bounds_status) ||
+        FAILED(portable_native_nested_group_contains_status) ||
+        static_cast<std::int32_t>(portable_native_nested_group_contains) !=
+            portable_nested_group_contains ||
+        !approximately_equal(
+            portable_native_nested_group_bounds.left,
+            portable_nested_group_bounds.left) ||
+        !approximately_equal(
+            portable_native_nested_group_bounds.top,
+            portable_nested_group_bounds.top) ||
+        !approximately_equal(
+            portable_native_nested_group_bounds.right,
+            portable_nested_group_bounds.right) ||
+        !approximately_equal(
+            portable_native_nested_group_bounds.bottom,
+            portable_nested_group_bounds.bottom)) {
         return 83;
     }
 
@@ -6771,6 +6849,47 @@ int run_tests()
         system_group->GetFillMode() == D2D1_FILL_MODE_ALTERNATE &&
         system_group->GetSourceGeometryCount() ==
             static_cast<UINT32>(system_group_sources.size());
+    std::array<ID2D1Geometry*, 1U> system_nested_group_sources{
+        system_group};
+    ID2D1GeometryGroup* system_nested_group = nullptr;
+    const HRESULT system_nested_group_create_status =
+        system_factory->CreateGeometryGroup(
+            D2D1_FILL_MODE_WINDING,
+            system_nested_group_sources.data(),
+            static_cast<UINT32>(system_nested_group_sources.size()),
+            &system_nested_group);
+    D2D1_RECT_F system_nested_group_bounds{};
+    BOOL system_nested_group_contains = FALSE;
+    auto* raw_system_nested_group_simplified = new simplified_sink();
+    com::pointer<compat::simplified_geometry_sink>
+        system_nested_group_simplified;
+    system_nested_group_simplified.attach(
+        raw_system_nested_group_simplified);
+    const HRESULT system_nested_group_bounds_status =
+        system_nested_group == nullptr
+        ? E_FAIL
+        : system_nested_group->GetBounds(
+              &native_ellipse_transform, &system_nested_group_bounds);
+    const HRESULT system_nested_group_contains_status =
+        system_nested_group == nullptr
+        ? E_FAIL
+        : system_nested_group->FillContainsPoint(
+              D2D1_POINT_2F{16.0F, 10.0F},
+              &native_ellipse_transform,
+              D2D1_DEFAULT_FLATTENING_TOLERANCE,
+              &system_nested_group_contains);
+    const HRESULT system_nested_group_simplify_status =
+        system_nested_group == nullptr
+        ? E_FAIL
+        : system_nested_group->Simplify(
+              D2D1_GEOMETRY_SIMPLIFICATION_OPTION_CUBICS_AND_LINES,
+              &native_ellipse_transform,
+              D2D1_DEFAULT_FLATTENING_TOLERANCE,
+              reinterpret_cast<ID2D1SimplifiedGeometrySink*>(
+                  system_nested_group_simplified.get()));
+    if (system_nested_group != nullptr) {
+        system_nested_group->Release();
+    }
     system_group->Release();
     if (FAILED(system_group_bounds_status) ||
         !system_group_metadata_matches ||
@@ -6784,6 +6903,37 @@ int run_tests()
             system_group_bounds.bottom, portable_group_bounds.bottom)) {
         system_factory->Release();
         return 86;
+    }
+    if (FAILED(system_nested_group_create_status) ||
+        FAILED(system_nested_group_bounds_status) ||
+        FAILED(system_nested_group_contains_status) ||
+        FAILED(system_nested_group_simplify_status) ||
+        static_cast<std::int32_t>(system_nested_group_contains) !=
+            portable_nested_group_contains ||
+        raw_system_nested_group_simplified->fill_mode !=
+            raw_nested_group_simplified->fill_mode ||
+        raw_system_nested_group_simplified->begin_count !=
+            raw_nested_group_simplified->begin_count ||
+        raw_system_nested_group_simplified->end_count !=
+            raw_nested_group_simplified->end_count ||
+        raw_system_nested_group_simplified->line_count !=
+            raw_nested_group_simplified->line_count ||
+        raw_system_nested_group_simplified->bezier_count !=
+            raw_nested_group_simplified->bezier_count ||
+        !approximately_equal(
+            system_nested_group_bounds.left,
+            portable_nested_group_bounds.left) ||
+        !approximately_equal(
+            system_nested_group_bounds.top,
+            portable_nested_group_bounds.top) ||
+        !approximately_equal(
+            system_nested_group_bounds.right,
+            portable_nested_group_bounds.right) ||
+        !approximately_equal(
+            system_nested_group_bounds.bottom,
+            portable_nested_group_bounds.bottom)) {
+        system_factory->Release();
+        return 316;
     }
 
     ID2D1StrokeStyle* system_stroke_style = nullptr;

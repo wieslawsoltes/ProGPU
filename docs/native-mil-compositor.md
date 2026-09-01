@@ -6038,11 +6038,14 @@ bounds, containment, metrics, topology, and semantic fills then reuse the same
 pointer-free scene path without per-frame child expansion, CPU readback, or a
 backend-specific group command.
 
-Nested groups, null children, invalid modes, and cross-factory resources fail
-closed rather than losing an inner fill predicate. The native oracle compares
-identity, ordered sources, two independently positioned members, analysis,
-simplified topology, failure behavior, and world-transformed output with
-system Direct2D. Focused managed ABI contracts pass 5/5.
+Nested groups retain and republish their immutable multi-figure child path, so
+the outer group's alternate/winding mode remains authoritative as required by
+Direct2D's concatenated-figure contract. Null children, invalid modes,
+cross-factory resources, and excessively deep transformed-source chains still
+fail closed. The native oracle compares identity, ordered sources, two
+independently positioned members, nested winding-over-alternate containment,
+analysis, simplified topology, failure behavior, and world-transformed output
+with system Direct2D. Focused managed ABI contracts pass 5/5.
 
 The first `0e93f94e` Windows run compiled and linked but failed group creation
 because child simplifiers attempted to republish their fill mode after the

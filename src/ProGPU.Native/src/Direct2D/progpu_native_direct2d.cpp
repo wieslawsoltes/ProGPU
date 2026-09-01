@@ -3850,12 +3850,12 @@ private:
     ComPtr<ID2D1PathGeometry1> path_;
 };
 
-bool compat_geometry_contains_group(
+bool compat_geometry_source_chain_supported(
     ID2D1Geometry* geometry,
     uint32_t depth = 0U) noexcept
 {
     if (geometry == nullptr || depth == 64U) {
-        return true;
+        return false;
     }
     ComPtr<ID2D1GeometryGroup> group;
     if (SUCCEEDED(geometry->QueryInterface(IID_PPV_ARGS(&group)))) {
@@ -3865,9 +3865,10 @@ bool compat_geometry_contains_group(
     if (SUCCEEDED(geometry->QueryInterface(IID_PPV_ARGS(&transformed)))) {
         ComPtr<ID2D1Geometry> source;
         transformed->GetSourceGeometry(&source);
-        return compat_geometry_contains_group(source.Get(), depth + 1U);
+        return compat_geometry_source_chain_supported(
+            source.Get(), depth + 1U);
     }
-    return false;
+    return true;
 }
 
 class CompatGroupGeometrySink final :
@@ -4243,7 +4244,8 @@ public:
                     static_cast<ID2D1Factory*>(this)) {
                     return D2DERR_WRONG_FACTORY;
                 }
-                if (compat_geometry_contains_group(geometries[index])) {
+                if (!compat_geometry_source_chain_supported(
+                        geometries[index])) {
                     return E_NOTIMPL;
                 }
                 sources.emplace_back(geometries[index]);

@@ -333,11 +333,12 @@ geometry.
 ProGPU `14be583c` adds the canonical portable `ID2D1GeometryGroup` IID,
 factory slot, metadata, source ownership, and retained path composition. Group
 creation validates the fill rule, every source pointer, source-factory
-identity, and a bounded transformed-source chain. Nested groups fail with
-`E_NOTIMPL` until recursive fill-rule semantics have a shared analysis core;
-they are not silently flattened under the wrong rule. A forwarding simplified
-sink concatenates each child as cubic-and-line figures into one group-owned
-path while ignoring child fill modes in favor of the group fill mode.
+identity, and a bounded transformed-source chain. A forwarding simplified sink
+concatenates each child as cubic-and-line figures into one group-owned path
+while ignoring child fill modes in favor of the group fill mode. Nested groups
+reuse that immutable retained path, matching Direct2D's documented rule that a
+group concatenates every source figure before applying the outer group mode;
+no child graph is traversed again during rendering.
 
 The object returns exact source identities with balanced references and
 supports transformed bounds plus cubic simplification through that retained
@@ -2382,10 +2383,13 @@ mode only before the first figure. A transformed child therefore contributes
 its already qualified composed path, while later analysis and `FillGeometry`
 recording reuse one pointer-free scene resource without per-frame child
 traversal, CPU readback, or pixel repacking.
-Nested groups return `E_NOTIMPL` until the Direct2D compatibility scene carries
-an explicit nested predicate tree. An inner predicate is never silently
-replaced with the outer rule, including when both metadata values happen to
-match but child contour orientations could interact differently.
+Nested groups are accepted through both the portable factory and the native
+Windows provider. Each already-immutable child group publishes its retained
+multi-figure path to the outer forwarding sink, which preserves all contour
+orientations while applying the one authoritative outer fill mode. A bounded
+transformed-source walk still rejects an excessively deep chain before path
+construction. The Windows oracle compares nested winding-over-alternate
+containment, bounds, and simplified topology with system Direct2D.
 
 The native oracle covers ordered source identity, factory/COM identity,
 metadata, two independently positioned children, bounds, containment, area,
