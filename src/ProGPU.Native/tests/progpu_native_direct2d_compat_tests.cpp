@@ -2415,6 +2415,75 @@ int main()
         return 169;
     }
 
+    const compat::rounded_rectangle styled_rounded_rectangle{
+        rounded_rectangle_value.rectangle, 2.0F, 3.0F};
+    target->BeginDraw();
+    target->DrawLine(
+        {1.0F, 2.0F},
+        {18.0F, 12.0F},
+        static_cast<compat::brush*>(target_brush.get()),
+        1.25F,
+        stroke_style.get());
+    if (target->EndDraw(nullptr, nullptr) != com::ok) {
+        return 237;
+    }
+    target->BeginDraw();
+    target->DrawRectangle(
+        &rectangle,
+        static_cast<compat::brush*>(target_brush.get()),
+        1.5F,
+        stroke_style.get());
+    if (target->EndDraw(nullptr, nullptr) != com::ok) {
+        return 238;
+    }
+    target->BeginDraw();
+    target->DrawRoundedRectangle(
+        &styled_rounded_rectangle,
+        static_cast<compat::brush*>(target_brush.get()),
+        1.75F,
+        stroke_style.get());
+    if (target->EndDraw(nullptr, nullptr) != com::ok) {
+        return 239;
+    }
+    target->BeginDraw();
+    target->DrawEllipse(
+        &ellipse_value,
+        static_cast<compat::brush*>(target_brush.get()),
+        2.0F,
+        stroke_style.get());
+    if (target->EndDraw(nullptr, nullptr) != com::ok) {
+        return 240;
+    }
+    compat::scene_render_target_summary styled_primitive_summary{};
+    scene_target->GetSummary(&styled_primitive_summary);
+    const std::uint64_t styled_primitive_scene_size =
+        scene_target->GetRequiredSceneSize();
+    std::vector<std::byte> styled_primitive_scene(
+        static_cast<std::size_t>(styled_primitive_scene_size));
+    std::uint64_t styled_primitive_scene_written = 0U;
+    if (styled_primitive_summary.draw_count != 1U ||
+        styled_primitive_scene_size == 0U ||
+        scene_target->BuildScene(
+            styled_primitive_scene.data(),
+            styled_primitive_scene.size(),
+            &styled_primitive_scene_written) != com::ok ||
+        styled_primitive_scene_written != styled_primitive_scene_size) {
+        return 241;
+    }
+    const auto* styled_primitive_header = reinterpret_cast<
+        const progpu_native_scene_header*>(styled_primitive_scene.data());
+    if (styled_primitive_header->command_count != 1U) {
+        return 242;
+    }
+    const auto* styled_primitive_command = reinterpret_cast<
+        const progpu_native_scene_command*>(
+        styled_primitive_scene.data() +
+        styled_primitive_header->command_offset);
+    if (styled_primitive_command->kind !=
+        PROGPU_NATIVE_SCENE_COMMAND_DRAW_GEOMETRY) {
+        return 243;
+    }
+
     compat::layer_parameters masked_layer_parameters = layer_parameters;
     masked_layer_parameters.geometric_mask = path_base.get();
     masked_layer_parameters.opacity = 0.75F;
@@ -2981,6 +3050,8 @@ int main()
             native_compatible_target->Release();
         }
         native_target_brush->Release();
+        std::fprintf(stderr,
+            "portable Windows ID2D1BitmapRenderTarget creation/QI failed\n");
         return 232;
     }
     queried_native_compatible_target->Release();
@@ -2990,6 +3061,8 @@ int main()
     if (FAILED(native_compatible_target->EndDraw())) {
         native_compatible_target->Release();
         native_target_brush->Release();
+        std::fprintf(stderr,
+            "portable Windows ID2D1BitmapRenderTarget EndDraw failed\n");
         return 233;
     }
     ID2D1Bitmap* native_compatible_bitmap = nullptr;
@@ -3003,6 +3076,8 @@ int main()
         }
         native_compatible_target->Release();
         native_target_brush->Release();
+        std::fprintf(stderr,
+            "portable Windows ID2D1BitmapRenderTarget GetBitmap failed\n");
         return 234;
     }
     native_target->BeginDraw();
@@ -3020,6 +3095,8 @@ int main()
     native_compatible_target->Release();
     if (FAILED(native_compatible_draw_status)) {
         native_target_brush->Release();
+        std::fprintf(stderr,
+            "portable Windows compatible bitmap FillOpacityMask failed\n");
         return 235;
     }
     ID2D1Mesh* native_target_mesh = nullptr;

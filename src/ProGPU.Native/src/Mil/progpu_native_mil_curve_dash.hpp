@@ -517,9 +517,11 @@ inline result append_segment(
                 current.smooth_join_offset + current.segment_count - 1U ==
                     output.smooth_joins.size() &&
                 points_near(segment_end(output.segments.back()), segment.p0)) {
+                progpu_native_path_segment connected = segment;
+                connected.p0 = segment_end(output.segments.back());
                 output.smooth_joins.push_back(smooth_join ? 1U : 0U);
                 try {
-                    output.segments.push_back(segment);
+                    output.segments.push_back(connected);
                 } catch (...) {
                     output.smooth_joins.pop_back();
                     throw;
@@ -585,8 +587,10 @@ inline result merge_closed_seam(
         output.smooth_joins.reserve(
             output.smooth_joins.size() + first.segment_count);
         for (std::size_t index = 0U; index < first.segment_count; ++index) {
-            output.segments.push_back(
-                output.segments[first.segment_offset + index]);
+            progpu_native_path_segment connected =
+                output.segments[first.segment_offset + index];
+            connected.p0 = segment_end(output.segments.back());
+            output.segments.push_back(connected);
         }
         output.smooth_joins.push_back(closing_smooth_join ? 1U : 0U);
         for (std::size_t index = 0U; index + 1U < first.segment_count;

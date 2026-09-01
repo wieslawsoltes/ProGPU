@@ -2609,12 +2609,13 @@ public:
         float stroke_width,
         stroke_style* style) noexcept override
     {
-        const std::lock_guard lock(mutex_);
-        if (!can_draw()) {
+        if (style != nullptr) {
+            draw_styled_line(
+                point0, point1, brush_value, stroke_width, style);
             return;
         }
-        if (style != nullptr) {
-            latch(not_implemented);
+        const std::lock_guard lock(mutex_);
+        if (!can_draw()) {
             return;
         }
         if (!valid_point(point0) || !valid_point(point1) ||
@@ -4998,6 +4999,81 @@ private:
         return com::ok;
     }
 
+    void latch_draw_failure(com::result result) noexcept
+    {
+        const std::lock_guard lock(mutex_);
+        if (can_draw()) {
+            latch(result);
+        }
+    }
+
+    void draw_styled_line(
+        point_2f point0,
+        point_2f point1,
+        brush* brush_value,
+        float stroke_width,
+        stroke_style* style) noexcept
+    {
+        if (!valid_point(point0) || !valid_point(point1) ||
+            !std::isfinite(stroke_width) || stroke_width <= 0.0F) {
+            latch_draw_failure(com::invalid_argument);
+            return;
+        }
+        path_geometry* raw_path = nullptr;
+        com::result result = owner_->CreatePathGeometry(&raw_path);
+        com::pointer<path_geometry> path;
+        path.attach(raw_path);
+        if (com::failed(result)) {
+            latch_draw_failure(result);
+            return;
+        }
+        geometry_sink* raw_sink = nullptr;
+        result = path->Open(&raw_sink);
+        com::pointer<geometry_sink> sink;
+        sink.attach(raw_sink);
+        if (com::failed(result)) {
+            latch_draw_failure(result);
+            return;
+        }
+        sink->BeginFigure(point0, figure_begin::hollow);
+        sink->AddLine(point1);
+        sink->EndFigure(figure_end::open);
+        result = sink->Close();
+        if (com::failed(result)) {
+            latch_draw_failure(result);
+            return;
+        }
+        draw_stroked_geometry(
+            static_cast<geometry*>(path.get()),
+            brush_value,
+            stroke_width,
+            style);
+    }
+
+    template<typename Geometry, typename Description, typename Create>
+    void draw_styled_shape(
+        const Description* description,
+        brush* brush_value,
+        float stroke_width,
+        stroke_style* style,
+        Create create) noexcept
+    {
+        Geometry* raw_geometry = nullptr;
+        const com::result result =
+            (owner_.get()->*create)(description, &raw_geometry);
+        com::pointer<Geometry> geometry_value;
+        geometry_value.attach(raw_geometry);
+        if (com::failed(result)) {
+            latch_draw_failure(result);
+            return;
+        }
+        draw_stroked_geometry(
+            static_cast<geometry*>(geometry_value.get()),
+            brush_value,
+            stroke_width,
+            style);
+    }
+
     void draw_stroked_geometry(
         geometry* geometry_value,
         brush* brush_value,
@@ -5716,15 +5792,23 @@ private:
         stroke_style* style,
         bool fill) noexcept
     {
+        if (!fill && style != nullptr) {
+            draw_styled_shape<rectangle_geometry>(
+                rectangle,
+                brush_value,
+                stroke_width,
+                style,
+                &factory::CreateRectangleGeometry);
+            return;
+        }
         const std::lock_guard lock(mutex_);
         if (!can_draw()) {
             return;
         }
         if (rectangle == nullptr || !valid_rectangle(*rectangle) ||
             !std::isfinite(stroke_width) || stroke_width < 0.0F ||
-            (!fill && stroke_width == 0.0F) ||
-            (stroke_width > 0.0F && style != nullptr)) {
-            latch(style != nullptr ? not_implemented : com::invalid_argument);
+            (!fill && stroke_width == 0.0F)) {
+            latch(com::invalid_argument);
             return;
         }
         progpu_native_analytic_primitive primitive{};
@@ -5809,6 +5893,15 @@ private:
         stroke_style* style,
         bool fill) noexcept
     {
+        if (!fill && style != nullptr) {
+            draw_styled_shape<rounded_rectangle_geometry>(
+                rectangle,
+                brush_value,
+                stroke_width,
+                style,
+                &factory::CreateRoundedRectangleGeometry);
+            return;
+        }
         if (rectangle == nullptr || !std::isfinite(rectangle->radius_x) ||
             !std::isfinite(rectangle->radius_y) ||
             rectangle->radius_x < 0.0F || rectangle->radius_y < 0.0F) {
@@ -5833,10 +5926,6 @@ private:
             !std::isfinite(stroke_width) || stroke_width < 0.0F ||
             (!fill && stroke_width == 0.0F)) {
             latch(com::invalid_argument);
-            return;
-        }
-        if (style != nullptr) {
-            latch(not_implemented);
             return;
         }
         progpu_native_analytic_primitive primitive{};
@@ -5978,6 +6067,15 @@ private:
         stroke_style* style,
         bool fill) noexcept
     {
+        if (!fill && style != nullptr) {
+            draw_styled_shape<ellipse_geometry>(
+                ellipse_value,
+                brush_value,
+                stroke_width,
+                style,
+                &factory::CreateEllipseGeometry);
+            return;
+        }
         const std::lock_guard lock(mutex_);
         if (!can_draw()) {
             return;
@@ -5990,10 +6088,6 @@ private:
             !std::isfinite(stroke_width) || stroke_width < 0.0F ||
             (!fill && stroke_width == 0.0F)) {
             latch(com::invalid_argument);
-            return;
-        }
-        if (style != nullptr) {
-            latch(not_implemented);
             return;
         }
         progpu_native_analytic_primitive primitive{};

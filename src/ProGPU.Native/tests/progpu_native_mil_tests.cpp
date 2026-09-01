@@ -1216,6 +1216,61 @@ bool semantic_path_strokes_preserve_curves_and_forced_joins() {
             brushes,
             [](std::uint32_t brush) { return brush == 7U; }));
 
+    constexpr float circle_control = 5.5228477F;
+    const std::array<progpu_native_path_segment, 4U> closed_cubics = {{
+        {{10.0F, 0.0F},
+            {10.0F, circle_control},
+            {circle_control, 10.0F},
+            {0.0F, 10.0F},
+            PROGPU_NATIVE_PATH_SEGMENT_CUBIC,
+            0U,
+            0U,
+            0U},
+        {{0.0F, 10.0F},
+            {-circle_control, 10.0F},
+            {-10.0F, circle_control},
+            {-10.0F, 0.0F},
+            PROGPU_NATIVE_PATH_SEGMENT_CUBIC,
+            0U,
+            0U,
+            0U},
+        {{-10.0F, 0.0F},
+            {-10.0F, -circle_control},
+            {-circle_control, -10.0F},
+            {0.0F, -10.0F},
+            PROGPU_NATIVE_PATH_SEGMENT_CUBIC,
+            0U,
+            0U,
+            0U},
+        {{0.0F, -10.0F},
+            {circle_control, -10.0F},
+            {10.0F, -circle_control},
+            {10.0F, 0.0F},
+            PROGPU_NATIVE_PATH_SEGMENT_CUBIC,
+            0U,
+            0U,
+            0U}}};
+    const std::array<std::uint8_t, 4U> closed_cubic_joins{};
+    const std::array closed_cubic_dashes{2.0, 1.0, 0.5, 1.0};
+    primitives.clear();
+    brushes.clear();
+    style.start_cap = PROGPU_NATIVE_STROKE_CAP_ROUND;
+    style.end_cap = PROGPU_NATIVE_STROKE_CAP_SQUARE;
+    style.dash_cap = PROGPU_NATIVE_STROKE_CAP_TRIANGLE;
+    PROGPU_REQUIRE(
+        semantic_path_stroke::compile(
+            closed_cubics,
+            closed_cubic_joins,
+            true,
+            closed_cubic_dashes,
+            style,
+            9U,
+            dash_scratch,
+            primitives,
+            brushes) == semantic_path_stroke::result::success);
+    PROGPU_REQUIRE(!primitives.empty() &&
+        primitives.size() == brushes.size());
+
     progpu_native_path_segment device_curve{};
     device_curve.kind = PROGPU_NATIVE_PATH_SEGMENT_CUBIC;
     device_curve.p0 = {0.0F, 0.0F};

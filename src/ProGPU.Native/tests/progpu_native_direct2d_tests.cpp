@@ -289,8 +289,13 @@ int main()
             compat_bounds.left == 2.0F && compat_bounds.top == 3.0F &&
             compat_bounds.right == 12.0F && compat_bounds.bottom == 11.0F,
         "ProGPU rectangle geometry identity bounds changed");
-    const D2D1_MATRIX_3X2_F compat_transform = {
-        2.0F, 0.0F, 0.0F, 3.0F, 5.0F, -2.0F};
+    D2D1_MATRIX_3X2_F compat_transform{};
+    compat_transform._11 = 2.0F;
+    compat_transform._12 = 0.0F;
+    compat_transform._21 = 0.0F;
+    compat_transform._22 = 3.0F;
+    compat_transform._31 = 5.0F;
+    compat_transform._32 = -2.0F;
     require(
         compat_rectangle->GetBounds(
             &compat_transform, &compat_bounds) == S_OK &&
@@ -925,8 +930,13 @@ int main()
         "ProGPU solid brush initial state or factory identity changed");
     const D2D1_COLOR_F final_compat_color =
         D2D1::ColorF(0.875F, 0.375F, 0.125F, 1.0F);
-    const D2D1_MATRIX_3X2_F compat_brush_transform = {
-        1.0F, 0.0F, 0.0F, 1.0F, 3.0F, 4.0F};
+    D2D1_MATRIX_3X2_F compat_brush_transform{};
+    compat_brush_transform._11 = 1.0F;
+    compat_brush_transform._12 = 0.0F;
+    compat_brush_transform._21 = 0.0F;
+    compat_brush_transform._22 = 1.0F;
+    compat_brush_transform._31 = 3.0F;
+    compat_brush_transform._32 = 4.0F;
     compat_solid_brush->SetColor(&final_compat_color);
     compat_solid_brush->SetOpacity(0.625F);
     compat_solid_brush->SetTransform(&compat_brush_transform);
