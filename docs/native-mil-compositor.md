@@ -6477,9 +6477,11 @@ region, and dashed output against the system containment oracle. Convex closed
 figures now build paired typed side contours for solid bevel/round/miter joins
 and for a dash run covering the complete source seam; round joins remain cubic
 GPU paths. Dense local and Windows ARM64/x64 system-containment differentials
-cover bevel, round, and full-cover custom dash output. Non-convex styled closed
-contours, collapsed offsets, segment flags, and invalid topology remain typed
-fail closed.
+cover bevel, round, and full-cover custom dash output. Convex null/default
+strokes omit the inner alternate-fill ring when inward erosion collapses or
+reverses it, so exact-collapse and fully-consumed interiors match the system
+implementation. Non-convex styled or split-erosion contours, segment flags,
+and invalid topology remain typed fail closed.
 
 `GetWidenedBounds` now shares that default-miter path domain. Segment offsets
 and miter extrema are constructed before the world transform; independent
@@ -6500,8 +6502,8 @@ receives alternate-fill force-unstroked closed figures. Local tests compare a
 dense widened-fill lattice with `StrokeContainsPoint`; the Windows ARM64 oracle
 compares convex and concave lattices with genuine system Direct2D after a clean
 30-step provider/core build. Unsupported collapsed or self-intersecting
-offsets, non-convex styled closed figures, flagged paths, and zero-width cases
-remain fail closed.
+split/self-intersecting non-convex offsets, non-convex styled closed figures,
+flagged paths, and zero-width cases remain fail closed.
 
 ## Invariants
 

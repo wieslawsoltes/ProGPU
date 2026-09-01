@@ -2839,7 +2839,7 @@ int run_tests()
   com::pointer<compat::simplified_geometry_sink> multi_dashed_widen_sink;
   multi_dashed_widen_sink.attach(raw_multi_dashed_widen_sink);
   const com::result multi_default_widen_status = multi_query_path->Widen(
-          1.0F, nullptr, nullptr,
+          2.0F, nullptr, nullptr,
           core::default_flattening_tolerance,
           multi_default_widen_sink.get());
   const com::result multi_dashed_widen_status = multi_query_path->Widen(
@@ -2851,7 +2851,7 @@ int run_tests()
           compat::fill_mode::alternate ||
       raw_multi_default_widen_sink->segment_flags !=
           compat::path_segment::force_unstroked ||
-      raw_multi_default_widen_sink->begin_count != 3U ||
+      raw_multi_default_widen_sink->begin_count != 2U ||
       raw_multi_default_widen_sink->begin_count !=
           raw_multi_default_widen_sink->end_count ||
       raw_multi_dashed_widen_sink->begin_count < 2U ||
@@ -2876,7 +2876,7 @@ int run_tests()
       std::int32_t default_contains = 0;
       std::int32_t dashed_contains = 0;
       if (multi_query_path->StrokeContainsPoint(
-              point, 1.0F, nullptr, nullptr,
+              point, 2.0F, nullptr, nullptr,
               core::default_flattening_tolerance,
               &default_contains) != com::ok ||
           multi_query_path->StrokeContainsPoint(
@@ -3172,6 +3172,12 @@ int run_tests()
   auto *raw_path_widen_sink = new simplified_sink();
   com::pointer<compat::simplified_geometry_sink> path_widen_sink;
   path_widen_sink.attach(raw_path_widen_sink);
+  auto *raw_collapsed_path_widen_sink = new simplified_sink();
+  com::pointer<compat::simplified_geometry_sink> collapsed_path_widen_sink;
+  collapsed_path_widen_sink.attach(raw_collapsed_path_widen_sink);
+  auto *raw_consumed_path_widen_sink = new simplified_sink();
+  com::pointer<compat::simplified_geometry_sink> consumed_path_widen_sink;
+  consumed_path_widen_sink.attach(raw_consumed_path_widen_sink);
   auto *raw_bevel_path_widen_sink = new simplified_sink();
   com::pointer<compat::simplified_geometry_sink> bevel_path_widen_sink;
   bevel_path_widen_sink.attach(raw_bevel_path_widen_sink);
@@ -3229,6 +3235,18 @@ int run_tests()
       raw_path_widen_sink->end_count != 2U ||
       raw_path_widen_sink->line_count != 6U ||
       query_path->Widen(
+          4.0F, nullptr, nullptr,
+          core::default_flattening_tolerance,
+          collapsed_path_widen_sink.get()) != com::ok ||
+      query_path->Widen(
+          5.0F, nullptr, nullptr,
+          core::default_flattening_tolerance,
+          consumed_path_widen_sink.get()) != com::ok ||
+      raw_collapsed_path_widen_sink->begin_count != 1U ||
+      raw_collapsed_path_widen_sink->end_count != 1U ||
+      raw_consumed_path_widen_sink->begin_count != 1U ||
+      raw_consumed_path_widen_sink->end_count != 1U ||
+      query_path->Widen(
           2.0F, bevel_path_stroke_style.get(), nullptr,
           core::default_flattening_tolerance,
           bevel_path_widen_sink.get()) != com::ok ||
@@ -3264,6 +3282,8 @@ int run_tests()
       std::int32_t bevel_contains = 0;
       std::int32_t round_contains = 0;
       std::int32_t closed_cover_dash_contains = 0;
+      std::int32_t collapsed_contains = 0;
+      std::int32_t consumed_contains = 0;
       if (query_path->StrokeContainsPoint(
               point, 2.0F, bevel_path_stroke_style.get(), nullptr,
               core::default_flattening_tolerance,
@@ -3275,13 +3295,25 @@ int run_tests()
           query_path->StrokeContainsPoint(
               point, 0.25F, closed_cover_dash_style.get(), nullptr,
               0.001F, &closed_cover_dash_contains) != com::ok ||
+          query_path->StrokeContainsPoint(
+              point, 4.0F, nullptr, nullptr,
+              core::default_flattening_tolerance,
+              &collapsed_contains) != com::ok ||
+          query_path->StrokeContainsPoint(
+              point, 5.0F, nullptr, nullptr,
+              core::default_flattening_tolerance,
+              &consumed_contains) != com::ok ||
           captured_fill_contains(*raw_bevel_path_widen_sink, point) !=
               (bevel_contains != 0) ||
           captured_fill_contains(*raw_round_path_widen_sink, point) !=
               (round_contains != 0) ||
           captured_fill_contains(
               *raw_closed_cover_dash_widen_sink, point) !=
-              (closed_cover_dash_contains != 0)) {
+              (closed_cover_dash_contains != 0) ||
+          captured_fill_contains(*raw_collapsed_path_widen_sink, point) !=
+              (collapsed_contains != 0) ||
+          captured_fill_contains(*raw_consumed_path_widen_sink, point) !=
+              (consumed_contains != 0)) {
         std::fprintf(
             stderr,
             "closed styled widen mismatch point=%g,%g bevel=%d/%d "
@@ -7652,7 +7684,7 @@ int run_tests()
     system_multi_dashed_widen.attach(raw_system_multi_dashed_widen);
     const HRESULT portable_multi_default_widen_status =
         portable_multi_query_path->Widen(
-            1.0F,
+            2.0F,
             nullptr,
             nullptr,
             0.001F,
@@ -7660,7 +7692,7 @@ int run_tests()
                 portable_multi_default_widen.get()));
     const HRESULT system_multi_default_widen_status =
         system_multi_query_path->Widen(
-            1.0F,
+            2.0F,
             nullptr,
             nullptr,
             0.001F,
@@ -8194,6 +8226,15 @@ int run_tests()
       system_closed_cover_dash_widen_sink;
   system_closed_cover_dash_widen_sink.attach(
       raw_system_closed_cover_dash_widen_sink);
+  auto* raw_system_collapsed_path_widen_sink = new simplified_sink();
+  com::pointer<compat::simplified_geometry_sink>
+      system_collapsed_path_widen_sink;
+  system_collapsed_path_widen_sink.attach(
+      raw_system_collapsed_path_widen_sink);
+  auto* raw_system_consumed_path_widen_sink = new simplified_sink();
+  com::pointer<compat::simplified_geometry_sink>
+      system_consumed_path_widen_sink;
+  system_consumed_path_widen_sink.attach(raw_system_consumed_path_widen_sink);
   const HRESULT system_bevel_path_widen_status =
       system_query_boolean_path->Widen(
           2.0F,
@@ -8218,10 +8259,28 @@ int run_tests()
           0.001F,
           reinterpret_cast<ID2D1SimplifiedGeometrySink*>(
               system_closed_cover_dash_widen_sink.get()));
+  const HRESULT system_collapsed_path_widen_status =
+      system_query_boolean_path->Widen(
+          4.0F,
+          nullptr,
+          nullptr,
+          0.001F,
+          reinterpret_cast<ID2D1SimplifiedGeometrySink*>(
+              system_collapsed_path_widen_sink.get()));
+  const HRESULT system_consumed_path_widen_status =
+      system_query_boolean_path->Widen(
+          5.0F,
+          nullptr,
+          nullptr,
+          0.001F,
+          reinterpret_cast<ID2D1SimplifiedGeometrySink*>(
+              system_consumed_path_widen_sink.get()));
   bool system_closed_style_widen_matches =
       SUCCEEDED(system_bevel_path_widen_status) &&
       SUCCEEDED(system_round_path_widen_status) &&
-      SUCCEEDED(system_closed_cover_dash_widen_status);
+      SUCCEEDED(system_closed_cover_dash_widen_status) &&
+      SUCCEEDED(system_collapsed_path_widen_status) &&
+      SUCCEEDED(system_consumed_path_widen_status);
   for (std::uint32_t y_index = 0U;
        system_closed_style_widen_matches && y_index < 28U;
        ++y_index) {
@@ -8232,6 +8291,8 @@ int run_tests()
       BOOL system_bevel_contains = FALSE;
       BOOL system_round_contains = FALSE;
       BOOL system_closed_cover_dash_contains = FALSE;
+      BOOL system_collapsed_contains = FALSE;
+      BOOL system_consumed_contains = FALSE;
       const HRESULT system_bevel_contains_status =
           system_query_boolean_path->StrokeContainsPoint(
               D2D1_POINT_2F{point.x, point.y},
@@ -8256,6 +8317,22 @@ int run_tests()
               nullptr,
               0.001F,
               &system_closed_cover_dash_contains);
+      const HRESULT system_collapsed_contains_status =
+          system_query_boolean_path->StrokeContainsPoint(
+              D2D1_POINT_2F{point.x, point.y},
+              4.0F,
+              nullptr,
+              nullptr,
+              0.001F,
+              &system_collapsed_contains);
+      const HRESULT system_consumed_contains_status =
+          system_query_boolean_path->StrokeContainsPoint(
+              D2D1_POINT_2F{point.x, point.y},
+              5.0F,
+              nullptr,
+              nullptr,
+              0.001F,
+              &system_consumed_contains);
       bool near_round_boundary = false;
       bool near_closed_cover_boundary = false;
       constexpr std::array<compat::point_2f, 4U> corners{{
@@ -8282,9 +8359,15 @@ int run_tests()
       if (FAILED(system_bevel_contains_status) ||
           FAILED(system_round_contains_status) ||
           FAILED(system_closed_cover_dash_contains_status) ||
+          FAILED(system_collapsed_contains_status) ||
+          FAILED(system_consumed_contains_status) ||
           captured_fill_contains(*raw_bevel_path_widen_sink, point) !=
               (system_bevel_contains != FALSE) ||
           (!closed_cover_matches && !near_closed_cover_boundary) ||
+          captured_fill_contains(*raw_collapsed_path_widen_sink, point) !=
+              (system_collapsed_contains != FALSE) ||
+          captured_fill_contains(*raw_consumed_path_widen_sink, point) !=
+              (system_consumed_contains != FALSE) ||
           (!round_matches && !near_round_boundary)) {
         std::fprintf(
             stderr,

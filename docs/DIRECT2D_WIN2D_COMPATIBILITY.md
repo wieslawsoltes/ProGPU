@@ -947,9 +947,12 @@ regions directly against the system containment oracle. Convex closed figures
 also use paired typed side contours for solid bevel/round/miter styles and for
 a dash run that covers the complete closed source; round joins remain cubic
 GPU paths. Dense local and Windows ARM64/x64 system-containment differentials
-cover bevel, round, and full-cover custom dash output. Non-convex styled closed
-contours, collapsed offsets, segment flags, and invalid topology remain typed
-fail-closed domains.
+cover bevel, round, and full-cover custom dash output. Convex null/default
+strokes also omit the inner alternate-fill ring when inward erosion collapses
+or reverses it, so exact-collapse and fully-consumed interiors now match the
+system implementation instead of being rejected. Non-convex styled or split-
+erosion contours, segment flags, and invalid topology remain typed fail-closed
+domains.
 
 The identical simple closed/default-miter domain now implements
 `GetWidenedBounds`. It derives segment offset endpoints plus qualified miter
@@ -973,8 +976,8 @@ and emitted as alternate-fill, force-unstroked closed figures. A dense lattice
 compares the widened fill to `StrokeContainsPoint` locally and to a genuine
 system-Direct2D widened sink on Windows ARM64. A second concave-path lattice
 qualifies the re-entrant join and surviving narrow inner ring. Zero width,
-collapsed or self-intersecting default offsets, non-convex styled contours,
-flags, and unsupported figure topology fail closed transactionally.
+self-intersecting or split non-convex default offsets, non-convex styled
+contours, flags, and unsupported figure topology fail closed transactionally.
 
 The focused compatibility target passes all 17 local native CTests and the 10
 managed Direct2D source/ABI contracts. A clean Windows 11 ARM64 Parallels build
