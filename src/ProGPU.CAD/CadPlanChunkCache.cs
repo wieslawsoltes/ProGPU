@@ -656,6 +656,7 @@ internal static class CadPlanChunkKeyBuilder
         if (entity.Kind is not (
                 CadEntityKind.Point or
                 CadEntityKind.Line or
+                CadEntityKind.MLine or
                 CadEntityKind.Circle or
                 CadEntityKind.Arc or
                 CadEntityKind.Ellipse or
@@ -758,6 +759,16 @@ internal static class CadPlanChunkKeyBuilder
                     snapshot.RebaseOrigin,
                     worldToChunk);
                 return true;
+            case CadEntityKind.MLine:
+                return TryAppendMLine(
+                    writer,
+                    snapshot,
+                    snapshot.MLines.Span[entity.PrimitiveIndex],
+                    worldToChunk,
+                    cancellationToken,
+                    ref fontDependencies,
+                    ref shxDependencies,
+                    maximumKeyBytes);
             case CadEntityKind.Circle:
                 CadCirclePrimitive circle =
                     snapshot.Circles.Span[entity.PrimitiveIndex];
@@ -975,6 +986,125 @@ internal static class CadPlanChunkKeyBuilder
             default:
                 return false;
         }
+    }
+
+    private static bool TryAppendMLine(
+        ArrayBufferWriter<byte> writer,
+        CadDocumentSnapshot snapshot,
+        in CadMLinePrimitive mline,
+        CadPlanChunkNormalization? worldToChunk,
+        CancellationToken cancellationToken,
+        ref List<TtfFont>? fontDependencies,
+        ref List<CadShxGlyph>? shxDependencies,
+        int maximumKeyBytes)
+    {
+        Append(writer, mline.ElementPathCount);
+        Append(writer, mline.StrokeCount);
+        Append(writer, mline.FillTriangleCount);
+        ReadOnlySpan<CadMLineFillTriangle> triangles =
+            snapshot.MLineFillTriangles.Span.Slice(
+                mline.FillTriangleOffset,
+                mline.FillTriangleCount);
+        for (int index = 0; index < triangles.Length; index++)
+        {
+            CadMLineFillTriangle triangle = triangles[index];
+            AppendProjectedPoint(writer, triangle.First, snapshot.RebaseOrigin, worldToChunk);
+            AppendProjectedPoint(writer, triangle.Second, snapshot.RebaseOrigin, worldToChunk);
+            AppendProjectedPoint(writer, triangle.Third, snapshot.RebaseOrigin, worldToChunk);
+            Append(writer, triangle.Color);
+            if (writer.WrittenCount > maximumKeyBytes)
+            {
+                return false;
+            }
+        }
+
+        ReadOnlySpan<CadMLineElementPath> elements =
+            snapshot.MLineElementPaths.Span.Slice(
+                mline.ElementPathOffset,
+                mline.ElementPathCount);
+        for (int elementIndex = 0; elementIndex < elements.Length; elementIndex++)
+        {
+            if ((elementIndex & 255) == 0)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+            }
+            CadMLineElementPath element = elements[elementIndex];
+            Append(writer, element.StrokeCount);
+            Append(writer, element.PathLength);
+            Append(writer, element.IsClosed);
+            CadStrokeStyle style = snapshot.Styles.Span[element.StyleIndex];
+            CadLineTypePattern pattern = snapshot.LineTypePatterns.Span[
+                style.LineTypePatternIndex];
+            if (!TryAppendStrokeStyle(
+                    writer,
+                    snapshot,
+                    style,
+                    pattern,
+                    worldToChunk,
+                    ref fontDependencies,
+                    ref shxDependencies,
+                    maximumKeyBytes))
+            {
+                return false;
+            }
+            ReadOnlySpan<CadMLineStroke> strokes =
+                snapshot.MLineStrokes.Span.Slice(
+                    element.StrokeOffset,
+                    element.StrokeCount);
+            for (int strokeIndex = 0; strokeIndex < strokes.Length; strokeIndex++)
+            {
+                CadMLineStroke stroke = strokes[strokeIndex];
+                AppendProjectedPoint(writer, stroke.Start, snapshot.RebaseOrigin, worldToChunk);
+                AppendProjectedPoint(writer, stroke.End, snapshot.RebaseOrigin, worldToChunk);
+                Append(writer, stroke.PathStart);
+                Append(writer, stroke.PathEnd);
+                if (writer.WrittenCount > maximumKeyBytes)
+                {
+                    return false;
+                }
+            }
+        }
+        return true;
+    }
+
+    private static bool TryAppendStrokeStyle(
+        ArrayBufferWriter<byte> writer,
+        CadDocumentSnapshot snapshot,
+        in CadStrokeStyle style,
+        in CadLineTypePattern pattern,
+        CadPlanChunkNormalization? worldToChunk,
+        ref List<TtfFont>? fontDependencies,
+        ref List<CadShxGlyph>? shxDependencies,
+        int maximumKeyBytes)
+    {
+        Append(writer, style.Red);
+        Append(writer, style.Green);
+        Append(writer, style.Blue);
+        Append(writer, style.Alpha);
+        Append(writer, style.LineWeightMillimeters);
+        Append(writer, style.IsHairline);
+        if (!TryAppendString(writer, style.LineTypeName, maximumKeyBytes))
+        {
+            return false;
+        }
+        Append(writer, style.LineTypeScale);
+        if (pattern.Kind == CadLineTypePatternKind.Continuous)
+        {
+            return writer.WrittenCount <= maximumKeyBytes;
+        }
+        if (worldToChunk is not null || pattern.Kind is not (
+                CadLineTypePatternKind.Simple or
+                CadLineTypePatternKind.Complex))
+        {
+            return false;
+        }
+        return TryAppendLineTypePattern(
+            writer,
+            snapshot,
+            pattern,
+            ref fontDependencies,
+            ref shxDependencies,
+            maximumKeyBytes);
     }
 
     private static bool TryAppendSpline(

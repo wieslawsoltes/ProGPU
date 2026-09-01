@@ -105,6 +105,67 @@ public sealed class CadMLineTests
     }
 
     [Fact]
+    public void PlanChunkCacheReusesNormalizedContinuousMLineBlock()
+    {
+        var document = new CadDocument();
+        var block = new BlockRecord("MLINE_TILE");
+        block.Entities.Add(CreateMLine(fill: true));
+        document.Entities.Add(new Insert(block)
+        {
+            InsertPoint = new XYZ(100, 200, 0),
+            XScale = 2,
+            YScale = 3,
+        });
+        CadDocumentSnapshot snapshot = new CadSnapshotCompiler().Compile(
+            new CadDocumentSession(document));
+        Assert.Equal(
+            1,
+            snapshot.Entities.Length);
+        Assert.Equal(1, snapshot.PlanBlockInstances.Length);
+        Assert.All(snapshot.MLineElementPaths.ToArray(), element =>
+        {
+            CadStrokeStyle style = snapshot.Styles.Span[element.StyleIndex];
+            Assert.Equal(
+                CadLineTypePatternKind.Continuous,
+                snapshot.LineTypePatterns.Span[style.LineTypePatternIndex].Kind);
+        });
+        var compiler = new CadPlanSceneCompiler();
+        using CadRecordedPlanScene baseline = compiler.Compile(snapshot);
+        using GpuPicture baselinePicture = baseline.CreatePicture();
+        using var cache = new CadPlanChunkCache();
+        var options = new CadPlanSceneOptions { ChunkCache = cache };
+        using CadRecordedPlanScene first = compiler.Compile(
+            snapshot,
+            options);
+        using CadRecordedPlanScene second = compiler.Compile(snapshot, options);
+        using GpuPicture firstPicture = first.CreatePicture();
+        using GpuPicture secondPicture = second.CreatePicture();
+
+        Assert.Equal(1, first.Statistics.RetainedChunkCount);
+        Assert.Equal(0, first.Statistics.ReusedRetainedChunkCount);
+        Assert.Equal(1, second.Statistics.ReusedRetainedChunkCount);
+        Assert.Same(
+            firstPicture.GetCommand(0).Picture,
+            secondPicture.GetCommand(0).Picture);
+        Assert.True(GpuPictureNativeSceneCompiler.TryCompile(
+            baselinePicture,
+            815U,
+            1U,
+            out NativeCompiledPicture? baselineNative,
+            out NativePictureCompileFailure baselineFailure),
+            baselineFailure.ToString());
+        Assert.True(GpuPictureNativeSceneCompiler.TryCompile(
+            secondPicture,
+            816U,
+            1U,
+            out NativeCompiledPicture? cachedNative,
+            out NativePictureCompileFailure cachedFailure),
+            cachedFailure.ToString());
+        Assert.Equal(baselineNative!.NativeDrawCount, cachedNative!.NativeDrawCount);
+        Assert.Equal(baselineNative.PathSegmentCount, cachedNative.PathSegmentCount);
+    }
+
+    [Fact]
     public void PatternedElementPreservesDashPhaseAcrossPersistedCuts()
     {
         var document = new CadDocument();
@@ -131,6 +192,44 @@ public sealed class CadMLineTests
         Assert.Equal(new System.Numerics.Vector2(-5, 1), patterned.Path.Figures[0].StartPoint);
         Assert.Equal(new System.Numerics.Vector2(-1, 1), patterned.Path.Figures[1].StartPoint);
         Assert.Equal(new System.Numerics.Vector2(3, 1), patterned.Path.Figures[2].StartPoint);
+    }
+
+    [Fact]
+    public void PlanChunkCacheReplaysPatternedMLineCounters()
+    {
+        var document = new CadDocument();
+        var dashed = new LineType("MLINE_CACHE_DASH");
+        dashed.AddSegment(new LineType.Segment { Length = 2.0 });
+        dashed.AddSegment(new LineType.Segment { Length = -2.0 });
+        document.LineTypes.Add(dashed);
+        MLine source = CreateMLine(
+            fill: false,
+            cutParameters: [1.0, 0.0, 2.0, 4.0]);
+        source.Style.Elements.First().LineType = dashed;
+        document.Entities.Add(source);
+        CadDocumentSnapshot snapshot = new CadSnapshotCompiler().Compile(
+            new CadDocumentSession(document));
+        var compiler = new CadPlanSceneCompiler();
+        using var cache = new CadPlanChunkCache();
+        var options = new CadPlanSceneOptions { ChunkCache = cache };
+        using CadRecordedPlanScene first = compiler.Compile(snapshot, options);
+        using CadRecordedPlanScene second = compiler.Compile(snapshot, options);
+
+        Assert.Equal(0, first.Statistics.ReusedRetainedChunkCount);
+        Assert.Equal(1, second.Statistics.ReusedRetainedChunkCount);
+        Assert.Equal(1, second.Statistics.LoweredLineTypeEntityCount);
+        Assert.Equal(
+            first.Statistics.LoweredLineTypeFigureCount,
+            second.Statistics.LoweredLineTypeFigureCount);
+        Assert.Equal(
+            first.Statistics.LineTypePatternStepCount,
+            second.Statistics.LineTypePatternStepCount);
+        Assert.Equal(
+            first.Statistics.LineTypeSourceSegmentCount,
+            second.Statistics.LineTypeSourceSegmentCount);
+        Assert.Equal(
+            first.Statistics.RecordedCommandCount,
+            second.Statistics.RecordedCommandCount);
     }
 
     [Fact]

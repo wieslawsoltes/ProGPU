@@ -1204,6 +1204,33 @@ public sealed class CadPlanSceneCompiler
             for (int entityIndex = 0; entityIndex < entities.Length; entityIndex++)
             {
                 CadEntityHeader entity = entities[entityIndex];
+                if (entity.Kind == CadEntityKind.MLine)
+                {
+                    CadMLinePrimitive mline =
+                        snapshot.MLines.Span[entity.PrimitiveIndex];
+                    ReadOnlySpan<CadMLineElementPath> elements =
+                        snapshot.MLineElementPaths.Span.Slice(
+                            mline.ElementPathOffset,
+                            mline.ElementPathCount);
+                    for (int elementIndex = 0; elementIndex < elements.Length; elementIndex++)
+                    {
+                        CadStrokeStyle elementStyle =
+                            snapshot.Styles.Span[elements[elementIndex].StyleIndex];
+                        CadLineTypePattern elementPattern =
+                            snapshot.LineTypePatterns.Span[
+                                elementStyle.LineTypePatternIndex];
+                        if (elementPattern.Kind == CadLineTypePatternKind.Complex &&
+                            HasLineTypeSubstitution(snapshot, elementPattern) &&
+                            warnedLineTypeSubstitutions.Add(elementPattern.Name))
+                        {
+                            diagnostics.Add(new CadDiagnostic(
+                                CadDiagnosticSeverity.Warning,
+                                "CADSCENE003",
+                                $"Linetype '{elementPattern.Name}' uses a host-resolved text or SHX substitution."));
+                        }
+                    }
+                    continue;
+                }
                 if (!UsesStroke(entity.Kind))
                 {
                     continue;
@@ -1229,6 +1256,31 @@ public sealed class CadPlanSceneCompiler
             for (int entityIndex = 0; entityIndex < entities.Length; entityIndex++)
             {
                 CadEntityHeader entity = entities[entityIndex];
+                if (entity.Kind == CadEntityKind.MLine)
+                {
+                    CadMLinePrimitive mline =
+                        snapshot.MLines.Span[entity.PrimitiveIndex];
+                    ReadOnlySpan<CadMLineElementPath> elements =
+                        snapshot.MLineElementPaths.Span.Slice(
+                            mline.ElementPathOffset,
+                            mline.ElementPathCount);
+                    for (int elementIndex = 0; elementIndex < elements.Length; elementIndex++)
+                    {
+                        CadStrokeStyle elementStyle =
+                            snapshot.Styles.Span[elements[elementIndex].StyleIndex];
+                        CadLineTypePattern elementPattern =
+                            snapshot.LineTypePatterns.Span[
+                                elementStyle.LineTypePatternIndex];
+                        if (elementPattern.Kind is
+                            CadLineTypePatternKind.Simple or
+                            CadLineTypePatternKind.Complex)
+                        {
+                            count++;
+                            break;
+                        }
+                    }
+                    continue;
+                }
                 if (!UsesStroke(entity.Kind))
                 {
                     continue;

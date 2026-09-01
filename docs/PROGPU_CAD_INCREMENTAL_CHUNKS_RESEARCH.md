@@ -11,14 +11,15 @@ GPU texture residency, and 8 MiB
 per encoded key. Reuse is
 admitted only for continuous-style POINT, LINE, CIRCLE, ARC, ELLIPSE, SOLID,
 3DFACE, SPLINE, LWPOLYLINE, 2D/3D POLYLINE, vector-outline TEXT/MTEXT,
-SHX TEXT/MTEXT, SHAPE, LEADER/MULTILEADER paths, TOLERANCE frames,
+SHX TEXT/MTEXT, SHAPE, MLINE fills/strokes, LEADER/MULTILEADER paths, TOLERANCE frames,
 paper VIEWPORT frames, solid or patterned HATCH, WIPEOUT, and prepared raster IMAGE
 roots whose complete canonical rendering inputs match byte-for-byte. Top-level
 INSERT and MINSERT cells additionally share one definition-local fragment across
 translation, rotation, reflection, and nonuniform affine scale when every expanded
 child is an eligible analytic family, including flat SOLID/3DFACE,
 vector-outline TrueType TEXT/MTEXT, retained analytic SHX TEXT/MTEXT/SHAPE,
-HATCH boundary/pattern streams, LEADER/MULTILEADER spline and arrow geometry,
+HATCH boundary/pattern streams, continuous MLINE fills/strokes,
+LEADER/MULTILEADER spline and arrow geometry,
 TOLERANCE frame strokes, and WIPEOUT masks/frames.
 Instance-owned ATTRIBs are
 excluded from the definition range. Unsupported
@@ -96,6 +97,15 @@ camera, clipping/status, frozen-layer-name, and frame inputs; viewport entities
 inside a block fail closed because their paper-space dimensions are not an
 ordinary model-geometry affine contract.
 
+MLINE identity encodes every fill triangle, authored cut interval, path domain,
+element style, and element-local linetype definition without retaining snapshot-
+global offsets. Continuous elements participate in definition-affine sharing.
+Patterned elements reuse exact semantic roots only, because their dash lengths are
+already measured in final entity space; their figure, placement, pattern-step, and
+source-segment charges and substitution diagnostics replay through the same bounded
+global contract as ordinary complex linetypes. Any unresolved or budget-truncated
+element prevents the whole root from being interned.
+
 Semantic-root simple and complex linetypes encode the complete A-aligned pattern,
 element transforms, shaped TrueType or SHX text, SHX shape paths, substitution
 state, and the per-entity arc-map option. Hits restore figure, placement, pattern-
@@ -129,7 +139,7 @@ The aggregate picture independently retains every child resource lease. LRU
 eviction, replacement, or cache clearing therefore cannot invalidate an already published
 picture. Currently eligible analytic/vector-text chunks retain no disposable device
 resource; cached font and SHX glyph objects remain strongly owned by their retained
-commands and exact dependency table. Color/bitmap text, modeler, MLINE, and
+commands and exact dependency table. Color/bitmap text, modeler, and
 mesh roots remain on the ordinary path until their complete resource and global
 budget dependencies are encoded.
 
@@ -145,6 +155,6 @@ semantics. MINSERT and distinct affine INSERT regressions prove one shared child
 identity, exact composed managed endpoints within retained-float tolerance, and
 matched native primitive/draw counts.
 
-Definition-local extruded surface, color/bitmap text, affine-block linetype, MLINE,
+Definition-local extruded surface, color/bitmap text, affine-block linetype,
 modeler, mesh, and other
 resource- or global-budget-dependent families remain the next chunk-coverage work.
