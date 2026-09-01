@@ -1,4 +1,5 @@
 using System.Buffers.Binary;
+using System.Drawing.Drawing2D;
 using System.Drawing.Imaging;
 using System.Numerics;
 using System.Reflection;
@@ -4398,6 +4399,137 @@ public sealed class MetafileParserTests
     }
 
     [Fact]
+    public void EmfAndWmfHatchBrushesHonorBackgroundModeAndColor()
+    {
+        byte[] emf = CreateTextPlaybackEmf(
+        [
+            (EmfPlusRecordType.EmfCreateBrushIndirect,
+                EmfHatchBrush(1, HatchStyle.Horizontal, Color.Red)),
+            (EmfPlusRecordType.EmfSelectObject, EmfUInt32(1)),
+            (EmfPlusRecordType.EmfSetBkColor, EmfUInt32(0x00FF_0000)),
+            (EmfPlusRecordType.EmfRectangle, EmfRectangle(4, 4, 16, 16)),
+            (EmfPlusRecordType.EmfSaveDC, []),
+            (EmfPlusRecordType.EmfSetBkMode, EmfInt32(1)),
+            (EmfPlusRecordType.EmfRectangle, EmfRectangle(20, 4, 32, 16)),
+            (EmfPlusRecordType.EmfSetBrushOrgEx, EmfPoint(1, 1)),
+            (EmfPlusRecordType.EmfRectangle, EmfRectangle(36, 4, 48, 16)),
+            (EmfPlusRecordType.EmfRestoreDC, EmfInt32(-1)),
+            (EmfPlusRecordType.EmfRectangle, EmfRectangle(52, 4, 64, 16))
+        ]);
+        byte[] wmf = CreatePlaybackWmf(
+        [
+            (0x02FC, WmfHatchBrush(HatchStyle.Horizontal, Color.Red)),
+            (0x012D, WmfWords(0)),
+            (0x0201, WmfColor(Color.Blue)),
+            (0x041B, WmfWords(16, 16, 4, 4)),
+            (0x0102, WmfWords(1)),
+            (0x041B, WmfWords(16, 32, 4, 20)),
+            (0x0102, WmfWords(2)),
+            (0x061D, WmfPatBlt(0x00F0_0021, new Rectangle(36, 4, 12, 12))),
+            (0, [])
+        ]);
+
+        foreach (byte[] fixture in new[] { emf, wmf })
+        {
+            using var metafile = new Metafile(new MemoryStream(fixture, writable: false));
+            using var target = new Bitmap(68, 20);
+            using (Graphics graphics = Graphics.FromImage(target))
+            {
+                graphics.Clear(Color.Green);
+                graphics.DrawImage(metafile, new Rectangle(0, 0, 64, 64));
+            }
+
+            Assert.Equal(Color.Red.ToArgb(), target.GetPixel(8, 8).ToArgb());
+            Assert.Equal(Color.Blue.ToArgb(), target.GetPixel(8, 10).ToArgb());
+            Assert.Equal(Color.Red.ToArgb(), target.GetPixel(24, 8).ToArgb());
+            Assert.Equal(Color.Green.ToArgb(), target.GetPixel(24, 10).ToArgb());
+            if (ReferenceEquals(fixture, emf))
+            {
+                Assert.Equal(Color.Red.ToArgb(), target.GetPixel(40, 9).ToArgb());
+                Assert.Equal(Color.Green.ToArgb(), target.GetPixel(40, 10).ToArgb());
+                Assert.Equal(Color.Red.ToArgb(), target.GetPixel(56, 8).ToArgb());
+                Assert.Equal(Color.Blue.ToArgb(), target.GetPixel(56, 10).ToArgb());
+            }
+            else
+            {
+                Assert.Equal(Color.Red.ToArgb(), target.GetPixel(40, 8).ToArgb());
+                Assert.Equal(Color.Blue.ToArgb(), target.GetPixel(40, 10).ToArgb());
+            }
+        }
+    }
+
+    [Fact]
+    public void EmfAndWmfInvalidHatchBrushesRollBackEarlierCommands()
+    {
+        byte[] emf = CreateTextPlaybackEmf(
+        [
+            (EmfPlusRecordType.EmfSetPixelV, EmfSetPixel(new Point(1, 1), Color.Red)),
+            (EmfPlusRecordType.EmfCreateBrushIndirect,
+                EmfHatchBrush(1, (HatchStyle)6, Color.Red))
+        ]);
+        byte[] wmf = CreatePlaybackWmf(
+        [
+            (0x041F, WmfSetPixel(Color.Red, new Point(1, 1))),
+            (0x02FC, WmfHatchBrush((HatchStyle)6, Color.Red)),
+            (0, [])
+        ]);
+
+        foreach (byte[] fixture in new[] { emf, wmf })
+        {
+            using var metafile = new Metafile(new MemoryStream(fixture, writable: false));
+            var context = new DrawingContext();
+            using Graphics graphics = Graphics.FromProGpuDrawingContext(context);
+
+            Assert.Throws<ArgumentException>(() =>
+                graphics.DrawImage(metafile, new Rectangle(0, 0, 64, 64)));
+            Assert.Empty(context.Commands);
+        }
+    }
+
+    [Fact]
+    public void WmfHatchPatternPlaybackHasBoundedWarmedAllocation()
+    {
+        var records = new List<(ushort Function, byte[] Payload)>
+        {
+            (0x02FC, WmfHatchBrush(HatchStyle.Horizontal, Color.Red)),
+            (0x012D, WmfWords(0)),
+            (0x0201, WmfColor(Color.Blue))
+        };
+        for (int index = 0; index < 64; index++)
+        {
+            records.Add((
+                0x061D,
+                WmfPatBlt(
+                    0x00F0_0021,
+                    new Rectangle((index % 8) * 8, (index / 8) * 8, 8, 8))));
+        }
+        records.Add((0, []));
+        using var metafile = new Metafile(new MemoryStream(
+            CreatePlaybackWmf(records),
+            writable: false));
+        var context = new DrawingContext();
+        using Graphics graphics = Graphics.FromProGpuDrawingContext(context);
+        for (int iteration = 0; iteration < 4; iteration++)
+        {
+            graphics.DrawImage(metafile, new Rectangle(0, 0, 64, 64));
+            Assert.Equal(64, context.Commands.Count(command =>
+                command.Type is RenderCommandType.DrawPath or RenderCommandType.DrawRect));
+            context.Clear();
+        }
+
+        long before = GC.GetAllocatedBytesForCurrentThread();
+        for (int iteration = 0; iteration < 8; iteration++)
+        {
+            graphics.DrawImage(metafile, new Rectangle(0, 0, 64, 64));
+            context.Clear();
+        }
+        long allocatedPerPlayback =
+            (GC.GetAllocatedBytesForCurrentThread() - before) / 8;
+
+        Assert.InRange(allocatedPerPlayback, 32 * 1024, 8 * 1024 * 1024);
+    }
+
+    [Fact]
     public void WmfDibRasterOperationsComposeExactSourcePatternAndDestinationRgb()
     {
         TestDib dib = CreateRgbDib(1, -1, 24, [0x55, 0xF0, 0x33, 0]);
@@ -6274,6 +6406,15 @@ public sealed class MetafileParserTests
         return bytes;
     }
 
+    private static byte[] WmfHatchBrush(HatchStyle style, Color color)
+    {
+        byte[] bytes = new byte[8];
+        WriteUInt16(bytes, 0, 2);
+        WmfColor(color).CopyTo(bytes, 2);
+        WriteUInt16(bytes, 6, checked((ushort)style));
+        return bytes;
+    }
+
     private static byte[] WmfPalette(
         ushort start,
         Color[] colors,
@@ -7074,6 +7215,19 @@ public sealed class MetafileParserTests
         WriteUInt32(payload, 0, index);
         WriteUInt32(payload, 4, 0);
         WriteUInt32(payload, 8, (uint)(color.R | color.G << 8 | color.B << 16));
+        return payload;
+    }
+
+    private static byte[] EmfHatchBrush(
+        uint index,
+        HatchStyle style,
+        Color color)
+    {
+        byte[] payload = new byte[16];
+        WriteUInt32(payload, 0, index);
+        WriteUInt32(payload, 4, 2);
+        WriteUInt32(payload, 8, (uint)(color.R | color.G << 8 | color.B << 16));
+        WriteUInt32(payload, 12, checked((uint)style));
         return payload;
     }
 

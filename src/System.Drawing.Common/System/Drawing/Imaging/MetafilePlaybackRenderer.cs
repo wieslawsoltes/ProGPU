@@ -410,6 +410,11 @@ internal static class MetafilePlaybackRenderer
                 state.ViewportOrigin = ReadPoint(payload);
                 return;
 
+            case EmfPlusRecordType.EmfSetBrushOrgEx:
+                RequireSize(record, payload, 8);
+                state.Graphics.RenderingOrigin = ReadPoint(payload);
+                return;
+
             case EmfPlusRecordType.EmfScaleViewportExtEx:
                 RequireSize(record, payload, 16);
                 state.ScaleViewportExtent(payload, record);
@@ -4272,13 +4277,16 @@ internal static class MetafilePlaybackRenderer
         private readonly List<SavedState> _savedStates = [];
         private readonly int _wmfObjectCapacity;
         private Pen? _selectedPen = Pens.Black;
-        private Brush? _selectedBrush = Brushes.White;
+        private object? _selectedBrushObject = Brushes.White;
         private Font _selectedFont = SystemFonts.DefaultFont;
         private object? _selectedFontObject;
         private int _selectedFontEscapement;
         private LogicalPalette _selectedPalette = LogicalPalette.Default;
         private SolidBrush? _textBrush;
         private SolidBrush? _backgroundBrush;
+        private HatchBrush? _resolvedHatchBrush;
+        private GdiHatchBrushObject? _resolvedHatchBrushObject;
+        private Color _resolvedHatchBackground;
         private Bitmap? _rasterOperationCoverageBitmap;
         private GraphicsPath? _buildingPath;
         private GraphicsPath? _selectedPath;
@@ -4310,7 +4318,7 @@ internal static class MetafilePlaybackRenderer
         internal Matrix3x2 WorldTransform { get; set; } = Matrix3x2.Identity;
         internal FillMode FillMode { get; set; } = FillMode.Alternate;
         internal int MapMode { get; set; } = 1;
-        internal int BackgroundMode { get; set; } = 2;
+        internal int BackgroundMode { get; private set; } = 2;
         internal int RasterOperation { get; set; } = 13;
         internal InterpolationMode DibInterpolationMode { get; private set; } =
             InterpolationMode.NearestNeighbor;
@@ -4321,13 +4329,57 @@ internal static class MetafilePlaybackRenderer
         internal int TextJustificationExtra { get; private set; }
         internal int TextJustificationBreakCount { get; private set; }
         internal int TextJustificationError { get; private set; }
-        internal Color BackgroundColor { get; set; } = Color.White;
+        private Color _backgroundColor = Color.White;
+        internal Color BackgroundColor
+        {
+            get => _backgroundColor;
+            set
+            {
+                if (_backgroundColor != value)
+                {
+                    _backgroundColor = value;
+                    InvalidateResolvedHatchBrush();
+                }
+            }
+        }
         internal Color TextColor { get; set; } = Color.Black;
         internal Pen? SelectedPen => _selectedPen;
-        internal Brush? SelectedBrush => _selectedBrush;
+        internal Brush? SelectedBrush => ResolveSelectedBrush();
         internal Font SelectedFont => _selectedFont;
         internal LogicalPalette SelectedPalette => _selectedPalette;
         internal bool IsPathBracketOpen => _pathBracketOpen;
+
+        private Brush? ResolveSelectedBrush()
+        {
+            if (_selectedBrushObject is not GdiHatchBrushObject hatchBrush)
+            {
+                return _selectedBrushObject as Brush;
+            }
+
+            Color background = BackgroundMode == 1
+                ? Color.Transparent
+                : BackgroundColor;
+            if (!ReferenceEquals(_resolvedHatchBrushObject, hatchBrush) ||
+                _resolvedHatchBackground != background)
+            {
+                InvalidateResolvedHatchBrush();
+                _resolvedHatchBrush = new HatchBrush(
+                    hatchBrush.Style,
+                    hatchBrush.ForegroundColor,
+                    background);
+                _resolvedHatchBrushObject = hatchBrush;
+                _resolvedHatchBackground = background;
+            }
+            return _resolvedHatchBrush;
+        }
+
+        private void InvalidateResolvedHatchBrush()
+        {
+            _resolvedHatchBrush?.Dispose();
+            _resolvedHatchBrush = null;
+            _resolvedHatchBrushObject = null;
+            _resolvedHatchBackground = default;
+        }
 
         internal Matrix3x2 ApplyTransform(in MetafileRecord record)
         {
@@ -4490,7 +4542,11 @@ internal static class MetafilePlaybackRenderer
             {
                 throw Unsupported(record, "Only TRANSPARENT and OPAQUE background modes are valid.");
             }
-            BackgroundMode = mode;
+            if (BackgroundMode != mode)
+            {
+                BackgroundMode = mode;
+                InvalidateResolvedHatchBrush();
+            }
         }
 
         internal void SetRasterOperation(int operation, in MetafileRecord record)
@@ -4645,7 +4701,7 @@ internal static class MetafilePlaybackRenderer
                 }
 
                 Graphics.TransformElements = Matrix3x2.Identity;
-                if (fill && _selectedBrush is Brush brush)
+                if (fill && SelectedBrush is Brush brush)
                 {
                     Graphics.FillPath(brush, path);
                 }
@@ -4975,7 +5031,7 @@ internal static class MetafilePlaybackRenderer
                 BackgroundColor,
                 TextColor,
                 _selectedPen,
-                _selectedBrush,
+                _selectedBrushObject,
                 _selectedFont,
                 _selectedFontObject,
                 _selectedFontEscapement,
@@ -5032,7 +5088,8 @@ internal static class MetafilePlaybackRenderer
             BackgroundColor = saved.BackgroundColor;
             TextColor = saved.TextColor;
             _selectedPen = saved.SelectedPen;
-            _selectedBrush = saved.SelectedBrush;
+            _selectedBrushObject = saved.SelectedBrushObject;
+            InvalidateResolvedHatchBrush();
             _selectedFont = saved.SelectedFont;
             _selectedFontObject = saved.SelectedFontObject;
             _selectedFontEscapement = saved.SelectedFontEscapement;
@@ -5077,7 +5134,11 @@ internal static class MetafilePlaybackRenderer
             {
                 0 => new SolidBrush(ReadColor(payload, 8)),
                 1 => NullBrushMarker.Instance,
-                _ => throw Unsupported(record, "The initial player supports solid or null brushes only.")
+                2 => CreateHatchBrushObject(
+                    ReadUInt32(payload, 12),
+                    ReadColor(payload, 8),
+                    record),
+                _ => throw Unsupported(record, "The typed player supports solid, null, or hatched brushes only.")
             };
             AddObject(index, product, record);
         }
@@ -5341,9 +5402,25 @@ internal static class MetafilePlaybackRenderer
             {
                 0 => new SolidBrush(ReadColor(payload, 2)),
                 1 => NullBrushMarker.Instance,
-                _ => throw Unsupported(record, "The initial WMF player supports solid or null brushes only.")
+                2 => CreateHatchBrushObject(
+                    ReadUInt16(payload, 6),
+                    ReadColor(payload, 2),
+                    record),
+                _ => throw Unsupported(record, "The typed WMF player supports solid, null, or hatched brushes only.")
             };
             AddWmfObject(product, record);
+        }
+
+        private static GdiHatchBrushObject CreateHatchBrushObject(
+            uint hatch,
+            Color foregroundColor,
+            in MetafileRecord record)
+        {
+            if (hatch > (uint)HatchStyle.DiagonalCross)
+            {
+                throw Invalid(record);
+            }
+            return new GdiHatchBrushObject((HatchStyle)hatch, foregroundColor);
         }
 
         internal void CreateWmfFont(ReadOnlySpan<byte> payload, in MetafileRecord record)
@@ -6164,7 +6241,7 @@ internal static class MetafilePlaybackRenderer
 
         private bool IsSelected(object product)
         {
-            if (ReferenceEquals(product, _selectedPen) || ReferenceEquals(product, _selectedBrush) ||
+            if (ReferenceEquals(product, _selectedPen) || ReferenceEquals(product, _selectedBrushObject) ||
                 ReferenceEquals(product, _selectedFontObject) ||
                 ReferenceEquals(product, _selectedPalette))
             {
@@ -6174,7 +6251,7 @@ internal static class MetafilePlaybackRenderer
             foreach (SavedState savedState in _savedStates)
             {
                 if (ReferenceEquals(product, savedState.SelectedPen) ||
-                    ReferenceEquals(product, savedState.SelectedBrush) ||
+                    ReferenceEquals(product, savedState.SelectedBrushObject) ||
                     ReferenceEquals(product, savedState.SelectedFontObject) ||
                     ReferenceEquals(product, savedState.SelectedPalette))
                 {
@@ -6218,10 +6295,16 @@ internal static class MetafilePlaybackRenderer
                     _selectedPen = null;
                     break;
                 case Brush brush:
-                    _selectedBrush = brush;
+                    _selectedBrushObject = brush;
+                    InvalidateResolvedHatchBrush();
+                    break;
+                case GdiHatchBrushObject hatchBrush:
+                    _selectedBrushObject = hatchBrush;
+                    InvalidateResolvedHatchBrush();
                     break;
                 case NullBrushMarker:
-                    _selectedBrush = null;
+                    _selectedBrushObject = null;
+                    InvalidateResolvedHatchBrush();
                     break;
                 case Font font:
                     _selectedFont = font;
@@ -6256,6 +6339,7 @@ internal static class MetafilePlaybackRenderer
         {
             _textBrush?.Dispose();
             _backgroundBrush?.Dispose();
+            _resolvedHatchBrush?.Dispose();
             _rasterOperationCoverageBitmap?.Dispose();
             _buildingPath?.Dispose();
             _selectedPath?.Dispose();
@@ -6297,7 +6381,7 @@ internal static class MetafilePlaybackRenderer
             Color BackgroundColor,
             Color TextColor,
             Pen? SelectedPen,
-            Brush? SelectedBrush,
+            object? SelectedBrushObject,
             Font SelectedFont,
             object? SelectedFontObject,
             int SelectedFontEscapement,
@@ -6316,6 +6400,10 @@ internal static class MetafilePlaybackRenderer
 
         public void Dispose() => Font.Dispose();
     }
+
+    private sealed record GdiHatchBrushObject(
+        HatchStyle Style,
+        Color ForegroundColor);
 
     private sealed class LogicalPalette
     {

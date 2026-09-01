@@ -43,6 +43,7 @@ public class MetafileBenchmarks
     private Metafile _wmfPolyPolygonPlaybackMetafile = null!;
     private Metafile _wmfMappedPixelPlaybackMetafile = null!;
     private Metafile _wmfPatBltPlaybackMetafile = null!;
+    private Metafile _wmfHatchPatBltPlaybackMetafile = null!;
     private Metafile _wmfOffsetClipPatBltPlaybackMetafile = null!;
     private Metafile _wmfSourceIndependentBitmapPlaybackMetafile = null!;
     private Metafile _wmfDestinationOnlyBitmapPlaybackMetafile = null!;
@@ -136,6 +137,8 @@ public class MetafileBenchmarks
             new MemoryStream(CreatePlaybackWmfMappedPixels(256), writable: false));
         _wmfPatBltPlaybackMetafile = new Metafile(
             new MemoryStream(CreatePlaybackWmfPatBlts(256), writable: false));
+        _wmfHatchPatBltPlaybackMetafile = new Metafile(
+            new MemoryStream(CreatePlaybackWmfPatBlts(256, hatch: true), writable: false));
         _wmfOffsetClipPatBltPlaybackMetafile = new Metafile(
             new MemoryStream(CreatePlaybackWmfPatBlts(256, includeOffsetClipState: true), writable: false));
         _wmfSourceIndependentBitmapPlaybackMetafile = new Metafile(
@@ -221,6 +224,7 @@ public class MetafileBenchmarks
         _wmfPolyPolygonPlaybackMetafile.Dispose();
         _wmfMappedPixelPlaybackMetafile.Dispose();
         _wmfPatBltPlaybackMetafile.Dispose();
+        _wmfHatchPatBltPlaybackMetafile.Dispose();
         _wmfOffsetClipPatBltPlaybackMetafile.Dispose();
         _wmfSourceIndependentBitmapPlaybackMetafile.Dispose();
         _wmfDestinationOnlyBitmapPlaybackMetafile.Dispose();
@@ -649,6 +653,18 @@ public class MetafileBenchmarks
     {
         _playbackContext.Clear();
         _playbackGraphics.DrawImage(_wmfPatBltPlaybackMetafile, new Rectangle(0, 0, 640, 480));
+        int commandCount = _playbackContext.Commands.Count;
+        _playbackContext.Clear();
+        return commandCount;
+    }
+
+    [Benchmark]
+    public int Playback256WmfHatchPatternCopiesToRetainedCommands()
+    {
+        _playbackContext.Clear();
+        _playbackGraphics.DrawImage(
+            _wmfHatchPatBltPlaybackMetafile,
+            new Rectangle(0, 0, 640, 480));
         int commandCount = _playbackContext.Commands.Count;
         _playbackContext.Clear();
         return commandCount;
@@ -2311,7 +2327,8 @@ public class MetafileBenchmarks
 
     private static byte[] CreatePlaybackWmfPatBlts(
         int recordCount,
-        bool includeOffsetClipState = false)
+        bool includeOffsetClipState = false,
+        bool hatch = false)
     {
         const int recordWords = 9;
         int clipSetupWords = includeOffsetClipState ? 7 : 0;
@@ -2339,7 +2356,9 @@ public class MetafileBenchmarks
         int cursor = 40;
         WriteUInt32(bytes, cursor, 7);
         WriteUInt16(bytes, cursor + 4, 0x02FC);
+        WriteUInt16(bytes, cursor + 6, hatch ? (ushort)2 : (ushort)0);
         WriteUInt32(bytes, cursor + 8, 0x0044_4444);
+        WriteUInt16(bytes, cursor + 12, 0);
         cursor += 14;
         WriteWmfObjectIndexRecord(bytes, cursor, 0x012D, 0);
         cursor += 8;

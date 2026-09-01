@@ -1038,6 +1038,34 @@ deviation) with 296.73 KB allocated. Three iterations, denied priority
 elevation, and high variance make exact focused pixels, rollback, and the
 allocation gate authoritative rather than this coarse throughput sample.
 
+The typed hatch-brush foundation adds `BS_HATCHED` handling to
+`EMR_CREATEBRUSHINDIRECT` and `META_CREATEBRUSHINDIRECT`. The immutable object
+stores one of the six official hatch orientations plus the foreground
+`COLORREF`; draw-time resolution supplies transparent or current-background-
+color pixels from playback state rather than incorrectly freezing DC state at
+object creation. EMF `EMR_SETBRUSHORGEX` maps directly to the managed rendering
+origin, and Graphics Save/Restore retains that origin together with the
+selected object and background state. The existing ProGPU `TilePatternBrush`
+then handles ordinary vector fills and source-independent `PATCOPY` without a
+native brush handle. Invalid hatch values reject before object publication and
+roll back prior retained commands. Destination-reading ROP3 operations still
+require a typed hatch payload in the advanced composition shader; they do not
+fall back to the foreground color.
+
+`Playback256WmfHatchPatternCopiesToRetainedCommands` measures 256 horizontal
+hatch `PATCOPY` records through object selection, current background
+materialization, tile-pattern retained commands, and cleanup. The 2026-09-01
+ARM64/.NET 10.0.11 ShortRun measured a 161.322 microsecond median (173.049
+microsecond mean, 32.199 microsecond standard deviation) with 313.9 KB
+allocated. Three iterations, denied priority elevation, and timing variance
+make the exact foreground/background/origin pixels, saved-state restoration,
+rollback, and command-shape gates authoritative. Both complete Debug and
+Release drawing suites pass 577/577; ApiCompat remains zero missing types and
+zero missing members. The record and state semantics are pinned to the
+official [`META_CREATEBRUSHINDIRECT`](https://learn.microsoft.com/en-us/openspecs/windows_protocols/ms-wmf/8331e35d-0f97-4ec3-b3b0-cfb3281c0642)
+and [`LOGBRUSH`](https://learn.microsoft.com/en-us/windows/win32/api/wingdi/ns-wingdi-logbrush)
+contracts.
+
 The EMF path-bracket follow-up adds `EMR_BEGINPATH`, `EMR_ENDPATH`,
 `EMR_CLOSEFIGURE`, `EMR_ABORTPATH`, `EMR_FILLPATH`, `EMR_STROKEPATH`,
 `EMR_STROKEANDFILLPATH`, `EMR_FLATTENPATH`, `EMR_WIDENPATH`,

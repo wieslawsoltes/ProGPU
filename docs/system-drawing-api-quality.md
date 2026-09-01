@@ -523,6 +523,30 @@ microsecond standard deviation) and 296.73 KB allocated for 256 `DSTINVERT`
 records. Three iterations, denied priority elevation, and high timing variance
 make the exact-pixel, transactional, and allocation gates authoritative.
 
+`MetafileBenchmarks.Playback256WmfHatchPatternCopiesToRetainedCommands`
+adds typed `BS_HATCHED` object creation to both EMF and WMF playback. All six
+official hatch orientations validate before object-table publication. The
+selected immutable hatch definition resolves through the existing managed
+`HatchBrush` path at draw time, so current `SetBkMode`/`SetBkColor` state
+controls transparent or opaque background pixels and EMF `SetBrushOrgEx`
+controls device-pattern alignment. Save/RestoreDC retains the selected object,
+background state, and rendering origin. Ordinary shape fills and the existing
+source-independent `PATCOPY` path accept the hatch brush; destination-reading
+hatch ROP3 functions remain explicit until the pattern payload reaches the
+advanced composition shader. Both Debug and Release drawing suites pass
+577/577. Exact tests cover EMF and WMF foreground/background pixels,
+transparent preservation, brush-origin movement, saved-state restoration,
+`PATCOPY`, invalid-enum rollback, object lifetime, and bounded warmed
+allocation. The 2026-09-01
+ARM64/.NET 10.0.11 ShortRun measured a 161.322 microsecond median (173.049
+microsecond mean, 32.199 microsecond standard deviation) and 313.9 KB allocated
+for 256 hatch `PATCOPY` records. Three iterations, denied priority elevation,
+and timing variance make exact pixels, rollback, and retained command shape
+authoritative. The behavior follows the official
+[`LOGBRUSH`](https://learn.microsoft.com/en-us/windows/win32/api/wingdi/ns-wingdi-logbrush)
+and [`SetBkMode`](https://learn.microsoft.com/en-us/windows/win32/api/wingdi/nf-wingdi-setbkmode)
+contracts.
+
 `MetafileBenchmarks.Playback256EmfPathBracketsToRetainedCommands` guards 256
 Begin/rectangle/End/StrokeAndFill groups. The 2026-08-31 ARM64/.NET 10.0.11
 ShortRun measured a 1.520 millisecond median (1.477 millisecond mean, 0.381
