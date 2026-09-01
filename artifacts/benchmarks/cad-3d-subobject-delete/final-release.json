@@ -1,0 +1,87 @@
+{
+  "CapturedAt": "2026-09-01T04:59:42.39399+00:00",
+  "OperatingSystem": "Unix 26.6.0",
+  "Runtime": ".NET 10.0.5",
+  "GridSize": 128,
+  "ControlVertexCount": 16641,
+  "AuthoredFaceCount": 16384,
+  "SelectedFaceCount": 1024,
+  "WarmupCount": 3,
+  "IterationCount": 24,
+  "TranslationSnapshotSceneMilliseconds": {
+    "Name": "mesh-subobject-translate-snapshot-scene-ms",
+    "P50": 398.9237,
+    "P95": 421.9507,
+    "P99": 433.798,
+    "Mean": 404.45306250000004,
+    "AllocatedBytesPerOperation": 209354639
+  },
+  "RotationSnapshotSceneMilliseconds": {
+    "Name": "mesh-subobject-rotate-snapshot-scene-ms",
+    "P50": 392.0585,
+    "P95": 410.7705,
+    "P99": 411.7209,
+    "Mean": 392.9539041666667,
+    "AllocatedBytesPerOperation": 209047253
+  },
+  "ScaleSnapshotSceneMilliseconds": {
+    "Name": "mesh-subobject-scale-snapshot-scene-ms",
+    "P50": 392.6723,
+    "P95": 409.1557,
+    "P99": 466.786,
+    "Mean": 395.9150833333333,
+    "AllocatedBytesPerOperation": 209354802
+  },
+  "DeletionSnapshotSceneMilliseconds": {
+    "Name": "mesh-subobject-delete-snapshot-scene-ms",
+    "P50": 451.607,
+    "P95": 467.5489,
+    "P99": 471.1918,
+    "Mean": 453.6399208333334,
+    "AllocatedBytesPerOperation": 202986371
+  },
+  "TranslationUndoRedoMilliseconds": {
+    "Name": "mesh-subobject-translate-undo-redo-ms",
+    "P50": 0.0252,
+    "P95": 0.0284,
+    "P99": 0.0301,
+    "Mean": 0.025837499999999996,
+    "AllocatedBytesPerOperation": 304
+  },
+  "RotationUndoRedoMilliseconds": {
+    "Name": "mesh-subobject-rotate-undo-redo-ms",
+    "P50": 0.0243,
+    "P95": 0.0281,
+    "P99": 0.0292,
+    "Mean": 0.025083333333333332,
+    "AllocatedBytesPerOperation": 288
+  },
+  "ScaleUndoRedoMilliseconds": {
+    "Name": "mesh-subobject-scale-undo-redo-ms",
+    "P50": 0.0091,
+    "P95": 0.0117,
+    "P99": 0.012,
+    "Mean": 0.009462499999999999,
+    "AllocatedBytesPerOperation": 288
+  },
+  "DeletionUndoRedoMilliseconds": {
+    "Name": "mesh-subobject-delete-undo-redo-ms",
+    "P50": 0.0255,
+    "P95": 0.0272,
+    "P99": 0.0294,
+    "Mean": 0.025833333333333337,
+    "AllocatedBytesPerOperation": 496
+  },
+  "TranslationFinalContentGeneration": 81,
+  "RotationFinalContentGeneration": 81,
+  "ScaleFinalContentGeneration": 81,
+  "DeletionFinalContentGeneration": 109,
+  "RelevantBinarySha256": {
+    "Benchmark": "fb13c47867f381fe86514bf26bb8852de3efe2bddb745301d2730c637f34761d",
+    "Backend": "702a086ce67df961a555605720ab6567cf3bfc4e322d7b9c1cc53c8c82bc64ca",
+    "Cad": "b815a2c4a9cf4403612b9749a53c1c4d1577467b502a044760c2053825a408f0",
+    "Scene": "fc18414ea6aafa1309530f754327f762c0d2e4232be827dcaf6dbe4e5cd9428a",
+    "TestsHeadless": "ae4934a653041903a368cdfe21241b483a8d2f0ad729e5cfbc7d2c1d95ff2d98",
+    "WinUI": "87a4d664f7a638013a568b0b53ead1428f738bfd9c9335f5a769e610b655ef0c"
+  }
+}

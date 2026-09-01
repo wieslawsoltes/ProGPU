@@ -6632,6 +6632,27 @@ public sealed class CadSampleCanvas : FrameworkElement
     }
 
     /// <summary>
+    /// Deletes faces addressed directly or through generation-owned modern-MESH
+    /// edge and vertex subobjects.
+    /// </summary>
+    public CadMesh3DDeletionSummary DeleteMeshSubobjects(
+        CadRecordedMesh3DScene scene,
+        IEnumerable<CadMesh3DSubobjectId> subobjects)
+    {
+        ThrowIfDrawOrderReferencePickPending();
+        ArgumentNullException.ThrowIfNull(scene);
+        ArgumentNullException.ThrowIfNull(subobjects);
+        CadDocumentSession session = CurrentSession ??
+            throw new InvalidOperationException("No CAD document is loaded.");
+        CadDocumentHistory history = _history ??
+            throw new InvalidOperationException("The CAD edit history is not initialized.");
+        var command = new CadDeleteMeshSubobjectsCommand(scene, subobjects);
+        history.Execute(command);
+        RecompileAfterEdit(session);
+        return command.Summary;
+    }
+
+    /// <summary>
     /// Copies all selected semantic model-space roots by one WCS displacement
     /// while preserving the source selection for repeated copy operations.
     /// </summary>

@@ -15,6 +15,16 @@ pinned ACadSharp feature commit `90a423e0` adds the missing DXF groups 39/40/41
 writer path and three-version round-trip coverage, while ACadSharp `master`
 remains synchronized with upstream.
 
+ProGPU.CAD's shared desktop/browser Mesh3D editor now applies Delete to
+generation-owned modern-MESH face, edge, and vertex selections. Face deletion
+leaves an open boundary, edge deletion removes adjacent faces, and vertex
+deletion removes incident faces. The bounded transactional command compacts
+newly isolated control vertices, remaps UV and crease indices, removes a mesh
+entity when no faces survive, retains exact topology for Undo/Redo, rebuilds
+subdivision and both renderer inputs once per generation, and round-trips the
+result through DXF and DWG. Nested occurrences, locked layers, stale IDs, and
+invalid topology fail before mutation; no shader or native ABI changes.
+
 Preview.62 advances the successfully published preview.61 boundary with a
 second measured optimization round for the ProGPU-backed SkiaSharp compatibility
 layer. Avalonia's common bounded SaveLayer containing one analytic rounded

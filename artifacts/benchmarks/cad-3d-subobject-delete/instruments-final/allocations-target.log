@@ -1,0 +1,87 @@
+{
+  "CapturedAt": "2026-09-01T05:00:38.577319+00:00",
+  "OperatingSystem": "Unix 26.6.0",
+  "Runtime": ".NET 10.0.5",
+  "GridSize": 128,
+  "ControlVertexCount": 16641,
+  "AuthoredFaceCount": 16384,
+  "SelectedFaceCount": 1024,
+  "WarmupCount": 2,
+  "IterationCount": 16,
+  "TranslationSnapshotSceneMilliseconds": {
+    "Name": "mesh-subobject-translate-snapshot-scene-ms",
+    "P50": 408.1751,
+    "P95": 462.6017,
+    "P99": 462.6017,
+    "Mean": 416.3928625,
+    "AllocatedBytesPerOperation": 209354194
+  },
+  "RotationSnapshotSceneMilliseconds": {
+    "Name": "mesh-subobject-rotate-snapshot-scene-ms",
+    "P50": 408.3218,
+    "P95": 475.4558,
+    "P99": 475.4558,
+    "Mean": 416.52708125000004,
+    "AllocatedBytesPerOperation": 209048203
+  },
+  "ScaleSnapshotSceneMilliseconds": {
+    "Name": "mesh-subobject-scale-snapshot-scene-ms",
+    "P50": 398.272,
+    "P95": 415.4806,
+    "P99": 415.4806,
+    "Mean": 399.5236375,
+    "AllocatedBytesPerOperation": 209355068
+  },
+  "DeletionSnapshotSceneMilliseconds": {
+    "Name": "mesh-subobject-delete-snapshot-scene-ms",
+    "P50": 476.8729,
+    "P95": 534.2783,
+    "P99": 534.2783,
+    "Mean": 482.87638749999996,
+    "AllocatedBytesPerOperation": 202985067
+  },
+  "TranslationUndoRedoMilliseconds": {
+    "Name": "mesh-subobject-translate-undo-redo-ms",
+    "P50": 0.0248,
+    "P95": 0.0289,
+    "P99": 0.0289,
+    "Mean": 0.025481249999999997,
+    "AllocatedBytesPerOperation": 304
+  },
+  "RotationUndoRedoMilliseconds": {
+    "Name": "mesh-subobject-rotate-undo-redo-ms",
+    "P50": 0.0243,
+    "P95": 0.0311,
+    "P99": 0.0311,
+    "Mean": 0.0250875,
+    "AllocatedBytesPerOperation": 288
+  },
+  "ScaleUndoRedoMilliseconds": {
+    "Name": "mesh-subobject-scale-undo-redo-ms",
+    "P50": 0.0071,
+    "P95": 0.3636,
+    "P99": 0.3636,
+    "Mean": 0.0296875,
+    "AllocatedBytesPerOperation": 288
+  },
+  "DeletionUndoRedoMilliseconds": {
+    "Name": "mesh-subobject-delete-undo-redo-ms",
+    "P50": 0.0339,
+    "P95": 0.0488,
+    "P99": 0.0488,
+    "Mean": 0.03403124999999999,
+    "AllocatedBytesPerOperation": 496
+  },
+  "TranslationFinalContentGeneration": 54,
+  "RotationFinalContentGeneration": 54,
+  "ScaleFinalContentGeneration": 54,
+  "DeletionFinalContentGeneration": 73,
+  "RelevantBinarySha256": {
+    "Benchmark": "fb13c47867f381fe86514bf26bb8852de3efe2bddb745301d2730c637f34761d",
+    "Backend": "702a086ce67df961a555605720ab6567cf3bfc4e322d7b9c1cc53c8c82bc64ca",
+    "Cad": "b815a2c4a9cf4403612b9749a53c1c4d1577467b502a044760c2053825a408f0",
+    "Scene": "fc18414ea6aafa1309530f754327f762c0d2e4232be827dcaf6dbe4e5cd9428a",
+    "TestsHeadless": "ae4934a653041903a368cdfe21241b483a8d2f0ad729e5cfbc7d2c1d95ff2d98",
+    "WinUI": "87a4d664f7a638013a568b0b53ead1428f738bfd9c9335f5a769e610b655ef0c"
+  }
+}

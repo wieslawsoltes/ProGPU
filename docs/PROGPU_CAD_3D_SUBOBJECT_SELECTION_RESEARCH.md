@@ -184,7 +184,8 @@ edges affect both endpoints, authored faces affect every referenced control
 vertex, and the union transforms each vertex exactly once. The shared shell
 routes bounded `+/-X` and `+/-Y` translation plus positive/negative Z-axis
 rotation and uniform scale through the same generation-owned command seam. It
-defers free-drag gizmos, non-uniform scale, erase, and grip-mode policy.
+defers free-drag gizmos, non-uniform scale, and grip-mode policy; topology-safe
+erase is specified separately below.
 
 Rendered IDs identify occurrences, while an editable control vertex belongs to
 the authoritative modern-MESH entity. The snapshot and shared Mesh3D scene now
@@ -257,6 +258,64 @@ public C ABI, generated C# wire record, upload stream, render submission, or
 managed/native crossing changes. Both renderers continue consuming the same
 rebuilt scene, so a second C++ document editor would create ownership drift and
 is not applicable.
+
+## Topology-safe subobject deletion design gate
+
+The deletion extension was designed from Autodesk's public behavior rather
+than a third-party implementation. Autodesk documents that
+[removing a mesh face leaves a gap](https://help.autodesk.com/cloudhelp/2025/ENU/AutoCAD-MAC-Core/files/GUID-DB57828F-4184-414F-8854-1731E877FCCC.htm),
+deleting an edge removes every adjacent face, and deleting a vertex removes
+every incident face. Its focused
+[face-deletion workflow](https://help.autodesk.com/cloudhelp/2016/ENU/AutoCAD-Core/files/GUID-099BCDD4-1F7C-4A28-B350-C981CA5D6D23.htm)
+uses subobject selection followed by Delete. The
+[modern-MESH DXF contract](https://help.autodesk.com/cloudhelp/2024/ENU/AutoCAD-DXF/files/GUID-4B9ADA67-87C8-4673-A579-6E4C76FF7025.htm)
+stores one ordered control-vertex array, face-index stream, and crease data;
+ObjectARX's
+[`setSubDMesh` contract](https://help.autodesk.com/cloudhelp/2018/ENU/OARX-ManagedRefGuide/files/OREFNET-Autodesk_AutoCAD_DatabaseServices_SubDMesh_SetSubDMesh_Point3dCollection_Int32Collection_int.html)
+likewise replaces control vertices and indexed faces, while
+[`setVertexTextureArray`](https://help.autodesk.com/cloudhelp/2027/ENU/OARX-RefGuide/files/OARX-RefGuide-AcDbSubDMesh__setVertexTextureArray_AcGePoint3dArray__.html)
+requires texture coordinates to correspond to the vertex array.
+
+ProGPU adopts the observable face/edge/vertex deletion rules exactly and
+leaves the resulting boundary open. It computes the complete deleted-face set
+from authored topology before mutation. Surviving faces retain source order.
+Vertices newly made isolated by the deletion are compacted in original order,
+as are explicitly selected pre-existing isolated vertices; unrelated
+pre-existing isolated vertices are preserved because Autodesk's public
+contract does not authorize deleting them. Per-control-vertex texture
+coordinates and surviving crease-edge endpoints are remapped through the same
+old-to-new index table. A mesh with no surviving face is removed as one whole
+model-space entity and retained for exact Undo/Redo. The command neither fills
+the gap nor synthesizes faces, triangulation, crease values, or UVs.
+
+The generation-owned resolver shared with transform commands rejects stale,
+nested, missing, out-of-range, and duplicate IDs before document mutation.
+The command then validates direct model-space ownership, layer authorization,
+finite vertices and UVs, every face index, distinct face vertices, collapsed
+edges, and unique valid crease records. All candidate topology and every
+complete-entity removal are preflighted before partial mesh state changes; a
+cancelled removal batch leaves all selected meshes unchanged. Exact before and
+after arrays are retained, so Undo/Redo does not infer inverse topology.
+Selection is bounded to 4,096 IDs, one million visited control vertices, and
+four million visited face corners. Initial deletion is `O(S + V + C + K)`
+time and storage for selected IDs `S`, vertices `V`, face corners `C`, and
+crease records `K`; retained Undo/Redo is `O(V + C + K)`.
+
+The required engine review was rechecked for this topology-changing path.
+Skia/SkParagraph and Direct2D keep device-independent geometry separate from
+raster output; WebRender keeps retained identity/metadata separate from GPU
+pixels; Vello retains scene encoding for later rendering; Parley and HarfBuzz
+retain unrelated text layout and shaping work; WebGPU provides no persistent
+CAD topology editor. ProGPU therefore mutates the authoritative ACadSharp
+document once, then rebuilds the one canonical immutable scene consumed by
+both managed and native renderers. Startup/lazy initialization, text shaping,
+fallback fonts, variable-font state, glyph/path/image caches, visibility
+culling, worker preparation, upload batching, DPI/subpixel policy, and
+device-loss rehydration are unchanged. No shader, public C ABI, generated wire
+record, GPU cache key, resource lease, or renderer-specific algorithm changes,
+so a parallel C++ document mutation path is not applicable. The shell clears
+the old ordinal selection after success because compaction can renumber faces,
+edges, and vertices in the replacement generation.
 
 ## Interaction, managed/native parity, and invalidation
 
@@ -369,8 +428,35 @@ exited zero; compact manifests, target logs, summaries, and exported tables are
 retained under
 `artifacts/benchmarks/cad-3d-subobject-transform/instruments-final/`.
 
+The topology-deletion acceptance lane uses the same 128-by-128 mesh and 1,024
+selected faces. Across 24 Release iterations, deletion plus pre/post snapshot
+and Mesh3D scene rebuild measured 451.6070/467.5489/471.1918 milliseconds
+p50/p95/p99 and 202,986,371 managed bytes per operation. Exact retained
+Undo+Redo measured 0.0255/0.0272/0.0294 milliseconds with 496 bytes from
+history/session publication. The SHA-identified result is
+`artifacts/benchmarks/cad-3d-subobject-delete/final-release.json` with SHA-256
+`bc56c4e2b0b38587a3b94f62af6a063ebc19bf5dae905d025dff969826a25618`.
+This is an acceptance baseline for new behavior, not a speedup claim.
+
+Matched macOS Allocations and Time Profiler captures of the same four-lane
+benchmark retained 18,267,072 persistent and 2,046,108,880 total
+heap-plus-anonymous-VM bytes, samples, and no hang finding. A bounded Metal
+retry of the same grid/selection workload found zero target allocations,
+current allocated bytes, application submissions, waits, spills, hangs, or
+errors; the initial target also exited zero but Xcode failed to finalize its
+large system-wide trace, which the helper removed. The exact retry rationale,
+manifests, logs, summaries, and compact exports are retained under
+`artifacts/benchmarks/cad-3d-subobject-delete/`.
+
+Deletion regressions cover face/edge/vertex incidence, deterministic
+vertex/UV/crease remapping, preservation of unrelated isolated vertices,
+complete-entity identity across Undo/Redo, stale generations, locked layers,
+work bounds, cancelled multi-mesh removal, subdivision rebuild, shared-shell
+selection clearing, and DXF/DWG round trips. The final Release suites passed
+1,458/1,458 `ProGPU.CAD.Tests` and 3,848/3,848 `ProGPU.Tests`.
+
 Deferred work is explicit: persistent IDs across topology-edit generations,
-erase and free-drag gizmos, non-uniform scaling, arbitrary interactive 3D axis
+free-drag gizmos, non-uniform scaling, arbitrary interactive 3D axis
 acquisition, explicit nested reference editing, legacy-mesh compatibility
 behavior, and ACIS solid/surface face, edge, and vertex topology. None is
 approximated by whole-object handles, tessellation facets, render-batch

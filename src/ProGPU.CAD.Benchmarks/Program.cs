@@ -197,9 +197,136 @@ void RunMesh3DSubobjectEditBenchmark(
             mesh.Faces.Count);
     }
 
+    (
+        Measurement DeleteAndRebuild,
+        Measurement UndoRedo,
+        ulong FinalContentGeneration,
+        int ControlVertexCount,
+        int AuthoredFaceCount) MeasureDeletionLane()
+    {
+        var document = new CadDocument(ACadVersion.AC1032);
+        Mesh mesh = CreateMesh3DSubobjectEditGrid(gridSize);
+        int controlVertexCount = mesh.Vertices.Count;
+        int authoredFaceCount = mesh.Faces.Count;
+        document.Entities.Add(mesh);
+        var session = new CadDocumentSession(document);
+        var history = new CadDocumentHistory(session, capacity: 4);
+
+        CadDeleteMeshSubobjectsCommand CreateCommand()
+        {
+            CadDocumentSnapshot snapshot =
+                new CadSnapshotCompiler().Compile(session);
+            CadRecordedMesh3DScene scene =
+                new CadMesh3DSceneCompiler().Compile(snapshot);
+            CadMesh3DSubobjectComponent component =
+                scene.SubobjectComponents.Span[0];
+            var ids = new CadMesh3DSubobjectId[selectedFaceCount];
+            int stride = Math.Max(1, authoredFaceCount / selectedFaceCount);
+            for (int index = 0; index < ids.Length; index++)
+            {
+                ids[index] = new CadMesh3DSubobjectId(
+                    scene.ContentGeneration,
+                    component.Handle,
+                    component.ComponentIndex,
+                    CadMesh3DSubobjectKind.Face,
+                    Math.Min(authoredFaceCount - 1, index * stride));
+            }
+            return new CadDeleteMeshSubobjectsCommand(scene, ids);
+        }
+
+        object DeleteAndRebuild()
+        {
+            CadDeleteMeshSubobjectsCommand command = CreateCommand();
+            ulong generation = history.Execute(command);
+            CadDocumentSnapshot rebuilt =
+                new CadSnapshotCompiler().Compile(session);
+            CadRecordedMesh3DScene rebuiltScene =
+                new CadMesh3DSceneCompiler().Compile(rebuilt);
+            return HashCode.Combine(
+                generation,
+                command.DeletedFaceCount,
+                rebuiltScene.Statistics.TriangleCount);
+        }
+
+        for (int index = 0; index < warmups; index++)
+        {
+            _ = DeleteAndRebuild();
+            if (!history.TryUndo(out _))
+            {
+                throw new InvalidOperationException(
+                    "Mesh-subobject deletion benchmark warmup undo failed.");
+            }
+        }
+
+        var deletionElapsed = new double[iterations];
+        long deletionAllocated = 0;
+        int checksum = 0;
+        for (int index = 0; index < iterations; index++)
+        {
+            long allocatedStart = GC.GetAllocatedBytesForCurrentThread();
+            long started = Stopwatch.GetTimestamp();
+            object value = DeleteAndRebuild();
+            deletionElapsed[index] =
+                Stopwatch.GetElapsedTime(started).TotalMilliseconds;
+            deletionAllocated +=
+                GC.GetAllocatedBytesForCurrentThread() - allocatedStart;
+            checksum ^= value.GetHashCode();
+            if (!history.TryUndo(out _))
+            {
+                throw new InvalidOperationException(
+                    "Mesh-subobject deletion benchmark iteration undo failed.");
+            }
+        }
+        Measurement deletion = Summarize(
+            "mesh-subobject-delete-snapshot-scene-ms",
+            deletionElapsed,
+            deletionAllocated / iterations);
+
+        history.Execute(CreateCommand());
+        for (int index = 0; index < warmups; index++)
+        {
+            if (!history.TryUndo(out _) || !history.TryRedo(out _))
+            {
+                throw new InvalidOperationException(
+                    "Mesh-subobject deletion undo/redo benchmark warmup failed.");
+            }
+        }
+        var undoRedoElapsed = new double[iterations];
+        long allocatedUndoRedoStart =
+            GC.GetAllocatedBytesForCurrentThread();
+        ulong undoRedoChecksum = 0;
+        for (int index = 0; index < iterations; index++)
+        {
+            long started = Stopwatch.GetTimestamp();
+            if (!history.TryUndo(out ulong undoGeneration) ||
+                !history.TryRedo(out ulong redoGeneration))
+            {
+                throw new InvalidOperationException(
+                    "Mesh-subobject deletion undo/redo benchmark iteration failed.");
+            }
+            undoRedoElapsed[index] =
+                Stopwatch.GetElapsedTime(started).TotalMilliseconds;
+            undoRedoChecksum ^= undoGeneration ^ redoGeneration;
+        }
+        long undoRedoAllocated =
+            GC.GetAllocatedBytesForCurrentThread() - allocatedUndoRedoStart;
+        GC.KeepAlive(checksum ^ undoRedoChecksum.GetHashCode());
+        Measurement undoRedo = Summarize(
+            "mesh-subobject-delete-undo-redo-ms",
+            undoRedoElapsed,
+            undoRedoAllocated / iterations);
+        return (
+            deletion,
+            undoRedo,
+            session.ContentGeneration,
+            controlVertexCount,
+            authoredFaceCount);
+    }
+
     var translation = MeasureLane(CadMesh3DSubobjectTransform.Translate);
     var rotation = MeasureLane(CadMesh3DSubobjectTransform.Rotate);
     var scale = MeasureLane(CadMesh3DSubobjectTransform.Scale);
+    var deletion = MeasureDeletionLane();
 
     var report = new CadMesh3DSubobjectEditBenchmarkReport(
         DateTimeOffset.UtcNow,
@@ -214,12 +341,15 @@ void RunMesh3DSubobjectEditBenchmark(
         translation.EditAndRebuild,
         rotation.EditAndRebuild,
         scale.EditAndRebuild,
+        deletion.DeleteAndRebuild,
         translation.UndoRedo,
         rotation.UndoRedo,
         scale.UndoRedo,
+        deletion.UndoRedo,
         translation.FinalContentGeneration,
         rotation.FinalContentGeneration,
         scale.FinalContentGeneration,
+        deletion.FinalContentGeneration,
         CaptureMesh3DReplayBinaryHashes());
     string json = JsonSerializer.Serialize(
         report,
@@ -4333,12 +4463,15 @@ internal sealed record CadMesh3DSubobjectEditBenchmarkReport(
     Measurement TranslationSnapshotSceneMilliseconds,
     Measurement RotationSnapshotSceneMilliseconds,
     Measurement ScaleSnapshotSceneMilliseconds,
+    Measurement DeletionSnapshotSceneMilliseconds,
     Measurement TranslationUndoRedoMilliseconds,
     Measurement RotationUndoRedoMilliseconds,
     Measurement ScaleUndoRedoMilliseconds,
+    Measurement DeletionUndoRedoMilliseconds,
     ulong TranslationFinalContentGeneration,
     ulong RotationFinalContentGeneration,
     ulong ScaleFinalContentGeneration,
+    ulong DeletionFinalContentGeneration,
     CadMesh3DReplayBinaryHashes RelevantBinarySha256);
 
 internal enum CadMesh3DSubobjectTransform

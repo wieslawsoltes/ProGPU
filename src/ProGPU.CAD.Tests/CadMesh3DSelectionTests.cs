@@ -1945,6 +1945,54 @@ public sealed class CadMesh3DSelectionTests
     }
 
     [Fact]
+    public void SharedViewportDeletesSelectedMeshFaceAndClearsOrdinalSelection()
+    {
+        var document = new CadDocument();
+        Mesh mesh = CreateGridMesh(2);
+        document.Entities.Add(mesh);
+        var session = new CadDocumentSession(document);
+        var view = new CadSampleView();
+        try
+        {
+            view.Arrange(new Rect(0, 0, 1_280, 900));
+            view.Canvas.Load(session);
+            view.MeshViewport.Size = ViewportSize;
+            PressEnter(FindButton(view, "3D surfaces"));
+            CadRecordedMesh3DScene scene = Assert.IsType<CadRecordedMesh3DScene>(
+                view.MeshScene);
+            view.MeshSubobjectSelector.SelectedIndex = 3;
+            Click(
+                view.MeshViewport,
+                Project(
+                    view.MeshViewportState!.Value,
+                    scene,
+                    new CadPoint3D(0.5, 0.5, 0.0)));
+            CadMesh3DSubobjectId selected = Assert.Single(
+                view.SelectedMeshSubobjects);
+            Assert.Equal(CadMesh3DSubobjectKind.Face, selected.Kind);
+            Button delete = FindButton(view, "Delete");
+            Assert.True(delete.IsEnabled);
+
+            PressEnter(delete);
+
+            Assert.Equal(3, mesh.Faces.Count);
+            Assert.Empty(view.SelectedMeshSubobjects);
+            Assert.Equal(1UL, session.ContentGeneration);
+            Assert.Equal(1UL, view.MeshScene!.ContentGeneration);
+
+            PressEnter(FindButton(view, "Undo"));
+
+            Assert.Equal(4, mesh.Faces.Count);
+            Assert.Equal(2UL, session.ContentGeneration);
+            Assert.Equal(2UL, view.MeshScene!.ContentGeneration);
+        }
+        finally
+        {
+            view.Canvas.FireUnloaded();
+        }
+    }
+
+    [Fact]
     public void SharedViewportAltClickCyclesNearestSemanticDepthHits()
     {
         var document = new CadDocument();

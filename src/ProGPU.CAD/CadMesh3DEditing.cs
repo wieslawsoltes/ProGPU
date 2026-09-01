@@ -4,6 +4,99 @@ using CSMath;
 
 namespace ProGPU.CAD;
 
+internal readonly record struct CadMesh3DSubobjectEditTarget(
+    ulong SourceHandle,
+    CadMesh3DSubobjectKind Kind,
+    int Index,
+    int VertexCount,
+    int EdgeCount,
+    int FaceCount);
+
+internal static class CadMesh3DSubobjectEditSelectionResolver
+{
+    public static void Resolve(
+        CadRecordedMesh3DScene scene,
+        IEnumerable<CadMesh3DSubobjectId> subobjects,
+        int maxSubobjects,
+        out CadMesh3DSubobjectId[] ids,
+        out CadMesh3DSubobjectEditTarget[] targets)
+    {
+        ArgumentNullException.ThrowIfNull(scene);
+        ArgumentNullException.ThrowIfNull(subobjects);
+        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(maxSubobjects);
+
+        var retainedIds = new List<CadMesh3DSubobjectId>();
+        var retainedTargets = new List<CadMesh3DSubobjectEditTarget>();
+        var distinct = new HashSet<CadMesh3DSubobjectId>();
+        foreach (CadMesh3DSubobjectId id in subobjects)
+        {
+            if (!distinct.Add(id))
+            {
+                continue;
+            }
+            if (retainedIds.Count >= maxSubobjects)
+            {
+                throw new ArgumentException(
+                    $"Mesh-subobject selection exceeds the configured limit of {maxSubobjects}.",
+                    nameof(subobjects));
+            }
+            if (!scene.TryGetSubobjectComponent(
+                    id,
+                    out CadMesh3DSubobjectComponent? component) ||
+                component is null)
+            {
+                throw new InvalidOperationException(
+                    "A mesh-subobject ID does not belong to the supplied scene generation.");
+            }
+            if (!component.IsDirectModelSpaceSource ||
+                component.SourceHandle == 0)
+            {
+                throw new InvalidOperationException(
+                    "Nested block-definition mesh subobjects require an explicit reference-editing scope.");
+            }
+            ValidateOrdinal(component, id);
+            retainedIds.Add(id);
+            retainedTargets.Add(new CadMesh3DSubobjectEditTarget(
+                component.SourceHandle,
+                id.Kind,
+                id.Index,
+                component.VertexPositions.Length,
+                component.Edges.Length,
+                component.Faces.Length));
+        }
+        if (retainedIds.Count == 0)
+        {
+            throw new ArgumentException(
+                "At least one mesh subobject is required.",
+                nameof(subobjects));
+        }
+
+        ids = retainedIds.ToArray();
+        targets = retainedTargets.ToArray();
+    }
+
+    private static void ValidateOrdinal(
+        CadMesh3DSubobjectComponent component,
+        in CadMesh3DSubobjectId id)
+    {
+        int count = id.Kind switch
+        {
+            CadMesh3DSubobjectKind.Vertex => component.VertexPositions.Length,
+            CadMesh3DSubobjectKind.Edge => component.Edges.Length,
+            CadMesh3DSubobjectKind.Face => component.Faces.Length,
+            _ => throw new ArgumentOutOfRangeException(
+                nameof(id),
+                "Unknown mesh-subobject kind."),
+        };
+        if ((uint)id.Index >= (uint)count)
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(id),
+                "Mesh-subobject ordinal is outside its authored topology.");
+        }
+    }
+}
+
 /// <summary>
 /// Base for bounded transforms of authored vertices, edges, and faces on
 /// direct model-space modern MESH entities.
@@ -25,7 +118,7 @@ public abstract class CadTransformMeshSubobjectsCommand : CadEditCommand
     public const int DefaultMaxAffectedVertices = 1_000_000;
 
     private readonly CadMesh3DSubobjectId[] _subobjects;
-    private readonly EditTarget[] _targets;
+    private readonly CadMesh3DSubobjectEditTarget[] _targets;
     private MeshEdit[]? _edits;
 
     public ReadOnlyMemory<CadMesh3DSubobjectId> Subobjects => _subobjects;
@@ -45,59 +138,16 @@ public abstract class CadTransformMeshSubobjectsCommand : CadEditCommand
         : base(description)
     {
         ArgumentNullException.ThrowIfNull(scene);
-        ArgumentNullException.ThrowIfNull(subobjects);
-        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(maxSubobjects);
         ArgumentOutOfRangeException.ThrowIfNegativeOrZero(maxAffectedVertices);
         MaxSubobjects = maxSubobjects;
         MaxAffectedVertices = maxAffectedVertices;
         SourceContentGeneration = scene.ContentGeneration;
-
-        var ids = new List<CadMesh3DSubobjectId>();
-        var targets = new List<EditTarget>();
-        var distinct = new HashSet<CadMesh3DSubobjectId>();
-        foreach (CadMesh3DSubobjectId id in subobjects)
-        {
-            if (!distinct.Add(id))
-            {
-                continue;
-            }
-            if (ids.Count >= maxSubobjects)
-            {
-                throw new ArgumentException(
-                    $"Mesh-subobject selection exceeds the configured limit of {maxSubobjects}.",
-                    nameof(subobjects));
-            }
-            if (!scene.TryGetSubobjectComponent(id, out CadMesh3DSubobjectComponent? component) ||
-                component is null)
-            {
-                throw new InvalidOperationException(
-                    "A mesh-subobject ID does not belong to the supplied scene generation.");
-            }
-            if (!component.IsDirectModelSpaceSource ||
-                component.SourceHandle == 0)
-            {
-                throw new InvalidOperationException(
-                    "Nested block-definition mesh subobjects require an explicit reference-editing scope.");
-            }
-            ValidateOrdinal(component, id);
-            ids.Add(id);
-            targets.Add(new EditTarget(
-                component.SourceHandle,
-                id.Kind,
-                id.Index,
-                component.VertexPositions.Length,
-                component.Edges.Length,
-                component.Faces.Length));
-        }
-        if (ids.Count == 0)
-        {
-            throw new ArgumentException(
-                "At least one mesh subobject is required.",
-                nameof(subobjects));
-        }
-
-        _subobjects = ids.ToArray();
-        _targets = targets.ToArray();
+        CadMesh3DSubobjectEditSelectionResolver.Resolve(
+            scene,
+            subobjects,
+            maxSubobjects,
+            out _subobjects,
+            out _targets);
     }
 
     internal override void Apply(CadDocument document, bool isRedo)
@@ -120,7 +170,7 @@ public abstract class CadTransformMeshSubobjectsCommand : CadEditCommand
     private MeshEdit[] BuildEdits(CadDocument document)
     {
         var builders = new Dictionary<ulong, EditBuilder>();
-        foreach (EditTarget target in _targets)
+        foreach (CadMesh3DSubobjectEditTarget target in _targets)
         {
             if (!builders.TryGetValue(target.SourceHandle, out EditBuilder? builder))
             {
@@ -191,27 +241,6 @@ public abstract class CadTransformMeshSubobjectsCommand : CadEditCommand
         }
     }
 
-    private static void ValidateOrdinal(
-        CadMesh3DSubobjectComponent component,
-        in CadMesh3DSubobjectId id)
-    {
-        int count = id.Kind switch
-        {
-            CadMesh3DSubobjectKind.Vertex => component.VertexPositions.Length,
-            CadMesh3DSubobjectKind.Edge => component.Edges.Length,
-            CadMesh3DSubobjectKind.Face => component.Faces.Length,
-            _ => throw new ArgumentOutOfRangeException(
-                nameof(id),
-                "Unknown mesh-subobject kind."),
-        };
-        if ((uint)id.Index >= (uint)count)
-        {
-            throw new ArgumentOutOfRangeException(
-                nameof(id),
-                "Mesh-subobject ordinal is outside its authored topology.");
-        }
-    }
-
     protected static bool IsFinite(CadPoint3D point) =>
         double.IsFinite(point.X) &&
         double.IsFinite(point.Y) &&
@@ -237,14 +266,6 @@ public abstract class CadTransformMeshSubobjectsCommand : CadEditCommand
         return new XYZ(transformed.X, transformed.Y, transformed.Z);
     }
 
-    private readonly record struct EditTarget(
-        ulong SourceHandle,
-        CadMesh3DSubobjectKind Kind,
-        int Index,
-        int VertexCount,
-        int EdgeCount,
-        int FaceCount);
-
     private sealed class EditBuilder
     {
         private readonly CadMeshSourceTopology _topology;
@@ -255,7 +276,9 @@ public abstract class CadTransformMeshSubobjectsCommand : CadEditCommand
         public Mesh Mesh { get; }
         public HashSet<int> VertexIndices { get; } = [];
 
-        public EditBuilder(Mesh mesh, in EditTarget target)
+        public EditBuilder(
+            Mesh mesh,
+            in CadMesh3DSubobjectEditTarget target)
         {
             Mesh = mesh;
             _topology = CadMeshSubdivision.CreateSourceTopology(mesh.Faces);
@@ -266,7 +289,8 @@ public abstract class CadTransformMeshSubobjectsCommand : CadEditCommand
             ValidateMeshTopology(mesh, proposed: null);
         }
 
-        public void ValidateExpectedTopology(in EditTarget target)
+        public void ValidateExpectedTopology(
+            in CadMesh3DSubobjectEditTarget target)
         {
             if (target.VertexCount != _expectedVertexCount ||
                 target.EdgeCount != _expectedEdgeCount ||
@@ -280,7 +304,7 @@ public abstract class CadTransformMeshSubobjectsCommand : CadEditCommand
             }
         }
 
-        public void Add(in EditTarget target)
+        public void Add(in CadMesh3DSubobjectEditTarget target)
         {
             switch (target.Kind)
             {

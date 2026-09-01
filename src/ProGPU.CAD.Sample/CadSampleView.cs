@@ -8076,6 +8076,27 @@ public sealed class CadSampleView : Grid
         }
         try
         {
+            if (_is3DView && _selectedMeshSubobjects.Count > 0)
+            {
+                CadRecordedMesh3DScene scene = _mesh3DView.Scene ??
+                    throw new InvalidOperationException(
+                        "No retained Mesh3D scene is available.");
+                CadMesh3DDeletionSummary summary =
+                    _canvas.DeleteMeshSubobjects(
+                        scene,
+                        _selectedMeshSubobjects);
+                ClearMeshSubobjectSelection();
+                SetStatus(
+                    $"Deleted {summary.DeletedFaceCount:N0} authored mesh face(s) " +
+                    $"from {summary.AffectedMeshCount:N0} mesh(es)" +
+                    (summary.CompactedControlVertexCount == 0
+                        ? string.Empty
+                        : $" and compacted {summary.CompactedControlVertexCount:N0} control vertices") +
+                    (summary.RemovedMeshEntityCount == 0
+                        ? "."
+                        : $"; removed {summary.RemovedMeshEntityCount:N0} empty mesh entity/entities."));
+                return;
+            }
             int selectedCount = _canvas.SelectedHandleCount;
             if (!_canvas.DeleteSelection())
             {
@@ -8531,7 +8552,9 @@ public sealed class CadSampleView : Grid
         bool canTransform = canUsePlanTools &&
             _canvas.SelectedHandleCount > 0 &&
             _isSelectionEditable;
-        _deleteButton.IsEnabled = canTransform;
+        bool canEditMeshSubobjects = canUsePlanTools && _is3DView &&
+            _selectedMeshSubobjects.Count > 0;
+        _deleteButton.IsEnabled = canTransform || canEditMeshSubobjects;
         _lineButton.IsEnabled =
             canUsePlanTools && !_is3DView &&
             _canvas.CurrentSession is not null;
@@ -8947,9 +8970,7 @@ public sealed class CadSampleView : Grid
         {
             drawOrderButton.IsEnabled = canTransform;
         }
-        bool canMoveMeshSubobjects =
-            canUsePlanTools && _is3DView &&
-            _selectedMeshSubobjects.Count > 0;
+        bool canMoveMeshSubobjects = canEditMeshSubobjects;
         for (int index = 0; index < _moveButtons.Length; index++)
         {
             _moveButtons[index].IsEnabled = canTransform ||
