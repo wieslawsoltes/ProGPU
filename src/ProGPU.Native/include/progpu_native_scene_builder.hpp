@@ -161,6 +161,11 @@ public:
         std::span<const progpu_native_geometry_primitive> primitives,
         std::span<const progpu_native_scene_gradient_stop> gradient_stops,
         std::uint32_t& resource_index) noexcept;
+    // Records one GPU-rendered nested scene as an alpha opacity mask.
+    bool add_picture_mask(
+        const progpu_native_scene_layer_picture_mask& mask,
+        std::span<const std::byte> nested_scene,
+        std::uint32_t& resource_index) noexcept;
     bool add_analytic_mask_chain(
         std::span<const progpu_native_scene_layer_mask> masks,
         std::uint32_t& resource_index) noexcept;
