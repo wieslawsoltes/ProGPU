@@ -2310,6 +2310,64 @@ int run_tests()
       return 328;
     }
   }
+  struct path_stroke_case final {
+    compat::point_2f point{};
+    const compat::matrix_3x2_f *transform = nullptr;
+    bool expected = false;
+  };
+  const std::array<path_stroke_case, 7U> path_stroke_cases{{
+      {{0.1F, 1.1F}, nullptr, true},
+      {{-0.5F, 0.5F}, nullptr, false},
+      {{3.0F, 5.0F}, nullptr, false},
+      {{0.5F, 4.0F}, nullptr, true},
+      {{1.5F, 4.0F}, nullptr, true},
+      {{10.2F, -0.7F}, &transform, true},
+      {{16.0F, 11.0F}, &transform, false},
+  }};
+  for (std::size_t stroke_case_index = 0U;
+       stroke_case_index < path_stroke_cases.size();
+       ++stroke_case_index) {
+    const path_stroke_case &stroke_case =
+        path_stroke_cases[stroke_case_index];
+    std::int32_t stroke_contains = 0;
+    if (query_path->StrokeContainsPoint(
+            stroke_case.point, 2.0F, nullptr, stroke_case.transform,
+            core::default_flattening_tolerance, &stroke_contains) != com::ok ||
+        (stroke_contains != 0) != stroke_case.expected) {
+      return 330;
+    }
+  }
+  std::int32_t zero_width_edge = 0;
+  std::int32_t zero_width_interior = 0;
+  if (query_path->StrokeContainsPoint(
+          {1.0F, 4.0F}, 0.0F, nullptr, nullptr,
+          core::default_flattening_tolerance, &zero_width_edge) != com::ok ||
+      query_path->StrokeContainsPoint(
+          {3.0F, 4.0F}, 0.0F, nullptr, nullptr,
+          core::default_flattening_tolerance, &zero_width_interior) !=
+          com::ok ||
+      zero_width_edge != 0 || zero_width_interior != 0) {
+    return 334;
+  }
+  const std::array<path_stroke_case, 4U> concave_path_stroke_cases{{
+      {{4.9F, 5.9F}, nullptr, true},
+      {{5.5F, 6.5F}, nullptr, false},
+      {{2.1F, 0.1F}, nullptr, true},
+      {{1.8F, -0.2F}, nullptr, false},
+  }};
+  for (std::size_t stroke_case_index = 0U;
+       stroke_case_index < concave_path_stroke_cases.size();
+       ++stroke_case_index) {
+    const path_stroke_case &stroke_case =
+        concave_path_stroke_cases[stroke_case_index];
+    std::int32_t stroke_contains = 0;
+    if (boolean_path->StrokeContainsPoint(
+            stroke_case.point, 2.0F, nullptr, nullptr,
+            core::default_flattening_tolerance, &stroke_contains) != com::ok ||
+        (stroke_contains != 0) != stroke_case.expected) {
+      return 335;
+    }
+  }
   for (const compat::combine_mode mode : combination_modes) {
     auto *raw_path_boolean_sink = new simplified_sink();
     com::pointer<compat::simplified_geometry_sink> path_boolean_sink;
@@ -6160,6 +6218,66 @@ int run_tests()
       system_input_boolean_path->Release();
       system_factory->Release();
       return 329;
+    }
+  }
+  for (std::size_t stroke_case_index = 0U;
+       stroke_case_index < path_stroke_cases.size();
+       ++stroke_case_index) {
+    const path_stroke_case &stroke_case =
+        path_stroke_cases[stroke_case_index];
+    BOOL system_contains = FALSE;
+    const D2D1_POINT_2F system_point{
+        stroke_case.point.x, stroke_case.point.y};
+    if (FAILED(system_query_boolean_path->StrokeContainsPoint(
+            system_point, 2.0F, nullptr,
+            reinterpret_cast<const D2D1_MATRIX_3X2_F *>(
+                stroke_case.transform),
+            D2D1_DEFAULT_FLATTENING_TOLERANCE, &system_contains)) ||
+        (system_contains != FALSE) != stroke_case.expected) {
+      system_query_boolean_path->Release();
+      system_input_boolean_path->Release();
+      system_factory->Release();
+      return static_cast<int>(331U + stroke_case_index);
+    }
+  }
+  BOOL system_zero_width_edge = FALSE;
+  BOOL system_zero_width_interior = FALSE;
+  const HRESULT system_zero_edge_status =
+      system_query_boolean_path->StrokeContainsPoint(
+          D2D1_POINT_2F{1.0F, 4.0F}, 0.0F, nullptr, nullptr,
+          D2D1_DEFAULT_FLATTENING_TOLERANCE, &system_zero_width_edge);
+  const HRESULT system_zero_interior_status =
+      system_query_boolean_path->StrokeContainsPoint(
+          D2D1_POINT_2F{3.0F, 4.0F}, 0.0F, nullptr, nullptr,
+          D2D1_DEFAULT_FLATTENING_TOLERANCE, &system_zero_width_interior);
+  if (FAILED(system_zero_edge_status) ||
+      FAILED(system_zero_interior_status) ||
+      system_zero_width_edge != FALSE ||
+      system_zero_width_interior != FALSE) {
+    system_query_boolean_path->Release();
+    system_input_boolean_path->Release();
+    system_factory->Release();
+    return FAILED(system_zero_edge_status) ||
+            FAILED(system_zero_interior_status)
+        ? 339
+        : system_zero_width_edge != FALSE ? 340 : 341;
+  }
+  for (std::size_t stroke_case_index = 0U;
+       stroke_case_index < concave_path_stroke_cases.size();
+       ++stroke_case_index) {
+    const path_stroke_case &stroke_case =
+        concave_path_stroke_cases[stroke_case_index];
+    BOOL system_contains = FALSE;
+    const D2D1_POINT_2F system_point{
+        stroke_case.point.x, stroke_case.point.y};
+    if (FAILED(system_input_boolean_path->StrokeContainsPoint(
+            system_point, 2.0F, nullptr, nullptr,
+            D2D1_DEFAULT_FLATTENING_TOLERANCE, &system_contains)) ||
+        (system_contains != FALSE) != stroke_case.expected) {
+      system_query_boolean_path->Release();
+      system_input_boolean_path->Release();
+      system_factory->Release();
+      return static_cast<int>(336U + stroke_case_index);
     }
   }
   for (std::size_t mode_index = 0U; mode_index < combination_modes.size();

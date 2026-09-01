@@ -847,6 +847,19 @@ AABB batches; mixed or unsupported topology fails with the output left at
 `UNKNOWN`. Windows differential cases cover every relation and pass against
 system Direct2D.
 
+`ID2D1PathGeometry::StrokeContainsPoint` now handles one simple closed path
+with the canonical null/default solid miter stroke. The query point is mapped
+back through any invertible affine world transform so nonuniform scale and
+shear preserve Direct2D's stroke-before-transform ordering. Independent
+point-to-segment tests execute four at a time through ARM64 NEON or SSE2, with
+a bounded scalar tail only on architectures without either intrinsic family.
+The topology-dependent join pass covers bevel wedges and default miter
+extensions up to Direct2D's limit. Explicit segment flags, stroke styles,
+open/multiple figures, degeneracy, self-intersection, and singular transforms
+fail closed. Straight, miter-corner, interior, exterior, concave-corner, and
+nonuniform transformed probes pass locally under optimization and sanitizers
+and match genuine system Direct2D on Windows ARM64.
+
 The focused compatibility target passes all 17 local native CTests and the 10
 managed Direct2D source/ABI contracts. A clean Windows 11 ARM64 Parallels build
 with MSVC 19.44 explicitly injects `/W4 /WX`, recompiles the complete portable
@@ -2138,8 +2151,8 @@ ownership, exact vocabulary `Stream`, line/cubic/arc-aware transformed bounds,
 `Simplify` to cubics-and-lines or flattened lines, fill containment, area,
 length, point-at-length, and point-plus-segment queries. Area and containment
 are qualified for ordinary non-overlapping figures; exact self-intersection
-and overlapping-figure fill analysis remains a separate gate. Stroke
-General path stroke containment/widening, widened bounds,
+and overlapping-figure fill analysis remains a separate gate. General styled,
+open, or multi-figure path stroke containment, path widening and widened bounds,
 multi-contour outline/Boolean normalization, and unsupported tessellation
 topologies still return `E_NOTIMPL` with initialized outputs where applicable.
 Single-contour outline, comparison, and Boolean combination have qualified

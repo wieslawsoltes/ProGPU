@@ -6373,6 +6373,18 @@ optimized and sanitizer fixtures cover every relation. A second clean Windows
 ARM64 build compares transformed and untransformed cases with genuine
 `ID2D1PathGeometry::CompareWithGeometry`; all expected system relations pass.
 
+The next path slice implements default solid-miter
+`StrokeContainsPoint` for one simple closed contour. It inverse-maps the query
+through arbitrary invertible affine world state, evaluates independent segment
+distances in four-lane NEON/SSE2 batches, and handles convex and concave join
+wedges in the topology-dependent scalar pass. Styled, flagged, open,
+multi-figure, self-intersecting, or singular cases stay typed fail closed.
+Optimized and sanitizer fixtures cover body, interior, exterior, convex miter,
+concave join, and nonuniform transformed points. The Windows ARM64 system
+oracle confirms the same results through genuine Direct2D; probes are kept
+outside Direct2D's flattening-tolerance fuzz band when asserting strict
+exterior results.
+
 ## Invariants
 
 - No reflection or private managed field scanning in the product bridge.
