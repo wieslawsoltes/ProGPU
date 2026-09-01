@@ -1,0 +1,249 @@
+{
+  "SchemaVersion": 2,
+  "GeneratedUtc": "2026-09-01T03:33:11.372837+00:00",
+  "Resources": {
+    "Count": 0,
+    "TotalBytes": 0,
+    "LiveAtCaptureEndCount": 0,
+    "LiveAtCaptureEndBytes": 0,
+    "Groups": [],
+    "LargestResources": []
+  },
+  "NativeAllocations": {
+    "HeapAndAnonymousVmPersistentBytes": 22079024,
+    "HeapPersistentBytes": 10937904,
+    "AnonymousVmPersistentBytes": 11141120,
+    "AllVmRegionsPersistentBytes": 961413120,
+    "HeapAndAnonymousVmTotalBytes": 73332128,
+    "HeapAndAnonymousVmTransientBytes": 51253104,
+    "LargestPersistentCategories": [
+      {
+        "Category": "VM: Memory Tag 255",
+        "PersistentBytes": 819347456,
+        "TotalBytes": 5152931840,
+        "TransientBytes": 4333584384,
+        "PersistentCount": 7,
+        "TotalCount": 16
+      },
+      {
+        "Category": "VM: Mapped File",
+        "PersistentBytes": 93175808,
+        "TotalBytes": 116736000,
+        "TransientBytes": 23560192,
+        "PersistentCount": 83,
+        "TotalCount": 105
+      },
+      {
+        "Category": "VM: MALLOC_SMALL",
+        "PersistentBytes": 37748736,
+        "TotalBytes": 37748736,
+        "TransientBytes": 0,
+        "PersistentCount": 9,
+        "TotalCount": 9
+      },
+      {
+        "Category": "VM: Stack",
+        "PersistentBytes": 10878976,
+        "TotalBytes": 21757952,
+        "TransientBytes": 10878976,
+        "PersistentCount": 8,
+        "TotalCount": 16
+      },
+      {
+        "Category": "Malloc 64,00 KiB",
+        "PersistentBytes": 8126464,
+        "TotalBytes": 8454144,
+        "TransientBytes": 327680,
+        "PersistentCount": 124,
+        "TotalCount": 129
+      },
+      {
+        "Category": "Malloc 128,00 KiB",
+        "PersistentBytes": 393216,
+        "TotalBytes": 393216,
+        "TransientBytes": 0,
+        "PersistentCount": 3,
+        "TotalCount": 3
+      },
+      {
+        "Category": "VM: Activity Tracing",
+        "PersistentBytes": 262144,
+        "TotalBytes": 262144,
+        "TransientBytes": 0,
+        "PersistentCount": 1,
+        "TotalCount": 1
+      },
+      {
+        "Category": "Malloc 32 Bytes",
+        "PersistentBytes": 247968,
+        "TotalBytes": 560192,
+        "TransientBytes": 312224,
+        "PersistentCount": 7749,
+        "TotalCount": 17506
+      },
+      {
+        "Category": "Malloc 48,00 KiB",
+        "PersistentBytes": 245760,
+        "TotalBytes": 1622016,
+        "TransientBytes": 1376256,
+        "PersistentCount": 5,
+        "TotalCount": 33
+      },
+      {
+        "Category": "Malloc 224,00 KiB",
+        "PersistentBytes": 229376,
+        "TotalBytes": 229376,
+        "TransientBytes": 0,
+        "PersistentCount": 1,
+        "TotalCount": 1
+      },
+      {
+        "Category": "Malloc 64 Bytes",
+        "PersistentBytes": 204096,
+        "TotalBytes": 839936,
+        "TransientBytes": 635840,
+        "PersistentCount": 3189,
+        "TotalCount": 13124
+      },
+      {
+        "Category": "Malloc 192,00 KiB",
+        "PersistentBytes": 196608,
+        "TotalBytes": 196608,
+        "TransientBytes": 0,
+        "PersistentCount": 1,
+        "TotalCount": 1
+      },
+      {
+        "Category": "Malloc 144,00 KiB",
+        "PersistentBytes": 147456,
+        "TotalBytes": 147456,
+        "TransientBytes": 0,
+        "PersistentCount": 1,
+        "TotalCount": 1
+      },
+      {
+        "Category": "Malloc 1,50 KiB",
+        "PersistentBytes": 86016,
+        "TotalBytes": 861696,
+        "TransientBytes": 775680,
+        "PersistentCount": 56,
+        "TotalCount": 561
+      },
+      {
+        "Category": "Malloc 28,00 KiB",
+        "PersistentBytes": 86016,
+        "TotalBytes": 1519616,
+        "TransientBytes": 1433600,
+        "PersistentCount": 3,
+        "TotalCount": 53
+      },
+      {
+        "Category": "Malloc 16,00 KiB",
+        "PersistentBytes": 81920,
+        "TotalBytes": 933888,
+        "TransientBytes": 851968,
+        "PersistentCount": 5,
+        "TotalCount": 57
+      },
+      {
+        "Category": "Malloc 14,00 KiB",
+        "PersistentBytes": 71680,
+        "TotalBytes": 688128,
+        "TransientBytes": 616448,
+        "PersistentCount": 5,
+        "TotalCount": 48
+      },
+      {
+        "Category": "Malloc 3,00 KiB",
+        "PersistentBytes": 67584,
+        "TotalBytes": 3815424,
+        "TransientBytes": 3747840,
+        "PersistentCount": 22,
+        "TotalCount": 1242
+      },
+      {
+        "Category": "Malloc 224 Bytes",
+        "PersistentBytes": 67424,
+        "TotalBytes": 259392,
+        "TransientBytes": 191968,
+        "PersistentCount": 301,
+        "TotalCount": 1158
+      },
+      {
+        "Category": "Malloc 24,00 KiB",
+        "PersistentBytes": 49152,
+        "TotalBytes": 393216,
+        "TransientBytes": 344064,
+        "PersistentCount": 2,
+        "TotalCount": 16
+      },
+      {
+        "Category": "Malloc 192 Bytes",
+        "PersistentBytes": 48192,
+        "TotalBytes": 909888,
+        "TransientBytes": 861696,
+        "PersistentCount": 251,
+        "TotalCount": 4739
+      },
+      {
+        "Category": "Malloc 7,00 KiB",
+        "PersistentBytes": 43008,
+        "TotalBytes": 129024,
+        "TransientBytes": 86016,
+        "PersistentCount": 6,
+        "TotalCount": 18
+      },
+      {
+        "Category": "Malloc 5,00 KiB",
+        "PersistentBytes": 40960,
+        "TotalBytes": 527360,
+        "TransientBytes": 486400,
+        "PersistentCount": 8,
+        "TotalCount": 103
+      },
+      {
+        "Category": "Malloc 160 Bytes",
+        "PersistentBytes": 37920,
+        "TotalBytes": 1469600,
+        "TransientBytes": 1431680,
+        "PersistentCount": 237,
+        "TotalCount": 9185
+      }
+    ],
+    "Details": {
+      "LiveCount": 0,
+      "LiveBytes": 0,
+      "LargestLiveGroups": []
+    }
+  },
+  "CurrentAllocatedSize": {
+    "Count": 0,
+    "Total": 0,
+    "Maximum": 0,
+    "Last": 0
+  },
+  "DrawableWaits": {
+    "Count": 0,
+    "Total": 0,
+    "Maximum": 0,
+    "Last": 0
+  },
+  "CompilerSpills": {
+    "Count": 0,
+    "Total": 0,
+    "Maximum": 0,
+    "Last": 0
+  },
+  "CompilerSpillGroups": [],
+  "PotentialHangs": {
+    "Count": 0,
+    "TotalDurationNanoseconds": 0,
+    "MaximumDurationNanoseconds": 0,
+    "Groups": [],
+    "Intervals": []
+  },
+  "HangRiskCount": 0,
+  "CommandBufferErrorCount": 0,
+  "CommandBufferSubmissionCount": 0,
+  "CommandBufferCompletionCount": 8649
+}

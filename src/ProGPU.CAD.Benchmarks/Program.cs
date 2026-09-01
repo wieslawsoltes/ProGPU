@@ -1786,6 +1786,201 @@ void RunMesh3DSelectionBenchmark(
         GC.GetAllocatedBytesForCurrentThread() - subobjectAllocationStart;
     GC.KeepAlive(checksum);
 
+    var subobjectRegionScratch = new int[selectionIndex.SubobjectCount];
+    var subobjectRegionHits = new CadMesh3DSubobjectId[
+        CadMesh3DSelectionIndex.MaximumHitCount];
+    var subobjectRegionElapsed = new double[queryCount];
+    long subobjectRegionVisitedNodeCount = 0;
+    long subobjectRegionTestedTriangleCount = 0;
+    long subobjectRegionIntersectedTriangleCount = 0;
+    long subobjectRegionHitCount = 0;
+    int subobjectRegionMaximumVisitedNodeCount = 0;
+    int subobjectRegionMaximumTestedTriangleCount = 0;
+    for (int index = 0; index < Math.Min(queryCount, 4_096); index++)
+    {
+        CadMesh3DSubobjectRegionQueryResult warm =
+            selectionIndex.QuerySubobjectRegion(
+                viewport,
+                viewportSize,
+                queryPoints[index] - new Vector2(4.0f),
+                queryPoints[index] + new Vector2(4.0f),
+                CadBoundsSelectionMode.Crossing,
+                CadMesh3DSubobjectFilter.Face,
+                subobjectRegionScratch,
+                subobjectRegionHits);
+        if (warm.SubobjectTotalCount == 0 || warm.AreSubobjectsTruncated)
+        {
+            throw new InvalidOperationException(
+                "A warm modern-MESH face-subobject region benchmark query did not return a bounded hit.");
+        }
+    }
+    long subobjectRegionAllocationStart =
+        GC.GetAllocatedBytesForCurrentThread();
+    for (int index = 0; index < queryPoints.Length; index++)
+    {
+        long started = Stopwatch.GetTimestamp();
+        CadMesh3DSubobjectRegionQueryResult result =
+            selectionIndex.QuerySubobjectRegion(
+                viewport,
+                viewportSize,
+                queryPoints[index] - new Vector2(4.0f),
+                queryPoints[index] + new Vector2(4.0f),
+                CadBoundsSelectionMode.Crossing,
+                CadMesh3DSubobjectFilter.Face,
+                subobjectRegionScratch,
+                subobjectRegionHits);
+        subobjectRegionElapsed[index] = Stopwatch.GetElapsedTime(started)
+            .TotalNanoseconds;
+        if (result.SubobjectTotalCount == 0 || result.AreSubobjectsTruncated)
+        {
+            throw new InvalidOperationException(
+                "A measured modern-MESH face-subobject region benchmark query did not return a bounded hit.");
+        }
+        subobjectRegionVisitedNodeCount += result.VisitedNodeCount;
+        subobjectRegionTestedTriangleCount += result.TestedTriangleCount;
+        subobjectRegionIntersectedTriangleCount +=
+            result.IntersectedTriangleCount;
+        subobjectRegionHitCount += result.SubobjectTotalCount;
+        subobjectRegionMaximumVisitedNodeCount = Math.Max(
+            subobjectRegionMaximumVisitedNodeCount,
+            result.VisitedNodeCount);
+        subobjectRegionMaximumTestedTriangleCount = Math.Max(
+            subobjectRegionMaximumTestedTriangleCount,
+            result.TestedTriangleCount);
+        checksum ^= subobjectRegionHits[0].Handle +
+            (uint)subobjectRegionHits[result.SubobjectWrittenCount - 1].Index;
+    }
+    long subobjectRegionAllocatedBytes =
+        GC.GetAllocatedBytesForCurrentThread() -
+        subobjectRegionAllocationStart;
+    GC.KeepAlive(checksum);
+
+    var subobjectLassoElapsed = new double[queryCount];
+    long subobjectLassoVisitedNodeCount = 0;
+    long subobjectLassoTestedTriangleCount = 0;
+    long subobjectLassoIntersectedTriangleCount = 0;
+    long subobjectLassoHitCount = 0;
+    int subobjectLassoMaximumVisitedNodeCount = 0;
+    int subobjectLassoMaximumTestedTriangleCount = 0;
+    for (int index = 0; index < Math.Min(queryCount, 4_096); index++)
+    {
+        CadMesh3DSubobjectRegionQueryResult warm =
+            selectionIndex.QuerySubobjectLasso(
+                viewport,
+                viewportSize,
+                lassoPoints.AsSpan(index * 3, 3),
+                CadBoundsSelectionMode.Crossing,
+                CadMesh3DSubobjectFilter.Face,
+                subobjectRegionScratch,
+                subobjectRegionHits);
+        if (warm.SubobjectTotalCount == 0 || warm.AreSubobjectsTruncated)
+        {
+            throw new InvalidOperationException(
+                "A warm modern-MESH face-subobject lasso benchmark query did not return a bounded hit.");
+        }
+    }
+    long subobjectLassoAllocationStart =
+        GC.GetAllocatedBytesForCurrentThread();
+    for (int index = 0; index < queryPoints.Length; index++)
+    {
+        long started = Stopwatch.GetTimestamp();
+        CadMesh3DSubobjectRegionQueryResult result =
+            selectionIndex.QuerySubobjectLasso(
+                viewport,
+                viewportSize,
+                lassoPoints.AsSpan(index * 3, 3),
+                CadBoundsSelectionMode.Crossing,
+                CadMesh3DSubobjectFilter.Face,
+                subobjectRegionScratch,
+                subobjectRegionHits);
+        subobjectLassoElapsed[index] = Stopwatch.GetElapsedTime(started)
+            .TotalNanoseconds;
+        if (result.SubobjectTotalCount == 0 || result.AreSubobjectsTruncated)
+        {
+            throw new InvalidOperationException(
+                "A measured modern-MESH face-subobject lasso benchmark query did not return a bounded hit.");
+        }
+        subobjectLassoVisitedNodeCount += result.VisitedNodeCount;
+        subobjectLassoTestedTriangleCount += result.TestedTriangleCount;
+        subobjectLassoIntersectedTriangleCount +=
+            result.IntersectedTriangleCount;
+        subobjectLassoHitCount += result.SubobjectTotalCount;
+        subobjectLassoMaximumVisitedNodeCount = Math.Max(
+            subobjectLassoMaximumVisitedNodeCount,
+            result.VisitedNodeCount);
+        subobjectLassoMaximumTestedTriangleCount = Math.Max(
+            subobjectLassoMaximumTestedTriangleCount,
+            result.TestedTriangleCount);
+        checksum ^= subobjectRegionHits[0].Handle +
+            (uint)subobjectRegionHits[result.SubobjectWrittenCount - 1].Index;
+    }
+    long subobjectLassoAllocatedBytes =
+        GC.GetAllocatedBytesForCurrentThread() -
+        subobjectLassoAllocationStart;
+    GC.KeepAlive(checksum);
+
+    var subobjectFenceElapsed = new double[queryCount];
+    long subobjectFenceVisitedNodeCount = 0;
+    long subobjectFenceTestedTriangleCount = 0;
+    long subobjectFenceIntersectedTriangleCount = 0;
+    long subobjectFenceHitCount = 0;
+    int subobjectFenceMaximumVisitedNodeCount = 0;
+    int subobjectFenceMaximumTestedTriangleCount = 0;
+    for (int index = 0; index < Math.Min(queryCount, 4_096); index++)
+    {
+        CadMesh3DSubobjectRegionQueryResult warm =
+            selectionIndex.QuerySubobjectFence(
+                viewport,
+                viewportSize,
+                fencePoints.AsSpan(index * 2, 2),
+                CadMesh3DSubobjectFilter.Face,
+                subobjectRegionScratch,
+                subobjectRegionHits);
+        if (warm.SubobjectTotalCount == 0 || warm.AreSubobjectsTruncated)
+        {
+            throw new InvalidOperationException(
+                "A warm modern-MESH face-subobject fence benchmark query did not return a bounded hit.");
+        }
+    }
+    long subobjectFenceAllocationStart =
+        GC.GetAllocatedBytesForCurrentThread();
+    for (int index = 0; index < queryPoints.Length; index++)
+    {
+        long started = Stopwatch.GetTimestamp();
+        CadMesh3DSubobjectRegionQueryResult result =
+            selectionIndex.QuerySubobjectFence(
+                viewport,
+                viewportSize,
+                fencePoints.AsSpan(index * 2, 2),
+                CadMesh3DSubobjectFilter.Face,
+                subobjectRegionScratch,
+                subobjectRegionHits);
+        subobjectFenceElapsed[index] = Stopwatch.GetElapsedTime(started)
+            .TotalNanoseconds;
+        if (result.SubobjectTotalCount == 0 || result.AreSubobjectsTruncated)
+        {
+            throw new InvalidOperationException(
+                "A measured modern-MESH face-subobject fence benchmark query did not return a bounded hit.");
+        }
+        subobjectFenceVisitedNodeCount += result.VisitedNodeCount;
+        subobjectFenceTestedTriangleCount += result.TestedTriangleCount;
+        subobjectFenceIntersectedTriangleCount +=
+            result.IntersectedTriangleCount;
+        subobjectFenceHitCount += result.SubobjectTotalCount;
+        subobjectFenceMaximumVisitedNodeCount = Math.Max(
+            subobjectFenceMaximumVisitedNodeCount,
+            result.VisitedNodeCount);
+        subobjectFenceMaximumTestedTriangleCount = Math.Max(
+            subobjectFenceMaximumTestedTriangleCount,
+            result.TestedTriangleCount);
+        checksum ^= subobjectRegionHits[0].Handle +
+            (uint)subobjectRegionHits[result.SubobjectWrittenCount - 1].Index;
+    }
+    long subobjectFenceAllocatedBytes =
+        GC.GetAllocatedBytesForCurrentThread() -
+        subobjectFenceAllocationStart;
+    GC.KeepAlive(checksum);
+
     var report = new CadMesh3DSelectionBenchmarkReport(
         DateTimeOffset.UtcNow,
         Environment.OSVersion.ToString(),
@@ -1819,6 +2014,21 @@ void RunMesh3DSelectionBenchmark(
             subobjectElapsed,
             subobjectAllocatedBytes / queryCount),
         subobjectAllocatedBytes,
+        Summarize(
+            "mesh3d-selection-modern-mesh-face-subobject-region-query-ns",
+            subobjectRegionElapsed,
+            subobjectRegionAllocatedBytes / queryCount),
+        subobjectRegionAllocatedBytes,
+        Summarize(
+            "mesh3d-selection-modern-mesh-face-subobject-lasso-query-ns",
+            subobjectLassoElapsed,
+            subobjectLassoAllocatedBytes / queryCount),
+        subobjectLassoAllocatedBytes,
+        Summarize(
+            "mesh3d-selection-modern-mesh-face-subobject-fence-query-ns",
+            subobjectFenceElapsed,
+            subobjectFenceAllocatedBytes / queryCount),
+        subobjectFenceAllocatedBytes,
         Summarize(
             "mesh3d-selection-projected-crossing-query-ns",
             regionElapsed,
@@ -1856,6 +2066,24 @@ void RunMesh3DSelectionBenchmark(
         (double)subobjectHitCount / queryCount,
         subobjectMaximumVisitedNodeCount,
         subobjectMaximumTestedTriangleCount,
+        (double)subobjectRegionVisitedNodeCount / queryCount,
+        (double)subobjectRegionTestedTriangleCount / queryCount,
+        (double)subobjectRegionIntersectedTriangleCount / queryCount,
+        (double)subobjectRegionHitCount / queryCount,
+        subobjectRegionMaximumVisitedNodeCount,
+        subobjectRegionMaximumTestedTriangleCount,
+        (double)subobjectLassoVisitedNodeCount / queryCount,
+        (double)subobjectLassoTestedTriangleCount / queryCount,
+        (double)subobjectLassoIntersectedTriangleCount / queryCount,
+        (double)subobjectLassoHitCount / queryCount,
+        subobjectLassoMaximumVisitedNodeCount,
+        subobjectLassoMaximumTestedTriangleCount,
+        (double)subobjectFenceVisitedNodeCount / queryCount,
+        (double)subobjectFenceTestedTriangleCount / queryCount,
+        (double)subobjectFenceIntersectedTriangleCount / queryCount,
+        (double)subobjectFenceHitCount / queryCount,
+        subobjectFenceMaximumVisitedNodeCount,
+        subobjectFenceMaximumTestedTriangleCount,
         (double)regionVisitedNodeCount / queryCount,
         (double)regionTestedTriangleCount / queryCount,
         (double)regionIntersectedTriangleCount / queryCount,
@@ -3792,6 +4020,12 @@ internal sealed record CadMesh3DSelectionBenchmarkReport(
     long TotalProjectedPickTargetQueryManagedAllocatedBytes,
     Measurement ModernMeshFaceSubobjectQueryNanoseconds,
     long TotalModernMeshFaceSubobjectQueryManagedAllocatedBytes,
+    Measurement ModernMeshFaceSubobjectRegionQueryNanoseconds,
+    long TotalModernMeshFaceSubobjectRegionQueryManagedAllocatedBytes,
+    Measurement ModernMeshFaceSubobjectLassoQueryNanoseconds,
+    long TotalModernMeshFaceSubobjectLassoQueryManagedAllocatedBytes,
+    Measurement ModernMeshFaceSubobjectFenceQueryNanoseconds,
+    long TotalModernMeshFaceSubobjectFenceQueryManagedAllocatedBytes,
     Measurement ProjectedCrossingQueryNanoseconds,
     long TotalProjectedCrossingQueryManagedAllocatedBytes,
     Measurement ProjectedLassoQueryNanoseconds,
@@ -3820,6 +4054,24 @@ internal sealed record CadMesh3DSelectionBenchmarkReport(
     double ModernMeshFaceSubobjectAverageHitCount,
     int ModernMeshFaceSubobjectMaximumVisitedNodeCount,
     int ModernMeshFaceSubobjectMaximumTestedTriangleCount,
+    double ModernMeshFaceSubobjectRegionAverageVisitedNodeCount,
+    double ModernMeshFaceSubobjectRegionAverageTestedTriangleCount,
+    double ModernMeshFaceSubobjectRegionAverageIntersectedTriangleCount,
+    double ModernMeshFaceSubobjectRegionAverageHitCount,
+    int ModernMeshFaceSubobjectRegionMaximumVisitedNodeCount,
+    int ModernMeshFaceSubobjectRegionMaximumTestedTriangleCount,
+    double ModernMeshFaceSubobjectLassoAverageVisitedNodeCount,
+    double ModernMeshFaceSubobjectLassoAverageTestedTriangleCount,
+    double ModernMeshFaceSubobjectLassoAverageIntersectedTriangleCount,
+    double ModernMeshFaceSubobjectLassoAverageHitCount,
+    int ModernMeshFaceSubobjectLassoMaximumVisitedNodeCount,
+    int ModernMeshFaceSubobjectLassoMaximumTestedTriangleCount,
+    double ModernMeshFaceSubobjectFenceAverageVisitedNodeCount,
+    double ModernMeshFaceSubobjectFenceAverageTestedTriangleCount,
+    double ModernMeshFaceSubobjectFenceAverageIntersectedTriangleCount,
+    double ModernMeshFaceSubobjectFenceAverageHitCount,
+    int ModernMeshFaceSubobjectFenceMaximumVisitedNodeCount,
+    int ModernMeshFaceSubobjectFenceMaximumTestedTriangleCount,
     double ProjectedCrossingAverageVisitedNodeCount,
     double ProjectedCrossingAverageTestedTriangleCount,
     double ProjectedCrossingAverageIntersectedTriangleCount,

@@ -27,6 +27,12 @@ public sealed class CadMesh3DSelectionTests
         document.Entities.Add(mesh);
         CadRecordedMesh3DScene scene = CompileScene(document);
         CadMesh3DSelectionIndex index = CadMesh3DSelectionIndex.Build(scene);
+        Assert.Equal(9, index.SubobjectCount);
+        Assert.Equal(9, index.Statistics.SubobjectCount);
+        Assert.Throws<InvalidOperationException>(() =>
+            CadMesh3DSelectionIndex.Build(
+                scene,
+                new CadMesh3DSelectionOptions { MaxSubobjects = 8 }));
         CadMesh3DViewport viewport = CreateTopViewport(
             scene,
             cameraDistance: 10.0,
@@ -152,6 +158,20 @@ public sealed class CadMesh3DSelectionTests
             targetHeight: 5.0f);
 
         Assert.Equal(0, query.HitCount);
+        Assert.Equal(0, index.SubobjectCount);
+        Span<CadMesh3DSubobjectId> regionHits =
+            stackalloc CadMesh3DSubobjectId[4];
+        CadMesh3DSubobjectRegionQueryResult region =
+            index.QuerySubobjectRegion(
+                viewport,
+                ViewportSize,
+                Vector2.Zero,
+                ViewportSize,
+                CadBoundsSelectionMode.Crossing,
+                CadMesh3DSubobjectFilter.All,
+                [],
+                regionHits);
+        Assert.Equal(0, region.SubobjectTotalCount);
         Assert.Empty(scene.SubobjectComponents.ToArray());
     }
 
@@ -195,6 +215,371 @@ public sealed class CadMesh3DSelectionTests
                 CadMesh3DSubobjectFilter.All,
                 hits,
                 targetHeight: 5.0f).HitCount;
+        }
+        long allocated = GC.GetAllocatedBytesForCurrentThread() - before;
+
+        Assert.True(observed > 0);
+        Assert.Equal(0, allocated);
+    }
+
+    [Fact]
+    public void ModernMeshSubobjectRegionRequiresWholeAuthoredContainment()
+    {
+        var document = new CadDocument();
+        Mesh mesh = CreateSeparatedMesh();
+        document.Entities.Add(mesh);
+        CadRecordedMesh3DScene scene = CompileScene(document);
+        CadMesh3DSelectionIndex index = CadMesh3DSelectionIndex.Build(scene);
+        CadMesh3DViewport viewport = CreateTopViewport(
+            scene,
+            cameraDistance: 20.0,
+            near: 0.1f,
+            far: 100.0f);
+        var scratch = new int[index.SubobjectCount];
+        Span<CadMesh3DSubobjectId> hits =
+            stackalloc CadMesh3DSubobjectId[16];
+        Vector2 enclosingFirst = Project(
+            viewport,
+            scene,
+            new CadPoint3D(-1.25, -1.25, 0.0));
+        Vector2 enclosingSecond = Project(
+            viewport,
+            scene,
+            new CadPoint3D(1.25, 1.25, 0.0));
+
+        CadMesh3DSubobjectRegionQueryResult window =
+            index.QuerySubobjectRegion(
+                viewport,
+                ViewportSize,
+                enclosingFirst,
+                enclosingSecond,
+                CadBoundsSelectionMode.Window,
+                CadMesh3DSubobjectFilter.All,
+                scratch,
+                hits);
+
+        Assert.Equal(9, window.SubobjectTotalCount);
+        Assert.False(window.AreSubobjectsTruncated);
+        Assert.Equal(4, hits[..window.SubobjectWrittenCount].ToArray().Count(
+            id => id.Kind == CadMesh3DSubobjectKind.Vertex));
+        Assert.Equal(4, hits[..window.SubobjectWrittenCount].ToArray().Count(
+            id => id.Kind == CadMesh3DSubobjectKind.Edge));
+        CadMesh3DSubobjectId face = Assert.Single(
+            hits[..window.SubobjectWrittenCount].ToArray(),
+            id => id.Kind == CadMesh3DSubobjectKind.Face);
+        Assert.Equal(mesh.Handle, face.Handle);
+        Assert.Equal(0, face.Index);
+
+        Vector2 partialFirst = Project(
+            viewport,
+            scene,
+            new CadPoint3D(-0.25, -0.25, 0.0));
+        Vector2 partialSecond = Project(
+            viewport,
+            scene,
+            new CadPoint3D(0.25, 0.25, 0.0));
+        CadMesh3DSubobjectRegionQueryResult partialWindow =
+            index.QuerySubobjectRegion(
+                viewport,
+                ViewportSize,
+                partialFirst,
+                partialSecond,
+                CadBoundsSelectionMode.Window,
+                CadMesh3DSubobjectFilter.Face,
+                scratch,
+                hits);
+        Assert.Equal(0, partialWindow.SubobjectTotalCount);
+
+        CadMesh3DSubobjectRegionQueryResult crossing =
+            index.QuerySubobjectRegion(
+                viewport,
+                ViewportSize,
+                partialFirst,
+                partialSecond,
+                CadBoundsSelectionMode.Crossing,
+                CadMesh3DSubobjectFilter.Face,
+                scratch,
+                hits);
+        Assert.Equal(1, crossing.SubobjectTotalCount);
+        Assert.Equal(CadMesh3DSubobjectKind.Face, hits[0].Kind);
+        Assert.Equal(0, hits[0].Index);
+
+        Span<CadMesh3DSubobjectId> bounded = hits[..1];
+        CadMesh3DSubobjectRegionQueryResult truncated =
+            index.QuerySubobjectRegion(
+                viewport,
+                ViewportSize,
+                enclosingFirst,
+                enclosingSecond,
+                CadBoundsSelectionMode.Window,
+                CadMesh3DSubobjectFilter.All,
+                scratch,
+                bounded);
+        Assert.Equal(1, truncated.SubobjectWrittenCount);
+        Assert.Equal(9, truncated.SubobjectTotalCount);
+        Assert.True(truncated.AreSubobjectsTruncated);
+        Assert.Throws<ArgumentException>(() => index.QuerySubobjectRegion(
+            viewport,
+            ViewportSize,
+            enclosingFirst,
+            enclosingSecond,
+            CadBoundsSelectionMode.Window,
+            CadMesh3DSubobjectFilter.All,
+            Array.Empty<int>(),
+            new CadMesh3DSubobjectId[16]));
+    }
+
+    [Fact]
+    public void ModernMeshSubobjectRegionAggregatesSubdivisionChildren()
+    {
+        var document = new CadDocument();
+        Mesh mesh = CreateStackedMesh(0.0);
+        mesh.SubdivisionLevel = 1;
+        document.Entities.Add(mesh);
+        CadRecordedMesh3DScene scene = CompileScene(document);
+        Assert.True(scene.Statistics.TriangleCount > 2);
+        CadMesh3DSelectionIndex index = CadMesh3DSelectionIndex.Build(scene);
+        CadMesh3DViewport viewport = CreateTopViewport(
+            scene,
+            cameraDistance: 10.0,
+            near: 0.1f,
+            far: 100.0f);
+        var scratch = new int[index.SubobjectCount];
+        Span<CadMesh3DSubobjectId> hits =
+            stackalloc CadMesh3DSubobjectId[16];
+
+        CadMesh3DSubobjectRegionQueryResult wholeWindow =
+            index.QuerySubobjectRegion(
+                viewport,
+                ViewportSize,
+                Vector2.One,
+                ViewportSize - Vector2.One,
+                CadBoundsSelectionMode.Window,
+                CadMesh3DSubobjectFilter.Face,
+                scratch,
+                hits);
+        CadMesh3DSubobjectId face = Assert.Single(
+            hits[..wholeWindow.SubobjectWrittenCount].ToArray());
+        Assert.Equal(CadMesh3DSubobjectKind.Face, face.Kind);
+        Assert.Equal(0, face.Index);
+
+        Vector2 center = Project(
+            viewport,
+            scene,
+            CadPoint3D.Zero);
+        CadMesh3DSubobjectRegionQueryResult partialWindow =
+            index.QuerySubobjectRegion(
+                viewport,
+                ViewportSize,
+                center - new Vector2(2.0f),
+                center + new Vector2(2.0f),
+                CadBoundsSelectionMode.Window,
+                CadMesh3DSubobjectFilter.Face,
+                scratch,
+                hits);
+        Assert.Equal(0, partialWindow.SubobjectTotalCount);
+        CadMesh3DSubobjectRegionQueryResult partialCrossing =
+            index.QuerySubobjectRegion(
+                viewport,
+                ViewportSize,
+                center - new Vector2(2.0f),
+                center + new Vector2(2.0f),
+                CadBoundsSelectionMode.Crossing,
+                CadMesh3DSubobjectFilter.Face,
+                scratch,
+                hits);
+        Assert.Equal(1, partialCrossing.SubobjectTotalCount);
+    }
+
+    [Fact]
+    public void ModernMeshSubobjectPolygonLassoAndFenceUseExactKinds()
+    {
+        var document = new CadDocument();
+        document.Entities.Add(CreateSeparatedMesh());
+        CadRecordedMesh3DScene scene = CompileScene(document);
+        CadMesh3DSelectionIndex index = CadMesh3DSelectionIndex.Build(scene);
+        CadMesh3DViewport viewport = CreateTopViewport(
+            scene,
+            cameraDistance: 20.0,
+            near: 0.1f,
+            far: 100.0f);
+        var scratch = new int[index.SubobjectCount];
+        Span<CadMesh3DSubobjectId> hits =
+            stackalloc CadMesh3DSubobjectId[16];
+        Vector2[] polygon =
+        [
+            Project(viewport, scene, new CadPoint3D(-1.25, -1.25, 0.0)),
+            Project(viewport, scene, new CadPoint3D(1.25, -1.25, 0.0)),
+            Project(viewport, scene, new CadPoint3D(1.25, 1.25, 0.0)),
+            Project(viewport, scene, new CadPoint3D(-1.25, 1.25, 0.0)),
+        ];
+
+        CadMesh3DSubobjectRegionQueryResult polygonWindow =
+            index.QuerySubobjectPolygon(
+                viewport,
+                ViewportSize,
+                polygon,
+                CadBoundsSelectionMode.Window,
+                CadMesh3DSubobjectFilter.Face,
+                scratch,
+                hits);
+        Assert.Equal(1, polygonWindow.SubobjectTotalCount);
+        Assert.Equal(0, hits[0].Index);
+
+        Vector2[] selfCrossingLasso =
+        [
+            Project(viewport, scene, new CadPoint3D(-1.5, -1.5, 0.0)),
+            Project(viewport, scene, new CadPoint3D(1.5, 1.5, 0.0)),
+            Project(viewport, scene, new CadPoint3D(-1.5, 1.5, 0.0)),
+            Project(viewport, scene, new CadPoint3D(1.5, -1.5, 0.0)),
+        ];
+        Assert.Throws<ArgumentException>(() => index.QuerySubobjectPolygon(
+            viewport,
+            ViewportSize,
+            selfCrossingLasso,
+            CadBoundsSelectionMode.Crossing,
+            CadMesh3DSubobjectFilter.Face,
+            scratch,
+            new CadMesh3DSubobjectId[16]));
+        CadMesh3DSubobjectRegionQueryResult lasso =
+            index.QuerySubobjectLasso(
+                viewport,
+                ViewportSize,
+                selfCrossingLasso,
+                CadBoundsSelectionMode.Crossing,
+                CadMesh3DSubobjectFilter.Face,
+                scratch,
+                hits);
+        Assert.Equal(1, lasso.SubobjectTotalCount);
+
+        Vector2[] fence =
+        [
+            Project(viewport, scene, new CadPoint3D(-2.0, 0.0, 0.0)),
+            Project(viewport, scene, new CadPoint3D(2.0, 0.0, 0.0)),
+        ];
+        CadMesh3DSubobjectRegionQueryResult edgeFence =
+            index.QuerySubobjectFence(
+                viewport,
+                ViewportSize,
+                fence,
+                CadMesh3DSubobjectFilter.Edge,
+                scratch,
+                hits);
+        Assert.Equal(2, edgeFence.SubobjectTotalCount);
+        Assert.All(hits[..edgeFence.SubobjectWrittenCount].ToArray(),
+            id => Assert.Equal(CadMesh3DSubobjectKind.Edge, id.Kind));
+        CadMesh3DSubobjectRegionQueryResult faceFence =
+            index.QuerySubobjectFence(
+                viewport,
+                ViewportSize,
+                fence,
+                CadMesh3DSubobjectFilter.Face,
+                scratch,
+                hits);
+        Assert.Equal(1, faceFence.SubobjectTotalCount);
+
+        Vector2[] vertexFence =
+        [
+            Project(viewport, scene, new CadPoint3D(-2.0, -1.0, 0.0)),
+            Project(viewport, scene, new CadPoint3D(2.0, -1.0, 0.0)),
+        ];
+        CadMesh3DSubobjectRegionQueryResult vertexHit =
+            index.QuerySubobjectFence(
+                viewport,
+                ViewportSize,
+                vertexFence,
+                CadMesh3DSubobjectFilter.Vertex,
+                scratch,
+                hits);
+        Assert.Equal(2, vertexHit.SubobjectTotalCount);
+    }
+
+    [Fact]
+    public void WarmModernMeshSubobjectRegionQueriesAllocateNothing()
+    {
+        var document = new CadDocument();
+        document.Entities.Add(CreateGridMesh(32));
+        CadRecordedMesh3DScene scene = CompileScene(document);
+        CadMesh3DSelectionIndex index = CadMesh3DSelectionIndex.Build(scene);
+        CadMesh3DViewport viewport = CreateTopViewport(
+            scene,
+            cameraDistance: 100.0,
+            near: 0.1f,
+            far: 200.0f);
+        Vector2 center = Project(
+            viewport,
+            scene,
+            new CadPoint3D(16.5, 16.5, 0.0));
+        var scratch = new int[index.SubobjectCount];
+        var hits = new CadMesh3DSubobjectId[64];
+        Vector2[] lasso =
+        [
+            center + new Vector2(-4.0f, -4.0f),
+            center + new Vector2(4.0f, -4.0f),
+            center + new Vector2(4.0f, 4.0f),
+            center + new Vector2(-4.0f, 4.0f),
+        ];
+        Vector2[] fence =
+        [
+            center + new Vector2(-4.0f, 0.0f),
+            center + new Vector2(4.0f, 0.0f),
+        ];
+        for (int warm = 0; warm < 32; warm++)
+        {
+            _ = index.QuerySubobjectRegion(
+                viewport,
+                ViewportSize,
+                center - new Vector2(4.0f),
+                center + new Vector2(4.0f),
+                CadBoundsSelectionMode.Crossing,
+                CadMesh3DSubobjectFilter.All,
+                scratch,
+                hits);
+            _ = index.QuerySubobjectLasso(
+                viewport,
+                ViewportSize,
+                lasso,
+                CadBoundsSelectionMode.Crossing,
+                CadMesh3DSubobjectFilter.All,
+                scratch,
+                hits);
+            _ = index.QuerySubobjectFence(
+                viewport,
+                ViewportSize,
+                fence,
+                CadMesh3DSubobjectFilter.All,
+                scratch,
+                hits);
+        }
+
+        long before = GC.GetAllocatedBytesForCurrentThread();
+        int observed = 0;
+        for (int iteration = 0; iteration < 256; iteration++)
+        {
+            observed += index.QuerySubobjectRegion(
+                viewport,
+                ViewportSize,
+                center - new Vector2(4.0f),
+                center + new Vector2(4.0f),
+                CadBoundsSelectionMode.Crossing,
+                CadMesh3DSubobjectFilter.All,
+                scratch,
+                hits).SubobjectTotalCount;
+            observed += index.QuerySubobjectLasso(
+                viewport,
+                ViewportSize,
+                lasso,
+                CadBoundsSelectionMode.Crossing,
+                CadMesh3DSubobjectFilter.All,
+                scratch,
+                hits).SubobjectTotalCount;
+            observed += index.QuerySubobjectFence(
+                viewport,
+                ViewportSize,
+                fence,
+                CadMesh3DSubobjectFilter.All,
+                scratch,
+                hits).SubobjectTotalCount;
         }
         long allocated = GC.GetAllocatedBytesForCurrentThread() - before;
 
@@ -1305,8 +1690,95 @@ public sealed class CadMesh3DSelectionTests
                 CadMesh3DSubobjectKind.Face,
                 Assert.Single(view.SelectedMeshSubobjects).Kind);
 
+            InputSystem.Current.IsControlPressed = false;
+            view.MeshSubobjectSelector.SelectedIndex = 3;
+            Span<Vector2> projectedCorners = stackalloc Vector2[8];
+            int projectedCorner = 0;
+            foreach (double elevation in new[] { 0.0, 2.0 })
+            {
+                projectedCorners[projectedCorner++] = Project(
+                    viewport,
+                    scene,
+                    new CadPoint3D(-2.0, -2.0, elevation));
+                projectedCorners[projectedCorner++] = Project(
+                    viewport,
+                    scene,
+                    new CadPoint3D(2.0, -2.0, elevation));
+                projectedCorners[projectedCorner++] = Project(
+                    viewport,
+                    scene,
+                    new CadPoint3D(2.0, 2.0, elevation));
+                projectedCorners[projectedCorner++] = Project(
+                    viewport,
+                    scene,
+                    new CadPoint3D(-2.0, 2.0, elevation));
+            }
+            Vector2 windowOrigin = projectedCorners[0];
+            Vector2 windowEnd = projectedCorners[0];
+            foreach (Vector2 corner in projectedCorners[1..])
+            {
+                windowOrigin = Vector2.Min(windowOrigin, corner);
+                windowEnd = Vector2.Max(windowEnd, corner);
+            }
+            windowOrigin -= new Vector2(5.0f);
+            windowEnd += new Vector2(5.0f);
+            Drag(view.MeshViewport, windowOrigin, windowEnd);
+            Assert.Equal(2, view.SelectedMeshSubobjects.Count);
+            Assert.All(view.SelectedMeshSubobjects,
+                id => Assert.Equal(CadMesh3DSubobjectKind.Face, id.Kind));
+
+            view.MeshRegionSelectionSelector.SelectedIndex = 1;
+            view.MeshSubobjectSelector.SelectedIndex = 2;
+            Vector2 fenceStart = Project(
+                viewport,
+                scene,
+                new CadPoint3D(-3.0, 0.0, 2.0));
+            Vector2 fenceEnd = Project(
+                viewport,
+                scene,
+                new CadPoint3D(3.0, 0.0, 2.0));
+            view.MeshViewport.OnPointerPressed(new PointerRoutedEventArgs
+            {
+                Position = fenceStart,
+                IsLeftButtonPressed = true,
+            });
+            view.MeshViewport.OnPointerMoved(new PointerRoutedEventArgs
+            {
+                Position = fenceEnd,
+                IsLeftButtonPressed = true,
+            });
+            view.MeshViewport.OnKeyDown(new KeyRoutedEventArgs
+            {
+                Key = Silk.NET.Input.Key.Space,
+            });
+            view.MeshViewport.OnPointerReleased(new PointerRoutedEventArgs
+            {
+                Position = fenceEnd,
+            });
+            Span<CadMesh3DSubobjectId> expectedFenceHits =
+                stackalloc CadMesh3DSubobjectId[64];
+            var expectedFenceScratch = new int[
+                view.MeshSelectionIndex!.SubobjectCount];
+            CadMesh3DSubobjectRegionQueryResult expectedFence =
+                view.MeshSelectionIndex.QuerySubobjectFence(
+                    viewport,
+                    ViewportSize,
+                    [fenceStart, fenceEnd],
+                    CadMesh3DSubobjectFilter.Edge,
+                    expectedFenceScratch,
+                    expectedFenceHits);
+            Assert.True(expectedFence.SubobjectWrittenCount > 0);
+            Assert.Equal(
+                expectedFenceHits[..expectedFence.SubobjectWrittenCount]
+                    .ToArray(),
+                view.SelectedMeshSubobjects);
+            Assert.All(view.SelectedMeshSubobjects,
+                id => Assert.Equal(CadMesh3DSubobjectKind.Edge, id.Kind));
+
+            view.MeshRegionSelectionSelector.SelectedIndex = 0;
             view.MeshSubobjectSelector.SelectedIndex = 3;
             view.MeshPickTargetHeight = 256.0f;
+            InputSystem.Current.IsControlPressed = true;
             viewport = view.MeshViewportState!.Value;
             facePoint = Project(
                 viewport,

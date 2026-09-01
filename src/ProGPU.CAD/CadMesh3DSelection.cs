@@ -7,9 +7,12 @@ namespace ProGPU.CAD;
 public sealed class CadMesh3DSelectionOptions
 {
     public const int DefaultMaxTriangles = 10_000_000;
+    public const int DefaultMaxSubobjects = 10_000_000;
     public const int DefaultLeafTriangleCount = 8;
 
     public int MaxTriangles { get; init; } = DefaultMaxTriangles;
+
+    public int MaxSubobjects { get; init; } = DefaultMaxSubobjects;
 
     public int LeafTriangleCount { get; init; } = DefaultLeafTriangleCount;
 }
@@ -20,7 +23,10 @@ public readonly record struct CadMesh3DSelectionIndexStatistics(
     int NodeCount,
     int LeafCount,
     int MaximumDepth,
-    long RetainedByteCount);
+    long RetainedByteCount)
+{
+    public int SubobjectCount { get; init; }
+}
 
 /// <summary>One exact nearest retained-triangle projected-selection result.</summary>
 public readonly record struct CadMesh3DSelectionResult(
@@ -104,12 +110,18 @@ public sealed partial class CadMesh3DSelectionIndex
     private readonly BvhNode[] _nodes;
     private readonly int[] _batchSemanticRootIndices;
     private readonly SemanticRootReference[] _semanticRoots;
+    private readonly SubobjectComponentReference[] _subobjectComponents;
+    private readonly int[] _batchSubobjectComponentIndices;
+    private readonly CadMesh3DSubobjectId[] _subobjectIds;
+    private readonly int[] _subobjectPrimitiveCounts;
 
     public ulong ContentGeneration => _scene.ContentGeneration;
 
     public CadPoint3D RebaseOrigin => _scene.RebaseOrigin;
 
     public int SemanticRootCount => _semanticRoots.Length;
+
+    public int SubobjectCount => _subobjectIds.Length;
 
     public CadMesh3DSelectionIndexStatistics Statistics { get; }
 
@@ -119,6 +131,10 @@ public sealed partial class CadMesh3DSelectionIndex
         BvhNode[] nodes,
         int[] batchSemanticRootIndices,
         SemanticRootReference[] semanticRoots,
+        SubobjectComponentReference[] subobjectComponents,
+        int[] batchSubobjectComponentIndices,
+        CadMesh3DSubobjectId[] subobjectIds,
+        int[] subobjectPrimitiveCounts,
         CadMesh3DSelectionIndexStatistics statistics)
     {
         _scene = scene;
@@ -126,6 +142,10 @@ public sealed partial class CadMesh3DSelectionIndex
         _nodes = nodes;
         _batchSemanticRootIndices = batchSemanticRootIndices;
         _semanticRoots = semanticRoots;
+        _subobjectComponents = subobjectComponents;
+        _batchSubobjectComponentIndices = batchSubobjectComponentIndices;
+        _subobjectIds = subobjectIds;
+        _subobjectPrimitiveCounts = subobjectPrimitiveCounts;
         Statistics = statistics;
     }
 
@@ -138,6 +158,7 @@ public sealed partial class CadMesh3DSelectionIndex
         ArgumentNullException.ThrowIfNull(scene);
         options ??= new CadMesh3DSelectionOptions();
         ArgumentOutOfRangeException.ThrowIfLessThan(options.MaxTriangles, 1);
+        ArgumentOutOfRangeException.ThrowIfLessThan(options.MaxSubobjects, 1);
         ArgumentOutOfRangeException.ThrowIfLessThan(
             options.LeafTriangleCount,
             1);
@@ -168,6 +189,10 @@ public sealed partial class CadMesh3DSelectionIndex
         {
             return new CadMesh3DSelectionIndex(
                 scene,
+                [],
+                [],
+                [],
+                [],
                 [],
                 [],
                 [],
@@ -300,23 +325,43 @@ public sealed partial class CadMesh3DSelectionIndex
                 items[index].TriangleIndex);
         }
 
+        BuildSubobjectReferences(
+            scene,
+            options.MaxSubobjects,
+            out SubobjectComponentReference[] subobjectComponents,
+            out int[] batchSubobjectComponentIndices,
+            out CadMesh3DSubobjectId[] subobjectIds,
+            out int[] subobjectPrimitiveCounts);
+
         long retainedBytes = checked(
             (long)triangles.Length * Unsafe.SizeOf<TriangleReference>() +
             (long)nodes.Length * Unsafe.SizeOf<BvhNode>() +
             (long)batchSemanticRootIndices.Length * sizeof(int) +
-            (long)semanticRoots.Count * Unsafe.SizeOf<SemanticRootReference>());
+            (long)semanticRoots.Count * Unsafe.SizeOf<SemanticRootReference>() +
+            (long)subobjectComponents.Length *
+                Unsafe.SizeOf<SubobjectComponentReference>() +
+            (long)batchSubobjectComponentIndices.Length * sizeof(int) +
+            (long)subobjectIds.Length * Unsafe.SizeOf<CadMesh3DSubobjectId>() +
+            (long)subobjectPrimitiveCounts.Length * sizeof(int));
         return new CadMesh3DSelectionIndex(
             scene,
             triangles,
             nodes,
             batchSemanticRootIndices,
             semanticRoots.ToArray(),
+            subobjectComponents,
+            batchSubobjectComponentIndices,
+            subobjectIds,
+            subobjectPrimitiveCounts,
             new CadMesh3DSelectionIndexStatistics(
                 triangleCount,
                 nodes.Length,
                 leafCount,
                 maximumDepth,
-                retainedBytes));
+                retainedBytes)
+            {
+                SubobjectCount = subobjectIds.Length,
+            });
     }
 
     /// <summary>

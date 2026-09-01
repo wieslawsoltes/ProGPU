@@ -2354,8 +2354,21 @@ Ctrl-add, Shift-remove, and Ctrl+Space cycling. Its theme-resource overlay
 reprojects retained face boundaries, edge chains, and vertex grips without
 recompiling or uploading Mesh3D geometry. Legacy polygon/polyface meshes,
 `SOLID`, `3DFACE`, smoothness facets, and ACIS payload tessellation are not
-mislabeled as modern-MESH subobjects. Exact subobject region sets and
-cross-edit persistent topology IDs remain explicit deferred work. Research,
+mislabeled as modern-MESH subobjects.
+
+`QuerySubobjectRegion`, `QuerySubobjectPolygon`, `QuerySubobjectLasso`, and
+`QuerySubobjectFence` reuse that same immutable topology and BVH. The index
+assigns one dense generation-local state slot and an exact render-annotation
+count to each authored vertex, edge, and face. Crossing and Fence accept any
+exact contributing point, refined authored-edge segment, or child face
+triangle; Window requires every contributing annotation to be strictly
+contained. Rectangle work is `O(S + N + C)` and path work is
+`O(S + N + C*P)`, with `O(S)` caller-owned scratch, fixed traversal storage,
+caller-owned one-through-256 results, explicit truncation, and zero warm
+managed allocation. The shared Box/Lasso interaction routes Window, Crossing,
+even-odd lasso, and Fence completion to these exact queries whenever a
+Vertex/Edge/Face filter is active; Off retains whole-object semantics.
+Cross-edit persistent topology IDs remain explicit deferred work. Research,
 clean-room provenance, parity applicability, regressions, Release percentiles,
 and Instruments evidence are in
 [`PROGPU_CAD_3D_SUBOBJECT_SELECTION_RESEARCH.md`](PROGPU_CAD_3D_SUBOBJECT_SELECTION_RESEARCH.md).

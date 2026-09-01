@@ -60,10 +60,10 @@ organization was copied. Approved in-repository implementation provenance is:
   deferred until the editable topology owns persistent IDs.
 - Autodesk's [mesh selection-filter workflow](https://help.autodesk.com/cloudhelp/2022/ENU/AutoCAD-Core/files/GUID-5569E695-C667-49BF-AB0B-979C6076CC1F.htm)
   supports individual and Window/Crossing face selection and shows grips as a
-  separate interaction layer. The first delivery adopts point/aperture and
-  candidate cycling with projected face/edge/vertex highlighting; exact
-  subobject Window/Crossing selection remains a separately measured extension
-  rather than silently applying whole-object results to subobjects.
+  separate interaction layer. ProGPU now adopts point/aperture and candidate
+  cycling with projected face/edge/vertex highlighting plus exact
+  Window/Crossing/Polygon/lasso/Fence selection. Whole-object results are never
+  silently applied to subobjects.
 
 ## Required cross-engine architecture review
 
@@ -119,6 +119,54 @@ bounded to 256 entries; truncation is explicit. Typical query work is
 `O(log T + H*K)` for `H` candidate triangles and bounded result capacity `K`,
 with conservative `O(T*K)` worst case and zero warm managed allocation.
 
+## Exact region-selection extension design gate
+
+The region extension re-examined the required primary sources before changing
+the query contract. Autodesk's current
+[mesh-tool documentation](https://help.autodesk.com/cloudhelp/2022/ENU/AutoCAD-Core/files/GUID-5569E695-C667-49BF-AB0B-979C6076CC1F.htm)
+explicitly states that an active Face filter supports individual, Window, and
+Crossing selection. Its
+[Window/Crossing/Polygon/Fence/Lasso contract](https://help.autodesk.com/cloudhelp/2023/ENU/AutoCAD-DidYouKnow/files/GUID-D0D5C0C3-F092-448A-8E81-D38F27094639.htm)
+defines Window as complete enclosure, Crossing as enclosure or contact,
+Window/Crossing Polygon as the same predicates over a simple polygon, Fence as
+contact with an open path, and lasso as Window/Crossing/Fence modes. The
+[subobject workflow](https://help.autodesk.com/cloudhelp/2022/ENU/AutoCAD-Core/files/GUID-5E2A9783-090A-452A-913F-0F8A272A547A.htm)
+keeps the active vertex/edge/face filter and multiple-selection set semantics.
+ProGPU adopts these observable contracts for all three modern-MESH authored
+subobject kinds; it does not treat one intersected display facet as complete
+containment of its authored face.
+
+Skia's current
+[`SkPath` contract](https://skia.googlesource.com/skia/+/main/include/core/SkPath.h)
+still separates retained path geometry, finite/tight bounds, fill rules, and
+containment from raster output. Direct2D's current
+[geometry contract](https://learn.microsoft.com/en-us/windows/win32/direct2d/direct2d-geometries-overview)
+likewise keeps geometry relationships device-independent. Current
+[Vello scene encoding](https://github.com/linebender/vello/blob/main/vello/src/scene.rs)
+retains scene data for late transforms, while
+[Parley layout](https://github.com/linebender/parley/tree/main/parley/src/layout)
+and [HarfBuzz shape plans](https://github.com/harfbuzz/harfbuzz/blob/main/src/hb-shape-plan.cc)
+confirm that reusable text work is unrelated and must not be invalidated.
+WebRender's retained hit-test/spatial metadata and WebGPU's
+[coordinate-system contract](https://gpuweb.github.io/gpuweb/#coordinate-systems)
+continue to support identity beside retained geometry and exact top-left,
+`[0,1]`-depth projection rather than framebuffer readback. Adopted: reuse the
+existing immutable BVH, clip volume, projected double-intermediate predicates,
+and caller-owned state. Rejected: raster/color picking, per-query path objects,
+render-batch identity, runtime topology reconstruction, and text/cache rebuilds.
+
+For each generation, the selection index assigns one dense state slot to every
+authored component vertex, edge, and face and records the exact number of
+render-primitive annotations contributing to it. Crossing/Fence needs one
+exact contributing point, segment, or triangle. Window requires every retained
+annotation for that authored subobject to be strictly contained, so a refined
+edge chain or authored face cannot pass because only one child segment/facet is
+inside. Rectangle work is `O(S + N + C)` and projected-path work is
+`O(S + N + C*P)` for `S` authored subobjects, `N` visited BVH nodes, `C`
+candidate triangles, and `P` path points. Storage is `O(S)` immutable counts
+plus `O(S)` caller-owned integer state; result identity storage is bounded to
+256 and truncation is explicit. Warm queries allocate no managed memory.
+
 ## Interaction, managed/native parity, and invalidation
 
 The shared shell owns a generation-tagged selected-subobject set independently
@@ -151,39 +199,46 @@ rehydration remain required regression gates.
 Focused regressions cover authored-face identity across triangulation and style
 batching, refined edge chains and final control-vertex positions, nested
 component disambiguation, exact front/hidden ordering, filters, cycling,
-bounded truncation, zero-allocation warm replay, non-applicable `3DFACE`, and
-the shared shell's replace/add/remove interaction. The complete final Release
-`ProGPU.CAD.Tests` run passed 1,424/1,424.
+bounded truncation, exact rectangular Window/Crossing containment, simple
+polygon validation, even-odd self-crossing lasso, open Fence, authored-face
+aggregation across subdivision children, zero-allocation warm replay,
+non-applicable `3DFACE`, and the shared shell's point and region interaction.
+The complete final Release `ProGPU.CAD.Tests` run passed 1,428/1,428.
 
 The final Release benchmark DLL has SHA-256
-`9a639dff17a6c5a48b852de1e2f68ba68b5512c95dc57a3012f64c5d95ffefe1`;
+`f28aaaf55e771bb948e4adc3d5d6b10ec0b9e031d581325db392674d53bf6d35`;
 the loaded `ProGPU.CAD` DLL has SHA-256
-`188f513ded9b704e04fce2ce590e99d6a658a001eaf6b098cd789dd2d9418a0a`.
+`80a515ac8a54b24c47c9e0bf4f057c14c61c65d641e1d54d50e6cbfd64a38dd5`.
 On a 128-by-128 modern-MESH grid repeated at four depths (131,072 retained
-triangles), 65,536 exact face-subobject queries returned four ordered hits
-each, allocated zero managed bytes, and measured 12.0/16.3/19.2 microseconds
-p50/p95/p99. A query visited about 97 BVH nodes, tested 65 triangles, and
-accepted about six clipped intersections on average. The complete
-SHA-identified result is
+triangles and 264,196 authored subobjects), 65,536 queries per lane allocated
+zero managed bytes. Exact point face queries measured 12.4/16.5/19.7
+microseconds p50/p95/p99. Exact face Crossing rectangles measured
+237.0/264.0/310.5 microseconds, even-odd Crossing lassos measured
+249.2/279.7/323.9 microseconds, and open Fences measured
+193.1/215.0/233.3 microseconds. Rectangle/lasso/Fence tested about
+245/245/154 triangles and returned about 77/53/20 authored faces on average;
+the intentional `O(S)` dense-state clear and result scan are included. The
+11,870,568-byte index built at 23.47/51.79/51.79 milliseconds. The complete
+SHA-identified acceptance result is
 `artifacts/benchmarks/cad-3d-subobject-selection/final-release.json`. This is
 an acceptance baseline, not a before/after speedup claim, because the previous
-generation had no subobject query.
+generation had no exact subobject-region query.
 
 Xcode Instruments 16.0 then launched that exact final DLL for the same
 128-by-128, four-layer query family. Allocations/VM Tracker retained exports for
-20,752,800 persistent and 71,469,584 total heap-plus-anonymous-VM bytes across
+22,079,024 persistent and 73,332,128 total heap-plus-anonymous-VM bytes across
 process startup, topology construction, index construction, and all query
 families; the paired managed hot-query counters remain zero. Time Profiler
 retained its samples and reported no potential hang or hang risk. Metal System
 Trace confirmed zero target resource allocations, current allocated bytes,
-application submissions, waits, compiler spills, hangs, or errors. Its 2,507
+application submissions, waits, compiler spills, hangs, or errors. Its 8,649
 completion rows are unrelated system activity because no target application
 submission exists. All targets exited zero. Compact summaries, manifests, and
 exported tables are retained under
-`artifacts/benchmarks/cad-3d-subobject-selection/instruments/`.
+`artifacts/benchmarks/cad-3d-subobject-selection/instruments-region/`.
 
-Deferred work is explicit: exact subobject Window/Crossing/lasso/fence sets,
-persistent IDs across topology-edit generations, subobject transforms and
-grips, legacy-mesh compatibility behavior, and ACIS solid/surface face, edge,
-and vertex topology. None is approximated by whole-object handles, tessellation
-facets, render-batch ordinals, or display-wire indices.
+Deferred work is explicit: persistent IDs across topology-edit generations,
+subobject transforms and grips, legacy-mesh compatibility behavior, and ACIS
+solid/surface face, edge, and vertex topology. None is approximated by
+whole-object handles, tessellation facets, render-batch ordinals, or
+display-wire indices.

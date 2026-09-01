@@ -33,10 +33,13 @@ public sealed class CadSampleView : Grid
         new CadMesh3DSelectionResult[MeshSelectionCycleCapacity];
     private readonly CadMesh3DSubobjectSelectionResult[] _meshSubobjectHits =
         new CadMesh3DSubobjectSelectionResult[MeshSelectionCycleCapacity];
+    private readonly CadMesh3DSubobjectId[] _meshSubobjectRegionHits =
+        new CadMesh3DSubobjectId[CadMesh3DSubobjectOverlay.MaximumSelectionCount];
     private readonly List<CadMesh3DSubobjectId> _selectedMeshSubobjects =
         new(CadMesh3DSubobjectOverlay.MaximumSelectionCount);
     private int[] _meshRegionRootScratch = [];
     private ulong[] _meshRegionHandles = [];
+    private int[] _meshSubobjectPrimitiveScratch = [];
     private PerspectiveCamera? _observedMeshCamera;
     private CadMesh3DSelectionResult? _lastMeshSelection;
     private CadMesh3DViewport? _meshSelectionCycleViewport;
@@ -4536,6 +4539,11 @@ public sealed class CadSampleView : Grid
         {
             _meshRegionHandles = new ulong[semanticRootCount];
         }
+        int subobjectCount = _mesh3DView.SelectionIndex!.SubobjectCount;
+        if (_meshSubobjectPrimitiveScratch.Length < subobjectCount)
+        {
+            _meshSubobjectPrimitiveScratch = new int[subobjectCount];
+        }
         foreach (CadMesh3DDrawBatch batch in scene.DrawBatches.Span)
         {
             uint[] sourceIndices = batch.Indices.ToArray();
@@ -4632,6 +4640,12 @@ public sealed class CadSampleView : Grid
             return;
         }
 
+        if (_meshSubobjectFilter != CadMesh3DSubobjectFilter.None)
+        {
+            HandleMeshSubobjectRegionSelection(args);
+            return;
+        }
+
         CadMesh3DRegionQueryResult query;
         string selectionName;
         if (!args.IsLasso)
@@ -4700,6 +4714,107 @@ public sealed class CadSampleView : Grid
             $"tested {query.TestedTriangleCount:N0} triangles in " +
             $"{query.VisitedNodeCount:N0} BVH nodes" +
             (query.AreHandlesTruncated ? "; results truncated." : "."));
+    }
+
+    private void HandleMeshSubobjectRegionSelection(
+        Viewport3DRegionSelectionEventArgs args)
+    {
+        CadBoundsSelectionMode mode = args.IsWindow
+            ? CadBoundsSelectionMode.Window
+            : CadBoundsSelectionMode.Crossing;
+        CadMesh3DSubobjectRegionQueryResult query;
+        string selectionName;
+        if (!args.IsLasso)
+        {
+            query = _mesh3DView.QuerySubobjectRegion(
+                _viewport3D.Size,
+                args.Origin,
+                args.Position,
+                mode,
+                _meshSubobjectFilter,
+                _meshSubobjectPrimitiveScratch,
+                _meshSubobjectRegionHits);
+            selectionName = mode.ToString();
+        }
+        else if (args.Mode == Viewport3DRegionSelectionMode.Fence)
+        {
+            query = _mesh3DView.QuerySubobjectFence(
+                _viewport3D.Size,
+                args.Points,
+                _meshSubobjectFilter,
+                _meshSubobjectPrimitiveScratch,
+                _meshSubobjectRegionHits);
+            mode = CadBoundsSelectionMode.Crossing;
+            selectionName = "Fence lasso";
+        }
+        else
+        {
+            if (args.Points.Length < 3)
+            {
+                SetStatus(
+                    "3D subobject Window/Crossing lasso requires at least three sampled points; selection was not changed.");
+                return;
+            }
+            try
+            {
+                query = _mesh3DView.QuerySubobjectLasso(
+                    _viewport3D.Size,
+                    args.Points,
+                    mode,
+                    _meshSubobjectFilter,
+                    _meshSubobjectPrimitiveScratch,
+                    _meshSubobjectRegionHits);
+            }
+            catch (ArgumentException exception)
+            {
+                SetStatus(
+                    $"3D subobject lasso was not applied: {exception.Message}");
+                return;
+            }
+            selectionName = $"Lasso {mode}";
+        }
+        if (query.ContentGeneration != _mesh3DView.Scene?.ContentGeneration)
+        {
+            throw new InvalidOperationException(
+                "The projected Mesh3D subobject region contains a stale generation.");
+        }
+
+        if (!args.IsControlPressed)
+        {
+            _selectedMeshSubobjects.Clear();
+            _canvas.ClearSelection();
+        }
+        int addedCount = 0;
+        for (int index = 0; index < query.SubobjectWrittenCount; index++)
+        {
+            CadMesh3DSubobjectId id = _meshSubobjectRegionHits[index];
+            if (_selectedMeshSubobjects.Contains(id))
+            {
+                continue;
+            }
+            if (_selectedMeshSubobjects.Count >=
+                CadMesh3DSubobjectOverlay.MaximumSelectionCount)
+            {
+                break;
+            }
+            _selectedMeshSubobjects.Add(id);
+            addedCount++;
+        }
+        _lastMeshSelection = null;
+        _lastMeshSubobjectSelection = null;
+        ResetMeshSelectionCycle();
+        ResetMeshSubobjectCycle();
+        RefreshMeshSubobjectOverlay();
+        SetStatus(
+            $"3D subobject {selectionName} " +
+            $"{(args.IsControlPressed ? "added" : "selected")} " +
+            $"{query.SubobjectWrittenCount:N0} {_meshSubobjectFilter} entries" +
+            (args.IsControlPressed ? $" ({addedCount:N0} new)" : string.Empty) +
+            $"; tested {query.TestedTriangleCount:N0} triangles in " +
+            $"{query.VisitedNodeCount:N0} BVH nodes" +
+            (query.AreSubobjectsTruncated
+                ? $"; {query.SubobjectTotalCount:N0} total entries truncated to the {CadMesh3DSubobjectOverlay.MaximumSelectionCount:N0}-entry overlay bound."
+                : "."));
     }
 
     private void OnMeshViewportClicked(

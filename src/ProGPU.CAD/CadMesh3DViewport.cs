@@ -565,6 +565,126 @@ public sealed class CadMesh3DViewCoordinator
         return result;
     }
 
+    /// <summary>Queries exact projected Window/Crossing subobjects.</summary>
+    public CadMesh3DSubobjectRegionQueryResult QuerySubobjectRegion(
+        Vector2 viewportSize,
+        Vector2 firstViewportPoint,
+        Vector2 secondViewportPoint,
+        CadBoundsSelectionMode mode,
+        CadMesh3DSubobjectFilter filter,
+        Span<int> subobjectPrimitiveScratch,
+        Span<CadMesh3DSubobjectId> destination)
+    {
+        CadMesh3DSelectionIndex index = SelectionIndex ??
+            throw new InvalidOperationException(
+                "A retained CAD mesh generation is required before selection.");
+        CadMesh3DViewport viewport = Viewport ??
+            throw new InvalidOperationException(
+                "A retained CAD mesh camera is required before selection.");
+        CadMesh3DSubobjectRegionQueryResult result =
+            index.QuerySubobjectRegion(
+                viewport,
+                viewportSize,
+                firstViewportPoint,
+                secondViewportPoint,
+                mode,
+                filter,
+                subobjectPrimitiveScratch,
+                destination);
+        RecordSelectionQuery(
+            result.VisitedNodeCount,
+            result.TestedTriangleCount);
+        return result;
+    }
+
+    /// <summary>Queries an exact simple projected subobject polygon.</summary>
+    public CadMesh3DSubobjectRegionQueryResult QuerySubobjectPolygon(
+        Vector2 viewportSize,
+        ReadOnlySpan<Vector2> polygon,
+        CadBoundsSelectionMode mode,
+        CadMesh3DSubobjectFilter filter,
+        Span<int> subobjectPrimitiveScratch,
+        Span<CadMesh3DSubobjectId> destination)
+    {
+        CadMesh3DSelectionIndex index = SelectionIndex ??
+            throw new InvalidOperationException(
+                "A retained CAD mesh generation is required before selection.");
+        CadMesh3DViewport viewport = Viewport ??
+            throw new InvalidOperationException(
+                "A retained CAD mesh camera is required before selection.");
+        CadMesh3DSubobjectRegionQueryResult result =
+            index.QuerySubobjectPolygon(
+                viewport,
+                viewportSize,
+                polygon,
+                mode,
+                filter,
+                subobjectPrimitiveScratch,
+                destination);
+        RecordSelectionQuery(
+            result.VisitedNodeCount,
+            result.TestedTriangleCount);
+        return result;
+    }
+
+    /// <summary>Queries an exact freehand projected subobject lasso.</summary>
+    public CadMesh3DSubobjectRegionQueryResult QuerySubobjectLasso(
+        Vector2 viewportSize,
+        ReadOnlySpan<Vector2> lasso,
+        CadBoundsSelectionMode mode,
+        CadMesh3DSubobjectFilter filter,
+        Span<int> subobjectPrimitiveScratch,
+        Span<CadMesh3DSubobjectId> destination)
+    {
+        CadMesh3DSelectionIndex index = SelectionIndex ??
+            throw new InvalidOperationException(
+                "A retained CAD mesh generation is required before selection.");
+        CadMesh3DViewport viewport = Viewport ??
+            throw new InvalidOperationException(
+                "A retained CAD mesh camera is required before selection.");
+        CadMesh3DSubobjectRegionQueryResult result =
+            index.QuerySubobjectLasso(
+                viewport,
+                viewportSize,
+                lasso,
+                mode,
+                filter,
+                subobjectPrimitiveScratch,
+                destination);
+        RecordSelectionQuery(
+            result.VisitedNodeCount,
+            result.TestedTriangleCount);
+        return result;
+    }
+
+    /// <summary>Queries an exact open projected subobject fence.</summary>
+    public CadMesh3DSubobjectRegionQueryResult QuerySubobjectFence(
+        Vector2 viewportSize,
+        ReadOnlySpan<Vector2> fence,
+        CadMesh3DSubobjectFilter filter,
+        Span<int> subobjectPrimitiveScratch,
+        Span<CadMesh3DSubobjectId> destination)
+    {
+        CadMesh3DSelectionIndex index = SelectionIndex ??
+            throw new InvalidOperationException(
+                "A retained CAD mesh generation is required before selection.");
+        CadMesh3DViewport viewport = Viewport ??
+            throw new InvalidOperationException(
+                "A retained CAD mesh camera is required before selection.");
+        CadMesh3DSubobjectRegionQueryResult result =
+            index.QuerySubobjectFence(
+                viewport,
+                viewportSize,
+                fence,
+                filter,
+                subobjectPrimitiveScratch,
+                destination);
+        RecordSelectionQuery(
+            result.VisitedNodeCount,
+            result.TestedTriangleCount);
+        return result;
+    }
+
     /// <summary>
     /// Queries exact projected Window/Crossing semantic roots into
     /// caller-owned storage.
