@@ -545,7 +545,43 @@ template <std::size_t Capacity>
                         std::min(first_axis_start, first_axis_end),
                         std::min(second_axis_start, second_axis_end));
                 if (overlap > 0.0) {
-                    return not_implemented;
+                    const double first_axis_delta =
+                        first_axis_end - first_axis_start;
+                    const double second_axis_delta =
+                        second_axis_end - second_axis_start;
+                    const auto append_if_on_edge = [](
+                                                       auto& parameters,
+                                                       std::size_t& count,
+                                                       double value) {
+                        if (value < -intersection_tolerance ||
+                            value > 1.0 + intersection_tolerance) {
+                            return true;
+                        }
+                        return append_affine_boolean_parameter(
+                            parameters, count, value);
+                    };
+                    if (!append_if_on_edge(
+                            first_parameters[first_edge],
+                            first_parameter_counts[first_edge],
+                            (second_axis_start - first_axis_start) /
+                                first_axis_delta) ||
+                        !append_if_on_edge(
+                            first_parameters[first_edge],
+                            first_parameter_counts[first_edge],
+                            (second_axis_end - first_axis_start) /
+                                first_axis_delta) ||
+                        !append_if_on_edge(
+                            second_parameters[second_edge],
+                            second_parameter_counts[second_edge],
+                            (first_axis_start - second_axis_start) /
+                                second_axis_delta) ||
+                        !append_if_on_edge(
+                            second_parameters[second_edge],
+                            second_parameter_counts[second_edge],
+                            (first_axis_end - second_axis_start) /
+                                second_axis_delta)) {
+                        return not_implemented;
+                    }
                 }
                 continue;
             }
@@ -584,6 +620,95 @@ template <std::size_t Capacity>
 
     std::array<affine_boolean_segment, 64U> segments{};
     std::size_t segment_count = 0U;
+    const auto evaluate_mode = [mode](
+                                   bool in_first,
+                                   bool in_second) noexcept {
+        switch (mode) {
+        case combine_mode::union_value:
+            return in_first || in_second;
+        case combine_mode::intersect:
+            return in_first && in_second;
+        case combine_mode::xor_value:
+            return in_first != in_second;
+        case combine_mode::exclude:
+            return in_first && !in_second;
+        }
+        return false;
+    };
+    const auto classify_other_sides = [](
+                                          const rectangle_vertices& other,
+                                          point_2f source_start,
+                                          point_2f source_end,
+                                          point_2f midpoint,
+                                          convex_point_relation relation,
+                                          bool& inside_left,
+                                          bool& inside_right) noexcept {
+        if (relation != convex_point_relation::boundary) {
+            inside_left = relation == convex_point_relation::inside;
+            inside_right = inside_left;
+            return true;
+        }
+
+        const double source_x =
+            static_cast<double>(source_end.x) - source_start.x;
+        const double source_y =
+            static_cast<double>(source_end.y) - source_start.y;
+        const double coordinate_tolerance =
+            affine_boolean_tolerance(other, midpoint);
+        for (std::size_t edge = 0U; edge < other.size(); ++edge) {
+            const point_2f other_start = other[edge];
+            const point_2f other_end = other[(edge + 1U) % other.size()];
+            const double other_x =
+                static_cast<double>(other_end.x) - other_start.x;
+            const double other_y =
+                static_cast<double>(other_end.y) - other_start.y;
+            const double other_length = std::hypot(other_x, other_y);
+            if (std::abs(edge_cross(other_start, other_end, midpoint)) >
+                coordinate_tolerance * std::max(1.0, other_length)) {
+                continue;
+            }
+            const double midpoint_x =
+                static_cast<double>(midpoint.x) - other_start.x;
+            const double midpoint_y =
+                static_cast<double>(midpoint.y) - other_start.y;
+            const double projection =
+                midpoint_x * other_x + midpoint_y * other_y;
+            const double squared_length =
+                other_x * other_x + other_y * other_y;
+            const double projection_tolerance =
+                coordinate_tolerance * std::max(1.0, other_length);
+            if (projection < -projection_tolerance ||
+                projection > squared_length + projection_tolerance) {
+                continue;
+            }
+            const double direction = source_x * other_x + source_y * other_y;
+            if (direction == 0.0) {
+                continue;
+            }
+            inside_left = direction > 0.0;
+            inside_right = !inside_left;
+            return true;
+        }
+        return false;
+    };
+    const auto append_boundary_segment = [&](point_2f start, point_2f end) {
+        const double tolerance = std::max(
+            affine_boolean_tolerance(first, start),
+            affine_boolean_tolerance(second, start));
+        for (std::size_t index = 0U; index < segment_count; ++index) {
+            if (same_affine_boolean_point(
+                    segments[index].start, start, tolerance) &&
+                same_affine_boolean_point(
+                    segments[index].end, end, tolerance)) {
+                return true;
+            }
+        }
+        if (segment_count >= segments.size()) {
+            return false;
+        }
+        segments[segment_count++] = {start, end, false};
+        return true;
+    };
     const auto append_segments = [&](const rectangle_vertices& source,
                                      const rectangle_vertices& other,
                                      const auto& parameters,
@@ -611,38 +736,42 @@ template <std::size_t Capacity>
                     (start_parameter + end_parameter) * 0.5);
                 const convex_point_relation relation =
                     classify_convex_point(other, midpoint);
-                if (relation == convex_point_relation::boundary) {
+                bool other_inside_left = false;
+                bool other_inside_right = false;
+                if (!classify_other_sides(
+                        other,
+                        start,
+                        end,
+                        midpoint,
+                        relation,
+                        other_inside_left,
+                        other_inside_right)) {
                     return false;
                 }
-                const bool inside =
-                    relation == convex_point_relation::inside;
-                bool include = false;
-                bool reverse = false;
-                switch (mode) {
-                case combine_mode::union_value:
-                    include = !inside;
-                    break;
-                case combine_mode::intersect:
-                    include = inside;
-                    break;
-                case combine_mode::xor_value:
-                    include = true;
-                    reverse = inside;
-                    break;
-                case combine_mode::exclude:
-                    include = first_operand ? !inside : inside;
-                    reverse = !first_operand;
-                    break;
-                }
-                if (!include) {
+                const bool first_inside_left = first_operand
+                    ? true
+                    : other_inside_left;
+                const bool first_inside_right = first_operand
+                    ? false
+                    : other_inside_right;
+                const bool second_inside_left = first_operand
+                    ? other_inside_left
+                    : true;
+                const bool second_inside_right = first_operand
+                    ? other_inside_right
+                    : false;
+                const bool result_inside_left = evaluate_mode(
+                    first_inside_left, second_inside_left);
+                const bool result_inside_right = evaluate_mode(
+                    first_inside_right, second_inside_right);
+                if (result_inside_left == result_inside_right) {
                     continue;
                 }
-                if (segment_count >= segments.size()) {
+                if (!append_boundary_segment(
+                        result_inside_left ? start : end,
+                        result_inside_left ? end : start)) {
                     return false;
                 }
-                segments[segment_count++] = reverse
-                    ? affine_boolean_segment{end, start, false}
-                    : affine_boolean_segment{start, end, false};
             }
         }
         return true;

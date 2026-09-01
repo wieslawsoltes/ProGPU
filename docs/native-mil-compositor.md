@@ -6000,18 +6000,20 @@ that composed matrix, so nested transformed resources and normal
 per-frame rebuilding, CPU readback, or backend-specific command. Sources from
 another factory and malformed transforms fail closed. Rectangle relation and
 Boolean calls now preserve the stored matrix while independently applying the
-candidate transform; non-rectangle and overlapping-collinear combinations
-remain typed unsupported rather than dropping either transform.
+candidate transform. Non-rectangle combinations remain typed unsupported
+rather than dropping either transform.
 
 The affine rectangle Boolean engine keeps the exact axis-preserving grid
-tracer, then handles the general non-collinear case with bounded pairwise edge
-splits, convex midpoint classification, directed boundary selection, and
-fixed-array contour tracing. Union, intersection, xor, and exclusion are
-covered with both the candidate and source geometry transformed. All work is
-allocation-free analytic topology; no CPU pixels, readback, repacking, or
-backend-specific execution path is introduced. The Windows oracle sends the
-same operations through genuine system Direct2D and compares first-only,
-overlap, second-only, and exterior predicates for every mode.
+tracer, then handles the general case with bounded pairwise edge splits,
+coincident-edge endpoint splits, two-sided Boolean membership classification,
+directed-boundary deduplication, and fixed-array contour tracing. Union,
+intersection, xor, and exclusion are covered with both the candidate and
+source geometry transformed, including identical rectangles, full and partial
+shared edges, and same-side collinear overlap. All work is allocation-free
+analytic topology; no CPU pixels, readback, repacking, or backend-specific
+execution path is introduced. The Windows oracle sends the same operations
+through genuine system Direct2D and compares result predicates across the
+focused probe lattice for every mode.
 All 17 local native CTests and 10 managed Direct2D contracts pass. Windows 11
 ARM64 Parallels then recompiles the focused compatibility target with MSVC
 19.44 under explicit `/W4 /WX` and passes the genuine system-Direct2D

@@ -797,17 +797,19 @@ complete undirected boundary edge set for all four modes.
 
 Independently affine-transformed rectangles now use a second bounded native
 topology path. It splits both convex quadrilateral boundaries at pairwise
-intersections, classifies each resulting sub-edge against the other operand,
-reverses exclusion/xor interior edges as required, and traces the selected
-segments into alternate-fill, force-unstroked closed contours. Ambiguous
+intersections and coincident-edge endpoints, classifies Boolean membership on
+both sides of every resulting sub-edge, deduplicates coincident directed
+boundaries, and traces the selected segments into alternate-fill,
+force-unstroked closed contours. Ambiguous
 crossing vertices select the smallest positive turn so touching xor lobes do
 not become a self-crossing contour. The implementation uses fixed arrays only;
 there is no heap allocation, CPU pixel raster, readback, or backend-specific
 branch. Native probes cover all four Boolean regions for both an affine input
-operand and an affine source geometry. The Windows oracle records the same
-operations through system Direct2D and compares those region predicates.
-Cross-factory, degenerate, overlapping-collinear, and non-rectangle inputs fail
-before touching the sink.
+operand and an affine source geometry, plus identical rectangles, full and
+partial shared edges, and same-side partial collinear overlap. The Windows
+oracle records the same operations through system Direct2D and compares the
+result predicates over the complete focused probe lattice. Cross-factory,
+degenerate, and non-rectangle inputs fail before touching the sink.
 
 The focused compatibility target passes all 17 local native CTests and the 10
 managed Direct2D source/ABI contracts. A clean Windows 11 ARM64 Parallels build
@@ -2350,11 +2352,11 @@ intermediates and fails closed on a non-finite or out-of-float-range result.
 Bounds, fill/stroke containment, simplification, tessellation, outline,
 area/length/point queries, widening, nested transformed geometries, and normal
 semantic-scene fill lowering therefore reuse the source implementation without
-copying or rebuilding a path. Rectangle relations and non-collinear Boolean
-combinations also preserve the stored source transform while independently
-applying the caller transform to the input operand. General path operands and
-overlapping-collinear affine boundaries remain fail closed; no transform is
-silently ignored.
+copying or rebuilding a path. Rectangle relations and Boolean combinations
+also preserve the stored source transform while independently applying the
+caller transform to the input operand. Coincident affine boundaries are split
+and classified without discarding either transform. General path operands
+remain fail closed; no transform is silently ignored.
 
 The native oracle checks source/factory lifetime and COM identity, exact
 metadata, bounds, containment, area, length, point-at-length, simplified path
