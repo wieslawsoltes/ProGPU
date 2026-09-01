@@ -979,6 +979,11 @@ target_compile_features(progpu_native_direct2d_core PUBLIC cxx_std_20)
 target_include_directories(progpu_native_direct2d_core PUBLIC
     "$<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>"
     "$<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}>")
+if(WIN32)
+    target_compile_definitions(progpu_native_direct2d_core PUBLIC
+        NOMINMAX
+        WIN32_LEAN_AND_MEAN)
+endif()
 set_target_properties(progpu_native_direct2d_core PROPERTIES
     POSITION_INDEPENDENT_CODE ON
     CXX_VISIBILITY_PRESET hidden
