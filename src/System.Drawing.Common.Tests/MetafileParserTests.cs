@@ -3241,6 +3241,233 @@ public sealed class MetafileParserTests
         Assert.InRange(allocatedPerPlayback, 64 * 1024, 32 * 1024 * 1024);
     }
 
+    [Theory]
+    [InlineData(false, 0, 0, 255)]
+    [InlineData(false, 128, 128, 127)]
+    [InlineData(true, 128, 64, 191)]
+    public void EmfAlphaBlendAppliesConstantAndPremultipliedPixelAlpha(
+        bool perPixelAlpha,
+        byte sourceConstantAlpha,
+        int expectedRed,
+        int expectedBlue)
+    {
+        TestDib dib = perPixelAlpha
+            ? CreateRgbDib(1, -1, 32, [0, 0, 128, 128])
+            : CreateRgbDib(1, -1, 24, [0, 0, 255, 0]);
+        byte[] payload = EmfImageBlend(
+            dib,
+            new Rectangle(0, 0, 1, 1),
+            new Rectangle(8, 8, 8, 8),
+            alphaBlend: true,
+            sourceConstantAlpha,
+            perPixelAlpha,
+            blendFlags: 0x7F);
+        byte[] fixture = CreateTextPlaybackEmf(
+        [
+            (EmfPlusRecordType.EmfAlphaBlend, payload)
+        ]);
+        using var metafile = new Metafile(new MemoryStream(fixture, writable: false));
+        using var target = new Bitmap(24, 24);
+        using (Graphics graphics = Graphics.FromImage(target))
+        {
+            graphics.Clear(Color.Blue);
+            graphics.DrawImage(metafile, new Rectangle(0, 0, 64, 64));
+        }
+
+        Color actual = target.GetPixel(10, 10);
+        Assert.InRange(actual.R, expectedRed - 1, expectedRed + 1);
+        Assert.Equal(0, actual.G);
+        Assert.InRange(actual.B, expectedBlue - 1, expectedBlue + 1);
+        Assert.Equal(byte.MaxValue, actual.A);
+        Assert.Equal(Color.Blue.ToArgb(), target.GetPixel(7, 10).ToArgb());
+    }
+
+    [Fact]
+    public void EmfTransparentBltPreservesTheKeyedDestinationPixel()
+    {
+        TestDib dib = CreateRgbDib(
+            2,
+            -1,
+            24,
+            [0, 0, 255, 0, 255, 0, 0, 0]);
+        byte[] fixture = CreateTextPlaybackEmf(
+        [
+            (EmfPlusRecordType.EmfTransparentBlt,
+                EmfImageBlend(
+                    dib,
+                    new Rectangle(0, 0, 2, 1),
+                    new Rectangle(8, 8, 2, 1),
+                    alphaBlend: false,
+                    transparentColor: Color.Red))
+        ]);
+        using var metafile = new Metafile(new MemoryStream(fixture, writable: false));
+        using var target = new Bitmap(16, 16);
+        using (Graphics graphics = Graphics.FromImage(target))
+        {
+            graphics.Clear(Color.Blue);
+            graphics.DrawImage(metafile, new Rectangle(0, 0, 64, 64));
+        }
+
+        Assert.Equal(Color.Blue.ToArgb(), target.GetPixel(8, 8).ToArgb());
+        Assert.Equal(Color.Lime.ToArgb(), target.GetPixel(9, 8).ToArgb());
+    }
+
+    [Fact]
+    public void EmfTransparentBltAppliesTheAxisSourceTransform()
+    {
+        TestDib dib = CreateRgbDib(
+            3,
+            -1,
+            24,
+            [0, 0, 255, 0, 255, 0, 255, 0, 0, 0, 0, 0]);
+        byte[] fixture = CreateTextPlaybackEmf(
+        [
+            (EmfPlusRecordType.EmfTransparentBlt,
+                EmfImageBlend(
+                    dib,
+                    new Rectangle(0, 0, 1, 1),
+                    new Rectangle(8, 8, 4, 4),
+                    alphaBlend: false,
+                    transparentColor: Color.Red,
+                    sourceTransform: Matrix3x2.CreateTranslation(1f, 0f)))
+        ]);
+        using var metafile = new Metafile(new MemoryStream(fixture, writable: false));
+        using var target = new Bitmap(16, 16);
+        using (Graphics graphics = Graphics.FromImage(target))
+        {
+            graphics.Clear(Color.Blue);
+            graphics.DrawImage(metafile, new Rectangle(0, 0, 64, 64));
+        }
+
+        Assert.Equal(Color.Lime.ToArgb(), target.GetPixel(9, 9).ToArgb());
+    }
+
+    [Fact]
+    public void EmfImageBlendRejectsMalformedOrUnsupportedInputsTransactionally()
+    {
+        TestDib opaque = CreateRgbDib(1, -1, 24, [0, 0, 255, 0]);
+        TestDib invalidPremultiplied = CreateRgbDib(1, -1, 32, [0, 0, 255, 128]);
+        TestDib transparent32 = CreateRgbDib(1, -1, 32, [0, 0, 255, 255]);
+        byte[] invalidBlendOperation = EmfImageBlend(
+            opaque,
+            new Rectangle(0, 0, 1, 1),
+            new Rectangle(8, 8, 8, 8),
+            alphaBlend: true);
+        invalidBlendOperation[32] = 1;
+        byte[] overlappingBuffers = EmfImageBlend(
+            opaque,
+            new Rectangle(0, 0, 1, 1),
+            new Rectangle(8, 8, 8, 8),
+            alphaBlend: false,
+            transparentColor: Color.Red);
+        WriteUInt32(
+            overlappingBuffers,
+            84,
+            BinaryPrimitives.ReadUInt32LittleEndian(overlappingBuffers.AsSpan(76, 4)));
+        (EmfPlusRecordType Type, byte[] Payload)[] records =
+        [
+            (EmfPlusRecordType.EmfAlphaBlend, invalidBlendOperation),
+            (EmfPlusRecordType.EmfAlphaBlend,
+                EmfImageBlend(
+                    invalidPremultiplied,
+                    new Rectangle(0, 0, 1, 1),
+                    new Rectangle(8, 8, 8, 8),
+                    alphaBlend: true,
+                    perPixelAlpha: true)),
+            (EmfPlusRecordType.EmfAlphaBlend,
+                EmfImageBlend(
+                    opaque,
+                    new Rectangle(1, 0, 1, 1),
+                    new Rectangle(8, 8, 8, 8),
+                    alphaBlend: true)),
+            (EmfPlusRecordType.EmfTransparentBlt,
+                EmfImageBlend(
+                    transparent32,
+                    new Rectangle(0, 0, 1, 1),
+                    new Rectangle(8, 8, 8, 8),
+                    alphaBlend: false,
+                    transparentColor: Color.Red)),
+            (EmfPlusRecordType.EmfTransparentBlt, overlappingBuffers),
+            (EmfPlusRecordType.EmfTransparentBlt,
+                EmfImageBlend(
+                    opaque,
+                    new Rectangle(0, 0, 1, 1),
+                    new Rectangle(8, 8, 8, 8),
+                    alphaBlend: false,
+                    transparentColor: Color.Red,
+                    sourceTransform: Matrix3x2.CreateRotation(0.25f)))
+        ];
+
+        foreach ((EmfPlusRecordType type, byte[] payload) in records)
+        {
+            byte[] fixture = CreateTextPlaybackEmf(
+            [
+                (EmfPlusRecordType.EmfSetPixelV, EmfSetPixel(new Point(1, 1), Color.Red)),
+                (type, payload)
+            ]);
+            using var metafile = new Metafile(new MemoryStream(fixture, writable: false));
+            var context = new DrawingContext();
+            using Graphics graphics = Graphics.FromProGpuDrawingContext(context);
+
+            Exception exception = Assert.ThrowsAny<Exception>(() =>
+                graphics.DrawImage(metafile, new Rectangle(0, 0, 64, 64)));
+
+            Assert.True(exception is ArgumentException or NotSupportedException);
+            Assert.Contains(type.ToString(), exception.Message, StringComparison.Ordinal);
+            Assert.Empty(context.Commands);
+        }
+    }
+
+    [Fact]
+    public void EmfImageBlendPlaybackHasBoundedWarmedAllocation()
+    {
+        TestDib dib = CreateRgbDib(
+            2,
+            -2,
+            24,
+            [
+                0, 0, 255, 0, 255, 0, 0, 0,
+                255, 0, 0, 255, 255, 255, 0, 0
+            ]);
+        var records = new List<(EmfPlusRecordType Type, byte[] Payload)>();
+        for (int index = 0; index < 64; index++)
+        {
+            bool alphaBlend = (index & 1) == 0;
+            records.Add((
+                alphaBlend
+                    ? EmfPlusRecordType.EmfAlphaBlend
+                    : EmfPlusRecordType.EmfTransparentBlt,
+                EmfImageBlend(
+                    dib,
+                    new Rectangle(0, 0, 2, 2),
+                    new Rectangle((index % 8) * 8, (index / 8) * 8, 8, 8),
+                    alphaBlend,
+                    sourceConstantAlpha: 192,
+                    transparentColor: Color.Red)));
+        }
+        using var metafile = new Metafile(new MemoryStream(
+            CreateTextPlaybackEmf(records),
+            writable: false));
+        var context = new DrawingContext();
+        using Graphics graphics = Graphics.FromProGpuDrawingContext(context);
+        for (int iteration = 0; iteration < 4; iteration++)
+        {
+            graphics.DrawImage(metafile, new Rectangle(0, 0, 64, 64));
+            context.Clear();
+        }
+
+        long before = GC.GetAllocatedBytesForCurrentThread();
+        for (int iteration = 0; iteration < 8; iteration++)
+        {
+            graphics.DrawImage(metafile, new Rectangle(0, 0, 64, 64));
+            context.Clear();
+        }
+        long allocatedPerPlayback =
+            (GC.GetAllocatedBytesForCurrentThread() - before) / 8;
+
+        Assert.InRange(allocatedPerPlayback, 64 * 1024, 32 * 1024 * 1024);
+    }
+
     [Fact]
     public void EmfMalformedAndUnsupportedDibRecordsRollBackEarlierGeometry()
     {
@@ -7906,6 +8133,63 @@ public sealed class MetafileParserTests
             WriteInt32(payload, 92, source.Width);
             WriteInt32(payload, 96, source.Height);
         }
+        return payload;
+    }
+
+    private static byte[] EmfImageBlend(
+        in TestDib dib,
+        Rectangle source,
+        Rectangle destination,
+        bool alphaBlend,
+        byte sourceConstantAlpha = byte.MaxValue,
+        bool perPixelAlpha = false,
+        byte blendFlags = 0,
+        Color? transparentColor = null,
+        Matrix3x2? sourceTransform = null)
+    {
+        const int fixedPayloadSize = 100;
+        const int recordHeaderSize = 8;
+        int sourceSize = checked(dib.Info.Length + dib.Bits.Length);
+        byte[] payload = new byte[checked((fixedPayloadSize + sourceSize + 3) & ~3)];
+        WriteInt32(payload, 16, destination.X);
+        WriteInt32(payload, 20, destination.Y);
+        WriteInt32(payload, 24, destination.Width);
+        WriteInt32(payload, 28, destination.Height);
+        if (alphaBlend)
+        {
+            payload[32] = 0;
+            payload[33] = blendFlags;
+            payload[34] = sourceConstantAlpha;
+            payload[35] = perPixelAlpha ? (byte)1 : (byte)0;
+        }
+        else
+        {
+            Color color = transparentColor ?? Color.Empty;
+            WriteUInt32(
+                payload,
+                32,
+                (uint)(color.R | color.G << 8 | color.B << 16));
+        }
+        WriteInt32(payload, 36, source.X);
+        WriteInt32(payload, 40, source.Y);
+        Matrix3x2 transform = sourceTransform ?? Matrix3x2.Identity;
+        WriteSingle(payload, 44, transform.M11);
+        WriteSingle(payload, 48, transform.M12);
+        WriteSingle(payload, 52, transform.M21);
+        WriteSingle(payload, 56, transform.M22);
+        WriteSingle(payload, 60, transform.M31);
+        WriteSingle(payload, 64, transform.M32);
+        WriteUInt32(payload, 76, checked((uint)(recordHeaderSize + fixedPayloadSize)));
+        WriteUInt32(payload, 80, checked((uint)dib.Info.Length));
+        WriteUInt32(
+            payload,
+            84,
+            checked((uint)(recordHeaderSize + fixedPayloadSize + dib.Info.Length)));
+        WriteUInt32(payload, 88, checked((uint)dib.Bits.Length));
+        WriteInt32(payload, 92, source.Width);
+        WriteInt32(payload, 96, source.Height);
+        dib.Info.CopyTo(payload, fixedPayloadSize);
+        dib.Bits.CopyTo(payload, fixedPayloadSize + dib.Info.Length);
         return payload;
     }
 

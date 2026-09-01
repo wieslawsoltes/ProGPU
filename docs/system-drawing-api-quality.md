@@ -349,8 +349,28 @@ evidence rather than a throughput claim. The isolated toolchain exceeded its
 120-second generated-build timeout before measurement on this host. The full
 System.Drawing suite passes 600/600 in Debug and Release; ApiCompat remains at
 zero missing types, zero missing members, and 13 reviewed shape diagnostics.
-The current enum/switch inventory is 147 handled of 192 enum-backed EMF/WMF
-records, with 45 explicit unsupported boundaries; handled does not imply full
+
+`MetafileBenchmarks.Playback256EmfImageBlendsToRetainedCommands` extends the
+same typed transfer envelope to `EMR_ALPHABLEND` and `EMR_TRANSPARENTBLT`.
+AlphaBlend supports global alpha and validated premultiplied 32-bit `BI_RGB`
+per-pixel alpha; TransparentBlt applies an exact typed color key to non-32-bit
+sources. Both require complete source bounds, disjoint record-relative buffers,
+positive nonmirrored rectangles, and an axis-only source transform. Adjusted
+JPEG/PNG alpha and 32-bit TransparentBlt destination-alpha composition fail at
+documented typed boundaries rather than being approximated.
+
+Seven focused cases cover exact alpha/color-key pixels, transformed sampling,
+malformed premultiplication and offsets, unsupported variants, transactional
+rollback, and a warmed 64-record allocation ceiling. The 2026-09-01 ARM64/.NET
+10.0.11 in-process ShortRun measured an 8.178 ms median (8.612 ms mean, 1.250 ms
+standard deviation) and 1.1 MB allocated for 256 alternating records. Three
+iterations, denied priority elevation, and the wide confidence interval make
+this command-playback/allocation evidence, not a throughput claim. The complete
+System.Drawing suite passes 607/607 in Debug and Release; ApiCompat remains at
+zero missing types, zero missing members, and 13 reviewed shape diagnostics.
+
+The current enum/switch inventory is 149 handled of 192 enum-backed EMF/WMF
+records, with 43 explicit unsupported boundaries; handled does not imply full
 semantic parity.
 
 `MetafileBenchmarks.Playback256WmfDibImagesToRetainedCommands` extends that

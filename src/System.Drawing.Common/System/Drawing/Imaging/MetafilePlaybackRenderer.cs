@@ -639,6 +639,14 @@ internal static class MetafilePlaybackRenderer
                 DrawEmfBitmapBlt(state, record, payload, stretch: true);
                 return;
 
+            case EmfPlusRecordType.EmfAlphaBlend:
+                DrawEmfAlphaBlend(state, record, payload);
+                return;
+
+            case EmfPlusRecordType.EmfTransparentBlt:
+                DrawEmfTransparentBlt(state, record, payload);
+                return;
+
             case EmfPlusRecordType.EmfSetDIBitsToDevice:
                 DrawEmfSetDibitsToDevice(state, record, payload);
                 return;
@@ -921,6 +929,255 @@ internal static class MetafilePlaybackRenderer
             destinationWidth,
             destinationHeight,
             rasterOperation);
+    }
+
+    private static void DrawEmfAlphaBlend(
+        PlaybackState state,
+        in MetafileRecord record,
+        ReadOnlySpan<byte> payload)
+    {
+        const int fixedPayloadSize = 100;
+        const byte acSrcOver = 0;
+        const byte acSrcAlpha = 1;
+        if (payload.Length < fixedPayloadSize)
+        {
+            throw Invalid(record);
+        }
+
+        state.EnsurePathCaptureSupported(record, "AlphaBlend");
+        int destinationX = ReadInt32(payload, 16);
+        int destinationY = ReadInt32(payload, 20);
+        int destinationWidth = ReadInt32(payload, 24);
+        int destinationHeight = ReadInt32(payload, 28);
+        int sourceWidth = ReadInt32(payload, 92);
+        int sourceHeight = ReadInt32(payload, 96);
+        if (destinationWidth <= 0 || destinationHeight <= 0 ||
+            sourceWidth <= 0 || sourceHeight <= 0 ||
+            payload[32] != acSrcOver || (payload[35] & ~acSrcAlpha) != 0)
+        {
+            throw Invalid(record);
+        }
+
+        Matrix3x2 sourceTransform = ReadTransform(record, payload[44..68]);
+        if (sourceTransform.M12 != 0f || sourceTransform.M21 != 0f)
+        {
+            throw Unsupported(
+                record,
+                "AlphaBlend source transforms do not permit rotation or shear.");
+        }
+
+        uint bitmapInfoOffset = ReadUInt32(payload, 76);
+        uint bitmapInfoSize = ReadUInt32(payload, 80);
+        uint bitmapBitsOffset = ReadUInt32(payload, 84);
+        uint bitmapBitsSize = ReadUInt32(payload, 88);
+        ReadOnlySpan<byte> bitmapInfo = ReadEmfBuffer(
+            record,
+            payload,
+            bitmapInfoOffset,
+            bitmapInfoSize,
+            fixedPayloadSize);
+        ReadOnlySpan<byte> bitmapBits = ReadEmfBuffer(
+            record,
+            payload,
+            bitmapBitsOffset,
+            bitmapBitsSize,
+            fixedPayloadSize);
+        EnsureDisjointEmfBuffers(
+            record,
+            bitmapInfoOffset,
+            bitmapInfoSize,
+            bitmapBitsOffset,
+            bitmapBitsSize);
+
+        DibInfo dib = ReadDibInfo(
+            record,
+            bitmapInfo,
+            ReadUInt32(payload, 72),
+            state.SelectedPalette);
+        bool perPixelAlpha = payload[35] == acSrcAlpha;
+        if (perPixelAlpha && (dib.BitCount != 32 || dib.Compression != BiRgb))
+        {
+            throw Invalid(record);
+        }
+
+        DibAlphaDecoding alphaDecoding = perPixelAlpha
+            ? DibAlphaDecoding.PremultipliedBgra
+            : DibAlphaDecoding.Opaque;
+        using Bitmap bitmap = DecodeDibRows(
+            record,
+            dib,
+            bitmapInfo,
+            bitmapBits,
+            dib.Height,
+            alphaDecoding);
+        using var imageAttributes = new ImageAttributes();
+        byte sourceConstantAlpha = payload[34];
+        if (sourceConstantAlpha != byte.MaxValue)
+        {
+            var matrix = new ColorMatrix
+            {
+                Matrix33 = sourceConstantAlpha / (float)byte.MaxValue
+            };
+            imageAttributes.SetColorMatrix(matrix, ColorMatrixFlag.Default, ColorAdjustType.Bitmap);
+        }
+
+        float sourceX = TransformAxisCoordinate(
+            record,
+            ReadInt32(payload, 36),
+            sourceTransform.M11,
+            sourceTransform.M31);
+        float sourceY = TransformAxisCoordinate(
+            record,
+            ReadInt32(payload, 40),
+            sourceTransform.M22,
+            sourceTransform.M32);
+        float transformedSourceWidth = TransformAxisExtent(
+            record,
+            sourceWidth,
+            sourceTransform.M11);
+        float transformedSourceHeight = TransformAxisExtent(
+            record,
+            sourceHeight,
+            sourceTransform.M22);
+        DrawMappedBitmap(
+            state,
+            record,
+            bitmap,
+            dib.Width,
+            dib.Height,
+            dib.TopDown,
+            sourceX,
+            sourceY,
+            transformedSourceWidth,
+            transformedSourceHeight,
+            destinationX,
+            destinationY,
+            destinationWidth,
+            destinationHeight,
+            SrcCopy,
+            imageAttributes,
+            requireCompleteSource: true);
+    }
+
+    private static void DrawEmfTransparentBlt(
+        PlaybackState state,
+        in MetafileRecord record,
+        ReadOnlySpan<byte> payload)
+    {
+        const int fixedPayloadSize = 100;
+        if (payload.Length < fixedPayloadSize)
+        {
+            throw Invalid(record);
+        }
+
+        state.EnsurePathCaptureSupported(record, "TransparentBlt");
+        int destinationX = ReadInt32(payload, 16);
+        int destinationY = ReadInt32(payload, 20);
+        int destinationWidth = ReadInt32(payload, 24);
+        int destinationHeight = ReadInt32(payload, 28);
+        int sourceWidth = ReadInt32(payload, 92);
+        int sourceHeight = ReadInt32(payload, 96);
+        if (destinationWidth <= 0 || destinationHeight <= 0 ||
+            sourceWidth <= 0 || sourceHeight <= 0)
+        {
+            throw Unsupported(
+                record,
+                "TransparentBlt does not support zero-sized or mirrored source and destination rectangles.");
+        }
+
+        Matrix3x2 sourceTransform = ReadTransform(record, payload[44..68]);
+        if (sourceTransform.M12 != 0f || sourceTransform.M21 != 0f)
+        {
+            throw Unsupported(
+                record,
+                "TransparentBlt source transforms do not permit rotation or shear.");
+        }
+
+        uint bitmapInfoOffset = ReadUInt32(payload, 76);
+        uint bitmapInfoSize = ReadUInt32(payload, 80);
+        uint bitmapBitsOffset = ReadUInt32(payload, 84);
+        uint bitmapBitsSize = ReadUInt32(payload, 88);
+        ReadOnlySpan<byte> bitmapInfo = ReadEmfBuffer(
+            record,
+            payload,
+            bitmapInfoOffset,
+            bitmapInfoSize,
+            fixedPayloadSize);
+        ReadOnlySpan<byte> bitmapBits = ReadEmfBuffer(
+            record,
+            payload,
+            bitmapBitsOffset,
+            bitmapBitsSize,
+            fixedPayloadSize);
+        EnsureDisjointEmfBuffers(
+            record,
+            bitmapInfoOffset,
+            bitmapInfoSize,
+            bitmapBitsOffset,
+            bitmapBitsSize);
+
+        DibInfo dib = ReadDibInfo(
+            record,
+            bitmapInfo,
+            ReadUInt32(payload, 72),
+            state.SelectedPalette);
+        if (dib.BitCount == 32)
+        {
+            throw Unsupported(
+                record,
+                "TransparentBlt 32-bpp alpha-channel copy requires a typed destination-alpha composition path; use AlphaBlend for color transparency.");
+        }
+
+        using Bitmap bitmap = DecodeDibRows(
+            record,
+            dib,
+            bitmapInfo,
+            bitmapBits,
+            dib.Height,
+            DibAlphaDecoding.Opaque);
+        Color transparentColor = ReadColor(payload, 32);
+        using var imageAttributes = new ImageAttributes();
+        imageAttributes.SetColorKey(
+            transparentColor,
+            transparentColor,
+            ColorAdjustType.Bitmap);
+
+        float sourceX = TransformAxisCoordinate(
+            record,
+            ReadInt32(payload, 36),
+            sourceTransform.M11,
+            sourceTransform.M31);
+        float sourceY = TransformAxisCoordinate(
+            record,
+            ReadInt32(payload, 40),
+            sourceTransform.M22,
+            sourceTransform.M32);
+        float transformedSourceWidth = TransformAxisExtent(
+            record,
+            sourceWidth,
+            sourceTransform.M11);
+        float transformedSourceHeight = TransformAxisExtent(
+            record,
+            sourceHeight,
+            sourceTransform.M22);
+        DrawMappedBitmap(
+            state,
+            record,
+            bitmap,
+            dib.Width,
+            dib.Height,
+            dib.TopDown,
+            sourceX,
+            sourceY,
+            transformedSourceWidth,
+            transformedSourceHeight,
+            destinationX,
+            destinationY,
+            destinationWidth,
+            destinationHeight,
+            SrcCopy,
+            imageAttributes,
+            requireCompleteSource: true);
     }
 
     private static float TransformAxisCoordinate(
@@ -1524,7 +1781,9 @@ internal static class MetafilePlaybackRenderer
         int destinationY,
         int destinationWidth,
         int destinationHeight,
-        uint rasterOperation)
+        uint rasterOperation,
+        ImageAttributes? imageAttributes = null,
+        bool requireCompleteSource = false)
     {
         if (destinationWidth == 0 || destinationHeight == 0)
         {
@@ -1532,7 +1791,7 @@ internal static class MetafilePlaybackRenderer
         }
 
         ValidateDibRasterOperation(record, rasterOperation);
-        if (TryDrawSourceIndependentRasterOperation(
+        if (imageAttributes is null && TryDrawSourceIndependentRasterOperation(
             state,
             record,
             rasterOperation,
@@ -1564,6 +1823,11 @@ internal static class MetafilePlaybackRenderer
         double top = Math.Min(sourceVisualY0, sourceVisualY1);
         double bottom = Math.Max(sourceVisualY0, sourceVisualY1);
         if (right == left || bottom == top)
+        {
+            throw Invalid(record);
+        }
+        if (requireCompleteSource &&
+            (left < 0d || top < 0d || right > bitmapWidth || bottom > bitmapHeight))
         {
             throw Invalid(record);
         }
@@ -1606,6 +1870,11 @@ internal static class MetafilePlaybackRenderer
             (float)(clippedBottom - clippedTop));
         if (rasterOperation is SrcCopy or NotSourceCopy)
         {
+            if (imageAttributes is not null && rasterOperation != SrcCopy)
+            {
+                throw new InvalidOperationException(
+                    "Image adjustments cannot be combined with an inverted raster operation.");
+            }
             using Bitmap? inverted = rasterOperation == NotSourceCopy
                 ? bitmap.CreateBitwiseInvertedRgb()
                 : null;
@@ -1613,8 +1882,15 @@ internal static class MetafilePlaybackRenderer
                 inverted ?? bitmap,
                 [clippedDestinationTopLeft, clippedDestinationTopRight, clippedDestinationBottomLeft],
                 clippedSource,
-                GraphicsUnit.Pixel);
+                GraphicsUnit.Pixel,
+                imageAttributes);
             return;
+        }
+
+        if (imageAttributes is not null)
+        {
+            throw new InvalidOperationException(
+                "Image adjustments cannot be combined with a ternary raster operation.");
         }
 
         state.Graphics.DrawImageRasterOperation(
@@ -2073,11 +2349,19 @@ internal static class MetafilePlaybackRenderer
         in DibInfo dib,
         ReadOnlySpan<byte> bitmapInfo,
         ReadOnlySpan<byte> bitmapBits,
-        int rowCount)
+        int rowCount,
+        DibAlphaDecoding alphaDecoding = DibAlphaDecoding.Preserve)
     {
         if (rowCount <= 0 || rowCount > dib.Height)
         {
             throw Invalid(record);
+        }
+        if (alphaDecoding != DibAlphaDecoding.Preserve &&
+            dib.Compression is BiJpeg or BiPng)
+        {
+            throw Unsupported(
+                record,
+                "Adjusted-alpha metafile playback currently requires a directly addressable DIB.");
         }
         if (IsRleCompression(dib.Compression))
         {
@@ -2098,7 +2382,7 @@ internal static class MetafilePlaybackRenderer
             int outputRow = dib.TopDown ? storedRow : rowCount - storedRow - 1;
             ReadOnlySpan<byte> source = bitmapBits.Slice(storedRow * dib.RowStride, dib.RowStride);
             Span<byte> destination = rgba.AsSpan(outputRow * dib.Width * 4, dib.Width * 4);
-            DecodeDibRow(record, dib, bitmapInfo, source, destination);
+            DecodeDibRow(record, dib, bitmapInfo, source, destination, alphaDecoding);
         }
         return Bitmap.CreateOwnedRgba(dib.Width, rowCount, rgba);
     }
@@ -2291,7 +2575,8 @@ internal static class MetafilePlaybackRenderer
         in DibInfo dib,
         ReadOnlySpan<byte> bitmapInfo,
         ReadOnlySpan<byte> source,
-        Span<byte> destination)
+        Span<byte> destination,
+        DibAlphaDecoding alphaDecoding)
     {
         for (int x = 0; x < dib.Width; x++)
         {
@@ -2365,10 +2650,26 @@ internal static class MetafilePlaybackRenderer
                         blue = (byte)pixel32;
                         green = (byte)(pixel32 >> 8);
                         red = (byte)(pixel32 >> 16);
+                        if (alphaDecoding == DibAlphaDecoding.PremultipliedBgra)
+                        {
+                            alpha = (byte)(pixel32 >> 24);
+                            if (red > alpha || green > alpha || blue > alpha)
+                            {
+                                throw Invalid(record);
+                            }
+                            red = UnpremultiplyDibChannel(red, alpha);
+                            green = UnpremultiplyDibChannel(green, alpha);
+                            blue = UnpremultiplyDibChannel(blue, alpha);
+                        }
                     }
                     break;
                 default:
                     throw Unsupported(record);
+            }
+
+            if (alphaDecoding == DibAlphaDecoding.Opaque)
+            {
+                alpha = byte.MaxValue;
             }
 
             destination[destinationOffset] = red;
@@ -2376,6 +2677,16 @@ internal static class MetafilePlaybackRenderer
             destination[destinationOffset + 2] = blue;
             destination[destinationOffset + 3] = alpha;
         }
+    }
+
+    private static byte UnpremultiplyDibChannel(byte channel, byte alpha) =>
+        alpha == 0 ? (byte)0 : (byte)Math.Min(byte.MaxValue, (channel * byte.MaxValue + alpha / 2) / alpha);
+
+    private enum DibAlphaDecoding
+    {
+        Preserve,
+        Opaque,
+        PremultipliedBgra
     }
 
     private static byte ReadMaskedColor(uint pixel, uint mask)

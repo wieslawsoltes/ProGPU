@@ -1265,10 +1265,49 @@ also hit its 120-second generated-build timeout before measurement on this host;
 the successful in-process raw result is retained under
 `artifacts/performance/system-drawing-emf-bitmap-blt-inprocess-20260901`.
 
-The enum/switch coverage inventory now finds 147 explicitly handled records out
-of 192 enum-backed EMF/WMF record identities, leaving 45 explicit unsupported
+### EMF alpha and transparent bitmap transfers
+
+[`EMR_ALPHABLEND`](https://learn.microsoft.com/en-us/openspecs/windows_protocols/ms-emf/34e07d4f-aee6-4b63-a4bb-96996ad47669)
+and
+[`EMR_TRANSPARENTBLT`](https://learn.microsoft.com/en-us/openspecs/windows_protocols/ms-emf/aa216051-2dc0-4317-b343-525431cfa103)
+now share a typed, bounded image-transfer envelope. Both records validate their
+official fixed fields, disjoint record-relative bitmap ranges, complete source
+rectangle, and finite invertible axis-only source transform before publishing
+retained commands. Zero-sized or mirrored rectangles and source rotation/shear
+fail explicitly, matching the native AlphaBlend and TransparentBlt restrictions.
+
+AlphaBlend implements `AC_SRC_OVER`, global `SourceConstantAlpha`, and optional
+`AC_SRC_ALPHA`. The per-pixel path accepts 32-bit `BI_RGB` premultiplied BGRA,
+rejects invalid RGB-greater-than-alpha pixels, converts once to the renderer's
+straight-alpha bitmap contract, and combines that alpha with the global value
+through typed `ImageAttributes`. The reserved blend-flags byte is deliberately
+ignored as required by the record contract. Opaque indexed and direct-color DIBs
+reuse the existing decoder. Adjusted-alpha JPEG/PNG transport remains an explicit
+directly-addressable-DIB boundary.
+
+TransparentBlt uses an exact typed color key for non-32-bit sources. The 32-bit
+record means destination alpha-channel composition rather than ordinary color-key
+transparency, so it fails at a named typed destination-alpha seam instead of
+silently substituting the wrong operation. The record's source-DC background
+color remains palette/conversion metadata outside the embedded DIB authority.
+
+Seven focused cases cover zero/full/global/combined alpha, premultiplied-pixel
+validation, color-key preservation, source translation, full-source bounds,
+overlapping buffers, 32-bit transparency rejection, transform rejection,
+whole-stream rollback, and a warmed 64-record allocation window. The 2026-09-01
+ARM64/.NET 10.0.11 in-process ShortRun for
+`Playback256EmfImageBlendsToRetainedCommands` measured an 8.178 ms median
+(8.612 ms mean, 1.250 ms standard deviation) and 1.1 MB allocated for 256
+alternating records. Three iterations, denied priority elevation, and the wide
+confidence interval make this local command-playback/allocation evidence rather
+than a throughput claim; the focused allocation and exact-pixel tests are the
+regression authority. Raw ignored artifacts are under
+`artifacts/performance/system-drawing-emf-image-blend-inprocess-20260901`.
+
+The enum/switch coverage inventory now finds 149 explicitly handled records out
+of 192 enum-backed EMF/WMF record identities, leaving 43 explicit unsupported
 boundaries. A handled switch case is not a claim of complete semantics. The
-largest remaining groups are alpha/mask/plg/transparent/gradient transfers,
+largest remaining groups are mask/plg/gradient transfers,
 region paint and flood fill, extended pens, color-management and pixel-format
 state, escape/OpenGL records, and WMF region/layout/mapper records. This count
 keeps the remaining playback work visible while the public API contract stays
