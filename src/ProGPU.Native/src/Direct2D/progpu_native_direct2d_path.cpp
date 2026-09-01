@@ -2378,13 +2378,13 @@ void append_outline_line(
     return point_index == points.size() ? com::ok : failure;
 }
 
-[[nodiscard]] com::result emit_joined_dashed_widen(
+[[nodiscard]] com::result prepare_joined_dashed_widen(
     std::span<const point_2f> points,
     bool closed,
     float stroke_width,
     stroke_style& style,
     const matrix_3x2_f* transform,
-    simplified_geometry_sink& sink)
+    std::vector<widened_outline>& outlines)
 {
     curve_dash::run_buffer dash_runs;
     const com::result dash_status = create_dashed_polyline_runs(
@@ -2392,8 +2392,7 @@ void append_outline_line(
     if (com::failed(dash_status)) {
         return dash_status;
     }
-    std::vector<widened_outline> outlines;
-    outlines.reserve(dash_runs.runs.size() + 2U);
+    outlines.reserve(outlines.size() + dash_runs.runs.size() + 2U);
     const double half_width = static_cast<double>(stroke_width) * 0.5;
     for (const curve_dash::run& run : dash_runs.runs) {
         if (run.closed) {
@@ -2456,27 +2455,10 @@ void append_outline_line(
             }
         }
     }
-    sink.SetFillMode(fill_mode::alternate);
-    sink.SetSegmentFlags(path_segment::force_unstroked);
-    for (const auto& outline : outlines) {
-        sink.BeginFigure(outline.start, figure_begin::filled);
-        for (const widened_outline_segment& segment : outline.segments) {
-            if (segment.cubic) {
-                const bezier_segment bezier{
-                    segment.control1,
-                    segment.control2,
-                    segment.end};
-                sink.AddBeziers(&bezier, 1U);
-            } else {
-                sink.AddLines(&segment.end, 1U);
-            }
-        }
-        sink.EndFigure(figure_end::closed);
-    }
     return com::ok;
 }
 
-[[nodiscard]] com::result emit_joined_open_solid_widen(
+[[nodiscard]] com::result prepare_joined_open_solid_widen(
     std::span<const point_2f> points,
     float stroke_width,
     line_join join,
@@ -2484,7 +2466,7 @@ void append_outline_line(
     cap_style start_cap,
     cap_style end_cap,
     const matrix_3x2_f* transform,
-    simplified_geometry_sink& sink)
+    std::vector<widened_outline>& outlines)
 {
     std::vector<progpu_native_path_segment> segments;
     segments.reserve(points.size() - 1U);
@@ -2511,22 +2493,44 @@ void append_outline_line(
     if (com::failed(result)) {
         return result;
     }
+    outlines.push_back(std::move(outline));
+    return com::ok;
+}
+
+void append_widened_polyline_outline(
+    std::span<const point_2f> points,
+    std::vector<widened_outline>& outlines)
+{
+    widened_outline outline;
+    outline.start = points.front();
+    outline.segments.reserve(points.size() - 1U);
+    for (std::size_t index = 1U; index < points.size(); ++index) {
+        outline.segments.push_back({false, {}, {}, points[index]});
+    }
+    outlines.push_back(std::move(outline));
+}
+
+void replay_widened_outlines(
+    std::span<const widened_outline> outlines,
+    simplified_geometry_sink& sink)
+{
     sink.SetFillMode(fill_mode::alternate);
     sink.SetSegmentFlags(path_segment::force_unstroked);
-    sink.BeginFigure(outline.start, figure_begin::filled);
-    for (const widened_outline_segment& segment : outline.segments) {
-        if (segment.cubic) {
-            const bezier_segment bezier{
-                segment.control1,
-                segment.control2,
-                segment.end};
-            sink.AddBeziers(&bezier, 1U);
-        } else {
-            sink.AddLines(&segment.end, 1U);
+    for (const widened_outline& outline : outlines) {
+        sink.BeginFigure(outline.start, figure_begin::filled);
+        for (const widened_outline_segment& segment : outline.segments) {
+            if (segment.cubic) {
+                const bezier_segment bezier{
+                    segment.control1,
+                    segment.control2,
+                    segment.end};
+                sink.AddBeziers(&bezier, 1U);
+            } else {
+                sink.AddLines(&segment.end, 1U);
+            }
         }
+        sink.EndFigure(figure_end::closed);
     }
-    sink.EndFigure(figure_end::closed);
-    return com::ok;
 }
 
 [[nodiscard]] com::result build_default_miter_offset_contour(
@@ -4980,14 +4984,6 @@ public:
                 return not_implemented;
             }
         }
-        if (data_->figures.size() != 1U) {
-            return not_implemented;
-        }
-        const bool closed_figure =
-            data_->figures.front().end == figure_end::closed;
-        if (closed_figure && style != nullptr && !dashed) {
-            return not_implemented;
-        }
         try {
             std::vector<flat_edge> edges;
             const com::result edge_status = collect_flat_edges(
@@ -4995,106 +4991,83 @@ public:
             if (com::failed(edge_status)) {
                 return edge_status;
             }
-            std::vector<point_2f> polygon;
-            for (const auto& edge : edges) {
-                if (edge.figure_index != 0U ||
-                    edge.flags != path_segment::none ||
-                    same_point(edge.start, edge.end)) {
-                    if (edge.flags != path_segment::none) {
-                        return not_implemented;
+            std::vector<flat_polyline> polylines;
+            const com::result polyline_status = build_flat_polylines(
+                edges, data_->figures, polylines);
+            if (com::failed(polyline_status)) {
+                return polyline_status;
+            }
+            std::vector<widened_outline> outlines;
+            outlines.reserve(polylines.size() * 2U);
+            const double half_width =
+                static_cast<double>(stroke_width) * 0.5;
+            for (const flat_polyline& polyline : polylines) {
+                if (dashed) {
+                    const com::result result = prepare_joined_dashed_widen(
+                        polyline.points,
+                        polyline.closed,
+                        stroke_width,
+                        *style,
+                        world_transform,
+                        outlines);
+                    if (com::failed(result)) {
+                        return result;
                     }
                     continue;
                 }
-                if (polygon.empty()) {
-                    polygon.push_back(edge.start);
-                } else if (!same_point(polygon.back(), edge.start)) {
+                if (!polyline.closed) {
+                    const com::result result =
+                        prepare_joined_open_solid_widen(
+                            polyline.points,
+                            stroke_width,
+                            join,
+                            miter_limit,
+                            start_cap,
+                            end_cap,
+                            world_transform,
+                            outlines);
+                    if (com::failed(result)) {
+                        return result;
+                    }
+                    continue;
+                }
+                if (style != nullptr) {
                     return not_implemented;
                 }
-                polygon.push_back(edge.end);
-            }
-            if (closed_figure) {
-                if (!normalize_simple_polygon(polygon)) {
+                std::vector<point_2f> outer;
+                std::vector<point_2f> inner;
+                com::result result = build_default_miter_offset_contour(
+                    polyline.points, -half_width, outer);
+                if (com::failed(result)) {
+                    return result;
+                }
+                result = build_default_miter_offset_contour(
+                    polyline.points, half_width, inner);
+                if (com::failed(result)) {
+                    return result;
+                }
+                if (!normalize_simple_polygon(outer) ||
+                    !normalize_simple_polygon(inner)) {
                     return not_implemented;
                 }
-            } else {
-                polygon.erase(
-                    std::unique(polygon.begin(), polygon.end(), same_point),
-                    polygon.end());
-                if (polygon.size() < 2U) {
-                    return not_implemented;
+                for (const point_2f point : inner) {
+                    if (classify_polygon_point(outer, point) ==
+                        polygon_point_relation::outside) {
+                        return not_implemented;
+                    }
                 }
-            }
-            if (dashed) {
-                return emit_joined_dashed_widen(
-                    polygon,
-                    closed_figure,
-                    stroke_width,
-                    *style,
-                    world_transform,
-                    *sink);
-            }
-            if (!closed_figure) {
-                return emit_joined_open_solid_widen(
-                    polygon,
-                    stroke_width,
-                    join,
-                    miter_limit,
-                    start_cap,
-                    end_cap,
-                    world_transform,
-                    *sink);
-            }
-            const double half_width =
-                static_cast<double>(stroke_width) * 0.5;
-            std::vector<point_2f> outer;
-            std::vector<point_2f> inner;
-            com::result result = build_default_miter_offset_contour(
-                polygon, -half_width, outer);
-            if (com::failed(result)) {
-                return result;
-            }
-            result = build_default_miter_offset_contour(
-                polygon, half_width, inner);
-            if (com::failed(result)) {
-                return result;
-            }
-            if (!normalize_simple_polygon(outer) ||
-                !normalize_simple_polygon(inner)) {
-                return not_implemented;
-            }
-            for (const point_2f point : inner) {
-                if (classify_polygon_point(outer, point) ==
-                    polygon_point_relation::outside) {
-                    return not_implemented;
+                result = transform_points_in_place(outer, world_transform);
+                if (com::failed(result)) {
+                    return result;
                 }
+                result = transform_points_in_place(inner, world_transform);
+                if (com::failed(result)) {
+                    return result;
+                }
+                append_widened_polyline_outline(outer, outlines);
+                append_widened_polyline_outline(inner, outlines);
             }
-            result = transform_points_in_place(outer, world_transform);
-            if (com::failed(result)) {
-                return result;
-            }
-            result = transform_points_in_place(inner, world_transform);
-            if (com::failed(result)) {
-                return result;
-            }
-            if (outer.size() >
-                    (std::numeric_limits<std::uint32_t>::max)() ||
-                inner.size() >
-                    (std::numeric_limits<std::uint32_t>::max)()) {
-                return com::out_of_memory;
-            }
-
-            sink->SetFillMode(fill_mode::alternate);
-            sink->SetSegmentFlags(path_segment::force_unstroked);
-            sink->BeginFigure(outer.front(), figure_begin::filled);
-            sink->AddLines(
-                outer.data() + 1U,
-                static_cast<std::uint32_t>(outer.size() - 1U));
-            sink->EndFigure(figure_end::closed);
-            sink->BeginFigure(inner.front(), figure_begin::filled);
-            sink->AddLines(
-                inner.data() + 1U,
-                static_cast<std::uint32_t>(inner.size() - 1U));
-            sink->EndFigure(figure_end::closed);
+            replay_widened_outlines(outlines, *sink);
             return com::ok;
         } catch (const std::bad_alloc&) {
             return com::out_of_memory;

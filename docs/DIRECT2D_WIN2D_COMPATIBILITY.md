@@ -933,9 +933,19 @@ open figure keeps source caps; and each figure restarts the typed dash phase.
 `StrokeContainsPoint` returns the union predicate while `GetWidenedBounds`
 SIMD-reduces each figure and unions the results. A mixed closed-square/open-
 polyline fixture covers solid and dashed bodies, gaps, and bounds locally and
-against genuine Direct2D on Windows ARM64 and x64. Multiple-figure `Widen`
-and flagged paths remain fail closed until every output outline can be
-prepared transactionally before the first caller-sink mutation.
+against genuine Direct2D on Windows ARM64 and x64.
+
+`Widen` consumes the same figure partition and now publishes mixed closed/open
+paths transactionally. It accumulates every validated default closed offset
+ring, open solid outline, dashed run, terminal cap, cubic control point, and
+world-transformed point before setting any caller-sink state. Replay then uses
+one alternate-fill, force-unstroked transaction, with dash phase independently
+restarted for every source figure. Dense local lattices match the union from
+`StrokeContainsPoint`; genuine Direct2D ARM64 and x64 validate successful
+multi-figure output, default line-only output regions, and dashed output
+regions directly against the system containment oracle. Explicit solid styles
+on closed figures, collapsed offsets, segment flags, and invalid topology
+remain typed fail-closed domains.
 
 The identical simple closed/default-miter domain now implements
 `GetWidenedBounds`. It derives segment offset endpoints plus qualified miter
@@ -947,8 +957,9 @@ concave paths, zero width, and nonuniform affine output pass local optimized
 and sanitizer tests and a clean Windows ARM64 system differential. Unsupported
 styles and topology retain initialized empty output and fail closed.
 
-`ID2D1PathGeometry::Widen` now covers one simple closed contour with the
-null/default solid miter stroke and a positive width, including concave input
+The closed-figure lane of `ID2D1PathGeometry::Widen` covers a simple contour
+with the null/default solid miter stroke and a positive width, including
+concave input
 whose outer and inner offsets remain simple and non-collapsed. The path is
 tolerance-flattened locally;
 outer and inner offset intersections are fully validated, including miter
@@ -958,8 +969,8 @@ and emitted as alternate-fill, force-unstroked closed figures. A dense lattice
 compares the widened fill to `StrokeContainsPoint` locally and to a genuine
 system-Direct2D widened sink on Windows ARM64. A second concave-path lattice
 qualifies the re-entrant join and surviving narrow inner ring. Zero width,
-collapsed or self-intersecting offsets, styles, flags, and unsupported figure
-topology fail closed transactionally.
+collapsed or self-intersecting offsets, explicit solid styles, flags, and
+unsupported figure topology fail closed transactionally.
 
 The focused compatibility target passes all 17 local native CTests and the 10
 managed Direct2D source/ABI contracts. A clean Windows 11 ARM64 Parallels build

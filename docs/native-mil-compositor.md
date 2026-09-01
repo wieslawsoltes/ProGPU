@@ -6464,8 +6464,18 @@ closed seams and open source caps stay figure-local. Containment is the union
 of the figure predicates, while widened bounds union per-figure SIMD
 reductions. A closed-square plus open-polyline fixture covers solid and dashed
 body/gap cases and matches genuine Direct2D on Windows ARM64 and x64.
-Multiple-figure `Widen` and flagged paths remain typed fail closed until every
-output outline can be validated before caller-sink replay.
+
+`Widen` now consumes that same partition and prepares the complete mixed-
+figure transaction before caller-sink replay. Closed null/default strokes add
+validated outer and inner rings; open solids and qualified dashed figures add
+joined outlines, typed caps/joins, terminal half-caps, and cubic round edges.
+Every point/control is batch-transformed through NEON or SSE2 before the sink
+receives alternate-fill, force-unstroked closed figures. Dense local output
+matches the union `StrokeContainsPoint` predicate. Genuine Direct2D ARM64 and
+x64 validate successful multi-figure output, the default line-only transcript
+region, and dashed output against the system containment oracle. Explicit
+solid styles on closed figures, collapsed offsets, segment flags, and invalid
+topology remain typed fail closed.
 
 `GetWidenedBounds` now shares that default-miter path domain. Segment offsets
 and miter extrema are constructed before the world transform; independent
@@ -6476,8 +6486,8 @@ bounds match the genuine Windows system implementation after a clean 30-step
 ARM64 core/provider rebuild, while optimized and sanitizer tests remain green
 locally.
 
-The general-path `Widen` output lane now accepts one simple closed contour with
-a positive-width null/default miter stroke, including concave contours whose
+The closed-figure `Widen` output lane accepts a simple contour with a positive-
+width null/default miter stroke, including concave contours whose
 offset rings remain simple and non-collapsed. Outer
 and inner offset contours, miter limits, and surviving inner topology are
 validated transactionally before the caller sink is touched. Their independent
@@ -6486,7 +6496,8 @@ receives alternate-fill force-unstroked closed figures. Local tests compare a
 dense widened-fill lattice with `StrokeContainsPoint`; the Windows ARM64 oracle
 compares convex and concave lattices with genuine system Direct2D after a clean
 30-step provider/core build. Unsupported collapsed or self-intersecting
-offsets, styled, flagged, zero-width, or multi-figure cases remain fail closed.
+offsets, explicitly styled closed figures, flagged paths, and zero-width cases
+remain fail closed.
 
 ## Invariants
 
