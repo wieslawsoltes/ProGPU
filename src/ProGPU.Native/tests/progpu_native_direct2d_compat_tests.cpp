@@ -1842,6 +1842,90 @@ int run_tests()
             }
         }
     }
+    const std::array<compat::rectangle_f, 4U>
+        affine_collinear_rectangles{{
+            rectangle,
+            {5.0F, 2.0F, 7.0F, 8.0F},
+            {5.0F, 3.25F, 7.0F, 6.75F},
+            {3.0F, 2.0F, 7.0F, 6.0F},
+        }};
+    for (const compat::rectangle_f& affine_collinear_rectangle :
+         affine_collinear_rectangles) {
+        compat::rectangle_geometry* raw_affine_collinear_geometry = nullptr;
+        if (factory->CreateRectangleGeometry(
+                &affine_collinear_rectangle,
+                &raw_affine_collinear_geometry) != com::ok ||
+            raw_affine_collinear_geometry == nullptr) {
+            return 308;
+        }
+        com::pointer<compat::rectangle_geometry>
+            affine_collinear_geometry;
+        affine_collinear_geometry.attach(raw_affine_collinear_geometry);
+        for (const compat::combine_mode mode : combination_modes) {
+            auto* raw_affine_collinear_sink = new simplified_sink();
+            com::pointer<compat::simplified_geometry_sink>
+                affine_collinear_sink;
+            affine_collinear_sink.attach(raw_affine_collinear_sink);
+            if (sheared_source->CombineWithGeometry(
+                    affine_collinear_geometry.get(),
+                    mode,
+                    &general_relation_transform,
+                    core::default_flattening_tolerance,
+                    affine_collinear_sink.get()) != com::ok ||
+                raw_affine_collinear_sink->begin_count !=
+                    raw_affine_collinear_sink->end_count) {
+                return 309;
+            }
+            for (std::uint32_t y_index = 0U; y_index < 19U; ++y_index) {
+                for (std::uint32_t x_index = 0U; x_index < 19U; ++x_index) {
+                    const float local_x =
+                        0.73F + static_cast<float>(x_index) * 0.41F;
+                    const float local_y =
+                        1.17F + static_cast<float>(y_index) * 0.43F;
+                    const compat::point_2f point{
+                        local_x * general_relation_transform.m11 +
+                            local_y * general_relation_transform.m21 +
+                            general_relation_transform.m31,
+                        local_x * general_relation_transform.m12 +
+                            local_y * general_relation_transform.m22 +
+                            general_relation_transform.m32};
+                    std::int32_t in_first = 0;
+                    std::int32_t in_second = 0;
+                    if (sheared_source->FillContainsPoint(
+                            point,
+                            nullptr,
+                            core::default_flattening_tolerance,
+                            &in_first) != com::ok ||
+                        affine_collinear_geometry->FillContainsPoint(
+                            point,
+                            &general_relation_transform,
+                            core::default_flattening_tolerance,
+                            &in_second) != com::ok) {
+                        return 310;
+                    }
+                    bool expected = false;
+                    switch (mode) {
+                    case compat::combine_mode::union_value:
+                        expected = in_first != 0 || in_second != 0;
+                        break;
+                    case compat::combine_mode::intersect:
+                        expected = in_first != 0 && in_second != 0;
+                        break;
+                    case compat::combine_mode::xor_value:
+                        expected = (in_first != 0) != (in_second != 0);
+                        break;
+                    case compat::combine_mode::exclude:
+                        expected = in_first != 0 && in_second == 0;
+                        break;
+                    }
+                    if (captured_fill_contains(
+                            *raw_affine_collinear_sink, point) != expected) {
+                        return 311;
+                    }
+                }
+            }
+        }
+    }
     auto* raw_transformed_widen_sink = new simplified_sink();
     com::pointer<compat::simplified_geometry_sink> transformed_widen_sink;
     transformed_widen_sink.attach(raw_transformed_widen_sink);
@@ -1929,12 +2013,6 @@ int run_tests()
             nullptr,
             core::default_flattening_tolerance,
             rejected_combination_sink.get()) != compat::wrong_factory ||
-        sheared_source->CombineWithGeometry(
-            geometry_base.get(),
-            compat::combine_mode::union_value,
-            nullptr,
-            core::default_flattening_tolerance,
-            rejected_combination_sink.get()) != compat::not_implemented ||
         geometry->CombineWithGeometry(
             translated_relation_geometry.get(),
             static_cast<compat::combine_mode>(99U),
@@ -6198,6 +6276,106 @@ int run_tests()
                 return 304;
             }
         }
+    }
+    for (const compat::rectangle_f& affine_collinear_rectangle :
+         affine_collinear_rectangles) {
+        const D2D1_RECT_F system_affine_collinear_rectangle{
+            affine_collinear_rectangle.left,
+            affine_collinear_rectangle.top,
+            affine_collinear_rectangle.right,
+            affine_collinear_rectangle.bottom};
+        ID2D1RectangleGeometry* system_affine_collinear_geometry = nullptr;
+        compat::rectangle_geometry* raw_portable_affine_collinear_geometry =
+            nullptr;
+        if (FAILED(system_factory->CreateRectangleGeometry(
+                &system_affine_collinear_rectangle,
+                &system_affine_collinear_geometry)) ||
+            system_affine_collinear_geometry == nullptr ||
+            factory->CreateRectangleGeometry(
+                &affine_collinear_rectangle,
+                &raw_portable_affine_collinear_geometry) != com::ok ||
+            raw_portable_affine_collinear_geometry == nullptr) {
+            if (system_affine_collinear_geometry != nullptr) {
+                system_affine_collinear_geometry->Release();
+            }
+            system_shear_overlap_rectangle->Release();
+            system_sheared_source->Release();
+            system_group_rectangle->Release();
+            system_group_ellipse->Release();
+            system_factory->Release();
+            return 312;
+        }
+        com::pointer<compat::rectangle_geometry>
+            portable_affine_collinear_geometry;
+        portable_affine_collinear_geometry.attach(
+            raw_portable_affine_collinear_geometry);
+        for (std::size_t mode_index = 0U;
+             mode_index < combination_modes.size();
+             ++mode_index) {
+            auto* raw_system_affine_collinear_sink = new simplified_sink();
+            com::pointer<compat::simplified_geometry_sink>
+                system_affine_collinear_sink;
+            system_affine_collinear_sink.attach(
+                raw_system_affine_collinear_sink);
+            auto* raw_portable_affine_collinear_sink = new simplified_sink();
+            com::pointer<compat::simplified_geometry_sink>
+                portable_affine_collinear_sink;
+            portable_affine_collinear_sink.attach(
+                raw_portable_affine_collinear_sink);
+            const HRESULT system_affine_collinear_status =
+                system_sheared_source->CombineWithGeometry(
+                    system_affine_collinear_geometry,
+                    static_cast<D2D1_COMBINE_MODE>(mode_index),
+                    &system_general_relation_transform,
+                    D2D1_DEFAULT_FLATTENING_TOLERANCE,
+                    reinterpret_cast<ID2D1SimplifiedGeometrySink*>(
+                        system_affine_collinear_sink.get()));
+            const com::result portable_affine_collinear_status =
+                sheared_source->CombineWithGeometry(
+                    portable_affine_collinear_geometry.get(),
+                    combination_modes[mode_index],
+                    &general_relation_transform,
+                    core::default_flattening_tolerance,
+                    portable_affine_collinear_sink.get());
+            if (FAILED(system_affine_collinear_status) ||
+                portable_affine_collinear_status != com::ok) {
+                system_affine_collinear_geometry->Release();
+                system_shear_overlap_rectangle->Release();
+                system_sheared_source->Release();
+                system_group_rectangle->Release();
+                system_group_ellipse->Release();
+                system_factory->Release();
+                return 313;
+            }
+            for (std::uint32_t y_index = 0U; y_index < 19U; ++y_index) {
+                for (std::uint32_t x_index = 0U; x_index < 19U; ++x_index) {
+                    const float local_x =
+                        0.73F + static_cast<float>(x_index) * 0.41F;
+                    const float local_y =
+                        1.17F + static_cast<float>(y_index) * 0.43F;
+                    const compat::point_2f point{
+                        local_x * general_relation_transform.m11 +
+                            local_y * general_relation_transform.m21 +
+                            general_relation_transform.m31,
+                        local_x * general_relation_transform.m12 +
+                            local_y * general_relation_transform.m22 +
+                            general_relation_transform.m32};
+                    if (captured_fill_contains(
+                            *raw_system_affine_collinear_sink, point) !=
+                        captured_fill_contains(
+                            *raw_portable_affine_collinear_sink, point)) {
+                        system_affine_collinear_geometry->Release();
+                        system_shear_overlap_rectangle->Release();
+                        system_sheared_source->Release();
+                        system_group_rectangle->Release();
+                        system_group_ellipse->Release();
+                        system_factory->Release();
+                        return 314;
+                    }
+                }
+            }
+        }
+        system_affine_collinear_geometry->Release();
     }
     system_shear_overlap_rectangle->Release();
     system_sheared_source->Release();
