@@ -41,6 +41,12 @@ same contract to its distinct pointer-free native storage ABI.
 - [HarfBuzz shaping and shape plans](https://harfbuzz.github.io/shaping-and-shape-plans.html):
   shaped glyph output is reusable input to a renderer and is not recomputed for
   a viewport surface-style change.
+- [WGSL texture built-ins](https://www.w3.org/TR/WGSL/#texture-builtin-functions):
+  implicit-derivative sampling requires uniform control flow, while
+  `textureSampleLevel` selects an explicit mip level and is valid in the
+  material-dependent branch used by retained native mesh records. Adopted:
+  explicit level-zero sampling, matching the existing managed material shader
+  and the current single-level CAD material texture contract.
 - [AutoCAD visual styles](https://help.autodesk.com/cloudhelp/2022/ENU/AutoCAD-Core/files/GUID-F9113233-6798-4F5C-9A9F-7BA41CFA2533.htm),
   [Visual Styles Manager](https://help.autodesk.com/cloudhelp/2022/ENG/AutoCAD-Core/files/GUID-1966BEB9-6975-412B-834E-FD2E85A85330.htm),
   and [edge display](https://help.autodesk.com/cloudhelp/2022/ENU/AutoCAD-Core/files/GUID-7CFAD837-E8D5-496E-B0CF-EAC773709392.htm):
@@ -91,7 +97,10 @@ same contract to its distinct pointer-free native storage ABI.
   generation. Normal face records and their public layout remain unchanged.
 - Stable retained replay remains O(I + E) work with O(1) style state per batch.
   Lighting is bounded to three fixed lights, edge classification is O(1) per
-  edge, and managed camera-only replay performs zero edge/record upload.
+  edge, and managed camera-only replay performs zero edge/record upload. Both
+  material shaders perform at most one filtered level-zero texture sample per
+  enabled textured fragment; the native shader does not rely on implicit
+  derivatives inside non-uniform material control flow.
 
 ## Adapted or rejected concepts
 

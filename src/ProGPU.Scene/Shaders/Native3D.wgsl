@@ -606,10 +606,11 @@ fn fs_mesh_3d(
             tiling);
         var sampled = vec4<f32>(1.0);
         if (addressed.z > 0.5) {
-            sampled = textureSample(
+            sampled = textureSampleLevel(
                 material_texture,
                 material_sampler,
-                addressed.xy);
+                addressed.xy,
+                0.0);
         }
         let blend = f32(mesh.material_factors & 65535u) / 65535.0;
         diffuse_color *= mix(vec3<f32>(1.0), sampled.rgb, blend);
