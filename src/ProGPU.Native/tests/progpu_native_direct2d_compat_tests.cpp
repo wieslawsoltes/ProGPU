@@ -3739,6 +3739,17 @@ int run_tests()
     if (text_header->command_count != 5U) {
         return 257;
     }
+    target->BeginDraw();
+    target->DrawTextLayout(
+        {10.0F, 20.0F},
+        reinterpret_cast<compat::text_layout*>(&text_layout_value),
+        static_cast<compat::brush*>(target_brush.get()),
+        compat::draw_text_options::disable_color_bitmap_snapping);
+    if (target->EndDraw(nullptr, nullptr) != com::ok ||
+        text_layout_value.draw_call_count != 2U ||
+        font_face->outline_call_count != 4U) {
+        return 266;
+    }
 
     compat::layer_parameters masked_layer_parameters = layer_parameters;
     masked_layer_parameters.geometric_mask = path_base.get();

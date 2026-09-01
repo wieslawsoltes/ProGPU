@@ -4234,11 +4234,8 @@ public:
                 return;
             }
             if ((option_bits &
-                    (static_cast<std::uint32_t>(
-                         draw_text_options::enable_color_font) |
-                        static_cast<std::uint32_t>(
-                            draw_text_options::
-                                disable_color_bitmap_snapping))) != 0U) {
+                    static_cast<std::uint32_t>(
+                        draw_text_options::enable_color_font)) != 0U) {
                 latch(not_implemented);
                 return;
             }
