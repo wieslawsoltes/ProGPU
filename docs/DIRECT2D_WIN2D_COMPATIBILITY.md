@@ -435,8 +435,34 @@ primitive records, clear metadata, scene ID/generation, exact serialized size,
 invalid zero-stroke rejection, and unsupported-call latching. Windows 11 ARM64
 MSVC 19.44 `/W4 /WX` builds and runs the same target through a real SDK
 `ID2D1RenderTarget*`, including `CreateSolidColorBrush`, sizing, `BeginDraw`,
-`FillRectangle`, and `EndDraw`. A native Direct2D WIC/DXGI pixel comparison and
-submission/presentation adapter are the next validation and integration gates.
+`FillRectangle`, and `EndDraw`. Native Direct2D WIC/DXGI pixel comparison and
+broader resource coverage remain the next validation and integration gates.
+
+ProGPU `1f6748b4` adds the installed typed submission adapter
+`progpu_native_direct2d_scene_submission.hpp` and closes the portable
+presentation half of that gate. `update_scene_target(...)` builds into a
+caller-owned byte span and transactionally updates the existing native engine.
+`render_scene_target(...)` additionally queries the standard target size/DPI,
+maps explicit Direct2D clear state into one semantic frame, and renders into a
+borrowed same-device WebGPU texture view. A target session without `Clear`
+preserves the attachment; an explicit `Clear` wins even if the caller supplied
+the preserve flag. Non-isotropic DPI, missing views, insufficient scratch, and
+unsupported frame flags fail before engine submission with typed stage,
+HRESULT, native-status, and byte-count diagnostics.
+
+This adapter neither owns nor creates a second device, surface, renderer, or
+provider ABI. The scene stream crosses the CPU only as retained command data;
+no pixel readback or repack occurs, and the engine submits the complete target
+once. The pinned WebScene/Dawn hardware gate now constructs the portable COM
+factory/target and four solid brushes, records standard Direct2D clear,
+rectangle, ellipse, stroked-rectangle, and rounded-rectangle calls, submits
+through the adapter, and verifies the resulting BGRA pixels in a 64x48
+IOSurface on Apple Metal. Metrics require four retained draws and one GPU
+submission. The no-provider Apple Silicon suite remains 14/14, the managed
+source contract remains 9/9, and Windows ARM64 MSVC 19.44 `/W4 /WX` compiles
+and executes the same installed submission declarations alongside the real
+SDK render-target ABI. A Windows system-Direct2D versus ProGPU D3D12 pixel
+oracle remains the differential follow-up gate.
 
 ## Current support matrix
 
