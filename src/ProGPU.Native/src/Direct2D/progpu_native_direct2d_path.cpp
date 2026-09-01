@@ -1808,6 +1808,158 @@ void append_dash_side_point(
     }
 }
 
+[[nodiscard]] bool stroke_line_unit_and_normal(
+    const progpu_native_path_segment& segment,
+    double half_width,
+    double& unit_x,
+    double& unit_y,
+    double& normal_x,
+    double& normal_y) noexcept
+{
+    if (segment.kind != PROGPU_NATIVE_PATH_SEGMENT_LINE) {
+        return false;
+    }
+    const double delta_x =
+        static_cast<double>(segment.p1.x) - segment.p0.x;
+    const double delta_y =
+        static_cast<double>(segment.p1.y) - segment.p0.y;
+    const double length = std::hypot(delta_x, delta_y);
+    if (length == 0.0) {
+        return false;
+    }
+    unit_x = delta_x / length;
+    unit_y = delta_y / length;
+    normal_x = -unit_y * half_width;
+    normal_y = unit_x * half_width;
+    return true;
+}
+
+[[nodiscard]] com::result append_stroke_side_join(
+    const progpu_native_path_segment& incoming,
+    const progpu_native_path_segment& outgoing,
+    double half_width,
+    double side,
+    line_join join,
+    double miter_limit,
+    dash_side& output)
+{
+    if (!same_point(
+            {incoming.p1.x, incoming.p1.y},
+            {outgoing.p0.x, outgoing.p0.y})) {
+        return not_implemented;
+    }
+    double incoming_unit_x = 0.0;
+    double incoming_unit_y = 0.0;
+    double incoming_normal_x = 0.0;
+    double incoming_normal_y = 0.0;
+    double outgoing_unit_x = 0.0;
+    double outgoing_unit_y = 0.0;
+    double outgoing_normal_x = 0.0;
+    double outgoing_normal_y = 0.0;
+    if (!stroke_line_unit_and_normal(
+            incoming,
+            half_width,
+            incoming_unit_x,
+            incoming_unit_y,
+            incoming_normal_x,
+            incoming_normal_y) ||
+        !stroke_line_unit_and_normal(
+            outgoing,
+            half_width,
+            outgoing_unit_x,
+            outgoing_unit_y,
+            outgoing_normal_x,
+            outgoing_normal_y)) {
+        return not_implemented;
+    }
+    const point_2f vertex{incoming.p1.x, incoming.p1.y};
+    const point_2f incoming_offset{
+        static_cast<float>(vertex.x + incoming_normal_x * side),
+        static_cast<float>(vertex.y + incoming_normal_y * side)};
+    const point_2f outgoing_offset{
+        static_cast<float>(vertex.x + outgoing_normal_x * side),
+        static_cast<float>(vertex.y + outgoing_normal_y * side)};
+    const double cross = incoming_unit_x * outgoing_unit_y -
+        incoming_unit_y * outgoing_unit_x;
+    if (cross == 0.0) {
+        append_dash_side_point(output, outgoing_offset);
+        return com::ok;
+    }
+    const bool outer_side = cross * side < 0.0;
+    if (outer_side && join == line_join::round) {
+        append_dash_side_point(output, incoming_offset);
+        append_dash_side_point(output, outgoing_offset, true, vertex);
+        return com::ok;
+    }
+    if (outer_side && join == line_join::bevel) {
+        append_dash_side_point(output, incoming_offset);
+        append_dash_side_point(output, outgoing_offset);
+        return com::ok;
+    }
+    const double offset_x =
+        static_cast<double>(outgoing_offset.x) - incoming_offset.x;
+    const double offset_y =
+        static_cast<double>(outgoing_offset.y) - incoming_offset.y;
+    const double parameter =
+        (offset_x * outgoing_unit_y - offset_y * outgoing_unit_x) / cross;
+    const point_2f intersection{
+        static_cast<float>(
+            incoming_offset.x + incoming_unit_x * parameter),
+        static_cast<float>(
+            incoming_offset.y + incoming_unit_y * parameter)};
+    if (outer_side && std::hypot(
+            static_cast<double>(intersection.x) - vertex.x,
+            static_cast<double>(intersection.y) - vertex.y) >
+        miter_limit * half_width) {
+        if (join == line_join::miter_or_bevel) {
+            append_dash_side_point(output, incoming_offset);
+            append_dash_side_point(output, outgoing_offset);
+            return com::ok;
+        }
+        const double miter_x =
+            static_cast<double>(intersection.x) - vertex.x;
+        const double miter_y =
+            static_cast<double>(intersection.y) - vertex.y;
+        const double miter_length = std::hypot(miter_x, miter_y);
+        if (join != line_join::miter || miter_length == 0.0) {
+            return not_implemented;
+        }
+        const double bisector_x = miter_x / miter_length;
+        const double bisector_y = miter_y / miter_length;
+        const double clip_distance = miter_limit * half_width;
+        const auto append_clipped = [&](point_2f offset) {
+            const double local_offset_x =
+                static_cast<double>(offset.x) - vertex.x;
+            const double local_offset_y =
+                static_cast<double>(offset.y) - vertex.y;
+            const double projection =
+                local_offset_x * bisector_x + local_offset_y * bisector_y;
+            const double denominator = miter_length - projection;
+            if (denominator <= 0.0) {
+                return false;
+            }
+            const double amount =
+                (clip_distance - projection) / denominator;
+            if (!std::isfinite(amount) || amount < 0.0 || amount > 1.0) {
+                return false;
+            }
+            append_dash_side_point(output, {
+                static_cast<float>(
+                    offset.x + (intersection.x - offset.x) * amount),
+                static_cast<float>(
+                    offset.y + (intersection.y - offset.y) * amount)});
+            return true;
+        };
+        if (!append_clipped(incoming_offset) ||
+            !append_clipped(outgoing_offset)) {
+            return not_implemented;
+        }
+        return com::ok;
+    }
+    append_dash_side_point(output, intersection);
+    return com::ok;
+}
+
 [[nodiscard]] com::result append_dash_run_side(
     std::span<const progpu_native_path_segment> segments,
     double half_width,
@@ -1821,35 +1973,13 @@ void append_dash_side_point(
     if (segments.empty()) {
         return com::invalid_argument;
     }
-    const auto unit_and_normal = [half_width](
-        const progpu_native_path_segment& segment,
-        double& unit_x,
-        double& unit_y,
-        double& normal_x,
-        double& normal_y) {
-        if (segment.kind != PROGPU_NATIVE_PATH_SEGMENT_LINE) {
-            return false;
-        }
-        const double delta_x =
-            static_cast<double>(segment.p1.x) - segment.p0.x;
-        const double delta_y =
-            static_cast<double>(segment.p1.y) - segment.p0.y;
-        const double length = std::hypot(delta_x, delta_y);
-        if (length == 0.0) {
-            return false;
-        }
-        unit_x = delta_x / length;
-        unit_y = delta_y / length;
-        normal_x = -unit_y * half_width;
-        normal_y = unit_x * half_width;
-        return true;
-    };
     double first_unit_x = 0.0;
     double first_unit_y = 0.0;
     double first_normal_x = 0.0;
     double first_normal_y = 0.0;
-    if (!unit_and_normal(
+    if (!stroke_line_unit_and_normal(
             segments.front(),
+            half_width,
             first_unit_x,
             first_unit_y,
             first_normal_x,
@@ -1867,128 +1997,25 @@ void append_dash_side_point(
             segments.front().p0.y + first_normal_y * side -
             first_unit_y * start_extension)});
     for (std::size_t index = 1U; index < segments.size(); ++index) {
-        const auto& incoming = segments[index - 1U];
-        const auto& outgoing = segments[index];
-        if (!same_point(
-                {incoming.p1.x, incoming.p1.y},
-                {outgoing.p0.x, outgoing.p0.y})) {
-            return not_implemented;
+        const com::result join_status = append_stroke_side_join(
+            segments[index - 1U],
+            segments[index],
+            half_width,
+            side,
+            join,
+            miter_limit,
+            output);
+        if (com::failed(join_status)) {
+            return join_status;
         }
-        double incoming_unit_x = 0.0;
-        double incoming_unit_y = 0.0;
-        double incoming_normal_x = 0.0;
-        double incoming_normal_y = 0.0;
-        double outgoing_unit_x = 0.0;
-        double outgoing_unit_y = 0.0;
-        double outgoing_normal_x = 0.0;
-        double outgoing_normal_y = 0.0;
-        if (!unit_and_normal(
-                incoming,
-                incoming_unit_x,
-                incoming_unit_y,
-                incoming_normal_x,
-                incoming_normal_y) ||
-            !unit_and_normal(
-                outgoing,
-                outgoing_unit_x,
-                outgoing_unit_y,
-                outgoing_normal_x,
-                outgoing_normal_y)) {
-            return not_implemented;
-        }
-        const point_2f vertex{incoming.p1.x, incoming.p1.y};
-        const point_2f incoming_offset{
-            static_cast<float>(vertex.x + incoming_normal_x * side),
-            static_cast<float>(vertex.y + incoming_normal_y * side)};
-        const point_2f outgoing_offset{
-            static_cast<float>(vertex.x + outgoing_normal_x * side),
-            static_cast<float>(vertex.y + outgoing_normal_y * side)};
-        const double cross = incoming_unit_x * outgoing_unit_y -
-            incoming_unit_y * outgoing_unit_x;
-        if (cross == 0.0) {
-            append_dash_side_point(output, outgoing_offset);
-            continue;
-        }
-        const bool outer_side = cross * side < 0.0;
-        if (outer_side && join == line_join::round) {
-            append_dash_side_point(output, incoming_offset);
-            append_dash_side_point(output, outgoing_offset, true, vertex);
-            continue;
-        }
-        if (outer_side && join == line_join::bevel) {
-            append_dash_side_point(output, incoming_offset);
-            append_dash_side_point(output, outgoing_offset);
-            continue;
-        }
-        const double offset_x =
-            static_cast<double>(outgoing_offset.x) - incoming_offset.x;
-        const double offset_y =
-            static_cast<double>(outgoing_offset.y) - incoming_offset.y;
-        const double parameter =
-            (offset_x * outgoing_unit_y - offset_y * outgoing_unit_x) /
-            cross;
-        const point_2f intersection{
-            static_cast<float>(
-                incoming_offset.x + incoming_unit_x * parameter),
-            static_cast<float>(
-                incoming_offset.y + incoming_unit_y * parameter)};
-        if (outer_side && std::hypot(
-                static_cast<double>(intersection.x) - vertex.x,
-                static_cast<double>(intersection.y) - vertex.y) >
-            miter_limit * half_width) {
-            if (join == line_join::miter_or_bevel) {
-                append_dash_side_point(output, incoming_offset);
-                append_dash_side_point(output, outgoing_offset);
-                continue;
-            }
-            const double miter_x =
-                static_cast<double>(intersection.x) - vertex.x;
-            const double miter_y =
-                static_cast<double>(intersection.y) - vertex.y;
-            const double miter_length = std::hypot(miter_x, miter_y);
-            if (join != line_join::miter || miter_length == 0.0) {
-                return not_implemented;
-            }
-            const double bisector_x = miter_x / miter_length;
-            const double bisector_y = miter_y / miter_length;
-            const double clip_distance = miter_limit * half_width;
-            const auto append_clipped = [&](point_2f offset) {
-                const double offset_x =
-                    static_cast<double>(offset.x) - vertex.x;
-                const double offset_y =
-                    static_cast<double>(offset.y) - vertex.y;
-                const double projection =
-                    offset_x * bisector_x + offset_y * bisector_y;
-                const double denominator = miter_length - projection;
-                if (denominator <= 0.0) {
-                    return false;
-                }
-                const double amount =
-                    (clip_distance - projection) / denominator;
-                if (!std::isfinite(amount) || amount < 0.0 || amount > 1.0) {
-                    return false;
-                }
-                append_dash_side_point(output, {
-                    static_cast<float>(
-                        offset.x + (intersection.x - offset.x) * amount),
-                    static_cast<float>(
-                        offset.y + (intersection.y - offset.y) * amount)});
-                return true;
-            };
-            if (!append_clipped(incoming_offset) ||
-                !append_clipped(outgoing_offset)) {
-                return not_implemented;
-            }
-            continue;
-        }
-        append_dash_side_point(output, intersection);
     }
     double last_unit_x = 0.0;
     double last_unit_y = 0.0;
     double last_normal_x = 0.0;
     double last_normal_y = 0.0;
-    if (!unit_and_normal(
+    if (!stroke_line_unit_and_normal(
             segments.back(),
+            half_width,
             last_unit_x,
             last_unit_y,
             last_normal_x,
@@ -2008,6 +2035,65 @@ void append_dash_side_point(
     return com::ok;
 }
 
+[[nodiscard]] com::result build_closed_stroke_side(
+    std::span<const progpu_native_path_segment> segments,
+    double half_width,
+    double side,
+    line_join join,
+    double miter_limit,
+    dash_side& output)
+{
+    if (segments.size() < 3U || !same_point(
+            {segments.back().p1.x, segments.back().p1.y},
+            {segments.front().p0.x, segments.front().p0.y})) {
+        return not_implemented;
+    }
+    output = {};
+    output.points.reserve(segments.size() * 2U);
+    output.edges.reserve(segments.size() * 2U);
+    for (std::size_t index = 0U; index < segments.size(); ++index) {
+        const com::result result = append_stroke_side_join(
+            segments[(index + segments.size() - 1U) % segments.size()],
+            segments[index],
+            half_width,
+            side,
+            join,
+            miter_limit,
+            output);
+        if (com::failed(result)) {
+            return result;
+        }
+    }
+    return output.points.size() >= 3U &&
+            output.edges.size() + 1U == output.points.size()
+        ? com::ok
+        : not_implemented;
+}
+
+[[nodiscard]] bool strictly_convex_polygon(
+    std::span<const point_2f> polygon) noexcept
+{
+    if (polygon.size() < 3U) {
+        return false;
+    }
+    double direction = 0.0;
+    for (std::size_t index = 0U; index < polygon.size(); ++index) {
+        const double cross = triangle_cross(
+            polygon[(index + polygon.size() - 1U) % polygon.size()],
+            polygon[index],
+            polygon[(index + 1U) % polygon.size()]);
+        if (cross == 0.0) {
+            return false;
+        }
+        if (direction == 0.0) {
+            direction = cross;
+        } else if ((direction < 0.0) != (cross < 0.0)) {
+            return false;
+        }
+    }
+    return true;
+}
+
 [[nodiscard]] com::result transform_points_in_place(
     std::vector<point_2f>& points,
     const matrix_3x2_f* transform) noexcept;
@@ -2023,6 +2109,10 @@ struct widened_outline final {
     point_2f start{};
     std::vector<widened_outline_segment> segments;
 };
+
+[[nodiscard]] com::result transform_widened_outline(
+    widened_outline& outline,
+    const matrix_3x2_f* transform);
 
 void append_outline_line(
     widened_outline& outline,
@@ -2148,6 +2238,85 @@ void append_outline_line(
             next});
         current = next;
         current_angle = next_angle;
+    }
+    return com::ok;
+}
+
+[[nodiscard]] com::result build_closed_side_outline(
+    const dash_side& side,
+    widened_outline& outline)
+{
+    if (side.points.size() < 3U ||
+        side.edges.size() + 1U != side.points.size()) {
+        return not_implemented;
+    }
+    outline = {};
+    outline.start = side.points.front();
+    outline.segments.reserve(side.points.size() + 4U);
+    for (std::size_t index = 1U; index < side.points.size(); ++index) {
+        if (side.edges[index - 1U].round) {
+            const com::result result = append_circular_arc_segments(
+                outline,
+                side.edges[index - 1U].center,
+                side.points[index]);
+            if (com::failed(result)) {
+                return result;
+            }
+        } else {
+            append_outline_line(outline, side.points[index]);
+        }
+    }
+    return outline.segments.size() >= 2U ? com::ok : not_implemented;
+}
+
+[[nodiscard]] com::result prepare_joined_closed_solid_widen(
+    std::span<const point_2f> points,
+    float stroke_width,
+    line_join join,
+    double miter_limit,
+    const matrix_3x2_f* transform,
+    std::vector<widened_outline>& outlines)
+{
+    if (!strictly_convex_polygon(points)) {
+        return not_implemented;
+    }
+    std::vector<progpu_native_path_segment> segments;
+    segments.reserve(points.size());
+    for (std::size_t index = 0U; index < points.size(); ++index) {
+        progpu_native_path_segment segment{};
+        segment.kind = PROGPU_NATIVE_PATH_SEGMENT_LINE;
+        segment.p0 = {points[index].x, points[index].y};
+        const point_2f end = points[(index + 1U) % points.size()];
+        segment.p1 = {end.x, end.y};
+        segments.push_back(segment);
+    }
+    const double half_width = static_cast<double>(stroke_width) * 0.5;
+    std::array<dash_side, 2U> sides;
+    std::array<widened_outline, 2U> prepared;
+    for (std::size_t index = 0U; index < sides.size(); ++index) {
+        const double side = index == 0U ? 1.0 : -1.0;
+        com::result result = build_closed_stroke_side(
+            segments,
+            half_width,
+            side,
+            join,
+            miter_limit,
+            sides[index]);
+        if (com::failed(result)) {
+            return result;
+        }
+        result = build_closed_side_outline(sides[index], prepared[index]);
+        if (com::failed(result)) {
+            return result;
+        }
+        result = transform_widened_outline(prepared[index], transform);
+        if (com::failed(result)) {
+            return result;
+        }
+    }
+    outlines.reserve(outlines.size() + prepared.size());
+    for (widened_outline& outline : prepared) {
+        outlines.push_back(std::move(outline));
     }
     return com::ok;
 }
@@ -2396,7 +2565,17 @@ void append_outline_line(
     const double half_width = static_cast<double>(stroke_width) * 0.5;
     for (const curve_dash::run& run : dash_runs.runs) {
         if (run.closed) {
-            return not_implemented;
+            const com::result result = prepare_joined_closed_solid_widen(
+                points,
+                stroke_width,
+                style.GetLineJoin(),
+                style.GetMiterLimit(),
+                transform,
+                outlines);
+            if (com::failed(result)) {
+                return result;
+            }
+            continue;
         }
         outlines.emplace_back();
         const cap_style start_cap = run.starts_at_source_start
@@ -5032,7 +5211,18 @@ public:
                     continue;
                 }
                 if (style != nullptr) {
-                    return not_implemented;
+                    const com::result result =
+                        prepare_joined_closed_solid_widen(
+                            polyline.points,
+                            stroke_width,
+                            join,
+                            miter_limit,
+                            world_transform,
+                            outlines);
+                    if (com::failed(result)) {
+                        return result;
+                    }
+                    continue;
                 }
                 std::vector<point_2f> outer;
                 std::vector<point_2f> inner;

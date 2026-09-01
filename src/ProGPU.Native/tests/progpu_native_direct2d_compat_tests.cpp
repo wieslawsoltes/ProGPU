@@ -2466,6 +2466,21 @@ int run_tests()
   }
   com::pointer<compat::stroke_style> round_path_stroke_style;
   round_path_stroke_style.attach(raw_round_path_stroke_style);
+  compat::stroke_style_properties closed_cover_dash_properties =
+      round_path_stroke_properties;
+  closed_cover_dash_properties.dash = compat::dash_style::custom;
+  constexpr std::array<float, 2U> closed_cover_dashes{{100.0F, 1.0F}};
+  compat::stroke_style* raw_closed_cover_dash_style = nullptr;
+  if (factory->CreateStrokeStyle(
+          &closed_cover_dash_properties,
+          closed_cover_dashes.data(),
+          static_cast<std::uint32_t>(closed_cover_dashes.size()),
+          &raw_closed_cover_dash_style) != com::ok ||
+      raw_closed_cover_dash_style == nullptr) {
+    return 402;
+  }
+  com::pointer<compat::stroke_style> closed_cover_dash_style;
+  closed_cover_dash_style.attach(raw_closed_cover_dash_style);
   compat::stroke_style_properties dashed_path_stroke_properties =
       bevel_path_stroke_properties;
   dashed_path_stroke_properties.dash = compat::dash_style::dash;
@@ -3157,6 +3172,16 @@ int run_tests()
   auto *raw_path_widen_sink = new simplified_sink();
   com::pointer<compat::simplified_geometry_sink> path_widen_sink;
   path_widen_sink.attach(raw_path_widen_sink);
+  auto *raw_bevel_path_widen_sink = new simplified_sink();
+  com::pointer<compat::simplified_geometry_sink> bevel_path_widen_sink;
+  bevel_path_widen_sink.attach(raw_bevel_path_widen_sink);
+  auto *raw_round_path_widen_sink = new simplified_sink();
+  com::pointer<compat::simplified_geometry_sink> round_path_widen_sink;
+  round_path_widen_sink.attach(raw_round_path_widen_sink);
+  auto *raw_closed_cover_dash_widen_sink = new simplified_sink();
+  com::pointer<compat::simplified_geometry_sink>
+      closed_cover_dash_widen_sink;
+  closed_cover_dash_widen_sink.attach(raw_closed_cover_dash_widen_sink);
   auto *raw_zero_path_widen_sink = new simplified_sink();
   com::pointer<compat::simplified_geometry_sink> zero_path_widen_sink;
   zero_path_widen_sink.attach(raw_zero_path_widen_sink);
@@ -3204,10 +3229,76 @@ int run_tests()
       raw_path_widen_sink->end_count != 2U ||
       raw_path_widen_sink->line_count != 6U ||
       query_path->Widen(
+          2.0F, bevel_path_stroke_style.get(), nullptr,
+          core::default_flattening_tolerance,
+          bevel_path_widen_sink.get()) != com::ok ||
+      query_path->Widen(
+          2.0F, round_path_stroke_style.get(), nullptr,
+          core::default_flattening_tolerance,
+          round_path_widen_sink.get()) != com::ok ||
+      raw_bevel_path_widen_sink->begin_count != 2U ||
+      raw_bevel_path_widen_sink->begin_count !=
+          raw_bevel_path_widen_sink->end_count ||
+      raw_round_path_widen_sink->begin_count != 2U ||
+      raw_round_path_widen_sink->begin_count !=
+          raw_round_path_widen_sink->end_count ||
+      raw_round_path_widen_sink->bezier_count == 0U ||
+      query_path->Widen(
+          0.25F, closed_cover_dash_style.get(), nullptr,
+          0.001F, closed_cover_dash_widen_sink.get()) != com::ok ||
+      raw_closed_cover_dash_widen_sink->begin_count != 2U ||
+      raw_closed_cover_dash_widen_sink->begin_count !=
+          raw_closed_cover_dash_widen_sink->end_count ||
+      raw_closed_cover_dash_widen_sink->bezier_count == 0U ||
+      query_path->Widen(
           0.0F, nullptr, nullptr, core::default_flattening_tolerance,
           zero_path_widen_sink.get()) != compat::not_implemented ||
       raw_zero_path_widen_sink->begin_count != 0U) {
     return 344;
+  }
+  for (std::uint32_t y_index = 0U; y_index < 28U; ++y_index) {
+    for (std::uint32_t x_index = 0U; x_index < 22U; ++x_index) {
+      const compat::point_2f point{
+          -0.41F + static_cast<float>(x_index) * 0.317F,
+          0.59F + static_cast<float>(y_index) * 0.347F};
+      std::int32_t bevel_contains = 0;
+      std::int32_t round_contains = 0;
+      std::int32_t closed_cover_dash_contains = 0;
+      if (query_path->StrokeContainsPoint(
+              point, 2.0F, bevel_path_stroke_style.get(), nullptr,
+              core::default_flattening_tolerance,
+              &bevel_contains) != com::ok ||
+          query_path->StrokeContainsPoint(
+              point, 2.0F, round_path_stroke_style.get(), nullptr,
+              core::default_flattening_tolerance,
+              &round_contains) != com::ok ||
+          query_path->StrokeContainsPoint(
+              point, 0.25F, closed_cover_dash_style.get(), nullptr,
+              0.001F, &closed_cover_dash_contains) != com::ok ||
+          captured_fill_contains(*raw_bevel_path_widen_sink, point) !=
+              (bevel_contains != 0) ||
+          captured_fill_contains(*raw_round_path_widen_sink, point) !=
+              (round_contains != 0) ||
+          captured_fill_contains(
+              *raw_closed_cover_dash_widen_sink, point) !=
+              (closed_cover_dash_contains != 0)) {
+        std::fprintf(
+            stderr,
+            "closed styled widen mismatch point=%g,%g bevel=%d/%d "
+            "round=%d/%d\n",
+            point.x,
+            point.y,
+            captured_fill_contains(*raw_bevel_path_widen_sink, point)
+                ? 1
+                : 0,
+            bevel_contains,
+            captured_fill_contains(*raw_round_path_widen_sink, point)
+                ? 1
+                : 0,
+            round_contains);
+        return 400;
+      }
+    }
   }
   if (query_path->Widen(
           0.5F, dashed_path_stroke_style.get(), nullptr,
@@ -8047,7 +8138,6 @@ int run_tests()
     system_factory->Release();
     return 355;
   }
-  system_bevel_path_stroke_style->Release();
   BOOL system_round_corner_outside = FALSE;
   BOOL system_round_corner_inside = FALSE;
   if (FAILED(system_query_boolean_path->StrokeContainsPoint(
@@ -8062,13 +8152,172 @@ int run_tests()
           &system_round_corner_inside)) ||
       system_round_corner_outside != FALSE ||
       system_round_corner_inside == FALSE) {
+    system_bevel_path_stroke_style->Release();
     system_round_path_stroke_style->Release();
     system_query_boolean_path->Release();
     system_input_boolean_path->Release();
     system_factory->Release();
     return 359;
   }
+  D2D1_STROKE_STYLE_PROPERTIES system_closed_cover_dash_properties =
+      system_round_path_properties;
+  system_closed_cover_dash_properties.dashStyle =
+      D2D1_DASH_STYLE_CUSTOM;
+  constexpr std::array<float, 2U> system_closed_cover_dashes{{
+      100.0F,
+      1.0F,
+  }};
+  ID2D1StrokeStyle* system_closed_cover_dash_style = nullptr;
+  if (FAILED(system_factory->CreateStrokeStyle(
+          &system_closed_cover_dash_properties,
+          system_closed_cover_dashes.data(),
+          static_cast<UINT32>(system_closed_cover_dashes.size()),
+          &system_closed_cover_dash_style)) ||
+      system_closed_cover_dash_style == nullptr) {
+    system_bevel_path_stroke_style->Release();
+    system_round_path_stroke_style->Release();
+    system_query_boolean_path->Release();
+    system_input_boolean_path->Release();
+    system_factory->Release();
+    return 403;
+  }
+  auto* raw_system_bevel_path_widen_sink = new simplified_sink();
+  com::pointer<compat::simplified_geometry_sink>
+      system_bevel_path_widen_sink;
+  system_bevel_path_widen_sink.attach(raw_system_bevel_path_widen_sink);
+  auto* raw_system_round_path_widen_sink = new simplified_sink();
+  com::pointer<compat::simplified_geometry_sink>
+      system_round_path_widen_sink;
+  system_round_path_widen_sink.attach(raw_system_round_path_widen_sink);
+  auto* raw_system_closed_cover_dash_widen_sink = new simplified_sink();
+  com::pointer<compat::simplified_geometry_sink>
+      system_closed_cover_dash_widen_sink;
+  system_closed_cover_dash_widen_sink.attach(
+      raw_system_closed_cover_dash_widen_sink);
+  const HRESULT system_bevel_path_widen_status =
+      system_query_boolean_path->Widen(
+          2.0F,
+          system_bevel_path_stroke_style,
+          nullptr,
+          0.001F,
+          reinterpret_cast<ID2D1SimplifiedGeometrySink*>(
+              system_bevel_path_widen_sink.get()));
+  const HRESULT system_round_path_widen_status =
+      system_query_boolean_path->Widen(
+          2.0F,
+          system_round_path_stroke_style,
+          nullptr,
+          0.001F,
+          reinterpret_cast<ID2D1SimplifiedGeometrySink*>(
+              system_round_path_widen_sink.get()));
+  const HRESULT system_closed_cover_dash_widen_status =
+      system_query_boolean_path->Widen(
+          0.25F,
+          system_closed_cover_dash_style,
+          nullptr,
+          0.001F,
+          reinterpret_cast<ID2D1SimplifiedGeometrySink*>(
+              system_closed_cover_dash_widen_sink.get()));
+  bool system_closed_style_widen_matches =
+      SUCCEEDED(system_bevel_path_widen_status) &&
+      SUCCEEDED(system_round_path_widen_status) &&
+      SUCCEEDED(system_closed_cover_dash_widen_status);
+  for (std::uint32_t y_index = 0U;
+       system_closed_style_widen_matches && y_index < 28U;
+       ++y_index) {
+    for (std::uint32_t x_index = 0U; x_index < 22U; ++x_index) {
+      const compat::point_2f point{
+          -0.41F + static_cast<float>(x_index) * 0.317F,
+          0.59F + static_cast<float>(y_index) * 0.347F};
+      BOOL system_bevel_contains = FALSE;
+      BOOL system_round_contains = FALSE;
+      BOOL system_closed_cover_dash_contains = FALSE;
+      const HRESULT system_bevel_contains_status =
+          system_query_boolean_path->StrokeContainsPoint(
+              D2D1_POINT_2F{point.x, point.y},
+              2.0F,
+              system_bevel_path_stroke_style,
+              nullptr,
+              0.001F,
+              &system_bevel_contains);
+      const HRESULT system_round_contains_status =
+          system_query_boolean_path->StrokeContainsPoint(
+              D2D1_POINT_2F{point.x, point.y},
+              2.0F,
+              system_round_path_stroke_style,
+              nullptr,
+              0.001F,
+              &system_round_contains);
+      const HRESULT system_closed_cover_dash_contains_status =
+          system_query_boolean_path->StrokeContainsPoint(
+              D2D1_POINT_2F{point.x, point.y},
+              0.25F,
+              system_closed_cover_dash_style,
+              nullptr,
+              0.001F,
+              &system_closed_cover_dash_contains);
+      bool near_round_boundary = false;
+      bool near_closed_cover_boundary = false;
+      constexpr std::array<compat::point_2f, 4U> corners{{
+          {1.0F, 2.0F},
+          {5.0F, 2.0F},
+          {5.0F, 8.0F},
+          {1.0F, 8.0F},
+      }};
+      for (const compat::point_2f corner : corners) {
+        const double distance = std::hypot(
+            static_cast<double>(point.x) - corner.x,
+            static_cast<double>(point.y) - corner.y);
+        near_round_boundary = near_round_boundary ||
+            std::abs(distance - 1.0) < 0.005;
+        near_closed_cover_boundary = near_closed_cover_boundary ||
+            std::abs(distance - 0.125) < 0.001;
+      }
+      const bool round_matches = captured_fill_contains(
+          *raw_round_path_widen_sink, point) ==
+          (system_round_contains != FALSE);
+      const bool closed_cover_matches = captured_fill_contains(
+          *raw_closed_cover_dash_widen_sink, point) ==
+          (system_closed_cover_dash_contains != FALSE);
+      if (FAILED(system_bevel_contains_status) ||
+          FAILED(system_round_contains_status) ||
+          FAILED(system_closed_cover_dash_contains_status) ||
+          captured_fill_contains(*raw_bevel_path_widen_sink, point) !=
+              (system_bevel_contains != FALSE) ||
+          (!closed_cover_matches && !near_closed_cover_boundary) ||
+          (!round_matches && !near_round_boundary)) {
+        std::fprintf(
+            stderr,
+            "system closed styled widen mismatch point=%g,%g bevel=%d/%d "
+            "round=%d/%d statuses=%08lx/%08lx widen=%08lx/%08lx\n",
+            point.x,
+            point.y,
+            captured_fill_contains(*raw_bevel_path_widen_sink, point)
+                ? 1
+                : 0,
+            system_bevel_contains != FALSE ? 1 : 0,
+            captured_fill_contains(*raw_round_path_widen_sink, point)
+                ? 1
+                : 0,
+            system_round_contains != FALSE ? 1 : 0,
+            static_cast<unsigned long>(system_bevel_contains_status),
+            static_cast<unsigned long>(system_round_contains_status),
+            static_cast<unsigned long>(system_bevel_path_widen_status),
+            static_cast<unsigned long>(system_round_path_widen_status));
+        system_closed_style_widen_matches = false;
+        break;
+      }
+    }
+  }
+  system_closed_cover_dash_style->Release();
+  system_bevel_path_stroke_style->Release();
   system_round_path_stroke_style->Release();
+  if (!system_closed_style_widen_matches) {
+    system_query_boolean_path->Release();
+    system_input_boolean_path->Release();
+    system_factory->Release();
+    return 401;
+  }
   D2D1_STROKE_STYLE_PROPERTIES system_dashed_path_properties =
       system_bevel_path_properties;
   system_dashed_path_properties.dashStyle = D2D1_DASH_STYLE_DASH;
