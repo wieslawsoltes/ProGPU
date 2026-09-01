@@ -290,6 +290,8 @@ public sealed class Direct2DInteropContractTests
         Assert.Contains("struct text_renderer : com::unknown", header, StringComparison.Ordinal);
         Assert.Contains("text_renderer_interface_id", header, StringComparison.Ordinal);
         Assert.Contains("text_layout_interface_id", header, StringComparison.Ordinal);
+        Assert.Contains("portable_text_layout_factory_interface_id", header, StringComparison.Ordinal);
+        Assert.Contains("struct portable_text_layout_factory", header, StringComparison.Ordinal);
         Assert.Contains("struct underline final", header, StringComparison.Ordinal);
         Assert.Contains("struct strikethrough final", header, StringComparison.Ordinal);
         Assert.Contains("struct gradient_stop_collection : resource", header, StringComparison.Ordinal);
@@ -321,6 +323,7 @@ public sealed class Direct2DInteropContractTests
         Assert.Contains("class portable_text_renderer final", renderTargetSource, StringComparison.Ordinal);
         Assert.Contains("offsetof(text_layout_vtable, draw) == 58U * sizeof(void*)", renderTargetSource, StringComparison.Ordinal);
         Assert.Contains("layout_vtable->draw(", renderTargetSource, StringComparison.Ordinal);
+        Assert.Contains("layout_factory->CreateTextLayout(", renderTargetSource, StringComparison.Ordinal);
         Assert.Contains("class portable_shared_bitmap final", renderTargetSource, StringComparison.Ordinal);
         Assert.Contains("class portable_shared_render_target_bitmap final", renderTargetSource, StringComparison.Ordinal);
         Assert.Contains("GetStorageIdentity()", renderTargetSource, StringComparison.Ordinal);
@@ -332,7 +335,9 @@ public sealed class Direct2DInteropContractTests
         Assert.Contains("native_target->DrawGlyphRun(", nativeTest, StringComparison.Ordinal);
         Assert.Contains("sizeof(compat::glyph_run) == sizeof(DWRITE_GLYPH_RUN)", nativeTest, StringComparison.Ordinal);
         Assert.Contains("struct fake_text_layout final", nativeTest, StringComparison.Ordinal);
+        Assert.Contains("class fake_text_format final", nativeTest, StringComparison.Ordinal);
         Assert.Contains("native_target->DrawTextLayout(", nativeTest, StringComparison.Ordinal);
+        Assert.Contains("native_target->DrawText(", nativeTest, StringComparison.Ordinal);
         Assert.Contains("sizeof(compat::underline) == sizeof(DWRITE_UNDERLINE)", nativeTest, StringComparison.Ordinal);
         Assert.Contains("render_scene_target(", submissionHeader, StringComparison.Ordinal);
         Assert.Contains("progpu_native_engine_update_scene", submissionHeader, StringComparison.Ordinal);

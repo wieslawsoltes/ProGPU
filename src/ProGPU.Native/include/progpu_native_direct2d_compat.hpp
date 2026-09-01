@@ -200,6 +200,11 @@ inline constexpr com::guid text_layout_interface_id{
     0x6D14U,
     0x410BU,
     {0x9BU, 0xFEU, 0x0BU, 0x18U, 0x2BU, 0xB7U, 0x09U, 0x61U}};
+inline constexpr com::guid portable_text_layout_factory_interface_id{
+    0x425E876DU,
+    0xCE4AU,
+    0x49EEU,
+    {0xAAU, 0x49U, 0xCEU, 0x74U, 0x91U, 0xD0U, 0xF7U, 0x0EU}};
 inline constexpr com::guid wic_bitmap_source_interface_id{
     0x00000120U,
     0xA8F2U,
@@ -602,6 +607,19 @@ struct text_renderer : com::unknown {
         std::int32_t is_sideways,
         std::int32_t is_right_to_left,
         com::unknown* client_drawing_effect) noexcept = 0;
+};
+
+/* A typed portable extension implemented by ProGPU-owned text formats. The
+ * original IDWriteTextFormat has no GetFactory method, so DrawText cannot
+ * construct a layout cross-platform without this explicit seam. */
+struct portable_text_layout_factory : com::unknown {
+    virtual com::result PROGPU_NATIVE_COM_CALL CreateTextLayout(
+        const wchar_t* text,
+        std::uint32_t text_length,
+        float maximum_width,
+        float maximum_height,
+        measuring_mode measuring,
+        text_layout** layout) noexcept = 0;
 };
 
 struct geometry_sink : simplified_geometry_sink {
