@@ -119,6 +119,16 @@ inline constexpr com::guid geometry_sink_interface_id{
     0x12E2U,
     0x11DCU,
     {0x9FU, 0xEDU, 0x00U, 0x11U, 0x43U, 0xA0U, 0x55U, 0xF9U}};
+inline constexpr com::guid tessellation_sink_interface_id{
+    0x2CD906C1U,
+    0x12E2U,
+    0x11DCU,
+    {0x9FU, 0xEDU, 0x00U, 0x11U, 0x43U, 0xA0U, 0x55U, 0xF9U}};
+inline constexpr com::guid mesh_interface_id{
+    0x2CD906C2U,
+    0x12E2U,
+    0x11DCU,
+    {0x9FU, 0xEDU, 0x00U, 0x11U, 0x43U, 0xA0U, 0x55U, 0xF9U}};
 inline constexpr com::guid stroke_style_interface_id{
     0x2CD9069DU,
     0x12E2U,
@@ -435,6 +445,11 @@ struct tessellation_sink : com::unknown {
 struct resource : com::unknown {
     virtual void PROGPU_NATIVE_COM_CALL GetFactory(factory** value) const
         noexcept = 0;
+};
+
+struct mesh : resource {
+    virtual com::result PROGPU_NATIVE_COM_CALL Open(
+        tessellation_sink** sink) noexcept = 0;
 };
 
 struct geometry : resource {

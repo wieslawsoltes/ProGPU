@@ -8,6 +8,7 @@
 #include <memory>
 #include <mutex>
 #include <new>
+#include <span>
 #include <utility>
 #include <vector>
 
@@ -412,6 +413,181 @@ struct flat_edge final {
     std::uint32_t segment_index = 0U;
     std::uint32_t figure_index = 0U;
 };
+
+[[nodiscard]] double triangle_cross(
+    point_2f first,
+    point_2f second,
+    point_2f third) noexcept
+{
+    return (static_cast<double>(second.x) - first.x) *
+            (static_cast<double>(third.y) - first.y) -
+        (static_cast<double>(second.y) - first.y) *
+            (static_cast<double>(third.x) - first.x);
+}
+
+[[nodiscard]] bool point_in_triangle(
+    point_2f point,
+    point_2f first,
+    point_2f second,
+    point_2f third,
+    bool counter_clockwise) noexcept
+{
+    const double first_cross = triangle_cross(first, second, point);
+    const double second_cross = triangle_cross(second, third, point);
+    const double third_cross = triangle_cross(third, first, point);
+    return counter_clockwise
+        ? first_cross >= 0.0 && second_cross >= 0.0 && third_cross >= 0.0
+        : first_cross <= 0.0 && second_cross <= 0.0 && third_cross <= 0.0;
+}
+
+[[nodiscard]] bool segments_intersect(
+    point_2f first_start,
+    point_2f first_end,
+    point_2f second_start,
+    point_2f second_end) noexcept
+{
+    const double a = triangle_cross(first_start, first_end, second_start);
+    const double b = triangle_cross(first_start, first_end, second_end);
+    const double c = triangle_cross(second_start, second_end, first_start);
+    const double d = triangle_cross(second_start, second_end, first_end);
+    return ((a > 0.0 && b < 0.0) || (a < 0.0 && b > 0.0)) &&
+        ((c > 0.0 && d < 0.0) || (c < 0.0 && d > 0.0));
+}
+
+[[nodiscard]] bool polygon_contains_point(
+    std::span<const point_2f> polygon,
+    point_2f point) noexcept
+{
+    bool inside = false;
+    for (std::size_t index = 0U, previous = polygon.size() - 1U;
+         index < polygon.size();
+         previous = index++) {
+        const point_2f start = polygon[previous];
+        const point_2f end = polygon[index];
+        if ((start.y > point.y) == (end.y > point.y)) {
+            continue;
+        }
+        const double crossing_x = static_cast<double>(start.x) +
+            (static_cast<double>(point.y) - start.y) *
+                (static_cast<double>(end.x) - start.x) /
+                (static_cast<double>(end.y) - start.y);
+        if (crossing_x > point.x) {
+            inside = !inside;
+        }
+    }
+    return inside;
+}
+
+[[nodiscard]] com::result triangulate_simple_polygon(
+    std::span<const point_2f> source,
+    std::vector<triangle>& triangles) noexcept
+{
+    try {
+        std::vector<point_2f> points;
+        points.reserve(source.size());
+        for (const point_2f point : source) {
+            if (points.empty() || !same_point(points.back(), point)) {
+                points.push_back(point);
+            }
+        }
+        if (points.size() > 1U && same_point(points.front(), points.back())) {
+            points.pop_back();
+        }
+        bool changed = true;
+        while (changed && points.size() >= 3U) {
+            changed = false;
+            for (std::size_t index = 0U; index < points.size(); ++index) {
+                const point_2f previous = points[
+                    (index + points.size() - 1U) % points.size()];
+                const point_2f current = points[index];
+                const point_2f next = points[(index + 1U) % points.size()];
+                if (triangle_cross(previous, current, next) == 0.0) {
+                    points.erase(points.begin() +
+                        static_cast<std::ptrdiff_t>(index));
+                    changed = true;
+                    break;
+                }
+            }
+        }
+        if (points.size() < 3U) {
+            return com::ok;
+        }
+        double twice_area = 0.0;
+        for (std::size_t index = 0U; index < points.size(); ++index) {
+            const point_2f current = points[index];
+            const point_2f next = points[(index + 1U) % points.size()];
+            twice_area += static_cast<double>(current.x) * next.y -
+                static_cast<double>(next.x) * current.y;
+        }
+        if (twice_area == 0.0) {
+            return com::ok;
+        }
+        const bool counter_clockwise = twice_area > 0.0;
+        std::vector<std::size_t> remaining(points.size());
+        for (std::size_t index = 0U; index < remaining.size(); ++index) {
+            remaining[index] = index;
+        }
+        triangles.reserve(triangles.size() + points.size() - 2U);
+        while (remaining.size() > 3U) {
+            bool found_ear = false;
+            for (std::size_t offset = 0U; offset < remaining.size(); ++offset) {
+                const std::size_t previous_index = remaining[
+                    (offset + remaining.size() - 1U) % remaining.size()];
+                const std::size_t current_index = remaining[offset];
+                const std::size_t next_index =
+                    remaining[(offset + 1U) % remaining.size()];
+                const point_2f previous = points[previous_index];
+                const point_2f current = points[current_index];
+                const point_2f next = points[next_index];
+                const double cross = triangle_cross(previous, current, next);
+                if ((counter_clockwise && cross <= 0.0) ||
+                    (!counter_clockwise && cross >= 0.0)) {
+                    continue;
+                }
+                bool contains_vertex = false;
+                for (const std::size_t candidate : remaining) {
+                    if (candidate == previous_index ||
+                        candidate == current_index ||
+                        candidate == next_index) {
+                        continue;
+                    }
+                    if (point_in_triangle(
+                            points[candidate],
+                            previous,
+                            current,
+                            next,
+                            counter_clockwise)) {
+                        contains_vertex = true;
+                        break;
+                    }
+                }
+                if (contains_vertex) {
+                    continue;
+                }
+                triangles.push_back({previous, current, next});
+                remaining.erase(remaining.begin() +
+                    static_cast<std::ptrdiff_t>(offset));
+                found_ear = true;
+                break;
+            }
+            if (!found_ear) {
+                // Ear selection is topology-dependent; there are no
+                // independent lanes to vectorize. Fail closed for a
+                // self-intersecting or numerically ambiguous contour.
+                return not_implemented;
+            }
+        }
+        triangles.push_back({
+            points[remaining[0U]],
+            points[remaining[1U]],
+            points[remaining[2U]]});
+        return com::ok;
+    } catch (const std::bad_alloc&) {
+        return com::out_of_memory;
+    } catch (...) {
+        return failure;
+    }
+}
 
 class portable_geometry_sink final : public geometry_sink {
 public:
@@ -1117,11 +1293,139 @@ public:
     }
 
     com::result PROGPU_NATIVE_COM_CALL Tessellate(
-        const matrix_3x2_f*,
-        float,
-        tessellation_sink*) const noexcept override
+        const matrix_3x2_f* world_transform,
+        float flattening_tolerance,
+        tessellation_sink* sink) const noexcept override
     {
-        return not_implemented;
+        if (sink == nullptr) {
+            return com::pointer_error;
+        }
+        if (!closed()) {
+            return wrong_state;
+        }
+        if (!valid_tolerance(flattening_tolerance) ||
+            !core::valid_transform(world_transform)) {
+            return com::invalid_argument;
+        }
+        std::vector<flat_edge> edges;
+        const com::result edge_status = collect_flat_edges(
+            world_transform,
+            flattening_tolerance,
+            true,
+            edges);
+        if (com::failed(edge_status)) {
+            return edge_status;
+        }
+        try {
+            std::vector<std::vector<point_2f>> polygons(
+                data_->figures.size());
+            for (const auto& edge : edges) {
+                if (data_->figures[edge.figure_index].begin !=
+                    figure_begin::filled) {
+                    continue;
+                }
+                auto& polygon = polygons[edge.figure_index];
+                if (polygon.empty()) {
+                    polygon.push_back(edge.start);
+                }
+                polygon.push_back(edge.end);
+            }
+            polygons.erase(
+                std::remove_if(
+                    polygons.begin(),
+                    polygons.end(),
+                    [](const std::vector<point_2f>& polygon) {
+                        return polygon.size() < 4U;
+                    }),
+                polygons.end());
+            for (std::size_t first = 0U; first < polygons.size(); ++first) {
+                const auto first_polygon = std::span(polygons[first]);
+                const std::size_t first_edge_count =
+                    same_point(first_polygon.front(), first_polygon.back())
+                    ? first_polygon.size() - 1U
+                    : first_polygon.size();
+                for (std::size_t left = 0U;
+                     left < first_edge_count;
+                     ++left) {
+                    const std::size_t left_next =
+                        (left + 1U) % first_edge_count;
+                    for (std::size_t right = left + 1U;
+                         right < first_edge_count;
+                         ++right) {
+                        const std::size_t right_next =
+                            (right + 1U) % first_edge_count;
+                        if (left_next == right || right_next == left) {
+                            continue;
+                        }
+                        if (segments_intersect(
+                                first_polygon[left],
+                                first_polygon[left_next],
+                                first_polygon[right],
+                                first_polygon[right_next])) {
+                            return not_implemented;
+                        }
+                    }
+                }
+                for (std::size_t second = first + 1U;
+                     second < polygons.size();
+                     ++second) {
+                    const auto second_polygon = std::span(polygons[second]);
+                    const std::size_t second_edge_count = same_point(
+                            second_polygon.front(), second_polygon.back())
+                        ? second_polygon.size() - 1U
+                        : second_polygon.size();
+                    for (std::size_t left = 0U;
+                         left < first_edge_count;
+                         ++left) {
+                        for (std::size_t right = 0U;
+                             right < second_edge_count;
+                             ++right) {
+                            if (segments_intersect(
+                                    first_polygon[left],
+                                    first_polygon[(left + 1U) %
+                                        first_edge_count],
+                                    second_polygon[right],
+                                    second_polygon[(right + 1U) %
+                                        second_edge_count])) {
+                                return not_implemented;
+                            }
+                        }
+                    }
+                    if (polygon_contains_point(
+                            first_polygon.first(first_edge_count),
+                            second_polygon.front()) ||
+                        polygon_contains_point(
+                            second_polygon.first(second_edge_count),
+                            first_polygon.front())) {
+                        // Nested contours require a hole-aware triangulator.
+                        // Preserve exact fill-mode semantics by failing closed.
+                        return not_implemented;
+                    }
+                }
+            }
+            std::vector<triangle> triangles;
+            for (const auto& polygon : polygons) {
+                const com::result result = triangulate_simple_polygon(
+                    polygon, triangles);
+                if (com::failed(result)) {
+                    return result;
+                }
+            }
+            if (triangles.size() >
+                (std::numeric_limits<std::uint32_t>::max)()) {
+                return com::out_of_memory;
+            }
+            if (!triangles.empty()) {
+                sink->AddTriangles(
+                    triangles.data(),
+                    static_cast<std::uint32_t>(triangles.size()));
+            }
+            return com::ok;
+        } catch (const std::bad_alloc&) {
+            return com::out_of_memory;
+        } catch (...) {
+            return failure;
+        }
     }
 
     com::result PROGPU_NATIVE_COM_CALL CombineWithGeometry(

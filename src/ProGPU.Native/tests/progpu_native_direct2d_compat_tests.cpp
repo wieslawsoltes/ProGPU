@@ -297,6 +297,7 @@ static_assert(
 
 static_assert(
     sizeof(compat::layer_parameters) == sizeof(D2D1_LAYER_PARAMETERS));
+static_assert(sizeof(compat::triangle) == sizeof(D2D1_TRIANGLE));
 static_assert(
     offsetof(compat::layer_parameters, content_bounds) ==
     offsetof(D2D1_LAYER_PARAMETERS, contentBounds));
@@ -673,6 +674,17 @@ int main()
         !approximately_equal(query_tangent.x, 1.0F) ||
         !approximately_equal(query_tangent.y, 0.0F)) {
         return 211;
+    }
+    auto* raw_query_triangles = new triangle_sink();
+    com::pointer<compat::tessellation_sink> query_triangles;
+    query_triangles.attach(raw_query_triangles);
+    if (query_path->Tessellate(
+            &transform,
+            core::default_flattening_tolerance,
+            query_triangles.get()) != com::ok ||
+        raw_query_triangles->count != 2U ||
+        !approximately_equal(raw_query_triangles->first.point1.x, 12.0F)) {
+        return 218;
     }
     auto* raw_query_simplified = new simplified_sink();
     com::pointer<compat::simplified_geometry_sink> query_simplified;
@@ -2429,6 +2441,88 @@ int main()
         return 172;
     }
 
+    compat::mesh* raw_target_mesh = nullptr;
+    if (target->CreateMesh(nullptr) != com::pointer_error ||
+        target->CreateMesh(&raw_target_mesh) != com::ok ||
+        raw_target_mesh == nullptr) {
+        return 208;
+    }
+    com::pointer<compat::mesh> target_mesh;
+    target_mesh.attach(raw_target_mesh);
+    com::pointer<compat::mesh> queried_target_mesh;
+    if (target_mesh.as(
+            compat::mesh_interface_id, queried_target_mesh) != com::ok ||
+        !queried_target_mesh ||
+        target_mesh->Open(nullptr) != com::pointer_error) {
+        return 209;
+    }
+    compat::tessellation_sink* raw_mesh_sink = nullptr;
+    if (target_mesh->Open(&raw_mesh_sink) != com::ok ||
+        raw_mesh_sink == nullptr) {
+        return 210;
+    }
+    com::pointer<compat::tessellation_sink> mesh_sink;
+    mesh_sink.attach(raw_mesh_sink);
+    const compat::triangle mesh_triangle{
+        {20.0F, 5.0F}, {20.0F, 21.0F}, {4.0F, 21.0F}};
+    mesh_sink->AddTriangles(&mesh_triangle, 1U);
+    if (query_path->Tessellate(
+            nullptr,
+            core::default_flattening_tolerance,
+            mesh_sink.get()) != com::ok ||
+        mesh_sink->Close() != com::ok ||
+        mesh_sink->Close() != compat::wrong_state ||
+        target_mesh->Open(&raw_mesh_sink) != compat::wrong_state) {
+        return 211;
+    }
+    target->BeginDraw();
+    target->FillMesh(
+        target_mesh.get(), static_cast<compat::brush*>(target_brush.get()));
+    if (target->EndDraw(nullptr, nullptr) != com::ok ||
+        scene_target->GetRequiredSceneSize() == 0U) {
+        return 212;
+    }
+    const std::uint64_t mesh_scene_size =
+        scene_target->GetRequiredSceneSize();
+    std::vector<std::byte> mesh_scene(
+        static_cast<std::size_t>(mesh_scene_size));
+    std::uint64_t mesh_scene_written = 0U;
+    if (scene_target->BuildScene(
+            mesh_scene.data(),
+            mesh_scene.size(),
+            &mesh_scene_written) != com::ok ||
+        mesh_scene_written != mesh_scene_size) {
+        return 213;
+    }
+    const auto* mesh_header = reinterpret_cast<
+        const progpu_native_scene_header*>(mesh_scene.data());
+    const auto* mesh_command = reinterpret_cast<
+        const progpu_native_scene_command*>(
+        mesh_scene.data() + mesh_header->command_offset);
+    if (mesh_header->command_count != 1U ||
+        mesh_header->resource_count < 2U ||
+        mesh_command->kind != PROGPU_NATIVE_SCENE_COMMAND_DRAW_PATH ||
+        mesh_command->resource_index >= mesh_header->resource_count) {
+        return 214;
+    }
+    const auto* mesh_resource = reinterpret_cast<
+        const progpu_native_scene_resource*>(
+        mesh_scene.data() + mesh_header->resource_offset +
+        static_cast<std::size_t>(mesh_command->resource_index) *
+            mesh_header->resource_stride);
+    const auto* mesh_paths = reinterpret_cast<
+        const progpu_native_scene_path_fill*>(
+        mesh_scene.data() + mesh_resource->payload_offset);
+    if (mesh_resource->kind != PROGPU_NATIVE_SCENE_RESOURCE_PATH_BATCH ||
+        mesh_resource->payload_size != 3U * sizeof(*mesh_paths) ||
+        mesh_paths[0].segment_count != 3U ||
+        mesh_paths[1].segment_offset != 3U ||
+        mesh_paths[1].segment_count != 3U ||
+        mesh_paths[2].segment_offset != 6U ||
+        mesh_paths[2].segment_count != 3U) {
+        return 215;
+    }
+
     compat::render_target* unsupported =
         reinterpret_cast<compat::render_target*>(
         static_cast<std::uintptr_t>(1U));
@@ -2445,6 +2539,11 @@ int main()
 #if defined(_WIN32)
     if (!com::guid_equal(
             compat::factory_interface_id, __uuidof(ID2D1Factory)) ||
+        !com::guid_equal(
+            compat::tessellation_sink_interface_id,
+            __uuidof(ID2D1TessellationSink)) ||
+        !com::guid_equal(
+            compat::mesh_interface_id, __uuidof(ID2D1Mesh)) ||
         !com::guid_equal(
             compat::rectangle_geometry_interface_id,
             __uuidof(ID2D1RectangleGeometry)) ||
@@ -2640,6 +2739,39 @@ int main()
         native_target_brush == nullptr) {
         return 128;
     }
+    ID2D1Mesh* native_target_mesh = nullptr;
+    ID2D1Mesh* queried_native_target_mesh = nullptr;
+    ID2D1TessellationSink* native_mesh_sink = nullptr;
+    D2D1_TRIANGLE native_mesh_triangle{};
+    native_mesh_triangle.point1 = D2D1_POINT_2F{58.0F, 9.0F};
+    native_mesh_triangle.point2 = D2D1_POINT_2F{70.0F, 9.0F};
+    native_mesh_triangle.point3 = D2D1_POINT_2F{58.0F, 25.0F};
+    if (FAILED(native_target->CreateMesh(&native_target_mesh)) ||
+        native_target_mesh == nullptr ||
+        FAILED(native_target_mesh->QueryInterface(
+            __uuidof(ID2D1Mesh),
+            reinterpret_cast<void**>(&queried_native_target_mesh))) ||
+        queried_native_target_mesh == nullptr ||
+        FAILED(native_target_mesh->Open(&native_mesh_sink)) ||
+        native_mesh_sink == nullptr) {
+        if (queried_native_target_mesh != nullptr) {
+            queried_native_target_mesh->Release();
+        }
+        if (native_target_mesh != nullptr) {
+            native_target_mesh->Release();
+        }
+        native_target_brush->Release();
+        return 216;
+    }
+    queried_native_target_mesh->Release();
+    native_mesh_sink->AddTriangles(&native_mesh_triangle, 1U);
+    if (FAILED(native_mesh_sink->Close())) {
+        native_mesh_sink->Release();
+        native_target_mesh->Release();
+        native_target_brush->Release();
+        return 217;
+    }
+    native_mesh_sink->Release();
     native_target->BeginDraw();
     const D2D1_RECT_F native_target_rectangle{8.0F, 9.0F, 30.0F, 40.0F};
     native_target->FillRectangle(
@@ -2655,12 +2787,14 @@ int main()
         1.0F,
         D2D1_BITMAP_INTERPOLATION_MODE_NEAREST_NEIGHBOR,
         nullptr);
+    native_target->FillMesh(native_target_mesh, native_target_brush);
     const HRESULT native_target_end_status = native_target->EndDraw();
+    native_target_mesh->Release();
     native_target_brush->Release();
     scene_target->GetSummary(&target_summary);
     if (FAILED(native_target_end_status) ||
         target_summary.generation != 20U ||
-        target_summary.draw_count != 3U ||
+        target_summary.draw_count != 4U ||
         scene_target->GetRequiredSceneSize() == 0U) {
         return 129;
     }

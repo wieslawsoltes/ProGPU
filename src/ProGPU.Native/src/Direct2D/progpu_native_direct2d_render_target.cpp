@@ -40,6 +40,11 @@ constexpr com::guid scene_layer_native_interface_id{
     0x681EU,
     0x4B25U,
     {0xB1U, 0xEFU, 0x91U, 0x47U, 0x45U, 0x68U, 0x3CU, 0x17U}};
+constexpr com::guid scene_mesh_native_interface_id{
+    0x4F69A1E8U,
+    0x46C1U,
+    0x4CB8U,
+    {0x9EU, 0xD4U, 0x23U, 0x24U, 0x58U, 0x36U, 0xBEU, 0x9BU}};
 
 [[nodiscard]] bool valid_color(const color_f& value) noexcept
 {
@@ -173,6 +178,13 @@ struct scene_layer_native : com::unknown {
         size_f required_size) noexcept = 0;
     virtual void PROGPU_NATIVE_COM_CALL EndUse(
         const void* target) noexcept = 0;
+};
+
+struct scene_mesh_native : com::unknown {
+    virtual com::result PROGPU_NATIVE_COM_CALL GetTriangles(
+        const void* target,
+        const triangle** triangles,
+        std::uint32_t* triangle_count) const noexcept = 0;
 };
 
 class portable_scene_path_sink final : public simplified_geometry_sink {
@@ -1617,6 +1629,230 @@ private:
     matrix_3x2_f transform_ = identity_transform;
 };
 
+class portable_mesh;
+
+class portable_tessellation_sink final : public tessellation_sink {
+public:
+    explicit portable_tessellation_sink(portable_mesh* owner) noexcept;
+
+    com::result PROGPU_NATIVE_COM_CALL QueryInterface(
+        com::guid_ref interface_id,
+        void** value) noexcept override
+    {
+        if (value == nullptr) {
+            return com::pointer_error;
+        }
+        *value = nullptr;
+        if (com::guid_equal(interface_id, com::unknown_interface_id()) ||
+            com::guid_equal(interface_id, tessellation_sink_interface_id)) {
+            *value = static_cast<tessellation_sink*>(this);
+            AddRef();
+            return com::ok;
+        }
+        return com::no_interface;
+    }
+
+    com::reference_count_value PROGPU_NATIVE_COM_CALL AddRef()
+        noexcept override
+    {
+        return reference_count_.add_ref();
+    }
+
+    com::reference_count_value PROGPU_NATIVE_COM_CALL Release()
+        noexcept override
+    {
+        return reference_count_.release(this);
+    }
+
+    void PROGPU_NATIVE_COM_CALL AddTriangles(
+        const triangle* values,
+        std::uint32_t value_count) noexcept override
+    {
+        if (closed_ || com::failed(failure_) || value_count == 0U) {
+            return;
+        }
+        const std::size_t maximum_count =
+            (std::numeric_limits<std::uint32_t>::max)();
+        if (values == nullptr || triangles_.size() > maximum_count ||
+            value_count > maximum_count - triangles_.size()) {
+            failure_ = com::invalid_argument;
+            return;
+        }
+        for (std::uint32_t index = 0U; index < value_count; ++index) {
+            if (!valid_point(values[index].point1) ||
+                !valid_point(values[index].point2) ||
+                !valid_point(values[index].point3)) {
+                failure_ = com::invalid_argument;
+                return;
+            }
+        }
+        try {
+            triangles_.insert(
+                triangles_.end(), values, values + value_count);
+        } catch (const std::bad_alloc&) {
+            failure_ = com::out_of_memory;
+        } catch (...) {
+            failure_ = failure;
+        }
+    }
+
+    com::result PROGPU_NATIVE_COM_CALL Close() noexcept override;
+
+private:
+    friend class com::atomic_reference_count<portable_tessellation_sink>;
+    ~portable_tessellation_sink() = default;
+
+    com::atomic_reference_count<portable_tessellation_sink> reference_count_;
+    com::pointer<portable_mesh> owner_;
+    std::vector<triangle> triangles_;
+    com::result failure_ = com::ok;
+    bool closed_ = false;
+};
+
+class portable_mesh final : public mesh, public scene_mesh_native {
+public:
+    portable_mesh(factory* owner, const void* target) noexcept
+        : owner_(owner), target_(target)
+    {
+    }
+
+    com::result PROGPU_NATIVE_COM_CALL QueryInterface(
+        com::guid_ref interface_id,
+        void** value) noexcept override
+    {
+        if (value == nullptr) {
+            return com::pointer_error;
+        }
+        *value = nullptr;
+        if (com::guid_equal(interface_id, com::unknown_interface_id()) ||
+            com::guid_equal(interface_id, resource_interface_id) ||
+            com::guid_equal(interface_id, mesh_interface_id)) {
+            *value = static_cast<mesh*>(this);
+        } else if (com::guid_equal(
+                interface_id, scene_mesh_native_interface_id)) {
+            *value = static_cast<scene_mesh_native*>(this);
+        } else {
+            return com::no_interface;
+        }
+        AddRef();
+        return com::ok;
+    }
+
+    com::reference_count_value PROGPU_NATIVE_COM_CALL AddRef()
+        noexcept override
+    {
+        return reference_count_.add_ref();
+    }
+
+    com::reference_count_value PROGPU_NATIVE_COM_CALL Release()
+        noexcept override
+    {
+        return reference_count_.release(this);
+    }
+
+    void PROGPU_NATIVE_COM_CALL GetFactory(factory** value) const
+        noexcept override
+    {
+        if (value == nullptr) {
+            return;
+        }
+        *value = owner_.get();
+        if (*value != nullptr) {
+            (*value)->AddRef();
+        }
+    }
+
+    com::result PROGPU_NATIVE_COM_CALL Open(
+        tessellation_sink** sink) noexcept override;
+
+    com::result PROGPU_NATIVE_COM_CALL GetTriangles(
+        const void* target,
+        const triangle** values,
+        std::uint32_t* value_count) const noexcept override
+    {
+        if (values == nullptr || value_count == nullptr) {
+            return com::pointer_error;
+        }
+        *values = nullptr;
+        *value_count = 0U;
+        const std::lock_guard lock(mutex_);
+        if (target != target_) {
+            return wrong_factory;
+        }
+        if (!closed_) {
+            return wrong_state;
+        }
+        *values = triangles_.data();
+        *value_count = static_cast<std::uint32_t>(triangles_.size());
+        return com::ok;
+    }
+
+    com::result Commit(
+        std::vector<triangle> values,
+        com::result result) noexcept
+    {
+        const std::lock_guard lock(mutex_);
+        if (!open_ || closed_) {
+            return wrong_state;
+        }
+        closed_ = true;
+        if (com::failed(result)) {
+            return result;
+        }
+        triangles_ = std::move(values);
+        return com::ok;
+    }
+
+private:
+    friend class com::atomic_reference_count<portable_mesh>;
+    ~portable_mesh() = default;
+
+    com::atomic_reference_count<portable_mesh> reference_count_;
+    com::pointer<factory> owner_;
+    const void* target_ = nullptr;
+    mutable std::mutex mutex_;
+    std::vector<triangle> triangles_;
+    bool open_ = false;
+    bool closed_ = false;
+};
+
+portable_tessellation_sink::portable_tessellation_sink(
+    portable_mesh* owner) noexcept
+    : owner_(owner)
+{
+}
+
+com::result portable_tessellation_sink::Close() noexcept
+{
+    if (closed_) {
+        return wrong_state;
+    }
+    closed_ = true;
+    const com::result result = owner_->Commit(
+        std::move(triangles_), failure_);
+    owner_.reset();
+    return result;
+}
+
+com::result portable_mesh::Open(tessellation_sink** sink) noexcept
+{
+    if (sink == nullptr) {
+        return com::pointer_error;
+    }
+    *sink = nullptr;
+    const std::lock_guard lock(mutex_);
+    if (open_ || closed_) {
+        return wrong_state;
+    }
+    auto* created = new (std::nothrow) portable_tessellation_sink(this);
+    if (created == nullptr) {
+        return com::out_of_memory;
+    }
+    open_ = true;
+    *sink = created;
+    return com::ok;
+}
+
 class portable_layer final : public layer, public scene_layer_native {
 public:
     portable_layer(factory* owner, size_f size) noexcept
@@ -2091,7 +2327,16 @@ public:
     com::result PROGPU_NATIVE_COM_CALL CreateMesh(mesh** value)
         noexcept override
     {
-        return unsupported_output(value);
+        if (value == nullptr) {
+            return com::pointer_error;
+        }
+        *value = nullptr;
+        auto* created = new (std::nothrow) portable_mesh(owner_.get(), this);
+        if (created == nullptr) {
+            return com::out_of_memory;
+        }
+        *value = created;
+        return com::ok;
     }
 
     void PROGPU_NATIVE_COM_CALL DrawLine(
@@ -2221,9 +2466,165 @@ public:
         draw_filled_geometry(geometry_value, brush_value, opacity_brush);
     }
 
-    void PROGPU_NATIVE_COM_CALL FillMesh(mesh*, brush*) noexcept override
+    void PROGPU_NATIVE_COM_CALL FillMesh(
+        mesh* mesh_value,
+        brush* brush_value) noexcept override
     {
-        unsupported_draw();
+        const std::lock_guard lock(mutex_);
+        if (!can_draw()) {
+            return;
+        }
+        if (mesh_value == nullptr || brush_value == nullptr) {
+            latch(com::invalid_argument);
+            return;
+        }
+        factory* raw_factory = nullptr;
+        mesh_value->GetFactory(&raw_factory);
+        com::pointer<factory> mesh_factory;
+        mesh_factory.attach(raw_factory);
+        if (mesh_factory.get() != owner_.get()) {
+            latch(wrong_factory);
+            return;
+        }
+        raw_factory = nullptr;
+        brush_value->GetFactory(&raw_factory);
+        com::pointer<factory> brush_factory;
+        brush_factory.attach(raw_factory);
+        if (brush_factory.get() != owner_.get()) {
+            latch(wrong_factory);
+            return;
+        }
+        scene_mesh_native* raw_native = nullptr;
+        const com::result query = mesh_value->QueryInterface(
+            scene_mesh_native_interface_id,
+            reinterpret_cast<void**>(&raw_native));
+        com::pointer<scene_mesh_native> native;
+        native.attach(raw_native);
+        if (com::failed(query) || !native) {
+            latch(com::failed(query) ? query : not_implemented);
+            return;
+        }
+        const triangle* triangles = nullptr;
+        std::uint32_t triangle_count = 0U;
+        const com::result read_result = native->GetTriangles(
+            this, &triangles, &triangle_count);
+        if (com::failed(read_result)) {
+            latch(read_result);
+            return;
+        }
+        if (triangle_count == 0U) {
+            return;
+        }
+        if (triangles == nullptr) {
+            latch(failure);
+            return;
+        }
+        try {
+            std::vector<progpu_native_path_segment> segments;
+            std::vector<progpu_native_scene_path_fill> paths;
+            std::vector<std::uint32_t> brush_indices;
+            if (static_cast<std::size_t>(triangle_count) >
+                segments.max_size() / 3U) {
+                latch(com::out_of_memory);
+                return;
+            }
+            segments.reserve(static_cast<std::size_t>(triangle_count) * 3U);
+            paths.reserve(triangle_count);
+            brush_indices.reserve(triangle_count);
+            rectangle_f local_bounds{
+                triangles[0].point1.x,
+                triangles[0].point1.y,
+                triangles[0].point1.x,
+                triangles[0].point1.y};
+            const auto include_point = [&](point_2f point) {
+                local_bounds.left = std::min(local_bounds.left, point.x);
+                local_bounds.top = std::min(local_bounds.top, point.y);
+                local_bounds.right = std::max(local_bounds.right, point.x);
+                local_bounds.bottom = std::max(local_bounds.bottom, point.y);
+            };
+            for (std::uint32_t index = 0U; index < triangle_count; ++index) {
+                const triangle& value = triangles[index];
+                include_point(value.point1);
+                include_point(value.point2);
+                include_point(value.point3);
+                const std::uint32_t segment_offset =
+                    static_cast<std::uint32_t>(segments.size());
+                segments.push_back({
+                    {value.point1.x, value.point1.y},
+                    {value.point2.x, value.point2.y},
+                    {},
+                    {},
+                    PROGPU_NATIVE_PATH_SEGMENT_LINE,
+                    0U,
+                    0U,
+                    0U});
+                segments.push_back({
+                    {value.point2.x, value.point2.y},
+                    {value.point3.x, value.point3.y},
+                    {},
+                    {},
+                    PROGPU_NATIVE_PATH_SEGMENT_LINE,
+                    0U,
+                    0U,
+                    0U});
+                segments.push_back({
+                    {value.point3.x, value.point3.y},
+                    {value.point1.x, value.point1.y},
+                    {},
+                    {},
+                    PROGPU_NATIVE_PATH_SEGMENT_LINE,
+                    0U,
+                    0U,
+                    0U});
+                paths.push_back({
+                    segment_offset,
+                    3U,
+                    0U,
+                    0U,
+                    std::min({value.point1.x, value.point2.x, value.point3.x}),
+                    std::min({value.point1.y, value.point2.y, value.point3.y}),
+                    std::max({value.point1.x, value.point2.x, value.point3.x}),
+                    std::max({value.point1.y, value.point2.y, value.point3.y}),
+                    {1.0F, 1.0F, 1.0F, 1.0F},
+                    native_transform(),
+                    PROGPU_NATIVE_FILL_RULE_NON_ZERO,
+                    8U});
+            }
+            if (local_bounds.right == local_bounds.left ||
+                local_bounds.bottom == local_bounds.top) {
+                return;
+            }
+            const bitmap_brush_draw_result bitmap_result =
+                draw_bitmap_brush_path(
+                    brush_value,
+                    nullptr,
+                    segments,
+                    PROGPU_NATIVE_FILL_RULE_NON_ZERO,
+                    local_bounds);
+            if (bitmap_result != bitmap_brush_draw_result::not_bitmap) {
+                return;
+            }
+            std::uint32_t brush_index = PROGPU_NATIVE_SCENE_NO_INDEX;
+            if (!add_brush(brush_value, brush_index)) {
+                return;
+            }
+            brush_indices.assign(paths.size(), brush_index);
+            const progpu_native_image_rect bounds =
+                transformed_bounds(local_bounds);
+            if (com::failed(failure_)) {
+                return;
+            }
+            if (!builder_.draw_paths(
+                    paths, segments, brush_indices, bounds)) {
+                latch(builder_failure());
+                return;
+            }
+            ++draw_count_;
+        } catch (const std::bad_alloc&) {
+            latch(com::out_of_memory);
+        } catch (...) {
+            latch(failure);
+        }
     }
 
     void PROGPU_NATIVE_COM_CALL FillOpacityMask(
