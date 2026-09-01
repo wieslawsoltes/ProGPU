@@ -4140,10 +4140,70 @@ public:
     }
 
     void PROGPU_NATIVE_COM_CALL DrawText(
-        const wchar_t*, std::uint32_t, text_format*, const rectangle_f*,
-        brush*, draw_text_options, measuring_mode) noexcept override
+        const wchar_t* text,
+        std::uint32_t text_length,
+        text_format* format,
+        const rectangle_f* layout_rectangle,
+        brush* default_brush,
+        draw_text_options options,
+        measuring_mode measuring) noexcept override
     {
-        unsupported_draw();
+        {
+            const std::lock_guard lock(mutex_);
+            if (!can_draw()) {
+                return;
+            }
+            if (text == nullptr || format == nullptr ||
+                layout_rectangle == nullptr || default_brush == nullptr ||
+                !valid_rectangle(*layout_rectangle) ||
+                text_length > maximum_text_length ||
+                (measuring != measuring_mode::natural &&
+                    measuring != measuring_mode::gdi_classic &&
+                    measuring != measuring_mode::gdi_natural)) {
+                latch(com::invalid_argument);
+                return;
+            }
+            if (text_length == 0U) {
+                return;
+            }
+        }
+
+        portable_text_layout_factory* raw_layout_factory = nullptr;
+        const com::result query_result =
+            reinterpret_cast<com::unknown*>(format)->QueryInterface(
+                portable_text_layout_factory_interface_id,
+                reinterpret_cast<void**>(&raw_layout_factory));
+        com::pointer<portable_text_layout_factory> layout_factory;
+        layout_factory.attach(raw_layout_factory);
+        if (com::failed(query_result) || !layout_factory) {
+            latch_external_draw_failure(
+                com::failed(query_result) ? query_result : com::no_interface);
+            return;
+        }
+        const float width =
+            layout_rectangle->right - layout_rectangle->left;
+        const float height =
+            layout_rectangle->bottom - layout_rectangle->top;
+        text_layout* raw_layout = nullptr;
+        const com::result create_result = layout_factory->CreateTextLayout(
+            text,
+            text_length,
+            width,
+            height,
+            measuring,
+            &raw_layout);
+        com::pointer<com::unknown> layout_owner;
+        layout_owner.attach(reinterpret_cast<com::unknown*>(raw_layout));
+        if (com::failed(create_result) || !layout_owner) {
+            latch_external_draw_failure(
+                com::failed(create_result) ? create_result : failure);
+            return;
+        }
+        DrawTextLayout(
+            {layout_rectangle->left, layout_rectangle->top},
+            raw_layout,
+            default_brush,
+            options);
     }
 
     void PROGPU_NATIVE_COM_CALL DrawTextLayout(
@@ -5168,6 +5228,7 @@ private:
     };
 
     static constexpr std::uint32_t maximum_glyph_count = 1U << 20U;
+    static constexpr std::uint32_t maximum_text_length = 1U << 24U;
 
     [[nodiscard]] static std::uint32_t image_address_flags(
         extend_mode extend,
