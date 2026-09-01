@@ -2458,6 +2458,49 @@ space, image hash, and ProGPU execution policy. macOS or Linux results are
 reported as Metal/Vulkan ProGPU source-compatibility evidence, never as native
 Win2D execution.
 
+### Portable COM render-target differential checkpoint
+
+ProGPU `b2b4e31d` adds a Windows-only hardware differential executable for the
+portable C++ `ID2D1*` compatibility target. The test records the same clear,
+solid rectangle, ellipse, stroked rectangle, and rounded rectangle through the
+portable COM vtables, lowers the retained scene once through
+`render_scene_target(...)`, and renders it with the current Dawn D3D12 backend.
+It renders the reference fixture independently through the system
+`D2D1CreateFactory` and a WIC bitmap render target, then compares five semantic
+probes and the complete premultiplied BGRA image. This is a behavioral oracle,
+not a shared implementation.
+
+The Windows 11 ARM64 Parallels gate builds the full current native renderer and
+test with MSVC 19.44 under `/W4 /WX`. On the Parallels Display Adapter D3D12
+backend the 64x48 comparison passes with mean absolute error `0.2727` byte
+values across 12,288 BGRA bytes. Dawn mapping uses a `WaitAnyOnly` future and
+the explicitly requested `TimedWaitAny` instance feature, so test completion
+does not depend on spontaneous callback delivery by a particular driver or VM.
+
+Configure the live CTest by supplying both the matching Dawn headers and the
+runtime DLL:
+
+```powershell
+cmake -S src/ProGPU.Native -B artifacts/progpu-native/build `
+  -G Ninja `
+  -DPROGPU_NATIVE_BUILD_WGPU_TARGET=OFF `
+  -DPROGPU_NATIVE_DAWN_WEBGPU_INCLUDE_DIR=C:\path\to\dawn\include `
+  -DPROGPU_NATIVE_DIRECT2D_DAWN_RUNTIME=C:\path\to\webgpu_dawn.dll `
+  -DBUILD_TESTING=ON
+cmake --build artifacts/progpu-native/build `
+  --target progpu_native_direct2d_differential_tests
+ctest --test-dir artifacts/progpu-native/build --output-on-failure `
+  -R '^progpu_native_direct2d_differential_tests$'
+```
+
+The equivalent portable scene already passes the live macOS Dawn/Metal gate.
+Linux/Vulkan live pixels and broader bitmap, gradient, arbitrary geometry,
+clip/layer, text, effect, and device-context families remain explicit parity
+work. Until those interfaces are implemented and differentially qualified, an
+application using them must select the typed scene/Canvas alternative or a
+Windows provider; the portable COM target returns its documented failure
+instead of silently rasterizing on the CPU.
+
 ## Delivery order
 
 1. Keep the dependency classifier and resolver fail-closed invariants green.
