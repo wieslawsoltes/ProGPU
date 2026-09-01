@@ -1957,6 +1957,7 @@ public sealed class CadSnapshotAndSceneTests
     [Fact]
     public void PlanChunkCacheSharesOneAnalyticDefinitionAcrossAffineInserts()
     {
+        CadShxGlyphCache shxCache = CreateShxCache();
         CadDocumentSession session = CadDocumentSession.CreateNew();
         session.Edit("Add affine block instances", document =>
         {
@@ -1965,6 +1966,17 @@ public sealed class CadSnapshotAndSceneTests
                 Filename = "Inter.ttf",
             };
             document.TextStyles.Add(textStyle);
+            var shxStyle = new TextStyle("AFFINE_SHX")
+            {
+                Filename = "test.shx",
+            };
+            var shapeStyle = new TextStyle("AFFINE_SHAPE")
+            {
+                Filename = "test.shx",
+                Flags = StyleFlags.IsShape,
+            };
+            document.TextStyles.Add(shxStyle);
+            document.TextStyles.Add(shapeStyle);
             var block = new BlockRecord("AFFINE_ITEM");
             block.BlockEntity.BasePoint = new XYZ(1, 2, 0);
             block.Entities.Add(new Line(
@@ -1980,6 +1992,26 @@ public sealed class CadSnapshotAndSceneTests
                 Style = textStyle,
                 InsertPoint = new XYZ(1, 2, 0),
                 Height = 2,
+            });
+            block.Entities.Add(new TextEntity("A")
+            {
+                Style = shxStyle,
+                InsertPoint = new XYZ(1, 4, 0),
+                Height = 2,
+            });
+            block.Entities.Add(new MText
+            {
+                Style = shxStyle,
+                Value = "A",
+                InsertPoint = new XYZ(2, 5, 0),
+                Height = 2,
+            });
+            block.Entities.Add(new Shape(shapeStyle)
+            {
+                ShapeName = "UCA",
+                ShapeNumber = 65,
+                InsertionPoint = new XYZ(3, 6, 0),
+                Size = 2,
             });
             document.Entities.Add(new Insert(block)
             {
@@ -2002,6 +2034,7 @@ public sealed class CadSnapshotAndSceneTests
             {
                 TextFontResolver = new FixedTextFontResolver(
                     InterFontFamily.Regular),
+                ShxFontResolver = new FixedShxFontResolver(shxCache),
             });
         var sceneCompiler = new CadPlanSceneCompiler();
         using CadRecordedPlanScene baselineScene = sceneCompiler.Compile(snapshot);

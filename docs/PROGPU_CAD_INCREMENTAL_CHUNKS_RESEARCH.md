@@ -6,14 +6,17 @@ The shared CAD sample now records semantic-root and eligible static-block-instan
 plan chunks as immutable nested `GpuPicture` values and retains a least-recently-used,
 bounded 8,192-entry cache across document generations. Canonical identity storage
 is independently capped at 64 MiB total, conservatively charging each entry's
-distinct retained font-data dependencies, and 8 MiB per encoded key. Reuse is
+distinct retained TrueType font bytes and SHX glyph-path dependencies, and 8 MiB
+per encoded key. Reuse is
 admitted only for continuous-style POINT, LINE, CIRCLE, ARC, ELLIPSE, SOLID,
-3DFACE, SPLINE, LWPOLYLINE, 2D/3D POLYLINE, and vector-outline TEXT/MTEXT
+3DFACE, SPLINE, LWPOLYLINE, 2D/3D POLYLINE, vector-outline TEXT/MTEXT,
+SHX TEXT/MTEXT, and SHAPE
 roots whose complete canonical rendering inputs match byte-for-byte. Top-level
 INSERT and MINSERT cells additionally share one definition-local fragment across
 translation, rotation, reflection, and nonuniform affine scale when every expanded
-child is an eligible analytic family, including flat SOLID/3DFACE and
-vector-outline TrueType TEXT/MTEXT. Instance-owned ATTRIBs are
+child is an eligible analytic family, including flat SOLID/3DFACE,
+vector-outline TrueType TEXT/MTEXT, and retained analytic SHX TEXT/MTEXT/SHAPE.
+Instance-owned ATTRIBs are
 excluded from the definition range. Unsupported
 families take the ordinary full-recording path and are never guessed reusable.
 
@@ -28,7 +31,7 @@ control flow, helper layout, or cache encoding was copied.
 | Direct2D / DirectWrite / Win2D | [Direct2D command lists](https://learn.microsoft.com/en-us/windows/win32/api/d2d1_1/nn-d2d1_1-id2d1commandlist), [Direct2D/DirectWrite integration](https://learn.microsoft.com/en-us/windows/win32/direct2d/direct2d-and-directwrite), and [Win2D `CanvasCommandList`](https://microsoft.github.io/Win2D/WinUI3/html/T_Microsoft_Graphics_Canvas_CanvasCommandList.htm) | Adopted immutable command-list composition and device-independent analytic input. Rejected COM/platform objects in CAD snapshots and per-entity native crossings. |
 | WebRender | [rendering overview](https://searchfox.org/mozilla-central/source/gfx/docs/RenderingOverview.rst), [retained display-list overview](https://github.com/servo/servo/wiki/Webrender-Overview), and [current profiler source](https://github.com/servo/webrender/blob/main/webrender/src/profiler.rs) | Adopted transaction-generation separation, retained subtrees, and explicit hit/miss counters. Adapted transactions to one complete CAD picture publication. Rejected partial-frame publication and handle-only reuse. |
 | Vello / Parley | [Vello retained-scene vision](https://github.com/linebender/vello/blob/main/doc/vision.md), [Vello scene source](https://github.com/linebender/vello/blob/main/vello/src/scene.rs), and [Parley layout model](https://github.com/linebender/parley/blob/main/doc/concept.md) | Adopted retained fragments and reusable layout ownership. Adapted fragments to canonical analytic CAD inputs and existing ProGPU pictures. Rejected viewport-baked fragments and a second path/text renderer. |
-| HarfBuzz | [shape plans](https://harfbuzz.github.io/shaping-and-shape-plans.html), [buffer contract](https://harfbuzz.github.io/harfbuzz-hb-buffer.html), and [glyph rendering boundary](https://harfbuzz.github.io/glyphs-and-rendering.html) | Shaping remains immutable CPU state. Text chunks stay conservatively uncached until font/fallback/glyph-resource identity is encoded completely; no reshaping or font-table work was added. |
+| HarfBuzz | [shape plans](https://harfbuzz.github.io/shaping-and-shape-plans.html), [buffer contract](https://harfbuzz.github.io/harfbuzz-hb-buffer.html), and [glyph rendering boundary](https://harfbuzz.github.io/glyphs-and-rendering.html) | Shaping remains immutable CPU state. Text chunks reuse only after exact font/glyph dependency identity is encoded; no reshaping or font-table work was added. |
 
 ## Identity, ownership, and complexity
 
@@ -56,6 +59,15 @@ performs reference-fast, byte-exact font-data and variation comparison, so the h
 is never the correctness boundary. Bitmap/color fonts fail closed until palette and
 bitmap-resource identity is part of the contract.
 
+SHX identity includes the normalized entity basis, exact glyph placements,
+MTEXT run paint/transforms and rectangle/stroke/decorations, shape number,
+orientation, advance, bounds, and segment count. Cache hits additionally require
+the same immutable `CadShxGlyph` objects, so equal public metadata cannot alias a
+different analytic path. Distinct dependencies are conservatively charged by
+segment count. Double-inverse cancellation residue within 64 binary64 ulps of
+unit-scale zero is canonicalized before the retained-float key boundary; all
+other normalized components remain byte-exact.
+
 Key construction is O(P) time and storage for P primitive/range values in the
 root, polls cancellation at a fixed entity cadence, and fails closed at the
 per-root byte limit. Lookup is O(P) for exact byte comparison. A hit skips plan command
@@ -70,8 +82,8 @@ only during changed-generation scene preparation.
 The aggregate picture independently retains every child resource lease. LRU
 eviction, replacement, or cache clearing therefore cannot invalidate an already published
 picture. Currently eligible analytic/vector-text chunks retain no disposable device
-resource; cached font objects remain strongly owned by their retained commands and
-exact dependency table. Raster, SHX, color/bitmap text, hatch, complex-linetype,
+resource; cached font and SHX glyph objects remain strongly owned by their retained
+commands and exact dependency table. Raster, color/bitmap text, hatch, complex-linetype,
 viewport, modeler, leader, tolerance, MLINE, and
 mesh roots remain on the ordinary path until their complete resource and global
 budget dependencies are encoded.
@@ -88,5 +100,5 @@ semantics. MINSERT and distinct affine INSERT regressions prove one shared child
 identity, exact composed managed endpoints within retained-float tolerance, and
 matched native primitive/draw counts.
 
-Definition-local extruded surface, SHX/color/bitmap text, hatch, complex-linetype, raster, and other
+Definition-local extruded surface, color/bitmap text, hatch, complex-linetype, raster, and other
 resource- or global-budget-dependent families remain the next chunk-coverage work.

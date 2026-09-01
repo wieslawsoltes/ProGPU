@@ -25,6 +25,7 @@ public sealed class CadPlanChunkCache : IDisposable
         int commandCount,
         int recordedEntityCount,
         TtfFont[]? fontDependencies,
+        CadShxGlyph[]? shxDependencies,
         long identityBytes,
         LinkedListNode<CadPlanChunkIdentity> lruNode)
     {
@@ -33,6 +34,7 @@ public sealed class CadPlanChunkCache : IDisposable
         public int CommandCount { get; } = commandCount;
         public int RecordedEntityCount { get; } = recordedEntityCount;
         public TtfFont[]? FontDependencies { get; } = fontDependencies;
+        public CadShxGlyph[]? ShxDependencies { get; } = shxDependencies;
         public long IdentityBytes { get; } = identityBytes;
         public LinkedListNode<CadPlanChunkIdentity> LruNode { get; } = lruNode;
     }
@@ -98,6 +100,7 @@ public sealed class CadPlanChunkCache : IDisposable
         int commandCount,
         int recordedEntityCount,
         TtfFont[]? fontDependencies,
+        CadShxGlyph[]? shxDependencies,
         out bool reused,
         out bool cacheOwnsResult)
     {
@@ -114,7 +117,10 @@ public sealed class CadPlanChunkCache : IDisposable
                 existing.Key.AsSpan().SequenceEqual(key) &&
                 FontDependenciesEqual(
                     existing.FontDependencies,
-                    fontDependencies))
+                    fontDependencies) &&
+                ShxDependenciesEqual(
+                    existing.ShxDependencies,
+                    shxDependencies))
             {
                 candidate.Dispose();
                 Touch(existing);
@@ -127,6 +133,7 @@ public sealed class CadPlanChunkCache : IDisposable
                 !TryGetIdentityBytes(
                     key.Length,
                     fontDependencies,
+                    shxDependencies,
                     out long identityBytes) ||
                 identityBytes > _maximumKeyBytes)
             {
@@ -151,6 +158,7 @@ public sealed class CadPlanChunkCache : IDisposable
                 commandCount,
                 recordedEntityCount,
                 fontDependencies,
+                shxDependencies,
                 identityBytes,
                 node));
             _keyBytes = checked(_keyBytes + identityBytes);
@@ -164,6 +172,7 @@ public sealed class CadPlanChunkCache : IDisposable
         CadPlanChunkIdentity identity,
         ReadOnlySpan<byte> key,
         TtfFont[]? fontDependencies,
+        CadShxGlyph[]? shxDependencies,
         out GpuPicture picture,
         out int commandCount,
         out int recordedEntityCount)
@@ -175,7 +184,10 @@ public sealed class CadPlanChunkCache : IDisposable
                 entry.Key.AsSpan().SequenceEqual(key) &&
                 FontDependenciesEqual(
                     entry.FontDependencies,
-                    fontDependencies))
+                    fontDependencies) &&
+                ShxDependenciesEqual(
+                    entry.ShxDependencies,
+                    shxDependencies))
             {
                 Touch(entry);
                 picture = entry.Picture;
@@ -250,28 +262,37 @@ public sealed class CadPlanChunkCache : IDisposable
     private static bool TryGetIdentityBytes(
         int keyBytes,
         TtfFont[]? fonts,
+        CadShxGlyph[]? shxGlyphs,
         out long identityBytes)
     {
         try
         {
             identityBytes = keyBytes;
+            HashSet<TtfFont>? uniqueFonts = fonts is null
+                ? null
+                : new HashSet<TtfFont>(ReferenceEqualityComparer.Instance);
             int count = fonts?.Length ?? 0;
             for (int index = 0; index < count; index++)
             {
                 TtfFont font = fonts![index];
-                bool duplicate = false;
-                for (int previous = 0; previous < index; previous++)
-                {
-                    if (ReferenceEquals(fonts[previous], font))
-                    {
-                        duplicate = true;
-                        break;
-                    }
-                }
-                if (!duplicate)
+                if (uniqueFonts!.Add(font))
                 {
                     identityBytes = checked(
                         identityBytes + font.FontData.Length);
+                }
+            }
+            HashSet<CadShxGlyph>? uniqueShxGlyphs = shxGlyphs is null
+                ? null
+                : new HashSet<CadShxGlyph>(ReferenceEqualityComparer.Instance);
+            count = shxGlyphs?.Length ?? 0;
+            for (int index = 0; index < count; index++)
+            {
+                CadShxGlyph glyph = shxGlyphs![index];
+                if (uniqueShxGlyphs!.Add(glyph))
+                {
+                    identityBytes = checked(
+                        identityBytes +
+                        64L + ((long)glyph.SegmentCount * 64L));
                 }
             }
             return true;
@@ -323,6 +344,25 @@ public sealed class CadPlanChunkCache : IDisposable
         for (int index = 0; index < left.Count; index++)
         {
             if (left[index] != right[index])
+            {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    private static bool ShxDependenciesEqual(
+        CadShxGlyph[]? left,
+        CadShxGlyph[]? right)
+    {
+        int count = left?.Length ?? 0;
+        if (count != (right?.Length ?? 0))
+        {
+            return false;
+        }
+        for (int index = 0; index < count; index++)
+        {
+            if (!ReferenceEquals(left![index], right![index]))
             {
                 return false;
             }
@@ -408,6 +448,19 @@ internal readonly record struct CadPlanChunkNormalization(
 
     private static Vector2 ToFiniteVector(double x, double y)
     {
+        // Forward affine composition followed by its independently calculated inverse can
+        // leave a few binary64 ulps at a component whose canonical block-local value is
+        // zero. Remove only that unit-scale cancellation residue before the retained float
+        // boundary so reflected/rotated instances of one definition receive one key.
+        const double cancellationZero = 64.0 * 2.2204460492503131E-16;
+        if (Math.Abs(x) <= cancellationZero)
+        {
+            x = 0.0;
+        }
+        if (Math.Abs(y) <= cancellationZero)
+        {
+            y = 0.0;
+        }
         float convertedX = (float)x;
         float convertedY = (float)y;
         if (!float.IsFinite(convertedX) || !float.IsFinite(convertedY))
@@ -434,9 +487,11 @@ internal static class CadPlanChunkKeyBuilder
         int maximumKeyBytes,
         CancellationToken cancellationToken,
         out byte[] key,
-        out TtfFont[]? fontDependencies)
+        out TtfFont[]? fontDependencies,
+        out CadShxGlyph[]? shxDependencies)
     {
         List<TtfFont>? fonts = null;
+        List<CadShxGlyph>? shxGlyphs = null;
         var writer = new ArrayBufferWriter<byte>(256);
         if (worldToChunk is null)
         {
@@ -473,17 +528,20 @@ internal static class CadPlanChunkKeyBuilder
                     entity,
                     cancellationToken,
                     ref fonts,
+                    ref shxGlyphs,
                     maximumKeyBytes) ||
                 writer.WrittenCount > maximumKeyBytes)
             {
                 key = [];
                 fontDependencies = null;
+                shxDependencies = null;
                 return false;
             }
         }
 
         key = writer.WrittenSpan.ToArray();
         fontDependencies = fonts?.ToArray();
+        shxDependencies = shxGlyphs?.ToArray();
         return true;
     }
 
@@ -501,6 +559,7 @@ internal static class CadPlanChunkKeyBuilder
         in CadEntityHeader entity,
         CancellationToken cancellationToken,
         ref List<TtfFont>? fontDependencies,
+        ref List<CadShxGlyph>? shxDependencies,
         int maximumKeyBytes)
     {
         CadLayerSnapshot layer = layers[entity.LayerIndex];
@@ -520,7 +579,10 @@ internal static class CadPlanChunkKeyBuilder
                 CadEntityKind.Polyline2D or
                 CadEntityKind.Polyline3D or
                 CadEntityKind.Text or
-                CadEntityKind.MText))
+                CadEntityKind.MText or
+                CadEntityKind.ShxText or
+                CadEntityKind.ShxMText or
+                CadEntityKind.ShxShape))
         {
             return false;
         }
@@ -737,9 +799,181 @@ internal static class CadPlanChunkKeyBuilder
                     worldToChunk,
                     ref fontDependencies,
                     maximumKeyBytes);
+            case CadEntityKind.ShxText:
+                return TryAppendShxText(
+                    writer,
+                    snapshot,
+                    snapshot.ShxTexts.Span[entity.PrimitiveIndex],
+                    worldToChunk,
+                    ref shxDependencies,
+                    maximumKeyBytes);
+            case CadEntityKind.ShxMText:
+                return TryAppendShxMText(
+                    writer,
+                    snapshot,
+                    snapshot.ShxMTexts.Span[entity.PrimitiveIndex],
+                    worldToChunk,
+                    ref shxDependencies,
+                    maximumKeyBytes);
+            case CadEntityKind.ShxShape:
+                return TryAppendShxShape(
+                    writer,
+                    snapshot,
+                    snapshot.ShxShapes.Span[entity.PrimitiveIndex],
+                    worldToChunk,
+                    ref shxDependencies,
+                    maximumKeyBytes);
             default:
                 return false;
         }
+    }
+
+    private static bool TryAppendShxText(
+        ArrayBufferWriter<byte> writer,
+        CadDocumentSnapshot snapshot,
+        in CadShxTextPrimitive text,
+        CadPlanChunkNormalization? worldToChunk,
+        ref List<CadShxGlyph>? shxDependencies,
+        int maximumKeyBytes)
+    {
+        AppendProjectedPoint(writer, text.Origin, snapshot.RebaseOrigin, worldToChunk);
+        AppendProjectedVector(writer, text.XAxis, worldToChunk);
+        AppendProjectedVector(writer, text.YAxis, worldToChunk);
+        Append(writer, text.GlyphCount);
+        Append(writer, text.DecorationCount);
+        ReadOnlySpan<CadShxGlyphInstance> glyphs =
+            snapshot.ShxGlyphInstances.Span.Slice(
+                text.GlyphOffset,
+                text.GlyphCount);
+        for (int index = 0; index < glyphs.Length; index++)
+        {
+            CadShxGlyphInstance glyph = glyphs[index];
+            Append(writer, glyph.X);
+            Append(writer, glyph.Y);
+            if (!TryAppendShxGlyph(
+                    writer,
+                    glyph.Glyph,
+                    ref shxDependencies,
+                    maximumKeyBytes))
+            {
+                return false;
+            }
+        }
+        return TryAppend(
+            writer,
+            snapshot.ShxDecorationSegments.Span.Slice(
+                text.DecorationOffset,
+                text.DecorationCount),
+            maximumKeyBytes);
+    }
+
+    private static bool TryAppendShxMText(
+        ArrayBufferWriter<byte> writer,
+        CadDocumentSnapshot snapshot,
+        in CadShxMTextPrimitive text,
+        CadPlanChunkNormalization? worldToChunk,
+        ref List<CadShxGlyph>? shxDependencies,
+        int maximumKeyBytes)
+    {
+        AppendProjectedPoint(writer, text.Origin, snapshot.RebaseOrigin, worldToChunk);
+        AppendProjectedVector(writer, text.XAxis, worldToChunk);
+        AppendProjectedVector(writer, text.YAxis, worldToChunk);
+        Append(writer, text.GlyphCount);
+        Append(writer, text.RunCount);
+        Append(writer, text.BackgroundCount);
+        Append(writer, text.DecorationCount);
+        Append(writer, text.StrokeCount);
+        Append(writer, text.ColumnCount);
+        Append(writer, text.ContentWidth);
+        Append(writer, text.ContentHeight);
+        ReadOnlySpan<CadShxGlyphInstance> glyphs =
+            snapshot.ShxGlyphInstances.Span.Slice(
+                text.GlyphOffset,
+                text.GlyphCount);
+        for (int index = 0; index < glyphs.Length; index++)
+        {
+            CadShxGlyphInstance glyph = glyphs[index];
+            Append(writer, glyph.X);
+            Append(writer, glyph.Y);
+            if (!TryAppendShxGlyph(
+                    writer,
+                    glyph.Glyph,
+                    ref shxDependencies,
+                    maximumKeyBytes))
+            {
+                return false;
+            }
+        }
+        ReadOnlySpan<CadShxMTextGlyphRun> runs =
+            snapshot.ShxMTextGlyphRuns.Span.Slice(
+                text.RunOffset,
+                text.RunCount);
+        for (int index = 0; index < runs.Length; index++)
+        {
+            CadShxMTextGlyphRun run = runs[index];
+            Append(writer, run.GlyphOffset - text.GlyphOffset);
+            Append(writer, run.GlyphCount);
+            Append(writer, run.ScaleX);
+            Append(writer, run.ScaleY);
+            Append(writer, run.SkewX);
+            Append(writer, run.Red);
+            Append(writer, run.Green);
+            Append(writer, run.Blue);
+            Append(writer, run.Alpha);
+        }
+        return TryAppend(
+                writer,
+                snapshot.MTextBackgrounds.Span.Slice(
+                    text.BackgroundOffset,
+                    text.BackgroundCount),
+                maximumKeyBytes) &&
+            TryAppend(
+                writer,
+                snapshot.MTextDecorations.Span.Slice(
+                    text.DecorationOffset,
+                    text.DecorationCount),
+                maximumKeyBytes) &&
+            TryAppend(
+                writer,
+                snapshot.MTextStrokes.Span.Slice(
+                    text.StrokeOffset,
+                    text.StrokeCount),
+                maximumKeyBytes);
+    }
+
+    private static bool TryAppendShxShape(
+        ArrayBufferWriter<byte> writer,
+        CadDocumentSnapshot snapshot,
+        in CadShxShapePrimitive shape,
+        CadPlanChunkNormalization? worldToChunk,
+        ref List<CadShxGlyph>? shxDependencies,
+        int maximumKeyBytes)
+    {
+        AppendProjectedPoint(writer, shape.Origin, snapshot.RebaseOrigin, worldToChunk);
+        AppendProjectedVector(writer, shape.XAxis, worldToChunk);
+        AppendProjectedVector(writer, shape.YAxis, worldToChunk);
+        return TryAppendShxGlyph(
+            writer,
+            shape.Glyph,
+            ref shxDependencies,
+            maximumKeyBytes);
+    }
+
+    private static bool TryAppendShxGlyph(
+        ArrayBufferWriter<byte> writer,
+        CadShxGlyph glyph,
+        ref List<CadShxGlyph>? shxDependencies,
+        int maximumKeyBytes)
+    {
+        Append(writer, glyph.ShapeNumber);
+        Append(writer, (byte)glyph.Orientation);
+        Append(writer, glyph.Advance);
+        Append(writer, glyph.BoundsMin);
+        Append(writer, glyph.BoundsMax);
+        Append(writer, glyph.HasGeometry);
+        Append(writer, glyph.SegmentCount);
+        (shxDependencies ??= []).Add(glyph);
+        return writer.WrittenCount <= maximumKeyBytes;
     }
 
     private static bool TryAppendText(
