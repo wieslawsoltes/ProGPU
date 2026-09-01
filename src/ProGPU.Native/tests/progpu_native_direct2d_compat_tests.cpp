@@ -563,15 +563,20 @@ int main()
     auto* raw_arc_simplified = new simplified_sink();
     com::pointer<compat::simplified_geometry_sink> arc_simplified;
     arc_simplified.attach(raw_arc_simplified);
-    if (arc_path->GetBounds(nullptr, &path_bounds) !=
-            compat::not_implemented ||
+    if (arc_path->GetBounds(nullptr, &path_bounds) != com::ok ||
         !approximately_equal(path_bounds.left, 0.0F) ||
+        !approximately_equal(path_bounds.top, -1.0F) ||
+        !approximately_equal(path_bounds.right, 2.0F) ||
+        !approximately_equal(path_bounds.bottom, 0.0F) ||
         arc_path->Simplify(
             compat::geometry_simplification_option::cubics_and_lines,
             nullptr,
             core::default_flattening_tolerance,
-            arc_simplified.get()) != compat::not_implemented ||
-        raw_arc_simplified->begin_count != 0U) {
+            arc_simplified.get()) != com::ok ||
+        raw_arc_simplified->begin_count != 1U ||
+        raw_arc_simplified->end_count != 1U ||
+        raw_arc_simplified->bezier_count != 2U ||
+        !approximately_equal(raw_arc_simplified->last.x, 2.0F)) {
         return 39;
     }
     auto* raw_arc_stream = new simplified_sink();
@@ -772,7 +777,6 @@ int main()
     const HRESULT system_bounds_status =
         system_path->GetBounds(nullptr, &system_bounds);
     system_path->Release();
-    system_factory->Release();
     if (FAILED(system_close_status) || FAILED(system_segment_status) ||
         FAILED(system_figure_status) || FAILED(system_bounds_status) ||
         system_segments != native_path_segments || system_figures != 1U ||
@@ -781,7 +785,56 @@ int main()
         !approximately_equal(system_bounds.right, native_path_bounds.right) ||
         !approximately_equal(
             system_bounds.bottom, native_path_bounds.bottom)) {
+        system_factory->Release();
         return 50;
+    }
+
+    ID2D1PathGeometry* system_arc_path = nullptr;
+    ID2D1GeometrySink* system_arc_sink = nullptr;
+    if (FAILED(system_factory->CreatePathGeometry(&system_arc_path)) ||
+        system_arc_path == nullptr ||
+        FAILED(system_arc_path->Open(&system_arc_sink)) ||
+        system_arc_sink == nullptr) {
+        if (system_arc_path != nullptr) {
+            system_arc_path->Release();
+        }
+        system_factory->Release();
+        return 51;
+    }
+    const D2D1_ARC_SEGMENT system_arc{
+        D2D1_POINT_2F{2.0F, 0.0F},
+        D2D1_SIZE_F{1.0F, 1.0F},
+        0.0F,
+        D2D1_SWEEP_DIRECTION_CLOCKWISE,
+        D2D1_ARC_SIZE_SMALL};
+    system_arc_sink->BeginFigure(
+        D2D1_POINT_2F{0.0F, 0.0F}, D2D1_FIGURE_BEGIN_FILLED);
+    system_arc_sink->AddArc(&system_arc);
+    system_arc_sink->EndFigure(D2D1_FIGURE_END_OPEN);
+    const HRESULT system_arc_close_status = system_arc_sink->Close();
+    system_arc_sink->Release();
+    D2D1_RECT_F system_arc_bounds{};
+    const HRESULT system_arc_bounds_status =
+        system_arc_path->GetBounds(nullptr, &system_arc_bounds);
+    system_arc_path->Release();
+    system_factory->Release();
+    auto* portable_arc_path =
+        reinterpret_cast<ID2D1PathGeometry*>(arc_path.get());
+    D2D1_RECT_F portable_arc_bounds{};
+    const HRESULT portable_arc_bounds_status =
+        portable_arc_path->GetBounds(nullptr, &portable_arc_bounds);
+    if (FAILED(system_arc_close_status) ||
+        FAILED(system_arc_bounds_status) ||
+        FAILED(portable_arc_bounds_status) ||
+        !approximately_equal(
+            system_arc_bounds.left, portable_arc_bounds.left) ||
+        !approximately_equal(
+            system_arc_bounds.top, portable_arc_bounds.top) ||
+        !approximately_equal(
+            system_arc_bounds.right, portable_arc_bounds.right) ||
+        !approximately_equal(
+            system_arc_bounds.bottom, portable_arc_bounds.bottom)) {
+        return 52;
     }
 #endif
     return 0;

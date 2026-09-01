@@ -1226,14 +1226,14 @@ bool compat_transform_point(
 
 bool compat_valid_arc(const D2D1_ARC_SEGMENT& arc) noexcept
 {
-    return compat_finite_point(arc.point) &&
-        std::isfinite(arc.size.width) && std::isfinite(arc.size.height) &&
-        arc.size.width >= 0.0F && arc.size.height >= 0.0F &&
-        std::isfinite(arc.rotationAngle) &&
-        (arc.sweepDirection == D2D1_SWEEP_DIRECTION_COUNTER_CLOCKWISE ||
-            arc.sweepDirection == D2D1_SWEEP_DIRECTION_CLOCKWISE) &&
-        (arc.arcSize == D2D1_ARC_SIZE_SMALL ||
-            arc.arcSize == D2D1_ARC_SIZE_LARGE);
+    const direct2d_core::arc_segment_f core_arc{
+        {arc.point.x, arc.point.y},
+        {arc.size.width, arc.size.height},
+        arc.rotationAngle,
+        static_cast<direct2d_core::arc_sweep_direction>(
+            arc.sweepDirection),
+        static_cast<direct2d_core::arc_size_kind>(arc.arcSize)};
+    return direct2d_core::valid_arc_segment(core_arc);
 }
 
 bool compat_arc_to_cubics(
@@ -1242,125 +1242,26 @@ bool compat_arc_to_cubics(
     std::array<D2D1_BEZIER_SEGMENT, 4U>& cubics,
     uint32_t& cubic_count) noexcept
 {
-    cubic_count = 0U;
-    if (!compat_finite_point(start) || !compat_valid_arc(arc)) {
+    const direct2d_core::arc_segment_f core_arc{
+        {arc.point.x, arc.point.y},
+        {arc.size.width, arc.size.height},
+        arc.rotationAngle,
+        static_cast<direct2d_core::arc_sweep_direction>(
+            arc.sweepDirection),
+        static_cast<direct2d_core::arc_size_kind>(arc.arcSize)};
+    std::array<direct2d_core::cubic_bezier_segment_f, 4U> core_cubics{};
+    if (FAILED(direct2d_core::arc_to_cubics(
+            {start.x, start.y},
+            core_arc,
+            &core_cubics,
+            &cubic_count))) {
         return false;
     }
-    if (compat_same_point(start, arc.point) ||
-        arc.size.width == 0.0F || arc.size.height == 0.0F) {
-        return true;
-    }
-
-    constexpr double pi = 3.141592653589793238462643383279502884;
-    const double phi = std::remainder(
-        static_cast<double>(arc.rotationAngle), 360.0) * pi / 180.0;
-    const double cosine = std::cos(phi);
-    const double sine = std::sin(phi);
-    const double half_dx =
-        (static_cast<double>(start.x) - arc.point.x) * 0.5;
-    const double half_dy =
-        (static_cast<double>(start.y) - arc.point.y) * 0.5;
-    const double x1_prime = cosine * half_dx + sine * half_dy;
-    const double y1_prime = -sine * half_dx + cosine * half_dy;
-    double radius_x = std::abs(static_cast<double>(arc.size.width));
-    double radius_y = std::abs(static_cast<double>(arc.size.height));
-    double radius_x_squared = radius_x * radius_x;
-    double radius_y_squared = radius_y * radius_y;
-    const double scale =
-        x1_prime * x1_prime / radius_x_squared +
-        y1_prime * y1_prime / radius_y_squared;
-    if (scale > 1.0) {
-        const double factor = std::sqrt(scale);
-        radius_x *= factor;
-        radius_y *= factor;
-        radius_x_squared = radius_x * radius_x;
-        radius_y_squared = radius_y * radius_y;
-    }
-
-    const bool large = arc.arcSize == D2D1_ARC_SIZE_LARGE;
-    const bool clockwise =
-        arc.sweepDirection == D2D1_SWEEP_DIRECTION_CLOCKWISE;
-    const double numerator = std::max(
-        0.0,
-        radius_x_squared * radius_y_squared -
-            radius_x_squared * y1_prime * y1_prime -
-            radius_y_squared * x1_prime * x1_prime);
-    const double denominator =
-        radius_x_squared * y1_prime * y1_prime +
-        radius_y_squared * x1_prime * x1_prime;
-    const double sign = large == clockwise ? -1.0 : 1.0;
-    const double coefficient = denominator == 0.0
-        ? 0.0
-        : sign * std::sqrt(numerator / denominator);
-    const double center_x_prime =
-        coefficient * radius_x * y1_prime / radius_y;
-    const double center_y_prime =
-        -coefficient * radius_y * x1_prime / radius_x;
-    const double center_x = cosine * center_x_prime -
-        sine * center_y_prime +
-        (static_cast<double>(start.x) + arc.point.x) * 0.5;
-    const double center_y = sine * center_x_prime +
-        cosine * center_y_prime +
-        (static_cast<double>(start.y) + arc.point.y) * 0.5;
-
-    const auto vector_angle = [](double ux, double uy, double vx, double vy) {
-        return std::atan2(ux * vy - uy * vx, ux * vx + uy * vy);
-    };
-    const double ux = (x1_prime - center_x_prime) / radius_x;
-    const double uy = (y1_prime - center_y_prime) / radius_y;
-    const double vx = (-x1_prime - center_x_prime) / radius_x;
-    const double vy = (-y1_prime - center_y_prime) / radius_y;
-    double start_angle = std::atan2(uy, ux);
-    double delta = vector_angle(ux, uy, vx, vy);
-    if (!clockwise && delta > 0.0) {
-        delta -= 2.0 * pi;
-    } else if (clockwise && delta < 0.0) {
-        delta += 2.0 * pi;
-    }
-    cubic_count = static_cast<uint32_t>(std::clamp(
-        std::ceil(std::abs(delta) / (pi * 0.5)),
-        1.0,
-        4.0));
-    const double step = delta / cubic_count;
-    D2D1_POINT_2F current = start;
     for (uint32_t index = 0U; index < cubic_count; ++index) {
-        const double angle0 = start_angle + step * index;
-        const double angle1 = angle0 + step;
-        const double alpha = 4.0 / 3.0 * std::tan(step * 0.25);
-        const auto evaluate = [&](double angle) {
-            const double local_x = radius_x * std::cos(angle);
-            const double local_y = radius_y * std::sin(angle);
-            return D2D1_POINT_2F{
-                static_cast<float>(
-                    center_x + cosine * local_x - sine * local_y),
-                static_cast<float>(
-                    center_y + sine * local_x + cosine * local_y)};
-        };
-        const auto derivative = [&](double angle) {
-            const double local_x = -radius_x * std::sin(angle);
-            const double local_y = radius_y * std::cos(angle);
-            return D2D1_POINT_2F{
-                static_cast<float>(cosine * local_x - sine * local_y),
-                static_cast<float>(sine * local_x + cosine * local_y)};
-        };
-        const D2D1_POINT_2F end = index + 1U == cubic_count
-            ? arc.point
-            : evaluate(angle1);
-        const D2D1_POINT_2F tangent0 = derivative(angle0);
-        const D2D1_POINT_2F tangent1 = derivative(angle1);
         cubics[index] = {
-            {static_cast<float>(current.x + alpha * tangent0.x),
-                static_cast<float>(current.y + alpha * tangent0.y)},
-            {static_cast<float>(end.x - alpha * tangent1.x),
-                static_cast<float>(end.y - alpha * tangent1.y)},
-            end};
-        if (!compat_finite_point(cubics[index].point1) ||
-            !compat_finite_point(cubics[index].point2) ||
-            !compat_finite_point(cubics[index].point3)) {
-            cubic_count = 0U;
-            return false;
-        }
-        current = end;
+            {core_cubics[index].point1.x, core_cubics[index].point1.y},
+            {core_cubics[index].point2.x, core_cubics[index].point2.y},
+            {core_cubics[index].point3.x, core_cubics[index].point3.y}};
     }
     return true;
 }

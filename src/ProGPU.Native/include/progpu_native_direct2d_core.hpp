@@ -20,6 +20,35 @@ struct rectangle_edges_f final {
     float bottom;
 };
 
+struct size_f final {
+    float width;
+    float height;
+};
+
+enum class arc_sweep_direction : std::uint32_t {
+    counter_clockwise = 0U,
+    clockwise = 1U
+};
+
+enum class arc_size_kind : std::uint32_t {
+    small_value = 0U,
+    large_value = 1U
+};
+
+struct arc_segment_f final {
+    progpu_native_direct2d_point_2f point;
+    size_f size;
+    float rotation_angle;
+    arc_sweep_direction sweep;
+    arc_size_kind size_kind;
+};
+
+struct cubic_bezier_segment_f final {
+    progpu_native_direct2d_point_2f point1;
+    progpu_native_direct2d_point_2f point2;
+    progpu_native_direct2d_point_2f point3;
+};
+
 [[nodiscard]] bool valid_transform(
     const progpu_native_direct2d_matrix_3x2_f* transform) noexcept;
 
@@ -29,6 +58,18 @@ struct rectangle_edges_f final {
     const progpu_native_direct2d_matrix_3x2_f& first,
     const progpu_native_direct2d_matrix_3x2_f* second,
     progpu_native_direct2d_matrix_3x2_f* result) noexcept;
+
+[[nodiscard]] bool valid_arc_segment(
+    const arc_segment_f& arc) noexcept;
+
+/* Converts a Direct2D endpoint arc to zero through four cubic pieces. Zero
+ * pieces means a coincident endpoint or a zero-radius line-equivalent arc;
+ * callers retain those two cases from the source values. */
+[[nodiscard]] com::result arc_to_cubics(
+    progpu_native_direct2d_point_2f start,
+    const arc_segment_f& arc,
+    std::array<cubic_bezier_segment_f, 4U>* cubics,
+    std::uint32_t* cubic_count) noexcept;
 
 class rectangle_geometry final {
 public:
