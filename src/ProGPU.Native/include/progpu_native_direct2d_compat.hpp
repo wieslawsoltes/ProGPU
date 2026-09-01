@@ -1,0 +1,265 @@
+#pragma once
+
+#include "progpu_native_com.hpp"
+#include "progpu_native_direct2d_core.hpp"
+
+#include <cstdint>
+
+namespace progpu::native::direct2d::compat {
+
+using point_2f = progpu_native_direct2d_point_2f;
+using matrix_3x2_f = progpu_native_direct2d_matrix_3x2_f;
+using triangle = progpu_native_direct2d_triangle;
+using rectangle_f = core::rectangle_edges_f;
+
+inline constexpr com::result not_implemented = -2147467263;
+
+inline constexpr com::guid resource_interface_id{
+    0x2CD90691U,
+    0x12E2U,
+    0x11DCU,
+    {0x9FU, 0xEDU, 0x00U, 0x11U, 0x43U, 0xA0U, 0x55U, 0xF9U}};
+inline constexpr com::guid geometry_interface_id{
+    0x2CD906A1U,
+    0x12E2U,
+    0x11DCU,
+    {0x9FU, 0xEDU, 0x00U, 0x11U, 0x43U, 0xA0U, 0x55U, 0xF9U}};
+inline constexpr com::guid rectangle_geometry_interface_id{
+    0x2CD906A2U,
+    0x12E2U,
+    0x11DCU,
+    {0x9FU, 0xEDU, 0x00U, 0x11U, 0x43U, 0xA0U, 0x55U, 0xF9U}};
+inline constexpr com::guid factory_interface_id{
+    0x06152247U,
+    0x6F50U,
+    0x465AU,
+    {0x92U, 0x45U, 0x11U, 0x8BU, 0xFDU, 0x3BU, 0x60U, 0x07U}};
+
+enum class fill_mode : std::uint32_t {
+    alternate = 0U,
+    winding = 1U
+};
+
+enum class path_segment : std::uint32_t {
+    none = 0U,
+    force_unstroked = 1U,
+    force_round_line_join = 2U
+};
+
+enum class figure_begin : std::uint32_t {
+    filled = 0U,
+    hollow = 1U
+};
+
+enum class figure_end : std::uint32_t {
+    open = 0U,
+    closed = 1U
+};
+
+enum class geometry_relation : std::uint32_t {
+    unknown = 0U,
+    disjoint = 1U,
+    is_contained = 2U,
+    contains = 3U,
+    overlap = 4U
+};
+
+enum class geometry_simplification_option : std::uint32_t {
+    cubics_and_lines = 0U,
+    lines = 1U
+};
+
+enum class combine_mode : std::uint32_t {
+    union_value = 0U,
+    intersect = 1U,
+    xor_value = 2U,
+    exclude = 3U
+};
+
+struct bezier_segment final {
+    point_2f point1;
+    point_2f point2;
+    point_2f point3;
+};
+
+struct rounded_rectangle;
+struct ellipse;
+struct stroke_style_properties;
+struct drawing_state_description;
+struct render_target_properties;
+struct hwnd_render_target_properties;
+
+struct factory;
+struct geometry;
+struct geometry_group;
+struct transformed_geometry;
+struct path_geometry;
+struct stroke_style;
+struct drawing_state_block;
+struct render_target;
+struct hwnd_render_target;
+struct dc_render_target;
+
+struct simplified_geometry_sink : com::unknown {
+    virtual void PROGPU_NATIVE_COM_CALL SetFillMode(fill_mode value)
+        noexcept = 0;
+    virtual void PROGPU_NATIVE_COM_CALL SetSegmentFlags(path_segment value)
+        noexcept = 0;
+    virtual void PROGPU_NATIVE_COM_CALL BeginFigure(
+        point_2f start,
+        figure_begin begin) noexcept = 0;
+    virtual void PROGPU_NATIVE_COM_CALL AddLines(
+        const point_2f* points,
+        std::uint32_t point_count) noexcept = 0;
+    virtual void PROGPU_NATIVE_COM_CALL AddBeziers(
+        const bezier_segment* beziers,
+        std::uint32_t bezier_count) noexcept = 0;
+    virtual void PROGPU_NATIVE_COM_CALL EndFigure(figure_end end)
+        noexcept = 0;
+    virtual com::result PROGPU_NATIVE_COM_CALL Close() noexcept = 0;
+};
+
+struct tessellation_sink : com::unknown {
+    virtual void PROGPU_NATIVE_COM_CALL AddTriangles(
+        const triangle* triangles,
+        std::uint32_t triangle_count) noexcept = 0;
+    virtual com::result PROGPU_NATIVE_COM_CALL Close() noexcept = 0;
+};
+
+struct resource : com::unknown {
+    virtual void PROGPU_NATIVE_COM_CALL GetFactory(factory** value) const
+        noexcept = 0;
+};
+
+struct geometry : resource {
+    virtual com::result PROGPU_NATIVE_COM_CALL GetBounds(
+        const matrix_3x2_f* world_transform,
+        rectangle_f* bounds) const noexcept = 0;
+    virtual com::result PROGPU_NATIVE_COM_CALL GetWidenedBounds(
+        float stroke_width,
+        stroke_style* style,
+        const matrix_3x2_f* world_transform,
+        float flattening_tolerance,
+        rectangle_f* bounds) const noexcept = 0;
+    virtual com::result PROGPU_NATIVE_COM_CALL StrokeContainsPoint(
+        point_2f point,
+        float stroke_width,
+        stroke_style* style,
+        const matrix_3x2_f* world_transform,
+        float flattening_tolerance,
+        std::int32_t* contains) const noexcept = 0;
+    virtual com::result PROGPU_NATIVE_COM_CALL FillContainsPoint(
+        point_2f point,
+        const matrix_3x2_f* world_transform,
+        float flattening_tolerance,
+        std::int32_t* contains) const noexcept = 0;
+    virtual com::result PROGPU_NATIVE_COM_CALL CompareWithGeometry(
+        geometry* input_geometry,
+        const matrix_3x2_f* input_geometry_transform,
+        float flattening_tolerance,
+        geometry_relation* relation) const noexcept = 0;
+    virtual com::result PROGPU_NATIVE_COM_CALL Simplify(
+        geometry_simplification_option simplification_option,
+        const matrix_3x2_f* world_transform,
+        float flattening_tolerance,
+        simplified_geometry_sink* geometry_sink) const noexcept = 0;
+    virtual com::result PROGPU_NATIVE_COM_CALL Tessellate(
+        const matrix_3x2_f* world_transform,
+        float flattening_tolerance,
+        tessellation_sink* sink) const noexcept = 0;
+    virtual com::result PROGPU_NATIVE_COM_CALL CombineWithGeometry(
+        geometry* input_geometry,
+        combine_mode mode,
+        const matrix_3x2_f* input_geometry_transform,
+        float flattening_tolerance,
+        simplified_geometry_sink* geometry_sink) const noexcept = 0;
+    virtual com::result PROGPU_NATIVE_COM_CALL Outline(
+        const matrix_3x2_f* world_transform,
+        float flattening_tolerance,
+        simplified_geometry_sink* geometry_sink) const noexcept = 0;
+    virtual com::result PROGPU_NATIVE_COM_CALL ComputeArea(
+        const matrix_3x2_f* world_transform,
+        float flattening_tolerance,
+        float* area) const noexcept = 0;
+    virtual com::result PROGPU_NATIVE_COM_CALL ComputeLength(
+        const matrix_3x2_f* world_transform,
+        float flattening_tolerance,
+        float* length) const noexcept = 0;
+    virtual com::result PROGPU_NATIVE_COM_CALL ComputePointAtLength(
+        float length,
+        const matrix_3x2_f* world_transform,
+        float flattening_tolerance,
+        point_2f* point,
+        point_2f* unit_tangent) const noexcept = 0;
+    virtual com::result PROGPU_NATIVE_COM_CALL Widen(
+        float stroke_width,
+        stroke_style* style,
+        const matrix_3x2_f* world_transform,
+        float flattening_tolerance,
+        simplified_geometry_sink* geometry_sink) const noexcept = 0;
+};
+
+struct rectangle_geometry : geometry {
+    virtual void PROGPU_NATIVE_COM_CALL GetRect(rectangle_f* rectangle) const
+        noexcept = 0;
+};
+
+/* The method order matches the original ID2D1Factory vtable. Unsupported
+ * resource families are deliberately present and return not_implemented so
+ * adding rectangle support cannot shift later ABI slots. Opaque descriptor
+ * declarations are expanded only as their resource families become portable. */
+struct factory : com::unknown {
+    virtual com::result PROGPU_NATIVE_COM_CALL ReloadSystemMetrics()
+        noexcept = 0;
+    virtual void PROGPU_NATIVE_COM_CALL GetDesktopDpi(
+        float* dpi_x,
+        float* dpi_y) noexcept = 0;
+    virtual com::result PROGPU_NATIVE_COM_CALL CreateRectangleGeometry(
+        const rectangle_f* rectangle,
+        rectangle_geometry** value) noexcept = 0;
+    virtual com::result PROGPU_NATIVE_COM_CALL CreateRoundedRectangleGeometry(
+        const rounded_rectangle* rectangle,
+        geometry** value) noexcept = 0;
+    virtual com::result PROGPU_NATIVE_COM_CALL CreateEllipseGeometry(
+        const ellipse* ellipse_value,
+        geometry** value) noexcept = 0;
+    virtual com::result PROGPU_NATIVE_COM_CALL CreateGeometryGroup(
+        fill_mode mode,
+        geometry** geometries,
+        std::uint32_t geometry_count,
+        geometry_group** value) noexcept = 0;
+    virtual com::result PROGPU_NATIVE_COM_CALL CreateTransformedGeometry(
+        geometry* source,
+        const matrix_3x2_f* transform,
+        transformed_geometry** value) noexcept = 0;
+    virtual com::result PROGPU_NATIVE_COM_CALL CreatePathGeometry(
+        path_geometry** value) noexcept = 0;
+    virtual com::result PROGPU_NATIVE_COM_CALL CreateStrokeStyle(
+        const stroke_style_properties* properties,
+        const float* dashes,
+        std::uint32_t dash_count,
+        stroke_style** value) noexcept = 0;
+    virtual com::result PROGPU_NATIVE_COM_CALL CreateDrawingStateBlock(
+        const drawing_state_description* description,
+        com::unknown* text_rendering_parameters,
+        drawing_state_block** value) noexcept = 0;
+    virtual com::result PROGPU_NATIVE_COM_CALL CreateWicBitmapRenderTarget(
+        com::unknown* target,
+        const render_target_properties* properties,
+        render_target** value) noexcept = 0;
+    virtual com::result PROGPU_NATIVE_COM_CALL CreateHwndRenderTarget(
+        const render_target_properties* properties,
+        const hwnd_render_target_properties* hwnd_properties,
+        hwnd_render_target** value) noexcept = 0;
+    virtual com::result PROGPU_NATIVE_COM_CALL CreateDxgiSurfaceRenderTarget(
+        com::unknown* surface,
+        const render_target_properties* properties,
+        render_target** value) noexcept = 0;
+    virtual com::result PROGPU_NATIVE_COM_CALL CreateDCRenderTarget(
+        const render_target_properties* properties,
+        dc_render_target** value) noexcept = 0;
+};
+
+[[nodiscard]] com::result create_factory(factory** value) noexcept;
+
+} // namespace progpu::native::direct2d::compat

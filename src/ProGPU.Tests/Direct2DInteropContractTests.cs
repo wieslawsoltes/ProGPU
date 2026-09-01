@@ -143,6 +143,43 @@ public sealed class Direct2DInteropContractTests
     }
 
     [Fact]
+    public void PortableDirect2DCompatFactoryPreservesComShapeAndFailsClosed()
+    {
+        string header = ReadRepoFile(
+            "src",
+            "ProGPU.Native",
+            "include",
+            "progpu_native_direct2d_compat.hpp");
+        string source = ReadRepoFile(
+            "src",
+            "ProGPU.Native",
+            "src",
+            "Direct2D",
+            "progpu_native_direct2d_compat.cpp");
+        string nativeTest = ReadRepoFile(
+            "src",
+            "ProGPU.Native",
+            "tests",
+            "progpu_native_direct2d_compat_tests.cpp");
+        string cmake = ReadRepoFile(
+            "src",
+            "ProGPU.Native",
+            "CMakeLists.txt");
+
+        Assert.Contains("struct factory : com::unknown", header, StringComparison.Ordinal);
+        Assert.Contains("struct rectangle_geometry : geometry", header, StringComparison.Ordinal);
+        Assert.Contains("0x06152247U", header, StringComparison.Ordinal);
+        Assert.Contains("0x2CD906A2U", header, StringComparison.Ordinal);
+        Assert.Contains("class portable_factory final", source, StringComparison.Ordinal);
+        Assert.Contains("core::rectangle_geometry geometry_", source, StringComparison.Ordinal);
+        Assert.Contains("return not_implemented;", source, StringComparison.Ordinal);
+        Assert.Contains("progpu_native_direct2d_compat_tests", cmake, StringComparison.Ordinal);
+        Assert.Contains("include/progpu_native_direct2d_compat.hpp", cmake, StringComparison.Ordinal);
+        Assert.Contains("reinterpret_cast<ID2D1Factory*>", nativeTest, StringComparison.Ordinal);
+        Assert.Contains("factory.Reset();", nativeTest, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void ManagedProviderUsesTypedAotSafeNativeAbi()
     {
         string project = ReadRepoFile(
