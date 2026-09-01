@@ -8,12 +8,143 @@
 
 #include <array>
 #include <cmath>
+#include <mutex>
 #include <new>
 
 namespace progpu::native::direct2d::compat {
 namespace {
 
 class portable_factory;
+
+class portable_solid_color_brush final : public solid_color_brush {
+public:
+    portable_solid_color_brush(
+        factory* owner,
+        color_f color,
+        brush_properties properties) noexcept
+        : owner_(owner),
+          color_(color),
+          opacity_(properties.opacity),
+          transform_(properties.transform)
+    {
+    }
+
+    com::result PROGPU_NATIVE_COM_CALL QueryInterface(
+        com::guid_ref interface_id,
+        void** value) noexcept override
+    {
+        if (value == nullptr) {
+            return com::pointer_error;
+        }
+        *value = nullptr;
+        if (com::guid_equal(interface_id, com::unknown_interface_id()) ||
+            com::guid_equal(interface_id, resource_interface_id) ||
+            com::guid_equal(interface_id, brush_interface_id) ||
+            com::guid_equal(interface_id, solid_color_brush_interface_id)) {
+            *value = static_cast<solid_color_brush*>(this);
+            AddRef();
+            return com::ok;
+        }
+        return com::no_interface;
+    }
+
+    com::reference_count_value PROGPU_NATIVE_COM_CALL AddRef()
+        noexcept override
+    {
+        return reference_count_.add_ref();
+    }
+
+    com::reference_count_value PROGPU_NATIVE_COM_CALL Release()
+        noexcept override
+    {
+        return reference_count_.release(this);
+    }
+
+    void PROGPU_NATIVE_COM_CALL GetFactory(factory** value) const
+        noexcept override
+    {
+        if (value == nullptr) {
+            return;
+        }
+        *value = owner_.get();
+        if (*value != nullptr) {
+            (*value)->AddRef();
+        }
+    }
+
+    void PROGPU_NATIVE_COM_CALL SetOpacity(float opacity) noexcept override
+    {
+        if (!valid_opacity(opacity)) {
+            return;
+        }
+        const std::lock_guard lock(mutex_);
+        opacity_ = opacity;
+    }
+
+    void PROGPU_NATIVE_COM_CALL SetTransform(
+        const matrix_3x2_f* transform) noexcept override
+    {
+        if (transform == nullptr || !core::valid_transform(transform)) {
+            return;
+        }
+        const std::lock_guard lock(mutex_);
+        transform_ = *transform;
+    }
+
+    float PROGPU_NATIVE_COM_CALL GetOpacity() const noexcept override
+    {
+        const std::lock_guard lock(mutex_);
+        return opacity_;
+    }
+
+    void PROGPU_NATIVE_COM_CALL GetTransform(
+        matrix_3x2_f* transform) const noexcept override
+    {
+        if (transform == nullptr) {
+            return;
+        }
+        const std::lock_guard lock(mutex_);
+        *transform = transform_;
+    }
+
+    void PROGPU_NATIVE_COM_CALL SetColor(
+        const color_f* color) noexcept override
+    {
+        if (color == nullptr || !valid_color(*color)) {
+            return;
+        }
+        const std::lock_guard lock(mutex_);
+        color_ = *color;
+    }
+
+    color_f PROGPU_NATIVE_COM_CALL GetColor() const noexcept override
+    {
+        const std::lock_guard lock(mutex_);
+        return color_;
+    }
+
+    [[nodiscard]] static bool valid_color(const color_f& color) noexcept
+    {
+        return std::isfinite(color.red) && std::isfinite(color.green) &&
+            std::isfinite(color.blue) && std::isfinite(color.alpha);
+    }
+
+    [[nodiscard]] static bool valid_opacity(float opacity) noexcept
+    {
+        return std::isfinite(opacity) && opacity >= 0.0F && opacity <= 1.0F;
+    }
+
+private:
+    friend class com::atomic_reference_count<portable_solid_color_brush>;
+    ~portable_solid_color_brush() = default;
+
+    com::atomic_reference_count<portable_solid_color_brush> reference_count_;
+    com::pointer<factory> owner_;
+    mutable std::mutex mutex_;
+    color_f color_{};
+    float opacity_ = 1.0F;
+    matrix_3x2_f transform_{};
+};
 
 class portable_rectangle_geometry final : public rectangle_geometry {
 public:
@@ -539,7 +670,7 @@ private:
     matrix_3x2_f transform_{};
 };
 
-class portable_factory final : public factory {
+class portable_factory final : public factory, public factory_native {
 public:
     com::result PROGPU_NATIVE_COM_CALL QueryInterface(
         com::guid_ref interface_id,
@@ -552,10 +683,14 @@ public:
         if (com::guid_equal(interface_id, com::unknown_interface_id()) ||
             com::guid_equal(interface_id, factory_interface_id)) {
             *value = static_cast<factory*>(this);
-            AddRef();
-            return com::ok;
+        } else if (com::guid_equal(
+                interface_id, factory_native_interface_id)) {
+            *value = static_cast<factory_native*>(this);
+        } else {
+            return com::no_interface;
         }
-        return com::no_interface;
+        AddRef();
+        return com::ok;
     }
 
     com::reference_count_value PROGPU_NATIVE_COM_CALL AddRef()
@@ -717,6 +852,39 @@ public:
         dc_render_target** value) noexcept override
     {
         return unsupported_output(value);
+    }
+
+    com::result PROGPU_NATIVE_COM_CALL CreateSolidColorBrush(
+        const color_f* color,
+        const brush_properties* properties,
+        solid_color_brush** value) noexcept override
+    {
+        if (value == nullptr) {
+            return com::pointer_error;
+        }
+        *value = nullptr;
+        if (color == nullptr ||
+            !portable_solid_color_brush::valid_color(*color)) {
+            return com::invalid_argument;
+        }
+        constexpr matrix_3x2_f identity_transform{
+            1.0F, 0.0F, 0.0F, 1.0F, 0.0F, 0.0F};
+        brush_properties actual_properties{1.0F, identity_transform};
+        if (properties != nullptr) {
+            if (!portable_solid_color_brush::valid_opacity(
+                    properties->opacity) ||
+                !core::valid_transform(&properties->transform)) {
+                return com::invalid_argument;
+            }
+            actual_properties = *properties;
+        }
+        auto* created = new (std::nothrow) portable_solid_color_brush(
+            this, *color, actual_properties);
+        if (created == nullptr) {
+            return com::out_of_memory;
+        }
+        *value = created;
+        return com::ok;
     }
 
 private:

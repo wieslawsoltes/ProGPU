@@ -239,6 +239,8 @@ static_assert(sizeof(compat::ellipse) == 16U);
 static_assert(sizeof(compat::rounded_rectangle) == 24U);
 static_assert(sizeof(compat::stroke_style_properties) == 28U);
 static_assert(sizeof(compat::drawing_state_description) == 48U);
+static_assert(sizeof(compat::color_f) == 16U);
+static_assert(sizeof(compat::brush_properties) == 28U);
 
 int main()
 {
@@ -978,6 +980,91 @@ int main()
         return 106;
     }
 
+    com::pointer<compat::factory_native> resource_factory;
+    if (factory.as(
+            compat::factory_native_interface_id, resource_factory) !=
+            com::ok ||
+        !resource_factory) {
+        return 109;
+    }
+    const compat::color_f brush_color{0.25F, 0.5F, 0.75F, 1.0F};
+    const compat::brush_properties brush_properties{
+        0.625F,
+        {1.0F, 0.25F, -0.5F, 2.0F, 3.0F, -4.0F}};
+    compat::solid_color_brush* raw_brush = nullptr;
+    if (resource_factory->CreateSolidColorBrush(
+            &brush_color, &brush_properties, &raw_brush) != com::ok ||
+        raw_brush == nullptr) {
+        return 110;
+    }
+    com::pointer<compat::solid_color_brush> solid_brush;
+    solid_brush.attach(raw_brush);
+    com::pointer<compat::resource> brush_resource;
+    com::pointer<compat::brush> brush_base;
+    if (solid_brush.as(
+            compat::resource_interface_id, brush_resource) != com::ok ||
+        solid_brush.as(compat::brush_interface_id, brush_base) != com::ok ||
+        !brush_resource || !brush_base) {
+        return 111;
+    }
+    compat::factory* raw_brush_factory = nullptr;
+    solid_brush->GetFactory(&raw_brush_factory);
+    com::pointer<compat::factory> brush_factory;
+    brush_factory.attach(raw_brush_factory);
+    compat::matrix_3x2_f returned_brush_transform{};
+    solid_brush->GetTransform(&returned_brush_transform);
+    const compat::color_f returned_brush_color = solid_brush->GetColor();
+    if (brush_factory.get() != factory.get() ||
+        !approximately_equal(solid_brush->GetOpacity(), 0.625F) ||
+        !approximately_equal(returned_brush_transform.m12, 0.25F) ||
+        !approximately_equal(returned_brush_transform.m31, 3.0F) ||
+        !approximately_equal(returned_brush_color.red, 0.25F) ||
+        !approximately_equal(returned_brush_color.blue, 0.75F)) {
+        return 112;
+    }
+    const compat::color_f changed_brush_color{1.0F, 0.0F, 0.5F, 0.75F};
+    const compat::matrix_3x2_f changed_brush_transform{
+        2.0F, 0.0F, 0.0F, 3.0F, -1.0F, 5.0F};
+    solid_brush->SetColor(&changed_brush_color);
+    solid_brush->SetOpacity(0.5F);
+    solid_brush->SetTransform(&changed_brush_transform);
+    const compat::color_f changed_returned_brush_color =
+        solid_brush->GetColor();
+    returned_brush_transform = {};
+    solid_brush->GetTransform(&returned_brush_transform);
+    if (!approximately_equal(changed_returned_brush_color.red, 1.0F) ||
+        !approximately_equal(changed_returned_brush_color.alpha, 0.75F) ||
+        !approximately_equal(solid_brush->GetOpacity(), 0.5F) ||
+        !approximately_equal(returned_brush_transform.m22, 3.0F) ||
+        !approximately_equal(returned_brush_transform.m32, 5.0F)) {
+        return 113;
+    }
+    compat::color_f invalid_brush_color = changed_brush_color;
+    invalid_brush_color.green = std::numeric_limits<float>::infinity();
+    compat::matrix_3x2_f invalid_brush_transform = changed_brush_transform;
+    invalid_brush_transform.m11 =
+        std::numeric_limits<float>::quiet_NaN();
+    solid_brush->SetColor(&invalid_brush_color);
+    solid_brush->SetOpacity(-1.0F);
+    solid_brush->SetTransform(&invalid_brush_transform);
+    returned_brush_transform = {};
+    solid_brush->GetTransform(&returned_brush_transform);
+    if (!approximately_equal(solid_brush->GetColor().green, 0.0F) ||
+        !approximately_equal(solid_brush->GetOpacity(), 0.5F) ||
+        !approximately_equal(returned_brush_transform.m11, 2.0F)) {
+        return 114;
+    }
+    raw_brush = reinterpret_cast<compat::solid_color_brush*>(
+        static_cast<std::uintptr_t>(1U));
+    if (resource_factory->CreateSolidColorBrush(
+            &invalid_brush_color, nullptr, &raw_brush) !=
+            com::invalid_argument ||
+        raw_brush != nullptr ||
+        resource_factory->CreateSolidColorBrush(
+            &brush_color, nullptr, nullptr) != com::pointer_error) {
+        return 115;
+    }
+
     compat::render_target* unsupported =
         reinterpret_cast<compat::render_target*>(
         static_cast<std::uintptr_t>(1U));
@@ -1013,6 +1100,11 @@ int main()
             compat::drawing_state_block_interface_id,
             __uuidof(ID2D1DrawingStateBlock)) ||
         !com::guid_equal(
+            compat::brush_interface_id, __uuidof(ID2D1Brush)) ||
+        !com::guid_equal(
+            compat::solid_color_brush_interface_id,
+            __uuidof(ID2D1SolidColorBrush)) ||
+        !com::guid_equal(
             compat::transformed_geometry_interface_id,
             __uuidof(ID2D1TransformedGeometry)) ||
         !com::guid_equal(
@@ -1031,11 +1123,35 @@ int main()
             sizeof(D2D1_STROKE_STYLE_PROPERTIES) ||
         sizeof(compat::drawing_state_description) !=
             sizeof(D2D1_DRAWING_STATE_DESCRIPTION) ||
+        sizeof(compat::color_f) != sizeof(D2D1_COLOR_F) ||
+        sizeof(compat::brush_properties) != sizeof(D2D1_BRUSH_PROPERTIES) ||
         sizeof(compat::triangle) != sizeof(D2D1_TRIANGLE) ||
         sizeof(compat::quadratic_bezier_segment) !=
             sizeof(D2D1_QUADRATIC_BEZIER_SEGMENT) ||
         sizeof(compat::arc_segment) != sizeof(D2D1_ARC_SEGMENT)) {
         return 19;
+    }
+    auto* native_solid_brush =
+        reinterpret_cast<ID2D1SolidColorBrush*>(solid_brush.get());
+    ID2D1Brush* native_brush_base = nullptr;
+    if (FAILED(native_solid_brush->QueryInterface(
+            __uuidof(ID2D1Brush),
+            reinterpret_cast<void**>(&native_brush_base))) ||
+        native_brush_base == nullptr) {
+        return 116;
+    }
+    const D2D1_COLOR_F native_portable_brush_color =
+        native_solid_brush->GetColor();
+    const FLOAT native_portable_brush_opacity =
+        native_solid_brush->GetOpacity();
+    D2D1_MATRIX_3X2_F native_portable_brush_transform{};
+    native_solid_brush->GetTransform(&native_portable_brush_transform);
+    native_brush_base->Release();
+    if (!approximately_equal(native_portable_brush_color.r, 1.0F) ||
+        !approximately_equal(native_portable_brush_color.a, 0.75F) ||
+        !approximately_equal(native_portable_brush_opacity, 0.5F) ||
+        !approximately_equal(native_portable_brush_transform._22, 3.0F)) {
+        return 117;
     }
     auto* native_factory = reinterpret_cast<ID2D1Factory*>(factory.get());
     const D2D1_RECT_F native_rectangle{2.0F, 3.0F, 6.0F, 8.0F};
