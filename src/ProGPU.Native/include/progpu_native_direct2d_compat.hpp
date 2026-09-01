@@ -129,6 +129,11 @@ inline constexpr com::guid drawing_state_block_interface_id{
     0xEBF6U,
     0x46A1U,
     {0xBBU, 0x47U, 0xFDU, 0x85U, 0x56U, 0x5AU, 0xB9U, 0x57U}};
+inline constexpr com::guid layer_interface_id{
+    0x2CD9069BU,
+    0x12E2U,
+    0x11DCU,
+    {0x9FU, 0xEDU, 0x00U, 0x11U, 0x43U, 0xA0U, 0x55U, 0xF9U}};
 inline constexpr com::guid brush_interface_id{
     0x2CD906A8U,
     0x12E2U,
@@ -280,6 +285,11 @@ enum class compatible_render_target_options : std::uint32_t {
     gdi_compatible = 1U
 };
 
+enum class layer_options : std::uint32_t {
+    none = 0U,
+    initialize_for_cleartype = 1U
+};
+
 enum class gamma : std::uint32_t {
     gamma_2_2 = 0U,
     gamma_1_0 = 1U
@@ -372,7 +382,16 @@ struct text_format;
 struct text_layout;
 struct rendering_parameters;
 struct glyph_run;
-struct layer_parameters;
+
+struct layer_parameters final {
+    rectangle_f content_bounds;
+    geometry* geometric_mask;
+    antialias_mode mask_antialias_mode;
+    matrix_3x2_f mask_transform;
+    float opacity;
+    brush* opacity_brush;
+    layer_options options;
+};
 
 struct simplified_geometry_sink : com::unknown {
     virtual void PROGPU_NATIVE_COM_CALL SetFillMode(fill_mode value)
@@ -549,6 +568,10 @@ struct drawing_state_block : resource {
         com::unknown* parameters) noexcept = 0;
     virtual void PROGPU_NATIVE_COM_CALL GetTextRenderingParams(
         com::unknown** parameters) const noexcept = 0;
+};
+
+struct layer : resource {
+    virtual size_f PROGPU_NATIVE_COM_CALL GetSize() const noexcept = 0;
 };
 
 struct brush : resource {

@@ -35,6 +35,11 @@ constexpr com::guid scene_bitmap_brush_native_interface_id{
     0xC094U,
     0x4ABAU,
     {0x8EU, 0x14U, 0x59U, 0xE8U, 0x67U, 0x75U, 0xC5U, 0x6BU}};
+constexpr com::guid scene_layer_native_interface_id{
+    0x71803498U,
+    0x681EU,
+    0x4B25U,
+    {0xB1U, 0xEFU, 0x91U, 0x47U, 0x45U, 0x68U, 0x3CU, 0x17U}};
 
 [[nodiscard]] bool valid_color(const color_f& value) noexcept
 {
@@ -77,6 +82,19 @@ constexpr com::guid scene_bitmap_brush_native_interface_id{
         y,
         std::max(0.0F, far_x - x),
         std::max(0.0F, far_y - y)};
+}
+
+[[nodiscard]] bool infinite_rectangle(const rectangle_f& value) noexcept
+{
+    const float maximum = std::numeric_limits<float>::max();
+    return value.left == -maximum && value.top == -maximum &&
+        value.right == maximum && value.bottom == maximum;
+}
+
+[[nodiscard]] bool axis_preserving_transform(
+    const matrix_3x2_f& value) noexcept
+{
+    return value.m12 == 0.0F && value.m21 == 0.0F;
 }
 
 [[nodiscard]] bool valid_dpi(float dpi_x, float dpi_y) noexcept
@@ -147,6 +165,14 @@ struct scene_bitmap_brush_native : com::unknown {
         bitmap_interpolation_mode* interpolation,
         float* opacity,
         matrix_3x2_f* transform) const noexcept = 0;
+};
+
+struct scene_layer_native : com::unknown {
+    virtual com::result PROGPU_NATIVE_COM_CALL BeginUse(
+        const void* target,
+        size_f required_size) noexcept = 0;
+    virtual void PROGPU_NATIVE_COM_CALL EndUse(
+        const void* target) noexcept = 0;
 };
 
 class portable_scene_path_sink final : public simplified_geometry_sink {
@@ -1591,6 +1617,104 @@ private:
     matrix_3x2_f transform_ = identity_transform;
 };
 
+class portable_layer final : public layer, public scene_layer_native {
+public:
+    portable_layer(factory* owner, size_f size) noexcept
+        : owner_(owner), size_(size)
+    {
+    }
+
+    com::result PROGPU_NATIVE_COM_CALL QueryInterface(
+        com::guid_ref interface_id,
+        void** value) noexcept override
+    {
+        if (value == nullptr) {
+            return com::pointer_error;
+        }
+        *value = nullptr;
+        if (com::guid_equal(interface_id, com::unknown_interface_id()) ||
+            com::guid_equal(interface_id, resource_interface_id) ||
+            com::guid_equal(interface_id, layer_interface_id)) {
+            *value = static_cast<layer*>(this);
+        } else if (com::guid_equal(
+                interface_id, scene_layer_native_interface_id)) {
+            *value = static_cast<scene_layer_native*>(this);
+        } else {
+            return com::no_interface;
+        }
+        AddRef();
+        return com::ok;
+    }
+
+    com::reference_count_value PROGPU_NATIVE_COM_CALL AddRef()
+        noexcept override
+    {
+        return reference_count_.add_ref();
+    }
+
+    com::reference_count_value PROGPU_NATIVE_COM_CALL Release()
+        noexcept override
+    {
+        return reference_count_.release(this);
+    }
+
+    void PROGPU_NATIVE_COM_CALL GetFactory(factory** value) const
+        noexcept override
+    {
+        if (value == nullptr) {
+            return;
+        }
+        *value = owner_.get();
+        if (*value != nullptr) {
+            (*value)->AddRef();
+        }
+    }
+
+    size_f PROGPU_NATIVE_COM_CALL GetSize() const noexcept override
+    {
+        const std::lock_guard lock(mutex_);
+        return size_;
+    }
+
+    com::result PROGPU_NATIVE_COM_CALL BeginUse(
+        const void* target,
+        size_f required_size) noexcept override
+    {
+        if (target == nullptr || !std::isfinite(required_size.width) ||
+            !std::isfinite(required_size.height) ||
+            required_size.width < 0.0F || required_size.height < 0.0F) {
+            return com::invalid_argument;
+        }
+        const std::lock_guard lock(mutex_);
+        if (target_ != nullptr) {
+            return wrong_state;
+        }
+        size_.width = std::max(size_.width, required_size.width);
+        size_.height = std::max(size_.height, required_size.height);
+        target_ = target;
+        return com::ok;
+    }
+
+    void PROGPU_NATIVE_COM_CALL EndUse(
+        const void* target) noexcept override
+    {
+        const std::lock_guard lock(mutex_);
+        if (target_ == target) {
+            target_ = nullptr;
+        }
+    }
+
+private:
+    friend class com::atomic_reference_count<portable_layer>;
+    ~portable_layer() = default;
+
+    com::atomic_reference_count<portable_layer> reference_count_;
+    com::pointer<factory> owner_;
+    mutable std::mutex mutex_;
+    size_f size_{};
+    const void* target_ = nullptr;
+};
+
 class portable_scene_render_target final :
     public render_target,
     public scene_render_target_native {
@@ -1941,10 +2065,27 @@ public:
     }
 
     com::result PROGPU_NATIVE_COM_CALL CreateLayer(
-        const size_f*,
+        const size_f* requested_size,
         layer** value) noexcept override
     {
-        return unsupported_output(value);
+        if (value == nullptr) {
+            return com::pointer_error;
+        }
+        *value = nullptr;
+        const size_f size = requested_size == nullptr
+            ? size_f{}
+            : *requested_size;
+        if (!std::isfinite(size.width) || !std::isfinite(size.height) ||
+            size.width < 0.0F || size.height < 0.0F) {
+            return com::invalid_argument;
+        }
+        auto* created = new (std::nothrow) portable_layer(
+            owner_.get(), size);
+        if (created == nullptr) {
+            return com::out_of_memory;
+        }
+        *value = created;
+        return com::ok;
     }
 
     com::result PROGPU_NATIVE_COM_CALL CreateMesh(mesh** value)
@@ -2306,14 +2447,130 @@ public:
     }
 
     void PROGPU_NATIVE_COM_CALL PushLayer(
-        const layer_parameters*, layer*) noexcept override
+        const layer_parameters* parameters,
+        layer* layer_value) noexcept override
     {
-        unsupported_draw();
+        const std::lock_guard lock(mutex_);
+        if (!can_draw()) {
+            return;
+        }
+        if (parameters == nullptr || layer_value == nullptr ||
+            !valid_rectangle(parameters->content_bounds) ||
+            !core::valid_transform(&parameters->mask_transform) ||
+            !valid_opacity(parameters->opacity)) {
+            latch(com::invalid_argument);
+            return;
+        }
+        if (parameters->mask_antialias_mode !=
+                antialias_mode::per_primitive &&
+            parameters->mask_antialias_mode != antialias_mode::aliased) {
+            latch(com::invalid_argument);
+            return;
+        }
+        if (parameters->options != layer_options::none &&
+            parameters->options != layer_options::initialize_for_cleartype) {
+            latch(com::invalid_argument);
+            return;
+        }
+        if (parameters->options != layer_options::none ||
+            parameters->geometric_mask != nullptr ||
+            parameters->opacity_brush != nullptr) {
+            latch(not_implemented);
+            return;
+        }
+        const bool full_target = infinite_rectangle(
+            parameters->content_bounds);
+        if (!full_target && !axis_preserving_transform(transform_)) {
+            latch(not_implemented);
+            return;
+        }
+        if (scope_depth_ == scope_stack_.size()) {
+            latch(com::out_of_memory);
+            return;
+        }
+        factory* raw_factory = nullptr;
+        layer_value->GetFactory(&raw_factory);
+        com::pointer<factory> layer_factory;
+        layer_factory.attach(raw_factory);
+        if (layer_factory.get() != owner_.get()) {
+            latch(wrong_factory);
+            return;
+        }
+        scene_layer_native* raw_native = nullptr;
+        const com::result query_result = layer_value->QueryInterface(
+            scene_layer_native_interface_id,
+            reinterpret_cast<void**>(&raw_native));
+        com::pointer<scene_layer_native> layer_native;
+        layer_native.attach(raw_native);
+        if (com::failed(query_result) || !layer_native) {
+            latch(query_result == com::no_interface
+                ? not_implemented
+                : query_result);
+            return;
+        }
+        const progpu_native_image_rect bounds = full_target
+            ? progpu_native_image_rect{}
+            : transformed_bounds(parameters->content_bounds);
+        if (com::failed(failure_)) {
+            return;
+        }
+        if (!valid_native_rectangle(bounds)) {
+            latch(com::invalid_argument);
+            return;
+        }
+        const size_f required_size = full_target
+            ? size_f{
+                static_cast<float>(pixel_width_) * 96.0F / dpi_x_,
+                static_cast<float>(pixel_height_) * 96.0F / dpi_y_}
+            : size_f{bounds.width, bounds.height};
+        const com::result begin_use_result = layer_native->BeginUse(
+            this, required_size);
+        if (com::failed(begin_use_result)) {
+            latch(begin_use_result);
+            return;
+        }
+        const progpu_native_scene_layer native_layer{
+            sizeof(progpu_native_scene_layer),
+            full_target ? 0U : PROGPU_NATIVE_SCENE_LAYER_BOUNDS,
+            bounds,
+            parameters->opacity,
+            PROGPU_NATIVE_BLEND_SRC_OVER,
+            PROGPU_NATIVE_SCENE_NO_INDEX,
+            PROGPU_NATIVE_SCENE_NO_INDEX,
+            0U,
+            0U,
+            0U,
+            0U};
+        if (!builder_.push_layer(native_layer)) {
+            layer_native->EndUse(this);
+            latch(builder_failure());
+            return;
+        }
+        layer_stack_[scope_depth_] = layer_native;
+        scope_stack_[scope_depth_] = scope_opacity_layer;
+        ++scope_depth_;
     }
 
     void PROGPU_NATIVE_COM_CALL PopLayer() noexcept override
     {
-        unsupported_draw();
+        const std::lock_guard lock(mutex_);
+        if (!can_draw()) {
+            return;
+        }
+        if (scope_depth_ == 0U ||
+            scope_stack_[scope_depth_ - 1U] != scope_opacity_layer ||
+            !layer_stack_[scope_depth_ - 1U]) {
+            latch(wrong_state);
+            return;
+        }
+        if (!builder_.pop_layer()) {
+            latch(builder_failure());
+            return;
+        }
+        --scope_depth_;
+        layer_stack_[scope_depth_]->EndUse(this);
+        layer_stack_[scope_depth_].reset();
+        scope_stack_[scope_depth_] = scope_none;
     }
 
     com::result PROGPU_NATIVE_COM_CALL Flush(
@@ -2480,6 +2737,7 @@ public:
             }
             ++generation_;
         }
+        release_active_layers();
         if (!builder_.reset(scene_id_, generation_)) {
             failure_ = builder_failure();
             return;
@@ -4374,8 +4632,21 @@ private:
         }
     }
 
+    void release_active_layers() noexcept
+    {
+        for (auto& active_layer : layer_stack_) {
+            if (active_layer) {
+                active_layer->EndUse(this);
+                active_layer.reset();
+            }
+        }
+    }
+
     friend class com::atomic_reference_count<portable_scene_render_target>;
-    ~portable_scene_render_target() = default;
+    ~portable_scene_render_target()
+    {
+        release_active_layers();
+    }
 
     com::atomic_reference_count<portable_scene_render_target> reference_count_;
     com::pointer<factory> owner_;
@@ -4391,10 +4662,13 @@ private:
     std::uint32_t draw_count_ = 0U;
     static constexpr std::uint8_t scope_none = 0U;
     static constexpr std::uint8_t scope_axis_aligned_clip = 1U;
+    static constexpr std::uint8_t scope_opacity_layer = 2U;
     std::array<progpu_native_image_rect,
         PROGPU_NATIVE_SCENE_MAX_STACK_DEPTH> clip_stack_{};
     std::array<std::uint8_t,
         PROGPU_NATIVE_SCENE_MAX_STACK_DEPTH> scope_stack_{};
+    std::array<com::pointer<scene_layer_native>,
+        PROGPU_NATIVE_SCENE_MAX_STACK_DEPTH> layer_stack_{};
     std::size_t clip_depth_ = 0U;
     std::size_t scope_depth_ = 0U;
     float dpi_x_ = 96.0F;

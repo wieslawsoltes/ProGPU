@@ -7,6 +7,7 @@
 #endif
 
 #include <cmath>
+#include <cstddef>
 #include <cstdio>
 #include <cstdint>
 #include <limits>
@@ -257,6 +258,49 @@ static_assert(sizeof(compat::scene_render_target_properties) == 32U);
 static_assert(sizeof(compat::scene_render_target_summary) == 40U);
 static_assert(sizeof(compat::scene_submission_diagnostics) == 32U);
 static_assert(sizeof(compat::scene_render_options) == 16U);
+static_assert(
+    sizeof(compat::layer_parameters) == (sizeof(void*) == 8U ? 72U : 60U));
+static_assert(offsetof(compat::layer_parameters, content_bounds) == 0U);
+static_assert(offsetof(compat::layer_parameters, geometric_mask) == 16U);
+static_assert(
+    offsetof(compat::layer_parameters, mask_antialias_mode) ==
+    16U + sizeof(void*));
+static_assert(
+    offsetof(compat::layer_parameters, mask_transform) ==
+    20U + sizeof(void*));
+static_assert(
+    offsetof(compat::layer_parameters, opacity) == 44U + sizeof(void*));
+static_assert(
+    offsetof(compat::layer_parameters, opacity_brush) ==
+    48U + sizeof(void*));
+static_assert(
+    offsetof(compat::layer_parameters, options) == 48U + 2U * sizeof(void*));
+
+#if defined(_WIN32)
+static_assert(
+    sizeof(compat::layer_parameters) == sizeof(D2D1_LAYER_PARAMETERS));
+static_assert(
+    offsetof(compat::layer_parameters, content_bounds) ==
+    offsetof(D2D1_LAYER_PARAMETERS, contentBounds));
+static_assert(
+    offsetof(compat::layer_parameters, geometric_mask) ==
+    offsetof(D2D1_LAYER_PARAMETERS, geometricMask));
+static_assert(
+    offsetof(compat::layer_parameters, mask_antialias_mode) ==
+    offsetof(D2D1_LAYER_PARAMETERS, maskAntialiasMode));
+static_assert(
+    offsetof(compat::layer_parameters, mask_transform) ==
+    offsetof(D2D1_LAYER_PARAMETERS, maskTransform));
+static_assert(
+    offsetof(compat::layer_parameters, opacity) ==
+    offsetof(D2D1_LAYER_PARAMETERS, opacity));
+static_assert(
+    offsetof(compat::layer_parameters, opacity_brush) ==
+    offsetof(D2D1_LAYER_PARAMETERS, opacityBrush));
+static_assert(
+    offsetof(compat::layer_parameters, options) ==
+    offsetof(D2D1_LAYER_PARAMETERS, layerOptions));
+#endif
 
 int main()
 {
@@ -1462,6 +1506,138 @@ int main()
     if (target->EndDraw(nullptr, nullptr) != compat::wrong_state ||
         scene_target->GetRequiredSceneSize() != 0U) {
         return 181;
+    }
+
+    compat::layer* raw_layer = nullptr;
+    if (target->CreateLayer(nullptr, &raw_layer) != com::ok ||
+        raw_layer == nullptr) {
+        return 182;
+    }
+    com::pointer<compat::layer> target_layer;
+    target_layer.attach(raw_layer);
+    com::pointer<compat::resource> layer_resource;
+    com::pointer<compat::layer> queried_layer;
+    if (target_layer.as(
+            compat::resource_interface_id, layer_resource) != com::ok ||
+        !layer_resource ||
+        target_layer.as(compat::layer_interface_id, queried_layer) != com::ok ||
+        queried_layer.get() != target_layer.get()) {
+        return 183;
+    }
+    compat::factory* raw_layer_factory = nullptr;
+    target_layer->GetFactory(&raw_layer_factory);
+    com::pointer<compat::factory> layer_factory;
+    layer_factory.attach(raw_layer_factory);
+    const compat::size_f initial_layer_size = target_layer->GetSize();
+    if (layer_factory.get() != factory.get() ||
+        !approximately_equal(initial_layer_size.width, 0.0F) ||
+        !approximately_equal(initial_layer_size.height, 0.0F)) {
+        return 184;
+    }
+    const compat::size_f invalid_layer_size{-1.0F, 10.0F};
+    raw_layer = reinterpret_cast<compat::layer*>(
+        static_cast<std::uintptr_t>(1U));
+    if (target->CreateLayer(&invalid_layer_size, &raw_layer) !=
+            com::invalid_argument ||
+        raw_layer != nullptr ||
+        target->CreateLayer(nullptr, nullptr) != com::pointer_error) {
+        return 185;
+    }
+
+    const compat::rectangle_f layer_bounds{0.0F, 0.0F, 20.0F, 20.0F};
+    const compat::layer_parameters layer_parameters{
+        layer_bounds,
+        nullptr,
+        compat::antialias_mode::per_primitive,
+        {1.0F, 0.0F, 0.0F, 1.0F, 0.0F, 0.0F},
+        0.5F,
+        nullptr,
+        compat::layer_options::none};
+    target->BeginDraw();
+    target->PushLayer(&layer_parameters, target_layer.get());
+    target->FillRectangle(
+        &rectangle, static_cast<compat::brush*>(target_brush.get()));
+    target->PopLayer();
+    if (target->EndDraw(nullptr, nullptr) != com::ok) {
+        return 186;
+    }
+    const compat::size_f grown_layer_size = target_layer->GetSize();
+    const std::uint64_t layer_scene_size =
+        scene_target->GetRequiredSceneSize();
+    std::vector<std::byte> layer_scene(
+        static_cast<std::size_t>(layer_scene_size));
+    std::uint64_t layer_scene_written = 0U;
+    if (!approximately_equal(grown_layer_size.width, 20.0F) ||
+        !approximately_equal(grown_layer_size.height, 20.0F) ||
+        layer_scene_size < sizeof(progpu_native_scene_header) ||
+        scene_target->BuildScene(
+            layer_scene.data(),
+            layer_scene.size(),
+            &layer_scene_written) != com::ok ||
+        layer_scene_written != layer_scene_size) {
+        return 187;
+    }
+    const auto* layer_header = reinterpret_cast<
+        const progpu_native_scene_header*>(layer_scene.data());
+    const auto layer_command = [layer_header, &layer_scene](
+        std::uint32_t index) {
+        return reinterpret_cast<const progpu_native_scene_command*>(
+            layer_scene.data() + layer_header->command_offset +
+            static_cast<std::size_t>(index) * layer_header->command_stride);
+    };
+    const auto* push_layer_command = layer_command(0U);
+    if (layer_header->command_count != 3U ||
+        push_layer_command->kind != PROGPU_NATIVE_SCENE_COMMAND_PUSH_LAYER ||
+        layer_command(1U)->kind != PROGPU_NATIVE_SCENE_COMMAND_DRAW_ANALYTIC ||
+        layer_command(2U)->kind != PROGPU_NATIVE_SCENE_COMMAND_POP_LAYER ||
+        push_layer_command->payload_size < sizeof(progpu_native_scene_layer)) {
+        return 188;
+    }
+    const auto* native_layer = reinterpret_cast<
+        const progpu_native_scene_layer*>(
+            layer_scene.data() + push_layer_command->payload_offset);
+    if (native_layer->flags != PROGPU_NATIVE_SCENE_LAYER_BOUNDS ||
+        !approximately_equal(native_layer->bounds.x, 0.0F) ||
+        !approximately_equal(native_layer->bounds.y, 0.0F) ||
+        !approximately_equal(native_layer->bounds.width, 20.0F) ||
+        !approximately_equal(native_layer->bounds.height, 20.0F) ||
+        !approximately_equal(native_layer->opacity, 0.5F) ||
+        native_layer->blend_mode != PROGPU_NATIVE_BLEND_SRC_OVER ||
+        native_layer->mask_resource_index != PROGPU_NATIVE_SCENE_NO_INDEX ||
+        native_layer->effect_resource_index != PROGPU_NATIVE_SCENE_NO_INDEX) {
+        return 189;
+    }
+
+    target->BeginDraw();
+    target->PushLayer(&layer_parameters, target_layer.get());
+    target->PushLayer(&layer_parameters, target_layer.get());
+    if (target->EndDraw(nullptr, nullptr) != compat::wrong_state ||
+        scene_target->GetRequiredSceneSize() != 0U) {
+        return 190;
+    }
+    target->BeginDraw();
+    target->PushLayer(&layer_parameters, target_layer.get());
+    target->PushAxisAlignedClip(
+        &outer_clip, compat::antialias_mode::aliased);
+    target->PopLayer();
+    if (target->EndDraw(nullptr, nullptr) != compat::wrong_state ||
+        scene_target->GetRequiredSceneSize() != 0U) {
+        return 191;
+    }
+    target->BeginDraw();
+    target->PushLayer(&layer_parameters, target_layer.get());
+    target->PopLayer();
+    if (target->EndDraw(nullptr, nullptr) != com::ok) {
+        return 192;
+    }
+    compat::layer_parameters unsupported_layer = layer_parameters;
+    unsupported_layer.options =
+        compat::layer_options::initialize_for_cleartype;
+    target->BeginDraw();
+    target->PushLayer(&unsupported_layer, target_layer.get());
+    if (target->EndDraw(nullptr, nullptr) != compat::not_implemented ||
+        scene_target->GetRequiredSceneSize() != 0U) {
+        return 193;
     }
     target->BeginDraw();
     target->DrawRectangle(
