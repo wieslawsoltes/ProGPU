@@ -35,6 +35,15 @@ public sealed class CadSnapshotChangedEventArgs : EventArgs
     }
 }
 
+/// <summary>
+/// Result of one generation-ordered edit whose replacement picture was
+/// prepared away from the UI thread when the host supports workers.
+/// </summary>
+public readonly record struct CadBackgroundEditResult(
+    bool Changed,
+    ulong ContentGeneration,
+    bool ScenePublished);
+
 /// <summary>Selected-set operation driven by two WCS plan-view points.</summary>
 public enum CadPointTransformOperation : byte
 {
@@ -624,6 +633,7 @@ public sealed class CadSampleCanvas : FrameworkElement
     };
     private readonly CadSnapshotOptions _snapshotOptions;
     private readonly CadScenePublicationGate _scenePublicationGate = new();
+    private readonly SemaphoreSlim _backgroundEditGate = new(1, 1);
     private readonly HashSet<ulong> _selectedHandleSet = new();
     private readonly HashSet<ulong> _residentSemanticHandleSet = new();
     private readonly HashSet<ulong> _semanticSelectionInputSet = new();
@@ -1544,7 +1554,179 @@ public sealed class CadSampleCanvas : FrameworkElement
     /// </summary>
     public async Task<bool> LoadAsync(
         CadDocumentSession session,
+        CancellationToken cancellationToken = default) =>
+        await PrepareAndReplaceAsync(
+            session,
+            resetViewSelectionAndHistory: true,
+            synchronizePlanOrthoMode: false,
+            synchronizePlanSnapMode: false,
+            cancellationToken);
+
+    /// <summary>
+    /// Executes one edit in request order, then prepares and atomically
+    /// publishes its immutable replacement scene. Cancellation is honored only
+    /// before the document mutation; after commit, preparation runs to a
+    /// generation-checked terminal result so callers never receive an
+    /// ambiguous canceled edit.
+    /// </summary>
+    public async Task<CadBackgroundEditResult> ExecuteEditAsync(
+        CadEditCommand command,
         CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(command);
+        await _backgroundEditGate.WaitAsync(cancellationToken);
+        try
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            CadDocumentSession session = CurrentSession ??
+                throw new InvalidOperationException("No CAD document is loaded.");
+            CadDocumentHistory history = _history ??
+                throw new InvalidOperationException(
+                    "The CAD edit history is not initialized.");
+            ulong generation = history.Execute(command);
+            bool published;
+            try
+            {
+                published = await PrepareAndReplaceAsync(
+                    session,
+                    resetViewSelectionAndHistory: false,
+                    synchronizePlanOrthoMode: false,
+                    synchronizePlanSnapMode: false,
+                    CancellationToken.None);
+            }
+            catch
+            {
+                EditStateChanged?.Invoke(this, EventArgs.Empty);
+                throw;
+            }
+
+            return new CadBackgroundEditResult(
+                Changed: true,
+                ContentGeneration: generation,
+                ScenePublished: published);
+        }
+        finally
+        {
+            _backgroundEditGate.Release();
+        }
+    }
+
+    /// <summary>
+    /// Undoes one command and prepares its replacement scene under the same
+    /// ordered, cancellation-before-mutation contract as
+    /// <see cref="ExecuteEditAsync"/>.
+    /// </summary>
+    public async Task<CadBackgroundEditResult> TryUndoAsync(
+        CancellationToken cancellationToken = default) =>
+        await ApplyHistoryTransitionAsync(
+            isUndo: true,
+            cancellationToken);
+
+    /// <summary>
+    /// Redoes one command and prepares its replacement scene under the same
+    /// ordered, cancellation-before-mutation contract as
+    /// <see cref="ExecuteEditAsync"/>.
+    /// </summary>
+    public async Task<CadBackgroundEditResult> TryRedoAsync(
+        CancellationToken cancellationToken = default) =>
+        await ApplyHistoryTransitionAsync(
+            isUndo: false,
+            cancellationToken);
+
+    /// <summary>
+    /// Retries preparation of the current edited generation without changing
+    /// history. This is the recovery seam for a post-commit preparation error.
+    /// </summary>
+    public async Task<bool> RefreshEditedSceneAsync(
+        CancellationToken cancellationToken = default)
+    {
+        await _backgroundEditGate.WaitAsync(cancellationToken);
+        try
+        {
+            CadDocumentSession session = CurrentSession ??
+                throw new InvalidOperationException("No CAD document is loaded.");
+            return await PrepareAndReplaceAsync(
+                session,
+                resetViewSelectionAndHistory: false,
+                synchronizePlanOrthoMode: false,
+                synchronizePlanSnapMode: false,
+                cancellationToken);
+        }
+        finally
+        {
+            _backgroundEditGate.Release();
+        }
+    }
+
+    private async Task<CadBackgroundEditResult> ApplyHistoryTransitionAsync(
+        bool isUndo,
+        CancellationToken cancellationToken)
+    {
+        await _backgroundEditGate.WaitAsync(cancellationToken);
+        try
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            CadDocumentSession? session = CurrentSession;
+            CadDocumentHistory? history = _history;
+            if (session is null || history is null)
+            {
+                EditStateChanged?.Invoke(this, EventArgs.Empty);
+                return default;
+            }
+
+            bool previousOrthoMode = session.Read(
+                document => document.Header.OrthoMode);
+            bool previousSnapMode = session.Read(document =>
+                document.VPorts[VPort.DefaultName].SnapOn);
+            bool changed = isUndo
+                ? history.TryUndo(out ulong generation)
+                : history.TryRedo(out generation);
+            if (!changed)
+            {
+                EditStateChanged?.Invoke(this, EventArgs.Empty);
+                return new CadBackgroundEditResult(
+                    Changed: false,
+                    ContentGeneration: generation,
+                    ScenePublished: false);
+            }
+
+            bool synchronizePlanOrthoMode = previousOrthoMode != session.Read(
+                document => document.Header.OrthoMode);
+            bool synchronizePlanSnapMode = previousSnapMode != session.Read(
+                document => document.VPorts[VPort.DefaultName].SnapOn);
+            bool published;
+            try
+            {
+                published = await PrepareAndReplaceAsync(
+                    session,
+                    resetViewSelectionAndHistory: false,
+                    synchronizePlanOrthoMode,
+                    synchronizePlanSnapMode,
+                    CancellationToken.None);
+            }
+            catch
+            {
+                EditStateChanged?.Invoke(this, EventArgs.Empty);
+                throw;
+            }
+
+            return new CadBackgroundEditResult(
+                Changed: true,
+                ContentGeneration: generation,
+                ScenePublished: published);
+        }
+        finally
+        {
+            _backgroundEditGate.Release();
+        }
+    }
+
+    private async Task<bool> PrepareAndReplaceAsync(
+        CadDocumentSession session,
+        bool resetViewSelectionAndHistory,
+        bool synchronizePlanOrthoMode,
+        bool synchronizePlanSnapMode,
+        CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(session);
         WgpuContext? rasterImageContext = WgpuContext.Current;
@@ -1619,7 +1801,9 @@ public sealed class CadSampleCanvas : FrameworkElement
 
             bool published = CompileAndReplace(
                 session,
-                resetViewSelectionAndHistory: true,
+                resetViewSelectionAndHistory,
+                synchronizePlanOrthoMode,
+                synchronizePlanSnapMode,
                 preparedSnapshot: snapshot,
                 preparedPublicationTicket: publicationTicket,
                 preparedPicture: picture);

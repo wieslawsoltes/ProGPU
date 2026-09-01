@@ -3,7 +3,8 @@
 ## Scope and clean-room boundary
 
 This checkpoint moves immutable CAD plan command recording and picture freezing
-off the UI thread for desktop file-open requests. GPU-domain raster IMAGE
+off the UI thread for desktop file-open and explicitly asynchronous edit
+requests. GPU-domain raster IMAGE
 leases are resolved, decoded/uploaded when necessary, and validated on the
 owning host thread first; a one-shot prepared resource set then transfers those
 leases into worker-owned recording without a worker-side WebGPU call. Browser
@@ -50,6 +51,17 @@ Browser/Wasm runs the same ordered phases without requiring threads. Final
 publication remains O(1) and accepts only the exact session, request, and
 content generation.
 
+`ExecuteEditAsync`, `TryUndoAsync`, and `TryRedoAsync` retain the existing
+synchronous editing API unchanged while providing an explicit ordered path for
+worker-prepared replacements. One bounded semaphore serializes mutation through
+publication. Cancellation is accepted while waiting and immediately before
+mutation; after a history command commits, preparation runs without caller
+cancellation to a generation-checked published-or-superseded result. A
+post-commit preparation exception retains the prior drawable picture and exact
+history state, is surfaced to the caller, and can be retried without another
+mutation through `RefreshEditedSceneAsync`. Two queued edits therefore publish
+in request order and never expose a picture tagged with the wrong generation.
+
 Startup stays lazy: no resource is prepared before an actual loaded snapshot.
 Visibility/layer policy and exact source order remain compiler-owned; this
 checkpoint does not introduce a second culler. Demand-driven GPU upload is
@@ -68,9 +80,7 @@ catalog disposal until the scene releases it. Existing snapshot/scene,
 publication-gate, raster effect/clip, native-picture, cancellation, and browser
 AOT gates remain applicable.
 
-Worker-prepared edit replacements are still pending because the synchronous
-editing API currently promises an immediately published generation. Completing
-that work requires an explicitly asynchronous, ordered edit-to-scene queue with
-failure/Undo/Redo semantics; this file-open pipeline does not silently change
-that public contract. Generation-keyed incremental chunks and shared block
-fragments/instances also remain separate rendering work.
+Focused regressions cover matching async load publication, cancellation before
+mutation, ordered concurrent edit publication, and generation-exact
+Execute/Undo/Redo replacement. Generation-keyed incremental chunks and shared
+block fragments/instances remain separate rendering work.

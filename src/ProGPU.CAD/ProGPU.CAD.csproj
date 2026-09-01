@@ -52,6 +52,7 @@
     <PackageReleaseNotes>$(PackageReleaseNotes) Adds a one-shot O(1) CAD retained-scene publication gate keyed by session, request, and immutable document generation, rejecting superseded, invalidated, mismatched, edited, or duplicate prepared results before shared desktop/browser state replacement.</PackageReleaseNotes>
     <PackageReleaseNotes>$(PackageReleaseNotes) Moves shared CAD file-open snapshot traversal and shaping to cancellable desktop worker preparation while retaining a thread-optional browser path, the previous drawable picture, UI-thread plan-scene/GPU resource recording, and double-checked generation-safe publication.</PackageReleaseNotes>
     <PackageReleaseNotes>$(PackageReleaseNotes) Adds explicit backend-instance native registry diagnostics and availability-tagged whole-device Metal allocation telemetry, kept separate from CAD frame logical bytes and excluded from render/update hot paths.</PackageReleaseNotes>
+    <PackageReleaseNotes>$(PackageReleaseNotes) Adds explicit generation-ordered asynchronous edit, Undo, Redo, and retry scene replacement with cancellation-before-mutation semantics, worker snapshot/plan recording, host-owned GPU lease preparation, prior-picture retention, and exact publication results while preserving all synchronous edit contracts.</PackageReleaseNotes>
     <PackageTags>progpu;cad;dxf;dwg;acadsharp;webgpu;rendering;editing</PackageTags>
   </PropertyGroup>
 

@@ -44,6 +44,124 @@ public sealed class CadSampleSelectionTests
     }
 
     [Fact]
+    public async Task BackgroundEditPublishesAndOrdersUndoRedoGenerations()
+    {
+        var document = new CadDocument();
+        var line = new Line(new XYZ(-10, 0, 0), new XYZ(10, 0, 0));
+        document.Entities.Add(line);
+        var session = new CadDocumentSession(document);
+        var canvas = new CadSampleCanvas();
+        try
+        {
+            canvas.Load(session);
+            ulong initialGeneration = session.ContentGeneration;
+
+            CadBackgroundEditResult edited = await canvas.ExecuteEditAsync(
+                new CadTranslateEntitiesCommand(
+                    [line.Handle],
+                    new CadPoint3D(5, 2, 0)));
+
+            Assert.True(edited.Changed);
+            Assert.True(edited.ScenePublished);
+            Assert.Equal(initialGeneration + 1, edited.ContentGeneration);
+            Assert.Equal(edited.ContentGeneration, canvas.CurrentSnapshot?.ContentGeneration);
+            Assert.Equal(
+                new CadPoint3D(-5, 2, 0),
+                canvas.CurrentSnapshot!.Lines.Span[0].Start);
+
+            CadBackgroundEditResult undone = await canvas.TryUndoAsync();
+            CadBackgroundEditResult redone = await canvas.TryRedoAsync();
+
+            Assert.True(undone.Changed && undone.ScenePublished);
+            Assert.True(redone.Changed && redone.ScenePublished);
+            Assert.Equal(edited.ContentGeneration + 1, undone.ContentGeneration);
+            Assert.Equal(undone.ContentGeneration + 1, redone.ContentGeneration);
+            Assert.Equal(redone.ContentGeneration, canvas.CurrentSnapshot?.ContentGeneration);
+            Assert.Equal(
+                new CadPoint3D(-5, 2, 0),
+                canvas.CurrentSnapshot!.Lines.Span[0].Start);
+        }
+        finally
+        {
+            canvas.FireUnloaded();
+        }
+    }
+
+    [Fact]
+    public async Task BackgroundEditCancellationBeforeMutationLeavesHistoryUntouched()
+    {
+        var document = new CadDocument();
+        var line = new Line(new XYZ(-10, 0, 0), new XYZ(10, 0, 0));
+        document.Entities.Add(line);
+        var session = new CadDocumentSession(document);
+        var canvas = new CadSampleCanvas();
+        try
+        {
+            canvas.Load(session);
+            ulong generation = session.ContentGeneration;
+            using var cancellation = new CancellationTokenSource();
+            cancellation.Cancel();
+
+            await Assert.ThrowsAnyAsync<OperationCanceledException>(() =>
+                canvas.ExecuteEditAsync(
+                    new CadTranslateEntitiesCommand(
+                        [line.Handle],
+                        new CadPoint3D(1, 0, 0)),
+                    cancellation.Token));
+
+            Assert.Equal(generation, session.ContentGeneration);
+            Assert.Equal(generation, canvas.CurrentSnapshot?.ContentGeneration);
+            Assert.Equal(0, canvas.UndoCount);
+        }
+        finally
+        {
+            canvas.FireUnloaded();
+        }
+    }
+
+    [Fact]
+    public async Task ConcurrentBackgroundEditsPublishInRequestOrder()
+    {
+        var document = new CadDocument();
+        var line = new Line(new XYZ(0, 0, 0), new XYZ(10, 0, 0));
+        document.Entities.Add(line);
+        var session = new CadDocumentSession(document);
+        var canvas = new CadSampleCanvas();
+        try
+        {
+            canvas.Load(session);
+            Task<CadBackgroundEditResult> first = canvas.ExecuteEditAsync(
+                new CadTranslateEntitiesCommand(
+                    [line.Handle],
+                    new CadPoint3D(1, 0, 0)));
+            Task<CadBackgroundEditResult> second = canvas.ExecuteEditAsync(
+                new CadTranslateEntitiesCommand(
+                    [line.Handle],
+                    new CadPoint3D(2, 0, 0)));
+
+            CadBackgroundEditResult[] results = await Task.WhenAll(first, second);
+
+            Assert.All(results, result =>
+            {
+                Assert.True(result.Changed);
+                Assert.True(result.ScenePublished);
+            });
+            Assert.Equal(
+                results[0].ContentGeneration + 1,
+                results[1].ContentGeneration);
+            Assert.Equal(results[1].ContentGeneration, session.ContentGeneration);
+            Assert.Equal(
+                new CadPoint3D(3, 0, 0),
+                canvas.CurrentSnapshot!.Lines.Span[0].Start);
+            Assert.Equal(2, canvas.UndoCount);
+        }
+        finally
+        {
+            canvas.FireUnloaded();
+        }
+    }
+
+    [Fact]
     public void LeftClickSelectsSemanticHandleAndEmptyClickClearsIt()
     {
         var document = new CadDocument();
