@@ -1917,6 +1917,82 @@ int main()
         return 152;
     }
 
+    const compat::rectangle_f opacity_mask_destination{
+        40.0F, 3.0F, 56.0F, 19.0F};
+    target->BeginDraw();
+    target->FillOpacityMask(
+        portable_bitmap.get(),
+        static_cast<compat::brush*>(target_brush.get()),
+        compat::opacity_mask_content::graphics,
+        &opacity_mask_destination,
+        nullptr);
+    if (target->EndDraw(nullptr, nullptr) != compat::wrong_state ||
+        scene_target->GetRequiredSceneSize() != 0U) {
+        return 219;
+    }
+    target->BeginDraw();
+    target->SetAntialiasMode(compat::antialias_mode::aliased);
+    target->FillOpacityMask(
+        portable_bitmap.get(),
+        static_cast<compat::brush*>(target_brush.get()),
+        compat::opacity_mask_content::text_natural,
+        &opacity_mask_destination,
+        nullptr);
+    const com::result opacity_mask_end_status =
+        target->EndDraw(nullptr, nullptr);
+    if (opacity_mask_end_status != com::ok ||
+        scene_target->GetRequiredSceneSize() == 0U) {
+        std::fprintf(
+            stderr,
+            "portable opacity mask EndDraw status: %d, scene size: %llu\n",
+            static_cast<int>(opacity_mask_end_status),
+            static_cast<unsigned long long>(
+                scene_target->GetRequiredSceneSize()));
+        return 220;
+    }
+    const std::uint64_t opacity_mask_scene_size =
+        scene_target->GetRequiredSceneSize();
+    std::vector<std::byte> opacity_mask_scene(
+        static_cast<std::size_t>(opacity_mask_scene_size));
+    std::uint64_t opacity_mask_scene_written = 0U;
+    if (scene_target->BuildScene(
+            opacity_mask_scene.data(),
+            opacity_mask_scene.size(),
+            &opacity_mask_scene_written) != com::ok ||
+        opacity_mask_scene_written != opacity_mask_scene_size) {
+        return 221;
+    }
+    const auto* opacity_mask_header = reinterpret_cast<
+        const progpu_native_scene_header*>(opacity_mask_scene.data());
+    const progpu_native_scene_resource* opacity_mask_resource = nullptr;
+    for (std::uint32_t index = 0U;
+         index < opacity_mask_header->resource_count;
+         ++index) {
+        const auto* resource = reinterpret_cast<
+            const progpu_native_scene_resource*>(
+            opacity_mask_scene.data() + opacity_mask_header->resource_offset +
+            static_cast<std::size_t>(index) *
+                opacity_mask_header->resource_stride);
+        if (resource->kind == PROGPU_NATIVE_SCENE_RESOURCE_LAYER_MASK) {
+            opacity_mask_resource = resource;
+            break;
+        }
+    }
+    const auto* opacity_mask_picture = opacity_mask_resource == nullptr
+        ? nullptr
+        : reinterpret_cast<const progpu_native_scene_layer_picture_mask*>(
+            opacity_mask_scene.data() +
+            opacity_mask_resource->payload_offset);
+    if (opacity_mask_header->command_count != 1U ||
+        opacity_mask_resource == nullptr ||
+        opacity_mask_picture == nullptr ||
+        opacity_mask_picture->kind !=
+            PROGPU_NATIVE_SCENE_LAYER_MASK_PICTURE ||
+        opacity_mask_picture->stream_size <
+            sizeof(progpu_native_scene_header)) {
+        return 222;
+    }
+
     const compat::bitmap_brush_properties bitmap_brush_properties{
         compat::extend_mode::wrap,
         compat::extend_mode::mirror,
