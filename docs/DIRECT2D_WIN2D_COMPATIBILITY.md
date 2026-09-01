@@ -662,6 +662,11 @@ aliased scene clip around all callbacks. The target validates the fixed
 metrics, and balanced clip lifetime. Color-font options fail closed until the
 color-glyph callback generation is implemented.
 
+`DISABLE_COLOR_BITMAP_SNAPPING` is accepted independently on the monochrome
+layout lane: without `ENABLE_COLOR_FONT` there are no color-bitmap glyphs to
+snap, so Direct2D defines no pixel change. Requests that actually enable color
+fonts still fail closed until typed color-vector/bitmap/SVG callbacks land.
+
 `ID2D1RenderTarget::DrawText` now uses the explicit
 `portable_text_layout_factory` extension on its supplied text-format object.
 The target passes the exact UTF-16 span, measuring mode, and layout-rectangle

@@ -343,6 +343,7 @@ public sealed class Direct2DInteropContractTests
         Assert.Contains("class fake_text_format final", nativeTest, StringComparison.Ordinal);
         Assert.Contains("native_target->DrawTextLayout(", nativeTest, StringComparison.Ordinal);
         Assert.Contains("native_target->DrawText(", nativeTest, StringComparison.Ordinal);
+        Assert.Contains("draw_text_options::disable_color_bitmap_snapping", nativeTest, StringComparison.Ordinal);
         Assert.Contains("sizeof(compat::underline) == sizeof(DWRITE_UNDERLINE)", nativeTest, StringComparison.Ordinal);
         Assert.Contains("render_scene_target(", submissionHeader, StringComparison.Ordinal);
         Assert.Contains("progpu_native_engine_update_scene", submissionHeader, StringComparison.Ordinal);
