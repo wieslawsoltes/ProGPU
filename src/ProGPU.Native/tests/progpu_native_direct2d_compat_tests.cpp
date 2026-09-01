@@ -3,6 +3,7 @@
 #include "progpu_native.h"
 
 #if defined(_WIN32)
+#  include <dwrite.h>
 #  include <d2d1.h>
 #  include <wincodec.h>
 #endif
@@ -526,6 +527,139 @@ private:
     com::atomic_reference_count<fake_font_face> reference_count_;
 };
 
+using fake_reserved_com_method = void (PROGPU_NATIVE_COM_CALL*)();
+
+struct fake_text_layout_vtable final {
+    com::result (PROGPU_NATIVE_COM_CALL* query_interface)(
+        void*, com::guid_ref, void**);
+    com::reference_count_value (PROGPU_NATIVE_COM_CALL* add_ref)(void*);
+    com::reference_count_value (PROGPU_NATIVE_COM_CALL* release)(void*);
+    fake_reserved_com_method methods_before_maximum_size[39U];
+    float (PROGPU_NATIVE_COM_CALL* get_max_width)(void*);
+    float (PROGPU_NATIVE_COM_CALL* get_max_height)(void*);
+    fake_reserved_com_method methods_before_draw[14U];
+    com::result (PROGPU_NATIVE_COM_CALL* draw)(
+        void*, void*, compat::text_renderer*, float, float);
+};
+
+struct fake_text_layout final {
+    const fake_text_layout_vtable* vtable = nullptr;
+    compat::glyph_run glyphs{};
+    std::uint32_t draw_call_count = 0U;
+    std::uint32_t max_width_call_count = 0U;
+    std::uint32_t max_height_call_count = 0U;
+    std::int32_t pixel_snapping_disabled = 0;
+    float pixels_per_dip = 0.0F;
+    compat::matrix_3x2_f transform{};
+};
+
+[[nodiscard]] float PROGPU_NATIVE_COM_CALL fake_layout_get_max_width(
+    void* value)
+{
+    auto* layout = static_cast<fake_text_layout*>(value);
+    ++layout->max_width_call_count;
+    return 80.0F;
+}
+
+[[nodiscard]] float PROGPU_NATIVE_COM_CALL fake_layout_get_max_height(
+    void* value)
+{
+    auto* layout = static_cast<fake_text_layout*>(value);
+    ++layout->max_height_call_count;
+    return 30.0F;
+}
+
+com::result PROGPU_NATIVE_COM_CALL fake_layout_draw(
+    void* value,
+    void* client_drawing_context,
+    compat::text_renderer* renderer,
+    float origin_x,
+    float origin_y)
+{
+    auto* layout = static_cast<fake_text_layout*>(value);
+    ++layout->draw_call_count;
+    if (renderer == nullptr || !std::isfinite(origin_x) ||
+        !std::isfinite(origin_y)) {
+        return com::invalid_argument;
+    }
+    void* queried_renderer = nullptr;
+    com::result result = renderer->QueryInterface(
+        compat::text_renderer_interface_id, &queried_renderer);
+    if (com::failed(result) || queried_renderer == nullptr) {
+        return com::no_interface;
+    }
+    static_cast<compat::text_renderer*>(queried_renderer)->Release();
+    result = renderer->IsPixelSnappingDisabled(
+        client_drawing_context, &layout->pixel_snapping_disabled);
+    if (com::succeeded(result)) {
+        result = renderer->GetCurrentTransform(
+            client_drawing_context, &layout->transform);
+    }
+    if (com::succeeded(result)) {
+        result = renderer->GetPixelsPerDip(
+            client_drawing_context, &layout->pixels_per_dip);
+    }
+    if (com::succeeded(result)) {
+        result = renderer->DrawGlyphRun(
+            client_drawing_context,
+            origin_x + 2.0F,
+            origin_y + 14.0F,
+            compat::measuring_mode::natural,
+            &layout->glyphs,
+            nullptr,
+            nullptr);
+    }
+    const compat::underline underline_value{
+        18.0F,
+        1.0F,
+        2.0F,
+        12.0F,
+        0U,
+        0U,
+        nullptr,
+        compat::measuring_mode::natural};
+    if (com::succeeded(result)) {
+        result = renderer->DrawUnderline(
+            client_drawing_context,
+            origin_x + 2.0F,
+            origin_y + 14.0F,
+            &underline_value,
+            nullptr);
+    }
+    const compat::strikethrough strikethrough_value{
+        18.0F,
+        1.0F,
+        -5.0F,
+        0U,
+        0U,
+        nullptr,
+        compat::measuring_mode::natural};
+    if (com::succeeded(result)) {
+        result = renderer->DrawStrikethrough(
+            client_drawing_context,
+            origin_x + 2.0F,
+            origin_y + 14.0F,
+            &strikethrough_value,
+            nullptr);
+    }
+    return result;
+}
+
+[[nodiscard]] fake_text_layout_vtable make_fake_text_layout_vtable()
+{
+    fake_text_layout_vtable result{};
+    result.get_max_width = &fake_layout_get_max_width;
+    result.get_max_height = &fake_layout_get_max_height;
+    result.draw = &fake_layout_draw;
+    return result;
+}
+
+const fake_text_layout_vtable fake_layout_vtable =
+    make_fake_text_layout_vtable();
+
+static_assert(
+    offsetof(fake_text_layout_vtable, draw) == 58U * sizeof(void*));
+
 } // namespace
 
 static_assert(sizeof(compat::rectangle_f) == 16U);
@@ -550,6 +684,10 @@ static_assert(sizeof(compat::wic_rectangle) == 16U);
 static_assert(sizeof(compat::glyph_offset) == 8U);
 static_assert(
     sizeof(compat::glyph_run) == (sizeof(void*) == 8U ? 48U : 32U));
+static_assert(
+    sizeof(compat::underline) == (sizeof(void*) == 8U ? 40U : 32U));
+static_assert(
+    sizeof(compat::strikethrough) == (sizeof(void*) == 8U ? 40U : 28U));
 static_assert(sizeof(compat::bitmap_properties) == 16U);
 static_assert(sizeof(compat::bitmap_brush_properties) == 12U);
 static_assert(sizeof(compat::scene_render_target_properties) == 32U);
@@ -598,6 +736,9 @@ static_assert(
 static_assert(sizeof(compat::wic_rectangle) == sizeof(WICRect));
 static_assert(sizeof(compat::glyph_offset) == sizeof(DWRITE_GLYPH_OFFSET));
 static_assert(sizeof(compat::glyph_run) == sizeof(DWRITE_GLYPH_RUN));
+static_assert(sizeof(compat::underline) == sizeof(DWRITE_UNDERLINE));
+static_assert(
+    sizeof(compat::strikethrough) == sizeof(DWRITE_STRIKETHROUGH));
 static_assert(
     offsetof(compat::glyph_run, font_face_value) ==
     offsetof(DWRITE_GLYPH_RUN, fontFace));
@@ -3175,6 +3316,77 @@ int run_tests()
         return 248;
     }
 
+    fake_text_layout text_layout_value{};
+    text_layout_value.vtable = &fake_layout_vtable;
+    text_layout_value.glyphs = glyph_run;
+    const auto text_layout_options = static_cast<compat::draw_text_options>(
+        static_cast<std::uint32_t>(compat::draw_text_options::no_snap) |
+        static_cast<std::uint32_t>(compat::draw_text_options::clip));
+    target->BeginDraw();
+    target->DrawTextLayout(
+        {10.0F, 20.0F},
+        reinterpret_cast<compat::text_layout*>(&text_layout_value),
+        static_cast<compat::brush*>(target_brush.get()),
+        text_layout_options);
+    if (target->EndDraw(nullptr, nullptr) != com::ok ||
+        text_layout_value.draw_call_count != 1U ||
+        text_layout_value.max_width_call_count != 1U ||
+        text_layout_value.max_height_call_count != 1U ||
+        text_layout_value.pixel_snapping_disabled != 1 ||
+        !approximately_equal(text_layout_value.pixels_per_dip, 1.0F) ||
+        !approximately_equal(text_layout_value.transform.m11, 1.0F) ||
+        font_face->outline_call_count != 2U) {
+        return 250;
+    }
+    compat::scene_render_target_summary text_layout_summary{};
+    scene_target->GetSummary(&text_layout_summary);
+    const std::uint64_t text_layout_scene_size =
+        scene_target->GetRequiredSceneSize();
+    std::vector<std::byte> text_layout_scene(
+        static_cast<std::size_t>(text_layout_scene_size));
+    std::uint64_t text_layout_scene_written = 0U;
+    if (text_layout_summary.draw_count != 3U ||
+        text_layout_scene_size == 0U ||
+        scene_target->BuildScene(
+            text_layout_scene.data(),
+            text_layout_scene.size(),
+            &text_layout_scene_written) != com::ok ||
+        text_layout_scene_written != text_layout_scene_size) {
+        return 251;
+    }
+    const auto* text_layout_header = reinterpret_cast<
+        const progpu_native_scene_header*>(text_layout_scene.data());
+    const auto text_layout_command = [
+        text_layout_header, &text_layout_scene](std::uint32_t index) {
+        return reinterpret_cast<const progpu_native_scene_command*>(
+            text_layout_scene.data() + text_layout_header->command_offset +
+            static_cast<std::size_t>(index) *
+                text_layout_header->command_stride);
+    };
+    if (text_layout_header->command_count != 5U ||
+        text_layout_command(0U)->kind != PROGPU_NATIVE_SCENE_COMMAND_SAVE ||
+        text_layout_command(1U)->kind !=
+            PROGPU_NATIVE_SCENE_COMMAND_DRAW_PATH ||
+        text_layout_command(2U)->kind !=
+            PROGPU_NATIVE_SCENE_COMMAND_DRAW_ANALYTIC ||
+        text_layout_command(3U)->kind !=
+            PROGPU_NATIVE_SCENE_COMMAND_DRAW_ANALYTIC ||
+        text_layout_command(4U)->kind !=
+            PROGPU_NATIVE_SCENE_COMMAND_RESTORE) {
+        return 252;
+    }
+    target->BeginDraw();
+    target->DrawTextLayout(
+        {10.0F, 20.0F},
+        reinterpret_cast<compat::text_layout*>(&text_layout_value),
+        static_cast<compat::brush*>(target_brush.get()),
+        compat::draw_text_options::enable_color_font);
+    if (target->EndDraw(nullptr, nullptr) != compat::not_implemented ||
+        text_layout_value.draw_call_count != 1U ||
+        scene_target->GetRequiredSceneSize() != 0U) {
+        return 254;
+    }
+
     compat::layer_parameters masked_layer_parameters = layer_parameters;
     masked_layer_parameters.geometric_mask = path_base.get();
     masked_layer_parameters.opacity = 0.75F;
@@ -3890,6 +4102,42 @@ int run_tests()
         std::fprintf(stderr,
             "portable Windows ID2D1RenderTarget DrawGlyphRun failed\n");
         return 249;
+    }
+    auto* native_layout_font_face = new fake_font_face();
+    const UINT16 native_layout_glyph_indices[]{61U, 62U};
+    const FLOAT native_layout_glyph_advances[]{6.0F, 7.0F};
+    fake_text_layout native_text_layout{};
+    native_text_layout.vtable = &fake_layout_vtable;
+    native_text_layout.glyphs = {
+        native_layout_font_face,
+        10.0F,
+        2U,
+        native_layout_glyph_indices,
+        native_layout_glyph_advances,
+        nullptr,
+        0,
+        0U};
+    native_target->BeginDraw();
+    native_target->DrawTextLayout(
+        D2D1_POINT_2F{12.0F, 32.0F},
+        reinterpret_cast<IDWriteTextLayout*>(&native_text_layout),
+        native_target_brush,
+        static_cast<D2D1_DRAW_TEXT_OPTIONS>(
+            D2D1_DRAW_TEXT_OPTIONS_CLIP |
+            D2D1_DRAW_TEXT_OPTIONS_NO_SNAP));
+    const HRESULT native_text_layout_status = native_target->EndDraw();
+    const std::uint32_t native_layout_outline_calls =
+        native_layout_font_face->outline_call_count;
+    native_layout_font_face->Release();
+    if (FAILED(native_text_layout_status) ||
+        native_text_layout.draw_call_count != 1U ||
+        native_layout_outline_calls != 1U ||
+        native_text_layout.pixel_snapping_disabled != 1) {
+        native_target_mesh->Release();
+        native_target_brush->Release();
+        std::fprintf(stderr,
+            "portable Windows ID2D1RenderTarget DrawTextLayout failed\n");
+        return 253;
     }
     compat::scene_render_target_summary native_target_baseline{};
     scene_target->GetSummary(&native_target_baseline);

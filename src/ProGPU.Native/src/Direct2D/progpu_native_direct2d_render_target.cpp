@@ -2472,6 +2472,290 @@ private:
     float dpi_y_ = 96.0F;
 };
 
+using reserved_com_method = void (PROGPU_NATIVE_COM_CALL*)();
+
+/* IDWriteTextLayout::Draw is vtable slot 58: IUnknown's three slots,
+ * IDWriteTextFormat's 25 slots, and 30 layout slots precede it. Max width and
+ * height are slots 42 and 43 and are needed only for D2D's clip option. */
+struct text_layout_vtable final {
+    com::result (PROGPU_NATIVE_COM_CALL* query_interface)(
+        void*, com::guid_ref, void**);
+    com::reference_count_value (PROGPU_NATIVE_COM_CALL* add_ref)(void*);
+    com::reference_count_value (PROGPU_NATIVE_COM_CALL* release)(void*);
+    reserved_com_method methods_before_maximum_size[39U];
+    float (PROGPU_NATIVE_COM_CALL* get_max_width)(void*);
+    float (PROGPU_NATIVE_COM_CALL* get_max_height)(void*);
+    reserved_com_method methods_before_draw[14U];
+    com::result (PROGPU_NATIVE_COM_CALL* draw)(
+        void*, void*, text_renderer*, float, float);
+};
+
+struct text_layout_object final {
+    const text_layout_vtable* vtable;
+};
+
+static_assert(
+    offsetof(text_layout_vtable, draw) == 58U * sizeof(void*));
+
+struct inline_object_vtable final {
+    com::result (PROGPU_NATIVE_COM_CALL* query_interface)(
+        void*, com::guid_ref, void**);
+    com::reference_count_value (PROGPU_NATIVE_COM_CALL* add_ref)(void*);
+    com::reference_count_value (PROGPU_NATIVE_COM_CALL* release)(void*);
+    com::result (PROGPU_NATIVE_COM_CALL* draw)(
+        void*, void*, text_renderer*, float, float, std::int32_t,
+        std::int32_t, com::unknown*);
+};
+
+struct inline_object_value final {
+    const inline_object_vtable* vtable;
+};
+
+[[nodiscard]] const text_layout_vtable* read_text_layout_vtable(
+    text_layout* layout) noexcept
+{
+    return layout == nullptr
+        ? nullptr
+        : reinterpret_cast<const text_layout_object*>(layout)->vtable;
+}
+
+class portable_text_renderer final : public text_renderer {
+public:
+    portable_text_renderer(
+        render_target* target,
+        brush* default_brush,
+        bool disable_pixel_snapping) noexcept
+        : target_(target),
+          default_brush_(default_brush),
+          disable_pixel_snapping_(disable_pixel_snapping)
+    {
+    }
+
+    com::result PROGPU_NATIVE_COM_CALL QueryInterface(
+        com::guid_ref interface_id,
+        void** value) noexcept override
+    {
+        if (value == nullptr) {
+            return com::pointer_error;
+        }
+        *value = nullptr;
+        if (com::guid_equal(interface_id, com::unknown_interface_id()) ||
+            com::guid_equal(interface_id, pixel_snapping_interface_id) ||
+            com::guid_equal(interface_id, text_renderer_interface_id)) {
+            *value = static_cast<text_renderer*>(this);
+            AddRef();
+            return com::ok;
+        }
+        return com::no_interface;
+    }
+
+    com::reference_count_value PROGPU_NATIVE_COM_CALL AddRef()
+        noexcept override
+    {
+        return reference_count_.add_ref();
+    }
+
+    com::reference_count_value PROGPU_NATIVE_COM_CALL Release()
+        noexcept override
+    {
+        return reference_count_.release(this);
+    }
+
+    com::result PROGPU_NATIVE_COM_CALL IsPixelSnappingDisabled(
+        void*, std::int32_t* is_disabled) noexcept override
+    {
+        if (is_disabled == nullptr) {
+            return com::pointer_error;
+        }
+        *is_disabled = disable_pixel_snapping_ ? 1 : 0;
+        return com::ok;
+    }
+
+    com::result PROGPU_NATIVE_COM_CALL GetCurrentTransform(
+        void*, matrix_3x2_f* transform) noexcept override
+    {
+        if (transform == nullptr) {
+            return com::pointer_error;
+        }
+        target_->GetTransform(transform);
+        return core::valid_transform(transform)
+            ? com::ok
+            : com::invalid_argument;
+    }
+
+    com::result PROGPU_NATIVE_COM_CALL GetPixelsPerDip(
+        void*, float* pixels_per_dip) noexcept override
+    {
+        if (pixels_per_dip == nullptr) {
+            return com::pointer_error;
+        }
+        float dpi_x = 0.0F;
+        float dpi_y = 0.0F;
+        target_->GetDpi(&dpi_x, &dpi_y);
+        if (!valid_dpi(dpi_x, dpi_y)) {
+            return com::invalid_argument;
+        }
+        *pixels_per_dip = dpi_x / 96.0F;
+        return com::ok;
+    }
+
+    com::result PROGPU_NATIVE_COM_CALL DrawGlyphRun(
+        void*,
+        float baseline_origin_x,
+        float baseline_origin_y,
+        measuring_mode measuring,
+        const glyph_run* glyphs,
+        const void*,
+        com::unknown* client_drawing_effect) noexcept override
+    {
+        com::pointer<brush> selected;
+        const com::result result = select_brush(
+            client_drawing_effect, selected);
+        if (com::failed(result)) {
+            return result;
+        }
+        target_->DrawGlyphRun(
+            {baseline_origin_x, baseline_origin_y},
+            glyphs,
+            selected.get(),
+            measuring);
+        return com::ok;
+    }
+
+    com::result PROGPU_NATIVE_COM_CALL DrawUnderline(
+        void*,
+        float baseline_origin_x,
+        float baseline_origin_y,
+        const underline* underline_value,
+        com::unknown* client_drawing_effect) noexcept override
+    {
+        return draw_decoration(
+            baseline_origin_x,
+            baseline_origin_y,
+            underline_value == nullptr ? 0.0F : underline_value->width,
+            underline_value == nullptr ? 0.0F : underline_value->thickness,
+            underline_value == nullptr ? 0.0F : underline_value->offset,
+            underline_value != nullptr,
+            client_drawing_effect);
+    }
+
+    com::result PROGPU_NATIVE_COM_CALL DrawStrikethrough(
+        void*,
+        float baseline_origin_x,
+        float baseline_origin_y,
+        const strikethrough* strikethrough_value,
+        com::unknown* client_drawing_effect) noexcept override
+    {
+        return draw_decoration(
+            baseline_origin_x,
+            baseline_origin_y,
+            strikethrough_value == nullptr
+                ? 0.0F
+                : strikethrough_value->width,
+            strikethrough_value == nullptr
+                ? 0.0F
+                : strikethrough_value->thickness,
+            strikethrough_value == nullptr
+                ? 0.0F
+                : strikethrough_value->offset,
+            strikethrough_value != nullptr,
+            client_drawing_effect);
+    }
+
+    com::result PROGPU_NATIVE_COM_CALL DrawInlineObject(
+        void* client_drawing_context,
+        float origin_x,
+        float origin_y,
+        com::unknown* inline_object,
+        std::int32_t is_sideways,
+        std::int32_t is_right_to_left,
+        com::unknown* client_drawing_effect) noexcept override
+    {
+        if (inline_object == nullptr || !std::isfinite(origin_x) ||
+            !std::isfinite(origin_y) ||
+            (is_sideways != 0 && is_sideways != 1) ||
+            (is_right_to_left != 0 && is_right_to_left != 1)) {
+            return com::invalid_argument;
+        }
+        const auto* value = reinterpret_cast<const inline_object_value*>(
+            inline_object);
+        if (value->vtable == nullptr || value->vtable->draw == nullptr) {
+            return com::invalid_argument;
+        }
+        return value->vtable->draw(
+            inline_object,
+            client_drawing_context,
+            this,
+            origin_x,
+            origin_y,
+            is_sideways,
+            is_right_to_left,
+            client_drawing_effect);
+    }
+
+private:
+    [[nodiscard]] com::result select_brush(
+        com::unknown* effect,
+        com::pointer<brush>& selected) noexcept
+    {
+        if (effect == nullptr) {
+            selected = default_brush_;
+            return selected ? com::ok : com::invalid_argument;
+        }
+        brush* raw = nullptr;
+        const com::result result = effect->QueryInterface(
+            brush_interface_id,
+            reinterpret_cast<void**>(&raw));
+        selected.attach(raw);
+        return com::succeeded(result) && selected
+            ? com::ok
+            : com::no_interface;
+    }
+
+    [[nodiscard]] com::result draw_decoration(
+        float baseline_origin_x,
+        float baseline_origin_y,
+        float width,
+        float thickness,
+        float offset,
+        bool has_value,
+        com::unknown* effect) noexcept
+    {
+        if (!has_value || !std::isfinite(baseline_origin_x) ||
+            !std::isfinite(baseline_origin_y) || !std::isfinite(width) ||
+            !std::isfinite(thickness) || !std::isfinite(offset) ||
+            width < 0.0F || thickness < 0.0F) {
+            return com::invalid_argument;
+        }
+        if (width == 0.0F || thickness == 0.0F) {
+            return com::ok;
+        }
+        com::pointer<brush> selected;
+        const com::result result = select_brush(effect, selected);
+        if (com::failed(result)) {
+            return result;
+        }
+        const rectangle_f rectangle{
+            baseline_origin_x,
+            baseline_origin_y + offset,
+            baseline_origin_x + width,
+            baseline_origin_y + offset + thickness};
+        if (!valid_rectangle(rectangle)) {
+            return com::invalid_argument;
+        }
+        target_->FillRectangle(&rectangle, selected.get());
+        return com::ok;
+    }
+
+    friend class com::atomic_reference_count<portable_text_renderer>;
+    ~portable_text_renderer() = default;
+
+    com::atomic_reference_count<portable_text_renderer> reference_count_;
+    com::pointer<render_target> target_;
+    com::pointer<brush> default_brush_;
+    bool disable_pixel_snapping_ = false;
+};
+
 class portable_scene_render_target final :
     public bitmap_render_target,
     public scene_render_target_native {
@@ -3863,9 +4147,90 @@ public:
     }
 
     void PROGPU_NATIVE_COM_CALL DrawTextLayout(
-        point_2f, text_layout*, brush*, draw_text_options) noexcept override
+        point_2f origin,
+        text_layout* layout,
+        brush* default_brush,
+        draw_text_options options) noexcept override
     {
-        unsupported_draw();
+        constexpr std::uint32_t known_options =
+            static_cast<std::uint32_t>(draw_text_options::no_snap) |
+            static_cast<std::uint32_t>(draw_text_options::clip) |
+            static_cast<std::uint32_t>(draw_text_options::enable_color_font) |
+            static_cast<std::uint32_t>(
+                draw_text_options::disable_color_bitmap_snapping);
+        const std::uint32_t option_bits =
+            static_cast<std::uint32_t>(options);
+        const auto* layout_vtable = read_text_layout_vtable(layout);
+        {
+            const std::lock_guard lock(mutex_);
+            if (!can_draw()) {
+                return;
+            }
+            if (!valid_point(origin) || layout == nullptr ||
+                default_brush == nullptr ||
+                (option_bits & ~known_options) != 0U ||
+                layout_vtable == nullptr || layout_vtable->draw == nullptr) {
+                latch(com::invalid_argument);
+                return;
+            }
+            if ((option_bits &
+                    (static_cast<std::uint32_t>(
+                         draw_text_options::enable_color_font) |
+                        static_cast<std::uint32_t>(
+                            draw_text_options::
+                                disable_color_bitmap_snapping))) != 0U) {
+                latch(not_implemented);
+                return;
+            }
+        }
+
+        auto* raw_renderer = new (std::nothrow) portable_text_renderer(
+            this,
+            default_brush,
+            (option_bits & static_cast<std::uint32_t>(
+                draw_text_options::no_snap)) != 0U);
+        if (raw_renderer == nullptr) {
+            latch_external_draw_failure(com::out_of_memory);
+            return;
+        }
+        com::pointer<portable_text_renderer> renderer;
+        renderer.attach(raw_renderer);
+
+        bool pushed_clip = false;
+        if ((option_bits & static_cast<std::uint32_t>(
+                draw_text_options::clip)) != 0U) {
+            if (layout_vtable->get_max_width == nullptr ||
+                layout_vtable->get_max_height == nullptr) {
+                latch_external_draw_failure(com::invalid_argument);
+                return;
+            }
+            const float width = layout_vtable->get_max_width(layout);
+            const float height = layout_vtable->get_max_height(layout);
+            if (!std::isfinite(width) || !std::isfinite(height) ||
+                width < 0.0F || height < 0.0F ||
+                origin.x > std::numeric_limits<float>::max() - width ||
+                origin.y > std::numeric_limits<float>::max() - height) {
+                latch_external_draw_failure(com::invalid_argument);
+                return;
+            }
+            const rectangle_f clip{
+                origin.x, origin.y, origin.x + width, origin.y + height};
+            PushAxisAlignedClip(&clip, antialias_mode::aliased);
+            pushed_clip = true;
+        }
+
+        const com::result result = layout_vtable->draw(
+            layout,
+            nullptr,
+            static_cast<text_renderer*>(renderer.get()),
+            origin.x,
+            origin.y);
+        if (pushed_clip) {
+            PopAxisAlignedClip();
+        }
+        if (com::failed(result)) {
+            latch_external_draw_failure(result);
+        }
     }
 
     void PROGPU_NATIVE_COM_CALL DrawGlyphRun(

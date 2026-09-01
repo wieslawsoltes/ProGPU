@@ -180,6 +180,26 @@ inline constexpr com::guid font_face_interface_id{
     0x7024U,
     0x4D43U,
     {0xBFU, 0xA9U, 0xD2U, 0x59U, 0x84U, 0xF5U, 0x38U, 0x49U}};
+inline constexpr com::guid pixel_snapping_interface_id{
+    0xEAF3A2DAU,
+    0xECF4U,
+    0x4D24U,
+    {0xB6U, 0x44U, 0xB3U, 0x4FU, 0x68U, 0x42U, 0x02U, 0x4BU}};
+inline constexpr com::guid text_renderer_interface_id{
+    0xEF8A8135U,
+    0x5CC6U,
+    0x45FEU,
+    {0x88U, 0x25U, 0xC5U, 0xA0U, 0x72U, 0x4EU, 0xB8U, 0x19U}};
+inline constexpr com::guid text_format_interface_id{
+    0x9C906818U,
+    0x31D7U,
+    0x4FD3U,
+    {0xA1U, 0x51U, 0x7CU, 0x5EU, 0x22U, 0x5DU, 0xB5U, 0x5AU}};
+inline constexpr com::guid text_layout_interface_id{
+    0x53737037U,
+    0x6D14U,
+    0x410BU,
+    {0x9BU, 0xFEU, 0x0BU, 0x18U, 0x2BU, 0xB7U, 0x09U, 0x61U}};
 inline constexpr com::guid wic_bitmap_source_interface_id{
     0x00000120U,
     0xA8F2U,
@@ -449,6 +469,27 @@ struct glyph_run final {
     std::uint32_t bidi_level;
 };
 
+struct underline final {
+    float width;
+    float thickness;
+    float offset;
+    float run_height;
+    std::uint32_t reading_direction;
+    std::uint32_t flow_direction;
+    const wchar_t* locale_name;
+    measuring_mode measuring;
+};
+
+struct strikethrough final {
+    float width;
+    float thickness;
+    float offset;
+    std::uint32_t reading_direction;
+    std::uint32_t flow_direction;
+    const wchar_t* locale_name;
+    measuring_mode measuring;
+};
+
 struct layer_parameters final {
     rectangle_f content_bounds;
     geometry* geometric_mask;
@@ -518,6 +559,49 @@ struct font_face : com::unknown {
         std::int32_t is_sideways,
         std::int32_t is_right_to_left,
         simplified_geometry_sink* geometry_sink_value) noexcept = 0;
+};
+
+/* Canonical IDWritePixelSnapping/IDWriteTextRenderer callback vtable. A
+ * portable text layout can call this interface exactly as system DirectWrite
+ * does; the renderer converts callbacks into the same target scene. */
+struct text_renderer : com::unknown {
+    virtual com::result PROGPU_NATIVE_COM_CALL IsPixelSnappingDisabled(
+        void* client_drawing_context,
+        std::int32_t* is_disabled) noexcept = 0;
+    virtual com::result PROGPU_NATIVE_COM_CALL GetCurrentTransform(
+        void* client_drawing_context,
+        matrix_3x2_f* transform) noexcept = 0;
+    virtual com::result PROGPU_NATIVE_COM_CALL GetPixelsPerDip(
+        void* client_drawing_context,
+        float* pixels_per_dip) noexcept = 0;
+    virtual com::result PROGPU_NATIVE_COM_CALL DrawGlyphRun(
+        void* client_drawing_context,
+        float baseline_origin_x,
+        float baseline_origin_y,
+        measuring_mode measuring,
+        const glyph_run* glyphs,
+        const void* glyph_run_description,
+        com::unknown* client_drawing_effect) noexcept = 0;
+    virtual com::result PROGPU_NATIVE_COM_CALL DrawUnderline(
+        void* client_drawing_context,
+        float baseline_origin_x,
+        float baseline_origin_y,
+        const underline* underline_value,
+        com::unknown* client_drawing_effect) noexcept = 0;
+    virtual com::result PROGPU_NATIVE_COM_CALL DrawStrikethrough(
+        void* client_drawing_context,
+        float baseline_origin_x,
+        float baseline_origin_y,
+        const strikethrough* strikethrough_value,
+        com::unknown* client_drawing_effect) noexcept = 0;
+    virtual com::result PROGPU_NATIVE_COM_CALL DrawInlineObject(
+        void* client_drawing_context,
+        float origin_x,
+        float origin_y,
+        com::unknown* inline_object,
+        std::int32_t is_sideways,
+        std::int32_t is_right_to_left,
+        com::unknown* client_drawing_effect) noexcept = 0;
 };
 
 struct geometry_sink : simplified_geometry_sink {
