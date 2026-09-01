@@ -5338,10 +5338,10 @@ public class NativeRendererInteropTests
                 pixels,
                 in image);
         }
+        long allocated =
+            GC.GetAllocatedBytesForCurrentThread() - before;
         Assert.True(success);
-        Assert.Equal(
-            0L,
-            GC.GetAllocatedBytesForCurrentThread() - before);
+        Assert.Equal(0L, allocated);
     }
 
     [Fact]

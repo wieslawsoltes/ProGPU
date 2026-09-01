@@ -1633,6 +1633,11 @@ scene; all measured visibility, color sums, changed-pixel counts, native frame
 metrics, and byte-exact guided/reference comparison remain mandatory. This is
 pipeline qualification, not a retry, CPU result, or tolerance change.
 
+The 10,000-iteration mixed semantic-stream allocation contract snapshots the
+thread allocation counter immediately after the builder loop, before invoking
+xUnit assertions. This keeps the required builder delta at exactly zero while
+excluding one-time assertion/JIT allocation from the measured product window.
+
 Primary contract references used for this design are
 [Skia `SkPath::contains`](https://api.skia.org/classSkPath.html),
 [Direct2D `ID2D1Geometry::FillContainsPoint`](https://learn.microsoft.com/en-us/windows/win32/api/d2d1/nf-d2d1-id2d1geometry-fillcontainspoint),
