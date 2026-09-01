@@ -6246,9 +6246,26 @@ material rollback, Visual3D cycle rejection, child removal, and reinsertion.
 The managed differential test verifies every added command identifier and
 packet size plus representative fixed, animation, variable-array, and resource
 identifier offsets. The focused native CTest and 97 managed native-interop
-tests pass on Apple Silicon. Windows ARM64 MSVC `/W4 /WX` and live D3D12
-qualification remain required before this checkpoint is called cross-platform
-qualified.
+tests pass on Apple Silicon. The complete local no-provider native suite passes
+12/12.
+
+Exact implementation checkpoint `a2b8d045` is compiler/runtime qualified in
+the Windows 11 ARM64 Parallels guest (OS build `10.0.26200.9168`) with MSVC
+19.44.35228.0, Visual Studio Build Tools 17.14.39, CMake 4.4.3, and Ninja
+1.12.1. The immutable source archive matched on host and guest with SHA-256
+`e90924eae1e0d8aef96b70f58c0103e3cda51e20b87ca98cada64836231373d2`.
+The changed `progpu_native_mil.cpp`, MIL interop, and expanded native packet
+oracle compiled under `/W4 /WX`; the focused `progpu_native_mil_tests` CTest
+passed 1/1 in 4.35 seconds.
+
+The attempted all-target build stopped separately in the existing Windows
+Direct2D include path because the Windows SDK `near` macro expands the
+`curve_dash::detail::near(...)` identifier. That pre-existing Direct2D build
+failure is not evidence against this MIL checkpoint and was not modified as
+part of it. Live D3D12 visual qualification remains required before this
+canonical scene slice is called backend-qualified; the evidence here qualifies
+the Windows compiler, ARM64 intrinsic execution, decoder, transactional graph,
+scene serialization, and packet oracle.
 
 ## Invariants
 
