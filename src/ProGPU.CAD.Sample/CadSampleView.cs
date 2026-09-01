@@ -57,6 +57,7 @@ public sealed class CadSampleView : Grid
     private readonly CadPrintPreviewCanvas _printPreview;
     private readonly Button _viewModeButton;
     private readonly TextBlock _viewModeText;
+    private readonly ComboBox _meshVisualStyleSelector;
     private readonly ComboBox _meshPickTargetSelector;
     private readonly ComboBox _meshRegionSelectionSelector;
     private readonly ComboBox _meshSubobjectSelector;
@@ -288,6 +289,34 @@ public sealed class CadSampleView : Grid
     public int MeshSubobjectCycleHitCount => _meshSubobjectCycleHitCount;
 
     public ComboBox MeshPickTargetSelector => _meshPickTargetSelector;
+
+    public ComboBox MeshVisualStyleSelector => _meshVisualStyleSelector;
+
+    public CadMesh3DVisualStyle MeshVisualStyle
+    {
+        get => (_meshVisualStyleSelector.SelectedItem as ComboBoxItem)?.Tag is
+            CadMesh3DVisualStyle visualStyle
+                ? visualStyle
+                : CadMesh3DVisualStyle.ShadedWithEdges;
+        set
+        {
+            _ = CadMesh3DVisualStylePolicy.Resolve(value);
+            for (int index = 0;
+                 index < _meshVisualStyleSelector.Items.Count;
+                 index++)
+            {
+                if (_meshVisualStyleSelector.Items[index] is ComboBoxItem
+                    {
+                        Tag: CadMesh3DVisualStyle candidate,
+                    } && candidate == value)
+                {
+                    _meshVisualStyleSelector.SelectedIndex = index;
+                    return;
+                }
+            }
+            throw new ArgumentOutOfRangeException(nameof(value));
+        }
+    }
 
     public ComboBox MeshRegionSelectionSelector =>
         _meshRegionSelectionSelector;
@@ -583,8 +612,6 @@ public sealed class CadSampleView : Grid
         {
             EnableRetainedSceneCache = true,
             Visibility = Visibility.Collapsed,
-            RenderMode = RenderMode3D.Solid,
-            ShadingMode = ShadingMode3D.Flat,
             LightDirection = new System.Numerics.Vector3(0.25f, -0.5f, -1.0f),
             AmbientIntensity = 0.25f,
         };
@@ -714,6 +741,43 @@ public sealed class CadSampleView : Grid
         _fitButton = CreateButton("Fit", font, 68);
         _viewModeButton = CreateButton("3D surfaces", font, 104);
         _viewModeText = (TextBlock)_viewModeButton.Content!;
+        _meshVisualStyleSelector = new ComboBox
+        {
+            Font = font,
+            FontSize = 11,
+            WidthConstraint = 148,
+            HeightConstraint = 34,
+            Margin = new Thickness(0, 0, 8, 0),
+        };
+        AddMeshVisualStyleChoice(
+            "Style: Shaded + edges",
+            CadMesh3DVisualStyle.ShadedWithEdges);
+        AddMeshVisualStyleChoice(
+            "Style: Shaded",
+            CadMesh3DVisualStyle.Shaded);
+        AddMeshVisualStyleChoice(
+            "Style: Realistic",
+            CadMesh3DVisualStyle.Realistic);
+        AddMeshVisualStyleChoice(
+            "Style: Conceptual",
+            CadMesh3DVisualStyle.Conceptual);
+        AddMeshVisualStyleChoice(
+            "Style: Hidden",
+            CadMesh3DVisualStyle.Hidden);
+        AddMeshVisualStyleChoice(
+            "Style: Wireframe",
+            CadMesh3DVisualStyle.Wireframe);
+        AddMeshVisualStyleChoice(
+            "Style: Gray",
+            CadMesh3DVisualStyle.ShadesOfGray);
+        AddMeshVisualStyleChoice(
+            "Style: X-ray",
+            CadMesh3DVisualStyle.XRay);
+        AddMeshVisualStyleChoice(
+            "Style: Normals",
+            CadMesh3DVisualStyle.Normals);
+        _meshVisualStyleSelector.SelectedIndex = 0;
+        ApplyMeshVisualStyle();
         _meshPickTargetSelector = new ComboBox
         {
             Font = font,
@@ -801,6 +865,7 @@ public sealed class CadSampleView : Grid
         actions.AddChild(_saveButton);
         actions.AddChild(_fitButton);
         actions.AddChild(_viewModeButton);
+        actions.AddChild(_meshVisualStyleSelector);
         actions.AddChild(_meshPickTargetSelector);
         actions.AddChild(_meshRegionSelectionSelector);
         actions.AddChild(_meshSubobjectSelector);
@@ -2402,6 +2467,8 @@ public sealed class CadSampleView : Grid
             }
         };
         _viewModeButton.Click += (_, _) => ToggleViewMode();
+        _meshVisualStyleSelector.SelectionChanged += (_, _) =>
+            ApplyMeshVisualStyle();
         _meshPickTargetSelector.SelectionChanged += (_, _) =>
         {
             if ((_meshPickTargetSelector.SelectedItem as ComboBoxItem)?.Tag is
@@ -4347,6 +4414,31 @@ public sealed class CadSampleView : Grid
         {
             Tag = filter,
         });
+    }
+
+    private void AddMeshVisualStyleChoice(
+        string label,
+        CadMesh3DVisualStyle visualStyle)
+    {
+        _meshVisualStyleSelector.Items.Add(new ComboBoxItem(label)
+        {
+            Tag = visualStyle,
+        });
+    }
+
+    private void ApplyMeshVisualStyle()
+    {
+        if ((_meshVisualStyleSelector.SelectedItem as ComboBoxItem)?.Tag is
+            not CadMesh3DVisualStyle visualStyle)
+        {
+            return;
+        }
+        CadMesh3DVisualStyleState state =
+            CadMesh3DVisualStylePolicy.Resolve(visualStyle);
+        _viewport3D.RenderMode = state.RenderMode;
+        _viewport3D.ShadingMode = state.ShadingMode;
+        _viewport3D.InvalidateScene();
+        _viewport3D.Invalidate();
     }
 
     private void OnAttributeDisplaySelectionChanged()
@@ -8702,6 +8794,8 @@ public sealed class CadSampleView : Grid
             canUsePlanTools && _canvas.RedoCount > 0;
         _viewModeButton.IsEnabled =
             canUsePlanTools && _viewport3D.Children.Count > 0;
+        _meshVisualStyleSelector.IsEnabled =
+            canUsePlanTools && _is3DView;
         _meshPickTargetSelector.IsEnabled =
             canUsePlanTools && _is3DView;
         _meshRegionSelectionSelector.IsEnabled =

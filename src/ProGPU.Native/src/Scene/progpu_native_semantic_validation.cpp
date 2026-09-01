@@ -531,7 +531,8 @@ bool is_valid_semantic_mesh_3d(
         finite_float_4(mesh.specular_color) &&
         finite_float_4(mesh.material_ambient) &&
         std::isfinite(mesh.opacity) && mesh.opacity >= 0.0F &&
-        mesh.opacity <= 1.0F && mesh.shading_mode <= 6U &&
+        mesh.opacity <= 1.0F &&
+        mesh.shading_mode <= PROGPU_NATIVE_MESH_3D_NORMALS &&
         mesh.reserved0 == 0U && mesh.reserved1 == 0U;
 }
 

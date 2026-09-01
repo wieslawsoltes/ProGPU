@@ -12,11 +12,20 @@ public readonly record struct CadNativeMesh3DCamera(
 
 public sealed class CadNativeMesh3DSceneOptions
 {
-    public Vector4 LightDirection { get; init; } = new(0.25f, -0.5f, -1.0f, 0.0f);
+    public Vector4 LightDirection { get; init; } = new(0.25f, -0.5f, -1.0f, 1.0f);
     public Vector4 AmbientColor { get; init; } = new(1.0f, 1.0f, 1.0f, 0.25f);
     public Vector4 SpecularColor { get; init; } = new(1.0f, 1.0f, 1.0f, 16.0f);
     public Vector4 MaterialAmbient { get; init; } = new(0.2f, 0.2f, 0.2f, 0.0f);
     public NativeMesh3DRenderMode RenderMode { get; init; } = NativeMesh3DRenderMode.Solid;
+    public NativeMesh3DShadingMode ShadingMode { get; init; } =
+        NativeMesh3DShadingMode.Flat;
+
+    /// <summary>
+    /// Optional CAD policy override. When set, it atomically supplies both
+    /// render and shading modes so managed and native viewports cannot select
+    /// an invalid visual-style combination.
+    /// </summary>
+    public CadMesh3DVisualStyle? VisualStyle { get; init; }
 }
 
 /// <summary>Owns one immutable native scene stream for a CAD 3D mesh generation.</summary>
@@ -116,6 +125,9 @@ public sealed class CadNativeMesh3DSceneCompiler
         }
         ulong nativeGeneration = scene.ContentGeneration + 1U;
         options ??= new CadNativeMesh3DSceneOptions();
+        (NativeMesh3DRenderMode renderMode,
+            NativeMesh3DShadingMode shadingMode) =
+            ResolveVisualStyle(options);
 
         ReadOnlySpan<CadMesh3DDrawBatch> batches = scene.DrawBatches.Span;
         int vertexCount = 0;
@@ -167,8 +179,8 @@ public sealed class CadNativeMesh3DSceneCompiler
                 options.SpecularColor,
                 options.MaterialAmbient,
                 opacity: 1.0f,
-                options.RenderMode,
-                shadingMode: 2U);
+                renderMode,
+                shadingMode);
             vertexOffset += positions.Length;
             indexOffset += batch.Indices.Length;
         }
@@ -234,5 +246,52 @@ public sealed class CadNativeMesh3DSceneCompiler
             batches.Length,
             vertexCount,
             indexCount);
+    }
+
+    private static (
+        NativeMesh3DRenderMode RenderMode,
+        NativeMesh3DShadingMode ShadingMode) ResolveVisualStyle(
+            CadNativeMesh3DSceneOptions options)
+    {
+        if (options.VisualStyle is not CadMesh3DVisualStyle visualStyle)
+        {
+            return (options.RenderMode, options.ShadingMode);
+        }
+
+        CadMesh3DVisualStyleState state =
+            CadMesh3DVisualStylePolicy.Resolve(visualStyle);
+        return (
+            state.RenderMode switch
+            {
+                ProGPU.Scene.Extensions.RenderMode3D.Solid =>
+                    NativeMesh3DRenderMode.Solid,
+                ProGPU.Scene.Extensions.RenderMode3D.Wireframe =>
+                    NativeMesh3DRenderMode.Wireframe,
+                ProGPU.Scene.Extensions.RenderMode3D.SolidWireframe =>
+                    NativeMesh3DRenderMode.SolidWireframe,
+                _ => throw new ArgumentOutOfRangeException(
+                    nameof(options),
+                    "The CAD visual style selected an unknown render mode."),
+            },
+            state.ShadingMode switch
+            {
+                ProGPU.Scene.Extensions.ShadingMode3D.Realistic =>
+                    NativeMesh3DShadingMode.Realistic,
+                ProGPU.Scene.Extensions.ShadingMode3D.Conceptual =>
+                    NativeMesh3DShadingMode.Conceptual,
+                ProGPU.Scene.Extensions.ShadingMode3D.Flat =>
+                    NativeMesh3DShadingMode.Flat,
+                ProGPU.Scene.Extensions.ShadingMode3D.HiddenLine =>
+                    NativeMesh3DShadingMode.HiddenLine,
+                ProGPU.Scene.Extensions.ShadingMode3D.ShadesOfGray =>
+                    NativeMesh3DShadingMode.ShadesOfGray,
+                ProGPU.Scene.Extensions.ShadingMode3D.XRay =>
+                    NativeMesh3DShadingMode.XRay,
+                ProGPU.Scene.Extensions.ShadingMode3D.Normals =>
+                    NativeMesh3DShadingMode.Normals,
+                _ => throw new ArgumentOutOfRangeException(
+                    nameof(options),
+                    "The CAD visual style selected an unknown shading mode."),
+            });
     }
 }

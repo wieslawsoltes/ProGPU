@@ -629,6 +629,20 @@ public enum NativeMesh3DRenderMode : uint
     SolidWireframe = 2
 }
 
+/// <summary>
+/// Shading algorithms shared with the managed ProGPU Mesh3D pipeline.
+/// </summary>
+public enum NativeMesh3DShadingMode : uint
+{
+    Realistic = 0,
+    Conceptual = 1,
+    Flat = 2,
+    HiddenLine = 3,
+    ShadesOfGray = 4,
+    XRay = 5,
+    Normals = 6,
+}
+
 [Flags]
 public enum NativeSceneRecordFlags : uint
 {

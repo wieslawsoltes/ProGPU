@@ -119,7 +119,7 @@ public partial struct NativeSceneMesh3D
         Vector4 materialAmbient,
         float opacity,
         NativeMesh3DRenderMode renderMode = NativeMesh3DRenderMode.Solid,
-        uint shadingMode = 2U)
+        uint shadingMode = (uint)NativeMesh3DShadingMode.Flat)
     {
         StructSize = (uint)Unsafe.SizeOf<NativeSceneMesh3D>();
         Flags = 0U;
@@ -140,5 +140,34 @@ public partial struct NativeSceneMesh3D
         ShadingMode = shadingMode;
         Reserved0 = 0U;
         Reserved1 = 0U;
+    }
+
+    public NativeSceneMesh3D(
+        uint vertexOffset,
+        uint vertexCount,
+        uint indexOffset,
+        uint indexCount,
+        Vector4 color,
+        Vector4 lightDirection,
+        Vector4 ambientColor,
+        Vector4 specularColor,
+        Vector4 materialAmbient,
+        float opacity,
+        NativeMesh3DRenderMode renderMode,
+        NativeMesh3DShadingMode shadingMode)
+        : this(
+            vertexOffset,
+            vertexCount,
+            indexOffset,
+            indexCount,
+            color,
+            lightDirection,
+            ambientColor,
+            specularColor,
+            materialAmbient,
+            opacity,
+            renderMode,
+            (uint)shadingMode)
+    {
     }
 }

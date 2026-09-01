@@ -1671,6 +1671,16 @@ typedef enum progpu_native_mesh_3d_render_mode {
     PROGPU_NATIVE_MESH_3D_SOLID_WIREFRAME = 2
 } progpu_native_mesh_3d_render_mode;
 
+typedef enum progpu_native_mesh_3d_shading_mode {
+    PROGPU_NATIVE_MESH_3D_REALISTIC = 0,
+    PROGPU_NATIVE_MESH_3D_CONCEPTUAL = 1,
+    PROGPU_NATIVE_MESH_3D_FLAT = 2,
+    PROGPU_NATIVE_MESH_3D_HIDDEN_LINE = 3,
+    PROGPU_NATIVE_MESH_3D_SHADES_OF_GRAY = 4,
+    PROGPU_NATIVE_MESH_3D_XRAY = 5,
+    PROGPU_NATIVE_MESH_3D_NORMALS = 6
+} progpu_native_mesh_3d_shading_mode;
+
 /* PROGPU_CSHARP_STRUCT: Public.NativeSceneMesh3DVertex */
 typedef struct progpu_native_scene_mesh_3d_vertex {
     progpu_native_point_3d position;
@@ -1702,6 +1712,7 @@ typedef struct progpu_native_scene_mesh_3d {
     progpu_native_float_4 specular_color;
     progpu_native_float_4 material_ambient;
     float opacity;
+    /* progpu_native_mesh_3d_shading_mode */
     uint32_t shading_mode;
     uint32_t reserved0;
     uint32_t reserved1;
