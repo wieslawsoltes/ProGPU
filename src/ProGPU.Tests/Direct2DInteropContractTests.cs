@@ -309,6 +309,7 @@ public sealed class Direct2DInteropContractTests
         Assert.Contains("builder_.draw_geometry", renderTargetSource, StringComparison.Ordinal);
         Assert.Contains("wic_source->CopyPixels(", renderTargetSource, StringComparison.Ordinal);
         Assert.Contains("class portable_shared_bitmap final", renderTargetSource, StringComparison.Ordinal);
+        Assert.Contains("class portable_shared_render_target_bitmap final", renderTargetSource, StringComparison.Ordinal);
         Assert.Contains("GetStorageIdentity()", renderTargetSource, StringComparison.Ordinal);
         Assert.Contains("new (std::nothrow) portable_shared_bitmap(", renderTargetSource, StringComparison.Ordinal);
         Assert.Contains("class fake_wic_bitmap_source final", nativeTest, StringComparison.Ordinal);
