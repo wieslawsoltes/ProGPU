@@ -1471,7 +1471,7 @@ if(BUILD_TESTING AND NOT EMSCRIPTEN)
             # A cold D3D12 shader cache can exceed one minute in the Windows
             # ARM64 Parallels validation VM while remaining well below this
             # integration-test bound.
-            set(_progpu_native_direct2d_webgpu_test_timeout 180)
+            set(_progpu_native_direct2d_webgpu_test_timeout 300)
         endif()
         set_tests_properties(
             progpu_native_direct2d_webgpu_tests PROPERTIES

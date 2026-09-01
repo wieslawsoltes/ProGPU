@@ -3497,7 +3497,8 @@ private:
                     stroke.struct_size = sizeof(stroke);
                     stroke.kind = PROGPU_NATIVE_SCENE_STROKE_POLYLINE;
                     stroke.flags = run.closed
-                        ? PROGPU_NATIVE_POLYLINE_FLAG_CLOSED
+                        ? static_cast<std::uint32_t>(
+                            PROGPU_NATIVE_POLYLINE_FLAG_CLOSED)
                         : 0U;
                     stroke.point_offset = points.size();
                     stroke.point_count = segments.size() +
@@ -3516,7 +3517,8 @@ private:
                         ? static_cast<std::uint32_t>(style.dash_cap)
                         : static_cast<std::uint32_t>(style.end_cap);
                     stroke.line_join = style.join == line_join::miter_or_bevel
-                        ? PROGPU_NATIVE_STROKE_JOIN_MITER
+                        ? static_cast<std::uint32_t>(
+                            PROGPU_NATIVE_STROKE_JOIN_MITER)
                         : static_cast<std::uint32_t>(style.join);
                     stroke.dash_cap =
                         static_cast<std::uint32_t>(style.dash_cap);
@@ -3556,7 +3558,8 @@ private:
                     static_cast<std::uint32_t>(style.dash_cap);
                 semantic_style.line_join = style.join ==
                         line_join::miter_or_bevel
-                    ? PROGPU_NATIVE_STROKE_JOIN_MITER
+                    ? static_cast<std::uint32_t>(
+                        PROGPU_NATIVE_STROKE_JOIN_MITER)
                     : static_cast<std::uint32_t>(style.join);
                 semantic_style.primitive_flags = primitive_flags();
                 mil::curve_dash::run_buffer dash_scratch;
