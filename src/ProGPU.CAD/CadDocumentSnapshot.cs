@@ -153,6 +153,18 @@ public readonly record struct CadEntityHeader(
 
 }
 
+/// <summary>
+/// One non-overlapping top-level INSERT or MINSERT-cell definition span in the
+/// flattened entity stream. Attribute references are intentionally excluded
+/// because their persisted values and placement are instance-owned.
+/// </summary>
+public readonly record struct CadPlanBlockInstanceRange(
+    int EntityOffset,
+    int EntityCount,
+    ulong SemanticHandle,
+    ulong DefinitionHandle,
+    CadAffineTransform3D LocalToWorld);
+
 public readonly record struct CadLinePrimitive(CadPoint3D Start, CadPoint3D End);
 
 /// <summary>
@@ -833,6 +845,7 @@ public sealed class CadDocumentSnapshot
     private readonly CadLineTypeTextResource[] _lineTypeTextResources;
     private readonly CadLineTypeShapeResource[] _lineTypeShapeResources;
     private readonly CadEntityHeader[] _entities;
+    private readonly CadPlanBlockInstanceRange[] _planBlockInstances;
     private readonly CadLinePrimitive[] _lines;
     private readonly CadMLinePrimitive[] _mLines;
     private readonly CadMLineElementPath[] _mLineElementPaths;
@@ -944,6 +957,8 @@ public sealed class CadDocumentSnapshot
     public ReadOnlyMemory<CadLineTypeTextResource> LineTypeTextResources => _lineTypeTextResources;
     public ReadOnlyMemory<CadLineTypeShapeResource> LineTypeShapeResources => _lineTypeShapeResources;
     public ReadOnlyMemory<CadEntityHeader> Entities => _entities;
+    public ReadOnlyMemory<CadPlanBlockInstanceRange> PlanBlockInstances =>
+        _planBlockInstances;
     public ReadOnlyMemory<CadLinePrimitive> Lines => _lines;
     public ReadOnlyMemory<CadMLinePrimitive> MLines => _mLines;
     public ReadOnlyMemory<CadMLineElementPath> MLineElementPaths => _mLineElementPaths;
@@ -1047,6 +1062,7 @@ public sealed class CadDocumentSnapshot
         CadLineTypeTextResource[] lineTypeTextResources,
         CadLineTypeShapeResource[] lineTypeShapeResources,
         CadEntityHeader[] entities,
+        CadPlanBlockInstanceRange[] planBlockInstances,
         CadLinePrimitive[] lines,
         CadMLinePrimitive[] mLines,
         CadMLineElementPath[] mLineElementPaths,
@@ -1139,6 +1155,7 @@ public sealed class CadDocumentSnapshot
         _lineTypeTextResources = lineTypeTextResources;
         _lineTypeShapeResources = lineTypeShapeResources;
         _entities = entities;
+        _planBlockInstances = planBlockInstances;
         _lines = lines;
         _mLines = mLines;
         _mLineElementPaths = mLineElementPaths;

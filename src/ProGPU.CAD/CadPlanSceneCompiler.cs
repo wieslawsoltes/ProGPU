@@ -352,6 +352,8 @@ public sealed class CadPlanSceneCompiler
 
         ReadOnlyMemory<CadEntityHeader> entityMemory = snapshot.Entities;
         ReadOnlySpan<CadEntityHeader> entities = entityMemory.Span;
+        ReadOnlyMemory<CadPlanBlockInstanceRange> blockInstanceMemory =
+            snapshot.PlanBlockInstances;
         ReadOnlySpan<CadLayerSnapshot> layers = snapshot.Layers.Span;
         ReadOnlySpan<CadStrokeStyle> styles = snapshot.Styles.Span;
         ReadOnlySpan<CadLineTypePattern> lineTypePatterns = snapshot.LineTypePatterns.Span;
@@ -421,8 +423,13 @@ public sealed class CadPlanSceneCompiler
             options.ChunkCache is null ? null : new GpuPictureRecorder();
         ulong chunkHandle = 0;
         byte[]? chunkKey = null;
+        CadPlanChunkIdentity chunkIdentity = default;
+        Matrix3x2? chunkLocalToScene = null;
+        Matrix3x2? chunkSceneToLocal = null;
+        CadPlanChunkNormalization? chunkNormalization = null;
         int chunkEndIndex = 0;
         int chunkRecordedStart = 0;
+        int nextBlockInstanceIndex = 0;
 
         using var recordingLeaseGuard = new RecordingLeaseGuard(sceneContext);
         GpuTexture?[]? preparedRasterImageTextures =
@@ -434,7 +441,9 @@ public sealed class CadPlanSceneCompiler
         {
             CadEntityHeader entity = entities[entityIndex];
             if (options.ChunkCache is not null &&
-                (chunkRecorder is null || entity.Handle != chunkHandle))
+                (chunkRecorder is null ||
+                    entityIndex >= chunkEndIndex ||
+                    entity.Handle != chunkHandle))
             {
                 CompleteChunk();
                 BeginChunk(entityIndex);
@@ -936,13 +945,52 @@ public sealed class CadPlanSceneCompiler
 
         void BeginChunk(int startIndex)
         {
+            chunkLocalToScene = null;
+            chunkSceneToLocal = null;
+            chunkNormalization = null;
             ReadOnlySpan<CadEntityHeader> chunkEntities = entityMemory.Span;
-            int endIndex = startIndex + 1;
-            chunkHandle = chunkEntities[startIndex].Handle;
-            while (endIndex < chunkEntities.Length &&
-                   chunkEntities[endIndex].Handle == chunkHandle)
+            ReadOnlySpan<CadPlanBlockInstanceRange> blockInstances =
+                blockInstanceMemory.Span;
+            CadPlanBlockInstanceRange? blockInstance = null;
+            if (nextBlockInstanceIndex < blockInstances.Length &&
+                blockInstances[nextBlockInstanceIndex].EntityOffset == startIndex)
             {
-                endIndex++;
+                blockInstance = blockInstances[nextBlockInstanceIndex++];
+            }
+            int nextBlockOffset = nextBlockInstanceIndex < blockInstances.Length
+                ? blockInstances[nextBlockInstanceIndex].EntityOffset
+                : chunkEntities.Length;
+            int endIndex;
+            chunkHandle = chunkEntities[startIndex].Handle;
+            if (blockInstance is CadPlanBlockInstanceRange instance)
+            {
+                endIndex = checked(instance.EntityOffset + instance.EntityCount);
+                if (instance.SemanticHandle != chunkHandle ||
+                    endIndex > chunkEntities.Length)
+                {
+                    throw new InvalidOperationException(
+                        "The CAD block-instance range does not match the flattened entity stream.");
+                }
+                if (TryCreateBlockPlanTransforms(
+                        instance.LocalToWorld,
+                        snapshot.RebaseOrigin,
+                        out Matrix3x2 localToScene,
+                        out Matrix3x2 sceneToLocal,
+                        out CadPlanChunkNormalization normalization))
+                {
+                    chunkLocalToScene = localToScene;
+                    chunkSceneToLocal = sceneToLocal;
+                    chunkNormalization = normalization;
+                }
+            }
+            else
+            {
+                endIndex = startIndex + 1;
+                while (endIndex < nextBlockOffset &&
+                       chunkEntities[endIndex].Handle == chunkHandle)
+                {
+                    endIndex++;
+                }
             }
             chunkEndIndex = endIndex;
 
@@ -951,21 +999,40 @@ public sealed class CadPlanSceneCompiler
                 options,
                 excludedLayerNames,
                 viewportBoundaryHandles,
+                chunkNormalization,
+                includeSemanticHandle: blockInstance is null,
                 chunkEntities.Slice(startIndex, endIndex - startIndex),
                 options.ChunkCache!.MaximumSingleKeyBytes,
                 cancellationToken,
                 out byte[] createdKey)
                     ? createdKey
                     : null;
+            if (chunkKey is not null)
+            {
+                chunkIdentity = blockInstance is CadPlanBlockInstanceRange value
+                    ? CadPlanChunkIdentity.BlockDefinition(
+                        value.DefinitionHandle,
+                        chunkKey)
+                    : CadPlanChunkIdentity.SemanticRoot(chunkHandle);
+            }
             if (chunkKey is not null &&
                 options.ChunkCache!.TryGet(
-                    chunkHandle,
+                    chunkIdentity,
                     chunkKey,
                     out GpuPicture cachedPicture,
                     out int cachedCommandCount,
                     out int cachedRecordedEntityCount))
             {
-                sceneContext.DrawPicture(cachedPicture);
+                if (chunkLocalToScene is Matrix3x2 blockTransform)
+                {
+                    sceneContext.DrawPictureTransformed(
+                        cachedPicture,
+                        ToMatrix4x4(blockTransform));
+                }
+                else
+                {
+                    sceneContext.DrawPicture(cachedPicture);
+                }
                 retainedChunkCommandCount = checked(
                     retainedChunkCommandCount + cachedCommandCount);
                 recorded = checked(recorded + cachedRecordedEntityCount);
@@ -993,23 +1060,42 @@ public sealed class CadPlanSceneCompiler
             context.TrimRetainedCommandCapacity();
             GpuPicture candidate = chunkRecorder.EndRecording();
             recordingLeaseGuard.Untrack(context);
+            int flattenedCommandCount = candidate.CommandCount;
+            if (chunkKey is not null &&
+                chunkSceneToLocal is Matrix3x2 normalization)
+            {
+                candidate = CreateNormalizedBlockPicture(
+                    candidate,
+                    normalization);
+            }
             retainedChunkCommandCount = checked(
-                retainedChunkCommandCount + candidate.CommandCount);
+                retainedChunkCommandCount + flattenedCommandCount);
             GpuPicture retained = candidate;
             bool cacheOwnsResult = false;
             bool reused = false;
             if (chunkKey is not null)
             {
                 retained = options.ChunkCache!.Intern(
-                    chunkHandle,
+                    chunkIdentity,
                     chunkKey,
                     candidate,
+                    flattenedCommandCount,
                     recorded - chunkRecordedStart,
                     out reused,
                     out cacheOwnsResult);
             }
 
-            sceneContext.DrawPicture(retained);
+            if (chunkKey is not null &&
+                chunkLocalToScene is Matrix3x2 blockTransform)
+            {
+                sceneContext.DrawPictureTransformed(
+                    retained,
+                    ToMatrix4x4(blockTransform));
+            }
+            else
+            {
+                sceneContext.DrawPicture(retained);
+            }
             if (!cacheOwnsResult)
             {
                 retained.Dispose();
@@ -1021,6 +1107,9 @@ public sealed class CadPlanSceneCompiler
             }
             chunkRecorder = null;
             chunkKey = null;
+            chunkLocalToScene = null;
+            chunkSceneToLocal = null;
+            chunkNormalization = null;
             context = sceneContext;
         }
 
@@ -1040,6 +1129,75 @@ public sealed class CadPlanSceneCompiler
                 CadDiagnosticSeverity.Warning,
                 code,
                 $"Linetype '{lineTypeName}' is recorded as a continuous stroke because {reason}."));
+        }
+    }
+
+    private static bool TryCreateBlockPlanTransforms(
+        in CadAffineTransform3D localToWorld,
+        CadPoint3D rebaseOrigin,
+        out Matrix3x2 localToScene,
+        out Matrix3x2 sceneToLocal,
+        out CadPlanChunkNormalization normalization)
+    {
+        localToScene = new Matrix3x2(
+            (float)localToWorld.XAxis.X,
+            (float)localToWorld.XAxis.Y,
+            (float)localToWorld.YAxis.X,
+            (float)localToWorld.YAxis.Y,
+            (float)(localToWorld.Translation.X - rebaseOrigin.X),
+            (float)(localToWorld.Translation.Y - rebaseOrigin.Y));
+        if (!float.IsFinite(localToScene.M11) ||
+            !float.IsFinite(localToScene.M12) ||
+            !float.IsFinite(localToScene.M21) ||
+            !float.IsFinite(localToScene.M22) ||
+            !float.IsFinite(localToScene.M31) ||
+            !float.IsFinite(localToScene.M32) ||
+            !Matrix3x2.Invert(localToScene, out sceneToLocal) ||
+            !float.IsFinite(sceneToLocal.M11) ||
+            !float.IsFinite(sceneToLocal.M12) ||
+            !float.IsFinite(sceneToLocal.M21) ||
+            !float.IsFinite(sceneToLocal.M22) ||
+            !float.IsFinite(sceneToLocal.M31) ||
+            !float.IsFinite(sceneToLocal.M32) ||
+            !CadPlanChunkNormalization.TryCreate(
+                localToWorld,
+                rebaseOrigin,
+                out normalization))
+        {
+            localToScene = default;
+            sceneToLocal = default;
+            normalization = default;
+            return false;
+        }
+        return true;
+    }
+
+    private static Matrix4x4 ToMatrix4x4(in Matrix3x2 value) => new(
+        value.M11, value.M12, 0.0f, 0.0f,
+        value.M21, value.M22, 0.0f, 0.0f,
+        0.0f, 0.0f, 1.0f, 0.0f,
+        value.M31, value.M32, 0.0f, 1.0f);
+
+    private static GpuPicture CreateNormalizedBlockPicture(
+        GpuPicture worldPicture,
+        in Matrix3x2 sceneToLocal)
+    {
+        var recorder = new GpuPictureRecorder();
+        DrawingContext context = recorder.BeginRecording(new Rect(0, 0, 1, 1));
+        try
+        {
+            context.DrawPictureTransformed(
+                worldPicture,
+                ToMatrix4x4(sceneToLocal));
+            GpuPicture normalized = recorder.EndRecording();
+            worldPicture.Dispose();
+            return normalized;
+        }
+        catch
+        {
+            context.Clear();
+            worldPicture.Dispose();
+            throw;
         }
     }
 

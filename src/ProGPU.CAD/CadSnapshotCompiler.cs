@@ -193,6 +193,7 @@ public sealed partial class CadSnapshotCompiler
         var lineTypeTextResources = new List<CadLineTypeTextResource>();
         var lineTypeShapeResources = new List<CadLineTypeShapeResource>();
         var entities = new List<CadEntityHeader>(sourceSpace.Entities.Count);
+        var planBlockInstances = new List<CadPlanBlockInstanceRange>();
         var lines = new List<CadLinePrimitive>();
         var mLines = new List<CadMLinePrimitive>();
         var mLineElementPaths = new List<CadMLineElementPath>();
@@ -381,6 +382,7 @@ public sealed partial class CadSnapshotCompiler
             lineTypeTextResources.ToArray(),
             lineTypeShapeResources.ToArray(),
             entities.ToArray(),
+            planBlockInstances.ToArray(),
             lines.ToArray(),
             mLines.ToArray(),
             mLineElementPaths.ToArray(),
@@ -1190,6 +1192,7 @@ public sealed partial class CadSnapshotCompiler
                             baseInstanceTransform.YAxis,
                             baseInstanceTransform.ZAxis,
                             translation);
+                        int definitionEntityOffset = entities.Count;
                         foreach (Entity child in GetOrderedEntities(block))
                         {
                             if (child is AttributeDefinition definition &&
@@ -1207,6 +1210,21 @@ public sealed partial class CadSnapshotCompiler
                                 resolvedStyle,
                                 depth + 1,
                                 byBlockMaterial: resolvedMaterial);
+                        }
+
+                        int definitionEntityCount =
+                            entities.Count - definitionEntityOffset;
+                        if (depth == 0 &&
+                            rootHandle == insert.Handle &&
+                            definitionEntityCount != 0)
+                        {
+                            planBlockInstances.Add(
+                                new CadPlanBlockInstanceRange(
+                                    definitionEntityOffset,
+                                    definitionEntityCount,
+                                    rootHandle,
+                                    block.Handle,
+                                    instanceTransform));
                         }
 
                         if (insert.Attributes.Count == 0)

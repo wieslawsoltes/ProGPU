@@ -2,12 +2,16 @@
 
 ## Scope and clean-room boundary
 
-The shared CAD sample now records semantic-root plan chunks as immutable nested
-`GpuPicture` values and retains a bounded 8,192-entry cache across document
-generations. Canonical identity storage is independently capped at 64 MiB total
+The shared CAD sample now records semantic-root and eligible static-block-instance
+plan chunks as immutable nested `GpuPicture` values and retains a least-recently-used,
+bounded 8,192-entry cache across document generations. Canonical identity storage is independently capped at 64 MiB total
 and 8 MiB per root. Reuse is admitted only for continuous-style POINT, LINE, CIRCLE,
 ARC, ELLIPSE, SOLID, 3DFACE, SPLINE, LWPOLYLINE, 2D POLYLINE, and 3D POLYLINE
-roots whose complete canonical rendering inputs match byte-for-byte. Unsupported
+roots whose complete canonical rendering inputs match byte-for-byte. Top-level
+INSERT and MINSERT cells additionally share one definition-local fragment across
+translation, rotation, reflection, and nonuniform affine scale when every expanded
+child is one of the eligible non-face analytic families. Instance-owned ATTRIBs are
+excluded from the definition range. Unsupported
 families take the ordinary full-recording path and are never guessed reusable.
 
 The implementation is original ProGPU code. No third-party source text,
@@ -25,13 +29,22 @@ control flow, helper layout, or cache encoding was copied.
 
 ## Identity, ownership, and complexity
 
-Each eligible root key contains rebase origin, physical lineweight policy,
+Each eligible semantic-root key contains rebase origin, physical lineweight policy,
 resolved layer visibility/plot/freeze/exclusion state, complete resolved color,
 alpha, lineweight and continuous-linetype style, entity kind/visibility/bounds,
 and exact primitive data. Variable SPLINE/polyline ranges are normalized away
 from snapshot-global offsets and append their addressed values. Any unsupported
 kind, PDMODE marker, non-continuous linetype, or unencoded dependency fails
 closed to ordinary recording.
+
+The snapshot also retains non-overlapping top-level block-definition entity ranges
+with exact double WCS affine placement and definition identity. Definition keys
+normalize projected points and basis vectors through a double-precision inverse,
+then compare the same retained float values consumed by plan recording. Cached
+fragments compose through the existing nested-picture transform; fixed-device CAD
+lineweights remain device-space while local wide-polyline geometry follows the
+instance affine. Singular/projectively collapsed placements and face/surface or
+resource-bearing definitions fail closed.
 
 Key construction is O(P) time and storage for P primitive/range values in the
 root, polls cancellation at a fixed entity cadence, and fails closed at the
@@ -44,8 +57,8 @@ budgets; eligible picture payload size is correspondingly bounded by the encoded
 analytic inputs and the snapshot expansion limits. Stable replay remains allocation-free; cache work occurs
 only during changed-generation scene preparation.
 
-The aggregate picture independently retains every child resource lease. Cache
-replacement or clearing therefore cannot invalidate an already published
+The aggregate picture independently retains every child resource lease. LRU
+eviction, replacement, or cache clearing therefore cannot invalidate an already published
 picture. Currently eligible analytic chunks retain no device resource. Raster,
 text, hatch, complex-linetype, viewport, modeler, leader, tolerance, MLINE, and
 mesh roots remain on the ordinary path until their complete resource and global
@@ -59,8 +72,9 @@ scene. No shader, C ABI, C++ frontend, primitive quality, camera, or upload
 contract changes. Focused tests prove exact unchanged reuse, one-root
 invalidation with an unrelated root retained, cache bounds/ownership, and
 successful native lowering with the same flattened source-command and draw-batch
-semantics.
+semantics. MINSERT and distinct affine INSERT regressions prove one shared child
+identity, exact composed managed endpoints within retained-float tolerance, and
+matched native primitive/draw counts.
 
-Shared definition-local block fragments/instance transforms and complete chunk
-coverage for resource-bearing or global-budget-dependent families remain the
-next rendering work.
+Definition-local face/surface, text/SHX, hatch, complex-linetype, raster, and other
+resource- or global-budget-dependent families remain the next chunk-coverage work.

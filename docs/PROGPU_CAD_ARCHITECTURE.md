@@ -1199,12 +1199,16 @@ replacement preparation succeeds and is disposed immediately after the atomic
 state swap. Selection buffers are reused when the entity count still fits,
 selected handles and complete semantic-root overlays survive transform history, and
 `CadPlanViewport.WithRebaseOrigin` compensates pan so a changed snapshot rebase
-does not move unchanged WCS content on screen. This first synchronous editor
-integration is O(E + G) per committed action for E retained entities and G text
-glyphs because the complete immutable snapshot/scene is rebuilt; it makes no
-incremental-compilation or edit-latency claim. Generation-keyed reusable chunks,
-worker preparation, stale-publication rejection, and equivalent managed/native
-measurements remain required before large-drawing edit performance is accepted.
+does not move unchanged WCS content on screen. Snapshot and canonical-key
+preparation remain O(E + G) per committed action for E retained entities and G
+text glyphs. Eligible unchanged analytic roots and static-block instances now
+skip retained command generation, while worker preparation and stale-publication
+rejection keep the prior picture installed until one exact generation is ready;
+this does not yet claim sublinear edit latency. Complete resource/global-budget
+chunk coverage and equivalent managed/native measurements remain required before
+large-drawing edit performance is accepted. The identity, ownership, engine
+comparison, and affine-instance contract are recorded in
+[`PROGPU_CAD_INCREMENTAL_CHUNKS_RESEARCH.md`](PROGPU_CAD_INCREMENTAL_CHUNKS_RESEARCH.md).
 The two-point clean-room behavior sources, state machine, ownership/parity
 audit, complexity, and remaining interaction gates are recorded in
 [`PROGPU_CAD_POINT_TRANSFORM_RESEARCH.md`](PROGPU_CAD_POINT_TRANSFORM_RESEARCH.md).
@@ -1799,9 +1803,9 @@ an interactive browser picker/download smoke remains open.
   drawable, rejects stale work, materializes bounded raster leases on the host
   thread, then records and freezes the complete CPU plan picture on a worker
   without worker-side WebGPU calls. Browser/Wasm uses the same ordered phases
-  without requiring threads. Worker-prepared edit replacements and generation-
-  keyed reusable chunks remain explicit follow-up work and must pass the same
-  gate. The clean-room research and resource-transfer contract are recorded in
+  without requiring threads. Generation-ordered asynchronous Edit/Undo/Redo uses
+  the same gate, and bounded generation-keyed analytic root/block chunks are
+  reused during worker recording. The clean-room research and resource-transfer contract are recorded in
   [`PROGPU_CAD_BACKGROUND_PLAN_RESEARCH.md`](PROGPU_CAD_BACKGROUND_PLAN_RESEARCH.md).
 - Collaboration and scripting consume the same command contracts. Neither is
   allowed to mutate ACadSharp collections behind the transaction boundary.
@@ -1845,9 +1849,16 @@ drawing; depth and cycle failures diagnose only the affected INSERT. Expansion
 is `O(I + E)` before the `O(E log E)` BVH build for `I` block instances and `E`
 expanded visible entities; camera replay remains independent of both source and
 expanded entity counts. Dynamic evaluation graphs and XRefs are explicitly
-diagnosed rather than rendered approximately. Shared block-
-fragment/GPU instance reuse remains a later optimization after inherited-style
-variants and instance hit identity are fully specified.
+diagnosed rather than rendered approximately. The snapshot additionally emits
+non-overlapping top-level definition ranges per INSERT/MINSERT cell, excluding
+instance-owned ATTRIBs. Eligible continuous analytic POINT/line/curve/spline/
+polyline ranges use exact resolved-style keys and a double-precision inverse to
+share one definition-local nested picture across translation, rotation,
+reflection, and nonuniform scale; singular or unencoded families fail closed to
+ordinary recording. The flattened headers remain authoritative for selection,
+editing, bounds, and semantic hit identity. Full ownership, complexity, engine
+research, parity, and remaining families are in
+[`PROGPU_CAD_INCREMENTAL_CHUNKS_RESEARCH.md`](PROGPU_CAD_INCREMENTAL_CHUNKS_RESEARCH.md).
 
 ### Block attribute lowering
 
@@ -3661,7 +3672,8 @@ Stable replay targets one render submission, zero scene update, zero retained
 upload, and zero managed allocation. Camera replay is `O(V + D)` GPU work for
 visible primitives `V` and draw batches `D`, with CPU work bounded independently
 of total document entity count after snapshot/index construction. A content
-edit recompiles only affected immutable chunks and dependent block instances.
+edit regenerates commands only for affected eligible immutable chunks and
+definition variants; unsupported families still take the full recording path.
 
 Plan replay exposes `CadPlanGpuFrameMetrics`, an O(1), allocation-free value
 projection of the completed compositor frame correlated with the immutable CAD

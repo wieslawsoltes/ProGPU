@@ -1823,6 +1823,7 @@ public sealed class CadSnapshotAndSceneTests
     {
         CadDocumentSession session = CadDocumentSession.CreateNew();
         ulong insertHandle = 0;
+        ulong definitionHandle = 0;
         session.Edit("Add block array", document =>
         {
             var block = new BlockRecord("ARRAY_ITEM");
@@ -1841,6 +1842,7 @@ public sealed class CadSnapshotAndSceneTests
             };
             document.Entities.Add(insert);
             insertHandle = insert.Handle;
+            definitionHandle = block.Handle;
         });
 
         CadDocumentSnapshot snapshot = new CadSnapshotCompiler().Compile(session);
@@ -1854,11 +1856,59 @@ public sealed class CadSnapshotAndSceneTests
         AssertPoint(new CadPoint3D(80, 200, 0), lines[3].Start);
         AssertPoint(new CadPoint3D(80, 220, 0), lines[5].Start);
         Assert.All(snapshot.Entities.ToArray(), entity => Assert.Equal(insertHandle, entity.Handle));
+        CadPlanBlockInstanceRange[] instances =
+            snapshot.PlanBlockInstances.ToArray();
+        Assert.Equal(6, instances.Length);
+        for (int index = 0; index < instances.Length; index++)
+        {
+            Assert.Equal(index, instances[index].EntityOffset);
+            Assert.Equal(1, instances[index].EntityCount);
+            Assert.Equal(insertHandle, instances[index].SemanticHandle);
+            Assert.Equal(definitionHandle, instances[index].DefinitionHandle);
+            AssertPoint(
+                lines[index].Start,
+                instances[index].LocalToWorld.TransformPoint(
+                    new CadPoint3D(1, 2, 0)));
+        }
         AssertPoint(new CadPoint3D(77, 200, 0), snapshot.Bounds.Min);
         AssertPoint(new CadPoint3D(100, 222, 0), snapshot.Bounds.Max);
         Assert.Equal(7, snapshot.Statistics.ExpandedEntityCount);
         Assert.Equal(0, snapshot.Statistics.UnsupportedEntityCount);
         Assert.Equal(0, snapshot.Statistics.InvalidEntityCount);
+
+        var sceneCompiler = new CadPlanSceneCompiler();
+        using CadRecordedPlanScene baselineScene = sceneCompiler.Compile(snapshot);
+        using GpuPicture baselinePicture = baselineScene.CreatePicture();
+        using var chunkCache = new CadPlanChunkCache();
+        var chunkOptions = new CadPlanSceneOptions { ChunkCache = chunkCache };
+        using CadRecordedPlanScene chunkedScene =
+            sceneCompiler.Compile(snapshot, chunkOptions);
+        using GpuPicture chunkedPicture = chunkedScene.CreatePicture();
+        Assert.Equal(6, chunkedScene.Statistics.RetainedChunkCount);
+        Assert.Equal(5, chunkedScene.Statistics.ReusedRetainedChunkCount);
+        Assert.Equal(1, chunkCache.Count);
+        Assert.True(GpuPictureNativeSceneCompiler.TryCompile(
+            baselinePicture,
+            601U,
+            snapshot.ContentGeneration,
+            out NativeCompiledPicture? baselineNative,
+            out NativePictureCompileFailure baselineFailure),
+            baselineFailure.ToString());
+        Assert.True(GpuPictureNativeSceneCompiler.TryCompile(
+            chunkedPicture,
+            602U,
+            snapshot.ContentGeneration,
+            out NativeCompiledPicture? chunkedNative,
+            out NativePictureCompileFailure chunkedFailure),
+            chunkedFailure.ToString());
+        Assert.NotNull(baselineNative);
+        Assert.NotNull(chunkedNative);
+        Assert.Equal(baselineNative.NativeDrawCount, chunkedNative.NativeDrawCount);
+        Assert.Equal(
+            baselineNative.GeometryPrimitiveCount,
+            chunkedNative.GeometryPrimitiveCount);
+        Assert.Equal(baselineNative.StrokeCount, chunkedNative.StrokeCount);
+        Assert.Equal(baselineNative.StrokePointCount, chunkedNative.StrokePointCount);
     }
 
     [Fact]
@@ -1902,6 +1952,99 @@ public sealed class CadSnapshotAndSceneTests
         AssertPoint(new CadPoint3D(-2, 26, 0), lines[3].Start);
         Assert.All(snapshot.Entities.ToArray(), entity => Assert.Equal(rootHandle, entity.Handle));
         Assert.Equal(6, snapshot.Statistics.ExpandedEntityCount);
+    }
+
+    [Fact]
+    public void PlanChunkCacheSharesOneAnalyticDefinitionAcrossAffineInserts()
+    {
+        CadDocumentSession session = CadDocumentSession.CreateNew();
+        session.Edit("Add affine block instances", document =>
+        {
+            var block = new BlockRecord("AFFINE_ITEM");
+            block.BlockEntity.BasePoint = new XYZ(1, 2, 0);
+            block.Entities.Add(new Line(
+                new XYZ(1, 2, 0),
+                new XYZ(4, 6, 0)));
+            document.Entities.Add(new Insert(block)
+            {
+                InsertPoint = new XYZ(100, 200, 0),
+                XScale = 2,
+                YScale = 3,
+                Rotation = Math.PI / 5,
+            });
+            document.Entities.Add(new Insert(block)
+            {
+                InsertPoint = new XYZ(-50, 75, 0),
+                XScale = -4,
+                YScale = 1.5,
+                Rotation = -Math.PI / 7,
+            });
+        });
+        CadDocumentSnapshot snapshot = new CadSnapshotCompiler().Compile(session);
+        using var cache = new CadPlanChunkCache();
+        using CadRecordedPlanScene scene = new CadPlanSceneCompiler().Compile(
+            snapshot,
+            new CadPlanSceneOptions { ChunkCache = cache });
+        using GpuPicture picture = scene.CreatePicture();
+
+        Assert.Equal(2, snapshot.PlanBlockInstances.Length);
+        Assert.Equal(2, scene.Statistics.RetainedChunkCount);
+        Assert.Equal(1, scene.Statistics.ReusedRetainedChunkCount);
+        Assert.Equal(1, cache.Count);
+        Assert.Equal(2, picture.CommandCount);
+        Assert.Same(
+            picture.GetCommand(0).Picture,
+            picture.GetCommand(1).Picture);
+        CadLinePrimitive[] worldLines = snapshot.Lines.ToArray();
+        for (int index = 0; index < picture.CommandCount; index++)
+        {
+            RenderCommand instanceCommand = picture.GetCommand(index);
+            GpuPicture normalizedPicture = Assert.IsType<GpuPicture>(
+                instanceCommand.Picture);
+            RenderCommand normalizationCommand =
+                normalizedPicture.GetCommand(0);
+            GpuPicture sourcePicture = Assert.IsType<GpuPicture>(
+                normalizationCommand.Picture);
+            RenderCommand lineCommand = sourcePicture.GetCommand(0);
+            Matrix4x4 composite = GetTransformOrIdentity(lineCommand.Transform) *
+                GetTransformOrIdentity(normalizationCommand.Transform) *
+                GetTransformOrIdentity(instanceCommand.Transform);
+            Vector3 actualStart = Vector3.Transform(
+                new Vector3(lineCommand.Position, 0.0f),
+                composite);
+            Vector3 actualEnd = Vector3.Transform(
+                new Vector3(lineCommand.Position2, 0.0f),
+                composite);
+            Assert.InRange(
+                Math.Abs(actualStart.X -
+                    (worldLines[index].Start.X - snapshot.RebaseOrigin.X)),
+                0,
+                0.0001);
+            Assert.InRange(
+                Math.Abs(actualStart.Y -
+                    (worldLines[index].Start.Y - snapshot.RebaseOrigin.Y)),
+                0,
+                0.0001);
+            Assert.InRange(
+                Math.Abs(actualEnd.X -
+                    (worldLines[index].End.X - snapshot.RebaseOrigin.X)),
+                0,
+                0.0001);
+            Assert.InRange(
+                Math.Abs(actualEnd.Y -
+                    (worldLines[index].End.Y - snapshot.RebaseOrigin.Y)),
+                0,
+                0.0001);
+        }
+        Assert.True(GpuPictureNativeSceneCompiler.TryCompile(
+            picture,
+            603U,
+            snapshot.ContentGeneration,
+            out NativeCompiledPicture? native,
+            out NativePictureCompileFailure failure),
+            failure.ToString());
+        Assert.NotNull(native);
+        Assert.Equal(1, native.NativeDrawCount);
     }
 
     [Fact]
@@ -2053,6 +2196,9 @@ public sealed class CadSnapshotAndSceneTests
         Assert.InRange(Math.Abs(expected.Y - actual.Y), 0, Tolerance);
         Assert.InRange(Math.Abs(expected.Z - actual.Z), 0, Tolerance);
     }
+
+    private static Matrix4x4 GetTransformOrIdentity(Matrix4x4 transform) =>
+        transform == default ? Matrix4x4.Identity : transform;
 
     private sealed class FixedTextFontResolver(
         TtfFont font,

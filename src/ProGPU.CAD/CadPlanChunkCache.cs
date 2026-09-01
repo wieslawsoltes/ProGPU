@@ -1,6 +1,7 @@
 using System.Buffers;
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
+using System.Numerics;
 using System.Text;
 using ProGPU.Scene;
 
@@ -16,14 +17,23 @@ public sealed class CadPlanChunkCache : IDisposable
     public const long DefaultMaximumKeyBytes = 64L * 1024 * 1024;
     public const int DefaultMaximumSingleKeyBytes = 8 * 1024 * 1024;
 
-    private sealed record Entry(
-        byte[] Key,
-        GpuPicture Picture,
-        int CommandCount,
-        int RecordedEntityCount);
+    private sealed class Entry(
+        byte[] key,
+        GpuPicture picture,
+        int commandCount,
+        int recordedEntityCount,
+        LinkedListNode<CadPlanChunkIdentity> lruNode)
+    {
+        public byte[] Key { get; } = key;
+        public GpuPicture Picture { get; } = picture;
+        public int CommandCount { get; } = commandCount;
+        public int RecordedEntityCount { get; } = recordedEntityCount;
+        public LinkedListNode<CadPlanChunkIdentity> LruNode { get; } = lruNode;
+    }
 
     private readonly object _gate = new();
-    private readonly Dictionary<ulong, Entry> _entries = new();
+    private readonly Dictionary<CadPlanChunkIdentity, Entry> _entries = new();
+    private readonly LinkedList<CadPlanChunkIdentity> _lru = new();
     private readonly int _capacity;
     private readonly long _maximumKeyBytes;
     private readonly int _maximumSingleKeyBytes;
@@ -76,9 +86,10 @@ public sealed class CadPlanChunkCache : IDisposable
     }
 
     internal GpuPicture Intern(
-        ulong semanticHandle,
+        CadPlanChunkIdentity identity,
         byte[] key,
         GpuPicture candidate,
+        int commandCount,
         int recordedEntityCount,
         out bool reused,
         out bool cacheOwnsResult)
@@ -92,40 +103,40 @@ public sealed class CadPlanChunkCache : IDisposable
                 return candidate;
             }
 
-            if (_entries.TryGetValue(semanticHandle, out Entry? existing) &&
+            if (_entries.TryGetValue(identity, out Entry? existing) &&
                 existing.Key.AsSpan().SequenceEqual(key))
             {
                 candidate.Dispose();
+                Touch(existing);
                 reused = true;
                 cacheOwnsResult = true;
                 return existing.Picture;
             }
 
-            if (existing is null && _entries.Count >= _capacity)
+            if (key.Length > _maximumSingleKeyBytes)
             {
                 reused = false;
                 cacheOwnsResult = false;
                 return candidate;
             }
 
-            long replacedKeyBytes = existing?.Key.LongLength ?? 0;
-            if (key.Length > _maximumSingleKeyBytes ||
-                checked(_keyBytes - replacedKeyBytes + key.LongLength) >
-                    _maximumKeyBytes)
+            if (existing is not null)
             {
-                reused = false;
-                cacheOwnsResult = false;
-                return candidate;
+                Remove(identity, existing);
             }
-
-            existing?.Picture.Dispose();
-            _entries[semanticHandle] = new Entry(
+            while (_entries.Count >= _capacity ||
+                   checked(_keyBytes + key.LongLength) > _maximumKeyBytes)
+            {
+                EvictLeastRecentlyUsed();
+            }
+            LinkedListNode<CadPlanChunkIdentity> node = _lru.AddLast(identity);
+            _entries.Add(identity, new Entry(
                 key,
                 candidate,
-                candidate.CommandCount,
-                recordedEntityCount);
-            _keyBytes = checked(
-                _keyBytes - replacedKeyBytes + key.LongLength);
+                commandCount,
+                recordedEntityCount,
+                node));
+            _keyBytes = checked(_keyBytes + key.LongLength);
             reused = false;
             cacheOwnsResult = true;
             return candidate;
@@ -133,7 +144,7 @@ public sealed class CadPlanChunkCache : IDisposable
     }
 
     internal bool TryGet(
-        ulong semanticHandle,
+        CadPlanChunkIdentity identity,
         ReadOnlySpan<byte> key,
         out GpuPicture picture,
         out int commandCount,
@@ -142,9 +153,10 @@ public sealed class CadPlanChunkCache : IDisposable
         lock (_gate)
         {
             if (!_disposed &&
-                _entries.TryGetValue(semanticHandle, out Entry? entry) &&
+                _entries.TryGetValue(identity, out Entry? entry) &&
                 entry.Key.AsSpan().SequenceEqual(key))
             {
+                Touch(entry);
                 picture = entry.Picture;
                 commandCount = entry.CommandCount;
                 recordedEntityCount = entry.RecordedEntityCount;
@@ -167,6 +179,7 @@ public sealed class CadPlanChunkCache : IDisposable
                 entry.Picture.Dispose();
             }
             _entries.Clear();
+            _lru.Clear();
             _keyBytes = 0;
         }
     }
@@ -185,8 +198,120 @@ public sealed class CadPlanChunkCache : IDisposable
                 entry.Picture.Dispose();
             }
             _entries.Clear();
+            _lru.Clear();
             _keyBytes = 0;
         }
+    }
+
+    private void Touch(Entry entry)
+    {
+        _lru.Remove(entry.LruNode);
+        _lru.AddLast(entry.LruNode);
+    }
+
+    private void EvictLeastRecentlyUsed()
+    {
+        LinkedListNode<CadPlanChunkIdentity> node = _lru.First ??
+            throw new InvalidOperationException(
+                "The CAD plan chunk cache cannot satisfy its configured bounds.");
+        Entry entry = _entries[node.Value];
+        Remove(node.Value, entry);
+    }
+
+    private void Remove(CadPlanChunkIdentity identity, Entry entry)
+    {
+        _entries.Remove(identity);
+        _lru.Remove(entry.LruNode);
+        _keyBytes -= entry.Key.LongLength;
+        entry.Picture.Dispose();
+    }
+}
+
+internal readonly record struct CadPlanChunkIdentity(
+    byte Kind,
+    ulong Handle,
+    ulong Variant)
+{
+    internal static CadPlanChunkIdentity SemanticRoot(ulong handle) =>
+        new(0, handle, 0);
+
+    internal static CadPlanChunkIdentity BlockDefinition(
+        ulong definitionHandle,
+        ReadOnlySpan<byte> key)
+    {
+        const ulong offsetBasis = 14_695_981_039_346_656_037UL;
+        const ulong prime = 1_099_511_628_211UL;
+        ulong hash = offsetBasis;
+        foreach (byte value in key)
+        {
+            hash = unchecked((hash ^ value) * prime);
+        }
+        return new CadPlanChunkIdentity(1, definitionHandle, hash);
+    }
+}
+
+internal readonly record struct CadPlanChunkNormalization(
+    double M11,
+    double M12,
+    double M21,
+    double M22,
+    double M31,
+    double M32)
+{
+    internal Vector2 TransformPoint(CadPoint3D point, CadPoint3D rebaseOrigin) =>
+        ToFiniteVector(
+            ((point.X - rebaseOrigin.X) * M11) +
+                ((point.Y - rebaseOrigin.Y) * M21) + M31,
+            ((point.X - rebaseOrigin.X) * M12) +
+                ((point.Y - rebaseOrigin.Y) * M22) + M32);
+
+    internal Vector2 TransformVector(CadPoint3D vector) => ToFiniteVector(
+        (vector.X * M11) + (vector.Y * M21),
+        (vector.X * M12) + (vector.Y * M22));
+
+    internal static bool TryCreate(
+        in CadAffineTransform3D localToWorld,
+        CadPoint3D rebaseOrigin,
+        out CadPlanChunkNormalization normalization)
+    {
+        double a = localToWorld.XAxis.X;
+        double b = localToWorld.XAxis.Y;
+        double c = localToWorld.YAxis.X;
+        double d = localToWorld.YAxis.Y;
+        double tx = localToWorld.Translation.X - rebaseOrigin.X;
+        double ty = localToWorld.Translation.Y - rebaseOrigin.Y;
+        double determinant = (a * d) - (b * c);
+        if (!double.IsFinite(determinant) || determinant == 0.0 ||
+            !double.IsFinite(tx) || !double.IsFinite(ty))
+        {
+            normalization = default;
+            return false;
+        }
+        normalization = new CadPlanChunkNormalization(
+            d / determinant,
+            -b / determinant,
+            -c / determinant,
+            a / determinant,
+            ((c * ty) - (d * tx)) / determinant,
+            ((b * tx) - (a * ty)) / determinant);
+        return double.IsFinite(normalization.M11) &&
+            double.IsFinite(normalization.M12) &&
+            double.IsFinite(normalization.M21) &&
+            double.IsFinite(normalization.M22) &&
+            double.IsFinite(normalization.M31) &&
+            double.IsFinite(normalization.M32);
+    }
+
+    private static Vector2 ToFiniteVector(double x, double y)
+    {
+        float convertedX = (float)x;
+        float convertedY = (float)y;
+        if (!float.IsFinite(convertedX) || !float.IsFinite(convertedY))
+        {
+            throw new InvalidOperationException(
+                "A normalized CAD chunk coordinate exceeds the retained float range.");
+        }
+        return new Vector2(convertedX, convertedY);
     }
 }
 
@@ -197,13 +322,18 @@ internal static class CadPlanChunkKeyBuilder
         CadPlanSceneOptions options,
         IReadOnlySet<string>? excludedLayerNames,
         IReadOnlySet<ulong> viewportBoundaryHandles,
+        CadPlanChunkNormalization? worldToChunk,
+        bool includeSemanticHandle,
         ReadOnlySpan<CadEntityHeader> entities,
         int maximumKeyBytes,
         CancellationToken cancellationToken,
         out byte[] key)
     {
         var writer = new ArrayBufferWriter<byte>(256);
-        Append(writer, snapshot.RebaseOrigin);
+        if (worldToChunk is null)
+        {
+            Append(writer, snapshot.RebaseOrigin);
+        }
         Append(writer, options.PhysicalDpi);
         Append(writer, options.LineWeightScale);
         Append(writer, (byte)options.LineWeightMode);
@@ -227,10 +357,13 @@ internal static class CadPlanChunkKeyBuilder
                     options,
                     excludedLayerNames,
                     viewportBoundaryHandles,
+                    worldToChunk,
+                    includeSemanticHandle,
                     layers,
                     styles,
                     patterns,
                     entity,
+                    cancellationToken,
                     maximumKeyBytes) ||
                 writer.WrittenCount > maximumKeyBytes)
             {
@@ -249,10 +382,13 @@ internal static class CadPlanChunkKeyBuilder
         CadPlanSceneOptions options,
         IReadOnlySet<string>? excludedLayerNames,
         IReadOnlySet<ulong> viewportBoundaryHandles,
+        CadPlanChunkNormalization? worldToChunk,
+        bool includeSemanticHandle,
         ReadOnlySpan<CadLayerSnapshot> layers,
         ReadOnlySpan<CadStrokeStyle> styles,
         ReadOnlySpan<CadLineTypePattern> patterns,
         in CadEntityHeader entity,
+        CancellationToken cancellationToken,
         int maximumKeyBytes)
     {
         CadLayerSnapshot layer = layers[entity.LayerIndex];
@@ -275,10 +411,12 @@ internal static class CadPlanChunkKeyBuilder
             return false;
         }
 
-        Append(writer, entity.Handle);
+        if (includeSemanticHandle)
+        {
+            Append(writer, entity.Handle);
+        }
         Append(writer, (byte)entity.Kind);
         Append(writer, entity.IsVisible);
-        Append(writer, entity.Bounds);
         Append(writer, viewportBoundaryHandles.Contains(entity.Handle));
         if (!TryAppendString(writer, layer.Name, maximumKeyBytes))
         {
@@ -309,36 +447,103 @@ internal static class CadPlanChunkKeyBuilder
                 {
                     return false;
                 }
-                Append(writer, point);
+                AppendProjectedPoint(
+                    writer,
+                    point.Position,
+                    snapshot.RebaseOrigin,
+                    worldToChunk);
                 return true;
             case CadEntityKind.Line:
-                Append(writer, snapshot.Lines.Span[entity.PrimitiveIndex]);
+                CadLinePrimitive line =
+                    snapshot.Lines.Span[entity.PrimitiveIndex];
+                AppendProjectedPoint(
+                    writer,
+                    line.Start,
+                    snapshot.RebaseOrigin,
+                    worldToChunk);
+                AppendProjectedPoint(
+                    writer,
+                    line.End,
+                    snapshot.RebaseOrigin,
+                    worldToChunk);
                 return true;
             case CadEntityKind.Circle:
-                Append(writer, snapshot.Circles.Span[entity.PrimitiveIndex]);
+                CadCirclePrimitive circle =
+                    snapshot.Circles.Span[entity.PrimitiveIndex];
+                AppendProjectedPoint(
+                    writer,
+                    circle.Center,
+                    snapshot.RebaseOrigin,
+                    worldToChunk);
+                AppendProjectedVector(
+                    writer,
+                    circle.CoordinateSystem.XAxis,
+                    worldToChunk);
+                AppendProjectedVector(
+                    writer,
+                    circle.CoordinateSystem.YAxis,
+                    worldToChunk);
+                Append(writer, circle.Radius);
                 return true;
             case CadEntityKind.Arc:
-                Append(writer, snapshot.Arcs.Span[entity.PrimitiveIndex]);
+                CadArcPrimitive arc = snapshot.Arcs.Span[entity.PrimitiveIndex];
+                AppendProjectedPoint(
+                    writer,
+                    arc.Center,
+                    snapshot.RebaseOrigin,
+                    worldToChunk);
+                AppendProjectedVector(
+                    writer,
+                    arc.CoordinateSystem.XAxis,
+                    worldToChunk);
+                AppendProjectedVector(
+                    writer,
+                    arc.CoordinateSystem.YAxis,
+                    worldToChunk);
+                Append(writer, arc.Radius);
+                Append(writer, arc.StartAngle);
+                Append(writer, arc.SweepAngle);
                 return true;
             case CadEntityKind.Ellipse:
-                Append(writer, snapshot.Ellipses.Span[entity.PrimitiveIndex]);
+                CadEllipsePrimitive ellipse =
+                    snapshot.Ellipses.Span[entity.PrimitiveIndex];
+                AppendProjectedPoint(
+                    writer,
+                    ellipse.Center,
+                    snapshot.RebaseOrigin,
+                    worldToChunk);
+                AppendProjectedVector(writer, ellipse.MajorAxis, worldToChunk);
+                AppendProjectedVector(writer, ellipse.MinorAxis, worldToChunk);
+                Append(writer, ellipse.StartParameter);
+                Append(writer, ellipse.SweepParameter);
                 return true;
             case CadEntityKind.Solid:
             case CadEntityKind.Face3D:
-                Append(writer, snapshot.Faces.Span[entity.PrimitiveIndex]);
+                if (worldToChunk is not null)
+                {
+                    return false;
+                }
+                CadFacePrimitive face = snapshot.Faces.Span[entity.PrimitiveIndex];
+                Append(writer, face);
                 return true;
             case CadEntityKind.Spline:
                 CadSplinePrimitive spline =
                     snapshot.Splines.Span[entity.PrimitiveIndex];
-                Append(writer, spline with
-                {
-                    ControlPointOffset = 0,
-                    KnotOffset = 0,
-                    WeightOffset = 0,
-                });
-                if (!TryAppend(writer, snapshot.SplineControlPoints.Span.Slice(
+                Append(writer, spline.ControlPointCount);
+                Append(writer, spline.KnotCount);
+                Append(writer, spline.WeightCount);
+                Append(writer, spline.Degree);
+                Append(writer, spline.IsClosed);
+                Append(writer, spline.IsPeriodic);
+                if (!TryAppendProjectedPoints(
+                    writer,
+                    snapshot.SplineControlPoints.Span.Slice(
                     spline.ControlPointOffset,
-                    spline.ControlPointCount), maximumKeyBytes) ||
+                    spline.ControlPointCount),
+                    snapshot.RebaseOrigin,
+                    worldToChunk,
+                    maximumKeyBytes,
+                    cancellationToken) ||
                     !TryAppend(writer, snapshot.SplineKnots.Span.Slice(
                     spline.KnotOffset,
                     spline.KnotCount), maximumKeyBytes) ||
@@ -353,17 +558,42 @@ internal static class CadPlanChunkKeyBuilder
             case CadEntityKind.Polyline2D:
                 CadPolylinePrimitive polyline =
                     snapshot.Polylines.Span[entity.PrimitiveIndex];
-                Append(writer, polyline with { VertexOffset = 0 });
+                AppendProjectedPoint(
+                    writer,
+                    polyline.WorldOrigin,
+                    snapshot.RebaseOrigin,
+                    worldToChunk);
+                AppendProjectedVector(
+                    writer,
+                    polyline.CoordinateSystem.XAxis,
+                    worldToChunk);
+                AppendProjectedVector(
+                    writer,
+                    polyline.CoordinateSystem.YAxis,
+                    worldToChunk);
+                Append(writer, polyline.VertexCount);
+                Append(writer, polyline.IsClosed);
+                Append(writer, polyline.IsLineTypeContinuous);
+                Append(writer, polyline.ConstantWidth);
+                Append(writer, polyline.HasVariableWidth);
+                Append(writer, polyline.IsFillEnabled);
                 return TryAppend(writer, snapshot.PolylineVertices.Span.Slice(
                     polyline.VertexOffset,
                     polyline.VertexCount), maximumKeyBytes);
             case CadEntityKind.Polyline3D:
                 CadPolyline3DPrimitive polyline3D =
                     snapshot.Polylines3D.Span[entity.PrimitiveIndex];
-                Append(writer, polyline3D with { PointOffset = 0 });
-                return TryAppend(writer, snapshot.Polyline3DPoints.Span.Slice(
+                Append(writer, polyline3D.PointCount);
+                Append(writer, polyline3D.IsClosed);
+                return TryAppendProjectedPoints(
+                    writer,
+                    snapshot.Polyline3DPoints.Span.Slice(
                     polyline3D.PointOffset,
-                    polyline3D.PointCount), maximumKeyBytes);
+                    polyline3D.PointCount),
+                    snapshot.RebaseOrigin,
+                    worldToChunk,
+                    maximumKeyBytes,
+                    cancellationToken);
             default:
                 return false;
         }
@@ -384,6 +614,73 @@ internal static class CadPlanChunkKeyBuilder
         Span<byte> destination = writer.GetSpan(byteCount).Slice(0, byteCount);
         Encoding.UTF8.GetBytes(value.AsSpan(), destination);
         writer.Advance(byteCount);
+        return true;
+    }
+
+    private static void AppendProjectedPoint(
+        ArrayBufferWriter<byte> writer,
+        CadPoint3D point,
+        CadPoint3D rebaseOrigin,
+        CadPlanChunkNormalization? worldToChunk)
+    {
+        Vector2 projected;
+        if (worldToChunk is CadPlanChunkNormalization transform)
+        {
+            projected = transform.TransformPoint(point, rebaseOrigin);
+        }
+        else
+        {
+            projected = new Vector2(
+                checked((float)(point.X - rebaseOrigin.X)),
+                checked((float)(point.Y - rebaseOrigin.Y)));
+        }
+        Append(writer, projected);
+    }
+
+    private static void AppendProjectedVector(
+        ArrayBufferWriter<byte> writer,
+        CadPoint3D vector,
+        CadPlanChunkNormalization? worldToChunk)
+    {
+        Vector2 projected;
+        if (worldToChunk is CadPlanChunkNormalization transform)
+        {
+            projected = transform.TransformVector(vector);
+        }
+        else
+        {
+            projected = new Vector2(
+                checked((float)vector.X),
+                checked((float)vector.Y));
+        }
+        Append(writer, projected);
+    }
+
+    private static bool TryAppendProjectedPoints(
+        ArrayBufferWriter<byte> writer,
+        ReadOnlySpan<CadPoint3D> values,
+        CadPoint3D rebaseOrigin,
+        CadPlanChunkNormalization? worldToChunk,
+        int maximumKeyBytes,
+        CancellationToken cancellationToken)
+    {
+        if ((long)writer.WrittenCount +
+            ((long)values.Length * Unsafe.SizeOf<Vector2>()) > maximumKeyBytes)
+        {
+            return false;
+        }
+        for (int index = 0; index < values.Length; index++)
+        {
+            if ((index & 255) == 0)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+            }
+            AppendProjectedPoint(
+                writer,
+                values[index],
+                rebaseOrigin,
+                worldToChunk);
+        }
         return true;
     }
 
