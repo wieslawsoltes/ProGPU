@@ -2249,11 +2249,110 @@ public:
     }
 
     com::result PROGPU_NATIVE_COM_CALL CreateBitmapFromWicBitmap(
-        com::unknown*,
-        const bitmap_properties*,
+        com::unknown* source,
+        const bitmap_properties* properties,
         bitmap** value) noexcept override
     {
-        return unsupported_output(value);
+        if (value == nullptr) {
+            return com::pointer_error;
+        }
+        *value = nullptr;
+        if (source == nullptr) {
+            return com::invalid_argument;
+        }
+
+        wic_bitmap_source* raw_wic_source = nullptr;
+        const com::result query_result = source->QueryInterface(
+            wic_bitmap_source_interface_id,
+            reinterpret_cast<void**>(&raw_wic_source));
+        com::pointer<wic_bitmap_source> wic_source;
+        wic_source.attach(raw_wic_source);
+        if (com::failed(query_result) || !wic_source) {
+            return query_result;
+        }
+
+        size_u size{};
+        const com::result size_result =
+            wic_source->GetSize(&size.width, &size.height);
+        if (com::failed(size_result)) {
+            return size_result;
+        }
+        if (size.width == 0U || size.height == 0U ||
+            size.width > 16384U || size.height > 16384U) {
+            return com::invalid_argument;
+        }
+
+        com::guid wic_format{};
+        const com::result format_result =
+            wic_source->GetPixelFormat(&wic_format);
+        if (com::failed(format_result)) {
+            return format_result;
+        }
+        std::uint32_t dxgi_format = 0U;
+        if (com::guid_equal(wic_format, wic_pixel_format_32bpp_pbgra)) {
+            dxgi_format = dxgi_format_b8g8r8a8_unorm;
+        } else if (com::guid_equal(
+                       wic_format, wic_pixel_format_32bpp_prgba)) {
+            dxgi_format = dxgi_format_r8g8b8a8_unorm;
+        } else {
+            return not_implemented;
+        }
+
+        bitmap_properties actual = properties == nullptr
+            ? bitmap_properties{
+                {dxgi_format, alpha_mode::premultiplied}, 96.0F, 96.0F}
+            : *properties;
+        if (actual.pixel_format_value.format == 0U) {
+            actual.pixel_format_value.format = dxgi_format;
+        }
+        if (actual.pixel_format_value.alpha == alpha_mode::unknown) {
+            actual.pixel_format_value.alpha = alpha_mode::premultiplied;
+        }
+        if (actual.pixel_format_value.format != dxgi_format ||
+            actual.pixel_format_value.alpha != alpha_mode::premultiplied) {
+            return not_implemented;
+        }
+        if (actual.dpi_x == 0.0F && actual.dpi_y == 0.0F) {
+            actual.dpi_x = 96.0F;
+            actual.dpi_y = 96.0F;
+        } else if (!valid_dpi(actual.dpi_x, actual.dpi_y)) {
+            return com::invalid_argument;
+        }
+
+        const std::uint64_t row_bytes_64 =
+            static_cast<std::uint64_t>(size.width) * 4U;
+        const std::uint64_t required_bytes =
+            row_bytes_64 * static_cast<std::uint64_t>(size.height);
+        if (row_bytes_64 > std::numeric_limits<std::uint32_t>::max() ||
+            required_bytes > PROGPU_NATIVE_SCENE_MAX_STREAM_BYTES ||
+            required_bytes > std::numeric_limits<std::uint32_t>::max() ||
+            required_bytes > std::numeric_limits<std::size_t>::max()) {
+            return com::invalid_argument;
+        }
+        const auto row_bytes = static_cast<std::uint32_t>(row_bytes_64);
+        try {
+            std::vector<std::byte> pixels(
+                static_cast<std::size_t>(required_bytes));
+            const com::result copy_result = wic_source->CopyPixels(
+                nullptr,
+                row_bytes,
+                static_cast<std::uint32_t>(required_bytes),
+                reinterpret_cast<std::uint8_t*>(pixels.data()));
+            if (com::failed(copy_result)) {
+                return copy_result;
+            }
+            auto* created = new (std::nothrow) portable_bitmap(
+                owner_.get(), size, actual, row_bytes, std::move(pixels));
+            if (created == nullptr) {
+                return com::out_of_memory;
+            }
+            *value = created;
+            return com::ok;
+        } catch (const std::bad_alloc&) {
+            return com::out_of_memory;
+        } catch (...) {
+            return failure;
+        }
     }
 
     com::result PROGPU_NATIVE_COM_CALL CreateSharedBitmap(
