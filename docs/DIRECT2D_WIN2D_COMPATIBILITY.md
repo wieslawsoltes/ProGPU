@@ -747,6 +747,27 @@ emitted point against system Direct2D. Zero width, explicit styles, degenerate
 rectangles, and transformed cases with a collapsed inner contour or reflected,
 swapped-axis, or general-affine intrinsic transforms remain fail closed.
 
+Nondegenerate rectangles now implement `CompareWithGeometry` against
+same-factory rectangles and bounded transformed-rectangle chains whose final
+input transform remains axis preserving. The current geometry stays in its
+own coordinate space; only the input geometry receives the caller transform.
+Equality follows system Direct2D and reports `IS_CONTAINED`, strict input
+containment reports `CONTAINS`, strict outer containment reports
+`IS_CONTAINED`, separated rectangles report `DISJOINT`, and intersections or
+boundary-only contact report `OVERLAP`. Axis-aligned rectangle comparison is
+exact and allocation-free, so flattening tolerance is validated but does not
+change the result. Cross-factory resources return `D2DERR_WRONG_FACTORY`, and
+degenerate or general-affine cases remain fail closed. The Windows oracle
+compares all five observable relation outcomes and a transformed input with
+system Direct2D.
+
+The extended Windows native-renderer job keeps its independent C++ sample and
+all native CTests single-shot. Its later managed wgpu-native sample may retry
+once in a fresh process when the disposable GitHub Actions software-D3D12
+device exits nonzero; two failures still fail the job. This narrowly contains
+the already observed Microsoft Basic Render Driver readback loss without
+weakening Direct2D, export, native-renderer, or pixel-validation assertions.
+
 WIC codec activation/decoding itself, render-target-to-bitmap copies,
 alpha-ignore/straight formats,
 non-null `FillGeometry` opacity brushes, `ID2D1StrokeStyle1` fixed/hairline

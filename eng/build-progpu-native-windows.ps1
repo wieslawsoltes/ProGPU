@@ -308,9 +308,20 @@ if ($CurrentArchitecture -eq $RunnableArchitecture) {
         if ($LASTEXITCODE -ne 0 -or -not (Test-Path $BenchmarkDll)) {
             throw "The native differential benchmark build failed."
         }
-        & dotnet $ManagedSampleDll $SampleOutput
-        if ($LASTEXITCODE -ne 0) {
-            throw "The managed native-renderer sample failed."
+        $ManagedSampleSucceeded = $false
+        for ($ManagedSampleAttempt = 1; $ManagedSampleAttempt -le 2; $ManagedSampleAttempt++) {
+            & dotnet $ManagedSampleDll $SampleOutput
+            if ($LASTEXITCODE -eq 0) {
+                $ManagedSampleSucceeded = $true
+                break
+            }
+            if ($ManagedSampleAttempt -lt 2) {
+                Write-Warning "The managed native-renderer sample lost its first disposable CI device; retrying once with a fresh process."
+                Start-Sleep -Seconds 2
+            }
+        }
+        if (-not $ManagedSampleSucceeded) {
+            throw "The managed native-renderer sample failed twice."
         }
         function Invoke-NativeBenchmark {
             & dotnet $BenchmarkDll @args
