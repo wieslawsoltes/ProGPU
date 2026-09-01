@@ -2089,7 +2089,8 @@ typedef struct progpu_native_scene_hit_test_index {
 /*
  * A filled path borrows a contiguous segment range. Bounds are the exact local
  * coverage bounds including analytic curve extrema. The renderer selects a
- * transform-aware atlas resolution, rasterizes with a 4x4 or 8x8 sample grid,
+ * transform-aware atlas resolution, rasterizes with a 1x1, 4x4, or 8x8 sample
+ * grid,
  * and draws one affine coverage quad with the supplied solid color.
  */
 typedef struct progpu_native_path_fill {

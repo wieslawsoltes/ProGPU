@@ -4391,7 +4391,16 @@ public:
                 com::failed(result) ? result : failure);
             return;
         }
-        draw_filled_geometry(transformed.get(), foreground, nullptr);
+        std::uint32_t text_sample_grid = 8U;
+        {
+            const std::lock_guard lock(mutex_);
+            text_sample_grid =
+                text_antialias_mode_ == text_antialias_mode::aliased
+                ? 1U
+                : 8U;
+        }
+        draw_filled_geometry(
+            transformed.get(), foreground, nullptr, text_sample_grid);
     }
 
     void PROGPU_NATIVE_COM_CALL SetTransform(
@@ -4877,11 +4886,6 @@ public:
             return;
         }
         bitmap_resources_.clear();
-        transform_ = identity_transform;
-        antialias_mode_ = antialias_mode::per_primitive;
-        text_antialias_mode_ = text_antialias_mode::default_value;
-        tag1_ = 0U;
-        tag2_ = 0U;
         clear_color_ = {};
         draw_count_ = 0U;
         clip_depth_ = 0U;
@@ -5505,7 +5509,8 @@ private:
         brush* opacity_brush,
         std::span<const progpu_native_path_segment> segments,
         std::uint32_t fill_rule,
-        const rectangle_f& local_bounds) noexcept
+        const rectangle_f& local_bounds,
+        std::uint32_t sample_grid = 8U) noexcept
     {
         if (brush_value == nullptr || segments.empty()) {
             latch(com::invalid_argument);
@@ -5535,7 +5540,7 @@ private:
             local_bounds.bottom,
             native_transform(),
             fill_rule,
-            8U,
+            sample_grid,
             PROGPU_NATIVE_CLIP_INTERSECT,
             0U};
         std::uint32_t mask_resource_index = PROGPU_NATIVE_SCENE_NO_INDEX;
@@ -5896,13 +5901,15 @@ private:
     void draw_filled_geometry(
         geometry* geometry_value,
         brush* brush_value,
-        brush* opacity_brush) noexcept
+        brush* opacity_brush,
+        std::uint32_t sample_grid = 8U) noexcept
     {
         const std::lock_guard lock(mutex_);
         if (!can_draw()) {
             return;
         }
-        if (geometry_value == nullptr || brush_value == nullptr) {
+        if (geometry_value == nullptr || brush_value == nullptr ||
+            (sample_grid != 1U && sample_grid != 8U)) {
             latch(com::invalid_argument);
             return;
         }
@@ -5970,7 +5977,8 @@ private:
                 opacity_brush,
                 segments,
                 sink->native_fill_rule(),
-                local_bounds);
+                local_bounds,
+                sample_grid);
         if (bitmap_result != bitmap_brush_draw_result::not_bitmap) {
             return;
         }
@@ -6014,7 +6022,7 @@ private:
             {1.0F, 1.0F, 1.0F, 1.0F},
             native_transform(),
             sink->native_fill_rule(),
-            8U};
+            sample_grid};
         const progpu_native_image_rect bounds{
             target_bounds.left,
             target_bounds.top,

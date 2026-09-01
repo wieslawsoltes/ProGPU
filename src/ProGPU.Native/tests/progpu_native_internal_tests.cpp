@@ -1233,11 +1233,14 @@ void semantic_payload_validation_is_bounded_and_cpu_only() {
     path.max_x = 10.0F;
     path.max_y = 10.0F;
     path.transform = {1.0F, 0.0F, 0.0F, 1.0F, 0.0F, 0.0F};
-    path.sample_grid = 4U;
+    path.sample_grid = 1U;
     std::uint64_t path_coverage = 0U;
     require(progpu::native::semantic::is_valid_semantic_path(
         path, 1U, &path_coverage));
     require(path_coverage == 256U * 18U);
+    path.sample_grid = 2U;
+    require(!progpu::native::semantic::is_valid_semantic_path(path, 1U));
+    path.sample_grid = 4U;
     path.segment_count = 2U;
     require(!progpu::native::semantic::is_valid_semantic_path(path, 1U));
 

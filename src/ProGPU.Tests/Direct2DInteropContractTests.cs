@@ -321,7 +321,8 @@ public sealed class Direct2DInteropContractTests
         Assert.Contains("builder_.draw_geometry", renderTargetSource, StringComparison.Ordinal);
         Assert.Contains("wic_source->CopyPixels(", renderTargetSource, StringComparison.Ordinal);
         Assert.Contains("font_face_value->GetGlyphRunOutline(", renderTargetSource, StringComparison.Ordinal);
-        Assert.Contains("draw_filled_geometry(transformed.get(), foreground, nullptr)", renderTargetSource, StringComparison.Ordinal);
+        Assert.Contains("transformed.get(), foreground, nullptr, text_sample_grid", renderTargetSource, StringComparison.Ordinal);
+        Assert.Contains("text_antialias_mode_ == text_antialias_mode::aliased", renderTargetSource, StringComparison.Ordinal);
         Assert.Contains("class portable_text_renderer final", renderTargetSource, StringComparison.Ordinal);
         Assert.Contains("offsetof(text_layout_vtable, draw) == 58U * sizeof(void*)", renderTargetSource, StringComparison.Ordinal);
         Assert.Contains("layout_vtable->draw(", renderTargetSource, StringComparison.Ordinal);
@@ -353,7 +354,7 @@ public sealed class Direct2DInteropContractTests
         Assert.Contains("path_state::closed", pathSource, StringComparison.Ordinal);
         Assert.Contains("core::arc_to_cubics", pathSource, StringComparison.Ordinal);
         Assert.Contains("Multiple contours need fill-rule-aware union", pathSource, StringComparison.Ordinal);
-        Assert.Contains("system_group_rectangle->Outline(", nativeTest, StringComparison.Ordinal);
+        Assert.Contains("system_outline_rectangle->Outline(", nativeTest, StringComparison.Ordinal);
         Assert.Contains("direct2d_core::arc_to_cubics", provider, StringComparison.Ordinal);
         Assert.Contains("direct2d_core::ellipse_to_cubics", provider, StringComparison.Ordinal);
         Assert.Contains("direct2d_core::rounded_rectangle_to_path", provider, StringComparison.Ordinal);

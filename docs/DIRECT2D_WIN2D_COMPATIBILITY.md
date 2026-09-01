@@ -648,6 +648,17 @@ asserts exact SDK structure offsets, one outline callback for a two-glyph run,
 one retained path draw, and translated scene bounds. This is the first
 portable standard DirectWrite-consumer lane.
 
+`SetTextAntialiasMode(ALIASED)` now selects the shared path rasterizer's exact
+one-sample, pixel-center coverage lane for glyph outlines; DEFAULT, GRAYSCALE,
+and CLEARTYPE retain the fastest qualified 8x8 GPU coverage lane while their
+remaining filter differences are implemented. The one-sample contract is
+accepted consistently by scene validation, retained path execution, and
+vector-mask execution, and works for solid, gradient, and bitmap-brush glyph
+fills without CPU rasterization or readback. Direct2D target transform,
+geometry/text antialias modes, tags, and other drawing state persist across
+`BeginDraw`/`EndDraw`; only per-session commands, scopes, and latched errors
+are reset.
+
 `ID2D1RenderTarget::DrawTextLayout` now supplies the matching canonical
 `IDWritePixelSnapping`/`IDWriteTextRenderer` callback vtable to an existing
 layout. DirectWrite or a portable layout provider emits glyph runs,

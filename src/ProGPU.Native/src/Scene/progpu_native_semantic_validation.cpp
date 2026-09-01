@@ -130,7 +130,8 @@ bool is_valid_semantic_path(
         path.max_x <= path.min_x || path.max_y <= path.min_y ||
         !is_finite(path.color) || !is_finite(path.transform) ||
         path.fill_rule > PROGPU_NATIVE_FILL_RULE_EVEN_ODD ||
-        (path.sample_grid != 4U && path.sample_grid != 8U)) {
+        (path.sample_grid != 1U && path.sample_grid != 4U &&
+            path.sample_grid != 8U)) {
         return false;
     }
     if (!path_boolean::validate(

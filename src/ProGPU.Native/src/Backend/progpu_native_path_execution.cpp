@@ -214,7 +214,8 @@ progpu_native_status render_paths(
                     !progpu::native::is_finite(path.color) ||
                     !progpu::native::is_finite(path.transform) ||
                     path.fill_rule > PROGPU_NATIVE_FILL_RULE_EVEN_ODD ||
-                    (path.sample_grid != 4U && path.sample_grid != 8U) ||
+                    (path.sample_grid != 1U && path.sample_grid != 4U &&
+                        path.sample_grid != 8U) ||
                     (path.boolean_node_count != 0U &&
                         path.boolean_node_offset !=
                             expected_boolean_node_offset) ||
