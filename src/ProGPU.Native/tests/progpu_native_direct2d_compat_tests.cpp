@@ -717,15 +717,118 @@ int main()
         return 72;
     }
 
-    compat::geometry_group* unsupported =
-        reinterpret_cast<compat::geometry_group*>(
+    std::array<compat::geometry*, 2U> group_sources{
+        geometry_base.get(), ellipse_base.get()};
+    compat::geometry_group* raw_group = nullptr;
+    if (factory->CreateGeometryGroup(
+            compat::fill_mode::alternate,
+            group_sources.data(),
+            static_cast<std::uint32_t>(group_sources.size()),
+            &raw_group) != com::ok ||
+        raw_group == nullptr) {
+        return 77;
+    }
+    com::pointer<compat::geometry_group> group;
+    group.attach(raw_group);
+    com::pointer<compat::geometry> group_base;
+    if (group.as(compat::geometry_interface_id, group_base) != com::ok ||
+        !group_base ||
+        group->GetFillMode() != compat::fill_mode::alternate ||
+        group->GetSourceGeometryCount() != group_sources.size() ||
+        group->GetBounds(&transform, &returned) != com::ok ||
+        !approximately_equal(returned.left, 6.0F) ||
+        !approximately_equal(returned.top, -1.0F) ||
+        !approximately_equal(returned.right, 22.0F) ||
+        !approximately_equal(returned.bottom, 20.0F)) {
+        return 78;
+    }
+    std::array<compat::geometry*, 2U> returned_group_sources{};
+    group->GetSourceGeometries(
+        returned_group_sources.data(),
+        static_cast<std::uint32_t>(returned_group_sources.size()));
+    com::pointer<compat::geometry> returned_group_rectangle;
+    com::pointer<compat::geometry> returned_group_ellipse;
+    returned_group_rectangle.attach(returned_group_sources[0U]);
+    returned_group_ellipse.attach(returned_group_sources[1U]);
+    if (returned_group_rectangle.get() != geometry_base.get() ||
+        returned_group_ellipse.get() != ellipse_base.get()) {
+        return 79;
+    }
+    auto* raw_group_simplified = new simplified_sink();
+    com::pointer<compat::simplified_geometry_sink> group_simplified;
+    group_simplified.attach(raw_group_simplified);
+    if (group->Simplify(
+            compat::geometry_simplification_option::cubics_and_lines,
+            &transform,
+            core::default_flattening_tolerance,
+            group_simplified.get()) != com::ok ||
+        raw_group_simplified->fill_mode != compat::fill_mode::alternate ||
+        raw_group_simplified->begin_count != 2U ||
+        raw_group_simplified->end_count != 2U ||
+        raw_group_simplified->line_count != 3U ||
+        raw_group_simplified->bezier_count != 4U) {
+        return 80;
+    }
+    contains = 1;
+    if (group->FillContainsPoint(
+            {16.0F, 10.0F},
+            &transform,
+            core::default_flattening_tolerance,
+            &contains) != compat::not_implemented ||
+        contains != 0) {
+        return 87;
+    }
+    std::array<compat::geometry*, 1U> nested_group_source{group_base.get()};
+    raw_group = reinterpret_cast<compat::geometry_group*>(
         static_cast<std::uintptr_t>(1U));
     if (factory->CreateGeometryGroup(
-            compat::fill_mode::winding, nullptr, 0U, &unsupported) !=
+            compat::fill_mode::winding,
+            nested_group_source.data(),
+            1U,
+            &raw_group) != compat::not_implemented ||
+        raw_group != nullptr) {
+        return 81;
+    }
+    raw_group = reinterpret_cast<compat::geometry_group*>(
+        static_cast<std::uintptr_t>(1U));
+    if (factory->CreateGeometryGroup(
+            static_cast<compat::fill_mode>(99U),
+            nullptr,
+            0U,
+            &raw_group) != com::invalid_argument ||
+        raw_group != nullptr) {
+        return 88;
+    }
+    raw_group = reinterpret_cast<compat::geometry_group*>(
+        static_cast<std::uintptr_t>(1U));
+    if (factory->CreateGeometryGroup(
+            compat::fill_mode::winding,
+            nullptr,
+            1U,
+            &raw_group) != com::invalid_argument ||
+        raw_group != nullptr) {
+        return 89;
+    }
+    raw_group = reinterpret_cast<compat::geometry_group*>(
+        static_cast<std::uintptr_t>(1U));
+    if (second_factory->CreateGeometryGroup(
+            compat::fill_mode::winding,
+            group_sources.data(),
+            static_cast<std::uint32_t>(group_sources.size()),
+            &raw_group) != compat::wrong_factory ||
+        raw_group != nullptr) {
+        return 90;
+    }
+
+    compat::stroke_style* unsupported =
+        reinterpret_cast<compat::stroke_style*>(
+        static_cast<std::uintptr_t>(1U));
+    if (factory->CreateStrokeStyle(
+            nullptr, nullptr, 0U, &unsupported) !=
             compat::not_implemented ||
         unsupported != nullptr ||
-        factory->CreateGeometryGroup(
-            compat::fill_mode::winding, nullptr, 0U, nullptr) !=
+        factory->CreateStrokeStyle(
+            nullptr, nullptr, 0U, nullptr) !=
             com::pointer_error) {
         return 18;
     }
@@ -742,6 +845,9 @@ int main()
         !com::guid_equal(
             compat::rounded_rectangle_geometry_interface_id,
             __uuidof(ID2D1RoundedRectangleGeometry)) ||
+        !com::guid_equal(
+            compat::geometry_group_interface_id,
+            __uuidof(ID2D1GeometryGroup)) ||
         !com::guid_equal(
             compat::transformed_geometry_interface_id,
             __uuidof(ID2D1TransformedGeometry)) ||
@@ -875,6 +981,42 @@ int main()
         !approximately_equal(
             returned_native_rounded_rectangle.rect.bottom, 8.0F)) {
         return 74;
+    }
+
+    std::array<ID2D1Geometry*, 2U> native_group_sources{
+        reinterpret_cast<ID2D1Geometry*>(geometry_base.get()),
+        reinterpret_cast<ID2D1Geometry*>(ellipse_base.get())};
+    ID2D1GeometryGroup* native_group = nullptr;
+    if (FAILED(native_factory->CreateGeometryGroup(
+            D2D1_FILL_MODE_ALTERNATE,
+            native_group_sources.data(),
+            static_cast<UINT32>(native_group_sources.size()),
+            &native_group)) ||
+        native_group == nullptr) {
+        return 82;
+    }
+    D2D1_RECT_F portable_group_bounds{};
+    const HRESULT portable_group_bounds_status = native_group->GetBounds(
+        &native_ellipse_transform, &portable_group_bounds);
+    std::array<ID2D1Geometry*, 2U> returned_native_group_sources{};
+    native_group->GetSourceGeometries(
+        returned_native_group_sources.data(),
+        static_cast<UINT32>(returned_native_group_sources.size()));
+    const bool native_group_metadata_matches =
+        native_group->GetFillMode() == D2D1_FILL_MODE_ALTERNATE &&
+        native_group->GetSourceGeometryCount() ==
+            static_cast<UINT32>(native_group_sources.size()) &&
+        returned_native_group_sources[0U] == native_group_sources[0U] &&
+        returned_native_group_sources[1U] == native_group_sources[1U];
+    for (auto* returned_native_source : returned_native_group_sources) {
+        if (returned_native_source != nullptr) {
+            returned_native_source->Release();
+        }
+    }
+    native_group->Release();
+    if (FAILED(portable_group_bounds_status) ||
+        !native_group_metadata_matches) {
+        return 83;
     }
 
     ID2D1PathGeometry* native_path = nullptr;
@@ -1141,7 +1283,6 @@ int main()
             D2D1_DEFAULT_FLATTENING_TOLERANCE,
             &system_rounded_rectangle_corner_contains);
     system_rounded_rectangle->Release();
-    system_factory->Release();
     if (FAILED(system_rounded_rectangle_bounds_status) ||
         FAILED(system_rounded_rectangle_center_status) ||
         FAILED(system_rounded_rectangle_corner_status) ||
@@ -1161,7 +1302,64 @@ int main()
         !approximately_equal(
             system_rounded_rectangle_bounds.bottom,
             portable_rounded_rectangle_bounds.bottom)) {
+        system_factory->Release();
         return 76;
+    }
+
+    const D2D1_RECT_F system_group_rectangle_value{
+        1.0F, 2.0F, 5.0F, 8.0F};
+    ID2D1RectangleGeometry* system_group_rectangle = nullptr;
+    ID2D1EllipseGeometry* system_group_ellipse = nullptr;
+    if (FAILED(system_factory->CreateRectangleGeometry(
+            &system_group_rectangle_value, &system_group_rectangle)) ||
+        system_group_rectangle == nullptr ||
+        FAILED(system_factory->CreateEllipseGeometry(
+            &native_ellipse_value, &system_group_ellipse)) ||
+        system_group_ellipse == nullptr) {
+        if (system_group_rectangle != nullptr) {
+            system_group_rectangle->Release();
+        }
+        if (system_group_ellipse != nullptr) {
+            system_group_ellipse->Release();
+        }
+        system_factory->Release();
+        return 84;
+    }
+    std::array<ID2D1Geometry*, 2U> system_group_sources{
+        system_group_rectangle, system_group_ellipse};
+    ID2D1GeometryGroup* system_group = nullptr;
+    const HRESULT system_group_create_status =
+        system_factory->CreateGeometryGroup(
+            D2D1_FILL_MODE_ALTERNATE,
+            system_group_sources.data(),
+            static_cast<UINT32>(system_group_sources.size()),
+            &system_group);
+    system_group_rectangle->Release();
+    system_group_ellipse->Release();
+    if (FAILED(system_group_create_status) || system_group == nullptr) {
+        system_factory->Release();
+        return 85;
+    }
+    D2D1_RECT_F system_group_bounds{};
+    const HRESULT system_group_bounds_status = system_group->GetBounds(
+        &native_ellipse_transform, &system_group_bounds);
+    const bool system_group_metadata_matches =
+        system_group->GetFillMode() == D2D1_FILL_MODE_ALTERNATE &&
+        system_group->GetSourceGeometryCount() ==
+            static_cast<UINT32>(system_group_sources.size());
+    system_group->Release();
+    system_factory->Release();
+    if (FAILED(system_group_bounds_status) ||
+        !system_group_metadata_matches ||
+        !approximately_equal(
+            system_group_bounds.left, portable_group_bounds.left) ||
+        !approximately_equal(
+            system_group_bounds.top, portable_group_bounds.top) ||
+        !approximately_equal(
+            system_group_bounds.right, portable_group_bounds.right) ||
+        !approximately_equal(
+            system_group_bounds.bottom, portable_group_bounds.bottom)) {
+        return 86;
     }
 #endif
     return 0;

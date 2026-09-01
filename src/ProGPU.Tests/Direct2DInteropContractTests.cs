@@ -174,6 +174,12 @@ public sealed class Direct2DInteropContractTests
             "src",
             "Direct2D",
             "progpu_native_direct2d_rounded_rectangle.cpp");
+        string geometryGroupSource = ReadRepoFile(
+            "src",
+            "ProGPU.Native",
+            "src",
+            "Direct2D",
+            "progpu_native_direct2d_geometry_group.cpp");
         string provider = ReadRepoFile(
             "src",
             "ProGPU.Native",
@@ -199,6 +205,7 @@ public sealed class Direct2DInteropContractTests
         Assert.Contains("struct path_geometry : geometry", header, StringComparison.Ordinal);
         Assert.Contains("struct ellipse_geometry : geometry", header, StringComparison.Ordinal);
         Assert.Contains("struct rounded_rectangle_geometry : geometry", header, StringComparison.Ordinal);
+        Assert.Contains("struct geometry_group : geometry", header, StringComparison.Ordinal);
         Assert.Contains("struct geometry_sink : simplified_geometry_sink", header, StringComparison.Ordinal);
         Assert.Contains("class portable_factory final", source, StringComparison.Ordinal);
         Assert.Contains("class portable_transformed_geometry final", source, StringComparison.Ordinal);
@@ -206,6 +213,7 @@ public sealed class Direct2DInteropContractTests
         Assert.Contains("class portable_geometry_sink final", pathSource, StringComparison.Ordinal);
         Assert.Contains("class portable_ellipse_geometry final", ellipseSource, StringComparison.Ordinal);
         Assert.Contains("class portable_rounded_rectangle_geometry final", roundedRectangleSource, StringComparison.Ordinal);
+        Assert.Contains("class portable_geometry_group final", geometryGroupSource, StringComparison.Ordinal);
         Assert.Contains("path_state::fresh", pathSource, StringComparison.Ordinal);
         Assert.Contains("path_state::closed", pathSource, StringComparison.Ordinal);
         Assert.Contains("core::arc_to_cubics", pathSource, StringComparison.Ordinal);
@@ -222,6 +230,7 @@ public sealed class Direct2DInteropContractTests
         Assert.Contains("ID2D1PathGeometry*", nativeTest, StringComparison.Ordinal);
         Assert.Contains("ID2D1EllipseGeometry*", nativeTest, StringComparison.Ordinal);
         Assert.Contains("ID2D1RoundedRectangleGeometry*", nativeTest, StringComparison.Ordinal);
+        Assert.Contains("ID2D1GeometryGroup*", nativeTest, StringComparison.Ordinal);
         Assert.Contains("ID2D1GeometrySink*", nativeTest, StringComparison.Ordinal);
         Assert.Contains("native_path->Stream", nativeTest, StringComparison.Ordinal);
         Assert.Contains("factory.Reset();", nativeTest, StringComparison.Ordinal);

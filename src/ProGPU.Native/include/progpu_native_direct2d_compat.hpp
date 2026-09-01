@@ -49,6 +49,11 @@ inline constexpr com::guid rounded_rectangle_geometry_interface_id{
     0x12E2U,
     0x11DCU,
     {0x9FU, 0xEDU, 0x00U, 0x11U, 0x43U, 0xA0U, 0x55U, 0xF9U}};
+inline constexpr com::guid geometry_group_interface_id{
+    0x2CD906A6U,
+    0x12E2U,
+    0x11DCU,
+    {0x9FU, 0xEDU, 0x00U, 0x11U, 0x43U, 0xA0U, 0x55U, 0xF9U}};
 inline constexpr com::guid transformed_geometry_interface_id{
     0x2CD906BBU,
     0x12E2U,
@@ -271,6 +276,16 @@ struct ellipse_geometry : geometry {
 struct rounded_rectangle_geometry : geometry {
     virtual void PROGPU_NATIVE_COM_CALL GetRoundedRect(
         rounded_rectangle* value) const noexcept = 0;
+};
+
+struct geometry_group : geometry {
+    virtual fill_mode PROGPU_NATIVE_COM_CALL GetFillMode() const
+        noexcept = 0;
+    virtual std::uint32_t PROGPU_NATIVE_COM_CALL GetSourceGeometryCount()
+        const noexcept = 0;
+    virtual void PROGPU_NATIVE_COM_CALL GetSourceGeometries(
+        geometry** geometries,
+        std::uint32_t geometry_count) const noexcept = 0;
 };
 
 struct path_geometry : geometry {
