@@ -4184,11 +4184,11 @@ private:
         return true;
     }
 
-    [[nodiscard]] bool add_gradient_brush(
+    [[nodiscard]] bool translate_gradient_brush(
         brush* source,
         gradient_stop_collection* collection,
         progpu_native_scene_brush& native,
-        std::uint32_t& brush_index) noexcept
+        std::vector<progpu_native_scene_gradient_stop>& native_stops) noexcept
     {
         if (collection == nullptr) {
             latch(com::invalid_argument);
@@ -4238,7 +4238,7 @@ private:
         try {
             std::vector<gradient_stop> stops(stop_count);
             collection->GetGradientStops(stops.data(), stop_count);
-            std::vector<progpu_native_scene_gradient_stop> native_stops;
+            native_stops.clear();
             native_stops.reserve(stop_count);
             float previous = -std::numeric_limits<float>::infinity();
             for (const gradient_stop& stop : stops) {
@@ -4271,10 +4271,6 @@ private:
             if (!set_gradient_coordinate_transform(source, native)) {
                 return false;
             }
-            if (!builder_.add_brush(native, native_stops, brush_index)) {
-                latch(builder_failure());
-                return false;
-            }
             return true;
         } catch (const std::bad_alloc&) {
             latch(com::out_of_memory);
@@ -4283,6 +4279,24 @@ private:
             latch(failure);
             return false;
         }
+    }
+
+    [[nodiscard]] bool add_gradient_brush(
+        brush* source,
+        gradient_stop_collection* collection,
+        progpu_native_scene_brush& native,
+        std::uint32_t& brush_index) noexcept
+    {
+        std::vector<progpu_native_scene_gradient_stop> native_stops;
+        if (!translate_gradient_brush(
+                source, collection, native, native_stops)) {
+            return false;
+        }
+        if (!builder_.add_brush(native, native_stops, brush_index)) {
+            latch(builder_failure());
+            return false;
+        }
+        return true;
     }
 
     [[nodiscard]] bool add_brush(
