@@ -1157,6 +1157,66 @@ int run_tests()
         stroke_outside_contains != 0) {
         return 269;
     }
+    const std::array<compat::rectangle_f, 6U> relation_rectangles{{
+        rectangle,
+        compat::rectangle_f{2.0F, 3.0F, 4.0F, 7.0F},
+        compat::rectangle_f{0.0F, 1.0F, 6.0F, 9.0F},
+        compat::rectangle_f{4.0F, 7.0F, 7.0F, 10.0F},
+        compat::rectangle_f{6.0F, 9.0F, 7.0F, 10.0F},
+        compat::rectangle_f{5.0F, 2.0F, 6.0F, 8.0F},
+    }};
+    constexpr std::array expected_relations{
+        compat::geometry_relation::is_contained,
+        compat::geometry_relation::contains,
+        compat::geometry_relation::is_contained,
+        compat::geometry_relation::overlap,
+        compat::geometry_relation::disjoint,
+        compat::geometry_relation::overlap,
+    };
+    std::array<compat::geometry_relation, 6U> portable_relations{};
+    for (std::size_t relation_index = 0U;
+         relation_index < relation_rectangles.size();
+         ++relation_index) {
+        compat::rectangle_geometry* raw_relation_rectangle = nullptr;
+        if (factory->CreateRectangleGeometry(
+                &relation_rectangles[relation_index],
+                &raw_relation_rectangle) != com::ok ||
+            raw_relation_rectangle == nullptr) {
+            return 274;
+        }
+        com::pointer<compat::rectangle_geometry> relation_rectangle;
+        relation_rectangle.attach(raw_relation_rectangle);
+        if (geometry->CompareWithGeometry(
+                relation_rectangle.get(),
+                nullptr,
+                core::default_flattening_tolerance,
+                &portable_relations[relation_index]) != com::ok ||
+            portable_relations[relation_index] !=
+                expected_relations[relation_index]) {
+            return 275;
+        }
+    }
+    const compat::matrix_3x2_f relation_transform{
+        1.0F, 0.0F, 0.0F, 1.0F, -4.0F, -6.0F};
+    compat::rectangle_geometry* raw_translated_relation = nullptr;
+    compat::geometry_relation translated_relation =
+        compat::geometry_relation::unknown;
+    if (factory->CreateRectangleGeometry(
+            &relation_rectangles[4U],
+            &raw_translated_relation) != com::ok ||
+        raw_translated_relation == nullptr) {
+        return 276;
+    }
+    com::pointer<compat::rectangle_geometry> translated_relation_geometry;
+    translated_relation_geometry.attach(raw_translated_relation);
+    if (geometry->CompareWithGeometry(
+            translated_relation_geometry.get(),
+            &relation_transform,
+            core::default_flattening_tolerance,
+            &translated_relation) != com::ok ||
+        translated_relation != compat::geometry_relation::contains) {
+        return 277;
+    }
 
     auto* raw_simplified_sink = new simplified_sink();
     com::pointer<compat::simplified_geometry_sink> simplified;
@@ -1305,6 +1365,25 @@ int run_tests()
         transformed_stroke_center_contains != 0) {
         return 270;
     }
+    compat::geometry_relation transformed_candidate_relation =
+        compat::geometry_relation::unknown;
+    compat::geometry_relation transformed_source_relation =
+        compat::geometry_relation::unknown;
+    if (geometry->CompareWithGeometry(
+            transformed_base.get(),
+            nullptr,
+            core::default_flattening_tolerance,
+            &transformed_candidate_relation) != com::ok ||
+        transformed->CompareWithGeometry(
+            geometry_base.get(),
+            nullptr,
+            core::default_flattening_tolerance,
+            &transformed_source_relation) != com::ok ||
+        transformed_candidate_relation !=
+            compat::geometry_relation::disjoint ||
+        transformed_source_relation != compat::geometry_relation::disjoint) {
+        return 278;
+    }
     auto* raw_transformed_widen_sink = new simplified_sink();
     com::pointer<compat::simplified_geometry_sink> transformed_widen_sink;
     transformed_widen_sink.attach(raw_transformed_widen_sink);
@@ -1348,6 +1427,38 @@ int run_tests()
             &wrong_factory_geometry) != compat::wrong_factory ||
         wrong_factory_geometry != nullptr) {
         return 17;
+    }
+    compat::rectangle_geometry* raw_cross_factory_rectangle = nullptr;
+    if (second_factory->CreateRectangleGeometry(
+            &rectangle, &raw_cross_factory_rectangle) != com::ok ||
+        raw_cross_factory_rectangle == nullptr) {
+        return 282;
+    }
+    com::pointer<compat::rectangle_geometry> cross_factory_rectangle;
+    cross_factory_rectangle.attach(raw_cross_factory_rectangle);
+    compat::geometry_relation rejected_relation =
+        compat::geometry_relation::contains;
+    const compat::matrix_3x2_f general_relation_transform{
+        1.0F, 0.5F, 0.0F, 1.0F, 0.0F, 0.0F};
+    if (geometry->CompareWithGeometry(
+            cross_factory_rectangle.get(),
+            nullptr,
+            core::default_flattening_tolerance,
+            &rejected_relation) != compat::wrong_factory ||
+        rejected_relation != compat::geometry_relation::unknown ||
+        geometry->CompareWithGeometry(
+            translated_relation_geometry.get(),
+            &general_relation_transform,
+            core::default_flattening_tolerance,
+            &rejected_relation) != compat::not_implemented ||
+        rejected_relation != compat::geometry_relation::unknown ||
+        geometry->CompareWithGeometry(
+            translated_relation_geometry.get(),
+            nullptr,
+            0.0F,
+            &rejected_relation) != com::invalid_argument ||
+        rejected_relation != compat::geometry_relation::unknown) {
+        return 283;
     }
 
     compat::path_geometry* raw_path = nullptr;
@@ -5335,6 +5446,84 @@ int run_tests()
         system_factory->Release();
         return 84;
     }
+    const std::array<D2D1_RECT_F, 6U> system_relation_rectangles{{
+        system_group_rectangle_value,
+        D2D1_RECT_F{2.0F, 3.0F, 4.0F, 7.0F},
+        D2D1_RECT_F{0.0F, 1.0F, 6.0F, 9.0F},
+        D2D1_RECT_F{4.0F, 7.0F, 7.0F, 10.0F},
+        D2D1_RECT_F{6.0F, 9.0F, 7.0F, 10.0F},
+        D2D1_RECT_F{5.0F, 2.0F, 6.0F, 8.0F},
+    }};
+    std::array<D2D1_GEOMETRY_RELATION, 6U> system_relations{};
+    for (std::size_t relation_index = 0U;
+         relation_index < system_relation_rectangles.size();
+         ++relation_index) {
+        ID2D1RectangleGeometry* relation_rectangle = nullptr;
+        if (FAILED(system_factory->CreateRectangleGeometry(
+                &system_relation_rectangles[relation_index],
+                &relation_rectangle)) ||
+            relation_rectangle == nullptr ||
+            FAILED(system_group_rectangle->CompareWithGeometry(
+                relation_rectangle,
+                nullptr,
+                D2D1_DEFAULT_FLATTENING_TOLERANCE,
+                &system_relations[relation_index]))) {
+            if (relation_rectangle != nullptr) {
+                relation_rectangle->Release();
+            }
+            system_group_rectangle->Release();
+            system_group_ellipse->Release();
+            system_factory->Release();
+            return 274;
+        }
+        relation_rectangle->Release();
+    }
+    for (std::size_t relation_index = 0U;
+         relation_index < system_relations.size();
+         ++relation_index) {
+        if (static_cast<std::uint32_t>(system_relations[relation_index]) !=
+            static_cast<std::uint32_t>(portable_relations[relation_index])) {
+            system_group_rectangle->Release();
+            system_group_ellipse->Release();
+            system_factory->Release();
+            return 279;
+        }
+    }
+    ID2D1RectangleGeometry* system_translated_relation_rectangle = nullptr;
+    D2D1_GEOMETRY_RELATION system_translated_relation =
+        D2D1_GEOMETRY_RELATION_UNKNOWN;
+    const D2D1_MATRIX_3X2_F system_relation_transform = make_native_matrix(
+        relation_transform.m11,
+        relation_transform.m12,
+        relation_transform.m21,
+        relation_transform.m22,
+        relation_transform.m31,
+        relation_transform.m32);
+    if (FAILED(system_factory->CreateRectangleGeometry(
+            &system_relation_rectangles[4U],
+            &system_translated_relation_rectangle)) ||
+        system_translated_relation_rectangle == nullptr ||
+        FAILED(system_group_rectangle->CompareWithGeometry(
+            system_translated_relation_rectangle,
+            &system_relation_transform,
+            D2D1_DEFAULT_FLATTENING_TOLERANCE,
+            &system_translated_relation))) {
+        if (system_translated_relation_rectangle != nullptr) {
+            system_translated_relation_rectangle->Release();
+        }
+        system_group_rectangle->Release();
+        system_group_ellipse->Release();
+        system_factory->Release();
+        return 280;
+    }
+    system_translated_relation_rectangle->Release();
+    if (static_cast<std::uint32_t>(system_translated_relation) !=
+        static_cast<std::uint32_t>(translated_relation)) {
+        system_group_rectangle->Release();
+        system_group_ellipse->Release();
+        system_factory->Release();
+        return 281;
+    }
     auto* raw_system_outline_sink = new simplified_sink();
     com::pointer<compat::simplified_geometry_sink> system_outline_sink;
     system_outline_sink.attach(raw_system_outline_sink);
@@ -5432,6 +5621,26 @@ int run_tests()
               D2D1_DEFAULT_FLATTENING_TOLERANCE,
               reinterpret_cast<ID2D1SimplifiedGeometrySink*>(
                   system_transformed_widen_sink.get()));
+    D2D1_GEOMETRY_RELATION system_transformed_candidate_relation =
+        D2D1_GEOMETRY_RELATION_UNKNOWN;
+    D2D1_GEOMETRY_RELATION system_transformed_source_relation =
+        D2D1_GEOMETRY_RELATION_UNKNOWN;
+    const HRESULT system_transformed_candidate_relation_status =
+        system_transformed_rectangle == nullptr
+        ? system_transformed_create_status
+        : system_group_rectangle->CompareWithGeometry(
+              system_transformed_rectangle,
+              nullptr,
+              D2D1_DEFAULT_FLATTENING_TOLERANCE,
+              &system_transformed_candidate_relation);
+    const HRESULT system_transformed_source_relation_status =
+        system_transformed_rectangle == nullptr
+        ? system_transformed_create_status
+        : system_transformed_rectangle->CompareWithGeometry(
+              system_group_rectangle,
+              nullptr,
+              D2D1_DEFAULT_FLATTENING_TOLERANCE,
+              &system_transformed_source_relation);
     if (system_transformed_rectangle != nullptr) {
         system_transformed_rectangle->Release();
     }
@@ -5473,6 +5682,12 @@ int run_tests()
             transformed_stroke_edge_contains ||
         system_transformed_stroke_center_contains !=
             transformed_stroke_center_contains ||
+        FAILED(system_transformed_candidate_relation_status) ||
+        FAILED(system_transformed_source_relation_status) ||
+        static_cast<std::uint32_t>(system_transformed_candidate_relation) !=
+            static_cast<std::uint32_t>(transformed_candidate_relation) ||
+        static_cast<std::uint32_t>(system_transformed_source_relation) !=
+            static_cast<std::uint32_t>(transformed_source_relation) ||
         FAILED(system_outline_status) ||
         raw_system_outline_sink->fill_mode !=
             raw_native_outline_sink->fill_mode ||

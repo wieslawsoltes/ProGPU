@@ -364,6 +364,8 @@ public sealed class Direct2DInteropContractTests
         Assert.Contains("rectangle_stroke_contains_point(", source, StringComparison.Ordinal);
         Assert.Contains("widen_rectangle(", source, StringComparison.Ordinal);
         Assert.Contains("widen_transformed_rectangle(", source, StringComparison.Ordinal);
+        Assert.Contains("compare_rectangle_with_geometry(", source, StringComparison.Ordinal);
+        Assert.Contains("get_axis_aligned_rectangle(", source, StringComparison.Ordinal);
         Assert.Contains("core::compose_transform", source, StringComparison.Ordinal);
         Assert.Contains("return not_implemented;", source, StringComparison.Ordinal);
         Assert.Contains("progpu_native_direct2d_compat_tests", cmake, StringComparison.Ordinal);

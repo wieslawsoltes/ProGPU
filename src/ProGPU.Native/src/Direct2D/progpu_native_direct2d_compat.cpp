@@ -18,6 +18,132 @@ namespace {
 
 class portable_factory;
 
+[[nodiscard]] bool axis_preserving_transform(
+    const matrix_3x2_f* transform) noexcept
+{
+    return transform == nullptr ||
+        (transform->m12 == 0.0F && transform->m21 == 0.0F) ||
+        (transform->m11 == 0.0F && transform->m22 == 0.0F);
+}
+
+[[nodiscard]] com::result get_axis_aligned_rectangle(
+    factory* owner,
+    geometry* candidate,
+    const matrix_3x2_f* transform,
+    std::uint32_t depth,
+    rectangle_f* rectangle) noexcept
+{
+    if (candidate == nullptr || rectangle == nullptr) {
+        return com::pointer_error;
+    }
+    *rectangle = {};
+    if (depth > 16U || !core::valid_transform(transform)) {
+        return depth > 16U ? not_implemented : com::invalid_argument;
+    }
+    factory* raw_factory = nullptr;
+    candidate->GetFactory(&raw_factory);
+    com::pointer<factory> candidate_factory;
+    candidate_factory.attach(raw_factory);
+    if (candidate_factory.get() != owner) {
+        return wrong_factory;
+    }
+
+    rectangle_geometry* raw_rectangle = nullptr;
+    const com::result rectangle_query = candidate->QueryInterface(
+        rectangle_geometry_interface_id,
+        reinterpret_cast<void**>(&raw_rectangle));
+    com::pointer<rectangle_geometry> rectangle_geometry_value;
+    rectangle_geometry_value.attach(raw_rectangle);
+    if (com::succeeded(rectangle_query) && rectangle_geometry_value) {
+        if (!axis_preserving_transform(transform)) {
+            return not_implemented;
+        }
+        rectangle_f source{};
+        rectangle_geometry_value->GetRect(&source);
+        return core::rectangle_geometry(source).bounds(transform, rectangle);
+    }
+    if (com::failed(rectangle_query) && rectangle_query != com::no_interface) {
+        return rectangle_query;
+    }
+
+    transformed_geometry* raw_transformed = nullptr;
+    const com::result transformed_query = candidate->QueryInterface(
+        transformed_geometry_interface_id,
+        reinterpret_cast<void**>(&raw_transformed));
+    com::pointer<transformed_geometry> transformed;
+    transformed.attach(raw_transformed);
+    if (com::failed(transformed_query) || !transformed) {
+        return com::failed(transformed_query) &&
+                transformed_query != com::no_interface
+            ? transformed_query
+            : not_implemented;
+    }
+    matrix_3x2_f local{};
+    transformed->GetTransform(&local);
+    matrix_3x2_f composed{};
+    const com::result compose_result = core::compose_transform(
+        local, transform, &composed);
+    if (com::failed(compose_result)) {
+        return compose_result;
+    }
+    geometry* raw_source = nullptr;
+    transformed->GetSourceGeometry(&raw_source);
+    com::pointer<geometry> source;
+    source.attach(raw_source);
+    return source
+        ? get_axis_aligned_rectangle(
+              owner, source.get(), &composed, depth + 1U, rectangle)
+        : failure;
+}
+
+[[nodiscard]] com::result compare_rectangle_with_geometry(
+    factory* owner,
+    const rectangle_f& rectangle,
+    geometry* candidate,
+    const matrix_3x2_f* candidate_transform,
+    float flattening_tolerance,
+    geometry_relation* relation) noexcept
+{
+    if (relation == nullptr) {
+        return com::pointer_error;
+    }
+    *relation = geometry_relation::unknown;
+    if (candidate == nullptr || !std::isfinite(flattening_tolerance) ||
+        flattening_tolerance <= 0.0F ||
+        !core::valid_transform(candidate_transform)) {
+        return com::invalid_argument;
+    }
+    if (rectangle.right <= rectangle.left ||
+        rectangle.bottom <= rectangle.top) {
+        return not_implemented;
+    }
+    rectangle_f other{};
+    const com::result rectangle_result = get_axis_aligned_rectangle(
+        owner, candidate, candidate_transform, 0U, &other);
+    if (com::failed(rectangle_result)) {
+        return rectangle_result;
+    }
+    if (other.right <= other.left || other.bottom <= other.top) {
+        return not_implemented;
+    }
+    if (other.left <= rectangle.left && other.top <= rectangle.top &&
+        other.right >= rectangle.right &&
+        other.bottom >= rectangle.bottom) {
+        *relation = geometry_relation::is_contained;
+    } else if (rectangle.left <= other.left &&
+        rectangle.top <= other.top && rectangle.right >= other.right &&
+        rectangle.bottom >= other.bottom) {
+        *relation = geometry_relation::contains;
+    } else if (rectangle.right < other.left ||
+        other.right < rectangle.left || rectangle.bottom < other.top ||
+        other.bottom < rectangle.top) {
+        *relation = geometry_relation::disjoint;
+    } else {
+        *relation = geometry_relation::overlap;
+    }
+    return com::ok;
+}
+
 [[nodiscard]] com::result get_rectangle_widened_bounds(
     factory* owner,
     const rectangle_f& rectangle,
@@ -622,16 +748,18 @@ public:
     }
 
     com::result PROGPU_NATIVE_COM_CALL CompareWithGeometry(
-        geometry*,
-        const matrix_3x2_f*,
-        float,
+        geometry* candidate,
+        const matrix_3x2_f* candidate_transform,
+        float flattening_tolerance,
         geometry_relation* relation) const noexcept override
     {
-        if (relation == nullptr) {
-            return com::pointer_error;
-        }
-        *relation = geometry_relation::unknown;
-        return not_implemented;
+        return compare_rectangle_with_geometry(
+            owner_.get(),
+            geometry_.rectangle(),
+            candidate,
+            candidate_transform,
+            flattening_tolerance,
+            relation);
     }
 
     com::result PROGPU_NATIVE_COM_CALL Simplify(
@@ -916,16 +1044,27 @@ public:
     }
 
     com::result PROGPU_NATIVE_COM_CALL CompareWithGeometry(
-        geometry*,
-        const matrix_3x2_f*,
-        float,
+        geometry* candidate,
+        const matrix_3x2_f* candidate_transform,
+        float flattening_tolerance,
         geometry_relation* relation) const noexcept override
     {
         if (relation == nullptr) {
             return com::pointer_error;
         }
         *relation = geometry_relation::unknown;
-        return not_implemented;
+        rectangle_f transformed_rectangle{};
+        const com::result rectangle_result =
+            get_axis_preserving_rectangle(&transformed_rectangle);
+        return com::failed(rectangle_result)
+            ? rectangle_result
+            : compare_rectangle_with_geometry(
+                  owner_.get(),
+                  transformed_rectangle,
+                  candidate,
+                  candidate_transform,
+                  flattening_tolerance,
+                  relation);
     }
 
     com::result PROGPU_NATIVE_COM_CALL Simplify(
