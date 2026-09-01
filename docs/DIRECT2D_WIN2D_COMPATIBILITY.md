@@ -748,25 +748,34 @@ rectangles, and transformed cases with a collapsed inner contour or reflected,
 swapped-axis, or general-affine intrinsic transforms remain fail closed.
 
 Nondegenerate rectangles now implement `CompareWithGeometry` against
-same-factory rectangles and bounded transformed-rectangle chains whose final
-input transform remains axis preserving. The current geometry stays in its
-own coordinate space; only the input geometry receives the caller transform.
+same-factory rectangles and bounded transformed-rectangle chains. The current
+geometry stays in its own coordinate space; only the input geometry receives
+the caller transform. Axis-aligned, sheared, rotated, and reflected operands
+are compared as exact convex quadrilaterals with double-width cross products
+and separating-axis projections, without allocation.
 Equality follows system Direct2D and reports `IS_CONTAINED`, strict input
 containment reports `CONTAINS`, strict outer containment reports
 `IS_CONTAINED`, separated rectangles report `DISJOINT`, and intersections or
-boundary-only contact report `OVERLAP`. Axis-aligned rectangle comparison is
-exact and allocation-free, so flattening tolerance is validated but does not
-change the result. Cross-factory resources return `D2DERR_WRONG_FACTORY`, and
-degenerate or general-affine cases remain fail closed. The Windows oracle
-compares all five observable relation outcomes and a transformed input with
-system Direct2D.
+boundary-only contact report `OVERLAP`. Flattening tolerance is validated but
+does not change the analytic result. Cross-factory resources return
+`D2DERR_WRONG_FACTORY`; degenerate inputs remain fail closed. The Windows
+oracle compares all five observable outcomes plus sheared candidates,
+reflected equality, and a sheared transformed source with system Direct2D.
 
 The extended Windows native-renderer job keeps its independent C++ sample and
-all native CTests single-shot. Its later managed wgpu-native sample may retry
-once in a fresh process when the disposable GitHub Actions software-D3D12
-device exits nonzero; two failures still fail the job. This narrowly contains
-the already observed Microsoft Basic Render Driver readback loss without
-weakening Direct2D, export, native-renderer, or pixel-validation assertions.
+all native CTests single-shot. Hardware and Parallels execute the managed
+retained sample at 640x360. Microsoft Basic Render Driver first compiles and
+passes the complete 16-source-command picture through the native C++ stream
+validator with the same exact command/resource/draw/stack counters. It then
+GPU-executes a bounded four-source-command analytic managed scene at 320x180
+and 0.5 DPI: nested and direct solid rectangles plus a linear-gradient
+rectangle coalesce into one retained native batch. That lane still requires
+native submission, second-frame zero-upload retention, readback, and
+DPI-scaled solid/gradient/background pixel probes. It avoids the full managed
+path/glyph coverage scene's repeatable roughly 80-second software-device loss
+without a retry or CPU renderer. The full C++ D3D12 sample remains mandatory
+on that adapter, and every hardware/Parallels lane keeps the complete managed
+GPU scene.
 
 The same rectangle domain now implements `CombineWithGeometry` for union,
 intersection, xor, and exclusion. A fixed three-by-three coordinate grid

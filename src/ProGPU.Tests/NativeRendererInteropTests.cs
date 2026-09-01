@@ -6643,6 +6643,18 @@ public class NativeRendererInteropTests
             managedSample,
             StringComparison.Ordinal);
         Assert.Contains(
+            "NativeCompositor.ValidateScene(compiled.Stream)",
+            managedSample,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "HasSoftwareAdapterExpectedColors",
+            managedSample,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "renderedCompiled.SourceCommandCount != 4",
+            managedSample,
+            StringComparison.Ordinal);
+        Assert.Contains(
             "40f * dpiScale * dpiScale",
             managedSample,
             StringComparison.Ordinal);

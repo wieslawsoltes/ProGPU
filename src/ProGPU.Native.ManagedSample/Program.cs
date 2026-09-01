@@ -206,11 +206,15 @@ if (!GpuPictureNativeSceneCompiler.TryCompile(
     throw new InvalidOperationException(
         $"The managed picture compiler failed: {failure}.");
 }
-NativeSceneUpdateMetrics updateMetrics = compositor.UpdateScene(compiled.Stream);
-if (updateMetrics.CommandCount != 13U ||
-    updateMetrics.ResourceCount != 13U ||
-    updateMetrics.DrawCount != 9U ||
-    updateMetrics.MaximumStackDepth != 2U ||
+NativeSceneUpdateMetrics validationMetrics = softwareAdapterQualification
+    ? dawnContext is null
+        ? NativeCompositor.ValidateScene(compiled.Stream)
+        : NativeDawnAdapter.ValidateScene(compiled.Stream)
+    : compositor.UpdateScene(compiled.Stream);
+if (validationMetrics.CommandCount != 13U ||
+    validationMetrics.ResourceCount != 13U ||
+    validationMetrics.DrawCount != 9U ||
+    validationMetrics.MaximumStackDepth != 2U ||
     compiled.SourceCommandCount != 16 ||
     compiled.NativeCommandCount != 13 ||
     compiled.NativeDrawCount != 9 ||
@@ -226,7 +230,7 @@ if (updateMetrics.CommandCount != 13U ||
     compiled.GradientStopCount != 2)
 {
     throw new InvalidOperationException(
-        $"The compiled managed picture contract is invalid: {updateMetrics}; " +
+        $"The compiled managed picture contract is invalid: {validationMetrics}; " +
         $"source={compiled.SourceCommandCount}, native={compiled.NativeCommandCount}, " +
         $"draws={compiled.NativeDrawCount}, paths={compiled.PathCount}/" +
         $"{compiled.PathSegmentCount}, strokes={compiled.StrokeCount}/" +
@@ -235,6 +239,71 @@ if (updateMetrics.CommandCount != 13U ||
         $"{compiled.GlyphSegmentCount}/{compiled.PositionedGlyphCount}, " +
         $"styles={compiled.TextStyleCount}, " +
         $"brushes={compiled.BrushCount}, stops={compiled.GradientStopCount}.");
+}
+NativeCompiledPicture renderedCompiled = compiled;
+if (softwareAdapterQualification)
+{
+    var qualificationRecorder = new GpuPictureRecorder();
+    DrawingContext qualificationDrawing = qualificationRecorder.BeginRecording(
+        new Rect(0f, 0f, fullWidth, fullHeight));
+    qualificationDrawing.DrawPictureTransformed(
+        nestedPicture,
+        Matrix4x4.CreateScale(2f, 2f, 1f) *
+            Matrix4x4.CreateTranslation(48f, 48f, 0f));
+    qualificationDrawing.DrawRectangle(
+        new SolidColorBrush(new Vector4(0.98f, 0.52f, 0.08f, 1f)),
+        null,
+        new Rect(280f, 64f, 280f, 132f));
+    qualificationDrawing.DrawRectangle(
+        new LinearGradientBrush(
+            new Vector2(128f, 224f),
+            new Vector2(512f, 224f),
+            [
+                new GradientStop(
+                    new Vector4(0.20f, 0.82f, 0.48f, 1f),
+                    0f),
+                new GradientStop(
+                    new Vector4(0.92f, 0.22f, 0.72f, 1f),
+                    1f)
+            ]),
+        null,
+        new Rect(128f, 224f, 256f, 72f));
+    using GpuPicture qualificationPicture =
+        qualificationRecorder.EndRecording();
+    if (!GpuPictureNativeSceneCompiler.TryCompile(
+            qualificationPicture,
+            sceneId,
+            sceneGeneration,
+            out NativeCompiledPicture? qualificationCompiled,
+            out NativePictureCompileFailure qualificationFailure) ||
+        qualificationCompiled is null)
+    {
+        throw new InvalidOperationException(
+            $"The software-adapter qualification picture failed: " +
+            $"{qualificationFailure}.");
+    }
+    renderedCompiled = qualificationCompiled;
+    NativeSceneUpdateMetrics qualificationMetrics =
+        compositor.UpdateScene(renderedCompiled.Stream);
+    if (qualificationMetrics.CommandCount != 1U ||
+        qualificationMetrics.ResourceCount != 2U ||
+        qualificationMetrics.DrawCount != 1U ||
+        qualificationMetrics.MaximumStackDepth != 0U ||
+        renderedCompiled.SourceCommandCount != 4 ||
+        renderedCompiled.NativeCommandCount != 1 ||
+        renderedCompiled.NativeDrawCount != 1 ||
+        renderedCompiled.BrushCount != 3 ||
+        renderedCompiled.GradientStopCount != 2)
+    {
+        throw new InvalidOperationException(
+            $"The software-adapter managed scene contract is invalid: " +
+            $"{qualificationMetrics}; source=" +
+            $"{renderedCompiled.SourceCommandCount}, native=" +
+            $"{renderedCompiled.NativeCommandCount}, draws=" +
+            $"{renderedCompiled.NativeDrawCount}, brushes=" +
+            $"{renderedCompiled.BrushCount}, stops=" +
+            $"{renderedCompiled.GradientStopCount}.");
+    }
 }
 NativeSceneFrameMetrics metrics = compositor.RenderScene(
     target,
@@ -282,7 +351,12 @@ if (metrics.VertexUploadBytes != 0U ||
 byte[] pixels = target.ReadPixels();
 WritePpm(outputPath, pixels, checked((int)width), checked((int)height));
 
-if (!HasExpectedColors(pixels, checked((int)width), dpiScale))
+if (!(softwareAdapterQualification
+        ? HasSoftwareAdapterExpectedColors(
+            pixels,
+            checked((int)width),
+            dpiScale)
+        : HasExpectedColors(pixels, checked((int)width), dpiScale)))
 {
     throw new InvalidOperationException(
         "The managed host did not observe the expected native GPU pixels.");
@@ -328,7 +402,12 @@ if (recreateAfterDeviceLoss)
         sceneGeneration,
         new Vector4(0.02f, 0.025f, 0.04f, 1f));
     pixels = replacementTarget.ReadPixels();
-    if (!HasExpectedColors(pixels, checked((int)width), dpiScale))
+    if (!(softwareAdapterQualification
+            ? HasSoftwareAdapterExpectedColors(
+                pixels,
+                checked((int)width),
+                dpiScale)
+            : HasExpectedColors(pixels, checked((int)width), dpiScale)))
     {
         throw new InvalidOperationException(
             "The recreated Dawn/C++ renderer did not preserve expected GPU pixels.");
@@ -344,7 +423,8 @@ Console.WriteLine(
     $"recreated={recreateAfterDeviceLoss}; " +
     $"qualification={(softwareAdapterQualification ? "software-adapter" : "full")}; " +
     $"{info.Name}; " +
-    $"sourceCommands={compiled.SourceCommandCount}; " +
+    $"validatedSourceCommands={compiled.SourceCommandCount}; " +
+    $"renderedSourceCommands={renderedCompiled.SourceCommandCount}; " +
     $"nativeCommands={metrics.CommandCount}; draws={metrics.DrawCallCount}; " +
     $"submissions={metrics.SubmissionCount}; output={outputPath}");
 
@@ -421,6 +501,37 @@ static bool HasExpectedColors(byte[] pixels, int width, float dpiScale)
         meshCenter[0] + meshCenter[1] + meshCenter[2] > 180 &&
         pathCenter[1] > 180 && pathCenter[2] > 120 &&
         brightTextPixels > 40f * dpiScale * dpiScale &&
+        background[0] < 30 && background[1] < 30;
+}
+
+static bool HasSoftwareAdapterExpectedColors(
+    byte[] pixels,
+    int width,
+    float dpiScale)
+{
+    int Physical(float logical) => checked((int)MathF.Round(logical * dpiScale));
+    ReadOnlySpan<byte> Pixel(float x, float y) => pixels.AsSpan(
+        (Physical(y) * width + Physical(x)) * 4,
+        4);
+    var blue = Pixel(100f, 100f);
+    var amber = Pixel(360f, 130f);
+    var gradientStart = Pixel(160f, 260f);
+    var gradientEnd = Pixel(352f, 260f);
+    var outsideGradient = Pixel(480f, 260f);
+    var background = Pixel(10f, 10f);
+    Console.WriteLine(
+        $"[ProGPUNativeManagedSoftwarePixels] " +
+        $"blue={blue[0]},{blue[1]},{blue[2]} " +
+        $"amber={amber[0]},{amber[1]},{amber[2]} " +
+        $"gradient={gradientStart[0]},{gradientStart[1]}" +
+        $"/{gradientEnd[0]},{gradientEnd[1]} " +
+        $"outside={outsideGradient[0]},{outsideGradient[1]} " +
+        $"background={background[0]},{background[1]},{background[2]}");
+    return blue[2] > 180 && blue[0] < 100 &&
+        amber[0] > 180 && amber[1] > 90 &&
+        gradientStart[1] > gradientStart[0] &&
+        gradientEnd[0] > gradientEnd[1] &&
+        outsideGradient[0] < 30 && outsideGradient[1] < 30 &&
         background[0] < 30 && background[1] < 30;
 }
 
