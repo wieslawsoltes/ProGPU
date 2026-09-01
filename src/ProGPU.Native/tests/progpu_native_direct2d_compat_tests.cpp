@@ -2421,6 +2421,10 @@ int run_tests()
   std::int32_t dash_gap = 0;
   std::int32_t flat_dash_cap_gap = 0;
   std::int32_t round_dash_cap_gap = 0;
+  compat::rectangle_f dashed_path_widened_bounds{};
+  compat::rectangle_f round_dashed_path_widened_bounds{};
+  compat::rectangle_f transformed_round_dashed_path_widened_bounds{};
+  compat::rectangle_f zero_dashed_path_widened_bounds{};
   constexpr float dash_hit_tolerance = 0.001F;
   if (query_path->StrokeContainsPoint(
           {1.5F, 2.0F}, 0.5F, dashed_path_stroke_style.get(), nullptr,
@@ -2437,6 +2441,41 @@ int run_tests()
       dash_body == 0 || dash_gap != 0 || flat_dash_cap_gap != 0 ||
       round_dash_cap_gap == 0) {
     return 362;
+  }
+  if (query_path->GetWidenedBounds(
+          0.5F, dashed_path_stroke_style.get(), nullptr,
+          dash_hit_tolerance, &dashed_path_widened_bounds) != com::ok ||
+      query_path->GetWidenedBounds(
+          0.5F, round_dashed_path_stroke_style.get(), nullptr,
+          dash_hit_tolerance, &round_dashed_path_widened_bounds) != com::ok ||
+      query_path->GetWidenedBounds(
+          0.5F, round_dashed_path_stroke_style.get(), &transform,
+          dash_hit_tolerance,
+          &transformed_round_dashed_path_widened_bounds) != com::ok ||
+      query_path->GetWidenedBounds(
+          0.0F, dashed_path_stroke_style.get(), nullptr,
+          dash_hit_tolerance, &zero_dashed_path_widened_bounds) != com::ok ||
+      !approximately_equal(dashed_path_widened_bounds.left, 0.75F) ||
+      !approximately_equal(dashed_path_widened_bounds.top, 1.75F) ||
+      !approximately_equal(dashed_path_widened_bounds.right, 5.25F) ||
+      !approximately_equal(dashed_path_widened_bounds.bottom, 8.25F) ||
+      !approximately_equal(round_dashed_path_widened_bounds.left, 0.75F) ||
+      !approximately_equal(round_dashed_path_widened_bounds.top, 1.75F) ||
+      !approximately_equal(round_dashed_path_widened_bounds.right, 5.25F) ||
+      !approximately_equal(round_dashed_path_widened_bounds.bottom, 8.25F) ||
+      !approximately_equal(
+          transformed_round_dashed_path_widened_bounds.left, 11.5F) ||
+      !approximately_equal(
+          transformed_round_dashed_path_widened_bounds.top, 1.25F) ||
+      !approximately_equal(
+          transformed_round_dashed_path_widened_bounds.right, 20.5F) ||
+      !approximately_equal(
+          transformed_round_dashed_path_widened_bounds.bottom, 20.75F) ||
+      !approximately_equal(zero_dashed_path_widened_bounds.left, 1.0F) ||
+      !approximately_equal(zero_dashed_path_widened_bounds.top, 2.0F) ||
+      !approximately_equal(zero_dashed_path_widened_bounds.right, 5.0F) ||
+      !approximately_equal(zero_dashed_path_widened_bounds.bottom, 8.0F)) {
+    return 366;
   }
   std::int32_t zero_width_edge = 0;
   std::int32_t zero_width_interior = 0;
@@ -6567,15 +6606,89 @@ int run_tests()
           system_round_dashed_path_stroke_style, nullptr,
           dash_hit_tolerance,
           &system_round_dash_cap_gap);
+  D2D1_RECT_F system_dashed_path_widened_bounds{};
+  D2D1_RECT_F system_round_dashed_path_widened_bounds{};
+  D2D1_RECT_F system_transformed_round_dashed_path_widened_bounds{};
+  D2D1_RECT_F system_zero_dashed_path_widened_bounds{};
+  const HRESULT system_dashed_bounds_status =
+      system_query_boolean_path->GetWidenedBounds(
+          0.5F, system_dashed_path_stroke_style, nullptr,
+          dash_hit_tolerance, &system_dashed_path_widened_bounds);
+  const HRESULT system_round_dashed_bounds_status =
+      system_query_boolean_path->GetWidenedBounds(
+          0.5F, system_round_dashed_path_stroke_style, nullptr,
+          dash_hit_tolerance, &system_round_dashed_path_widened_bounds);
+  const HRESULT system_transformed_round_dashed_bounds_status =
+      system_query_boolean_path->GetWidenedBounds(
+          0.5F, system_round_dashed_path_stroke_style,
+          reinterpret_cast<const D2D1_MATRIX_3X2_F *>(&transform),
+          dash_hit_tolerance,
+          &system_transformed_round_dashed_path_widened_bounds);
+  const HRESULT system_zero_dashed_bounds_status =
+      system_query_boolean_path->GetWidenedBounds(
+          0.0F, system_dashed_path_stroke_style, nullptr,
+          dash_hit_tolerance, &system_zero_dashed_path_widened_bounds);
   system_round_dashed_path_stroke_style->Release();
   system_dashed_path_stroke_style->Release();
   if (FAILED(system_dash_body_status) || FAILED(system_dash_gap_status) ||
       FAILED(system_flat_dash_cap_status) ||
       FAILED(system_round_dash_cap_status) ||
+      FAILED(system_dashed_bounds_status) ||
+      FAILED(system_round_dashed_bounds_status) ||
+      FAILED(system_transformed_round_dashed_bounds_status) ||
+      FAILED(system_zero_dashed_bounds_status) ||
       (system_dash_body != FALSE) != (dash_body != 0) ||
       (system_dash_gap != FALSE) != (dash_gap != 0) ||
       (system_flat_dash_cap_gap != FALSE) != (flat_dash_cap_gap != 0) ||
-      (system_round_dash_cap_gap != FALSE) != (round_dash_cap_gap != 0)) {
+      (system_round_dash_cap_gap != FALSE) != (round_dash_cap_gap != 0) ||
+      !approximately_equal(
+          system_dashed_path_widened_bounds.left,
+          dashed_path_widened_bounds.left) ||
+      !approximately_equal(
+          system_dashed_path_widened_bounds.top,
+          dashed_path_widened_bounds.top) ||
+      !approximately_equal(
+          system_dashed_path_widened_bounds.right,
+          dashed_path_widened_bounds.right) ||
+      !approximately_equal(
+          system_dashed_path_widened_bounds.bottom,
+          dashed_path_widened_bounds.bottom) ||
+      !approximately_equal(
+          system_round_dashed_path_widened_bounds.left,
+          round_dashed_path_widened_bounds.left) ||
+      !approximately_equal(
+          system_round_dashed_path_widened_bounds.top,
+          round_dashed_path_widened_bounds.top) ||
+      !approximately_equal(
+          system_round_dashed_path_widened_bounds.right,
+          round_dashed_path_widened_bounds.right) ||
+      !approximately_equal(
+          system_round_dashed_path_widened_bounds.bottom,
+          round_dashed_path_widened_bounds.bottom) ||
+      !approximately_equal(
+          system_transformed_round_dashed_path_widened_bounds.left,
+          transformed_round_dashed_path_widened_bounds.left) ||
+      !approximately_equal(
+          system_transformed_round_dashed_path_widened_bounds.top,
+          transformed_round_dashed_path_widened_bounds.top) ||
+      !approximately_equal(
+          system_transformed_round_dashed_path_widened_bounds.right,
+          transformed_round_dashed_path_widened_bounds.right) ||
+      !approximately_equal(
+          system_transformed_round_dashed_path_widened_bounds.bottom,
+          transformed_round_dashed_path_widened_bounds.bottom) ||
+      !approximately_equal(
+          system_zero_dashed_path_widened_bounds.left,
+          zero_dashed_path_widened_bounds.left) ||
+      !approximately_equal(
+          system_zero_dashed_path_widened_bounds.top,
+          zero_dashed_path_widened_bounds.top) ||
+      !approximately_equal(
+          system_zero_dashed_path_widened_bounds.right,
+          zero_dashed_path_widened_bounds.right) ||
+      !approximately_equal(
+          system_zero_dashed_path_widened_bounds.bottom,
+          zero_dashed_path_widened_bounds.bottom)) {
     std::fprintf(stderr,
                  "dashed stroke parity portable=%d,%d,%d,%d "
                  "system=%d,%d,%d,%d\n",

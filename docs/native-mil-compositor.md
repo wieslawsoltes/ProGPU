@@ -6401,8 +6401,13 @@ share renderer-exact visible runs. Their independent line bodies are packed
 into the existing four-wide NEON/SSE2 stroke-distance pass, while the ordered
 cap and join topology remains scalar. The optimized and sanitizer suites pass;
 genuine Windows Direct2D x64 and ARM64 differentials match body, gap, flat-cap,
-and round-cap probes at a 0.001 flattening tolerance. Dashed widened bounds and
-`Widen` remain the next analysis gap.
+and round-cap probes at a 0.001 flattening tolerance. Dashed
+`GetWidenedBounds` now shares those runs and collects exact body, cap, and join
+extrema. Round caps and joins add transform-dependent support points so affine
+rotation, skew, and non-uniform scaling remain exact while the final transform
+and bounds reduction keeps its four-wide NEON/SSE2 implementation. Flat and
+round bounds, including a non-uniform transform, match genuine Direct2D on
+Windows x64 and ARM64. Dashed `Widen` remains the next analysis gap.
 
 `GetWidenedBounds` now shares that default-miter path domain. Segment offsets
 and miter extrema are constructed before the world transform; independent
