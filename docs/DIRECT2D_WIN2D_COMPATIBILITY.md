@@ -736,6 +736,17 @@ shared styled-offset implementation is available. Portable and Windows
 system-Direct2D fixtures compare edge and center points for both base and
 intrinsically transformed rectangles.
 
+Default-stroke nondegenerate rectangles now also implement `Widen` into a
+caller-owned simplified geometry sink. Base rectangles reproduce Direct2D's
+alternate-fill pair of closed outer and inner miter contours. Positive
+axis-aligned intrinsic transformed rectangles reproduce Direct2D's single
+winding-fill, force-unstroked open contour, including its explicit bridge
+segments; the caller transform is applied only after widening. The Windows
+oracle compares fill mode, segment flags, figure kinds, closure, and every
+emitted point against system Direct2D. Zero width, explicit styles, degenerate
+rectangles, and transformed cases with a collapsed inner contour or reflected,
+swapped-axis, or general-affine intrinsic transforms remain fail closed.
+
 WIC codec activation/decoding itself, render-target-to-bitmap copies,
 alpha-ignore/straight formats,
 non-null `FillGeometry` opacity brushes, `ID2D1StrokeStyle1` fixed/hairline

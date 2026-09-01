@@ -82,6 +82,10 @@ public:
     {
         first = start;
         figure_begin = begin;
+        if (begin_count < begin_points.size()) {
+            begin_points[begin_count] = start;
+            figure_begins[begin_count] = begin;
+        }
         ++begin_count;
     }
 
@@ -115,6 +119,9 @@ public:
         noexcept override
     {
         figure_end = end;
+        if (end_count < figure_ends.size()) {
+            figure_ends[end_count] = end;
+        }
         ++end_count;
     }
 
@@ -178,6 +185,9 @@ public:
     compat::figure_end figure_end = compat::figure_end::open;
     compat::point_2f first{};
     compat::point_2f last{};
+    std::array<compat::point_2f, 8U> begin_points{};
+    std::array<compat::figure_begin, 8U> figure_begins{};
+    std::array<compat::figure_end, 8U> figure_ends{};
     std::array<compat::point_2f, 64U> line_points{};
     std::size_t line_point_count = 0U;
     std::uint32_t begin_count = 0U;
@@ -1195,6 +1205,29 @@ int run_tests()
         raw_outline_sink->begin_count != 1U) {
         return 262;
     }
+    auto* raw_widen_sink = new simplified_sink();
+    com::pointer<compat::simplified_geometry_sink> widen_sink;
+    widen_sink.attach(raw_widen_sink);
+    if (geometry->Widen(
+            2.0F,
+            nullptr,
+            &transform,
+            core::default_flattening_tolerance,
+            widen_sink.get()) != com::ok ||
+        raw_widen_sink->fill_mode != compat::fill_mode::alternate ||
+        raw_widen_sink->segment_flags !=
+            compat::path_segment::force_unstroked ||
+        raw_widen_sink->begin_count != 2U ||
+        raw_widen_sink->end_count != 2U ||
+        raw_widen_sink->line_count != 6U ||
+        raw_widen_sink->bezier_count != 0U ||
+        raw_widen_sink->line_point_count != 6U ||
+        !approximately_equal(raw_widen_sink->line_points[0U].x, 22.0F) ||
+        !approximately_equal(raw_widen_sink->line_points[0U].y, -1.0F) ||
+        !approximately_equal(raw_widen_sink->line_points[3U].x, 18.0F) ||
+        !approximately_equal(raw_widen_sink->line_points[3U].y, 5.0F)) {
+        return 271;
+    }
 
     auto* raw_triangle_sink = new triangle_sink();
     com::pointer<compat::tessellation_sink> triangles;
@@ -1271,6 +1304,35 @@ int run_tests()
         transformed_stroke_edge_contains != 1 ||
         transformed_stroke_center_contains != 0) {
         return 270;
+    }
+    auto* raw_transformed_widen_sink = new simplified_sink();
+    com::pointer<compat::simplified_geometry_sink> transformed_widen_sink;
+    transformed_widen_sink.attach(raw_transformed_widen_sink);
+    if (transformed->Widen(
+            2.0F,
+            nullptr,
+            &transform,
+            core::default_flattening_tolerance,
+            transformed_widen_sink.get()) != com::ok ||
+        raw_transformed_widen_sink->fill_mode !=
+            compat::fill_mode::winding ||
+        raw_transformed_widen_sink->segment_flags !=
+            compat::path_segment::force_unstroked ||
+        raw_transformed_widen_sink->figure_ends[0U] !=
+            compat::figure_end::open ||
+        raw_transformed_widen_sink->begin_count != 1U ||
+        raw_transformed_widen_sink->end_count != 1U ||
+        raw_transformed_widen_sink->line_count != 26U ||
+        raw_transformed_widen_sink->line_point_count != 26U ||
+        !approximately_equal(
+            raw_transformed_widen_sink->begin_points[0U].x, 24.0F) ||
+        !approximately_equal(
+            raw_transformed_widen_sink->begin_points[0U].y, 23.0F) ||
+        !approximately_equal(
+            raw_transformed_widen_sink->line_points[0U].x, 24.0F) ||
+        !approximately_equal(
+            raw_transformed_widen_sink->line_points[0U].y, 17.0F)) {
+        return 272;
     }
 
     compat::factory* second_raw_factory = nullptr;
@@ -5345,6 +5407,31 @@ int run_tests()
               &system_rectangle_transform,
               D2D1_DEFAULT_FLATTENING_TOLERANCE,
               &system_transformed_stroke_center_contains);
+    auto* raw_system_widen_sink = new simplified_sink();
+    com::pointer<compat::simplified_geometry_sink> system_widen_sink;
+    system_widen_sink.attach(raw_system_widen_sink);
+    const HRESULT system_widen_status = system_group_rectangle->Widen(
+        2.0F,
+        nullptr,
+        &system_rectangle_transform,
+        D2D1_DEFAULT_FLATTENING_TOLERANCE,
+        reinterpret_cast<ID2D1SimplifiedGeometrySink*>(
+            system_widen_sink.get()));
+    auto* raw_system_transformed_widen_sink = new simplified_sink();
+    com::pointer<compat::simplified_geometry_sink>
+        system_transformed_widen_sink;
+    system_transformed_widen_sink.attach(
+        raw_system_transformed_widen_sink);
+    const HRESULT system_transformed_widen_status =
+        system_transformed_rectangle == nullptr
+        ? system_transformed_create_status
+        : system_transformed_rectangle->Widen(
+              2.0F,
+              nullptr,
+              &system_rectangle_transform,
+              D2D1_DEFAULT_FLATTENING_TOLERANCE,
+              reinterpret_cast<ID2D1SimplifiedGeometrySink*>(
+                  system_transformed_widen_sink.get()));
     if (system_transformed_rectangle != nullptr) {
         system_transformed_rectangle->Release();
     }
@@ -5415,6 +5502,118 @@ int run_tests()
         system_group_ellipse->Release();
         system_factory->Release();
         return 264;
+    }
+    const auto widen_sinks_match = [](
+        const simplified_sink& system,
+        const simplified_sink& portable) {
+        if (system.begin_count > system.begin_points.size() ||
+            portable.begin_count > portable.begin_points.size() ||
+            system.end_count > system.figure_ends.size() ||
+            portable.end_count > portable.figure_ends.size()) {
+            return false;
+        }
+        return system.fill_mode == portable.fill_mode &&
+            system.segment_flags == portable.segment_flags &&
+            system.begin_count == portable.begin_count &&
+            system.end_count == portable.end_count &&
+            system.line_count == portable.line_count &&
+            system.line_point_count == portable.line_point_count &&
+            std::equal(
+                system.begin_points.begin(),
+                system.begin_points.begin() +
+                    static_cast<std::ptrdiff_t>(system.begin_count),
+                portable.begin_points.begin(),
+                [](compat::point_2f left, compat::point_2f right) {
+                    return approximately_equal(left.x, right.x) &&
+                        approximately_equal(left.y, right.y);
+                }) &&
+            std::equal(
+                system.figure_begins.begin(),
+                system.figure_begins.begin() +
+                    static_cast<std::ptrdiff_t>(system.begin_count),
+                portable.figure_begins.begin()) &&
+            std::equal(
+                system.figure_ends.begin(),
+                system.figure_ends.begin() +
+                    static_cast<std::ptrdiff_t>(system.end_count),
+                portable.figure_ends.begin()) &&
+            std::equal(
+                system.line_points.begin(),
+                system.line_points.begin() +
+                    static_cast<std::ptrdiff_t>(system.line_point_count),
+                portable.line_points.begin(),
+                [](compat::point_2f left, compat::point_2f right) {
+                    return approximately_equal(left.x, right.x) &&
+                        approximately_equal(left.y, right.y);
+                });
+    };
+    if (FAILED(system_widen_status) ||
+        FAILED(system_transformed_widen_status) ||
+        !widen_sinks_match(*raw_system_widen_sink, *raw_widen_sink) ||
+        !widen_sinks_match(
+            *raw_system_transformed_widen_sink,
+            *raw_transformed_widen_sink)) {
+        std::fprintf(
+            stderr,
+            "widen oracle base=%d/%u/%u/%u fill=%u transformed=%d/%u/%u/%u fill=%u\n",
+            static_cast<int>(system_widen_status),
+            raw_system_widen_sink->begin_count,
+            raw_system_widen_sink->end_count,
+            raw_system_widen_sink->line_count,
+            static_cast<unsigned>(raw_system_widen_sink->fill_mode),
+            static_cast<int>(system_transformed_widen_status),
+            raw_system_transformed_widen_sink->begin_count,
+            raw_system_transformed_widen_sink->end_count,
+            raw_system_transformed_widen_sink->line_count,
+            static_cast<unsigned>(
+                raw_system_transformed_widen_sink->fill_mode));
+        const auto print_widen_sink = [](const char* name,
+                                         const simplified_sink& sink) {
+            for (std::size_t index = 0U;
+                 index < sink.begin_count && index < sink.begin_points.size();
+                 ++index) {
+                std::fprintf(
+                    stderr,
+                    "%s begin[%zu]=%.9g,%.9g kind=%u flags=%u\n",
+                    name,
+                    index,
+                    static_cast<double>(sink.begin_points[index].x),
+                    static_cast<double>(sink.begin_points[index].y),
+                    static_cast<unsigned>(sink.figure_begins[index]),
+                    static_cast<unsigned>(sink.segment_flags));
+            }
+            for (std::size_t index = 0U;
+                 index < sink.end_count && index < sink.figure_ends.size();
+                 ++index) {
+                std::fprintf(
+                    stderr,
+                    "%s end[%zu]=%u\n",
+                    name,
+                    index,
+                    static_cast<unsigned>(sink.figure_ends[index]));
+            }
+            for (std::size_t index = 0U;
+                 index < sink.line_point_count;
+                 ++index) {
+                std::fprintf(
+                    stderr,
+                    "%s line[%zu]=%.9g,%.9g\n",
+                    name,
+                    index,
+                    static_cast<double>(sink.line_points[index].x),
+                    static_cast<double>(sink.line_points[index].y));
+            }
+        };
+        print_widen_sink("system-base", *raw_system_widen_sink);
+        print_widen_sink("portable-base", *raw_widen_sink);
+        print_widen_sink(
+            "system-transformed", *raw_system_transformed_widen_sink);
+        print_widen_sink(
+            "portable-transformed", *raw_transformed_widen_sink);
+        system_group_rectangle->Release();
+        system_group_ellipse->Release();
+        system_factory->Release();
+        return 273;
     }
     std::array<ID2D1Geometry*, 2U> system_group_sources{
         system_group_rectangle, system_group_ellipse};
