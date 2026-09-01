@@ -2493,13 +2493,36 @@ ctest --test-dir artifacts/progpu-native/build --output-on-failure `
   -R '^progpu_native_direct2d_differential_tests$'
 ```
 
-The equivalent portable scene already passes the live macOS Dawn/Metal gate.
-Linux/Vulkan live pixels and broader bitmap, gradient, arbitrary geometry,
-clip/layer, text, effect, and device-context families remain explicit parity
-work. Until those interfaces are implemented and differentially qualified, an
-application using them must select the typed scene/Canvas alternative or a
-Windows provider; the portable COM target returns its documented failure
-instead of silently rasterizing on the CPU.
+ProGPU `b22ed672` turns the same fixture into a directly linked, backend-neutral
+CTest. It requests only D3D12 on Windows, Metal on macOS, or Vulkan on Linux,
+records through the portable COM target, renders through the shared C++ engine,
+requires four retained draws and one renderer submission, reads the test image
+back only after rendering, and publishes one PPM per platform. The normal
+native build jobs upload those frames and a separate aggregate job compares
+them; probe-only success cannot conceal a whole-image regression.
+
+The exact Windows 11 ARM64 Parallels D3D12 and Apple M3 Pro Metal captures are
+byte-identical, with SHA-256
+`f71fc0daeb6f9e9dcb9326b45c4988220befe6981e486035d6075c859c71fa9a`.
+Ubuntu 24.04 ARM64 llvmpipe LLVM 20.1.2/Vulkan produces SHA-256
+`b0a36a8a7c49e4fbc6ee3f7d4addb998fa2a47355a7532f000c70f8c81095599`.
+All five clear/interior/stroke probes are exact. Vulkan changes 140 of 3,072
+pixels, every changed channel is exactly 1/255, no channel exceeds that bound,
+and mean absolute channel difference is `0.0247395833`. The aggregate contract
+therefore caps the full fixture at 160 changed pixels, 1/255 maximum channel
+difference, zero pixels above 1/255, and mean `0.03`; displaced geometry, color
+drift, missing primitives, and CPU substitutes fail the gate. This is
+software-Vulkan correctness evidence, not physical Linux GPU performance.
+
+The Linux GCC 13 warning-as-error build also found an enum/unsigned conditional
+in portable antialias flag selection. The implementation now returns the
+explicit fixed-width flag value and passes GCC, AppleClang, and Windows ARM64
+MSVC 19.44 `/W4 /WX`. Broader bitmap, gradient, arbitrary geometry, clip/layer,
+text, effect, and device-context families remain explicit parity work. Until
+those interfaces are implemented and differentially qualified, an application
+using them must select the typed scene/Canvas alternative or a Windows
+provider; the portable COM target returns its documented failure instead of
+silently rasterizing on the CPU.
 
 ## Delivery order
 
