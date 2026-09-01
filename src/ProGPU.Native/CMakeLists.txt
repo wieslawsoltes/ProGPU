@@ -972,6 +972,20 @@ set_target_properties(progpu_native_mil PROPERTIES
 progpu_native_enable_warnings(progpu_native_mil)
 progpu_native_enable_sanitizers(progpu_native_mil)
 
+add_library(progpu_native_direct2d_core STATIC
+    include/progpu_native_direct2d_core.hpp
+    src/Direct2D/progpu_native_direct2d_core.cpp)
+target_compile_features(progpu_native_direct2d_core PUBLIC cxx_std_20)
+target_include_directories(progpu_native_direct2d_core PUBLIC
+    "$<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>"
+    "$<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}>")
+set_target_properties(progpu_native_direct2d_core PROPERTIES
+    POSITION_INDEPENDENT_CODE ON
+    CXX_VISIBILITY_PRESET hidden
+    VISIBILITY_INLINES_HIDDEN YES)
+progpu_native_enable_warnings(progpu_native_direct2d_core)
+progpu_native_enable_sanitizers(progpu_native_direct2d_core)
+
 if(WIN32)
     add_library(progpu_native_direct2d SHARED
         include/progpu_native_direct2d.h
@@ -985,6 +999,7 @@ if(WIN32)
     target_include_directories(progpu_native_direct2d
         PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/include")
     target_link_libraries(progpu_native_direct2d PRIVATE
+        progpu_native_direct2d_core
         progpu_native_scene_builder
         d2d1
         d3d11
@@ -1355,6 +1370,21 @@ if(BUILD_TESTING AND NOT EMSCRIPTEN)
     set_tests_properties(
         progpu_native_direct2d_header_tests PROPERTIES TIMEOUT 60)
 
+    add_executable(progpu_native_direct2d_core_tests
+        tests/progpu_native_direct2d_core_tests.cpp)
+    target_compile_features(
+        progpu_native_direct2d_core_tests PRIVATE cxx_std_20)
+    target_link_libraries(
+        progpu_native_direct2d_core_tests PRIVATE
+        progpu_native_direct2d_core)
+    progpu_native_enable_warnings(progpu_native_direct2d_core_tests)
+    progpu_native_enable_sanitizers(progpu_native_direct2d_core_tests)
+    add_test(
+        NAME progpu_native_direct2d_core_tests
+        COMMAND progpu_native_direct2d_core_tests)
+    set_tests_properties(
+        progpu_native_direct2d_core_tests PROPERTIES TIMEOUT 60)
+
     add_executable(progpu_native_mil_tests
         tests/progpu_native_mil_tests.cpp
         src/Mil/progpu_native_mil_interop.cpp)
@@ -1690,12 +1720,14 @@ if(NOT EMSCRIPTEN)
         progpu_native_hit_testing
         progpu_native_image
         progpu_native_mil
+        progpu_native_direct2d_core
         progpu_native_text
         progpu_native_scene_builder
         ARCHIVE DESTINATION "${CMAKE_INSTALL_LIBDIR}")
     install(FILES
         include/progpu_native.h
         include/progpu_native_com.hpp
+        include/progpu_native_direct2d_core.hpp
         include/progpu_native_dawn.h
         include/progpu_native_compression.hpp
         include/progpu_native_hit_testing.hpp
