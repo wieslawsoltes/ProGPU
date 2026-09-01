@@ -266,6 +266,22 @@ constructs the same closed line/quadratic path with the system
 counts and exact bounds. The gate caught and removed a legacy Windows SDK
 `small` macro collision from the portable arc enum before qualification.
 
+ProGPU `69ecef5e` closes that recorded arc-analysis gap by extracting the
+Windows provider's endpoint-arc-to-cubic lowering into
+`progpu_native_direct2d_core`. The Windows COM provider and portable path now
+call the same finite, allocation-free zero-to-four-piece implementation.
+Portable `GetBounds` includes exact extrema of the transformed cubic pieces,
+and `Simplify(CUBICS_AND_LINES)` emits those pieces without readback,
+repacking, or host-specific geometry. Coincident endpoints remain empty and
+zero-radius arcs preserve Direct2D's line equivalence.
+
+The expanded Apple Silicon suite remains 12/12 and the managed contract remains
+9/9. Windows 11 ARM64 MSVC 19.44 `/W4 /WX` rebuilds and passes both focused
+executables; the SDK-pointer test creates matching semicircular arcs in ProGPU
+and the system `D2D1CreateFactory` implementation and requires identical
+bounds. Flatten-to-lines and the broader fill/stroke/boolean/metric operations
+remain separate path-analysis gates.
+
 ## Current support matrix
 
 | Surface | Status | Contract |
@@ -273,7 +289,7 @@ counts and exact bounds. The gate caught and removed a legacy Windows SDK
 | `ProGPU.DirectX` D3D-style device/resources/pipelines | Implemented | Portable typed facade backed by WebGPU; D3D12 on qualified Windows adapters |
 | Native C++ MIL/retained scene on D3D12 | Implemented | Same backend-neutral scene ABI used on Metal, Vulkan, and browser WebGPU |
 | DXGI shared-handle import | Implemented building block | `ProGpuExternalTextureDescriptor` plus Dawn shared-texture memory, keyed-mutex ownership, and no CPU readback |
-| Direct2D `ID2D1*` and DirectWrite text API | Portable COM lifetime, ABI-compatible base factory, rectangle, transformed, and one-shot path geometry/sinks; Windows bitmap/brush/geometry/stroke/command-list/effect/layer/state/text/SVG resources, geometry analysis/realization, vector drawing, and typed device-loss domains implemented | The installed portable C++ target exposes canonical `ID2D1Factory`, resource, geometry, rectangle, transformed-geometry, path-geometry, and sink IIDs/vtables. Shared allocation-free rectangle/affine behavior and portable line/cubic/quadratic path behavior are qualified through real Windows SDK pointers and a system-Direct2D path oracle. Portable arcs currently round-trip but fail closed for analysis. The Windows provider independently supplies the broader ABI v54 factory/geometry/brush/path/stroke/recorder family and genuine system device/context/target interop. Remaining portable resource/device-context vtables fail closed; there is no fake `d2d1.dll` or `dwrite.dll` |
+| Direct2D `ID2D1*` and DirectWrite text API | Portable COM lifetime, ABI-compatible base factory, rectangle, transformed, and one-shot path geometry/sinks; Windows bitmap/brush/geometry/stroke/command-list/effect/layer/state/text/SVG resources, geometry analysis/realization, vector drawing, and typed device-loss domains implemented | The installed portable C++ target exposes canonical `ID2D1Factory`, resource, geometry, rectangle, transformed-geometry, path-geometry, and sink IIDs/vtables. Shared allocation-free rectangle/affine behavior and portable line/cubic/quadratic/arc path bounds and cubic simplification are qualified through real Windows SDK pointers and system-Direct2D path oracles. The Windows provider independently supplies the broader ABI v54 factory/geometry/brush/path/stroke/recorder family and genuine system device/context/target interop. Remaining portable resource/device-context vtables and path operations fail closed; there is no fake `d2d1.dll` or `dwrite.dll` |
 | Native Win2D binary interop | Device/target/bitmap/brush/geometry/stroke/command-list/effect-output/text-format/text-layout/typography round trips plus layer/state/text draws package-qualified | The official factory/resource-wrapper contracts preserve exact provider identities through real `CanvasDevice`, `CanvasRenderTarget`, `CanvasBitmap`, brush, `CanvasGeometry`, `CanvasStrokeStyle`, `CanvasCommandList`, device-independent `CanvasTextFormat`/`CanvasTypography`, and device-associated `CanvasTextLayout` projections. The packaged Microsoft Win2D 1.4.0 oracle also wraps effect-output image brushes, executes typed ProGPU layer/state and native-text command-list scopes, observes ProGPU range formatting/OpenType features through the projected layout and typography, mutates that same native layout through Win2D, and draws it. It qualifies identities, resource metadata, boolean geometry/styled-stroke/image-brush/command-list/effect/text drawing and pixels, exclusive producer ownership, and zero-copy Dawn import; glyph runs/color fonts, remaining typography, the full effect catalog, custom effects, and full device-loss recreation remain gated work |
 | Portable Win2D-style Canvas source API | MVP implemented | `ProGPU.Win2D` records Win2D-shaped commands, compiles them with `ProGPU.Scene.Native`, and submits the retained scene to the C++ renderer |
 | Portable Win2D bitmap in LibreWPF native MIL | Implemented | Wrap a same-device `CanvasBitmap` lease source in `IPortableNativeImageSource`; canonical `TYPE_BITMAPSOURCE` lowers to a zero-payload external scene image with no readback or repack |
