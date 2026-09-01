@@ -2987,6 +2987,35 @@ classify_polygon_point(std::span<const point_2f> polygon,
              : polygon_point_relation::outside;
 }
 
+[[nodiscard]] double polygon_twice_signed_area(
+    std::span<const point_2f> polygon) noexcept
+{
+    double result = 0.0;
+    for (std::size_t index = 0U; index < polygon.size(); ++index) {
+        const point_2f current = polygon[index];
+        const point_2f next = polygon[(index + 1U) % polygon.size()];
+        result += static_cast<double>(current.x) * next.y -
+            static_cast<double>(next.x) * current.y;
+    }
+    return result;
+}
+
+[[nodiscard]] double polygon_area_tolerance(
+    std::span<const point_2f> polygon) noexcept
+{
+    double magnitude = 1.0;
+    for (const point_2f point : polygon) {
+        magnitude = std::max(
+            magnitude,
+            std::max(std::abs(static_cast<double>(point.x)),
+                     std::abs(static_cast<double>(point.y))));
+    }
+    return static_cast<double>(std::numeric_limits<float>::epsilon()) *
+        magnitude * magnitude *
+        static_cast<double>(std::max<std::size_t>(polygon.size(), 1U)) *
+        32.0;
+}
+
 [[nodiscard]] bool
 normalize_simple_polygon(std::vector<point_2f> &polygon) noexcept {
   while (polygon.size() > 1U && same_point(polygon.front(), polygon.back())) {
@@ -2997,13 +3026,7 @@ normalize_simple_polygon(std::vector<point_2f> &polygon) noexcept {
   if (polygon.size() < 3U) {
     return false;
   }
-  double twice_area = 0.0;
-  for (std::size_t index = 0U; index < polygon.size(); ++index) {
-    const point_2f current = polygon[index];
-    const point_2f next = polygon[(index + 1U) % polygon.size()];
-    twice_area += static_cast<double>(current.x) * next.y -
-                  static_cast<double>(next.x) * current.y;
-  }
+  const double twice_area = polygon_twice_signed_area(polygon);
   if (!std::isfinite(twice_area) || twice_area == 0.0) {
     return false;
   }
@@ -5236,26 +5259,37 @@ public:
                 if (com::failed(result)) {
                     return result;
                 }
-                if (!normalize_simple_polygon(outer) ||
-                    !normalize_simple_polygon(inner)) {
+                if (!normalize_simple_polygon(outer)) {
                     return not_implemented;
                 }
-                for (const point_2f point : inner) {
-                    if (classify_polygon_point(outer, point) ==
-                        polygon_point_relation::outside) {
+                const double inner_area = polygon_twice_signed_area(inner);
+                const bool omit_inner = strictly_convex_polygon(
+                        polyline.points) &&
+                    inner_area <= polygon_area_tolerance(inner);
+                if (!omit_inner) {
+                    if (!normalize_simple_polygon(inner)) {
                         return not_implemented;
+                    }
+                    for (const point_2f point : inner) {
+                        if (classify_polygon_point(outer, point) ==
+                            polygon_point_relation::outside) {
+                            return not_implemented;
+                        }
                     }
                 }
                 result = transform_points_in_place(outer, world_transform);
                 if (com::failed(result)) {
                     return result;
                 }
-                result = transform_points_in_place(inner, world_transform);
-                if (com::failed(result)) {
-                    return result;
-                }
                 append_widened_polyline_outline(outer, outlines);
-                append_widened_polyline_outline(inner, outlines);
+                if (!omit_inner) {
+                    result = transform_points_in_place(
+                        inner, world_transform);
+                    if (com::failed(result)) {
+                        return result;
+                    }
+                    append_widened_polyline_outline(inner, outlines);
+                }
             }
             replay_widened_outlines(outlines, *sink);
             return com::ok;
