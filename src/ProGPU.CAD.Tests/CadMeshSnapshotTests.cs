@@ -109,6 +109,52 @@ public sealed class CadMeshSnapshotTests
     }
 
     [Fact]
+    public void NestedModernMeshesShareRootHandleButKeepDistinctComponentPaths()
+    {
+        var block = new BlockRecord("MESH_COMPONENTS");
+        block.Entities.Add(CreateQuadMesh());
+        Mesh second = CreateQuadMesh();
+        for (int vertex = 0; vertex < second.Vertices.Count; vertex++)
+        {
+            second.Vertices[vertex] += new XYZ(0, 0, 2);
+        }
+        block.Entities.Add(second);
+        var insert = new Insert(block);
+        var document = new CadDocument();
+        document.Entities.Add(insert);
+
+        CadDocumentSnapshot snapshot = new CadSnapshotCompiler().Compile(
+            new CadDocumentSession(document));
+        CadRecordedMesh3DScene scene =
+            new CadMesh3DSceneCompiler().Compile(snapshot);
+        CadMesh3DSubobjectComponent[] components =
+            scene.SubobjectComponents.ToArray();
+
+        Assert.Equal(2, components.Length);
+        Assert.All(components, component =>
+            Assert.Equal(insert.Handle, component.Handle));
+        Assert.NotEqual(
+            components[0].ComponentIndex,
+            components[1].ComponentIndex);
+        var firstId = new CadMesh3DSubobjectId(
+            scene.ContentGeneration,
+            insert.Handle,
+            components[0].ComponentIndex,
+            CadMesh3DSubobjectKind.Face,
+            0);
+        var secondId = firstId with
+        {
+            ComponentIndex = components[1].ComponentIndex,
+        };
+        Assert.NotEqual(firstId, secondId);
+        Assert.True(scene.TryGetSubobjectComponent(firstId, out _));
+        Assert.True(scene.TryGetSubobjectComponent(secondId, out _));
+        Assert.False(scene.TryGetSubobjectComponent(
+            firstId with { ContentGeneration = scene.ContentGeneration + 1 },
+            out _));
+    }
+
+    [Fact]
     public void ConcavePlanarMeshRetainsExactFlatTrianglesUvSelectionAndRebasedScene()
     {
         const double world = 1_000_000_000_000.0;
@@ -195,6 +241,63 @@ public sealed class CadMeshSnapshotTests
         Assert.Equal((float)(source.Position.Y - snapshot.RebaseOrigin.Y), rebased.Y);
         Assert.Equal((float)(source.Position.Z - snapshot.RebaseOrigin.Z), rebased.Z);
         Assert.Equal(primitive.Bounds, batch.Bounds);
+    }
+
+    [Fact]
+    public void ModernMeshRetainsAuthoredSubobjectsAcrossTriangulationAndBatching()
+    {
+        var mesh = new Mesh();
+        mesh.Vertices.Add(new XYZ(0, 0, 0));
+        mesh.Vertices.Add(new XYZ(2, 0, 0));
+        mesh.Vertices.Add(new XYZ(2, 2, 0));
+        mesh.Vertices.Add(new XYZ(0, 2, 0));
+        mesh.Faces.Add([0, 1, 2, 3]);
+        var document = new CadDocument();
+        document.Entities.Add(mesh);
+
+        CadDocumentSnapshot snapshot = new CadSnapshotCompiler().Compile(
+            new CadDocumentSession(document));
+        CadMesh3DPrimitive primitive = Assert.Single(snapshot.Meshes3D.ToArray());
+        CadMesh3DDrawRange range = Assert.Single(
+            snapshot.Mesh3DDrawRanges.ToArray());
+
+        Assert.True(primitive.HasSubobjectTopology);
+        Assert.Equal(4, primitive.SubobjectVertexCount);
+        Assert.Equal(4, primitive.SubobjectEdgeCount);
+        Assert.Equal(1, primitive.SubobjectFaceCount);
+        Assert.Equal(0, range.FaceSubobjectIndex);
+        Assert.Equal(
+            [3, 0, 1, 1, 2, 3],
+            snapshot.Mesh3DVertexSubobjectIndices.ToArray());
+        Assert.Equal(
+            [3, 0, -1, 1, 2, -1],
+            snapshot.Mesh3DEdgeSubobjectIndices.ToArray());
+        Assert.All(snapshot.Mesh3DSubobjectEdges.ToArray(), edge =>
+            Assert.Equal(2, edge.PointCount));
+        CadMesh3DSubobjectFace face = Assert.Single(
+            snapshot.Mesh3DSubobjectFaces.ToArray());
+        Assert.Equal(4, face.EdgeIndexCount);
+        Assert.Equal(
+            [0, 1, 2, 3],
+            snapshot.Mesh3DSubobjectFaceEdgeIndices.ToArray());
+
+        CadRecordedMesh3DScene scene =
+            new CadMesh3DSceneCompiler().Compile(snapshot);
+        CadMesh3DDrawBatch batch = Assert.Single(scene.DrawBatches.ToArray());
+        CadMesh3DSubobjectComponent component = Assert.Single(
+            scene.SubobjectComponents.ToArray());
+        Assert.Equal(primitive.SubobjectVertexCount, component.VertexPositions.Length);
+        Assert.Equal(primitive.SubobjectEdgeCount, component.Edges.Length);
+        Assert.Equal(primitive.SubobjectFaceCount, component.Faces.Length);
+        Assert.Equal(0, component.ComponentIndex);
+        Assert.Equal(0, batch.ComponentIndex);
+        Assert.Equal([0, 0], batch.TriangleFaceSubobjectIndices.ToArray());
+        Assert.Equal(
+            snapshot.Mesh3DVertexSubobjectIndices.ToArray(),
+            batch.VertexSubobjectIndices.ToArray());
+        Assert.Equal(
+            snapshot.Mesh3DEdgeSubobjectIndices.ToArray(),
+            batch.EdgeSubobjectIndices.ToArray());
     }
 
     [Fact]

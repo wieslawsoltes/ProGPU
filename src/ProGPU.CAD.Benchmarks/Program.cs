@@ -1724,6 +1724,68 @@ void RunMesh3DSelectionBenchmark(
         GC.GetAllocatedBytesForCurrentThread() - fenceAllocationStart;
     GC.KeepAlive(checksum);
 
+    var subobjectHits =
+        new CadMesh3DSubobjectSelectionResult[depthLayerCount];
+    var subobjectElapsed = new double[queryCount];
+    long subobjectVisitedNodeCount = 0;
+    long subobjectTestedTriangleCount = 0;
+    long subobjectIntersectedTriangleCount = 0;
+    long subobjectHitCount = 0;
+    int subobjectMaximumVisitedNodeCount = 0;
+    int subobjectMaximumTestedTriangleCount = 0;
+    for (int index = 0; index < Math.Min(queryCount, 4_096); index++)
+    {
+        CadMesh3DSubobjectQueryResult warm =
+            selectionIndex.QuerySubobjects(
+                viewport,
+                viewportSize,
+                queryPoints[index],
+                CadMesh3DSubobjectFilter.Face,
+                subobjectHits,
+                0.01f);
+        if (warm.HitCount != depthLayerCount || warm.WasTruncated)
+        {
+            throw new InvalidOperationException(
+                "A warm modern-MESH face-subobject benchmark query did not return every layer.");
+        }
+    }
+    long subobjectAllocationStart =
+        GC.GetAllocatedBytesForCurrentThread();
+    for (int index = 0; index < queryPoints.Length; index++)
+    {
+        long started = Stopwatch.GetTimestamp();
+        CadMesh3DSubobjectQueryResult result =
+            selectionIndex.QuerySubobjects(
+                viewport,
+                viewportSize,
+                queryPoints[index],
+                CadMesh3DSubobjectFilter.Face,
+                subobjectHits,
+                0.01f);
+        subobjectElapsed[index] = Stopwatch.GetElapsedTime(started)
+            .TotalNanoseconds;
+        if (result.HitCount != depthLayerCount || result.WasTruncated)
+        {
+            throw new InvalidOperationException(
+                "A measured modern-MESH face-subobject benchmark query did not return every layer.");
+        }
+        subobjectVisitedNodeCount += result.VisitedNodeCount;
+        subobjectTestedTriangleCount += result.TestedTriangleCount;
+        subobjectIntersectedTriangleCount += result.IntersectedTriangleCount;
+        subobjectHitCount += result.HitCount;
+        subobjectMaximumVisitedNodeCount = Math.Max(
+            subobjectMaximumVisitedNodeCount,
+            result.VisitedNodeCount);
+        subobjectMaximumTestedTriangleCount = Math.Max(
+            subobjectMaximumTestedTriangleCount,
+            result.TestedTriangleCount);
+        checksum ^= subobjectHits[0].Id.Handle +
+            (uint)subobjectHits[result.HitCount - 1].Id.Index;
+    }
+    long subobjectAllocatedBytes =
+        GC.GetAllocatedBytesForCurrentThread() - subobjectAllocationStart;
+    GC.KeepAlive(checksum);
+
     var report = new CadMesh3DSelectionBenchmarkReport(
         DateTimeOffset.UtcNow,
         Environment.OSVersion.ToString(),
@@ -1752,6 +1814,11 @@ void RunMesh3DSelectionBenchmark(
             apertureElapsed,
             apertureAllocatedBytes / queryCount),
         apertureAllocatedBytes,
+        Summarize(
+            "mesh3d-selection-modern-mesh-face-subobject-query-ns",
+            subobjectElapsed,
+            subobjectAllocatedBytes / queryCount),
+        subobjectAllocatedBytes,
         Summarize(
             "mesh3d-selection-projected-crossing-query-ns",
             regionElapsed,
@@ -1783,6 +1850,12 @@ void RunMesh3DSelectionBenchmark(
         (double)apertureHitCount / queryCount,
         apertureMaximumVisitedNodeCount,
         apertureMaximumTestedTriangleCount,
+        (double)subobjectVisitedNodeCount / queryCount,
+        (double)subobjectTestedTriangleCount / queryCount,
+        (double)subobjectIntersectedTriangleCount / queryCount,
+        (double)subobjectHitCount / queryCount,
+        subobjectMaximumVisitedNodeCount,
+        subobjectMaximumTestedTriangleCount,
         (double)regionVisitedNodeCount / queryCount,
         (double)regionTestedTriangleCount / queryCount,
         (double)regionIntersectedTriangleCount / queryCount,
@@ -3717,6 +3790,8 @@ internal sealed record CadMesh3DSelectionBenchmarkReport(
     long TotalSemanticDepthQueryManagedAllocatedBytes,
     Measurement ProjectedPickTargetQueryNanoseconds,
     long TotalProjectedPickTargetQueryManagedAllocatedBytes,
+    Measurement ModernMeshFaceSubobjectQueryNanoseconds,
+    long TotalModernMeshFaceSubobjectQueryManagedAllocatedBytes,
     Measurement ProjectedCrossingQueryNanoseconds,
     long TotalProjectedCrossingQueryManagedAllocatedBytes,
     Measurement ProjectedLassoQueryNanoseconds,
@@ -3739,6 +3814,12 @@ internal sealed record CadMesh3DSelectionBenchmarkReport(
     double ProjectedPickTargetAverageHitCount,
     int ProjectedPickTargetMaximumVisitedNodeCount,
     int ProjectedPickTargetMaximumTestedTriangleCount,
+    double ModernMeshFaceSubobjectAverageVisitedNodeCount,
+    double ModernMeshFaceSubobjectAverageTestedTriangleCount,
+    double ModernMeshFaceSubobjectAverageIntersectedTriangleCount,
+    double ModernMeshFaceSubobjectAverageHitCount,
+    int ModernMeshFaceSubobjectMaximumVisitedNodeCount,
+    int ModernMeshFaceSubobjectMaximumTestedTriangleCount,
     double ProjectedCrossingAverageVisitedNodeCount,
     double ProjectedCrossingAverageTestedTriangleCount,
     double ProjectedCrossingAverageIntersectedTriangleCount,

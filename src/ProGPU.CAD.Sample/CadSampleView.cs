@@ -24,12 +24,17 @@ public sealed class CadSampleView : Grid
     private readonly CadSampleCanvas _canvas;
     private readonly Grid _contentHost;
     private readonly Viewport3D _viewport3D;
+    private readonly CadMesh3DSubobjectOverlay _meshSubobjectOverlay;
     private readonly CadMesh3DViewCoordinator _mesh3DView = new();
     private readonly Brush _meshSelectionBrush =
         new ThemeResourceBrush("SystemAccentColor");
     private readonly List<MeshMaterialBinding> _meshMaterialBindings = new();
     private readonly CadMesh3DSelectionResult[] _meshSelectionHits =
         new CadMesh3DSelectionResult[MeshSelectionCycleCapacity];
+    private readonly CadMesh3DSubobjectSelectionResult[] _meshSubobjectHits =
+        new CadMesh3DSubobjectSelectionResult[MeshSelectionCycleCapacity];
+    private readonly List<CadMesh3DSubobjectId> _selectedMeshSubobjects =
+        new(CadMesh3DSubobjectOverlay.MaximumSelectionCount);
     private int[] _meshRegionRootScratch = [];
     private ulong[] _meshRegionHandles = [];
     private PerspectiveCamera? _observedMeshCamera;
@@ -38,6 +43,12 @@ public sealed class CadSampleView : Grid
     private System.Numerics.Vector2 _meshSelectionCyclePoint;
     private ulong _meshSelectionCycleGeneration;
     private int _meshSelectionCycleIndex = -1;
+    private CadMesh3DSubobjectSelectionResult? _lastMeshSubobjectSelection;
+    private System.Numerics.Vector2 _meshSubobjectCyclePoint;
+    private ulong _meshSubobjectCycleGeneration;
+    private int _meshSubobjectCycleHitCount;
+    private int _meshSubobjectCycleIndex = -1;
+    private CadMesh3DSubobjectFilter _meshSubobjectFilter;
     private float _meshPickTargetHeight =
         CadMesh3DSelectionIndex.DefaultPickTargetHeight;
     private readonly CadPrintPreviewCanvas _printPreview;
@@ -45,6 +56,7 @@ public sealed class CadSampleView : Grid
     private readonly TextBlock _viewModeText;
     private readonly ComboBox _meshPickTargetSelector;
     private readonly ComboBox _meshRegionSelectionSelector;
+    private readonly ComboBox _meshSubobjectSelector;
     private readonly ComboBox _attributeDisplaySelector;
     private readonly Button _printPreviewButton;
     private readonly TextBlock _printPreviewText;
@@ -254,10 +266,22 @@ public sealed class CadSampleView : Grid
     public CadMesh3DSelectionResult? LastMeshSelection =>
         _lastMeshSelection;
 
+    public CadMesh3DSubobjectSelectionResult? LastMeshSubobjectSelection =>
+        _lastMeshSubobjectSelection;
+
+    public IReadOnlyList<CadMesh3DSubobjectId> SelectedMeshSubobjects =>
+        _selectedMeshSubobjects;
+
+    public int MeshSubobjectCycleIndex => _meshSubobjectCycleIndex;
+
+    public int MeshSubobjectCycleHitCount => _meshSubobjectCycleHitCount;
+
     public ComboBox MeshPickTargetSelector => _meshPickTargetSelector;
 
     public ComboBox MeshRegionSelectionSelector =>
         _meshRegionSelectionSelector;
+
+    public ComboBox MeshSubobjectSelector => _meshSubobjectSelector;
 
     public float MeshPickTargetHeight
     {
@@ -554,6 +578,7 @@ public sealed class CadSampleView : Grid
             AmbientIntensity = 0.25f,
         };
         _viewport3D.ViewportClicked += OnMeshViewportClicked;
+        _viewport3D.SubobjectCycleRequested += OnMeshSubobjectCycleRequested;
         _viewport3D.SelectionDragStarting += OnMeshSelectionDragStarting;
         _viewport3D.RegionSelectionCompleted += OnMeshRegionSelectionCompleted;
         _printPreview = new CadPrintPreviewCanvas
@@ -714,6 +739,19 @@ public sealed class CadSampleView : Grid
             Tag = true,
         });
         _meshRegionSelectionSelector.SelectedIndex = 0;
+        _meshSubobjectSelector = new ComboBox
+        {
+            Font = font,
+            FontSize = 11,
+            WidthConstraint = 128,
+            HeightConstraint = 34,
+            Margin = new Thickness(0, 0, 8, 0),
+        };
+        AddMeshSubobjectChoice("Subobject: Off", CadMesh3DSubobjectFilter.None);
+        AddMeshSubobjectChoice("Subobject: Vertex", CadMesh3DSubobjectFilter.Vertex);
+        AddMeshSubobjectChoice("Subobject: Edge", CadMesh3DSubobjectFilter.Edge);
+        AddMeshSubobjectChoice("Subobject: Face", CadMesh3DSubobjectFilter.Face);
+        _meshSubobjectSelector.SelectedIndex = 0;
         _attributeDisplaySelector = new ComboBox
         {
             Font = font,
@@ -754,6 +792,7 @@ public sealed class CadSampleView : Grid
         actions.AddChild(_viewModeButton);
         actions.AddChild(_meshPickTargetSelector);
         actions.AddChild(_meshRegionSelectionSelector);
+        actions.AddChild(_meshSubobjectSelector);
         actions.AddChild(_attributeDisplaySelector);
         actions.AddChild(_clearSelectionButton);
 
@@ -2283,6 +2322,11 @@ public sealed class CadSampleView : Grid
         _contentHost = new Grid();
         _contentHost.AddChild(_canvas);
         _contentHost.AddChild(_viewport3D);
+        _meshSubobjectOverlay = new CadMesh3DSubobjectOverlay
+        {
+            Visibility = Visibility.Collapsed,
+        };
+        _contentHost.AddChild(_meshSubobjectOverlay);
         _contentHost.AddChild(_printPreview);
         AddChild(toolbar);
         AddChild(_contentHost);
@@ -2329,6 +2373,16 @@ public sealed class CadSampleView : Grid
                     .Tag is bool useLasso)
             {
                 _viewport3D.UseLassoSelection = useLasso;
+            }
+        };
+        _meshSubobjectSelector.SelectionChanged += (_, _) =>
+        {
+            if ((_meshSubobjectSelector.SelectedItem as ComboBoxItem)?.Tag is
+                CadMesh3DSubobjectFilter filter)
+            {
+                _meshSubobjectFilter = filter;
+                ResetMeshSubobjectCycle();
+                RefreshMeshSubobjectOverlay();
             }
         };
         _attributeDisplaySelector.SelectionChanged += (_, _) =>
@@ -2579,7 +2633,11 @@ public sealed class CadSampleView : Grid
             DeleteSelectedNamedPageSetup();
         _editPageSetupFieldsButton.Click += (_, _) =>
             EditSelectedPageSetupFields();
-        _clearSelectionButton.Click += (_, _) => _canvas.ClearSelection();
+        _clearSelectionButton.Click += (_, _) =>
+        {
+            _canvas.ClearSelection();
+            ClearMeshSubobjectSelection();
+        };
         _undoButton.Click += (_, _) => PerformUndo();
         _redoButton.Click += (_, _) => PerformRedo();
         _deleteButton.Click += (_, _) => PerformDelete();
@@ -3600,6 +3658,7 @@ public sealed class CadSampleView : Grid
         _is3DView = !_is3DView;
         _canvas.Visibility = _is3DView ? Visibility.Collapsed : Visibility.Visible;
         _viewport3D.Visibility = _is3DView ? Visibility.Visible : Visibility.Collapsed;
+        _meshSubobjectOverlay.Visibility = _viewport3D.Visibility;
         _viewModeText.Text = _is3DView ? "Plan view" : "3D surfaces";
         if (_is3DView)
         {
@@ -4001,6 +4060,7 @@ public sealed class CadSampleView : Grid
                 _isPrintPreview = true;
                 _canvas.Visibility = Visibility.Collapsed;
                 _viewport3D.Visibility = Visibility.Collapsed;
+                _meshSubobjectOverlay.Visibility = Visibility.Collapsed;
                 _printPreview.Visibility = Visibility.Visible;
                 _viewModeText.Text = "3D surfaces";
                 _printPreviewText.Text = "Plan view";
@@ -4207,6 +4267,7 @@ public sealed class CadSampleView : Grid
         _isPrintPreview = false;
         _canvas.Visibility = Visibility.Visible;
         _viewport3D.Visibility = Visibility.Collapsed;
+        _meshSubobjectOverlay.Visibility = Visibility.Collapsed;
         _printPreview.Visibility = Visibility.Collapsed;
         _viewModeText.Text = "3D surfaces";
         _printPreviewText.Text = "Print preview";
@@ -4223,6 +4284,16 @@ public sealed class CadSampleView : Grid
         _attributeDisplaySelector.Items.Add(new ComboBoxItem(label)
         {
             Tag = mode,
+        });
+    }
+
+    private void AddMeshSubobjectChoice(
+        string label,
+        CadMesh3DSubobjectFilter filter)
+    {
+        _meshSubobjectSelector.Items.Add(new ComboBoxItem(label)
+        {
+            Tag = filter,
         });
     }
 
@@ -4440,11 +4511,15 @@ public sealed class CadSampleView : Grid
         _viewport3D.Children.Clear();
         _meshMaterialBindings.Clear();
         _lastMeshSelection = null;
+        _lastMeshSubobjectSelection = null;
+        _selectedMeshSubobjects.Clear();
         ResetMeshSelectionCycle();
+        ResetMeshSubobjectCycle();
         CadDocumentSnapshot? snapshot = _canvas.CurrentSnapshot;
         if (snapshot is null)
         {
             _viewport3D.InvalidateScene();
+            RefreshMeshSubobjectOverlay();
             SetMeshViewAvailability(false);
             return;
         }
@@ -4515,6 +4590,7 @@ public sealed class CadSampleView : Grid
             return;
         }
         ApplyMeshCamera(_mesh3DView.Viewport!.Value);
+        RefreshMeshSubobjectOverlay();
         _viewport3D.Invalidate();
     }
 
@@ -4613,6 +4689,10 @@ public sealed class CadSampleView : Grid
             throw new InvalidOperationException(
                 "The projected Mesh3D region contains a stale semantic root.");
         }
+        if (!args.IsControlPressed)
+        {
+            ClearMeshSubobjectSelection();
+        }
         _lastMeshSelection = null;
         SetStatus(
             $"3D {selectionName} {(args.IsControlPressed ? "toggled" : "selected")} " +
@@ -4627,6 +4707,14 @@ public sealed class CadSampleView : Grid
         Viewport3DClickEventArgs args)
     {
         if (!_is3DView || _isBusy || _mesh3DView.SelectionIndex is null)
+        {
+            return;
+        }
+
+        if (!args.IsAltPressed &&
+            (_meshSubobjectFilter != CadMesh3DSubobjectFilter.None ||
+             args.IsControlPressed) &&
+            TryHandleMeshSubobjectClick(args))
         {
             return;
         }
@@ -4687,6 +4775,10 @@ public sealed class CadSampleView : Grid
         _lastMeshSelection = result;
         if (result.IsHit)
         {
+            if (!args.IsControlPressed)
+            {
+                ClearMeshSubobjectSelection();
+            }
             if (!_canvas.SelectSemanticHandle(
                     result.Handle,
                     toggle: args.IsControlPressed))
@@ -4708,9 +4800,150 @@ public sealed class CadSampleView : Grid
         else if (!args.IsControlPressed)
         {
             _canvas.ClearSelection();
+            ClearMeshSubobjectSelection();
             SetStatus("3D selection cleared.");
         }
     }
+
+    private bool TryHandleMeshSubobjectClick(Viewport3DClickEventArgs args)
+    {
+        CadMesh3DSubobjectFilter filter = _meshSubobjectFilter ==
+            CadMesh3DSubobjectFilter.None
+                ? CadMesh3DSubobjectFilter.All
+                : _meshSubobjectFilter;
+        CadMesh3DSubobjectQueryResult query = _mesh3DView.QuerySubobjects(
+            _viewport3D.Size,
+            args.Position,
+            filter,
+            _meshSubobjectHits,
+            _meshPickTargetHeight);
+        if (query.HitCount == 0)
+        {
+            _lastMeshSubobjectSelection = null;
+            ResetMeshSubobjectCycle();
+            if (_meshSubobjectFilter == CadMesh3DSubobjectFilter.None)
+            {
+                return false;
+            }
+            if (!args.IsControlPressed && !args.IsShiftPressed)
+            {
+                _canvas.ClearSelection();
+                ClearMeshSubobjectSelection();
+                SetStatus("3D subobject selection cleared.");
+            }
+            return true;
+        }
+
+        int selectedHitIndex = IsContinuingMeshSubobjectCycle(args.Position)
+            ? Math.Clamp(_meshSubobjectCycleIndex, 0, query.HitCount - 1)
+            : 0;
+        CadMesh3DSubobjectSelectionResult hit =
+            _meshSubobjectHits[selectedHitIndex];
+        _lastMeshSubobjectSelection = hit;
+        if (args.IsShiftPressed)
+        {
+            int existing = _selectedMeshSubobjects.IndexOf(hit.Id);
+            if (existing >= 0)
+            {
+                _selectedMeshSubobjects.RemoveAt(existing);
+            }
+        }
+        else
+        {
+            if (!args.IsControlPressed)
+            {
+                _selectedMeshSubobjects.Clear();
+                _canvas.ClearSelection();
+            }
+            if (!_selectedMeshSubobjects.Contains(hit.Id))
+            {
+                if (_selectedMeshSubobjects.Count >=
+                    CadMesh3DSubobjectOverlay.MaximumSelectionCount)
+                {
+                    SetStatus(
+                        $"3D subobject selection is bounded to {CadMesh3DSubobjectOverlay.MaximumSelectionCount:N0} entries; selection was not changed.");
+                    ResetMeshSubobjectCycle();
+                    RefreshMeshSubobjectOverlay();
+                    return true;
+                }
+                _selectedMeshSubobjects.Add(hit.Id);
+            }
+        }
+        ResetMeshSubobjectCycle();
+        RefreshMeshSubobjectOverlay();
+        SetStatus(
+            $"3D {(args.IsShiftPressed ? "removed" : "selected")} " +
+            $"{hit.Id.Kind} {hit.Id.Index + 1:N0} on {hit.Id.Handle:X}; " +
+            $"tested {query.TestedTriangleCount:N0} triangles in " +
+            $"{query.VisitedNodeCount:N0} BVH nodes" +
+            (query.WasTruncated ? "; candidates truncated." : "."));
+        return true;
+    }
+
+    private void OnMeshSubobjectCycleRequested(
+        object? sender,
+        Viewport3DSubobjectCycleEventArgs args)
+    {
+        if (!_is3DView || _isBusy || _mesh3DView.SelectionIndex is null ||
+            _mesh3DView.Viewport is null)
+        {
+            return;
+        }
+        CadMesh3DSubobjectFilter filter = _meshSubobjectFilter ==
+            CadMesh3DSubobjectFilter.None
+                ? CadMesh3DSubobjectFilter.All
+                : _meshSubobjectFilter;
+        CadMesh3DSubobjectQueryResult query = _mesh3DView.QuerySubobjects(
+            _viewport3D.Size,
+            args.Position,
+            filter,
+            _meshSubobjectHits,
+            _meshPickTargetHeight);
+        bool continueCycle = query.HitCount > 0 &&
+            _meshSubobjectCycleGeneration == query.ContentGeneration &&
+            System.Numerics.Vector2.DistanceSquared(
+                _meshSubobjectCyclePoint,
+                args.Position) <=
+            MeshSelectionCyclePointTolerance *
+            MeshSelectionCyclePointTolerance;
+        _meshSubobjectCycleIndex = query.HitCount == 0
+            ? -1
+            : continueCycle
+                ? (_meshSubobjectCycleIndex + 1) % query.HitCount
+                : 0;
+        _meshSubobjectCycleGeneration = query.ContentGeneration;
+        _meshSubobjectCyclePoint = args.Position;
+        _meshSubobjectCycleHitCount = query.HitCount;
+        _lastMeshSubobjectSelection = _meshSubobjectCycleIndex < 0
+            ? null
+            : _meshSubobjectHits[_meshSubobjectCycleIndex];
+        RefreshMeshSubobjectOverlay();
+        if (_lastMeshSubobjectSelection is
+            CadMesh3DSubobjectSelectionResult candidate)
+        {
+            SetStatus(
+                $"3D subobject candidate {candidate.Id.Kind} " +
+                $"{candidate.Id.Index + 1:N0} on {candidate.Id.Handle:X} " +
+                $"({_meshSubobjectCycleIndex + 1:N0}/{query.HitCount:N0}" +
+                (query.WasTruncated ? "+" : string.Empty) +
+                "); click to select.");
+        }
+        else
+        {
+            SetStatus("No modern MESH subobject is inside the pickbox.");
+        }
+    }
+
+    private bool IsContinuingMeshSubobjectCycle(
+        System.Numerics.Vector2 point) =>
+        _meshSubobjectCycleIndex >= 0 &&
+        _meshSubobjectCycleIndex < _meshSubobjectCycleHitCount &&
+        _meshSubobjectCycleGeneration ==
+            _mesh3DView.Scene?.ContentGeneration &&
+        System.Numerics.Vector2.DistanceSquared(
+            _meshSubobjectCyclePoint,
+            point) <=
+        MeshSelectionCyclePointTolerance * MeshSelectionCyclePointTolerance;
 
     private void ResetMeshSelectionCycle()
     {
@@ -4718,6 +4951,38 @@ public sealed class CadSampleView : Grid
         _meshSelectionCyclePoint = default;
         _meshSelectionCycleGeneration = 0;
         _meshSelectionCycleIndex = -1;
+    }
+
+    private void ResetMeshSubobjectCycle()
+    {
+        _meshSubobjectCyclePoint = default;
+        _meshSubobjectCycleGeneration = 0;
+        _meshSubobjectCycleHitCount = 0;
+        _meshSubobjectCycleIndex = -1;
+    }
+
+    private void ClearMeshSubobjectSelection()
+    {
+        _selectedMeshSubobjects.Clear();
+        _lastMeshSubobjectSelection = null;
+        ResetMeshSubobjectCycle();
+        RefreshMeshSubobjectOverlay();
+    }
+
+    private void RefreshMeshSubobjectOverlay()
+    {
+        CadMesh3DSubobjectId? candidate =
+            _meshSubobjectCycleIndex >= 0 &&
+            _lastMeshSubobjectSelection is
+                CadMesh3DSubobjectSelectionResult selection
+                    ? selection.Id
+                    : null;
+        _meshSubobjectOverlay.Update(
+            _mesh3DView.Scene,
+            _mesh3DView.Viewport,
+            System.Runtime.InteropServices.CollectionsMarshal.AsSpan(
+                _selectedMeshSubobjects),
+            candidate);
     }
 
     private void RefreshMeshSelectionMaterials(bool invalidate = true)
@@ -4782,6 +5047,7 @@ public sealed class CadSampleView : Grid
         _observedMeshCamera = camera;
         _observedMeshCamera.Changed += OnMeshCameraChanged;
         _viewport3D.Camera = camera;
+        RefreshMeshSubobjectOverlay();
     }
 
     private void OnMeshCameraChanged(object? sender, EventArgs args)
@@ -4800,6 +5066,8 @@ public sealed class CadSampleView : Grid
             camera.FarPlaneDistance,
             camera.FieldOfView);
         _mesh3DView.CaptureCamera(state);
+        ResetMeshSubobjectCycle();
+        RefreshMeshSubobjectOverlay();
     }
 
     private void SetMeshViewAvailability(bool isAvailable)
@@ -4815,6 +5083,7 @@ public sealed class CadSampleView : Grid
         _is3DView = false;
         _canvas.Visibility = Visibility.Visible;
         _viewport3D.Visibility = Visibility.Collapsed;
+        _meshSubobjectOverlay.Visibility = Visibility.Collapsed;
         _viewModeText.Text = "3D surfaces";
     }
 
@@ -8022,6 +8291,8 @@ public sealed class CadSampleView : Grid
         _meshPickTargetSelector.IsEnabled =
             canUsePlanTools && _is3DView;
         _meshRegionSelectionSelector.IsEnabled =
+            canUsePlanTools && _is3DView;
+        _meshSubobjectSelector.IsEnabled =
             canUsePlanTools && _is3DView;
         bool canTransform = canUsePlanTools &&
             _canvas.SelectedHandleCount > 0 &&

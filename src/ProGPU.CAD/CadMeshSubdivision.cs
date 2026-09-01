@@ -13,7 +13,17 @@ internal sealed class CadMeshSubdivisionResult
     public required Vector2[] TextureCoordinates { get; init; }
     public required int[][] Faces { get; init; }
     public required CadPoint3D[][] FaceCornerNormals { get; init; }
+    public required int[] FaceSourceIndices { get; init; }
+    public required int[][] FaceCornerSourceEdgeIndices { get; init; }
+    public required int[][] SourceEdgeVertexChains { get; init; }
     public required int TopologyVisitCount { get; init; }
+}
+
+internal sealed class CadMeshSourceTopology
+{
+    public required int[] FaceSourceIndices { get; init; }
+    public required int[][] FaceCornerSourceEdgeIndices { get; init; }
+    public required int[][] SourceEdgeVertexChains { get; init; }
 }
 
 /// <summary>
@@ -93,6 +103,11 @@ internal static class CadMeshSubdivision
         CadPoint3D[] vertices = sourceVertices.ToArray();
         Vector2[] textureCoordinates = sourceTextureCoordinates.ToArray();
         int[][] faces = CloneFaces(sourceFaces);
+        CadMeshSourceTopology sourceTopology = CreateSourceTopology(faces);
+        int[] faceSourceIndices = sourceTopology.FaceSourceIndices;
+        int[][] sourceEdgeVertexChains = sourceTopology.SourceEdgeVertexChains;
+        Dictionary<EdgeKey, int> displayedSourceEdges = CreateDisplayedSourceEdges(
+            sourceEdgeVertexChains);
         int visits = CountFaceCorners(faces, maxTopologyVisits);
         Topology topology = BuildTopology(vertices, faces, cancellationToken);
         Dictionary<EdgeKey, double> creases = ReadCreases(
@@ -111,6 +126,9 @@ internal static class CadMeshSubdivision
                 faces,
                 topology,
                 creases,
+                faceSourceIndices,
+                displayedSourceEdges,
+                sourceEdgeVertexChains,
                 blendCrease,
                 maxTopologyVisits,
                 ref visits,
@@ -119,7 +137,10 @@ internal static class CadMeshSubdivision
                 out textureCoordinates,
                 out faces,
                 out creases,
-                out displayedSharpEdges);
+                out displayedSharpEdges,
+                out faceSourceIndices,
+                out displayedSourceEdges,
+                out sourceEdgeVertexChains);
             topology = BuildTopology(vertices, faces, cancellationToken);
         }
 
@@ -135,7 +156,56 @@ internal static class CadMeshSubdivision
             TextureCoordinates = textureCoordinates,
             Faces = faces,
             FaceCornerNormals = normals,
+            FaceSourceIndices = faceSourceIndices,
+            FaceCornerSourceEdgeIndices = CreateFaceCornerSourceEdgeIndices(
+                faces,
+                displayedSourceEdges),
+            SourceEdgeVertexChains = sourceEdgeVertexChains,
             TopologyVisitCount = visits,
+        };
+    }
+
+    internal static CadMeshSourceTopology CreateSourceTopology(
+        IReadOnlyList<int[]> sourceFaces)
+    {
+        ArgumentNullException.ThrowIfNull(sourceFaces);
+        var sourceEdgeIndices = new Dictionary<EdgeKey, int>();
+        var sourceEdgeVertexChains = new List<int[]>();
+        var faceSourceIndices = new int[sourceFaces.Count];
+        var faceCornerSourceEdgeIndices = new int[sourceFaces.Count][];
+        for (int faceIndex = 0; faceIndex < sourceFaces.Count; faceIndex++)
+        {
+            int[] face = sourceFaces[faceIndex] ?? throw new ArgumentException(
+                "A MESH source face cannot be null.",
+                nameof(sourceFaces));
+            if (face.Length < 3)
+            {
+                throw new ArgumentException(
+                    "A MESH source face requires at least three vertices.",
+                    nameof(sourceFaces));
+            }
+            faceSourceIndices[faceIndex] = faceIndex;
+            var cornerEdges = new int[face.Length];
+            for (int corner = 0; corner < face.Length; corner++)
+            {
+                int start = face[corner];
+                int end = face[(corner + 1) % face.Length];
+                EdgeKey key = EdgeKey.Create(start, end);
+                if (!sourceEdgeIndices.TryGetValue(key, out int edgeIndex))
+                {
+                    edgeIndex = sourceEdgeVertexChains.Count;
+                    sourceEdgeIndices.Add(key, edgeIndex);
+                    sourceEdgeVertexChains.Add([start, end]);
+                }
+                cornerEdges[corner] = edgeIndex;
+            }
+            faceCornerSourceEdgeIndices[faceIndex] = cornerEdges;
+        }
+        return new CadMeshSourceTopology
+        {
+            FaceSourceIndices = faceSourceIndices,
+            FaceCornerSourceEdgeIndices = faceCornerSourceEdgeIndices,
+            SourceEdgeVertexChains = sourceEdgeVertexChains.ToArray(),
         };
     }
 
@@ -145,6 +215,9 @@ internal static class CadMeshSubdivision
         int[][] faces,
         Topology topology,
         Dictionary<EdgeKey, double> creases,
+        int[] faceSourceIndices,
+        Dictionary<EdgeKey, int> displayedSourceEdges,
+        int[][] sourceEdgeVertexChains,
         bool blendCrease,
         int maxTopologyVisits,
         ref int visits,
@@ -153,7 +226,10 @@ internal static class CadMeshSubdivision
         out Vector2[] refinedTextureCoordinates,
         out int[][] refinedFaces,
         out Dictionary<EdgeKey, double> refinedCreases,
-        out HashSet<EdgeKey> displayedSharpEdges)
+        out HashSet<EdgeKey> displayedSharpEdges,
+        out int[] refinedFaceSourceIndices,
+        out Dictionary<EdgeKey, int> refinedDisplayedSourceEdges,
+        out int[][] refinedSourceEdgeVertexChains)
     {
         int faceCornerCount = CountFaceCorners(faces, int.MaxValue);
         int remainingVisits = maxTopologyVisits - visits;
@@ -226,6 +302,7 @@ internal static class CadMeshSubdivision
 
         refinedCreases = new Dictionary<EdgeKey, double>();
         displayedSharpEdges = [];
+        refinedDisplayedSourceEdges = new Dictionary<EdgeKey, int>();
         for (int edgeIndex = 0; edgeIndex < orderedEdges.Count; edgeIndex++)
         {
             if ((edgeIndex & 1023) == 0)
@@ -258,6 +335,11 @@ internal static class CadMeshSubdivision
                 : DecayCrease(currentCrease);
             EdgeKey firstChild = EdgeKey.Create(edge.Key.First, outputIndex);
             EdgeKey secondChild = EdgeKey.Create(outputIndex, edge.Key.Second);
+            if (displayedSourceEdges.TryGetValue(edge.Key, out int sourceEdgeIndex))
+            {
+                refinedDisplayedSourceEdges.Add(firstChild, sourceEdgeIndex);
+                refinedDisplayedSourceEdges.Add(secondChild, sourceEdgeIndex);
+            }
             if (nextCrease != 0.0)
             {
                 refinedCreases.Add(firstChild, nextCrease);
@@ -281,6 +363,7 @@ internal static class CadMeshSubdivision
         }
 
         refinedFaces = new int[faceCornerCount][];
+        refinedFaceSourceIndices = new int[faceCornerCount];
         int refinedFaceIndex = 0;
         for (int faceIndex = 0; faceIndex < faces.Length; faceIndex++)
         {
@@ -290,6 +373,8 @@ internal static class CadMeshSubdivision
                 int current = face[corner];
                 int next = face[(corner + 1) % face.Length];
                 int previous = face[(corner + face.Length - 1) % face.Length];
+                refinedFaceSourceIndices[refinedFaceIndex] =
+                    faceSourceIndices[faceIndex];
                 refinedFaces[refinedFaceIndex++] =
                 [
                     current,
@@ -299,6 +384,65 @@ internal static class CadMeshSubdivision
                 ];
             }
         }
+
+        refinedSourceEdgeVertexChains = new int[sourceEdgeVertexChains.Length][];
+        for (int edgeIndex = 0; edgeIndex < sourceEdgeVertexChains.Length; edgeIndex++)
+        {
+            int[] sourceChain = sourceEdgeVertexChains[edgeIndex];
+            var refinedChain = new int[checked(sourceChain.Length * 2 - 1)];
+            refinedChain[0] = sourceChain[0];
+            for (int point = 0; point + 1 < sourceChain.Length; point++)
+            {
+                EdgeKey segment = EdgeKey.Create(
+                    sourceChain[point],
+                    sourceChain[point + 1]);
+                if (!edgePointIndices.TryGetValue(segment, out int edgePoint))
+                {
+                    throw new InvalidOperationException(
+                        "A retained MESH source-edge chain is not present in the refinement topology.");
+                }
+                refinedChain[point * 2 + 1] = edgePoint;
+                refinedChain[point * 2 + 2] = sourceChain[point + 1];
+            }
+            refinedSourceEdgeVertexChains[edgeIndex] = refinedChain;
+        }
+    }
+
+    private static Dictionary<EdgeKey, int> CreateDisplayedSourceEdges(
+        int[][] sourceEdgeVertexChains)
+    {
+        var result = new Dictionary<EdgeKey, int>();
+        for (int edgeIndex = 0; edgeIndex < sourceEdgeVertexChains.Length; edgeIndex++)
+        {
+            int[] chain = sourceEdgeVertexChains[edgeIndex];
+            for (int point = 0; point + 1 < chain.Length; point++)
+            {
+                result.Add(EdgeKey.Create(chain[point], chain[point + 1]), edgeIndex);
+            }
+        }
+        return result;
+    }
+
+    private static int[][] CreateFaceCornerSourceEdgeIndices(
+        int[][] faces,
+        Dictionary<EdgeKey, int> displayedSourceEdges)
+    {
+        var result = new int[faces.Length][];
+        for (int faceIndex = 0; faceIndex < faces.Length; faceIndex++)
+        {
+            int[] face = faces[faceIndex];
+            var cornerEdges = new int[face.Length];
+            for (int corner = 0; corner < face.Length; corner++)
+            {
+                cornerEdges[corner] = displayedSourceEdges.TryGetValue(
+                    EdgeKey.Create(face[corner], face[(corner + 1) % face.Length]),
+                    out int sourceEdgeIndex)
+                    ? sourceEdgeIndex
+                    : -1;
+            }
+            result[faceIndex] = cornerEdges;
+        }
+        return result;
     }
 
     private static CadPoint3D ComputeVertexPoint(

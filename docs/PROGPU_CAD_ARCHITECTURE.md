@@ -2333,6 +2333,33 @@ research, native applicability audit, Release percentiles, and macOS
 Allocations/Time Profiler/Metal evidence are in
 [`PROGPU_CAD_3D_SELECTION_RESEARCH.md`](PROGPU_CAD_3D_SELECTION_RESEARCH.md).
 
+Modern `MESH` compilation additionally retains authored vertex, edge, and face
+identity through bounded Catmull-Clark refinement, deterministic
+triangulation, consecutive-style batching, nested expansion, and WCS rebasing.
+Original control vertices retain their ordinal at their final displayed
+position; each authored edge retains an ordered refined display chain; each
+child face retains its authored face ordinal. Render-only subdivision points,
+facet edges, and triangulation diagonals carry no public identity. A subobject
+ID combines immutable content generation, semantic root handle, snapshot mesh
+component index, kind, and authored ordinal, so nested occurrences remain
+distinct and stale generations fail closed.
+
+`QuerySubobjects` reuses the generation-owned triangle BVH and exact WebGPU
+clip volume, accepts a caller-owned one-through-256 result span, deduplicates
+full IDs, and orders candidates by camera depth, Vertex/Edge/Face priority,
+projected distance, component, and ordinal. Typical work is
+`O(log T + H*K)`, bounded worst case is `O(T*K)`, and warm calls allocate zero
+managed memory. The shared shell exposes Off/Vertex/Edge/Face filtering,
+Ctrl-add, Shift-remove, and Ctrl+Space cycling. Its theme-resource overlay
+reprojects retained face boundaries, edge chains, and vertex grips without
+recompiling or uploading Mesh3D geometry. Legacy polygon/polyface meshes,
+`SOLID`, `3DFACE`, smoothness facets, and ACIS payload tessellation are not
+mislabeled as modern-MESH subobjects. Exact subobject region sets and
+cross-edit persistent topology IDs remain explicit deferred work. Research,
+clean-room provenance, parity applicability, regressions, Release percentiles,
+and Instruments evidence are in
+[`PROGPU_CAD_3D_SUBOBJECT_SELECTION_RESEARCH.md`](PROGPU_CAD_3D_SUBOBJECT_SELECTION_RESEARCH.md).
+
 The shared CAD host enables the managed `Viewport3D` generation-retained scene
 contract after replacing its immutable batch generation. A camera-only frame
 reuses the compiled payload without recursively visiting `ModelVisual3D`

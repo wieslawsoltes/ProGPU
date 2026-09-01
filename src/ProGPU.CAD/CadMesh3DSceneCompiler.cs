@@ -18,6 +18,50 @@ public readonly record struct CadMesh3DSceneStatistics(
 {
     /// <summary>Retained SOLID and 3DFACE source-record count.</summary>
     public int SourceFaceCount { get; init; }
+    public int SubobjectComponentCount { get; init; }
+    public int SubobjectVertexCount { get; init; }
+    public int SubobjectEdgeCount { get; init; }
+    public int SubobjectFaceCount { get; init; }
+}
+
+/// <summary>
+/// One immutable modern-MESH authored topology component in rebased local
+/// coordinates. Its component index is the owning snapshot mesh primitive
+/// index and remains independent from style batching.
+/// </summary>
+public sealed class CadMesh3DSubobjectComponent
+{
+    private readonly Vector3[] _vertexPositions;
+    private readonly Vector3[] _edgePoints;
+    private readonly CadMesh3DSubobjectEdge[] _edges;
+    private readonly CadMesh3DSubobjectFace[] _faces;
+    private readonly int[] _faceEdgeIndices;
+
+    public ulong Handle { get; }
+    public int ComponentIndex { get; }
+    public ReadOnlyMemory<Vector3> VertexPositions => _vertexPositions;
+    public ReadOnlyMemory<Vector3> EdgePoints => _edgePoints;
+    public ReadOnlyMemory<CadMesh3DSubobjectEdge> Edges => _edges;
+    public ReadOnlyMemory<CadMesh3DSubobjectFace> Faces => _faces;
+    public ReadOnlyMemory<int> FaceEdgeIndices => _faceEdgeIndices;
+
+    internal CadMesh3DSubobjectComponent(
+        ulong handle,
+        int componentIndex,
+        Vector3[] vertexPositions,
+        Vector3[] edgePoints,
+        CadMesh3DSubobjectEdge[] edges,
+        CadMesh3DSubobjectFace[] faces,
+        int[] faceEdgeIndices)
+    {
+        Handle = handle;
+        ComponentIndex = componentIndex;
+        _vertexPositions = vertexPositions;
+        _edgePoints = edgePoints;
+        _edges = edges;
+        _faces = faces;
+        _faceEdgeIndices = faceEdgeIndices;
+    }
 }
 
 /// <summary>One immutable, contiguous, same-style triangle-list draw.</summary>
@@ -27,6 +71,9 @@ public sealed class CadMesh3DDrawBatch
     private readonly Vector3[] _normals;
     private readonly Vector2[] _textureCoordinates;
     private readonly uint[] _indices;
+    private readonly int[] _vertexSubobjectIndices;
+    private readonly int[] _edgeSubobjectIndices;
+    private readonly int[] _triangleFaceSubobjectIndices;
 
     public ulong Handle { get; }
     public int LayerIndex { get; }
@@ -37,6 +84,12 @@ public sealed class CadMesh3DDrawBatch
     public ReadOnlyMemory<Vector3> Normals => _normals;
     public ReadOnlyMemory<Vector2> TextureCoordinates => _textureCoordinates;
     public ReadOnlyMemory<uint> Indices => _indices;
+    public int ComponentIndex { get; }
+    public ReadOnlyMemory<int> VertexSubobjectIndices =>
+        _vertexSubobjectIndices;
+    public ReadOnlyMemory<int> EdgeSubobjectIndices => _edgeSubobjectIndices;
+    public ReadOnlyMemory<int> TriangleFaceSubobjectIndices =>
+        _triangleFaceSubobjectIndices;
 
     internal CadMesh3DDrawBatch(
         ulong handle,
@@ -58,6 +111,41 @@ public sealed class CadMesh3DDrawBatch
         _normals = normals;
         _textureCoordinates = textureCoordinates;
         _indices = indices;
+        ComponentIndex = -1;
+        _vertexSubobjectIndices = [];
+        _edgeSubobjectIndices = [];
+        _triangleFaceSubobjectIndices = [];
+    }
+
+    internal CadMesh3DDrawBatch(
+        ulong handle,
+        int layerIndex,
+        int styleIndex,
+        CadColor32 color,
+        CadBounds3D bounds,
+        Vector3[] positions,
+        Vector3[] normals,
+        Vector2[] textureCoordinates,
+        uint[] indices,
+        int componentIndex,
+        int[] vertexSubobjectIndices,
+        int[] edgeSubobjectIndices,
+        int[] triangleFaceSubobjectIndices)
+        : this(
+            handle,
+            layerIndex,
+            styleIndex,
+            color,
+            bounds,
+            positions,
+            normals,
+            textureCoordinates,
+            indices)
+    {
+        ComponentIndex = componentIndex;
+        _vertexSubobjectIndices = vertexSubobjectIndices;
+        _edgeSubobjectIndices = edgeSubobjectIndices;
+        _triangleFaceSubobjectIndices = triangleFaceSubobjectIndices;
     }
 }
 
@@ -65,25 +153,54 @@ public sealed class CadMesh3DDrawBatch
 public sealed class CadRecordedMesh3DScene
 {
     private readonly CadMesh3DDrawBatch[] _drawBatches;
+    private readonly CadMesh3DSubobjectComponent[] _subobjectComponents;
 
     public ulong ContentGeneration { get; }
     public CadPoint3D RebaseOrigin { get; }
     public CadBounds3D Bounds { get; }
     public CadMesh3DSceneStatistics Statistics { get; }
     public ReadOnlyMemory<CadMesh3DDrawBatch> DrawBatches => _drawBatches;
+    public ReadOnlyMemory<CadMesh3DSubobjectComponent> SubobjectComponents =>
+        _subobjectComponents;
 
     internal CadRecordedMesh3DScene(
         ulong contentGeneration,
         CadPoint3D rebaseOrigin,
         CadBounds3D bounds,
         CadMesh3DSceneStatistics statistics,
-        CadMesh3DDrawBatch[] drawBatches)
+        CadMesh3DDrawBatch[] drawBatches,
+        CadMesh3DSubobjectComponent[]? subobjectComponents = null)
     {
         ContentGeneration = contentGeneration;
         RebaseOrigin = rebaseOrigin;
         Bounds = bounds;
         Statistics = statistics;
         _drawBatches = drawBatches;
+        _subobjectComponents = subobjectComponents ?? [];
+    }
+
+    public bool TryGetSubobjectComponent(
+        in CadMesh3DSubobjectId id,
+        out CadMesh3DSubobjectComponent? component)
+    {
+        if (id.ContentGeneration != ContentGeneration)
+        {
+            component = null;
+            return false;
+        }
+        for (int index = 0; index < _subobjectComponents.Length; index++)
+        {
+            CadMesh3DSubobjectComponent candidate =
+                _subobjectComponents[index];
+            if (candidate.ComponentIndex == id.ComponentIndex &&
+                candidate.Handle == id.Handle)
+            {
+                component = candidate;
+                return true;
+            }
+        }
+        component = null;
+        return false;
     }
 }
 
@@ -115,10 +232,15 @@ public sealed class CadMesh3DSceneCompiler
         ReadOnlySpan<CadMesh3DDrawRange> ranges = snapshot.Mesh3DDrawRanges.Span;
         ReadOnlySpan<CadMesh3DVertex> vertices = snapshot.Mesh3DVertices.Span;
         ReadOnlySpan<uint> indices = snapshot.Mesh3DIndices.Span;
+        ReadOnlySpan<int> vertexSubobjectIndices =
+            snapshot.Mesh3DVertexSubobjectIndices.Span;
+        ReadOnlySpan<int> edgeSubobjectIndices =
+            snapshot.Mesh3DEdgeSubobjectIndices.Span;
         ReadOnlySpan<CadFacePrimitive> faces = snapshot.Faces.Span;
         ReadOnlySpan<CadLayerSnapshot> layers = snapshot.Layers.Span;
         ReadOnlySpan<CadStrokeStyle> styles = snapshot.Styles.Span;
         var batches = new List<CadMesh3DDrawBatch>();
+        var subobjectComponents = new List<CadMesh3DSubobjectComponent>();
         int sourceMeshCount = 0;
         int sourceFaceCount = 0;
         int faceRangeCount = 0;
@@ -186,6 +308,7 @@ public sealed class CadMesh3DSceneCompiler
             }
             sourceMeshCount++;
             CadMesh3DPrimitive mesh = meshes[entity.PrimitiveIndex];
+            bool componentAdded = false;
             int rangeCursor = 0;
             while (rangeCursor < mesh.DrawRangeCount)
             {
@@ -230,8 +353,18 @@ public sealed class CadMesh3DSceneCompiler
                 var normals = new Vector3[vertexCount];
                 var textureCoordinates = new Vector2[vertexCount];
                 var batchIndices = new uint[indexCount];
+                var batchVertexSubobjectIndices = mesh.HasSubobjectTopology
+                    ? new int[vertexCount]
+                    : Array.Empty<int>();
+                var batchEdgeSubobjectIndices = mesh.HasSubobjectTopology
+                    ? new int[indexCount]
+                    : Array.Empty<int>();
+                var batchFaceSubobjectIndices = mesh.HasSubobjectTopology
+                    ? new int[indexCount / 3]
+                    : Array.Empty<int>();
                 int vertexDestination = 0;
                 int indexDestination = 0;
+                int triangleDestination = 0;
                 CadBounds3D batchBounds = CadBounds3D.Empty;
 
                 for (int current = rangeCursor; current < rangeEnd; current++)
@@ -250,6 +383,12 @@ public sealed class CadMesh3DSceneCompiler
                             snapshot.RebaseOrigin);
                         normals[vertexDestination] = ToNormal(source.Normal);
                         textureCoordinates[vertexDestination] = source.TextureCoordinate;
+                        if (mesh.HasSubobjectTopology)
+                        {
+                            batchVertexSubobjectIndices[vertexDestination] =
+                                vertexSubobjectIndices[
+                                    range.VertexOffset + vertexIndex];
+                        }
                         batchBounds = batchBounds.Include(source.Position);
                         vertexDestination++;
                     }
@@ -263,6 +402,16 @@ public sealed class CadMesh3DSceneCompiler
                         }
                         batchIndices[indexDestination++] = checked(
                             (uint)rangeVertexBase + sourceIndex);
+                        if (mesh.HasSubobjectTopology)
+                        {
+                            batchEdgeSubobjectIndices[indexDestination - 1] =
+                                edgeSubobjectIndices[range.IndexOffset + index];
+                            if (index % 3 == 2)
+                            {
+                                batchFaceSubobjectIndices[triangleDestination++] =
+                                    range.FaceSubobjectIndex;
+                            }
+                        }
                     }
                 }
 
@@ -276,7 +425,20 @@ public sealed class CadMesh3DSceneCompiler
                     positions,
                     normals,
                     textureCoordinates,
-                    batchIndices));
+                    batchIndices,
+                    mesh.HasSubobjectTopology ? entity.PrimitiveIndex : -1,
+                    batchVertexSubobjectIndices,
+                    batchEdgeSubobjectIndices,
+                    batchFaceSubobjectIndices));
+                if (mesh.HasSubobjectTopology && !componentAdded)
+                {
+                    subobjectComponents.Add(CreateSubobjectComponent(
+                        snapshot,
+                        mesh,
+                        entity.Handle,
+                        entity.PrimitiveIndex));
+                    componentAdded = true;
+                }
                 rangeCursor = rangeEnd;
             }
         }
@@ -292,8 +454,95 @@ public sealed class CadMesh3DSceneCompiler
                 batches.Count)
             {
                 SourceFaceCount = sourceFaceCount,
+                SubobjectComponentCount = subobjectComponents.Count,
+                SubobjectVertexCount = subobjectComponents.Sum(
+                    component => component.VertexPositions.Length),
+                SubobjectEdgeCount = subobjectComponents.Sum(
+                    component => component.Edges.Length),
+                SubobjectFaceCount = subobjectComponents.Sum(
+                    component => component.Faces.Length),
             },
-            batches.ToArray());
+            batches.ToArray(),
+            subobjectComponents.ToArray());
+    }
+
+    private static CadMesh3DSubobjectComponent CreateSubobjectComponent(
+        CadDocumentSnapshot snapshot,
+        CadMesh3DPrimitive mesh,
+        ulong handle,
+        int componentIndex)
+    {
+        ReadOnlySpan<CadPoint3D> sourcePoints =
+            snapshot.Mesh3DSubobjectPoints.Span;
+        var vertices = new Vector3[mesh.SubobjectVertexCount];
+        for (int vertex = 0; vertex < vertices.Length; vertex++)
+        {
+            vertices[vertex] = ToRebasedVector(
+                sourcePoints[mesh.SubobjectVertexPointOffset + vertex],
+                snapshot.RebaseOrigin);
+        }
+
+        ReadOnlySpan<CadMesh3DSubobjectEdge> sourceEdges =
+            snapshot.Mesh3DSubobjectEdges.Span.Slice(
+                mesh.SubobjectEdgeOffset,
+                mesh.SubobjectEdgeCount);
+        int edgePointCount = 0;
+        for (int edge = 0; edge < sourceEdges.Length; edge++)
+        {
+            edgePointCount = checked(edgePointCount + sourceEdges[edge].PointCount);
+        }
+        var edgePoints = new Vector3[edgePointCount];
+        var edges = new CadMesh3DSubobjectEdge[sourceEdges.Length];
+        int edgePointDestination = 0;
+        for (int edge = 0; edge < sourceEdges.Length; edge++)
+        {
+            CadMesh3DSubobjectEdge sourceEdge = sourceEdges[edge];
+            edges[edge] = new CadMesh3DSubobjectEdge(
+                edgePointDestination,
+                sourceEdge.PointCount);
+            for (int point = 0; point < sourceEdge.PointCount; point++)
+            {
+                edgePoints[edgePointDestination++] = ToRebasedVector(
+                    sourcePoints[sourceEdge.PointOffset + point],
+                    snapshot.RebaseOrigin);
+            }
+        }
+
+        ReadOnlySpan<CadMesh3DSubobjectFace> sourceFaces =
+            snapshot.Mesh3DSubobjectFaces.Span.Slice(
+                mesh.SubobjectFaceOffset,
+                mesh.SubobjectFaceCount);
+        ReadOnlySpan<int> sourceFaceEdgeIndices =
+            snapshot.Mesh3DSubobjectFaceEdgeIndices.Span;
+        int faceEdgeCount = 0;
+        for (int face = 0; face < sourceFaces.Length; face++)
+        {
+            faceEdgeCount = checked(faceEdgeCount + sourceFaces[face].EdgeIndexCount);
+        }
+        var faces = new CadMesh3DSubobjectFace[sourceFaces.Length];
+        var faceEdgeIndices = new int[faceEdgeCount];
+        int faceEdgeDestination = 0;
+        for (int face = 0; face < sourceFaces.Length; face++)
+        {
+            CadMesh3DSubobjectFace sourceFace = sourceFaces[face];
+            faces[face] = new CadMesh3DSubobjectFace(
+                faceEdgeDestination,
+                sourceFace.EdgeIndexCount);
+            for (int edge = 0; edge < sourceFace.EdgeIndexCount; edge++)
+            {
+                faceEdgeIndices[faceEdgeDestination++] =
+                    sourceFaceEdgeIndices[sourceFace.EdgeIndexOffset + edge] -
+                    mesh.SubobjectEdgeOffset;
+            }
+        }
+        return new CadMesh3DSubobjectComponent(
+            handle,
+            componentIndex,
+            vertices,
+            edgePoints,
+            edges,
+            faces,
+            faceEdgeIndices);
     }
 
     private static CadMesh3DDrawBatch CreateFaceBatch(

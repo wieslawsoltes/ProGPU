@@ -85,7 +85,7 @@ public readonly record struct CadMesh3DRegionQueryResult(
 /// conservative worst case. Warm queries use fixed stack storage and allocate
 /// no managed memory.
 /// </remarks>
-public sealed class CadMesh3DSelectionIndex
+public sealed partial class CadMesh3DSelectionIndex
 {
     public const int MaximumHitCount = 256;
     public const int MaximumProjectedPathPointCount = 4_096;

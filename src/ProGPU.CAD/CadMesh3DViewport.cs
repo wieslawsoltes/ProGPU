@@ -536,6 +536,36 @@ public sealed class CadMesh3DViewCoordinator
     }
 
     /// <summary>
+    /// Queries nearest-first authored modern-MESH subobjects through the
+    /// current camera into caller-owned bounded storage.
+    /// </summary>
+    public CadMesh3DSubobjectQueryResult QuerySubobjects(
+        Vector2 viewportSize,
+        Vector2 viewportPoint,
+        CadMesh3DSubobjectFilter filter,
+        Span<CadMesh3DSubobjectSelectionResult> destination,
+        float targetHeight = CadMesh3DSelectionIndex.DefaultPickTargetHeight)
+    {
+        CadMesh3DSelectionIndex index = SelectionIndex ??
+            throw new InvalidOperationException(
+                "A retained CAD mesh generation is required before selection.");
+        CadMesh3DViewport viewport = Viewport ??
+            throw new InvalidOperationException(
+                "A retained CAD mesh camera is required before selection.");
+        CadMesh3DSubobjectQueryResult result = index.QuerySubobjects(
+            viewport,
+            viewportSize,
+            viewportPoint,
+            filter,
+            destination,
+            targetHeight);
+        RecordSelectionQuery(
+            result.VisitedNodeCount,
+            result.TestedTriangleCount);
+        return result;
+    }
+
+    /// <summary>
     /// Queries exact projected Window/Crossing semantic roots into
     /// caller-owned storage.
     /// </summary>

@@ -505,14 +505,29 @@ namespace Microsoft.UI.Xaml.Controls
 
         public bool IsAltPressed { get; }
 
+        public bool IsShiftPressed { get; }
+
         internal Viewport3DClickEventArgs(
             Vector2 position,
             bool isControlPressed,
-            bool isAltPressed)
+            bool isAltPressed,
+            bool isShiftPressed)
         {
             Position = position;
             IsControlPressed = isControlPressed;
             IsAltPressed = isAltPressed;
+            IsShiftPressed = isShiftPressed;
+        }
+    }
+
+    /// <summary>One Ctrl+Space subobject-candidate cycle request.</summary>
+    public sealed class Viewport3DSubobjectCycleEventArgs : EventArgs
+    {
+        public Vector2 Position { get; }
+
+        internal Viewport3DSubobjectCycleEventArgs(Vector2 position)
+        {
+            Position = position;
         }
     }
 
@@ -665,10 +680,17 @@ namespace Microsoft.UI.Xaml.Controls
             _metricsTarget.LastFrameMetrics;
 
         /// <summary>
-        /// Raised for a non-Shift stationary left click. Orbit and pan drags
-        /// retain exclusive ownership of moved pointer gestures.
+        /// Raised for a stationary left click. Orbit and pan drags retain
+        /// exclusive ownership after crossing the movement threshold.
         /// </summary>
         public event EventHandler<Viewport3DClickEventArgs>? ViewportClicked;
+
+        /// <summary>
+        /// Raised for Ctrl+Space at the last pointer position when no lasso
+        /// gesture owns Space.
+        /// </summary>
+        public event EventHandler<Viewport3DSubobjectCycleEventArgs>?
+            SubobjectCycleRequested;
 
         /// <summary>
         /// Raised once when a primary drag crosses the click threshold. A host
@@ -1490,7 +1512,7 @@ namespace Microsoft.UI.Xaml.Controls
                     if (!_cameraInitialized) InitializeCameraState();
 
                     _clickOrigin = e.Position;
-                    _isClickCandidate = !isShift;
+                    _isClickCandidate = true;
                     _isRegionSelecting = false;
                     _regionSelectionCurrent = e.Position;
                     _regionSelectionPointCount = 0;
@@ -1594,7 +1616,8 @@ namespace Microsoft.UI.Xaml.Controls
                         new Viewport3DClickEventArgs(
                             e.Position,
                             InputSystem.Current.IsControlPressed,
-                            InputSystem.Current.IsAltPressed));
+                            InputSystem.Current.IsAltPressed,
+                            InputSystem.Current.IsShiftPressed));
                 }
             }
             base.OnPointerReleased(e);
@@ -1750,6 +1773,19 @@ namespace Microsoft.UI.Xaml.Controls
                     _regionSelectionMode);
                 e.Handled = true;
                 Invalidate();
+                base.OnKeyDown(e);
+                return;
+            }
+            if (IsEnabled && IsFocused &&
+                !_isRegionSelecting &&
+                InputSystem.Current.IsControlPressed &&
+                e.Key == Silk.NET.Input.Key.Space)
+            {
+                SubobjectCycleRequested?.Invoke(
+                    this,
+                    new Viewport3DSubobjectCycleEventArgs(
+                        _lastPointerPosition));
+                e.Handled = true;
                 base.OnKeyDown(e);
                 return;
             }

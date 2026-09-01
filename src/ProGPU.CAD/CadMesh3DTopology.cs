@@ -17,6 +17,20 @@ internal readonly record struct CadMesh3DFaceSource(
     int StyleIndex,
     bool AllowNonPlanarQuad)
 {
+    public int FaceSubobjectIndex { get; init; } = -1;
+
+    /// <summary>
+    /// Optional authored vertex ordinal per face corner. A negative value marks
+    /// a subdivision-only point.
+    /// </summary>
+    public int[] VertexSubobjectIndices { get; init; } = Array.Empty<int>();
+
+    /// <summary>
+    /// Optional authored edge ordinal from each face corner to the next. A
+    /// negative value marks an internal subdivision or triangulation edge.
+    /// </summary>
+    public int[] EdgeSubobjectIndices { get; init; } = Array.Empty<int>();
+
     /// <summary>
     /// Optional normal per face corner. An empty array selects exact Flat
     /// triangle normals; subdivided surfaces provide crease-aware smooth normals.
@@ -28,6 +42,8 @@ internal sealed class CadMesh3DBuildResult
 {
     public required CadMesh3DVertex[] Vertices { get; init; }
     public required uint[] Indices { get; init; }
+    public required int[] VertexSubobjectIndices { get; init; }
+    public required int[] EdgeSubobjectIndices { get; init; }
     public required CadMesh3DDrawRange[] DrawRanges { get; init; }
     public required CadBounds3D Bounds { get; init; }
 }
@@ -53,6 +69,8 @@ internal static class CadMesh3DTopology
         ArgumentNullException.ThrowIfNull(faces);
         var vertices = new List<CadMesh3DVertex>();
         var indices = new List<uint>();
+        var vertexSubobjectIndices = new List<int>();
+        var edgeSubobjectIndices = new List<int>();
         var ranges = new List<CadMesh3DDrawRange>(faces.Count);
         CadBounds3D bounds = CadBounds3D.Empty;
 
@@ -69,6 +87,14 @@ internal static class CadMesh3DTopology
             CadPoint3D[] normals = face.Normals ??
                 throw new ArgumentException(
                     "A mesh face has no normal array.",
+                    nameof(faces));
+            int[] faceVertexSubobjectIndices = face.VertexSubobjectIndices ??
+                throw new ArgumentException(
+                    "A mesh face has no vertex-subobject array.",
+                    nameof(faces));
+            int[] faceEdgeSubobjectIndices = face.EdgeSubobjectIndices ??
+                throw new ArgumentException(
+                    "A mesh face has no edge-subobject array.",
                     nameof(faces));
             if (points.Length < 3)
             {
@@ -87,6 +113,20 @@ internal static class CadMesh3DTopology
             {
                 throw new ArgumentException(
                     "A mesh face normal count must be zero or match its vertex count.",
+                    nameof(faces));
+            }
+            if (faceVertexSubobjectIndices.Length != 0 &&
+                faceVertexSubobjectIndices.Length != points.Length)
+            {
+                throw new ArgumentException(
+                    "A mesh face vertex-subobject count must be zero or match its point count.",
+                    nameof(faces));
+            }
+            if (faceEdgeSubobjectIndices.Length != 0 &&
+                faceEdgeSubobjectIndices.Length != points.Length)
+            {
+                throw new ArgumentException(
+                    "A mesh face edge-subobject count must be zero or match its point count.",
                     nameof(faces));
             }
 
@@ -117,6 +157,15 @@ internal static class CadMesh3DTopology
                     triangles[triangle + 2],
                     third,
                     ResolveNormal(triangles[triangle + 2], normal));
+                AppendEdgeSubobject(
+                    triangles[triangle],
+                    triangles[triangle + 1]);
+                AppendEdgeSubobject(
+                    triangles[triangle + 1],
+                    triangles[triangle + 2]);
+                AppendEdgeSubobject(
+                    triangles[triangle + 2],
+                    triangles[triangle]);
             }
 
             int vertexCount = vertices.Count - vertexOffset;
@@ -130,7 +179,10 @@ internal static class CadMesh3DTopology
                 vertexOffset,
                 vertexCount,
                 indexOffset,
-                vertexCount));
+                vertexCount)
+            {
+                FaceSubobjectIndex = face.FaceSubobjectIndex,
+            });
 
             void AppendVertex(
                 int sourceIndex,
@@ -151,7 +203,28 @@ internal static class CadMesh3DTopology
                     position,
                     normal,
                     textureCoordinate));
+                vertexSubobjectIndices.Add(
+                    faceVertexSubobjectIndices.Length == 0
+                        ? -1
+                        : faceVertexSubobjectIndices[sourceIndex]);
                 bounds = bounds.Include(position);
+            }
+
+            void AppendEdgeSubobject(int start, int end)
+            {
+                int edgeIndex = -1;
+                if (faceEdgeSubobjectIndices.Length != 0)
+                {
+                    if ((start + 1) % points.Length == end)
+                    {
+                        edgeIndex = faceEdgeSubobjectIndices[start];
+                    }
+                    else if ((end + 1) % points.Length == start)
+                    {
+                        edgeIndex = faceEdgeSubobjectIndices[end];
+                    }
+                }
+                edgeSubobjectIndices.Add(edgeIndex);
             }
 
             CadPoint3D ResolveNormal(int sourceIndex, CadPoint3D flatNormal)
@@ -183,6 +256,8 @@ internal static class CadMesh3DTopology
         {
             Vertices = vertices.ToArray(),
             Indices = indices.ToArray(),
+            VertexSubobjectIndices = vertexSubobjectIndices.ToArray(),
+            EdgeSubobjectIndices = edgeSubobjectIndices.ToArray(),
             DrawRanges = ranges.ToArray(),
             Bounds = bounds,
         };

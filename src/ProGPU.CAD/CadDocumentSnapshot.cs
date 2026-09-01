@@ -371,7 +371,24 @@ public readonly record struct CadMesh3DDrawRange(
     int VertexOffset,
     int VertexCount,
     int IndexOffset,
-    int IndexCount);
+    int IndexCount)
+{
+    /// <summary>
+    /// Authored modern-MESH face ordinal, or -1 when the surface does not
+    /// expose modern mesh subobjects.
+    /// </summary>
+    public int FaceSubobjectIndex { get; init; } = -1;
+}
+
+/// <summary>One authored modern-MESH edge as an ordered display polyline.</summary>
+public readonly record struct CadMesh3DSubobjectEdge(
+    int PointOffset,
+    int PointCount);
+
+/// <summary>One authored modern-MESH face as an ordered authored-edge loop.</summary>
+public readonly record struct CadMesh3DSubobjectFace(
+    int EdgeIndexOffset,
+    int EdgeIndexCount);
 
 /// <summary>
 /// One semantic MESH, polygon-mesh, or polyface-mesh instance. Its draw ranges
@@ -380,7 +397,20 @@ public readonly record struct CadMesh3DDrawRange(
 public readonly record struct CadMesh3DPrimitive(
     int DrawRangeOffset,
     int DrawRangeCount,
-    CadBounds3D Bounds);
+    CadBounds3D Bounds)
+{
+    public int SubobjectVertexPointOffset { get; init; }
+    public int SubobjectVertexCount { get; init; }
+    public int SubobjectEdgeOffset { get; init; }
+    public int SubobjectEdgeCount { get; init; }
+    public int SubobjectFaceOffset { get; init; }
+    public int SubobjectFaceCount { get; init; }
+
+    public bool HasSubobjectTopology =>
+        SubobjectVertexCount > 0 &&
+        SubobjectEdgeCount > 0 &&
+        SubobjectFaceCount > 0;
+}
 
 public enum CadModelerGeometryKind : byte
 {
@@ -800,6 +830,12 @@ public sealed class CadDocumentSnapshot
     private readonly CadMesh3DDrawRange[] _mesh3DDrawRanges;
     private readonly CadMesh3DVertex[] _mesh3DVertices;
     private readonly uint[] _mesh3DIndices;
+    private readonly int[] _mesh3DVertexSubobjectIndices;
+    private readonly int[] _mesh3DEdgeSubobjectIndices;
+    private readonly CadPoint3D[] _mesh3DSubobjectPoints;
+    private readonly CadMesh3DSubobjectEdge[] _mesh3DSubobjectEdges;
+    private readonly CadMesh3DSubobjectFace[] _mesh3DSubobjectFaces;
+    private readonly int[] _mesh3DSubobjectFaceEdgeIndices;
     private readonly CadModelerGeometryPrimitive[] _modelerGeometries;
     private readonly CadModelerGeometryWire[] _modelerGeometryWires;
     private readonly CadPoint3D[] _modelerGeometryPoints;
@@ -904,6 +940,18 @@ public sealed class CadDocumentSnapshot
     public ReadOnlyMemory<CadMesh3DDrawRange> Mesh3DDrawRanges => _mesh3DDrawRanges;
     public ReadOnlyMemory<CadMesh3DVertex> Mesh3DVertices => _mesh3DVertices;
     public ReadOnlyMemory<uint> Mesh3DIndices => _mesh3DIndices;
+    public ReadOnlyMemory<int> Mesh3DVertexSubobjectIndices =>
+        _mesh3DVertexSubobjectIndices;
+    public ReadOnlyMemory<int> Mesh3DEdgeSubobjectIndices =>
+        _mesh3DEdgeSubobjectIndices;
+    public ReadOnlyMemory<CadPoint3D> Mesh3DSubobjectPoints =>
+        _mesh3DSubobjectPoints;
+    public ReadOnlyMemory<CadMesh3DSubobjectEdge> Mesh3DSubobjectEdges =>
+        _mesh3DSubobjectEdges;
+    public ReadOnlyMemory<CadMesh3DSubobjectFace> Mesh3DSubobjectFaces =>
+        _mesh3DSubobjectFaces;
+    public ReadOnlyMemory<int> Mesh3DSubobjectFaceEdgeIndices =>
+        _mesh3DSubobjectFaceEdgeIndices;
     public ReadOnlyMemory<CadModelerGeometryPrimitive> ModelerGeometries => _modelerGeometries;
     public ReadOnlyMemory<CadModelerGeometryWire> ModelerGeometryWires => _modelerGeometryWires;
     public ReadOnlyMemory<CadPoint3D> ModelerGeometryPoints => _modelerGeometryPoints;
@@ -991,6 +1039,12 @@ public sealed class CadDocumentSnapshot
         CadMesh3DDrawRange[] mesh3DDrawRanges,
         CadMesh3DVertex[] mesh3DVertices,
         uint[] mesh3DIndices,
+        int[] mesh3DVertexSubobjectIndices,
+        int[] mesh3DEdgeSubobjectIndices,
+        CadPoint3D[] mesh3DSubobjectPoints,
+        CadMesh3DSubobjectEdge[] mesh3DSubobjectEdges,
+        CadMesh3DSubobjectFace[] mesh3DSubobjectFaces,
+        int[] mesh3DSubobjectFaceEdgeIndices,
         CadModelerGeometryPrimitive[] modelerGeometries,
         CadModelerGeometryWire[] modelerGeometryWires,
         CadPoint3D[] modelerGeometryPoints,
@@ -1075,6 +1129,12 @@ public sealed class CadDocumentSnapshot
         _mesh3DDrawRanges = mesh3DDrawRanges;
         _mesh3DVertices = mesh3DVertices;
         _mesh3DIndices = mesh3DIndices;
+        _mesh3DVertexSubobjectIndices = mesh3DVertexSubobjectIndices;
+        _mesh3DEdgeSubobjectIndices = mesh3DEdgeSubobjectIndices;
+        _mesh3DSubobjectPoints = mesh3DSubobjectPoints;
+        _mesh3DSubobjectEdges = mesh3DSubobjectEdges;
+        _mesh3DSubobjectFaces = mesh3DSubobjectFaces;
+        _mesh3DSubobjectFaceEdgeIndices = mesh3DSubobjectFaceEdgeIndices;
         _modelerGeometries = modelerGeometries;
         _modelerGeometryWires = modelerGeometryWires;
         _modelerGeometryPoints = modelerGeometryPoints;

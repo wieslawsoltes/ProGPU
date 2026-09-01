@@ -211,6 +211,12 @@ public sealed partial class CadSnapshotCompiler
         var mesh3DDrawRanges = new List<CadMesh3DDrawRange>();
         var mesh3DVertices = new List<CadMesh3DVertex>();
         var mesh3DIndices = new List<uint>();
+        var mesh3DVertexSubobjectIndices = new List<int>();
+        var mesh3DEdgeSubobjectIndices = new List<int>();
+        var mesh3DSubobjectPoints = new List<CadPoint3D>();
+        var mesh3DSubobjectEdges = new List<CadMesh3DSubobjectEdge>();
+        var mesh3DSubobjectFaces = new List<CadMesh3DSubobjectFace>();
+        var mesh3DSubobjectFaceEdgeIndices = new List<int>();
         var modelerGeometries = new List<CadModelerGeometryPrimitive>();
         var modelerGeometryWires = new List<CadModelerGeometryWire>();
         var modelerGeometryPoints = new List<CadPoint3D>();
@@ -386,6 +392,12 @@ public sealed partial class CadSnapshotCompiler
             mesh3DDrawRanges.ToArray(),
             mesh3DVertices.ToArray(),
             mesh3DIndices.ToArray(),
+            mesh3DVertexSubobjectIndices.ToArray(),
+            mesh3DEdgeSubobjectIndices.ToArray(),
+            mesh3DSubobjectPoints.ToArray(),
+            mesh3DSubobjectEdges.ToArray(),
+            mesh3DSubobjectFaces.ToArray(),
+            mesh3DSubobjectFaceEdgeIndices.ToArray(),
             modelerGeometries.ToArray(),
             modelerGeometryWires.ToArray(),
             modelerGeometryPoints.ToArray(),
@@ -2034,6 +2046,14 @@ public sealed partial class CadSnapshotCompiler
             Vector2[] displayTextureCoordinates = sourceTextureCoordinates;
             IReadOnlyList<int[]> displayFaces = mesh.Faces;
             CadPoint3D[][] displayNormals = Array.Empty<CadPoint3D[]>();
+            CadMeshSourceTopology authoredSubobjectTopology =
+                CadMeshSubdivision.CreateSourceTopology(mesh.Faces);
+            int[] displayFaceSourceIndices =
+                authoredSubobjectTopology.FaceSourceIndices;
+            int[][] displayFaceCornerSourceEdgeIndices =
+                authoredSubobjectTopology.FaceCornerSourceEdgeIndices;
+            int[][] sourceEdgeVertexChains =
+                authoredSubobjectTopology.SourceEdgeVertexChains;
             int subdivisionTopologyVisits = 0;
             if (mesh.SubdivisionLevel > 0)
             {
@@ -2060,6 +2080,10 @@ public sealed partial class CadSnapshotCompiler
                 displayTextureCoordinates = subdivision.TextureCoordinates;
                 displayFaces = subdivision.Faces;
                 displayNormals = subdivision.FaceCornerNormals;
+                displayFaceSourceIndices = subdivision.FaceSourceIndices;
+                displayFaceCornerSourceEdgeIndices =
+                    subdivision.FaceCornerSourceEdgeIndices;
+                sourceEdgeVertexChains = subdivision.SourceEdgeVertexChains;
             }
 
             var uniqueEdges = new HashSet<ulong>();
@@ -2127,6 +2151,14 @@ public sealed partial class CadSnapshotCompiler
                         faceTextureCoordinates[i] = displayTextureCoordinates[sourceIndex];
                     }
                 }
+                var vertexSubobjectIndices = new int[face.Length];
+                for (int i = 0; i < face.Length; i++)
+                {
+                    int sourceIndex = face[i];
+                    vertexSubobjectIndices[i] = sourceIndex < worldVertices.Length
+                        ? sourceIndex
+                        : -1;
+                }
                 meshFaces.Add(new CadMesh3DFaceSource(
                     facePoints,
                     faceTextureCoordinates,
@@ -2134,12 +2166,22 @@ public sealed partial class CadSnapshotCompiler
                     styleIndex,
                     AllowNonPlanarQuad: true)
                 {
+                    FaceSubobjectIndex = displayFaceSourceIndices[faceIndex],
+                    VertexSubobjectIndices = vertexSubobjectIndices,
+                    EdgeSubobjectIndices =
+                        displayFaceCornerSourceEdgeIndices[faceIndex],
                     Normals = displayNormals.Length == 0
                         ? Array.Empty<CadPoint3D>()
                         : displayNormals[faceIndex],
                 });
             }
-            CommitMesh3D(meshFaces, rootHandle);
+            CommitMesh3D(
+                meshFaces,
+                rootHandle,
+                displayVertices,
+                worldVertices.Length,
+                sourceEdgeVertexChains,
+                authoredSubobjectTopology.FaceCornerSourceEdgeIndices);
             expandedCount = checked(expandedCount + orderedEdges.Count);
             for (int i = 0; i < orderedEdges.Count; i++)
             {
@@ -2568,7 +2610,11 @@ public sealed partial class CadSnapshotCompiler
 
         void CommitMesh3D(
             IReadOnlyList<CadMesh3DFaceSource> sourceFaces,
-            ulong rootHandle)
+            ulong rootHandle,
+            CadPoint3D[]? subobjectDisplayVertices = null,
+            int subobjectVertexCount = 0,
+            int[][]? subobjectEdgeVertexChains = null,
+            int[][]? subobjectFaceEdgeIndices = null)
         {
             if (sourceFaces.Count == 0)
             {
@@ -2581,6 +2627,10 @@ public sealed partial class CadSnapshotCompiler
             int rangeOffset = mesh3DDrawRanges.Count;
             mesh3DVertices.AddRange(build.Vertices);
             mesh3DIndices.AddRange(build.Indices);
+            mesh3DVertexSubobjectIndices.AddRange(
+                build.VertexSubobjectIndices);
+            mesh3DEdgeSubobjectIndices.AddRange(
+                build.EdgeSubobjectIndices);
             for (int i = 0; i < build.DrawRanges.Length; i++)
             {
                 CadMesh3DDrawRange range = build.DrawRanges[i];
@@ -2591,11 +2641,105 @@ public sealed partial class CadSnapshotCompiler
                 });
             }
 
+            int subobjectVertexPointOffset = 0;
+            int subobjectEdgeOffset = 0;
+            int subobjectFaceOffset = 0;
+            int subobjectEdgeCount = 0;
+            int subobjectFaceCount = 0;
+            if (subobjectDisplayVertices is not null)
+            {
+                if (subobjectEdgeVertexChains is null)
+                {
+                    throw new ArgumentNullException(
+                        nameof(subobjectEdgeVertexChains));
+                }
+                if (subobjectFaceEdgeIndices is null)
+                {
+                    throw new ArgumentNullException(
+                        nameof(subobjectFaceEdgeIndices));
+                }
+                if (subobjectVertexCount <= 0 ||
+                    subobjectVertexCount > subobjectDisplayVertices.Length)
+                {
+                    throw new ArgumentOutOfRangeException(
+                        nameof(subobjectVertexCount));
+                }
+
+                subobjectVertexPointOffset = mesh3DSubobjectPoints.Count;
+                for (int vertex = 0; vertex < subobjectVertexCount; vertex++)
+                {
+                    mesh3DSubobjectPoints.Add(subobjectDisplayVertices[vertex]);
+                }
+
+                subobjectEdgeOffset = mesh3DSubobjectEdges.Count;
+                for (int edge = 0; edge < subobjectEdgeVertexChains.Length; edge++)
+                {
+                    int[] chain = subobjectEdgeVertexChains[edge];
+                    if (chain is null || chain.Length < 2)
+                    {
+                        throw new InvalidOperationException(
+                            "A modern MESH subobject edge requires a display polyline.");
+                    }
+                    int pointOffset = mesh3DSubobjectPoints.Count;
+                    for (int point = 0; point < chain.Length; point++)
+                    {
+                        int displayVertexIndex = chain[point];
+                        if ((uint)displayVertexIndex >=
+                            (uint)subobjectDisplayVertices.Length)
+                        {
+                            throw new InvalidOperationException(
+                                "A modern MESH subobject edge references a display vertex outside its topology.");
+                        }
+                        mesh3DSubobjectPoints.Add(
+                            subobjectDisplayVertices[displayVertexIndex]);
+                    }
+                    mesh3DSubobjectEdges.Add(new CadMesh3DSubobjectEdge(
+                        pointOffset,
+                        chain.Length));
+                }
+                subobjectEdgeCount = subobjectEdgeVertexChains.Length;
+
+                subobjectFaceOffset = mesh3DSubobjectFaces.Count;
+                for (int face = 0; face < subobjectFaceEdgeIndices.Length; face++)
+                {
+                    int[] faceEdges = subobjectFaceEdgeIndices[face];
+                    if (faceEdges is null || faceEdges.Length < 3)
+                    {
+                        throw new InvalidOperationException(
+                            "A modern MESH subobject face requires an authored edge loop.");
+                    }
+                    int edgeIndexOffset = mesh3DSubobjectFaceEdgeIndices.Count;
+                    for (int edge = 0; edge < faceEdges.Length; edge++)
+                    {
+                        int localEdgeIndex = faceEdges[edge];
+                        if ((uint)localEdgeIndex >= (uint)subobjectEdgeCount)
+                        {
+                            throw new InvalidOperationException(
+                                "A modern MESH subobject face references an edge outside its topology.");
+                        }
+                        mesh3DSubobjectFaceEdgeIndices.Add(
+                            checked(subobjectEdgeOffset + localEdgeIndex));
+                    }
+                    mesh3DSubobjectFaces.Add(new CadMesh3DSubobjectFace(
+                        edgeIndexOffset,
+                        faceEdges.Length));
+                }
+                subobjectFaceCount = subobjectFaceEdgeIndices.Length;
+            }
+
             int primitiveIndex = meshes3D.Count;
             meshes3D.Add(new CadMesh3DPrimitive(
                 rangeOffset,
                 build.DrawRanges.Length,
-                build.Bounds));
+                build.Bounds)
+            {
+                SubobjectVertexPointOffset = subobjectVertexPointOffset,
+                SubobjectVertexCount = subobjectVertexCount,
+                SubobjectEdgeOffset = subobjectEdgeOffset,
+                SubobjectEdgeCount = subobjectEdgeCount,
+                SubobjectFaceOffset = subobjectFaceOffset,
+                SubobjectFaceCount = subobjectFaceCount,
+            });
             CadMesh3DDrawRange firstRange = build.DrawRanges[0];
             entities.Add(new CadEntityHeader(
                 rootHandle,

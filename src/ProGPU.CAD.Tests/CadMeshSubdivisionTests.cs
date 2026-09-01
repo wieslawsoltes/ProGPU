@@ -11,6 +11,38 @@ namespace ProGPU.CAD.Tests;
 public sealed class CadMeshSubdivisionTests
 {
     [Fact]
+    public void RefinedMeshKeepsOneAuthoredFaceFourAuthoredEdgesAndFinalControlVertices()
+    {
+        CadDocumentSnapshot snapshot = Compile(new CadDocument
+        {
+            Entities = { CreateOpenQuad(level: 1) },
+        });
+        CadMesh3DPrimitive primitive = Assert.Single(snapshot.Meshes3D.ToArray());
+        CadMesh3DDrawRange[] ranges = snapshot.Mesh3DDrawRanges.ToArray();
+
+        Assert.True(primitive.HasSubobjectTopology);
+        Assert.Equal(4, primitive.SubobjectVertexCount);
+        Assert.Equal(4, primitive.SubobjectEdgeCount);
+        Assert.Equal(1, primitive.SubobjectFaceCount);
+        Assert.Equal(4, ranges.Length);
+        Assert.All(ranges, range => Assert.Equal(0, range.FaceSubobjectIndex));
+        Assert.All(snapshot.Mesh3DSubobjectEdges.ToArray(), edge =>
+            Assert.Equal(3, edge.PointCount));
+
+        CadPoint3D firstControl = snapshot.Mesh3DSubobjectPoints.Span[
+            primitive.SubobjectVertexPointOffset];
+        Assert.Equal(new CadPoint3D(0.25, 0.25, 0), firstControl);
+        CadRecordedMesh3DScene scene =
+            new CadMesh3DSceneCompiler().Compile(snapshot);
+        CadMesh3DSubobjectComponent component = Assert.Single(
+            scene.SubobjectComponents.ToArray());
+        Assert.Equal(new System.Numerics.Vector3(-0.75f, -0.75f, 0),
+            component.VertexPositions.Span[0]);
+        Assert.All(scene.DrawBatches.Span[0].TriangleFaceSubobjectIndices.ToArray(),
+            face => Assert.Equal(0, face));
+    }
+
+    [Fact]
     public void OpenQuadLevelOneUsesBoundaryMasksUvSmoothNormalsAndSharedPipelines()
     {
         Mesh mesh = CreateOpenQuad(level: 1);
