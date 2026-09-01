@@ -727,6 +727,15 @@ closed until their cap/run/offset bounds share the retained stroke compiler.
 The native fixture compares both base and transformed results through genuine
 system Direct2D pointers on Windows.
 
+The same default-stroke rectangle lane now implements
+`StrokeContainsPoint`. It tests the exact transformed outer miter rectangle
+and excludes only the strict transformed inner rectangle, so both centered
+stroke boundaries remain included. Non-finite input is rejected; non-null
+styles, degenerate rectangles, and singular transforms fail closed until the
+shared styled-offset implementation is available. Portable and Windows
+system-Direct2D fixtures compare edge and center points for both base and
+intrinsically transformed rectangles.
+
 WIC codec activation/decoding itself, render-target-to-bitmap copies,
 alpha-ignore/straight formats,
 non-null `FillGeometry` opacity brushes, `ID2D1StrokeStyle1` fixed/hairline

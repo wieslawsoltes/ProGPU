@@ -1119,6 +1119,34 @@ int run_tests()
         !approximately_equal(length, 52.0F)) {
         return 10;
     }
+    std::int32_t stroke_edge_contains = 0;
+    std::int32_t stroke_center_contains = 1;
+    std::int32_t stroke_outside_contains = 1;
+    if (geometry->StrokeContainsPoint(
+            {11.0F, 10.0F},
+            2.0F,
+            nullptr,
+            &transform,
+            core::default_flattening_tolerance,
+            &stroke_edge_contains) != com::ok ||
+        geometry->StrokeContainsPoint(
+            {16.0F, 10.0F},
+            2.0F,
+            nullptr,
+            &transform,
+            core::default_flattening_tolerance,
+            &stroke_center_contains) != com::ok ||
+        geometry->StrokeContainsPoint(
+            {30.0F, 30.0F},
+            2.0F,
+            nullptr,
+            &transform,
+            core::default_flattening_tolerance,
+            &stroke_outside_contains) != com::ok ||
+        stroke_edge_contains != 1 || stroke_center_contains != 0 ||
+        stroke_outside_contains != 0) {
+        return 269;
+    }
 
     auto* raw_simplified_sink = new simplified_sink();
     com::pointer<compat::simplified_geometry_sink> simplified;
@@ -1224,6 +1252,26 @@ int run_tests()
     }
     [[maybe_unused]] const compat::rectangle_f transformed_widened_bounds =
         returned;
+    std::int32_t transformed_stroke_edge_contains = 0;
+    std::int32_t transformed_stroke_center_contains = 1;
+    if (transformed->StrokeContainsPoint(
+            {23.0F, 24.0F},
+            2.0F,
+            nullptr,
+            &transform,
+            core::default_flattening_tolerance,
+            &transformed_stroke_edge_contains) != com::ok ||
+        transformed->StrokeContainsPoint(
+            {30.0F, 24.0F},
+            2.0F,
+            nullptr,
+            &transform,
+            core::default_flattening_tolerance,
+            &transformed_stroke_center_contains) != com::ok ||
+        transformed_stroke_edge_contains != 1 ||
+        transformed_stroke_center_contains != 0) {
+        return 270;
+    }
 
     compat::factory* second_raw_factory = nullptr;
     if (compat::create_factory(&second_raw_factory) != com::ok) {
@@ -5238,6 +5286,24 @@ int run_tests()
             &system_rectangle_transform,
             D2D1_DEFAULT_FLATTENING_TOLERANCE,
             &system_widened_bounds);
+    BOOL system_stroke_edge_contains = FALSE;
+    BOOL system_stroke_center_contains = TRUE;
+    const HRESULT system_stroke_edge_status =
+        system_group_rectangle->StrokeContainsPoint(
+            D2D1_POINT_2F{11.0F, 10.0F},
+            2.0F,
+            nullptr,
+            &system_rectangle_transform,
+            D2D1_DEFAULT_FLATTENING_TOLERANCE,
+            &system_stroke_edge_contains);
+    const HRESULT system_stroke_center_status =
+        system_group_rectangle->StrokeContainsPoint(
+            D2D1_POINT_2F{16.0F, 10.0F},
+            2.0F,
+            nullptr,
+            &system_rectangle_transform,
+            D2D1_DEFAULT_FLATTENING_TOLERANCE,
+            &system_stroke_center_contains);
     const D2D1_MATRIX_3X2_F system_local_transform = make_native_matrix(
         2.0F, 0.0F, 0.0F, 0.5F, 5.0F, 7.0F);
     ID2D1TransformedGeometry* system_transformed_rectangle = nullptr;
@@ -5257,6 +5323,28 @@ int run_tests()
               &system_rectangle_transform,
               D2D1_DEFAULT_FLATTENING_TOLERANCE,
               &system_transformed_widened_bounds);
+    BOOL system_transformed_stroke_edge_contains = FALSE;
+    BOOL system_transformed_stroke_center_contains = TRUE;
+    const HRESULT system_transformed_stroke_edge_status =
+        system_transformed_rectangle == nullptr
+        ? system_transformed_create_status
+        : system_transformed_rectangle->StrokeContainsPoint(
+              D2D1_POINT_2F{23.0F, 24.0F},
+              2.0F,
+              nullptr,
+              &system_rectangle_transform,
+              D2D1_DEFAULT_FLATTENING_TOLERANCE,
+              &system_transformed_stroke_edge_contains);
+    const HRESULT system_transformed_stroke_center_status =
+        system_transformed_rectangle == nullptr
+        ? system_transformed_create_status
+        : system_transformed_rectangle->StrokeContainsPoint(
+              D2D1_POINT_2F{30.0F, 24.0F},
+              2.0F,
+              nullptr,
+              &system_rectangle_transform,
+              D2D1_DEFAULT_FLATTENING_TOLERANCE,
+              &system_transformed_stroke_center_contains);
     if (system_transformed_rectangle != nullptr) {
         system_transformed_rectangle->Release();
     }
@@ -5275,6 +5363,10 @@ int run_tests()
             system_widened_bounds.right, widened_bounds.right) ||
         !approximately_equal(
             system_widened_bounds.bottom, widened_bounds.bottom) ||
+        FAILED(system_stroke_edge_status) ||
+        FAILED(system_stroke_center_status) ||
+        system_stroke_edge_contains != stroke_edge_contains ||
+        system_stroke_center_contains != stroke_center_contains ||
         FAILED(system_transformed_widened_status) ||
         !approximately_equal(
             system_transformed_widened_bounds.left,
@@ -5288,6 +5380,12 @@ int run_tests()
         !approximately_equal(
             system_transformed_widened_bounds.bottom,
             transformed_widened_bounds.bottom) ||
+        FAILED(system_transformed_stroke_edge_status) ||
+        FAILED(system_transformed_stroke_center_status) ||
+        system_transformed_stroke_edge_contains !=
+            transformed_stroke_edge_contains ||
+        system_transformed_stroke_center_contains !=
+            transformed_stroke_center_contains ||
         FAILED(system_outline_status) ||
         raw_system_outline_sink->fill_mode !=
             raw_native_outline_sink->fill_mode ||
