@@ -6563,6 +6563,31 @@ public sealed class CadSampleCanvas : FrameworkElement
     }
 
     /// <summary>
+    /// Moves generation-owned modern-MESH subobjects and recompiles the shared
+    /// retained snapshot for desktop and browser hosts.
+    /// </summary>
+    public bool TranslateMeshSubobjects(
+        CadRecordedMesh3DScene scene,
+        IEnumerable<CadMesh3DSubobjectId> subobjects,
+        CadPoint3D translation)
+    {
+        ThrowIfDrawOrderReferencePickPending();
+        ArgumentNullException.ThrowIfNull(scene);
+        ArgumentNullException.ThrowIfNull(subobjects);
+        CadDocumentSession session = CurrentSession ??
+            throw new InvalidOperationException("No CAD document is loaded.");
+        CadDocumentHistory history = _history ??
+            throw new InvalidOperationException("The CAD edit history is not initialized.");
+        var command = new CadTranslateMeshSubobjectsCommand(
+            scene,
+            subobjects,
+            translation);
+        history.Execute(command);
+        RecompileAfterEdit(session);
+        return true;
+    }
+
+    /// <summary>
     /// Copies all selected semantic model-space roots by one WCS displacement
     /// while preserving the source selection for repeated copy operations.
     /// </summary>

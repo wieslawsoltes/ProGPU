@@ -38,6 +38,9 @@ public sealed class CadMesh3DSubobjectComponent
     private readonly int[] _faceEdgeIndices;
 
     public ulong Handle { get; }
+    public ulong SourceHandle { get; }
+    public CadAffineTransform3D SourceToWorld { get; }
+    public bool IsDirectModelSpaceSource { get; }
     public int ComponentIndex { get; }
     public ReadOnlyMemory<Vector3> VertexPositions => _vertexPositions;
     public ReadOnlyMemory<Vector3> EdgePoints => _edgePoints;
@@ -47,6 +50,9 @@ public sealed class CadMesh3DSubobjectComponent
 
     internal CadMesh3DSubobjectComponent(
         ulong handle,
+        ulong sourceHandle,
+        CadAffineTransform3D sourceToWorld,
+        bool isDirectModelSpaceSource,
         int componentIndex,
         Vector3[] vertexPositions,
         Vector3[] edgePoints,
@@ -55,6 +61,9 @@ public sealed class CadMesh3DSubobjectComponent
         int[] faceEdgeIndices)
     {
         Handle = handle;
+        SourceHandle = sourceHandle;
+        SourceToWorld = sourceToWorld;
+        IsDirectModelSpaceSource = isDirectModelSpaceSource;
         ComponentIndex = componentIndex;
         _vertexPositions = vertexPositions;
         _edgePoints = edgePoints;
@@ -537,6 +546,9 @@ public sealed class CadMesh3DSceneCompiler
         }
         return new CadMesh3DSubobjectComponent(
             handle,
+            mesh.SubobjectSourceHandle,
+            mesh.SubobjectSourceToWorld,
+            mesh.IsDirectModelSpaceSubobjectSource,
             componentIndex,
             vertices,
             edgePoints,

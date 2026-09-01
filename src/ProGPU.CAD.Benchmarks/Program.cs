@@ -22,6 +22,20 @@ using ProGPU.Scene.Extensions;
 using ProGPU.Text;
 using ProGPU.Tests.Headless;
 
+int mesh3DSubobjectEditGridSize = ReadNonNegativeInt(
+    "--mesh3d-subobject-edit-grid",
+    0);
+if (mesh3DSubobjectEditGridSize != 0)
+{
+    RunMesh3DSubobjectEditBenchmark(
+        mesh3DSubobjectEditGridSize,
+        ReadPositiveInt("--mesh3d-subobject-edit-faces", 1_024),
+        ReadNonNegativeInt("--warmup", 3),
+        ReadPositiveInt("--iterations", 24),
+        ReadString("--output-json"));
+    return;
+}
+
 int mesh3DSelectionGridSize = ReadNonNegativeInt(
     "--mesh3d-selection-grid",
     0);
@@ -35,6 +49,158 @@ if (mesh3DSelectionGridSize != 0)
         ReadPositiveInt("--queries", 65_536),
         ReadString("--output-json"));
     return;
+}
+
+void RunMesh3DSubobjectEditBenchmark(
+    int gridSize,
+    int selectedFaceCount,
+    int warmups,
+    int iterations,
+    string? reportPath)
+{
+    long totalFaceCount = checked((long)gridSize * gridSize);
+    if (totalFaceCount > int.MaxValue)
+    {
+        throw new ArgumentOutOfRangeException(nameof(gridSize));
+    }
+    selectedFaceCount = Math.Min(selectedFaceCount, checked((int)totalFaceCount));
+    if (selectedFaceCount > CadTranslateMeshSubobjectsCommand.DefaultMaxSubobjects)
+    {
+        throw new ArgumentOutOfRangeException(
+            nameof(selectedFaceCount),
+            $"Selected faces cannot exceed {CadTranslateMeshSubobjectsCommand.DefaultMaxSubobjects}.");
+    }
+
+    var document = new CadDocument(ACadVersion.AC1032);
+    Mesh mesh = CreateMesh3DSubobjectEditGrid(gridSize);
+    document.Entities.Add(mesh);
+    var session = new CadDocumentSession(document);
+    var history = new CadDocumentHistory(
+        session,
+        capacity: checked(warmups + iterations + 4));
+    int operation = 0;
+
+    object EditAndRebuild()
+    {
+        CadDocumentSnapshot snapshot = new CadSnapshotCompiler().Compile(session);
+        CadRecordedMesh3DScene scene = new CadMesh3DSceneCompiler().Compile(snapshot);
+        CadMesh3DSubobjectComponent component = scene.SubobjectComponents.Span[0];
+        var ids = new CadMesh3DSubobjectId[selectedFaceCount];
+        int stride = Math.Max(1, checked((int)totalFaceCount) / selectedFaceCount);
+        for (int index = 0; index < ids.Length; index++)
+        {
+            ids[index] = new CadMesh3DSubobjectId(
+                scene.ContentGeneration,
+                component.Handle,
+                component.ComponentIndex,
+                CadMesh3DSubobjectKind.Face,
+                Math.Min(checked((int)totalFaceCount) - 1, index * stride));
+        }
+        double displacement = (operation++ & 1) == 0 ? 0.125 : -0.125;
+        ulong generation = history.Execute(
+            new CadTranslateMeshSubobjectsCommand(
+                scene,
+                ids,
+                new CadPoint3D(0, 0, displacement)));
+        CadDocumentSnapshot rebuilt = new CadSnapshotCompiler().Compile(session);
+        CadRecordedMesh3DScene rebuiltScene =
+            new CadMesh3DSceneCompiler().Compile(rebuilt);
+        return HashCode.Combine(
+            generation,
+            rebuiltScene.Statistics.TriangleCount,
+            rebuiltScene.SubobjectComponents.Span[0].VertexPositions.Length);
+    }
+
+    for (int index = 0; index < warmups; index++)
+    {
+        _ = EditAndRebuild();
+    }
+    Measurement editAndRebuild = Measure(
+        "mesh-subobject-edit-snapshot-scene-ms",
+        iterations,
+        EditAndRebuild);
+
+    for (int index = 0; index < warmups; index++)
+    {
+        if (!history.TryUndo(out _) || !history.TryRedo(out _))
+        {
+            throw new InvalidOperationException(
+                "Mesh-subobject undo/redo benchmark warmup failed.");
+        }
+    }
+    var undoRedoElapsed = new double[iterations];
+    _ = GC.GetAllocatedBytesForCurrentThread();
+    long allocatedStart = GC.GetAllocatedBytesForCurrentThread();
+    ulong checksum = 0;
+    for (int index = 0; index < iterations; index++)
+    {
+        long started = Stopwatch.GetTimestamp();
+        if (!history.TryUndo(out ulong undoGeneration) ||
+            !history.TryRedo(out ulong redoGeneration))
+        {
+            throw new InvalidOperationException(
+                "Mesh-subobject undo/redo benchmark iteration failed.");
+        }
+        undoRedoElapsed[index] =
+            Stopwatch.GetElapsedTime(started).TotalMilliseconds;
+        checksum ^= undoGeneration ^ redoGeneration;
+    }
+    long allocated = GC.GetAllocatedBytesForCurrentThread() - allocatedStart;
+    GC.KeepAlive(checksum);
+    Measurement undoRedo = Summarize(
+        "mesh-subobject-undo-redo-ms",
+        undoRedoElapsed,
+        allocated / iterations);
+
+    var report = new CadMesh3DSubobjectEditBenchmarkReport(
+        DateTimeOffset.UtcNow,
+        Environment.OSVersion.ToString(),
+        RuntimeInformation.FrameworkDescription,
+        gridSize,
+        mesh.Vertices.Count,
+        mesh.Faces.Count,
+        selectedFaceCount,
+        warmups,
+        iterations,
+        editAndRebuild,
+        undoRedo,
+        session.ContentGeneration,
+        CaptureMesh3DReplayBinaryHashes());
+    string json = JsonSerializer.Serialize(
+        report,
+        new JsonSerializerOptions { WriteIndented = true });
+    Console.WriteLine(json);
+    if (reportPath is not null)
+    {
+        File.WriteAllText(reportPath, json);
+    }
+}
+
+Mesh CreateMesh3DSubobjectEditGrid(int gridSize)
+{
+    var mesh = new Mesh();
+    int stride = checked(gridSize + 1);
+    for (int y = 0; y <= gridSize; y++)
+    {
+        for (int x = 0; x <= gridSize; x++)
+        {
+            mesh.Vertices.Add(new XYZ(x, y, 0));
+        }
+    }
+    for (int y = 0; y < gridSize; y++)
+    {
+        for (int x = 0; x < gridSize; x++)
+        {
+            int first = checked((y * stride) + x);
+            mesh.Faces.Add([
+                first,
+                first + 1,
+                first + stride + 1,
+                first + stride,
+            ]);
+        }
+    }
+    return mesh;
 }
 
 int mesh3DReplayBatchCount = ReadNonNegativeInt(
@@ -4098,6 +4264,21 @@ internal sealed record CadMesh3DReplayBinaryHashes(
     string Scene,
     string TestsHeadless,
     string WinUI);
+
+internal sealed record CadMesh3DSubobjectEditBenchmarkReport(
+    DateTimeOffset CapturedAt,
+    string OperatingSystem,
+    string Runtime,
+    int GridSize,
+    int ControlVertexCount,
+    int AuthoredFaceCount,
+    int SelectedFaceCount,
+    int WarmupCount,
+    int IterationCount,
+    Measurement EditSnapshotSceneMilliseconds,
+    Measurement UndoRedoMilliseconds,
+    ulong FinalContentGeneration,
+    CadMesh3DReplayBinaryHashes RelevantBinarySha256);
 
 internal sealed record CadBenchmarkReport(
     DateTimeOffset CapturedAt,

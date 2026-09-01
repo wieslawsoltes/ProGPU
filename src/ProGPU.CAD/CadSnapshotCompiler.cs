@@ -2181,7 +2181,10 @@ public sealed partial class CadSnapshotCompiler
                 displayVertices,
                 worldVertices.Length,
                 sourceEdgeVertexChains,
-                authoredSubobjectTopology.FaceCornerSourceEdgeIndices);
+                authoredSubobjectTopology.FaceCornerSourceEdgeIndices,
+                mesh.Handle,
+                hasTransform ? transform : CadAffineTransform3D.Identity,
+                !hasTransform && rootHandle == mesh.Handle);
             expandedCount = checked(expandedCount + orderedEdges.Count);
             for (int i = 0; i < orderedEdges.Count; i++)
             {
@@ -2614,7 +2617,10 @@ public sealed partial class CadSnapshotCompiler
             CadPoint3D[]? subobjectDisplayVertices = null,
             int subobjectVertexCount = 0,
             int[][]? subobjectEdgeVertexChains = null,
-            int[][]? subobjectFaceEdgeIndices = null)
+            int[][]? subobjectFaceEdgeIndices = null,
+            ulong subobjectSourceHandle = 0,
+            CadAffineTransform3D subobjectSourceToWorld = default,
+            bool isDirectModelSpaceSubobjectSource = false)
         {
             if (sourceFaces.Count == 0)
             {
@@ -2733,6 +2739,12 @@ public sealed partial class CadSnapshotCompiler
                 build.DrawRanges.Length,
                 build.Bounds)
             {
+                SubobjectSourceHandle = subobjectSourceHandle,
+                SubobjectSourceToWorld = subobjectDisplayVertices is null
+                    ? CadAffineTransform3D.Identity
+                    : subobjectSourceToWorld,
+                IsDirectModelSpaceSubobjectSource =
+                    isDirectModelSpaceSubobjectSource,
                 SubobjectVertexPointOffset = subobjectVertexPointOffset,
                 SubobjectVertexCount = subobjectVertexCount,
                 SubobjectEdgeOffset = subobjectEdgeOffset,

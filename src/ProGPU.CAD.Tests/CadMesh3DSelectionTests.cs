@@ -1822,6 +1822,58 @@ public sealed class CadMesh3DSelectionTests
     }
 
     [Fact]
+    public void SharedViewportMovesSelectedMeshVertexAndRemapsItsGeneration()
+    {
+        var document = new CadDocument();
+        Mesh mesh = CreateStackedMesh(0.0);
+        document.Entities.Add(mesh);
+        var session = new CadDocumentSession(document);
+        var view = new CadSampleView();
+        try
+        {
+            view.Arrange(new Rect(0, 0, 1_280, 900));
+            view.Canvas.Load(session);
+            view.MeshViewport.Size = ViewportSize;
+            PressEnter(FindButton(view, "3D surfaces"));
+            CadRecordedMesh3DScene scene = Assert.IsType<CadRecordedMesh3DScene>(
+                view.MeshScene);
+            CadMesh3DViewport viewport = view.MeshViewportState!.Value;
+            view.MeshSubobjectSelector.SelectedIndex = 1;
+            Click(
+                view.MeshViewport,
+                Project(
+                    viewport,
+                    scene,
+                    new CadPoint3D(-2.0, -2.0, 0.0)));
+            CadMesh3DSubobjectId selected = Assert.Single(
+                view.SelectedMeshSubobjects);
+            Assert.Equal(CadMesh3DSubobjectKind.Vertex, selected.Kind);
+            XYZ original = mesh.Vertices[selected.Index];
+            Button movePositiveX = FindButton(view, "+X");
+            Assert.True(movePositiveX.IsEnabled);
+
+            PressEnter(movePositiveX);
+
+            Assert.Equal(original + XYZ.AxisX, mesh.Vertices[selected.Index]);
+            Assert.Equal(1UL, session.ContentGeneration);
+            CadMesh3DSubobjectId remapped = Assert.Single(
+                view.SelectedMeshSubobjects);
+            Assert.Equal(selected.Kind, remapped.Kind);
+            Assert.Equal(selected.Index, remapped.Index);
+            Assert.Equal(1UL, remapped.ContentGeneration);
+            Assert.True(view.MeshScene!.TryGetSubobjectComponent(
+                remapped,
+                out CadMesh3DSubobjectComponent? component));
+            Assert.True(component!.IsDirectModelSpaceSource);
+            Assert.Equal(mesh.Handle, component.SourceHandle);
+        }
+        finally
+        {
+            view.Canvas.FireUnloaded();
+        }
+    }
+
+    [Fact]
     public void SharedViewportAltClickCyclesNearestSemanticDepthHits()
     {
         var document = new CadDocument();

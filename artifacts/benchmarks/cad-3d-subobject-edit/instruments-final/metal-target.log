@@ -1,0 +1,36 @@
+{
+  "CapturedAt": "2026-09-01T04:05:38.872699+00:00",
+  "OperatingSystem": "Unix 26.6.0",
+  "Runtime": ".NET 10.0.5",
+  "GridSize": 128,
+  "ControlVertexCount": 16641,
+  "AuthoredFaceCount": 16384,
+  "SelectedFaceCount": 1024,
+  "WarmupCount": 2,
+  "IterationCount": 16,
+  "EditSnapshotSceneMilliseconds": {
+    "Name": "mesh-subobject-edit-snapshot-scene-ms",
+    "P50": 489.158,
+    "P95": 553.6709,
+    "P99": 553.6709,
+    "Mean": 497.34797499999996,
+    "AllocatedBytesPerOperation": 209354157
+  },
+  "UndoRedoMilliseconds": {
+    "Name": "mesh-subobject-undo-redo-ms",
+    "P50": 0.0272,
+    "P95": 0.0352,
+    "P99": 0.0352,
+    "Mean": 0.02830625,
+    "AllocatedBytesPerOperation": 304
+  },
+  "FinalContentGeneration": 54,
+  "RelevantBinarySha256": {
+    "Benchmark": "4cd8f1031e0139b5746d8f705505c4bff2a9f4bc0f795741d17531ed43bb1e11",
+    "Backend": "4be9f002487f572f1307d5b4a0009305aaa219637756ea1ca52690a920166e1f",
+    "Cad": "3c1085691076c6eb7c4368c2c7f8280ec1a39c7b1fcd95ce20f3a876be33f421",
+    "Scene": "1722dae7fdfe558b2748515549372276aa338aeb8e333dcd5c7ea0e288cd3af4",
+    "TestsHeadless": "6c951163574874195aa2d29b8e25799a610c56ece76208281684e1f7b13cab50",
+    "WinUI": "6c7eaa4084c595f8aae01a6e7e0242ea55b490d64ed88923d05a12d778f8d726"
+  }
+}

@@ -45,6 +45,12 @@ public abstract class CadEditCommand
 
     public string Description { get; }
 
+    /// <summary>
+    /// Immutable content generation required by this command, or null when
+    /// the command resolves only generation-independent document identity.
+    /// </summary>
+    internal virtual ulong? ExpectedContentGeneration => null;
+
     protected CadEditCommand(string description)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(description);
@@ -928,6 +934,13 @@ public sealed class CadDocumentHistory
         lock (_gate)
         {
             SynchronizeForNewEdit();
+            if (command.ExpectedContentGeneration is ulong expectedGeneration &&
+                expectedGeneration != _expectedGeneration)
+            {
+                throw new CadEditHistoryDivergedException(
+                    expectedGeneration,
+                    _expectedGeneration);
+            }
             try
             {
                 ulong generation = _session.Edit(

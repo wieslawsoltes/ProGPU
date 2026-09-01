@@ -4805,6 +4805,7 @@ public sealed class CadSampleView : Grid
         ResetMeshSelectionCycle();
         ResetMeshSubobjectCycle();
         RefreshMeshSubobjectOverlay();
+        UpdateEditControls();
         SetStatus(
             $"3D subobject {selectionName} " +
             $"{(args.IsControlPressed ? "added" : "selected")} " +
@@ -4986,6 +4987,7 @@ public sealed class CadSampleView : Grid
         }
         ResetMeshSubobjectCycle();
         RefreshMeshSubobjectOverlay();
+        UpdateEditControls();
         SetStatus(
             $"3D {(args.IsShiftPressed ? "removed" : "selected")} " +
             $"{hit.Id.Kind} {hit.Id.Index + 1:N0} on {hit.Id.Handle:X}; " +
@@ -5082,6 +5084,7 @@ public sealed class CadSampleView : Grid
         _lastMeshSubobjectSelection = null;
         ResetMeshSubobjectCycle();
         RefreshMeshSubobjectOverlay();
+        UpdateEditControls();
     }
 
     private void RefreshMeshSubobjectOverlay()
@@ -5201,6 +5204,11 @@ public sealed class CadSampleView : Grid
         _meshSubobjectOverlay.Visibility = Visibility.Collapsed;
         _viewModeText.Text = "3D surfaces";
     }
+
+    private readonly record struct MeshSubobjectEditSelection(
+        ulong SourceHandle,
+        CadMesh3DSubobjectKind Kind,
+        int Index);
 
     private sealed class MeshMaterialBinding
     {
@@ -7627,10 +7635,15 @@ public sealed class CadSampleView : Grid
 
         try
         {
-            if (!_canvas.TranslateSelection(new CadPoint3D(
-                    xDirection * step,
-                    yDirection * step,
-                    0)))
+            var translation = new CadPoint3D(
+                xDirection * step,
+                yDirection * step,
+                0);
+            if (_is3DView && _selectedMeshSubobjects.Count > 0)
+            {
+                TranslateSelectedMeshSubobjects(translation);
+            }
+            else if (!_canvas.TranslateSelection(translation))
             {
                 SetStatus("Move requires at least one selected entity.");
                 return;
@@ -7647,6 +7660,73 @@ public sealed class CadSampleView : Grid
         {
             UpdateEditControls();
         }
+    }
+
+    private void TranslateSelectedMeshSubobjects(CadPoint3D translation)
+    {
+        CadRecordedMesh3DScene scene = _mesh3DView.Scene ??
+            throw new InvalidOperationException("No retained Mesh3D scene is available.");
+        var remap = new MeshSubobjectEditSelection[
+            _selectedMeshSubobjects.Count];
+        for (int index = 0; index < _selectedMeshSubobjects.Count; index++)
+        {
+            CadMesh3DSubobjectId id = _selectedMeshSubobjects[index];
+            if (!scene.TryGetSubobjectComponent(
+                    id,
+                    out CadMesh3DSubobjectComponent? component) ||
+                component is null)
+            {
+                throw new InvalidOperationException(
+                    "The selected mesh subobject belongs to a stale scene generation.");
+            }
+            remap[index] = new MeshSubobjectEditSelection(
+                component.SourceHandle,
+                id.Kind,
+                id.Index);
+        }
+
+        _canvas.TranslateMeshSubobjects(
+            scene,
+            _selectedMeshSubobjects,
+            translation);
+
+        CadRecordedMesh3DScene replacement = _mesh3DView.Scene ??
+            throw new InvalidOperationException(
+                "The edited Mesh3D scene was not rebuilt.");
+        _selectedMeshSubobjects.Clear();
+        foreach (MeshSubobjectEditSelection selection in remap)
+        {
+            foreach (CadMesh3DSubobjectComponent component in
+                     replacement.SubobjectComponents.Span)
+            {
+                if (!component.IsDirectModelSpaceSource ||
+                    component.SourceHandle != selection.SourceHandle)
+                {
+                    continue;
+                }
+                int count = selection.Kind switch
+                {
+                    CadMesh3DSubobjectKind.Vertex =>
+                        component.VertexPositions.Length,
+                    CadMesh3DSubobjectKind.Edge => component.Edges.Length,
+                    CadMesh3DSubobjectKind.Face => component.Faces.Length,
+                    _ => 0,
+                };
+                if ((uint)selection.Index >= (uint)count)
+                {
+                    break;
+                }
+                _selectedMeshSubobjects.Add(new CadMesh3DSubobjectId(
+                    replacement.ContentGeneration,
+                    component.Handle,
+                    component.ComponentIndex,
+                    selection.Kind,
+                    selection.Index));
+                break;
+            }
+        }
+        ResetMeshSubobjectCycle();
+        RefreshMeshSubobjectOverlay();
     }
 
     private void CopySelection(double xDirection, double yDirection)
@@ -8828,9 +8908,13 @@ public sealed class CadSampleView : Grid
         {
             drawOrderButton.IsEnabled = canTransform;
         }
-        foreach (Button moveButton in _moveButtons)
+        bool canMoveMeshSubobjects =
+            canUsePlanTools && _is3DView &&
+            _selectedMeshSubobjects.Count > 0;
+        for (int index = 0; index < _moveButtons.Length; index++)
         {
-            moveButton.IsEnabled = canTransform;
+            _moveButtons[index].IsEnabled = canTransform ||
+                (canMoveMeshSubobjects && index < 4);
         }
         foreach (Button copyButton in _copyButtons)
         {

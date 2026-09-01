@@ -399,6 +399,22 @@ public readonly record struct CadMesh3DPrimitive(
     int DrawRangeCount,
     CadBounds3D Bounds)
 {
+    /// <summary>
+    /// Authoritative modern-MESH entity handle. This differs from the semantic
+    /// root handle when the retained component is expanded from a block.
+    /// </summary>
+    public ulong SubobjectSourceHandle { get; init; }
+
+    /// <summary>Maps authoritative MESH control vertices into WCS.</summary>
+    public CadAffineTransform3D SubobjectSourceToWorld { get; init; } =
+        CadAffineTransform3D.Identity;
+
+    /// <summary>
+    /// True only when the source MESH itself is owned by model space. Nested
+    /// block-definition geometry requires an explicit reference-editing scope.
+    /// </summary>
+    public bool IsDirectModelSpaceSubobjectSource { get; init; }
+
     public int SubobjectVertexPointOffset { get; init; }
     public int SubobjectVertexCount { get; init; }
     public int SubobjectEdgeOffset { get; init; }
