@@ -823,7 +823,7 @@ public:
 
     com::result PROGPU_NATIVE_COM_CALL CreateDrawingStateBlock(
         const drawing_state_description* description,
-        com::unknown* text_rendering_parameters,
+        rendering_parameters* text_rendering_parameters,
         drawing_state_block** value) noexcept override
     {
         return detail::create_drawing_state_block(

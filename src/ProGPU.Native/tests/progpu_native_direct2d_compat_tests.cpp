@@ -527,6 +527,86 @@ private:
     com::atomic_reference_count<fake_font_face> reference_count_;
 };
 
+class fake_rendering_parameters final
+    : public compat::rendering_parameters {
+public:
+    explicit fake_rendering_parameters(
+        std::uint32_t* destruction_count) noexcept
+        : destruction_count_(destruction_count)
+    {
+    }
+
+    com::result PROGPU_NATIVE_COM_CALL QueryInterface(
+        com::guid_ref interface_id,
+        void** value) noexcept override
+    {
+        if (value == nullptr) {
+            return com::pointer_error;
+        }
+        *value = nullptr;
+        if (com::guid_equal(interface_id, com::unknown_interface_id()) ||
+            com::guid_equal(
+                interface_id,
+                compat::rendering_parameters_interface_id)) {
+            *value = static_cast<compat::rendering_parameters*>(this);
+            AddRef();
+            return com::ok;
+        }
+        return com::no_interface;
+    }
+
+    com::reference_count_value PROGPU_NATIVE_COM_CALL AddRef()
+        noexcept override
+    {
+        return reference_count_.add_ref();
+    }
+
+    com::reference_count_value PROGPU_NATIVE_COM_CALL Release()
+        noexcept override
+    {
+        return reference_count_.release(this);
+    }
+
+    float PROGPU_NATIVE_COM_CALL GetGamma() noexcept override
+    {
+        return 2.2F;
+    }
+
+    float PROGPU_NATIVE_COM_CALL GetEnhancedContrast() noexcept override
+    {
+        return 0.75F;
+    }
+
+    float PROGPU_NATIVE_COM_CALL GetClearTypeLevel() noexcept override
+    {
+        return 0.5F;
+    }
+
+    compat::pixel_geometry PROGPU_NATIVE_COM_CALL GetPixelGeometry()
+        noexcept override
+    {
+        return compat::pixel_geometry::rgb;
+    }
+
+    compat::rendering_mode PROGPU_NATIVE_COM_CALL GetRenderingMode()
+        noexcept override
+    {
+        return compat::rendering_mode::natural_symmetric;
+    }
+
+private:
+    friend class com::atomic_reference_count<fake_rendering_parameters>;
+    ~fake_rendering_parameters()
+    {
+        if (destruction_count_ != nullptr) {
+            ++*destruction_count_;
+        }
+    }
+
+    com::atomic_reference_count<fake_rendering_parameters> reference_count_;
+    std::uint32_t* destruction_count_ = nullptr;
+};
+
 using fake_reserved_com_method = void (PROGPU_NATIVE_COM_CALL*)();
 
 struct fake_text_layout_vtable final {
@@ -1653,10 +1733,15 @@ int run_tests()
         17U,
         23U,
         {1.0F, 0.25F, -0.5F, 2.0F, 3.0F, -4.0F}};
+    std::uint32_t drawing_state_parameters_destruction_count = 0U;
+    auto* raw_drawing_state_parameters = new fake_rendering_parameters(
+        &drawing_state_parameters_destruction_count);
+    com::pointer<fake_rendering_parameters> drawing_state_parameters;
+    drawing_state_parameters.attach(raw_drawing_state_parameters);
     compat::drawing_state_block* raw_drawing_state = nullptr;
     if (factory->CreateDrawingStateBlock(
             &drawing_state_description,
-            static_cast<com::unknown*>(factory.get()),
+            drawing_state_parameters.get(),
             &raw_drawing_state) != com::ok ||
         raw_drawing_state == nullptr) {
         return 100;
@@ -1672,9 +1757,9 @@ int run_tests()
     }
     compat::drawing_state_description returned_drawing_state{};
     drawing_state->GetDescription(&returned_drawing_state);
-    com::unknown* raw_text_parameters = nullptr;
+    compat::rendering_parameters* raw_text_parameters = nullptr;
     drawing_state->GetTextRenderingParams(&raw_text_parameters);
-    com::pointer<com::unknown> returned_text_parameters;
+    com::pointer<compat::rendering_parameters> returned_text_parameters;
     returned_text_parameters.attach(raw_text_parameters);
     if (returned_drawing_state.antialias !=
             compat::antialias_mode::aliased ||
@@ -1684,7 +1769,8 @@ int run_tests()
         returned_drawing_state.tag2 != 23U ||
         !approximately_equal(returned_drawing_state.transform.m12, 0.25F) ||
         returned_text_parameters.get() !=
-            static_cast<com::unknown*>(factory.get())) {
+            static_cast<compat::rendering_parameters*>(
+                drawing_state_parameters.get())) {
         return 102;
     }
     compat::drawing_state_description changed_drawing_state =
@@ -1694,7 +1780,7 @@ int run_tests()
     drawing_state->SetDescription(&changed_drawing_state);
     drawing_state->SetTextRenderingParams(nullptr);
     returned_drawing_state = {};
-    raw_text_parameters = reinterpret_cast<com::unknown*>(
+    raw_text_parameters = reinterpret_cast<compat::rendering_parameters*>(
         static_cast<std::uintptr_t>(1U));
     drawing_state->GetDescription(&returned_drawing_state);
     drawing_state->GetTextRenderingParams(&raw_text_parameters);
@@ -1854,6 +1940,42 @@ int run_tests()
         !approximately_equal(target_size.width, 640.0F) ||
         !approximately_equal(target_size.height, 480.0F)) {
         return 121;
+    }
+    std::uint32_t rendering_parameters_destruction_count = 0U;
+    auto* raw_rendering_parameters = new fake_rendering_parameters(
+        &rendering_parameters_destruction_count);
+    target->SetTextRenderingParams(raw_rendering_parameters);
+    raw_rendering_parameters->Release();
+    target->SaveDrawingState(default_drawing_state.get());
+    target->SetTextRenderingParams(nullptr);
+    if (rendering_parameters_destruction_count != 0U) {
+        return 259;
+    }
+    target->RestoreDrawingState(default_drawing_state.get());
+    default_drawing_state->SetTextRenderingParams(nullptr);
+    compat::rendering_parameters* returned_rendering_parameters = nullptr;
+    target->GetTextRenderingParams(&returned_rendering_parameters);
+    if (returned_rendering_parameters == nullptr ||
+        rendering_parameters_destruction_count != 0U ||
+        !approximately_equal(
+            returned_rendering_parameters->GetGamma(), 2.2F) ||
+        returned_rendering_parameters->GetPixelGeometry() !=
+            compat::pixel_geometry::rgb ||
+        returned_rendering_parameters->GetRenderingMode() !=
+            compat::rendering_mode::natural_symmetric) {
+        if (returned_rendering_parameters != nullptr) {
+            returned_rendering_parameters->Release();
+        }
+        return 259;
+    }
+    returned_rendering_parameters->Release();
+    target->SetTextRenderingParams(nullptr);
+    returned_rendering_parameters = reinterpret_cast<
+        compat::rendering_parameters*>(static_cast<std::uintptr_t>(1U));
+    target->GetTextRenderingParams(&returned_rendering_parameters);
+    if (returned_rendering_parameters != nullptr ||
+        rendering_parameters_destruction_count != 1U) {
+        return 260;
     }
     compat::solid_color_brush* raw_target_brush = nullptr;
     if (target->CreateSolidColorBrush(
@@ -4045,6 +4167,28 @@ int run_tests()
         return 145;
     }
     auto* native_target = reinterpret_cast<ID2D1RenderTarget*>(target.get());
+    std::uint32_t native_rendering_parameters_destruction_count = 0U;
+    auto* native_rendering_parameters = new fake_rendering_parameters(
+        &native_rendering_parameters_destruction_count);
+    native_target->SetTextRenderingParams(
+        reinterpret_cast<IDWriteRenderingParams*>(
+            native_rendering_parameters));
+    native_rendering_parameters->Release();
+    IDWriteRenderingParams* returned_native_rendering_parameters = nullptr;
+    native_target->GetTextRenderingParams(
+        &returned_native_rendering_parameters);
+    const float returned_native_gamma =
+        returned_native_rendering_parameters == nullptr
+        ? 0.0F
+        : returned_native_rendering_parameters->GetGamma();
+    if (returned_native_rendering_parameters != nullptr) {
+        returned_native_rendering_parameters->Release();
+    }
+    native_target->SetTextRenderingParams(nullptr);
+    if (!approximately_equal(returned_native_gamma, 2.2F) ||
+        native_rendering_parameters_destruction_count != 1U) {
+        return 261;
+    }
     auto* native_bitmap = reinterpret_cast<ID2D1Bitmap*>(
         portable_bitmap.get());
     ID2D1Bitmap* queried_native_bitmap = nullptr;

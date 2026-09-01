@@ -674,6 +674,18 @@ portable target does not discover or activate a system DirectWrite factory,
 copy or reshape text itself, or select a CPU raster fallback. The genuine
 Windows provider remains responsible for system `IDWriteTextFormat` objects.
 
+The portable target also retains the canonical `IDWriteRenderingParams`
+object supplied through `SetTextRenderingParams` and returns the identical
+strongly owned interface from `GetTextRenderingParams`; passing null clears
+the state. The installed interface exposes the original gamma, enhanced
+contrast, ClearType level, pixel-geometry, and rendering-mode vtable so the
+same object can be used through an actual Windows SDK pointer. ProGPU's
+portable glyph lane remains vector-outline/GPU coverage based, so this slice
+preserves the Direct2D resource/lifetime contract but does not claim that
+DirectWrite raster-filter parameters alter its pixels yet. The corresponding
+quality mapping and incompatible-antialias validation remain explicit parity
+work, never a CPU raster fallback.
+
 WIC codec activation/decoding itself, render-target-to-bitmap copies,
 alpha-ignore/straight formats,
 non-null `FillGeometry` opacity brushes, `ID2D1StrokeStyle1` fixed/hairline

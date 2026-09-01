@@ -287,6 +287,8 @@ public sealed class Direct2DInteropContractTests
         Assert.Contains("struct glyph_run final", header, StringComparison.Ordinal);
         Assert.Contains("struct font_face : com::unknown", header, StringComparison.Ordinal);
         Assert.Contains("font_face_interface_id", header, StringComparison.Ordinal);
+        Assert.Contains("rendering_parameters_interface_id", header, StringComparison.Ordinal);
+        Assert.Contains("struct rendering_parameters : com::unknown", header, StringComparison.Ordinal);
         Assert.Contains("struct text_renderer : com::unknown", header, StringComparison.Ordinal);
         Assert.Contains("text_renderer_interface_id", header, StringComparison.Ordinal);
         Assert.Contains("text_layout_interface_id", header, StringComparison.Ordinal);
@@ -324,6 +326,7 @@ public sealed class Direct2DInteropContractTests
         Assert.Contains("offsetof(text_layout_vtable, draw) == 58U * sizeof(void*)", renderTargetSource, StringComparison.Ordinal);
         Assert.Contains("layout_vtable->draw(", renderTargetSource, StringComparison.Ordinal);
         Assert.Contains("layout_factory->CreateTextLayout(", renderTargetSource, StringComparison.Ordinal);
+        Assert.Contains("text_rendering_parameters_ =", renderTargetSource, StringComparison.Ordinal);
         Assert.Contains("class portable_shared_bitmap final", renderTargetSource, StringComparison.Ordinal);
         Assert.Contains("class portable_shared_render_target_bitmap final", renderTargetSource, StringComparison.Ordinal);
         Assert.Contains("GetStorageIdentity()", renderTargetSource, StringComparison.Ordinal);
@@ -332,6 +335,8 @@ public sealed class Direct2DInteropContractTests
         Assert.Contains("__uuidof(IWICBitmapSource)", nativeTest, StringComparison.Ordinal);
         Assert.Contains("native_target->CreateSharedBitmap(", nativeTest, StringComparison.Ordinal);
         Assert.Contains("class fake_font_face final", nativeTest, StringComparison.Ordinal);
+        Assert.Contains("class fake_rendering_parameters final", nativeTest, StringComparison.Ordinal);
+        Assert.Contains("native_target->SetTextRenderingParams(", nativeTest, StringComparison.Ordinal);
         Assert.Contains("native_target->DrawGlyphRun(", nativeTest, StringComparison.Ordinal);
         Assert.Contains("sizeof(compat::glyph_run) == sizeof(DWRITE_GLYPH_RUN)", nativeTest, StringComparison.Ordinal);
         Assert.Contains("struct fake_text_layout final", nativeTest, StringComparison.Ordinal);

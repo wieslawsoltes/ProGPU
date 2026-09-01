@@ -180,6 +180,11 @@ inline constexpr com::guid font_face_interface_id{
     0x7024U,
     0x4D43U,
     {0xBFU, 0xA9U, 0xD2U, 0x59U, 0x84U, 0xF5U, 0x38U, 0x49U}};
+inline constexpr com::guid rendering_parameters_interface_id{
+    0x2F0DA53AU,
+    0x2ADDU,
+    0x47CDU,
+    {0x82U, 0xEEU, 0xD9U, 0xECU, 0x34U, 0x68U, 0x8EU, 0x75U}};
 inline constexpr com::guid pixel_snapping_interface_id{
     0xEAF3A2DAU,
     0xECF4U,
@@ -317,6 +322,22 @@ enum class text_antialias_mode : std::uint32_t {
     cleartype = 1U,
     grayscale = 2U,
     aliased = 3U
+};
+
+enum class pixel_geometry : std::uint32_t {
+    flat = 0U,
+    rgb = 1U,
+    bgr = 2U
+};
+
+enum class rendering_mode : std::uint32_t {
+    default_value = 0U,
+    aliased = 1U,
+    gdi_classic = 2U,
+    gdi_natural = 3U,
+    natural = 4U,
+    natural_symmetric = 5U,
+    outline = 6U
 };
 
 enum class alpha_mode : std::uint32_t {
@@ -566,6 +587,19 @@ struct font_face : com::unknown {
         simplified_geometry_sink* geometry_sink_value) noexcept = 0;
 };
 
+/* Canonical IDWriteRenderingParams vtable. Render targets retain this typed
+ * state exactly; vector-outline drawing remains GPU-native and does not
+ * rasterize glyphs on the CPU to apply it. */
+struct rendering_parameters : com::unknown {
+    virtual float PROGPU_NATIVE_COM_CALL GetGamma() noexcept = 0;
+    virtual float PROGPU_NATIVE_COM_CALL GetEnhancedContrast() noexcept = 0;
+    virtual float PROGPU_NATIVE_COM_CALL GetClearTypeLevel() noexcept = 0;
+    virtual pixel_geometry PROGPU_NATIVE_COM_CALL GetPixelGeometry()
+        noexcept = 0;
+    virtual rendering_mode PROGPU_NATIVE_COM_CALL GetRenderingMode()
+        noexcept = 0;
+};
+
 /* Canonical IDWritePixelSnapping/IDWriteTextRenderer callback vtable. A
  * portable text layout can call this interface exactly as system DirectWrite
  * does; the renderer converts callbacks into the same target scene. */
@@ -798,9 +832,9 @@ struct drawing_state_block : resource {
     virtual void PROGPU_NATIVE_COM_CALL SetDescription(
         const drawing_state_description* description) noexcept = 0;
     virtual void PROGPU_NATIVE_COM_CALL SetTextRenderingParams(
-        com::unknown* parameters) noexcept = 0;
+        rendering_parameters* parameters) noexcept = 0;
     virtual void PROGPU_NATIVE_COM_CALL GetTextRenderingParams(
-        com::unknown** parameters) const noexcept = 0;
+        rendering_parameters** parameters) const noexcept = 0;
 };
 
 struct layer : resource {
@@ -1173,7 +1207,7 @@ struct factory : com::unknown {
         stroke_style** value) noexcept = 0;
     virtual com::result PROGPU_NATIVE_COM_CALL CreateDrawingStateBlock(
         const drawing_state_description* description,
-        com::unknown* text_rendering_parameters,
+        rendering_parameters* text_rendering_parameters,
         drawing_state_block** value) noexcept = 0;
     virtual com::result PROGPU_NATIVE_COM_CALL CreateWicBitmapRenderTarget(
         com::unknown* target,
