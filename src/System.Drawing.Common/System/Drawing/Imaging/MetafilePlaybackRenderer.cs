@@ -1212,12 +1212,9 @@ internal static class MetafilePlaybackRenderer
         in MetafileRecord record,
         uint rasterOperation)
     {
-        if (rasterOperation is not Blackness and not NotSourceCopy and not SrcCopy and
-            not PatCopy and not Whiteness)
+        if ((rasterOperation & 0xFF00_0000u) != 0)
         {
-            throw Unsupported(
-                record,
-                $"Ternary raster operation 0x{rasterOperation:X8} requires destination-dependent compositing.");
+            throw Invalid(record);
         }
     }
 
@@ -1432,18 +1429,66 @@ internal static class MetafilePlaybackRenderer
 
         state.ApplyTransform(record);
         state.Graphics.InterpolationMode = state.DibInterpolationMode;
-        using Bitmap? inverted = rasterOperation == NotSourceCopy
-            ? bitmap.CreateBitwiseInvertedRgb()
-            : null;
-        state.Graphics.DrawImage(
-            inverted ?? bitmap,
-            [clippedDestinationTopLeft, clippedDestinationTopRight, clippedDestinationBottomLeft],
-            new RectangleF(
-                clippedLeft,
-                clippedTop,
-                clippedRight - clippedLeft,
-                clippedBottom - clippedTop),
-            GraphicsUnit.Pixel);
+        RectangleF clippedSource = new(
+            clippedLeft,
+            clippedTop,
+            clippedRight - clippedLeft,
+            clippedBottom - clippedTop);
+        if (rasterOperation is SrcCopy or NotSourceCopy)
+        {
+            using Bitmap? inverted = rasterOperation == NotSourceCopy
+                ? bitmap.CreateBitwiseInvertedRgb()
+                : null;
+            state.Graphics.DrawImage(
+                inverted ?? bitmap,
+                [clippedDestinationTopLeft, clippedDestinationTopRight, clippedDestinationBottomLeft],
+                clippedSource,
+                GraphicsUnit.Pixel);
+            return;
+        }
+
+        state.Graphics.DrawImageRasterOperation(
+            bitmap,
+            clippedDestinationTopLeft,
+            clippedDestinationTopRight,
+            clippedDestinationBottomLeft,
+            clippedSource,
+            checked((byte)(rasterOperation >> 16)),
+            GetRasterOperationPatternColor(state, record, rasterOperation));
+    }
+
+    private static Color GetRasterOperationPatternColor(
+        PlaybackState state,
+        in MetafileRecord record,
+        uint rasterOperation)
+    {
+        byte code = checked((byte)(rasterOperation >> 16));
+        if (!RasterOperationUsesPattern(code))
+        {
+            return Color.Black;
+        }
+
+        return state.SelectedBrush switch
+        {
+            SolidBrush solidBrush => solidBrush.Color,
+            _ => throw Unsupported(
+                record,
+                $"Ternary raster operation 0x{rasterOperation:X8} requires a selected solid brush pattern.")
+        };
+    }
+
+    private static bool RasterOperationUsesPattern(byte code)
+    {
+        for (int sourceDestination = 0; sourceDestination < 4; sourceDestination++)
+        {
+            int withoutPattern = (code >> sourceDestination) & 1;
+            int withPattern = (code >> (sourceDestination | 4)) & 1;
+            if (withoutPattern != withPattern)
+            {
+                return true;
+            }
+        }
+        return false;
     }
 
     private static bool TryDrawSourceIndependentRasterOperation(

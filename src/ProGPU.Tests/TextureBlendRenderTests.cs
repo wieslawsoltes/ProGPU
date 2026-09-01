@@ -16,6 +16,82 @@ namespace ProGPU.Tests;
 public sealed class TextureBlendRenderTests
 {
     [Fact]
+    public void RasterOperationEvaluatesExactTernaryTruthTableOnDeviceRgb()
+    {
+        using var window = new HeadlessWindow(32, 24);
+        using var target = new GpuTexture(
+            window.Context,
+            32,
+            24,
+            TextureFormat.Rgba8Unorm,
+            TextureUsage.RenderAttachment | TextureUsage.TextureBinding | TextureUsage.CopySrc,
+            "ROP3 truth-table target");
+        using var source = new GpuTexture(
+            window.Context,
+            1,
+            1,
+            TextureFormat.Rgba8Unorm,
+            TextureUsage.TextureBinding | TextureUsage.CopyDst,
+            "ROP3 truth-table source",
+            alphaMode: GpuTextureAlphaMode.Straight);
+        // GDI ROP3 consumes device RGB and ignores bitmap alpha.
+        var sourceColor = new RgbaPixel(0x33, 0xF0, 0x55, 0x00);
+        var destinationColor = new RgbaPixel(0xCC, 0x0F, 0xAA, 0xFF);
+        var patternColor = new RgbaPixel(0x5A, 0xC3, 0x0F, 0xFF);
+        source.WritePixels<byte>(
+            [sourceColor.R, sourceColor.G, sourceColor.B, sourceColor.A]);
+
+        const byte operation = 0x96; // P XOR S XOR D.
+        var visual = new DrawingVisual { Size = new Vector2(32f, 24f) };
+        visual.Context.DrawRectangle(
+            new SolidColorBrush(ToVector(destinationColor)),
+            null,
+            new Rect(0f, 0f, 32f, 24f));
+        visual.Context.Commands.Add(new RenderCommand
+        {
+            Type = RenderCommandType.DrawTexture,
+            Texture = source,
+            Rect = new Rect(8f, 6f, 12f, 10f),
+            TextureSamplingMode = TextureSamplingMode.Nearest,
+            RasterOperation = new GpuRasterOperation(operation, ToVector(patternColor))
+        });
+
+        window.Compositor.RenderOffscreen(
+            visual,
+            width: 32,
+            height: 24,
+            targetTexture: target,
+            padding: 0f,
+            dpiScale: 1f);
+
+        var pixels = target.ReadPixels();
+        Assert.Equal(
+            EvaluateRasterOperation(operation, patternColor, sourceColor, destinationColor),
+            ReadPixel(pixels, target.Width, 12, 10));
+        Assert.Equal(destinationColor, ReadPixel(pixels, target.Width, 2, 2));
+        Assert.Equal(32UL * 24UL * 4UL, window.Compositor.Metrics.AdvancedBlendScratchTextureBytes);
+        Assert.Equal(12UL * 10UL * 4UL, window.Compositor.Metrics.AdvancedBlendSourceTextureBytes);
+    }
+
+    [Fact]
+    public void RetainedTextureCommandPreservesRasterOperation()
+    {
+        var expected = new GpuRasterOperation(
+            0x66,
+            new Vector4(10f / 255f, 20f / 255f, 30f / 255f, 1f));
+        var command = new RenderCommand
+        {
+            Type = RenderCommandType.DrawTexture,
+            Rect = new Rect(1f, 2f, 3f, 4f),
+            RasterOperation = expected
+        };
+
+        using var picture = new GpuPicture([command], [], [], [], []);
+
+        Assert.Equal(expected, picture.GetCommand(0).RasterOperation);
+    }
+
+    [Fact]
     public void AdvancedBlendSourceTextureUsesClippedDrawBounds()
     {
         using var window = new HeadlessWindow(128, 96);
@@ -552,6 +628,37 @@ public sealed class TextureBlendRenderTests
             pixels[index + 1],
             pixels[index + 2],
             pixels[index + 3]);
+    }
+
+    private static Vector4 ToVector(RgbaPixel color) =>
+        new(color.R / 255f, color.G / 255f, color.B / 255f, color.A / 255f);
+
+    private static RgbaPixel EvaluateRasterOperation(
+        byte code,
+        RgbaPixel pattern,
+        RgbaPixel source,
+        RgbaPixel destination) =>
+        new(
+            EvaluateRasterOperationChannel(code, pattern.R, source.R, destination.R),
+            EvaluateRasterOperationChannel(code, pattern.G, source.G, destination.G),
+            EvaluateRasterOperationChannel(code, pattern.B, source.B, destination.B),
+            0xFF);
+
+    private static byte EvaluateRasterOperationChannel(
+        byte code,
+        byte pattern,
+        byte source,
+        byte destination)
+    {
+        byte result = 0;
+        for (int bit = 0; bit < 8; bit++)
+        {
+            int index = ((pattern >> bit) & 1) << 2 |
+                ((source >> bit) & 1) << 1 |
+                ((destination >> bit) & 1);
+            result |= (byte)(((code >> index) & 1) << bit);
+        }
+        return result;
     }
 
     private static List<VectorVertex> GetTextureVertices(Compositor compositor)

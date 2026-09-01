@@ -446,9 +446,10 @@ selected-brush rectangle lowering. Its 2026-08-31 ARM64/.NET 10.0.11 in-process
 ShortRun measured a 133.616 microsecond median (135.580 microsecond mean, 16.236
 microsecond standard deviation) with 305.88 KB allocated for 256 records. Three
 iterations make this a coarse local fill checkpoint. Exact pattern-copy,
-`BLACKNESS`, and `WHITENESS` pixels remain the rendering authority, while a
-destination-dependent `PATINVERT` record fails explicitly and rolls back an
-earlier supported fill rather than silently approximating XOR composition.
+`BLACKNESS`, and `WHITENESS` pixels remain the rendering authority. A
+destination-dependent `PATINVERT` record was an explicit transactional
+boundary at that checkpoint; the later typed ROP3 destination-sampling path
+documented below supersedes it for source-bearing bitmap records.
 
 `Playback256WmfPatternCopiesWithOffsetClipState` guards 256 pattern fills, each
 surrounded by balanced signed logical clip offsets over one finite Region. Its
@@ -976,6 +977,42 @@ ARM64/.NET 10.0.11 in-process ShortRun measured a 23.843 millisecond median
 allocated. Three iterations, denied priority elevation, and visible timing
 variance make the exact-pixel, provider-contract, rollback, and deterministic
 allocation gates authoritative.
+
+The destination-dependent ROP3 follow-up adds one typed
+`GpuRasterOperation` value to retained texture draws without growing the hot
+`RenderCommand` union. The operation carries the official eight-bit ternary
+truth table and one normalized solid-pattern color through retained pictures
+and draw-call batching. Offscreen composition renders only the clipped physical
+source bounds, samples the current destination through the existing full-size
+ping-pong texture, quantizes straight source/pattern/destination RGB to exact
+eight-bit device values, evaluates all 256 Boolean truth tables, and writes an
+opaque GDI device pixel. Source alpha is excluded from the truth table while
+geometry and mask coverage remain explicit. The ordinary advanced-blend shader
+path remains unchanged. Direct swapchain composition has no bindable
+destination and rejects ROP commands explicitly instead of using a fixed-blend
+approximation.
+
+WMF/EMF DIB and typed `Bitmap16` source-bearing records now accept every valid
+ROP3 truth-table byte. Existing `SRCCOPY`, `NOTSRCCOPY`, and source-independent
+black/white/pattern fast paths remain intact; other operations use the typed GPU
+path. Pattern-dependent operations require the player’s selected solid brush;
+non-solid pattern materialization remains an explicit future boundary. Exact
+focused output covers `SRCINVERT` (`S XOR D`) and `PATINVERT` (`P XOR D`),
+unchanged outside pixels, alpha-independent source RGB, retained-command round
+trips, clipped source-memory sizing, malformed-envelope rollback, and a warmed
+64-record allocation ceiling. Both complete Debug and Release drawing suites
+pass 571/571. ApiCompat remains zero missing types, zero missing members, and
+13 reviewed shape differences.
+
+`Playback256DestinationDependentDibImagesToRetainedCommands` measures 256
+packed two-by-two `SRCINVERT` records through decode, exact ROP payload
+publication, retained image ownership, and cleanup. The 2026-09-01
+ARM64/.NET 10.0.11 ShortRun measured a 21.579 millisecond median (20.781
+millisecond mean, 1.680 millisecond standard deviation) with 501.8 KB
+allocated. Three iterations and denied priority elevation make exact pixel,
+rollback, retained-payload, and allocation gates authoritative rather than this
+coarse throughput sample. The truth-table definition is pinned to the official
+[`TernaryRasterOperation enumeration`](https://learn.microsoft.com/en-us/openspecs/windows_protocols/ms-wmf/1605dd68-a635-4639-ab81-99ff3e3fc5a3).
 
 The EMF path-bracket follow-up adds `EMR_BEGINPATH`, `EMR_ENDPATH`,
 `EMR_CLOSEFIGURE`, `EMR_ABORTPATH`, `EMR_FILLPATH`, `EMR_STROKEPATH`,

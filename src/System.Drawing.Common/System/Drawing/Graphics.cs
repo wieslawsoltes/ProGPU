@@ -4565,7 +4565,8 @@ public partial class Graphics :
         Vector2 destination3,
         Vector4 projectiveWeights,
         RectangleF sourceRect,
-        ImageAttributes? imageAttributes)
+        ImageAttributes? imageAttributes,
+        GpuRasterOperation rasterOperation = default)
     {
         Bitmap? adjustedBitmap = null;
         if (imageAttributes is not null &&
@@ -4610,9 +4611,48 @@ public partial class Graphics :
                 TextureDestination2 = destination2,
                 TextureDestination3 = destination3,
                 TextureDestinationProjectiveWeights = projectiveWeights,
-                HasTextureDestinationQuad = true
+                HasTextureDestinationQuad = true,
+                RasterOperation = rasterOperation
             });
         }
+    }
+
+    internal void DrawImageRasterOperation(
+        Bitmap bitmap,
+        PointF topLeft,
+        PointF topRight,
+        PointF bottomLeft,
+        RectangleF sourceRect,
+        byte rasterOperationCode,
+        Color patternColor)
+    {
+        ArgumentNullException.ThrowIfNull(bitmap);
+        ThrowIfDisposed();
+        Vector2 destination0 = new(topLeft.X, topLeft.Y);
+        Vector2 destination1 = new(topRight.X, topRight.Y);
+        Vector2 destination3 = new(bottomLeft.X, bottomLeft.Y);
+        Vector2 destination2 = destination1 + destination3 - destination0;
+        Vector4 projectiveWeights = CreateProjectiveWeights(
+            destination0,
+            destination1,
+            destination2,
+            destination3,
+            isPerspective: false);
+        var pattern = new Vector4(
+            patternColor.R / 255f,
+            patternColor.G / 255f,
+            patternColor.B / 255f,
+            patternColor.A / 255f);
+        DrawMappedBitmap(
+            bitmap,
+            destination0,
+            destination1,
+            destination2,
+            destination3,
+            projectiveWeights,
+            sourceRect,
+            imageAttributes: null,
+            rasterOperation: new GpuRasterOperation(rasterOperationCode, pattern));
     }
 
     private static Vector4 CreateProjectiveWeights(

@@ -93,6 +93,59 @@ public enum VertexColorBlendMode
     Luminosity
 }
 
+/// <summary>
+/// Describes an exact Win32/GDI ternary raster operation for a texture draw.
+/// </summary>
+/// <remarks>
+/// <c>Code</c> is the ROP3 truth-table byte. Bit selection uses
+/// the conventional pattern/source/destination input order. Pattern colors
+/// are straight, normalized RGBA values; GDI raster-operation output is
+/// treated as an opaque device pixel.
+/// </remarks>
+public readonly struct GpuRasterOperation : IEquatable<GpuRasterOperation>
+{
+    public bool IsEnabled { get; }
+    public byte Code { get; }
+    public Vector4 PatternColor { get; }
+
+    public GpuRasterOperation(byte code, Vector4 patternColor)
+    {
+        if (!IsFiniteNormalized(patternColor))
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(patternColor),
+                "Pattern color components must be finite normalized values.");
+        }
+
+        IsEnabled = true;
+        Code = code;
+        PatternColor = patternColor;
+    }
+
+    public bool Equals(GpuRasterOperation other) =>
+        IsEnabled == other.IsEnabled &&
+        Code == other.Code &&
+        PatternColor == other.PatternColor;
+
+    public override bool Equals(object? obj) =>
+        obj is GpuRasterOperation other && Equals(other);
+
+    public override int GetHashCode() =>
+        HashCode.Combine(IsEnabled, Code, PatternColor);
+
+    public static bool operator ==(GpuRasterOperation left, GpuRasterOperation right) =>
+        left.Equals(right);
+
+    public static bool operator !=(GpuRasterOperation left, GpuRasterOperation right) =>
+        !left.Equals(right);
+
+    private static bool IsFiniteNormalized(Vector4 value) =>
+        float.IsFinite(value.X) && value.X is >= 0f and <= 1f &&
+        float.IsFinite(value.Y) && value.Y is >= 0f and <= 1f &&
+        float.IsFinite(value.Z) && value.Z is >= 0f and <= 1f &&
+        float.IsFinite(value.W) && value.W is >= 0f and <= 1f;
+}
+
 public sealed class VertexMesh2D
 {
     internal Vector2[] PositionArray { get; }
@@ -747,6 +800,44 @@ public struct RenderCommand
     public Vector2 TextureCubicCoefficients;
     public bool HasTextureCubicCoefficients;
     public bool SnapTextureToPixels;
+    private const int TextureRasterOperationMarker = 0x100;
+
+    // Texture ROP3 data shares scalar union slots that DrawTexture otherwise
+    // does not use. This preserves the hot RenderCommand size for every draw.
+    public GpuRasterOperation RasterOperation
+    {
+        readonly get
+        {
+            if (Type != RenderCommandType.DrawTexture ||
+                (IntParam & ~0xFF) != TextureRasterOperationMarker)
+            {
+                return default;
+            }
+            return new GpuRasterOperation(
+                (byte)IntParam,
+                new Vector4(Position3D1, FloatParam));
+        }
+        set
+        {
+            if (!value.IsEnabled)
+            {
+                if ((IntParam & ~0xFF) == TextureRasterOperationMarker)
+                {
+                    IntParam = 0;
+                    Position3D1 = default;
+                    FloatParam = 0f;
+                }
+                return;
+            }
+
+            IntParam = TextureRasterOperationMarker | value.Code;
+            Position3D1 = new Vector3(
+                value.PatternColor.X,
+                value.PatternColor.Y,
+                value.PatternColor.Z);
+            FloatParam = value.PatternColor.W;
+        }
+    }
     // Destination-point image mapping is stored in scalar slots that are
     // otherwise unused by DrawTexture. RenderCommand is the hot retained
     // command union, so dedicated fields here would penalize every command
@@ -1047,6 +1138,7 @@ internal readonly struct RetainedTextureCommandData
     private readonly Vector2 _cubicCoefficients;
     private readonly bool _hasCubicCoefficients;
     private readonly bool _snapToPixels;
+    private readonly GpuRasterOperation _rasterOperation;
     private readonly Vector2 _destination0;
     private readonly Vector2 _destination1;
     private readonly Vector2 _destination2;
@@ -1068,6 +1160,7 @@ internal readonly struct RetainedTextureCommandData
         _cubicCoefficients = command.TextureCubicCoefficients;
         _hasCubicCoefficients = command.HasTextureCubicCoefficients;
         _snapToPixels = command.SnapTextureToPixels;
+        _rasterOperation = command.RasterOperation;
         _destination0 = command.TextureDestination0;
         _destination1 = command.TextureDestination1;
         _destination2 = command.TextureDestination2;
@@ -1090,6 +1183,7 @@ internal readonly struct RetainedTextureCommandData
         command.TextureCubicCoefficients = _cubicCoefficients;
         command.HasTextureCubicCoefficients = _hasCubicCoefficients;
         command.SnapTextureToPixels = _snapToPixels;
+        command.RasterOperation = _rasterOperation;
         command.TextureDestination0 = _destination0;
         command.TextureDestination1 = _destination1;
         command.TextureDestination2 = _destination2;
@@ -1167,7 +1261,9 @@ internal readonly struct RetainedRenderCommand
                 if (IsSimpleTexture(
                     in command,
                     HasTextData(in command),
-                    HasOtherData(in command)))
+                    HasOtherData(
+                        in command,
+                        allowTextureRasterOperation: command.RasterOperation.IsEnabled)))
                 {
                     return RetainedCommandDataKind.SimpleTexture;
                 }
@@ -1203,7 +1299,9 @@ internal readonly struct RetainedRenderCommand
 
         bool hasText = HasTextData(in command);
         bool hasTexture = HasTextureData(in command);
-        bool hasOther = HasOtherData(in command);
+        bool hasOther = HasOtherData(
+            in command,
+            allowTextureRasterOperation: command.RasterOperation.IsEnabled);
 
         if (IsNoDataCommand(in command, hasText, hasTexture, hasOther))
         {
@@ -1334,6 +1432,7 @@ internal readonly struct RetainedRenderCommand
         !command.HasTextureCubicCoefficients &&
         !command.HasTextureDestinationQuad &&
         !command.HasImageEffect &&
+        !command.RasterOperation.IsEnabled &&
         command.InlineImageEffectBox is null &&
         command.ImageEffectBufferIndex == 0 &&
         !command.HasBufferedImageEffect &&
@@ -1489,6 +1588,7 @@ internal readonly struct RetainedRenderCommand
         command.TextureCubicCoefficients != default ||
         command.HasTextureCubicCoefficients ||
         command.SnapTextureToPixels ||
+        command.RasterOperation.IsEnabled ||
         command.TextureDestination0 != default ||
         command.TextureDestination1 != default ||
         command.TextureDestination2 != default ||
@@ -1504,7 +1604,8 @@ internal readonly struct RetainedRenderCommand
         in RenderCommand command,
         bool allowRadii = false,
         bool allowVisual = false,
-        bool allowIntParam = false) =>
+        bool allowIntParam = false,
+        bool allowTextureRasterOperation = false) =>
         command.Position2 != default ||
         command.Position3 != default ||
         command.Position4 != default ||
@@ -1516,7 +1617,7 @@ internal readonly struct RetainedRenderCommand
         command.SplineKnots is not null ||
         command.SplineWeights is not null ||
         command.SplineDegree != 0 ||
-        command.Position3D1 != default ||
+        (!allowTextureRasterOperation && command.Position3D1 != default) ||
         command.Position3D2 != default ||
         command.Edges3D is not null ||
         command.StaticBuffer is not null ||
@@ -1542,8 +1643,8 @@ internal readonly struct RetainedRenderCommand
         command.VertexMesh is not null ||
         command.VertexColorBlendMode != default ||
         command.ExtensionId != 0 ||
-        (!allowIntParam && command.IntParam != 0) ||
-        command.FloatParam != 0f ||
+        (!allowIntParam && !allowTextureRasterOperation && command.IntParam != 0) ||
+        (!allowTextureRasterOperation && command.FloatParam != 0f) ||
         command.DataParam is not null;
 }
 

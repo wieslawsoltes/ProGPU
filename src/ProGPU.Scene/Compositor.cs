@@ -105,12 +105,15 @@ internal struct MaskSamplingUniforms : IEquatable<MaskSamplingUniforms>
             Options);
 }
 
-[StructLayout(LayoutKind.Explicit, Size = 32)]
+[StructLayout(LayoutKind.Explicit, Size = 48)]
 internal struct AdvancedBlendSamplingUniforms
 {
     [FieldOffset(0)] public Vector2 SourceOrigin;
     [FieldOffset(8)] public Vector2 SourceExtent;
     [FieldOffset(16)] public uint BlendMode;
+    [FieldOffset(20)] public uint OperationKind;
+    [FieldOffset(24)] public uint RasterOperationCode;
+    [FieldOffset(32)] public Vector4 PatternColor;
 }
 
 [StructLayout(LayoutKind.Sequential, Pack = 16)]
@@ -1302,6 +1305,7 @@ public unsafe partial class Compositor : IDisposable
         public TextureSamplingMode TextureSamplingMode;
         public byte TextureMaxAnisotropy;
         public GpuTextureAlphaMode TextureAlphaMode;
+        public GpuRasterOperation RasterOperation;
         public bool HasImageEffect;
         public ImageEffectCommandData ImageEffect;
 
@@ -3425,6 +3429,11 @@ DynamicBufferUploadComplete:
         }
 
 SceneStateUploadComplete:
+        if (HasRasterOperationDrawCall())
+        {
+            throw new NotSupportedException(
+                "Ternary raster operations require a bindable offscreen render target.");
+        }
         RefreshAtlasBindGroupsIfNeeded();
         if (_compiledRenderBundle == null &&
             _compiledSceneReusable &&
@@ -13910,7 +13919,8 @@ SceneStateUploadComplete:
             BlendMode = _activeBlendMode,
             TextureSamplingMode = cmd.TextureSamplingMode,
             TextureMaxAnisotropy = cmd.TextureMaxAnisotropy,
-            TextureAlphaMode = cmd.Texture.AlphaMode
+            TextureAlphaMode = cmd.Texture.AlphaMode,
+            RasterOperation = cmd.RasterOperation
         };
         AppendOrMergeTextureDrawCall(drawCall);
     }
@@ -13947,6 +13957,7 @@ SceneStateUploadComplete:
             previous.TextureSamplingMode != current.TextureSamplingMode ||
             previous.TextureMaxAnisotropy != current.TextureMaxAnisotropy ||
             previous.TextureAlphaMode != current.TextureAlphaMode ||
+            previous.RasterOperation != current.RasterOperation ||
             previous.HasImageEffect || current.HasImageEffect)
         {
             return false;
@@ -14830,11 +14841,24 @@ SceneStateUploadComplete:
             GpuBlendMode.Luminosity;
     }
 
+    private bool HasRasterOperationDrawCall()
+    {
+        for (int index = 0; index < _drawCalls.Count; index++)
+        {
+            if (_drawCalls[index].RasterOperation.IsEnabled)
+            {
+                return true;
+            }
+        }
+        return false;
+    }
+
     private bool CanEncodeAdvancedBlend(in CompositorDrawCall drawCall, GpuTexture targetTexture)
     {
         return drawCall.Type == DrawCallType.Texture &&
             IsTextureBindable(drawCall.Texture) &&
-            RequiresDestinationSampling(drawCall.BlendMode) &&
+            (RequiresDestinationSampling(drawCall.BlendMode) ||
+                drawCall.RasterOperation.IsEnabled) &&
             (targetTexture.Usage & TextureUsage.TextureBinding) != 0;
     }
 
@@ -15127,7 +15151,8 @@ SceneStateUploadComplete:
     private AdvancedBlendPassResource AcquireAdvancedBlendPassResource(
         MaskPixelBounds bounds,
         GpuTexture sourceTarget,
-        GpuBlendMode blendMode)
+        GpuBlendMode blendMode,
+        GpuRasterOperation rasterOperation = default)
     {
         AdvancedBlendPassResource resource;
         if (_advancedBlendPassResourceCount < _advancedBlendPassResources.Count)
@@ -15193,7 +15218,7 @@ SceneStateUploadComplete:
             // origin only when Pad0 opts this bounded source pass in.
             CanvasSize = new Vector2(bounds.X, bounds.Y),
             DpiScale = dpiScale,
-            Pad0 = 1f
+            Pad0 = rasterOperation.IsEnabled ? 2f : 1f
         };
         resource.UniformBuffer.WriteSingle(sourceUniforms);
         resource.UniformBuffer.WriteSingle(
@@ -15201,7 +15226,10 @@ SceneStateUploadComplete:
             {
                 SourceOrigin = new Vector2(bounds.X, bounds.Y),
                 SourceExtent = new Vector2(bounds.Width, bounds.Height),
-                BlendMode = (uint)blendMode
+                BlendMode = (uint)blendMode,
+                OperationKind = rasterOperation.IsEnabled ? 1u : 0u,
+                RasterOperationCode = rasterOperation.Code,
+                PatternColor = rasterOperation.PatternColor
             },
             256);
         return resource;
@@ -17211,7 +17239,8 @@ SceneStateUploadComplete:
                 var advancedBlendPassResource = AcquireAdvancedBlendPassResource(
                     advancedBlendBounds,
                     _advancedBlendSourceTexture!,
-                    dc.BlendMode);
+                    dc.BlendMode,
+                    dc.RasterOperation);
                 EncodeAdvancedBlendSource(
                     encoder,
                     _advancedBlendSourceTexture!,

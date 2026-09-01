@@ -3066,7 +3066,7 @@ public sealed class MetafileParserTests
         ];
         WriteUInt32(malformedPayloads[0], 40, 76);
         WriteUInt32(malformedPayloads[1], 52, 8);
-        WriteUInt32(malformedPayloads[2], 60, 0x0066_0046);
+        WriteUInt32(malformedPayloads[2], 60, 0xFF66_0046);
         WriteUInt32(malformedPayloads[3], 64, 2);
 
         foreach (byte[] payload in malformedPayloads)
@@ -3908,11 +3908,11 @@ public sealed class MetafileParserTests
             new Rectangle(0, 0, 1, 1),
             new Rectangle(0, 0, 8, 8),
             usage: 3);
-        byte[] unsupportedRop = WmfDibBitBlt(
+        byte[] invalidRop = WmfDibBitBlt(
             valid,
             new Rectangle(0, 0, 1, 1),
             Point.Empty,
-            rasterOperation: 0x0066_0046);
+            rasterOperation: 0xFF66_0046);
         byte[] invalidScan = WmfSetDibToDevice(
             valid,
             new Rectangle(0, 0, 1, 1),
@@ -3923,7 +3923,7 @@ public sealed class MetafileParserTests
         [
             (0x0F43, truncated),
             (0x0F43, unsupportedUsage),
-            (0x0940, unsupportedRop),
+            (0x0940, invalidRop),
             (0x0D33, invalidScan)
         ];
 
@@ -4398,6 +4398,44 @@ public sealed class MetafileParserTests
     }
 
     [Fact]
+    public void WmfDibRasterOperationsComposeExactSourcePatternAndDestinationRgb()
+    {
+        TestDib dib = CreateRgbDib(1, -1, 24, [0x55, 0xF0, 0x33, 0]);
+        byte[] fixture = CreatePlaybackWmf(
+        [
+            (0x02FC, WmfBrush(Color.FromArgb(0x5A, 0xC3, 0x0F))),
+            (0x012D, WmfWords(0)),
+            (0x0F43, WmfStretchDib(
+                dib,
+                new Rectangle(0, 0, 1, 1),
+                new Rectangle(4, 4, 8, 8),
+                rasterOperation: 0x0066_0046)),
+            (0x0F43, WmfStretchDib(
+                dib,
+                new Rectangle(0, 0, 1, 1),
+                new Rectangle(16, 4, 8, 8),
+                rasterOperation: 0x005A_0049)),
+            (0, [])
+        ]);
+        using var metafile = new Metafile(new MemoryStream(fixture, writable: false));
+        using var target = new Bitmap(32, 20);
+        Color destination = Color.FromArgb(0xCC, 0x0F, 0xAA);
+        using (Graphics graphics = Graphics.FromImage(target))
+        {
+            graphics.Clear(destination);
+            graphics.DrawImage(metafile, new Rectangle(0, 0, 64, 64));
+        }
+
+        Assert.Equal(
+            Color.FromArgb(0xFF, 0xFF, 0xFF).ToArgb(),
+            target.GetPixel(6, 6).ToArgb());
+        Assert.Equal(
+            Color.FromArgb(0x96, 0xCC, 0xA5).ToArgb(),
+            target.GetPixel(18, 6).ToArgb());
+        Assert.Equal(destination.ToArgb(), target.GetPixel(2, 2).ToArgb());
+    }
+
+    [Fact]
     public void NotSourceCopyDibPlaybackHasBoundedWarmedAllocation()
     {
         TestDib dib = CreateRgbDib(1, -1, 24, [0, 0, 255, 0]);
@@ -4421,6 +4459,56 @@ public sealed class MetafileParserTests
         for (int iteration = 0; iteration < 4; iteration++)
         {
             graphics.DrawImage(metafile, new Rectangle(0, 0, 64, 64));
+            context.Clear();
+        }
+
+        long before = GC.GetAllocatedBytesForCurrentThread();
+        for (int iteration = 0; iteration < 8; iteration++)
+        {
+            graphics.DrawImage(metafile, new Rectangle(0, 0, 64, 64));
+            context.Clear();
+        }
+        long allocatedPerPlayback =
+            (GC.GetAllocatedBytesForCurrentThread() - before) / 8;
+
+        Assert.InRange(allocatedPerPlayback, 64 * 1024, 16 * 1024 * 1024);
+    }
+
+    [Fact]
+    public void DestinationDependentDibPlaybackHasBoundedWarmedAllocation()
+    {
+        TestDib dib = CreateRgbDib(1, -1, 24, [0x55, 0xF0, 0x33, 0]);
+        var records = new List<(ushort Function, byte[] Payload)>();
+        for (int index = 0; index < 64; index++)
+        {
+            records.Add((
+                0x0F43,
+                WmfStretchDib(
+                    dib,
+                    new Rectangle(0, 0, 1, 1),
+                    new Rectangle((index % 8) * 8, (index / 8) * 8, 8, 8),
+                    rasterOperation: 0x0066_0046)));
+        }
+        records.Add((0, []));
+        using var metafile = new Metafile(new MemoryStream(
+            CreatePlaybackWmf(records),
+            writable: false));
+        var context = new DrawingContext();
+        using Graphics graphics = Graphics.FromProGpuDrawingContext(context);
+        for (int iteration = 0; iteration < 4; iteration++)
+        {
+            graphics.DrawImage(metafile, new Rectangle(0, 0, 64, 64));
+            int rasterOperationCount = 0;
+            foreach (RenderCommand command in context.Commands)
+            {
+                if (!command.RasterOperation.IsEnabled)
+                {
+                    continue;
+                }
+                Assert.Equal((byte)0x66, command.RasterOperation.Code);
+                rasterOperationCount++;
+            }
+            Assert.Equal(64, rasterOperationCount);
             context.Clear();
         }
 

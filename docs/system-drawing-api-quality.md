@@ -486,6 +486,26 @@ pixels, provider ownership, rollback, and allocation authoritative. The
 portable renderer never guesses the device-dependent bit layout; the
 registered local adapter owns that interpretation.
 
+`MetafileBenchmarks.Playback256DestinationDependentDibImagesToRetainedCommands`
+closes the next ROP3 behavior slice over the existing typed ProGPU offscreen
+destination-sampling seam. A `GpuRasterOperation` retained-texture value carries
+the official truth-table byte plus a solid pattern color without increasing
+the hot `RenderCommand` size. The bounded source pass preserves geometry/mask
+coverage while excluding source alpha from GDI device RGB. The full-screen pass
+quantizes source, solid pattern, and current destination to bytes, evaluates any
+of the 256 ternary Boolean functions, and publishes opaque device pixels.
+`SRCINVERT` and selected-solid-brush `PATINVERT` have exact pixel gates; retained
+round trips, clipped GPU source-memory sizing, malformed-record rollback, and a
+warmed 64-record allocation ceiling guard the non-pixel contracts. A direct
+swapchain target cannot be sampled and rejects the command explicitly;
+non-solid WMF pattern materialization remains future typed work. Both complete
+Debug and Release drawing suites pass 571/571, and ApiCompat remains 0 missing
+types, 0 missing members, and 13 reviewed shape differences. The 2026-09-01
+ARM64/.NET 10.0.11 ShortRun measured a 21.579 ms median (20.781 ms mean, 1.680
+ms standard deviation) and 501.8 KB allocated for 256 packed `SRCINVERT`
+records. Three iterations and denied priority elevation make the deterministic
+correctness and allocation gates authoritative.
+
 `MetafileBenchmarks.Playback256EmfPathBracketsToRetainedCommands` guards 256
 Begin/rectangle/End/StrokeAndFill groups. The 2026-08-31 ARM64/.NET 10.0.11
 ShortRun measured a 1.520 millisecond median (1.477 millisecond mean, 0.381
@@ -565,8 +585,9 @@ selected-brush `PATCOPY` lowering. The 2026-08-31 ARM64/.NET 10.0.11 in-process
 ShortRun measured a 133.616 µs median (135.580 µs mean, 16.236 µs standard
 deviation) with 305.88 KB allocated for 256 records. Exact `PATCOPY`,
 `BLACKNESS`, and `WHITENESS` pixels remain the correctness gate;
-destination-dependent `PATINVERT` fails explicitly and transactionally until a
-typed destination-read/compositing seam exists.
+destination-dependent `PATINVERT` was explicit transactional debt at that
+checkpoint. The typed destination-read/compositing seam described below now
+supersedes it for source-bearing bitmap records.
 
 `MetafileBenchmarks.Playback256WmfPatternCopiesWithOffsetClipState` guards 256
 pattern fills surrounded by 512 balanced signed logical clip translations. The

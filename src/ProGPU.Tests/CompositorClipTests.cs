@@ -15,11 +15,15 @@ public sealed class CompositorClipTests
     [Fact]
     public void AdvancedBlendSamplingUniformLayoutCarriesRuntimeMode()
     {
-        Assert.Equal(32, Marshal.SizeOf<AdvancedBlendSamplingUniforms>());
+        Assert.Equal(48, Marshal.SizeOf<AdvancedBlendSamplingUniforms>());
         Assert.Equal(
             16,
             Marshal.OffsetOf<AdvancedBlendSamplingUniforms>(
                 nameof(AdvancedBlendSamplingUniforms.BlendMode)).ToInt32());
+        Assert.Equal(
+            32,
+            Marshal.OffsetOf<AdvancedBlendSamplingUniforms>(
+                nameof(AdvancedBlendSamplingUniforms.PatternColor)).ToInt32());
     }
 
     [Fact]

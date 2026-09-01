@@ -53,6 +53,7 @@ public class MetafileBenchmarks
     private Metafile _logicalPaletteDibPlaybackMetafile = null!;
     private Metafile _cmykDibPlaybackMetafile = null!;
     private Metafile _notSourceCopyDibPlaybackMetafile = null!;
+    private Metafile _destinationDependentDibPlaybackMetafile = null!;
     private Metafile _wmfTextPlaybackMetafile = null!;
     private Metafile _wmfSpacedRotatedTextPlaybackMetafile = null!;
     private Metafile _wmfJustifiedRotatedTextPlaybackMetafile = null!;
@@ -158,6 +159,10 @@ public class MetafileBenchmarks
             new MemoryStream(
                 CreatePlaybackWmfDibImages(256, rasterOperation: 0x0033_0008),
                 writable: false));
+        _destinationDependentDibPlaybackMetafile = new Metafile(
+            new MemoryStream(
+                CreatePlaybackWmfDibImages(256, rasterOperation: 0x0066_0046),
+                writable: false));
         _wmfTextPlaybackMetafile = new Metafile(
             new MemoryStream(CreatePlaybackWmfText(256), writable: false));
         _wmfSpacedRotatedTextPlaybackMetafile = new Metafile(
@@ -220,6 +225,7 @@ public class MetafileBenchmarks
         _logicalPaletteDibPlaybackMetafile.Dispose();
         _cmykDibPlaybackMetafile.Dispose();
         _notSourceCopyDibPlaybackMetafile.Dispose();
+        _destinationDependentDibPlaybackMetafile.Dispose();
         _wmfTextPlaybackMetafile.Dispose();
         _wmfSpacedRotatedTextPlaybackMetafile.Dispose();
         _wmfJustifiedRotatedTextPlaybackMetafile.Dispose();
@@ -406,6 +412,18 @@ public class MetafileBenchmarks
         _playbackContext.Clear();
         _playbackGraphics.DrawImage(
             _notSourceCopyDibPlaybackMetafile,
+            new Rectangle(0, 0, 640, 480));
+        int commandCount = _playbackContext.Commands.Count;
+        _playbackContext.Clear();
+        return commandCount;
+    }
+
+    [Benchmark]
+    public int Playback256DestinationDependentDibImagesToRetainedCommands()
+    {
+        _playbackContext.Clear();
+        _playbackGraphics.DrawImage(
+            _destinationDependentDibPlaybackMetafile,
             new Rectangle(0, 0, 640, 480));
         int commandCount = _playbackContext.Commands.Count;
         _playbackContext.Clear();

@@ -447,6 +447,17 @@ fn texture_fs_main_with_mask(input: VertexOutput, maskAlpha: f32) -> vec4<f32> {
     let sourceIsPremultiplied = input.color.g > 0.5;
     let rgbScale = input.color.r;
     let coverage = opacity * maskAlpha;
+    // A ROP3 bounded source is a GDI device-color input: source alpha does not
+    // participate in the Boolean truth table. Preserve geometry/mask coverage
+    // in alpha while materializing straight RGB, including straight alpha-zero
+    // bitmap pixels.
+    if (uniforms.boundedSourcePass > 1.5) {
+        var rasterRgb = texColor.rgb;
+        if (sourceIsPremultiplied) {
+            rasterRgb = atlas_unpremultiply(texColor).rgb;
+        }
+        return vec4<f32>(rasterRgb, maskAlpha);
+    }
     if (sourceIsPremultiplied) {
         return vec4<f32>(texColor.rgb * rgbScale * maskAlpha, texColor.a * coverage);
     }
