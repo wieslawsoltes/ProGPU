@@ -85,6 +85,7 @@ public:
         if (begin_count < begin_points.size()) {
             begin_points[begin_count] = start;
             figure_begins[begin_count] = begin;
+            begin_line_offsets[begin_count] = line_point_count;
         }
         ++begin_count;
     }
@@ -121,6 +122,7 @@ public:
         figure_end = end;
         if (end_count < figure_ends.size()) {
             figure_ends[end_count] = end;
+            end_line_offsets[end_count] = line_point_count;
         }
         ++end_count;
     }
@@ -188,6 +190,8 @@ public:
     std::array<compat::point_2f, 8U> begin_points{};
     std::array<compat::figure_begin, 8U> figure_begins{};
     std::array<compat::figure_end, 8U> figure_ends{};
+    std::array<std::size_t, 8U> begin_line_offsets{};
+    std::array<std::size_t, 8U> end_line_offsets{};
     std::array<compat::point_2f, 64U> line_points{};
     std::size_t line_point_count = 0U;
     std::uint32_t begin_count = 0U;
@@ -203,6 +207,142 @@ private:
     ~simplified_sink() = default;
     com::atomic_reference_count<simplified_sink> reference_count_;
 };
+
+[[nodiscard]] bool captured_fill_contains(
+    const simplified_sink& sink,
+    compat::point_2f point) noexcept
+{
+    bool alternate = false;
+    std::int32_t winding = 0;
+    const std::size_t figure_count = std::min<std::size_t>(
+        sink.begin_count,
+        std::min<std::size_t>(sink.end_count, sink.begin_points.size()));
+    for (std::size_t figure = 0U; figure < figure_count; ++figure) {
+        if (sink.figure_begins[figure] != compat::figure_begin::filled) {
+            continue;
+        }
+        compat::point_2f start = sink.begin_points[figure];
+        compat::point_2f previous = start;
+        const auto visit_edge = [&](compat::point_2f end) {
+            const bool upward = previous.y <= point.y && end.y > point.y;
+            const bool downward = previous.y > point.y && end.y <= point.y;
+            if (upward || downward) {
+                const double cross =
+                    (static_cast<double>(end.x) - previous.x) *
+                        (static_cast<double>(point.y) - previous.y) -
+                    (static_cast<double>(end.y) - previous.y) *
+                        (static_cast<double>(point.x) - previous.x);
+                if ((upward && cross > 0.0) ||
+                    (downward && cross < 0.0)) {
+                    alternate = !alternate;
+                    winding += upward ? 1 : -1;
+                }
+            }
+            previous = end;
+        };
+        for (std::size_t line = sink.begin_line_offsets[figure];
+             line < sink.end_line_offsets[figure];
+             ++line) {
+            visit_edge(sink.line_points[line]);
+        }
+        visit_edge(start);
+    }
+    return sink.fill_mode == compat::fill_mode::alternate
+        ? alternate
+        : winding != 0;
+}
+
+#if defined(_WIN32)
+[[nodiscard]] bool captured_boundaries_match(
+    const simplified_sink& left,
+    const simplified_sink& right) noexcept
+{
+    if (left.fill_mode != right.fill_mode ||
+        left.segment_flags != right.segment_flags ||
+        left.begin_count != right.begin_count ||
+        left.end_count != right.end_count ||
+        left.line_point_count != right.line_point_count ||
+        left.line_point_count > left.line_points.size() ||
+        right.line_point_count > right.line_points.size()) {
+        return false;
+    }
+    struct captured_edge final {
+        compat::point_2f start{};
+        compat::point_2f end{};
+        bool matched = false;
+    };
+    const auto collect_edges = [](const simplified_sink& sink,
+                                  std::array<captured_edge, 64U>& edges,
+                                  std::size_t& edge_count) {
+        edge_count = 0U;
+        const std::size_t figure_count = std::min<std::size_t>(
+            sink.begin_count,
+            std::min<std::size_t>(sink.end_count, sink.begin_points.size()));
+        for (std::size_t figure = 0U; figure < figure_count; ++figure) {
+            compat::point_2f previous = sink.begin_points[figure];
+            for (std::size_t line = sink.begin_line_offsets[figure];
+                 line < sink.end_line_offsets[figure];
+                 ++line) {
+                edges[edge_count++] = {
+                    previous, sink.line_points[line], false};
+                previous = sink.line_points[line];
+            }
+            if (sink.figure_ends[figure] == compat::figure_end::closed &&
+                (!approximately_equal(previous.x, sink.begin_points[figure].x) ||
+                    !approximately_equal(
+                        previous.y, sink.begin_points[figure].y))) {
+                edges[edge_count++] = {
+                    previous, sink.begin_points[figure], false};
+            }
+        }
+    };
+    std::array<captured_edge, 64U> left_edges{};
+    std::array<captured_edge, 64U> right_edges{};
+    std::size_t left_count = 0U;
+    std::size_t right_count = 0U;
+    collect_edges(left, left_edges, left_count);
+    collect_edges(right, right_edges, right_count);
+    if (left_count != right_count) {
+        return false;
+    }
+    const auto same_point_value = [](compat::point_2f first,
+                                     compat::point_2f second) {
+        return approximately_equal(first.x, second.x) &&
+            approximately_equal(first.y, second.y);
+    };
+    for (std::size_t left_index = 0U; left_index < left_count; ++left_index) {
+        bool found = false;
+        for (std::size_t right_index = 0U;
+             right_index < right_count;
+             ++right_index) {
+            if (right_edges[right_index].matched) {
+                continue;
+            }
+            const bool forward = same_point_value(
+                    left_edges[left_index].start,
+                    right_edges[right_index].start) &&
+                same_point_value(
+                    left_edges[left_index].end,
+                    right_edges[right_index].end);
+            const bool reverse = same_point_value(
+                    left_edges[left_index].start,
+                    right_edges[right_index].end) &&
+                same_point_value(
+                    left_edges[left_index].end,
+                    right_edges[right_index].start);
+            if (forward || reverse) {
+                right_edges[right_index].matched = true;
+                found = true;
+                break;
+            }
+        }
+        if (!found) {
+            return false;
+        }
+    }
+    return true;
+}
+#endif
 
 class triangle_sink final : public compat::tessellation_sink {
 public:
@@ -1217,6 +1357,96 @@ int run_tests()
         translated_relation != compat::geometry_relation::contains) {
         return 277;
     }
+    constexpr std::array combination_modes{
+        compat::combine_mode::union_value,
+        compat::combine_mode::intersect,
+        compat::combine_mode::xor_value,
+        compat::combine_mode::exclude};
+    constexpr std::array<std::uint32_t, 4U> combination_figure_counts{
+        1U, 1U, 2U, 1U};
+    constexpr std::array<std::uint32_t, 4U> combination_line_counts{
+        8U, 4U, 12U, 6U};
+    constexpr std::array<compat::point_2f, 4U> combination_probes{{
+        {2.0F, 3.0F},
+        {4.5F, 7.5F},
+        {6.0F, 9.0F},
+        {0.0F, 0.0F},
+    }};
+    constexpr std::array<std::array<bool, 4U>, 4U>
+        combination_expected{{
+            {{true, true, true, false}},
+            {{false, true, false, false}},
+            {{true, false, true, false}},
+            {{true, false, false, false}},
+        }};
+    for (std::size_t mode_index = 0U;
+         mode_index < combination_modes.size();
+         ++mode_index) {
+        const compat::combine_mode mode = combination_modes[mode_index];
+        compat::rectangle_geometry* raw_combination_rectangle = nullptr;
+        if (factory->CreateRectangleGeometry(
+                &relation_rectangles[3U],
+                &raw_combination_rectangle) != com::ok ||
+            raw_combination_rectangle == nullptr) {
+            return 284;
+        }
+        com::pointer<compat::rectangle_geometry> combination_rectangle;
+        combination_rectangle.attach(raw_combination_rectangle);
+        auto* raw_combination_sink = new simplified_sink();
+        com::pointer<compat::simplified_geometry_sink> combination_sink;
+        combination_sink.attach(raw_combination_sink);
+        if (geometry->CombineWithGeometry(
+                combination_rectangle.get(),
+                mode,
+                nullptr,
+                core::default_flattening_tolerance,
+                combination_sink.get()) != com::ok ||
+            raw_combination_sink->fill_mode != compat::fill_mode::alternate ||
+            raw_combination_sink->segment_flags !=
+                compat::path_segment::force_unstroked ||
+            raw_combination_sink->begin_count !=
+                combination_figure_counts[mode_index] ||
+            raw_combination_sink->end_count !=
+                combination_figure_counts[mode_index] ||
+            raw_combination_sink->line_count !=
+                combination_line_counts[mode_index]) {
+            return 285;
+        }
+        for (std::size_t probe_index = 0U;
+             probe_index < combination_probes.size();
+             ++probe_index) {
+            if (captured_fill_contains(
+                    *raw_combination_sink,
+                    combination_probes[probe_index]) !=
+                combination_expected[mode_index][probe_index]) {
+                return 289;
+            }
+        }
+    }
+    compat::rectangle_geometry* raw_hole_rectangle = nullptr;
+    if (factory->CreateRectangleGeometry(
+            &relation_rectangles[1U], &raw_hole_rectangle) != com::ok ||
+        raw_hole_rectangle == nullptr) {
+        return 286;
+    }
+    com::pointer<compat::rectangle_geometry> hole_rectangle;
+    hole_rectangle.attach(raw_hole_rectangle);
+    auto* raw_hole_sink = new simplified_sink();
+    com::pointer<compat::simplified_geometry_sink> hole_sink;
+    hole_sink.attach(raw_hole_sink);
+    if (geometry->CombineWithGeometry(
+            hole_rectangle.get(),
+            compat::combine_mode::exclude,
+            nullptr,
+            core::default_flattening_tolerance,
+            hole_sink.get()) != com::ok ||
+        raw_hole_sink->begin_count != 2U ||
+        raw_hole_sink->end_count != 2U ||
+        raw_hole_sink->line_count != 8U ||
+        !captured_fill_contains(*raw_hole_sink, {1.5F, 2.5F}) ||
+        captured_fill_contains(*raw_hole_sink, {3.0F, 5.0F})) {
+        return 287;
+    }
 
     auto* raw_simplified_sink = new simplified_sink();
     com::pointer<compat::simplified_geometry_sink> simplified;
@@ -1384,6 +1614,31 @@ int run_tests()
         transformed_source_relation != compat::geometry_relation::disjoint) {
         return 278;
     }
+    auto* raw_transformed_union_sink = new simplified_sink();
+    com::pointer<compat::simplified_geometry_sink> transformed_union_sink;
+    transformed_union_sink.attach(raw_transformed_union_sink);
+    auto* raw_transformed_intersection_sink = new simplified_sink();
+    com::pointer<compat::simplified_geometry_sink>
+        transformed_intersection_sink;
+    transformed_intersection_sink.attach(raw_transformed_intersection_sink);
+    if (geometry->CombineWithGeometry(
+            transformed_base.get(),
+            compat::combine_mode::union_value,
+            nullptr,
+            core::default_flattening_tolerance,
+            transformed_union_sink.get()) != com::ok ||
+        raw_transformed_union_sink->begin_count != 2U ||
+        raw_transformed_union_sink->line_count != 8U ||
+        transformed->CombineWithGeometry(
+            geometry_base.get(),
+            compat::combine_mode::intersect,
+            nullptr,
+            core::default_flattening_tolerance,
+            transformed_intersection_sink.get()) != com::ok ||
+        raw_transformed_intersection_sink->begin_count != 0U ||
+        raw_transformed_intersection_sink->line_count != 0U) {
+        return 292;
+    }
     auto* raw_transformed_widen_sink = new simplified_sink();
     com::pointer<compat::simplified_geometry_sink> transformed_widen_sink;
     transformed_widen_sink.attach(raw_transformed_widen_sink);
@@ -1459,6 +1714,31 @@ int run_tests()
             &rejected_relation) != com::invalid_argument ||
         rejected_relation != compat::geometry_relation::unknown) {
         return 283;
+    }
+    auto* raw_rejected_combination_sink = new simplified_sink();
+    com::pointer<compat::simplified_geometry_sink>
+        rejected_combination_sink;
+    rejected_combination_sink.attach(raw_rejected_combination_sink);
+    if (geometry->CombineWithGeometry(
+            cross_factory_rectangle.get(),
+            compat::combine_mode::union_value,
+            nullptr,
+            core::default_flattening_tolerance,
+            rejected_combination_sink.get()) != compat::wrong_factory ||
+        geometry->CombineWithGeometry(
+            translated_relation_geometry.get(),
+            compat::combine_mode::union_value,
+            &general_relation_transform,
+            core::default_flattening_tolerance,
+            rejected_combination_sink.get()) != compat::not_implemented ||
+        geometry->CombineWithGeometry(
+            translated_relation_geometry.get(),
+            static_cast<compat::combine_mode>(99U),
+            nullptr,
+            core::default_flattening_tolerance,
+            rejected_combination_sink.get()) != com::invalid_argument ||
+        raw_rejected_combination_sink->begin_count != 0U) {
+        return 293;
     }
 
     compat::path_geometry* raw_path = nullptr;
@@ -5524,6 +5804,70 @@ int run_tests()
         system_factory->Release();
         return 281;
     }
+    ID2D1RectangleGeometry* system_combination_rectangle = nullptr;
+    if (FAILED(system_factory->CreateRectangleGeometry(
+            &system_relation_rectangles[3U],
+            &system_combination_rectangle)) ||
+        system_combination_rectangle == nullptr) {
+        if (system_combination_rectangle != nullptr) {
+            system_combination_rectangle->Release();
+        }
+        system_group_rectangle->Release();
+        system_group_ellipse->Release();
+        system_factory->Release();
+        return 288;
+    }
+    compat::rectangle_geometry* raw_portable_combination_rectangle = nullptr;
+    if (factory->CreateRectangleGeometry(
+            &relation_rectangles[3U],
+            &raw_portable_combination_rectangle) != com::ok ||
+        raw_portable_combination_rectangle == nullptr) {
+        system_combination_rectangle->Release();
+        system_group_rectangle->Release();
+        system_group_ellipse->Release();
+        system_factory->Release();
+        return 290;
+    }
+    com::pointer<compat::rectangle_geometry>
+        portable_combination_rectangle;
+    portable_combination_rectangle.attach(raw_portable_combination_rectangle);
+    for (std::uint32_t mode_index = 0U; mode_index < 4U; ++mode_index) {
+        auto* raw_system_combination_sink = new simplified_sink();
+        com::pointer<compat::simplified_geometry_sink>
+            system_combination_sink;
+        system_combination_sink.attach(raw_system_combination_sink);
+        const HRESULT system_combination_status =
+            system_group_rectangle->CombineWithGeometry(
+                system_combination_rectangle,
+                static_cast<D2D1_COMBINE_MODE>(mode_index),
+                nullptr,
+                D2D1_DEFAULT_FLATTENING_TOLERANCE,
+                reinterpret_cast<ID2D1SimplifiedGeometrySink*>(
+                    system_combination_sink.get()));
+        auto* raw_portable_combination_sink = new simplified_sink();
+        com::pointer<compat::simplified_geometry_sink>
+            portable_combination_sink;
+        portable_combination_sink.attach(raw_portable_combination_sink);
+        const com::result portable_combination_status =
+            geometry->CombineWithGeometry(
+                portable_combination_rectangle.get(),
+                static_cast<compat::combine_mode>(mode_index),
+                nullptr,
+                core::default_flattening_tolerance,
+                portable_combination_sink.get());
+        if (FAILED(system_combination_status) ||
+            portable_combination_status != com::ok ||
+            !captured_boundaries_match(
+                *raw_system_combination_sink,
+                *raw_portable_combination_sink)) {
+            system_combination_rectangle->Release();
+            system_group_rectangle->Release();
+            system_group_ellipse->Release();
+            system_factory->Release();
+            return 291;
+        }
+    }
+    system_combination_rectangle->Release();
     auto* raw_system_outline_sink = new simplified_sink();
     com::pointer<compat::simplified_geometry_sink> system_outline_sink;
     system_outline_sink.attach(raw_system_outline_sink);

@@ -768,6 +768,19 @@ device exits nonzero; two failures still fail the job. This narrowly contains
 the already observed Microsoft Basic Render Driver readback loss without
 weakening Direct2D, export, native-renderer, or pixel-validation assertions.
 
+The same rectangle domain now implements `CombineWithGeometry` for union,
+intersection, xor, and exclusion. A fixed three-by-three coordinate grid
+classifies at most nine cells, labels four-connected components, extracts only
+exterior and hole edges, traces closed contours, and removes collinear vertices
+without heap allocation. This preserves exact fill and later stroke topology;
+it does not emit internal seams from a rectangle decomposition. Output matches
+system Direct2D's alternate fill, force-unstroked segment state, explicit
+closing points, and closed figures. Native tests probe first-only,
+intersection, second-only, exterior, disjoint, transformed, and contained-hole
+regions. The Windows oracle compares the complete undirected boundary edge set
+for all four modes. Cross-factory, degenerate, and general-affine inputs fail
+before touching the sink.
+
 WIC codec activation/decoding itself, render-target-to-bitmap copies,
 alpha-ignore/straight formats,
 non-null `FillGeometry` opacity brushes, `ID2D1StrokeStyle1` fixed/hairline
