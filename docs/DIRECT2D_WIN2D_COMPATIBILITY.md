@@ -925,7 +925,17 @@ Dedicated containment, widened-output, and shared-walker tests preserve this
 otherwise easy-to-miss half-cap rule. The retained semantic-scene and native
 MIL stroke compilers consume the same bit and append cap-only GPU primitives,
 so the compatibility facade and production renderer cannot diverge here.
-Unsupported multi-figure and flagged paths still fail closed.
+
+Read-only stroke queries now accept multiple independent figures as well.
+The path is flattened once, partitioned by typed figure index, and normalized
+without joining figure endpoints. Each closed figure keeps its seam join; each
+open figure keeps source caps; and each figure restarts the typed dash phase.
+`StrokeContainsPoint` returns the union predicate while `GetWidenedBounds`
+SIMD-reduces each figure and unions the results. A mixed closed-square/open-
+polyline fixture covers solid and dashed bodies, gaps, and bounds locally and
+against genuine Direct2D on Windows ARM64 and x64. Multiple-figure `Widen`
+and flagged paths remain fail closed until every output outline can be
+prepared transactionally before the first caller-sink mutation.
 
 The identical simple closed/default-miter domain now implements
 `GetWidenedBounds`. It derives segment offset endpoints plus qualified miter

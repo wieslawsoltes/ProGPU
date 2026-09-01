@@ -1288,6 +1288,56 @@ struct polygon_stroke_edges final {
     return com::ok;
 }
 
+[[nodiscard]] bool solid_polyline_stroke_contains(
+    std::span<const point_2f> points,
+    bool closed,
+    point_2f point,
+    float half_width,
+    line_join join,
+    double miter_limit,
+    cap_style start_cap,
+    cap_style end_cap)
+{
+    const polygon_stroke_edges stroke_edges =
+        make_polyline_stroke_edges(points, closed);
+    if (polygon_stroke_body_contains(stroke_edges, point, half_width)) {
+        return true;
+    }
+    const double half_width_double = half_width;
+    const std::size_t first_join = closed ? 0U : 1U;
+    const std::size_t join_end =
+        closed ? points.size() : points.size() - 1U;
+    for (std::size_t index = first_join; index < join_end; ++index) {
+        if (stroke_join_contains(
+                points[closed
+                    ? (index + points.size() - 1U) % points.size()
+                    : index - 1U],
+                points[index],
+                points[closed
+                    ? (index + 1U) % points.size()
+                    : index + 1U],
+                point,
+                half_width_double,
+                join,
+                miter_limit)) {
+            return true;
+        }
+    }
+    return !closed &&
+        (stroke_cap_contains(
+             points.front(),
+             points[1U],
+             point,
+             half_width_double,
+             start_cap) ||
+         stroke_cap_contains(
+             points.back(),
+             points[points.size() - 2U],
+             point,
+             half_width_double,
+             end_cap));
+}
+
 [[nodiscard]] com::result transformed_point_bounds(
     std::span<const point_2f> points,
     const matrix_3x2_f* transform,
@@ -2793,6 +2843,72 @@ normalize_simple_polygon(std::vector<point_2f> &polygon) noexcept {
   return true;
 }
 
+struct flat_polyline final {
+  std::vector<point_2f> points;
+  bool closed{};
+};
+
+[[nodiscard]] com::result build_flat_polylines(
+    std::span<const flat_edge> edges,
+    std::span<const stored_figure> figures,
+    std::vector<flat_polyline>& polylines) {
+  polylines.clear();
+  try {
+    polylines.resize(figures.size());
+    for (std::size_t index = 0U; index < figures.size(); ++index) {
+      polylines[index].closed = figures[index].end == figure_end::closed;
+    }
+    for (const flat_edge& edge : edges) {
+      if (edge.figure_index >= polylines.size()) {
+        return failure;
+      }
+      if (edge.flags != path_segment::none) {
+        return not_implemented;
+      }
+      if (same_point(edge.start, edge.end)) {
+        continue;
+      }
+      auto& points = polylines[edge.figure_index].points;
+      if (points.empty()) {
+        points.push_back(edge.start);
+      } else if (!same_point(points.back(), edge.start)) {
+        return not_implemented;
+      }
+      points.push_back(edge.end);
+    }
+    polylines.erase(
+        std::remove_if(
+            polylines.begin(),
+            polylines.end(),
+            [](const flat_polyline& polyline) {
+              return polyline.points.empty();
+            }),
+        polylines.end());
+    for (flat_polyline& polyline : polylines) {
+      if (polyline.closed) {
+        if (!normalize_simple_polygon(polyline.points)) {
+          return not_implemented;
+        }
+      } else {
+        polyline.points.erase(
+            std::unique(
+                polyline.points.begin(),
+                polyline.points.end(),
+                same_point),
+            polyline.points.end());
+        if (polyline.points.size() < 2U) {
+          return not_implemented;
+        }
+      }
+    }
+    return com::ok;
+  } catch (const std::bad_alloc&) {
+    return com::out_of_memory;
+  } catch (...) {
+    return failure;
+  }
+}
+
 [[nodiscard]] point_2f
 interpolate_polygon_boolean_point(point_2f start, point_2f end,
                                   double parameter) noexcept {
@@ -3487,11 +3603,6 @@ public:
                 return com::invalid_argument;
             }
         }
-        if (data_->figures.size() != 1U) {
-            return not_implemented;
-        }
-        const bool closed_figure =
-            data_->figures.front().end == figure_end::closed;
         try {
             std::vector<flat_edge> edges;
             const com::result edge_status = collect_flat_edges(
@@ -3499,54 +3610,50 @@ public:
             if (com::failed(edge_status)) {
                 return edge_status;
             }
-            std::vector<point_2f> polygon;
-            for (const auto& edge : edges) {
-                if (edge.figure_index != 0U ||
-                    edge.flags != path_segment::none ||
-                    same_point(edge.start, edge.end)) {
-                    if (edge.flags != path_segment::none) {
-                        return not_implemented;
-                    }
-                    continue;
-                }
-                if (polygon.empty()) {
-                    polygon.push_back(edge.start);
-                } else if (!same_point(polygon.back(), edge.start)) {
-                    return not_implemented;
-                }
-                polygon.push_back(edge.end);
+            std::vector<flat_polyline> polylines;
+            const com::result polyline_status = build_flat_polylines(
+                edges, data_->figures, polylines);
+            if (com::failed(polyline_status)) {
+                return polyline_status;
             }
-            if (closed_figure) {
-                if (!normalize_simple_polygon(polygon)) {
-                    return not_implemented;
+            bool has_bounds = false;
+            for (const flat_polyline& polyline : polylines) {
+                rectangle_f figure_bounds{};
+                const com::result figure_status =
+                    dashed && stroke_width != 0.0F
+                    ? dashed_polyline_widened_bounds(
+                        polyline.points,
+                        polyline.closed,
+                        stroke_width,
+                        *style,
+                        world_transform,
+                        figure_bounds)
+                    : solid_polyline_widened_bounds(
+                        polyline.points,
+                        polyline.closed,
+                        stroke_width,
+                        join,
+                        miter_limit,
+                        start_cap,
+                        end_cap,
+                        world_transform,
+                        figure_bounds);
+                if (com::failed(figure_status)) {
+                    return figure_status;
                 }
-            } else {
-                polygon.erase(
-                    std::unique(polygon.begin(), polygon.end(), same_point),
-                    polygon.end());
-                if (polygon.size() < 2U) {
-                    return not_implemented;
+                if (!has_bounds) {
+                    *bounds = figure_bounds;
+                    has_bounds = true;
+                } else {
+                    bounds->left = std::min(bounds->left, figure_bounds.left);
+                    bounds->top = std::min(bounds->top, figure_bounds.top);
+                    bounds->right =
+                        std::max(bounds->right, figure_bounds.right);
+                    bounds->bottom =
+                        std::max(bounds->bottom, figure_bounds.bottom);
                 }
             }
-            if (dashed && stroke_width != 0.0F) {
-                return dashed_polyline_widened_bounds(
-                    polygon,
-                    closed_figure,
-                    stroke_width,
-                    *style,
-                    world_transform,
-                    *bounds);
-            }
-            return solid_polyline_widened_bounds(
-                polygon,
-                closed_figure,
-                stroke_width,
-                join,
-                miter_limit,
-                start_cap,
-                end_cap,
-                world_transform,
-                *bounds);
+            return com::ok;
         } catch (const std::bad_alloc&) {
             return com::out_of_memory;
         } catch (...) {
@@ -3602,11 +3709,6 @@ public:
                 return com::invalid_argument;
             }
         }
-        if (data_->figures.size() != 1U) {
-            return not_implemented;
-        }
-        const bool closed_figure =
-            data_->figures.front().end == figure_end::closed;
         point_2f local_point{};
         if (!transform_to_local_point(
                 point, world_transform, local_point)) {
@@ -3619,105 +3721,55 @@ public:
             if (com::failed(edge_status)) {
                 return edge_status;
             }
-            std::vector<point_2f> polygon;
-            for (const auto& edge : edges) {
-                if (edge.figure_index != 0U ||
-                    edge.flags != path_segment::none ||
-                    same_point(edge.start, edge.end)) {
-                    if (edge.flags != path_segment::none) {
-                        return not_implemented;
-                    }
-                    continue;
-                }
-                if (polygon.empty()) {
-                    polygon.push_back(edge.start);
-                } else if (!same_point(polygon.back(), edge.start)) {
-                    return not_implemented;
-                }
-                polygon.push_back(edge.end);
-            }
-            if (closed_figure) {
-                if (!normalize_simple_polygon(polygon)) {
-                    return not_implemented;
-                }
-            } else {
-                polygon.erase(
-                    std::unique(polygon.begin(), polygon.end(), same_point),
-                    polygon.end());
-                if (polygon.size() < 2U) {
-                    return not_implemented;
-                }
-            }
             const float half_width = stroke_width * 0.5F;
             if (half_width == 0.0F) {
                 return com::ok;
             }
-            if (dashed) {
-                return closed_figure
-                    ? dashed_polygon_stroke_contains(
-                        polygon,
-                        local_point,
-                        stroke_width,
-                        *style,
-                        join,
-                        miter_limit,
-                        *contains)
-                    : dashed_open_polyline_stroke_contains(
-                        polygon,
-                        local_point,
-                        stroke_width,
-                        *style,
-                        join,
-                        miter_limit,
-                        *contains);
+            std::vector<flat_polyline> polylines;
+            const com::result polyline_status = build_flat_polylines(
+                edges, data_->figures, polylines);
+            if (com::failed(polyline_status)) {
+                return polyline_status;
             }
-            const polygon_stroke_edges stroke_edges =
-                make_polyline_stroke_edges(polygon, closed_figure);
-            if (polygon_stroke_body_contains(
-                    stroke_edges, local_point, half_width)) {
-                *contains = 1;
-                return com::ok;
-            }
-            const double half_width_double = half_width;
-            const std::size_t first_join = closed_figure ? 0U : 1U;
-            const std::size_t join_end =
-                closed_figure ? polygon.size() : polygon.size() - 1U;
-            for (std::size_t index = first_join;
-                 index < join_end;
-                 ++index) {
-                const point_2f previous = polygon[closed_figure
-                    ? (index + polygon.size() - 1U) % polygon.size()
-                    : index - 1U];
-                const point_2f vertex = polygon[index];
-                const point_2f next = polygon[closed_figure
-                    ? (index + 1U) % polygon.size()
-                    : index + 1U];
-                if (stroke_join_contains(
-                        previous,
-                        vertex,
-                        next,
-                        local_point,
-                        half_width_double,
-                        join,
-                        miter_limit)) {
+            for (const flat_polyline& polyline : polylines) {
+                if (dashed) {
+                    std::int32_t figure_contains = 0;
+                    const com::result figure_status = polyline.closed
+                        ? dashed_polygon_stroke_contains(
+                            polyline.points,
+                            local_point,
+                            stroke_width,
+                            *style,
+                            join,
+                            miter_limit,
+                            figure_contains)
+                        : dashed_open_polyline_stroke_contains(
+                            polyline.points,
+                            local_point,
+                            stroke_width,
+                            *style,
+                            join,
+                            miter_limit,
+                            figure_contains);
+                    if (com::failed(figure_status)) {
+                        return figure_status;
+                    }
+                    if (figure_contains != 0) {
+                        *contains = 1;
+                        return com::ok;
+                    }
+                } else if (solid_polyline_stroke_contains(
+                               polyline.points,
+                               polyline.closed,
+                               local_point,
+                               half_width,
+                               join,
+                               miter_limit,
+                               start_cap,
+                               end_cap)) {
                     *contains = 1;
                     return com::ok;
                 }
-            }
-            if (!closed_figure &&
-                (stroke_cap_contains(
-                     polygon.front(),
-                     polygon[1U],
-                     local_point,
-                     half_width_double,
-                     start_cap) ||
-                 stroke_cap_contains(
-                     polygon.back(),
-                     polygon[polygon.size() - 2U],
-                     local_point,
-                     half_width_double,
-                     end_cap))) {
-                *contains = 1;
             }
             return com::ok;
         } catch (const std::bad_alloc&) {

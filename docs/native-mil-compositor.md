@@ -6452,11 +6452,20 @@ also publishes a terminal visible-point bit when the source ends exactly on a
 gap-to-dash transition. Direct2D applies `DashCap` only on the new run's start
 side and the source `EndCap` on the other side, producing a half-cap rather
 than a symmetric dot; explicit walker, containment, and widened-output tests
-lock down that behavior. Multiple figures and flagged paths remain typed
-fail-closed domains for subsequent increments. Both the reusable semantic
+lock down that behavior. Both the reusable semantic
 path-stroke compiler and the MIL compositor consume the bit directly and
 append only the qualified cap-only GPU primitives; no degenerate body, CPU
 rasterization, readback, or per-item submission is introduced.
+
+The following query increment partitions flattened path edges by their typed
+figure index and enables mixed independent open/closed figures for
+`StrokeContainsPoint` and `GetWidenedBounds`. Dash phase restarts per figure;
+closed seams and open source caps stay figure-local. Containment is the union
+of the figure predicates, while widened bounds union per-figure SIMD
+reductions. A closed-square plus open-polyline fixture covers solid and dashed
+body/gap cases and matches genuine Direct2D on Windows ARM64 and x64.
+Multiple-figure `Widen` and flagged paths remain typed fail closed until every
+output outline can be validated before caller-sink replay.
 
 `GetWidenedBounds` now shares that default-miter path domain. Segment offsets
 and miter extrema are constructed before the world transform; independent

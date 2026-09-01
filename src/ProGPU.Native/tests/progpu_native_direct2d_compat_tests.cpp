@@ -2256,6 +2256,44 @@ int run_tests()
     }
     open_query_sink.Reset();
 
+    compat::path_geometry* raw_multi_query_path = nullptr;
+    compat::geometry_sink* raw_multi_query_sink = nullptr;
+    if (factory->CreatePathGeometry(&raw_multi_query_path) != com::ok ||
+        raw_multi_query_path == nullptr ||
+        raw_multi_query_path->Open(&raw_multi_query_sink) != com::ok ||
+        raw_multi_query_sink == nullptr) {
+      return 391;
+    }
+    com::pointer<compat::path_geometry> multi_query_path;
+    multi_query_path.attach(raw_multi_query_path);
+    com::pointer<compat::geometry_sink> multi_query_sink;
+    multi_query_sink.attach(raw_multi_query_sink);
+    multi_query_sink->BeginFigure(
+        {0.0F, 0.0F}, compat::figure_begin::hollow);
+    constexpr std::array<compat::point_2f, 3U> multi_closed_points{{
+        {2.0F, 0.0F},
+        {2.0F, 2.0F},
+        {0.0F, 2.0F},
+    }};
+    multi_query_sink->AddLines(
+        multi_closed_points.data(),
+        static_cast<std::uint32_t>(multi_closed_points.size()));
+    multi_query_sink->EndFigure(compat::figure_end::closed);
+    multi_query_sink->BeginFigure(
+        {10.0F, 0.0F}, compat::figure_begin::hollow);
+    constexpr std::array<compat::point_2f, 2U> multi_open_points{{
+        {14.0F, 0.0F},
+        {14.0F, 4.0F},
+    }};
+    multi_query_sink->AddLines(
+        multi_open_points.data(),
+        static_cast<std::uint32_t>(multi_open_points.size()));
+    multi_query_sink->EndFigure(compat::figure_end::open);
+    if (multi_query_sink->Close() != com::ok) {
+      return 392;
+    }
+    multi_query_sink.Reset();
+
     contains = 0;
     area = 0.0F;
     length = 0.0F;
@@ -2706,6 +2744,45 @@ int run_tests()
         return 390;
       }
     }
+  }
+  std::int32_t multi_closed_contains = 0;
+  std::int32_t multi_open_contains = 0;
+  std::int32_t multi_open_dash_body = 0;
+  std::int32_t multi_open_dash_gap = 0;
+  compat::rectangle_f multi_default_bounds{};
+  compat::rectangle_f multi_dashed_bounds{};
+  if (multi_query_path->StrokeContainsPoint(
+          {0.0F, 1.0F}, 1.0F, nullptr, nullptr,
+          core::default_flattening_tolerance,
+          &multi_closed_contains) != com::ok ||
+      multi_query_path->StrokeContainsPoint(
+          {12.0F, 0.4F}, 1.0F, nullptr, nullptr,
+          core::default_flattening_tolerance,
+          &multi_open_contains) != com::ok ||
+      multi_query_path->StrokeContainsPoint(
+          {10.5F, 0.0F}, 0.5F,
+          square_dashed_path_stroke_style.get(), nullptr,
+          0.001F, &multi_open_dash_body) != com::ok ||
+      multi_query_path->StrokeContainsPoint(
+          {11.5F, 0.0F}, 0.5F,
+          square_dashed_path_stroke_style.get(), nullptr,
+          0.001F, &multi_open_dash_gap) != com::ok ||
+      multi_query_path->GetWidenedBounds(
+          2.0F, nullptr, nullptr,
+          core::default_flattening_tolerance,
+          &multi_default_bounds) != com::ok ||
+      multi_query_path->GetWidenedBounds(
+          0.5F, square_dashed_path_stroke_style.get(), nullptr,
+          0.001F, &multi_dashed_bounds) != com::ok ||
+      multi_closed_contains == 0 || multi_open_contains == 0 ||
+      multi_open_dash_body == 0 || multi_open_dash_gap != 0 ||
+      !approximately_equal(multi_default_bounds.left, -1.0F) ||
+      !approximately_equal(multi_default_bounds.top, -1.0F) ||
+      !approximately_equal(multi_default_bounds.right, 15.0F) ||
+      !approximately_equal(multi_default_bounds.bottom, 4.0F) ||
+      multi_dashed_bounds.left > -0.25F ||
+      multi_dashed_bounds.right < 14.25F) {
+    return 393;
   }
   const compat::matrix_3x2_f disjoint_path_transform{
       1.0F, 0.0F, 0.0F, 1.0F, 10.0F, 0.0F};
@@ -7037,6 +7114,71 @@ int run_tests()
       system_factory->Release();
       return 385;
     }
+    const auto create_multi_query_path = [](ID2D1Factory* path_factory,
+                                             ID2D1PathGeometry** value) {
+      if (path_factory == nullptr || value == nullptr) {
+        return E_POINTER;
+      }
+      *value = nullptr;
+      ID2D1PathGeometry* path_value = nullptr;
+      ID2D1GeometrySink* sink_value = nullptr;
+      HRESULT status = path_factory->CreatePathGeometry(&path_value);
+      if (SUCCEEDED(status)) {
+        status = path_value->Open(&sink_value);
+      }
+      if (SUCCEEDED(status)) {
+        sink_value->BeginFigure(
+            D2D1_POINT_2F{0.0F, 0.0F}, D2D1_FIGURE_BEGIN_HOLLOW);
+        constexpr std::array<D2D1_POINT_2F, 3U> closed_points{{
+            {2.0F, 0.0F},
+            {2.0F, 2.0F},
+            {0.0F, 2.0F},
+        }};
+        sink_value->AddLines(
+            closed_points.data(), static_cast<UINT32>(closed_points.size()));
+        sink_value->EndFigure(D2D1_FIGURE_END_CLOSED);
+        sink_value->BeginFigure(
+            D2D1_POINT_2F{10.0F, 0.0F}, D2D1_FIGURE_BEGIN_HOLLOW);
+        constexpr std::array<D2D1_POINT_2F, 2U> open_points{{
+            {14.0F, 0.0F},
+            {14.0F, 4.0F},
+        }};
+        sink_value->AddLines(
+            open_points.data(), static_cast<UINT32>(open_points.size()));
+        sink_value->EndFigure(D2D1_FIGURE_END_OPEN);
+        status = sink_value->Close();
+      }
+      if (sink_value != nullptr) {
+        sink_value->Release();
+      }
+      if (FAILED(status)) {
+        if (path_value != nullptr) {
+          path_value->Release();
+        }
+        return status;
+      }
+      *value = path_value;
+      return S_OK;
+    };
+    ID2D1PathGeometry* portable_multi_query_path = nullptr;
+    ID2D1PathGeometry* system_multi_query_path = nullptr;
+    if (FAILED(create_multi_query_path(
+            native_factory, &portable_multi_query_path)) ||
+        FAILED(create_multi_query_path(
+            system_factory, &system_multi_query_path)) ||
+        portable_multi_query_path == nullptr ||
+        system_multi_query_path == nullptr) {
+      if (portable_multi_query_path != nullptr) {
+        portable_multi_query_path->Release();
+      }
+      if (system_multi_query_path != nullptr) {
+        system_multi_query_path->Release();
+      }
+      portable_open_query_path->Release();
+      system_open_query_path->Release();
+      system_factory->Release();
+      return 394;
+    }
     const D2D1_STROKE_STYLE_PROPERTIES open_dash_properties{
         D2D1_CAP_STYLE_FLAT,
         D2D1_CAP_STYLE_FLAT,
@@ -7067,6 +7209,8 @@ int run_tests()
       }
       portable_open_query_path->Release();
       system_open_query_path->Release();
+      portable_multi_query_path->Release();
+      system_multi_query_path->Release();
       system_factory->Release();
       return 386;
     }
@@ -7186,6 +7330,99 @@ int run_tests()
           SUCCEEDED(portable_status) && SUCCEEDED(system_status) &&
           portable_contains == system_contains;
     }
+    constexpr std::array<D2D1_POINT_2F, 4U> multi_probe_points{{
+        {0.0F, 1.0F},
+        {12.0F, 0.4F},
+        {10.5F, 0.0F},
+        {11.5F, 0.0F},
+    }};
+    for (std::size_t probe_index = 0U;
+         probe_index < multi_probe_points.size();
+         ++probe_index) {
+      const bool dashed_probe = probe_index >= 2U;
+      BOOL portable_contains = FALSE;
+      BOOL system_contains = FALSE;
+      const HRESULT portable_status =
+          portable_multi_query_path->StrokeContainsPoint(
+              multi_probe_points[probe_index],
+              dashed_probe ? 0.5F : 1.0F,
+              dashed_probe ? portable_open_dash_style : nullptr,
+              nullptr,
+              0.001F,
+              &portable_contains);
+      const HRESULT system_status =
+          system_multi_query_path->StrokeContainsPoint(
+              multi_probe_points[probe_index],
+              dashed_probe ? 0.5F : 1.0F,
+              dashed_probe ? system_open_dash_style : nullptr,
+              nullptr,
+              0.001F,
+              &system_contains);
+      open_probe_matches = open_probe_matches &&
+          SUCCEEDED(portable_status) && SUCCEEDED(system_status) &&
+          portable_contains == system_contains;
+    }
+    D2D1_RECT_F portable_multi_default_bounds{};
+    D2D1_RECT_F system_multi_default_bounds{};
+    D2D1_RECT_F portable_multi_dashed_bounds{};
+    D2D1_RECT_F system_multi_dashed_bounds{};
+    const HRESULT portable_multi_default_bounds_status =
+        portable_multi_query_path->GetWidenedBounds(
+            2.0F,
+            nullptr,
+            nullptr,
+            0.001F,
+            &portable_multi_default_bounds);
+    const HRESULT system_multi_default_bounds_status =
+        system_multi_query_path->GetWidenedBounds(
+            2.0F,
+            nullptr,
+            nullptr,
+            0.001F,
+            &system_multi_default_bounds);
+    const HRESULT portable_multi_dashed_bounds_status =
+        portable_multi_query_path->GetWidenedBounds(
+            0.5F,
+            portable_open_dash_style,
+            nullptr,
+            0.001F,
+            &portable_multi_dashed_bounds);
+    const HRESULT system_multi_dashed_bounds_status =
+        system_multi_query_path->GetWidenedBounds(
+            0.5F,
+            system_open_dash_style,
+            nullptr,
+            0.001F,
+            &system_multi_dashed_bounds);
+    open_probe_matches = open_probe_matches &&
+        SUCCEEDED(portable_multi_default_bounds_status) &&
+        SUCCEEDED(system_multi_default_bounds_status) &&
+        SUCCEEDED(portable_multi_dashed_bounds_status) &&
+        SUCCEEDED(system_multi_dashed_bounds_status) &&
+        approximately_equal(
+            portable_multi_default_bounds.left,
+            system_multi_default_bounds.left) &&
+        approximately_equal(
+            portable_multi_default_bounds.top,
+            system_multi_default_bounds.top) &&
+        approximately_equal(
+            portable_multi_default_bounds.right,
+            system_multi_default_bounds.right) &&
+        approximately_equal(
+            portable_multi_default_bounds.bottom,
+            system_multi_default_bounds.bottom) &&
+        approximately_equal(
+            portable_multi_dashed_bounds.left,
+            system_multi_dashed_bounds.left) &&
+        approximately_equal(
+            portable_multi_dashed_bounds.top,
+            system_multi_dashed_bounds.top) &&
+        approximately_equal(
+            portable_multi_dashed_bounds.right,
+            system_multi_dashed_bounds.right) &&
+        approximately_equal(
+            portable_multi_dashed_bounds.bottom,
+            system_multi_dashed_bounds.bottom);
     D2D1_RECT_F portable_open_default_bounds{};
     D2D1_RECT_F system_open_default_bounds{};
     D2D1_RECT_F portable_open_dashed_bounds{};
@@ -7377,6 +7614,8 @@ int run_tests()
     system_open_dash_style->Release();
     portable_open_query_path->Release();
     system_open_query_path->Release();
+    portable_multi_query_path->Release();
+    system_multi_query_path->Release();
     if (!open_probe_matches) {
       std::fprintf(
           stderr,
