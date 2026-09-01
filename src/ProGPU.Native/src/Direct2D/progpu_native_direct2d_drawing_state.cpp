@@ -31,7 +31,7 @@ public:
     portable_drawing_state_block(
         factory* owner,
         const drawing_state_description& description,
-        com::unknown* text_rendering_parameters) noexcept
+        rendering_parameters* text_rendering_parameters) noexcept
         : owner_(owner),
           description_(description),
           text_rendering_parameters_(text_rendering_parameters)
@@ -102,15 +102,15 @@ public:
     }
 
     void PROGPU_NATIVE_COM_CALL SetTextRenderingParams(
-        com::unknown* parameters) noexcept override
+        rendering_parameters* parameters) noexcept override
     {
-        com::pointer<com::unknown> replacement(parameters);
+        com::pointer<rendering_parameters> replacement(parameters);
         const std::lock_guard lock(mutex_);
         text_rendering_parameters_ = std::move(replacement);
     }
 
     void PROGPU_NATIVE_COM_CALL GetTextRenderingParams(
-        com::unknown** parameters) const noexcept override
+        rendering_parameters** parameters) const noexcept override
     {
         if (parameters == nullptr) {
             return;
@@ -131,7 +131,7 @@ private:
     com::pointer<factory> owner_;
     mutable std::mutex mutex_;
     drawing_state_description description_{};
-    com::pointer<com::unknown> text_rendering_parameters_;
+    com::pointer<rendering_parameters> text_rendering_parameters_;
 };
 
 } // namespace
@@ -139,7 +139,7 @@ private:
 com::result create_drawing_state_block(
     factory* owner,
     const drawing_state_description* description,
-    com::unknown* text_rendering_parameters,
+    rendering_parameters* text_rendering_parameters,
     drawing_state_block** value) noexcept
 {
     if (value == nullptr) {

@@ -4459,16 +4459,20 @@ public:
         rendering_parameters* parameters) noexcept override
     {
         const std::lock_guard lock(mutex_);
-        if (parameters != nullptr) {
-            latch(not_implemented);
-        }
+        text_rendering_parameters_ =
+            com::pointer<rendering_parameters>(parameters);
     }
 
     void PROGPU_NATIVE_COM_CALL GetTextRenderingParams(
         rendering_parameters** parameters) const noexcept override
     {
-        if (parameters != nullptr) {
-            *parameters = nullptr;
+        if (parameters == nullptr) {
+            return;
+        }
+        const std::lock_guard lock(mutex_);
+        *parameters = text_rendering_parameters_.get();
+        if (*parameters != nullptr) {
+            (*parameters)->AddRef();
         }
     }
 
@@ -4691,7 +4695,7 @@ public:
             tag2_,
             transform_};
         state->SetDescription(&description);
-        state->SetTextRenderingParams(nullptr);
+        state->SetTextRenderingParams(text_rendering_parameters_.get());
     }
 
     void PROGPU_NATIVE_COM_CALL RestoreDrawingState(
@@ -4704,6 +4708,10 @@ public:
         }
         drawing_state_description description{};
         state->GetDescription(&description);
+        rendering_parameters* raw_text_rendering_parameters = nullptr;
+        state->GetTextRenderingParams(&raw_text_rendering_parameters);
+        com::pointer<rendering_parameters> text_rendering_parameters;
+        text_rendering_parameters.attach(raw_text_rendering_parameters);
         if ((description.antialias != antialias_mode::per_primitive &&
                 description.antialias != antialias_mode::aliased) ||
             description.text_antialias > text_antialias_mode::aliased ||
@@ -4716,6 +4724,7 @@ public:
         tag1_ = description.tag1;
         tag2_ = description.tag2;
         transform_ = description.transform;
+        text_rendering_parameters_ = std::move(text_rendering_parameters);
     }
 
     void PROGPU_NATIVE_COM_CALL PushAxisAlignedClip(
@@ -7343,6 +7352,7 @@ private:
     antialias_mode antialias_mode_ = antialias_mode::per_primitive;
     text_antialias_mode text_antialias_mode_ =
         text_antialias_mode::default_value;
+    com::pointer<rendering_parameters> text_rendering_parameters_;
     color_f clear_color_{};
     com::result failure_ = com::ok;
     bool begun_ = false;
