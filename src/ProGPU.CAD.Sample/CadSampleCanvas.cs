@@ -1536,10 +1536,11 @@ public sealed class CadSampleCanvas : FrameworkElement
     }
 
     /// <summary>
-    /// Prepares the immutable document snapshot away from the UI thread on
-    /// desktop hosts, then publishes only if this request and document
-    /// generation are still current. Browser hosts preserve the same contract
-    /// without requiring multithreaded Wasm.
+    /// Prepares the immutable document snapshot and CPU plan recording away
+    /// from the UI thread on desktop hosts. GPU image leases are materialized
+    /// on the owning host thread before worker recording. Publication occurs
+    /// only while the request and document generation remain current. Browser
+    /// hosts preserve the same contract without requiring multithreaded Wasm.
     /// </summary>
     public async Task<bool> LoadAsync(
         CadDocumentSession session,
@@ -1573,11 +1574,60 @@ public sealed class CadSampleCanvas : FrameworkElement
             return false;
         }
 
-        return CompileAndReplace(
-            session,
-            resetViewSelectionAndHistory: true,
-            preparedSnapshot: snapshot,
-            preparedPublicationTicket: publicationTicket);
+        var sceneCompiler = new CadPlanSceneCompiler();
+        CadPlanSceneOptions sceneOptions = CreatePlanSceneOptions();
+        using CadPreparedPlanSceneResources preparedResources =
+            sceneCompiler.PrepareResources(
+                snapshot,
+                sceneOptions,
+                cancellationToken);
+        GpuPicture? picture = null;
+        try
+        {
+            if (OperatingSystem.IsBrowser())
+            {
+                using CadRecordedPlanScene scene = sceneCompiler.CompilePrepared(
+                    snapshot,
+                    preparedResources,
+                    sceneOptions,
+                    cancellationToken);
+                picture = scene.CreatePicture();
+            }
+            else
+            {
+                picture = await Task.Run(
+                    () =>
+                    {
+                        using CadRecordedPlanScene scene =
+                            sceneCompiler.CompilePrepared(
+                                snapshot,
+                                preparedResources,
+                                sceneOptions,
+                                cancellationToken);
+                        return scene.CreatePicture();
+                    },
+                    cancellationToken);
+            }
+
+            cancellationToken.ThrowIfCancellationRequested();
+            if (!_scenePublicationGate.IsCurrent(publicationTicket))
+            {
+                return false;
+            }
+
+            bool published = CompileAndReplace(
+                session,
+                resetViewSelectionAndHistory: true,
+                preparedSnapshot: snapshot,
+                preparedPublicationTicket: publicationTicket,
+                preparedPicture: picture);
+            picture = null;
+            return published;
+        }
+        finally
+        {
+            picture?.Dispose();
+        }
     }
 
     private bool CompileAndReplace(
@@ -1586,7 +1636,8 @@ public sealed class CadSampleCanvas : FrameworkElement
         bool synchronizePlanOrthoMode = false,
         bool synchronizePlanSnapMode = false,
         CadDocumentSnapshot? preparedSnapshot = null,
-        CadScenePublicationTicket? preparedPublicationTicket = null)
+        CadScenePublicationTicket? preparedPublicationTicket = null,
+        GpuPicture? preparedPicture = null)
     {
         if (!resetViewSelectionAndHistory && !ReferenceEquals(session, CurrentSession))
         {
@@ -1652,14 +1703,18 @@ public sealed class CadSampleCanvas : FrameworkElement
         CadDocumentHistory? replacementHistory = resetViewSelectionAndHistory
             ? new CadDocumentHistory(session)
             : _history;
-        using CadRecordedPlanScene scene = new CadPlanSceneCompiler().Compile(
-            snapshot,
-            new CadPlanSceneOptions
-            {
-                RasterImageSourceResolver = RasterImages,
-                RasterImageContext = WgpuContext.Current,
-            });
-        GpuPicture picture = scene.CreatePicture();
+        GpuPicture picture;
+        if (preparedPicture is null)
+        {
+            using CadRecordedPlanScene scene = new CadPlanSceneCompiler().Compile(
+                snapshot,
+                CreatePlanSceneOptions());
+            picture = scene.CreatePicture();
+        }
+        else
+        {
+            picture = preparedPicture;
+        }
         GpuPicture? previous = null;
         if (!_scenePublicationGate.TryPublish(
                 publicationTicket,
@@ -1761,6 +1816,12 @@ public sealed class CadSampleCanvas : FrameworkElement
         EditStateChanged?.Invoke(this, EventArgs.Empty);
         return true;
     }
+
+    private CadPlanSceneOptions CreatePlanSceneOptions() => new()
+    {
+        RasterImageSourceResolver = RasterImages,
+        RasterImageContext = WgpuContext.Current,
+    };
 
     protected override void ArrangeOverride(Rect arrangeRect)
     {

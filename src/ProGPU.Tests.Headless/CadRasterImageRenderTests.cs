@@ -151,6 +151,73 @@ public sealed class CadRasterImageRenderTests
         Assert.True(texture.IsDisposed);
     }
 
+    [Fact]
+    public async Task PreparedImageLeaseTransfersOnceIntoWorkerRecordedScene()
+    {
+        HeadlessWindow window = HeadlessWindow.Shared;
+        var document = new CadDocument();
+        document.Entities.Add(CreateImage());
+        CadDocumentSnapshot snapshot = new CadSnapshotCompiler().Compile(
+            new CadDocumentSession(document));
+        var catalog = new CadRasterImageCatalog();
+        CadEncodedRasterImageSource source = catalog.RegisterEncoded(
+            "pixel.png",
+            EncodedPixel);
+        var options = new CadPlanSceneOptions
+        {
+            RasterImageSourceResolver = catalog,
+            RasterImageContext = window.Context,
+        };
+        var compiler = new CadPlanSceneCompiler();
+        using CadPreparedPlanSceneResources prepared =
+            compiler.PrepareResources(snapshot, options);
+
+        Assert.Equal(1, prepared.RasterImageResourceCount);
+        Assert.Equal(1, prepared.AvailableRasterImageCount);
+        Assert.True(source.TryGetGpuTexture(window.Context, out GpuTexture texture));
+
+        using CadRecordedPlanScene scene = await Task.Run(() =>
+            compiler.CompilePrepared(snapshot, prepared, options));
+
+        RenderCommand command = Assert.Single(
+            scene.DrawingContext.Commands.ToArray(),
+            item => item.Type == RenderCommandType.DrawTexture);
+        Assert.Same(texture, command.Texture);
+        Assert.Equal(1, scene.DrawingContext.RetainedResourceCount);
+        Assert.Throws<InvalidOperationException>(() =>
+            compiler.CompilePrepared(snapshot, prepared, options));
+
+        catalog.Dispose();
+        Assert.False(texture.IsDisposed);
+        scene.Dispose();
+        Assert.True(texture.IsDisposed);
+    }
+
+    [Fact]
+    public void PreparedResourcesDoNotUploadExcludedRasterLayers()
+    {
+        HeadlessWindow window = HeadlessWindow.Shared;
+        var document = new CadDocument();
+        document.Entities.Add(CreateImage());
+        CadDocumentSnapshot snapshot = new CadSnapshotCompiler().Compile(
+            new CadDocumentSession(document));
+        using var catalog = new CadRasterImageCatalog();
+        _ = catalog.RegisterEncoded("pixel.png", EncodedPixel);
+        var compiler = new CadPlanSceneCompiler();
+
+        using CadPreparedPlanSceneResources prepared = compiler.PrepareResources(
+            snapshot,
+            new CadPlanSceneOptions
+            {
+                RasterImageSourceResolver = catalog,
+                RasterImageContext = window.Context,
+                ExcludedLayerNames = ["0"],
+            });
+
+        Assert.Equal(1, prepared.RasterImageResourceCount);
+        Assert.Equal(0, prepared.AvailableRasterImageCount);
+    }
+
     private static RasterImage CreateImage()
     {
         var definition = new ImageDefinition

@@ -1796,11 +1796,13 @@ an interactive browser picker/download smoke remains open.
   invalidated, mismatched, or document-advanced results are rejected under the
   document gate before retained state changes. File open prepares its immutable
   snapshot and shaped content on a desktop worker while the prior picture stays
-  drawable, then rejects stale work before UI-thread plan-scene/GPU-resource
-  recording and again before the final swap. Browser/Wasm uses the same path
-  without requiring threads. Background plan-scene recording, worker-prepared
-  edit replacements, and generation-keyed reusable chunks remain explicit
-  follow-up work and must pass the same gate.
+  drawable, rejects stale work, materializes bounded raster leases on the host
+  thread, then records and freezes the complete CPU plan picture on a worker
+  without worker-side WebGPU calls. Browser/Wasm uses the same ordered phases
+  without requiring threads. Worker-prepared edit replacements and generation-
+  keyed reusable chunks remain explicit follow-up work and must pass the same
+  gate. The clean-room research and resource-transfer contract are recorded in
+  [`PROGPU_CAD_BACKGROUND_PLAN_RESEARCH.md`](PROGPU_CAD_BACKGROUND_PLAN_RESEARCH.md).
 - Collaboration and scripting consume the same command contracts. Neither is
   allowed to mutate ACadSharp collections behind the transaction boundary.
 

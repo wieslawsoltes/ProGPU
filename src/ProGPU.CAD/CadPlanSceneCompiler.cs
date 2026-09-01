@@ -186,6 +186,144 @@ public sealed class CadPlanSceneCompiler
         CadPlanSceneOptions? options = null,
         CancellationToken cancellationToken = default)
     {
+        return CompileCore(
+            snapshot,
+            preparedResources: null,
+            options,
+            cancellationToken);
+    }
+
+    /// <summary>
+    /// Resolves and leases bounded raster IMAGE resources in the consuming
+    /// device domain before CPU scene recording moves to a worker.
+    /// </summary>
+    public CadPreparedPlanSceneResources PrepareResources(
+        CadDocumentSnapshot snapshot,
+        CadPlanSceneOptions? options = null,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(snapshot);
+        options ??= new CadPlanSceneOptions();
+        ValidateOptions(options);
+
+        ICadRasterImageSourceResolver? resolver =
+            options.RasterImageSourceResolver is CadRasterImageCatalog catalog
+                ? catalog.CreateResolverSnapshot()
+                : options.RasterImageSourceResolver;
+        ReadOnlySpan<CadRasterImageResource> resources =
+            snapshot.RasterImageResources.Span;
+        var leases = new IProGpuTextureLease?[resources.Length];
+        var requiredResources = new bool[resources.Length];
+        HashSet<string>? excludedLayerNames =
+            options.ExcludedLayerNames is { Count: > 0 }
+                ? new HashSet<string>(
+                    options.ExcludedLayerNames,
+                    StringComparer.OrdinalIgnoreCase)
+                : null;
+        ReadOnlySpan<CadLayerSnapshot> layers = snapshot.Layers.Span;
+        foreach (CadEntityHeader entity in snapshot.Entities.Span)
+        {
+            if (entity.Kind != CadEntityKind.RasterImage ||
+                !entity.IsVisible || !layers[entity.LayerIndex].IsVisible ||
+                (!options.IncludeNonPlottableLayers &&
+                    !layers[entity.LayerIndex].IsPlottable) ||
+                excludedLayerNames?.Contains(layers[entity.LayerIndex].Name) == true)
+            {
+                continue;
+            }
+            CadRasterImagePrimitive image =
+                snapshot.RasterImages.Span[entity.PrimitiveIndex];
+            if (RequiresRasterImageTexture(image))
+            {
+                requiredResources[image.ResourceIndex] = true;
+            }
+        }
+        int available = 0;
+        try
+        {
+            for (int index = 0; index < resources.Length; index++)
+            {
+                if ((index & 255) == 0)
+                {
+                    cancellationToken.ThrowIfCancellationRequested();
+                }
+                if (!requiredResources[index])
+                {
+                    continue;
+                }
+                CadRasterImageResource resource = resources[index];
+                if (!resource.IsLoaded || resolver is null ||
+                    !resolver.TryResolve(
+                        new CadRasterImageRequest(snapshot.SourceName, resource),
+                        out IProGpuTextureLeaseSource source))
+                {
+                    continue;
+                }
+
+                bool acquired = options.RasterImageContext is WgpuContext context &&
+                    source is IProGpuContextTextureLeaseSource contextSource
+                        ? contextSource.TryAcquireGpuTextureLease(
+                            context,
+                            out IProGpuTextureLease lease)
+                        : source.TryAcquireGpuTextureLease(out lease);
+                if (!acquired)
+                {
+                    continue;
+                }
+
+                GpuTexture texture = lease.Texture;
+                if (texture is null || texture.IsDisposed ||
+                    (options.RasterImageContext is WgpuContext requiredContext &&
+                     !texture.Context.SharesDeviceWith(requiredContext)))
+                {
+                    lease.Dispose();
+                    throw new InvalidOperationException(
+                        $"Raster IMAGE resource {index} returned an invalid or cross-device texture lease.");
+                }
+                leases[index] = lease;
+                available++;
+            }
+
+            return new CadPreparedPlanSceneResources(
+                snapshot.ContentGeneration,
+                leases,
+                available);
+        }
+        catch
+        {
+            foreach (IProGpuTextureLease? lease in leases)
+            {
+                lease?.Dispose();
+            }
+            throw;
+        }
+    }
+
+    /// <summary>
+    /// Records a plan scene using one-shot resources prepared in the consuming
+    /// GPU domain. The recording phase itself performs no texture resolution,
+    /// decode, upload, or WebGPU call and is suitable for a desktop worker.
+    /// </summary>
+    public CadRecordedPlanScene CompilePrepared(
+        CadDocumentSnapshot snapshot,
+        CadPreparedPlanSceneResources preparedResources,
+        CadPlanSceneOptions? options = null,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(preparedResources);
+        return CompileCore(
+            snapshot,
+            preparedResources,
+            options,
+            cancellationToken);
+    }
+
+    private CadRecordedPlanScene CompileCore(
+        CadDocumentSnapshot snapshot,
+        CadPreparedPlanSceneResources? preparedResources,
+        CadPlanSceneOptions? options,
+        CancellationToken cancellationToken)
+    {
         ArgumentNullException.ThrowIfNull(snapshot);
         options ??= new CadPlanSceneOptions();
         ValidateOptions(options);
@@ -208,9 +346,11 @@ public sealed class CadPlanSceneCompiler
                 StringComparer.OrdinalIgnoreCase)
             : null;
         ICadRasterImageSourceResolver? rasterImageResolver =
-            options.RasterImageSourceResolver is CadRasterImageCatalog catalog
-                ? catalog.CreateResolverSnapshot()
-                : options.RasterImageSourceResolver;
+            preparedResources is not null
+                ? null
+                : options.RasterImageSourceResolver is CadRasterImageCatalog catalog
+                    ? catalog.CreateResolverSnapshot()
+                    : options.RasterImageSourceResolver;
         var context = new DrawingContext();
         context.EnsureCommandCapacity(checked(
             Math.Max(
@@ -251,6 +391,11 @@ public sealed class CadPlanSceneCompiler
         int deferredModelerSurfaces = 0;
 
         using var recordingLeaseGuard = new RecordingLeaseGuard(context);
+        GpuTexture?[]? preparedRasterImageTextures =
+            preparedResources?.TransferTo(
+                context,
+                snapshot,
+                options.RasterImageContext);
         foreach (CadEntityHeader entity in entities)
         {
             cancellationToken.ThrowIfCancellationRequested();
@@ -601,6 +746,7 @@ public sealed class CadPlanSceneCompiler
                         rasterImage,
                         rasterImageResolver,
                         options.RasterImageContext,
+                        preparedRasterImageTextures,
                         drawContinuousFrame: deferredImageFrame is null);
                     if (!imageAvailable &&
                         warnedRasterImageResources.Add(rasterImage.ResourceIndex))
@@ -1638,15 +1784,10 @@ public sealed class CadPlanSceneCompiler
         in CadRasterImagePrimitive image,
         ICadRasterImageSourceResolver? resolver,
         WgpuContext? requiredContext,
+        GpuTexture?[]? preparedTextures,
         bool drawContinuousFrame)
     {
-        CadPoint3D plane = CadPoint3D.Cross(image.UVector, image.VVector);
-        double planeLength = plane.Length;
-        bool alignedWithPlan =
-            Math.Abs(plane.X) <= planeLength * 1e-10 &&
-            Math.Abs(plane.Y) <= planeLength * 1e-10;
-        bool drawImage = image.DrawImage &&
-            (image.ShowWhenNotAligned || alignedWithPlan);
+        bool drawImage = RequiresRasterImageTexture(image);
         bool drawFrame = image.DrawFrame && drawContinuousFrame;
         if (!drawImage && !drawFrame)
         {
@@ -1668,88 +1809,97 @@ public sealed class CadPlanSceneCompiler
         {
             CadRasterImageResource resource =
                 snapshot.RasterImageResources.Span[image.ResourceIndex];
-            var request = new CadRasterImageRequest(snapshot.SourceName, resource);
-            if (resource.IsLoaded && resolver is not null &&
-                resolver.TryResolve(request, out IProGpuTextureLeaseSource source))
+            GpuTexture? texture = preparedTextures is not null
+                ? preparedTextures[image.ResourceIndex]
+                : null;
+            if (preparedTextures is null)
             {
-                GpuTexture texture;
-                bool retained = requiredContext is null
-                    ? context.TryRetainTexture(source, out texture)
-                    : context.TryRetainTexture(source, requiredContext, out texture);
-                if (retained)
+                var request = new CadRasterImageRequest(snapshot.SourceName, resource);
+                if (resource.IsLoaded && resolver is not null &&
+                    resolver.TryResolve(request, out IProGpuTextureLeaseSource source))
                 {
-                    PathGeometry? clipPath = null;
-                    if (image.IsClipped)
+                    bool retained = requiredContext is null
+                        ? context.TryRetainTexture(source, out texture)
+                        : context.TryRetainTexture(source, requiredContext, out texture);
+                    if (!retained)
                     {
-                        clipPath = new PathGeometry { FillRule = FillRule.EvenOdd };
-                        if (image.IsInverted)
-                        {
-                            AddRasterImageRectangle(clipPath, image.Width, image.Height);
-                        }
-                        AddRasterImageClip(clipPath, clip);
-                        context.PushGeometryClip(clipPath, clipTransform);
+                        texture = null;
                     }
-                    bool pushedOpacity = style.Alpha != byte.MaxValue;
-                    if (pushedOpacity)
-                    {
-                        context.PushOpacity(style.Alpha / 255.0f);
-                    }
-
-                    Matrix4x4 imageTransform = CreateProjectionTransform(
-                        image.Origin + (image.VVector * image.Height),
-                        image.UVector,
-                        image.VVector * -1.0,
-                        snapshot.RebaseOrigin);
-                    var destination = new Rect(
-                        0.0f,
-                        0.0f,
-                        ToFloat(image.Width),
-                        ToFloat(image.Height));
-                    var sourceRect = new Rect(
-                        0.0f,
-                        0.0f,
-                        texture.Width,
-                        texture.Height);
-                    float brightness = (image.Brightness - 50) / 50.0f;
-                    float contrast = image.Contrast / 50.0f;
-                    bool needsEffect = image.Brightness != 50 ||
-                        image.Contrast != 50 || image.Fade != 0 ||
-                        !image.TransparencyIsOn;
-                    TextureSamplingMode sampling = image.IsHighQuality
-                        ? TextureSamplingMode.Linear
-                        : TextureSamplingMode.Nearest;
-                    if (needsEffect)
-                    {
-                        context.DrawImageWithEffect(
-                            texture,
-                            destination,
-                            brightness: brightness,
-                            contrast: contrast,
-                            sourceRect: sourceRect,
-                            samplingMode: sampling,
-                            colorMatrix: CreateRasterImageColorMatrix(image),
-                            transform: imageTransform);
-                    }
-                    else
-                    {
-                        context.DrawTexture(
-                            texture,
-                            destination,
-                            sourceRect,
-                            imageTransform,
-                            sampling);
-                    }
-
-                    if (pushedOpacity)
-                    {
-                        context.PopOpacity();
-                    }
-                    if (clipPath is not null)
-                    {
-                        context.PopGeometryClip();
-                    }
-                    imageAvailable = true;
                 }
+            }
+            if (texture is not null)
+            {
+                PathGeometry? clipPath = null;
+                if (image.IsClipped)
+                {
+                    clipPath = new PathGeometry { FillRule = FillRule.EvenOdd };
+                    if (image.IsInverted)
+                    {
+                        AddRasterImageRectangle(clipPath, image.Width, image.Height);
+                    }
+                    AddRasterImageClip(clipPath, clip);
+                    context.PushGeometryClip(clipPath, clipTransform);
+                }
+                bool pushedOpacity = style.Alpha != byte.MaxValue;
+                if (pushedOpacity)
+                {
+                    context.PushOpacity(style.Alpha / 255.0f);
+                }
+
+                Matrix4x4 imageTransform = CreateProjectionTransform(
+                    image.Origin + (image.VVector * image.Height),
+                    image.UVector,
+                    image.VVector * -1.0,
+                    snapshot.RebaseOrigin);
+                var destination = new Rect(
+                    0.0f,
+                    0.0f,
+                    ToFloat(image.Width),
+                    ToFloat(image.Height));
+                var sourceRect = new Rect(
+                    0.0f,
+                    0.0f,
+                    texture.Width,
+                    texture.Height);
+                float brightness = (image.Brightness - 50) / 50.0f;
+                float contrast = image.Contrast / 50.0f;
+                bool needsEffect = image.Brightness != 50 ||
+                    image.Contrast != 50 || image.Fade != 0 ||
+                    !image.TransparencyIsOn;
+                TextureSamplingMode sampling = image.IsHighQuality
+                    ? TextureSamplingMode.Linear
+                    : TextureSamplingMode.Nearest;
+                if (needsEffect)
+                {
+                    context.DrawImageWithEffect(
+                        texture,
+                        destination,
+                        brightness: brightness,
+                        contrast: contrast,
+                        sourceRect: sourceRect,
+                        samplingMode: sampling,
+                        colorMatrix: CreateRasterImageColorMatrix(image),
+                        transform: imageTransform);
+                }
+                else
+                {
+                    context.DrawTexture(
+                        texture,
+                        destination,
+                        sourceRect,
+                        imageTransform,
+                        sampling);
+                }
+
+                if (pushedOpacity)
+                {
+                    context.PopOpacity();
+                }
+                if (clipPath is not null)
+                {
+                    context.PopGeometryClip();
+                }
+                imageAvailable = true;
             }
         }
 
@@ -1767,6 +1917,21 @@ public sealed class CadPlanSceneCompiler
             context.DrawPath(null, pen, framePath, clipTransform);
         }
         return imageAvailable;
+    }
+
+    private static bool RequiresRasterImageTexture(
+        in CadRasterImagePrimitive image)
+    {
+        if (!image.DrawImage)
+        {
+            return false;
+        }
+        CadPoint3D plane = CadPoint3D.Cross(image.UVector, image.VVector);
+        double planeLength = plane.Length;
+        bool alignedWithPlan =
+            Math.Abs(plane.X) <= planeLength * 1e-10 &&
+            Math.Abs(plane.Y) <= planeLength * 1e-10;
+        return image.ShowWhenNotAligned || alignedWithPlan;
     }
 
     private static ImageEffectColorMatrix CreateRasterImageColorMatrix(
