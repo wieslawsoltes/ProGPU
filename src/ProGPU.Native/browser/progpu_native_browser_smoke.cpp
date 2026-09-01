@@ -1568,7 +1568,7 @@ bool render_browser_frame(double, void*) {
             &brush_mask_metrics) != PROGPU_NATIVE_STATUS_SUCCESS ||
         brush_mask_metrics.command_count != 3U ||
         brush_mask_metrics.draw_call_count != 2U ||
-        brush_mask_metrics.submission_count != 5U ||
+        brush_mask_metrics.submission_count != 1U ||
         brush_mask_metrics.texture_upload_bytes != 0U ||
         brush_mask_metrics.uniform_upload_bytes <
             24U * sizeof(float)) {
