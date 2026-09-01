@@ -5302,13 +5302,16 @@ adapter, and full managed GPU execution remains mandatory on hardware and
 Parallels.
 
 The distinct mixed-picture benchmark applies the same explicit adapter
-qualification. Microsoft Basic Render Driver and Parallels execute its full
-384-item stress through the C++ renderer, then run a live one-item
-managed/native pixel differential after one warm frame establishes retained
-glyph state. Hardware Windows retains the complete 384-item differential. The
-hosted software adapter otherwise loses its D3D12 device after roughly 96
-seconds in the dense managed glyph path; the bounded check still performs GPU
-submission and pixel comparison and is not a CPU substitute.
+qualification. Microsoft Basic Render Driver compiles and transactionally
+updates its full 384-item native stream, verifies exact command/draw counters
+and retained snapshot reuse, then runs a live one-item managed/native pixel
+differential after one warm frame establishes retained glyph state. Its dense
+managed path and, independently, its repeated full native-only profile can
+remove the CPU-only D3D12 device. Parallels retains the full 384-item,
+four-warmup/eight-iteration C++ profile plus bounded live parity, while
+hardware Windows retains the complete 384-item differential. The Basic check
+still initializes D3D12 and submits both renderers for pixel comparison; it is
+not a CPU substitute or a reduced full-stream validation.
 
 The portable Win2D oracle separately preserves its complete frame on every
 backend. Microsoft Basic Render Driver partitions independent feature groups

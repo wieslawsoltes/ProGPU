@@ -34,10 +34,16 @@ internal static class ManagedPictureBenchmark
         bool writeImages = HasFlag(args, "--write-images");
         bool profileNativeOnly = HasFlag(args, "--profile-native-only");
         bool profileManagedOnly = HasFlag(args, "--profile-managed-only");
-        if (profileNativeOnly && profileManagedOnly)
+        bool validateNativeStreamOnly =
+            HasFlag(args, "--validate-native-stream-only");
+        int selectedProfileCount =
+            (profileNativeOnly ? 1 : 0) +
+            (profileManagedOnly ? 1 : 0) +
+            (validateNativeStreamOnly ? 1 : 0);
+        if (selectedProfileCount > 1)
         {
             throw new ArgumentException(
-                "Select only one managed-picture profiling path.");
+                "Select only one managed-picture profiling or validation path.");
         }
 
         using GpuPicture picture = CreatePicture(
@@ -102,6 +108,18 @@ internal static class ManagedPictureBenchmark
             throw new InvalidOperationException(
                 $"The matched retained scene contract failed: first={update}, " +
                 $"retained={retainedUpdate}.");
+        }
+
+        if (validateNativeStreamOnly)
+        {
+            Console.WriteLine(
+                "Managed-picture native stream validation: " +
+                $"sourceCommands={compiled.SourceCommandCount}, " +
+                $"nativeCommands={update.CommandCount}, " +
+                $"draws={update.DrawCount}, " +
+                $"snapshotBytes={update.SnapshotBytes}, " +
+                $"payloadBytes={update.PayloadBytes}, retained=true.");
+            return;
         }
 
         NativeSceneFrameMetrics nativeMetrics = default;

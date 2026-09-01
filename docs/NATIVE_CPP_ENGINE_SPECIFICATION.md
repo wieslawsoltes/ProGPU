@@ -1578,14 +1578,19 @@ remains a hardware/Parallels GPU gate. The independent full C++ renderer stays
 mandatory on Basic Render Driver; no CPU rendering fallback is introduced.
 
 The separate mixed-picture differential follows the same adapter boundary.
-Microsoft Basic Render Driver and Parallels execute the full 384-item,
-four-warmup/eight-iteration stress through the C++ renderer, then require a
-live one-item managed/native differential after one cache-establishing warm
-frame. Hardware Windows keeps the full managed/native 384-item differential.
-The hosted software adapter otherwise spends roughly 96 seconds in the dense
-managed glyph path before device removal. The bounded lane still submits both
-renderers and compares pixels; it is not a CPU-rendered or validation-only
-replacement.
+Microsoft Basic Render Driver compiles and transactionally updates the full
+384-item native scene, verifies exact source/native command and draw counts,
+and requires the identical second update to reuse the retained snapshot. It
+then executes a live one-item managed/native differential after one
+cache-establishing warm frame. The hosted software adapter has independently
+removed its device in both the dense managed path and the full native-only
+profile during teardown; treating a printed timing line from a lost device as
+GPU qualification would be incorrect. Parallels retains the full 384-item,
+four-warmup/eight-iteration C++ stress plus bounded live differential, and
+hardware Windows keeps the full managed/native 384-item differential. The
+Basic lane still initializes the real D3D12 native compositor for full stream
+update and submits both renderers for bounded pixel comparison; it introduces
+no CPU renderer or reduced command stream.
 
 The full portable Win2D Canvas frame remains a D3D12/Metal/Vulkan pixel gate.
 On Microsoft Basic Render Driver only, CI partitions its independent feature
