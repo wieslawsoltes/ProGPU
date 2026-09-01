@@ -1126,29 +1126,20 @@ bool compat_valid_stroke_style(
     UINT32 dash_count) noexcept
 {
     if (properties == nullptr ||
-        properties->startCap > D2D1_CAP_STYLE_TRIANGLE ||
-        properties->endCap > D2D1_CAP_STYLE_TRIANGLE ||
-        properties->dashCap > D2D1_CAP_STYLE_TRIANGLE ||
-        properties->lineJoin > D2D1_LINE_JOIN_MITER_OR_BEVEL ||
-        !std::isfinite(properties->miterLimit) ||
-        properties->miterLimit <= 0.0F ||
-        properties->dashStyle > D2D1_DASH_STYLE_CUSTOM ||
-        !std::isfinite(properties->dashOffset) ||
-        properties->transformType > D2D1_STROKE_TRANSFORM_TYPE_HAIRLINE ||
-        ((properties->dashStyle == D2D1_DASH_STYLE_CUSTOM) !=
-            (dashes != nullptr && dash_count != 0U)) ||
-        (properties->dashStyle != D2D1_DASH_STYLE_CUSTOM &&
-            (dashes != nullptr || dash_count != 0U))) {
+        static_cast<uint32_t>(properties->transformType) >
+            static_cast<uint32_t>(D2D1_STROKE_TRANSFORM_TYPE_HAIRLINE)) {
         return false;
     }
-    bool has_positive_dash = false;
-    for (UINT32 index = 0U; index < dash_count; ++index) {
-        if (!std::isfinite(dashes[index]) || dashes[index] < 0.0F) {
-            return false;
-        }
-        has_positive_dash = has_positive_dash || dashes[index] > 0.0F;
-    }
-    return dash_count == 0U || has_positive_dash;
+    const direct2d_core::stroke_style_properties_f core_properties{
+        static_cast<direct2d_core::cap_style>(properties->startCap),
+        static_cast<direct2d_core::cap_style>(properties->endCap),
+        static_cast<direct2d_core::cap_style>(properties->dashCap),
+        static_cast<direct2d_core::line_join>(properties->lineJoin),
+        properties->miterLimit,
+        static_cast<direct2d_core::dash_style>(properties->dashStyle),
+        properties->dashOffset};
+    return direct2d_core::valid_stroke_style(
+        core_properties, dashes, dash_count);
 }
 
 enum class compat_path_state : uint32_t {

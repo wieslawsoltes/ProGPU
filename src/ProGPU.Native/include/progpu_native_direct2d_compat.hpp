@@ -18,6 +18,10 @@ using arc_size = core::arc_size_kind;
 using arc_segment = core::arc_segment_f;
 using ellipse = core::ellipse_f;
 using rounded_rectangle = core::rounded_rectangle_f;
+using cap_style = core::cap_style;
+using line_join = core::line_join;
+using dash_style = core::dash_style;
+using stroke_style_properties = core::stroke_style_properties_f;
 
 inline constexpr com::result not_implemented = -2147467263;
 inline constexpr com::result failure = -2147467259;
@@ -74,6 +78,11 @@ inline constexpr com::guid geometry_sink_interface_id{
     0x12E2U,
     0x11DCU,
     {0x9FU, 0xEDU, 0x00U, 0x11U, 0x43U, 0xA0U, 0x55U, 0xF9U}};
+inline constexpr com::guid stroke_style_interface_id{
+    0x2CD9069DU,
+    0x12E2U,
+    0x11DCU,
+    {0x9FU, 0xEDU, 0x00U, 0x11U, 0x43U, 0xA0U, 0x55U, 0xF9U}};
 inline constexpr com::guid factory_interface_id{
     0x06152247U,
     0x6F50U,
@@ -126,7 +135,6 @@ struct quadratic_bezier_segment final {
     point_2f point2;
 };
 
-struct stroke_style_properties;
 struct drawing_state_description;
 struct render_target_properties;
 struct hwnd_render_target_properties;
@@ -286,6 +294,28 @@ struct geometry_group : geometry {
     virtual void PROGPU_NATIVE_COM_CALL GetSourceGeometries(
         geometry** geometries,
         std::uint32_t geometry_count) const noexcept = 0;
+};
+
+struct stroke_style : resource {
+    virtual cap_style PROGPU_NATIVE_COM_CALL GetStartCap() const
+        noexcept = 0;
+    virtual cap_style PROGPU_NATIVE_COM_CALL GetEndCap() const
+        noexcept = 0;
+    virtual cap_style PROGPU_NATIVE_COM_CALL GetDashCap() const
+        noexcept = 0;
+    virtual float PROGPU_NATIVE_COM_CALL GetMiterLimit() const
+        noexcept = 0;
+    virtual line_join PROGPU_NATIVE_COM_CALL GetLineJoin() const
+        noexcept = 0;
+    virtual float PROGPU_NATIVE_COM_CALL GetDashOffset() const
+        noexcept = 0;
+    virtual dash_style PROGPU_NATIVE_COM_CALL GetDashStyle() const
+        noexcept = 0;
+    virtual std::uint32_t PROGPU_NATIVE_COM_CALL GetDashesCount() const
+        noexcept = 0;
+    virtual void PROGPU_NATIVE_COM_CALL GetDashes(
+        float* dashes,
+        std::uint32_t dash_count) const noexcept = 0;
 };
 
 struct path_geometry : geometry {

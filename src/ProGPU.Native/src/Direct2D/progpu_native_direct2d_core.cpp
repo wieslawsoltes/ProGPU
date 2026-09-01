@@ -538,6 +538,35 @@ com::result rounded_rectangle_fill_contains_point(
     return com::ok;
 }
 
+bool valid_stroke_style(
+    const stroke_style_properties_f& properties,
+    const float* dashes,
+    std::uint32_t dash_count) noexcept
+{
+    if (properties.start_cap > cap_style::triangle ||
+        properties.end_cap > cap_style::triangle ||
+        properties.dash_cap > cap_style::triangle ||
+        properties.join > line_join::miter_or_bevel ||
+        !std::isfinite(properties.miter_limit) ||
+        properties.miter_limit <= 0.0F ||
+        properties.dash > dash_style::custom ||
+        !std::isfinite(properties.dash_offset) ||
+        ((properties.dash == dash_style::custom) !=
+            (dashes != nullptr && dash_count != 0U)) ||
+        (properties.dash != dash_style::custom &&
+            (dashes != nullptr || dash_count != 0U))) {
+        return false;
+    }
+    bool has_positive_dash = false;
+    for (std::uint32_t index = 0U; index < dash_count; ++index) {
+        if (!std::isfinite(dashes[index]) || dashes[index] < 0.0F) {
+            return false;
+        }
+        has_positive_dash = has_positive_dash || dashes[index] > 0.0F;
+    }
+    return dash_count == 0U || has_positive_dash;
+}
+
 rectangle_geometry::rectangle_geometry(
     rectangle_edges_f rectangle) noexcept
     : rectangle_(rectangle)

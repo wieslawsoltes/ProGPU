@@ -3,6 +3,7 @@
 #include "progpu_native_direct2d_geometry_group.hpp"
 #include "progpu_native_direct2d_path.hpp"
 #include "progpu_native_direct2d_rounded_rectangle.hpp"
+#include "progpu_native_direct2d_stroke_style.hpp"
 
 #include <array>
 #include <cmath>
@@ -668,12 +669,13 @@ public:
     }
 
     com::result PROGPU_NATIVE_COM_CALL CreateStrokeStyle(
-        const stroke_style_properties*,
-        const float*,
-        std::uint32_t,
+        const stroke_style_properties* properties,
+        const float* dashes,
+        std::uint32_t dash_count,
         stroke_style** value) noexcept override
     {
-        return unsupported_output(value);
+        return detail::create_stroke_style(
+            this, properties, dashes, dash_count, value);
     }
 
     com::result PROGPU_NATIVE_COM_CALL CreateDrawingStateBlock(
