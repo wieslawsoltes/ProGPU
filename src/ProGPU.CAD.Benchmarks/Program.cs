@@ -1338,6 +1338,8 @@ void RunMesh3DSelectionBenchmark(
     Vector2 viewportSize = new(1_920.0f, 1_080.0f);
     var queryPoints = new Vector2[queryCount];
     var aperturePoints = new Vector2[queryCount];
+    var lassoPoints = new Vector2[checked(queryCount * 3)];
+    var fencePoints = new Vector2[checked(queryCount * 2)];
     uint state = 0x9e3779b9U;
     int interiorSize = Math.Max(1, gridSize - 2);
     int interiorOffset = gridSize > 2 ? 1 : 0;
@@ -1373,6 +1375,18 @@ void RunMesh3DSelectionBenchmark(
                 (depthLayerCount - 1) * 0.01)) - boundary;
         aperturePoints[index] = boundary +
             Vector2.Normalize(outward) * 0.75f;
+        int lassoOffset = index * 3;
+        lassoPoints[lassoOffset] = queryPoints[index] +
+            new Vector2(-4.0f, -4.0f);
+        lassoPoints[lassoOffset + 1] = queryPoints[index] +
+            new Vector2(4.0f, -4.0f);
+        lassoPoints[lassoOffset + 2] = queryPoints[index] +
+            new Vector2(0.0f, 4.0f);
+        int fenceOffset = index * 2;
+        fencePoints[fenceOffset] = queryPoints[index] +
+            new Vector2(-4.0f, 0.0f);
+        fencePoints[fenceOffset + 1] = queryPoints[index] +
+            new Vector2(4.0f, 0.0f);
     }
 
     for (int index = 0; index < Math.Min(queryCount, 4_096); index++)
@@ -1596,6 +1610,120 @@ void RunMesh3DSelectionBenchmark(
         GC.GetAllocatedBytesForCurrentThread() - regionAllocationStart;
     GC.KeepAlive(checksum);
 
+    var lassoElapsed = new double[queryCount];
+    long lassoVisitedNodeCount = 0;
+    long lassoTestedTriangleCount = 0;
+    long lassoIntersectedTriangleCount = 0;
+    long lassoHandleCount = 0;
+    int lassoMaximumVisitedNodeCount = 0;
+    int lassoMaximumTestedTriangleCount = 0;
+    for (int index = 0; index < Math.Min(queryCount, 4_096); index++)
+    {
+        CadMesh3DRegionQueryResult warm = selectionIndex.QueryLasso(
+            viewport,
+            viewportSize,
+            lassoPoints.AsSpan(index * 3, 3),
+            CadBoundsSelectionMode.Crossing,
+            regionRootScratch,
+            regionHandles);
+        if (warm.HandleTotalCount == 0 || warm.AreHandlesTruncated)
+        {
+            throw new InvalidOperationException(
+                "A warm projected-lasso benchmark query did not return a bounded hit.");
+        }
+    }
+    long lassoAllocationStart =
+        GC.GetAllocatedBytesForCurrentThread();
+    for (int index = 0; index < queryPoints.Length; index++)
+    {
+        long started = Stopwatch.GetTimestamp();
+        CadMesh3DRegionQueryResult result = selectionIndex.QueryLasso(
+            viewport,
+            viewportSize,
+            lassoPoints.AsSpan(index * 3, 3),
+            CadBoundsSelectionMode.Crossing,
+            regionRootScratch,
+            regionHandles);
+        lassoElapsed[index] = Stopwatch.GetElapsedTime(started)
+            .TotalNanoseconds;
+        if (result.HandleTotalCount == 0 || result.AreHandlesTruncated)
+        {
+            throw new InvalidOperationException(
+                "A measured projected-lasso benchmark query did not return a bounded hit.");
+        }
+        lassoVisitedNodeCount += result.VisitedNodeCount;
+        lassoTestedTriangleCount += result.TestedTriangleCount;
+        lassoIntersectedTriangleCount += result.IntersectedTriangleCount;
+        lassoHandleCount += result.HandleTotalCount;
+        lassoMaximumVisitedNodeCount = Math.Max(
+            lassoMaximumVisitedNodeCount,
+            result.VisitedNodeCount);
+        lassoMaximumTestedTriangleCount = Math.Max(
+            lassoMaximumTestedTriangleCount,
+            result.TestedTriangleCount);
+        checksum ^= regionHandles[0] +
+            regionHandles[result.HandleWrittenCount - 1];
+    }
+    long lassoAllocatedBytes =
+        GC.GetAllocatedBytesForCurrentThread() - lassoAllocationStart;
+    GC.KeepAlive(checksum);
+
+    var fenceElapsed = new double[queryCount];
+    long fenceVisitedNodeCount = 0;
+    long fenceTestedTriangleCount = 0;
+    long fenceIntersectedTriangleCount = 0;
+    long fenceHandleCount = 0;
+    int fenceMaximumVisitedNodeCount = 0;
+    int fenceMaximumTestedTriangleCount = 0;
+    for (int index = 0; index < Math.Min(queryCount, 4_096); index++)
+    {
+        CadMesh3DRegionQueryResult warm = selectionIndex.QueryFence(
+            viewport,
+            viewportSize,
+            fencePoints.AsSpan(index * 2, 2),
+            regionRootScratch,
+            regionHandles);
+        if (warm.HandleTotalCount == 0 || warm.AreHandlesTruncated)
+        {
+            throw new InvalidOperationException(
+                "A warm projected-fence benchmark query did not return a bounded hit.");
+        }
+    }
+    long fenceAllocationStart =
+        GC.GetAllocatedBytesForCurrentThread();
+    for (int index = 0; index < queryPoints.Length; index++)
+    {
+        long started = Stopwatch.GetTimestamp();
+        CadMesh3DRegionQueryResult result = selectionIndex.QueryFence(
+            viewport,
+            viewportSize,
+            fencePoints.AsSpan(index * 2, 2),
+            regionRootScratch,
+            regionHandles);
+        fenceElapsed[index] = Stopwatch.GetElapsedTime(started)
+            .TotalNanoseconds;
+        if (result.HandleTotalCount == 0 || result.AreHandlesTruncated)
+        {
+            throw new InvalidOperationException(
+                "A measured projected-fence benchmark query did not return a bounded hit.");
+        }
+        fenceVisitedNodeCount += result.VisitedNodeCount;
+        fenceTestedTriangleCount += result.TestedTriangleCount;
+        fenceIntersectedTriangleCount += result.IntersectedTriangleCount;
+        fenceHandleCount += result.HandleTotalCount;
+        fenceMaximumVisitedNodeCount = Math.Max(
+            fenceMaximumVisitedNodeCount,
+            result.VisitedNodeCount);
+        fenceMaximumTestedTriangleCount = Math.Max(
+            fenceMaximumTestedTriangleCount,
+            result.TestedTriangleCount);
+        checksum ^= regionHandles[0] +
+            regionHandles[result.HandleWrittenCount - 1];
+    }
+    long fenceAllocatedBytes =
+        GC.GetAllocatedBytesForCurrentThread() - fenceAllocationStart;
+    GC.KeepAlive(checksum);
+
     var report = new CadMesh3DSelectionBenchmarkReport(
         DateTimeOffset.UtcNow,
         Environment.OSVersion.ToString(),
@@ -1629,6 +1757,16 @@ void RunMesh3DSelectionBenchmark(
             regionElapsed,
             regionAllocatedBytes / queryCount),
         regionAllocatedBytes,
+        Summarize(
+            "mesh3d-selection-projected-lasso-query-ns",
+            lassoElapsed,
+            lassoAllocatedBytes / queryCount),
+        lassoAllocatedBytes,
+        Summarize(
+            "mesh3d-selection-projected-fence-query-ns",
+            fenceElapsed,
+            fenceAllocatedBytes / queryCount),
+        fenceAllocatedBytes,
         selectionIndex.Statistics,
         (double)visitedNodeCount / queryCount,
         (double)testedTriangleCount / queryCount,
@@ -1650,6 +1788,18 @@ void RunMesh3DSelectionBenchmark(
         (double)regionIntersectedTriangleCount / queryCount,
         regionMaximumVisitedNodeCount,
         regionMaximumTestedTriangleCount,
+        (double)lassoVisitedNodeCount / queryCount,
+        (double)lassoTestedTriangleCount / queryCount,
+        (double)lassoIntersectedTriangleCount / queryCount,
+        (double)lassoHandleCount / queryCount,
+        lassoMaximumVisitedNodeCount,
+        lassoMaximumTestedTriangleCount,
+        (double)fenceVisitedNodeCount / queryCount,
+        (double)fenceTestedTriangleCount / queryCount,
+        (double)fenceIntersectedTriangleCount / queryCount,
+        (double)fenceHandleCount / queryCount,
+        fenceMaximumVisitedNodeCount,
+        fenceMaximumTestedTriangleCount,
         checksum);
     string json = JsonSerializer.Serialize(
         report,
@@ -3569,6 +3719,10 @@ internal sealed record CadMesh3DSelectionBenchmarkReport(
     long TotalProjectedPickTargetQueryManagedAllocatedBytes,
     Measurement ProjectedCrossingQueryNanoseconds,
     long TotalProjectedCrossingQueryManagedAllocatedBytes,
+    Measurement ProjectedLassoQueryNanoseconds,
+    long TotalProjectedLassoQueryManagedAllocatedBytes,
+    Measurement ProjectedFenceQueryNanoseconds,
+    long TotalProjectedFenceQueryManagedAllocatedBytes,
     CadMesh3DSelectionIndexStatistics IndexStatistics,
     double AverageVisitedNodeCount,
     double AverageTestedTriangleCount,
@@ -3590,6 +3744,18 @@ internal sealed record CadMesh3DSelectionBenchmarkReport(
     double ProjectedCrossingAverageIntersectedTriangleCount,
     int ProjectedCrossingMaximumVisitedNodeCount,
     int ProjectedCrossingMaximumTestedTriangleCount,
+    double ProjectedLassoAverageVisitedNodeCount,
+    double ProjectedLassoAverageTestedTriangleCount,
+    double ProjectedLassoAverageIntersectedTriangleCount,
+    double ProjectedLassoAverageHandleCount,
+    int ProjectedLassoMaximumVisitedNodeCount,
+    int ProjectedLassoMaximumTestedTriangleCount,
+    double ProjectedFenceAverageVisitedNodeCount,
+    double ProjectedFenceAverageTestedTriangleCount,
+    double ProjectedFenceAverageIntersectedTriangleCount,
+    double ProjectedFenceAverageHandleCount,
+    int ProjectedFenceMaximumVisitedNodeCount,
+    int ProjectedFenceMaximumTestedTriangleCount,
     ulong Checksum);
 
 internal sealed record CadMesh3DReplayBinaryHashes(

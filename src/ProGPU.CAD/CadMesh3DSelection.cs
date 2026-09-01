@@ -88,6 +88,7 @@ public readonly record struct CadMesh3DRegionQueryResult(
 public sealed class CadMesh3DSelectionIndex
 {
     public const int MaximumHitCount = 256;
+    public const int MaximumProjectedPathPointCount = 4_096;
     public const float DefaultPickTargetHeight = 3.0f;
     public const float MaximumPickTargetHeight = 256.0f;
 
@@ -96,6 +97,7 @@ public sealed class CadMesh3DSelectionIndex
     private const double ParallelTolerance = 1e-14;
     private const double BarycentricTolerance = 1e-12;
     private const double TieTolerance = 1e-12;
+    private const double ProjectedPredicateTolerance = 1e-9;
 
     private readonly CadRecordedMesh3DScene _scene;
     private readonly TriangleReference[] _triangles;
@@ -1280,6 +1282,720 @@ public sealed class CadMesh3DSelectionIndex
             testedTriangles);
     }
 
+    /// <summary>
+    /// Selects semantic roots through an implicitly closed simple projected
+    /// polygon. Window requires complete strict containment; Crossing accepts
+    /// any projected overlap.
+    /// </summary>
+    /// <remarks>
+    /// The polygon may be clockwise or counterclockwise but may not touch or
+    /// cross itself. Validation is O(P^2). Query work is O(R + N + C*P) for P
+    /// polygon points, R semantic roots, N visited nodes, and C candidates.
+    /// Storage is bounded fixed stack plus O(R) caller-owned scratch.
+    /// </remarks>
+    public CadMesh3DRegionQueryResult QueryPolygon(
+        in CadMesh3DViewport viewport,
+        Vector2 viewportSize,
+        ReadOnlySpan<Vector2> polygon,
+        CadBoundsSelectionMode mode,
+        Span<int> semanticRootTriangleScratch,
+        Span<ulong> destinationHandles)
+    {
+        polygon = NormalizeClosedPath(polygon);
+        ValidateProjectedPath(polygon, isClosed: true);
+        ValidateSimplePolygon(polygon);
+        return QueryProjectedPathCore(
+            viewport,
+            viewportSize,
+            polygon,
+            mode,
+            isFence: false,
+            semanticRootTriangleScratch,
+            destinationHandles);
+    }
+
+    /// <summary>
+    /// Selects semantic roots through an implicitly closed freehand projected
+    /// lasso using the even-odd fill rule. A lasso may cross itself.
+    /// </summary>
+    public CadMesh3DRegionQueryResult QueryLasso(
+        in CadMesh3DViewport viewport,
+        Vector2 viewportSize,
+        ReadOnlySpan<Vector2> lasso,
+        CadBoundsSelectionMode mode,
+        Span<int> semanticRootTriangleScratch,
+        Span<ulong> destinationHandles)
+    {
+        lasso = NormalizeClosedPath(lasso);
+        ValidateProjectedPath(lasso, isClosed: true);
+        return QueryProjectedPathCore(
+            viewport,
+            viewportSize,
+            lasso,
+            mode,
+            isFence: false,
+            semanticRootTriangleScratch,
+            destinationHandles);
+    }
+
+    /// <summary>
+    /// Selects semantic roots crossed by an open projected fence. A fence may
+    /// cross itself and selects a face when any fence span enters or crosses
+    /// its visible projected area.
+    /// </summary>
+    public CadMesh3DRegionQueryResult QueryFence(
+        in CadMesh3DViewport viewport,
+        Vector2 viewportSize,
+        ReadOnlySpan<Vector2> fence,
+        Span<int> semanticRootTriangleScratch,
+        Span<ulong> destinationHandles)
+    {
+        ValidateProjectedPath(fence, isClosed: false);
+        return QueryProjectedPathCore(
+            viewport,
+            viewportSize,
+            fence,
+            CadBoundsSelectionMode.Crossing,
+            isFence: true,
+            semanticRootTriangleScratch,
+            destinationHandles);
+    }
+
+    private CadMesh3DRegionQueryResult QueryProjectedPathCore(
+        in CadMesh3DViewport viewport,
+        Vector2 viewportSize,
+        ReadOnlySpan<Vector2> path,
+        CadBoundsSelectionMode mode,
+        bool isFence,
+        Span<int> semanticRootTriangleScratch,
+        Span<ulong> destinationHandles)
+    {
+        ValidateProjectedQuery(
+            viewport,
+            viewportSize,
+            mode,
+            semanticRootTriangleScratch);
+        Span<int> rootStates = semanticRootTriangleScratch[
+            .._semanticRoots.Length];
+        rootStates.Clear();
+        if (_nodes.Length == 0)
+        {
+            return new CadMesh3DRegionQueryResult(
+                ContentGeneration,
+                0,
+                0,
+                0,
+                0,
+                0);
+        }
+
+        GetProjectedPathBounds(
+            path,
+            out Vector2 minimum,
+            out Vector2 maximum);
+        if (isFence)
+        {
+            // The fence remains mathematically zero-width. This one-pixel
+            // expansion is only a conservative BVH/near-far broad phase;
+            // exact projected segment/polygon predicates decide every hit.
+            minimum -= Vector2.One;
+            maximum += Vector2.One;
+        }
+        if (maximum.X < 0.0f || maximum.Y < 0.0f ||
+            minimum.X > viewportSize.X || minimum.Y > viewportSize.Y)
+        {
+            return new CadMesh3DRegionQueryResult(
+                ContentGeneration,
+                0,
+                0,
+                0,
+                0,
+                0);
+        }
+        minimum = Vector2.Clamp(minimum, Vector2.Zero, viewportSize);
+        maximum = Vector2.Clamp(maximum, Vector2.Zero, viewportSize);
+        if (maximum.X <= minimum.X || maximum.Y <= minimum.Y)
+        {
+            return new CadMesh3DRegionQueryResult(
+                ContentGeneration,
+                0,
+                0,
+                0,
+                0,
+                0);
+        }
+
+        var clipRectangle = new ClipRectangle(
+            minimum.X / viewportSize.X * 2.0f - 1.0f,
+            maximum.X / viewportSize.X * 2.0f - 1.0f,
+            1.0f - maximum.Y / viewportSize.Y * 2.0f,
+            1.0f - minimum.Y / viewportSize.Y * 2.0f);
+        CadMesh3DProjectionCamera camera = viewport.CreateProjectionCamera();
+        Matrix4x4 viewProjection = camera.CreateViewMatrix() *
+            camera.CreateProjectionMatrix(viewportSize.X / viewportSize.Y);
+        ClipVolume clipVolume = CreateClipVolume(
+            viewProjection,
+            clipRectangle);
+
+        Span<int> stack = stackalloc int[QueryStackCapacity];
+        int stackCount = 0;
+        if (!IntersectsClipBounds(_nodes[0], clipVolume))
+        {
+            return new CadMesh3DRegionQueryResult(
+                ContentGeneration,
+                0,
+                0,
+                0,
+                0,
+                0);
+        }
+        stack[stackCount++] = 0;
+
+        int intersectedTriangles = 0;
+        int visitedNodes = 0;
+        int testedTriangles = 0;
+        while (stackCount > 0)
+        {
+            int nodeIndex = stack[--stackCount];
+            BvhNode node = _nodes[nodeIndex];
+            visitedNodes++;
+            if (node.Count > 0)
+            {
+                for (int offset = 0; offset < node.Count; offset++)
+                {
+                    TriangleReference reference =
+                        _triangles[node.Start + offset];
+                    testedTriangles++;
+                    if (!ClassifyProjectedPathTriangle(
+                            reference,
+                            clipVolume,
+                            viewProjection,
+                            viewportSize,
+                            path,
+                            isFence,
+                            out bool isContained))
+                    {
+                        continue;
+                    }
+
+                    intersectedTriangles++;
+                    int rootIndex =
+                        _batchSemanticRootIndices[reference.BatchIndex];
+                    if (isFence || mode == CadBoundsSelectionMode.Crossing)
+                    {
+                        rootStates[rootIndex] = 1;
+                    }
+                    else if (isContained)
+                    {
+                        rootStates[rootIndex] = checked(
+                            rootStates[rootIndex] + 1);
+                    }
+                }
+                continue;
+            }
+
+            bool hitLeft = IntersectsClipBounds(
+                _nodes[node.Left],
+                clipVolume);
+            bool hitRight = IntersectsClipBounds(
+                _nodes[node.Right],
+                clipVolume);
+            if (!hitLeft && !hitRight)
+            {
+                continue;
+            }
+            if (stackCount + (hitLeft && hitRight ? 2 : 1) > stack.Length)
+            {
+                throw new InvalidOperationException(
+                    "The balanced Mesh3D selection tree exceeds its traversal stack contract.");
+            }
+            if (hitRight)
+            {
+                stack[stackCount++] = node.Right;
+            }
+            if (hitLeft)
+            {
+                stack[stackCount++] = node.Left;
+            }
+        }
+
+        int handleWrittenCount = 0;
+        int handleTotalCount = 0;
+        for (int rootIndex = 0;
+             rootIndex < _semanticRoots.Length;
+             rootIndex++)
+        {
+            SemanticRootReference root = _semanticRoots[rootIndex];
+            bool isHit = isFence || mode == CadBoundsSelectionMode.Crossing
+                ? rootStates[rootIndex] != 0
+                : rootStates[rootIndex] == root.TriangleCount;
+            if (!isHit)
+            {
+                continue;
+            }
+            if (handleWrittenCount < destinationHandles.Length)
+            {
+                destinationHandles[handleWrittenCount++] = root.Handle;
+            }
+            handleTotalCount++;
+        }
+
+        return new CadMesh3DRegionQueryResult(
+            ContentGeneration,
+            handleWrittenCount,
+            handleTotalCount,
+            intersectedTriangles,
+            visitedNodes,
+            testedTriangles);
+    }
+
+    private static ReadOnlySpan<Vector2> NormalizeClosedPath(
+        ReadOnlySpan<Vector2> path) =>
+        path.Length > 1 && path[0] == path[^1]
+            ? path[..^1]
+            : path;
+
+    private static void ValidateProjectedPath(
+        ReadOnlySpan<Vector2> path,
+        bool isClosed)
+    {
+        int minimumCount = isClosed ? 3 : 2;
+        if (path.Length < minimumCount ||
+            path.Length > MaximumProjectedPathPointCount)
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(path),
+                $"A projected selection path must contain between {minimumCount} and {MaximumProjectedPathPointCount} points.");
+        }
+        for (int index = 0; index < path.Length; index++)
+        {
+            if (!IsFinite(path[index]))
+            {
+                throw new ArgumentOutOfRangeException(
+                    nameof(path),
+                    "Projected selection path points must be finite.");
+            }
+            if (index > 0 && path[index] == path[index - 1])
+            {
+                throw new ArgumentException(
+                    "Projected selection path spans must be non-degenerate.",
+                    nameof(path));
+            }
+        }
+        if (isClosed && path[0] == path[^1])
+        {
+            throw new ArgumentException(
+                "The normalized projected polygon contains a degenerate closing span.",
+                nameof(path));
+        }
+        if (isClosed && !HasNonCollinearSpan(path))
+        {
+            throw new ArgumentException(
+                "A projected selection path must contain non-collinear area.",
+                nameof(path));
+        }
+    }
+
+    private static void ValidateSimplePolygon(ReadOnlySpan<Vector2> polygon)
+    {
+        for (int firstEdge = 0;
+             firstEdge < polygon.Length;
+             firstEdge++)
+        {
+            int firstNext = (firstEdge + 1) % polygon.Length;
+            for (int secondEdge = firstEdge + 1;
+                 secondEdge < polygon.Length;
+                 secondEdge++)
+            {
+                int secondNext = (secondEdge + 1) % polygon.Length;
+                if (firstEdge == secondEdge ||
+                    firstNext == secondEdge ||
+                    secondNext == firstEdge)
+                {
+                    continue;
+                }
+                if (SegmentsIntersectInclusive(
+                        polygon[firstEdge],
+                        polygon[firstNext],
+                        polygon[secondEdge],
+                        polygon[secondNext]))
+                {
+                    throw new ArgumentException(
+                        "A projected selection polygon may not touch or cross itself.",
+                        nameof(polygon));
+                }
+            }
+        }
+    }
+
+    private void ValidateProjectedQuery(
+        in CadMesh3DViewport viewport,
+        Vector2 viewportSize,
+        CadBoundsSelectionMode mode,
+        Span<int> semanticRootTriangleScratch)
+    {
+        if (viewport.RebaseOrigin != RebaseOrigin)
+        {
+            throw new ArgumentException(
+                "The 3D selection viewport does not match the indexed scene rebase origin.",
+                nameof(viewport));
+        }
+        if (!IsFinite(viewportSize) ||
+            viewportSize.X <= 0.0f || viewportSize.Y <= 0.0f)
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(viewportSize),
+                "The 3D selection viewport size must be finite and positive.");
+        }
+        if (mode is not CadBoundsSelectionMode.Window and
+            not CadBoundsSelectionMode.Crossing)
+        {
+            throw new ArgumentOutOfRangeException(nameof(mode));
+        }
+        if (semanticRootTriangleScratch.Length < _semanticRoots.Length)
+        {
+            throw new ArgumentException(
+                $"At least {_semanticRoots.Length} semantic-root scratch entries are required.",
+                nameof(semanticRootTriangleScratch));
+        }
+    }
+
+    private static void GetProjectedPathBounds(
+        ReadOnlySpan<Vector2> path,
+        out Vector2 minimum,
+        out Vector2 maximum)
+    {
+        minimum = new Vector2(float.PositiveInfinity);
+        maximum = new Vector2(float.NegativeInfinity);
+        foreach (Vector2 point in path)
+        {
+            minimum = Vector2.Min(minimum, point);
+            maximum = Vector2.Max(maximum, point);
+        }
+    }
+
+    private static bool HasNonCollinearSpan(ReadOnlySpan<Vector2> path)
+    {
+        Vector2 first = path[0];
+        Vector2 second = path[1];
+        for (int third = 2; third < path.Length; third++)
+        {
+            if (GetOrientation(first, second, path[third]) != 0)
+            {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private bool ClassifyProjectedPathTriangle(
+        TriangleReference reference,
+        in ClipVolume clipVolume,
+        in Matrix4x4 viewProjection,
+        Vector2 viewportSize,
+        ReadOnlySpan<Vector2> path,
+        bool isFence,
+        out bool isContained)
+    {
+        GetTrianglePositions(
+            reference,
+            out Vector3 first,
+            out Vector3 second,
+            out Vector3 third);
+        Span<Vector3> firstBuffer = stackalloc Vector3[12];
+        Span<Vector3> secondBuffer = stackalloc Vector3[12];
+        if (!TryClipTriangle(
+                first,
+                second,
+                third,
+                clipVolume,
+                firstBuffer,
+                secondBuffer,
+                out int count,
+                out bool resultInFirstBuffer,
+                out bool isClipContained))
+        {
+            isContained = false;
+            return false;
+        }
+
+        Span<Vector3> clipped = resultInFirstBuffer
+            ? firstBuffer
+            : secondBuffer;
+        Span<Vector2> projected = stackalloc Vector2[12];
+        for (int index = 0; index < count; index++)
+        {
+            projected[index] = ProjectToViewport(
+                clipped[index],
+                viewProjection,
+                viewportSize);
+        }
+        projected = projected[..count];
+
+        if (isFence)
+        {
+            isContained = false;
+            return FenceIntersectsPolygon(path, projected);
+        }
+
+        bool overlaps = PolygonsOverlap(path, projected);
+        isContained = isClipContained &&
+            PolygonStrictlyContainsPolygon(path, projected);
+        return overlaps;
+    }
+
+    private static Vector2 ProjectToViewport(
+        Vector3 point,
+        in Matrix4x4 viewProjection,
+        Vector2 viewportSize)
+    {
+        Vector4 clip = Vector4.Transform(
+            new Vector4(point, 1.0f),
+            viewProjection);
+        if (!float.IsFinite(clip.X) ||
+            !float.IsFinite(clip.Y) ||
+            !float.IsFinite(clip.W) ||
+            clip.W <= 0.0f)
+        {
+            throw new InvalidOperationException(
+                "The retained Mesh3D projected path produced a non-finite visible point.");
+        }
+        float inverseW = 1.0f / clip.W;
+        return new Vector2(
+            (clip.X * inverseW + 1.0f) * 0.5f * viewportSize.X,
+            (1.0f - clip.Y * inverseW) * 0.5f * viewportSize.Y);
+    }
+
+    private static bool PolygonsOverlap(
+        ReadOnlySpan<Vector2> first,
+        ReadOnlySpan<Vector2> second)
+    {
+        for (int firstEdge = 0; firstEdge < first.Length; firstEdge++)
+        {
+            Vector2 firstStart = first[firstEdge];
+            Vector2 firstEnd = first[(firstEdge + 1) % first.Length];
+            for (int secondEdge = 0;
+                 secondEdge < second.Length;
+                 secondEdge++)
+            {
+                if (SegmentsIntersectInclusive(
+                        firstStart,
+                        firstEnd,
+                        second[secondEdge],
+                        second[(secondEdge + 1) % second.Length]))
+                {
+                    return true;
+                }
+            }
+        }
+        return GetPointLocation(first[0], second) != PointLocation.Outside ||
+            GetPointLocation(second[0], first) != PointLocation.Outside;
+    }
+
+    private static bool PolygonStrictlyContainsPolygon(
+        ReadOnlySpan<Vector2> container,
+        ReadOnlySpan<Vector2> candidate)
+    {
+        foreach (Vector2 point in candidate)
+        {
+            if (GetPointLocation(point, container) != PointLocation.Inside)
+            {
+                return false;
+            }
+        }
+        for (int candidateEdge = 0;
+             candidateEdge < candidate.Length;
+             candidateEdge++)
+        {
+            Vector2 candidateStart = candidate[candidateEdge];
+            Vector2 candidateEnd =
+                candidate[(candidateEdge + 1) % candidate.Length];
+            for (int containerEdge = 0;
+                 containerEdge < container.Length;
+                 containerEdge++)
+            {
+                if (SegmentsIntersectInclusive(
+                        candidateStart,
+                        candidateEnd,
+                        container[containerEdge],
+                        container[(containerEdge + 1) % container.Length]))
+                {
+                    return false;
+                }
+            }
+        }
+        return true;
+    }
+
+    private static bool FenceIntersectsPolygon(
+        ReadOnlySpan<Vector2> fence,
+        ReadOnlySpan<Vector2> polygon)
+    {
+        for (int fenceIndex = 0;
+             fenceIndex + 1 < fence.Length;
+             fenceIndex++)
+        {
+            Vector2 first = fence[fenceIndex];
+            Vector2 second = fence[fenceIndex + 1];
+            if (GetPointLocation(first, polygon) != PointLocation.Outside ||
+                GetPointLocation(second, polygon) != PointLocation.Outside)
+            {
+                return true;
+            }
+            for (int polygonEdge = 0;
+                 polygonEdge < polygon.Length;
+                 polygonEdge++)
+            {
+                if (SegmentsIntersectInclusive(
+                        first,
+                        second,
+                        polygon[polygonEdge],
+                        polygon[(polygonEdge + 1) % polygon.Length]))
+                {
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
+
+    private static PointLocation GetPointLocation(
+        Vector2 point,
+        ReadOnlySpan<Vector2> polygon)
+    {
+        bool isInside = false;
+        Vector2 previous = polygon[^1];
+        foreach (Vector2 current in polygon)
+        {
+            if (PointOnSegment(point, previous, current))
+            {
+                return PointLocation.Boundary;
+            }
+            bool crosses = (previous.Y > point.Y) !=
+                (current.Y > point.Y);
+            if (crosses)
+            {
+                double intersectionX = previous.X +
+                    ((double)point.Y - previous.Y) *
+                    ((double)current.X - previous.X) /
+                    ((double)current.Y - previous.Y);
+                if (intersectionX > point.X)
+                {
+                    isInside = !isInside;
+                }
+            }
+            previous = current;
+        }
+        return isInside ? PointLocation.Inside : PointLocation.Outside;
+    }
+
+    private static bool SegmentsIntersectInclusive(
+        Vector2 firstStart,
+        Vector2 firstEnd,
+        Vector2 secondStart,
+        Vector2 secondEnd)
+    {
+        int firstOrientation = GetOrientation(
+            firstStart,
+            firstEnd,
+            secondStart);
+        int secondOrientation = GetOrientation(
+            firstStart,
+            firstEnd,
+            secondEnd);
+        int thirdOrientation = GetOrientation(
+            secondStart,
+            secondEnd,
+            firstStart);
+        int fourthOrientation = GetOrientation(
+            secondStart,
+            secondEnd,
+            firstEnd);
+        if (firstOrientation * secondOrientation < 0 &&
+            thirdOrientation * fourthOrientation < 0)
+        {
+            return true;
+        }
+        return firstOrientation == 0 &&
+                PointOnSegment(secondStart, firstStart, firstEnd) ||
+            secondOrientation == 0 &&
+                PointOnSegment(secondEnd, firstStart, firstEnd) ||
+            thirdOrientation == 0 &&
+                PointOnSegment(firstStart, secondStart, secondEnd) ||
+            fourthOrientation == 0 &&
+                PointOnSegment(firstEnd, secondStart, secondEnd);
+    }
+
+    private static bool PointOnSegment(
+        Vector2 point,
+        Vector2 first,
+        Vector2 second)
+    {
+        if (GetOrientation(first, second, point) != 0)
+        {
+            return false;
+        }
+        double tolerance = GetProjectedCoordinateTolerance(
+            first,
+            second,
+            point);
+        return point.X >= Math.Min(first.X, second.X) - tolerance &&
+            point.X <= Math.Max(first.X, second.X) + tolerance &&
+            point.Y >= Math.Min(first.Y, second.Y) - tolerance &&
+            point.Y <= Math.Max(first.Y, second.Y) + tolerance;
+    }
+
+    private static int GetOrientation(
+        Vector2 first,
+        Vector2 second,
+        Vector2 third)
+    {
+        double cross =
+            ((double)second.X - first.X) *
+                ((double)third.Y - first.Y) -
+            ((double)second.Y - first.Y) *
+                ((double)third.X - first.X);
+        double tolerance = GetProjectedOrientationTolerance(
+            first,
+            second,
+            third);
+        return cross > tolerance ? 1 : cross < -tolerance ? -1 : 0;
+    }
+
+    private static double GetProjectedOrientationTolerance(
+        Vector2 first,
+        Vector2 second,
+        Vector2 third)
+    {
+        double scale = GetProjectedCoordinateScale(
+            first,
+            second,
+            third);
+        return ProjectedPredicateTolerance * scale * scale;
+    }
+
+    private static double GetProjectedCoordinateTolerance(
+        Vector2 first,
+        Vector2 second,
+        Vector2 third) =>
+        ProjectedPredicateTolerance * GetProjectedCoordinateScale(
+            first,
+            second,
+            third);
+
+    private static double GetProjectedCoordinateScale(
+        Vector2 first,
+        Vector2 second,
+        Vector2 third) => Math.Max(
+            1.0,
+            Math.Max(
+                Math.Max(
+                    Math.Abs((double)second.X - first.X),
+                    Math.Abs((double)second.Y - first.Y)),
+                Math.Max(
+                    Math.Abs((double)third.X - first.X),
+                    Math.Abs((double)third.Y - first.Y))));
+
     private bool ClassifyClipTriangle(
         TriangleReference reference,
         in ClipVolume clipVolume,
@@ -2037,6 +2753,13 @@ public sealed class CadMesh3DSelectionIndex
             5 => Far,
             _ => throw new ArgumentOutOfRangeException(nameof(index)),
         };
+    }
+
+    private enum PointLocation : byte
+    {
+        Outside,
+        Inside,
+        Boundary,
     }
 
     private struct TriangleBuildItem : IComparable<TriangleBuildItem>

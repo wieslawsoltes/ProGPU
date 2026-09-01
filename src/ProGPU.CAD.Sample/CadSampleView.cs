@@ -44,6 +44,7 @@ public sealed class CadSampleView : Grid
     private readonly Button _viewModeButton;
     private readonly TextBlock _viewModeText;
     private readonly ComboBox _meshPickTargetSelector;
+    private readonly ComboBox _meshRegionSelectionSelector;
     private readonly ComboBox _attributeDisplaySelector;
     private readonly Button _printPreviewButton;
     private readonly TextBlock _printPreviewText;
@@ -254,6 +255,9 @@ public sealed class CadSampleView : Grid
         _lastMeshSelection;
 
     public ComboBox MeshPickTargetSelector => _meshPickTargetSelector;
+
+    public ComboBox MeshRegionSelectionSelector =>
+        _meshRegionSelectionSelector;
 
     public float MeshPickTargetHeight
     {
@@ -691,6 +695,25 @@ public sealed class CadSampleView : Grid
             });
         }
         _meshPickTargetSelector.SelectedIndex = 1;
+        _meshRegionSelectionSelector = new ComboBox
+        {
+            Font = font,
+            FontSize = 11,
+            WidthConstraint = 112,
+            HeightConstraint = 34,
+            Margin = new Thickness(0, 0, 8, 0),
+        };
+        _meshRegionSelectionSelector.Items.Add(new ComboBoxItem(
+            "Region: Box")
+        {
+            Tag = false,
+        });
+        _meshRegionSelectionSelector.Items.Add(new ComboBoxItem(
+            "Region: Lasso")
+        {
+            Tag = true,
+        });
+        _meshRegionSelectionSelector.SelectedIndex = 0;
         _attributeDisplaySelector = new ComboBox
         {
             Font = font,
@@ -730,6 +753,7 @@ public sealed class CadSampleView : Grid
         actions.AddChild(_fitButton);
         actions.AddChild(_viewModeButton);
         actions.AddChild(_meshPickTargetSelector);
+        actions.AddChild(_meshRegionSelectionSelector);
         actions.AddChild(_attributeDisplaySelector);
         actions.AddChild(_clearSelectionButton);
 
@@ -2297,6 +2321,14 @@ public sealed class CadSampleView : Grid
                 float height)
             {
                 _meshPickTargetHeight = height;
+            }
+        };
+        _meshRegionSelectionSelector.SelectionChanged += (_, _) =>
+        {
+            if ((_meshRegionSelectionSelector.SelectedItem as ComboBoxItem)?
+                    .Tag is bool useLasso)
+            {
+                _viewport3D.UseLassoSelection = useLasso;
             }
         };
         _attributeDisplaySelector.SelectionChanged += (_, _) =>
@@ -4517,14 +4549,61 @@ public sealed class CadSampleView : Grid
         CadBoundsSelectionMode mode = args.IsWindow
             ? CadBoundsSelectionMode.Window
             : CadBoundsSelectionMode.Crossing;
-        CadMesh3DRegionQueryResult query =
-            _mesh3DView.QuerySelectionRegion(
+        if (args.WasTruncated)
+        {
+            SetStatus(
+                $"3D lasso exceeded {Viewport3D.MaximumLassoPointCount:N0} sampled points; selection was not changed.");
+            return;
+        }
+
+        CadMesh3DRegionQueryResult query;
+        string selectionName;
+        if (!args.IsLasso)
+        {
+            query = _mesh3DView.QuerySelectionRegion(
                 _viewport3D.Size,
                 args.Origin,
                 args.Position,
                 mode,
                 _meshRegionRootScratch,
                 _meshRegionHandles);
+            selectionName = mode.ToString();
+        }
+        else if (args.Mode == Viewport3DRegionSelectionMode.Fence)
+        {
+            query = _mesh3DView.QuerySelectionFence(
+                _viewport3D.Size,
+                args.Points,
+                _meshRegionRootScratch,
+                _meshRegionHandles);
+            mode = CadBoundsSelectionMode.Crossing;
+            selectionName = "Fence lasso";
+        }
+        else
+        {
+            if (args.Points.Length < 3)
+            {
+                SetStatus(
+                    "3D Window/Crossing lasso requires at least three sampled points; selection was not changed.");
+                return;
+            }
+            try
+            {
+                query = _mesh3DView.QuerySelectionLasso(
+                    _viewport3D.Size,
+                    args.Points,
+                    mode,
+                    _meshRegionRootScratch,
+                    _meshRegionHandles);
+            }
+            catch (ArgumentException exception)
+            {
+                SetStatus(
+                    $"3D lasso was not applied: {exception.Message}");
+                return;
+            }
+            selectionName = $"Lasso {mode}";
+        }
         if (!_canvas.SelectSemanticHandles(
                 query.ContentGeneration,
                 _meshRegionHandles.AsSpan(0, query.HandleWrittenCount),
@@ -4536,7 +4615,7 @@ public sealed class CadSampleView : Grid
         }
         _lastMeshSelection = null;
         SetStatus(
-            $"3D {mode} {(args.IsControlPressed ? "toggled" : "selected")} " +
+            $"3D {selectionName} {(args.IsControlPressed ? "toggled" : "selected")} " +
             $"{query.HandleWrittenCount:N0} semantic roots; " +
             $"tested {query.TestedTriangleCount:N0} triangles in " +
             $"{query.VisitedNodeCount:N0} BVH nodes" +
@@ -7942,6 +8021,8 @@ public sealed class CadSampleView : Grid
             canUsePlanTools && _viewport3D.Children.Count > 0;
         _meshPickTargetSelector.IsEnabled =
             canUsePlanTools && _is3DView;
+        _meshRegionSelectionSelector.IsEnabled =
+            canUsePlanTools && _is3DView;
         bool canTransform = canUsePlanTools &&
             _canvas.SelectedHandleCount > 0 &&
             _isSelectionEditable;
@@ -8494,8 +8575,9 @@ public sealed class CadSampleView : Grid
             {
                 return emptySelectionUnsupportedStatus +
                     $" | {_meshPickTargetHeight:0.#}-pixel pickbox click selects; " +
-                    "Alt-click cycles depth; empty-origin drag " +
-                    "right: Window/left: Crossing; object-origin drag orbits; " +
+                    "Alt-click cycles depth; empty-origin Box/Lasso drag " +
+                    "right: Window/left: Crossing; Space cycles lasso modes; " +
+                    "object-origin drag orbits; " +
                     "Shift-left or middle/right pans";
             }
             return emptySelectionUnsupportedStatus +

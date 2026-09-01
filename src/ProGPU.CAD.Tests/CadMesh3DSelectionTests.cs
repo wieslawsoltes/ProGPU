@@ -371,6 +371,113 @@ public sealed class CadMesh3DSelectionTests
     }
 
     [Fact]
+    public void ProjectedPolygonLassoAndFenceUseExactWholeRootSemantics()
+    {
+        var document = new CadDocument();
+        Face3D enclosed = CreateSquareFaceAt(0.0, 0.0, 0.0, 0.5);
+        Face3D crossed = CreateSquareFaceAt(3.0, 0.0, 0.0, 1.0);
+        Face3D outside = CreateSquareFaceAt(7.0, 0.0, 0.0, 0.5);
+        document.Entities.Add(enclosed);
+        document.Entities.Add(crossed);
+        document.Entities.Add(outside);
+        CadRecordedMesh3DScene scene = CompileScene(document);
+        CadMesh3DSelectionIndex index = CadMesh3DSelectionIndex.Build(scene);
+        CadMesh3DViewport viewport = CreateTopViewport(
+            scene,
+            cameraDistance: 20.0,
+            near: 0.1f,
+            far: 100.0f);
+        Vector2[] polygon =
+        [
+            Project(viewport, scene, new CadPoint3D(-1.5, -1.5, 0.0)),
+            Project(viewport, scene, new CadPoint3D(4.0, -1.5, 0.0)),
+            Project(viewport, scene, new CadPoint3D(4.0, -0.5, 0.0)),
+            Project(viewport, scene, new CadPoint3D(1.5, -0.5, 0.0)),
+            Project(viewport, scene, new CadPoint3D(1.5, 1.5, 0.0)),
+            Project(viewport, scene, new CadPoint3D(-1.5, 1.5, 0.0)),
+        ];
+        var rootScratch = new int[index.SemanticRootCount];
+        var handles = new ulong[index.SemanticRootCount];
+
+        CadMesh3DRegionQueryResult window = index.QueryPolygon(
+            viewport,
+            ViewportSize,
+            polygon,
+            CadBoundsSelectionMode.Window,
+            rootScratch,
+            handles);
+        Assert.Equal(1, window.HandleTotalCount);
+        Assert.Equal(enclosed.Handle, handles[0]);
+
+        CadMesh3DRegionQueryResult crossing = index.QueryPolygon(
+            viewport,
+            ViewportSize,
+            polygon,
+            CadBoundsSelectionMode.Crossing,
+            rootScratch,
+            handles);
+        Assert.Equal(2, crossing.HandleTotalCount);
+        Assert.Equal(enclosed.Handle, handles[0]);
+        Assert.Equal(crossed.Handle, handles[1]);
+        Assert.DoesNotContain(
+            outside.Handle,
+            handles.AsSpan(0, crossing.HandleWrittenCount).ToArray());
+
+        Vector2[] interiorFence =
+        [
+            Project(viewport, scene, new CadPoint3D(-0.25, 0.0, 0.0)),
+            Project(viewport, scene, new CadPoint3D(0.25, 0.0, 0.0)),
+        ];
+        CadMesh3DRegionQueryResult fence = index.QueryFence(
+            viewport,
+            ViewportSize,
+            interiorFence,
+            rootScratch,
+            handles);
+        Assert.Equal(1, fence.HandleTotalCount);
+        Assert.Equal(enclosed.Handle, handles[0]);
+
+        Vector2[] selfCrossingLasso =
+        [
+            Project(viewport, scene, new CadPoint3D(-1.0, -1.0, 0.0)),
+            Project(viewport, scene, new CadPoint3D(1.0, 1.0, 0.0)),
+            Project(viewport, scene, new CadPoint3D(-1.0, 1.0, 0.0)),
+            Project(viewport, scene, new CadPoint3D(1.0, -1.0, 0.0)),
+        ];
+        Assert.Throws<ArgumentException>(() => index.QueryPolygon(
+            viewport,
+            ViewportSize,
+            selfCrossingLasso,
+            CadBoundsSelectionMode.Crossing,
+            rootScratch,
+            handles));
+        CadMesh3DRegionQueryResult lasso = index.QueryLasso(
+            viewport,
+            ViewportSize,
+            selfCrossingLasso,
+            CadBoundsSelectionMode.Crossing,
+            rootScratch,
+            handles);
+        Assert.Equal(1, lasso.HandleTotalCount);
+        Assert.Equal(enclosed.Handle, handles[0]);
+
+        Vector2[] collinearFence =
+        [
+            Project(viewport, scene, new CadPoint3D(2.0, 0.0, 0.0)),
+            Project(viewport, scene, new CadPoint3D(3.0, 0.0, 0.0)),
+            Project(viewport, scene, new CadPoint3D(4.0, 0.0, 0.0)),
+        ];
+        CadMesh3DRegionQueryResult crossedFence = index.QueryFence(
+            viewport,
+            ViewportSize,
+            collinearFence,
+            rootScratch,
+            handles);
+        Assert.Equal(1, crossedFence.HandleTotalCount);
+        Assert.Equal(crossed.Handle, handles[0]);
+    }
+
+    [Fact]
     public void LargeWcsQueryUsesTheSceneRebaseWithoutLosingRenderedPrecision()
     {
         const double world = 1_000_000_000_000.0;
@@ -535,6 +642,56 @@ public sealed class CadMesh3DSelectionTests
         GC.KeepAlive(observed);
         Assert.Equal(0, regionMinimumAllocated);
 
+        Vector2[] lasso =
+        [
+            point + new Vector2(-2.0f, -2.0f),
+            point + new Vector2(2.0f, -2.0f),
+            point + new Vector2(0.0f, 2.0f),
+        ];
+        CadMesh3DRegionQueryResult lassoQuery = index.QueryLasso(
+            viewport,
+            ViewportSize,
+            lasso,
+            CadBoundsSelectionMode.Crossing,
+            regionRootScratch,
+            regionHandles);
+        Assert.Equal(1, lassoQuery.HandleTotalCount);
+        Assert.True(lassoQuery.TestedTriangleCount <
+            index.Statistics.TriangleCount / 32);
+        Vector2[] fence = [lasso[0], lasso[2]];
+        Assert.Equal(1, index.QueryFence(
+            viewport,
+            ViewportSize,
+            fence,
+            regionRootScratch,
+            regionHandles).HandleTotalCount);
+        long pathMinimumAllocated = long.MaxValue;
+        for (int pass = 0; pass < 4; pass++)
+        {
+            long before = GC.GetAllocatedBytesForCurrentThread();
+            for (int iteration = 0; iteration < 1_024; iteration++)
+            {
+                observed ^= (ulong)index.QueryLasso(
+                    viewport,
+                    ViewportSize,
+                    lasso,
+                    CadBoundsSelectionMode.Crossing,
+                    regionRootScratch,
+                    regionHandles).HandleTotalCount;
+                observed ^= (ulong)index.QueryFence(
+                    viewport,
+                    ViewportSize,
+                    fence,
+                    regionRootScratch,
+                    regionHandles).HandleTotalCount;
+            }
+            pathMinimumAllocated = Math.Min(
+                pathMinimumAllocated,
+                GC.GetAllocatedBytesForCurrentThread() - before);
+        }
+        GC.KeepAlive(observed);
+        Assert.Equal(0, pathMinimumAllocated);
+
         Vector2 aperturePoint = Project(
             viewport,
             scene,
@@ -667,6 +824,50 @@ public sealed class CadMesh3DSelectionTests
         Assert.Equal(
             afterQuery.SelectionQueryCount + 2,
             coordinator.Statistics.SelectionQueryCount);
+        Vector2[] lasso =
+        [
+            point + new Vector2(-4.0f, -4.0f),
+            point + new Vector2(4.0f, -4.0f),
+            point + new Vector2(0.0f, 4.0f),
+        ];
+        CadMesh3DRegionQueryResult lassoQuery =
+            coordinator.QuerySelectionLasso(
+                ViewportSize,
+                lasso,
+                CadBoundsSelectionMode.Crossing,
+                rootScratch,
+                handles);
+        Assert.Equal(1, lassoQuery.HandleTotalCount);
+        Assert.Equal(hit.Handle, handles[0]);
+        Assert.Equal(
+            afterQuery.SelectionQueryCount + 3,
+            coordinator.Statistics.SelectionQueryCount);
+        CadMesh3DRegionQueryResult polygonQuery =
+            coordinator.QuerySelectionPolygon(
+                ViewportSize,
+                lasso,
+                CadBoundsSelectionMode.Crossing,
+                rootScratch,
+                handles);
+        Assert.Equal(1, polygonQuery.HandleTotalCount);
+        Assert.Equal(hit.Handle, handles[0]);
+        Assert.Equal(
+            afterQuery.SelectionQueryCount + 4,
+            coordinator.Statistics.SelectionQueryCount);
+        CadMesh3DRegionQueryResult fenceQuery =
+            coordinator.QuerySelectionFence(
+                ViewportSize,
+                [
+                    point + new Vector2(-4.0f, 0.0f),
+                    point + new Vector2(4.0f, 0.0f),
+                ],
+                rootScratch,
+                handles);
+        Assert.Equal(1, fenceQuery.HandleTotalCount);
+        Assert.Equal(hit.Handle, handles[0]);
+        Assert.Equal(
+            afterQuery.SelectionQueryCount + 5,
+            coordinator.Statistics.SelectionQueryCount);
 
         session.Edit("Add replacement face", cad =>
             cad.Entities.Add(CreateSquareFace(20.0, 0.0)));
@@ -786,6 +987,59 @@ public sealed class CadMesh3DSelectionTests
             Drag(view.MeshViewport, windowOrigin, windowEnd);
             Assert.Empty(view.Canvas.SelectedHandles.ToArray());
             InputSystem.Current.IsControlPressed = false;
+
+            view.MeshRegionSelectionSelector.SelectedIndex = 1;
+            Assert.True(view.MeshViewport.UseLassoSelection);
+            DragPath(
+                view.MeshViewport,
+                [
+                    windowOrigin,
+                    new Vector2(windowEnd.X, windowOrigin.Y),
+                    windowEnd,
+                    new Vector2(windowOrigin.X, windowEnd.Y),
+                    windowOrigin,
+                ]);
+            Assert.Equal(
+                face.Handle,
+                Assert.Single(view.Canvas.SelectedHandles.ToArray()));
+            Assert.Equal(
+                CadBoundsSelectionMode.Window,
+                view.Canvas.LastSelectionMode);
+
+            view.Canvas.ClearSelection();
+            Vector2 fenceStart = Project(
+                viewport,
+                scene,
+                new CadPoint3D(-3.0, 0.0, 0.0));
+            Vector2 fenceEnd = Project(
+                viewport,
+                scene,
+                new CadPoint3D(3.0, 0.0, 0.0));
+            view.MeshViewport.OnPointerPressed(new PointerRoutedEventArgs
+            {
+                Position = fenceStart,
+                IsLeftButtonPressed = true,
+            });
+            view.MeshViewport.OnPointerMoved(new PointerRoutedEventArgs
+            {
+                Position = fenceEnd,
+                IsLeftButtonPressed = true,
+            });
+            view.MeshViewport.OnKeyDown(new KeyRoutedEventArgs
+            {
+                Key = Silk.NET.Input.Key.Space,
+            });
+            view.MeshViewport.OnPointerReleased(new PointerRoutedEventArgs
+            {
+                Position = fenceEnd,
+            });
+            Assert.Equal(
+                face.Handle,
+                Assert.Single(view.Canvas.SelectedHandles.ToArray()));
+            Assert.Equal(
+                CadBoundsSelectionMode.Crossing,
+                view.Canvas.LastSelectionMode);
+            view.Canvas.ClearSelection();
 
             CadMesh3DViewport beforeOrbit = view.MeshViewportState!.Value;
             view.MeshViewport.OnPointerPressed(new PointerRoutedEventArgs
@@ -1044,6 +1298,30 @@ public sealed class CadMesh3DSelectionTests
         viewport.OnPointerReleased(new PointerRoutedEventArgs
         {
             Position = position,
+        });
+    }
+
+    private static void DragPath(
+        Viewport3D viewport,
+        ReadOnlySpan<Vector2> points)
+    {
+        Assert.True(points.Length >= 2);
+        viewport.OnPointerPressed(new PointerRoutedEventArgs
+        {
+            Position = points[0],
+            IsLeftButtonPressed = true,
+        });
+        for (int index = 1; index + 1 < points.Length; index++)
+        {
+            viewport.OnPointerMoved(new PointerRoutedEventArgs
+            {
+                Position = points[index],
+                IsLeftButtonPressed = true,
+            });
+        }
+        viewport.OnPointerReleased(new PointerRoutedEventArgs
+        {
+            Position = points[^1],
         });
     }
 

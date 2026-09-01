@@ -1,0 +1,51 @@
+{
+  "schemaVersion": 2,
+  "capturedUtc": "2026-09-01T02:03:06.488856+00:00",
+  "durationSeconds": 20,
+  "windowSeconds": null,
+  "targetMode": "launch",
+  "target": "/Users/wieslawsoltes/.dotnet/dotnet",
+  "arguments": [
+    "/Users/wieslawsoltes/GitHub/ProGPU/src/ProGPU.CAD.Benchmarks/bin/Release/net10.0/ProGPU.CAD.Benchmarks.dll",
+    "--mesh3d-selection-grid",
+    "128",
+    "--mesh3d-selection-depth-layers",
+    "8",
+    "--warmup",
+    "1",
+    "--iterations",
+    "2",
+    "--queries",
+    "10000"
+  ],
+  "environmentVariableNames": [],
+  "cleanupTraces": true,
+  "cleanupExports": false,
+  "allocationDetails": false,
+  "summary": {
+    "json": "/Users/wieslawsoltes/GitHub/ProGPU/artifacts/benchmarks/cad-3d-selection-lasso-allocations-natural/instruments-summary.json",
+    "markdown": "/Users/wieslawsoltes/GitHub/ProGPU/artifacts/benchmarks/cad-3d-selection-lasso-allocations-natural/instruments-summary.md",
+    "resourceCount": 0,
+    "maximumCurrentAllocatedBytes": 0,
+    "nativeHeapAndAnonymousVmPersistentBytes": 20850448
+  },
+  "captures": [
+    {
+      "Key": "allocations",
+      "Template": "Allocations",
+      "TracePath": "/Users/wieslawsoltes/GitHub/ProGPU/artifacts/benchmarks/cad-3d-selection-lasso-allocations-natural/allocations.trace",
+      "TableOfContentsPath": "/Users/wieslawsoltes/GitHub/ProGPU/artifacts/benchmarks/cad-3d-selection-lasso-allocations-natural/allocations-toc.xml",
+      "LogPath": "/Users/wieslawsoltes/GitHub/ProGPU/artifacts/benchmarks/cad-3d-selection-lasso-allocations-natural/allocations.log",
+      "TargetOutputPath": "/Users/wieslawsoltes/GitHub/ProGPU/artifacts/benchmarks/cad-3d-selection-lasso-allocations-natural/allocations-target.log",
+      "RecordExitCode": 0,
+      "Exports": [
+        "/Users/wieslawsoltes/GitHub/ProGPU/artifacts/benchmarks/cad-3d-selection-lasso-allocations-natural/allocations-statistics.xml"
+      ],
+      "TraceRetained": false,
+      "DeletedTraceBytes": 17345333,
+      "ExportsRetained": true,
+      "DeletedExportBytes": 0,
+      "DeletedTemporaryBytes": 57553088
+    }
+  ]
+}

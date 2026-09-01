@@ -567,6 +567,85 @@ public sealed class CadMesh3DViewCoordinator
         return result;
     }
 
+    /// <summary>Queries an exact simple projected WPolygon/CPolygon.</summary>
+    public CadMesh3DRegionQueryResult QuerySelectionPolygon(
+        Vector2 viewportSize,
+        ReadOnlySpan<Vector2> polygon,
+        CadBoundsSelectionMode mode,
+        Span<int> semanticRootTriangleScratch,
+        Span<ulong> destinationHandles)
+    {
+        CadMesh3DSelectionIndex index = SelectionIndex ??
+            throw new InvalidOperationException(
+                "A retained CAD mesh generation is required before selection.");
+        CadMesh3DViewport viewport = Viewport ??
+            throw new InvalidOperationException(
+                "A retained CAD mesh camera is required before selection.");
+        CadMesh3DRegionQueryResult result = index.QueryPolygon(
+            viewport,
+            viewportSize,
+            polygon,
+            mode,
+            semanticRootTriangleScratch,
+            destinationHandles);
+        RecordSelectionQuery(
+            result.VisitedNodeCount,
+            result.TestedTriangleCount);
+        return result;
+    }
+
+    /// <summary>Queries an exact freehand projected lasso.</summary>
+    public CadMesh3DRegionQueryResult QuerySelectionLasso(
+        Vector2 viewportSize,
+        ReadOnlySpan<Vector2> lasso,
+        CadBoundsSelectionMode mode,
+        Span<int> semanticRootTriangleScratch,
+        Span<ulong> destinationHandles)
+    {
+        CadMesh3DSelectionIndex index = SelectionIndex ??
+            throw new InvalidOperationException(
+                "A retained CAD mesh generation is required before selection.");
+        CadMesh3DViewport viewport = Viewport ??
+            throw new InvalidOperationException(
+                "A retained CAD mesh camera is required before selection.");
+        CadMesh3DRegionQueryResult result = index.QueryLasso(
+            viewport,
+            viewportSize,
+            lasso,
+            mode,
+            semanticRootTriangleScratch,
+            destinationHandles);
+        RecordSelectionQuery(
+            result.VisitedNodeCount,
+            result.TestedTriangleCount);
+        return result;
+    }
+
+    /// <summary>Queries an exact open projected fence.</summary>
+    public CadMesh3DRegionQueryResult QuerySelectionFence(
+        Vector2 viewportSize,
+        ReadOnlySpan<Vector2> fence,
+        Span<int> semanticRootTriangleScratch,
+        Span<ulong> destinationHandles)
+    {
+        CadMesh3DSelectionIndex index = SelectionIndex ??
+            throw new InvalidOperationException(
+                "A retained CAD mesh generation is required before selection.");
+        CadMesh3DViewport viewport = Viewport ??
+            throw new InvalidOperationException(
+                "A retained CAD mesh camera is required before selection.");
+        CadMesh3DRegionQueryResult result = index.QueryFence(
+            viewport,
+            viewportSize,
+            fence,
+            semanticRootTriangleScratch,
+            destinationHandles);
+        RecordSelectionQuery(
+            result.VisitedNodeCount,
+            result.TestedTriangleCount);
+        return result;
+    }
+
     private void RecordSelectionQuery(
         int visitedNodeCount,
         int testedTriangleCount)

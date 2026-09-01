@@ -488,6 +488,14 @@ namespace Microsoft.UI.Xaml.Controls
 {
     using Microsoft.UI.Xaml.Media.Media3D;
 
+    /// <summary>Projected selection semantics for one 3D region gesture.</summary>
+    public enum Viewport3DRegionSelectionMode
+    {
+        Window,
+        Crossing,
+        Fence,
+    }
+
     /// <summary>One stationary primary-button click inside a 3D viewport.</summary>
     public sealed class Viewport3DClickEventArgs : EventArgs
     {
@@ -529,31 +537,61 @@ namespace Microsoft.UI.Xaml.Controls
         }
     }
 
-    /// <summary>One completed rectangular selection gesture.</summary>
+    /// <summary>One completed rectangular or freehand selection gesture.</summary>
     public sealed class Viewport3DRegionSelectionEventArgs : EventArgs
     {
+        private readonly Vector2[] _points;
+        private readonly int _pointCount;
+
         public Vector2 Origin { get; }
 
         public Vector2 Position { get; }
 
-        public bool IsWindow => Position.X >= Origin.X;
+        public Viewport3DRegionSelectionMode Mode { get; }
+
+        public bool IsWindow => Mode == Viewport3DRegionSelectionMode.Window;
+
+        public bool IsLasso { get; }
+
+        public bool WasTruncated { get; }
+
+        /// <summary>
+        /// Gets gesture points valid for the synchronous event callback. A
+        /// rectangular gesture has its two corners; a lasso has its sampled
+        /// open path and is implicitly closed except in Fence mode.
+        /// </summary>
+        public ReadOnlySpan<Vector2> Points =>
+            _points.AsSpan(0, _pointCount);
 
         public bool IsControlPressed { get; }
 
         internal Viewport3DRegionSelectionEventArgs(
             Vector2 origin,
             Vector2 position,
+            Viewport3DRegionSelectionMode mode,
+            bool isLasso,
+            bool wasTruncated,
+            Vector2[] points,
+            int pointCount,
             bool isControlPressed)
         {
             Origin = origin;
             Position = position;
+            Mode = mode;
+            IsLasso = isLasso;
+            WasTruncated = wasTruncated;
+            _points = points;
+            _pointCount = pointCount;
             IsControlPressed = isControlPressed;
         }
     }
 
     public class Viewport3D : Control
     {
+        public const int MaximumLassoPointCount = 4_096;
+
         private const float ClickDragThreshold = 4.0f;
+        private const float LassoSampleDistance = 1.0f;
 
         private bool _enableRetainedSceneCache;
         private ulong _sceneGeneration = 1;
@@ -643,6 +681,13 @@ namespace Microsoft.UI.Xaml.Controls
         /// <summary>Raised once when a claimed region drag completes.</summary>
         public event EventHandler<Viewport3DRegionSelectionEventArgs>?
             RegionSelectionCompleted;
+
+        /// <summary>
+        /// Uses a bounded freehand path for a claimed primary selection drag.
+        /// Direction chooses initial Window/Crossing semantics and Space
+        /// cycles Window, Fence, and Crossing while the gesture is active.
+        /// </summary>
+        public bool UseLassoSelection { get; set; }
 
         /// <summary>
         /// Advances the immutable model generation and schedules a redraw.
@@ -790,6 +835,12 @@ namespace Microsoft.UI.Xaml.Controls
         private Vector2 _lastPointerPosition;
         private Vector2 _clickOrigin;
         private Vector2 _regionSelectionCurrent;
+        private readonly Vector2[] _regionSelectionPoints =
+            new Vector2[MaximumLassoPointCount];
+        private int _regionSelectionPointCount;
+        private bool _regionSelectionWasTruncated;
+        private bool _regionSelectionIsLasso;
+        private Viewport3DRegionSelectionMode _regionSelectionMode;
         private bool _isClickCandidate;
 
         private float _cameraTheta = 0f;
@@ -1373,6 +1424,58 @@ namespace Microsoft.UI.Xaml.Controls
                 : null;
         }
 
+        private void BeginRegionSelection(Vector2 position)
+        {
+            _isRegionSelecting = true;
+            _regionSelectionCurrent = position;
+            _regionSelectionIsLasso = UseLassoSelection;
+            _regionSelectionMode = position.X >= _clickOrigin.X
+                ? Viewport3DRegionSelectionMode.Window
+                : Viewport3DRegionSelectionMode.Crossing;
+            _regionSelectionPointCount = 0;
+            _regionSelectionWasTruncated = false;
+            if (_regionSelectionIsLasso)
+            {
+                AddRegionSelectionPoint(_clickOrigin, force: true);
+                AddRegionSelectionPoint(position, force: true);
+            }
+        }
+
+        private void AddRegionSelectionPoint(
+            Vector2 point,
+            bool force = false)
+        {
+            if (_regionSelectionPointCount > 0)
+            {
+                Vector2 previous = _regionSelectionPoints[
+                    _regionSelectionPointCount - 1];
+                if (point == previous ||
+                    !force && Vector2.DistanceSquared(point, previous) <
+                        LassoSampleDistance * LassoSampleDistance)
+                {
+                    return;
+                }
+            }
+            if (_regionSelectionPointCount ==
+                _regionSelectionPoints.Length)
+            {
+                _regionSelectionWasTruncated = true;
+                _regionSelectionPoints[^1] = point;
+                return;
+            }
+            _regionSelectionPoints[_regionSelectionPointCount++] = point;
+        }
+
+        private static Viewport3DRegionSelectionMode NextLassoMode(
+            Viewport3DRegionSelectionMode mode) => mode switch
+            {
+                Viewport3DRegionSelectionMode.Crossing =>
+                    Viewport3DRegionSelectionMode.Window,
+                Viewport3DRegionSelectionMode.Window =>
+                    Viewport3DRegionSelectionMode.Fence,
+                _ => Viewport3DRegionSelectionMode.Crossing,
+            };
+
         public override void OnPointerPressed(PointerRoutedEventArgs e)
         {
             if (IsEnabled)
@@ -1390,6 +1493,8 @@ namespace Microsoft.UI.Xaml.Controls
                     _isClickCandidate = !isShift;
                     _isRegionSelecting = false;
                     _regionSelectionCurrent = e.Position;
+                    _regionSelectionPointCount = 0;
+                    _regionSelectionWasTruncated = false;
 
                     if (isShift || Camera is OrthographicCamera)
                     {
@@ -1414,6 +1519,7 @@ namespace Microsoft.UI.Xaml.Controls
                     _isClickCandidate = false;
                     _isPendingPrimaryDrag = false;
                     _isRegionSelecting = false;
+                    _regionSelectionPointCount = 0;
                     _isOrbiting = false;
                     _isPanning = true;
                     _lastPointerPosition = e.Position;
@@ -1424,6 +1530,7 @@ namespace Microsoft.UI.Xaml.Controls
                     _isClickCandidate = false;
                     _isPendingPrimaryDrag = false;
                     _isRegionSelecting = false;
+                    _regionSelectionPointCount = 0;
                 }
             }
             base.OnPointerPressed(e);
@@ -1438,6 +1545,22 @@ namespace Microsoft.UI.Xaml.Controls
                     Vector2.DistanceSquared(e.Position, _clickOrigin) <=
                     ClickDragThreshold * ClickDragThreshold;
                 bool publishRegionSelection = _isRegionSelecting;
+                if (publishRegionSelection)
+                {
+                    if (_regionSelectionIsLasso)
+                    {
+                        AddRegionSelectionPoint(e.Position, force: true);
+                    }
+                    else
+                    {
+                        _regionSelectionPoints[0] = _clickOrigin;
+                        _regionSelectionPoints[1] = e.Position;
+                        _regionSelectionPointCount = 2;
+                        _regionSelectionMode = e.Position.X >= _clickOrigin.X
+                            ? Viewport3DRegionSelectionMode.Window
+                            : Viewport3DRegionSelectionMode.Crossing;
+                    }
+                }
                 bool releaseCapture = _isPendingPrimaryDrag ||
                     _isOrbiting || _isPanning || _isRegionSelecting;
                 _isClickCandidate = false;
@@ -1457,6 +1580,11 @@ namespace Microsoft.UI.Xaml.Controls
                         new Viewport3DRegionSelectionEventArgs(
                             _clickOrigin,
                             e.Position,
+                            _regionSelectionMode,
+                            _regionSelectionIsLasso,
+                            _regionSelectionWasTruncated,
+                            _regionSelectionPoints,
+                            _regionSelectionPointCount,
                             InputSystem.Current.IsControlPressed));
                 }
                 if (publishClick)
@@ -1498,8 +1626,7 @@ namespace Microsoft.UI.Xaml.Controls
                     _isPendingPrimaryDrag = false;
                     if (useRegionSelection)
                     {
-                        _isRegionSelecting = true;
-                        _regionSelectionCurrent = e.Position;
+                        BeginRegionSelection(e.Position);
                         Invalidate();
                     }
                     else
@@ -1518,6 +1645,10 @@ namespace Microsoft.UI.Xaml.Controls
                 {
                     e.Handled = true;
                     _regionSelectionCurrent = e.Position;
+                    if (_regionSelectionIsLasso)
+                    {
+                        AddRegionSelectionPoint(e.Position);
+                    }
                     Invalidate();
                 }
                 else if (_isOrbiting)
@@ -1563,6 +1694,8 @@ namespace Microsoft.UI.Xaml.Controls
             _isClickCandidate = false;
             _isPendingPrimaryDrag = false;
             _isRegionSelecting = false;
+            _regionSelectionPointCount = 0;
+            _regionSelectionWasTruncated = false;
             _isOrbiting = false;
             _isPanning = false;
             Invalidate();
@@ -1574,6 +1707,8 @@ namespace Microsoft.UI.Xaml.Controls
             _isClickCandidate = false;
             _isPendingPrimaryDrag = false;
             _isRegionSelecting = false;
+            _regionSelectionPointCount = 0;
+            _regionSelectionWasTruncated = false;
             _isOrbiting = false;
             _isPanning = false;
             Invalidate();
@@ -1607,6 +1742,17 @@ namespace Microsoft.UI.Xaml.Controls
 
         public override void OnKeyDown(KeyRoutedEventArgs e)
         {
+            if (IsEnabled && IsFocused &&
+                _isRegionSelecting && _regionSelectionIsLasso &&
+                e.Key == Silk.NET.Input.Key.Space)
+            {
+                _regionSelectionMode = NextLassoMode(
+                    _regionSelectionMode);
+                e.Handled = true;
+                Invalidate();
+                base.OnKeyDown(e);
+                return;
+            }
             if (IsEnabled && IsFocused && Camera is ProjectionCamera projCamera)
             {
                 if (!_cameraInitialized) InitializeCameraState();
@@ -1722,6 +1868,33 @@ namespace Microsoft.UI.Xaml.Controls
         {
             if (!_isRegionSelecting)
             {
+                return;
+            }
+            if (_regionSelectionIsLasso)
+            {
+                Pen pen = _regionSelectionMode ==
+                    Viewport3DRegionSelectionMode.Window
+                        ? _windowSelectionPen
+                        : _crossingSelectionPen;
+                for (int index = 1;
+                     index < _regionSelectionPointCount;
+                     index++)
+                {
+                    context.DrawLine(
+                        pen,
+                        _regionSelectionPoints[index - 1],
+                        _regionSelectionPoints[index]);
+                }
+                if (_regionSelectionMode !=
+                        Viewport3DRegionSelectionMode.Fence &&
+                    _regionSelectionPointCount > 2)
+                {
+                    context.DrawLine(
+                        pen,
+                        _regionSelectionPoints[
+                            _regionSelectionPointCount - 1],
+                        _regionSelectionPoints[0]);
+                }
                 return;
             }
             float minimumX = MathF.Min(

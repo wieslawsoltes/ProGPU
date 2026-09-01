@@ -2309,6 +2309,19 @@ right-to-left Crossing; object-origin drags retain orbit, Shift-left and
 middle/right retain pan, and Ctrl atomically toggles the returned root set.
 Dynamic theme-resource overlay brushes repaint without rebuilding mesh data.
 
+Projected WPolygon/CPolygon, freehand lasso, and Fence reuse the same clip
+volume and BVH. The path bounds provide conservative broad phase; each clipped
+visible triangle is projected through the retained camera and classified by
+double-intermediate point, segment, and even-odd predicates. Window requires
+strict containment of every retained triangle in the semantic root, Crossing
+accepts any exact overlap, and Fence accepts exact contact with its open path.
+Explicit polygon input is simple and validated in `O(P^2)`; freehand lasso and
+Fence may self-cross. Query work is `O(R + N + C*P)` and storage remains fixed
+stack plus `O(R)` caller scratch. Shared Box/Lasso interaction samples into one
+reused 4,096-point logical-space buffer, initializes Window/Crossing by drag
+direction, cycles Window/Fence/Crossing with Space, reports truncation, and
+performs no selection query until completion.
+
 The CPU index consumes the same immutable triangles, handle, rebase, and camera
 state as both render adapters and adds no shader, C record, generated wire
 declaration, P/Invoke, or GPU lifetime. A duplicate native C++ index would add

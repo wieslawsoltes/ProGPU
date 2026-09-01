@@ -2,18 +2,19 @@
 
 ## Scope and clean-room provenance
 
-This checkpoint adds whole-entity click and rectangular region selection for
-the retained Flat Mesh3D view. Point selection unprojects one logical viewport
-position through the exact
+This checkpoint adds whole-entity click, rectangular region, simple projected
+polygon, freehand lasso, and open-fence selection for the retained Flat Mesh3D
+view. Point selection unprojects one logical viewport position through the exact
 camera matrices already submitted by the managed and native adapters, finds
 the nearest visible retained triangle, and returns its ACadSharp semantic root
 handle. A caller-buffered companion query returns bounded nearest-first unique
 semantic roots, and repeated Alt-clicks cycle that depth order. Exact projected
-Window/Crossing queries use the same retained triangles and camera clip volume.
+Window/Crossing, WPolygon/CPolygon, lasso, and Fence queries use the same
+retained triangles and camera clip volume.
 Point and depth queries preserve an exact center-ray hit first, then use a
 configurable projected pick target when that ray misses.
-It does not add face/edge/vertex subobject editing, lasso/polygon selection,
-hidden-line policy, or ACIS payload tessellation.
+It does not add face/edge/vertex subobject editing, hidden-line policy, or ACIS
+payload tessellation.
 
 The implementation is original ProGPU code. No third-party implementation
 text, type layout, naming, control flow, lookup-table encoding, or source
@@ -46,6 +47,22 @@ organization was copied. Approved in-repository behavioral provenance is:
   device-independent pixels, defaults it to three, and gives zero a disabled
   meaning. ProGPU adopts those units, default, and zero behavior while bounding
   callers to 256 logical pixels.
+- Autodesk's [object-selection methods](https://help.autodesk.com/cloudhelp/2023/ENU/AutoCAD-DidYouKnow/files/GUID-D0D5C0C3-F092-448A-8E81-D38F27094639.htm),
+  [selection-area contract](https://help.autodesk.com/cloudhelp/2022/ENU/AutoCAD-Core/files/GUID-33B54E3E-8C03-463E-8CF1-F7D9ACB1E2DB.htm), and
+  [lasso settings](https://help.autodesk.com/cloudhelp/2026/ENU/AutoCAD-Core/files/GUID-0510F4AF-B6C7-455C-899F-0AB126EC8154.htm)
+  establish Window/Crossing polygon, Fence, and freehand Lasso selection.
+  Window requires complete enclosure, Crossing includes intersected objects,
+  Fence is an open path, and Space cycles lasso Window/Crossing/Fence modes.
+  ProGPU adopts those observable contracts, including initial lasso direction,
+  while bounding a gesture at 4,096 logical-space points and reporting rather
+  than silently accepting truncation. Explicit WPolygon/CPolygon rejects
+  touching or self-crossing boundaries; freehand lasso deliberately accepts
+  self-crossing input with a documented even-odd interior.
+- Hormann and Agathos's [point-in-polygon survey](https://www.inf.usi.ch/hormann/papers/Hormann.2001.TPI.pdf)
+  describes crossing-number classification and the need to handle boundary
+  cases explicitly. ProGPU independently uses double-intermediate orientation,
+  inclusive segment intersection, explicit boundary classification, and an
+  even-odd crossing test; no implementation text or lookup structure was used.
 - The [WebGPU coordinate-system specification](https://gpuweb.github.io/gpuweb/#coordinate-systems)
   defines top-left framebuffer coordinates, X right, Y down, NDC X/Y in
   `[-1, 1]`, and NDC depth in `[0, 1]`. The picker uses those exact endpoints
@@ -65,11 +82,11 @@ organization was copied. Approved in-repository behavioral provenance is:
 
 | Engine | Primary source examined | Decision for this checkpoint |
 |---|---|---|
-| Skia / SkParagraph | [SkCanvas quick rejection](https://skia.googlesource.com/skia/+/refs/heads/main/src/core/SkCanvas.cpp), [Skia shaped-text design](https://docs.skia.org/docs/dev/design/text_shaper/) | Skia conservatively rejects by transformed bounds before exact drawing, while shaping is reusable state. Adapted: reject BVH nodes by ray bounds before exact triangles. Existing CAD glyph runs are neither rebuilt nor made 3D-pickable here. |
-| Direct2D / DirectWrite / Win2D | [Direct2D `StrokeContainsPoint`](https://learn.microsoft.com/en-us/windows/win32/direct2d/id2d1geometry-strokecontainspoint), [DirectWrite/Direct2D separation](https://learn.microsoft.com/en-us/windows/win32/direct2d/direct2d-and-directwrite), [Win2D retained text layout](https://microsoft.github.io/Win2D/WinUI3/html/T_Microsoft_Graphics_Canvas_Text_CanvasTextLayout.htm) | Direct2D separates transformed exact containment from conservative geometry bounds, and DirectWrite/Win2D retain positioned text. Adapted: exact surface testing follows immutable bounds traversal. Text layout, fallback, and device resources are unaffected. |
-| WebRender | [rendering pipeline and spatial trees](https://searchfox.org/mozilla-central/source/gfx/docs/RenderingOverview.rst), [display-list hit-test contract](https://searchfox.org/mozilla-central/source/layout/painting/nsDisplayList.h) | WebRender/Gecko retain semantic hit-test information separately from GPU pixels and apply bounds/clips before exact item behavior. Adapted: semantic batch handles remain next to retained triangles; rejected: framebuffer readback as the source of object identity. |
-| Vello / Parley | [Vello retained-scene vision](https://github.com/linebender/vello/blob/main/doc/vision.md), [current Vello scene API](https://github.com/linebender/vello/blob/main/vello/src/scene.rs), [Parley text stack](https://github.com/linebender/parley) | Vello separates immutable scene encoding from late transforms; Parley retains Unicode analysis, shaping, fallback, and layout. Adopted: the index belongs to a geometry generation while camera rays are late state. No text cache or layout changes apply. |
-| HarfBuzz | [shape plans and caching](https://harfbuzz.github.io/shaping-plans-and-caching.html), [buffer contract](https://harfbuzz.github.io/harfbuzz-hb-buffer.html) | HarfBuzz maps Unicode buffers to positioned glyphs and permits cached plans; it has no 3D surface-selection role. Existing font fallback, variable-font state, glyph caches, and device-loss invalidation remain unchanged. |
+| Skia / SkParagraph | [SkPath containment](https://skia.googlesource.com/skia/+/2a8c48be4ff65d873d9d5ba65ecef989d82dd0be/site/user/api/SkPath_Reference.md), [Skia path operations](https://skia.googlesource.com/skia/+/20f3403/include/pathops/SkPathOps.h), [Skia shaped-text design](https://docs.skia.org/docs/dev/design/text_shaper/) | Skia exposes fill-rule containment and explicit path operations while keeping shaped text reusable. Adapted: classify retained projected triangle polygons against a caller path after conservative bounds traversal. Rejected: materializing general path-op objects per query. Existing CAD glyph runs are unaffected. |
+| Direct2D / DirectWrite / Win2D | [Direct2D geometry overview](https://learn.microsoft.com/en-us/windows/win32/direct2d/direct2d-geometries-overview), [Direct2D geometry comparison](https://learn.microsoft.com/en-us/windows/win32/api/d2d1/nf-d2d1-id2d1geometry-comparewithgeometry), [Win2D geometry combine](https://microsoft.github.io/Win2D/WinUI3/html/T_Microsoft_Graphics_Canvas_Geometry_CanvasGeometryCombine.htm) | Direct2D/Win2D separate device-independent geometry relations from drawing and expose exact containment/combination contracts. Adapted: keep selection predicates on the device-independent retained CPU generation. Rejected: allocating backend geometry or initializing graphics merely to select. DirectWrite layout and fallback remain unaffected. |
+| WebRender | [WebRender source](https://searchfox.org/mozilla-central/source/gfx/layers/wr), [Gecko painting and hit-test source](https://searchfox.org/firefox-main/source/layout/painting) | WebRender/Gecko retain semantic hit-test and clip-chain information separately from GPU pixels and cull before detailed behavior. Adapted: semantic batch handles remain next to retained triangles and the path AABB drives BVH broad phase; rejected: framebuffer readback as object identity. |
+| Vello / Parley | [Vello scene source](https://github.com/linebender/vello/tree/main/vello/src), [Parley line-layout source](https://github.com/linebender/parley/tree/main/parley/src/layout) | Vello separates retained scene encoding from late transforms; Parley retains reusable layout. Adopted: the index belongs to one immutable geometry generation while projection and selection paths are late state. No text cache or layout changes apply. |
+| HarfBuzz | [shape API source](https://github.com/harfbuzz/harfbuzz/blob/main/src/hb-shape.cc), [shape-plan source](https://github.com/harfbuzz/harfbuzz/blob/main/src/hb-shape-plan.cc) | HarfBuzz retains reusable shaping plans and has no projected surface-selection role. Existing font fallback, variable-font state, glyph caches, and device-loss invalidation remain unchanged. |
 | WebGPU | [coordinate systems](https://gpuweb.github.io/gpuweb/#coordinate-systems), [device-loss contract](https://gpuweb.github.io/gpuweb/#dom-gpudevice-lost) | Core WebGPU supplies raster/depth semantics but no portable object-identity query. Adopted: match clip coordinates on the CPU and keep the index device-independent. A WebGPU device replacement rehydrates render resources but does not invalidate a matching CPU geometry generation. |
 
 The broader required concerns are unchanged: index preparation is bounded CPU
@@ -145,6 +162,24 @@ output preserves first-root scene order and reports exact truncation. Work is
 `O(R + N + C)` and scratch is `O(R)` for `R` roots, `N` visited BVH nodes, and
 `C` tested candidates. Warm queries allocate no managed memory.
 
+`QueryPolygon`, `QueryLasso`, and `QueryFence` derive a conservative six-plane
+clip volume from the projected path bounds and reuse the same BVH. Candidate
+triangles are clipped to that volume and then projected through the exact
+retained view-projection matrix. Double-intermediate point/boundary and segment
+predicates classify the resulting convex polygon against the caller path.
+Window accepts a semantic root only when every retained root triangle is
+strictly inside the closed path; Crossing accepts any boundary or interior
+overlap. A freehand lasso uses even-odd fill and may cross itself. WPolygon and
+CPolygon first prove a simple non-touching polygon in `O(P^2)`. Fence remains
+an open, potentially self-crossing, zero-width path; a one-logical-pixel bounds
+expansion is conservative broad phase only, and exact segment/polygon contact
+decides every hit. For `P` path points, `R` roots, `N` visited nodes, and `C`
+candidate triangles, query work is `O(R + N + C*P)`, with the additional
+`O(P^2)` simple-polygon validation when requested. Storage is fixed clipping
+and traversal stack plus caller-owned `O(R)` root scratch and output. The public
+path bound is 4,096 points; output remains deterministic in first-root scene
+order with explicit destination truncation and zero warm managed allocation.
+
 ## Managed/native and interaction applicability
 
 The managed and native renderers consume the same `CadRecordedMesh3DScene`,
@@ -182,6 +217,13 @@ Left-to-right commits Window and right-to-left commits Crossing; Ctrl toggles
 the complete returned set atomically. Shift-left and middle/right remain pan.
 The overlay uses dynamic theme-resource brushes and pointer motion only updates
 bounded control state; no query runs until drag arbitration or completion.
+The shared Box/Lasso selector switches the same empty-origin gesture to a
+one-logical-pixel-sampled freehand path. Its initial direction selects Window
+or Crossing, and Space cycles Window, Fence, and Crossing while captured.
+Window/Crossing closes the overlay and query implicitly; Fence leaves it open.
+The control reuses one 4,096-point buffer, exposes its span only to the
+synchronous completion callback, and explicitly rejects an over-capacity
+gesture without changing selection.
 
 ## Verification and remaining gates
 
@@ -189,21 +231,28 @@ Required regressions cover frontmost ordering, two-sided triangles, misses,
 near/far clipping, deterministic shared-edge ties, large-WCS rebasing,
 spanning-triangle crossing with no contained vertex, whole-root Window
 containment across separated triangles, generation/rebase validation,
-dense-scene pruning, zero-allocation warm point/depth/pick-target/region queries,
+dense-scene pruning, zero-allocation warm point/depth/pick-target/region/lasso/
+fence queries, concave simple polygons, self-crossing even-odd lassos, open
+collinear fences, strict whole-root Window and exact Crossing behavior,
 coordinator replacement, empty-origin selection versus object-origin orbit,
 Ctrl set toggling, selection clearing, semantic handle continuity,
 theme-dynamic highlighting, and retained camera/upload counters. The
 SHA-identified Release 256-by-256 grid lane contains
 131,072 triangles. Its 2,359,276-byte, depth-15 index built at
-15.4651/47.7765/47.7765 ms p50/p95/p99. Across 65,536 exact point queries it
+15.1625/45.4200/45.4200 ms p50/p95/p99. Across 65,536 exact point queries it
 visited 15 nodes, tested eight triangles, used zero managed bytes, and measured
-2.6/6.2/17.1 microseconds p50/p95/p99. Near-edge three-pixel projected-target
+3.4/9.0/15.7 microseconds p50/p95/p99. Near-edge three-pixel projected-target
 queries used zero managed bytes, visited about 19 nodes, tested about 17
 triangles, found about five clipped intersections and one semantic hit, and
-measured 3.6/12.9/34.2 microseconds p50/p95/p99. Exact projected Crossing queries used
+measured 3.6/17.4/54.6 microseconds p50/p95/p99. Exact projected Crossing queries used
 zero managed bytes, visited about 77 nodes, tested about 161 triangles, found
-about 101 triangle intersections, and measured 29.2/75.9/129.3 microseconds
-p50/p95/p99. The checked-in JSON is
+about 101 triangle intersections, and measured 20.9/54.0/76.8 microseconds
+p50/p95/p99. The three-point lasso reused the same nodes/candidates, found
+about 59 intersections and one root, and measured 34.5/97.8/139.1
+microseconds. The two-point Fence visited about 54 nodes, tested about 86
+triangles, found about 13 intersections and one root, and measured
+17.4/47.2/74.7 microseconds. Both new lanes allocated zero managed bytes. The
+checked-in JSON is
 `artifacts/benchmarks/cad-3d-selection-grid-256.json`.
 There is no matched pre-change selection latency because the prior Flat 3D
 viewer had no projected query path; these figures are an acceptance baseline,
@@ -212,14 +261,19 @@ not a claimed before/after speedup.
 The final eight-layer lane contains 262,144 triangles and eight unique roots
 along each ray. Across 65,536 queries, bounded semantic collection visited
 about 91 nodes, tested 64 triangles, returned all eight roots, allocated zero
-managed bytes, and measured 10.5/31.9/54.5 microseconds p50/p95/p99. Its
+managed bytes, and measured 10.4/33.7/60.7 microseconds p50/p95/p99. Its
 near-edge three-pixel projected-target companion visited 91 nodes, tested 64
 triangles, found 24 clipped intersections, returned all eight roots, allocated
-zero managed bytes, and measured 12.0/37.6/54.8 microseconds p50/p95/p99. Exact
+zero managed bytes, and measured 11.4/39.5/64.7 microseconds p50/p95/p99. Exact
 projected Crossing visited about 314 nodes, tested about 488 triangles, found
 about 254 triangle intersections, allocated zero managed bytes, and measured
-96.3/242.4/329.2 microseconds p50/p95/p99. Its 4,718,712-byte index built at
-31.6633/40.2788/40.2788 ms p50/p95/p99. The SHA-identified JSON is
+92.2/241.9/330.6 microseconds p50/p95/p99. Lasso reused the same broad phase,
+found about 169 intersections and all eight roots, and measured
+125.8/332.4/473.0 microseconds. Fence visited about 252 nodes, tested about 322
+triangles, found about 62 intersections and all eight roots, and measured
+80.6/219.8/300.4 microseconds. Both allocated zero managed bytes. Its
+4,718,712-byte index built at 22.4764/36.5025/36.5025 ms p50/p95/p99. The
+SHA-identified JSON is
 `artifacts/benchmarks/cad-3d-selection-depth-8.json`. The point/depth query
 implementation is unchanged by this slice; an attempted historical-commit
 rebuild could not resolve that revision's dependency layout, so the new
@@ -228,20 +282,19 @@ presented as a matched regression claim.
 
 Final-binary Allocations and Time Profiler captures use a 128-by-128,
 eight-layer fixture and include exact point, semantic depth, projected-target,
-and projected-region queries. Metal uses the same CPU algorithm and binaries at
-16-by-16 scale so the target exits naturally within the capture duration.
-Allocations report 19,140,992 persistent heap-plus-anonymous-VM bytes and
-71,071,568 total bytes for startup, fixtures, builds, and all four query
+projected-region, lasso, and Fence queries. Metal uses the same CPU algorithm
+and binaries at 16-by-16 scale so the target exits naturally within the capture
+duration. Allocations report 20,850,448 persistent heap-plus-anonymous-VM bytes
+and 71,332,080 total bytes for startup, fixtures, builds, and all six query
 families. The paired benchmark accounting reports zero managed bytes in every
 warm query family. Metal reports no target resource allocation, current
 allocated size, application submission, drawable wait, compiler spill, hang,
 or error; the exported system trace contains unrelated completion events but no
 target submissions. Every final target exited with code zero. Compact evidence
 and SHA-identified capture notes are in the three
-`cad-3d-selection-pickbox-*-natural/` directories.
+`cad-3d-selection-lasso-*-natural/` directories.
 
-Still required for full 3D selection fidelity are lasso/polygon/fence
-selection, transparent/hidden-line policy,
+Still required for full 3D selection fidelity are transparent/hidden-line policy,
 face/edge/vertex subobjects, ACIS analytic topology, material/texture alpha
 semantics, arbitrary non-Mesh3D projected entity selection, matched
 managed/native rendered highlight images, browser interaction/performance
