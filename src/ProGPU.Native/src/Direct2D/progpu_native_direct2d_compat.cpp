@@ -74,6 +74,115 @@ class portable_factory;
         .bounds(world_transform, bounds);
 }
 
+[[nodiscard]] bool convex_rectangle_contains(
+    const std::array<point_2f, 4U>& points,
+    point_2f point,
+    bool include_boundary) noexcept
+{
+    bool positive = false;
+    bool negative = false;
+    bool boundary = false;
+    for (std::size_t index = 0U; index < points.size(); ++index) {
+        const auto& start = points[index];
+        const auto& end = points[(index + 1U) % points.size()];
+        const double cross =
+            (static_cast<double>(end.x) - start.x) *
+                (static_cast<double>(point.y) - start.y) -
+            (static_cast<double>(end.y) - start.y) *
+                (static_cast<double>(point.x) - start.x);
+        positive = positive || cross > 0.0;
+        negative = negative || cross < 0.0;
+        boundary = boundary || cross == 0.0;
+    }
+    return !(positive && negative) && (include_boundary || !boundary);
+}
+
+[[nodiscard]] com::result rectangle_stroke_contains_point(
+    const rectangle_f& rectangle,
+    point_2f point,
+    float stroke_width,
+    stroke_style* style,
+    const matrix_3x2_f* world_transform,
+    float flattening_tolerance,
+    std::int32_t* contains) noexcept
+{
+    if (contains == nullptr) {
+        return com::pointer_error;
+    }
+    *contains = 0;
+    if (!std::isfinite(point.x) || !std::isfinite(point.y) ||
+        !std::isfinite(stroke_width) || stroke_width < 0.0F ||
+        !std::isfinite(flattening_tolerance) ||
+        flattening_tolerance <= 0.0F ||
+        !core::valid_transform(world_transform)) {
+        return com::invalid_argument;
+    }
+    if (style != nullptr || rectangle.right <= rectangle.left ||
+        rectangle.bottom <= rectangle.top) {
+        return not_implemented;
+    }
+    if (world_transform != nullptr) {
+        const double determinant =
+            static_cast<double>(world_transform->m11) *
+                world_transform->m22 -
+            static_cast<double>(world_transform->m12) *
+                world_transform->m21;
+        if (determinant == 0.0) {
+            return not_implemented;
+        }
+    }
+    const double half_width = static_cast<double>(stroke_width) * 0.5;
+    const std::array<double, 4U> outer_values{
+        static_cast<double>(rectangle.left) - half_width,
+        static_cast<double>(rectangle.top) - half_width,
+        static_cast<double>(rectangle.right) + half_width,
+        static_cast<double>(rectangle.bottom) + half_width};
+    constexpr double maximum =
+        static_cast<double>(std::numeric_limits<float>::max());
+    for (const double value : outer_values) {
+        if (!std::isfinite(value) || std::abs(value) > maximum) {
+            return com::invalid_argument;
+        }
+    }
+    std::array<point_2f, 4U> outer{};
+    const com::result outer_result = core::rectangle_geometry({
+        static_cast<float>(outer_values[0U]),
+        static_cast<float>(outer_values[1U]),
+        static_cast<float>(outer_values[2U]),
+        static_cast<float>(outer_values[3U])})
+        .vertices(world_transform, outer);
+    if (com::failed(outer_result)) {
+        return outer_result;
+    }
+    if (!convex_rectangle_contains(outer, point, true)) {
+        return com::ok;
+    }
+    const double inner_left =
+        static_cast<double>(rectangle.left) + half_width;
+    const double inner_top =
+        static_cast<double>(rectangle.top) + half_width;
+    const double inner_right =
+        static_cast<double>(rectangle.right) - half_width;
+    const double inner_bottom =
+        static_cast<double>(rectangle.bottom) - half_width;
+    if (inner_right <= inner_left || inner_bottom <= inner_top) {
+        *contains = 1;
+        return com::ok;
+    }
+    std::array<point_2f, 4U> inner{};
+    const com::result inner_result = core::rectangle_geometry({
+        static_cast<float>(inner_left),
+        static_cast<float>(inner_top),
+        static_cast<float>(inner_right),
+        static_cast<float>(inner_bottom)})
+        .vertices(world_transform, inner);
+    if (com::failed(inner_result)) {
+        return inner_result;
+    }
+    *contains = convex_rectangle_contains(inner, point, false) ? 0 : 1;
+    return com::ok;
+}
+
 class portable_solid_color_brush final : public solid_color_brush {
 public:
     portable_solid_color_brush(
@@ -281,18 +390,21 @@ public:
     }
 
     com::result PROGPU_NATIVE_COM_CALL StrokeContainsPoint(
-        point_2f,
-        float,
-        stroke_style*,
-        const matrix_3x2_f*,
-        float,
+        point_2f point,
+        float stroke_width,
+        stroke_style* style,
+        const matrix_3x2_f* world_transform,
+        float flattening_tolerance,
         std::int32_t* contains) const noexcept override
     {
-        if (contains == nullptr) {
-            return com::pointer_error;
-        }
-        *contains = 0;
-        return not_implemented;
+        return rectangle_stroke_contains_point(
+            geometry_.rectangle(),
+            point,
+            stroke_width,
+            style,
+            world_transform,
+            flattening_tolerance,
+            contains);
     }
 
     com::result PROGPU_NATIVE_COM_CALL FillContainsPoint(
@@ -585,15 +697,40 @@ public:
         float flattening_tolerance,
         std::int32_t* contains) const noexcept override
     {
-        matrix_3x2_f composed{};
-        const com::result status = compose(world_transform, &composed);
-        return com::failed(status)
-            ? status
-            : source_->StrokeContainsPoint(
+        if (contains == nullptr) {
+            return com::pointer_error;
+        }
+        *contains = 0;
+        const bool axis_preserving =
+            (transform_.m12 == 0.0F && transform_.m21 == 0.0F) ||
+            (transform_.m11 == 0.0F && transform_.m22 == 0.0F);
+        if (!axis_preserving) {
+            return not_implemented;
+        }
+        rectangle_geometry* raw_rectangle = nullptr;
+        const com::result query = source_->QueryInterface(
+            rectangle_geometry_interface_id,
+            reinterpret_cast<void**>(&raw_rectangle));
+        com::pointer<rectangle_geometry> rectangle;
+        rectangle.attach(raw_rectangle);
+        if (com::failed(query) || !rectangle) {
+            return com::failed(query) && query != com::no_interface
+                ? query
+                : not_implemented;
+        }
+        rectangle_f source_rectangle{};
+        rectangle->GetRect(&source_rectangle);
+        rectangle_f transformed_rectangle{};
+        const com::result bounds_result = core::rectangle_geometry(
+            source_rectangle).bounds(&transform_, &transformed_rectangle);
+        return com::failed(bounds_result)
+            ? bounds_result
+            : rectangle_stroke_contains_point(
+                  transformed_rectangle,
                   point,
                   stroke_width,
                   style,
-                  &composed,
+                  world_transform,
                   flattening_tolerance,
                   contains);
     }
