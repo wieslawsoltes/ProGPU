@@ -6473,9 +6473,13 @@ Every point/control is batch-transformed through NEON or SSE2 before the sink
 receives alternate-fill, force-unstroked closed figures. Dense local output
 matches the union `StrokeContainsPoint` predicate. Genuine Direct2D ARM64 and
 x64 validate successful multi-figure output, the default line-only transcript
-region, and dashed output against the system containment oracle. Explicit
-solid styles on closed figures, collapsed offsets, segment flags, and invalid
-topology remain typed fail closed.
+region, and dashed output against the system containment oracle. Convex closed
+figures now build paired typed side contours for solid bevel/round/miter joins
+and for a dash run covering the complete source seam; round joins remain cubic
+GPU paths. Dense local and Windows ARM64/x64 system-containment differentials
+cover bevel, round, and full-cover custom dash output. Non-convex styled closed
+contours, collapsed offsets, segment flags, and invalid topology remain typed
+fail closed.
 
 `GetWidenedBounds` now shares that default-miter path domain. Segment offsets
 and miter extrema are constructed before the world transform; independent
@@ -6496,7 +6500,7 @@ receives alternate-fill force-unstroked closed figures. Local tests compare a
 dense widened-fill lattice with `StrokeContainsPoint`; the Windows ARM64 oracle
 compares convex and concave lattices with genuine system Direct2D after a clean
 30-step provider/core build. Unsupported collapsed or self-intersecting
-offsets, explicitly styled closed figures, flagged paths, and zero-width cases
+offsets, non-convex styled closed figures, flagged paths, and zero-width cases
 remain fail closed.
 
 ## Invariants
