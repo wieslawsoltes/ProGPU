@@ -877,8 +877,15 @@ genuine Direct2D for body, gap, flat-cap, and round-cap probes at an explicit
 dashed closed paths, includes exact line-body, cap, and join extrema, and adds
 affine support points for round geometry before the SIMD transform/reduction
 pass. Flat and round styles, including a non-uniform transform, match genuine
-Direct2D on Windows x64 and ARM64. Dashed `Widen` remains fail closed until it
-emits these run outlines through the simplified geometry sink.
+Direct2D on Windows x64 and ARM64. `Widen` now emits one closed outline per
+bevel-joined line dash for flat, square, and triangle cap styles, preparing and
+transforming every outline before it touches the caller's sink. Dense probes
+match `StrokeContainsPoint`, and the flat outline matches genuine Direct2D on
+Windows x64 and ARM64; square and triangle cap containment plus native widen
+acceptance are also checked there. Closed-figure dash runs that touch only one
+side of the source seam now use `StartCap`/`EndCap`, matching the renderer and
+system Direct2D. Round-cap/join and miter-joined dashed widen output remain
+fail closed.
 
 The identical simple closed/default-miter domain now implements
 `GetWidenedBounds`. It derives segment offset endpoints plus qualified miter
