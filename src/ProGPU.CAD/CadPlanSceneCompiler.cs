@@ -431,6 +431,9 @@ public sealed class CadPlanSceneCompiler
         CadPlanChunkNormalization? chunkNormalization = null;
         int chunkEndIndex = 0;
         int chunkRecordedStart = 0;
+        int chunkUnsupportedLineTypeStart = 0;
+        int chunkPatternedStrokeEntityCount = 0;
+        CadPlanChunkReplayCounters chunkReplayStart = default;
         int nextBlockInstanceIndex = 0;
 
         using var recordingLeaseGuard = new RecordingLeaseGuard(sceneContext);
@@ -997,6 +1000,10 @@ public sealed class CadPlanSceneCompiler
                 }
             }
             chunkEndIndex = endIndex;
+            chunkReplayStart = CaptureChunkReplayCounters();
+            chunkUnsupportedLineTypeStart = unsupportedLineTypes;
+            chunkPatternedStrokeEntityCount = CountPatternedStrokeEntities(
+                chunkEntities.Slice(startIndex, endIndex - startIndex));
 
             chunkKey = CadPlanChunkKeyBuilder.TryCreate(
                 snapshot,
@@ -1034,7 +1041,9 @@ public sealed class CadPlanSceneCompiler
                     chunkShxDependencies,
                     out GpuPicture cachedPicture,
                     out int cachedCommandCount,
-                    out int cachedRecordedEntityCount))
+                    out int cachedRecordedEntityCount,
+                    out CadPlanChunkReplayCounters cachedReplayCounters) &&
+                CanApplyChunkReplayCounters(cachedReplayCounters))
             {
                 if (chunkLocalToScene is Matrix3x2 blockTransform)
                 {
@@ -1049,8 +1058,11 @@ public sealed class CadPlanSceneCompiler
                 retainedChunkCommandCount = checked(
                     retainedChunkCommandCount + cachedCommandCount);
                 recorded = checked(recorded + cachedRecordedEntityCount);
+                ApplyChunkReplayCounters(cachedReplayCounters);
                 retainedChunkCount++;
                 reusedRetainedChunkCount++;
+                RestoreChunkLineTypeSubstitutionDiagnostics(
+                    chunkEntities.Slice(startIndex, endIndex - startIndex));
                 chunkKey = null;
                 chunkRecorder = null;
                 context = sceneContext;
@@ -1074,6 +1086,12 @@ public sealed class CadPlanSceneCompiler
             GpuPicture candidate = chunkRecorder.EndRecording();
             recordingLeaseGuard.Untrack(context);
             int flattenedCommandCount = candidate.CommandCount;
+            CadPlanChunkReplayCounters replayCounters =
+                CaptureChunkReplayCounters() - chunkReplayStart;
+            bool canIntern = chunkKey is not null &&
+                unsupportedLineTypes == chunkUnsupportedLineTypeStart &&
+                replayCounters.LoweredLineTypeEntityCount ==
+                    chunkPatternedStrokeEntityCount;
             if (chunkKey is not null &&
                 chunkSceneToLocal is Matrix3x2 normalization)
             {
@@ -1086,14 +1104,15 @@ public sealed class CadPlanSceneCompiler
             GpuPicture retained = candidate;
             bool cacheOwnsResult = false;
             bool reused = false;
-            if (chunkKey is not null)
+            if (canIntern && chunkKey is byte[] cacheKey)
             {
                 retained = options.ChunkCache!.Intern(
                     chunkIdentity,
-                    chunkKey,
+                    cacheKey,
                     candidate,
                     flattenedCommandCount,
                     recorded - chunkRecordedStart,
+                    replayCounters,
                     chunkFontDependencies,
                     chunkShxDependencies,
                     out reused,
@@ -1128,6 +1147,94 @@ public sealed class CadPlanSceneCompiler
             chunkFontDependencies = null;
             chunkShxDependencies = null;
             context = sceneContext;
+        }
+
+        CadPlanChunkReplayCounters CaptureChunkReplayCounters() => new(
+            loweredLineTypeEntities,
+            loweredLineTypeFigures,
+            loweredLineTypePlacements,
+            lineTypePatternSteps,
+            lineTypeSourceSegments,
+            hatchPatternAuxiliaryRecords);
+
+        bool CanApplyChunkReplayCounters(CadPlanChunkReplayCounters counters) =>
+            counters.LoweredLineTypeFigureCount <=
+                options.MaxLineTypeFigures - lineTypeFigureBudgetUsed &&
+            counters.LineTypePatternStepCount <=
+                options.MaxLineTypePatternSteps - lineTypePatternSteps &&
+            counters.LineTypeSourceSegmentCount <=
+                options.MaxLineTypeSourceSegments - lineTypeSourceSegments &&
+            counters.LoweredLineTypePlacementCount <=
+                options.MaxLineTypePlacements - lineTypePlacementBudgetUsed &&
+            counters.HatchPatternAuxiliaryRecordCount <=
+                options.MaxHatchPatternAuxiliaryRecords - hatchPatternAuxiliaryRecords;
+
+        void ApplyChunkReplayCounters(CadPlanChunkReplayCounters counters)
+        {
+            loweredLineTypeEntities = checked(
+                loweredLineTypeEntities + counters.LoweredLineTypeEntityCount);
+            loweredLineTypeFigures = checked(
+                loweredLineTypeFigures + counters.LoweredLineTypeFigureCount);
+            loweredLineTypePlacements = checked(
+                loweredLineTypePlacements + counters.LoweredLineTypePlacementCount);
+            lineTypeFigureBudgetUsed = checked(
+                lineTypeFigureBudgetUsed + counters.LoweredLineTypeFigureCount);
+            lineTypePatternSteps = checked(
+                lineTypePatternSteps + counters.LineTypePatternStepCount);
+            lineTypeSourceSegments = checked(
+                lineTypeSourceSegments + counters.LineTypeSourceSegmentCount);
+            lineTypePlacementBudgetUsed = checked(
+                lineTypePlacementBudgetUsed + counters.LoweredLineTypePlacementCount);
+            hatchPatternAuxiliaryRecords = checked(
+                hatchPatternAuxiliaryRecords + counters.HatchPatternAuxiliaryRecordCount);
+        }
+
+        void RestoreChunkLineTypeSubstitutionDiagnostics(
+            ReadOnlySpan<CadEntityHeader> entities)
+        {
+            for (int entityIndex = 0; entityIndex < entities.Length; entityIndex++)
+            {
+                CadEntityHeader entity = entities[entityIndex];
+                if (!UsesStroke(entity.Kind))
+                {
+                    continue;
+                }
+                CadStrokeStyle style = snapshot.Styles.Span[entity.StyleIndex];
+                CadLineTypePattern pattern =
+                    snapshot.LineTypePatterns.Span[style.LineTypePatternIndex];
+                if (pattern.Kind == CadLineTypePatternKind.Complex &&
+                    HasLineTypeSubstitution(snapshot, pattern) &&
+                    warnedLineTypeSubstitutions.Add(pattern.Name))
+                {
+                    diagnostics.Add(new CadDiagnostic(
+                        CadDiagnosticSeverity.Warning,
+                        "CADSCENE003",
+                        $"Linetype '{pattern.Name}' uses a host-resolved text or SHX substitution."));
+                }
+            }
+        }
+
+        int CountPatternedStrokeEntities(ReadOnlySpan<CadEntityHeader> entities)
+        {
+            int count = 0;
+            for (int entityIndex = 0; entityIndex < entities.Length; entityIndex++)
+            {
+                CadEntityHeader entity = entities[entityIndex];
+                if (!UsesStroke(entity.Kind))
+                {
+                    continue;
+                }
+                CadStrokeStyle style = snapshot.Styles.Span[entity.StyleIndex];
+                CadLineTypePattern pattern =
+                    snapshot.LineTypePatterns.Span[style.LineTypePatternIndex];
+                if (pattern.Kind is
+                    CadLineTypePatternKind.Simple or
+                    CadLineTypePatternKind.Complex)
+                {
+                    count++;
+                }
+            }
+            return count;
         }
 
         void AddUnsupportedLineTypeDiagnostic(

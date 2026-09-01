@@ -1840,6 +1840,96 @@ public sealed class CadHatchSnapshotTests
         Assert.Equal(0, snapshot.Statistics.UnsupportedEntityCount);
     }
 
+    [Fact]
+    public void PlanChunkCacheSharesPatternedHatchAndRestoresItsGlobalBudget()
+    {
+        CadDocumentSession session = CadDocumentSession.CreateNew();
+        session.Edit("Add repeated affine patterned hatch", document =>
+        {
+            var block = new BlockRecord("PATTERN_TILE");
+            Hatch hatch = CreatePatternedHatch(
+                "DASH_TILE",
+                HatchPatternType.PatternFill,
+                isDouble: false,
+                angle: 0.0,
+                basePoint: XY.Zero,
+                offset: new XY(0, 2));
+            hatch.Pattern.Lines[0].DashLengths.AddRange([1.0, -1.0]);
+            hatch.Paths.Add(CreatePolylineLoop(
+                (0.0, 0.0, 0.0),
+                (10.0, 0.0, 0.0),
+                (10.0, 10.0, 0.0),
+                (0.0, 10.0, 0.0)));
+            block.Entities.Add(hatch);
+            document.Entities.Add(new Insert(block)
+            {
+                InsertPoint = new XYZ(100, 200, 0),
+                XScale = 2,
+                YScale = 3,
+                Rotation = Math.PI / 5,
+            });
+            document.Entities.Add(new Insert(block)
+            {
+                InsertPoint = new XYZ(-50, 75, 0),
+                XScale = -4,
+                YScale = 1.5,
+                Rotation = -Math.PI / 7,
+            });
+        });
+        CadDocumentSnapshot snapshot = Compile(session);
+        var compiler = new CadPlanSceneCompiler();
+        var options = new CadPlanSceneOptions
+        {
+            ChunkCache = new CadPlanChunkCache(),
+            MaxHatchPatternAuxiliaryRecords = 8,
+        };
+        using (options.ChunkCache)
+        using (CadRecordedPlanScene baseline = compiler.Compile(
+            snapshot,
+            new CadPlanSceneOptions { MaxHatchPatternAuxiliaryRecords = 8 }))
+        using (GpuPicture baselinePicture = baseline.CreatePicture())
+        using (CadRecordedPlanScene first = compiler.Compile(snapshot, options))
+        using (GpuPicture firstPicture = first.CreatePicture())
+        using (CadRecordedPlanScene second = compiler.Compile(snapshot, options))
+        using (GpuPicture secondPicture = second.CreatePicture())
+        {
+            Assert.Equal(2, first.Statistics.RetainedChunkCount);
+            Assert.Equal(1, first.Statistics.ReusedRetainedChunkCount);
+            Assert.Equal(2, second.Statistics.ReusedRetainedChunkCount);
+            Assert.Same(
+                firstPicture.GetCommand(0).Picture,
+                firstPicture.GetCommand(1).Picture);
+            Assert.True(GpuPictureNativeSceneCompiler.TryCompile(
+                baselinePicture,
+                701U,
+                snapshot.ContentGeneration,
+                out NativeCompiledPicture? baselineNative,
+                out NativePictureCompileFailure baselineFailure),
+                baselineFailure.ToString());
+            Assert.True(GpuPictureNativeSceneCompiler.TryCompile(
+                secondPicture,
+                702U,
+                snapshot.ContentGeneration,
+                out NativeCompiledPicture? cachedNative,
+                out NativePictureCompileFailure cachedFailure),
+                cachedFailure.ToString());
+            Assert.Equal(baselineNative!.NativeDrawCount, cachedNative!.NativeDrawCount);
+            Assert.Equal(baselineNative.PathCount, cachedNative.PathCount);
+            Assert.Equal(baselineNative.PathSegmentCount, cachedNative.PathSegmentCount);
+        }
+
+        using var constrainedCache = new CadPlanChunkCache();
+        InvalidOperationException failure = Assert.Throws<InvalidOperationException>(() =>
+            compiler.Compile(
+                snapshot,
+                new CadPlanSceneOptions
+                {
+                    ChunkCache = constrainedCache,
+                    MaxHatchPatternAuxiliaryRecords = 4,
+                }));
+        Assert.Contains("4 retained auxiliary records", failure.Message, StringComparison.Ordinal);
+    }
+
     private static Hatch CreateSolidHatch() => new()
     {
         IsSolid = true,

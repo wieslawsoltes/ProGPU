@@ -323,6 +323,65 @@ public sealed class CadLineTypeTests
     }
 
     [Fact]
+    public void PlanChunkCacheReplaysSimpleLineTypeOutputAndGlobalCounters()
+    {
+        CadDocumentSession session = CadDocumentSession.CreateNew();
+        session.Edit("Add reusable patterned lines", document =>
+        {
+            LineType dashed = AddSimpleLineType(document, "CACHE_DASH", 4.0, -2.0);
+            document.Entities.Add(new Line(XYZ.Zero, new XYZ(17, 0, 0))
+            {
+                LineType = dashed,
+            });
+            document.Entities.Add(new Line(new XYZ(0, 10, 0), new XYZ(31, 10, 0))
+            {
+                LineType = dashed,
+            });
+        });
+        CadDocumentSnapshot snapshot = new CadSnapshotCompiler().Compile(session);
+        var compiler = new CadPlanSceneCompiler();
+        using var cache = new CadPlanChunkCache();
+        var options = new CadPlanSceneOptions { ChunkCache = cache };
+        using CadRecordedPlanScene baseline = compiler.Compile(snapshot);
+        using GpuPicture baselinePicture = baseline.CreatePicture();
+        using CadRecordedPlanScene first = compiler.Compile(snapshot, options);
+        using CadRecordedPlanScene second = compiler.Compile(snapshot, options);
+        using GpuPicture secondPicture = second.CreatePicture();
+
+        Assert.Equal(0, first.Statistics.ReusedRetainedChunkCount);
+        Assert.Equal(2, second.Statistics.ReusedRetainedChunkCount);
+        Assert.Equal(
+            baseline.Statistics.LoweredLineTypeEntityCount,
+            second.Statistics.LoweredLineTypeEntityCount);
+        Assert.Equal(
+            baseline.Statistics.LoweredLineTypeFigureCount,
+            second.Statistics.LoweredLineTypeFigureCount);
+        Assert.Equal(
+            baseline.Statistics.LineTypePatternStepCount,
+            second.Statistics.LineTypePatternStepCount);
+        Assert.Equal(
+            baseline.Statistics.LineTypeSourceSegmentCount,
+            second.Statistics.LineTypeSourceSegmentCount);
+        Assert.True(GpuPictureNativeSceneCompiler.TryCompile(
+            baselinePicture,
+            703U,
+            snapshot.ContentGeneration,
+            out NativeCompiledPicture? baselineNative,
+            out NativePictureCompileFailure baselineFailure),
+            baselineFailure.ToString());
+        Assert.True(GpuPictureNativeSceneCompiler.TryCompile(
+            secondPicture,
+            704U,
+            snapshot.ContentGeneration,
+            out NativeCompiledPicture? cachedNative,
+            out NativePictureCompileFailure cachedFailure),
+            cachedFailure.ToString());
+        Assert.Equal(baselineNative!.NativeDrawCount, cachedNative!.NativeDrawCount);
+        Assert.Equal(baselineNative.PathCount, cachedNative.PathCount);
+        Assert.Equal(baselineNative.PathSegmentCount, cachedNative.PathSegmentCount);
+    }
+
+    [Fact]
     public void SourceSegmentLimitIsSharedAcrossPatternedEntities()
     {
         CadDocumentSession session = CadDocumentSession.CreateNew();
@@ -437,13 +496,29 @@ public sealed class CadLineTypeTests
             {
                 LineType = complex,
             });
+            document.Entities.Add(new Line(XYZ.AxisY, new XYZ(20, 1, 0))
+            {
+                LineType = complex,
+            });
         });
 
         CadDocumentSnapshot snapshot = new CadSnapshotCompiler().Compile(session);
-        CadRecordedPlanScene scene = new CadPlanSceneCompiler().Compile(snapshot);
+        var compiler = new CadPlanSceneCompiler();
+        using var cache = new CadPlanChunkCache();
+        var options = new CadPlanSceneOptions { ChunkCache = cache };
+        using CadRecordedPlanScene firstScene = compiler.Compile(snapshot, options);
+        using CadRecordedPlanScene scene = compiler.Compile(snapshot, options);
 
         Assert.Equal(CadLineTypePatternKind.Complex, Assert.Single(snapshot.LineTypePatterns.ToArray()).Kind);
-        Assert.Equal(RenderCommandType.DrawLine, Assert.Single(scene.DrawingContext.Commands).Type);
+        Assert.Equal(0, scene.Statistics.ReusedRetainedChunkCount);
+        Assert.Equal(0, cache.Count);
+        Assert.Equal(2, scene.DrawingContext.Commands.Count);
+        Assert.All(scene.DrawingContext.Commands, command =>
+        {
+            GpuPicture fallbackPicture = Assert.IsType<GpuPicture>(command.Picture);
+            Assert.Equal(1, fallbackPicture.CommandCount);
+            Assert.Equal(RenderCommandType.DrawLine, fallbackPicture.GetCommand(0).Type);
+        });
         CadDiagnostic diagnostic = Assert.Single(scene.Diagnostics.ToArray());
         Assert.Equal("CADSCENE002", diagnostic.Code);
         Assert.Contains("unresolved", diagnostic.Message, StringComparison.Ordinal);
@@ -488,12 +563,21 @@ public sealed class CadLineTypeTests
             {
                 TextFontResolver = new FixedTextFontResolver(InterFontFamily.Regular),
             });
-        CadRecordedPlanScene scene = new CadPlanSceneCompiler().Compile(snapshot);
+        var compiler = new CadPlanSceneCompiler();
+        using var chunkCache = new CadPlanChunkCache();
+        var chunkOptions = new CadPlanSceneOptions { ChunkCache = chunkCache };
+        using CadRecordedPlanScene scene = compiler.Compile(snapshot);
+        using CadRecordedPlanScene firstScene = compiler.Compile(snapshot, chunkOptions);
+        using CadRecordedPlanScene cachedScene = compiler.Compile(snapshot, chunkOptions);
 
         CadLineTypeElement textElement = snapshot.LineTypeElements.Span[2];
         Assert.Equal(CadLineTypeElementKind.TrueTypeText, textElement.Kind);
         Assert.Equal(CadLineTypeRotationMode.Absolute, textElement.RotationMode);
         Assert.Single(snapshot.LineTypeTextResources.ToArray());
+        Assert.Equal(1, cachedScene.Statistics.ReusedRetainedChunkCount);
+        Assert.Equal(
+            scene.Statistics.LoweredLineTypePlacementCount,
+            cachedScene.Statistics.LoweredLineTypePlacementCount);
         Assert.Equal(3, scene.Statistics.LoweredLineTypePlacementCount);
         Assert.Equal(0, scene.Statistics.UnsupportedLineTypeCount);
         RenderCommand[] commands = scene.DrawingContext.Commands.ToArray();
@@ -1120,11 +1204,20 @@ public sealed class CadLineTypeTests
         CadDocumentSnapshot snapshot = new CadSnapshotCompiler().Compile(
             session,
             new CadSnapshotOptions { ShxFontResolver = new FixedShxFontResolver(cache) });
-        CadRecordedPlanScene scene = new CadPlanSceneCompiler().Compile(snapshot);
+        var compiler = new CadPlanSceneCompiler();
+        using var chunkCache = new CadPlanChunkCache();
+        var chunkOptions = new CadPlanSceneOptions { ChunkCache = chunkCache };
+        using CadRecordedPlanScene scene = compiler.Compile(snapshot);
+        using CadRecordedPlanScene firstScene = compiler.Compile(snapshot, chunkOptions);
+        using CadRecordedPlanScene cachedScene = compiler.Compile(snapshot, chunkOptions);
 
         Assert.False(cache.Font.IsTextFont);
         Assert.Equal(CadLineTypeElementKind.ShxShape, snapshot.LineTypeElements.Span[2].Kind);
         Assert.Single(snapshot.LineTypeShapeResources.ToArray());
+        Assert.Equal(1, cachedScene.Statistics.ReusedRetainedChunkCount);
+        Assert.Equal(
+            scene.Statistics.LoweredLineTypePlacementCount,
+            cachedScene.Statistics.LoweredLineTypePlacementCount);
         Assert.Equal(3, scene.Statistics.LoweredLineTypePlacementCount);
         Assert.Equal(4, scene.DrawingContext.Commands.Count);
         RenderCommand shape = scene.DrawingContext.Commands.ToArray()[1];
@@ -1165,11 +1258,20 @@ public sealed class CadLineTypeTests
         CadDocumentSnapshot snapshot = new CadSnapshotCompiler().Compile(
             session,
             new CadSnapshotOptions { ShxFontResolver = new FixedShxFontResolver(cache) });
-        CadRecordedPlanScene scene = new CadPlanSceneCompiler().Compile(snapshot);
+        var compiler = new CadPlanSceneCompiler();
+        using var chunkCache = new CadPlanChunkCache();
+        var chunkOptions = new CadPlanSceneOptions { ChunkCache = chunkCache };
+        using CadRecordedPlanScene scene = compiler.Compile(snapshot);
+        using CadRecordedPlanScene firstScene = compiler.Compile(snapshot, chunkOptions);
+        using CadRecordedPlanScene cachedScene = compiler.Compile(snapshot, chunkOptions);
 
         Assert.Equal(CadLineTypeElementKind.ShxText, snapshot.LineTypeElements.Span[2].Kind);
         Assert.Single(snapshot.LineTypeTextResources.ToArray());
         Assert.Single(snapshot.ShxGlyphInstances.ToArray());
+        Assert.Equal(1, cachedScene.Statistics.ReusedRetainedChunkCount);
+        Assert.Equal(
+            scene.Statistics.LoweredLineTypePlacementCount,
+            cachedScene.Statistics.LoweredLineTypePlacementCount);
         Assert.Equal(3, scene.Statistics.LoweredLineTypePlacementCount);
         Assert.Equal(4, scene.DrawingContext.Commands.Count);
         Assert.Equal(1, cache.Count);
@@ -1247,9 +1349,14 @@ public sealed class CadLineTypeTests
                     InterFontFamily.Regular,
                     isSubstitution: true),
             });
-        CadRecordedPlanScene scene = new CadPlanSceneCompiler().Compile(snapshot);
+        var compiler = new CadPlanSceneCompiler();
+        using var chunkCache = new CadPlanChunkCache();
+        var chunkOptions = new CadPlanSceneOptions { ChunkCache = chunkCache };
+        using CadRecordedPlanScene firstScene = compiler.Compile(snapshot, chunkOptions);
+        using CadRecordedPlanScene scene = compiler.Compile(snapshot, chunkOptions);
 
         Assert.True(Assert.Single(snapshot.LineTypeTextResources.ToArray()).IsSubstitution);
+        Assert.Equal(2, scene.Statistics.ReusedRetainedChunkCount);
         Assert.Equal(0, scene.Statistics.UnsupportedLineTypeCount);
         CadDiagnostic diagnostic = Assert.Single(scene.Diagnostics.ToArray());
         Assert.Equal("CADSCENE003", diagnostic.Code);

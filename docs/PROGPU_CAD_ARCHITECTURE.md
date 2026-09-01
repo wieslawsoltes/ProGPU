@@ -1852,15 +1852,19 @@ expanded entity counts. Dynamic evaluation graphs and XRefs are explicitly
 diagnosed rather than rendered approximately. The snapshot additionally emits
 non-overlapping top-level definition ranges per INSERT/MINSERT cell, excluding
 instance-owned ATTRIBs. Eligible continuous analytic POINT/line/curve/flat-face/
-spline/polyline, vector-outline TrueType TEXT/MTEXT, and retained analytic SHX
-TEXT/MTEXT/SHAPE ranges use exact resolved-style/content/font-or-glyph keys and a
-double-precision inverse to
+spline/polyline, vector-outline TrueType TEXT/MTEXT, retained analytic SHX
+TEXT/MTEXT/SHAPE, and HATCH ranges use exact resolved-style/content/resource keys
+and a double-precision inverse to
 share one definition-local nested picture across translation, rotation,
 reflection, and nonuniform scale; singular or unencoded families fail closed to
 ordinary recording. The flattened headers remain authoritative for selection,
 editing, bounds, and semantic hit identity. Full ownership, complexity, engine
 research, parity, and remaining families are in
 [`PROGPU_CAD_INCREMENTAL_CHUNKS_RESEARCH.md`](PROGPU_CAD_INCREMENTAL_CHUNKS_RESEARCH.md).
+Simple and complex A-aligned linetypes additionally reuse exact semantic-root
+chunks across generations while restoring their bounded lowering counters and
+substitution diagnostics. They deliberately remain outside affine definition
+sharing because their authored dash lengths are resolved in final entity space.
 
 ### Block attribute lowering
 

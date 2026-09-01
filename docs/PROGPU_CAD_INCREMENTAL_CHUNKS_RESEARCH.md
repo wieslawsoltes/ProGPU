@@ -10,12 +10,13 @@ distinct retained TrueType font bytes and SHX glyph-path dependencies, and 8 MiB
 per encoded key. Reuse is
 admitted only for continuous-style POINT, LINE, CIRCLE, ARC, ELLIPSE, SOLID,
 3DFACE, SPLINE, LWPOLYLINE, 2D/3D POLYLINE, vector-outline TEXT/MTEXT,
-SHX TEXT/MTEXT, and SHAPE
+SHX TEXT/MTEXT, SHAPE, and solid or patterned HATCH
 roots whose complete canonical rendering inputs match byte-for-byte. Top-level
 INSERT and MINSERT cells additionally share one definition-local fragment across
 translation, rotation, reflection, and nonuniform affine scale when every expanded
 child is an eligible analytic family, including flat SOLID/3DFACE,
-vector-outline TrueType TEXT/MTEXT, and retained analytic SHX TEXT/MTEXT/SHAPE.
+vector-outline TrueType TEXT/MTEXT, retained analytic SHX TEXT/MTEXT/SHAPE,
+and HATCH boundary/pattern streams.
 Instance-owned ATTRIBs are
 excluded from the definition range. Unsupported
 families take the ordinary full-recording path and are never guessed reusable.
@@ -40,7 +41,7 @@ resolved layer visibility/plot/freeze/exclusion state, complete resolved color,
 alpha, lineweight and continuous-linetype style, entity kind/visibility/bounds,
 and exact primitive data. Variable SPLINE/polyline ranges are normalized away
 from snapshot-global offsets and append their addressed values. Any unsupported
-kind, PDMODE marker, non-continuous linetype, or unencoded dependency fails
+kind, PDMODE marker, unsupported linetype, or unencoded dependency fails
 closed to ordinary recording.
 
 The snapshot also retains non-overlapping top-level block-definition entity ranges
@@ -68,6 +69,20 @@ segment count. Double-inverse cancellation residue within 64 binary64 ulps of
 unit-scale zero is canonicalized before the retained-float key boundary; all
 other normalized components remain byte-exact.
 
+HATCH identity normalizes its OCS origin and axes and encodes every contributing
+or ignored loop, analytic segment, pattern family, and dash value independently
+of snapshot-global offsets. Replayed chunks restore the exact complex-pattern
+auxiliary-record charge and are admitted only when the remaining document budget
+can reproduce the original result.
+
+Semantic-root simple and complex linetypes encode the complete A-aligned pattern,
+element transforms, shaped TrueType or SHX text, SHX shape paths, substitution
+state, and the per-entity arc-map option. Hits restore figure, placement, pattern-
+step, and source-segment counters and repeat one-per-pattern substitution
+diagnostics. A failed or budget-truncated lowering is never interned. Affine block
+sharing remains disabled for non-continuous linetypes because CAD dash lengths are
+resolved in final entity space and must not be rescaled by a shared outer transform.
+
 Key construction is O(P) time and storage for P primitive/range values in the
 root, polls cancellation at a fixed entity cadence, and fails closed at the
 per-root byte limit. Lookup is O(P) for exact byte comparison. A hit skips plan command
@@ -83,7 +98,7 @@ The aggregate picture independently retains every child resource lease. LRU
 eviction, replacement, or cache clearing therefore cannot invalidate an already published
 picture. Currently eligible analytic/vector-text chunks retain no disposable device
 resource; cached font and SHX glyph objects remain strongly owned by their retained
-commands and exact dependency table. Raster, color/bitmap text, hatch, complex-linetype,
+commands and exact dependency table. Raster and color/bitmap text,
 viewport, modeler, leader, tolerance, MLINE, and
 mesh roots remain on the ordinary path until their complete resource and global
 budget dependencies are encoded.
@@ -100,5 +115,5 @@ semantics. MINSERT and distinct affine INSERT regressions prove one shared child
 identity, exact composed managed endpoints within retained-float tolerance, and
 matched native primitive/draw counts.
 
-Definition-local extruded surface, color/bitmap text, hatch, complex-linetype, raster, and other
+Definition-local extruded surface, color/bitmap text, affine-block linetype, raster, and other
 resource- or global-budget-dependent families remain the next chunk-coverage work.

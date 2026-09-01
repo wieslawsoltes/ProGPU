@@ -24,6 +24,7 @@ public sealed class CadPlanChunkCache : IDisposable
         GpuPicture picture,
         int commandCount,
         int recordedEntityCount,
+        CadPlanChunkReplayCounters replayCounters,
         TtfFont[]? fontDependencies,
         CadShxGlyph[]? shxDependencies,
         long identityBytes,
@@ -33,6 +34,7 @@ public sealed class CadPlanChunkCache : IDisposable
         public GpuPicture Picture { get; } = picture;
         public int CommandCount { get; } = commandCount;
         public int RecordedEntityCount { get; } = recordedEntityCount;
+        public CadPlanChunkReplayCounters ReplayCounters { get; } = replayCounters;
         public TtfFont[]? FontDependencies { get; } = fontDependencies;
         public CadShxGlyph[]? ShxDependencies { get; } = shxDependencies;
         public long IdentityBytes { get; } = identityBytes;
@@ -99,6 +101,7 @@ public sealed class CadPlanChunkCache : IDisposable
         GpuPicture candidate,
         int commandCount,
         int recordedEntityCount,
+        CadPlanChunkReplayCounters replayCounters,
         TtfFont[]? fontDependencies,
         CadShxGlyph[]? shxDependencies,
         out bool reused,
@@ -157,6 +160,7 @@ public sealed class CadPlanChunkCache : IDisposable
                 candidate,
                 commandCount,
                 recordedEntityCount,
+                replayCounters,
                 fontDependencies,
                 shxDependencies,
                 identityBytes,
@@ -175,7 +179,8 @@ public sealed class CadPlanChunkCache : IDisposable
         CadShxGlyph[]? shxDependencies,
         out GpuPicture picture,
         out int commandCount,
-        out int recordedEntityCount)
+        out int recordedEntityCount,
+        out CadPlanChunkReplayCounters replayCounters)
     {
         lock (_gate)
         {
@@ -193,6 +198,7 @@ public sealed class CadPlanChunkCache : IDisposable
                 picture = entry.Picture;
                 commandCount = entry.CommandCount;
                 recordedEntityCount = entry.RecordedEntityCount;
+                replayCounters = entry.ReplayCounters;
                 return true;
             }
         }
@@ -200,6 +206,7 @@ public sealed class CadPlanChunkCache : IDisposable
         picture = null!;
         commandCount = 0;
         recordedEntityCount = 0;
+        replayCounters = default;
         return false;
     }
 
@@ -371,6 +378,25 @@ public sealed class CadPlanChunkCache : IDisposable
     }
 }
 
+internal readonly record struct CadPlanChunkReplayCounters(
+    int LoweredLineTypeEntityCount,
+    int LoweredLineTypeFigureCount,
+    int LoweredLineTypePlacementCount,
+    int LineTypePatternStepCount,
+    int LineTypeSourceSegmentCount,
+    int HatchPatternAuxiliaryRecordCount)
+{
+    public static CadPlanChunkReplayCounters operator -(
+        CadPlanChunkReplayCounters left,
+        CadPlanChunkReplayCounters right) => new(
+            checked(left.LoweredLineTypeEntityCount - right.LoweredLineTypeEntityCount),
+            checked(left.LoweredLineTypeFigureCount - right.LoweredLineTypeFigureCount),
+            checked(left.LoweredLineTypePlacementCount - right.LoweredLineTypePlacementCount),
+            checked(left.LineTypePatternStepCount - right.LineTypePatternStepCount),
+            checked(left.LineTypeSourceSegmentCount - right.LineTypeSourceSegmentCount),
+            checked(left.HatchPatternAuxiliaryRecordCount - right.HatchPatternAuxiliaryRecordCount));
+}
+
 internal readonly record struct CadPlanChunkIdentity(
     byte Kind,
     ulong Handle,
@@ -500,6 +526,7 @@ internal static class CadPlanChunkKeyBuilder
         Append(writer, options.PhysicalDpi);
         Append(writer, options.LineWeightScale);
         Append(writer, (byte)options.LineWeightMode);
+        Append(writer, options.MaxLineTypeArcMapsPerEntity);
         Append(writer, options.IncludeNonPlottableLayers);
         Append(writer, options.IncludeViewportFrames);
 
@@ -565,8 +592,7 @@ internal static class CadPlanChunkKeyBuilder
         CadLayerSnapshot layer = layers[entity.LayerIndex];
         CadStrokeStyle style = styles[entity.StyleIndex];
         CadLineTypePattern pattern = patterns[style.LineTypePatternIndex];
-        if (pattern.Kind != CadLineTypePatternKind.Continuous ||
-            entity.Kind is not (
+        if (entity.Kind is not (
                 CadEntityKind.Point or
                 CadEntityKind.Line or
                 CadEntityKind.Circle or
@@ -582,7 +608,14 @@ internal static class CadPlanChunkKeyBuilder
                 CadEntityKind.MText or
                 CadEntityKind.ShxText or
                 CadEntityKind.ShxMText or
-                CadEntityKind.ShxShape))
+                CadEntityKind.ShxShape or
+                CadEntityKind.Hatch) ||
+            (entity.Kind != CadEntityKind.Hatch &&
+             pattern.Kind != CadLineTypePatternKind.Continuous &&
+             (worldToChunk is not null ||
+              pattern.Kind is not (
+                  CadLineTypePatternKind.Simple or
+                  CadLineTypePatternKind.Complex))))
         {
             return false;
         }
@@ -613,6 +646,21 @@ internal static class CadPlanChunkKeyBuilder
             return false;
         }
         Append(writer, style.LineTypeScale);
+        if (pattern.Kind is
+            CadLineTypePatternKind.Simple or
+            CadLineTypePatternKind.Complex)
+        {
+            if (!TryAppendLineTypePattern(
+                    writer,
+                    snapshot,
+                    pattern,
+                    ref fontDependencies,
+                    ref shxDependencies,
+                    maximumKeyBytes))
+            {
+                return false;
+            }
+        }
 
         switch (entity.Kind)
         {
@@ -823,9 +871,229 @@ internal static class CadPlanChunkKeyBuilder
                     worldToChunk,
                     ref shxDependencies,
                     maximumKeyBytes);
+            case CadEntityKind.Hatch:
+                return TryAppendHatch(
+                    writer,
+                    snapshot,
+                    snapshot.Hatches.Span[entity.PrimitiveIndex],
+                    worldToChunk,
+                    cancellationToken,
+                    maximumKeyBytes);
             default:
                 return false;
         }
+    }
+
+    private static bool TryAppendLineTypePattern(
+        ArrayBufferWriter<byte> writer,
+        CadDocumentSnapshot snapshot,
+        in CadLineTypePattern pattern,
+        ref List<TtfFont>? fontDependencies,
+        ref List<CadShxGlyph>? shxDependencies,
+        int maximumKeyBytes)
+    {
+        Append(writer, (byte)pattern.Kind);
+        Append(writer, pattern.Alignment);
+        Append(writer, pattern.ElementCount);
+        Append(writer, pattern.PatternLength);
+        ReadOnlySpan<CadLineTypeElement> elements =
+            snapshot.LineTypeElements.Span.Slice(
+                pattern.ElementOffset,
+                pattern.ElementCount);
+        for (int elementIndex = 0; elementIndex < elements.Length; elementIndex++)
+        {
+            CadLineTypeElement element = elements[elementIndex];
+            if (element.Kind == CadLineTypeElementKind.UnresolvedComplex)
+            {
+                return false;
+            }
+            Append(writer, element.Length);
+            Append(writer, element.ComplexTypeFlags);
+            Append(writer, (byte)element.Kind);
+            Append(writer, (byte)element.RotationMode);
+            Append(writer, element.Rotation);
+            Append(writer, element.OffsetX);
+            Append(writer, element.OffsetY);
+            if (element.Kind == CadLineTypeElementKind.Stroke)
+            {
+                continue;
+            }
+            if (element.Kind == CadLineTypeElementKind.ShxShape)
+            {
+                CadLineTypeShapeResource shape =
+                    snapshot.LineTypeShapeResources.Span[element.ResourceIndex];
+                Append(writer, shape.Scale);
+                Append(writer, shape.IsSubstitution);
+                if (!TryAppendShxGlyph(
+                        writer,
+                        shape.Glyph,
+                        ref shxDependencies,
+                        maximumKeyBytes))
+                {
+                    return false;
+                }
+                continue;
+            }
+
+            CadLineTypeTextResource text =
+                snapshot.LineTypeTextResources.Span[element.ResourceIndex];
+            if (text.Kind != element.Kind)
+            {
+                return false;
+            }
+            Append(writer, (byte)text.Kind);
+            Append(writer, text.GlyphCount);
+            Append(writer, text.RunCount);
+            Append(writer, text.XScale);
+            Append(writer, text.YScale);
+            Append(writer, text.ObliqueAngle);
+            Append(writer, text.IsBackward);
+            Append(writer, text.IsUpsideDown);
+            Append(writer, text.IsSubstitution);
+            if (text.Kind == CadLineTypeElementKind.TrueTypeText)
+            {
+                if (!TryAppend(
+                        writer,
+                        snapshot.TextGlyphIndices.Span.Slice(
+                            text.GlyphOffset,
+                            text.GlyphCount),
+                        maximumKeyBytes) ||
+                    !TryAppend(
+                        writer,
+                        snapshot.TextGlyphPositions.Span.Slice(
+                            text.GlyphOffset,
+                            text.GlyphCount),
+                        maximumKeyBytes))
+                {
+                    return false;
+                }
+                ReadOnlySpan<CadTextGlyphRun> runs =
+                    snapshot.TextGlyphRuns.Span.Slice(
+                        text.RunOffset,
+                        text.RunCount);
+                for (int runIndex = 0; runIndex < runs.Length; runIndex++)
+                {
+                    CadTextGlyphRun run = runs[runIndex];
+                    Append(writer, run.GlyphOffset - text.GlyphOffset);
+                    Append(writer, run.GlyphCount);
+                    if (!TryAppendFont(
+                            writer,
+                            snapshot.TextFonts.Span[run.FontIndex],
+                            ref fontDependencies,
+                            maximumKeyBytes))
+                    {
+                        return false;
+                    }
+                }
+            }
+            else if (text.Kind == CadLineTypeElementKind.ShxText)
+            {
+                ReadOnlySpan<CadShxGlyphInstance> glyphs =
+                    snapshot.ShxGlyphInstances.Span.Slice(
+                        text.GlyphOffset,
+                        text.GlyphCount);
+                for (int glyphIndex = 0; glyphIndex < glyphs.Length; glyphIndex++)
+                {
+                    CadShxGlyphInstance glyph = glyphs[glyphIndex];
+                    Append(writer, glyph.X);
+                    Append(writer, glyph.Y);
+                    if (!TryAppendShxGlyph(
+                            writer,
+                            glyph.Glyph,
+                            ref shxDependencies,
+                            maximumKeyBytes))
+                    {
+                        return false;
+                    }
+                }
+            }
+            else
+            {
+                return false;
+            }
+        }
+        return writer.WrittenCount <= maximumKeyBytes;
+    }
+
+    private static bool TryAppendHatch(
+        ArrayBufferWriter<byte> writer,
+        CadDocumentSnapshot snapshot,
+        in CadHatchPrimitive hatch,
+        CadPlanChunkNormalization? worldToChunk,
+        CancellationToken cancellationToken,
+        int maximumKeyBytes)
+    {
+        AppendProjectedPoint(
+            writer,
+            hatch.WorldOrigin,
+            snapshot.RebaseOrigin,
+            worldToChunk);
+        AppendProjectedVector(writer, hatch.CoordinateSystem.XAxis, worldToChunk);
+        AppendProjectedVector(writer, hatch.CoordinateSystem.YAxis, worldToChunk);
+        Append(writer, hatch.LoopCount);
+        Append(writer, hatch.HasCurvedSegments);
+        Append(writer, hatch.PatternIndex >= 0);
+
+        ReadOnlySpan<CadHatchLoop> loops = snapshot.HatchLoops.Span.Slice(
+            hatch.LoopOffset,
+            hatch.LoopCount);
+        for (int loopIndex = 0; loopIndex < loops.Length; loopIndex++)
+        {
+            if ((loopIndex & 255) == 0)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+            }
+            CadHatchLoop loop = loops[loopIndex];
+            Append(writer, loop.SegmentCount);
+            Append(writer, loop.ContributesToFill);
+            if (!TryAppend(
+                    writer,
+                    snapshot.HatchSegments.Span.Slice(
+                        loop.SegmentOffset,
+                        loop.SegmentCount),
+                    maximumKeyBytes))
+            {
+                return false;
+            }
+        }
+
+        if (hatch.PatternIndex < 0)
+        {
+            return writer.WrittenCount <= maximumKeyBytes;
+        }
+
+        CadHatchPattern pattern = snapshot.HatchPatterns.Span[hatch.PatternIndex];
+        Append(writer, pattern.FamilyCount);
+        ReadOnlySpan<CadHatchPatternFamily> families =
+            snapshot.HatchPatternFamilies.Span.Slice(
+                pattern.FamilyOffset,
+                pattern.FamilyCount);
+        for (int familyIndex = 0; familyIndex < families.Length; familyIndex++)
+        {
+            if ((familyIndex & 255) == 0)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+            }
+            CadHatchPatternFamily family = families[familyIndex];
+            Append(writer, family.BasePointX);
+            Append(writer, family.BasePointY);
+            Append(writer, family.DirectionX);
+            Append(writer, family.DirectionY);
+            Append(writer, family.TangentShift);
+            Append(writer, family.Spacing);
+            Append(writer, family.DashCount);
+            Append(writer, family.DashPeriod);
+            if (!TryAppend(
+                    writer,
+                    snapshot.HatchPatternDashes.Span.Slice(
+                        family.DashOffset,
+                        family.DashCount),
+                    maximumKeyBytes))
+            {
+                return false;
+            }
+        }
+        return writer.WrittenCount <= maximumKeyBytes;
     }
 
     private static bool TryAppendShxText(
