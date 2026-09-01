@@ -878,14 +878,17 @@ dashed closed paths, includes exact line-body, cap, and join extrema, and adds
 affine support points for round geometry before the SIMD transform/reduction
 pass. Flat and round styles, including a non-uniform transform, match genuine
 Direct2D on Windows x64 and ARM64. `Widen` now emits one closed outline per
-bevel-joined line dash for all four cap styles. Round caps use two cubic quarter
+joined line dash for all four cap styles. Round caps use two cubic quarter
 arcs per semicircle; every line endpoint and cubic control/end point is packed
 and transformed through the SIMD point path before the caller's sink is
 touched. Ordered line/cubic capture tests compare dense widened-region probes
 with `StrokeContainsPoint`, while genuine Direct2D x64 and ARM64 validate cap
 queries and accept each widened style. The Windows oracle also confirms that
 closed-source seam endpoints keep `DashCap`; they do not acquire open-figure
-`StartCap`/`EndCap`. Round-join and miter-joined dashed widen output remain fail
+`StartCap`/`EndCap`. Bevel, qualified miter, and miter-or-bevel joins share the
+same offset-side builder; a low-limit miter-or-bevel run emits the bevel pair.
+Dense region probes and genuine Direct2D x64/ARM64 corner probes match for both
+miter outcomes. Round joins and over-limit clipped `Miter` output remain fail
 closed.
 
 The identical simple closed/default-miter domain now implements

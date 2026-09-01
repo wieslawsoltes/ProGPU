@@ -2419,6 +2419,34 @@ int run_tests()
   com::pointer<compat::stroke_style> triangle_dashed_path_stroke_style;
   triangle_dashed_path_stroke_style.attach(
       raw_triangle_dashed_path_stroke_style);
+  compat::stroke_style_properties miter_dashed_path_stroke_properties =
+      dashed_path_stroke_properties;
+  miter_dashed_path_stroke_properties.join = compat::line_join::miter;
+  miter_dashed_path_stroke_properties.dash_offset = 0.5F;
+  compat::stroke_style *raw_miter_dashed_path_stroke_style = nullptr;
+  if (factory->CreateStrokeStyle(
+          &miter_dashed_path_stroke_properties, nullptr, 0U,
+          &raw_miter_dashed_path_stroke_style) != com::ok ||
+      raw_miter_dashed_path_stroke_style == nullptr) {
+    return 374;
+  }
+  com::pointer<compat::stroke_style> miter_dashed_path_stroke_style;
+  miter_dashed_path_stroke_style.attach(raw_miter_dashed_path_stroke_style);
+  compat::stroke_style_properties miter_or_bevel_dashed_path_properties =
+      miter_dashed_path_stroke_properties;
+  miter_or_bevel_dashed_path_properties.join =
+      compat::line_join::miter_or_bevel;
+  miter_or_bevel_dashed_path_properties.miter_limit = 1.0F;
+  compat::stroke_style *raw_miter_or_bevel_dashed_path_style = nullptr;
+  if (factory->CreateStrokeStyle(
+          &miter_or_bevel_dashed_path_properties, nullptr, 0U,
+          &raw_miter_or_bevel_dashed_path_style) != com::ok ||
+      raw_miter_or_bevel_dashed_path_style == nullptr) {
+    return 376;
+  }
+  com::pointer<compat::stroke_style> miter_or_bevel_dashed_path_style;
+  miter_or_bevel_dashed_path_style.attach(
+      raw_miter_or_bevel_dashed_path_style);
   const compat::matrix_3x2_f disjoint_path_transform{
       1.0F, 0.0F, 0.0F, 1.0F, 10.0F, 0.0F};
   const compat::matrix_3x2_f contained_path_transform{
@@ -2515,6 +2543,8 @@ int run_tests()
   std::int32_t square_dash_source_seam = 0;
   std::int32_t triangle_dash_source_seam = 0;
   std::int32_t round_dash_source_seam = 0;
+  std::int32_t miter_dash_corner = 0;
+  std::int32_t miter_or_bevel_dash_corner = 0;
   compat::rectangle_f dashed_path_widened_bounds{};
   compat::rectangle_f round_dashed_path_widened_bounds{};
   compat::rectangle_f transformed_round_dashed_path_widened_bounds{};
@@ -2550,9 +2580,18 @@ int run_tests()
           {0.978F, 1.774F}, 0.5F,
           round_dashed_path_stroke_style.get(), nullptr,
           dash_hit_tolerance, &round_dash_source_seam) != com::ok ||
+      query_path->StrokeContainsPoint(
+          {5.2F, 1.8F}, 0.5F,
+          miter_dashed_path_stroke_style.get(), nullptr,
+          dash_hit_tolerance, &miter_dash_corner) != com::ok ||
+      query_path->StrokeContainsPoint(
+          {5.2F, 1.8F}, 0.5F,
+          miter_or_bevel_dashed_path_style.get(), nullptr,
+          dash_hit_tolerance, &miter_or_bevel_dash_corner) != com::ok ||
       dash_body == 0 || dash_gap != 0 || flat_dash_cap_gap != 0 ||
       round_dash_cap_gap == 0 || square_dash_cap_gap == 0 ||
-      triangle_dash_cap_gap == 0) {
+      triangle_dash_cap_gap == 0 || miter_dash_corner == 0 ||
+      miter_or_bevel_dash_corner != 0) {
     return 362;
   }
   if (query_path->GetWidenedBounds(
@@ -2657,6 +2696,15 @@ int run_tests()
   com::pointer<compat::simplified_geometry_sink>
       round_dashed_path_widen_sink;
   round_dashed_path_widen_sink.attach(raw_round_dashed_path_widen_sink);
+  auto *raw_miter_dashed_path_widen_sink = new simplified_sink();
+  com::pointer<compat::simplified_geometry_sink>
+      miter_dashed_path_widen_sink;
+  miter_dashed_path_widen_sink.attach(raw_miter_dashed_path_widen_sink);
+  auto *raw_miter_or_bevel_dashed_path_widen_sink = new simplified_sink();
+  com::pointer<compat::simplified_geometry_sink>
+      miter_or_bevel_dashed_path_widen_sink;
+  miter_or_bevel_dashed_path_widen_sink.attach(
+      raw_miter_or_bevel_dashed_path_widen_sink);
   if (query_path->Widen(
           2.0F, nullptr, nullptr, core::default_flattening_tolerance,
           path_widen_sink.get()) != com::ok ||
@@ -2685,6 +2733,13 @@ int run_tests()
       query_path->Widen(
           0.5F, round_dashed_path_stroke_style.get(), nullptr,
           dash_hit_tolerance, round_dashed_path_widen_sink.get()) != com::ok ||
+      query_path->Widen(
+          0.5F, miter_dashed_path_stroke_style.get(), nullptr,
+          dash_hit_tolerance, miter_dashed_path_widen_sink.get()) != com::ok ||
+      query_path->Widen(
+          0.5F, miter_or_bevel_dashed_path_style.get(), nullptr,
+          dash_hit_tolerance,
+          miter_or_bevel_dashed_path_widen_sink.get()) != com::ok ||
       raw_dashed_path_widen_sink->fill_mode != compat::fill_mode::alternate ||
       raw_dashed_path_widen_sink->segment_flags !=
           compat::path_segment::force_unstroked ||
@@ -2697,7 +2752,11 @@ int run_tests()
       !captured_fill_contains(
           *raw_triangle_dashed_path_widen_sink, {2.2F, 2.0F}) ||
       raw_round_dashed_path_widen_sink->begin_count == 0U ||
-      raw_round_dashed_path_widen_sink->bezier_count == 0U) {
+      raw_round_dashed_path_widen_sink->bezier_count == 0U ||
+      !captured_fill_contains(
+          *raw_miter_dashed_path_widen_sink, {5.2F, 1.8F}) ||
+      captured_fill_contains(
+          *raw_miter_or_bevel_dashed_path_widen_sink, {5.2F, 1.8F})) {
     return 367;
   }
   for (std::uint32_t y_index = 0U; y_index < 22U; ++y_index) {
@@ -2709,6 +2768,8 @@ int run_tests()
       std::int32_t square_contains = 0;
       std::int32_t triangle_contains = 0;
       std::int32_t round_contains = 0;
+      std::int32_t miter_contains = 0;
+      std::int32_t miter_or_bevel_contains = 0;
       if (query_path->StrokeContainsPoint(
               point, 0.5F, dashed_path_stroke_style.get(), nullptr,
               dash_hit_tolerance, &flat_contains) != com::ok ||
@@ -2721,6 +2782,12 @@ int run_tests()
           query_path->StrokeContainsPoint(
               point, 0.5F, round_dashed_path_stroke_style.get(), nullptr,
               dash_hit_tolerance, &round_contains) != com::ok ||
+          query_path->StrokeContainsPoint(
+              point, 0.5F, miter_dashed_path_stroke_style.get(), nullptr,
+              dash_hit_tolerance, &miter_contains) != com::ok ||
+          query_path->StrokeContainsPoint(
+              point, 0.5F, miter_or_bevel_dashed_path_style.get(), nullptr,
+              dash_hit_tolerance, &miter_or_bevel_contains) != com::ok ||
           captured_fill_contains(*raw_dashed_path_widen_sink, point) !=
               (flat_contains != 0) ||
           captured_fill_contains(*raw_square_dashed_path_widen_sink, point) !=
@@ -2729,10 +2796,16 @@ int run_tests()
               *raw_triangle_dashed_path_widen_sink, point) !=
               (triangle_contains != 0) ||
           captured_fill_contains(*raw_round_dashed_path_widen_sink, point) !=
-              (round_contains != 0)) {
+              (round_contains != 0) ||
+          captured_fill_contains(*raw_miter_dashed_path_widen_sink, point) !=
+              (miter_contains != 0) ||
+          captured_fill_contains(
+              *raw_miter_or_bevel_dashed_path_widen_sink, point) !=
+              (miter_or_bevel_contains != 0)) {
         std::fprintf(stderr,
                      "dashed widen mismatch point=%g,%g "
                      "flat=%d/%d square=%d/%d triangle=%d/%d round=%d/%d "
+                     "miter=%d/%d miter-or-bevel=%d/%d "
                      "figures=%u lines=%u\n",
                      point.x, point.y,
                      captured_fill_contains(*raw_dashed_path_widen_sink, point)
@@ -2754,6 +2827,16 @@ int run_tests()
                          ? 1
                          : 0,
                      round_contains,
+                     captured_fill_contains(
+                         *raw_miter_dashed_path_widen_sink, point)
+                         ? 1
+                         : 0,
+                     miter_contains,
+                     captured_fill_contains(
+                         *raw_miter_or_bevel_dashed_path_widen_sink, point)
+                         ? 1
+                         : 0,
+                     miter_or_bevel_contains,
                      raw_dashed_path_widen_sink->begin_count,
                      raw_dashed_path_widen_sink->line_count);
         return 368;
@@ -6827,6 +6910,44 @@ int run_tests()
     system_factory->Release();
     return 373;
   }
+  D2D1_STROKE_STYLE_PROPERTIES system_miter_dashed_path_properties =
+      system_dashed_path_properties;
+  system_miter_dashed_path_properties.lineJoin = D2D1_LINE_JOIN_MITER;
+  system_miter_dashed_path_properties.dashOffset = 0.5F;
+  ID2D1StrokeStyle *system_miter_dashed_path_stroke_style = nullptr;
+  if (FAILED(system_factory->CreateStrokeStyle(
+          &system_miter_dashed_path_properties, nullptr, 0U,
+          &system_miter_dashed_path_stroke_style)) ||
+      system_miter_dashed_path_stroke_style == nullptr) {
+    system_triangle_dashed_path_stroke_style->Release();
+    system_square_dashed_path_stroke_style->Release();
+    system_round_dashed_path_stroke_style->Release();
+    system_dashed_path_stroke_style->Release();
+    system_query_boolean_path->Release();
+    system_input_boolean_path->Release();
+    system_factory->Release();
+    return 375;
+  }
+  D2D1_STROKE_STYLE_PROPERTIES system_miter_or_bevel_dashed_properties =
+      system_miter_dashed_path_properties;
+  system_miter_or_bevel_dashed_properties.lineJoin =
+      D2D1_LINE_JOIN_MITER_OR_BEVEL;
+  system_miter_or_bevel_dashed_properties.miterLimit = 1.0F;
+  ID2D1StrokeStyle *system_miter_or_bevel_dashed_style = nullptr;
+  if (FAILED(system_factory->CreateStrokeStyle(
+          &system_miter_or_bevel_dashed_properties, nullptr, 0U,
+          &system_miter_or_bevel_dashed_style)) ||
+      system_miter_or_bevel_dashed_style == nullptr) {
+    system_miter_dashed_path_stroke_style->Release();
+    system_triangle_dashed_path_stroke_style->Release();
+    system_square_dashed_path_stroke_style->Release();
+    system_round_dashed_path_stroke_style->Release();
+    system_dashed_path_stroke_style->Release();
+    system_query_boolean_path->Release();
+    system_input_boolean_path->Release();
+    system_factory->Release();
+    return 377;
+  }
   BOOL system_dash_body = FALSE;
   BOOL system_dash_gap = FALSE;
   BOOL system_flat_dash_cap_gap = FALSE;
@@ -6836,6 +6957,8 @@ int run_tests()
   BOOL system_square_dash_source_seam = FALSE;
   BOOL system_triangle_dash_source_seam = FALSE;
   BOOL system_round_dash_source_seam = FALSE;
+  BOOL system_miter_dash_corner = FALSE;
+  BOOL system_miter_or_bevel_dash_corner = FALSE;
   const HRESULT system_dash_body_status =
       system_query_boolean_path->StrokeContainsPoint(
           D2D1_POINT_2F{1.5F, 2.0F}, 0.5F,
@@ -6883,6 +7006,16 @@ int run_tests()
           D2D1_POINT_2F{0.978F, 1.774F}, 0.5F,
           system_round_dashed_path_stroke_style, nullptr,
           dash_hit_tolerance, &system_round_dash_source_seam);
+  const HRESULT system_miter_dash_corner_status =
+      system_query_boolean_path->StrokeContainsPoint(
+          D2D1_POINT_2F{5.2F, 1.8F}, 0.5F,
+          system_miter_dashed_path_stroke_style, nullptr,
+          dash_hit_tolerance, &system_miter_dash_corner);
+  const HRESULT system_miter_or_bevel_corner_status =
+      system_query_boolean_path->StrokeContainsPoint(
+          D2D1_POINT_2F{5.2F, 1.8F}, 0.5F,
+          system_miter_or_bevel_dashed_style, nullptr,
+          dash_hit_tolerance, &system_miter_or_bevel_dash_corner);
   D2D1_RECT_F system_dashed_path_widened_bounds{};
   D2D1_RECT_F system_round_dashed_path_widened_bounds{};
   D2D1_RECT_F system_transformed_round_dashed_path_widened_bounds{};
@@ -6948,6 +7081,31 @@ int run_tests()
           dash_hit_tolerance,
           reinterpret_cast<ID2D1SimplifiedGeometrySink *>(
               system_round_dashed_path_widen_sink.get()));
+  auto *raw_system_miter_dashed_path_widen_sink = new simplified_sink();
+  com::pointer<compat::simplified_geometry_sink>
+      system_miter_dashed_path_widen_sink;
+  system_miter_dashed_path_widen_sink.attach(
+      raw_system_miter_dashed_path_widen_sink);
+  const HRESULT system_miter_dashed_widen_status =
+      system_query_boolean_path->Widen(
+          0.5F, system_miter_dashed_path_stroke_style, nullptr,
+          dash_hit_tolerance,
+          reinterpret_cast<ID2D1SimplifiedGeometrySink *>(
+              system_miter_dashed_path_widen_sink.get()));
+  auto *raw_system_miter_or_bevel_dashed_widen_sink =
+      new simplified_sink();
+  com::pointer<compat::simplified_geometry_sink>
+      system_miter_or_bevel_dashed_widen_sink;
+  system_miter_or_bevel_dashed_widen_sink.attach(
+      raw_system_miter_or_bevel_dashed_widen_sink);
+  const HRESULT system_miter_or_bevel_dashed_widen_status =
+      system_query_boolean_path->Widen(
+          0.5F, system_miter_or_bevel_dashed_style, nullptr,
+          dash_hit_tolerance,
+          reinterpret_cast<ID2D1SimplifiedGeometrySink *>(
+              system_miter_or_bevel_dashed_widen_sink.get()));
+  system_miter_or_bevel_dashed_style->Release();
+  system_miter_dashed_path_stroke_style->Release();
   system_triangle_dashed_path_stroke_style->Release();
   system_square_dashed_path_stroke_style->Release();
   system_round_dashed_path_stroke_style->Release();
@@ -6960,6 +7118,8 @@ int run_tests()
       FAILED(system_square_dash_source_seam_status) ||
       FAILED(system_triangle_dash_source_seam_status) ||
       FAILED(system_round_dash_source_seam_status) ||
+      FAILED(system_miter_dash_corner_status) ||
+      FAILED(system_miter_or_bevel_corner_status) ||
       FAILED(system_dashed_bounds_status) ||
       FAILED(system_round_dashed_bounds_status) ||
       FAILED(system_transformed_round_dashed_bounds_status) ||
@@ -6968,6 +7128,8 @@ int run_tests()
       FAILED(system_square_dashed_widen_status) ||
       FAILED(system_triangle_dashed_widen_status) ||
       FAILED(system_round_dashed_widen_status) ||
+      FAILED(system_miter_dashed_widen_status) ||
+      FAILED(system_miter_or_bevel_dashed_widen_status) ||
       (system_dash_body != FALSE) != (dash_body != 0) ||
       (system_dash_gap != FALSE) != (dash_gap != 0) ||
       (system_flat_dash_cap_gap != FALSE) != (flat_dash_cap_gap != 0) ||
@@ -6981,6 +7143,9 @@ int run_tests()
           (triangle_dash_source_seam != 0) ||
       (system_round_dash_source_seam != FALSE) !=
           (round_dash_source_seam != 0) ||
+      (system_miter_dash_corner != FALSE) != (miter_dash_corner != 0) ||
+      (system_miter_or_bevel_dash_corner != FALSE) !=
+          (miter_or_bevel_dash_corner != 0) ||
       !approximately_equal(
           system_dashed_path_widened_bounds.left,
           dashed_path_widened_bounds.left) ||
@@ -7040,7 +7205,8 @@ int run_tests()
     std::fprintf(stderr,
                  "dashed round widen beziers portable=%u system=%u "
                  "figures=%u/%u lines=%u/%u seam square=%d/%d "
-                 "triangle=%d/%d round=%d/%d\n",
+                 "triangle=%d/%d round=%d/%d miter=%d/%d "
+                 "miter-or-bevel=%d/%d\n",
                  raw_round_dashed_path_widen_sink->bezier_count,
                  raw_system_round_dashed_path_widen_sink->bezier_count,
                  raw_round_dashed_path_widen_sink->begin_count,
@@ -7052,7 +7218,11 @@ int run_tests()
                  triangle_dash_source_seam,
                  static_cast<int>(system_triangle_dash_source_seam),
                  round_dash_source_seam,
-                 static_cast<int>(system_round_dash_source_seam));
+                 static_cast<int>(system_round_dash_source_seam),
+                 miter_dash_corner,
+                 static_cast<int>(system_miter_dash_corner),
+                 miter_or_bevel_dash_corner,
+                 static_cast<int>(system_miter_or_bevel_dash_corner));
     system_query_boolean_path->Release();
     system_input_boolean_path->Release();
     system_factory->Release();
@@ -7064,10 +7234,18 @@ int run_tests()
           0.671F + static_cast<float>(x_index) * 0.307F,
           1.437F + static_cast<float>(y_index) * 0.337F};
       if (captured_fill_contains(*raw_system_dashed_path_widen_sink, point) !=
-          captured_fill_contains(*raw_dashed_path_widen_sink, point)) {
+              captured_fill_contains(*raw_dashed_path_widen_sink, point) ||
+          captured_fill_contains(
+              *raw_system_miter_dashed_path_widen_sink, point) !=
+              captured_fill_contains(
+                  *raw_miter_dashed_path_widen_sink, point) ||
+          captured_fill_contains(
+              *raw_system_miter_or_bevel_dashed_widen_sink, point) !=
+              captured_fill_contains(
+                  *raw_miter_or_bevel_dashed_path_widen_sink, point)) {
         std::fprintf(stderr,
                      "dashed widen system mismatch point=%g,%g "
-                     "portable=%d system=%d "
+                     "flat=%d/%d miter=%d/%d miter-or-bevel=%d/%d "
                      "portable_figures=%u system_figures=%u\n",
                      point.x, point.y,
                      captured_fill_contains(*raw_dashed_path_widen_sink, point)
@@ -7075,6 +7253,22 @@ int run_tests()
                          : 0,
                      captured_fill_contains(
                          *raw_system_dashed_path_widen_sink, point)
+                         ? 1
+                         : 0,
+                     captured_fill_contains(
+                         *raw_miter_dashed_path_widen_sink, point)
+                         ? 1
+                         : 0,
+                     captured_fill_contains(
+                         *raw_system_miter_dashed_path_widen_sink, point)
+                         ? 1
+                         : 0,
+                     captured_fill_contains(
+                         *raw_miter_or_bevel_dashed_path_widen_sink, point)
+                         ? 1
+                         : 0,
+                     captured_fill_contains(
+                         *raw_system_miter_or_bevel_dashed_widen_sink, point)
                          ? 1
                          : 0,
                      raw_dashed_path_widen_sink->begin_count,
