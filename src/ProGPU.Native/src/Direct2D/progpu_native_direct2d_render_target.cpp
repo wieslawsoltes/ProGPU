@@ -1,6 +1,7 @@
 #include "progpu_native_direct2d_render_target.hpp"
 
 #include "progpu_native_scene_builder.hpp"
+#include "../Scene/progpu_native_semantic_path_stroke.hpp"
 
 #include <algorithm>
 #include <array>
@@ -17,6 +18,8 @@
 
 namespace progpu::native::direct2d::compat::detail {
 namespace {
+
+namespace semantic_path_stroke = progpu::native::semantic_path_stroke;
 
 constexpr matrix_3x2_f identity_transform{
     1.0F, 0.0F, 0.0F, 1.0F, 0.0F, 0.0F};
@@ -345,6 +348,240 @@ private:
     bool figure_open_ = false;
     bool figure_started_ = false;
     bool figure_filled_ = false;
+    bool closed_ = false;
+};
+
+struct portable_scene_stroke_figure final {
+    std::size_t segment_offset{};
+    std::size_t segment_count{};
+    point_2f start{};
+    path_segment closing_flags = path_segment::none;
+    bool closed{};
+};
+
+class portable_scene_stroke_sink final : public simplified_geometry_sink {
+public:
+    com::result PROGPU_NATIVE_COM_CALL QueryInterface(
+        com::guid_ref interface_id,
+        void** value) noexcept override
+    {
+        if (value == nullptr) {
+            return com::pointer_error;
+        }
+        *value = nullptr;
+        if (com::guid_equal(interface_id, com::unknown_interface_id()) ||
+            com::guid_equal(
+                interface_id, simplified_geometry_sink_interface_id)) {
+            *value = static_cast<simplified_geometry_sink*>(this);
+        } else {
+            return com::no_interface;
+        }
+        AddRef();
+        return com::ok;
+    }
+
+    com::reference_count_value PROGPU_NATIVE_COM_CALL AddRef()
+        noexcept override
+    {
+        return reference_count_.add_ref();
+    }
+
+    com::reference_count_value PROGPU_NATIVE_COM_CALL Release()
+        noexcept override
+    {
+        return reference_count_.release(this);
+    }
+
+    void PROGPU_NATIVE_COM_CALL SetFillMode(fill_mode value) noexcept override
+    {
+        if (closed_ || figure_open_ ||
+            (value != fill_mode::alternate && value != fill_mode::winding)) {
+            set_failure(com::invalid_argument);
+        }
+    }
+
+    void PROGPU_NATIVE_COM_CALL SetSegmentFlags(
+        path_segment value) noexcept override
+    {
+        constexpr std::uint32_t supported =
+            static_cast<std::uint32_t>(path_segment::force_unstroked) |
+            static_cast<std::uint32_t>(path_segment::force_round_line_join);
+        if (closed_ ||
+            (static_cast<std::uint32_t>(value) & ~supported) != 0U) {
+            set_failure(com::invalid_argument);
+        } else {
+            current_flags_ = value;
+        }
+    }
+
+    void PROGPU_NATIVE_COM_CALL BeginFigure(
+        point_2f start,
+        figure_begin begin) noexcept override
+    {
+        if (closed_ || figure_open_ || !valid_point(start) ||
+            (begin != figure_begin::filled &&
+                begin != figure_begin::hollow)) {
+            set_failure(com::invalid_argument);
+            return;
+        }
+        if (figures_.size() == maximum_figure_count ||
+            segments_.size() == maximum_segment_count) {
+            set_failure(failure);
+            return;
+        }
+        current_figure_ = {};
+        current_figure_.segment_offset = segments_.size();
+        current_figure_.start = start;
+        current_point_ = start;
+        figure_open_ = true;
+    }
+
+    void PROGPU_NATIVE_COM_CALL AddLines(
+        const point_2f* points,
+        std::uint32_t point_count) noexcept override
+    {
+        if (closed_ || !figure_open_ ||
+            (point_count != 0U && points == nullptr) ||
+            point_count > maximum_segment_count - segments_.size()) {
+            set_failure(com::invalid_argument);
+            return;
+        }
+        for (std::uint32_t index = 0U; index < point_count; ++index) {
+            if (!valid_point(points[index])) {
+                set_failure(com::invalid_argument);
+                return;
+            }
+        }
+        try {
+            segments_.reserve(segments_.size() + point_count);
+            segment_flags_.reserve(segment_flags_.size() + point_count);
+            for (std::uint32_t index = 0U; index < point_count; ++index) {
+                progpu_native_path_segment segment{};
+                segment.p0 = {current_point_.x, current_point_.y};
+                segment.p1 = {points[index].x, points[index].y};
+                segment.kind = PROGPU_NATIVE_PATH_SEGMENT_LINE;
+                segments_.push_back(segment);
+                segment_flags_.push_back(current_flags_);
+                current_point_ = points[index];
+            }
+        } catch (const std::bad_alloc&) {
+            set_failure(com::out_of_memory);
+        } catch (...) {
+            set_failure(failure);
+        }
+    }
+
+    void PROGPU_NATIVE_COM_CALL AddBeziers(
+        const bezier_segment* beziers,
+        std::uint32_t bezier_count) noexcept override
+    {
+        if (closed_ || !figure_open_ ||
+            (bezier_count != 0U && beziers == nullptr) ||
+            bezier_count > maximum_segment_count - segments_.size()) {
+            set_failure(com::invalid_argument);
+            return;
+        }
+        for (std::uint32_t index = 0U; index < bezier_count; ++index) {
+            if (!valid_point(beziers[index].point1) ||
+                !valid_point(beziers[index].point2) ||
+                !valid_point(beziers[index].point3)) {
+                set_failure(com::invalid_argument);
+                return;
+            }
+        }
+        try {
+            segments_.reserve(segments_.size() + bezier_count);
+            segment_flags_.reserve(segment_flags_.size() + bezier_count);
+            for (std::uint32_t index = 0U; index < bezier_count; ++index) {
+                const auto& bezier = beziers[index];
+                progpu_native_path_segment segment{};
+                segment.p0 = {current_point_.x, current_point_.y};
+                segment.p1 = {bezier.point1.x, bezier.point1.y};
+                segment.p2 = {bezier.point2.x, bezier.point2.y};
+                segment.p3 = {bezier.point3.x, bezier.point3.y};
+                segment.kind = PROGPU_NATIVE_PATH_SEGMENT_CUBIC;
+                segments_.push_back(segment);
+                segment_flags_.push_back(current_flags_);
+                current_point_ = bezier.point3;
+            }
+        } catch (const std::bad_alloc&) {
+            set_failure(com::out_of_memory);
+        } catch (...) {
+            set_failure(failure);
+        }
+    }
+
+    void PROGPU_NATIVE_COM_CALL EndFigure(figure_end end) noexcept override
+    {
+        if (closed_ || !figure_open_ ||
+            (end != figure_end::open && end != figure_end::closed)) {
+            set_failure(com::invalid_argument);
+            return;
+        }
+        current_figure_.segment_count =
+            segments_.size() - current_figure_.segment_offset;
+        current_figure_.closing_flags = current_flags_;
+        current_figure_.closed = end == figure_end::closed;
+        try {
+            figures_.push_back(current_figure_);
+        } catch (const std::bad_alloc&) {
+            set_failure(com::out_of_memory);
+        } catch (...) {
+            set_failure(failure);
+        }
+        figure_open_ = false;
+    }
+
+    com::result PROGPU_NATIVE_COM_CALL Close() noexcept override
+    {
+        if (closed_ || figure_open_) {
+            set_failure(wrong_state);
+        }
+        closed_ = true;
+        return failure_;
+    }
+
+    [[nodiscard]] std::span<const portable_scene_stroke_figure> figures()
+        const noexcept
+    {
+        return figures_;
+    }
+
+    [[nodiscard]] std::span<const progpu_native_path_segment> segments()
+        const noexcept
+    {
+        return segments_;
+    }
+
+    [[nodiscard]] std::span<const path_segment> segment_flags()
+        const noexcept
+    {
+        return segment_flags_;
+    }
+
+private:
+    static constexpr std::size_t maximum_figure_count = 1U << 20U;
+    static constexpr std::size_t maximum_segment_count = 1U << 20U;
+
+    void set_failure(com::result value) noexcept
+    {
+        if (com::succeeded(failure_)) {
+            failure_ = value;
+        }
+    }
+
+    friend class com::atomic_reference_count<portable_scene_stroke_sink>;
+    ~portable_scene_stroke_sink() = default;
+
+    com::atomic_reference_count<portable_scene_stroke_sink> reference_count_;
+    std::vector<portable_scene_stroke_figure> figures_;
+    std::vector<progpu_native_path_segment> segments_;
+    std::vector<path_segment> segment_flags_;
+    portable_scene_stroke_figure current_figure_{};
+    point_2f current_point_{};
+    path_segment current_flags_ = path_segment::none;
+    com::result failure_ = com::ok;
+    bool figure_open_ = false;
     bool closed_ = false;
 };
 
@@ -1799,9 +2036,13 @@ public:
     }
 
     void PROGPU_NATIVE_COM_CALL DrawGeometry(
-        geometry*, brush*, float, stroke_style*) noexcept override
+        geometry* geometry_value,
+        brush* brush_value,
+        float stroke_width,
+        stroke_style* style) noexcept override
     {
-        unsupported_draw();
+        draw_stroked_geometry(
+            geometry_value, brush_value, stroke_width, style);
     }
 
     void PROGPU_NATIVE_COM_CALL FillGeometry(
@@ -2881,6 +3122,509 @@ private:
             return;
         }
         ++draw_count_;
+    }
+
+    struct stroke_style_snapshot final {
+        cap_style start_cap = cap_style::flat;
+        cap_style end_cap = cap_style::flat;
+        cap_style dash_cap = cap_style::flat;
+        line_join join = line_join::miter;
+        float miter_limit = 10.0F;
+        double dash_offset{};
+        std::vector<double> dash_intervals;
+    };
+
+    [[nodiscard]] static com::result read_stroke_style(
+        stroke_style* source,
+        stroke_style_snapshot& result) noexcept
+    {
+        result = {};
+        if (source == nullptr) {
+            return com::ok;
+        }
+        result.start_cap = source->GetStartCap();
+        result.end_cap = source->GetEndCap();
+        result.dash_cap = source->GetDashCap();
+        result.join = source->GetLineJoin();
+        result.miter_limit = source->GetMiterLimit();
+        result.dash_offset = source->GetDashOffset();
+        const dash_style dash = source->GetDashStyle();
+        if (result.start_cap > cap_style::triangle ||
+            result.end_cap > cap_style::triangle ||
+            result.dash_cap > cap_style::triangle ||
+            result.join > line_join::miter_or_bevel ||
+            !std::isfinite(result.miter_limit) ||
+            result.miter_limit <= 0.0F ||
+            !std::isfinite(result.dash_offset) ||
+            dash > dash_style::custom) {
+            return com::invalid_argument;
+        }
+        try {
+            switch (dash) {
+            case dash_style::solid:
+                break;
+            case dash_style::dash:
+                result.dash_intervals = {2.0, 2.0};
+                break;
+            case dash_style::dot:
+                result.dash_intervals = {0.0, 2.0};
+                break;
+            case dash_style::dash_dot:
+                result.dash_intervals = {2.0, 2.0, 0.0, 2.0};
+                break;
+            case dash_style::dash_dot_dot:
+                result.dash_intervals = {
+                    2.0, 2.0, 0.0, 2.0, 0.0, 2.0};
+                break;
+            case dash_style::custom: {
+                constexpr std::uint32_t maximum_dash_count = 1U << 20U;
+                const std::uint32_t count = source->GetDashesCount();
+                if (count == 0U || count > maximum_dash_count) {
+                    return com::invalid_argument;
+                }
+                std::vector<float> dashes(count);
+                source->GetDashes(dashes.data(), count);
+                result.dash_intervals.reserve(count);
+                bool has_positive = false;
+                for (const float value : dashes) {
+                    if (!std::isfinite(value) || value < 0.0F) {
+                        return com::invalid_argument;
+                    }
+                    has_positive = has_positive || value > 0.0F;
+                    result.dash_intervals.push_back(value);
+                }
+                if (!has_positive) {
+                    return com::invalid_argument;
+                }
+                break;
+            }
+            }
+        } catch (const std::bad_alloc&) {
+            return com::out_of_memory;
+        } catch (...) {
+            return failure;
+        }
+        return com::ok;
+    }
+
+    void draw_stroked_geometry(
+        geometry* geometry_value,
+        brush* brush_value,
+        float stroke_width,
+        stroke_style* style_value) noexcept
+    {
+        const std::lock_guard lock(mutex_);
+        if (!can_draw()) {
+            return;
+        }
+        if (geometry_value == nullptr || brush_value == nullptr ||
+            !std::isfinite(stroke_width) || stroke_width < 0.0F) {
+            latch(com::invalid_argument);
+            return;
+        }
+        const auto same_factory = [&](resource* value) {
+            factory* raw_factory = nullptr;
+            value->GetFactory(&raw_factory);
+            com::pointer<factory> value_factory;
+            value_factory.attach(raw_factory);
+            return value_factory.get() == owner_.get();
+        };
+        if (!same_factory(geometry_value) || !same_factory(brush_value) ||
+            (style_value != nullptr && !same_factory(style_value))) {
+            latch(wrong_factory);
+            return;
+        }
+        stroke_style_snapshot style{};
+        com::result result = read_stroke_style(style_value, style);
+        if (com::failed(result)) {
+            latch(result);
+            return;
+        }
+        if (stroke_width == 0.0F) {
+            return;
+        }
+
+        auto* raw_sink = new (std::nothrow) portable_scene_stroke_sink();
+        if (raw_sink == nullptr) {
+            latch(com::out_of_memory);
+            return;
+        }
+        com::pointer<portable_scene_stroke_sink> sink;
+        sink.attach(raw_sink);
+        result = geometry_value->Simplify(
+            geometry_simplification_option::cubics_and_lines,
+            nullptr,
+            core::default_flattening_tolerance,
+            sink.get());
+        const com::result close_result = sink->Close();
+        if (com::succeeded(result)) {
+            result = close_result;
+        }
+        if (com::failed(result)) {
+            latch(result);
+            return;
+        }
+
+        struct stroke_run final {
+            std::size_t segment_offset{};
+            std::size_t segment_count{};
+            std::size_t smooth_join_offset{};
+            bool closed{};
+            bool start_uses_dash_cap{};
+            bool end_uses_dash_cap{};
+        };
+        try {
+            std::vector<stroke_run> runs;
+            std::vector<progpu_native_path_segment> run_segments;
+            std::vector<std::uint8_t> run_smooth_joins;
+            const auto captured_segments = sink->segments();
+            const auto captured_flags = sink->segment_flags();
+            if (captured_segments.size() != captured_flags.size()) {
+                latch(failure);
+                return;
+            }
+            run_segments.reserve(
+                captured_segments.size() + sink->figures().size());
+            run_smooth_joins.reserve(
+                captured_segments.size() + sink->figures().size());
+            runs.reserve(sink->figures().size());
+
+            constexpr auto force_unstroked =
+                static_cast<std::uint32_t>(path_segment::force_unstroked);
+            constexpr auto force_round = static_cast<std::uint32_t>(
+                path_segment::force_round_line_join);
+            for (const auto& figure : sink->figures()) {
+                if (figure.segment_offset > captured_segments.size() ||
+                    figure.segment_count > captured_segments.size() -
+                        figure.segment_offset) {
+                    latch(failure);
+                    return;
+                }
+                if (figure.segment_count == 0U) {
+                    continue;
+                }
+                const auto figure_segments = captured_segments.subspan(
+                    figure.segment_offset, figure.segment_count);
+                const auto figure_flags = captured_flags.subspan(
+                    figure.segment_offset, figure.segment_count);
+                const auto last_point =
+                    semantic_path_stroke::segment_end(figure_segments.back());
+                const bool needs_closing_segment = figure.closed &&
+                    (last_point.x != figure.start.x ||
+                        last_point.y != figure.start.y);
+                const std::size_t edge_count = figure.segment_count +
+                    (needs_closing_segment ? 1U : 0U);
+                const auto edge_segment = [&](std::size_t index) {
+                    if (index < figure.segment_count) {
+                        return figure_segments[index];
+                    }
+                    progpu_native_path_segment closing{};
+                    closing.p0 = last_point;
+                    closing.p1 = {figure.start.x, figure.start.y};
+                    closing.kind = PROGPU_NATIVE_PATH_SEGMENT_LINE;
+                    return closing;
+                };
+                const auto edge_flags = [&](std::size_t index) {
+                    return index < figure.segment_count
+                        ? figure_flags[index]
+                        : figure.closing_flags;
+                };
+                const auto edge_stroked = [&](std::size_t index) {
+                    return (static_cast<std::uint32_t>(edge_flags(index)) &
+                        force_unstroked) == 0U;
+                };
+                const auto edge_round_join = [&](std::size_t index) {
+                    return (static_cast<std::uint32_t>(edge_flags(index)) &
+                        force_round) != 0U;
+                };
+                const auto append_run = [&](std::size_t first,
+                                            std::size_t count,
+                                            bool closed,
+                                            bool start_uses_dash_cap,
+                                            bool end_uses_dash_cap) {
+                    if (count == 0U) {
+                        return;
+                    }
+                    const std::size_t segment_offset = run_segments.size();
+                    const std::size_t smooth_join_offset =
+                        run_smooth_joins.size();
+                    for (std::size_t index = 0U; index < count; ++index) {
+                        run_segments.push_back(
+                            edge_segment((first + index) % edge_count));
+                    }
+                    for (std::size_t index = 0U; index < count; ++index) {
+                        const bool smooth = index + 1U < count
+                            ? edge_round_join(
+                                (first + index + 1U) % edge_count)
+                            : closed && edge_round_join(first % edge_count);
+                        run_smooth_joins.push_back(smooth ? 1U : 0U);
+                    }
+                    runs.push_back({
+                        segment_offset,
+                        count,
+                        smooth_join_offset,
+                        closed,
+                        start_uses_dash_cap,
+                        end_uses_dash_cap});
+                };
+
+                bool all_stroked = true;
+                for (std::size_t index = 0U; index < edge_count; ++index) {
+                    all_stroked = all_stroked && edge_stroked(index);
+                }
+                if (all_stroked) {
+                    append_run(0U, edge_count, figure.closed, false, false);
+                } else if (figure.closed) {
+                    std::size_t gap = 0U;
+                    while (gap < edge_count && edge_stroked(gap)) {
+                        ++gap;
+                    }
+                    const std::size_t first_after_gap =
+                        (gap + 1U) % edge_count;
+                    std::size_t consumed = 0U;
+                    while (consumed < edge_count) {
+                        while (consumed < edge_count && !edge_stroked(
+                                (first_after_gap + consumed) % edge_count)) {
+                            ++consumed;
+                        }
+                        const std::size_t first = consumed;
+                        while (consumed < edge_count && edge_stroked(
+                                (first_after_gap + consumed) % edge_count)) {
+                            ++consumed;
+                        }
+                        append_run(
+                            first_after_gap + first,
+                            consumed - first,
+                            false,
+                            true,
+                            true);
+                    }
+                } else {
+                    std::size_t index = 0U;
+                    while (index < edge_count) {
+                        while (index < edge_count && !edge_stroked(index)) {
+                            ++index;
+                        }
+                        const std::size_t first = index;
+                        while (index < edge_count && edge_stroked(index)) {
+                            ++index;
+                        }
+                        append_run(
+                            first,
+                            index - first,
+                            false,
+                            first != 0U,
+                            index != edge_count);
+                    }
+                }
+            }
+            if (runs.empty()) {
+                return;
+            }
+
+            rectangle_f geometry_bounds{};
+            result = geometry_value->GetBounds(nullptr, &geometry_bounds);
+            if (com::failed(result) || !valid_rectangle(geometry_bounds)) {
+                latch(com::failed(result) ? result : com::invalid_argument);
+                return;
+            }
+            const float padding = stroke_width * 0.5F *
+                std::max(1.0F, style.miter_limit);
+            const rectangle_f local_bounds{
+                geometry_bounds.left - padding,
+                geometry_bounds.top - padding,
+                geometry_bounds.right + padding,
+                geometry_bounds.bottom + padding};
+            const progpu_native_image_rect target_bounds =
+                transformed_bounds(local_bounds);
+            if (com::failed(failure_)) {
+                return;
+            }
+
+            bool bitmap_brush = false;
+            scene_bitmap_brush_native* raw_bitmap_brush = nullptr;
+            const com::result bitmap_query = brush_value->QueryInterface(
+                scene_bitmap_brush_native_interface_id,
+                reinterpret_cast<void**>(&raw_bitmap_brush));
+            com::pointer<scene_bitmap_brush_native> bitmap_identity;
+            bitmap_identity.attach(raw_bitmap_brush);
+            if (com::succeeded(bitmap_query) && bitmap_identity) {
+                bitmap_brush = true;
+            } else if (bitmap_query != com::no_interface) {
+                latch(com::failed(bitmap_query) ? bitmap_query : failure);
+                return;
+            }
+
+            bool use_polyline_batch = !bitmap_brush;
+            for (const auto& run : runs) {
+                const auto segments = std::span(run_segments).subspan(
+                    run.segment_offset, run.segment_count);
+                const auto smooth_joins = std::span(run_smooth_joins).subspan(
+                    run.smooth_join_offset, run.segment_count);
+                use_polyline_batch = use_polyline_batch &&
+                    (!run.closed || run.segment_count >= 2U) &&
+                    std::all_of(
+                        segments.begin(),
+                        segments.end(),
+                        [](const progpu_native_path_segment& segment) {
+                            return segment.kind ==
+                                PROGPU_NATIVE_PATH_SEGMENT_LINE;
+                        }) &&
+                    (style.join == line_join::round ||
+                        std::none_of(
+                            smooth_joins.begin(),
+                            smooth_joins.end(),
+                            [](std::uint8_t smooth) {
+                                return smooth != 0U;
+                            }));
+            }
+
+            if (use_polyline_batch) {
+                std::vector<progpu_native_scene_stroke> strokes;
+                std::vector<progpu_native_point> points;
+                std::vector<double> doubles;
+                std::vector<std::uint32_t> brush_indices;
+                strokes.reserve(runs.size());
+                brush_indices.reserve(runs.size());
+                points.reserve(run_segments.size() + runs.size());
+                if (!style.dash_intervals.empty()) {
+                    doubles.reserve(style.dash_intervals.size() * runs.size());
+                }
+                for (const auto& run : runs) {
+                    const auto segments = std::span(run_segments).subspan(
+                        run.segment_offset, run.segment_count);
+                    progpu_native_scene_stroke stroke{};
+                    stroke.struct_size = sizeof(stroke);
+                    stroke.kind = PROGPU_NATIVE_SCENE_STROKE_POLYLINE;
+                    stroke.flags = run.closed
+                        ? PROGPU_NATIVE_POLYLINE_FLAG_CLOSED
+                        : 0U;
+                    stroke.point_offset = points.size();
+                    stroke.point_count = segments.size() +
+                        (run.closed ? 0U : 1U);
+                    stroke.dash_interval_offset = doubles.size();
+                    stroke.dash_interval_count = style.dash_intervals.size();
+                    stroke.color = {1.0F, 1.0F, 1.0F, 1.0F};
+                    stroke.transform = native_transform();
+                    stroke.stroke_thickness = stroke_width;
+                    stroke.miter_limit = std::max(1.0F, style.miter_limit);
+                    stroke.dash_offset = style.dash_offset;
+                    stroke.start_cap = run.start_uses_dash_cap
+                        ? static_cast<std::uint32_t>(style.dash_cap)
+                        : static_cast<std::uint32_t>(style.start_cap);
+                    stroke.end_cap = run.end_uses_dash_cap
+                        ? static_cast<std::uint32_t>(style.dash_cap)
+                        : static_cast<std::uint32_t>(style.end_cap);
+                    stroke.line_join = style.join == line_join::miter_or_bevel
+                        ? PROGPU_NATIVE_STROKE_JOIN_MITER
+                        : static_cast<std::uint32_t>(style.join);
+                    stroke.dash_cap =
+                        static_cast<std::uint32_t>(style.dash_cap);
+                    points.push_back(segments.front().p0);
+                    const std::size_t end_count = segments.size() -
+                        (run.closed ? 1U : 0U);
+                    for (std::size_t index = 0U; index < end_count; ++index) {
+                        points.push_back(
+                            semantic_path_stroke::segment_end(segments[index]));
+                    }
+                    doubles.insert(
+                        doubles.end(),
+                        style.dash_intervals.begin(),
+                        style.dash_intervals.end());
+                    strokes.push_back(stroke);
+                    brush_indices.push_back(PROGPU_NATIVE_SCENE_NO_INDEX);
+                }
+                std::uint32_t brush_index = PROGPU_NATIVE_SCENE_NO_INDEX;
+                if (!add_brush(brush_value, brush_index)) {
+                    return;
+                }
+                std::fill(
+                    brush_indices.begin(), brush_indices.end(), brush_index);
+                if (!builder_.draw_strokes(
+                        strokes, points, doubles, brush_indices, target_bounds)) {
+                    latch(builder_failure());
+                    return;
+                }
+            } else {
+                semantic_path_stroke::style semantic_style{};
+                semantic_style.transform = native_transform();
+                semantic_style.thickness = stroke_width;
+                semantic_style.miter_limit =
+                    std::max(1.0F, style.miter_limit);
+                semantic_style.dash_offset = style.dash_offset;
+                semantic_style.dash_cap =
+                    static_cast<std::uint32_t>(style.dash_cap);
+                semantic_style.line_join = style.join ==
+                        line_join::miter_or_bevel
+                    ? PROGPU_NATIVE_STROKE_JOIN_MITER
+                    : static_cast<std::uint32_t>(style.join);
+                semantic_style.primitive_flags = primitive_flags();
+                mil::curve_dash::run_buffer dash_scratch;
+                std::vector<progpu_native_geometry_primitive> primitives;
+                std::vector<std::uint32_t> brush_indices;
+                primitives.reserve(
+                    run_segments.size() * 2U + runs.size() * 2U);
+                brush_indices.reserve(primitives.capacity());
+                for (const auto& run : runs) {
+                    semantic_style.start_cap = run.start_uses_dash_cap
+                        ? static_cast<std::uint32_t>(style.dash_cap)
+                        : static_cast<std::uint32_t>(style.start_cap);
+                    semantic_style.end_cap = run.end_uses_dash_cap
+                        ? static_cast<std::uint32_t>(style.dash_cap)
+                        : static_cast<std::uint32_t>(style.end_cap);
+                    const auto compile_result = semantic_path_stroke::compile(
+                        std::span(run_segments).subspan(
+                            run.segment_offset, run.segment_count),
+                        std::span(run_smooth_joins).subspan(
+                            run.smooth_join_offset, run.segment_count),
+                        run.closed,
+                        style.dash_intervals,
+                        semantic_style,
+                        PROGPU_NATIVE_SCENE_NO_INDEX,
+                        dash_scratch,
+                        primitives,
+                        brush_indices);
+                    if (compile_result ==
+                        semantic_path_stroke::result::capacity_exceeded) {
+                        latch(com::out_of_memory);
+                        return;
+                    }
+                    if (compile_result !=
+                        semantic_path_stroke::result::success) {
+                        latch(failure);
+                        return;
+                    }
+                }
+                if (primitives.empty()) {
+                    return;
+                }
+                if (bitmap_brush) {
+                    const bitmap_brush_draw_result bitmap_result =
+                        draw_bitmap_brush_geometry(
+                            brush_value, primitives, local_bounds);
+                    if (bitmap_result == bitmap_brush_draw_result::not_bitmap) {
+                        latch(failure);
+                    }
+                    return;
+                }
+                std::uint32_t brush_index = PROGPU_NATIVE_SCENE_NO_INDEX;
+                if (!add_brush(brush_value, brush_index)) {
+                    return;
+                }
+                std::fill(
+                    brush_indices.begin(), brush_indices.end(), brush_index);
+                if (!builder_.draw_geometry(
+                        primitives, brush_indices, target_bounds)) {
+                    latch(builder_failure());
+                    return;
+                }
+            }
+            ++draw_count_;
+        } catch (const std::bad_alloc&) {
+            latch(com::out_of_memory);
+        } catch (...) {
+            latch(failure);
+        }
     }
 
     [[nodiscard]] bool set_gradient_coordinate_transform(

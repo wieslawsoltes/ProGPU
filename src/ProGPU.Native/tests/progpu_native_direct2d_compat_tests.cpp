@@ -1665,6 +1665,21 @@ int main()
         path_base.get(),
         static_cast<compat::brush*>(bitmap_brush.get()),
         nullptr);
+    target->DrawGeometry(
+        path_base.get(),
+        static_cast<compat::brush*>(target_brush.get()),
+        2.0F,
+        nullptr);
+    target->DrawGeometry(
+        path_base.get(),
+        static_cast<compat::brush*>(bitmap_brush.get()),
+        1.5F,
+        stroke_style.get());
+    target->DrawGeometry(
+        static_cast<compat::geometry*>(geometry.get()),
+        static_cast<compat::brush*>(target_brush.get()),
+        1.0F,
+        nullptr);
     if (target->EndDraw(nullptr, nullptr) != com::ok ||
         scene_target->GetRequiredSceneSize() == 0U) {
         return 167;
@@ -1685,6 +1700,9 @@ int main()
         const progpu_native_scene_header*>(geometry_scene.data());
     const progpu_native_scene_resource* path_resource_record = nullptr;
     const progpu_native_scene_resource* vector_mask_record = nullptr;
+    const progpu_native_scene_resource* geometry_resource_record = nullptr;
+    const progpu_native_scene_resource* geometry_mask_record = nullptr;
+    const progpu_native_scene_resource* stroke_resource_record = nullptr;
     for (std::uint32_t index = 0U;
          index < geometry_header->resource_count;
          ++index) {
@@ -1695,6 +1713,12 @@ int main()
         if (candidate->kind == PROGPU_NATIVE_SCENE_RESOURCE_PATH_BATCH) {
             path_resource_record = candidate;
         } else if (candidate->kind ==
+            PROGPU_NATIVE_SCENE_RESOURCE_GEOMETRY_BATCH) {
+            geometry_resource_record = candidate;
+        } else if (candidate->kind ==
+            PROGPU_NATIVE_SCENE_RESOURCE_STROKE_BATCH) {
+            stroke_resource_record = candidate;
+        } else if (candidate->kind ==
             PROGPU_NATIVE_SCENE_RESOURCE_LAYER_MASK) {
             const auto* mask = reinterpret_cast<
                 const progpu_native_scene_layer_vector_mask*>(
@@ -1702,6 +1726,9 @@ int main()
             if (mask->kind ==
                 PROGPU_NATIVE_SCENE_LAYER_MASK_VECTOR_CLIP_CHAIN) {
                 vector_mask_record = candidate;
+            } else if (mask->kind ==
+                PROGPU_NATIVE_SCENE_LAYER_MASK_GEOMETRY) {
+                geometry_mask_record = candidate;
             }
         }
     }
@@ -1712,15 +1739,35 @@ int main()
         const progpu_native_scene_command*>(
         reinterpret_cast<const std::byte*>(first_geometry_command) +
         geometry_header->command_stride);
+    const auto* third_geometry_command = reinterpret_cast<
+        const progpu_native_scene_command*>(
+        reinterpret_cast<const std::byte*>(second_geometry_command) +
+        geometry_header->command_stride);
+    const auto* fourth_geometry_command = reinterpret_cast<
+        const progpu_native_scene_command*>(
+        reinterpret_cast<const std::byte*>(third_geometry_command) +
+        geometry_header->command_stride);
+    const auto* fifth_geometry_command = reinterpret_cast<
+        const progpu_native_scene_command*>(
+        reinterpret_cast<const std::byte*>(fourth_geometry_command) +
+        geometry_header->command_stride);
     const auto* path_fill = path_resource_record == nullptr
         ? nullptr
         : reinterpret_cast<const progpu_native_scene_path_fill*>(
             geometry_scene.data() + path_resource_record->payload_offset);
-    if (geometry_header->command_count != 2U ||
+    if (geometry_header->command_count != 5U ||
         path_resource_record == nullptr || vector_mask_record == nullptr ||
+        geometry_resource_record == nullptr ||
+        geometry_mask_record == nullptr || stroke_resource_record == nullptr ||
         first_geometry_command->kind != PROGPU_NATIVE_SCENE_COMMAND_DRAW_PATH ||
         second_geometry_command->kind !=
             PROGPU_NATIVE_SCENE_COMMAND_DRAW_IMAGE ||
+        third_geometry_command->kind !=
+            PROGPU_NATIVE_SCENE_COMMAND_DRAW_GEOMETRY ||
+        fourth_geometry_command->kind !=
+            PROGPU_NATIVE_SCENE_COMMAND_DRAW_IMAGE ||
+        fifth_geometry_command->kind !=
+            PROGPU_NATIVE_SCENE_COMMAND_DRAW_STROKE_BATCH ||
         path_fill == nullptr || path_fill->segment_count != 4U ||
         path_fill->fill_rule != PROGPU_NATIVE_FILL_RULE_NON_ZERO) {
         return 169;
@@ -1734,6 +1781,31 @@ int main()
     if (target->EndDraw(nullptr, nullptr) != compat::not_implemented ||
         scene_target->GetRequiredSceneSize() != 0U) {
         return 170;
+    }
+
+    target->BeginDraw();
+    target->DrawGeometry(
+        path_base.get(),
+        static_cast<compat::brush*>(target_brush.get()),
+        -1.0F,
+        nullptr);
+    if (target->EndDraw(nullptr, nullptr) != com::invalid_argument ||
+        scene_target->GetRequiredSceneSize() != 0U) {
+        return 171;
+    }
+
+    target->BeginDraw();
+    target->DrawGeometry(
+        path_base.get(),
+        static_cast<compat::brush*>(target_brush.get()),
+        0.0F,
+        nullptr);
+    if (target->EndDraw(nullptr, nullptr) != com::ok) {
+        return 172;
+    }
+    scene_target->GetSummary(&target_summary);
+    if (target_summary.draw_count != 0U) {
+        return 172;
     }
 
     compat::render_target* unsupported =
@@ -1966,7 +2038,7 @@ int main()
     native_target_brush->Release();
     scene_target->GetSummary(&target_summary);
     if (FAILED(native_target_end_status) ||
-        target_summary.generation != 18U ||
+        target_summary.generation != 20U ||
         target_summary.draw_count != 3U ||
         scene_target->GetRequiredSceneSize() == 0U) {
         return 129;

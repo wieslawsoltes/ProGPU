@@ -22,6 +22,7 @@ PROBES = (
     (23, 13),
     (26, 20),
     (4, 34),
+    (2, 34),
     (18, 28),
     (46, 36),
 )
@@ -96,7 +97,7 @@ def compare(reference_path: pathlib.Path, candidate_path: pathlib.Path) -> dict:
             max(changed_y),
         ]
 
-    # The fourteen clear/gradient/bitmap/bitmap-brush/path/stroke/interior
+    # The fifteen clear/gradient/bitmap/bitmap-brush/path/stroke/interior
     # probes must remain within one channel level.
     # Metal and llvmpipe/Vulkan currently differ at 151 analytic/vector edge
     # pixels, all by exactly one level. The bounded whole-frame allowance
@@ -139,8 +140,9 @@ def main() -> int:
         "Fixture": (
             "64x48 clear, linear-gradient rectangle, radial-gradient ellipse, "
             "nearest-sampled BGRA bitmap, repeated nearest-sampled BGRA "
-            "bitmap-brush rectangle, stroked ellipse, and path-filled "
-            "triangle, solid stroked rectangle, solid rounded rectangle"
+            "bitmap-brush rectangle, stroked ellipse, and path-filled and "
+            "stroked triangle, solid stroked rectangle, solid rounded "
+            "rectangle"
         ),
         "Tolerance": {
             "SemanticProbeMaximum": 1,
