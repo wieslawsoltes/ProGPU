@@ -361,6 +361,20 @@ portable_scene record_portable_scene()
         "portable BGRA bitmap creation failed");
     native_com::pointer<d2d::bitmap> bitmap;
     bitmap.attach(raw_bitmap);
+    const d2d::bitmap_brush_properties bitmap_brush_properties{
+        d2d::extend_mode::wrap,
+        d2d::extend_mode::wrap,
+        d2d::bitmap_interpolation_mode::nearest_neighbor};
+    d2d::bitmap_brush* raw_bitmap_brush = nullptr;
+    require(target->CreateBitmapBrush(
+            bitmap.get(),
+            &bitmap_brush_properties,
+            nullptr,
+            &raw_bitmap_brush) == native_com::ok &&
+        raw_bitmap_brush != nullptr,
+        "portable bitmap brush creation failed");
+    native_com::pointer<d2d::bitmap_brush> bitmap_brush;
+    bitmap_brush.attach(raw_bitmap_brush);
     const d2d::color_f clear{0.05F, 0.1F, 0.15F, 1.0F};
     const d2d::rectangle_f rectangle{4.0F, 4.0F, 20.0F, 20.0F};
     const d2d::ellipse ellipse_value{{40.0F, 14.0F}, 8.0F, 8.0F};
@@ -369,6 +383,9 @@ portable_scene record_portable_scene()
         {36.0F, 28.0F, 56.0F, 44.0F}, 4.0F, 4.0F};
     const d2d::rectangle_f bitmap_destination{
         24.0F, 4.0F, 30.0F, 10.0F};
+    const d2d::rectangle_f bitmap_brush_rectangle{
+        22.0F, 12.0F, 30.0F, 20.0F};
+    const d2d::ellipse bitmap_brush_ellipse{{26.0F, 24.0F}, 4.0F, 4.0F};
     target->BeginDraw();
     target->Clear(&clear);
     target->FillRectangle(
@@ -387,6 +404,14 @@ portable_scene record_portable_scene()
         &bitmap_destination,
         1.0F,
         d2d::bitmap_interpolation_mode::nearest_neighbor,
+        nullptr);
+    target->FillRectangle(
+        &bitmap_brush_rectangle,
+        static_cast<d2d::brush*>(bitmap_brush.get()));
+    target->DrawEllipse(
+        &bitmap_brush_ellipse,
+        static_cast<d2d::brush*>(bitmap_brush.get()),
+        2.0F,
         nullptr);
     require(target->EndDraw(nullptr, nullptr) == native_com::ok,
         "portable scene recording failed");
@@ -456,8 +481,8 @@ std::vector<std::uint8_t> render_progpu(
             &frame_metrics,
             &diagnostics) == PROGPU_NATIVE_STATUS_SUCCESS &&
         diagnostics.stage == d2d::scene_submission_stage::none &&
-        scene_metrics.draw_count == 5U &&
-        frame_metrics.command_count == 5U &&
+        scene_metrics.draw_count == 7U &&
+        frame_metrics.command_count == 7U &&
         frame_metrics.submission_count == 1U,
         "ProGPU D3D12 Direct2D render failed");
 
@@ -684,6 +709,20 @@ std::vector<std::uint8_t> render_system_direct2d()
         "system Direct2D BGRA bitmap creation failed");
     native_com::pointer<ID2D1Bitmap> source_bitmap;
     source_bitmap.attach(raw_source_bitmap);
+    const D2D1_BITMAP_BRUSH_PROPERTIES bitmap_brush_properties{
+        D2D1_EXTEND_MODE_WRAP,
+        D2D1_EXTEND_MODE_WRAP,
+        D2D1_BITMAP_INTERPOLATION_MODE_NEAREST_NEIGHBOR};
+    ID2D1BitmapBrush* raw_bitmap_brush = nullptr;
+    require(SUCCEEDED(target->CreateBitmapBrush(
+            source_bitmap.get(),
+            &bitmap_brush_properties,
+            nullptr,
+            &raw_bitmap_brush)) &&
+        raw_bitmap_brush != nullptr,
+        "system Direct2D bitmap brush creation failed");
+    native_com::pointer<ID2D1BitmapBrush> bitmap_brush;
+    bitmap_brush.attach(raw_bitmap_brush);
     const D2D1_COLOR_F clear{0.05F, 0.1F, 0.15F, 1.0F};
     const D2D1_RECT_F rectangle{4.0F, 4.0F, 20.0F, 20.0F};
     const D2D1_ELLIPSE ellipse_value{{40.0F, 14.0F}, 8.0F, 8.0F};
@@ -691,6 +730,9 @@ std::vector<std::uint8_t> render_system_direct2d()
     const D2D1_ROUNDED_RECT rounded{
         {36.0F, 28.0F, 56.0F, 44.0F}, 4.0F, 4.0F};
     const D2D1_RECT_F bitmap_destination{24.0F, 4.0F, 30.0F, 10.0F};
+    const D2D1_RECT_F bitmap_brush_rectangle{
+        22.0F, 12.0F, 30.0F, 20.0F};
+    const D2D1_ELLIPSE bitmap_brush_ellipse{{26.0F, 24.0F}, 4.0F, 4.0F};
     target->BeginDraw();
     target->Clear(&clear);
     target->FillRectangle(&rectangle, linear.get());
@@ -703,6 +745,8 @@ std::vector<std::uint8_t> render_system_direct2d()
         1.0F,
         D2D1_BITMAP_INTERPOLATION_MODE_NEAREST_NEIGHBOR,
         nullptr);
+    target->FillRectangle(&bitmap_brush_rectangle, bitmap_brush.get());
+    target->DrawEllipse(&bitmap_brush_ellipse, bitmap_brush.get(), 2.0F);
     require(SUCCEEDED(target->EndDraw()), "system Direct2D draw failed");
 
     WICRect lock_rectangle{0, 0, static_cast<INT>(width),
@@ -737,13 +781,18 @@ void compare_images(
 {
     require(progpu.size() == static_cast<std::size_t>(row_bytes) * height &&
         system.size() == progpu.size(), "differential image size mismatch");
-    constexpr std::array<std::array<std::uint32_t, 2U>, 8U> probes{{
+    constexpr std::array<std::array<std::uint32_t, 2U>, 13U> probes{{
         {2U, 2U},
         {10U, 10U},
         {40U, 14U},
         {46U, 14U},
         {25U, 5U},
         {29U, 9U},
+        {22U, 12U},
+        {23U, 12U},
+        {22U, 13U},
+        {23U, 13U},
+        {26U, 20U},
         {18U, 28U},
         {46U, 36U}}};
     for (const auto& probe : probes) {

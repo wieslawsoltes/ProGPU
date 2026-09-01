@@ -411,9 +411,10 @@ bool create_semantic_brush_mask_binding(
     WGPUCommandEncoderDescriptor encoder_descriptor{};
     encoder_descriptor.label = webgpu::string_view(
         "ProGPU retained brush-mask encoder");
-    WGPUCommandEncoder encoder = wgpuDeviceCreateCommandEncoder(
-        engine.device,
-        &encoder_descriptor);
+    const bool owns_encoder = engine.semantic_encoder == nullptr;
+    WGPUCommandEncoder encoder = owns_encoder
+        ? wgpuDeviceCreateCommandEncoder(engine.device, &encoder_descriptor)
+        : engine.semantic_encoder;
     if (encoder == nullptr) {
         cleanup();
         return false;
@@ -433,7 +434,9 @@ bool create_semantic_brush_mask_binding(
         encoder,
         &pass_descriptor);
     if (pass == nullptr) {
-        wgpuCommandEncoderRelease(encoder);
+        if (owns_encoder) {
+            wgpuCommandEncoderRelease(encoder);
+        }
         cleanup();
         return false;
     }
@@ -474,19 +477,24 @@ bool create_semantic_brush_mask_binding(
     wgpuRenderPassEncoderEnd(pass);
     wgpuRenderPassEncoderRelease(pass);
 
-    WGPUCommandBufferDescriptor command_descriptor{};
-    command_descriptor.label = webgpu::string_view(
-        "ProGPU retained brush-mask commands");
-    WGPUCommandBuffer command = wgpuCommandEncoderFinish(
-        encoder,
-        &command_descriptor);
-    wgpuCommandEncoderRelease(encoder);
-    if (command == nullptr) {
-        cleanup();
-        return false;
+    if (owns_encoder) {
+        WGPUCommandBufferDescriptor command_descriptor{};
+        command_descriptor.label = webgpu::string_view(
+            "ProGPU retained brush-mask commands");
+        WGPUCommandBuffer command = wgpuCommandEncoderFinish(
+            encoder,
+            &command_descriptor);
+        wgpuCommandEncoderRelease(encoder);
+        if (command == nullptr) {
+            cleanup();
+            return false;
+        }
+        engine.submit(command);
+        wgpuCommandBufferRelease(command);
     }
-    engine.submit(command);
-    wgpuCommandBufferRelease(command);
+    // The command encoder retains every transient GPU object referenced by
+    // the pass. Release the handles without destroying their backing storage;
+    // the shared semantic encoder will submit them with the final image draw.
     submitted = true;
 
     operation.mask_texture = texture;

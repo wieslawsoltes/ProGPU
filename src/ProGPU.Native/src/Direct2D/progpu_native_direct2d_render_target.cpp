@@ -3,12 +3,14 @@
 #include "progpu_native_scene_builder.hpp"
 
 #include <algorithm>
+#include <array>
 #include <cmath>
 #include <cstddef>
 #include <cstring>
 #include <limits>
 #include <mutex>
 #include <new>
+#include <numbers>
 #include <span>
 #include <utility>
 #include <vector>
@@ -25,6 +27,11 @@ constexpr com::guid scene_bitmap_native_interface_id{
     0xD6B7U,
     0x45D2U,
     {0x82U, 0x25U, 0x75U, 0xF0U, 0x12U, 0xECU, 0x78U, 0xC3U}};
+constexpr com::guid scene_bitmap_brush_native_interface_id{
+    0x7FB7E4D7U,
+    0xC094U,
+    0x4ABAU,
+    {0x8EU, 0x14U, 0x59U, 0xE8U, 0x67U, 0x75U, 0xC5U, 0x6BU}};
 
 [[nodiscard]] bool valid_color(const color_f& value) noexcept
 {
@@ -51,6 +58,19 @@ constexpr com::guid scene_bitmap_native_interface_id{
 [[nodiscard]] bool valid_opacity(float value) noexcept
 {
     return std::isfinite(value) && value >= 0.0F && value <= 1.0F;
+}
+
+[[nodiscard]] bool valid_extend_mode(extend_mode value) noexcept
+{
+    return value == extend_mode::clamp || value == extend_mode::wrap ||
+        value == extend_mode::mirror;
+}
+
+[[nodiscard]] bool valid_bitmap_interpolation_mode(
+    bitmap_interpolation_mode value) noexcept
+{
+    return value == bitmap_interpolation_mode::nearest_neighbor ||
+        value == bitmap_interpolation_mode::linear;
 }
 
 [[nodiscard]] bool valid_brush_properties(
@@ -87,6 +107,16 @@ struct scene_bitmap_native : com::unknown {
         pixel_format expected_format,
         void* destination,
         std::uint32_t destination_pitch) const noexcept = 0;
+};
+
+struct scene_bitmap_brush_native : com::unknown {
+    virtual com::result PROGPU_NATIVE_COM_CALL GetSceneSnapshot(
+        bitmap** source,
+        extend_mode* extend_x,
+        extend_mode* extend_y,
+        bitmap_interpolation_mode* interpolation,
+        float* opacity,
+        matrix_3x2_f* transform) const noexcept = 0;
 };
 
 class portable_bitmap final : public bitmap, public scene_bitmap_native {
@@ -416,6 +446,222 @@ private:
     std::uint32_t row_bytes_ = 0U;
     std::vector<std::byte> pixels_;
     std::uint64_t generation_ = 1U;
+};
+
+class portable_bitmap_brush final :
+    public bitmap_brush,
+    public scene_bitmap_brush_native {
+public:
+    portable_bitmap_brush(
+        factory* owner,
+        bitmap* source,
+        const bitmap_brush_properties& bitmap_properties_value,
+        const brush_properties& properties) noexcept
+        : owner_(owner),
+          source_(source),
+          extend_x_(bitmap_properties_value.extend_mode_x),
+          extend_y_(bitmap_properties_value.extend_mode_y),
+          interpolation_(bitmap_properties_value.interpolation_mode),
+          opacity_(properties.opacity),
+          transform_(properties.transform)
+    {
+    }
+
+    com::result PROGPU_NATIVE_COM_CALL QueryInterface(
+        com::guid_ref interface_id,
+        void** value) noexcept override
+    {
+        if (value == nullptr) {
+            return com::pointer_error;
+        }
+        *value = nullptr;
+        if (com::guid_equal(interface_id, com::unknown_interface_id()) ||
+            com::guid_equal(interface_id, resource_interface_id) ||
+            com::guid_equal(interface_id, brush_interface_id) ||
+            com::guid_equal(interface_id, bitmap_brush_interface_id)) {
+            *value = static_cast<bitmap_brush*>(this);
+        } else if (com::guid_equal(
+                interface_id, scene_bitmap_brush_native_interface_id)) {
+            *value = static_cast<scene_bitmap_brush_native*>(this);
+        } else {
+            return com::no_interface;
+        }
+        AddRef();
+        return com::ok;
+    }
+
+    com::reference_count_value PROGPU_NATIVE_COM_CALL AddRef()
+        noexcept override
+    {
+        return reference_count_.add_ref();
+    }
+
+    com::reference_count_value PROGPU_NATIVE_COM_CALL Release()
+        noexcept override
+    {
+        return reference_count_.release(this);
+    }
+
+    void PROGPU_NATIVE_COM_CALL GetFactory(factory** value) const
+        noexcept override
+    {
+        if (value == nullptr) {
+            return;
+        }
+        *value = owner_.get();
+        if (*value != nullptr) {
+            (*value)->AddRef();
+        }
+    }
+
+    void PROGPU_NATIVE_COM_CALL SetOpacity(float opacity) noexcept override
+    {
+        if (valid_opacity(opacity)) {
+            const std::lock_guard lock(mutex_);
+            opacity_ = opacity;
+        }
+    }
+
+    void PROGPU_NATIVE_COM_CALL SetTransform(
+        const matrix_3x2_f* transform) noexcept override
+    {
+        if (transform != nullptr && core::valid_transform(transform)) {
+            const std::lock_guard lock(mutex_);
+            transform_ = *transform;
+        }
+    }
+
+    float PROGPU_NATIVE_COM_CALL GetOpacity() const noexcept override
+    {
+        const std::lock_guard lock(mutex_);
+        return opacity_;
+    }
+
+    void PROGPU_NATIVE_COM_CALL GetTransform(
+        matrix_3x2_f* transform) const noexcept override
+    {
+        if (transform != nullptr) {
+            const std::lock_guard lock(mutex_);
+            *transform = transform_;
+        }
+    }
+
+    void PROGPU_NATIVE_COM_CALL SetExtendModeX(
+        extend_mode extend) noexcept override
+    {
+        if (valid_extend_mode(extend)) {
+            const std::lock_guard lock(mutex_);
+            extend_x_ = extend;
+        }
+    }
+
+    void PROGPU_NATIVE_COM_CALL SetExtendModeY(
+        extend_mode extend) noexcept override
+    {
+        if (valid_extend_mode(extend)) {
+            const std::lock_guard lock(mutex_);
+            extend_y_ = extend;
+        }
+    }
+
+    void PROGPU_NATIVE_COM_CALL SetInterpolationMode(
+        bitmap_interpolation_mode interpolation) noexcept override
+    {
+        if (valid_bitmap_interpolation_mode(interpolation)) {
+            const std::lock_guard lock(mutex_);
+            interpolation_ = interpolation;
+        }
+    }
+
+    void PROGPU_NATIVE_COM_CALL SetBitmap(bitmap* value) noexcept override
+    {
+        if (value != nullptr) {
+            factory* raw_factory = nullptr;
+            value->GetFactory(&raw_factory);
+            com::pointer<factory> value_factory;
+            value_factory.attach(raw_factory);
+            if (value_factory.get() != owner_.get()) {
+                return;
+            }
+        }
+        const std::lock_guard lock(mutex_);
+        source_ = com::pointer<bitmap>(value);
+    }
+
+    extend_mode PROGPU_NATIVE_COM_CALL GetExtendModeX()
+        const noexcept override
+    {
+        const std::lock_guard lock(mutex_);
+        return extend_x_;
+    }
+
+    extend_mode PROGPU_NATIVE_COM_CALL GetExtendModeY()
+        const noexcept override
+    {
+        const std::lock_guard lock(mutex_);
+        return extend_y_;
+    }
+
+    bitmap_interpolation_mode PROGPU_NATIVE_COM_CALL GetInterpolationMode()
+        const noexcept override
+    {
+        const std::lock_guard lock(mutex_);
+        return interpolation_;
+    }
+
+    void PROGPU_NATIVE_COM_CALL GetBitmap(bitmap** value)
+        const noexcept override
+    {
+        if (value == nullptr) {
+            return;
+        }
+        const std::lock_guard lock(mutex_);
+        *value = source_.get();
+        if (*value != nullptr) {
+            (*value)->AddRef();
+        }
+    }
+
+    com::result PROGPU_NATIVE_COM_CALL GetSceneSnapshot(
+        bitmap** source,
+        extend_mode* extend_x,
+        extend_mode* extend_y,
+        bitmap_interpolation_mode* interpolation,
+        float* opacity,
+        matrix_3x2_f* transform) const noexcept override
+    {
+        if (source == nullptr || extend_x == nullptr || extend_y == nullptr ||
+            interpolation == nullptr || opacity == nullptr ||
+            transform == nullptr) {
+            return com::pointer_error;
+        }
+        const std::lock_guard lock(mutex_);
+        *source = source_.get();
+        if (*source != nullptr) {
+            (*source)->AddRef();
+        }
+        *extend_x = extend_x_;
+        *extend_y = extend_y_;
+        *interpolation = interpolation_;
+        *opacity = opacity_;
+        *transform = transform_;
+        return com::ok;
+    }
+
+private:
+    friend class com::atomic_reference_count<portable_bitmap_brush>;
+    ~portable_bitmap_brush() = default;
+
+    com::atomic_reference_count<portable_bitmap_brush> reference_count_;
+    com::pointer<factory> owner_;
+    mutable std::mutex mutex_;
+    com::pointer<bitmap> source_;
+    extend_mode extend_x_ = extend_mode::clamp;
+    extend_mode extend_y_ = extend_mode::clamp;
+    bitmap_interpolation_mode interpolation_ =
+        bitmap_interpolation_mode::linear;
+    float opacity_ = 1.0F;
+    matrix_3x2_f transform_ = identity_transform;
 };
 
 class portable_gradient_stop_collection final :
@@ -1004,12 +1250,51 @@ public:
     }
 
     com::result PROGPU_NATIVE_COM_CALL CreateBitmapBrush(
-        bitmap*,
-        const bitmap_brush_properties*,
-        const brush_properties*,
+        bitmap* source,
+        const bitmap_brush_properties* bitmap_properties_value,
+        const brush_properties* properties,
         bitmap_brush** value) noexcept override
     {
-        return unsupported_output(value);
+        if (value == nullptr) {
+            return com::pointer_error;
+        }
+        *value = nullptr;
+        const bitmap_brush_properties actual_bitmap_properties =
+            bitmap_properties_value == nullptr
+            ? bitmap_brush_properties{
+                extend_mode::clamp,
+                extend_mode::clamp,
+                bitmap_interpolation_mode::linear}
+            : *bitmap_properties_value;
+        const brush_properties actual_properties = properties == nullptr
+            ? brush_properties{1.0F, identity_transform}
+            : *properties;
+        if (!valid_extend_mode(actual_bitmap_properties.extend_mode_x) ||
+            !valid_extend_mode(actual_bitmap_properties.extend_mode_y) ||
+            !valid_bitmap_interpolation_mode(
+                actual_bitmap_properties.interpolation_mode) ||
+            !valid_brush_properties(actual_properties)) {
+            return com::invalid_argument;
+        }
+        if (source != nullptr) {
+            factory* raw_factory = nullptr;
+            source->GetFactory(&raw_factory);
+            com::pointer<factory> bitmap_factory;
+            bitmap_factory.attach(raw_factory);
+            if (bitmap_factory.get() != owner_.get()) {
+                return wrong_factory;
+            }
+        }
+        auto* created = new (std::nothrow) portable_bitmap_brush(
+            owner_.get(),
+            source,
+            actual_bitmap_properties,
+            actual_properties);
+        if (created == nullptr) {
+            return com::out_of_memory;
+        }
+        *value = created;
+        return com::ok;
     }
 
     com::result PROGPU_NATIVE_COM_CALL CreateSolidColorBrush(
@@ -1195,10 +1480,6 @@ public:
             latch(com::invalid_argument);
             return;
         }
-        std::uint32_t brush_index = PROGPU_NATIVE_SCENE_NO_INDEX;
-        if (!add_brush(brush_value, brush_index)) {
-            return;
-        }
         progpu_native_geometry_primitive primitive{};
         primitive.kind = PROGPU_NATIVE_GEOMETRY_LINE;
         primitive.flags = primitive_flags();
@@ -1213,6 +1494,19 @@ public:
             std::min(point0.y, point1.y) - radius,
             std::max(point0.x, point1.x) + radius,
             std::max(point0.y, point1.y) + radius};
+        const bitmap_brush_draw_result bitmap_result =
+            draw_bitmap_brush_geometry(
+                brush_value,
+                std::span<const progpu_native_geometry_primitive>(
+                    &primitive, 1U),
+                local_bounds);
+        if (bitmap_result != bitmap_brush_draw_result::not_bitmap) {
+            return;
+        }
+        std::uint32_t brush_index = PROGPU_NATIVE_SCENE_NO_INDEX;
+        if (!add_brush(brush_value, brush_index)) {
+            return;
+        }
         const progpu_native_image_rect bounds = transformed_bounds(local_bounds);
         if (!builder_.draw_geometry(
                 std::span<const progpu_native_geometry_primitive>(
@@ -1917,6 +2211,276 @@ private:
         }
     }
 
+    enum class bitmap_brush_draw_result {
+        not_bitmap,
+        drawn,
+        failed
+    };
+
+    [[nodiscard]] static std::uint32_t image_address_flags(
+        extend_mode extend,
+        std::uint32_t shift) noexcept
+    {
+        const std::uint32_t value = extend == extend_mode::wrap
+            ? PROGPU_NATIVE_IMAGE_ADDRESS_REPEAT
+            : extend == extend_mode::mirror
+                ? PROGPU_NATIVE_IMAGE_ADDRESS_MIRROR_REPEAT
+                : PROGPU_NATIVE_IMAGE_ADDRESS_CLAMP;
+        return value << shift;
+    }
+
+    [[nodiscard]] bool draw_bitmap_brush_image(
+        scene_bitmap_brush_native* brush_native,
+        std::uint32_t mask_resource_index,
+        const rectangle_f& local_bounds) noexcept
+    {
+        bitmap* raw_bitmap = nullptr;
+        extend_mode extend_x = extend_mode::clamp;
+        extend_mode extend_y = extend_mode::clamp;
+        bitmap_interpolation_mode interpolation =
+            bitmap_interpolation_mode::linear;
+        float opacity = 1.0F;
+        matrix_3x2_f brush_transform = identity_transform;
+        const com::result brush_result = brush_native->GetSceneSnapshot(
+            &raw_bitmap,
+            &extend_x,
+            &extend_y,
+            &interpolation,
+            &opacity,
+            &brush_transform);
+        com::pointer<bitmap> bitmap_value;
+        bitmap_value.attach(raw_bitmap);
+        if (com::failed(brush_result) || !bitmap_value ||
+            !valid_extend_mode(extend_x) || !valid_extend_mode(extend_y) ||
+            !valid_bitmap_interpolation_mode(interpolation) ||
+            !valid_opacity(opacity) ||
+            !core::valid_transform(&brush_transform)) {
+            latch(com::failed(brush_result)
+                ? brush_result
+                : com::invalid_argument);
+            return false;
+        }
+        factory* raw_factory = nullptr;
+        bitmap_value->GetFactory(&raw_factory);
+        com::pointer<factory> bitmap_factory;
+        bitmap_factory.attach(raw_factory);
+        if (bitmap_factory.get() != owner_.get()) {
+            latch(wrong_factory);
+            return false;
+        }
+        scene_bitmap_native* raw_source = nullptr;
+        const com::result source_result = bitmap_value->QueryInterface(
+            scene_bitmap_native_interface_id,
+            reinterpret_cast<void**>(&raw_source));
+        com::pointer<scene_bitmap_native> source;
+        source.attach(raw_source);
+        if (com::failed(source_result) || !source) {
+            latch(not_implemented);
+            return false;
+        }
+        std::uint32_t image_resource_index = PROGPU_NATIVE_SCENE_NO_INDEX;
+        bitmap_snapshot snapshot{};
+        if (!add_bitmap_resource(
+                source.get(), image_resource_index, snapshot)) {
+            return false;
+        }
+        matrix_3x2_f inverse_brush{};
+        if (!try_invert_transform(brush_transform, inverse_brush)) {
+            latch(com::invalid_argument);
+            return false;
+        }
+        const auto transform_point = [](
+            const matrix_3x2_f& transform,
+            float x,
+            float y) noexcept {
+            return point_2f{
+                x * transform.m11 + y * transform.m21 + transform.m31,
+                x * transform.m12 + y * transform.m22 + transform.m32};
+        };
+        const std::array local_corners{
+            point_2f{local_bounds.left, local_bounds.top},
+            point_2f{local_bounds.right, local_bounds.top},
+            point_2f{local_bounds.right, local_bounds.bottom},
+            point_2f{local_bounds.left, local_bounds.bottom}};
+        rectangle_f brush_bounds{};
+        for (std::size_t index = 0U; index < local_corners.size(); ++index) {
+            const point_2f point = transform_point(
+                inverse_brush,
+                local_corners[index].x,
+                local_corners[index].y);
+            if (!valid_point(point)) {
+                latch(com::invalid_argument);
+                return false;
+            }
+            if (index == 0U) {
+                brush_bounds = {point.x, point.y, point.x, point.y};
+            } else {
+                brush_bounds.left = std::min(brush_bounds.left, point.x);
+                brush_bounds.top = std::min(brush_bounds.top, point.y);
+                brush_bounds.right = std::max(brush_bounds.right, point.x);
+                brush_bounds.bottom = std::max(brush_bounds.bottom, point.y);
+            }
+        }
+        if (!valid_rectangle(brush_bounds)) {
+            latch(com::invalid_argument);
+            return false;
+        }
+        const float pixels_per_dip_x = snapshot.dpi_x / 96.0F;
+        const float pixels_per_dip_y = snapshot.dpi_y / 96.0F;
+        progpu_native_scene_image_draw image{};
+        image.image_width = snapshot.width;
+        image.image_height = snapshot.height;
+        image.row_bytes = snapshot.row_bytes;
+        image.flags = PROGPU_NATIVE_SCENE_IMAGE_SOURCE_PREMULTIPLIED |
+            PROGPU_NATIVE_SCENE_IMAGE_EXTENDED_SOURCE_RECT |
+            image_address_flags(
+                extend_x, PROGPU_NATIVE_SCENE_IMAGE_ADDRESS_U_SHIFT) |
+            image_address_flags(
+                extend_y, PROGPU_NATIVE_SCENE_IMAGE_ADDRESS_V_SHIFT);
+        image.sampling = interpolation ==
+                bitmap_interpolation_mode::nearest_neighbor
+            ? PROGPU_NATIVE_IMAGE_SAMPLING_NEAREST
+            : PROGPU_NATIVE_IMAGE_SAMPLING_LINEAR;
+        image.source_rect = {
+            brush_bounds.left * pixels_per_dip_x,
+            brush_bounds.top * pixels_per_dip_y,
+            (brush_bounds.right - brush_bounds.left) * pixels_per_dip_x,
+            (brush_bounds.bottom - brush_bounds.top) * pixels_per_dip_y};
+        image.destination_rect = {
+            brush_bounds.left,
+            brush_bounds.top,
+            brush_bounds.right - brush_bounds.left,
+            brush_bounds.bottom - brush_bounds.top};
+        const matrix_3x2_f image_transform = compose_transform(
+            brush_transform, transform_);
+        if (!core::valid_transform(&image_transform)) {
+            latch(com::invalid_argument);
+            return false;
+        }
+        image.transform = {
+            image_transform.m11,
+            image_transform.m12,
+            image_transform.m21,
+            image_transform.m22,
+            image_transform.m31,
+            image_transform.m32};
+        image.opacity = opacity;
+        image.max_anisotropy = 1U;
+
+        auto state = semantic_scene_builder::identity_state();
+        state.flags = PROGPU_NATIVE_SCENE_STATE_MASK;
+        state.mask_resource_index = mask_resource_index;
+        std::uint32_t state_resource_index = PROGPU_NATIVE_SCENE_NO_INDEX;
+        const progpu_native_image_rect bounds = transformed_bounds(
+            local_bounds);
+        if (com::failed(failure_)) {
+            return false;
+        }
+        if (!builder_.add_state(state, state_resource_index) ||
+            !builder_.draw_image(
+                image_resource_index,
+                image,
+                bounds,
+                state_resource_index)) {
+            latch(builder_failure());
+            return false;
+        }
+        ++draw_count_;
+        return true;
+    }
+
+    [[nodiscard]] bitmap_brush_draw_result draw_bitmap_brush_geometry(
+        brush* brush_value,
+        std::span<const progpu_native_geometry_primitive> primitives,
+        const rectangle_f& local_bounds) noexcept
+    {
+        if (brush_value == nullptr) {
+            latch(com::invalid_argument);
+            return bitmap_brush_draw_result::failed;
+        }
+        scene_bitmap_brush_native* raw_native = nullptr;
+        const com::result query = brush_value->QueryInterface(
+            scene_bitmap_brush_native_interface_id,
+            reinterpret_cast<void**>(&raw_native));
+        com::pointer<scene_bitmap_brush_native> native;
+        native.attach(raw_native);
+        if (query == com::no_interface || !native) {
+            return bitmap_brush_draw_result::not_bitmap;
+        }
+        if (com::failed(query)) {
+            latch(query);
+            return bitmap_brush_draw_result::failed;
+        }
+        progpu_native_scene_layer_geometry_mask mask{};
+        mask.bounds = {
+            local_bounds.left,
+            local_bounds.top,
+            local_bounds.right - local_bounds.left,
+            local_bounds.bottom - local_bounds.top};
+        mask.transform = native_transform();
+        mask.opacity = 1.0F;
+        mask.brush.type = PROGPU_NATIVE_SCENE_BRUSH_SOLID;
+        mask.brush.opacity = 1.0F;
+        mask.brush.colors[0] = {1.0F, 1.0F, 1.0F, 1.0F};
+        std::uint32_t mask_resource_index = PROGPU_NATIVE_SCENE_NO_INDEX;
+        if (!builder_.add_geometry_mask(
+                mask, primitives, {}, mask_resource_index) ||
+            !draw_bitmap_brush_image(
+                native.get(), mask_resource_index, local_bounds)) {
+            if (!com::failed(failure_)) {
+                latch(builder_failure());
+            }
+            return bitmap_brush_draw_result::failed;
+        }
+        return bitmap_brush_draw_result::drawn;
+    }
+
+    [[nodiscard]] bitmap_brush_draw_result draw_bitmap_brush_analytic_mask(
+        brush* brush_value,
+        const rectangle_f& local_bounds,
+        float radius_x,
+        float radius_y) noexcept
+    {
+        if (brush_value == nullptr) {
+            latch(com::invalid_argument);
+            return bitmap_brush_draw_result::failed;
+        }
+        scene_bitmap_brush_native* raw_native = nullptr;
+        const com::result query = brush_value->QueryInterface(
+            scene_bitmap_brush_native_interface_id,
+            reinterpret_cast<void**>(&raw_native));
+        com::pointer<scene_bitmap_brush_native> native;
+        native.attach(raw_native);
+        if (query == com::no_interface || !native) {
+            return bitmap_brush_draw_result::not_bitmap;
+        }
+        if (com::failed(query)) {
+            latch(query);
+            return bitmap_brush_draw_result::failed;
+        }
+        progpu_native_scene_layer_mask mask{};
+        mask.bounds = {
+            local_bounds.left,
+            local_bounds.top,
+            local_bounds.right - local_bounds.left,
+            local_bounds.bottom - local_bounds.top};
+        mask.transform = native_transform();
+        std::fill_n(mask.corner_radii_x, 4U, radius_x);
+        std::fill_n(mask.corner_radii_y, 4U, radius_y);
+        mask.opacity = 1.0F;
+        std::uint32_t mask_resource_index = PROGPU_NATIVE_SCENE_NO_INDEX;
+        if (!builder_.add_rounded_rectangle_mask(
+                mask, mask_resource_index) ||
+            !draw_bitmap_brush_image(
+                native.get(), mask_resource_index, local_bounds)) {
+            if (!com::failed(failure_)) {
+                latch(builder_failure());
+            }
+            return bitmap_brush_draw_result::failed;
+        }
+        return bitmap_brush_draw_result::drawn;
+    }
+
     [[nodiscard]] bool set_gradient_coordinate_transform(
         brush* source,
         progpu_native_scene_brush& destination) noexcept
@@ -2209,10 +2773,6 @@ private:
             latch(style != nullptr ? not_implemented : com::invalid_argument);
             return;
         }
-        std::uint32_t brush_index = PROGPU_NATIVE_SCENE_NO_INDEX;
-        if (!add_brush(brush_value, brush_index)) {
-            return;
-        }
         progpu_native_analytic_primitive primitive{};
         primitive.kind = PROGPU_NATIVE_PRIMITIVE_RECTANGLE;
         primitive.flags = primitive_flags();
@@ -2229,6 +2789,50 @@ private:
             rectangle->top - radius,
             rectangle->right + radius,
             rectangle->bottom + radius};
+        std::array<progpu_native_geometry_primitive, 4U> mask_primitives{};
+        std::size_t mask_primitive_count = fill ? 1U : 4U;
+        if (fill) {
+            auto& mask = mask_primitives[0];
+            mask.kind = PROGPU_NATIVE_GEOMETRY_QUADRILATERAL;
+            mask.flags = primitive_flags();
+            mask.p0 = {rectangle->left, rectangle->top};
+            mask.p1 = {rectangle->right, rectangle->top};
+            mask.p2 = {rectangle->right, rectangle->bottom};
+            mask.p3 = {rectangle->left, rectangle->bottom};
+            mask.color = {1.0F, 1.0F, 1.0F, 1.0F};
+            mask.transform = native_transform();
+        } else {
+            constexpr std::array<std::array<std::size_t, 2U>, 4U> edges{{
+                {0U, 1U}, {1U, 2U}, {2U, 3U}, {3U, 0U}}};
+            const std::array points{
+                progpu_native_point{rectangle->left, rectangle->top},
+                progpu_native_point{rectangle->right, rectangle->top},
+                progpu_native_point{rectangle->right, rectangle->bottom},
+                progpu_native_point{rectangle->left, rectangle->bottom}};
+            for (std::size_t index = 0U; index < edges.size(); ++index) {
+                auto& mask = mask_primitives[index];
+                mask.kind = PROGPU_NATIVE_GEOMETRY_LINE;
+                mask.flags = primitive_flags();
+                mask.p0 = points[edges[index][0]];
+                mask.p1 = points[edges[index][1]];
+                mask.stroke_thickness = stroke_width;
+                mask.color = {1.0F, 1.0F, 1.0F, 1.0F};
+                mask.transform = native_transform();
+            }
+        }
+        const bitmap_brush_draw_result bitmap_result =
+            draw_bitmap_brush_geometry(
+                brush_value,
+                std::span<const progpu_native_geometry_primitive>(
+                    mask_primitives.data(), mask_primitive_count),
+                local_bounds);
+        if (bitmap_result != bitmap_brush_draw_result::not_bitmap) {
+            return;
+        }
+        std::uint32_t brush_index = PROGPU_NATIVE_SCENE_NO_INDEX;
+        if (!add_brush(brush_value, brush_index)) {
+            return;
+        }
         const progpu_native_image_rect bounds = transformed_bounds(local_bounds);
         if (com::failed(failure_)) {
             return;
@@ -2281,10 +2885,6 @@ private:
             latch(not_implemented);
             return;
         }
-        std::uint32_t brush_index = PROGPU_NATIVE_SCENE_NO_INDEX;
-        if (!add_brush(brush_value, brush_index)) {
-            return;
-        }
         progpu_native_analytic_primitive primitive{};
         primitive.kind = PROGPU_NATIVE_PRIMITIVE_ROUNDED_RECTANGLE;
         primitive.flags = primitive_flags();
@@ -2302,6 +2902,106 @@ private:
             rectangle->rectangle.top - radius,
             rectangle->rectangle.right + radius,
             rectangle->rectangle.bottom + radius};
+        bitmap_brush_draw_result bitmap_result =
+            bitmap_brush_draw_result::not_bitmap;
+        if (fill) {
+            bitmap_result = draw_bitmap_brush_analytic_mask(
+                brush_value,
+                rectangle->rectangle,
+                rectangle->radius_x,
+                rectangle->radius_y);
+        } else {
+            std::array<progpu_native_geometry_primitive, 8U>
+                mask_primitives{};
+            std::size_t mask_count = 0U;
+            const float width = rectangle->rectangle.right -
+                rectangle->rectangle.left;
+            const float height = rectangle->rectangle.bottom -
+                rectangle->rectangle.top;
+            const float radius_x = std::min(
+                rectangle->radius_x, width * 0.5F);
+            const float radius_y = std::min(
+                rectangle->radius_y, height * 0.5F);
+            const auto append_line = [&](point_2f start, point_2f end) {
+                if (start.x == end.x && start.y == end.y) {
+                    return;
+                }
+                auto& mask = mask_primitives[mask_count++];
+                mask.kind = PROGPU_NATIVE_GEOMETRY_LINE;
+                mask.flags = primitive_flags();
+                mask.p0 = {start.x, start.y};
+                mask.p1 = {end.x, end.y};
+                mask.stroke_thickness = stroke_width;
+                mask.color = {1.0F, 1.0F, 1.0F, 1.0F};
+                mask.transform = native_transform();
+            };
+            append_line(
+                {rectangle->rectangle.left + radius_x,
+                    rectangle->rectangle.top},
+                {rectangle->rectangle.right - radius_x,
+                    rectangle->rectangle.top});
+            append_line(
+                {rectangle->rectangle.right,
+                    rectangle->rectangle.top + radius_y},
+                {rectangle->rectangle.right,
+                    rectangle->rectangle.bottom - radius_y});
+            append_line(
+                {rectangle->rectangle.right - radius_x,
+                    rectangle->rectangle.bottom},
+                {rectangle->rectangle.left + radius_x,
+                    rectangle->rectangle.bottom});
+            append_line(
+                {rectangle->rectangle.left,
+                    rectangle->rectangle.bottom - radius_y},
+                {rectangle->rectangle.left,
+                    rectangle->rectangle.top + radius_y});
+            if (radius_x > 0.0F && radius_y > 0.0F) {
+                constexpr std::array<float, 4U> starts{
+                    -std::numbers::pi_v<float> * 0.5F,
+                    0.0F,
+                    std::numbers::pi_v<float> * 0.5F,
+                    std::numbers::pi_v<float>};
+                const std::array centers{
+                    point_2f{
+                        rectangle->rectangle.right - radius_x,
+                        rectangle->rectangle.top + radius_y},
+                    point_2f{
+                        rectangle->rectangle.right - radius_x,
+                        rectangle->rectangle.bottom - radius_y},
+                    point_2f{
+                        rectangle->rectangle.left + radius_x,
+                        rectangle->rectangle.bottom - radius_y},
+                    point_2f{
+                        rectangle->rectangle.left + radius_x,
+                        rectangle->rectangle.top + radius_y}};
+                for (std::size_t index = 0U; index < centers.size(); ++index) {
+                    auto& mask = mask_primitives[mask_count++];
+                    mask.kind = PROGPU_NATIVE_GEOMETRY_ARC;
+                    mask.flags = primitive_flags();
+                    mask.p0 = {centers[index].x, centers[index].y};
+                    mask.p1 = {radius_x, 0.0F};
+                    mask.p2 = {0.0F, radius_y};
+                    mask.p3 = {
+                        starts[index],
+                        std::numbers::pi_v<float> * 0.5F};
+                    mask.stroke_thickness = stroke_width;
+                    mask.color = {1.0F, 1.0F, 1.0F, 1.0F};
+                    mask.transform = native_transform();
+                }
+            }
+            bitmap_result = draw_bitmap_brush_geometry(
+                brush_value,
+                std::span<const progpu_native_geometry_primitive>(
+                    mask_primitives.data(), mask_count),
+                local_bounds);
+        }
+        if (bitmap_result != bitmap_brush_draw_result::not_bitmap) {
+            return;
+        }
+        std::uint32_t brush_index = PROGPU_NATIVE_SCENE_NO_INDEX;
+        if (!add_brush(brush_value, brush_index)) {
+            return;
+        }
         const progpu_native_image_rect bounds = transformed_bounds(local_bounds);
         if (com::failed(failure_)) {
             return;
@@ -2342,10 +3042,6 @@ private:
             latch(not_implemented);
             return;
         }
-        std::uint32_t brush_index = PROGPU_NATIVE_SCENE_NO_INDEX;
-        if (!add_brush(brush_value, brush_index)) {
-            return;
-        }
         progpu_native_analytic_primitive primitive{};
         primitive.kind = PROGPU_NATIVE_PRIMITIVE_ELLIPSE;
         primitive.flags = primitive_flags();
@@ -2362,6 +3058,45 @@ private:
             primitive.y - radius,
             primitive.x + primitive.width + radius,
             primitive.y + primitive.height + radius};
+        bitmap_brush_draw_result bitmap_result =
+            bitmap_brush_draw_result::not_bitmap;
+        if (fill) {
+            const rectangle_f ellipse_bounds{
+                primitive.x,
+                primitive.y,
+                primitive.x + primitive.width,
+                primitive.y + primitive.height};
+            bitmap_result = draw_bitmap_brush_analytic_mask(
+                brush_value,
+                ellipse_bounds,
+                ellipse_value->radius_x,
+                ellipse_value->radius_y);
+        } else {
+            progpu_native_geometry_primitive mask{};
+            mask.kind = PROGPU_NATIVE_GEOMETRY_ARC;
+            mask.flags = primitive_flags();
+            mask.p0 = {
+                ellipse_value->point.x,
+                ellipse_value->point.y};
+            mask.p1 = {ellipse_value->radius_x, 0.0F};
+            mask.p2 = {0.0F, ellipse_value->radius_y};
+            mask.p3 = {0.0F, std::numbers::pi_v<float> * 2.0F};
+            mask.stroke_thickness = stroke_width;
+            mask.color = {1.0F, 1.0F, 1.0F, 1.0F};
+            mask.transform = native_transform();
+            bitmap_result = draw_bitmap_brush_geometry(
+                brush_value,
+                std::span<const progpu_native_geometry_primitive>(
+                    &mask, 1U),
+                local_bounds);
+        }
+        if (bitmap_result != bitmap_brush_draw_result::not_bitmap) {
+            return;
+        }
+        std::uint32_t brush_index = PROGPU_NATIVE_SCENE_NO_INDEX;
+        if (!add_brush(brush_value, brush_index)) {
+            return;
+        }
         const progpu_native_image_rect bounds = transformed_bounds(local_bounds);
         if (com::failed(failure_)) {
             return;
