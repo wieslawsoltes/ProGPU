@@ -6667,9 +6667,28 @@ public class NativeRendererInteropTests
             windowsBuild,
             StringComparison.Ordinal);
         Assert.Contains(
-            "if ($IsParallelsDisplayAdapter -or " +
-            "$IsMicrosoftBasicRenderDriver)",
+            "--managed-picture --validate-native-stream-only " +
+            "--rectangles 384",
             windowsBuild,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "if ($IsMicrosoftBasicRenderDriver)",
+            windowsBuild,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "elseif ($IsParallelsDisplayAdapter)",
+            windowsBuild,
+            StringComparison.Ordinal);
+        string managedPictureBenchmark = File.ReadAllText(FindRepoFile(
+            "src", "ProGPU.Native.Benchmarks",
+            "ManagedPictureBenchmark.cs"));
+        Assert.Contains(
+            "HasFlag(args, \"--validate-native-stream-only\")",
+            managedPictureBenchmark,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "!retainedUpdate.SnapshotReused",
+            managedPictureBenchmark,
             StringComparison.Ordinal);
         Assert.Contains(
             "Partitioned the full Win2D Canvas oracle into bounded " +
@@ -6712,7 +6731,13 @@ public class NativeRendererInteropTests
             semanticRenderer,
             StringComparison.Ordinal);
         Assert.Contains(
-            "Qualified the constrained D3D12 mixed-picture profile with " +
+            "Qualified the Basic Render Driver mixed-picture profile with " +
+            "full native stream validation plus bounded live " +
+            "differential parity.",
+            windowsBuild,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "Qualified the Parallels D3D12 mixed-picture profile with " +
             "native stress plus bounded differential parity.",
             windowsBuild,
             StringComparison.Ordinal);
