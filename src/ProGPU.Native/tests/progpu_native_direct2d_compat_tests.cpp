@@ -2276,6 +2276,40 @@ int run_tests()
       !boolean_path_base) {
     return 320;
   }
+  const compat::matrix_3x2_f disjoint_path_transform{
+      1.0F, 0.0F, 0.0F, 1.0F, 10.0F, 0.0F};
+  const compat::matrix_3x2_f contained_path_transform{
+      0.25F, 0.0F, 0.0F, 0.5F, 1.0F, 2.0F};
+  const compat::matrix_3x2_f containing_path_transform{
+      2.0F, 0.0F, 0.0F, 2.0F, -2.0F, -4.0F};
+  const compat::matrix_3x2_f touching_path_transform{
+      1.0F, 0.0F, 0.0F, 1.0F, 2.0F, 0.0F};
+  struct path_relation_case final {
+    compat::geometry *input = nullptr;
+    const compat::matrix_3x2_f *transform = nullptr;
+    compat::geometry_relation expected = compat::geometry_relation::unknown;
+  };
+  const std::array<path_relation_case, 6U> path_relation_cases{{
+      {boolean_path_base.get(), nullptr, compat::geometry_relation::overlap},
+      {query_path.get(), nullptr, compat::geometry_relation::is_contained},
+      {boolean_path_base.get(), &disjoint_path_transform,
+       compat::geometry_relation::disjoint},
+      {boolean_path_base.get(), &contained_path_transform,
+       compat::geometry_relation::contains},
+      {query_path.get(), &containing_path_transform,
+       compat::geometry_relation::is_contained},
+      {boolean_path_base.get(), &touching_path_transform,
+       compat::geometry_relation::overlap},
+  }};
+  for (const path_relation_case &relation_case : path_relation_cases) {
+    compat::geometry_relation relation = compat::geometry_relation::unknown;
+    if (query_path->CompareWithGeometry(
+            relation_case.input, relation_case.transform,
+            core::default_flattening_tolerance, &relation) != com::ok ||
+        relation != relation_case.expected) {
+      return 328;
+    }
+  }
   for (const compat::combine_mode mode : combination_modes) {
     auto *raw_path_boolean_sink = new simplified_sink();
     com::pointer<compat::simplified_geometry_sink> path_boolean_sink;
@@ -6093,6 +6127,40 @@ int run_tests()
     }
     system_factory->Release();
     return 325;
+  }
+  const std::array<ID2D1Geometry *, 6U> system_relation_inputs{{
+      system_input_boolean_path,
+      system_query_boolean_path,
+      system_input_boolean_path,
+      system_input_boolean_path,
+      system_query_boolean_path,
+      system_input_boolean_path,
+  }};
+  const std::array<const D2D1_MATRIX_3X2_F *, 6U> system_relation_transforms{{
+      nullptr,
+      nullptr,
+      reinterpret_cast<const D2D1_MATRIX_3X2_F *>(&disjoint_path_transform),
+      reinterpret_cast<const D2D1_MATRIX_3X2_F *>(&contained_path_transform),
+      reinterpret_cast<const D2D1_MATRIX_3X2_F *>(&containing_path_transform),
+      reinterpret_cast<const D2D1_MATRIX_3X2_F *>(&touching_path_transform),
+  }};
+  for (std::size_t case_index = 0U;
+       case_index < path_relation_cases.size();
+       ++case_index) {
+    D2D1_GEOMETRY_RELATION system_relation =
+        D2D1_GEOMETRY_RELATION_UNKNOWN;
+    if (FAILED(system_query_boolean_path->CompareWithGeometry(
+            system_relation_inputs[case_index],
+            system_relation_transforms[case_index],
+            D2D1_DEFAULT_FLATTENING_TOLERANCE, &system_relation)) ||
+        static_cast<std::uint32_t>(system_relation) !=
+            static_cast<std::uint32_t>(
+                path_relation_cases[case_index].expected)) {
+      system_query_boolean_path->Release();
+      system_input_boolean_path->Release();
+      system_factory->Release();
+      return 329;
+    }
   }
   for (std::size_t mode_index = 0U; mode_index < combination_modes.size();
        ++mode_index) {

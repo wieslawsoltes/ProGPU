@@ -6365,6 +6365,14 @@ Windows-only fixture records the same rectangle-versus-concave-path operation
 through genuine system Direct2D and ProGPU, then compares a dense point lattice
 for union, intersection, xor, and exclusion; all four modes pass.
 
+The follow-up simple-path comparison lane reuses the same normalized contours
+and intrinsic-SIMD boundary broad phase. It distinguishes proper crossing,
+boundary-only contact, equality, containment in either direction, and
+separation without invoking Boolean sink output or CPU rasterization. Local
+optimized and sanitizer fixtures cover every relation. A second clean Windows
+ARM64 build compares transformed and untransformed cases with genuine
+`ID2D1PathGeometry::CompareWithGeometry`; all expected system relations pass.
+
 ## Invariants
 
 - No reflection or private managed field scanning in the product bridge.
