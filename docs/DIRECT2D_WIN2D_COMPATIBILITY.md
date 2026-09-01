@@ -714,6 +714,15 @@ still fail closed until the shared native boolean-topology engine is complete.
 The contour walk and intersection checks are topology-dependent scalar work;
 there is no data-parallel whole-buffer loop being left unvectorized.
 
+Portable nondegenerate rectangle geometry also implements exact
+`GetWidenedBounds` for the default stroke and same-factory solid stroke
+styles. The stroke expands in local geometry space and the caller transform
+is applied afterward, matching Direct2D ordering for nonuniform affine
+transforms. Dashed styles and degenerate rectangles continue to fail closed
+until their cap/run bounds share the retained stroke compiler. The native
+fixture compares the transformed result through a genuine system
+`ID2D1RectangleGeometry` pointer on Windows.
+
 WIC codec activation/decoding itself, render-target-to-bitmap copies,
 alpha-ignore/straight formats,
 non-null `FillGeometry` opacity brushes, `ID2D1StrokeStyle1` fixed/hairline

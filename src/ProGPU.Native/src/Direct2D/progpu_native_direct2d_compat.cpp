@@ -9,6 +9,7 @@
 
 #include <array>
 #include <cmath>
+#include <limits>
 #include <mutex>
 #include <new>
 
@@ -207,17 +208,58 @@ public:
     }
 
     com::result PROGPU_NATIVE_COM_CALL GetWidenedBounds(
-        float,
-        stroke_style*,
-        const matrix_3x2_f*,
-        float,
+        float stroke_width,
+        stroke_style* style,
+        const matrix_3x2_f* world_transform,
+        float flattening_tolerance,
         rectangle_f* bounds) const noexcept override
     {
         if (bounds == nullptr) {
             return com::pointer_error;
         }
         *bounds = {};
-        return not_implemented;
+        if (!std::isfinite(stroke_width) || stroke_width < 0.0F ||
+            !std::isfinite(flattening_tolerance) ||
+            flattening_tolerance <= 0.0F ||
+            !core::valid_transform(world_transform)) {
+            return com::invalid_argument;
+        }
+        if (style != nullptr) {
+            factory* raw_factory = nullptr;
+            style->GetFactory(&raw_factory);
+            com::pointer<factory> style_factory;
+            style_factory.attach(raw_factory);
+            if (style_factory.get() != owner_.get()) {
+                return wrong_factory;
+            }
+            if (style->GetDashStyle() != dash_style::solid) {
+                return not_implemented;
+            }
+        }
+        const auto& rectangle = geometry_.rectangle();
+        if (rectangle.right <= rectangle.left ||
+            rectangle.bottom <= rectangle.top) {
+            return not_implemented;
+        }
+        const double half_width = static_cast<double>(stroke_width) * 0.5;
+        const std::array<double, 4U> expanded{
+            static_cast<double>(rectangle.left) - half_width,
+            static_cast<double>(rectangle.top) - half_width,
+            static_cast<double>(rectangle.right) + half_width,
+            static_cast<double>(rectangle.bottom) + half_width};
+        constexpr double maximum =
+            static_cast<double>(std::numeric_limits<float>::max());
+        for (const double value : expanded) {
+            if (!std::isfinite(value) || std::abs(value) > maximum) {
+                return com::invalid_argument;
+            }
+        }
+        return core::rectangle_geometry({
+            static_cast<float>(expanded[0U]),
+            static_cast<float>(expanded[1U]),
+            static_cast<float>(expanded[2U]),
+            static_cast<float>(expanded[3U])})
+            .bounds(world_transform, bounds);
     }
 
     com::result PROGPU_NATIVE_COM_CALL StrokeContainsPoint(

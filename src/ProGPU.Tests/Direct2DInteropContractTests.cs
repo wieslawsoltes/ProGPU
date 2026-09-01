@@ -360,6 +360,7 @@ public sealed class Direct2DInteropContractTests
         Assert.Contains("direct2d_core::rounded_rectangle_to_path", provider, StringComparison.Ordinal);
         Assert.Contains("direct2d_core::valid_stroke_style", provider, StringComparison.Ordinal);
         Assert.Contains("core::rectangle_geometry geometry_", source, StringComparison.Ordinal);
+        Assert.Contains("style->GetDashStyle() != dash_style::solid", source, StringComparison.Ordinal);
         Assert.Contains("core::compose_transform", source, StringComparison.Ordinal);
         Assert.Contains("return not_implemented;", source, StringComparison.Ordinal);
         Assert.Contains("progpu_native_direct2d_compat_tests", cmake, StringComparison.Ordinal);
