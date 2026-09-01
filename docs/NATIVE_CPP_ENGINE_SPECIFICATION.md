@@ -1629,9 +1629,12 @@ baseline submission/readback before measuring its three semantic images. A
 hosted Basic Render Driver run returned an empty first baseline while its
 immediately following guided image and independently authored deformed
 reference were identical. The warm submission uses the exact baseline GPU
-scene; all measured visibility, color sums, changed-pixel counts, native frame
-metrics, and byte-exact guided/reference comparison remain mandatory. This is
-pipeline qualification, not a retry, CPU result, or tolerance change.
+scene at generation 1; the measured baseline advances to generation 2 so
+retained no-damage reuse cannot elide its redraw, followed by guided/reference
+generations 3/4 and the rejection probe at generation 5. All measured
+visibility, color sums, changed-pixel counts, native frame metrics, and
+byte-exact guided/reference comparison remain mandatory. This is pipeline
+qualification, not a retry, CPU result, or tolerance change.
 
 The 10,000-iteration mixed semantic-stream allocation contract snapshots the
 thread allocation counter immediately after the builder loop, before invoking
