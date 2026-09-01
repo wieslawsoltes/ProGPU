@@ -250,6 +250,136 @@ com::result arc_to_cubics(
     return com::ok;
 }
 
+bool valid_ellipse(const ellipse_f& ellipse) noexcept
+{
+    if (!finite_point(ellipse.point) || !std::isfinite(ellipse.radius_x) ||
+        ellipse.radius_x < 0.0F || !std::isfinite(ellipse.radius_y) ||
+        ellipse.radius_y < 0.0F) {
+        return false;
+    }
+    const std::array<double, 4U> edges{{
+        static_cast<double>(ellipse.point.x) - ellipse.radius_x,
+        static_cast<double>(ellipse.point.y) - ellipse.radius_y,
+        static_cast<double>(ellipse.point.x) + ellipse.radius_x,
+        static_cast<double>(ellipse.point.y) + ellipse.radius_y}};
+    constexpr double maximum =
+        static_cast<double>((std::numeric_limits<float>::max)());
+    return std::all_of(edges.begin(), edges.end(), [&](double value) {
+        return std::isfinite(value) && value >= -maximum &&
+            value <= maximum;
+    });
+}
+
+com::result ellipse_to_cubics(
+    const ellipse_f& ellipse,
+    progpu_native_direct2d_point_2f* start,
+    std::array<cubic_bezier_segment_f, 4U>* cubics) noexcept
+{
+    if (start == nullptr || cubics == nullptr) {
+        return com::pointer_error;
+    }
+    *start = {};
+    *cubics = {};
+    if (!valid_ellipse(ellipse)) {
+        return com::invalid_argument;
+    }
+    constexpr double control_scale = 0.5522847498307936;
+    const double center_x = ellipse.point.x;
+    const double center_y = ellipse.point.y;
+    const double radius_x = ellipse.radius_x;
+    const double radius_y = ellipse.radius_y;
+    const double control_x = radius_x * control_scale;
+    const double control_y = radius_y * control_scale;
+    const std::array<std::array<double, 2U>, 13U> points{{
+        {center_x + radius_x, center_y},
+        {center_x + radius_x, center_y + control_y},
+        {center_x + control_x, center_y + radius_y},
+        {center_x, center_y + radius_y},
+        {center_x - control_x, center_y + radius_y},
+        {center_x - radius_x, center_y + control_y},
+        {center_x - radius_x, center_y},
+        {center_x - radius_x, center_y - control_y},
+        {center_x - control_x, center_y - radius_y},
+        {center_x, center_y - radius_y},
+        {center_x + control_x, center_y - radius_y},
+        {center_x + radius_x, center_y - control_y},
+        {center_x + radius_x, center_y}}};
+    constexpr double maximum =
+        static_cast<double>((std::numeric_limits<float>::max)());
+    if (!std::all_of(points.begin(), points.end(), [&](const auto& point) {
+            return std::isfinite(point[0U]) &&
+                std::isfinite(point[1U]) &&
+                std::abs(point[0U]) <= maximum &&
+                std::abs(point[1U]) <= maximum;
+        })) {
+        return com::invalid_argument;
+    }
+    const auto convert = [](const std::array<double, 2U>& point) {
+        return progpu_native_direct2d_point_2f{
+            static_cast<float>(point[0U]),
+            static_cast<float>(point[1U])};
+    };
+    *start = convert(points[0U]);
+    for (std::size_t index = 0U; index < cubics->size(); ++index) {
+        (*cubics)[index] = {
+            convert(points[index * 3U + 1U]),
+            convert(points[index * 3U + 2U]),
+            convert(points[index * 3U + 3U])};
+    }
+    return com::ok;
+}
+
+com::result ellipse_fill_contains_point(
+    const ellipse_f& ellipse,
+    progpu_native_direct2d_point_2f point,
+    const progpu_native_direct2d_matrix_3x2_f* world_transform,
+    float flattening_tolerance,
+    std::uint32_t* contains) noexcept
+{
+    if (contains == nullptr) {
+        return com::pointer_error;
+    }
+    *contains = 0U;
+    if (!valid_ellipse(ellipse) || !finite_point(point) ||
+        !valid_tolerance(flattening_tolerance) ||
+        !valid_transform(world_transform)) {
+        return com::invalid_argument;
+    }
+    const progpu_native_direct2d_matrix_3x2_f identity{
+        1.0F, 0.0F, 0.0F, 1.0F, 0.0F, 0.0F};
+    const auto& matrix = world_transform == nullptr
+        ? identity
+        : *world_transform;
+    const double determinant =
+        static_cast<double>(matrix.m11) * matrix.m22 -
+        static_cast<double>(matrix.m12) * matrix.m21;
+    if (determinant == 0.0 || ellipse.radius_x == 0.0F ||
+        ellipse.radius_y == 0.0F) {
+        return com::ok;
+    }
+    const double translated_x =
+        static_cast<double>(point.x) - matrix.m31;
+    const double translated_y =
+        static_cast<double>(point.y) - matrix.m32;
+    const double local_x =
+        (translated_x * matrix.m22 - translated_y * matrix.m21) /
+        determinant;
+    const double local_y =
+        (-translated_x * matrix.m12 + translated_y * matrix.m11) /
+        determinant;
+    const double normalized_x =
+        (local_x - ellipse.point.x) / ellipse.radius_x;
+    const double normalized_y =
+        (local_y - ellipse.point.y) / ellipse.radius_y;
+    const double distance_squared =
+        normalized_x * normalized_x + normalized_y * normalized_y;
+    if (!std::isfinite(distance_squared)) {
+        return com::invalid_argument;
+    }
+    *contains = distance_squared <= 1.0 ? 1U : 0U;
+    return com::ok;
+}
+
 rectangle_geometry::rectangle_geometry(
     rectangle_edges_f rectangle) noexcept
     : rectangle_(rectangle)
