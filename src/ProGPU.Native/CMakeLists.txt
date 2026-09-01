@@ -973,7 +973,9 @@ progpu_native_enable_warnings(progpu_native_mil)
 progpu_native_enable_sanitizers(progpu_native_mil)
 
 add_library(progpu_native_direct2d_core STATIC
+    include/progpu_native_direct2d_compat.hpp
     include/progpu_native_direct2d_core.hpp
+    src/Direct2D/progpu_native_direct2d_compat.cpp
     src/Direct2D/progpu_native_direct2d_core.cpp)
 target_compile_features(progpu_native_direct2d_core PUBLIC cxx_std_20)
 target_include_directories(progpu_native_direct2d_core PUBLIC
@@ -1390,6 +1392,24 @@ if(BUILD_TESTING AND NOT EMSCRIPTEN)
     set_tests_properties(
         progpu_native_direct2d_core_tests PROPERTIES TIMEOUT 60)
 
+    add_executable(progpu_native_direct2d_compat_tests
+        tests/progpu_native_direct2d_compat_tests.cpp)
+    target_compile_features(
+        progpu_native_direct2d_compat_tests PRIVATE cxx_std_20)
+    target_link_libraries(
+        progpu_native_direct2d_compat_tests PRIVATE
+        progpu_native_direct2d_core)
+    if(WIN32)
+        target_link_libraries(progpu_native_direct2d_compat_tests PRIVATE d2d1)
+    endif()
+    progpu_native_enable_warnings(progpu_native_direct2d_compat_tests)
+    progpu_native_enable_sanitizers(progpu_native_direct2d_compat_tests)
+    add_test(
+        NAME progpu_native_direct2d_compat_tests
+        COMMAND progpu_native_direct2d_compat_tests)
+    set_tests_properties(
+        progpu_native_direct2d_compat_tests PROPERTIES TIMEOUT 60)
+
     add_executable(progpu_native_mil_tests
         tests/progpu_native_mil_tests.cpp
         src/Mil/progpu_native_mil_interop.cpp)
@@ -1732,6 +1752,7 @@ if(NOT EMSCRIPTEN)
     install(FILES
         include/progpu_native.h
         include/progpu_native_com.hpp
+        include/progpu_native_direct2d_compat.hpp
         include/progpu_native_direct2d_core.hpp
         include/progpu_native_dawn.h
         include/progpu_native_compression.hpp
