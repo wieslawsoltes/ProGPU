@@ -78,9 +78,9 @@ public:
 
     void PROGPU_NATIVE_COM_CALL AddBeziers(
         const compat::bezier_segment*,
-        std::uint32_t bezier_count) noexcept override
+        std::uint32_t value_count) noexcept override
     {
-        this->bezier_count += bezier_count;
+        bezier_count += value_count;
     }
 
     void PROGPU_NATIVE_COM_CALL EndFigure(compat::figure_end end)
