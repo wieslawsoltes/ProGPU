@@ -1,3 +1,0 @@
-<?xml version="1.0"?>
-<trace-query-result>
-<node xpath='//trace-toc[1]/run[1]/data[1]/table[101]'><schema name="metal-command-buffer-error" documentation="Marks Metal command buffer error"><col><mnemonic>timestamp</mnemonic><name>Timestamp</name><engineering-type>start-time</engineering-type></col><col><mnemonic>cmdbuffer-id</mnemonic><name>Commmand Buffer Id</name><engineering-type>metal-command-buffer-id</engineering-type></col><col><mnemonic>error-code</mnemonic><name>Error Code</name><engineering-type>uint32</engineering-type></col></schema></node></trace-query-result>
