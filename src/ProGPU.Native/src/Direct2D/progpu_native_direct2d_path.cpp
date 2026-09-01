@@ -173,6 +173,246 @@ void include_cubic_bounds(
     include_axis(start.y, control1.y, control2.y, end.y, false);
 }
 
+[[nodiscard]] bool same_point(point_2f left, point_2f right) noexcept
+{
+    return left.x == right.x && left.y == right.y;
+}
+
+[[nodiscard]] double point_line_distance_squared(
+    point_2f point,
+    point_2f start,
+    point_2f end) noexcept
+{
+    const double dx = static_cast<double>(end.x) - start.x;
+    const double dy = static_cast<double>(end.y) - start.y;
+    const double length_squared = dx * dx + dy * dy;
+    if (length_squared == 0.0) {
+        const double px = static_cast<double>(point.x) - start.x;
+        const double py = static_cast<double>(point.y) - start.y;
+        return px * px + py * py;
+    }
+    const double cross =
+        (static_cast<double>(point.x) - start.x) * dy -
+        (static_cast<double>(point.y) - start.y) * dx;
+    return cross * cross / length_squared;
+}
+
+template<typename Callback>
+[[nodiscard]] bool flatten_cubic(
+    point_2f start,
+    point_2f control1,
+    point_2f control2,
+    point_2f end,
+    double tolerance_squared,
+    std::uint32_t depth,
+    Callback& callback)
+{
+    if (depth == 20U ||
+        (point_line_distance_squared(control1, start, end) <=
+                tolerance_squared &&
+            point_line_distance_squared(control2, start, end) <=
+                tolerance_squared)) {
+        return callback(start, end);
+    }
+    const point_2f p01{
+        (start.x + control1.x) * 0.5F,
+        (start.y + control1.y) * 0.5F};
+    const point_2f p12{
+        (control1.x + control2.x) * 0.5F,
+        (control1.y + control2.y) * 0.5F};
+    const point_2f p23{
+        (control2.x + end.x) * 0.5F,
+        (control2.y + end.y) * 0.5F};
+    const point_2f p012{
+        (p01.x + p12.x) * 0.5F,
+        (p01.y + p12.y) * 0.5F};
+    const point_2f p123{
+        (p12.x + p23.x) * 0.5F,
+        (p12.y + p23.y) * 0.5F};
+    const point_2f midpoint{
+        (p012.x + p123.x) * 0.5F,
+        (p012.y + p123.y) * 0.5F};
+    return flatten_cubic(
+               start,
+               p01,
+               p012,
+               midpoint,
+               tolerance_squared,
+               depth + 1U,
+               callback) &&
+        flatten_cubic(
+            midpoint,
+            p123,
+            p23,
+            end,
+            tolerance_squared,
+            depth + 1U,
+            callback);
+}
+
+template<typename BeginCallback, typename LineCallback,
+    typename CubicCallback, typename EndCallback>
+[[nodiscard]] bool visit_path(
+    const path_data& data,
+    const matrix_3x2_f* transform,
+    bool flatten,
+    float tolerance,
+    BeginCallback&& begin_callback,
+    LineCallback&& line_callback,
+    CubicCallback&& cubic_callback,
+    EndCallback&& end_callback)
+{
+    const double tolerance_squared =
+        static_cast<double>(tolerance) * tolerance;
+    std::uint32_t public_segment_base = 0U;
+    for (std::size_t figure_offset = 0U;
+         figure_offset < data.figures.size();
+         ++figure_offset) {
+        const std::uint32_t figure_index =
+            static_cast<std::uint32_t>(figure_offset);
+        const auto& figure = data.figures[figure_offset];
+        point_2f transformed_start{};
+        if (com::failed(transform_point(
+                figure.start, transform, &transformed_start)) ||
+            !begin_callback(transformed_start, figure_index, figure)) {
+            return false;
+        }
+        point_2f current_source = figure.start;
+        point_2f current_target = transformed_start;
+        for (std::uint32_t local_index = 0U;
+             local_index < figure.segment_count;
+             ++local_index) {
+            const auto& segment =
+                data.segments[figure.first_segment + local_index];
+            const std::uint32_t segment_index =
+                public_segment_base + local_index;
+            point_2f end_target{};
+            if (com::failed(transform_point(
+                    segment.end, transform, &end_target))) {
+                return false;
+            }
+            if (segment.kind == segment_kind::line ||
+                (segment.kind == segment_kind::arc &&
+                    (segment.arc.size.width == 0.0F ||
+                        segment.arc.size.height == 0.0F))) {
+                if (!line_callback(
+                        current_target,
+                        end_target,
+                        segment_index,
+                        figure_index,
+                        segment.flags)) {
+                    return false;
+                }
+            } else {
+                std::array<core::cubic_bezier_segment_f, 4U> cubics{};
+                std::uint32_t cubic_count = 1U;
+                if (segment.kind == segment_kind::cubic ||
+                    segment.kind == segment_kind::quadratic) {
+                    point_2f control1 = segment.control1;
+                    point_2f control2 = segment.control2;
+                    if (segment.kind == segment_kind::quadratic) {
+                        control1 = {
+                            current_source.x +
+                                (segment.control1.x - current_source.x) *
+                                    (2.0F / 3.0F),
+                            current_source.y +
+                                (segment.control1.y - current_source.y) *
+                                    (2.0F / 3.0F)};
+                        control2 = {
+                            segment.end.x +
+                                (segment.control1.x - segment.end.x) *
+                                    (2.0F / 3.0F),
+                            segment.end.y +
+                                (segment.control1.y - segment.end.y) *
+                                    (2.0F / 3.0F)};
+                    }
+                    cubics[0U] = {control1, control2, segment.end};
+                } else if (com::failed(core::arc_to_cubics(
+                               current_source,
+                               segment.arc,
+                               &cubics,
+                               &cubic_count))) {
+                    return false;
+                }
+                point_2f cubic_start = current_target;
+                for (std::uint32_t cubic_index = 0U;
+                     cubic_index < cubic_count;
+                     ++cubic_index) {
+                    point_2f control1_target{};
+                    point_2f control2_target{};
+                    point_2f cubic_end_target{};
+                    if (com::failed(transform_point(
+                            cubics[cubic_index].point1,
+                            transform,
+                            &control1_target)) ||
+                        com::failed(transform_point(
+                            cubics[cubic_index].point2,
+                            transform,
+                            &control2_target)) ||
+                        com::failed(transform_point(
+                            cubics[cubic_index].point3,
+                            transform,
+                            &cubic_end_target))) {
+                        return false;
+                    }
+                    if (flatten) {
+                        auto callback = [&](point_2f line_start,
+                                            point_2f line_end) {
+                            return line_callback(
+                                line_start,
+                                line_end,
+                                segment_index,
+                                figure_index,
+                                segment.flags);
+                        };
+                        if (!flatten_cubic(
+                                cubic_start,
+                                control1_target,
+                                control2_target,
+                                cubic_end_target,
+                                tolerance_squared,
+                                0U,
+                                callback)) {
+                            return false;
+                        }
+                    } else if (!cubic_callback(
+                                   cubic_start,
+                                   control1_target,
+                                   control2_target,
+                                   cubic_end_target,
+                                   segment_index,
+                                   figure_index,
+                                   segment.flags)) {
+                        return false;
+                    }
+                    cubic_start = cubic_end_target;
+                }
+            }
+            current_source = segment.end;
+            current_target = end_target;
+        }
+        if (!end_callback(
+                current_target,
+                transformed_start,
+                figure_index,
+                figure)) {
+            return false;
+        }
+        public_segment_base += figure.segment_count;
+        if (figure.end == figure_end::closed) {
+            ++public_segment_base;
+        }
+    }
+    return true;
+}
+
+struct flat_edge final {
+    point_2f start{};
+    point_2f end{};
+    std::uint32_t segment_index = 0U;
+    std::uint32_t figure_index = 0U;
+};
+
 class portable_geometry_sink final : public geometry_sink {
 public:
     explicit portable_geometry_sink(std::shared_ptr<path_data> data) noexcept
@@ -716,16 +956,80 @@ public:
     }
 
     com::result PROGPU_NATIVE_COM_CALL FillContainsPoint(
-        point_2f,
-        const matrix_3x2_f*,
-        float,
+        point_2f point,
+        const matrix_3x2_f* world_transform,
+        float flattening_tolerance,
         std::int32_t* contains) const noexcept override
     {
         if (contains == nullptr) {
             return com::pointer_error;
         }
         *contains = 0;
-        return not_implemented;
+        if (!closed()) {
+            return wrong_state;
+        }
+        if (!finite_point(point) ||
+            !valid_tolerance(flattening_tolerance) ||
+            !core::valid_transform(world_transform)) {
+            return com::invalid_argument;
+        }
+        std::vector<flat_edge> edges;
+        const com::result edge_status = collect_flat_edges(
+            world_transform,
+            flattening_tolerance,
+            true,
+            edges);
+        if (com::failed(edge_status)) {
+            return edge_status;
+        }
+        std::int64_t winding = 0;
+        bool alternate = false;
+        bool boundary = false;
+        const double tolerance_squared =
+            static_cast<double>(flattening_tolerance) *
+            flattening_tolerance;
+        for (const auto& edge : edges) {
+            if (data_->figures[edge.figure_index].begin !=
+                figure_begin::filled) {
+                continue;
+            }
+            const double dx =
+                static_cast<double>(edge.end.x) - edge.start.x;
+            const double dy =
+                static_cast<double>(edge.end.y) - edge.start.y;
+            const double px =
+                static_cast<double>(point.x) - edge.start.x;
+            const double py =
+                static_cast<double>(point.y) - edge.start.y;
+            const double projection = px * dx + py * dy;
+            const double length_squared = dx * dx + dy * dy;
+            if (projection >= 0.0 && projection <= length_squared &&
+                point_line_distance_squared(
+                    point, edge.start, edge.end) <= tolerance_squared) {
+                boundary = true;
+                break;
+            }
+            const bool upward = edge.start.y <= point.y &&
+                edge.end.y > point.y;
+            const bool downward = edge.start.y > point.y &&
+                edge.end.y <= point.y;
+            if (!upward && !downward) {
+                continue;
+            }
+            const double cross = dx * py - dy * px;
+            if ((upward && cross > 0.0) ||
+                (downward && cross < 0.0)) {
+                alternate = !alternate;
+                winding += upward ? 1 : -1;
+            }
+        }
+        *contains = boundary ||
+                (data_->mode == fill_mode::alternate
+                    ? alternate
+                    : winding != 0)
+            ? 1
+            : 0;
+        return com::ok;
     }
 
     com::result PROGPU_NATIVE_COM_CALL CompareWithGeometry(
@@ -759,110 +1063,57 @@ public:
             !core::valid_transform(world_transform)) {
             return com::invalid_argument;
         }
-        if (option == geometry_simplification_option::lines) {
-            return not_implemented;
-        }
         sink->SetFillMode(data_->mode);
         path_segment current_flags = static_cast<path_segment>(
             (std::numeric_limits<std::uint32_t>::max)());
-        for (const auto& figure : data_->figures) {
-            point_2f current_source = figure.start;
-            point_2f current{};
-            if (com::failed(transform_point(
-                    figure.start, world_transform, &current))) {
-                return com::invalid_argument;
-            }
-            sink->BeginFigure(current, figure.begin);
-            for (std::uint32_t offset = 0U;
-                 offset < figure.segment_count;
-                 ++offset) {
-                const auto& segment =
-                    data_->segments[figure.first_segment + offset];
-                if (segment.flags != current_flags) {
-                    sink->SetSegmentFlags(segment.flags);
-                    current_flags = segment.flags;
+        const bool flatten =
+            option == geometry_simplification_option::lines;
+        const bool visited = visit_path(
+            *data_,
+            world_transform,
+            flatten,
+            flattening_tolerance,
+            [&](point_2f start,
+                std::uint32_t,
+                const stored_figure& figure) {
+                sink->BeginFigure(start, figure.begin);
+                return true;
+            },
+            [&](point_2f,
+                point_2f end,
+                std::uint32_t,
+                std::uint32_t,
+                path_segment flags) {
+                if (current_flags != flags) {
+                    sink->SetSegmentFlags(flags);
+                    current_flags = flags;
                 }
-                point_2f end{};
-                if (com::failed(transform_point(
-                        segment.end, world_transform, &end))) {
-                    return com::invalid_argument;
+                sink->AddLines(&end, 1U);
+                return true;
+            },
+            [&](point_2f,
+                point_2f control1,
+                point_2f control2,
+                point_2f end,
+                std::uint32_t,
+                std::uint32_t,
+                path_segment flags) {
+                if (current_flags != flags) {
+                    sink->SetSegmentFlags(flags);
+                    current_flags = flags;
                 }
-                if (segment.kind == segment_kind::line ||
-                    (segment.kind == segment_kind::arc &&
-                        (segment.arc.size.width == 0.0F ||
-                            segment.arc.size.height == 0.0F))) {
-                    sink->AddLines(&end, 1U);
-                } else if (segment.kind == segment_kind::cubic ||
-                           segment.kind == segment_kind::quadratic) {
-                    point_2f control1_source = segment.control1;
-                    point_2f control2_source = segment.control2;
-                    if (segment.kind == segment_kind::quadratic) {
-                        control1_source = {
-                            current_source.x +
-                                (segment.control1.x - current_source.x) *
-                                    (2.0F / 3.0F),
-                            current_source.y +
-                                (segment.control1.y - current_source.y) *
-                                    (2.0F / 3.0F)};
-                        control2_source = {
-                            segment.end.x +
-                                (segment.control1.x - segment.end.x) *
-                                    (2.0F / 3.0F),
-                            segment.end.y +
-                                (segment.control1.y - segment.end.y) *
-                                    (2.0F / 3.0F)};
-                    }
-                    bezier_segment bezier{};
-                    if (com::failed(transform_point(
-                            control1_source,
-                            world_transform,
-                            &bezier.point1)) ||
-                        com::failed(transform_point(
-                            control2_source,
-                            world_transform,
-                            &bezier.point2))) {
-                        return com::invalid_argument;
-                    }
-                    bezier.point3 = end;
-                    sink->AddBeziers(&bezier, 1U);
-                } else {
-                    std::array<core::cubic_bezier_segment_f, 4U> cubics{};
-                    std::uint32_t cubic_count = 0U;
-                    const com::result arc_status = core::arc_to_cubics(
-                        current_source,
-                        segment.arc,
-                        &cubics,
-                        &cubic_count);
-                    if (com::failed(arc_status)) {
-                        return arc_status;
-                    }
-                    for (std::uint32_t cubic_index = 0U;
-                         cubic_index < cubic_count;
-                         ++cubic_index) {
-                        bezier_segment bezier{};
-                        if (com::failed(transform_point(
-                                cubics[cubic_index].point1,
-                                world_transform,
-                                &bezier.point1)) ||
-                            com::failed(transform_point(
-                                cubics[cubic_index].point2,
-                                world_transform,
-                                &bezier.point2)) ||
-                            com::failed(transform_point(
-                                cubics[cubic_index].point3,
-                                world_transform,
-                                &bezier.point3))) {
-                            return com::invalid_argument;
-                        }
-                        sink->AddBeziers(&bezier, 1U);
-                    }
-                }
-                current_source = segment.end;
-                current = end;
-            }
-            sink->EndFigure(figure.end);
-        }
-        return com::ok;
+                const bezier_segment bezier{control1, control2, end};
+                sink->AddBeziers(&bezier, 1U);
+                return true;
+            },
+            [&](point_2f,
+                point_2f,
+                std::uint32_t,
+                const stored_figure& figure) {
+                sink->EndFigure(figure.end);
+                return true;
+            });
+        return visited ? com::ok : com::invalid_argument;
     }
 
     com::result PROGPU_NATIVE_COM_CALL Tessellate(
@@ -888,29 +1139,108 @@ public:
     }
 
     com::result PROGPU_NATIVE_COM_CALL ComputeArea(
-        const matrix_3x2_f*, float, float* area) const noexcept override
+        const matrix_3x2_f* world_transform,
+        float flattening_tolerance,
+        float* area) const noexcept override
     {
         if (area == nullptr) {
             return com::pointer_error;
         }
         *area = 0.0F;
-        return not_implemented;
+        if (!closed()) {
+            return wrong_state;
+        }
+        if (!valid_tolerance(flattening_tolerance) ||
+            !core::valid_transform(world_transform)) {
+            return com::invalid_argument;
+        }
+        std::vector<flat_edge> edges;
+        const com::result edge_status = collect_flat_edges(
+            world_transform,
+            flattening_tolerance,
+            true,
+            edges);
+        if (com::failed(edge_status)) {
+            return edge_status;
+        }
+        try {
+            std::vector<double> signed_areas(
+                data_->figures.size(), 0.0);
+            for (const auto& edge : edges) {
+                if (data_->figures[edge.figure_index].begin ==
+                    figure_begin::filled) {
+                    signed_areas[edge.figure_index] +=
+                        static_cast<double>(edge.start.x) * edge.end.y -
+                        static_cast<double>(edge.start.y) * edge.end.x;
+                }
+            }
+            double result = 0.0;
+            if (data_->mode == fill_mode::alternate) {
+                for (double value : signed_areas) {
+                    result += std::abs(value) * 0.5;
+                }
+            } else {
+                for (double value : signed_areas) {
+                    result += value * 0.5;
+                }
+                result = std::abs(result);
+            }
+            if (!std::isfinite(result) ||
+                result > (std::numeric_limits<float>::max)()) {
+                return com::invalid_argument;
+            }
+            *area = static_cast<float>(result);
+            return com::ok;
+        } catch (const std::bad_alloc&) {
+            return com::out_of_memory;
+        } catch (...) {
+            return failure;
+        }
     }
 
     com::result PROGPU_NATIVE_COM_CALL ComputeLength(
-        const matrix_3x2_f*, float, float* length) const noexcept override
+        const matrix_3x2_f* world_transform,
+        float flattening_tolerance,
+        float* length) const noexcept override
     {
         if (length == nullptr) {
             return com::pointer_error;
         }
         *length = 0.0F;
-        return not_implemented;
+        if (!closed()) {
+            return wrong_state;
+        }
+        if (!valid_tolerance(flattening_tolerance) ||
+            !core::valid_transform(world_transform)) {
+            return com::invalid_argument;
+        }
+        std::vector<flat_edge> edges;
+        const com::result edge_status = collect_flat_edges(
+            world_transform,
+            flattening_tolerance,
+            false,
+            edges);
+        if (com::failed(edge_status)) {
+            return edge_status;
+        }
+        double result = 0.0;
+        for (const auto& edge : edges) {
+            result += std::hypot(
+                static_cast<double>(edge.end.x) - edge.start.x,
+                static_cast<double>(edge.end.y) - edge.start.y);
+        }
+        if (!std::isfinite(result) ||
+            result > (std::numeric_limits<float>::max)()) {
+            return com::invalid_argument;
+        }
+        *length = static_cast<float>(result);
+        return com::ok;
     }
 
     com::result PROGPU_NATIVE_COM_CALL ComputePointAtLength(
-        float,
-        const matrix_3x2_f*,
-        float,
+        float length,
+        const matrix_3x2_f* world_transform,
+        float flattening_tolerance,
         point_2f* point,
         point_2f* tangent) const noexcept override
     {
@@ -923,7 +1253,27 @@ public:
         if (tangent != nullptr) {
             *tangent = {};
         }
-        return not_implemented;
+        if (!closed()) {
+            return wrong_state;
+        }
+        if (!std::isfinite(length) ||
+            !valid_tolerance(flattening_tolerance) ||
+            !core::valid_transform(world_transform)) {
+            return com::invalid_argument;
+        }
+        std::vector<flat_edge> edges;
+        const com::result edge_status = collect_flat_edges(
+            world_transform,
+            flattening_tolerance,
+            false,
+            edges);
+        return com::failed(edge_status)
+            ? edge_status
+            : point_at_length(
+                edges,
+                std::max(length, 0.0F),
+                point,
+                tangent);
     }
 
     com::result PROGPU_NATIVE_COM_CALL Widen(
@@ -1034,6 +1384,131 @@ public:
     }
 
 private:
+    [[nodiscard]] com::result collect_flat_edges(
+        const matrix_3x2_f* transform,
+        float tolerance,
+        bool close_open_filled_figures,
+        std::vector<flat_edge>& edges) const noexcept
+    {
+        edges.clear();
+        if (!closed()) {
+            return wrong_state;
+        }
+        try {
+            edges.reserve(
+                data_->segments.size() * 2U + data_->figures.size());
+            std::uint32_t public_segment_base = 0U;
+            const bool visited = visit_path(
+                *data_,
+                transform,
+                true,
+                tolerance,
+                [](point_2f,
+                   std::uint32_t,
+                   const stored_figure&) { return true; },
+                [&](point_2f start,
+                    point_2f end,
+                    std::uint32_t segment_index,
+                    std::uint32_t figure_index,
+                    path_segment) {
+                    edges.push_back(
+                        {start, end, segment_index, figure_index});
+                    return true;
+                },
+                [](point_2f,
+                   point_2f,
+                   point_2f,
+                   point_2f,
+                   std::uint32_t,
+                   std::uint32_t,
+                   path_segment) { return true; },
+                [&](point_2f current,
+                    point_2f start,
+                    std::uint32_t figure_index,
+                    const stored_figure& figure) {
+                    const bool close =
+                        figure.end == figure_end::closed ||
+                        (close_open_filled_figures &&
+                            figure.begin == figure_begin::filled);
+                    if (close && !same_point(current, start)) {
+                        const std::uint32_t segment_index =
+                            public_segment_base + figure.segment_count;
+                        edges.push_back(
+                            {current, start, segment_index, figure_index});
+                    }
+                    public_segment_base += figure.segment_count;
+                    if (figure.end == figure_end::closed) {
+                        ++public_segment_base;
+                    }
+                    return true;
+                });
+            return visited ? com::ok : com::invalid_argument;
+        } catch (const std::bad_alloc&) {
+            edges.clear();
+            return com::out_of_memory;
+        } catch (...) {
+            edges.clear();
+            return failure;
+        }
+    }
+
+    [[nodiscard]] static com::result point_at_length(
+        const std::vector<flat_edge>& edges,
+        float length,
+        point_2f* point,
+        point_2f* tangent) noexcept
+    {
+        if (edges.empty()) {
+            return com::invalid_argument;
+        }
+        double remaining = length;
+        std::size_t last_eligible =
+            (std::numeric_limits<std::size_t>::max)();
+        for (std::size_t index = 0U; index < edges.size(); ++index) {
+            const auto& edge = edges[index];
+            const double dx =
+                static_cast<double>(edge.end.x) - edge.start.x;
+            const double dy =
+                static_cast<double>(edge.end.y) - edge.start.y;
+            const double edge_length = std::hypot(dx, dy);
+            if (edge_length == 0.0) {
+                continue;
+            }
+            last_eligible = index;
+            if (remaining <= edge_length) {
+                const double ratio = remaining / edge_length;
+                if (point != nullptr) {
+                    point->x = static_cast<float>(
+                        edge.start.x + dx * ratio);
+                    point->y = static_cast<float>(
+                        edge.start.y + dy * ratio);
+                }
+                if (tangent != nullptr) {
+                    tangent->x = static_cast<float>(dx / edge_length);
+                    tangent->y = static_cast<float>(dy / edge_length);
+                }
+                return com::ok;
+            }
+            remaining -= edge_length;
+        }
+        if (last_eligible ==
+            (std::numeric_limits<std::size_t>::max)()) {
+            return com::invalid_argument;
+        }
+        const auto& edge = edges[last_eligible];
+        const double dx = static_cast<double>(edge.end.x) - edge.start.x;
+        const double dy = static_cast<double>(edge.end.y) - edge.start.y;
+        const double edge_length = std::hypot(dx, dy);
+        if (point != nullptr) {
+            *point = edge.end;
+        }
+        if (tangent != nullptr && edge_length != 0.0) {
+            tangent->x = static_cast<float>(dx / edge_length);
+            tangent->y = static_cast<float>(dy / edge_length);
+        }
+        return com::ok;
+    }
+
     [[nodiscard]] bool closed() const noexcept
     {
         return data_->state.load(std::memory_order_acquire) ==
