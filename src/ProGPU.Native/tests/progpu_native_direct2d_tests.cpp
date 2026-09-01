@@ -622,8 +622,9 @@ int main()
             compat_ellipse_path_sink->Close() == S_OK &&
             compat_ellipse_path->GetSegmentCount(
                 &compat_ellipse_segment_count) == S_OK &&
-            compat_ellipse_segment_count == 5U,
-        "ProGPU ellipse did not stream through the shared cubic path contract");
+            compat_ellipse_segment_count == 8U,
+        "ProGPU ellipse did not preserve the system Direct2D "
+        "cubic/marker transcript");
     ComPtr<ID2D1EllipseGeometry> invalid_ellipse;
     const D2D1_ELLIPSE negative_ellipse = {
         D2D1::Point2F(0.0F, 0.0F), -1.0F, 1.0F};
@@ -874,6 +875,7 @@ int main()
     ComPtr<ID2D1GeometryGroup> invalid_geometry_group;
     std::array<ID2D1Geometry*, 1U> nested_group_source = {{
         compat_geometry_group.Get()}};
+    ComPtr<ID2D1GeometryGroup> nested_geometry_group;
     require(
         compat_factory->CreateGeometryGroup(
             static_cast<D2D1_FILL_MODE>(99U),
@@ -885,9 +887,10 @@ int main()
             D2D1_FILL_MODE_ALTERNATE,
             nested_group_source.data(),
             static_cast<UINT32>(nested_group_source.size()),
-            &invalid_geometry_group) == E_NOTIMPL &&
-            invalid_geometry_group == nullptr,
-        "invalid or nested ProGPU geometry group did not fail closed");
+            &nested_geometry_group) == S_OK &&
+            nested_geometry_group != nullptr &&
+            nested_geometry_group->GetSourceGeometryCount() == 1U,
+        "invalid or nested ProGPU geometry group behavior changed");
 
     const progpu_native_direct2d_color_f compat_brush_color = {
         0.25F, 0.5F, 0.75F, 1.0F};
