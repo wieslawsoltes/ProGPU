@@ -475,10 +475,11 @@ validated immutable metadata value plus the exact bounded raw bit span and
 must synchronously publish exactly one top-down straight-alpha RGBA8 snapshot.
 The destination owns its copy and rejects missing, wrong-sized, duplicate, or
 late writes. `META_BITBLT` and `META_STRETCHBLT` reuse the established typed
-crop, mirror, transform, stretch-mode, `SRCCOPY`, and `NOTSRCCOPY` path after
-normalization. Three focused gates cover exact pixels and adapter metadata for
-both record families, registration and output failures with whole-stream
-rollback, and warmed allocation. The 2026-09-01 ARM64/.NET 10.0.11 in-process
+crop, mirror, transform, stretch-mode, and ROP3 path after normalization. Four
+focused gates cover exact pixels and adapter metadata for both record families,
+exact `SRCINVERT` composition, registration and output failures with whole-
+stream rollback, and warmed allocation. The 2026-09-01 ARM64/.NET 10.0.11
+in-process
 ShortRun measured a 23.843 ms median (27.789 ms mean, 9.288 ms standard
 deviation) and 569.88 KB allocated for 256 embedded 8-by-8 sources. Three
 iterations, denied priority elevation, and visible timing variance make exact
@@ -499,12 +500,28 @@ round trips, clipped GPU source-memory sizing, malformed-record rollback, and a
 warmed 64-record allocation ceiling guard the non-pixel contracts. A direct
 swapchain target cannot be sampled and rejects the command explicitly;
 non-solid WMF pattern materialization remains future typed work. Both complete
-Debug and Release drawing suites pass 571/571, and ApiCompat remains 0 missing
+Debug and Release drawing suites pass 574/574, and ApiCompat remains 0 missing
 types, 0 missing members, and 13 reviewed shape differences. The 2026-09-01
 ARM64/.NET 10.0.11 ShortRun measured a 21.579 ms median (20.781 ms mean, 1.680
 ms standard deviation) and 501.8 KB allocated for 256 packed `SRCINVERT`
 records. Three iterations and denied priority elevation make the deterministic
 correctness and allocation gates authoritative.
+
+`MetafileBenchmarks.Playback256WmfDestinationOnlyBitmapRecordsToRetainedCommands`
+extends that truth-table path to every WMF bitmap record whose ROP3 byte does
+not depend on source input, even when the official record omits its bitmap.
+The renderer classifies `S` dependency directly from the eight truth-table
+bits before source clipping, preserves the existing black/white/pattern fast
+paths, and uses one typed one-pixel coverage bitmap per playback for operations
+such as `DSTINVERT` and solid-brush `PATINVERT`. Source-dependent operations
+without a bitmap still reject transactionally. Exact pixels cover all four
+no-source layouts, irrelevant and out-of-range source coordinates, selected
+patterns, unchanged exterior pixels, the typed `Bitmap16` path, and a warmed
+64-record allocation ceiling. The 2026-09-01 ARM64/.NET 10.0.11 ShortRun
+measured a 454.471 microsecond median (450.983 microsecond mean, 216.582
+microsecond standard deviation) and 296.73 KB allocated for 256 `DSTINVERT`
+records. Three iterations, denied priority elevation, and high timing variance
+make the exact-pixel, transactional, and allocation gates authoritative.
 
 `MetafileBenchmarks.Playback256EmfPathBracketsToRetainedCommands` guards 256
 Begin/rectangle/End/StrokeAndFill groups. The 2026-08-31 ARM64/.NET 10.0.11

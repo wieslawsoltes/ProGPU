@@ -45,6 +45,7 @@ public class MetafileBenchmarks
     private Metafile _wmfPatBltPlaybackMetafile = null!;
     private Metafile _wmfOffsetClipPatBltPlaybackMetafile = null!;
     private Metafile _wmfSourceIndependentBitmapPlaybackMetafile = null!;
+    private Metafile _wmfDestinationOnlyBitmapPlaybackMetafile = null!;
     private Metafile _wmfBitmap16AdapterPlaybackMetafile = null!;
     private Metafile _wmfDibPlaybackMetafile = null!;
     private Metafile _bitFieldDibPlaybackMetafile = null!;
@@ -139,6 +140,12 @@ public class MetafileBenchmarks
             new MemoryStream(CreatePlaybackWmfPatBlts(256, includeOffsetClipState: true), writable: false));
         _wmfSourceIndependentBitmapPlaybackMetafile = new Metafile(
             new MemoryStream(CreatePlaybackWmfSourceIndependentBitmapRecords(256), writable: false));
+        _wmfDestinationOnlyBitmapPlaybackMetafile = new Metafile(
+            new MemoryStream(
+                CreatePlaybackWmfSourceIndependentBitmapRecords(
+                    256,
+                    rasterOperation: 0x0055_0009),
+                writable: false));
         _wmfBitmap16Registration = WmfBitmap16DecodeServices.Register(
             new PassthroughWmfBitmap16DecodeService());
         _wmfBitmap16AdapterPlaybackMetafile = new Metafile(
@@ -216,6 +223,7 @@ public class MetafileBenchmarks
         _wmfPatBltPlaybackMetafile.Dispose();
         _wmfOffsetClipPatBltPlaybackMetafile.Dispose();
         _wmfSourceIndependentBitmapPlaybackMetafile.Dispose();
+        _wmfDestinationOnlyBitmapPlaybackMetafile.Dispose();
         _wmfBitmap16AdapterPlaybackMetafile.Dispose();
         _wmfBitmap16Registration.Dispose();
         _wmfDibPlaybackMetafile.Dispose();
@@ -662,6 +670,18 @@ public class MetafileBenchmarks
         _playbackContext.Clear();
         _playbackGraphics.DrawImage(
             _wmfSourceIndependentBitmapPlaybackMetafile,
+            new Rectangle(0, 0, 640, 480));
+        int commandCount = _playbackContext.Commands.Count;
+        _playbackContext.Clear();
+        return commandCount;
+    }
+
+    [Benchmark]
+    public int Playback256WmfDestinationOnlyBitmapRecordsToRetainedCommands()
+    {
+        _playbackContext.Clear();
+        _playbackGraphics.DrawImage(
+            _wmfDestinationOnlyBitmapPlaybackMetafile,
             new Rectangle(0, 0, 640, 480));
         int commandCount = _playbackContext.Commands.Count;
         _playbackContext.Clear();
@@ -2355,7 +2375,9 @@ public class MetafileBenchmarks
         return bytes;
     }
 
-    private static byte[] CreatePlaybackWmfSourceIndependentBitmapRecords(int recordCount)
+    private static byte[] CreatePlaybackWmfSourceIndependentBitmapRecords(
+        int recordCount,
+        uint rasterOperation = 0x00F0_0021)
     {
         const int recordWords = 12;
         int declaredWords = checked(9 + 7 + 4 + recordCount * recordWords + 3);
@@ -2392,7 +2414,7 @@ public class MetafileBenchmarks
             short y = checked((short)((index / 16) * 30));
             WriteUInt32(bytes, cursor, recordWords);
             WriteUInt16(bytes, cursor + 4, 0x0922);
-            WriteUInt32(bytes, cursor + 6, 0x00F0_0021);
+            WriteUInt32(bytes, cursor + 6, rasterOperation);
             WriteInt16(bytes, cursor + 16, 22);
             WriteInt16(bytes, cursor + 18, 32);
             WriteInt16(bytes, cursor + 20, y);

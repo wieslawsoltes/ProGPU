@@ -882,11 +882,12 @@ word-aligned stride, planes, bit depth, and exact raw bit span. The adapter must
 synchronously publish exactly one top-down, straight-alpha RGBA8 snapshot to a
 single-use destination; missing, short, duplicate, late, or retained output
 fails explicitly. `META_BITBLT` and `META_STRETCHBLT` then reuse the same typed
-crop, mirror, stretch-mode, transform, `SRCCOPY`, and `NOTSRCCOPY` path as DIB
-playback. Three focused gates cover exact pixels and metadata for both record
-families, registration/output-contract failures with whole-stream rollback,
-and warmed allocation. The platform-specific device-format interpretation is
-owned by the registered adapter, not inferred by the portable renderer.
+crop, mirror, stretch-mode, transform, and ROP3 path as DIB playback. Four
+focused gates cover exact pixels and metadata for both record families, exact
+`SRCINVERT` composition, registration/output-contract failures with whole-
+stream rollback, and warmed allocation. The platform-specific device-format
+interpretation is owned by the registered adapter, not inferred by the
+portable renderer.
 
 `Playback256EmfDibImagesToRetainedCommands` measures bounded header/row decode,
 256 owned two-by-two RGBA snapshots, typed retained-texture recording,
@@ -1001,7 +1002,7 @@ focused output covers `SRCINVERT` (`S XOR D`) and `PATINVERT` (`P XOR D`),
 unchanged outside pixels, alpha-independent source RGB, retained-command round
 trips, clipped source-memory sizing, malformed-envelope rollback, and a warmed
 64-record allocation ceiling. Both complete Debug and Release drawing suites
-pass 571/571. ApiCompat remains zero missing types, zero missing members, and
+pass 574/574. ApiCompat remains zero missing types, zero missing members, and
 13 reviewed shape differences.
 
 `Playback256DestinationDependentDibImagesToRetainedCommands` measures 256
@@ -1013,6 +1014,29 @@ allocated. Three iterations and denied priority elevation make exact pixel,
 rollback, retained-payload, and allocation gates authoritative rather than this
 coarse throughput sample. The truth-table definition is pinned to the official
 [`TernaryRasterOperation enumeration`](https://learn.microsoft.com/en-us/openspecs/windows_protocols/ms-wmf/1605dd68-a635-4639-ab81-99ff3e3fc5a3).
+
+The source-dependency follow-up classifies each ROP3 byte from the official
+truth table before source clipping. Every operation whose result is invariant
+when `S` changes can therefore execute across source-bearing and source-omitted
+`META_BITBLT`, `META_STRETCHBLT`, `META_DIBBITBLT`, and
+`META_DIBSTRETCHBLT` records. Existing `BLACKNESS`, `WHITENESS`, and `PATCOPY`
+fills remain fast paths. Other functions of pattern and destination, including
+`DSTINVERT` and solid-brush `PATINVERT`, use one owned one-pixel coverage bitmap
+per playback and the typed destination-sampling command; it is a real bitmap
+with explicit lifetime rather than a fabricated WinForms-shaped object.
+Source-dependent records without a bitmap remain an explicit transactional
+failure. Exact tests cover all four no-source layouts, source-bearing DIBs with
+irrelevant out-of-range source coordinates, `Bitmap16` `SRCINVERT`, outside
+pixels, retained payloads, rollback, and warmed allocation.
+
+`Playback256WmfDestinationOnlyBitmapRecordsToRetainedCommands` measures 256
+source-omitted `META_BITBLT` `DSTINVERT` records through source-dependency
+classification, shared coverage-texture retention, exact ROP publication, and
+cleanup. The 2026-09-01 ARM64/.NET 10.0.11 ShortRun measured a 454.471
+microsecond median (450.983 microsecond mean, 216.582 microsecond standard
+deviation) with 296.73 KB allocated. Three iterations, denied priority
+elevation, and high variance make exact focused pixels, rollback, and the
+allocation gate authoritative rather than this coarse throughput sample.
 
 The EMF path-bracket follow-up adds `EMR_BEGINPATH`, `EMR_ENDPATH`,
 `EMR_CLOSEFIGURE`, `EMR_ABORTPATH`, `EMR_FILLPATH`, `EMR_STROKEPATH`,

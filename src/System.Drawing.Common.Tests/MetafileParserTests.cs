@@ -4415,10 +4415,15 @@ public sealed class MetafileParserTests
                 new Rectangle(0, 0, 1, 1),
                 new Rectangle(16, 4, 8, 8),
                 rasterOperation: 0x005A_0049)),
+            (0x0F43, WmfStretchDib(
+                dib,
+                new Rectangle(4, 4, 1, 1),
+                new Rectangle(28, 4, 8, 8),
+                rasterOperation: 0x0055_0009)),
             (0, [])
         ]);
         using var metafile = new Metafile(new MemoryStream(fixture, writable: false));
-        using var target = new Bitmap(32, 20);
+        using var target = new Bitmap(44, 20);
         Color destination = Color.FromArgb(0xCC, 0x0F, 0xAA);
         using (Graphics graphics = Graphics.FromImage(target))
         {
@@ -4432,6 +4437,9 @@ public sealed class MetafileParserTests
         Assert.Equal(
             Color.FromArgb(0x96, 0xCC, 0xA5).ToArgb(),
             target.GetPixel(18, 6).ToArgb());
+        Assert.Equal(
+            Color.FromArgb(0x33, 0xF0, 0x55).ToArgb(),
+            target.GetPixel(30, 6).ToArgb());
         Assert.Equal(destination.ToArgb(), target.GetPixel(2, 2).ToArgb());
     }
 
@@ -4562,6 +4570,49 @@ public sealed class MetafileParserTests
         Assert.Equal(Color.White.ToArgb(), target.GetPixel(30, 6).ToArgb());
         Assert.Equal(Color.Green.ToArgb(), target.GetPixel(42, 6).ToArgb());
         Assert.Equal(0, target.GetPixel(2, 2).A);
+    }
+
+    [Fact]
+    public void WmfBitmapRecordsDrawDestinationOnlyOperationsWithoutBitmapSources()
+    {
+        Color destination = Color.FromArgb(0xCC, 0x0F, 0xAA);
+        byte[] fixture = CreatePlaybackWmf(
+        [
+            (0x02FC, WmfBrush(Color.FromArgb(0x5A, 0xC3, 0x0F))),
+            (0x012D, WmfWords(0)),
+            (0x0922, WmfBitBltWithoutBitmap(
+                new Point(50, 50),
+                new Rectangle(4, 4, 8, 8),
+                0x0055_0009)),
+            (0x0B23, WmfStretchBltWithoutBitmap(
+                new Rectangle(50, 50, 4, 4),
+                new Rectangle(16, 4, 8, 8),
+                0x005A_0049)),
+            (0x0940, WmfBitBltWithoutBitmap(
+                new Point(50, 50),
+                new Rectangle(28, 4, 8, 8),
+                0x0055_0009)),
+            (0x0B41, WmfStretchBltWithoutBitmap(
+                new Rectangle(50, 50, 4, 4),
+                new Rectangle(40, 4, 8, 8),
+                0x005A_0049)),
+            (0, [])
+        ]);
+        using var metafile = new Metafile(new MemoryStream(fixture, writable: false));
+        using var target = new Bitmap(56, 20);
+        using (Graphics graphics = Graphics.FromImage(target))
+        {
+            graphics.Clear(destination);
+            graphics.DrawImage(metafile, new Rectangle(0, 0, 64, 64));
+        }
+
+        Color invertedDestination = Color.FromArgb(0x33, 0xF0, 0x55);
+        Color patternXorDestination = Color.FromArgb(0x96, 0xCC, 0xA5);
+        Assert.Equal(invertedDestination.ToArgb(), target.GetPixel(6, 6).ToArgb());
+        Assert.Equal(patternXorDestination.ToArgb(), target.GetPixel(18, 6).ToArgb());
+        Assert.Equal(invertedDestination.ToArgb(), target.GetPixel(30, 6).ToArgb());
+        Assert.Equal(patternXorDestination.ToArgb(), target.GetPixel(42, 6).ToArgb());
+        Assert.Equal(destination.ToArgb(), target.GetPixel(2, 2).ToArgb());
     }
 
     [Fact]
@@ -4703,6 +4754,51 @@ public sealed class MetafileParserTests
     }
 
     [Fact]
+    public void WmfDestinationOnlyBitmapPlaybackHasBoundedWarmedAllocation()
+    {
+        var records = new List<(ushort Function, byte[] Payload)>();
+        for (int index = 0; index < 64; index++)
+        {
+            records.Add((
+                0x0922,
+                WmfBitBltWithoutBitmap(
+                    new Point(50, 50),
+                    new Rectangle((index % 8) * 8, (index / 8) * 8, 8, 8),
+                    0x0055_0009)));
+        }
+        records.Add((0, []));
+        using var metafile = new Metafile(new MemoryStream(
+            CreatePlaybackWmf(records),
+            writable: false));
+        var context = new DrawingContext();
+        using Graphics graphics = Graphics.FromProGpuDrawingContext(context);
+        for (int iteration = 0; iteration < 4; iteration++)
+        {
+            graphics.DrawImage(metafile, new Rectangle(0, 0, 64, 64));
+            RenderCommand[] rasterOperations = context.Commands
+                .Where(command => command.RasterOperation.IsEnabled)
+                .ToArray();
+            Assert.Equal(64, rasterOperations.Length);
+            Assert.All(rasterOperations, command =>
+            {
+                Assert.Equal((byte)0x55, command.RasterOperation.Code);
+            });
+            context.Clear();
+        }
+
+        long before = GC.GetAllocatedBytesForCurrentThread();
+        for (int iteration = 0; iteration < 8; iteration++)
+        {
+            graphics.DrawImage(metafile, new Rectangle(0, 0, 64, 64));
+            context.Clear();
+        }
+        long allocatedPerPlayback =
+            (GC.GetAllocatedBytesForCurrentThread() - before) / 8;
+
+        Assert.InRange(allocatedPerPlayback, 64 * 1024, 16 * 1024 * 1024);
+    }
+
+    [Fact]
     public void WmfBitmap16AdapterDrawsTypedBitBltAndStretchBltPixels()
     {
         byte[] pixels =
@@ -4757,6 +4853,38 @@ public sealed class MetafileParserTests
         Assert.All(decoder.Bits, bits => Assert.Equal(pixels, bits));
         Assert.Throws<InvalidOperationException>(() =>
             decoder.LastDestination!.SetRgba(pixels));
+    }
+
+    [Fact]
+    public void WmfBitmap16AdapterComposesExactSourceAndDestinationRgb()
+    {
+        byte[] pixels = [0x33, 0xF0, 0x55, byte.MaxValue];
+        byte[] bitmap = CreateBitmap16(1, 1, 32, pixels);
+        var decoder = new TestWmfBitmap16DecodeService(pixels);
+        using IDisposable registration = WmfBitmap16DecodeServices.Register(decoder);
+        byte[] fixture = CreatePlaybackWmf(
+        [
+            (0x0922, WmfBitmap16BitBlt(
+                bitmap,
+                Point.Empty,
+                new Rectangle(4, 4, 1, 1),
+                0x0066_0046)),
+            (0, [])
+        ]);
+        using var metafile = new Metafile(new MemoryStream(fixture, writable: false));
+        using var target = new Bitmap(20, 20);
+        Color destination = Color.FromArgb(0xCC, 0x0F, 0xAA);
+        using (Graphics graphics = Graphics.FromImage(target))
+        {
+            graphics.Clear(destination);
+            graphics.DrawImage(metafile, new Rectangle(0, 0, 64, 64));
+        }
+
+        Assert.Equal(Color.White.ToArgb(), target.GetPixel(4, 4).ToArgb());
+        Assert.Equal(destination.ToArgb(), target.GetPixel(2, 2).ToArgb());
+        Assert.Single(decoder.Infos);
+        Assert.Equal(new WmfBitmap16Info(0, 1, 1, 4, 1, 32), decoder.Infos[0]);
+        Assert.Equal(pixels, Assert.Single(decoder.Bits));
     }
 
     [Fact]

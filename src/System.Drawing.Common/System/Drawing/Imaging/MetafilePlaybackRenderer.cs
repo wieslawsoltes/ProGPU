@@ -1099,6 +1099,7 @@ internal static class MetafilePlaybackRenderer
         int destinationWidth = ReadInt16(payload, stretch ? 14 : 10);
         int destinationY = ReadInt16(payload, stretch ? 16 : 12);
         int destinationX = ReadInt16(payload, stretch ? 18 : 14);
+        ValidateDibRasterOperation(record, rasterOperation);
         if (TryDrawSourceIndependentRasterOperation(
             state,
             record,
@@ -1109,11 +1110,6 @@ internal static class MetafilePlaybackRenderer
             destinationHeight))
         {
             return;
-        }
-        if (rasterOperation is not SrcCopy and not NotSourceCopy)
-        {
-            ValidateDibRasterOperation(record, rasterOperation);
-            throw Unsupported(record);
         }
 
         int sourceHeight = stretch ? ReadInt16(payload, 4) : destinationHeight;
@@ -1156,6 +1152,7 @@ internal static class MetafilePlaybackRenderer
         int destinationWidth = ReadInt16(payload, stretch ? 16 : 12);
         int destinationY = ReadInt16(payload, stretch ? 18 : 14);
         int destinationX = ReadInt16(payload, stretch ? 20 : 16);
+        ValidateDibRasterOperation(record, rasterOperation);
         if (!TryDrawSourceIndependentRasterOperation(
             state,
             record,
@@ -1167,7 +1164,7 @@ internal static class MetafilePlaybackRenderer
         {
             throw Unsupported(
                 record,
-                $"Ternary raster operation 0x{rasterOperation:X8} requires an embedded bitmap source or destination-dependent compositing.");
+                $"Ternary raster operation 0x{rasterOperation:X8} requires an embedded bitmap source.");
         }
         return true;
     }
@@ -1366,12 +1363,12 @@ internal static class MetafilePlaybackRenderer
         int destinationHeight,
         uint rasterOperation)
     {
-        if (sourceWidth == 0 || sourceHeight == 0 ||
-            destinationWidth == 0 || destinationHeight == 0)
+        if (destinationWidth == 0 || destinationHeight == 0)
         {
             return;
         }
 
+        ValidateDibRasterOperation(record, rasterOperation);
         if (TryDrawSourceIndependentRasterOperation(
             state,
             record,
@@ -1380,6 +1377,10 @@ internal static class MetafilePlaybackRenderer
             destinationY,
             destinationWidth,
             destinationHeight))
+        {
+            return;
+        }
+        if (sourceWidth == 0 || sourceHeight == 0)
         {
             return;
         }
@@ -1491,7 +1492,75 @@ internal static class MetafilePlaybackRenderer
         return false;
     }
 
+    private static bool RasterOperationUsesSource(byte code)
+    {
+        for (int pattern = 0; pattern < 2; pattern++)
+        {
+            for (int destination = 0; destination < 2; destination++)
+            {
+                int withoutSource = (code >> ((pattern << 2) | destination)) & 1;
+                int withSource = (code >> ((pattern << 2) | 2 | destination)) & 1;
+                if (withoutSource != withSource)
+                {
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
+
     private static bool TryDrawSourceIndependentRasterOperation(
+        PlaybackState state,
+        in MetafileRecord record,
+        uint rasterOperation,
+        int destinationX,
+        int destinationY,
+        int destinationWidth,
+        int destinationHeight)
+    {
+        if (TryDrawCommonSourceIndependentRasterOperation(
+            state,
+            record,
+            rasterOperation,
+            destinationX,
+            destinationY,
+            destinationWidth,
+            destinationHeight))
+        {
+            return true;
+        }
+
+        byte code = checked((byte)(rasterOperation >> 16));
+        if (RasterOperationUsesSource(code))
+        {
+            return false;
+        }
+        if (destinationWidth == 0 || destinationHeight == 0)
+        {
+            return true;
+        }
+
+        PointF destinationTopLeft = new(destinationX, destinationY);
+        PointF destinationTopRight = new(
+            AddCoordinate(record, destinationX, destinationWidth),
+            destinationY);
+        PointF destinationBottomLeft = new(
+            destinationX,
+            AddCoordinate(record, destinationY, destinationHeight));
+        state.ApplyTransform(record);
+        state.Graphics.InterpolationMode = InterpolationMode.NearestNeighbor;
+        state.Graphics.DrawImageRasterOperation(
+            state.RasterOperationCoverageBitmap,
+            destinationTopLeft,
+            destinationTopRight,
+            destinationBottomLeft,
+            new RectangleF(0, 0, 1, 1),
+            code,
+            GetRasterOperationPatternColor(state, record, rasterOperation));
+        return true;
+    }
+
+    private static bool TryDrawCommonSourceIndependentRasterOperation(
         PlaybackState state,
         in MetafileRecord record,
         uint rasterOperation,
@@ -4210,6 +4279,7 @@ internal static class MetafilePlaybackRenderer
         private LogicalPalette _selectedPalette = LogicalPalette.Default;
         private SolidBrush? _textBrush;
         private SolidBrush? _backgroundBrush;
+        private Bitmap? _rasterOperationCoverageBitmap;
         private GraphicsPath? _buildingPath;
         private GraphicsPath? _selectedPath;
         private PointF? _pathMoveDevicePoint;
@@ -4228,6 +4298,9 @@ internal static class MetafilePlaybackRenderer
         }
 
         internal Graphics Graphics { get; }
+        internal Bitmap RasterOperationCoverageBitmap =>
+            _rasterOperationCoverageBitmap ??=
+                Bitmap.CreateOwnedRgba(1, 1, [0, 0, 0, byte.MaxValue]);
         internal Point WindowOrigin { get; set; }
         internal Point WindowExtent { get; set; } = new(1, 1);
         internal Point ViewportOrigin { get; set; }
@@ -6183,6 +6256,7 @@ internal static class MetafilePlaybackRenderer
         {
             _textBrush?.Dispose();
             _backgroundBrush?.Dispose();
+            _rasterOperationCoverageBitmap?.Dispose();
             _buildingPath?.Dispose();
             _selectedPath?.Dispose();
             _metaClip.Dispose();
