@@ -64,6 +64,17 @@ struct rectangle_u final {
     std::uint32_t bottom;
 };
 
+/* Canonical WIC ABI shapes used by ID2D1RenderTarget::
+ * CreateBitmapFromWicBitmap. Keeping this five-method interface in the
+ * portable header lets the same Direct2D implementation consume a native
+ * IWICBitmapSource on Windows and a compatible decoder/source elsewhere. */
+struct wic_rectangle final {
+    std::int32_t x;
+    std::int32_t y;
+    std::int32_t width;
+    std::int32_t height;
+};
+
 inline constexpr com::result not_implemented = -2147467263;
 inline constexpr com::result failure = -2147467259;
 inline constexpr com::result wrong_factory = -2003238894;
@@ -164,6 +175,21 @@ inline constexpr com::guid bitmap_interface_id{
     0xEA42U,
     0x4099U,
     {0x98U, 0x3BU, 0x53U, 0x9FU, 0xB6U, 0x50U, 0x54U, 0x26U}};
+inline constexpr com::guid wic_bitmap_source_interface_id{
+    0x00000120U,
+    0xA8F2U,
+    0x4877U,
+    {0xBAU, 0x0AU, 0xFDU, 0x2BU, 0x66U, 0x45U, 0xFBU, 0x94U}};
+inline constexpr com::guid wic_pixel_format_32bpp_pbgra{
+    0x6FDDC324U,
+    0x4E03U,
+    0x4BFEU,
+    {0xB1U, 0x85U, 0x3DU, 0x77U, 0x76U, 0x8DU, 0xC9U, 0x10U}};
+inline constexpr com::guid wic_pixel_format_32bpp_prgba{
+    0x3CC4A650U,
+    0xA527U,
+    0x4D37U,
+    {0xA9U, 0x16U, 0x31U, 0x42U, 0xC7U, 0xEBU, 0xEDU, 0xBAU}};
 inline constexpr com::guid bitmap_brush_interface_id{
     0x2CD906AAU,
     0x12E2U,
@@ -445,6 +471,24 @@ struct tessellation_sink : com::unknown {
         const triangle* triangles,
         std::uint32_t triangle_count) noexcept = 0;
     virtual com::result PROGPU_NATIVE_COM_CALL Close() noexcept = 0;
+};
+
+struct wic_bitmap_source : com::unknown {
+    virtual com::result PROGPU_NATIVE_COM_CALL GetSize(
+        std::uint32_t* width,
+        std::uint32_t* height) noexcept = 0;
+    virtual com::result PROGPU_NATIVE_COM_CALL GetPixelFormat(
+        com::guid* pixel_format) noexcept = 0;
+    virtual com::result PROGPU_NATIVE_COM_CALL GetResolution(
+        double* dpi_x,
+        double* dpi_y) noexcept = 0;
+    virtual com::result PROGPU_NATIVE_COM_CALL CopyPalette(
+        com::unknown* palette) noexcept = 0;
+    virtual com::result PROGPU_NATIVE_COM_CALL CopyPixels(
+        const wic_rectangle* rectangle,
+        std::uint32_t stride,
+        std::uint32_t buffer_size,
+        std::uint8_t* buffer) noexcept = 0;
 };
 
 struct resource : com::unknown {

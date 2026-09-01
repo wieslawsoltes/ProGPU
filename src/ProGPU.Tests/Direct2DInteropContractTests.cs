@@ -280,6 +280,10 @@ public sealed class Direct2DInteropContractTests
         Assert.Contains("struct stroke_style : resource", header, StringComparison.Ordinal);
         Assert.Contains("struct drawing_state_block : resource", header, StringComparison.Ordinal);
         Assert.Contains("struct render_target : resource", header, StringComparison.Ordinal);
+        Assert.Contains("struct wic_bitmap_source : com::unknown", header, StringComparison.Ordinal);
+        Assert.Contains("wic_bitmap_source_interface_id", header, StringComparison.Ordinal);
+        Assert.Contains("wic_pixel_format_32bpp_pbgra", header, StringComparison.Ordinal);
+        Assert.Contains("wic_pixel_format_32bpp_prgba", header, StringComparison.Ordinal);
         Assert.Contains("struct gradient_stop_collection : resource", header, StringComparison.Ordinal);
         Assert.Contains("struct linear_gradient_brush : brush", header, StringComparison.Ordinal);
         Assert.Contains("struct radial_gradient_brush : brush", header, StringComparison.Ordinal);
@@ -303,6 +307,9 @@ public sealed class Direct2DInteropContractTests
         Assert.Contains("PROGPU_NATIVE_SCENE_BRUSH_RADIAL_GRADIENT", renderTargetSource, StringComparison.Ordinal);
         Assert.Contains("builder_.draw_analytic", renderTargetSource, StringComparison.Ordinal);
         Assert.Contains("builder_.draw_geometry", renderTargetSource, StringComparison.Ordinal);
+        Assert.Contains("wic_source->CopyPixels(", renderTargetSource, StringComparison.Ordinal);
+        Assert.Contains("class fake_wic_bitmap_source final", nativeTest, StringComparison.Ordinal);
+        Assert.Contains("__uuidof(IWICBitmapSource)", nativeTest, StringComparison.Ordinal);
         Assert.Contains("render_scene_target(", submissionHeader, StringComparison.Ordinal);
         Assert.Contains("progpu_native_engine_update_scene", submissionHeader, StringComparison.Ordinal);
         Assert.Contains("progpu_native_engine_render_scene", submissionHeader, StringComparison.Ordinal);
