@@ -52,6 +52,33 @@ constexpr com::guid scene_bitmap_brush_native_interface_id{
     return core::rectangle_geometry::valid_rectangle(value);
 }
 
+[[nodiscard]] bool valid_native_rectangle(
+    const progpu_native_image_rect& value) noexcept
+{
+    return std::isfinite(value.x) && std::isfinite(value.y) &&
+        std::isfinite(value.width) && std::isfinite(value.height) &&
+        value.width >= 0.0F && value.height >= 0.0F;
+}
+
+[[nodiscard]] progpu_native_image_rect intersect_rectangles(
+    const progpu_native_image_rect& left,
+    const progpu_native_image_rect& right) noexcept
+{
+    const float x = std::max(left.x, right.x);
+    const float y = std::max(left.y, right.y);
+    const float far_x = std::min(
+        left.x + left.width,
+        right.x + right.width);
+    const float far_y = std::min(
+        left.y + left.height,
+        right.y + right.height);
+    return {
+        x,
+        y,
+        std::max(0.0F, far_x - x),
+        std::max(0.0F, far_y - y)};
+}
+
 [[nodiscard]] bool valid_dpi(float dpi_x, float dpi_y) noexcept
 {
     return std::isfinite(dpi_x) && std::isfinite(dpi_y) &&
@@ -2340,14 +2367,81 @@ public:
     }
 
     void PROGPU_NATIVE_COM_CALL PushAxisAlignedClip(
-        const rectangle_f*, antialias_mode) noexcept override
+        const rectangle_f* rectangle,
+        antialias_mode mode) noexcept override
     {
-        unsupported_draw();
+        const std::lock_guard lock(mutex_);
+        if (!can_draw()) {
+            return;
+        }
+        if (rectangle == nullptr || !valid_rectangle(*rectangle)) {
+            latch(com::invalid_argument);
+            return;
+        }
+        if (mode != antialias_mode::per_primitive &&
+            mode != antialias_mode::aliased) {
+            latch(com::invalid_argument);
+            return;
+        }
+        if (mode != antialias_mode::aliased) {
+            latch(not_implemented);
+            return;
+        }
+        if (clip_depth_ == clip_stack_.size() ||
+            scope_depth_ == scope_stack_.size()) {
+            latch(com::out_of_memory);
+            return;
+        }
+        progpu_native_image_rect clip = transformed_bounds(*rectangle);
+        if (com::failed(failure_)) {
+            return;
+        }
+        if (!valid_native_rectangle(clip)) {
+            latch(com::invalid_argument);
+            return;
+        }
+        if (clip_depth_ != 0U) {
+            clip = intersect_rectangles(
+                clip_stack_[clip_depth_ - 1U], clip);
+            if (!valid_native_rectangle(clip)) {
+                latch(com::invalid_argument);
+                return;
+            }
+        }
+        auto state = semantic_scene_builder::identity_state();
+        state.flags = PROGPU_NATIVE_SCENE_STATE_CLIP_RECT;
+        state.clip_rect = clip;
+        std::uint32_t state_index = PROGPU_NATIVE_SCENE_NO_INDEX;
+        if (!builder_.add_state(state, state_index) ||
+            !builder_.save(state_index)) {
+            latch(builder_failure());
+            return;
+        }
+        clip_stack_[clip_depth_] = clip;
+        ++clip_depth_;
+        scope_stack_[scope_depth_] = scope_axis_aligned_clip;
+        ++scope_depth_;
     }
 
     void PROGPU_NATIVE_COM_CALL PopAxisAlignedClip() noexcept override
     {
-        unsupported_draw();
+        const std::lock_guard lock(mutex_);
+        if (!can_draw()) {
+            return;
+        }
+        if (clip_depth_ == 0U || scope_depth_ == 0U ||
+            scope_stack_[scope_depth_ - 1U] != scope_axis_aligned_clip) {
+            latch(wrong_state);
+            return;
+        }
+        if (!builder_.restore()) {
+            latch(builder_failure());
+            return;
+        }
+        --clip_depth_;
+        clip_stack_[clip_depth_] = {};
+        --scope_depth_;
+        scope_stack_[scope_depth_] = scope_none;
     }
 
     void PROGPU_NATIVE_COM_CALL Clear(const color_f* clear_color)
@@ -2398,6 +2492,10 @@ public:
         tag2_ = 0U;
         clear_color_ = {};
         draw_count_ = 0U;
+        clip_depth_ = 0U;
+        scope_depth_ = 0U;
+        clip_stack_.fill({});
+        scope_stack_.fill(scope_none);
         failure_ = com::ok;
         has_clear_ = false;
         begun_ = true;
@@ -2412,6 +2510,9 @@ public:
         if (!begun_ || ended_) {
             publish_tags(tag1, tag2);
             return wrong_state;
+        }
+        if (scope_depth_ != 0U || clip_depth_ != 0U) {
+            latch(wrong_state);
         }
         ended_ = true;
         publish_tags(tag1, tag2);
@@ -4288,6 +4389,14 @@ private:
     std::uint32_t pixel_width_ = 0U;
     std::uint32_t pixel_height_ = 0U;
     std::uint32_t draw_count_ = 0U;
+    static constexpr std::uint8_t scope_none = 0U;
+    static constexpr std::uint8_t scope_axis_aligned_clip = 1U;
+    std::array<progpu_native_image_rect,
+        PROGPU_NATIVE_SCENE_MAX_STACK_DEPTH> clip_stack_{};
+    std::array<std::uint8_t,
+        PROGPU_NATIVE_SCENE_MAX_STACK_DEPTH> scope_stack_{};
+    std::size_t clip_depth_ = 0U;
+    std::size_t scope_depth_ = 0U;
     float dpi_x_ = 96.0F;
     float dpi_y_ = 96.0F;
     matrix_3x2_f transform_ = identity_transform;

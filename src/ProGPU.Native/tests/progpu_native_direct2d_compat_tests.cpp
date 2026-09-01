@@ -1353,6 +1353,116 @@ int main()
     if (!found_linear || !found_radial) {
         return 139;
     }
+
+    target->BeginDraw();
+    const compat::rectangle_f outer_clip{2.0F, 3.0F, 12.0F, 13.0F};
+    const compat::rectangle_f inner_clip{5.0F, 1.0F, 20.0F, 9.0F};
+    target->PushAxisAlignedClip(
+        &outer_clip, compat::antialias_mode::aliased);
+    target->PushAxisAlignedClip(
+        &inner_clip, compat::antialias_mode::aliased);
+    target->FillRectangle(
+        &rectangle, static_cast<compat::brush*>(target_brush.get()));
+    target->PopAxisAlignedClip();
+    target->PopAxisAlignedClip();
+    if (target->EndDraw(nullptr, nullptr) != com::ok) {
+        return 173;
+    }
+    const std::uint64_t clipped_scene_size =
+        scene_target->GetRequiredSceneSize();
+    std::vector<std::byte> clipped_scene(
+        static_cast<std::size_t>(clipped_scene_size));
+    std::uint64_t clipped_scene_written = 0U;
+    if (clipped_scene_size < sizeof(progpu_native_scene_header) ||
+        scene_target->BuildScene(
+            clipped_scene.data(),
+            clipped_scene.size(),
+            &clipped_scene_written) != com::ok ||
+        clipped_scene_written != clipped_scene_size) {
+        return 174;
+    }
+    const auto* clipped_header = reinterpret_cast<
+        const progpu_native_scene_header*>(clipped_scene.data());
+    if (clipped_header->command_count != 5U) {
+        return 175;
+    }
+    const auto clipped_command = [clipped_header, &clipped_scene](
+        std::uint32_t index) {
+        return reinterpret_cast<const progpu_native_scene_command*>(
+            clipped_scene.data() + clipped_header->command_offset +
+            static_cast<std::size_t>(index) *
+                clipped_header->command_stride);
+    };
+    const auto* first_clip_save = clipped_command(0U);
+    const auto* second_clip_save = clipped_command(1U);
+    if (first_clip_save->kind != PROGPU_NATIVE_SCENE_COMMAND_SAVE ||
+        second_clip_save->kind != PROGPU_NATIVE_SCENE_COMMAND_SAVE ||
+        clipped_command(2U)->kind !=
+            PROGPU_NATIVE_SCENE_COMMAND_DRAW_ANALYTIC ||
+        clipped_command(3U)->kind != PROGPU_NATIVE_SCENE_COMMAND_RESTORE ||
+        clipped_command(4U)->kind != PROGPU_NATIVE_SCENE_COMMAND_RESTORE ||
+        first_clip_save->state_index >= clipped_header->resource_count ||
+        second_clip_save->state_index >= clipped_header->resource_count) {
+        return 176;
+    }
+    const auto clipped_resource = [clipped_header, &clipped_scene](
+        std::uint32_t index) {
+        return reinterpret_cast<const progpu_native_scene_resource*>(
+            clipped_scene.data() + clipped_header->resource_offset +
+            static_cast<std::size_t>(index) *
+                clipped_header->resource_stride);
+    };
+    const auto* first_clip_resource = clipped_resource(
+        first_clip_save->state_index);
+    const auto* second_clip_resource = clipped_resource(
+        second_clip_save->state_index);
+    if (first_clip_resource->kind != PROGPU_NATIVE_SCENE_RESOURCE_STATE ||
+        second_clip_resource->kind != PROGPU_NATIVE_SCENE_RESOURCE_STATE ||
+        first_clip_resource->payload_size <
+            sizeof(progpu_native_scene_state) ||
+        second_clip_resource->payload_size <
+            sizeof(progpu_native_scene_state)) {
+        return 177;
+    }
+    const auto* first_clip_state = reinterpret_cast<
+        const progpu_native_scene_state*>(
+            clipped_scene.data() + first_clip_resource->payload_offset);
+    const auto* second_clip_state = reinterpret_cast<
+        const progpu_native_scene_state*>(
+            clipped_scene.data() + second_clip_resource->payload_offset);
+    if (first_clip_state->flags != PROGPU_NATIVE_SCENE_STATE_CLIP_RECT ||
+        second_clip_state->flags != PROGPU_NATIVE_SCENE_STATE_CLIP_RECT ||
+        !approximately_equal(first_clip_state->clip_rect.x, 2.0F) ||
+        !approximately_equal(first_clip_state->clip_rect.y, 3.0F) ||
+        !approximately_equal(first_clip_state->clip_rect.width, 10.0F) ||
+        !approximately_equal(first_clip_state->clip_rect.height, 10.0F) ||
+        !approximately_equal(second_clip_state->clip_rect.x, 5.0F) ||
+        !approximately_equal(second_clip_state->clip_rect.y, 3.0F) ||
+        !approximately_equal(second_clip_state->clip_rect.width, 7.0F) ||
+        !approximately_equal(second_clip_state->clip_rect.height, 6.0F)) {
+        return 178;
+    }
+
+    target->BeginDraw();
+    target->PushAxisAlignedClip(
+        &outer_clip, compat::antialias_mode::per_primitive);
+    if (target->EndDraw(nullptr, nullptr) != compat::not_implemented ||
+        scene_target->GetRequiredSceneSize() != 0U) {
+        return 179;
+    }
+    target->BeginDraw();
+    target->PopAxisAlignedClip();
+    if (target->EndDraw(nullptr, nullptr) != compat::wrong_state ||
+        scene_target->GetRequiredSceneSize() != 0U) {
+        return 180;
+    }
+    target->BeginDraw();
+    target->PushAxisAlignedClip(
+        &outer_clip, compat::antialias_mode::aliased);
+    if (target->EndDraw(nullptr, nullptr) != compat::wrong_state ||
+        scene_target->GetRequiredSceneSize() != 0U) {
+        return 181;
+    }
     target->BeginDraw();
     target->DrawRectangle(
         &rectangle,
