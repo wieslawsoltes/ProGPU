@@ -10,8 +10,16 @@ struct SamplingUniforms {
     blendMode: u32,
     operationKind: u32,
     rasterOperationCode: u32,
-    pad0: u32,
+    patternKind: u32,
     patternColor: vec4<f32>,
+    patternBackgroundColor: vec4<f32>,
+    patternOrigin: vec2<f32>,
+    patternMaskLow: u32,
+    patternMaskHigh: u32,
+    patternFlags: u32,
+    pad0: u32,
+    pad1: u32,
+    pad2: u32,
 };
 
 @group(0) @binding(2) var<uniform> sampling: SamplingUniforms;
@@ -252,9 +260,30 @@ fn fs_main(@builtin(position) position: vec4<f32>) -> @location(0) vec4<f32> {
         let destinationAlpha = destination.a;
         let straightSource = unpremultiply(source.rgb, sourceAlpha);
         let straightDestination = unpremultiply(destination.rgb, destinationAlpha);
+        var patternColor = sampling.patternColor;
+        if (sampling.patternKind == 1u) {
+            // Fixed 8x8 GDI hatch tile in physical device pixels. Signed
+            // remainder preserves phase on negative brush origins.
+            let integerCoordinate = vec2<i32>(floor(position.xy - sampling.patternOrigin));
+            let tileX = u32(((integerCoordinate.x % 8) + 8) % 8);
+            let tileY = u32(((integerCoordinate.y % 8) + 8) % 8);
+            let bitIndex = tileY * 8u + tileX;
+            let word = select(
+                sampling.patternMaskLow,
+                sampling.patternMaskHigh,
+                bitIndex >= 32u);
+            let patternBit = (word >> (bitIndex & 31u)) & 1u;
+            if (patternBit == 0u && (sampling.patternFlags & 1u) != 0u) {
+                return destination;
+            }
+            patternColor = select(
+                sampling.patternBackgroundColor,
+                sampling.patternColor,
+                patternBit != 0u);
+        }
         let result = evaluate_rop3(
             sampling.rasterOperationCode,
-            normalized_to_byte(sampling.patternColor.rgb),
+            normalized_to_byte(patternColor.rgb),
             normalized_to_byte(straightSource),
             normalized_to_byte(straightDestination));
         return vec4<f32>(vec3<f32>(result) / 255.0, 1.0);

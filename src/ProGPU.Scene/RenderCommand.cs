@@ -100,13 +100,16 @@ public enum VertexColorBlendMode
 /// <c>Code</c> is the ROP3 truth-table byte. Bit selection uses
 /// the conventional pattern/source/destination input order. Pattern colors
 /// are straight, normalized RGBA values; GDI raster-operation output is
-/// treated as an opaque device pixel.
+/// treated as an opaque device pixel. <see cref="PatternBrush"/> carries an
+/// optional immutable 8 by 8 pattern without expanding the retained
+/// <see cref="RenderCommand"/> union.
 /// </remarks>
 public readonly struct GpuRasterOperation : IEquatable<GpuRasterOperation>
 {
     public bool IsEnabled { get; }
     public byte Code { get; }
     public Vector4 PatternColor { get; }
+    public TilePatternBrush? PatternBrush { get; }
 
     public GpuRasterOperation(byte code, Vector4 patternColor)
     {
@@ -120,18 +123,52 @@ public readonly struct GpuRasterOperation : IEquatable<GpuRasterOperation>
         IsEnabled = true;
         Code = code;
         PatternColor = patternColor;
+        PatternBrush = null;
+    }
+
+    public GpuRasterOperation(byte code, TilePatternBrush patternBrush)
+    {
+        ArgumentNullException.ThrowIfNull(patternBrush);
+        if (!IsFiniteNormalized(patternBrush.ForegroundColor) ||
+            !IsFiniteNormalized(patternBrush.BackgroundColor) ||
+            !float.IsFinite(patternBrush.Origin.X) ||
+            !float.IsFinite(patternBrush.Origin.Y))
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(patternBrush),
+                "Pattern colors must be finite normalized values and the origin must be finite.");
+        }
+
+        IsEnabled = true;
+        Code = code;
+        PatternColor = patternBrush.ForegroundColor;
+        PatternBrush = patternBrush;
     }
 
     public bool Equals(GpuRasterOperation other) =>
         IsEnabled == other.IsEnabled &&
         Code == other.Code &&
-        PatternColor == other.PatternColor;
+        PatternColor == other.PatternColor &&
+        PatternBrushesEqual(PatternBrush, other.PatternBrush);
 
     public override bool Equals(object? obj) =>
         obj is GpuRasterOperation other && Equals(other);
 
-    public override int GetHashCode() =>
-        HashCode.Combine(IsEnabled, Code, PatternColor);
+    public override int GetHashCode()
+    {
+        var hash = new HashCode();
+        hash.Add(IsEnabled);
+        hash.Add(Code);
+        hash.Add(PatternColor);
+        if (PatternBrush is not null)
+        {
+            hash.Add(PatternBrush.Pattern);
+            hash.Add(PatternBrush.ForegroundColor);
+            hash.Add(PatternBrush.BackgroundColor);
+            hash.Add(PatternBrush.Origin);
+        }
+        return hash.ToHashCode();
+    }
 
     public static bool operator ==(GpuRasterOperation left, GpuRasterOperation right) =>
         left.Equals(right);
@@ -144,6 +181,17 @@ public readonly struct GpuRasterOperation : IEquatable<GpuRasterOperation>
         float.IsFinite(value.Y) && value.Y is >= 0f and <= 1f &&
         float.IsFinite(value.Z) && value.Z is >= 0f and <= 1f &&
         float.IsFinite(value.W) && value.W is >= 0f and <= 1f;
+
+    private static bool PatternBrushesEqual(
+        TilePatternBrush? left,
+        TilePatternBrush? right) =>
+        ReferenceEquals(left, right) ||
+        left is not null &&
+        right is not null &&
+        left.Pattern == right.Pattern &&
+        left.ForegroundColor == right.ForegroundColor &&
+        left.BackgroundColor == right.BackgroundColor &&
+        left.Origin == right.Origin;
 }
 
 public sealed class VertexMesh2D
@@ -813,9 +861,11 @@ public struct RenderCommand
             {
                 return default;
             }
-            return new GpuRasterOperation(
-                (byte)IntParam,
-                new Vector4(Position3D1, FloatParam));
+            return DataParam is TilePatternBrush patternBrush
+                ? new GpuRasterOperation((byte)IntParam, patternBrush)
+                : new GpuRasterOperation(
+                    (byte)IntParam,
+                    new Vector4(Position3D1, FloatParam));
         }
         set
         {
@@ -827,6 +877,10 @@ public struct RenderCommand
                     Position3D1 = default;
                     FloatParam = 0f;
                 }
+                if (DataParam is TilePatternBrush)
+                {
+                    DataParam = null;
+                }
                 return;
             }
 
@@ -836,6 +890,14 @@ public struct RenderCommand
                 value.PatternColor.Y,
                 value.PatternColor.Z);
             FloatParam = value.PatternColor.W;
+            if (value.PatternBrush is not null)
+            {
+                DataParam = value.PatternBrush;
+            }
+            else if (DataParam is TilePatternBrush)
+            {
+                DataParam = null;
+            }
         }
     }
     // Destination-point image mapping is stored in scalar slots that are
@@ -1645,7 +1707,8 @@ internal readonly struct RetainedRenderCommand
         command.ExtensionId != 0 ||
         (!allowIntParam && !allowTextureRasterOperation && command.IntParam != 0) ||
         (!allowTextureRasterOperation && command.FloatParam != 0f) ||
-        command.DataParam is not null;
+        command.DataParam is not null &&
+        (!allowTextureRasterOperation || command.DataParam is not TilePatternBrush);
 }
 
 internal readonly struct RetainedTextRenderCommand

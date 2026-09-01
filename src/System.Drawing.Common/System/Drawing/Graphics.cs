@@ -4628,6 +4628,30 @@ public partial class Graphics :
     {
         ArgumentNullException.ThrowIfNull(bitmap);
         ThrowIfDisposed();
+        var pattern = new Vector4(
+            patternColor.R / 255f,
+            patternColor.G / 255f,
+            patternColor.B / 255f,
+            patternColor.A / 255f);
+        DrawImageRasterOperation(
+            bitmap,
+            topLeft,
+            topRight,
+            bottomLeft,
+            sourceRect,
+            new GpuRasterOperation(rasterOperationCode, pattern));
+    }
+
+    internal void DrawImageRasterOperation(
+        Bitmap bitmap,
+        PointF topLeft,
+        PointF topRight,
+        PointF bottomLeft,
+        RectangleF sourceRect,
+        GpuRasterOperation rasterOperation)
+    {
+        ArgumentNullException.ThrowIfNull(bitmap);
+        ThrowIfDisposed();
         Vector2 destination0 = new(topLeft.X, topLeft.Y);
         Vector2 destination1 = new(topRight.X, topRight.Y);
         Vector2 destination3 = new(bottomLeft.X, bottomLeft.Y);
@@ -4638,11 +4662,6 @@ public partial class Graphics :
             destination2,
             destination3,
             isPerspective: false);
-        var pattern = new Vector4(
-            patternColor.R / 255f,
-            patternColor.G / 255f,
-            patternColor.B / 255f,
-            patternColor.A / 255f);
         DrawMappedBitmap(
             bitmap,
             destination0,
@@ -4652,7 +4671,7 @@ public partial class Graphics :
             projectiveWeights,
             sourceRect,
             imageAttributes: null,
-            rasterOperation: new GpuRasterOperation(rasterOperationCode, pattern));
+            rasterOperation);
     }
 
     private static Vector4 CreateProjectiveWeights(

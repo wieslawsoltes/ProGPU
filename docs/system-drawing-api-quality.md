@@ -531,9 +531,9 @@ selected immutable hatch definition resolves through the existing managed
 controls transparent or opaque background pixels and EMF `SetBrushOrgEx`
 controls device-pattern alignment. Save/RestoreDC retains the selected object,
 background state, and rendering origin. Ordinary shape fills and the existing
-source-independent `PATCOPY` path accept the hatch brush; destination-reading
-hatch ROP3 functions remain explicit until the pattern payload reaches the
-advanced composition shader. Both Debug and Release drawing suites pass
+source-independent `PATCOPY` path accept the hatch brush. That foundation
+initially kept destination-reading hatch ROP3 functions explicit until the
+following typed shader-payload checkpoint. Both Debug and Release drawing suites pass
 577/577. Exact tests cover EMF and WMF foreground/background pixels,
 transparent preservation, brush-origin movement, saved-state restoration,
 `PATCOPY`, invalid-enum rollback, object lifetime, and bounded warmed
@@ -546,6 +546,30 @@ authoritative. The behavior follows the official
 [`LOGBRUSH`](https://learn.microsoft.com/en-us/windows/win32/api/wingdi/ns-wingdi-logbrush)
 and [`SetBkMode`](https://learn.microsoft.com/en-us/windows/win32/api/wingdi/nf-wingdi-setbkmode)
 contracts.
+
+`MetafileBenchmarks.Playback256WmfHatchPatternInvertsToRetainedCommands`
+closes destination-reading hatch ROP3 playback without increasing the hot
+`RenderCommand` size. `GpuRasterOperation` carries the existing immutable
+`TilePatternBrush` through the command's object union slot; retained pictures
+round-trip the typed mask, foreground/background colors, and brush origin, and
+value-equivalent payloads remain batchable. The bounded advanced-composition
+uniform grows from 48 to 96 bytes and evaluates the 8-by-8 mask in physical
+device pixels before the existing exact bytewise ROP3 truth table. Opaque
+background pixels participate with the current DC background color;
+transparent hatch holes preserve the destination rather than substituting a
+color. `META_PATBLT` now admits every truth-table byte independent of source
+input and continues to reject source-dependent functions transactionally.
+Exact device tests cover source/pattern/destination RGB, origin phase, opaque
+and transparent backgrounds, retained pictures, and
+uniform layout. Metafile tests cover `PATINVERT`, shared per-playback typed
+payloads, and unchanged exterior pixels. Debug and Release drawing suites pass
+579/579, ApiCompat remains 0 missing types, 0 missing members, and 13 reviewed
+shape differences, and `RenderCommand` remains within its 576-byte ceiling.
+The 2026-09-01 ARM64/.NET 10.0.11 ShortRun measured a 358.096 microsecond
+median (359.472 microsecond mean, 19.634 microsecond standard deviation) with
+296.98 KB allocated for 256 horizontal hatch `PATINVERT` records. Three
+iterations and denied priority elevation make the exact pixels, retained
+payload, and allocation gates authoritative.
 
 `MetafileBenchmarks.Playback256EmfPathBracketsToRetainedCommands` guards 256
 Begin/rectangle/End/StrokeAndFill groups. The 2026-08-31 ARM64/.NET 10.0.11

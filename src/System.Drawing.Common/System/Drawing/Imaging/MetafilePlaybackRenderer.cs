@@ -2,7 +2,9 @@ using System.Buffers.Binary;
 using System.Drawing.Drawing2D;
 using System.Numerics;
 using System.Text;
+using ProGPU.Scene;
 using ProGPU.SystemDrawing;
+using TilePatternBrush = ProGPU.Vector.TilePatternBrush;
 
 namespace System.Drawing.Imaging;
 
@@ -1459,11 +1461,10 @@ internal static class MetafilePlaybackRenderer
             clippedDestinationTopRight,
             clippedDestinationBottomLeft,
             clippedSource,
-            checked((byte)(rasterOperation >> 16)),
-            GetRasterOperationPatternColor(state, record, rasterOperation));
+            CreateRasterOperation(state, record, rasterOperation));
     }
 
-    private static Color GetRasterOperationPatternColor(
+    private static GpuRasterOperation CreateRasterOperation(
         PlaybackState state,
         in MetafileRecord record,
         uint rasterOperation)
@@ -1471,17 +1472,29 @@ internal static class MetafilePlaybackRenderer
         byte code = checked((byte)(rasterOperation >> 16));
         if (!RasterOperationUsesPattern(code))
         {
-            return Color.Black;
+            return new GpuRasterOperation(code, Vector4.Zero);
         }
 
         return state.SelectedBrush switch
         {
-            SolidBrush solidBrush => solidBrush.Color,
+            SolidBrush solidBrush => new GpuRasterOperation(
+                code,
+                ToVector(solidBrush.Color)),
+            HatchBrush hatchBrush => new GpuRasterOperation(
+                code,
+                state.ResolveRasterOperationPattern(hatchBrush)),
             _ => throw Unsupported(
                 record,
-                $"Ternary raster operation 0x{rasterOperation:X8} requires a selected solid brush pattern.")
+                $"Ternary raster operation 0x{rasterOperation:X8} requires a selected solid or hatch brush pattern.")
         };
     }
+
+    private static Vector4 ToVector(Color color) =>
+        new(
+            color.R / 255f,
+            color.G / 255f,
+            color.B / 255f,
+            color.A / 255f);
 
     private static bool RasterOperationUsesPattern(byte code)
     {
@@ -1560,8 +1573,7 @@ internal static class MetafilePlaybackRenderer
             destinationTopRight,
             destinationBottomLeft,
             new RectangleF(0, 0, 1, 1),
-            code,
-            GetRasterOperationPatternColor(state, record, rasterOperation));
+            CreateRasterOperation(state, record, rasterOperation));
         return true;
     }
 
@@ -3191,22 +3203,21 @@ internal static class MetafilePlaybackRenderer
             throw Invalid(record);
         }
 
-        Brush? brush = rasterOperation switch
-        {
-            0x0000_0042 => Brushes.Black,
-            0x00F0_0021 => state.SelectedBrush,
-            0x00FF_0062 => Brushes.White,
-            _ => throw Unsupported(
-                record,
-                $"Ternary raster operation 0x{rasterOperation:X8} requires destination-dependent compositing.")
-        };
-        if (brush is null)
+        if (TryDrawSourceIndependentRasterOperation(
+            state,
+            record,
+            rasterOperation,
+            x,
+            y,
+            width,
+            height))
         {
             return;
         }
 
-        state.ApplyTransform(record);
-        state.Graphics.FillRectangle(brush, x, y, width, height);
+        throw Unsupported(
+            record,
+            $"Ternary raster operation 0x{rasterOperation:X8} requires an unavailable source bitmap.");
     }
 
     private static void DrawWmfTextOut(
@@ -4287,6 +4298,9 @@ internal static class MetafilePlaybackRenderer
         private HatchBrush? _resolvedHatchBrush;
         private GdiHatchBrushObject? _resolvedHatchBrushObject;
         private Color _resolvedHatchBackground;
+        private HatchBrush? _resolvedRasterOperationHatchBrush;
+        private Point _resolvedRasterOperationOrigin;
+        private TilePatternBrush? _resolvedRasterOperationPattern;
         private Bitmap? _rasterOperationCoverageBitmap;
         private GraphicsPath? _buildingPath;
         private GraphicsPath? _selectedPath;
@@ -4379,6 +4393,25 @@ internal static class MetafilePlaybackRenderer
             _resolvedHatchBrush = null;
             _resolvedHatchBrushObject = null;
             _resolvedHatchBackground = default;
+            _resolvedRasterOperationHatchBrush = null;
+            _resolvedRasterOperationPattern = null;
+        }
+
+        internal TilePatternBrush ResolveRasterOperationPattern(HatchBrush hatchBrush)
+        {
+            Point origin = Graphics.RenderingOrigin;
+            if (!ReferenceEquals(_resolvedRasterOperationHatchBrush, hatchBrush) ||
+                _resolvedRasterOperationOrigin != origin)
+            {
+                _resolvedRasterOperationPattern = new TilePatternBrush(
+                    HatchPatternMasks.Get(hatchBrush.HatchStyle),
+                    ToVector(hatchBrush.ForegroundColor),
+                    ToVector(hatchBrush.BackgroundColor),
+                    new Vector2(origin.X, origin.Y));
+                _resolvedRasterOperationHatchBrush = hatchBrush;
+                _resolvedRasterOperationOrigin = origin;
+            }
+            return _resolvedRasterOperationPattern!;
         }
 
         internal Matrix3x2 ApplyTransform(in MetafileRecord record)

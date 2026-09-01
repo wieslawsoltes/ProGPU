@@ -105,7 +105,7 @@ internal struct MaskSamplingUniforms : IEquatable<MaskSamplingUniforms>
             Options);
 }
 
-[StructLayout(LayoutKind.Explicit, Size = 48)]
+[StructLayout(LayoutKind.Explicit, Size = 96)]
 internal struct AdvancedBlendSamplingUniforms
 {
     [FieldOffset(0)] public Vector2 SourceOrigin;
@@ -113,7 +113,13 @@ internal struct AdvancedBlendSamplingUniforms
     [FieldOffset(16)] public uint BlendMode;
     [FieldOffset(20)] public uint OperationKind;
     [FieldOffset(24)] public uint RasterOperationCode;
+    [FieldOffset(28)] public uint PatternKind;
     [FieldOffset(32)] public Vector4 PatternColor;
+    [FieldOffset(48)] public Vector4 PatternBackgroundColor;
+    [FieldOffset(64)] public Vector2 PatternOrigin;
+    [FieldOffset(72)] public uint PatternMaskLow;
+    [FieldOffset(76)] public uint PatternMaskHigh;
+    [FieldOffset(80)] public uint PatternFlags;
 }
 
 [StructLayout(LayoutKind.Sequential, Pack = 16)]
@@ -15221,6 +15227,7 @@ SceneStateUploadComplete:
             Pad0 = rasterOperation.IsEnabled ? 2f : 1f
         };
         resource.UniformBuffer.WriteSingle(sourceUniforms);
+        TilePatternBrush? patternBrush = rasterOperation.PatternBrush;
         resource.UniformBuffer.WriteSingle(
             new AdvancedBlendSamplingUniforms
             {
@@ -15229,7 +15236,22 @@ SceneStateUploadComplete:
                 BlendMode = (uint)blendMode,
                 OperationKind = rasterOperation.IsEnabled ? 1u : 0u,
                 RasterOperationCode = rasterOperation.Code,
-                PatternColor = rasterOperation.PatternColor
+                PatternKind = patternBrush is null ? 0u : 1u,
+                PatternColor = rasterOperation.PatternColor,
+                PatternBackgroundColor = patternBrush?.BackgroundColor ?? default,
+                PatternOrigin = patternBrush is null
+                    ? default
+                    : patternBrush.Origin * dpiScale,
+                PatternMaskLow = patternBrush is null
+                    ? 0u
+                    : (uint)patternBrush.Pattern,
+                PatternMaskHigh = patternBrush is null
+                    ? 0u
+                    : (uint)(patternBrush.Pattern >> 32),
+                PatternFlags = patternBrush is not null &&
+                    patternBrush.BackgroundColor.W <= 0f
+                    ? 1u
+                    : 0u
             },
             256);
         return resource;

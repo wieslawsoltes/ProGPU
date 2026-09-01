@@ -44,6 +44,7 @@ public class MetafileBenchmarks
     private Metafile _wmfMappedPixelPlaybackMetafile = null!;
     private Metafile _wmfPatBltPlaybackMetafile = null!;
     private Metafile _wmfHatchPatBltPlaybackMetafile = null!;
+    private Metafile _wmfHatchPatInvertPlaybackMetafile = null!;
     private Metafile _wmfOffsetClipPatBltPlaybackMetafile = null!;
     private Metafile _wmfSourceIndependentBitmapPlaybackMetafile = null!;
     private Metafile _wmfDestinationOnlyBitmapPlaybackMetafile = null!;
@@ -139,6 +140,13 @@ public class MetafileBenchmarks
             new MemoryStream(CreatePlaybackWmfPatBlts(256), writable: false));
         _wmfHatchPatBltPlaybackMetafile = new Metafile(
             new MemoryStream(CreatePlaybackWmfPatBlts(256, hatch: true), writable: false));
+        _wmfHatchPatInvertPlaybackMetafile = new Metafile(
+            new MemoryStream(
+                CreatePlaybackWmfPatBlts(
+                    256,
+                    hatch: true,
+                    rasterOperation: 0x005A_0049),
+                writable: false));
         _wmfOffsetClipPatBltPlaybackMetafile = new Metafile(
             new MemoryStream(CreatePlaybackWmfPatBlts(256, includeOffsetClipState: true), writable: false));
         _wmfSourceIndependentBitmapPlaybackMetafile = new Metafile(
@@ -225,6 +233,7 @@ public class MetafileBenchmarks
         _wmfMappedPixelPlaybackMetafile.Dispose();
         _wmfPatBltPlaybackMetafile.Dispose();
         _wmfHatchPatBltPlaybackMetafile.Dispose();
+        _wmfHatchPatInvertPlaybackMetafile.Dispose();
         _wmfOffsetClipPatBltPlaybackMetafile.Dispose();
         _wmfSourceIndependentBitmapPlaybackMetafile.Dispose();
         _wmfDestinationOnlyBitmapPlaybackMetafile.Dispose();
@@ -664,6 +673,18 @@ public class MetafileBenchmarks
         _playbackContext.Clear();
         _playbackGraphics.DrawImage(
             _wmfHatchPatBltPlaybackMetafile,
+            new Rectangle(0, 0, 640, 480));
+        int commandCount = _playbackContext.Commands.Count;
+        _playbackContext.Clear();
+        return commandCount;
+    }
+
+    [Benchmark]
+    public int Playback256WmfHatchPatternInvertsToRetainedCommands()
+    {
+        _playbackContext.Clear();
+        _playbackGraphics.DrawImage(
+            _wmfHatchPatInvertPlaybackMetafile,
             new Rectangle(0, 0, 640, 480));
         int commandCount = _playbackContext.Commands.Count;
         _playbackContext.Clear();
@@ -2328,7 +2349,8 @@ public class MetafileBenchmarks
     private static byte[] CreatePlaybackWmfPatBlts(
         int recordCount,
         bool includeOffsetClipState = false,
-        bool hatch = false)
+        bool hatch = false,
+        uint rasterOperation = 0x00F0_0021)
     {
         const int recordWords = 9;
         int clipSetupWords = includeOffsetClipState ? 7 : 0;
@@ -2378,7 +2400,7 @@ public class MetafileBenchmarks
             short y = checked((short)((index / 16) * 30));
             WriteUInt32(bytes, cursor, recordWords);
             WriteUInt16(bytes, cursor + 4, 0x061D);
-            WriteUInt32(bytes, cursor + 6, 0x00F0_0021);
+            WriteUInt32(bytes, cursor + 6, rasterOperation);
             WriteInt16(bytes, cursor + 10, 22);
             WriteInt16(bytes, cursor + 12, 32);
             WriteInt16(bytes, cursor + 14, y);

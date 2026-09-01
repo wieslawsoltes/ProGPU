@@ -74,6 +74,94 @@ public sealed class TextureBlendRenderTests
     }
 
     [Fact]
+    public void RasterOperationEvaluatesOpaqueAndTransparentTilePatternsOnDeviceRgb()
+    {
+        using var window = new HeadlessWindow(24, 16);
+        using var target = new GpuTexture(
+            window.Context,
+            24,
+            16,
+            TextureFormat.Rgba8Unorm,
+            TextureUsage.RenderAttachment | TextureUsage.TextureBinding | TextureUsage.CopySrc,
+            "ROP3 tile-pattern target");
+        using var source = new GpuTexture(
+            window.Context,
+            1,
+            1,
+            TextureFormat.Rgba8Unorm,
+            TextureUsage.TextureBinding | TextureUsage.CopyDst,
+            "ROP3 tile-pattern source",
+            alphaMode: GpuTextureAlphaMode.Straight);
+        var sourcePixel = new RgbaPixel(0x22, 0x44, 0x66, 0xFF);
+        source.WritePixels<byte>(
+            [sourcePixel.R, sourcePixel.G, sourcePixel.B, sourcePixel.A]);
+
+        var destination = new RgbaPixel(0xCC, 0x0F, 0xAA, 0xFF);
+        var foreground = new RgbaPixel(0xF0, 0x30, 0x55, 0xFF);
+        var background = new RgbaPixel(0x0F, 0xC0, 0xA5, 0xFF);
+        const ulong horizontalRow = 0x0000_0000_0000_00FFUL;
+        const byte ternaryXor = 0x96;
+
+        var visual = new DrawingVisual { Size = new Vector2(24f, 16f) };
+        visual.Context.DrawRectangle(
+            new SolidColorBrush(ToVector(destination)),
+            null,
+            new Rect(0f, 0f, 24f, 16f));
+        visual.Context.Commands.Add(new RenderCommand
+        {
+            Type = RenderCommandType.DrawTexture,
+            Texture = source,
+            Rect = new Rect(0f, 0f, 12f, 16f),
+            TextureSamplingMode = TextureSamplingMode.Nearest,
+            RasterOperation = new GpuRasterOperation(
+                ternaryXor,
+                new TilePatternBrush(
+                    horizontalRow,
+                    ToVector(foreground),
+                    ToVector(background),
+                    new Vector2(0f, 1f)))
+        });
+        visual.Context.Commands.Add(new RenderCommand
+        {
+            Type = RenderCommandType.DrawTexture,
+            Texture = source,
+            Rect = new Rect(12f, 0f, 12f, 16f),
+            TextureSamplingMode = TextureSamplingMode.Nearest,
+            RasterOperation = new GpuRasterOperation(
+                ternaryXor,
+                new TilePatternBrush(
+                    horizontalRow,
+                    ToVector(foreground),
+                    Vector4.Zero,
+                    new Vector2(0f, 1f)))
+        });
+
+        window.Compositor.RenderOffscreen(
+            visual,
+            width: 24,
+            height: 16,
+            targetTexture: target,
+            padding: 0f,
+            dpiScale: 1f);
+
+        byte[] pixels = target.ReadPixels();
+        RgbaPixel foregroundResult = EvaluateRasterOperation(
+            ternaryXor,
+            foreground,
+            sourcePixel,
+            destination);
+        RgbaPixel backgroundResult = EvaluateRasterOperation(
+            ternaryXor,
+            background,
+            sourcePixel,
+            destination);
+        Assert.Equal(foregroundResult, ReadPixel(pixels, target.Width, 4, 1));
+        Assert.Equal(backgroundResult, ReadPixel(pixels, target.Width, 4, 2));
+        Assert.Equal(foregroundResult, ReadPixel(pixels, target.Width, 16, 1));
+        Assert.Equal(destination, ReadPixel(pixels, target.Width, 16, 2));
+    }
+
+    [Fact]
     public void RetainedTextureCommandPreservesRasterOperation()
     {
         var expected = new GpuRasterOperation(
@@ -89,6 +177,32 @@ public sealed class TextureBlendRenderTests
         using var picture = new GpuPicture([command], [], [], [], []);
 
         Assert.Equal(expected, picture.GetCommand(0).RasterOperation);
+    }
+
+    [Fact]
+    public void RetainedTextureCommandPreservesTilePatternRasterOperation()
+    {
+        var expected = new GpuRasterOperation(
+            0x5A,
+            new TilePatternBrush(
+                0xAA55_AA55_AA55_AA55UL,
+                new Vector4(1f, 0f, 0f, 1f),
+                new Vector4(0f, 0f, 1f, 1f),
+                new Vector2(3f, -2f)));
+        var command = new RenderCommand
+        {
+            Type = RenderCommandType.DrawTexture,
+            Rect = new Rect(1f, 2f, 3f, 4f),
+            RasterOperation = expected
+        };
+
+        using var picture = new GpuPicture([command], [], [], [], []);
+
+        GpuRasterOperation actual = picture.GetCommand(0).RasterOperation;
+        Assert.Equal(expected, actual);
+        Assert.NotNull(actual.PatternBrush);
+        Assert.Equal(expected.PatternBrush!.Pattern, actual.PatternBrush.Pattern);
+        Assert.Equal(expected.PatternBrush.Origin, actual.PatternBrush.Origin);
     }
 
     [Fact]

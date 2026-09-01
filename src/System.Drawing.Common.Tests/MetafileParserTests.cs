@@ -1225,7 +1225,7 @@ public sealed class MetafileParserTests
     }
 
     [Fact]
-    public void WmfDestinationDependentPatBltRollsBackEarlierPatternCopy()
+    public void WmfDestinationDependentPatBltComposesExactPatternAndDestinationRgb()
     {
         using var metafile = new Metafile(new MemoryStream(
             CreatePatBltPlaybackWmf(includeDestinationDependentRecord: true)));
@@ -1233,13 +1233,12 @@ public sealed class MetafileParserTests
         using (Graphics graphics = Graphics.FromImage(target))
         {
             graphics.Clear(Color.Blue);
-            NotSupportedException exception = Assert.Throws<NotSupportedException>(() =>
-                graphics.DrawImage(metafile, new Rectangle(0, 0, 64, 64)));
-            Assert.Contains(nameof(EmfPlusRecordType.WmfPatBlt), exception.Message, StringComparison.Ordinal);
-            Assert.Contains("0x005A0049", exception.Message, StringComparison.Ordinal);
+            graphics.DrawImage(metafile, new Rectangle(0, 0, 64, 64));
         }
 
-        Assert.Equal(Color.Blue.ToArgb(), target.GetPixel(12, 12).ToArgb());
+        Assert.Equal(Color.Black.ToArgb(), target.GetPixel(12, 12).ToArgb());
+        Assert.Equal(Color.Black.ToArgb(), target.GetPixel(32, 12).ToArgb());
+        Assert.Equal(Color.White.ToArgb(), target.GetPixel(52, 12).ToArgb());
     }
 
     [Fact]
@@ -4459,6 +4458,36 @@ public sealed class MetafileParserTests
     }
 
     [Fact]
+    public void WmfHatchPatInvertHonorsOpaqueAndTransparentBackgrounds()
+    {
+        byte[] fixture = CreatePlaybackWmf(
+        [
+            (0x02FC, WmfHatchBrush(HatchStyle.Horizontal, Color.Red)),
+            (0x012D, WmfWords(0)),
+            (0x0201, WmfColor(Color.Blue)),
+            (0x061D, WmfPatBlt(0x005A_0049, new Rectangle(4, 4, 16, 16))),
+            (0x0102, WmfWords(1)),
+            (0x061D, WmfPatBlt(0x005A_0049, new Rectangle(24, 4, 16, 16))),
+            (0, [])
+        ]);
+        using var metafile = new Metafile(new MemoryStream(fixture, writable: false));
+        using var target = new Bitmap(44, 24);
+        using (Graphics graphics = Graphics.FromImage(target))
+        {
+            graphics.Clear(Color.Green);
+            graphics.DrawImage(metafile, new Rectangle(0, 0, 64, 64));
+        }
+
+        Color foregroundXorDestination = Color.FromArgb(0xFF, 0x80, 0x00);
+        Color backgroundXorDestination = Color.FromArgb(0x00, 0x80, 0xFF);
+        Assert.Equal(foregroundXorDestination.ToArgb(), target.GetPixel(8, 8).ToArgb());
+        Assert.Equal(backgroundXorDestination.ToArgb(), target.GetPixel(8, 10).ToArgb());
+        Assert.Equal(foregroundXorDestination.ToArgb(), target.GetPixel(28, 8).ToArgb());
+        Assert.Equal(Color.Green.ToArgb(), target.GetPixel(28, 10).ToArgb());
+        Assert.Equal(Color.Green.ToArgb(), target.GetPixel(2, 2).ToArgb());
+    }
+
+    [Fact]
     public void EmfAndWmfInvalidHatchBrushesRollBackEarlierCommands()
     {
         byte[] emf = CreateTextPlaybackEmf(
@@ -4527,6 +4556,42 @@ public sealed class MetafileParserTests
             (GC.GetAllocatedBytesForCurrentThread() - before) / 8;
 
         Assert.InRange(allocatedPerPlayback, 32 * 1024, 8 * 1024 * 1024);
+    }
+
+    [Fact]
+    public void WmfHatchRasterOperationPlaybackReusesTypedPatternPayload()
+    {
+        var records = new List<(ushort Function, byte[] Payload)>
+        {
+            (0x02FC, WmfHatchBrush(HatchStyle.Horizontal, Color.Red)),
+            (0x012D, WmfWords(0)),
+            (0x0201, WmfColor(Color.Blue))
+        };
+        for (int index = 0; index < 64; index++)
+        {
+            records.Add((
+                0x061D,
+                WmfPatBlt(
+                    0x005A_0049,
+                    new Rectangle((index % 8) * 8, (index / 8) * 8, 8, 8))));
+        }
+        records.Add((0, []));
+        using var metafile = new Metafile(new MemoryStream(
+            CreatePlaybackWmf(records),
+            writable: false));
+        var context = new DrawingContext();
+        using Graphics graphics = Graphics.FromProGpuDrawingContext(context);
+
+        graphics.DrawImage(metafile, new Rectangle(0, 0, 64, 64));
+
+        RenderCommand[] commands = context.Commands
+            .Where(command => command.Type == RenderCommandType.DrawTexture)
+            .ToArray();
+        Assert.Equal(64, commands.Length);
+        TilePatternBrush pattern = Assert.IsType<TilePatternBrush>(
+            commands[0].RasterOperation.PatternBrush);
+        Assert.All(commands, command =>
+            Assert.Same(pattern, command.RasterOperation.PatternBrush));
     }
 
     [Fact]

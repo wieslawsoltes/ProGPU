@@ -1048,9 +1048,9 @@ origin, and Graphics Save/Restore retains that origin together with the
 selected object and background state. The existing ProGPU `TilePatternBrush`
 then handles ordinary vector fills and source-independent `PATCOPY` without a
 native brush handle. Invalid hatch values reject before object publication and
-roll back prior retained commands. Destination-reading ROP3 operations still
-require a typed hatch payload in the advanced composition shader; they do not
-fall back to the foreground color.
+roll back prior retained commands. The foundation did not approximate
+destination-reading ROP3 operations with the foreground color; the following
+checkpoint supplies the required typed shader payload.
 
 `Playback256WmfHatchPatternCopiesToRetainedCommands` measures 256 horizontal
 hatch `PATCOPY` records through object selection, current background
@@ -1065,6 +1065,38 @@ zero missing members. The record and state semantics are pinned to the
 official [`META_CREATEBRUSHINDIRECT`](https://learn.microsoft.com/en-us/openspecs/windows_protocols/ms-wmf/8331e35d-0f97-4ec3-b3b0-cfb3281c0642)
 and [`LOGBRUSH`](https://learn.microsoft.com/en-us/windows/win32/api/wingdi/ns-wingdi-logbrush)
 contracts.
+
+The destination-reading hatch ROP3 checkpoint reuses the same immutable
+`TilePatternBrush` as the vector path. `GpuRasterOperation` transports that
+typed payload through the existing `RenderCommand.DataParam` union slot, so the
+hot retained command stays within its 576-byte size gate. Retained pictures
+preserve the complete 64-bit mask, foreground/background colors, and rendering
+origin; semantic equality keeps equivalent texture draws batchable. The
+advanced-composition uniform is a bounded 96-byte value carrying two mask
+words, colors, origin, and transparent-background state. Its shader evaluates
+the repeating 8-by-8 tile in physical device coordinates, selects foreground
+or current DC background before the existing exact bytewise ternary truth
+table, and returns the destination unchanged for a transparent hatch hole.
+`META_PATBLT` uses the same truth-table source-dependency classifier as bitmap
+records, accepting `PATINVERT`, `DSTINVERT`, and every other source-independent
+function while rejecting a function that requires an unavailable source.
+
+Exact compositor tests cover a true source/pattern/destination XOR, opaque and
+transparent tile backgrounds, nonzero origin phase, uniform ABI offsets, and
+retained-picture round trips. Metafile tests cover exact opaque/transparent
+horizontal-hatch `PATINVERT`, unchanged exterior pixels, and one cached typed
+pattern object shared by 64 commands in a playback. Both complete Debug and
+Release drawing suites pass 579/579; ApiCompat remains zero missing types, zero
+missing members, and 13 reviewed shape diagnostics.
+
+`Playback256WmfHatchPatternInvertsToRetainedCommands` measures 256 horizontal
+hatch `PATINVERT` records through selected-object resolution, one cached typed
+pattern payload, coverage-texture retention, exact destination sampling, and
+cleanup. The 2026-09-01 ARM64/.NET 10.0.11 ShortRun measured a 358.096
+microsecond median (359.472 microsecond mean, 19.634 microsecond standard
+deviation) with 296.98 KB allocated. Three iterations and denied priority
+elevation make the exact device/metafile pixels, retained payload, command-size,
+and allocation gates authoritative.
 
 The EMF path-bracket follow-up adds `EMR_BEGINPATH`, `EMR_ENDPATH`,
 `EMR_CLOSEFIGURE`, `EMR_ABORTPATH`, `EMR_FILLPATH`, `EMR_STROKEPATH`,
