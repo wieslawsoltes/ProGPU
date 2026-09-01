@@ -3694,9 +3694,12 @@ residency/evictions, and device-resource generations.
 Stable replay targets one render submission, zero scene update, zero retained
 upload, and zero managed allocation. Camera replay is `O(V + D)` GPU work for
 visible primitives `V` and draw batches `D`, with CPU work bounded independently
-of total document entity count after snapshot/index construction. A content
-edit regenerates commands only for affected eligible immutable chunks and
-definition variants; unsupported families still take the full recording path.
+of total document entity count after snapshot/index construction. A content edit
+regenerates commands only for affected eligible immutable chunks and definition
+variants. Every semantic entity family recorded by the plan compiler is eligible
+for exact-root reuse; finite-view RAY/XLINE/PDMODE construction, depth-scene MESH,
+resolver-on-record IMAGE, and the documented unsafe affine variants remain on
+their distinct compiler paths.
 
 Plan replay exposes `CadPlanGpuFrameMetrics`, an O(1), allocation-free value
 projection of the completed compositor frame correlated with the immutable CAD

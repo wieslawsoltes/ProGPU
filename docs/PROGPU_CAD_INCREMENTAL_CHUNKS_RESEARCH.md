@@ -155,11 +155,20 @@ resource lease. One reference-counted lifetime lease is deduplicated per distinc
 child in each recording; identity-only wrappers still flatten to shared immutable
 command storage. LRU eviction, same-handle replacement, cache clearing, or cache
 disposal therefore cannot invalidate an already published scene or aggregate picture.
-Currently eligible analytic/vector-text chunks retain no disposable device resource;
-cached font and SHX glyph objects remain strongly owned by their retained
-commands and exact dependency table. Mesh roots remain on the ordinary path until
-their complete resource and global
-budget dependencies are encoded.
+Analytic and vector-text chunks retain no disposable device resource; cached font
+and SHX glyph objects remain strongly owned by their retained commands and exact
+dependency table. Prepared raster chunks retain an independent exact texture lease.
+
+Every entity family actually recorded by `CadPlanSceneCompiler` is now eligible
+for an exact semantic-root chunk. The remaining exclusions are intentional
+compiler-boundary findings rather than missing chunk encoders: RAY and XLINE need
+the finite current-view construction compiler; nonzero PDMODE point markers need
+their finite marker view; modern MESH is consumed by the independent depth-aware
+3D scene and is skipped by the plan compiler; resolver-on-record IMAGE does not
+have a texture identity at key-construction time; patterned affine block linetypes
+have final-space dash lengths; and nested paper VIEWPORT plus affine modeler roots
+do not satisfy the 2D outer-transform contract. Those paths fail closed or use
+their established non-chunk compiler instead of claiming unsafe reuse.
 
 ## Managed/native applicability and validation
 
@@ -173,5 +182,7 @@ semantics. MINSERT and distinct affine INSERT regressions prove one shared child
 identity, exact composed managed endpoints within retained-float tolerance, and
 matched native primitive/draw counts.
 
-Affine-block linetype, mesh, and other
-resource- or global-budget-dependent families remain the next chunk-coverage work.
+This completes the plan compiler's incremental chunk-coverage applicability audit.
+Future work may add view-keyed construction chunks or depth-scene incremental
+resources, but those are separate cache contracts rather than incomplete plan-root
+coverage.
