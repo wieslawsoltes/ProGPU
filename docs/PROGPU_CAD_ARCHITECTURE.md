@@ -3661,6 +3661,16 @@ visible primitives `V` and draw batches `D`, with CPU work bounded independently
 of total document entity count after snapshot/index construction. A content
 edit recompiles only affected immutable chunks and dependent block instances.
 
+Plan replay exposes `CadPlanGpuFrameMetrics`, an O(1), allocation-free value
+projection of the completed compositor frame correlated with the immutable CAD
+generation and plan command count. It records compile/upload/render timing,
+draw and geometry counts, retained-page and render-bundle reuse, current-frame
+incremental uploads, and known logical renderer buffer/texture allocations.
+Its scope is explicitly the complete pipeline frame, and its saturating
+`LogicalRgbaTargetBytes` proxy is not driver-reported physical residency. The
+clean-room source comparison and counter ownership contract are recorded in
+[`PROGPU_CAD_PLAN_GPU_METRICS_RESEARCH.md`](PROGPU_CAD_PLAN_GPU_METRICS_RESEARCH.md).
+
 Required fixtures include all supported entity families, large coordinates,
 non-world OCS, nested/cyclic blocks and XRefs, layouts/viewports, lineweights,
 linetypes, hatches, splines/NURBS, images, dimensions, rich text, TTF/OTF/SHX,
