@@ -1490,6 +1490,172 @@ int main()
         return 152;
     }
 
+    const compat::bitmap_brush_properties bitmap_brush_properties{
+        compat::extend_mode::wrap,
+        compat::extend_mode::mirror,
+        compat::bitmap_interpolation_mode::nearest_neighbor};
+    const compat::brush_properties bitmap_brush_base_properties{
+        0.625F,
+        {1.0F, 0.0F, 0.0F, 1.0F, 1.0F, 2.0F}};
+    compat::bitmap_brush* raw_bitmap_brush = nullptr;
+    if (target->CreateBitmapBrush(
+            portable_bitmap.get(),
+            &bitmap_brush_properties,
+            &bitmap_brush_base_properties,
+            &raw_bitmap_brush) != com::ok ||
+        raw_bitmap_brush == nullptr) {
+        return 156;
+    }
+    com::pointer<compat::bitmap_brush> bitmap_brush;
+    bitmap_brush.attach(raw_bitmap_brush);
+    com::pointer<compat::brush> bitmap_brush_base;
+    compat::bitmap* returned_bitmap = nullptr;
+    compat::matrix_3x2_f returned_bitmap_brush_transform{};
+    bitmap_brush->GetBitmap(&returned_bitmap);
+    bitmap_brush->GetTransform(&returned_bitmap_brush_transform);
+    const bool bitmap_brush_identity_matches = returned_bitmap ==
+        portable_bitmap.get();
+    if (returned_bitmap != nullptr) {
+        returned_bitmap->Release();
+    }
+    if (bitmap_brush.as(
+            compat::brush_interface_id, bitmap_brush_base) != com::ok ||
+        !bitmap_brush_base || !bitmap_brush_identity_matches ||
+        bitmap_brush->GetExtendModeX() != compat::extend_mode::wrap ||
+        bitmap_brush->GetExtendModeY() != compat::extend_mode::mirror ||
+        bitmap_brush->GetInterpolationMode() !=
+            compat::bitmap_interpolation_mode::nearest_neighbor ||
+        !approximately_equal(bitmap_brush->GetOpacity(), 0.625F) ||
+        !approximately_equal(returned_bitmap_brush_transform.m31, 1.0F) ||
+        !approximately_equal(returned_bitmap_brush_transform.m32, 2.0F)) {
+        return 157;
+    }
+    bitmap_brush->SetExtendModeX(compat::extend_mode::clamp);
+    bitmap_brush->SetExtendModeY(compat::extend_mode::wrap);
+    bitmap_brush->SetInterpolationMode(
+        compat::bitmap_interpolation_mode::linear);
+    bitmap_brush->SetOpacity(0.75F);
+    bitmap_brush->SetExtendModeX(static_cast<compat::extend_mode>(99U));
+    bitmap_brush->SetInterpolationMode(
+        static_cast<compat::bitmap_interpolation_mode>(99U));
+    if (bitmap_brush->GetExtendModeX() != compat::extend_mode::clamp ||
+        bitmap_brush->GetExtendModeY() != compat::extend_mode::wrap ||
+        bitmap_brush->GetInterpolationMode() !=
+            compat::bitmap_interpolation_mode::linear ||
+        !approximately_equal(bitmap_brush->GetOpacity(), 0.75F)) {
+        return 158;
+    }
+    compat::bitmap* raw_foreign_bitmap = nullptr;
+    if (other_target->CreateBitmap(
+            {2U, 2U}, bitmap_pixels, 8U, &bitmap_properties,
+            &raw_foreign_bitmap) != com::ok ||
+        raw_foreign_bitmap == nullptr) {
+        return 159;
+    }
+    com::pointer<compat::bitmap> foreign_bitmap;
+    foreign_bitmap.attach(raw_foreign_bitmap);
+    raw_bitmap_brush = reinterpret_cast<compat::bitmap_brush*>(
+        static_cast<std::uintptr_t>(1U));
+    if (target->CreateBitmapBrush(
+            foreign_bitmap.get(), nullptr, nullptr, &raw_bitmap_brush) !=
+            compat::wrong_factory ||
+        raw_bitmap_brush != nullptr) {
+        return 160;
+    }
+    bitmap_brush->SetBitmap(foreign_bitmap.get());
+    returned_bitmap = nullptr;
+    bitmap_brush->GetBitmap(&returned_bitmap);
+    const bool rejected_foreign_bitmap = returned_bitmap ==
+        portable_bitmap.get();
+    if (returned_bitmap != nullptr) {
+        returned_bitmap->Release();
+    }
+    if (!rejected_foreign_bitmap) {
+        return 161;
+    }
+
+    target->BeginDraw();
+    const compat::rectangle_f bitmap_brush_rectangle{
+        4.0F, 5.0F, 20.0F, 17.0F};
+    target->FillRectangle(
+        &bitmap_brush_rectangle,
+        static_cast<compat::brush*>(bitmap_brush.get()));
+    if (target->EndDraw(nullptr, nullptr) != com::ok ||
+        scene_target->GetRequiredSceneSize() == 0U) {
+        return 162;
+    }
+    const std::uint64_t bitmap_brush_scene_size =
+        scene_target->GetRequiredSceneSize();
+    std::vector<std::byte> bitmap_brush_scene(
+        static_cast<std::size_t>(bitmap_brush_scene_size));
+    std::uint64_t bitmap_brush_scene_written = 0U;
+    if (scene_target->BuildScene(
+            bitmap_brush_scene.data(),
+            bitmap_brush_scene.size(),
+            &bitmap_brush_scene_written) != com::ok ||
+        bitmap_brush_scene_written != bitmap_brush_scene_size) {
+        return 163;
+    }
+    const auto* bitmap_brush_header = reinterpret_cast<
+        const progpu_native_scene_header*>(bitmap_brush_scene.data());
+    const progpu_native_scene_resource* bitmap_brush_image = nullptr;
+    const progpu_native_scene_resource* bitmap_brush_mask = nullptr;
+    const progpu_native_scene_resource* bitmap_brush_state = nullptr;
+    for (std::uint32_t index = 0U;
+         index < bitmap_brush_header->resource_count;
+         ++index) {
+        const auto* brush_scene_resource = reinterpret_cast<
+            const progpu_native_scene_resource*>(
+            bitmap_brush_scene.data() +
+            bitmap_brush_header->resource_offset +
+            index * bitmap_brush_header->resource_stride);
+        if (brush_scene_resource->kind ==
+            PROGPU_NATIVE_SCENE_RESOURCE_IMAGE) {
+            bitmap_brush_image = brush_scene_resource;
+        } else if (brush_scene_resource->kind ==
+            PROGPU_NATIVE_SCENE_RESOURCE_LAYER_MASK) {
+            bitmap_brush_mask = brush_scene_resource;
+        } else if (brush_scene_resource->kind ==
+            PROGPU_NATIVE_SCENE_RESOURCE_STATE) {
+            bitmap_brush_state = brush_scene_resource;
+        }
+    }
+    const auto* bitmap_brush_command = reinterpret_cast<
+        const progpu_native_scene_command*>(
+        bitmap_brush_scene.data() + bitmap_brush_header->command_offset);
+    const auto* bitmap_brush_draw = reinterpret_cast<
+        const progpu_native_scene_image_draw*>(
+        bitmap_brush_scene.data() + bitmap_brush_command->payload_offset);
+    const auto* bitmap_brush_mask_value = bitmap_brush_mask == nullptr
+        ? nullptr
+        : reinterpret_cast<const progpu_native_scene_layer_geometry_mask*>(
+            bitmap_brush_scene.data() + bitmap_brush_mask->payload_offset);
+    if (bitmap_brush_header->command_count != 1U ||
+        bitmap_brush_image == nullptr || bitmap_brush_mask == nullptr ||
+        bitmap_brush_state == nullptr || bitmap_brush_command->kind !=
+            PROGPU_NATIVE_SCENE_COMMAND_DRAW_IMAGE ||
+        bitmap_brush_mask_value == nullptr ||
+        bitmap_brush_mask_value->kind !=
+            PROGPU_NATIVE_SCENE_LAYER_MASK_GEOMETRY ||
+        bitmap_brush_mask_value->primitive_count != 1U ||
+        bitmap_brush_draw->sampling !=
+            PROGPU_NATIVE_IMAGE_SAMPLING_LINEAR ||
+        (bitmap_brush_draw->flags &
+            PROGPU_NATIVE_SCENE_IMAGE_EXTENDED_SOURCE_RECT) == 0U ||
+        ((bitmap_brush_draw->flags &
+                PROGPU_NATIVE_SCENE_IMAGE_ADDRESS_U_MASK) >>
+            PROGPU_NATIVE_SCENE_IMAGE_ADDRESS_U_SHIFT) !=
+            PROGPU_NATIVE_IMAGE_ADDRESS_CLAMP ||
+        ((bitmap_brush_draw->flags &
+                PROGPU_NATIVE_SCENE_IMAGE_ADDRESS_V_MASK) >>
+            PROGPU_NATIVE_SCENE_IMAGE_ADDRESS_V_SHIFT) !=
+            PROGPU_NATIVE_IMAGE_ADDRESS_REPEAT ||
+        !approximately_equal(bitmap_brush_draw->opacity, 0.75F) ||
+        !approximately_equal(bitmap_brush_draw->transform.m31, 1.0F) ||
+        !approximately_equal(bitmap_brush_draw->transform.m32, 2.0F)) {
+        return 164;
+    }
+
     compat::render_target* unsupported =
         reinterpret_cast<compat::render_target*>(
         static_cast<std::uintptr_t>(1U));
@@ -1665,6 +1831,30 @@ int main()
         return 153;
     }
     queried_native_bitmap->Release();
+    auto* native_bitmap_brush = reinterpret_cast<ID2D1BitmapBrush*>(
+        bitmap_brush.get());
+    ID2D1BitmapBrush* queried_native_bitmap_brush = nullptr;
+    ID2D1Bitmap* returned_native_brush_bitmap = nullptr;
+    if (FAILED(native_bitmap_brush->QueryInterface(
+            __uuidof(ID2D1BitmapBrush),
+            reinterpret_cast<void**>(&queried_native_bitmap_brush))) ||
+        queried_native_bitmap_brush == nullptr) {
+        return 165;
+    }
+    native_bitmap_brush->GetBitmap(&returned_native_brush_bitmap);
+    const bool native_bitmap_brush_matches =
+        returned_native_brush_bitmap == native_bitmap &&
+        native_bitmap_brush->GetExtendModeX() == D2D1_EXTEND_MODE_CLAMP &&
+        native_bitmap_brush->GetExtendModeY() == D2D1_EXTEND_MODE_WRAP &&
+        native_bitmap_brush->GetInterpolationMode() ==
+            D2D1_BITMAP_INTERPOLATION_MODE_LINEAR;
+    if (returned_native_brush_bitmap != nullptr) {
+        returned_native_brush_bitmap->Release();
+    }
+    queried_native_bitmap_brush->Release();
+    if (!native_bitmap_brush_matches) {
+        return 166;
+    }
     const D2D1_SIZE_U native_target_pixel_size = native_target->GetPixelSize();
     const D2D1_SIZE_F native_target_size = native_target->GetSize();
     ID2D1SolidColorBrush* native_target_brush = nullptr;
@@ -1681,6 +1871,10 @@ int main()
     const D2D1_RECT_F native_target_rectangle{8.0F, 9.0F, 30.0F, 40.0F};
     native_target->FillRectangle(
         &native_target_rectangle, native_target_brush);
+    const D2D1_RECT_F native_bitmap_brush_rectangle{
+        32.0F, 9.0F, 39.0F, 25.0F};
+    native_target->FillRectangle(
+        &native_bitmap_brush_rectangle, native_bitmap_brush);
     const D2D1_RECT_F native_bitmap_destination{40.0F, 9.0F, 56.0F, 25.0F};
     native_target->DrawBitmap(
         native_bitmap,
@@ -1692,8 +1886,8 @@ int main()
     native_target_brush->Release();
     scene_target->GetSummary(&target_summary);
     if (FAILED(native_target_end_status) ||
-        target_summary.generation != 15U ||
-        target_summary.draw_count != 2U ||
+        target_summary.generation != 16U ||
+        target_summary.draw_count != 3U ||
         scene_target->GetRequiredSceneSize() == 0U) {
         return 129;
     }

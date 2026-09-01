@@ -154,6 +154,13 @@ public:
         const progpu_native_scene_layer_brush_mask& mask,
         std::span<const progpu_native_scene_gradient_stop> gradient_stops,
         std::uint32_t& resource_index) noexcept;
+    // Records one canonical GPU-rasterized geometry mask. The primitive span
+    // is retained directly and never round-trips through CPU pixels.
+    bool add_geometry_mask(
+        const progpu_native_scene_layer_geometry_mask& mask,
+        std::span<const progpu_native_geometry_primitive> primitives,
+        std::span<const progpu_native_scene_gradient_stop> gradient_stops,
+        std::uint32_t& resource_index) noexcept;
     bool add_analytic_mask_chain(
         std::span<const progpu_native_scene_layer_mask> masks,
         std::uint32_t& resource_index) noexcept;

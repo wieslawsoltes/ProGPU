@@ -1698,7 +1698,7 @@ bool semantic_scene_builder_records_color_bitmap_glyphs() {
 
 bool semantic_scene_builder_records_layers_masks_and_effects() {
     semantic_scene_builder builder(706U, 7U);
-    if (!builder.reserve(3U, 7U, 4096U)) {
+    if (!builder.reserve(3U, 9U, 4096U)) {
         return false;
     }
     const auto identity = semantic_scene_builder::identity_transform();
@@ -1722,6 +1722,7 @@ bool semantic_scene_builder_records_layers_masks_and_effects() {
     std::uint32_t coverage_mask = PROGPU_NATIVE_SCENE_NO_INDEX;
     std::uint32_t chain_mask = PROGPU_NATIVE_SCENE_NO_INDEX;
     std::uint32_t vector_mask = PROGPU_NATIVE_SCENE_NO_INDEX;
+    std::uint32_t geometry_mask = PROGPU_NATIVE_SCENE_NO_INDEX;
     if (!builder.add_rounded_rectangle_mask(left, rounded_mask)) {
         return false;
     }
@@ -1774,6 +1775,24 @@ bool semantic_scene_builder_records_layers_masks_and_effects() {
     composite_brush.brush.colors[0] = {1.0F, 1.0F, 1.0F, 0.5F};
     composite_brush.brush.coordinate_transform0[0] = 1.0F;
     composite_brush.brush.coordinate_transform1[1] = 1.0F;
+    const progpu_native_geometry_primitive geometry_primitive{
+        PROGPU_NATIVE_GEOMETRY_QUADRILATERAL,
+        0U,
+        {8.0F, 8.0F},
+        {32.0F, 8.0F},
+        {32.0F, 24.0F},
+        {8.0F, 24.0F},
+        0.0F,
+        0.0F,
+        {1.0F, 1.0F, 1.0F, 1.0F},
+        identity};
+    progpu_native_scene_layer_geometry_mask geometry_mask_value{};
+    geometry_mask_value.bounds = {8.0F, 8.0F, 24.0F, 16.0F};
+    geometry_mask_value.transform = identity;
+    geometry_mask_value.opacity = 1.0F;
+    geometry_mask_value.brush.type = PROGPU_NATIVE_SCENE_BRUSH_SOLID;
+    geometry_mask_value.brush.opacity = 1.0F;
+    geometry_mask_value.brush.colors[0] = {1.0F, 1.0F, 1.0F, 1.0F};
     std::uint32_t composite_mask = PROGPU_NATIVE_SCENE_NO_INDEX;
     if (!builder.add_coverage_mask(
             coverage,
@@ -1785,6 +1804,12 @@ bool semantic_scene_builder_records_layers_masks_and_effects() {
             vector_segments,
             1.0F,
             vector_mask) ||
+        !builder.add_geometry_mask(
+            geometry_mask_value,
+            std::span<const progpu_native_geometry_primitive>(
+                &geometry_primitive, 1U),
+            {},
+            geometry_mask) ||
         !builder.add_composite_mask(
             std::span<const progpu_native_scene_layer_brush_mask>(
                 &composite_brush,
@@ -1800,7 +1825,8 @@ bool semantic_scene_builder_records_layers_masks_and_effects() {
             1.0F,
             composite_mask) ||
         rounded_mask == coverage_mask || coverage_mask == chain_mask ||
-        chain_mask == vector_mask || vector_mask == composite_mask) {
+        chain_mask == vector_mask || vector_mask == geometry_mask ||
+        geometry_mask == composite_mask) {
         return false;
     }
 
@@ -1865,7 +1891,7 @@ bool semantic_scene_builder_records_layers_masks_and_effects() {
     scene_build_metrics metrics{};
     if (!builder.build(first, &metrics) || !builder.build(second) ||
         first != second || metrics.command_count != 3U ||
-        metrics.resource_count != 8U ||
+        metrics.resource_count != 9U ||
         metrics.maximum_stack_depth != 1U) {
         return false;
     }
@@ -1884,6 +1910,7 @@ bool semantic_scene_builder_records_layers_masks_and_effects() {
     const auto coverage_record = resource_at(coverage_mask);
     const auto chain_record = resource_at(chain_mask);
     const auto vector_record = resource_at(vector_mask);
+    const auto geometry_record = resource_at(geometry_mask);
     const auto composite_record = resource_at(composite_mask);
     const auto effect_record = resource_at(effect_chain);
     const auto state_record = resource_at(state_index);
@@ -1911,6 +1938,10 @@ bool semantic_scene_builder_records_layers_masks_and_effects() {
             sizeof(progpu_native_scene_layer_vector_mask) &&
         vector_record.auxiliary_size ==
             sizeof(vector_path) + sizeof(vector_segments) &&
+        geometry_record.kind == PROGPU_NATIVE_SCENE_RESOURCE_LAYER_MASK &&
+        geometry_record.payload_size ==
+            sizeof(progpu_native_scene_layer_geometry_mask) &&
+        geometry_record.auxiliary_size == sizeof(geometry_primitive) &&
         composite_record.kind == PROGPU_NATIVE_SCENE_RESOURCE_LAYER_MASK &&
         composite_record.payload_size ==
             sizeof(progpu_native_scene_layer_composite_mask) &&

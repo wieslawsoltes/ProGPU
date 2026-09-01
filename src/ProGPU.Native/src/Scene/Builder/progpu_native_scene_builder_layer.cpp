@@ -145,6 +145,78 @@ bool semantic_scene_builder::add_brush_mask(
     }
 }
 
+bool semantic_scene_builder::add_geometry_mask(
+    const progpu_native_scene_layer_geometry_mask& source,
+    std::span<const progpu_native_geometry_primitive> primitives,
+    std::span<const progpu_native_scene_gradient_stop> gradient_stops,
+    std::uint32_t& resource_index) noexcept {
+    resource_index = PROGPU_NATIVE_SCENE_NO_INDEX;
+    if (primitives.empty() ||
+        primitives.size() > std::numeric_limits<std::uint32_t>::max() ||
+        gradient_stops.size() >
+            std::numeric_limits<std::uint32_t>::max() ||
+        gradient_stops.size() > PROGPU_NATIVE_SCENE_MAX_GRADIENT_STOPS ||
+        implementation_->resources.size() >=
+            PROGPU_NATIVE_SCENE_MAX_RESOURCES) {
+        return implementation_->fail(scene_build_error::invalid_argument);
+    }
+    progpu_native_scene_layer_geometry_mask mask = source;
+    mask.struct_size = sizeof(mask);
+    mask.kind = PROGPU_NATIVE_SCENE_LAYER_MASK_GEOMETRY;
+    mask.flags = 0U;
+    mask.primitive_offset = 0U;
+    mask.primitive_count = static_cast<std::uint32_t>(primitives.size());
+    mask.gradient_stop_count = static_cast<std::uint32_t>(
+        gradient_stops.size());
+    mask.reserved0 = 0U;
+    mask.reserved1 = 0U;
+    mask.reserved2 = 0U;
+    mask.brush.stop_offset = 0U;
+    if (!semantic::is_valid_semantic_layer_geometry_mask(
+            mask, primitives, gradient_stops)) {
+        return implementation_->fail(scene_build_error::invalid_argument);
+    }
+    const std::size_t primitive_bytes = primitives.size_bytes();
+    if (gradient_stops.size_bytes() >
+        std::numeric_limits<std::size_t>::max() - primitive_bytes) {
+        return implementation_->fail(scene_build_error::capacity_exceeded);
+    }
+    try {
+        implementation_->resources.reserve(
+            implementation_->resources.size() + 1U);
+        implementation::resource_entry resource{};
+        resource.record.struct_size = sizeof(resource.record);
+        resource.record.kind = PROGPU_NATIVE_SCENE_RESOURCE_LAYER_MASK;
+        resource.record.flags = PROGPU_NATIVE_SCENE_RECORD_REQUIRED;
+        resource.record.resource_id = implementation_->resources.size() + 1U;
+        resource.record.generation = implementation_->generation;
+        resource.payload = copy_bytes(
+            std::span<const progpu_native_scene_layer_geometry_mask>(
+                &mask, 1U));
+        resource.auxiliary.resize(
+            primitive_bytes + gradient_stops.size_bytes());
+        std::memcpy(
+            resource.auxiliary.data(),
+            primitives.data(),
+            primitive_bytes);
+        if (!gradient_stops.empty()) {
+            std::memcpy(
+                resource.auxiliary.data() + primitive_bytes,
+                gradient_stops.data(),
+                gradient_stops.size_bytes());
+        }
+        resource_index = static_cast<std::uint32_t>(
+            implementation_->resources.size());
+        implementation_->resources.push_back(std::move(resource));
+        implementation_->error = scene_build_error::none;
+        return true;
+    } catch (const std::bad_alloc&) {
+        return implementation_->fail(scene_build_error::out_of_memory);
+    } catch (...) {
+        return implementation_->fail(scene_build_error::invalid_state);
+    }
+}
+
 bool semantic_scene_builder::add_analytic_mask_chain(
     std::span<const progpu_native_scene_layer_mask> masks,
     std::uint32_t& resource_index) noexcept {

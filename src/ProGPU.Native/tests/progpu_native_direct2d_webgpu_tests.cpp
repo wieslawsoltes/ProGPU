@@ -320,6 +320,20 @@ struct portable_scene final {
         "portable BGRA bitmap creation failed");
     native_com::pointer<d2d::bitmap> bitmap;
     bitmap.attach(raw_bitmap);
+    const d2d::bitmap_brush_properties bitmap_brush_properties{
+        d2d::extend_mode::wrap,
+        d2d::extend_mode::wrap,
+        d2d::bitmap_interpolation_mode::nearest_neighbor};
+    d2d::bitmap_brush* raw_bitmap_brush = nullptr;
+    require(target->CreateBitmapBrush(
+            bitmap.get(),
+            &bitmap_brush_properties,
+            nullptr,
+            &raw_bitmap_brush) == native_com::ok &&
+        raw_bitmap_brush != nullptr,
+        "portable bitmap brush creation failed");
+    native_com::pointer<d2d::bitmap_brush> bitmap_brush;
+    bitmap_brush.attach(raw_bitmap_brush);
 
     const d2d::color_f clear{0.05F, 0.1F, 0.15F, 1.0F};
     const d2d::rectangle_f rectangle{4.0F, 4.0F, 20.0F, 20.0F};
@@ -329,6 +343,9 @@ struct portable_scene final {
         {36.0F, 28.0F, 56.0F, 44.0F}, 4.0F, 4.0F};
     const d2d::rectangle_f bitmap_destination{
         24.0F, 4.0F, 30.0F, 10.0F};
+    const d2d::rectangle_f bitmap_brush_rectangle{
+        22.0F, 12.0F, 30.0F, 20.0F};
+    const d2d::ellipse bitmap_brush_ellipse{{26.0F, 24.0F}, 4.0F, 4.0F};
     target->BeginDraw();
     target->Clear(&clear);
     target->FillRectangle(
@@ -347,6 +364,14 @@ struct portable_scene final {
         &bitmap_destination,
         1.0F,
         d2d::bitmap_interpolation_mode::nearest_neighbor,
+        nullptr);
+    target->FillRectangle(
+        &bitmap_brush_rectangle,
+        static_cast<d2d::brush*>(bitmap_brush.get()));
+    target->DrawEllipse(
+        &bitmap_brush_ellipse,
+        static_cast<d2d::brush*>(bitmap_brush.get()),
+        2.0F,
         nullptr);
     require(target->EndDraw(nullptr, nullptr) == native_com::ok,
         "portable scene recording failed");
@@ -399,18 +424,43 @@ struct portable_scene final {
     const d2d::scene_render_options render_options{
         reinterpret_cast<std::uintptr_t>(view),
         PROGPU_NATIVE_SCENE_FRAME_NONE};
-    require(d2d::render_scene_target(
+    const progpu_native_status render_status = d2d::render_scene_target(
             scene_target,
             engine,
             render_options,
             scratch,
             &scene_metrics,
             &frame_metrics,
-            &diagnostics) == PROGPU_NATIVE_STATUS_SUCCESS &&
+            &diagnostics);
+    if (render_status != PROGPU_NATIVE_STATUS_SUCCESS) {
+        std::array<char, 512U> error{};
+        (void)progpu_native_engine_get_last_error(
+            engine, error.data(), error.size());
+        std::fprintf(
+            stderr,
+            "Direct2D scene failure: status=%u stage=%u validation=%u "
+            "offset=%u error=%s\n",
+            static_cast<unsigned>(render_status),
+            static_cast<unsigned>(diagnostics.stage),
+            scene_metrics.validation_error,
+            scene_metrics.error_offset,
+            error.data());
+    }
+    const bool render_matches = render_status ==
+            PROGPU_NATIVE_STATUS_SUCCESS &&
         diagnostics.stage == d2d::scene_submission_stage::none &&
-        scene_metrics.draw_count == 5U &&
-        frame_metrics.command_count == 5U &&
-        frame_metrics.submission_count == 1U,
+        scene_metrics.draw_count == 7U &&
+        frame_metrics.command_count == 7U &&
+        frame_metrics.submission_count == 1U;
+    if (!render_matches) {
+        std::fprintf(
+            stderr,
+            "Direct2D scene metrics: draws=%u commands=%u submissions=%llu\n",
+            scene_metrics.draw_count,
+            frame_metrics.command_count,
+            static_cast<unsigned long long>(frame_metrics.submission_count));
+    }
+    require(render_matches,
         "portable Direct2D scene submission failed");
 
     WGPUBufferDescriptor buffer_descriptor{};
@@ -499,6 +549,13 @@ void verify_pixels(std::span<const std::uint8_t> pixels)
         "portable Direct2D stroke pixel is missing");
     require(near_rgba(pixel(46U, 36U), 255, 0, 255),
         "portable Direct2D rounded-rectangle pixel is missing");
+    require(near_rgba(pixel(22U, 12U), 255, 0, 0) &&
+            near_rgba(pixel(23U, 12U), 0, 255, 0) &&
+            near_rgba(pixel(22U, 13U), 0, 0, 255) &&
+            near_rgba(pixel(23U, 13U), 255, 255, 255),
+        "portable Direct2D bitmap-brush repeat pixels are missing");
+    require(near_rgba(pixel(26U, 20U), 255, 0, 0),
+        "portable Direct2D bitmap-brush ellipse stroke is missing");
 }
 
 void write_capture(
@@ -542,7 +599,7 @@ int main(int argc, char** argv)
         : gpu.properties.name;
     std::printf(
         "Portable Direct2D WebGPU passed: backend=%s adapter=%s "
-        "draws=5 submissions=1 bytes=%zu\n",
+        "draws=7 submissions=1 bytes=%zu\n",
         backend_name(gpu.properties.backendType),
         adapter_name,
         pixels.size());
