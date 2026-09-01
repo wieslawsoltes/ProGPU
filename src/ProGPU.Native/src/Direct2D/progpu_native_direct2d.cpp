@@ -463,13 +463,12 @@ bool compat_compose_transform(
             &portable_result))) {
         return false;
     }
-    result = {
-        portable_result.m11,
-        portable_result.m12,
-        portable_result.m21,
-        portable_result.m22,
-        portable_result.m31,
-        portable_result.m32};
+    result._11 = portable_result.m11;
+    result._12 = portable_result.m12;
+    result._21 = portable_result.m21;
+    result._22 = portable_result.m22;
+    result._31 = portable_result.m31;
+    result._32 = portable_result.m32;
     return true;
 }
 
@@ -9145,13 +9144,12 @@ progpu_native_direct2d_compat_factory_create_solid_color_brush(
     const D2D1_BRUSH_PROPERTIES* native_properties_pointer = nullptr;
     if (properties != nullptr) {
         native_properties.opacity = properties->opacity;
-        native_properties.transform = {
-            properties->transform.m11,
-            properties->transform.m12,
-            properties->transform.m21,
-            properties->transform.m22,
-            properties->transform.m31,
-            properties->transform.m32};
+        native_properties.transform._11 = properties->transform.m11;
+        native_properties.transform._12 = properties->transform.m12;
+        native_properties.transform._21 = properties->transform.m21;
+        native_properties.transform._22 = properties->transform.m22;
+        native_properties.transform._31 = properties->transform.m31;
+        native_properties.transform._32 = properties->transform.m32;
         native_properties_pointer = &native_properties;
     }
     ComPtr<ID2D1SolidColorBrush> native_brush;

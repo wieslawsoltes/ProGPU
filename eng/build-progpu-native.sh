@@ -178,6 +178,7 @@ if [[ "${PROGPU_NATIVE_RUN_SANITIZERS:-0}" == "1" ]]; then
   cmake "${sanitizer_options[@]}"
   cmake --build "${sanitizer_build_dir}" --config RelWithDebInfo --parallel
   ASAN_OPTIONS="detect_leaks=${sanitizer_detect_leaks}:halt_on_error=1" \
+  LSAN_OPTIONS="suppressions=${repo_root}/eng/progpu-native-lsan.supp:print_suppressions=1" \
   UBSAN_OPTIONS="halt_on_error=1:print_stacktrace=1" \
     ctest --test-dir "${sanitizer_build_dir}" \
       -C RelWithDebInfo --output-on-failure

@@ -5,6 +5,7 @@
 
 #include <algorithm>
 #include <array>
+#include <atomic>
 #include <cmath>
 #include <cstddef>
 #include <cstring>
@@ -24,7 +25,10 @@ namespace semantic_path_stroke = progpu::native::semantic_path_stroke;
 constexpr matrix_3x2_f identity_transform{
     1.0F, 0.0F, 0.0F, 1.0F, 0.0F, 0.0F};
 constexpr std::uint32_t dxgi_format_r8g8b8a8_unorm = 28U;
+constexpr std::uint32_t dxgi_format_a8_unorm = 65U;
 constexpr std::uint32_t dxgi_format_b8g8r8a8_unorm = 87U;
+std::atomic<std::uint64_t> next_compatible_scene_id{
+    0xD2D1000000000001ULL};
 constexpr com::guid scene_bitmap_native_interface_id{
     0x559DFBE4U,
     0xD6B7U,
@@ -1951,13 +1955,167 @@ private:
     const void* target_ = nullptr;
 };
 
+class portable_render_target_bitmap final :
+    public bitmap,
+    public scene_render_target_native {
+public:
+    portable_render_target_bitmap(
+        factory* owner,
+        render_target* target,
+        scene_render_target_native* scene,
+        size_u pixel_size,
+        pixel_format format,
+        float dpi_x,
+        float dpi_y) noexcept
+        : owner_(owner),
+          target_(target),
+          scene_(scene),
+          pixel_size_(pixel_size),
+          format_(format),
+          dpi_x_(dpi_x),
+          dpi_y_(dpi_y)
+    {
+    }
+
+    com::result PROGPU_NATIVE_COM_CALL QueryInterface(
+        com::guid_ref interface_id,
+        void** value) noexcept override
+    {
+        if (value == nullptr) {
+            return com::pointer_error;
+        }
+        *value = nullptr;
+        if (com::guid_equal(interface_id, com::unknown_interface_id()) ||
+            com::guid_equal(interface_id, resource_interface_id) ||
+            com::guid_equal(interface_id, bitmap_interface_id)) {
+            *value = static_cast<bitmap*>(this);
+        } else if (com::guid_equal(
+                interface_id, scene_render_target_native_interface_id)) {
+            *value = static_cast<scene_render_target_native*>(this);
+        } else {
+            return com::no_interface;
+        }
+        AddRef();
+        return com::ok;
+    }
+
+    com::reference_count_value PROGPU_NATIVE_COM_CALL AddRef()
+        noexcept override
+    {
+        return reference_count_.add_ref();
+    }
+
+    com::reference_count_value PROGPU_NATIVE_COM_CALL Release()
+        noexcept override
+    {
+        return reference_count_.release(this);
+    }
+
+    void PROGPU_NATIVE_COM_CALL GetFactory(factory** value) const
+        noexcept override
+    {
+        if (value == nullptr) {
+            return;
+        }
+        *value = owner_.get();
+        if (*value != nullptr) {
+            (*value)->AddRef();
+        }
+    }
+
+    size_f PROGPU_NATIVE_COM_CALL GetSize() const noexcept override
+    {
+        return {
+            static_cast<float>(pixel_size_.width) * 96.0F / dpi_x_,
+            static_cast<float>(pixel_size_.height) * 96.0F / dpi_y_};
+    }
+
+    size_u PROGPU_NATIVE_COM_CALL GetPixelSize() const noexcept override
+    {
+        return pixel_size_;
+    }
+
+    pixel_format PROGPU_NATIVE_COM_CALL GetPixelFormat()
+        const noexcept override
+    {
+        return format_;
+    }
+
+    void PROGPU_NATIVE_COM_CALL GetDpi(
+        float* dpi_x,
+        float* dpi_y) const noexcept override
+    {
+        if (dpi_x != nullptr) {
+            *dpi_x = dpi_x_;
+        }
+        if (dpi_y != nullptr) {
+            *dpi_y = dpi_y_;
+        }
+    }
+
+    com::result PROGPU_NATIVE_COM_CALL CopyFromBitmap(
+        const point_2u*, bitmap*, const rectangle_u*) noexcept override
+    {
+        return not_implemented;
+    }
+
+    com::result PROGPU_NATIVE_COM_CALL CopyFromRenderTarget(
+        const point_2u*, render_target*, const rectangle_u*) noexcept override
+    {
+        return not_implemented;
+    }
+
+    com::result PROGPU_NATIVE_COM_CALL CopyFromMemory(
+        const rectangle_u*, const void*, std::uint32_t) noexcept override
+    {
+        return not_implemented;
+    }
+
+    std::uint64_t PROGPU_NATIVE_COM_CALL GetRequiredSceneSize()
+        const noexcept override
+    {
+        return scene_->GetRequiredSceneSize();
+    }
+
+    com::result PROGPU_NATIVE_COM_CALL BuildScene(
+        void* destination,
+        std::uint64_t destination_size,
+        std::uint64_t* bytes_written) const noexcept override
+    {
+        return scene_->BuildScene(
+            destination, destination_size, bytes_written);
+    }
+
+    void PROGPU_NATIVE_COM_CALL GetSummary(
+        scene_render_target_summary* summary) const noexcept override
+    {
+        scene_->GetSummary(summary);
+    }
+
+private:
+    friend class com::atomic_reference_count<portable_render_target_bitmap>;
+    ~portable_render_target_bitmap() = default;
+
+    com::atomic_reference_count<portable_render_target_bitmap>
+        reference_count_;
+    com::pointer<factory> owner_;
+    com::pointer<render_target> target_;
+    com::pointer<scene_render_target_native> scene_;
+    size_u pixel_size_{};
+    pixel_format format_{};
+    float dpi_x_ = 96.0F;
+    float dpi_y_ = 96.0F;
+};
+
 class portable_scene_render_target final :
-    public render_target,
+    public bitmap_render_target,
     public scene_render_target_native {
 public:
     portable_scene_render_target(
         factory* owner,
-        const scene_render_target_properties& properties)
+        const scene_render_target_properties& properties,
+        bool compatible = false,
+        pixel_format format = {0U, alpha_mode::premultiplied})
         : owner_(owner),
           builder_(properties.scene_id, properties.generation),
           scene_id_(properties.scene_id),
@@ -1965,7 +2123,9 @@ public:
           pixel_width_(properties.pixel_width),
           pixel_height_(properties.pixel_height),
           dpi_x_(properties.dpi_x),
-          dpi_y_(properties.dpi_y)
+          dpi_y_(properties.dpi_y),
+          pixel_format_(format),
+          compatible_(compatible)
     {
     }
 
@@ -1981,6 +2141,9 @@ public:
             com::guid_equal(interface_id, resource_interface_id) ||
             com::guid_equal(interface_id, render_target_interface_id)) {
             *value = static_cast<render_target*>(this);
+        } else if (compatible_ && com::guid_equal(
+                interface_id, bitmap_render_target_interface_id)) {
+            *value = static_cast<bitmap_render_target*>(this);
         } else if (com::guid_equal(
                 interface_id, scene_render_target_native_interface_id)) {
             *value = static_cast<scene_render_target_native*>(this);
@@ -2291,13 +2454,113 @@ public:
     }
 
     com::result PROGPU_NATIVE_COM_CALL CreateCompatibleRenderTarget(
-        const size_f*,
-        const size_u*,
-        const pixel_format*,
-        compatible_render_target_options,
+        const size_f* desired_size,
+        const size_u* desired_pixel_size,
+        const pixel_format* desired_format,
+        compatible_render_target_options options,
         bitmap_render_target** value) noexcept override
     {
-        return unsupported_output(value);
+        if (value == nullptr) {
+            return com::pointer_error;
+        }
+        *value = nullptr;
+        if (options != compatible_render_target_options::none &&
+            options != compatible_render_target_options::gdi_compatible) {
+            return com::invalid_argument;
+        }
+        if (options == compatible_render_target_options::gdi_compatible) {
+            return not_implemented;
+        }
+        if (desired_size != nullptr &&
+            (!std::isfinite(desired_size->width) ||
+                !std::isfinite(desired_size->height) ||
+                desired_size->width <= 0.0F ||
+                desired_size->height <= 0.0F)) {
+            return com::invalid_argument;
+        }
+        if (desired_pixel_size != nullptr &&
+            (desired_pixel_size->width == 0U ||
+                desired_pixel_size->height == 0U ||
+                desired_pixel_size->width > 16384U ||
+                desired_pixel_size->height > 16384U)) {
+            return com::invalid_argument;
+        }
+        pixel_format format = desired_format == nullptr
+            ? pixel_format{
+                dxgi_format_b8g8r8a8_unorm,
+                alpha_mode::premultiplied}
+            : *desired_format;
+        if (format.format == 0U) {
+            format.format = dxgi_format_b8g8r8a8_unorm;
+        }
+        if (format.alpha == alpha_mode::unknown) {
+            format.alpha = alpha_mode::premultiplied;
+        }
+        if ((format.format != dxgi_format_r8g8b8a8_unorm &&
+                format.format != dxgi_format_b8g8r8a8_unorm &&
+                format.format != dxgi_format_a8_unorm) ||
+            format.alpha != alpha_mode::premultiplied) {
+            return not_implemented;
+        }
+        float dpi_x = 96.0F;
+        float dpi_y = 96.0F;
+        size_u pixel_size{};
+        {
+            const std::lock_guard lock(mutex_);
+            dpi_x = dpi_x_;
+            dpi_y = dpi_y_;
+            pixel_size = {pixel_width_, pixel_height_};
+        }
+        if (desired_pixel_size != nullptr) {
+            pixel_size = *desired_pixel_size;
+        } else if (desired_size != nullptr) {
+            const double width = std::ceil(
+                static_cast<double>(desired_size->width) * dpi_x / 96.0);
+            const double height = std::ceil(
+                static_cast<double>(desired_size->height) * dpi_y / 96.0);
+            if (width < 1.0 || height < 1.0 || width > 16384.0 ||
+                height > 16384.0) {
+                return com::invalid_argument;
+            }
+            pixel_size = {
+                static_cast<std::uint32_t>(width),
+                static_cast<std::uint32_t>(height)};
+        }
+        if (desired_size != nullptr && desired_pixel_size != nullptr) {
+            dpi_x = static_cast<float>(
+                static_cast<double>(pixel_size.width) * 96.0 /
+                desired_size->width);
+            dpi_y = static_cast<float>(
+                static_cast<double>(pixel_size.height) * 96.0 /
+                desired_size->height);
+            if (!valid_dpi(dpi_x, dpi_y)) {
+                return com::invalid_argument;
+            }
+        }
+        if (std::abs(dpi_x - dpi_y) > 0.0001F) {
+            return not_implemented;
+        }
+        const std::uint64_t child_scene_id =
+            next_compatible_scene_id.fetch_add(
+                1U, std::memory_order_relaxed);
+        if (child_scene_id == 0U ||
+            child_scene_id == (std::numeric_limits<std::uint64_t>::max)()) {
+            return failure;
+        }
+        const scene_render_target_properties properties{
+            pixel_size.width,
+            pixel_size.height,
+            dpi_x,
+            dpi_y,
+            child_scene_id,
+            1U};
+        auto* created = new (std::nothrow) portable_scene_render_target(
+            owner_.get(), properties, true, format);
+        if (created == nullptr) {
+            return com::out_of_memory;
+        }
+        *value = created;
+        return com::ok;
     }
 
     com::result PROGPU_NATIVE_COM_CALL CreateLayer(
@@ -2664,27 +2927,48 @@ public:
             latch(wrong_factory);
             return;
         }
+        scene_render_target_native* raw_scene_target = nullptr;
+        const com::result scene_target_query = mask->QueryInterface(
+            scene_render_target_native_interface_id,
+            reinterpret_cast<void**>(&raw_scene_target));
+        com::pointer<scene_render_target_native> scene_target;
+        scene_target.attach(raw_scene_target);
+        if (com::failed(scene_target_query) &&
+            scene_target_query != com::no_interface) {
+            latch(scene_target_query);
+            return;
+        }
+        if (scene_target.get() ==
+            static_cast<scene_render_target_native*>(this)) {
+            latch(wrong_state);
+            return;
+        }
         scene_bitmap_native* raw_native = nullptr;
-        const com::result query = mask->QueryInterface(
-            scene_bitmap_native_interface_id,
-            reinterpret_cast<void**>(&raw_native));
+        const com::result query = scene_target
+            ? com::no_interface
+            : mask->QueryInterface(
+                scene_bitmap_native_interface_id,
+                reinterpret_cast<void**>(&raw_native));
         com::pointer<scene_bitmap_native> native;
         native.attach(raw_native);
-        if (com::failed(query) || !native) {
+        if (!scene_target && (com::failed(query) || !native)) {
             latch(com::failed(query) ? query : not_implemented);
             return;
         }
         bitmap_snapshot snapshot{};
-        const com::result snapshot_result = native->GetSnapshot(&snapshot);
-        if (com::failed(snapshot_result)) {
-            latch(snapshot_result);
-            return;
+        if (native) {
+            const com::result snapshot_result = native->GetSnapshot(&snapshot);
+            if (com::failed(snapshot_result)) {
+                latch(snapshot_result);
+                return;
+            }
         }
+        const size_f mask_size = mask->GetSize();
         const rectangle_f bitmap_dips{
             0.0F,
             0.0F,
-            static_cast<float>(snapshot.width) * 96.0F / snapshot.dpi_x,
-            static_cast<float>(snapshot.height) * 96.0F / snapshot.dpi_y};
+            mask_size.width,
+            mask_size.height};
         const rectangle_f source_rectangle = source == nullptr
             ? bitmap_dips
             : *source;
@@ -2710,69 +2994,132 @@ public:
             return;
         }
         try {
-            semantic_scene_builder mask_builder(
-                scene_id_ ^ 0xD2D1000000000000ULL ^
-                    static_cast<std::uint64_t>(draw_count_ + 1U),
-                generation_);
-            std::uint32_t image_resource_index =
-                PROGPU_NATIVE_SCENE_NO_INDEX;
-            bitmap_snapshot nested_snapshot{};
-            const com::result add_result = native->AddToScene(
-                &mask_builder, &image_resource_index, &nested_snapshot);
-            if (com::failed(add_result)) {
-                latch(add_result);
-                return;
-            }
-            const float pixels_per_dip_x = nested_snapshot.dpi_x / 96.0F;
-            const float pixels_per_dip_y = nested_snapshot.dpi_y / 96.0F;
-            progpu_native_scene_image_draw image{};
-            image.image_width = nested_snapshot.width;
-            image.image_height = nested_snapshot.height;
-            image.row_bytes = nested_snapshot.row_bytes;
-            image.flags = PROGPU_NATIVE_SCENE_IMAGE_SOURCE_PREMULTIPLIED |
-                PROGPU_NATIVE_SCENE_IMAGE_EXTENDED_SOURCE_RECT;
-            image.sampling = PROGPU_NATIVE_IMAGE_SAMPLING_LINEAR;
-            image.source_rect = {
-                source_rectangle.left * pixels_per_dip_x,
-                source_rectangle.top * pixels_per_dip_y,
-                (source_rectangle.right - source_rectangle.left) *
-                    pixels_per_dip_x,
-                (source_rectangle.bottom - source_rectangle.top) *
-                    pixels_per_dip_y};
-            image.destination_rect = {
-                destination_rectangle.left,
-                destination_rectangle.top,
-                destination_rectangle.right - destination_rectangle.left,
-                destination_rectangle.bottom - destination_rectangle.top};
-            image.transform = native_transform();
-            image.opacity = 1.0F;
-            image.max_anisotropy = 1U;
-            if (!mask_builder.draw_image(
-                    image_resource_index, image, target_bounds)) {
-                latch(mask_builder.last_error() ==
-                        scene_build_error::out_of_memory
-                    ? com::out_of_memory
-                    : failure);
-                return;
-            }
             std::vector<std::byte> nested_scene;
-            if (!mask_builder.build(nested_scene) ||
-                nested_scene.size() >
-                    (std::numeric_limits<std::uint32_t>::max)()) {
-                latch(mask_builder.last_error() ==
-                        scene_build_error::out_of_memory
-                    ? com::out_of_memory
-                    : failure);
-                return;
-            }
             progpu_native_scene_layer_picture_mask picture{};
             picture.struct_size = sizeof(picture);
             picture.kind = PROGPU_NATIVE_SCENE_LAYER_MASK_PICTURE;
+            picture.opacity = 1.0F;
+            if (scene_target) {
+                const std::uint64_t required =
+                    scene_target->GetRequiredSceneSize();
+                if (required == 0U ||
+                    required > (std::numeric_limits<std::uint32_t>::max)() ||
+                    required > (std::numeric_limits<std::size_t>::max)()) {
+                    latch(wrong_state);
+                    return;
+                }
+                nested_scene.resize(static_cast<std::size_t>(required));
+                std::uint64_t written = 0U;
+                const com::result build_result = scene_target->BuildScene(
+                    nested_scene.data(), required, &written);
+                if (com::failed(build_result) || written != required) {
+                    latch(com::failed(build_result) ? build_result : failure);
+                    return;
+                }
+                const size_u source_pixels = mask->GetPixelSize();
+                if (source_pixels.width == 0U ||
+                    source_pixels.height == 0U) {
+                    latch(wrong_state);
+                    return;
+                }
+                const float source_width =
+                    source_rectangle.right - source_rectangle.left;
+                const float source_height =
+                    source_rectangle.bottom - source_rectangle.top;
+                const float destination_width =
+                    destination_rectangle.right - destination_rectangle.left;
+                const float destination_height =
+                    destination_rectangle.bottom - destination_rectangle.top;
+                const float scale_x = destination_width / source_width;
+                const float scale_y = destination_height / source_height;
+                const matrix_3x2_f source_to_destination{
+                    scale_x,
+                    0.0F,
+                    0.0F,
+                    scale_y,
+                    destination_rectangle.left -
+                        source_rectangle.left * scale_x,
+                    destination_rectangle.top -
+                        source_rectangle.top * scale_y};
+                const matrix_3x2_f source_to_target = compose_transform(
+                    source_to_destination, transform_);
+                picture.flags =
+                    PROGPU_NATIVE_SCENE_PICTURE_MASK_SOURCE_EXTENT;
+                picture.reserved0 = source_pixels.width;
+                picture.reserved1 = source_pixels.height;
+                picture.bounds = {
+                    bitmap_dips.left,
+                    bitmap_dips.top,
+                    bitmap_dips.right - bitmap_dips.left,
+                    bitmap_dips.bottom - bitmap_dips.top};
+                picture.transform = {
+                    source_to_target.m11,
+                    source_to_target.m12,
+                    source_to_target.m21,
+                    source_to_target.m22,
+                    source_to_target.m31,
+                    source_to_target.m32};
+            } else {
+                semantic_scene_builder mask_builder(
+                    scene_id_ ^ 0xD2D1000000000000ULL ^
+                        static_cast<std::uint64_t>(draw_count_ + 1U),
+                    generation_);
+                std::uint32_t image_resource_index =
+                    PROGPU_NATIVE_SCENE_NO_INDEX;
+                bitmap_snapshot nested_snapshot{};
+                const com::result add_result = native->AddToScene(
+                    &mask_builder, &image_resource_index, &nested_snapshot);
+                if (com::failed(add_result)) {
+                    latch(add_result);
+                    return;
+                }
+                const float pixels_per_dip_x =
+                    nested_snapshot.dpi_x / 96.0F;
+                const float pixels_per_dip_y =
+                    nested_snapshot.dpi_y / 96.0F;
+                progpu_native_scene_image_draw image{};
+                image.image_width = nested_snapshot.width;
+                image.image_height = nested_snapshot.height;
+                image.row_bytes = nested_snapshot.row_bytes;
+                image.flags =
+                    PROGPU_NATIVE_SCENE_IMAGE_SOURCE_PREMULTIPLIED |
+                    PROGPU_NATIVE_SCENE_IMAGE_EXTENDED_SOURCE_RECT;
+                image.sampling = PROGPU_NATIVE_IMAGE_SAMPLING_LINEAR;
+                image.source_rect = {
+                    source_rectangle.left * pixels_per_dip_x,
+                    source_rectangle.top * pixels_per_dip_y,
+                    (source_rectangle.right - source_rectangle.left) *
+                        pixels_per_dip_x,
+                    (source_rectangle.bottom - source_rectangle.top) *
+                        pixels_per_dip_y};
+                image.destination_rect = {
+                    destination_rectangle.left,
+                    destination_rectangle.top,
+                    destination_rectangle.right - destination_rectangle.left,
+                    destination_rectangle.bottom - destination_rectangle.top};
+                image.transform = native_transform();
+                image.opacity = 1.0F;
+                image.max_anisotropy = 1U;
+                if (!mask_builder.draw_image(
+                        image_resource_index, image, target_bounds) ||
+                    !mask_builder.build(nested_scene)) {
+                    latch(mask_builder.last_error() ==
+                            scene_build_error::out_of_memory
+                        ? com::out_of_memory
+                        : failure);
+                    return;
+                }
+                picture.bounds = target_bounds;
+                picture.transform =
+                    semantic_scene_builder::identity_transform();
+            }
+            if (nested_scene.size() >
+                (std::numeric_limits<std::uint32_t>::max)()) {
+                latch(failure);
+                return;
+            }
             picture.stream_size = static_cast<std::uint32_t>(
                 nested_scene.size());
-            picture.bounds = target_bounds;
-            picture.transform = semantic_scene_builder::identity_transform();
-            picture.opacity = 1.0F;
             std::uint32_t mask_resource_index =
                 PROGPU_NATIVE_SCENE_NO_INDEX;
             if (!builder_.add_picture_mask(
@@ -3467,7 +3814,44 @@ public:
     pixel_format PROGPU_NATIVE_COM_CALL GetPixelFormat()
         const noexcept override
     {
-        return {0U, alpha_mode::premultiplied};
+        const std::lock_guard lock(mutex_);
+        return pixel_format_;
+    }
+
+    com::result PROGPU_NATIVE_COM_CALL GetBitmap(
+        bitmap** value) noexcept override
+    {
+        if (value == nullptr) {
+            return com::pointer_error;
+        }
+        *value = nullptr;
+        size_u pixel_size{};
+        pixel_format format{};
+        float dpi_x = 96.0F;
+        float dpi_y = 96.0F;
+        {
+            const std::lock_guard lock(mutex_);
+            if (!compatible_) {
+                return not_implemented;
+            }
+            pixel_size = {pixel_width_, pixel_height_};
+            format = pixel_format_;
+            dpi_x = dpi_x_;
+            dpi_y = dpi_y_;
+        }
+        auto* created = new (std::nothrow) portable_render_target_bitmap(
+            owner_.get(),
+            static_cast<render_target*>(this),
+            static_cast<scene_render_target_native*>(this),
+            pixel_size,
+            format,
+            dpi_x,
+            dpi_y);
+        if (created == nullptr) {
+            return com::out_of_memory;
+        }
+        *value = created;
+        return com::ok;
     }
 
     void PROGPU_NATIVE_COM_CALL SetDpi(
@@ -5736,6 +6120,7 @@ private:
     std::size_t scope_depth_ = 0U;
     float dpi_x_ = 96.0F;
     float dpi_y_ = 96.0F;
+    pixel_format pixel_format_{0U, alpha_mode::premultiplied};
     matrix_3x2_f transform_ = identity_transform;
     antialias_mode antialias_mode_ = antialias_mode::per_primitive;
     text_antialias_mode text_antialias_mode_ =
@@ -5745,6 +6130,7 @@ private:
     bool begun_ = false;
     bool ended_ = false;
     bool has_clear_ = false;
+    bool compatible_ = false;
 };
 
 } // namespace

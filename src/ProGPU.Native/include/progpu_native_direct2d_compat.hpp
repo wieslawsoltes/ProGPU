@@ -74,6 +74,11 @@ inline constexpr com::guid resource_interface_id{
     0x12E2U,
     0x11DCU,
     {0x9FU, 0xEDU, 0x00U, 0x11U, 0x43U, 0xA0U, 0x55U, 0xF9U}};
+inline constexpr com::guid bitmap_render_target_interface_id{
+    0x2CD90695U,
+    0x12E2U,
+    0x11DCU,
+    {0x9FU, 0xEDU, 0x00U, 0x11U, 0x43U, 0xA0U, 0x55U, 0xF9U}};
 inline constexpr com::guid geometry_interface_id{
     0x2CD906A1U,
     0x12E2U,
@@ -911,6 +916,11 @@ struct render_target : resource {
         const noexcept = 0;
     virtual std::int32_t PROGPU_NATIVE_COM_CALL IsSupported(
         const render_target_properties* properties) const noexcept = 0;
+};
+
+struct bitmap_render_target : render_target {
+    virtual com::result PROGPU_NATIVE_COM_CALL GetBitmap(
+        bitmap** value) noexcept = 0;
 };
 
 /* The method order matches the original ID2D1Factory vtable. Unsupported

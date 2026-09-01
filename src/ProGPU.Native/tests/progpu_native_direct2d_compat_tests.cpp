@@ -1968,13 +1968,14 @@ int main()
     for (std::uint32_t index = 0U;
          index < opacity_mask_header->resource_count;
          ++index) {
-        const auto* resource = reinterpret_cast<
+        const auto* candidate_resource = reinterpret_cast<
             const progpu_native_scene_resource*>(
             opacity_mask_scene.data() + opacity_mask_header->resource_offset +
             static_cast<std::size_t>(index) *
                 opacity_mask_header->resource_stride);
-        if (resource->kind == PROGPU_NATIVE_SCENE_RESOURCE_LAYER_MASK) {
-            opacity_mask_resource = resource;
+        if (candidate_resource->kind ==
+            PROGPU_NATIVE_SCENE_RESOURCE_LAYER_MASK) {
+            opacity_mask_resource = candidate_resource;
             break;
         }
     }
@@ -1991,6 +1992,144 @@ int main()
         opacity_mask_picture->stream_size <
             sizeof(progpu_native_scene_header)) {
         return 222;
+    }
+
+    const compat::size_f compatible_size{16.0F, 12.0F};
+    const compat::size_u compatible_pixel_size{16U, 12U};
+    const compat::pixel_format compatible_format{
+        65U, compat::alpha_mode::premultiplied};
+    compat::bitmap_render_target* raw_compatible_target = nullptr;
+    const compat::size_u nonuniform_compatible_pixels{16U, 24U};
+    if (target->CreateCompatibleRenderTarget(
+            &compatible_size,
+            &nonuniform_compatible_pixels,
+            &compatible_format,
+            compat::compatible_render_target_options::none,
+            &raw_compatible_target) != compat::not_implemented ||
+        raw_compatible_target != nullptr) {
+        return 236;
+    }
+    if (target->CreateCompatibleRenderTarget(
+            &compatible_size,
+            &compatible_pixel_size,
+            &compatible_format,
+            compat::compatible_render_target_options::none,
+            &raw_compatible_target) != com::ok ||
+        raw_compatible_target == nullptr) {
+        return 223;
+    }
+    com::pointer<compat::bitmap_render_target> compatible_target;
+    compatible_target.attach(raw_compatible_target);
+    com::pointer<compat::bitmap_render_target> queried_compatible_target;
+    if (compatible_target.as(
+            compat::bitmap_render_target_interface_id,
+            queried_compatible_target) != com::ok ||
+        !queried_compatible_target ||
+        compatible_target->GetPixelFormat().format != 65U ||
+        compatible_target->GetPixelSize().width != 16U ||
+        compatible_target->GetPixelSize().height != 12U ||
+        !approximately_equal(compatible_target->GetSize().width, 16.0F) ||
+        !approximately_equal(compatible_target->GetSize().height, 12.0F)) {
+        return 224;
+    }
+    compat::solid_color_brush* raw_compatible_brush = nullptr;
+    const compat::color_f opaque_mask_color{1.0F, 1.0F, 1.0F, 1.0F};
+    if (compatible_target->CreateSolidColorBrush(
+            &opaque_mask_color, nullptr, &raw_compatible_brush) != com::ok ||
+        raw_compatible_brush == nullptr) {
+        return 225;
+    }
+    com::pointer<compat::solid_color_brush> compatible_brush;
+    compatible_brush.attach(raw_compatible_brush);
+    compatible_target->BeginDraw();
+    const compat::color_f transparent_mask_color{};
+    compatible_target->Clear(&transparent_mask_color);
+    const compat::rectangle_f compatible_fill{2.0F, 1.0F, 10.0F, 9.0F};
+    compatible_target->FillRectangle(
+        &compatible_fill,
+        static_cast<compat::brush*>(compatible_brush.get()));
+    if (compatible_target->EndDraw(nullptr, nullptr) != com::ok) {
+        return 226;
+    }
+    compat::bitmap* raw_compatible_bitmap = nullptr;
+    if (compatible_target->GetBitmap(&raw_compatible_bitmap) != com::ok ||
+        raw_compatible_bitmap == nullptr) {
+        return 227;
+    }
+    com::pointer<compat::bitmap> compatible_bitmap;
+    compatible_bitmap.attach(raw_compatible_bitmap);
+    com::pointer<compat::scene_render_target_native>
+        compatible_bitmap_scene;
+    if (compatible_bitmap.as(
+            compat::scene_render_target_native_interface_id,
+            compatible_bitmap_scene) != com::ok ||
+        !compatible_bitmap_scene ||
+        compatible_bitmap_scene->GetRequiredSceneSize() == 0U ||
+        compatible_bitmap->GetPixelFormat().format != 65U) {
+        return 228;
+    }
+    const compat::rectangle_f compatible_source{2.0F, 1.0F, 10.0F, 9.0F};
+    const compat::rectangle_f compatible_destination{
+        60.0F, 4.0F, 84.0F, 20.0F};
+    target->BeginDraw();
+    target->SetAntialiasMode(compat::antialias_mode::aliased);
+    target->FillOpacityMask(
+        compatible_bitmap.get(),
+        static_cast<compat::brush*>(target_brush.get()),
+        compat::opacity_mask_content::graphics,
+        &compatible_destination,
+        &compatible_source);
+    if (target->EndDraw(nullptr, nullptr) != com::ok ||
+        scene_target->GetRequiredSceneSize() == 0U) {
+        return 229;
+    }
+    const std::uint64_t compatible_mask_scene_size =
+        scene_target->GetRequiredSceneSize();
+    std::vector<std::byte> compatible_mask_scene(
+        static_cast<std::size_t>(compatible_mask_scene_size));
+    std::uint64_t compatible_mask_scene_written = 0U;
+    if (scene_target->BuildScene(
+            compatible_mask_scene.data(),
+            compatible_mask_scene.size(),
+            &compatible_mask_scene_written) != com::ok ||
+        compatible_mask_scene_written != compatible_mask_scene_size) {
+        return 230;
+    }
+    const auto* compatible_mask_header = reinterpret_cast<
+        const progpu_native_scene_header*>(compatible_mask_scene.data());
+    const progpu_native_scene_layer_picture_mask*
+        compatible_mask_picture = nullptr;
+    for (std::uint32_t index = 0U;
+         index < compatible_mask_header->resource_count;
+         ++index) {
+        const auto* candidate_resource = reinterpret_cast<
+            const progpu_native_scene_resource*>(
+            compatible_mask_scene.data() +
+            compatible_mask_header->resource_offset +
+            static_cast<std::size_t>(index) *
+                compatible_mask_header->resource_stride);
+        if (candidate_resource->kind ==
+            PROGPU_NATIVE_SCENE_RESOURCE_LAYER_MASK) {
+            compatible_mask_picture = reinterpret_cast<
+                const progpu_native_scene_layer_picture_mask*>(
+                compatible_mask_scene.data() +
+                candidate_resource->payload_offset);
+            break;
+        }
+    }
+    if (compatible_mask_header->command_count != 1U ||
+        compatible_mask_picture == nullptr ||
+        compatible_mask_picture->flags !=
+            PROGPU_NATIVE_SCENE_PICTURE_MASK_SOURCE_EXTENT ||
+        compatible_mask_picture->reserved0 != 16U ||
+        compatible_mask_picture->reserved1 != 12U ||
+        !approximately_equal(compatible_mask_picture->bounds.width, 16.0F) ||
+        !approximately_equal(compatible_mask_picture->bounds.height, 12.0F) ||
+        !approximately_equal(compatible_mask_picture->transform.m11, 3.0F) ||
+        !approximately_equal(compatible_mask_picture->transform.m22, 2.0F) ||
+        !approximately_equal(compatible_mask_picture->transform.m31, 54.0F) ||
+        !approximately_equal(compatible_mask_picture->transform.m32, 2.0F)) {
+        return 231;
     }
 
     const compat::bitmap_brush_properties bitmap_brush_properties{
@@ -2660,6 +2799,9 @@ int main()
             compat::render_target_interface_id,
             __uuidof(ID2D1RenderTarget)) ||
         !com::guid_equal(
+            compat::bitmap_render_target_interface_id,
+            __uuidof(ID2D1BitmapRenderTarget)) ||
+        !com::guid_equal(
             compat::transformed_geometry_interface_id,
             __uuidof(ID2D1TransformedGeometry)) ||
         !com::guid_equal(
@@ -2814,6 +2956,71 @@ int main()
             &native_target_color, nullptr, &native_target_brush)) ||
         native_target_brush == nullptr) {
         return 128;
+    }
+    const D2D1_SIZE_F native_compatible_size{16.0F, 12.0F};
+    const D2D1_SIZE_U native_compatible_pixel_size{16U, 12U};
+    const D2D1_PIXEL_FORMAT native_compatible_format{
+        DXGI_FORMAT_A8_UNORM, D2D1_ALPHA_MODE_PREMULTIPLIED};
+    ID2D1BitmapRenderTarget* native_compatible_target = nullptr;
+    ID2D1BitmapRenderTarget* queried_native_compatible_target = nullptr;
+    if (FAILED(native_target->CreateCompatibleRenderTarget(
+            &native_compatible_size,
+            &native_compatible_pixel_size,
+            &native_compatible_format,
+            D2D1_COMPATIBLE_RENDER_TARGET_OPTIONS_NONE,
+            &native_compatible_target)) ||
+        native_compatible_target == nullptr ||
+        FAILED(native_compatible_target->QueryInterface(
+            __uuidof(ID2D1BitmapRenderTarget),
+            reinterpret_cast<void**>(&queried_native_compatible_target))) ||
+        queried_native_compatible_target == nullptr) {
+        if (queried_native_compatible_target != nullptr) {
+            queried_native_compatible_target->Release();
+        }
+        if (native_compatible_target != nullptr) {
+            native_compatible_target->Release();
+        }
+        native_target_brush->Release();
+        return 232;
+    }
+    queried_native_compatible_target->Release();
+    native_compatible_target->BeginDraw();
+    const D2D1_COLOR_F native_compatible_clear{};
+    native_compatible_target->Clear(&native_compatible_clear);
+    if (FAILED(native_compatible_target->EndDraw())) {
+        native_compatible_target->Release();
+        native_target_brush->Release();
+        return 233;
+    }
+    ID2D1Bitmap* native_compatible_bitmap = nullptr;
+    if (FAILED(native_compatible_target->GetBitmap(
+            &native_compatible_bitmap)) ||
+        native_compatible_bitmap == nullptr ||
+        native_compatible_bitmap->GetPixelFormat().format !=
+            DXGI_FORMAT_A8_UNORM) {
+        if (native_compatible_bitmap != nullptr) {
+            native_compatible_bitmap->Release();
+        }
+        native_compatible_target->Release();
+        native_target_brush->Release();
+        return 234;
+    }
+    native_target->BeginDraw();
+    native_target->SetAntialiasMode(D2D1_ANTIALIAS_MODE_ALIASED);
+    const D2D1_RECT_F native_compatible_destination{
+        76.0F, 28.0F, 92.0F, 40.0F};
+    native_target->FillOpacityMask(
+        native_compatible_bitmap,
+        native_target_brush,
+        D2D1_OPACITY_MASK_CONTENT_GRAPHICS,
+        &native_compatible_destination,
+        nullptr);
+    const HRESULT native_compatible_draw_status = native_target->EndDraw();
+    native_compatible_bitmap->Release();
+    native_compatible_target->Release();
+    if (FAILED(native_compatible_draw_status)) {
+        native_target_brush->Release();
+        return 235;
     }
     ID2D1Mesh* native_target_mesh = nullptr;
     ID2D1Mesh* queried_native_target_mesh = nullptr;

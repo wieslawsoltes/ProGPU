@@ -410,6 +410,48 @@ struct portable_scene final {
     native_com::pointer<d2d::layer> layer;
     layer.attach(raw_layer);
 
+    const d2d::size_f compatible_size{8.0F, 8.0F};
+    const d2d::size_u compatible_pixel_size{8U, 8U};
+    const d2d::pixel_format compatible_format{
+        65U, d2d::alpha_mode::premultiplied};
+    d2d::bitmap_render_target* raw_compatible_target = nullptr;
+    require(target->CreateCompatibleRenderTarget(
+            &compatible_size,
+            &compatible_pixel_size,
+            &compatible_format,
+            d2d::compatible_render_target_options::none,
+            &raw_compatible_target) == native_com::ok &&
+        raw_compatible_target != nullptr,
+        "portable compatible render target creation failed");
+    native_com::pointer<d2d::bitmap_render_target> compatible_target;
+    compatible_target.attach(raw_compatible_target);
+    d2d::solid_color_brush* raw_compatible_brush = nullptr;
+    const d2d::color_f compatible_white{1.0F, 1.0F, 1.0F, 1.0F};
+    require(compatible_target->CreateSolidColorBrush(
+            &compatible_white, nullptr, &raw_compatible_brush) ==
+            native_com::ok &&
+        raw_compatible_brush != nullptr,
+        "portable compatible render target brush creation failed");
+    native_com::pointer<d2d::solid_color_brush> compatible_brush;
+    compatible_brush.attach(raw_compatible_brush);
+    const d2d::color_f compatible_clear{};
+    const d2d::rectangle_f compatible_opaque_half{
+        4.0F, 0.0F, 8.0F, 8.0F};
+    compatible_target->BeginDraw();
+    compatible_target->Clear(&compatible_clear);
+    compatible_target->FillRectangle(
+        &compatible_opaque_half,
+        static_cast<d2d::brush*>(compatible_brush.get()));
+    require(compatible_target->EndDraw(nullptr, nullptr) == native_com::ok,
+        "portable compatible render target recording failed");
+    d2d::bitmap* raw_compatible_bitmap = nullptr;
+    require(compatible_target->GetBitmap(&raw_compatible_bitmap) ==
+            native_com::ok &&
+        raw_compatible_bitmap != nullptr,
+        "portable compatible render target bitmap retrieval failed");
+    native_com::pointer<d2d::bitmap> compatible_bitmap;
+    compatible_bitmap.attach(raw_compatible_bitmap);
+
     const d2d::color_f clear{0.05F, 0.1F, 0.15F, 1.0F};
     const d2d::rectangle_f rectangle{4.0F, 4.0F, 20.0F, 20.0F};
     const d2d::ellipse ellipse_value{{40.0F, 14.0F}, 8.0F, 8.0F};
@@ -428,6 +470,8 @@ struct portable_scene final {
         19.5F, 51.5F, 29.5F, 61.5F};
     const d2d::rectangle_f opacity_mask_destination{
         30.0F, 48.0F, 34.0F, 52.0F};
+    const d2d::rectangle_f compatible_mask_destination{
+        56.0F, 0.0F, 64.0F, 16.0F};
     const d2d::rectangle_f opacity_layer_bounds{
         34.0F, 50.0F, 46.0F, 62.0F};
     const d2d::rectangle_f mask_layer_bounds{
@@ -511,6 +555,14 @@ struct portable_scene final {
     }
     require(opacity_mask_status == native_com::ok,
         "portable Direct2D opacity mask recording failed");
+    target->FillOpacityMask(
+        compatible_bitmap.get(),
+        static_cast<d2d::brush*>(brushes[2U].get()),
+        d2d::opacity_mask_content::graphics,
+        &compatible_mask_destination,
+        nullptr);
+    require(target->Flush(nullptr, nullptr) == native_com::ok,
+        "portable compatible-target opacity mask recording failed");
     target->SetAntialiasMode(d2d::antialias_mode::per_primitive);
     target->PushLayer(&opacity_layer_parameters, layer.get());
     target->FillRectangle(
@@ -606,9 +658,9 @@ struct portable_scene final {
     const bool render_matches = render_status ==
             PROGPU_NATIVE_STATUS_SUCCESS &&
         diagnostics.stage == d2d::scene_submission_stage::none &&
-        scene_metrics.draw_count == 14U &&
-        frame_metrics.command_count == 22U &&
-        frame_metrics.submission_count == 3U;
+        scene_metrics.draw_count == 15U &&
+        frame_metrics.command_count == 23U &&
+        frame_metrics.submission_count == 4U;
     if (!render_matches) {
         std::fprintf(
             stderr,
@@ -727,6 +779,10 @@ void verify_pixels(std::span<const std::uint8_t> pixels)
         "portable Direct2D opacity mask leaked through transparent alpha");
     require(near_rgba(pixel(33U, 49U), 255, 255, 0),
         "portable Direct2D opacity mask did not preserve bitmap alpha");
+    require(near_rgba(pixel(57U, 8U), 13, 26, 38),
+        "portable compatible-target mask leaked transparent alpha");
+    require(near_rgba(pixel(62U, 8U), 255, 255, 0),
+        "portable compatible-target mask lost opaque alpha");
     require(near_rgba(pixel(38U, 56U), 134, 13, 147),
         "portable Direct2D opacity layer is missing");
     require(near_rgba(pixel(56U, 56U), 134, 140, 19),
@@ -776,7 +832,7 @@ int main(int argc, char** argv)
         : gpu.properties.name;
     std::printf(
         "Portable Direct2D WebGPU passed: backend=%s adapter=%s "
-        "draws=14 submissions=3 bytes=%zu\n",
+        "draws=15 submissions=4 bytes=%zu\n",
         backend_name(gpu.properties.backendType),
         adapter_name,
         pixels.size());

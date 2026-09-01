@@ -36,7 +36,7 @@ public sealed class Direct2DInteropContractTests
         Assert.Contains("CreateLinearGradientBrush(", nativeTest, StringComparison.Ordinal);
         Assert.Contains("CreateRadialGradientBrush(", nativeTest, StringComparison.Ordinal);
         Assert.Contains("pixel(46U, 14U)", nativeTest, StringComparison.Ordinal);
-        Assert.Contains("frame_metrics.submission_count == 1U", nativeTest, StringComparison.Ordinal);
+        Assert.Contains("frame_metrics.submission_count == 4U", nativeTest, StringComparison.Ordinal);
         Assert.Contains("progpu_native_direct2d_webgpu_tests", cmake, StringComparison.Ordinal);
         Assert.Contains("progpu-direct2d-metal.ppm", unixBuild, StringComparison.Ordinal);
         Assert.Contains("progpu-direct2d-vulkan.ppm", unixBuild, StringComparison.Ordinal);
@@ -89,7 +89,7 @@ public sealed class Direct2DInteropContractTests
             "identity.get() != static_cast<com::unknown*>(raw)",
             nativeTest,
             StringComparison.Ordinal);
-        Assert.Contains("return destroyed ? 0 : 8;", nativeTest, StringComparison.Ordinal);
+        Assert.Contains("return destroyed ? 0 : 9;", nativeTest, StringComparison.Ordinal);
         Assert.Contains(
             "using ComPtr = progpu::native::com::pointer<Interface>;",
             provider,

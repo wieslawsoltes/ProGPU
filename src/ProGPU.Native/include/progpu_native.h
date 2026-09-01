@@ -113,6 +113,8 @@ enum {
     PROGPU_NATIVE_SCENE_EXTERNAL_IMAGE = 1U << 3U,
     /* Upload-backed image payload bytes use BGRA8 rather than RGBA8. */
     PROGPU_NATIVE_SCENE_IMAGE_BGRA8 = 1U << 4U,
+    /* Picture-mask stream renders at the source extent carried in reserved0/1. */
+    PROGPU_NATIVE_SCENE_PICTURE_MASK_SOURCE_EXTENT = 1U << 0U,
     PROGPU_NATIVE_SCENE_METRICS_SNAPSHOT_REUSED = 1U << 0U
 };
 
@@ -1425,8 +1427,12 @@ typedef struct progpu_native_scene_layer_geometry_mask {
  * complete nested semantic scene in the owning resource's picture-stream
  * auxiliary arena. The nested stream is independently versioned, bounded,
  * and validated before any child GPU engine or texture is created. Bounds and
- * transform preserve the managed PushOpacityMask picture provenance; the
- * nested scene already carries the composed root transform and bounded clip.
+ * transform preserve the managed PushOpacityMask picture provenance. With
+ * PROGPU_NATIVE_SCENE_PICTURE_MASK_SOURCE_EXTENT, bounds describe the source
+ * scene's logical extent, transform maps that extent into target logical
+ * coordinates, and reserved0/reserved1 carry the source pixel width/height.
+ * Otherwise the nested scene already carries the composed root transform and
+ * bounded clip.
  */
 typedef struct progpu_native_scene_layer_picture_mask {
     uint32_t struct_size;
