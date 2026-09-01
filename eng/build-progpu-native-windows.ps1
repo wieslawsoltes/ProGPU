@@ -410,9 +410,22 @@ if ($CurrentArchitecture -eq $RunnableArchitecture) {
                 -NativeBinaryDirectory $BinaryDirectory
         }
         $Win2DOracleDirectory = Join-Path $RepoRoot "artifacts/progpu-native/win2d-oracle"
-        Invoke-NativeBenchmark `
-            --win2d-canvas `
-            --win2d-output $Win2DOracleDirectory
+        $PreviousWin2DComputeExecution = $env:PROGPU_COMPUTE_EXECUTION
+        try {
+            if ($IsMicrosoftBasicRenderDriver) {
+                # The full Canvas path/text fixture exhausts the CPU-only
+                # adapter's software GPU coverage path before readback. Keep
+                # the complete frame and cross-backend pixel oracle, but force
+                # its independently qualified intrinsic-SIMD coverage route.
+                $env:PROGPU_COMPUTE_EXECUTION = "simd"
+                Write-Host "Selected intrinsic-SIMD coverage for the full Win2D Canvas oracle on Microsoft Basic Render Driver."
+            }
+            Invoke-NativeBenchmark `
+                --win2d-canvas `
+                --win2d-output $Win2DOracleDirectory
+        } finally {
+            $env:PROGPU_COMPUTE_EXECUTION = $PreviousWin2DComputeExecution
+        }
         if ($IsParallelsDisplayAdapter -or $IsMicrosoftBasicRenderDriver) {
             # The Parallels D3D12 driver and GitHub's CPU-only D3D12 adapter
             # remove the device in the legacy managed renderer's dense

@@ -204,6 +204,17 @@ spent roughly 96 seconds in glyph coverage and lost the device; physical
 Windows keeps the complete differential. This is a test-workload boundary,
 not a compute-policy fallback.
 
+The hosted full Win2D Canvas oracle is a concrete qualified use of the SIMD
+fallback. Its 16+2-draw frame is unchanged, but Microsoft Basic Render Driver
+forces `IntrinsicSimdCpu` for glyph coverage after the software GPU route
+intermittently spent about 79 seconds and lost the CPU-only D3D12 device during
+final readback. All drawing and readback still use the native D3D12 backend,
+and the complete frame remains compared with Metal and Vulkan. A local Metal
+run of the forced policy retained the exact qualified
+`D72F667FCB6AC14B2C28A1C45001734C3B62B85B1816069521C9019985D1B39B`
+frame hash. The forced setting is restored immediately after the oracle;
+automatic product selection and hardware gates are unchanged.
+
 `--rerasterize-glyphs` is the component-performance form of the glyph gate. It
 increments the native content revision for every render so each measured frame
 must rebuild and upload the 247,808-byte coverage batch; without this option,
