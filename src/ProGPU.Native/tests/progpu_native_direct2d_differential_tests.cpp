@@ -343,12 +343,32 @@ portable_scene record_portable_scene()
         "portable radial gradient brush creation failed");
     native_com::pointer<d2d::radial_gradient_brush> radial;
     radial.attach(raw_radial);
+    constexpr std::array<std::byte, 16U> bitmap_pixels{
+        std::byte{0x00}, std::byte{0x00}, std::byte{0xff}, std::byte{0xff},
+        std::byte{0x00}, std::byte{0xff}, std::byte{0x00}, std::byte{0xff},
+        std::byte{0xff}, std::byte{0x00}, std::byte{0x00}, std::byte{0xff},
+        std::byte{0xff}, std::byte{0xff}, std::byte{0xff}, std::byte{0xff}};
+    const d2d::bitmap_properties bitmap_properties{
+        {87U, d2d::alpha_mode::premultiplied}, 96.0F, 96.0F};
+    d2d::bitmap* raw_bitmap = nullptr;
+    require(target->CreateBitmap(
+            {2U, 2U},
+            bitmap_pixels.data(),
+            8U,
+            &bitmap_properties,
+            &raw_bitmap) == native_com::ok &&
+        raw_bitmap != nullptr,
+        "portable BGRA bitmap creation failed");
+    native_com::pointer<d2d::bitmap> bitmap;
+    bitmap.attach(raw_bitmap);
     const d2d::color_f clear{0.05F, 0.1F, 0.15F, 1.0F};
     const d2d::rectangle_f rectangle{4.0F, 4.0F, 20.0F, 20.0F};
     const d2d::ellipse ellipse_value{{40.0F, 14.0F}, 8.0F, 8.0F};
     const d2d::rectangle_f stroked{8.0F, 28.0F, 28.0F, 42.0F};
     const d2d::rounded_rectangle rounded{
         {36.0F, 28.0F, 56.0F, 44.0F}, 4.0F, 4.0F};
+    const d2d::rectangle_f bitmap_destination{
+        24.0F, 4.0F, 30.0F, 10.0F};
     target->BeginDraw();
     target->Clear(&clear);
     target->FillRectangle(
@@ -362,6 +382,12 @@ portable_scene record_portable_scene()
         nullptr);
     target->FillRoundedRectangle(
         &rounded, static_cast<d2d::brush*>(brushes[1U].get()));
+    target->DrawBitmap(
+        bitmap.get(),
+        &bitmap_destination,
+        1.0F,
+        d2d::bitmap_interpolation_mode::nearest_neighbor,
+        nullptr);
     require(target->EndDraw(nullptr, nullptr) == native_com::ok,
         "portable scene recording failed");
     native_com::pointer<d2d::scene_render_target_native> scene_target;
@@ -430,8 +456,8 @@ std::vector<std::uint8_t> render_progpu(
             &frame_metrics,
             &diagnostics) == PROGPU_NATIVE_STATUS_SUCCESS &&
         diagnostics.stage == d2d::scene_submission_stage::none &&
-        scene_metrics.draw_count == 4U &&
-        frame_metrics.command_count == 4U &&
+        scene_metrics.draw_count == 5U &&
+        frame_metrics.command_count == 5U &&
         frame_metrics.submission_count == 1U,
         "ProGPU D3D12 Direct2D render failed");
 
