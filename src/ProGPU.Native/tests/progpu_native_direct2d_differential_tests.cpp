@@ -441,6 +441,11 @@ portable_scene record_portable_scene()
         static_cast<d2d::geometry*>(bitmap_brush_path.get()),
         static_cast<d2d::brush*>(bitmap_brush.get()),
         nullptr);
+    target->DrawGeometry(
+        static_cast<d2d::geometry*>(bitmap_brush_path.get()),
+        static_cast<d2d::brush*>(brushes[1U].get()),
+        2.0F,
+        nullptr);
     require(target->EndDraw(nullptr, nullptr) == native_com::ok,
         "portable scene recording failed");
     native_com::pointer<d2d::scene_render_target_native> scene_target;
@@ -509,8 +514,8 @@ std::vector<std::uint8_t> render_progpu(
             &frame_metrics,
             &diagnostics) == PROGPU_NATIVE_STATUS_SUCCESS &&
         diagnostics.stage == d2d::scene_submission_stage::none &&
-        scene_metrics.draw_count == 8U &&
-        frame_metrics.command_count == 8U &&
+        scene_metrics.draw_count == 9U &&
+        frame_metrics.command_count == 9U &&
         frame_metrics.submission_count == 1U,
         "ProGPU D3D12 Direct2D render failed");
 
@@ -800,6 +805,8 @@ std::vector<std::uint8_t> render_system_direct2d()
     target->FillRectangle(&bitmap_brush_rectangle, bitmap_brush.get());
     target->DrawEllipse(&bitmap_brush_ellipse, bitmap_brush.get(), 2.0F);
     target->FillGeometry(bitmap_brush_path.get(), bitmap_brush.get());
+    target->DrawGeometry(
+        bitmap_brush_path.get(), brushes[1U].get(), 2.0F);
     require(SUCCEEDED(target->EndDraw()), "system Direct2D draw failed");
 
     WICRect lock_rectangle{0, 0, static_cast<INT>(width),
@@ -834,7 +841,7 @@ void compare_images(
 {
     require(progpu.size() == static_cast<std::size_t>(row_bytes) * height &&
         system.size() == progpu.size(), "differential image size mismatch");
-    constexpr std::array<std::array<std::uint32_t, 2U>, 14U> probes{{
+    constexpr std::array<std::array<std::uint32_t, 2U>, 15U> probes{{
         {2U, 2U},
         {10U, 10U},
         {40U, 14U},
@@ -847,6 +854,7 @@ void compare_images(
         {23U, 13U},
         {26U, 20U},
         {4U, 34U},
+        {2U, 34U},
         {18U, 28U},
         {46U, 36U}}};
     for (const auto& probe : probes) {

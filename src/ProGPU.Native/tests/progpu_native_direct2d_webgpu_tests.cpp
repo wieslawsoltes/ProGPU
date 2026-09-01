@@ -404,6 +404,11 @@ struct portable_scene final {
         static_cast<d2d::geometry*>(bitmap_brush_path.get()),
         static_cast<d2d::brush*>(bitmap_brush.get()),
         nullptr);
+    target->DrawGeometry(
+        static_cast<d2d::geometry*>(bitmap_brush_path.get()),
+        static_cast<d2d::brush*>(brushes[1U].get()),
+        2.0F,
+        nullptr);
     require(target->EndDraw(nullptr, nullptr) == native_com::ok,
         "portable scene recording failed");
     native_com::pointer<d2d::scene_render_target_native> scene_target;
@@ -480,8 +485,8 @@ struct portable_scene final {
     const bool render_matches = render_status ==
             PROGPU_NATIVE_STATUS_SUCCESS &&
         diagnostics.stage == d2d::scene_submission_stage::none &&
-        scene_metrics.draw_count == 8U &&
-        frame_metrics.command_count == 8U &&
+        scene_metrics.draw_count == 9U &&
+        frame_metrics.command_count == 9U &&
         frame_metrics.submission_count == 1U;
     if (!render_matches) {
         std::fprintf(
@@ -589,6 +594,8 @@ void verify_pixels(std::span<const std::uint8_t> pixels)
         "portable Direct2D bitmap-brush ellipse stroke is missing");
     require(near_rgba(pixel(4U, 34U), 255, 0, 0),
         "portable Direct2D bitmap-brush path fill is missing");
+    require(near_rgba(pixel(2U, 34U), 255, 0, 255),
+        "portable Direct2D geometry stroke is missing");
 }
 
 void write_capture(
@@ -632,7 +639,7 @@ int main(int argc, char** argv)
         : gpu.properties.name;
     std::printf(
         "Portable Direct2D WebGPU passed: backend=%s adapter=%s "
-        "draws=8 submissions=1 bytes=%zu\n",
+        "draws=9 submissions=1 bytes=%zu\n",
         backend_name(gpu.properties.backendType),
         adapter_name,
         pixels.size());
