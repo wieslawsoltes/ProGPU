@@ -822,6 +822,41 @@ bool semantic_scene_builder_reuses_retained_images() {
         return false;
     }
 
+    semantic_scene_builder bgra_builder(7031U, 1U);
+    std::uint32_t bgra_index = PROGPU_NATIVE_SCENE_NO_INDEX;
+    if (!bgra_builder.add_bgra8_image(
+            2U, 2U, 8U, pixels, bgra_index) ||
+        bgra_builder.update_rgba8_image(
+            bgra_index, 2U, 2U, 8U, pixels, 2U) ||
+        bgra_builder.last_error() != scene_build_error::invalid_argument ||
+        !bgra_builder.update_bgra8_image(
+            bgra_index, 2U, 2U, 8U, pixels, 2U) ||
+        !bgra_builder.draw_image(
+            bgra_index,
+            image,
+            {8.0F, 10.0F, 32.0F, 32.0F},
+            PROGPU_NATIVE_SCENE_NO_INDEX,
+            &sampling,
+            &matrix)) {
+        return false;
+    }
+    std::vector<std::byte> bgra_stream;
+    if (!bgra_builder.build(bgra_stream)) {
+        return false;
+    }
+    const auto bgra_validation =
+        scene::validate(bgra_stream.data(), bgra_stream.size());
+    if (bgra_validation.status != PROGPU_NATIVE_STATUS_SUCCESS) {
+        return false;
+    }
+    const auto bgra_resource = read<progpu_native_scene_resource>(
+        bgra_stream, bgra_validation.header.resource_offset);
+    if (bgra_resource.flags != (PROGPU_NATIVE_SCENE_RECORD_REQUIRED |
+            PROGPU_NATIVE_SCENE_IMAGE_BGRA8) ||
+        bgra_resource.payload_size != pixels.size()) {
+        return false;
+    }
+
     semantic_scene_builder invalid(704U, 1U);
     std::uint32_t invalid_index = PROGPU_NATIVE_SCENE_NO_INDEX;
     if (invalid.add_rgba8_image(

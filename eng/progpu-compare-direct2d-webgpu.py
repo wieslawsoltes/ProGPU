@@ -9,7 +9,16 @@ import pathlib
 import sys
 
 
-PROBES = ((2, 2), (10, 10), (40, 14), (46, 14), (18, 28), (46, 36))
+PROBES = (
+    (2, 2),
+    (10, 10),
+    (40, 14),
+    (46, 14),
+    (25, 5),
+    (29, 9),
+    (18, 28),
+    (46, 36),
+)
 EXPECTED_SIZE = (64, 48)
 
 
@@ -81,7 +90,7 @@ def compare(reference_path: pathlib.Path, candidate_path: pathlib.Path) -> dict:
             max(changed_y),
         ]
 
-    # The six clear/gradient/stroke/interior probes must remain within one
+    # The eight clear/gradient/bitmap/stroke/interior probes must remain within one
     # channel level.
     # Metal and llvmpipe/Vulkan currently differ at 140 analytic edge pixels,
     # all by exactly one level. The bounded whole-frame allowance rejects a
@@ -122,7 +131,8 @@ def main() -> int:
         "Contract": "ProGPU portable Direct2D COM D3D12/Metal/Vulkan differential",
         "Fixture": (
             "64x48 clear, linear-gradient rectangle, radial-gradient ellipse, "
-            "solid stroked rectangle, solid rounded rectangle"
+            "nearest-sampled BGRA bitmap, solid stroked rectangle, solid "
+            "rounded rectangle"
         ),
         "Tolerance": {
             "SemanticProbeMaximum": 1,

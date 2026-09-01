@@ -2924,13 +2924,18 @@ progpu_native_status render_scene(
                 WGPUTextureDescriptor texture_descriptor{};
                 texture_descriptor.label =
                     progpu::native::webgpu::string_view(
-                        "ProGPU semantic retained RGBA image");
+                        (resource.flags & PROGPU_NATIVE_SCENE_IMAGE_BGRA8) != 0U
+                            ? "ProGPU semantic retained BGRA image"
+                            : "ProGPU semantic retained RGBA image");
                 texture_descriptor.usage = WGPUTextureUsage_TextureBinding |
                     WGPUTextureUsage_CopyDst;
                 texture_descriptor.dimension = WGPUTextureDimension_2D;
                 texture_descriptor.size = {
                     image.image_width, image.image_height, 1U};
-                texture_descriptor.format = WGPUTextureFormat_RGBA8Unorm;
+                texture_descriptor.format =
+                    (resource.flags & PROGPU_NATIVE_SCENE_IMAGE_BGRA8) != 0U
+                    ? WGPUTextureFormat_BGRA8Unorm
+                    : WGPUTextureFormat_RGBA8Unorm;
                 texture_descriptor.mipLevelCount = 1U;
                 texture_descriptor.sampleCount = 1U;
                 semantic_image_draw draw{};

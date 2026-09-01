@@ -636,18 +636,47 @@ std::vector<std::uint8_t> render_system_direct2d()
         "system radial gradient brush creation failed");
     native_com::pointer<ID2D1RadialGradientBrush> radial;
     radial.attach(raw_radial);
+    constexpr std::array<std::uint8_t, 16U> bitmap_pixels{
+        0x00U, 0x00U, 0xffU, 0xffU,
+        0x00U, 0xffU, 0x00U, 0xffU,
+        0xffU, 0x00U, 0x00U, 0xffU,
+        0xffU, 0xffU, 0xffU, 0xffU};
+    const D2D1_BITMAP_PROPERTIES bitmap_properties = D2D1::BitmapProperties(
+        D2D1::PixelFormat(
+            DXGI_FORMAT_B8G8R8A8_UNORM,
+            D2D1_ALPHA_MODE_PREMULTIPLIED),
+        96.0F,
+        96.0F);
+    ID2D1Bitmap* raw_source_bitmap = nullptr;
+    require(SUCCEEDED(target->CreateBitmap(
+            D2D1::SizeU(2U, 2U),
+            bitmap_pixels.data(),
+            8U,
+            &bitmap_properties,
+            &raw_source_bitmap)) &&
+        raw_source_bitmap != nullptr,
+        "system Direct2D BGRA bitmap creation failed");
+    native_com::pointer<ID2D1Bitmap> source_bitmap;
+    source_bitmap.attach(raw_source_bitmap);
     const D2D1_COLOR_F clear{0.05F, 0.1F, 0.15F, 1.0F};
     const D2D1_RECT_F rectangle{4.0F, 4.0F, 20.0F, 20.0F};
     const D2D1_ELLIPSE ellipse_value{{40.0F, 14.0F}, 8.0F, 8.0F};
     const D2D1_RECT_F stroked{8.0F, 28.0F, 28.0F, 42.0F};
     const D2D1_ROUNDED_RECT rounded{
         {36.0F, 28.0F, 56.0F, 44.0F}, 4.0F, 4.0F};
+    const D2D1_RECT_F bitmap_destination{24.0F, 4.0F, 30.0F, 10.0F};
     target->BeginDraw();
     target->Clear(&clear);
     target->FillRectangle(&rectangle, linear.get());
     target->FillEllipse(&ellipse_value, radial.get());
     target->DrawRectangle(&stroked, brushes[0U].get(), 3.0F);
     target->FillRoundedRectangle(&rounded, brushes[1U].get());
+    target->DrawBitmap(
+        source_bitmap.get(),
+        &bitmap_destination,
+        1.0F,
+        D2D1_BITMAP_INTERPOLATION_MODE_NEAREST_NEIGHBOR,
+        nullptr);
     require(SUCCEEDED(target->EndDraw()), "system Direct2D draw failed");
 
     WICRect lock_rectangle{0, 0, static_cast<INT>(width),

@@ -212,6 +212,27 @@ bool semantic_scene_builder::add_rgba8_image(
     std::uint32_t row_bytes,
     std::span<const std::byte> pixels,
     std::uint32_t& resource_index) noexcept {
+    return add_32bit_image(
+        width, height, row_bytes, pixels, false, resource_index);
+}
+
+bool semantic_scene_builder::add_bgra8_image(
+    std::uint32_t width,
+    std::uint32_t height,
+    std::uint32_t row_bytes,
+    std::span<const std::byte> pixels,
+    std::uint32_t& resource_index) noexcept {
+    return add_32bit_image(
+        width, height, row_bytes, pixels, true, resource_index);
+}
+
+bool semantic_scene_builder::add_32bit_image(
+    std::uint32_t width,
+    std::uint32_t height,
+    std::uint32_t row_bytes,
+    std::span<const std::byte> pixels,
+    bool bgra8,
+    std::uint32_t& resource_index) noexcept {
     resource_index = PROGPU_NATIVE_SCENE_NO_INDEX;
     const std::uint64_t minimum_row_bytes =
         static_cast<std::uint64_t>(width) * 4U;
@@ -232,11 +253,13 @@ bool semantic_scene_builder::add_rgba8_image(
         implementation::resource_entry resource{};
         resource.record.struct_size = sizeof(resource.record);
         resource.record.kind = PROGPU_NATIVE_SCENE_RESOURCE_IMAGE;
-        resource.record.flags = PROGPU_NATIVE_SCENE_RECORD_REQUIRED;
+        resource.record.flags = PROGPU_NATIVE_SCENE_RECORD_REQUIRED |
+            (bgra8 ? PROGPU_NATIVE_SCENE_IMAGE_BGRA8 : 0U);
         resource.record.resource_id = implementation_->resources.size() + 1U;
         resource.record.generation = implementation_->generation;
         resource.payload.assign(pixels.begin(), pixels.end());
-        resource.rgba8_image = true;
+        resource.rgba8_image = !bgra8;
+        resource.bgra8_image = bgra8;
         resource.image_width = width;
         resource.image_height = height;
         resource.image_row_bytes = row_bytes;
@@ -294,11 +317,47 @@ bool semantic_scene_builder::update_rgba8_image(
     std::uint32_t row_bytes,
     std::span<const std::byte> pixels,
     std::uint64_t resource_generation) noexcept {
+    return update_32bit_image(
+        resource_index,
+        width,
+        height,
+        row_bytes,
+        pixels,
+        resource_generation,
+        false);
+}
+
+bool semantic_scene_builder::update_bgra8_image(
+    std::uint32_t resource_index,
+    std::uint32_t width,
+    std::uint32_t height,
+    std::uint32_t row_bytes,
+    std::span<const std::byte> pixels,
+    std::uint64_t resource_generation) noexcept {
+    return update_32bit_image(
+        resource_index,
+        width,
+        height,
+        row_bytes,
+        pixels,
+        resource_generation,
+        true);
+}
+
+bool semantic_scene_builder::update_32bit_image(
+    std::uint32_t resource_index,
+    std::uint32_t width,
+    std::uint32_t height,
+    std::uint32_t row_bytes,
+    std::span<const std::byte> pixels,
+    std::uint64_t resource_generation,
+    bool bgra8) noexcept {
     if (resource_index >= implementation_->resources.size()) {
         return implementation_->fail(scene_build_error::invalid_argument);
     }
     auto& resource = implementation_->resources[resource_index];
-    if (!resource.rgba8_image || width != resource.image_width ||
+    if ((bgra8 ? !resource.bgra8_image : !resource.rgba8_image) ||
+        width != resource.image_width ||
         height != resource.image_height ||
         row_bytes != resource.image_row_bytes ||
         pixels.size() != resource.payload.size() ||
@@ -352,7 +411,7 @@ bool semantic_scene_builder::draw_image(
                 (image.image_height - 1U) +
             static_cast<std::uint64_t>(image.image_width) * 4U
         : resource.payload.size();
-    if ((!resource.rgba8_image && !external_image) ||
+    if ((!resource.rgba8_image && !resource.bgra8_image && !external_image) ||
         image.image_width != resource.image_width ||
         image.image_height != resource.image_height ||
         image.row_bytes != resource.image_row_bytes ||
@@ -467,7 +526,7 @@ bool semantic_scene_builder::draw_image_patches(
                 (image.image_height - 1U) +
             static_cast<std::uint64_t>(image.image_width) * 4U
         : resource.payload.size();
-    if ((!resource.rgba8_image && !external_image) ||
+    if ((!resource.rgba8_image && !resource.bgra8_image && !external_image) ||
         image.image_width != resource.image_width ||
         image.image_height != resource.image_height ||
         image.row_bytes != resource.image_row_bytes ||

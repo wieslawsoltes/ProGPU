@@ -101,11 +101,24 @@ public:
         std::uint32_t row_bytes,
         std::span<const std::byte> pixels,
         std::uint32_t& resource_index) noexcept;
+    bool add_bgra8_image(
+        std::uint32_t width,
+        std::uint32_t height,
+        std::uint32_t row_bytes,
+        std::span<const std::byte> pixels,
+        std::uint32_t& resource_index) noexcept;
     bool add_external_image(
         std::uint32_t width,
         std::uint32_t height,
         std::uint32_t& resource_index) noexcept;
     bool update_rgba8_image(
+        std::uint32_t resource_index,
+        std::uint32_t width,
+        std::uint32_t height,
+        std::uint32_t row_bytes,
+        std::span<const std::byte> pixels,
+        std::uint64_t resource_generation) noexcept;
+    bool update_bgra8_image(
         std::uint32_t resource_index,
         std::uint32_t width,
         std::uint32_t height,
@@ -316,6 +329,21 @@ public:
     static progpu_native_scene_state identity_state() noexcept;
 
 private:
+    bool add_32bit_image(
+        std::uint32_t width,
+        std::uint32_t height,
+        std::uint32_t row_bytes,
+        std::span<const std::byte> pixels,
+        bool bgra8,
+        std::uint32_t& resource_index) noexcept;
+    bool update_32bit_image(
+        std::uint32_t resource_index,
+        std::uint32_t width,
+        std::uint32_t height,
+        std::uint32_t row_bytes,
+        std::span<const std::byte> pixels,
+        std::uint64_t resource_generation,
+        bool bgra8) noexcept;
     bool try_measure_stream(
         std::uint32_t& command_offset,
         std::uint32_t& resource_offset,
