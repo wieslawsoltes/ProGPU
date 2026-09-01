@@ -865,8 +865,10 @@ and miter-or-bevel styles. It reads the typed COM line-join and miter-limit
 state, preserves the SIMD segment body, and selects bevel-only or limited-miter
 join wedges without changing cap semantics on a closed figure. The Windows
 oracle distinguishes a point clipped by a bevel from one inside its wedge and
-matches system Direct2D. Dashed and round-join styles remain fail closed until
-their shared run/arc geometry is reused by containment, bounds, and `Widen`.
+matches system Direct2D. Round joins reuse an exact vertex disk on top of the
+SIMD segment body; inside/outside arc probes also match the system. Dashed
+styles remain fail closed until their shared run geometry is reused by
+containment, bounds, and `Widen`.
 
 The identical simple closed/default-miter domain now implements
 `GetWidenedBounds`. It derives segment offset endpoints plus qualified miter
@@ -2183,8 +2185,8 @@ ownership, exact vocabulary `Stream`, line/cubic/arc-aware transformed bounds,
 `Simplify` to cubics-and-lines or flattened lines, fill containment, area,
 length, point-at-length, and point-plus-segment queries. Area and containment
 are qualified for ordinary non-overlapping figures; exact self-intersection
-and overlapping-figure fill analysis remains a separate gate. Dashed,
-round-join, open, or multi-figure path stroke containment, collapsed/styled/open/
+and overlapping-figure fill analysis remains a separate gate. Dashed, open,
+or multi-figure path stroke containment, collapsed/styled/open/
 multi-figure path widening, and styled/open/multi-figure widened bounds,
 multi-contour outline/Boolean normalization, and unsupported tessellation
 topologies still return `E_NOTIMPL` with initialized outputs where applicable.

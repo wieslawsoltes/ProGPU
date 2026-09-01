@@ -2094,8 +2094,7 @@ public:
             if (style_factory.get() != owner_.get()) {
                 return wrong_factory;
             }
-            if (style->GetDashStyle() != dash_style::solid ||
-                style->GetLineJoin() == line_join::round) {
+            if (style->GetDashStyle() != dash_style::solid) {
                 return not_implemented;
             }
             join = style->GetLineJoin();
@@ -2184,6 +2183,18 @@ public:
                     incoming_unit_x * outgoing_unit_y -
                     incoming_unit_y * outgoing_unit_x;
                 if (denominator == 0.0) {
+                    continue;
+                }
+                if (join == line_join::round) {
+                    const double point_x =
+                        static_cast<double>(local_point.x) - vertex.x;
+                    const double point_y =
+                        static_cast<double>(local_point.y) - vertex.y;
+                    if (point_x * point_x + point_y * point_y <=
+                        half_width_double * half_width_double) {
+                        *contains = 1;
+                        return com::ok;
+                    }
                     continue;
                 }
                 for (const double side : {-1.0, 1.0}) {
