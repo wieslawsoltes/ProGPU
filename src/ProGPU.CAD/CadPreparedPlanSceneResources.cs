@@ -80,9 +80,19 @@ public sealed class CadPreparedPlanSceneResources : IDisposable
                     $"Prepared raster IMAGE resource {index} belongs to a different WebGPU device domain.");
             }
 
-            context.RetainResource(lease);
+            bool retained = requiredContext is null
+                ? context.TryRetainTextureLease(lease, out GpuTexture retainedTexture)
+                : context.TryRetainTextureLease(
+                    lease,
+                    requiredContext,
+                    out retainedTexture);
             _rasterImageLeases[index] = null;
-            textures[index] = texture;
+            if (!retained || !ReferenceEquals(texture, retainedTexture))
+            {
+                throw new InvalidOperationException(
+                    $"Prepared raster IMAGE resource {index} could not transfer its texture lease.");
+            }
+            textures[index] = retainedTexture;
         }
         return textures;
     }

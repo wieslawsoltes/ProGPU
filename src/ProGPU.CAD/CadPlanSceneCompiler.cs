@@ -425,6 +425,7 @@ public sealed class CadPlanSceneCompiler
         byte[]? chunkKey = null;
         ProGPU.Text.TtfFont[]? chunkFontDependencies = null;
         CadShxGlyph[]? chunkShxDependencies = null;
+        GpuTexture[]? chunkTextureDependencies = null;
         CadPlanChunkIdentity chunkIdentity = default;
         Matrix3x2? chunkLocalToScene = null;
         Matrix3x2? chunkSceneToLocal = null;
@@ -807,6 +808,7 @@ public sealed class CadPlanSceneCompiler
                         rasterImageResolver,
                         options.RasterImageContext,
                         preparedRasterImageTextures,
+                        sceneContext,
                         drawContinuousFrame: deferredImageFrame is null);
                     if (!imageAvailable &&
                         warnedRasterImageResources.Add(rasterImage.ResourceIndex))
@@ -955,6 +957,7 @@ public sealed class CadPlanSceneCompiler
             chunkNormalization = null;
             chunkFontDependencies = null;
             chunkShxDependencies = null;
+            chunkTextureDependencies = null;
             ReadOnlySpan<CadEntityHeader> chunkEntities = entityMemory.Span;
             ReadOnlySpan<CadPlanBlockInstanceRange> blockInstances =
                 blockInstanceMemory.Span;
@@ -1010,6 +1013,7 @@ public sealed class CadPlanSceneCompiler
                 options,
                 excludedLayerNames,
                 viewportBoundaryHandles,
+                preparedRasterImageTextures,
                 chunkNormalization,
                 includeSemanticHandle: blockInstance is null,
                 chunkEntities.Slice(startIndex, endIndex - startIndex),
@@ -1017,13 +1021,15 @@ public sealed class CadPlanSceneCompiler
                 cancellationToken,
                 out byte[] createdKey,
                 out ProGPU.Text.TtfFont[]? createdFontDependencies,
-                out CadShxGlyph[]? createdShxDependencies)
+                out CadShxGlyph[]? createdShxDependencies,
+                out GpuTexture[]? createdTextureDependencies)
                     ? createdKey
                     : null;
             if (chunkKey is not null)
             {
                 chunkFontDependencies = createdFontDependencies;
                 chunkShxDependencies = createdShxDependencies;
+                chunkTextureDependencies = createdTextureDependencies;
             }
             if (chunkKey is not null)
             {
@@ -1039,6 +1045,7 @@ public sealed class CadPlanSceneCompiler
                     chunkKey,
                     chunkFontDependencies,
                     chunkShxDependencies,
+                    chunkTextureDependencies,
                     out GpuPicture cachedPicture,
                     out int cachedCommandCount,
                     out int cachedRecordedEntityCount,
@@ -1115,6 +1122,7 @@ public sealed class CadPlanSceneCompiler
                     replayCounters,
                     chunkFontDependencies,
                     chunkShxDependencies,
+                    chunkTextureDependencies,
                     out reused,
                     out cacheOwnsResult);
             }
@@ -1146,6 +1154,7 @@ public sealed class CadPlanSceneCompiler
             chunkNormalization = null;
             chunkFontDependencies = null;
             chunkShxDependencies = null;
+            chunkTextureDependencies = null;
             context = sceneContext;
         }
 
@@ -2209,6 +2218,7 @@ public sealed class CadPlanSceneCompiler
         ICadRasterImageSourceResolver? resolver,
         WgpuContext? requiredContext,
         GpuTexture?[]? preparedTextures,
+        DrawingContext preparedTextureOwner,
         bool drawContinuousFrame)
     {
         bool drawImage = RequiresRasterImageTexture(image);
@@ -2236,6 +2246,12 @@ public sealed class CadPlanSceneCompiler
             GpuTexture? texture = preparedTextures is not null
                 ? preparedTextures[image.ResourceIndex]
                 : null;
+            if (texture is not null && preparedTextures is not null &&
+                !preparedTextureOwner.TryShareRetainedTexture(texture, context))
+            {
+                throw new InvalidOperationException(
+                    "Prepared raster IMAGE texture lease is not retained by its recording owner.");
+            }
             if (preparedTextures is null)
             {
                 var request = new CadRasterImageRequest(snapshot.SourceName, resource);

@@ -194,6 +194,65 @@ public sealed class CadRasterImageRenderTests
     }
 
     [Fact]
+    public void PreparedRasterChunkOwnsAndReusesItsExactTextureLease()
+    {
+        HeadlessWindow window = HeadlessWindow.Shared;
+        var document = new CadDocument();
+        RasterImage image = CreateImage();
+        image.Brightness = 55;
+        document.Entities.Add(image);
+        CadDocumentSnapshot snapshot = new CadSnapshotCompiler().Compile(
+            new CadDocumentSession(document));
+        var catalog = new CadRasterImageCatalog();
+        CadEncodedRasterImageSource source = catalog.RegisterEncoded(
+            "pixel.png",
+            EncodedPixel);
+        using var cache = new CadPlanChunkCache();
+        var options = new CadPlanSceneOptions
+        {
+            RasterImageSourceResolver = catalog,
+            RasterImageContext = window.Context,
+            ChunkCache = cache,
+        };
+        var compiler = new CadPlanSceneCompiler();
+        using CadPreparedPlanSceneResources preparedFirst =
+            compiler.PrepareResources(snapshot, options);
+        using CadRecordedPlanScene first =
+            compiler.CompilePrepared(snapshot, preparedFirst, options);
+        using CadPreparedPlanSceneResources preparedSecond =
+            compiler.PrepareResources(snapshot, options);
+        using CadRecordedPlanScene second =
+            compiler.CompilePrepared(snapshot, preparedSecond, options);
+        Assert.True(source.TryGetGpuTexture(window.Context, out GpuTexture texture));
+
+        GpuPicture firstChunk = Assert.IsType<GpuPicture>(
+            Assert.Single(first.DrawingContext.Commands).Picture);
+        GpuPicture secondChunk = Assert.IsType<GpuPicture>(
+            Assert.Single(second.DrawingContext.Commands).Picture);
+        Assert.Equal(1, firstChunk.RetainedResourceCount);
+        Assert.Same(firstChunk, secondChunk);
+        Assert.Equal(1, second.Statistics.ReusedRetainedChunkCount);
+        Assert.Equal(1, cache.Count);
+        using GpuPicture cachedPicture = second.CreatePicture();
+        Assert.True(GpuPictureNativeSceneCompiler.TryCompile(
+            cachedPicture,
+            705U,
+            1U,
+            out NativeCompiledPicture? native,
+            out NativePictureCompileFailure failure),
+            failure.ToString());
+        Assert.NotNull(native);
+        cachedPicture.Dispose();
+
+        catalog.Dispose();
+        first.Dispose();
+        second.Dispose();
+        Assert.False(texture.IsDisposed);
+        cache.Clear();
+        Assert.True(texture.IsDisposed);
+    }
+
+    [Fact]
     public void PreparedResourcesDoNotUploadExcludedRasterLayers()
     {
         HeadlessWindow window = HeadlessWindow.Shared;

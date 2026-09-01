@@ -6,11 +6,12 @@ The shared CAD sample now records semantic-root and eligible static-block-instan
 plan chunks as immutable nested `GpuPicture` values and retains a least-recently-used,
 bounded 8,192-entry cache across document generations. Canonical identity storage
 is independently capped at 64 MiB total, conservatively charging each entry's
-distinct retained TrueType font bytes and SHX glyph-path dependencies, and 8 MiB
+distinct retained TrueType font bytes, SHX glyph-path dependencies, and prepared
+GPU texture residency, and 8 MiB
 per encoded key. Reuse is
 admitted only for continuous-style POINT, LINE, CIRCLE, ARC, ELLIPSE, SOLID,
 3DFACE, SPLINE, LWPOLYLINE, 2D/3D POLYLINE, vector-outline TEXT/MTEXT,
-SHX TEXT/MTEXT, SHAPE, and solid or patterned HATCH
+SHX TEXT/MTEXT, SHAPE, solid or patterned HATCH, and prepared raster IMAGE
 roots whose complete canonical rendering inputs match byte-for-byte. Top-level
 INSERT and MINSERT cells additionally share one definition-local fragment across
 translation, rotation, reflection, and nonuniform affine scale when every expanded
@@ -83,6 +84,16 @@ diagnostics. A failed or budget-truncated lowering is never interned. Affine blo
 sharing remains disabled for non-continuous linetypes because CAD dash lengths are
 resolved in final entity space and must not be rescaled by a shared outer transform.
 
+Prepared raster IMAGE identity includes normalized origin/pixel axes, dimensions,
+clip grammar, frame/display/sampling/effect state, IMAGEDEF metadata, exact texture
+object, format, alpha mode, dimensions, layers, and mip count. `DrawingContext`
+shares an already-retained texture lease into the chunk recorder with an independent
+reference, so cache eviction, scene disposal, or prepared-resource disposal cannot
+invalidate another published picture. Texture residency is conservatively charged
+as 16 bytes per texel per layer, sample, and mip level; this intentionally
+overestimates common RGBA8 storage. Resolver-on-record images fail closed because
+their exact texture identity is not known at key construction time.
+
 Key construction is O(P) time and storage for P primitive/range values in the
 root, polls cancellation at a fixed entity cadence, and fails closed at the
 per-root byte limit. Lookup is O(P) for exact byte comparison. A hit skips plan command
@@ -98,7 +109,7 @@ The aggregate picture independently retains every child resource lease. LRU
 eviction, replacement, or cache clearing therefore cannot invalidate an already published
 picture. Currently eligible analytic/vector-text chunks retain no disposable device
 resource; cached font and SHX glyph objects remain strongly owned by their retained
-commands and exact dependency table. Raster and color/bitmap text,
+commands and exact dependency table. Color/bitmap text,
 viewport, modeler, leader, tolerance, MLINE, and
 mesh roots remain on the ordinary path until their complete resource and global
 budget dependencies are encoded.
@@ -115,5 +126,5 @@ semantics. MINSERT and distinct affine INSERT regressions prove one shared child
 identity, exact composed managed endpoints within retained-float tolerance, and
 matched native primitive/draw counts.
 
-Definition-local extruded surface, color/bitmap text, affine-block linetype, raster, and other
+Definition-local extruded surface, color/bitmap text, affine-block linetype, and other
 resource- or global-budget-dependent families remain the next chunk-coverage work.

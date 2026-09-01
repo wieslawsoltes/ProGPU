@@ -1853,8 +1853,8 @@ diagnosed rather than rendered approximately. The snapshot additionally emits
 non-overlapping top-level definition ranges per INSERT/MINSERT cell, excluding
 instance-owned ATTRIBs. Eligible continuous analytic POINT/line/curve/flat-face/
 spline/polyline, vector-outline TrueType TEXT/MTEXT, retained analytic SHX
-TEXT/MTEXT/SHAPE, and HATCH ranges use exact resolved-style/content/resource keys
-and a double-precision inverse to
+TEXT/MTEXT/SHAPE, HATCH, and prepared raster IMAGE ranges use exact
+resolved-style/content/resource keys and a double-precision inverse to
 share one definition-local nested picture across translation, rotation,
 reflection, and nonuniform scale; singular or unencoded families fail closed to
 ordinary recording. The flattened headers remain authoritative for selection,
@@ -1865,6 +1865,9 @@ Simple and complex A-aligned linetypes additionally reuse exact semantic-root
 chunks across generations while restoring their bounded lowering counters and
 substitution diagnostics. They deliberately remain outside affine definition
 sharing because their authored dash lengths are resolved in final entity space.
+Prepared raster chunks additionally require the exact device-domain texture and
+an independently shared retained lease; synchronous resolver-on-record images
+remain on the ordinary path until texture identity is available before recording.
 
 ### Block attribute lowering
 

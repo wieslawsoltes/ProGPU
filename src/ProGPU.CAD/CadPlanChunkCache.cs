@@ -4,6 +4,7 @@ using System.Runtime.InteropServices;
 using System.Numerics;
 using System.Security.Cryptography;
 using System.Text;
+using ProGPU.Backend;
 using ProGPU.Scene;
 using ProGPU.Text;
 
@@ -27,6 +28,7 @@ public sealed class CadPlanChunkCache : IDisposable
         CadPlanChunkReplayCounters replayCounters,
         TtfFont[]? fontDependencies,
         CadShxGlyph[]? shxDependencies,
+        GpuTexture[]? textureDependencies,
         long identityBytes,
         LinkedListNode<CadPlanChunkIdentity> lruNode)
     {
@@ -37,6 +39,7 @@ public sealed class CadPlanChunkCache : IDisposable
         public CadPlanChunkReplayCounters ReplayCounters { get; } = replayCounters;
         public TtfFont[]? FontDependencies { get; } = fontDependencies;
         public CadShxGlyph[]? ShxDependencies { get; } = shxDependencies;
+        public GpuTexture[]? TextureDependencies { get; } = textureDependencies;
         public long IdentityBytes { get; } = identityBytes;
         public LinkedListNode<CadPlanChunkIdentity> LruNode { get; } = lruNode;
     }
@@ -104,6 +107,7 @@ public sealed class CadPlanChunkCache : IDisposable
         CadPlanChunkReplayCounters replayCounters,
         TtfFont[]? fontDependencies,
         CadShxGlyph[]? shxDependencies,
+        GpuTexture[]? textureDependencies,
         out bool reused,
         out bool cacheOwnsResult)
     {
@@ -123,7 +127,10 @@ public sealed class CadPlanChunkCache : IDisposable
                     fontDependencies) &&
                 ShxDependenciesEqual(
                     existing.ShxDependencies,
-                    shxDependencies))
+                    shxDependencies) &&
+                TextureDependenciesEqual(
+                    existing.TextureDependencies,
+                    textureDependencies))
             {
                 candidate.Dispose();
                 Touch(existing);
@@ -137,6 +144,7 @@ public sealed class CadPlanChunkCache : IDisposable
                     key.Length,
                     fontDependencies,
                     shxDependencies,
+                    textureDependencies,
                     out long identityBytes) ||
                 identityBytes > _maximumKeyBytes)
             {
@@ -163,6 +171,7 @@ public sealed class CadPlanChunkCache : IDisposable
                 replayCounters,
                 fontDependencies,
                 shxDependencies,
+                textureDependencies,
                 identityBytes,
                 node));
             _keyBytes = checked(_keyBytes + identityBytes);
@@ -177,6 +186,7 @@ public sealed class CadPlanChunkCache : IDisposable
         ReadOnlySpan<byte> key,
         TtfFont[]? fontDependencies,
         CadShxGlyph[]? shxDependencies,
+        GpuTexture[]? textureDependencies,
         out GpuPicture picture,
         out int commandCount,
         out int recordedEntityCount,
@@ -192,7 +202,10 @@ public sealed class CadPlanChunkCache : IDisposable
                     fontDependencies) &&
                 ShxDependenciesEqual(
                     entry.ShxDependencies,
-                    shxDependencies))
+                    shxDependencies) &&
+                TextureDependenciesEqual(
+                    entry.TextureDependencies,
+                    textureDependencies))
             {
                 Touch(entry);
                 picture = entry.Picture;
@@ -270,6 +283,7 @@ public sealed class CadPlanChunkCache : IDisposable
         int keyBytes,
         TtfFont[]? fonts,
         CadShxGlyph[]? shxGlyphs,
+        GpuTexture[]? textures,
         out long identityBytes)
     {
         try
@@ -301,6 +315,24 @@ public sealed class CadPlanChunkCache : IDisposable
                         identityBytes +
                         64L + ((long)glyph.SegmentCount * 64L));
                 }
+            }
+            HashSet<GpuTexture>? uniqueTextures = textures is null
+                ? null
+                : new HashSet<GpuTexture>(ReferenceEqualityComparer.Instance);
+            count = textures?.Length ?? 0;
+            for (int index = 0; index < count; index++)
+            {
+                GpuTexture texture = textures![index];
+                if (texture.IsDisposed || !uniqueTextures!.Add(texture))
+                {
+                    continue;
+                }
+                identityBytes = checked(
+                    identityBytes +
+                    ((long)texture.Width * texture.Height *
+                     texture.DepthOrArrayLayers *
+                     Math.Max(1U, texture.SampleCount) *
+                     Math.Max(1U, texture.MipLevelCount) * 16L));
             }
             return true;
         }
@@ -370,6 +402,26 @@ public sealed class CadPlanChunkCache : IDisposable
         for (int index = 0; index < count; index++)
         {
             if (!ReferenceEquals(left![index], right![index]))
+            {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    private static bool TextureDependenciesEqual(
+        GpuTexture[]? left,
+        GpuTexture[]? right)
+    {
+        int count = left?.Length ?? 0;
+        if (count != (right?.Length ?? 0))
+        {
+            return false;
+        }
+        for (int index = 0; index < count; index++)
+        {
+            if (left![index].IsDisposed || right![index].IsDisposed ||
+                !ReferenceEquals(left[index], right[index]))
             {
                 return false;
             }
@@ -507,6 +559,7 @@ internal static class CadPlanChunkKeyBuilder
         CadPlanSceneOptions options,
         IReadOnlySet<string>? excludedLayerNames,
         IReadOnlySet<ulong> viewportBoundaryHandles,
+        GpuTexture?[]? rasterImageTextures,
         CadPlanChunkNormalization? worldToChunk,
         bool includeSemanticHandle,
         ReadOnlySpan<CadEntityHeader> entities,
@@ -514,10 +567,12 @@ internal static class CadPlanChunkKeyBuilder
         CancellationToken cancellationToken,
         out byte[] key,
         out TtfFont[]? fontDependencies,
-        out CadShxGlyph[]? shxDependencies)
+        out CadShxGlyph[]? shxDependencies,
+        out GpuTexture[]? textureDependencies)
     {
         List<TtfFont>? fonts = null;
         List<CadShxGlyph>? shxGlyphs = null;
+        List<GpuTexture>? textures = null;
         var writer = new ArrayBufferWriter<byte>(256);
         if (worldToChunk is null)
         {
@@ -547,6 +602,7 @@ internal static class CadPlanChunkKeyBuilder
                     options,
                     excludedLayerNames,
                     viewportBoundaryHandles,
+                    rasterImageTextures,
                     worldToChunk,
                     includeSemanticHandle,
                     layers,
@@ -556,12 +612,14 @@ internal static class CadPlanChunkKeyBuilder
                     cancellationToken,
                     ref fonts,
                     ref shxGlyphs,
+                    ref textures,
                     maximumKeyBytes) ||
                 writer.WrittenCount > maximumKeyBytes)
             {
                 key = [];
                 fontDependencies = null;
                 shxDependencies = null;
+                textureDependencies = null;
                 return false;
             }
         }
@@ -569,6 +627,7 @@ internal static class CadPlanChunkKeyBuilder
         key = writer.WrittenSpan.ToArray();
         fontDependencies = fonts?.ToArray();
         shxDependencies = shxGlyphs?.ToArray();
+        textureDependencies = textures?.ToArray();
         return true;
     }
 
@@ -578,6 +637,7 @@ internal static class CadPlanChunkKeyBuilder
         CadPlanSceneOptions options,
         IReadOnlySet<string>? excludedLayerNames,
         IReadOnlySet<ulong> viewportBoundaryHandles,
+        GpuTexture?[]? rasterImageTextures,
         CadPlanChunkNormalization? worldToChunk,
         bool includeSemanticHandle,
         ReadOnlySpan<CadLayerSnapshot> layers,
@@ -587,6 +647,7 @@ internal static class CadPlanChunkKeyBuilder
         CancellationToken cancellationToken,
         ref List<TtfFont>? fontDependencies,
         ref List<CadShxGlyph>? shxDependencies,
+        ref List<GpuTexture>? textureDependencies,
         int maximumKeyBytes)
     {
         CadLayerSnapshot layer = layers[entity.LayerIndex];
@@ -609,7 +670,8 @@ internal static class CadPlanChunkKeyBuilder
                 CadEntityKind.ShxText or
                 CadEntityKind.ShxMText or
                 CadEntityKind.ShxShape or
-                CadEntityKind.Hatch) ||
+                CadEntityKind.Hatch or
+                CadEntityKind.RasterImage) ||
             (entity.Kind != CadEntityKind.Hatch &&
              pattern.Kind != CadLineTypePatternKind.Continuous &&
              (worldToChunk is not null ||
@@ -879,9 +941,84 @@ internal static class CadPlanChunkKeyBuilder
                     worldToChunk,
                     cancellationToken,
                     maximumKeyBytes);
+            case CadEntityKind.RasterImage:
+                return TryAppendRasterImage(
+                    writer,
+                    snapshot,
+                    snapshot.RasterImages.Span[entity.PrimitiveIndex],
+                    rasterImageTextures,
+                    worldToChunk,
+                    ref textureDependencies,
+                    maximumKeyBytes);
             default:
                 return false;
         }
+    }
+
+    private static bool TryAppendRasterImage(
+        ArrayBufferWriter<byte> writer,
+        CadDocumentSnapshot snapshot,
+        in CadRasterImagePrimitive image,
+        GpuTexture?[]? preparedTextures,
+        CadPlanChunkNormalization? worldToChunk,
+        ref List<GpuTexture>? textureDependencies,
+        int maximumKeyBytes)
+    {
+        AppendProjectedPoint(writer, image.Origin, snapshot.RebaseOrigin, worldToChunk);
+        AppendProjectedVector(writer, image.UVector, worldToChunk);
+        AppendProjectedVector(writer, image.VVector, worldToChunk);
+        Append(writer, image.Width);
+        Append(writer, image.Height);
+        Append(writer, image.ClipPointCount);
+        Append(writer, image.IsClipped);
+        Append(writer, image.IsInverted);
+        Append(writer, image.DrawImage);
+        Append(writer, image.ShowWhenNotAligned);
+        Append(writer, image.DrawFrame);
+        Append(writer, image.TransparencyIsOn);
+        Append(writer, image.IsHighQuality);
+        Append(writer, image.Brightness);
+        Append(writer, image.Contrast);
+        Append(writer, image.Fade);
+        Append(writer, image.FadeColor);
+        if (image.IsClipped &&
+            !TryAppend(
+                writer,
+                snapshot.RasterImageClipPoints.Span.Slice(
+                    image.ClipPointOffset,
+                    image.ClipPointCount),
+                maximumKeyBytes))
+        {
+            return false;
+        }
+
+        CadRasterImageResource resource =
+            snapshot.RasterImageResources.Span[image.ResourceIndex];
+        Append(writer, resource.DefinitionHandle);
+        if (!TryAppendString(writer, resource.FileName, maximumKeyBytes))
+        {
+            return false;
+        }
+        Append(writer, resource.PixelWidth);
+        Append(writer, resource.PixelHeight);
+        Append(writer, resource.IsLoaded);
+        if (image.DrawImage)
+        {
+            if (preparedTextures is null ||
+                preparedTextures[image.ResourceIndex] is not GpuTexture texture ||
+                texture.IsDisposed)
+            {
+                return false;
+            }
+            Append(writer, texture.Width);
+            Append(writer, texture.Height);
+            Append(writer, texture.DepthOrArrayLayers);
+            Append(writer, texture.MipLevelCount);
+            Append(writer, (int)texture.Format);
+            Append(writer, (int)texture.AlphaMode);
+            (textureDependencies ??= []).Add(texture);
+        }
+        return writer.WrittenCount <= maximumKeyBytes;
     }
 
     private static bool TryAppendLineTypePattern(

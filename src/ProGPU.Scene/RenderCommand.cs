@@ -3325,6 +3325,48 @@ public class DrawingContext :
     }
 
     /// <summary>
+    /// Adds an independent reference to a texture lease already retained by this
+    /// context to <paramref name="destination"/>. No GPU work or resource lookup is
+    /// performed; the method is O(R) for the bounded retained-resource lists.
+    /// </summary>
+    public bool TryShareRetainedTexture(
+        GpuTexture texture,
+        DrawingContext destination)
+    {
+        ArgumentNullException.ThrowIfNull(texture);
+        ArgumentNullException.ThrowIfNull(destination);
+        if (texture.IsDisposed || _retainedResources is null)
+        {
+            return false;
+        }
+        if (destination.HasRetainedResourceIdentity(texture))
+        {
+            return true;
+        }
+        for (int index = 0; index < _retainedResources.Count; index++)
+        {
+            RetainedResourceLease resource = _retainedResources[index];
+            if (!ReferenceEquals(resource.Identity, texture))
+            {
+                continue;
+            }
+            RetainedResourceLease shared = resource.AddRef();
+            try
+            {
+                (destination._retainedResources ??=
+                    new List<RetainedResourceLease>()).Add(shared);
+            }
+            catch
+            {
+                shared.Dispose();
+                throw;
+            }
+            return true;
+        }
+        return false;
+    }
+
+    /// <summary>
     /// Retains the current texture from <paramref name="source"/> for deferred
     /// command replay. A context keeps at most one lease for a given texture,
     /// so repeated draws reuse both the texture and its lifetime token.
@@ -3442,6 +3484,36 @@ public class DrawingContext :
                 .Add(RetainedResourceLease.Create(lease, leasedTexture));
         }
 
+        texture = leasedTexture;
+        return true;
+    }
+
+    /// <summary>
+    /// Transfers an already acquired texture lease into this retained drawing
+    /// context without selecting a consumer device. Device compatibility remains
+    /// validated when the retained picture is compiled or submitted.
+    /// </summary>
+    public bool TryRetainTextureLease(
+        IProGpuTextureLease textureLease,
+        out GpuTexture texture)
+    {
+        ArgumentNullException.ThrowIfNull(textureLease);
+        GpuTexture leasedTexture = textureLease.Texture;
+        if (leasedTexture is null || leasedTexture.IsDisposed)
+        {
+            textureLease.Dispose();
+            texture = null!;
+            return false;
+        }
+        if (HasRetainedResourceIdentity(leasedTexture))
+        {
+            textureLease.Dispose();
+        }
+        else
+        {
+            (_retainedResources ??= new List<RetainedResourceLease>())
+                .Add(RetainedResourceLease.Create(textureLease, leasedTexture));
+        }
         texture = leasedTexture;
         return true;
     }
