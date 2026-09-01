@@ -466,12 +466,34 @@ oracle remains the differential follow-up gate.
 
 ## Current support matrix
 
+### What cross-platform COM compatibility means
+
+An application with source access can rebuild its graphics layer against the
+installed ProGPU C++ compatibility headers. The resulting objects preserve the
+supported Windows COM ABI details—canonical IIDs, `QueryInterface`, atomic
+reference counting, interface inheritance, method order, and resource-domain
+ownership—but are in-process ProGPU objects off Windows. Their drawing calls
+become pointer-free retained scene resources and commands, then execute through
+the selected WebGPU backend. Windows selects D3D12; qualified macOS and Linux
+builds select Metal and Vulkan respectively. The portable path does not start a
+COM server, emulate the Windows registry, or load a Windows system DLL.
+
+This makes source-level clients portable when all graphics calls stay within
+the implemented ProGPU subset. It does not make an unchanged PE binary, an
+arbitrary `CoCreateInstance` class, HWND/HDC/WIC ownership, a DXGI shared-handle
+protocol, or a third-party COM server portable. Those dependencies need an
+explicit typed adapter or a Windows-only provider. Unsupported standard-method
+slots remain in their original vtable positions and fail closed; ProGPU does
+not silently read pixels back or substitute a CPU rasterizer. Applications can
+therefore classify each dependency as portable ProGPU, Windows-provider-only,
+or unsupported before enabling a non-Windows build.
+
 | Surface | Status | Contract |
 | --- | --- | --- |
 | `ProGPU.DirectX` D3D-style device/resources/pipelines | Implemented | Portable typed facade backed by WebGPU; D3D12 on qualified Windows adapters |
 | Native C++ MIL/retained scene on D3D12 | Implemented | Same backend-neutral scene ABI used on Metal, Vulkan, and browser WebGPU |
 | DXGI shared-handle import | Implemented building block | `ProGpuExternalTextureDescriptor` plus Dawn shared-texture memory, keyed-mutex ownership, and no CPU readback |
-| Direct2D `ID2D1*` and DirectWrite text API | Portable COM lifetime, ABI-compatible base factory, geometry/resource families, drawing state, mutable solid-color brushes, and a primitive semantic-scene `ID2D1RenderTarget`; Windows bitmap/brush/geometry/stroke/command-list/effect/layer/state/text/SVG resources, geometry analysis/realization, vector drawing, and typed device-loss domains implemented | The installed portable C++ target exposes canonical factory/resource/geometry/path/stroke/state/brush/render-target IIDs and original vtable order. The portable target records line, rectangle, equal-radius rounded-rectangle, and ellipse fill/stroke calls into the shared pointer-free scene stream, with clear and state metadata and deferred `EndDraw` errors. Shared allocation-free primitive/affine/stroke validation and portable path algorithms are qualified through real Windows SDK pointers and system-Direct2D geometry/stroke/state oracles. The Windows provider independently supplies the broader ABI v54 resource/recorder family and genuine system device/context/target interop. Portable bitmap/gradient/text/layer/clip/arbitrary-geometry calls, device-context generations, presentation, and remaining path operations fail closed; there is no fake `d2d1.dll` or `dwrite.dll` |
+| Direct2D `ID2D1*` and DirectWrite text API | Portable COM lifetime, ABI-compatible base factory, geometry/resource families, drawing state, mutable solid/linear-gradient/radial-gradient brushes, and a primitive semantic-scene `ID2D1RenderTarget`; Windows bitmap/brush/geometry/stroke/command-list/effect/layer/state/text/SVG resources, geometry analysis/realization, vector drawing, and typed device-loss domains implemented | The installed portable C++ target exposes canonical factory/resource/geometry/path/stroke/state/brush/render-target IIDs and original vtable order. The portable target records line, rectangle, equal-radius rounded-rectangle, and ellipse fill/stroke calls into the shared pointer-free scene stream, with clear and state metadata, Direct2D gradient collection/brush resources, and deferred `EndDraw` errors. Shared allocation-free primitive/affine/stroke validation and portable path algorithms are qualified through real Windows SDK pointers and system-Direct2D geometry/stroke/state oracles. The Windows provider independently supplies the broader ABI v54 resource/recorder family and genuine system device/context/target interop. Portable bitmap/text/layer/clip/arbitrary-geometry calls, device-context generations, presentation, and remaining path operations fail closed; there is no fake `d2d1.dll` or `dwrite.dll` |
 | Native Win2D binary interop | Device/target/bitmap/brush/geometry/stroke/command-list/effect-output/text-format/text-layout/typography round trips plus layer/state/text draws package-qualified | The official factory/resource-wrapper contracts preserve exact provider identities through real `CanvasDevice`, `CanvasRenderTarget`, `CanvasBitmap`, brush, `CanvasGeometry`, `CanvasStrokeStyle`, `CanvasCommandList`, device-independent `CanvasTextFormat`/`CanvasTypography`, and device-associated `CanvasTextLayout` projections. The packaged Microsoft Win2D 1.4.0 oracle also wraps effect-output image brushes, executes typed ProGPU layer/state and native-text command-list scopes, observes ProGPU range formatting/OpenType features through the projected layout and typography, mutates that same native layout through Win2D, and draws it. It qualifies identities, resource metadata, boolean geometry/styled-stroke/image-brush/command-list/effect/text drawing and pixels, exclusive producer ownership, and zero-copy Dawn import; glyph runs/color fonts, remaining typography, the full effect catalog, custom effects, and full device-loss recreation remain gated work |
 | Portable Win2D-style Canvas source API | MVP implemented | `ProGPU.Win2D` records Win2D-shaped commands, compiles them with `ProGPU.Scene.Native`, and submits the retained scene to the C++ renderer |
 | Portable Win2D bitmap in LibreWPF native MIL | Implemented | Wrap a same-device `CanvasBitmap` lease source in `IPortableNativeImageSource`; canonical `TYPE_BITMAPSOURCE` lowers to a zero-payload external scene image with no readback or repack |
@@ -2514,10 +2536,38 @@ difference, zero pixels above 1/255, and mean `0.03`; displaced geometry, color
 drift, missing primitives, and CPU substitutes fail the gate. This is
 software-Vulkan correctness evidence, not physical Linux GPU performance.
 
+ProGPU `d5cb1f71` advances the portable target from solid-only brushes to the
+standard Direct2D gradient dependency chain. The installed header now exposes
+the canonical `ID2D1GradientStopCollection`, `ID2D1LinearGradientBrush`, and
+`ID2D1RadialGradientBrush` IIDs, layouts, inheritance, and vtable order.
+Collections own immutable validated stops plus gamma/extend state; brushes own
+their collection and factory, preserve default opacity/identity transform,
+serialize mutation, and reject cross-factory creation. Clamp, wrap, and mirror
+map to the existing retained gradient spread modes. Gamma 2.2 and 1.0 map to
+the shared sRGB and linear-light shader interpolation paths. Brush and active
+target transforms are inverted and composed into device-to-brush coordinates,
+so recording stays a single retained scene submission with no pixel readback,
+CPU raster fallback, or per-primitive GPU work.
+
+The cross-backend fixture now uses a linear-gradient rectangle and a
+radial-gradient ellipse alongside the solid stroke and rounded rectangle. Its
+Windows SDK test invokes the portable objects through actual
+`ID2D1GradientStopCollection*`, `ID2D1LinearGradientBrush*`,
+`ID2D1RadialGradientBrush*`, and `ID2D1RenderTarget*` pointers. Windows 11
+ARM64 MSVC 19.44 `/W4 /WX`, Apple M3 Pro Metal, and Ubuntu 24.04 ARM64 GCC 13
+plus llvmpipe/Vulkan all pass. D3D12 and Metal are byte-identical at SHA-256
+`9faf2dfb22a05fa758f9428ab50e94d76b6fac9425c3928226c9b267d1e9b2f7`.
+Vulkan SHA-256 is
+`8e410ae092922ff59a76b3aee24d76a7c3955b969585b99cfcb553872ba518ab`;
+all six semantic probes are exact, 140 of 3,072 edge pixels differ by exactly
+1/255 at most, no pixel exceeds that bound, and the mean channel difference is
+`0.0256076389`. Native Direct2D/WIC versus ProGPU D3D12 passes at mean byte
+error `0.3576` across 12,288 BGRA bytes.
+
 The Linux GCC 13 warning-as-error build also found an enum/unsigned conditional
 in portable antialias flag selection. The implementation now returns the
 explicit fixed-width flag value and passes GCC, AppleClang, and Windows ARM64
-MSVC 19.44 `/W4 /WX`. Broader bitmap, gradient, arbitrary geometry, clip/layer,
+MSVC 19.44 `/W4 /WX`. Broader bitmap, arbitrary geometry, clip/layer,
 text, effect, and device-context families remain explicit parity work. Until
 those interfaces are implemented and differentially qualified, an application
 using them must select the typed scene/Canvas alternative or a Windows
