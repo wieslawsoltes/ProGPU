@@ -3390,103 +3390,16 @@ public:
                 const point_2f vertex = polygon[index];
                 const point_2f next =
                     polygon[(index + 1U) % polygon.size()];
-                const double incoming_x =
-                    static_cast<double>(vertex.x) - previous.x;
-                const double incoming_y =
-                    static_cast<double>(vertex.y) - previous.y;
-                const double outgoing_x =
-                    static_cast<double>(next.x) - vertex.x;
-                const double outgoing_y =
-                    static_cast<double>(next.y) - vertex.y;
-                const double incoming_length =
-                    std::hypot(incoming_x, incoming_y);
-                const double outgoing_length =
-                    std::hypot(outgoing_x, outgoing_y);
-                if (incoming_length == 0.0 || outgoing_length == 0.0) {
-                    return not_implemented;
-                }
-                const double incoming_unit_x =
-                    incoming_x / incoming_length;
-                const double incoming_unit_y =
-                    incoming_y / incoming_length;
-                const double outgoing_unit_x =
-                    outgoing_x / outgoing_length;
-                const double outgoing_unit_y =
-                    outgoing_y / outgoing_length;
-                const double denominator =
-                    incoming_unit_x * outgoing_unit_y -
-                    incoming_unit_y * outgoing_unit_x;
-                if (denominator == 0.0) {
-                    continue;
-                }
-                if (join == line_join::round) {
-                    const double point_x =
-                        static_cast<double>(local_point.x) - vertex.x;
-                    const double point_y =
-                        static_cast<double>(local_point.y) - vertex.y;
-                    if (point_x * point_x + point_y * point_y <=
-                        half_width_double * half_width_double) {
-                        *contains = 1;
-                        return com::ok;
-                    }
-                    continue;
-                }
-                for (const double side : {-1.0, 1.0}) {
-                    const point_2f incoming_offset{
-                        static_cast<float>(
-                            vertex.x - incoming_unit_y *
-                                half_width_double * side),
-                        static_cast<float>(
-                            vertex.y + incoming_unit_x *
-                                half_width_double * side)};
-                    const point_2f outgoing_offset{
-                        static_cast<float>(
-                            vertex.x - outgoing_unit_y *
-                                half_width_double * side),
-                        static_cast<float>(
-                            vertex.y + outgoing_unit_x *
-                                half_width_double * side)};
-                    if (point_in_closed_triangle(
-                            local_point,
-                            vertex,
-                            incoming_offset,
-                            outgoing_offset)) {
-                        *contains = 1;
-                        return com::ok;
-                    }
-                    if (join == line_join::bevel) {
-                        continue;
-                    }
-                    const double offset_x =
-                        static_cast<double>(outgoing_offset.x) -
-                        incoming_offset.x;
-                    const double offset_y =
-                        static_cast<double>(outgoing_offset.y) -
-                        incoming_offset.y;
-                    const double parameter =
-                        (offset_x * outgoing_unit_y -
-                            offset_y * outgoing_unit_x) /
-                        denominator;
-                    const point_2f miter{
-                        static_cast<float>(
-                            incoming_offset.x +
-                            incoming_unit_x * parameter),
-                        static_cast<float>(
-                            incoming_offset.y +
-                            incoming_unit_y * parameter)};
-                    const double miter_length = std::hypot(
-                        static_cast<double>(miter.x) - vertex.x,
-                        static_cast<double>(miter.y) - vertex.y);
-                    if (miter_length <=
-                            miter_limit * half_width_double &&
-                        point_in_closed_triangle(
-                            local_point,
-                            incoming_offset,
-                            miter,
-                            outgoing_offset)) {
-                        *contains = 1;
-                        return com::ok;
-                    }
+                if (stroke_join_contains(
+                        previous,
+                        vertex,
+                        next,
+                        local_point,
+                        half_width_double,
+                        join,
+                        miter_limit)) {
+                    *contains = 1;
+                    return com::ok;
                 }
             }
             return com::ok;
