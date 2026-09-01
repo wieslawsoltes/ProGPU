@@ -807,7 +807,8 @@ private:
     [[nodiscard]] std::uint32_t primitive_flags() const noexcept
     {
         return antialias_mode_ == antialias_mode::aliased
-            ? PROGPU_NATIVE_PRIMITIVE_FLAG_EDGE_ALIASED
+            ? static_cast<std::uint32_t>(
+                PROGPU_NATIVE_PRIMITIVE_FLAG_EDGE_ALIASED)
             : 0U;
     }
 
