@@ -711,11 +711,13 @@ void compare_images(
 {
     require(progpu.size() == static_cast<std::size_t>(row_bytes) * height &&
         system.size() == progpu.size(), "differential image size mismatch");
-    constexpr std::array<std::array<std::uint32_t, 2U>, 6U> probes{{
+    constexpr std::array<std::array<std::uint32_t, 2U>, 8U> probes{{
         {2U, 2U},
         {10U, 10U},
         {40U, 14U},
         {46U, 14U},
+        {25U, 5U},
+        {29U, 9U},
         {18U, 28U},
         {46U, 36U}}};
     for (const auto& probe : probes) {
