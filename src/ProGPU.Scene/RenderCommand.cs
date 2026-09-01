@@ -2541,6 +2541,9 @@ public class GpuPicture :
     private readonly ImageEffectCommandData[] _imageEffectBuffer;
     private readonly RetainedResourceLease[] _retainedResources;
     private bool _disposed;
+    private int _ownerReleased;
+    private int _lifetimeReferenceCount;
+    private int _disposeStarted;
 
     public int RetainedResourceCount => _retainedResources.Length;
     internal int ImageEffectCount => _imageEffectBuffer.Length;
@@ -2630,6 +2633,16 @@ public class GpuPicture :
 
     public GpuPicture Clone()
     {
+        if (Volatile.Read(ref _ownerReleased) != 0)
+        {
+            throw new ObjectDisposedException(nameof(GpuPicture));
+        }
+
+        return CloneRetained();
+    }
+
+    internal GpuPicture CloneRetained()
+    {
         if (_disposed)
         {
             throw new ObjectDisposedException(nameof(GpuPicture));
@@ -2695,6 +2708,24 @@ public class GpuPicture :
         }
     }
 
+    internal IDisposable RetainLifetime()
+    {
+        if (Volatile.Read(ref _ownerReleased) != 0 ||
+            Volatile.Read(ref _disposeStarted) != 0)
+        {
+            throw new ObjectDisposedException(nameof(GpuPicture));
+        }
+        Interlocked.Increment(ref _lifetimeReferenceCount);
+        if (Volatile.Read(ref _ownerReleased) == 0 &&
+            Volatile.Read(ref _disposeStarted) == 0)
+        {
+            return new LifetimeLease(this);
+        }
+
+        ReleaseLifetime();
+        throw new ObjectDisposedException(nameof(GpuPicture));
+    }
+
     private static bool HasRetainedResourceIdentity(
         List<RetainedResourceLease> resources,
         object identity)
@@ -2712,13 +2743,44 @@ public class GpuPicture :
 
     public void Dispose()
     {
-        if (_disposed)
+        if (Interlocked.Exchange(ref _ownerReleased, 1) != 0)
+        {
+            return;
+        }
+
+        TryCompleteDispose();
+    }
+
+    private void ReleaseLifetime()
+    {
+        int remaining = Interlocked.Decrement(ref _lifetimeReferenceCount);
+        if (remaining < 0)
+        {
+            throw new InvalidOperationException(
+                "A retained GPU picture lifetime reference was released more than once.");
+        }
+        TryCompleteDispose();
+    }
+
+    private void TryCompleteDispose()
+    {
+        if (Volatile.Read(ref _ownerReleased) == 0 ||
+            Volatile.Read(ref _lifetimeReferenceCount) != 0 ||
+            Interlocked.Exchange(ref _disposeStarted, 1) != 0)
         {
             return;
         }
 
         _disposed = true;
         DisposeRetainedResources(_retainedResources);
+    }
+
+    private sealed class LifetimeLease(GpuPicture picture) : IDisposable
+    {
+        private GpuPicture? _picture = picture;
+
+        public void Dispose() =>
+            Interlocked.Exchange(ref _picture, null)?.ReleaseLifetime();
     }
 
     private static void DisposeRetainedResources(RetainedResourceLease[] resources)
@@ -2777,12 +2839,12 @@ public class GpuPictureRecorder
             command.UseGpuTransforms ||
             command.Transform != default ||
             _recordingContext.RetainedResourceCount !=
-                child.RetainedResourceCount)
+                child.RetainedResourceCount + 1)
         {
             return false;
         }
 
-        picture = child.Clone();
+        picture = child.CloneRetained();
         return true;
     }
 
@@ -4937,11 +4999,25 @@ public class DrawingContext :
     private void RetainPictureResources(GpuPicture picture)
     {
         ArgumentNullException.ThrowIfNull(picture);
-        if (picture.RetainedResourceCount == 0)
-            return;
+
+        _retainedResources ??= new List<RetainedResourceLease>();
+        if (!HasRetainedResourceIdentity(picture))
+        {
+            IDisposable lifetime = picture.RetainLifetime();
+            try
+            {
+                _retainedResources.Add(
+                    RetainedResourceLease.Create(lifetime, picture));
+            }
+            catch
+            {
+                lifetime.Dispose();
+                throw;
+            }
+        }
 
         picture.AppendRetainedResourcesTo(
-            _retainedResources ??= new List<RetainedResourceLease>());
+            _retainedResources);
     }
 
     public void DrawExtension(

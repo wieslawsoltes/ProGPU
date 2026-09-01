@@ -1852,7 +1852,7 @@ expanded entity counts. Dynamic evaluation graphs and XRefs are explicitly
 diagnosed rather than rendered approximately. The snapshot additionally emits
 non-overlapping top-level definition ranges per INSERT/MINSERT cell, excluding
 instance-owned ATTRIBs. Eligible continuous analytic POINT/line/curve/flat-or-extruded-face/
-spline/polyline, vector-outline TrueType TEXT/MTEXT, retained analytic SHX
+spline/polyline, TrueType TEXT/MTEXT, retained analytic SHX
 TEXT/MTEXT/SHAPE, continuous MLINE, LEADER/MULTILEADER, TOLERANCE, HATCH,
 WIPEOUT, and prepared
 raster IMAGE ranges use exact
@@ -1868,6 +1868,10 @@ layer identity but intentionally do not participate in definition-affine sharing
 BODY/REGION/3DSOLID roots reuse byte-exact ACIS payload and display-wire chunks,
 including deferred-surface/wireframe counters and diagnostics, but remain root-local
 because their retained extension commands carry full 3D line coordinates.
+Every nested `GpuPicture` command now owns one deduplicated reference-counted child
+lifetime in addition to cloned device-resource leases. Owner disposal is deferred
+until all parents release that lifetime, so cache replacement/eviction cannot leave
+an already published scene pointing at a disposed child; stable replay adds no work.
 Patterned MLINE elements use exact semantic-root chunks and replay their per-element
 global linetype budget charges and substitution diagnostics; they remain outside
 definition-affine sharing for the same final-space dash-length reason.

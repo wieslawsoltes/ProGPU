@@ -360,7 +360,9 @@ public sealed class CadPlanChunkCache : IDisposable
             {
                 continue;
             }
-            if (first.FaceIndex != second.FaceIndex ||
+            if (first.HasBitmapGlyphs || first.HasColorGlyphs ||
+                second.HasBitmapGlyphs || second.HasColorGlyphs ||
+                first.FaceIndex != second.FaceIndex ||
                 !VariationSettingsEqual(
                     first.VariationSettings,
                     second.VariationSettings) ||
@@ -1930,10 +1932,6 @@ internal static class CadPlanChunkKeyBuilder
         ref List<TtfFont>? fontDependencies,
         int maximumKeyBytes)
     {
-        if (font.HasBitmapGlyphs || font.HasColorGlyphs)
-        {
-            return false;
-        }
         byte[] hash = FontHashes.GetValue(
             font,
             static value => SHA256.HashData(value.FontData.Span));
@@ -1942,6 +1940,8 @@ internal static class CadPlanChunkKeyBuilder
             return false;
         }
         Append(writer, font.FaceIndex);
+        Append(writer, font.HasBitmapGlyphs);
+        Append(writer, font.HasColorGlyphs);
         (fontDependencies ??= []).Add(font);
         IReadOnlyList<FontVariationSetting> settings = font.VariationSettings;
         Append(writer, settings.Count);

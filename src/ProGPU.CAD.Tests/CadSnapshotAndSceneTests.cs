@@ -2125,6 +2125,95 @@ public sealed class CadSnapshotAndSceneTests
     }
 
     [Fact]
+    public void PlanChunkCacheUsesReferenceExactColorFontResources()
+    {
+        string fontPath = Path.Combine(
+            FindRepositoryRoot(),
+            "external",
+            "Avalonia",
+            "tests",
+            "Avalonia.RenderTests",
+            "Assets",
+            "TwitterColorEmoji-SVGinOT.ttf");
+        byte[] fontData = File.ReadAllBytes(fontPath);
+        var firstFont = new TtfFont(fontData);
+        var equivalentButDistinctFont = new TtfFont(fontData.ToArray());
+        Assert.True(firstFont.HasColorGlyphs);
+        Assert.True(equivalentButDistinctFont.HasColorGlyphs);
+
+        var document = new CadDocument();
+        var style = new TextStyle("COLOR_FONT") { Filename = "color.ttf" };
+        document.TextStyles.Add(style);
+        document.Entities.Add(new TextEntity("😀")
+        {
+            Style = style,
+            InsertPoint = XYZ.Zero,
+            Height = 10,
+        });
+        var session = new CadDocumentSession(document);
+        CadDocumentSnapshot firstSnapshot = new CadSnapshotCompiler().Compile(
+            session,
+            new CadSnapshotOptions
+            {
+                TextFontResolver = new FixedTextFontResolver(firstFont),
+            });
+        CadDocumentSnapshot distinctSnapshot = new CadSnapshotCompiler().Compile(
+            session,
+            new CadSnapshotOptions
+            {
+                TextFontResolver = new FixedTextFontResolver(
+                    equivalentButDistinctFont),
+            });
+        Assert.Contains(firstSnapshot.TextFonts.ToArray(), font =>
+            ReferenceEquals(font, firstFont));
+        Assert.Contains(distinctSnapshot.TextFonts.ToArray(), font =>
+            ReferenceEquals(font, equivalentButDistinctFont));
+        var compiler = new CadPlanSceneCompiler();
+        using var cache = new CadPlanChunkCache();
+        var options = new CadPlanSceneOptions { ChunkCache = cache };
+        using CadRecordedPlanScene first = compiler.Compile(firstSnapshot, options);
+        using CadRecordedPlanScene reused = compiler.Compile(firstSnapshot, options);
+        using CadRecordedPlanScene distinct = compiler.Compile(distinctSnapshot, options);
+        using GpuPicture firstPicture = first.CreatePicture();
+        using GpuPicture reusedPicture = reused.CreatePicture();
+
+        Assert.Equal(0, first.Statistics.ReusedRetainedChunkCount);
+        Assert.Equal(1, reused.Statistics.ReusedRetainedChunkCount);
+        Assert.Equal(0, distinct.Statistics.ReusedRetainedChunkCount);
+        Assert.Equal(
+            first.Statistics.RecordedCommandCount,
+            reused.Statistics.RecordedCommandCount);
+        Assert.Equal(
+            first.Statistics.RecordedCommandCount,
+            distinct.Statistics.RecordedCommandCount);
+        bool firstNativeSuccess = GpuPictureNativeSceneCompiler.TryCompile(
+            firstPicture,
+            605U,
+            firstSnapshot.ContentGeneration,
+            out NativeCompiledPicture? firstNative,
+            out NativePictureCompileFailure firstFailure);
+        bool reusedNativeSuccess = GpuPictureNativeSceneCompiler.TryCompile(
+            reusedPicture,
+            606U,
+            firstSnapshot.ContentGeneration,
+            out NativeCompiledPicture? reusedNative,
+            out NativePictureCompileFailure reusedFailure);
+        Assert.Equal(firstNativeSuccess, reusedNativeSuccess);
+        if (firstNativeSuccess)
+        {
+            Assert.Equal(firstNative!.NativeDrawCount, reusedNative!.NativeDrawCount);
+            Assert.Equal(
+                firstNative.PositionedGlyphCount,
+                reusedNative.PositionedGlyphCount);
+        }
+        else
+        {
+            Assert.Equal(firstFailure.Error, reusedFailure.Error);
+            Assert.Equal(firstFailure.CommandType, reusedFailure.CommandType);
+        }
+    }
+
+    [Fact]
     public void MInsertSpacingUsesTheInsertionOcsPlane()
     {
         CadDocumentSession session = CadDocumentSession.CreateNew();
@@ -2276,6 +2365,22 @@ public sealed class CadSnapshotAndSceneTests
 
     private static Matrix4x4 GetTransformOrIdentity(Matrix4x4 transform) =>
         transform == default ? Matrix4x4.Identity : transform;
+
+    private static string FindRepositoryRoot()
+    {
+        DirectoryInfo? directory = new(AppContext.BaseDirectory);
+        while (directory is not null)
+        {
+            if (File.Exists(Path.Combine(directory.FullName, "Directory.Build.props")) &&
+                Directory.Exists(Path.Combine(directory.FullName, "src", "ProGPU.CAD")))
+            {
+                return directory.FullName;
+            }
+            directory = directory.Parent;
+        }
+        throw new DirectoryNotFoundException(
+            "The ProGPU repository root was not found.");
+    }
 
     private sealed class FixedTextFontResolver(
         TtfFont font,

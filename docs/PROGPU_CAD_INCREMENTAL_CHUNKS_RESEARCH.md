@@ -10,7 +10,7 @@ distinct retained TrueType font bytes, SHX glyph-path dependencies, and prepared
 GPU texture residency, and 8 MiB
 per encoded key. Reuse is
 admitted only for continuous-style POINT, LINE, CIRCLE, ARC, ELLIPSE, SOLID,
-3DFACE, SPLINE, LWPOLYLINE, 2D/3D POLYLINE, vector-outline TEXT/MTEXT,
+3DFACE, SPLINE, LWPOLYLINE, 2D/3D POLYLINE, TrueType TEXT/MTEXT,
 SHX TEXT/MTEXT, SHAPE, MLINE fills/strokes, LEADER/MULTILEADER paths, TOLERANCE frames,
 paper VIEWPORT frames, modeler display wires/payloads, solid or patterned HATCH,
 WIPEOUT, and prepared raster IMAGE
@@ -18,7 +18,7 @@ roots whose complete canonical rendering inputs match byte-for-byte. Top-level
 INSERT and MINSERT cells additionally share one definition-local fragment across
 translation, rotation, reflection, and nonuniform affine scale when every expanded
 child is an eligible analytic family, including flat or extruded SOLID/3DFACE,
-vector-outline TrueType TEXT/MTEXT, retained analytic SHX TEXT/MTEXT/SHAPE,
+TrueType TEXT/MTEXT, retained analytic SHX TEXT/MTEXT/SHAPE,
 HATCH boundary/pattern streams, continuous MLINE fills/strokes,
 LEADER/MULTILEADER spline and arrow geometry,
 TOLERANCE frame strokes, and WIPEOUT masks/frames.
@@ -64,8 +64,11 @@ TrueType identity includes exact glyph indices/positions, normalized entity basi
 run ranges and paint, rectangles/strokes/decorations, face index, ordered variation
 settings, and a cached SHA-256 font-data discriminator. A cache hit additionally
 performs reference-fast, byte-exact font-data and variation comparison, so the hash
-is never the correctness boundary. Bitmap/color fonts fail closed until palette and
-bitmap-resource identity is part of the contract.
+is never the correctness boundary. Color and bitmap fonts require the same immutable
+`TtfFont` object on a hit, because CPAL selection/overrides and external glyph-resident
+bitmap sources are intentionally not inferred from equal SFNT bytes. Their font object
+is strongly retained and charged by its font-data size, so cache eviction cannot alias
+or outlive a palette/bitmap resource.
 
 SHX identity includes the normalized entity basis, exact glyph placements,
 MTEXT run paint/transforms and rectangle/stroke/decorations, shape number,
@@ -147,12 +150,15 @@ budgets; eligible picture payload size is correspondingly bounded by the encoded
 analytic inputs and the snapshot expansion limits. Stable replay remains allocation-free; cache work occurs
 only during changed-generation scene preparation.
 
-The aggregate picture independently retains every child resource lease. LRU
-eviction, replacement, or cache clearing therefore cannot invalidate an already published
-picture. Currently eligible analytic/vector-text chunks retain no disposable device
-resource; cached font and SHX glyph objects remain strongly owned by their retained
-commands and exact dependency table. Color/bitmap text and mesh roots remain on
-the ordinary path until their complete resource and global
+The aggregate picture independently retains every child-picture lifetime and child
+resource lease. One reference-counted lifetime lease is deduplicated per distinct
+child in each recording; identity-only wrappers still flatten to shared immutable
+command storage. LRU eviction, same-handle replacement, cache clearing, or cache
+disposal therefore cannot invalidate an already published scene or aggregate picture.
+Currently eligible analytic/vector-text chunks retain no disposable device resource;
+cached font and SHX glyph objects remain strongly owned by their retained
+commands and exact dependency table. Mesh roots remain on the ordinary path until
+their complete resource and global
 budget dependencies are encoded.
 
 ## Managed/native applicability and validation
@@ -167,5 +173,5 @@ semantics. MINSERT and distinct affine INSERT regressions prove one shared child
 identity, exact composed managed endpoints within retained-float tolerance, and
 matched native primitive/draw counts.
 
-Color/bitmap text, affine-block linetype, mesh, and other
+Affine-block linetype, mesh, and other
 resource- or global-budget-dependent families remain the next chunk-coverage work.
