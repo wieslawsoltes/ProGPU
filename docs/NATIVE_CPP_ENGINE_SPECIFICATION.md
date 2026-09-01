@@ -1624,6 +1624,15 @@ iteration counts, native and managed execution, image dimensions, and every
 pixel threshold remain unchanged. Hardware Windows and Parallels execute it
 once, and a second Basic-adapter failure remains a hard CI failure.
 
+The 40x28 per-point multi-guideline qualification also performs one discarded
+baseline submission/readback before measuring its three semantic images. A
+hosted Basic Render Driver run returned an empty first baseline while its
+immediately following guided image and independently authored deformed
+reference were identical. The warm submission uses the exact baseline GPU
+scene; all measured visibility, color sums, changed-pixel counts, native frame
+metrics, and byte-exact guided/reference comparison remain mandatory. This is
+pipeline qualification, not a retry, CPU result, or tolerance change.
+
 Primary contract references used for this design are
 [Skia `SkPath::contains`](https://api.skia.org/classSkPath.html),
 [Direct2D `ID2D1Geometry::FillContainsPoint`](https://learn.microsoft.com/en-us/windows/win32/api/d2d1/nf-d2d1-id2d1geometry-fillcontainspoint),

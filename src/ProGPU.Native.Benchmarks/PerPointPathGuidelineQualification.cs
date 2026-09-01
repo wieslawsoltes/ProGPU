@@ -25,6 +25,15 @@ internal static class PerPointPathGuidelineQualification
             context,
             TextureFormat.Rgba8Unorm);
 
+        // Qualify the path pipeline before measuring the baseline. The
+        // CPU-only D3D12 adapter can complete its first tiny submission and
+        // readback before the lazily compiled path pipeline contributes any
+        // coverage; the immediately following submissions are stable. This
+        // discarded frame uses the identical GPU scene and does not relax any
+        // measured extent, color, deformation, or reference comparison.
+        _ = Render(
+            compositor, context, target, 1U, guided: false,
+            reference: false);
         (NativeSceneUpdateMetrics Update, NativeSceneFrameMetrics Frame,
             byte[] Pixels) baseline = Render(
                 compositor, context, target, 1U, guided: false,
