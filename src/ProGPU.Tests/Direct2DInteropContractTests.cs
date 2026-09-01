@@ -186,6 +186,12 @@ public sealed class Direct2DInteropContractTests
             "src",
             "Direct2D",
             "progpu_native_direct2d_stroke_style.cpp");
+        string drawingStateSource = ReadRepoFile(
+            "src",
+            "ProGPU.Native",
+            "src",
+            "Direct2D",
+            "progpu_native_direct2d_drawing_state.cpp");
         string provider = ReadRepoFile(
             "src",
             "ProGPU.Native",
@@ -213,6 +219,7 @@ public sealed class Direct2DInteropContractTests
         Assert.Contains("struct rounded_rectangle_geometry : geometry", header, StringComparison.Ordinal);
         Assert.Contains("struct geometry_group : geometry", header, StringComparison.Ordinal);
         Assert.Contains("struct stroke_style : resource", header, StringComparison.Ordinal);
+        Assert.Contains("struct drawing_state_block : resource", header, StringComparison.Ordinal);
         Assert.Contains("struct geometry_sink : simplified_geometry_sink", header, StringComparison.Ordinal);
         Assert.Contains("class portable_factory final", source, StringComparison.Ordinal);
         Assert.Contains("class portable_transformed_geometry final", source, StringComparison.Ordinal);
@@ -223,6 +230,7 @@ public sealed class Direct2DInteropContractTests
         Assert.Contains("class portable_geometry_group final", geometryGroupSource, StringComparison.Ordinal);
         Assert.Contains("class portable_stroke_style final", strokeStyleSource, StringComparison.Ordinal);
         Assert.Contains("core::valid_stroke_style", strokeStyleSource, StringComparison.Ordinal);
+        Assert.Contains("class portable_drawing_state_block final", drawingStateSource, StringComparison.Ordinal);
         Assert.Contains("path_state::fresh", pathSource, StringComparison.Ordinal);
         Assert.Contains("path_state::closed", pathSource, StringComparison.Ordinal);
         Assert.Contains("core::arc_to_cubics", pathSource, StringComparison.Ordinal);
@@ -242,6 +250,7 @@ public sealed class Direct2DInteropContractTests
         Assert.Contains("ID2D1RoundedRectangleGeometry*", nativeTest, StringComparison.Ordinal);
         Assert.Contains("ID2D1GeometryGroup*", nativeTest, StringComparison.Ordinal);
         Assert.Contains("ID2D1StrokeStyle*", nativeTest, StringComparison.Ordinal);
+        Assert.Contains("ID2D1DrawingStateBlock*", nativeTest, StringComparison.Ordinal);
         Assert.Contains("ID2D1GeometrySink*", nativeTest, StringComparison.Ordinal);
         Assert.Contains("native_path->Stream", nativeTest, StringComparison.Ordinal);
         Assert.Contains("factory.Reset();", nativeTest, StringComparison.Ordinal);

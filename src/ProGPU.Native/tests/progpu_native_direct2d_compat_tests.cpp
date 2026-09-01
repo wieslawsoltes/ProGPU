@@ -238,6 +238,7 @@ static_assert(sizeof(compat::arc_segment) == 28U);
 static_assert(sizeof(compat::ellipse) == 16U);
 static_assert(sizeof(compat::rounded_rectangle) == 24U);
 static_assert(sizeof(compat::stroke_style_properties) == 28U);
+static_assert(sizeof(compat::drawing_state_description) == 48U);
 
 int main()
 {
@@ -888,14 +889,103 @@ int main()
         return 95;
     }
 
-    compat::drawing_state_block* unsupported =
-        reinterpret_cast<compat::drawing_state_block*>(
+    const compat::drawing_state_description drawing_state_description{
+        compat::antialias_mode::aliased,
+        compat::text_antialias_mode::grayscale,
+        17U,
+        23U,
+        {1.0F, 0.25F, -0.5F, 2.0F, 3.0F, -4.0F}};
+    compat::drawing_state_block* raw_drawing_state = nullptr;
+    if (factory->CreateDrawingStateBlock(
+            &drawing_state_description,
+            static_cast<com::unknown*>(factory.get()),
+            &raw_drawing_state) != com::ok ||
+        raw_drawing_state == nullptr) {
+        return 100;
+    }
+    com::pointer<compat::drawing_state_block> drawing_state;
+    drawing_state.attach(raw_drawing_state);
+    com::pointer<compat::resource> drawing_state_resource;
+    if (drawing_state.as(
+            compat::resource_interface_id, drawing_state_resource) !=
+            com::ok ||
+        !drawing_state_resource) {
+        return 101;
+    }
+    compat::drawing_state_description returned_drawing_state{};
+    drawing_state->GetDescription(&returned_drawing_state);
+    com::unknown* raw_text_parameters = nullptr;
+    drawing_state->GetTextRenderingParams(&raw_text_parameters);
+    com::pointer<com::unknown> returned_text_parameters;
+    returned_text_parameters.attach(raw_text_parameters);
+    if (returned_drawing_state.antialias !=
+            compat::antialias_mode::aliased ||
+        returned_drawing_state.text_antialias !=
+            compat::text_antialias_mode::grayscale ||
+        returned_drawing_state.tag1 != 17U ||
+        returned_drawing_state.tag2 != 23U ||
+        !approximately_equal(returned_drawing_state.transform.m12, 0.25F) ||
+        returned_text_parameters.get() !=
+            static_cast<com::unknown*>(factory.get())) {
+        return 102;
+    }
+    compat::drawing_state_description changed_drawing_state =
+        drawing_state_description;
+    changed_drawing_state.tag1 = 31U;
+    changed_drawing_state.transform.m31 = 9.0F;
+    drawing_state->SetDescription(&changed_drawing_state);
+    drawing_state->SetTextRenderingParams(nullptr);
+    returned_drawing_state = {};
+    raw_text_parameters = reinterpret_cast<com::unknown*>(
+        static_cast<std::uintptr_t>(1U));
+    drawing_state->GetDescription(&returned_drawing_state);
+    drawing_state->GetTextRenderingParams(&raw_text_parameters);
+    if (returned_drawing_state.tag1 != 31U ||
+        !approximately_equal(returned_drawing_state.transform.m31, 9.0F) ||
+        raw_text_parameters != nullptr) {
+        return 103;
+    }
+    compat::drawing_state_description invalid_drawing_state =
+        drawing_state_description;
+    invalid_drawing_state.transform.m11 =
+        std::numeric_limits<float>::infinity();
+    raw_drawing_state = reinterpret_cast<compat::drawing_state_block*>(
         static_cast<std::uintptr_t>(1U));
     if (factory->CreateDrawingStateBlock(
+            &invalid_drawing_state, nullptr, &raw_drawing_state) !=
+            com::invalid_argument ||
+        raw_drawing_state != nullptr) {
+        return 104;
+    }
+    raw_drawing_state = nullptr;
+    if (factory->CreateDrawingStateBlock(
+            nullptr, nullptr, &raw_drawing_state) != com::ok ||
+        raw_drawing_state == nullptr) {
+        return 105;
+    }
+    com::pointer<compat::drawing_state_block> default_drawing_state;
+    default_drawing_state.attach(raw_drawing_state);
+    returned_drawing_state = {};
+    default_drawing_state->GetDescription(&returned_drawing_state);
+    if (returned_drawing_state.antialias !=
+            compat::antialias_mode::per_primitive ||
+        returned_drawing_state.text_antialias !=
+            compat::text_antialias_mode::default_value ||
+        returned_drawing_state.tag1 != 0U ||
+        returned_drawing_state.tag2 != 0U ||
+        !approximately_equal(returned_drawing_state.transform.m11, 1.0F) ||
+        !approximately_equal(returned_drawing_state.transform.m22, 1.0F)) {
+        return 106;
+    }
+
+    compat::render_target* unsupported =
+        reinterpret_cast<compat::render_target*>(
+        static_cast<std::uintptr_t>(1U));
+    if (factory->CreateWicBitmapRenderTarget(
             nullptr, nullptr, &unsupported) !=
             compat::not_implemented ||
         unsupported != nullptr ||
-        factory->CreateDrawingStateBlock(
+        factory->CreateWicBitmapRenderTarget(
             nullptr, nullptr, nullptr) !=
             com::pointer_error) {
         return 18;
@@ -920,6 +1010,9 @@ int main()
             compat::stroke_style_interface_id,
             __uuidof(ID2D1StrokeStyle)) ||
         !com::guid_equal(
+            compat::drawing_state_block_interface_id,
+            __uuidof(ID2D1DrawingStateBlock)) ||
+        !com::guid_equal(
             compat::transformed_geometry_interface_id,
             __uuidof(ID2D1TransformedGeometry)) ||
         !com::guid_equal(
@@ -936,6 +1029,8 @@ int main()
         sizeof(compat::rounded_rectangle) != sizeof(D2D1_ROUNDED_RECT) ||
         sizeof(compat::stroke_style_properties) !=
             sizeof(D2D1_STROKE_STYLE_PROPERTIES) ||
+        sizeof(compat::drawing_state_description) !=
+            sizeof(D2D1_DRAWING_STATE_DESCRIPTION) ||
         sizeof(compat::triangle) != sizeof(D2D1_TRIANGLE) ||
         sizeof(compat::quadratic_bezier_segment) !=
             sizeof(D2D1_QUADRATIC_BEZIER_SEGMENT) ||
@@ -1128,6 +1223,49 @@ int main()
     native_stroke_style->Release();
     if (!portable_native_stroke_matches) {
         return 97;
+    }
+
+    const D2D1_DRAWING_STATE_DESCRIPTION native_drawing_state_description{
+        D2D1_ANTIALIAS_MODE_ALIASED,
+        D2D1_TEXT_ANTIALIAS_MODE_GRAYSCALE,
+        17U,
+        23U,
+        D2D1_MATRIX_3X2_F{1.0F, 0.25F, -0.5F, 2.0F, 3.0F, -4.0F}};
+    ID2D1DrawingStateBlock* native_drawing_state = nullptr;
+    if (FAILED(native_factory->CreateDrawingStateBlock(
+            &native_drawing_state_description,
+            nullptr,
+            &native_drawing_state)) ||
+        native_drawing_state == nullptr) {
+        return 107;
+    }
+    D2D1_DRAWING_STATE_DESCRIPTION portable_native_drawing_state{};
+    native_drawing_state->GetDescription(&portable_native_drawing_state);
+    D2D1_DRAWING_STATE_DESCRIPTION changed_native_drawing_state =
+        native_drawing_state_description;
+    changed_native_drawing_state.tag1 = 31U;
+    changed_native_drawing_state.transform._31 = 9.0F;
+    native_drawing_state->SetDescription(&changed_native_drawing_state);
+    D2D1_DRAWING_STATE_DESCRIPTION returned_changed_native_drawing_state{};
+    native_drawing_state->GetDescription(
+        &returned_changed_native_drawing_state);
+    IDWriteRenderingParams* portable_native_text_parameters =
+        reinterpret_cast<IDWriteRenderingParams*>(
+            static_cast<std::uintptr_t>(1U));
+    native_drawing_state->GetTextRenderingParams(
+        &portable_native_text_parameters);
+    native_drawing_state->Release();
+    if (portable_native_drawing_state.antialiasMode !=
+            D2D1_ANTIALIAS_MODE_ALIASED ||
+        portable_native_drawing_state.textAntialiasMode !=
+            D2D1_TEXT_ANTIALIAS_MODE_GRAYSCALE ||
+        portable_native_drawing_state.tag1 != 17U ||
+        portable_native_drawing_state.tag2 != 23U ||
+        returned_changed_native_drawing_state.tag1 != 31U ||
+        !approximately_equal(
+            returned_changed_native_drawing_state.transform._31, 9.0F) ||
+        portable_native_text_parameters != nullptr) {
+        return 108;
     }
 
     ID2D1PathGeometry* native_path = nullptr;
@@ -1499,9 +1637,57 @@ int main()
             static_cast<UINT32>(native_stroke_dashes.size()) &&
         system_stroke_dashes == portable_native_stroke_dashes;
     system_stroke_style->Release();
-    system_factory->Release();
     if (!system_stroke_matches) {
+        system_factory->Release();
         return 99;
+    }
+
+    ID2D1DrawingStateBlock* system_drawing_state = nullptr;
+    if (FAILED(system_factory->CreateDrawingStateBlock(
+            &native_drawing_state_description,
+            nullptr,
+            &system_drawing_state)) ||
+        system_drawing_state == nullptr) {
+        system_factory->Release();
+        return 109;
+    }
+    D2D1_DRAWING_STATE_DESCRIPTION system_drawing_state_description{};
+    system_drawing_state->GetDescription(
+        &system_drawing_state_description);
+    IDWriteRenderingParams* system_text_parameters =
+        reinterpret_cast<IDWriteRenderingParams*>(
+            static_cast<std::uintptr_t>(1U));
+    system_drawing_state->GetTextRenderingParams(&system_text_parameters);
+    system_drawing_state->Release();
+    system_factory->Release();
+    if (system_drawing_state_description.antialiasMode !=
+            portable_native_drawing_state.antialiasMode ||
+        system_drawing_state_description.textAntialiasMode !=
+            portable_native_drawing_state.textAntialiasMode ||
+        system_drawing_state_description.tag1 !=
+            portable_native_drawing_state.tag1 ||
+        system_drawing_state_description.tag2 !=
+            portable_native_drawing_state.tag2 ||
+        !approximately_equal(
+            system_drawing_state_description.transform._11,
+            portable_native_drawing_state.transform._11) ||
+        !approximately_equal(
+            system_drawing_state_description.transform._12,
+            portable_native_drawing_state.transform._12) ||
+        !approximately_equal(
+            system_drawing_state_description.transform._21,
+            portable_native_drawing_state.transform._21) ||
+        !approximately_equal(
+            system_drawing_state_description.transform._22,
+            portable_native_drawing_state.transform._22) ||
+        !approximately_equal(
+            system_drawing_state_description.transform._31,
+            portable_native_drawing_state.transform._31) ||
+        !approximately_equal(
+            system_drawing_state_description.transform._32,
+            portable_native_drawing_state.transform._32) ||
+        system_text_parameters != nullptr) {
+        return 110;
     }
 #endif
     return 0;

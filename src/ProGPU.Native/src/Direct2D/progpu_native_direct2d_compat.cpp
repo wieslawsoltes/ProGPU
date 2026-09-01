@@ -1,4 +1,5 @@
 #include "progpu_native_direct2d_compat.hpp"
+#include "progpu_native_direct2d_drawing_state.hpp"
 #include "progpu_native_direct2d_ellipse.hpp"
 #include "progpu_native_direct2d_geometry_group.hpp"
 #include "progpu_native_direct2d_path.hpp"
@@ -679,11 +680,12 @@ public:
     }
 
     com::result PROGPU_NATIVE_COM_CALL CreateDrawingStateBlock(
-        const drawing_state_description*,
-        com::unknown*,
+        const drawing_state_description* description,
+        com::unknown* text_rendering_parameters,
         drawing_state_block** value) noexcept override
     {
-        return unsupported_output(value);
+        return detail::create_drawing_state_block(
+            this, description, text_rendering_parameters, value);
     }
 
     com::result PROGPU_NATIVE_COM_CALL CreateWicBitmapRenderTarget(
