@@ -483,22 +483,10 @@ bool compat_finite_rectangle(const D2D1_RECT_F* value) noexcept
 
 bool compat_finite_ellipse(const D2D1_ELLIPSE* value) noexcept
 {
-    if (value == nullptr || !std::isfinite(value->point.x) ||
-        !std::isfinite(value->point.y) ||
-        !std::isfinite(value->radiusX) || value->radiusX < 0.0F ||
-        !std::isfinite(value->radiusY) || value->radiusY < 0.0F) {
-        return false;
-    }
-    const double left = static_cast<double>(value->point.x) - value->radiusX;
-    const double top = static_cast<double>(value->point.y) - value->radiusY;
-    const double right = static_cast<double>(value->point.x) + value->radiusX;
-    const double bottom = static_cast<double>(value->point.y) + value->radiusY;
-    constexpr double maximum =
-        static_cast<double>(std::numeric_limits<float>::max());
-    return std::isfinite(left) && std::isfinite(top) &&
-        std::isfinite(right) && std::isfinite(bottom) &&
-        left >= -maximum && top >= -maximum && right <= maximum &&
-        bottom <= maximum;
+    return value != nullptr && direct2d_core::valid_ellipse({
+        {value->point.x, value->point.y},
+        value->radiusX,
+        value->radiusY});
 }
 
 bool compat_finite_rounded_rectangle(
@@ -517,6 +505,15 @@ direct2d_core::rectangle_edges_f compat_core_rectangle(
         rectangle.top,
         rectangle.right,
         rectangle.bottom};
+}
+
+direct2d_core::ellipse_f compat_core_ellipse(
+    const D2D1_ELLIPSE& ellipse) noexcept
+{
+    return {
+        {ellipse.point.x, ellipse.point.y},
+        ellipse.radiusX,
+        ellipse.radiusY};
 }
 
 const progpu_native_direct2d_matrix_3x2_f* compat_core_transform(
@@ -3039,47 +3036,7 @@ public:
         const D2D1_MATRIX_3X2_F* world_transform,
         D2D1_RECT_F* bounds) const noexcept override
     {
-        if (bounds == nullptr) {
-            return E_POINTER;
-        }
-        *bounds = {};
-        if (!compat_finite_transform(world_transform)) {
-            return E_INVALIDARG;
-        }
-        const D2D1_MATRIX_3X2_F matrix = world_transform == nullptr
-            ? D2D1::Matrix3x2F::Identity()
-            : *world_transform;
-        const double center_x =
-            static_cast<double>(ellipse_.point.x) * matrix._11 +
-            static_cast<double>(ellipse_.point.y) * matrix._21 + matrix._31;
-        const double center_y =
-            static_cast<double>(ellipse_.point.x) * matrix._12 +
-            static_cast<double>(ellipse_.point.y) * matrix._22 + matrix._32;
-        const double extent_x = std::hypot(
-            static_cast<double>(ellipse_.radiusX) * matrix._11,
-            static_cast<double>(ellipse_.radiusY) * matrix._21);
-        const double extent_y = std::hypot(
-            static_cast<double>(ellipse_.radiusX) * matrix._12,
-            static_cast<double>(ellipse_.radiusY) * matrix._22);
-        const std::array<double, 4U> values = {
-            center_x - extent_x,
-            center_y - extent_y,
-            center_x + extent_x,
-            center_y + extent_y};
-        constexpr double maximum =
-            static_cast<double>(std::numeric_limits<float>::max());
-        if (!std::all_of(values.begin(), values.end(), [&](double value) {
-                return std::isfinite(value) && value >= -maximum &&
-                    value <= maximum;
-            })) {
-            return E_INVALIDARG;
-        }
-        *bounds = {
-            static_cast<float>(values[0]),
-            static_cast<float>(values[1]),
-            static_cast<float>(values[2]),
-            static_cast<float>(values[3])};
-        return S_OK;
+        return path_->GetBounds(world_transform, bounds);
     }
 
     HRESULT STDMETHODCALLTYPE GetWidenedBounds(
@@ -3124,47 +3081,18 @@ public:
             return E_POINTER;
         }
         *contains = FALSE;
-        if (!compat_finite_point(point) ||
-            !std::isfinite(flattening_tolerance) ||
-            flattening_tolerance <= 0.0F ||
-            !compat_finite_transform(world_transform)) {
-            return E_INVALIDARG;
+        progpu_native_direct2d_matrix_3x2_f transform_storage{};
+        std::uint32_t core_contains = 0U;
+        const HRESULT result = direct2d_core::ellipse_fill_contains_point(
+            compat_core_ellipse(ellipse_),
+            {point.x, point.y},
+            compat_core_transform(world_transform, transform_storage),
+            flattening_tolerance,
+            &core_contains);
+        if (SUCCEEDED(result)) {
+            *contains = core_contains == 0U ? FALSE : TRUE;
         }
-        const D2D1_MATRIX_3X2_F matrix = world_transform == nullptr
-            ? D2D1::Matrix3x2F::Identity()
-            : *world_transform;
-        const double determinant =
-            static_cast<double>(matrix._11) * matrix._22 -
-            static_cast<double>(matrix._12) * matrix._21;
-        if (determinant == 0.0 || ellipse_.radiusX == 0.0F ||
-            ellipse_.radiusY == 0.0F) {
-            return path_->FillContainsPoint(
-                point,
-                world_transform,
-                flattening_tolerance,
-                contains);
-        }
-        const double translated_x =
-            static_cast<double>(point.x) - matrix._31;
-        const double translated_y =
-            static_cast<double>(point.y) - matrix._32;
-        const double local_x =
-            (translated_x * matrix._22 - translated_y * matrix._21) /
-            determinant;
-        const double local_y =
-            (-translated_x * matrix._12 + translated_y * matrix._11) /
-            determinant;
-        const double normalized_x =
-            (local_x - ellipse_.point.x) / ellipse_.radiusX;
-        const double normalized_y =
-            (local_y - ellipse_.point.y) / ellipse_.radiusY;
-        const double distance_squared =
-            normalized_x * normalized_x + normalized_y * normalized_y;
-        if (!std::isfinite(distance_squared)) {
-            return E_INVALIDARG;
-        }
-        *contains = distance_squared <= 1.0 ? TRUE : FALSE;
-        return S_OK;
+        return result;
     }
 
     HRESULT STDMETHODCALLTYPE CompareWithGeometry(
@@ -4277,58 +4205,25 @@ public:
             return hr;
         }
 
-        constexpr float control_scale = 0.5522847498307936F;
-        const float control_x = ellipse->radiusX * control_scale;
-        const float control_y = ellipse->radiusY * control_scale;
-        const D2D1_POINT_2F start = {
-            ellipse->point.x + ellipse->radiusX,
-            ellipse->point.y};
-        std::array<D2D1_BEZIER_SEGMENT, 4U> segments{};
-        segments[0U].point1 = D2D1::Point2F(
-            ellipse->point.x + ellipse->radiusX,
-            ellipse->point.y + control_y);
-        segments[0U].point2 = D2D1::Point2F(
-            ellipse->point.x + control_x,
-            ellipse->point.y + ellipse->radiusY);
-        segments[0U].point3 = D2D1::Point2F(
-            ellipse->point.x,
-            ellipse->point.y + ellipse->radiusY);
-        segments[1U].point1 = D2D1::Point2F(
-            ellipse->point.x - control_x,
-            ellipse->point.y + ellipse->radiusY);
-        segments[1U].point2 = D2D1::Point2F(
-            ellipse->point.x - ellipse->radiusX,
-            ellipse->point.y + control_y);
-        segments[1U].point3 = D2D1::Point2F(
-            ellipse->point.x - ellipse->radiusX,
-            ellipse->point.y);
-        segments[2U].point1 = D2D1::Point2F(
-            ellipse->point.x - ellipse->radiusX,
-            ellipse->point.y - control_y);
-        segments[2U].point2 = D2D1::Point2F(
-            ellipse->point.x - control_x,
-            ellipse->point.y - ellipse->radiusY);
-        segments[2U].point3 = D2D1::Point2F(
-            ellipse->point.x,
-            ellipse->point.y - ellipse->radiusY);
-        segments[3U].point1 = D2D1::Point2F(
-            ellipse->point.x + control_x,
-            ellipse->point.y - ellipse->radiusY);
-        segments[3U].point2 = D2D1::Point2F(
-            ellipse->point.x + ellipse->radiusX,
-            ellipse->point.y - control_y);
-        segments[3U].point3 = start;
-        if (!compat_finite_point(start) ||
-            !std::all_of(
-                segments.begin(),
-                segments.end(),
-                [](const D2D1_BEZIER_SEGMENT& segment) {
-                    return compat_finite_point(segment.point1) &&
-                        compat_finite_point(segment.point2) &&
-                        compat_finite_point(segment.point3);
-                })) {
+        progpu_native_direct2d_point_2f core_start{};
+        std::array<direct2d_core::cubic_bezier_segment_f, 4U>
+            core_segments{};
+        hr = direct2d_core::ellipse_to_cubics(
+            compat_core_ellipse(*ellipse), &core_start, &core_segments);
+        if (FAILED(hr)) {
             static_cast<void>(sink->Close());
-            return E_INVALIDARG;
+            return hr;
+        }
+        const D2D1_POINT_2F start{core_start.x, core_start.y};
+        std::array<D2D1_BEZIER_SEGMENT, 4U> segments{};
+        for (std::size_t index = 0U; index < segments.size(); ++index) {
+            segments[index] = {
+                {core_segments[index].point1.x,
+                    core_segments[index].point1.y},
+                {core_segments[index].point2.x,
+                    core_segments[index].point2.y},
+                {core_segments[index].point3.x,
+                    core_segments[index].point3.y}};
         }
         sink->SetFillMode(D2D1_FILL_MODE_WINDING);
         sink->SetSegmentFlags(D2D1_PATH_SEGMENT_NONE);

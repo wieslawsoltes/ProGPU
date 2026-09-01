@@ -1,4 +1,5 @@
 #include "progpu_native_direct2d_compat.hpp"
+#include "progpu_native_direct2d_ellipse.hpp"
 #include "progpu_native_direct2d_path.hpp"
 
 #include <array>
@@ -612,10 +613,10 @@ public:
     }
 
     com::result PROGPU_NATIVE_COM_CALL CreateEllipseGeometry(
-        const ellipse*,
-        geometry** value) noexcept override
+        const ellipse* ellipse_value,
+        ellipse_geometry** value) noexcept override
     {
-        return unsupported_output(value);
+        return detail::create_ellipse_geometry(this, ellipse_value, value);
     }
 
     com::result PROGPU_NATIVE_COM_CALL CreateGeometryGroup(

@@ -5,6 +5,7 @@
 #endif
 
 #include <cmath>
+#include <cstdio>
 #include <cstdint>
 #include <limits>
 
@@ -234,6 +235,7 @@ static_assert(sizeof(compat::matrix_3x2_f) == 24U);
 static_assert(sizeof(compat::geometry_relation) == 4U);
 static_assert(sizeof(compat::quadratic_bezier_segment) == 16U);
 static_assert(sizeof(compat::arc_segment) == 28U);
+static_assert(sizeof(compat::ellipse) == 16U);
 
 int main()
 {
@@ -588,12 +590,66 @@ int main()
         return 40;
     }
 
+    const compat::ellipse ellipse_value{{2.0F, 3.0F}, 4.0F, 2.0F};
+    compat::ellipse_geometry* raw_ellipse = nullptr;
+    if (factory->CreateEllipseGeometry(&ellipse_value, &raw_ellipse) !=
+            com::ok ||
+        raw_ellipse == nullptr) {
+        return 53;
+    }
+    com::pointer<compat::ellipse_geometry> ellipse;
+    ellipse.attach(raw_ellipse);
+    com::pointer<compat::geometry> ellipse_base;
+    if (ellipse.as(compat::geometry_interface_id, ellipse_base) != com::ok ||
+        !ellipse_base) {
+        return 54;
+    }
+    compat::ellipse returned_ellipse{};
+    ellipse->GetEllipse(&returned_ellipse);
+    if (!approximately_equal(returned_ellipse.point.x, 2.0F) ||
+        !approximately_equal(returned_ellipse.radius_y, 2.0F) ||
+        ellipse->GetBounds(&transform, &returned) != com::ok ||
+        !approximately_equal(returned.left, 6.0F) ||
+        !approximately_equal(returned.top, -1.0F) ||
+        !approximately_equal(returned.right, 22.0F) ||
+        !approximately_equal(returned.bottom, 11.0F)) {
+        return 55;
+    }
+    if (ellipse->FillContainsPoint(
+            {14.0F, 5.0F},
+            &transform,
+            core::default_flattening_tolerance,
+            &contains) != com::ok ||
+        contains != 1 ||
+        ellipse->FillContainsPoint(
+            {23.0F, 5.0F},
+            &transform,
+            core::default_flattening_tolerance,
+            &contains) != com::ok ||
+        contains != 0) {
+        return 56;
+    }
+    auto* raw_ellipse_simplified = new simplified_sink();
+    com::pointer<compat::simplified_geometry_sink> ellipse_simplified;
+    ellipse_simplified.attach(raw_ellipse_simplified);
+    if (ellipse->Simplify(
+            compat::geometry_simplification_option::cubics_and_lines,
+            &transform,
+            core::default_flattening_tolerance,
+            ellipse_simplified.get()) != com::ok ||
+        raw_ellipse_simplified->begin_count != 1U ||
+        raw_ellipse_simplified->end_count != 1U ||
+        raw_ellipse_simplified->bezier_count != 4U ||
+        raw_ellipse_simplified->figure_end != compat::figure_end::closed) {
+        return 57;
+    }
+
     compat::geometry* unsupported = reinterpret_cast<compat::geometry*>(
         static_cast<std::uintptr_t>(1U));
-    if (factory->CreateEllipseGeometry(nullptr, &unsupported) !=
+    if (factory->CreateRoundedRectangleGeometry(nullptr, &unsupported) !=
             compat::not_implemented ||
         unsupported != nullptr ||
-        factory->CreateEllipseGeometry(nullptr, nullptr) !=
+        factory->CreateRoundedRectangleGeometry(nullptr, nullptr) !=
             com::pointer_error) {
         return 18;
     }
@@ -604,6 +660,9 @@ int main()
         !com::guid_equal(
             compat::rectangle_geometry_interface_id,
             __uuidof(ID2D1RectangleGeometry)) ||
+        !com::guid_equal(
+            compat::ellipse_geometry_interface_id,
+            __uuidof(ID2D1EllipseGeometry)) ||
         !com::guid_equal(
             compat::transformed_geometry_interface_id,
             __uuidof(ID2D1TransformedGeometry)) ||
@@ -617,6 +676,7 @@ int main()
             compat::geometry_sink_interface_id,
             __uuidof(ID2D1GeometrySink)) ||
         sizeof(compat::rectangle_f) != sizeof(D2D1_RECT_F) ||
+        sizeof(compat::ellipse) != sizeof(D2D1_ELLIPSE) ||
         sizeof(compat::triangle) != sizeof(D2D1_TRIANGLE) ||
         sizeof(compat::quadratic_bezier_segment) !=
             sizeof(D2D1_QUADRATIC_BEZIER_SEGMENT) ||
@@ -658,6 +718,38 @@ int main()
         !approximately_equal(native_bounds.right, 10.0F) ||
         !approximately_equal(native_bounds.bottom, 6.0F)) {
         return 23;
+    }
+
+    const D2D1_ELLIPSE native_ellipse_value{
+        D2D1_POINT_2F{2.0F, 3.0F}, 4.0F, 2.0F};
+    const D2D1_MATRIX_3X2_F native_ellipse_transform{
+        0.5F, 1.25F, -0.75F, 0.25F, 4.0F, -3.0F};
+    ID2D1EllipseGeometry* native_ellipse = nullptr;
+    if (FAILED(native_factory->CreateEllipseGeometry(
+            &native_ellipse_value, &native_ellipse)) ||
+        native_ellipse == nullptr) {
+        return 58;
+    }
+    D2D1_ELLIPSE returned_native_ellipse{};
+    D2D1_RECT_F portable_ellipse_bounds{};
+    BOOL portable_ellipse_contains = FALSE;
+    native_ellipse->GetEllipse(&returned_native_ellipse);
+    const HRESULT portable_ellipse_bounds_status =
+        native_ellipse->GetBounds(
+            &native_ellipse_transform, &portable_ellipse_bounds);
+    const HRESULT portable_ellipse_contains_status =
+        native_ellipse->FillContainsPoint(
+            D2D1_POINT_2F{2.75F, 0.25F},
+            &native_ellipse_transform,
+            D2D1_DEFAULT_FLATTENING_TOLERANCE,
+            &portable_ellipse_contains);
+    native_ellipse->Release();
+    if (FAILED(portable_ellipse_bounds_status) ||
+        FAILED(portable_ellipse_contains_status) ||
+        portable_ellipse_contains != TRUE ||
+        !approximately_equal(returned_native_ellipse.point.x, 2.0F) ||
+        !approximately_equal(returned_native_ellipse.radiusY, 2.0F)) {
+        return 59;
     }
 
     ID2D1PathGeometry* native_path = nullptr;
@@ -817,7 +909,6 @@ int main()
     const HRESULT system_arc_bounds_status =
         system_arc_path->GetBounds(nullptr, &system_arc_bounds);
     system_arc_path->Release();
-    system_factory->Release();
     auto* portable_arc_path =
         reinterpret_cast<ID2D1PathGeometry*>(arc_path.get());
     D2D1_RECT_F portable_arc_bounds{};
@@ -834,7 +925,63 @@ int main()
             system_arc_bounds.right, portable_arc_bounds.right) ||
         !approximately_equal(
             system_arc_bounds.bottom, portable_arc_bounds.bottom)) {
+        system_factory->Release();
         return 52;
+    }
+
+    ID2D1EllipseGeometry* system_ellipse = nullptr;
+    if (FAILED(system_factory->CreateEllipseGeometry(
+            &native_ellipse_value, &system_ellipse)) ||
+        system_ellipse == nullptr) {
+        system_factory->Release();
+        return 60;
+    }
+    D2D1_RECT_F system_ellipse_bounds{};
+    BOOL system_ellipse_contains = FALSE;
+    const HRESULT system_ellipse_bounds_status =
+        system_ellipse->GetBounds(
+            &native_ellipse_transform, &system_ellipse_bounds);
+    const HRESULT system_ellipse_contains_status =
+        system_ellipse->FillContainsPoint(
+            D2D1_POINT_2F{2.75F, 0.25F},
+            &native_ellipse_transform,
+            D2D1_DEFAULT_FLATTENING_TOLERANCE,
+            &system_ellipse_contains);
+    system_ellipse->Release();
+    system_factory->Release();
+    if (FAILED(system_ellipse_bounds_status) ||
+        FAILED(system_ellipse_contains_status)) {
+        return 61;
+    }
+    if (system_ellipse_contains != portable_ellipse_contains) {
+        return 62;
+    }
+    if (!approximately_equal(
+            system_ellipse_bounds.left, portable_ellipse_bounds.left)) {
+        std::fprintf(
+            stderr,
+            "ellipse bounds system=(%.9g,%.9g,%.9g,%.9g) portable=(%.9g,%.9g,%.9g,%.9g)\n",
+            system_ellipse_bounds.left,
+            system_ellipse_bounds.top,
+            system_ellipse_bounds.right,
+            system_ellipse_bounds.bottom,
+            portable_ellipse_bounds.left,
+            portable_ellipse_bounds.top,
+            portable_ellipse_bounds.right,
+            portable_ellipse_bounds.bottom);
+        return 63;
+    }
+    if (!approximately_equal(
+            system_ellipse_bounds.top, portable_ellipse_bounds.top)) {
+        return 64;
+    }
+    if (!approximately_equal(
+            system_ellipse_bounds.right, portable_ellipse_bounds.right)) {
+        return 65;
+    }
+    if (!approximately_equal(
+            system_ellipse_bounds.bottom, portable_ellipse_bounds.bottom)) {
+        return 66;
     }
 #endif
     return 0;

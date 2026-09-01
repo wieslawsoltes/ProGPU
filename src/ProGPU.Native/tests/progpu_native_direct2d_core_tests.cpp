@@ -173,5 +173,42 @@ int main()
         arc_cubic_count != 0U) {
         return 13;
     }
+
+    const core::ellipse_f ellipse{{2.0F, 3.0F}, 4.0F, 2.0F};
+    if (!core::valid_ellipse(ellipse)) {
+        return 14;
+    }
+    if (core::ellipse_fill_contains_point(
+            ellipse,
+            {1.0F, 24.0F},
+            &transform,
+            core::default_flattening_tolerance,
+            &contains) != com::ok ||
+        contains != 1U ||
+        core::ellipse_fill_contains_point(
+            ellipse,
+            {8.0F, 24.0F},
+            &transform,
+            core::default_flattening_tolerance,
+            &contains) != com::ok ||
+        contains != 0U) {
+        return 15;
+    }
+    std::array<core::cubic_bezier_segment_f, 4U> ellipse_cubics{};
+    if (core::ellipse_to_cubics(
+            ellipse, &point, &ellipse_cubics) != com::ok ||
+        !approximately_equal(point.x, 6.0F) ||
+        !approximately_equal(point.y, 3.0F) ||
+        !approximately_equal(ellipse_cubics[0U].point3.x, 2.0F) ||
+        !approximately_equal(ellipse_cubics[0U].point3.y, 5.0F) ||
+        !approximately_equal(ellipse_cubics[3U].point3.x, 6.0F) ||
+        !approximately_equal(ellipse_cubics[3U].point3.y, 3.0F)) {
+        return 16;
+    }
+    core::ellipse_f invalid_ellipse = ellipse;
+    invalid_ellipse.radius_x = -1.0F;
+    if (core::valid_ellipse(invalid_ellipse)) {
+        return 17;
+    }
     return 0;
 }

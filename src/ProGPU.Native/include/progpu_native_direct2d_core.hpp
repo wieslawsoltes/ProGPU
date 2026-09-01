@@ -49,6 +49,12 @@ struct cubic_bezier_segment_f final {
     progpu_native_direct2d_point_2f point3;
 };
 
+struct ellipse_f final {
+    progpu_native_direct2d_point_2f point;
+    float radius_x;
+    float radius_y;
+};
+
 [[nodiscard]] bool valid_transform(
     const progpu_native_direct2d_matrix_3x2_f* transform) noexcept;
 
@@ -70,6 +76,20 @@ struct cubic_bezier_segment_f final {
     const arc_segment_f& arc,
     std::array<cubic_bezier_segment_f, 4U>* cubics,
     std::uint32_t* cubic_count) noexcept;
+
+[[nodiscard]] bool valid_ellipse(const ellipse_f& ellipse) noexcept;
+
+[[nodiscard]] com::result ellipse_to_cubics(
+    const ellipse_f& ellipse,
+    progpu_native_direct2d_point_2f* start,
+    std::array<cubic_bezier_segment_f, 4U>* cubics) noexcept;
+
+[[nodiscard]] com::result ellipse_fill_contains_point(
+    const ellipse_f& ellipse,
+    progpu_native_direct2d_point_2f point,
+    const progpu_native_direct2d_matrix_3x2_f* world_transform,
+    float flattening_tolerance,
+    std::uint32_t* contains) noexcept;
 
 class rectangle_geometry final {
 public:

@@ -162,6 +162,12 @@ public sealed class Direct2DInteropContractTests
             "src",
             "Direct2D",
             "progpu_native_direct2d_path.cpp");
+        string ellipseSource = ReadRepoFile(
+            "src",
+            "ProGPU.Native",
+            "src",
+            "Direct2D",
+            "progpu_native_direct2d_ellipse.cpp");
         string provider = ReadRepoFile(
             "src",
             "ProGPU.Native",
@@ -185,15 +191,18 @@ public sealed class Direct2DInteropContractTests
         Assert.Contains("0x2CD906BBU", header, StringComparison.Ordinal);
         Assert.Contains("struct transformed_geometry : geometry", header, StringComparison.Ordinal);
         Assert.Contains("struct path_geometry : geometry", header, StringComparison.Ordinal);
+        Assert.Contains("struct ellipse_geometry : geometry", header, StringComparison.Ordinal);
         Assert.Contains("struct geometry_sink : simplified_geometry_sink", header, StringComparison.Ordinal);
         Assert.Contains("class portable_factory final", source, StringComparison.Ordinal);
         Assert.Contains("class portable_transformed_geometry final", source, StringComparison.Ordinal);
         Assert.Contains("class portable_path_geometry final", pathSource, StringComparison.Ordinal);
         Assert.Contains("class portable_geometry_sink final", pathSource, StringComparison.Ordinal);
+        Assert.Contains("class portable_ellipse_geometry final", ellipseSource, StringComparison.Ordinal);
         Assert.Contains("path_state::fresh", pathSource, StringComparison.Ordinal);
         Assert.Contains("path_state::closed", pathSource, StringComparison.Ordinal);
         Assert.Contains("core::arc_to_cubics", pathSource, StringComparison.Ordinal);
         Assert.Contains("direct2d_core::arc_to_cubics", provider, StringComparison.Ordinal);
+        Assert.Contains("direct2d_core::ellipse_to_cubics", provider, StringComparison.Ordinal);
         Assert.Contains("core::rectangle_geometry geometry_", source, StringComparison.Ordinal);
         Assert.Contains("core::compose_transform", source, StringComparison.Ordinal);
         Assert.Contains("return not_implemented;", source, StringComparison.Ordinal);
@@ -202,6 +211,7 @@ public sealed class Direct2DInteropContractTests
         Assert.Contains("reinterpret_cast<ID2D1Factory*>", nativeTest, StringComparison.Ordinal);
         Assert.Contains("ID2D1TransformedGeometry*", nativeTest, StringComparison.Ordinal);
         Assert.Contains("ID2D1PathGeometry*", nativeTest, StringComparison.Ordinal);
+        Assert.Contains("ID2D1EllipseGeometry*", nativeTest, StringComparison.Ordinal);
         Assert.Contains("ID2D1GeometrySink*", nativeTest, StringComparison.Ordinal);
         Assert.Contains("native_path->Stream", nativeTest, StringComparison.Ordinal);
         Assert.Contains("factory.Reset();", nativeTest, StringComparison.Ordinal);
