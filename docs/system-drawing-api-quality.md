@@ -383,9 +383,15 @@ records. The three-iteration result is a coarse allocation/command checkpoint,
 not a throughput claim. The complete Release suite passes 612/612 and ApiCompat
 remains at 0 missing types, 0 missing members, and 13 reviewed shape diagnostics.
 
-The current enum/switch inventory is 150 handled of 192 enum-backed EMF/WMF
-records, with 42 explicit unsupported boundaries; handled does not imply full
-semantic parity.
+The current enum/switch inventory is 165 handled of 192 enum-backed EMF/WMF
+records, with 27 explicit unsupported boundaries; handled does not imply full
+semantic parity. The latest implementation batch adds typed `EMR_EXTCREATEPEN`
+objects (geometric/cosmetic styles, custom dashes, caps, joins, hatch and DIB
+paint), EMF region fill/paint/frame/destination-invert, full WMF scan-region
+object/drawing/clip playback, saved mapper flags, and the specified reserved
+record behavior. Three focused retained-command gates pass; the complete suite,
+allocation ceiling, and performance benchmark remain intentionally deferred
+until the implementation batch closes.
 
 `MetafileBenchmarks.Playback256WmfDibImagesToRetainedCommands` extends that
 same decoder and retained-texture gate to source-bearing `META_DIBBITBLT`,

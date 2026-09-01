@@ -92,6 +92,11 @@ internal static class MetafilePlaybackRenderer
                 state.SetMapMode(ReadUInt16(payload, 0), record);
                 return;
 
+            case EmfPlusRecordType.WmfSetMapperFlags:
+                RequireSize(record, payload, 4);
+                state.SetMapperFlags(ReadUInt32(payload, 0), record);
+                return;
+
             case EmfPlusRecordType.WmfSetROP2:
                 RequireSize(record, payload, 2);
                 state.SetRasterOperation(ReadUInt16(payload, 0), record);
@@ -247,6 +252,35 @@ internal static class MetafilePlaybackRenderer
                 state.OffsetClip(record, ReadWmfYxPoint(payload));
                 return;
 
+            case EmfPlusRecordType.WmfCreateRegion:
+                state.CreateWmfRegion(payload, record);
+                return;
+
+            case EmfPlusRecordType.WmfSelectClipRegion:
+                RequireSize(record, payload, 2);
+                state.SelectWmfClipRegion(ReadUInt16(payload, 0), record);
+                return;
+
+            case EmfPlusRecordType.WmfFillRegion:
+                RequireSize(record, payload, 4);
+                FillWmfRegion(state, record, payload, useSelectedBrush: false);
+                return;
+
+            case EmfPlusRecordType.WmfPaintRegion:
+                RequireSize(record, payload, 2);
+                FillWmfRegion(state, record, payload, useSelectedBrush: true);
+                return;
+
+            case EmfPlusRecordType.WmfFrameRegion:
+                RequireSize(record, payload, 8);
+                FrameWmfRegion(state, record, payload);
+                return;
+
+            case EmfPlusRecordType.WmfInvertRegion:
+                RequireSize(record, payload, 2);
+                InvertWmfRegion(state, record, payload);
+                return;
+
             case EmfPlusRecordType.WmfSaveDC:
                 RequireSize(record, payload, 0);
                 state.Save();
@@ -389,6 +423,8 @@ internal static class MetafilePlaybackRenderer
             case EmfPlusRecordType.EmfHeader:
             case EmfPlusRecordType.EmfEof:
             case EmfPlusRecordType.EmfGdiComment:
+            case EmfPlusRecordType.EmfReserved069:
+            case EmfPlusRecordType.EmfReserved117:
                 return;
 
             case EmfPlusRecordType.EmfSetPixelV:
@@ -438,6 +474,11 @@ internal static class MetafilePlaybackRenderer
             case EmfPlusRecordType.EmfSetMapMode:
                 RequireSize(record, payload, 4);
                 state.SetMapMode(ReadInt32(payload, 0), record);
+                return;
+
+            case EmfPlusRecordType.EmfSetMapperFlags:
+                RequireSize(record, payload, 4);
+                state.SetMapperFlags(ReadUInt32(payload, 0), record);
                 return;
 
             case EmfPlusRecordType.EmfSetPolyFillMode:
@@ -631,6 +672,22 @@ internal static class MetafilePlaybackRenderer
                 SelectEmfClipRegion(state, record, payload);
                 return;
 
+            case EmfPlusRecordType.EmfFillRgn:
+                FillEmfRegion(state, record, payload, useSelectedBrush: false);
+                return;
+
+            case EmfPlusRecordType.EmfPaintRgn:
+                FillEmfRegion(state, record, payload, useSelectedBrush: true);
+                return;
+
+            case EmfPlusRecordType.EmfFrameRgn:
+                FrameEmfRegion(state, record, payload);
+                return;
+
+            case EmfPlusRecordType.EmfInvertRgn:
+                InvertEmfRegion(state, record, payload);
+                return;
+
             case EmfPlusRecordType.EmfBitBlt:
                 DrawEmfBitmapBlt(state, record, payload, stretch: false);
                 return;
@@ -750,6 +807,10 @@ internal static class MetafilePlaybackRenderer
             case EmfPlusRecordType.EmfCreatePen:
                 RequireSize(record, payload, 20);
                 state.CreatePen(payload, record);
+                return;
+
+            case EmfPlusRecordType.EmfExtCreatePen:
+                state.CreateExtendedPen(payload, record);
                 return;
 
             case EmfPlusRecordType.EmfCreateBrushIndirect:
@@ -2999,8 +3060,6 @@ internal static class MetafilePlaybackRenderer
         ReadOnlySpan<byte> payload)
     {
         const int FixedPayloadSize = 8;
-        const int RegionDataHeaderSize = 32;
-        const int RectangleSize = 16;
         if (payload.Length < FixedPayloadSize)
         {
             throw Invalid(record);
@@ -3018,12 +3077,21 @@ internal static class MetafilePlaybackRenderer
             state.SelectClipRegion(region: null, mode, record);
             return;
         }
-        if (dataSize < RegionDataHeaderSize)
+        using Region region = ReadEmfRegionData(record, payload[FixedPayloadSize..]);
+        state.SelectClipRegion(region, mode, record);
+    }
+
+    private static Region ReadEmfRegionData(
+        in MetafileRecord record,
+        ReadOnlySpan<byte> data)
+    {
+        const int RegionDataHeaderSize = 32;
+        const int RectangleSize = 16;
+        if (data.Length < RegionDataHeaderSize)
         {
             throw Invalid(record);
         }
 
-        ReadOnlySpan<byte> data = payload[FixedPayloadSize..];
         uint headerSize = ReadUInt32(data, 0);
         uint type = ReadUInt32(data, 4);
         uint rectangleCount = ReadUInt32(data, 8);
@@ -3045,8 +3113,7 @@ internal static class MetafilePlaybackRenderer
             }
             using var empty = new Region();
             empty.MakeEmpty();
-            state.SelectClipRegion(empty, mode, record);
-            return;
+            return empty.Clone();
         }
 
         int minimumX = int.MaxValue;
@@ -3074,8 +3141,270 @@ internal static class MetafilePlaybackRenderer
             throw Invalid(record);
         }
 
-        using Region region = CreateRectangleRegion(data, (int)rectangleCount);
-        state.SelectClipRegion(region, mode, record);
+        return CreateRectangleRegion(data, (int)rectangleCount);
+    }
+
+    private static void FillEmfRegion(
+        PlaybackState state,
+        in MetafileRecord record,
+        ReadOnlySpan<byte> payload,
+        bool useSelectedBrush)
+    {
+        int fixedPayloadSize = useSelectedBrush ? 20 : 24;
+        if (payload.Length < fixedPayloadSize)
+        {
+            throw Invalid(record);
+        }
+
+        _ = ReadRectangle(record, payload);
+        uint dataSize = ReadUInt32(payload, 16);
+        if (dataSize > int.MaxValue || payload.Length != fixedPayloadSize + (int)dataSize)
+        {
+            throw Invalid(record);
+        }
+
+        using Region region = ReadEmfRegionData(record, payload[fixedPayloadSize..]);
+        Brush? brush;
+        bool disposeBrush;
+        if (useSelectedBrush)
+        {
+            brush = state.SelectedBrush;
+            disposeBrush = false;
+        }
+        else
+        {
+            brush = state.ResolveBrushObject(ReadUInt32(payload, 20), record, out disposeBrush);
+        }
+
+        try
+        {
+            if (brush is not null)
+            {
+                state.ApplyTransform(record);
+                state.Graphics.FillRegion(brush, region);
+            }
+        }
+        finally
+        {
+            if (disposeBrush)
+            {
+                brush?.Dispose();
+            }
+        }
+    }
+
+    private static void FrameEmfRegion(
+        PlaybackState state,
+        in MetafileRecord record,
+        ReadOnlySpan<byte> payload)
+    {
+        const int fixedPayloadSize = 32;
+        if (payload.Length < fixedPayloadSize)
+        {
+            throw Invalid(record);
+        }
+        _ = ReadRectangle(record, payload);
+        uint dataSize = ReadUInt32(payload, 16);
+        int width = ReadInt32(payload, 24);
+        int height = ReadInt32(payload, 28);
+        if (dataSize > int.MaxValue || payload.Length != fixedPayloadSize + (int)dataSize ||
+            width <= 0 || height <= 0)
+        {
+            throw Invalid(record);
+        }
+
+        using Region region = ReadEmfRegionData(record, payload[fixedPayloadSize..]);
+        using Region inner = region.Clone();
+        IntersectTranslatedRegion(inner, region, width, 0);
+        IntersectTranslatedRegion(inner, region, -width, 0);
+        IntersectTranslatedRegion(inner, region, 0, height);
+        IntersectTranslatedRegion(inner, region, 0, -height);
+        region.Exclude(inner);
+
+        Brush? brush = state.ResolveBrushObject(ReadUInt32(payload, 20), record, out bool disposeBrush);
+        try
+        {
+            if (brush is not null)
+            {
+                state.ApplyTransform(record);
+                state.Graphics.FillRegion(brush, region);
+            }
+        }
+        finally
+        {
+            if (disposeBrush)
+            {
+                brush?.Dispose();
+            }
+        }
+    }
+
+    private static void IntersectTranslatedRegion(
+        Region target,
+        Region source,
+        int offsetX,
+        int offsetY)
+    {
+        using Region translated = source.Clone();
+        translated.Translate(offsetX, offsetY);
+        target.Intersect(translated);
+    }
+
+    private static void InvertEmfRegion(
+        PlaybackState state,
+        in MetafileRecord record,
+        ReadOnlySpan<byte> payload)
+    {
+        const int fixedPayloadSize = 20;
+        const byte destinationInvert = 0x55;
+        if (payload.Length < fixedPayloadSize)
+        {
+            throw Invalid(record);
+        }
+        _ = ReadRectangle(record, payload);
+        uint dataSize = ReadUInt32(payload, 16);
+        if (dataSize > int.MaxValue || payload.Length != fixedPayloadSize + (int)dataSize)
+        {
+            throw Invalid(record);
+        }
+
+        using Region region = ReadEmfRegionData(record, payload[fixedPayloadSize..]);
+        Matrix3x2 transform = state.ApplyTransform(record);
+        RectangleF bounds = region.GetBounds(state.Graphics);
+        if (bounds.Width <= 0 || bounds.Height <= 0)
+        {
+            return;
+        }
+
+        GraphicsState saved = state.Graphics.Save();
+        try
+        {
+            using Region transformedRegion = region.Clone();
+            using var matrix = new Matrix(transform);
+            transformedRegion.Transform(matrix);
+            state.Graphics.SetClip(transformedRegion, CombineMode.Intersect);
+            state.Graphics.DrawImageRasterOperation(
+                state.RasterOperationCoverageBitmap,
+                new PointF(bounds.Left, bounds.Top),
+                new PointF(bounds.Right, bounds.Top),
+                new PointF(bounds.Left, bounds.Bottom),
+                new RectangleF(0, 0, 1, 1),
+                new GpuRasterOperation(destinationInvert, Vector4.Zero));
+        }
+        finally
+        {
+            state.Graphics.Restore(saved);
+        }
+    }
+
+    private static void FillWmfRegion(
+        PlaybackState state,
+        in MetafileRecord record,
+        ReadOnlySpan<byte> payload,
+        bool useSelectedBrush)
+    {
+        Region region = state.GetWmfRegion(ReadUInt16(payload, 0), record);
+        Brush? brush;
+        bool disposeBrush;
+        if (useSelectedBrush)
+        {
+            brush = state.SelectedBrush;
+            disposeBrush = false;
+        }
+        else
+        {
+            brush = state.ResolveBrushObject(ReadUInt16(payload, 2), record, out disposeBrush);
+        }
+
+        try
+        {
+            if (brush is not null)
+            {
+                state.ApplyTransform(record);
+                state.Graphics.FillRegion(brush, region);
+            }
+        }
+        finally
+        {
+            if (disposeBrush)
+            {
+                brush?.Dispose();
+            }
+        }
+    }
+
+    private static void FrameWmfRegion(
+        PlaybackState state,
+        in MetafileRecord record,
+        ReadOnlySpan<byte> payload)
+    {
+        int height = ReadInt16(payload, 4);
+        int width = ReadInt16(payload, 6);
+        if (width <= 0 || height <= 0)
+        {
+            throw Invalid(record);
+        }
+
+        Region source = state.GetWmfRegion(ReadUInt16(payload, 0), record);
+        using Region frame = source.Clone();
+        using Region inner = source.Clone();
+        IntersectTranslatedRegion(inner, source, width, 0);
+        IntersectTranslatedRegion(inner, source, -width, 0);
+        IntersectTranslatedRegion(inner, source, 0, height);
+        IntersectTranslatedRegion(inner, source, 0, -height);
+        frame.Exclude(inner);
+
+        Brush? brush = state.ResolveBrushObject(ReadUInt16(payload, 2), record, out bool disposeBrush);
+        try
+        {
+            if (brush is not null)
+            {
+                state.ApplyTransform(record);
+                state.Graphics.FillRegion(brush, frame);
+            }
+        }
+        finally
+        {
+            if (disposeBrush)
+            {
+                brush?.Dispose();
+            }
+        }
+    }
+
+    private static void InvertWmfRegion(
+        PlaybackState state,
+        in MetafileRecord record,
+        ReadOnlySpan<byte> payload)
+    {
+        const byte destinationInvert = 0x55;
+        Region region = state.GetWmfRegion(ReadUInt16(payload, 0), record);
+        Matrix3x2 transform = state.ApplyTransform(record);
+        RectangleF bounds = region.GetBounds(state.Graphics);
+        if (bounds.Width <= 0 || bounds.Height <= 0)
+        {
+            return;
+        }
+
+        GraphicsState saved = state.Graphics.Save();
+        try
+        {
+            using Region transformedRegion = region.Clone();
+            using var matrix = new Matrix(transform);
+            transformedRegion.Transform(matrix);
+            state.Graphics.SetClip(transformedRegion, CombineMode.Intersect);
+            state.Graphics.DrawImageRasterOperation(
+                state.RasterOperationCoverageBitmap,
+                new PointF(bounds.Left, bounds.Top),
+                new PointF(bounds.Right, bounds.Top),
+                new PointF(bounds.Left, bounds.Bottom),
+                new RectangleF(0, 0, 1, 1),
+                new GpuRasterOperation(destinationInvert, Vector4.Zero));
+        }
+        finally
+        {
+            state.Graphics.Restore(saved);
+        }
     }
 
     private static Region CreateRectangleRegion(
@@ -4956,7 +5285,7 @@ internal static class MetafilePlaybackRenderer
         private readonly Dictionary<uint, object> _objects = [];
         private readonly List<SavedState> _savedStates = [];
         private readonly int _wmfObjectCapacity;
-        private Pen? _selectedPen = Pens.Black;
+        private object? _selectedPenObject = Pens.Black;
         private object? _selectedBrushObject = Brushes.White;
         private Font _selectedFont = SystemFonts.DefaultFont;
         private object? _selectedFontObject;
@@ -4970,6 +5299,11 @@ internal static class MetafilePlaybackRenderer
         private TextureBrush? _resolvedPatternBrush;
         private GdiPatternBrushObject? _resolvedPatternBrushObject;
         private Point _resolvedPatternBrushOrigin;
+        private Pen? _resolvedExtendedPen;
+        private GdiExtendedPenObject? _resolvedExtendedPenObject;
+        private Color _resolvedExtendedPenBackground;
+        private Point _resolvedExtendedPenOrigin;
+        private float _resolvedExtendedPenMiterLimit;
         private HatchBrush? _resolvedRasterOperationHatchBrush;
         private Point _resolvedRasterOperationOrigin;
         private TilePatternBrush? _resolvedRasterOperationPattern;
@@ -5006,6 +5340,7 @@ internal static class MetafilePlaybackRenderer
         internal Matrix3x2 WorldTransform { get; set; } = Matrix3x2.Identity;
         internal FillMode FillMode { get; set; } = FillMode.Alternate;
         internal int MapMode { get; set; } = 1;
+        internal uint FontMapperFlags { get; private set; }
         internal int BackgroundMode { get; private set; } = 2;
         internal int RasterOperation { get; set; } = 13;
         internal InterpolationMode DibInterpolationMode { get; private set; } =
@@ -5031,7 +5366,7 @@ internal static class MetafilePlaybackRenderer
             }
         }
         internal Color TextColor { get; set; } = Color.Black;
-        internal Pen? SelectedPen => _selectedPen;
+        internal Pen? SelectedPen => ResolveSelectedPen();
         internal Brush? SelectedBrush => ResolveSelectedBrush();
         internal Font SelectedFont => _selectedFont;
         internal LogicalPalette SelectedPalette => _selectedPalette;
@@ -5076,6 +5411,81 @@ internal static class MetafilePlaybackRenderer
             return _resolvedHatchBrush;
         }
 
+        internal Brush? ResolveBrushObject(
+            uint index,
+            in MetafileRecord record,
+            out bool requiresDispose)
+        {
+            object product;
+            if ((index & StockObjectFlag) != 0)
+            {
+                product = GetStockObject(index & ~StockObjectFlag, record);
+            }
+            else if (!_objects.TryGetValue(index, out product!))
+            {
+                throw Invalid(record);
+            }
+
+            requiresDispose = false;
+            switch (product)
+            {
+                case Brush brush:
+                    return brush;
+                case GdiHatchBrushObject hatch:
+                    requiresDispose = true;
+                    return new HatchBrush(
+                        hatch.Style,
+                        hatch.ForegroundColor,
+                        BackgroundMode == 1 ? Color.Transparent : BackgroundColor);
+                case GdiPatternBrushObject pattern:
+                    requiresDispose = true;
+                    var texture = new TextureBrush(pattern.Bitmap, WrapMode.Tile);
+                    Point origin = Graphics.RenderingOrigin;
+                    texture.TranslateTransform(origin.X, origin.Y);
+                    return texture;
+                case NullBrushMarker:
+                    return null;
+                default:
+                    throw Invalid(record);
+            }
+        }
+
+        private Pen? ResolveSelectedPen()
+        {
+            if (_selectedPenObject is not GdiExtendedPenObject extendedPen)
+            {
+                return _selectedPenObject as Pen;
+            }
+
+            Color background = BackgroundMode == 1
+                ? Color.Transparent
+                : BackgroundColor;
+            Point origin = Graphics.RenderingOrigin;
+            if (!ReferenceEquals(_resolvedExtendedPenObject, extendedPen) ||
+                _resolvedExtendedPenBackground != background ||
+                _resolvedExtendedPenOrigin != origin ||
+                _resolvedExtendedPenMiterLimit != MiterLimit)
+            {
+                InvalidateResolvedPen();
+                _resolvedExtendedPen = extendedPen.CreatePen(background, origin, MiterLimit);
+                _resolvedExtendedPenObject = extendedPen;
+                _resolvedExtendedPenBackground = background;
+                _resolvedExtendedPenOrigin = origin;
+                _resolvedExtendedPenMiterLimit = MiterLimit;
+            }
+            return _resolvedExtendedPen;
+        }
+
+        private void InvalidateResolvedPen()
+        {
+            _resolvedExtendedPen?.Dispose();
+            _resolvedExtendedPen = null;
+            _resolvedExtendedPenObject = null;
+            _resolvedExtendedPenBackground = default;
+            _resolvedExtendedPenOrigin = default;
+            _resolvedExtendedPenMiterLimit = default;
+        }
+
         private void InvalidateResolvedBrushes()
         {
             _resolvedHatchBrush?.Dispose();
@@ -5090,6 +5500,7 @@ internal static class MetafilePlaybackRenderer
             _resolvedPatternBrush = null;
             _resolvedPatternBrushObject = null;
             _resolvedPatternBrushOrigin = default;
+            InvalidateResolvedPen();
         }
 
         internal TilePatternBrush ResolveRasterOperationPattern(HatchBrush hatchBrush)
@@ -5192,6 +5603,15 @@ internal static class MetafilePlaybackRenderer
             }
             MapMode = mapMode;
             ValidateExtents(record);
+        }
+
+        internal void SetMapperFlags(uint flags, in MetafileRecord record)
+        {
+            if (flags > 1)
+            {
+                throw Invalid(record);
+            }
+            FontMapperFlags = flags;
         }
 
         internal void SetWindowExtent(Point extent, in MetafileRecord record)
@@ -5323,7 +5743,11 @@ internal static class MetafilePlaybackRenderer
             {
                 throw Invalid(record);
             }
-            MiterLimit = limit;
+            if (MiterLimit != limit)
+            {
+                MiterLimit = limit;
+                InvalidateResolvedPen();
+            }
         }
 
         internal void BeginPath(in MetafileRecord record)
@@ -5445,7 +5869,7 @@ internal static class MetafilePlaybackRenderer
                 {
                     Graphics.FillPath(brush, path);
                 }
-                if (stroke && _selectedPen is Pen pen)
+                if (stroke && SelectedPen is Pen pen)
                 {
                     using Pen effectivePen = CreateEffectivePathPen(pen);
                     Graphics.DrawPath(effectivePen, path);
@@ -5466,7 +5890,7 @@ internal static class MetafilePlaybackRenderer
         internal void WidenPath(in MetafileRecord record)
         {
             GraphicsPath path = GetSelectedPath(record);
-            if (_selectedPen is not Pen pen || pen.Width <= 1f)
+            if (SelectedPen is not Pen pen || pen.Width <= 1f)
             {
                 throw Unsupported(
                     record,
@@ -5758,6 +6182,7 @@ internal static class MetafilePlaybackRenderer
                 WorldTransform,
                 FillMode,
                 MapMode,
+                FontMapperFlags,
                 BackgroundMode,
                 RasterOperation,
                 DibInterpolationMode,
@@ -5770,7 +6195,7 @@ internal static class MetafilePlaybackRenderer
                 TextJustificationError,
                 BackgroundColor,
                 TextColor,
-                _selectedPen,
+                _selectedPenObject,
                 _selectedBrushObject,
                 _selectedFont,
                 _selectedFontObject,
@@ -5815,6 +6240,7 @@ internal static class MetafilePlaybackRenderer
             WorldTransform = saved.WorldTransform;
             FillMode = saved.FillMode;
             MapMode = saved.MapMode;
+            FontMapperFlags = saved.FontMapperFlags;
             BackgroundMode = saved.BackgroundMode;
             RasterOperation = saved.RasterOperation;
             DibInterpolationMode = saved.DibInterpolationMode;
@@ -5827,7 +6253,8 @@ internal static class MetafilePlaybackRenderer
             TextJustificationError = saved.TextJustificationError;
             BackgroundColor = saved.BackgroundColor;
             TextColor = saved.TextColor;
-            _selectedPen = saved.SelectedPen;
+            _selectedPenObject = saved.SelectedPenObject;
+            InvalidateResolvedPen();
             _selectedBrushObject = saved.SelectedBrushObject;
             InvalidateResolvedBrushes();
             _selectedFont = saved.SelectedFont;
@@ -5864,6 +6291,202 @@ internal static class MetafilePlaybackRenderer
                 _ => throw Unsupported(record, "The initial player supports cosmetic solid or null pens only.")
             };
             AddObject(index, product, record);
+        }
+
+        internal void CreateExtendedPen(
+            ReadOnlySpan<byte> payload,
+            in MetafileRecord record)
+        {
+            const int fixedPayloadSize = 44;
+            const uint PenStyleMask = 0x0000_000F;
+            const uint EndCapMask = 0x0000_0F00;
+            const uint JoinMask = 0x0000_F000;
+            const uint PenTypeMask = 0x000F_0000;
+            const uint SupportedPenBits = PenStyleMask | EndCapMask | JoinMask | PenTypeMask;
+            const uint PenStyleNull = 5;
+            const uint PenStyleInsideFrame = 6;
+            const uint PenStyleUser = 7;
+            const uint PenStyleAlternate = 8;
+            const uint PenTypeGeometric = 0x0001_0000;
+            const uint BrushStyleSolid = 0;
+            const uint BrushStyleNull = 1;
+            const uint BrushStyleHatched = 2;
+            const uint BrushStyleDibPattern = 5;
+
+            if (payload.Length < fixedPayloadSize)
+            {
+                throw Invalid(record);
+            }
+
+            uint index = ReadUInt32(payload, 0);
+            uint bitmapInfoOffset = ReadUInt32(payload, 4);
+            uint bitmapInfoSize = ReadUInt32(payload, 8);
+            uint bitmapBitsOffset = ReadUInt32(payload, 12);
+            uint bitmapBitsSize = ReadUInt32(payload, 16);
+            uint style = ReadUInt32(payload, 20);
+            uint rawWidth = ReadUInt32(payload, 24);
+            uint brushStyle = ReadUInt32(payload, 28);
+            Color color = ReadColor(payload, 32);
+            uint brushHatch = ReadUInt32(payload, 36);
+            uint styleEntryCount = ReadUInt32(payload, 40);
+
+            if ((style & ~SupportedPenBits) != 0 ||
+                (style & PenStyleMask) > PenStyleAlternate ||
+                (style & EndCapMask) is not 0 and not 0x100 and not 0x200 ||
+                (style & JoinMask) is not 0 and not 0x1000 and not 0x2000 ||
+                (style & PenTypeMask) is not 0 and not PenTypeGeometric ||
+                styleEntryCount > (uint)((payload.Length - fixedPayloadSize) / 4))
+            {
+                throw Invalid(record);
+            }
+
+            int logicalPenSize = checked(fixedPayloadSize + (int)styleEntryCount * 4);
+            uint basicStyle = style & PenStyleMask;
+            bool geometric = (style & PenTypeMask) == PenTypeGeometric;
+            if ((!geometric && rawWidth != 1) ||
+                (basicStyle == PenStyleUser) != (styleEntryCount != 0) ||
+                (basicStyle == PenStyleInsideFrame && !geometric))
+            {
+                throw Invalid(record);
+            }
+
+            float[]? dashPattern = null;
+            if (basicStyle == PenStyleUser)
+            {
+                dashPattern = new float[styleEntryCount];
+                float dashScale = rawWidth > 0 ? rawWidth : 1;
+                for (int styleIndex = 0; styleIndex < dashPattern.Length; styleIndex++)
+                {
+                    uint entry = ReadUInt32(payload, fixedPayloadSize + styleIndex * 4);
+                    if (entry == 0)
+                    {
+                        throw Invalid(record);
+                    }
+                    dashPattern[styleIndex] = entry / dashScale;
+                }
+            }
+
+            if (basicStyle == PenStyleNull || brushStyle == BrushStyleNull)
+            {
+                RequireAbsentExtendedPenDib(
+                    bitmapInfoOffset,
+                    bitmapInfoSize,
+                    bitmapBitsOffset,
+                    bitmapBitsSize,
+                    record);
+                AddObject(index, NullPenMarker.Instance, record);
+                return;
+            }
+
+            object brushObject;
+            switch (brushStyle)
+            {
+                case BrushStyleSolid:
+                    RequireAbsentExtendedPenDib(
+                        bitmapInfoOffset,
+                        bitmapInfoSize,
+                        bitmapBitsOffset,
+                        bitmapBitsSize,
+                        record);
+                    brushObject = color;
+                    break;
+                case BrushStyleHatched:
+                    if (!geometric)
+                    {
+                        throw Invalid(record);
+                    }
+                    RequireAbsentExtendedPenDib(
+                        bitmapInfoOffset,
+                        bitmapInfoSize,
+                        bitmapBitsOffset,
+                        bitmapBitsSize,
+                        record);
+                    brushObject = CreateHatchBrushObject(brushHatch, color, record);
+                    break;
+                case BrushStyleDibPattern:
+                    if (!geometric)
+                    {
+                        throw Invalid(record);
+                    }
+                    ReadOnlySpan<byte> bitmapInfo = ReadEmfBuffer(
+                        record,
+                        payload,
+                        bitmapInfoOffset,
+                        bitmapInfoSize,
+                        logicalPenSize);
+                    ReadOnlySpan<byte> bitmapBits = ReadEmfBuffer(
+                        record,
+                        payload,
+                        bitmapBitsOffset,
+                        bitmapBitsSize,
+                        logicalPenSize);
+                    EnsureDisjointEmfBuffers(
+                        record,
+                        bitmapInfoOffset,
+                        bitmapInfoSize,
+                        bitmapBitsOffset,
+                        bitmapBitsSize);
+                    DibInfo dib = ReadDibInfo(record, bitmapInfo, brushHatch, SelectedPalette);
+                    brushObject = new GdiPatternBrushObject(
+                        DecodeDibRows(record, dib, bitmapInfo, bitmapBits, dib.Height));
+                    break;
+                default:
+                    throw Unsupported(
+                        record,
+                        $"Extended pen brush style {brushStyle} has no typed retained representation.");
+            }
+
+            DashStyle dashStyle = basicStyle switch
+            {
+                0 or PenStyleInsideFrame => DashStyle.Solid,
+                1 => DashStyle.Dash,
+                2 => DashStyle.Dot,
+                3 => DashStyle.DashDot,
+                4 => DashStyle.DashDotDot,
+                PenStyleUser or PenStyleAlternate => DashStyle.Custom,
+                _ => throw Invalid(record)
+            };
+            dashPattern ??= basicStyle == PenStyleAlternate ? [1f, 1f] : null;
+            LineCap cap = (style & EndCapMask) switch
+            {
+                0 => LineCap.Round,
+                0x100 => LineCap.Square,
+                0x200 => LineCap.Flat,
+                _ => throw Invalid(record)
+            };
+            LineJoin join = (style & JoinMask) switch
+            {
+                0 => LineJoin.Round,
+                0x1000 => LineJoin.Bevel,
+                0x2000 => LineJoin.Miter,
+                _ => throw Invalid(record)
+            };
+
+            AddObject(
+                index,
+                new GdiExtendedPenObject(
+                    brushObject,
+                    Math.Max(rawWidth, 1),
+                    dashStyle,
+                    dashPattern,
+                    cap,
+                    join,
+                    basicStyle == PenStyleInsideFrame),
+                record);
+        }
+
+        private static void RequireAbsentExtendedPenDib(
+            uint bitmapInfoOffset,
+            uint bitmapInfoSize,
+            uint bitmapBitsOffset,
+            uint bitmapBitsSize,
+            in MetafileRecord record)
+        {
+            if (bitmapInfoOffset != 0 || bitmapInfoSize != 0 ||
+                bitmapBitsOffset != 0 || bitmapBitsSize != 0)
+            {
+                throw Invalid(record);
+            }
         }
 
         internal void CreateBrush(ReadOnlySpan<byte> payload, in MetafileRecord record)
@@ -6251,6 +6874,113 @@ internal static class MetafilePlaybackRenderer
                 payload[patternBitsOffset..]);
             AddWmfObject(new GdiPatternBrushObject(bitmap), record);
         }
+
+        internal void CreateWmfRegion(
+            ReadOnlySpan<byte> payload,
+            in MetafileRecord record)
+        {
+            const int regionHeaderSize = 22;
+            if (payload.Length < regionHeaderSize ||
+                ReadInt16(payload, 2) != 6 ||
+                ReadUInt16(payload, 8) != payload.Length)
+            {
+                throw Invalid(record);
+            }
+
+            int scanCount = ReadInt16(payload, 10);
+            int maximumScan = ReadInt16(payload, 12);
+            Rectangle bounds = Rectangle.FromLTRB(
+                ReadInt16(payload, 14),
+                ReadInt16(payload, 16),
+                ReadInt16(payload, 18),
+                ReadInt16(payload, 20));
+            if (scanCount < 0 || maximumScan < 0 ||
+                bounds.Right < bounds.Left || bounds.Bottom < bounds.Top)
+            {
+                throw Invalid(record);
+            }
+
+            var region = new Region();
+            region.MakeEmpty();
+            try
+            {
+                int offset = regionHeaderSize;
+                int observedMaximumScan = 0;
+                int minimumX = int.MaxValue;
+                int minimumY = int.MaxValue;
+                int maximumX = int.MinValue;
+                int maximumY = int.MinValue;
+                for (int scanIndex = 0; scanIndex < scanCount; scanIndex++)
+                {
+                    if (payload.Length - offset < 8)
+                    {
+                        throw Invalid(record);
+                    }
+                    int coordinateCount = ReadUInt16(payload, offset);
+                    int top = ReadUInt16(payload, offset + 2);
+                    int bottom = ReadUInt16(payload, offset + 4);
+                    if ((coordinateCount & 1) != 0 || coordinateCount > maximumScan ||
+                        coordinateCount > (payload.Length - offset - 8) / 2 ||
+                        bottom <= top)
+                    {
+                        throw Invalid(record);
+                    }
+                    int scanSize = checked(8 + coordinateCount * 2);
+                    if (ReadUInt16(payload, offset + scanSize - 2) != coordinateCount)
+                    {
+                        throw Invalid(record);
+                    }
+
+                    observedMaximumScan = Math.Max(observedMaximumScan, coordinateCount);
+                    int previousRight = int.MinValue;
+                    for (int pointIndex = 0; pointIndex < coordinateCount; pointIndex += 2)
+                    {
+                        int left = ReadUInt16(payload, offset + 6 + pointIndex * 2);
+                        int right = ReadUInt16(payload, offset + 8 + pointIndex * 2);
+                        if (right <= left || left < previousRight ||
+                            left < bounds.Left || top < bounds.Top ||
+                            right > bounds.Right || bottom > bounds.Bottom)
+                        {
+                            throw Invalid(record);
+                        }
+                        region.Union(Rectangle.FromLTRB(left, top, right, bottom));
+                        previousRight = right;
+                        minimumX = Math.Min(minimumX, left);
+                        minimumY = Math.Min(minimumY, top);
+                        maximumX = Math.Max(maximumX, right);
+                        maximumY = Math.Max(maximumY, bottom);
+                    }
+                    offset += scanSize;
+                }
+
+                if (offset != payload.Length || observedMaximumScan != maximumScan ||
+                    (scanCount == 0 && bounds != Rectangle.Empty) ||
+                    (scanCount != 0 &&
+                     (minimumX != bounds.Left || minimumY != bounds.Top ||
+                      maximumX != bounds.Right || maximumY != bounds.Bottom)))
+                {
+                    throw Invalid(record);
+                }
+                AddWmfObject(region, record);
+            }
+            catch
+            {
+                region.Dispose();
+                throw;
+            }
+        }
+
+        internal Region GetWmfRegion(ushort index, in MetafileRecord record)
+        {
+            if (!_objects.TryGetValue(index, out object? product) || product is not Region region)
+            {
+                throw Invalid(record);
+            }
+            return region;
+        }
+
+        internal void SelectWmfClipRegion(ushort index, in MetafileRecord record) =>
+            SelectClipRegion(GetWmfRegion(index, record), 5, record);
 
         private static GdiHatchBrushObject CreateHatchBrushObject(
             uint hatch,
@@ -7082,7 +7812,7 @@ internal static class MetafilePlaybackRenderer
 
         private bool IsSelected(object product)
         {
-            if (ReferenceEquals(product, _selectedPen) || ReferenceEquals(product, _selectedBrushObject) ||
+            if (ReferenceEquals(product, _selectedPenObject) || ReferenceEquals(product, _selectedBrushObject) ||
                 ReferenceEquals(product, _selectedFontObject) ||
                 ReferenceEquals(product, _selectedPalette))
             {
@@ -7091,7 +7821,7 @@ internal static class MetafilePlaybackRenderer
 
             foreach (SavedState savedState in _savedStates)
             {
-                if (ReferenceEquals(product, savedState.SelectedPen) ||
+                if (ReferenceEquals(product, savedState.SelectedPenObject) ||
                     ReferenceEquals(product, savedState.SelectedBrushObject) ||
                     ReferenceEquals(product, savedState.SelectedFontObject) ||
                     ReferenceEquals(product, savedState.SelectedPalette))
@@ -7130,10 +7860,16 @@ internal static class MetafilePlaybackRenderer
             switch (product)
             {
                 case Pen pen:
-                    _selectedPen = pen;
+                    _selectedPenObject = pen;
+                    InvalidateResolvedPen();
+                    break;
+                case GdiExtendedPenObject extendedPen:
+                    _selectedPenObject = extendedPen;
+                    InvalidateResolvedPen();
                     break;
                 case NullPenMarker:
-                    _selectedPen = null;
+                    _selectedPenObject = null;
+                    InvalidateResolvedPen();
                     break;
                 case Brush brush:
                     _selectedBrushObject = brush;
@@ -7186,6 +7922,7 @@ internal static class MetafilePlaybackRenderer
             _backgroundBrush?.Dispose();
             _resolvedHatchBrush?.Dispose();
             _resolvedPatternBrush?.Dispose();
+            _resolvedExtendedPen?.Dispose();
             _rasterOperationCoverageBitmap?.Dispose();
             _buildingPath?.Dispose();
             _selectedPath?.Dispose();
@@ -7214,6 +7951,7 @@ internal static class MetafilePlaybackRenderer
             Matrix3x2 WorldTransform,
             FillMode FillMode,
             int MapMode,
+            uint FontMapperFlags,
             int BackgroundMode,
             int RasterOperation,
             InterpolationMode DibInterpolationMode,
@@ -7226,7 +7964,7 @@ internal static class MetafilePlaybackRenderer
             int TextJustificationError,
             Color BackgroundColor,
             Color TextColor,
-            Pen? SelectedPen,
+            object? SelectedPenObject,
             object? SelectedBrushObject,
             Font SelectedFont,
             object? SelectedFontObject,
@@ -7256,6 +7994,62 @@ internal static class MetafilePlaybackRenderer
         internal Bitmap Bitmap { get; } = bitmap;
 
         public void Dispose() => Bitmap.Dispose();
+    }
+
+    private sealed class GdiExtendedPenObject(
+        object brushObject,
+        float width,
+        DashStyle dashStyle,
+        float[]? dashPattern,
+        LineCap cap,
+        LineJoin join,
+        bool insideFrame) : IDisposable
+    {
+        private readonly object _brushObject = brushObject;
+        private readonly float[]? _dashPattern = dashPattern;
+
+        internal Pen CreatePen(Color background, Point origin, float miterLimit)
+        {
+            using Brush brush = _brushObject switch
+            {
+                Color color => new SolidBrush(color),
+                GdiHatchBrushObject hatch => new HatchBrush(
+                    hatch.Style,
+                    hatch.ForegroundColor,
+                    background),
+                GdiPatternBrushObject pattern => CreatePatternBrush(pattern.Bitmap, origin),
+                _ => throw new InvalidOperationException("Invalid retained extended-pen brush.")
+            };
+            var pen = new Pen(brush, width)
+            {
+                DashStyle = dashStyle,
+                StartCap = cap,
+                EndCap = cap,
+                LineJoin = join,
+                MiterLimit = miterLimit,
+                Alignment = insideFrame ? PenAlignment.Inset : PenAlignment.Center
+            };
+            if (_dashPattern is not null)
+            {
+                pen.DashPattern = _dashPattern;
+            }
+            return pen;
+        }
+
+        private static TextureBrush CreatePatternBrush(Bitmap bitmap, Point origin)
+        {
+            var brush = new TextureBrush(bitmap, WrapMode.Tile);
+            brush.TranslateTransform(origin.X, origin.Y);
+            return brush;
+        }
+
+        public void Dispose()
+        {
+            if (_brushObject is GdiPatternBrushObject pattern)
+            {
+                pattern.Dispose();
+            }
+        }
     }
 
     private sealed class LogicalPalette

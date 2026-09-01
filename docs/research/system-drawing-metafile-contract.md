@@ -1339,12 +1339,47 @@ measurement on this host; raw ignored artifacts are under
 The complete Release System.Drawing suite passes 612/612; ApiCompat remains at
 zero missing types, zero missing members, and 13 reviewed shape diagnostics.
 
-The enum/switch coverage inventory now finds 150 explicitly handled records out
-of 192 enum-backed EMF/WMF record identities, leaving 42 explicit unsupported
+### Extended pens and retained EMF/WMF regions
+
+[`EMR_EXTCREATEPEN`](https://learn.microsoft.com/en-us/openspecs/windows_protocols/ms-emf/d7f51e05-4024-497c-ad4a-8aeca9d34256)
+now validates the complete `LogPenEx` envelope before adding an object. Cosmetic
+and geometric widths, predefined and user dash styles, alternate strokes,
+round/square/flat caps, round/bevel/miter joins, inside-frame identity, solid and
+dynamic-background hatch paints, and DIB pattern paints lower through one typed
+retained pen object. User dash entries are normalized from logical units to the
+`Pen` thickness-relative contract. Pattern buffers use record-relative offsets,
+cannot overlap the fixed style array or each other, and retain decoded bitmap
+ownership until the GDI object is deleted. Background mode/color, brush origin,
+and miter-limit changes invalidate only the selected resolved pen.
+
+The EMF `FILLRGN`, `PAINTRGN`, `FRAMERGN`, and `INVERTRGN` family shares the
+strict 32-byte `RGNDATAHEADER` and rectangle-union parser already used by
+`EXTSELECTCLIPRGN`. Explicit and selected solid/hatch/pattern brushes fill the
+retained region, frame erosion remains region algebra, and inversion records an
+exact destination-dependent `0x55` ROP3 texture command under a transformed
+region clip. No destination readback or CPU pixel rewrite is introduced.
+
+Legacy WMF now parses the official
+[`Region Object`](https://learn.microsoft.com/en-us/openspecs/windows_protocols/ms-wmf/28883669-449d-4723-9376-e853cc067aed)
+and variable [`Scan Object`](https://learn.microsoft.com/en-us/openspecs/windows_protocols/ms-wmf/ae8f7607-b1dc-4d58-a958-70f517c6d152)
+envelopes with exact sizes, duplicate counts, maximum point count, ordered spans,
+and bounding rectangles. `META_CREATEREGION`, `SELECTCLIPREGION`, `FILLREGION`,
+`PAINTREGION`, `FRAMEREGION`, and `INVERTREGION` reuse the same retained region,
+brush, clip, and destination-ROP paths. EMF/WMF mapper flags are validated and
+saved/restored as playback font-mapper state; the two reserved EMF identities
+are ignored as reserved records rather than reported as unsupported.
+
+Three focused gates currently cover geometric custom-dash pen command shape,
+all four EMF region drawing records, and WMF scan-region object/drawing/clip
+playback. The complete suite, allocation ceiling, and benchmark measurements are
+deliberately deferred until the implementation batch closes.
+
+The enum/switch coverage inventory now finds 165 explicitly handled records out
+of 192 enum-backed EMF/WMF record identities, leaving 27 explicit unsupported
 boundaries. A handled switch case is not a claim of complete semantics. The
-largest remaining groups are mask/plg transfers,
-region paint and flood fill, extended pens, color-management and pixel-format
-state, escape/OpenGL records, and WMF region/layout/mapper records. This count
+largest remaining groups are mask/parallelogram transfers and flood fill,
+right-to-left layout, color-management and pixel-format state, linked-font
+metadata, and escape/OpenGL/document-control records. This count
 keeps the remaining playback work visible while the public API contract stays
 at zero missing types and members.
 

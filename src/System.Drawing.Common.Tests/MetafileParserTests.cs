@@ -3682,6 +3682,106 @@ public sealed class MetafileParserTests
     }
 
     [Fact]
+    public void EmfExtendedPenRetainsGeometricStyleCapsJoinAndDashEntries()
+    {
+        const uint geometricUserStyleSquareBevel = 0x0001_1107;
+        byte[] fixture = CreateTextPlaybackEmf(
+        [
+            (EmfPlusRecordType.EmfExtCreatePen,
+                EmfExtendedPen(
+                    1,
+                    geometricUserStyleSquareBevel,
+                    4,
+                    brushStyle: 0,
+                    Color.Red,
+                    hatch: 0,
+                    [8, 4])),
+            (EmfPlusRecordType.EmfSelectObject, EmfUInt32(1)),
+            (EmfPlusRecordType.EmfMoveToEx, EmfPoint(4, 12)),
+            (EmfPlusRecordType.EmfLineTo, EmfPoint(44, 12))
+        ]);
+        using var metafile = new Metafile(new MemoryStream(fixture, writable: false));
+        var context = new DrawingContext();
+        using Graphics graphics = Graphics.FromProGpuDrawingContext(context);
+
+        graphics.DrawImage(metafile, new Rectangle(0, 0, 64, 64));
+
+        RenderCommand command = Assert.Single(
+            context.Commands,
+            static retained => retained.Type == RenderCommandType.DrawLine);
+        ProGPU.Vector.Pen pen = Assert.IsType<ProGPU.Vector.Pen>(command.Pen);
+        Assert.Equal(4f, pen.Thickness);
+        Assert.Equal(PenLineCap.Square, pen.StartLineCap);
+        Assert.Equal(PenLineCap.Square, pen.EndLineCap);
+        Assert.Equal(PenLineJoin.Bevel, pen.LineJoin);
+        double[] dashArray = Assert.IsType<double[]>(pen.DashArray);
+        Assert.Equal([2d, 1d], dashArray);
+        var brush = Assert.IsType<SolidColorBrush>(pen.Brush);
+        Assert.Equal(new Vector4(1f, 0f, 0f, 1f), brush.Color);
+    }
+
+    [Fact]
+    public void EmfRegionRecordsRetainFillFramePaintAndDestinationInvert()
+    {
+        byte[] regionData = EmfRegionData([Rectangle.FromLTRB(4, 4, 28, 28)]);
+        byte[] fixture = CreateTextPlaybackEmf(
+        [
+            (EmfPlusRecordType.EmfCreateBrushIndirect, EmfBrush(1, Color.Red)),
+            (EmfPlusRecordType.EmfSelectObject, EmfUInt32(1)),
+            (EmfPlusRecordType.EmfFillRgn,
+                EmfRegionRecord(regionData, brushIndex: 1, frameSize: null)),
+            (EmfPlusRecordType.EmfPaintRgn,
+                EmfRegionRecord(regionData, brushIndex: null, frameSize: null)),
+            (EmfPlusRecordType.EmfFrameRgn,
+                EmfRegionRecord(regionData, brushIndex: 1, frameSize: new Size(2, 3))),
+            (EmfPlusRecordType.EmfInvertRgn,
+                EmfRegionRecord(regionData, brushIndex: null, frameSize: null))
+        ]);
+        using var metafile = new Metafile(new MemoryStream(fixture, writable: false));
+        var context = new DrawingContext();
+        using Graphics graphics = Graphics.FromProGpuDrawingContext(context);
+
+        graphics.DrawImage(metafile, new Rectangle(0, 0, 64, 64));
+
+        Assert.Equal(
+            3,
+            context.Commands.Count(static command => command.Type == RenderCommandType.DrawPath));
+        RenderCommand invert = Assert.Single(
+            context.Commands,
+            static command => command.Type == RenderCommandType.DrawTexture);
+        Assert.True(invert.RasterOperation.IsEnabled);
+        Assert.Equal(0x55, invert.RasterOperation.Code);
+    }
+
+    [Fact]
+    public void WmfScanRegionSupportsObjectFillPaintFrameInvertAndClipSelection()
+    {
+        byte[] fixture = CreatePlaybackWmf(
+        [
+            (0x06FF, WmfRegion(Rectangle.FromLTRB(4, 4, 28, 28))),
+            (0x02FC, WmfBrush(Color.Blue)),
+            (0x0228, WmfWords(0, 1)),
+            (0x012D, WmfWords(1)),
+            (0x012B, WmfWords(0)),
+            (0x0429, WmfWords(0, 1, 3, 2)),
+            (0x012A, WmfWords(0)),
+            (0x012C, WmfWords(0)),
+            (0x041B, WmfWords(20, 20, 8, 8)),
+            (0, [])
+        ]);
+        using var metafile = new Metafile(new MemoryStream(fixture, writable: false));
+        var context = new DrawingContext();
+        using Graphics graphics = Graphics.FromProGpuDrawingContext(context);
+
+        graphics.DrawImage(metafile, new Rectangle(0, 0, 64, 64));
+
+        Assert.Contains(context.Commands, static command => command.Type == RenderCommandType.DrawTexture &&
+            command.RasterOperation.IsEnabled && command.RasterOperation.Code == 0x55);
+        Assert.True(context.Commands.Count(static command => command.Type == RenderCommandType.DrawPath) >= 3);
+        Assert.Contains(context.Commands, static command => command.Type == RenderCommandType.PushGeometryClip);
+    }
+
+    [Fact]
     public void EmfMalformedAndUnsupportedDibRecordsRollBackEarlierGeometry()
     {
         TestDib valid = CreateRgbDib(1, -1, 24, [0, 0, 255, 0]);
@@ -8454,6 +8554,104 @@ public sealed class MetafileParserTests
                 offset + 8,
                 mode == 2 ? mesh[2] : rectanglePadding);
         }
+        return payload;
+    }
+
+    private static byte[] EmfExtendedPen(
+        uint index,
+        uint style,
+        uint width,
+        uint brushStyle,
+        Color color,
+        uint hatch,
+        uint[] styleEntries)
+    {
+        byte[] payload = new byte[checked(44 + styleEntries.Length * 4)];
+        WriteUInt32(payload, 0, index);
+        WriteUInt32(payload, 20, style);
+        WriteUInt32(payload, 24, width);
+        WriteUInt32(payload, 28, brushStyle);
+        WriteUInt32(payload, 32, (uint)(color.R | color.G << 8 | color.B << 16));
+        WriteUInt32(payload, 36, hatch);
+        WriteUInt32(payload, 40, checked((uint)styleEntries.Length));
+        for (int entryIndex = 0; entryIndex < styleEntries.Length; entryIndex++)
+        {
+            WriteUInt32(payload, 44 + entryIndex * 4, styleEntries[entryIndex]);
+        }
+        return payload;
+    }
+
+    private static byte[] EmfRegionData(Rectangle[] rectangles)
+    {
+        const int headerSize = 32;
+        const int rectangleSize = 16;
+        byte[] data = new byte[checked(headerSize + rectangles.Length * rectangleSize)];
+        Rectangle bounds = rectangles.Length == 0
+            ? Rectangle.Empty
+            : Rectangle.FromLTRB(
+                rectangles.Min(static rectangle => rectangle.Left),
+                rectangles.Min(static rectangle => rectangle.Top),
+                rectangles.Max(static rectangle => rectangle.Right),
+                rectangles.Max(static rectangle => rectangle.Bottom));
+        WriteUInt32(data, 0, headerSize);
+        WriteUInt32(data, 4, 1);
+        WriteUInt32(data, 8, checked((uint)rectangles.Length));
+        WriteUInt32(data, 12, checked((uint)(rectangles.Length * rectangleSize)));
+        WriteInt32(data, 16, bounds.Left);
+        WriteInt32(data, 20, bounds.Top);
+        WriteInt32(data, 24, bounds.Right);
+        WriteInt32(data, 28, bounds.Bottom);
+        for (int index = 0; index < rectangles.Length; index++)
+        {
+            int offset = headerSize + index * rectangleSize;
+            WriteInt32(data, offset, rectangles[index].Left);
+            WriteInt32(data, offset + 4, rectangles[index].Top);
+            WriteInt32(data, offset + 8, rectangles[index].Right);
+            WriteInt32(data, offset + 12, rectangles[index].Bottom);
+        }
+        return data;
+    }
+
+    private static byte[] EmfRegionRecord(
+        byte[] regionData,
+        uint? brushIndex,
+        Size? frameSize)
+    {
+        int fixedPayloadSize = frameSize.HasValue ? 32 : brushIndex.HasValue ? 24 : 20;
+        byte[] payload = new byte[checked(fixedPayloadSize + regionData.Length)];
+        WriteUInt32(payload, 16, checked((uint)regionData.Length));
+        if (brushIndex.HasValue)
+        {
+            WriteUInt32(payload, 20, brushIndex.Value);
+        }
+        if (frameSize is Size size)
+        {
+            WriteInt32(payload, 24, size.Width);
+            WriteInt32(payload, 28, size.Height);
+        }
+        regionData.CopyTo(payload, fixedPayloadSize);
+        return payload;
+    }
+
+    private static byte[] WmfRegion(Rectangle rectangle)
+    {
+        const int regionHeaderSize = 22;
+        const int scanSize = 12;
+        byte[] payload = new byte[regionHeaderSize + scanSize];
+        WriteInt16(payload, 2, 6);
+        WriteUInt16(payload, 8, checked((ushort)payload.Length));
+        WriteInt16(payload, 10, 1);
+        WriteInt16(payload, 12, 2);
+        WriteInt16(payload, 14, checked((short)rectangle.Left));
+        WriteInt16(payload, 16, checked((short)rectangle.Top));
+        WriteInt16(payload, 18, checked((short)rectangle.Right));
+        WriteInt16(payload, 20, checked((short)rectangle.Bottom));
+        WriteUInt16(payload, 22, 2);
+        WriteUInt16(payload, 24, checked((ushort)rectangle.Top));
+        WriteUInt16(payload, 26, checked((ushort)rectangle.Bottom));
+        WriteUInt16(payload, 28, checked((ushort)rectangle.Left));
+        WriteUInt16(payload, 30, checked((ushort)rectangle.Right));
+        WriteUInt16(payload, 32, 2);
         return payload;
     }
 
