@@ -718,10 +718,14 @@ Portable nondegenerate rectangle geometry also implements exact
 `GetWidenedBounds` for the default stroke and same-factory solid stroke
 styles. The stroke expands in local geometry space and the caller transform
 is applied afterward, matching Direct2D ordering for nonuniform affine
-transforms. Dashed styles and degenerate rectangles continue to fail closed
-until their cap/run bounds share the retained stroke compiler. The native
-fixture compares the transformed result through a genuine system
-`ID2D1RectangleGeometry` pointer on Windows.
+transforms. An axis-preserving `ID2D1TransformedGeometry` first materializes
+its intrinsic rectangle transform, then widens by the unscaled stroke width,
+then applies the caller world transform; this avoids incorrectly scaling the
+stroke with the intrinsic geometry transform. Dashed styles, degenerate
+rectangles, and non-axis-preserving transformed rectangles continue to fail
+closed until their cap/run/offset bounds share the retained stroke compiler.
+The native fixture compares both base and transformed results through genuine
+system Direct2D pointers on Windows.
 
 WIC codec activation/decoding itself, render-target-to-bitmap copies,
 alpha-ignore/straight formats,

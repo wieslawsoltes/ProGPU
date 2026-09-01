@@ -1181,7 +1181,7 @@ int run_tests()
     }
 
     const compat::matrix_3x2_f local_transform{
-        1.0F, 0.0F, 0.0F, 1.0F, 5.0F, 7.0F};
+        2.0F, 0.0F, 0.0F, 0.5F, 5.0F, 7.0F};
     compat::transformed_geometry* raw_transformed = nullptr;
     if (factory->CreateTransformedGeometry(
             geometry_base.get(), &local_transform, &raw_transformed) !=
@@ -1206,22 +1206,24 @@ int run_tests()
     if (returned_source.get() != geometry_base.get() ||
         !approximately_equal(returned_transform.m31, 5.0F) ||
         transformed->GetBounds(&transform, &returned) != com::ok ||
-        !approximately_equal(returned.left, 22.0F) ||
-        !approximately_equal(returned.top, 23.0F) ||
-        !approximately_equal(returned.right, 30.0F) ||
-        !approximately_equal(returned.bottom, 41.0F) ||
+        !approximately_equal(returned.left, 24.0F) ||
+        !approximately_equal(returned.top, 20.0F) ||
+        !approximately_equal(returned.right, 40.0F) ||
+        !approximately_equal(returned.bottom, 29.0F) ||
         transformed->GetWidenedBounds(
             2.0F,
             nullptr,
             &transform,
             core::default_flattening_tolerance,
             &returned) != com::ok ||
-        !approximately_equal(returned.left, 20.0F) ||
-        !approximately_equal(returned.top, 20.0F) ||
-        !approximately_equal(returned.right, 32.0F) ||
-        !approximately_equal(returned.bottom, 44.0F)) {
+        !approximately_equal(returned.left, 22.0F) ||
+        !approximately_equal(returned.top, 17.0F) ||
+        !approximately_equal(returned.right, 42.0F) ||
+        !approximately_equal(returned.bottom, 32.0F)) {
         return 15;
     }
+    [[maybe_unused]] const compat::rectangle_f transformed_widened_bounds =
+        returned;
 
     compat::factory* second_raw_factory = nullptr;
     if (compat::create_factory(&second_raw_factory) != com::ok) {
@@ -5236,6 +5238,28 @@ int run_tests()
             &system_rectangle_transform,
             D2D1_DEFAULT_FLATTENING_TOLERANCE,
             &system_widened_bounds);
+    const D2D1_MATRIX_3X2_F system_local_transform = make_native_matrix(
+        2.0F, 0.0F, 0.0F, 0.5F, 5.0F, 7.0F);
+    ID2D1TransformedGeometry* system_transformed_rectangle = nullptr;
+    const HRESULT system_transformed_create_status =
+        system_factory->CreateTransformedGeometry(
+            system_group_rectangle,
+            &system_local_transform,
+            &system_transformed_rectangle);
+    D2D1_RECT_F system_transformed_widened_bounds{};
+    const HRESULT system_transformed_widened_status =
+        FAILED(system_transformed_create_status) ||
+            system_transformed_rectangle == nullptr
+        ? system_transformed_create_status
+        : system_transformed_rectangle->GetWidenedBounds(
+              2.0F,
+              nullptr,
+              &system_rectangle_transform,
+              D2D1_DEFAULT_FLATTENING_TOLERANCE,
+              &system_transformed_widened_bounds);
+    if (system_transformed_rectangle != nullptr) {
+        system_transformed_rectangle->Release();
+    }
     const HRESULT system_outline_status = system_outline_rectangle->Outline(
         nullptr,
         D2D1_DEFAULT_FLATTENING_TOLERANCE,
@@ -5251,6 +5275,19 @@ int run_tests()
             system_widened_bounds.right, widened_bounds.right) ||
         !approximately_equal(
             system_widened_bounds.bottom, widened_bounds.bottom) ||
+        FAILED(system_transformed_widened_status) ||
+        !approximately_equal(
+            system_transformed_widened_bounds.left,
+            transformed_widened_bounds.left) ||
+        !approximately_equal(
+            system_transformed_widened_bounds.top,
+            transformed_widened_bounds.top) ||
+        !approximately_equal(
+            system_transformed_widened_bounds.right,
+            transformed_widened_bounds.right) ||
+        !approximately_equal(
+            system_transformed_widened_bounds.bottom,
+            transformed_widened_bounds.bottom) ||
         FAILED(system_outline_status) ||
         raw_system_outline_sink->fill_mode !=
             raw_native_outline_sink->fill_mode ||

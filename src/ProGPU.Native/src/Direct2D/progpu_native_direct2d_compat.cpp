@@ -18,6 +18,62 @@ namespace {
 
 class portable_factory;
 
+[[nodiscard]] com::result get_rectangle_widened_bounds(
+    factory* owner,
+    const rectangle_f& rectangle,
+    float stroke_width,
+    stroke_style* style,
+    const matrix_3x2_f* world_transform,
+    float flattening_tolerance,
+    rectangle_f* bounds) noexcept
+{
+    if (bounds == nullptr) {
+        return com::pointer_error;
+    }
+    *bounds = {};
+    if (!std::isfinite(stroke_width) || stroke_width < 0.0F ||
+        !std::isfinite(flattening_tolerance) ||
+        flattening_tolerance <= 0.0F ||
+        !core::valid_transform(world_transform)) {
+        return com::invalid_argument;
+    }
+    if (style != nullptr) {
+        factory* raw_factory = nullptr;
+        style->GetFactory(&raw_factory);
+        com::pointer<factory> style_factory;
+        style_factory.attach(raw_factory);
+        if (style_factory.get() != owner) {
+            return wrong_factory;
+        }
+        if (style->GetDashStyle() != dash_style::solid) {
+            return not_implemented;
+        }
+    }
+    if (rectangle.right <= rectangle.left ||
+        rectangle.bottom <= rectangle.top) {
+        return not_implemented;
+    }
+    const double half_width = static_cast<double>(stroke_width) * 0.5;
+    const std::array<double, 4U> expanded{
+        static_cast<double>(rectangle.left) - half_width,
+        static_cast<double>(rectangle.top) - half_width,
+        static_cast<double>(rectangle.right) + half_width,
+        static_cast<double>(rectangle.bottom) + half_width};
+    constexpr double maximum =
+        static_cast<double>(std::numeric_limits<float>::max());
+    for (const double value : expanded) {
+        if (!std::isfinite(value) || std::abs(value) > maximum) {
+            return com::invalid_argument;
+        }
+    }
+    return core::rectangle_geometry({
+        static_cast<float>(expanded[0U]),
+        static_cast<float>(expanded[1U]),
+        static_cast<float>(expanded[2U]),
+        static_cast<float>(expanded[3U])})
+        .bounds(world_transform, bounds);
+}
+
 class portable_solid_color_brush final : public solid_color_brush {
 public:
     portable_solid_color_brush(
@@ -214,52 +270,14 @@ public:
         float flattening_tolerance,
         rectangle_f* bounds) const noexcept override
     {
-        if (bounds == nullptr) {
-            return com::pointer_error;
-        }
-        *bounds = {};
-        if (!std::isfinite(stroke_width) || stroke_width < 0.0F ||
-            !std::isfinite(flattening_tolerance) ||
-            flattening_tolerance <= 0.0F ||
-            !core::valid_transform(world_transform)) {
-            return com::invalid_argument;
-        }
-        if (style != nullptr) {
-            factory* raw_factory = nullptr;
-            style->GetFactory(&raw_factory);
-            com::pointer<factory> style_factory;
-            style_factory.attach(raw_factory);
-            if (style_factory.get() != owner_.get()) {
-                return wrong_factory;
-            }
-            if (style->GetDashStyle() != dash_style::solid) {
-                return not_implemented;
-            }
-        }
-        const auto& rectangle = geometry_.rectangle();
-        if (rectangle.right <= rectangle.left ||
-            rectangle.bottom <= rectangle.top) {
-            return not_implemented;
-        }
-        const double half_width = static_cast<double>(stroke_width) * 0.5;
-        const std::array<double, 4U> expanded{
-            static_cast<double>(rectangle.left) - half_width,
-            static_cast<double>(rectangle.top) - half_width,
-            static_cast<double>(rectangle.right) + half_width,
-            static_cast<double>(rectangle.bottom) + half_width};
-        constexpr double maximum =
-            static_cast<double>(std::numeric_limits<float>::max());
-        for (const double value : expanded) {
-            if (!std::isfinite(value) || std::abs(value) > maximum) {
-                return com::invalid_argument;
-            }
-        }
-        return core::rectangle_geometry({
-            static_cast<float>(expanded[0U]),
-            static_cast<float>(expanded[1U]),
-            static_cast<float>(expanded[2U]),
-            static_cast<float>(expanded[3U])})
-            .bounds(world_transform, bounds);
+        return get_rectangle_widened_bounds(
+            owner_.get(),
+            geometry_.rectangle(),
+            stroke_width,
+            style,
+            world_transform,
+            flattening_tolerance,
+            bounds);
     }
 
     com::result PROGPU_NATIVE_COM_CALL StrokeContainsPoint(
@@ -521,14 +539,40 @@ public:
         float flattening_tolerance,
         rectangle_f* bounds) const noexcept override
     {
-        matrix_3x2_f composed{};
-        const com::result status = compose(world_transform, &composed);
-        return com::failed(status)
-            ? status
-            : source_->GetWidenedBounds(
+        if (bounds == nullptr) {
+            return com::pointer_error;
+        }
+        *bounds = {};
+        const bool axis_preserving =
+            (transform_.m12 == 0.0F && transform_.m21 == 0.0F) ||
+            (transform_.m11 == 0.0F && transform_.m22 == 0.0F);
+        if (!axis_preserving) {
+            return not_implemented;
+        }
+        rectangle_geometry* raw_rectangle = nullptr;
+        const com::result query = source_->QueryInterface(
+            rectangle_geometry_interface_id,
+            reinterpret_cast<void**>(&raw_rectangle));
+        com::pointer<rectangle_geometry> rectangle;
+        rectangle.attach(raw_rectangle);
+        if (com::failed(query) || !rectangle) {
+            return com::failed(query) && query != com::no_interface
+                ? query
+                : not_implemented;
+        }
+        rectangle_f source_rectangle{};
+        rectangle->GetRect(&source_rectangle);
+        rectangle_f transformed_rectangle{};
+        const com::result bounds_result = core::rectangle_geometry(
+            source_rectangle).bounds(&transform_, &transformed_rectangle);
+        return com::failed(bounds_result)
+            ? bounds_result
+            : get_rectangle_widened_bounds(
+                  owner_.get(),
+                  transformed_rectangle,
                   stroke_width,
                   style,
-                  &composed,
+                  world_transform,
                   flattening_tolerance,
                   bounds);
     }
