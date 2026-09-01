@@ -183,6 +183,204 @@ class portable_factory;
     return com::ok;
 }
 
+[[nodiscard]] com::result widen_rectangle(
+    const rectangle_f& rectangle,
+    float stroke_width,
+    stroke_style* style,
+    const matrix_3x2_f* world_transform,
+    float flattening_tolerance,
+    simplified_geometry_sink* sink) noexcept
+{
+    if (sink == nullptr) {
+        return com::pointer_error;
+    }
+    if (!std::isfinite(stroke_width) || stroke_width < 0.0F ||
+        !std::isfinite(flattening_tolerance) ||
+        flattening_tolerance <= 0.0F ||
+        !core::valid_transform(world_transform)) {
+        return com::invalid_argument;
+    }
+    if (style != nullptr || rectangle.right <= rectangle.left ||
+        rectangle.bottom <= rectangle.top) {
+        return not_implemented;
+    }
+    if (stroke_width == 0.0F) {
+        return not_implemented;
+    }
+    const double half_width = static_cast<double>(stroke_width) * 0.5;
+    const std::array<double, 4U> outer_values{
+        static_cast<double>(rectangle.left) - half_width,
+        static_cast<double>(rectangle.top) - half_width,
+        static_cast<double>(rectangle.right) + half_width,
+        static_cast<double>(rectangle.bottom) + half_width};
+    constexpr double maximum =
+        static_cast<double>(std::numeric_limits<float>::max());
+    for (const double value : outer_values) {
+        if (!std::isfinite(value) || std::abs(value) > maximum) {
+            return com::invalid_argument;
+        }
+    }
+    std::array<point_2f, 4U> outer{};
+    const com::result outer_result = core::rectangle_geometry({
+        static_cast<float>(outer_values[0U]),
+        static_cast<float>(outer_values[1U]),
+        static_cast<float>(outer_values[2U]),
+        static_cast<float>(outer_values[3U])})
+        .vertices(world_transform, outer);
+    if (com::failed(outer_result)) {
+        return outer_result;
+    }
+    sink->SetFillMode(fill_mode::alternate);
+    sink->SetSegmentFlags(path_segment::force_unstroked);
+    sink->BeginFigure(outer[0U], figure_begin::filled);
+    sink->AddLines(outer.data() + 1U, 3U);
+    sink->EndFigure(figure_end::closed);
+
+    const double inner_left =
+        static_cast<double>(rectangle.left) + half_width;
+    const double inner_top =
+        static_cast<double>(rectangle.top) + half_width;
+    const double inner_right =
+        static_cast<double>(rectangle.right) - half_width;
+    const double inner_bottom =
+        static_cast<double>(rectangle.bottom) - half_width;
+    if (inner_right <= inner_left || inner_bottom <= inner_top) {
+        return com::ok;
+    }
+    std::array<point_2f, 4U> inner{};
+    const com::result inner_result = core::rectangle_geometry({
+        static_cast<float>(inner_left),
+        static_cast<float>(inner_top),
+        static_cast<float>(inner_right),
+        static_cast<float>(inner_bottom)})
+        .vertices(world_transform, inner);
+    if (com::failed(inner_result)) {
+        return inner_result;
+    }
+    sink->BeginFigure(inner[0U], figure_begin::filled);
+    sink->AddLines(inner.data() + 1U, 3U);
+    sink->EndFigure(figure_end::closed);
+    return com::ok;
+}
+
+[[nodiscard]] com::result widen_transformed_rectangle(
+    const rectangle_f& rectangle,
+    float stroke_width,
+    stroke_style* style,
+    const matrix_3x2_f* world_transform,
+    float flattening_tolerance,
+    simplified_geometry_sink* sink) noexcept
+{
+    if (sink == nullptr) {
+        return com::pointer_error;
+    }
+    if (!std::isfinite(stroke_width) || stroke_width <= 0.0F ||
+        !std::isfinite(flattening_tolerance) ||
+        flattening_tolerance <= 0.0F ||
+        !core::valid_transform(world_transform)) {
+        return stroke_width == 0.0F
+            ? not_implemented
+            : com::invalid_argument;
+    }
+    if (style != nullptr || rectangle.right <= rectangle.left ||
+        rectangle.bottom <= rectangle.top) {
+        return not_implemented;
+    }
+    const double half_width = static_cast<double>(stroke_width) * 0.5;
+    const double outer_left =
+        static_cast<double>(rectangle.left) - half_width;
+    const double outer_top =
+        static_cast<double>(rectangle.top) - half_width;
+    const double outer_right =
+        static_cast<double>(rectangle.right) + half_width;
+    const double outer_bottom =
+        static_cast<double>(rectangle.bottom) + half_width;
+    const double inner_left =
+        static_cast<double>(rectangle.left) + half_width;
+    const double inner_top =
+        static_cast<double>(rectangle.top) + half_width;
+    const double inner_right =
+        static_cast<double>(rectangle.right) - half_width;
+    const double inner_bottom =
+        static_cast<double>(rectangle.bottom) - half_width;
+    constexpr double maximum =
+        static_cast<double>(std::numeric_limits<float>::max());
+    const std::array<double, 8U> bounds{
+        outer_left,
+        outer_top,
+        outer_right,
+        outer_bottom,
+        inner_left,
+        inner_top,
+        inner_right,
+        inner_bottom};
+    for (const double value : bounds) {
+        if (!std::isfinite(value) || std::abs(value) > maximum) {
+            return com::invalid_argument;
+        }
+    }
+    if (inner_right <= inner_left || inner_bottom <= inner_top) {
+        return not_implemented;
+    }
+
+    const double left = static_cast<double>(rectangle.left);
+    const double top = static_cast<double>(rectangle.top);
+    const double right = static_cast<double>(rectangle.right);
+    const double bottom = static_cast<double>(rectangle.bottom);
+    std::array<point_2f, 27U> points{{
+        {static_cast<float>(left), static_cast<float>(inner_top)},
+        {static_cast<float>(left), static_cast<float>(outer_top)},
+        {static_cast<float>(right), static_cast<float>(outer_top)},
+        {static_cast<float>(outer_right), static_cast<float>(outer_top)},
+        {static_cast<float>(outer_right), static_cast<float>(top)},
+        {static_cast<float>(outer_right), static_cast<float>(bottom)},
+        {static_cast<float>(outer_right), static_cast<float>(outer_bottom)},
+        {static_cast<float>(right), static_cast<float>(outer_bottom)},
+        {static_cast<float>(left), static_cast<float>(outer_bottom)},
+        {static_cast<float>(outer_left), static_cast<float>(outer_bottom)},
+        {static_cast<float>(outer_left), static_cast<float>(bottom)},
+        {static_cast<float>(outer_left), static_cast<float>(top)},
+        {static_cast<float>(outer_left), static_cast<float>(outer_top)},
+        {static_cast<float>(left), static_cast<float>(outer_top)},
+        {static_cast<float>(left), static_cast<float>(inner_top)},
+        {static_cast<float>(left), static_cast<float>(top)},
+        {static_cast<float>(inner_left), static_cast<float>(top)},
+        {static_cast<float>(inner_left), static_cast<float>(bottom)},
+        {static_cast<float>(left), static_cast<float>(bottom)},
+        {static_cast<float>(left), static_cast<float>(inner_bottom)},
+        {static_cast<float>(right), static_cast<float>(inner_bottom)},
+        {static_cast<float>(right), static_cast<float>(bottom)},
+        {static_cast<float>(inner_right), static_cast<float>(bottom)},
+        {static_cast<float>(inner_right), static_cast<float>(top)},
+        {static_cast<float>(right), static_cast<float>(top)},
+        {static_cast<float>(right), static_cast<float>(inner_top)},
+        {static_cast<float>(left), static_cast<float>(inner_top)},
+    }};
+    if (world_transform != nullptr) {
+        for (point_2f& point : points) {
+            const double x =
+                static_cast<double>(point.x) * world_transform->m11 +
+                static_cast<double>(point.y) * world_transform->m21 +
+                world_transform->m31;
+            const double y =
+                static_cast<double>(point.x) * world_transform->m12 +
+                static_cast<double>(point.y) * world_transform->m22 +
+                world_transform->m32;
+            if (!std::isfinite(x) || !std::isfinite(y) ||
+                std::abs(x) > maximum || std::abs(y) > maximum) {
+                return com::invalid_argument;
+            }
+            point = {static_cast<float>(x), static_cast<float>(y)};
+        }
+    }
+    sink->SetFillMode(fill_mode::winding);
+    sink->SetSegmentFlags(path_segment::force_unstroked);
+    sink->BeginFigure(points[0U], figure_begin::filled);
+    sink->AddLines(points.data() + 1U, 26U);
+    sink->EndFigure(figure_end::open);
+    return com::ok;
+}
+
 class portable_solid_color_brush final : public solid_color_brush {
 public:
     portable_solid_color_brush(
@@ -554,13 +752,19 @@ public:
     }
 
     com::result PROGPU_NATIVE_COM_CALL Widen(
-        float,
-        stroke_style*,
-        const matrix_3x2_f*,
-        float,
-        simplified_geometry_sink*) const noexcept override
+        float stroke_width,
+        stroke_style* style,
+        const matrix_3x2_f* world_transform,
+        float flattening_tolerance,
+        simplified_geometry_sink* sink) const noexcept override
     {
-        return not_implemented;
+        return widen_rectangle(
+            geometry_.rectangle(),
+            stroke_width,
+            style,
+            world_transform,
+            flattening_tolerance,
+            sink);
     }
 
     void PROGPU_NATIVE_COM_CALL GetRect(rectangle_f* rectangle) const
@@ -655,30 +859,11 @@ public:
             return com::pointer_error;
         }
         *bounds = {};
-        const bool axis_preserving =
-            (transform_.m12 == 0.0F && transform_.m21 == 0.0F) ||
-            (transform_.m11 == 0.0F && transform_.m22 == 0.0F);
-        if (!axis_preserving) {
-            return not_implemented;
-        }
-        rectangle_geometry* raw_rectangle = nullptr;
-        const com::result query = source_->QueryInterface(
-            rectangle_geometry_interface_id,
-            reinterpret_cast<void**>(&raw_rectangle));
-        com::pointer<rectangle_geometry> rectangle;
-        rectangle.attach(raw_rectangle);
-        if (com::failed(query) || !rectangle) {
-            return com::failed(query) && query != com::no_interface
-                ? query
-                : not_implemented;
-        }
-        rectangle_f source_rectangle{};
-        rectangle->GetRect(&source_rectangle);
         rectangle_f transformed_rectangle{};
-        const com::result bounds_result = core::rectangle_geometry(
-            source_rectangle).bounds(&transform_, &transformed_rectangle);
-        return com::failed(bounds_result)
-            ? bounds_result
+        const com::result rectangle_result =
+            get_axis_preserving_rectangle(&transformed_rectangle);
+        return com::failed(rectangle_result)
+            ? rectangle_result
             : get_rectangle_widened_bounds(
                   owner_.get(),
                   transformed_rectangle,
@@ -701,30 +886,11 @@ public:
             return com::pointer_error;
         }
         *contains = 0;
-        const bool axis_preserving =
-            (transform_.m12 == 0.0F && transform_.m21 == 0.0F) ||
-            (transform_.m11 == 0.0F && transform_.m22 == 0.0F);
-        if (!axis_preserving) {
-            return not_implemented;
-        }
-        rectangle_geometry* raw_rectangle = nullptr;
-        const com::result query = source_->QueryInterface(
-            rectangle_geometry_interface_id,
-            reinterpret_cast<void**>(&raw_rectangle));
-        com::pointer<rectangle_geometry> rectangle;
-        rectangle.attach(raw_rectangle);
-        if (com::failed(query) || !rectangle) {
-            return com::failed(query) && query != com::no_interface
-                ? query
-                : not_implemented;
-        }
-        rectangle_f source_rectangle{};
-        rectangle->GetRect(&source_rectangle);
         rectangle_f transformed_rectangle{};
-        const com::result bounds_result = core::rectangle_geometry(
-            source_rectangle).bounds(&transform_, &transformed_rectangle);
-        return com::failed(bounds_result)
-            ? bounds_result
+        const com::result rectangle_result =
+            get_axis_preserving_rectangle(&transformed_rectangle);
+        return com::failed(rectangle_result)
+            ? rectangle_result
             : rectangle_stroke_contains_point(
                   transformed_rectangle,
                   point,
@@ -862,14 +1028,20 @@ public:
         float flattening_tolerance,
         simplified_geometry_sink* sink) const noexcept override
     {
-        matrix_3x2_f composed{};
-        const com::result status = compose(world_transform, &composed);
-        return com::failed(status)
-            ? status
-            : source_->Widen(
+        if (transform_.m12 != 0.0F || transform_.m21 != 0.0F ||
+            transform_.m11 <= 0.0F || transform_.m22 <= 0.0F) {
+            return not_implemented;
+        }
+        rectangle_f transformed_rectangle{};
+        const com::result rectangle_result =
+            get_axis_preserving_rectangle(&transformed_rectangle);
+        return com::failed(rectangle_result)
+            ? rectangle_result
+            : widen_transformed_rectangle(
+                  transformed_rectangle,
                   stroke_width,
                   style,
-                  &composed,
+                  world_transform,
                   flattening_tolerance,
                   sink);
     }
@@ -895,6 +1067,36 @@ public:
     }
 
 private:
+    [[nodiscard]] com::result get_axis_preserving_rectangle(
+        rectangle_f* transformed_rectangle) const noexcept
+    {
+        if (transformed_rectangle == nullptr) {
+            return com::pointer_error;
+        }
+        *transformed_rectangle = {};
+        const bool axis_preserving =
+            (transform_.m12 == 0.0F && transform_.m21 == 0.0F) ||
+            (transform_.m11 == 0.0F && transform_.m22 == 0.0F);
+        if (!axis_preserving) {
+            return not_implemented;
+        }
+        rectangle_geometry* raw_rectangle = nullptr;
+        const com::result query = source_->QueryInterface(
+            rectangle_geometry_interface_id,
+            reinterpret_cast<void**>(&raw_rectangle));
+        com::pointer<rectangle_geometry> rectangle;
+        rectangle.attach(raw_rectangle);
+        if (com::failed(query) || !rectangle) {
+            return com::failed(query) && query != com::no_interface
+                ? query
+                : not_implemented;
+        }
+        rectangle_f source_rectangle{};
+        rectangle->GetRect(&source_rectangle);
+        return core::rectangle_geometry(source_rectangle).bounds(
+            &transform_, transformed_rectangle);
+    }
+
     [[nodiscard]] com::result compose(
         const matrix_3x2_f* world_transform,
         matrix_3x2_f* composed) const noexcept
