@@ -977,6 +977,8 @@ add_library(progpu_native_direct2d_core STATIC
     include/progpu_native_direct2d_core.hpp
     src/Direct2D/progpu_native_direct2d_compat.cpp
     src/Direct2D/progpu_native_direct2d_core.cpp
+    src/Direct2D/progpu_native_direct2d_drawing_state.cpp
+    src/Direct2D/progpu_native_direct2d_drawing_state.hpp
     src/Direct2D/progpu_native_direct2d_ellipse.cpp
     src/Direct2D/progpu_native_direct2d_ellipse.hpp
     src/Direct2D/progpu_native_direct2d_geometry_group.cpp

@@ -83,6 +83,11 @@ inline constexpr com::guid stroke_style_interface_id{
     0x12E2U,
     0x11DCU,
     {0x9FU, 0xEDU, 0x00U, 0x11U, 0x43U, 0xA0U, 0x55U, 0xF9U}};
+inline constexpr com::guid drawing_state_block_interface_id{
+    0x28506E39U,
+    0xEBF6U,
+    0x46A1U,
+    {0xBBU, 0x47U, 0xFDU, 0x85U, 0x56U, 0x5AU, 0xB9U, 0x57U}};
 inline constexpr com::guid factory_interface_id{
     0x06152247U,
     0x6F50U,
@@ -130,12 +135,31 @@ enum class combine_mode : std::uint32_t {
     exclude = 3U
 };
 
+enum class antialias_mode : std::uint32_t {
+    per_primitive = 0U,
+    aliased = 1U
+};
+
+enum class text_antialias_mode : std::uint32_t {
+    default_value = 0U,
+    cleartype = 1U,
+    grayscale = 2U,
+    aliased = 3U
+};
+
+struct drawing_state_description final {
+    antialias_mode antialias;
+    text_antialias_mode text_antialias;
+    std::uint64_t tag1;
+    std::uint64_t tag2;
+    matrix_3x2_f transform;
+};
+
 struct quadratic_bezier_segment final {
     point_2f point1;
     point_2f point2;
 };
 
-struct drawing_state_description;
 struct render_target_properties;
 struct hwnd_render_target_properties;
 
@@ -316,6 +340,17 @@ struct stroke_style : resource {
     virtual void PROGPU_NATIVE_COM_CALL GetDashes(
         float* dashes,
         std::uint32_t dash_count) const noexcept = 0;
+};
+
+struct drawing_state_block : resource {
+    virtual void PROGPU_NATIVE_COM_CALL GetDescription(
+        drawing_state_description* description) const noexcept = 0;
+    virtual void PROGPU_NATIVE_COM_CALL SetDescription(
+        const drawing_state_description* description) noexcept = 0;
+    virtual void PROGPU_NATIVE_COM_CALL SetTextRenderingParams(
+        com::unknown* parameters) noexcept = 0;
+    virtual void PROGPU_NATIVE_COM_CALL GetTextRenderingParams(
+        com::unknown** parameters) const noexcept = 0;
 };
 
 struct path_geometry : geometry {
