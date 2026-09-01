@@ -1,4 +1,5 @@
 #include "progpu_native_direct2d_compat.hpp"
+#include "progpu_native_direct2d_scene_submission.hpp"
 #include "progpu_native.h"
 
 #if defined(_WIN32)
@@ -247,6 +248,8 @@ static_assert(sizeof(compat::pixel_format) == 8U);
 static_assert(sizeof(compat::size_u) == 8U);
 static_assert(sizeof(compat::scene_render_target_properties) == 32U);
 static_assert(sizeof(compat::scene_render_target_summary) == 40U);
+static_assert(sizeof(compat::scene_submission_diagnostics) == 32U);
+static_assert(sizeof(compat::scene_render_options) == 16U);
 
 int main()
 {

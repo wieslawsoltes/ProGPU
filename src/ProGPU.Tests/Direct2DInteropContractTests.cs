@@ -192,6 +192,22 @@ public sealed class Direct2DInteropContractTests
             "src",
             "Direct2D",
             "progpu_native_direct2d_drawing_state.cpp");
+        string renderTargetSource = ReadRepoFile(
+            "src",
+            "ProGPU.Native",
+            "src",
+            "Direct2D",
+            "progpu_native_direct2d_render_target.cpp");
+        string submissionHeader = ReadRepoFile(
+            "src",
+            "ProGPU.Native",
+            "include",
+            "progpu_native_direct2d_scene_submission.hpp");
+        string webSceneTest = ReadRepoFile(
+            "src",
+            "ProGPU.Native",
+            "tests",
+            "progpu_native_webscene_provider_tests.cpp");
         string provider = ReadRepoFile(
             "src",
             "ProGPU.Native",
@@ -220,6 +236,8 @@ public sealed class Direct2DInteropContractTests
         Assert.Contains("struct geometry_group : geometry", header, StringComparison.Ordinal);
         Assert.Contains("struct stroke_style : resource", header, StringComparison.Ordinal);
         Assert.Contains("struct drawing_state_block : resource", header, StringComparison.Ordinal);
+        Assert.Contains("struct render_target : resource", header, StringComparison.Ordinal);
+        Assert.Contains("struct scene_render_target_native : com::unknown", header, StringComparison.Ordinal);
         Assert.Contains("struct geometry_sink : simplified_geometry_sink", header, StringComparison.Ordinal);
         Assert.Contains("class portable_factory final", source, StringComparison.Ordinal);
         Assert.Contains("class portable_transformed_geometry final", source, StringComparison.Ordinal);
@@ -231,6 +249,13 @@ public sealed class Direct2DInteropContractTests
         Assert.Contains("class portable_stroke_style final", strokeStyleSource, StringComparison.Ordinal);
         Assert.Contains("core::valid_stroke_style", strokeStyleSource, StringComparison.Ordinal);
         Assert.Contains("class portable_drawing_state_block final", drawingStateSource, StringComparison.Ordinal);
+        Assert.Contains("class portable_scene_render_target final", renderTargetSource, StringComparison.Ordinal);
+        Assert.Contains("builder_.draw_analytic", renderTargetSource, StringComparison.Ordinal);
+        Assert.Contains("builder_.draw_geometry", renderTargetSource, StringComparison.Ordinal);
+        Assert.Contains("render_scene_target(", submissionHeader, StringComparison.Ordinal);
+        Assert.Contains("progpu_native_engine_update_scene", submissionHeader, StringComparison.Ordinal);
+        Assert.Contains("progpu_native_engine_render_scene", submissionHeader, StringComparison.Ordinal);
+        Assert.Contains("verify_direct2d_scene", webSceneTest, StringComparison.Ordinal);
         Assert.Contains("path_state::fresh", pathSource, StringComparison.Ordinal);
         Assert.Contains("path_state::closed", pathSource, StringComparison.Ordinal);
         Assert.Contains("core::arc_to_cubics", pathSource, StringComparison.Ordinal);
@@ -243,6 +268,7 @@ public sealed class Direct2DInteropContractTests
         Assert.Contains("return not_implemented;", source, StringComparison.Ordinal);
         Assert.Contains("progpu_native_direct2d_compat_tests", cmake, StringComparison.Ordinal);
         Assert.Contains("include/progpu_native_direct2d_compat.hpp", cmake, StringComparison.Ordinal);
+        Assert.Contains("include/progpu_native_direct2d_scene_submission.hpp", cmake, StringComparison.Ordinal);
         Assert.Contains("reinterpret_cast<ID2D1Factory*>", nativeTest, StringComparison.Ordinal);
         Assert.Contains("ID2D1TransformedGeometry*", nativeTest, StringComparison.Ordinal);
         Assert.Contains("ID2D1PathGeometry*", nativeTest, StringComparison.Ordinal);
@@ -251,6 +277,7 @@ public sealed class Direct2DInteropContractTests
         Assert.Contains("ID2D1GeometryGroup*", nativeTest, StringComparison.Ordinal);
         Assert.Contains("ID2D1StrokeStyle*", nativeTest, StringComparison.Ordinal);
         Assert.Contains("ID2D1DrawingStateBlock*", nativeTest, StringComparison.Ordinal);
+        Assert.Contains("ID2D1RenderTarget*", nativeTest, StringComparison.Ordinal);
         Assert.Contains("ID2D1GeometrySink*", nativeTest, StringComparison.Ordinal);
         Assert.Contains("native_path->Stream", nativeTest, StringComparison.Ordinal);
         Assert.Contains("factory.Reset();", nativeTest, StringComparison.Ordinal);
