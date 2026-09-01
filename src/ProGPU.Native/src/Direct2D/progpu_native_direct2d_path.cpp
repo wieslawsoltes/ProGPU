@@ -820,6 +820,212 @@ struct polygon_stroke_edges final {
     return !(negative && positive);
 }
 
+[[nodiscard]] com::result collect_default_miter_stroke_points(
+    std::span<const point_2f> polygon,
+    float half_width,
+    std::vector<point_2f>& points) noexcept
+{
+    try {
+        points.clear();
+        points.reserve(polygon.size() * 6U);
+        if (half_width == 0.0F) {
+            points.assign(polygon.begin(), polygon.end());
+            return com::ok;
+        }
+        const double half_width_double = half_width;
+        constexpr double default_miter_limit = 10.0;
+        for (std::size_t index = 0U; index < polygon.size(); ++index) {
+            const point_2f start = polygon[index];
+            const point_2f end =
+                polygon[(index + 1U) % polygon.size()];
+            const double delta_x = static_cast<double>(end.x) - start.x;
+            const double delta_y = static_cast<double>(end.y) - start.y;
+            const double length = std::hypot(delta_x, delta_y);
+            if (length == 0.0) {
+                return not_implemented;
+            }
+            const double normal_x = -delta_y / length * half_width_double;
+            const double normal_y = delta_x / length * half_width_double;
+            points.push_back({
+                static_cast<float>(start.x + normal_x),
+                static_cast<float>(start.y + normal_y)});
+            points.push_back({
+                static_cast<float>(start.x - normal_x),
+                static_cast<float>(start.y - normal_y)});
+            points.push_back({
+                static_cast<float>(end.x + normal_x),
+                static_cast<float>(end.y + normal_y)});
+            points.push_back({
+                static_cast<float>(end.x - normal_x),
+                static_cast<float>(end.y - normal_y)});
+        }
+        for (std::size_t index = 0U; index < polygon.size(); ++index) {
+            const point_2f previous = polygon[
+                (index + polygon.size() - 1U) % polygon.size()];
+            const point_2f vertex = polygon[index];
+            const point_2f next =
+                polygon[(index + 1U) % polygon.size()];
+            const double incoming_x =
+                static_cast<double>(vertex.x) - previous.x;
+            const double incoming_y =
+                static_cast<double>(vertex.y) - previous.y;
+            const double outgoing_x =
+                static_cast<double>(next.x) - vertex.x;
+            const double outgoing_y =
+                static_cast<double>(next.y) - vertex.y;
+            const double incoming_length =
+                std::hypot(incoming_x, incoming_y);
+            const double outgoing_length =
+                std::hypot(outgoing_x, outgoing_y);
+            if (incoming_length == 0.0 || outgoing_length == 0.0) {
+                return not_implemented;
+            }
+            const double incoming_unit_x = incoming_x / incoming_length;
+            const double incoming_unit_y = incoming_y / incoming_length;
+            const double outgoing_unit_x = outgoing_x / outgoing_length;
+            const double outgoing_unit_y = outgoing_y / outgoing_length;
+            const double denominator =
+                incoming_unit_x * outgoing_unit_y -
+                incoming_unit_y * outgoing_unit_x;
+            if (denominator == 0.0) {
+                continue;
+            }
+            for (const double side : {-1.0, 1.0}) {
+                const point_2f incoming_offset{
+                    static_cast<float>(
+                        vertex.x - incoming_unit_y *
+                            half_width_double * side),
+                    static_cast<float>(
+                        vertex.y + incoming_unit_x *
+                            half_width_double * side)};
+                const point_2f outgoing_offset{
+                    static_cast<float>(
+                        vertex.x - outgoing_unit_y *
+                            half_width_double * side),
+                    static_cast<float>(
+                        vertex.y + outgoing_unit_x *
+                            half_width_double * side)};
+                const double offset_x =
+                    static_cast<double>(outgoing_offset.x) -
+                    incoming_offset.x;
+                const double offset_y =
+                    static_cast<double>(outgoing_offset.y) -
+                    incoming_offset.y;
+                const double parameter =
+                    (offset_x * outgoing_unit_y -
+                        offset_y * outgoing_unit_x) /
+                    denominator;
+                const point_2f miter{
+                    static_cast<float>(
+                        incoming_offset.x + incoming_unit_x * parameter),
+                    static_cast<float>(
+                        incoming_offset.y + incoming_unit_y * parameter)};
+                const double miter_length = std::hypot(
+                    static_cast<double>(miter.x) - vertex.x,
+                    static_cast<double>(miter.y) - vertex.y);
+                if (miter_length <=
+                    default_miter_limit * half_width_double) {
+                    points.push_back(miter);
+                }
+            }
+        }
+        return com::ok;
+    } catch (const std::bad_alloc&) {
+        return com::out_of_memory;
+    } catch (...) {
+        return failure;
+    }
+}
+
+[[nodiscard]] com::result transformed_point_bounds(
+    std::span<const point_2f> points,
+    const matrix_3x2_f* transform,
+    rectangle_f& bounds) noexcept
+{
+    if (points.empty()) {
+        bounds = {};
+        return com::ok;
+    }
+    const matrix_3x2_f identity{
+        1.0F, 0.0F, 0.0F, 1.0F, 0.0F, 0.0F};
+    const matrix_3x2_f& matrix = transform == nullptr ? identity : *transform;
+    float minimum_x = std::numeric_limits<float>::infinity();
+    float minimum_y = std::numeric_limits<float>::infinity();
+    float maximum_x = -std::numeric_limits<float>::infinity();
+    float maximum_y = -std::numeric_limits<float>::infinity();
+    std::size_t index = 0U;
+#if defined(PROGPU_NATIVE_DIRECT2D_PATH_INTRINSICS_NEON)
+    static_assert(sizeof(point_2f) == sizeof(float) * 2U);
+    for (; index + 4U <= points.size(); index += 4U) {
+        const float32x4x2_t source = vld2q_f32(
+            reinterpret_cast<const float*>(points.data() + index));
+        const float32x4_t x = vaddq_f32(
+            vaddq_f32(
+                vmulq_n_f32(source.val[0], matrix.m11),
+                vmulq_n_f32(source.val[1], matrix.m21)),
+            vdupq_n_f32(matrix.m31));
+        const float32x4_t y = vaddq_f32(
+            vaddq_f32(
+                vmulq_n_f32(source.val[0], matrix.m12),
+                vmulq_n_f32(source.val[1], matrix.m22)),
+            vdupq_n_f32(matrix.m32));
+        minimum_x = std::min(minimum_x, vminvq_f32(x));
+        minimum_y = std::min(minimum_y, vminvq_f32(y));
+        maximum_x = std::max(maximum_x, vmaxvq_f32(x));
+        maximum_y = std::max(maximum_y, vmaxvq_f32(y));
+    }
+#elif defined(PROGPU_NATIVE_DIRECT2D_PATH_INTRINSICS_SSE2)
+    static_assert(sizeof(point_2f) == sizeof(float) * 2U);
+    alignas(16) float transformed_x[4U]{};
+    alignas(16) float transformed_y[4U]{};
+    for (; index + 4U <= points.size(); index += 4U) {
+        const float* source =
+            reinterpret_cast<const float*>(points.data() + index);
+        const __m128 first = _mm_loadu_ps(source);
+        const __m128 second = _mm_loadu_ps(source + 4U);
+        const __m128 source_x =
+            _mm_shuffle_ps(first, second, _MM_SHUFFLE(2, 0, 2, 0));
+        const __m128 source_y =
+            _mm_shuffle_ps(first, second, _MM_SHUFFLE(3, 1, 3, 1));
+        const __m128 x = _mm_add_ps(
+            _mm_add_ps(
+                _mm_mul_ps(source_x, _mm_set1_ps(matrix.m11)),
+                _mm_mul_ps(source_y, _mm_set1_ps(matrix.m21))),
+            _mm_set1_ps(matrix.m31));
+        const __m128 y = _mm_add_ps(
+            _mm_add_ps(
+                _mm_mul_ps(source_x, _mm_set1_ps(matrix.m12)),
+                _mm_mul_ps(source_y, _mm_set1_ps(matrix.m22))),
+            _mm_set1_ps(matrix.m32));
+        _mm_store_ps(transformed_x, x);
+        _mm_store_ps(transformed_y, y);
+        for (std::size_t lane = 0U; lane < 4U; ++lane) {
+            minimum_x = std::min(minimum_x, transformed_x[lane]);
+            minimum_y = std::min(minimum_y, transformed_y[lane]);
+            maximum_x = std::max(maximum_x, transformed_x[lane]);
+            maximum_y = std::max(maximum_y, transformed_y[lane]);
+        }
+    }
+#endif
+    for (; index < points.size(); ++index) {
+        point_2f transformed{};
+        if (com::failed(transform_point(
+                points[index], &matrix, &transformed))) {
+            return com::invalid_argument;
+        }
+        minimum_x = std::min(minimum_x, transformed.x);
+        minimum_y = std::min(minimum_y, transformed.y);
+        maximum_x = std::max(maximum_x, transformed.x);
+        maximum_y = std::max(maximum_y, transformed.y);
+    }
+    if (!std::isfinite(minimum_x) || !std::isfinite(minimum_y) ||
+        !std::isfinite(maximum_x) || !std::isfinite(maximum_y)) {
+        return com::invalid_argument;
+    }
+    bounds = {minimum_x, minimum_y, maximum_x, maximum_y};
+    return com::ok;
+}
+
 [[nodiscard]] polygon_edge_bounds
 make_polygon_edge_bounds(std::span<const point_2f> polygon) {
   polygon_edge_bounds result{};
@@ -1631,17 +1837,79 @@ public:
     }
 
     com::result PROGPU_NATIVE_COM_CALL GetWidenedBounds(
-        float,
-        stroke_style*,
-        const matrix_3x2_f*,
-        float,
+        float stroke_width,
+        stroke_style* style,
+        const matrix_3x2_f* world_transform,
+        float flattening_tolerance,
         rectangle_f* bounds) const noexcept override
     {
         if (bounds == nullptr) {
             return com::pointer_error;
         }
         *bounds = {};
-        return not_implemented;
+        if (!closed()) {
+            return wrong_state;
+        }
+        if (!std::isfinite(stroke_width) || stroke_width < 0.0F ||
+            !valid_tolerance(flattening_tolerance) ||
+            !core::valid_transform(world_transform)) {
+            return com::invalid_argument;
+        }
+        if (style != nullptr) {
+            factory* raw_style_factory = nullptr;
+            style->GetFactory(&raw_style_factory);
+            com::pointer<factory> style_factory;
+            style_factory.attach(raw_style_factory);
+            if (style_factory.get() != owner_.get()) {
+                return wrong_factory;
+            }
+            return not_implemented;
+        }
+        if (data_->figures.size() != 1U ||
+            data_->figures.front().end != figure_end::closed) {
+            return not_implemented;
+        }
+        try {
+            std::vector<flat_edge> edges;
+            const com::result edge_status = collect_flat_edges(
+                nullptr, flattening_tolerance, true, edges);
+            if (com::failed(edge_status)) {
+                return edge_status;
+            }
+            std::vector<point_2f> polygon;
+            for (const auto& edge : edges) {
+                if (edge.figure_index != 0U ||
+                    edge.flags != path_segment::none ||
+                    same_point(edge.start, edge.end)) {
+                    if (edge.flags != path_segment::none) {
+                        return not_implemented;
+                    }
+                    continue;
+                }
+                if (polygon.empty()) {
+                    polygon.push_back(edge.start);
+                } else if (!same_point(polygon.back(), edge.start)) {
+                    return not_implemented;
+                }
+                polygon.push_back(edge.end);
+            }
+            if (!normalize_simple_polygon(polygon)) {
+                return not_implemented;
+            }
+            std::vector<point_2f> widened_points;
+            const com::result widen_status =
+                collect_default_miter_stroke_points(
+                    polygon, stroke_width * 0.5F, widened_points);
+            if (com::failed(widen_status)) {
+                return widen_status;
+            }
+            return transformed_point_bounds(
+                widened_points, world_transform, *bounds);
+        } catch (const std::bad_alloc&) {
+            return com::out_of_memory;
+        } catch (...) {
+            return failure;
+        }
     }
 
     com::result PROGPU_NATIVE_COM_CALL StrokeContainsPoint(

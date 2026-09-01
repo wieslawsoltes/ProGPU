@@ -2349,6 +2349,40 @@ int run_tests()
       zero_width_edge != 0 || zero_width_interior != 0) {
     return 334;
   }
+  compat::rectangle_f path_widened_bounds{};
+  compat::rectangle_f transformed_path_widened_bounds{};
+  compat::rectangle_f zero_path_widened_bounds{};
+  compat::rectangle_f concave_path_widened_bounds{};
+  if (query_path->GetWidenedBounds(
+          2.0F, nullptr, nullptr, core::default_flattening_tolerance,
+          &path_widened_bounds) != com::ok ||
+      query_path->GetWidenedBounds(
+          2.0F, nullptr, &transform, core::default_flattening_tolerance,
+          &transformed_path_widened_bounds) != com::ok ||
+      query_path->GetWidenedBounds(
+          0.0F, nullptr, nullptr, core::default_flattening_tolerance,
+          &zero_path_widened_bounds) != com::ok ||
+      boolean_path->GetWidenedBounds(
+          2.0F, nullptr, nullptr, core::default_flattening_tolerance,
+          &concave_path_widened_bounds) != com::ok ||
+      !approximately_equal(path_widened_bounds.left, 0.0F) ||
+      !approximately_equal(path_widened_bounds.top, 1.0F) ||
+      !approximately_equal(path_widened_bounds.right, 6.0F) ||
+      !approximately_equal(path_widened_bounds.bottom, 9.0F) ||
+      !approximately_equal(transformed_path_widened_bounds.left, 10.0F) ||
+      !approximately_equal(transformed_path_widened_bounds.top, -1.0F) ||
+      !approximately_equal(transformed_path_widened_bounds.right, 22.0F) ||
+      !approximately_equal(transformed_path_widened_bounds.bottom, 23.0F) ||
+      !approximately_equal(zero_path_widened_bounds.left, 1.0F) ||
+      !approximately_equal(zero_path_widened_bounds.top, 2.0F) ||
+      !approximately_equal(zero_path_widened_bounds.right, 5.0F) ||
+      !approximately_equal(zero_path_widened_bounds.bottom, 8.0F) ||
+      !approximately_equal(concave_path_widened_bounds.left, 2.0F) ||
+      !approximately_equal(concave_path_widened_bounds.top, 0.0F) ||
+      !approximately_equal(concave_path_widened_bounds.right, 8.0F) ||
+      !approximately_equal(concave_path_widened_bounds.bottom, 10.0F)) {
+    return 342;
+  }
   const std::array<path_stroke_case, 4U> concave_path_stroke_cases{{
       {{4.9F, 5.9F}, nullptr, true},
       {{5.5F, 6.5F}, nullptr, false},
@@ -6261,6 +6295,73 @@ int run_tests()
             FAILED(system_zero_interior_status)
         ? 339
         : system_zero_width_edge != FALSE ? 340 : 341;
+  }
+  D2D1_RECT_F system_path_widened_bounds{};
+  D2D1_RECT_F system_transformed_path_widened_bounds{};
+  D2D1_RECT_F system_zero_path_widened_bounds{};
+  D2D1_RECT_F system_concave_path_widened_bounds{};
+  if (FAILED(system_query_boolean_path->GetWidenedBounds(
+          2.0F, nullptr, nullptr, D2D1_DEFAULT_FLATTENING_TOLERANCE,
+          &system_path_widened_bounds)) ||
+      FAILED(system_query_boolean_path->GetWidenedBounds(
+          2.0F, nullptr,
+          reinterpret_cast<const D2D1_MATRIX_3X2_F *>(&transform),
+          D2D1_DEFAULT_FLATTENING_TOLERANCE,
+          &system_transformed_path_widened_bounds)) ||
+      FAILED(system_query_boolean_path->GetWidenedBounds(
+          0.0F, nullptr, nullptr, D2D1_DEFAULT_FLATTENING_TOLERANCE,
+          &system_zero_path_widened_bounds)) ||
+      FAILED(system_input_boolean_path->GetWidenedBounds(
+          2.0F, nullptr, nullptr, D2D1_DEFAULT_FLATTENING_TOLERANCE,
+          &system_concave_path_widened_bounds)) ||
+      !approximately_equal(
+          system_path_widened_bounds.left, path_widened_bounds.left) ||
+      !approximately_equal(
+          system_path_widened_bounds.top, path_widened_bounds.top) ||
+      !approximately_equal(
+          system_path_widened_bounds.right, path_widened_bounds.right) ||
+      !approximately_equal(
+          system_path_widened_bounds.bottom, path_widened_bounds.bottom) ||
+      !approximately_equal(
+          system_transformed_path_widened_bounds.left,
+          transformed_path_widened_bounds.left) ||
+      !approximately_equal(
+          system_transformed_path_widened_bounds.top,
+          transformed_path_widened_bounds.top) ||
+      !approximately_equal(
+          system_transformed_path_widened_bounds.right,
+          transformed_path_widened_bounds.right) ||
+      !approximately_equal(
+          system_transformed_path_widened_bounds.bottom,
+          transformed_path_widened_bounds.bottom) ||
+      !approximately_equal(
+          system_zero_path_widened_bounds.left,
+          zero_path_widened_bounds.left) ||
+      !approximately_equal(
+          system_zero_path_widened_bounds.top,
+          zero_path_widened_bounds.top) ||
+      !approximately_equal(
+          system_zero_path_widened_bounds.right,
+          zero_path_widened_bounds.right) ||
+      !approximately_equal(
+          system_zero_path_widened_bounds.bottom,
+          zero_path_widened_bounds.bottom) ||
+      !approximately_equal(
+          system_concave_path_widened_bounds.left,
+          concave_path_widened_bounds.left) ||
+      !approximately_equal(
+          system_concave_path_widened_bounds.top,
+          concave_path_widened_bounds.top) ||
+      !approximately_equal(
+          system_concave_path_widened_bounds.right,
+          concave_path_widened_bounds.right) ||
+      !approximately_equal(
+          system_concave_path_widened_bounds.bottom,
+          concave_path_widened_bounds.bottom)) {
+    system_query_boolean_path->Release();
+    system_input_boolean_path->Release();
+    system_factory->Release();
+    return 343;
   }
   for (std::size_t stroke_case_index = 0U;
        stroke_case_index < concave_path_stroke_cases.size();

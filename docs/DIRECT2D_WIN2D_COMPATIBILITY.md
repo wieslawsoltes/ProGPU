@@ -860,6 +860,16 @@ fail closed. Straight, miter-corner, interior, exterior, concave-corner, and
 nonuniform transformed probes pass locally under optimization and sanitizers
 and match genuine system Direct2D on Windows ARM64.
 
+The identical simple closed/default-miter domain now implements
+`GetWidenedBounds`. It derives segment offset endpoints plus qualified miter
+extrema in local geometry space, then transforms and reduces independent
+candidate points four at a time through ARM64 NEON or SSE2. This preserves
+stroke-before-transform ordering without CPU rasterization and returns the
+original path bounds for zero width, matching system Direct2D. Ordinary and
+concave paths, zero width, and nonuniform affine output pass local optimized
+and sanitizer tests and a clean Windows ARM64 system differential. Unsupported
+styles and topology retain initialized empty output and fail closed.
+
 The focused compatibility target passes all 17 local native CTests and the 10
 managed Direct2D source/ABI contracts. A clean Windows 11 ARM64 Parallels build
 with MSVC 19.44 explicitly injects `/W4 /WX`, recompiles the complete portable
@@ -2152,7 +2162,8 @@ ownership, exact vocabulary `Stream`, line/cubic/arc-aware transformed bounds,
 length, point-at-length, and point-plus-segment queries. Area and containment
 are qualified for ordinary non-overlapping figures; exact self-intersection
 and overlapping-figure fill analysis remains a separate gate. General styled,
-open, or multi-figure path stroke containment, path widening and widened bounds,
+open, or multi-figure path stroke containment, path widening, and styled/open/
+multi-figure widened bounds,
 multi-contour outline/Boolean normalization, and unsupported tessellation
 topologies still return `E_NOTIMPL` with initialized outputs where applicable.
 Single-contour outline, comparison, and Boolean combination have qualified

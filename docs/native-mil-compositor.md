@@ -6385,6 +6385,15 @@ oracle confirms the same results through genuine Direct2D; probes are kept
 outside Direct2D's flattening-tolerance fuzz band when asserting strict
 exterior results.
 
+`GetWidenedBounds` now shares that default-miter path domain. Segment offsets
+and miter extrema are constructed before the world transform; independent
+candidate transforms and min/max reductions execute four-wide through NEON or
+SSE2. This preserves Direct2D's stroke-before-transform result under
+nonuniform affine matrices. Ordinary, concave, zero-width, and transformed
+bounds match the genuine Windows system implementation after a clean 30-step
+ARM64 core/provider rebuild, while optimized and sanitizer tests remain green
+locally.
+
 ## Invariants
 
 - No reflection or private managed field scanning in the product bridge.
