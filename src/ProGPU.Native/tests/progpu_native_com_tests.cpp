@@ -133,6 +133,16 @@ int main()
         if (output_address == nullptr || *output_address != nullptr) {
             return 7;
         }
+
+#if defined(_WIN32)
+        com::pointer<com::unknown> queried_through_output_operator;
+        if (com::failed(owner.As(&queried_through_output_operator)) ||
+            !queried_through_output_operator ||
+            queried_through_output_operator.get() !=
+                static_cast<com::unknown*>(raw)) {
+            return 8;
+        }
+#endif
     }
-    return destroyed ? 0 : 8;
+    return destroyed ? 0 : 9;
 }

@@ -314,8 +314,11 @@ bool create_semantic_vector_mask_binding(
         WGPUCommandEncoderDescriptor encoder_descriptor{};
         encoder_descriptor.label = webgpu::string_view(
             "ProGPU retain semantic vector mask copy");
-        WGPUCommandEncoder encoder = wgpuDeviceCreateCommandEncoder(
-            engine.device, &encoder_descriptor);
+        const bool owns_encoder = engine.semantic_encoder == nullptr;
+        WGPUCommandEncoder encoder = owns_encoder
+            ? wgpuDeviceCreateCommandEncoder(
+                engine.device, &encoder_descriptor)
+            : engine.semantic_encoder;
         if (encoder == nullptr) {
             wgpuTextureViewRelease(view);
             wgpuTextureDestroy(texture);
@@ -338,20 +341,22 @@ bool create_semantic_vector_mask_binding(
             &copy_source,
             &copy_destination,
             &copy_extent);
-        WGPUCommandBufferDescriptor command_descriptor{};
-        command_descriptor.label = webgpu::string_view(
-            "ProGPU retained semantic vector mask copy commands");
-        WGPUCommandBuffer command = wgpuCommandEncoderFinish(
-            encoder, &command_descriptor);
-        wgpuCommandEncoderRelease(encoder);
-        if (command == nullptr) {
-            wgpuTextureViewRelease(view);
-            wgpuTextureDestroy(texture);
-            wgpuTextureRelease(texture);
-            return false;
+        if (owns_encoder) {
+            WGPUCommandBufferDescriptor command_descriptor{};
+            command_descriptor.label = webgpu::string_view(
+                "ProGPU retained semantic vector mask copy commands");
+            WGPUCommandBuffer command = wgpuCommandEncoderFinish(
+                encoder, &command_descriptor);
+            wgpuCommandEncoderRelease(encoder);
+            if (command == nullptr) {
+                wgpuTextureViewRelease(view);
+                wgpuTextureDestroy(texture);
+                wgpuTextureRelease(texture);
+                return false;
+            }
+            engine.submit(command);
+            wgpuCommandBufferRelease(command);
         }
-        engine.submit(command);
-        wgpuCommandBufferRelease(command);
 
         gpu_mask_sampling_uniforms uniforms{};
         uniforms.coordinate1[0] =

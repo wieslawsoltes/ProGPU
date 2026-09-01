@@ -375,6 +375,30 @@ portable_scene record_portable_scene()
         "portable bitmap brush creation failed");
     native_com::pointer<d2d::bitmap_brush> bitmap_brush;
     bitmap_brush.attach(raw_bitmap_brush);
+    d2d::path_geometry* raw_bitmap_brush_path = nullptr;
+    require(factory->CreatePathGeometry(&raw_bitmap_brush_path) ==
+            native_com::ok &&
+        raw_bitmap_brush_path != nullptr,
+        "portable bitmap-brush path creation failed");
+    native_com::pointer<d2d::path_geometry> bitmap_brush_path;
+    bitmap_brush_path.attach(raw_bitmap_brush_path);
+    d2d::geometry_sink* raw_bitmap_brush_path_sink = nullptr;
+    require(bitmap_brush_path->Open(&raw_bitmap_brush_path_sink) ==
+            native_com::ok &&
+        raw_bitmap_brush_path_sink != nullptr,
+        "portable bitmap-brush path sink creation failed");
+    native_com::pointer<d2d::geometry_sink> bitmap_brush_path_sink;
+    bitmap_brush_path_sink.attach(raw_bitmap_brush_path_sink);
+    bitmap_brush_path_sink->SetFillMode(d2d::fill_mode::winding);
+    bitmap_brush_path_sink->BeginFigure(
+        {1.0F, 30.0F}, d2d::figure_begin::filled);
+    const d2d::point_2f bitmap_brush_path_points[]{
+        {7.0F, 30.0F}, {4.0F, 44.0F}};
+    bitmap_brush_path_sink->AddLines(bitmap_brush_path_points, 2U);
+    bitmap_brush_path_sink->EndFigure(d2d::figure_end::closed);
+    require(bitmap_brush_path_sink->Close() == native_com::ok,
+        "portable bitmap-brush path close failed");
+    bitmap_brush_path_sink.Reset();
     const d2d::color_f clear{0.05F, 0.1F, 0.15F, 1.0F};
     const d2d::rectangle_f rectangle{4.0F, 4.0F, 20.0F, 20.0F};
     const d2d::ellipse ellipse_value{{40.0F, 14.0F}, 8.0F, 8.0F};
@@ -412,6 +436,10 @@ portable_scene record_portable_scene()
         &bitmap_brush_ellipse,
         static_cast<d2d::brush*>(bitmap_brush.get()),
         2.0F,
+        nullptr);
+    target->FillGeometry(
+        static_cast<d2d::geometry*>(bitmap_brush_path.get()),
+        static_cast<d2d::brush*>(bitmap_brush.get()),
         nullptr);
     require(target->EndDraw(nullptr, nullptr) == native_com::ok,
         "portable scene recording failed");
@@ -481,8 +509,8 @@ std::vector<std::uint8_t> render_progpu(
             &frame_metrics,
             &diagnostics) == PROGPU_NATIVE_STATUS_SUCCESS &&
         diagnostics.stage == d2d::scene_submission_stage::none &&
-        scene_metrics.draw_count == 7U &&
-        frame_metrics.command_count == 7U &&
+        scene_metrics.draw_count == 8U &&
+        frame_metrics.command_count == 8U &&
         frame_metrics.submission_count == 1U,
         "ProGPU D3D12 Direct2D render failed");
 
@@ -723,6 +751,30 @@ std::vector<std::uint8_t> render_system_direct2d()
         "system Direct2D bitmap brush creation failed");
     native_com::pointer<ID2D1BitmapBrush> bitmap_brush;
     bitmap_brush.attach(raw_bitmap_brush);
+    ID2D1PathGeometry* raw_bitmap_brush_path = nullptr;
+    require(SUCCEEDED(factory->CreatePathGeometry(
+            &raw_bitmap_brush_path)) &&
+        raw_bitmap_brush_path != nullptr,
+        "system bitmap-brush path creation failed");
+    native_com::pointer<ID2D1PathGeometry> bitmap_brush_path;
+    bitmap_brush_path.attach(raw_bitmap_brush_path);
+    ID2D1GeometrySink* raw_bitmap_brush_path_sink = nullptr;
+    require(SUCCEEDED(bitmap_brush_path->Open(
+            &raw_bitmap_brush_path_sink)) &&
+        raw_bitmap_brush_path_sink != nullptr,
+        "system bitmap-brush path sink creation failed");
+    native_com::pointer<ID2D1GeometrySink> bitmap_brush_path_sink;
+    bitmap_brush_path_sink.attach(raw_bitmap_brush_path_sink);
+    bitmap_brush_path_sink->SetFillMode(D2D1_FILL_MODE_WINDING);
+    bitmap_brush_path_sink->BeginFigure(
+        {1.0F, 30.0F}, D2D1_FIGURE_BEGIN_FILLED);
+    const D2D1_POINT_2F bitmap_brush_path_points[]{
+        {7.0F, 30.0F}, {4.0F, 44.0F}};
+    bitmap_brush_path_sink->AddLines(bitmap_brush_path_points, 2U);
+    bitmap_brush_path_sink->EndFigure(D2D1_FIGURE_END_CLOSED);
+    require(SUCCEEDED(bitmap_brush_path_sink->Close()),
+        "system bitmap-brush path close failed");
+    bitmap_brush_path_sink.Reset();
     const D2D1_COLOR_F clear{0.05F, 0.1F, 0.15F, 1.0F};
     const D2D1_RECT_F rectangle{4.0F, 4.0F, 20.0F, 20.0F};
     const D2D1_ELLIPSE ellipse_value{{40.0F, 14.0F}, 8.0F, 8.0F};
@@ -747,6 +799,7 @@ std::vector<std::uint8_t> render_system_direct2d()
         nullptr);
     target->FillRectangle(&bitmap_brush_rectangle, bitmap_brush.get());
     target->DrawEllipse(&bitmap_brush_ellipse, bitmap_brush.get(), 2.0F);
+    target->FillGeometry(bitmap_brush_path.get(), bitmap_brush.get());
     require(SUCCEEDED(target->EndDraw()), "system Direct2D draw failed");
 
     WICRect lock_rectangle{0, 0, static_cast<INT>(width),
@@ -781,7 +834,7 @@ void compare_images(
 {
     require(progpu.size() == static_cast<std::size_t>(row_bytes) * height &&
         system.size() == progpu.size(), "differential image size mismatch");
-    constexpr std::array<std::array<std::uint32_t, 2U>, 13U> probes{{
+    constexpr std::array<std::array<std::uint32_t, 2U>, 14U> probes{{
         {2U, 2U},
         {10U, 10U},
         {40U, 14U},
@@ -793,6 +846,7 @@ void compare_images(
         {22U, 13U},
         {23U, 13U},
         {26U, 20U},
+        {4U, 34U},
         {18U, 28U},
         {46U, 36U}}};
     for (const auto& probe : probes) {

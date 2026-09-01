@@ -119,6 +119,235 @@ struct scene_bitmap_brush_native : com::unknown {
         matrix_3x2_f* transform) const noexcept = 0;
 };
 
+class portable_scene_path_sink final : public simplified_geometry_sink {
+public:
+    com::result PROGPU_NATIVE_COM_CALL QueryInterface(
+        com::guid_ref interface_id,
+        void** value) noexcept override
+    {
+        if (value == nullptr) {
+            return com::pointer_error;
+        }
+        *value = nullptr;
+        if (com::guid_equal(interface_id, com::unknown_interface_id()) ||
+            com::guid_equal(
+                interface_id, simplified_geometry_sink_interface_id)) {
+            *value = static_cast<simplified_geometry_sink*>(this);
+        } else {
+            return com::no_interface;
+        }
+        AddRef();
+        return com::ok;
+    }
+
+    com::reference_count_value PROGPU_NATIVE_COM_CALL AddRef()
+        noexcept override
+    {
+        return reference_count_.add_ref();
+    }
+
+    com::reference_count_value PROGPU_NATIVE_COM_CALL Release()
+        noexcept override
+    {
+        return reference_count_.release(this);
+    }
+
+    void PROGPU_NATIVE_COM_CALL SetFillMode(fill_mode value) noexcept override
+    {
+        if (closed_ || figure_started_ ||
+            (value != fill_mode::alternate && value != fill_mode::winding)) {
+            set_failure(com::invalid_argument);
+            return;
+        }
+        fill_mode_ = value;
+    }
+
+    void PROGPU_NATIVE_COM_CALL SetSegmentFlags(
+        path_segment value) noexcept override
+    {
+        constexpr std::uint32_t supported =
+            static_cast<std::uint32_t>(path_segment::force_unstroked) |
+            static_cast<std::uint32_t>(path_segment::force_round_line_join);
+        if (closed_ ||
+            (static_cast<std::uint32_t>(value) & ~supported) != 0U) {
+            set_failure(com::invalid_argument);
+        }
+    }
+
+    void PROGPU_NATIVE_COM_CALL BeginFigure(
+        point_2f start,
+        figure_begin begin) noexcept override
+    {
+        if (closed_ || figure_open_ || !valid_point(start) ||
+            (begin != figure_begin::filled &&
+                begin != figure_begin::hollow)) {
+            set_failure(com::invalid_argument);
+            return;
+        }
+        figure_started_ = true;
+        figure_open_ = true;
+        figure_filled_ = begin == figure_begin::filled;
+        figure_start_ = start;
+        current_point_ = start;
+    }
+
+    void PROGPU_NATIVE_COM_CALL AddLines(
+        const point_2f* points,
+        std::uint32_t point_count) noexcept override
+    {
+        if (closed_ || !figure_open_ ||
+            (point_count != 0U && points == nullptr)) {
+            set_failure(com::invalid_argument);
+            return;
+        }
+        for (std::uint32_t index = 0U; index < point_count; ++index) {
+            if (!valid_point(points[index])) {
+                set_failure(com::invalid_argument);
+                return;
+            }
+            if (figure_filled_ &&
+                !append_line(current_point_, points[index])) {
+                return;
+            }
+            current_point_ = points[index];
+        }
+    }
+
+    void PROGPU_NATIVE_COM_CALL AddBeziers(
+        const bezier_segment* beziers,
+        std::uint32_t bezier_count) noexcept override
+    {
+        if (closed_ || !figure_open_ ||
+            (bezier_count != 0U && beziers == nullptr)) {
+            set_failure(com::invalid_argument);
+            return;
+        }
+        for (std::uint32_t index = 0U; index < bezier_count; ++index) {
+            const auto& bezier = beziers[index];
+            if (!valid_point(bezier.point1) ||
+                !valid_point(bezier.point2) ||
+                !valid_point(bezier.point3)) {
+                set_failure(com::invalid_argument);
+                return;
+            }
+            if (figure_filled_ &&
+                !append_cubic(current_point_, bezier)) {
+                return;
+            }
+            current_point_ = bezier.point3;
+        }
+    }
+
+    void PROGPU_NATIVE_COM_CALL EndFigure(figure_end end) noexcept override
+    {
+        if (closed_ || !figure_open_ ||
+            (end != figure_end::open && end != figure_end::closed)) {
+            set_failure(com::invalid_argument);
+            return;
+        }
+        if (figure_filled_ && end == figure_end::closed &&
+            !same_point(current_point_, figure_start_) &&
+            !append_line(current_point_, figure_start_)) {
+            return;
+        }
+        figure_open_ = false;
+        figure_filled_ = false;
+    }
+
+    com::result PROGPU_NATIVE_COM_CALL Close() noexcept override
+    {
+        if (closed_ || figure_open_) {
+            set_failure(wrong_state);
+        }
+        closed_ = true;
+        return failure_;
+    }
+
+    [[nodiscard]] std::span<const progpu_native_path_segment> segments()
+        const noexcept
+    {
+        return segments_;
+    }
+
+    [[nodiscard]] std::uint32_t native_fill_rule() const noexcept
+    {
+        return fill_mode_ == fill_mode::alternate
+            ? PROGPU_NATIVE_FILL_RULE_EVEN_ODD
+            : PROGPU_NATIVE_FILL_RULE_NON_ZERO;
+    }
+
+private:
+    static constexpr std::size_t maximum_segment_count = 1U << 20U;
+
+    [[nodiscard]] static bool same_point(
+        point_2f left,
+        point_2f right) noexcept
+    {
+        return left.x == right.x && left.y == right.y;
+    }
+
+    void set_failure(com::result value) noexcept
+    {
+        if (com::succeeded(failure_)) {
+            failure_ = value;
+        }
+    }
+
+    [[nodiscard]] bool append(progpu_native_path_segment segment) noexcept
+    {
+        if (segments_.size() == maximum_segment_count) {
+            set_failure(failure);
+            return false;
+        }
+        try {
+            segments_.push_back(segment);
+            return true;
+        } catch (const std::bad_alloc&) {
+            set_failure(com::out_of_memory);
+            return false;
+        } catch (...) {
+            set_failure(failure);
+            return false;
+        }
+    }
+
+    [[nodiscard]] bool append_line(point_2f start, point_2f end) noexcept
+    {
+        progpu_native_path_segment segment{};
+        segment.p0 = {start.x, start.y};
+        segment.p1 = {end.x, end.y};
+        segment.kind = PROGPU_NATIVE_PATH_SEGMENT_LINE;
+        return append(segment);
+    }
+
+    [[nodiscard]] bool append_cubic(
+        point_2f start,
+        const bezier_segment& bezier) noexcept
+    {
+        progpu_native_path_segment segment{};
+        segment.p0 = {start.x, start.y};
+        segment.p1 = {bezier.point1.x, bezier.point1.y};
+        segment.p2 = {bezier.point2.x, bezier.point2.y};
+        segment.p3 = {bezier.point3.x, bezier.point3.y};
+        segment.kind = PROGPU_NATIVE_PATH_SEGMENT_CUBIC;
+        return append(segment);
+    }
+
+    friend class com::atomic_reference_count<portable_scene_path_sink>;
+    ~portable_scene_path_sink() = default;
+
+    com::atomic_reference_count<portable_scene_path_sink> reference_count_;
+    std::vector<progpu_native_path_segment> segments_;
+    point_2f figure_start_{};
+    point_2f current_point_{};
+    fill_mode fill_mode_ = fill_mode::alternate;
+    com::result failure_ = com::ok;
+    bool figure_open_ = false;
+    bool figure_started_ = false;
+    bool figure_filled_ = false;
+    bool closed_ = false;
+};
+
 class portable_bitmap final : public bitmap, public scene_bitmap_native {
 public:
     portable_bitmap(
@@ -1576,9 +1805,11 @@ public:
     }
 
     void PROGPU_NATIVE_COM_CALL FillGeometry(
-        geometry*, brush*, brush*) noexcept override
+        geometry* geometry_value,
+        brush* brush_value,
+        brush* opacity_brush) noexcept override
     {
-        unsupported_draw();
+        draw_filled_geometry(geometry_value, brush_value, opacity_brush);
     }
 
     void PROGPU_NATIVE_COM_CALL FillMesh(mesh*, brush*) noexcept override
@@ -2479,6 +2710,177 @@ private:
             return bitmap_brush_draw_result::failed;
         }
         return bitmap_brush_draw_result::drawn;
+    }
+
+    [[nodiscard]] bitmap_brush_draw_result draw_bitmap_brush_path(
+        brush* brush_value,
+        std::span<const progpu_native_path_segment> segments,
+        std::uint32_t fill_rule,
+        const rectangle_f& local_bounds) noexcept
+    {
+        if (brush_value == nullptr || segments.empty()) {
+            latch(com::invalid_argument);
+            return bitmap_brush_draw_result::failed;
+        }
+        scene_bitmap_brush_native* raw_native = nullptr;
+        const com::result query = brush_value->QueryInterface(
+            scene_bitmap_brush_native_interface_id,
+            reinterpret_cast<void**>(&raw_native));
+        com::pointer<scene_bitmap_brush_native> native;
+        native.attach(raw_native);
+        if (query == com::no_interface || !native) {
+            return bitmap_brush_draw_result::not_bitmap;
+        }
+        if (com::failed(query)) {
+            latch(query);
+            return bitmap_brush_draw_result::failed;
+        }
+        const progpu_native_scene_clip_path path{
+            0U,
+            segments.size(),
+            0U,
+            0U,
+            local_bounds.left,
+            local_bounds.top,
+            local_bounds.right,
+            local_bounds.bottom,
+            native_transform(),
+            fill_rule,
+            8U,
+            PROGPU_NATIVE_CLIP_INTERSECT,
+            0U};
+        std::uint32_t mask_resource_index = PROGPU_NATIVE_SCENE_NO_INDEX;
+        if (!builder_.add_vector_clip_mask(
+                std::span<const progpu_native_scene_clip_path>(&path, 1U),
+                segments,
+                1.0F,
+                mask_resource_index) ||
+            !draw_bitmap_brush_image(
+                native.get(), mask_resource_index, local_bounds)) {
+            if (!com::failed(failure_)) {
+                latch(builder_failure());
+            }
+            return bitmap_brush_draw_result::failed;
+        }
+        return bitmap_brush_draw_result::drawn;
+    }
+
+    void draw_filled_geometry(
+        geometry* geometry_value,
+        brush* brush_value,
+        brush* opacity_brush) noexcept
+    {
+        const std::lock_guard lock(mutex_);
+        if (!can_draw()) {
+            return;
+        }
+        if (geometry_value == nullptr || brush_value == nullptr) {
+            latch(com::invalid_argument);
+            return;
+        }
+        if (opacity_brush != nullptr) {
+            latch(not_implemented);
+            return;
+        }
+        factory* raw_factory = nullptr;
+        geometry_value->GetFactory(&raw_factory);
+        com::pointer<factory> geometry_factory;
+        geometry_factory.attach(raw_factory);
+        if (geometry_factory.get() != owner_.get()) {
+            latch(wrong_factory);
+            return;
+        }
+        raw_factory = nullptr;
+        brush_value->GetFactory(&raw_factory);
+        com::pointer<factory> brush_factory;
+        brush_factory.attach(raw_factory);
+        if (brush_factory.get() != owner_.get()) {
+            latch(wrong_factory);
+            return;
+        }
+        auto* raw_sink = new (std::nothrow) portable_scene_path_sink();
+        if (raw_sink == nullptr) {
+            latch(com::out_of_memory);
+            return;
+        }
+        com::pointer<portable_scene_path_sink> sink;
+        sink.attach(raw_sink);
+        com::result result = geometry_value->Simplify(
+            geometry_simplification_option::cubics_and_lines,
+            nullptr,
+            core::default_flattening_tolerance,
+            sink.get());
+        const com::result close_result = sink->Close();
+        if (com::succeeded(result)) {
+            result = close_result;
+        }
+        if (com::failed(result)) {
+            latch(result);
+            return;
+        }
+        const auto segments = sink->segments();
+        if (segments.empty()) {
+            return;
+        }
+        rectangle_f local_bounds{};
+        rectangle_f target_bounds{};
+        result = geometry_value->GetBounds(nullptr, &local_bounds);
+        if (com::succeeded(result)) {
+            result = geometry_value->GetBounds(&transform_, &target_bounds);
+        }
+        if (com::failed(result) || !valid_rectangle(local_bounds) ||
+            !valid_rectangle(target_bounds)) {
+            latch(com::failed(result) ? result : com::invalid_argument);
+            return;
+        }
+        if (local_bounds.right == local_bounds.left ||
+            local_bounds.bottom == local_bounds.top ||
+            target_bounds.right == target_bounds.left ||
+            target_bounds.bottom == target_bounds.top) {
+            return;
+        }
+
+        const bitmap_brush_draw_result bitmap_result =
+            draw_bitmap_brush_path(
+                brush_value,
+                segments,
+                sink->native_fill_rule(),
+                local_bounds);
+        if (bitmap_result != bitmap_brush_draw_result::not_bitmap) {
+            return;
+        }
+
+        std::uint32_t brush_index = PROGPU_NATIVE_SCENE_NO_INDEX;
+        if (!add_brush(brush_value, brush_index)) {
+            return;
+        }
+        const progpu_native_scene_path_fill path{
+            0U,
+            segments.size(),
+            0U,
+            0U,
+            local_bounds.left,
+            local_bounds.top,
+            local_bounds.right,
+            local_bounds.bottom,
+            {1.0F, 1.0F, 1.0F, 1.0F},
+            native_transform(),
+            sink->native_fill_rule(),
+            8U};
+        const progpu_native_image_rect bounds{
+            target_bounds.left,
+            target_bounds.top,
+            target_bounds.right - target_bounds.left,
+            target_bounds.bottom - target_bounds.top};
+        if (!builder_.draw_paths(
+                std::span<const progpu_native_scene_path_fill>(&path, 1U),
+                segments,
+                std::span<const std::uint32_t>(&brush_index, 1U),
+                bounds)) {
+            latch(builder_failure());
+            return;
+        }
+        ++draw_count_;
     }
 
     [[nodiscard]] bool set_gradient_coordinate_transform(

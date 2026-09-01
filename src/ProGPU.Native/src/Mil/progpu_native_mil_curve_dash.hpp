@@ -107,7 +107,7 @@ inline progpu_native_point metric_point(
         point.x * transform->m12 + point.y * transform->m22};
 }
 
-inline bool near(
+inline bool points_near(
     progpu_native_point first,
     progpu_native_point second) noexcept {
     const float x = first.x - second.x;
@@ -498,7 +498,7 @@ inline bool try_create_subsegment(
         return false;
     }
     return finite(result.p0) && finite(segment_end(result)) &&
-           !near(result.p0, segment_end(result));
+           !points_near(result.p0, segment_end(result));
 }
 
 inline result append_segment(
@@ -516,7 +516,7 @@ inline result append_segment(
                 current_end == output.segments.size() &&
                 current.smooth_join_offset + current.segment_count - 1U ==
                     output.smooth_joins.size() &&
-                near(segment_end(output.segments.back()), segment.p0)) {
+                points_near(segment_end(output.segments.back()), segment.p0)) {
                 output.smooth_joins.push_back(smooth_join ? 1U : 0U);
                 try {
                     output.segments.push_back(segment);
@@ -551,7 +551,7 @@ inline bool run_touches_start(
     const run& value,
     progpu_native_point source_start) noexcept {
     return value.segment_count != 0U &&
-           near(output.segments[value.segment_offset].p0, source_start);
+           points_near(output.segments[value.segment_offset].p0, source_start);
 }
 
 inline bool run_touches_end(
@@ -559,7 +559,7 @@ inline bool run_touches_end(
     const run& value,
     progpu_native_point source_end) noexcept {
     return value.segment_count != 0U &&
-           near(segment_end(output.segments[
+           points_near(segment_end(output.segments[
                     value.segment_offset + value.segment_count - 1U]),
                source_end);
 }

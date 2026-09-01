@@ -829,18 +829,41 @@ bool rebuild_vector_clip_chain(
             return false;
         }
 
-        WGPUCommandEncoderDescriptor encoder_descriptor{};
-        encoder_descriptor.label = ::progpu::native::webgpu::string_view(
-            "ProGPU native retained clip encoder");
-        WGPUCommandEncoder encoder = wgpuDeviceCreateCommandEncoder(
-            engine.device,
-            &encoder_descriptor);
-        if (encoder == nullptr) {
-            return false;
-        }
         const bool split_raster_submissions =
             !coverage_combine_uniforms.empty() ||
             !signed_coverage_combine_uniforms.empty();
+        const bool restore_semantic_encoder = split_raster_submissions &&
+            engine.semantic_encoder != nullptr;
+        if (restore_semantic_encoder) {
+            WGPUCommandEncoder semantic_encoder = engine.semantic_encoder;
+            engine.semantic_encoder = nullptr;
+            WGPUCommandBufferDescriptor command_descriptor{};
+            command_descriptor.label =
+                ::progpu::native::webgpu::string_view(
+                    "ProGPU native pre-clip semantic commands");
+            WGPUCommandBuffer command = wgpuCommandEncoderFinish(
+                semantic_encoder,
+                &command_descriptor);
+            wgpuCommandEncoderRelease(semantic_encoder);
+            if (command == nullptr) {
+                return false;
+            }
+            engine.submit(command);
+            wgpuCommandBufferRelease(command);
+        }
+        const bool owns_encoder = engine.semantic_encoder == nullptr;
+        WGPUCommandEncoder encoder = engine.semantic_encoder;
+        WGPUCommandEncoderDescriptor encoder_descriptor{};
+        encoder_descriptor.label = ::progpu::native::webgpu::string_view(
+            "ProGPU native retained clip encoder");
+        if (owns_encoder) {
+            encoder = wgpuDeviceCreateCommandEncoder(
+                engine.device,
+                &encoder_descriptor);
+        }
+        if (encoder == nullptr) {
+            return false;
+        }
         const auto submit_raster_phase = [&](const char* label) {
             WGPUCommandBufferDescriptor command_descriptor{};
             command_descriptor.label =
@@ -951,7 +974,7 @@ bool rebuild_vector_clip_chain(
                     : engine.path_raster_ordinary_pipeline,
                 workgroups_x,
                 workgroups_y)) {
-            if (encoder != nullptr) {
+            if (owns_encoder && encoder != nullptr) {
                 wgpuCommandEncoderRelease(encoder);
             }
             return false;
@@ -966,7 +989,7 @@ bool rebuild_vector_clip_chain(
                     engine.path_split_leaf_pipeline,
                     split_workgroups_x,
                     workgroups_y)) {
-                if (encoder != nullptr) {
+                if (owns_encoder && encoder != nullptr) {
                     wgpuCommandEncoderRelease(encoder);
                 }
                 return false;
@@ -987,7 +1010,7 @@ bool rebuild_vector_clip_chain(
                     engine.path_split_signed_leaf_pipeline,
                     signed_leaf_workgroups_x,
                     signed_leaf_workgroups_y)) {
-                if (encoder != nullptr) {
+                if (owns_encoder && encoder != nullptr) {
                     wgpuCommandEncoderRelease(encoder);
                 }
                 return false;
@@ -1007,7 +1030,9 @@ bool rebuild_vector_clip_chain(
                     encoder,
                     &row_descriptor);
             if (row_pass == nullptr) {
-                wgpuCommandEncoderRelease(encoder);
+                if (owns_encoder) {
+                    wgpuCommandEncoderRelease(encoder);
+                }
                 return false;
             }
             wgpuComputePassEncoderSetPipeline(
@@ -1038,7 +1063,9 @@ bool rebuild_vector_clip_chain(
                     encoder,
                     &combine_descriptor);
             if (combine == nullptr) {
-                wgpuCommandEncoderRelease(encoder);
+                if (owns_encoder) {
+                    wgpuCommandEncoderRelease(encoder);
+                }
                 return false;
             }
             wgpuComputePassEncoderSetPipeline(
@@ -1069,7 +1096,9 @@ bool rebuild_vector_clip_chain(
                     encoder,
                     &combine_descriptor);
             if (combine == nullptr) {
-                wgpuCommandEncoderRelease(encoder);
+                if (owns_encoder) {
+                    wgpuCommandEncoderRelease(encoder);
+                }
                 return false;
             }
             wgpuComputePassEncoderSetPipeline(
@@ -1128,7 +1157,9 @@ bool rebuild_vector_clip_chain(
                     encoder,
                     &node_descriptor);
             if (node_pass == nullptr) {
-                wgpuCommandEncoderRelease(encoder);
+                if (owns_encoder) {
+                    wgpuCommandEncoderRelease(encoder);
+                }
                 return false;
             }
             const std::uint32_t zero_offset = 0U;
@@ -1183,7 +1214,9 @@ bool rebuild_vector_clip_chain(
                     encoder,
                     &compose_descriptor);
             if (compose_pass == nullptr) {
-                wgpuCommandEncoderRelease(encoder);
+                if (owns_encoder) {
+                    wgpuCommandEncoderRelease(encoder);
+                }
                 return false;
             }
             const std::uint32_t dynamic_offset = index * 256U;
@@ -1206,24 +1239,34 @@ bool rebuild_vector_clip_chain(
             wgpuRenderPassEncoderRelease(compose_pass);
         }
 
-        WGPUCommandBufferDescriptor command_descriptor{};
-        command_descriptor.label = ::progpu::native::webgpu::string_view(
-            "ProGPU native retained clip commands");
-        WGPUCommandBuffer command = wgpuCommandEncoderFinish(
-            encoder,
-            &command_descriptor);
-        wgpuCommandEncoderRelease(encoder);
-        if (command == nullptr) {
-            return false;
+        if (owns_encoder) {
+            WGPUCommandBufferDescriptor command_descriptor{};
+            command_descriptor.label = ::progpu::native::webgpu::string_view(
+                "ProGPU native retained clip commands");
+            WGPUCommandBuffer command = wgpuCommandEncoderFinish(
+                encoder,
+                &command_descriptor);
+            wgpuCommandEncoderRelease(encoder);
+            if (command == nullptr) {
+                return false;
+            }
+            engine.submit(command);
+            wgpuCommandBufferRelease(command);
         }
-        engine.submit(command);
-        wgpuCommandBufferRelease(command);
+        if (restore_semantic_encoder) {
+            engine.semantic_encoder = wgpuDeviceCreateCommandEncoder(
+                engine.device,
+                &encoder_descriptor);
+            if (engine.semantic_encoder == nullptr) {
+                return false;
+            }
+        }
 
         engine.clip_cached_revision = mask.revision;
         engine.clip_cached_dpi_scale = dpi_scale;
         engine.clip_final_index = static_cast<std::uint32_t>(
             (chain.path_count - 1U) % 2U);
-        engine.clip_cache_valid = true;
+        engine.clip_cache_valid = owns_encoder;
         engine.last_layer_metrics.clip_rasterized_path_count =
             static_cast<std::uint32_t>(rasters.size());
         engine.last_layer_metrics.clip_pass_count =
