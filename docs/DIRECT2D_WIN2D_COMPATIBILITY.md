@@ -686,10 +686,23 @@ DirectWrite raster-filter parameters alter its pixels yet. The corresponding
 quality mapping and incompatible-antialias validation remain explicit parity
 work, never a CPU raster fallback.
 
+Portable rectangle and path geometry now implement the canonical
+`ID2D1Geometry::Outline` vtable slot for an exact single filled contour.
+Rectangle outlines are emitted analytically. Path outlines apply the caller's
+affine and flattening tolerance, remove duplicate/zero-length edges, reject
+transverse self-intersections, normalize the contour direction, and emit the
+fill-invariant Direct2D sink shape: alternate fill mode, one filled closed
+figure, and an explicit closing point. Hollow-only geometry produces an empty
+outline. Multiple filled contours, holes, overlaps, and self-intersections
+still fail closed until the shared native boolean-topology engine is complete.
+The contour walk and intersection checks are topology-dependent scalar work;
+there is no data-parallel whole-buffer loop being left unvectorized.
+
 WIC codec activation/decoding itself, render-target-to-bitmap copies,
 alpha-ignore/straight formats,
 non-null `FillGeometry` opacity brushes, `ID2D1StrokeStyle1` fixed/hairline
-transform modes, color-glyph translation, and
+transform modes, multi-contour/boolean/widen geometry operations,
+color-glyph translation, and
 device-context bitmap generations remain fail
 closed. `CopyFromMemory` and WIC ingestion remain explicit bounded resource
 uploads; steady drawing reuses the retained payload and never repacks or reads

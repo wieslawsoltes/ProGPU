@@ -8,6 +8,7 @@
 #  include <wincodec.h>
 #endif
 
+#include <algorithm>
 #include <array>
 #include <cmath>
 #include <cstddef>
@@ -90,6 +91,12 @@ public:
     {
         line_count += point_count;
         if (points != nullptr && point_count != 0U) {
+            for (std::uint32_t index = 0U;
+                 index < point_count &&
+                    line_point_count < line_points.size();
+                 ++index) {
+                line_points[line_point_count++] = points[index];
+            }
             last = points[point_count - 1U];
         }
     }
@@ -121,6 +128,9 @@ public:
         noexcept override
     {
         ++line_count;
+        if (line_point_count < line_points.size()) {
+            line_points[line_point_count++] = point;
+        }
         last = point;
     }
 
@@ -168,6 +178,8 @@ public:
     compat::figure_end figure_end = compat::figure_end::open;
     compat::point_2f first{};
     compat::point_2f last{};
+    std::array<compat::point_2f, 64U> line_points{};
+    std::size_t line_point_count = 0U;
     std::uint32_t begin_count = 0U;
     std::uint32_t end_count = 0U;
     std::uint32_t line_count = 0U;
@@ -1112,6 +1124,31 @@ int run_tests()
         return 11;
     }
 
+    auto* raw_outline_sink = new simplified_sink();
+    com::pointer<compat::simplified_geometry_sink> outline_sink;
+    outline_sink.attach(raw_outline_sink);
+    if (geometry->Outline(
+            &transform,
+            core::default_flattening_tolerance,
+            outline_sink.get()) != com::ok ||
+        raw_outline_sink->fill_mode != compat::fill_mode::alternate ||
+        raw_outline_sink->segment_flags != compat::path_segment::none ||
+        raw_outline_sink->figure_begin != compat::figure_begin::filled ||
+        raw_outline_sink->figure_end != compat::figure_end::closed ||
+        raw_outline_sink->begin_count != 1U ||
+        raw_outline_sink->end_count != 1U ||
+        raw_outline_sink->line_count != 4U ||
+        raw_outline_sink->bezier_count != 0U ||
+        !approximately_equal(raw_outline_sink->first.x, 12.0F) ||
+        !approximately_equal(raw_outline_sink->first.y, 2.0F) ||
+        geometry->Outline(
+            &transform,
+            std::numeric_limits<float>::infinity(),
+            outline_sink.get()) != com::invalid_argument ||
+        raw_outline_sink->begin_count != 1U) {
+        return 262;
+    }
+
     auto* raw_triangle_sink = new triangle_sink();
     com::pointer<compat::tessellation_sink> triangles;
     triangles.attach(raw_triangle_sink);
@@ -1373,6 +1410,21 @@ int run_tests()
         raw_query_simplified->bezier_count != 0U ||
         raw_query_simplified->end_count != 1U) {
         return 212;
+    }
+    auto* raw_query_outline = new simplified_sink();
+    com::pointer<compat::simplified_geometry_sink> query_outline;
+    query_outline.attach(raw_query_outline);
+    if (query_path->Outline(
+            &transform,
+            core::default_flattening_tolerance,
+            query_outline.get()) != com::ok ||
+        raw_query_outline->fill_mode != compat::fill_mode::alternate ||
+        raw_query_outline->figure_begin != compat::figure_begin::filled ||
+        raw_query_outline->figure_end != compat::figure_end::closed ||
+        raw_query_outline->begin_count != 1U ||
+        raw_query_outline->line_count != 4U ||
+        raw_query_outline->end_count != 1U) {
+        return 265;
     }
 
     compat::path_geometry* raw_arc_path = nullptr;
@@ -4557,6 +4609,26 @@ int run_tests()
         native_geometry->Release();
         return 21;
     }
+    auto* raw_native_outline_sink = new simplified_sink();
+    com::pointer<compat::simplified_geometry_sink> native_outline_sink;
+    native_outline_sink.attach(raw_native_outline_sink);
+    const HRESULT native_outline_status = native_geometry->Outline(
+        nullptr,
+        D2D1_DEFAULT_FLATTENING_TOLERANCE,
+        reinterpret_cast<ID2D1SimplifiedGeometrySink*>(
+            native_outline_sink.get()));
+    if (FAILED(native_outline_status) ||
+        raw_native_outline_sink->fill_mode != compat::fill_mode::alternate ||
+        raw_native_outline_sink->figure_begin !=
+            compat::figure_begin::filled ||
+        raw_native_outline_sink->figure_end !=
+            compat::figure_end::closed ||
+        raw_native_outline_sink->begin_count != 1U ||
+        raw_native_outline_sink->end_count != 1U ||
+        raw_native_outline_sink->line_count != 4U) {
+        native_geometry->Release();
+        return 263;
+    }
     const D2D1_MATRIX_3X2_F native_transform = make_native_matrix(
         1.0F, 0.0F, 0.0F, 1.0F, 4.0F, -2.0F);
     ID2D1TransformedGeometry* native_transformed = nullptr;
@@ -5079,6 +5151,44 @@ int run_tests()
         }
         system_factory->Release();
         return 84;
+    }
+    auto* raw_system_outline_sink = new simplified_sink();
+    com::pointer<compat::simplified_geometry_sink> system_outline_sink;
+    system_outline_sink.attach(raw_system_outline_sink);
+    const HRESULT system_outline_status = system_group_rectangle->Outline(
+        nullptr,
+        D2D1_DEFAULT_FLATTENING_TOLERANCE,
+        reinterpret_cast<ID2D1SimplifiedGeometrySink*>(
+            system_outline_sink.get()));
+    if (FAILED(system_outline_status) ||
+        raw_system_outline_sink->fill_mode !=
+            raw_native_outline_sink->fill_mode ||
+        raw_system_outline_sink->figure_begin !=
+            raw_native_outline_sink->figure_begin ||
+        raw_system_outline_sink->figure_end !=
+            raw_native_outline_sink->figure_end ||
+        raw_system_outline_sink->begin_count !=
+            raw_native_outline_sink->begin_count ||
+        raw_system_outline_sink->end_count !=
+            raw_native_outline_sink->end_count ||
+        raw_system_outline_sink->line_count !=
+            raw_native_outline_sink->line_count ||
+        raw_system_outline_sink->line_point_count !=
+            raw_native_outline_sink->line_point_count ||
+        !std::equal(
+            raw_system_outline_sink->line_points.begin(),
+            raw_system_outline_sink->line_points.begin() +
+                static_cast<std::ptrdiff_t>(
+                    raw_system_outline_sink->line_point_count),
+            raw_native_outline_sink->line_points.begin(),
+            [](compat::point_2f left, compat::point_2f right) {
+                return approximately_equal(left.x, right.x) &&
+                    approximately_equal(left.y, right.y);
+            })) {
+        system_group_rectangle->Release();
+        system_group_ellipse->Release();
+        system_factory->Release();
+        return 264;
     }
     std::array<ID2D1Geometry*, 2U> system_group_sources{
         system_group_rectangle, system_group_ellipse};

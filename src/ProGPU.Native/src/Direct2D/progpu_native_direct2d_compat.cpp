@@ -323,11 +323,30 @@ public:
     }
 
     com::result PROGPU_NATIVE_COM_CALL Outline(
-        const matrix_3x2_f*,
-        float,
-        simplified_geometry_sink*) const noexcept override
+        const matrix_3x2_f* world_transform,
+        float flattening_tolerance,
+        simplified_geometry_sink* sink) const noexcept override
     {
-        return not_implemented;
+        if (sink == nullptr) {
+            return com::pointer_error;
+        }
+        if (!std::isfinite(flattening_tolerance) ||
+            flattening_tolerance <= 0.0F) {
+            return com::invalid_argument;
+        }
+        std::array<point_2f, 4U> points{};
+        const com::result status = geometry_.vertices(
+            world_transform, points);
+        if (com::failed(status)) {
+            return status;
+        }
+        sink->SetFillMode(fill_mode::alternate);
+        sink->SetSegmentFlags(path_segment::none);
+        sink->BeginFigure(points[0U], figure_begin::filled);
+        sink->AddLines(points.data() + 1U, 3U);
+        sink->AddLines(points.data(), 1U);
+        sink->EndFigure(figure_end::closed);
+        return com::ok;
     }
 
     com::result PROGPU_NATIVE_COM_CALL ComputeArea(

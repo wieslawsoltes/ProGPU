@@ -351,6 +351,8 @@ public sealed class Direct2DInteropContractTests
         Assert.Contains("path_state::fresh", pathSource, StringComparison.Ordinal);
         Assert.Contains("path_state::closed", pathSource, StringComparison.Ordinal);
         Assert.Contains("core::arc_to_cubics", pathSource, StringComparison.Ordinal);
+        Assert.Contains("Multiple contours need fill-rule-aware union", pathSource, StringComparison.Ordinal);
+        Assert.Contains("system_group_rectangle->Outline(", nativeTest, StringComparison.Ordinal);
         Assert.Contains("direct2d_core::arc_to_cubics", provider, StringComparison.Ordinal);
         Assert.Contains("direct2d_core::ellipse_to_cubics", provider, StringComparison.Ordinal);
         Assert.Contains("direct2d_core::rounded_rectangle_to_path", provider, StringComparison.Ordinal);
