@@ -1,4 +1,5 @@
 #include "progpu_native_direct2d_compat.hpp"
+#include "progpu_native.h"
 
 #if defined(_WIN32)
 #  include <d2d1.h>
@@ -8,6 +9,7 @@
 #include <cstdio>
 #include <cstdint>
 #include <limits>
+#include <vector>
 
 namespace compat = progpu::native::direct2d::compat;
 namespace core = progpu::native::direct2d::core;
@@ -241,6 +243,10 @@ static_assert(sizeof(compat::stroke_style_properties) == 28U);
 static_assert(sizeof(compat::drawing_state_description) == 48U);
 static_assert(sizeof(compat::color_f) == 16U);
 static_assert(sizeof(compat::brush_properties) == 28U);
+static_assert(sizeof(compat::pixel_format) == 8U);
+static_assert(sizeof(compat::size_u) == 8U);
+static_assert(sizeof(compat::scene_render_target_properties) == 32U);
+static_assert(sizeof(compat::scene_render_target_summary) == 40U);
 
 int main()
 {
@@ -1065,6 +1071,122 @@ int main()
         return 115;
     }
 
+    com::pointer<compat::scene_factory_native> scene_factory;
+    if (factory.as(
+            compat::scene_factory_native_interface_id, scene_factory) !=
+            com::ok ||
+        !scene_factory) {
+        return 118;
+    }
+    const compat::scene_render_target_properties target_properties{
+        640U, 480U, 96.0F, 96.0F, 7001U, 11U};
+    compat::render_target* raw_target = nullptr;
+    if (scene_factory->CreateSceneRenderTarget(
+            &target_properties, &raw_target) != com::ok ||
+        raw_target == nullptr) {
+        return 119;
+    }
+    com::pointer<compat::render_target> target;
+    target.attach(raw_target);
+    com::pointer<compat::resource> target_resource;
+    com::pointer<compat::scene_render_target_native> scene_target;
+    if (target.as(compat::resource_interface_id, target_resource) != com::ok ||
+        target.as(
+            compat::scene_render_target_native_interface_id,
+            scene_target) != com::ok ||
+        !target_resource || !scene_target) {
+        return 120;
+    }
+    const compat::size_u target_pixel_size = target->GetPixelSize();
+    const compat::size_f target_size = target->GetSize();
+    if (target_pixel_size.width != 640U ||
+        target_pixel_size.height != 480U ||
+        !approximately_equal(target_size.width, 640.0F) ||
+        !approximately_equal(target_size.height, 480.0F)) {
+        return 121;
+    }
+    compat::solid_color_brush* raw_target_brush = nullptr;
+    if (target->CreateSolidColorBrush(
+            &brush_color, nullptr, &raw_target_brush) != com::ok ||
+        raw_target_brush == nullptr) {
+        return 122;
+    }
+    com::pointer<compat::solid_color_brush> target_brush;
+    target_brush.attach(raw_target_brush);
+    target->BeginDraw();
+    const compat::color_f clear_color{0.05F, 0.1F, 0.15F, 1.0F};
+    target->Clear(&clear_color);
+    target->FillRectangle(
+        &rectangle, static_cast<compat::brush*>(target_brush.get()));
+    target->DrawLine(
+        {0.0F, 0.0F},
+        {20.0F, 10.0F},
+        static_cast<compat::brush*>(target_brush.get()),
+        2.0F,
+        nullptr);
+    const compat::rounded_rectangle target_rounded_rectangle{
+        rounded_rectangle_value.rectangle, 2.0F, 2.0F};
+    target->DrawRoundedRectangle(
+        &target_rounded_rectangle,
+        static_cast<compat::brush*>(target_brush.get()),
+        1.5F,
+        nullptr);
+    target->FillEllipse(
+        &ellipse_value, static_cast<compat::brush*>(target_brush.get()));
+    if (target->EndDraw(nullptr, nullptr) != com::ok) {
+        return 123;
+    }
+    compat::scene_render_target_summary target_summary{};
+    scene_target->GetSummary(&target_summary);
+    const std::uint64_t required_scene_size =
+        scene_target->GetRequiredSceneSize();
+    if (target_summary.scene_id != 7001U ||
+        target_summary.generation != 11U ||
+        target_summary.draw_count != 4U || target_summary.has_clear != 1 ||
+        !approximately_equal(target_summary.clear_color.green, 0.1F) ||
+        required_scene_size < sizeof(progpu_native_scene_header)) {
+        return 124;
+    }
+    std::vector<std::byte> scene_bytes(
+        static_cast<std::size_t>(required_scene_size));
+    std::uint64_t written_scene_size = 0U;
+    if (scene_target->BuildScene(
+            scene_bytes.data(),
+            scene_bytes.size(),
+            &written_scene_size) != com::ok ||
+        written_scene_size != required_scene_size) {
+        return 125;
+    }
+    const auto* scene_header = reinterpret_cast<
+        const progpu_native_scene_header*>(scene_bytes.data());
+    if (scene_header->scene_id != 7001U ||
+        scene_header->generation != 11U ||
+        scene_header->command_count != 4U ||
+        scene_header->total_size != written_scene_size) {
+        return 126;
+    }
+    target->BeginDraw();
+    target->DrawRectangle(
+        &rectangle,
+        static_cast<compat::brush*>(target_brush.get()),
+        0.0F,
+        nullptr);
+    if (target->EndDraw(nullptr, nullptr) != com::invalid_argument ||
+        scene_target->GetRequiredSceneSize() != 0U) {
+        return 127;
+    }
+    target->BeginDraw();
+    target->DrawBitmap(
+        nullptr,
+        nullptr,
+        1.0F,
+        compat::bitmap_interpolation_mode::linear,
+        nullptr);
+    if (target->EndDraw(nullptr, nullptr) != compat::not_implemented ||
+        scene_target->GetRequiredSceneSize() != 0U) {
+        return 130;
+    }
+
     compat::render_target* unsupported =
         reinterpret_cast<compat::render_target*>(
         static_cast<std::uintptr_t>(1U));
@@ -1105,6 +1227,9 @@ int main()
             compat::solid_color_brush_interface_id,
             __uuidof(ID2D1SolidColorBrush)) ||
         !com::guid_equal(
+            compat::render_target_interface_id,
+            __uuidof(ID2D1RenderTarget)) ||
+        !com::guid_equal(
             compat::transformed_geometry_interface_id,
             __uuidof(ID2D1TransformedGeometry)) ||
         !com::guid_equal(
@@ -1125,6 +1250,8 @@ int main()
             sizeof(D2D1_DRAWING_STATE_DESCRIPTION) ||
         sizeof(compat::color_f) != sizeof(D2D1_COLOR_F) ||
         sizeof(compat::brush_properties) != sizeof(D2D1_BRUSH_PROPERTIES) ||
+        sizeof(compat::pixel_format) != sizeof(D2D1_PIXEL_FORMAT) ||
+        sizeof(compat::size_u) != sizeof(D2D1_SIZE_U) ||
         sizeof(compat::triangle) != sizeof(D2D1_TRIANGLE) ||
         sizeof(compat::quadratic_bezier_segment) !=
             sizeof(D2D1_QUADRATIC_BEZIER_SEGMENT) ||
@@ -1152,6 +1279,32 @@ int main()
         !approximately_equal(native_portable_brush_opacity, 0.5F) ||
         !approximately_equal(native_portable_brush_transform._22, 3.0F)) {
         return 117;
+    }
+    auto* native_target = reinterpret_cast<ID2D1RenderTarget*>(target.get());
+    const D2D1_SIZE_U native_target_pixel_size = native_target->GetPixelSize();
+    const D2D1_SIZE_F native_target_size = native_target->GetSize();
+    ID2D1SolidColorBrush* native_target_brush = nullptr;
+    const D2D1_COLOR_F native_target_color{0.2F, 0.4F, 0.6F, 0.8F};
+    if (native_target_pixel_size.width != 640U ||
+        native_target_pixel_size.height != 480U ||
+        !approximately_equal(native_target_size.width, 640.0F) ||
+        FAILED(native_target->CreateSolidColorBrush(
+            &native_target_color, nullptr, &native_target_brush)) ||
+        native_target_brush == nullptr) {
+        return 128;
+    }
+    native_target->BeginDraw();
+    const D2D1_RECT_F native_target_rectangle{8.0F, 9.0F, 30.0F, 40.0F};
+    native_target->FillRectangle(
+        &native_target_rectangle, native_target_brush);
+    const HRESULT native_target_end_status = native_target->EndDraw();
+    native_target_brush->Release();
+    scene_target->GetSummary(&target_summary);
+    if (FAILED(native_target_end_status) ||
+        target_summary.generation != 14U ||
+        target_summary.draw_count != 1U ||
+        scene_target->GetRequiredSceneSize() == 0U) {
+        return 129;
     }
     auto* native_factory = reinterpret_cast<ID2D1Factory*>(factory.get());
     const D2D1_RECT_F native_rectangle{2.0F, 3.0F, 6.0F, 8.0F};
