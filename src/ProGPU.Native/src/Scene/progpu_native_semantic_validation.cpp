@@ -577,7 +577,13 @@ bool is_valid_semantic_mesh_3d(
              mesh.light_direction.y >= -1.0F &&
              mesh.light_direction.y <= 1.0F &&
              mesh.light_direction.z > 0.0F &&
-             mesh.light_direction.w >= 0.0F));
+             mesh.light_direction.w >= 0.0F &&
+             mesh.specular_color.x >= 0.0F &&
+             mesh.specular_color.x <= 64.0F &&
+             mesh.specular_color.y >= 0.0F &&
+             mesh.specular_color.y <= 16.0F &&
+             mesh.specular_color.z == 0.0F &&
+             mesh.specular_color.w == 0.0F));
 }
 
 } // namespace progpu::native::semantic

@@ -125,7 +125,9 @@ public partial struct NativeSceneMesh3D
         float width,
         float creaseCosine,
         float occludedDashLength,
-        float occludedGapLength)
+        float occludedGapLength,
+        float extensionLength = 0.0f,
+        float jitterAmount = 0.0f)
     {
         const NativeMesh3DEdgeDisplay known =
             NativeMesh3DEdgeDisplay.Boundary |
@@ -142,7 +144,11 @@ public partial struct NativeSceneMesh3D
             !float.IsFinite(occludedDashLength) ||
                 occludedDashLength <= 0.0f ||
             !float.IsFinite(occludedGapLength) ||
-                occludedGapLength < 0.0f)
+                occludedGapLength < 0.0f ||
+            !float.IsFinite(extensionLength) ||
+                extensionLength < 0.0f || extensionLength > 64.0f ||
+            !float.IsFinite(jitterAmount) ||
+                jitterAmount < 0.0f || jitterAmount > 16.0f)
         {
             throw new ArgumentOutOfRangeException(
                 nameof(vertexCount),
@@ -161,7 +167,7 @@ public partial struct NativeSceneMesh3D
                 occludedDashLength,
                 occludedGapLength),
             occludedColor,
-            Vector4.Zero,
+            new Vector4(extensionLength, jitterAmount, 0.0f, 0.0f),
             Vector4.Zero,
             opacity: 1.0f);
         result.Topology = (uint)NativeMesh3DTopology.EdgeList;

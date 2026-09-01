@@ -1,5 +1,5 @@
-// Algorithm: Transform retained 3D lines, indexed meshes, and unique adjacency edges on the GPU; expand lines and classified boundary/crease/silhouette edges in physical screen space, address and sample one optional diffuse material image, evaluate the canonical bounded three-light CAD visual-style model, and apply derivative wire coverage.
-// Time complexity: O(L + I + E) shader invocations for L expanded line vertices, I referenced mesh indices, and E retained unique edges; every mesh fragment performs at most one filtered texture sample, three fixed lights, and one derivative wire test, while every edge performs bounded adjacency classification.
+// Algorithm: Transform retained 3D lines, indexed meshes, and unique adjacency edges on the GPU; expand lines and classified boundary/crease/silhouette edges in physical screen space with optional bounded endpoint extension and deterministic three-stroke jitter, address and sample one optional diffuse material image, evaluate the canonical bounded three-light CAD visual-style model, and apply derivative wire coverage.
+// Time complexity: O(L + I + E) shader invocations for L expanded line vertices, I referenced mesh indices, and E retained unique edges with one ordinary or three jitter strokes; every mesh fragment performs at most one filtered texture sample, three fixed lights, and one derivative wire test, while every edge performs bounded adjacency classification.
 // Space complexity: O(C + L + M + V + I + E) read-only storage for cameras, lines, meshes, vertices, indices, and edges; O(1) private storage and no auxiliary output storage per invocation.
 // Lines use six vertices per retained edge. Meshes fetch uint32 indices from
 // storage so one pointer-free scene ABI works in native WebGPU and wasm32.
@@ -147,6 +147,23 @@ fn mesh_edge_corner(vertex_index: u32) -> vec2<f32> {
     }
 }
 
+fn mix_mesh_edge_bits(source: u32) -> u32 {
+    var value = source;
+    value = value ^ (value >> 16u);
+    value = value * 0x7feb352du;
+    value = value ^ (value >> 15u);
+    value = value * 0x846ca68bu;
+    return value ^ (value >> 16u);
+}
+
+fn mesh_edge_noise(position: vec3<f32>, salt: u32) -> f32 {
+    let hash = mix_mesh_edge_bits(
+        bitcast<u32>(position.x) ^
+        mix_mesh_edge_bits(bitcast<u32>(position.y) + salt) ^
+        mix_mesh_edge_bits(bitcast<u32>(position.z) + 0x9e3779b9u));
+    return f32(hash & 0x00ffffffu) / 16777215.0;
+}
+
 @vertex
 fn vs_mesh_edge_3d(
     @builtin(vertex_index) vertex_index: u32,
@@ -155,7 +172,8 @@ fn vs_mesh_edge_3d(
     let edge = edges[instance_index];
     let mesh = meshes[edge.mesh_index];
     let camera = cameras[mesh.camera_index];
-    let corner = mesh_edge_corner(vertex_index);
+    let stroke_index = vertex_index / 6u;
+    let corner = mesh_edge_corner(vertex_index % 6u);
     let start_world = mesh.model_transform * edge.start;
     let end_world = mesh.model_transform * edge.end;
     let first_normal = safe_normalize_edge((mesh.normal_transform *
@@ -192,10 +210,42 @@ fn vs_mesh_edge_3d(
     let end_screen = (end_clip.xy / safe_end_w) * viewport * 0.5;
     let delta = end_screen - start_screen;
     let edge_length = max(length(delta), 0.000001);
-    let expansion_normal = vec2<f32>(-delta.y, delta.x) / edge_length;
+    let tangent = delta / edge_length;
+    let expansion_normal = vec2<f32>(-tangent.y, tangent.x);
+    let requested_extension = mesh.specular_color.x;
+    let extension = select(
+        0.0,
+        requested_extension,
+        requested_extension > 0.0 &&
+            edge_length >= requested_extension * 2.0);
+    let stroke_sign = select(-1.0, 1.0, stroke_index == 2u);
+    let jitter = mesh.specular_color.y;
+    let start_jitter = select(
+        0.0,
+        stroke_sign * jitter *
+            (0.7 + 0.3 * mesh_edge_noise(
+                edge.start.xyz, stroke_index + 1u)),
+        stroke_index != 0u);
+    let end_jitter = select(
+        0.0,
+        stroke_sign * jitter *
+            (0.7 + 0.3 * mesh_edge_noise(
+                edge.end.xyz, stroke_index + 17u)),
+        stroke_index != 0u);
+    let adjusted_start = start_screen - tangent * extension +
+        expansion_normal * start_jitter;
+    let adjusted_end = end_screen + tangent * extension +
+        expansion_normal * end_jitter;
+    let adjusted_delta = adjusted_end - adjusted_start;
+    let adjusted_length = max(length(adjusted_delta), 0.000001);
+    let adjusted_normal = vec2<f32>(
+        -adjusted_delta.y, adjusted_delta.x) / adjusted_length;
     var clip = select(start_clip, end_clip, corner.x > 0.5);
+    let source_screen = select(
+        adjusted_start, adjusted_end, corner.x > 0.5);
     clip = vec4<f32>(
-        clip.xy + expansion_normal * corner.y * mesh.light_direction.x *
+        source_screen * 2.0 * clip.w / viewport +
+            adjusted_normal * corner.y * mesh.light_direction.x *
             2.0 * clip.w / viewport,
         clip.zw);
     if (!enabled) {
@@ -205,7 +255,7 @@ fn vs_mesh_edge_3d(
     var output: MeshEdgeOutput;
     output.position = clip;
     output.edge_coordinate = corner.y * 2.0;
-    output.along_pixels = corner.x * edge_length;
+    output.along_pixels = corner.x * adjusted_length;
     output.enabled = select(0u, 1u, enabled);
     output.mesh_index = edge.mesh_index;
     return output;

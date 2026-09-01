@@ -394,7 +394,9 @@ public sealed class CadNativeMesh3DSceneCompiler
                     edgeStyle.Width,
                     creaseCosine,
                     edgeStyle.OccludedDashLength,
-                    edgeStyle.OccludedGapLength);
+                    edgeStyle.OccludedGapLength,
+                    edgeStyle.ExtensionLength,
+                    edgeStyle.JitterAmount);
         }
 
         bool hasDraw = batches.Length != 0;

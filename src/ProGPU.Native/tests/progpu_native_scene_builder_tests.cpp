@@ -1780,7 +1780,7 @@ bool semantic_scene_builder_records_retained_3d_families() {
     edge_mesh.color = {0.9F, 0.9F, 0.9F, 1.0F};
     edge_mesh.light_direction = {1.0F, 0.8660254F, 6.0F, 4.0F};
     edge_mesh.ambient_color = {0.4F, 0.4F, 0.4F, 0.7F};
-    edge_mesh.specular_color = {};
+    edge_mesh.specular_color = {2.0F, 1.5F, 0.0F, 0.0F};
     edge_mesh.material_ambient = {};
 
     semantic_scene_builder invalid_builder(711U, 3U);
@@ -1797,6 +1797,17 @@ bool semantic_scene_builder_records_retained_3d_families() {
             std::span<const progpu_native_scene_mesh_3d>(&invalid_mesh, 1U),
             vertices,
             indices,
+            camera,
+            {0.0F, 0.0F, 256.0F, 256.0F})) {
+        return false;
+    }
+    auto invalid_edge_mesh = edge_mesh;
+    invalid_edge_mesh.specular_color.x = 65.0F;
+    if (invalid_builder.draw_meshes_3d(
+            std::span<const progpu_native_scene_mesh_3d>(
+                &invalid_edge_mesh, 1U),
+            vertices,
+            std::span<const std::uint32_t>{},
             camera,
             {0.0F, 0.0F, 256.0F, 256.0F})) {
         return false;

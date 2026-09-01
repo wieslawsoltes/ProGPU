@@ -48,6 +48,16 @@ same contract to its distinct pointer-free native storage ABI.
   Conceptual uses cool/warm Gooch shading, Hidden suppresses occluded edges,
   Realistic uses smooth material shading, Shades of Gray is monochromatic,
   and X-ray uses partial transparency.
+- [AutoCAD edge display](https://help.autodesk.com/cloudhelp/2022/ENU/AutoCAD-Core/files/GUID-7CFAD837-E8D5-496E-B0CF-EAC773709392.htm),
+  [edge-effect workflow](https://help.autodesk.com/cloudhelp/2022/ENU/AutoCAD-Core/files/GUID-6ABABAE4-1585-47B4-A494-C40222BF67AF.htm),
+  [VISUALSTYLE DXF fields](https://help.autodesk.com/cloudhelp/2024/ENU/AutoCAD-DXF/files/GUID-8A8BF2C4-FC56-44EC-A8C4-A60CE33A530C.htm),
+  and [ObjectARX edge modifiers](https://help.autodesk.com/cloudhelp/2027/ENU/OARX-RefGuide/files/OARX-RefGuide-AcGiVisualStyleProperties__EdgeModifiers.html):
+  overhang extends projected endpoints, is suppressed when the edge is less
+  than twice the requested extension, and jitter draws adjacent perturbed
+  strokes. Adopted: bounded physical-pixel modifiers with explicit zero-cost
+  ordinary-state semantics. Autodesk does not publish its perturbation
+  sequence, so ProGPU uses an original deterministic endpoint hash rather than
+  claiming pixel-identical private jitter.
 
 ## Adopted design
 
@@ -90,8 +100,12 @@ same contract to its distinct pointer-free native storage ABI.
 - Adapted AutoCAD's public face/edge separation to ProGPU's typed retained
   scene. Explicit boundary/crease/silhouette selection, physical width,
   visible and occluded colors, crease angle, and occluded dash/gap are now
-  configurable without geometry rebuild. Sketch jitter and edge extensions
-  remain deferred because they require a separate bounded quality contract.
+  configurable without geometry rebuild. Physical-pixel overhang is applied
+  only when the projected edge is at least twice the requested extension.
+  Jitter keeps the ordinary stroke and adds two stable adjacent strokes whose
+  endpoint perturbation is derived from retained coordinates. Extension is
+  bounded to 64 physical pixels and jitter to 16; zero preserves the original
+  six-vertex single-stroke path.
 - Rejected recompiling CAD snapshots, rebuilding selection acceleration, or
   uploading geometry on style changes. Text shaping/layout is unaffected and
   remains reusable, consistent with Skia, DirectWrite, Parley, and HarfBuzz.
@@ -105,11 +119,14 @@ same contract to its distinct pointer-free native storage ABI.
 
 - Exhaustive typed mapping tests cover every managed visual style.
 - Native stream tests verify atomic face/edge policy parity, fixed-layout
-  `EdgeList` encoding, topology/counts, occluded policy, and light intensity.
+  `EdgeList` encoding, topology/counts, occluded policy, light intensity, and
+  the exact extension/jitter fields carried in otherwise unused fixed-record
+  slots without changing the 256-byte stable ABI.
 - Shared-shell tests verify style switching preserves the retained CAD scene,
   geometry objects, and camera.
 - Managed headless WebGPU tests compile and execute the visible/occluded edge
-  pipelines and verify first-upload plus zero-upload camera replay. Native
+  pipelines, including the 18-vertex three-stroke modifier path, and verify
+  first-upload plus zero-upload camera replay. Native
   Clang Release compilation and native scene-builder validation cover the same
   resource contract. Matched managed/native shaded pixel goldens, device-loss
   runs, and p50/p95/p99 measurements remain part of comprehensive validation.

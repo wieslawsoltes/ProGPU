@@ -150,6 +150,48 @@ public sealed class CadMesh3DVisualStyleTests
                 (uint)NativeMesh3DEdgeDisplay.Occluded) != 0U);
     }
 
+    [Fact]
+    public void EdgeModifiersRemainBoundedAndMatchTheNativeRetainedStyle()
+    {
+        Mesh3DEdgeStyle style = CadMesh3DVisualStylePolicy
+            .Resolve(CadMesh3DVisualStyle.Hidden)
+            .EdgeStyle with
+        {
+            ExtensionLength = 3.0f,
+            JitterAmount = 2.0f,
+        };
+        Assert.Equal(style, style.Validate());
+        Assert.Throws<ArgumentOutOfRangeException>(() =>
+            (style with { ExtensionLength = 65.0f }).Validate());
+        Assert.Throws<ArgumentOutOfRangeException>(() =>
+            (style with { JitterAmount = 17.0f }).Validate());
+
+        CadDocumentSnapshot snapshot = new CadSnapshotCompiler().Compile(
+            CreateFaceSession());
+        CadRecordedMesh3DScene scene =
+            new CadMesh3DSceneCompiler().Compile(snapshot);
+        var camera = new CadNativeMesh3DCamera(
+            Matrix4x4.Identity,
+            Matrix4x4.Identity,
+            new Vector3(0, 0, 5),
+            new NativeImageRect(0, 0, 640, 480));
+        CadNativeMesh3DScene native =
+            new CadNativeMesh3DSceneCompiler().Compile(
+                scene,
+                camera,
+                sceneId: 20260902U,
+                new CadNativeMesh3DSceneOptions
+                {
+                    EdgeStyle = style,
+                });
+
+        NativeSceneMesh3D edge = ReadMesh(native.Stream, 1);
+        Assert.Equal(style.ExtensionLength, edge.SpecularColor.X);
+        Assert.Equal(style.JitterAmount, edge.SpecularColor.Y);
+        Assert.Equal(0.0f, edge.SpecularColor.Z);
+        Assert.Equal(0.0f, edge.SpecularColor.W);
+    }
+
     private static NativeSceneMesh3D ReadFirstMesh(ReadOnlySpan<byte> stream)
         => ReadMesh(stream, 0);
 

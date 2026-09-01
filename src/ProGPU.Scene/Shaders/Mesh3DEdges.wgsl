@@ -1,5 +1,5 @@
-// Algorithm: Expand retained unique CAD mesh edges in physical screen space, classify boundary/crease/silhouette policy from fixed adjacency, and render visible or depth-occluded coverage.
-// Time complexity: O(E) vertex and fragment work for E retained unique edges; every edge performs two normal transforms and bounded classification, and every covered fragment performs O(1) coverage plus an optional dash test.
+// Algorithm: Expand retained unique CAD mesh edges in physical screen space, classify boundary/crease/silhouette policy from fixed adjacency, optionally extend endpoints and add two deterministic adjacent sketch strokes, and render visible or depth-occluded coverage.
+// Time complexity: O(E) vertex and fragment work for E retained unique edges with one ordinary or three jitter strokes; every edge performs two normal transforms and bounded classification, and every covered fragment performs O(1) coverage plus an optional dash test.
 // Space complexity: O(E) read-only edge records plus O(M) mesh records for M retained meshes; O(1) private storage and no auxiliary output storage per invocation.
 // Each edge is one six-vertex instanced quad. Manifold classification stores
 // exactly two adjacent face normals; non-manifold edges are conservatively
@@ -19,6 +19,7 @@ struct VSUniforms {
     occludedEdgeColor: vec4<f32>,
     edgeOptions0: vec4<f32>,
     edgeOptions1: vec4<f32>,
+    edgeOptions2: vec4<f32>,
 };
 
 struct GpuMesh3DRecord {
@@ -83,11 +84,29 @@ fn edgeCorner(vertexIndex: u32) -> vec2<f32> {
     }
 }
 
+fn mixEdgeBits(source: u32) -> u32 {
+    var value = source;
+    value = value ^ (value >> 16u);
+    value = value * 0x7feb352du;
+    value = value ^ (value >> 15u);
+    value = value * 0x846ca68bu;
+    return value ^ (value >> 16u);
+}
+
+fn edgeNoise(position: vec3<f32>, salt: u32) -> f32 {
+    let hash = mixEdgeBits(
+        bitcast<u32>(position.x) ^
+        mixEdgeBits(bitcast<u32>(position.y) + salt) ^
+        mixEdgeBits(bitcast<u32>(position.z) + 0x9e3779b9u));
+    return f32(hash & 0x00ffffffu) / 16777215.0;
+}
+
 @vertex
 fn vs_main(
     input: EdgeInput,
     @builtin(vertex_index) vertexIndex: u32) -> EdgeOutput {
-    let corner = edgeCorner(vertexIndex);
+    let strokeIndex = vertexIndex / 6u;
+    let corner = edgeCorner(vertexIndex % 6u);
     let record = meshRecords[input.recordIndex];
     let startWorld = record.modelTransform *
         vec4<f32>(input.start.xyz, 1.0);
@@ -125,10 +144,38 @@ fn vs_main(
     let endScreen = (endClip.xy / safeEndW) * viewport * 0.5;
     let delta = endScreen - startScreen;
     let edgeLength = max(length(delta), 0.000001);
-    let expansionNormal = vec2<f32>(-delta.y, delta.x) / edgeLength;
+    let tangent = delta / edgeLength;
+    let expansionNormal = vec2<f32>(-tangent.y, tangent.x);
+    let requestedExtension = uniforms.edgeOptions1.w;
+    let extension = select(
+        0.0,
+        requestedExtension,
+        requestedExtension > 0.0 && edgeLength >= requestedExtension * 2.0);
+    let strokeSign = select(-1.0, 1.0, strokeIndex == 2u);
+    let jitter = uniforms.edgeOptions2.x;
+    let startJitter = select(
+        0.0,
+        strokeSign * jitter *
+            (0.7 + 0.3 * edgeNoise(input.start.xyz, strokeIndex + 1u)),
+        strokeIndex != 0u);
+    let endJitter = select(
+        0.0,
+        strokeSign * jitter *
+            (0.7 + 0.3 * edgeNoise(input.end.xyz, strokeIndex + 17u)),
+        strokeIndex != 0u);
+    let adjustedStart = startScreen - tangent * extension +
+        expansionNormal * startJitter;
+    let adjustedEnd = endScreen + tangent * extension +
+        expansionNormal * endJitter;
+    let adjustedDelta = adjustedEnd - adjustedStart;
+    let adjustedLength = max(length(adjustedDelta), 0.000001);
+    let adjustedNormal = vec2<f32>(-adjustedDelta.y, adjustedDelta.x) /
+        adjustedLength;
     var clip = select(startClip, endClip, corner.x > 0.5);
+    let sourceScreen = select(adjustedStart, adjustedEnd, corner.x > 0.5);
     clip = vec4<f32>(
-        clip.xy + expansionNormal * corner.y *
+        sourceScreen * 2.0 * clip.w / viewport +
+            adjustedNormal * corner.y *
             uniforms.edgeOptions0.x * 2.0 * clip.w / viewport,
         clip.zw);
     if (!enabled) {
@@ -138,7 +185,7 @@ fn vs_main(
     var output: EdgeOutput;
     output.position = clip;
     output.edgeCoordinate = corner.y * 2.0;
-    output.alongPixels = corner.x * edgeLength;
+    output.alongPixels = corner.x * adjustedLength;
     output.enabled = select(0u, 1u, enabled);
     return output;
 }

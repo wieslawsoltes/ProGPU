@@ -251,7 +251,11 @@ public sealed class Mesh3DRetainedReplayTests
             2f,
             30f,
             5f,
-            3f);
+            3f)
+        {
+            ExtensionLength = 2f,
+            JitterAmount = 1.5f,
+        };
         viewport.InvalidateScene();
 
         using var window = new HeadlessWindow(128, 96);

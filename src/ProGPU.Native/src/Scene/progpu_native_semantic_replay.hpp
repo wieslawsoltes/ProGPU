@@ -201,6 +201,7 @@ struct semantic_3d_page {
     std::vector<std::uint32_t> mesh_index_counts;
     std::vector<std::uint32_t> mesh_edge_offsets;
     std::vector<std::uint32_t> mesh_edge_counts;
+    std::vector<std::uint32_t> mesh_edge_vertex_counts;
 };
 
 enum class semantic_replay_kind : std::uint8_t {

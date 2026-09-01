@@ -373,6 +373,7 @@ progpu_native_status compile_semantic_3d_page(
     std::vector<std::uint32_t> mesh_index_counts;
     std::vector<std::uint32_t> mesh_edge_offsets;
     std::vector<std::uint32_t> mesh_edge_counts;
+    std::vector<std::uint32_t> mesh_edge_vertex_counts;
     std::vector<WGPUTextureView> material_views;
     try {
         draws.reserve(expected_draw_count);
@@ -586,6 +587,10 @@ progpu_native_status compile_semantic_3d_page(
                 mesh_edge_counts.push_back(
                     static_cast<std::uint32_t>(
                         edges.size() - edge_offset));
+                mesh_edge_vertex_counts.push_back(
+                    is_edge_list && source.specular_color.y > 0.0F
+                        ? 18U
+                        : 6U);
             }
             draws.push_back({command.kind, first,
                 static_cast<std::uint32_t>(mesh_count)});
@@ -669,6 +674,7 @@ progpu_native_status compile_semantic_3d_page(
     page.mesh_index_counts = std::move(mesh_index_counts);
     page.mesh_edge_offsets = std::move(mesh_edge_offsets);
     page.mesh_edge_counts = std::move(mesh_edge_counts);
+    page.mesh_edge_vertex_counts = std::move(mesh_edge_vertex_counts);
     page.scene_hash = engine.semantic_hashes.three_d;
     page.dpi_scale = frame.dpi_scale;
     page.target_width = frame.width;
@@ -705,6 +711,7 @@ progpu_native_status encode_semantic_3d_bundle_draw(
             record >= engine.semantic_3d_cache.mesh_index_counts.size() ||
             record >= engine.semantic_3d_cache.mesh_edge_offsets.size() ||
             record >= engine.semantic_3d_cache.mesh_edge_counts.size() ||
+            record >= engine.semantic_3d_cache.mesh_edge_vertex_counts.size() ||
             record >= engine.semantic_3d_cache.material_bind_groups.size()) {
             return engine.fail(PROGPU_NATIVE_STATUS_INTERNAL_ERROR,
                 "The native retained 3D mesh topology index is invalid.");
@@ -719,12 +726,14 @@ progpu_native_status encode_semantic_3d_bundle_draw(
                 engine.semantic_3d_cache.mesh_edge_counts[record];
             const auto edge_offset =
                 engine.semantic_3d_cache.mesh_edge_offsets[record];
+            const auto edge_vertex_count =
+                engine.semantic_3d_cache.mesh_edge_vertex_counts[record];
             wgpuRenderBundleEncoderSetPipeline(
                 encoder,
                 engine.semantic_mesh_edge_3d_pipeline);
             wgpuRenderBundleEncoderDraw(
                 encoder,
-                6U,
+                edge_vertex_count,
                 edge_count,
                 0U,
                 edge_offset);
@@ -735,7 +744,7 @@ progpu_native_status encode_semantic_3d_bundle_draw(
                     engine.semantic_mesh_occluded_edge_3d_pipeline);
                 wgpuRenderBundleEncoderDraw(
                     encoder,
-                    6U,
+                    edge_vertex_count,
                     edge_count,
                     0U,
                     edge_offset);

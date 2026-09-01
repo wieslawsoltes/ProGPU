@@ -47,6 +47,19 @@ namespace ProGPU.Scene.Extensions
         float OccludedDashLength,
         float OccludedGapLength)
     {
+        /// <summary>
+        /// Physical pixels added beyond each projected endpoint. The modifier
+        /// is suppressed when the projected edge is shorter than twice this
+        /// value.
+        /// </summary>
+        public float ExtensionLength { get; init; }
+
+        /// <summary>
+        /// Maximum physical-pixel displacement of each of two deterministic
+        /// auxiliary sketch strokes. Zero retains the ordinary single stroke.
+        /// </summary>
+        public float JitterAmount { get; init; }
+
         public static Mesh3DEdgeStyle Disabled { get; } = new(
             Mesh3DEdgeDisplay.None,
             new Vector4(0.85f, 0.85f, 0.9f, 1.0f),
@@ -74,7 +87,11 @@ namespace ProGPU.Scene.Extensions
                 !float.IsFinite(OccludedDashLength) ||
                 OccludedDashLength <= 0.0f ||
                 !float.IsFinite(OccludedGapLength) ||
-                OccludedGapLength < 0.0f)
+                OccludedGapLength < 0.0f ||
+                !float.IsFinite(ExtensionLength) ||
+                ExtensionLength < 0.0f || ExtensionLength > 64.0f ||
+                !float.IsFinite(JitterAmount) ||
+                JitterAmount < 0.0f || JitterAmount > 16.0f)
             {
                 throw new ArgumentOutOfRangeException(
                     nameof(Mesh3DEdgeStyle),
@@ -207,7 +224,8 @@ namespace ProGPU.Scene.Extensions
         public Vector4 VisibleEdgeColor;
         public Vector4 OccludedEdgeColor;
         public Vector4 EdgeOptions0; // width, crease cosine, dash, gap
-        public Vector4 EdgeOptions1; // display flags, viewport width/height, reserved
+        public Vector4 EdgeOptions1; // display flags, viewport width/height, extension
+        public Vector4 EdgeOptions2; // jitter, reserved
     }
 
     [StructLayout(LayoutKind.Sequential, Pack = 16)]
@@ -1852,6 +1870,11 @@ namespace ProGPU.Scene.Extensions
                     (uint)edgeStyle.Display,
                     payload.ColorTexture.Width,
                     payload.ColorTexture.Height,
+                    edgeStyle.ExtensionLength),
+                EdgeOptions2 = new Vector4(
+                    edgeStyle.JitterAmount,
+                    0.0f,
+                    0.0f,
                     0.0f)
             };
             res.UniformsBuffer.WriteSingle(cpuUniforms);
@@ -2296,7 +2319,7 @@ namespace ProGPU.Scene.Extensions
                     requiredEdgeSize);
                 wgpu.RenderPassEncoderDraw(
                     pass,
-                    6,
+                    edgeStyle.JitterAmount > 0.0f ? 18U : 6U,
                     res.EdgeCount,
                     0,
                     0);
@@ -2309,7 +2332,7 @@ namespace ProGPU.Scene.Extensions
                     cachedOccludedEdgePipeline);
                 wgpu.RenderPassEncoderDraw(
                     pass,
-                    6,
+                    edgeStyle.JitterAmount > 0.0f ? 18U : 6U,
                     res.EdgeCount,
                     0,
                     0);

@@ -825,6 +825,7 @@ struct progpu_native_engine {
         page.mesh_index_counts.clear();
         page.mesh_edge_offsets.clear();
         page.mesh_edge_counts.clear();
+        page.mesh_edge_vertex_counts.clear();
         page.cache_valid = false;
         if (semantic_mesh_strip_3d_pipeline != nullptr) {
             wgpuRenderPipelineRelease(semantic_mesh_strip_3d_pipeline);
@@ -909,6 +910,7 @@ struct progpu_native_engine {
         page.mesh_index_counts.clear();
         page.mesh_edge_offsets.clear();
         page.mesh_edge_counts.clear();
+        page.mesh_edge_vertex_counts.clear();
         page.cache_valid = false;
     }
 
