@@ -785,18 +785,32 @@ retains the full 384-item managed/native differential. This prevents the
 hosted CPU-only adapter's repeatable roughly 96-second glyph-path device loss
 without treating a validation-only or CPU-rendered result as parity.
 
-The same rectangle domain now implements `CombineWithGeometry` for union,
-intersection, xor, and exclusion. A fixed three-by-three coordinate grid
-classifies at most nine cells, labels four-connected components, extracts only
-exterior and hole edges, traces closed contours, and removes collinear vertices
-without heap allocation. This preserves exact fill and later stroke topology;
-it does not emit internal seams from a rectangle decomposition. Output matches
-system Direct2D's alternate fill, force-unstroked segment state, explicit
-closing points, and closed figures. Native tests probe first-only,
-intersection, second-only, exterior, disjoint, transformed, and contained-hole
-regions. The Windows oracle compares the complete undirected boundary edge set
-for all four modes. Cross-factory, degenerate, and general-affine inputs fail
+The same rectangle domain implements `CombineWithGeometry` for union,
+intersection, xor, and exclusion. Axis-preserving inputs keep the exact fixed
+three-by-three coordinate-grid tracer: it labels four-connected components,
+extracts only exterior and hole edges, traces closed contours, and removes
+collinear vertices without heap allocation. The Windows oracle compares that
+complete undirected boundary edge set for all four modes.
+
+Independently affine-transformed rectangles now use a second bounded native
+topology path. It splits both convex quadrilateral boundaries at pairwise
+intersections, classifies each resulting sub-edge against the other operand,
+reverses exclusion/xor interior edges as required, and traces the selected
+segments into alternate-fill, force-unstroked closed contours. Ambiguous
+crossing vertices select the smallest positive turn so touching xor lobes do
+not become a self-crossing contour. The implementation uses fixed arrays only;
+there is no heap allocation, CPU pixel raster, readback, or backend-specific
+branch. Native probes cover all four Boolean regions for both an affine input
+operand and an affine source geometry. The Windows oracle records the same
+operations through system Direct2D and compares those region predicates.
+Cross-factory, degenerate, overlapping-collinear, and non-rectangle inputs fail
 before touching the sink.
+
+The focused compatibility target passes all 17 local native CTests and the 10
+managed Direct2D source/ABI contracts. A clean Windows 11 ARM64 Parallels build
+with MSVC 19.44 explicitly injects `/W4 /WX`, recompiles the complete portable
+Direct2D core and system oracle, and passes the focused CTest. This behavior
+slice changes neither the COM ABI version nor the export allowlist.
 
 WIC codec activation/decoding itself, render-target-to-bitmap copies,
 alpha-ignore/straight formats,
@@ -2333,9 +2347,11 @@ intermediates and fails closed on a non-finite or out-of-float-range result.
 Bounds, fill/stroke containment, simplification, tessellation, outline,
 area/length/point queries, widening, nested transformed geometries, and normal
 semantic-scene fill lowering therefore reuse the source implementation without
-copying or rebuilding a path. Two-geometry compare/combine remain explicitly
-unsupported until the compatibility geometry engine can apply independent
-transforms to both operands; they do not silently ignore the stored transform.
+copying or rebuilding a path. Rectangle relations and non-collinear Boolean
+combinations also preserve the stored source transform while independently
+applying the caller transform to the input operand. General path operands and
+overlapping-collinear affine boundaries remain fail closed; no transform is
+silently ignored.
 
 The native oracle checks source/factory lifetime and COM identity, exact
 metadata, bounds, containment, area, length, point-at-length, simplified path
