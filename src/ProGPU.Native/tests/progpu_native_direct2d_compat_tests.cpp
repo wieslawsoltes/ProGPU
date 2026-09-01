@@ -349,6 +349,183 @@ private:
     com::guid pixel_format_;
 };
 
+class fake_font_face final : public compat::font_face {
+public:
+    com::result PROGPU_NATIVE_COM_CALL QueryInterface(
+        com::guid_ref interface_id,
+        void** value) noexcept override
+    {
+        if (value == nullptr) {
+            return com::pointer_error;
+        }
+        *value = nullptr;
+        if (com::guid_equal(interface_id, com::unknown_interface_id()) ||
+            com::guid_equal(interface_id, compat::font_face_interface_id)) {
+            *value = static_cast<compat::font_face*>(this);
+            AddRef();
+            return com::ok;
+        }
+        return com::no_interface;
+    }
+
+    com::reference_count_value PROGPU_NATIVE_COM_CALL AddRef()
+        noexcept override
+    {
+        return reference_count_.add_ref();
+    }
+
+    com::reference_count_value PROGPU_NATIVE_COM_CALL Release()
+        noexcept override
+    {
+        return reference_count_.release(this);
+    }
+
+    std::uint32_t PROGPU_NATIVE_COM_CALL GetType() noexcept override
+    {
+        return 0U;
+    }
+
+    com::result PROGPU_NATIVE_COM_CALL GetFiles(
+        std::uint32_t* file_count,
+        com::unknown**) noexcept override
+    {
+        if (file_count == nullptr) {
+            return com::pointer_error;
+        }
+        *file_count = 0U;
+        return com::ok;
+    }
+
+    std::uint32_t PROGPU_NATIVE_COM_CALL GetIndex() noexcept override
+    {
+        return 0U;
+    }
+
+    std::uint32_t PROGPU_NATIVE_COM_CALL GetSimulations() noexcept override
+    {
+        return 0U;
+    }
+
+    std::int32_t PROGPU_NATIVE_COM_CALL IsSymbolFont() noexcept override
+    {
+        return 0;
+    }
+
+    void PROGPU_NATIVE_COM_CALL GetMetrics(void*) noexcept override
+    {
+    }
+
+    std::uint16_t PROGPU_NATIVE_COM_CALL GetGlyphCount() noexcept override
+    {
+        return 256U;
+    }
+
+    com::result PROGPU_NATIVE_COM_CALL GetDesignGlyphMetrics(
+        const std::uint16_t*,
+        std::uint32_t,
+        void*,
+        std::int32_t) noexcept override
+    {
+        return compat::not_implemented;
+    }
+
+    com::result PROGPU_NATIVE_COM_CALL GetGlyphIndices(
+        const std::uint32_t* code_points,
+        std::uint32_t code_point_count,
+        std::uint16_t* glyph_indices) noexcept override
+    {
+        if ((code_point_count != 0U &&
+                (code_points == nullptr || glyph_indices == nullptr))) {
+            return com::invalid_argument;
+        }
+        for (std::uint32_t index = 0U; index < code_point_count; ++index) {
+            glyph_indices[index] = static_cast<std::uint16_t>(
+                code_points[index] & 0xFFU);
+        }
+        return com::ok;
+    }
+
+    com::result PROGPU_NATIVE_COM_CALL TryGetFontTable(
+        std::uint32_t,
+        const void** table_data,
+        std::uint32_t* table_size,
+        void** table_context,
+        std::int32_t* exists) noexcept override
+    {
+        if (table_data == nullptr || table_size == nullptr ||
+            table_context == nullptr || exists == nullptr) {
+            return com::pointer_error;
+        }
+        *table_data = nullptr;
+        *table_size = 0U;
+        *table_context = nullptr;
+        *exists = 0;
+        return com::ok;
+    }
+
+    void PROGPU_NATIVE_COM_CALL ReleaseFontTable(void*) noexcept override
+    {
+    }
+
+    com::result PROGPU_NATIVE_COM_CALL GetGlyphRunOutline(
+        float em_size,
+        const std::uint16_t* glyph_indices,
+        const float* glyph_advances,
+        const compat::glyph_offset* glyph_offsets,
+        std::uint32_t glyph_count,
+        std::int32_t is_sideways,
+        std::int32_t is_right_to_left,
+        compat::simplified_geometry_sink* sink) noexcept override
+    {
+        ++outline_call_count;
+        last_em_size = em_size;
+        last_glyph_count = glyph_count;
+        last_is_sideways = is_sideways;
+        last_is_right_to_left = is_right_to_left;
+        if (!std::isfinite(em_size) || em_size <= 0.0F ||
+            (glyph_count != 0U && glyph_indices == nullptr) || sink == nullptr) {
+            return com::invalid_argument;
+        }
+        sink->SetFillMode(compat::fill_mode::winding);
+        float pen = 0.0F;
+        const float direction = is_right_to_left != 0 ? -1.0F : 1.0F;
+        for (std::uint32_t index = 0U; index < glyph_count; ++index) {
+            const float advance = glyph_advances == nullptr
+                ? em_size * 0.5F
+                : glyph_advances[index];
+            const float advance_offset = glyph_offsets == nullptr
+                ? 0.0F
+                : glyph_offsets[index].advance_offset;
+            const float ascender_offset = glyph_offsets == nullptr
+                ? 0.0F
+                : glyph_offsets[index].ascender_offset;
+            const float left = pen + direction * advance_offset;
+            const float right = left + direction * em_size * 0.4F;
+            const float top = -em_size - ascender_offset;
+            const float bottom = -ascender_offset;
+            sink->BeginFigure(
+                {left, top}, compat::figure_begin::filled);
+            const compat::point_2f points[]{
+                {right, top}, {right, bottom}, {left, bottom}};
+            sink->AddLines(points, 3U);
+            sink->EndFigure(compat::figure_end::closed);
+            pen += direction * advance;
+        }
+        return com::ok;
+    }
+
+    std::uint32_t outline_call_count = 0U;
+    float last_em_size = 0.0F;
+    std::uint32_t last_glyph_count = 0U;
+    std::int32_t last_is_sideways = 0;
+    std::int32_t last_is_right_to_left = 0;
+
+private:
+    friend class com::atomic_reference_count<fake_font_face>;
+    ~fake_font_face() = default;
+    com::atomic_reference_count<fake_font_face> reference_count_;
+};
+
 } // namespace
 
 static_assert(sizeof(compat::rectangle_f) == 16U);
@@ -370,6 +547,9 @@ static_assert(sizeof(compat::size_u) == 8U);
 static_assert(sizeof(compat::point_2u) == 8U);
 static_assert(sizeof(compat::rectangle_u) == 16U);
 static_assert(sizeof(compat::wic_rectangle) == 16U);
+static_assert(sizeof(compat::glyph_offset) == 8U);
+static_assert(
+    sizeof(compat::glyph_run) == (sizeof(void*) == 8U ? 48U : 32U));
 static_assert(sizeof(compat::bitmap_properties) == 16U);
 static_assert(sizeof(compat::bitmap_brush_properties) == 12U);
 static_assert(sizeof(compat::scene_render_target_properties) == 32U);
@@ -416,6 +596,17 @@ static_assert(
 static_assert(
     sizeof(compat::layer_parameters) == sizeof(D2D1_LAYER_PARAMETERS));
 static_assert(sizeof(compat::wic_rectangle) == sizeof(WICRect));
+static_assert(sizeof(compat::glyph_offset) == sizeof(DWRITE_GLYPH_OFFSET));
+static_assert(sizeof(compat::glyph_run) == sizeof(DWRITE_GLYPH_RUN));
+static_assert(
+    offsetof(compat::glyph_run, font_face_value) ==
+    offsetof(DWRITE_GLYPH_RUN, fontFace));
+static_assert(
+    offsetof(compat::glyph_run, glyph_offsets) ==
+    offsetof(DWRITE_GLYPH_RUN, glyphOffsets));
+static_assert(
+    offsetof(compat::glyph_run, bidi_level) ==
+    offsetof(DWRITE_GLYPH_RUN, bidiLevel));
 static_assert(
     offsetof(compat::wic_rectangle, x) == offsetof(WICRect, X));
 static_assert(
@@ -2924,6 +3115,66 @@ int run_tests()
         return 243;
     }
 
+    auto* raw_font_face = new fake_font_face();
+    com::pointer<fake_font_face> font_face;
+    font_face.attach(raw_font_face);
+    const std::uint16_t glyph_indices[]{41U, 42U};
+    const float glyph_advances[]{8.0F, 9.0F};
+    const compat::glyph_offset glyph_offsets[]{
+        {0.0F, 0.0F}, {0.5F, 1.0F}};
+    const compat::glyph_run glyph_run{
+        font_face.get(),
+        12.0F,
+        2U,
+        glyph_indices,
+        glyph_advances,
+        glyph_offsets,
+        0,
+        0U};
+    target->BeginDraw();
+    target->DrawGlyphRun(
+        {20.0F, 50.0F},
+        &glyph_run,
+        static_cast<compat::brush*>(target_brush.get()),
+        compat::measuring_mode::natural);
+    if (target->EndDraw(nullptr, nullptr) != com::ok ||
+        font_face->outline_call_count != 1U ||
+        !approximately_equal(font_face->last_em_size, 12.0F) ||
+        font_face->last_glyph_count != 2U ||
+        font_face->last_is_sideways != 0 ||
+        font_face->last_is_right_to_left != 0) {
+        return 246;
+    }
+    compat::scene_render_target_summary glyph_run_summary{};
+    scene_target->GetSummary(&glyph_run_summary);
+    const std::uint64_t glyph_run_scene_size =
+        scene_target->GetRequiredSceneSize();
+    std::vector<std::byte> glyph_run_scene(
+        static_cast<std::size_t>(glyph_run_scene_size));
+    std::uint64_t glyph_run_scene_written = 0U;
+    if (glyph_run_summary.draw_count != 1U ||
+        glyph_run_scene_size == 0U ||
+        scene_target->BuildScene(
+            glyph_run_scene.data(),
+            glyph_run_scene.size(),
+            &glyph_run_scene_written) != com::ok ||
+        glyph_run_scene_written != glyph_run_scene_size) {
+        return 247;
+    }
+    const auto* glyph_run_header = reinterpret_cast<
+        const progpu_native_scene_header*>(glyph_run_scene.data());
+    const auto* glyph_run_command = reinterpret_cast<
+        const progpu_native_scene_command*>(
+        glyph_run_scene.data() + glyph_run_header->command_offset);
+    if (glyph_run_header->command_count != 1U ||
+        glyph_run_command->kind != PROGPU_NATIVE_SCENE_COMMAND_DRAW_PATH ||
+        !approximately_equal(glyph_run_command->bounds_x, 20.0F) ||
+        !approximately_equal(glyph_run_command->bounds_y, 37.0F) ||
+        !approximately_equal(glyph_run_command->bounds_width, 13.3F) ||
+        !approximately_equal(glyph_run_command->bounds_height, 13.0F)) {
+        return 248;
+    }
+
     compat::layer_parameters masked_layer_parameters = layer_parameters;
     masked_layer_parameters.geometric_mask = path_base.get();
     masked_layer_parameters.opacity = 0.75F;
@@ -3609,6 +3860,37 @@ int run_tests()
         return 217;
     }
     native_mesh_sink->Release();
+    auto* native_fake_font_face = new fake_font_face();
+    const UINT16 native_glyph_indices[]{51U, 52U};
+    const FLOAT native_glyph_advances[]{7.0F, 8.0F};
+    const DWRITE_GLYPH_OFFSET native_glyph_offsets[]{
+        {0.0F, 0.0F}, {0.25F, 0.5F}};
+    const DWRITE_GLYPH_RUN native_glyph_run{
+        reinterpret_cast<IDWriteFontFace*>(native_fake_font_face),
+        11.0F,
+        2U,
+        native_glyph_indices,
+        native_glyph_advances,
+        native_glyph_offsets,
+        FALSE,
+        0U};
+    native_target->BeginDraw();
+    native_target->DrawGlyphRun(
+        D2D1_POINT_2F{4.0F, 24.0F},
+        &native_glyph_run,
+        native_target_brush,
+        DWRITE_MEASURING_MODE_NATURAL);
+    const HRESULT native_glyph_status = native_target->EndDraw();
+    const std::uint32_t native_outline_calls =
+        native_fake_font_face->outline_call_count;
+    native_fake_font_face->Release();
+    if (FAILED(native_glyph_status) || native_outline_calls != 1U) {
+        native_target_mesh->Release();
+        native_target_brush->Release();
+        std::fprintf(stderr,
+            "portable Windows ID2D1RenderTarget DrawGlyphRun failed\n");
+        return 249;
+    }
     compat::scene_render_target_summary native_target_baseline{};
     scene_target->GetSummary(&native_target_baseline);
     native_target->BeginDraw();

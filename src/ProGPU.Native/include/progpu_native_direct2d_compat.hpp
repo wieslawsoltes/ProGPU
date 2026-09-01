@@ -175,6 +175,11 @@ inline constexpr com::guid bitmap_interface_id{
     0xEA42U,
     0x4099U,
     {0x98U, 0x3BU, 0x53U, 0x9FU, 0xB6U, 0x50U, 0x54U, 0x26U}};
+inline constexpr com::guid font_face_interface_id{
+    0x5F49804DU,
+    0x7024U,
+    0x4D43U,
+    {0xBFU, 0xA9U, 0xD2U, 0x59U, 0x84U, 0xF5U, 0x38U, 0x49U}};
 inline constexpr com::guid wic_bitmap_source_interface_id{
     0x00000120U,
     0xA8F2U,
@@ -422,7 +427,27 @@ struct mesh;
 struct text_format;
 struct text_layout;
 struct rendering_parameters;
-struct glyph_run;
+struct font_face;
+
+/* Canonical DirectWrite glyph ABI used by ID2D1RenderTarget::DrawGlyphRun.
+ * These shapes intentionally stop at the already-shaped glyph boundary: the
+ * render target consumes an IDWriteFontFace-compatible outline provider and
+ * never remaps characters or owns paragraph layout. */
+struct glyph_offset final {
+    float advance_offset;
+    float ascender_offset;
+};
+
+struct glyph_run final {
+    font_face* font_face_value;
+    float font_em_size;
+    std::uint32_t glyph_count;
+    const std::uint16_t* glyph_indices;
+    const float* glyph_advances;
+    const glyph_offset* glyph_offsets;
+    std::int32_t is_sideways;
+    std::uint32_t bidi_level;
+};
 
 struct layer_parameters final {
     rectangle_f content_bounds;
@@ -451,6 +476,48 @@ struct simplified_geometry_sink : com::unknown {
     virtual void PROGPU_NATIVE_COM_CALL EndFigure(figure_end end)
         noexcept = 0;
     virtual com::result PROGPU_NATIVE_COM_CALL Close() noexcept = 0;
+};
+
+/* IDWriteFontFace's canonical vtable prefix through GetGlyphRunOutline. The
+ * trailing DirectWrite methods are not needed to consume already-shaped runs,
+ * so portable providers only need this stable prefix while native Windows
+ * IDWriteFontFace objects remain ABI-compatible. */
+struct font_face : com::unknown {
+    virtual std::uint32_t PROGPU_NATIVE_COM_CALL GetType() noexcept = 0;
+    virtual com::result PROGPU_NATIVE_COM_CALL GetFiles(
+        std::uint32_t* file_count,
+        com::unknown** font_files) noexcept = 0;
+    virtual std::uint32_t PROGPU_NATIVE_COM_CALL GetIndex() noexcept = 0;
+    virtual std::uint32_t PROGPU_NATIVE_COM_CALL GetSimulations() noexcept = 0;
+    virtual std::int32_t PROGPU_NATIVE_COM_CALL IsSymbolFont() noexcept = 0;
+    virtual void PROGPU_NATIVE_COM_CALL GetMetrics(void* metrics) noexcept = 0;
+    virtual std::uint16_t PROGPU_NATIVE_COM_CALL GetGlyphCount() noexcept = 0;
+    virtual com::result PROGPU_NATIVE_COM_CALL GetDesignGlyphMetrics(
+        const std::uint16_t* glyph_indices,
+        std::uint32_t glyph_count,
+        void* glyph_metrics,
+        std::int32_t is_sideways) noexcept = 0;
+    virtual com::result PROGPU_NATIVE_COM_CALL GetGlyphIndices(
+        const std::uint32_t* code_points,
+        std::uint32_t code_point_count,
+        std::uint16_t* glyph_indices) noexcept = 0;
+    virtual com::result PROGPU_NATIVE_COM_CALL TryGetFontTable(
+        std::uint32_t open_type_table_tag,
+        const void** table_data,
+        std::uint32_t* table_size,
+        void** table_context,
+        std::int32_t* exists) noexcept = 0;
+    virtual void PROGPU_NATIVE_COM_CALL ReleaseFontTable(
+        void* table_context) noexcept = 0;
+    virtual com::result PROGPU_NATIVE_COM_CALL GetGlyphRunOutline(
+        float em_size,
+        const std::uint16_t* glyph_indices,
+        const float* glyph_advances,
+        const glyph_offset* glyph_offsets,
+        std::uint32_t glyph_count,
+        std::int32_t is_sideways,
+        std::int32_t is_right_to_left,
+        simplified_geometry_sink* geometry_sink_value) noexcept = 0;
 };
 
 struct geometry_sink : simplified_geometry_sink {
