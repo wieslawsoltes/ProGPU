@@ -35,6 +35,8 @@ public sealed class CadSnapshotOptions
     public const int DefaultMaxWipeoutClipVerticesPerEntity = 65_536;
     public const int DefaultMaxWipeoutClipVertices = 1_000_000;
     public const int DefaultMaxRasterImageResources = 65_536;
+    public const int DefaultMaxMaterialResources = 65_536;
+    public const int DefaultMaxMaterialPathCodeUnits = 32_768;
     public const int DefaultMaxRasterImagePathCodeUnits = 32_768;
     public const int DefaultMaxRasterImageClipVerticesPerEntity = 65_536;
     public const int DefaultMaxRasterImageClipVertices = 1_000_000;
@@ -81,6 +83,10 @@ public sealed class CadSnapshotOptions
         DefaultMaxWipeoutClipVertices;
     public int MaxRasterImageResources { get; init; } =
         DefaultMaxRasterImageResources;
+    public int MaxMaterialResources { get; init; } =
+        DefaultMaxMaterialResources;
+    public int MaxMaterialPathCodeUnits { get; init; } =
+        DefaultMaxMaterialPathCodeUnits;
     public int MaxRasterImagePathCodeUnits { get; init; } =
         DefaultMaxRasterImagePathCodeUnits;
     public int MaxRasterImageClipVerticesPerEntity { get; init; } =
@@ -207,6 +213,11 @@ public sealed partial class CadSnapshotCompiler
         var rasterImageResourceIndices = new Dictionary<ImageDefinition, int>(
             ReferenceEqualityComparer.Instance);
         var rasterImageClipPoints = new List<CadWipeoutClipPoint>();
+        var mesh3DMaterials = new List<CadMesh3DMaterial>();
+        var mesh3DMaterialIndices = new Dictionary<CadMesh3DMaterial, int>();
+        var materialTextureResources = new List<CadMaterialTextureResource>();
+        var materialTextureResourceIndices =
+            new Dictionary<CadMaterialTextureResource, int>();
         var meshes3D = new List<CadMesh3DPrimitive>();
         var mesh3DDrawRanges = new List<CadMesh3DDrawRange>();
         var mesh3DVertices = new List<CadMesh3DVertex>();
@@ -388,6 +399,8 @@ public sealed partial class CadSnapshotCompiler
             rasterImages.ToArray(),
             rasterImageResources.ToArray(),
             rasterImageClipPoints.ToArray(),
+            mesh3DMaterials.ToArray(),
+            materialTextureResources.ToArray(),
             meshes3D.ToArray(),
             mesh3DDrawRanges.ToArray(),
             mesh3DVertices.ToArray(),
@@ -447,7 +460,8 @@ public sealed partial class CadSnapshotCompiler
             Layer? inheritedLayer,
             CadResolvedStyle? byBlockStyle,
             int depth,
-            bool forceCapture = false)
+            bool forceCapture = false,
+            Material? byBlockMaterial = null)
         {
             cancellationToken.ThrowIfCancellationRequested();
             Layer effectiveLayer = inheritedLayer is not null && IsLayerZero(entity.Layer)
@@ -480,6 +494,22 @@ public sealed partial class CadSnapshotCompiler
                     byBlockStyle,
                     options,
                     globalLineTypeScale);
+                Material resolvedMaterial = ResolveMaterial(
+                    entity,
+                    effectiveLayer,
+                    byBlockMaterial,
+                    document);
+                int surfaceMaterialIndex = entity is
+                    (Mesh or PolygonMesh or PolyfaceMesh or Solid or Face3D)
+                        ? InternMaterial(
+                            resolvedMaterial,
+                            resolvedStyle,
+                            mesh3DMaterials,
+                            mesh3DMaterialIndices,
+                            materialTextureResources,
+                            materialTextureResourceIndices,
+                            options)
+                        : -1;
                 if (entity is TableEntity table)
                 {
                     CompileTable(
@@ -489,6 +519,7 @@ public sealed partial class CadSnapshotCompiler
                         rootHandle,
                         effectiveLayer,
                         resolvedStyle,
+                        resolvedMaterial,
                         depth);
                     return;
                 }
@@ -501,6 +532,7 @@ public sealed partial class CadSnapshotCompiler
                         rootHandle,
                         effectiveLayer,
                         resolvedStyle,
+                        resolvedMaterial,
                         depth);
                     return;
                 }
@@ -513,6 +545,7 @@ public sealed partial class CadSnapshotCompiler
                         rootHandle,
                         effectiveLayer,
                         resolvedStyle,
+                        resolvedMaterial,
                         depth);
                     return;
                 }
@@ -525,6 +558,7 @@ public sealed partial class CadSnapshotCompiler
                         rootHandle,
                         effectiveLayer,
                         resolvedStyle,
+                        resolvedMaterial,
                         depth);
                     return;
                 }
@@ -537,6 +571,7 @@ public sealed partial class CadSnapshotCompiler
                         rootHandle,
                         effectiveLayer,
                         resolvedStyle,
+                        resolvedMaterial,
                         depth);
                     return;
                 }
@@ -571,7 +606,8 @@ public sealed partial class CadSnapshotCompiler
                         hasTransform,
                         rootHandle,
                         effectiveLayer,
-                        resolvedStyle);
+                        resolvedStyle,
+                        surfaceMaterialIndex);
                     return;
                 }
                 if (entity is PolygonMesh polygonMesh)
@@ -582,7 +618,8 @@ public sealed partial class CadSnapshotCompiler
                         hasTransform,
                         rootHandle,
                         effectiveLayer,
-                        resolvedStyle);
+                        resolvedStyle,
+                        surfaceMaterialIndex);
                     return;
                 }
                 if (entity is PolyfaceMesh polyfaceMesh)
@@ -593,7 +630,8 @@ public sealed partial class CadSnapshotCompiler
                         hasTransform,
                         rootHandle,
                         effectiveLayer,
-                        resolvedStyle);
+                        resolvedStyle,
+                        surfaceMaterialIndex);
                     return;
                 }
                 if (entity is ACadSharp.Entities.Point pointEntity)
@@ -862,6 +900,7 @@ public sealed partial class CadSnapshotCompiler
                         IsVisible = !entity.IsInvisible &&
                             effectiveLayer.IsOn &&
                             !IsLayerFrozen(effectiveLayer),
+                        MaterialIndex = surfaceMaterialIndex,
                     };
                     entities.Add(value);
                     documentBounds = documentBounds.Union(value.Bounds);
@@ -1035,6 +1074,7 @@ public sealed partial class CadSnapshotCompiler
             ulong rootHandle,
             Layer effectiveLayer,
             CadResolvedStyle resolvedStyle,
+            Material resolvedMaterial,
             int depth)
         {
             BlockRecord block = table.Block ?? throw new ArgumentException(
@@ -1058,6 +1098,7 @@ public sealed partial class CadSnapshotCompiler
                 rootHandle,
                 effectiveLayer,
                 resolvedStyle,
+                resolvedMaterial,
                 depth);
         }
 
@@ -1068,6 +1109,7 @@ public sealed partial class CadSnapshotCompiler
             ulong rootHandle,
             Layer effectiveLayer,
             CadResolvedStyle resolvedStyle,
+            Material resolvedMaterial,
             int depth)
         {
             if (depth >= options.MaxBlockNestingDepth)
@@ -1163,7 +1205,8 @@ public sealed partial class CadSnapshotCompiler
                                 rootHandle,
                                 effectiveLayer,
                                 resolvedStyle,
-                                depth + 1);
+                                depth + 1,
+                                byBlockMaterial: resolvedMaterial);
                         }
 
                         if (insert.Attributes.Count == 0)
@@ -1199,7 +1242,8 @@ public sealed partial class CadSnapshotCompiler
                                 rootHandle,
                                 effectiveLayer,
                                 resolvedStyle,
-                                depth + 1);
+                                depth + 1,
+                                byBlockMaterial: resolvedMaterial);
                         }
                     }
                 }
@@ -1217,6 +1261,7 @@ public sealed partial class CadSnapshotCompiler
             ulong rootHandle,
             Layer effectiveLayer,
             CadResolvedStyle resolvedStyle,
+            Material resolvedMaterial,
             int depth)
         {
             if (depth >= options.MaxBlockNestingDepth)
@@ -1293,7 +1338,8 @@ public sealed partial class CadSnapshotCompiler
                         rootHandle,
                         effectiveLayer,
                         resolvedStyle,
-                        depth + 1);
+                        depth + 1,
+                        byBlockMaterial: resolvedMaterial);
                 }
             }
             finally
@@ -1309,6 +1355,7 @@ public sealed partial class CadSnapshotCompiler
             ulong rootHandle,
             Layer effectiveLayer,
             CadResolvedStyle entityStyle,
+            Material resolvedMaterial,
             int depth)
         {
             int layerIndex = InternLayer(effectiveLayer, layers, layerIndices);
@@ -1407,7 +1454,8 @@ public sealed partial class CadSnapshotCompiler
                         rootHandle,
                         effectiveLayer,
                         leaderStyle,
-                        depth + 1);
+                        depth + 1,
+                        byBlockMaterial: resolvedMaterial);
                 }
             }
             finally
@@ -1423,6 +1471,7 @@ public sealed partial class CadSnapshotCompiler
             ulong rootHandle,
             Layer effectiveLayer,
             CadResolvedStyle entityStyle,
+            Material resolvedMaterial,
             int depth)
         {
             MultiLeaderObjectContextData context = multiLeader.ContextData;
@@ -1812,7 +1861,8 @@ public sealed partial class CadSnapshotCompiler
                             rootHandle,
                             effectiveLayer,
                             arrowStyle,
-                            depth + 1);
+                            depth + 1,
+                            byBlockMaterial: resolvedMaterial);
                     }
                 }
                 finally
@@ -1841,7 +1891,8 @@ public sealed partial class CadSnapshotCompiler
                             rootHandle,
                             effectiveLayer,
                             blockStyle,
-                            depth + 1);
+                            depth + 1,
+                            byBlockMaterial: resolvedMaterial);
                     }
                 }
                 finally
@@ -1943,7 +1994,8 @@ public sealed partial class CadSnapshotCompiler
             bool hasTransform,
             ulong rootHandle,
             Layer effectiveLayer,
-            CadResolvedStyle resolvedStyle)
+            CadResolvedStyle resolvedStyle,
+            int materialIndex)
         {
             if (mesh.SubdivisionLevel < 0)
             {
@@ -2177,6 +2229,7 @@ public sealed partial class CadSnapshotCompiler
                     faceTextureCoordinates,
                     layerIndex,
                     styleIndex,
+                    materialIndex,
                     AllowNonPlanarQuad: true)
                 {
                     FaceSubobjectIndex = displayFaceSourceIndices[faceIndex],
@@ -2186,6 +2239,8 @@ public sealed partial class CadSnapshotCompiler
                     Normals = displayNormals.Length == 0
                         ? Array.Empty<CadPoint3D>()
                         : displayNormals[faceIndex],
+                    HasTextureCoordinates =
+                        displayTextureCoordinates.Length != 0,
                 });
             }
             CommitMesh3D(
@@ -2229,7 +2284,8 @@ public sealed partial class CadSnapshotCompiler
             bool hasTransform,
             ulong rootHandle,
             Layer effectiveLayer,
-            CadResolvedStyle resolvedStyle)
+            CadResolvedStyle resolvedStyle,
+            int materialIndex)
         {
             ValidateLegacyMeshHeader(mesh);
             int mCount = mesh.MVertexCount;
@@ -2324,6 +2380,7 @@ public sealed partial class CadSnapshotCompiler
                         Array.Empty<Vector2>(),
                         layerIndex,
                         styleIndex,
+                        materialIndex,
                         AllowNonPlanarQuad: true));
                 }
             }
@@ -2358,7 +2415,8 @@ public sealed partial class CadSnapshotCompiler
             bool hasTransform,
             ulong rootHandle,
             Layer effectiveLayer,
-            CadResolvedStyle resolvedStyle)
+            CadResolvedStyle resolvedStyle,
+            int materialIndex)
         {
             ValidateLegacyMeshHeader(mesh);
             if (mesh.Vertices.Count == 0 || mesh.Faces.Count == 0)
@@ -2505,6 +2563,7 @@ public sealed partial class CadSnapshotCompiler
                         Array.Empty<Vector2>(),
                         layerIndex,
                         styleIndex,
+                        materialIndex,
                         AllowNonPlanarQuad: true));
                 }
 
@@ -5965,6 +6024,227 @@ public sealed partial class CadSnapshotCompiler
             options.DefaultLineWeightMillimeters);
     }
 
+    private static Material ResolveMaterial(
+        Entity entity,
+        Layer effectiveLayer,
+        Material? byBlock,
+        CadDocument document)
+    {
+        Material? material = entity.Material;
+        if (material is null || IsMaterialNamed(material, Material.ByLayerName))
+        {
+            material = effectiveLayer.Material;
+        }
+        if (material is not null && IsMaterialNamed(material, Material.ByBlockName))
+        {
+            material = byBlock;
+        }
+        if (material is null ||
+            IsMaterialNamed(material, Material.ByLayerName) ||
+            IsMaterialNamed(material, Material.ByBlockName))
+        {
+            material = document.Materials.TryGet(
+                Material.GlobalName,
+                out Material global)
+                    ? global
+                    : new Material(Material.GlobalName);
+        }
+        return material;
+    }
+
+    private static bool IsMaterialNamed(Material material, string name) =>
+        material.Name.Equals(name, StringComparison.OrdinalIgnoreCase);
+
+    private static int InternMaterial(
+        Material material,
+        CadResolvedStyle style,
+        List<CadMesh3DMaterial> materials,
+        Dictionary<CadMesh3DMaterial, int> materialIndices,
+        List<CadMaterialTextureResource> textureResources,
+        Dictionary<CadMaterialTextureResource, int> textureResourceIndices,
+        CadSnapshotOptions options)
+    {
+        ValidateUnit(material.AmbientColorFactor, nameof(material.AmbientColorFactor));
+        ValidateUnit(material.DiffuseColorFactor, nameof(material.DiffuseColorFactor));
+        ValidateUnit(material.SpecularColorFactor, nameof(material.SpecularColorFactor));
+        ValidateUnit(material.Opacity, nameof(material.Opacity));
+        ValidateUnit(material.Translucence, nameof(material.Translucence));
+        ValidateUnit(material.SelfIllumination, nameof(material.SelfIllumination));
+        ValidateUnit(material.SpecularGlossFactor, nameof(material.SpecularGlossFactor));
+        ValidateUnit(material.DiffuseMapBlendFactor, nameof(material.DiffuseMapBlendFactor));
+        const AutoTransformMethodFlags knownAutoTransform =
+            AutoTransformMethodFlags.NoAutoTransform |
+            AutoTransformMethodFlags.ScaleMapper |
+            AutoTransformMethodFlags.IncludeCurrentBlock;
+        if ((material.DiffuseAutoTransform & ~knownAutoTransform) != 0)
+        {
+            throw new CadUnsupportedEntityException(
+                "Material diffuse-map auto-transform flags are not defined.");
+        }
+
+        ACadSharp.Color current = style.Color;
+        CadColor32 diffuse = ResolveMaterialColor(
+            material.DiffuseColorMethod,
+            material.DiffuseColor,
+            current,
+            material.DiffuseColorFactor,
+            ResolveStyleAlpha(style.Transparency));
+        CadColor32 ambient = ResolveMaterialColor(
+            material.AmbientColorMethod,
+            material.AmbientColor,
+            current,
+            material.AmbientColorFactor,
+            byte.MaxValue);
+        CadColor32 specular = ResolveMaterialColor(
+            material.SpecularColorMethod,
+            material.SpecularColor,
+            current,
+            material.SpecularColorFactor,
+            byte.MaxValue);
+
+        int textureResourceIndex = -1;
+        bool usesDiffuse =
+            (material.ChannelFlags & MaterialChannelFlags.UseDiffuse) != 0;
+        if (usesDiffuse &&
+            material.DiffuseMapSource == MapSource.UseImageFile &&
+            material.DiffuseMapBlendFactor > 0.0 &&
+            !string.IsNullOrWhiteSpace(material.DiffuseMapFileName))
+        {
+            string fileName = material.DiffuseMapFileName;
+            if (fileName.Length > options.MaxMaterialPathCodeUnits)
+            {
+                throw new CadUnsupportedEntityException(
+                    $"Material diffuse-map path exceeds the configured {options.MaxMaterialPathCodeUnits}-code-unit limit.");
+            }
+            var resource = new CadMaterialTextureResource(
+                material.Handle,
+                fileName);
+            if (!textureResourceIndices.TryGetValue(resource, out textureResourceIndex))
+            {
+                if (textureResources.Count >= options.MaxMaterialResources)
+                {
+                    throw new CadSnapshotExpansionLimitException(
+                        $"Material texture resource count exceeds the configured limit of {options.MaxMaterialResources}.");
+                }
+                textureResourceIndex = textureResources.Count;
+                textureResourceIndices.Add(resource, textureResourceIndex);
+                textureResources.Add(resource);
+            }
+        }
+
+        Matrix4x4 textureTransform = ToTextureTransform(material.DiffuseMatrix);
+        var retained = new CadMesh3DMaterial(
+            material.Name,
+            diffuse,
+            ambient,
+            specular,
+            checked((float)(material.Opacity * (1.0 - material.Translucence))),
+            checked((float)Math.Max(1.0, material.SpecularGlossFactor * 128.0)),
+            checked((float)material.SelfIllumination),
+            textureResourceIndex >= 0
+                ? checked((float)material.DiffuseMapBlendFactor)
+                : 0.0f,
+            material.DiffuseProjectionMethod switch
+            {
+                ProjectionMethod.None => CadMaterialTextureProjection.None,
+                ProjectionMethod.Planar => CadMaterialTextureProjection.Planar,
+                ProjectionMethod.Box => CadMaterialTextureProjection.Box,
+                ProjectionMethod.Cylinder => CadMaterialTextureProjection.Cylinder,
+                ProjectionMethod.Sphere => CadMaterialTextureProjection.Sphere,
+                _ => throw new CadUnsupportedEntityException(
+                    "Material diffuse-map projection mode is not defined."),
+            },
+            material.DiffuseTilingMethod switch
+            {
+                TilingMethod.None => CadMaterialTextureTiling.None,
+                TilingMethod.Tile => CadMaterialTextureTiling.Tile,
+                TilingMethod.Crop => CadMaterialTextureTiling.Crop,
+                TilingMethod.Clamp => CadMaterialTextureTiling.Clamp,
+                _ => throw new CadUnsupportedEntityException(
+                    "Material diffuse-map tiling mode is not defined."),
+            },
+            (material.DiffuseAutoTransform &
+                AutoTransformMethodFlags.ScaleMapper) != 0,
+            textureTransform,
+            textureResourceIndex);
+        if (materialIndices.TryGetValue(retained, out int index))
+        {
+            return index;
+        }
+        if (materials.Count >= options.MaxMaterialResources)
+        {
+            throw new CadSnapshotExpansionLimitException(
+                $"Resolved material count exceeds the configured limit of {options.MaxMaterialResources}.");
+        }
+        index = materials.Count;
+        materialIndices.Add(retained, index);
+        materials.Add(retained);
+        return index;
+
+        static void ValidateUnit(double value, string name)
+        {
+            if (!double.IsFinite(value) || value < 0.0 || value > 1.0)
+            {
+                throw new ArgumentException($"Material {name} must be finite in [0, 1].");
+            }
+        }
+    }
+
+    private static CadColor32 ResolveMaterialColor(
+        ColorMethod method,
+        ACadSharp.Color authored,
+        ACadSharp.Color current,
+        double factor,
+        byte alpha)
+    {
+        ACadSharp.Color source = method switch
+        {
+            ColorMethod.Current => current,
+            ColorMethod.Override => authored,
+            _ => throw new CadUnsupportedEntityException(
+                "Material color method is not defined."),
+        };
+        return new CadColor32(
+            Scale(source.R, factor),
+            Scale(source.G, factor),
+            Scale(source.B, factor),
+            alpha);
+
+        static byte Scale(byte value, double factor) =>
+            checked((byte)Math.Clamp(Math.Round(value * factor), 0.0, 255.0));
+    }
+
+    private static byte ResolveStyleAlpha(short transparency) =>
+        transparency is < 0 or > 90
+            ? byte.MaxValue
+            : checked((byte)Math.Round(255.0 * (100.0 - transparency) / 100.0));
+
+    private static Matrix4x4 ToTextureTransform(Matrix4 value)
+    {
+        double[] values =
+        [
+            value.M00, value.M01, value.M02, value.M03,
+            value.M10, value.M11, value.M12, value.M13,
+            value.M20, value.M21, value.M22, value.M23,
+            value.M30, value.M31, value.M32, value.M33,
+        ];
+        for (int index = 0; index < values.Length; index++)
+        {
+            if (!double.IsFinite(values[index]) ||
+                values[index] < float.MinValue ||
+                values[index] > float.MaxValue)
+            {
+                throw new ArgumentException(
+                    "Material diffuse-map transform must be finite and representable by the retained GPU scene.");
+            }
+        }
+        return new Matrix4x4(
+            (float)value.M00, (float)value.M01, (float)value.M02, (float)value.M03,
+            (float)value.M10, (float)value.M11, (float)value.M12, (float)value.M13,
+            (float)value.M20, (float)value.M21, (float)value.M22, (float)value.M23,
+            (float)value.M30, (float)value.M31, (float)value.M32, (float)value.M33);
+    }
+
     /// <summary>
     /// Resolves ACI 7 to black on a light drawing background or white on a dark
     /// drawing background. Explicit true colors and every other ACI value remain
@@ -6161,6 +6441,12 @@ public sealed partial class CadSnapshotCompiler
             1);
         ArgumentOutOfRangeException.ThrowIfLessThan(
             options.MaxRasterImagePathCodeUnits,
+            1);
+        ArgumentOutOfRangeException.ThrowIfLessThan(
+            options.MaxMaterialResources,
+            1);
+        ArgumentOutOfRangeException.ThrowIfLessThan(
+            options.MaxMaterialPathCodeUnits,
             1);
         ArgumentOutOfRangeException.ThrowIfLessThan(
             options.MaxRasterImageClipVerticesPerEntity,

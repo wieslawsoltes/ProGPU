@@ -814,6 +814,33 @@ validation_result validate(
                         resource.payload_offset + mesh_index *
                             sizeof(progpu_native_scene_mesh_3d));
                 }
+                if ((mesh.flags &
+                        PROGPU_NATIVE_MESH_3D_MATERIAL_IMAGE) != 0U) {
+                    if (mesh.material_image_resource_index >=
+                        header.resource_count) {
+                        return fail(
+                            header,
+                            PROGPU_NATIVE_SCENE_VALIDATION_RANGE,
+                            resource.payload_offset + mesh_index *
+                                sizeof(progpu_native_scene_mesh_3d));
+                    }
+                    const auto material_image =
+                        read_record<progpu_native_scene_resource>(
+                            bytes,
+                            header.resource_offset +
+                                mesh.material_image_resource_index *
+                                    header.resource_stride);
+                    if (material_image.kind !=
+                            PROGPU_NATIVE_SCENE_RESOURCE_IMAGE ||
+                        (material_image.flags &
+                            PROGPU_NATIVE_SCENE_EXTERNAL_IMAGE) == 0U) {
+                        return fail(
+                            header,
+                            PROGPU_NATIVE_SCENE_VALIDATION_RECORD,
+                            resource.payload_offset + mesh_index *
+                                sizeof(progpu_native_scene_mesh_3d));
+                    }
+                }
                 for (std::size_t mesh_index_offset = mesh.index_offset;
                      mesh_index_offset <
                         static_cast<std::size_t>(mesh.index_offset) +

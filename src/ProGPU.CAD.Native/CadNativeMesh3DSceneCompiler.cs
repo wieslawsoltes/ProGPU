@@ -1,5 +1,6 @@
 using System.Numerics;
 using System.Runtime.CompilerServices;
+using ProGPU.Backend;
 using ProGPU.Backend.Native;
 
 namespace ProGPU.CAD.Native;
@@ -28,10 +29,58 @@ public sealed class CadNativeMesh3DSceneOptions
     public CadMesh3DVisualStyle? VisualStyle { get; init; }
 }
 
+public readonly record struct CadNativeMesh3DTextureBinding(
+    ulong ResourceId,
+    ulong Generation,
+    IProGpuTextureLeaseSource Source);
+
+/// <summary>
+/// Owns the typed same-device texture leases required by one native CAD scene
+/// submission. Keep this object alive through submission/fence completion.
+/// </summary>
+public sealed class CadNativeMesh3DTextureLeaseSet : IDisposable
+{
+    private readonly IProGpuTextureLease[] _leases;
+    private readonly NativeSceneExternalImageBinding[] _bindings;
+    private bool _disposed;
+
+    internal CadNativeMesh3DTextureLeaseSet(
+        IProGpuTextureLease[] leases,
+        NativeSceneExternalImageBinding[] bindings)
+    {
+        _leases = leases;
+        _bindings = bindings;
+    }
+
+    public ReadOnlyMemory<NativeSceneExternalImageBinding> Bindings =>
+        _bindings;
+
+    public void Bind(NativeCompositor compositor)
+    {
+        ObjectDisposedException.ThrowIf(_disposed, this);
+        ArgumentNullException.ThrowIfNull(compositor);
+        compositor.BindSceneExternalImages(_bindings);
+    }
+
+    public void Dispose()
+    {
+        if (_disposed)
+        {
+            return;
+        }
+        _disposed = true;
+        for (int index = _leases.Length - 1; index >= 0; index--)
+        {
+            _leases[index].Dispose();
+        }
+    }
+}
+
 /// <summary>Owns one immutable native scene stream for a CAD 3D mesh generation.</summary>
 public sealed class CadNativeMesh3DScene
 {
     private readonly byte[] _storage;
+    private readonly CadNativeMesh3DTextureBinding[] _textureBindings;
 
     internal CadNativeMesh3DScene(
         byte[] storage,
@@ -41,7 +90,8 @@ public sealed class CadNativeMesh3DScene
         ulong nativeGeneration,
         int drawBatchCount,
         int vertexCount,
-        int indexCount)
+        int indexCount,
+        CadNativeMesh3DTextureBinding[] textureBindings)
     {
         _storage = storage;
         Length = length;
@@ -51,6 +101,7 @@ public sealed class CadNativeMesh3DScene
         DrawBatchCount = drawBatchCount;
         VertexCount = vertexCount;
         IndexCount = indexCount;
+        _textureBindings = textureBindings;
     }
 
     public int Length { get; }
@@ -66,6 +117,58 @@ public sealed class CadNativeMesh3DScene
     public int IndexCount { get; }
     public ReadOnlyMemory<byte> Memory => _storage.AsMemory(0, Length);
     public ReadOnlySpan<byte> Stream => _storage.AsSpan(0, Length);
+    public ReadOnlyMemory<CadNativeMesh3DTextureBinding> TextureBindings =>
+        _textureBindings;
+
+    public CadNativeMesh3DTextureLeaseSet AcquireTextureLeases(
+        WgpuContext requiredContext)
+    {
+        ArgumentNullException.ThrowIfNull(requiredContext);
+        var leases = new IProGpuTextureLease[_textureBindings.Length];
+        var bindings = new NativeSceneExternalImageBinding[
+            _textureBindings.Length];
+        int acquired = 0;
+        try
+        {
+            for (; acquired < _textureBindings.Length; acquired++)
+            {
+                CadNativeMesh3DTextureBinding binding =
+                    _textureBindings[acquired];
+                bool success = binding.Source is
+                    IProGpuContextTextureLeaseSource contextSource
+                        ? contextSource.TryAcquireGpuTextureLease(
+                            requiredContext,
+                            out leases[acquired])
+                        : binding.Source.TryAcquireGpuTextureLease(
+                            out leases[acquired]);
+                if (!success || leases[acquired] is null)
+                {
+                    throw new InvalidOperationException(
+                        "A retained CAD material texture lease is unavailable.");
+                }
+                GpuTexture texture = leases[acquired].Texture;
+                if (texture.IsDisposed ||
+                    !ReferenceEquals(texture.Context, requiredContext))
+                {
+                    throw new InvalidOperationException(
+                        "A retained CAD material texture belongs to a different WebGPU device domain.");
+                }
+                bindings[acquired] = new NativeSceneExternalImageBinding(
+                    binding.ResourceId,
+                    binding.Generation,
+                    texture);
+            }
+            return new CadNativeMesh3DTextureLeaseSet(leases, bindings);
+        }
+        catch
+        {
+            for (int index = acquired; index >= 0; index--)
+            {
+                leases[index]?.Dispose();
+            }
+            throw;
+        }
+    }
 }
 
 /// <summary>
@@ -130,6 +233,32 @@ public sealed class CadNativeMesh3DSceneCompiler
             ResolveVisualStyle(options);
 
         ReadOnlySpan<CadMesh3DDrawBatch> batches = scene.DrawBatches.Span;
+        var materialTextureIndices = new int[batches.Length];
+        Array.Fill(materialTextureIndices, -1);
+        var materialTextureBindings =
+            new List<CadNativeMesh3DTextureBinding>();
+        var materialTextureLookup =
+            new Dictionary<CadMaterialTextureResource, int>();
+        for (int index = 0; index < batches.Length; index++)
+        {
+            CadMesh3DMaterialBinding materialBinding =
+                batches[index].MaterialBinding;
+            if (materialBinding.TextureResource is not { } resource ||
+                materialBinding.TextureSource is not { } source)
+            {
+                continue;
+            }
+            if (!materialTextureLookup.TryGetValue(resource, out int slot))
+            {
+                slot = materialTextureBindings.Count;
+                materialTextureLookup.Add(resource, slot);
+                materialTextureBindings.Add(new CadNativeMesh3DTextureBinding(
+                    checked((ulong)slot + 1U),
+                    nativeGeneration,
+                    source));
+            }
+            materialTextureIndices[index] = slot;
+        }
         int vertexCount = 0;
         int indexCount = 0;
         for (int i = 0; i < batches.Length; i++)
@@ -163,7 +292,12 @@ public sealed class CadNativeMesh3DSceneCompiler
                     textureCoordinates[vertex]);
             }
             batch.Indices.Span.CopyTo(nativeIndices.AsSpan(indexOffset));
-            CadColor32 color = batch.Color;
+            CadMesh3DMaterial material = batch.MaterialBinding.Material;
+            CadColor32 color = material.DiffuseColor;
+            uint? materialImageResourceIndex =
+                materialTextureIndices[batchIndex] >= 0
+                    ? checked((uint)materialTextureIndices[batchIndex])
+                    : null;
             nativeMeshes[batchIndex] = new NativeSceneMesh3D(
                 checked((uint)vertexOffset),
                 checked((uint)positions.Length),
@@ -176,11 +310,25 @@ public sealed class CadNativeMesh3DSceneCompiler
                     color.Alpha / 255.0f),
                 options.LightDirection,
                 options.AmbientColor,
-                options.SpecularColor,
-                options.MaterialAmbient,
-                opacity: 1.0f,
+                new Vector4(
+                    material.SpecularColor.Red / 255.0f,
+                    material.SpecularColor.Green / 255.0f,
+                    material.SpecularColor.Blue / 255.0f,
+                    material.Shininess),
+                new Vector4(
+                    material.AmbientColor.Red / 255.0f,
+                    material.AmbientColor.Green / 255.0f,
+                    material.AmbientColor.Blue / 255.0f,
+                    0.0f),
+                opacity: material.Opacity,
                 renderMode,
-                shadingMode);
+                shadingMode,
+                materialImageResourceIndex,
+                ToNativeTiling(material.TextureTiling),
+                materialImageResourceIndex.HasValue
+                    ? material.DiffuseMapBlend
+                    : 0.0f,
+                material.SelfIllumination);
             vertexOffset += positions.Length;
             indexOffset += batch.Indices.Length;
         }
@@ -193,9 +341,12 @@ public sealed class CadNativeMesh3DSceneCompiler
                 (nativeIndices.Length * sizeof(uint)) +
                 Unsafe.SizeOf<NativeSceneCamera3D>() + 32)
             : 0;
+        int resourceCount = hasDraw
+            ? checked(materialTextureBindings.Count + 1)
+            : 0;
         int storageLength = NativeSceneStreamBuilder.GetRequiredBufferSize(
             hasDraw ? 1 : 0,
-            hasDraw ? 1 : 0,
+            resourceCount,
             arenaCapacity);
         byte[] storage = GC.AllocateUninitializedArray<byte>(storageLength);
         var builder = new NativeSceneStreamBuilder(
@@ -203,11 +354,26 @@ public sealed class CadNativeMesh3DSceneCompiler
             sceneId,
             nativeGeneration,
             hasDraw ? 1 : 0,
-            hasDraw ? 1 : 0);
+            resourceCount);
         if (hasDraw)
         {
+            for (int index = 0; index < materialTextureBindings.Count; index++)
+            {
+                CadNativeMesh3DTextureBinding textureBinding =
+                    materialTextureBindings[index];
+                if (!builder.TryAddExternalImageResource(
+                        textureBinding.ResourceId,
+                        textureBinding.Generation,
+                        out uint textureResourceIndex) ||
+                    textureResourceIndex != (uint)index)
+                {
+                    throw new InvalidOperationException(
+                        "The native scene builder rejected a retained CAD material image resource.");
+                }
+            }
             if (!builder.TryAddMesh3DResource(
-                    resourceId: 1U,
+                    resourceId: checked(
+                        (ulong)materialTextureBindings.Count + 1U),
                     nativeGeneration,
                     nativeMeshes,
                     nativeVertices,
@@ -245,8 +411,18 @@ public sealed class CadNativeMesh3DSceneCompiler
             nativeGeneration,
             batches.Length,
             vertexCount,
-            indexCount);
+            indexCount,
+            materialTextureBindings.ToArray());
     }
+
+    private static NativeMesh3DTextureTiling ToNativeTiling(
+        CadMaterialTextureTiling tiling) => tiling switch
+        {
+            CadMaterialTextureTiling.Tile => NativeMesh3DTextureTiling.Tile,
+            CadMaterialTextureTiling.Crop => NativeMesh3DTextureTiling.Crop,
+            CadMaterialTextureTiling.Clamp => NativeMesh3DTextureTiling.Clamp,
+            _ => NativeMesh3DTextureTiling.None,
+        };
 
     private static (
         NativeMesh3DRenderMode RenderMode,

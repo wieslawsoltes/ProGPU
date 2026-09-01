@@ -1,4 +1,4 @@
-// Algorithm: Transform instanced UV meshes, apply a normalized crop plus quarter-turn/mirror presentation transform, sample a leased filterable RGB/NV12 texture or manually reconstruct an unfilterable P010 plane pair, apply the bounded fallback kernel and fused color effects, then evaluate bounded multi-light shading.
+// Algorithm: Transform instanced UV meshes, apply Tile/Crop/Clamp addressing plus normalized crop and quarter-turn/mirror presentation transforms, sample a leased filterable RGB/NV12 texture or manually reconstruct an unfilterable P010 plane pair, blend the sampled diffuse map with the scalar material, apply the bounded fallback kernel and fused color effects, then evaluate bounded multi-light shading with a scalar self-illumination term.
 // Time complexity: O(L + S) per fragment for L fixed lights and S source taps, where S is exactly 1 or 9; filterable RGB uses S samples, filterable NV12 uses 2S samples, and unfilterable P010 uses 2S nearest or 8S bilinear texel loads.
 // Space complexity: O(1) local/private storage, O(1) material records per mesh, and at most 72 unfilterable texel loads per fragment for the fixed nine-tap fallback.
 struct VSUniforms {
@@ -101,16 +101,23 @@ fn SampleMaterialSource(
     record: GpuMesh3DRecord,
     textureCoordinate: vec2<f32>
 ) -> vec4<f32> {
+    let addressed = AddressMaterialCoordinate(
+        record,
+        textureCoordinate);
+    if (addressed.z < 0.5) {
+        return vec4<f32>(1.0);
+    }
+    let coordinate = addressed.xy;
     if (record.textureFlags.y > 0.5) {
         let rawY = textureSampleLevel(
             materialTexture,
             materialSampler,
-            textureCoordinate,
+            coordinate,
             0.0).r;
         let rawChroma = textureSampleLevel(
             materialChromaTexture,
             materialSampler,
-            textureCoordinate,
+            coordinate,
             0.0).rg;
         let components = vec3<f32>(
             (rawY - record.yuvRange.x) *
@@ -128,8 +135,33 @@ fn SampleMaterialSource(
     return textureSampleLevel(
         materialTexture,
         materialSampler,
-        textureCoordinate,
+        coordinate,
         0.0);
+}
+
+fn AddressMaterialCoordinate(
+    record: GpuMesh3DRecord,
+    coordinate: vec2<f32>
+) -> vec3<f32> {
+    let tiling = i32(floor(record.textureSamplingMode * 0.5));
+    if (tiling == 1) {
+        return vec3<f32>(fract(coordinate), 1.0);
+    }
+    if (tiling == 2) {
+        let inside = all(coordinate >= vec2<f32>(0.0)) &&
+            all(coordinate <= vec2<f32>(1.0));
+        return vec3<f32>(clamp(
+            coordinate,
+            vec2<f32>(0.0),
+            vec2<f32>(1.0)), select(0.0, 1.0, inside));
+    }
+    if (tiling == 3) {
+        return vec3<f32>(clamp(
+            coordinate,
+            vec2<f32>(0.0),
+            vec2<f32>(1.0)), 1.0);
+    }
+    return vec3<f32>(coordinate, 1.0);
 }
 
 fn ClampMaterialCoordinate(
@@ -254,13 +286,19 @@ fn SampleMaterialSourceUnfilterable(
     record: GpuMesh3DRecord,
     textureCoordinate: vec2<f32>
 ) -> vec4<f32> {
+    let addressed = AddressMaterialCoordinate(
+        record,
+        textureCoordinate);
+    if (addressed.z < 0.5) {
+        return vec4<f32>(1.0);
+    }
     let linear =
-        record.textureSamplingMode > 0.5;
+        (i32(round(record.textureSamplingMode)) & 1) == 1;
     let rawY = SampleUnfilterableLuma(
-        textureCoordinate,
+        addressed.xy,
         linear);
     let rawChroma = SampleUnfilterableChroma(
-        textureCoordinate,
+        addressed.xy,
         linear);
     let components = vec3<f32>(
         (rawY - record.yuvRange.x) *
@@ -652,7 +690,8 @@ fn ComputeLighting(
     let F_rim = pow(1.0 - max(dot(N, V), 0.0), 4.0);
     let rimColor = vec3<f32>(0.85, 0.90, 1.0) * F_rim * 0.25 * keyIntensity;
 
-    var resultColor = ambient + diffuseOut + specularOut + rimColor;
+    var resultColor = ambient + diffuseOut + specularOut + rimColor +
+        albedo.rgb * clamp(record.materialAmbient.w, 0.0, 1.0);
 
     if (shading == 4u) { // Shades of Gray
         let gray = dot(resultColor, vec3<f32>(0.2126, 0.7152, 0.0722));

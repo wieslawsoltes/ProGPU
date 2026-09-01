@@ -147,6 +147,10 @@ public readonly record struct CadEntityHeader(
     /// Hidden VIEWPORT boundary dependencies remain addressable while false.
     /// </summary>
     public bool IsVisible { get; init; } = true;
+
+    /// <summary>Resolved retained 3D material, or -1 for non-surface records.</summary>
+    public int MaterialIndex { get; init; } = -1;
+
 }
 
 public readonly record struct CadLinePrimitive(CadPoint3D Start, CadPoint3D End);
@@ -378,6 +382,11 @@ public readonly record struct CadMesh3DDrawRange(
     /// expose modern mesh subobjects.
     /// </summary>
     public int FaceSubobjectIndex { get; init; } = -1;
+
+    /// <summary>Resolved retained material shared by this contiguous range.</summary>
+    public int MaterialIndex { get; init; } = -1;
+
+    public bool HasTextureCoordinates { get; init; }
 }
 
 /// <summary>One authored modern-MESH edge as an ordered display polyline.</summary>
@@ -842,6 +851,8 @@ public sealed class CadDocumentSnapshot
     private readonly CadRasterImagePrimitive[] _rasterImages;
     private readonly CadRasterImageResource[] _rasterImageResources;
     private readonly CadWipeoutClipPoint[] _rasterImageClipPoints;
+    private readonly CadMesh3DMaterial[] _mesh3DMaterials;
+    private readonly CadMaterialTextureResource[] _materialTextureResources;
     private readonly CadMesh3DPrimitive[] _meshes3D;
     private readonly CadMesh3DDrawRange[] _mesh3DDrawRanges;
     private readonly CadMesh3DVertex[] _mesh3DVertices;
@@ -952,6 +963,9 @@ public sealed class CadDocumentSnapshot
     public ReadOnlyMemory<CadRasterImagePrimitive> RasterImages => _rasterImages;
     public ReadOnlyMemory<CadRasterImageResource> RasterImageResources => _rasterImageResources;
     public ReadOnlyMemory<CadWipeoutClipPoint> RasterImageClipPoints => _rasterImageClipPoints;
+    public ReadOnlyMemory<CadMesh3DMaterial> Mesh3DMaterials => _mesh3DMaterials;
+    public ReadOnlyMemory<CadMaterialTextureResource> MaterialTextureResources =>
+        _materialTextureResources;
     public ReadOnlyMemory<CadMesh3DPrimitive> Meshes3D => _meshes3D;
     public ReadOnlyMemory<CadMesh3DDrawRange> Mesh3DDrawRanges => _mesh3DDrawRanges;
     public ReadOnlyMemory<CadMesh3DVertex> Mesh3DVertices => _mesh3DVertices;
@@ -1051,6 +1065,8 @@ public sealed class CadDocumentSnapshot
         CadRasterImagePrimitive[] rasterImages,
         CadRasterImageResource[] rasterImageResources,
         CadWipeoutClipPoint[] rasterImageClipPoints,
+        CadMesh3DMaterial[] mesh3DMaterials,
+        CadMaterialTextureResource[] materialTextureResources,
         CadMesh3DPrimitive[] meshes3D,
         CadMesh3DDrawRange[] mesh3DDrawRanges,
         CadMesh3DVertex[] mesh3DVertices,
@@ -1141,6 +1157,8 @@ public sealed class CadDocumentSnapshot
         _rasterImages = rasterImages;
         _rasterImageResources = rasterImageResources;
         _rasterImageClipPoints = rasterImageClipPoints;
+        _mesh3DMaterials = mesh3DMaterials;
+        _materialTextureResources = materialTextureResources;
         _meshes3D = meshes3D;
         _mesh3DDrawRanges = mesh3DDrawRanges;
         _mesh3DVertices = mesh3DVertices;

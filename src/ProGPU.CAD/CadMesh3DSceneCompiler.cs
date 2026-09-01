@@ -1,4 +1,5 @@
 using System.Numerics;
+using ProGPU.Backend;
 
 namespace ProGPU.CAD;
 
@@ -8,6 +9,7 @@ public sealed class CadMesh3DSceneOptions
 
     public bool IncludeNonPlottableLayers { get; init; } = true;
     public int MaxDrawBatches { get; init; } = DefaultMaxDrawBatches;
+    public ICadMaterialTextureSourceResolver? MaterialTextureResolver { get; init; }
 }
 
 public readonly record struct CadMesh3DSceneStatistics(
@@ -88,6 +90,7 @@ public sealed class CadMesh3DDrawBatch
     public int LayerIndex { get; }
     public int StyleIndex { get; }
     public CadColor32 Color { get; }
+    public CadMesh3DMaterialBinding MaterialBinding { get; }
     public CadBounds3D Bounds { get; }
     public ReadOnlyMemory<Vector3> Positions => _positions;
     public ReadOnlyMemory<Vector3> Normals => _normals;
@@ -105,6 +108,7 @@ public sealed class CadMesh3DDrawBatch
         int layerIndex,
         int styleIndex,
         CadColor32 color,
+        CadMesh3DMaterialBinding materialBinding,
         CadBounds3D bounds,
         Vector3[] positions,
         Vector3[] normals,
@@ -115,6 +119,7 @@ public sealed class CadMesh3DDrawBatch
         LayerIndex = layerIndex;
         StyleIndex = styleIndex;
         Color = color;
+        MaterialBinding = materialBinding;
         Bounds = bounds;
         _positions = positions;
         _normals = normals;
@@ -131,6 +136,7 @@ public sealed class CadMesh3DDrawBatch
         int layerIndex,
         int styleIndex,
         CadColor32 color,
+        CadMesh3DMaterialBinding materialBinding,
         CadBounds3D bounds,
         Vector3[] positions,
         Vector3[] normals,
@@ -145,6 +151,7 @@ public sealed class CadMesh3DDrawBatch
             layerIndex,
             styleIndex,
             color,
+            materialBinding,
             bounds,
             positions,
             normals,
@@ -269,7 +276,8 @@ public sealed class CadMesh3DSceneCompiler
                     if (next.Kind is not (CadEntityKind.Solid or CadEntityKind.Face3D) ||
                         next.Handle != entity.Handle ||
                         next.LayerIndex != entity.LayerIndex ||
-                        next.StyleIndex != entity.StyleIndex)
+                        next.StyleIndex != entity.StyleIndex ||
+                        next.MaterialIndex != entity.MaterialIndex)
                     {
                         break;
                     }
@@ -307,6 +315,10 @@ public sealed class CadMesh3DSceneCompiler
                     faceGroup,
                     faces,
                     styles[entity.StyleIndex],
+                    ResolveMaterialBinding(
+                        snapshot,
+                        entity.MaterialIndex,
+                        options.MaterialTextureResolver),
                     groupTriangleCount,
                     cancellationToken));
                 continue;
@@ -325,12 +337,17 @@ public sealed class CadMesh3DSceneCompiler
                     mesh.DrawRangeOffset + rangeCursor];
                 int layerIndex = first.LayerIndex;
                 int styleIndex = first.StyleIndex;
+                int materialIndex = first.MaterialIndex;
+                bool hasTextureCoordinates = first.HasTextureCoordinates;
                 int rangeEnd = rangeCursor + 1;
                 while (rangeEnd < mesh.DrawRangeCount)
                 {
                     CadMesh3DDrawRange next = ranges[
                         mesh.DrawRangeOffset + rangeEnd];
-                    if (next.LayerIndex != layerIndex || next.StyleIndex != styleIndex)
+                    if (next.LayerIndex != layerIndex ||
+                        next.StyleIndex != styleIndex ||
+                        next.MaterialIndex != materialIndex ||
+                        next.HasTextureCoordinates != hasTextureCoordinates)
                     {
                         break;
                     }
@@ -425,11 +442,23 @@ public sealed class CadMesh3DSceneCompiler
                 }
 
                 triangleCount = checked(triangleCount + (indexCount / 3));
+                CadMesh3DMaterialBinding materialBinding =
+                    ResolveMaterialBinding(
+                        snapshot,
+                        materialIndex,
+                        options.MaterialTextureResolver);
+                ApplyMaterialTextureCoordinates(
+                    materialBinding.Material,
+                    positions,
+                    normals,
+                    textureCoordinates,
+                    hasTextureCoordinates);
                 batches.Add(new CadMesh3DDrawBatch(
                     entity.Handle,
                     layerIndex,
                     styleIndex,
                     ToColor(styles[styleIndex]),
+                    materialBinding,
                     batchBounds,
                     positions,
                     normals,
@@ -562,6 +591,7 @@ public sealed class CadMesh3DSceneCompiler
         ReadOnlySpan<CadEntityHeader> entities,
         ReadOnlySpan<CadFacePrimitive> faces,
         CadStrokeStyle style,
+        CadMesh3DMaterialBinding materialBinding,
         int triangleCount,
         CancellationToken cancellationToken)
     {
@@ -581,11 +611,18 @@ public sealed class CadMesh3DSceneCompiler
         }
 
         CadEntityHeader firstEntity = entities[0];
+        ApplyMaterialTextureCoordinates(
+            materialBinding.Material,
+            positions,
+            normals,
+            textureCoordinates,
+            hasAuthoredCoordinates: false);
         return new CadMesh3DDrawBatch(
             firstEntity.Handle,
             firstEntity.LayerIndex,
             firstEntity.StyleIndex,
             ToColor(style),
+            materialBinding,
             bounds,
             positions,
             normals,
@@ -633,6 +670,160 @@ public sealed class CadMesh3DSceneCompiler
             indices[destination] = checked((uint)destination);
             bounds = bounds.Include(position);
             destination++;
+        }
+    }
+
+    private static CadMesh3DMaterialBinding ResolveMaterialBinding(
+        CadDocumentSnapshot snapshot,
+        int materialIndex,
+        ICadMaterialTextureSourceResolver? resolver)
+    {
+        ReadOnlySpan<CadMesh3DMaterial> materials =
+            snapshot.Mesh3DMaterials.Span;
+        if ((uint)materialIndex >= (uint)materials.Length)
+        {
+            throw new InvalidOperationException(
+                "A retained 3D surface references a material outside the snapshot table.");
+        }
+        CadMesh3DMaterial material = materials[materialIndex];
+        if (!material.HasDiffuseTexture)
+        {
+            return new CadMesh3DMaterialBinding(material, null, null);
+        }
+        ReadOnlySpan<CadMaterialTextureResource> resources =
+            snapshot.MaterialTextureResources.Span;
+        if ((uint)material.TextureResourceIndex >= (uint)resources.Length)
+        {
+            throw new InvalidOperationException(
+                "A retained CAD material references a texture outside the snapshot table.");
+        }
+        CadMaterialTextureResource resource =
+            resources[material.TextureResourceIndex];
+        IProGpuTextureLeaseSource? source = null;
+        if (resolver is not null)
+        {
+            var request = new CadMaterialTextureRequest(
+                snapshot.SourceName,
+                resource);
+            resolver.TryResolve(request, out source!);
+        }
+        return new CadMesh3DMaterialBinding(material, resource, source);
+    }
+
+    private static void ApplyMaterialTextureCoordinates(
+        in CadMesh3DMaterial material,
+        ReadOnlySpan<Vector3> positions,
+        ReadOnlySpan<Vector3> normals,
+        Span<Vector2> textureCoordinates,
+        bool hasAuthoredCoordinates)
+    {
+        if (!material.HasDiffuseTexture || textureCoordinates.IsEmpty)
+        {
+            return;
+        }
+        if (!hasAuthoredCoordinates)
+        {
+            Vector3 minimum = new(float.PositiveInfinity);
+            Vector3 maximum = new(float.NegativeInfinity);
+            for (int index = 0; index < positions.Length; index++)
+            {
+                minimum = Vector3.Min(minimum, positions[index]);
+                maximum = Vector3.Max(maximum, positions[index]);
+            }
+            Vector3 extent = maximum - minimum;
+            Vector3 center = (minimum + maximum) * 0.5f;
+            (int firstAxis, int secondAxis) = extent.X <= extent.Y
+                ? extent.X <= extent.Z ? (1, 2) : (0, 1)
+                : extent.Y <= extent.Z ? (0, 2) : (0, 1);
+            for (int index = 0; index < positions.Length; index++)
+            {
+                Vector3 position = positions[index];
+                Vector3 mapped = material.ScaleMapperToEntityExtents
+                    ? new Vector3(
+                        (position.X - minimum.X) / Math.Max(extent.X, 1e-6f),
+                        (position.Y - minimum.Y) / Math.Max(extent.Y, 1e-6f),
+                        (position.Z - minimum.Z) / Math.Max(extent.Z, 1e-6f))
+                    : position;
+                Vector3 radial = material.ScaleMapperToEntityExtents
+                    ? mapped * 2.0f - Vector3.One
+                    : position - center;
+                textureCoordinates[index] = material.TextureProjection switch
+                {
+                    CadMaterialTextureProjection.Box => ProjectBox(
+                        mapped,
+                        normals.Length == positions.Length
+                            ? normals[index]
+                            : Vector3.UnitZ),
+                    CadMaterialTextureProjection.Cylinder => new Vector2(
+                        MathF.Atan2(radial.Y, radial.X) /
+                            (2.0f * MathF.PI) + 0.5f,
+                        material.ScaleMapperToEntityExtents
+                            ? mapped.Z
+                            : position.Z),
+                    CadMaterialTextureProjection.Sphere => ProjectSphere(radial),
+                    CadMaterialTextureProjection.None =>
+                        new Vector2(mapped.X, mapped.Y),
+                    _ => new Vector2(
+                        material.ScaleMapperToEntityExtents
+                            ? GetAxis(mapped, firstAxis)
+                            : GetAxis(position, firstAxis),
+                        material.ScaleMapperToEntityExtents
+                            ? GetAxis(mapped, secondAxis)
+                            : GetAxis(position, secondAxis)),
+                };
+            }
+        }
+
+        for (int index = 0; index < textureCoordinates.Length; index++)
+        {
+            Vector2 source = textureCoordinates[index];
+            Vector4 transformed = Vector4.Transform(
+                new Vector4(source, 0.0f, 1.0f),
+                material.TextureTransform);
+            float inverseW = Math.Abs(transformed.W) > 1e-6f
+                ? 1.0f / transformed.W
+                : 1.0f;
+            var result = new Vector2(
+                transformed.X * inverseW,
+                transformed.Y * inverseW);
+            if (!float.IsFinite(result.X) || !float.IsFinite(result.Y))
+            {
+                throw new InvalidOperationException(
+                    "A CAD material mapper produced a non-finite texture coordinate.");
+            }
+            textureCoordinates[index] = result;
+        }
+
+        static float GetAxis(Vector3 value, int axis) => axis switch
+        {
+            0 => value.X,
+            1 => value.Y,
+            _ => value.Z,
+        };
+
+        static Vector2 ProjectBox(Vector3 position, Vector3 normal)
+        {
+            Vector3 absolute = Vector3.Abs(normal);
+            return absolute.X >= absolute.Y && absolute.X >= absolute.Z
+                ? new Vector2(position.Y, position.Z)
+                : absolute.Y >= absolute.Z
+                    ? new Vector2(position.X, position.Z)
+                    : new Vector2(position.X, position.Y);
+        }
+
+        static Vector2 ProjectSphere(Vector3 radial)
+        {
+            float length = radial.Length();
+            if (length <= 1e-6f)
+            {
+                return new Vector2(0.5f);
+            }
+            Vector3 direction = radial / length;
+            return new Vector2(
+                MathF.Atan2(direction.Y, direction.X) /
+                    (2.0f * MathF.PI) + 0.5f,
+                MathF.Acos(Math.Clamp(direction.Z, -1.0f, 1.0f)) /
+                    MathF.PI);
         }
     }
 

@@ -1,5 +1,5 @@
-// Algorithm: Transform retained 3D lines and indexed meshes on the GPU; expand lines in physical screen space, evaluate the canonical bounded three-light CAD visual-style model, and apply derivative wire coverage.
-// Time complexity: O(L + I) shader invocations for L expanded line vertices and I referenced mesh indices; every mesh fragment evaluates at most three fixed lights and one derivative wire test.
+// Algorithm: Transform retained 3D lines and indexed meshes on the GPU; expand lines in physical screen space, address and sample one optional diffuse material image, evaluate the canonical bounded three-light CAD visual-style model, and apply derivative wire coverage.
+// Time complexity: O(L + I) shader invocations for L expanded line vertices and I referenced mesh indices; every mesh fragment performs at most one filtered texture sample, three fixed lights, and one derivative wire test.
 // Space complexity: O(C + E + M + V + I) read-only storage for cameras, edges, meshes, vertices, and indices; O(1) private storage and no auxiliary output storage per invocation.
 // Lines use six vertices per retained edge. Meshes fetch uint32 indices from
 // storage so one pointer-free scene ABI works in native WebGPU and wasm32.
@@ -40,8 +40,8 @@ struct Mesh3D {
     material_ambient: vec4<f32>,
     opacity: f32,
     shading_mode: u32,
-    reserved0: u32,
-    reserved1: u32,
+    material_image_resource_index: u32,
+    material_factors: u32,
 };
 
 struct MeshVertex3D {
@@ -56,6 +56,8 @@ struct MeshVertex3D {
 @group(0) @binding(2) var<storage, read> meshes: array<Mesh3D>;
 @group(0) @binding(3) var<storage, read> vertices: array<MeshVertex3D>;
 @group(0) @binding(4) var<storage, read> indices: array<u32>;
+@group(1) @binding(0) var material_sampler: sampler;
+@group(1) @binding(1) var material_texture: texture_2d<f32>;
 
 struct LineOutput {
     @builtin(position) position: vec4<f32>,
@@ -107,6 +109,7 @@ struct MeshOutput {
     @location(2) world_position: vec3<f32>,
     @location(3) @interpolate(flat) material: u32,
     @location(4) barycentric: vec3<f32>,
+    @location(5) texture_coordinate: vec2<f32>,
 };
 
 @vertex
@@ -124,6 +127,7 @@ fn vs_mesh_3d(
     output.normal = normalize((mesh.normal_transform * vec4<f32>(vertex.normal.xyz, 0.0)).xyz);
     output.world_position = world.xyz;
     output.material = instance_index;
+    output.texture_coordinate = vertex.texture_coordinate;
     let corner = vertex_index % 3u;
     output.barycentric = vec3<f32>(select(0.0, 1.0, corner == 0u), select(0.0, 1.0, corner == 1u), select(0.0, 1.0, corner == 2u));
     return output;
@@ -222,7 +226,8 @@ fn compute_mesh_lighting(
     mesh: Mesh3D,
     camera: Camera3D,
     world_position: vec3<f32>,
-    world_normal: vec3<f32>
+    world_normal: vec3<f32>,
+    diffuse_color: vec3<f32>
 ) -> vec4<f32> {
     let shading = mesh.shading_mode;
     let normal = normalize(world_normal);
@@ -234,7 +239,7 @@ fn compute_mesh_lighting(
     }
     if (shading == 2u) {
         return vec4<f32>(
-            mesh.color.rgb,
+            diffuse_color,
             mesh.color.a * mesh.opacity);
     }
     if (shading == 3u) {
@@ -254,7 +259,7 @@ fn compute_mesh_lighting(
         1.0);
     let base_reflectance = mix(
         vec3<f32>(0.04),
-        mesh.color.rgb,
+        diffuse_color,
         0.1);
     let key = normalize(mesh.light_direction.xyz);
     let key_intensity = mesh.light_direction.w;
@@ -270,15 +275,15 @@ fn compute_mesh_lighting(
         illuminated += gooch_shading(
             normal,
             key,
-            mesh.color.rgb) * key_intensity;
+            diffuse_color) * key_intensity;
         illuminated += gooch_shading(
             normal,
             fill,
-            mesh.color.rgb) * fill_intensity * fill_color;
+            diffuse_color) * fill_intensity * fill_color;
         illuminated += gooch_shading(
             normal,
             back,
-            mesh.color.rgb) * back_intensity * back_color;
+            diffuse_color) * back_intensity * back_color;
 
         let half_vector = normalize(key + view);
         let normal_dot_light = max(dot(normal, key), 0.0);
@@ -307,7 +312,7 @@ fn compute_mesh_lighting(
             key_intensity,
             roughness,
             base_reflectance,
-            mesh.color.rgb).rgb;
+            diffuse_color).rgb;
         illuminated += accumulate_pbr_light(
             normal,
             view,
@@ -316,7 +321,7 @@ fn compute_mesh_lighting(
             fill_intensity,
             roughness,
             base_reflectance,
-            mesh.color.rgb).rgb;
+            diffuse_color).rgb;
         illuminated += accumulate_pbr_light(
             normal,
             view,
@@ -325,7 +330,7 @@ fn compute_mesh_lighting(
             back_intensity,
             roughness,
             base_reflectance,
-            mesh.color.rgb).rgb;
+            diffuse_color).rgb;
     }
 
     let sky_factor = normal.y * 0.5 + 0.5;
@@ -341,7 +346,10 @@ fn compute_mesh_lighting(
         4.0);
     let rim = vec3<f32>(0.85, 0.90, 1.0) *
         rim_factor * 0.25 * key_intensity;
-    var rgb = ambient + illuminated + rim;
+    let self_illumination =
+        f32((mesh.material_factors >> 16u) & 65535u) / 65535.0;
+    var rgb = ambient + illuminated + rim +
+        diffuse_color * self_illumination;
     if (shading == 4u) {
         rgb = vec3<f32>(
             dot(rgb, vec3<f32>(0.2126, 0.7152, 0.0722)));
@@ -359,6 +367,25 @@ fn compute_mesh_lighting(
     return vec4<f32>(rgb, opacity);
 }
 
+fn address_material_coordinate(
+    coordinate: vec2<f32>,
+    tiling: u32
+) -> vec3<f32> {
+    if (tiling == 1u) {
+        return vec3<f32>(fract(coordinate), 1.0);
+    }
+    if (tiling == 2u) {
+        let inside = all(coordinate >= vec2<f32>(0.0)) &&
+            all(coordinate <= vec2<f32>(1.0));
+        return vec3<f32>(
+            clamp(coordinate, vec2<f32>(0.0), vec2<f32>(1.0)),
+            select(0.0, 1.0, inside));
+    }
+    return vec3<f32>(
+        clamp(coordinate, vec2<f32>(0.0), vec2<f32>(1.0)),
+        1.0);
+}
+
 @fragment
 fn fs_mesh_3d(
     input: MeshOutput,
@@ -370,11 +397,31 @@ fn fs_mesh_3d(
     if (!is_front) {
         normal = -normal;
     }
-    let solid = compute_mesh_lighting(
+    var diffuse_color = mesh.color.rgb;
+    var texture_alpha = 1.0;
+    if ((mesh.flags & 1u) != 0u) {
+        let tiling = (mesh.flags >> 1u) & 3u;
+        let addressed = address_material_coordinate(
+            input.texture_coordinate,
+            tiling);
+        var sampled = vec4<f32>(1.0);
+        if (addressed.z > 0.5) {
+            sampled = textureSample(
+                material_texture,
+                material_sampler,
+                addressed.xy);
+        }
+        let blend = f32(mesh.material_factors & 65535u) / 65535.0;
+        diffuse_color *= mix(vec3<f32>(1.0), sampled.rgb, blend);
+        texture_alpha = mix(1.0, sampled.a, blend);
+    }
+    var solid = compute_mesh_lighting(
         mesh,
         camera,
         input.world_position,
-        normal);
+        normal,
+        diffuse_color);
+    solid.a *= texture_alpha;
     let derivative_x = dpdx(input.barycentric);
     let derivative_y = dpdy(input.barycentric);
     let gradient = max(

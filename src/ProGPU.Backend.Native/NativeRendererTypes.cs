@@ -622,6 +622,15 @@ public enum NativeMesh3DTopology : uint
     TriangleStrip = 1
 }
 
+/// <summary>Addressing policy for a retained mesh diffuse image.</summary>
+public enum NativeMesh3DTextureTiling : uint
+{
+    None = 0,
+    Tile = 1,
+    Crop = 2,
+    Clamp = 3
+}
+
 public enum NativeMesh3DRenderMode : uint
 {
     Solid = 0,

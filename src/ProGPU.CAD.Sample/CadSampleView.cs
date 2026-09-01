@@ -4653,6 +4653,14 @@ public sealed class CadSampleView : Grid
     private void RebuildMesh3DView(bool resetCamera)
     {
         _viewport3D.Children.Clear();
+        for (int index = 0; index < _meshMaterialBindings.Count; index++)
+        {
+            if (_meshMaterialBindings[index].Material is
+                ProGpuTextureMaterial textureMaterial)
+            {
+                textureMaterial.Dispose();
+            }
+        }
         _meshMaterialBindings.Clear();
         _lastMeshSelection = null;
         _lastMeshSubobjectSelection = null;
@@ -4670,7 +4678,11 @@ public sealed class CadSampleView : Grid
 
         CadRecordedMesh3DScene scene = _mesh3DView.ReplaceSnapshot(
             snapshot,
-            resetCamera);
+            resetCamera,
+            new CadMesh3DSceneOptions
+            {
+                MaterialTextureResolver = _canvas.RasterImages,
+            });
         int semanticRootCount = _mesh3DView.SelectionIndex!.SemanticRootCount;
         if (_meshRegionRootScratch.Length < semanticRootCount)
         {
@@ -4693,18 +4705,44 @@ public sealed class CadSampleView : Grid
             {
                 indices[i] = checked((int)sourceIndices[i]);
             }
-            CadColor32 color = batch.Color;
-            var material = new DiffuseMaterial
-            {
-                Color = new System.Numerics.Vector4(
-                    color.Red / 255.0f,
-                    color.Green / 255.0f,
-                    color.Blue / 255.0f,
-                    color.Alpha / 255.0f),
-                AmbientColor = new System.Numerics.Vector3(0.2f),
-                SpecularColor = new System.Numerics.Vector3(0.15f),
-                Shininess = 16.0f,
-            };
+            CadMesh3DMaterial retainedMaterial =
+                batch.MaterialBinding.Material;
+            CadColor32 color = retainedMaterial.DiffuseColor;
+            DiffuseMaterial material = batch.MaterialBinding.TextureSource is
+                { } textureSource
+                ? new ProGpuTextureMaterial
+                {
+                    TextureSource = textureSource,
+                    TextureEffect = CreateMaterialTextureEffect(
+                        retainedMaterial.DiffuseMapBlend),
+                    TilingMode = retainedMaterial.TextureTiling switch
+                    {
+                        CadMaterialTextureTiling.Tile =>
+                            MeshTextureTilingMode.Tile,
+                        CadMaterialTextureTiling.Crop =>
+                            MeshTextureTilingMode.Crop,
+                        CadMaterialTextureTiling.Clamp =>
+                            MeshTextureTilingMode.Clamp,
+                        _ => MeshTextureTilingMode.None,
+                    },
+                }
+                : new DiffuseMaterial();
+            material.Color = new System.Numerics.Vector4(
+                color.Red / 255.0f,
+                color.Green / 255.0f,
+                color.Blue / 255.0f,
+                color.Alpha / 255.0f);
+            material.AmbientColor = new System.Numerics.Vector3(
+                retainedMaterial.AmbientColor.Red / 255.0f,
+                retainedMaterial.AmbientColor.Green / 255.0f,
+                retainedMaterial.AmbientColor.Blue / 255.0f);
+            material.SpecularColor = new System.Numerics.Vector3(
+                retainedMaterial.SpecularColor.Red / 255.0f,
+                retainedMaterial.SpecularColor.Green / 255.0f,
+                retainedMaterial.SpecularColor.Blue / 255.0f);
+            material.Shininess = retainedMaterial.Shininess;
+            material.SelfIllumination = retainedMaterial.SelfIllumination;
+            material.Brush.Opacity = retainedMaterial.Opacity;
             _meshMaterialBindings.Add(new MeshMaterialBinding(
                 batch.Handle,
                 material,
@@ -4741,6 +4779,22 @@ public sealed class CadSampleView : Grid
         ApplyMeshCamera(_mesh3DView.Viewport!.Value);
         RefreshMeshSubobjectOverlay();
         _viewport3D.Invalidate();
+    }
+
+    private static MeshTextureEffect CreateMaterialTextureEffect(float blend)
+    {
+        blend = Math.Clamp(blend, 0.0f, 1.0f);
+        return new MeshTextureEffect(
+            colorMatrix: new ProGPU.Scene.ImageEffectColorMatrix(
+                new System.Numerics.Vector4(blend, 0.0f, 0.0f, 0.0f),
+                new System.Numerics.Vector4(0.0f, blend, 0.0f, 0.0f),
+                new System.Numerics.Vector4(0.0f, 0.0f, blend, 0.0f),
+                new System.Numerics.Vector4(0.0f, 0.0f, 0.0f, 1.0f),
+                new System.Numerics.Vector4(
+                    1.0f - blend,
+                    1.0f - blend,
+                    1.0f - blend,
+                    0.0f)));
     }
 
     private void OnMeshSelectionDragStarting(

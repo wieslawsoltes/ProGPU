@@ -119,10 +119,21 @@ public partial struct NativeSceneMesh3D
         Vector4 materialAmbient,
         float opacity,
         NativeMesh3DRenderMode renderMode = NativeMesh3DRenderMode.Solid,
-        uint shadingMode = (uint)NativeMesh3DShadingMode.Flat)
+        uint shadingMode = (uint)NativeMesh3DShadingMode.Flat,
+        uint? materialImageResourceIndex = null,
+        NativeMesh3DTextureTiling textureTiling =
+            NativeMesh3DTextureTiling.None,
+        float diffuseMapBlend = 0.0f,
+        float selfIllumination = 0.0f)
     {
+        if (textureTiling > NativeMesh3DTextureTiling.Clamp)
+        {
+            throw new ArgumentOutOfRangeException(nameof(textureTiling));
+        }
         StructSize = (uint)Unsafe.SizeOf<NativeSceneMesh3D>();
-        Flags = 0U;
+        Flags = !materialImageResourceIndex.HasValue
+            ? 0U
+            : 1U | ((uint)textureTiling << 1);
         Topology = (uint)NativeMesh3DTopology.Triangles;
         RenderMode = (uint)renderMode;
         VertexOffset = vertexOffset;
@@ -138,8 +149,10 @@ public partial struct NativeSceneMesh3D
         MaterialAmbient = new NativeFloat4(materialAmbient);
         Opacity = opacity;
         ShadingMode = shadingMode;
-        Reserved0 = 0U;
-        Reserved1 = 0U;
+        MaterialImageResourceIndex = materialImageResourceIndex.GetValueOrDefault();
+        MaterialFactors = PackUnitFactors(
+            diffuseMapBlend,
+            selfIllumination);
     }
 
     public NativeSceneMesh3D(
@@ -154,7 +167,12 @@ public partial struct NativeSceneMesh3D
         Vector4 materialAmbient,
         float opacity,
         NativeMesh3DRenderMode renderMode,
-        NativeMesh3DShadingMode shadingMode)
+        NativeMesh3DShadingMode shadingMode,
+        uint? materialImageResourceIndex = null,
+        NativeMesh3DTextureTiling textureTiling =
+            NativeMesh3DTextureTiling.None,
+        float diffuseMapBlend = 0.0f,
+        float selfIllumination = 0.0f)
         : this(
             vertexOffset,
             vertexCount,
@@ -167,7 +185,32 @@ public partial struct NativeSceneMesh3D
             materialAmbient,
             opacity,
             renderMode,
-            (uint)shadingMode)
+            (uint)shadingMode,
+            materialImageResourceIndex,
+            textureTiling,
+            diffuseMapBlend,
+            selfIllumination)
     {
+    }
+
+    private static uint PackUnitFactors(float low, float high)
+    {
+        if (!float.IsFinite(low) || low < 0.0f || low > 1.0f)
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(low),
+                "The diffuse-map blend factor must be finite and in [0, 1].");
+        }
+        if (!float.IsFinite(high) || high < 0.0f || high > 1.0f)
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(high),
+                "The self-illumination factor must be finite and in [0, 1].");
+        }
+        uint lowBits = (uint)MathF.Round(
+            low * ushort.MaxValue);
+        uint highBits = (uint)MathF.Round(
+            high * ushort.MaxValue);
+        return lowBits | (highBits << 16);
     }
 }

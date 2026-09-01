@@ -1757,11 +1757,43 @@ bool semantic_scene_builder_records_retained_3d_families() {
     mesh.material_ambient = {0.1F, 0.1F, 0.1F, 0.0F};
     mesh.opacity = 1.0F;
 
+    semantic_scene_builder invalid_builder(711U, 3U);
+    if (!invalid_builder.draw_lines_3d(
+            std::span<const progpu_native_scene_line_3d>(&line, 1U),
+            camera,
+            {0.0F, 0.0F, 256.0F, 256.0F})) {
+        return false;
+    }
+    auto invalid_mesh = mesh;
+    invalid_mesh.flags = PROGPU_NATIVE_MESH_3D_MATERIAL_IMAGE;
+    invalid_mesh.material_image_resource_index = 0U;
+    if (invalid_builder.draw_meshes_3d(
+            std::span<const progpu_native_scene_mesh_3d>(&invalid_mesh, 1U),
+            vertices,
+            indices,
+            camera,
+            {0.0F, 0.0F, 256.0F, 256.0F})) {
+        return false;
+    }
+
     semantic_scene_builder builder(712U, 3U);
     if (!builder.draw_lines_3d(
             std::span<const progpu_native_scene_line_3d>(&line, 1U),
             camera,
-            {0.0F, 0.0F, 256.0F, 256.0F}) ||
+            {0.0F, 0.0F, 256.0F, 256.0F})) {
+        return false;
+    }
+    std::uint32_t material_image = PROGPU_NATIVE_SCENE_NO_INDEX;
+    if (!builder.add_external_image(64U, 32U, material_image) ||
+        material_image != 1U) {
+        return false;
+    }
+    mesh.flags = PROGPU_NATIVE_MESH_3D_MATERIAL_IMAGE |
+        (PROGPU_NATIVE_MESH_3D_CROP <<
+            PROGPU_NATIVE_MESH_3D_TILING_SHIFT);
+    mesh.material_image_resource_index = material_image;
+    mesh.material_factors = 32768U | (16384U << 16U);
+    if (
         !builder.draw_meshes_3d(
             std::span<const progpu_native_scene_mesh_3d>(&mesh, 1U),
             vertices,
@@ -1777,14 +1809,18 @@ bool semantic_scene_builder_records_retained_3d_families() {
     }
     const auto validated = scene::validate(stream.data(), stream.size());
     if (validated.status != PROGPU_NATIVE_STATUS_SUCCESS ||
-        validated.header.resource_count != 2U ||
+        validated.header.resource_count != 3U ||
         validated.header.command_count != 2U ||
-        metrics.command_count != 2U || metrics.resource_count != 2U) {
+        metrics.command_count != 2U || metrics.resource_count != 3U) {
         return false;
     }
     const auto line_resource = read<progpu_native_scene_resource>(
         stream, validated.header.resource_offset);
     const auto mesh_resource = read<progpu_native_scene_resource>(
+        stream,
+        validated.header.resource_offset +
+            2U * validated.header.resource_stride);
+    const auto material_image_resource = read<progpu_native_scene_resource>(
         stream,
         validated.header.resource_offset + validated.header.resource_stride);
     const auto line_command = read<progpu_native_scene_command>(
@@ -1797,6 +1833,10 @@ bool semantic_scene_builder_records_retained_3d_families() {
         line_resource.payload_size == sizeof(line) &&
         mesh_resource.kind ==
             PROGPU_NATIVE_SCENE_RESOURCE_MESH_3D_BATCH &&
+        material_image_resource.kind ==
+            PROGPU_NATIVE_SCENE_RESOURCE_IMAGE &&
+        (material_image_resource.flags &
+            PROGPU_NATIVE_SCENE_EXTERNAL_IMAGE) != 0U &&
         mesh_resource.payload_size == sizeof(mesh) &&
         mesh_resource.auxiliary_size == sizeof(vertices) +
             sizeof(indices) &&

@@ -249,6 +249,7 @@ public sealed class CadEncodedRasterImageSource :
 /// </summary>
 public sealed class CadRasterImageCatalog :
     ICadRasterImageSourceResolver,
+    ICadMaterialTextureSourceResolver,
     IDisposable
 {
     public const int DefaultMaxSources = 65_536;
@@ -350,6 +351,40 @@ public sealed class CadRasterImageCatalog :
         }
     }
 
+    public bool TryResolve(
+        in CadMaterialTextureRequest request,
+        out IProGpuTextureLeaseSource source)
+    {
+        lock (_gate)
+        {
+            if (_disposed)
+            {
+                source = null!;
+                return false;
+            }
+            if (request.Resource.MaterialHandle != 0 &&
+                _byHandle.TryGetValue(request.Resource.MaterialHandle, out source!))
+            {
+                return true;
+            }
+            if (_byPath.TryGetValue(request.Resource.FileName, out source!))
+            {
+                return true;
+            }
+            if (TryResolveDocumentRelativePath(
+                    request.DocumentSourceName,
+                    request.Resource.FileName,
+                    out string? resolved) &&
+                resolved is not null &&
+                _byPath.TryGetValue(resolved, out source!))
+            {
+                return true;
+            }
+            source = null!;
+            return false;
+        }
+    }
+
     public ICadRasterImageSourceResolver CreateResolverSnapshot()
     {
         lock (_gate)
@@ -384,21 +419,30 @@ public sealed class CadRasterImageCatalog :
 
     private static bool TryResolveDocumentRelativePath(
         in CadRasterImageRequest request,
+        out string? resolved) =>
+        TryResolveDocumentRelativePath(
+            request.DocumentSourceName,
+            request.Resource.FileName,
+            out resolved);
+
+    private static bool TryResolveDocumentRelativePath(
+        string? documentSourceName,
+        string? fileName,
         out string? resolved)
     {
         resolved = null;
-        if (string.IsNullOrWhiteSpace(request.DocumentSourceName) ||
-            string.IsNullOrWhiteSpace(request.Resource.FileName))
+        if (string.IsNullOrWhiteSpace(documentSourceName) ||
+            string.IsNullOrWhiteSpace(fileName))
         {
             return false;
         }
         try
         {
             char separator = Path.DirectorySeparatorChar;
-            string documentPath = request.DocumentSourceName
+            string documentPath = documentSourceName
                 .Replace('\\', separator)
                 .Replace('/', separator);
-            string resourcePath = request.Resource.FileName
+            string resourcePath = fileName
                 .Replace('\\', separator)
                 .Replace('/', separator);
             string? directory = Path.GetDirectoryName(documentPath);
@@ -419,7 +463,8 @@ public sealed class CadRasterImageCatalog :
     private sealed class ResolverSnapshot(
         Dictionary<ulong, IProGpuTextureLeaseSource> byHandle,
         Dictionary<string, IProGpuTextureLeaseSource> byPath) :
-        ICadRasterImageSourceResolver
+        ICadRasterImageSourceResolver,
+        ICadMaterialTextureSourceResolver
     {
         public bool TryResolve(
             in CadRasterImageRequest request,
@@ -435,6 +480,32 @@ public sealed class CadRasterImageCatalog :
                 return true;
             }
             if (TryResolveDocumentRelativePath(request, out string? resolved) &&
+                resolved is not null &&
+                byPath.TryGetValue(resolved, out source!))
+            {
+                return true;
+            }
+            source = null!;
+            return false;
+        }
+
+        public bool TryResolve(
+            in CadMaterialTextureRequest request,
+            out IProGpuTextureLeaseSource source)
+        {
+            if (request.Resource.MaterialHandle != 0 &&
+                byHandle.TryGetValue(request.Resource.MaterialHandle, out source!))
+            {
+                return true;
+            }
+            if (byPath.TryGetValue(request.Resource.FileName, out source!))
+            {
+                return true;
+            }
+            if (TryResolveDocumentRelativePath(
+                    request.DocumentSourceName,
+                    request.Resource.FileName,
+                    out string? resolved) &&
                 resolved is not null &&
                 byPath.TryGetValue(resolved, out source!))
             {

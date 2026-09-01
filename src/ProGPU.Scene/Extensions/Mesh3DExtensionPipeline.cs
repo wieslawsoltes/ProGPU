@@ -93,11 +93,11 @@ namespace ProGPU.Scene.Extensions
         public Vector4 LightDirection;        // xyz = direction, w = intensity
         public Vector4 AmbientColor;          // rgb = color, w = intensity
         public Vector4 SpecularColor;         // rgb = Specular Ks, w = Exponent Ns
-        public Vector4 MaterialAmbient;       // rgb = Material Ka, w = unused
+        public Vector4 MaterialAmbient;       // rgb = Material Ka, w = self illumination
         public float Opacity;
         public float RenderMode;              // 0.0f = Solid, 1.0f = Wireframe, 2.0f = SolidWireframe
         public float ShadingMode;             // AutoCAD Shading Mode (0=Realistic, 1=Conceptual, 2=Flat, 3=HiddenLine, 4=ShadesOfGray, 5=XRay, 6=Normals)
-        public float TextureSamplingMode;      // 0.0f = nearest, 1.0f = linear
+        public float TextureSamplingMode;      // bit 0 = linear; floor(value / 2) = tiling mode
         public Vector4 TextureEffects0;        // brightness, contrast, saturation, grayscale
         public Vector4 TextureEffects1;        // sepia, invert, blur sigma, texture enabled
         public Vector4 TextureInfo;            // width, height, premultiplied source, luminance-to-alpha
@@ -1406,15 +1406,16 @@ namespace ProGPU.Scene.Extensions
                     LightDirection = new Vector4(payload.LightDirection, payload.LightIntensity),
                     AmbientColor = new Vector4(payload.AmbientColor, payload.AmbientIntensity),
                     SpecularColor = new Vector4(mesh.SpecularColor, mesh.Shininess),
-                    MaterialAmbient = new Vector4(mesh.AmbientColor, 1.0f),
+                    MaterialAmbient = new Vector4(
+                        mesh.AmbientColor,
+                        Math.Clamp(mesh.SelfIllumination, 0.0f, 1.0f)),
                     Opacity = mesh.Opacity * compositor.ActiveOpacity,
                     RenderMode = rMode,
                     ShadingMode = (float)payload.ShadingMode,
                     TextureSamplingMode =
-                        mesh.TextureSamplingMode ==
-                            TextureSamplingMode.Nearest
-                                ? 0f
-                                : 1f,
+                        (mesh.TextureSamplingMode ==
+                            TextureSamplingMode.Nearest ? 0f : 1f) +
+                        (2f * (float)mesh.TextureTilingMode),
                     TextureEffects0 = new Vector4(
                         textureEffect.Brightness,
                         textureEffect.Contrast,
@@ -2016,6 +2017,8 @@ namespace ProGPU.Scene.Extensions
             MeshTextureEffect.Identity;
         public TextureSamplingMode TextureSamplingMode { get; set; } =
             TextureSamplingMode.Linear;
+        public MeshTextureTilingMode TextureTilingMode { get; set; } =
+            MeshTextureTilingMode.None;
         public ImageEffectYuvConversion? YuvConversion { get; set; }
         public MeshTexturePresentation TexturePresentation { get; set; } =
             MeshTexturePresentation.Identity;
@@ -2024,6 +2027,7 @@ namespace ProGPU.Scene.Extensions
         public Vector3 SpecularColor { get; set; } = new Vector3(0.2f, 0.2f, 0.2f);
         public float Shininess { get; set; } = 32.0f;
         public Vector3 AmbientColor { get; set; } = new Vector3(0.2f, 0.2f, 0.2f);
+        public float SelfIllumination { get; set; }
         public float Opacity { get; set; } = 1.0f;
         public bool IsBackFace { get; set; } = false;
     }
@@ -2087,6 +2091,14 @@ namespace ProGPU.Scene.Extensions
         public Vector4 NormalizedSourceRect { get; }
         public int ClockwiseQuarterTurns { get; }
         public bool IsMirrored { get; }
+    }
+
+    public enum MeshTextureTilingMode
+    {
+        None = 0,
+        Tile = 1,
+        Crop = 2,
+        Clamp = 3,
     }
 
     /// <summary>

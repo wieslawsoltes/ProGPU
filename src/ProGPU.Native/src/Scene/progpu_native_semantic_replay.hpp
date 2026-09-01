@@ -152,8 +152,8 @@ struct alignas(16) mesh_record {
     progpu_native_float_4 material_ambient{};
     float opacity = 0.0F;
     std::uint32_t shading_mode = 0U;
-    std::uint32_t reserved0 = 0U;
-    std::uint32_t reserved1 = 0U;
+    std::uint32_t material_image_resource_index = 0U;
+    std::uint32_t material_factors = 0U;
 };
 
 static_assert(sizeof(camera_record) == 160U);
@@ -176,6 +176,7 @@ struct semantic_3d_page {
     WGPUBuffer vertex_buffer = nullptr;
     WGPUBuffer index_buffer = nullptr;
     WGPUBindGroup bind_group = nullptr;
+    std::vector<WGPUBindGroup> material_bind_groups;
     std::uint64_t scene_hash = 0U;
     float dpi_scale = 0.0F;
     std::uint32_t target_width = 0U;

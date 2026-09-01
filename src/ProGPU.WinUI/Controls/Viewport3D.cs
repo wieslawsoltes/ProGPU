@@ -118,6 +118,7 @@ namespace Microsoft.UI.Xaml.Media.Media3D
         public Vector3 SpecularColor { get; set; } = new Vector3(0.2f, 0.2f, 0.2f);
         public float Shininess { get; set; } = 32.0f;
         public Vector3 AmbientColor { get; set; } = new Vector3(0.2f, 0.2f, 0.2f);
+        public float SelfIllumination { get; set; }
 
         public DiffuseMaterial()
         {
@@ -129,12 +130,162 @@ namespace Microsoft.UI.Xaml.Media.Media3D
         }
     }
 
+    internal interface IProGpuMeshTextureMaterial
+    {
+        event EventHandler? Changed;
+        IProGpuTextureLeaseSource? TextureSource { get; }
+        MeshTextureEffect TextureEffect { get; }
+        TextureSamplingMode SamplingMode { get; }
+        MeshTextureTilingMode TilingMode { get; }
+        MeshTexturePresentation TexturePresentation { get; }
+        ImageEffectYuvConversion? YuvConversion { get; }
+    }
+
+    /// <summary>
+    /// Typed retained texture material for static images and host-owned GPU
+    /// surfaces. The source is leased by the Mesh3D submission path.
+    /// </summary>
+    public sealed class ProGpuTextureMaterial :
+        DiffuseMaterial,
+        IProGpuMeshTextureMaterial,
+        IDisposable
+    {
+        private IProGpuTextureLeaseSource? _textureSource;
+        private MeshTextureEffect _textureEffect = MeshTextureEffect.Identity;
+        private TextureSamplingMode _samplingMode = TextureSamplingMode.Linear;
+        private MeshTextureTilingMode _tilingMode = MeshTextureTilingMode.None;
+        private MeshTexturePresentation _texturePresentation =
+            MeshTexturePresentation.Identity;
+        private ImageEffectYuvConversion? _yuvConversion;
+        private bool _disposed;
+
+        public IProGpuTextureLeaseSource? TextureSource
+        {
+            get => _textureSource;
+            set
+            {
+                ObjectDisposedException.ThrowIf(_disposed, this);
+                if (ReferenceEquals(_textureSource, value))
+                {
+                    return;
+                }
+                ObserveInvalidatingSource(_textureSource, subscribe: false);
+                _textureSource = value;
+                ObserveInvalidatingSource(_textureSource, subscribe: true);
+                Changed?.Invoke(this, EventArgs.Empty);
+            }
+        }
+
+        public MeshTextureEffect TextureEffect
+        {
+            get => _textureEffect;
+            set
+            {
+                ObjectDisposedException.ThrowIf(_disposed, this);
+                _textureEffect = value;
+                Changed?.Invoke(this, EventArgs.Empty);
+            }
+        }
+
+        public TextureSamplingMode SamplingMode
+        {
+            get => _samplingMode;
+            set
+            {
+                ObjectDisposedException.ThrowIf(_disposed, this);
+                if (_samplingMode != value)
+                {
+                    _samplingMode = value;
+                    Changed?.Invoke(this, EventArgs.Empty);
+                }
+            }
+        }
+
+        public MeshTexturePresentation TexturePresentation
+        {
+            get => _texturePresentation;
+            set
+            {
+                ObjectDisposedException.ThrowIf(_disposed, this);
+                _texturePresentation = value;
+                Changed?.Invoke(this, EventArgs.Empty);
+            }
+        }
+
+        public MeshTextureTilingMode TilingMode
+        {
+            get => _tilingMode;
+            set
+            {
+                ObjectDisposedException.ThrowIf(_disposed, this);
+                if (_tilingMode != value)
+                {
+                    _tilingMode = value;
+                    Changed?.Invoke(this, EventArgs.Empty);
+                }
+            }
+        }
+
+        public ImageEffectYuvConversion? YuvConversion
+        {
+            get => _yuvConversion;
+            set
+            {
+                ObjectDisposedException.ThrowIf(_disposed, this);
+                _yuvConversion = value;
+                Changed?.Invoke(this, EventArgs.Empty);
+            }
+        }
+
+        internal event EventHandler? Changed;
+
+        event EventHandler? IProGpuMeshTextureMaterial.Changed
+        {
+            add => Changed += value;
+            remove => Changed -= value;
+        }
+
+        private void OnTextureChanged(object? sender, EventArgs args) =>
+            Changed?.Invoke(this, EventArgs.Empty);
+
+        private void ObserveInvalidatingSource(
+            IProGpuTextureLeaseSource? source,
+            bool subscribe)
+        {
+            if (source is not IProGpuInvalidatingTextureSource invalidating)
+            {
+                return;
+            }
+            if (subscribe)
+            {
+                invalidating.TextureChanged += OnTextureChanged;
+            }
+            else
+            {
+                invalidating.TextureChanged -= OnTextureChanged;
+            }
+        }
+
+        public void Dispose()
+        {
+            if (_disposed)
+            {
+                return;
+            }
+            _disposed = true;
+            ObserveInvalidatingSource(_textureSource, subscribe: false);
+            _textureSource = null;
+            Changed = null;
+        }
+    }
+
     /// <summary>
     /// ProGPU extension material that samples the current WinUI MediaPlayer
     /// frame directly in the Mesh3D WebGPU pass.
     /// </summary>
     public sealed class ProGpuMediaTextureMaterial :
         DiffuseMaterial,
+        IProGpuMeshTextureMaterial,
         IDisposable
     {
         private Windows.Media.Playback.MediaPlayer? _mediaPlayer;
@@ -204,6 +355,43 @@ namespace Microsoft.UI.Xaml.Media.Media3D
         }
 
         internal event EventHandler? Changed;
+
+        event EventHandler? IProGpuMeshTextureMaterial.Changed
+        {
+            add => Changed += value;
+            remove => Changed -= value;
+        }
+
+        MeshTextureEffect IProGpuMeshTextureMaterial.TextureEffect
+        {
+            get
+            {
+                MediaVideoEffectOptions effects = Effects;
+                return new MeshTextureEffect(
+                    effects.Brightness,
+                    effects.Contrast,
+                    effects.Saturation,
+                    effects.Grayscale,
+                    effects.Sepia,
+                    effects.Invert,
+                    effects.BlurSigma,
+                    effects.ColorMatrix,
+                    effects.LuminanceToAlpha);
+            }
+        }
+
+        ImageEffectYuvConversion? IProGpuMeshTextureMaterial.YuvConversion =>
+            null;
+
+        IProGpuTextureLeaseSource?
+            IProGpuMeshTextureMaterial.TextureSource => TextureSource;
+
+        MeshTexturePresentation
+            IProGpuMeshTextureMaterial.TexturePresentation =>
+                TexturePresentation;
+
+        MeshTextureTilingMode IProGpuMeshTextureMaterial.TilingMode =>
+            MeshTextureTilingMode.None;
 
         internal IProGpuTextureLeaseSource? TextureSource =>
             _mediaPlayer?.ProGpuVideoSurface;
@@ -843,11 +1031,11 @@ namespace Microsoft.UI.Xaml.Controls
         private GpuTexture? _depthTexture;
         private WgpuContext? _textureContext;
         private uint _textureSampleCount;
-        private readonly HashSet<ProGpuMediaTextureMaterial>
+        private readonly HashSet<IProGpuMeshTextureMaterial>
             _observedMediaMaterials = new();
-        private readonly HashSet<ProGpuMediaTextureMaterial>
+        private readonly HashSet<IProGpuMeshTextureMaterial>
             _usedMediaMaterials = new();
-        private readonly List<ProGpuMediaTextureMaterial>
+        private readonly List<IProGpuMeshTextureMaterial>
             _staleMediaMaterials = new();
 
         private bool _isOrbiting = false;
@@ -1129,7 +1317,7 @@ namespace Microsoft.UI.Xaml.Controls
         }
 
         private void ObserveMediaMaterial(
-            ProGpuMediaTextureMaterial material)
+            IProGpuMeshTextureMaterial material)
         {
             _usedMediaMaterials.Add(material);
             if (_observedMediaMaterials.Add(material))
@@ -1143,7 +1331,7 @@ namespace Microsoft.UI.Xaml.Controls
             if (_observedMediaMaterials.Count !=
                 _usedMediaMaterials.Count)
             {
-                foreach (ProGpuMediaTextureMaterial material in
+                foreach (IProGpuMeshTextureMaterial material in
                          _observedMediaMaterials)
                 {
                     if (!_usedMediaMaterials.Contains(material))
@@ -1155,7 +1343,7 @@ namespace Microsoft.UI.Xaml.Controls
                      index < _staleMediaMaterials.Count;
                      index++)
                 {
-                    ProGpuMediaTextureMaterial material =
+                    IProGpuMeshTextureMaterial material =
                         _staleMediaMaterials[index];
                     material.Changed -= OnMediaMaterialChanged;
                     _observedMediaMaterials.Remove(material);
@@ -1167,7 +1355,7 @@ namespace Microsoft.UI.Xaml.Controls
 
         private void ClearMediaMaterialSubscriptions()
         {
-            foreach (ProGpuMediaTextureMaterial material in
+            foreach (IProGpuMeshTextureMaterial material in
                      _observedMediaMaterials)
             {
                 material.Changed -= OnMediaMaterialChanged;
@@ -1208,6 +1396,7 @@ namespace Microsoft.UI.Xaml.Controls
                                 Vector3 specularColor = new Vector3(0.2f, 0.2f, 0.2f);
                                 float shininess = 32.0f;
                                 Vector3 ambientColor = new Vector3(0.2f, 0.2f, 0.2f);
+                                float selfIllumination = 0.0f;
                                 float opacity = 1.0f;
                                 IProGpuTextureLeaseSource?
                                     textureSource = null;
@@ -1215,6 +1404,8 @@ namespace Microsoft.UI.Xaml.Controls
                                     MeshTextureEffect.Identity;
                                 TextureSamplingMode textureSamplingMode =
                                     TextureSamplingMode.Linear;
+                                MeshTextureTilingMode textureTilingMode =
+                                    MeshTextureTilingMode.None;
                                 ImageEffectYuvConversion?
                                     textureYuvConversion = null;
                                 MeshTexturePresentation
@@ -1228,6 +1419,7 @@ namespace Microsoft.UI.Xaml.Controls
                                     specularColor = diffuse.SpecularColor;
                                     shininess = diffuse.Shininess;
                                     ambientColor = diffuse.AmbientColor;
+                                    selfIllumination = diffuse.SelfIllumination;
 
                                     // If the brush is a dynamic theme resource brush, resolve it against the active theme family
                                     Brush? activeBrush = diffuse.Brush;
@@ -1251,34 +1443,25 @@ namespace Microsoft.UI.Xaml.Controls
                                     opacity *= diffuseColor.W;
 
                                     if (diffuse is
-                                        ProGpuMediaTextureMaterial
-                                            mediaMaterial)
+                                        IProGpuMeshTextureMaterial
+                                            textureMaterial)
                                     {
                                         ObserveMediaMaterial(
-                                            mediaMaterial);
+                                            textureMaterial);
                                         textureSource =
-                                            mediaMaterial.TextureSource;
-                                        MediaVideoEffectOptions effects =
-                                            mediaMaterial.Effects;
+                                            textureMaterial.TextureSource;
                                         textureEffect =
-                                            new MeshTextureEffect(
-                                                effects.Brightness,
-                                                effects.Contrast,
-                                                effects.Saturation,
-                                                effects.Grayscale,
-                                                effects.Sepia,
-                                                effects.Invert,
-                                                effects.BlurSigma,
-                                                effects.ColorMatrix,
-                                                effects
-                                                    .LuminanceToAlpha);
+                                            textureMaterial.TextureEffect;
                                         textureSamplingMode =
-                                            mediaMaterial.SamplingMode;
+                                            textureMaterial.SamplingMode;
+                                        textureTilingMode =
+                                            textureMaterial.TilingMode;
                                         textureYuvConversion =
-                                            GetMediaYuvConversion(
-                                                textureSource);
+                                            textureMaterial.YuvConversion ??
+                                                GetMediaYuvConversion(
+                                                    textureSource);
                                         texturePresentation =
-                                            mediaMaterial
+                                            textureMaterial
                                                 .TexturePresentation;
                                     }
                                 }
@@ -1298,6 +1481,8 @@ namespace Microsoft.UI.Xaml.Controls
                                         TextureEffect = textureEffect,
                                         TextureSamplingMode =
                                             textureSamplingMode,
+                                        TextureTilingMode =
+                                            textureTilingMode,
                                         YuvConversion =
                                             textureYuvConversion,
                                         TexturePresentation =
@@ -1307,6 +1492,7 @@ namespace Microsoft.UI.Xaml.Controls
                                         SpecularColor = specularColor,
                                         Shininess = shininess,
                                         AmbientColor = ambientColor,
+                                        SelfIllumination = selfIllumination,
                                         Opacity = opacity,
                                         IsBackFace = false
                                     });
@@ -1326,6 +1512,9 @@ namespace Microsoft.UI.Xaml.Controls
                                     TextureSamplingMode
                                         backTextureSamplingMode =
                                             TextureSamplingMode.Linear;
+                                    MeshTextureTilingMode
+                                        backTextureTilingMode =
+                                            MeshTextureTilingMode.None;
                                     ImageEffectYuvConversion?
                                         backTextureYuvConversion =
                                             null;
@@ -1354,36 +1543,30 @@ namespace Microsoft.UI.Xaml.Controls
                                     backOpacity *= backDiffuseColor.W;
 
                                     if (backDiffuse is
-                                        ProGpuMediaTextureMaterial
-                                            backMediaMaterial)
+                                        IProGpuMeshTextureMaterial
+                                            backTextureMaterial)
                                     {
                                         ObserveMediaMaterial(
-                                            backMediaMaterial);
+                                            backTextureMaterial);
                                         backTextureSource =
-                                            backMediaMaterial
+                                            backTextureMaterial
                                                 .TextureSource;
-                                        MediaVideoEffectOptions effects =
-                                            backMediaMaterial.Effects;
                                         backTextureEffect =
-                                            new MeshTextureEffect(
-                                                effects.Brightness,
-                                                effects.Contrast,
-                                                effects.Saturation,
-                                                effects.Grayscale,
-                                                effects.Sepia,
-                                                effects.Invert,
-                                                effects.BlurSigma,
-                                                effects.ColorMatrix,
-                                                effects
-                                                    .LuminanceToAlpha);
+                                            backTextureMaterial
+                                                .TextureEffect;
                                         backTextureSamplingMode =
-                                            backMediaMaterial
+                                            backTextureMaterial
                                                 .SamplingMode;
+                                        backTextureTilingMode =
+                                            backTextureMaterial
+                                                .TilingMode;
                                         backTextureYuvConversion =
-                                            GetMediaYuvConversion(
-                                                backTextureSource);
+                                            backTextureMaterial
+                                                .YuvConversion ??
+                                                GetMediaYuvConversion(
+                                                    backTextureSource);
                                         backTexturePresentation =
-                                            backMediaMaterial
+                                            backTextureMaterial
                                                 .TexturePresentation;
                                     }
 
@@ -1402,6 +1585,8 @@ namespace Microsoft.UI.Xaml.Controls
                                             backTextureEffect,
                                         TextureSamplingMode =
                                             backTextureSamplingMode,
+                                        TextureTilingMode =
+                                            backTextureTilingMode,
                                         YuvConversion =
                                             backTextureYuvConversion,
                                         TexturePresentation =
@@ -1411,6 +1596,8 @@ namespace Microsoft.UI.Xaml.Controls
                                         SpecularColor = backSpecularColor,
                                         Shininess = backShininess,
                                         AmbientColor = backAmbientColor,
+                                        SelfIllumination =
+                                            backDiffuse.SelfIllumination,
                                         Opacity = backOpacity,
                                         IsBackFace = true
                                     });

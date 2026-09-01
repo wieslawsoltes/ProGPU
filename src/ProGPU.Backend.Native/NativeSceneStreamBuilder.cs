@@ -858,6 +858,25 @@ public ref struct NativeSceneStreamBuilder
         {
             return false;
         }
+        const uint materialImageFlag = 1U;
+        const uint tilingMask = 3U << 1;
+        foreach (ref readonly NativeSceneMesh3D mesh in meshes)
+        {
+            bool hasMaterialImage = (mesh.Flags & materialImageFlag) != 0U;
+            if ((mesh.Flags & ~(materialImageFlag | tilingMask)) != 0U ||
+                (!hasMaterialImage &&
+                    (mesh.Flags & tilingMask) != 0U) ||
+                (hasMaterialImage &&
+                    (!HasOptionalResourceKind(
+                        mesh.MaterialImageResourceIndex,
+                        NativeSceneResourceKind.Image) ||
+                     !ResourceHasFlags(
+                        mesh.MaterialImageResourceIndex,
+                        NativeSceneRecordFlags.ExternalImage))))
+            {
+                return false;
+            }
+        }
         int vertexBytes = checked(
             vertices.Length * Unsafe.SizeOf<NativeSceneMesh3DVertex>());
         int indexBytes = checked(indices.Length * sizeof(uint));
@@ -2612,6 +2631,21 @@ public ref struct NativeSceneStreamBuilder
                 _resourceOffset + checked((int)resourceIndex) * ResourceSize,
                 ResourceSize));
         return resource.Kind == kind;
+    }
+
+    private readonly bool ResourceHasFlags(
+        uint resourceIndex,
+        NativeSceneRecordFlags flags)
+    {
+        if (resourceIndex >= (uint)_resourceCount)
+        {
+            return false;
+        }
+        var resource = MemoryMarshal.Read<NativeMethods.SceneResource>(
+            _destination.Slice(
+                _resourceOffset + checked((int)resourceIndex) * ResourceSize,
+                ResourceSize));
+        return (resource.Flags & flags) == flags;
     }
 
     private readonly uint GetResourceRecordCount<T>(uint resourceIndex)

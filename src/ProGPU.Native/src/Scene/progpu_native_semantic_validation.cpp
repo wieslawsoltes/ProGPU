@@ -514,9 +514,17 @@ bool is_valid_semantic_mesh_3d(
     const progpu_native_scene_mesh_3d& mesh,
     std::size_t vertex_count,
     std::size_t index_count) noexcept {
+    constexpr std::uint32_t known_flags =
+        PROGPU_NATIVE_MESH_3D_MATERIAL_IMAGE |
+        PROGPU_NATIVE_MESH_3D_TILING_MASK;
+    const bool has_material_image =
+        (mesh.flags & PROGPU_NATIVE_MESH_3D_MATERIAL_IMAGE) != 0U;
     const std::size_t mesh_vertex_offset = mesh.vertex_offset;
     const std::size_t mesh_index_offset = mesh.index_offset;
-    return mesh.struct_size == sizeof(mesh) && mesh.flags == 0U &&
+    return mesh.struct_size == sizeof(mesh) &&
+        (mesh.flags & ~known_flags) == 0U &&
+        (has_material_image ||
+            (mesh.flags & PROGPU_NATIVE_MESH_3D_TILING_MASK) == 0U) &&
         mesh.topology <= PROGPU_NATIVE_MESH_3D_TRIANGLE_STRIP &&
         mesh.render_mode <= PROGPU_NATIVE_MESH_3D_SOLID_WIREFRAME &&
         mesh.vertex_count >= 3U && mesh.index_count >= 3U &&
@@ -533,7 +541,7 @@ bool is_valid_semantic_mesh_3d(
         std::isfinite(mesh.opacity) && mesh.opacity >= 0.0F &&
         mesh.opacity <= 1.0F &&
         mesh.shading_mode <= PROGPU_NATIVE_MESH_3D_NORMALS &&
-        mesh.reserved0 == 0U && mesh.reserved1 == 0U;
+        (has_material_image || mesh.material_image_resource_index == 0U);
 }
 
 } // namespace progpu::native::semantic

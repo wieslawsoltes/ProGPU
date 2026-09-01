@@ -389,9 +389,23 @@ public sealed class CadMesh3DViewCoordinator
         bool resetCamera,
         CancellationToken cancellationToken = default)
     {
+        return ReplaceSnapshot(
+            snapshot,
+            resetCamera,
+            options: null,
+            cancellationToken);
+    }
+
+    public CadRecordedMesh3DScene ReplaceSnapshot(
+        CadDocumentSnapshot snapshot,
+        bool resetCamera,
+        CadMesh3DSceneOptions? options,
+        CancellationToken cancellationToken = default)
+    {
         ArgumentNullException.ThrowIfNull(snapshot);
         CadRecordedMesh3DScene replacement = _compiler.Compile(
             snapshot,
+            options,
             cancellationToken: cancellationToken);
         CadMesh3DSelectionIndex replacementSelection =
             CadMesh3DSelectionIndex.Build(

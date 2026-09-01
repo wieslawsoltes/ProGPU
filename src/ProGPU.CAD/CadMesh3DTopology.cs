@@ -15,6 +15,7 @@ internal readonly record struct CadMesh3DFaceSource(
     Vector2[] TextureCoordinates,
     int LayerIndex,
     int StyleIndex,
+    int MaterialIndex,
     bool AllowNonPlanarQuad)
 {
     public int FaceSubobjectIndex { get; init; } = -1;
@@ -36,6 +37,8 @@ internal readonly record struct CadMesh3DFaceSource(
     /// triangle normals; subdivided surfaces provide crease-aware smooth normals.
     /// </summary>
     public CadPoint3D[] Normals { get; init; } = Array.Empty<CadPoint3D>();
+
+    public bool HasTextureCoordinates { get; init; }
 }
 
 internal sealed class CadMesh3DBuildResult
@@ -182,6 +185,8 @@ internal static class CadMesh3DTopology
                 vertexCount)
             {
                 FaceSubobjectIndex = face.FaceSubobjectIndex,
+                MaterialIndex = face.MaterialIndex,
+                HasTextureCoordinates = face.HasTextureCoordinates,
             });
 
             void AppendVertex(

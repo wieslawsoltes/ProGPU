@@ -396,7 +396,11 @@ struct progpu_native_engine {
     WGPURenderPipeline semantic_mesh_3d_pipeline = nullptr;
     WGPURenderPipeline semantic_mesh_strip_3d_pipeline = nullptr;
     WGPUBindGroupLayout semantic_3d_layout = nullptr;
+    WGPUBindGroupLayout semantic_3d_material_layout = nullptr;
     WGPUPipelineLayout semantic_3d_pipeline_layout = nullptr;
+    WGPUSampler semantic_3d_material_sampler = nullptr;
+    WGPUTexture semantic_3d_sentinel_texture = nullptr;
+    WGPUTextureView semantic_3d_sentinel_view = nullptr;
     WGPUShaderModule semantic_hit_test_shader = nullptr;
     WGPUComputePipeline semantic_hit_test_pipeline = nullptr;
     WGPUBindGroupLayout semantic_hit_test_layout = nullptr;
@@ -790,6 +794,12 @@ struct progpu_native_engine {
 
     void release_semantic_3d_resources() noexcept {
         auto& page = semantic_3d_cache;
+        for (auto& binding : page.material_bind_groups) {
+            if (binding != nullptr) {
+                wgpuBindGroupRelease(binding);
+            }
+        }
+        page.material_bind_groups.clear();
         if (page.bind_group != nullptr) {
             wgpuBindGroupRelease(page.bind_group);
             page.bind_group = nullptr;
@@ -826,14 +836,61 @@ struct progpu_native_engine {
             wgpuPipelineLayoutRelease(semantic_3d_pipeline_layout);
             semantic_3d_pipeline_layout = nullptr;
         }
+        if (semantic_3d_material_layout != nullptr) {
+            wgpuBindGroupLayoutRelease(semantic_3d_material_layout);
+            semantic_3d_material_layout = nullptr;
+        }
         if (semantic_3d_layout != nullptr) {
             wgpuBindGroupLayoutRelease(semantic_3d_layout);
             semantic_3d_layout = nullptr;
+        }
+        if (semantic_3d_material_sampler != nullptr) {
+            wgpuSamplerRelease(semantic_3d_material_sampler);
+            semantic_3d_material_sampler = nullptr;
+        }
+        if (semantic_3d_sentinel_view != nullptr) {
+            wgpuTextureViewRelease(semantic_3d_sentinel_view);
+            semantic_3d_sentinel_view = nullptr;
+        }
+        if (semantic_3d_sentinel_texture != nullptr) {
+            wgpuTextureDestroy(semantic_3d_sentinel_texture);
+            wgpuTextureRelease(semantic_3d_sentinel_texture);
+            semantic_3d_sentinel_texture = nullptr;
         }
         if (semantic_3d_shader != nullptr) {
             wgpuShaderModuleRelease(semantic_3d_shader);
             semantic_3d_shader = nullptr;
         }
+    }
+
+    void release_semantic_3d_page() noexcept {
+        auto& page = semantic_3d_cache;
+        for (auto& binding : page.material_bind_groups) {
+            if (binding != nullptr) {
+                wgpuBindGroupRelease(binding);
+            }
+        }
+        page.material_bind_groups.clear();
+        if (page.bind_group != nullptr) {
+            wgpuBindGroupRelease(page.bind_group);
+            page.bind_group = nullptr;
+        }
+        const auto release_buffer = [](WGPUBuffer& buffer) noexcept {
+            if (buffer != nullptr) {
+                wgpuBufferDestroy(buffer);
+                wgpuBufferRelease(buffer);
+                buffer = nullptr;
+            }
+        };
+        release_buffer(page.camera_buffer);
+        release_buffer(page.line_buffer);
+        release_buffer(page.mesh_buffer);
+        release_buffer(page.vertex_buffer);
+        release_buffer(page.index_buffer);
+        page.draws.clear();
+        page.mesh_topologies.clear();
+        page.mesh_index_counts.clear();
+        page.cache_valid = false;
     }
 
     void release_semantic_hit_test_index() noexcept {

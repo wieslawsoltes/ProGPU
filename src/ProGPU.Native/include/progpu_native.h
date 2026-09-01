@@ -1681,6 +1681,20 @@ typedef enum progpu_native_mesh_3d_shading_mode {
     PROGPU_NATIVE_MESH_3D_NORMALS = 6
 } progpu_native_mesh_3d_shading_mode;
 
+typedef enum progpu_native_mesh_3d_flags {
+    PROGPU_NATIVE_MESH_3D_MATERIAL_IMAGE = 1U << 0,
+    PROGPU_NATIVE_MESH_3D_TILING_SHIFT = 1,
+    PROGPU_NATIVE_MESH_3D_TILING_MASK = 3U <<
+        PROGPU_NATIVE_MESH_3D_TILING_SHIFT
+} progpu_native_mesh_3d_flags;
+
+typedef enum progpu_native_mesh_3d_tiling {
+    PROGPU_NATIVE_MESH_3D_NO_TILING = 0,
+    PROGPU_NATIVE_MESH_3D_TILE = 1,
+    PROGPU_NATIVE_MESH_3D_CROP = 2,
+    PROGPU_NATIVE_MESH_3D_CLAMP = 3
+} progpu_native_mesh_3d_tiling;
+
 /* PROGPU_CSHARP_STRUCT: Public.NativeSceneMesh3DVertex */
 typedef struct progpu_native_scene_mesh_3d_vertex {
     progpu_native_point_3d position;
@@ -1692,8 +1706,10 @@ typedef struct progpu_native_scene_mesh_3d_vertex {
 
 /* Retained mesh ranges address the owning resource auxiliary arena: all
  * vertices form its prefix and all uint32 indices form its suffix. Material
- * fields mirror the proven managed GpuMesh3DRecord baseline without texture
- * handles; texture leases remain an explicit follow-up resource family. */
+ * fields mirror the proven managed GpuMesh3DRecord baseline. An optional
+ * scene-local external IMAGE resource supplies a typed same-device diffuse
+ * texture; material_factors packs diffuse-map blend in its low unorm16 and
+ * self-illumination in its high unorm16 without changing the stable layout. */
 /* PROGPU_CSHARP_STRUCT: Public.NativeSceneMesh3D */
 typedef struct progpu_native_scene_mesh_3d {
     uint32_t struct_size;
@@ -1714,8 +1730,8 @@ typedef struct progpu_native_scene_mesh_3d {
     float opacity;
     /* progpu_native_mesh_3d_shading_mode */
     uint32_t shading_mode;
-    uint32_t reserved0;
-    uint32_t reserved1;
+    uint32_t material_image_resource_index;
+    uint32_t material_factors;
 } progpu_native_scene_mesh_3d;
 
 typedef enum progpu_native_scene_stroke_kind {
