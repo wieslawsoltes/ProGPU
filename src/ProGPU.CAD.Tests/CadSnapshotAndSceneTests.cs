@@ -1960,6 +1960,11 @@ public sealed class CadSnapshotAndSceneTests
         CadDocumentSession session = CadDocumentSession.CreateNew();
         session.Edit("Add affine block instances", document =>
         {
+            var textStyle = new TextStyle("AFFINE_INTER")
+            {
+                Filename = "Inter.ttf",
+            };
+            document.TextStyles.Add(textStyle);
             var block = new BlockRecord("AFFINE_ITEM");
             block.BlockEntity.BasePoint = new XYZ(1, 2, 0);
             block.Entities.Add(new Line(
@@ -1970,6 +1975,12 @@ public sealed class CadSnapshotAndSceneTests
                 new XYZ(3, 2, 0),
                 new XYZ(1, 5, 0),
                 new XYZ(3, 5, 0)));
+            block.Entities.Add(new TextEntity("Affine")
+            {
+                Style = textStyle,
+                InsertPoint = new XYZ(1, 2, 0),
+                Height = 2,
+            });
             document.Entities.Add(new Insert(block)
             {
                 InsertPoint = new XYZ(100, 200, 0),
@@ -1985,7 +1996,13 @@ public sealed class CadSnapshotAndSceneTests
                 Rotation = -Math.PI / 7,
             });
         });
-        CadDocumentSnapshot snapshot = new CadSnapshotCompiler().Compile(session);
+        CadDocumentSnapshot snapshot = new CadSnapshotCompiler().Compile(
+            session,
+            new CadSnapshotOptions
+            {
+                TextFontResolver = new FixedTextFontResolver(
+                    InterFontFamily.Regular),
+            });
         var sceneCompiler = new CadPlanSceneCompiler();
         using CadRecordedPlanScene baselineScene = sceneCompiler.Compile(snapshot);
         using GpuPicture baselinePicture = baselineScene.CreatePicture();
@@ -2063,6 +2080,11 @@ public sealed class CadSnapshotAndSceneTests
         Assert.Equal(baselineNative.NativeDrawCount, native.NativeDrawCount);
         Assert.Equal(baselineNative.PathCount, native.PathCount);
         Assert.Equal(baselineNative.PathSegmentCount, native.PathSegmentCount);
+        Assert.Equal(baselineNative.GlyphOutlineCount, native.GlyphOutlineCount);
+        Assert.Equal(baselineNative.GlyphSegmentCount, native.GlyphSegmentCount);
+        Assert.Equal(
+            baselineNative.PositionedGlyphCount,
+            native.PositionedGlyphCount);
     }
 
     [Fact]

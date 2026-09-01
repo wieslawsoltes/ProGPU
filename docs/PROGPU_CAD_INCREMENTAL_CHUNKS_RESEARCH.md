@@ -4,13 +4,16 @@
 
 The shared CAD sample now records semantic-root and eligible static-block-instance
 plan chunks as immutable nested `GpuPicture` values and retains a least-recently-used,
-bounded 8,192-entry cache across document generations. Canonical identity storage is independently capped at 64 MiB total
-and 8 MiB per root. Reuse is admitted only for continuous-style POINT, LINE, CIRCLE,
-ARC, ELLIPSE, SOLID, 3DFACE, SPLINE, LWPOLYLINE, 2D POLYLINE, and 3D POLYLINE
+bounded 8,192-entry cache across document generations. Canonical identity storage
+is independently capped at 64 MiB total, conservatively charging each entry's
+distinct retained font-data dependencies, and 8 MiB per encoded key. Reuse is
+admitted only for continuous-style POINT, LINE, CIRCLE, ARC, ELLIPSE, SOLID,
+3DFACE, SPLINE, LWPOLYLINE, 2D/3D POLYLINE, and vector-outline TEXT/MTEXT
 roots whose complete canonical rendering inputs match byte-for-byte. Top-level
 INSERT and MINSERT cells additionally share one definition-local fragment across
 translation, rotation, reflection, and nonuniform affine scale when every expanded
-child is an eligible analytic family, including flat SOLID/3DFACE. Instance-owned ATTRIBs are
+child is an eligible analytic family, including flat SOLID/3DFACE and
+vector-outline TrueType TEXT/MTEXT. Instance-owned ATTRIBs are
 excluded from the definition range. Unsupported
 families take the ordinary full-recording path and are never guessed reusable.
 
@@ -46,6 +49,13 @@ lineweights remain device-space while local wide-polyline geometry follows the
 instance affine. Singular/projectively collapsed placements and extruded face/surface or
 resource-bearing definitions fail closed.
 
+TrueType identity includes exact glyph indices/positions, normalized entity basis,
+run ranges and paint, rectangles/strokes/decorations, face index, ordered variation
+settings, and a cached SHA-256 font-data discriminator. A cache hit additionally
+performs reference-fast, byte-exact font-data and variation comparison, so the hash
+is never the correctness boundary. Bitmap/color fonts fail closed until palette and
+bitmap-resource identity is part of the contract.
+
 Key construction is O(P) time and storage for P primitive/range values in the
 root, polls cancellation at a fixed entity cadence, and fails closed at the
 per-root byte limit. Lookup is O(P) for exact byte comparison. A hit skips plan command
@@ -59,8 +69,10 @@ only during changed-generation scene preparation.
 
 The aggregate picture independently retains every child resource lease. LRU
 eviction, replacement, or cache clearing therefore cannot invalidate an already published
-picture. Currently eligible analytic chunks retain no device resource. Raster,
-text, hatch, complex-linetype, viewport, modeler, leader, tolerance, MLINE, and
+picture. Currently eligible analytic/vector-text chunks retain no disposable device
+resource; cached font objects remain strongly owned by their retained commands and
+exact dependency table. Raster, SHX, color/bitmap text, hatch, complex-linetype,
+viewport, modeler, leader, tolerance, MLINE, and
 mesh roots remain on the ordinary path until their complete resource and global
 budget dependencies are encoded.
 
@@ -76,5 +88,5 @@ semantics. MINSERT and distinct affine INSERT regressions prove one shared child
 identity, exact composed managed endpoints within retained-float tolerance, and
 matched native primitive/draw counts.
 
-Definition-local extruded surface, text/SHX, hatch, complex-linetype, raster, and other
+Definition-local extruded surface, SHX/color/bitmap text, hatch, complex-linetype, raster, and other
 resource- or global-budget-dependent families remain the next chunk-coverage work.

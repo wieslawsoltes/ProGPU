@@ -423,6 +423,7 @@ public sealed class CadPlanSceneCompiler
             options.ChunkCache is null ? null : new GpuPictureRecorder();
         ulong chunkHandle = 0;
         byte[]? chunkKey = null;
+        ProGPU.Text.TtfFont[]? chunkFontDependencies = null;
         CadPlanChunkIdentity chunkIdentity = default;
         Matrix3x2? chunkLocalToScene = null;
         Matrix3x2? chunkSceneToLocal = null;
@@ -948,6 +949,7 @@ public sealed class CadPlanSceneCompiler
             chunkLocalToScene = null;
             chunkSceneToLocal = null;
             chunkNormalization = null;
+            chunkFontDependencies = null;
             ReadOnlySpan<CadEntityHeader> chunkEntities = entityMemory.Span;
             ReadOnlySpan<CadPlanBlockInstanceRange> blockInstances =
                 blockInstanceMemory.Span;
@@ -1004,9 +1006,14 @@ public sealed class CadPlanSceneCompiler
                 chunkEntities.Slice(startIndex, endIndex - startIndex),
                 options.ChunkCache!.MaximumSingleKeyBytes,
                 cancellationToken,
-                out byte[] createdKey)
+                out byte[] createdKey,
+                out ProGPU.Text.TtfFont[]? createdFontDependencies)
                     ? createdKey
                     : null;
+            if (chunkKey is not null)
+            {
+                chunkFontDependencies = createdFontDependencies;
+            }
             if (chunkKey is not null)
             {
                 chunkIdentity = blockInstance is CadPlanBlockInstanceRange value
@@ -1019,6 +1026,7 @@ public sealed class CadPlanSceneCompiler
                 options.ChunkCache!.TryGet(
                     chunkIdentity,
                     chunkKey,
+                    chunkFontDependencies,
                     out GpuPicture cachedPicture,
                     out int cachedCommandCount,
                     out int cachedRecordedEntityCount))
@@ -1081,6 +1089,7 @@ public sealed class CadPlanSceneCompiler
                     candidate,
                     flattenedCommandCount,
                     recorded - chunkRecordedStart,
+                    chunkFontDependencies,
                     out reused,
                     out cacheOwnsResult);
             }
@@ -1110,6 +1119,7 @@ public sealed class CadPlanSceneCompiler
             chunkLocalToScene = null;
             chunkSceneToLocal = null;
             chunkNormalization = null;
+            chunkFontDependencies = null;
             context = sceneContext;
         }
 

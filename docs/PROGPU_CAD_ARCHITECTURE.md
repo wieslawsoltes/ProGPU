@@ -1852,7 +1852,8 @@ expanded entity counts. Dynamic evaluation graphs and XRefs are explicitly
 diagnosed rather than rendered approximately. The snapshot additionally emits
 non-overlapping top-level definition ranges per INSERT/MINSERT cell, excluding
 instance-owned ATTRIBs. Eligible continuous analytic POINT/line/curve/flat-face/
-spline/polyline ranges use exact resolved-style keys and a double-precision inverse to
+spline/polyline and vector-outline TrueType TEXT/MTEXT ranges use exact
+resolved-style/content/font keys and a double-precision inverse to
 share one definition-local nested picture across translation, rotation,
 reflection, and nonuniform scale; singular or unencoded families fail closed to
 ordinary recording. The flattened headers remain authoritative for selection,

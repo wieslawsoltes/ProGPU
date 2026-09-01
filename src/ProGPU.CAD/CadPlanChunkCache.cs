@@ -2,8 +2,10 @@ using System.Buffers;
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 using System.Numerics;
+using System.Security.Cryptography;
 using System.Text;
 using ProGPU.Scene;
+using ProGPU.Text;
 
 namespace ProGPU.CAD;
 
@@ -22,12 +24,16 @@ public sealed class CadPlanChunkCache : IDisposable
         GpuPicture picture,
         int commandCount,
         int recordedEntityCount,
+        TtfFont[]? fontDependencies,
+        long identityBytes,
         LinkedListNode<CadPlanChunkIdentity> lruNode)
     {
         public byte[] Key { get; } = key;
         public GpuPicture Picture { get; } = picture;
         public int CommandCount { get; } = commandCount;
         public int RecordedEntityCount { get; } = recordedEntityCount;
+        public TtfFont[]? FontDependencies { get; } = fontDependencies;
+        public long IdentityBytes { get; } = identityBytes;
         public LinkedListNode<CadPlanChunkIdentity> LruNode { get; } = lruNode;
     }
 
@@ -91,6 +97,7 @@ public sealed class CadPlanChunkCache : IDisposable
         GpuPicture candidate,
         int commandCount,
         int recordedEntityCount,
+        TtfFont[]? fontDependencies,
         out bool reused,
         out bool cacheOwnsResult)
     {
@@ -104,7 +111,10 @@ public sealed class CadPlanChunkCache : IDisposable
             }
 
             if (_entries.TryGetValue(identity, out Entry? existing) &&
-                existing.Key.AsSpan().SequenceEqual(key))
+                existing.Key.AsSpan().SequenceEqual(key) &&
+                FontDependenciesEqual(
+                    existing.FontDependencies,
+                    fontDependencies))
             {
                 candidate.Dispose();
                 Touch(existing);
@@ -113,7 +123,12 @@ public sealed class CadPlanChunkCache : IDisposable
                 return existing.Picture;
             }
 
-            if (key.Length > _maximumSingleKeyBytes)
+            if (key.Length > _maximumSingleKeyBytes ||
+                !TryGetIdentityBytes(
+                    key.Length,
+                    fontDependencies,
+                    out long identityBytes) ||
+                identityBytes > _maximumKeyBytes)
             {
                 reused = false;
                 cacheOwnsResult = false;
@@ -125,7 +140,7 @@ public sealed class CadPlanChunkCache : IDisposable
                 Remove(identity, existing);
             }
             while (_entries.Count >= _capacity ||
-                   checked(_keyBytes + key.LongLength) > _maximumKeyBytes)
+                   checked(_keyBytes + identityBytes) > _maximumKeyBytes)
             {
                 EvictLeastRecentlyUsed();
             }
@@ -135,8 +150,10 @@ public sealed class CadPlanChunkCache : IDisposable
                 candidate,
                 commandCount,
                 recordedEntityCount,
+                fontDependencies,
+                identityBytes,
                 node));
-            _keyBytes = checked(_keyBytes + key.LongLength);
+            _keyBytes = checked(_keyBytes + identityBytes);
             reused = false;
             cacheOwnsResult = true;
             return candidate;
@@ -146,6 +163,7 @@ public sealed class CadPlanChunkCache : IDisposable
     internal bool TryGet(
         CadPlanChunkIdentity identity,
         ReadOnlySpan<byte> key,
+        TtfFont[]? fontDependencies,
         out GpuPicture picture,
         out int commandCount,
         out int recordedEntityCount)
@@ -154,7 +172,10 @@ public sealed class CadPlanChunkCache : IDisposable
         {
             if (!_disposed &&
                 _entries.TryGetValue(identity, out Entry? entry) &&
-                entry.Key.AsSpan().SequenceEqual(key))
+                entry.Key.AsSpan().SequenceEqual(key) &&
+                FontDependenciesEqual(
+                    entry.FontDependencies,
+                    fontDependencies))
             {
                 Touch(entry);
                 picture = entry.Picture;
@@ -222,8 +243,91 @@ public sealed class CadPlanChunkCache : IDisposable
     {
         _entries.Remove(identity);
         _lru.Remove(entry.LruNode);
-        _keyBytes -= entry.Key.LongLength;
+        _keyBytes -= entry.IdentityBytes;
         entry.Picture.Dispose();
+    }
+
+    private static bool TryGetIdentityBytes(
+        int keyBytes,
+        TtfFont[]? fonts,
+        out long identityBytes)
+    {
+        try
+        {
+            identityBytes = keyBytes;
+            int count = fonts?.Length ?? 0;
+            for (int index = 0; index < count; index++)
+            {
+                TtfFont font = fonts![index];
+                bool duplicate = false;
+                for (int previous = 0; previous < index; previous++)
+                {
+                    if (ReferenceEquals(fonts[previous], font))
+                    {
+                        duplicate = true;
+                        break;
+                    }
+                }
+                if (!duplicate)
+                {
+                    identityBytes = checked(
+                        identityBytes + font.FontData.Length);
+                }
+            }
+            return true;
+        }
+        catch (OverflowException)
+        {
+            identityBytes = 0;
+            return false;
+        }
+    }
+
+    private static bool FontDependenciesEqual(
+        TtfFont[]? left,
+        TtfFont[]? right)
+    {
+        int count = left?.Length ?? 0;
+        if (count != (right?.Length ?? 0))
+        {
+            return false;
+        }
+        for (int index = 0; index < count; index++)
+        {
+            TtfFont first = left![index];
+            TtfFont second = right![index];
+            if (ReferenceEquals(first, second))
+            {
+                continue;
+            }
+            if (first.FaceIndex != second.FaceIndex ||
+                !VariationSettingsEqual(
+                    first.VariationSettings,
+                    second.VariationSettings) ||
+                !first.FontData.Span.SequenceEqual(second.FontData.Span))
+            {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    private static bool VariationSettingsEqual(
+        IReadOnlyList<FontVariationSetting> left,
+        IReadOnlyList<FontVariationSetting> right)
+    {
+        if (left.Count != right.Count)
+        {
+            return false;
+        }
+        for (int index = 0; index < left.Count; index++)
+        {
+            if (left[index] != right[index])
+            {
+                return false;
+            }
+        }
+        return true;
     }
 }
 
@@ -317,6 +421,8 @@ internal readonly record struct CadPlanChunkNormalization(
 
 internal static class CadPlanChunkKeyBuilder
 {
+    private static readonly ConditionalWeakTable<TtfFont, byte[]> FontHashes = new();
+
     internal static bool TryCreate(
         CadDocumentSnapshot snapshot,
         CadPlanSceneOptions options,
@@ -327,8 +433,10 @@ internal static class CadPlanChunkKeyBuilder
         ReadOnlySpan<CadEntityHeader> entities,
         int maximumKeyBytes,
         CancellationToken cancellationToken,
-        out byte[] key)
+        out byte[] key,
+        out TtfFont[]? fontDependencies)
     {
+        List<TtfFont>? fonts = null;
         var writer = new ArrayBufferWriter<byte>(256);
         if (worldToChunk is null)
         {
@@ -364,15 +472,18 @@ internal static class CadPlanChunkKeyBuilder
                     patterns,
                     entity,
                     cancellationToken,
+                    ref fonts,
                     maximumKeyBytes) ||
                 writer.WrittenCount > maximumKeyBytes)
             {
                 key = [];
+                fontDependencies = null;
                 return false;
             }
         }
 
         key = writer.WrittenSpan.ToArray();
+        fontDependencies = fonts?.ToArray();
         return true;
     }
 
@@ -389,6 +500,7 @@ internal static class CadPlanChunkKeyBuilder
         ReadOnlySpan<CadLineTypePattern> patterns,
         in CadEntityHeader entity,
         CancellationToken cancellationToken,
+        ref List<TtfFont>? fontDependencies,
         int maximumKeyBytes)
     {
         CadLayerSnapshot layer = layers[entity.LayerIndex];
@@ -406,7 +518,9 @@ internal static class CadPlanChunkKeyBuilder
                 CadEntityKind.Spline or
                 CadEntityKind.LightweightPolyline or
                 CadEntityKind.Polyline2D or
-                CadEntityKind.Polyline3D))
+                CadEntityKind.Polyline3D or
+                CadEntityKind.Text or
+                CadEntityKind.MText))
         {
             return false;
         }
@@ -607,9 +721,193 @@ internal static class CadPlanChunkKeyBuilder
                     worldToChunk,
                     maximumKeyBytes,
                     cancellationToken);
+            case CadEntityKind.Text:
+                return TryAppendText(
+                    writer,
+                    snapshot,
+                    snapshot.Texts.Span[entity.PrimitiveIndex],
+                    worldToChunk,
+                    ref fontDependencies,
+                    maximumKeyBytes);
+            case CadEntityKind.MText:
+                return TryAppendMText(
+                    writer,
+                    snapshot,
+                    snapshot.MTexts.Span[entity.PrimitiveIndex],
+                    worldToChunk,
+                    ref fontDependencies,
+                    maximumKeyBytes);
             default:
                 return false;
         }
+    }
+
+    private static bool TryAppendText(
+        ArrayBufferWriter<byte> writer,
+        CadDocumentSnapshot snapshot,
+        in CadTextPrimitive text,
+        CadPlanChunkNormalization? worldToChunk,
+        ref List<TtfFont>? fontDependencies,
+        int maximumKeyBytes)
+    {
+        AppendProjectedPoint(writer, text.Origin, snapshot.RebaseOrigin, worldToChunk);
+        AppendProjectedVector(writer, text.XAxis, worldToChunk);
+        AppendProjectedVector(writer, text.YAxis, worldToChunk);
+        Append(writer, text.GlyphCount);
+        Append(writer, text.RunCount);
+        Append(writer, text.DecorationCount);
+        if (!TryAppend(
+                writer,
+                snapshot.TextGlyphIndices.Span.Slice(
+                    text.GlyphOffset,
+                    text.GlyphCount),
+                maximumKeyBytes) ||
+            !TryAppend(
+                writer,
+                snapshot.TextGlyphPositions.Span.Slice(
+                    text.GlyphOffset,
+                    text.GlyphCount),
+                maximumKeyBytes))
+        {
+            return false;
+        }
+        ReadOnlySpan<CadTextGlyphRun> runs = snapshot.TextGlyphRuns.Span.Slice(
+            text.RunOffset,
+            text.RunCount);
+        ReadOnlySpan<TtfFont> fonts = snapshot.TextFonts.Span;
+        for (int index = 0; index < runs.Length; index++)
+        {
+            CadTextGlyphRun run = runs[index];
+            Append(writer, run.GlyphOffset - text.GlyphOffset);
+            Append(writer, run.GlyphCount);
+            if (!TryAppendFont(
+                    writer,
+                    fonts[run.FontIndex],
+                    ref fontDependencies,
+                    maximumKeyBytes))
+            {
+                return false;
+            }
+        }
+        return TryAppend(
+            writer,
+            snapshot.TextDecorations.Span.Slice(
+                text.DecorationOffset,
+                text.DecorationCount),
+            maximumKeyBytes);
+    }
+
+    private static bool TryAppendMText(
+        ArrayBufferWriter<byte> writer,
+        CadDocumentSnapshot snapshot,
+        in CadMTextPrimitive text,
+        CadPlanChunkNormalization? worldToChunk,
+        ref List<TtfFont>? fontDependencies,
+        int maximumKeyBytes)
+    {
+        AppendProjectedPoint(writer, text.Origin, snapshot.RebaseOrigin, worldToChunk);
+        AppendProjectedVector(writer, text.XAxis, worldToChunk);
+        AppendProjectedVector(writer, text.YAxis, worldToChunk);
+        Append(writer, text.GlyphCount);
+        Append(writer, text.RunCount);
+        Append(writer, text.BackgroundCount);
+        Append(writer, text.DecorationCount);
+        Append(writer, text.StrokeCount);
+        Append(writer, text.ColumnCount);
+        Append(writer, text.ContentWidth);
+        Append(writer, text.ContentHeight);
+        if (!TryAppend(
+                writer,
+                snapshot.TextGlyphIndices.Span.Slice(
+                    text.GlyphOffset,
+                    text.GlyphCount),
+                maximumKeyBytes) ||
+            !TryAppend(
+                writer,
+                snapshot.TextGlyphPositions.Span.Slice(
+                    text.GlyphOffset,
+                    text.GlyphCount),
+                maximumKeyBytes) ||
+            !TryAppend(
+                writer,
+                snapshot.MTextBackgrounds.Span.Slice(
+                    text.BackgroundOffset,
+                    text.BackgroundCount),
+                maximumKeyBytes) ||
+            !TryAppend(
+                writer,
+                snapshot.MTextDecorations.Span.Slice(
+                    text.DecorationOffset,
+                    text.DecorationCount),
+                maximumKeyBytes) ||
+            !TryAppend(
+                writer,
+                snapshot.MTextStrokes.Span.Slice(
+                    text.StrokeOffset,
+                    text.StrokeCount),
+                maximumKeyBytes))
+        {
+            return false;
+        }
+        ReadOnlySpan<CadMTextGlyphRun> runs = snapshot.MTextGlyphRuns.Span.Slice(
+            text.RunOffset,
+            text.RunCount);
+        ReadOnlySpan<TtfFont> fonts = snapshot.TextFonts.Span;
+        for (int index = 0; index < runs.Length; index++)
+        {
+            CadMTextGlyphRun run = runs[index];
+            Append(writer, run.GlyphOffset - text.GlyphOffset);
+            Append(writer, run.GlyphCount);
+            Append(writer, run.FontSize);
+            Append(writer, run.WidthScale);
+            Append(writer, run.SkewX);
+            Append(writer, run.Red);
+            Append(writer, run.Green);
+            Append(writer, run.Blue);
+            Append(writer, run.Alpha);
+            if (!TryAppendFont(
+                    writer,
+                    fonts[run.FontIndex],
+                    ref fontDependencies,
+                    maximumKeyBytes))
+            {
+                return false;
+            }
+        }
+        return writer.WrittenCount <= maximumKeyBytes;
+    }
+
+    private static bool TryAppendFont(
+        ArrayBufferWriter<byte> writer,
+        TtfFont font,
+        ref List<TtfFont>? fontDependencies,
+        int maximumKeyBytes)
+    {
+        if (font.HasBitmapGlyphs || font.HasColorGlyphs)
+        {
+            return false;
+        }
+        byte[] hash = FontHashes.GetValue(
+            font,
+            static value => SHA256.HashData(value.FontData.Span));
+        if (!TryAppend(writer, hash.AsSpan(), maximumKeyBytes))
+        {
+            return false;
+        }
+        Append(writer, font.FaceIndex);
+        (fontDependencies ??= []).Add(font);
+        IReadOnlyList<FontVariationSetting> settings = font.VariationSettings;
+        Append(writer, settings.Count);
+        for (int index = 0; index < settings.Count; index++)
+        {
+            FontVariationSetting setting = settings[index];
+            if (!TryAppendString(writer, setting.Tag, maximumKeyBytes))
+            {
+                return false;
+            }
+            Append(writer, setting.Value);
+        }
+        return writer.WrittenCount <= maximumKeyBytes;
     }
 
     private static bool TryAppendString(
