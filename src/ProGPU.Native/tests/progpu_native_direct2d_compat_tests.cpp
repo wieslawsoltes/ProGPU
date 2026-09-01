@@ -2383,6 +2383,42 @@ int run_tests()
       !approximately_equal(concave_path_widened_bounds.bottom, 10.0F)) {
     return 342;
   }
+  auto *raw_path_widen_sink = new simplified_sink();
+  com::pointer<compat::simplified_geometry_sink> path_widen_sink;
+  path_widen_sink.attach(raw_path_widen_sink);
+  auto *raw_zero_path_widen_sink = new simplified_sink();
+  com::pointer<compat::simplified_geometry_sink> zero_path_widen_sink;
+  zero_path_widen_sink.attach(raw_zero_path_widen_sink);
+  if (query_path->Widen(
+          2.0F, nullptr, nullptr, core::default_flattening_tolerance,
+          path_widen_sink.get()) != com::ok ||
+      raw_path_widen_sink->fill_mode != compat::fill_mode::alternate ||
+      raw_path_widen_sink->segment_flags !=
+          compat::path_segment::force_unstroked ||
+      raw_path_widen_sink->begin_count != 2U ||
+      raw_path_widen_sink->end_count != 2U ||
+      raw_path_widen_sink->line_count != 6U ||
+      query_path->Widen(
+          0.0F, nullptr, nullptr, core::default_flattening_tolerance,
+          zero_path_widen_sink.get()) != compat::not_implemented ||
+      raw_zero_path_widen_sink->begin_count != 0U) {
+    return 344;
+  }
+  for (std::uint32_t y_index = 0U; y_index < 20U; ++y_index) {
+    for (std::uint32_t x_index = 0U; x_index < 16U; ++x_index) {
+      const compat::point_2f point{
+          -0.63F + static_cast<float>(x_index) * 0.49F,
+          0.37F + static_cast<float>(y_index) * 0.49F};
+      std::int32_t stroke_contains = 0;
+      if (query_path->StrokeContainsPoint(
+              point, 2.0F, nullptr, nullptr, 0.01F,
+              &stroke_contains) != com::ok ||
+          captured_fill_contains(*raw_path_widen_sink, point) !=
+              (stroke_contains != 0)) {
+        return 345;
+      }
+    }
+  }
   const std::array<path_stroke_case, 4U> concave_path_stroke_cases{{
       {{4.9F, 5.9F}, nullptr, true},
       {{5.5F, 6.5F}, nullptr, false},
@@ -6362,6 +6398,32 @@ int run_tests()
     system_input_boolean_path->Release();
     system_factory->Release();
     return 343;
+  }
+  auto *raw_system_path_widen_sink = new simplified_sink();
+  com::pointer<compat::simplified_geometry_sink> system_path_widen_sink;
+  system_path_widen_sink.attach(raw_system_path_widen_sink);
+  if (FAILED(system_query_boolean_path->Widen(
+          2.0F, nullptr, nullptr, D2D1_DEFAULT_FLATTENING_TOLERANCE,
+          reinterpret_cast<ID2D1SimplifiedGeometrySink *>(
+              system_path_widen_sink.get())))) {
+    system_query_boolean_path->Release();
+    system_input_boolean_path->Release();
+    system_factory->Release();
+    return 346;
+  }
+  for (std::uint32_t y_index = 0U; y_index < 20U; ++y_index) {
+    for (std::uint32_t x_index = 0U; x_index < 16U; ++x_index) {
+      const compat::point_2f point{
+          -0.63F + static_cast<float>(x_index) * 0.49F,
+          0.37F + static_cast<float>(y_index) * 0.49F};
+      if (captured_fill_contains(*raw_system_path_widen_sink, point) !=
+          captured_fill_contains(*raw_path_widen_sink, point)) {
+        system_query_boolean_path->Release();
+        system_input_boolean_path->Release();
+        system_factory->Release();
+        return 347;
+      }
+    }
   }
   for (std::size_t stroke_case_index = 0U;
        stroke_case_index < concave_path_stroke_cases.size();
