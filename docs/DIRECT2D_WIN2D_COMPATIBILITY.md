@@ -526,13 +526,48 @@ portable object through real SDK `ID2D1BitmapBrush*`, `ID2D1Brush*`, and
 ProGPU D3D12 oracle passes with mean byte error `0.5718` over 12,288 BGRA
 bytes.
 
-This bitmap-brush checkpoint deliberately leaves WIC decoding,
-`CreateBitmapFromWicBitmap`, shared bitmaps, render-target-to-bitmap copies,
-alpha-ignore/straight formats, opacity masks, arbitrary `FillGeometry`/
-`DrawGeometry` brush coverage, clips/layers, text, and device-context bitmap
-generations fail closed. `CopyFromMemory` remains an explicit resource upload
-operation with bounded row copies; steady drawing reuses the retained payload
-and never repacks or reads pixels on the CPU.
+ProGPU `65a25b4f` extends the portable target with arbitrary
+`ID2D1RenderTarget::FillGeometry`. A bounded typed
+`ID2D1SimplifiedGeometrySink` captures filled line/cubic contours from any
+same-factory portable geometry, so rectangle, path, ellipse, rounded-rectangle,
+transformed, and grouped geometry all reuse their existing COM implementation.
+The callback is fully consumed before recording; neither the geometry, sink,
+nor brush COM pointer enters the retained scene. Solid and gradient fills lower
+directly to one pointer-free path command. Bitmap-brush fills reuse the same
+path as a GPU vector mask followed by the retained image draw, preserving fill
+rule, active transform, source generation caching, sampling, addressing,
+opacity, and brush transform.
+
+Ordinary vector-mask rasterization and its image draw now share the semantic
+frame command encoder, so the expanded eight-draw fixture still produces one
+queue submission. Signed-winding and boolean-mask algorithms retain explicit
+phase submissions only where an intermediate texture result is required; they
+do not fall back to CPU pixels. Apple M3 Pro Metal and Windows 11 ARM64 D3D12
+produce byte-identical captures with SHA-256
+`4e277be9cf8613fd9f12b5e7c3cec287e9c70bc49348e0fab305ac55a1ab2d26`.
+Ubuntu 24.04 ARM64 llvmpipe LLVM 20.1.2/Vulkan produces SHA-256
+`7fb3768723da1a4c1e5f7c16c7a261c70281dc733b46a14a8296f25ca367ec09`;
+151 of 3,072 antialiased edge pixels differ by at most 1/255, no pixel exceeds
+that bound, mean absolute channel difference is
+`0.026801215277777776`, and all 14 semantic probes are exact. The independent
+system-Direct2D/WIC versus ProGPU D3D12 oracle passes with mean byte error
+`0.7188` over 12,288 BGRA bytes.
+
+The exact checkpoint passes all 15 native CTests on macOS and Linux and all 17
+on Windows. The full Windows ARM64 MSVC 19.44 `/W4 /WX` build also qualifies
+the actual `progpu_native_direct2d.dll`. That full-DLL gate fixed a legacy
+Windows `near` macro collision and added the standard COM output-pointer form
+for `ComPtr::As(&result)`. The live D3D12 integration test has a Windows-only
+180-second bound because cold shader compilation in the Parallels VM completed
+in 81.62 seconds; that VM wall time is gate evidence, not a performance claim.
+
+WIC decoding, `CreateBitmapFromWicBitmap`, shared bitmaps,
+render-target-to-bitmap copies, alpha-ignore/straight formats, opacity masks,
+non-null `FillGeometry` opacity brushes, `DrawGeometry`, clips/layers, text,
+and device-context bitmap generations remain fail closed. `CopyFromMemory`
+remains an explicit resource upload operation with bounded row copies; steady
+drawing reuses the retained payload and never repacks or reads pixels on the
+CPU.
 
 ## Current support matrix
 
@@ -563,7 +598,7 @@ or unsupported before enabling a non-Windows build.
 | `ProGPU.DirectX` D3D-style device/resources/pipelines | Implemented | Portable typed facade backed by WebGPU; D3D12 on qualified Windows adapters |
 | Native C++ MIL/retained scene on D3D12 | Implemented | Same backend-neutral scene ABI used on Metal, Vulkan, and browser WebGPU |
 | DXGI shared-handle import | Implemented building block | `ProGpuExternalTextureDescriptor` plus Dawn shared-texture memory, keyed-mutex ownership, and no CPU readback |
-| Direct2D `ID2D1*` and DirectWrite text API | Portable COM lifetime, ABI-compatible base factory, geometry/resource families, drawing state, mutable solid/linear-gradient/radial-gradient/bitmap brushes, upload-backed RGBA/BGRA `ID2D1Bitmap`, and a primitive/image semantic-scene `ID2D1RenderTarget`; Windows bitmap/brush/geometry/stroke/command-list/effect/layer/state/text/SVG resources, geometry analysis/realization, vector drawing, and typed device-loss domains implemented | The installed portable C++ target exposes canonical factory/resource/geometry/path/stroke/state/brush/bitmap/render-target IIDs and original vtable order. The portable target records line, rectangle, equal-radius rounded-rectangle, ellipse fill/stroke, nearest/linear `DrawBitmap`, and bitmap-brush calls into the shared pointer-free scene stream. Bitmap brushes retain clamp/wrap/mirror addressing, sampling, opacity, and affine transforms and use GPU coverage masks in the same batched submission. Shared allocation-free primitive/affine/stroke validation and portable path algorithms are qualified through real Windows SDK pointers and system-Direct2D geometry/stroke/state/bitmap oracles. The Windows provider independently supplies the broader ABI v54 resource/recorder family and genuine system device/context/target interop. Portable WIC/shared bitmap creation, opacity masks, text/layer/clip/arbitrary-geometry calls, device-context generations, presentation, and remaining path operations fail closed; there is no fake `d2d1.dll` or `dwrite.dll` |
+| Direct2D `ID2D1*` and DirectWrite text API | Portable COM lifetime, ABI-compatible base factory, geometry/resource families, drawing state, mutable solid/linear-gradient/radial-gradient/bitmap brushes, upload-backed RGBA/BGRA `ID2D1Bitmap`, and a primitive/image/path-fill semantic-scene `ID2D1RenderTarget`; Windows bitmap/brush/geometry/stroke/command-list/effect/layer/state/text/SVG resources, geometry analysis/realization, vector drawing, and typed device-loss domains implemented | The installed portable C++ target exposes canonical factory/resource/geometry/path/stroke/state/brush/bitmap/render-target IIDs and original vtable order. The portable target records line, rectangle, equal-radius rounded-rectangle, ellipse fill/stroke, arbitrary same-factory `FillGeometry`, nearest/linear `DrawBitmap`, and bitmap-brush calls into the shared pointer-free scene stream. Bitmap brushes retain clamp/wrap/mirror addressing, sampling, opacity, and affine transforms and use GPU coverage masks in the same batched submission. Shared allocation-free primitive/affine/stroke validation and portable path algorithms are qualified through real Windows SDK pointers and system-Direct2D geometry/stroke/state/bitmap oracles. The Windows provider independently supplies the broader ABI v54 resource/recorder family and genuine system device/context/target interop. Portable WIC/shared bitmap creation, opacity masks, non-null geometry opacity brushes, `DrawGeometry`, text/layer/clip calls, device-context generations, presentation, and remaining path operations fail closed; there is no fake `d2d1.dll` or `dwrite.dll` |
 | Native Win2D binary interop | Device/target/bitmap/brush/geometry/stroke/command-list/effect-output/text-format/text-layout/typography round trips plus layer/state/text draws package-qualified | The official factory/resource-wrapper contracts preserve exact provider identities through real `CanvasDevice`, `CanvasRenderTarget`, `CanvasBitmap`, brush, `CanvasGeometry`, `CanvasStrokeStyle`, `CanvasCommandList`, device-independent `CanvasTextFormat`/`CanvasTypography`, and device-associated `CanvasTextLayout` projections. The packaged Microsoft Win2D 1.4.0 oracle also wraps effect-output image brushes, executes typed ProGPU layer/state and native-text command-list scopes, observes ProGPU range formatting/OpenType features through the projected layout and typography, mutates that same native layout through Win2D, and draws it. It qualifies identities, resource metadata, boolean geometry/styled-stroke/image-brush/command-list/effect/text drawing and pixels, exclusive producer ownership, and zero-copy Dawn import; glyph runs/color fonts, remaining typography, the full effect catalog, custom effects, and full device-loss recreation remain gated work |
 | Portable Win2D-style Canvas source API | MVP implemented | `ProGPU.Win2D` records Win2D-shaped commands, compiles them with `ProGPU.Scene.Native`, and submits the retained scene to the C++ renderer |
 | Portable Win2D bitmap in LibreWPF native MIL | Implemented | Wrap a same-device `CanvasBitmap` lease source in `IPortableNativeImageSource`; canonical `TYPE_BITMAPSOURCE` lowers to a zero-payload external scene image with no readback or repack |
