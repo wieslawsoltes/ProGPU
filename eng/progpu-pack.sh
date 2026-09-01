@@ -69,7 +69,13 @@ for index in "${!selected_package_ids[@]}"; do
     pack_arguments+=(-p:IncludeSymbols=true -p:SymbolPackageFormat=snupkg)
   fi
   if [[ "${package_id}" == "ACadSharp.ProGPU" ]]; then
-    pack_arguments+=(-p:ProGpuForkPackage=true)
+    # ACadSharp enables GeneratePackageOnBuild in Release. A direct clean
+    # dotnet pack must disable that build-time pack cycle so Pack builds the
+    # net10.0 fork output before collecting ACadSharp.dll.
+    pack_arguments+=(
+      -p:ProGpuForkPackage=true
+      -p:GeneratePackageOnBuild=false
+    )
   fi
 
   "${dotnet}" pack "${repo_root}/${project}" "${pack_arguments[@]}"
