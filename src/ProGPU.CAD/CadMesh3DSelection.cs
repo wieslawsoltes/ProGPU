@@ -63,6 +63,18 @@ public readonly record struct CadMesh3DSelectionHitQueryResult(
     int VisitedNodeCount,
     int TestedTriangleCount);
 
+/// <summary>Exact projected Window/Crossing results and traversal counters.</summary>
+public readonly record struct CadMesh3DRegionQueryResult(
+    ulong ContentGeneration,
+    int HandleWrittenCount,
+    int HandleTotalCount,
+    int IntersectedTriangleCount,
+    int VisitedNodeCount,
+    int TestedTriangleCount)
+{
+    public bool AreHandlesTruncated => HandleWrittenCount != HandleTotalCount;
+}
+
 /// <summary>
 /// Immutable device-independent triangle accelerator for one retained Mesh3D
 /// generation.
@@ -86,10 +98,14 @@ public sealed class CadMesh3DSelectionIndex
     private readonly CadRecordedMesh3DScene _scene;
     private readonly TriangleReference[] _triangles;
     private readonly BvhNode[] _nodes;
+    private readonly int[] _batchSemanticRootIndices;
+    private readonly SemanticRootReference[] _semanticRoots;
 
     public ulong ContentGeneration => _scene.ContentGeneration;
 
     public CadPoint3D RebaseOrigin => _scene.RebaseOrigin;
+
+    public int SemanticRootCount => _semanticRoots.Length;
 
     public CadMesh3DSelectionIndexStatistics Statistics { get; }
 
@@ -97,11 +113,15 @@ public sealed class CadMesh3DSelectionIndex
         CadRecordedMesh3DScene scene,
         TriangleReference[] triangles,
         BvhNode[] nodes,
+        int[] batchSemanticRootIndices,
+        SemanticRootReference[] semanticRoots,
         CadMesh3DSelectionIndexStatistics statistics)
     {
         _scene = scene;
         _triangles = triangles;
         _nodes = nodes;
+        _batchSemanticRootIndices = batchSemanticRootIndices;
+        _semanticRoots = semanticRoots;
         Statistics = statistics;
     }
 
@@ -146,7 +166,37 @@ public sealed class CadMesh3DSelectionIndex
                 scene,
                 [],
                 [],
+                [],
+                [],
                 new CadMesh3DSelectionIndexStatistics(0, 0, 0, 0, 0));
+        }
+
+        var rootByHandle = new Dictionary<ulong, int>(batches.Length);
+        var semanticRoots = new List<SemanticRootReference>(batches.Length);
+        var batchSemanticRootIndices = new int[batches.Length];
+        for (int batchIndex = 0; batchIndex < batches.Length; batchIndex++)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            CadMesh3DDrawBatch batch = batches[batchIndex];
+            int batchTriangleCount = batch.Indices.Length / 3;
+            if (!rootByHandle.TryGetValue(batch.Handle, out int rootIndex))
+            {
+                rootIndex = semanticRoots.Count;
+                rootByHandle.Add(batch.Handle, rootIndex);
+                semanticRoots.Add(new SemanticRootReference(
+                    batch.Handle,
+                    batchTriangleCount));
+            }
+            else
+            {
+                SemanticRootReference semanticRoot = semanticRoots[rootIndex];
+                semanticRoots[rootIndex] = semanticRoot with
+                {
+                    TriangleCount = checked(
+                        semanticRoot.TriangleCount + batchTriangleCount),
+                };
+            }
+            batchSemanticRootIndices[batchIndex] = rootIndex;
         }
 
         var items = new TriangleBuildItem[triangleCount];
@@ -248,11 +298,15 @@ public sealed class CadMesh3DSelectionIndex
 
         long retainedBytes = checked(
             (long)triangles.Length * Unsafe.SizeOf<TriangleReference>() +
-            (long)nodes.Length * Unsafe.SizeOf<BvhNode>());
+            (long)nodes.Length * Unsafe.SizeOf<BvhNode>() +
+            (long)batchSemanticRootIndices.Length * sizeof(int) +
+            (long)semanticRoots.Count * Unsafe.SizeOf<SemanticRootReference>());
         return new CadMesh3DSelectionIndex(
             scene,
             triangles,
             nodes,
+            batchSemanticRootIndices,
+            semanticRoots.ToArray(),
             new CadMesh3DSelectionIndexStatistics(
                 triangleCount,
                 nodes.Length,
@@ -778,6 +832,393 @@ public sealed class CadMesh3DSelectionIndex
             : first.TriangleIndex.CompareTo(second.TriangleIndex);
     }
 
+    /// <summary>
+    /// Selects semantic roots through an exact projected rectangular clip
+    /// volume. Window requires every retained root triangle to be contained;
+    /// Crossing accepts any clipped triangle intersection.
+    /// </summary>
+    /// <remarks>
+    /// <paramref name="semanticRootTriangleScratch"/> must provide at least
+    /// <see cref="SemanticRootCount"/> entries and is cleared by the query.
+    /// Work is O(R + N + C) for R semantic roots, N visited BVH nodes, and C
+    /// tested triangle candidates. Storage is O(R) in caller-owned memory.
+    /// </remarks>
+    public CadMesh3DRegionQueryResult QueryRegion(
+        in CadMesh3DViewport viewport,
+        Vector2 viewportSize,
+        Vector2 firstViewportPoint,
+        Vector2 secondViewportPoint,
+        CadBoundsSelectionMode mode,
+        Span<int> semanticRootTriangleScratch,
+        Span<ulong> destinationHandles)
+    {
+        if (viewport.RebaseOrigin != RebaseOrigin)
+        {
+            throw new ArgumentException(
+                "The 3D selection viewport does not match the indexed scene rebase origin.",
+                nameof(viewport));
+        }
+        if (!IsFinite(viewportSize) ||
+            viewportSize.X <= 0.0f || viewportSize.Y <= 0.0f)
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(viewportSize),
+                "The 3D selection viewport size must be finite and positive.");
+        }
+        if (!IsFinite(firstViewportPoint))
+        {
+            throw new ArgumentOutOfRangeException(nameof(firstViewportPoint));
+        }
+        if (!IsFinite(secondViewportPoint))
+        {
+            throw new ArgumentOutOfRangeException(nameof(secondViewportPoint));
+        }
+        if (mode is not CadBoundsSelectionMode.Window and
+            not CadBoundsSelectionMode.Crossing)
+        {
+            throw new ArgumentOutOfRangeException(nameof(mode));
+        }
+        if (semanticRootTriangleScratch.Length < _semanticRoots.Length)
+        {
+            throw new ArgumentException(
+                $"At least {_semanticRoots.Length} semantic-root scratch entries are required.",
+                nameof(semanticRootTriangleScratch));
+        }
+
+        Span<int> rootStates = semanticRootTriangleScratch[
+            .._semanticRoots.Length];
+        rootStates.Clear();
+        if (_nodes.Length == 0)
+        {
+            return new CadMesh3DRegionQueryResult(
+                ContentGeneration,
+                0,
+                0,
+                0,
+                0,
+                0);
+        }
+
+        Vector2 clampedFirst = Vector2.Clamp(
+            firstViewportPoint,
+            Vector2.Zero,
+            viewportSize);
+        Vector2 clampedSecond = Vector2.Clamp(
+            secondViewportPoint,
+            Vector2.Zero,
+            viewportSize);
+        float minimumX = MathF.Min(clampedFirst.X, clampedSecond.X);
+        float maximumX = MathF.Max(clampedFirst.X, clampedSecond.X);
+        float minimumY = MathF.Min(clampedFirst.Y, clampedSecond.Y);
+        float maximumY = MathF.Max(clampedFirst.Y, clampedSecond.Y);
+        var clipRectangle = new ClipRectangle(
+            minimumX / viewportSize.X * 2.0f - 1.0f,
+            maximumX / viewportSize.X * 2.0f - 1.0f,
+            1.0f - maximumY / viewportSize.Y * 2.0f,
+            1.0f - minimumY / viewportSize.Y * 2.0f);
+        CadMesh3DProjectionCamera camera = viewport.CreateProjectionCamera();
+        Matrix4x4 viewProjection = camera.CreateViewMatrix() *
+            camera.CreateProjectionMatrix(viewportSize.X / viewportSize.Y);
+        ClipVolume clipVolume = CreateClipVolume(
+            viewProjection,
+            clipRectangle);
+
+        Span<int> stack = stackalloc int[QueryStackCapacity];
+        int stackCount = 0;
+        if (!IntersectsClipBounds(
+                _nodes[0],
+                clipVolume))
+        {
+            return new CadMesh3DRegionQueryResult(
+                ContentGeneration,
+                0,
+                0,
+                0,
+                0,
+                0);
+        }
+        stack[stackCount++] = 0;
+
+        int intersectedTriangles = 0;
+        int visitedNodes = 0;
+        int testedTriangles = 0;
+        while (stackCount > 0)
+        {
+            int nodeIndex = stack[--stackCount];
+            BvhNode node = _nodes[nodeIndex];
+            visitedNodes++;
+            if (node.Count > 0)
+            {
+                for (int offset = 0; offset < node.Count; offset++)
+                {
+                    TriangleReference reference =
+                        _triangles[node.Start + offset];
+                    testedTriangles++;
+                    if (!ClassifyClipTriangle(
+                            reference,
+                            clipVolume,
+                            out bool isContained))
+                    {
+                        continue;
+                    }
+
+                    intersectedTriangles++;
+                    int rootIndex =
+                        _batchSemanticRootIndices[reference.BatchIndex];
+                    if (mode == CadBoundsSelectionMode.Crossing)
+                    {
+                        rootStates[rootIndex] = 1;
+                    }
+                    else if (isContained)
+                    {
+                        rootStates[rootIndex] = checked(
+                            rootStates[rootIndex] + 1);
+                    }
+                }
+                continue;
+            }
+
+            bool hitLeft = IntersectsClipBounds(
+                _nodes[node.Left],
+                clipVolume);
+            bool hitRight = IntersectsClipBounds(
+                _nodes[node.Right],
+                clipVolume);
+            if (!hitLeft && !hitRight)
+            {
+                continue;
+            }
+            if (stackCount + (hitLeft && hitRight ? 2 : 1) > stack.Length)
+            {
+                throw new InvalidOperationException(
+                    "The balanced Mesh3D selection tree exceeds its traversal stack contract.");
+            }
+            if (hitRight)
+            {
+                stack[stackCount++] = node.Right;
+            }
+            if (hitLeft)
+            {
+                stack[stackCount++] = node.Left;
+            }
+        }
+
+        int handleWrittenCount = 0;
+        int handleTotalCount = 0;
+        for (int rootIndex = 0;
+             rootIndex < _semanticRoots.Length;
+             rootIndex++)
+        {
+            SemanticRootReference root = _semanticRoots[rootIndex];
+            bool isHit = mode == CadBoundsSelectionMode.Crossing
+                ? rootStates[rootIndex] != 0
+                : rootStates[rootIndex] == root.TriangleCount;
+            if (!isHit)
+            {
+                continue;
+            }
+            if (handleWrittenCount < destinationHandles.Length)
+            {
+                destinationHandles[handleWrittenCount++] = root.Handle;
+            }
+            handleTotalCount++;
+        }
+
+        return new CadMesh3DRegionQueryResult(
+            ContentGeneration,
+            handleWrittenCount,
+            handleTotalCount,
+            intersectedTriangles,
+            visitedNodes,
+            testedTriangles);
+    }
+
+    private bool ClassifyClipTriangle(
+        TriangleReference reference,
+        in ClipVolume clipVolume,
+        out bool isContained)
+    {
+        GetTrianglePositions(
+            reference,
+            out Vector3 first,
+            out Vector3 second,
+            out Vector3 third);
+        int firstOutside = GetOutsideMask(first, clipVolume);
+        int secondOutside = GetOutsideMask(second, clipVolume);
+        int thirdOutside = GetOutsideMask(third, clipVolume);
+        isContained = (firstOutside | secondOutside | thirdOutside) == 0;
+        if (isContained)
+        {
+            return true;
+        }
+        if ((firstOutside & secondOutside & thirdOutside) != 0)
+        {
+            return false;
+        }
+
+        Span<Vector3> firstBuffer = stackalloc Vector3[12];
+        Span<Vector3> secondBuffer = stackalloc Vector3[12];
+        firstBuffer[0] = first;
+        firstBuffer[1] = second;
+        firstBuffer[2] = third;
+        int count = 3;
+        for (int plane = 0; plane < 6; plane++)
+        {
+            int outputCount = 0;
+            Vector4 clipPlane = clipVolume.GetPlane(plane);
+            Vector3 previous = firstBuffer[count - 1];
+            double previousDistance = GetClipDistance(
+                previous,
+                clipPlane);
+            bool previousInside = previousDistance >= 0.0;
+            for (int index = 0; index < count; index++)
+            {
+                Vector3 current = firstBuffer[index];
+                double currentDistance = GetClipDistance(
+                    current,
+                    clipPlane);
+                bool currentInside = currentDistance >= 0.0;
+                if (currentInside != previousInside)
+                {
+                    double denominator = previousDistance - currentDistance;
+                    if (denominator == 0.0 || outputCount >= secondBuffer.Length)
+                    {
+                        throw new InvalidOperationException(
+                            "The projected Mesh3D clipping polygon exceeded its bounded contract.");
+                    }
+                    float parameter = (float)(previousDistance / denominator);
+                    secondBuffer[outputCount++] = previous +
+                        (current - previous) * parameter;
+                }
+                if (currentInside)
+                {
+                    if (outputCount >= secondBuffer.Length)
+                    {
+                        throw new InvalidOperationException(
+                            "The projected Mesh3D clipping polygon exceeded its bounded contract.");
+                    }
+                    secondBuffer[outputCount++] = current;
+                }
+                previous = current;
+                previousDistance = currentDistance;
+                previousInside = currentInside;
+            }
+            if (outputCount == 0)
+            {
+                return false;
+            }
+            Span<Vector3> swap = firstBuffer;
+            firstBuffer = secondBuffer;
+            secondBuffer = swap;
+            count = outputCount;
+        }
+        return true;
+    }
+
+    private void GetTrianglePositions(
+        TriangleReference reference,
+        out Vector3 first,
+        out Vector3 second,
+        out Vector3 third)
+    {
+        CadMesh3DDrawBatch batch =
+            _scene.DrawBatches.Span[reference.BatchIndex];
+        ReadOnlySpan<Vector3> positions = batch.Positions.Span;
+        ReadOnlySpan<uint> indices = batch.Indices.Span;
+        int indexOffset = checked(reference.TriangleIndex * 3);
+        first = positions[(int)indices[indexOffset]];
+        second = positions[(int)indices[indexOffset + 1]];
+        third = positions[(int)indices[indexOffset + 2]];
+    }
+
+    private static bool IntersectsClipBounds(
+        in BvhNode node,
+        in ClipVolume clipVolume)
+    {
+        for (int planeIndex = 0; planeIndex < 6; planeIndex++)
+        {
+            Vector4 plane = clipVolume.GetPlane(planeIndex);
+            var support = new Vector3(
+                plane.X >= 0.0f ? node.Maximum.X : node.Minimum.X,
+                plane.Y >= 0.0f ? node.Maximum.Y : node.Minimum.Y,
+                plane.Z >= 0.0f ? node.Maximum.Z : node.Minimum.Z);
+            if (GetClipDistance(support, plane) < 0.0)
+            {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    private static ClipVolume CreateClipVolume(
+        in Matrix4x4 viewProjection,
+        in ClipRectangle rectangle)
+    {
+        var clipX = new Vector4(
+            viewProjection.M11,
+            viewProjection.M21,
+            viewProjection.M31,
+            viewProjection.M41);
+        var clipY = new Vector4(
+            viewProjection.M12,
+            viewProjection.M22,
+            viewProjection.M32,
+            viewProjection.M42);
+        var clipZ = new Vector4(
+            viewProjection.M13,
+            viewProjection.M23,
+            viewProjection.M33,
+            viewProjection.M43);
+        var clipW = new Vector4(
+            viewProjection.M14,
+            viewProjection.M24,
+            viewProjection.M34,
+            viewProjection.M44);
+        var result = new ClipVolume(
+            clipX - rectangle.Left * clipW,
+            rectangle.Right * clipW - clipX,
+            clipY - rectangle.Bottom * clipW,
+            rectangle.Top * clipW - clipY,
+            clipZ,
+            clipW - clipZ);
+        for (int index = 0; index < 6; index++)
+        {
+            Vector4 plane = result.GetPlane(index);
+            if (!float.IsFinite(plane.X) ||
+                !float.IsFinite(plane.Y) ||
+                !float.IsFinite(plane.Z) ||
+                !float.IsFinite(plane.W))
+            {
+                throw new InvalidOperationException(
+                    "The retained Mesh3D selection matrix produced a non-finite clip plane.");
+            }
+        }
+        return result;
+    }
+
+    private static int GetOutsideMask(
+        Vector3 point,
+        in ClipVolume clipVolume)
+    {
+        int result = 0;
+        for (int plane = 0; plane < 6; plane++)
+        {
+            if (GetClipDistance(point, clipVolume.GetPlane(plane)) < 0.0)
+            {
+                result |= 1 << plane;
+            }
+        }
+        return result;
+    }
+
+    private static double GetClipDistance(
+        Vector3 point,
+        Vector4 plane) =>
+        (double)point.X * plane.X +
+        (double)point.Y * plane.Y +
+        (double)point.Z * plane.Z +
+        plane.W;
+
     private bool TryIntersectTriangle(
         TriangleReference reference,
         CadPoint3D origin,
@@ -1061,6 +1502,36 @@ public sealed class CadMesh3DSelectionIndex
     private readonly record struct TriangleReference(
         int BatchIndex,
         int TriangleIndex);
+
+    private readonly record struct SemanticRootReference(
+        ulong Handle,
+        int TriangleCount);
+
+    private readonly record struct ClipRectangle(
+        float Left,
+        float Right,
+        float Bottom,
+        float Top);
+
+    private readonly record struct ClipVolume(
+        Vector4 Left,
+        Vector4 Right,
+        Vector4 Bottom,
+        Vector4 Top,
+        Vector4 Near,
+        Vector4 Far)
+    {
+        internal Vector4 GetPlane(int index) => index switch
+        {
+            0 => Left,
+            1 => Right,
+            2 => Bottom,
+            3 => Top,
+            4 => Near,
+            5 => Far,
+            _ => throw new ArgumentOutOfRangeException(nameof(index)),
+        };
+    }
 
     private struct TriangleBuildItem : IComparable<TriangleBuildItem>
     {

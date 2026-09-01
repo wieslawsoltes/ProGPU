@@ -1235,7 +1235,7 @@ CAD editor shell. They now share plan, Flat 3D, and retained print-preview modes
 with generation-safe layout/named-page-setup selection plus an explicit A4
 model-extents fallback and reversible creation/application of named page setups
 from Model; dedicated dockable property/layer panels, projected
-Window/Crossing and subobjects, broader editing tools,
+lasso/polygon/fence selection and subobjects, broader editing tools,
 expanded device/media/margin/scale page-setup UI,
 printer/export adapters, and round-trip-certified output remain tracked
 application phases.
@@ -2285,6 +2285,19 @@ storage for `H` intersected triangles and capacity `K`. The shared shell uses a
 reused 64-result buffer; repeated Alt-clicks cycle only while generation,
 camera, and four-logical-pixel neighborhood remain stable, while Ctrl
 independently toggles the cycled root in the common selection set.
+
+Projected rectangular selection reuses that index rather than projecting an
+entity AABB approximation. Two logical corners form four WebGPU homogeneous
+side planes; near and far add the remaining two. Six local-space support-point
+tests prune BVH nodes, fixed-capacity plane-by-plane triangle clipping proves
+Crossing even when no vertex is inside, and Window compares fully contained
+triangle counts with the complete semantic root across all draw batches.
+`QueryRegion` is zero-allocation `O(R + N + C)` work with `O(R)` caller-owned
+root scratch for `R` roots, `N` visited nodes, and `C` tested triangles. The
+shared shell claims only empty-origin primary drags for left-to-right Window or
+right-to-left Crossing; object-origin drags retain orbit, Shift-left and
+middle/right retain pan, and Ctrl atomically toggles the returned root set.
+Dynamic theme-resource overlay brushes repaint without rebuilding mesh data.
 
 The CPU index consumes the same immutable triangles, handle, rebase, and camera
 state as both render adapters and adds no shader, C record, generated wire

@@ -481,6 +481,38 @@ public sealed class CadMesh3DViewCoordinator
         return result;
     }
 
+    /// <summary>
+    /// Queries exact projected Window/Crossing semantic roots into
+    /// caller-owned storage.
+    /// </summary>
+    public CadMesh3DRegionQueryResult QuerySelectionRegion(
+        Vector2 viewportSize,
+        Vector2 firstViewportPoint,
+        Vector2 secondViewportPoint,
+        CadBoundsSelectionMode mode,
+        Span<int> semanticRootTriangleScratch,
+        Span<ulong> destinationHandles)
+    {
+        CadMesh3DSelectionIndex index = SelectionIndex ??
+            throw new InvalidOperationException(
+                "A retained CAD mesh generation is required before selection.");
+        CadMesh3DViewport viewport = Viewport ??
+            throw new InvalidOperationException(
+                "A retained CAD mesh camera is required before selection.");
+        CadMesh3DRegionQueryResult result = index.QueryRegion(
+            viewport,
+            viewportSize,
+            firstViewportPoint,
+            secondViewportPoint,
+            mode,
+            semanticRootTriangleScratch,
+            destinationHandles);
+        RecordSelectionQuery(
+            result.VisitedNodeCount,
+            result.TestedTriangleCount);
+        return result;
+    }
+
     private void RecordSelectionQuery(
         int visitedNodeCount,
         int testedTriangleCount)

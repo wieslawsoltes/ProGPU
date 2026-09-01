@@ -508,6 +508,49 @@ namespace Microsoft.UI.Xaml.Controls
         }
     }
 
+    /// <summary>
+    /// Synchronous arbitration for a primary-button drag that exceeded the
+    /// stationary-click threshold.
+    /// </summary>
+    public sealed class Viewport3DSelectionDragStartingEventArgs : EventArgs
+    {
+        public Vector2 Origin { get; }
+
+        public Vector2 Position { get; }
+
+        public bool UseRegionSelection { get; set; }
+
+        internal Viewport3DSelectionDragStartingEventArgs(
+            Vector2 origin,
+            Vector2 position)
+        {
+            Origin = origin;
+            Position = position;
+        }
+    }
+
+    /// <summary>One completed rectangular selection gesture.</summary>
+    public sealed class Viewport3DRegionSelectionEventArgs : EventArgs
+    {
+        public Vector2 Origin { get; }
+
+        public Vector2 Position { get; }
+
+        public bool IsWindow => Position.X >= Origin.X;
+
+        public bool IsControlPressed { get; }
+
+        internal Viewport3DRegionSelectionEventArgs(
+            Vector2 origin,
+            Vector2 position,
+            bool isControlPressed)
+        {
+            Origin = origin;
+            Position = position;
+            IsControlPressed = isControlPressed;
+        }
+    }
+
     public class Viewport3D : Control
     {
         private const float ClickDragThreshold = 4.0f;
@@ -544,6 +587,18 @@ namespace Microsoft.UI.Xaml.Controls
         private readonly Pen _compassXPen;
         private readonly Pen _compassYPen;
         private readonly Pen _compassZPen;
+        private readonly Brush _windowSelectionFillBrush =
+            new ThemeResourceBrush("SystemAccentColor")
+            {
+                Opacity = 0.16f,
+            };
+        private readonly Brush _crossingSelectionFillBrush =
+            new ThemeResourceBrush("SystemAccentColorLight1")
+            {
+                Opacity = 0.22f,
+            };
+        private readonly Pen _windowSelectionPen;
+        private readonly Pen _crossingSelectionPen;
 
         /// <summary>
         /// Enables generation-retained model compilation. Call
@@ -576,6 +631,18 @@ namespace Microsoft.UI.Xaml.Controls
         /// retain exclusive ownership of moved pointer gestures.
         /// </summary>
         public event EventHandler<Viewport3DClickEventArgs>? ViewportClicked;
+
+        /// <summary>
+        /// Raised once when a primary drag crosses the click threshold. A host
+        /// may claim an empty-origin drag for region selection; otherwise the
+        /// control begins its ordinary orbit gesture.
+        /// </summary>
+        public event EventHandler<Viewport3DSelectionDragStartingEventArgs>?
+            SelectionDragStarting;
+
+        /// <summary>Raised once when a claimed region drag completes.</summary>
+        public event EventHandler<Viewport3DRegionSelectionEventArgs>?
+            RegionSelectionCompleted;
 
         /// <summary>
         /// Advances the immutable model generation and schedules a redraw.
@@ -718,8 +785,11 @@ namespace Microsoft.UI.Xaml.Controls
 
         private bool _isOrbiting = false;
         private bool _isPanning = false;
+        private bool _isPendingPrimaryDrag;
+        private bool _isRegionSelecting;
         private Vector2 _lastPointerPosition;
         private Vector2 _clickOrigin;
+        private Vector2 _regionSelectionCurrent;
         private bool _isClickCandidate;
 
         private float _cameraTheta = 0f;
@@ -792,6 +862,12 @@ namespace Microsoft.UI.Xaml.Controls
             _compassXPen = new Pen(_compassXBrush, 2f);
             _compassYPen = new Pen(_compassYBrush, 2f);
             _compassZPen = new Pen(_compassZBrush, 2f);
+            _windowSelectionPen = new Pen(
+                new ThemeResourceBrush("SystemAccentColor"),
+                1f);
+            _crossingSelectionPen = new Pen(
+                new ThemeResourceBrush("SystemAccentColorLight1"),
+                1f);
             _camera.Changed += OnCameraChanged;
             HorizontalAlignment = HorizontalAlignment.Stretch;
             VerticalAlignment = VerticalAlignment.Stretch;
@@ -973,6 +1049,7 @@ namespace Microsoft.UI.Xaml.Controls
                 });
             }
 
+            DrawRegionSelection(context);
             DrawCoordinateCompass(context, view);
 
             base.OnRender(context);
@@ -1311,15 +1388,19 @@ namespace Microsoft.UI.Xaml.Controls
 
                     _clickOrigin = e.Position;
                     _isClickCandidate = !isShift;
+                    _isRegionSelecting = false;
+                    _regionSelectionCurrent = e.Position;
 
                     if (isShift || Camera is OrthographicCamera)
                     {
+                        _isPendingPrimaryDrag = false;
                         _isOrbiting = false;
                         _isPanning = true;
                     }
                     else
                     {
-                        _isOrbiting = true;
+                        _isPendingPrimaryDrag = true;
+                        _isOrbiting = false;
                         _isPanning = false;
                     }
 
@@ -1331,6 +1412,8 @@ namespace Microsoft.UI.Xaml.Controls
                     if (!_cameraInitialized) InitializeCameraState();
 
                     _isClickCandidate = false;
+                    _isPendingPrimaryDrag = false;
+                    _isRegionSelecting = false;
                     _isOrbiting = false;
                     _isPanning = true;
                     _lastPointerPosition = e.Position;
@@ -1339,6 +1422,8 @@ namespace Microsoft.UI.Xaml.Controls
                 else
                 {
                     _isClickCandidate = false;
+                    _isPendingPrimaryDrag = false;
+                    _isRegionSelecting = false;
                 }
             }
             base.OnPointerPressed(e);
@@ -1352,12 +1437,27 @@ namespace Microsoft.UI.Xaml.Controls
                 bool publishClick = _isClickCandidate &&
                     Vector2.DistanceSquared(e.Position, _clickOrigin) <=
                     ClickDragThreshold * ClickDragThreshold;
+                bool publishRegionSelection = _isRegionSelecting;
+                bool releaseCapture = _isPendingPrimaryDrag ||
+                    _isOrbiting || _isPanning || _isRegionSelecting;
                 _isClickCandidate = false;
-                if (_isOrbiting || _isPanning)
+                _isPendingPrimaryDrag = false;
+                _isRegionSelecting = false;
+                if (releaseCapture)
                 {
                     InputSystem.ReleasePointerCapture();
                     _isOrbiting = false;
                     _isPanning = false;
+                }
+                if (publishRegionSelection)
+                {
+                    Invalidate();
+                    RegionSelectionCompleted?.Invoke(
+                        this,
+                        new Viewport3DRegionSelectionEventArgs(
+                            _clickOrigin,
+                            e.Position,
+                            InputSystem.Current.IsControlPressed));
                 }
                 if (publishClick)
                 {
@@ -1376,13 +1476,51 @@ namespace Microsoft.UI.Xaml.Controls
         {
             if (IsEnabled)
             {
-                if (_isClickCandidate &&
-                    Vector2.DistanceSquared(e.Position, _clickOrigin) >
+                float dragDistanceSquared = Vector2.DistanceSquared(
+                    e.Position,
+                    _clickOrigin);
+                if (_isPendingPrimaryDrag &&
+                    dragDistanceSquared >
+                    ClickDragThreshold * ClickDragThreshold)
+                {
+                    _isClickCandidate = false;
+                    bool useRegionSelection = false;
+                    EventHandler<Viewport3DSelectionDragStartingEventArgs>?
+                        starting = SelectionDragStarting;
+                    if (starting is not null)
+                    {
+                        var args = new Viewport3DSelectionDragStartingEventArgs(
+                            _clickOrigin,
+                            e.Position);
+                        starting(this, args);
+                        useRegionSelection = args.UseRegionSelection;
+                    }
+                    _isPendingPrimaryDrag = false;
+                    if (useRegionSelection)
+                    {
+                        _isRegionSelecting = true;
+                        _regionSelectionCurrent = e.Position;
+                        Invalidate();
+                    }
+                    else
+                    {
+                        _isOrbiting = true;
+                        _lastPointerPosition = _clickOrigin;
+                    }
+                }
+                else if (_isClickCandidate &&
+                    dragDistanceSquared >
                     ClickDragThreshold * ClickDragThreshold)
                 {
                     _isClickCandidate = false;
                 }
-                if (_isOrbiting)
+                if (_isRegionSelecting)
+                {
+                    e.Handled = true;
+                    _regionSelectionCurrent = e.Position;
+                    Invalidate();
+                }
+                else if (_isOrbiting)
                 {
                     e.Handled = true;
                     if (!_cameraInitialized) InitializeCameraState();
@@ -1423,16 +1561,22 @@ namespace Microsoft.UI.Xaml.Controls
         public override void OnPointerCanceled(PointerRoutedEventArgs e)
         {
             _isClickCandidate = false;
+            _isPendingPrimaryDrag = false;
+            _isRegionSelecting = false;
             _isOrbiting = false;
             _isPanning = false;
+            Invalidate();
             base.OnPointerCanceled(e);
         }
 
         public override void OnPointerCaptureLost(PointerRoutedEventArgs e)
         {
             _isClickCandidate = false;
+            _isPendingPrimaryDrag = false;
+            _isRegionSelecting = false;
             _isOrbiting = false;
             _isPanning = false;
+            Invalidate();
             base.OnPointerCaptureLost(e);
         }
 
@@ -1572,6 +1716,34 @@ namespace Microsoft.UI.Xaml.Controls
             public string Label;
             public Vector3 VCam;
             public Vector2 ProjPos;
+        }
+
+        private void DrawRegionSelection(DrawingContext context)
+        {
+            if (!_isRegionSelecting)
+            {
+                return;
+            }
+            float minimumX = MathF.Min(
+                _clickOrigin.X,
+                _regionSelectionCurrent.X);
+            float minimumY = MathF.Min(
+                _clickOrigin.Y,
+                _regionSelectionCurrent.Y);
+            var bounds = new Rect(
+                minimumX,
+                minimumY,
+                MathF.Abs(_regionSelectionCurrent.X - _clickOrigin.X),
+                MathF.Abs(_regionSelectionCurrent.Y - _clickOrigin.Y));
+            bool isWindow = _regionSelectionCurrent.X >= _clickOrigin.X;
+            context.DrawRectangle(
+                isWindow
+                    ? _windowSelectionFillBrush
+                    : _crossingSelectionFillBrush,
+                isWindow
+                    ? _windowSelectionPen
+                    : _crossingSelectionPen,
+                bounds);
         }
 
         private void DrawCoordinateCompass(DrawingContext context, Matrix4x4 view)

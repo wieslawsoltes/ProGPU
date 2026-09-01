@@ -30,6 +30,8 @@ public sealed class CadSampleView : Grid
     private readonly List<MeshMaterialBinding> _meshMaterialBindings = new();
     private readonly CadMesh3DSelectionResult[] _meshSelectionHits =
         new CadMesh3DSelectionResult[MeshSelectionCycleCapacity];
+    private int[] _meshRegionRootScratch = [];
+    private ulong[] _meshRegionHandles = [];
     private PerspectiveCamera? _observedMeshCamera;
     private CadMesh3DSelectionResult? _lastMeshSelection;
     private CadMesh3DViewport? _meshSelectionCycleViewport;
@@ -512,6 +514,8 @@ public sealed class CadSampleView : Grid
             AmbientIntensity = 0.25f,
         };
         _viewport3D.ViewportClicked += OnMeshViewportClicked;
+        _viewport3D.SelectionDragStarting += OnMeshSelectionDragStarting;
+        _viewport3D.RegionSelectionCompleted += OnMeshRegionSelectionCompleted;
         _printPreview = new CadPrintPreviewCanvas
         {
             Visibility = Visibility.Collapsed,
@@ -4354,6 +4358,15 @@ public sealed class CadSampleView : Grid
         CadRecordedMesh3DScene scene = _mesh3DView.ReplaceSnapshot(
             snapshot,
             resetCamera);
+        int semanticRootCount = _mesh3DView.SelectionIndex!.SemanticRootCount;
+        if (_meshRegionRootScratch.Length < semanticRootCount)
+        {
+            _meshRegionRootScratch = new int[semanticRootCount];
+        }
+        if (_meshRegionHandles.Length < semanticRootCount)
+        {
+            _meshRegionHandles = new ulong[semanticRootCount];
+        }
         foreach (CadMesh3DDrawBatch batch in scene.DrawBatches.Span)
         {
             uint[] sourceIndices = batch.Indices.ToArray();
@@ -4409,6 +4422,61 @@ public sealed class CadSampleView : Grid
         }
         ApplyMeshCamera(_mesh3DView.Viewport!.Value);
         _viewport3D.Invalidate();
+    }
+
+    private void OnMeshSelectionDragStarting(
+        object? sender,
+        Viewport3DSelectionDragStartingEventArgs args)
+    {
+        if (!_is3DView || _isBusy || _mesh3DView.SelectionIndex is null)
+        {
+            return;
+        }
+        CadMesh3DSelectionResult origin = _mesh3DView.QuerySelection(
+            _viewport3D.Size,
+            args.Origin);
+        args.UseRegionSelection = !origin.IsHit;
+        if (args.UseRegionSelection)
+        {
+            ResetMeshSelectionCycle();
+        }
+    }
+
+    private void OnMeshRegionSelectionCompleted(
+        object? sender,
+        Viewport3DRegionSelectionEventArgs args)
+    {
+        if (!_is3DView || _isBusy || _mesh3DView.SelectionIndex is null)
+        {
+            return;
+        }
+        CadBoundsSelectionMode mode = args.IsWindow
+            ? CadBoundsSelectionMode.Window
+            : CadBoundsSelectionMode.Crossing;
+        CadMesh3DRegionQueryResult query =
+            _mesh3DView.QuerySelectionRegion(
+                _viewport3D.Size,
+                args.Origin,
+                args.Position,
+                mode,
+                _meshRegionRootScratch,
+                _meshRegionHandles);
+        if (!_canvas.SelectSemanticHandles(
+                query.ContentGeneration,
+                _meshRegionHandles.AsSpan(0, query.HandleWrittenCount),
+                args.IsControlPressed,
+                mode))
+        {
+            throw new InvalidOperationException(
+                "The projected Mesh3D region contains a stale semantic root.");
+        }
+        _lastMeshSelection = null;
+        SetStatus(
+            $"3D {mode} {(args.IsControlPressed ? "toggled" : "selected")} " +
+            $"{query.HandleWrittenCount:N0} semantic roots; " +
+            $"tested {query.TestedTriangleCount:N0} triangles in " +
+            $"{query.VisitedNodeCount:N0} BVH nodes" +
+            (query.AreHandlesTruncated ? "; results truncated." : "."));
     }
 
     private void OnMeshViewportClicked(
@@ -8354,6 +8422,13 @@ public sealed class CadSampleView : Grid
             string emptySelectionUnsupportedStatus = _canvas.LastUnsupportedPrimitiveCount == 0
                 ? string.Empty
                 : $" | {_canvas.LastUnsupportedPrimitiveCount:N0} unsupported selection candidates";
+            if (_is3DView)
+            {
+                return emptySelectionUnsupportedStatus +
+                    " | click selects; Alt-click cycles depth; empty-origin drag " +
+                    "right: Window/left: Crossing; object-origin drag orbits; " +
+                    "Shift-left or middle/right pans";
+            }
             return emptySelectionUnsupportedStatus +
                 " | left select/drag (right: Window, left: Crossing); middle/right pan";
         }

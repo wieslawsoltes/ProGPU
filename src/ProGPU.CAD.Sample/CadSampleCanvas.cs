@@ -622,6 +622,8 @@ public sealed class CadSampleCanvas : FrameworkElement
     };
     private readonly CadSnapshotOptions _snapshotOptions;
     private readonly HashSet<ulong> _selectedHandleSet = new();
+    private readonly HashSet<ulong> _residentSemanticHandleSet = new();
+    private readonly HashSet<ulong> _semanticSelectionInputSet = new();
     private readonly HashSet<ulong> _drawOrderReferenceHandleSet = new();
     private GpuPicture? _picture;
     private GpuPicture? _constructionPicture;
@@ -1608,6 +1610,14 @@ public sealed class CadSampleCanvas : FrameworkElement
         _picture = picture;
         CurrentSession = session;
         CurrentSnapshot = snapshot;
+        _residentSemanticHandleSet.Clear();
+        _residentSemanticHandleSet.EnsureCapacity(selectionCapacity);
+        _semanticSelectionInputSet.Clear();
+        _semanticSelectionInputSet.EnsureCapacity(selectionCapacity);
+        foreach (CadEntityHeader entity in snapshot.Entities.Span)
+        {
+            _residentSemanticHandleSet.Add(entity.Handle);
+        }
         _planGridDisplaySettings = snapshot.PlanGridDisplaySettings;
         bool isPlanSnapEnabled =
             resetViewSelectionAndHistory || synchronizePlanSnapMode
@@ -2736,6 +2746,83 @@ public sealed class CadSampleCanvas : FrameworkElement
         _lastUnsupportedPrimitiveCount = 0;
         _lastSelectionWasTruncated = false;
         LastSelectionMode = null;
+        RefreshSelectionBounds(snapshot);
+        SelectionChanged?.Invoke(this, EventArgs.Empty);
+        Invalidate();
+        return true;
+    }
+
+    /// <summary>
+    /// Atomically replaces or toggles a caller-buffered set of unique semantic
+    /// roots from one active projected-scene generation.
+    /// </summary>
+    public bool SelectSemanticHandles(
+        ulong contentGeneration,
+        ReadOnlySpan<ulong> handles,
+        bool toggle,
+        CadBoundsSelectionMode mode)
+    {
+        if (mode is not CadBoundsSelectionMode.Window and
+            not CadBoundsSelectionMode.Crossing)
+        {
+            throw new ArgumentOutOfRangeException(nameof(mode));
+        }
+        ThrowIfDrawOrderReferencePickPending();
+        CadDocumentSnapshot snapshot = CurrentSnapshot ??
+            throw new InvalidOperationException("No CAD document is loaded.");
+        if (contentGeneration != snapshot.ContentGeneration ||
+            handles.Length > _selectedHandles.Length)
+        {
+            return false;
+        }
+
+        _semanticSelectionInputSet.Clear();
+        foreach (ulong handle in handles)
+        {
+            if (handle == 0 ||
+                !_residentSemanticHandleSet.Contains(handle) ||
+                !_semanticSelectionInputSet.Add(handle))
+            {
+                _semanticSelectionInputSet.Clear();
+                return false;
+            }
+        }
+
+        if (!toggle)
+        {
+            handles.CopyTo(_selectedHandles);
+            _selectedHandleCount = handles.Length;
+        }
+        else
+        {
+            int destination = 0;
+            for (int index = 0; index < _selectedHandleCount; index++)
+            {
+                ulong handle = _selectedHandles[index];
+                if (!_semanticSelectionInputSet.Contains(handle))
+                {
+                    _selectedHandles[destination++] = handle;
+                }
+            }
+            foreach (ulong handle in handles)
+            {
+                if (!_selectedHandleSet.Contains(handle))
+                {
+                    _selectedHandles[destination++] = handle;
+                }
+            }
+            _selectedHandleCount = destination;
+        }
+
+        _selectedHandleSet.Clear();
+        for (int index = 0; index < _selectedHandleCount; index++)
+        {
+            _selectedHandleSet.Add(_selectedHandles[index]);
+        }
+        _semanticSelectionInputSet.Clear();
+        _lastUnsupportedPrimitiveCount = 0;
+        _lastSelectionWasTruncated = false;
+        LastSelectionMode = mode;
         RefreshSelectionBounds(snapshot);
         SelectionChanged?.Invoke(this, EventArgs.Empty);
         Invalidate();

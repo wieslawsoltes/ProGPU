@@ -172,6 +172,135 @@ public sealed class CadMesh3DSelectionTests
     }
 
     [Fact]
+    public void ProjectedRegionDistinguishesWholeRootWindowFromExactCrossing()
+    {
+        var document = new CadDocument();
+        Mesh splitRoot = CreateSeparatedMesh();
+        Face3D enclosed = CreateSquareFaceAt(0.0, 0.0, 0.0, 1.0);
+        Face3D outside = CreateSquareFaceAt(8.0, 0.0, 0.0, 1.0);
+        document.Entities.Add(splitRoot);
+        document.Entities.Add(enclosed);
+        document.Entities.Add(outside);
+        CadRecordedMesh3DScene scene = CompileScene(document);
+        CadMesh3DSelectionIndex index = CadMesh3DSelectionIndex.Build(scene);
+        CadMesh3DViewport viewport = CreateTopViewport(
+            scene,
+            cameraDistance: 20.0,
+            near: 0.1f,
+            far: 100.0f);
+        Vector2 first = Project(
+            viewport,
+            scene,
+            new CadPoint3D(-1.5, -1.5, 0.0));
+        Vector2 second = Project(
+            viewport,
+            scene,
+            new CadPoint3D(1.5, 1.5, 0.0));
+        var rootScratch = new int[index.SemanticRootCount];
+        var handles = new ulong[index.SemanticRootCount];
+
+        CadMesh3DRegionQueryResult window = index.QueryRegion(
+            viewport,
+            ViewportSize,
+            first,
+            second,
+            CadBoundsSelectionMode.Window,
+            rootScratch,
+            handles);
+
+        Assert.Equal(1, window.HandleTotalCount);
+        Assert.False(window.AreHandlesTruncated);
+        Assert.Equal(enclosed.Handle, handles[0]);
+        Assert.True(window.IntersectedTriangleCount >= 4);
+
+        CadMesh3DRegionQueryResult crossing = index.QueryRegion(
+            viewport,
+            ViewportSize,
+            first,
+            second,
+            CadBoundsSelectionMode.Crossing,
+            rootScratch,
+            handles);
+
+        Assert.Equal(2, crossing.HandleTotalCount);
+        Assert.Equal(splitRoot.Handle, handles[0]);
+        Assert.Equal(enclosed.Handle, handles[1]);
+        Span<ulong> bounded = handles.AsSpan(0, 1);
+        CadMesh3DRegionQueryResult truncated = index.QueryRegion(
+            viewport,
+            ViewportSize,
+            first,
+            second,
+            CadBoundsSelectionMode.Crossing,
+            rootScratch,
+            bounded);
+        Assert.Equal(1, truncated.HandleWrittenCount);
+        Assert.Equal(2, truncated.HandleTotalCount);
+        Assert.True(truncated.AreHandlesTruncated);
+        Assert.Throws<ArgumentException>(() => index.QueryRegion(
+            viewport,
+            ViewportSize,
+            first,
+            second,
+            CadBoundsSelectionMode.Window,
+            Array.Empty<int>(),
+            handles));
+    }
+
+    [Fact]
+    public void ProjectedCrossingClipsSpanningTriangleAndRejectsFarDepth()
+    {
+        var document = new CadDocument();
+        Mesh spanning = CreateTriangleMesh();
+        Face3D beyondFar = CreateSquareFaceAt(0.0, 0.0, -30.0, 1.0);
+        document.Entities.Add(spanning);
+        document.Entities.Add(beyondFar);
+        CadRecordedMesh3DScene scene = CompileScene(document);
+        CadMesh3DSelectionIndex index = CadMesh3DSelectionIndex.Build(scene);
+        var viewport = new CadMesh3DViewport(
+            scene.RebaseOrigin,
+            new CadPoint3D(0.0, 0.0, 10.0),
+            new CadPoint3D(0.0, 0.0, -1.0),
+            new CadPoint3D(0.0, 1.0, 0.0),
+            0.1f,
+            20.0f,
+            50.0f);
+        Vector2 first = Project(
+            viewport,
+            scene,
+            new CadPoint3D(-0.25, -0.25, 0.0));
+        Vector2 second = Project(
+            viewport,
+            scene,
+            new CadPoint3D(0.25, 0.25, 0.0));
+        var rootScratch = new int[index.SemanticRootCount];
+        var handles = new ulong[index.SemanticRootCount];
+
+        CadMesh3DRegionQueryResult crossing = index.QueryRegion(
+            viewport,
+            ViewportSize,
+            first,
+            second,
+            CadBoundsSelectionMode.Crossing,
+            rootScratch,
+            handles);
+
+        Assert.Equal(1, crossing.HandleTotalCount);
+        Assert.Equal(spanning.Handle, handles[0]);
+        Assert.Equal(1, crossing.IntersectedTriangleCount);
+
+        CadMesh3DRegionQueryResult window = index.QueryRegion(
+            viewport,
+            ViewportSize,
+            first,
+            second,
+            CadBoundsSelectionMode.Window,
+            rootScratch,
+            handles);
+        Assert.Equal(0, window.HandleTotalCount);
+    }
+
+    [Fact]
     public void LargeWcsQueryUsesTheSceneRebaseWithoutLosingRenderedPrecision()
     {
         const double world = 1_000_000_000_000.0;
@@ -193,6 +322,29 @@ public sealed class CadMesh3DSelectionTests
         Assert.InRange(Math.Abs(target.X - result.Point.X), 0.0, 0.005);
         Assert.InRange(Math.Abs(target.Y - result.Point.Y), 0.0, 0.005);
         Assert.InRange(Math.Abs(target.Z - result.Point.Z), 0.0, 0.005);
+        var rootScratch = new int[index.SemanticRootCount];
+        var handles = new ulong[index.SemanticRootCount];
+        CadMesh3DViewport regionViewport = CreateTopViewport(
+            scene,
+            cameraDistance: 10.0,
+            near: 0.1f,
+            far: 100.0f);
+        CadMesh3DRegionQueryResult window = index.QueryRegion(
+            regionViewport,
+            ViewportSize,
+            Project(
+                regionViewport,
+                scene,
+                new CadPoint3D(world - 3.0, world - 3.0, world + 25.0)),
+            Project(
+                regionViewport,
+                scene,
+                new CadPoint3D(world + 3.0, world + 3.0, world + 25.0)),
+            CadBoundsSelectionMode.Window,
+            rootScratch,
+            handles);
+        Assert.Equal(1, window.HandleTotalCount);
+        Assert.Equal(face.Handle, handles[0]);
         CadMesh3DViewport wrongRebase = viewport.WithRebaseOrigin(
             scene.RebaseOrigin + new CadPoint3D(1.0, 0.0, 0.0));
         Assert.Throws<ArgumentException>(() =>
@@ -273,6 +425,45 @@ public sealed class CadMesh3DSelectionTests
         GC.KeepAlive(observed);
 
         Assert.Equal(0, hitQueryMinimumAllocated);
+
+        var regionRootScratch = new int[index.SemanticRootCount];
+        var regionHandles = new ulong[index.SemanticRootCount];
+        Vector2 regionFirst = point - new Vector2(1.0f);
+        Vector2 regionSecond = point + new Vector2(1.0f);
+        CadMesh3DRegionQueryResult region = index.QueryRegion(
+            viewport,
+            ViewportSize,
+            regionFirst,
+            regionSecond,
+            CadBoundsSelectionMode.Crossing,
+            regionRootScratch,
+            regionHandles);
+        Assert.Equal(mesh.Handle, Assert.Single(regionHandles.AsSpan(
+            0,
+            region.HandleWrittenCount).ToArray()));
+        Assert.True(region.TestedTriangleCount <
+            index.Statistics.TriangleCount / 32);
+        long regionMinimumAllocated = long.MaxValue;
+        for (int pass = 0; pass < 4; pass++)
+        {
+            long before = GC.GetAllocatedBytesForCurrentThread();
+            for (int iteration = 0; iteration < 4_096; iteration++)
+            {
+                observed ^= (ulong)index.QueryRegion(
+                    viewport,
+                    ViewportSize,
+                    regionFirst,
+                    regionSecond,
+                    CadBoundsSelectionMode.Crossing,
+                    regionRootScratch,
+                    regionHandles).HandleTotalCount;
+            }
+            regionMinimumAllocated = Math.Min(
+                regionMinimumAllocated,
+                GC.GetAllocatedBytesForCurrentThread() - before);
+        }
+        GC.KeepAlive(observed);
+        Assert.Equal(0, regionMinimumAllocated);
     }
 
     [Fact]
@@ -323,6 +514,22 @@ public sealed class CadMesh3DSelectionTests
         Assert.Equal(before.CameraUpdateCount, afterQuery.CameraUpdateCount);
         Assert.True(afterQuery.SelectionVisitedNodeCount > 0);
         Assert.True(afterQuery.SelectionTestedTriangleCount > 0);
+        var rootScratch = new int[
+            coordinator.SelectionIndex!.SemanticRootCount];
+        var handles = new ulong[rootScratch.Length];
+        CadMesh3DRegionQueryResult region =
+            coordinator.QuerySelectionRegion(
+                ViewportSize,
+                point - new Vector2(2.0f),
+                point + new Vector2(2.0f),
+                CadBoundsSelectionMode.Crossing,
+                rootScratch,
+                handles);
+        Assert.Equal(1, region.HandleTotalCount);
+        Assert.Equal(hit.Handle, handles[0]);
+        Assert.Equal(
+            afterQuery.SelectionQueryCount + 1,
+            coordinator.Statistics.SelectionQueryCount);
 
         session.Edit("Add replacement face", cad =>
             cad.Entities.Add(CreateSquareFace(20.0, 0.0)));
@@ -338,12 +545,13 @@ public sealed class CadMesh3DSelectionTests
     }
 
     [Fact]
-    public void SharedViewportClickSelectsHighlightsClearsAndDragOnlyOrbits()
+    public void SharedViewportClickRegionSelectsAndHitOriginDragOrbits()
     {
         var document = new CadDocument();
         Face3D face = CreateSquareFace(0.0, 0.0);
         document.Entities.Add(face);
         var view = new CadSampleView();
+        bool priorControl = InputSystem.Current.IsControlPressed;
         try
         {
             view.Arrange(new Rect(0, 0, 1_280, 900));
@@ -377,6 +585,49 @@ public sealed class CadMesh3DSelectionTests
             Assert.Empty(view.Canvas.SelectedHandles.ToArray());
             Assert.Same(authoredBrush, material.Brush);
 
+            Span<Vector2> projectedCorners = stackalloc Vector2[4]
+            {
+                Project(viewport, scene, new CadPoint3D(-2.0, -2.0, 0.0)),
+                Project(viewport, scene, new CadPoint3D(2.0, -2.0, 0.0)),
+                Project(viewport, scene, new CadPoint3D(2.0, 2.0, 0.0)),
+                Project(viewport, scene, new CadPoint3D(-2.0, 2.0, 0.0)),
+            };
+            Vector2 windowOrigin = projectedCorners[0];
+            Vector2 windowEnd = projectedCorners[0];
+            foreach (Vector2 corner in projectedCorners[1..])
+            {
+                windowOrigin = Vector2.Min(windowOrigin, corner);
+                windowEnd = Vector2.Max(windowEnd, corner);
+            }
+            windowOrigin -= new Vector2(5.0f);
+            windowEnd += new Vector2(5.0f);
+            Drag(view.MeshViewport, windowOrigin, windowEnd);
+            Assert.Equal(
+                face.Handle,
+                Assert.Single(view.Canvas.SelectedHandles.ToArray()));
+            Assert.Equal(
+                CadBoundsSelectionMode.Window,
+                view.Canvas.LastSelectionMode);
+            Assert.False(view.Canvas.SelectSemanticHandles(
+                scene.ContentGeneration,
+                [face.Handle, face.Handle],
+                toggle: false,
+                CadBoundsSelectionMode.Window));
+            Assert.False(view.Canvas.SelectSemanticHandles(
+                scene.ContentGeneration + 1,
+                [face.Handle],
+                toggle: false,
+                CadBoundsSelectionMode.Window));
+            Assert.Equal(
+                face.Handle,
+                Assert.Single(view.Canvas.SelectedHandles.ToArray()));
+
+            InputSystem.Current.IsControlPressed = true;
+            Drag(view.MeshViewport, windowOrigin, windowEnd);
+            Assert.Empty(view.Canvas.SelectedHandles.ToArray());
+            InputSystem.Current.IsControlPressed = false;
+
+            CadMesh3DViewport beforeOrbit = view.MeshViewportState!.Value;
             view.MeshViewport.OnPointerPressed(new PointerRoutedEventArgs
             {
                 Position = hitPoint,
@@ -393,9 +644,11 @@ public sealed class CadMesh3DSelectionTests
             });
 
             Assert.Empty(view.Canvas.SelectedHandles.ToArray());
+            Assert.NotEqual(beforeOrbit, view.MeshViewportState!.Value);
         }
         finally
         {
+            InputSystem.Current.IsControlPressed = priorControl;
             view.Canvas.FireUnloaded();
         }
     }
@@ -518,6 +771,46 @@ public sealed class CadMesh3DSelectionTests
         FourthCorner = new XYZ(origin - 2.0, origin + 2.0, z),
     };
 
+    private static Face3D CreateSquareFaceAt(
+        double centerX,
+        double centerY,
+        double z,
+        double halfSize) => new()
+    {
+        FirstCorner = new XYZ(centerX - halfSize, centerY - halfSize, z),
+        SecondCorner = new XYZ(centerX + halfSize, centerY - halfSize, z),
+        ThirdCorner = new XYZ(centerX + halfSize, centerY + halfSize, z),
+        FourthCorner = new XYZ(centerX - halfSize, centerY + halfSize, z),
+    };
+
+    private static Mesh CreateSeparatedMesh()
+    {
+        var mesh = new Mesh();
+        AppendSquare(0.0);
+        AppendSquare(5.0);
+        return mesh;
+
+        void AppendSquare(double centerX)
+        {
+            int first = mesh.Vertices.Count;
+            mesh.Vertices.Add(new XYZ(centerX - 1.0, -1.0, 0.0));
+            mesh.Vertices.Add(new XYZ(centerX + 1.0, -1.0, 0.0));
+            mesh.Vertices.Add(new XYZ(centerX + 1.0, 1.0, 0.0));
+            mesh.Vertices.Add(new XYZ(centerX - 1.0, 1.0, 0.0));
+            mesh.Faces.Add([first, first + 1, first + 2, first + 3]);
+        }
+    }
+
+    private static Mesh CreateTriangleMesh()
+    {
+        var mesh = new Mesh();
+        mesh.Vertices.Add(new XYZ(-5.0, -5.0, 0.0));
+        mesh.Vertices.Add(new XYZ(5.0, -5.0, 0.0));
+        mesh.Vertices.Add(new XYZ(0.0, 5.0, 0.0));
+        mesh.Faces.Add([0, 1, 2]);
+        return mesh;
+    }
+
     private static Mesh CreateGridMesh(int cellCount)
     {
         var mesh = new Mesh();
@@ -570,6 +863,27 @@ public sealed class CadMesh3DSelectionTests
         viewport.OnPointerReleased(new PointerRoutedEventArgs
         {
             Position = point,
+        });
+    }
+
+    private static void Drag(
+        Viewport3D viewport,
+        Vector2 origin,
+        Vector2 position)
+    {
+        viewport.OnPointerPressed(new PointerRoutedEventArgs
+        {
+            Position = origin,
+            IsLeftButtonPressed = true,
+        });
+        viewport.OnPointerMoved(new PointerRoutedEventArgs
+        {
+            Position = position,
+            IsLeftButtonPressed = true,
+        });
+        viewport.OnPointerReleased(new PointerRoutedEventArgs
+        {
+            Position = position,
         });
     }
 

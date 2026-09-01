@@ -2,14 +2,16 @@
 
 ## Scope and clean-room provenance
 
-This checkpoint adds whole-entity click selection for the retained Flat
-Mesh3D view. It unprojects one logical viewport position through the exact
+This checkpoint adds whole-entity click and rectangular region selection for
+the retained Flat Mesh3D view. Point selection unprojects one logical viewport
+position through the exact
 camera matrices already submitted by the managed and native adapters, finds
 the nearest visible retained triangle, and returns its ACadSharp semantic root
 handle. A caller-buffered companion query returns bounded nearest-first unique
-semantic roots, and repeated Alt-clicks cycle that depth order. It does not add
-face/edge/vertex subobject editing, marquee/frustum selection, hidden-line
-selection, or ACIS payload tessellation.
+semantic roots, and repeated Alt-clicks cycle that depth order. Exact projected
+Window/Crossing queries use the same retained triangles and camera clip volume.
+It does not add face/edge/vertex subobject editing, lasso/polygon selection,
+hidden-line policy, or ACIS payload tessellation.
 
 The implementation is original ProGPU code. No third-party implementation
 text, type layout, naming, control flow, lookup-table encoding, or source
@@ -28,6 +30,10 @@ organization was copied. Approved in-repository behavioral provenance is:
 
 - Autodesk's [multiple-object selection contract](https://help.autodesk.com/cloudhelp/2023/ENU/AutoCAD-Core/files/GUID-531FB60D-833B-4813-927A-42275CF6777D.htm)
   establishes click selection, selection sets, and Window/Crossing behavior.
+  Autodesk's [Select Objects contract](https://help.autodesk.com/cloudhelp/2023/ENU/AutoCAD-Core/files/GUID-243E4DD0-8947-4905-AFE2-BE9B903A8C3F.htm)
+  makes direction semantic: left-to-right selects only completely enclosed
+  objects, while right-to-left also selects crossed objects. ProGPU adopts
+  those whole-object semantics for a rectangular projected clip volume.
   Autodesk's [3D subobject selection and cycling contract](https://help.autodesk.com/cloudhelp/2026/ENU/AutoCAD-Core/files/GUID-89EFC58E-D14E-4B62-87D3-A6E26146D85E.htm)
   establishes that the foreground face is detected first and hidden
   alternatives require an explicit cycling workflow. ProGPU therefore keeps
@@ -106,6 +112,20 @@ the added semantic collection work is `O(H*K)` worst case and `O(K)` storage;
 `K` is contractually bounded at 256. The nearest-only API retains its separate
 pruning fast path and unchanged `O(log T + H)` typical contract.
 
+`QueryRegion` clamps two logical points to the viewport and converts their
+rectangle to WebGPU NDC. It folds the four rectangle inequalities plus
+`z >= 0` and `z <= w` into six local-space homogeneous planes once per query.
+Each BVH AABB is conservatively rejected by six support-point plane tests.
+Candidate triangles are classified against the same planes; Crossing clips a
+triangle polygon plane-by-plane in fixed stack storage, so an intersection is
+found even when no triangle vertex lies inside the rectangle. Window counts
+only fully contained triangles and accepts a semantic root only when that
+count equals the root's complete retained triangle count across every batch.
+Semantic-root scratch is caller-owned and sized once from `SemanticRootCount`;
+output preserves first-root scene order and reports exact truncation. Work is
+`O(R + N + C)` and scratch is `O(R)` for `R` roots, `N` visited BVH nodes, and
+`C` tested candidates. Warm queries allocate no managed memory.
+
 ## Managed/native and interaction applicability
 
 The managed and native renderers consume the same `CadRecordedMesh3DScene`,
@@ -130,19 +150,33 @@ click, camera change, generation replacement, or displaced click restarts at
 the foreground root. Ctrl remains orthogonal and toggles the cycled root in the
 shared selection set. A truncated cycle is surfaced in status rather than
 silently claiming to enumerate every hidden root.
+An ordinary perspective drag remains pending until it crosses the four-pixel
+click threshold. The shared CAD host claims an empty-origin drag for region
+selection and otherwise gives the gesture to the existing orbit controller,
+matching AutoCAD's implied-window behavior without removing direct orbit.
+Left-to-right commits Window and right-to-left commits Crossing; Ctrl toggles
+the complete returned set atomically. Shift-left and middle/right remain pan.
+The overlay uses dynamic theme-resource brushes and pointer motion only updates
+bounded control state; no query runs until drag arbitration or completion.
 
 ## Verification and remaining gates
 
 Required regressions cover frontmost ordering, two-sided triangles, misses,
 near/far clipping, deterministic shared-edge ties, large-WCS rebasing,
-generation/rebase validation, dense-scene pruning, zero-allocation warm
-queries, coordinator replacement, click-versus-drag interaction, selection
-clearing, semantic handle continuity, theme-dynamic highlighting, and retained
-camera/upload counters. The SHA-identified Release 256-by-256 grid lane contains
-131,072 triangles. Its 2,359,256-byte, depth-15 index built at
-17.6542/53.7173/53.7173 ms p50/p95/p99. Across 65,536 exact queries it visited
-15 nodes, tested eight triangles, used zero managed bytes, and measured
-2.5/9.3/19.0 microseconds p50/p95/p99. The checked-in JSON is
+spanning-triangle crossing with no contained vertex, whole-root Window
+containment across separated triangles, generation/rebase validation,
+dense-scene pruning, zero-allocation warm point/depth/region queries,
+coordinator replacement, empty-origin selection versus object-origin orbit,
+Ctrl set toggling, selection clearing, semantic handle continuity,
+theme-dynamic highlighting, and retained camera/upload counters. The
+SHA-identified Release 256-by-256 grid lane contains
+131,072 triangles. Its 2,359,276-byte, depth-15 index built at
+20.5759/49.1745/49.1745 ms p50/p95/p99. Across 65,536 exact point queries it
+visited 15 nodes, tested eight triangles, used zero managed bytes, and measured
+3.2/6.7/21.8 microseconds p50/p95/p99. Exact projected Crossing queries used
+zero managed bytes, visited about 77 nodes, tested about 161 triangles, found
+about 101 triangle intersections, and measured 39.5/96.5/177.3 microseconds
+p50/p95/p99. The checked-in JSON is
 `artifacts/benchmarks/cad-3d-selection-grid-256.json`.
 There is no matched pre-change selection latency because the prior Flat 3D
 viewer had no projected query path; these figures are an acceptance baseline,
@@ -158,21 +192,32 @@ query neither initializes WebGPU nor retains GPU state. Raw traces were removed
 after compact exports; the manifest, notes, tables, and summary remain under
 `artifacts/benchmarks/cad-3d-selection-instruments/`.
 
-The final eight-layer cycling lane contains 262,144 triangles and eight unique
-roots along each ray. Across 65,536 queries, bounded semantic collection
-visited about 91 nodes, tested 64 triangles, returned all eight roots, allocated
-zero managed bytes, and measured 8.0/16.5/27.1 microseconds p50/p95/p99. Its
-SHA-identified JSON is `artifacts/benchmarks/cad-3d-selection-depth-8.json`.
+The final eight-layer lane contains 262,144 triangles and eight unique roots
+along each ray. Across 65,536 queries, bounded semantic collection visited
+about 91 nodes, tested 64 triangles, returned all eight roots, allocated zero
+managed bytes, and measured 9.2/26.9/51.6 microseconds p50/p95/p99. Exact
+projected Crossing visited about 314 nodes, tested about 488 triangles, found
+about 254 triangle intersections, allocated zero managed bytes, and measured
+159.9/352.0/530.7 microseconds p50/p95/p99. Its SHA-identified JSON is
+`artifacts/benchmarks/cad-3d-selection-depth-8.json`. The point/depth query
+implementation is unchanged by this slice; an attempted historical-commit
+rebuild could not resolve that revision's dependency layout, so the new
+depth-query observation is retained as an acceptance measurement rather than
+presented as a matched regression claim.
+
 Final-binary Allocations and Time Profiler captures use the same eight-layer
-fixture; Metal uses the same CPU algorithm and binaries at smaller grid scale
-to avoid an Xcode empty-trace finalization defect. Allocations report
-20,759,088 persistent heap-plus-anonymous-VM bytes and 70,010,656 total bytes
-for startup, fixtures, builds, and both query families; Metal again reports no
-target resource, submission, wait, spill, hang, or error. Compact evidence is
-in the three `cad-3d-selection-cycling-*-natural/` directories.
+fixture and include point, depth, and projected-region queries; Metal uses the
+same CPU algorithm and binaries at smaller grid scale to avoid an Xcode
+empty-trace finalization defect. Allocations report 20,751,776 persistent
+heap-plus-anonymous-VM bytes and 70,316,448 total bytes for startup, fixtures,
+builds, and all three query families. The paired benchmark accounting reports
+zero managed bytes in every warm query family. Metal reports no target resource
+allocation, current allocated size, application submission, drawable wait,
+compiler spill, hang, or error. Compact evidence is in the three
+`cad-3d-selection-region-*-natural/` directories.
 
 Still required for full 3D selection fidelity are configurable pick aperture,
-Window/Crossing frustum selection, transparent/hidden-line policy,
+lasso/polygon/fence selection, transparent/hidden-line policy,
 face/edge/vertex subobjects, ACIS analytic topology, material/texture alpha
 semantics, arbitrary non-Mesh3D projected entity selection, matched
 managed/native rendered highlight images, browser interaction/performance
