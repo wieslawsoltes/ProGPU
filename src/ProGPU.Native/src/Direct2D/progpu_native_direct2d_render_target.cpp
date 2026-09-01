@@ -2472,8 +2472,7 @@ public:
             latch(com::invalid_argument);
             return;
         }
-        if (parameters->options != layer_options::none ||
-            parameters->opacity_brush != nullptr) {
+        if (parameters->options != layer_options::none) {
             latch(not_implemented);
             return;
         }
@@ -2485,6 +2484,10 @@ public:
         }
         const bool full_target = infinite_rectangle(
             parameters->content_bounds);
+        if (full_target && parameters->opacity_brush != nullptr) {
+            latch(not_implemented);
+            return;
+        }
         if (!full_target && !axis_preserving_transform(transform_)) {
             latch(not_implemented);
             return;
@@ -2530,6 +2533,8 @@ public:
             if (!add_geometric_layer_mask(
                     parameters->geometric_mask,
                     parameters->mask_transform,
+                    parameters->opacity_brush,
+                    parameters->content_bounds,
                     mask_resource_index,
                     mask_bounds,
                     empty_mask)) {
@@ -2541,6 +2546,18 @@ public:
                 bounds = full_target
                     ? mask_bounds
                     : intersect_rectangles(bounds, mask_bounds);
+            }
+        } else if (parameters->opacity_brush != nullptr) {
+            bool empty_mask = false;
+            if (!add_opacity_brush_layer_mask(
+                    parameters->opacity_brush,
+                    parameters->content_bounds,
+                    mask_resource_index,
+                    empty_mask)) {
+                return;
+            }
+            if (empty_mask) {
+                bounds = {};
             }
         }
         const bool has_bounds = !full_target ||
@@ -3425,9 +3442,168 @@ private:
         return bitmap_brush_draw_result::drawn;
     }
 
+    [[nodiscard]] bool translate_opacity_brush_layer_mask(
+        brush* source,
+        const rectangle_f& content_bounds,
+        progpu_native_scene_layer_brush_mask& mask,
+        std::vector<progpu_native_scene_gradient_stop>& stops,
+        bool& empty) noexcept
+    {
+        mask = {};
+        stops.clear();
+        empty = content_bounds.right == content_bounds.left ||
+            content_bounds.bottom == content_bounds.top;
+        if (empty) {
+            return true;
+        }
+        if (source == nullptr || !valid_rectangle(content_bounds)) {
+            latch(com::invalid_argument);
+            return false;
+        }
+        factory* raw_factory = nullptr;
+        source->GetFactory(&raw_factory);
+        com::pointer<factory> brush_factory;
+        brush_factory.attach(raw_factory);
+        if (brush_factory.get() != owner_.get()) {
+            latch(wrong_factory);
+            return false;
+        }
+
+        progpu_native_scene_brush native{};
+        linear_gradient_brush* raw_linear = nullptr;
+        const com::result linear_query = source->QueryInterface(
+            linear_gradient_brush_interface_id,
+            reinterpret_cast<void**>(&raw_linear));
+        com::pointer<linear_gradient_brush> linear;
+        linear.attach(raw_linear);
+        if (com::succeeded(linear_query) && linear) {
+            const point_2f start = linear->GetStartPoint();
+            const point_2f end = linear->GetEndPoint();
+            const float opacity = linear->GetOpacity();
+            if (!valid_point(start) || !valid_point(end) ||
+                !valid_opacity(opacity)) {
+                latch(com::invalid_argument);
+                return false;
+            }
+            gradient_stop_collection* raw_collection = nullptr;
+            linear->GetGradientStopCollection(&raw_collection);
+            com::pointer<gradient_stop_collection> collection;
+            collection.attach(raw_collection);
+            native.type = PROGPU_NATIVE_SCENE_BRUSH_LINEAR_GRADIENT;
+            native.opacity = opacity;
+            native.start_point = {start.x, start.y};
+            native.end_point = {end.x, end.y};
+            if (!translate_gradient_brush(
+                    linear.get(), collection.get(), native, stops)) {
+                return false;
+            }
+        } else {
+            radial_gradient_brush* raw_radial = nullptr;
+            const com::result radial_query = source->QueryInterface(
+                radial_gradient_brush_interface_id,
+                reinterpret_cast<void**>(&raw_radial));
+            com::pointer<radial_gradient_brush> radial;
+            radial.attach(raw_radial);
+            if (com::succeeded(radial_query) && radial) {
+                const point_2f center = radial->GetCenter();
+                const point_2f offset = radial->GetGradientOriginOffset();
+                const point_2f origin{
+                    center.x + offset.x,
+                    center.y + offset.y};
+                const float radius_x = radial->GetRadiusX();
+                const float radius_y = radial->GetRadiusY();
+                const float opacity = radial->GetOpacity();
+                if (!valid_point(center) || !valid_point(offset) ||
+                    !valid_point(origin) || !std::isfinite(radius_x) ||
+                    !std::isfinite(radius_y) || radius_x < 0.0F ||
+                    radius_y < 0.0F ||
+                    (radius_x == 0.0F && radius_y == 0.0F) ||
+                    !valid_opacity(opacity)) {
+                    latch(com::invalid_argument);
+                    return false;
+                }
+                gradient_stop_collection* raw_collection = nullptr;
+                radial->GetGradientStopCollection(&raw_collection);
+                com::pointer<gradient_stop_collection> collection;
+                collection.attach(raw_collection);
+                native.type = PROGPU_NATIVE_SCENE_BRUSH_RADIAL_GRADIENT;
+                native.opacity = opacity;
+                native.start_point = {origin.x, origin.y};
+                native.center = {center.x, center.y};
+                native.radius = radius_x;
+                native.radius_y = radius_y;
+                if (!translate_gradient_brush(
+                        radial.get(), collection.get(), native, stops)) {
+                    return false;
+                }
+            } else {
+                solid_color_brush* raw_solid = nullptr;
+                const com::result solid_query = source->QueryInterface(
+                    solid_color_brush_interface_id,
+                    reinterpret_cast<void**>(&raw_solid));
+                com::pointer<solid_color_brush> solid;
+                solid.attach(raw_solid);
+                if (com::failed(solid_query) || !solid) {
+                    latch(not_implemented);
+                    return false;
+                }
+                const color_f color = solid->GetColor();
+                const float opacity = solid->GetOpacity();
+                if (!valid_color(color) || !valid_opacity(opacity)) {
+                    latch(com::invalid_argument);
+                    return false;
+                }
+                native.type = PROGPU_NATIVE_SCENE_BRUSH_SOLID;
+                native.opacity = opacity;
+                native.colors[0] = {
+                    color.red, color.green, color.blue, color.alpha};
+                native.coordinate_transform0[0] = 1.0F;
+                native.coordinate_transform1[1] = 1.0F;
+            }
+        }
+
+        mask.struct_size = sizeof(mask);
+        mask.kind = PROGPU_NATIVE_SCENE_LAYER_MASK_BRUSH;
+        mask.gradient_stop_count = static_cast<std::uint32_t>(stops.size());
+        mask.bounds = {
+            content_bounds.left,
+            content_bounds.top,
+            content_bounds.right - content_bounds.left,
+            content_bounds.bottom - content_bounds.top};
+        mask.transform = native_transform();
+        mask.opacity = 1.0F;
+        mask.brush = native;
+        return true;
+    }
+
+    [[nodiscard]] bool add_opacity_brush_layer_mask(
+        brush* source,
+        const rectangle_f& content_bounds,
+        std::uint32_t& resource_index,
+        bool& empty) noexcept
+    {
+        resource_index = PROGPU_NATIVE_SCENE_NO_INDEX;
+        progpu_native_scene_layer_brush_mask mask{};
+        std::vector<progpu_native_scene_gradient_stop> stops;
+        if (!translate_opacity_brush_layer_mask(
+                source, content_bounds, mask, stops, empty)) {
+            return false;
+        }
+        if (empty) {
+            return true;
+        }
+        if (!builder_.add_brush_mask(mask, stops, resource_index)) {
+            latch(builder_failure());
+            return false;
+        }
+        return true;
+    }
+
     [[nodiscard]] bool add_geometric_layer_mask(
         geometry* geometry_value,
         const matrix_3x2_f& mask_transform,
+        brush* opacity_brush,
+        const rectangle_f& content_bounds,
         std::uint32_t& resource_index,
         progpu_native_image_rect& target_bounds,
         bool& empty) noexcept
@@ -3515,13 +3691,49 @@ private:
             8U,
             PROGPU_NATIVE_CLIP_INTERSECT,
             0U};
-        if (!builder_.add_vector_clip_mask(
-                std::span<const progpu_native_scene_clip_path>(&path, 1U),
-                segments,
-                1.0F,
-                resource_index)) {
-            latch(builder_failure());
-            return false;
+        if (opacity_brush == nullptr) {
+            if (!builder_.add_vector_clip_mask(
+                    std::span<const progpu_native_scene_clip_path>(
+                        &path, 1U),
+                    segments,
+                    1.0F,
+                    resource_index)) {
+                latch(builder_failure());
+                return false;
+            }
+        } else {
+            progpu_native_scene_layer_brush_mask brush_mask{};
+            std::vector<progpu_native_scene_gradient_stop> stops;
+            bool empty_brush = false;
+            if (!translate_opacity_brush_layer_mask(
+                    opacity_brush,
+                    content_bounds,
+                    brush_mask,
+                    stops,
+                    empty_brush)) {
+                return false;
+            }
+            if (empty_brush) {
+                empty = true;
+                return true;
+            }
+            if (!builder_.add_composite_mask(
+                    std::span<const progpu_native_scene_layer_brush_mask>(
+                        &brush_mask, 1U),
+                    {},
+                    {},
+                    {},
+                    {},
+                    std::span<const progpu_native_scene_clip_path>(
+                        &path, 1U),
+                    segments,
+                    {},
+                    stops,
+                    1.0F,
+                    resource_index)) {
+                latch(builder_failure());
+                return false;
+            }
         }
         target_bounds = {
             transformed_mask_bounds.left,
