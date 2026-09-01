@@ -6339,6 +6339,32 @@ canonical scene slice is called backend-qualified; the evidence here qualifies
 the Windows compiler, ARM64 intrinsic execution, decoder, transactional graph,
 scene serialization, and packet oracle.
 
+## Direct2D simple-path Boolean checkpoint
+
+Portable `ID2D1PathGeometry::CombineWithGeometry` now handles every Direct2D
+combine mode for two simple single-filled contours, including concave paths,
+crossings, containment, disjoint regions, identical operands, and positive
+collinear overlap. Curves enter through the existing tolerance-qualified line
+simplifier and only the input operand receives the caller transform. The
+implementation builds the entire boundary graph before invoking the caller's
+sink, so allocation failure, unsupported topology, or numerical ambiguity
+cannot expose a partial result.
+
+The independent edge-bounds broad phase executes in four-lane ARM64 NEON or
+SSE2 batches with a bounded scalar implementation only on architectures that
+provide neither intrinsic family. Exact intersection insertion, directed-edge
+deduplication, and smallest-positive-turn contour tracing remain scalar because
+they mutate dynamically ordered topology and do not have independent output
+lanes. The operation never rasterizes pixels, reads back from a GPU, or creates
+per-edge submissions.
+
+The focused optimized and address/undefined-sanitizer CTests pass on Apple
+Silicon. A clean Windows 11 ARM64 Parallels build recompiles the complete
+30-step portable Direct2D core, provider, and oracle with MSVC 19.44. The
+Windows-only fixture records the same rectangle-versus-concave-path operation
+through genuine system Direct2D and ProGPU, then compares a dense point lattice
+for union, intersection, xor, and exclusion; all four modes pass.
+
 ## Invariants
 
 - No reflection or private managed field scanning in the product bridge.
