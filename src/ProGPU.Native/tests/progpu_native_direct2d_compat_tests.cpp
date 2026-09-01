@@ -1656,6 +1656,86 @@ int main()
         return 164;
     }
 
+    target->BeginDraw();
+    target->FillGeometry(
+        path_base.get(),
+        static_cast<compat::brush*>(target_brush.get()),
+        nullptr);
+    target->FillGeometry(
+        path_base.get(),
+        static_cast<compat::brush*>(bitmap_brush.get()),
+        nullptr);
+    if (target->EndDraw(nullptr, nullptr) != com::ok ||
+        scene_target->GetRequiredSceneSize() == 0U) {
+        return 167;
+    }
+    const std::uint64_t geometry_scene_size =
+        scene_target->GetRequiredSceneSize();
+    std::vector<std::byte> geometry_scene(
+        static_cast<std::size_t>(geometry_scene_size));
+    std::uint64_t geometry_scene_written = 0U;
+    if (scene_target->BuildScene(
+            geometry_scene.data(),
+            geometry_scene.size(),
+            &geometry_scene_written) != com::ok ||
+        geometry_scene_written != geometry_scene_size) {
+        return 168;
+    }
+    const auto* geometry_header = reinterpret_cast<
+        const progpu_native_scene_header*>(geometry_scene.data());
+    const progpu_native_scene_resource* path_resource_record = nullptr;
+    const progpu_native_scene_resource* vector_mask_record = nullptr;
+    for (std::uint32_t index = 0U;
+         index < geometry_header->resource_count;
+         ++index) {
+        const auto* candidate = reinterpret_cast<
+            const progpu_native_scene_resource*>(
+            geometry_scene.data() + geometry_header->resource_offset +
+            index * geometry_header->resource_stride);
+        if (candidate->kind == PROGPU_NATIVE_SCENE_RESOURCE_PATH_BATCH) {
+            path_resource_record = candidate;
+        } else if (candidate->kind ==
+            PROGPU_NATIVE_SCENE_RESOURCE_LAYER_MASK) {
+            const auto* mask = reinterpret_cast<
+                const progpu_native_scene_layer_vector_mask*>(
+                geometry_scene.data() + candidate->payload_offset);
+            if (mask->kind ==
+                PROGPU_NATIVE_SCENE_LAYER_MASK_VECTOR_CLIP_CHAIN) {
+                vector_mask_record = candidate;
+            }
+        }
+    }
+    const auto* first_geometry_command = reinterpret_cast<
+        const progpu_native_scene_command*>(
+        geometry_scene.data() + geometry_header->command_offset);
+    const auto* second_geometry_command = reinterpret_cast<
+        const progpu_native_scene_command*>(
+        reinterpret_cast<const std::byte*>(first_geometry_command) +
+        geometry_header->command_stride);
+    const auto* path_fill = path_resource_record == nullptr
+        ? nullptr
+        : reinterpret_cast<const progpu_native_scene_path_fill*>(
+            geometry_scene.data() + path_resource_record->payload_offset);
+    if (geometry_header->command_count != 2U ||
+        path_resource_record == nullptr || vector_mask_record == nullptr ||
+        first_geometry_command->kind != PROGPU_NATIVE_SCENE_COMMAND_DRAW_PATH ||
+        second_geometry_command->kind !=
+            PROGPU_NATIVE_SCENE_COMMAND_DRAW_IMAGE ||
+        path_fill == nullptr || path_fill->segment_count != 4U ||
+        path_fill->fill_rule != PROGPU_NATIVE_FILL_RULE_NON_ZERO) {
+        return 169;
+    }
+
+    target->BeginDraw();
+    target->FillGeometry(
+        path_base.get(),
+        static_cast<compat::brush*>(target_brush.get()),
+        static_cast<compat::brush*>(target_brush.get()));
+    if (target->EndDraw(nullptr, nullptr) != compat::not_implemented ||
+        scene_target->GetRequiredSceneSize() != 0U) {
+        return 170;
+    }
+
     compat::render_target* unsupported =
         reinterpret_cast<compat::render_target*>(
         static_cast<std::uintptr_t>(1U));
@@ -1886,7 +1966,7 @@ int main()
     native_target_brush->Release();
     scene_target->GetSummary(&target_summary);
     if (FAILED(native_target_end_status) ||
-        target_summary.generation != 16U ||
+        target_summary.generation != 18U ||
         target_summary.draw_count != 3U ||
         scene_target->GetRequiredSceneSize() == 0U) {
         return 129;

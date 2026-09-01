@@ -310,6 +310,21 @@ public:
         }
         return as(__uuidof(Other), *destination);
     }
+
+    template<typename Other>
+    result As(Other** destination) const noexcept
+    {
+        if (destination == nullptr) {
+            return pointer_error;
+        }
+        if (value_ == nullptr) {
+            *destination = nullptr;
+            return pointer_error;
+        }
+        return value_->QueryInterface(
+            __uuidof(Other),
+            reinterpret_cast<void**>(destination));
+    }
 #endif
 
 private:

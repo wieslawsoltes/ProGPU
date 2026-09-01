@@ -335,6 +335,33 @@ struct portable_scene final {
     native_com::pointer<d2d::bitmap_brush> bitmap_brush;
     bitmap_brush.attach(raw_bitmap_brush);
 
+    d2d::path_geometry* raw_bitmap_brush_path = nullptr;
+    require(factory->CreatePathGeometry(&raw_bitmap_brush_path) ==
+            native_com::ok &&
+        raw_bitmap_brush_path != nullptr,
+        "portable bitmap-brush path creation failed");
+    native_com::pointer<d2d::path_geometry> bitmap_brush_path;
+    bitmap_brush_path.attach(raw_bitmap_brush_path);
+    d2d::geometry_sink* raw_bitmap_brush_path_sink = nullptr;
+    require(bitmap_brush_path->Open(&raw_bitmap_brush_path_sink) ==
+            native_com::ok &&
+        raw_bitmap_brush_path_sink != nullptr,
+        "portable bitmap-brush path sink creation failed");
+    native_com::pointer<d2d::geometry_sink> bitmap_brush_path_sink;
+    bitmap_brush_path_sink.attach(raw_bitmap_brush_path_sink);
+    bitmap_brush_path_sink->SetFillMode(d2d::fill_mode::winding);
+    bitmap_brush_path_sink->BeginFigure(
+        {1.0F, 30.0F}, d2d::figure_begin::filled);
+    const d2d::point_2f bitmap_brush_path_points[]{
+        {7.0F, 30.0F}, {4.0F, 44.0F}};
+    bitmap_brush_path_sink->AddLines(
+        bitmap_brush_path_points,
+        2U);
+    bitmap_brush_path_sink->EndFigure(d2d::figure_end::closed);
+    require(bitmap_brush_path_sink->Close() == native_com::ok,
+        "portable bitmap-brush path close failed");
+    bitmap_brush_path_sink.Reset();
+
     const d2d::color_f clear{0.05F, 0.1F, 0.15F, 1.0F};
     const d2d::rectangle_f rectangle{4.0F, 4.0F, 20.0F, 20.0F};
     const d2d::ellipse ellipse_value{{40.0F, 14.0F}, 8.0F, 8.0F};
@@ -372,6 +399,10 @@ struct portable_scene final {
         &bitmap_brush_ellipse,
         static_cast<d2d::brush*>(bitmap_brush.get()),
         2.0F,
+        nullptr);
+    target->FillGeometry(
+        static_cast<d2d::geometry*>(bitmap_brush_path.get()),
+        static_cast<d2d::brush*>(bitmap_brush.get()),
         nullptr);
     require(target->EndDraw(nullptr, nullptr) == native_com::ok,
         "portable scene recording failed");
@@ -449,8 +480,8 @@ struct portable_scene final {
     const bool render_matches = render_status ==
             PROGPU_NATIVE_STATUS_SUCCESS &&
         diagnostics.stage == d2d::scene_submission_stage::none &&
-        scene_metrics.draw_count == 7U &&
-        frame_metrics.command_count == 7U &&
+        scene_metrics.draw_count == 8U &&
+        frame_metrics.command_count == 8U &&
         frame_metrics.submission_count == 1U;
     if (!render_matches) {
         std::fprintf(
@@ -556,6 +587,8 @@ void verify_pixels(std::span<const std::uint8_t> pixels)
         "portable Direct2D bitmap-brush repeat pixels are missing");
     require(near_rgba(pixel(26U, 20U), 255, 0, 0),
         "portable Direct2D bitmap-brush ellipse stroke is missing");
+    require(near_rgba(pixel(4U, 34U), 255, 0, 0),
+        "portable Direct2D bitmap-brush path fill is missing");
 }
 
 void write_capture(
@@ -599,7 +632,7 @@ int main(int argc, char** argv)
         : gpu.properties.name;
     std::printf(
         "Portable Direct2D WebGPU passed: backend=%s adapter=%s "
-        "draws=7 submissions=1 bytes=%zu\n",
+        "draws=8 submissions=1 bytes=%zu\n",
         backend_name(gpu.properties.backendType),
         adapter_name,
         pixels.size());
