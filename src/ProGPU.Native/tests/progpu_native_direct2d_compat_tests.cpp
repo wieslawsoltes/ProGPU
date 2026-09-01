@@ -236,6 +236,7 @@ static_assert(sizeof(compat::geometry_relation) == 4U);
 static_assert(sizeof(compat::quadratic_bezier_segment) == 16U);
 static_assert(sizeof(compat::arc_segment) == 28U);
 static_assert(sizeof(compat::ellipse) == 16U);
+static_assert(sizeof(compat::rounded_rectangle) == 24U);
 
 int main()
 {
@@ -644,12 +645,87 @@ int main()
         return 57;
     }
 
-    compat::geometry* unsupported = reinterpret_cast<compat::geometry*>(
+    const compat::rounded_rectangle rounded_rectangle_value{
+        {0.0F, 0.0F, 10.0F, 8.0F}, 3.0F, 2.0F};
+    compat::rounded_rectangle_geometry* raw_rounded_rectangle = nullptr;
+    if (factory->CreateRoundedRectangleGeometry(
+            &rounded_rectangle_value, &raw_rounded_rectangle) != com::ok ||
+        raw_rounded_rectangle == nullptr) {
+        return 67;
+    }
+    com::pointer<compat::rounded_rectangle_geometry> rounded_rectangle;
+    rounded_rectangle.attach(raw_rounded_rectangle);
+    com::pointer<compat::geometry> rounded_rectangle_base;
+    if (rounded_rectangle.as(
+            compat::geometry_interface_id, rounded_rectangle_base) !=
+            com::ok ||
+        !rounded_rectangle_base) {
+        return 68;
+    }
+    compat::rounded_rectangle returned_rounded_rectangle{};
+    rounded_rectangle->GetRoundedRect(&returned_rounded_rectangle);
+    if (!approximately_equal(returned_rounded_rectangle.radius_x, 3.0F) ||
+        !approximately_equal(
+            returned_rounded_rectangle.rectangle.bottom, 8.0F) ||
+        rounded_rectangle->GetBounds(&transform, &returned) != com::ok ||
+        !approximately_equal(returned.left, 10.0F) ||
+        !approximately_equal(returned.top, -4.0F) ||
+        !approximately_equal(returned.right, 30.0F) ||
+        !approximately_equal(returned.bottom, 20.0F)) {
+        return 69;
+    }
+    if (rounded_rectangle->FillContainsPoint(
+            {20.0F, 8.0F},
+            &transform,
+            core::default_flattening_tolerance,
+            &contains) != com::ok ||
+        contains != 1 ||
+        rounded_rectangle->FillContainsPoint(
+            {10.2F, -3.7F},
+            &transform,
+            core::default_flattening_tolerance,
+            &contains) != com::ok ||
+        contains != 0) {
+        return 70;
+    }
+    auto* raw_rounded_simplified = new simplified_sink();
+    com::pointer<compat::simplified_geometry_sink> rounded_simplified;
+    rounded_simplified.attach(raw_rounded_simplified);
+    if (rounded_rectangle->Simplify(
+            compat::geometry_simplification_option::cubics_and_lines,
+            &transform,
+            core::default_flattening_tolerance,
+            rounded_simplified.get()) != com::ok ||
+        raw_rounded_simplified->begin_count != 1U ||
+        raw_rounded_simplified->end_count != 1U ||
+        raw_rounded_simplified->line_count != 4U ||
+        raw_rounded_simplified->bezier_count != 4U ||
+        raw_rounded_simplified->figure_end != compat::figure_end::closed) {
+        return 71;
+    }
+    compat::rounded_rectangle invalid_rounded_rectangle =
+        rounded_rectangle_value;
+    invalid_rounded_rectangle.radius_x = -1.0F;
+    raw_rounded_rectangle = reinterpret_cast<
+        compat::rounded_rectangle_geometry*>(static_cast<std::uintptr_t>(1U));
+    if (factory->CreateRoundedRectangleGeometry(
+            &invalid_rounded_rectangle, &raw_rounded_rectangle) !=
+            com::invalid_argument ||
+        raw_rounded_rectangle != nullptr ||
+        factory->CreateRoundedRectangleGeometry(nullptr, nullptr) !=
+            com::pointer_error) {
+        return 72;
+    }
+
+    compat::geometry_group* unsupported =
+        reinterpret_cast<compat::geometry_group*>(
         static_cast<std::uintptr_t>(1U));
-    if (factory->CreateRoundedRectangleGeometry(nullptr, &unsupported) !=
+    if (factory->CreateGeometryGroup(
+            compat::fill_mode::winding, nullptr, 0U, &unsupported) !=
             compat::not_implemented ||
         unsupported != nullptr ||
-        factory->CreateRoundedRectangleGeometry(nullptr, nullptr) !=
+        factory->CreateGeometryGroup(
+            compat::fill_mode::winding, nullptr, 0U, nullptr) !=
             com::pointer_error) {
         return 18;
     }
@@ -664,6 +740,9 @@ int main()
             compat::ellipse_geometry_interface_id,
             __uuidof(ID2D1EllipseGeometry)) ||
         !com::guid_equal(
+            compat::rounded_rectangle_geometry_interface_id,
+            __uuidof(ID2D1RoundedRectangleGeometry)) ||
+        !com::guid_equal(
             compat::transformed_geometry_interface_id,
             __uuidof(ID2D1TransformedGeometry)) ||
         !com::guid_equal(
@@ -677,6 +756,7 @@ int main()
             __uuidof(ID2D1GeometrySink)) ||
         sizeof(compat::rectangle_f) != sizeof(D2D1_RECT_F) ||
         sizeof(compat::ellipse) != sizeof(D2D1_ELLIPSE) ||
+        sizeof(compat::rounded_rectangle) != sizeof(D2D1_ROUNDED_RECT) ||
         sizeof(compat::triangle) != sizeof(D2D1_TRIANGLE) ||
         sizeof(compat::quadratic_bezier_segment) !=
             sizeof(D2D1_QUADRATIC_BEZIER_SEGMENT) ||
@@ -750,6 +830,51 @@ int main()
         !approximately_equal(returned_native_ellipse.point.x, 2.0F) ||
         !approximately_equal(returned_native_ellipse.radiusY, 2.0F)) {
         return 59;
+    }
+
+    const D2D1_ROUNDED_RECT native_rounded_rectangle_value{
+        D2D1_RECT_F{0.0F, 0.0F, 10.0F, 8.0F}, 3.0F, 2.0F};
+    const D2D1_MATRIX_3X2_F native_rounded_rectangle_transform{
+        0.5F, 1.25F, -0.75F, 0.25F, 4.0F, -3.0F};
+    ID2D1RoundedRectangleGeometry* native_rounded_rectangle = nullptr;
+    if (FAILED(native_factory->CreateRoundedRectangleGeometry(
+            &native_rounded_rectangle_value, &native_rounded_rectangle)) ||
+        native_rounded_rectangle == nullptr) {
+        return 73;
+    }
+    D2D1_ROUNDED_RECT returned_native_rounded_rectangle{};
+    D2D1_RECT_F portable_rounded_rectangle_bounds{};
+    BOOL portable_rounded_rectangle_center_contains = FALSE;
+    BOOL portable_rounded_rectangle_corner_contains = TRUE;
+    native_rounded_rectangle->GetRoundedRect(
+        &returned_native_rounded_rectangle);
+    const HRESULT portable_rounded_rectangle_bounds_status =
+        native_rounded_rectangle->GetBounds(
+            &native_rounded_rectangle_transform,
+            &portable_rounded_rectangle_bounds);
+    const HRESULT portable_rounded_rectangle_center_status =
+        native_rounded_rectangle->FillContainsPoint(
+            D2D1_POINT_2F{3.5F, 4.25F},
+            &native_rounded_rectangle_transform,
+            D2D1_DEFAULT_FLATTENING_TOLERANCE,
+            &portable_rounded_rectangle_center_contains);
+    const HRESULT portable_rounded_rectangle_corner_status =
+        native_rounded_rectangle->FillContainsPoint(
+            D2D1_POINT_2F{3.975F, -2.85F},
+            &native_rounded_rectangle_transform,
+            D2D1_DEFAULT_FLATTENING_TOLERANCE,
+            &portable_rounded_rectangle_corner_contains);
+    native_rounded_rectangle->Release();
+    if (FAILED(portable_rounded_rectangle_bounds_status) ||
+        FAILED(portable_rounded_rectangle_center_status) ||
+        FAILED(portable_rounded_rectangle_corner_status) ||
+        portable_rounded_rectangle_center_contains != TRUE ||
+        portable_rounded_rectangle_corner_contains != FALSE ||
+        !approximately_equal(
+            returned_native_rounded_rectangle.radiusX, 3.0F) ||
+        !approximately_equal(
+            returned_native_rounded_rectangle.rect.bottom, 8.0F)) {
+        return 74;
     }
 
     ID2D1PathGeometry* native_path = nullptr;
@@ -948,12 +1073,13 @@ int main()
             D2D1_DEFAULT_FLATTENING_TOLERANCE,
             &system_ellipse_contains);
     system_ellipse->Release();
-    system_factory->Release();
     if (FAILED(system_ellipse_bounds_status) ||
         FAILED(system_ellipse_contains_status)) {
+        system_factory->Release();
         return 61;
     }
     if (system_ellipse_contains != portable_ellipse_contains) {
+        system_factory->Release();
         return 62;
     }
     if (!approximately_equal(
@@ -969,19 +1095,73 @@ int main()
             portable_ellipse_bounds.top,
             portable_ellipse_bounds.right,
             portable_ellipse_bounds.bottom);
+        system_factory->Release();
         return 63;
     }
     if (!approximately_equal(
             system_ellipse_bounds.top, portable_ellipse_bounds.top)) {
+        system_factory->Release();
         return 64;
     }
     if (!approximately_equal(
             system_ellipse_bounds.right, portable_ellipse_bounds.right)) {
+        system_factory->Release();
         return 65;
     }
     if (!approximately_equal(
             system_ellipse_bounds.bottom, portable_ellipse_bounds.bottom)) {
+        system_factory->Release();
         return 66;
+    }
+
+    ID2D1RoundedRectangleGeometry* system_rounded_rectangle = nullptr;
+    if (FAILED(system_factory->CreateRoundedRectangleGeometry(
+            &native_rounded_rectangle_value, &system_rounded_rectangle)) ||
+        system_rounded_rectangle == nullptr) {
+        system_factory->Release();
+        return 75;
+    }
+    D2D1_RECT_F system_rounded_rectangle_bounds{};
+    BOOL system_rounded_rectangle_center_contains = FALSE;
+    BOOL system_rounded_rectangle_corner_contains = TRUE;
+    const HRESULT system_rounded_rectangle_bounds_status =
+        system_rounded_rectangle->GetBounds(
+            &native_rounded_rectangle_transform,
+            &system_rounded_rectangle_bounds);
+    const HRESULT system_rounded_rectangle_center_status =
+        system_rounded_rectangle->FillContainsPoint(
+            D2D1_POINT_2F{3.5F, 4.25F},
+            &native_rounded_rectangle_transform,
+            D2D1_DEFAULT_FLATTENING_TOLERANCE,
+            &system_rounded_rectangle_center_contains);
+    const HRESULT system_rounded_rectangle_corner_status =
+        system_rounded_rectangle->FillContainsPoint(
+            D2D1_POINT_2F{3.975F, -2.85F},
+            &native_rounded_rectangle_transform,
+            D2D1_DEFAULT_FLATTENING_TOLERANCE,
+            &system_rounded_rectangle_corner_contains);
+    system_rounded_rectangle->Release();
+    system_factory->Release();
+    if (FAILED(system_rounded_rectangle_bounds_status) ||
+        FAILED(system_rounded_rectangle_center_status) ||
+        FAILED(system_rounded_rectangle_corner_status) ||
+        system_rounded_rectangle_center_contains !=
+            portable_rounded_rectangle_center_contains ||
+        system_rounded_rectangle_corner_contains !=
+            portable_rounded_rectangle_corner_contains ||
+        !approximately_equal(
+            system_rounded_rectangle_bounds.left,
+            portable_rounded_rectangle_bounds.left) ||
+        !approximately_equal(
+            system_rounded_rectangle_bounds.top,
+            portable_rounded_rectangle_bounds.top) ||
+        !approximately_equal(
+            system_rounded_rectangle_bounds.right,
+            portable_rounded_rectangle_bounds.right) ||
+        !approximately_equal(
+            system_rounded_rectangle_bounds.bottom,
+            portable_rounded_rectangle_bounds.bottom)) {
+        return 76;
     }
 #endif
     return 0;

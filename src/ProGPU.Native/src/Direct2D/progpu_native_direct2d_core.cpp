@@ -380,6 +380,164 @@ com::result ellipse_fill_contains_point(
     return com::ok;
 }
 
+bool valid_rounded_rectangle(
+    const rounded_rectangle_f& rectangle) noexcept
+{
+    return rectangle_geometry::valid_rectangle(rectangle.rectangle) &&
+        std::isfinite(rectangle.radius_x) && rectangle.radius_x >= 0.0F &&
+        std::isfinite(rectangle.radius_y) && rectangle.radius_y >= 0.0F;
+}
+
+com::result rounded_rectangle_to_path(
+    const rounded_rectangle_f& rectangle,
+    progpu_native_direct2d_point_2f* start,
+    std::array<progpu_native_direct2d_point_2f, 4U>* line_ends,
+    std::array<cubic_bezier_segment_f, 4U>* corners) noexcept
+{
+    if (start == nullptr || line_ends == nullptr || corners == nullptr) {
+        return com::pointer_error;
+    }
+    *start = {};
+    *line_ends = {};
+    *corners = {};
+    if (!valid_rounded_rectangle(rectangle)) {
+        return com::invalid_argument;
+    }
+    const double width =
+        static_cast<double>(rectangle.rectangle.right) -
+        rectangle.rectangle.left;
+    const double height =
+        static_cast<double>(rectangle.rectangle.bottom) -
+        rectangle.rectangle.top;
+    const double radius_x = std::min(
+        static_cast<double>(rectangle.radius_x), width * 0.5);
+    const double radius_y = std::min(
+        static_cast<double>(rectangle.radius_y), height * 0.5);
+    constexpr double control_scale = 0.5522847498307936;
+    const double control_x = radius_x * control_scale;
+    const double control_y = radius_y * control_scale;
+    const double left = rectangle.rectangle.left;
+    const double top = rectangle.rectangle.top;
+    const double right = rectangle.rectangle.right;
+    const double bottom = rectangle.rectangle.bottom;
+    const std::array<std::array<double, 2U>, 17U> points{{
+        {left + radius_x, top},
+        {right - radius_x, top},
+        {right - radius_x + control_x, top},
+        {right, top + radius_y - control_y},
+        {right, top + radius_y},
+        {right, bottom - radius_y},
+        {right, bottom - radius_y + control_y},
+        {right - radius_x + control_x, bottom},
+        {right - radius_x, bottom},
+        {left + radius_x, bottom},
+        {left + radius_x - control_x, bottom},
+        {left, bottom - radius_y + control_y},
+        {left, bottom - radius_y},
+        {left, top + radius_y},
+        {left, top + radius_y - control_y},
+        {left + radius_x - control_x, top},
+        {left + radius_x, top}}};
+    constexpr double maximum =
+        static_cast<double>((std::numeric_limits<float>::max)());
+    if (!std::all_of(points.begin(), points.end(), [&](const auto& point) {
+            return std::isfinite(point[0U]) &&
+                std::isfinite(point[1U]) &&
+                std::abs(point[0U]) <= maximum &&
+                std::abs(point[1U]) <= maximum;
+        })) {
+        return com::invalid_argument;
+    }
+    const auto convert = [](const std::array<double, 2U>& point) {
+        return progpu_native_direct2d_point_2f{
+            static_cast<float>(point[0U]),
+            static_cast<float>(point[1U])};
+    };
+    *start = convert(points[0U]);
+    for (std::size_t index = 0U; index < line_ends->size(); ++index) {
+        const std::size_t base = index * 4U;
+        (*line_ends)[index] = convert(points[base + 1U]);
+        (*corners)[index] = {
+            convert(points[base + 2U]),
+            convert(points[base + 3U]),
+            convert(points[base + 4U])};
+    }
+    return com::ok;
+}
+
+com::result rounded_rectangle_fill_contains_point(
+    const rounded_rectangle_f& rectangle,
+    progpu_native_direct2d_point_2f point,
+    const progpu_native_direct2d_matrix_3x2_f* world_transform,
+    float flattening_tolerance,
+    std::uint32_t* contains) noexcept
+{
+    if (contains == nullptr) {
+        return com::pointer_error;
+    }
+    *contains = 0U;
+    if (!valid_rounded_rectangle(rectangle) || !finite_point(point) ||
+        !valid_tolerance(flattening_tolerance) ||
+        !valid_transform(world_transform)) {
+        return com::invalid_argument;
+    }
+    const progpu_native_direct2d_matrix_3x2_f identity{
+        1.0F, 0.0F, 0.0F, 1.0F, 0.0F, 0.0F};
+    const auto& matrix = world_transform == nullptr
+        ? identity
+        : *world_transform;
+    const double determinant =
+        static_cast<double>(matrix.m11) * matrix.m22 -
+        static_cast<double>(matrix.m12) * matrix.m21;
+    if (determinant == 0.0) {
+        return com::ok;
+    }
+    const double translated_x =
+        static_cast<double>(point.x) - matrix.m31;
+    const double translated_y =
+        static_cast<double>(point.y) - matrix.m32;
+    const double local_x =
+        (translated_x * matrix.m22 - translated_y * matrix.m21) /
+        determinant;
+    const double local_y =
+        (-translated_x * matrix.m12 + translated_y * matrix.m11) /
+        determinant;
+    const auto& edges = rectangle.rectangle;
+    if (local_x < edges.left || local_x > edges.right ||
+        local_y < edges.top || local_y > edges.bottom) {
+        return com::ok;
+    }
+    const double width = static_cast<double>(edges.right) - edges.left;
+    const double height = static_cast<double>(edges.bottom) - edges.top;
+    const double radius_x = std::min(
+        static_cast<double>(rectangle.radius_x), width * 0.5);
+    const double radius_y = std::min(
+        static_cast<double>(rectangle.radius_y), height * 0.5);
+    if (radius_x == 0.0 || radius_y == 0.0 ||
+        (local_x >= edges.left + radius_x &&
+            local_x <= edges.right - radius_x) ||
+        (local_y >= edges.top + radius_y &&
+            local_y <= edges.bottom - radius_y)) {
+        *contains = 1U;
+        return com::ok;
+    }
+    const double center_x = local_x < edges.left + radius_x
+        ? edges.left + radius_x
+        : edges.right - radius_x;
+    const double center_y = local_y < edges.top + radius_y
+        ? edges.top + radius_y
+        : edges.bottom - radius_y;
+    const double normalized_x = (local_x - center_x) / radius_x;
+    const double normalized_y = (local_y - center_y) / radius_y;
+    const double distance_squared =
+        normalized_x * normalized_x + normalized_y * normalized_y;
+    if (!std::isfinite(distance_squared)) {
+        return com::invalid_argument;
+    }
+    *contains = distance_squared <= 1.0 ? 1U : 0U;
+    return com::ok;
+}
+
 rectangle_geometry::rectangle_geometry(
     rectangle_edges_f rectangle) noexcept
     : rectangle_(rectangle)

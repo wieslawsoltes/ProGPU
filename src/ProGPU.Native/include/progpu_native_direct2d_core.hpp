@@ -55,6 +55,12 @@ struct ellipse_f final {
     float radius_y;
 };
 
+struct rounded_rectangle_f final {
+    rectangle_edges_f rectangle;
+    float radius_x;
+    float radius_y;
+};
+
 [[nodiscard]] bool valid_transform(
     const progpu_native_direct2d_matrix_3x2_f* transform) noexcept;
 
@@ -86,6 +92,22 @@ struct ellipse_f final {
 
 [[nodiscard]] com::result ellipse_fill_contains_point(
     const ellipse_f& ellipse,
+    progpu_native_direct2d_point_2f point,
+    const progpu_native_direct2d_matrix_3x2_f* world_transform,
+    float flattening_tolerance,
+    std::uint32_t* contains) noexcept;
+
+[[nodiscard]] bool valid_rounded_rectangle(
+    const rounded_rectangle_f& rectangle) noexcept;
+
+[[nodiscard]] com::result rounded_rectangle_to_path(
+    const rounded_rectangle_f& rectangle,
+    progpu_native_direct2d_point_2f* start,
+    std::array<progpu_native_direct2d_point_2f, 4U>* line_ends,
+    std::array<cubic_bezier_segment_f, 4U>* corners) noexcept;
+
+[[nodiscard]] com::result rounded_rectangle_fill_contains_point(
+    const rounded_rectangle_f& rectangle,
     progpu_native_direct2d_point_2f point,
     const progpu_native_direct2d_matrix_3x2_f* world_transform,
     float flattening_tolerance,

@@ -980,7 +980,9 @@ add_library(progpu_native_direct2d_core STATIC
     src/Direct2D/progpu_native_direct2d_ellipse.cpp
     src/Direct2D/progpu_native_direct2d_ellipse.hpp
     src/Direct2D/progpu_native_direct2d_path.cpp
-    src/Direct2D/progpu_native_direct2d_path.hpp)
+    src/Direct2D/progpu_native_direct2d_path.hpp
+    src/Direct2D/progpu_native_direct2d_rounded_rectangle.cpp
+    src/Direct2D/progpu_native_direct2d_rounded_rectangle.hpp)
 target_compile_features(progpu_native_direct2d_core PUBLIC cxx_std_20)
 target_include_directories(progpu_native_direct2d_core PUBLIC
     "$<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>"

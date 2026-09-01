@@ -210,5 +210,46 @@ int main()
     if (core::valid_ellipse(invalid_ellipse)) {
         return 17;
     }
+
+    const core::rounded_rectangle_f rounded_rectangle{
+        {0.0F, 0.0F, 10.0F, 8.0F}, 3.0F, 2.0F};
+    progpu_native_direct2d_point_2f rounded_start{};
+    std::array<progpu_native_direct2d_point_2f, 4U> rounded_lines{};
+    std::array<core::cubic_bezier_segment_f, 4U> rounded_corners{};
+    if (!core::valid_rounded_rectangle(rounded_rectangle) ||
+        core::rounded_rectangle_to_path(
+            rounded_rectangle,
+            &rounded_start,
+            &rounded_lines,
+            &rounded_corners) != com::ok ||
+        !approximately_equal(rounded_start.x, 3.0F) ||
+        !approximately_equal(rounded_start.y, 0.0F) ||
+        !approximately_equal(rounded_lines[0U].x, 7.0F) ||
+        !approximately_equal(rounded_lines[1U].y, 6.0F) ||
+        !approximately_equal(rounded_corners[3U].point3.x, 3.0F) ||
+        !approximately_equal(rounded_corners[3U].point3.y, 0.0F)) {
+        return 18;
+    }
+    if (core::rounded_rectangle_fill_contains_point(
+            rounded_rectangle,
+            {-2.0F, 30.0F},
+            &transform,
+            core::default_flattening_tolerance,
+            &contains) != com::ok ||
+        contains != 1U ||
+        core::rounded_rectangle_fill_contains_point(
+            rounded_rectangle,
+            {9.7F, 20.2F},
+            &transform,
+            core::default_flattening_tolerance,
+            &contains) != com::ok ||
+        contains != 0U) {
+        return 19;
+    }
+    core::rounded_rectangle_f invalid_rounded_rectangle = rounded_rectangle;
+    invalid_rounded_rectangle.radius_x = -1.0F;
+    if (core::valid_rounded_rectangle(invalid_rounded_rectangle)) {
+        return 20;
+    }
     return 0;
 }
