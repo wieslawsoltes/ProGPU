@@ -237,6 +237,7 @@ static_assert(sizeof(compat::quadratic_bezier_segment) == 16U);
 static_assert(sizeof(compat::arc_segment) == 28U);
 static_assert(sizeof(compat::ellipse) == 16U);
 static_assert(sizeof(compat::rounded_rectangle) == 24U);
+static_assert(sizeof(compat::stroke_style_properties) == 28U);
 
 int main()
 {
@@ -820,15 +821,82 @@ int main()
         return 90;
     }
 
-    compat::stroke_style* unsupported =
-        reinterpret_cast<compat::stroke_style*>(
+    const compat::stroke_style_properties stroke_properties{
+        compat::cap_style::round,
+        compat::cap_style::square,
+        compat::cap_style::triangle,
+        compat::line_join::bevel,
+        4.0F,
+        compat::dash_style::custom,
+        0.5F};
+    const std::array<float, 4U> stroke_dashes{2.0F, 1.0F, 0.5F, 1.0F};
+    compat::stroke_style* raw_stroke_style = nullptr;
+    if (factory->CreateStrokeStyle(
+            &stroke_properties,
+            stroke_dashes.data(),
+            static_cast<std::uint32_t>(stroke_dashes.size()),
+            &raw_stroke_style) != com::ok ||
+        raw_stroke_style == nullptr) {
+        return 91;
+    }
+    com::pointer<compat::stroke_style> stroke_style;
+    stroke_style.attach(raw_stroke_style);
+    com::pointer<compat::resource> stroke_resource;
+    if (stroke_style.as(
+            compat::resource_interface_id, stroke_resource) != com::ok ||
+        !stroke_resource ||
+        stroke_style->GetStartCap() != compat::cap_style::round ||
+        stroke_style->GetEndCap() != compat::cap_style::square ||
+        stroke_style->GetDashCap() != compat::cap_style::triangle ||
+        stroke_style->GetLineJoin() != compat::line_join::bevel ||
+        !approximately_equal(stroke_style->GetMiterLimit(), 4.0F) ||
+        !approximately_equal(stroke_style->GetDashOffset(), 0.5F) ||
+        stroke_style->GetDashStyle() != compat::dash_style::custom ||
+        stroke_style->GetDashesCount() !=
+            static_cast<std::uint32_t>(stroke_dashes.size())) {
+        return 92;
+    }
+    std::array<float, 4U> returned_stroke_dashes{};
+    stroke_style->GetDashes(
+        returned_stroke_dashes.data(),
+        static_cast<std::uint32_t>(returned_stroke_dashes.size()));
+    if (!approximately_equal(returned_stroke_dashes[0U], 2.0F) ||
+        !approximately_equal(returned_stroke_dashes[1U], 1.0F) ||
+        !approximately_equal(returned_stroke_dashes[2U], 0.5F) ||
+        !approximately_equal(returned_stroke_dashes[3U], 1.0F)) {
+        return 93;
+    }
+    raw_stroke_style = reinterpret_cast<compat::stroke_style*>(
         static_cast<std::uintptr_t>(1U));
     if (factory->CreateStrokeStyle(
-            nullptr, nullptr, 0U, &unsupported) !=
+            &stroke_properties, nullptr, 0U, &raw_stroke_style) !=
+            com::invalid_argument ||
+        raw_stroke_style != nullptr) {
+        return 94;
+    }
+    compat::stroke_style_properties solid_stroke_properties =
+        stroke_properties;
+    solid_stroke_properties.dash = compat::dash_style::solid;
+    raw_stroke_style = reinterpret_cast<compat::stroke_style*>(
+        static_cast<std::uintptr_t>(1U));
+    if (factory->CreateStrokeStyle(
+            &solid_stroke_properties,
+            stroke_dashes.data(),
+            static_cast<std::uint32_t>(stroke_dashes.size()),
+            &raw_stroke_style) != com::invalid_argument ||
+        raw_stroke_style != nullptr) {
+        return 95;
+    }
+
+    compat::drawing_state_block* unsupported =
+        reinterpret_cast<compat::drawing_state_block*>(
+        static_cast<std::uintptr_t>(1U));
+    if (factory->CreateDrawingStateBlock(
+            nullptr, nullptr, &unsupported) !=
             compat::not_implemented ||
         unsupported != nullptr ||
-        factory->CreateStrokeStyle(
-            nullptr, nullptr, 0U, nullptr) !=
+        factory->CreateDrawingStateBlock(
+            nullptr, nullptr, nullptr) !=
             com::pointer_error) {
         return 18;
     }
@@ -849,6 +917,9 @@ int main()
             compat::geometry_group_interface_id,
             __uuidof(ID2D1GeometryGroup)) ||
         !com::guid_equal(
+            compat::stroke_style_interface_id,
+            __uuidof(ID2D1StrokeStyle)) ||
+        !com::guid_equal(
             compat::transformed_geometry_interface_id,
             __uuidof(ID2D1TransformedGeometry)) ||
         !com::guid_equal(
@@ -863,6 +934,8 @@ int main()
         sizeof(compat::rectangle_f) != sizeof(D2D1_RECT_F) ||
         sizeof(compat::ellipse) != sizeof(D2D1_ELLIPSE) ||
         sizeof(compat::rounded_rectangle) != sizeof(D2D1_ROUNDED_RECT) ||
+        sizeof(compat::stroke_style_properties) !=
+            sizeof(D2D1_STROKE_STYLE_PROPERTIES) ||
         sizeof(compat::triangle) != sizeof(D2D1_TRIANGLE) ||
         sizeof(compat::quadratic_bezier_segment) !=
             sizeof(D2D1_QUADRATIC_BEZIER_SEGMENT) ||
@@ -1017,6 +1090,44 @@ int main()
     if (FAILED(portable_group_bounds_status) ||
         !native_group_metadata_matches) {
         return 83;
+    }
+
+    const D2D1_STROKE_STYLE_PROPERTIES native_stroke_properties{
+        D2D1_CAP_STYLE_ROUND,
+        D2D1_CAP_STYLE_SQUARE,
+        D2D1_CAP_STYLE_TRIANGLE,
+        D2D1_LINE_JOIN_BEVEL,
+        4.0F,
+        D2D1_DASH_STYLE_CUSTOM,
+        0.5F};
+    const std::array<float, 4U> native_stroke_dashes{
+        2.0F, 1.0F, 0.5F, 1.0F};
+    ID2D1StrokeStyle* native_stroke_style = nullptr;
+    if (FAILED(native_factory->CreateStrokeStyle(
+            &native_stroke_properties,
+            native_stroke_dashes.data(),
+            static_cast<UINT32>(native_stroke_dashes.size()),
+            &native_stroke_style)) ||
+        native_stroke_style == nullptr) {
+        return 96;
+    }
+    std::array<float, 4U> portable_native_stroke_dashes{};
+    native_stroke_style->GetDashes(
+        portable_native_stroke_dashes.data(),
+        static_cast<UINT32>(portable_native_stroke_dashes.size()));
+    const bool portable_native_stroke_matches =
+        native_stroke_style->GetStartCap() == D2D1_CAP_STYLE_ROUND &&
+        native_stroke_style->GetEndCap() == D2D1_CAP_STYLE_SQUARE &&
+        native_stroke_style->GetDashCap() == D2D1_CAP_STYLE_TRIANGLE &&
+        native_stroke_style->GetLineJoin() == D2D1_LINE_JOIN_BEVEL &&
+        approximately_equal(native_stroke_style->GetMiterLimit(), 4.0F) &&
+        approximately_equal(native_stroke_style->GetDashOffset(), 0.5F) &&
+        native_stroke_style->GetDashStyle() == D2D1_DASH_STYLE_CUSTOM &&
+        native_stroke_style->GetDashesCount() ==
+            static_cast<UINT32>(native_stroke_dashes.size());
+    native_stroke_style->Release();
+    if (!portable_native_stroke_matches) {
+        return 97;
     }
 
     ID2D1PathGeometry* native_path = nullptr;
@@ -1348,7 +1459,6 @@ int main()
         system_group->GetSourceGeometryCount() ==
             static_cast<UINT32>(system_group_sources.size());
     system_group->Release();
-    system_factory->Release();
     if (FAILED(system_group_bounds_status) ||
         !system_group_metadata_matches ||
         !approximately_equal(
@@ -1359,7 +1469,39 @@ int main()
             system_group_bounds.right, portable_group_bounds.right) ||
         !approximately_equal(
             system_group_bounds.bottom, portable_group_bounds.bottom)) {
+        system_factory->Release();
         return 86;
+    }
+
+    ID2D1StrokeStyle* system_stroke_style = nullptr;
+    if (FAILED(system_factory->CreateStrokeStyle(
+            &native_stroke_properties,
+            native_stroke_dashes.data(),
+            static_cast<UINT32>(native_stroke_dashes.size()),
+            &system_stroke_style)) ||
+        system_stroke_style == nullptr) {
+        system_factory->Release();
+        return 98;
+    }
+    std::array<float, 4U> system_stroke_dashes{};
+    system_stroke_style->GetDashes(
+        system_stroke_dashes.data(),
+        static_cast<UINT32>(system_stroke_dashes.size()));
+    const bool system_stroke_matches =
+        system_stroke_style->GetStartCap() == D2D1_CAP_STYLE_ROUND &&
+        system_stroke_style->GetEndCap() == D2D1_CAP_STYLE_SQUARE &&
+        system_stroke_style->GetDashCap() == D2D1_CAP_STYLE_TRIANGLE &&
+        system_stroke_style->GetLineJoin() == D2D1_LINE_JOIN_BEVEL &&
+        approximately_equal(system_stroke_style->GetMiterLimit(), 4.0F) &&
+        approximately_equal(system_stroke_style->GetDashOffset(), 0.5F) &&
+        system_stroke_style->GetDashStyle() == D2D1_DASH_STYLE_CUSTOM &&
+        system_stroke_style->GetDashesCount() ==
+            static_cast<UINT32>(native_stroke_dashes.size()) &&
+        system_stroke_dashes == portable_native_stroke_dashes;
+    system_stroke_style->Release();
+    system_factory->Release();
+    if (!system_stroke_matches) {
+        return 99;
     }
 #endif
     return 0;

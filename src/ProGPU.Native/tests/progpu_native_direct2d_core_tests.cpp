@@ -251,5 +251,37 @@ int main()
     if (core::valid_rounded_rectangle(invalid_rounded_rectangle)) {
         return 20;
     }
+
+    const core::stroke_style_properties_f stroke_properties{
+        core::cap_style::round,
+        core::cap_style::square,
+        core::cap_style::triangle,
+        core::line_join::bevel,
+        4.0F,
+        core::dash_style::custom,
+        0.5F};
+    const std::array<float, 4U> dashes{2.0F, 1.0F, 0.5F, 1.0F};
+    if (!core::valid_stroke_style(
+            stroke_properties,
+            dashes.data(),
+            static_cast<std::uint32_t>(dashes.size()))) {
+        return 21;
+    }
+    core::stroke_style_properties_f invalid_stroke = stroke_properties;
+    invalid_stroke.miter_limit = 0.0F;
+    if (core::valid_stroke_style(
+            invalid_stroke,
+            dashes.data(),
+            static_cast<std::uint32_t>(dashes.size())) ||
+        core::valid_stroke_style(stroke_properties, nullptr, 0U)) {
+        return 22;
+    }
+    const std::array<float, 2U> empty_dashes{0.0F, 0.0F};
+    if (core::valid_stroke_style(
+            stroke_properties,
+            empty_dashes.data(),
+            static_cast<std::uint32_t>(empty_dashes.size()))) {
+        return 23;
+    }
     return 0;
 }

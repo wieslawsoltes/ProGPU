@@ -61,6 +61,39 @@ struct rounded_rectangle_f final {
     float radius_y;
 };
 
+enum class cap_style : std::uint32_t {
+    flat = 0U,
+    square = 1U,
+    round = 2U,
+    triangle = 3U
+};
+
+enum class line_join : std::uint32_t {
+    miter = 0U,
+    bevel = 1U,
+    round = 2U,
+    miter_or_bevel = 3U
+};
+
+enum class dash_style : std::uint32_t {
+    solid = 0U,
+    dash = 1U,
+    dot = 2U,
+    dash_dot = 3U,
+    dash_dot_dot = 4U,
+    custom = 5U
+};
+
+struct stroke_style_properties_f final {
+    cap_style start_cap;
+    cap_style end_cap;
+    cap_style dash_cap;
+    line_join join;
+    float miter_limit;
+    dash_style dash;
+    float dash_offset;
+};
+
 [[nodiscard]] bool valid_transform(
     const progpu_native_direct2d_matrix_3x2_f* transform) noexcept;
 
@@ -112,6 +145,11 @@ struct rounded_rectangle_f final {
     const progpu_native_direct2d_matrix_3x2_f* world_transform,
     float flattening_tolerance,
     std::uint32_t* contains) noexcept;
+
+[[nodiscard]] bool valid_stroke_style(
+    const stroke_style_properties_f& properties,
+    const float* dashes,
+    std::uint32_t dash_count) noexcept;
 
 class rectangle_geometry final {
 public:
