@@ -113,6 +113,76 @@ public sealed class CadMesh3DSelectionTests
     }
 
     [Fact]
+    public void PickTargetFallsBackToExactClippedSurfaceAndZeroDisablesIt()
+    {
+        var document = new CadDocument();
+        Face3D face = CreateSquareFace(0.0, 0.0);
+        document.Entities.Add(face);
+        CadRecordedMesh3DScene scene = CompileScene(document);
+        CadMesh3DSelectionIndex index = CadMesh3DSelectionIndex.Build(scene);
+        CadMesh3DViewport viewport = CreateTopViewport(
+            scene,
+            cameraDistance: 10.0,
+            near: 0.1f,
+            far: 100.0f);
+        Vector2 outsideEdge = Project(
+            viewport,
+            scene,
+            new CadPoint3D(2.0, 0.0, 0.0)) + new Vector2(1.0f, 0.0f);
+
+        CadMesh3DSelectionResult exact = index.Query(
+            viewport,
+            ViewportSize,
+            outsideEdge);
+        CadMesh3DSelectionResult disabled = index.QueryAperture(
+            viewport,
+            ViewportSize,
+            outsideEdge,
+            targetHeight: 0.0f);
+        CadMesh3DSelectionResult bounded = index.QueryAperture(
+            viewport,
+            ViewportSize,
+            outsideEdge,
+            targetHeight: 3.0f);
+
+        Assert.False(exact.IsHit);
+        Assert.False(disabled.IsHit);
+        Assert.True(bounded.IsHit);
+        Assert.Equal(face.Handle, bounded.Handle);
+        Assert.InRange(bounded.Point.X, 1.98, 2.0);
+        Assert.Equal(0.0, bounded.Point.Z, 4);
+        Assert.Equal(
+            1.0f,
+            bounded.BarycentricCoordinates.X +
+            bounded.BarycentricCoordinates.Y +
+            bounded.BarycentricCoordinates.Z,
+            5);
+        Span<CadMesh3DSelectionResult> apertureHits =
+            stackalloc CadMesh3DSelectionResult[2];
+        CadMesh3DSelectionHitQueryResult hitQuery = index.QueryApertureHits(
+            viewport,
+            ViewportSize,
+            outsideEdge,
+            apertureHits,
+            targetHeight: 3.0f);
+        Assert.Equal(1, hitQuery.HitCount);
+        Assert.False(hitQuery.WasTruncated);
+        Assert.Equal(face.Handle, apertureHits[0].Handle);
+        Assert.Throws<ArgumentOutOfRangeException>(() =>
+            index.QueryAperture(
+                viewport,
+                ViewportSize,
+                outsideEdge,
+                -1.0f));
+        Assert.Throws<ArgumentOutOfRangeException>(() =>
+            index.QueryAperture(
+                viewport,
+                ViewportSize,
+                outsideEdge,
+                CadMesh3DSelectionIndex.MaximumPickTargetHeight + 1.0f));
+    }
+
+    [Fact]
     public void CallerBufferedHitsAreNearestFirstDeduplicatedAndTruncated()
     {
         var document = new CadDocument();
@@ -464,6 +534,63 @@ public sealed class CadMesh3DSelectionTests
         }
         GC.KeepAlive(observed);
         Assert.Equal(0, regionMinimumAllocated);
+
+        Vector2 aperturePoint = Project(
+            viewport,
+            scene,
+            new CadPoint3D(cellCount, cellCount / 2.0, 0.0)) +
+            new Vector2(1.0f, 0.0f);
+        CadMesh3DSelectionResult aperture = index.QueryAperture(
+            viewport,
+            ViewportSize,
+            aperturePoint);
+        Assert.True(aperture.IsHit);
+        Assert.Equal(mesh.Handle, aperture.Handle);
+        Assert.True(aperture.TestedTriangleCount <
+            index.Statistics.TriangleCount / 32);
+        long apertureMinimumAllocated = long.MaxValue;
+        for (int pass = 0; pass < 4; pass++)
+        {
+            long before = GC.GetAllocatedBytesForCurrentThread();
+            for (int iteration = 0; iteration < 4_096; iteration++)
+            {
+                observed ^= index.QueryAperture(
+                    viewport,
+                    ViewportSize,
+                    aperturePoint).Handle;
+            }
+            apertureMinimumAllocated = Math.Min(
+                apertureMinimumAllocated,
+                GC.GetAllocatedBytesForCurrentThread() - before);
+        }
+        GC.KeepAlive(observed);
+        Assert.Equal(0, apertureMinimumAllocated);
+
+        CadMesh3DSelectionHitQueryResult apertureHitQuery =
+            index.QueryApertureHits(
+                viewport,
+                ViewportSize,
+                aperturePoint,
+                semanticHits);
+        Assert.Equal(1, apertureHitQuery.HitCount);
+        long apertureHitMinimumAllocated = long.MaxValue;
+        for (int pass = 0; pass < 4; pass++)
+        {
+            long before = GC.GetAllocatedBytesForCurrentThread();
+            for (int iteration = 0; iteration < 4_096; iteration++)
+            {
+                observed ^= (ulong)index.QueryApertureHits(
+                    viewport,
+                    ViewportSize,
+                    aperturePoint,
+                    semanticHits).HitCount;
+            }
+            apertureHitMinimumAllocated = Math.Min(
+                apertureHitMinimumAllocated,
+                GC.GetAllocatedBytesForCurrentThread() - before);
+        }
+        GC.KeepAlive(observed);
+        Assert.Equal(0, apertureHitMinimumAllocated);
     }
 
     [Fact]
@@ -530,6 +657,16 @@ public sealed class CadMesh3DSelectionTests
         Assert.Equal(
             afterQuery.SelectionQueryCount + 1,
             coordinator.Statistics.SelectionQueryCount);
+        CadMesh3DSelectionResult aperture =
+            coordinator.QuerySelectionAperture(
+                ViewportSize,
+                point,
+                CadMesh3DSelectionIndex.DefaultPickTargetHeight);
+        Assert.True(aperture.IsHit);
+        Assert.Equal(hit.Handle, aperture.Handle);
+        Assert.Equal(
+            afterQuery.SelectionQueryCount + 2,
+            coordinator.Statistics.SelectionQueryCount);
 
         session.Edit("Add replacement face", cad =>
             cad.Entities.Add(CreateSquareFace(20.0, 0.0)));
@@ -584,6 +721,29 @@ public sealed class CadMesh3DSelectionTests
             Click(view.MeshViewport, new Vector2(2.0f, 2.0f));
             Assert.Empty(view.Canvas.SelectedHandles.ToArray());
             Assert.Same(authoredBrush, material.Brush);
+
+            Assert.Equal(
+                CadMesh3DSelectionIndex.DefaultPickTargetHeight,
+                view.MeshPickTargetHeight);
+            Vector2 outsideEdge = Project(
+                viewport,
+                scene,
+                new CadPoint3D(2.0, 0.0, 0.0)) +
+                new Vector2(1.0f, 0.0f);
+            Click(view.MeshViewport, outsideEdge);
+            Assert.Equal(
+                face.Handle,
+                Assert.Single(view.Canvas.SelectedHandles.ToArray()));
+            Assert.True(view.LastMeshSelection!.Value.IsHit);
+            view.MeshPickTargetHeight = 0.0f;
+            view.Canvas.ClearSelection();
+            Click(view.MeshViewport, outsideEdge);
+            Assert.Empty(view.Canvas.SelectedHandles.ToArray());
+            view.MeshPickTargetHeight =
+                CadMesh3DSelectionIndex.DefaultPickTargetHeight;
+            Assert.Throws<ArgumentOutOfRangeException>(() =>
+                view.MeshPickTargetHeight =
+                    CadMesh3DSelectionIndex.MaximumPickTargetHeight + 1.0f);
 
             Span<Vector2> projectedCorners = stackalloc Vector2[4]
             {

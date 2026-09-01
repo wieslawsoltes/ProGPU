@@ -1337,6 +1337,7 @@ void RunMesh3DSelectionBenchmark(
     CadMesh3DViewport viewport = CadMesh3DViewport.Fit(scene);
     Vector2 viewportSize = new(1_920.0f, 1_080.0f);
     var queryPoints = new Vector2[queryCount];
+    var aperturePoints = new Vector2[queryCount];
     uint state = 0x9e3779b9U;
     int interiorSize = Math.Max(1, gridSize - 2);
     int interiorOffset = gridSize > 2 ? 1 : 0;
@@ -1354,6 +1355,24 @@ void RunMesh3DSelectionBenchmark(
                 x + 0.375,
                 y + 0.625,
                 (depthLayerCount - 1) * 0.01));
+        Vector2 boundary = ProjectMesh3DSelectionPoint(
+            viewport,
+            scene,
+            viewportSize,
+            new CadPoint3D(
+                gridSize,
+                y + 0.625,
+                (depthLayerCount - 1) * 0.01));
+        Vector2 outward = ProjectMesh3DSelectionPoint(
+            viewport,
+            scene,
+            viewportSize,
+            new CadPoint3D(
+                gridSize + 1.0,
+                y + 0.625,
+                (depthLayerCount - 1) * 0.01)) - boundary;
+        aperturePoints[index] = boundary +
+            Vector2.Normalize(outward) * 0.75f;
     }
 
     for (int index = 0; index < Math.Min(queryCount, 4_096); index++)
@@ -1457,6 +1476,64 @@ void RunMesh3DSelectionBenchmark(
         GC.GetAllocatedBytesForCurrentThread() - semanticAllocationStart;
     GC.KeepAlive(checksum);
 
+    var apertureHits =
+        new CadMesh3DSelectionResult[depthLayerCount];
+    var apertureElapsed = new double[queryCount];
+    long apertureVisitedNodeCount = 0;
+    long apertureTestedTriangleCount = 0;
+    long apertureIntersectedTriangleCount = 0;
+    long apertureHitCount = 0;
+    int apertureMaximumVisitedNodeCount = 0;
+    int apertureMaximumTestedTriangleCount = 0;
+    for (int index = 0; index < Math.Min(queryCount, 4_096); index++)
+    {
+        CadMesh3DSelectionHitQueryResult warm =
+            selectionIndex.QueryApertureHits(
+                viewport,
+                viewportSize,
+                aperturePoints[index],
+                apertureHits);
+        if (warm.HitCount == 0 || warm.WasTruncated)
+        {
+            throw new InvalidOperationException(
+                "A warm pick-target benchmark query did not return a bounded hit.");
+        }
+    }
+    long apertureAllocationStart =
+        GC.GetAllocatedBytesForCurrentThread();
+    for (int index = 0; index < aperturePoints.Length; index++)
+    {
+        long started = Stopwatch.GetTimestamp();
+        CadMesh3DSelectionHitQueryResult result =
+            selectionIndex.QueryApertureHits(
+                viewport,
+                viewportSize,
+                aperturePoints[index],
+                apertureHits);
+        apertureElapsed[index] = Stopwatch.GetElapsedTime(started)
+            .TotalNanoseconds;
+        if (result.HitCount == 0 || result.WasTruncated)
+        {
+            throw new InvalidOperationException(
+                "A measured pick-target benchmark query did not return a bounded hit.");
+        }
+        apertureVisitedNodeCount += result.VisitedNodeCount;
+        apertureTestedTriangleCount += result.TestedTriangleCount;
+        apertureIntersectedTriangleCount += result.IntersectedTriangleCount;
+        apertureHitCount += result.HitCount;
+        apertureMaximumVisitedNodeCount = Math.Max(
+            apertureMaximumVisitedNodeCount,
+            result.VisitedNodeCount);
+        apertureMaximumTestedTriangleCount = Math.Max(
+            apertureMaximumTestedTriangleCount,
+            result.TestedTriangleCount);
+        checksum ^= apertureHits[0].Handle +
+            apertureHits[result.HitCount - 1].Handle;
+    }
+    long apertureAllocatedBytes =
+        GC.GetAllocatedBytesForCurrentThread() - apertureAllocationStart;
+    GC.KeepAlive(checksum);
+
     var regionRootScratch = new int[selectionIndex.SemanticRootCount];
     var regionHandles = new ulong[selectionIndex.SemanticRootCount];
     var regionElapsed = new double[queryCount];
@@ -1543,6 +1620,11 @@ void RunMesh3DSelectionBenchmark(
             semanticAllocatedBytes / queryCount),
         semanticAllocatedBytes,
         Summarize(
+            "mesh3d-selection-projected-pick-target-query-ns",
+            apertureElapsed,
+            apertureAllocatedBytes / queryCount),
+        apertureAllocatedBytes,
+        Summarize(
             "mesh3d-selection-projected-crossing-query-ns",
             regionElapsed,
             regionAllocatedBytes / queryCount),
@@ -1557,6 +1639,12 @@ void RunMesh3DSelectionBenchmark(
         (double)semanticIntersectedTriangleCount / queryCount,
         semanticMaximumVisitedNodeCount,
         semanticMaximumTestedTriangleCount,
+        (double)apertureVisitedNodeCount / queryCount,
+        (double)apertureTestedTriangleCount / queryCount,
+        (double)apertureIntersectedTriangleCount / queryCount,
+        (double)apertureHitCount / queryCount,
+        apertureMaximumVisitedNodeCount,
+        apertureMaximumTestedTriangleCount,
         (double)regionVisitedNodeCount / queryCount,
         (double)regionTestedTriangleCount / queryCount,
         (double)regionIntersectedTriangleCount / queryCount,
@@ -3477,6 +3565,8 @@ internal sealed record CadMesh3DSelectionBenchmarkReport(
     long TotalQueryManagedAllocatedBytes,
     Measurement SemanticDepthQueryNanoseconds,
     long TotalSemanticDepthQueryManagedAllocatedBytes,
+    Measurement ProjectedPickTargetQueryNanoseconds,
+    long TotalProjectedPickTargetQueryManagedAllocatedBytes,
     Measurement ProjectedCrossingQueryNanoseconds,
     long TotalProjectedCrossingQueryManagedAllocatedBytes,
     CadMesh3DSelectionIndexStatistics IndexStatistics,
@@ -3489,6 +3579,12 @@ internal sealed record CadMesh3DSelectionBenchmarkReport(
     double SemanticDepthAverageIntersectedTriangleCount,
     int SemanticDepthMaximumVisitedNodeCount,
     int SemanticDepthMaximumTestedTriangleCount,
+    double ProjectedPickTargetAverageVisitedNodeCount,
+    double ProjectedPickTargetAverageTestedTriangleCount,
+    double ProjectedPickTargetAverageIntersectedTriangleCount,
+    double ProjectedPickTargetAverageHitCount,
+    int ProjectedPickTargetMaximumVisitedNodeCount,
+    int ProjectedPickTargetMaximumTestedTriangleCount,
     double ProjectedCrossingAverageVisitedNodeCount,
     double ProjectedCrossingAverageTestedTriangleCount,
     double ProjectedCrossingAverageIntersectedTriangleCount,

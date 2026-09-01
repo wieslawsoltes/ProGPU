@@ -10,6 +10,8 @@ the nearest visible retained triangle, and returns its ACadSharp semantic root
 handle. A caller-buffered companion query returns bounded nearest-first unique
 semantic roots, and repeated Alt-clicks cycle that depth order. Exact projected
 Window/Crossing queries use the same retained triangles and camera clip volume.
+Point and depth queries preserve an exact center-ray hit first, then use a
+configurable projected pick target when that ray misses.
 It does not add face/edge/vertex subobject editing, lasso/polygon selection,
 hidden-line policy, or ACIS payload tessellation.
 
@@ -39,6 +41,11 @@ organization was copied. Approved in-repository behavioral provenance is:
   alternatives require an explicit cycling workflow. ProGPU therefore keeps
   ordinary click on the nearest whole semantic entity and uses explicit
   Alt-click cycling without conflating hidden alternatives with subobjects.
+- Autodesk's [PICKBOX contract](https://help.autodesk.com/cloudhelp/2020/ENU/AutoCAD-Core/files/GUID-363698CF-C3DC-4770-81EF-CB09D86B3D3A.htm)
+  defines the object-selection target by its complete height in
+  device-independent pixels, defaults it to three, and gives zero a disabled
+  meaning. ProGPU adopts those units, default, and zero behavior while bounding
+  callers to 256 logical pixels.
 - The [WebGPU coordinate-system specification](https://gpuweb.github.io/gpuweb/#coordinate-systems)
   defines top-left framebuffer coordinates, X right, Y down, NDC X/Y in
   `[-1, 1]`, and NDC depth in `[0, 1]`. The picker uses those exact endpoints
@@ -112,6 +119,18 @@ the added semantic collection work is `O(H*K)` worst case and `O(K)` storage;
 `K` is contractually bounded at 256. The nearest-only API retains its separate
 pruning fast path and unchanged `O(log T + H)` typical contract.
 
+`QueryAperture` and `QueryApertureHits` first execute the exact point contract,
+so a surface directly below the pointer wins without target-area ambiguity.
+Only a miss constructs a centered square clip volume with the caller's complete
+logical-pixel target height. The same six-plane BVH and fixed twelve-vertex
+triangle clipper prove candidates exactly; each clipped convex polygon is
+fan-triangulated in fixed stack storage to find the nearest camera-space surface
+point, from which original-triangle barycentrics and facing are reconstructed.
+Single and semantic-depth results keep the existing distance/batch/triangle
+ordering and explicit truncation. Typical fallback work is `O(log T + H*K)`
+for `H` clipped candidates and result capacity `K`, worst-case `O(T*K)`, with
+`O(K)` caller storage and zero warm managed allocation.
+
 `QueryRegion` clamps two logical points to the viewport and converts their
 rectangle to WebGPU NDC. It folds the four rectangle inequalities plus
 `z >= 0` and `z <= w` into six local-space homogeneous planes once per query.
@@ -144,6 +163,11 @@ use one dynamic `SystemAccentColor` theme brush while retaining their authored
 geometry and restoring their authored material on deselection. Selection-only
 material invalidation may rebuild bounded viewport records, but it never
 recompiles the ACadSharp snapshot or Mesh3D topology.
+The shared pickbox selector exposes 0/3/5/9/15 logical-pixel targets and the
+public query accepts every finite value through 256. The default three-pixel
+target applies consistently to ordinary click, Alt depth cycling, and the
+object-versus-empty origin decision before a primary drag becomes orbit or
+Window/Crossing selection.
 Alt-click queries up to 64 nearest unique roots and advances when generation,
 camera, and the four-logical-pixel click neighborhood are unchanged; a normal
 click, camera change, generation replacement, or displaced click restarts at
@@ -165,59 +189,59 @@ Required regressions cover frontmost ordering, two-sided triangles, misses,
 near/far clipping, deterministic shared-edge ties, large-WCS rebasing,
 spanning-triangle crossing with no contained vertex, whole-root Window
 containment across separated triangles, generation/rebase validation,
-dense-scene pruning, zero-allocation warm point/depth/region queries,
+dense-scene pruning, zero-allocation warm point/depth/pick-target/region queries,
 coordinator replacement, empty-origin selection versus object-origin orbit,
 Ctrl set toggling, selection clearing, semantic handle continuity,
 theme-dynamic highlighting, and retained camera/upload counters. The
 SHA-identified Release 256-by-256 grid lane contains
 131,072 triangles. Its 2,359,276-byte, depth-15 index built at
-20.5759/49.1745/49.1745 ms p50/p95/p99. Across 65,536 exact point queries it
+15.4651/47.7765/47.7765 ms p50/p95/p99. Across 65,536 exact point queries it
 visited 15 nodes, tested eight triangles, used zero managed bytes, and measured
-3.2/6.7/21.8 microseconds p50/p95/p99. Exact projected Crossing queries used
+2.6/6.2/17.1 microseconds p50/p95/p99. Near-edge three-pixel projected-target
+queries used zero managed bytes, visited about 19 nodes, tested about 17
+triangles, found about five clipped intersections and one semantic hit, and
+measured 3.6/12.9/34.2 microseconds p50/p95/p99. Exact projected Crossing queries used
 zero managed bytes, visited about 77 nodes, tested about 161 triangles, found
-about 101 triangle intersections, and measured 39.5/96.5/177.3 microseconds
+about 101 triangle intersections, and measured 29.2/75.9/129.3 microseconds
 p50/p95/p99. The checked-in JSON is
 `artifacts/benchmarks/cad-3d-selection-grid-256.json`.
 There is no matched pre-change selection latency because the prior Flat 3D
 viewer had no projected query path; these figures are an acceptance baseline,
 not a claimed before/after speedup.
 
-Matched macOS Allocations, Time Profiler, and Metal System Trace captures use a
-larger 524,288-triangle workload from the same final binaries. Allocations
-reported 19,788,704 persistent heap-plus-anonymous-VM bytes and 60,382,960
-total bytes while repeatedly constructing the bounded index. Metal observed no
-target resource allocation, current allocated size, application command
-submission, drawable wait, compiler spill, hang, or error, confirming that a
-query neither initializes WebGPU nor retains GPU state. Raw traces were removed
-after compact exports; the manifest, notes, tables, and summary remain under
-`artifacts/benchmarks/cad-3d-selection-instruments/`.
-
 The final eight-layer lane contains 262,144 triangles and eight unique roots
 along each ray. Across 65,536 queries, bounded semantic collection visited
 about 91 nodes, tested 64 triangles, returned all eight roots, allocated zero
-managed bytes, and measured 9.2/26.9/51.6 microseconds p50/p95/p99. Exact
+managed bytes, and measured 10.5/31.9/54.5 microseconds p50/p95/p99. Its
+near-edge three-pixel projected-target companion visited 91 nodes, tested 64
+triangles, found 24 clipped intersections, returned all eight roots, allocated
+zero managed bytes, and measured 12.0/37.6/54.8 microseconds p50/p95/p99. Exact
 projected Crossing visited about 314 nodes, tested about 488 triangles, found
 about 254 triangle intersections, allocated zero managed bytes, and measured
-159.9/352.0/530.7 microseconds p50/p95/p99. Its SHA-identified JSON is
+96.3/242.4/329.2 microseconds p50/p95/p99. Its 4,718,712-byte index built at
+31.6633/40.2788/40.2788 ms p50/p95/p99. The SHA-identified JSON is
 `artifacts/benchmarks/cad-3d-selection-depth-8.json`. The point/depth query
 implementation is unchanged by this slice; an attempted historical-commit
 rebuild could not resolve that revision's dependency layout, so the new
 depth-query observation is retained as an acceptance measurement rather than
 presented as a matched regression claim.
 
-Final-binary Allocations and Time Profiler captures use the same eight-layer
-fixture and include point, depth, and projected-region queries; Metal uses the
-same CPU algorithm and binaries at smaller grid scale to avoid an Xcode
-empty-trace finalization defect. Allocations report 20,751,776 persistent
-heap-plus-anonymous-VM bytes and 70,316,448 total bytes for startup, fixtures,
-builds, and all three query families. The paired benchmark accounting reports
-zero managed bytes in every warm query family. Metal reports no target resource
-allocation, current allocated size, application submission, drawable wait,
-compiler spill, hang, or error. Compact evidence is in the three
-`cad-3d-selection-region-*-natural/` directories.
+Final-binary Allocations and Time Profiler captures use a 128-by-128,
+eight-layer fixture and include exact point, semantic depth, projected-target,
+and projected-region queries. Metal uses the same CPU algorithm and binaries at
+16-by-16 scale so the target exits naturally within the capture duration.
+Allocations report 19,140,992 persistent heap-plus-anonymous-VM bytes and
+71,071,568 total bytes for startup, fixtures, builds, and all four query
+families. The paired benchmark accounting reports zero managed bytes in every
+warm query family. Metal reports no target resource allocation, current
+allocated size, application submission, drawable wait, compiler spill, hang,
+or error; the exported system trace contains unrelated completion events but no
+target submissions. Every final target exited with code zero. Compact evidence
+and SHA-identified capture notes are in the three
+`cad-3d-selection-pickbox-*-natural/` directories.
 
-Still required for full 3D selection fidelity are configurable pick aperture,
-lasso/polygon/fence selection, transparent/hidden-line policy,
+Still required for full 3D selection fidelity are lasso/polygon/fence
+selection, transparent/hidden-line policy,
 face/edge/vertex subobjects, ACIS analytic topology, material/texture alpha
 semantics, arbitrary non-Mesh3D projected entity selection, matched
 managed/native rendered highlight images, browser interaction/performance

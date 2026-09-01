@@ -88,6 +88,8 @@ public readonly record struct CadMesh3DRegionQueryResult(
 public sealed class CadMesh3DSelectionIndex
 {
     public const int MaximumHitCount = 256;
+    public const float DefaultPickTargetHeight = 3.0f;
+    public const float MaximumPickTargetHeight = 256.0f;
 
     private const int MortonBitsPerAxis = 10;
     private const int QueryStackCapacity = 64;
@@ -519,6 +521,112 @@ public sealed class CadMesh3DSelectionIndex
     }
 
     /// <summary>
+    /// Returns an exact point hit when available, otherwise the nearest
+    /// retained triangle intersecting a square projected pick target.
+    /// </summary>
+    /// <remarks>
+    /// <paramref name="targetHeight"/> is the complete logical-pixel target
+    /// height, not a radius. Zero preserves exact point-query behavior. The
+    /// fallback is typically O(log T + H), conservatively O(T), and uses only
+    /// fixed stack storage.
+    /// </remarks>
+    public CadMesh3DSelectionResult QueryAperture(
+        in CadMesh3DViewport viewport,
+        Vector2 viewportSize,
+        Vector2 viewportPoint,
+        float targetHeight = DefaultPickTargetHeight)
+    {
+        if (!float.IsFinite(targetHeight) ||
+            targetHeight < 0.0f ||
+            targetHeight > MaximumPickTargetHeight)
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(targetHeight),
+                $"The 3D pick target height must be between 0 and {MaximumPickTargetHeight} logical pixels.");
+        }
+
+        CadMesh3DSelectionResult exact = Query(
+            viewport,
+            viewportSize,
+            viewportPoint);
+        if (exact.IsHit ||
+            targetHeight == 0.0f ||
+            _nodes.Length == 0 ||
+            viewportPoint.X < 0.0f || viewportPoint.X > viewportSize.X ||
+            viewportPoint.Y < 0.0f || viewportPoint.Y > viewportSize.Y)
+        {
+            return exact;
+        }
+
+        Span<CadMesh3DSelectionResult> destination =
+            stackalloc CadMesh3DSelectionResult[1];
+        CadMesh3DSelectionHitQueryResult fallback = QueryApertureCore(
+            viewport,
+            viewportSize,
+            viewportPoint,
+            targetHeight,
+            destination,
+            exact.VisitedNodeCount,
+            exact.TestedTriangleCount);
+        return fallback.HitCount == 0
+            ? CadMesh3DSelectionResult.Miss(
+                ContentGeneration,
+                fallback.VisitedNodeCount,
+                fallback.TestedTriangleCount)
+            : destination[0];
+    }
+
+    /// <summary>
+    /// Returns nearest-first unique semantic roots below an exact point or,
+    /// when that point misses, inside a square projected pick target.
+    /// </summary>
+    public CadMesh3DSelectionHitQueryResult QueryApertureHits(
+        in CadMesh3DViewport viewport,
+        Vector2 viewportSize,
+        Vector2 viewportPoint,
+        Span<CadMesh3DSelectionResult> destination,
+        float targetHeight = DefaultPickTargetHeight)
+    {
+        if (destination.IsEmpty || destination.Length > MaximumHitCount)
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(destination),
+                $"The 3D semantic-hit destination must contain between 1 and {MaximumHitCount} entries.");
+        }
+        if (!float.IsFinite(targetHeight) ||
+            targetHeight < 0.0f ||
+            targetHeight > MaximumPickTargetHeight)
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(targetHeight),
+                $"The 3D pick target height must be between 0 and {MaximumPickTargetHeight} logical pixels.");
+        }
+
+        CadMesh3DSelectionHitQueryResult exact = QueryCore(
+            viewport,
+            viewportSize,
+            viewportPoint,
+            destination);
+        if (exact.HitCount != 0 ||
+            targetHeight == 0.0f ||
+            _nodes.Length == 0 ||
+            viewportPoint.X < 0.0f || viewportPoint.X > viewportSize.X ||
+            viewportPoint.Y < 0.0f || viewportPoint.Y > viewportSize.Y)
+        {
+            return exact;
+        }
+
+        return QueryApertureCore(
+            viewport,
+            viewportSize,
+            viewportPoint,
+            targetHeight,
+            destination,
+            exact.VisitedNodeCount,
+            exact.TestedTriangleCount);
+    }
+
+    /// <summary>
     /// Returns nearest-first unique semantic roots below one logical viewport
     /// point into caller-owned bounded storage.
     /// </summary>
@@ -832,6 +940,145 @@ public sealed class CadMesh3DSelectionIndex
             : first.TriangleIndex.CompareTo(second.TriangleIndex);
     }
 
+    private CadMesh3DSelectionHitQueryResult QueryApertureCore(
+        in CadMesh3DViewport viewport,
+        Vector2 viewportSize,
+        Vector2 viewportPoint,
+        float targetHeight,
+        Span<CadMesh3DSelectionResult> destination,
+        int priorVisitedNodeCount,
+        int priorTestedTriangleCount)
+    {
+        float halfTarget = targetHeight * 0.5f;
+        Vector2 first = Vector2.Clamp(
+            viewportPoint - new Vector2(halfTarget),
+            Vector2.Zero,
+            viewportSize);
+        Vector2 second = Vector2.Clamp(
+            viewportPoint + new Vector2(halfTarget),
+            Vector2.Zero,
+            viewportSize);
+        var clipRectangle = new ClipRectangle(
+            first.X / viewportSize.X * 2.0f - 1.0f,
+            second.X / viewportSize.X * 2.0f - 1.0f,
+            1.0f - second.Y / viewportSize.Y * 2.0f,
+            1.0f - first.Y / viewportSize.Y * 2.0f);
+        CadMesh3DProjectionCamera camera = viewport.CreateProjectionCamera();
+        Matrix4x4 viewProjection = camera.CreateViewMatrix() *
+            camera.CreateProjectionMatrix(viewportSize.X / viewportSize.Y);
+        ClipVolume clipVolume = CreateClipVolume(
+            viewProjection,
+            clipRectangle);
+        CadPoint3D cameraPoint = ToCadPoint(camera.Position);
+
+        Span<int> stack = stackalloc int[QueryStackCapacity];
+        int stackCount = 0;
+        if (!IntersectsClipBounds(_nodes[0], clipVolume))
+        {
+            return new CadMesh3DSelectionHitQueryResult(
+                ContentGeneration,
+                0,
+                false,
+                0,
+                priorVisitedNodeCount,
+                priorTestedTriangleCount);
+        }
+        stack[stackCount++] = 0;
+
+        int hitCount = 0;
+        bool wasTruncated = false;
+        int intersectedTriangles = 0;
+        int visitedNodes = priorVisitedNodeCount;
+        int testedTriangles = priorTestedTriangleCount;
+        while (stackCount > 0)
+        {
+            int nodeIndex = stack[--stackCount];
+            BvhNode node = _nodes[nodeIndex];
+            visitedNodes++;
+            if (node.Count > 0)
+            {
+                for (int offset = 0; offset < node.Count; offset++)
+                {
+                    TriangleReference reference =
+                        _triangles[node.Start + offset];
+                    testedTriangles++;
+                    if (!TryGetClipTriangleClosestPoint(
+                            reference,
+                            clipVolume,
+                            cameraPoint,
+                            out CadPoint3D point,
+                            out double distance,
+                            out Vector3 barycentric,
+                            out bool isFrontFace))
+                    {
+                        continue;
+                    }
+
+                    intersectedTriangles++;
+                    CadMesh3DDrawBatch batch =
+                        _scene.DrawBatches.Span[reference.BatchIndex];
+                    InsertSemanticHit(
+                        destination,
+                        ref hitCount,
+                        ref wasTruncated,
+                        new CadMesh3DSelectionResult(
+                            true,
+                            ContentGeneration,
+                            batch.Handle,
+                            reference.BatchIndex,
+                            reference.TriangleIndex,
+                            RebaseOrigin + point,
+                            distance,
+                            barycentric,
+                            isFrontFace,
+                            0,
+                            0));
+                }
+                continue;
+            }
+
+            bool hitLeft = IntersectsClipBounds(
+                _nodes[node.Left],
+                clipVolume);
+            bool hitRight = IntersectsClipBounds(
+                _nodes[node.Right],
+                clipVolume);
+            if (!hitLeft && !hitRight)
+            {
+                continue;
+            }
+            if (stackCount + (hitLeft && hitRight ? 2 : 1) > stack.Length)
+            {
+                throw new InvalidOperationException(
+                    "The balanced Mesh3D selection tree exceeds its traversal stack contract.");
+            }
+            if (hitRight)
+            {
+                stack[stackCount++] = node.Right;
+            }
+            if (hitLeft)
+            {
+                stack[stackCount++] = node.Left;
+            }
+        }
+
+        for (int index = 0; index < hitCount; index++)
+        {
+            destination[index] = destination[index] with
+            {
+                VisitedNodeCount = visitedNodes,
+                TestedTriangleCount = testedTriangles,
+            };
+        }
+        return new CadMesh3DSelectionHitQueryResult(
+            ContentGeneration,
+            hitCount,
+            wasTruncated,
+            intersectedTriangles,
+            visitedNodes,
+            testedTriangles);
+    }
+
     /// <summary>
     /// Selects semantic roots through an exact projected rectangular clip
     /// volume. Window requires every retained root triangle to be contained;
@@ -1043,37 +1290,180 @@ public sealed class CadMesh3DSelectionIndex
             out Vector3 first,
             out Vector3 second,
             out Vector3 third);
+        Span<Vector3> firstBuffer = stackalloc Vector3[12];
+        Span<Vector3> secondBuffer = stackalloc Vector3[12];
+        return TryClipTriangle(
+            first,
+            second,
+            third,
+            clipVolume,
+            firstBuffer,
+            secondBuffer,
+            out _,
+            out _,
+            out isContained);
+    }
+
+    private bool TryGetClipTriangleClosestPoint(
+        TriangleReference reference,
+        in ClipVolume clipVolume,
+        CadPoint3D cameraPoint,
+        out CadPoint3D closestPoint,
+        out double distance,
+        out Vector3 barycentric,
+        out bool isFrontFace)
+    {
+        GetTrianglePositions(
+            reference,
+            out Vector3 first,
+            out Vector3 second,
+            out Vector3 third);
+        Span<Vector3> firstBuffer = stackalloc Vector3[12];
+        Span<Vector3> secondBuffer = stackalloc Vector3[12];
+        if (!TryClipTriangle(
+                first,
+                second,
+                third,
+                clipVolume,
+                firstBuffer,
+                secondBuffer,
+                out int count,
+                out bool resultInFirstBuffer,
+                out _))
+        {
+            closestPoint = default;
+            distance = double.PositiveInfinity;
+            barycentric = default;
+            isFrontFace = false;
+            return false;
+        }
+
+        Span<Vector3> polygon = resultInFirstBuffer
+            ? firstBuffer
+            : secondBuffer;
+        CadPoint3D polygonFirst = ToCadPoint(polygon[0]);
+        closestPoint = polygonFirst;
+        double bestSquaredDistance = GetSquaredLength(
+            polygonFirst - cameraPoint);
+        for (int index = 0; index < count; index++)
+        {
+            CadPoint3D candidate = ClosestPointOnSegment(
+                cameraPoint,
+                ToCadPoint(polygon[index]),
+                ToCadPoint(polygon[(index + 1) % count]));
+            double squaredDistance = GetSquaredLength(
+                candidate - cameraPoint);
+            if (squaredDistance < bestSquaredDistance)
+            {
+                closestPoint = candidate;
+                bestSquaredDistance = squaredDistance;
+            }
+        }
+        for (int index = 1; index + 1 < count; index++)
+        {
+            CadPoint3D candidate = ClosestPointOnTriangle(
+                cameraPoint,
+                polygonFirst,
+                ToCadPoint(polygon[index]),
+                ToCadPoint(polygon[index + 1]));
+            double squaredDistance = GetSquaredLength(
+                candidate - cameraPoint);
+            if (squaredDistance < bestSquaredDistance)
+            {
+                closestPoint = candidate;
+                bestSquaredDistance = squaredDistance;
+            }
+        }
+        if (!double.IsFinite(bestSquaredDistance))
+        {
+            distance = double.PositiveInfinity;
+            barycentric = default;
+            isFrontFace = false;
+            return false;
+        }
+
+        CadPoint3D originalFirst = ToCadPoint(first);
+        CadPoint3D firstEdge = ToCadPoint(second) - originalFirst;
+        CadPoint3D secondEdge = ToCadPoint(third) - originalFirst;
+        CadPoint3D fromFirst = closestPoint - originalFirst;
+        double firstFirst = CadPoint3D.Dot(firstEdge, firstEdge);
+        double firstSecond = CadPoint3D.Dot(firstEdge, secondEdge);
+        double secondSecond = CadPoint3D.Dot(secondEdge, secondEdge);
+        double pointFirst = CadPoint3D.Dot(fromFirst, firstEdge);
+        double pointSecond = CadPoint3D.Dot(fromFirst, secondEdge);
+        double denominator = firstFirst * secondSecond -
+            firstSecond * firstSecond;
+        if (!double.IsFinite(denominator) || denominator <= 0.0)
+        {
+            distance = double.PositiveInfinity;
+            barycentric = default;
+            isFrontFace = false;
+            return false;
+        }
+        double secondWeight =
+            (secondSecond * pointFirst - firstSecond * pointSecond) /
+            denominator;
+        double thirdWeight =
+            (firstFirst * pointSecond - firstSecond * pointFirst) /
+            denominator;
+        secondWeight = Math.Clamp(secondWeight, 0.0, 1.0);
+        thirdWeight = Math.Clamp(thirdWeight, 0.0, 1.0 - secondWeight);
+        barycentric = new Vector3(
+            (float)(1.0 - secondWeight - thirdWeight),
+            (float)secondWeight,
+            (float)thirdWeight);
+        CadPoint3D normal = CadPoint3D.Cross(firstEdge, secondEdge);
+        isFrontFace = CadPoint3D.Dot(
+            normal,
+            closestPoint - cameraPoint) < 0.0;
+        distance = Math.Sqrt(bestSquaredDistance);
+        return double.IsFinite(distance);
+    }
+
+    private static bool TryClipTriangle(
+        Vector3 first,
+        Vector3 second,
+        Vector3 third,
+        in ClipVolume clipVolume,
+        Span<Vector3> firstBuffer,
+        Span<Vector3> secondBuffer,
+        out int count,
+        out bool resultInFirstBuffer,
+        out bool isContained)
+    {
         int firstOutside = GetOutsideMask(first, clipVolume);
         int secondOutside = GetOutsideMask(second, clipVolume);
         int thirdOutside = GetOutsideMask(third, clipVolume);
         isContained = (firstOutside | secondOutside | thirdOutside) == 0;
+        firstBuffer[0] = first;
+        firstBuffer[1] = second;
+        firstBuffer[2] = third;
+        count = 3;
+        resultInFirstBuffer = true;
         if (isContained)
         {
             return true;
         }
         if ((firstOutside & secondOutside & thirdOutside) != 0)
         {
+            count = 0;
             return false;
         }
 
-        Span<Vector3> firstBuffer = stackalloc Vector3[12];
-        Span<Vector3> secondBuffer = stackalloc Vector3[12];
-        firstBuffer[0] = first;
-        firstBuffer[1] = second;
-        firstBuffer[2] = third;
-        int count = 3;
+        Span<Vector3> source = firstBuffer;
+        Span<Vector3> destination = secondBuffer;
         for (int plane = 0; plane < 6; plane++)
         {
             int outputCount = 0;
             Vector4 clipPlane = clipVolume.GetPlane(plane);
-            Vector3 previous = firstBuffer[count - 1];
+            Vector3 previous = source[count - 1];
             double previousDistance = GetClipDistance(
                 previous,
                 clipPlane);
             bool previousInside = previousDistance >= 0.0;
             for (int index = 0; index < count; index++)
             {
-                Vector3 current = firstBuffer[index];
+                Vector3 current = source[index];
                 double currentDistance = GetClipDistance(
                     current,
                     clipPlane);
@@ -1081,23 +1471,23 @@ public sealed class CadMesh3DSelectionIndex
                 if (currentInside != previousInside)
                 {
                     double denominator = previousDistance - currentDistance;
-                    if (denominator == 0.0 || outputCount >= secondBuffer.Length)
+                    if (denominator == 0.0 || outputCount >= destination.Length)
                     {
                         throw new InvalidOperationException(
                             "The projected Mesh3D clipping polygon exceeded its bounded contract.");
                     }
                     float parameter = (float)(previousDistance / denominator);
-                    secondBuffer[outputCount++] = previous +
+                    destination[outputCount++] = previous +
                         (current - previous) * parameter;
                 }
                 if (currentInside)
                 {
-                    if (outputCount >= secondBuffer.Length)
+                    if (outputCount >= destination.Length)
                     {
                         throw new InvalidOperationException(
                             "The projected Mesh3D clipping polygon exceeded its bounded contract.");
                     }
-                    secondBuffer[outputCount++] = current;
+                    destination[outputCount++] = current;
                 }
                 previous = current;
                 previousDistance = currentDistance;
@@ -1105,15 +1495,131 @@ public sealed class CadMesh3DSelectionIndex
             }
             if (outputCount == 0)
             {
+                count = 0;
                 return false;
             }
-            Span<Vector3> swap = firstBuffer;
-            firstBuffer = secondBuffer;
-            secondBuffer = swap;
+            Span<Vector3> swap = source;
+            source = destination;
+            destination = swap;
             count = outputCount;
+            resultInFirstBuffer = !resultInFirstBuffer;
         }
         return true;
     }
+
+    private static CadPoint3D ClosestPointOnTriangle(
+        CadPoint3D point,
+        CadPoint3D first,
+        CadPoint3D second,
+        CadPoint3D third)
+    {
+        CadPoint3D firstEdge = second - first;
+        CadPoint3D secondEdge = third - first;
+        CadPoint3D fromFirst = point - first;
+        double firstDot = CadPoint3D.Dot(firstEdge, fromFirst);
+        double secondDot = CadPoint3D.Dot(secondEdge, fromFirst);
+        if (firstDot <= 0.0 && secondDot <= 0.0)
+        {
+            return first;
+        }
+
+        CadPoint3D fromSecond = point - second;
+        double thirdDot = CadPoint3D.Dot(firstEdge, fromSecond);
+        double fourthDot = CadPoint3D.Dot(secondEdge, fromSecond);
+        if (thirdDot >= 0.0 && fourthDot <= thirdDot)
+        {
+            return second;
+        }
+
+        double firstArea = firstDot * fourthDot - thirdDot * secondDot;
+        if (firstArea <= 0.0 && firstDot >= 0.0 && thirdDot <= 0.0)
+        {
+            double denominator = firstDot - thirdDot;
+            return denominator == 0.0
+                ? first
+                : firstEdge * (firstDot / denominator) + first;
+        }
+
+        CadPoint3D fromThird = point - third;
+        double fifthDot = CadPoint3D.Dot(firstEdge, fromThird);
+        double sixthDot = CadPoint3D.Dot(secondEdge, fromThird);
+        if (sixthDot >= 0.0 && fifthDot <= sixthDot)
+        {
+            return third;
+        }
+
+        double secondArea = fifthDot * secondDot - firstDot * sixthDot;
+        if (secondArea <= 0.0 && secondDot >= 0.0 && sixthDot <= 0.0)
+        {
+            double denominator = secondDot - sixthDot;
+            return denominator == 0.0
+                ? first
+                : secondEdge * (secondDot / denominator) + first;
+        }
+
+        double thirdArea = thirdDot * sixthDot - fifthDot * fourthDot;
+        if (thirdArea <= 0.0 &&
+            fourthDot - thirdDot >= 0.0 &&
+            fifthDot - sixthDot >= 0.0)
+        {
+            CadPoint3D edge = third - second;
+            double denominator =
+                (fourthDot - thirdDot) + (fifthDot - sixthDot);
+            return denominator == 0.0
+                ? second
+                : edge * ((fourthDot - thirdDot) / denominator) + second;
+        }
+
+        double sum = firstArea + secondArea + thirdArea;
+        if (!double.IsFinite(sum) || sum == 0.0)
+        {
+            CadPoint3D firstCandidate = ClosestPointOnSegment(
+                point,
+                first,
+                second);
+            CadPoint3D secondCandidate = ClosestPointOnSegment(
+                point,
+                second,
+                third);
+            CadPoint3D thirdCandidate = ClosestPointOnSegment(
+                point,
+                third,
+                first);
+            double firstDistance = GetSquaredLength(firstCandidate - point);
+            double secondDistance = GetSquaredLength(secondCandidate - point);
+            double thirdDistance = GetSquaredLength(thirdCandidate - point);
+            return firstDistance <= secondDistance && firstDistance <= thirdDistance
+                ? firstCandidate
+                : secondDistance <= thirdDistance
+                    ? secondCandidate
+                    : thirdCandidate;
+        }
+        double inverseSum = 1.0 / sum;
+        double secondWeight = secondArea * inverseSum;
+        double thirdWeight = firstArea * inverseSum;
+        return first + firstEdge * secondWeight + secondEdge * thirdWeight;
+    }
+
+    private static CadPoint3D ClosestPointOnSegment(
+        CadPoint3D point,
+        CadPoint3D first,
+        CadPoint3D second)
+    {
+        CadPoint3D segment = second - first;
+        double denominator = GetSquaredLength(segment);
+        if (!double.IsFinite(denominator) || denominator <= 0.0)
+        {
+            return first;
+        }
+        double parameter = Math.Clamp(
+            CadPoint3D.Dot(point - first, segment) / denominator,
+            0.0,
+            1.0);
+        return first + segment * parameter;
+    }
+
+    private static double GetSquaredLength(CadPoint3D value) =>
+        CadPoint3D.Dot(value, value);
 
     private void GetTrianglePositions(
         TriangleReference reference,

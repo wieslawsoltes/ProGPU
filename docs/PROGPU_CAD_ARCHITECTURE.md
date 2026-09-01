@@ -2286,6 +2286,16 @@ reused 64-result buffer; repeated Alt-clicks cycle only while generation,
 camera, and four-logical-pixel neighborhood remain stable, while Ctrl
 independently toggles the cycled root in the common selection set.
 
+Exact point and semantic-depth selection preserve the center ray as the first
+choice, then fall back through a configurable projected pick target only when
+that ray misses. The target is its complete logical-pixel height, defaults to
+three, uses zero for exact-only behavior, and is bounded at 256. Six local clip
+planes prune the retained BVH; fixed stack polygon clipping plus closest-point
+classification chooses the nearest clipped surface and reconstructs original
+triangle barycentrics. The shared selector applies the same target to ordinary
+click, Alt depth cycling, and empty-origin drag arbitration. Warm fallback
+queries remain zero managed allocation with bounded caller result storage.
+
 Projected rectangular selection reuses that index rather than projecting an
 entity AABB approximation. Two logical corners form four WebGPU homogeneous
 side planes; near and far add the remaining two. Six local-space support-point

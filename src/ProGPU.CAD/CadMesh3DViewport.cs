@@ -457,6 +457,32 @@ public sealed class CadMesh3DViewCoordinator
     }
 
     /// <summary>
+    /// Queries an exact point first, then a bounded projected pick target when
+    /// the point itself misses retained geometry.
+    /// </summary>
+    public CadMesh3DSelectionResult QuerySelectionAperture(
+        Vector2 viewportSize,
+        Vector2 viewportPoint,
+        float targetHeight = CadMesh3DSelectionIndex.DefaultPickTargetHeight)
+    {
+        CadMesh3DSelectionIndex index = SelectionIndex ??
+            throw new InvalidOperationException(
+                "A retained CAD mesh generation is required before selection.");
+        CadMesh3DViewport viewport = Viewport ??
+            throw new InvalidOperationException(
+                "A retained CAD mesh camera is required before selection.");
+        CadMesh3DSelectionResult result = index.QueryAperture(
+            viewport,
+            viewportSize,
+            viewportPoint,
+            targetHeight);
+        RecordSelectionQuery(
+            result.VisitedNodeCount,
+            result.TestedTriangleCount);
+        return result;
+    }
+
+    /// <summary>
     /// Queries nearest-first unique semantic roots into caller-owned storage.
     /// </summary>
     public CadMesh3DSelectionHitQueryResult QuerySelectionHits(
@@ -475,6 +501,34 @@ public sealed class CadMesh3DViewCoordinator
             viewportSize,
             viewportPoint,
             destination);
+        RecordSelectionQuery(
+            result.VisitedNodeCount,
+            result.TestedTriangleCount);
+        return result;
+    }
+
+    /// <summary>
+    /// Queries nearest-first semantic roots at an exact point or through the
+    /// bounded projected pick target when the point misses.
+    /// </summary>
+    public CadMesh3DSelectionHitQueryResult QuerySelectionApertureHits(
+        Vector2 viewportSize,
+        Vector2 viewportPoint,
+        Span<CadMesh3DSelectionResult> destination,
+        float targetHeight = CadMesh3DSelectionIndex.DefaultPickTargetHeight)
+    {
+        CadMesh3DSelectionIndex index = SelectionIndex ??
+            throw new InvalidOperationException(
+                "A retained CAD mesh generation is required before selection.");
+        CadMesh3DViewport viewport = Viewport ??
+            throw new InvalidOperationException(
+                "A retained CAD mesh camera is required before selection.");
+        CadMesh3DSelectionHitQueryResult result = index.QueryApertureHits(
+            viewport,
+            viewportSize,
+            viewportPoint,
+            destination,
+            targetHeight);
         RecordSelectionQuery(
             result.VisitedNodeCount,
             result.TestedTriangleCount);

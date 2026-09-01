@@ -38,9 +38,12 @@ public sealed class CadSampleView : Grid
     private System.Numerics.Vector2 _meshSelectionCyclePoint;
     private ulong _meshSelectionCycleGeneration;
     private int _meshSelectionCycleIndex = -1;
+    private float _meshPickTargetHeight =
+        CadMesh3DSelectionIndex.DefaultPickTargetHeight;
     private readonly CadPrintPreviewCanvas _printPreview;
     private readonly Button _viewModeButton;
     private readonly TextBlock _viewModeText;
+    private readonly ComboBox _meshPickTargetSelector;
     private readonly ComboBox _attributeDisplaySelector;
     private readonly Button _printPreviewButton;
     private readonly TextBlock _printPreviewText;
@@ -249,6 +252,39 @@ public sealed class CadSampleView : Grid
 
     public CadMesh3DSelectionResult? LastMeshSelection =>
         _lastMeshSelection;
+
+    public ComboBox MeshPickTargetSelector => _meshPickTargetSelector;
+
+    public float MeshPickTargetHeight
+    {
+        get => _meshPickTargetHeight;
+        set
+        {
+            if (!float.IsFinite(value) ||
+                value < 0.0f ||
+                value > CadMesh3DSelectionIndex.MaximumPickTargetHeight)
+            {
+                throw new ArgumentOutOfRangeException(
+                    nameof(value),
+                    $"The Mesh3D pick target must be between 0 and {CadMesh3DSelectionIndex.MaximumPickTargetHeight} logical pixels.");
+            }
+            _meshPickTargetHeight = value;
+            for (int index = 0;
+                 index < _meshPickTargetSelector.Items.Count;
+                 index++)
+            {
+                if (_meshPickTargetSelector.Items[index] is ComboBoxItem
+                    {
+                        Tag: float height,
+                    } && height == value)
+                {
+                    _meshPickTargetSelector.SelectedIndex = index;
+                    return;
+                }
+            }
+            _meshPickTargetSelector.SelectedIndex = -1;
+        }
+    }
 
     public CadPrintPreviewCanvas PrintPreview => _printPreview;
 
@@ -638,6 +674,23 @@ public sealed class CadSampleView : Grid
         _fitButton = CreateButton("Fit", font, 68);
         _viewModeButton = CreateButton("3D surfaces", font, 104);
         _viewModeText = (TextBlock)_viewModeButton.Content!;
+        _meshPickTargetSelector = new ComboBox
+        {
+            Font = font,
+            FontSize = 11,
+            WidthConstraint = 104,
+            HeightConstraint = 34,
+            Margin = new Thickness(0, 0, 8, 0),
+        };
+        foreach (float height in new[] { 0.0f, 3.0f, 5.0f, 9.0f, 15.0f })
+        {
+            _meshPickTargetSelector.Items.Add(new ComboBoxItem(
+                $"Pickbox {height:0}")
+            {
+                Tag = height,
+            });
+        }
+        _meshPickTargetSelector.SelectedIndex = 1;
         _attributeDisplaySelector = new ComboBox
         {
             Font = font,
@@ -676,6 +729,7 @@ public sealed class CadSampleView : Grid
         actions.AddChild(_saveButton);
         actions.AddChild(_fitButton);
         actions.AddChild(_viewModeButton);
+        actions.AddChild(_meshPickTargetSelector);
         actions.AddChild(_attributeDisplaySelector);
         actions.AddChild(_clearSelectionButton);
 
@@ -2237,6 +2291,14 @@ public sealed class CadSampleView : Grid
             }
         };
         _viewModeButton.Click += (_, _) => ToggleViewMode();
+        _meshPickTargetSelector.SelectionChanged += (_, _) =>
+        {
+            if ((_meshPickTargetSelector.SelectedItem as ComboBoxItem)?.Tag is
+                float height)
+            {
+                _meshPickTargetHeight = height;
+            }
+        };
         _attributeDisplaySelector.SelectionChanged += (_, _) =>
             OnAttributeDisplaySelectionChanged();
         _printPreviewButton.Click += (_, _) => TogglePrintPreview();
@@ -4432,9 +4494,11 @@ public sealed class CadSampleView : Grid
         {
             return;
         }
-        CadMesh3DSelectionResult origin = _mesh3DView.QuerySelection(
-            _viewport3D.Size,
-            args.Origin);
+        CadMesh3DSelectionResult origin =
+            _mesh3DView.QuerySelectionAperture(
+                _viewport3D.Size,
+                args.Origin,
+                _meshPickTargetHeight);
         args.UseRegionSelection = !origin.IsHit;
         if (args.UseRegionSelection)
         {
@@ -4493,10 +4557,11 @@ public sealed class CadSampleView : Grid
         if (args.IsAltPressed)
         {
             CadMesh3DViewport viewport = _mesh3DView.Viewport!.Value;
-            cycleQuery = _mesh3DView.QuerySelectionHits(
+            cycleQuery = _mesh3DView.QuerySelectionApertureHits(
                 _viewport3D.Size,
                 args.Position,
-                _meshSelectionHits);
+                _meshSelectionHits,
+                _meshPickTargetHeight);
             bool continueCycle =
                 cycleQuery.HitCount > 0 &&
                 _meshSelectionCycleGeneration == cycleQuery.ContentGeneration &&
@@ -4535,9 +4600,10 @@ public sealed class CadSampleView : Grid
         else
         {
             ResetMeshSelectionCycle();
-            result = _mesh3DView.QuerySelection(
+            result = _mesh3DView.QuerySelectionAperture(
                 _viewport3D.Size,
-                args.Position);
+                args.Position,
+                _meshPickTargetHeight);
         }
         _lastMeshSelection = result;
         if (result.IsHit)
@@ -7874,6 +7940,8 @@ public sealed class CadSampleView : Grid
             canUsePlanTools && _canvas.RedoCount > 0;
         _viewModeButton.IsEnabled =
             canUsePlanTools && _viewport3D.Children.Count > 0;
+        _meshPickTargetSelector.IsEnabled =
+            canUsePlanTools && _is3DView;
         bool canTransform = canUsePlanTools &&
             _canvas.SelectedHandleCount > 0 &&
             _isSelectionEditable;
@@ -8425,7 +8493,8 @@ public sealed class CadSampleView : Grid
             if (_is3DView)
             {
                 return emptySelectionUnsupportedStatus +
-                    " | click selects; Alt-click cycles depth; empty-origin drag " +
+                    $" | {_meshPickTargetHeight:0.#}-pixel pickbox click selects; " +
+                    "Alt-click cycles depth; empty-origin drag " +
                     "right: Window/left: Crossing; object-origin drag orbits; " +
                     "Shift-left or middle/right pans";
             }
