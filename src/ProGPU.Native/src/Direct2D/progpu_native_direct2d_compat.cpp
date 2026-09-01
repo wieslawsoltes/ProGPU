@@ -3,6 +3,7 @@
 #include "progpu_native_direct2d_ellipse.hpp"
 #include "progpu_native_direct2d_geometry_group.hpp"
 #include "progpu_native_direct2d_path.hpp"
+#include "progpu_native_direct2d_render_target.hpp"
 #include "progpu_native_direct2d_rounded_rectangle.hpp"
 #include "progpu_native_direct2d_stroke_style.hpp"
 
@@ -670,7 +671,10 @@ private:
     matrix_3x2_f transform_{};
 };
 
-class portable_factory final : public factory, public factory_native {
+class portable_factory final :
+    public factory,
+    public factory_native,
+    public scene_factory_native {
 public:
     com::result PROGPU_NATIVE_COM_CALL QueryInterface(
         com::guid_ref interface_id,
@@ -686,6 +690,9 @@ public:
         } else if (com::guid_equal(
                 interface_id, factory_native_interface_id)) {
             *value = static_cast<factory_native*>(this);
+        } else if (com::guid_equal(
+                interface_id, scene_factory_native_interface_id)) {
+            *value = static_cast<scene_factory_native*>(this);
         } else {
             return com::no_interface;
         }
@@ -885,6 +892,13 @@ public:
         }
         *value = created;
         return com::ok;
+    }
+
+    com::result PROGPU_NATIVE_COM_CALL CreateSceneRenderTarget(
+        const scene_render_target_properties* properties,
+        render_target** value) noexcept override
+    {
+        return detail::create_scene_render_target(this, properties, value);
     }
 
 private:

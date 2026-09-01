@@ -985,6 +985,8 @@ add_library(progpu_native_direct2d_core STATIC
     src/Direct2D/progpu_native_direct2d_geometry_group.hpp
     src/Direct2D/progpu_native_direct2d_path.cpp
     src/Direct2D/progpu_native_direct2d_path.hpp
+    src/Direct2D/progpu_native_direct2d_render_target.cpp
+    src/Direct2D/progpu_native_direct2d_render_target.hpp
     src/Direct2D/progpu_native_direct2d_rounded_rectangle.cpp
     src/Direct2D/progpu_native_direct2d_rounded_rectangle.hpp
     src/Direct2D/progpu_native_direct2d_stroke_style.cpp
@@ -993,6 +995,8 @@ target_compile_features(progpu_native_direct2d_core PUBLIC cxx_std_20)
 target_include_directories(progpu_native_direct2d_core PUBLIC
     "$<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>"
     "$<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}>")
+target_link_libraries(progpu_native_direct2d_core PUBLIC
+    progpu_native_scene_builder)
 if(WIN32)
     target_compile_definitions(progpu_native_direct2d_core PUBLIC
         NOMINMAX
