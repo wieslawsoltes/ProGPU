@@ -200,7 +200,7 @@ the canonical `ID2D1Factory`, `ID2D1Resource`, `ID2D1Geometry`, and
 convention, pointer widths, enums, matrices, rectangles, triangles, HRESULTs,
 and signed `BOOL` outputs match the Windows SDK ABI for the implemented subset.
 The base factory retains every original vtable slot; unsupported rounded,
-ellipse, group, transformed, path, stroke-style, drawing-state, WIC, HWND,
+ellipse, group, path, stroke-style, drawing-state, WIC, HWND,
 DXGI, and DC creation methods return `E_NOTIMPL` and clear their output instead
 of shifting slots or returning fake resources.
 
@@ -220,6 +220,23 @@ must include the ProGPU compatibility header and use its namespace until the
 remaining Direct2D data declarations, resource families, device contexts, and
 optional source-name projection are complete.
 
+ProGPU `f1c4879d` expands this ABI-compatible family with
+`ID2D1TransformedGeometry`. The shared core now owns finite row-vector affine
+composition, and both the Windows provider adapter and portable resource call
+that implementation. Portable transformed resources retain their source and
+factory, reject cross-factory sources with `D2DERR_WRONG_FACTORY`, expose the
+canonical transformed-geometry IID, compose their local transform before a
+caller world transform, and delegate bounds, containment, simplify,
+tessellate, outline, area, length, point-at-length, and widen behavior through
+the source geometry without allocation.
+
+The Windows ARM64 `/W4 /WX` gate calls `CreateTransformedGeometry` through the
+real SDK `ID2D1Factory*` vtable, receives an SDK
+`ID2D1TransformedGeometry*`, and verifies transformed bounds. It also runs the
+portable core test for composition order, null outputs, non-finite matrices,
+source identity, and wrong-factory rejection. The macOS no-provider suite
+remains 12/12 and the managed Direct2D contract remains 9/9.
+
 ## Current support matrix
 
 | Surface | Status | Contract |
@@ -227,7 +244,7 @@ optional source-name projection are complete.
 | `ProGPU.DirectX` D3D-style device/resources/pipelines | Implemented | Portable typed facade backed by WebGPU; D3D12 on qualified Windows adapters |
 | Native C++ MIL/retained scene on D3D12 | Implemented | Same backend-neutral scene ABI used on Metal, Vulkan, and browser WebGPU |
 | DXGI shared-handle import | Implemented building block | `ProGpuExternalTextureDescriptor` plus Dawn shared-texture memory, keyed-mutex ownership, and no CPU readback |
-| Direct2D `ID2D1*` and DirectWrite text API | Portable COM lifetime foundation and first shared rectangle behavior core; Windows bitmap/brush/geometry/stroke/command-list/effect/layer/state/text/SVG resources, geometry analysis/realization, vector drawing, and typed device-loss domains implemented | Windows-only native provider plus AOT-safe `ProGPU.Direct2D` managed owner return genuine system factory, device, context, target, and resource interfaces over a keyed-mutex BGRA DXGI target. Independently, ABI v54 returns ProGPU-owned `ID2D1Factory1`, `ID2D1RectangleGeometry`, `ID2D1RoundedRectangleGeometry`, `ID2D1EllipseGeometry`, `ID2D1TransformedGeometry`, `ID2D1GeometryGroup`, `ID2D1PathGeometry1`, `ID2D1GeometrySink`, `ID2D1SolidColorBrush`, `ID2D1StrokeStyle1`, and `ID2D1CommandSink1` identities. The Windows rectangle object now delegates its analysis/tessellation to the portable allocation-free core used by macOS/Linux tests. Literal portable `ID2D1*` declarations, factory activation, and full device-context/resource vtables remain gated; unsupported methods fail closed, and there is no fake `d2d1.dll` or `dwrite.dll` |
+| Direct2D `ID2D1*` and DirectWrite text API | Portable COM lifetime, ABI-compatible base factory, rectangle and transformed geometry; Windows bitmap/brush/geometry/stroke/command-list/effect/layer/state/text/SVG resources, geometry analysis/realization, vector drawing, and typed device-loss domains implemented | The installed portable C++ target exposes canonical `ID2D1Factory`, resource, geometry, rectangle, and transformed-geometry IIDs/vtables, with shared allocation-free rectangle and affine behavior qualified by real Windows SDK pointer calls. The Windows provider independently supplies the broader ABI v54 factory/geometry/brush/path/stroke/recorder family and genuine system device/context/target interop. Remaining portable resource/device-context vtables fail closed; there is no fake `d2d1.dll` or `dwrite.dll` |
 | Native Win2D binary interop | Device/target/bitmap/brush/geometry/stroke/command-list/effect-output/text-format/text-layout/typography round trips plus layer/state/text draws package-qualified | The official factory/resource-wrapper contracts preserve exact provider identities through real `CanvasDevice`, `CanvasRenderTarget`, `CanvasBitmap`, brush, `CanvasGeometry`, `CanvasStrokeStyle`, `CanvasCommandList`, device-independent `CanvasTextFormat`/`CanvasTypography`, and device-associated `CanvasTextLayout` projections. The packaged Microsoft Win2D 1.4.0 oracle also wraps effect-output image brushes, executes typed ProGPU layer/state and native-text command-list scopes, observes ProGPU range formatting/OpenType features through the projected layout and typography, mutates that same native layout through Win2D, and draws it. It qualifies identities, resource metadata, boolean geometry/styled-stroke/image-brush/command-list/effect/text drawing and pixels, exclusive producer ownership, and zero-copy Dawn import; glyph runs/color fonts, remaining typography, the full effect catalog, custom effects, and full device-loss recreation remain gated work |
 | Portable Win2D-style Canvas source API | MVP implemented | `ProGPU.Win2D` records Win2D-shaped commands, compiles them with `ProGPU.Scene.Native`, and submits the retained scene to the C++ renderer |
 | Portable Win2D bitmap in LibreWPF native MIL | Implemented | Wrap a same-device `CanvasBitmap` lease source in `IPortableNativeImageSource`; canonical `TYPE_BITMAPSOURCE` lowers to a zero-payload external scene image with no readback or repack |
