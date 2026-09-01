@@ -493,22 +493,26 @@ progpu_native_status compile_semantic_3d_page(
                     for (std::uint32_t vertex = 0U;
                          vertex < source.vertex_count;
                          vertex += 2U) {
-                        const auto& first = source_vertices[
+                        const auto& first_vertex = source_vertices[
                             source.vertex_offset + vertex];
-                        const auto& second = source_vertices[
+                        const auto& second_vertex = source_vertices[
                             source.vertex_offset + vertex + 1U];
                         progpu::native::three_d::edge_record edge{};
-                        edge.start = {first.position.x, first.position.y,
-                            first.position.z, 1.0F};
-                        edge.end = {second.position.x, second.position.y,
-                            second.position.z, 1.0F};
-                        edge.first_normal = {first.normal.x, first.normal.y,
-                            first.normal.z, 0.0F};
-                        edge.second_normal = {second.normal.x,
-                            second.normal.y, second.normal.z, 0.0F};
+                        edge.start = {first_vertex.position.x,
+                            first_vertex.position.y,
+                            first_vertex.position.z, 1.0F};
+                        edge.end = {second_vertex.position.x,
+                            second_vertex.position.y,
+                            second_vertex.position.z, 1.0F};
+                        edge.first_normal = {first_vertex.normal.x,
+                            first_vertex.normal.y,
+                            first_vertex.normal.z, 0.0F};
+                        edge.second_normal = {second_vertex.normal.x,
+                            second_vertex.normal.y,
+                            second_vertex.normal.z, 0.0F};
                         edge.mesh_index = mesh_record_index;
                         edge.topology = static_cast<std::uint32_t>(
-                            first.texture_coordinate.x);
+                            first_vertex.texture_coordinate.x);
                         edges.push_back(edge);
                     }
                 } else if (source.topology ==

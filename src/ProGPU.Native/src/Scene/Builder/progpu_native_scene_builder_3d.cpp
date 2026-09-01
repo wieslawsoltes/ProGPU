@@ -163,12 +163,16 @@ bool semantic_scene_builder::draw_meshes_3d(
             implementation_->commands.size() + 1U);
         std::vector<std::byte> auxiliary(
             static_cast<std::size_t>(auxiliary_bytes));
-        std::memcpy(
-            auxiliary.data(), vertices.data(), vertices.size_bytes());
-        std::memcpy(
-            auxiliary.data() + vertices.size_bytes(),
-            indices.data(),
-            indices.size_bytes());
+        if (!vertices.empty()) {
+            std::memcpy(
+                auxiliary.data(), vertices.data(), vertices.size_bytes());
+        }
+        if (!indices.empty()) {
+            std::memcpy(
+                auxiliary.data() + vertices.size_bytes(),
+                indices.data(),
+                indices.size_bytes());
+        }
         return append_3d_command(
             PROGPU_NATIVE_SCENE_RESOURCE_MESH_3D_BATCH,
             PROGPU_NATIVE_SCENE_COMMAND_DRAW_MESH_3D_BATCH,
