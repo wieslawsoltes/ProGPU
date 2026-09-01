@@ -1547,6 +1547,7 @@ public sealed class CadSampleCanvas : FrameworkElement
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(session);
+        WgpuContext? rasterImageContext = WgpuContext.Current;
         CadScenePublicationTicket publicationTicket =
             _scenePublicationGate.Begin(session);
         var compiler = new CadSnapshotCompiler();
@@ -1575,7 +1576,8 @@ public sealed class CadSampleCanvas : FrameworkElement
         }
 
         var sceneCompiler = new CadPlanSceneCompiler();
-        CadPlanSceneOptions sceneOptions = CreatePlanSceneOptions();
+        CadPlanSceneOptions sceneOptions = CreatePlanSceneOptions(
+            rasterImageContext);
         using CadPreparedPlanSceneResources preparedResources =
             sceneCompiler.PrepareResources(
                 snapshot,
@@ -1817,10 +1819,14 @@ public sealed class CadSampleCanvas : FrameworkElement
         return true;
     }
 
-    private CadPlanSceneOptions CreatePlanSceneOptions() => new()
+    private CadPlanSceneOptions CreatePlanSceneOptions() =>
+        CreatePlanSceneOptions(WgpuContext.Current);
+
+    private CadPlanSceneOptions CreatePlanSceneOptions(
+        WgpuContext? rasterImageContext) => new()
     {
         RasterImageSourceResolver = RasterImages,
-        RasterImageContext = WgpuContext.Current,
+        RasterImageContext = rasterImageContext,
     };
 
     protected override void ArrangeOverride(Rect arrangeRect)

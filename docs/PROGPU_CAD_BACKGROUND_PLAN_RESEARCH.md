@@ -43,11 +43,12 @@ failure releases all transferred and untransferred leases exactly once.
 the same command/resource output as synchronous `Compile`.
 
 Desktop `CadSampleCanvas.LoadAsync` now performs snapshot construction on a
-worker, resource preparation on the host continuation, and complete CPU plan
-recording plus picture freezing on a worker. The previous picture remains
-drawable throughout. Browser/Wasm runs the same ordered phases without
-requiring threads. Final publication remains O(1) and accepts only the exact
-session, request, and content generation.
+worker, resource preparation on the host continuation using the device context
+captured before the first await, and complete CPU plan recording plus picture
+freezing on a worker. The previous picture remains drawable throughout.
+Browser/Wasm runs the same ordered phases without requiring threads. Final
+publication remains O(1) and accepts only the exact session, request, and
+content generation.
 
 Startup stays lazy: no resource is prepared before an actual loaded snapshot.
 Visibility/layer policy and exact source order remain compiler-owned; this
