@@ -1561,16 +1561,188 @@ public:
     }
 
     com::result PROGPU_NATIVE_COM_CALL CompareWithGeometry(
-        geometry*,
-        const matrix_3x2_f*,
-        float,
+        geometry* input,
+        const matrix_3x2_f* input_transform,
+        float flattening_tolerance,
         geometry_relation* relation) const noexcept override
     {
         if (relation == nullptr) {
             return com::pointer_error;
         }
         *relation = geometry_relation::unknown;
-        return not_implemented;
+        if (!closed()) {
+            return wrong_state;
+        }
+        if (input == nullptr ||
+            !valid_tolerance(flattening_tolerance) ||
+            !core::valid_transform(input_transform)) {
+            return com::invalid_argument;
+        }
+        factory* raw_input_factory = nullptr;
+        input->GetFactory(&raw_input_factory);
+        com::pointer<factory> input_factory;
+        input_factory.attach(raw_input_factory);
+        if (input_factory.get() != owner_.get()) {
+            return wrong_factory;
+        }
+
+        try {
+            std::uint32_t source_figure =
+                (std::numeric_limits<std::uint32_t>::max)();
+            for (std::size_t index = 0U;
+                 index < data_->figures.size();
+                 ++index) {
+                if (data_->figures[index].begin != figure_begin::filled) {
+                    continue;
+                }
+                if (source_figure !=
+                    (std::numeric_limits<std::uint32_t>::max)()) {
+                    return not_implemented;
+                }
+                source_figure = static_cast<std::uint32_t>(index);
+            }
+            if (source_figure ==
+                (std::numeric_limits<std::uint32_t>::max)()) {
+                return not_implemented;
+            }
+            std::vector<flat_edge> source_edges;
+            com::result result = collect_flat_edges(
+                nullptr, flattening_tolerance, true, source_edges);
+            if (com::failed(result)) {
+                return result;
+            }
+            std::vector<point_2f> first;
+            for (const auto& edge : source_edges) {
+                if (edge.figure_index != source_figure ||
+                    same_point(edge.start, edge.end)) {
+                    continue;
+                }
+                if (first.empty()) {
+                    first.push_back(edge.start);
+                } else if (!same_point(first.back(), edge.start)) {
+                    return not_implemented;
+                }
+                first.push_back(edge.end);
+            }
+            if (!normalize_simple_polygon(first)) {
+                return not_implemented;
+            }
+
+            auto* raw_input_sink = new (std::nothrow) single_polygon_sink();
+            if (raw_input_sink == nullptr) {
+                return com::out_of_memory;
+            }
+            com::pointer<single_polygon_sink> input_sink;
+            input_sink.attach(raw_input_sink);
+            result = input->Simplify(
+                geometry_simplification_option::lines,
+                input_transform,
+                flattening_tolerance,
+                input_sink.get());
+            if (com::failed(result)) {
+                return result;
+            }
+            result = raw_input_sink->status();
+            if (com::failed(result)) {
+                return result;
+            }
+            std::vector<point_2f> second = raw_input_sink->points();
+            if (!normalize_simple_polygon(second)) {
+                return not_implemented;
+            }
+
+            const polygon_edge_bounds second_bounds =
+                make_polygon_edge_bounds(second);
+            for (std::size_t first_edge = 0U;
+                 first_edge < first.size();
+                 ++first_edge) {
+                const point_2f first_start = first[first_edge];
+                const point_2f first_end =
+                    first[(first_edge + 1U) % first.size()];
+                const float minimum_x =
+                    std::min(first_start.x, first_end.x);
+                const float minimum_y =
+                    std::min(first_start.y, first_end.y);
+                const float maximum_x =
+                    std::max(first_start.x, first_end.x);
+                const float maximum_y =
+                    std::max(first_start.y, first_end.y);
+                for (std::size_t second_block = 0U;
+                     second_block < second_bounds.minimum_x.size();
+                     second_block += 4U) {
+                    std::uint32_t mask = polygon_edge_overlap_mask(
+                        minimum_x,
+                        minimum_y,
+                        maximum_x,
+                        maximum_y,
+                        second_bounds,
+                        second_block);
+                    while (mask != 0U) {
+                        std::uint32_t lane = 0U;
+                        while ((mask & (1U << lane)) == 0U) {
+                            ++lane;
+                        }
+                        mask &= mask - 1U;
+                        const std::size_t second_edge = second_block + lane;
+                        if (second_edge < second_bounds.edge_count &&
+                            segments_intersect(
+                                first_start,
+                                first_end,
+                                second[second_edge],
+                                second[(second_edge + 1U) % second.size()])) {
+                            *relation = geometry_relation::overlap;
+                            return com::ok;
+                        }
+                    }
+                }
+            }
+
+            bool first_inside = false;
+            bool first_outside = false;
+            bool first_boundary = false;
+            for (const point_2f point : first) {
+                const polygon_point_relation point_relation =
+                    classify_polygon_point(second, point);
+                first_inside |= point_relation == polygon_point_relation::inside;
+                first_outside |= point_relation == polygon_point_relation::outside;
+                first_boundary |= point_relation == polygon_point_relation::boundary;
+            }
+            bool second_inside = false;
+            bool second_outside = false;
+            bool second_boundary = false;
+            for (const point_2f point : second) {
+                const polygon_point_relation point_relation =
+                    classify_polygon_point(first, point);
+                second_inside |= point_relation == polygon_point_relation::inside;
+                second_outside |= point_relation == polygon_point_relation::outside;
+                second_boundary |= point_relation == polygon_point_relation::boundary;
+            }
+            if (first_boundary && !first_inside && !first_outside &&
+                second_boundary && !second_inside && !second_outside) {
+                *relation = geometry_relation::is_contained;
+                return com::ok;
+            }
+            if (first_boundary || second_boundary) {
+                *relation = geometry_relation::overlap;
+                return com::ok;
+            }
+            if ((first_inside && first_outside) ||
+                (second_inside && second_outside)) {
+                return not_implemented;
+            }
+            if (first_inside) {
+                *relation = geometry_relation::is_contained;
+            } else if (second_inside) {
+                *relation = geometry_relation::contains;
+            } else {
+                *relation = geometry_relation::disjoint;
+            }
+            return com::ok;
+        } catch (const std::bad_alloc&) {
+            return com::out_of_memory;
+        } catch (...) {
+            return failure;
+        }
     }
 
     com::result PROGPU_NATIVE_COM_CALL Simplify(

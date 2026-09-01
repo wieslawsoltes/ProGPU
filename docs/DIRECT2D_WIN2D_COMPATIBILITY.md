@@ -835,6 +835,18 @@ results. A clean Windows 11 ARM64 MSVC 19.44 build compares the result
 predicate for all four modes over the same lattice against genuine system
 Direct2D and passes.
 
+The same simple-path normalization now implements
+`ID2D1PathGeometry::CompareWithGeometry`. It returns all five observable
+relations with Direct2D's orientation: equal paths report `IS_CONTAINED`, a
+source inside the transformed input reports `IS_CONTAINED`, an input inside
+the source reports `CONTAINS`, separated contours report `DISJOINT`, and both
+proper crossings and boundary-only contact report `OVERLAP`. The transformed
+input is simplified through the caller's tolerance and same-factory ownership
+is enforced before analysis. Pairwise boundary checks reuse the intrinsic SIMD
+AABB batches; mixed or unsupported topology fails with the output left at
+`UNKNOWN`. Windows differential cases cover every relation and pass against
+system Direct2D.
+
 The focused compatibility target passes all 17 local native CTests and the 10
 managed Direct2D source/ABI contracts. A clean Windows 11 ARM64 Parallels build
 with MSVC 19.44 explicitly injects `/W4 /WX`, recompiles the complete portable
@@ -2127,10 +2139,11 @@ ownership, exact vocabulary `Stream`, line/cubic/arc-aware transformed bounds,
 length, point-at-length, and point-plus-segment queries. Area and containment
 are qualified for ordinary non-overlapping figures; exact self-intersection
 and overlapping-figure fill analysis remains a separate gate. Stroke
-General path stroke containment/widening, widened bounds, geometry compare,
+General path stroke containment/widening, widened bounds,
 multi-contour outline/Boolean normalization, and unsupported tessellation
 topologies still return `E_NOTIMPL` with initialized outputs where applicable.
-Single-contour outline and Boolean combination have qualified native lanes.
+Single-contour outline, comparison, and Boolean combination have qualified
+native lanes.
 Unsupported operations must not silently broaden, rasterize on the CPU, or
 delegate to a second renderer.
 
