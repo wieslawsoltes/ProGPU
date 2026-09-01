@@ -95,6 +95,29 @@ public sealed class CadToleranceTests
     }
 
     [Fact]
+    public void PlanChunkCacheReusesCompleteToleranceFrameAndTextRoot()
+    {
+        CadDocumentSnapshot snapshot = Compile(CreateTolerance(
+            "{\\Fgdt;j}%%v{\\Fgdt;n}0.1{\\Fgdt;m}%%vA"));
+        var compiler = new CadPlanSceneCompiler();
+        using var cache = new CadPlanChunkCache();
+        var options = new CadPlanSceneOptions { ChunkCache = cache };
+        using CadRecordedPlanScene first = compiler.Compile(snapshot, options);
+        using CadRecordedPlanScene second = compiler.Compile(snapshot, options);
+        using GpuPicture firstPicture = first.CreatePicture();
+        using GpuPicture secondPicture = second.CreatePicture();
+
+        Assert.Equal(1, first.Statistics.RetainedChunkCount);
+        Assert.Equal(1, second.Statistics.ReusedRetainedChunkCount);
+        Assert.Same(
+            firstPicture.GetCommand(0).Picture,
+            secondPicture.GetCommand(0).Picture);
+        Assert.Equal(
+            first.Statistics.RecordedCommandCount,
+            second.Statistics.RecordedCommandCount);
+    }
+
+    [Fact]
     public void ExactSelectionUsesFrameStrokesInsteadOfFilledBounds()
     {
         CadDocumentSnapshot snapshot = Compile(CreateTolerance("ABC"));

@@ -148,6 +148,60 @@ public sealed class CadLeaderTests
     }
 
     [Fact]
+    public void PlanChunkCacheSharesLeaderAcrossAffineBlockInstances()
+    {
+        var document = new CadDocument();
+        var block = new BlockRecord("LEADER_TILE");
+        block.Entities.Add(CreateLeader());
+        document.Entities.Add(new Insert(block)
+        {
+            InsertPoint = new XYZ(100, 200, 0),
+            XScale = 2,
+            YScale = 3,
+            Rotation = Math.PI / 5,
+        });
+        document.Entities.Add(new Insert(block)
+        {
+            InsertPoint = new XYZ(-50, 75, 0),
+            XScale = -4,
+            YScale = 1.5,
+            Rotation = -Math.PI / 7,
+        });
+        CadDocumentSnapshot snapshot = new CadSnapshotCompiler().Compile(
+            new CadDocumentSession(document));
+        var compiler = new CadPlanSceneCompiler();
+        using CadRecordedPlanScene baseline = compiler.Compile(snapshot);
+        using GpuPicture baselinePicture = baseline.CreatePicture();
+        using var cache = new CadPlanChunkCache();
+        using CadRecordedPlanScene cached = compiler.Compile(
+            snapshot,
+            new CadPlanSceneOptions { ChunkCache = cache });
+        using GpuPicture cachedPicture = cached.CreatePicture();
+
+        Assert.Equal(2, cached.Statistics.RetainedChunkCount);
+        Assert.Equal(1, cached.Statistics.ReusedRetainedChunkCount);
+        Assert.Same(
+            cachedPicture.GetCommand(0).Picture,
+            cachedPicture.GetCommand(1).Picture);
+        Assert.True(GpuPictureNativeSceneCompiler.TryCompile(
+            baselinePicture,
+            813U,
+            1U,
+            out NativeCompiledPicture? baselineNative,
+            out NativePictureCompileFailure baselineFailure),
+            baselineFailure.ToString());
+        Assert.True(GpuPictureNativeSceneCompiler.TryCompile(
+            cachedPicture,
+            814U,
+            1U,
+            out NativeCompiledPicture? cachedNative,
+            out NativePictureCompileFailure cachedFailure),
+            cachedFailure.ToString());
+        Assert.Equal(baselineNative!.NativeDrawCount, cachedNative!.NativeDrawCount);
+        Assert.Equal(baselineNative.PathSegmentCount, cachedNative.PathSegmentCount);
+    }
+
+    [Fact]
     public void PatternedLeaderLowersPathWithoutDroppingArrow()
     {
         var document = new CadDocument();

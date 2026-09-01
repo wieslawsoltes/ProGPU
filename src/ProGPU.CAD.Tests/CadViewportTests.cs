@@ -117,6 +117,38 @@ public sealed class CadViewportTests
     }
 
     [Fact]
+    public void PlanChunkCacheReusesExactPaperViewportFrames()
+    {
+        var document = new CadDocument();
+        ACadLayout layout = document.Layouts[ACadLayout.PaperLayoutName];
+        layout.AddViewport(CreateTopViewport(
+            new XYZ(100, 80, 0),
+            new XY(4, 3),
+            new XYZ(20, 30, 0),
+            Math.PI / 6.0));
+        CadLayoutSnapshot layoutSnapshot = new CadLayoutSnapshotCompiler().Compile(
+            new CadDocumentSession(document),
+            ACadLayout.PaperLayoutName);
+        CadDocumentSnapshot snapshot = layoutSnapshot.PaperSpace;
+        var compiler = new CadPlanSceneCompiler();
+        using var cache = new CadPlanChunkCache();
+        var options = new CadPlanSceneOptions { ChunkCache = cache };
+        using CadRecordedPlanScene first = compiler.Compile(snapshot, options);
+        using CadRecordedPlanScene second = compiler.Compile(snapshot, options);
+        using GpuPicture firstPicture = first.CreatePicture();
+        using GpuPicture secondPicture = second.CreatePicture();
+
+        Assert.True(first.Statistics.RetainedChunkCount > 0);
+        Assert.Equal(
+            first.Statistics.RetainedChunkCount,
+            second.Statistics.ReusedRetainedChunkCount);
+        Assert.Equal(
+            first.Statistics.RecordedCommandCount,
+            second.Statistics.RecordedCommandCount);
+        Assert.Equal(firstPicture.CommandCount, secondPicture.CommandCount);
+    }
+
+    [Fact]
     public void LayoutSceneClipsTransformsAndReusesFrozenLayerVariants()
     {
         var document = new CadDocument();

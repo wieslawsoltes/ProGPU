@@ -1853,7 +1853,8 @@ diagnosed rather than rendered approximately. The snapshot additionally emits
 non-overlapping top-level definition ranges per INSERT/MINSERT cell, excluding
 instance-owned ATTRIBs. Eligible continuous analytic POINT/line/curve/flat-face/
 spline/polyline, vector-outline TrueType TEXT/MTEXT, retained analytic SHX
-TEXT/MTEXT/SHAPE, HATCH, WIPEOUT, and prepared raster IMAGE ranges use exact
+TEXT/MTEXT/SHAPE, LEADER/MULTILEADER, TOLERANCE, HATCH, WIPEOUT, and prepared
+raster IMAGE ranges use exact
 resolved-style/content/resource keys and a double-precision inverse to
 share one definition-local nested picture across translation, rotation,
 reflection, and nonuniform scale; singular or unencoded families fail closed to
@@ -1861,6 +1862,8 @@ ordinary recording. The flattened headers remain authoritative for selection,
 editing, bounds, and semantic hit identity. Full ownership, complexity, engine
 research, parity, and remaining families are in
 [`PROGPU_CAD_INCREMENTAL_CHUNKS_RESEARCH.md`](PROGPU_CAD_INCREMENTAL_CHUNKS_RESEARCH.md).
+Root-local paper VIEWPORT frames use the same cache with exact camera/status/frozen-
+layer identity but intentionally do not participate in definition-affine sharing.
 Simple and complex A-aligned linetypes additionally reuse exact semantic-root
 chunks across generations while restoring their bounded lowering counters and
 substitution diagnostics. They deliberately remain outside affine definition

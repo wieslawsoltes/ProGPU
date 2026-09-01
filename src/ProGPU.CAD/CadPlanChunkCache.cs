@@ -665,6 +665,10 @@ internal static class CadPlanChunkKeyBuilder
                 CadEntityKind.LightweightPolyline or
                 CadEntityKind.Polyline2D or
                 CadEntityKind.Polyline3D or
+                CadEntityKind.Leader or
+                CadEntityKind.MultiLeader or
+                CadEntityKind.Tolerance or
+                CadEntityKind.Viewport or
                 CadEntityKind.Text or
                 CadEntityKind.MText or
                 CadEntityKind.ShxText or
@@ -827,33 +831,13 @@ internal static class CadPlanChunkKeyBuilder
                 Append(writer, face.Fourth == face.First);
                 return true;
             case CadEntityKind.Spline:
-                CadSplinePrimitive spline =
-                    snapshot.Splines.Span[entity.PrimitiveIndex];
-                Append(writer, spline.ControlPointCount);
-                Append(writer, spline.KnotCount);
-                Append(writer, spline.WeightCount);
-                Append(writer, spline.Degree);
-                Append(writer, spline.IsClosed);
-                Append(writer, spline.IsPeriodic);
-                if (!TryAppendProjectedPoints(
+                return TryAppendSpline(
                     writer,
-                    snapshot.SplineControlPoints.Span.Slice(
-                    spline.ControlPointOffset,
-                    spline.ControlPointCount),
-                    snapshot.RebaseOrigin,
+                    snapshot,
+                    snapshot.Splines.Span[entity.PrimitiveIndex],
                     worldToChunk,
-                    maximumKeyBytes,
-                    cancellationToken) ||
-                    !TryAppend(writer, snapshot.SplineKnots.Span.Slice(
-                    spline.KnotOffset,
-                    spline.KnotCount), maximumKeyBytes) ||
-                    !TryAppend(writer, snapshot.SplineWeights.Span.Slice(
-                    spline.WeightOffset,
-                    spline.WeightCount), maximumKeyBytes))
-                {
-                    return false;
-                }
-                return true;
+                    cancellationToken,
+                    maximumKeyBytes);
             case CadEntityKind.LightweightPolyline:
             case CadEntityKind.Polyline2D:
                 CadPolylinePrimitive polyline =
@@ -894,6 +878,36 @@ internal static class CadPlanChunkKeyBuilder
                     worldToChunk,
                     maximumKeyBytes,
                     cancellationToken);
+            case CadEntityKind.Leader:
+                return TryAppendLeader(
+                    writer,
+                    snapshot,
+                    snapshot.Leaders.Span[entity.PrimitiveIndex],
+                    worldToChunk,
+                    cancellationToken,
+                    maximumKeyBytes);
+            case CadEntityKind.MultiLeader:
+                return TryAppendMultiLeader(
+                    writer,
+                    snapshot,
+                    snapshot.MultiLeaders.Span[entity.PrimitiveIndex],
+                    worldToChunk,
+                    cancellationToken,
+                    maximumKeyBytes);
+            case CadEntityKind.Tolerance:
+                return TryAppendTolerance(
+                    writer,
+                    snapshot,
+                    snapshot.Tolerances.Span[entity.PrimitiveIndex],
+                    worldToChunk,
+                    maximumKeyBytes);
+            case CadEntityKind.Viewport:
+                return TryAppendViewport(
+                    writer,
+                    snapshot,
+                    snapshot.Viewports.Span[entity.PrimitiveIndex],
+                    worldToChunk,
+                    maximumKeyBytes);
             case CadEntityKind.Text:
                 return TryAppendText(
                     writer,
@@ -961,6 +975,169 @@ internal static class CadPlanChunkKeyBuilder
             default:
                 return false;
         }
+    }
+
+    private static bool TryAppendSpline(
+        ArrayBufferWriter<byte> writer,
+        CadDocumentSnapshot snapshot,
+        in CadSplinePrimitive spline,
+        CadPlanChunkNormalization? worldToChunk,
+        CancellationToken cancellationToken,
+        int maximumKeyBytes)
+    {
+        Append(writer, spline.ControlPointCount);
+        Append(writer, spline.KnotCount);
+        Append(writer, spline.WeightCount);
+        Append(writer, spline.Degree);
+        Append(writer, spline.IsClosed);
+        Append(writer, spline.IsPeriodic);
+        return TryAppendProjectedPoints(
+                writer,
+                snapshot.SplineControlPoints.Span.Slice(
+                    spline.ControlPointOffset,
+                    spline.ControlPointCount),
+                snapshot.RebaseOrigin,
+                worldToChunk,
+                maximumKeyBytes,
+                cancellationToken) &&
+            TryAppend(
+                writer,
+                snapshot.SplineKnots.Span.Slice(
+                    spline.KnotOffset,
+                    spline.KnotCount),
+                maximumKeyBytes) &&
+            TryAppend(
+                writer,
+                snapshot.SplineWeights.Span.Slice(
+                    spline.WeightOffset,
+                    spline.WeightCount),
+                maximumKeyBytes);
+    }
+
+    private static bool TryAppendLeader(
+        ArrayBufferWriter<byte> writer,
+        CadDocumentSnapshot snapshot,
+        in CadLeaderPrimitive leader,
+        CadPlanChunkNormalization? worldToChunk,
+        CancellationToken cancellationToken,
+        int maximumKeyBytes)
+    {
+        Append(writer, leader.HasDefaultArrow);
+        Append(writer, leader.IsSplineFit);
+        Append(writer, leader.HasAssociatedAnnotation);
+        AppendProjectedPoint(writer, leader.ArrowTip, snapshot.RebaseOrigin, worldToChunk);
+        AppendProjectedPoint(writer, leader.ArrowFirstBase, snapshot.RebaseOrigin, worldToChunk);
+        AppendProjectedPoint(writer, leader.ArrowSecondBase, snapshot.RebaseOrigin, worldToChunk);
+        return TryAppendSpline(
+            writer,
+            snapshot,
+            snapshot.Splines.Span[leader.PathSplineIndex],
+            worldToChunk,
+            cancellationToken,
+            maximumKeyBytes);
+    }
+
+    private static bool TryAppendMultiLeader(
+        ArrayBufferWriter<byte> writer,
+        CadDocumentSnapshot snapshot,
+        in CadMultiLeaderPrimitive leader,
+        CadPlanChunkNormalization? worldToChunk,
+        CancellationToken cancellationToken,
+        int maximumKeyBytes)
+    {
+        Append(writer, leader.HasDefaultArrow);
+        Append(writer, leader.IsSplineFit);
+        Append(writer, leader.IsDogleg);
+        Append(writer, leader.LeaderRootIndex);
+        Append(writer, leader.LeaderLineIndex);
+        AppendProjectedPoint(writer, leader.ArrowTip, snapshot.RebaseOrigin, worldToChunk);
+        AppendProjectedPoint(writer, leader.ArrowFirstBase, snapshot.RebaseOrigin, worldToChunk);
+        AppendProjectedPoint(writer, leader.ArrowSecondBase, snapshot.RebaseOrigin, worldToChunk);
+        return TryAppendSpline(
+            writer,
+            snapshot,
+            snapshot.Splines.Span[leader.PathSplineIndex],
+            worldToChunk,
+            cancellationToken,
+            maximumKeyBytes);
+    }
+
+    private static bool TryAppendTolerance(
+        ArrayBufferWriter<byte> writer,
+        CadDocumentSnapshot snapshot,
+        in CadTolerancePrimitive tolerance,
+        CadPlanChunkNormalization? worldToChunk,
+        int maximumKeyBytes)
+    {
+        Append(writer, tolerance.StrokeCount);
+        Append(writer, tolerance.RowCount);
+        Append(writer, tolerance.CellCount);
+        ReadOnlySpan<CadToleranceStroke> strokes =
+            snapshot.ToleranceStrokes.Span.Slice(
+                tolerance.StrokeOffset,
+                tolerance.StrokeCount);
+        for (int index = 0; index < strokes.Length; index++)
+        {
+            AppendProjectedPoint(
+                writer,
+                strokes[index].Start,
+                snapshot.RebaseOrigin,
+                worldToChunk);
+            AppendProjectedPoint(
+                writer,
+                strokes[index].End,
+                snapshot.RebaseOrigin,
+                worldToChunk);
+            if (writer.WrittenCount > maximumKeyBytes)
+            {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    private static bool TryAppendViewport(
+        ArrayBufferWriter<byte> writer,
+        CadDocumentSnapshot snapshot,
+        in CadViewportPrimitive viewport,
+        CadPlanChunkNormalization? worldToChunk,
+        int maximumKeyBytes)
+    {
+        if (worldToChunk is not null)
+        {
+            return false;
+        }
+        AppendProjectedPoint(writer, viewport.Center, snapshot.RebaseOrigin, null);
+        Append(writer, viewport.Width);
+        Append(writer, viewport.Height);
+        Append(writer, viewport.ViewCenterX);
+        Append(writer, viewport.ViewCenterY);
+        Append(writer, viewport.ViewTarget);
+        Append(writer, viewport.ViewDirection);
+        Append(writer, viewport.ViewHeight);
+        Append(writer, viewport.TwistAngle);
+        Append(writer, viewport.LensLength);
+        Append(writer, viewport.FrontClipPlane);
+        Append(writer, viewport.BackClipPlane);
+        Append(writer, viewport.FrozenLayerCount);
+        Append(writer, viewport.ActiveStatus);
+        Append(writer, viewport.StatusFlags);
+        Append(writer, viewport.RenderMode);
+        Append(writer, viewport.ShadePlotMode);
+        Append(writer, viewport.BoundaryHandle);
+        Append(writer, viewport.RepresentsPaper);
+        ReadOnlySpan<CadViewportFrozenLayer> layers =
+            snapshot.ViewportFrozenLayers.Span.Slice(
+                viewport.FrozenLayerOffset,
+                viewport.FrozenLayerCount);
+        for (int index = 0; index < layers.Length; index++)
+        {
+            if (!TryAppendString(writer, layers[index].Name, maximumKeyBytes))
+            {
+                return false;
+            }
+        }
+        return writer.WrittenCount <= maximumKeyBytes;
     }
 
     private static bool TryAppendWipeout(
