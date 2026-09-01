@@ -1413,11 +1413,24 @@ int main()
             nullptr, target.get(), nullptr) != compat::not_implemented) {
         return 148;
     }
+    compat::bitmap* raw_bitmap_copy = nullptr;
+    if (target->CreateBitmap(
+            {2U, 2U}, nullptr, 0U, &bitmap_properties, &raw_bitmap_copy) !=
+            com::ok ||
+        raw_bitmap_copy == nullptr) {
+        return 154;
+    }
+    com::pointer<compat::bitmap> bitmap_copy;
+    bitmap_copy.attach(raw_bitmap_copy);
+    if (bitmap_copy->CopyFromBitmap(
+            nullptr, portable_bitmap.get(), nullptr) != com::ok) {
+        return 155;
+    }
     target->BeginDraw();
     const compat::rectangle_f first_bitmap_destination{
         2.0F, 3.0F, 18.0F, 19.0F};
     target->DrawBitmap(
-        portable_bitmap.get(),
+        bitmap_copy.get(),
         &first_bitmap_destination,
         0.75F,
         compat::bitmap_interpolation_mode::nearest_neighbor,
@@ -1425,7 +1438,7 @@ int main()
     const compat::rectangle_f second_bitmap_destination{
         20.0F, 3.0F, 36.0F, 19.0F};
     target->DrawBitmap(
-        portable_bitmap.get(),
+        bitmap_copy.get(),
         &second_bitmap_destination,
         1.0F,
         compat::bitmap_interpolation_mode::linear,
