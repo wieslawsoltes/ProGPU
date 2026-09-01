@@ -6429,6 +6429,18 @@ both alternatives on Windows x64 and ARM64. This completes all cap/join
 combinations for dashed line runs in the simple closed-path domain; curved,
 multi-figure, and general open-path widening remain broader geometry work.
 
+The next containment increment removes the open-figure rejection for one
+typed path figure. It reuses the intrinsic-SIMD segment-body buffers and the
+same scalar dependent join predicates, but does not synthesize a close edge.
+Solid source endpoints use `StartCap`/`EndCap`; visible runs produced by the
+shared open curve-dash walker use those source caps only at actual endpoints
+and `DashCap` at internal splits. Optimized and ASan/UBSan fixtures cover
+solid/dashed body, gap, miter/round joins, flat source caps, and square dash
+caps. The Windows 11 Parallels oracle recompiles and compares the same
+portable/system `ID2D1PathGeometry::StrokeContainsPoint` probes successfully
+on ARM64 and x64. Open `GetWidenedBounds`/`Widen`, multiple figures, and
+flagged paths remain typed fail-closed domains for subsequent increments.
+
 `GetWidenedBounds` now shares that default-miter path domain. Segment offsets
 and miter extrema are constructed before the world transform; independent
 candidate transforms and min/max reductions execute four-wide through NEON or
