@@ -21,7 +21,8 @@ namespace {
 constexpr std::uint32_t known_resource_flags =
     PROGPU_NATIVE_SCENE_RECORD_REQUIRED |
     PROGPU_NATIVE_SCENE_COLOR_GLYPH_BITMAPS |
-    PROGPU_NATIVE_SCENE_EXTERNAL_IMAGE;
+    PROGPU_NATIVE_SCENE_EXTERNAL_IMAGE |
+    PROGPU_NATIVE_SCENE_IMAGE_BGRA8;
 constexpr std::uint32_t known_command_flags =
     PROGPU_NATIVE_SCENE_RECORD_REQUIRED |
     PROGPU_NATIVE_SCENE_GLYPH_STYLED;
@@ -482,10 +483,16 @@ validation_result validate(
         }
         const bool external_image =
             (resource.flags & PROGPU_NATIVE_SCENE_EXTERNAL_IMAGE) != 0U;
+        const bool bgra8_image =
+            (resource.flags & PROGPU_NATIVE_SCENE_IMAGE_BGRA8) != 0U;
         if (external_image &&
             (resource.kind != PROGPU_NATIVE_SCENE_RESOURCE_IMAGE ||
                 resource.payload_size != 0U ||
-                resource.auxiliary_size != 0U)) {
+                resource.auxiliary_size != 0U || bgra8_image)) {
+            return fail(header, PROGPU_NATIVE_SCENE_VALIDATION_RECORD, offset);
+        }
+        if (bgra8_image &&
+            resource.kind != PROGPU_NATIVE_SCENE_RESOURCE_IMAGE) {
             return fail(header, PROGPU_NATIVE_SCENE_VALIDATION_RECORD, offset);
         }
         if (resource.resource_id <= previous_resource_id) {

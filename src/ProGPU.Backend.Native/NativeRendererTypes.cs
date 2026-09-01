@@ -703,7 +703,8 @@ public enum NativeSceneRecordFlags : uint
     Required = 1U << 0,
     StyledGlyphs = 1U << 1,
     ColorGlyphBitmaps = 1U << 2,
-    ExternalImage = 1U << 3
+    ExternalImage = 1U << 3,
+    Bgra8Image = 1U << 4
 }
 
 /// <summary>

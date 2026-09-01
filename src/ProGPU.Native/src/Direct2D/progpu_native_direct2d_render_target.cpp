@@ -5,6 +5,7 @@
 #include <algorithm>
 #include <cmath>
 #include <cstddef>
+#include <cstring>
 #include <limits>
 #include <mutex>
 #include <new>
@@ -17,6 +18,13 @@ namespace {
 
 constexpr matrix_3x2_f identity_transform{
     1.0F, 0.0F, 0.0F, 1.0F, 0.0F, 0.0F};
+constexpr std::uint32_t dxgi_format_r8g8b8a8_unorm = 28U;
+constexpr std::uint32_t dxgi_format_b8g8r8a8_unorm = 87U;
+constexpr com::guid scene_bitmap_native_interface_id{
+    0x559DFBE4U,
+    0xD6B7U,
+    0x45D2U,
+    {0x82U, 0x25U, 0x75U, 0xF0U, 0x12U, 0xECU, 0x78U, 0xC3U}};
 
 [[nodiscard]] bool valid_color(const color_f& value) noexcept
 {
@@ -51,6 +59,364 @@ constexpr matrix_3x2_f identity_transform{
     return valid_opacity(value.opacity) &&
         core::valid_transform(&value.transform);
 }
+
+[[nodiscard]] bool valid_rectangle(const rectangle_u& value) noexcept
+{
+    return value.left < value.right && value.top < value.bottom;
+}
+
+struct bitmap_snapshot final {
+    std::uint32_t width = 0U;
+    std::uint32_t height = 0U;
+    std::uint32_t row_bytes = 0U;
+    pixel_format format{};
+    float dpi_x = 96.0F;
+    float dpi_y = 96.0F;
+    std::uint64_t generation = 0U;
+};
+
+struct scene_bitmap_native : com::unknown {
+    virtual com::result PROGPU_NATIVE_COM_CALL GetSnapshot(
+        bitmap_snapshot* snapshot) const noexcept = 0;
+    virtual com::result PROGPU_NATIVE_COM_CALL AddToScene(
+        semantic_scene_builder* builder,
+        std::uint32_t* resource_index,
+        bitmap_snapshot* snapshot) const noexcept = 0;
+    virtual com::result PROGPU_NATIVE_COM_CALL CopyPixels(
+        const rectangle_u* source_rectangle,
+        pixel_format expected_format,
+        void* destination,
+        std::uint32_t destination_pitch) const noexcept = 0;
+};
+
+class portable_bitmap final : public bitmap, public scene_bitmap_native {
+public:
+    portable_bitmap(
+        factory* owner,
+        size_u size,
+        const bitmap_properties& properties,
+        std::uint32_t row_bytes,
+        std::vector<std::byte> pixels) noexcept
+        : owner_(owner),
+          size_(size),
+          properties_(properties),
+          row_bytes_(row_bytes),
+          pixels_(std::move(pixels))
+    {
+    }
+
+    com::result PROGPU_NATIVE_COM_CALL QueryInterface(
+        com::guid_ref interface_id,
+        void** value) noexcept override
+    {
+        if (value == nullptr) {
+            return com::pointer_error;
+        }
+        *value = nullptr;
+        if (com::guid_equal(interface_id, com::unknown_interface_id()) ||
+            com::guid_equal(interface_id, resource_interface_id) ||
+            com::guid_equal(interface_id, bitmap_interface_id)) {
+            *value = static_cast<bitmap*>(this);
+        } else if (com::guid_equal(
+                interface_id, scene_bitmap_native_interface_id)) {
+            *value = static_cast<scene_bitmap_native*>(this);
+        } else {
+            return com::no_interface;
+        }
+        AddRef();
+        return com::ok;
+    }
+
+    com::reference_count_value PROGPU_NATIVE_COM_CALL AddRef()
+        noexcept override
+    {
+        return reference_count_.add_ref();
+    }
+
+    com::reference_count_value PROGPU_NATIVE_COM_CALL Release()
+        noexcept override
+    {
+        return reference_count_.release(this);
+    }
+
+    void PROGPU_NATIVE_COM_CALL GetFactory(factory** value) const
+        noexcept override
+    {
+        if (value == nullptr) {
+            return;
+        }
+        *value = owner_.get();
+        if (*value != nullptr) {
+            (*value)->AddRef();
+        }
+    }
+
+    size_f PROGPU_NATIVE_COM_CALL GetSize() const noexcept override
+    {
+        return {
+            static_cast<float>(size_.width) * 96.0F / properties_.dpi_x,
+            static_cast<float>(size_.height) * 96.0F / properties_.dpi_y};
+    }
+
+    size_u PROGPU_NATIVE_COM_CALL GetPixelSize() const noexcept override
+    {
+        return size_;
+    }
+
+    pixel_format PROGPU_NATIVE_COM_CALL GetPixelFormat()
+        const noexcept override
+    {
+        return properties_.pixel_format_value;
+    }
+
+    void PROGPU_NATIVE_COM_CALL GetDpi(
+        float* dpi_x,
+        float* dpi_y) const noexcept override
+    {
+        if (dpi_x != nullptr) {
+            *dpi_x = properties_.dpi_x;
+        }
+        if (dpi_y != nullptr) {
+            *dpi_y = properties_.dpi_y;
+        }
+    }
+
+    com::result PROGPU_NATIVE_COM_CALL CopyFromBitmap(
+        const point_2u* destination_point,
+        bitmap* source,
+        const rectangle_u* source_rectangle) noexcept override
+    {
+        if (source == nullptr) {
+            return com::invalid_argument;
+        }
+        factory* raw_factory = nullptr;
+        source->GetFactory(&raw_factory);
+        com::pointer<factory> source_factory;
+        source_factory.attach(raw_factory);
+        if (source_factory.get() != owner_.get()) {
+            return wrong_factory;
+        }
+        scene_bitmap_native* raw_native = nullptr;
+        const com::result query = source->QueryInterface(
+            scene_bitmap_native_interface_id,
+            reinterpret_cast<void**>(&raw_native));
+        com::pointer<scene_bitmap_native> native;
+        native.attach(raw_native);
+        if (com::failed(query) || !native) {
+            return not_implemented;
+        }
+        bitmap_snapshot source_snapshot{};
+        const com::result snapshot_result =
+            native->GetSnapshot(&source_snapshot);
+        if (com::failed(snapshot_result)) {
+            return snapshot_result;
+        }
+        const rectangle_u actual_source = source_rectangle == nullptr
+            ? rectangle_u{0U, 0U, source_snapshot.width,
+                source_snapshot.height}
+            : *source_rectangle;
+        const point_2u actual_destination = destination_point == nullptr
+            ? point_2u{0U, 0U}
+            : *destination_point;
+        if (!valid_rectangle(actual_source) ||
+            actual_source.right > source_snapshot.width ||
+            actual_source.bottom > source_snapshot.height ||
+            actual_destination.x > size_.width ||
+            actual_destination.y > size_.height) {
+            return com::invalid_argument;
+        }
+        const std::uint32_t copy_width =
+            actual_source.right - actual_source.left;
+        const std::uint32_t copy_height =
+            actual_source.bottom - actual_source.top;
+        if (copy_width > size_.width - actual_destination.x ||
+            copy_height > size_.height - actual_destination.y ||
+            source_snapshot.format.format !=
+                properties_.pixel_format_value.format ||
+            source_snapshot.format.alpha !=
+                properties_.pixel_format_value.alpha) {
+            return com::invalid_argument;
+        }
+        const std::uint32_t compact_pitch = copy_width * 4U;
+        try {
+            std::vector<std::byte> copy(
+                static_cast<std::size_t>(compact_pitch) * copy_height);
+            const com::result copy_result = native->CopyPixels(
+                &actual_source,
+                properties_.pixel_format_value,
+                copy.data(),
+                compact_pitch);
+            if (com::failed(copy_result)) {
+                return copy_result;
+            }
+            const std::lock_guard lock(mutex_);
+            if (generation_ == std::numeric_limits<std::uint64_t>::max()) {
+                return failure;
+            }
+            for (std::uint32_t row = 0U; row < copy_height; ++row) {
+                std::memcpy(
+                    pixels_.data() +
+                        static_cast<std::size_t>(actual_destination.y + row) *
+                            row_bytes_ +
+                        static_cast<std::size_t>(actual_destination.x) * 4U,
+                    copy.data() + static_cast<std::size_t>(row) * compact_pitch,
+                    compact_pitch);
+            }
+            ++generation_;
+            return com::ok;
+        } catch (const std::bad_alloc&) {
+            return com::out_of_memory;
+        } catch (...) {
+            return failure;
+        }
+    }
+
+    com::result PROGPU_NATIVE_COM_CALL CopyFromRenderTarget(
+        const point_2u*, render_target*, const rectangle_u*) noexcept override
+    {
+        return not_implemented;
+    }
+
+    com::result PROGPU_NATIVE_COM_CALL CopyFromMemory(
+        const rectangle_u* destination_rectangle,
+        const void* source_data,
+        std::uint32_t pitch) noexcept override
+    {
+        if (source_data == nullptr) {
+            return com::pointer_error;
+        }
+        const rectangle_u rectangle = destination_rectangle == nullptr
+            ? rectangle_u{0U, 0U, size_.width, size_.height}
+            : *destination_rectangle;
+        if (!valid_rectangle(rectangle) || rectangle.right > size_.width ||
+            rectangle.bottom > size_.height) {
+            return com::invalid_argument;
+        }
+        const std::uint32_t width = rectangle.right - rectangle.left;
+        const std::uint32_t height = rectangle.bottom - rectangle.top;
+        const std::uint32_t copy_bytes = width * 4U;
+        if (pitch < copy_bytes) {
+            return com::invalid_argument;
+        }
+        const std::lock_guard lock(mutex_);
+        if (generation_ == std::numeric_limits<std::uint64_t>::max()) {
+            return failure;
+        }
+        const auto* source = static_cast<const std::byte*>(source_data);
+        for (std::uint32_t row = 0U; row < height; ++row) {
+            std::memcpy(
+                pixels_.data() +
+                    static_cast<std::size_t>(rectangle.top + row) * row_bytes_ +
+                    static_cast<std::size_t>(rectangle.left) * 4U,
+                source + static_cast<std::size_t>(row) * pitch,
+                copy_bytes);
+        }
+        ++generation_;
+        return com::ok;
+    }
+
+    com::result PROGPU_NATIVE_COM_CALL GetSnapshot(
+        bitmap_snapshot* snapshot) const noexcept override
+    {
+        if (snapshot == nullptr) {
+            return com::pointer_error;
+        }
+        const std::lock_guard lock(mutex_);
+        *snapshot = make_snapshot();
+        return com::ok;
+    }
+
+    com::result PROGPU_NATIVE_COM_CALL AddToScene(
+        semantic_scene_builder* builder,
+        std::uint32_t* resource_index,
+        bitmap_snapshot* snapshot) const noexcept override
+    {
+        if (builder == nullptr || resource_index == nullptr ||
+            snapshot == nullptr) {
+            return com::pointer_error;
+        }
+        const std::lock_guard lock(mutex_);
+        const bool bgra = properties_.pixel_format_value.format ==
+            dxgi_format_b8g8r8a8_unorm;
+        const bool added = bgra
+            ? builder->add_bgra8_image(
+                size_.width, size_.height, row_bytes_, pixels_,
+                *resource_index)
+            : builder->add_rgba8_image(
+                size_.width, size_.height, row_bytes_, pixels_,
+                *resource_index);
+        if (!added) {
+            return builder->last_error() == scene_build_error::out_of_memory
+                ? com::out_of_memory
+                : failure;
+        }
+        *snapshot = make_snapshot();
+        return com::ok;
+    }
+
+    com::result PROGPU_NATIVE_COM_CALL CopyPixels(
+        const rectangle_u* source_rectangle,
+        pixel_format expected_format,
+        void* destination,
+        std::uint32_t destination_pitch) const noexcept override
+    {
+        if (source_rectangle == nullptr || destination == nullptr) {
+            return com::pointer_error;
+        }
+        if (!valid_rectangle(*source_rectangle) ||
+            source_rectangle->right > size_.width ||
+            source_rectangle->bottom > size_.height ||
+            expected_format.format != properties_.pixel_format_value.format ||
+            expected_format.alpha != properties_.pixel_format_value.alpha) {
+            return com::invalid_argument;
+        }
+        const std::uint32_t width =
+            source_rectangle->right - source_rectangle->left;
+        const std::uint32_t height =
+            source_rectangle->bottom - source_rectangle->top;
+        const std::uint32_t copy_bytes = width * 4U;
+        if (destination_pitch < copy_bytes) {
+            return com::invalid_argument;
+        }
+        const std::lock_guard lock(mutex_);
+        auto* output = static_cast<std::byte*>(destination);
+        for (std::uint32_t row = 0U; row < height; ++row) {
+            std::memcpy(
+                output + static_cast<std::size_t>(row) * destination_pitch,
+                pixels_.data() +
+                    static_cast<std::size_t>(source_rectangle->top + row) *
+                        row_bytes_ +
+                    static_cast<std::size_t>(source_rectangle->left) * 4U,
+                copy_bytes);
+        }
+        return com::ok;
+    }
+
+private:
+    [[nodiscard]] bitmap_snapshot make_snapshot() const noexcept
+    {
+        return {
+            size_.width,
+            size_.height,
+            row_bytes_,
+            properties_.pixel_format_value,
+            properties_.dpi_x,
+            properties_.dpi_y,
+            generation_};
+    }
+
+    friend class com::atomic_reference_count<portable_bitmap>;
+    ~portable_bitmap() = default;
+
+    com::atomic_reference_count<portable_bitmap> reference_count_;
+    com::pointer<factory> owner_;
+    mutable std::mutex mutex_;
+    size_u size_{};
+    bitmap_properties properties_{};
+    std::uint32_t row_bytes_ = 0U;
+    std::vector<std::byte> pixels_;
+    std::uint64_t generation_ = 1U;
+};
 
 class portable_gradient_stop_collection final :
     public gradient_stop_collection {
@@ -551,13 +917,73 @@ public:
     }
 
     com::result PROGPU_NATIVE_COM_CALL CreateBitmap(
-        size_u,
-        const void*,
-        std::uint32_t,
-        const bitmap_properties*,
+        size_u size,
+        const void* source_data,
+        std::uint32_t pitch,
+        const bitmap_properties* properties,
         bitmap** value) noexcept override
     {
-        return unsupported_output(value);
+        if (value == nullptr) {
+            return com::pointer_error;
+        }
+        *value = nullptr;
+        if (properties == nullptr || size.width == 0U || size.height == 0U ||
+            size.width > 16384U || size.height > 16384U) {
+            return com::invalid_argument;
+        }
+        bitmap_properties actual = *properties;
+        if (actual.pixel_format_value.format == 0U) {
+            actual.pixel_format_value.format =
+                dxgi_format_b8g8r8a8_unorm;
+        }
+        if (actual.pixel_format_value.alpha == alpha_mode::unknown) {
+            actual.pixel_format_value.alpha = alpha_mode::premultiplied;
+        }
+        if ((actual.pixel_format_value.format !=
+                dxgi_format_r8g8b8a8_unorm &&
+                actual.pixel_format_value.format !=
+                    dxgi_format_b8g8r8a8_unorm) ||
+            actual.pixel_format_value.alpha != alpha_mode::premultiplied) {
+            return not_implemented;
+        }
+        if (actual.dpi_x == 0.0F && actual.dpi_y == 0.0F) {
+            const std::lock_guard lock(mutex_);
+            actual.dpi_x = dpi_x_;
+            actual.dpi_y = dpi_y_;
+        } else if (!valid_dpi(actual.dpi_x, actual.dpi_y)) {
+            return com::invalid_argument;
+        }
+        const std::uint64_t minimum_row_bytes =
+            static_cast<std::uint64_t>(size.width) * 4U;
+        const std::uint32_t stored_pitch = source_data == nullptr
+            ? static_cast<std::uint32_t>(minimum_row_bytes)
+            : pitch;
+        const std::uint64_t required_bytes =
+            static_cast<std::uint64_t>(stored_pitch) * (size.height - 1U) +
+            minimum_row_bytes;
+        if ((source_data != nullptr && pitch < minimum_row_bytes) ||
+            required_bytes > PROGPU_NATIVE_SCENE_MAX_STREAM_BYTES ||
+            required_bytes > std::numeric_limits<std::size_t>::max()) {
+            return com::invalid_argument;
+        }
+        try {
+            std::vector<std::byte> pixels(
+                static_cast<std::size_t>(required_bytes));
+            if (source_data != nullptr) {
+                std::memcpy(pixels.data(), source_data, pixels.size());
+            }
+            auto* created = new (std::nothrow) portable_bitmap(
+                owner_.get(), size, actual, stored_pitch, std::move(pixels));
+            if (created == nullptr) {
+                return com::out_of_memory;
+            }
+            *value = created;
+            return com::ok;
+        } catch (const std::bad_alloc&) {
+            return com::out_of_memory;
+        } catch (...) {
+            return failure;
+        }
     }
 
     com::result PROGPU_NATIVE_COM_CALL CreateBitmapFromWicBitmap(
@@ -874,10 +1300,100 @@ public:
     }
 
     void PROGPU_NATIVE_COM_CALL DrawBitmap(
-        bitmap*, const rectangle_f*, float, bitmap_interpolation_mode,
-        const rectangle_f*) noexcept override
+        bitmap* bitmap_value,
+        const rectangle_f* destination,
+        float opacity,
+        bitmap_interpolation_mode interpolation,
+        const rectangle_f* source) noexcept override
     {
-        unsupported_draw();
+        const std::lock_guard lock(mutex_);
+        if (!can_draw()) {
+            return;
+        }
+        if (bitmap_value == nullptr || !valid_opacity(opacity) ||
+            (interpolation != bitmap_interpolation_mode::nearest_neighbor &&
+                interpolation != bitmap_interpolation_mode::linear)) {
+            latch(com::invalid_argument);
+            return;
+        }
+        factory* raw_factory = nullptr;
+        bitmap_value->GetFactory(&raw_factory);
+        com::pointer<factory> bitmap_factory;
+        bitmap_factory.attach(raw_factory);
+        if (bitmap_factory.get() != owner_.get()) {
+            latch(wrong_factory);
+            return;
+        }
+        scene_bitmap_native* raw_native = nullptr;
+        const com::result query = bitmap_value->QueryInterface(
+            scene_bitmap_native_interface_id,
+            reinterpret_cast<void**>(&raw_native));
+        com::pointer<scene_bitmap_native> native;
+        native.attach(raw_native);
+        if (com::failed(query) || !native) {
+            latch(not_implemented);
+            return;
+        }
+        std::uint32_t resource_index = PROGPU_NATIVE_SCENE_NO_INDEX;
+        bitmap_snapshot snapshot{};
+        if (!add_bitmap_resource(native.get(), resource_index, snapshot)) {
+            return;
+        }
+        const rectangle_f bitmap_dips{
+            0.0F,
+            0.0F,
+            static_cast<float>(snapshot.width) * 96.0F / snapshot.dpi_x,
+            static_cast<float>(snapshot.height) * 96.0F / snapshot.dpi_y};
+        const rectangle_f destination_rectangle = destination == nullptr
+            ? bitmap_dips
+            : *destination;
+        const rectangle_f source_rectangle = source == nullptr
+            ? bitmap_dips
+            : *source;
+        if (!valid_rectangle(destination_rectangle) ||
+            !valid_rectangle(source_rectangle) ||
+            source_rectangle.left < 0.0F || source_rectangle.top < 0.0F ||
+            source_rectangle.right > bitmap_dips.right ||
+            source_rectangle.bottom > bitmap_dips.bottom) {
+            latch(com::invalid_argument);
+            return;
+        }
+        progpu_native_scene_image_draw image{};
+        image.image_width = snapshot.width;
+        image.image_height = snapshot.height;
+        image.row_bytes = snapshot.row_bytes;
+        image.flags = PROGPU_NATIVE_SCENE_IMAGE_SOURCE_PREMULTIPLIED;
+        image.sampling = interpolation ==
+                bitmap_interpolation_mode::nearest_neighbor
+            ? PROGPU_NATIVE_IMAGE_SAMPLING_NEAREST
+            : PROGPU_NATIVE_IMAGE_SAMPLING_LINEAR;
+        image.max_anisotropy = 1U;
+        const float pixels_per_dip_x = snapshot.dpi_x / 96.0F;
+        const float pixels_per_dip_y = snapshot.dpi_y / 96.0F;
+        image.source_rect = {
+            source_rectangle.left * pixels_per_dip_x,
+            source_rectangle.top * pixels_per_dip_y,
+            (source_rectangle.right - source_rectangle.left) *
+                pixels_per_dip_x,
+            (source_rectangle.bottom - source_rectangle.top) *
+                pixels_per_dip_y};
+        image.destination_rect = {
+            destination_rectangle.left,
+            destination_rectangle.top,
+            destination_rectangle.right - destination_rectangle.left,
+            destination_rectangle.bottom - destination_rectangle.top};
+        image.transform = native_transform();
+        image.opacity = opacity;
+        const progpu_native_image_rect bounds =
+            transformed_bounds(destination_rectangle);
+        if (com::failed(failure_)) {
+            return;
+        }
+        if (!builder_.draw_image(resource_index, image, bounds)) {
+            latch(builder_failure());
+            return;
+        }
+        ++draw_count_;
     }
 
     void PROGPU_NATIVE_COM_CALL DrawText(
@@ -1108,6 +1624,7 @@ public:
             failure_ = builder_failure();
             return;
         }
+        bitmap_resources_.clear();
         transform_ = identity_transform;
         antialias_mode_ = antialias_mode::per_primitive;
         text_antialias_mode_ = text_antialias_mode::default_value;
@@ -1349,6 +1866,55 @@ private:
             first.m21 * second.m12 + first.m22 * second.m22,
             first.m31 * second.m11 + first.m32 * second.m21 + second.m31,
             first.m31 * second.m12 + first.m32 * second.m22 + second.m32};
+    }
+
+    struct bitmap_resource_entry final {
+        com::pointer<scene_bitmap_native> source;
+        bitmap_snapshot snapshot{};
+        std::uint32_t resource_index = PROGPU_NATIVE_SCENE_NO_INDEX;
+    };
+
+    [[nodiscard]] bool add_bitmap_resource(
+        scene_bitmap_native* source,
+        std::uint32_t& resource_index,
+        bitmap_snapshot& snapshot) noexcept
+    {
+        const com::result snapshot_result = source->GetSnapshot(&snapshot);
+        if (com::failed(snapshot_result)) {
+            latch(snapshot_result);
+            return false;
+        }
+        const auto existing = std::find_if(
+            bitmap_resources_.begin(),
+            bitmap_resources_.end(),
+            [source, &snapshot](const bitmap_resource_entry& entry) {
+                return entry.source.get() == source &&
+                    entry.snapshot.generation == snapshot.generation;
+            });
+        if (existing != bitmap_resources_.end()) {
+            resource_index = existing->resource_index;
+            snapshot = existing->snapshot;
+            return true;
+        }
+        const com::result add_result =
+            source->AddToScene(&builder_, &resource_index, &snapshot);
+        if (com::failed(add_result)) {
+            latch(add_result);
+            return false;
+        }
+        try {
+            bitmap_resources_.push_back({
+                com::pointer<scene_bitmap_native>(source),
+                snapshot,
+                resource_index});
+            return true;
+        } catch (const std::bad_alloc&) {
+            latch(com::out_of_memory);
+            return false;
+        } catch (...) {
+            latch(failure);
+            return false;
+        }
     }
 
     [[nodiscard]] bool set_gradient_coordinate_transform(
@@ -1830,6 +2396,7 @@ private:
     com::pointer<factory> owner_;
     mutable std::mutex mutex_;
     semantic_scene_builder builder_;
+    std::vector<bitmap_resource_entry> bitmap_resources_;
     std::uint64_t scene_id_ = 0U;
     std::uint64_t generation_ = 1U;
     std::uint64_t tag1_ = 0U;

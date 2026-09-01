@@ -249,6 +249,10 @@ static_assert(sizeof(compat::linear_gradient_brush_properties) == 16U);
 static_assert(sizeof(compat::radial_gradient_brush_properties) == 24U);
 static_assert(sizeof(compat::pixel_format) == 8U);
 static_assert(sizeof(compat::size_u) == 8U);
+static_assert(sizeof(compat::point_2u) == 8U);
+static_assert(sizeof(compat::rectangle_u) == 16U);
+static_assert(sizeof(compat::bitmap_properties) == 16U);
+static_assert(sizeof(compat::bitmap_brush_properties) == 12U);
 static_assert(sizeof(compat::scene_render_target_properties) == 32U);
 static_assert(sizeof(compat::scene_render_target_summary) == 40U);
 static_assert(sizeof(compat::scene_submission_diagnostics) == 32U);
@@ -1366,9 +1370,111 @@ int main()
         1.0F,
         compat::bitmap_interpolation_mode::linear,
         nullptr);
-    if (target->EndDraw(nullptr, nullptr) != compat::not_implemented ||
+    if (target->EndDraw(nullptr, nullptr) != com::invalid_argument ||
         scene_target->GetRequiredSceneSize() != 0U) {
         return 130;
+    }
+
+    const compat::bitmap_properties bitmap_properties{
+        {87U, compat::alpha_mode::premultiplied}, 96.0F, 96.0F};
+    const std::byte bitmap_pixels[]{
+        std::byte{0x00}, std::byte{0x00}, std::byte{0xff}, std::byte{0xff},
+        std::byte{0x00}, std::byte{0xff}, std::byte{0x00}, std::byte{0xff},
+        std::byte{0xff}, std::byte{0x00}, std::byte{0x00}, std::byte{0xff},
+        std::byte{0xff}, std::byte{0xff}, std::byte{0xff}, std::byte{0xff}};
+    compat::bitmap* raw_bitmap = nullptr;
+    if (target->CreateBitmap(
+            {2U, 2U}, bitmap_pixels, 8U, &bitmap_properties, &raw_bitmap) !=
+            com::ok ||
+        raw_bitmap == nullptr) {
+        return 146;
+    }
+    com::pointer<compat::bitmap> portable_bitmap;
+    portable_bitmap.attach(raw_bitmap);
+    const compat::size_u bitmap_pixel_size = portable_bitmap->GetPixelSize();
+    const compat::size_f bitmap_size = portable_bitmap->GetSize();
+    float bitmap_dpi_x = 0.0F;
+    float bitmap_dpi_y = 0.0F;
+    portable_bitmap->GetDpi(&bitmap_dpi_x, &bitmap_dpi_y);
+    if (bitmap_pixel_size.width != 2U || bitmap_pixel_size.height != 2U ||
+        !approximately_equal(bitmap_size.width, 2.0F) ||
+        !approximately_equal(bitmap_size.height, 2.0F) ||
+        !approximately_equal(bitmap_dpi_x, 96.0F) ||
+        !approximately_equal(bitmap_dpi_y, 96.0F) ||
+        portable_bitmap->GetPixelFormat().format != 87U) {
+        return 147;
+    }
+    const std::byte replacement[]{
+        std::byte{0x30}, std::byte{0x20}, std::byte{0x10}, std::byte{0xff}};
+    const compat::rectangle_u replacement_rectangle{1U, 0U, 2U, 1U};
+    if (portable_bitmap->CopyFromMemory(
+            &replacement_rectangle, replacement, 4U) != com::ok ||
+        portable_bitmap->CopyFromRenderTarget(
+            nullptr, target.get(), nullptr) != compat::not_implemented) {
+        return 148;
+    }
+    target->BeginDraw();
+    const compat::rectangle_f first_bitmap_destination{
+        2.0F, 3.0F, 18.0F, 19.0F};
+    target->DrawBitmap(
+        portable_bitmap.get(),
+        &first_bitmap_destination,
+        0.75F,
+        compat::bitmap_interpolation_mode::nearest_neighbor,
+        nullptr);
+    const compat::rectangle_f second_bitmap_destination{
+        20.0F, 3.0F, 36.0F, 19.0F};
+    target->DrawBitmap(
+        portable_bitmap.get(),
+        &second_bitmap_destination,
+        1.0F,
+        compat::bitmap_interpolation_mode::linear,
+        nullptr);
+    if (target->EndDraw(nullptr, nullptr) != com::ok ||
+        scene_target->GetRequiredSceneSize() == 0U) {
+        return 149;
+    }
+    const std::uint64_t bitmap_scene_size =
+        scene_target->GetRequiredSceneSize();
+    std::vector<std::byte> bitmap_scene(
+        static_cast<std::size_t>(bitmap_scene_size));
+    std::uint64_t bitmap_scene_written = 0U;
+    if (scene_target->BuildScene(
+            bitmap_scene.data(),
+            bitmap_scene.size(),
+            &bitmap_scene_written) != com::ok ||
+        bitmap_scene_written != bitmap_scene_size) {
+        return 150;
+    }
+    const auto* bitmap_header = reinterpret_cast<
+        const progpu_native_scene_header*>(bitmap_scene.data());
+    std::uint32_t bitmap_resource_count = 0U;
+    const progpu_native_scene_resource* image_resource = nullptr;
+    for (std::uint32_t index = 0U;
+         index < bitmap_header->resource_count;
+         ++index) {
+        const auto* resource = reinterpret_cast<
+            const progpu_native_scene_resource*>(
+            bitmap_scene.data() + bitmap_header->resource_offset +
+            index * bitmap_header->resource_stride);
+        if (resource->kind == PROGPU_NATIVE_SCENE_RESOURCE_IMAGE) {
+            image_resource = resource;
+            ++bitmap_resource_count;
+        }
+    }
+    if (bitmap_header->command_count != 2U || bitmap_resource_count != 1U ||
+        image_resource == nullptr ||
+        (image_resource->flags & PROGPU_NATIVE_SCENE_IMAGE_BGRA8) == 0U ||
+        image_resource->payload_size != sizeof(bitmap_pixels)) {
+        return 151;
+    }
+    const auto* serialized_pixels =
+        bitmap_scene.data() + image_resource->payload_offset;
+    if (serialized_pixels[4] != replacement[0] ||
+        serialized_pixels[5] != replacement[1] ||
+        serialized_pixels[6] != replacement[2] ||
+        serialized_pixels[7] != replacement[3]) {
+        return 152;
     }
 
     compat::render_target* unsupported =
@@ -1411,6 +1517,10 @@ int main()
             compat::solid_color_brush_interface_id,
             __uuidof(ID2D1SolidColorBrush)) ||
         !com::guid_equal(
+            compat::bitmap_interface_id, __uuidof(ID2D1Bitmap)) ||
+        !com::guid_equal(
+            compat::bitmap_brush_interface_id, __uuidof(ID2D1BitmapBrush)) ||
+        !com::guid_equal(
             compat::gradient_stop_collection_interface_id,
             __uuidof(ID2D1GradientStopCollection)) ||
         !com::guid_equal(
@@ -1450,6 +1560,11 @@ int main()
             sizeof(D2D1_RADIAL_GRADIENT_BRUSH_PROPERTIES) ||
         sizeof(compat::pixel_format) != sizeof(D2D1_PIXEL_FORMAT) ||
         sizeof(compat::size_u) != sizeof(D2D1_SIZE_U) ||
+        sizeof(compat::point_2u) != sizeof(D2D1_POINT_2U) ||
+        sizeof(compat::rectangle_u) != sizeof(D2D1_RECT_U) ||
+        sizeof(compat::bitmap_properties) != sizeof(D2D1_BITMAP_PROPERTIES) ||
+        sizeof(compat::bitmap_brush_properties) !=
+            sizeof(D2D1_BITMAP_BRUSH_PROPERTIES) ||
         sizeof(compat::triangle) != sizeof(D2D1_TRIANGLE) ||
         sizeof(compat::quadratic_bezier_segment) !=
             sizeof(D2D1_QUADRATIC_BEZIER_SEGMENT) ||
@@ -1510,6 +1625,33 @@ int main()
         return 145;
     }
     auto* native_target = reinterpret_cast<ID2D1RenderTarget*>(target.get());
+    auto* native_bitmap = reinterpret_cast<ID2D1Bitmap*>(
+        portable_bitmap.get());
+    ID2D1Bitmap* queried_native_bitmap = nullptr;
+    const D2D1_SIZE_U native_bitmap_pixel_size =
+        native_bitmap->GetPixelSize();
+    const D2D1_PIXEL_FORMAT native_bitmap_format =
+        native_bitmap->GetPixelFormat();
+    const D2D1_RECT_U native_bitmap_update_rectangle{0U, 1U, 1U, 2U};
+    const std::uint8_t native_bitmap_update[]{0x44U, 0x33U, 0x22U, 0xffU};
+    if (FAILED(native_bitmap->QueryInterface(
+            __uuidof(ID2D1Bitmap),
+            reinterpret_cast<void**>(&queried_native_bitmap))) ||
+        queried_native_bitmap == nullptr ||
+        native_bitmap_pixel_size.width != 2U ||
+        native_bitmap_pixel_size.height != 2U ||
+        native_bitmap_format.format != DXGI_FORMAT_B8G8R8A8_UNORM ||
+        native_bitmap_format.alphaMode != D2D1_ALPHA_MODE_PREMULTIPLIED ||
+        FAILED(native_bitmap->CopyFromMemory(
+            &native_bitmap_update_rectangle,
+            native_bitmap_update,
+            4U))) {
+        if (queried_native_bitmap != nullptr) {
+            queried_native_bitmap->Release();
+        }
+        return 153;
+    }
+    queried_native_bitmap->Release();
     const D2D1_SIZE_U native_target_pixel_size = native_target->GetPixelSize();
     const D2D1_SIZE_F native_target_size = native_target->GetSize();
     ID2D1SolidColorBrush* native_target_brush = nullptr;
@@ -1526,12 +1668,19 @@ int main()
     const D2D1_RECT_F native_target_rectangle{8.0F, 9.0F, 30.0F, 40.0F};
     native_target->FillRectangle(
         &native_target_rectangle, native_target_brush);
+    const D2D1_RECT_F native_bitmap_destination{40.0F, 9.0F, 56.0F, 25.0F};
+    native_target->DrawBitmap(
+        native_bitmap,
+        &native_bitmap_destination,
+        1.0F,
+        D2D1_BITMAP_INTERPOLATION_MODE_NEAREST_NEIGHBOR,
+        nullptr);
     const HRESULT native_target_end_status = native_target->EndDraw();
     native_target_brush->Release();
     scene_target->GetSummary(&target_summary);
     if (FAILED(native_target_end_status) ||
-        target_summary.generation != 14U ||
-        target_summary.draw_count != 1U ||
+        target_summary.generation != 15U ||
+        target_summary.draw_count != 2U ||
         scene_target->GetRequiredSceneSize() == 0U) {
         return 129;
     }

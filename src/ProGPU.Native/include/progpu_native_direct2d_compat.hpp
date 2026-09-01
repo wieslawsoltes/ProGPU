@@ -52,6 +52,18 @@ struct radial_gradient_brush_properties final {
     float radius_y;
 };
 
+struct point_2u final {
+    std::uint32_t x;
+    std::uint32_t y;
+};
+
+struct rectangle_u final {
+    std::uint32_t left;
+    std::uint32_t top;
+    std::uint32_t right;
+    std::uint32_t bottom;
+};
+
 inline constexpr com::result not_implemented = -2147467263;
 inline constexpr com::result failure = -2147467259;
 inline constexpr com::result wrong_factory = -2003238894;
@@ -124,6 +136,16 @@ inline constexpr com::guid brush_interface_id{
     {0x9FU, 0xEDU, 0x00U, 0x11U, 0x43U, 0xA0U, 0x55U, 0xF9U}};
 inline constexpr com::guid solid_color_brush_interface_id{
     0x2CD906A9U,
+    0x12E2U,
+    0x11DCU,
+    {0x9FU, 0xEDU, 0x00U, 0x11U, 0x43U, 0xA0U, 0x55U, 0xF9U}};
+inline constexpr com::guid bitmap_interface_id{
+    0xA2296057U,
+    0xEA42U,
+    0x4099U,
+    {0x98U, 0x3BU, 0x53U, 0x9FU, 0xB6U, 0x50U, 0x54U, 0x26U}};
+inline constexpr com::guid bitmap_brush_interface_id{
+    0x2CD906AAU,
     0x12E2U,
     0x11DCU,
     {0x9FU, 0xEDU, 0x00U, 0x11U, 0x43U, 0xA0U, 0x55U, 0xF9U}};
@@ -274,6 +296,18 @@ struct pixel_format final {
     alpha_mode alpha;
 };
 
+struct bitmap_properties final {
+    pixel_format pixel_format_value;
+    float dpi_x;
+    float dpi_y;
+};
+
+struct bitmap_brush_properties final {
+    extend_mode extend_mode_x;
+    extend_mode extend_mode_y;
+    bitmap_interpolation_mode interpolation_mode;
+};
+
 struct size_u final {
     std::uint32_t width;
     std::uint32_t height;
@@ -338,8 +372,6 @@ struct text_format;
 struct text_layout;
 struct rendering_parameters;
 struct glyph_run;
-struct bitmap_properties;
-struct bitmap_brush_properties;
 struct layer_parameters;
 
 struct simplified_geometry_sink : com::unknown {
@@ -533,6 +565,46 @@ struct solid_color_brush : brush {
     virtual void PROGPU_NATIVE_COM_CALL SetColor(
         const color_f* color) noexcept = 0;
     virtual color_f PROGPU_NATIVE_COM_CALL GetColor() const noexcept = 0;
+};
+
+struct bitmap : resource {
+    virtual size_f PROGPU_NATIVE_COM_CALL GetSize() const noexcept = 0;
+    virtual size_u PROGPU_NATIVE_COM_CALL GetPixelSize() const noexcept = 0;
+    virtual pixel_format PROGPU_NATIVE_COM_CALL GetPixelFormat()
+        const noexcept = 0;
+    virtual void PROGPU_NATIVE_COM_CALL GetDpi(
+        float* dpi_x,
+        float* dpi_y) const noexcept = 0;
+    virtual com::result PROGPU_NATIVE_COM_CALL CopyFromBitmap(
+        const point_2u* destination_point,
+        bitmap* source,
+        const rectangle_u* source_rectangle) noexcept = 0;
+    virtual com::result PROGPU_NATIVE_COM_CALL CopyFromRenderTarget(
+        const point_2u* destination_point,
+        render_target* source,
+        const rectangle_u* source_rectangle) noexcept = 0;
+    virtual com::result PROGPU_NATIVE_COM_CALL CopyFromMemory(
+        const rectangle_u* destination_rectangle,
+        const void* source_data,
+        std::uint32_t pitch) noexcept = 0;
+};
+
+struct bitmap_brush : brush {
+    virtual void PROGPU_NATIVE_COM_CALL SetExtendModeX(
+        extend_mode extend) noexcept = 0;
+    virtual void PROGPU_NATIVE_COM_CALL SetExtendModeY(
+        extend_mode extend) noexcept = 0;
+    virtual void PROGPU_NATIVE_COM_CALL SetInterpolationMode(
+        bitmap_interpolation_mode interpolation) noexcept = 0;
+    virtual void PROGPU_NATIVE_COM_CALL SetBitmap(bitmap* value) noexcept = 0;
+    virtual extend_mode PROGPU_NATIVE_COM_CALL GetExtendModeX()
+        const noexcept = 0;
+    virtual extend_mode PROGPU_NATIVE_COM_CALL GetExtendModeY()
+        const noexcept = 0;
+    virtual bitmap_interpolation_mode PROGPU_NATIVE_COM_CALL
+        GetInterpolationMode() const noexcept = 0;
+    virtual void PROGPU_NATIVE_COM_CALL GetBitmap(bitmap** value)
+        const noexcept = 0;
 };
 
 struct gradient_stop_collection : resource {

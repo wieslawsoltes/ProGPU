@@ -19,6 +19,7 @@ struct semantic_scene_builder::implementation final {
         bool brush_table = false;
         bool text_style_table = false;
         bool rgba8_image = false;
+        bool bgra8_image = false;
         std::uint32_t image_width = 0U;
         std::uint32_t image_height = 0U;
         std::uint32_t image_row_bytes = 0U;
