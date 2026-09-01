@@ -21,9 +21,6 @@
   </ItemGroup>
 
   <ItemGroup>
-    <ProjectReference Include="..\..\external\ACadSharp\src\ACadSharp\ACadSharp.csproj"
-                      SetTargetFramework="TargetFramework=net10.0"
-                      AdditionalProperties="TargetFrameworks=net10.0" />
     <ProjectReference Include="..\ProGPU.WinUI\ProGPU.WinUI.csproj" />
     <ProjectReference Include="..\ProGPU.WinRT\ProGPU.WinRT.csproj" />
     <ProjectReference Include="..\ProGPU.WinUI.Themes.Fluent\ProGPU.WinUI.Themes.Fluent.csproj" />
