@@ -2473,8 +2473,13 @@ public:
             return;
         }
         if (parameters->options != layer_options::none ||
-            parameters->geometric_mask != nullptr ||
             parameters->opacity_brush != nullptr) {
+            latch(not_implemented);
+            return;
+        }
+        if (parameters->geometric_mask != nullptr &&
+            parameters->mask_antialias_mode !=
+                antialias_mode::per_primitive) {
             latch(not_implemented);
             return;
         }
@@ -2508,7 +2513,7 @@ public:
                 : query_result);
             return;
         }
-        const progpu_native_image_rect bounds = full_target
+        progpu_native_image_rect bounds = full_target
             ? progpu_native_image_rect{}
             : transformed_bounds(parameters->content_bounds);
         if (com::failed(failure_)) {
@@ -2518,11 +2523,33 @@ public:
             latch(com::invalid_argument);
             return;
         }
-        const size_f required_size = full_target
-            ? size_f{
+        std::uint32_t mask_resource_index = PROGPU_NATIVE_SCENE_NO_INDEX;
+        if (parameters->geometric_mask != nullptr) {
+            progpu_native_image_rect mask_bounds{};
+            bool empty_mask = false;
+            if (!add_geometric_layer_mask(
+                    parameters->geometric_mask,
+                    parameters->mask_transform,
+                    mask_resource_index,
+                    mask_bounds,
+                    empty_mask)) {
+                return;
+            }
+            if (empty_mask) {
+                bounds = {};
+            } else {
+                bounds = full_target
+                    ? mask_bounds
+                    : intersect_rectangles(bounds, mask_bounds);
+            }
+        }
+        const bool has_bounds = !full_target ||
+            parameters->geometric_mask != nullptr;
+        const size_f required_size = has_bounds
+            ? size_f{bounds.width, bounds.height}
+            : size_f{
                 static_cast<float>(pixel_width_) * 96.0F / dpi_x_,
-                static_cast<float>(pixel_height_) * 96.0F / dpi_y_}
-            : size_f{bounds.width, bounds.height};
+                static_cast<float>(pixel_height_) * 96.0F / dpi_y_};
         const com::result begin_use_result = layer_native->BeginUse(
             this, required_size);
         if (com::failed(begin_use_result)) {
@@ -2531,11 +2558,11 @@ public:
         }
         const progpu_native_scene_layer native_layer{
             sizeof(progpu_native_scene_layer),
-            full_target ? 0U : PROGPU_NATIVE_SCENE_LAYER_BOUNDS,
+            has_bounds ? PROGPU_NATIVE_SCENE_LAYER_BOUNDS : 0U,
             bounds,
             parameters->opacity,
             PROGPU_NATIVE_BLEND_SRC_OVER,
-            PROGPU_NATIVE_SCENE_NO_INDEX,
+            mask_resource_index,
             PROGPU_NATIVE_SCENE_NO_INDEX,
             0U,
             0U,
@@ -3396,6 +3423,112 @@ private:
             return bitmap_brush_draw_result::failed;
         }
         return bitmap_brush_draw_result::drawn;
+    }
+
+    [[nodiscard]] bool add_geometric_layer_mask(
+        geometry* geometry_value,
+        const matrix_3x2_f& mask_transform,
+        std::uint32_t& resource_index,
+        progpu_native_image_rect& target_bounds,
+        bool& empty) noexcept
+    {
+        resource_index = PROGPU_NATIVE_SCENE_NO_INDEX;
+        target_bounds = {};
+        empty = false;
+        if (geometry_value == nullptr ||
+            !core::valid_transform(&mask_transform)) {
+            latch(com::invalid_argument);
+            return false;
+        }
+        factory* raw_factory = nullptr;
+        geometry_value->GetFactory(&raw_factory);
+        com::pointer<factory> geometry_factory;
+        geometry_factory.attach(raw_factory);
+        if (geometry_factory.get() != owner_.get()) {
+            latch(wrong_factory);
+            return false;
+        }
+        auto* raw_sink = new (std::nothrow) portable_scene_path_sink();
+        if (raw_sink == nullptr) {
+            latch(com::out_of_memory);
+            return false;
+        }
+        com::pointer<portable_scene_path_sink> sink;
+        sink.attach(raw_sink);
+        com::result result = geometry_value->Simplify(
+            geometry_simplification_option::cubics_and_lines,
+            nullptr,
+            core::default_flattening_tolerance,
+            sink.get());
+        const com::result close_result = sink->Close();
+        if (com::succeeded(result)) {
+            result = close_result;
+        }
+        if (com::failed(result)) {
+            latch(result);
+            return false;
+        }
+        const auto segments = sink->segments();
+        if (segments.empty()) {
+            empty = true;
+            return true;
+        }
+        rectangle_f local_bounds{};
+        result = geometry_value->GetBounds(nullptr, &local_bounds);
+        const matrix_3x2_f target_transform = compose_transform(
+            mask_transform, transform_);
+        rectangle_f transformed_mask_bounds{};
+        if (com::succeeded(result) &&
+            core::valid_transform(&target_transform)) {
+            result = geometry_value->GetBounds(
+                &target_transform, &transformed_mask_bounds);
+        }
+        if (com::failed(result) || !valid_rectangle(local_bounds) ||
+            !valid_rectangle(transformed_mask_bounds)) {
+            latch(com::failed(result) ? result : com::invalid_argument);
+            return false;
+        }
+        if (local_bounds.right == local_bounds.left ||
+            local_bounds.bottom == local_bounds.top ||
+            transformed_mask_bounds.right == transformed_mask_bounds.left ||
+            transformed_mask_bounds.bottom == transformed_mask_bounds.top) {
+            empty = true;
+            return true;
+        }
+        const progpu_native_scene_clip_path path{
+            0U,
+            segments.size(),
+            0U,
+            0U,
+            local_bounds.left,
+            local_bounds.top,
+            local_bounds.right,
+            local_bounds.bottom,
+            {
+                target_transform.m11,
+                target_transform.m12,
+                target_transform.m21,
+                target_transform.m22,
+                target_transform.m31,
+                target_transform.m32},
+            sink->native_fill_rule(),
+            8U,
+            PROGPU_NATIVE_CLIP_INTERSECT,
+            0U};
+        if (!builder_.add_vector_clip_mask(
+                std::span<const progpu_native_scene_clip_path>(&path, 1U),
+                segments,
+                1.0F,
+                resource_index)) {
+            latch(builder_failure());
+            return false;
+        }
+        target_bounds = {
+            transformed_mask_bounds.left,
+            transformed_mask_bounds.top,
+            transformed_mask_bounds.right - transformed_mask_bounds.left,
+            transformed_mask_bounds.bottom - transformed_mask_bounds.top};
+        return true;
     }
 
     void draw_filled_geometry(
