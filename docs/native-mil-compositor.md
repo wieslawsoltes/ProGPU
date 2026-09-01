@@ -6390,8 +6390,9 @@ closed-path containment lane through typed COM getters. The SIMD body remains
 shared while the dependent join pass selects the bevel wedge or qualified
 miter extension and limit. Windows probes distinguish a bevel-clipped corner
 from its included wedge and match genuine Direct2D after another clean ARM64
-30-target rebuild. Dashed and round joins remain fail closed pending common
-run/arc output geometry.
+30-target rebuild. Round joins add an exact vertex disk over the same SIMD
+body, and Windows inside/outside arc probes also match. Dashed styles remain
+fail closed pending common run geometry.
 
 `GetWidenedBounds` now shares that default-miter path domain. Segment offsets
 and miter extrema are constructed before the world transform; independent
