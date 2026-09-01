@@ -22,6 +22,20 @@ using ProGPU.Scene.Extensions;
 using ProGPU.Text;
 using ProGPU.Tests.Headless;
 
+int mesh3DSmoothingGridSize = ReadNonNegativeInt(
+    "--mesh3d-smoothing-grid",
+    0);
+if (mesh3DSmoothingGridSize != 0)
+{
+    RunMesh3DSmoothingBenchmark(
+        mesh3DSmoothingGridSize,
+        ReadPositiveInt("--mesh3d-smoothing-faces", 512),
+        ReadNonNegativeInt("--warmup", 3),
+        ReadPositiveInt("--iterations", 12),
+        ReadString("--output-json"));
+    return;
+}
+
 int mesh3DSubobjectEditGridSize = ReadNonNegativeInt(
     "--mesh3d-subobject-edit-grid",
     0);
@@ -49,6 +63,193 @@ if (mesh3DSelectionGridSize != 0)
         ReadPositiveInt("--queries", 65_536),
         ReadString("--output-json"));
     return;
+}
+
+void RunMesh3DSmoothingBenchmark(
+    int gridSize,
+    int selectedFaceCount,
+    int warmups,
+    int iterations,
+    string? reportPath)
+{
+    long totalFaceCount = checked((long)gridSize * gridSize);
+    if (totalFaceCount > int.MaxValue)
+    {
+        throw new ArgumentOutOfRangeException(nameof(gridSize));
+    }
+    selectedFaceCount = Math.Min(
+        selectedFaceCount,
+        checked((int)totalFaceCount));
+    if (selectedFaceCount >
+        CadSetMeshSubobjectCreaseCommand.DefaultMaxSubobjects)
+    {
+        throw new ArgumentOutOfRangeException(
+            nameof(selectedFaceCount),
+            $"Selected faces cannot exceed {CadSetMeshSubobjectCreaseCommand.DefaultMaxSubobjects}.");
+    }
+
+    (
+        Measurement EditAndRebuild,
+        Measurement UndoRedo,
+        ulong FinalContentGeneration,
+        int ControlVertexCount,
+        int AuthoredFaceCount) MeasureLane(bool crease)
+    {
+        var document = new CadDocument(ACadVersion.AC1032);
+        Mesh mesh = CreateMesh3DSubobjectEditGrid(gridSize);
+        mesh.SubdivisionLevel = crease ? 1 : 0;
+        int controlVertexCount = mesh.Vertices.Count;
+        int authoredFaceCount = mesh.Faces.Count;
+        document.Entities.Add(mesh);
+        var session = new CadDocumentSession(document);
+        var history = new CadDocumentHistory(session, capacity: 4);
+
+        CadEditCommand CreateCommand(CadRecordedMesh3DScene scene)
+        {
+            if (!crease)
+            {
+                return new CadAdjustMeshSubdivisionLevelCommand(
+                    [mesh.Handle],
+                    delta: 1);
+            }
+
+            CadMesh3DSubobjectComponent component =
+                scene.SubobjectComponents.Span[0];
+            var ids = new CadMesh3DSubobjectId[selectedFaceCount];
+            int stride = Math.Max(1, authoredFaceCount / selectedFaceCount);
+            for (int index = 0; index < ids.Length; index++)
+            {
+                ids[index] = new CadMesh3DSubobjectId(
+                    scene.ContentGeneration,
+                    component.Handle,
+                    component.ComponentIndex,
+                    CadMesh3DSubobjectKind.Face,
+                    Math.Min(authoredFaceCount - 1, index * stride));
+            }
+            return new CadSetMeshSubobjectCreaseCommand(scene, ids, -1.0);
+        }
+
+        object ApplyAndRebuild()
+        {
+            CadDocumentSnapshot snapshot =
+                new CadSnapshotCompiler().Compile(session);
+            CadRecordedMesh3DScene scene =
+                new CadMesh3DSceneCompiler().Compile(snapshot);
+            CadEditCommand command = CreateCommand(scene);
+            ulong generation = history.Execute(command);
+            CadDocumentSnapshot rebuilt =
+                new CadSnapshotCompiler().Compile(session);
+            CadRecordedMesh3DScene rebuiltScene =
+                new CadMesh3DSceneCompiler().Compile(rebuilt);
+            return HashCode.Combine(
+                generation,
+                rebuiltScene.Statistics.TriangleCount,
+                rebuiltScene.SubobjectComponents.Span[0].Edges.Length);
+        }
+
+        for (int index = 0; index < warmups; index++)
+        {
+            _ = ApplyAndRebuild();
+            if (!history.TryUndo(out _))
+            {
+                throw new InvalidOperationException(
+                    "Mesh smoothing/crease benchmark warmup undo failed.");
+            }
+        }
+
+        var editElapsed = new double[iterations];
+        long editAllocated = 0;
+        int checksum = 0;
+        for (int index = 0; index < iterations; index++)
+        {
+            long allocatedStart = GC.GetAllocatedBytesForCurrentThread();
+            long started = Stopwatch.GetTimestamp();
+            object value = ApplyAndRebuild();
+            editElapsed[index] =
+                Stopwatch.GetElapsedTime(started).TotalMilliseconds;
+            editAllocated +=
+                GC.GetAllocatedBytesForCurrentThread() - allocatedStart;
+            checksum ^= value.GetHashCode();
+            if (!history.TryUndo(out _))
+            {
+                throw new InvalidOperationException(
+                    "Mesh smoothing/crease benchmark iteration undo failed.");
+            }
+        }
+        string lane = crease ? "crease" : "smooth-more";
+        Measurement editAndRebuild = Summarize(
+            $"mesh-{lane}-snapshot-scene-ms",
+            editElapsed,
+            editAllocated / iterations);
+
+        _ = ApplyAndRebuild();
+        for (int index = 0; index < warmups; index++)
+        {
+            if (!history.TryUndo(out _) || !history.TryRedo(out _))
+            {
+                throw new InvalidOperationException(
+                    "Mesh smoothing/crease undo/redo benchmark warmup failed.");
+            }
+        }
+        var undoRedoElapsed = new double[iterations];
+        long undoRedoAllocatedStart =
+            GC.GetAllocatedBytesForCurrentThread();
+        ulong undoRedoChecksum = 0;
+        for (int index = 0; index < iterations; index++)
+        {
+            long started = Stopwatch.GetTimestamp();
+            if (!history.TryUndo(out ulong undoGeneration) ||
+                !history.TryRedo(out ulong redoGeneration))
+            {
+                throw new InvalidOperationException(
+                    "Mesh smoothing/crease undo/redo benchmark iteration failed.");
+            }
+            undoRedoElapsed[index] =
+                Stopwatch.GetElapsedTime(started).TotalMilliseconds;
+            undoRedoChecksum ^= undoGeneration ^ redoGeneration;
+        }
+        long undoRedoAllocated =
+            GC.GetAllocatedBytesForCurrentThread() - undoRedoAllocatedStart;
+        GC.KeepAlive(checksum ^ undoRedoChecksum.GetHashCode());
+        Measurement undoRedo = Summarize(
+            $"mesh-{lane}-undo-redo-ms",
+            undoRedoElapsed,
+            undoRedoAllocated / iterations);
+        return (
+            editAndRebuild,
+            undoRedo,
+            session.ContentGeneration,
+            controlVertexCount,
+            authoredFaceCount);
+    }
+
+    var smoothing = MeasureLane(crease: false);
+    var crease = MeasureLane(crease: true);
+    var report = new CadMesh3DSmoothingBenchmarkReport(
+        DateTimeOffset.UtcNow,
+        Environment.OSVersion.ToString(),
+        RuntimeInformation.FrameworkDescription,
+        gridSize,
+        smoothing.ControlVertexCount,
+        smoothing.AuthoredFaceCount,
+        selectedFaceCount,
+        warmups,
+        iterations,
+        smoothing.EditAndRebuild,
+        crease.EditAndRebuild,
+        smoothing.UndoRedo,
+        crease.UndoRedo,
+        smoothing.FinalContentGeneration,
+        crease.FinalContentGeneration,
+        CaptureMesh3DReplayBinaryHashes());
+    string json = JsonSerializer.Serialize(
+        report,
+        new JsonSerializerOptions { WriteIndented = true });
+    Console.WriteLine(json);
+    if (reportPath is not null)
+    {
+        File.WriteAllText(reportPath, json);
+    }
 }
 
 void RunMesh3DSubobjectEditBenchmark(
@@ -4472,6 +4673,24 @@ internal sealed record CadMesh3DSubobjectEditBenchmarkReport(
     ulong RotationFinalContentGeneration,
     ulong ScaleFinalContentGeneration,
     ulong DeletionFinalContentGeneration,
+    CadMesh3DReplayBinaryHashes RelevantBinarySha256);
+
+internal sealed record CadMesh3DSmoothingBenchmarkReport(
+    DateTimeOffset CapturedAt,
+    string OperatingSystem,
+    string Runtime,
+    int GridSize,
+    int ControlVertexCount,
+    int AuthoredFaceCount,
+    int SelectedFaceCount,
+    int WarmupCount,
+    int IterationCount,
+    Measurement SmoothMoreSnapshotSceneMilliseconds,
+    Measurement CreaseSnapshotSceneMilliseconds,
+    Measurement SmoothMoreUndoRedoMilliseconds,
+    Measurement CreaseUndoRedoMilliseconds,
+    ulong SmoothMoreFinalContentGeneration,
+    ulong CreaseFinalContentGeneration,
     CadMesh3DReplayBinaryHashes RelevantBinarySha256);
 
 internal enum CadMesh3DSubobjectTransform

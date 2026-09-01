@@ -1993,6 +1993,75 @@ public sealed class CadMesh3DSelectionTests
     }
 
     [Fact]
+    public void SharedViewportSmoothsWholeMeshAndCreasesSelectedFace()
+    {
+        var document = new CadDocument();
+        Mesh mesh = CreateStackedMesh(0.0);
+        document.Entities.Add(mesh);
+        var session = new CadDocumentSession(document);
+        var view = new CadSampleView();
+        try
+        {
+            view.Arrange(new Rect(0, 0, 1_280, 900));
+            view.Canvas.Load(session);
+            view.MeshViewport.Size = ViewportSize;
+            PressEnter(FindButton(view, "3D surfaces"));
+            CadRecordedMesh3DScene scene = Assert.IsType<CadRecordedMesh3DScene>(
+                view.MeshScene);
+            Click(
+                view.MeshViewport,
+                Project(
+                    view.MeshViewportState!.Value,
+                    scene,
+                    new CadPoint3D(0.25, 0.25, 0.0)));
+            Assert.Equal(mesh.Handle, Assert.Single(
+                view.Canvas.SelectedHandles.ToArray()));
+            Button smoothMore = FindButton(view, "Smooth +");
+            Assert.True(smoothMore.IsEnabled);
+
+            PressEnter(smoothMore);
+
+            Assert.Equal(1, mesh.SubdivisionLevel);
+            Assert.Equal(1UL, session.ContentGeneration);
+            Assert.True(view.MeshScene!.Statistics.TriangleCount > 2);
+
+            view.MeshSubobjectSelector.SelectedIndex = 3;
+            scene = view.MeshScene;
+            Click(
+                view.MeshViewport,
+                Project(
+                    view.MeshViewportState!.Value,
+                    scene,
+                    new CadPoint3D(0.25, 0.25, 0.0)));
+            Assert.Equal(CadMesh3DSubobjectKind.Face, Assert.Single(
+                view.SelectedMeshSubobjects).Kind);
+            Button setCrease = FindButton(view, "Set crease");
+            Button uncrease = FindButton(view, "Uncrease");
+            Assert.True(setCrease.IsEnabled);
+            Assert.True(uncrease.IsEnabled);
+
+            PressEnter(setCrease);
+
+            Assert.Equal(4, mesh.Edges.Count);
+            Assert.All(mesh.Edges, edge => Assert.Equal(-1.0, edge.Crease));
+            Assert.Equal(2UL, session.ContentGeneration);
+            Assert.Equal(2UL, Assert.Single(
+                view.SelectedMeshSubobjects).ContentGeneration);
+
+            PressEnter(uncrease);
+
+            Assert.Empty(mesh.Edges);
+            Assert.Equal(3UL, session.ContentGeneration);
+            Assert.Equal(3UL, Assert.Single(
+                view.SelectedMeshSubobjects).ContentGeneration);
+        }
+        finally
+        {
+            view.Canvas.FireUnloaded();
+        }
+    }
+
+    [Fact]
     public void SharedViewportAltClickCyclesNearestSemanticDepthHits()
     {
         var document = new CadDocument();

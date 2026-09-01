@@ -2235,6 +2235,26 @@ bounds exponential refinement before a new level is allocated. Adaptive limit
 patches, legacy fitted polygon meshes, material/texture leases, and a complete
 hidden-line policy remain separate fidelity gates.
 
+Modern-MESH authoring changes that persisted subdivision contract directly.
+`CadAdjustMeshSubdivisionLevelCommand` changes each eligible direct model-space
+mesh by exactly one level and preflights the aggregate corner-visit expression
+before assigning any level. It retains exact before/after arrays for `O(A)`
+Undo/Redo over affected meshes `A`; wrong entity families, locked layers,
+invalid levels, overflow, and an exhausted budget fail transactionally.
+`CadSetMeshSubobjectCreaseCommand` consumes generation-owned authored
+face/edge/vertex IDs, expands them respectively to boundary, self, or incident
+source edges, deduplicates the union, and constructs every affected mesh's
+complete proposed crease table before mutation. It preserves unrelated record
+order, updates existing selected records in place, appends new records in
+deterministic source-edge order, and removes selected records for zero. Its
+first application is `O(S + V + C + K)` expected time and storage for selected
+subobjects `S`, vertices `V`, face corners `C`, and persisted crease records
+`K`; explicit limits of 4,096 selections, four million visited corners, and one
+million affected edges bound the work. Retained exact edge arrays make
+Undo/Redo `O(K)`. Both commands invalidate one document generation and feed the
+same canonical managed/native scene; no backend-specific editor, shader, or ABI
+surface is introduced.
+
 `CadMesh3DSceneCompiler` copies one immutable generation into consecutive
 same-style, float-rebased triangle-list batches in `O(M + R + V + I)` time and
 `O(V + I + B)` storage for mesh instances `M`, face ranges `R`, flat vertices

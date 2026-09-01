@@ -1,0 +1,53 @@
+{
+  "CapturedAt": "2026-09-01T05:42:40.327296+00:00",
+  "OperatingSystem": "Unix 26.6.0",
+  "Runtime": ".NET 10.0.5",
+  "GridSize": 64,
+  "ControlVertexCount": 4225,
+  "AuthoredFaceCount": 4096,
+  "SelectedFaceCount": 512,
+  "WarmupCount": 1,
+  "IterationCount": 4,
+  "SmoothMoreSnapshotSceneMilliseconds": {
+    "Name": "mesh-smooth-more-snapshot-scene-ms",
+    "P50": 111.7557,
+    "P95": 136.678,
+    "P99": 136.678,
+    "Mean": 117.194625,
+    "AllocatedBytesPerOperation": 140726124
+  },
+  "CreaseSnapshotSceneMilliseconds": {
+    "Name": "mesh-crease-snapshot-scene-ms",
+    "P50": 121.935,
+    "P95": 141.5719,
+    "P99": 141.5719,
+    "Mean": 130.2154,
+    "AllocatedBytesPerOperation": 233244586
+  },
+  "SmoothMoreUndoRedoMilliseconds": {
+    "Name": "mesh-smooth-more-undo-redo-ms",
+    "P50": 0.0007,
+    "P95": 0.0039,
+    "P99": 0.0039,
+    "Mean": 0.0015,
+    "AllocatedBytesPerOperation": 288
+  },
+  "CreaseUndoRedoMilliseconds": {
+    "Name": "mesh-crease-undo-redo-ms",
+    "P50": 0.1955,
+    "P95": 2.261,
+    "P99": 2.261,
+    "Mean": 0.7197250000000001,
+    "AllocatedBytesPerOperation": 420272
+  },
+  "SmoothMoreFinalContentGeneration": 21,
+  "CreaseFinalContentGeneration": 21,
+  "RelevantBinarySha256": {
+    "Benchmark": "0811428b3385ea9ae009db1c9c448c759754c422fc27bd3bf1b6bc93d9661037",
+    "Backend": "993fd4a802f2e33757c8b0854d17b2b74f7ffdffd82e545a20f5c08024b9c58f",
+    "Cad": "a8e4ab233c6125bad4a643a45bbbffac0bc7b1e066ddda7456668f1a87b914e5",
+    "Scene": "1d92ac2c1a7c67af049f34f610adfa79bc2e5d91630b76aa2690cd726ac7b424",
+    "TestsHeadless": "70905b3cb4129b1611fa2bc3ca2f0a304f1c5b106a6ce64e843a69004b2e6d78",
+    "WinUI": "0852153ed3c2f3dcec365852af65678758a3c79a50040d22187baf715fb96c31"
+  }
+}

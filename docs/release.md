@@ -25,6 +25,18 @@ subdivision and both renderer inputs once per generation, and round-trips the
 result through DXF and DWG. Nested occurrences, locked layers, stale IDs, and
 invalid topology fail before mutation; no shader or native ABI changes.
 
+The same editor now provides AutoCAD-compatible Smooth More/Smooth Less for
+whole modern-MESH selections and Set crease/Uncrease for generation-owned
+face, edge, and vertex selections. Smoothness changes each eligible persisted
+subdivision level by exactly one under the existing six-level, one-million-
+corner rendering budget. Edge selections affect themselves, faces expand to
+their boundary edges, and vertices expand to incident edges; `-1`, zero, and
+positive semi-sharp crease values retain their documented meanings, while a
+fractional value requires the persisted Blend Crease flag. Multi-mesh edits
+are preflighted transactionally, retain exact Undo/Redo state, rebuild the
+canonical managed/native scene once, and round-trip through DXF and DWG. This
+adds no shader, native ABI, or renderer-specific implementation fork.
+
 Preview.62 advances the successfully published preview.61 boundary with a
 second measured optimization round for the ProGPU-backed SkiaSharp compatibility
 layer. Avalonia's common bounded SaveLayer containing one analytic rounded

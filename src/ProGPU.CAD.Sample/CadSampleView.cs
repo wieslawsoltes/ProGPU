@@ -165,6 +165,11 @@ public sealed class CadSampleView : Grid
     private readonly Button _acceptPointTransformInputButton;
     private readonly Button[] _rotateButtons;
     private readonly Button[] _scaleButtons;
+    private readonly Button _meshSmoothMoreButton;
+    private readonly Button _meshSmoothLessButton;
+    private readonly TextBox _meshCreaseInput;
+    private readonly Button _setMeshCreaseButton;
+    private readonly Button _removeMeshCreaseButton;
     private readonly TextBox _selectionColorInput;
     private readonly ComboBox _selectionLineWeightSelector;
     private readonly Button _setSelectionColorButton;
@@ -241,6 +246,8 @@ public sealed class CadSampleView : Grid
     private bool _isRefreshingPlanConstraints;
     private bool _isRefreshingSelectionProperties;
     private bool _isSelectionEditable;
+    private bool _isMeshSelection;
+    private int? _commonMeshSubdivisionLevel;
     private bool _isSolidThicknessSelection;
     private bool _selectedLayerCanRename;
     private bool _selectedLayerCanRemove;
@@ -1250,6 +1257,35 @@ public sealed class CadSampleView : Grid
         _scaleButtons = [scaleUp, scaleDown];
         transformActions.AddChild(scaleUp);
         transformActions.AddChild(scaleDown);
+        transformActions.AddChild(new TextBlock
+        {
+            Text = "Mesh smoothing / crease",
+            Font = font,
+            FontSize = 11,
+            Foreground = new ThemeResourceBrush("TextSecondary"),
+            Margin = new Thickness(12, 6, 8, 0),
+        });
+        _meshSmoothMoreButton = CreateButton("Smooth +", font, 78, 30);
+        _meshSmoothLessButton = CreateButton("Smooth −", font, 78, 30);
+        _meshCreaseInput = new TextBox
+        {
+            Text = "-1",
+            Font = font,
+            WidthConstraint = 58,
+            HeightConstraint = 30,
+            IsSpellCheckEnabled = false,
+            Margin = new Thickness(0, 0, 4, 0),
+        };
+        _setMeshCreaseButton = CreateButton("Set crease", font, 86, 30);
+        _removeMeshCreaseButton = CreateButton("Uncrease", font, 82, 30);
+        _meshSmoothMoreButton.Margin = new Thickness(0, 0, 4, 0);
+        _meshSmoothLessButton.Margin = new Thickness(0, 0, 8, 0);
+        _setMeshCreaseButton.Margin = new Thickness(0, 0, 4, 0);
+        transformActions.AddChild(_meshSmoothMoreButton);
+        transformActions.AddChild(_meshSmoothLessButton);
+        transformActions.AddChild(_meshCreaseInput);
+        transformActions.AddChild(_setMeshCreaseButton);
+        transformActions.AddChild(_removeMeshCreaseButton);
         transformActions.AddChild(new TextBlock
         {
             Text = "Copy items (including source)",
@@ -2644,6 +2680,14 @@ public sealed class CadSampleView : Grid
         _undoButton.Click += (_, _) => PerformUndo();
         _redoButton.Click += (_, _) => PerformRedo();
         _deleteButton.Click += (_, _) => PerformDelete();
+        _meshSmoothMoreButton.Click += (_, _) =>
+            AdjustSelectedMeshSmoothness(1);
+        _meshSmoothLessButton.Click += (_, _) =>
+            AdjustSelectedMeshSmoothness(-1);
+        _meshCreaseInput.TextChanged += (_, _) => UpdateEditControls();
+        _setMeshCreaseButton.Click += (_, _) => SetSelectedMeshCrease();
+        _removeMeshCreaseButton.Click += (_, _) =>
+            SetSelectedMeshCrease(0.0);
         _lineButton.Click += (_, _) => BeginLineAuthoring();
         _lineUndoButton.Click += (_, _) => UndoLineAuthoringSegment();
         _lineCloseButton.Click += (_, _) => CompleteLineAuthoring(close: true);
@@ -5305,6 +5349,11 @@ public sealed class CadSampleView : Grid
             _isSelectionEditable =
                 properties.SelectionCount > 0 &&
                 properties.AllSelectedEntitiesAreUnlocked;
+            _isMeshSelection =
+                properties.SelectionCount > 0 &&
+                properties.AllSelectedEntitiesAreMeshes;
+            _commonMeshSubdivisionLevel =
+                properties.CommonMeshSubdivisionLevel;
             _selectionSolidThicknessInput.Text = properties.SelectionCount == 0
                 ? string.Empty
                 : !_isSolidThicknessSelection
@@ -7927,6 +7976,86 @@ public sealed class CadSampleView : Grid
         }
     }
 
+    private void AdjustSelectedMeshSmoothness(int delta)
+    {
+        if (_isBusy)
+        {
+            return;
+        }
+        try
+        {
+            CadMesh3DSmoothnessSummary summary =
+                _canvas.AdjustSelectedMeshSubdivisionLevel(delta);
+            SetStatus(
+                $"{(delta > 0 ? "Increased" : "Decreased")} smoothness for " +
+                $"{summary.AffectedMeshCount:N0} modern mesh(es); result levels " +
+                $"{summary.MinimumResultLevel:N0}-{summary.MaximumResultLevel:N0}.");
+        }
+        catch (Exception exception)
+        {
+            SetStatus($"Mesh smoothing failed: {exception.Message}");
+        }
+        finally
+        {
+            UpdateEditControls();
+        }
+    }
+
+    private void SetSelectedMeshCrease()
+    {
+        if (!TryParseMeshCrease(_meshCreaseInput.Text, out double creaseValue))
+        {
+            SetStatus(
+                "Mesh crease failed: enter -1 (Always), zero (None), or a finite positive invariant level.");
+            return;
+        }
+        SetSelectedMeshCrease(creaseValue);
+    }
+
+    private void SetSelectedMeshCrease(double creaseValue)
+    {
+        if (_isBusy)
+        {
+            return;
+        }
+        try
+        {
+            CadRecordedMesh3DScene scene = _mesh3DView.Scene ??
+                throw new InvalidOperationException(
+                    "No retained Mesh3D scene is available.");
+            MeshSubobjectEditSelection[] remap =
+                CaptureMeshSubobjectEditSelection(scene);
+            CadMesh3DCreaseSummary summary = _canvas.SetMeshSubobjectCrease(
+                scene,
+                _selectedMeshSubobjects,
+                creaseValue);
+            RemapMeshSubobjectEditSelection(remap);
+            SetStatus(
+                creaseValue == 0.0
+                    ? $"Removed crease from {summary.AffectedEdgeCount:N0} authored mesh edge(s)."
+                    : $"Set crease {creaseValue:G17} on {summary.AffectedEdgeCount:N0} authored mesh edge(s).");
+        }
+        catch (Exception exception)
+        {
+            SetStatus($"Mesh crease failed: {exception.Message}");
+        }
+        finally
+        {
+            UpdateEditControls();
+        }
+    }
+
+    private static bool TryParseMeshCrease(
+        string text,
+        out double creaseValue) =>
+        double.TryParse(
+            text,
+            NumberStyles.Float,
+            CultureInfo.InvariantCulture,
+            out creaseValue) &&
+        double.IsFinite(creaseValue) &&
+        (creaseValue >= 0.0 || creaseValue == -1.0);
+
     private void SetSelectionDrawOrder(CadDrawOrderPlacement placement)
     {
         if (_isBusy)
@@ -8555,6 +8684,17 @@ public sealed class CadSampleView : Grid
         bool canEditMeshSubobjects = canUsePlanTools && _is3DView &&
             _selectedMeshSubobjects.Count > 0;
         _deleteButton.IsEnabled = canTransform || canEditMeshSubobjects;
+        bool canEditSelectedMeshes = canUsePlanTools && _is3DView &&
+            _isSelectionEditable && _isMeshSelection;
+        _meshSmoothMoreButton.IsEnabled = canEditSelectedMeshes &&
+            (_commonMeshSubdivisionLevel is null or <
+                CadSnapshotOptions.DefaultMaxMeshSubdivisionLevel);
+        _meshSmoothLessButton.IsEnabled = canEditSelectedMeshes &&
+            (_commonMeshSubdivisionLevel is null or > 0);
+        _meshCreaseInput.IsEnabled = canEditMeshSubobjects;
+        _setMeshCreaseButton.IsEnabled = canEditMeshSubobjects &&
+            TryParseMeshCrease(_meshCreaseInput.Text, out _);
+        _removeMeshCreaseButton.IsEnabled = canEditMeshSubobjects;
         _lineButton.IsEnabled =
             canUsePlanTools && !_is3DView &&
             _canvas.CurrentSession is not null;

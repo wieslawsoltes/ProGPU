@@ -548,7 +548,9 @@ public readonly record struct CadSelectionGeneralProperties(
     bool? CommonIsInvisible,
     bool AllSelectedEntitiesAreUnlocked,
     bool AllSelectedEntitiesAreSolids,
-    double? CommonSolidThickness);
+    double? CommonSolidThickness,
+    bool AllSelectedEntitiesAreMeshes,
+    int? CommonMeshSubdivisionLevel);
 
 /// <summary>Detached persisted state for one document layer.</summary>
 public readonly record struct CadLayerGeneralProperties(
@@ -6653,6 +6655,59 @@ public sealed class CadSampleCanvas : FrameworkElement
     }
 
     /// <summary>
+    /// Increases or decreases every eligible selected modern-MESH subdivision
+    /// level by one and rebuilds the canonical retained scene.
+    /// </summary>
+    public CadMesh3DSmoothnessSummary AdjustSelectedMeshSubdivisionLevel(
+        int delta)
+    {
+        ThrowIfDrawOrderReferencePickPending();
+        if (_selectedHandleCount == 0)
+        {
+            throw new InvalidOperationException(
+                "Mesh smoothing requires at least one selected entity.");
+        }
+        CadDocumentSession session = CurrentSession ??
+            throw new InvalidOperationException("No CAD document is loaded.");
+        CadDocumentHistory history = _history ??
+            throw new InvalidOperationException("The CAD edit history is not initialized.");
+        var command = new CadAdjustMeshSubdivisionLevelCommand(
+            new ArraySegment<ulong>(
+                _selectedHandles,
+                0,
+                _selectedHandleCount),
+            delta);
+        history.Execute(command);
+        RecompileAfterEdit(session);
+        return command.Summary;
+    }
+
+    /// <summary>
+    /// Sets or removes creases addressed by generation-owned modern-MESH
+    /// vertex, edge, and face subobjects.
+    /// </summary>
+    public CadMesh3DCreaseSummary SetMeshSubobjectCrease(
+        CadRecordedMesh3DScene scene,
+        IEnumerable<CadMesh3DSubobjectId> subobjects,
+        double creaseValue)
+    {
+        ThrowIfDrawOrderReferencePickPending();
+        ArgumentNullException.ThrowIfNull(scene);
+        ArgumentNullException.ThrowIfNull(subobjects);
+        CadDocumentSession session = CurrentSession ??
+            throw new InvalidOperationException("No CAD document is loaded.");
+        CadDocumentHistory history = _history ??
+            throw new InvalidOperationException("The CAD edit history is not initialized.");
+        var command = new CadSetMeshSubobjectCreaseCommand(
+            scene,
+            subobjects,
+            creaseValue);
+        history.Execute(command);
+        RecompileAfterEdit(session);
+        return command.Summary;
+    }
+
+    /// <summary>
     /// Copies all selected semantic model-space roots by one WCS displacement
     /// while preserving the source selection for repeated copy operations.
     /// </summary>
@@ -6796,6 +6851,8 @@ public sealed class CadSampleCanvas : FrameworkElement
             bool allSelectedEntitiesAreUnlocked = true;
             bool allSelectedEntitiesAreSolids = true;
             double? commonSolidThickness = null;
+            bool allSelectedEntitiesAreMeshes = true;
+            int? commonMeshSubdivisionLevel = null;
             for (int i = 0; i < _selectedHandleCount; i++)
             {
                 ulong handle = _selectedHandles[i];
@@ -6827,6 +6884,15 @@ public sealed class CadSampleCanvas : FrameworkElement
                     else
                     {
                         allSelectedEntitiesAreSolids = false;
+                    }
+                    if (entity is Mesh firstMesh)
+                    {
+                        commonMeshSubdivisionLevel =
+                            firstMesh.SubdivisionLevel;
+                    }
+                    else
+                    {
+                        allSelectedEntitiesAreMeshes = false;
                     }
                     continue;
                 }
@@ -6879,6 +6945,16 @@ public sealed class CadSampleCanvas : FrameworkElement
                 {
                     commonSolidThickness = null;
                 }
+                if (entity is not Mesh mesh)
+                {
+                    allSelectedEntitiesAreMeshes = false;
+                    commonMeshSubdivisionLevel = null;
+                }
+                else if (commonMeshSubdivisionLevel is int subdivisionLevel &&
+                    subdivisionLevel != mesh.SubdivisionLevel)
+                {
+                    commonMeshSubdivisionLevel = null;
+                }
             }
             return new CadSelectionGeneralProperties(
                 _selectedHandleCount,
@@ -6891,7 +6967,11 @@ public sealed class CadSampleCanvas : FrameworkElement
                 commonIsInvisible,
                 allSelectedEntitiesAreUnlocked,
                 allSelectedEntitiesAreSolids,
-                allSelectedEntitiesAreSolids ? commonSolidThickness : null);
+                allSelectedEntitiesAreSolids ? commonSolidThickness : null,
+                allSelectedEntitiesAreMeshes,
+                allSelectedEntitiesAreMeshes
+                    ? commonMeshSubdivisionLevel
+                    : null);
         });
     }
 

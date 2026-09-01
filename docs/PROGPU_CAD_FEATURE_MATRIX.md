@@ -44,6 +44,16 @@ remaps surviving faces, control vertices, UVs, and crease edges, removes an
 empty mesh entity, retains exact Undo/Redo state, rebuilds subdivision, and
 persists through DXF/DWG without a native ABI or shader fork.
 
+Modern-MESH editing also includes bounded whole-entity Smooth More/Smooth Less
+and generation-safe face/edge/vertex crease authoring. Smoothing adjusts every
+eligible selected persisted level by one under the aggregate refinement budget;
+crease selection expands to authored boundary or incident edges, supports
+Always, uncrease, integer semi-sharp, and Blend-Crease-authorized fractional
+values, preserves unrelated record order, preflights all selected meshes before
+mutation, retains exact Undo/Redo state, remaps stable-topology selections, and
+round-trips through DXF/DWG. The shared desktop/browser controls rebuild the
+single canonical managed/native scene and require no ABI or shader fork.
+
 The 3D selection, rendering, Desktop app, and Browser app rows also include a
 shared configurable exact-first projected pick target. It uses AutoCAD-style
 complete logical-pixel height semantics, defaults to three, supports zero for
