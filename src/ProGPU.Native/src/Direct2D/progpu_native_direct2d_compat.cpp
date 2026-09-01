@@ -1,5 +1,6 @@
 #include "progpu_native_direct2d_compat.hpp"
 #include "progpu_native_direct2d_ellipse.hpp"
+#include "progpu_native_direct2d_geometry_group.hpp"
 #include "progpu_native_direct2d_path.hpp"
 #include "progpu_native_direct2d_rounded_rectangle.hpp"
 
@@ -622,12 +623,13 @@ public:
     }
 
     com::result PROGPU_NATIVE_COM_CALL CreateGeometryGroup(
-        fill_mode,
-        geometry**,
-        std::uint32_t,
+        fill_mode mode,
+        geometry** geometries,
+        std::uint32_t geometry_count,
         geometry_group** value) noexcept override
     {
-        return unsupported_output(value);
+        return detail::create_geometry_group(
+            this, mode, geometries, geometry_count, value);
     }
 
     com::result PROGPU_NATIVE_COM_CALL CreateTransformedGeometry(

@@ -979,6 +979,8 @@ add_library(progpu_native_direct2d_core STATIC
     src/Direct2D/progpu_native_direct2d_core.cpp
     src/Direct2D/progpu_native_direct2d_ellipse.cpp
     src/Direct2D/progpu_native_direct2d_ellipse.hpp
+    src/Direct2D/progpu_native_direct2d_geometry_group.cpp
+    src/Direct2D/progpu_native_direct2d_geometry_group.hpp
     src/Direct2D/progpu_native_direct2d_path.cpp
     src/Direct2D/progpu_native_direct2d_path.hpp
     src/Direct2D/progpu_native_direct2d_rounded_rectangle.cpp
