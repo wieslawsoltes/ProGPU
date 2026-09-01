@@ -2097,6 +2097,83 @@ int main()
         return 169;
     }
 
+    compat::layer_parameters masked_layer_parameters = layer_parameters;
+    masked_layer_parameters.geometric_mask = path_base.get();
+    masked_layer_parameters.opacity = 0.75F;
+    target->BeginDraw();
+    target->PushLayer(&masked_layer_parameters, target_layer.get());
+    target->FillRectangle(
+        &layer_bounds, static_cast<compat::brush*>(target_brush.get()));
+    target->PopLayer();
+    if (target->EndDraw(nullptr, nullptr) != com::ok ||
+        scene_target->GetRequiredSceneSize() == 0U) {
+        return 194;
+    }
+    const std::uint64_t masked_layer_scene_size =
+        scene_target->GetRequiredSceneSize();
+    std::vector<std::byte> masked_layer_scene(
+        static_cast<std::size_t>(masked_layer_scene_size));
+    std::uint64_t masked_layer_scene_written = 0U;
+    if (scene_target->BuildScene(
+            masked_layer_scene.data(),
+            masked_layer_scene.size(),
+            &masked_layer_scene_written) != com::ok ||
+        masked_layer_scene_written != masked_layer_scene_size) {
+        return 195;
+    }
+    const auto* masked_layer_header = reinterpret_cast<
+        const progpu_native_scene_header*>(masked_layer_scene.data());
+    const auto* masked_layer_push = reinterpret_cast<
+        const progpu_native_scene_command*>(
+            masked_layer_scene.data() +
+            masked_layer_header->command_offset);
+    if (masked_layer_header->command_count != 3U ||
+        masked_layer_push->kind != PROGPU_NATIVE_SCENE_COMMAND_PUSH_LAYER ||
+        masked_layer_push->payload_size <
+            sizeof(progpu_native_scene_layer)) {
+        return 196;
+    }
+    const auto* masked_native_layer = reinterpret_cast<
+        const progpu_native_scene_layer*>(
+            masked_layer_scene.data() + masked_layer_push->payload_offset);
+    if (masked_native_layer->mask_resource_index ==
+            PROGPU_NATIVE_SCENE_NO_INDEX ||
+        masked_native_layer->mask_resource_index >=
+            masked_layer_header->resource_count ||
+        !approximately_equal(masked_native_layer->opacity, 0.75F)) {
+        return 197;
+    }
+    const auto* masked_layer_resource = reinterpret_cast<
+        const progpu_native_scene_resource*>(
+            masked_layer_scene.data() +
+            masked_layer_header->resource_offset +
+            static_cast<std::size_t>(
+                masked_native_layer->mask_resource_index) *
+                masked_layer_header->resource_stride);
+    const auto* masked_layer_mask = reinterpret_cast<
+        const progpu_native_scene_layer_vector_mask*>(
+            masked_layer_scene.data() +
+            masked_layer_resource->payload_offset);
+    if (masked_layer_resource->kind !=
+            PROGPU_NATIVE_SCENE_RESOURCE_LAYER_MASK ||
+        masked_layer_resource->payload_size <
+            sizeof(progpu_native_scene_layer_vector_mask) ||
+        masked_layer_mask->kind !=
+            PROGPU_NATIVE_SCENE_LAYER_MASK_VECTOR_CLIP_CHAIN ||
+        masked_layer_mask->path_count != 1U ||
+        masked_layer_mask->segment_count == 0U) {
+        return 198;
+    }
+
+    masked_layer_parameters.mask_antialias_mode =
+        compat::antialias_mode::aliased;
+    target->BeginDraw();
+    target->PushLayer(&masked_layer_parameters, target_layer.get());
+    if (target->EndDraw(nullptr, nullptr) != compat::not_implemented ||
+        scene_target->GetRequiredSceneSize() != 0U) {
+        return 199;
+    }
+
     target->BeginDraw();
     target->FillGeometry(
         path_base.get(),
