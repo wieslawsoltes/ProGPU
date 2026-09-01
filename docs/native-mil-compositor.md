@@ -6408,15 +6408,18 @@ rotation, skew, and non-uniform scaling remain exact while the final transform
 and bounds reduction keeps its four-wide NEON/SSE2 implementation. Flat and
 round bounds, including a non-uniform transform, match genuine Direct2D on
 Windows x64 and ARM64. Dashed `Widen` now emits isolated closed outlines for
-bevel-joined line runs with flat, square, triangle, or round caps. Round
+joined line runs with flat, square, triangle, or round caps. Round
 semicircles are two cubic quarter arcs, and the full ordered line/cubic command
 set is constructed before sink replay. All endpoints and cubic controls are
 batch-transformed by the existing NEON/SSE2 point path. Dense portable regions
 match `StrokeContainsPoint`; genuine Direct2D x64 and ARM64 cap queries and
 widen calls pass. The Windows seam probe confirms that closed figures retain
 `DashCap` at the source seam, matching the compositor's original shared dash
-semantics. Round-join and miter-joined dashed widen output remain the next
-analysis gap.
+semantics. Bevel, qualified miter, and miter-or-bevel joins now share one typed
+offset-side builder. The low-limit miter-or-bevel path emits the two bevel
+vertices, while qualifying miters emit the exact offset-line intersection;
+dense containment and genuine Direct2D x64/ARM64 corner differentials pass.
+Round joins and over-limit clipped `Miter` output remain the next analysis gap.
 
 `GetWidenedBounds` now shares that default-miter path domain. Segment offsets
 and miter extrema are constructed before the world transform; independent

@@ -1597,10 +1597,12 @@ void append_distinct_point(
     }
 }
 
-[[nodiscard]] com::result append_flat_bevel_run_side(
+[[nodiscard]] com::result append_dash_run_side(
     std::span<const progpu_native_path_segment> segments,
     double half_width,
     double side,
+    line_join join,
+    double miter_limit,
     cap_style start_cap,
     cap_style end_cap,
     std::vector<point_2f>& points)
@@ -1697,7 +1699,7 @@ void append_distinct_point(
             continue;
         }
         const bool outer_side = cross * side < 0.0;
-        if (outer_side) {
+        if (outer_side && join == line_join::bevel) {
             append_distinct_point(points, incoming_offset);
             append_distinct_point(points, outgoing_offset);
             continue;
@@ -1709,11 +1711,23 @@ void append_distinct_point(
         const double parameter =
             (offset_x * outgoing_unit_y - offset_y * outgoing_unit_x) /
             cross;
-        append_distinct_point(points, {
+        const point_2f intersection{
             static_cast<float>(
                 incoming_offset.x + incoming_unit_x * parameter),
             static_cast<float>(
-                incoming_offset.y + incoming_unit_y * parameter)});
+                incoming_offset.y + incoming_unit_y * parameter)};
+        if (outer_side && std::hypot(
+                static_cast<double>(intersection.x) - vertex.x,
+                static_cast<double>(intersection.y) - vertex.y) >
+            miter_limit * half_width) {
+            if (join != line_join::miter_or_bevel) {
+                return not_implemented;
+            }
+            append_distinct_point(points, incoming_offset);
+            append_distinct_point(points, outgoing_offset);
+            continue;
+        }
+        append_distinct_point(points, intersection);
     }
     double last_unit_x = 0.0;
     double last_unit_y = 0.0;
@@ -1819,22 +1833,38 @@ void append_outline_line(
     return com::ok;
 }
 
-[[nodiscard]] com::result build_bevel_dash_outline(
+[[nodiscard]] com::result build_joined_dash_outline(
     std::span<const progpu_native_path_segment> segments,
     double half_width,
+    line_join join,
+    double miter_limit,
     cap_style start_cap,
     cap_style end_cap,
     widened_outline& outline)
 {
     std::vector<point_2f> left;
     std::vector<point_2f> right;
-    const com::result left_status = append_flat_bevel_run_side(
-        segments, half_width, 1.0, start_cap, end_cap, left);
+    const com::result left_status = append_dash_run_side(
+        segments,
+        half_width,
+        1.0,
+        join,
+        miter_limit,
+        start_cap,
+        end_cap,
+        left);
     if (com::failed(left_status)) {
         return left_status;
     }
-    const com::result right_status = append_flat_bevel_run_side(
-        segments, half_width, -1.0, start_cap, end_cap, right);
+    const com::result right_status = append_dash_run_side(
+        segments,
+        half_width,
+        -1.0,
+        join,
+        miter_limit,
+        start_cap,
+        end_cap,
+        right);
     if (com::failed(right_status)) {
         return right_status;
     }
@@ -1938,7 +1968,7 @@ void append_outline_line(
     return point_index == points.size() ? com::ok : failure;
 }
 
-[[nodiscard]] com::result emit_bevel_dashed_widen(
+[[nodiscard]] com::result emit_joined_dashed_widen(
     std::span<const point_2f> polygon,
     float stroke_width,
     stroke_style& style,
@@ -1965,9 +1995,11 @@ void append_outline_line(
         const cap_style end_cap = run.ends_at_source_end
             ? style.GetEndCap()
             : style.GetDashCap();
-        com::result result = build_bevel_dash_outline(
+        com::result result = build_joined_dash_outline(
             dash_runs.segments_for(run),
             half_width,
+            style.GetLineJoin(),
+            style.GetMiterLimit(),
             start_cap,
             end_cap,
             outlines.back());
@@ -4457,7 +4489,10 @@ public:
                 return wrong_factory;
             }
             dashed = style->GetDashStyle() != dash_style::solid;
-            if (!dashed || style->GetLineJoin() != line_join::bevel ||
+            if (!dashed || style->GetLineJoin() == line_join::round ||
+                style->GetLineJoin() > line_join::miter_or_bevel ||
+                !std::isfinite(style->GetMiterLimit()) ||
+                style->GetMiterLimit() < 1.0F ||
                 style->GetStartCap() > cap_style::triangle ||
                 style->GetEndCap() > cap_style::triangle ||
                 style->GetDashCap() > cap_style::triangle ||
@@ -4497,7 +4532,7 @@ public:
                 return not_implemented;
             }
             if (dashed) {
-                return emit_bevel_dashed_widen(
+                return emit_joined_dashed_widen(
                     polygon,
                     stroke_width,
                     *style,
