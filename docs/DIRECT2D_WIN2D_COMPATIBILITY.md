@@ -777,6 +777,14 @@ without a retry or CPU renderer. The full C++ D3D12 sample remains mandatory
 on that adapter, and every hardware/Parallels lane keeps the complete managed
 GPU scene.
 
+The later mixed-picture benchmark is independently bounded on the two known
+constrained D3D12 adapters. Microsoft Basic Render Driver and Parallels run the
+full 384-item stress through the C++ renderer, then a one-item live
+managed/native pixel differential after one cache warm frame. Hardware Windows
+retains the full 384-item managed/native differential. This prevents the
+hosted CPU-only adapter's repeatable roughly 96-second glyph-path device loss
+without treating a validation-only or CPU-rendered result as parity.
+
 The same rectangle domain now implements `CombineWithGeometry` for union,
 intersection, xor, and exclusion. A fixed three-by-three coordinate grid
 classifies at most nine cells, labels four-connected components, extracts only

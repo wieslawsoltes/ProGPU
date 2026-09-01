@@ -5301,6 +5301,15 @@ retry is substituted; the full C++ D3D12 sample still runs on the software
 adapter, and full managed GPU execution remains mandatory on hardware and
 Parallels.
 
+The distinct mixed-picture benchmark applies the same explicit adapter
+qualification. Microsoft Basic Render Driver and Parallels execute its full
+384-item stress through the C++ renderer, then run a live one-item
+managed/native pixel differential after one warm frame establishes retained
+glyph state. Hardware Windows retains the complete 384-item differential. The
+hosted software adapter otherwise loses its D3D12 device after roughly 96
+seconds in the dense managed glyph path; the bounded check still performs GPU
+submission and pixel comparison and is not a CPU substitute.
+
 The same hosted CPU-only adapter explicitly defers the two forced
 signed-winding compute profiles. Its inline four-rectangle rerasterization
 reached the final readback only after roughly 100 seconds and then lost the

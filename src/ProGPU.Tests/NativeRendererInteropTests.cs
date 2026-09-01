@@ -6667,6 +6667,16 @@ public class NativeRendererInteropTests
             windowsBuild,
             StringComparison.Ordinal);
         Assert.Contains(
+            "if ($IsParallelsDisplayAdapter -or " +
+            "$IsMicrosoftBasicRenderDriver)",
+            windowsBuild,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "Qualified the constrained D3D12 mixed-picture profile with " +
+            "native stress plus bounded differential parity.",
+            windowsBuild,
+            StringComparison.Ordinal);
+        Assert.Contains(
             "Deferred forced signed-winding compute execution on " +
             "Microsoft Basic Render Driver",
             windowsBuild,

@@ -413,17 +413,18 @@ if ($CurrentArchitecture -eq $RunnableArchitecture) {
         Invoke-NativeBenchmark `
             --win2d-canvas `
             --win2d-output $Win2DOracleDirectory
-        if ($IsParallelsDisplayAdapter) {
-            # The Parallels D3D12 driver removes the device in the legacy managed
-            # renderer's dense mixed-picture path. Keep the full 384-command
-            # stress on the C++ renderer, then require a bounded live pixel
-            # differential without executing that unsafe managed workload.
+        if ($IsParallelsDisplayAdapter -or $IsMicrosoftBasicRenderDriver) {
+            # The Parallels D3D12 driver and GitHub's CPU-only D3D12 adapter
+            # remove the device in the legacy managed renderer's dense
+            # mixed-picture path. Keep the full 384-command stress on the C++
+            # renderer, then require a bounded live pixel differential without
+            # executing that unsafe managed workload.
             Invoke-NativeBenchmark --managed-picture --profile-native-only --rectangles 384 --warmup 4 --iterations 8
             # GPU glyph stages advance the atlas generation on their first render. One
             # additional warm frame establishes the compiled-scene cache generation so
             # this bounded differential measures allocation-free stable replay.
             Invoke-NativeBenchmark --managed-picture --rectangles 1 --warmup 1 --iterations 1
-            Write-Host "Qualified the Parallels mixed-picture profile with native stress plus bounded differential parity."
+            Write-Host "Qualified the constrained D3D12 mixed-picture profile with native stress plus bounded differential parity."
         } else {
             Invoke-NativeBenchmark --managed-picture --rectangles 384 --warmup 4 --iterations 8
         }
