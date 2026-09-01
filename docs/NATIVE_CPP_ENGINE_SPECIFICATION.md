@@ -1577,6 +1577,14 @@ that software device after roughly 80 seconds even at half resolution, so it
 remains a hardware/Parallels GPU gate. The independent full C++ renderer stays
 mandatory on Basic Render Driver; no CPU rendering fallback is introduced.
 
+Microsoft Basic Render Driver also defers only the two forced signed-winding
+compute execution profiles after its inline four-rectangle rerasterization
+deterministically spent roughly 100 seconds and lost the device during final
+readback. Exact native validation and compiler contracts remain in that x64
+job. Forced inline/staged live execution stays mandatory on Parallels or
+hardware Windows, Metal, and Vulkan; production automatic selection and CPU
+fallback policy are unchanged.
+
 Primary contract references used for this design are
 [Skia `SkPath::contains`](https://api.skia.org/classSkPath.html),
 [Direct2D `ID2D1Geometry::FillContainsPoint`](https://learn.microsoft.com/en-us/windows/win32/api/d2d1/nf-d2d1-id2d1geometry-fillcontainspoint),
