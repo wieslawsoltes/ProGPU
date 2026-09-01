@@ -8,4 +8,4 @@
 [submodule "external/ACadSharp"]
 	path = external/ACadSharp
 	url = https://github.com/wieslawsoltes/ACadSharp.git
-	branch = master
+	branch = feat/progpu-cad-entities
