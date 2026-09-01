@@ -2228,6 +2228,34 @@ int run_tests()
         return 210;
     }
     query_sink.Reset();
+
+    compat::path_geometry* raw_open_query_path = nullptr;
+    compat::geometry_sink* raw_open_query_sink = nullptr;
+    if (factory->CreatePathGeometry(&raw_open_query_path) != com::ok ||
+        raw_open_query_path == nullptr ||
+        raw_open_query_path->Open(&raw_open_query_sink) != com::ok ||
+        raw_open_query_sink == nullptr) {
+      return 382;
+    }
+    com::pointer<compat::path_geometry> open_query_path;
+    open_query_path.attach(raw_open_query_path);
+    com::pointer<compat::geometry_sink> open_query_sink;
+    open_query_sink.attach(raw_open_query_sink);
+    open_query_sink->BeginFigure(
+        {0.0F, 0.0F}, compat::figure_begin::hollow);
+    constexpr std::array<compat::point_2f, 2U> open_query_points{{
+        {4.0F, 0.0F},
+        {4.0F, 4.0F},
+    }};
+    open_query_sink->AddLines(
+        open_query_points.data(),
+        static_cast<std::uint32_t>(open_query_points.size()));
+    open_query_sink->EndFigure(compat::figure_end::open);
+    if (open_query_sink->Close() != com::ok) {
+      return 383;
+    }
+    open_query_sink.Reset();
+
     contains = 0;
     area = 0.0F;
     length = 0.0F;
@@ -2472,6 +2500,41 @@ int run_tests()
   }
   com::pointer<compat::stroke_style> round_join_dashed_path_style;
   round_join_dashed_path_style.attach(raw_round_join_dashed_path_style);
+  std::int32_t open_body = 0;
+  std::int32_t open_flat_start = 0;
+  std::int32_t open_miter_corner = 0;
+  std::int32_t open_round_corner = 0;
+  std::int32_t open_dash_body = 0;
+  std::int32_t open_dash_gap = 0;
+  std::int32_t open_square_dash_cap = 0;
+  if (open_query_path->StrokeContainsPoint(
+          {2.0F, 0.75F}, 2.0F, nullptr, nullptr,
+          core::default_flattening_tolerance, &open_body) != com::ok ||
+      open_query_path->StrokeContainsPoint(
+          {-0.25F, 0.0F}, 2.0F, nullptr, nullptr,
+          core::default_flattening_tolerance, &open_flat_start) != com::ok ||
+      open_query_path->StrokeContainsPoint(
+          {4.75F, -0.75F}, 2.0F, nullptr, nullptr,
+          core::default_flattening_tolerance, &open_miter_corner) != com::ok ||
+      open_query_path->StrokeContainsPoint(
+          {4.6F, -0.6F}, 2.0F, round_path_stroke_style.get(), nullptr,
+          core::default_flattening_tolerance, &open_round_corner) != com::ok ||
+      open_query_path->StrokeContainsPoint(
+          {0.5F, 0.0F}, 0.5F, dashed_path_stroke_style.get(), nullptr,
+          0.001F, &open_dash_body) != com::ok ||
+      open_query_path->StrokeContainsPoint(
+          {1.5F, 0.0F}, 0.5F, dashed_path_stroke_style.get(), nullptr,
+          0.001F, &open_dash_gap) != com::ok ||
+      open_query_path->StrokeContainsPoint(
+          {1.1F, 0.0F}, 0.5F,
+          square_dashed_path_stroke_style.get(), nullptr,
+          0.001F, &open_square_dash_cap) != com::ok ||
+      open_body == 0 || open_flat_start != 0 ||
+      open_miter_corner == 0 || open_round_corner == 0 ||
+      open_dash_body == 0 || open_dash_gap != 0 ||
+      open_square_dash_cap == 0) {
+    return 384;
+  }
   const compat::matrix_3x2_f disjoint_path_transform{
       1.0F, 0.0F, 0.0F, 1.0F, 10.0F, 0.0F};
   const compat::matrix_3x2_f contained_path_transform{
@@ -6748,6 +6811,135 @@ int run_tests()
             system_bounds.bottom, native_path_bounds.bottom)) {
         system_factory->Release();
         return 50;
+    }
+
+    const auto create_open_query_path = [](ID2D1Factory* path_factory,
+                                            ID2D1PathGeometry** value) {
+      if (path_factory == nullptr || value == nullptr) {
+        return E_POINTER;
+      }
+      *value = nullptr;
+      ID2D1PathGeometry* path_value = nullptr;
+      ID2D1GeometrySink* sink_value = nullptr;
+      HRESULT status = path_factory->CreatePathGeometry(&path_value);
+      if (SUCCEEDED(status)) {
+        status = path_value->Open(&sink_value);
+      }
+      if (SUCCEEDED(status)) {
+        sink_value->BeginFigure(
+            D2D1_POINT_2F{0.0F, 0.0F}, D2D1_FIGURE_BEGIN_HOLLOW);
+        constexpr std::array<D2D1_POINT_2F, 2U> points{{
+            {4.0F, 0.0F},
+            {4.0F, 4.0F},
+        }};
+        sink_value->AddLines(points.data(), static_cast<UINT32>(points.size()));
+        sink_value->EndFigure(D2D1_FIGURE_END_OPEN);
+        status = sink_value->Close();
+      }
+      if (sink_value != nullptr) {
+        sink_value->Release();
+      }
+      if (FAILED(status)) {
+        if (path_value != nullptr) {
+          path_value->Release();
+        }
+        return status;
+      }
+      *value = path_value;
+      return S_OK;
+    };
+    ID2D1PathGeometry* portable_open_query_path = nullptr;
+    ID2D1PathGeometry* system_open_query_path = nullptr;
+    if (FAILED(create_open_query_path(
+            native_factory, &portable_open_query_path)) ||
+        FAILED(create_open_query_path(
+            system_factory, &system_open_query_path)) ||
+        portable_open_query_path == nullptr ||
+        system_open_query_path == nullptr) {
+      if (portable_open_query_path != nullptr) {
+        portable_open_query_path->Release();
+      }
+      if (system_open_query_path != nullptr) {
+        system_open_query_path->Release();
+      }
+      system_factory->Release();
+      return 385;
+    }
+    const D2D1_STROKE_STYLE_PROPERTIES open_dash_properties{
+        D2D1_CAP_STYLE_FLAT,
+        D2D1_CAP_STYLE_FLAT,
+        D2D1_CAP_STYLE_SQUARE,
+        D2D1_LINE_JOIN_ROUND,
+        4.0F,
+        D2D1_DASH_STYLE_DASH,
+        0.0F};
+    ID2D1StrokeStyle* portable_open_dash_style = nullptr;
+    ID2D1StrokeStyle* system_open_dash_style = nullptr;
+    if (FAILED(native_factory->CreateStrokeStyle(
+            &open_dash_properties,
+            nullptr,
+            0U,
+            &portable_open_dash_style)) ||
+        FAILED(system_factory->CreateStrokeStyle(
+            &open_dash_properties,
+            nullptr,
+            0U,
+            &system_open_dash_style)) ||
+        portable_open_dash_style == nullptr ||
+        system_open_dash_style == nullptr) {
+      if (portable_open_dash_style != nullptr) {
+        portable_open_dash_style->Release();
+      }
+      if (system_open_dash_style != nullptr) {
+        system_open_dash_style->Release();
+      }
+      portable_open_query_path->Release();
+      system_open_query_path->Release();
+      system_factory->Release();
+      return 386;
+    }
+    constexpr std::array<D2D1_POINT_2F, 6U> open_probe_points{{
+        {2.0F, 0.75F},
+        {-0.25F, 0.0F},
+        {4.75F, -0.75F},
+        {0.5F, 0.0F},
+        {1.5F, 0.0F},
+        {1.1F, 0.0F},
+    }};
+    bool open_probe_matches = true;
+    for (std::size_t probe_index = 0U;
+         probe_index < open_probe_points.size();
+         ++probe_index) {
+      const bool dashed_probe = probe_index >= 3U;
+      BOOL portable_contains = FALSE;
+      BOOL system_contains = FALSE;
+      const HRESULT portable_status =
+          portable_open_query_path->StrokeContainsPoint(
+              open_probe_points[probe_index],
+              dashed_probe ? 0.5F : 2.0F,
+              dashed_probe ? portable_open_dash_style : nullptr,
+              nullptr,
+              0.001F,
+              &portable_contains);
+      const HRESULT system_status =
+          system_open_query_path->StrokeContainsPoint(
+              open_probe_points[probe_index],
+              dashed_probe ? 0.5F : 2.0F,
+              dashed_probe ? system_open_dash_style : nullptr,
+              nullptr,
+              0.001F,
+              &system_contains);
+      open_probe_matches = open_probe_matches &&
+          SUCCEEDED(portable_status) && SUCCEEDED(system_status) &&
+          portable_contains == system_contains;
+    }
+    portable_open_dash_style->Release();
+    system_open_dash_style->Release();
+    portable_open_query_path->Release();
+    system_open_query_path->Release();
+    if (!open_probe_matches) {
+      system_factory->Release();
+      return 387;
     }
 
   const auto create_system_polygon = [system_factory](

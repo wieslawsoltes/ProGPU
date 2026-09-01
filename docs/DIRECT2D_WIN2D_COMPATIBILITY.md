@@ -854,9 +854,9 @@ shear preserve Direct2D's stroke-before-transform ordering. Independent
 point-to-segment tests execute four at a time through ARM64 NEON or SSE2, with
 a bounded scalar tail only on architectures without either intrinsic family.
 The topology-dependent join pass covers bevel wedges and default miter
-extensions up to Direct2D's limit. Explicit segment flags, stroke styles,
-open/multiple figures, degeneracy, self-intersection, and singular transforms
-fail closed. Straight, miter-corner, interior, exterior, concave-corner, and
+extensions up to Direct2D's limit. Explicit segment flags, multiple figures,
+degeneracy, self-intersection, and singular transforms fail closed. Straight,
+miter-corner, interior, exterior, concave-corner, and
 nonuniform transformed probes pass locally under optimization and sanitizers
 and match genuine system Direct2D on Windows ARM64.
 
@@ -898,6 +898,18 @@ between clamped miters and bevel conversion, and passes portable dense-region
 plus genuine Direct2D x64/ARM64 validation. All cap/join combinations are now
 covered for dashed line runs in this simple closed-path domain; curved,
 multi-figure, and general open-path widening remain broader geometry work.
+
+The containment lane now also accepts a single open figure. Consecutive
+nondegenerate segments retain the same four-lane NEON/SSE2 body test and typed
+bevel, miter, miter-or-bevel, or round join predicates. Unlike a closed
+figure, the first and final vertices use `StartCap` and `EndCap`; dash splits
+use `DashCap`, and the shared curve-dash walker runs with open-source seam
+semantics. Portable tests cover solid body, flat source caps, miter and round
+joins, dashed body/gap, and square dash-cap extension. A genuine Direct2D
+differential builds and runs the same probes through ProGPU and system
+factories on Windows ARM64 and x64. `GetWidenedBounds` and `Widen` for open
+figures remain the next output operations; unsupported multi-figure and
+flagged paths still fail closed.
 
 The identical simple closed/default-miter domain now implements
 `GetWidenedBounds`. It derives segment offset endpoints plus qualified miter
