@@ -162,6 +162,12 @@ public sealed class Direct2DInteropContractTests
             "src",
             "Direct2D",
             "progpu_native_direct2d_path.cpp");
+        string provider = ReadRepoFile(
+            "src",
+            "ProGPU.Native",
+            "src",
+            "Direct2D",
+            "progpu_native_direct2d.cpp");
         string nativeTest = ReadRepoFile(
             "src",
             "ProGPU.Native",
@@ -186,7 +192,8 @@ public sealed class Direct2DInteropContractTests
         Assert.Contains("class portable_geometry_sink final", pathSource, StringComparison.Ordinal);
         Assert.Contains("path_state::fresh", pathSource, StringComparison.Ordinal);
         Assert.Contains("path_state::closed", pathSource, StringComparison.Ordinal);
-        Assert.Contains("contains_arc()", pathSource, StringComparison.Ordinal);
+        Assert.Contains("core::arc_to_cubics", pathSource, StringComparison.Ordinal);
+        Assert.Contains("direct2d_core::arc_to_cubics", provider, StringComparison.Ordinal);
         Assert.Contains("core::rectangle_geometry geometry_", source, StringComparison.Ordinal);
         Assert.Contains("core::compose_transform", source, StringComparison.Ordinal);
         Assert.Contains("return not_implemented;", source, StringComparison.Ordinal);

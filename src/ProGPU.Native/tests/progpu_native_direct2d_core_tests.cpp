@@ -134,5 +134,44 @@ int main()
             com::invalid_argument) {
         return 10;
     }
+
+    const core::arc_segment_f arc{
+        {2.0F, 0.0F},
+        {1.0F, 1.0F},
+        0.0F,
+        core::arc_sweep_direction::clockwise,
+        core::arc_size_kind::small_value};
+    std::array<core::cubic_bezier_segment_f, 4U> arc_cubics{};
+    std::uint32_t arc_cubic_count = 0U;
+    if (!core::valid_arc_segment(arc) ||
+        core::arc_to_cubics(
+            {0.0F, 0.0F}, arc, &arc_cubics, &arc_cubic_count) != com::ok ||
+        arc_cubic_count != 2U ||
+        !approximately_equal(arc_cubics[0U].point3.x, 1.0F) ||
+        !approximately_equal(arc_cubics[0U].point3.y, -1.0F) ||
+        !approximately_equal(arc_cubics[1U].point3.x, 2.0F) ||
+        !approximately_equal(arc_cubics[1U].point3.y, 0.0F)) {
+        return 11;
+    }
+    if (core::arc_to_cubics(
+            {0.0F, 0.0F}, arc, nullptr, &arc_cubic_count) !=
+            com::pointer_error ||
+        core::arc_to_cubics(
+            {0.0F, 0.0F}, arc, &arc_cubics, nullptr) !=
+            com::pointer_error) {
+        return 12;
+    }
+    core::arc_segment_f invalid_arc = arc;
+    invalid_arc.sweep = static_cast<core::arc_sweep_direction>(99U);
+    arc_cubic_count = 99U;
+    if (core::valid_arc_segment(invalid_arc) ||
+        core::arc_to_cubics(
+            {0.0F, 0.0F},
+            invalid_arc,
+            &arc_cubics,
+            &arc_cubic_count) != com::invalid_argument ||
+        arc_cubic_count != 0U) {
+        return 13;
+    }
     return 0;
 }

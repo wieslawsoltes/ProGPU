@@ -11,6 +11,11 @@ using point_2f = progpu_native_direct2d_point_2f;
 using matrix_3x2_f = progpu_native_direct2d_matrix_3x2_f;
 using triangle = progpu_native_direct2d_triangle;
 using rectangle_f = core::rectangle_edges_f;
+using bezier_segment = core::cubic_bezier_segment_f;
+using size_f = core::size_f;
+using sweep_direction = core::arc_sweep_direction;
+using arc_size = core::arc_size_kind;
+using arc_segment = core::arc_segment_f;
 
 inline constexpr com::result not_implemented = -2147467263;
 inline constexpr com::result failure = -2147467259;
@@ -99,38 +104,9 @@ enum class combine_mode : std::uint32_t {
     exclude = 3U
 };
 
-struct bezier_segment final {
-    point_2f point1;
-    point_2f point2;
-    point_2f point3;
-};
-
 struct quadratic_bezier_segment final {
     point_2f point1;
     point_2f point2;
-};
-
-struct size_f final {
-    float width;
-    float height;
-};
-
-enum class sweep_direction : std::uint32_t {
-    counter_clockwise = 0U,
-    clockwise = 1U
-};
-
-enum class arc_size : std::uint32_t {
-    small_value = 0U,
-    large_value = 1U
-};
-
-struct arc_segment final {
-    point_2f point;
-    size_f size;
-    float rotation_angle;
-    sweep_direction sweep;
-    arc_size size_kind;
 };
 
 struct rounded_rectangle;

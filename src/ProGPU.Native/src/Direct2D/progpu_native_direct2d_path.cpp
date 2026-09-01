@@ -69,13 +69,7 @@ struct path_data final {
 
 [[nodiscard]] bool valid_arc(const arc_segment& arc) noexcept
 {
-    return finite_point(arc.point) && std::isfinite(arc.size.width) &&
-        std::isfinite(arc.size.height) && arc.size.width >= 0.0F &&
-        arc.size.height >= 0.0F && std::isfinite(arc.rotation_angle) &&
-        (arc.sweep == sweep_direction::counter_clockwise ||
-            arc.sweep == sweep_direction::clockwise) &&
-        (arc.size_kind == arc_size::small_value ||
-            arc.size_kind == arc_size::large_value);
+    return core::valid_arc_segment(arc);
 }
 
 [[nodiscard]] com::result transform_point(
@@ -575,9 +569,6 @@ public:
         if (!core::valid_transform(world_transform)) {
             return com::invalid_argument;
         }
-        if (contains_arc()) {
-            return not_implemented;
-        }
         rectangle_f result{
             (std::numeric_limits<float>::max)(),
             (std::numeric_limits<float>::max)(),
@@ -606,12 +597,16 @@ public:
                         segment.end, world_transform, &end))) {
                     return com::invalid_argument;
                 }
-                if (segment.kind == segment_kind::line) {
+                if (segment.kind == segment_kind::line ||
+                    (segment.kind == segment_kind::arc &&
+                        (segment.arc.size.width == 0.0F ||
+                            segment.arc.size.height == 0.0F))) {
                     result.left = std::min(result.left, end.x);
                     result.top = std::min(result.top, end.y);
                     result.right = std::max(result.right, end.x);
                     result.bottom = std::max(result.bottom, end.y);
-                } else {
+                } else if (segment.kind == segment_kind::cubic ||
+                           segment.kind == segment_kind::quadratic) {
                     point_2f control1_source = segment.control1;
                     point_2f control2_source = segment.control2;
                     if (segment.kind == segment_kind::quadratic) {
@@ -640,6 +635,46 @@ public:
                     }
                     include_cubic_bounds(
                         current, control1, control2, end, result);
+                } else {
+                    std::array<core::cubic_bezier_segment_f, 4U> cubics{};
+                    std::uint32_t cubic_count = 0U;
+                    const com::result arc_status = core::arc_to_cubics(
+                        current_source,
+                        segment.arc,
+                        &cubics,
+                        &cubic_count);
+                    if (com::failed(arc_status)) {
+                        return arc_status;
+                    }
+                    point_2f cubic_start = current;
+                    for (std::uint32_t cubic_index = 0U;
+                         cubic_index < cubic_count;
+                         ++cubic_index) {
+                        point_2f control1{};
+                        point_2f control2{};
+                        point_2f cubic_end{};
+                        if (com::failed(transform_point(
+                                cubics[cubic_index].point1,
+                                world_transform,
+                                &control1)) ||
+                            com::failed(transform_point(
+                                cubics[cubic_index].point2,
+                                world_transform,
+                                &control2)) ||
+                            com::failed(transform_point(
+                                cubics[cubic_index].point3,
+                                world_transform,
+                                &cubic_end))) {
+                            return com::invalid_argument;
+                        }
+                        include_cubic_bounds(
+                            cubic_start,
+                            control1,
+                            control2,
+                            cubic_end,
+                            result);
+                        cubic_start = cubic_end;
+                    }
                 }
                 current_source = segment.end;
                 current = end;
@@ -727,9 +762,6 @@ public:
         if (option == geometry_simplification_option::lines) {
             return not_implemented;
         }
-        if (contains_arc()) {
-            return not_implemented;
-        }
         sink->SetFillMode(data_->mode);
         path_segment current_flags = static_cast<path_segment>(
             (std::numeric_limits<std::uint32_t>::max)());
@@ -755,9 +787,13 @@ public:
                         segment.end, world_transform, &end))) {
                     return com::invalid_argument;
                 }
-                if (segment.kind == segment_kind::line) {
+                if (segment.kind == segment_kind::line ||
+                    (segment.kind == segment_kind::arc &&
+                        (segment.arc.size.width == 0.0F ||
+                            segment.arc.size.height == 0.0F))) {
                     sink->AddLines(&end, 1U);
-                } else {
+                } else if (segment.kind == segment_kind::cubic ||
+                           segment.kind == segment_kind::quadratic) {
                     point_2f control1_source = segment.control1;
                     point_2f control2_source = segment.control2;
                     if (segment.kind == segment_kind::quadratic) {
@@ -789,6 +825,37 @@ public:
                     }
                     bezier.point3 = end;
                     sink->AddBeziers(&bezier, 1U);
+                } else {
+                    std::array<core::cubic_bezier_segment_f, 4U> cubics{};
+                    std::uint32_t cubic_count = 0U;
+                    const com::result arc_status = core::arc_to_cubics(
+                        current_source,
+                        segment.arc,
+                        &cubics,
+                        &cubic_count);
+                    if (com::failed(arc_status)) {
+                        return arc_status;
+                    }
+                    for (std::uint32_t cubic_index = 0U;
+                         cubic_index < cubic_count;
+                         ++cubic_index) {
+                        bezier_segment bezier{};
+                        if (com::failed(transform_point(
+                                cubics[cubic_index].point1,
+                                world_transform,
+                                &bezier.point1)) ||
+                            com::failed(transform_point(
+                                cubics[cubic_index].point2,
+                                world_transform,
+                                &bezier.point2)) ||
+                            com::failed(transform_point(
+                                cubics[cubic_index].point3,
+                                world_transform,
+                                &bezier.point3))) {
+                            return com::invalid_argument;
+                        }
+                        sink->AddBeziers(&bezier, 1U);
+                    }
                 }
                 current_source = segment.end;
                 current = end;
@@ -967,16 +1034,6 @@ public:
     }
 
 private:
-    [[nodiscard]] bool contains_arc() const noexcept
-    {
-        return std::any_of(
-            data_->segments.begin(),
-            data_->segments.end(),
-            [](const stored_segment& segment) {
-                return segment.kind == segment_kind::arc;
-            });
-    }
-
     [[nodiscard]] bool closed() const noexcept
     {
         return data_->state.load(std::memory_order_acquire) ==
