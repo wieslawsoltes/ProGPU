@@ -5,8 +5,8 @@ using CSMath;
 namespace ProGPU.CAD;
 
 /// <summary>
-/// Translates authored vertices, edges, and faces of direct model-space modern
-/// MESH entities while preserving topology and exact undo/redo coordinates.
+/// Base for bounded transforms of authored vertices, edges, and faces on
+/// direct model-space modern MESH entities.
 /// </summary>
 /// <remarks>
 /// The selected IDs must belong to the supplied immutable scene generation.
@@ -19,7 +19,7 @@ namespace ProGPU.CAD;
 /// with no new managed allocation. Work is bounded by <see cref="MaxSubobjects"/>
 /// and <see cref="MaxAffectedVertices"/>.
 /// </remarks>
-public sealed class CadTranslateMeshSubobjectsCommand : CadEditCommand
+public abstract class CadTransformMeshSubobjectsCommand : CadEditCommand
 {
     public const int DefaultMaxSubobjects = 4_096;
     public const int DefaultMaxAffectedVertices = 1_000_000;
@@ -29,7 +29,6 @@ public sealed class CadTranslateMeshSubobjectsCommand : CadEditCommand
     private MeshEdit[]? _edits;
 
     public ReadOnlyMemory<CadMesh3DSubobjectId> Subobjects => _subobjects;
-    public CadPoint3D Translation { get; }
     public ulong SourceContentGeneration { get; }
     public int MaxSubobjects { get; }
     public int MaxAffectedVertices { get; }
@@ -37,11 +36,10 @@ public sealed class CadTranslateMeshSubobjectsCommand : CadEditCommand
     internal override ulong? ExpectedContentGeneration =>
         SourceContentGeneration;
 
-    public CadTranslateMeshSubobjectsCommand(
+    private protected CadTransformMeshSubobjectsCommand(
         CadRecordedMesh3DScene scene,
         IEnumerable<CadMesh3DSubobjectId> subobjects,
-        CadPoint3D translation,
-        string description = "Translate mesh subobjects",
+        string description,
         int maxSubobjects = DefaultMaxSubobjects,
         int maxAffectedVertices = DefaultMaxAffectedVertices)
         : base(description)
@@ -50,16 +48,8 @@ public sealed class CadTranslateMeshSubobjectsCommand : CadEditCommand
         ArgumentNullException.ThrowIfNull(subobjects);
         ArgumentOutOfRangeException.ThrowIfNegativeOrZero(maxSubobjects);
         ArgumentOutOfRangeException.ThrowIfNegativeOrZero(maxAffectedVertices);
-        if (!IsFinite(translation) || translation == CadPoint3D.Zero)
-        {
-            throw new ArgumentException(
-                "A mesh-subobject translation must be finite and non-zero.",
-                nameof(translation));
-        }
-
         MaxSubobjects = maxSubobjects;
         MaxAffectedVertices = maxAffectedVertices;
-        Translation = translation;
         SourceContentGeneration = scene.ContentGeneration;
 
         var ids = new List<CadMesh3DSubobjectId>();
@@ -151,8 +141,8 @@ public sealed class CadTranslateMeshSubobjectsCommand : CadEditCommand
         }
 
         int affectedVertexCount = 0;
+        CadBounds3D affectedBounds = CadBounds3D.Empty;
         var edits = new MeshEdit[builders.Count];
-        int editIndex = 0;
         foreach (EditBuilder builder in builders.Values)
         {
             affectedVertexCount = checked(
@@ -162,7 +152,13 @@ public sealed class CadTranslateMeshSubobjectsCommand : CadEditCommand
                 throw new InvalidOperationException(
                     $"Mesh-subobject edit affects more than the configured {MaxAffectedVertices} vertices.");
             }
-            edits[editIndex++] = builder.CreateEdit(Translation);
+            affectedBounds = affectedBounds.Union(builder.GetAffectedBounds());
+        }
+        PrepareTransform(affectedBounds);
+        int editIndex = 0;
+        foreach (EditBuilder builder in builders.Values)
+        {
+            edits[editIndex++] = builder.CreateEdit(this);
         }
         return edits;
     }
@@ -170,7 +166,7 @@ public sealed class CadTranslateMeshSubobjectsCommand : CadEditCommand
     private MeshEdit[] GetRetainedEdits(CadDocument document)
     {
         MeshEdit[] edits = _edits ?? throw new InvalidOperationException(
-            "The mesh-subobject translation command has not been applied.");
+            "The mesh-subobject transform command has not been applied.");
         foreach (MeshEdit edit in edits)
         {
             ValidateModelSpaceEntity(document, edit.Mesh);
@@ -216,10 +212,30 @@ public sealed class CadTranslateMeshSubobjectsCommand : CadEditCommand
         }
     }
 
-    private static bool IsFinite(CadPoint3D point) =>
+    protected static bool IsFinite(CadPoint3D point) =>
         double.IsFinite(point.X) &&
         double.IsFinite(point.Y) &&
         double.IsFinite(point.Z);
+
+    private protected abstract CadPoint3D TransformPoint(CadPoint3D point);
+
+    private protected virtual void PrepareTransform(CadBounds3D affectedBounds)
+    {
+    }
+
+    private XYZ TransformPoint(XYZ point)
+    {
+        CadPoint3D transformed = TransformPoint(new CadPoint3D(
+            point.X,
+            point.Y,
+            point.Z));
+        if (!IsFinite(transformed))
+        {
+            throw new InvalidOperationException(
+                "Mesh-subobject transform produces a non-finite control vertex.");
+        }
+        return new XYZ(transformed.X, transformed.Y, transformed.Z);
+    }
 
     private readonly record struct EditTarget(
         ulong SourceHandle,
@@ -287,25 +303,17 @@ public sealed class CadTranslateMeshSubobjectsCommand : CadEditCommand
             }
         }
 
-        public MeshEdit CreateEdit(CadPoint3D translation)
+        public MeshEdit CreateEdit(
+            CadTransformMeshSubobjectsCommand command)
         {
             int[] indices = VertexIndices.Order().ToArray();
             var before = new XYZ[indices.Length];
             var after = new XYZ[indices.Length];
             var proposed = new Dictionary<int, XYZ>(indices.Length);
-            var displacement = new XYZ(
-                translation.X,
-                translation.Y,
-                translation.Z);
             for (int index = 0; index < indices.Length; index++)
             {
                 XYZ source = Mesh.Vertices[indices[index]];
-                XYZ destination = source + displacement;
-                if (!IsFinite(destination))
-                {
-                    throw new InvalidOperationException(
-                        "Mesh-subobject translation produces a non-finite control vertex.");
-                }
+                XYZ destination = command.TransformPoint(source);
                 before[index] = source;
                 after[index] = destination;
                 proposed.Add(indices[index], destination);
@@ -317,6 +325,25 @@ public sealed class CadTranslateMeshSubobjectsCommand : CadEditCommand
                 indices,
                 before,
                 after);
+        }
+
+        public CadBounds3D GetAffectedBounds()
+        {
+            CadBounds3D bounds = CadBounds3D.Empty;
+            foreach (int index in VertexIndices)
+            {
+                XYZ point = Mesh.Vertices[index];
+                if (!IsFinite(point))
+                {
+                    throw new InvalidOperationException(
+                        "A modern MESH control vertex must be finite.");
+                }
+                bounds = bounds.Include(new CadPoint3D(
+                    point.X,
+                    point.Y,
+                    point.Z));
+            }
+            return bounds;
         }
 
         private static void ValidateMeshTopology(
@@ -368,7 +395,7 @@ public sealed class CadTranslateMeshSubobjectsCommand : CadEditCommand
                     if (startPoint == endPoint)
                     {
                         throw new InvalidOperationException(
-                            "Mesh-subobject translation would collapse an authored control edge.");
+                            "Mesh-subobject transform would collapse an authored control edge.");
                     }
                 }
                 if (distinct.Count < 3)
@@ -391,4 +418,198 @@ public sealed class CadTranslateMeshSubobjectsCommand : CadEditCommand
         int[] VertexIndices,
         XYZ[] Before,
         XYZ[] After);
+}
+
+/// <summary>Translates authored modern-MESH subobjects in WCS.</summary>
+public sealed class CadTranslateMeshSubobjectsCommand :
+    CadTransformMeshSubobjectsCommand
+{
+    public CadPoint3D Translation { get; }
+
+    public CadTranslateMeshSubobjectsCommand(
+        CadRecordedMesh3DScene scene,
+        IEnumerable<CadMesh3DSubobjectId> subobjects,
+        CadPoint3D translation,
+        string description = "Translate mesh subobjects",
+        int maxSubobjects = DefaultMaxSubobjects,
+        int maxAffectedVertices = DefaultMaxAffectedVertices)
+        : base(
+            scene,
+            subobjects,
+            description,
+            maxSubobjects,
+            maxAffectedVertices)
+    {
+        if (!IsFinite(translation) || translation == CadPoint3D.Zero)
+        {
+            throw new ArgumentException(
+                "A mesh-subobject translation must be finite and non-zero.",
+                nameof(translation));
+        }
+        Translation = translation;
+    }
+
+    private protected override CadPoint3D TransformPoint(CadPoint3D point) =>
+        point + Translation;
+}
+
+/// <summary>Rotates authored modern-MESH subobjects around one WCS axis.</summary>
+public sealed class CadRotateMeshSubobjectsCommand :
+    CadTransformMeshSubobjectsCommand
+{
+    private readonly double _cosine;
+    private readonly double _sine;
+    private readonly bool _usesSelectionCenter;
+
+    public CadPoint3D Axis { get; }
+    public double Radians { get; }
+    public CadPoint3D Pivot { get; private set; }
+
+    public CadRotateMeshSubobjectsCommand(
+        CadRecordedMesh3DScene scene,
+        IEnumerable<CadMesh3DSubobjectId> subobjects,
+        CadPoint3D axis,
+        double radians,
+        string description = "Rotate mesh subobjects",
+        int maxSubobjects = DefaultMaxSubobjects,
+        int maxAffectedVertices = DefaultMaxAffectedVertices)
+        : this(
+            scene,
+            subobjects,
+            axis,
+            radians,
+            CadPoint3D.Zero,
+            description,
+            maxSubobjects,
+            maxAffectedVertices)
+    {
+        _usesSelectionCenter = true;
+    }
+
+    public CadRotateMeshSubobjectsCommand(
+        CadRecordedMesh3DScene scene,
+        IEnumerable<CadMesh3DSubobjectId> subobjects,
+        CadPoint3D axis,
+        double radians,
+        CadPoint3D pivot,
+        string description = "Rotate mesh subobjects",
+        int maxSubobjects = DefaultMaxSubobjects,
+        int maxAffectedVertices = DefaultMaxAffectedVertices)
+        : base(
+            scene,
+            subobjects,
+            description,
+            maxSubobjects,
+            maxAffectedVertices)
+    {
+        if (!double.IsFinite(radians) || radians == 0.0)
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(radians),
+                "A mesh-subobject rotation must be finite and non-zero.");
+        }
+        if (!IsFinite(pivot))
+        {
+            throw new ArgumentException(
+                "A mesh-subobject rotation pivot must be finite.",
+                nameof(pivot));
+        }
+        Axis = axis.Normalize();
+        Radians = radians;
+        Pivot = pivot;
+        _cosine = Math.Cos(radians);
+        _sine = Math.Sin(radians);
+    }
+
+    private protected override void PrepareTransform(CadBounds3D affectedBounds)
+    {
+        if (_usesSelectionCenter)
+        {
+            Pivot = affectedBounds.Center;
+        }
+    }
+
+    private protected override CadPoint3D TransformPoint(CadPoint3D point)
+    {
+        CadPoint3D relative = point - Pivot;
+        return Pivot +
+            (relative * _cosine) +
+            (CadPoint3D.Cross(Axis, relative) * _sine) +
+            (Axis * (CadPoint3D.Dot(Axis, relative) * (1.0 - _cosine)));
+    }
+}
+
+/// <summary>Uniformly scales authored modern-MESH subobjects around a WCS pivot.</summary>
+public sealed class CadScaleMeshSubobjectsCommand :
+    CadTransformMeshSubobjectsCommand
+{
+    public double Factor { get; }
+    private readonly bool _usesSelectionCenter;
+
+    public CadPoint3D Pivot { get; private set; }
+
+    public CadScaleMeshSubobjectsCommand(
+        CadRecordedMesh3DScene scene,
+        IEnumerable<CadMesh3DSubobjectId> subobjects,
+        double factor,
+        string description = "Scale mesh subobjects",
+        int maxSubobjects = DefaultMaxSubobjects,
+        int maxAffectedVertices = DefaultMaxAffectedVertices)
+        : this(
+            scene,
+            subobjects,
+            factor,
+            CadPoint3D.Zero,
+            description,
+            maxSubobjects,
+            maxAffectedVertices)
+    {
+        _usesSelectionCenter = true;
+    }
+
+    public CadScaleMeshSubobjectsCommand(
+        CadRecordedMesh3DScene scene,
+        IEnumerable<CadMesh3DSubobjectId> subobjects,
+        double factor,
+        CadPoint3D pivot,
+        string description = "Scale mesh subobjects",
+        int maxSubobjects = DefaultMaxSubobjects,
+        int maxAffectedVertices = DefaultMaxAffectedVertices)
+        : base(
+            scene,
+            subobjects,
+            description,
+            maxSubobjects,
+            maxAffectedVertices)
+    {
+        double inverseFactor = 1.0 / factor;
+        if (!double.IsFinite(factor) ||
+            factor <= 0.0 ||
+            factor == 1.0 ||
+            !double.IsFinite(inverseFactor))
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(factor),
+                "A mesh-subobject scale factor must be positive, finite, non-unit, and have a finite inverse.");
+        }
+        if (!IsFinite(pivot))
+        {
+            throw new ArgumentException(
+                "A mesh-subobject scale pivot must be finite.",
+                nameof(pivot));
+        }
+        Factor = factor;
+        Pivot = pivot;
+    }
+
+    private protected override void PrepareTransform(CadBounds3D affectedBounds)
+    {
+        if (_usesSelectionCenter)
+        {
+            Pivot = affectedBounds.Center;
+        }
+    }
+
+    private protected override CadPoint3D TransformPoint(CadPoint3D point) =>
+        Pivot + ((point - Pivot) * Factor);
 }

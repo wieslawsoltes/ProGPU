@@ -206,6 +206,169 @@ public sealed class CadMesh3DEditingTests
     }
 
     [Fact]
+    public void PivotedRotationAndScaleRebuildSubdivisionFromControlVertices()
+    {
+        var document = new CadDocument();
+        Mesh mesh = CreateMesh();
+        mesh.SubdivisionLevel = 1;
+        document.Entities.Add(mesh);
+        var session = new CadDocumentSession(document);
+        var history = new CadDocumentHistory(session);
+        CadRecordedMesh3DScene scene = CompileScene(session);
+        CadMesh3DSubobjectComponent component = Assert.Single(
+            scene.SubobjectComponents.ToArray());
+
+        history.Execute(new CadRotateMeshSubobjectsCommand(
+            scene,
+            [CreateId(scene, component, CadMesh3DSubobjectKind.Face, 0)],
+            new CadPoint3D(1, 0, 0),
+            Math.PI / 4.0,
+            CadPoint3D.Zero));
+        CadRecordedMesh3DScene rotated = CompileScene(session);
+        Assert.Equal(1UL, rotated.ContentGeneration);
+        Assert.True(rotated.Statistics.TriangleCount > 2);
+        AssertPoint(
+            new XYZ(2, Math.Sqrt(2), Math.Sqrt(2)),
+            mesh.Vertices[2]);
+
+        CadMesh3DSubobjectComponent rotatedComponent = Assert.Single(
+            rotated.SubobjectComponents.ToArray());
+        history.Execute(new CadScaleMeshSubobjectsCommand(
+            rotated,
+            [CreateId(
+                rotated,
+                rotatedComponent,
+                CadMesh3DSubobjectKind.Face,
+                0)],
+            0.5,
+            new CadPoint3D(0, 0, 4)));
+        CadRecordedMesh3DScene scaled = CompileScene(session);
+
+        Assert.Equal(2UL, scaled.ContentGeneration);
+        Assert.True(scaled.Statistics.TriangleCount > 2);
+        AssertPoint(
+            new XYZ(1, Math.Sqrt(0.5), 2 + Math.Sqrt(0.5)),
+            mesh.Vertices[2]);
+    }
+
+    [Fact]
+    public void RotationUsesNormalizedWcsAxisAndExactCoordinateUndoRedo()
+    {
+        (CadDocumentSession session, Mesh mesh, CadRecordedMesh3DScene scene) =
+            CreateDirectScene();
+        CadMesh3DSubobjectComponent component = Assert.Single(
+            scene.SubobjectComponents.ToArray());
+        XYZ[] original = mesh.Vertices.ToArray();
+        var history = new CadDocumentHistory(session);
+        var command = new CadRotateMeshSubobjectsCommand(
+            scene,
+            [CreateId(scene, component, CadMesh3DSubobjectKind.Edge, 0)],
+            new CadPoint3D(0, 0, 4),
+            Math.PI / 2.0,
+            CadPoint3D.Zero);
+
+        history.Execute(command);
+
+        Assert.Equal(new CadPoint3D(0, 0, 1), command.Axis);
+        AssertPoint(new XYZ(0, 0, 0), mesh.Vertices[0]);
+        AssertPoint(new XYZ(0, 2, 0), mesh.Vertices[1]);
+        Assert.Equal(original[2], mesh.Vertices[2]);
+        Assert.Equal(original[3], mesh.Vertices[3]);
+        Assert.True(history.TryUndo(out _));
+        Assert.Equal(original, mesh.Vertices);
+        Assert.True(history.TryRedo(out _));
+        AssertPoint(new XYZ(0, 2, 0), mesh.Vertices[1]);
+    }
+
+    [Fact]
+    public void UniformScaleMovesAuthoredFaceUnionAroundThreeDimensionalPivot()
+    {
+        (CadDocumentSession session, Mesh mesh, CadRecordedMesh3DScene scene) =
+            CreateDirectScene();
+        CadMesh3DSubobjectComponent component = Assert.Single(
+            scene.SubobjectComponents.ToArray());
+        XYZ[] original = mesh.Vertices.ToArray();
+        var history = new CadDocumentHistory(session);
+        var pivot = new CadPoint3D(1, 1, 3);
+
+        history.Execute(new CadScaleMeshSubobjectsCommand(
+            scene,
+            [CreateId(scene, component, CadMesh3DSubobjectKind.Face, 0)],
+            0.5,
+            pivot));
+
+        AssertPoint(new XYZ(0.5, 0.5, 1.5), mesh.Vertices[0]);
+        AssertPoint(new XYZ(1.5, 0.5, 1.5), mesh.Vertices[1]);
+        AssertPoint(new XYZ(1.5, 1.5, 1.5), mesh.Vertices[2]);
+        Assert.Equal(original[3], mesh.Vertices[3]);
+        Assert.True(history.TryUndo(out _));
+        Assert.Equal(original, mesh.Vertices);
+        Assert.True(history.TryRedo(out _));
+        AssertPoint(new XYZ(0.5, 0.5, 1.5), mesh.Vertices[0]);
+    }
+
+    [Fact]
+    public void PivotedTransformThatCollapsesBoundaryEdgeIsAtomic()
+    {
+        (CadDocumentSession session, Mesh mesh, CadRecordedMesh3DScene scene) =
+            CreateDirectScene();
+        CadMesh3DSubobjectComponent component = Assert.Single(
+            scene.SubobjectComponents.ToArray());
+        XYZ[] original = mesh.Vertices.ToArray();
+        var history = new CadDocumentHistory(session);
+
+        Assert.Throws<InvalidOperationException>(() => history.Execute(
+            new CadScaleMeshSubobjectsCommand(
+                scene,
+                [CreateId(
+                    scene,
+                    component,
+                    CadMesh3DSubobjectKind.Vertex,
+                    0)],
+                2.0,
+                new CadPoint3D(-2, 0, 0))));
+
+        Assert.Equal(original, mesh.Vertices);
+        Assert.Equal(0UL, session.ContentGeneration);
+    }
+
+    [Fact]
+    public void RotationAndScaleRejectInvalidParametersBeforeMutation()
+    {
+        (CadDocumentSession session, Mesh mesh, CadRecordedMesh3DScene scene) =
+            CreateDirectScene();
+        CadMesh3DSubobjectComponent component = Assert.Single(
+            scene.SubobjectComponents.ToArray());
+        CadMesh3DSubobjectId vertex = CreateId(
+            scene,
+            component,
+            CadMesh3DSubobjectKind.Vertex,
+            0);
+        XYZ[] original = mesh.Vertices.ToArray();
+
+        Assert.Throws<ArgumentException>(() =>
+            new CadRotateMeshSubobjectsCommand(
+                scene,
+                [vertex],
+                CadPoint3D.Zero,
+                Math.PI / 2.0));
+        Assert.Throws<ArgumentOutOfRangeException>(() =>
+            new CadRotateMeshSubobjectsCommand(
+                scene,
+                [vertex],
+                new CadPoint3D(0, 0, 1),
+                double.NaN));
+        Assert.Throws<ArgumentOutOfRangeException>(() =>
+            new CadScaleMeshSubobjectsCommand(
+                scene,
+                [vertex],
+                double.Epsilon));
+
+        Assert.Equal(original, mesh.Vertices);
+        Assert.Equal(0UL, session.ContentGeneration);
+    }
+
+    [Fact]
     public void NestedBlockMeshIsIdentifiedButRequiresReferenceEditingScope()
     {
         Mesh source = CreateMesh();
@@ -329,6 +492,58 @@ public sealed class CadMesh3DEditingTests
         Assert.Single(CompileScene(loaded.Session).SubobjectComponents.ToArray());
     }
 
+    [Theory]
+    [InlineData(CadDocumentFormat.Dxf)]
+    [InlineData(CadDocumentFormat.Dwg)]
+    public async Task RotatedAndScaledControlVerticesRoundTripThroughAdvertisedFormats(
+        CadDocumentFormat format)
+    {
+        (CadDocumentSession session, Mesh mesh, CadRecordedMesh3DScene scene) =
+            CreateDirectScene();
+        var history = new CadDocumentHistory(session);
+        CadMesh3DSubobjectComponent component = Assert.Single(
+            scene.SubobjectComponents.ToArray());
+        history.Execute(new CadRotateMeshSubobjectsCommand(
+            scene,
+            [CreateId(scene, component, CadMesh3DSubobjectKind.Face, 1)],
+            new CadPoint3D(0, 0, 2),
+            Math.PI / 2.0,
+            CadPoint3D.Zero));
+
+        CadRecordedMesh3DScene rotated = CompileScene(session);
+        CadMesh3DSubobjectComponent rotatedComponent = Assert.Single(
+            rotated.SubobjectComponents.ToArray());
+        history.Execute(new CadScaleMeshSubobjectsCommand(
+            rotated,
+            [CreateId(
+                rotated,
+                rotatedComponent,
+                CadMesh3DSubobjectKind.Edge,
+                0)],
+            1.5,
+            new CadPoint3D(1, 2, 3)));
+        XYZ[] expected = mesh.Vertices.ToArray();
+        var store = new CadDocumentStore();
+        using var stream = new MemoryStream();
+
+        await store.SaveAsync(
+            session,
+            stream,
+            format,
+            new CadSaveOptions { AllowUncertifiedWrite = true });
+        stream.Position = 0;
+        CadLoadResult loaded = await store.LoadAsync(
+            stream,
+            format,
+            sourceName: $"transformed-mesh.{format.ToString().ToLowerInvariant()}");
+        Mesh restored = loaded.Session.Read(document =>
+            Assert.IsType<Mesh>(Assert.Single(document.Entities)));
+
+        Assert.Equal(expected, restored.Vertices);
+        Assert.Equal(mesh.Faces, restored.Faces);
+        Assert.Single(CompileScene(loaded.Session).SubobjectComponents.ToArray());
+    }
+
     private static (
         CadDocumentSession Session,
         Mesh Mesh,
@@ -367,4 +582,11 @@ public sealed class CadMesh3DEditingTests
             component.ComponentIndex,
             kind,
             index);
+
+    private static void AssertPoint(XYZ expected, XYZ actual)
+    {
+        Assert.Equal(expected.X, actual.X, 12);
+        Assert.Equal(expected.Y, actual.Y, 12);
+        Assert.Equal(expected.Z, actual.Z, 12);
+    }
 }

@@ -1,0 +1,70 @@
+{
+  "CapturedAt": "2026-09-01T04:30:36.859571+00:00",
+  "OperatingSystem": "Unix 26.6.0",
+  "Runtime": ".NET 10.0.5",
+  "GridSize": 128,
+  "ControlVertexCount": 16641,
+  "AuthoredFaceCount": 16384,
+  "SelectedFaceCount": 1024,
+  "WarmupCount": 2,
+  "IterationCount": 16,
+  "TranslationSnapshotSceneMilliseconds": {
+    "Name": "mesh-subobject-translate-snapshot-scene-ms",
+    "P50": 419.0903,
+    "P95": 484.0935,
+    "P99": 484.0935,
+    "Mean": 420.4374312499999,
+    "AllocatedBytesPerOperation": 209357678
+  },
+  "RotationSnapshotSceneMilliseconds": {
+    "Name": "mesh-subobject-rotate-snapshot-scene-ms",
+    "P50": 407.5812,
+    "P95": 605.221,
+    "P99": 605.221,
+    "Mean": 423.93185625,
+    "AllocatedBytesPerOperation": 209052946
+  },
+  "ScaleSnapshotSceneMilliseconds": {
+    "Name": "mesh-subobject-scale-snapshot-scene-ms",
+    "P50": 394.3555,
+    "P95": 414.4207,
+    "P99": 414.4207,
+    "Mean": 397.04421874999997,
+    "AllocatedBytesPerOperation": 209353769
+  },
+  "TranslationUndoRedoMilliseconds": {
+    "Name": "mesh-subobject-translate-undo-redo-ms",
+    "P50": 0.0306,
+    "P95": 0.0357,
+    "P99": 0.0357,
+    "Mean": 0.02995625,
+    "AllocatedBytesPerOperation": 304
+  },
+  "RotationUndoRedoMilliseconds": {
+    "Name": "mesh-subobject-rotate-undo-redo-ms",
+    "P50": 0.024,
+    "P95": 0.0322,
+    "P99": 0.0322,
+    "Mean": 0.024849999999999997,
+    "AllocatedBytesPerOperation": 288
+  },
+  "ScaleUndoRedoMilliseconds": {
+    "Name": "mesh-subobject-scale-undo-redo-ms",
+    "P50": 0.0067,
+    "P95": 0.1437,
+    "P99": 0.1437,
+    "Mean": 0.01680625,
+    "AllocatedBytesPerOperation": 288
+  },
+  "TranslationFinalContentGeneration": 54,
+  "RotationFinalContentGeneration": 54,
+  "ScaleFinalContentGeneration": 54,
+  "RelevantBinarySha256": {
+    "Benchmark": "c05c51fc1dc53f270c4bfa7c135c00e0019de56406e634c01f8c7fbc5d6de811",
+    "Backend": "0f75eb873f6d8b6f9685ec268bf1f7acb5e575220fa07100bdb862c1b936ba52",
+    "Cad": "8354ee5f175d5793730b7e9f00b32519c1184442347d47a8e2926cb09b15eb8a",
+    "Scene": "1c02ed13d024f171cb23b0b6a942c4c914ccb4770f23cde25009e0f03d4b413e",
+    "TestsHeadless": "2e4555c19ed9101c300526d37ab8a7d87efa9de2c64566b384508bacce242915",
+    "WinUI": "a6a576045ebc44bd2660d34af2fb0308b3d1c0739cdb541baa9294e2ab5e72de"
+  }
+}

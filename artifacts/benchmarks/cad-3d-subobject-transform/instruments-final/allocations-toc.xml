@@ -1,0 +1,71 @@
+<?xml version="1.0"?>
+
+<trace-toc>
+    <run number="1">
+        <info>
+            <target>
+                <device platform="macOS" model="MacBook Pro" name="MacBook Pro" os-version="26.6 (25G72)" uuid="B1E7AA82-163A-5A2C-A592-B8A333C3E82B"/>
+                <process arguments="/Users/wieslawsoltes/GitHub/ProGPU/src/ProGPU.CAD.Benchmarks/bin/Release/net10.0/ProGPU.CAD.Benchmarks.dll --mesh3d-subobject-edit-grid 128 --mesh3d-subobject-edit-faces 1024 --warmup 2 --iterations 16" type="launched" return-exit-status="0" name="dotnet" pid="1923" termination-reason="exit(0)"/>
+            </target>
+            <summary>
+                <start-date>2026-09-01T06:30:11.835+02:00</start-date>
+                <end-date>2026-09-01T06:30:36.937+02:00</end-date>
+                <duration>25.101858</duration>
+                <end-reason>Target app exited</end-reason>
+                <instruments-version>16.0 (17E202)</instruments-version>
+                <template-name>Allocations</template-name>
+                <recording-mode>Deferred</recording-mode>
+                <time-limit>1 minute</time-limit>
+                <intruments-recording-settings>
+                    <instrument name="Allocations">
+                        <options>
+                            <option key="Record" value="Heap and VM allocations
+Identities of virtual C++ objects"/>
+                            <option key="When stopping" value="Immediately discard unrecorded data"/>
+                            <option key="Freed memory" value="Keep events"/>
+                            <option key="Type Filters" value="Record all types"/>
+                        </options>
+                    </instrument>
+                </intruments-recording-settings>
+            </summary>
+        </info>
+        <processes>
+            <process name="kernel" pid="0" path="/System/Library/Kernels/kernel.release.t6030"/>
+            <process name="dotnet" pid="1923" path="/Users/wieslawsoltes/.dotnet/dotnet"/>
+        </processes>
+        <data>
+            <table schema="global-roi-layout" target-pid="SINGLE" documentation="Layout information for graphing regions of interest."/>
+            <table category="PointsOfInterest" schema="os-log" documentation="Holds a message from the OS's Unified Logging and Tracing component."/>
+            <table exclude-os-logs="0" schema="global-poi-layout" target-pid="SINGLE" documentation="A point of interest that can be laid out on a graph view."/>
+            <table schema="tick" frequency="10" documentation="Provides modelers with a regular reference time for modeling fixed time-based statistics. The ticks are evenly spaced with a configurable frequency specifying the number of events to generate per second, so a tick schema with a frequency of 10 will generate a row every 100ms."/>
+            <table category="PointsOfInterest" schema="os-log-arg" documentation="Holds a metadata argument from the OS's Unified Logging and Tracing component."/>
+            <table schema="kdebug-signpost" target-pid="SINGLE" documentation="Marks a point in time denoted by a special type of kdebug trace."/>
+            <table category="PointsOfInterest" schema="os-signpost-arg" documentation="Holds a signpost metadata argument from the OS's Unified Logging and Tracing component."/>
+            <table schema="dyld-library-load" target-pid="SINGLE"/>
+            <table schema="gcd-perf-event" target-pid="SINGLE" documentation="Find sub-optimal uses of Grand Central Dispatch."/>
+            <table codes="&quot;0x1f,0x05&quot;" target="SINGLE" schema="kdebug-strings" documentation="Associates numeric arguments with strings in kdebug trace points."/>
+            <table codes="&quot;0x07,0x00&quot; &quot;0x1f,0x05&quot;" target="SINGLE" schema="kdebug" documentation="Tracing the kernel and some system frameworks."/>
+            <table codes="&quot;0x21,0xa&quot;" schema="kdebug" callstack="user" target="SINGLE" documentation="Tracing the kernel and some system frameworks."/>
+            <table codes="&quot;0x1,0xa&quot;" schema="kdebug" callstack="user" target="SINGLE" documentation="Tracing the kernel and some system frameworks."/>
+            <table schema="os-signpost" category="PointsOfInterest" dynamic-tracing-enabled-subsystems="&quot;com.apple.neappprivacy&quot;" documentation="Holds a signpost event from the OS's Unified Logging and Tracing component."/>
+            <table exclude-os-logs="0" schema="roi-metadata" target-pid="SINGLE" documentation="Describes details about a given region of interest."/>
+            <table target-pid="SINGLE" schema="region-of-interest" exclude-os-logs="0" documentation="Determined by the modelers and represent a focus area that the developer is likely to be intereseted in."/>
+            <table schema="process-info" documentation="Associates processes with their process names."/>
+            <table codes="&quot;46,2&quot;" schema="kdebug" callstack="user" target="SINGLE" documentation="Tracing the kernel and some system frameworks."/>
+            <table schema="thread-info" documentation="Associates threads with their owning process."/>
+        </data>
+        <tracks>
+            <track name="Allocations">
+                <details>
+                    <detail name="Statistics" kind="table"/>
+                    <detail name="Allocations List" kind="table"/>
+                </details>
+            </track>
+            <track name="VM Tracker">
+                <details>
+                    <detail name="Regions Map" kind="table"/>
+                </details>
+            </track>
+        </tracks>
+    </run>
+</trace-toc>

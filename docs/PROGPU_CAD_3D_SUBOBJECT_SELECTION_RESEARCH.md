@@ -167,7 +167,7 @@ candidate triangles, and `P` path points. Storage is `O(S)` immutable counts
 plus `O(S)` caller-owned integer state; result identity storage is bounded to
 256 and truncation is explicit. Warm queries allocate no managed memory.
 
-## Generation-safe subobject translation design gate
+## Generation-safe subobject transform design gate
 
 The editing extension re-examined the production-engine contracts before
 making retained selection identity mutable. Autodesk documents that selected
@@ -178,12 +178,13 @@ constrains selected objects or subobjects by axis or plane, and that subobject
 transforms maintain the containing object's topology. Its
 [grip guidance](https://help.autodesk.com/cloudhelp/2024/ENU/AutoCAD-Core/files/GUID-7BD066C9-31BA-4D47-8064-2F9CF268FA15.htm)
 places the gizmo at the selection center and supports group modification of
-mesh subobjects. ProGPU adopts WCS translation of a mixed vertex/edge/face set:
-vertices move themselves, authored edges move both endpoints, authored faces
-move every referenced control vertex, and the union moves each vertex exactly
-once. It defers free-drag gizmos, rotation, scaling, erase, and grip-mode
-policy; the shared shell's bounded `+/-X` and `+/-Y` actions are the first exact
-interaction surface.
+mesh subobjects. ProGPU adopts WCS translation, axis rotation, and uniform
+scaling of a mixed vertex/edge/face set: vertices affect themselves, authored
+edges affect both endpoints, authored faces affect every referenced control
+vertex, and the union transforms each vertex exactly once. The shared shell
+routes bounded `+/-X` and `+/-Y` translation plus positive/negative Z-axis
+rotation and uniform scale through the same generation-owned command seam. It
+defers free-drag gizmos, non-uniform scale, erase, and grip-mode policy.
 
 Rendered IDs identify occurrences, while an editable control vertex belongs to
 the authoritative modern-MESH entity. The snapshot and shared Mesh3D scene now
@@ -229,18 +230,33 @@ identity, silently editing shared block definitions, partial best-effort
 mutation, framebuffer picking, and rebuilding text/cache state.
 
 The first application expands `S` selected subobjects into `A` unique control
-vertices and validates `C` authored face corners in expected `O(S + C)` time
-with `O(A + C)` temporary/retained storage. Selection is bounded to 4,096
-subobjects and one million affected vertices. All proposed coordinates and
-every authored edge are validated before the first write, so a non-finite
-result, stale topology, locked layer, missing source, or collapsed edge changes
-neither the document nor its generation. Undo and redo assign the retained
-exact before/after coordinates in `O(A)` time without new command allocation.
-This is CPU document
-editing and immutable-scene metadata only: no shader, public C ABI, generated
-C# wire record, upload stream, render submission, or managed/native crossing
-changes. Both renderers continue consuming the same rebuilt scene, so a second
-C++ document editor would create ownership drift and is not applicable.
+vertices, derives exact double-WCS affected bounds, transforms every affected
+vertex, and validates `C` authored face corners in expected `O(S + A + C)`
+time with `O(A + C)` temporary/retained storage. Translation is one vector
+addition per vertex. Rotation normalizes one finite nonzero WCS axis once and
+applies the standard Rodrigues axis-angle expression in constant work per
+vertex. Uniform scale accepts only a positive, finite, non-unit factor with a
+finite reciprocal and performs one pivot-relative multiply per vertex.
+Explicit-pivot command overloads preserve caller intent; selection-center
+overloads derive their pivot from authoritative ACadSharp control coordinates,
+not float-rebased render vertices.
+
+Selection is bounded to 4,096 subobjects and one million affected vertices.
+The command materializes exact before and proposed-after coordinate arrays and
+validates all results, topology, and every authored edge before the first
+write, so a non-finite result, stale topology, locked layer, missing source, or
+collapsed edge changes neither the document nor its generation. Undo and redo
+assign those retained arrays in `O(A)` time without recomputing an inverse
+transform or allocating new command state. Rebuilding the retained scene after
+each successful edit regenerates subdivision, bounds, selection data, and both
+managed/native render inputs; the shell remaps selected source handle,
+component, kind, and ordinal into the replacement generation.
+
+This is CPU document editing and immutable-scene metadata only: no shader,
+public C ABI, generated C# wire record, upload stream, render submission, or
+managed/native crossing changes. Both renderers continue consuming the same
+rebuilt scene, so a second C++ document editor would create ownership drift and
+is not applicable.
 
 ## Interaction, managed/native parity, and invalidation
 
@@ -312,41 +328,50 @@ submission exists. All targets exited zero. Compact summaries, manifests, and
 exported tables are retained under
 `artifacts/benchmarks/cad-3d-subobject-selection/instruments-region/`.
 
-The editing extension adds focused regressions for mixed vertex/edge/face
-deduplication, exact undo/redo coordinates, stale-generation rejection,
-multi-mesh atomic failure, collapsed-edge rejection, bounded affected-vertex
-work, locked layers, explicit nested-definition rejection, subdivision rebuild,
-DXF/DWG persistence, source-identity remapping, and shared-shell movement. The
-final Release suites passed 1,439/1,439 `ProGPU.CAD.Tests` and 3,848/3,848
-`ProGPU.Tests`.
+The transform extension adds focused regressions for mixed vertex/edge/face
+deduplication, normalized-axis and exact-pivot math, invalid parameter rejection,
+exact undo/redo coordinates, stale-generation rejection, multi-mesh atomic
+failure, collapsed-edge rejection, bounded affected-vertex work, locked layers,
+explicit nested-definition rejection, translation/rotation/scale subdivision
+rebuild, DXF/DWG persistence, source-identity remapping, and shared-shell
+movement/rotation/scale. The final Release suites passed 1,447/1,447
+`ProGPU.CAD.Tests` and 3,848/3,848 `ProGPU.Tests`.
 
-The final editing benchmark uses a 128-by-128 modern-MESH grid with 16,641
+The final transform benchmark uses a 128-by-128 modern-MESH grid with 16,641
 control vertices and 16,384 authored faces, selecting 1,024 evenly distributed
 faces. The SHA-identified Release benchmark and `ProGPU.CAD` binaries are
-`4cd8f1031e0139b5746d8f705505c4bff2a9f4bc0f795741d17531ed43bb1e11`
-and `3c1085691076c6eb7c4368c2c7f8280ec1a39c7b1fcd95ce20f3a876be33f421`.
-Across 24 iterations, the complete edit plus pre/post snapshot and Mesh3D scene
-rebuild measured 416.4275/470.7665/487.7460 milliseconds p50/p95/p99 and
-209,354,321 managed bytes per operation. This deliberately includes two full
-immutable compilations and exposes their existing allocation cost. The retained
-exact undo+redo pair measured 0.0240/0.0297/0.0303 milliseconds and 304 bytes
-per pair; allocation is from history reason strings and session events, while
-the command's coordinate replay creates no new storage. The acceptance result
-is `artifacts/benchmarks/cad-3d-subobject-edit/final-release.json`.
+`c05c51fc1dc53f270c4bfa7c135c00e0019de56406e634c01f8c7fbc5d6de811`
+and `8354ee5f175d5793730b7e9f00b32519c1184442347d47a8e2926cb09b15eb8a`.
+Across 24 iterations per lane, complete transform plus pre/post snapshot and
+Mesh3D scene rebuild measured 408.1063/448.6865/463.4769 milliseconds
+p50/p95/p99 for translation, 431.4559/548.9130/604.4687 for rotation, and
+410.4458/670.3365/681.9217 for scale. Managed allocation was respectively
+209,356,224, 209,047,849, and 209,357,734 bytes per operation. These lanes
+deliberately include two full immutable compilations and expose their existing
+allocation cost. Exact retained undo+redo measured
+0.0245/0.0279/0.0288 milliseconds with 304 bytes for translation,
+0.0286/0.0710/0.0736 with 288 bytes for rotation, and
+0.0090/0.0113/0.0142 with 288 bytes for scale. Allocation is from history
+reason strings and session events; retained coordinate replay creates no new
+coordinate storage. The acceptance result is
+`artifacts/benchmarks/cad-3d-subobject-transform/final-release.json`, whose
+SHA-256 is
+`d2ffaa7eae661831ecc61e973c0f9f2df585ce434e44740171b84d17ab72b3d7`.
 
-Matched Xcode Instruments captures launched the same final binaries and
-workload. Allocations/VM Tracker reported 20,251,744 persistent and 628,644,544
-total heap-plus-anonymous-VM bytes across startup and instrumented work. Time
-Profiler retained samples with no potential hang or hang risk. Metal System
-Trace found zero target resource allocations, current allocated bytes,
+Matched Xcode Instruments captures launched the same final binaries and all
+three lanes. Allocations/VM Tracker reported 14,034,240 persistent and
+1,617,079,344 total heap-plus-anonymous-VM bytes across startup and instrumented
+work. Time Profiler retained samples with no potential hang or hang risk. Metal
+System Trace found zero target resource allocations, current allocated bytes,
 application submissions, drawable waits, compiler spills, hangs, or errors,
 as expected for CPU editing and immutable scene compilation. All recordings
 exited zero; compact manifests, target logs, summaries, and exported tables are
-retained under `artifacts/benchmarks/cad-3d-subobject-edit/instruments-final/`.
+retained under
+`artifacts/benchmarks/cad-3d-subobject-transform/instruments-final/`.
 
 Deferred work is explicit: persistent IDs across topology-edit generations,
-rotation/scale/erase and free-drag gizmos, explicit nested reference editing,
-legacy-mesh compatibility behavior, and ACIS solid/surface face, edge, and
-vertex topology. None is approximated by whole-object handles, tessellation
-facets, render-batch ordinals, shared-definition mutation, or display-wire
-indices.
+erase and free-drag gizmos, non-uniform scaling, arbitrary interactive 3D axis
+acquisition, explicit nested reference editing, legacy-mesh compatibility
+behavior, and ACIS solid/surface face, edge, and vertex topology. None is
+approximated by whole-object handles, tessellation facets, render-batch
+ordinals, shared-definition mutation, or display-wire indices.

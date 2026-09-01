@@ -1874,6 +1874,77 @@ public sealed class CadMesh3DSelectionTests
     }
 
     [Fact]
+    public void SharedViewportRotatesAndScalesSelectedMeshEdgeAroundItsCenter()
+    {
+        var document = new CadDocument();
+        Mesh mesh = CreateStackedMesh(0.0);
+        document.Entities.Add(mesh);
+        var session = new CadDocumentSession(document);
+        var view = new CadSampleView();
+        try
+        {
+            view.Arrange(new Rect(0, 0, 1_280, 900));
+            view.Canvas.Load(session);
+            view.MeshViewport.Size = ViewportSize;
+            PressEnter(FindButton(view, "3D surfaces"));
+            CadRecordedMesh3DScene scene = Assert.IsType<CadRecordedMesh3DScene>(
+                view.MeshScene);
+            view.MeshSubobjectSelector.SelectedIndex = 2;
+            Click(
+                view.MeshViewport,
+                Project(
+                    view.MeshViewportState!.Value,
+                    scene,
+                    new CadPoint3D(0.0, -2.0, 0.0)));
+            CadMesh3DSubobjectId selected = Assert.Single(
+                view.SelectedMeshSubobjects);
+            Assert.Equal(CadMesh3DSubobjectKind.Edge, selected.Kind);
+            Assert.Equal(0, selected.Index);
+            Button rotate = FindButton(view, "↺");
+            Button scale = FindButton(view, "×");
+            Assert.True(rotate.IsEnabled);
+            Assert.True(scale.IsEnabled);
+
+            PressEnter(rotate);
+
+            double radians = 15.0 * Math.PI / 180.0;
+            AssertPoint(
+                new XYZ(-2.0 * Math.Cos(radians),
+                    -2.0 - (2.0 * Math.Sin(radians)),
+                    0),
+                mesh.Vertices[0]);
+            AssertPoint(
+                new XYZ(2.0 * Math.Cos(radians),
+                    -2.0 + (2.0 * Math.Sin(radians)),
+                    0),
+                mesh.Vertices[1]);
+            Assert.Equal(1UL, session.ContentGeneration);
+            Assert.Equal(1UL, Assert.Single(
+                view.SelectedMeshSubobjects).ContentGeneration);
+
+            PressEnter(scale);
+
+            AssertPoint(
+                new XYZ(-4.0 * Math.Cos(radians),
+                    -2.0 - (4.0 * Math.Sin(radians)),
+                    0),
+                mesh.Vertices[0]);
+            AssertPoint(
+                new XYZ(4.0 * Math.Cos(radians),
+                    -2.0 + (4.0 * Math.Sin(radians)),
+                    0),
+                mesh.Vertices[1]);
+            Assert.Equal(2UL, session.ContentGeneration);
+            Assert.Equal(2UL, Assert.Single(
+                view.SelectedMeshSubobjects).ContentGeneration);
+        }
+        finally
+        {
+            view.Canvas.FireUnloaded();
+        }
+    }
+
+    [Fact]
     public void SharedViewportAltClickCyclesNearestSemanticDepthHits()
     {
         var document = new CadDocument();
@@ -2157,4 +2228,11 @@ public sealed class CadMesh3DSelectionTests
         {
             Key = Silk.NET.Input.Key.Enter,
         });
+
+    private static void AssertPoint(XYZ expected, XYZ actual)
+    {
+        Assert.Equal(expected.X, actual.X, 10);
+        Assert.Equal(expected.Y, actual.Y, 10);
+        Assert.Equal(expected.Z, actual.Z, 10);
+    }
 }

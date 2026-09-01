@@ -1,0 +1,96 @@
+{
+  "schemaVersion": 2,
+  "capturedUtc": "2026-09-01T04:35:11.150765+00:00",
+  "durationSeconds": 60,
+  "windowSeconds": null,
+  "targetMode": "launch",
+  "target": "/Users/wieslawsoltes/.dotnet/dotnet",
+  "arguments": [
+    "/Users/wieslawsoltes/GitHub/ProGPU/src/ProGPU.CAD.Benchmarks/bin/Release/net10.0/ProGPU.CAD.Benchmarks.dll",
+    "--mesh3d-subobject-edit-grid",
+    "128",
+    "--mesh3d-subobject-edit-faces",
+    "1024",
+    "--warmup",
+    "2",
+    "--iterations",
+    "16"
+  ],
+  "environmentVariableNames": [],
+  "cleanupTraces": true,
+  "cleanupExports": false,
+  "allocationDetails": false,
+  "summary": {
+    "json": "/Users/wieslawsoltes/GitHub/ProGPU/artifacts/benchmarks/cad-3d-subobject-transform/instruments-final/instruments-summary.json",
+    "markdown": "/Users/wieslawsoltes/GitHub/ProGPU/artifacts/benchmarks/cad-3d-subobject-transform/instruments-final/instruments-summary.md",
+    "resourceCount": 0,
+    "maximumCurrentAllocatedBytes": 0,
+    "nativeHeapAndAnonymousVmPersistentBytes": 14034240
+  },
+  "captures": [
+    {
+      "Key": "allocations",
+      "Template": "Allocations",
+      "TracePath": "/Users/wieslawsoltes/GitHub/ProGPU/artifacts/benchmarks/cad-3d-subobject-transform/instruments-final/allocations.trace",
+      "TableOfContentsPath": "/Users/wieslawsoltes/GitHub/ProGPU/artifacts/benchmarks/cad-3d-subobject-transform/instruments-final/allocations-toc.xml",
+      "LogPath": "/Users/wieslawsoltes/GitHub/ProGPU/artifacts/benchmarks/cad-3d-subobject-transform/instruments-final/allocations.log",
+      "TargetOutputPath": "/Users/wieslawsoltes/GitHub/ProGPU/artifacts/benchmarks/cad-3d-subobject-transform/instruments-final/allocations-target.log",
+      "RecordExitCode": 0,
+      "Exports": [
+        "/Users/wieslawsoltes/GitHub/ProGPU/artifacts/benchmarks/cad-3d-subobject-transform/instruments-final/allocations-statistics.xml"
+      ],
+      "TraceRetained": false,
+      "DeletedTraceBytes": 17290243,
+      "ExportsRetained": true,
+      "DeletedExportBytes": 0,
+      "DeletedTemporaryBytes": 37708368
+    },
+    {
+      "Key": "time",
+      "Template": "Time Profiler",
+      "TracePath": "/Users/wieslawsoltes/GitHub/ProGPU/artifacts/benchmarks/cad-3d-subobject-transform/instruments-final/time.trace",
+      "TableOfContentsPath": "/Users/wieslawsoltes/GitHub/ProGPU/artifacts/benchmarks/cad-3d-subobject-transform/instruments-final/time-toc.xml",
+      "LogPath": "/Users/wieslawsoltes/GitHub/ProGPU/artifacts/benchmarks/cad-3d-subobject-transform/instruments-final/time.log",
+      "TargetOutputPath": "/Users/wieslawsoltes/GitHub/ProGPU/artifacts/benchmarks/cad-3d-subobject-transform/instruments-final/time-target.log",
+      "RecordExitCode": 0,
+      "Exports": [
+        "/Users/wieslawsoltes/GitHub/ProGPU/artifacts/benchmarks/cad-3d-subobject-transform/instruments-final/time-time-profile.xml",
+        "/Users/wieslawsoltes/GitHub/ProGPU/artifacts/benchmarks/cad-3d-subobject-transform/instruments-final/time-time-sample.xml",
+        "/Users/wieslawsoltes/GitHub/ProGPU/artifacts/benchmarks/cad-3d-subobject-transform/instruments-final/time-potential-hangs.xml",
+        "/Users/wieslawsoltes/GitHub/ProGPU/artifacts/benchmarks/cad-3d-subobject-transform/instruments-final/time-hang-risks.xml"
+      ],
+      "TraceRetained": false,
+      "DeletedTraceBytes": 6584902,
+      "ExportsRetained": true,
+      "DeletedExportBytes": 0,
+      "DeletedTemporaryBytes": 122531552
+    },
+    {
+      "Key": "metal",
+      "Template": "Metal System Trace",
+      "TracePath": "/Users/wieslawsoltes/GitHub/ProGPU/artifacts/benchmarks/cad-3d-subobject-transform/instruments-final/metal.trace",
+      "TableOfContentsPath": "/Users/wieslawsoltes/GitHub/ProGPU/artifacts/benchmarks/cad-3d-subobject-transform/instruments-final/metal-toc.xml",
+      "LogPath": "/Users/wieslawsoltes/GitHub/ProGPU/artifacts/benchmarks/cad-3d-subobject-transform/instruments-final/metal.log",
+      "TargetOutputPath": "/Users/wieslawsoltes/GitHub/ProGPU/artifacts/benchmarks/cad-3d-subobject-transform/instruments-final/metal-target.log",
+      "RecordExitCode": 0,
+      "Exports": [
+        "/Users/wieslawsoltes/GitHub/ProGPU/artifacts/benchmarks/cad-3d-subobject-transform/instruments-final/metal-metal-current-allocated-size.xml",
+        "/Users/wieslawsoltes/GitHub/ProGPU/artifacts/benchmarks/cad-3d-subobject-transform/instruments-final/metal-metal-resource-allocations.xml",
+        "/Users/wieslawsoltes/GitHub/ProGPU/artifacts/benchmarks/cad-3d-subobject-transform/instruments-final/metal-metal-kernel-resource-allocations.xml",
+        "/Users/wieslawsoltes/GitHub/ProGPU/artifacts/benchmarks/cad-3d-subobject-transform/instruments-final/metal-metal-application-command-buffer-submissions.xml",
+        "/Users/wieslawsoltes/GitHub/ProGPU/artifacts/benchmarks/cad-3d-subobject-transform/instruments-final/metal-metal-command-buffer-completed.xml",
+        "/Users/wieslawsoltes/GitHub/ProGPU/artifacts/benchmarks/cad-3d-subobject-transform/instruments-final/metal-ca-client-buffer-wait-interval.xml",
+        "/Users/wieslawsoltes/GitHub/ProGPU/artifacts/benchmarks/cad-3d-subobject-transform/instruments-final/metal-metal-command-buffer-error.xml",
+        "/Users/wieslawsoltes/GitHub/ProGPU/artifacts/benchmarks/cad-3d-subobject-transform/instruments-final/metal-graphics-compiler-spill-events.xml",
+        "/Users/wieslawsoltes/GitHub/ProGPU/artifacts/benchmarks/cad-3d-subobject-transform/instruments-final/metal-potential-hangs.xml",
+        "/Users/wieslawsoltes/GitHub/ProGPU/artifacts/benchmarks/cad-3d-subobject-transform/instruments-final/metal-hang-risks.xml",
+        "/Users/wieslawsoltes/GitHub/ProGPU/artifacts/benchmarks/cad-3d-subobject-transform/instruments-final/metal-time-profile.xml"
+      ],
+      "TraceRetained": false,
+      "DeletedTraceBytes": 262034011,
+      "ExportsRetained": true,
+      "DeletedExportBytes": 0,
+      "DeletedTemporaryBytes": 2129285320
+    }
+  ]
+}

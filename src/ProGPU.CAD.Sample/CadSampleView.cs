@@ -7666,6 +7666,18 @@ public sealed class CadSampleView : Grid
     {
         CadRecordedMesh3DScene scene = _mesh3DView.Scene ??
             throw new InvalidOperationException("No retained Mesh3D scene is available.");
+        MeshSubobjectEditSelection[] remap =
+            CaptureMeshSubobjectEditSelection(scene);
+        _canvas.TranslateMeshSubobjects(
+            scene,
+            _selectedMeshSubobjects,
+            translation);
+        RemapMeshSubobjectEditSelection(remap);
+    }
+
+    private MeshSubobjectEditSelection[] CaptureMeshSubobjectEditSelection(
+        CadRecordedMesh3DScene scene)
+    {
         var remap = new MeshSubobjectEditSelection[
             _selectedMeshSubobjects.Count];
         for (int index = 0; index < _selectedMeshSubobjects.Count; index++)
@@ -7684,12 +7696,12 @@ public sealed class CadSampleView : Grid
                 id.Kind,
                 id.Index);
         }
+        return remap;
+    }
 
-        _canvas.TranslateMeshSubobjects(
-            scene,
-            _selectedMeshSubobjects,
-            translation);
-
+    private void RemapMeshSubobjectEditSelection(
+        ReadOnlySpan<MeshSubobjectEditSelection> remap)
+    {
         CadRecordedMesh3DScene replacement = _mesh3DView.Scene ??
             throw new InvalidOperationException(
                 "The edited Mesh3D scene was not rebuilt.");
@@ -7821,7 +7833,21 @@ public sealed class CadSampleView : Grid
 
         try
         {
-            if (!_canvas.RotateSelection(radians))
+            if (_is3DView && _selectedMeshSubobjects.Count > 0)
+            {
+                CadRecordedMesh3DScene scene = _mesh3DView.Scene ??
+                    throw new InvalidOperationException(
+                        "No retained Mesh3D scene is available.");
+                MeshSubobjectEditSelection[] remap =
+                    CaptureMeshSubobjectEditSelection(scene);
+                _canvas.RotateMeshSubobjects(
+                    scene,
+                    _selectedMeshSubobjects,
+                    new CadPoint3D(0, 0, 1),
+                    radians);
+                RemapMeshSubobjectEditSelection(remap);
+            }
+            else if (!_canvas.RotateSelection(radians))
             {
                 SetStatus("Rotate requires at least one selected entity.");
                 return;
@@ -7869,7 +7895,20 @@ public sealed class CadSampleView : Grid
 
         try
         {
-            if (!_canvas.ScaleSelection(appliedFactor))
+            if (_is3DView && _selectedMeshSubobjects.Count > 0)
+            {
+                CadRecordedMesh3DScene scene = _mesh3DView.Scene ??
+                    throw new InvalidOperationException(
+                        "No retained Mesh3D scene is available.");
+                MeshSubobjectEditSelection[] remap =
+                    CaptureMeshSubobjectEditSelection(scene);
+                _canvas.ScaleMeshSubobjects(
+                    scene,
+                    _selectedMeshSubobjects,
+                    appliedFactor);
+                RemapMeshSubobjectEditSelection(remap);
+            }
+            else if (!_canvas.ScaleSelection(appliedFactor))
             {
                 SetStatus("Scale requires at least one selected entity.");
                 return;
@@ -8922,11 +8961,11 @@ public sealed class CadSampleView : Grid
         }
         foreach (Button rotateButton in _rotateButtons)
         {
-            rotateButton.IsEnabled = canTransform;
+            rotateButton.IsEnabled = canTransform || canMoveMeshSubobjects;
         }
         foreach (Button scaleButton in _scaleButtons)
         {
-            scaleButton.IsEnabled = canTransform;
+            scaleButton.IsEnabled = canTransform || canMoveMeshSubobjects;
         }
     }
 

@@ -6587,6 +6587,50 @@ public sealed class CadSampleCanvas : FrameworkElement
         return true;
     }
 
+    /// <summary>Rotates generation-owned modern-MESH subobjects in WCS.</summary>
+    public bool RotateMeshSubobjects(
+        CadRecordedMesh3DScene scene,
+        IEnumerable<CadMesh3DSubobjectId> subobjects,
+        CadPoint3D axis,
+        double radians)
+    {
+        ThrowIfDrawOrderReferencePickPending();
+        ArgumentNullException.ThrowIfNull(scene);
+        ArgumentNullException.ThrowIfNull(subobjects);
+        CadDocumentSession session = CurrentSession ??
+            throw new InvalidOperationException("No CAD document is loaded.");
+        CadDocumentHistory history = _history ??
+            throw new InvalidOperationException("The CAD edit history is not initialized.");
+        history.Execute(new CadRotateMeshSubobjectsCommand(
+            scene,
+            subobjects,
+            axis,
+            radians));
+        RecompileAfterEdit(session);
+        return true;
+    }
+
+    /// <summary>Uniformly scales generation-owned modern-MESH subobjects.</summary>
+    public bool ScaleMeshSubobjects(
+        CadRecordedMesh3DScene scene,
+        IEnumerable<CadMesh3DSubobjectId> subobjects,
+        double factor)
+    {
+        ThrowIfDrawOrderReferencePickPending();
+        ArgumentNullException.ThrowIfNull(scene);
+        ArgumentNullException.ThrowIfNull(subobjects);
+        CadDocumentSession session = CurrentSession ??
+            throw new InvalidOperationException("No CAD document is loaded.");
+        CadDocumentHistory history = _history ??
+            throw new InvalidOperationException("The CAD edit history is not initialized.");
+        history.Execute(new CadScaleMeshSubobjectsCommand(
+            scene,
+            subobjects,
+            factor));
+        RecompileAfterEdit(session);
+        return true;
+    }
+
     /// <summary>
     /// Copies all selected semantic model-space roots by one WCS displacement
     /// while preserving the source selection for repeated copy operations.
