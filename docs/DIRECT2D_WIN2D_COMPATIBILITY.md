@@ -820,6 +820,21 @@ oracle records the same operations through system Direct2D and compares the
 result predicates over the complete focused probe lattice. Cross-factory,
 degenerate, and non-rectangle inputs fail before touching the sink.
 
+`ID2D1PathGeometry::CombineWithGeometry` now extends the same four operations
+to two simple, single-filled-contour paths. Curves are flattened through the
+caller's tolerance, the input transform is applied only to the input operand,
+and the resulting edges use four-lane ARM64 NEON or SSE2 AABB rejection before
+the topology-dependent intersection insertion and contour walk. Crossing and
+positive collinear overlaps are split, Boolean membership is classified on
+both sides, coincident directed boundaries are deduplicated, and complete
+alternate-fill, force-unstroked contours are published only after the entire
+result is valid. Unsupported multi-contour, hole, self-intersecting, or
+numerically ambiguous inputs fail before sink mutation. Local optimized and
+sanitizer fixtures cover concave overlap and identical-path empty/non-empty
+results. A clean Windows 11 ARM64 MSVC 19.44 build compares the result
+predicate for all four modes over the same lattice against genuine system
+Direct2D and passes.
+
 The focused compatibility target passes all 17 local native CTests and the 10
 managed Direct2D source/ABI contracts. A clean Windows 11 ARM64 Parallels build
 with MSVC 19.44 explicitly injects `/W4 /WX`, recompiles the complete portable
@@ -2112,9 +2127,11 @@ ownership, exact vocabulary `Stream`, line/cubic/arc-aware transformed bounds,
 length, point-at-length, and point-plus-segment queries. Area and containment
 are qualified for ordinary non-overlapping figures; exact self-intersection
 and overlapping-figure fill analysis remains a separate gate. Stroke
-containment/widening, widened bounds, tessellation, outline, geometry compare,
-and boolean combination still return `E_NOTIMPL` with initialized outputs
-where applicable. They must not silently broaden, rasterize on the CPU, or
+General path stroke containment/widening, widened bounds, geometry compare,
+multi-contour outline/Boolean normalization, and unsupported tessellation
+topologies still return `E_NOTIMPL` with initialized outputs where applicable.
+Single-contour outline and Boolean combination have qualified native lanes.
+Unsupported operations must not silently broaden, rasterize on the CPU, or
 delegate to a second renderer.
 
 The direct COM recorder oracle now fills the ProGPU path instead of the

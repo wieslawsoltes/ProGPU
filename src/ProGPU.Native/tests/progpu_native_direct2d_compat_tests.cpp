@@ -2241,6 +2241,112 @@ int run_tests()
         return 265;
     }
 
+  compat::path_geometry *raw_boolean_path = nullptr;
+  compat::geometry_sink *raw_boolean_path_sink = nullptr;
+  if (factory->CreatePathGeometry(&raw_boolean_path) != com::ok ||
+      raw_boolean_path == nullptr ||
+      raw_boolean_path->Open(&raw_boolean_path_sink) != com::ok ||
+      raw_boolean_path_sink == nullptr) {
+    return 318;
+  }
+  com::pointer<compat::path_geometry> boolean_path;
+  boolean_path.attach(raw_boolean_path);
+  com::pointer<compat::geometry_sink> boolean_path_sink;
+  boolean_path_sink.attach(raw_boolean_path_sink);
+  boolean_path_sink->SetFillMode(compat::fill_mode::winding);
+  boolean_path_sink->BeginFigure({3.0F, 1.0F}, compat::figure_begin::filled);
+  constexpr std::array<compat::point_2f, 5U> boolean_path_points{{
+      {7.0F, 1.0F},
+      {7.0F, 5.0F},
+      {4.0F, 5.0F},
+      {4.0F, 9.0F},
+      {3.0F, 9.0F},
+  }};
+  boolean_path_sink->AddLines(
+      boolean_path_points.data(),
+      static_cast<std::uint32_t>(boolean_path_points.size()));
+  boolean_path_sink->EndFigure(compat::figure_end::closed);
+  if (boolean_path_sink->Close() != com::ok) {
+    return 319;
+  }
+  boolean_path_sink.Reset();
+  com::pointer<compat::geometry> boolean_path_base;
+  if (boolean_path.as(compat::geometry_interface_id, boolean_path_base) !=
+          com::ok ||
+      !boolean_path_base) {
+    return 320;
+  }
+  for (const compat::combine_mode mode : combination_modes) {
+    auto *raw_path_boolean_sink = new simplified_sink();
+    com::pointer<compat::simplified_geometry_sink> path_boolean_sink;
+    path_boolean_sink.attach(raw_path_boolean_sink);
+    if (query_path->CombineWithGeometry(boolean_path_base.get(), mode, nullptr,
+                                        core::default_flattening_tolerance,
+                                        path_boolean_sink.get()) != com::ok ||
+        raw_path_boolean_sink->fill_mode != compat::fill_mode::alternate ||
+        raw_path_boolean_sink->segment_flags !=
+            compat::path_segment::force_unstroked ||
+        raw_path_boolean_sink->begin_count !=
+            raw_path_boolean_sink->end_count) {
+      return 321;
+    }
+    for (std::uint32_t y_index = 0U; y_index < 18U; ++y_index) {
+      for (std::uint32_t x_index = 0U; x_index < 16U; ++x_index) {
+        const compat::point_2f point{
+            0.37F + static_cast<float>(x_index) * 0.47F,
+            0.31F + static_cast<float>(y_index) * 0.53F};
+        std::int32_t in_first = 0;
+        std::int32_t in_second = 0;
+        if (query_path->FillContainsPoint(point, nullptr, 0.01F, &in_first) !=
+                com::ok ||
+            boolean_path->FillContainsPoint(point, nullptr, 0.01F,
+                                            &in_second) != com::ok) {
+          return 322;
+        }
+        bool expected = false;
+        switch (mode) {
+        case compat::combine_mode::union_value:
+          expected = in_first != 0 || in_second != 0;
+          break;
+        case compat::combine_mode::intersect:
+          expected = in_first != 0 && in_second != 0;
+          break;
+        case compat::combine_mode::xor_value:
+          expected = (in_first != 0) != (in_second != 0);
+          break;
+        case compat::combine_mode::exclude:
+          expected = in_first != 0 && in_second == 0;
+          break;
+        }
+        if (captured_fill_contains(*raw_path_boolean_sink, point) != expected) {
+          return 323;
+        }
+      }
+    }
+  }
+  constexpr std::array<std::uint32_t, 4U> identical_path_boolean_figure_counts{
+      1U, 1U, 0U, 0U};
+  for (std::size_t mode_index = 0U; mode_index < combination_modes.size();
+       ++mode_index) {
+    auto *raw_identical_path_boolean_sink = new simplified_sink();
+    com::pointer<compat::simplified_geometry_sink> identical_path_boolean_sink;
+    identical_path_boolean_sink.attach(raw_identical_path_boolean_sink);
+    if (query_path->CombineWithGeometry(
+            query_path.get(), combination_modes[mode_index], nullptr,
+            core::default_flattening_tolerance,
+            identical_path_boolean_sink.get()) != com::ok ||
+        raw_identical_path_boolean_sink->begin_count !=
+            identical_path_boolean_figure_counts[mode_index] ||
+        raw_identical_path_boolean_sink->begin_count !=
+            raw_identical_path_boolean_sink->end_count ||
+        captured_fill_contains(*raw_identical_path_boolean_sink,
+                               {2.0F, 3.0F}) != (mode_index < 2U) ||
+        captured_fill_contains(*raw_identical_path_boolean_sink,
+                               {0.0F, 0.0F})) {
+      return 324;
+    }
+  }
+
     compat::path_geometry* raw_arc_path = nullptr;
     if (factory->CreatePathGeometry(&raw_arc_path) != com::ok ||
         raw_arc_path == nullptr) {
@@ -5916,6 +6022,122 @@ int run_tests()
         system_factory->Release();
         return 50;
     }
+
+  const auto create_system_polygon = [system_factory](
+                                         const D2D1_POINT_2F *points,
+                                         std::size_t point_count,
+                                         ID2D1PathGeometry **value) {
+    if (value == nullptr) {
+      return E_POINTER;
+    }
+    *value = nullptr;
+    if (points == nullptr || point_count < 3U ||
+        point_count - 1U >
+            static_cast<std::size_t>((std::numeric_limits<UINT32>::max)())) {
+      return E_INVALIDARG;
+    }
+    ID2D1PathGeometry *path_value = nullptr;
+    ID2D1GeometrySink *sink_value = nullptr;
+    HRESULT status = system_factory->CreatePathGeometry(&path_value);
+    if (SUCCEEDED(status)) {
+      status = path_value->Open(&sink_value);
+    }
+    if (SUCCEEDED(status)) {
+      sink_value->SetFillMode(D2D1_FILL_MODE_WINDING);
+      sink_value->BeginFigure(points[0U], D2D1_FIGURE_BEGIN_FILLED);
+      sink_value->AddLines(points + 1U, static_cast<UINT32>(point_count - 1U));
+      sink_value->EndFigure(D2D1_FIGURE_END_CLOSED);
+      status = sink_value->Close();
+    }
+    if (sink_value != nullptr) {
+      sink_value->Release();
+    }
+    if (FAILED(status)) {
+      if (path_value != nullptr) {
+        path_value->Release();
+      }
+      return status;
+    }
+    *value = path_value;
+    return S_OK;
+  };
+  constexpr std::array<D2D1_POINT_2F, 4U> system_query_polygon{{
+      {1.0F, 2.0F},
+      {5.0F, 2.0F},
+      {5.0F, 8.0F},
+      {1.0F, 8.0F},
+  }};
+  constexpr std::array<D2D1_POINT_2F, 6U> system_boolean_polygon{{
+      {3.0F, 1.0F},
+      {7.0F, 1.0F},
+      {7.0F, 5.0F},
+      {4.0F, 5.0F},
+      {4.0F, 9.0F},
+      {3.0F, 9.0F},
+  }};
+  ID2D1PathGeometry *system_query_boolean_path = nullptr;
+  ID2D1PathGeometry *system_input_boolean_path = nullptr;
+  if (FAILED(create_system_polygon(system_query_polygon.data(),
+                                   system_query_polygon.size(),
+                                   &system_query_boolean_path)) ||
+      FAILED(create_system_polygon(system_boolean_polygon.data(),
+                                   system_boolean_polygon.size(),
+                                   &system_input_boolean_path)) ||
+      system_query_boolean_path == nullptr ||
+      system_input_boolean_path == nullptr) {
+    if (system_query_boolean_path != nullptr) {
+      system_query_boolean_path->Release();
+    }
+    if (system_input_boolean_path != nullptr) {
+      system_input_boolean_path->Release();
+    }
+    system_factory->Release();
+    return 325;
+  }
+  for (std::size_t mode_index = 0U; mode_index < combination_modes.size();
+       ++mode_index) {
+    auto *raw_system_path_boolean_sink = new simplified_sink();
+    com::pointer<compat::simplified_geometry_sink> system_path_boolean_sink;
+    system_path_boolean_sink.attach(raw_system_path_boolean_sink);
+    auto *raw_portable_path_boolean_sink = new simplified_sink();
+    com::pointer<compat::simplified_geometry_sink> portable_path_boolean_sink;
+    portable_path_boolean_sink.attach(raw_portable_path_boolean_sink);
+    const HRESULT system_path_boolean_status =
+        system_query_boolean_path->CombineWithGeometry(
+            system_input_boolean_path,
+            static_cast<D2D1_COMBINE_MODE>(mode_index), nullptr,
+            D2D1_DEFAULT_FLATTENING_TOLERANCE,
+            reinterpret_cast<ID2D1SimplifiedGeometrySink *>(
+                system_path_boolean_sink.get()));
+    const com::result portable_path_boolean_status =
+        query_path->CombineWithGeometry(boolean_path_base.get(),
+                                        combination_modes[mode_index], nullptr,
+                                        core::default_flattening_tolerance,
+                                        portable_path_boolean_sink.get());
+    if (FAILED(system_path_boolean_status) ||
+        portable_path_boolean_status != com::ok) {
+      system_query_boolean_path->Release();
+      system_input_boolean_path->Release();
+      system_factory->Release();
+      return 326;
+    }
+    for (std::uint32_t y_index = 0U; y_index < 18U; ++y_index) {
+      for (std::uint32_t x_index = 0U; x_index < 16U; ++x_index) {
+        const compat::point_2f point{
+            0.37F + static_cast<float>(x_index) * 0.47F,
+            0.31F + static_cast<float>(y_index) * 0.53F};
+        if (captured_fill_contains(*raw_system_path_boolean_sink, point) !=
+            captured_fill_contains(*raw_portable_path_boolean_sink, point)) {
+          system_query_boolean_path->Release();
+          system_input_boolean_path->Release();
+          system_factory->Release();
+          return 327;
+        }
+      }
+    }
+  }
+  system_query_boolean_path->Release();
+  system_input_boolean_path->Release();
 
     ID2D1PathGeometry* system_arc_path = nullptr;
     ID2D1GeometrySink* system_arc_sink = nullptr;
