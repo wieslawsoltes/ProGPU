@@ -1608,6 +1608,17 @@ job. Forced inline/staged live execution stays mandatory on Parallels or
 hardware Windows, Metal, and Vulkan; production automatic selection and CPU
 fallback policy are unchanged.
 
+The same hosted software adapter has one nondeterministic managed-reference
+failure in the otherwise complete 96-item path/vector-clip differential. A
+failed run retained the previously qualified native image hash
+`8430B1A822156BAC` while the managed-reference hash and 126,912 pixels changed;
+the immediately preceding exact-head run passed with that native hash and only
+1,050 pixels over tolerance. The Basic Render Driver lane therefore retries
+that exact benchmark once in a fresh process. Rectangle count, warmup and
+iteration counts, native and managed execution, image dimensions, and every
+pixel threshold remain unchanged. Hardware Windows and Parallels execute it
+once, and a second Basic-adapter failure remains a hard CI failure.
+
 Primary contract references used for this design are
 [Skia `SkPath::contains`](https://api.skia.org/classSkPath.html),
 [Direct2D `ID2D1Geometry::FillContainsPoint`](https://learn.microsoft.com/en-us/windows/win32/api/d2d1/nf-d2d1-id2d1geometry-fillcontainspoint),
