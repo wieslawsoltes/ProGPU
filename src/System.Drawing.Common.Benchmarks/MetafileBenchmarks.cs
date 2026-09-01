@@ -25,6 +25,7 @@ public class MetafileBenchmarks
     private Metafile _emfDibPlaybackMetafile = null!;
     private Metafile _emfBitmapBltPlaybackMetafile = null!;
     private Metafile _emfImageBlendPlaybackMetafile = null!;
+    private Metafile _emfGradientFillPlaybackMetafile = null!;
     private Metafile _emfPathPlaybackMetafile = null!;
     private Metafile _emfExtendedTextPlaybackMetafile = null!;
     private Metafile _emfPdyExtendedTextPlaybackMetafile = null!;
@@ -95,6 +96,8 @@ public class MetafileBenchmarks
             new MemoryStream(CreatePlaybackEmfBitmapBlts(256), writable: false));
         _emfImageBlendPlaybackMetafile = new Metafile(
             new MemoryStream(CreatePlaybackEmfImageBlends(256), writable: false));
+        _emfGradientFillPlaybackMetafile = new Metafile(
+            new MemoryStream(CreatePlaybackEmfGradientFills(256), writable: false));
         _emfPathPlaybackMetafile = new Metafile(
             new MemoryStream(CreatePlaybackEmfPathBrackets(256), writable: false));
         _emfExtendedTextPlaybackMetafile = new Metafile(
@@ -228,6 +231,7 @@ public class MetafileBenchmarks
         _emfDibPlaybackMetafile.Dispose();
         _emfBitmapBltPlaybackMetafile.Dispose();
         _emfImageBlendPlaybackMetafile.Dispose();
+        _emfGradientFillPlaybackMetafile.Dispose();
         _emfPathPlaybackMetafile.Dispose();
         _emfExtendedTextPlaybackMetafile.Dispose();
         _emfPdyExtendedTextPlaybackMetafile.Dispose();
@@ -391,6 +395,18 @@ public class MetafileBenchmarks
         _playbackContext.Clear();
         _playbackGraphics.DrawImage(
             _emfImageBlendPlaybackMetafile,
+            new Rectangle(0, 0, 640, 480));
+        int commandCount = _playbackContext.Commands.Count;
+        _playbackContext.Clear();
+        return commandCount;
+    }
+
+    [Benchmark]
+    public int Playback256EmfGradientFillsToRetainedCommands()
+    {
+        _playbackContext.Clear();
+        _playbackGraphics.DrawImage(
+            _emfGradientFillPlaybackMetafile,
             new Rectangle(0, 0, 640, 480));
         int commandCount = _playbackContext.Commands.Count;
         _playbackContext.Clear();
@@ -1174,6 +1190,89 @@ public class MetafileBenchmarks
         WriteUInt32(bytes, cursor + 4, 20);
         WriteUInt32(bytes, cursor + 16, 20);
         return bytes;
+    }
+
+    private static byte[] CreatePlaybackEmfGradientFills(int recordCount)
+    {
+        const int rectangleRecordSize = 80;
+        const int triangleRecordSize = 96;
+        int rectangleCount = (recordCount + 1) / 2;
+        int triangleCount = recordCount / 2;
+        int totalBytes = checked(
+            88 + rectangleCount * rectangleRecordSize +
+            triangleCount * triangleRecordSize + 20);
+        byte[] bytes = new byte[totalBytes];
+        WriteUInt32(bytes, 0, (uint)EmfPlusRecordType.EmfHeader);
+        WriteUInt32(bytes, 4, 88);
+        WriteInt32(bytes, 16, 640);
+        WriteInt32(bytes, 20, 480);
+        WriteInt32(bytes, 32, 16_933);
+        WriteInt32(bytes, 36, 12_700);
+        WriteUInt32(bytes, 40, 0x464D_4520);
+        WriteUInt32(bytes, 44, 0x0001_0000);
+        WriteUInt32(bytes, 48, (uint)totalBytes);
+        WriteUInt32(bytes, 52, checked((uint)(recordCount + 2)));
+        WriteUInt16(bytes, 56, 1);
+        WriteInt32(bytes, 72, 640);
+        WriteInt32(bytes, 76, 480);
+        WriteInt32(bytes, 80, 169);
+        WriteInt32(bytes, 84, 127);
+
+        int cursor = 88;
+        for (int index = 0; index < recordCount; index++)
+        {
+            bool triangle = (index & 1) != 0;
+            int recordSize = triangle ? triangleRecordSize : rectangleRecordSize;
+            int x = (index % 16) * 40;
+            int y = (index / 16) * 30;
+            WriteUInt32(bytes, cursor, (uint)EmfPlusRecordType.EmfGradientFill);
+            WriteUInt32(bytes, cursor + 4, (uint)recordSize);
+            WriteInt32(bytes, cursor + 8, x);
+            WriteInt32(bytes, cursor + 12, y);
+            WriteInt32(bytes, cursor + 16, x + 32);
+            WriteInt32(bytes, cursor + 20, y + 22);
+            WriteUInt32(bytes, cursor + 24, triangle ? 3u : 2u);
+            WriteUInt32(bytes, cursor + 28, 1);
+            WriteUInt32(bytes, cursor + 32, triangle ? 2u : (uint)(index & 1));
+            WriteGradientVertex(bytes, cursor + 36, x, y, 0xFF00, 0, 0);
+            WriteGradientVertex(bytes, cursor + 52, x + 32, triangle ? y : y + 22, 0, 0xFF00, 0);
+            int meshOffset;
+            if (triangle)
+            {
+                WriteGradientVertex(bytes, cursor + 68, x, y + 22, 0, 0, 0xFF00);
+                meshOffset = cursor + 84;
+            }
+            else
+            {
+                meshOffset = cursor + 68;
+            }
+            WriteUInt32(bytes, meshOffset, 0);
+            WriteUInt32(bytes, meshOffset + 4, 1);
+            WriteUInt32(bytes, meshOffset + 8, triangle ? 2u : 0xDEAD_BEEFu);
+            cursor += recordSize;
+        }
+
+        WriteUInt32(bytes, cursor, (uint)EmfPlusRecordType.EmfEof);
+        WriteUInt32(bytes, cursor + 4, 20);
+        WriteUInt32(bytes, cursor + 16, 20);
+        return bytes;
+    }
+
+    private static void WriteGradientVertex(
+        byte[] bytes,
+        int offset,
+        int x,
+        int y,
+        ushort red,
+        ushort green,
+        ushort blue)
+    {
+        WriteInt32(bytes, offset, x);
+        WriteInt32(bytes, offset + 4, y);
+        WriteUInt16(bytes, offset + 8, red);
+        WriteUInt16(bytes, offset + 10, green);
+        WriteUInt16(bytes, offset + 12, blue);
+        WriteUInt16(bytes, offset + 14, 0x7F00);
     }
 
     private static byte[] CreatePlaybackEmfArcs(int recordCount)

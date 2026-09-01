@@ -369,8 +369,22 @@ this command-playback/allocation evidence, not a throughput claim. The complete
 System.Drawing suite passes 607/607 in Debug and Release; ApiCompat remains at
 zero missing types, zero missing members, and 13 reviewed shape diagnostics.
 
-The current enum/switch inventory is 149 handled of 192 enum-backed EMF/WMF
-records, with 43 explicit unsupported boundaries; handled does not imply full
+`EMR_GRADIENTFILL` now lowers rectangle-horizontal, rectangle-vertical, and
+triangle vertex-color meshes through typed `VertexMesh2D` commands. Exact record
+lengths, DWORD indices, modes, bounds, and rectangle ordering are validated
+before output allocation; rectangle padding and `TRIVERTEX.Alpha` follow their
+documented ignored semantics. Retained geometry/color assertions, raster
+interpolation, transforms, empty input, path rejection, transactional malformed
+input, and a 512 KB warmed 64-record allocation ceiling form the correctness
+gate. The 2026-09-01 ARM64/.NET 10.0.11 in-process ShortRun measured a 379.401
+microsecond median (411.111 microsecond mean, 93.315 microsecond standard
+deviation) and 348.97 KB allocated for 256 alternating rectangle/triangle
+records. The three-iteration result is a coarse allocation/command checkpoint,
+not a throughput claim. The complete Release suite passes 612/612 and ApiCompat
+remains at 0 missing types, 0 missing members, and 13 reviewed shape diagnostics.
+
+The current enum/switch inventory is 150 handled of 192 enum-backed EMF/WMF
+records, with 42 explicit unsupported boundaries; handled does not imply full
 semantic parity.
 
 `MetafileBenchmarks.Playback256WmfDibImagesToRetainedCommands` extends that

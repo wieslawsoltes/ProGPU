@@ -3469,6 +3469,219 @@ public sealed class MetafileParserTests
     }
 
     [Fact]
+    public void EmfGradientFillRetainsOpaqueTransformedRectangleMesh()
+    {
+        byte[] fixture = CreateTextPlaybackEmf(
+        [
+            (EmfPlusRecordType.EmfSetWorldTransform, EmfTransform(2f, 3f)),
+            (EmfPlusRecordType.EmfGradientFill,
+                EmfGradientFill(
+                    [new Point(8, 8), new Point(24, 16)],
+                    [Color.Red, Color.Blue],
+                    mode: 0,
+                    [[0, 1]],
+                    alpha: 0x1200,
+                    rectanglePadding: 0xDEAD_BEEF))
+        ]);
+        using var metafile = new Metafile(new MemoryStream(fixture, writable: false));
+        var context = new DrawingContext();
+        using Graphics graphics = Graphics.FromProGpuDrawingContext(context);
+
+        graphics.DrawImage(metafile, new Rectangle(0, 0, 64, 64));
+
+        RenderCommand command = Assert.Single(
+            context.Commands,
+            static retained => retained.Type == RenderCommandType.DrawVertexMesh);
+        Assert.Equal(RenderCommandType.DrawVertexMesh, command.Type);
+        Assert.Equal(VertexColorBlendMode.Dst, command.VertexColorBlendMode);
+        Assert.True(command.IsEdgeAliased);
+        Assert.Equal(2f, command.Transform.M41);
+        Assert.Equal(3f, command.Transform.M42);
+        VertexMesh2D mesh = Assert.IsType<VertexMesh2D>(command.VertexMesh);
+        Assert.Equal(VertexMeshTopology.Triangles, mesh.Topology);
+        Assert.Equal(
+            [
+                new Vector2(8, 8), new Vector2(24, 8), new Vector2(24, 16),
+                new Vector2(8, 8), new Vector2(24, 16), new Vector2(8, 16)
+            ],
+            mesh.Positions.ToArray());
+        Assert.Equal(new Vector4(1f, 0f, 0f, 1f), mesh.Colors.Span[0]);
+        Assert.Equal(new Vector4(0f, 0f, 1f, 1f), mesh.Colors.Span[2]);
+        Assert.All(mesh.Colors.ToArray(), static color => Assert.Equal(1f, color.W));
+        Assert.Empty(mesh.Indices.ToArray());
+    }
+
+    [Fact]
+    public void EmfGradientFillRendersRectangleAndTriangleInterpolation()
+    {
+        byte[] fixture = CreateTextPlaybackEmf(
+        [
+            (EmfPlusRecordType.EmfGradientFill,
+                EmfGradientFill(
+                    [new Point(4, 4), new Point(28, 16)],
+                    [Color.Red, Color.Blue],
+                    mode: 1,
+                    [[0, 1]])),
+            (EmfPlusRecordType.EmfGradientFill,
+                EmfGradientFill(
+                    [new Point(36, 4), new Point(60, 4), new Point(36, 28)],
+                    [Color.Red, Color.Lime, Color.Blue],
+                    mode: 2,
+                    [[0, 1, 2]]))
+        ]);
+        using var metafile = new Metafile(new MemoryStream(fixture, writable: false));
+        using var target = new Bitmap(64, 64);
+        using (Graphics graphics = Graphics.FromImage(target))
+        {
+            graphics.Clear(Color.Transparent);
+            graphics.DrawImage(metafile, new Rectangle(0, 0, 64, 64));
+        }
+
+        Color rectangleTop = target.GetPixel(16, 5);
+        Color rectangleBottom = target.GetPixel(16, 14);
+        Assert.True(rectangleTop.R > rectangleTop.B);
+        Assert.True(rectangleBottom.B > rectangleBottom.R);
+        Assert.Equal(byte.MaxValue, rectangleTop.A);
+        Assert.Equal(byte.MaxValue, rectangleBottom.A);
+        Color triangleInterior = target.GetPixel(43, 11);
+        Assert.True(triangleInterior.R > 0);
+        Assert.True(triangleInterior.G > 0);
+        Assert.True(triangleInterior.B > 0);
+        Assert.Equal(byte.MaxValue, triangleInterior.A);
+        Assert.Equal(0, target.GetPixel(61, 27).A);
+    }
+
+    [Fact]
+    public void EmfGradientFillRejectsMalformedRecordsTransactionally()
+    {
+        byte[] invalidMode = EmfGradientFill(
+            [new Point(8, 8), new Point(16, 16)],
+            [Color.Red, Color.Blue],
+            mode: 0,
+            [[0, 1]]);
+        WriteUInt32(invalidMode, 24, 3);
+        byte[] invalidIndex = EmfGradientFill(
+            [new Point(8, 8), new Point(16, 16)],
+            [Color.Red, Color.Blue],
+            mode: 0,
+            [[0, 1]]);
+        WriteUInt32(invalidIndex, 28 + 2 * 16 + 4, 2);
+        byte[] reversedRectangle = EmfGradientFill(
+            [new Point(16, 8), new Point(8, 16)],
+            [Color.Red, Color.Blue],
+            mode: 1,
+            [[0, 1]]);
+        byte[] truncated = EmfGradientFill(
+            [new Point(8, 8), new Point(16, 16)],
+            [Color.Red, Color.Blue],
+            mode: 0,
+            [[0, 1]])[..^4];
+        byte[] overflowedCount = EmfGradientFill(
+            [new Point(8, 8), new Point(16, 16)],
+            [Color.Red, Color.Blue],
+            mode: 0,
+            [[0, 1]]);
+        WriteUInt32(overflowedCount, 16, uint.MaxValue);
+
+        foreach (byte[] payload in new[]
+                 {
+                     invalidMode,
+                     invalidIndex,
+                     reversedRectangle,
+                     truncated,
+                     overflowedCount
+                 })
+        {
+            byte[] fixture = CreateTextPlaybackEmf(
+            [
+                (EmfPlusRecordType.EmfSetPixelV, EmfSetPixel(new Point(1, 1), Color.Red)),
+                (EmfPlusRecordType.EmfGradientFill, payload)
+            ]);
+            using var metafile = new Metafile(new MemoryStream(fixture, writable: false));
+            var context = new DrawingContext();
+            using Graphics graphics = Graphics.FromProGpuDrawingContext(context);
+
+            ArgumentException exception = Assert.Throws<ArgumentException>(() =>
+                graphics.DrawImage(metafile, new Rectangle(0, 0, 64, 64)));
+
+            Assert.Contains(nameof(EmfPlusRecordType.EmfGradientFill), exception.Message);
+            Assert.Empty(context.Commands);
+        }
+    }
+
+    [Fact]
+    public void EmfGradientFillRejectsPathCaptureAndAllowsAnEmptyMesh()
+    {
+        byte[] empty = EmfGradientFill([], [], mode: 2, []);
+        byte[] triangle = EmfGradientFill(
+            [new Point(4, 4), new Point(12, 4), new Point(4, 12)],
+            [Color.Red, Color.Lime, Color.Blue],
+            mode: 2,
+            [[0, 1, 2]]);
+        byte[] fixture = CreateTextPlaybackEmf(
+        [
+            (EmfPlusRecordType.EmfGradientFill, empty),
+            (EmfPlusRecordType.EmfBeginPath, []),
+            (EmfPlusRecordType.EmfGradientFill, triangle)
+        ]);
+        using var metafile = new Metafile(new MemoryStream(fixture, writable: false));
+        var context = new DrawingContext();
+        using Graphics graphics = Graphics.FromProGpuDrawingContext(context);
+
+        NotSupportedException exception = Assert.Throws<NotSupportedException>(() =>
+            graphics.DrawImage(metafile, new Rectangle(0, 0, 64, 64)));
+
+        Assert.Contains(nameof(EmfPlusRecordType.EmfGradientFill), exception.Message);
+        Assert.Empty(context.Commands);
+    }
+
+    [Fact]
+    public void EmfGradientFillPlaybackHasBoundedWarmedAllocation()
+    {
+        var records = new List<(EmfPlusRecordType Type, byte[] Payload)>();
+        for (int index = 0; index < 64; index++)
+        {
+            int x = (index % 8) * 8;
+            int y = (index / 8) * 8;
+            bool triangle = (index & 1) != 0;
+            records.Add((
+                EmfPlusRecordType.EmfGradientFill,
+                triangle
+                    ? EmfGradientFill(
+                        [new Point(x, y), new Point(x + 8, y), new Point(x, y + 8)],
+                        [Color.Red, Color.Lime, Color.Blue],
+                        mode: 2,
+                        [[0, 1, 2]])
+                    : EmfGradientFill(
+                        [new Point(x, y), new Point(x + 8, y + 8)],
+                        [Color.Red, Color.Blue],
+                        mode: 0,
+                        [[0, 1]])));
+        }
+        using var metafile = new Metafile(new MemoryStream(
+            CreateTextPlaybackEmf(records),
+            writable: false));
+        var context = new DrawingContext();
+        using Graphics graphics = Graphics.FromProGpuDrawingContext(context);
+        for (int iteration = 0; iteration < 4; iteration++)
+        {
+            graphics.DrawImage(metafile, new Rectangle(0, 0, 64, 64));
+            context.Clear();
+        }
+
+        long before = GC.GetAllocatedBytesForCurrentThread();
+        for (int iteration = 0; iteration < 8; iteration++)
+        {
+            graphics.DrawImage(metafile, new Rectangle(0, 0, 64, 64));
+            context.Clear();
+        }
+        long allocatedPerPlayback =
+            (GC.GetAllocatedBytesForCurrentThread() - before) / 8;
+
+        Assert.InRange(allocatedPerPlayback, 64 * 1024, 512 * 1024);
+    }
+
+    [Fact]
     public void EmfMalformedAndUnsupportedDibRecordsRollBackEarlierGeometry()
     {
         TestDib valid = CreateRgbDib(1, -1, 24, [0, 0, 255, 0]);
@@ -8190,6 +8403,57 @@ public sealed class MetafileParserTests
         WriteInt32(payload, 96, source.Height);
         dib.Info.CopyTo(payload, fixedPayloadSize);
         dib.Bits.CopyTo(payload, fixedPayloadSize + dib.Info.Length);
+        return payload;
+    }
+
+    private static byte[] EmfGradientFill(
+        Point[] positions,
+        Color[] colors,
+        uint mode,
+        uint[][] meshes,
+        ushort alpha = 0,
+        uint rectanglePadding = 0)
+    {
+        Assert.Equal(positions.Length, colors.Length);
+        int payloadSize = checked(28 + positions.Length * 16 + meshes.Length * 12);
+        byte[] payload = new byte[payloadSize];
+        Rectangle bounds = positions.Length == 0
+            ? Rectangle.Empty
+            : Rectangle.FromLTRB(
+                positions.Min(static point => point.X),
+                positions.Min(static point => point.Y),
+                positions.Max(static point => point.X),
+                positions.Max(static point => point.Y));
+        WriteInt32(payload, 0, bounds.Left);
+        WriteInt32(payload, 4, bounds.Top);
+        WriteInt32(payload, 8, bounds.Right);
+        WriteInt32(payload, 12, bounds.Bottom);
+        WriteUInt32(payload, 16, checked((uint)positions.Length));
+        WriteUInt32(payload, 20, checked((uint)meshes.Length));
+        WriteUInt32(payload, 24, mode);
+        for (int index = 0; index < positions.Length; index++)
+        {
+            int offset = 28 + index * 16;
+            WriteInt32(payload, offset, positions[index].X);
+            WriteInt32(payload, offset + 4, positions[index].Y);
+            WriteUInt16(payload, offset + 8, (ushort)(colors[index].R << 8));
+            WriteUInt16(payload, offset + 10, (ushort)(colors[index].G << 8));
+            WriteUInt16(payload, offset + 12, (ushort)(colors[index].B << 8));
+            WriteUInt16(payload, offset + 14, alpha);
+        }
+        int meshOffset = 28 + positions.Length * 16;
+        for (int index = 0; index < meshes.Length; index++)
+        {
+            uint[] mesh = meshes[index];
+            Assert.Equal(mode == 2 ? 3 : 2, mesh.Length);
+            int offset = meshOffset + index * 12;
+            WriteUInt32(payload, offset, mesh[0]);
+            WriteUInt32(payload, offset + 4, mesh[1]);
+            WriteUInt32(
+                payload,
+                offset + 8,
+                mode == 2 ? mesh[2] : rectanglePadding);
+        }
         return payload;
     }
 

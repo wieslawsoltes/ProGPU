@@ -647,6 +647,10 @@ internal static class MetafilePlaybackRenderer
                 DrawEmfTransparentBlt(state, record, payload);
                 return;
 
+            case EmfPlusRecordType.EmfGradientFill:
+                DrawEmfGradientFill(state, record, payload);
+                return;
+
             case EmfPlusRecordType.EmfSetDIBitsToDevice:
                 DrawEmfSetDibitsToDevice(state, record, payload);
                 return;
@@ -1057,6 +1061,195 @@ internal static class MetafilePlaybackRenderer
             SrcCopy,
             imageAttributes,
             requireCompleteSource: true);
+    }
+
+    private static void DrawEmfGradientFill(
+        PlaybackState state,
+        in MetafileRecord record,
+        ReadOnlySpan<byte> payload)
+    {
+        const int fixedPayloadSize = 28;
+        const int vertexSize = 16;
+        const int meshSize = 12;
+        const uint gradientFillRectH = 0;
+        const uint gradientFillRectV = 1;
+        const uint gradientFillTriangle = 2;
+        if (payload.Length < fixedPayloadSize)
+        {
+            throw Invalid(record);
+        }
+
+        _ = ReadRectangle(record, payload);
+        uint vertexCount = ReadUInt32(payload, 16);
+        uint meshCount = ReadUInt32(payload, 20);
+        uint mode = ReadUInt32(payload, 24);
+        if (mode is not gradientFillRectH and
+            not gradientFillRectV and
+            not gradientFillTriangle)
+        {
+            throw Invalid(record);
+        }
+
+        ulong expectedSize = fixedPayloadSize +
+            (ulong)vertexCount * vertexSize +
+            (ulong)meshCount * meshSize;
+        if (expectedSize != (ulong)payload.Length)
+        {
+            throw Invalid(record);
+        }
+        if (meshCount == 0)
+        {
+            return;
+        }
+        if (vertexCount == 0)
+        {
+            throw Invalid(record);
+        }
+
+        state.EnsurePathCaptureSupported(record, "GradientFill");
+        int verticesPerMesh = mode == gradientFillTriangle ? 3 : 6;
+        int outputCount;
+        try
+        {
+            outputCount = checked((int)meshCount * verticesPerMesh);
+        }
+        catch (OverflowException exception)
+        {
+            throw Invalid(record, exception);
+        }
+
+        int meshOffset = checked(fixedPayloadSize + (int)vertexCount * vertexSize);
+        for (uint meshIndex = 0; meshIndex < meshCount; meshIndex++)
+        {
+            int currentMeshOffset = checked(meshOffset + (int)meshIndex * meshSize);
+            uint firstIndex = ReadUInt32(payload, currentMeshOffset);
+            uint secondIndex = ReadUInt32(payload, currentMeshOffset + 4);
+            if (firstIndex >= vertexCount || secondIndex >= vertexCount)
+            {
+                throw Invalid(record);
+            }
+            if (mode == gradientFillTriangle)
+            {
+                if (ReadUInt32(payload, currentMeshOffset + 8) >= vertexCount)
+                {
+                    throw Invalid(record);
+                }
+                continue;
+            }
+
+            ReadGradientVertex(
+                record,
+                payload,
+                vertexCount,
+                firstIndex,
+                out Vector2 firstPosition,
+                out _);
+            ReadGradientVertex(
+                record,
+                payload,
+                vertexCount,
+                secondIndex,
+                out Vector2 secondPosition,
+                out _);
+            if (secondPosition.X < firstPosition.X ||
+                secondPosition.Y < firstPosition.Y)
+            {
+                throw Invalid(record);
+            }
+        }
+
+        var positions = new Vector2[outputCount];
+        var colors = new Vector4[outputCount];
+        int outputOffset = 0;
+        for (uint meshIndex = 0; meshIndex < meshCount; meshIndex++)
+        {
+            int currentMeshOffset = checked(meshOffset + (int)meshIndex * meshSize);
+            uint firstIndex = ReadUInt32(payload, currentMeshOffset);
+            uint secondIndex = ReadUInt32(payload, currentMeshOffset + 4);
+            ReadGradientVertex(
+                record,
+                payload,
+                vertexCount,
+                firstIndex,
+                out Vector2 firstPosition,
+                out Vector4 firstColor);
+            ReadGradientVertex(
+                record,
+                payload,
+                vertexCount,
+                secondIndex,
+                out Vector2 secondPosition,
+                out Vector4 secondColor);
+
+            if (mode == gradientFillTriangle)
+            {
+                uint thirdIndex = ReadUInt32(payload, currentMeshOffset + 8);
+                ReadGradientVertex(
+                    record,
+                    payload,
+                    vertexCount,
+                    thirdIndex,
+                    out Vector2 thirdPosition,
+                    out Vector4 thirdColor);
+                positions[outputOffset] = firstPosition;
+                positions[outputOffset + 1] = secondPosition;
+                positions[outputOffset + 2] = thirdPosition;
+                colors[outputOffset] = firstColor;
+                colors[outputOffset + 1] = secondColor;
+                colors[outputOffset + 2] = thirdColor;
+                outputOffset += 3;
+                continue;
+            }
+
+            Vector2 topRight = new(secondPosition.X, firstPosition.Y);
+            Vector2 bottomLeft = new(firstPosition.X, secondPosition.Y);
+            Vector4 topRightColor = mode == gradientFillRectH
+                ? secondColor
+                : firstColor;
+            Vector4 bottomLeftColor = mode == gradientFillRectH
+                ? firstColor
+                : secondColor;
+            positions[outputOffset] = firstPosition;
+            positions[outputOffset + 1] = topRight;
+            positions[outputOffset + 2] = secondPosition;
+            positions[outputOffset + 3] = firstPosition;
+            positions[outputOffset + 4] = secondPosition;
+            positions[outputOffset + 5] = bottomLeft;
+            colors[outputOffset] = firstColor;
+            colors[outputOffset + 1] = topRightColor;
+            colors[outputOffset + 2] = secondColor;
+            colors[outputOffset + 3] = firstColor;
+            colors[outputOffset + 4] = secondColor;
+            colors[outputOffset + 5] = bottomLeftColor;
+            outputOffset += 6;
+        }
+
+        state.ApplyTransform(record);
+        state.Graphics.FillVertexMesh(positions, colors);
+    }
+
+    private static void ReadGradientVertex(
+        in MetafileRecord record,
+        ReadOnlySpan<byte> payload,
+        uint vertexCount,
+        uint index,
+        out Vector2 position,
+        out Vector4 color)
+    {
+        const int fixedPayloadSize = 28;
+        const int vertexSize = 16;
+        if (index >= vertexCount)
+        {
+            throw Invalid(record);
+        }
+
+        int offset = checked(fixedPayloadSize + (int)index * vertexSize);
+        position = new Vector2(ReadInt32(payload, offset), ReadInt32(payload, offset + 4));
+        color = new Vector4(
+            (ReadUInt16(payload, offset + 8) >> 8) / (float)byte.MaxValue,
+            (ReadUInt16(payload, offset + 10) >> 8) / (float)byte.MaxValue,
+            (ReadUInt16(payload, offset + 12) >> 8) / (float)byte.MaxValue,
+            1f);
     }
 
     private static void DrawEmfTransparentBlt(

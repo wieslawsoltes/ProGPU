@@ -1304,10 +1304,45 @@ than a throughput claim; the focused allocation and exact-pixel tests are the
 regression authority. Raw ignored artifacts are under
 `artifacts/performance/system-drawing-emf-image-blend-inprocess-20260901`.
 
-The enum/switch coverage inventory now finds 149 explicitly handled records out
-of 192 enum-backed EMF/WMF record identities, leaving 43 explicit unsupported
+### EMF vertex-color gradient fills
+
+[`EMR_GRADIENTFILL`](https://learn.microsoft.com/en-us/openspecs/windows_protocols/ms-emf/1a3849c8-be6c-4d30-b5d3-f43b4c70ca0d)
+now parses its exact Bounds/count/mode envelope, 16-byte `TRIVERTEX` array, and
+12-byte rectangle or triangle mesh entries before publishing one typed ProGPU
+`VertexMesh2D`. Rectangle-horizontal and rectangle-vertical modes expand to two
+triangles with the required constant-color edges; triangle mode preserves all
+three vertex colors for barycentric GPU interpolation. DWORD source indices are
+validated before output allocation, so the retained mesh is not limited to a
+16-bit index domain. Rectangle padding is ignored, lower-right coordinates are
+treated as exclusive geometry, the documented high byte of each 16-bit color
+channel is used, and `TRIVERTEX.Alpha` is ignored so GradientFill output remains
+opaque as required by GDI.
+
+The mesh carries the active mapping/world transform and uses the existing typed
+vertex-color blend contract without an HDC, runtime reflection, or a CPU gradient
+raster. Malformed sizes/counts/modes/indices and unordered rectangle vertices
+fail before publication; drawing inside a path bracket remains an explicit
+transactional boundary. Five focused gates cover retained geometry and colors,
+world transforms, nonzero padding and ignored alpha, horizontal/vertical/triangle
+pixel interpolation, empty meshes, path capture, malformed-record rollback, and
+a warmed 64-record allocation ceiling of 512 KB.
+
+The 2026-09-01 ARM64/.NET 10.0.11 in-process ShortRun for
+`Playback256EmfGradientFillsToRetainedCommands` measured a 379.401 microsecond
+median (411.111 microsecond mean, 93.315 microsecond standard deviation) and
+348.97 KB allocated for 256 alternating rectangle/triangle records. Three
+iterations, denied priority elevation, and the wide confidence interval make
+this allocation/command-shape evidence rather than a throughput claim. The
+isolated toolchain exceeded its 120-second generated-build timeout before
+measurement on this host; raw ignored artifacts are under
+`artifacts/performance/system-drawing-emf-gradient-fill-inprocess-20260901`.
+The complete Release System.Drawing suite passes 612/612; ApiCompat remains at
+zero missing types, zero missing members, and 13 reviewed shape diagnostics.
+
+The enum/switch coverage inventory now finds 150 explicitly handled records out
+of 192 enum-backed EMF/WMF record identities, leaving 42 explicit unsupported
 boundaries. A handled switch case is not a claim of complete semantics. The
-largest remaining groups are mask/plg/gradient transfers,
+largest remaining groups are mask/plg transfers,
 region paint and flood fill, extended pens, color-management and pixel-format
 state, escape/OpenGL records, and WMF region/layout/mapper records. This count
 keeps the remaining playback work visible while the public API contract stays

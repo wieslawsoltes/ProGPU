@@ -23,6 +23,9 @@ public partial class Graphics :
     IDeviceContext,
     IProGpuDrawingContextSource
 {
+    private static readonly ProGPU.Vector.SolidColorBrush VertexColorMeshBrush =
+        new(Vector4.One);
+
     public delegate bool EnumerateMetafileProc(
         EmfPlusRecordType recordType,
         int flags,
@@ -1394,6 +1397,23 @@ public partial class Graphics :
             brush,
             null,
             new Rect(devicePixel.X, devicePixel.Y, 1f, 1f));
+    }
+
+    internal void FillVertexMesh(Vector2[] positions, Vector4[] colors)
+    {
+        ThrowIfDisposed();
+        var mesh = VertexMesh2D.CreateOwned(
+            VertexMeshTopology.Triangles,
+            positions,
+            [],
+            colors,
+            []);
+        _context.DrawVertexMesh(
+            VertexColorMeshBrush,
+            mesh,
+            VertexColorBlendMode.Dst,
+            CurrentTransform4x4(),
+            isEdgeAliased: true);
     }
 
     public void DrawLine(Pen pen, PointF p1, PointF p2) => DrawLine(pen, p1.X, p1.Y, p2.X, p2.Y);
