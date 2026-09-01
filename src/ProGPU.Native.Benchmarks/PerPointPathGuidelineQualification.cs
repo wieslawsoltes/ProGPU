@@ -36,15 +36,15 @@ internal static class PerPointPathGuidelineQualification
             reference: false);
         (NativeSceneUpdateMetrics Update, NativeSceneFrameMetrics Frame,
             byte[] Pixels) baseline = Render(
-                compositor, context, target, 1U, guided: false,
+                compositor, context, target, 2U, guided: false,
                 reference: false);
         (NativeSceneUpdateMetrics Update, NativeSceneFrameMetrics Frame,
             byte[] Pixels) guided = Render(
-                compositor, context, target, 2U, guided: true,
+                compositor, context, target, 3U, guided: true,
                 reference: false);
         (NativeSceneUpdateMetrics Update, NativeSceneFrameMetrics Frame,
             byte[] Pixels) reference = Render(
-                compositor, context, target, 3U, guided: false,
+                compositor, context, target, 4U, guided: false,
                 reference: true);
 
         PixelExtent baselineExtent = Measure(baseline.Pixels);
@@ -387,12 +387,12 @@ internal static class PerPointPathGuidelineQualification
         var builder = new NativeSceneStreamBuilder(
             destination,
             SceneId,
-            generation: 4U,
+            generation: 5U,
             commandCapacity: 1,
             resourceCapacity: 3);
         bool success = builder.TryAddPerPointGuidelineSetResource(
             1U,
-            generation: 4U,
+            generation: 5U,
             [2.25, 7.75],
             [2.25, 7.75],
             out uint guidelineIndex);
@@ -402,12 +402,12 @@ internal static class PerPointPathGuidelineQualification
             guidelineResourceIndex: guidelineIndex);
         success &= builder.TryAddStateResource(
                 2U,
-                generation: 4U,
+                generation: 5U,
                 in state,
                 out uint stateIndex) &&
             builder.TryAddPathResource(
                 3U,
-                generation: 4U,
+                generation: 5U,
                 paths,
                 segments,
                 out uint pathIndex) &&
@@ -427,7 +427,7 @@ internal static class PerPointPathGuidelineQualification
                 target,
                 dpiScale: 1f,
                 SceneId,
-                generation: 4U,
+                generation: 5U,
                 clearColor: new Vector4(0f, 0f, 0f, 1f));
         }
         catch (NativeRendererException exception)
