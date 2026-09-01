@@ -23,7 +23,11 @@ public enum CadMesh3DVisualStyle : byte
 /// </summary>
 public readonly record struct CadMesh3DVisualStyleState(
     RenderMode3D RenderMode,
-    ShadingMode3D ShadingMode);
+    ShadingMode3D ShadingMode)
+{
+    public Mesh3DEdgeStyle EdgeStyle { get; init; } =
+        Mesh3DEdgeStyle.Disabled;
+}
 
 /// <summary>
 /// Maps CAD visual styles to the canonical ProGPU Mesh3D render contract.
@@ -37,6 +41,17 @@ public readonly record struct CadMesh3DVisualStyleState(
 /// </remarks>
 public static class CadMesh3DVisualStylePolicy
 {
+    private static readonly Mesh3DEdgeStyle VisibleEdges = new(
+        Mesh3DEdgeDisplay.Boundary |
+            Mesh3DEdgeDisplay.Crease |
+            Mesh3DEdgeDisplay.Silhouette,
+        new System.Numerics.Vector4(0.85f, 0.85f, 0.9f, 1.0f),
+        new System.Numerics.Vector4(0.45f, 0.45f, 0.5f, 0.7f),
+        1.0f,
+        30.0f,
+        6.0f,
+        4.0f);
+
     public static CadMesh3DVisualStyleState Resolve(
         CadMesh3DVisualStyle visualStyle) => visualStyle switch
     {
@@ -44,26 +59,42 @@ public static class CadMesh3DVisualStylePolicy
             RenderMode3D.Wireframe,
             ShadingMode3D.Flat),
         CadMesh3DVisualStyle.Hidden => new(
-            RenderMode3D.SolidWireframe,
-            ShadingMode3D.HiddenLine),
+            RenderMode3D.Solid,
+            ShadingMode3D.HiddenLine)
+        {
+            EdgeStyle = VisibleEdges,
+        },
         CadMesh3DVisualStyle.Realistic => new(
             RenderMode3D.Solid,
             ShadingMode3D.Realistic),
         CadMesh3DVisualStyle.Conceptual => new(
-            RenderMode3D.SolidWireframe,
-            ShadingMode3D.Conceptual),
+            RenderMode3D.Solid,
+            ShadingMode3D.Conceptual)
+        {
+            EdgeStyle = VisibleEdges,
+        },
         CadMesh3DVisualStyle.Shaded => new(
             RenderMode3D.Solid,
             ShadingMode3D.Realistic),
         CadMesh3DVisualStyle.ShadedWithEdges => new(
-            RenderMode3D.SolidWireframe,
-            ShadingMode3D.Realistic),
+            RenderMode3D.Solid,
+            ShadingMode3D.Realistic)
+        {
+            EdgeStyle = VisibleEdges,
+        },
         CadMesh3DVisualStyle.ShadesOfGray => new(
             RenderMode3D.Solid,
             ShadingMode3D.ShadesOfGray),
         CadMesh3DVisualStyle.XRay => new(
-            RenderMode3D.SolidWireframe,
-            ShadingMode3D.XRay),
+            RenderMode3D.Solid,
+            ShadingMode3D.XRay)
+        {
+            EdgeStyle = VisibleEdges with
+            {
+                Display = VisibleEdges.Display |
+                    Mesh3DEdgeDisplay.Occluded,
+            },
+        },
         CadMesh3DVisualStyle.Normals => new(
             RenderMode3D.Solid,
             ShadingMode3D.Normals),
@@ -72,4 +103,5 @@ public static class CadMesh3DVisualStylePolicy
             visualStyle,
             "The CAD Mesh3D visual style is outside the supported range."),
     };
+
 }

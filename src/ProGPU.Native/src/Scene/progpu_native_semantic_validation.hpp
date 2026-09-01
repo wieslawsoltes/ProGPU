@@ -86,4 +86,8 @@ bool is_valid_semantic_mesh_3d(
 bool is_valid_semantic_mesh_3d_vertex(
     const progpu_native_scene_mesh_3d_vertex& vertex) noexcept;
 
+bool is_valid_semantic_mesh_3d_edge_pair(
+    const progpu_native_scene_mesh_3d_vertex& first,
+    const progpu_native_scene_mesh_3d_vertex& second) noexcept;
+
 } // namespace progpu::native::semantic

@@ -510,13 +510,34 @@ bool is_valid_semantic_mesh_3d_vertex(
         vertex.reserved0 == 0U && vertex.reserved1 == 0U;
 }
 
+bool is_valid_semantic_mesh_3d_edge_pair(
+    const progpu_native_scene_mesh_3d_vertex& first,
+    const progpu_native_scene_mesh_3d_vertex& second) noexcept {
+    return is_valid_semantic_mesh_3d_vertex(first) &&
+        is_valid_semantic_mesh_3d_vertex(second) &&
+        first.texture_coordinate.x >=
+            static_cast<float>(PROGPU_NATIVE_MESH_3D_EDGE_MANIFOLD) &&
+        first.texture_coordinate.x <=
+            static_cast<float>(PROGPU_NATIVE_MESH_3D_EDGE_NON_MANIFOLD) &&
+        std::floor(first.texture_coordinate.x) ==
+            first.texture_coordinate.x &&
+        first.texture_coordinate.y == 0.0F &&
+        second.texture_coordinate.x == 0.0F &&
+        second.texture_coordinate.y == 0.0F;
+}
+
 bool is_valid_semantic_mesh_3d(
     const progpu_native_scene_mesh_3d& mesh,
     std::size_t vertex_count,
     std::size_t index_count) noexcept {
-    constexpr std::uint32_t known_flags =
+    constexpr std::uint32_t material_flags =
         PROGPU_NATIVE_MESH_3D_MATERIAL_IMAGE |
         PROGPU_NATIVE_MESH_3D_TILING_MASK;
+    const bool is_edge_list =
+        mesh.topology == PROGPU_NATIVE_MESH_3D_EDGE_LIST;
+    const std::uint32_t known_flags = is_edge_list
+        ? PROGPU_NATIVE_MESH_3D_EDGE_DISPLAY_MASK
+        : material_flags;
     const bool has_material_image =
         (mesh.flags & PROGPU_NATIVE_MESH_3D_MATERIAL_IMAGE) != 0U;
     const std::size_t mesh_vertex_offset = mesh.vertex_offset;
@@ -525,9 +546,15 @@ bool is_valid_semantic_mesh_3d(
         (mesh.flags & ~known_flags) == 0U &&
         (has_material_image ||
             (mesh.flags & PROGPU_NATIVE_MESH_3D_TILING_MASK) == 0U) &&
-        mesh.topology <= PROGPU_NATIVE_MESH_3D_TRIANGLE_STRIP &&
+        mesh.topology <= PROGPU_NATIVE_MESH_3D_EDGE_LIST &&
         mesh.render_mode <= PROGPU_NATIVE_MESH_3D_SOLID_WIREFRAME &&
-        mesh.vertex_count >= 3U && mesh.index_count >= 3U &&
+        (is_edge_list
+            ? mesh.vertex_count >= 2U &&
+                (mesh.vertex_count & 1U) == 0U &&
+                mesh.index_count == 0U &&
+                (mesh.flags &
+                    PROGPU_NATIVE_MESH_3D_EDGE_DISPLAY_MASK) != 0U
+            : mesh.vertex_count >= 3U && mesh.index_count >= 3U) &&
         mesh_vertex_offset <= vertex_count &&
         mesh.vertex_count <= vertex_count - mesh_vertex_offset &&
         mesh_index_offset <= index_count &&
@@ -541,7 +568,15 @@ bool is_valid_semantic_mesh_3d(
         std::isfinite(mesh.opacity) && mesh.opacity >= 0.0F &&
         mesh.opacity <= 1.0F &&
         mesh.shading_mode <= PROGPU_NATIVE_MESH_3D_NORMALS &&
-        (has_material_image || mesh.material_image_resource_index == 0U);
+        (has_material_image || mesh.material_image_resource_index == 0U) &&
+        (!is_edge_list ||
+            (!has_material_image &&
+             mesh.light_direction.x > 0.0F &&
+             mesh.light_direction.x <= 64.0F &&
+             mesh.light_direction.y >= -1.0F &&
+             mesh.light_direction.y <= 1.0F &&
+             mesh.light_direction.z > 0.0F &&
+             mesh.light_direction.w >= 0.0F));
 }
 
 } // namespace progpu::native::semantic

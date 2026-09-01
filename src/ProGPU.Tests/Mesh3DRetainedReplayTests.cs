@@ -215,6 +215,74 @@ public sealed class Mesh3DRetainedReplayTests
         replacementWindow.Content = null;
     }
 
+    [Fact]
+    public void RetainedCadEdgesUploadOnceAndReclassifyFromCameraUniforms()
+    {
+        Viewport3D viewport = CreateRetainedViewport(
+            out MeshGeometry3D mesh,
+            out _);
+        mesh.Edges =
+        [
+            new MeshEdge3D(
+                new Vector3(-0.8f, -0.8f, 0f),
+                new Vector3(0.8f, -0.8f, 0f),
+                -Vector3.UnitZ,
+                Vector3.Zero,
+                MeshEdgeTopology3D.Boundary),
+            new MeshEdge3D(
+                new Vector3(0.8f, -0.8f, 0f),
+                new Vector3(0f, 0.8f, 0f),
+                -Vector3.UnitZ,
+                Vector3.Zero,
+                MeshEdgeTopology3D.Boundary),
+            new MeshEdge3D(
+                new Vector3(0f, 0.8f, 0f),
+                new Vector3(-0.8f, -0.8f, 0f),
+                -Vector3.UnitZ,
+                Vector3.Zero,
+                MeshEdgeTopology3D.Boundary)
+        ];
+        viewport.EdgeStyle = new Mesh3DEdgeStyle(
+            Mesh3DEdgeDisplay.Boundary |
+                Mesh3DEdgeDisplay.Silhouette |
+                Mesh3DEdgeDisplay.Occluded,
+            new Vector4(1f, 0f, 0f, 1f),
+            new Vector4(0f, 1f, 0f, 0.75f),
+            2f,
+            30f,
+            5f,
+            3f);
+        viewport.InvalidateScene();
+
+        using var window = new HeadlessWindow(128, 96);
+        window.Content = viewport;
+        window.Render();
+        Mesh3DFrameMetrics first =
+            viewport.LastMesh3DFrameMetrics;
+
+        Assert.True(first.EdgeUploadBytes > 0);
+        Assert.Equal(4, first.DrawCallCount);
+        Assert.True(first.ViewportBufferResidentBytes > 0);
+
+        var camera = Assert.IsType<OrthographicCamera>(viewport.Camera);
+        camera.SetView(
+            camera.Position + new Vector3(0.2f, 0.1f, 0f),
+            camera.LookDirection);
+        window.Render();
+        Mesh3DFrameMetrics replay =
+            viewport.LastMesh3DFrameMetrics;
+
+        Assert.True(replay.SceneReused);
+        Assert.Equal(0UL, replay.EdgeUploadBytes);
+        Assert.Equal(0UL, replay.RecordUploadBytes);
+        Assert.Equal(4, replay.DrawCallCount);
+        Assert.Equal(
+            first.ViewportBufferResidentBytes,
+            replay.ViewportBufferResidentBytes);
+
+        window.Content = null;
+    }
+
     private static Viewport3D CreateRetainedViewport(
         out MeshGeometry3D mesh,
         out DiffuseMaterial material)

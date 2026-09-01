@@ -6,9 +6,11 @@ namespace ProGPU.CAD;
 public sealed class CadMesh3DSceneOptions
 {
     public const int DefaultMaxDrawBatches = 1_000_000;
+    public const int DefaultMaxEdgeCount = 2_000_000;
 
     public bool IncludeNonPlottableLayers { get; init; } = true;
     public int MaxDrawBatches { get; init; } = DefaultMaxDrawBatches;
+    public int MaxEdgeCount { get; init; } = DefaultMaxEdgeCount;
     public ICadMaterialTextureSourceResolver? MaterialTextureResolver { get; init; }
 }
 
@@ -24,6 +26,58 @@ public readonly record struct CadMesh3DSceneStatistics(
     public int SubobjectVertexCount { get; init; }
     public int SubobjectEdgeCount { get; init; }
     public int SubobjectFaceCount { get; init; }
+    public int EdgeBatchCount { get; init; }
+    public int EdgeCount { get; init; }
+    public int BoundaryEdgeCount { get; init; }
+    public int NonManifoldEdgeCount { get; init; }
+}
+
+/// <summary>Adjacency class for one camera-independent retained mesh edge.</summary>
+public enum CadMesh3DEdgeTopology : byte
+{
+    Manifold = 0,
+    Boundary = 1,
+    NonManifold = 2,
+}
+
+/// <summary>
+/// One unique geometric edge with the face normals required for bounded
+/// runtime silhouette and crease classification.
+/// </summary>
+public readonly record struct CadMesh3DEdge(
+    Vector3 Start,
+    Vector3 End,
+    Vector3 FirstFaceNormal,
+    Vector3 SecondFaceNormal,
+    CadMesh3DEdgeTopology Topology);
+
+/// <summary>One immutable same-style explicit CAD edge stream.</summary>
+public sealed class CadMesh3DEdgeBatch
+{
+    private readonly CadMesh3DEdge[] _edges;
+
+    public ulong Handle { get; }
+    public int LayerIndex { get; }
+    public int StyleIndex { get; }
+    public int ComponentIndex { get; }
+    public CadColor32 Color { get; }
+    public ReadOnlyMemory<CadMesh3DEdge> Edges => _edges;
+
+    internal CadMesh3DEdgeBatch(
+        ulong handle,
+        int layerIndex,
+        int styleIndex,
+        int componentIndex,
+        CadColor32 color,
+        CadMesh3DEdge[] edges)
+    {
+        Handle = handle;
+        LayerIndex = layerIndex;
+        StyleIndex = styleIndex;
+        ComponentIndex = componentIndex;
+        Color = color;
+        _edges = edges;
+    }
 }
 
 /// <summary>
@@ -169,6 +223,7 @@ public sealed class CadMesh3DDrawBatch
 public sealed class CadRecordedMesh3DScene
 {
     private readonly CadMesh3DDrawBatch[] _drawBatches;
+    private readonly CadMesh3DEdgeBatch[] _edgeBatches;
     private readonly CadMesh3DSubobjectComponent[] _subobjectComponents;
 
     public ulong ContentGeneration { get; }
@@ -176,6 +231,7 @@ public sealed class CadRecordedMesh3DScene
     public CadBounds3D Bounds { get; }
     public CadMesh3DSceneStatistics Statistics { get; }
     public ReadOnlyMemory<CadMesh3DDrawBatch> DrawBatches => _drawBatches;
+    public ReadOnlyMemory<CadMesh3DEdgeBatch> EdgeBatches => _edgeBatches;
     public ReadOnlyMemory<CadMesh3DSubobjectComponent> SubobjectComponents =>
         _subobjectComponents;
 
@@ -185,6 +241,7 @@ public sealed class CadRecordedMesh3DScene
         CadBounds3D bounds,
         CadMesh3DSceneStatistics statistics,
         CadMesh3DDrawBatch[] drawBatches,
+        CadMesh3DEdgeBatch[]? edgeBatches = null,
         CadMesh3DSubobjectComponent[]? subobjectComponents = null)
     {
         ContentGeneration = contentGeneration;
@@ -192,6 +249,7 @@ public sealed class CadRecordedMesh3DScene
         Bounds = bounds;
         Statistics = statistics;
         _drawBatches = drawBatches;
+        _edgeBatches = edgeBatches ?? [];
         _subobjectComponents = subobjectComponents ?? [];
     }
 
@@ -242,6 +300,7 @@ public sealed class CadMesh3DSceneCompiler
         ArgumentNullException.ThrowIfNull(snapshot);
         options ??= new CadMesh3DSceneOptions();
         ArgumentOutOfRangeException.ThrowIfLessThan(options.MaxDrawBatches, 1);
+        ArgumentOutOfRangeException.ThrowIfLessThan(options.MaxEdgeCount, 1);
 
         ReadOnlySpan<CadEntityHeader> entities = snapshot.Entities.Span;
         ReadOnlySpan<CadMesh3DPrimitive> meshes = snapshot.Meshes3D.Span;
@@ -256,11 +315,15 @@ public sealed class CadMesh3DSceneCompiler
         ReadOnlySpan<CadLayerSnapshot> layers = snapshot.Layers.Span;
         ReadOnlySpan<CadStrokeStyle> styles = snapshot.Styles.Span;
         var batches = new List<CadMesh3DDrawBatch>();
+        var edgeBatches = new List<CadMesh3DEdgeBatch>();
         var subobjectComponents = new List<CadMesh3DSubobjectComponent>();
         int sourceMeshCount = 0;
         int sourceFaceCount = 0;
         int faceRangeCount = 0;
         int triangleCount = 0;
+        int edgeCount = 0;
+        int boundaryEdgeCount = 0;
+        int nonManifoldEdgeCount = 0;
 
         for (int entityIndex = 0; entityIndex < entities.Length; entityIndex++)
         {
@@ -310,7 +373,7 @@ public sealed class CadMesh3DSceneCompiler
                         $"CAD 3D draw batches exceed the configured limit of {options.MaxDrawBatches}.");
                 }
                 triangleCount = checked(triangleCount + groupTriangleCount);
-                batches.Add(CreateFaceBatch(
+                CadMesh3DDrawBatch faceBatch = CreateFaceBatch(
                     snapshot,
                     faceGroup,
                     faces,
@@ -320,7 +383,16 @@ public sealed class CadMesh3DSceneCompiler
                         entity.MaterialIndex,
                         options.MaterialTextureResolver),
                     groupTriangleCount,
-                    cancellationToken));
+                    cancellationToken);
+                batches.Add(faceBatch);
+                AppendEdgeBatch(
+                    faceBatch.Handle,
+                    faceBatch.LayerIndex,
+                    faceBatch.StyleIndex,
+                    -1,
+                    faceBatch.Color,
+                    faceBatch.Positions.Span,
+                    faceBatch.Indices.Span);
                 continue;
             }
             if (entity.Kind != CadEntityKind.Mesh3D)
@@ -330,6 +402,9 @@ public sealed class CadMesh3DSceneCompiler
             sourceMeshCount++;
             CadMesh3DPrimitive mesh = meshes[entity.PrimitiveIndex];
             bool componentAdded = false;
+            var meshEdges = new MeshEdgeAccumulator();
+            int meshEdgeLayerIndex = -1;
+            int meshEdgeStyleIndex = -1;
             int rangeCursor = 0;
             while (rangeCursor < mesh.DrawRangeCount)
             {
@@ -453,7 +528,7 @@ public sealed class CadMesh3DSceneCompiler
                     normals,
                     textureCoordinates,
                     hasTextureCoordinates);
-                batches.Add(new CadMesh3DDrawBatch(
+                var meshBatch = new CadMesh3DDrawBatch(
                     entity.Handle,
                     layerIndex,
                     styleIndex,
@@ -467,7 +542,16 @@ public sealed class CadMesh3DSceneCompiler
                     mesh.HasSubobjectTopology ? entity.PrimitiveIndex : -1,
                     batchVertexSubobjectIndices,
                     batchEdgeSubobjectIndices,
-                    batchFaceSubobjectIndices));
+                    batchFaceSubobjectIndices);
+                batches.Add(meshBatch);
+                meshEdges.AddTriangles(
+                    meshBatch.Positions.Span,
+                    meshBatch.Indices.Span);
+                if (meshEdgeLayerIndex < 0)
+                {
+                    meshEdgeLayerIndex = layerIndex;
+                    meshEdgeStyleIndex = styleIndex;
+                }
                 if (mesh.HasSubobjectTopology && !componentAdded)
                 {
                     subobjectComponents.Add(CreateSubobjectComponent(
@@ -478,6 +562,16 @@ public sealed class CadMesh3DSceneCompiler
                     componentAdded = true;
                 }
                 rangeCursor = rangeEnd;
+            }
+            if (meshEdgeLayerIndex >= 0)
+            {
+                AppendAccumulatedEdgeBatch(
+                    entity.Handle,
+                    meshEdgeLayerIndex,
+                    meshEdgeStyleIndex,
+                    entity.PrimitiveIndex,
+                    ToColor(styles[meshEdgeStyleIndex]),
+                    meshEdges);
             }
         }
 
@@ -499,9 +593,213 @@ public sealed class CadMesh3DSceneCompiler
                     component => component.Edges.Length),
                 SubobjectFaceCount = subobjectComponents.Sum(
                     component => component.Faces.Length),
+                EdgeBatchCount = edgeBatches.Count,
+                EdgeCount = edgeCount,
+                BoundaryEdgeCount = boundaryEdgeCount,
+                NonManifoldEdgeCount = nonManifoldEdgeCount,
             },
             batches.ToArray(),
+            edgeBatches.ToArray(),
             subobjectComponents.ToArray());
+
+        void AppendEdgeBatch(
+            ulong handle,
+            int layerIndex,
+            int styleIndex,
+            int componentIndex,
+            CadColor32 color,
+            ReadOnlySpan<Vector3> positions,
+            ReadOnlySpan<uint> triangleIndices)
+        {
+            var accumulator = new MeshEdgeAccumulator();
+            accumulator.AddTriangles(positions, triangleIndices);
+            AppendAccumulatedEdgeBatch(
+                handle,
+                layerIndex,
+                styleIndex,
+                componentIndex,
+                color,
+                accumulator);
+        }
+
+        void AppendAccumulatedEdgeBatch(
+            ulong handle,
+            int layerIndex,
+            int styleIndex,
+            int componentIndex,
+            CadColor32 color,
+            MeshEdgeAccumulator accumulator)
+        {
+            CadMesh3DEdge[] edges = accumulator.Build();
+            if (edges.Length == 0)
+            {
+                return;
+            }
+            if (edges.Length > options.MaxEdgeCount - edgeCount)
+            {
+                throw new InvalidOperationException(
+                    $"CAD 3D edges exceed the configured limit of {options.MaxEdgeCount}.");
+            }
+            foreach (CadMesh3DEdge edge in edges)
+            {
+                boundaryEdgeCount += edge.Topology ==
+                    CadMesh3DEdgeTopology.Boundary ? 1 : 0;
+                nonManifoldEdgeCount += edge.Topology ==
+                    CadMesh3DEdgeTopology.NonManifold ? 1 : 0;
+            }
+            edgeCount = checked(edgeCount + edges.Length);
+            edgeBatches.Add(new CadMesh3DEdgeBatch(
+                handle,
+                layerIndex,
+                styleIndex,
+                componentIndex,
+                color,
+                edges));
+        }
+    }
+
+    private readonly record struct MeshEdgeKey(Vector3 First, Vector3 Second)
+    {
+        internal static MeshEdgeKey Create(Vector3 first, Vector3 second) =>
+            CreateCanonical(
+                CanonicalizeSignedZero(first),
+                CanonicalizeSignedZero(second));
+
+        private static MeshEdgeKey CreateCanonical(
+            Vector3 first,
+            Vector3 second) => Compare(first, second) <= 0
+            ? new MeshEdgeKey(first, second)
+            : new MeshEdgeKey(second, first);
+
+        private static Vector3 CanonicalizeSignedZero(Vector3 value) => new(
+            value.X == 0.0f ? 0.0f : value.X,
+            value.Y == 0.0f ? 0.0f : value.Y,
+            value.Z == 0.0f ? 0.0f : value.Z);
+
+        private static int Compare(Vector3 first, Vector3 second)
+        {
+            int comparison = CompareBits(first.X, second.X);
+            if (comparison != 0)
+            {
+                return comparison;
+            }
+            comparison = CompareBits(first.Y, second.Y);
+            return comparison != 0
+                ? comparison
+                : CompareBits(first.Z, second.Z);
+        }
+
+        private static int CompareBits(float first, float second) =>
+            BitConverter.SingleToUInt32Bits(first).CompareTo(
+                BitConverter.SingleToUInt32Bits(second));
+    }
+
+    private sealed class MeshEdgeAccumulator
+    {
+        private sealed class Adjacency
+        {
+            internal required Vector3 First { get; init; }
+            internal required Vector3 Second { get; init; }
+            internal Vector3 FirstNormal;
+            internal Vector3 SecondNormal;
+            internal int FaceCount;
+
+            internal void AddFace(Vector3 normal)
+            {
+                if (FaceCount == 0)
+                {
+                    FirstNormal = normal;
+                }
+                else if (FaceCount == 1)
+                {
+                    SecondNormal = normal;
+                }
+                FaceCount = checked(FaceCount + 1);
+            }
+        }
+
+        private readonly Dictionary<MeshEdgeKey, Adjacency> _edges = new();
+        private readonly List<Adjacency> _orderedEdges = new();
+
+        internal void AddTriangles(
+            ReadOnlySpan<Vector3> positions,
+            ReadOnlySpan<uint> indices)
+        {
+            if (indices.Length % 3 != 0)
+            {
+                throw new InvalidOperationException(
+                    "A retained CAD edge stream requires triangle-list indices.");
+            }
+            for (int triangle = 0; triangle < indices.Length; triangle += 3)
+            {
+                int firstIndex = checked((int)indices[triangle]);
+                int secondIndex = checked((int)indices[triangle + 1]);
+                int thirdIndex = checked((int)indices[triangle + 2]);
+                if ((uint)firstIndex >= (uint)positions.Length ||
+                    (uint)secondIndex >= (uint)positions.Length ||
+                    (uint)thirdIndex >= (uint)positions.Length)
+                {
+                    throw new InvalidOperationException(
+                        "A retained CAD edge stream index exceeds its vertex range.");
+                }
+
+                Vector3 first = positions[firstIndex];
+                Vector3 second = positions[secondIndex];
+                Vector3 third = positions[thirdIndex];
+                Vector3 cross = Vector3.Cross(second - first, third - first);
+                float length = cross.Length();
+                if (!float.IsFinite(length) || length <= 0.0f)
+                {
+                    throw new InvalidOperationException(
+                        "A retained CAD edge stream contains a degenerate triangle.");
+                }
+                Vector3 normal = cross / length;
+                AddEdge(first, second, normal);
+                AddEdge(second, third, normal);
+                AddEdge(third, first, normal);
+            }
+        }
+
+        internal CadMesh3DEdge[] Build()
+        {
+            var result = new CadMesh3DEdge[_edges.Count];
+            int index = 0;
+            foreach (Adjacency edge in _orderedEdges)
+            {
+                CadMesh3DEdgeTopology topology = edge.FaceCount switch
+                {
+                    1 => CadMesh3DEdgeTopology.Boundary,
+                    2 => CadMesh3DEdgeTopology.Manifold,
+                    _ => CadMesh3DEdgeTopology.NonManifold,
+                };
+                Vector3 secondNormal = edge.FaceCount == 1
+                    ? edge.FirstNormal
+                    : edge.SecondNormal;
+                result[index++] = new CadMesh3DEdge(
+                    edge.First,
+                    edge.Second,
+                    edge.FirstNormal,
+                    secondNormal,
+                    topology);
+            }
+            return result;
+        }
+
+        private void AddEdge(Vector3 first, Vector3 second, Vector3 normal)
+        {
+            MeshEdgeKey key = MeshEdgeKey.Create(first, second);
+            if (!_edges.TryGetValue(key, out Adjacency? edge))
+            {
+                edge = new Adjacency
+                {
+                    First = key.First,
+                    Second = key.Second,
+                };
+                _edges.Add(key, edge);
+                _orderedEdges.Add(edge);
+            }
+            edge.AddFace(normal);
+        }
     }
 
     private static CadMesh3DSubobjectComponent CreateSubobjectComponent(

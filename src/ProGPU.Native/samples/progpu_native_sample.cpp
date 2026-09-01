@@ -383,7 +383,7 @@ int main(int argc, char** argv) {
     }
 
     progpu::native::semantic_scene_builder scene_builder(501U, 1U);
-    if (!scene_builder.reserve(9U, 11U, 9216U)) {
+    if (!scene_builder.reserve(10U, 12U, 10240U)) {
         std::cerr << "Could not reserve the native retained scene builder.\n";
         return EXIT_FAILURE;
     }
@@ -708,6 +708,74 @@ int main(int argc, char** argv) {
     }
     if (!scene_builder.pop_layer()) {
         std::cerr << "Could not close the native retained layer.\n";
+        return EXIT_FAILURE;
+    }
+    progpu_native_matrix_4x4 identity_3d{};
+    identity_3d.m11 = 1.0F;
+    identity_3d.m22 = 1.0F;
+    identity_3d.m33 = 1.0F;
+    identity_3d.m44 = 1.0F;
+    progpu_native_scene_camera_3d camera_3d{};
+    camera_3d.struct_size = sizeof(camera_3d);
+    camera_3d.projection = identity_3d;
+    camera_3d.view = identity_3d;
+    camera_3d.camera_position = {0.0F, 0.0F, 2.0F, 0.0F};
+    const std::array mesh_vertices_3d{
+        progpu_native_scene_mesh_3d_vertex{
+            {0.72F, 0.68F, 0.25F, 0.0F},
+            {0.0F, 0.0F, 1.0F, 0.0F}, {0.0F, 1.0F}, 0U, 0U},
+        progpu_native_scene_mesh_3d_vertex{
+            {0.96F, 0.68F, 0.25F, 0.0F},
+            {0.0F, 0.0F, 1.0F, 0.0F}, {1.0F, 1.0F}, 0U, 0U},
+        progpu_native_scene_mesh_3d_vertex{
+            {0.84F, 0.96F, 0.25F, 0.0F},
+            {0.0F, 0.0F, 1.0F, 0.0F}, {0.5F, 0.0F}, 0U, 0U},
+        progpu_native_scene_mesh_3d_vertex{
+            {0.72F, 0.68F, 0.25F, 0.0F},
+            {0.0F, 0.0F, 1.0F, 0.0F},
+            {static_cast<float>(PROGPU_NATIVE_MESH_3D_EDGE_BOUNDARY), 0.0F},
+            0U, 0U},
+        progpu_native_scene_mesh_3d_vertex{
+            {0.96F, 0.68F, 0.25F, 0.0F},
+            {0.0F, 0.0F, 0.0F, 0.0F}, {0.0F, 0.0F}, 0U, 0U}};
+    constexpr std::array<std::uint32_t, 3U> mesh_indices_3d{0U, 1U, 2U};
+    progpu_native_scene_mesh_3d face_3d{};
+    face_3d.struct_size = sizeof(face_3d);
+    face_3d.topology = PROGPU_NATIVE_MESH_3D_TRIANGLES;
+    face_3d.render_mode = PROGPU_NATIVE_MESH_3D_SOLID;
+    face_3d.vertex_count = 3U;
+    face_3d.index_count = 3U;
+    face_3d.model_transform = identity_3d;
+    face_3d.normal_transform = identity_3d;
+    face_3d.color = {0.15F, 0.42F, 0.92F, 1.0F};
+    face_3d.light_direction = {0.0F, 0.0F, -1.0F, 1.0F};
+    face_3d.ambient_color = {1.0F, 1.0F, 1.0F, 0.25F};
+    face_3d.specular_color = {1.0F, 1.0F, 1.0F, 16.0F};
+    face_3d.material_ambient = {0.2F, 0.2F, 0.2F, 0.0F};
+    face_3d.opacity = 1.0F;
+    face_3d.shading_mode = PROGPU_NATIVE_MESH_3D_CONCEPTUAL;
+    auto edge_3d = face_3d;
+    edge_3d.flags =
+        PROGPU_NATIVE_MESH_3D_EDGE_DISPLAY_BOUNDARY |
+        PROGPU_NATIVE_MESH_3D_EDGE_DISPLAY_SILHOUETTE |
+        PROGPU_NATIVE_MESH_3D_EDGE_DISPLAY_OCCLUDED;
+    edge_3d.topology = PROGPU_NATIVE_MESH_3D_EDGE_LIST;
+    edge_3d.vertex_offset = 3U;
+    edge_3d.vertex_count = 2U;
+    edge_3d.index_count = 0U;
+    edge_3d.color = {0.95F, 0.95F, 1.0F, 1.0F};
+    edge_3d.light_direction = {2.0F, 0.8660254F, 5.0F, 3.0F};
+    edge_3d.ambient_color = {0.4F, 0.7F, 0.9F, 0.7F};
+    edge_3d.specular_color = {};
+    edge_3d.material_ambient = {};
+    const std::array mesh_records_3d{face_3d, edge_3d};
+    if (!scene_builder.draw_meshes_3d(
+            mesh_records_3d,
+            mesh_vertices_3d,
+            mesh_indices_3d,
+            camera_3d,
+            {540.0F, 0.0F, 100.0F, 80.0F})) {
+        std::cerr << "Could not record native retained CAD edge sample.\n";
         return EXIT_FAILURE;
     }
     progpu_native_hit_test_primitive hit_primitive{};

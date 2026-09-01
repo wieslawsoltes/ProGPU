@@ -3143,12 +3143,22 @@ public sealed class MediaPlaybackEngineTests
         string wireframe = ShaderResource.Load(
             typeof(Mesh3DExtensionPipeline),
             "Mesh3DWireframe.wgsl");
+        string edges = ShaderResource.Load(
+            typeof(Mesh3DExtensionPipeline),
+            "Mesh3DEdges.wgsl");
 
         Assert.Equal(448, System.Runtime.InteropServices.Marshal
             .SizeOf<GpuMesh3DRecord>());
         Assert.Equal(
             GetRecordDeclaration(solid),
             GetRecordDeclaration(wireframe));
+        Assert.Equal(
+            GetRecordDeclaration(solid),
+            GetRecordDeclaration(edges));
+        Assert.Equal(208, System.Runtime.InteropServices.Marshal
+            .SizeOf<GpuMesh3DUniforms>());
+        Assert.Equal(80, System.Runtime.InteropServices.Marshal
+            .SizeOf<GpuMesh3DEdge>());
         Assert.Contains(
             "yuvRange: vec4<f32>",
             solid,

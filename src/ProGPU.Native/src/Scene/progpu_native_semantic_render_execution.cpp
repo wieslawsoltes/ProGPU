@@ -3441,15 +3441,6 @@ progpu_native_status render_scene(
     if ((semantic_draw_count != 0U ||
             semantic_has_materialized_layers) &&
         !engine->semantic_render_bundle_valid) {
-        WGPURenderBundleEncoderDescriptor bundle_descriptor{};
-        bundle_descriptor.label = progpu::native::webgpu::string_view(
-            "ProGPU retained semantic mixed-scene bundle encoder");
-        bundle_descriptor.colorFormatCount = 1U;
-        bundle_descriptor.colorFormats = &engine->target_format;
-        bundle_descriptor.depthStencilFormat = semantic_3d_draw_count != 0U
-            ? WGPUTextureFormat_Depth24Plus
-            : WGPUTextureFormat_Undefined;
-        bundle_descriptor.sampleCount = 1U;
         std::vector<semantic_render_bundle_span> compiled_spans;
         std::vector<semantic_effect_dispatch> compiled_effect_dispatches;
         std::vector<std::byte> semantic_effect_uniform_data;
@@ -3481,6 +3472,7 @@ progpu_native_status render_scene(
             PROGPU_NATIVE_SCENE_NO_INDEX;
         std::uint32_t active_mask_resource_index =
             PROGPU_NATIVE_SCENE_NO_INDEX;
+        bool active_bundle_uses_depth = false;
         semantic_render_bundle_span active_mask{};
         enum class pending_draw_kind : std::uint8_t {
             none,
@@ -3616,6 +3608,7 @@ progpu_native_status render_scene(
             operation.clip_height = active_scissor.height;
             operation.target_layer = active_target_layer;
             operation.draw_call_count = active_bundle_draw_count;
+            operation.uses_depth = active_bundle_uses_depth;
             operation.mask_uniform_buffer =
                 active_mask.mask_uniform_buffer;
             operation.mask_chain_uniform_buffer =
@@ -3644,7 +3637,19 @@ progpu_native_status render_scene(
             semantic_scissor scissor,
             std::uint32_t target_layer,
             std::uint32_t mask_resource_index,
-            semantic_scissor target_extent) {
+            semantic_scissor target_extent,
+            bool uses_depth) {
+            WGPURenderBundleEncoderDescriptor bundle_descriptor{};
+            bundle_descriptor.label = progpu::native::webgpu::string_view(
+                uses_depth
+                    ? "ProGPU retained semantic 3D bundle encoder"
+                    : "ProGPU retained semantic 2D bundle encoder");
+            bundle_descriptor.colorFormatCount = 1U;
+            bundle_descriptor.colorFormats = &engine->target_format;
+            bundle_descriptor.depthStencilFormat = uses_depth
+                ? WGPUTextureFormat_Depth24Plus
+                : WGPUTextureFormat_Undefined;
+            bundle_descriptor.sampleCount = 1U;
             bundle_encoder = wgpuDeviceCreateRenderBundleEncoder(
                 engine->device,
                 &bundle_descriptor);
@@ -3657,6 +3662,7 @@ progpu_native_status render_scene(
             active_target_layer = target_layer;
             active_mask_resource_index = mask_resource_index;
             active_bundle_draw_count = 0U;
+            active_bundle_uses_depth = uses_depth;
             has_active_scissor = true;
             if (mask_resource_index !=
                 PROGPU_NATIVE_SCENE_NO_INDEX) {
@@ -4066,10 +4072,16 @@ progpu_native_status render_scene(
                 (state.flags & PROGPU_NATIVE_SCENE_STATE_MASK) != 0U
                 ? state.mask_resource_index
                 : PROGPU_NATIVE_SCENE_NO_INDEX;
+            const bool command_uses_depth =
+                command.kind ==
+                    PROGPU_NATIVE_SCENE_COMMAND_DRAW_LINE_3D_BATCH ||
+                command.kind ==
+                    PROGPU_NATIVE_SCENE_COMMAND_DRAW_MESH_3D_BATCH;
             if (scissor.drawable &&
                 (!has_active_scissor || scissor != active_scissor ||
                     current_target_layer != active_target_layer ||
-                    mask_resource_index != active_mask_resource_index)) {
+                    mask_resource_index != active_mask_resource_index ||
+                    command_uses_depth != active_bundle_uses_depth)) {
                 const auto finish_status = finish_active_bundle();
                 if (finish_status != PROGPU_NATIVE_STATUS_SUCCESS) {
                     return fail_bundle(finish_status);
@@ -4078,7 +4090,8 @@ progpu_native_status render_scene(
                     scissor,
                     current_target_layer,
                     mask_resource_index,
-                    target_extent);
+                    target_extent,
+                    command_uses_depth);
                 if (begin_status != PROGPU_NATIVE_STATUS_SUCCESS) {
                     return fail_bundle(begin_status);
                 }
@@ -4450,45 +4463,80 @@ progpu_native_status render_scene(
     std::uint32_t semantic_layer_content_pass_count = 0U;
     if (semantic_draw_count != 0U &&
         !semantic_has_materialized_layers) {
-        WGPURenderPassColorAttachment color_attachment{};
-        progpu::native::webgpu::initialize_color_attachment(
-            color_attachment);
-        color_attachment.view = reinterpret_cast<WGPUTextureView>(
-            frame->target_view);
-        color_attachment.loadOp = semantic_preserve_target_active
-            ? WGPULoadOp_Load
-            : WGPULoadOp_Clear;
-        color_attachment.storeOp = WGPUStoreOp_Store;
-        color_attachment.clearValue = WGPUColor{
-            frame->clear_color.r,
-            frame->clear_color.g,
-            frame->clear_color.b,
-            frame->clear_color.a};
-        WGPURenderPassDescriptor pass_descriptor{};
-        pass_descriptor.label = progpu::native::webgpu::string_view(
-            "ProGPU retained semantic bundle replay pass");
-        pass_descriptor.colorAttachmentCount = 1U;
-        pass_descriptor.colorAttachments = &color_attachment;
-        WGPURenderPassDepthStencilAttachment depth_attachment{};
-        if (semantic_3d_draw_count != 0U) {
-            depth_attachment.view = engine->semantic_root_slot.depth_view;
-            depth_attachment.depthLoadOp = WGPULoadOp_Clear;
-            depth_attachment.depthStoreOp = WGPUStoreOp_Store;
-            depth_attachment.depthClearValue = 1.0F;
-            depth_attachment.stencilLoadOp = WGPULoadOp_Undefined;
-            depth_attachment.stencilStoreOp = WGPUStoreOp_Undefined;
-            pass_descriptor.depthStencilAttachment = &depth_attachment;
-        }
-        pass = wgpuCommandEncoderBeginRenderPass(
-            engine->semantic_encoder,
-            &pass_descriptor);
-        if (pass == nullptr) {
+        bool color_initialized = semantic_preserve_target_active;
+        bool depth_initialized = false;
+        bool active_pass_uses_depth = false;
+        const auto finish_pass = [&]() noexcept {
+            if (pass != nullptr) {
+                wgpuRenderPassEncoderEnd(pass);
+                wgpuRenderPassEncoderRelease(pass);
+                pass = nullptr;
+            }
+        };
+        const auto begin_pass = [&](bool uses_depth) {
+            WGPURenderPassColorAttachment color_attachment{};
+            progpu::native::webgpu::initialize_color_attachment(
+                color_attachment);
+            color_attachment.view = reinterpret_cast<WGPUTextureView>(
+                frame->target_view);
+            color_attachment.loadOp = color_initialized
+                ? WGPULoadOp_Load
+                : WGPULoadOp_Clear;
+            color_attachment.storeOp = WGPUStoreOp_Store;
+            color_attachment.clearValue = WGPUColor{
+                frame->clear_color.r,
+                frame->clear_color.g,
+                frame->clear_color.b,
+                frame->clear_color.a};
+            WGPURenderPassDescriptor pass_descriptor{};
+            pass_descriptor.label = progpu::native::webgpu::string_view(
+                uses_depth
+                    ? "ProGPU retained semantic 3D bundle replay pass"
+                    : "ProGPU retained semantic 2D bundle replay pass");
+            pass_descriptor.colorAttachmentCount = 1U;
+            pass_descriptor.colorAttachments = &color_attachment;
+            WGPURenderPassDepthStencilAttachment depth_attachment{};
+            if (uses_depth) {
+                depth_attachment.view =
+                    engine->semantic_root_slot.depth_view;
+                depth_attachment.depthLoadOp = depth_initialized
+                    ? WGPULoadOp_Load
+                    : WGPULoadOp_Clear;
+                depth_attachment.depthStoreOp = WGPUStoreOp_Store;
+                depth_attachment.depthClearValue = 1.0F;
+                depth_attachment.stencilLoadOp = WGPULoadOp_Undefined;
+                depth_attachment.stencilStoreOp = WGPUStoreOp_Undefined;
+                pass_descriptor.depthStencilAttachment = &depth_attachment;
+            }
+            pass = wgpuCommandEncoderBeginRenderPass(
+                engine->semantic_encoder,
+                &pass_descriptor);
+            if (pass != nullptr) {
+                color_initialized = true;
+                depth_initialized = depth_initialized || uses_depth;
+                active_pass_uses_depth = uses_depth;
+            }
+            return pass != nullptr;
+        };
+        const bool initial_uses_depth =
+            !engine->semantic_render_bundle_spans.empty() &&
+            engine->semantic_render_bundle_spans.front().uses_depth;
+        if (!begin_pass(initial_uses_depth)) {
             discard_encoder();
             return engine->fail(
                 PROGPU_NATIVE_STATUS_INTERNAL_ERROR,
                 "The semantic bundle replay pass could not be created.");
         }
         for (const auto& span : engine->semantic_render_bundle_spans) {
+            if (span.uses_depth != active_pass_uses_depth) {
+                finish_pass();
+                if (!begin_pass(span.uses_depth)) {
+                    discard_encoder();
+                    return engine->fail(
+                        PROGPU_NATIVE_STATUS_INTERNAL_ERROR,
+                        "A compatible semantic bundle replay pass could not be created.");
+                }
+            }
             wgpuRenderPassEncoderSetScissorRect(
                 pass,
                 span.clip_x,
@@ -4499,11 +4547,15 @@ progpu_native_status render_scene(
                 pass, 1U, &span.bundle);
             executed_draw_calls += span.draw_call_count;
         }
-        wgpuRenderPassEncoderEnd(pass);
-        wgpuRenderPassEncoderRelease(pass);
+        finish_pass();
     } else if (semantic_has_materialized_layers) {
         std::uint32_t active_target_layer =
             PROGPU_NATIVE_SCENE_NO_INDEX;
+        bool active_pass_uses_depth = false;
+        bool root_depth_initialized = false;
+        std::array<bool,
+            PROGPU_NATIVE_SCENE_MAX_MATERIALIZED_LAYERS>
+            layer_depth_initialized{};
         std::uint32_t skipped_cached_depth = 0U;
         std::array<bool,
             PROGPU_NATIVE_SCENE_MAX_MATERIALIZED_LAYERS>
@@ -4539,7 +4591,8 @@ progpu_native_status render_scene(
         };
         const auto begin_pass = [&](
             std::uint32_t target_layer,
-            WGPULoadOp load_op) {
+            WGPULoadOp load_op,
+            bool uses_depth) {
             WGPUTextureView view = target_view(target_layer);
             if (view == nullptr) {
                 return false;
@@ -4564,9 +4617,19 @@ progpu_native_status render_scene(
             pass_descriptor.colorAttachmentCount = 1U;
             pass_descriptor.colorAttachments = &color_attachment;
             WGPURenderPassDepthStencilAttachment depth_attachment{};
-            depth_attachment.view = target_depth_view(target_layer);
-            if (depth_attachment.view != nullptr) {
-                depth_attachment.depthLoadOp = load_op;
+            bool* depth_initialized = nullptr;
+            if (uses_depth) {
+                depth_attachment.view = target_depth_view(target_layer);
+                if (depth_attachment.view == nullptr) {
+                    return false;
+                }
+                depth_initialized = target_layer ==
+                        PROGPU_NATIVE_SCENE_NO_INDEX
+                    ? &root_depth_initialized
+                    : &layer_depth_initialized[target_layer];
+                depth_attachment.depthLoadOp = *depth_initialized
+                    ? WGPULoadOp_Load
+                    : WGPULoadOp_Clear;
                 depth_attachment.depthStoreOp = WGPUStoreOp_Store;
                 depth_attachment.depthClearValue = 1.0F;
                 depth_attachment.stencilLoadOp = WGPULoadOp_Undefined;
@@ -4577,6 +4640,10 @@ progpu_native_status render_scene(
                 engine->semantic_encoder,
                 &pass_descriptor);
             active_target_layer = target_layer;
+            active_pass_uses_depth = uses_depth;
+            if (pass != nullptr && depth_initialized != nullptr) {
+                *depth_initialized = true;
+            }
             return pass != nullptr;
         };
         const auto fail_replay = [&](const char* message) {
@@ -4589,7 +4656,8 @@ progpu_native_status render_scene(
 
         if (!begin_pass(
                 PROGPU_NATIVE_SCENE_NO_INDEX,
-                WGPULoadOp_Clear)) {
+                WGPULoadOp_Clear,
+                false)) {
             return fail_replay(
                 "The semantic isolated-layer root pass could not be created.");
         }
@@ -4632,6 +4700,10 @@ progpu_native_status render_scene(
                     }
                 }
                 finish_pass();
+                if (operation.target_layer <
+                    layer_depth_initialized.size()) {
+                    layer_depth_initialized[operation.target_layer] = false;
+                }
                 if (operation.backdrop) {
                     if (operation.effect_count != 0U) {
                         ++semantic_effect_operation_count;
@@ -4651,7 +4723,8 @@ progpu_native_status render_scene(
                         operation.target_layer,
                         operation.backdrop
                             ? WGPULoadOp_Load
-                            : WGPULoadOp_Clear)) {
+                            : WGPULoadOp_Clear,
+                        false)) {
                     return fail_replay(
                         "A semantic isolated-layer content pass could not be created.");
                 }
@@ -4667,7 +4740,8 @@ progpu_native_status render_scene(
                 }
                 const bool advanced_blend =
                     is_advanced_group_blend(operation.blend_mode);
-                if (!content_cached || advanced_blend) {
+                if (!content_cached || advanced_blend ||
+                    active_pass_uses_depth) {
                     finish_pass();
                 }
                 bool effect_ready = true;
@@ -4732,11 +4806,13 @@ progpu_native_status render_scene(
                                     operation) &&
                                 begin_pass(
                                     operation.target_layer,
-                                    WGPULoadOp_Load);
+                                    WGPULoadOp_Load,
+                                    false);
                         })()
                         : (((pass != nullptr) || begin_pass(
                                   operation.target_layer,
-                                  WGPULoadOp_Load)) &&
+                                  WGPULoadOp_Load,
+                                  false)) &&
                             encode_semantic_layer_composite(
                                 *engine,
                                 pass,
@@ -4748,11 +4824,13 @@ progpu_native_status render_scene(
                 executed_draw_calls += advanced_blend ? 3U : 1U;
                 continue;
             }
-            if (operation.target_layer != active_target_layer) {
+            if (operation.target_layer != active_target_layer ||
+                operation.uses_depth != active_pass_uses_depth) {
                 finish_pass();
                 if (!begin_pass(
                         operation.target_layer,
-                        WGPULoadOp_Load)) {
+                        WGPULoadOp_Load,
+                        operation.uses_depth)) {
                     return fail_replay(
                         "A semantic isolated-layer continuation pass could not be created.");
                 }

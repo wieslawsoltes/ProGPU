@@ -58,39 +58,78 @@ same contract to its distinct pointer-free native storage ABI.
   same seven ProGPU shading algorithms. The native stream still performs one
   scene update per changed content generation and one render submission per
   frame; a style is encoded per retained mesh record, never crossed per face.
-- Hidden style uses the existing depth-tested solid-plus-derivative-edge path,
-  so back/occluded triangle edges are rejected by the depth attachment. X-ray
-  retains depth-tested faces with view-angle opacity. Conceptual uses the
-  existing bounded three-light Gooch model.
-- Stable retained replay remains O(I) fragment/vertex work for I referenced
-  indices with O(1) visual-style state per batch. Lighting is bounded to three
-  fixed lights and derivative wire evaluation is bounded to one test per
-  fragment.
+- Triangle-list adjacency is compiled once in deterministic source order in
+  O(I) time and O(E) storage for I indices and E exact unique edges. Signed
+  zero is canonicalized, one/two/more incident faces become
+  boundary/manifold/non-manifold topology, and adjacent face normals remain
+  camera independent. Material draw ranges of one modern mesh share one
+  accumulator, so a material boundary does not invent an outline.
+- Managed and native GPU pages carry equivalent 80-byte edge records. The
+  camera, model transform, normal transform, crease threshold, physical-pixel
+  width, and display flags classify boundary, crease, and silhouette edges at
+  replay time. Camera motion therefore changes silhouettes without rebuilding
+  or uploading the retained edge page.
+- Visible edges use depth `LessEqual` with depth writes disabled. Optional
+  occluded edges use a second `Greater` pass with bounded physical-pixel dash
+  and gap lengths. Non-manifold edges are conservatively eligible as creases
+  and silhouettes. Hidden, Conceptual, and Shaded-with-Edges enable visible
+  streams; X-ray additionally enables the occluded stream.
+- Native parity uses the existing fixed 256-byte Mesh3D ABI record with an
+  `EdgeList` topology rather than adding pointers or crossings. Paired
+  auxiliary vertices encode endpoints and adjacent normals; native scene
+  compilation materializes the same 80-byte GPU records once per immutable
+  generation. Normal face records and their public layout remain unchanged.
+- Stable retained replay remains O(I + E) work with O(1) style state per batch.
+  Lighting is bounded to three fixed lights, edge classification is O(1) per
+  edge, and managed camera-only replay performs zero edge/record upload.
 
 ## Adapted or rejected concepts
 
 - Adopted Direct2D/Win2D-style separation of retained CPU content from
   device-domain resources and Vello/WebRender-style compact retained state.
-- Adapted AutoCAD's public visual-style behavior to ProGPU's existing typed
-  Mesh3D modes. Sketch jitter/extensions and configurable occluded-line
-  linetypes are deferred because they require a distinct edge stream and
-  quality/performance contract rather than fragment-only approximation.
+- Adapted AutoCAD's public face/edge separation to ProGPU's typed retained
+  scene. Explicit boundary/crease/silhouette selection, physical width,
+  visible and occluded colors, crease angle, and occluded dash/gap are now
+  configurable without geometry rebuild. Sketch jitter and edge extensions
+  remain deferred because they require a separate bounded quality contract.
 - Rejected recompiling CAD snapshots, rebuilding selection acceleration, or
   uploading geometry on style changes. Text shaping/layout is unaffected and
   remains reusable, consistent with Skia, DirectWrite, Parley, and HarfBuzz.
-- Material texture leases remain separate follow-up work because the stable
-  native Mesh3D ABI currently has no texture-resource identity. Adding an
-  unmanaged texture handle to a mesh record or performing per-batch crossings
-  was rejected.
+- Rejected CPU camera-time edge classification, material-range-local
+  adjacency, and triangle-derivative wireframe as the CAD shaded-edge
+  implementation because each would respectively rebuild on orbit, invent
+  false material seams, or expose triangulation diagonals. The legacy generic
+  Wireframe mode retains derivative coverage for callers that request it.
 
 ## Validation contract
 
 - Exhaustive typed mapping tests cover every managed visual style.
-- Native stream tests verify atomic render/shading mode parity and the light
-  intensity contract.
+- Native stream tests verify atomic face/edge policy parity, fixed-layout
+  `EdgeList` encoding, topology/counts, occluded policy, and light intensity.
 - Shared-shell tests verify style switching preserves the retained CAD scene,
   geometry objects, and camera.
-- Shader-resource audit and native shader compilation cover the target-specific
-  native WGSL variant. Broader managed/native pixel goldens, device-loss runs,
-  and matched p50/p95/p99 measurements are part of the later comprehensive
-  validation phase.
+- Managed headless WebGPU tests compile and execute the visible/occluded edge
+  pipelines and verify first-upload plus zero-upload camera replay. Native
+  Clang Release compilation and native scene-builder validation cover the same
+  resource contract. Matched managed/native shaded pixel goldens, device-loss
+  runs, and p50/p95/p99 measurements remain part of comprehensive validation.
+
+## 2026-09-01 implementation evidence
+
+- Managed CAD Debug and Release suites each pass 1,505 tests. The focused
+  retained-3D, shader-resource, and media Release lane passes 112 tests, and
+  all nine Clang Release native CTest targets pass.
+- The native Apple M3 Pro smoke workload executes retained 2D, face, visible
+  edge, and occluded-edge pipelines in source order, reads back the final
+  image, and reports 10 retained commands with one submission. Mixed 2D/3D
+  bundle families use separate compatible render passes inside that command
+  encoder; 3D spans retain their per-target depth contents across later spans.
+- The managed Release edge replay workload uses 256 mesh batches, three exact
+  boundary edges per batch, 12 warmups, and 120 measured camera frames. The
+  first frame uploads 61,440 edge bytes. Stable replay uploads zero edge,
+  record, index, and geometry bytes, allocates zero managed bytes, records 257
+  draws in one command buffer/submission, and measures p50 0.3093 ms, p95
+  1.2430 ms, and p99 12.9453 ms on the same Apple M3 Pro host. The ignored
+  machine-readable report is generated under `artifacts/benchmarks/`.
+- `eng/progpu-verify-native-contract.sh` confirms that checked-in generated C#
+  declarations remain deterministic and synchronized with `progpu_native.h`.

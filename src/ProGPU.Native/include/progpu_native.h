@@ -1662,8 +1662,26 @@ typedef struct progpu_native_scene_line_3d {
 
 typedef enum progpu_native_mesh_3d_topology {
     PROGPU_NATIVE_MESH_3D_TRIANGLES = 0,
-    PROGPU_NATIVE_MESH_3D_TRIANGLE_STRIP = 1
+    PROGPU_NATIVE_MESH_3D_TRIANGLE_STRIP = 1,
+    /* Paired vertices store start/first normal then end/second normal.
+     * The first texture-coordinate x stores progpu_native_mesh_3d_edge_topology.
+     * Edge policy is packed in the otherwise mesh-only material fields. */
+    PROGPU_NATIVE_MESH_3D_EDGE_LIST = 2
 } progpu_native_mesh_3d_topology;
+
+typedef enum progpu_native_mesh_3d_edge_topology {
+    PROGPU_NATIVE_MESH_3D_EDGE_MANIFOLD = 0,
+    PROGPU_NATIVE_MESH_3D_EDGE_BOUNDARY = 1,
+    PROGPU_NATIVE_MESH_3D_EDGE_NON_MANIFOLD = 2
+} progpu_native_mesh_3d_edge_topology;
+
+typedef enum progpu_native_mesh_3d_edge_display {
+    PROGPU_NATIVE_MESH_3D_EDGE_DISPLAY_BOUNDARY = 1U << 8,
+    PROGPU_NATIVE_MESH_3D_EDGE_DISPLAY_CREASE = 1U << 9,
+    PROGPU_NATIVE_MESH_3D_EDGE_DISPLAY_SILHOUETTE = 1U << 10,
+    PROGPU_NATIVE_MESH_3D_EDGE_DISPLAY_OCCLUDED = 1U << 11,
+    PROGPU_NATIVE_MESH_3D_EDGE_DISPLAY_MASK = 15U << 8
+} progpu_native_mesh_3d_edge_display;
 
 typedef enum progpu_native_mesh_3d_render_mode {
     PROGPU_NATIVE_MESH_3D_SOLID = 0,
@@ -1705,7 +1723,10 @@ typedef struct progpu_native_scene_mesh_3d_vertex {
 } progpu_native_scene_mesh_3d_vertex;
 
 /* Retained mesh ranges address the owning resource auxiliary arena: all
- * vertices form its prefix and all uint32 indices form its suffix. Material
+ * vertices form its prefix and all uint32 indices form its suffix. Edge-list
+ * records have an even vertex_count, zero index_count, visible color in color,
+ * occluded color in ambient_color, and width/crease cosine/dash/gap in
+ * light_direction. Material
  * fields mirror the proven managed GpuMesh3DRecord baseline. An optional
  * scene-local external IMAGE resource supplies a typed same-device diffuse
  * texture; material_factors packs diffuse-map blend in its low unorm16 and

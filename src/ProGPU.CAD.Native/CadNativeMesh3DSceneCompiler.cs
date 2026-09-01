@@ -2,6 +2,7 @@ using System.Numerics;
 using System.Runtime.CompilerServices;
 using ProGPU.Backend;
 using ProGPU.Backend.Native;
+using ProGPU.Scene.Extensions;
 
 namespace ProGPU.CAD.Native;
 
@@ -20,6 +21,8 @@ public sealed class CadNativeMesh3DSceneOptions
     public NativeMesh3DRenderMode RenderMode { get; init; } = NativeMesh3DRenderMode.Solid;
     public NativeMesh3DShadingMode ShadingMode { get; init; } =
         NativeMesh3DShadingMode.Flat;
+    public Mesh3DEdgeStyle EdgeStyle { get; init; } =
+        Mesh3DEdgeStyle.Disabled;
 
     /// <summary>
     /// Optional CAD policy override. When set, it atomically supplies both
@@ -89,6 +92,8 @@ public sealed class CadNativeMesh3DScene
         ulong contentGeneration,
         ulong nativeGeneration,
         int drawBatchCount,
+        int edgeBatchCount,
+        int edgeCount,
         int vertexCount,
         int indexCount,
         CadNativeMesh3DTextureBinding[] textureBindings)
@@ -99,6 +104,8 @@ public sealed class CadNativeMesh3DScene
         ContentGeneration = contentGeneration;
         NativeGeneration = nativeGeneration;
         DrawBatchCount = drawBatchCount;
+        EdgeBatchCount = edgeBatchCount;
+        EdgeCount = edgeCount;
         VertexCount = vertexCount;
         IndexCount = indexCount;
         _textureBindings = textureBindings;
@@ -113,6 +120,8 @@ public sealed class CadNativeMesh3DScene
     /// </summary>
     public ulong NativeGeneration { get; }
     public int DrawBatchCount { get; }
+    public int EdgeBatchCount { get; }
+    public int EdgeCount { get; }
     public int VertexCount { get; }
     public int IndexCount { get; }
     public ReadOnlyMemory<byte> Memory => _storage.AsMemory(0, Length);
@@ -229,7 +238,8 @@ public sealed class CadNativeMesh3DSceneCompiler
         ulong nativeGeneration = scene.ContentGeneration + 1U;
         options ??= new CadNativeMesh3DSceneOptions();
         (NativeMesh3DRenderMode renderMode,
-            NativeMesh3DShadingMode shadingMode) =
+            NativeMesh3DShadingMode shadingMode,
+            Mesh3DEdgeStyle edgeStyle) =
             ResolveVisualStyle(options);
 
         ReadOnlySpan<CadMesh3DDrawBatch> batches = scene.DrawBatches.Span;
@@ -266,8 +276,20 @@ public sealed class CadNativeMesh3DSceneCompiler
             vertexCount = checked(vertexCount + batches[i].Positions.Length);
             indexCount = checked(indexCount + batches[i].Indices.Length);
         }
+        ReadOnlySpan<CadMesh3DEdgeBatch> edgeBatches =
+            edgeStyle.Display == Mesh3DEdgeDisplay.None
+                ? ReadOnlySpan<CadMesh3DEdgeBatch>.Empty
+                : scene.EdgeBatches.Span;
+        int edgeCount = 0;
+        for (int i = 0; i < edgeBatches.Length; i++)
+        {
+            edgeCount = checked(edgeCount + edgeBatches[i].Edges.Length);
+        }
+        vertexCount = checked(vertexCount + checked(edgeCount * 2));
 
-        var nativeMeshes = new NativeSceneMesh3D[batches.Length];
+        int nativeEdgeBatchCount = edgeCount > 0 ? 1 : 0;
+        var nativeMeshes = new NativeSceneMesh3D[
+            checked(batches.Length + nativeEdgeBatchCount)];
         var nativeVertices = new NativeSceneMesh3DVertex[vertexCount];
         var nativeIndices = new uint[indexCount];
         int vertexOffset = 0;
@@ -331,6 +353,48 @@ public sealed class CadNativeMesh3DSceneCompiler
                 material.SelfIllumination);
             vertexOffset += positions.Length;
             indexOffset += batch.Indices.Length;
+        }
+
+        NativeMesh3DEdgeDisplay nativeEdgeDisplay =
+            ToNativeEdgeDisplay(edgeStyle.Display);
+        float creaseCosine = MathF.Cos(
+            edgeStyle.CreaseAngleDegrees * MathF.PI / 180.0f);
+        if (edgeCount > 0)
+        {
+            int edgeVertexOffset = vertexOffset;
+            for (int edgeBatchIndex = 0;
+                 edgeBatchIndex < edgeBatches.Length;
+                 edgeBatchIndex++)
+            {
+                ReadOnlySpan<CadMesh3DEdge> edges =
+                    edgeBatches[edgeBatchIndex].Edges.Span;
+                for (int edgeIndex = 0;
+                     edgeIndex < edges.Length;
+                     edgeIndex++)
+                {
+                    CadMesh3DEdge edge = edges[edgeIndex];
+                    nativeVertices[vertexOffset++] =
+                        NativeSceneMesh3DVertex.CreateEdgeEndpoint(
+                            edge.Start,
+                            edge.FirstFaceNormal,
+                            ToNativeEdgeTopology(edge.Topology));
+                    nativeVertices[vertexOffset++] =
+                        NativeSceneMesh3DVertex.CreateEdgeEndpoint(
+                            edge.End,
+                            edge.SecondFaceNormal);
+                }
+            }
+            nativeMeshes[batches.Length] =
+                NativeSceneMesh3D.CreateEdgeStream(
+                    checked((uint)edgeVertexOffset),
+                    checked((uint)(edgeCount * 2)),
+                    edgeStyle.VisibleColor,
+                    edgeStyle.OccludedColor,
+                    nativeEdgeDisplay,
+                    edgeStyle.Width,
+                    creaseCosine,
+                    edgeStyle.OccludedDashLength,
+                    edgeStyle.OccludedGapLength);
         }
 
         bool hasDraw = batches.Length != 0;
@@ -410,6 +474,8 @@ public sealed class CadNativeMesh3DSceneCompiler
             scene.ContentGeneration,
             nativeGeneration,
             batches.Length,
+            nativeEdgeBatchCount,
+            edgeCount,
             vertexCount,
             indexCount,
             materialTextureBindings.ToArray());
@@ -424,14 +490,46 @@ public sealed class CadNativeMesh3DSceneCompiler
             _ => NativeMesh3DTextureTiling.None,
         };
 
+    private static NativeMesh3DEdgeTopology ToNativeEdgeTopology(
+        CadMesh3DEdgeTopology topology) => topology switch
+        {
+            CadMesh3DEdgeTopology.Manifold =>
+                NativeMesh3DEdgeTopology.Manifold,
+            CadMesh3DEdgeTopology.Boundary =>
+                NativeMesh3DEdgeTopology.Boundary,
+            CadMesh3DEdgeTopology.NonManifold =>
+                NativeMesh3DEdgeTopology.NonManifold,
+            _ => throw new ArgumentOutOfRangeException(nameof(topology)),
+        };
+
+    private static NativeMesh3DEdgeDisplay ToNativeEdgeDisplay(
+        Mesh3DEdgeDisplay display)
+    {
+        NativeMesh3DEdgeDisplay result =
+            NativeMesh3DEdgeDisplay.None;
+        if ((display & Mesh3DEdgeDisplay.Boundary) != 0)
+            result |= NativeMesh3DEdgeDisplay.Boundary;
+        if ((display & Mesh3DEdgeDisplay.Crease) != 0)
+            result |= NativeMesh3DEdgeDisplay.Crease;
+        if ((display & Mesh3DEdgeDisplay.Silhouette) != 0)
+            result |= NativeMesh3DEdgeDisplay.Silhouette;
+        if ((display & Mesh3DEdgeDisplay.Occluded) != 0)
+            result |= NativeMesh3DEdgeDisplay.Occluded;
+        return result;
+    }
+
     private static (
         NativeMesh3DRenderMode RenderMode,
-        NativeMesh3DShadingMode ShadingMode) ResolveVisualStyle(
+        NativeMesh3DShadingMode ShadingMode,
+        Mesh3DEdgeStyle EdgeStyle) ResolveVisualStyle(
             CadNativeMesh3DSceneOptions options)
     {
         if (options.VisualStyle is not CadMesh3DVisualStyle visualStyle)
         {
-            return (options.RenderMode, options.ShadingMode);
+            return (
+                options.RenderMode,
+                options.ShadingMode,
+                options.EdgeStyle.Validate());
         }
 
         CadMesh3DVisualStyleState state =
@@ -468,6 +566,7 @@ public sealed class CadNativeMesh3DSceneCompiler
                 _ => throw new ArgumentOutOfRangeException(
                     nameof(options),
                     "The CAD visual style selected an unknown shading mode."),
-            });
+            },
+            state.EdgeStyle.Validate());
     }
 }

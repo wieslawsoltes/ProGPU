@@ -854,16 +854,27 @@ public ref struct NativeSceneStreamBuilder
         NativeSceneRecordFlags flags = NativeSceneRecordFlags.Required)
     {
         resourceIndex = NativeMethods.SceneNoIndex;
-        if (meshes.IsEmpty || vertices.IsEmpty || indices.IsEmpty)
+        if (meshes.IsEmpty || vertices.IsEmpty)
         {
             return false;
         }
         const uint materialImageFlag = 1U;
         const uint tilingMask = 3U << 1;
+        const uint edgeDisplayMask = 15U << 8;
         foreach (ref readonly NativeSceneMesh3D mesh in meshes)
         {
             bool hasMaterialImage = (mesh.Flags & materialImageFlag) != 0U;
-            if ((mesh.Flags & ~(materialImageFlag | tilingMask)) != 0U ||
+            bool isEdgeList =
+                mesh.Topology == (uint)NativeMesh3DTopology.EdgeList;
+            uint knownFlags = isEdgeList
+                ? edgeDisplayMask
+                : materialImageFlag | tilingMask;
+            if ((mesh.Flags & ~knownFlags) != 0U ||
+                (isEdgeList &&
+                    ((mesh.Flags & edgeDisplayMask) == 0U ||
+                     mesh.IndexCount != 0U ||
+                     mesh.VertexCount == 0U ||
+                     (mesh.VertexCount & 1U) != 0U)) ||
                 (!hasMaterialImage &&
                     (mesh.Flags & tilingMask) != 0U) ||
                 (hasMaterialImage &&
@@ -875,6 +886,36 @@ public ref struct NativeSceneStreamBuilder
                         NativeSceneRecordFlags.ExternalImage))))
             {
                 return false;
+            }
+            if (isEdgeList)
+            {
+                ulong end = (ulong)mesh.VertexOffset +
+                    mesh.VertexCount;
+                if (end > (ulong)vertices.Length)
+                {
+                    return false;
+                }
+                for (uint vertex = mesh.VertexOffset;
+                     vertex < end;
+                     vertex += 2U)
+                {
+                    ref readonly NativeSceneMesh3DVertex first =
+                        ref vertices[(int)vertex];
+                    ref readonly NativeSceneMesh3DVertex second =
+                        ref vertices[(int)vertex + 1];
+                    float topology = first.TextureCoordinate.X;
+                    if (topology < 0.0f || topology > 2.0f ||
+                        MathF.Floor(topology) != topology ||
+                        first.TextureCoordinate.Y != 0.0f ||
+                        second.TextureCoordinate != Vector2.Zero ||
+                        first.Reserved0 != 0U ||
+                        first.Reserved1 != 0U ||
+                        second.Reserved0 != 0U ||
+                        second.Reserved1 != 0U)
+                    {
+                        return false;
+                    }
+                }
             }
         }
         int vertexBytes = checked(

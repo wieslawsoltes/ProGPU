@@ -1875,8 +1875,10 @@ void RunMesh3DReplayBenchmark(
     window.Content = viewport;
     window.Render();
     Mesh3DFrameMetrics initial = viewport.LastMesh3DFrameMetrics;
+    int expectedDrawCalls = checked(batchCount + 1);
     if (initial.SceneCompilationCount != 1 ||
         initial.GeometryVertexUploadBytes == 0 ||
+        initial.EdgeUploadBytes == 0 ||
         initial.RecordUploadBytes == 0 ||
         initial.RecordIndexUploadBytes == 0 ||
         initial.GeometryResidentCount != 1 ||
@@ -1884,7 +1886,7 @@ void RunMesh3DReplayBenchmark(
         initial.ViewportResourceCount != 1 ||
         initial.ViewportBufferResidentBytes == 0 ||
         initial.LogicalTargetTextureBytes == 0 ||
-        initial.DrawCallCount != batchCount)
+        initial.DrawCallCount != expectedDrawCalls)
     {
         throw new InvalidOperationException(
             $"Mesh3D first-frame contract failed: {initial}.");
@@ -2894,6 +2896,27 @@ Viewport3D CreateMesh3DReplayViewport(int batchCount)
             -Vector3.UnitZ,
         ],
         TriangleIndices = [0, 1, 2],
+        Edges =
+        [
+            new MeshEdge3D(
+                new Vector3(-0.45f, -0.35f, 0f),
+                new Vector3(0.45f, -0.35f, 0f),
+                -Vector3.UnitZ,
+                -Vector3.UnitZ,
+                MeshEdgeTopology3D.Boundary),
+            new MeshEdge3D(
+                new Vector3(0.45f, -0.35f, 0f),
+                new Vector3(0f, 0.45f, 0f),
+                -Vector3.UnitZ,
+                -Vector3.UnitZ,
+                MeshEdgeTopology3D.Boundary),
+            new MeshEdge3D(
+                new Vector3(0f, 0.45f, 0f),
+                new Vector3(-0.45f, -0.35f, 0f),
+                -Vector3.UnitZ,
+                -Vector3.UnitZ,
+                MeshEdgeTopology3D.Boundary),
+        ],
     };
     var material = new DiffuseMaterial
     {
@@ -2912,6 +2935,14 @@ Viewport3D CreateMesh3DReplayViewport(int batchCount)
             Width = 80f,
         },
         ShadingMode = ShadingMode3D.Flat,
+        EdgeStyle = new Mesh3DEdgeStyle(
+            Mesh3DEdgeDisplay.Boundary,
+            Vector4.One,
+            Vector4.Zero,
+            1f,
+            30f,
+            6f,
+            4f),
     };
     int columns = (int)Math.Ceiling(Math.Sqrt(batchCount));
     for (int i = 0; i < batchCount; i++)
@@ -2954,6 +2985,7 @@ void ValidateStableMesh3DReplay(
         metrics.SceneCompilationCount != 0 ||
         metrics.ModelVisualVisitCount != 0 ||
         metrics.GeometryVertexUploadBytes != 0 ||
+        metrics.EdgeUploadBytes != 0 ||
         metrics.RecordUploadBytes != 0 ||
         metrics.RecordIndexUploadBytes != 0 ||
         metrics.UniformUploadBytes != expectedUniformBytes ||
@@ -2962,7 +2994,7 @@ void ValidateStableMesh3DReplay(
         metrics.ViewportResourceCount != 1 ||
         metrics.ViewportBufferResidentBytes == 0 ||
         metrics.LogicalTargetTextureBytes == 0 ||
-        metrics.DrawCallCount != batchCount ||
+        metrics.DrawCallCount != checked(batchCount + 1) ||
         metrics.CommandBufferCount != 1 ||
         metrics.QueueSubmissionCount != 1)
     {

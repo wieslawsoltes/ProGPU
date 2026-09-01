@@ -31,6 +31,7 @@ namespace Microsoft.UI.Xaml.Media.Media3D
         private Vector3[] _normals = Array.Empty<Vector3>();
         private Vector2[] _textureCoordinates = Array.Empty<Vector2>();
         private int[] _triangleIndices = Array.Empty<int>();
+        private MeshEdge3D[] _edges = Array.Empty<MeshEdge3D>();
 
         public Vector3[] Positions
         {
@@ -54,6 +55,12 @@ namespace Microsoft.UI.Xaml.Media.Media3D
         {
             get => _triangleIndices;
             set { _triangleIndices = value; Invalidate(); }
+        }
+
+        public MeshEdge3D[] Edges
+        {
+            get => _edges;
+            set { _edges = value; Invalidate(); }
         }
 
         public Vector3[] GetNormalsOrCompute()
@@ -959,6 +966,7 @@ namespace Microsoft.UI.Xaml.Controls
         private float _ambientIntensity = 0.25f;
         private RenderMode3D _renderMode = RenderMode3D.Solid;
         private ShadingMode3D _shadingMode = ShadingMode3D.Realistic;
+        private Mesh3DEdgeStyle _edgeStyle = Mesh3DEdgeStyle.Disabled;
 
         public Vector3 LightDirection
         {
@@ -1022,6 +1030,18 @@ namespace Microsoft.UI.Xaml.Controls
             {
                 if (_shadingMode == value) return;
                 _shadingMode = value;
+                InvalidateRecords();
+            }
+        }
+
+        public Mesh3DEdgeStyle EdgeStyle
+        {
+            get => _edgeStyle;
+            set
+            {
+                value = value.Validate();
+                if (_edgeStyle == value) return;
+                _edgeStyle = value;
                 InvalidateRecords();
             }
         }
@@ -1259,6 +1279,7 @@ namespace Microsoft.UI.Xaml.Controls
                 targetPixelCount * 4UL * targetSampleLayers);
             payload.RenderMode = RenderMode;
             payload.ShadingMode = ShadingMode;
+            payload.EdgeStyle = EdgeStyle;
             payload.SceneGeneration = EnableRetainedSceneCache
                 ? _sceneGeneration
                 : 0;
@@ -1477,6 +1498,7 @@ namespace Microsoft.UI.Xaml.Controls
                                         Indices = indices,
                                         TextureCoordinates =
                                             mesh.TextureCoordinates,
+                                        Edges = mesh.Edges,
                                         TextureSource = textureSource,
                                         TextureEffect = textureEffect,
                                         TextureSamplingMode =
@@ -1579,6 +1601,7 @@ namespace Microsoft.UI.Xaml.Controls
                                         Indices = indices,
                                         TextureCoordinates =
                                             mesh.TextureCoordinates,
+                                        Edges = Array.Empty<MeshEdge3D>(),
                                         TextureSource =
                                             backTextureSource,
                                         TextureEffect =

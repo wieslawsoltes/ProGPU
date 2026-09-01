@@ -103,10 +103,72 @@ public partial struct NativeSceneMesh3DVertex
         Reserved0 = 0U;
         Reserved1 = 0U;
     }
+
+    public static NativeSceneMesh3DVertex CreateEdgeEndpoint(
+        Vector3 position,
+        Vector3 faceNormal,
+        NativeMesh3DEdgeTopology topology =
+            NativeMesh3DEdgeTopology.Manifold) => new(
+                position,
+                faceNormal,
+                new Vector2((uint)topology, 0.0f));
 }
 
 public partial struct NativeSceneMesh3D
 {
+    public static NativeSceneMesh3D CreateEdgeStream(
+        uint vertexOffset,
+        uint vertexCount,
+        Vector4 visibleColor,
+        Vector4 occludedColor,
+        NativeMesh3DEdgeDisplay display,
+        float width,
+        float creaseCosine,
+        float occludedDashLength,
+        float occludedGapLength)
+    {
+        const NativeMesh3DEdgeDisplay known =
+            NativeMesh3DEdgeDisplay.Boundary |
+            NativeMesh3DEdgeDisplay.Crease |
+            NativeMesh3DEdgeDisplay.Silhouette |
+            NativeMesh3DEdgeDisplay.Occluded;
+        if (vertexCount == 0U || (vertexCount & 1U) != 0U ||
+            (display & ~known) != 0 || display == 0 ||
+            !IsNormalized(visibleColor) ||
+            !IsNormalized(occludedColor) ||
+            !float.IsFinite(width) || width <= 0.0f || width > 64.0f ||
+            !float.IsFinite(creaseCosine) ||
+                creaseCosine < -1.0f || creaseCosine > 1.0f ||
+            !float.IsFinite(occludedDashLength) ||
+                occludedDashLength <= 0.0f ||
+            !float.IsFinite(occludedGapLength) ||
+                occludedGapLength < 0.0f)
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(vertexCount),
+                "Native edge streams require paired vertices and normalized finite style values.");
+        }
+
+        var result = new NativeSceneMesh3D(
+            vertexOffset,
+            vertexCount,
+            0U,
+            0U,
+            visibleColor,
+            new Vector4(
+                width,
+                creaseCosine,
+                occludedDashLength,
+                occludedGapLength),
+            occludedColor,
+            Vector4.Zero,
+            Vector4.Zero,
+            opacity: 1.0f);
+        result.Topology = (uint)NativeMesh3DTopology.EdgeList;
+        result.Flags = (uint)display;
+        return result;
+    }
+
     public NativeSceneMesh3D(
         uint vertexOffset,
         uint vertexCount,
@@ -213,4 +275,10 @@ public partial struct NativeSceneMesh3D
             high * ushort.MaxValue);
         return lowBits | (highBits << 16);
     }
+
+    private static bool IsNormalized(Vector4 value) =>
+        float.IsFinite(value.X) && value.X is >= 0.0f and <= 1.0f &&
+        float.IsFinite(value.Y) && value.Y is >= 0.0f and <= 1.0f &&
+        float.IsFinite(value.Z) && value.Z is >= 0.0f and <= 1.0f &&
+        float.IsFinite(value.W) && value.W is >= 0.0f and <= 1.0f;
 }

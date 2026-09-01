@@ -4437,6 +4437,7 @@ public sealed class CadSampleView : Grid
             CadMesh3DVisualStylePolicy.Resolve(visualStyle);
         _viewport3D.RenderMode = state.RenderMode;
         _viewport3D.ShadingMode = state.ShadingMode;
+        _viewport3D.EdgeStyle = state.EdgeStyle;
         _viewport3D.InvalidateScene();
         _viewport3D.Invalidate();
     }
@@ -4697,6 +4698,11 @@ public sealed class CadSampleView : Grid
         {
             _meshSubobjectPrimitiveScratch = new int[subobjectCount];
         }
+        var edgeBatches = scene.EdgeBatches.ToArray()
+            .GroupBy(batch => (batch.Handle, batch.ComponentIndex))
+            .ToDictionary(
+                group => group.Key,
+                group => new Queue<CadMesh3DEdgeBatch>(group));
         foreach (CadMesh3DDrawBatch batch in scene.DrawBatches.Span)
         {
             uint[] sourceIndices = batch.Indices.ToArray();
@@ -4754,6 +4760,19 @@ public sealed class CadSampleView : Grid
                 Normals = batch.Normals.ToArray(),
                 TextureCoordinates = batch.TextureCoordinates.ToArray(),
                 TriangleIndices = indices,
+                Edges = edgeBatches.TryGetValue(
+                    (batch.Handle, batch.ComponentIndex),
+                    out Queue<CadMesh3DEdgeBatch>? matchingEdges) &&
+                    matchingEdges.TryDequeue(out CadMesh3DEdgeBatch? edgeBatch)
+                        ? edgeBatch.Edges.Span.ToArray()
+                            .Select(edge => new MeshEdge3D(
+                                edge.Start,
+                                edge.End,
+                                edge.FirstFaceNormal,
+                                edge.SecondFaceNormal,
+                                (MeshEdgeTopology3D)edge.Topology))
+                            .ToArray()
+                        : [],
             };
             _viewport3D.Children.Add(new ModelVisual3D
             {

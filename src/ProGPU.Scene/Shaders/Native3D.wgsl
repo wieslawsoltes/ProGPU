@@ -1,8 +1,11 @@
-// Algorithm: Transform retained 3D lines and indexed meshes on the GPU; expand lines in physical screen space, address and sample one optional diffuse material image, evaluate the canonical bounded three-light CAD visual-style model, and apply derivative wire coverage.
-// Time complexity: O(L + I) shader invocations for L expanded line vertices and I referenced mesh indices; every mesh fragment performs at most one filtered texture sample, three fixed lights, and one derivative wire test.
-// Space complexity: O(C + E + M + V + I) read-only storage for cameras, edges, meshes, vertices, and indices; O(1) private storage and no auxiliary output storage per invocation.
+// Algorithm: Transform retained 3D lines, indexed meshes, and unique adjacency edges on the GPU; expand lines and classified boundary/crease/silhouette edges in physical screen space, address and sample one optional diffuse material image, evaluate the canonical bounded three-light CAD visual-style model, and apply derivative wire coverage.
+// Time complexity: O(L + I + E) shader invocations for L expanded line vertices, I referenced mesh indices, and E retained unique edges; every mesh fragment performs at most one filtered texture sample, three fixed lights, and one derivative wire test, while every edge performs bounded adjacency classification.
+// Space complexity: O(C + L + M + V + I + E) read-only storage for cameras, lines, meshes, vertices, indices, and edges; O(1) private storage and no auxiliary output storage per invocation.
 // Lines use six vertices per retained edge. Meshes fetch uint32 indices from
 // storage so one pointer-free scene ABI works in native WebGPU and wasm32.
+// Exact ProGPU-owned edge-algorithm provenance: Mesh3DEdges.wgsl. This native
+// variant preserves that classification and depth contract over the stable
+// pointer-free Native3D storage ABI.
 
 struct Camera3D {
     projection: mat4x4<f32>,
@@ -51,11 +54,22 @@ struct MeshVertex3D {
     reserved: vec2<u32>,
 };
 
+struct MeshEdge3D {
+    start: vec4<f32>,
+    end: vec4<f32>,
+    first_normal: vec4<f32>,
+    second_normal: vec4<f32>,
+    mesh_index: u32,
+    topology: u32,
+    reserved: vec2<u32>,
+};
+
 @group(0) @binding(0) var<storage, read> cameras: array<Camera3D>;
 @group(0) @binding(1) var<storage, read> lines: array<Line3D>;
 @group(0) @binding(2) var<storage, read> meshes: array<Mesh3D>;
 @group(0) @binding(3) var<storage, read> vertices: array<MeshVertex3D>;
 @group(0) @binding(4) var<storage, read> indices: array<u32>;
+@group(0) @binding(5) var<storage, read> edges: array<MeshEdge3D>;
 @group(1) @binding(0) var material_sampler: sampler;
 @group(1) @binding(1) var material_texture: texture_2d<f32>;
 
@@ -65,16 +79,24 @@ struct LineOutput {
     @location(1) edge_coordinate: f32,
 };
 
+fn line_corner(vertex_index: u32) -> vec2<f32> {
+    switch vertex_index {
+        case 0u: { return vec2<f32>(0.0, -1.0); }
+        case 1u: { return vec2<f32>(0.0, 1.0); }
+        case 2u: { return vec2<f32>(1.0, -1.0); }
+        case 3u: { return vec2<f32>(1.0, -1.0); }
+        case 4u: { return vec2<f32>(0.0, 1.0); }
+        default: { return vec2<f32>(1.0, 1.0); }
+    }
+}
+
 @vertex
 fn vs_line_3d(
     @builtin(vertex_index) vertex_index: u32,
     @builtin(instance_index) instance_index: u32) -> LineOutput {
     let line = lines[instance_index];
     let camera = cameras[line.camera_index];
-    let corner = array<vec2<f32>, 6>(
-        vec2<f32>(0.0, -1.0), vec2<f32>(0.0, 1.0),
-        vec2<f32>(1.0, -1.0), vec2<f32>(1.0, -1.0),
-        vec2<f32>(0.0, 1.0), vec2<f32>(1.0, 1.0))[vertex_index];
+    let corner = line_corner(vertex_index);
     let local = select(line.start, line.end, corner.x > 0.5);
     var start_clip = camera.projection * camera.view * line.transform * line.start;
     var end_clip = camera.projection * camera.view * line.transform * line.end;
@@ -100,6 +122,134 @@ fn vs_line_3d(
 fn fs_line_3d(input: LineOutput) -> @location(0) vec4<f32> {
     let coverage = 1.0 - smoothstep(0.80, 1.0, abs(input.edge_coordinate));
     return vec4<f32>(input.color.rgb, input.color.a * coverage);
+}
+
+struct MeshEdgeOutput {
+    @builtin(position) position: vec4<f32>,
+    @location(0) edge_coordinate: f32,
+    @location(1) along_pixels: f32,
+    @location(2) @interpolate(flat) enabled: u32,
+    @location(3) @interpolate(flat) mesh_index: u32,
+};
+
+fn safe_normalize_edge(value: vec3<f32>) -> vec3<f32> {
+    return value / max(length(value), 0.000001);
+}
+
+fn mesh_edge_corner(vertex_index: u32) -> vec2<f32> {
+    switch vertex_index {
+        case 0u: { return vec2<f32>(0.0, -0.5); }
+        case 1u: { return vec2<f32>(0.0, 0.5); }
+        case 2u: { return vec2<f32>(1.0, -0.5); }
+        case 3u: { return vec2<f32>(1.0, -0.5); }
+        case 4u: { return vec2<f32>(0.0, 0.5); }
+        default: { return vec2<f32>(1.0, 0.5); }
+    }
+}
+
+@vertex
+fn vs_mesh_edge_3d(
+    @builtin(vertex_index) vertex_index: u32,
+    @builtin(instance_index) instance_index: u32
+) -> MeshEdgeOutput {
+    let edge = edges[instance_index];
+    let mesh = meshes[edge.mesh_index];
+    let camera = cameras[mesh.camera_index];
+    let corner = mesh_edge_corner(vertex_index);
+    let start_world = mesh.model_transform * edge.start;
+    let end_world = mesh.model_transform * edge.end;
+    let first_normal = safe_normalize_edge((mesh.normal_transform *
+        vec4<f32>(edge.first_normal.xyz, 0.0)).xyz);
+    let second_normal = safe_normalize_edge((mesh.normal_transform *
+        vec4<f32>(edge.second_normal.xyz, 0.0)).xyz);
+    let midpoint = (start_world.xyz + end_world.xyz) * 0.5;
+    let view_vector = camera.camera_position.xyz - midpoint;
+    let view_direction = view_vector /
+        max(length(view_vector), 0.000001);
+    let first_facing = dot(first_normal, view_direction);
+    let second_facing = dot(second_normal, view_direction);
+    let boundary = edge.topology == 1u;
+    let non_manifold = edge.topology == 2u;
+    let crease = non_manifold ||
+        (!boundary && dot(first_normal, second_normal) <=
+            mesh.light_direction.y);
+    let silhouette = non_manifold ||
+        (boundary && first_facing >= 0.0) ||
+        (!boundary && first_facing * second_facing <= 0.0);
+    let enabled =
+        (boundary && (mesh.flags & 256u) != 0u) ||
+        (crease && (mesh.flags & 512u) != 0u) ||
+        (silhouette && (mesh.flags & 1024u) != 0u);
+
+    let start_clip = camera.projection * camera.view * start_world;
+    let end_clip = camera.projection * camera.view * end_world;
+    let safe_start_w = select(
+        start_clip.w, 0.000001, abs(start_clip.w) < 0.000001);
+    let safe_end_w = select(
+        end_clip.w, 0.000001, abs(end_clip.w) < 0.000001);
+    let viewport = max(camera.viewport.xy, vec2<f32>(1.0));
+    let start_screen = (start_clip.xy / safe_start_w) * viewport * 0.5;
+    let end_screen = (end_clip.xy / safe_end_w) * viewport * 0.5;
+    let delta = end_screen - start_screen;
+    let edge_length = max(length(delta), 0.000001);
+    let expansion_normal = vec2<f32>(-delta.y, delta.x) / edge_length;
+    var clip = select(start_clip, end_clip, corner.x > 0.5);
+    clip = vec4<f32>(
+        clip.xy + expansion_normal * corner.y * mesh.light_direction.x *
+            2.0 * clip.w / viewport,
+        clip.zw);
+    if (!enabled) {
+        clip = vec4<f32>(2.0, 2.0, 2.0, 1.0);
+    }
+
+    var output: MeshEdgeOutput;
+    output.position = clip;
+    output.edge_coordinate = corner.y * 2.0;
+    output.along_pixels = corner.x * edge_length;
+    output.enabled = select(0u, 1u, enabled);
+    output.mesh_index = edge.mesh_index;
+    return output;
+}
+
+fn mesh_edge_coverage(input: MeshEdgeOutput) -> f32 {
+    return 1.0 - smoothstep(
+        0.80, 1.0, abs(input.edge_coordinate));
+}
+
+@fragment
+fn fs_mesh_edge_visible_3d(
+    input: MeshEdgeOutput
+) -> @location(0) vec4<f32> {
+    if (input.enabled == 0u) {
+        discard;
+    }
+    let mesh = meshes[input.mesh_index];
+    let coverage = mesh_edge_coverage(input);
+    return vec4<f32>(
+        mesh.color.rgb,
+        mesh.color.a * mesh.opacity * coverage);
+}
+
+@fragment
+fn fs_mesh_edge_occluded_3d(
+    input: MeshEdgeOutput
+) -> @location(0) vec4<f32> {
+    if (input.enabled == 0u) {
+        discard;
+    }
+    let mesh = meshes[input.mesh_index];
+    let dash = mesh.light_direction.z;
+    let gap = mesh.light_direction.w;
+    let period = dash + gap;
+    let phase = input.along_pixels -
+        floor(input.along_pixels / period) * period;
+    if (gap > 0.0 && phase >= dash) {
+        discard;
+    }
+    let coverage = mesh_edge_coverage(input);
+    return vec4<f32>(
+        mesh.ambient_color.rgb,
+        mesh.ambient_color.a * mesh.opacity * coverage);
 }
 
 struct MeshOutput {

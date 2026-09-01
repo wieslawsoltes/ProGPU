@@ -619,7 +619,25 @@ public enum NativeSceneCommandKind : uint
 public enum NativeMesh3DTopology : uint
 {
     Triangles = 0,
-    TriangleStrip = 1
+    TriangleStrip = 1,
+    EdgeList = 2
+}
+
+public enum NativeMesh3DEdgeTopology : uint
+{
+    Manifold = 0,
+    Boundary = 1,
+    NonManifold = 2
+}
+
+[Flags]
+public enum NativeMesh3DEdgeDisplay : uint
+{
+    None = 0,
+    Boundary = 1U << 8,
+    Crease = 1U << 9,
+    Silhouette = 1U << 10,
+    Occluded = 1U << 11
 }
 
 /// <summary>Addressing policy for a retained mesh diffuse image.</summary>
