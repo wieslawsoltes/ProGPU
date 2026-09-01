@@ -1696,6 +1696,152 @@ int run_tests()
         raw_transformed_intersection_sink->line_count != 0U) {
         return 292;
     }
+    constexpr std::array<compat::point_2f, 4U> affine_combination_probes{{
+        {1.5F, 2.5F},
+        {3.0F, 6.0F},
+        {3.5F, 8.5F},
+        {0.0F, 0.0F},
+    }};
+    constexpr std::array<std::array<bool, 4U>, 4U>
+        affine_combination_expected{{
+            {{true, true, true, false}},
+            {{false, true, false, false}},
+            {{true, false, true, false}},
+            {{true, false, false, false}},
+        }};
+    for (std::size_t mode_index = 0U;
+         mode_index < combination_modes.size();
+         ++mode_index) {
+        auto* raw_affine_combination_sink = new simplified_sink();
+        com::pointer<compat::simplified_geometry_sink>
+            affine_combination_sink;
+        affine_combination_sink.attach(raw_affine_combination_sink);
+        if (geometry->CombineWithGeometry(
+                shear_overlap_rectangle.get(),
+                combination_modes[mode_index],
+                &general_relation_transform,
+                core::default_flattening_tolerance,
+                affine_combination_sink.get()) != com::ok ||
+            raw_affine_combination_sink->fill_mode !=
+                compat::fill_mode::alternate ||
+            raw_affine_combination_sink->segment_flags !=
+                compat::path_segment::force_unstroked ||
+            raw_affine_combination_sink->begin_count == 0U ||
+            raw_affine_combination_sink->begin_count !=
+                raw_affine_combination_sink->end_count) {
+            return 298;
+        }
+        for (std::size_t probe_index = 0U;
+             probe_index < affine_combination_probes.size();
+             ++probe_index) {
+            if (captured_fill_contains(
+                    *raw_affine_combination_sink,
+                    affine_combination_probes[probe_index]) !=
+                affine_combination_expected[mode_index][probe_index]) {
+                return 299;
+            }
+        }
+    }
+    constexpr std::array<compat::matrix_3x2_f, 3U>
+        affine_combination_corpus{{
+            {0.9F, 0.35F, -0.2F, 1.1F, 0.75F, -0.4F},
+            {0.6F, -0.45F, 0.3F, 0.8F, 2.0F, 1.0F},
+            {-0.8F, 0.25F, 0.15F, 1.0F, 6.5F, -0.5F},
+        }};
+    for (const auto& corpus_transform : affine_combination_corpus) {
+        for (std::size_t mode_index = 0U;
+             mode_index < combination_modes.size();
+             ++mode_index) {
+            auto* raw_corpus_sink = new simplified_sink();
+            com::pointer<compat::simplified_geometry_sink> corpus_sink;
+            corpus_sink.attach(raw_corpus_sink);
+            if (geometry->CombineWithGeometry(
+                    shear_overlap_rectangle.get(),
+                    combination_modes[mode_index],
+                    &corpus_transform,
+                    core::default_flattening_tolerance,
+                    corpus_sink.get()) != com::ok) {
+                return 305;
+            }
+            for (std::uint32_t y_index = 0U; y_index < 14U; ++y_index) {
+                for (std::uint32_t x_index = 0U; x_index < 12U; ++x_index) {
+                    const compat::point_2f point{
+                        -1.0F + static_cast<float>(x_index) * 0.73F + 0.19F,
+                        -1.0F + static_cast<float>(y_index) * 0.81F + 0.23F};
+                    std::int32_t in_first = 0;
+                    std::int32_t in_second = 0;
+                    if (geometry->FillContainsPoint(
+                            point,
+                            nullptr,
+                            core::default_flattening_tolerance,
+                            &in_first) != com::ok ||
+                        shear_overlap_rectangle->FillContainsPoint(
+                            point,
+                            &corpus_transform,
+                            core::default_flattening_tolerance,
+                            &in_second) != com::ok) {
+                        return 306;
+                    }
+                    bool expected = false;
+                    switch (combination_modes[mode_index]) {
+                    case compat::combine_mode::union_value:
+                        expected = in_first != 0 || in_second != 0;
+                        break;
+                    case compat::combine_mode::intersect:
+                        expected = in_first != 0 && in_second != 0;
+                        break;
+                    case compat::combine_mode::xor_value:
+                        expected = (in_first != 0) != (in_second != 0);
+                        break;
+                    case compat::combine_mode::exclude:
+                        expected = in_first != 0 && in_second == 0;
+                        break;
+                    }
+                    if (captured_fill_contains(*raw_corpus_sink, point) !=
+                        expected) {
+                        return 307;
+                    }
+                }
+            }
+        }
+    }
+    const compat::matrix_3x2_f affine_source_candidate_transform{
+        1.0F, 0.0F, 0.0F, 1.0F, 0.5F, 0.25F};
+    constexpr std::array<compat::point_2f, 4U>
+        affine_source_combination_probes{{
+            {1.2F, 3.0F},
+            {3.0F, 6.0F},
+            {5.25F, 8.0F},
+            {0.0F, 0.0F},
+        }};
+    for (std::size_t mode_index = 0U;
+         mode_index < combination_modes.size();
+         ++mode_index) {
+        auto* raw_affine_source_sink = new simplified_sink();
+        com::pointer<compat::simplified_geometry_sink> affine_source_sink;
+        affine_source_sink.attach(raw_affine_source_sink);
+        if (sheared_source->CombineWithGeometry(
+                geometry_base.get(),
+                combination_modes[mode_index],
+                &affine_source_candidate_transform,
+                core::default_flattening_tolerance,
+                affine_source_sink.get()) != com::ok ||
+            raw_affine_source_sink->begin_count == 0U ||
+            raw_affine_source_sink->begin_count !=
+                raw_affine_source_sink->end_count) {
+            return 300;
+        }
+        for (std::size_t probe_index = 0U;
+             probe_index < affine_source_combination_probes.size();
+             ++probe_index) {
+            if (captured_fill_contains(
+                    *raw_affine_source_sink,
+                    affine_source_combination_probes[probe_index]) !=
+                affine_combination_expected[mode_index][probe_index]) {
+                return 301;
+            }
+        }
+    }
     auto* raw_transformed_widen_sink = new simplified_sink();
     com::pointer<compat::simplified_geometry_sink> transformed_widen_sink;
     transformed_widen_sink.attach(raw_transformed_widen_sink);
@@ -1783,10 +1929,10 @@ int run_tests()
             nullptr,
             core::default_flattening_tolerance,
             rejected_combination_sink.get()) != compat::wrong_factory ||
-        geometry->CombineWithGeometry(
-            translated_relation_geometry.get(),
+        sheared_source->CombineWithGeometry(
+            geometry_base.get(),
             compat::combine_mode::union_value,
-            &general_relation_transform,
+            nullptr,
             core::default_flattening_tolerance,
             rejected_combination_sink.get()) != compat::not_implemented ||
         geometry->CombineWithGeometry(
@@ -5917,9 +6063,6 @@ int run_tests()
               nullptr,
               D2D1_DEFAULT_FLATTENING_TOLERANCE,
               &system_sheared_source_relation);
-    if (system_sheared_source != nullptr) {
-        system_sheared_source->Release();
-    }
     if (!compare_system_rectangle(
             system_relation_rectangles[4U],
             &system_general_relation_transform,
@@ -5936,11 +6079,128 @@ int run_tests()
         FAILED(system_sheared_source_compare_status) ||
         static_cast<std::uint32_t>(system_sheared_source_relation) !=
             static_cast<std::uint32_t>(sheared_source_relation)) {
+        if (system_sheared_source != nullptr) {
+            system_sheared_source->Release();
+        }
         system_group_rectangle->Release();
         system_group_ellipse->Release();
         system_factory->Release();
         return 297;
     }
+    ID2D1RectangleGeometry* system_shear_overlap_rectangle = nullptr;
+    if (FAILED(system_factory->CreateRectangleGeometry(
+            &system_relation_rectangles[1U],
+            &system_shear_overlap_rectangle)) ||
+        system_shear_overlap_rectangle == nullptr ||
+        system_sheared_source == nullptr) {
+        if (system_shear_overlap_rectangle != nullptr) {
+            system_shear_overlap_rectangle->Release();
+        }
+        if (system_sheared_source != nullptr) {
+            system_sheared_source->Release();
+        }
+        system_group_rectangle->Release();
+        system_group_ellipse->Release();
+        system_factory->Release();
+        return 302;
+    }
+    const D2D1_MATRIX_3X2_F system_affine_source_candidate_transform =
+        make_native_matrix(
+            affine_source_candidate_transform.m11,
+            affine_source_candidate_transform.m12,
+            affine_source_candidate_transform.m21,
+            affine_source_candidate_transform.m22,
+            affine_source_candidate_transform.m31,
+            affine_source_candidate_transform.m32);
+    for (std::size_t mode_index = 0U;
+         mode_index < combination_modes.size();
+         ++mode_index) {
+        auto* raw_system_affine_sink = new simplified_sink();
+        com::pointer<compat::simplified_geometry_sink> system_affine_sink;
+        system_affine_sink.attach(raw_system_affine_sink);
+        auto* raw_portable_affine_sink = new simplified_sink();
+        com::pointer<compat::simplified_geometry_sink> portable_affine_sink;
+        portable_affine_sink.attach(raw_portable_affine_sink);
+        const HRESULT system_affine_status =
+            system_group_rectangle->CombineWithGeometry(
+                system_shear_overlap_rectangle,
+                static_cast<D2D1_COMBINE_MODE>(mode_index),
+                &system_general_relation_transform,
+                D2D1_DEFAULT_FLATTENING_TOLERANCE,
+                reinterpret_cast<ID2D1SimplifiedGeometrySink*>(
+                    system_affine_sink.get()));
+        const com::result portable_affine_status =
+            geometry->CombineWithGeometry(
+                shear_overlap_rectangle.get(),
+                combination_modes[mode_index],
+                &general_relation_transform,
+                core::default_flattening_tolerance,
+                portable_affine_sink.get());
+        auto* raw_system_affine_source_sink = new simplified_sink();
+        com::pointer<compat::simplified_geometry_sink>
+            system_affine_source_sink;
+        system_affine_source_sink.attach(raw_system_affine_source_sink);
+        auto* raw_portable_affine_source_sink = new simplified_sink();
+        com::pointer<compat::simplified_geometry_sink>
+            portable_affine_source_sink;
+        portable_affine_source_sink.attach(
+            raw_portable_affine_source_sink);
+        const HRESULT system_affine_source_status =
+            system_sheared_source->CombineWithGeometry(
+                system_group_rectangle,
+                static_cast<D2D1_COMBINE_MODE>(mode_index),
+                &system_affine_source_candidate_transform,
+                D2D1_DEFAULT_FLATTENING_TOLERANCE,
+                reinterpret_cast<ID2D1SimplifiedGeometrySink*>(
+                    system_affine_source_sink.get()));
+        const com::result portable_affine_source_status =
+            sheared_source->CombineWithGeometry(
+                geometry_base.get(),
+                combination_modes[mode_index],
+                &affine_source_candidate_transform,
+                core::default_flattening_tolerance,
+                portable_affine_source_sink.get());
+        if (FAILED(system_affine_status) ||
+            portable_affine_status != com::ok ||
+            FAILED(system_affine_source_status) ||
+            portable_affine_source_status != com::ok) {
+            system_shear_overlap_rectangle->Release();
+            system_sheared_source->Release();
+            system_group_rectangle->Release();
+            system_group_ellipse->Release();
+            system_factory->Release();
+            return 303;
+        }
+        for (std::size_t probe_index = 0U;
+             probe_index < affine_combination_probes.size();
+             ++probe_index) {
+            const bool expected =
+                affine_combination_expected[mode_index][probe_index];
+            if (captured_fill_contains(
+                    *raw_system_affine_sink,
+                    affine_combination_probes[probe_index]) != expected ||
+                captured_fill_contains(
+                    *raw_portable_affine_sink,
+                    affine_combination_probes[probe_index]) != expected ||
+                captured_fill_contains(
+                    *raw_system_affine_source_sink,
+                    affine_source_combination_probes[probe_index]) !=
+                    expected ||
+                captured_fill_contains(
+                    *raw_portable_affine_source_sink,
+                    affine_source_combination_probes[probe_index]) !=
+                    expected) {
+                system_shear_overlap_rectangle->Release();
+                system_sheared_source->Release();
+                system_group_rectangle->Release();
+                system_group_ellipse->Release();
+                system_factory->Release();
+                return 304;
+            }
+        }
+    }
+    system_shear_overlap_rectangle->Release();
+    system_sheared_source->Release();
     ID2D1RectangleGeometry* system_combination_rectangle = nullptr;
     if (FAILED(system_factory->CreateRectangleGeometry(
             &system_relation_rectangles[3U],

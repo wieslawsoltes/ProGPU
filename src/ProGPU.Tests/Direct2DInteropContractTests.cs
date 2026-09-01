@@ -369,6 +369,9 @@ public sealed class Direct2DInteropContractTests
         Assert.Contains("convex_quadrilaterals_are_disjoint(", source, StringComparison.Ordinal);
         Assert.Contains("get_axis_aligned_rectangle(", source, StringComparison.Ordinal);
         Assert.Contains("combine_rectangle_with_geometry(", source, StringComparison.Ordinal);
+        Assert.Contains("combine_rectangle_vertices_with_geometry(", source, StringComparison.Ordinal);
+        Assert.Contains("struct affine_boolean_segment final", source, StringComparison.Ordinal);
+        Assert.Contains("classify_convex_point(", source, StringComparison.Ordinal);
         Assert.Contains("struct orthogonal_edge final", source, StringComparison.Ordinal);
         Assert.Contains("core::compose_transform", source, StringComparison.Ordinal);
         Assert.Contains("return not_implemented;", source, StringComparison.Ordinal);
@@ -377,6 +380,8 @@ public sealed class Direct2DInteropContractTests
         Assert.Contains("include/progpu_native_direct2d_scene_submission.hpp", cmake, StringComparison.Ordinal);
         Assert.Contains("reinterpret_cast<ID2D1Factory*>", nativeTest, StringComparison.Ordinal);
         Assert.Contains("ID2D1TransformedGeometry*", nativeTest, StringComparison.Ordinal);
+        Assert.Contains("system_affine_source_status", nativeTest, StringComparison.Ordinal);
+        Assert.Contains("portable_affine_source_status", nativeTest, StringComparison.Ordinal);
         Assert.Contains("ID2D1PathGeometry*", nativeTest, StringComparison.Ordinal);
         Assert.Contains("ID2D1EllipseGeometry*", nativeTest, StringComparison.Ordinal);
         Assert.Contains("ID2D1RoundedRectangleGeometry*", nativeTest, StringComparison.Ordinal);

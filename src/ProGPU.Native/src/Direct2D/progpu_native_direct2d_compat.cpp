@@ -338,6 +338,418 @@ struct orthogonal_edge final {
     bool used = false;
 };
 
+struct affine_boolean_segment final {
+    point_2f start{};
+    point_2f end{};
+    bool used = false;
+};
+
+enum class convex_point_relation : std::uint8_t {
+    outside,
+    boundary,
+    inside,
+};
+
+[[nodiscard]] double affine_boolean_tolerance(
+    const rectangle_vertices& vertices,
+    point_2f point) noexcept
+{
+    double scale = std::max(
+        {1.0,
+         std::abs(static_cast<double>(point.x)),
+         std::abs(static_cast<double>(point.y))});
+    for (const point_2f vertex : vertices) {
+        scale = std::max(
+            scale,
+            std::max(
+                std::abs(static_cast<double>(vertex.x)),
+                std::abs(static_cast<double>(vertex.y))));
+    }
+    return 32.0 * std::numeric_limits<float>::epsilon() * scale;
+}
+
+[[nodiscard]] bool same_affine_boolean_point(
+    point_2f first,
+    point_2f second,
+    double tolerance) noexcept
+{
+    return std::abs(static_cast<double>(first.x) - second.x) <= tolerance &&
+        std::abs(static_cast<double>(first.y) - second.y) <= tolerance;
+}
+
+[[nodiscard]] convex_point_relation classify_convex_point(
+    const rectangle_vertices& vertices,
+    point_2f point) noexcept
+{
+    const double coordinate_tolerance =
+        affine_boolean_tolerance(vertices, point);
+    bool boundary = false;
+    for (std::size_t index = 0U; index < vertices.size(); ++index) {
+        const point_2f start = vertices[index];
+        const point_2f end = vertices[(index + 1U) % vertices.size()];
+        const double edge_length = std::hypot(
+            static_cast<double>(end.x) - start.x,
+            static_cast<double>(end.y) - start.y);
+        const double cross = edge_cross(start, end, point);
+        const double cross_tolerance = coordinate_tolerance *
+            std::max(1.0, edge_length);
+        if (cross < -cross_tolerance) {
+            return convex_point_relation::outside;
+        }
+        boundary = boundary || std::abs(cross) <= cross_tolerance;
+    }
+    return boundary
+        ? convex_point_relation::boundary
+        : convex_point_relation::inside;
+}
+
+void normalize_affine_boolean_vertices(
+    rectangle_vertices& vertices) noexcept
+{
+    if (signed_twice_area(vertices) < 0.0) {
+        std::reverse(vertices.begin(), vertices.end());
+    }
+}
+
+[[nodiscard]] point_2f interpolate_affine_boolean_point(
+    point_2f start,
+    point_2f end,
+    double parameter) noexcept
+{
+    return {
+        static_cast<float>(
+            static_cast<double>(start.x) +
+            (static_cast<double>(end.x) - start.x) * parameter),
+        static_cast<float>(
+            static_cast<double>(start.y) +
+            (static_cast<double>(end.y) - start.y) * parameter)};
+}
+
+template <std::size_t Capacity>
+[[nodiscard]] bool append_affine_boolean_parameter(
+    std::array<double, Capacity>& parameters,
+    std::size_t& count,
+    double value) noexcept
+{
+    value = std::clamp(value, 0.0, 1.0);
+    constexpr double parameter_tolerance = 1.0e-10;
+    for (std::size_t index = 0U; index < count; ++index) {
+        if (std::abs(parameters[index] - value) <= parameter_tolerance) {
+            return true;
+        }
+    }
+    if (count >= parameters.size()) {
+        return false;
+    }
+    parameters[count++] = value;
+    return true;
+}
+
+[[nodiscard]] com::result combine_rectangle_vertices_with_geometry(
+    factory* owner,
+    rectangle_vertices first,
+    geometry* candidate,
+    combine_mode mode,
+    const matrix_3x2_f* candidate_transform,
+    float flattening_tolerance,
+    simplified_geometry_sink* sink) noexcept
+{
+    if (sink == nullptr) {
+        return com::pointer_error;
+    }
+    if (candidate == nullptr ||
+        (mode != combine_mode::union_value &&
+            mode != combine_mode::intersect &&
+            mode != combine_mode::xor_value &&
+            mode != combine_mode::exclude) ||
+        !std::isfinite(flattening_tolerance) ||
+        flattening_tolerance <= 0.0F ||
+        !core::valid_transform(candidate_transform)) {
+        return com::invalid_argument;
+    }
+    rectangle_vertices second{};
+    const com::result candidate_result = get_rectangle_vertices(
+        owner, candidate, candidate_transform, 0U, &second);
+    if (com::failed(candidate_result)) {
+        return candidate_result;
+    }
+    if (signed_twice_area(first) == 0.0 ||
+        signed_twice_area(second) == 0.0) {
+        return not_implemented;
+    }
+    normalize_affine_boolean_vertices(first);
+    normalize_affine_boolean_vertices(second);
+
+    constexpr std::size_t parameter_capacity = 8U;
+    std::array<std::array<double, parameter_capacity>, 4U>
+        first_parameters{};
+    std::array<std::array<double, parameter_capacity>, 4U>
+        second_parameters{};
+    std::array<std::size_t, 4U> first_parameter_counts{};
+    std::array<std::size_t, 4U> second_parameter_counts{};
+    for (std::size_t edge = 0U; edge < 4U; ++edge) {
+        first_parameters[edge][0U] = 0.0;
+        first_parameters[edge][1U] = 1.0;
+        second_parameters[edge][0U] = 0.0;
+        second_parameters[edge][1U] = 1.0;
+        first_parameter_counts[edge] = 2U;
+        second_parameter_counts[edge] = 2U;
+    }
+
+    constexpr double intersection_tolerance = 1.0e-10;
+    for (std::size_t first_edge = 0U; first_edge < 4U; ++first_edge) {
+        const point_2f first_start = first[first_edge];
+        const point_2f first_end = first[(first_edge + 1U) % 4U];
+        const double first_x =
+            static_cast<double>(first_end.x) - first_start.x;
+        const double first_y =
+            static_cast<double>(first_end.y) - first_start.y;
+        for (std::size_t second_edge = 0U;
+             second_edge < 4U;
+             ++second_edge) {
+            const point_2f second_start = second[second_edge];
+            const point_2f second_end = second[(second_edge + 1U) % 4U];
+            const double second_x =
+                static_cast<double>(second_end.x) - second_start.x;
+            const double second_y =
+                static_cast<double>(second_end.y) - second_start.y;
+            const double offset_x =
+                static_cast<double>(second_start.x) - first_start.x;
+            const double offset_y =
+                static_cast<double>(second_start.y) - first_start.y;
+            const double denominator =
+                first_x * second_y - first_y * second_x;
+            if (denominator == 0.0) {
+                const double collinear =
+                    offset_x * first_y - offset_y * first_x;
+                if (collinear != 0.0) {
+                    continue;
+                }
+                const bool use_x = std::abs(first_x) >= std::abs(first_y);
+                const double first_axis_start = use_x
+                    ? first_start.x
+                    : first_start.y;
+                const double first_axis_end = use_x
+                    ? first_end.x
+                    : first_end.y;
+                const double second_axis_start = use_x
+                    ? second_start.x
+                    : second_start.y;
+                const double second_axis_end = use_x
+                    ? second_end.x
+                    : second_end.y;
+                const double overlap = std::min(
+                        std::max(first_axis_start, first_axis_end),
+                        std::max(second_axis_start, second_axis_end)) -
+                    std::max(
+                        std::min(first_axis_start, first_axis_end),
+                        std::min(second_axis_start, second_axis_end));
+                if (overlap > 0.0) {
+                    return not_implemented;
+                }
+                continue;
+            }
+            const double first_parameter =
+                (offset_x * second_y - offset_y * second_x) / denominator;
+            const double second_parameter =
+                (offset_x * first_y - offset_y * first_x) / denominator;
+            if (first_parameter < -intersection_tolerance ||
+                first_parameter > 1.0 + intersection_tolerance ||
+                second_parameter < -intersection_tolerance ||
+                second_parameter > 1.0 + intersection_tolerance) {
+                continue;
+            }
+            if (!append_affine_boolean_parameter(
+                    first_parameters[first_edge],
+                    first_parameter_counts[first_edge],
+                    first_parameter) ||
+                !append_affine_boolean_parameter(
+                    second_parameters[second_edge],
+                    second_parameter_counts[second_edge],
+                    second_parameter)) {
+                return not_implemented;
+            }
+        }
+    }
+    for (std::size_t edge = 0U; edge < 4U; ++edge) {
+        std::sort(
+            first_parameters[edge].begin(),
+            first_parameters[edge].begin() +
+                static_cast<std::ptrdiff_t>(first_parameter_counts[edge]));
+        std::sort(
+            second_parameters[edge].begin(),
+            second_parameters[edge].begin() +
+                static_cast<std::ptrdiff_t>(second_parameter_counts[edge]));
+    }
+
+    std::array<affine_boolean_segment, 64U> segments{};
+    std::size_t segment_count = 0U;
+    const auto append_segments = [&](const rectangle_vertices& source,
+                                     const rectangle_vertices& other,
+                                     const auto& parameters,
+                                     const auto& parameter_counts,
+                                     bool first_operand) {
+        for (std::size_t edge = 0U; edge < 4U; ++edge) {
+            const point_2f edge_start = source[edge];
+            const point_2f edge_end = source[(edge + 1U) % 4U];
+            for (std::size_t part = 0U;
+                 part + 1U < parameter_counts[edge];
+                 ++part) {
+                const double start_parameter = parameters[edge][part];
+                const double end_parameter = parameters[edge][part + 1U];
+                if (end_parameter - start_parameter <=
+                    intersection_tolerance) {
+                    continue;
+                }
+                const point_2f start = interpolate_affine_boolean_point(
+                    edge_start, edge_end, start_parameter);
+                const point_2f end = interpolate_affine_boolean_point(
+                    edge_start, edge_end, end_parameter);
+                const point_2f midpoint = interpolate_affine_boolean_point(
+                    edge_start,
+                    edge_end,
+                    (start_parameter + end_parameter) * 0.5);
+                const convex_point_relation relation =
+                    classify_convex_point(other, midpoint);
+                if (relation == convex_point_relation::boundary) {
+                    return false;
+                }
+                const bool inside =
+                    relation == convex_point_relation::inside;
+                bool include = false;
+                bool reverse = false;
+                switch (mode) {
+                case combine_mode::union_value:
+                    include = !inside;
+                    break;
+                case combine_mode::intersect:
+                    include = inside;
+                    break;
+                case combine_mode::xor_value:
+                    include = true;
+                    reverse = inside;
+                    break;
+                case combine_mode::exclude:
+                    include = first_operand ? !inside : inside;
+                    reverse = !first_operand;
+                    break;
+                }
+                if (!include) {
+                    continue;
+                }
+                if (segment_count >= segments.size()) {
+                    return false;
+                }
+                segments[segment_count++] = reverse
+                    ? affine_boolean_segment{end, start, false}
+                    : affine_boolean_segment{start, end, false};
+            }
+        }
+        return true;
+    };
+    if (!append_segments(
+            first,
+            second,
+            first_parameters,
+            first_parameter_counts,
+            true) ||
+        !append_segments(
+            second,
+            first,
+            second_parameters,
+            second_parameter_counts,
+            false)) {
+        return not_implemented;
+    }
+
+    std::array<std::array<point_2f, 64U>, 8U> contours{};
+    std::array<std::size_t, 8U> contour_point_counts{};
+    std::size_t contour_count = 0U;
+    constexpr double pi = 3.1415926535897932384626433832795;
+    for (std::size_t first_segment = 0U;
+         first_segment < segment_count;
+         ++first_segment) {
+        if (segments[first_segment].used) {
+            continue;
+        }
+        if (contour_count >= contours.size()) {
+            return not_implemented;
+        }
+        auto& points = contours[contour_count];
+        std::size_t point_count = 1U;
+        affine_boolean_segment* current = &segments[first_segment];
+        current->used = true;
+        points[0U] = current->start;
+        const double point_tolerance = std::max(
+            affine_boolean_tolerance(first, current->start),
+            affine_boolean_tolerance(second, current->start));
+        while (!same_affine_boolean_point(
+            current->end, points[0U], point_tolerance)) {
+            if (point_count >= points.size()) {
+                return failure;
+            }
+            points[point_count++] = current->end;
+            affine_boolean_segment* next = nullptr;
+            double best_angle = std::numeric_limits<double>::infinity();
+            const double incoming_x =
+                static_cast<double>(current->end.x) - current->start.x;
+            const double incoming_y =
+                static_cast<double>(current->end.y) - current->start.y;
+            for (std::size_t candidate_index = 0U;
+                 candidate_index < segment_count;
+                 ++candidate_index) {
+                auto& candidate_segment = segments[candidate_index];
+                if (candidate_segment.used ||
+                    !same_affine_boolean_point(
+                        candidate_segment.start,
+                        current->end,
+                        point_tolerance)) {
+                    continue;
+                }
+                const double outgoing_x =
+                    static_cast<double>(candidate_segment.end.x) -
+                    candidate_segment.start.x;
+                const double outgoing_y =
+                    static_cast<double>(candidate_segment.end.y) -
+                    candidate_segment.start.y;
+                double angle = std::atan2(
+                    incoming_x * outgoing_y - incoming_y * outgoing_x,
+                    incoming_x * outgoing_x + incoming_y * outgoing_y);
+                if (angle <= 0.0) {
+                    angle += 2.0 * pi;
+                }
+                if (angle < best_angle) {
+                    best_angle = angle;
+                    next = &candidate_segment;
+                }
+            }
+            if (next == nullptr) {
+                return failure;
+            }
+            next->used = true;
+            current = next;
+        }
+        if (point_count < 3U) {
+            return failure;
+        }
+        contour_point_counts[contour_count++] = point_count;
+    }
+
+    sink->SetFillMode(fill_mode::alternate);
+    sink->SetSegmentFlags(path_segment::force_unstroked);
+    for (std::size_t contour = 0U; contour < contour_count; ++contour) {
+        const auto& points = contours[contour];
+        const std::size_t point_count = contour_point_counts[contour];
+        sink->BeginFigure(points[0U], figure_begin::filled);
+        sink->AddLines(
+            points.data() + 1U,
+            static_cast<std::uint32_t>(point_count - 1U));
+        sink->AddLines(points.data(), 1U);
+        sink->EndFigure(figure_end::closed);
+    }
+    return com::ok;
+}
+
 [[nodiscard]] com::result combine_rectangle_with_geometry(
     factory* owner,
     const rectangle_f& rectangle,
@@ -1239,14 +1651,30 @@ public:
         float flattening_tolerance,
         simplified_geometry_sink* sink) const noexcept override
     {
-        return combine_rectangle_with_geometry(
-            owner_.get(),
-            geometry_.rectangle(),
-            candidate,
-            mode,
-            candidate_transform,
-            flattening_tolerance,
-            sink);
+        const com::result axis_aligned_result =
+            combine_rectangle_with_geometry(
+                owner_.get(),
+                geometry_.rectangle(),
+                candidate,
+                mode,
+                candidate_transform,
+                flattening_tolerance,
+                sink);
+        if (axis_aligned_result != not_implemented) {
+            return axis_aligned_result;
+        }
+        rectangle_vertices first{};
+        const com::result vertex_result = geometry_.vertices(nullptr, first);
+        return com::failed(vertex_result)
+            ? vertex_result
+            : combine_rectangle_vertices_with_geometry(
+                  owner_.get(),
+                  first,
+                  candidate,
+                  mode,
+                  candidate_transform,
+                  flattening_tolerance,
+                  sink);
     }
 
     com::result PROGPU_NATIVE_COM_CALL Outline(
@@ -1532,11 +1960,30 @@ public:
         rectangle_f transformed_rectangle{};
         const com::result rectangle_result =
             get_axis_preserving_rectangle(&transformed_rectangle);
-        return com::failed(rectangle_result)
-            ? rectangle_result
-            : combine_rectangle_with_geometry(
+        if (com::succeeded(rectangle_result)) {
+            const com::result axis_aligned_result =
+                combine_rectangle_with_geometry(
+                    owner_.get(),
+                    transformed_rectangle,
+                    candidate,
+                    mode,
+                    candidate_transform,
+                    flattening_tolerance,
+                    sink);
+            if (axis_aligned_result != not_implemented) {
+                return axis_aligned_result;
+            }
+        } else if (rectangle_result != not_implemented) {
+            return rectangle_result;
+        }
+        rectangle_vertices first{};
+        const com::result vertex_result = get_rectangle_vertices(
+            owner_.get(), source_.get(), &transform_, 0U, &first);
+        return com::failed(vertex_result)
+            ? vertex_result
+            : combine_rectangle_vertices_with_geometry(
                   owner_.get(),
-                  transformed_rectangle,
+                  first,
                   candidate,
                   mode,
                   candidate_transform,
