@@ -6443,8 +6443,20 @@ and four-wide affine transform/reduction path. It also preserves the
 system-observed conservative source envelope for an endpoint inside a dash
 gap. Default, round-join, dashed-square-cap, and nonuniform transformed bounds
 pass locally and against genuine Direct2D on both Windows architectures. Open
-`Widen`, multiple figures, and flagged paths remain typed fail-closed domains
-for subsequent increments.
+`Widen` now reuses the joined outline builder for solid and dashed paths,
+prepares all figures transactionally, retains round edges as cubics, and
+batch-transforms endpoint/control data before caller-sink replay. Dense local
+regions match `StrokeContainsPoint`; default and square-dashed captures match
+genuine Direct2D on Windows ARM64 and x64. The shared curve-dash run buffer now
+also publishes a terminal visible-point bit when the source ends exactly on a
+gap-to-dash transition. Direct2D applies `DashCap` only on the new run's start
+side and the source `EndCap` on the other side, producing a half-cap rather
+than a symmetric dot; explicit walker, containment, and widened-output tests
+lock down that behavior. Multiple figures and flagged paths remain typed
+fail-closed domains for subsequent increments. Both the reusable semantic
+path-stroke compiler and the MIL compositor consume the bit directly and
+append only the qualified cap-only GPU primitives; no degenerate body, CPU
+rasterization, readback, or per-item submission is introduced.
 
 `GetWidenedBounds` now shares that default-miter path domain. Segment offsets
 and miter extrema are constructed before the world transform; independent

@@ -2507,6 +2507,9 @@ int run_tests()
   std::int32_t open_dash_body = 0;
   std::int32_t open_dash_gap = 0;
   std::int32_t open_square_dash_cap = 0;
+  std::int32_t open_terminal_square_dash = 0;
+  std::int32_t open_terminal_round_dash = 0;
+  std::int32_t open_terminal_triangle_dash = 0;
   if (open_query_path->StrokeContainsPoint(
           {2.0F, 0.75F}, 2.0F, nullptr, nullptr,
           core::default_flattening_tolerance, &open_body) != com::ok ||
@@ -2529,10 +2532,23 @@ int run_tests()
           {1.1F, 0.0F}, 0.5F,
           square_dashed_path_stroke_style.get(), nullptr,
           0.001F, &open_square_dash_cap) != com::ok ||
+      open_query_path->StrokeContainsPoint(
+          {4.058F, 3.836F}, 0.5F,
+          square_dashed_path_stroke_style.get(), nullptr,
+          0.001F, &open_terminal_square_dash) != com::ok ||
+      open_query_path->StrokeContainsPoint(
+          {4.15F, 3.85F}, 0.5F,
+          round_dashed_path_stroke_style.get(), nullptr,
+          0.001F, &open_terminal_round_dash) != com::ok ||
+      open_query_path->StrokeContainsPoint(
+          {4.0F, 3.8F}, 0.5F,
+          triangle_dashed_path_stroke_style.get(), nullptr,
+          0.001F, &open_terminal_triangle_dash) != com::ok ||
       open_body == 0 || open_flat_start != 0 ||
       open_miter_corner == 0 || open_round_corner == 0 ||
       open_dash_body == 0 || open_dash_gap != 0 ||
-      open_square_dash_cap == 0) {
+      open_square_dash_cap == 0 || open_terminal_square_dash == 0 ||
+      open_terminal_round_dash == 0 || open_terminal_triangle_dash == 0) {
     return 384;
   }
   compat::rectangle_f open_default_bounds{};
@@ -2571,6 +2587,125 @@ int run_tests()
       !approximately_equal(open_transformed_bounds.right, 20.0F) ||
       !approximately_equal(open_transformed_bounds.bottom, 8.0F)) {
     return 388;
+  }
+  auto* raw_open_default_widen_sink = new simplified_sink();
+  com::pointer<compat::simplified_geometry_sink> open_default_widen_sink;
+  open_default_widen_sink.attach(raw_open_default_widen_sink);
+  auto* raw_open_round_widen_sink = new simplified_sink();
+  com::pointer<compat::simplified_geometry_sink> open_round_widen_sink;
+  open_round_widen_sink.attach(raw_open_round_widen_sink);
+  auto* raw_open_dashed_widen_sink = new simplified_sink();
+  com::pointer<compat::simplified_geometry_sink> open_dashed_widen_sink;
+  open_dashed_widen_sink.attach(raw_open_dashed_widen_sink);
+  auto* raw_open_round_dashed_widen_sink = new simplified_sink();
+  com::pointer<compat::simplified_geometry_sink>
+      open_round_dashed_widen_sink;
+  open_round_dashed_widen_sink.attach(raw_open_round_dashed_widen_sink);
+  auto* raw_open_triangle_dashed_widen_sink = new simplified_sink();
+  com::pointer<compat::simplified_geometry_sink>
+      open_triangle_dashed_widen_sink;
+  open_triangle_dashed_widen_sink.attach(
+      raw_open_triangle_dashed_widen_sink);
+  auto* raw_open_transformed_widen_sink = new simplified_sink();
+  com::pointer<compat::simplified_geometry_sink>
+      open_transformed_widen_sink;
+  open_transformed_widen_sink.attach(raw_open_transformed_widen_sink);
+  if (open_query_path->Widen(
+          2.0F, nullptr, nullptr,
+          core::default_flattening_tolerance,
+          open_default_widen_sink.get()) != com::ok ||
+      open_query_path->Widen(
+          2.0F, round_path_stroke_style.get(), nullptr,
+          core::default_flattening_tolerance,
+          open_round_widen_sink.get()) != com::ok ||
+      open_query_path->Widen(
+          0.5F, square_dashed_path_stroke_style.get(), nullptr,
+          0.001F, open_dashed_widen_sink.get()) != com::ok ||
+      open_query_path->Widen(
+          0.5F, round_dashed_path_stroke_style.get(), nullptr,
+          0.001F, open_round_dashed_widen_sink.get()) != com::ok ||
+      open_query_path->Widen(
+          0.5F, triangle_dashed_path_stroke_style.get(), nullptr,
+          0.001F, open_triangle_dashed_widen_sink.get()) != com::ok ||
+      open_query_path->Widen(
+          2.0F, nullptr, &transform,
+          core::default_flattening_tolerance,
+          open_transformed_widen_sink.get()) != com::ok ||
+      raw_open_default_widen_sink->fill_mode !=
+          compat::fill_mode::alternate ||
+      raw_open_default_widen_sink->segment_flags !=
+          compat::path_segment::force_unstroked ||
+      raw_open_default_widen_sink->begin_count != 1U ||
+      raw_open_default_widen_sink->end_count != 1U ||
+      raw_open_default_widen_sink->figure_end !=
+          compat::figure_end::closed ||
+      raw_open_round_widen_sink->bezier_count == 0U ||
+      raw_open_dashed_widen_sink->begin_count == 0U ||
+      raw_open_dashed_widen_sink->begin_count !=
+          raw_open_dashed_widen_sink->end_count ||
+      !captured_fill_contains(
+          *raw_open_default_widen_sink, {4.75F, -0.75F}) ||
+      !captured_fill_contains(
+          *raw_open_round_widen_sink, {4.6F, -0.6F}) ||
+      !captured_fill_contains(
+          *raw_open_dashed_widen_sink, {1.1F, 0.0F}) ||
+      !captured_fill_contains(
+          *raw_open_dashed_widen_sink, {4.058F, 3.836F}) ||
+      raw_open_round_dashed_widen_sink->bezier_count == 0U ||
+      !captured_fill_contains(
+          *raw_open_round_dashed_widen_sink, {4.15F, 3.85F}) ||
+      !captured_fill_contains(
+          *raw_open_triangle_dashed_widen_sink, {4.0F, 3.8F}) ||
+      !captured_fill_contains(
+          *raw_open_transformed_widen_sink, {19.5F, -6.25F})) {
+    return 389;
+  }
+  for (std::uint32_t y_index = 0U; y_index < 24U; ++y_index) {
+    for (std::uint32_t x_index = 0U; x_index < 24U; ++x_index) {
+      const compat::point_2f point{
+          -1.183F + static_cast<float>(x_index) * 0.291F,
+          -1.271F + static_cast<float>(y_index) * 0.283F};
+      std::int32_t default_contains = 0;
+      std::int32_t round_contains = 0;
+      std::int32_t dashed_contains = 0;
+      if (open_query_path->StrokeContainsPoint(
+              point, 2.0F, nullptr, nullptr,
+              core::default_flattening_tolerance,
+              &default_contains) != com::ok ||
+          open_query_path->StrokeContainsPoint(
+              point, 2.0F, round_path_stroke_style.get(), nullptr,
+              core::default_flattening_tolerance,
+              &round_contains) != com::ok ||
+          open_query_path->StrokeContainsPoint(
+              point, 0.5F, square_dashed_path_stroke_style.get(), nullptr,
+              0.001F, &dashed_contains) != com::ok ||
+          captured_fill_contains(*raw_open_default_widen_sink, point) !=
+              (default_contains != 0) ||
+          captured_fill_contains(*raw_open_round_widen_sink, point) !=
+              (round_contains != 0) ||
+          captured_fill_contains(*raw_open_dashed_widen_sink, point) !=
+              (dashed_contains != 0)) {
+        std::fprintf(
+            stderr,
+            "open widen mismatch point=%g,%g default=%d/%d round=%d/%d "
+            "dashed=%d/%d\n",
+            point.x,
+            point.y,
+            captured_fill_contains(*raw_open_default_widen_sink, point)
+                ? 1
+                : 0,
+            default_contains,
+            captured_fill_contains(*raw_open_round_widen_sink, point)
+                ? 1
+                : 0,
+            round_contains,
+            captured_fill_contains(*raw_open_dashed_widen_sink, point)
+                ? 1
+                : 0,
+            dashed_contains);
+        return 390;
+      }
+    }
   }
   const compat::matrix_3x2_f disjoint_path_transform{
       1.0F, 0.0F, 0.0F, 1.0F, 10.0F, 0.0F};
@@ -6944,6 +7079,87 @@ int run_tests()
         {1.1F, 0.0F},
     }};
     bool open_probe_matches = true;
+    constexpr std::array<D2D1_CAP_STYLE, 2U> terminal_dash_caps{{
+        D2D1_CAP_STYLE_ROUND,
+        D2D1_CAP_STYLE_TRIANGLE,
+    }};
+    constexpr std::array<D2D1_POINT_2F, 2U> terminal_dash_probes{{
+        {4.15F, 3.85F},
+        {4.0F, 3.8F},
+    }};
+    std::array<ID2D1StrokeStyle*, 2U> portable_terminal_dash_styles{};
+    std::array<ID2D1StrokeStyle*, 2U> system_terminal_dash_styles{};
+    for (std::size_t style_index = 0U;
+         style_index < terminal_dash_caps.size();
+         ++style_index) {
+      D2D1_STROKE_STYLE_PROPERTIES terminal_properties =
+          open_dash_properties;
+      terminal_properties.dashCap = terminal_dash_caps[style_index];
+      open_probe_matches = open_probe_matches &&
+          SUCCEEDED(native_factory->CreateStrokeStyle(
+              &terminal_properties,
+              nullptr,
+              0U,
+              &portable_terminal_dash_styles[style_index])) &&
+          SUCCEEDED(system_factory->CreateStrokeStyle(
+              &terminal_properties,
+              nullptr,
+              0U,
+              &system_terminal_dash_styles[style_index])) &&
+          portable_terminal_dash_styles[style_index] != nullptr &&
+          system_terminal_dash_styles[style_index] != nullptr;
+      if (!open_probe_matches) {
+        break;
+      }
+      BOOL portable_terminal_contains = FALSE;
+      BOOL system_terminal_contains = FALSE;
+      const HRESULT portable_terminal_status =
+          portable_open_query_path->StrokeContainsPoint(
+              terminal_dash_probes[style_index],
+              0.5F,
+              portable_terminal_dash_styles[style_index],
+              nullptr,
+              0.001F,
+              &portable_terminal_contains);
+      const HRESULT system_terminal_status =
+          system_open_query_path->StrokeContainsPoint(
+              terminal_dash_probes[style_index],
+              0.5F,
+              system_terminal_dash_styles[style_index],
+              nullptr,
+              0.001F,
+              &system_terminal_contains);
+      auto* raw_portable_terminal_widen = new simplified_sink();
+      com::pointer<compat::simplified_geometry_sink>
+          portable_terminal_widen;
+      portable_terminal_widen.attach(raw_portable_terminal_widen);
+      auto* raw_system_terminal_widen = new simplified_sink();
+      com::pointer<compat::simplified_geometry_sink> system_terminal_widen;
+      system_terminal_widen.attach(raw_system_terminal_widen);
+      const HRESULT portable_terminal_widen_status =
+          portable_open_query_path->Widen(
+              0.5F,
+              portable_terminal_dash_styles[style_index],
+              nullptr,
+              0.001F,
+              reinterpret_cast<ID2D1SimplifiedGeometrySink*>(
+                  portable_terminal_widen.get()));
+      const HRESULT system_terminal_widen_status =
+          system_open_query_path->Widen(
+              0.5F,
+              system_terminal_dash_styles[style_index],
+              nullptr,
+              0.001F,
+              reinterpret_cast<ID2D1SimplifiedGeometrySink*>(
+                  system_terminal_widen.get()));
+      open_probe_matches = open_probe_matches &&
+          SUCCEEDED(portable_terminal_status) &&
+          SUCCEEDED(system_terminal_status) &&
+          SUCCEEDED(portable_terminal_widen_status) &&
+          SUCCEEDED(system_terminal_widen_status) &&
+          portable_terminal_contains == system_terminal_contains &&
+          portable_terminal_contains == TRUE;
+    }
     for (std::size_t probe_index = 0U;
          probe_index < open_probe_points.size();
          ++probe_index) {
@@ -7031,6 +7247,132 @@ int run_tests()
         approximately_equal(
             portable_open_dashed_bounds.bottom,
             system_open_dashed_bounds.bottom);
+    auto* raw_portable_open_default_widen = new simplified_sink();
+    com::pointer<compat::simplified_geometry_sink>
+        portable_open_default_widen;
+    portable_open_default_widen.attach(raw_portable_open_default_widen);
+    auto* raw_system_open_default_widen = new simplified_sink();
+    com::pointer<compat::simplified_geometry_sink>
+        system_open_default_widen;
+    system_open_default_widen.attach(raw_system_open_default_widen);
+    auto* raw_portable_open_dashed_widen = new simplified_sink();
+    com::pointer<compat::simplified_geometry_sink>
+        portable_open_dashed_widen;
+    portable_open_dashed_widen.attach(raw_portable_open_dashed_widen);
+    auto* raw_system_open_dashed_widen = new simplified_sink();
+    com::pointer<compat::simplified_geometry_sink>
+        system_open_dashed_widen;
+    system_open_dashed_widen.attach(raw_system_open_dashed_widen);
+    const HRESULT portable_open_default_widen_status =
+        portable_open_query_path->Widen(
+            2.0F,
+            nullptr,
+            nullptr,
+            0.001F,
+            reinterpret_cast<ID2D1SimplifiedGeometrySink*>(
+                portable_open_default_widen.get()));
+    const HRESULT system_open_default_widen_status =
+        system_open_query_path->Widen(
+            2.0F,
+            nullptr,
+            nullptr,
+            0.001F,
+            reinterpret_cast<ID2D1SimplifiedGeometrySink*>(
+                system_open_default_widen.get()));
+    const HRESULT portable_open_dashed_widen_status =
+        portable_open_query_path->Widen(
+            0.5F,
+            portable_open_dash_style,
+            nullptr,
+            0.001F,
+            reinterpret_cast<ID2D1SimplifiedGeometrySink*>(
+                portable_open_dashed_widen.get()));
+    const HRESULT system_open_dashed_widen_status =
+        system_open_query_path->Widen(
+            0.5F,
+            system_open_dash_style,
+            nullptr,
+            0.001F,
+            reinterpret_cast<ID2D1SimplifiedGeometrySink*>(
+                system_open_dashed_widen.get()));
+    open_probe_matches = open_probe_matches &&
+        SUCCEEDED(portable_open_default_widen_status) &&
+        SUCCEEDED(system_open_default_widen_status) &&
+        SUCCEEDED(portable_open_dashed_widen_status) &&
+        SUCCEEDED(system_open_dashed_widen_status);
+    for (std::uint32_t y_index = 0U;
+         open_probe_matches && y_index < 20U;
+         ++y_index) {
+      for (std::uint32_t x_index = 0U; x_index < 20U; ++x_index) {
+        const compat::point_2f point{
+            -1.147F + static_cast<float>(x_index) * 0.347F,
+            -1.219F + static_cast<float>(y_index) * 0.337F};
+        if (captured_fill_contains(
+                *raw_portable_open_default_widen, point) !=
+                captured_fill_contains(
+                    *raw_system_open_default_widen, point) ||
+            captured_fill_contains(
+                *raw_portable_open_dashed_widen, point) !=
+                captured_fill_contains(
+                    *raw_system_open_dashed_widen, point)) {
+          BOOL portable_direct_contains = FALSE;
+          BOOL system_direct_contains = FALSE;
+          const HRESULT portable_direct_status =
+              portable_open_query_path->StrokeContainsPoint(
+                  D2D1_POINT_2F{point.x, point.y},
+                  0.5F,
+                  portable_open_dash_style,
+                  nullptr,
+                  0.001F,
+                  &portable_direct_contains);
+          const HRESULT system_direct_status =
+              system_open_query_path->StrokeContainsPoint(
+                  D2D1_POINT_2F{point.x, point.y},
+                  0.5F,
+                  system_open_dash_style,
+                  nullptr,
+                  0.001F,
+                  &system_direct_contains);
+          std::fprintf(
+              stderr,
+              "open system widen mismatch point=%g,%g default=%d/%d "
+              "dashed=%d/%d direct=%d/%d:%08lx/%08lx "
+              "statuses=%08lx/%08lx/%08lx/%08lx\n",
+              point.x,
+              point.y,
+              captured_fill_contains(
+                  *raw_portable_open_default_widen, point) ? 1 : 0,
+              captured_fill_contains(
+                  *raw_system_open_default_widen, point) ? 1 : 0,
+              captured_fill_contains(
+                  *raw_portable_open_dashed_widen, point) ? 1 : 0,
+              captured_fill_contains(
+                  *raw_system_open_dashed_widen, point) ? 1 : 0,
+              portable_direct_contains ? 1 : 0,
+              system_direct_contains ? 1 : 0,
+              static_cast<unsigned long>(portable_direct_status),
+              static_cast<unsigned long>(system_direct_status),
+              static_cast<unsigned long>(
+                  portable_open_default_widen_status),
+              static_cast<unsigned long>(system_open_default_widen_status),
+              static_cast<unsigned long>(
+                  portable_open_dashed_widen_status),
+              static_cast<unsigned long>(system_open_dashed_widen_status));
+          open_probe_matches = false;
+          break;
+        }
+      }
+    }
+    for (auto* terminal_style : portable_terminal_dash_styles) {
+      if (terminal_style != nullptr) {
+        terminal_style->Release();
+      }
+    }
+    for (auto* terminal_style : system_terminal_dash_styles) {
+      if (terminal_style != nullptr) {
+        terminal_style->Release();
+      }
+    }
     portable_open_dash_style->Release();
     system_open_dash_style->Release();
     portable_open_query_path->Release();
@@ -7040,6 +7382,7 @@ int run_tests()
           stderr,
           "open bounds portable default=%g,%g,%g,%g dashed=%g,%g,%g,%g "
           "system default=%g,%g,%g,%g dashed=%g,%g,%g,%g statuses="
+          "%08lx/%08lx/%08lx/%08lx widen="
           "%08lx/%08lx/%08lx/%08lx\n",
           portable_open_default_bounds.left,
           portable_open_default_bounds.top,
@@ -7060,7 +7403,11 @@ int run_tests()
           static_cast<unsigned long>(portable_open_default_bounds_status),
           static_cast<unsigned long>(system_open_default_bounds_status),
           static_cast<unsigned long>(portable_open_dashed_bounds_status),
-          static_cast<unsigned long>(system_open_dashed_bounds_status));
+          static_cast<unsigned long>(system_open_dashed_bounds_status),
+          static_cast<unsigned long>(portable_open_default_widen_status),
+          static_cast<unsigned long>(system_open_default_widen_status),
+          static_cast<unsigned long>(portable_open_dashed_widen_status),
+          static_cast<unsigned long>(system_open_dashed_widen_status));
       system_factory->Release();
       return 387;
     }
