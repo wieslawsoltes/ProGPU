@@ -966,6 +966,48 @@ struct polygon_stroke_edges final {
                 point, incoming_offset, miter, outgoing_offset)) {
             return true;
         }
+        if (join != line_join::miter || miter_length == 0.0 ||
+            miter_length <= miter_limit * half_width) {
+            continue;
+        }
+        const double bisector_x =
+            (static_cast<double>(miter.x) - vertex.x) / miter_length;
+        const double bisector_y =
+            (static_cast<double>(miter.y) - vertex.y) / miter_length;
+        const double clip_distance = miter_limit * half_width;
+        const auto clipped_point = [&](point_2f offset, point_2f& clipped) {
+            const double offset_x =
+                static_cast<double>(offset.x) - vertex.x;
+            const double offset_y =
+                static_cast<double>(offset.y) - vertex.y;
+            const double projection =
+                offset_x * bisector_x + offset_y * bisector_y;
+            const double denominator = miter_length - projection;
+            if (denominator <= 0.0) {
+                return false;
+            }
+            const double amount =
+                (clip_distance - projection) / denominator;
+            if (!std::isfinite(amount) || amount < 0.0 || amount > 1.0) {
+                return false;
+            }
+            clipped = {
+                static_cast<float>(
+                    offset.x + (miter.x - offset.x) * amount),
+                static_cast<float>(
+                    offset.y + (miter.y - offset.y) * amount)};
+            return true;
+        };
+        point_2f first_clipped{};
+        point_2f second_clipped{};
+        if (clipped_point(incoming_offset, first_clipped) &&
+            clipped_point(outgoing_offset, second_clipped) &&
+            (point_in_closed_triangle(
+                 point, incoming_offset, first_clipped, second_clipped) ||
+             point_in_closed_triangle(
+                 point, incoming_offset, second_clipped, outgoing_offset))) {
+            return true;
+        }
     }
     return false;
 }
@@ -1742,11 +1784,49 @@ void append_dash_side_point(
                 static_cast<double>(intersection.x) - vertex.x,
                 static_cast<double>(intersection.y) - vertex.y) >
             miter_limit * half_width) {
-            if (join != line_join::miter_or_bevel) {
+            if (join == line_join::miter_or_bevel) {
+                append_dash_side_point(output, incoming_offset);
+                append_dash_side_point(output, outgoing_offset);
+                continue;
+            }
+            const double miter_x =
+                static_cast<double>(intersection.x) - vertex.x;
+            const double miter_y =
+                static_cast<double>(intersection.y) - vertex.y;
+            const double miter_length = std::hypot(miter_x, miter_y);
+            if (join != line_join::miter || miter_length == 0.0) {
                 return not_implemented;
             }
-            append_dash_side_point(output, incoming_offset);
-            append_dash_side_point(output, outgoing_offset);
+            const double bisector_x = miter_x / miter_length;
+            const double bisector_y = miter_y / miter_length;
+            const double clip_distance = miter_limit * half_width;
+            const auto append_clipped = [&](point_2f offset) {
+                const double offset_x =
+                    static_cast<double>(offset.x) - vertex.x;
+                const double offset_y =
+                    static_cast<double>(offset.y) - vertex.y;
+                const double projection =
+                    offset_x * bisector_x + offset_y * bisector_y;
+                const double denominator = miter_length - projection;
+                if (denominator <= 0.0) {
+                    return false;
+                }
+                const double amount =
+                    (clip_distance - projection) / denominator;
+                if (!std::isfinite(amount) || amount < 0.0 || amount > 1.0) {
+                    return false;
+                }
+                append_dash_side_point(output, {
+                    static_cast<float>(
+                        offset.x + (intersection.x - offset.x) * amount),
+                    static_cast<float>(
+                        offset.y + (intersection.y - offset.y) * amount)});
+                return true;
+            };
+            if (!append_clipped(incoming_offset) ||
+                !append_clipped(outgoing_offset)) {
+                return not_implemented;
+            }
             continue;
         }
         append_dash_side_point(output, intersection);

@@ -6421,9 +6421,13 @@ vertices, while qualifying miters emit the exact offset-line intersection;
 dense containment and genuine Direct2D x64/ARM64 corner differentials pass.
 Round joins annotate the outer side edge with its typed center and emit one or
 two cubic circular spans during outline assembly. Their dense widened-region
-probes and genuine Direct2D x64/ARM64 corner/widen differentials pass. Only
-over-limit clipped `Miter` output remains the next analysis gap in this dashed
-line-run domain.
+probes and genuine Direct2D x64/ARM64 corner/widen differentials pass.
+Over-limit `Miter` joins now compute the limit-normal plane and intersect it
+with both outer offset edges, while `MiterOrBevel` keeps the two bevel points.
+Separate inside-tip and outside-tip probes distinguish the clipped shape from
+both alternatives on Windows x64 and ARM64. This completes all cap/join
+combinations for dashed line runs in the simple closed-path domain; curved,
+multi-figure, and general open-path widening remain broader geometry work.
 
 `GetWidenedBounds` now shares that default-miter path domain. Segment offsets
 and miter extrema are constructed before the world transform; independent
