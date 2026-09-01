@@ -932,7 +932,7 @@ quad. Stable replay performs neither path compute nor vertex/index/brush/path
 upload; a DPI or content-revision change rebuilds the bounded payload.
 
 For `P` path instances, `U <= P` unique coverage keys, `S` transferred
-segments, atlas area `A`, and sample grid `G` in `{4,8}`, validation is
+segments, atlas area `A`, and sample grid `G` in `{1,4,8}`, validation is
 `O(P + S)`, retained-key construction is average `O(P)`, raster work is
 `O(A * G^2 * S_u)` over each unique key's segment count `S_u`, and compositing
 is `O(P)`. The single-page R8 atlas starts at 1024 square, grows geometrically

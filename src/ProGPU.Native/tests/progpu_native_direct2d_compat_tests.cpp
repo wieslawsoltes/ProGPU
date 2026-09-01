@@ -3580,7 +3580,12 @@ int run_tests()
         glyph_offsets,
         0,
         0U};
+    target->SetTextAntialiasMode(compat::text_antialias_mode::aliased);
     target->BeginDraw();
+    if (target->GetTextAntialiasMode() !=
+        compat::text_antialias_mode::aliased) {
+        return 267;
+    }
     target->DrawGlyphRun(
         {20.0F, 50.0F},
         &glyph_run,
@@ -3615,14 +3620,33 @@ int run_tests()
     const auto* glyph_run_command = reinterpret_cast<
         const progpu_native_scene_command*>(
         glyph_run_scene.data() + glyph_run_header->command_offset);
+    const progpu_native_scene_resource* glyph_path_resource = nullptr;
+    for (std::uint32_t index = 0U;
+         index < glyph_run_header->resource_count;
+         ++index) {
+        const auto* candidate = reinterpret_cast<
+            const progpu_native_scene_resource*>(
+            glyph_run_scene.data() + glyph_run_header->resource_offset +
+            index * glyph_run_header->resource_stride);
+        if (candidate->kind == PROGPU_NATIVE_SCENE_RESOURCE_PATH_BATCH) {
+            glyph_path_resource = candidate;
+            break;
+        }
+    }
+    const auto* glyph_path = glyph_path_resource == nullptr
+        ? nullptr
+        : reinterpret_cast<const progpu_native_scene_path_fill*>(
+            glyph_run_scene.data() + glyph_path_resource->payload_offset);
     if (glyph_run_header->command_count != 1U ||
         glyph_run_command->kind != PROGPU_NATIVE_SCENE_COMMAND_DRAW_PATH ||
+        glyph_path == nullptr || glyph_path->sample_grid != 1U ||
         !approximately_equal(glyph_run_command->bounds_x, 20.0F) ||
         !approximately_equal(glyph_run_command->bounds_y, 37.0F) ||
         !approximately_equal(glyph_run_command->bounds_width, 13.3F) ||
         !approximately_equal(glyph_run_command->bounds_height, 13.0F)) {
         return 248;
     }
+    target->SetTextAntialiasMode(compat::text_antialias_mode::grayscale);
 
     fake_text_layout text_layout_value{};
     text_layout_value.vtable = &fake_layout_vtable;
@@ -5146,14 +5170,21 @@ int run_tests()
 
     const D2D1_RECT_F system_group_rectangle_value{
         1.0F, 2.0F, 5.0F, 8.0F};
+    ID2D1RectangleGeometry* system_outline_rectangle = nullptr;
     ID2D1RectangleGeometry* system_group_rectangle = nullptr;
     ID2D1EllipseGeometry* system_group_ellipse = nullptr;
     if (FAILED(system_factory->CreateRectangleGeometry(
+            &native_rectangle, &system_outline_rectangle)) ||
+        system_outline_rectangle == nullptr ||
+        FAILED(system_factory->CreateRectangleGeometry(
             &system_group_rectangle_value, &system_group_rectangle)) ||
         system_group_rectangle == nullptr ||
         FAILED(system_factory->CreateEllipseGeometry(
             &native_ellipse_value, &system_group_ellipse)) ||
         system_group_ellipse == nullptr) {
+        if (system_outline_rectangle != nullptr) {
+            system_outline_rectangle->Release();
+        }
         if (system_group_rectangle != nullptr) {
             system_group_rectangle->Release();
         }
@@ -5166,11 +5197,12 @@ int run_tests()
     auto* raw_system_outline_sink = new simplified_sink();
     com::pointer<compat::simplified_geometry_sink> system_outline_sink;
     system_outline_sink.attach(raw_system_outline_sink);
-    const HRESULT system_outline_status = system_group_rectangle->Outline(
+    const HRESULT system_outline_status = system_outline_rectangle->Outline(
         nullptr,
         D2D1_DEFAULT_FLATTENING_TOLERANCE,
         reinterpret_cast<ID2D1SimplifiedGeometrySink*>(
             system_outline_sink.get()));
+    system_outline_rectangle->Release();
     if (FAILED(system_outline_status) ||
         raw_system_outline_sink->fill_mode !=
             raw_native_outline_sink->fill_mode ||
