@@ -2640,10 +2640,6 @@ public:
             latch(com::invalid_argument);
             return;
         }
-        if (mode != antialias_mode::aliased) {
-            latch(not_implemented);
-            return;
-        }
         if (clip_depth_ == clip_stack_.size() ||
             scope_depth_ == scope_stack_.size()) {
             latch(com::out_of_memory);
@@ -2665,18 +2661,51 @@ public:
                 return;
             }
         }
-        auto state = semantic_scene_builder::identity_state();
-        state.flags = PROGPU_NATIVE_SCENE_STATE_CLIP_RECT;
-        state.clip_rect = clip;
-        std::uint32_t state_index = PROGPU_NATIVE_SCENE_NO_INDEX;
-        if (!builder_.add_state(state, state_index) ||
-            !builder_.save(state_index)) {
-            latch(builder_failure());
-            return;
+        std::uint8_t scope = scope_axis_aligned_clip;
+        if (mode == antialias_mode::aliased) {
+            auto state = semantic_scene_builder::identity_state();
+            state.flags = PROGPU_NATIVE_SCENE_STATE_CLIP_RECT;
+            state.clip_rect = clip;
+            std::uint32_t state_index = PROGPU_NATIVE_SCENE_NO_INDEX;
+            if (!builder_.add_state(state, state_index) ||
+                !builder_.save(state_index)) {
+                latch(builder_failure());
+                return;
+            }
+        } else {
+            progpu_native_scene_layer_mask mask{};
+            mask.bounds = clip;
+            mask.transform = {
+                1.0F, 0.0F, 0.0F, 1.0F, 0.0F, 0.0F};
+            mask.opacity = 1.0F;
+            std::uint32_t mask_resource_index =
+                PROGPU_NATIVE_SCENE_NO_INDEX;
+            if (!builder_.add_rounded_rectangle_mask(
+                    mask, mask_resource_index)) {
+                latch(builder_failure());
+                return;
+            }
+            const progpu_native_scene_layer native_layer{
+                sizeof(progpu_native_scene_layer),
+                PROGPU_NATIVE_SCENE_LAYER_BOUNDS,
+                clip,
+                1.0F,
+                PROGPU_NATIVE_BLEND_SRC_OVER,
+                mask_resource_index,
+                PROGPU_NATIVE_SCENE_NO_INDEX,
+                0U,
+                0U,
+                0U,
+                0U};
+            if (!builder_.push_layer(native_layer)) {
+                latch(builder_failure());
+                return;
+            }
+            scope = scope_antialiased_axis_clip;
         }
         clip_stack_[clip_depth_] = clip;
         ++clip_depth_;
-        scope_stack_[scope_depth_] = scope_axis_aligned_clip;
+        scope_stack_[scope_depth_] = scope;
         ++scope_depth_;
     }
 
@@ -2687,11 +2716,15 @@ public:
             return;
         }
         if (clip_depth_ == 0U || scope_depth_ == 0U ||
-            scope_stack_[scope_depth_ - 1U] != scope_axis_aligned_clip) {
+            (scope_stack_[scope_depth_ - 1U] != scope_axis_aligned_clip &&
+                scope_stack_[scope_depth_ - 1U] !=
+                    scope_antialiased_axis_clip)) {
             latch(wrong_state);
             return;
         }
-        if (!builder_.restore()) {
+        const bool antialiased = scope_stack_[scope_depth_ - 1U] ==
+            scope_antialiased_axis_clip;
+        if (!(antialiased ? builder_.pop_layer() : builder_.restore())) {
             latch(builder_failure());
             return;
         }
@@ -4663,6 +4696,7 @@ private:
     static constexpr std::uint8_t scope_none = 0U;
     static constexpr std::uint8_t scope_axis_aligned_clip = 1U;
     static constexpr std::uint8_t scope_opacity_layer = 2U;
+    static constexpr std::uint8_t scope_antialiased_axis_clip = 3U;
     std::array<progpu_native_image_rect,
         PROGPU_NATIVE_SCENE_MAX_STACK_DEPTH> clip_stack_{};
     std::array<std::uint8_t,
