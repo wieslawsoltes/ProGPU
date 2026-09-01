@@ -294,7 +294,8 @@ ProGPU `6efc8fe6` adds canonical portable `ID2D1EllipseGeometry` creation and
 identity in the original base-factory slot. The immutable resource retains its
 factory and generated path, returns its exact center/radii through
 `GetEllipse`, uses the shared core for validation, four-cubic construction,
-and inverse-transform fill hit testing, and delegates bounds and
+three zero-length endpoint markers observed in system simplification, and
+inverse-transform fill hit testing, and delegates bounds and
 `CUBICS_AND_LINES` simplification to that retained path. Unsupported stroke,
 tessellation, boolean, outline, metric, and widen operations continue to fail
 closed through the path contract.
@@ -304,7 +305,11 @@ matrix. It caught that system Direct2D reports the slightly conservative
 bounds of its four-cubic retained representation rather than the tighter
 analytic ellipse AABB. ProGPU now preserves that observable behavior; both its
 portable and Windows provider sources build their ellipse path with the same
-shared cubic core. Apple Silicon passes 12/12 warning-as-error CTests, the
+shared cubic core. `CUBICS_AND_LINES` also matches system Direct2D's exact
+`B,L,B,L,B,L,B` transcript: each of the first three cubic endpoints is followed
+by a zero-length line. These markers preserve pixels and metrics while keeping
+direct ellipse, group, and nested-group simplification structurally identical.
+Apple Silicon passes 12/12 warning-as-error CTests, the
 managed source contract passes 9/9, and Windows 11 ARM64 MSVC 19.44 `/W4 /WX`
 builds and passes the focused core/compatibility executables through real SDK
 `ID2D1EllipseGeometry*`. Bounds and transformed-center containment must match
@@ -2298,13 +2303,16 @@ previous `19.1810`. Arbitrary path and rounded-rectangle geometry consume the
 caller's tolerance unchanged; the rounded oracle reports `35.6731`, compared
 with `35.7652` when the ellipse-only compensation was incorrectly applied.
 
-The geometry owns one closed four-cubic path created at factory time. Shared
-path code therefore supplies simplification, tolerance-controlled metrics, and
+The geometry owns one closed four-cubic path created at factory time, including
+the three zero-length endpoint lines that system Direct2D publishes through
+`Simplify(CUBICS_AND_LINES)`. Shared path code therefore supplies
+simplification, tolerance-controlled metrics, and
 pointer-free fill/stroke scene translation without a per-frame adapter,
 reflection, CPU pixel work, or a renderer-specific ellipse sideband. Zero-radius
 degenerates use the same fail-closed path semantics. Constant-size construction
-is deliberately scalar; it records exactly four cubic segments and is not a
-data-parallel buffer workload. Focused managed ABI contracts pass 5/5. Exact
+is deliberately scalar; it records exactly four cubic segments plus the three
+system-observed degenerate endpoint lines and is not a data-parallel buffer
+workload. Focused managed ABI contracts pass 5/5. Exact
 Windows COM/native qualification passes as part of the ABI-v52 MSVC run below.
 
 ABI v52 adds a genuine ProGPU-owned

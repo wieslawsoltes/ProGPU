@@ -265,7 +265,12 @@ com::result create_ellipse_geometry(
     sink->SetFillMode(fill_mode::winding);
     sink->SetSegmentFlags(path_segment::none);
     sink->BeginFigure(start, figure_begin::filled);
-    sink->AddBeziers(cubics.data(), static_cast<std::uint32_t>(cubics.size()));
+    for (std::size_t index = 0U; index < cubics.size(); ++index) {
+        sink->AddBeziers(&cubics[index], 1U);
+        if (index + 1U < cubics.size()) {
+            sink->AddLines(&cubics[index].point3, 1U);
+        }
+    }
     sink->EndFigure(figure_end::closed);
     result = sink->Close();
     if (com::failed(result)) {

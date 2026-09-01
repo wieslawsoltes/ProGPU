@@ -2346,6 +2346,7 @@ int run_tests()
             ellipse_simplified.get()) != com::ok ||
         raw_ellipse_simplified->begin_count != 1U ||
         raw_ellipse_simplified->end_count != 1U ||
+        raw_ellipse_simplified->line_count != 3U ||
         raw_ellipse_simplified->bezier_count != 4U ||
         raw_ellipse_simplified->figure_end != compat::figure_end::closed) {
         return 57;
@@ -2471,7 +2472,7 @@ int run_tests()
         raw_group_simplified->fill_mode != compat::fill_mode::alternate ||
         raw_group_simplified->begin_count != 2U ||
         raw_group_simplified->end_count != 2U ||
-        raw_group_simplified->line_count != 3U ||
+        raw_group_simplified->line_count != 6U ||
         raw_group_simplified->bezier_count != 4U) {
         return 80;
     }
@@ -2524,7 +2525,7 @@ int run_tests()
             compat::fill_mode::winding ||
         raw_nested_group_simplified->begin_count != 2U ||
         raw_nested_group_simplified->end_count != 2U ||
-        raw_nested_group_simplified->line_count != 3U ||
+        raw_nested_group_simplified->line_count != 6U ||
         raw_nested_group_simplified->bezier_count != 4U) {
         return 315;
     }
@@ -5668,7 +5669,7 @@ int run_tests()
         native_nested_group == nullptr
         ? E_FAIL
         : native_nested_group->FillContainsPoint(
-              D2D1_POINT_2F{16.0F, 10.0F},
+              D2D1_POINT_2F{2.75F, 0.25F},
               &native_ellipse_transform,
               D2D1_DEFAULT_FLATTENING_TOLERANCE,
               &portable_native_nested_group_contains);
@@ -6843,6 +6844,18 @@ int run_tests()
     }
     std::array<ID2D1Geometry*, 2U> system_group_sources{
         system_group_rectangle, system_group_ellipse};
+    auto* raw_system_direct_ellipse_simplified = new simplified_sink();
+    com::pointer<compat::simplified_geometry_sink>
+        system_direct_ellipse_simplified;
+    system_direct_ellipse_simplified.attach(
+        raw_system_direct_ellipse_simplified);
+    const HRESULT system_direct_ellipse_simplify_status =
+        system_group_ellipse->Simplify(
+            D2D1_GEOMETRY_SIMPLIFICATION_OPTION_CUBICS_AND_LINES,
+            &native_ellipse_transform,
+            D2D1_DEFAULT_FLATTENING_TOLERANCE,
+            reinterpret_cast<ID2D1SimplifiedGeometrySink*>(
+                system_direct_ellipse_simplified.get()));
     ID2D1GeometryGroup* system_group = nullptr;
     const HRESULT system_group_create_status =
         system_factory->CreateGeometryGroup(
@@ -6852,7 +6865,10 @@ int run_tests()
             &system_group);
     system_group_rectangle->Release();
     system_group_ellipse->Release();
-    if (FAILED(system_group_create_status) || system_group == nullptr) {
+    if (FAILED(system_direct_ellipse_simplify_status) ||
+        raw_system_direct_ellipse_simplified->line_count != 3U ||
+        raw_system_direct_ellipse_simplified->bezier_count != 4U ||
+        FAILED(system_group_create_status) || system_group == nullptr) {
         system_factory->Release();
         return 85;
     }
@@ -6888,7 +6904,7 @@ int run_tests()
         system_nested_group == nullptr
         ? E_FAIL
         : system_nested_group->FillContainsPoint(
-              D2D1_POINT_2F{16.0F, 10.0F},
+              D2D1_POINT_2F{2.75F, 0.25F},
               &native_ellipse_transform,
               D2D1_DEFAULT_FLATTENING_TOLERANCE,
               &system_nested_group_contains);
