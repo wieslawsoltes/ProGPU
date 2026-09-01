@@ -2415,8 +2415,26 @@ int main()
         return 169;
     }
 
-    const compat::rounded_rectangle styled_rounded_rectangle{
+    const compat::rounded_rectangle unequal_rounded_rectangle{
         rounded_rectangle_value.rectangle, 2.0F, 3.0F};
+    target->BeginDraw();
+    target->FillRoundedRectangle(
+        &unequal_rounded_rectangle,
+        static_cast<compat::brush*>(target_brush.get()));
+    target->DrawRoundedRectangle(
+        &unequal_rounded_rectangle,
+        static_cast<compat::brush*>(target_brush.get()),
+        1.0F,
+        nullptr);
+    if (target->EndDraw(nullptr, nullptr) != com::ok) {
+        return 244;
+    }
+    compat::scene_render_target_summary unequal_rounded_summary{};
+    scene_target->GetSummary(&unequal_rounded_summary);
+    if (unequal_rounded_summary.draw_count != 2U ||
+        scene_target->GetRequiredSceneSize() == 0U) {
+        return 245;
+    }
     target->BeginDraw();
     target->DrawLine(
         {1.0F, 2.0F},
@@ -2438,7 +2456,7 @@ int main()
     }
     target->BeginDraw();
     target->DrawRoundedRectangle(
-        &styled_rounded_rectangle,
+        &unequal_rounded_rectangle,
         static_cast<compat::brush*>(target_brush.get()),
         1.75F,
         stroke_style.get());

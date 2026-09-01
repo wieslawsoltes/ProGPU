@@ -457,7 +457,7 @@ struct portable_scene final {
     const d2d::ellipse ellipse_value{{40.0F, 14.0F}, 8.0F, 8.0F};
     const d2d::rectangle_f stroked{8.0F, 28.0F, 28.0F, 42.0F};
     const d2d::rounded_rectangle rounded{
-        {36.0F, 28.0F, 56.0F, 44.0F}, 4.0F, 4.0F};
+        {36.0F, 28.0F, 56.0F, 44.0F}, 4.0F, 2.0F};
     const d2d::rectangle_f bitmap_destination{
         24.0F, 4.0F, 30.0F, 10.0F};
     const d2d::rectangle_f bitmap_brush_rectangle{
