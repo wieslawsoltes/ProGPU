@@ -277,6 +277,24 @@ static_assert(
     offsetof(compat::layer_parameters, options) == 48U + 2U * sizeof(void*));
 
 #if defined(_WIN32)
+[[nodiscard]] D2D1_MATRIX_3X2_F make_native_matrix(
+    float m11,
+    float m12,
+    float m21,
+    float m22,
+    float dx,
+    float dy) noexcept
+{
+    D2D1_MATRIX_3X2_F value{};
+    value._11 = m11;
+    value._12 = m12;
+    value._21 = m21;
+    value._22 = m22;
+    value._31 = dx;
+    value._32 = dy;
+    return value;
+}
+
 static_assert(
     sizeof(compat::layer_parameters) == sizeof(D2D1_LAYER_PARAMETERS));
 static_assert(
@@ -2661,8 +2679,8 @@ int main()
         native_geometry->Release();
         return 21;
     }
-    const D2D1_MATRIX_3X2_F native_transform{
-        1.0F, 0.0F, 0.0F, 1.0F, 4.0F, -2.0F};
+    const D2D1_MATRIX_3X2_F native_transform = make_native_matrix(
+        1.0F, 0.0F, 0.0F, 1.0F, 4.0F, -2.0F);
     ID2D1TransformedGeometry* native_transformed = nullptr;
     const HRESULT native_transformed_status =
         native_factory->CreateTransformedGeometry(
@@ -2685,8 +2703,8 @@ int main()
 
     const D2D1_ELLIPSE native_ellipse_value{
         D2D1_POINT_2F{2.0F, 3.0F}, 4.0F, 2.0F};
-    const D2D1_MATRIX_3X2_F native_ellipse_transform{
-        0.5F, 1.25F, -0.75F, 0.25F, 4.0F, -3.0F};
+    const D2D1_MATRIX_3X2_F native_ellipse_transform = make_native_matrix(
+        0.5F, 1.25F, -0.75F, 0.25F, 4.0F, -3.0F);
     ID2D1EllipseGeometry* native_ellipse = nullptr;
     if (FAILED(native_factory->CreateEllipseGeometry(
             &native_ellipse_value, &native_ellipse)) ||
@@ -2717,8 +2735,9 @@ int main()
 
     const D2D1_ROUNDED_RECT native_rounded_rectangle_value{
         D2D1_RECT_F{0.0F, 0.0F, 10.0F, 8.0F}, 3.0F, 2.0F};
-    const D2D1_MATRIX_3X2_F native_rounded_rectangle_transform{
-        0.5F, 1.25F, -0.75F, 0.25F, 4.0F, -3.0F};
+    const D2D1_MATRIX_3X2_F native_rounded_rectangle_transform =
+        make_native_matrix(
+            0.5F, 1.25F, -0.75F, 0.25F, 4.0F, -3.0F);
     ID2D1RoundedRectangleGeometry* native_rounded_rectangle = nullptr;
     if (FAILED(native_factory->CreateRoundedRectangleGeometry(
             &native_rounded_rectangle_value, &native_rounded_rectangle)) ||
@@ -2839,7 +2858,7 @@ int main()
         D2D1_TEXT_ANTIALIAS_MODE_GRAYSCALE,
         17U,
         23U,
-        D2D1_MATRIX_3X2_F{1.0F, 0.25F, -0.5F, 2.0F, 3.0F, -4.0F}};
+        make_native_matrix(1.0F, 0.25F, -0.5F, 2.0F, 3.0F, -4.0F)};
     ID2D1DrawingStateBlock* native_drawing_state = nullptr;
     if (FAILED(native_factory->CreateDrawingStateBlock(
             &native_drawing_state_description,
