@@ -870,17 +870,18 @@ concave paths, zero width, and nonuniform affine output pass local optimized
 and sanitizer tests and a clean Windows ARM64 system differential. Unsupported
 styles and topology retain initialized empty output and fail closed.
 
-`ID2D1PathGeometry::Widen` now covers the first exact general-path output
-domain: one strictly convex simple closed contour with the null/default solid
-miter stroke and a positive width. The path is tolerance-flattened locally;
+`ID2D1PathGeometry::Widen` now covers one simple closed contour with the
+null/default solid miter stroke and a positive width, including concave input
+whose outer and inner offsets remain simple and non-collapsed. The path is tolerance-flattened locally;
 outer and inner offset intersections are fully validated, including miter
 limit and surviving inner topology, before either contour touches the caller
 sink. Both contours are transformed four points at a time through NEON or SSE2
 and emitted as alternate-fill, force-unstroked closed figures. A dense lattice
 compares the widened fill to `StrokeContainsPoint` locally and to a genuine
-system-Direct2D widened sink on Windows ARM64. Zero width, concavity, collapsed
-inner contours, styles, flags, and unsupported figure topology fail closed
-transactionally.
+system-Direct2D widened sink on Windows ARM64. A second concave-path lattice
+qualifies the re-entrant join and surviving narrow inner ring. Zero width,
+collapsed or self-intersecting offsets, styles, flags, and unsupported figure
+topology fail closed transactionally.
 
 The focused compatibility target passes all 17 local native CTests and the 10
 managed Direct2D source/ABI contracts. A clean Windows 11 ARM64 Parallels build
@@ -2174,8 +2175,8 @@ ownership, exact vocabulary `Stream`, line/cubic/arc-aware transformed bounds,
 length, point-at-length, and point-plus-segment queries. Area and containment
 are qualified for ordinary non-overlapping figures; exact self-intersection
 and overlapping-figure fill analysis remains a separate gate. General styled,
-open, or multi-figure path stroke containment, concave/styled/open/multi-figure
-path widening, and styled/open/multi-figure widened bounds,
+open, or multi-figure path stroke containment, collapsed/styled/open/
+multi-figure path widening, and styled/open/multi-figure widened bounds,
 multi-contour outline/Boolean normalization, and unsupported tessellation
 topologies still return `E_NOTIMPL` with initialized outputs where applicable.
 Single-contour outline, comparison, and Boolean combination have qualified

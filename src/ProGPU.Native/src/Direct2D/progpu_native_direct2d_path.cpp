@@ -1041,7 +1041,7 @@ struct polygon_stroke_edges final {
             const point_2f vertex = polygon[index];
             const point_2f next =
                 polygon[(index + 1U) % polygon.size()];
-            if (triangle_cross(previous, vertex, next) <= 0.0) {
+            if (triangle_cross(previous, vertex, next) == 0.0) {
                 return not_implemented;
             }
             const double incoming_x =
