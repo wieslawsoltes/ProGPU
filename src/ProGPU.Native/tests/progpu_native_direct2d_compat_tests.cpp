@@ -1080,6 +1080,25 @@ int run_tests()
         !approximately_equal(returned.bottom, 20.0F)) {
         return 9;
     }
+    compat::rectangle_f widened_bounds{};
+    if (geometry->GetWidenedBounds(
+            2.0F,
+            nullptr,
+            &transform,
+            core::default_flattening_tolerance,
+            &widened_bounds) != com::ok ||
+        !approximately_equal(widened_bounds.left, 10.0F) ||
+        !approximately_equal(widened_bounds.top, -1.0F) ||
+        !approximately_equal(widened_bounds.right, 22.0F) ||
+        !approximately_equal(widened_bounds.bottom, 23.0F) ||
+        geometry->GetWidenedBounds(
+            -1.0F,
+            nullptr,
+            &transform,
+            core::default_flattening_tolerance,
+            &returned) != com::invalid_argument) {
+        return 268;
+    }
 
     std::int32_t contains = 0;
     float area = 0.0F;
@@ -1190,7 +1209,17 @@ int run_tests()
         !approximately_equal(returned.left, 22.0F) ||
         !approximately_equal(returned.top, 23.0F) ||
         !approximately_equal(returned.right, 30.0F) ||
-        !approximately_equal(returned.bottom, 41.0F)) {
+        !approximately_equal(returned.bottom, 41.0F) ||
+        transformed->GetWidenedBounds(
+            2.0F,
+            nullptr,
+            &transform,
+            core::default_flattening_tolerance,
+            &returned) != com::ok ||
+        !approximately_equal(returned.left, 20.0F) ||
+        !approximately_equal(returned.top, 20.0F) ||
+        !approximately_equal(returned.right, 32.0F) ||
+        !approximately_equal(returned.bottom, 44.0F)) {
         return 15;
     }
 
@@ -5197,13 +5226,32 @@ int run_tests()
     auto* raw_system_outline_sink = new simplified_sink();
     com::pointer<compat::simplified_geometry_sink> system_outline_sink;
     system_outline_sink.attach(raw_system_outline_sink);
+    const D2D1_MATRIX_3X2_F system_rectangle_transform =
+        make_native_matrix(2.0F, 0.0F, 0.0F, 3.0F, 10.0F, -4.0F);
+    D2D1_RECT_F system_widened_bounds{};
+    const HRESULT system_widened_status =
+        system_group_rectangle->GetWidenedBounds(
+            2.0F,
+            nullptr,
+            &system_rectangle_transform,
+            D2D1_DEFAULT_FLATTENING_TOLERANCE,
+            &system_widened_bounds);
     const HRESULT system_outline_status = system_outline_rectangle->Outline(
         nullptr,
         D2D1_DEFAULT_FLATTENING_TOLERANCE,
         reinterpret_cast<ID2D1SimplifiedGeometrySink*>(
             system_outline_sink.get()));
     system_outline_rectangle->Release();
-    if (FAILED(system_outline_status) ||
+    if (FAILED(system_widened_status) ||
+        !approximately_equal(
+            system_widened_bounds.left, widened_bounds.left) ||
+        !approximately_equal(
+            system_widened_bounds.top, widened_bounds.top) ||
+        !approximately_equal(
+            system_widened_bounds.right, widened_bounds.right) ||
+        !approximately_equal(
+            system_widened_bounds.bottom, widened_bounds.bottom) ||
+        FAILED(system_outline_status) ||
         raw_system_outline_sink->fill_mode !=
             raw_native_outline_sink->fill_mode ||
         raw_system_outline_sink->figure_begin !=
