@@ -17,7 +17,7 @@ WIPEOUT, and prepared raster IMAGE
 roots whose complete canonical rendering inputs match byte-for-byte. Top-level
 INSERT and MINSERT cells additionally share one definition-local fragment across
 translation, rotation, reflection, and nonuniform affine scale when every expanded
-child is an eligible analytic family, including flat SOLID/3DFACE,
+child is an eligible analytic family, including flat or extruded SOLID/3DFACE,
 vector-outline TrueType TEXT/MTEXT, retained analytic SHX TEXT/MTEXT/SHAPE,
 HATCH boundary/pattern streams, continuous MLINE fills/strokes,
 LEADER/MULTILEADER spline and arrow geometry,
@@ -55,8 +55,10 @@ normalize projected points and basis vectors through a double-precision inverse,
 then compare the same retained float values consumed by plan recording. Cached
 fragments compose through the existing nested-picture transform; fixed-device CAD
 lineweights remain device-space while local wide-polyline geometry follows the
-instance affine. Singular/projectively collapsed placements and extruded face/surface or
-resource-bearing definitions fail closed.
+instance affine. Extruded SOLID plan shells preserve the flat-versus-extruded
+branch and normalize the exact projected extrusion vector; their independent 3D
+surface scene remains unchanged. Singular/projectively collapsed placements and
+unencoded resource-bearing definitions fail closed.
 
 TrueType identity includes exact glyph indices/positions, normalized entity basis,
 run ranges and paint, rectangles/strokes/decorations, face index, ordered variation
@@ -165,6 +167,5 @@ semantics. MINSERT and distinct affine INSERT regressions prove one shared child
 identity, exact composed managed endpoints within retained-float tolerance, and
 matched native primitive/draw counts.
 
-Definition-local extruded surface, color/bitmap text, affine-block linetype,
-mesh and other
+Color/bitmap text, affine-block linetype, mesh, and other
 resource- or global-budget-dependent families remain the next chunk-coverage work.

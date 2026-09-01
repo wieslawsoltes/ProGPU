@@ -1986,7 +1986,11 @@ public sealed class CadSnapshotAndSceneTests
                 new XYZ(1, 2, 0),
                 new XYZ(3, 2, 0),
                 new XYZ(1, 5, 0),
-                new XYZ(3, 5, 0)));
+                new XYZ(3, 5, 0))
+            {
+                Normal = XYZ.AxisZ,
+                Thickness = 2,
+            });
             block.Entities.Add(new TextEntity("Affine")
             {
                 Style = textStyle,

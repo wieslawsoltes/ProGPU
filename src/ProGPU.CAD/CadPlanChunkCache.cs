@@ -832,14 +832,12 @@ internal static class CadPlanChunkKeyBuilder
                     Append(writer, face);
                     return true;
                 }
-                if (face.Extrusion != CadPoint3D.Zero)
-                {
-                    return false;
-                }
                 AppendProjectedPoint(writer, face.First, snapshot.RebaseOrigin, worldToChunk);
                 AppendProjectedPoint(writer, face.Second, snapshot.RebaseOrigin, worldToChunk);
                 AppendProjectedPoint(writer, face.Third, snapshot.RebaseOrigin, worldToChunk);
                 AppendProjectedPoint(writer, face.Fourth, snapshot.RebaseOrigin, worldToChunk);
+                Append(writer, face.Extrusion != CadPoint3D.Zero);
+                AppendProjectedVector(writer, face.Extrusion, worldToChunk);
                 Append(writer, face.InvisibleEdgeMask);
                 Append(writer, face.First == face.Second);
                 Append(writer, face.Second == face.Third);
