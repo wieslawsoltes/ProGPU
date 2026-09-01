@@ -1740,12 +1740,91 @@ void append_distinct_point(
     return com::ok;
 }
 
-[[nodiscard]] com::result build_flat_bevel_dash_outline(
+[[nodiscard]] com::result transform_points_in_place(
+    std::vector<point_2f>& points,
+    const matrix_3x2_f* transform) noexcept;
+
+struct widened_outline_segment final {
+    bool cubic{};
+    point_2f control1{};
+    point_2f control2{};
+    point_2f end{};
+};
+
+struct widened_outline final {
+    point_2f start{};
+    std::vector<widened_outline_segment> segments;
+};
+
+void append_outline_line(
+    widened_outline& outline,
+    point_2f point)
+{
+    const point_2f current = outline.segments.empty()
+        ? outline.start
+        : outline.segments.back().end;
+    if (!same_point(current, point)) {
+        outline.segments.push_back({false, {}, {}, point});
+    }
+}
+
+[[nodiscard]] com::result append_round_cap_segments(
+    widened_outline& outline,
+    point_2f endpoint,
+    point_2f adjacent,
+    point_2f destination,
+    double half_width)
+{
+    constexpr double kappa = 0.5522847498307933984;
+    const point_2f start = outline.segments.empty()
+        ? outline.start
+        : outline.segments.back().end;
+    const double outward_x = static_cast<double>(endpoint.x) - adjacent.x;
+    const double outward_y = static_cast<double>(endpoint.y) - adjacent.y;
+    const double outward_length = std::hypot(outward_x, outward_y);
+    const double side_x = static_cast<double>(start.x) - endpoint.x;
+    const double side_y = static_cast<double>(start.y) - endpoint.y;
+    const double side_length = std::hypot(side_x, side_y);
+    if (outward_length == 0.0 || side_length == 0.0) {
+        return not_implemented;
+    }
+    const double unit_outward_x = outward_x / outward_length;
+    const double unit_outward_y = outward_y / outward_length;
+    const double unit_side_x = side_x / side_length;
+    const double unit_side_y = side_y / side_length;
+    const point_2f outward{
+        static_cast<float>(endpoint.x + unit_outward_x * half_width),
+        static_cast<float>(endpoint.y + unit_outward_y * half_width)};
+    const double control_distance = half_width * kappa;
+    outline.segments.push_back({
+        true,
+        {
+            static_cast<float>(start.x + unit_outward_x * control_distance),
+            static_cast<float>(start.y + unit_outward_y * control_distance)},
+        {
+            static_cast<float>(outward.x + unit_side_x * control_distance),
+            static_cast<float>(outward.y + unit_side_y * control_distance)},
+        outward});
+    outline.segments.push_back({
+        true,
+        {
+            static_cast<float>(outward.x - unit_side_x * control_distance),
+            static_cast<float>(outward.y - unit_side_y * control_distance)},
+        {
+            static_cast<float>(
+                destination.x + unit_outward_x * control_distance),
+            static_cast<float>(
+                destination.y + unit_outward_y * control_distance)},
+        destination});
+    return com::ok;
+}
+
+[[nodiscard]] com::result build_bevel_dash_outline(
     std::span<const progpu_native_path_segment> segments,
     double half_width,
     cap_style start_cap,
     cap_style end_cap,
-    std::vector<point_2f>& outline)
+    widened_outline& outline)
 {
     std::vector<point_2f> left;
     std::vector<point_2f> right;
@@ -1759,49 +1838,107 @@ void append_distinct_point(
     if (com::failed(right_status)) {
         return right_status;
     }
-    outline.clear();
-    outline.reserve(left.size() + right.size() + 2U);
-    for (const point_2f point : left) {
-        append_distinct_point(outline, point);
+    if (left.empty() || right.empty()) {
+        return not_implemented;
     }
+    outline = {};
+    outline.start = left.front();
+    outline.segments.reserve(left.size() + right.size() + 4U);
+    for (std::size_t index = 1U; index < left.size(); ++index) {
+        append_outline_line(outline, left[index]);
+    }
+    const auto& last = segments.back();
     if (end_cap == cap_style::triangle) {
-        const auto& last = segments.back();
         const double delta_x = static_cast<double>(last.p1.x) - last.p0.x;
         const double delta_y = static_cast<double>(last.p1.y) - last.p0.y;
         const double length = std::hypot(delta_x, delta_y);
         if (length == 0.0) {
             return not_implemented;
         }
-        append_distinct_point(outline, {
+        append_outline_line(outline, {
             static_cast<float>(last.p1.x + delta_x / length * half_width),
             static_cast<float>(last.p1.y + delta_y / length * half_width)});
     }
-    for (auto iterator = right.rbegin(); iterator != right.rend(); ++iterator) {
-        append_distinct_point(outline, *iterator);
+    if (end_cap == cap_style::round) {
+        const com::result cap_status = append_round_cap_segments(
+            outline,
+            {last.p1.x, last.p1.y},
+            {last.p0.x, last.p0.y},
+            right.back(),
+            half_width);
+        if (com::failed(cap_status)) {
+            return cap_status;
+        }
+    } else {
+        append_outline_line(outline, right.back());
     }
+    for (std::size_t index = right.size() - 1U; index != 0U; --index) {
+        append_outline_line(outline, right[index - 1U]);
+    }
+    const auto& first = segments.front();
     if (start_cap == cap_style::triangle) {
-        const auto& first = segments.front();
         const double delta_x = static_cast<double>(first.p1.x) - first.p0.x;
         const double delta_y = static_cast<double>(first.p1.y) - first.p0.y;
         const double length = std::hypot(delta_x, delta_y);
         if (length == 0.0) {
             return not_implemented;
         }
-        append_distinct_point(outline, {
+        append_outline_line(outline, {
             static_cast<float>(first.p0.x - delta_x / length * half_width),
             static_cast<float>(first.p0.y - delta_y / length * half_width)});
     }
-    if (outline.size() < 3U) {
+    if (start_cap == cap_style::round) {
+        const com::result cap_status = append_round_cap_segments(
+            outline,
+            {first.p0.x, first.p0.y},
+            {first.p1.x, first.p1.y},
+            left.front(),
+            half_width);
+        if (com::failed(cap_status)) {
+            return cap_status;
+        }
+    }
+    if (outline.segments.size() < 2U) {
         return not_implemented;
     }
     return com::ok;
 }
 
-[[nodiscard]] com::result transform_points_in_place(
-    std::vector<point_2f>& points,
-    const matrix_3x2_f* transform) noexcept;
+[[nodiscard]] com::result transform_widened_outline(
+    widened_outline& outline,
+    const matrix_3x2_f* transform)
+{
+    if (transform == nullptr) {
+        return com::ok;
+    }
+    std::vector<point_2f> points;
+    points.reserve(1U + outline.segments.size() * 3U);
+    points.push_back(outline.start);
+    for (const widened_outline_segment& segment : outline.segments) {
+        if (segment.cubic) {
+            points.push_back(segment.control1);
+            points.push_back(segment.control2);
+        }
+        points.push_back(segment.end);
+    }
+    const com::result transform_status =
+        transform_points_in_place(points, transform);
+    if (com::failed(transform_status)) {
+        return transform_status;
+    }
+    std::size_t point_index = 0U;
+    outline.start = points[point_index++];
+    for (widened_outline_segment& segment : outline.segments) {
+        if (segment.cubic) {
+            segment.control1 = points[point_index++];
+            segment.control2 = points[point_index++];
+        }
+        segment.end = points[point_index++];
+    }
+    return point_index == points.size() ? com::ok : failure;
+}
 
-[[nodiscard]] com::result emit_flat_bevel_dashed_widen(
+[[nodiscard]] com::result emit_bevel_dashed_widen(
     std::span<const point_2f> polygon,
     float stroke_width,
     stroke_style& style,
@@ -1814,7 +1951,7 @@ void append_distinct_point(
     if (com::failed(dash_status)) {
         return dash_status;
     }
-    std::vector<std::vector<point_2f>> outlines;
+    std::vector<widened_outline> outlines;
     outlines.reserve(dash_runs.runs.size());
     const double half_width = static_cast<double>(stroke_width) * 0.5;
     for (const curve_dash::run& run : dash_runs.runs) {
@@ -1828,7 +1965,7 @@ void append_distinct_point(
         const cap_style end_cap = run.ends_at_source_end
             ? style.GetEndCap()
             : style.GetDashCap();
-        com::result result = build_flat_bevel_dash_outline(
+        com::result result = build_bevel_dash_outline(
             dash_runs.segments_for(run),
             half_width,
             start_cap,
@@ -1837,22 +1974,26 @@ void append_distinct_point(
         if (com::failed(result)) {
             return result;
         }
-        result = transform_points_in_place(outlines.back(), transform);
+        result = transform_widened_outline(outlines.back(), transform);
         if (com::failed(result)) {
             return result;
-        }
-        if (outlines.back().size() - 1U >
-            (std::numeric_limits<std::uint32_t>::max)()) {
-            return com::out_of_memory;
         }
     }
     sink.SetFillMode(fill_mode::alternate);
     sink.SetSegmentFlags(path_segment::force_unstroked);
     for (const auto& outline : outlines) {
-        sink.BeginFigure(outline.front(), figure_begin::filled);
-        sink.AddLines(
-            outline.data() + 1U,
-            static_cast<std::uint32_t>(outline.size() - 1U));
+        sink.BeginFigure(outline.start, figure_begin::filled);
+        for (const widened_outline_segment& segment : outline.segments) {
+            if (segment.cubic) {
+                const bezier_segment bezier{
+                    segment.control1,
+                    segment.control2,
+                    segment.end};
+                sink.AddBeziers(&bezier, 1U);
+            } else {
+                sink.AddLines(&segment.end, 1U);
+            }
+        }
         sink.EndFigure(figure_end::closed);
     }
     return com::ok;
@@ -4317,9 +4458,6 @@ public:
             }
             dashed = style->GetDashStyle() != dash_style::solid;
             if (!dashed || style->GetLineJoin() != line_join::bevel ||
-                style->GetStartCap() == cap_style::round ||
-                style->GetEndCap() == cap_style::round ||
-                style->GetDashCap() == cap_style::round ||
                 style->GetStartCap() > cap_style::triangle ||
                 style->GetEndCap() > cap_style::triangle ||
                 style->GetDashCap() > cap_style::triangle ||
@@ -4359,7 +4497,7 @@ public:
                 return not_implemented;
             }
             if (dashed) {
-                return emit_flat_bevel_dashed_widen(
+                return emit_bevel_dashed_widen(
                     polygon,
                     stroke_width,
                     *style,

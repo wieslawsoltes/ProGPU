@@ -9691,7 +9691,6 @@ bool retained_line_path_stroke_preserves_closure_gaps_and_pen_state() {
     const auto dashed_group_header =
         read_value<progpu_native_scene_header>(stream, 0U);
     std::uint32_t dashed_group_cap_count = 0U;
-    std::uint32_t dashed_group_source_cap_count = 0U;
     bool found_first_dashed_child = false;
     bool found_second_dashed_child = false;
     bool found_dashed_line_child = false;
@@ -9749,15 +9748,7 @@ bool retained_line_path_stroke_preserves_closure_gaps_and_pen_state() {
                     (primitive.flags &
                         PROGPU_NATIVE_PRIMITIVE_START_CAP_MASK) >>
                     PROGPU_NATIVE_PRIMITIVE_START_CAP_SHIFT;
-                PROGPU_REQUIRE(
-                    cap == PROGPU_NATIVE_STROKE_CAP_TRIANGLE ||
-                    cap == PROGPU_NATIVE_STROKE_CAP_SQUARE ||
-                    cap == PROGPU_NATIVE_STROKE_CAP_ROUND);
-                dashed_group_source_cap_count +=
-                    cap == PROGPU_NATIVE_STROKE_CAP_SQUARE ||
-                    cap == PROGPU_NATIVE_STROKE_CAP_ROUND
-                    ? 1U
-                    : 0U;
+                PROGPU_REQUIRE(cap == PROGPU_NATIVE_STROKE_CAP_TRIANGLE);
                 ++dashed_group_cap_count;
             }
             found_first_dashed_child = found_first_dashed_child ||
@@ -9780,7 +9771,6 @@ bool retained_line_path_stroke_preserves_closure_gaps_and_pen_state() {
         PROGPU_REQUIRE(primitive_offset == record.payload_size);
     }
     PROGPU_REQUIRE(dashed_group_cap_count >= 4U);
-    PROGPU_REQUIRE(dashed_group_source_cap_count >= 1U);
     PROGPU_REQUIRE(found_first_dashed_child);
     PROGPU_REQUIRE(found_second_dashed_child);
     PROGPU_REQUIRE(found_dashed_line_child);
