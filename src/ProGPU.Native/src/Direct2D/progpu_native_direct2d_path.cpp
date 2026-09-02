@@ -5293,13 +5293,35 @@ public:
                             }
                         }
                     }
-                    if (classify_polygon_point(
-                            contours[first], contours[second].front()) !=
-                            polygon_point_relation::outside ||
-                        classify_polygon_point(
-                            contours[second], contours[first].front()) !=
-                            polygon_point_relation::outside) {
+                    if (data_->mode != fill_mode::alternate &&
+                        (classify_polygon_point(
+                             contours[first], contours[second].front()) !=
+                             polygon_point_relation::outside ||
+                         classify_polygon_point(
+                             contours[second], contours[first].front()) !=
+                             polygon_point_relation::outside)) {
                         return not_implemented;
+                    }
+                }
+            }
+            if (data_->mode == fill_mode::alternate) {
+                for (std::size_t contour_index = 0U;
+                     contour_index < contours.size(); ++contour_index) {
+                    std::size_t containment_depth = 0U;
+                    for (std::size_t candidate = 0U;
+                         candidate < contours.size(); ++candidate) {
+                        if (candidate != contour_index &&
+                            classify_polygon_point(
+                                contours[candidate],
+                                contours[contour_index].front()) ==
+                                polygon_point_relation::inside) {
+                            ++containment_depth;
+                        }
+                    }
+                    if ((containment_depth & 1U) != 0U) {
+                        std::reverse(
+                            contours[contour_index].begin(),
+                            contours[contour_index].end());
                     }
                 }
             }
