@@ -13,6 +13,7 @@ on:
       - src/ProGPU.Vector/**
       - eng/SystemDrawing.SvgCorpus/**
       - eng/progpu-prepare-svg-system-drawing.sh
+      - eng/svg-system-drawing.Directory.Packages.props
       - eng/system-drawing-svg-known-differences.txt
       - eng/system-drawing-svg-benchmark-fixtures.txt
       - .github/workflows/svg-system-drawing-parity.yml
@@ -27,6 +28,7 @@ on:
       - src/ProGPU.Vector/**
       - eng/SystemDrawing.SvgCorpus/**
       - eng/progpu-prepare-svg-system-drawing.sh
+      - eng/svg-system-drawing.Directory.Packages.props
       - eng/system-drawing-svg-known-differences.txt
       - eng/system-drawing-svg-benchmark-fixtures.txt
       - .github/workflows/svg-system-drawing-parity.yml

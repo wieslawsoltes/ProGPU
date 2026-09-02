@@ -62,6 +62,10 @@ a correctness gate and use the representative set for iteration speed.
 
 With a recursive pinned Svg.Skia checkout in `external/Svg.Skia`:
 
+The preparation script also installs an SVG.NET-local
+`Directory.Packages.props`, so SVG.NET keeps its explicit package versions
+without changing ProGPU's central package policy.
+
 ```bash
 ./eng/progpu-prepare-svg-system-drawing.sh \
   "$PWD/external/Svg.Skia/externals/SVG"

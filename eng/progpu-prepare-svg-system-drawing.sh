@@ -3,11 +3,19 @@ set -euo pipefail
 
 svg_source_root=${1:?Usage: progpu-prepare-svg-system-drawing.sh SVG_SOURCE_ROOT}
 svg_project="$svg_source_root/Source/Svg.csproj"
+package_overlay="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/svg-system-drawing.Directory.Packages.props"
 
 if [[ ! -f "$svg_project" ]]; then
   echo "SVG.NET project not found: $svg_project" >&2
   exit 1
 fi
+
+if [[ ! -f "$package_overlay" ]]; then
+  echo "SVG.NET package overlay not found: $package_overlay" >&2
+  exit 1
+fi
+
+cp "$package_overlay" "$svg_source_root/Directory.Packages.props"
 
 target_frameworks_before='<TargetFrameworks>net8.0;net9.0;netcoreapp3.1;netstandard2.1;netstandard2.0;net462;net472;net481</TargetFrameworks>'
 target_frameworks_after='<TargetFrameworks>net10.0;net8.0;net9.0;netcoreapp3.1;netstandard2.1;netstandard2.0;net462;net472;net481</TargetFrameworks>'
