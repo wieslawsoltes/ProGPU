@@ -711,17 +711,21 @@ DirectWrite raster-filter parameters alter its pixels yet. The corresponding
 quality mapping and incompatible-antialias validation remain explicit parity
 work, never a CPU raster fallback.
 
-Portable rectangle and path geometry now implement the canonical
-`ID2D1Geometry::Outline` vtable slot for an exact single filled contour.
-Rectangle outlines are emitted analytically. Path outlines apply the caller's
-affine and flattening tolerance, remove duplicate/zero-length edges, reject
-transverse self-intersections, normalize the contour direction, and emit the
-fill-invariant Direct2D sink shape: alternate fill mode, one filled closed
-figure, and an explicit closing point. Hollow-only geometry produces an empty
-outline. Multiple filled contours, holes, overlaps, and self-intersections
-still fail closed until the shared native boolean-topology engine is complete.
-The contour walk and intersection checks are topology-dependent scalar work;
-there is no data-parallel whole-buffer loop being left unvectorized.
+Portable rectangle and path geometry implement the canonical
+`ID2D1Geometry::Outline` vtable slot for simple filled contours. Rectangle
+outlines are emitted analytically. Path outlines apply the caller's affine and
+flattening tolerance, remove duplicate/zero-length edges, reject transverse
+self-intersections, normalize each contour direction, and emit the
+fill-invariant Direct2D sink shape: alternate fill mode, filled closed figures,
+and explicit closing points. Multiple independent contours are qualified in
+one transaction after pairwise boundary and containment checks; hollow-only
+geometry produces an empty outline. The implementation matches genuine
+Direct2D fill-mode, unchanged segment-flag state, callback counts, and dense
+filled regions on Windows ARM64 and x64. Nested contours, holes, touching or
+overlapping boundaries, and self-intersections still fail closed before the
+caller sink is mutated. The contour walk and intersection checks are
+topology-dependent scalar work; there is no data-parallel whole-buffer loop
+being left unvectorized.
 
 Portable nondegenerate rectangle geometry also implements exact
 `GetWidenedBounds` for the default stroke and same-factory solid stroke

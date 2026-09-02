@@ -6465,6 +6465,16 @@ of the figure predicates, while widened bounds union per-figure SIMD
 reductions. A closed-square plus open-polyline fixture covers solid and dashed
 body/gap cases and matches genuine Direct2D on Windows ARM64 and x64.
 
+`ID2D1PathGeometry::Outline` also accepts multiple independent filled
+contours. Every contour is tolerance-flattened and normalized before pairwise
+boundary-intersection and containment checks; only disjoint simple contours
+reach the caller sink. Replay uses Direct2D's alternate fill callback and
+leaves caller segment flags unchanged. Local filled-region and transactional
+nested-contour rejection tests plus Windows ARM64/x64 callback-count and dense
+region differentials qualify the lane. Holes, nesting, touching/overlap, and
+self-intersection remain fail closed until the native boolean normalizer can
+publish their exact fill-invariant boundary.
+
 `Widen` now consumes that same partition and prepares the complete mixed-
 figure transaction before caller-sink replay. Closed null/default strokes add
 validated outer and inner rings; open solids and qualified dashed figures add

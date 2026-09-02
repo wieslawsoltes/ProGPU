@@ -5200,34 +5200,16 @@ public:
             return edge_status;
         }
         try {
-            std::uint32_t filled_figure =
-                (std::numeric_limits<std::uint32_t>::max)();
-            for (std::size_t index = 0U;
-                 index < data_->figures.size();
-                 ++index) {
-                if (data_->figures[index].begin != figure_begin::filled) {
-                    continue;
-                }
-                if (filled_figure !=
-                    (std::numeric_limits<std::uint32_t>::max)()) {
-                    // Multiple contours need fill-rule-aware union and hole
-                    // removal before the result can be fill invariant.
-                    return not_implemented;
-                }
-                filled_figure = static_cast<std::uint32_t>(index);
-            }
-            sink->SetFillMode(fill_mode::alternate);
-            if (filled_figure ==
-                (std::numeric_limits<std::uint32_t>::max)()) {
-                return com::ok;
-            }
-
-            std::vector<point_2f> points;
+            std::vector<std::vector<point_2f>> contours(
+                data_->figures.size());
             for (const auto& edge : edges) {
-                if (edge.figure_index != filled_figure ||
+                if (data_->figures[edge.figure_index].begin !=
+                        figure_begin::filled ||
                     same_point(edge.start, edge.end)) {
                     continue;
                 }
+                std::vector<point_2f>& points =
+                    contours[edge.figure_index];
                 if (points.empty()) {
                     points.push_back(edge.start);
                 } else if (!same_point(points.back(), edge.start)) {
@@ -5237,63 +5219,104 @@ public:
                     points.push_back(edge.end);
                 }
             }
-            if (points.size() > 1U &&
-                same_point(points.front(), points.back())) {
-                points.pop_back();
-            }
-            if (points.size() < 3U) {
-                return com::ok;
-            }
-
-            for (std::size_t left = 0U; left < points.size(); ++left) {
-                const std::size_t left_next =
-                    (left + 1U) % points.size();
-                for (std::size_t right = left + 1U;
-                     right < points.size();
-                     ++right) {
-                    const std::size_t right_next =
-                        (right + 1U) % points.size();
-                    if (left_next == right || right_next == left) {
-                        continue;
+            for (std::vector<point_2f>& contour : contours) {
+                while (contour.size() > 1U &&
+                       same_point(contour.front(), contour.back())) {
+                    contour.pop_back();
+                }
+                contour.erase(
+                    std::unique(
+                        contour.begin(), contour.end(), same_point),
+                    contour.end());
+                if (contour.size() < 3U) {
+                    contour.clear();
+                    continue;
+                }
+                for (std::size_t first = 0U;
+                     first < contour.size(); ++first) {
+                    const std::size_t first_next =
+                        (first + 1U) % contour.size();
+                    for (std::size_t second = first + 1U;
+                         second < contour.size(); ++second) {
+                        const std::size_t second_next =
+                            (second + 1U) % contour.size();
+                        if (first_next == second || second_next == first) {
+                            continue;
+                        }
+                        if (segments_intersect(
+                                contour[first],
+                                contour[first_next],
+                                contour[second],
+                                contour[second_next])) {
+                            return not_implemented;
+                        }
                     }
-                    if (segments_intersect(
-                            points[left],
-                            points[left_next],
-                            points[right],
-                            points[right_next])) {
+                }
+                const double twice_area =
+                    polygon_twice_signed_area(contour);
+                if (!std::isfinite(twice_area)) {
+                    return com::invalid_argument;
+                }
+                if (twice_area == 0.0) {
+                    contour.clear();
+                } else if (twice_area < 0.0) {
+                    std::reverse(contour.begin(), contour.end());
+                }
+            }
+            contours.erase(
+                std::remove_if(
+                    contours.begin(),
+                    contours.end(),
+                    [](const std::vector<point_2f>& contour) {
+                        return contour.empty();
+                    }),
+                contours.end());
+            for (std::size_t first = 0U;
+                 first < contours.size(); ++first) {
+                for (std::size_t second = first + 1U;
+                     second < contours.size(); ++second) {
+                    for (std::size_t first_edge = 0U;
+                         first_edge < contours[first].size(); ++first_edge) {
+                        for (std::size_t second_edge = 0U;
+                             second_edge < contours[second].size();
+                             ++second_edge) {
+                            if (segments_intersect(
+                                    contours[first][first_edge],
+                                    contours[first][
+                                        (first_edge + 1U) %
+                                        contours[first].size()],
+                                    contours[second][second_edge],
+                                    contours[second][
+                                        (second_edge + 1U) %
+                                        contours[second].size()])) {
+                                return not_implemented;
+                            }
+                        }
+                    }
+                    if (classify_polygon_point(
+                            contours[first], contours[second].front()) !=
+                            polygon_point_relation::outside ||
+                        classify_polygon_point(
+                            contours[second], contours[first].front()) !=
+                            polygon_point_relation::outside) {
                         return not_implemented;
                     }
                 }
             }
 
-            double twice_area = 0.0;
-            for (std::size_t index = 0U; index < points.size(); ++index) {
-                const point_2f current = points[index];
-                const point_2f next = points[(index + 1U) % points.size()];
-                twice_area += static_cast<double>(current.x) * next.y -
-                    static_cast<double>(next.x) * current.y;
+            sink->SetFillMode(fill_mode::alternate);
+            for (const std::vector<point_2f>& contour : contours) {
+                if (contour.size() - 1U >
+                    (std::numeric_limits<std::uint32_t>::max)()) {
+                    return com::out_of_memory;
+                }
+                sink->BeginFigure(contour.front(), figure_begin::filled);
+                sink->AddLines(
+                    contour.data() + 1U,
+                    static_cast<std::uint32_t>(contour.size() - 1U));
+                sink->AddLines(contour.data(), 1U);
+                sink->EndFigure(figure_end::closed);
             }
-            if (!std::isfinite(twice_area)) {
-                return com::invalid_argument;
-            }
-            if (twice_area == 0.0) {
-                return com::ok;
-            }
-            if (twice_area < 0.0) {
-                std::reverse(points.begin(), points.end());
-            }
-            if (points.size() - 1U >
-                (std::numeric_limits<std::uint32_t>::max)()) {
-                return com::out_of_memory;
-            }
-
-            sink->SetSegmentFlags(path_segment::none);
-            sink->BeginFigure(points.front(), figure_begin::filled);
-            sink->AddLines(
-                points.data() + 1U,
-                static_cast<std::uint32_t>(points.size() - 1U));
-            sink->AddLines(points.data(), 1U);
-            sink->EndFigure(figure_end::closed);
             return com::ok;
         } catch (const std::bad_alloc&) {
             return com::out_of_memory;
