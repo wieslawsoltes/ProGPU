@@ -388,6 +388,7 @@ public sealed class Direct2DInteropContractTests
         Assert.Contains("requires_premultiplication", renderTargetSource, StringComparison.Ordinal);
         Assert.Contains("image_alpha_flags", renderTargetSource, StringComparison.Ordinal);
         Assert.Contains("alpha_mode::ignore", renderTargetSource, StringComparison.Ordinal);
+        Assert.Contains("try_resolve_full_target_local_bounds", renderTargetSource, StringComparison.Ordinal);
         Assert.Contains("PROGPU_NATIVE_SCENE_IMAGE_SOURCE_ALPHA_IGNORE", stableHeader, StringComparison.Ordinal);
         Assert.Contains("color[2] = ignore_source_alpha", semanticImageSource, StringComparison.Ordinal);
         Assert.Contains("input.color.b < -0.5", textureShader, StringComparison.Ordinal);
@@ -437,6 +438,7 @@ public sealed class Direct2DInteropContractTests
         Assert.Contains("__uuidof(IWICBitmapLock)", nativeTest, StringComparison.Ordinal);
         Assert.Contains("native_target->CreateSharedBitmap(", nativeTest, StringComparison.Ordinal);
         Assert.Contains("ignored_shared_bitmap", nativeTest, StringComparison.Ordinal);
+        Assert.Contains("native_full_opacity_layer", nativeTest, StringComparison.Ordinal);
         Assert.Contains("nonuniform_dpi_y, 192.0F", nativeTest, StringComparison.Ordinal);
         Assert.Contains("class fake_font_face final", nativeTest, StringComparison.Ordinal);
         Assert.Contains("class fake_rendering_parameters final", nativeTest, StringComparison.Ordinal);

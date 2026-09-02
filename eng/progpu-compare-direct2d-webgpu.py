@@ -26,6 +26,7 @@ PROBES = (
     (18, 28),
     (46, 36),
     (60, 24),
+    (34, 22),
     (8, 56),
     (1, 56),
     (24, 56),
@@ -109,7 +110,7 @@ def compare(reference_path: pathlib.Path, candidate_path: pathlib.Path) -> dict:
             max(changed_y),
         ]
 
-    # The twenty-six clear/gradient/bitmap/bitmap-brush/path/stroke/interior,
+    # The twenty-seven clear/gradient/bitmap/bitmap-brush/path/stroke/interior,
     # clip, opacity-mask, compatible-target, and layer
     # probes must remain within one channel level.
     # Metal and llvmpipe/Vulkan currently differ at no more than 305
@@ -158,7 +159,8 @@ def main() -> int:
             "ellipse, and path-filled and "
             "stroked triangle, solid stroked rectangle, solid rounded "
             "rectangle, aliased and antialiased clips, opacity masks, a "
-            "compatible target, and opacity/geometric-mask layers"
+            "compatible target, and finite/full-target opacity/geometric-mask "
+            "layers"
         ),
         "Tolerance": {
             "SemanticProbeMaximum": 1,

@@ -1139,8 +1139,8 @@ neither the COM ABI version nor the export allowlist.
 
 WIC codec activation/decoding itself, render-target-to-bitmap copies,
 straight-alpha WIC lock sharing as premultiplied content,
-non-null `FillGeometry` opacity brushes, `ID2D1StrokeStyle1` fixed/hairline
-transform modes, multi-contour/boolean/widen geometry operations,
+`ID2D1StrokeStyle1` fixed/hairline transform modes,
+multi-contour/boolean/widen geometry operations,
 color-glyph translation, and
 device-context bitmap generations remain fail
 closed. `CopyFromMemory` and copied WIC-source ingestion remain explicit
@@ -2295,11 +2295,9 @@ Brush-mask generation and group composition stay entirely on the shared GPU
 path. ProGPU rasterizes the solid/gradient rectangle into retained R8 coverage
 and consumes it through the same layer-mask binding on D3D12, Metal, Vulkan,
 and WebGPU. No CPU pixels, readback, repack, per-stop submission, retained COM
-pointer, or second 2D renderer is introduced. Full-target opacity-brush layers
-remain fail-closed because their natural content-derived bounds are not yet
-available to the mask resource at push time. A geometric mask plus opacity
-brush also remains fail-closed pending direct scene-builder exposure of the
-existing composite-mask resource.
+pointer, or second 2D renderer is introduced. At ABI v41, full-target
+opacity-brush layers and combined geometric/brush masks still failed closed;
+ABI v42 added the combined-mask resource described below.
 
 The Windows oracle records a finite transformed layer with the provider's real
 two-stop `ID2D1LinearGradientBrush`. It decodes exact target layer bounds,
@@ -2332,6 +2330,19 @@ was extracted and confirmed as ABI v42. Windows 11 ARM64 Parallels then rebuilt
 the provider and test cleanly under MSVC 19.44/SDK 10.0.26100.0 `/W4 /WX`;
 the native executable exits zero. The 181,248-byte provider SHA-256 is
 `D20084AFFC6C8FE39C2F10EBBBA565BB8CA0D6C0771B595A33C5527135F09698`.
+
+The current portable C++ target also admits an infinite-content opacity-brush
+layer when the active world transform is finite, invertible, and axis
+preserving. It inverse-maps the finite visible target rectangle into local
+space once at `PushLayer`, then reuses the existing solid/linear/radial GPU
+brush-mask resource. Scale, translation, reflection, and nonuniform DPI remain
+exact; rotation, shear, and singular transforms fail closed rather than
+broadening coverage. The retained layer remains full-target while its mask is
+finite, so no CPU rasterization, readback, or extra submission is introduced.
+Portable serialization checks the inverse-mapped bounds under scale and
+translation, the Windows build calls the implementation through the genuine
+`ID2D1RenderTarget::PushLayer` vtable, and the Metal/D3D12/Vulkan fixture probes
+the final composited pixel.
 
 ABI v43 adds the first public ProGPU-implemented `ID2D1*` COM object. A native
 caller creates a `progpu_native_direct2d_scene_recorder`, acquires a
