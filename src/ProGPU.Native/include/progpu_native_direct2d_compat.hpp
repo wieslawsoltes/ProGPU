@@ -155,6 +155,11 @@ inline constexpr com::guid drawing_state_block_interface_id{
     0xEBF6U,
     0x46A1U,
     {0xBBU, 0x47U, 0xFDU, 0x85U, 0x56U, 0x5AU, 0xB9U, 0x57U}};
+inline constexpr com::guid drawing_state_block1_interface_id{
+    0x689F1F85U,
+    0xC72EU,
+    0x4E33U,
+    {0x8FU, 0x19U, 0x85U, 0x75U, 0x4EU, 0xFDU, 0x5AU, 0xCEU}};
 inline constexpr com::guid layer_interface_id{
     0x2CD9069BU,
     0x12E2U,
@@ -324,6 +329,19 @@ enum class text_antialias_mode : std::uint32_t {
     aliased = 3U
 };
 
+enum class primitive_blend : std::uint32_t {
+    source_over = 0U,
+    copy = 1U,
+    minimum = 2U,
+    add = 3U,
+    maximum = 4U
+};
+
+enum class unit_mode : std::uint32_t {
+    dips = 0U,
+    pixels = 1U
+};
+
 enum class pixel_geometry : std::uint32_t {
     flat = 0U,
     rgb = 1U,
@@ -438,6 +456,16 @@ struct drawing_state_description final {
     std::uint64_t tag1;
     std::uint64_t tag2;
     matrix_3x2_f transform;
+};
+
+struct drawing_state_description1 final {
+    antialias_mode antialias;
+    text_antialias_mode text_antialias;
+    std::uint64_t tag1;
+    std::uint64_t tag2;
+    matrix_3x2_f transform;
+    primitive_blend blend;
+    unit_mode units;
 };
 
 struct quadratic_bezier_segment final {
@@ -835,6 +863,13 @@ struct drawing_state_block : resource {
         rendering_parameters* parameters) noexcept = 0;
     virtual void PROGPU_NATIVE_COM_CALL GetTextRenderingParams(
         rendering_parameters** parameters) const noexcept = 0;
+};
+
+struct drawing_state_block1 : drawing_state_block {
+    virtual void PROGPU_NATIVE_COM_CALL GetDescription1(
+        drawing_state_description1* description) const noexcept = 0;
+    virtual void PROGPU_NATIVE_COM_CALL SetDescription1(
+        const drawing_state_description1* description) noexcept = 0;
 };
 
 struct layer : resource {

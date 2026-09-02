@@ -5289,6 +5289,33 @@ int run_tests()
         !approximately_equal(returned_drawing_state.transform.m22, 1.0F)) {
         return 106;
     }
+    com::pointer<compat::drawing_state_block1> drawing_state1;
+    if (drawing_state.as(
+            compat::drawing_state_block1_interface_id,
+            drawing_state1) != com::ok ||
+        !drawing_state1) {
+        return 107;
+    }
+    compat::drawing_state_description1 changed_drawing_state1{
+        compat::antialias_mode::per_primitive,
+        compat::text_antialias_mode::cleartype,
+        41U,
+        43U,
+        {2.0F, 0.0F, 0.0F, 0.5F, -3.0F, 7.0F},
+        compat::primitive_blend::copy,
+        compat::unit_mode::pixels};
+    drawing_state1->SetDescription1(&changed_drawing_state1);
+    compat::drawing_state_description1 returned_drawing_state1{};
+    drawing_state1->GetDescription1(&returned_drawing_state1);
+    returned_drawing_state = {};
+    drawing_state->GetDescription(&returned_drawing_state);
+    if (returned_drawing_state1.blend != compat::primitive_blend::copy ||
+        returned_drawing_state1.units != compat::unit_mode::pixels ||
+        returned_drawing_state.tag1 != 41U ||
+        returned_drawing_state.tag2 != 43U ||
+        !approximately_equal(returned_drawing_state.transform.m11, 2.0F)) {
+        return 108;
+    }
 
     com::pointer<compat::factory_native> resource_factory;
     if (factory.as(
