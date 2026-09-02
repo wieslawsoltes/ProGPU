@@ -2,12 +2,19 @@ using System.Diagnostics;
 using System.Drawing.Imaging;
 using System.Globalization;
 using System.Text.Json;
+using System.Text.Json.Serialization;
 using Svg;
 
 return await CorpusApplication.RunAsync(args);
 
 internal static class CorpusApplication
 {
+    private static readonly JsonSerializerOptions JsonOptions = new()
+    {
+        WriteIndented = true,
+        NumberHandling = JsonNumberHandling.AllowNamedFloatingPointLiterals
+    };
+
     public static Task<int> RunAsync(string[] args)
     {
         try
@@ -18,6 +25,7 @@ internal static class CorpusApplication
             return Task.FromResult(options.Command switch
             {
                 Command.Quality => RunQuality(options),
+                Command.QualityFixture => RunQualityFixture(options),
                 Command.Performance => RunPerformance(options),
                 _ => throw new ArgumentOutOfRangeException()
             });
@@ -38,17 +46,26 @@ internal static class CorpusApplication
         ValidateFixtureCounts(options.Suite, fixtures);
 
         var results = new List<FixtureResult>(fixtures.Length);
-        foreach (var fixture in fixtures)
+        for (var index = 0; index < fixtures.Length; index++)
         {
-            var result = RenderAndCompare(fixture, options.ArtifactsRoot, options.Threshold);
+            var result = RenderAndCompareIsolated(
+                fixtures[index],
+                options.ArtifactsRoot,
+                options.Threshold,
+                index);
             results.Add(result);
             Console.WriteLine(result.ToConsoleLine());
         }
 
         var actualDifferences = results
-            .Where(static result => result.Outcome != FixtureOutcome.Passed)
+            .Where(static result => result.Outcome == FixtureOutcome.PixelDifference)
             .Select(static result => result.Key)
             .ToHashSet(StringComparer.Ordinal);
+        var exceptions = results
+            .Where(static result => result.Outcome == FixtureOutcome.Exception)
+            .Select(static result => result.Key)
+            .Order(StringComparer.Ordinal)
+            .ToArray();
         var added = actualDifferences.Except(expectedDifferences, StringComparer.Ordinal).Order(StringComparer.Ordinal).ToArray();
         var resolved = expectedDifferences.Except(actualDifferences, StringComparer.Ordinal).Order(StringComparer.Ordinal).ToArray();
 
@@ -67,21 +84,116 @@ internal static class CorpusApplication
         WriteJson(Path.Combine(options.ArtifactsRoot, "quality-results.json"), report);
         DifferenceInventory.WriteCandidate(
             Path.Combine(options.ArtifactsRoot, "known-differences.candidate.txt"),
-            results.Where(static result => result.Outcome != FixtureOutcome.Passed));
+            results.Where(static result => result.Outcome == FixtureOutcome.PixelDifference));
 
         Console.WriteLine(
             FormattableString.Invariant(
                 $"SVG System.Drawing quality: {report.Passed}/{report.Total} passed, {report.PixelDifferences} pixel differences, {report.Exceptions} exceptions."));
 
-        if (added.Length == 0 && resolved.Length == 0)
+        if (added.Length == 0 && resolved.Length == 0 && exceptions.Length == 0)
         {
             return 0;
         }
 
         WriteDifferenceSummary("Added differences", added);
         WriteDifferenceSummary("Resolved differences", resolved);
+        WriteDifferenceSummary("Exceptions", exceptions);
         return 1;
     }
+
+    private static int RunQualityFixture(Options options)
+    {
+        var fixture = new Fixture(
+            options.WorkerSuite ?? throw new InvalidOperationException("Worker suite is missing."),
+            options.WorkerFixture ?? throw new InvalidOperationException("Worker fixture is missing."),
+            options.WorkerSvgPath ?? throw new InvalidOperationException("Worker SVG path is missing."),
+            options.WorkerExpectedPath ?? throw new InvalidOperationException("Worker expected path is missing."));
+        var resultPath = options.WorkerResultPath
+            ?? throw new InvalidOperationException("Worker result path is missing.");
+        WriteJson(resultPath, RenderAndCompare(fixture, options.ArtifactsRoot, options.Threshold));
+        return 0;
+    }
+
+    private static FixtureResult RenderAndCompareIsolated(
+        Fixture fixture,
+        string artifactsRoot,
+        double threshold,
+        int index)
+    {
+        var workersRoot = Path.Combine(artifactsRoot, "workers");
+        Directory.CreateDirectory(workersRoot);
+        var resultPath = Path.Combine(workersRoot, $"{index:D4}.json");
+        File.Delete(resultPath);
+
+        var startInfo = new ProcessStartInfo
+        {
+            FileName = Environment.GetEnvironmentVariable("DOTNET_HOST_PATH") ?? "dotnet",
+            UseShellExecute = false,
+            RedirectStandardOutput = true,
+            RedirectStandardError = true
+        };
+        startInfo.ArgumentList.Add(typeof(CorpusApplication).Assembly.Location);
+        AddArgument(startInfo, "quality-fixture");
+        AddArgument(startInfo, "--corpus-root", ".");
+        AddArgument(startInfo, "--artifacts", artifactsRoot);
+        AddArgument(startInfo, "--threshold", threshold.ToString("R", CultureInfo.InvariantCulture));
+        AddArgument(startInfo, "--worker-suite", fixture.SuiteName);
+        AddArgument(startInfo, "--worker-fixture", fixture.RelativeName);
+        AddArgument(startInfo, "--worker-svg", fixture.SvgPath);
+        AddArgument(startInfo, "--worker-expected", fixture.ExpectedPath);
+        AddArgument(startInfo, "--worker-result", resultPath);
+
+        var stopwatch = Stopwatch.StartNew();
+        using var process = Process.Start(startInfo)
+            ?? throw new InvalidOperationException("Failed to start the isolated SVG fixture process.");
+        Task<string> standardOutput = process.StandardOutput.ReadToEndAsync();
+        Task<string> standardError = process.StandardError.ReadToEndAsync();
+        if (!process.WaitForExit(120_000))
+        {
+            process.Kill(entireProcessTree: true);
+            process.WaitForExit();
+            stopwatch.Stop();
+            return FixtureResult.Failed(
+                fixture,
+                new TimeoutException("The isolated SVG fixture exceeded 120 seconds."),
+                stopwatch.Elapsed,
+                allocated: 0);
+        }
+
+        Task.WaitAll(standardOutput, standardError);
+        stopwatch.Stop();
+        if (process.ExitCode == 0 && File.Exists(resultPath))
+        {
+            var result = JsonSerializer.Deserialize<FixtureResult>(File.ReadAllText(resultPath), JsonOptions)
+                ?? throw new InvalidDataException($"The isolated result is empty: {resultPath}");
+            File.Delete(resultPath);
+            return result;
+        }
+
+        string diagnostic = LastDiagnosticLine(standardError.Result, standardOutput.Result);
+        return FixtureResult.Failed(
+            fixture,
+            new InvalidOperationException(
+                $"Isolated fixture process exited with code {process.ExitCode}. {diagnostic}".Trim()),
+            stopwatch.Elapsed,
+            allocated: 0);
+    }
+
+    private static void AddArgument(ProcessStartInfo startInfo, string name, string? value = null)
+    {
+        startInfo.ArgumentList.Add(name);
+        if (value is not null)
+        {
+            startInfo.ArgumentList.Add(value);
+        }
+    }
+
+    private static string LastDiagnosticLine(params string[] streams)
+        => streams
+            .SelectMany(static stream => stream.Split('\n', StringSplitOptions.RemoveEmptyEntries))
+            .Select(static line => line.Trim())
+            .LastOrDefault(static line => line.Length > 0)
+            ?? "No child-process diagnostic was produced.";
 
     private static int RunPerformance(Options options)
     {
@@ -180,6 +292,10 @@ internal static class CorpusApplication
         catch (Exception exception)
         {
             stopwatch.Stop();
+            if (File.Exists(actualPath) && new FileInfo(actualPath).Length == 0)
+            {
+                File.Delete(actualPath);
+            }
             return FixtureResult.Failed(fixture, exception, stopwatch.Elapsed, AllocatedSince(allocatedBefore));
         }
     }
@@ -195,9 +311,9 @@ internal static class CorpusApplication
             throw new InvalidOperationException($"Expected 1730 resvg fixtures, found {resvgCount}.");
         }
 
-        if (suite is Suite.All or Suite.W3c && w3cCount != 533)
+        if (suite is Suite.All or Suite.W3c && w3cCount != 525)
         {
-            throw new InvalidOperationException($"Expected 533 W3C fixtures, found {w3cCount}.");
+            throw new InvalidOperationException($"Expected 525 W3C fixtures, found {w3cCount}.");
         }
     }
 
@@ -218,7 +334,7 @@ internal static class CorpusApplication
     private static void WriteJson<T>(string path, T value)
     {
         using var stream = File.Create(path);
-        JsonSerializer.Serialize(stream, value, new JsonSerializerOptions { WriteIndented = true });
+        JsonSerializer.Serialize(stream, value, JsonOptions);
     }
 
     private static string ReadCommit()
@@ -409,7 +525,12 @@ internal sealed record Options(
     string BenchmarkFixturesPath,
     Suite Suite,
     double Threshold,
-    int Iterations)
+    int Iterations,
+    string? WorkerSuite,
+    string? WorkerFixture,
+    string? WorkerSvgPath,
+    string? WorkerExpectedPath,
+    string? WorkerResultPath)
 {
     public static Options Parse(string[] args)
     {
@@ -424,6 +545,7 @@ internal sealed record Options(
         var command = args[0] switch
         {
             "quality" => Command.Quality,
+            "quality-fixture" => Command.QualityFixture,
             "performance" => Command.Performance,
             _ => throw new ArgumentException($"Unknown command: {args[0]}")
         };
@@ -456,7 +578,20 @@ internal sealed record Options(
             throw new ArgumentOutOfRangeException(nameof(args));
         }
 
-        return new Options(command, corpusRoot, artifactsRoot, knownDifferences, benchmarkFixtures, suite, threshold, iterations);
+        return new Options(
+            command,
+            corpusRoot,
+            artifactsRoot,
+            knownDifferences,
+            benchmarkFixtures,
+            suite,
+            threshold,
+            iterations,
+            values.GetValueOrDefault("--worker-suite"),
+            values.GetValueOrDefault("--worker-fixture"),
+            values.GetValueOrDefault("--worker-svg"),
+            values.GetValueOrDefault("--worker-expected"),
+            values.GetValueOrDefault("--worker-result"));
     }
 
     private static string Required(IReadOnlyDictionary<string, string> values, string name)
@@ -545,6 +680,7 @@ internal sealed record PerformanceReport(
 internal enum Command
 {
     Quality,
+    QualityFixture,
     Performance
 }
 

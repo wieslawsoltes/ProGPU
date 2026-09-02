@@ -73,6 +73,9 @@ jobs:
         with:
           global-json-file: global.json
 
+      - name: Install software WebGPU adapter
+        run: ./eng/progpu-install-linux-packages.sh libvulkan1 mesa-vulkan-drivers
+
       - name: Restore SVG System.Drawing corpus runner
         run: >-
           dotnet restore eng/SystemDrawing.SvgCorpus/SystemDrawing.SvgCorpus.csproj
@@ -130,6 +133,9 @@ jobs:
         uses: actions/setup-dotnet@v5
         with:
           global-json-file: global.json
+
+      - name: Install software WebGPU adapter
+        run: ./eng/progpu-install-linux-packages.sh libvulkan1 mesa-vulkan-drivers
 
       - name: Run representative SVG throughput and allocation samples
         run: >-

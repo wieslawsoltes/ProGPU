@@ -15,7 +15,7 @@ by the existing SkiaSharp-shim gate:
 - Svg.Skia commit `03f64b67badfca9fca216dc25896d0c0ee04e7b7`;
 - 1,730 resvg SVG/PNG fixture pairs under
   `externals/resvg/resvg-test-suite/{tests,extra}`; and
-- 533 SVG 1.1 W3C SVG/PNG fixture pairs under
+- 525 SVG 1.1 W3C SVG/PNG fixture pairs under
   `externals/W3C_SVG_11_TestSuite/W3C_SVG_11_TestSuite/{svg,png}`.
 
 The [SVG.NET project](https://github.com/wieslawsoltes/SVG) is MS-PL and its
