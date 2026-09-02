@@ -6480,8 +6480,21 @@ GPU paths. Dense local and Windows ARM64/x64 system-containment differentials
 cover bevel, round, and full-cover custom dash output. Convex null/default
 strokes omit the inner alternate-fill ring when inward erosion collapses or
 reverses it, so exact-collapse and fully-consumed interiors match the system
-implementation. Non-convex styled or split-erosion contours, segment flags,
-and invalid topology remain typed fail closed.
+implementation. Non-convex styled or split-erosion contours and invalid
+topology remain typed fail closed.
+
+The native query/widening lane also preserves typed Direct2D path-segment
+stroke flags. A `FORCE_UNSTROKED` edge splits the flattened figure into
+independent open runs without a bridge segment: dash phase restarts per run,
+true source endpoints use `StartCap`/`EndCap`, and split boundaries use
+`DashCap` even when the dash style is solid. Closed figures rotate after the
+last omitted edge to retain one coherent cyclic run. A
+`FORCE_ROUND_LINE_JOIN` bit marks only the incoming source-segment boundary,
+so curve-flattening subdivisions do not acquire synthetic round joins. The
+same metadata drives solid/dashed containment, widened bounds, and
+transactional cubic `Widen` output. Dense local lattices and genuine Windows
+ARM64/x64 system-Direct2D differentials qualify all three operations without
+CPU rasterization or pixel readback.
 
 The open solid lane is also qualified over tolerance-flattened cubic and
 quadratic source segments. Nearly collinear float directions are treated as a
@@ -6512,7 +6525,7 @@ dense widened-fill lattice with `StrokeContainsPoint`; the Windows ARM64 oracle
 compares convex and concave lattices with genuine system Direct2D after a clean
 30-step provider/core build. Unsupported collapsed or self-intersecting
 split/self-intersecting non-convex offsets, non-convex styled closed figures,
-flagged paths, and zero-width cases remain fail closed.
+and zero-width cases remain fail closed.
 
 ## Invariants
 

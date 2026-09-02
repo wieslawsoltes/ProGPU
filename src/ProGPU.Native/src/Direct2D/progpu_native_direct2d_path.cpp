@@ -41,6 +41,14 @@ enum class segment_kind : std::uint8_t {
     arc
 };
 
+[[nodiscard]] bool has_path_segment_flag(
+    path_segment value,
+    path_segment flag) noexcept
+{
+    return (static_cast<std::uint32_t>(value) &
+        static_cast<std::uint32_t>(flag)) != 0U;
+}
+
 struct stored_segment final {
     segment_kind kind = segment_kind::line;
     path_segment flags = path_segment::none;
@@ -1091,11 +1099,15 @@ struct polygon_stroke_edges final {
 
 [[nodiscard]] com::result create_dashed_polyline_runs(
     std::span<const point_2f> points,
+    std::span<const std::uint8_t> round_joins,
     bool closed,
     float stroke_width,
     stroke_style& style,
     curve_dash::run_buffer& dash_runs)
 {
+    if (points.size() < 2U || round_joins.size() != points.size()) {
+        return com::invalid_argument;
+    }
     std::vector<double> intervals;
     const com::result interval_status = read_dash_intervals(style, intervals);
     if (com::failed(interval_status)) {
@@ -1118,6 +1130,12 @@ struct polygon_stroke_edges final {
         segment.p1 = {end.x, end.y};
         segments.push_back(segment);
     }
+    for (std::size_t index = 1U; index < segment_count; ++index) {
+        smooth_joins[index - 1U] = round_joins[index];
+    }
+    if (closed) {
+        smooth_joins.back() = round_joins.front();
+    }
     const curve_dash::result dash_status = curve_dash::try_create_runs(
         segments,
         smooth_joins,
@@ -1136,26 +1154,37 @@ struct polygon_stroke_edges final {
 
 [[nodiscard]] com::result create_dashed_polygon_runs(
     std::span<const point_2f> polygon,
+    std::span<const std::uint8_t> round_joins,
     float stroke_width,
     stroke_style& style,
     curve_dash::run_buffer& dash_runs)
 {
     return create_dashed_polyline_runs(
-        polygon, true, stroke_width, style, dash_runs);
+        polygon, round_joins, true, stroke_width, style, dash_runs);
+}
+
+[[nodiscard]] line_join resolved_line_join(
+    line_join configured,
+    bool force_round) noexcept
+{
+    return force_round ? line_join::round : configured;
 }
 
 [[nodiscard]] com::result dashed_polygon_stroke_contains(
     std::span<const point_2f> polygon,
+    std::span<const std::uint8_t> round_joins,
     point_2f point,
     float stroke_width,
     stroke_style& style,
+    cap_style source_start_cap,
+    cap_style source_end_cap,
     line_join join,
     double miter_limit,
     std::int32_t& contains)
 {
     curve_dash::run_buffer dash_runs;
     const com::result dash_status = create_dashed_polygon_runs(
-        polygon, stroke_width, style, dash_runs);
+        polygon, round_joins, stroke_width, style, dash_runs);
     if (com::failed(dash_status)) {
         return dash_status;
     }
@@ -1169,6 +1198,7 @@ struct polygon_stroke_edges final {
     }
     for (const curve_dash::run& run : dash_runs.runs) {
         const auto run_segments = dash_runs.segments_for(run);
+        const auto run_round_joins = dash_runs.smooth_joins_for(run);
         for (std::size_t index = 1U; index < run_segments.size(); ++index) {
             const auto& incoming = run_segments[index - 1U];
             const auto& outgoing = run_segments[index];
@@ -1178,7 +1208,8 @@ struct polygon_stroke_edges final {
                     {outgoing.p1.x, outgoing.p1.y},
                     point,
                     half_width,
-                    join,
+                    resolved_line_join(
+                        join, run_round_joins[index - 1U] != 0U),
                     miter_limit)) {
                 contains = 1;
                 return com::ok;
@@ -1193,7 +1224,7 @@ struct polygon_stroke_edges final {
                     {outgoing.p1.x, outgoing.p1.y},
                     point,
                     half_width,
-                    join,
+                    resolved_line_join(join, run.closing_smooth_join),
                     miter_limit)) {
                 contains = 1;
                 return com::ok;
@@ -1203,10 +1234,10 @@ struct polygon_stroke_edges final {
         const auto& first = run_segments.front();
         const auto& last = run_segments.back();
         const cap_style start_cap = run.starts_at_source_start
-            ? style.GetStartCap()
+            ? source_start_cap
             : style.GetDashCap();
         const cap_style end_cap = run.ends_at_source_end
-            ? style.GetEndCap()
+            ? source_end_cap
             : style.GetDashCap();
         if (stroke_cap_contains(
                 {first.p0.x, first.p0.y},
@@ -1229,16 +1260,19 @@ struct polygon_stroke_edges final {
 
 [[nodiscard]] com::result dashed_open_polyline_stroke_contains(
     std::span<const point_2f> points,
+    std::span<const std::uint8_t> round_joins,
     point_2f point,
     float stroke_width,
     stroke_style& style,
+    cap_style source_start_cap,
+    cap_style source_end_cap,
     line_join join,
     double miter_limit,
     std::int32_t& contains)
 {
     curve_dash::run_buffer dash_runs;
     const com::result dash_status = create_dashed_polyline_runs(
-        points, false, stroke_width, style, dash_runs);
+        points, round_joins, false, stroke_width, style, dash_runs);
     if (com::failed(dash_status)) {
         return dash_status;
     }
@@ -1252,6 +1286,7 @@ struct polygon_stroke_edges final {
     }
     for (const curve_dash::run& run : dash_runs.runs) {
         const auto run_segments = dash_runs.segments_for(run);
+        const auto run_round_joins = dash_runs.smooth_joins_for(run);
         if (run_segments.empty() || run.closed) {
             return com::invalid_argument;
         }
@@ -1264,7 +1299,8 @@ struct polygon_stroke_edges final {
                     {outgoing.p1.x, outgoing.p1.y},
                     point,
                     half_width,
-                    join,
+                    resolved_line_join(
+                        join, run_round_joins[index - 1U] != 0U),
                     miter_limit)) {
                 contains = 1;
                 return com::ok;
@@ -1273,10 +1309,10 @@ struct polygon_stroke_edges final {
         const auto& first = run_segments.front();
         const auto& last = run_segments.back();
         const cap_style start_cap = run.starts_at_source_start
-            ? style.GetStartCap()
+            ? source_start_cap
             : style.GetDashCap();
         const cap_style end_cap = run.ends_at_source_end
-            ? style.GetEndCap()
+            ? source_end_cap
             : style.GetDashCap();
         if (stroke_cap_contains(
                 {first.p0.x, first.p0.y},
@@ -1312,7 +1348,7 @@ struct polygon_stroke_edges final {
                 adjacent,
                 point,
                 half_width,
-                style.GetEndCap())) {
+                source_end_cap)) {
             contains = 1;
         }
     }
@@ -1321,6 +1357,7 @@ struct polygon_stroke_edges final {
 
 [[nodiscard]] bool solid_polyline_stroke_contains(
     std::span<const point_2f> points,
+    std::span<const std::uint8_t> round_joins,
     bool closed,
     point_2f point,
     float half_width,
@@ -1329,6 +1366,9 @@ struct polygon_stroke_edges final {
     cap_style start_cap,
     cap_style end_cap)
 {
+    if (round_joins.size() != points.size()) {
+        return false;
+    }
     const polygon_stroke_edges stroke_edges =
         make_polyline_stroke_edges(points, closed);
     if (polygon_stroke_body_contains(stroke_edges, point, half_width)) {
@@ -1349,7 +1389,7 @@ struct polygon_stroke_edges final {
                     : index + 1U],
                 point,
                 half_width_double,
-                join,
+                resolved_line_join(join, round_joins[index] != 0U),
                 miter_limit)) {
             return true;
         }
@@ -1658,6 +1698,7 @@ void append_stroke_join_bounds_points(
 
 [[nodiscard]] com::result solid_polyline_widened_bounds(
     std::span<const point_2f> points_source,
+    std::span<const std::uint8_t> round_joins,
     bool closed,
     float stroke_width,
     line_join join,
@@ -1667,6 +1708,9 @@ void append_stroke_join_bounds_points(
     const matrix_3x2_f* transform,
     rectangle_f& bounds)
 {
+    if (round_joins.size() != points_source.size()) {
+        return com::invalid_argument;
+    }
     const double half_width = static_cast<double>(stroke_width) * 0.5;
     const std::size_t edge_count =
         closed ? points_source.size() : points_source.size() - 1U;
@@ -1701,7 +1745,7 @@ void append_stroke_join_bounds_points(
                 ? (index + 1U) % points_source.size()
                 : index + 1U],
             half_width,
-            join,
+            resolved_line_join(join, round_joins[index] != 0U),
             miter_limit,
             transform,
             points);
@@ -1727,15 +1771,18 @@ void append_stroke_join_bounds_points(
 
 [[nodiscard]] com::result dashed_polyline_widened_bounds(
     std::span<const point_2f> polygon,
+    std::span<const std::uint8_t> round_joins,
     bool closed,
     float stroke_width,
     stroke_style& style,
+    cap_style source_start_cap,
+    cap_style source_end_cap,
     const matrix_3x2_f* transform,
     rectangle_f& bounds)
 {
     curve_dash::run_buffer dash_runs;
     const com::result dash_status = create_dashed_polyline_runs(
-        polygon, closed, stroke_width, style, dash_runs);
+        polygon, round_joins, closed, stroke_width, style, dash_runs);
     if (com::failed(dash_status)) {
         return dash_status;
     }
@@ -1745,6 +1792,7 @@ void append_stroke_join_bounds_points(
     points.insert(points.end(), polygon.begin(), polygon.end());
     for (const curve_dash::run& run : dash_runs.runs) {
         const auto segments = dash_runs.segments_for(run);
+        const auto run_round_joins = dash_runs.smooth_joins_for(run);
         if (segments.empty()) {
             return com::invalid_argument;
         }
@@ -1762,7 +1810,9 @@ void append_stroke_join_bounds_points(
                 {segments[index - 1U].p1.x, segments[index - 1U].p1.y},
                 {segments[index].p1.x, segments[index].p1.y},
                 half_width,
-                style.GetLineJoin(),
+                resolved_line_join(
+                    style.GetLineJoin(),
+                    run_round_joins[index - 1U] != 0U),
                 style.GetMiterLimit(),
                 transform,
                 points);
@@ -1773,16 +1823,17 @@ void append_stroke_join_bounds_points(
                 {segments.back().p1.x, segments.back().p1.y},
                 {segments.front().p1.x, segments.front().p1.y},
                 half_width,
-                style.GetLineJoin(),
+                resolved_line_join(
+                    style.GetLineJoin(), run.closing_smooth_join),
                 style.GetMiterLimit(),
                 transform,
                 points);
         } else {
             const cap_style run_start_cap = run.starts_at_source_start
-                ? style.GetStartCap()
+                ? source_start_cap
                 : style.GetDashCap();
             const cap_style run_end_cap = run.ends_at_source_end
-                ? style.GetEndCap()
+                ? source_end_cap
                 : style.GetDashCap();
             append_stroke_cap_bounds_points(
                 {segments.front().p0.x, segments.front().p0.y},
@@ -1801,12 +1852,12 @@ void append_stroke_join_bounds_points(
         }
     }
     if (!closed && dash_runs.terminal_visible_point &&
-        style.GetEndCap() != cap_style::flat) {
+        source_end_cap != cap_style::flat) {
         append_stroke_cap_bounds_points(
             polygon.back(),
             polygon[polygon.size() - 2U],
             half_width,
-            style.GetEndCap(),
+            source_end_cap,
             transform,
             points);
     }
@@ -1993,6 +2044,7 @@ void append_dash_side_point(
 
 [[nodiscard]] com::result append_dash_run_side(
     std::span<const progpu_native_path_segment> segments,
+    std::span<const std::uint8_t> round_joins,
     double half_width,
     double side,
     line_join join,
@@ -2001,7 +2053,7 @@ void append_dash_side_point(
     cap_style end_cap,
     dash_side& output)
 {
-    if (segments.empty()) {
+    if (segments.empty() || round_joins.size() + 1U != segments.size()) {
         return com::invalid_argument;
     }
     double first_unit_x = 0.0;
@@ -2033,7 +2085,7 @@ void append_dash_side_point(
             segments[index],
             half_width,
             side,
-            join,
+            resolved_line_join(join, round_joins[index - 1U] != 0U),
             miter_limit,
             output);
         if (com::failed(join_status)) {
@@ -2068,13 +2120,15 @@ void append_dash_side_point(
 
 [[nodiscard]] com::result build_closed_stroke_side(
     std::span<const progpu_native_path_segment> segments,
+    std::span<const std::uint8_t> round_joins,
     double half_width,
     double side,
     line_join join,
     double miter_limit,
     dash_side& output)
 {
-    if (segments.size() < 3U || !same_point(
+    if (segments.size() < 3U || round_joins.size() != segments.size() ||
+        !same_point(
             {segments.back().p1.x, segments.back().p1.y},
             {segments.front().p0.x, segments.front().p0.y})) {
         return not_implemented;
@@ -2088,7 +2142,7 @@ void append_dash_side_point(
             segments[index],
             half_width,
             side,
-            join,
+            resolved_line_join(join, round_joins[index] != 0U),
             miter_limit,
             output);
         if (com::failed(result)) {
@@ -2302,13 +2356,15 @@ void append_outline_line(
 
 [[nodiscard]] com::result prepare_joined_closed_solid_widen(
     std::span<const point_2f> points,
+    std::span<const std::uint8_t> round_joins,
     float stroke_width,
     line_join join,
     double miter_limit,
     const matrix_3x2_f* transform,
     std::vector<widened_outline>& outlines)
 {
-    if (!strictly_convex_polygon(points)) {
+    if (round_joins.size() != points.size() ||
+        !strictly_convex_polygon(points)) {
         return not_implemented;
     }
     std::vector<progpu_native_path_segment> segments;
@@ -2328,6 +2384,7 @@ void append_outline_line(
         const double side = index == 0U ? 1.0 : -1.0;
         com::result result = build_closed_stroke_side(
             segments,
+            round_joins,
             half_width,
             side,
             join,
@@ -2354,6 +2411,7 @@ void append_outline_line(
 
 [[nodiscard]] com::result build_joined_dash_outline(
     std::span<const progpu_native_path_segment> segments,
+    std::span<const std::uint8_t> round_joins,
     double half_width,
     line_join join,
     double miter_limit,
@@ -2365,6 +2423,7 @@ void append_outline_line(
     dash_side right;
     const com::result left_status = append_dash_run_side(
         segments,
+        round_joins,
         half_width,
         1.0,
         join,
@@ -2377,6 +2436,7 @@ void append_outline_line(
     }
     const com::result right_status = append_dash_run_side(
         segments,
+        round_joins,
         half_width,
         -1.0,
         join,
@@ -2580,15 +2640,18 @@ void append_outline_line(
 
 [[nodiscard]] com::result prepare_joined_dashed_widen(
     std::span<const point_2f> points,
+    std::span<const std::uint8_t> round_joins,
     bool closed,
     float stroke_width,
     stroke_style& style,
+    cap_style source_start_cap,
+    cap_style source_end_cap,
     const matrix_3x2_f* transform,
     std::vector<widened_outline>& outlines)
 {
     curve_dash::run_buffer dash_runs;
     const com::result dash_status = create_dashed_polyline_runs(
-        points, closed, stroke_width, style, dash_runs);
+        points, round_joins, closed, stroke_width, style, dash_runs);
     if (com::failed(dash_status)) {
         return dash_status;
     }
@@ -2598,6 +2661,7 @@ void append_outline_line(
         if (run.closed) {
             const com::result result = prepare_joined_closed_solid_widen(
                 points,
+                round_joins,
                 stroke_width,
                 style.GetLineJoin(),
                 style.GetMiterLimit(),
@@ -2610,13 +2674,14 @@ void append_outline_line(
         }
         outlines.emplace_back();
         const cap_style start_cap = run.starts_at_source_start
-            ? style.GetStartCap()
+            ? source_start_cap
             : style.GetDashCap();
         const cap_style end_cap = run.ends_at_source_end
-            ? style.GetEndCap()
+            ? source_end_cap
             : style.GetDashCap();
         com::result result = build_joined_dash_outline(
             dash_runs.segments_for(run),
+            dash_runs.smooth_joins_for(run),
             half_width,
             style.GetLineJoin(),
             style.GetMiterLimit(),
@@ -2657,9 +2722,9 @@ void append_outline_line(
                 return result;
             }
         }
-        if (style.GetEndCap() != cap_style::flat) {
+        if (source_end_cap != cap_style::flat) {
             const com::result result = append_terminal_cap(
-                style.GetEndCap(), false);
+                source_end_cap, false);
             if (com::failed(result)) {
                 return result;
             }
@@ -2670,6 +2735,7 @@ void append_outline_line(
 
 [[nodiscard]] com::result prepare_joined_open_solid_widen(
     std::span<const point_2f> points,
+    std::span<const std::uint8_t> round_joins,
     float stroke_width,
     line_join join,
     double miter_limit,
@@ -2678,6 +2744,9 @@ void append_outline_line(
     const matrix_3x2_f* transform,
     std::vector<widened_outline>& outlines)
 {
+    if (points.size() < 2U || round_joins.size() != points.size()) {
+        return com::invalid_argument;
+    }
     std::vector<progpu_native_path_segment> segments;
     segments.reserve(points.size() - 1U);
     for (std::size_t index = 0U; index + 1U < points.size(); ++index) {
@@ -2690,6 +2759,7 @@ void append_outline_line(
     widened_outline outline;
     com::result result = build_joined_dash_outline(
         segments,
+        round_joins.subspan(1U, round_joins.size() - 2U),
         static_cast<double>(stroke_width) * 0.5,
         join,
         miter_limit,
@@ -3082,8 +3152,50 @@ normalize_simple_polygon(std::vector<point_2f> &polygon) noexcept {
 
 struct flat_polyline final {
   std::vector<point_2f> points;
+  std::vector<std::uint8_t> round_joins;
   bool closed{};
+  bool starts_at_figure_start{};
+  bool ends_at_figure_end{};
 };
+
+[[nodiscard]] bool normalize_simple_stroke_polygon(
+    flat_polyline& polyline) noexcept {
+  while (polyline.points.size() > 1U &&
+         same_point(polyline.points.front(), polyline.points.back())) {
+    polyline.points.pop_back();
+    polyline.round_joins.pop_back();
+  }
+  if (polyline.points.size() < 3U ||
+      polyline.round_joins.size() != polyline.points.size()) {
+    return false;
+  }
+  const double twice_area = polygon_twice_signed_area(polyline.points);
+  if (!std::isfinite(twice_area) || twice_area == 0.0) {
+    return false;
+  }
+  if (twice_area < 0.0) {
+    std::reverse(polyline.points.begin(), polyline.points.end());
+    std::reverse(polyline.round_joins.begin(), polyline.round_joins.end());
+  }
+  for (std::size_t first = 0U; first < polyline.points.size(); ++first) {
+    const std::size_t first_next =
+        (first + 1U) % polyline.points.size();
+    for (std::size_t second = first + 1U;
+         second < polyline.points.size(); ++second) {
+      const std::size_t second_next =
+          (second + 1U) % polyline.points.size();
+      if (first_next == second || second_next == first) {
+        continue;
+      }
+      if (segments_intersect(
+              polyline.points[first], polyline.points[first_next],
+              polyline.points[second], polyline.points[second_next])) {
+        return false;
+      }
+    }
+  }
+  return true;
+}
 
 [[nodiscard]] com::result build_flat_polylines(
     std::span<const flat_edge> edges,
@@ -3091,51 +3203,98 @@ struct flat_polyline final {
     std::vector<flat_polyline>& polylines) {
   polylines.clear();
   try {
-    polylines.resize(figures.size());
-    for (std::size_t index = 0U; index < figures.size(); ++index) {
-      polylines[index].closed = figures[index].end == figure_end::closed;
-    }
-    for (const flat_edge& edge : edges) {
-      if (edge.figure_index >= polylines.size()) {
+    std::size_t edge_offset = 0U;
+    for (std::size_t figure_index = 0U;
+         figure_index < figures.size(); ++figure_index) {
+      const std::size_t figure_edge_begin = edge_offset;
+      while (edge_offset < edges.size() &&
+             edges[edge_offset].figure_index == figure_index) {
+        ++edge_offset;
+      }
+      if (edge_offset < edges.size() &&
+          edges[edge_offset].figure_index < figure_index) {
         return failure;
       }
-      if (edge.flags != path_segment::none) {
-        return not_implemented;
-      }
-      if (same_point(edge.start, edge.end)) {
+      const auto figure_edges = edges.subspan(
+          figure_edge_begin, edge_offset - figure_edge_begin);
+      if (figure_edges.empty()) {
         continue;
       }
-      auto& points = polylines[edge.figure_index].points;
-      if (points.empty()) {
-        points.push_back(edge.start);
-      } else if (!same_point(points.back(), edge.start)) {
-        return not_implemented;
+      const bool source_closed =
+          figures[figure_index].end == figure_end::closed;
+      const bool has_unstroked = std::any_of(
+          figure_edges.begin(), figure_edges.end(),
+          [](const flat_edge& edge) {
+            return has_path_segment_flag(
+                edge.flags, path_segment::force_unstroked);
+          });
+      std::size_t traversal_start = 0U;
+      if (source_closed && has_unstroked) {
+        const auto gap = std::find_if(
+            figure_edges.rbegin(), figure_edges.rend(),
+            [](const flat_edge& edge) {
+              return has_path_segment_flag(
+                  edge.flags, path_segment::force_unstroked);
+            });
+        traversal_start =
+            (figure_edges.size() - 1U -
+             static_cast<std::size_t>(gap - figure_edges.rbegin()) + 1U) %
+            figure_edges.size();
       }
-      points.push_back(edge.end);
+      flat_polyline* current = nullptr;
+      std::uint32_t previous_segment =
+          (std::numeric_limits<std::uint32_t>::max)();
+      for (std::size_t traversal_index = 0U;
+           traversal_index < figure_edges.size(); ++traversal_index) {
+        const std::size_t edge_index =
+            (traversal_start + traversal_index) % figure_edges.size();
+        const flat_edge& edge = figure_edges[edge_index];
+        if (has_path_segment_flag(
+                edge.flags, path_segment::force_unstroked)) {
+          current = nullptr;
+          previous_segment =
+              (std::numeric_limits<std::uint32_t>::max)();
+          continue;
+        }
+        if (same_point(edge.start, edge.end)) {
+          continue;
+        }
+        if (current == nullptr) {
+          polylines.emplace_back();
+          current = &polylines.back();
+          current->closed = source_closed && !has_unstroked;
+          current->starts_at_figure_start =
+              !source_closed && edge_index == 0U;
+          current->points.push_back(edge.start);
+          current->round_joins.push_back(0U);
+        } else if (!same_point(current->points.back(), edge.start)) {
+          return not_implemented;
+        }
+        const bool has_incoming =
+            current->closed || current->points.size() > 1U;
+        if (has_incoming && edge.segment_index != previous_segment &&
+            has_path_segment_flag(
+                edge.flags, path_segment::force_round_line_join)) {
+          current->round_joins.back() = 1U;
+        }
+        current->points.push_back(edge.end);
+        current->round_joins.push_back(0U);
+        current->ends_at_figure_end =
+            !source_closed && edge_index + 1U == figure_edges.size();
+        previous_segment = edge.segment_index;
+      }
     }
-    polylines.erase(
-        std::remove_if(
-            polylines.begin(),
-            polylines.end(),
-            [](const flat_polyline& polyline) {
-              return polyline.points.empty();
-            }),
-        polylines.end());
+    if (edge_offset != edges.size()) {
+      return failure;
+    }
     for (flat_polyline& polyline : polylines) {
       if (polyline.closed) {
-        if (!normalize_simple_polygon(polyline.points)) {
+        if (!normalize_simple_stroke_polygon(polyline)) {
           return not_implemented;
         }
-      } else {
-        polyline.points.erase(
-            std::unique(
-                polyline.points.begin(),
-                polyline.points.end(),
-                same_point),
-            polyline.points.end());
-        if (polyline.points.size() < 2U) {
-          return not_implemented;
-        }
+      } else if (polyline.points.size() < 2U ||
+                 polyline.round_joins.size() != polyline.points.size()) {
+        return not_implemented;
       }
     }
     return com::ok;
@@ -3855,24 +4014,40 @@ public:
             }
             bool has_bounds = false;
             for (const flat_polyline& polyline : polylines) {
+                const cap_style run_start_cap =
+                    polyline.starts_at_figure_start || polyline.closed
+                    ? start_cap
+                    : style != nullptr
+                        ? style->GetDashCap()
+                        : cap_style::flat;
+                const cap_style run_end_cap =
+                    polyline.ends_at_figure_end || polyline.closed
+                    ? end_cap
+                    : style != nullptr
+                        ? style->GetDashCap()
+                        : cap_style::flat;
                 rectangle_f figure_bounds{};
                 const com::result figure_status =
                     dashed && stroke_width != 0.0F
                     ? dashed_polyline_widened_bounds(
                         polyline.points,
+                        polyline.round_joins,
                         polyline.closed,
                         stroke_width,
                         *style,
+                        run_start_cap,
+                        run_end_cap,
                         world_transform,
                         figure_bounds)
                     : solid_polyline_widened_bounds(
                         polyline.points,
+                        polyline.round_joins,
                         polyline.closed,
                         stroke_width,
                         join,
                         miter_limit,
-                        start_cap,
-                        end_cap,
+                        run_start_cap,
+                        run_end_cap,
                         world_transform,
                         figure_bounds);
                 if (com::failed(figure_status)) {
@@ -3969,22 +4144,40 @@ public:
                 return polyline_status;
             }
             for (const flat_polyline& polyline : polylines) {
+                const cap_style run_start_cap =
+                    polyline.starts_at_figure_start || polyline.closed
+                    ? start_cap
+                    : style != nullptr
+                        ? style->GetDashCap()
+                        : cap_style::flat;
+                const cap_style run_end_cap =
+                    polyline.ends_at_figure_end || polyline.closed
+                    ? end_cap
+                    : style != nullptr
+                        ? style->GetDashCap()
+                        : cap_style::flat;
                 if (dashed) {
                     std::int32_t figure_contains = 0;
                     const com::result figure_status = polyline.closed
                         ? dashed_polygon_stroke_contains(
                             polyline.points,
+                            polyline.round_joins,
                             local_point,
                             stroke_width,
                             *style,
+                            run_start_cap,
+                            run_end_cap,
                             join,
                             miter_limit,
                             figure_contains)
                         : dashed_open_polyline_stroke_contains(
                             polyline.points,
+                            polyline.round_joins,
                             local_point,
                             stroke_width,
                             *style,
+                            run_start_cap,
+                            run_end_cap,
                             join,
                             miter_limit,
                             figure_contains);
@@ -3997,13 +4190,14 @@ public:
                     }
                 } else if (solid_polyline_stroke_contains(
                                polyline.points,
+                               polyline.round_joins,
                                polyline.closed,
                                local_point,
                                half_width,
                                join,
                                miter_limit,
-                               start_cap,
-                               end_cap)) {
+                               run_start_cap,
+                               run_end_cap)) {
                     *contains = 1;
                     return com::ok;
                 }
@@ -5235,12 +5429,27 @@ public:
             const double half_width =
                 static_cast<double>(stroke_width) * 0.5;
             for (const flat_polyline& polyline : polylines) {
+                const cap_style run_start_cap =
+                    polyline.starts_at_figure_start || polyline.closed
+                    ? start_cap
+                    : style != nullptr
+                        ? style->GetDashCap()
+                        : cap_style::flat;
+                const cap_style run_end_cap =
+                    polyline.ends_at_figure_end || polyline.closed
+                    ? end_cap
+                    : style != nullptr
+                        ? style->GetDashCap()
+                        : cap_style::flat;
                 if (dashed) {
                     const com::result result = prepare_joined_dashed_widen(
                         polyline.points,
+                        polyline.round_joins,
                         polyline.closed,
                         stroke_width,
                         *style,
+                        run_start_cap,
+                        run_end_cap,
                         world_transform,
                         outlines);
                     if (com::failed(result)) {
@@ -5252,11 +5461,12 @@ public:
                     const com::result result =
                         prepare_joined_open_solid_widen(
                             polyline.points,
+                            polyline.round_joins,
                             stroke_width,
                             join,
                             miter_limit,
-                            start_cap,
-                            end_cap,
+                            run_start_cap,
+                            run_end_cap,
                             world_transform,
                             outlines);
                     if (com::failed(result)) {
@@ -5264,10 +5474,14 @@ public:
                     }
                     continue;
                 }
-                if (style != nullptr) {
+                if (style != nullptr || std::any_of(
+                        polyline.round_joins.begin(),
+                        polyline.round_joins.end(),
+                        [](std::uint8_t value) { return value != 0U; })) {
                     const com::result result =
                         prepare_joined_closed_solid_widen(
                             polyline.points,
+                            polyline.round_joins,
                             stroke_width,
                             join,
                             miter_limit,
