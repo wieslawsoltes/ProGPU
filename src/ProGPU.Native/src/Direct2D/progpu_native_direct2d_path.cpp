@@ -3546,7 +3546,8 @@ void append_polygon_boolean_parameter(std::vector<double> &parameters,
 [[nodiscard]] com::result normalize_self_intersecting_contour(
     std::span<const point_2f> source,
     fill_mode mode,
-    std::vector<std::vector<point_2f>>& contours)
+    std::vector<std::vector<point_2f>>& contours,
+    std::vector<std::int8_t>& winding_contributions)
 {
   constexpr double intersection_tolerance = 1.0e-10;
   constexpr std::size_t maximum_boundary_segments = 1U << 20U;
@@ -3693,7 +3694,7 @@ void append_polygon_boolean_parameter(std::vector<double> &parameters,
       std::sort(edge_parameters.begin(), edge_parameters.end());
     }
 
-    const auto filled = [source, mode](point_2f point) {
+    const auto classify_fill = [source](point_2f point) {
       bool alternate = false;
       std::int32_t winding = 0;
       for (std::size_t edge = 0U; edge < source.size(); ++edge) {
@@ -3718,26 +3719,19 @@ void append_polygon_boolean_parameter(std::vector<double> &parameters,
           winding += upward ? 1 : -1;
         }
       }
-      return mode == fill_mode::alternate ? alternate : winding != 0;
+      return std::pair{alternate, winding};
     };
-    std::vector<polygon_boolean_segment> segments;
-    const auto append_boundary = [&segments, source](
-        point_2f start, point_2f end) {
-      const double tolerance =
-          polygon_coordinate_tolerance(source, start);
-      for (const polygon_boolean_segment& segment : segments) {
-        if (same_polygon_boolean_point(
-                segment.start, start, tolerance) &&
-            same_polygon_boolean_point(segment.end, end, tolerance)) {
-          return true;
-        }
-      }
-      if (segments.size() == maximum_boundary_segments) {
-        return false;
-      }
-      segments.push_back({start, end, false});
-      return true;
+    struct classified_boundary_edge final {
+      point_2f start{};
+      point_2f end{};
+      bool alternate_left = false;
+      bool alternate_right = false;
+      std::int32_t winding_left = 0;
+      std::int32_t winding_right = 0;
     };
+    std::vector<classified_boundary_edge> classified_edges;
+    std::int32_t maximum_positive_winding = 0;
+    std::int32_t maximum_negative_winding = 0;
     for (std::size_t edge = 0U; edge < source.size(); ++edge) {
       const point_2f edge_start = source[edge];
       const point_2f edge_end = source[(edge + 1U) % source.size()];
@@ -3780,77 +3774,177 @@ void append_polygon_boolean_parameter(std::vector<double> &parameters,
         const point_2f right{
             static_cast<float>(midpoint.x - normal_x),
             static_cast<float>(midpoint.y - normal_y)};
-        const bool left_filled = filled(left);
-        const bool right_filled = filled(right);
-        if (left_filled == right_filled) {
+        const auto [alternate_left, winding_left] = classify_fill(left);
+        const auto [alternate_right, winding_right] = classify_fill(right);
+        if (alternate_left == alternate_right &&
+            winding_left == winding_right) {
           continue;
         }
-        if (!append_boundary(
-                left_filled ? start : end,
-                left_filled ? end : start)) {
+        if (classified_edges.size() == maximum_boundary_segments) {
           return com::out_of_memory;
         }
+        classified_edges.push_back({
+            start,
+            end,
+            alternate_left,
+            alternate_right,
+            winding_left,
+            winding_right});
+        maximum_positive_winding = std::max(
+            maximum_positive_winding,
+            std::max(winding_left, winding_right));
+        maximum_negative_winding = std::max(
+            maximum_negative_winding,
+            -std::min(winding_left, winding_right));
       }
     }
 
     std::vector<std::vector<point_2f>> normalized;
+    std::vector<std::int8_t> normalized_contributions;
+    std::size_t total_boundary_segments = 0U;
     constexpr double pi = 3.1415926535897932384626433832795;
-    for (std::size_t first_segment = 0U;
-         first_segment < segments.size(); ++first_segment) {
-      if (segments[first_segment].used) {
-        continue;
+    const auto trace_layer = [
+        &classified_edges,
+        &normalized,
+        &normalized_contributions,
+        &total_boundary_segments,
+        source](auto inside, std::int8_t layer_contribution) {
+      std::vector<polygon_boolean_segment> segments;
+      const auto append_boundary = [&segments, &total_boundary_segments,
+                                    source](point_2f start, point_2f end) {
+        const double tolerance =
+            polygon_coordinate_tolerance(source, start);
+        for (const polygon_boolean_segment& segment : segments) {
+          if (same_polygon_boolean_point(
+                  segment.start, start, tolerance) &&
+              same_polygon_boolean_point(segment.end, end, tolerance)) {
+            return true;
+          }
+        }
+        if (total_boundary_segments == maximum_boundary_segments) {
+          return false;
+        }
+        segments.push_back({start, end, false});
+        ++total_boundary_segments;
+        return true;
+      };
+      for (const classified_boundary_edge& edge : classified_edges) {
+        const bool left_inside = inside(edge, true);
+        const bool right_inside = inside(edge, false);
+        if (left_inside == right_inside) {
+          continue;
+        }
+        if (!append_boundary(
+                left_inside ? edge.start : edge.end,
+                left_inside ? edge.end : edge.start)) {
+          return com::out_of_memory;
+        }
       }
-      std::vector<point_2f> points;
-      points.push_back(segments[first_segment].start);
-      polygon_boolean_segment* current = &segments[first_segment];
-      current->used = true;
-      const double tolerance =
-          polygon_coordinate_tolerance(source, current->start);
-      while (!same_polygon_boolean_point(
-          current->end, points.front(), tolerance)) {
-        if (points.size() == maximum_boundary_segments) {
+      for (std::size_t first_segment = 0U;
+           first_segment < segments.size(); ++first_segment) {
+        if (segments[first_segment].used) {
+          continue;
+        }
+        std::vector<point_2f> points;
+        points.push_back(segments[first_segment].start);
+        polygon_boolean_segment* current = &segments[first_segment];
+        current->used = true;
+        const double tolerance =
+            polygon_coordinate_tolerance(source, current->start);
+        while (!same_polygon_boolean_point(
+            current->end, points.front(), tolerance)) {
+          if (points.size() == maximum_boundary_segments) {
+            return not_implemented;
+          }
+          points.push_back(current->end);
+          polygon_boolean_segment* next = nullptr;
+          double best_angle = std::numeric_limits<double>::infinity();
+          const double incoming_x =
+              static_cast<double>(current->end.x) - current->start.x;
+          const double incoming_y =
+              static_cast<double>(current->end.y) - current->start.y;
+          for (polygon_boolean_segment& candidate : segments) {
+            if (candidate.used ||
+                !same_polygon_boolean_point(
+                    candidate.start, current->end, tolerance)) {
+              continue;
+            }
+            const double outgoing_x =
+                static_cast<double>(candidate.end.x) - candidate.start.x;
+            const double outgoing_y =
+                static_cast<double>(candidate.end.y) - candidate.start.y;
+            double angle = std::atan2(
+                incoming_x * outgoing_y - incoming_y * outgoing_x,
+                incoming_x * outgoing_x + incoming_y * outgoing_y);
+            if (angle <= 0.0) {
+              angle += 2.0 * pi;
+            }
+            if (angle < best_angle) {
+              best_angle = angle;
+              next = &candidate;
+            }
+          }
+          if (next == nullptr) {
+            return not_implemented;
+          }
+          next->used = true;
+          current = next;
+        }
+        if (points.size() < 3U) {
           return not_implemented;
         }
-        points.push_back(current->end);
-        polygon_boolean_segment* next = nullptr;
-        double best_angle = std::numeric_limits<double>::infinity();
-        const double incoming_x =
-            static_cast<double>(current->end.x) - current->start.x;
-        const double incoming_y =
-            static_cast<double>(current->end.y) - current->start.y;
-        for (polygon_boolean_segment& candidate : segments) {
-          if (candidate.used ||
-              !same_polygon_boolean_point(
-                  candidate.start, current->end, tolerance)) {
-            continue;
-          }
-          const double outgoing_x =
-              static_cast<double>(candidate.end.x) - candidate.start.x;
-          const double outgoing_y =
-              static_cast<double>(candidate.end.y) - candidate.start.y;
-          double angle = std::atan2(
-              incoming_x * outgoing_y - incoming_y * outgoing_x,
-              incoming_x * outgoing_x + incoming_y * outgoing_y);
-          if (angle <= 0.0) {
-            angle += 2.0 * pi;
-          }
-          if (angle < best_angle) {
-            best_angle = angle;
-            next = &candidate;
-          }
-        }
-        if (next == nullptr) {
+        const double twice_area = polygon_twice_signed_area(points);
+        if (!std::isfinite(twice_area) || twice_area == 0.0) {
           return not_implemented;
         }
-        next->used = true;
-        current = next;
+        const std::int8_t orientation = twice_area < 0.0 ? -1 : 1;
+        normalized.push_back(std::move(points));
+        normalized_contributions.push_back(
+            static_cast<std::int8_t>(layer_contribution * orientation));
       }
-      if (points.size() < 3U) {
-        return not_implemented;
+      return com::ok;
+    };
+    if (mode == fill_mode::alternate) {
+      const com::result trace_status = trace_layer(
+          [](const classified_boundary_edge& edge, bool left) {
+            return left ? edge.alternate_left : edge.alternate_right;
+          },
+          1);
+      if (com::failed(trace_status)) {
+        return trace_status;
       }
-      normalized.push_back(std::move(points));
+    } else {
+      for (std::int32_t level = 1;
+           level <= maximum_positive_winding; ++level) {
+        const com::result trace_status = trace_layer(
+            [level](const classified_boundary_edge& edge, bool left) {
+              return (left ? edge.winding_left : edge.winding_right) >=
+                  level;
+            },
+            1);
+        if (com::failed(trace_status)) {
+          return trace_status;
+        }
+      }
+      for (std::int32_t level = 1;
+           level <= maximum_negative_winding; ++level) {
+        const com::result trace_status = trace_layer(
+            [level](const classified_boundary_edge& edge, bool left) {
+              return (left ? edge.winding_left : edge.winding_right) <=
+                  -level;
+            },
+            -1);
+        if (com::failed(trace_status)) {
+          return trace_status;
+        }
+      }
+    }
+    if (normalized.empty() ||
+        normalized.size() != normalized_contributions.size()) {
+      return not_implemented;
     }
     contours = std::move(normalized);
+    winding_contributions = std::move(normalized_contributions);
     return com::ok;
   } catch (const std::bad_alloc&) {
     return com::out_of_memory;
@@ -5854,18 +5948,14 @@ public:
             }
             std::vector<std::vector<point_2f>> contours;
             std::vector<std::int8_t> winding_contributions;
-            const std::size_t source_filled_contour_count =
-                static_cast<std::size_t>(std::count_if(
-                    source_contours.begin(),
-                    source_contours.end(),
-                    [](const std::vector<point_2f>& points) {
-                        return points.size() >= 3U;
-                    }));
+            bool has_layered_self_intersection = false;
             contours.reserve(source_contours.size() + 1U);
             winding_contributions.reserve(source_contours.size() + 1U);
             const auto append_normalized_contour = [
                 &contours,
-                &winding_contributions](std::vector<point_2f> contour) {
+                &winding_contributions](
+                    std::vector<point_2f> contour,
+                    std::int8_t retained_contribution = 0) {
                 const double twice_area =
                     polygon_twice_signed_area(contour);
                 if (!std::isfinite(twice_area)) {
@@ -5874,9 +5964,12 @@ public:
                 if (twice_area == 0.0) {
                     return com::ok;
                 }
-                const std::int8_t contribution =
+                const std::int8_t orientation =
                     twice_area < 0.0 ? -1 : 1;
-                if (contribution < 0) {
+                const std::int8_t contribution = retained_contribution == 0
+                    ? orientation
+                    : retained_contribution;
+                if (orientation < 0) {
                     std::reverse(contour.begin(), contour.end());
                 }
                 contours.push_back(std::move(contour));
@@ -6005,24 +6098,26 @@ public:
                     continue;
                 }
                 if (crossing_count > 1U) {
-                    if (data_->mode == fill_mode::winding &&
-                        source_filled_contour_count != 1U) {
-                        return not_implemented;
-                    }
                     std::vector<std::vector<point_2f>> normalized_self;
+                    std::vector<std::int8_t> normalized_contributions;
                     const com::result self_status =
                         normalize_self_intersecting_contour(
                             contour,
                             data_->mode,
-                            normalized_self);
+                            normalized_self,
+                            normalized_contributions);
                     if (com::failed(self_status)) {
                         return self_status;
                     }
-                    for (std::vector<point_2f>& normalized_contour :
-                         normalized_self) {
+                    has_layered_self_intersection =
+                        data_->mode == fill_mode::winding;
+                    for (std::size_t normalized_index = 0U;
+                         normalized_index < normalized_self.size();
+                         ++normalized_index) {
                         const com::result append_status =
                             append_normalized_contour(
-                                std::move(normalized_contour));
+                                std::move(normalized_self[normalized_index]),
+                                normalized_contributions[normalized_index]);
                         if (com::failed(append_status)) {
                             return append_status;
                         }
@@ -6128,7 +6223,8 @@ public:
                 }
                 return false;
             };
-            bool requires_boolean_normalization = false;
+            bool requires_boolean_normalization =
+                has_layered_self_intersection;
             for (std::size_t first = 0U;
                  !requires_boolean_normalization && first < contours.size();
                  ++first) {

@@ -759,10 +759,13 @@ phase; crossing solves and dependent walks are scalar. Genuine Direct2D
 ARM64/x64 bow-tie differentials match the two-figure/six-line transcript,
 unchanged flags, dense lobes, and area. Alternate and winding five-crossing
 pentagrams also match system callback topology, area, and full dense region
-lattices. Repeated or triple crossing points, collinear or endpoint-ambiguous
-intersections, numerically invalid graphs, and mixing a multiple-crossing
-winding contour with other winding figures still fail closed transactionally
-until winding magnitude is retained across figure boundaries.
+lattices. Winding self-intersections retain each positive and negative integer
+winding layer as a signed simple contour before whole-path normalization. A
+reverse-wound square inside the pentagram's +2 center therefore subtracts one
+layer without opening a hole; local and genuine Direct2D ARM64/x64 callback,
+area, and dense-region comparisons match. Repeated or triple crossing points,
+collinear or endpoint-ambiguous intersections, and numerically invalid graphs
+still fail closed transactionally.
 
 `ID2D1PathGeometry::ComputeArea` now consumes the same transactionally
 normalized Outline contours instead of summing each source figure in
@@ -774,8 +777,8 @@ independent boundary-pair work stays in the shared NEON/SSE2 normalizer.
 Portable hole/overlap fixtures and genuine Direct2D ARM64/x64 shared-edge,
 alternate-overlap, winding-overlap, corner-contact, and T-contact comparisons
 match exactly. Qualified bow-tie plus alternate and winding five-crossing
-pentagram inputs share the same area path; ambiguous crossings and mixed-figure
-multiple-crossing winding inputs fail closed with initialized zero output.
+pentagram inputs, including mixed-figure signed-layer cancellation, share the
+same area path; ambiguous crossings fail closed with initialized zero output.
 
 Portable nondegenerate rectangle geometry also implements exact
 `GetWidenedBounds` for the default stroke and same-factory solid stroke
