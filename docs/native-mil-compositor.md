@@ -6519,18 +6519,21 @@ bounds match the genuine Windows system implementation after a clean 30-step
 ARM64 core/provider rebuild, while optimized and sanitizer tests remain green
 locally.
 
-The closed-figure `Widen` output lane accepts a simple contour with a positive-
-width null/default miter stroke, including concave contours whose
+The closed-figure `Widen` output lane accepts a simple contour with a
+nonnegative null/default miter stroke width, including concave contours whose
 offset rings remain simple and non-collapsed. Outer
 and inner offset contours, miter limits, and surviving inner topology are
 validated transactionally before the caller sink is touched. Their independent
 world transforms execute four-wide through NEON or SSE2, after which the sink
-receives alternate-fill force-unstroked closed figures. Local tests compare a
-dense widened-fill lattice with `StrokeContainsPoint`; the Windows ARM64 oracle
-compares convex and concave lattices with genuine system Direct2D after a clean
-30-step provider/core build. Unsupported collapsed or self-intersecting
-split/self-intersecting non-convex offsets, non-convex styled closed figures,
-and zero-width cases remain fail closed.
+receives winding-fill figures with an in-place reversed inner contour and no
+segment-flag mutation. Local tests compare a dense widened-fill lattice with
+`StrokeContainsPoint`; Windows ARM64/x64 oracles compare convex, concave, and
+styled output with genuine system Direct2D. Zero-width paths emit the system
+`WINDING` callback and no figures; rectangles retain the system's two
+coincident alternate-fill contours; transformed rectangles emit winding and
+no figures. Callback-count comparisons prove that no Widen lane changes caller
+segment flags. Unsupported collapsed or split/self-intersecting non-convex
+offsets remain fail closed.
 
 ## Invariants
 

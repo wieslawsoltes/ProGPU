@@ -992,19 +992,24 @@ and sanitizer tests and a clean Windows ARM64 system differential. Unsupported
 styles and topology retain initialized empty output and fail closed.
 
 The closed-figure lane of `ID2D1PathGeometry::Widen` covers a simple contour
-with the null/default solid miter stroke and a positive width, including
-concave input
-whose outer and inner offsets remain simple and non-collapsed. The path is
-tolerance-flattened locally;
+with the null/default solid miter stroke and a nonnegative width, including
+concave input whose outer and inner offsets remain simple and non-collapsed.
+The path is tolerance-flattened locally;
 outer and inner offset intersections are fully validated, including miter
 limit and surviving inner topology, before either contour touches the caller
 sink. Both contours are transformed four points at a time through NEON or SSE2
-and emitted as alternate-fill, force-unstroked closed figures. A dense lattice
+and emitted with Direct2D's `WINDING` fill callback; the inner contour is
+reversed in place, and caller segment flags are never mutated. A dense lattice
 compares the widened fill to `StrokeContainsPoint` locally and to a genuine
 system-Direct2D widened sink on Windows ARM64. A second concave-path lattice
-qualifies the re-entrant join and surviving narrow inner ring. Zero width,
-self-intersecting or split non-convex default offsets, non-convex styled
-contours, flags, and unsupported figure topology fail closed transactionally.
+qualifies the re-entrant join and surviving narrow inner ring. Zero-width path
+widening succeeds with one `WINDING` callback and no figures, exactly matching
+the system sink transcript. Rectangle zero-width widening retains Direct2D's
+two coincident alternate-fill contours, while transformed rectangles publish
+their system-compatible winding/no-figure transcript. System and portable
+oracles compare fill-mode and segment-flag callback counts as well as geometry.
+Self-intersecting or split non-convex offsets and unsupported figure topology
+fail closed transactionally.
 
 The focused compatibility target passes all 17 local native CTests and the 10
 managed Direct2D source/ABI contracts. A clean Windows 11 ARM64 Parallels build

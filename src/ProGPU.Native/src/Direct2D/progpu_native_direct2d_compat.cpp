@@ -1293,9 +1293,6 @@ template <std::size_t Capacity>
         rectangle.bottom <= rectangle.top) {
         return not_implemented;
     }
-    if (stroke_width == 0.0F) {
-        return not_implemented;
-    }
     const double half_width = static_cast<double>(stroke_width) * 0.5;
     const std::array<double, 4U> outer_values{
         static_cast<double>(rectangle.left) - half_width,
@@ -1320,7 +1317,6 @@ template <std::size_t Capacity>
         return outer_result;
     }
     sink->SetFillMode(fill_mode::alternate);
-    sink->SetSegmentFlags(path_segment::force_unstroked);
     sink->BeginFigure(outer[0U], figure_begin::filled);
     sink->AddLines(outer.data() + 1U, 3U);
     sink->EndFigure(figure_end::closed);
@@ -1363,17 +1359,19 @@ template <std::size_t Capacity>
     if (sink == nullptr) {
         return com::pointer_error;
     }
-    if (!std::isfinite(stroke_width) || stroke_width <= 0.0F ||
+    if (!std::isfinite(stroke_width) || stroke_width < 0.0F ||
         !std::isfinite(flattening_tolerance) ||
         flattening_tolerance <= 0.0F ||
         !core::valid_transform(world_transform)) {
-        return stroke_width == 0.0F
-            ? not_implemented
-            : com::invalid_argument;
+        return com::invalid_argument;
     }
     if (style != nullptr || rectangle.right <= rectangle.left ||
         rectangle.bottom <= rectangle.top) {
         return not_implemented;
+    }
+    if (stroke_width == 0.0F) {
+        sink->SetFillMode(fill_mode::winding);
+        return com::ok;
     }
     const double half_width = static_cast<double>(stroke_width) * 0.5;
     const double outer_left =
@@ -1463,7 +1461,6 @@ template <std::size_t Capacity>
         }
     }
     sink->SetFillMode(fill_mode::winding);
-    sink->SetSegmentFlags(path_segment::force_unstroked);
     sink->BeginFigure(points[0U], figure_begin::filled);
     sink->AddLines(points.data() + 1U, 26U);
     sink->EndFigure(figure_end::open);

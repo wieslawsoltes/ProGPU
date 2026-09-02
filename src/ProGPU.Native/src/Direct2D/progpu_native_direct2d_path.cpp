@@ -2396,6 +2396,25 @@ void append_outline_line(
     return normalize_simple_polygon(polygon);
 }
 
+void reverse_widened_outline(widened_outline& outline)
+{
+    if (outline.segments.empty()) {
+        return;
+    }
+    const point_2f original_start = outline.start;
+    std::reverse(outline.segments.begin(), outline.segments.end());
+    outline.start = outline.segments.front().end;
+    for (std::size_t index = 0U;
+         index < outline.segments.size(); ++index) {
+        widened_outline_segment& segment = outline.segments[index];
+        const point_2f end = index + 1U < outline.segments.size()
+            ? outline.segments[index + 1U].end
+            : original_start;
+        std::swap(segment.control1, segment.control2);
+        segment.end = end;
+    }
+}
+
 [[nodiscard]] com::result prepare_joined_closed_solid_widen(
     std::span<const point_2f> points,
     std::span<const std::uint8_t> round_joins,
@@ -2461,6 +2480,7 @@ void append_outline_line(
             })) {
         return not_implemented;
     }
+    reverse_widened_outline(prepared[0U]);
     outlines.reserve(outlines.size() + prepared.size());
     for (widened_outline& outline : prepared) {
         outlines.push_back(std::move(outline));
@@ -2853,8 +2873,7 @@ void replay_widened_outlines(
     std::span<const widened_outline> outlines,
     simplified_geometry_sink& sink)
 {
-    sink.SetFillMode(fill_mode::alternate);
-    sink.SetSegmentFlags(path_segment::force_unstroked);
+    sink.SetFillMode(fill_mode::winding);
     for (const widened_outline& outline : outlines) {
         sink.BeginFigure(outline.start, figure_begin::filled);
         for (const widened_outline_segment& segment : outline.segments) {
@@ -5440,7 +5459,8 @@ public:
             return com::invalid_argument;
         }
         if (stroke_width == 0.0F) {
-            return not_implemented;
+            sink->SetFillMode(fill_mode::winding);
+            return com::ok;
         }
         bool dashed = false;
         line_join join = line_join::miter;
@@ -5580,6 +5600,7 @@ public:
                             return not_implemented;
                         }
                     }
+                    std::reverse(inner.begin(), inner.end());
                 }
                 result = transform_points_in_place(outer, world_transform);
                 if (com::failed(result)) {
