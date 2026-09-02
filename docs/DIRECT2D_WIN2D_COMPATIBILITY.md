@@ -751,12 +751,17 @@ alternate XOR area 15, and winding union area 20.
 
 A source contour with exactly one proper transverse self-intersection is split
 at the double-precision line intersection into its two simple lobes before the
-same orientation/fill normalization. Candidate self-edge pairs use the shared
-four-lane NEON/SSE2 AABB broad phase; only the dependent lobe walk and signed
-reduction are scalar. Genuine Direct2D ARM64/x64 bow-tie differentials match
-the two-figure/six-line transcript, unchanged flags, dense filled lobes, empty
-side regions, and area. Multiple, collinear, endpoint-ambiguous, or numerically
-invalid self-crossings still fail closed transactionally.
+same orientation/fill normalization. Alternate-fill contours with multiple
+distinct proper crossings now split every nonadjacent pair, classify parity on
+both sides of each sub-edge, discard internal edges, and trace all filled
+lobes. Candidate self-edge pairs use the shared four-lane NEON/SSE2 AABB broad
+phase; crossing solves and dependent walks are scalar. Genuine Direct2D
+ARM64/x64 bow-tie differentials match the two-figure/six-line transcript,
+unchanged flags, dense lobes, and area. A five-crossing pentagram also matches
+system callback topology, area, and a full dense region lattice. Repeated or
+triple crossing points, collinear or endpoint-ambiguous intersections,
+numerically invalid graphs, and multiple-crossing winding contours still fail
+closed transactionally.
 
 `ID2D1PathGeometry::ComputeArea` now consumes the same transactionally
 normalized Outline contours instead of summing each source figure in
@@ -767,8 +772,9 @@ edges. The dependent signed-area reduction remains scalar by definition; all
 independent boundary-pair work stays in the shared NEON/SSE2 normalizer.
 Portable hole/overlap fixtures and genuine Direct2D ARM64/x64 shared-edge,
 alternate-overlap, winding-overlap, corner-contact, and T-contact comparisons
-match exactly. The qualified single-crossing bow tie shares the same area path;
-multiple or ambiguous self-crossings fail closed with initialized zero output.
+match exactly. Qualified bow-tie and alternate five-crossing pentagram inputs
+share the same area path; ambiguous crossings and multiple-crossing winding
+contours fail closed with initialized zero output.
 
 Portable nondegenerate rectangle geometry also implements exact
 `GetWidenedBounds` for the default stroke and same-factory solid stroke

@@ -359,6 +359,8 @@ public sealed class Direct2DInteropContractTests
         Assert.Contains("class polygon_contours_sink final", pathSource, StringComparison.Ordinal);
         Assert.Contains("requires_boolean_normalization", pathSource, StringComparison.Ordinal);
         Assert.Contains("crossing_count", pathSource, StringComparison.Ordinal);
+        Assert.Contains("normalize_self_intersecting_contour", pathSource, StringComparison.Ordinal);
+        Assert.Contains("crossing_points", pathSource, StringComparison.Ordinal);
         Assert.Contains("normalize_interacting_contours", pathSource, StringComparison.Ordinal);
         Assert.Contains("std::vector<std::uint8_t> operands", pathSource, StringComparison.Ordinal);
         Assert.Contains("std::vector<std::uint8_t> interior_left", pathSource, StringComparison.Ordinal);

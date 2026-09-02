@@ -2829,6 +2829,74 @@ int run_tests()
         captured_fill_contains(*raw_self_outline_sink, {0.5F, 2.0F})) {
       return 440;
     }
+    compat::path_geometry* raw_star_outline_path = nullptr;
+    compat::geometry_sink* raw_star_outline_path_sink = nullptr;
+    if (factory->CreatePathGeometry(&raw_star_outline_path) != com::ok ||
+        raw_star_outline_path == nullptr ||
+        raw_star_outline_path->Open(&raw_star_outline_path_sink) != com::ok ||
+        raw_star_outline_path_sink == nullptr) {
+      return 451;
+    }
+    com::pointer<compat::path_geometry> star_outline_path;
+    star_outline_path.attach(raw_star_outline_path);
+    com::pointer<compat::geometry_sink> star_outline_path_sink;
+    star_outline_path_sink.attach(raw_star_outline_path_sink);
+    constexpr std::array<compat::point_2f, 5U> star_outline_points{{
+        {0.0F, -5.0F},
+        {2.938926F, 4.045085F},
+        {-4.755283F, -1.545085F},
+        {4.755283F, -1.545085F},
+        {-2.938926F, 4.045085F},
+    }};
+    star_outline_path_sink->BeginFigure(
+        star_outline_points[0U], compat::figure_begin::filled);
+    star_outline_path_sink->AddLines(
+        star_outline_points.data() + 1U,
+        static_cast<std::uint32_t>(star_outline_points.size() - 1U));
+    star_outline_path_sink->EndFigure(compat::figure_end::closed);
+    if (star_outline_path_sink->Close() != com::ok) {
+      return 452;
+    }
+    star_outline_path_sink.Reset();
+    auto* raw_star_outline_sink = new simplified_sink();
+    com::pointer<compat::simplified_geometry_sink> star_outline_sink;
+    star_outline_sink.attach(raw_star_outline_sink);
+    float star_outline_area = 0.0F;
+    if (star_outline_path->Outline(
+            nullptr, 0.01F, star_outline_sink.get()) != com::ok ||
+        star_outline_path->ComputeArea(
+            nullptr, 0.01F, &star_outline_area) != com::ok ||
+        star_outline_area <= 0.0F ||
+        raw_star_outline_sink->begin_count == 0U ||
+        raw_star_outline_sink->begin_count !=
+            raw_star_outline_sink->end_count) {
+      return 453;
+    }
+    for (std::uint32_t y_index = 0U; y_index < 46U; ++y_index) {
+      for (std::uint32_t x_index = 0U; x_index < 46U; ++x_index) {
+        const compat::point_2f point{
+            -5.17F + static_cast<float>(x_index) * 0.23F,
+            -5.11F + static_cast<float>(y_index) * 0.23F};
+        std::int32_t source_contains = 0;
+        if (star_outline_path->FillContainsPoint(
+                point, nullptr, 0.0001F, &source_contains) != com::ok ||
+            captured_fill_contains(*raw_star_outline_sink, point) !=
+                (source_contains != 0)) {
+          std::fprintf(
+              stderr,
+              "star outline mismatch point=%g,%g source=%d output=%d "
+              "area=%g figures=%u lines=%u\n",
+              point.x,
+              point.y,
+              source_contains,
+              captured_fill_contains(*raw_star_outline_sink, point) ? 1 : 0,
+              star_outline_area,
+              raw_star_outline_sink->begin_count,
+              raw_star_outline_sink->line_count);
+          return 454;
+        }
+      }
+    }
     for (std::uint32_t winding = 0U; winding < 2U; ++winding) {
       compat::path_geometry* raw_triple_outline_path = nullptr;
       compat::geometry_sink* raw_triple_outline_path_sink = nullptr;
@@ -8595,6 +8663,20 @@ int run_tests()
               self_points.data(),
               static_cast<UINT32>(self_points.size()));
           sink_value->EndFigure(D2D1_FIGURE_END_CLOSED);
+        } else if (scenario == 11U) {
+          constexpr std::array<D2D1_POINT_2F, 5U> star_points{{
+              {0.0F, -5.0F},
+              {2.938926F, 4.045085F},
+              {-4.755283F, -1.545085F},
+              {4.755283F, -1.545085F},
+              {-2.938926F, 4.045085F},
+          }};
+          sink_value->BeginFigure(
+              star_points[0U], D2D1_FIGURE_BEGIN_FILLED);
+          sink_value->AddLines(
+              star_points.data() + 1U,
+              static_cast<UINT32>(star_points.size() - 1U));
+          sink_value->EndFigure(D2D1_FIGURE_END_CLOSED);
         } else {
         if (scenario == 2U || scenario == 5U || scenario == 10U) {
           sink_value->SetFillMode(D2D1_FILL_MODE_WINDING);
@@ -9203,7 +9285,7 @@ int run_tests()
       system_factory->Release();
       return 432;
     }
-    for (std::uint32_t scenario = 3U; scenario <= 10U; ++scenario) {
+    for (std::uint32_t scenario = 3U; scenario <= 11U; ++scenario) {
       ID2D1PathGeometry* portable_normalized_outline_path = nullptr;
       ID2D1PathGeometry* system_normalized_outline_path = nullptr;
       if (FAILED(create_multi_outline_path(
@@ -9271,7 +9353,11 @@ int run_tests()
                           ? 18.0F
                           : (scenario == 8U
                               ? 8.0F
-                              : (scenario == 9U ? 15.0F : 20.0F))))));
+                              : (scenario == 9U
+                                  ? 15.0F
+                                  : (scenario == 10U
+                                      ? 20.0F
+                                      : system_normalized_area)))))));
       bool normalized_outline_matches =
           SUCCEEDED(portable_normalized_outline_status) &&
           SUCCEEDED(system_normalized_outline_status) &&
@@ -9295,12 +9381,17 @@ int run_tests()
               raw_system_normalized_outline_sink->end_count &&
           raw_portable_normalized_outline_sink->line_count ==
               raw_system_normalized_outline_sink->line_count;
+      const std::uint32_t normalized_probe_rows =
+          scenario == 11U ? 26U : 20U;
       for (std::uint32_t y_index = 0U;
-           normalized_outline_matches && y_index < 20U; ++y_index) {
+           normalized_outline_matches && y_index < normalized_probe_rows;
+           ++y_index) {
         for (std::uint32_t x_index = 0U; x_index < 26U; ++x_index) {
+          const float probe_start = scenario == 11U ? -5.17F : -0.25F;
+          const float probe_step = scenario == 11U ? 0.41F : 0.23F;
           const compat::point_2f point{
-              -0.25F + static_cast<float>(x_index) * 0.23F,
-              -0.25F + static_cast<float>(y_index) * 0.23F};
+              probe_start + static_cast<float>(x_index) * probe_step,
+              probe_start + static_cast<float>(y_index) * probe_step};
           if (captured_fill_contains(
                   *raw_portable_normalized_outline_sink, point) !=
               captured_fill_contains(
