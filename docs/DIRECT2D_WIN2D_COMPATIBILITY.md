@@ -757,11 +757,12 @@ both sides of each sub-edge, discard internal edges, and trace all filled
 lobes. Candidate self-edge pairs use the shared four-lane NEON/SSE2 AABB broad
 phase; crossing solves and dependent walks are scalar. Genuine Direct2D
 ARM64/x64 bow-tie differentials match the two-figure/six-line transcript,
-unchanged flags, dense lobes, and area. A five-crossing pentagram also matches
-system callback topology, area, and a full dense region lattice. Repeated or
-triple crossing points, collinear or endpoint-ambiguous intersections,
-numerically invalid graphs, and multiple-crossing winding contours still fail
-closed transactionally.
+unchanged flags, dense lobes, and area. Alternate and winding five-crossing
+pentagrams also match system callback topology, area, and full dense region
+lattices. Repeated or triple crossing points, collinear or endpoint-ambiguous
+intersections, numerically invalid graphs, and mixing a multiple-crossing
+winding contour with other winding figures still fail closed transactionally
+until winding magnitude is retained across figure boundaries.
 
 `ID2D1PathGeometry::ComputeArea` now consumes the same transactionally
 normalized Outline contours instead of summing each source figure in
@@ -772,9 +773,9 @@ edges. The dependent signed-area reduction remains scalar by definition; all
 independent boundary-pair work stays in the shared NEON/SSE2 normalizer.
 Portable hole/overlap fixtures and genuine Direct2D ARM64/x64 shared-edge,
 alternate-overlap, winding-overlap, corner-contact, and T-contact comparisons
-match exactly. Qualified bow-tie and alternate five-crossing pentagram inputs
-share the same area path; ambiguous crossings and multiple-crossing winding
-contours fail closed with initialized zero output.
+match exactly. Qualified bow-tie plus alternate and winding five-crossing
+pentagram inputs share the same area path; ambiguous crossings and mixed-figure
+multiple-crossing winding inputs fail closed with initialized zero output.
 
 Portable nondegenerate rectangle geometry also implements exact
 `GetWidenedBounds` for the default stroke and same-factory solid stroke

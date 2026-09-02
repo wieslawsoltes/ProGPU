@@ -5854,6 +5854,13 @@ public:
             }
             std::vector<std::vector<point_2f>> contours;
             std::vector<std::int8_t> winding_contributions;
+            const std::size_t source_filled_contour_count =
+                static_cast<std::size_t>(std::count_if(
+                    source_contours.begin(),
+                    source_contours.end(),
+                    [](const std::vector<point_2f>& points) {
+                        return points.size() >= 3U;
+                    }));
             contours.reserve(source_contours.size() + 1U);
             winding_contributions.reserve(source_contours.size() + 1U);
             const auto append_normalized_contour = [
@@ -5998,7 +6005,8 @@ public:
                     continue;
                 }
                 if (crossing_count > 1U) {
-                    if (data_->mode != fill_mode::alternate) {
+                    if (data_->mode == fill_mode::winding &&
+                        source_filled_contour_count != 1U) {
                         return not_implemented;
                     }
                     std::vector<std::vector<point_2f>> normalized_self;
