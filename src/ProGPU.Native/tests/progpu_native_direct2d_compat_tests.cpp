@@ -2517,6 +2517,61 @@ int run_tests()
         captured_fill_contains(*raw_nested_outline_sink, {3.0F, 1.0F})) {
       return 425;
     }
+    compat::path_geometry* raw_winding_outline_path = nullptr;
+    compat::geometry_sink* raw_winding_outline_path_sink = nullptr;
+    if (factory->CreatePathGeometry(&raw_winding_outline_path) != com::ok ||
+        raw_winding_outline_path == nullptr ||
+        raw_winding_outline_path->Open(&raw_winding_outline_path_sink) !=
+            com::ok ||
+        raw_winding_outline_path_sink == nullptr) {
+      return 428;
+    }
+    com::pointer<compat::path_geometry> winding_outline_path;
+    winding_outline_path.attach(raw_winding_outline_path);
+    com::pointer<compat::geometry_sink> winding_outline_path_sink;
+    winding_outline_path_sink.attach(raw_winding_outline_path_sink);
+    winding_outline_path_sink->SetFillMode(compat::fill_mode::winding);
+    winding_outline_path_sink->BeginFigure(
+        {0.0F, 0.0F}, compat::figure_begin::filled);
+    winding_outline_path_sink->AddLines(
+        multi_closed_points.data(),
+        static_cast<std::uint32_t>(multi_closed_points.size()));
+    winding_outline_path_sink->EndFigure(compat::figure_end::closed);
+    winding_outline_path_sink->BeginFigure(
+        {0.5F, 0.5F}, compat::figure_begin::filled);
+    constexpr std::array<compat::point_2f, 3U>
+        winding_hole_points{{
+            {0.5F, 1.5F},
+            {1.5F, 1.5F},
+            {1.5F, 0.5F},
+        }};
+    winding_outline_path_sink->AddLines(
+        winding_hole_points.data(),
+        static_cast<std::uint32_t>(winding_hole_points.size()));
+    winding_outline_path_sink->EndFigure(compat::figure_end::closed);
+    if (winding_outline_path_sink->Close() != com::ok) {
+      return 429;
+    }
+    winding_outline_path_sink.Reset();
+    auto* raw_winding_outline_sink = new simplified_sink();
+    com::pointer<compat::simplified_geometry_sink> winding_outline_sink;
+    winding_outline_sink.attach(raw_winding_outline_sink);
+    if (winding_outline_path->Outline(
+            nullptr,
+            core::default_flattening_tolerance,
+            winding_outline_sink.get()) != com::ok ||
+        raw_winding_outline_sink->fill_mode !=
+            compat::fill_mode::alternate ||
+        raw_winding_outline_sink->set_fill_mode_count != 1U ||
+        raw_winding_outline_sink->set_segment_flags_count != 0U ||
+        raw_winding_outline_sink->begin_count != 2U ||
+        raw_winding_outline_sink->end_count != 2U ||
+        raw_winding_outline_sink->line_count != 8U ||
+        !captured_fill_contains(*raw_winding_outline_sink, {0.25F, 0.25F}) ||
+        captured_fill_contains(*raw_winding_outline_sink, {1.0F, 1.0F}) ||
+        captured_fill_contains(*raw_winding_outline_sink, {3.0F, 1.0F})) {
+      return 430;
+    }
 
     compat::path_geometry* raw_multi_rejected_widen_path = nullptr;
     compat::geometry_sink* raw_multi_rejected_widen_path_sink = nullptr;
@@ -8186,7 +8241,7 @@ int run_tests()
       return 394;
     }
     const auto create_multi_outline_path = [](ID2D1Factory* path_factory,
-                                               bool nested,
+                                               std::uint32_t scenario,
                                                ID2D1PathGeometry** value) {
       if (path_factory == nullptr || value == nullptr) {
         return E_POINTER;
@@ -8199,6 +8254,9 @@ int run_tests()
         status = path_value->Open(&sink_value);
       }
       if (SUCCEEDED(status)) {
+        if (scenario == 2U) {
+          sink_value->SetFillMode(D2D1_FILL_MODE_WINDING);
+        }
         sink_value->BeginFigure(
             D2D1_POINT_2F{0.0F, 0.0F}, D2D1_FIGURE_BEGIN_FILLED);
         constexpr std::array<D2D1_POINT_2F, 3U> first_points{{
@@ -8209,6 +8267,7 @@ int run_tests()
         sink_value->AddLines(
             first_points.data(), static_cast<UINT32>(first_points.size()));
         sink_value->EndFigure(D2D1_FIGURE_END_CLOSED);
+        const bool nested = scenario != 0U;
         const float left = nested ? 0.5F : 10.0F;
         const float top = nested ? 0.5F : 0.0F;
         const float right = nested ? 1.5F : 12.0F;
@@ -8240,9 +8299,9 @@ int run_tests()
     ID2D1PathGeometry* portable_multi_outline_path = nullptr;
     ID2D1PathGeometry* system_multi_outline_path = nullptr;
     if (FAILED(create_multi_outline_path(
-            native_factory, false, &portable_multi_outline_path)) ||
+            native_factory, 0U, &portable_multi_outline_path)) ||
         FAILED(create_multi_outline_path(
-            system_factory, false, &system_multi_outline_path)) ||
+            system_factory, 0U, &system_multi_outline_path)) ||
         portable_multi_outline_path == nullptr ||
         system_multi_outline_path == nullptr) {
       if (portable_multi_outline_path != nullptr) {
@@ -8342,9 +8401,9 @@ int run_tests()
     ID2D1PathGeometry* portable_nested_outline_path = nullptr;
     ID2D1PathGeometry* system_nested_outline_path = nullptr;
     if (FAILED(create_multi_outline_path(
-            native_factory, true, &portable_nested_outline_path)) ||
+            native_factory, 1U, &portable_nested_outline_path)) ||
         FAILED(create_multi_outline_path(
-            system_factory, true, &system_nested_outline_path)) ||
+            system_factory, 1U, &system_nested_outline_path)) ||
         portable_nested_outline_path == nullptr ||
         system_nested_outline_path == nullptr) {
       if (portable_nested_outline_path != nullptr) {
@@ -8441,6 +8500,110 @@ int run_tests()
       system_open_query_path->Release();
       system_factory->Release();
       return 427;
+    }
+    ID2D1PathGeometry* portable_winding_outline_path = nullptr;
+    ID2D1PathGeometry* system_winding_outline_path = nullptr;
+    if (FAILED(create_multi_outline_path(
+            native_factory, 2U, &portable_winding_outline_path)) ||
+        FAILED(create_multi_outline_path(
+            system_factory, 2U, &system_winding_outline_path)) ||
+        portable_winding_outline_path == nullptr ||
+        system_winding_outline_path == nullptr) {
+      if (portable_winding_outline_path != nullptr) {
+        portable_winding_outline_path->Release();
+      }
+      if (system_winding_outline_path != nullptr) {
+        system_winding_outline_path->Release();
+      }
+      portable_multi_query_path->Release();
+      system_multi_query_path->Release();
+      portable_open_query_path->Release();
+      system_open_query_path->Release();
+      system_factory->Release();
+      return 431;
+    }
+    auto* raw_portable_winding_outline_sink = new simplified_sink();
+    com::pointer<compat::simplified_geometry_sink>
+        portable_winding_outline_sink;
+    portable_winding_outline_sink.attach(raw_portable_winding_outline_sink);
+    auto* raw_system_winding_outline_sink = new simplified_sink();
+    com::pointer<compat::simplified_geometry_sink> system_winding_outline_sink;
+    system_winding_outline_sink.attach(raw_system_winding_outline_sink);
+    const HRESULT portable_winding_outline_status =
+        portable_winding_outline_path->Outline(
+            nullptr,
+            D2D1_DEFAULT_FLATTENING_TOLERANCE,
+            reinterpret_cast<ID2D1SimplifiedGeometrySink*>(
+                portable_winding_outline_sink.get()));
+    const HRESULT system_winding_outline_status =
+        system_winding_outline_path->Outline(
+            nullptr,
+            D2D1_DEFAULT_FLATTENING_TOLERANCE,
+            reinterpret_cast<ID2D1SimplifiedGeometrySink*>(
+                system_winding_outline_sink.get()));
+    bool winding_outline_matches =
+        SUCCEEDED(portable_winding_outline_status) &&
+        SUCCEEDED(system_winding_outline_status) &&
+        raw_portable_winding_outline_sink->fill_mode ==
+            raw_system_winding_outline_sink->fill_mode &&
+        raw_portable_winding_outline_sink->segment_flags ==
+            raw_system_winding_outline_sink->segment_flags &&
+        raw_portable_winding_outline_sink->set_fill_mode_count ==
+            raw_system_winding_outline_sink->set_fill_mode_count &&
+        raw_portable_winding_outline_sink->set_segment_flags_count ==
+            raw_system_winding_outline_sink->set_segment_flags_count &&
+        raw_portable_winding_outline_sink->begin_count ==
+            raw_system_winding_outline_sink->begin_count &&
+        raw_portable_winding_outline_sink->end_count ==
+            raw_system_winding_outline_sink->end_count &&
+        raw_portable_winding_outline_sink->line_count ==
+            raw_system_winding_outline_sink->line_count;
+    for (std::uint32_t y_index = 0U;
+         winding_outline_matches && y_index < 10U; ++y_index) {
+      for (std::uint32_t x_index = 0U; x_index < 10U; ++x_index) {
+        const compat::point_2f point{
+            -0.25F + static_cast<float>(x_index) * 0.28F,
+            -0.25F + static_cast<float>(y_index) * 0.28F};
+        if (captured_fill_contains(
+                *raw_portable_winding_outline_sink, point) !=
+            captured_fill_contains(*raw_system_winding_outline_sink, point)) {
+          winding_outline_matches = false;
+          break;
+        }
+      }
+    }
+    portable_winding_outline_path->Release();
+    system_winding_outline_path->Release();
+    if (!winding_outline_matches) {
+      std::fprintf(
+          stderr,
+          "winding outline status=%ld/%ld fill=%u/%u flags=%u/%u "
+          "callbacks=%u/%u,%u/%u geometry=%u/%u,%u/%u,%u/%u\n",
+          static_cast<long>(portable_winding_outline_status),
+          static_cast<long>(system_winding_outline_status),
+          static_cast<unsigned>(
+              raw_portable_winding_outline_sink->fill_mode),
+          static_cast<unsigned>(raw_system_winding_outline_sink->fill_mode),
+          static_cast<unsigned>(
+              raw_portable_winding_outline_sink->segment_flags),
+          static_cast<unsigned>(
+              raw_system_winding_outline_sink->segment_flags),
+          raw_portable_winding_outline_sink->set_fill_mode_count,
+          raw_system_winding_outline_sink->set_fill_mode_count,
+          raw_portable_winding_outline_sink->set_segment_flags_count,
+          raw_system_winding_outline_sink->set_segment_flags_count,
+          raw_portable_winding_outline_sink->begin_count,
+          raw_system_winding_outline_sink->begin_count,
+          raw_portable_winding_outline_sink->end_count,
+          raw_system_winding_outline_sink->end_count,
+          raw_portable_winding_outline_sink->line_count,
+          raw_system_winding_outline_sink->line_count);
+      portable_multi_query_path->Release();
+      system_multi_query_path->Release();
+      portable_open_query_path->Release();
+      system_open_query_path->Release();
+      system_factory->Release();
+      return 432;
     }
     const D2D1_STROKE_STYLE_PROPERTIES open_dash_properties{
         D2D1_CAP_STYLE_FLAT,

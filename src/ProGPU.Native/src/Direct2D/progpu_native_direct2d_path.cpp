@@ -5202,6 +5202,8 @@ public:
         try {
             std::vector<std::vector<point_2f>> contours(
                 data_->figures.size());
+            std::vector<std::int8_t> winding_contributions(
+                data_->figures.size(), 0);
             for (const auto& edge : edges) {
                 if (data_->figures[edge.figure_index].begin !=
                         figure_begin::filled ||
@@ -5219,7 +5221,9 @@ public:
                     points.push_back(edge.end);
                 }
             }
-            for (std::vector<point_2f>& contour : contours) {
+            for (std::size_t contour_index = 0U;
+                 contour_index < contours.size(); ++contour_index) {
+                std::vector<point_2f>& contour = contours[contour_index];
                 while (contour.size() > 1U &&
                        same_point(contour.front(), contour.back())) {
                     contour.pop_back();
@@ -5260,17 +5264,27 @@ public:
                 if (twice_area == 0.0) {
                     contour.clear();
                 } else if (twice_area < 0.0) {
+                    winding_contributions[contour_index] = -1;
                     std::reverse(contour.begin(), contour.end());
+                } else {
+                    winding_contributions[contour_index] = 1;
                 }
             }
-            contours.erase(
-                std::remove_if(
-                    contours.begin(),
-                    contours.end(),
-                    [](const std::vector<point_2f>& contour) {
-                        return contour.empty();
-                    }),
-                contours.end());
+            std::vector<std::vector<point_2f>> normalized_contours;
+            std::vector<std::int8_t> normalized_winding_contributions;
+            normalized_contours.reserve(contours.size());
+            normalized_winding_contributions.reserve(contours.size());
+            for (std::size_t index = 0U; index < contours.size(); ++index) {
+                if (!contours[index].empty()) {
+                    normalized_contours.push_back(
+                        std::move(contours[index]));
+                    normalized_winding_contributions.push_back(
+                        winding_contributions[index]);
+                }
+            }
+            contours = std::move(normalized_contours);
+            winding_contributions =
+                std::move(normalized_winding_contributions);
             for (std::size_t first = 0U;
                  first < contours.size(); ++first) {
                 for (std::size_t second = first + 1U;
@@ -5293,38 +5307,51 @@ public:
                             }
                         }
                     }
-                    if (data_->mode != fill_mode::alternate &&
-                        (classify_polygon_point(
-                             contours[first], contours[second].front()) !=
-                             polygon_point_relation::outside ||
-                         classify_polygon_point(
-                             contours[second], contours[first].front()) !=
-                             polygon_point_relation::outside)) {
-                        return not_implemented;
-                    }
                 }
             }
-            if (data_->mode == fill_mode::alternate) {
-                for (std::size_t contour_index = 0U;
-                     contour_index < contours.size(); ++contour_index) {
-                    std::size_t containment_depth = 0U;
-                    for (std::size_t candidate = 0U;
-                         candidate < contours.size(); ++candidate) {
-                        if (candidate != contour_index &&
-                            classify_polygon_point(
-                                contours[candidate],
-                                contours[contour_index].front()) ==
-                                polygon_point_relation::inside) {
-                            ++containment_depth;
-                        }
+            for (std::size_t contour_index = 0U;
+                 contour_index < contours.size(); ++contour_index) {
+                std::size_t containment_depth = 0U;
+                std::int32_t outside_winding = 0;
+                for (std::size_t candidate = 0U;
+                     candidate < contours.size(); ++candidate) {
+                    if (candidate != contour_index &&
+                        classify_polygon_point(
+                            contours[candidate],
+                            contours[contour_index].front()) ==
+                            polygon_point_relation::inside) {
+                        ++containment_depth;
+                        outside_winding += winding_contributions[candidate];
                     }
+                }
+                if (data_->mode == fill_mode::alternate) {
                     if ((containment_depth & 1U) != 0U) {
                         std::reverse(
                             contours[contour_index].begin(),
                             contours[contour_index].end());
                     }
+                    continue;
+                }
+                const std::int32_t inside_winding =
+                    outside_winding + winding_contributions[contour_index];
+                const bool outside_filled = outside_winding != 0;
+                const bool inside_filled = inside_winding != 0;
+                if (outside_filled == inside_filled) {
+                    contours[contour_index].clear();
+                } else if (outside_filled) {
+                    std::reverse(
+                        contours[contour_index].begin(),
+                        contours[contour_index].end());
                 }
             }
+            contours.erase(
+                std::remove_if(
+                    contours.begin(),
+                    contours.end(),
+                    [](const std::vector<point_2f>& contour) {
+                        return contour.empty();
+                    }),
+                contours.end());
 
             sink->SetFillMode(fill_mode::alternate);
             for (const std::vector<point_2f>& contour : contours) {

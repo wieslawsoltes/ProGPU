@@ -6469,12 +6469,13 @@ body/gap cases and matches genuine Direct2D on Windows ARM64 and x64.
 contours and non-touching alternate-fill nesting. Every contour is
 tolerance-flattened and normalized before pairwise boundary-intersection
 checks; a containment-depth pass reverses odd-depth hole boundaries so the
-result is fill invariant. Replay uses Direct2D's alternate fill callback and
-leaves caller segment flags unchanged. Local filled-region tests plus Windows
-ARM64/x64 callback-count and dense disjoint/nested-region differentials
-qualify the lane. Winding-rule nesting, touching/overlap, and self-intersection
-remain fail closed until the native boolean normalizer can publish their exact
-boundary.
+result is fill invariant. Winding nesting retains signed source contributions,
+sums ancestor winding, omits redundant same-fill boundaries, and reverses true
+holes. Replay uses Direct2D's alternate fill callback and leaves caller
+segment flags unchanged. Local filled-region tests plus Windows ARM64/x64
+callback-count and dense disjoint/alternate-hole/winding-hole differentials
+qualify the lane. Touching/overlap and self-intersection remain fail closed
+until the native boolean normalizer can publish their exact boundary.
 
 `Widen` now consumes that same partition and prepares the complete mixed-
 figure transaction before caller-sink replay. Closed null/default strokes add
