@@ -2395,18 +2395,18 @@ int run_tests()
         compat::figure_end::closed);
     multi_rejected_widen_path_sink->BeginFigure(
         {10.0F, 0.0F}, compat::figure_begin::hollow);
-    multi_rejected_widen_path_sink->AddLine({14.0F, 0.0F});
+    multi_rejected_widen_path_sink->AddLine({14.0F, 4.0F});
     multi_rejected_widen_path_sink->SetSegmentFlags(
         compat::path_segment::force_round_line_join);
-    constexpr std::array<compat::point_2f, 3U>
-        rejected_concave_points{{
-            {11.0F, 3.0F},
-            {14.0F, 4.0F},
+    constexpr std::array<compat::point_2f, 2U>
+        rejected_self_intersecting_points{{
             {10.0F, 4.0F},
+            {14.0F, 0.0F},
         }};
     multi_rejected_widen_path_sink->AddLines(
-        rejected_concave_points.data(),
-        static_cast<std::uint32_t>(rejected_concave_points.size()));
+        rejected_self_intersecting_points.data(),
+        static_cast<std::uint32_t>(
+            rejected_self_intersecting_points.size()));
     multi_rejected_widen_path_sink->EndFigure(
         compat::figure_end::closed);
     if (multi_rejected_widen_path_sink->Close() != com::ok) {
@@ -3747,15 +3747,40 @@ int run_tests()
   auto *raw_concave_path_widen_sink = new simplified_sink();
   com::pointer<compat::simplified_geometry_sink> concave_path_widen_sink;
   concave_path_widen_sink.attach(raw_concave_path_widen_sink);
+  auto *raw_concave_bevel_path_widen_sink = new simplified_sink();
+  com::pointer<compat::simplified_geometry_sink>
+      concave_bevel_path_widen_sink;
+  concave_bevel_path_widen_sink.attach(
+      raw_concave_bevel_path_widen_sink);
+  auto *raw_concave_round_path_widen_sink = new simplified_sink();
+  com::pointer<compat::simplified_geometry_sink>
+      concave_round_path_widen_sink;
+  concave_round_path_widen_sink.attach(
+      raw_concave_round_path_widen_sink);
   if (boolean_path->Widen(
           0.4F, nullptr, nullptr, core::default_flattening_tolerance,
           concave_path_widen_sink.get()) != com::ok ||
+      boolean_path->Widen(
+          0.4F, bevel_path_stroke_style.get(), nullptr,
+          core::default_flattening_tolerance,
+          concave_bevel_path_widen_sink.get()) != com::ok ||
+      boolean_path->Widen(
+          0.4F, round_path_stroke_style.get(), nullptr,
+          core::default_flattening_tolerance,
+          concave_round_path_widen_sink.get()) != com::ok ||
       raw_concave_path_widen_sink->fill_mode !=
           compat::fill_mode::alternate ||
       raw_concave_path_widen_sink->segment_flags !=
           compat::path_segment::force_unstroked ||
       raw_concave_path_widen_sink->begin_count != 2U ||
-      raw_concave_path_widen_sink->end_count != 2U) {
+      raw_concave_path_widen_sink->end_count != 2U ||
+      raw_concave_bevel_path_widen_sink->begin_count != 2U ||
+      raw_concave_bevel_path_widen_sink->begin_count !=
+          raw_concave_bevel_path_widen_sink->end_count ||
+      raw_concave_round_path_widen_sink->begin_count != 2U ||
+      raw_concave_round_path_widen_sink->begin_count !=
+          raw_concave_round_path_widen_sink->end_count ||
+      raw_concave_round_path_widen_sink->bezier_count == 0U) {
     return 348;
   }
   for (std::uint32_t y_index = 0U; y_index < 20U; ++y_index) {
@@ -3764,11 +3789,45 @@ int run_tests()
           2.57F + static_cast<float>(x_index) * 0.31F,
           0.47F + static_cast<float>(y_index) * 0.47F};
       std::int32_t stroke_contains = 0;
+      std::int32_t bevel_stroke_contains = 0;
+      std::int32_t round_stroke_contains = 0;
       if (boolean_path->StrokeContainsPoint(
               point, 0.4F, nullptr, nullptr, 0.01F,
               &stroke_contains) != com::ok ||
+          boolean_path->StrokeContainsPoint(
+              point, 0.4F, bevel_path_stroke_style.get(), nullptr, 0.01F,
+              &bevel_stroke_contains) != com::ok ||
+          boolean_path->StrokeContainsPoint(
+              point, 0.4F, round_path_stroke_style.get(), nullptr, 0.01F,
+              &round_stroke_contains) != com::ok ||
           captured_fill_contains(*raw_concave_path_widen_sink, point) !=
-              (stroke_contains != 0)) {
+              (stroke_contains != 0) ||
+          captured_fill_contains(
+              *raw_concave_bevel_path_widen_sink, point) !=
+              (bevel_stroke_contains != 0) ||
+          captured_fill_contains(
+              *raw_concave_round_path_widen_sink, point) !=
+              (round_stroke_contains != 0)) {
+        std::fprintf(
+            stderr,
+            "concave styled widen mismatch point=%g,%g "
+            "default=%d/%d bevel=%d/%d round=%d/%d\n",
+            point.x,
+            point.y,
+            captured_fill_contains(*raw_concave_path_widen_sink, point)
+                ? 1
+                : 0,
+            stroke_contains,
+            captured_fill_contains(
+                *raw_concave_bevel_path_widen_sink, point)
+                ? 1
+                : 0,
+            bevel_stroke_contains,
+            captured_fill_contains(
+                *raw_concave_round_path_widen_sink, point)
+                ? 1
+                : 0,
+            round_stroke_contains);
         return 349;
       }
     }
@@ -9682,10 +9741,46 @@ int run_tests()
       system_concave_path_widen_sink;
   system_concave_path_widen_sink.attach(
       raw_system_concave_path_widen_sink);
-  if (FAILED(system_input_boolean_path->Widen(
+  auto *raw_system_concave_bevel_path_widen_sink = new simplified_sink();
+  com::pointer<compat::simplified_geometry_sink>
+      system_concave_bevel_path_widen_sink;
+  system_concave_bevel_path_widen_sink.attach(
+      raw_system_concave_bevel_path_widen_sink);
+  auto *raw_system_concave_round_path_widen_sink = new simplified_sink();
+  com::pointer<compat::simplified_geometry_sink>
+      system_concave_round_path_widen_sink;
+  system_concave_round_path_widen_sink.attach(
+      raw_system_concave_round_path_widen_sink);
+  ID2D1StrokeStyle *system_concave_bevel_style = nullptr;
+  ID2D1StrokeStyle *system_concave_round_style = nullptr;
+  if (FAILED(system_factory->CreateStrokeStyle(
+          &system_bevel_path_properties, nullptr, 0U,
+          &system_concave_bevel_style)) ||
+      FAILED(system_factory->CreateStrokeStyle(
+          &system_round_path_properties, nullptr, 0U,
+          &system_concave_round_style)) ||
+      system_concave_bevel_style == nullptr ||
+      system_concave_round_style == nullptr ||
+      FAILED(system_input_boolean_path->Widen(
           0.4F, nullptr, nullptr, D2D1_DEFAULT_FLATTENING_TOLERANCE,
           reinterpret_cast<ID2D1SimplifiedGeometrySink *>(
-              system_concave_path_widen_sink.get())))) {
+              system_concave_path_widen_sink.get()))) ||
+      FAILED(system_input_boolean_path->Widen(
+          0.4F, system_concave_bevel_style, nullptr,
+          D2D1_DEFAULT_FLATTENING_TOLERANCE,
+          reinterpret_cast<ID2D1SimplifiedGeometrySink *>(
+              system_concave_bevel_path_widen_sink.get()))) ||
+      FAILED(system_input_boolean_path->Widen(
+          0.4F, system_concave_round_style, nullptr,
+          D2D1_DEFAULT_FLATTENING_TOLERANCE,
+          reinterpret_cast<ID2D1SimplifiedGeometrySink *>(
+              system_concave_round_path_widen_sink.get())))) {
+    if (system_concave_bevel_style != nullptr) {
+      system_concave_bevel_style->Release();
+    }
+    if (system_concave_round_style != nullptr) {
+      system_concave_round_style->Release();
+    }
     system_query_boolean_path->Release();
     system_input_boolean_path->Release();
     system_factory->Release();
@@ -9698,7 +9793,17 @@ int run_tests()
           0.47F + static_cast<float>(y_index) * 0.47F};
       if (captured_fill_contains(
               *raw_system_concave_path_widen_sink, point) !=
-          captured_fill_contains(*raw_concave_path_widen_sink, point)) {
+              captured_fill_contains(*raw_concave_path_widen_sink, point) ||
+          captured_fill_contains(
+              *raw_system_concave_bevel_path_widen_sink, point) !=
+              captured_fill_contains(
+                  *raw_concave_bevel_path_widen_sink, point) ||
+          captured_fill_contains(
+              *raw_system_concave_round_path_widen_sink, point) !=
+              captured_fill_contains(
+                  *raw_concave_round_path_widen_sink, point)) {
+        system_concave_bevel_style->Release();
+        system_concave_round_style->Release();
         system_query_boolean_path->Release();
         system_input_boolean_path->Release();
         system_factory->Release();
@@ -9706,6 +9811,8 @@ int run_tests()
       }
     }
   }
+  system_concave_bevel_style->Release();
+  system_concave_round_style->Release();
   for (std::size_t stroke_case_index = 0U;
        stroke_case_index < concave_path_stroke_cases.size();
        ++stroke_case_index) {

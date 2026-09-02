@@ -2195,6 +2195,13 @@ struct widened_outline final {
     std::vector<widened_outline_segment> segments;
 };
 
+[[nodiscard]] bool normalize_simple_polygon(
+    std::vector<point_2f>& polygon) noexcept;
+
+[[nodiscard]] polygon_point_relation classify_polygon_point(
+    std::span<const point_2f> polygon,
+    point_2f point) noexcept;
+
 [[nodiscard]] com::result transform_widened_outline(
     widened_outline& outline,
     const matrix_3x2_f* transform);
@@ -2354,6 +2361,41 @@ void append_outline_line(
     return outline.segments.size() >= 2U ? com::ok : not_implemented;
 }
 
+[[nodiscard]] bool flatten_simple_widened_outline(
+    const widened_outline& outline,
+    double tolerance_squared,
+    std::vector<point_2f>& polygon)
+{
+    polygon.clear();
+    polygon.reserve(outline.segments.size() * 2U + 1U);
+    polygon.push_back(outline.start);
+    point_2f current = outline.start;
+    for (const widened_outline_segment& segment : outline.segments) {
+        if (segment.cubic) {
+            auto append_line = [&polygon](point_2f, point_2f end) {
+                if (polygon.empty() || !same_point(polygon.back(), end)) {
+                    polygon.push_back(end);
+                }
+                return true;
+            };
+            if (!flatten_cubic(
+                    current,
+                    segment.control1,
+                    segment.control2,
+                    segment.end,
+                    tolerance_squared,
+                    0U,
+                    append_line)) {
+                return false;
+            }
+        } else if (!same_point(polygon.back(), segment.end)) {
+            polygon.push_back(segment.end);
+        }
+        current = segment.end;
+    }
+    return normalize_simple_polygon(polygon);
+}
+
 [[nodiscard]] com::result prepare_joined_closed_solid_widen(
     std::span<const point_2f> points,
     std::span<const std::uint8_t> round_joins,
@@ -2363,8 +2405,7 @@ void append_outline_line(
     const matrix_3x2_f* transform,
     std::vector<widened_outline>& outlines)
 {
-    if (round_joins.size() != points.size() ||
-        !strictly_convex_polygon(points)) {
+    if (points.size() < 3U || round_joins.size() != points.size()) {
         return not_implemented;
     }
     std::vector<progpu_native_path_segment> segments;
@@ -2380,6 +2421,9 @@ void append_outline_line(
     const double half_width = static_cast<double>(stroke_width) * 0.5;
     std::array<dash_side, 2U> sides;
     std::array<widened_outline, 2U> prepared;
+    std::array<std::vector<point_2f>, 2U> flattened;
+    const double topology_tolerance =
+        std::max(1.0e-4, half_width * 1.0e-3);
     for (std::size_t index = 0U; index < sides.size(); ++index) {
         const double side = index == 0U ? 1.0 : -1.0;
         com::result result = build_closed_stroke_side(
@@ -2397,10 +2441,25 @@ void append_outline_line(
         if (com::failed(result)) {
             return result;
         }
+        if (!flatten_simple_widened_outline(
+                prepared[index],
+                topology_tolerance * topology_tolerance,
+                flattened[index])) {
+            return not_implemented;
+        }
         result = transform_widened_outline(prepared[index], transform);
         if (com::failed(result)) {
             return result;
         }
+    }
+    if (std::any_of(
+            flattened[0U].begin(),
+            flattened[0U].end(),
+            [&flattened](point_2f point) {
+                return classify_polygon_point(flattened[1U], point) ==
+                    polygon_point_relation::outside;
+            })) {
+        return not_implemented;
     }
     outlines.reserve(outlines.size() + prepared.size());
     for (widened_outline& outline : prepared) {

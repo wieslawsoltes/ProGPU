@@ -6480,8 +6480,13 @@ GPU paths. Dense local and Windows ARM64/x64 system-containment differentials
 cover bevel, round, and full-cover custom dash output. Convex null/default
 strokes omit the inner alternate-fill ring when inward erosion collapses or
 reverses it, so exact-collapse and fully-consumed interiors match the system
-implementation. Non-convex styled or split-erosion contours and invalid
-topology remain typed fail closed.
+implementation. Styled bevel, round, miter, and miter-or-bevel widening also
+accepts non-convex closed figures whose flattened inner and outer side
+contours remain simple and properly contained. That topology validation is
+transactional and precedes every caller-sink callback. Dense concave
+bevel/round output matches both `StrokeContainsPoint` and genuine Direct2D on
+Windows ARM64/x64. Split/self-intersecting erosions and invalid topology
+remain typed fail closed.
 
 The native query/widening lane also preserves typed Direct2D path-segment
 stroke flags. A `FORCE_UNSTROKED` edge splits the flattened figure into
