@@ -378,6 +378,7 @@ public sealed class Direct2DInteropContractTests
         Assert.Contains("PROGPU_NATIVE_SCENE_BRUSH_RADIAL_GRADIENT", renderTargetSource, StringComparison.Ordinal);
         Assert.Contains("builder_.draw_analytic", renderTargetSource, StringComparison.Ordinal);
         Assert.Contains("builder_.draw_geometry", renderTargetSource, StringComparison.Ordinal);
+        Assert.DoesNotContain("std::abs(dpi_x - dpi_y)", renderTargetSource, StringComparison.Ordinal);
         Assert.Contains("wic_source->CopyPixels(", renderTargetSource, StringComparison.Ordinal);
         Assert.Contains("font_face_value->GetGlyphRunOutline(", renderTargetSource, StringComparison.Ordinal);
         Assert.Contains("transformed.get(), foreground, nullptr, text_sample_grid", renderTargetSource, StringComparison.Ordinal);
@@ -394,6 +395,7 @@ public sealed class Direct2DInteropContractTests
         Assert.Contains("class fake_wic_bitmap_source final", nativeTest, StringComparison.Ordinal);
         Assert.Contains("__uuidof(IWICBitmapSource)", nativeTest, StringComparison.Ordinal);
         Assert.Contains("native_target->CreateSharedBitmap(", nativeTest, StringComparison.Ordinal);
+        Assert.Contains("nonuniform_dpi_y, 192.0F", nativeTest, StringComparison.Ordinal);
         Assert.Contains("class fake_font_face final", nativeTest, StringComparison.Ordinal);
         Assert.Contains("class fake_rendering_parameters final", nativeTest, StringComparison.Ordinal);
         Assert.Contains("native_target->SetTextRenderingParams(", nativeTest, StringComparison.Ordinal);

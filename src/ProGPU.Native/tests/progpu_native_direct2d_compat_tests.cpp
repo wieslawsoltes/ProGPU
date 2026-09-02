@@ -6477,10 +6477,25 @@ int run_tests()
             &nonuniform_compatible_pixels,
             &compatible_format,
             compat::compatible_render_target_options::none,
-            &raw_compatible_target) != compat::not_implemented ||
-        raw_compatible_target != nullptr) {
+            &raw_compatible_target) != com::ok ||
+        raw_compatible_target == nullptr) {
         return 236;
     }
+    com::pointer<compat::bitmap_render_target> nonuniform_compatible_target;
+    nonuniform_compatible_target.attach(raw_compatible_target);
+    float nonuniform_dpi_x = 0.0F;
+    float nonuniform_dpi_y = 0.0F;
+    nonuniform_compatible_target->GetDpi(
+        &nonuniform_dpi_x, &nonuniform_dpi_y);
+    const compat::size_f nonuniform_dip_size =
+        nonuniform_compatible_target->GetSize();
+    if (!approximately_equal(nonuniform_dpi_x, 96.0F) ||
+        !approximately_equal(nonuniform_dpi_y, 192.0F) ||
+        !approximately_equal(nonuniform_dip_size.width, 16.0F) ||
+        !approximately_equal(nonuniform_dip_size.height, 12.0F)) {
+        return 236;
+    }
+    raw_compatible_target = nullptr;
     if (target->CreateCompatibleRenderTarget(
             &compatible_size,
             &compatible_pixel_size,
