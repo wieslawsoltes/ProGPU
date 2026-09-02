@@ -3384,6 +3384,26 @@ instances. Portable custom effects remain typed ProGPU shader contracts using
 WGSL or translated HLSL; this Windows registry lane does not pretend that an
 arbitrary `ID2D1EffectImpl` COM graph is portable.
 
+### Windows provider-owned scene-target checkpoint
+
+The exported Windows `ID2D1Factory1` compatibility facade now exposes the same
+typed `scene_factory_native` extension as the macOS/Linux portable factory.
+`CreateSceneRenderTarget` activates the shared provider-owned
+`ID2D1RenderTarget` implementation rather than delegating to a system WIC,
+HWND, HDC, or DXGI target. The returned target retains the original ProGPU
+factory identity, records supported Direct2D resource and draw calls into one
+pointer-free semantic scene, and exposes its required size, summary, and
+serialization through `scene_render_target_native`.
+
+This closes the platform asymmetry at the intended portable boundary: Windows
+COM applications can opt into the same retained render-target contract used by
+recompiled macOS/Linux applications, while unrepresentable native-handle
+factory methods continue to fail closed. Windows ARM64 and x64 `/W4 /WX`
+tests query the extension from the exported factory, verify dimensions and
+factory ownership, record and end a clear-only frame, and require a non-empty
+serialized scene plus exact scene ID, generation, and clear metadata. The
+portable 15-test macOS matrix continues to exercise the shared implementation.
+
 ## Delivery order
 
 1. Keep the dependency classifier and resolver fail-closed invariants green.
