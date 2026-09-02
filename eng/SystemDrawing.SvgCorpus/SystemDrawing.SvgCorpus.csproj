@@ -13,7 +13,6 @@
   <ItemGroup>
     <ProjectReference Include="$(SvgSourceRoot)\Source\Svg.csproj"
                       AdditionalProperties="ManagePackageVersionsCentrally=false" />
-    <ProjectReference Include="..\..\src\System.Drawing.Common\System.Drawing.Common.csproj" />
     <PackageReference Include="StbImageSharp" />
   </ItemGroup>
 </Project>
