@@ -343,7 +343,9 @@ public sealed class Direct2DInteropContractTests
         Assert.Contains("struct wic_bitmap_source : com::unknown", header, StringComparison.Ordinal);
         Assert.Contains("wic_bitmap_source_interface_id", header, StringComparison.Ordinal);
         Assert.Contains("wic_pixel_format_32bpp_pbgra", header, StringComparison.Ordinal);
+        Assert.Contains("wic_pixel_format_32bpp_bgra", header, StringComparison.Ordinal);
         Assert.Contains("wic_pixel_format_32bpp_prgba", header, StringComparison.Ordinal);
+        Assert.Contains("wic_pixel_format_32bpp_rgba", header, StringComparison.Ordinal);
         Assert.Contains("struct glyph_run final", header, StringComparison.Ordinal);
         Assert.Contains("struct font_face : com::unknown", header, StringComparison.Ordinal);
         Assert.Contains("font_face_interface_id", header, StringComparison.Ordinal);
@@ -362,6 +364,13 @@ public sealed class Direct2DInteropContractTests
         Assert.Contains("struct scene_render_target_native : com::unknown", header, StringComparison.Ordinal);
         Assert.Contains("struct geometry_sink : simplified_geometry_sink", header, StringComparison.Ordinal);
         Assert.Contains("class portable_factory final", source, StringComparison.Ordinal);
+        Assert.Contains("premultiply_rgba8", renderTargetSource, StringComparison.Ordinal);
+        Assert.Contains("PROGPU_NATIVE_DIRECT2D_RENDER_TARGET_INTRINSICS_NEON", renderTargetSource, StringComparison.Ordinal);
+        Assert.Contains("PROGPU_NATIVE_DIRECT2D_RENDER_TARGET_INTRINSICS_SSE2", renderTargetSource, StringComparison.Ordinal);
+        Assert.Contains("requires_premultiplication", renderTargetSource, StringComparison.Ordinal);
+        Assert.Contains("premultiplied_pixels", nativeTest, StringComparison.Ordinal);
+        Assert.Contains("exhaustive_dimension = 256U", nativeTest, StringComparison.Ordinal);
+        Assert.Contains("scalar_premultiply", nativeTest, StringComparison.Ordinal);
         Assert.Contains("class portable_transformed_geometry final", source, StringComparison.Ordinal);
         Assert.Contains("class portable_path_geometry final", pathSource, StringComparison.Ordinal);
         Assert.Contains("class portable_geometry_sink final", pathSource, StringComparison.Ordinal);

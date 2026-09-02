@@ -16,6 +16,7 @@
 #include <cstdint>
 #include <cstring>
 #include <limits>
+#include <span>
 #include <vector>
 
 namespace compat = progpu::native::direct2d::compat;
@@ -477,8 +478,25 @@ private:
 
 class fake_wic_bitmap_source final : public compat::wic_bitmap_source {
 public:
-    explicit fake_wic_bitmap_source(com::guid pixel_format) noexcept
-        : pixel_format_(pixel_format)
+    explicit fake_wic_bitmap_source(com::guid pixel_format)
+        : pixels{
+              0x00U, 0x00U, 0x80U, 0x80U,
+              0x00U, 0x40U, 0x00U, 0x40U,
+              0x20U, 0x00U, 0x00U, 0x20U,
+              0xFFU, 0xFFU, 0xFFU, 0xFFU},
+          pixel_format_(pixel_format)
+    {
+    }
+
+    fake_wic_bitmap_source(
+        com::guid pixel_format,
+        std::uint32_t width,
+        std::uint32_t height,
+        std::vector<std::uint8_t> source_pixels) noexcept
+        : pixels(std::move(source_pixels)),
+          pixel_format_(pixel_format),
+          width_(width),
+          height_(height)
     {
     }
 
@@ -519,8 +537,8 @@ public:
         if (width == nullptr || height == nullptr) {
             return com::invalid_argument;
         }
-        *width = 2U;
-        *height = 2U;
+        *width = width_;
+        *height = height_;
         return com::ok;
     }
 
@@ -562,20 +580,24 @@ public:
         ++copy_call_count;
         last_stride = stride;
         last_buffer_size = buffer_size;
-        if (rectangle != nullptr || buffer == nullptr || stride < 8U ||
-            buffer_size < stride + 8U) {
+        const std::uint32_t row_bytes = width_ * 4U;
+        if (rectangle != nullptr || buffer == nullptr ||
+            stride < row_bytes || height_ == 0U ||
+            buffer_size < stride * height_ ||
+            pixels.size() !=
+                static_cast<std::size_t>(row_bytes) * height_) {
             return com::invalid_argument;
         }
-        std::memcpy(buffer, pixels.data(), 8U);
-        std::memcpy(buffer + stride, pixels.data() + 8U, 8U);
+        for (std::uint32_t row = 0U; row < height_; ++row) {
+            std::memcpy(
+                buffer + static_cast<std::size_t>(row) * stride,
+                pixels.data() + static_cast<std::size_t>(row) * row_bytes,
+                row_bytes);
+        }
         return com::ok;
     }
 
-    std::array<std::uint8_t, 16U> pixels{
-        0x00U, 0x00U, 0x80U, 0x80U,
-        0x00U, 0x40U, 0x00U, 0x40U,
-        0x20U, 0x00U, 0x00U, 0x20U,
-        0xFFU, 0xFFU, 0xFFU, 0xFFU};
+    std::vector<std::uint8_t> pixels;
     std::uint32_t resolution_call_count = 0U;
     std::uint32_t copy_call_count = 0U;
     std::uint32_t last_stride = 0U;
@@ -587,6 +609,8 @@ private:
 
     com::atomic_reference_count<fake_wic_bitmap_source> reference_count_;
     com::guid pixel_format_;
+    std::uint32_t width_ = 2U;
+    std::uint32_t height_ = 2U;
 };
 
 class fake_font_face final : public compat::font_face {
@@ -6054,8 +6078,14 @@ int run_tests()
             compat::wic_pixel_format_32bpp_pbgra,
             GUID_WICPixelFormat32bppPBGRA) ||
         !com::guid_equal(
+            compat::wic_pixel_format_32bpp_bgra,
+            GUID_WICPixelFormat32bppBGRA) ||
+        !com::guid_equal(
             compat::wic_pixel_format_32bpp_prgba,
-            GUID_WICPixelFormat32bppPRGBA)) {
+            GUID_WICPixelFormat32bppPRGBA) ||
+        !com::guid_equal(
+            compat::wic_pixel_format_32bpp_rgba,
+            GUID_WICPixelFormat32bppRGBA)) {
         return 246;
     }
     std::uint32_t native_wic_width = 0U;
@@ -6182,6 +6212,168 @@ int run_tests()
             raw_wic_source->pixels.data(),
             raw_wic_source->pixels.size()) != 0) {
         return 251;
+    }
+
+    const std::vector<std::uint8_t> unpremultiplied_pixels{
+        255U, 128U, 64U, 0U,
+        255U, 128U, 64U, 1U,
+        255U, 128U, 64U, 2U,
+        200U, 100U, 50U, 127U,
+        200U, 100U, 50U, 128U,
+        17U, 89U, 231U, 254U,
+        17U, 89U, 231U, 255U,
+        1U, 254U, 127U, 128U,
+        33U, 66U, 99U, 200U};
+    const std::array<std::uint8_t, 36U> premultiplied_pixels{
+        0U, 0U, 0U, 0U,
+        1U, 1U, 0U, 1U,
+        2U, 1U, 1U, 2U,
+        100U, 50U, 25U, 127U,
+        100U, 50U, 25U, 128U,
+        17U, 89U, 230U, 254U,
+        17U, 89U, 231U, 255U,
+        1U, 127U, 64U, 128U,
+        26U, 52U, 78U, 200U};
+    const auto validate_unpremultiplied_wic = [&target, &scene_target](
+            com::guid source_format,
+            std::uint32_t expected_dxgi_format,
+            std::uint32_t width,
+            std::uint32_t height,
+            const std::vector<std::uint8_t>& source_pixels,
+            std::span<const std::uint8_t> expected_pixels) {
+        auto* raw_source = new fake_wic_bitmap_source(
+            source_format, width, height, source_pixels);
+        com::pointer<compat::wic_bitmap_source> source;
+        source.attach(raw_source);
+        compat::bitmap* raw_bitmap = nullptr;
+        if (target->CreateBitmapFromWicBitmap(
+                static_cast<com::unknown*>(source.get()),
+                nullptr,
+                &raw_bitmap) != com::ok ||
+            raw_bitmap == nullptr) {
+            return false;
+        }
+        com::pointer<compat::bitmap> bitmap;
+        bitmap.attach(raw_bitmap);
+        if (bitmap->GetPixelFormat().format != expected_dxgi_format ||
+            bitmap->GetPixelFormat().alpha !=
+                compat::alpha_mode::premultiplied ||
+            bitmap->GetPixelSize().width != width ||
+            bitmap->GetPixelSize().height != height ||
+            raw_source->copy_call_count != 1U ||
+            raw_source->last_stride != width * 4U ||
+            raw_source->last_buffer_size != width * height * 4U) {
+            return false;
+        }
+        target->BeginDraw();
+        target->DrawBitmap(
+            bitmap.get(),
+            nullptr,
+            1.0F,
+            compat::bitmap_interpolation_mode::nearest_neighbor,
+            nullptr);
+        if (target->EndDraw(nullptr, nullptr) != com::ok) {
+            return false;
+        }
+        const std::uint64_t scene_size =
+            scene_target->GetRequiredSceneSize();
+        std::vector<std::byte> scene(static_cast<std::size_t>(scene_size));
+        std::uint64_t scene_written = 0U;
+        if (scene_size == 0U ||
+            scene_target->BuildScene(
+                scene.data(), scene.size(), &scene_written) != com::ok ||
+            scene_written != scene_size) {
+            return false;
+        }
+        const auto* header = reinterpret_cast<
+            const progpu_native_scene_header*>(scene.data());
+        const progpu_native_scene_resource* image = nullptr;
+        for (std::uint32_t index = 0U;
+             index < header->resource_count;
+             ++index) {
+            const auto* candidate = reinterpret_cast<
+                const progpu_native_scene_resource*>(
+                scene.data() + header->resource_offset +
+                static_cast<std::size_t>(index) * header->resource_stride);
+            if (candidate->kind == PROGPU_NATIVE_SCENE_RESOURCE_IMAGE) {
+                image = candidate;
+                break;
+            }
+        }
+        return header->command_count == 1U && image != nullptr &&
+            image->payload_size == expected_pixels.size() &&
+            std::memcmp(
+                scene.data() + image->payload_offset,
+                expected_pixels.data(),
+                expected_pixels.size()) == 0;
+    };
+    if (!validate_unpremultiplied_wic(
+            compat::wic_pixel_format_32bpp_bgra,
+            87U,
+            9U,
+            1U,
+            unpremultiplied_pixels,
+            premultiplied_pixels) ||
+        !validate_unpremultiplied_wic(
+            compat::wic_pixel_format_32bpp_rgba,
+            28U,
+            9U,
+            1U,
+            unpremultiplied_pixels,
+            premultiplied_pixels)) {
+        return 479;
+    }
+
+    constexpr std::uint32_t exhaustive_dimension = 256U;
+    constexpr std::size_t exhaustive_pixel_count =
+        static_cast<std::size_t>(exhaustive_dimension) *
+        exhaustive_dimension;
+    std::vector<std::uint8_t> exhaustive_unpremultiplied(
+        exhaustive_pixel_count * 4U);
+    std::vector<std::uint8_t> exhaustive_premultiplied(
+        exhaustive_pixel_count * 4U);
+    const auto scalar_premultiply = [](
+        std::uint8_t channel,
+        std::uint8_t alpha) {
+        return static_cast<std::uint8_t>(
+            (static_cast<std::uint32_t>(channel) * alpha + 127U) / 255U);
+    };
+    for (std::uint32_t alpha = 0U;
+         alpha < exhaustive_dimension;
+         ++alpha) {
+        for (std::uint32_t channel = 0U;
+             channel < exhaustive_dimension;
+             ++channel) {
+            const std::size_t offset =
+                (static_cast<std::size_t>(alpha) * exhaustive_dimension +
+                    channel) * 4U;
+            const std::uint8_t first = static_cast<std::uint8_t>(channel);
+            const std::uint8_t second = static_cast<std::uint8_t>(
+                255U - channel);
+            const std::uint8_t third = static_cast<std::uint8_t>(
+                (channel * 73U + alpha * 17U) & 0xFFU);
+            const auto alpha_byte = static_cast<std::uint8_t>(alpha);
+            exhaustive_unpremultiplied[offset + 0U] = first;
+            exhaustive_unpremultiplied[offset + 1U] = second;
+            exhaustive_unpremultiplied[offset + 2U] = third;
+            exhaustive_unpremultiplied[offset + 3U] = alpha_byte;
+            exhaustive_premultiplied[offset + 0U] =
+                scalar_premultiply(first, alpha_byte);
+            exhaustive_premultiplied[offset + 1U] =
+                scalar_premultiply(second, alpha_byte);
+            exhaustive_premultiplied[offset + 2U] =
+                scalar_premultiply(third, alpha_byte);
+            exhaustive_premultiplied[offset + 3U] = alpha_byte;
+        }
+    }
+    if (!validate_unpremultiplied_wic(
+            compat::wic_pixel_format_32bpp_bgra,
+            87U,
+            exhaustive_dimension,
+            exhaustive_dimension,
+            exhaustive_unpremultiplied,
+            exhaustive_premultiplied)) {
+        return 480;
     }
 
     const compat::bitmap_properties shared_bitmap_properties{

@@ -17,6 +17,15 @@
 #include <utility>
 #include <vector>
 
+#if defined(__ARM_NEON) || defined(__ARM_NEON__) || defined(_M_ARM64)
+#include <arm_neon.h>
+#define PROGPU_NATIVE_DIRECT2D_RENDER_TARGET_INTRINSICS_NEON 1
+#elif defined(__SSE2__) || defined(_M_X64) || \
+    (defined(_M_IX86_FP) && _M_IX86_FP >= 2)
+#include <emmintrin.h>
+#define PROGPU_NATIVE_DIRECT2D_RENDER_TARGET_INTRINSICS_SSE2 1
+#endif
+
 namespace progpu::native::direct2d::compat::detail {
 namespace {
 
@@ -140,6 +149,91 @@ constexpr com::guid scene_mesh_native_interface_id{
 [[nodiscard]] bool valid_rectangle(const rectangle_u& value) noexcept
 {
     return value.left < value.right && value.top < value.bottom;
+}
+
+[[nodiscard]] constexpr std::uint8_t premultiply_unorm8(
+    std::uint8_t channel,
+    std::uint8_t alpha) noexcept
+{
+    const std::uint16_t product = static_cast<std::uint16_t>(channel) *
+        static_cast<std::uint16_t>(alpha);
+    const std::uint16_t rounded = static_cast<std::uint16_t>(product + 128U);
+    return static_cast<std::uint8_t>(
+        (rounded + (rounded >> 8U)) >> 8U);
+}
+
+void premultiply_rgba8(std::span<std::byte> pixels) noexcept
+{
+    auto* bytes = reinterpret_cast<std::uint8_t*>(pixels.data());
+    const std::size_t pixel_count = pixels.size() / 4U;
+    std::size_t pixel_index = 0U;
+
+#if defined(PROGPU_NATIVE_DIRECT2D_RENDER_TARGET_INTRINSICS_NEON)
+    const uint16x8_t rounding = vdupq_n_u16(128U);
+    const auto premultiply_channel = [rounding](
+        uint8x8_t channel,
+        uint8x8_t alpha) noexcept {
+        uint16x8_t product = vmull_u8(channel, alpha);
+        product = vaddq_u16(product, rounding);
+        product = vaddq_u16(product, vshrq_n_u16(product, 8));
+        return vshrn_n_u16(product, 8);
+    };
+    for (; pixel_index + 8U <= pixel_count; pixel_index += 8U) {
+        uint8x8x4_t values = vld4_u8(bytes + pixel_index * 4U);
+        values.val[0] = premultiply_channel(values.val[0], values.val[3]);
+        values.val[1] = premultiply_channel(values.val[1], values.val[3]);
+        values.val[2] = premultiply_channel(values.val[2], values.val[3]);
+        vst4_u8(bytes + pixel_index * 4U, values);
+    }
+#elif defined(PROGPU_NATIVE_DIRECT2D_RENDER_TARGET_INTRINSICS_SSE2)
+    const __m128i zero = _mm_setzero_si128();
+    const __m128i rounding = _mm_set1_epi16(128);
+    const __m128i alpha_mask = _mm_set_epi16(
+        static_cast<short>(-1), 0, 0, 0,
+        static_cast<short>(-1), 0, 0, 0);
+    const auto premultiply_words = [rounding](
+        __m128i values,
+        __m128i alpha) noexcept {
+        __m128i product = _mm_mullo_epi16(values, alpha);
+        product = _mm_add_epi16(product, rounding);
+        product = _mm_add_epi16(product, _mm_srli_epi16(product, 8));
+        return _mm_srli_epi16(product, 8);
+    };
+    for (; pixel_index + 4U <= pixel_count; pixel_index += 4U) {
+        const __m128i packed = _mm_loadu_si128(
+            reinterpret_cast<const __m128i*>(bytes + pixel_index * 4U));
+        const __m128i low = _mm_unpacklo_epi8(packed, zero);
+        const __m128i high = _mm_unpackhi_epi8(packed, zero);
+        __m128i low_alpha = _mm_shufflelo_epi16(
+            low, _MM_SHUFFLE(3, 3, 3, 3));
+        low_alpha = _mm_shufflehi_epi16(
+            low_alpha, _MM_SHUFFLE(3, 3, 3, 3));
+        __m128i high_alpha = _mm_shufflelo_epi16(
+            high, _MM_SHUFFLE(3, 3, 3, 3));
+        high_alpha = _mm_shufflehi_epi16(
+            high_alpha, _MM_SHUFFLE(3, 3, 3, 3));
+        __m128i premultiplied_low = premultiply_words(low, low_alpha);
+        __m128i premultiplied_high = premultiply_words(high, high_alpha);
+        premultiplied_low = _mm_or_si128(
+            _mm_andnot_si128(alpha_mask, premultiplied_low),
+            _mm_and_si128(alpha_mask, low));
+        premultiplied_high = _mm_or_si128(
+            _mm_andnot_si128(alpha_mask, premultiplied_high),
+            _mm_and_si128(alpha_mask, high));
+        const __m128i result = _mm_packus_epi16(
+            premultiplied_low, premultiplied_high);
+        _mm_storeu_si128(
+            reinterpret_cast<__m128i*>(bytes + pixel_index * 4U), result);
+    }
+#endif
+
+    for (; pixel_index < pixel_count; ++pixel_index) {
+        auto* pixel = bytes + pixel_index * 4U;
+        const std::uint8_t alpha = pixel[3];
+        pixel[0] = premultiply_unorm8(pixel[0], alpha);
+        pixel[1] = premultiply_unorm8(pixel[1], alpha);
+        pixel[2] = premultiply_unorm8(pixel[2], alpha);
+    }
 }
 
 struct bitmap_snapshot final {
@@ -2975,11 +3069,20 @@ public:
             return format_result;
         }
         std::uint32_t dxgi_format = 0U;
+        bool requires_premultiplication = false;
         if (com::guid_equal(wic_format, wic_pixel_format_32bpp_pbgra)) {
             dxgi_format = dxgi_format_b8g8r8a8_unorm;
         } else if (com::guid_equal(
+                       wic_format, wic_pixel_format_32bpp_bgra)) {
+            dxgi_format = dxgi_format_b8g8r8a8_unorm;
+            requires_premultiplication = true;
+        } else if (com::guid_equal(
                        wic_format, wic_pixel_format_32bpp_prgba)) {
             dxgi_format = dxgi_format_r8g8b8a8_unorm;
+        } else if (com::guid_equal(
+                       wic_format, wic_pixel_format_32bpp_rgba)) {
+            dxgi_format = dxgi_format_r8g8b8a8_unorm;
+            requires_premultiplication = true;
         } else {
             return not_implemented;
         }
@@ -3026,6 +3129,9 @@ public:
                 reinterpret_cast<std::uint8_t*>(pixels.data()));
             if (com::failed(copy_result)) {
                 return copy_result;
+            }
+            if (requires_premultiplication) {
+                premultiply_rgba8(pixels);
             }
             auto* created = new (std::nothrow) portable_bitmap(
                 owner_.get(), size, actual, row_bytes, std::move(pixels));
