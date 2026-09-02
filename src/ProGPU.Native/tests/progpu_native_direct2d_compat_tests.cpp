@@ -447,6 +447,15 @@ public:
         count += triangle_count;
         if (values != nullptr && triangle_count != 0U) {
             first = values[0U];
+            const std::uint32_t available = static_cast<std::uint32_t>(
+                captured.size() - captured_count);
+            const std::uint32_t copy_count =
+                std::min(available, triangle_count);
+            std::copy_n(
+                values,
+                copy_count,
+                captured.begin() + captured_count);
+            captured_count += copy_count;
         }
     }
 
@@ -456,6 +465,8 @@ public:
     }
 
     compat::triangle first{};
+    std::array<compat::triangle, 256U> captured{};
+    std::uint32_t captured_count = 0U;
     std::uint32_t count = 0U;
 
 private:
@@ -2523,6 +2534,66 @@ int run_tests()
         captured_fill_contains(*raw_nested_outline_sink, {3.0F, 1.0F})) {
       return 425;
     }
+    auto* raw_nested_tessellation_sink = new triangle_sink();
+    com::pointer<compat::tessellation_sink> nested_tessellation_sink;
+    nested_tessellation_sink.attach(raw_nested_tessellation_sink);
+    const com::result nested_tessellation_status =
+        nested_outline_path->Tessellate(
+            nullptr,
+            core::default_flattening_tolerance,
+            nested_tessellation_sink.get());
+    if (nested_tessellation_status != com::ok ||
+        raw_nested_tessellation_sink->count != 8U ||
+        raw_nested_tessellation_sink->captured_count != 8U) {
+      std::fprintf(
+          stderr,
+          "nested tessellation status=%d triangles=%u/%u\n",
+          nested_tessellation_status,
+          raw_nested_tessellation_sink->count,
+          raw_nested_tessellation_sink->captured_count);
+      return 459;
+    }
+    double nested_tessellated_area = 0.0;
+    for (std::uint32_t index = 0U;
+         index < raw_nested_tessellation_sink->captured_count; ++index) {
+      const compat::triangle& value =
+          raw_nested_tessellation_sink->captured[index];
+      nested_tessellated_area += std::abs(
+          (static_cast<double>(value.point2.x) - value.point1.x) *
+              (static_cast<double>(value.point3.y) - value.point1.y) -
+          (static_cast<double>(value.point2.y) - value.point1.y) *
+              (static_cast<double>(value.point3.x) - value.point1.x)) * 0.5;
+    }
+    const auto nested_tessellation_contains = [raw_nested_tessellation_sink](
+        compat::point_2f point) {
+      for (std::uint32_t index = 0U;
+           index < raw_nested_tessellation_sink->captured_count; ++index) {
+        const compat::triangle& value =
+            raw_nested_tessellation_sink->captured[index];
+        const auto cross = [point](compat::point_2f first,
+                                   compat::point_2f second) {
+          return (static_cast<double>(second.x) - first.x) *
+                  (static_cast<double>(point.y) - first.y) -
+              (static_cast<double>(second.y) - first.y) *
+                  (static_cast<double>(point.x) - first.x);
+        };
+        const double first = cross(value.point1, value.point2);
+        const double second = cross(value.point2, value.point3);
+        const double third = cross(value.point3, value.point1);
+        if ((first >= 0.0 && second >= 0.0 && third >= 0.0) ||
+            (first <= 0.0 && second <= 0.0 && third <= 0.0)) {
+          return true;
+        }
+      }
+      return false;
+    };
+    if (!approximately_equal(
+            static_cast<float>(nested_tessellated_area), 3.0F) ||
+        !nested_tessellation_contains({0.25F, 0.25F}) ||
+        nested_tessellation_contains({1.0F, 1.0F}) ||
+        nested_tessellation_contains({3.0F, 1.0F})) {
+      return 460;
+    }
     for (const compat::combine_mode mode : combination_modes) {
       auto* raw_multi_contour_boolean_sink = new simplified_sink();
       com::pointer<compat::simplified_geometry_sink>
@@ -2897,6 +2968,34 @@ int run_tests()
         }
       }
     }
+    const auto captured_triangle_area = [](const triangle_sink& triangles) {
+      double area = 0.0;
+      for (std::uint32_t index = 0U;
+           index < triangles.captured_count; ++index) {
+        const compat::triangle& value = triangles.captured[index];
+        area += std::abs(
+            (static_cast<double>(value.point2.x) - value.point1.x) *
+                (static_cast<double>(value.point3.y) - value.point1.y) -
+            (static_cast<double>(value.point2.y) - value.point1.y) *
+                (static_cast<double>(value.point3.x) - value.point1.x)) *
+            0.5;
+      }
+      return area;
+    };
+    auto* raw_star_tessellation_sink = new triangle_sink();
+    com::pointer<compat::tessellation_sink> star_tessellation_sink;
+    star_tessellation_sink.attach(raw_star_tessellation_sink);
+    if (star_outline_path->Tessellate(
+            nullptr, 0.01F, star_tessellation_sink.get()) != com::ok ||
+        raw_star_tessellation_sink->count == 0U ||
+        raw_star_tessellation_sink->captured_count !=
+            raw_star_tessellation_sink->count ||
+        !approximately_equal(
+            static_cast<float>(
+                captured_triangle_area(*raw_star_tessellation_sink)),
+            star_outline_area)) {
+      return 463;
+    }
     compat::path_geometry* raw_winding_star_outline_path = nullptr;
     compat::geometry_sink* raw_winding_star_outline_path_sink = nullptr;
     if (factory->CreatePathGeometry(
@@ -2982,6 +3081,24 @@ int run_tests()
           return 458;
         }
       }
+    }
+    auto* raw_winding_star_tessellation_sink = new triangle_sink();
+    com::pointer<compat::tessellation_sink>
+        winding_star_tessellation_sink;
+    winding_star_tessellation_sink.attach(
+        raw_winding_star_tessellation_sink);
+    if (winding_star_outline_path->Tessellate(
+            nullptr,
+            0.01F,
+            winding_star_tessellation_sink.get()) != com::ok ||
+        raw_winding_star_tessellation_sink->count == 0U ||
+        raw_winding_star_tessellation_sink->captured_count !=
+            raw_winding_star_tessellation_sink->count ||
+        !approximately_equal(
+            static_cast<float>(captured_triangle_area(
+                *raw_winding_star_tessellation_sink)),
+            winding_star_outline_area)) {
+      return 464;
     }
     for (std::uint32_t winding = 0U; winding < 2U; ++winding) {
       compat::path_geometry* raw_triple_outline_path = nullptr;
@@ -8749,6 +8866,21 @@ int run_tests()
               self_points.data(),
               static_cast<UINT32>(self_points.size()));
           sink_value->EndFigure(D2D1_FIGURE_END_CLOSED);
+        } else if (scenario == 15U) {
+          const auto add_rectangle = [sink_value](
+              float left, float top, float right, float bottom) {
+            sink_value->BeginFigure(
+                D2D1_POINT_2F{left, top}, D2D1_FIGURE_BEGIN_FILLED);
+            const std::array<D2D1_POINT_2F, 3U> points{{
+                {right, top}, {right, bottom}, {left, bottom}}};
+            sink_value->AddLines(
+                points.data(), static_cast<UINT32>(points.size()));
+            sink_value->EndFigure(D2D1_FIGURE_END_CLOSED);
+          };
+          add_rectangle(0.0F, 0.0F, 10.0F, 10.0F);
+          add_rectangle(1.0F, 1.0F, 5.0F, 5.0F);
+          add_rectangle(6.0F, 1.0F, 9.0F, 4.0F);
+          add_rectangle(2.0F, 2.0F, 3.0F, 3.0F);
         } else if (scenario >= 11U && scenario <= 14U) {
           if (scenario != 11U) {
             sink_value->SetFillMode(D2D1_FILL_MODE_WINDING);
@@ -9076,13 +9208,98 @@ int run_tests()
         }
       }
     }
+    auto* raw_portable_nested_triangles = new triangle_sink();
+    com::pointer<compat::tessellation_sink> portable_nested_triangles;
+    portable_nested_triangles.attach(raw_portable_nested_triangles);
+    auto* raw_system_nested_triangles = new triangle_sink();
+    com::pointer<compat::tessellation_sink> system_nested_triangles;
+    system_nested_triangles.attach(raw_system_nested_triangles);
+    const HRESULT portable_nested_tessellation_status =
+        portable_nested_outline_path->Tessellate(
+            nullptr,
+            D2D1_DEFAULT_FLATTENING_TOLERANCE,
+            reinterpret_cast<ID2D1TessellationSink*>(
+                portable_nested_triangles.get()));
+    const HRESULT system_nested_tessellation_status =
+        system_nested_outline_path->Tessellate(
+            nullptr,
+            D2D1_DEFAULT_FLATTENING_TOLERANCE,
+            reinterpret_cast<ID2D1TessellationSink*>(
+                system_nested_triangles.get()));
+    const auto tessellated_area = [](const triangle_sink& triangles) {
+      double area = 0.0;
+      for (std::uint32_t index = 0U;
+           index < triangles.captured_count; ++index) {
+        const compat::triangle& value = triangles.captured[index];
+        area += std::abs(
+            (static_cast<double>(value.point2.x) - value.point1.x) *
+                (static_cast<double>(value.point3.y) - value.point1.y) -
+            (static_cast<double>(value.point2.y) - value.point1.y) *
+                (static_cast<double>(value.point3.x) - value.point1.x)) *
+            0.5;
+      }
+      return area;
+    };
+    const auto tessellation_contains = [](const triangle_sink& triangles,
+                                           compat::point_2f point) {
+      for (std::uint32_t index = 0U;
+           index < triangles.captured_count; ++index) {
+        const compat::triangle& value = triangles.captured[index];
+        const auto cross = [point](compat::point_2f first,
+                                   compat::point_2f second) {
+          return (static_cast<double>(second.x) - first.x) *
+                  (static_cast<double>(point.y) - first.y) -
+              (static_cast<double>(second.y) - first.y) *
+                  (static_cast<double>(point.x) - first.x);
+        };
+        const double first = cross(value.point1, value.point2);
+        const double second = cross(value.point2, value.point3);
+        const double third = cross(value.point3, value.point1);
+        if ((first >= 0.0 && second >= 0.0 && third >= 0.0) ||
+            (first <= 0.0 && second <= 0.0 && third <= 0.0)) {
+          return true;
+        }
+      }
+      return false;
+    };
+    nested_outline_matches = nested_outline_matches &&
+        SUCCEEDED(portable_nested_tessellation_status) &&
+        SUCCEEDED(system_nested_tessellation_status) &&
+        raw_portable_nested_triangles->captured_count ==
+            raw_portable_nested_triangles->count &&
+        raw_system_nested_triangles->captured_count ==
+            raw_system_nested_triangles->count &&
+        approximately_equal(
+            static_cast<float>(
+                tessellated_area(*raw_portable_nested_triangles)),
+            static_cast<float>(
+                tessellated_area(*raw_system_nested_triangles))) &&
+        approximately_equal(
+            static_cast<float>(
+                tessellated_area(*raw_portable_nested_triangles)),
+            3.0F);
+    for (std::uint32_t y_index = 0U;
+         nested_outline_matches && y_index < 18U; ++y_index) {
+      for (std::uint32_t x_index = 0U; x_index < 18U; ++x_index) {
+        const compat::point_2f point{
+            -0.17F + static_cast<float>(x_index) * 0.14F,
+            -0.13F + static_cast<float>(y_index) * 0.13F};
+        if (tessellation_contains(
+                *raw_portable_nested_triangles, point) !=
+            tessellation_contains(*raw_system_nested_triangles, point)) {
+          nested_outline_matches = false;
+          break;
+        }
+      }
+    }
     portable_nested_outline_path->Release();
     system_nested_outline_path->Release();
     if (!nested_outline_matches) {
       std::fprintf(
           stderr,
           "nested outline status=%ld/%ld fill=%u/%u flags=%u/%u "
-          "callbacks=%u/%u,%u/%u geometry=%u/%u,%u/%u,%u/%u\n",
+          "callbacks=%u/%u,%u/%u geometry=%u/%u,%u/%u,%u/%u "
+          "tessellation=%ld/%ld triangles=%u/%u area=%g/%g\n",
           static_cast<long>(portable_nested_outline_status),
           static_cast<long>(system_nested_outline_status),
           static_cast<unsigned>(raw_portable_nested_outline_sink->fill_mode),
@@ -9100,13 +9317,109 @@ int run_tests()
           raw_portable_nested_outline_sink->end_count,
           raw_system_nested_outline_sink->end_count,
           raw_portable_nested_outline_sink->line_count,
-          raw_system_nested_outline_sink->line_count);
+          raw_system_nested_outline_sink->line_count,
+          static_cast<long>(portable_nested_tessellation_status),
+          static_cast<long>(system_nested_tessellation_status),
+          raw_portable_nested_triangles->count,
+          raw_system_nested_triangles->count,
+          tessellated_area(*raw_portable_nested_triangles),
+          tessellated_area(*raw_system_nested_triangles));
       portable_multi_query_path->Release();
       system_multi_query_path->Release();
       portable_open_query_path->Release();
       system_open_query_path->Release();
       system_factory->Release();
       return 427;
+    }
+    ID2D1PathGeometry* portable_multi_hole_path = nullptr;
+    ID2D1PathGeometry* system_multi_hole_path = nullptr;
+    if (FAILED(create_multi_outline_path(
+            native_factory, 15U, &portable_multi_hole_path)) ||
+        FAILED(create_multi_outline_path(
+            system_factory, 15U, &system_multi_hole_path)) ||
+        portable_multi_hole_path == nullptr ||
+        system_multi_hole_path == nullptr) {
+      if (portable_multi_hole_path != nullptr) {
+        portable_multi_hole_path->Release();
+      }
+      if (system_multi_hole_path != nullptr) {
+        system_multi_hole_path->Release();
+      }
+      portable_multi_query_path->Release();
+      system_multi_query_path->Release();
+      portable_open_query_path->Release();
+      system_open_query_path->Release();
+      system_factory->Release();
+      return 461;
+    }
+    auto* raw_portable_multi_hole_triangles = new triangle_sink();
+    com::pointer<compat::tessellation_sink> portable_multi_hole_triangles;
+    portable_multi_hole_triangles.attach(
+        raw_portable_multi_hole_triangles);
+    auto* raw_system_multi_hole_triangles = new triangle_sink();
+    com::pointer<compat::tessellation_sink> system_multi_hole_triangles;
+    system_multi_hole_triangles.attach(raw_system_multi_hole_triangles);
+    const HRESULT portable_multi_hole_status =
+        portable_multi_hole_path->Tessellate(
+            nullptr,
+            0.01F,
+            reinterpret_cast<ID2D1TessellationSink*>(
+                portable_multi_hole_triangles.get()));
+    const HRESULT system_multi_hole_status =
+        system_multi_hole_path->Tessellate(
+            nullptr,
+            0.01F,
+            reinterpret_cast<ID2D1TessellationSink*>(
+                system_multi_hole_triangles.get()));
+    bool multi_hole_tessellation_matches =
+        SUCCEEDED(portable_multi_hole_status) &&
+        SUCCEEDED(system_multi_hole_status) &&
+        raw_portable_multi_hole_triangles->captured_count ==
+            raw_portable_multi_hole_triangles->count &&
+        raw_system_multi_hole_triangles->captured_count ==
+            raw_system_multi_hole_triangles->count &&
+        approximately_equal(
+            static_cast<float>(
+                tessellated_area(*raw_portable_multi_hole_triangles)),
+            76.0F) &&
+        approximately_equal(
+            static_cast<float>(
+                tessellated_area(*raw_portable_multi_hole_triangles)),
+            static_cast<float>(
+                tessellated_area(*raw_system_multi_hole_triangles)));
+    for (std::uint32_t y_index = 0U;
+         multi_hole_tessellation_matches && y_index < 43U; ++y_index) {
+      for (std::uint32_t x_index = 0U; x_index < 43U; ++x_index) {
+        const compat::point_2f point{
+            -0.13F + static_cast<float>(x_index) * 0.25F,
+            -0.17F + static_cast<float>(y_index) * 0.25F};
+        if (tessellation_contains(
+                *raw_portable_multi_hole_triangles, point) !=
+            tessellation_contains(*raw_system_multi_hole_triangles, point)) {
+          multi_hole_tessellation_matches = false;
+          break;
+        }
+      }
+    }
+    portable_multi_hole_path->Release();
+    system_multi_hole_path->Release();
+    if (!multi_hole_tessellation_matches) {
+      std::fprintf(
+          stderr,
+          "multi-hole tessellation status=%ld/%ld triangles=%u/%u "
+          "area=%g/%g\n",
+          static_cast<long>(portable_multi_hole_status),
+          static_cast<long>(system_multi_hole_status),
+          raw_portable_multi_hole_triangles->count,
+          raw_system_multi_hole_triangles->count,
+          tessellated_area(*raw_portable_multi_hole_triangles),
+          tessellated_area(*raw_system_multi_hole_triangles));
+      portable_multi_query_path->Release();
+      system_multi_query_path->Release();
+      portable_open_query_path->Release();
+      system_open_query_path->Release();
+      system_factory->Release();
+      return 462;
     }
     ID2D1PathGeometry* portable_multi_boolean_path = nullptr;
     ID2D1PathGeometry* system_multi_boolean_path = nullptr;
@@ -9411,7 +9724,7 @@ int run_tests()
       system_factory->Release();
       return 432;
     }
-    for (std::uint32_t scenario = 3U; scenario <= 14U; ++scenario) {
+    for (std::uint32_t scenario = 3U; scenario <= 15U; ++scenario) {
       ID2D1PathGeometry* portable_normalized_outline_path = nullptr;
       ID2D1PathGeometry* system_normalized_outline_path = nullptr;
       if (FAILED(create_multi_outline_path(
