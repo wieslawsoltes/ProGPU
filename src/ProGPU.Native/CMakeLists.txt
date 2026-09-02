@@ -1533,6 +1533,7 @@ if(BUILD_TESTING AND NOT EMSCRIPTEN)
         target_link_libraries(progpu_native_direct2d_tests PRIVATE
             progpu_native_direct2d
             d2d1
+            ole32
             runtimeobject)
         progpu_native_enable_warnings(progpu_native_direct2d_tests)
         add_test(

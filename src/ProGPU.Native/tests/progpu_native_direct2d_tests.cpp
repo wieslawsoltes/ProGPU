@@ -38,6 +38,29 @@ constexpr GUID shadow_effect_id = {
     {0x89, 0xdb, 0x69, 0x5d, 0x3e, 0x9a, 0x5b, 0x6b}
 };
 
+constexpr GUID registry_test_effect_id = {
+    0xe57539aa,
+    0x62f2,
+    0x4b44,
+    {0x9d, 0x79, 0xc4, 0x47, 0xd1, 0x3a, 0x2f, 0x51}
+};
+
+constexpr GUID registry_stream_test_effect_id = {
+    0x183b6e0d,
+    0x37aa,
+    0x46bf,
+    {0x86, 0xc1, 0xd4, 0x43, 0xbc, 0x63, 0x93, 0xa4}
+};
+
+HRESULT CALLBACK create_registry_test_effect(IUnknown** value) noexcept
+{
+    if (value == nullptr) {
+        return E_POINTER;
+    }
+    *value = nullptr;
+    return E_NOTIMPL;
+}
+
 [[noreturn]] void fail(const char* message)
 {
     std::cerr << message << '\n';
@@ -49,6 +72,27 @@ void require(bool condition, const char* message)
     if (!condition) {
         fail(message);
     }
+}
+
+ComPtr<IStream> create_registry_xml_stream(
+    const char* bytes,
+    size_t byte_count)
+{
+    HGLOBAL memory = GlobalAlloc(GMEM_MOVEABLE, byte_count);
+    require(memory != nullptr, "effect-registry stream allocation failed");
+    void* destination = GlobalLock(memory);
+    require(destination != nullptr, "effect-registry stream lock failed");
+    std::memcpy(destination, bytes, byte_count);
+    GlobalUnlock(memory);
+    ComPtr<IStream> stream;
+    const HRESULT result = CreateStreamOnHGlobal(memory, TRUE, &stream);
+    if (FAILED(result)) {
+        GlobalFree(memory);
+    }
+    require(
+        result == S_OK && stream != nullptr,
+        "effect-registry stream creation failed");
+    return stream;
 }
 
 template<typename T>
@@ -335,6 +379,232 @@ int main()
         "ProGPU compatibility factory COM identity changed");
     compat_multithread->Enter();
     compat_multithread->Leave();
+
+    ComPtr<ID2D1Factory1> system_effect_registry_factory;
+    require(
+        D2D1CreateFactory(
+            D2D1_FACTORY_TYPE_MULTI_THREADED,
+            system_effect_registry_factory.GetAddressOf()) == S_OK,
+        "system Direct2D effect-registry factory creation failed");
+    constexpr PCWSTR registry_effect_xml = LR"(<?xml version='1.0'?>
+        <Effect>
+            <Property name='DisplayName' type='string' value='ProGPU Registry Differential'/>
+            <Property name='Author' type='string' value='ProGPU'/>
+            <Property name='Category' type='string' value='Test'/>
+            <Property name='Description' type='string' value='Factory registry parity.'/>
+            <Inputs>
+                <Input name='Source'/>
+            </Inputs>
+        </Effect>)";
+    const HRESULT compat_registration = compat_factory->RegisterEffectFromString(
+        registry_test_effect_id,
+        registry_effect_xml,
+        nullptr,
+        0U,
+        create_registry_test_effect);
+    const HRESULT system_registration =
+        system_effect_registry_factory->RegisterEffectFromString(
+            registry_test_effect_id,
+            registry_effect_xml,
+            nullptr,
+            0U,
+            create_registry_test_effect);
+    if (compat_registration != system_registration ||
+        compat_registration != S_OK) {
+        std::cerr << "effect registration HRESULTs provider/system: 0x"
+                  << std::hex << static_cast<uint32_t>(compat_registration)
+                  << "/0x" << static_cast<uint32_t>(system_registration)
+                  << std::dec << '\n';
+    }
+    require(
+        compat_registration == system_registration &&
+            compat_registration == S_OK,
+        "ProGPU custom-effect registration diverged from system Direct2D");
+
+    ComPtr<ID2D1Properties> compat_effect_properties;
+    ComPtr<ID2D1Properties> system_effect_properties;
+    require(
+        compat_factory->GetEffectProperties(
+            registry_test_effect_id,
+            &compat_effect_properties) == S_OK &&
+            system_effect_registry_factory->GetEffectProperties(
+                registry_test_effect_id,
+                &system_effect_properties) == S_OK &&
+            compat_effect_properties != nullptr &&
+            system_effect_properties != nullptr,
+        "ProGPU custom-effect metadata lookup failed");
+    const UINT32 compat_display_name_size =
+        compat_effect_properties->GetValueSize(
+            static_cast<UINT32>(D2D1_PROPERTY_DISPLAYNAME));
+    const UINT32 system_display_name_size =
+        system_effect_properties->GetValueSize(
+            static_cast<UINT32>(D2D1_PROPERTY_DISPLAYNAME));
+    std::vector<BYTE> compat_display_name(compat_display_name_size);
+    std::vector<BYTE> system_display_name(system_display_name_size);
+    require(
+        compat_display_name_size == system_display_name_size &&
+            compat_display_name_size != 0U &&
+            compat_effect_properties->GetValue(
+                static_cast<UINT32>(D2D1_PROPERTY_DISPLAYNAME),
+                D2D1_PROPERTY_TYPE_STRING,
+                compat_display_name.data(),
+                compat_display_name_size) == S_OK &&
+            system_effect_properties->GetValue(
+                static_cast<UINT32>(D2D1_PROPERTY_DISPLAYNAME),
+                D2D1_PROPERTY_TYPE_STRING,
+                system_display_name.data(),
+                system_display_name_size) == S_OK &&
+            compat_display_name == system_display_name,
+        "ProGPU custom-effect metadata diverged from system Direct2D");
+
+    std::array<CLSID, 256U> compat_registered_effects{};
+    std::array<CLSID, 256U> system_registered_effects{};
+    UINT32 compat_effects_returned = 0U;
+    UINT32 compat_effects_registered = 0U;
+    UINT32 system_effects_returned = 0U;
+    UINT32 system_effects_registered = 0U;
+    require(
+        compat_factory->GetRegisteredEffects(
+            compat_registered_effects.data(),
+            static_cast<UINT32>(compat_registered_effects.size()),
+            &compat_effects_returned,
+            &compat_effects_registered) == S_OK &&
+            system_effect_registry_factory->GetRegisteredEffects(
+                system_registered_effects.data(),
+                static_cast<UINT32>(system_registered_effects.size()),
+                &system_effects_returned,
+                &system_effects_registered) == S_OK &&
+            compat_effects_returned == system_effects_returned &&
+            compat_effects_registered == system_effects_registered &&
+            std::memcmp(
+                compat_registered_effects.data(),
+                system_registered_effects.data(),
+                compat_effects_returned * sizeof(CLSID)) == 0,
+        "ProGPU custom-effect enumeration diverged from system Direct2D");
+    bool found_registry_test_effect = false;
+    for (UINT32 index = 0U; index < compat_effects_returned; ++index) {
+        found_registry_test_effect = found_registry_test_effect ||
+            IsEqualCLSID(
+                compat_registered_effects[index],
+                registry_test_effect_id);
+    }
+    require(
+        found_registry_test_effect,
+        "ProGPU custom-effect enumeration omitted the registered effect");
+
+    const HRESULT compat_duplicate_registration =
+        compat_factory->RegisterEffectFromString(
+            registry_test_effect_id,
+            registry_effect_xml,
+            nullptr,
+            0U,
+            create_registry_test_effect);
+    const HRESULT system_duplicate_registration =
+        system_effect_registry_factory->RegisterEffectFromString(
+            registry_test_effect_id,
+            registry_effect_xml,
+            nullptr,
+            0U,
+            create_registry_test_effect);
+    require(
+        compat_duplicate_registration == system_duplicate_registration,
+        "ProGPU duplicate effect registration diverged from system Direct2D");
+    const HRESULT compat_first_unregistration =
+        compat_factory->UnregisterEffect(registry_test_effect_id);
+    const HRESULT system_first_unregistration =
+        system_effect_registry_factory->UnregisterEffect(
+            registry_test_effect_id);
+    require(
+        compat_first_unregistration == system_first_unregistration,
+        "ProGPU reference-counted effect unregistration diverged");
+    compat_effect_properties.Reset();
+    system_effect_properties.Reset();
+    const HRESULT compat_after_first_unregistration =
+        compat_factory->GetEffectProperties(
+            registry_test_effect_id,
+            &compat_effect_properties);
+    const HRESULT system_after_first_unregistration =
+        system_effect_registry_factory->GetEffectProperties(
+            registry_test_effect_id,
+            &system_effect_properties);
+    require(
+        compat_after_first_unregistration ==
+                system_after_first_unregistration &&
+            (compat_effect_properties != nullptr) ==
+                (system_effect_properties != nullptr),
+        "ProGPU retained effect registration lifetime diverged");
+    require(
+        compat_factory->UnregisterEffect(registry_test_effect_id) ==
+            system_effect_registry_factory->UnregisterEffect(
+                registry_test_effect_id),
+        "ProGPU final effect unregistration diverged from system Direct2D");
+    compat_effect_properties.Reset();
+    system_effect_properties.Reset();
+    require(
+        compat_factory->GetEffectProperties(
+            registry_test_effect_id,
+            &compat_effect_properties) ==
+            system_effect_registry_factory->GetEffectProperties(
+                registry_test_effect_id,
+                &system_effect_properties) &&
+            (compat_effect_properties != nullptr) ==
+                (system_effect_properties != nullptr),
+        "ProGPU unregistered effect lookup diverged from system Direct2D");
+
+    constexpr char registry_stream_xml[] =
+        "<?xml version='1.0' encoding='utf-8'?>"
+        "<Effect>"
+        "<Property name='DisplayName' type='string' value='ProGPU Stream Registry Differential'/>"
+        "<Property name='Author' type='string' value='ProGPU'/>"
+        "<Property name='Category' type='string' value='Test'/>"
+        "<Property name='Description' type='string' value='Stream registry parity.'/>"
+        "<Inputs><Input name='Source'/></Inputs>"
+        "</Effect>";
+    ComPtr<IStream> compat_registry_stream = create_registry_xml_stream(
+        registry_stream_xml,
+        sizeof(registry_stream_xml) - 1U);
+    ComPtr<IStream> system_registry_stream = create_registry_xml_stream(
+        registry_stream_xml,
+        sizeof(registry_stream_xml) - 1U);
+    const HRESULT compat_stream_registration =
+        compat_factory->RegisterEffectFromStream(
+            registry_stream_test_effect_id,
+            compat_registry_stream.Get(),
+            nullptr,
+            0U,
+            create_registry_test_effect);
+    const HRESULT system_stream_registration =
+        system_effect_registry_factory->RegisterEffectFromStream(
+            registry_stream_test_effect_id,
+            system_registry_stream.Get(),
+            nullptr,
+            0U,
+            create_registry_test_effect);
+    require(
+        compat_stream_registration == system_stream_registration &&
+            compat_stream_registration == S_OK,
+        "ProGPU stream effect registration diverged from system Direct2D");
+    compat_effect_properties.Reset();
+    system_effect_properties.Reset();
+    require(
+        compat_factory->GetEffectProperties(
+            registry_stream_test_effect_id,
+            &compat_effect_properties) == S_OK &&
+            system_effect_registry_factory->GetEffectProperties(
+                registry_stream_test_effect_id,
+                &system_effect_properties) == S_OK &&
+            compat_effect_properties != nullptr &&
+            system_effect_properties != nullptr &&
+            compat_effect_properties->GetValueSize(
+                static_cast<UINT32>(D2D1_PROPERTY_DISPLAYNAME)) ==
+                system_effect_properties->GetValueSize(
+                    static_cast<UINT32>(D2D1_PROPERTY_DISPLAYNAME)),
+        "ProGPU stream effect metadata diverged from system Direct2D");
+    require(
+        compat_factory->UnregisterEffect(registry_stream_test_effect_id) ==
+            system_effect_registry_factory->UnregisterEffect(
+                registry_stream_test_effect_id),
+        "ProGPU stream effect unregistration diverged from system Direct2D");
 
     D2D1_STROKE_STYLE_PROPERTIES1 compat_stroke_properties{};
     compat_stroke_properties.startCap = D2D1_CAP_STYLE_ROUND;

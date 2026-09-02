@@ -3361,6 +3361,26 @@ portable suite checks v1 querying and state projection; Windows ARM64/x64
 compare both initial v1 state and mixed base/v1 mutation with the system
 factory.
 
+### Windows custom-effect registry checkpoint
+
+The exported Windows `ID2D1Factory1` facade now implements
+`RegisterEffectFromString`, `RegisterEffectFromStream`, `UnregisterEffect`,
+`GetRegisteredEffects`, and `GetEffectProperties`. Custom COM effects are a
+Windows-only Direct2D extension, so the factory owns a private multithreaded
+system-Direct2D registry and forwards this dependency slice to it. This keeps
+Microsoft's XML validation, property-binding, built-in-effect enumeration,
+registration reference counting, and `ID2D1Properties` metadata semantics
+exact; it does not delegate ProGPU geometry, scene recording, or rendering and
+does not change the ProGPU factory identity exposed by `ID2D1Resource` objects.
+
+Windows ARM64 and x64 validation registers the same unique effect through the
+ProGPU and genuine system factories, compares the complete registered CLSID
+list and display-name metadata, exercises duplicate registration plus staged
+unregistration, and repeats registration from independent UTF-8 `IStream`
+instances. Portable custom effects remain typed ProGPU shader contracts using
+WGSL or translated HLSL; this Windows registry lane does not pretend that an
+arbitrary `ID2D1EffectImpl` COM graph is portable.
+
 ## Delivery order
 
 1. Keep the dependency classifier and resolver fail-closed invariants green.

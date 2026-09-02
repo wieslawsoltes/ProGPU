@@ -4310,6 +4310,17 @@ class ProGpuD2DFactory final :
     public ID2D1Multithread,
     public IProGpuD2DCompatFactoryNative {
 public:
+    ProGpuD2DFactory() noexcept
+    {
+        D2D1_FACTORY_OPTIONS options{};
+        system_effect_factory_result_ = D2D1CreateFactory(
+            D2D1_FACTORY_TYPE_MULTI_THREADED,
+            __uuidof(ID2D1Factory1),
+            &options,
+            reinterpret_cast<void**>(
+                system_effect_factory_.ReleaseAndGetAddressOf()));
+    }
+
     HRESULT STDMETHODCALLTYPE QueryInterface(
         REFIID interface_id,
         void** value) noexcept override
@@ -4825,50 +4836,84 @@ public:
     }
 
     HRESULT STDMETHODCALLTYPE RegisterEffectFromStream(
-        REFCLSID,
-        IStream*,
-        const D2D1_PROPERTY_BINDING*,
-        UINT32,
-        const PD2D1_EFFECT_FACTORY) noexcept override
+        REFCLSID class_id,
+        IStream* property_xml,
+        const D2D1_PROPERTY_BINDING* bindings,
+        UINT32 bindings_count,
+        const PD2D1_EFFECT_FACTORY effect_factory) noexcept override
     {
-        return E_NOTIMPL;
+        if (FAILED(system_effect_factory_result_)) {
+            return system_effect_factory_result_;
+        }
+        return system_effect_factory_->RegisterEffectFromStream(
+            class_id,
+            property_xml,
+            bindings,
+            bindings_count,
+            effect_factory);
     }
 
     HRESULT STDMETHODCALLTYPE RegisterEffectFromString(
-        REFCLSID,
-        PCWSTR,
-        const D2D1_PROPERTY_BINDING*,
-        UINT32,
-        const PD2D1_EFFECT_FACTORY) noexcept override
+        REFCLSID class_id,
+        PCWSTR property_xml,
+        const D2D1_PROPERTY_BINDING* bindings,
+        UINT32 bindings_count,
+        const PD2D1_EFFECT_FACTORY effect_factory) noexcept override
     {
-        return E_NOTIMPL;
+        if (FAILED(system_effect_factory_result_)) {
+            return system_effect_factory_result_;
+        }
+        return system_effect_factory_->RegisterEffectFromString(
+            class_id,
+            property_xml,
+            bindings,
+            bindings_count,
+            effect_factory);
     }
 
-    HRESULT STDMETHODCALLTYPE UnregisterEffect(REFCLSID) noexcept override
+    HRESULT STDMETHODCALLTYPE UnregisterEffect(
+        REFCLSID class_id) noexcept override
     {
-        return E_NOTIMPL;
+        if (FAILED(system_effect_factory_result_)) {
+            return system_effect_factory_result_;
+        }
+        return system_effect_factory_->UnregisterEffect(class_id);
     }
 
     HRESULT STDMETHODCALLTYPE GetRegisteredEffects(
-        CLSID*,
-        UINT32,
+        CLSID* effects,
+        UINT32 effects_count,
         UINT32* effects_returned,
         UINT32* effects_registered) const noexcept override
     {
-        if (effects_returned != nullptr) {
-            *effects_returned = 0U;
+        if (FAILED(system_effect_factory_result_)) {
+            if (effects_returned != nullptr) {
+                *effects_returned = 0U;
+            }
+            if (effects_registered != nullptr) {
+                *effects_registered = 0U;
+            }
+            return system_effect_factory_result_;
         }
-        if (effects_registered != nullptr) {
-            *effects_registered = 0U;
-        }
-        return E_NOTIMPL;
+        return system_effect_factory_->GetRegisteredEffects(
+            effects,
+            effects_count,
+            effects_returned,
+            effects_registered);
     }
 
     HRESULT STDMETHODCALLTYPE GetEffectProperties(
-        REFCLSID,
+        REFCLSID effect_id,
         ID2D1Properties** value) const noexcept override
     {
-        return unsupported(value);
+        if (value == nullptr) {
+            return E_POINTER;
+        }
+        *value = nullptr;
+        if (FAILED(system_effect_factory_result_)) {
+            return system_effect_factory_result_;
+        }
+        return system_effect_factory_->GetEffectProperties(effect_id, value);
     }
 
     BOOL STDMETHODCALLTYPE GetMultithreadProtected() const noexcept override
@@ -4935,6 +4980,8 @@ private:
 
     std::atomic<ULONG> reference_count_{1U};
     std::recursive_mutex mutex_;
+    ComPtr<ID2D1Factory1> system_effect_factory_;
+    HRESULT system_effect_factory_result_ = E_FAIL;
 };
 
 class CommandStreamSummarySink final : public ID2D1CommandSink1 {
