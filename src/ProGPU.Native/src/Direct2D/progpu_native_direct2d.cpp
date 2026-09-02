@@ -4,6 +4,7 @@
 #include "progpu_native_direct2d_drawing_state.hpp"
 #include "progpu_native_direct2d_path.hpp"
 #include "progpu_native_direct2d_rectangle.hpp"
+#include "progpu_native_direct2d_render_target.hpp"
 #include "progpu_native_scene_builder.hpp"
 #include "../Scene/progpu_native_semantic_path_stroke.hpp"
 
@@ -4356,7 +4357,8 @@ private:
 class ProGpuD2DFactory final :
     public ID2D1Factory1,
     public ID2D1Multithread,
-    public IProGpuD2DCompatFactoryNative {
+    public IProGpuD2DCompatFactoryNative,
+    public direct2d_compat::scene_factory_native {
 public:
     ProGpuD2DFactory() noexcept
     {
@@ -4388,6 +4390,10 @@ public:
                 interface_id,
                 __uuidof(IProGpuD2DCompatFactoryNative))) {
             *value = static_cast<IProGpuD2DCompatFactoryNative*>(this);
+        } else if (progpu::native::com::guid_equal(
+                interface_id,
+                direct2d_compat::scene_factory_native_interface_id)) {
+            *value = static_cast<direct2d_compat::scene_factory_native*>(this);
         } else {
             return E_NOINTERFACE;
         }
@@ -5013,6 +5019,17 @@ public:
         }
         *brush = result;
         return S_OK;
+    }
+
+    HRESULT STDMETHODCALLTYPE CreateSceneRenderTarget(
+        const direct2d_compat::scene_render_target_properties* properties,
+        direct2d_compat::render_target** value) noexcept override
+    {
+        return direct2d_compat::detail::create_scene_render_target(
+            reinterpret_cast<direct2d_compat::factory*>(
+                static_cast<ID2D1Factory1*>(this)),
+            properties,
+            value);
     }
 
 private:

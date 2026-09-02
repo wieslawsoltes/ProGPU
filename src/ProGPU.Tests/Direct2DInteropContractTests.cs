@@ -314,6 +314,11 @@ public sealed class Direct2DInteropContractTests
             "ProGPU.Native",
             "tests",
             "progpu_native_direct2d_compat_tests.cpp");
+        string windowsProviderTest = ReadRepoFile(
+            "src",
+            "ProGPU.Native",
+            "tests",
+            "progpu_native_direct2d_tests.cpp");
         string cmake = ReadRepoFile(
             "src",
             "ProGPU.Native",
@@ -364,6 +369,8 @@ public sealed class Direct2DInteropContractTests
         Assert.Contains("core::valid_stroke_style", strokeStyleSource, StringComparison.Ordinal);
         Assert.Contains("class portable_drawing_state_block final", drawingStateSource, StringComparison.Ordinal);
         Assert.Contains("class portable_scene_render_target final", renderTargetSource, StringComparison.Ordinal);
+        Assert.Contains("public direct2d_compat::scene_factory_native", provider, StringComparison.Ordinal);
+        Assert.Contains("direct2d_compat::detail::create_scene_render_target(", provider, StringComparison.Ordinal);
         Assert.Contains("class portable_gradient_stop_collection final", renderTargetSource, StringComparison.Ordinal);
         Assert.Contains("class portable_linear_gradient_brush final", renderTargetSource, StringComparison.Ordinal);
         Assert.Contains("class portable_radial_gradient_brush final", renderTargetSource, StringComparison.Ordinal);
@@ -478,6 +485,8 @@ public sealed class Direct2DInteropContractTests
         Assert.Contains("ID2D1GeometrySink*", nativeTest, StringComparison.Ordinal);
         Assert.Contains("native_path->Stream", nativeTest, StringComparison.Ordinal);
         Assert.Contains("factory.Reset();", nativeTest, StringComparison.Ordinal);
+        Assert.Contains("Windows portable scene target changed factory identity or dimensions", windowsProviderTest, StringComparison.Ordinal);
+        Assert.Contains("Windows portable scene target did not record a serializable frame", windowsProviderTest, StringComparison.Ordinal);
     }
 
     [Fact]

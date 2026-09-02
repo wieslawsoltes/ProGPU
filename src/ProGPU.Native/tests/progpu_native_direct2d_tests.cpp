@@ -1,4 +1,5 @@
 #include "progpu_native_direct2d.h"
+#include "progpu_native_direct2d_compat.hpp"
 #include "progpu_native.h"
 
 #include <d2d1_3.h>
@@ -23,6 +24,8 @@ using Microsoft::WRL::ComPtr;
 using Windows::Graphics::DirectX::Direct3D11::IDirect3DDxgiInterfaceAccess;
 
 namespace {
+
+namespace compat = progpu::native::direct2d::compat;
 
 constexpr GUID gaussian_blur_effect_id = {
     0x1feb6d69,
@@ -379,6 +382,62 @@ int main()
         "ProGPU compatibility factory COM identity changed");
     compat_multithread->Enter();
     compat_multithread->Leave();
+
+    compat::scene_factory_native* raw_scene_factory = nullptr;
+    require(
+        compat_factory->QueryInterface(
+            compat::scene_factory_native_interface_id,
+            reinterpret_cast<void**>(&raw_scene_factory)) == S_OK &&
+            raw_scene_factory != nullptr,
+        "Windows compatibility factory omitted the portable scene target seam");
+    progpu::native::com::pointer<compat::scene_factory_native> scene_factory;
+    scene_factory.attach(raw_scene_factory);
+    const compat::scene_render_target_properties scene_properties{
+        320U, 200U, 96.0F, 96.0F, 0xD2D10001ULL, 7U};
+    compat::render_target* raw_scene_target = nullptr;
+    require(
+        scene_factory->CreateSceneRenderTarget(
+            &scene_properties, &raw_scene_target) == S_OK &&
+            raw_scene_target != nullptr,
+        "Windows compatibility factory could not create a ProGPU scene target");
+    progpu::native::com::pointer<compat::render_target> scene_target;
+    scene_target.attach(raw_scene_target);
+    const compat::size_u scene_pixel_size = scene_target->GetPixelSize();
+    compat::factory* raw_scene_owner = nullptr;
+    scene_target->GetFactory(&raw_scene_owner);
+    progpu::native::com::pointer<compat::factory> scene_owner;
+    scene_owner.attach(raw_scene_owner);
+    require(
+        scene_pixel_size.width == scene_properties.pixel_width &&
+            scene_pixel_size.height == scene_properties.pixel_height &&
+            reinterpret_cast<void*>(scene_owner.get()) ==
+                reinterpret_cast<void*>(compat_base_factory.Get()),
+        "Windows portable scene target changed factory identity or dimensions");
+    compat::scene_render_target_native* raw_scene_native = nullptr;
+    require(
+        scene_target->QueryInterface(
+            compat::scene_render_target_native_interface_id,
+            reinterpret_cast<void**>(&raw_scene_native)) == S_OK &&
+            raw_scene_native != nullptr,
+        "Windows portable scene target omitted its typed serialization seam");
+    progpu::native::com::pointer<compat::scene_render_target_native>
+        scene_native;
+    scene_native.attach(raw_scene_native);
+    const compat::color_f compat_scene_clear{0.125F, 0.25F, 0.5F, 1.0F};
+    scene_target->BeginDraw();
+    scene_target->Clear(&compat_scene_clear);
+    require(
+        scene_target->EndDraw(nullptr, nullptr) == S_OK &&
+            scene_native->GetRequiredSceneSize() > 0U,
+        "Windows portable scene target did not record a serializable frame");
+    compat::scene_render_target_summary scene_summary{};
+    scene_native->GetSummary(&scene_summary);
+    require(
+        scene_summary.scene_id == scene_properties.scene_id &&
+            scene_summary.generation == scene_properties.generation &&
+            scene_summary.has_clear != 0 &&
+            approximately_equal(scene_summary.clear_color.blue, 0.5F, 0.0F),
+        "Windows portable scene target summary changed");
 
     ComPtr<ID2D1Factory1> system_effect_registry_factory;
     require(
