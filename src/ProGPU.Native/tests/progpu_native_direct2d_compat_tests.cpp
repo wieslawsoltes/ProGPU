@@ -67,12 +67,14 @@ public:
     void PROGPU_NATIVE_COM_CALL SetFillMode(compat::fill_mode value)
         noexcept override
     {
+        ++set_fill_mode_count;
         fill_mode = value;
     }
 
     void PROGPU_NATIVE_COM_CALL SetSegmentFlags(compat::path_segment value)
         noexcept override
     {
+        ++set_segment_flags_count;
         segment_flags = value;
     }
 
@@ -235,6 +237,8 @@ public:
     std::uint32_t quadratic_count = 0U;
     std::uint32_t arc_count = 0U;
     std::uint32_t close_count = 0U;
+    std::uint32_t set_fill_mode_count = 0U;
+    std::uint32_t set_segment_flags_count = 0U;
 
 private:
     friend class com::atomic_reference_count<simplified_sink>;
@@ -1560,12 +1564,22 @@ int run_tests()
     auto* raw_widen_sink = new simplified_sink();
     com::pointer<compat::simplified_geometry_sink> widen_sink;
     widen_sink.attach(raw_widen_sink);
+    auto* raw_zero_rectangle_widen_sink = new simplified_sink();
+    com::pointer<compat::simplified_geometry_sink>
+        zero_rectangle_widen_sink;
+    zero_rectangle_widen_sink.attach(raw_zero_rectangle_widen_sink);
     if (geometry->Widen(
             2.0F,
             nullptr,
             &transform,
             core::default_flattening_tolerance,
             widen_sink.get()) != com::ok ||
+        geometry->Widen(
+            0.0F,
+            nullptr,
+            &transform,
+            core::default_flattening_tolerance,
+            zero_rectangle_widen_sink.get()) != com::ok ||
         raw_widen_sink->fill_mode != compat::fill_mode::alternate ||
         raw_widen_sink->segment_flags !=
             compat::path_segment::force_unstroked ||
@@ -1574,6 +1588,13 @@ int run_tests()
         raw_widen_sink->line_count != 6U ||
         raw_widen_sink->bezier_count != 0U ||
         raw_widen_sink->line_point_count != 6U ||
+        raw_zero_rectangle_widen_sink->fill_mode !=
+            compat::fill_mode::alternate ||
+        raw_zero_rectangle_widen_sink->set_fill_mode_count != 1U ||
+        raw_zero_rectangle_widen_sink->set_segment_flags_count != 0U ||
+        raw_zero_rectangle_widen_sink->begin_count != 2U ||
+        raw_zero_rectangle_widen_sink->end_count != 2U ||
+        raw_zero_rectangle_widen_sink->line_count != 6U ||
         !approximately_equal(raw_widen_sink->line_points[0U].x, 22.0F) ||
         !approximately_equal(raw_widen_sink->line_points[0U].y, -1.0F) ||
         !approximately_equal(raw_widen_sink->line_points[3U].x, 18.0F) ||
@@ -1991,16 +2012,31 @@ int run_tests()
     auto* raw_transformed_widen_sink = new simplified_sink();
     com::pointer<compat::simplified_geometry_sink> transformed_widen_sink;
     transformed_widen_sink.attach(raw_transformed_widen_sink);
+    auto* raw_zero_transformed_widen_sink = new simplified_sink();
+    com::pointer<compat::simplified_geometry_sink>
+        zero_transformed_widen_sink;
+    zero_transformed_widen_sink.attach(raw_zero_transformed_widen_sink);
     if (transformed->Widen(
             2.0F,
             nullptr,
             &transform,
             core::default_flattening_tolerance,
             transformed_widen_sink.get()) != com::ok ||
+        transformed->Widen(
+            0.0F,
+            nullptr,
+            &transform,
+            core::default_flattening_tolerance,
+            zero_transformed_widen_sink.get()) != com::ok ||
         raw_transformed_widen_sink->fill_mode !=
             compat::fill_mode::winding ||
         raw_transformed_widen_sink->segment_flags !=
             compat::path_segment::force_unstroked ||
+        raw_zero_transformed_widen_sink->fill_mode !=
+            compat::fill_mode::winding ||
+        raw_zero_transformed_widen_sink->set_fill_mode_count != 1U ||
+        raw_zero_transformed_widen_sink->set_segment_flags_count != 0U ||
+        raw_zero_transformed_widen_sink->begin_count != 0U ||
         raw_transformed_widen_sink->figure_ends[0U] !=
             compat::figure_end::open ||
         raw_transformed_widen_sink->begin_count != 1U ||
@@ -2818,7 +2854,7 @@ int run_tests()
           1.0F, round_path_stroke_style.get(), nullptr,
           0.02F, open_curve_round_widen_sink.get()) != com::ok ||
       raw_open_default_widen_sink->fill_mode !=
-          compat::fill_mode::alternate ||
+          compat::fill_mode::winding ||
       raw_open_default_widen_sink->segment_flags !=
           compat::path_segment::force_unstroked ||
       raw_open_default_widen_sink->begin_count != 1U ||
@@ -3082,7 +3118,7 @@ int run_tests()
   if (multi_default_widen_status != com::ok ||
       multi_dashed_widen_status != com::ok ||
       raw_multi_default_widen_sink->fill_mode !=
-          compat::fill_mode::alternate ||
+          compat::fill_mode::winding ||
       raw_multi_default_widen_sink->segment_flags !=
           compat::path_segment::force_unstroked ||
       raw_multi_default_widen_sink->begin_count != 2U ||
@@ -3462,7 +3498,7 @@ int run_tests()
   if (query_path->Widen(
           2.0F, nullptr, nullptr, core::default_flattening_tolerance,
           path_widen_sink.get()) != com::ok ||
-      raw_path_widen_sink->fill_mode != compat::fill_mode::alternate ||
+      raw_path_widen_sink->fill_mode != compat::fill_mode::winding ||
       raw_path_widen_sink->segment_flags !=
           compat::path_segment::force_unstroked ||
       raw_path_widen_sink->begin_count != 2U ||
@@ -3504,8 +3540,13 @@ int run_tests()
       raw_closed_cover_dash_widen_sink->bezier_count == 0U ||
       query_path->Widen(
           0.0F, nullptr, nullptr, core::default_flattening_tolerance,
-          zero_path_widen_sink.get()) != compat::not_implemented ||
-      raw_zero_path_widen_sink->begin_count != 0U) {
+          zero_path_widen_sink.get()) != com::ok ||
+      raw_zero_path_widen_sink->begin_count != 0U ||
+      raw_zero_path_widen_sink->end_count != 0U ||
+      raw_zero_path_widen_sink->line_count != 0U ||
+      raw_zero_path_widen_sink->bezier_count != 0U ||
+      raw_zero_path_widen_sink->set_fill_mode_count != 1U ||
+      raw_zero_path_widen_sink->set_segment_flags_count != 0U) {
     return 344;
   }
   for (std::uint32_t y_index = 0U; y_index < 28U; ++y_index) {
@@ -3594,7 +3635,7 @@ int run_tests()
           0.5F, clipped_miter_dashed_path_style.get(), nullptr,
           dash_hit_tolerance,
           clipped_miter_dashed_path_widen_sink.get()) != com::ok ||
-      raw_dashed_path_widen_sink->fill_mode != compat::fill_mode::alternate ||
+      raw_dashed_path_widen_sink->fill_mode != compat::fill_mode::winding ||
       raw_dashed_path_widen_sink->segment_flags !=
           compat::path_segment::force_unstroked ||
       raw_dashed_path_widen_sink->begin_count == 0U ||
@@ -3769,7 +3810,7 @@ int run_tests()
           core::default_flattening_tolerance,
           concave_round_path_widen_sink.get()) != com::ok ||
       raw_concave_path_widen_sink->fill_mode !=
-          compat::fill_mode::alternate ||
+          compat::fill_mode::winding ||
       raw_concave_path_widen_sink->segment_flags !=
           compat::path_segment::force_unstroked ||
       raw_concave_path_widen_sink->begin_count != 2U ||
@@ -9713,10 +9754,68 @@ int run_tests()
   auto *raw_system_path_widen_sink = new simplified_sink();
   com::pointer<compat::simplified_geometry_sink> system_path_widen_sink;
   system_path_widen_sink.attach(raw_system_path_widen_sink);
+  auto *raw_system_zero_path_widen_sink = new simplified_sink();
+  com::pointer<compat::simplified_geometry_sink>
+      system_zero_path_widen_sink;
+  system_zero_path_widen_sink.attach(raw_system_zero_path_widen_sink);
   if (FAILED(system_query_boolean_path->Widen(
           2.0F, nullptr, nullptr, D2D1_DEFAULT_FLATTENING_TOLERANCE,
           reinterpret_cast<ID2D1SimplifiedGeometrySink *>(
-              system_path_widen_sink.get())))) {
+              system_path_widen_sink.get()))) ||
+      FAILED(system_query_boolean_path->Widen(
+          0.0F, nullptr, nullptr, D2D1_DEFAULT_FLATTENING_TOLERANCE,
+          reinterpret_cast<ID2D1SimplifiedGeometrySink *>(
+              system_zero_path_widen_sink.get()))) ||
+      raw_system_zero_path_widen_sink->begin_count !=
+          raw_zero_path_widen_sink->begin_count ||
+      raw_system_zero_path_widen_sink->end_count !=
+          raw_zero_path_widen_sink->end_count ||
+      raw_system_zero_path_widen_sink->line_count !=
+          raw_zero_path_widen_sink->line_count ||
+      raw_system_zero_path_widen_sink->bezier_count !=
+          raw_zero_path_widen_sink->bezier_count ||
+      raw_system_zero_path_widen_sink->set_fill_mode_count !=
+          raw_zero_path_widen_sink->set_fill_mode_count ||
+      raw_system_zero_path_widen_sink->set_segment_flags_count !=
+          raw_zero_path_widen_sink->set_segment_flags_count ||
+      raw_system_zero_path_widen_sink->fill_mode !=
+          raw_zero_path_widen_sink->fill_mode ||
+      raw_system_path_widen_sink->set_fill_mode_count !=
+          raw_path_widen_sink->set_fill_mode_count ||
+      raw_system_path_widen_sink->set_segment_flags_count !=
+          raw_path_widen_sink->set_segment_flags_count ||
+      raw_system_path_widen_sink->fill_mode !=
+          raw_path_widen_sink->fill_mode) {
+    std::fprintf(
+        stderr,
+        "zero widen callbacks system=%u/%u/%u/%u/%u/%u fill=%u "
+        "portable=%u/%u/%u/%u/%u/%u fill=%u\n",
+        raw_system_zero_path_widen_sink->begin_count,
+        raw_system_zero_path_widen_sink->end_count,
+        raw_system_zero_path_widen_sink->line_count,
+        raw_system_zero_path_widen_sink->bezier_count,
+        raw_system_zero_path_widen_sink->set_fill_mode_count,
+        raw_system_zero_path_widen_sink->set_segment_flags_count,
+        static_cast<unsigned>(raw_system_zero_path_widen_sink->fill_mode),
+        raw_zero_path_widen_sink->begin_count,
+        raw_zero_path_widen_sink->end_count,
+        raw_zero_path_widen_sink->line_count,
+        raw_zero_path_widen_sink->bezier_count,
+        raw_zero_path_widen_sink->set_fill_mode_count,
+        raw_zero_path_widen_sink->set_segment_flags_count,
+        static_cast<unsigned>(raw_zero_path_widen_sink->fill_mode));
+    std::fprintf(
+        stderr,
+        "nonzero widen callbacks system=%u/%u fill=%u flags=%u "
+        "portable=%u/%u fill=%u flags=%u\n",
+        raw_system_path_widen_sink->set_fill_mode_count,
+        raw_system_path_widen_sink->set_segment_flags_count,
+        static_cast<unsigned>(raw_system_path_widen_sink->fill_mode),
+        static_cast<unsigned>(raw_system_path_widen_sink->segment_flags),
+        raw_path_widen_sink->set_fill_mode_count,
+        raw_path_widen_sink->set_segment_flags_count,
+        static_cast<unsigned>(raw_path_widen_sink->fill_mode),
+        static_cast<unsigned>(raw_path_widen_sink->segment_flags));
     system_query_boolean_path->Release();
     system_input_boolean_path->Release();
     system_factory->Release();
@@ -10577,6 +10676,19 @@ int run_tests()
         D2D1_DEFAULT_FLATTENING_TOLERANCE,
         reinterpret_cast<ID2D1SimplifiedGeometrySink*>(
             system_widen_sink.get()));
+    auto* raw_system_zero_rectangle_widen_sink = new simplified_sink();
+    com::pointer<compat::simplified_geometry_sink>
+        system_zero_rectangle_widen_sink;
+    system_zero_rectangle_widen_sink.attach(
+        raw_system_zero_rectangle_widen_sink);
+    const HRESULT system_zero_rectangle_widen_status =
+        system_group_rectangle->Widen(
+            0.0F,
+            nullptr,
+            &system_rectangle_transform,
+            D2D1_DEFAULT_FLATTENING_TOLERANCE,
+            reinterpret_cast<ID2D1SimplifiedGeometrySink*>(
+                system_zero_rectangle_widen_sink.get()));
     auto* raw_system_transformed_widen_sink = new simplified_sink();
     com::pointer<compat::simplified_geometry_sink>
         system_transformed_widen_sink;
@@ -10592,6 +10704,21 @@ int run_tests()
               D2D1_DEFAULT_FLATTENING_TOLERANCE,
               reinterpret_cast<ID2D1SimplifiedGeometrySink*>(
                   system_transformed_widen_sink.get()));
+    auto* raw_system_zero_transformed_widen_sink = new simplified_sink();
+    com::pointer<compat::simplified_geometry_sink>
+        system_zero_transformed_widen_sink;
+    system_zero_transformed_widen_sink.attach(
+        raw_system_zero_transformed_widen_sink);
+    const HRESULT system_zero_transformed_widen_status =
+        system_transformed_rectangle == nullptr
+        ? system_transformed_create_status
+        : system_transformed_rectangle->Widen(
+              0.0F,
+              nullptr,
+              &system_rectangle_transform,
+              D2D1_DEFAULT_FLATTENING_TOLERANCE,
+              reinterpret_cast<ID2D1SimplifiedGeometrySink*>(
+                  system_zero_transformed_widen_sink.get()));
     D2D1_GEOMETRY_RELATION system_transformed_candidate_relation =
         D2D1_GEOMETRY_RELATION_UNKNOWN;
     D2D1_GEOMETRY_RELATION system_transformed_source_relation =
@@ -10700,6 +10827,9 @@ int run_tests()
         }
         return system.fill_mode == portable.fill_mode &&
             system.segment_flags == portable.segment_flags &&
+            system.set_fill_mode_count == portable.set_fill_mode_count &&
+            system.set_segment_flags_count ==
+                portable.set_segment_flags_count &&
             system.begin_count == portable.begin_count &&
             system.end_count == portable.end_count &&
             system.line_count == portable.line_count &&
@@ -10734,25 +10864,100 @@ int run_tests()
                 });
     };
     if (FAILED(system_widen_status) ||
+        FAILED(system_zero_rectangle_widen_status) ||
         FAILED(system_transformed_widen_status) ||
+        FAILED(system_zero_transformed_widen_status) ||
         !widen_sinks_match(*raw_system_widen_sink, *raw_widen_sink) ||
         !widen_sinks_match(
+            *raw_system_zero_rectangle_widen_sink,
+            *raw_zero_rectangle_widen_sink) ||
+        !widen_sinks_match(
             *raw_system_transformed_widen_sink,
-            *raw_transformed_widen_sink)) {
+            *raw_transformed_widen_sink) ||
+        !widen_sinks_match(
+            *raw_system_zero_transformed_widen_sink,
+            *raw_zero_transformed_widen_sink)) {
         std::fprintf(
             stderr,
-            "widen oracle base=%d/%u/%u/%u fill=%u transformed=%d/%u/%u/%u fill=%u\n",
+            "widen matches base=%d zero=%d transformed=%d zero-transformed=%d\n",
+            widen_sinks_match(*raw_system_widen_sink, *raw_widen_sink)
+                ? 1
+                : 0,
+            widen_sinks_match(
+                *raw_system_zero_rectangle_widen_sink,
+                *raw_zero_rectangle_widen_sink)
+                ? 1
+                : 0,
+            widen_sinks_match(
+                *raw_system_transformed_widen_sink,
+                *raw_transformed_widen_sink)
+                ? 1
+                : 0,
+            widen_sinks_match(
+                *raw_system_zero_transformed_widen_sink,
+                *raw_zero_transformed_widen_sink)
+                ? 1
+                : 0);
+        std::fprintf(
+            stderr,
+            "widen oracle base=%d/%u/%u/%u fill=%u callbacks=%u/%u "
+            "portable=%u/%u transformed=%d/%u/%u/%u fill=%u "
+            "callbacks=%u/%u portable=%u/%u\n",
             static_cast<int>(system_widen_status),
             raw_system_widen_sink->begin_count,
             raw_system_widen_sink->end_count,
             raw_system_widen_sink->line_count,
             static_cast<unsigned>(raw_system_widen_sink->fill_mode),
+            raw_system_widen_sink->set_fill_mode_count,
+            raw_system_widen_sink->set_segment_flags_count,
+            raw_widen_sink->set_fill_mode_count,
+            raw_widen_sink->set_segment_flags_count,
             static_cast<int>(system_transformed_widen_status),
             raw_system_transformed_widen_sink->begin_count,
             raw_system_transformed_widen_sink->end_count,
             raw_system_transformed_widen_sink->line_count,
             static_cast<unsigned>(
-                raw_system_transformed_widen_sink->fill_mode));
+                raw_system_transformed_widen_sink->fill_mode),
+            raw_system_transformed_widen_sink->set_fill_mode_count,
+            raw_system_transformed_widen_sink->set_segment_flags_count,
+        raw_transformed_widen_sink->set_fill_mode_count,
+        raw_transformed_widen_sink->set_segment_flags_count);
+        std::fprintf(
+            stderr,
+            "zero rectangle system status=%ld fill=%u flags=%u "
+            "callbacks=%u/%u geometry=%u/%u/%u/%zu portable fill=%u "
+            "flags=%u callbacks=%u/%u geometry=%u/%u/%u/%zu; "
+            "transformed status=%ld "
+            "system fill=%u callbacks=%u/%u portable fill=%u callbacks=%u/%u\n",
+            static_cast<long>(system_zero_rectangle_widen_status),
+            static_cast<unsigned>(
+                raw_system_zero_rectangle_widen_sink->fill_mode),
+            static_cast<unsigned>(
+                raw_system_zero_rectangle_widen_sink->segment_flags),
+            raw_system_zero_rectangle_widen_sink->set_fill_mode_count,
+            raw_system_zero_rectangle_widen_sink->set_segment_flags_count,
+            raw_system_zero_rectangle_widen_sink->begin_count,
+            raw_system_zero_rectangle_widen_sink->end_count,
+            raw_system_zero_rectangle_widen_sink->line_count,
+            raw_system_zero_rectangle_widen_sink->line_point_count,
+            static_cast<unsigned>(raw_zero_rectangle_widen_sink->fill_mode),
+            static_cast<unsigned>(
+                raw_zero_rectangle_widen_sink->segment_flags),
+            raw_zero_rectangle_widen_sink->set_fill_mode_count,
+            raw_zero_rectangle_widen_sink->set_segment_flags_count,
+            raw_zero_rectangle_widen_sink->begin_count,
+            raw_zero_rectangle_widen_sink->end_count,
+            raw_zero_rectangle_widen_sink->line_count,
+            raw_zero_rectangle_widen_sink->line_point_count,
+            static_cast<long>(system_zero_transformed_widen_status),
+            static_cast<unsigned>(
+                raw_system_zero_transformed_widen_sink->fill_mode),
+            raw_system_zero_transformed_widen_sink->set_fill_mode_count,
+            raw_system_zero_transformed_widen_sink->set_segment_flags_count,
+            static_cast<unsigned>(
+                raw_zero_transformed_widen_sink->fill_mode),
+            raw_zero_transformed_widen_sink->set_fill_mode_count,
+            raw_zero_transformed_widen_sink->set_segment_flags_count);
         const auto print_widen_sink = [](const char* name,
                                          const simplified_sink& sink) {
             for (std::size_t index = 0U;
