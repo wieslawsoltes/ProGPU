@@ -9,7 +9,7 @@ diff --git a/Source/Svg.csproj b/Source/Svg.csproj
          <PackageLicenseExpression>MS-PL</PackageLicenseExpression>
          <RootNamespace>Svg</RootNamespace>
          <AssemblyName>Svg</AssemblyName>
-@@ -71,6 +71,7 @@
+@@ -71,4 +71,5 @@
          <DefineConstants Condition="$(TargetFramework.StartsWith('netcore'))">$(DefineConstants);NETCORE</DefineConstants>
          <DefineConstants Condition="$(TargetFramework.StartsWith('net8'))">$(DefineConstants);NETCORE;NETNEXT</DefineConstants>
          <DefineConstants Condition="$(TargetFramework.StartsWith('net9'))">$(DefineConstants);NETCORE;NETNEXT</DefineConstants>
