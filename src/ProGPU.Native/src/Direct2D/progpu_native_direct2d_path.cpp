@@ -3543,6 +3543,383 @@ void append_polygon_boolean_parameter(std::vector<double> &parameters,
   parameters.push_back(value);
 }
 
+[[nodiscard]] com::result normalize_interacting_contours(
+    std::vector<std::vector<point_2f>>& contours,
+    std::span<const std::int8_t> winding_contributions,
+    fill_mode mode)
+{
+  constexpr double intersection_tolerance = 1.0e-10;
+  constexpr std::size_t maximum_boundary_segments = 1U << 20U;
+  if (contours.size() < 2U ||
+      contours.size() != winding_contributions.size() ||
+      (mode != fill_mode::alternate && mode != fill_mode::winding)) {
+    return com::invalid_argument;
+  }
+  try {
+    std::vector<std::vector<std::vector<double>>> parameters;
+    std::vector<polygon_edge_bounds> edge_bounds;
+    parameters.resize(contours.size());
+    edge_bounds.reserve(contours.size());
+    for (std::size_t contour_index = 0U;
+         contour_index < contours.size(); ++contour_index) {
+      parameters[contour_index].resize(contours[contour_index].size());
+      for (std::vector<double>& edge_parameters :
+           parameters[contour_index]) {
+        edge_parameters = {0.0, 1.0};
+      }
+      edge_bounds.push_back(
+          make_polygon_edge_bounds(contours[contour_index]));
+    }
+    for (std::size_t first_contour = 0U;
+         first_contour < contours.size(); ++first_contour) {
+      const std::vector<point_2f>& first = contours[first_contour];
+      for (std::size_t second_contour = first_contour + 1U;
+           second_contour < contours.size(); ++second_contour) {
+        const std::vector<point_2f>& second = contours[second_contour];
+        for (std::size_t first_edge = 0U;
+             first_edge < first.size(); ++first_edge) {
+          const point_2f first_start = first[first_edge];
+          const point_2f first_end =
+              first[(first_edge + 1U) % first.size()];
+          const double first_x =
+              static_cast<double>(first_end.x) - first_start.x;
+          const double first_y =
+              static_cast<double>(first_end.y) - first_start.y;
+          const float first_minimum_x =
+              std::min(first_start.x, first_end.x);
+          const float first_minimum_y =
+              std::min(first_start.y, first_end.y);
+          const float first_maximum_x =
+              std::max(first_start.x, first_end.x);
+          const float first_maximum_y =
+              std::max(first_start.y, first_end.y);
+          for (std::size_t second_block = 0U;
+               second_block < edge_bounds[second_contour].minimum_x.size();
+               second_block += 4U) {
+            std::uint32_t overlap_mask = polygon_edge_overlap_mask(
+                first_minimum_x,
+                first_minimum_y,
+                first_maximum_x,
+                first_maximum_y,
+                edge_bounds[second_contour],
+                second_block);
+            while (overlap_mask != 0U) {
+              std::uint32_t lane = 0U;
+              while ((overlap_mask & (1U << lane)) == 0U) {
+                ++lane;
+              }
+              overlap_mask &= overlap_mask - 1U;
+              const std::size_t second_edge = second_block + lane;
+              if (second_edge >= second.size()) {
+                continue;
+              }
+              const point_2f second_start = second[second_edge];
+              const point_2f second_end =
+                  second[(second_edge + 1U) % second.size()];
+              const double second_x =
+                  static_cast<double>(second_end.x) - second_start.x;
+              const double second_y =
+                  static_cast<double>(second_end.y) - second_start.y;
+              const double offset_x =
+                  static_cast<double>(second_start.x) - first_start.x;
+              const double offset_y =
+                  static_cast<double>(second_start.y) - first_start.y;
+              const double denominator =
+                  first_x * second_y - first_y * second_x;
+              if (denominator == 0.0) {
+                if (offset_x * first_y - offset_y * first_x != 0.0) {
+                  continue;
+                }
+                const bool use_x =
+                    std::abs(first_x) >= std::abs(first_y);
+                const double first_axis_start =
+                    use_x ? first_start.x : first_start.y;
+                const double first_axis_end =
+                    use_x ? first_end.x : first_end.y;
+                const double second_axis_start =
+                    use_x ? second_start.x : second_start.y;
+                const double second_axis_end =
+                    use_x ? second_end.x : second_end.y;
+                const double overlap =
+                    std::min(
+                        std::max(first_axis_start, first_axis_end),
+                        std::max(second_axis_start, second_axis_end)) -
+                    std::max(
+                        std::min(first_axis_start, first_axis_end),
+                        std::min(second_axis_start, second_axis_end));
+                if (overlap <= 0.0) {
+                  continue;
+                }
+                const double first_axis_delta =
+                    first_axis_end - first_axis_start;
+                const double second_axis_delta =
+                    second_axis_end - second_axis_start;
+                const auto append_if_on_edge = [](auto& values,
+                                                   double value) {
+                  if (value >= -intersection_tolerance &&
+                      value <= 1.0 + intersection_tolerance) {
+                    append_polygon_boolean_parameter(values, value);
+                  }
+                };
+                append_if_on_edge(
+                    parameters[first_contour][first_edge],
+                    (second_axis_start - first_axis_start) /
+                        first_axis_delta);
+                append_if_on_edge(
+                    parameters[first_contour][first_edge],
+                    (second_axis_end - first_axis_start) /
+                        first_axis_delta);
+                append_if_on_edge(
+                    parameters[second_contour][second_edge],
+                    (first_axis_start - second_axis_start) /
+                        second_axis_delta);
+                append_if_on_edge(
+                    parameters[second_contour][second_edge],
+                    (first_axis_end - second_axis_start) /
+                        second_axis_delta);
+                continue;
+              }
+              const double first_parameter =
+                  (offset_x * second_y - offset_y * second_x) /
+                  denominator;
+              const double second_parameter =
+                  (offset_x * first_y - offset_y * first_x) /
+                  denominator;
+              if (first_parameter < -intersection_tolerance ||
+                  first_parameter > 1.0 + intersection_tolerance ||
+                  second_parameter < -intersection_tolerance ||
+                  second_parameter > 1.0 + intersection_tolerance) {
+                continue;
+              }
+              append_polygon_boolean_parameter(
+                  parameters[first_contour][first_edge], first_parameter);
+              append_polygon_boolean_parameter(
+                  parameters[second_contour][second_edge], second_parameter);
+            }
+          }
+        }
+      }
+    }
+    for (auto& contour_parameters : parameters) {
+      for (auto& edge_parameters : contour_parameters) {
+        std::sort(edge_parameters.begin(), edge_parameters.end());
+      }
+    }
+
+    const auto classify_other_sides = [](
+        std::span<const point_2f> other,
+        point_2f source_start,
+        point_2f source_end,
+        point_2f midpoint,
+        bool& inside_left,
+        bool& inside_right) {
+      const polygon_point_relation relation =
+          classify_polygon_point(other, midpoint);
+      if (relation != polygon_point_relation::boundary) {
+        inside_left = relation == polygon_point_relation::inside;
+        inside_right = inside_left;
+        return true;
+      }
+      const double source_x =
+          static_cast<double>(source_end.x) - source_start.x;
+      const double source_y =
+          static_cast<double>(source_end.y) - source_start.y;
+      const double tolerance = polygon_coordinate_tolerance(other, midpoint);
+      for (std::size_t edge = 0U; edge < other.size(); ++edge) {
+        const point_2f other_start = other[edge];
+        const point_2f other_end = other[(edge + 1U) % other.size()];
+        const double other_x =
+            static_cast<double>(other_end.x) - other_start.x;
+        const double other_y =
+            static_cast<double>(other_end.y) - other_start.y;
+        const double length = std::hypot(other_x, other_y);
+        if (std::abs(triangle_cross(other_start, other_end, midpoint)) >
+            tolerance * std::max(1.0, length)) {
+          continue;
+        }
+        const double midpoint_x =
+            static_cast<double>(midpoint.x) - other_start.x;
+        const double midpoint_y =
+            static_cast<double>(midpoint.y) - other_start.y;
+        const double projection =
+            midpoint_x * other_x + midpoint_y * other_y;
+        const double squared_length =
+            other_x * other_x + other_y * other_y;
+        const double projection_tolerance =
+            tolerance * std::max(1.0, length);
+        if (projection < -projection_tolerance ||
+            projection > squared_length + projection_tolerance) {
+          continue;
+        }
+        const double direction = source_x * other_x + source_y * other_y;
+        if (direction == 0.0) {
+          continue;
+        }
+        inside_left = direction > 0.0;
+        inside_right = !inside_left;
+        return true;
+      }
+      return false;
+    };
+    const auto filled = [mode](bool alternate, std::int32_t winding) {
+      return mode == fill_mode::alternate ? alternate : winding != 0;
+    };
+    std::vector<polygon_boolean_segment> segments;
+    const auto point_tolerance = [&contours](point_2f point) {
+      double result = 0.0;
+      for (const std::vector<point_2f>& contour : contours) {
+        result = std::max(
+            result, polygon_coordinate_tolerance(contour, point));
+      }
+      return result;
+    };
+    const auto append_boundary_segment = [
+        &segments,
+        &point_tolerance](point_2f start, point_2f end) {
+      const double tolerance = point_tolerance(start);
+      for (const polygon_boolean_segment& segment : segments) {
+        if (same_polygon_boolean_point(segment.start, start, tolerance) &&
+            same_polygon_boolean_point(segment.end, end, tolerance)) {
+          return true;
+        }
+      }
+      if (segments.size() == maximum_boundary_segments) {
+        return false;
+      }
+      segments.push_back({start, end, false});
+      return true;
+    };
+    for (std::size_t source_contour = 0U;
+         source_contour < contours.size(); ++source_contour) {
+      const std::vector<point_2f>& source = contours[source_contour];
+      for (std::size_t edge = 0U; edge < source.size(); ++edge) {
+        const point_2f edge_start = source[edge];
+        const point_2f edge_end = source[(edge + 1U) % source.size()];
+        const std::vector<double>& edge_parameters =
+            parameters[source_contour][edge];
+        for (std::size_t part = 0U;
+             part + 1U < edge_parameters.size(); ++part) {
+          const double start_parameter = edge_parameters[part];
+          const double end_parameter = edge_parameters[part + 1U];
+          if (end_parameter - start_parameter <= intersection_tolerance) {
+            continue;
+          }
+          const point_2f start = interpolate_polygon_boolean_point(
+              edge_start, edge_end, start_parameter);
+          const point_2f end = interpolate_polygon_boolean_point(
+              edge_start, edge_end, end_parameter);
+          const point_2f midpoint = interpolate_polygon_boolean_point(
+              edge_start,
+              edge_end,
+              (start_parameter + end_parameter) * 0.5);
+          bool alternate_left = false;
+          bool alternate_right = false;
+          std::int32_t winding_left = 0;
+          std::int32_t winding_right = 0;
+          for (std::size_t candidate = 0U;
+               candidate < contours.size(); ++candidate) {
+            bool inside_left = candidate == source_contour;
+            bool inside_right = false;
+            if (candidate != source_contour &&
+                !classify_other_sides(
+                    contours[candidate],
+                    start,
+                    end,
+                    midpoint,
+                    inside_left,
+                    inside_right)) {
+              return not_implemented;
+            }
+            if (inside_left) {
+              alternate_left = !alternate_left;
+              winding_left += winding_contributions[candidate];
+            }
+            if (inside_right) {
+              alternate_right = !alternate_right;
+              winding_right += winding_contributions[candidate];
+            }
+          }
+          const bool result_inside_left =
+              filled(alternate_left, winding_left);
+          const bool result_inside_right =
+              filled(alternate_right, winding_right);
+          if (result_inside_left == result_inside_right) {
+            continue;
+          }
+          if (!append_boundary_segment(
+                  result_inside_left ? start : end,
+                  result_inside_left ? end : start)) {
+            return com::out_of_memory;
+          }
+        }
+      }
+    }
+
+    std::vector<std::vector<point_2f>> normalized;
+    constexpr double pi = 3.1415926535897932384626433832795;
+    for (std::size_t first_segment = 0U;
+         first_segment < segments.size(); ++first_segment) {
+      if (segments[first_segment].used) {
+        continue;
+      }
+      std::vector<point_2f> points;
+      points.push_back(segments[first_segment].start);
+      polygon_boolean_segment* current = &segments[first_segment];
+      current->used = true;
+      const double tolerance = point_tolerance(current->start);
+      while (!same_polygon_boolean_point(
+          current->end, points.front(), tolerance)) {
+        if (points.size() == maximum_boundary_segments) {
+          return not_implemented;
+        }
+        points.push_back(current->end);
+        polygon_boolean_segment* next = nullptr;
+        double best_angle = std::numeric_limits<double>::infinity();
+        const double incoming_x =
+            static_cast<double>(current->end.x) - current->start.x;
+        const double incoming_y =
+            static_cast<double>(current->end.y) - current->start.y;
+        for (polygon_boolean_segment& candidate : segments) {
+          if (candidate.used ||
+              !same_polygon_boolean_point(
+                  candidate.start, current->end, tolerance)) {
+            continue;
+          }
+          const double outgoing_x =
+              static_cast<double>(candidate.end.x) - candidate.start.x;
+          const double outgoing_y =
+              static_cast<double>(candidate.end.y) - candidate.start.y;
+          double angle = std::atan2(
+              incoming_x * outgoing_y - incoming_y * outgoing_x,
+              incoming_x * outgoing_x + incoming_y * outgoing_y);
+          if (angle <= 0.0) {
+            angle += 2.0 * pi;
+          }
+          if (angle < best_angle) {
+            best_angle = angle;
+            next = &candidate;
+          }
+        }
+        if (next == nullptr) {
+          return not_implemented;
+        }
+        next->used = true;
+        current = next;
+      }
+      if (points.size() < 3U) {
+        return not_implemented;
+      }
+      normalized.push_back(std::move(points));
+    }
+    contours = std::move(normalized);
+    return com::ok;
+  } catch (const std::bad_alloc&) {
+    return com::out_of_memory;
+  } catch (...) {
+    return failure;
+  }
+}
+
 [[nodiscard]] com::result triangulate_simple_polygon(
     std::span<const point_2f> source,
     std::vector<triangle>& triangles) noexcept
@@ -5701,9 +6078,16 @@ public:
                 }
             }
             if (requires_boolean_normalization) {
-                if (contours.size() != 2U) {
-                    return not_implemented;
-                }
+                if (contours.size() > 2U) {
+                    const com::result result =
+                        normalize_interacting_contours(
+                            contours,
+                            winding_contributions,
+                            data_->mode);
+                    if (com::failed(result)) {
+                        return result;
+                    }
+                } else {
                 const auto create_contour_geometry = [this](
                     const std::vector<point_2f>& contour,
                     com::pointer<path_geometry>& geometry) {
@@ -5772,6 +6156,7 @@ public:
                     return result;
                 }
                 contours = raw_contour_sink->take_contours();
+                }
             } else {
               for (std::size_t contour_index = 0U;
                    contour_index < contours.size(); ++contour_index) {
