@@ -115,6 +115,50 @@ void record_rectangle_path(ID2D1GeometrySink* sink)
     sink->EndFigure(D2D1_FIGURE_END_CLOSED);
 }
 
+void append_area_rectangle(
+    ID2D1GeometrySink* sink,
+    float left,
+    float top,
+    float right,
+    float bottom)
+{
+    const std::array<D2D1_POINT_2F, 3U> points = {{
+        D2D1::Point2F(right, top),
+        D2D1::Point2F(right, bottom),
+        D2D1::Point2F(left, bottom)}};
+    sink->BeginFigure(
+        D2D1::Point2F(left, top),
+        D2D1_FIGURE_BEGIN_FILLED);
+    sink->AddLines(points.data(), static_cast<UINT32>(points.size()));
+    sink->EndFigure(D2D1_FIGURE_END_CLOSED);
+}
+
+ComPtr<ID2D1PathGeometry> create_area_path(
+    ID2D1Factory* factory,
+    D2D1_FILL_MODE fill_mode,
+    bool overlapping)
+{
+    ComPtr<ID2D1PathGeometry> path;
+    ComPtr<ID2D1GeometrySink> sink;
+    require(
+        factory != nullptr &&
+            factory->CreatePathGeometry(&path) == S_OK &&
+            path->Open(&sink) == S_OK,
+        "Direct2D area-oracle path creation failed");
+    sink->SetFillMode(fill_mode);
+    if (overlapping) {
+        append_area_rectangle(sink.Get(), 0.0F, 0.0F, 10.0F, 10.0F);
+        append_area_rectangle(sink.Get(), 5.0F, 0.0F, 15.0F, 10.0F);
+    } else {
+        append_area_rectangle(sink.Get(), 0.0F, 0.0F, 12.0F, 10.0F);
+        append_area_rectangle(sink.Get(), 3.0F, 3.0F, 9.0F, 7.0F);
+    }
+    require(
+        sink->Close() == S_OK,
+        "Direct2D area-oracle path close failed");
+    return path;
+}
+
 void record_path_vocabulary(ID2D1GeometrySink* sink)
 {
     sink->SetFillMode(D2D1_FILL_MODE_WINDING);
@@ -706,6 +750,71 @@ int main()
             &compat_contains) == S_OK &&
             compat_contains == FALSE,
         "ProGPU rectangle path containment changed");
+
+    const D2D1_MATRIX_3X2_F compat_area_transform =
+        D2D1::Matrix3x2F(2.0F, 0.0F, 0.0F, 3.0F, 7.0F, -5.0F);
+    const auto require_matching_area = [&compat_area_transform](
+                                           ID2D1Factory* compat,
+                                           ID2D1Factory* system,
+                                           D2D1_FILL_MODE fill_mode,
+                                           bool overlapping,
+                                           float expected,
+                                           const char* message) {
+        const ComPtr<ID2D1PathGeometry> compat_geometry = create_area_path(
+            compat, fill_mode, overlapping);
+        const ComPtr<ID2D1PathGeometry> system_geometry = create_area_path(
+            system, fill_mode, overlapping);
+        float compat_untransformed = 0.0F;
+        float system_untransformed = 0.0F;
+        float compat_transformed = 0.0F;
+        float system_transformed = 0.0F;
+        require(
+            compat_geometry->ComputeArea(
+                nullptr,
+                D2D1_DEFAULT_FLATTENING_TOLERANCE,
+                &compat_untransformed) == S_OK &&
+                system_geometry->ComputeArea(
+                    nullptr,
+                    D2D1_DEFAULT_FLATTENING_TOLERANCE,
+                    &system_untransformed) == S_OK &&
+                compat_geometry->ComputeArea(
+                    &compat_area_transform,
+                    D2D1_DEFAULT_FLATTENING_TOLERANCE,
+                    &compat_transformed) == S_OK &&
+                system_geometry->ComputeArea(
+                    &compat_area_transform,
+                    D2D1_DEFAULT_FLATTENING_TOLERANCE,
+                    &system_transformed) == S_OK &&
+                approximately_equal(compat_untransformed, expected, 0.001F) &&
+                approximately_equal(
+                    compat_untransformed, system_untransformed, 0.001F) &&
+                approximately_equal(
+                    compat_transformed, expected * 6.0F, 0.01F) &&
+                approximately_equal(
+                    compat_transformed, system_transformed, 0.01F),
+            message);
+    };
+    require_matching_area(
+        compat_factory.Get(),
+        system_rectangle_factory.Get(),
+        D2D1_FILL_MODE_ALTERNATE,
+        false,
+        96.0F,
+        "ProGPU alternate nested path area diverged from system Direct2D");
+    require_matching_area(
+        compat_factory.Get(),
+        system_rectangle_factory.Get(),
+        D2D1_FILL_MODE_ALTERNATE,
+        true,
+        100.0F,
+        "ProGPU alternate overlapping path area diverged from system Direct2D");
+    require_matching_area(
+        compat_factory.Get(),
+        system_rectangle_factory.Get(),
+        D2D1_FILL_MODE_WINDING,
+        true,
+        150.0F,
+        "ProGPU winding overlapping path area diverged from system Direct2D");
     D2D1_POINT_DESCRIPTION compat_point_description{};
     require(
         compat_rectangle_path->ComputePointAndSegmentAtLength(

@@ -3297,6 +3297,23 @@ probes. Both Windows 11 ARM64 and x64 builds pass with MSVC `/W4 /WX`; the
 portable optimized and sanitizer suites exercise the identical shared
 implementation on macOS.
 
+### Shared Windows path-area checkpoint
+
+The exported Windows `ID2D1PathGeometry1::ComputeArea` implementation now
+replays each immutable provider path once into a cached portable path and
+delegates area evaluation to the qualified portable contour normalizer. It no
+longer sums absolute per-figure shoelace areas, which over-counted nested holes
+and overlapping alternate or winding figures. The cache preserves the original
+line, cubic, quadratic, arc, segment-flag, figure, and fill-mode transcript and
+is protected for concurrent geometry queries.
+
+The Windows provider suite compares nested alternate holes, overlapping
+alternate XOR regions, and overlapping winding unions against a genuine system
+Direct2D factory. Every case is also repeated through an affine scale and
+translation. Both Windows 11 ARM64 and x64 builds require identical qualified
+areas; the portable path suite continues to own the wider self-intersection,
+contact, hole, and winding-layer corpus.
+
 ## Delivery order
 
 1. Keep the dependency classifier and resolver fail-closed invariants green.

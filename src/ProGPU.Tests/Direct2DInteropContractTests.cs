@@ -195,12 +195,18 @@ public sealed class Direct2DInteropContractTests
         Assert.Contains("detail::rectangle_stroke_contains_point", provider, StringComparison.Ordinal);
         Assert.Contains("detail::outline_rectangle", provider, StringComparison.Ordinal);
         Assert.Contains("detail::widen_rectangle", provider, StringComparison.Ordinal);
+        Assert.Contains("get_portable_path", provider, StringComparison.Ordinal);
+        Assert.Contains("path->ComputeArea", provider, StringComparison.Ordinal);
+        Assert.DoesNotContain("signed_areas.assign", provider, StringComparison.Ordinal);
         Assert.Contains("com::result outline_rectangle", rectangleQueries, StringComparison.Ordinal);
         Assert.Contains("ProGPU rectangle geometry widened bounds changed", providerTest, StringComparison.Ordinal);
         Assert.Contains("ProGPU rectangle solid-style widened bounds changed", providerTest, StringComparison.Ordinal);
         Assert.Contains("ProGPU rectangle geometry outline failed", providerTest, StringComparison.Ordinal);
         Assert.Contains("ProGPU rectangle geometry widening failed", providerTest, StringComparison.Ordinal);
         Assert.Contains("ProGPU rectangle stroke queries diverged from system Direct2D", providerTest, StringComparison.Ordinal);
+        Assert.Contains("ProGPU alternate nested path area diverged from system Direct2D", providerTest, StringComparison.Ordinal);
+        Assert.Contains("ProGPU alternate overlapping path area diverged from system Direct2D", providerTest, StringComparison.Ordinal);
+        Assert.Contains("ProGPU winding overlapping path area diverged from system Direct2D", providerTest, StringComparison.Ordinal);
         Assert.DoesNotContain("compat_transform_rectangle", provider, StringComparison.Ordinal);
         Assert.Contains("degenerate.point_at_length", nativeTest, StringComparison.Ordinal);
     }
