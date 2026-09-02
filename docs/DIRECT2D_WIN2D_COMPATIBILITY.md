@@ -954,6 +954,16 @@ system implementation instead of being rejected. Non-convex styled or split-
 erosion contours, segment flags, and invalid topology remain typed fail-closed
 domains.
 
+Open solid `Widen` is now explicitly qualified over tolerance-flattened cubic
+and quadratic segments, in addition to lines. Two numerical correctness fixes
+are shared by containment, widened bounds, and output construction: nearly
+collinear float directions are treated as a straight continuation instead of
+forming a clipped multi-unit miter spike, and round-join containment accepts
+only the actual outer circular sector rather than the full vertex disk. A
+mixed cubic/quadratic open curve has dense local `Widen` versus
+`StrokeContainsPoint` coverage, while portable and genuine Direct2D widening
+and containment probes pass on Windows ARM64 and x64.
+
 The identical simple closed/default-miter domain now implements
 `GetWidenedBounds`. It derives segment offset endpoints plus qualified miter
 extrema in local geometry space, then transforms and reduces independent

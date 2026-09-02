@@ -2256,6 +2256,32 @@ int run_tests()
     }
     open_query_sink.Reset();
 
+    compat::path_geometry* raw_open_curve_path = nullptr;
+    compat::geometry_sink* raw_open_curve_sink = nullptr;
+    if (factory->CreatePathGeometry(&raw_open_curve_path) != com::ok ||
+        raw_open_curve_path == nullptr ||
+        raw_open_curve_path->Open(&raw_open_curve_sink) != com::ok ||
+        raw_open_curve_sink == nullptr) {
+      return 404;
+    }
+    com::pointer<compat::path_geometry> open_curve_path;
+    open_curve_path.attach(raw_open_curve_path);
+    com::pointer<compat::geometry_sink> open_curve_sink;
+    open_curve_sink.attach(raw_open_curve_sink);
+    open_curve_sink->BeginFigure(
+        {0.0F, 0.0F}, compat::figure_begin::hollow);
+    const compat::bezier_segment open_curve_cubic{
+        {2.0F, 0.0F}, {4.0F, 2.0F}, {6.0F, 2.0F}};
+    open_curve_sink->AddBezier(&open_curve_cubic);
+    const compat::quadratic_bezier_segment open_curve_quadratic{
+        {8.0F, 2.0F}, {10.0F, 0.0F}};
+    open_curve_sink->AddQuadraticBezier(&open_curve_quadratic);
+    open_curve_sink->EndFigure(compat::figure_end::open);
+    if (open_curve_sink->Close() != com::ok) {
+      return 405;
+    }
+    open_curve_sink.Reset();
+
     compat::path_geometry* raw_multi_query_path = nullptr;
     compat::geometry_sink* raw_multi_query_sink = nullptr;
     if (factory->CreatePathGeometry(&raw_multi_query_path) != com::ok ||
@@ -2696,6 +2722,13 @@ int run_tests()
   com::pointer<compat::simplified_geometry_sink>
       open_transformed_widen_sink;
   open_transformed_widen_sink.attach(raw_open_transformed_widen_sink);
+  auto* raw_open_curve_widen_sink = new simplified_sink();
+  com::pointer<compat::simplified_geometry_sink> open_curve_widen_sink;
+  open_curve_widen_sink.attach(raw_open_curve_widen_sink);
+  auto* raw_open_curve_round_widen_sink = new simplified_sink();
+  com::pointer<compat::simplified_geometry_sink>
+      open_curve_round_widen_sink;
+  open_curve_round_widen_sink.attach(raw_open_curve_round_widen_sink);
   if (open_query_path->Widen(
           2.0F, nullptr, nullptr,
           core::default_flattening_tolerance,
@@ -2717,6 +2750,12 @@ int run_tests()
           2.0F, nullptr, &transform,
           core::default_flattening_tolerance,
           open_transformed_widen_sink.get()) != com::ok ||
+      open_curve_path->Widen(
+          1.0F, nullptr, nullptr,
+          0.02F, open_curve_widen_sink.get()) != com::ok ||
+      open_curve_path->Widen(
+          1.0F, round_path_stroke_style.get(), nullptr,
+          0.02F, open_curve_round_widen_sink.get()) != com::ok ||
       raw_open_default_widen_sink->fill_mode !=
           compat::fill_mode::alternate ||
       raw_open_default_widen_sink->segment_flags !=
@@ -2743,7 +2782,9 @@ int run_tests()
       !captured_fill_contains(
           *raw_open_triangle_dashed_widen_sink, {4.0F, 3.8F}) ||
       !captured_fill_contains(
-          *raw_open_transformed_widen_sink, {19.5F, -6.25F})) {
+          *raw_open_transformed_widen_sink, {19.5F, -6.25F}) ||
+      raw_open_curve_widen_sink->begin_count != 1U ||
+      raw_open_curve_round_widen_sink->bezier_count == 0U) {
     return 389;
   }
   for (std::uint32_t y_index = 0U; y_index < 24U; ++y_index) {
@@ -2790,6 +2831,50 @@ int run_tests()
                 : 0,
             dashed_contains);
         return 390;
+      }
+    }
+  }
+  for (std::uint32_t y_index = 0U; y_index < 34U; ++y_index) {
+    for (std::uint32_t x_index = 0U; x_index < 42U; ++x_index) {
+      const compat::point_2f point{
+          -1.17F + static_cast<float>(x_index) * 0.293F,
+          -4.37F + static_cast<float>(y_index) * 0.271F};
+      std::int32_t default_contains = 0;
+      std::int32_t round_contains = 0;
+      if (open_curve_path->StrokeContainsPoint(
+              point, 1.0F, nullptr, nullptr,
+              0.02F, &default_contains) != com::ok ||
+          open_curve_path->StrokeContainsPoint(
+              point, 1.0F, round_path_stroke_style.get(), nullptr,
+              0.02F, &round_contains) != com::ok ||
+          captured_fill_contains(*raw_open_curve_widen_sink, point) !=
+              (default_contains != 0) ||
+          captured_fill_contains(*raw_open_curve_round_widen_sink, point) !=
+              (round_contains != 0)) {
+        std::fprintf(
+            stderr,
+            "open curve widen mismatch point=%g,%g default=%d/%d "
+            "round=%d/%d\n",
+            point.x,
+            point.y,
+            captured_fill_contains(*raw_open_curve_widen_sink, point)
+                ? 1
+                : 0,
+            default_contains,
+            captured_fill_contains(*raw_open_curve_round_widen_sink, point)
+                ? 1
+                : 0,
+            round_contains);
+        std::fprintf(
+            stderr,
+            "curve widen segments=%zu/%zu lines=%u/%u beziers=%u/%u\n",
+            raw_open_curve_widen_sink->captured_segment_count,
+            raw_open_curve_round_widen_sink->captured_segment_count,
+            raw_open_curve_widen_sink->line_count,
+            raw_open_curve_round_widen_sink->line_count,
+            raw_open_curve_widen_sink->bezier_count,
+            raw_open_curve_round_widen_sink->bezier_count);
+        return 406;
       }
     }
   }
@@ -7356,6 +7441,121 @@ int run_tests()
       }
       system_factory->Release();
       return 385;
+    }
+    const auto create_open_curve_path = [](ID2D1Factory* path_factory,
+                                            ID2D1PathGeometry** value) {
+      if (path_factory == nullptr || value == nullptr) {
+        return E_POINTER;
+      }
+      *value = nullptr;
+      ID2D1PathGeometry* path_value = nullptr;
+      ID2D1GeometrySink* sink_value = nullptr;
+      HRESULT status = path_factory->CreatePathGeometry(&path_value);
+      if (SUCCEEDED(status)) {
+        status = path_value->Open(&sink_value);
+      }
+      if (SUCCEEDED(status)) {
+        sink_value->BeginFigure(
+            D2D1_POINT_2F{0.0F, 0.0F}, D2D1_FIGURE_BEGIN_HOLLOW);
+        const D2D1_BEZIER_SEGMENT cubic{
+            {2.0F, 0.0F}, {4.0F, 2.0F}, {6.0F, 2.0F}};
+        sink_value->AddBezier(&cubic);
+        const D2D1_QUADRATIC_BEZIER_SEGMENT quadratic{
+            {8.0F, 2.0F}, {10.0F, 0.0F}};
+        sink_value->AddQuadraticBezier(quadratic);
+        sink_value->EndFigure(D2D1_FIGURE_END_OPEN);
+        status = sink_value->Close();
+      }
+      if (sink_value != nullptr) {
+        sink_value->Release();
+      }
+      if (FAILED(status)) {
+        if (path_value != nullptr) {
+          path_value->Release();
+        }
+        return status;
+      }
+      *value = path_value;
+      return S_OK;
+    };
+    ID2D1PathGeometry* raw_portable_open_curve_path = nullptr;
+    ID2D1PathGeometry* raw_system_open_curve_path = nullptr;
+    if (FAILED(create_open_curve_path(
+            native_factory, &raw_portable_open_curve_path)) ||
+        FAILED(create_open_curve_path(
+            system_factory, &raw_system_open_curve_path)) ||
+        raw_portable_open_curve_path == nullptr ||
+        raw_system_open_curve_path == nullptr) {
+      if (raw_portable_open_curve_path != nullptr) {
+        raw_portable_open_curve_path->Release();
+      }
+      if (raw_system_open_curve_path != nullptr) {
+        raw_system_open_curve_path->Release();
+      }
+      portable_open_query_path->Release();
+      system_open_query_path->Release();
+      system_factory->Release();
+      return 407;
+    }
+    com::pointer<ID2D1PathGeometry> portable_open_curve_path;
+    portable_open_curve_path.attach(raw_portable_open_curve_path);
+    com::pointer<ID2D1PathGeometry> system_open_curve_path;
+    system_open_curve_path.attach(raw_system_open_curve_path);
+    auto* raw_portable_open_curve_widen = new simplified_sink();
+    com::pointer<compat::simplified_geometry_sink>
+        portable_open_curve_widen;
+    portable_open_curve_widen.attach(raw_portable_open_curve_widen);
+    auto* raw_system_open_curve_widen = new simplified_sink();
+    com::pointer<compat::simplified_geometry_sink> system_open_curve_widen;
+    system_open_curve_widen.attach(raw_system_open_curve_widen);
+    const HRESULT portable_open_curve_widen_status =
+        portable_open_curve_path->Widen(
+            1.0F,
+            nullptr,
+            nullptr,
+            0.02F,
+            reinterpret_cast<ID2D1SimplifiedGeometrySink*>(
+                portable_open_curve_widen.get()));
+    const HRESULT system_open_curve_widen_status =
+        system_open_curve_path->Widen(
+            1.0F,
+            nullptr,
+            nullptr,
+            0.02F,
+            reinterpret_cast<ID2D1SimplifiedGeometrySink*>(
+                system_open_curve_widen.get()));
+    constexpr std::array<D2D1_POINT_2F, 6U> open_curve_probes{{
+        {1.0F, 0.2F},
+        {3.0F, 1.0F},
+        {6.0F, 2.0F},
+        {8.0F, 1.4F},
+        {3.0F, -1.0F},
+        {6.0F, 3.0F},
+    }};
+    bool open_curve_matches =
+        SUCCEEDED(portable_open_curve_widen_status) &&
+        SUCCEEDED(system_open_curve_widen_status);
+    for (const D2D1_POINT_2F probe : open_curve_probes) {
+      BOOL portable_contains = FALSE;
+      BOOL system_contains = FALSE;
+      const HRESULT portable_status =
+          portable_open_curve_path->StrokeContainsPoint(
+              probe, 1.0F, nullptr, nullptr, 0.02F, &portable_contains);
+      const HRESULT system_status =
+          system_open_curve_path->StrokeContainsPoint(
+              probe, 1.0F, nullptr, nullptr, 0.02F, &system_contains);
+      open_curve_matches = open_curve_matches &&
+          SUCCEEDED(portable_status) && SUCCEEDED(system_status) &&
+          portable_contains == system_contains &&
+          captured_fill_contains(
+              *raw_portable_open_curve_widen,
+              {probe.x, probe.y}) == (portable_contains != FALSE);
+    }
+    if (!open_curve_matches) {
+      portable_open_query_path->Release();
+      system_open_query_path->Release();
+      system_factory->Release();
+      return 408;
     }
     const auto create_multi_query_path = [](ID2D1Factory* path_factory,
                                              ID2D1PathGeometry** value) {
