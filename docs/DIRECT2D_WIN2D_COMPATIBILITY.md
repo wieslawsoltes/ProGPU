@@ -3427,6 +3427,16 @@ returns its originating factory. When the system object exposes
 delegates exact per-axis DPI and source-bounds metadata. Both ARM64 and x64
 pass the complete 13-test native matrix under MSVC `/W4 /WX`.
 
+The final hosted aggregate caught a stale comparison-envelope assumption after
+the portable Direct2D fixture had grown from 64x48 to 64x64. The comparator now
+requires the current 64x64 dimensions and checks 25 semantic probes spanning
+the original primitives plus aliased/antialiased clips, opacity masks,
+compatible-target composition, and opacity/geometric-mask layers. Against the
+same D3D12 reference, hosted Metal differs at 305 pixels (maximum 1/255, mean
+`0.0286458333`) and Vulkan at 174 pixels (maximum 1/255, mean `0.015625`). The
+whole-frame limit is consequently 320 changed pixels while retaining a strict
+1/255 channel maximum, zero channels above it, and mean at most `0.03`.
+
 ## Delivery order
 
 1. Keep the dependency classifier and resolver fail-closed invariants green.
