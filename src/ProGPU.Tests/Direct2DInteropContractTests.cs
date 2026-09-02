@@ -342,6 +342,8 @@ public sealed class Direct2DInteropContractTests
         Assert.Contains("struct render_target : resource", header, StringComparison.Ordinal);
         Assert.Contains("struct wic_bitmap_source : com::unknown", header, StringComparison.Ordinal);
         Assert.Contains("wic_bitmap_source_interface_id", header, StringComparison.Ordinal);
+        Assert.Contains("struct wic_bitmap_lock : com::unknown", header, StringComparison.Ordinal);
+        Assert.Contains("wic_bitmap_lock_interface_id", header, StringComparison.Ordinal);
         Assert.Contains("wic_pixel_format_32bpp_pbgra", header, StringComparison.Ordinal);
         Assert.Contains("wic_pixel_format_32bpp_bgra", header, StringComparison.Ordinal);
         Assert.Contains("wic_pixel_format_32bpp_prgba", header, StringComparison.Ordinal);
@@ -403,11 +405,14 @@ public sealed class Direct2DInteropContractTests
         Assert.Contains("layout_factory->CreateTextLayout(", renderTargetSource, StringComparison.Ordinal);
         Assert.Contains("text_rendering_parameters_ =", renderTargetSource, StringComparison.Ordinal);
         Assert.Contains("class portable_shared_bitmap final", renderTargetSource, StringComparison.Ordinal);
+        Assert.Contains("class portable_wic_lock_bitmap final", renderTargetSource, StringComparison.Ordinal);
         Assert.Contains("class portable_shared_render_target_bitmap final", renderTargetSource, StringComparison.Ordinal);
         Assert.Contains("GetStorageIdentity()", renderTargetSource, StringComparison.Ordinal);
         Assert.Contains("new (std::nothrow) portable_shared_bitmap(", renderTargetSource, StringComparison.Ordinal);
         Assert.Contains("class fake_wic_bitmap_source final", nativeTest, StringComparison.Ordinal);
+        Assert.Contains("class fake_wic_bitmap_lock final", nativeTest, StringComparison.Ordinal);
         Assert.Contains("__uuidof(IWICBitmapSource)", nativeTest, StringComparison.Ordinal);
+        Assert.Contains("__uuidof(IWICBitmapLock)", nativeTest, StringComparison.Ordinal);
         Assert.Contains("native_target->CreateSharedBitmap(", nativeTest, StringComparison.Ordinal);
         Assert.Contains("nonuniform_dpi_y, 192.0F", nativeTest, StringComparison.Ordinal);
         Assert.Contains("class fake_font_face final", nativeTest, StringComparison.Ordinal);

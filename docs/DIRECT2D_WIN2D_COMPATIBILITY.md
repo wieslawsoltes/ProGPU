@@ -28,7 +28,7 @@ impersonation of `d2d1.dll`; unsupported methods fail closed and the full
 device-context/resource vtable family remains incremental work. The system
 DirectWrite runtime, WIC codecs, and the native Win2D WinRT component remain
 Windows native graphics dependencies. Portable callers may instead supply the
-documented ABI-compatible WIC source and already-shaped DirectWrite font-face
+documented ABI-compatible WIC source/lock and already-shaped DirectWrite font-face
 outline interfaces. The ProGPU native-library resolver must not
 impersonate `d2d1.dll`, `dwrite.dll`,
 `windowscodecs.dll`, or `Microsoft.Graphics.Canvas.dll`.
@@ -641,8 +641,23 @@ draws and opacity masks still render directly into the bounded GPU attachment.
 Format mismatches, unsupported alpha reinterpretation, foreign factories, null
 data, and non-bitmap IIDs fail closed. Windows tests call both ordinary and A8
 compatible sources through the actual SDK
-`ID2D1RenderTarget::CreateSharedBitmap` vtable. `IWICBitmapLock` and
-`IDXGISurface` sharing remain separate typed ownership lanes.
+`ID2D1RenderTarget::CreateSharedBitmap` vtable.
+
+`CreateSharedBitmap(IID_IWICBitmapLock, ...)` is now a second typed ownership
+lane. The installed portable header carries the canonical four-method lock
+vtable and IID, so a real Windows lock or an ABI-compatible portable provider
+enters the same implementation. PBGRA and PRGBA locks retain their COM owner
+and alias the live data pointer without copying; the wrapper preserves padded
+stride, exposes the target DPI or an explicit independent DPI, serializes the
+current bytes into retained scenes, and forwards `CopyFromMemory` and
+`CopyFromBitmap` mutations into the locked allocation. Dimensions, stride,
+buffer extent, pixel format, alpha mode, and bounded scene size are validated
+before an object is published. Straight-alpha and unsupported WIC lock formats
+fail closed because sharing cannot perform an in-place semantic conversion.
+Portable byte-oracle tests cover padded rows, caller-side live mutation, and
+both copy paths; Windows ARM64/x64 builds additionally call the object through
+the real SDK `IWICBitmapLock` and `ID2D1RenderTarget` vtables. `IDXGISurface`
+sharing remains the separate device-domain lane.
 
 The portable target now implements the original
 `ID2D1RenderTarget::DrawGlyphRun` vtable slot at the already-shaped text
@@ -1114,14 +1129,14 @@ Direct2D core and system oracle, and passes the focused CTest. This behavior
 slice changes neither the COM ABI version nor the export allowlist.
 
 WIC codec activation/decoding itself, render-target-to-bitmap copies,
-alpha-ignore/straight formats,
+alpha-ignore bitmap reinterpretation and straight-alpha WIC lock sharing,
 non-null `FillGeometry` opacity brushes, `ID2D1StrokeStyle1` fixed/hairline
 transform modes, multi-contour/boolean/widen geometry operations,
 color-glyph translation, and
 device-context bitmap generations remain fail
-closed. `CopyFromMemory` and WIC ingestion remain explicit bounded resource
-uploads; steady drawing reuses the retained payload and never repacks or reads
-pixels on the CPU.
+closed. `CopyFromMemory` and copied WIC-source ingestion remain explicit
+bounded resource uploads; WIC-lock sharing aliases the retained lock memory;
+steady drawing never repacks or reads pixels back from the GPU.
 
 ## Current support matrix
 
@@ -1152,7 +1167,7 @@ or unsupported before enabling a non-Windows build.
 | `ProGPU.DirectX` D3D-style device/resources/pipelines | Implemented | Portable typed facade backed by WebGPU; D3D12 on qualified Windows adapters |
 | Native C++ MIL/retained scene on D3D12 | Implemented | Same backend-neutral scene ABI used on Metal, Vulkan, and browser WebGPU |
 | DXGI shared-handle import | Implemented building block | `ProGpuExternalTextureDescriptor` plus Dawn shared-texture memory, keyed-mutex ownership, and no CPU readback |
-| Direct2D `ID2D1*` and DirectWrite text API | Portable COM lifetime, ABI-compatible base factory, geometry/resource families, drawing state, mutable solid/linear-gradient/radial-gradient/bitmap brushes, upload/WIC/shared-view premultiplied RGBA/BGRA `ID2D1Bitmap`, and a primitive/image/path-fill/path-stroke/glyph-outline/text-layout semantic-scene `ID2D1RenderTarget`; Windows bitmap/brush/geometry/stroke/command-list/effect/layer/state/text/SVG resources, geometry analysis/realization, vector drawing, and typed device-loss domains implemented | The installed portable C++ target exposes canonical factory/resource/geometry/path/stroke/state/brush/bitmap/render-target/WIC-source/font-face/text-renderer/text-layout IIDs and original vtable order. The portable target records styled line, rectangle, unequal-radius rounded-rectangle, ellipse fill/stroke, arbitrary same-factory `FillGeometry`/`DrawGeometry`, nearest/linear `DrawBitmap`, opacity masks, meshes, compatible targets, layers/clips, bitmap-brush calls, already-shaped `DrawGlyphRun` outlines, `DrawTextLayout` glyph/decorations/inline callbacks, and typed-layout-factory `DrawText` into the shared pointer-free scene stream. Base stroke styles preserve caps, joins, miter, dash style/custom arrays, dash offset, and path segment flags. WIC PBGRA/PRGBA input performs one checked direct row copy; straight BGRA/RGBA input is premultiplied in that final storage through NEON/SSE2 plus a bounded scalar tail. `CreateSharedBitmap(IID_ID2D1Bitmap)` retains ordinary storage or compatible child scenes and deduplicates GPU upload identity across ordinary views. Shared allocation-free primitive/affine/stroke validation and portable path algorithms are qualified through real Windows SDK pointers and system-Direct2D geometry/stroke/state/bitmap oracles. The Windows provider independently supplies the broader ABI v54 resource/recorder family and genuine system device/context/target interop. Portable codec activation, WIC-lock/DXGI shared bitmap lanes, render-target bitmap copies, fixed/hairline stroke transforms, color-glyph translation, device-context generations, presentation, and remaining path operations fail closed; there is no fake `d2d1.dll` or `dwrite.dll` |
+| Direct2D `ID2D1*` and DirectWrite text API | Portable COM lifetime, ABI-compatible base factory, geometry/resource families, drawing state, mutable solid/linear-gradient/radial-gradient/bitmap brushes, upload/WIC/shared-view premultiplied RGBA/BGRA `ID2D1Bitmap`, and a primitive/image/path-fill/path-stroke/glyph-outline/text-layout semantic-scene `ID2D1RenderTarget`; Windows bitmap/brush/geometry/stroke/command-list/effect/layer/state/text/SVG resources, geometry analysis/realization, vector drawing, and typed device-loss domains implemented | The installed portable C++ target exposes canonical factory/resource/geometry/path/stroke/state/brush/bitmap/render-target/WIC-source/WIC-lock/font-face/text-renderer/text-layout IIDs and original vtable order. The portable target records styled line, rectangle, unequal-radius rounded-rectangle, ellipse fill/stroke, arbitrary same-factory `FillGeometry`/`DrawGeometry`, nearest/linear `DrawBitmap`, opacity masks, meshes, compatible targets, layers/clips, bitmap-brush calls, already-shaped `DrawGlyphRun` outlines, `DrawTextLayout` glyph/decorations/inline callbacks, and typed-layout-factory `DrawText` into the shared pointer-free scene stream. Base stroke styles preserve caps, joins, miter, dash style/custom arrays, dash offset, and path segment flags. WIC PBGRA/PRGBA input performs one checked direct row copy; straight BGRA/RGBA input is premultiplied in that final storage through NEON/SSE2 plus a bounded scalar tail. `CreateSharedBitmap(IID_ID2D1Bitmap)` retains ordinary storage or compatible child scenes and deduplicates GPU upload identity across ordinary views; `CreateSharedBitmap(IID_IWICBitmapLock)` retains and aliases live padded PBGRA/PRGBA lock memory. Shared allocation-free primitive/affine/stroke validation and portable path algorithms are qualified through real Windows SDK pointers and system-Direct2D geometry/stroke/state/bitmap oracles. The Windows provider independently supplies the broader ABI v54 resource/recorder family and genuine system device/context/target interop. Portable codec activation, DXGI shared bitmap lanes, render-target bitmap copies, alpha reinterpretation, fixed/hairline stroke transforms, color-glyph translation, device-context generations, presentation, and remaining path operations fail closed; there is no fake `d2d1.dll` or `dwrite.dll` |
 | Native Win2D binary interop | Device/target/bitmap/brush/geometry/stroke/command-list/effect-output/text-format/text-layout/typography round trips plus layer/state/text draws package-qualified | The official factory/resource-wrapper contracts preserve exact provider identities through real `CanvasDevice`, `CanvasRenderTarget`, `CanvasBitmap`, brush, `CanvasGeometry`, `CanvasStrokeStyle`, `CanvasCommandList`, device-independent `CanvasTextFormat`/`CanvasTypography`, and device-associated `CanvasTextLayout` projections. The packaged Microsoft Win2D 1.4.0 oracle also wraps effect-output image brushes, executes typed ProGPU layer/state and native-text command-list scopes, observes ProGPU range formatting/OpenType features through the projected layout and typography, mutates that same native layout through Win2D, and draws it. It qualifies identities, resource metadata, boolean geometry/styled-stroke/image-brush/command-list/effect/text drawing and pixels, exclusive producer ownership, and zero-copy Dawn import; glyph runs/color fonts, remaining typography, the full effect catalog, custom effects, and full device-loss recreation remain gated work |
 | Portable Win2D-style Canvas source API | MVP implemented | `ProGPU.Win2D` records Win2D-shaped commands, compiles them with `ProGPU.Scene.Native`, and submits the retained scene to the C++ renderer |
 | Portable Win2D bitmap in LibreWPF native MIL | Implemented | Wrap a same-device `CanvasBitmap` lease source in `IPortableNativeImageSource`; canonical `TYPE_BITMAPSOURCE` lowers to a zero-payload external scene image with no readback or repack |
