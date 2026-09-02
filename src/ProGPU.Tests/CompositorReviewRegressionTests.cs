@@ -1969,7 +1969,7 @@ fn mainImage(fragCoord: vec2<f32>) -> vec4<f32> {
     }
 
     [Fact]
-    public void CompositorCullsFarSeparatedFiguresBeforePathAtlasRasterization()
+    public unsafe void CompositorCullsFarSeparatedFiguresBeforePathAtlasRasterization()
     {
         using var window = new HeadlessWindow(
             96,
@@ -1990,13 +1990,19 @@ fn mainImage(fragCoord: vec2<f32>) -> vec4<f32> {
             new SolidColorBrush(new Vector4(1f, 0f, 0f, 1f)),
             pen: null,
             path);
-        window.Content = visual;
+        using var target = new GpuTexture(
+            window.Context,
+            96,
+            96,
+            TextureFormat.Rgba8Unorm,
+            TextureUsage.RenderAttachment | TextureUsage.CopySrc,
+            "Far-separated path figure render target");
 
-        window.Render();
+        window.Compositor.RenderScene(visual, 96, 96, target.ViewPtr);
 
         Assert.False(window.Compositor.PathAtlas.CapacityExceeded);
         Assert.Equal(1, window.Compositor.PathAtlas.CachedPathCount);
-        byte[] pixels = window.ReadPixels();
+        byte[] pixels = target.ReadPixels();
         Assert.True(pixels[(20 * 96 + 24) * 4] > 200);
     }
 
