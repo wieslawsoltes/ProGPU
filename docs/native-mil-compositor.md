@@ -6531,6 +6531,17 @@ qualified bow tie, alternate/winding five-crossing pentagrams, and mixed
 signed-layer cancellation. Ambiguous crossings fail closed with the output
 already initialized to zero.
 
+Portable `ID2D1PathGeometry::Tessellate` now starts from the identical
+normalized Outline contours. It associates each hole with the smallest
+containing positive component, bridges holes rightmost-first without pixel
+readback or raster fallback, and ear-clips every prepared component before
+mutating the caller sink. Duplicate bridge endpoints are topological aliases,
+while collinear bridge points are removed by the shared polygon cleanup. This
+qualifies disjoint/overlapping/self-intersecting components, a single hole,
+multiple holes, and nested islands. Optimized and sanitizer tests plus genuine
+Direct2D ARM64/x64 differentials compare signed area and dense triangle
+coverage; triangle ordering/count is intentionally topology-independent.
+
 `Widen` now consumes that same partition and prepares the complete mixed-
 figure transaction before caller-sink replay. Closed null/default strokes add
 validated outer and inner rings; open solids and qualified dashed figures add

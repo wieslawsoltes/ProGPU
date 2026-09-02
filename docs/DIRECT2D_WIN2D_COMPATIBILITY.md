@@ -780,6 +780,23 @@ match exactly. Qualified bow-tie plus alternate and winding five-crossing
 pentagram inputs, including mixed-figure signed-layer cancellation, share the
 same area path; ambiguous crossings fail closed with initialized zero output.
 
+`ID2D1PathGeometry::Tessellate` now consumes that same normalized Outline
+topology rather than triangulating source figures independently. Positive
+contours become components; every negative contour is assigned to the
+smallest containing positive contour, and rightmost-first zero-area bridges
+turn each component plus its holes into a bounded weakly-simple polygon for
+the existing dependency-bound ear clipper. Collinear bridge vertices are
+removed before clipping, duplicate bridge endpoints are treated as one
+topological vertex, and the complete triangle array is prepared before the
+caller sink is touched. Disjoint components, alternate/winding overlaps,
+self-intersecting pentagrams, holes, multiple holes, and nested islands now
+share exact fill semantics with Outline and ComputeArea. Local optimized and
+sanitizer tests plus genuine Direct2D ARM64/x64 comparisons match area and
+dense triangle coverage for a single hole and a two-hole/nested-island case.
+Triangle order and count are deliberately not compared because Direct2D does
+not make its valid diagonalization an API contract. Ambiguous topology and
+the existing bounded normalization limits still fail closed transactionally.
+
 Portable nondegenerate rectangle geometry also implements exact
 `GetWidenedBounds` for the default stroke and same-factory solid stroke
 styles. The stroke expands in local geometry space and the caller transform

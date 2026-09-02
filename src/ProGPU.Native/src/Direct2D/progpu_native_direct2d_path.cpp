@@ -4538,6 +4538,14 @@ void append_polygon_boolean_parameter(std::vector<double> &parameters,
                         candidate == next_index) {
                         continue;
                     }
+                    if (same_point(points[candidate], previous) ||
+                        same_point(points[candidate], current) ||
+                        same_point(points[candidate], next)) {
+                        // Hole bridges duplicate their two endpoints.  The
+                        // duplicate represents the same topological vertex,
+                        // not a distinct point that invalidates this ear.
+                        continue;
+                    }
                     if (point_in_triangle(
                             points[candidate],
                             previous,
@@ -4568,6 +4576,95 @@ void append_polygon_boolean_parameter(std::vector<double> &parameters,
             points[remaining[0U]],
             points[remaining[1U]],
             points[remaining[2U]]});
+        return com::ok;
+    } catch (const std::bad_alloc&) {
+        return com::out_of_memory;
+    } catch (...) {
+        return failure;
+    }
+}
+
+[[nodiscard]] com::result bridge_polygon_hole(
+    std::vector<point_2f>& polygon,
+    std::span<const point_2f> hole) noexcept
+{
+    if (polygon.size() < 3U || hole.size() < 3U) {
+        return com::invalid_argument;
+    }
+    try {
+        std::size_t hole_index = 0U;
+        for (std::size_t index = 1U; index < hole.size(); ++index) {
+            if (hole[index].x > hole[hole_index].x ||
+                (hole[index].x == hole[hole_index].x &&
+                 hole[index].y < hole[hole_index].y)) {
+                hole_index = index;
+            }
+        }
+        const point_2f bridge_start = hole[hole_index];
+        double nearest_x = std::numeric_limits<double>::infinity();
+        std::size_t bridge_edge = polygon.size();
+        for (std::size_t edge = 0U; edge < polygon.size(); ++edge) {
+            const point_2f first = polygon[edge];
+            const point_2f second = polygon[(edge + 1U) % polygon.size()];
+            if ((first.y > bridge_start.y) ==
+                (second.y > bridge_start.y)) {
+                continue;
+            }
+            const double crossing_x = static_cast<double>(first.x) +
+                (static_cast<double>(bridge_start.y) - first.y) *
+                    (static_cast<double>(second.x) - first.x) /
+                    (static_cast<double>(second.y) - first.y);
+            if (crossing_x < bridge_start.x || crossing_x >= nearest_x) {
+                continue;
+            }
+            nearest_x = crossing_x;
+            bridge_edge = edge;
+        }
+        if (bridge_edge == polygon.size() || !std::isfinite(nearest_x)) {
+            return not_implemented;
+        }
+        const point_2f first = polygon[bridge_edge];
+        const std::size_t next_index =
+            (bridge_edge + 1U) % polygon.size();
+        const point_2f second = polygon[next_index];
+        const point_2f bridge_end{
+            static_cast<float>(nearest_x), bridge_start.y};
+        std::size_t polygon_index = bridge_edge;
+        const double tolerance = std::max(
+            polygon_coordinate_tolerance(polygon, bridge_end),
+            polygon_coordinate_tolerance(hole, bridge_start));
+        if (same_polygon_boolean_point(bridge_end, first, tolerance)) {
+            polygon_index = bridge_edge;
+        } else if (same_polygon_boolean_point(
+                       bridge_end, second, tolerance)) {
+            polygon_index = next_index;
+        } else {
+            polygon.insert(
+                polygon.begin() + static_cast<std::ptrdiff_t>(next_index),
+                bridge_end);
+            polygon_index = next_index;
+        }
+        if (same_polygon_boolean_point(
+                bridge_start, polygon[polygon_index], tolerance)) {
+            return not_implemented;
+        }
+        std::vector<point_2f> merged;
+        merged.reserve(polygon.size() + hole.size() + 2U);
+        merged.insert(
+            merged.end(),
+            polygon.begin(),
+            polygon.begin() + static_cast<std::ptrdiff_t>(polygon_index + 1U));
+        merged.push_back(bridge_start);
+        for (std::size_t offset = 1U; offset < hole.size(); ++offset) {
+            merged.push_back(hole[(hole_index + offset) % hole.size()]);
+        }
+        merged.push_back(bridge_start);
+        merged.push_back(polygon[polygon_index]);
+        merged.insert(
+            merged.end(),
+            polygon.begin() + static_cast<std::ptrdiff_t>(polygon_index + 1U),
+            polygon.end());
+        polygon = std::move(merged);
         return com::ok;
     } catch (const std::bad_alloc&) {
         return com::out_of_memory;
@@ -5659,106 +5756,92 @@ public:
             !core::valid_transform(world_transform)) {
             return com::invalid_argument;
         }
-        std::vector<flat_edge> edges;
-        const com::result edge_status = collect_flat_edges(
-            world_transform,
-            flattening_tolerance,
-            true,
-            edges);
-        if (com::failed(edge_status)) {
-            return edge_status;
-        }
         try {
-            std::vector<std::vector<point_2f>> polygons(
-                data_->figures.size());
-            for (const auto& edge : edges) {
-                if (data_->figures[edge.figure_index].begin !=
-                    figure_begin::filled) {
+            auto* raw_outline_sink =
+                new (std::nothrow) polygon_contours_sink();
+            if (raw_outline_sink == nullptr) {
+                return com::out_of_memory;
+            }
+            com::pointer<polygon_contours_sink> outline_sink;
+            outline_sink.attach(raw_outline_sink);
+            com::result result = Outline(
+                world_transform,
+                flattening_tolerance,
+                outline_sink.get());
+            if (com::failed(result)) {
+                return result;
+            }
+            result = raw_outline_sink->status();
+            if (com::failed(result)) {
+                return result;
+            }
+            std::vector<std::vector<point_2f>> contours =
+                raw_outline_sink->take_contours();
+            if (contours.empty()) {
+                return com::ok;
+            }
+            std::vector<double> signed_areas;
+            signed_areas.reserve(contours.size());
+            std::vector<std::vector<std::size_t>> holes(contours.size());
+            for (const std::vector<point_2f>& contour : contours) {
+                const double twice_area = polygon_twice_signed_area(contour);
+                if (!std::isfinite(twice_area) || twice_area == 0.0) {
+                    return not_implemented;
+                }
+                signed_areas.push_back(twice_area);
+            }
+            for (std::size_t hole = 0U; hole < contours.size(); ++hole) {
+                if (signed_areas[hole] > 0.0) {
                     continue;
                 }
-                auto& polygon = polygons[edge.figure_index];
-                if (polygon.empty()) {
-                    polygon.push_back(edge.start);
-                }
-                polygon.push_back(edge.end);
-            }
-            polygons.erase(
-                std::remove_if(
-                    polygons.begin(),
-                    polygons.end(),
-                    [](const std::vector<point_2f>& polygon) {
-                        return polygon.size() < 4U;
-                    }),
-                polygons.end());
-            for (std::size_t first = 0U; first < polygons.size(); ++first) {
-                const auto first_polygon = std::span(polygons[first]);
-                const std::size_t first_edge_count =
-                    same_point(first_polygon.front(), first_polygon.back())
-                    ? first_polygon.size() - 1U
-                    : first_polygon.size();
-                for (std::size_t left = 0U;
-                     left < first_edge_count;
-                     ++left) {
-                    const std::size_t left_next =
-                        (left + 1U) % first_edge_count;
-                    for (std::size_t right = left + 1U;
-                         right < first_edge_count;
-                         ++right) {
-                        const std::size_t right_next =
-                            (right + 1U) % first_edge_count;
-                        if (left_next == right || right_next == left) {
-                            continue;
-                        }
-                        if (segments_intersect(
-                                first_polygon[left],
-                                first_polygon[left_next],
-                                first_polygon[right],
-                                first_polygon[right_next])) {
-                            return not_implemented;
-                        }
+                std::size_t owner = contours.size();
+                double owner_area = std::numeric_limits<double>::infinity();
+                for (std::size_t candidate = 0U;
+                     candidate < contours.size(); ++candidate) {
+                    if (signed_areas[candidate] <= 0.0 ||
+                        signed_areas[candidate] >= owner_area ||
+                        classify_polygon_point(
+                            contours[candidate],
+                            contours[hole].front()) !=
+                            polygon_point_relation::inside) {
+                        continue;
                     }
+                    owner = candidate;
+                    owner_area = signed_areas[candidate];
                 }
-                for (std::size_t second = first + 1U;
-                     second < polygons.size();
-                     ++second) {
-                    const auto second_polygon = std::span(polygons[second]);
-                    const std::size_t second_edge_count = same_point(
-                            second_polygon.front(), second_polygon.back())
-                        ? second_polygon.size() - 1U
-                        : second_polygon.size();
-                    for (std::size_t left = 0U;
-                         left < first_edge_count;
-                         ++left) {
-                        for (std::size_t right = 0U;
-                             right < second_edge_count;
-                             ++right) {
-                            if (segments_intersect(
-                                    first_polygon[left],
-                                    first_polygon[(left + 1U) %
-                                        first_edge_count],
-                                    second_polygon[right],
-                                    second_polygon[(right + 1U) %
-                                        second_edge_count])) {
-                                return not_implemented;
-                            }
-                        }
-                    }
-                    if (polygon_contains_point(
-                            first_polygon.first(first_edge_count),
-                            second_polygon.front()) ||
-                        polygon_contains_point(
-                            second_polygon.first(second_edge_count),
-                            first_polygon.front())) {
-                        // Nested contours require a hole-aware triangulator.
-                        // Preserve exact fill-mode semantics by failing closed.
-                        return not_implemented;
-                    }
+                if (owner == contours.size()) {
+                    return not_implemented;
                 }
+                holes[owner].push_back(hole);
             }
             std::vector<triangle> triangles;
-            for (const auto& polygon : polygons) {
-                const com::result result = triangulate_simple_polygon(
-                    polygon, triangles);
+            for (std::size_t outer = 0U;
+                 outer < contours.size(); ++outer) {
+                if (signed_areas[outer] <= 0.0) {
+                    continue;
+                }
+                std::vector<point_2f> polygon = contours[outer];
+                std::sort(
+                    holes[outer].begin(),
+                    holes[outer].end(),
+                    [&contours](std::size_t first, std::size_t second) {
+                        const auto rightmost = [&contours](std::size_t index) {
+                            return std::max_element(
+                                contours[index].begin(),
+                                contours[index].end(),
+                                [](point_2f left, point_2f right) {
+                                    return left.x < right.x;
+                                })->x;
+                        };
+                        return rightmost(first) > rightmost(second);
+                    });
+                for (const std::size_t hole : holes[outer]) {
+                    result = bridge_polygon_hole(polygon, contours[hole]);
+                    if (com::failed(result)) {
+                        return result;
+                    }
+                }
+                result = triangulate_simple_polygon(polygon, triangles);
                 if (com::failed(result)) {
                     return result;
                 }

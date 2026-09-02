@@ -367,6 +367,10 @@ public sealed class Direct2DInteropContractTests
         Assert.Contains("has_layered_self_intersection", pathSource, StringComparison.Ordinal);
         Assert.DoesNotContain("source_filled_contour_count", pathSource, StringComparison.Ordinal);
         Assert.Contains("winding_star_subtraction_points", nativeTest, StringComparison.Ordinal);
+        Assert.Contains("bridge_polygon_hole", pathSource, StringComparison.Ordinal);
+        Assert.Contains("raw_outline_sink->take_contours()", pathSource, StringComparison.Ordinal);
+        Assert.Contains("holes[owner].push_back(hole)", pathSource, StringComparison.Ordinal);
+        Assert.Contains("scenario == 15U", nativeTest, StringComparison.Ordinal);
         Assert.Contains("normalize_interacting_contours", pathSource, StringComparison.Ordinal);
         Assert.Contains("std::vector<std::uint8_t> operands", pathSource, StringComparison.Ordinal);
         Assert.Contains("std::vector<std::uint8_t> interior_left", pathSource, StringComparison.Ordinal);
