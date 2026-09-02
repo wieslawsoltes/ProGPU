@@ -398,6 +398,21 @@ public sealed class Pen : MarshalByRefObject, IDisposable, ICloneable
     {
         ThrowIfDisposed();
         ProGPU.Vector.Brush nativeBrush = Graphics.TransformBrush(_brush, renderingOrigin);
+        return CreateProGpuPen(nativeBrush, width);
+    }
+
+    internal ProGPU.Vector.Pen ToProGpuGeometryPen(float width)
+    {
+        ThrowIfDisposed();
+        return CreateProGpuPen(
+            new ProGPU.Vector.SolidColorBrush(Vector4.One),
+            width);
+    }
+
+    private ProGPU.Vector.Pen CreateProGpuPen(
+        ProGPU.Vector.Brush nativeBrush,
+        float width)
+    {
         var nativePen = new ProGPU.Vector.Pen(
             nativeBrush,
             width,
@@ -418,6 +433,15 @@ public sealed class Pen : MarshalByRefObject, IDisposable, ICloneable
         return Graphics.TransformBrush(_brush, renderingOrigin);
     }
 
+    internal TextureBrush? TextureBrushValue
+    {
+        get
+        {
+            ThrowIfDisposed();
+            return _brush as TextureBrush;
+        }
+    }
+
     internal bool HasTransformedTip
     {
         get
@@ -435,7 +459,8 @@ public sealed class Pen : MarshalByRefObject, IDisposable, ICloneable
         get
         {
             ThrowIfDisposed();
-            return HasTransformedTip ||
+            return _brush is TextureBrush ||
+                HasTransformedTip ||
                 _compoundArray is { Length: > 0 } ||
                 (_startCap == LineCap.Custom && _customStartCap is not null) ||
                 (_endCap == LineCap.Custom && _customEndCap is not null);

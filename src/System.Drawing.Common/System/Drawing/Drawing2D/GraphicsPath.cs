@@ -1117,7 +1117,7 @@ public sealed class GraphicsPath : MarshalByRefObject, ICloneable, IDisposable
         {
             return StrokePathGeometry.TryCreateWidenedPath(
                 flattened,
-                pen.ToProGpuPen(effectiveWidth),
+                pen.ToProGpuGeometryPen(effectiveWidth),
                 out widened);
         }
 
@@ -1136,7 +1136,7 @@ public sealed class GraphicsPath : MarshalByRefObject, ICloneable, IDisposable
             }
 
             PathGeometry offsetCenterline = CreateOffsetGeometry(flattened, offset, pen.MiterLimit);
-            ProGPU.Vector.Pen bandPen = pen.ToProGpuPen(bandWidth);
+            ProGPU.Vector.Pen bandPen = pen.ToProGpuGeometryPen(bandWidth);
             RescaleDashForCompoundBand(bandPen, effectiveWidth, bandWidth);
             if (!StrokePathGeometry.TryCreateWidenedPath(offsetCenterline, bandPen, out PathGeometry band))
             {

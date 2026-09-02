@@ -14,7 +14,7 @@ by the existing SkiaSharp-shim gate:
 
 - Svg.Skia commit `03f64b67badfca9fca216dc25896d0c0ee04e7b7`;
 - 1,730 resvg SVG/PNG fixture pairs under
-  `externals/resvg/resvg-test-suite/{tests,extra}`; and
+  `externals/resvg/crates/resvg/tests/{tests,extra}`; and
 - 525 SVG 1.1 W3C SVG/PNG fixture pairs under
   `externals/W3C_SVG_11_TestSuite/W3C_SVG_11_TestSuite/{svg,png}`.
 
@@ -37,7 +37,9 @@ The quality command performs the following for every fixture:
    using ProGPU `System.Drawing.Common`.
 3. Encode the result through ProGPU's PNG path and decode it independently.
 4. Compare premultiplied RGBA using the same normalized root-mean-square error
-   shape used by the Svg.Skia suite.
+   shape used by the Svg.Skia suite. W3C rows backed by Chrome references are
+   composited on white with Svg.Skia's established normalization; resvg and
+   legacy transparent references remain raw RGBA comparisons.
 5. Retain only failing PNGs, and write per-fixture time, allocation, error, and
    exception data to `quality-results.json`.
 6. Compare the exact failure keys with
@@ -48,7 +50,10 @@ The quality command performs the following for every fixture:
 The runner also validates the exact corpus sizes. Missing submodules, silently
 dropped files, or unexpected corpus updates therefore fail before producing a
 misleading parity result. The workflow splits resvg and W3C into independent
-jobs and uploads JSON, the candidate inventory, and failing images.
+jobs and uploads JSON, the candidate inventory, and failing images. Each
+quality fixture executes in an isolated child process, so malformed recursive
+SVG input or a native backend termination is reported against that exact row
+instead of discarding the rest of the corpus.
 
 The performance command uses ten representative W3C fixtures spanning basic
 shapes, paths, gradients, patterns, and text. It warms the complete pipeline,

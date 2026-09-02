@@ -2225,11 +2225,18 @@ public partial class Graphics :
 
             if (widened.Figures.Count != 0)
             {
-                _context.DrawPath(
-                    pen.ToProGpuBrush(_renderingOrigin),
-                    null,
-                    widened,
-                    CurrentTransform4x4());
+                if (pen.TextureBrushValue is TextureBrush textureBrush)
+                {
+                    FillTexturePath(textureBrush, widened);
+                }
+                else
+                {
+                    _context.DrawPath(
+                        pen.ToProGpuBrush(_renderingOrigin),
+                        null,
+                        widened,
+                        CurrentTransform4x4());
+                }
             }
 
             return;

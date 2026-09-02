@@ -158,6 +158,30 @@ public sealed class TextureBrushQualityTests
             graphics.DrawingContext.Commands[^1].Type);
     }
 
+    [Fact]
+    public void TexturePenWidensStrokeIntoTypedGeometryClipAndTextureCommands()
+    {
+        using var source = CreateQuadBitmap();
+        using var target = new Bitmap(8, 8);
+        using var graphics = Graphics.FromImage(target);
+        using var brush = new TextureBrush(source);
+        using var pen = new Pen(brush, 2f);
+        using var path = new GraphicsPath();
+        path.AddLine(1, 4, 7, 4);
+
+        graphics.DrawPath(pen, path);
+
+        Assert.Equal(RenderCommandType.PushGeometryClip, graphics.DrawingContext.Commands[0].Type);
+        Assert.Contains(
+            graphics.DrawingContext.Commands,
+            static command => command.Type == RenderCommandType.DrawTexture);
+        Assert.Equal(
+            RenderCommandType.PopGeometryClip,
+            graphics.DrawingContext.Commands[^1].Type);
+        Assert.NotEqual(0, target.GetPixel(4, 4).A);
+        Assert.Equal(0, target.GetPixel(4, 0).A);
+    }
+
     [Theory]
     [InlineData(WrapMode.Tile)]
     [InlineData(WrapMode.TileFlipX)]
