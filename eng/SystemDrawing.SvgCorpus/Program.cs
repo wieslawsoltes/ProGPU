@@ -9,6 +9,8 @@ return await CorpusApplication.RunAsync(args);
 
 internal static class CorpusApplication
 {
+    private const int FixtureTimeoutMilliseconds = 30_000;
+
     private static readonly JsonSerializerOptions JsonOptions = new()
     {
         WriteIndented = true,
@@ -153,14 +155,15 @@ internal static class CorpusApplication
             ?? throw new InvalidOperationException("Failed to start the isolated SVG fixture process.");
         Task<string> standardOutput = process.StandardOutput.ReadToEndAsync();
         Task<string> standardError = process.StandardError.ReadToEndAsync();
-        if (!process.WaitForExit(120_000))
+        if (!process.WaitForExit(FixtureTimeoutMilliseconds))
         {
             process.Kill(entireProcessTree: true);
             process.WaitForExit();
             stopwatch.Stop();
             return FixtureResult.Failed(
                 fixture,
-                new TimeoutException("The isolated SVG fixture exceeded 120 seconds."),
+                new TimeoutException(
+                    $"The isolated SVG fixture exceeded {FixtureTimeoutMilliseconds / 1000} seconds."),
                 stopwatch.Elapsed,
                 allocated: 0);
         }
@@ -643,7 +646,8 @@ internal sealed record FixtureResult(
     double ElapsedMilliseconds,
     long AllocatedBytes,
     string? ExceptionType,
-    string? ExceptionMessage)
+    string? ExceptionMessage,
+    string? ExceptionDetail)
 {
     public string Key => $"{Suite}|{Fixture}";
 
@@ -671,7 +675,8 @@ internal sealed record FixtureResult(
             elapsed.TotalMilliseconds,
             allocated,
             exception?.GetType().FullName,
-            exception?.Message);
+            exception?.Message,
+            exception?.ToString());
 
     public string ToConsoleLine()
     {

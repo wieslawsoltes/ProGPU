@@ -446,6 +446,34 @@ class PathGeometry
             return TryGetCombinedBounds(out min, out max);
         }
 
+        var figures = Figures;
+        var minValue = new Vector2(float.PositiveInfinity, float.PositiveInfinity);
+        var maxValue = new Vector2(float.NegativeInfinity, float.NegativeInfinity);
+        var hasBounds = false;
+        for (int figureIndex = 0; figureIndex < figures.Count; figureIndex++)
+        {
+            if (TryGetBounds(figures[figureIndex], out var figureMin, out var figureMax))
+            {
+                minValue = Vector2.Min(minValue, figureMin);
+                maxValue = Vector2.Max(maxValue, figureMax);
+                hasBounds = true;
+            }
+        }
+
+        if (!hasBounds)
+        {
+            min = default;
+            max = default;
+            return false;
+        }
+
+        min = minValue;
+        max = maxValue;
+        return true;
+    }
+
+    internal static bool TryGetBounds(PathFigure figure, out Vector2 min, out Vector2 max)
+    {
         var minValue = new Vector2(float.PositiveInfinity, float.PositiveInfinity);
         var maxValue = new Vector2(float.NegativeInfinity, float.NegativeInfinity);
         var hasBounds = false;
@@ -462,69 +490,52 @@ class PathGeometry
             hasBounds = true;
         }
 
-        var figures = Figures;
-        for (int figureIndex = 0; figureIndex < figures.Count; figureIndex++)
+        var currentPoint = figure.StartPoint;
+        Update(currentPoint);
+        var segments = figure.Segments;
+        for (int segmentIndex = 0; segmentIndex < segments.Count; segmentIndex++)
         {
-            var figure = figures[figureIndex];
-            var currentPoint = figure.StartPoint;
-            Update(currentPoint);
-
-            var figureSegments = figure.Segments;
-            for (int segmentIndex = 0; segmentIndex < figureSegments.Count; segmentIndex++)
+            switch (segments[segmentIndex])
             {
-                var segment = figureSegments[segmentIndex];
-                switch (segment)
-                {
-                    case LineSegment line:
-                        Update(line.Point);
-                        currentPoint = line.Point;
-                        break;
+                case LineSegment line:
+                    Update(line.Point);
+                    currentPoint = line.Point;
+                    break;
+                case QuadraticBezierSegment quadratic:
+                    Update(quadratic.ControlPoint);
+                    Update(quadratic.Point);
+                    currentPoint = quadratic.Point;
+                    break;
+                case CubicBezierSegment cubic:
+                    Update(cubic.ControlPoint1);
+                    Update(cubic.ControlPoint2);
+                    Update(cubic.Point);
+                    currentPoint = cubic.Point;
+                    break;
+                case ArcSegment arc:
+                    if (ArcSegmentGeometry.TryGetArcBounds(currentPoint, arc, out var arcMin, out var arcMax))
+                    {
+                        Update(arcMin);
+                        Update(arcMax);
+                    }
+                    else
+                    {
+                        Update(arc.Point);
+                    }
 
-                    case QuadraticBezierSegment quadratic:
-                        Update(quadratic.ControlPoint);
-                        Update(quadratic.Point);
-                        currentPoint = quadratic.Point;
-                        break;
-
-                    case CubicBezierSegment cubic:
-                        Update(cubic.ControlPoint1);
-                        Update(cubic.ControlPoint2);
-                        Update(cubic.Point);
-                        currentPoint = cubic.Point;
-                        break;
-
-                    case ArcSegment arc:
-                        if (ArcSegmentGeometry.TryGetArcBounds(currentPoint, arc, out var arcMin, out var arcMax))
-                        {
-                            Update(arcMin);
-                            Update(arcMax);
-                        }
-                        else
-                        {
-                            Update(arc.Point);
-                        }
-
-                        currentPoint = arc.Point;
-                        break;
-                }
-            }
-
-            if (figure.IsClosed)
-            {
-                Update(figure.StartPoint);
+                    currentPoint = arc.Point;
+                    break;
             }
         }
 
-        if (!hasBounds)
+        if (figure.IsClosed)
         {
-            min = default;
-            max = default;
-            return false;
+            Update(figure.StartPoint);
         }
 
-        min = minValue;
-        max = maxValue;
-        return true;
+        min = hasBounds ? minValue : default;
+        max = hasBounds ? maxValue : default;
+        return hasBounds;
     }
 
     private bool TryGetCombinedBounds(out Vector2 min, out Vector2 max)

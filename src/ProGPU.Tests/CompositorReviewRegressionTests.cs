@@ -1969,6 +1969,38 @@ fn mainImage(fragCoord: vec2<f32>) -> vec4<f32> {
     }
 
     [Fact]
+    public void CompositorCullsFarSeparatedFiguresBeforePathAtlasRasterization()
+    {
+        using var window = new HeadlessWindow(
+            96,
+            96,
+            CompositorOptions.Default with { PathAtlasSize = 64 });
+        var path = new PathGeometry();
+        var visible = new PathFigure(new Vector2(12f, 12f), isClosed: true);
+        visible.Segments.Add(new LineSegment(new Vector2(36f, 12f)));
+        visible.Segments.Add(new LineSegment(new Vector2(24f, 36f)));
+        path.Figures.Add(visible);
+        var distant = new PathFigure(new Vector2(10_000f, 12f), isClosed: true);
+        distant.Segments.Add(new LineSegment(new Vector2(10_024f, 12f)));
+        distant.Segments.Add(new LineSegment(new Vector2(10_012f, 36f)));
+        path.Figures.Add(distant);
+
+        var visual = new DrawingVisual { Size = new Vector2(96f, 96f) };
+        visual.Context.DrawPath(
+            new SolidColorBrush(new Vector4(1f, 0f, 0f, 1f)),
+            pen: null,
+            path);
+        window.Content = visual;
+
+        window.Render();
+
+        Assert.False(window.Compositor.PathAtlas.CapacityExceeded);
+        Assert.Equal(1, window.Compositor.PathAtlas.CachedPathCount);
+        byte[] pixels = window.ReadPixels();
+        Assert.True(pixels[(20 * 96 + 24) * 4] > 200);
+    }
+
+    [Fact]
     public unsafe void TallCanonicalRoundedPathBypassesAtlasAndRendersOnTheFirstFrame()
     {
         using var window = new HeadlessWindow(

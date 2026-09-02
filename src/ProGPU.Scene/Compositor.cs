@@ -7542,6 +7542,100 @@ SceneStateUploadComplete:
         contour.CornerRadii.Z > 0f ||
         contour.CornerRadii.W > 0f;
 
+    private PathGeometry? CullPathFiguresOutsideRasterViewport(
+        PathGeometry path,
+        Matrix4x4 transform)
+    {
+        if (path.IsCombined ||
+            path.Figures.Count <= 1 ||
+            ActiveCompilationContext != null ||
+            _useGpuTransformsActive)
+        {
+            return path;
+        }
+
+        Rect viewport = _activeClipRect ?? new Rect(0f, 0f, _currentWidth, _currentHeight);
+        float left = viewport.X - 1f;
+        float top = viewport.Y - 1f;
+        float right = viewport.X + viewport.Width + 1f;
+        float bottom = viewport.Y + viewport.Height + 1f;
+        if (right <= left || bottom <= top)
+        {
+            return null;
+        }
+
+        List<PathFigure>? visibleFigures = null;
+        var figures = path.Figures;
+        for (int figureIndex = 0; figureIndex < figures.Count; figureIndex++)
+        {
+            PathFigure figure = figures[figureIndex];
+            bool isVisible = !PathGeometry.TryGetBounds(figure, out Vector2 localMin, out Vector2 localMax) ||
+                TransformedBoundsIntersectViewport(
+                    localMin,
+                    localMax,
+                    transform,
+                    left,
+                    top,
+                    right,
+                    bottom);
+            if (isVisible)
+            {
+                visibleFigures?.Add(figure);
+                continue;
+            }
+
+            if (visibleFigures == null)
+            {
+                visibleFigures = new List<PathFigure>(figures.Count);
+                for (int visibleIndex = 0; visibleIndex < figureIndex; visibleIndex++)
+                {
+                    visibleFigures.Add(figures[visibleIndex]);
+                }
+            }
+        }
+
+        if (visibleFigures == null)
+        {
+            return path;
+        }
+
+        if (visibleFigures.Count == 0)
+        {
+            return null;
+        }
+
+        var visiblePath = new PathGeometry
+        {
+            FillRule = path.FillRule
+        };
+        visiblePath.Figures.AddRange(visibleFigures);
+        return visiblePath;
+    }
+
+    private static bool TransformedBoundsIntersectViewport(
+        Vector2 localMin,
+        Vector2 localMax,
+        Matrix4x4 transform,
+        float left,
+        float top,
+        float right,
+        float bottom)
+    {
+        Vector2 p0 = Vector2.Transform(localMin, transform);
+        Vector2 p1 = Vector2.Transform(new Vector2(localMax.X, localMin.Y), transform);
+        Vector2 p2 = Vector2.Transform(localMax, transform);
+        Vector2 p3 = Vector2.Transform(new Vector2(localMin.X, localMax.Y), transform);
+        float minX = MathF.Min(MathF.Min(p0.X, p1.X), MathF.Min(p2.X, p3.X));
+        float minY = MathF.Min(MathF.Min(p0.Y, p1.Y), MathF.Min(p2.Y, p3.Y));
+        float maxX = MathF.Max(MathF.Max(p0.X, p1.X), MathF.Max(p2.X, p3.X));
+        float maxY = MathF.Max(MathF.Max(p0.Y, p1.Y), MathF.Max(p2.Y, p3.Y));
+        return !float.IsFinite(minX) ||
+            !float.IsFinite(minY) ||
+            !float.IsFinite(maxX) ||
+            !float.IsFinite(maxY) ||
+            (maxX >= left && minX <= right && maxY >= top && minY <= bottom);
+    }
+
     private void CompilePathCommand(
         RenderCommand cmd,
         Matrix4x4 transform,
@@ -7610,6 +7704,12 @@ SceneStateUploadComplete:
             TryCompileDirectRoundedRectanglePathFill(cmd, transform);
         if (cmd.Brush != null && !compiledDirectRoundedFill)
         {
+            PathGeometry? rasterPath = CullPathFiguresOutsideRasterViewport(cmd.Path, transform);
+            if (rasterPath == null)
+            {
+                goto CompilePathStroke;
+            }
+
             float bIdx = RegisterBrush(cmd.Brush);
             var brush = cmd.Brush as SolidColorBrush;
             var color = brush?.Color ?? new Vector4(1f, 1f, 1f, 1f);
@@ -7631,7 +7731,7 @@ SceneStateUploadComplete:
             scaleY *= rasterScale;
 
             var info = _pathAtlas.GetOrCreatePath(
-                cmd.Path,
+                rasterPath,
                 scaleX,
                 scaleY,
                 GetSubpixelPhase(transform.M41 * rasterScale),
@@ -7703,6 +7803,8 @@ SceneStateUploadComplete:
                 indexSpan[5] = idxStart + 3;
             }
         }
+
+CompilePathStroke:
 
         if (IsRenderableStroke(cmd.Pen))
         {
