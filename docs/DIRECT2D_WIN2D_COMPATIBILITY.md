@@ -867,20 +867,23 @@ oracle records the same operations through system Direct2D and compares the
 result predicates over the complete focused probe lattice. Cross-factory,
 degenerate, and non-rectangle inputs fail before touching the sink.
 
-`ID2D1PathGeometry::CombineWithGeometry` now extends the same four operations
-to two simple, single-filled-contour paths. Curves are flattened through the
-caller's tolerance, the input transform is applied only to the input operand,
-and the resulting edges use four-lane ARM64 NEON or SSE2 AABB rejection before
-the topology-dependent intersection insertion and contour walk. Crossing and
-positive collinear overlaps are split, Boolean membership is classified on
-both sides, coincident directed boundaries are deduplicated, and complete
-alternate-fill, force-unstroked contours are published only after the entire
-result is valid. Unsupported multi-contour, hole, self-intersecting, or
-numerically ambiguous inputs fail before sink mutation. Local optimized and
-sanitizer fixtures cover concave overlap and identical-path empty/non-empty
-results. A clean Windows 11 ARM64 MSVC 19.44 build compares the result
-predicate for all four modes over the same lattice against genuine system
-Direct2D and passes.
+`ID2D1PathGeometry::CombineWithGeometry` now applies all four operations to
+arbitrary counts of filled path contours, including disjoint components,
+nested holes, shared edges, and interacting contours. Each operand first uses
+the same transactional `Outline` normalization as fill and area queries, so
+alternate and winding inputs become a canonical alternate-fill boundary set;
+the input transform is applied only while normalizing the input operand.
+The shared topology engine tags every contour with its operand, splits
+crossings and positive collinear overlaps after four-lane ARM64 NEON or SSE2
+AABB rejection, evaluates each Boolean mode on both sides of every sub-edge,
+deduplicates directed boundaries, and publishes force-unstroked closed
+contours only after the complete graph is valid. Empty-operand identities are
+handled explicitly. Multiple or ambiguous self-crossings and numerically
+invalid graphs still fail before sink mutation. Optimized portable fixtures
+compare all four modes over a dense lattice for concave, identical,
+multi-component, and nested-hole inputs. Genuine system Direct2D differentials
+run the multi-component/hole lattice under clean Windows 11 ARM64 and x64
+MSVC `/W4 /WX` builds.
 
 The same simple-path normalization now implements
 `ID2D1PathGeometry::CompareWithGeometry`. It returns all five observable
