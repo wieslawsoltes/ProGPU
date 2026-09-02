@@ -8476,8 +8476,13 @@ int run_tests()
         target_layer.get());
     auto* native_layer_brush = reinterpret_cast<ID2D1SolidColorBrush*>(
         target_brush.get());
-    const D2D1_MATRIX_3X2_F native_identity{{
-        1.0F, 0.0F, 0.0F, 1.0F, 0.0F, 0.0F}};
+    D2D1_MATRIX_3X2_F native_identity{};
+    native_identity._11 = 1.0F;
+    native_identity._12 = 0.0F;
+    native_identity._21 = 0.0F;
+    native_identity._22 = 1.0F;
+    native_identity._31 = 0.0F;
+    native_identity._32 = 0.0F;
     const float native_maximum = std::numeric_limits<float>::max();
     const D2D1_LAYER_PARAMETERS native_full_opacity_layer{
         {-native_maximum, -native_maximum, native_maximum, native_maximum},
