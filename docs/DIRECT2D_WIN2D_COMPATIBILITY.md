@@ -741,6 +741,18 @@ interacting contours still fail closed before the caller sink is mutated. The
 remaining contour tracing is topology-dependent scalar work; there is no
 data-parallel whole-buffer loop being left unvectorized.
 
+`ID2D1PathGeometry::ComputeArea` now consumes the same transactionally
+normalized Outline contours instead of summing each source figure in
+isolation. Signed contour reduction therefore subtracts alternate/winding
+holes, counts alternate overlap as xor, counts equal-direction winding overlap
+as union, and preserves point-contact area without double-counting shared
+edges. The dependent signed-area reduction remains scalar by definition; all
+independent boundary-pair work stays in the shared NEON/SSE2 normalizer.
+Portable hole/overlap fixtures and genuine Direct2D ARM64/x64 shared-edge,
+alternate-overlap, winding-overlap, corner-contact, and T-contact comparisons
+match exactly. Self-intersecting source contours remain fail closed with their
+initialized zero output until Outline can normalize their transverse graph.
+
 Portable nondegenerate rectangle geometry also implements exact
 `GetWidenedBounds` for the default stroke and same-factory solid stroke
 styles. The stroke expands in local geometry space and the caller transform
@@ -2318,9 +2330,11 @@ matches Direct2D by counting each implicit closed-figure edge even though
 The path supports canonical resource/geometry/path/path1 identity and factory
 ownership, exact vocabulary `Stream`, line/cubic/arc-aware transformed bounds,
 `Simplify` to cubics-and-lines or flattened lines, fill containment, area,
-length, point-at-length, and point-plus-segment queries. Area and containment
-are qualified for ordinary non-overlapping figures; exact self-intersection
-and overlapping-figure fill analysis remains a separate gate. Dashed, open,
+length, point-at-length, and point-plus-segment queries. Fill containment
+applies the selected rule across all flattened figures, while area is qualified
+for independent, nested, point-touching, shared-edge, and two-contour overlap
+through normalized Outline topology. Exact self-intersection and more-than-two
+interacting-figure area remain separate gates. Dashed, open,
 or multi-figure path stroke containment, collapsed/styled/open/
 multi-figure path widening, and styled/open/multi-figure widened bounds,
 multi-contour outline/Boolean normalization, and unsupported tessellation

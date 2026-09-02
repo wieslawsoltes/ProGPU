@@ -2501,10 +2501,16 @@ int run_tests()
     auto* raw_nested_outline_sink = new simplified_sink();
     com::pointer<compat::simplified_geometry_sink> nested_outline_sink;
     nested_outline_sink.attach(raw_nested_outline_sink);
+    float nested_outline_area = 0.0F;
     if (nested_outline_path->Outline(
             nullptr,
             core::default_flattening_tolerance,
             nested_outline_sink.get()) != com::ok ||
+        nested_outline_path->ComputeArea(
+            nullptr,
+            core::default_flattening_tolerance,
+            &nested_outline_area) != com::ok ||
+        !approximately_equal(nested_outline_area, 3.0F) ||
         raw_nested_outline_sink->fill_mode !=
             compat::fill_mode::alternate ||
         raw_nested_outline_sink->set_fill_mode_count != 1U ||
@@ -2556,10 +2562,16 @@ int run_tests()
     auto* raw_winding_outline_sink = new simplified_sink();
     com::pointer<compat::simplified_geometry_sink> winding_outline_sink;
     winding_outline_sink.attach(raw_winding_outline_sink);
+    float winding_outline_area = 0.0F;
     if (winding_outline_path->Outline(
             nullptr,
             core::default_flattening_tolerance,
             winding_outline_sink.get()) != com::ok ||
+        winding_outline_path->ComputeArea(
+            nullptr,
+            core::default_flattening_tolerance,
+            &winding_outline_area) != com::ok ||
+        !approximately_equal(winding_outline_area, 3.0F) ||
         raw_winding_outline_sink->fill_mode !=
             compat::fill_mode::alternate ||
         raw_winding_outline_sink->set_fill_mode_count != 1U ||
@@ -2625,10 +2637,15 @@ int run_tests()
       auto* raw_overlap_outline_sink = new simplified_sink();
       com::pointer<compat::simplified_geometry_sink> overlap_outline_sink;
       overlap_outline_sink.attach(raw_overlap_outline_sink);
+      float overlap_area = 0.0F;
       if (overlap_outline_path->Outline(
               nullptr,
               0.01F,
               overlap_outline_sink.get()) != com::ok ||
+          overlap_outline_path->ComputeArea(
+              nullptr, 0.01F, &overlap_area) != com::ok ||
+          !approximately_equal(
+              overlap_area, winding == 0U ? 14.0F : 16.0F) ||
           raw_overlap_outline_sink->fill_mode !=
               compat::fill_mode::alternate ||
           raw_overlap_outline_sink->set_fill_mode_count != 1U ||
@@ -8770,9 +8787,30 @@ int run_tests()
               0.01F,
               reinterpret_cast<ID2D1SimplifiedGeometrySink*>(
                   system_normalized_outline_sink.get()));
+      float portable_normalized_area = 0.0F;
+      float system_normalized_area = 0.0F;
+      const HRESULT portable_normalized_area_status =
+          portable_normalized_outline_path->ComputeArea(
+              nullptr, 0.01F, &portable_normalized_area);
+      const HRESULT system_normalized_area_status =
+          system_normalized_outline_path->ComputeArea(
+              nullptr, 0.01F, &system_normalized_area);
+      const float expected_normalized_area = scenario == 3U
+          ? 8.0F
+          : (scenario == 4U
+              ? 14.0F
+              : (scenario == 5U
+                  ? 16.0F
+                  : (scenario == 6U ? 8.0F : 18.0F)));
       bool normalized_outline_matches =
           SUCCEEDED(portable_normalized_outline_status) &&
           SUCCEEDED(system_normalized_outline_status) &&
+          SUCCEEDED(portable_normalized_area_status) &&
+          SUCCEEDED(system_normalized_area_status) &&
+          approximately_equal(
+              portable_normalized_area, system_normalized_area) &&
+          approximately_equal(
+              portable_normalized_area, expected_normalized_area) &&
           raw_portable_normalized_outline_sink->fill_mode ==
               raw_system_normalized_outline_sink->fill_mode &&
           raw_portable_normalized_outline_sink->segment_flags ==
@@ -8807,12 +8845,15 @@ int run_tests()
       if (!normalized_outline_matches) {
         std::fprintf(
             stderr,
-            "normalized outline scenario=%u status=%ld/%ld fill=%u/%u "
+            "normalized outline scenario=%u status=%ld/%ld area=%g/%g "
+            "fill=%u/%u "
             "flags=%u/%u callbacks=%u/%u,%u/%u geometry=%u/%u,%u/%u,"
             "%u/%u\n",
             scenario,
             static_cast<long>(portable_normalized_outline_status),
             static_cast<long>(system_normalized_outline_status),
+            portable_normalized_area,
+            system_normalized_area,
             static_cast<unsigned>(
                 raw_portable_normalized_outline_sink->fill_mode),
             static_cast<unsigned>(
