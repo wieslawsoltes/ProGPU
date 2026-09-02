@@ -4354,13 +4354,14 @@ private:
     HRESULT failure_ = S_OK;
 };
 
-class ProGpuD2DGdiMetafile final : public ID2D1GdiMetafile {
+class ProGpuD2DGdiMetafile final : public ID2D1GdiMetafile1 {
 public:
     ProGpuD2DGdiMetafile(
         ID2D1Factory1* factory,
         ID2D1GdiMetafile* source) noexcept
         : factory_(factory), source_(source)
     {
+        static_cast<void>(source_.As(&source1_));
     }
 
     HRESULT STDMETHODCALLTYPE QueryInterface(
@@ -4375,10 +4376,15 @@ public:
             IsEqualIID(interface_id, __uuidof(ID2D1Resource)) ||
             IsEqualIID(interface_id, __uuidof(ID2D1GdiMetafile))) {
             *value = static_cast<ID2D1GdiMetafile*>(this);
-            AddRef();
-            return S_OK;
+        } else if (IsEqualIID(
+                       interface_id, __uuidof(ID2D1GdiMetafile1)) &&
+            static_cast<bool>(source1_)) {
+            *value = static_cast<ID2D1GdiMetafile1*>(this);
+        } else {
+            return E_NOINTERFACE;
         }
-        return E_NOINTERFACE;
+        AddRef();
+        return S_OK;
     }
 
     ULONG STDMETHODCALLTYPE AddRef() noexcept override
@@ -4420,12 +4426,30 @@ public:
         return source_->GetBounds(bounds);
     }
 
+    HRESULT STDMETHODCALLTYPE GetDpi(
+        FLOAT* dpi_x,
+        FLOAT* dpi_y) noexcept override
+    {
+        return source1_
+            ? source1_->GetDpi(dpi_x, dpi_y)
+            : E_NOINTERFACE;
+    }
+
+    HRESULT STDMETHODCALLTYPE GetSourceBounds(
+        D2D1_RECT_F* bounds) noexcept override
+    {
+        return source1_
+            ? source1_->GetSourceBounds(bounds)
+            : E_NOINTERFACE;
+    }
+
 private:
     ~ProGpuD2DGdiMetafile() = default;
 
     std::atomic<ULONG> reference_count_{1U};
     ComPtr<ID2D1Factory1> factory_;
     ComPtr<ID2D1GdiMetafile> source_;
+    ComPtr<ID2D1GdiMetafile1> source1_;
 };
 
 class ProGpuD2DFactory final :
