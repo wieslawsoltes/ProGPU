@@ -322,6 +322,21 @@ struct portable_scene final {
         "portable BGRA bitmap creation failed");
     native_com::pointer<d2d::bitmap> bitmap;
     bitmap.attach(raw_bitmap);
+    constexpr std::array<std::byte, 4U> alpha_ignore_pixels{
+        std::byte{0x20}, std::byte{0x40}, std::byte{0x80}, std::byte{0x00}};
+    const d2d::bitmap_properties alpha_ignore_properties{
+        {87U, d2d::alpha_mode::ignore}, 96.0F, 96.0F};
+    d2d::bitmap* raw_alpha_ignore_bitmap = nullptr;
+    require(target->CreateBitmap(
+            {1U, 1U},
+            alpha_ignore_pixels.data(),
+            4U,
+            &alpha_ignore_properties,
+            &raw_alpha_ignore_bitmap) == native_com::ok &&
+        raw_alpha_ignore_bitmap != nullptr,
+        "portable alpha-ignore BGRA bitmap creation failed");
+    native_com::pointer<d2d::bitmap> alpha_ignore_bitmap;
+    alpha_ignore_bitmap.attach(raw_alpha_ignore_bitmap);
     constexpr std::array<std::byte, 16U> opacity_mask_pixels{
         std::byte{0x00}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00},
         std::byte{0xff}, std::byte{0xff}, std::byte{0xff}, std::byte{0xff},
@@ -460,6 +475,8 @@ struct portable_scene final {
         {36.0F, 28.0F, 56.0F, 44.0F}, 4.0F, 2.0F};
     const d2d::rectangle_f bitmap_destination{
         24.0F, 4.0F, 30.0F, 10.0F};
+    const d2d::rectangle_f alpha_ignore_destination{
+        56.0F, 20.0F, 64.0F, 28.0F};
     const d2d::rectangle_f bitmap_brush_rectangle{
         22.0F, 12.0F, 30.0F, 20.0F};
     const d2d::ellipse bitmap_brush_ellipse{{26.0F, 24.0F}, 4.0F, 4.0F};
@@ -508,6 +525,12 @@ struct portable_scene final {
     target->DrawBitmap(
         bitmap.get(),
         &bitmap_destination,
+        1.0F,
+        d2d::bitmap_interpolation_mode::nearest_neighbor,
+        nullptr);
+    target->DrawBitmap(
+        alpha_ignore_bitmap.get(),
+        &alpha_ignore_destination,
         1.0F,
         d2d::bitmap_interpolation_mode::nearest_neighbor,
         nullptr);
@@ -658,8 +681,8 @@ struct portable_scene final {
     const bool render_matches = render_status ==
             PROGPU_NATIVE_STATUS_SUCCESS &&
         diagnostics.stage == d2d::scene_submission_stage::none &&
-        scene_metrics.draw_count == 15U &&
-        frame_metrics.command_count == 23U &&
+        scene_metrics.draw_count == 16U &&
+        frame_metrics.command_count == 24U &&
         frame_metrics.submission_count == 4U;
     if (!render_matches) {
         std::fprintf(
@@ -758,6 +781,8 @@ void verify_pixels(std::span<const std::uint8_t> pixels)
         "portable Direct2D stroke pixel is missing");
     require(near_rgba(pixel(46U, 36U), 255, 0, 255),
         "portable Direct2D rounded-rectangle pixel is missing");
+    require(near_rgba(pixel(60U, 24U), 128, 64, 32),
+        "portable Direct2D alpha-ignore bitmap is not opaque");
     require(near_rgba(pixel(22U, 12U), 255, 0, 0) &&
             near_rgba(pixel(23U, 12U), 0, 255, 0) &&
             near_rgba(pixel(22U, 13U), 0, 0, 255) &&
@@ -832,7 +857,7 @@ int main(int argc, char** argv)
         : gpu.properties.name;
     std::printf(
         "Portable Direct2D WebGPU passed: backend=%s adapter=%s "
-        "draws=15 submissions=4 bytes=%zu\n",
+        "draws=16 submissions=4 bytes=%zu\n",
         backend_name(gpu.properties.backendType),
         adapter_name,
         pixels.size());

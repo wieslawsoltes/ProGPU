@@ -149,9 +149,13 @@ void resolve_image_vertex_color(
     float (&color)[4]) noexcept {
     const bool premultiplied_source = has_effect ||
         (image.flags & PROGPU_NATIVE_SCENE_IMAGE_SOURCE_PREMULTIPLIED) != 0U;
+    const bool ignore_source_alpha =
+        (image.flags & PROGPU_NATIVE_SCENE_IMAGE_SOURCE_ALPHA_IGNORE) != 0U;
     color[0] = premultiplied_source ? image.opacity : 1.0F;
     color[1] = premultiplied_source ? 1.0F : 0.0F;
-    color[2] = premultiplied_source ? image.opacity : 1.0F;
+    color[2] = ignore_source_alpha
+        ? -1.0F
+        : (premultiplied_source ? image.opacity : 1.0F);
     color[3] = image.sampling == PROGPU_NATIVE_IMAGE_SAMPLING_CUBIC
         ? -image.opacity
         : image.opacity;

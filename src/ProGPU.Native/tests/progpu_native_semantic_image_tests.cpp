@@ -164,6 +164,12 @@ bool semantic_image_sampling_payload_is_exact_and_bounded() {
     }
     image.flags = 0U;
     image.source_rect = {0.0F, 0.0F, 2.0F, 2.0F};
+    image.flags = PROGPU_NATIVE_SCENE_IMAGE_SOURCE_ALPHA_IGNORE;
+    if (!semantic::validate_image_draw_payload(
+            bytes.data(), command, image, 16U, parsed)) {
+        return false;
+    }
+    image.flags = 0U;
 
     image.flags = PROGPU_NATIVE_SCENE_IMAGE_COLOR_MATRIX;
     progpu_native_scene_image_color_matrix matrix{};
@@ -278,6 +284,13 @@ bool semantic_image_sampling_payload_is_exact_and_bounded() {
     image.flags = PROGPU_NATIVE_SCENE_IMAGE_SOURCE_PREMULTIPLIED;
     semantic::resolve_image_vertex_color(image, false, color);
     if (color[0] != 0.25F || color[1] != 1.0F || color[2] != 0.25F ||
+        color[3] != 0.25F) {
+        return false;
+    }
+    image.flags = PROGPU_NATIVE_SCENE_IMAGE_SOURCE_PREMULTIPLIED |
+        PROGPU_NATIVE_SCENE_IMAGE_SOURCE_ALPHA_IGNORE;
+    semantic::resolve_image_vertex_color(image, false, color);
+    if (color[0] != 0.25F || color[1] != 1.0F || color[2] != -1.0F ||
         color[3] != 0.25F) {
         return false;
     }
