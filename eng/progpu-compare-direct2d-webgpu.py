@@ -25,8 +25,18 @@ PROBES = (
     (2, 34),
     (18, 28),
     (46, 36),
+    (8, 56),
+    (1, 56),
+    (24, 56),
+    (30, 49),
+    (33, 49),
+    (57, 8),
+    (62, 8),
+    (38, 56),
+    (56, 56),
+    (63, 50),
 )
-EXPECTED_SIZE = (64, 48)
+EXPECTED_SIZE = (64, 64)
 
 
 def read_ppm(path: pathlib.Path) -> tuple[int, int, bytes]:
@@ -44,7 +54,8 @@ def read_ppm(path: pathlib.Path) -> tuple[int, int, bytes]:
         raise ValueError(f"{path} has {len(pixels)} pixel bytes.")
     if (width, height) != EXPECTED_SIZE:
         raise ValueError(
-            f"{path} is {width}x{height}; expected the 64x48 Direct2D fixture."
+            f"{path} is {width}x{height}; expected the "
+            f"{EXPECTED_SIZE[0]}x{EXPECTED_SIZE[1]} Direct2D fixture."
         )
     return width, height, pixels
 
@@ -97,15 +108,17 @@ def compare(reference_path: pathlib.Path, candidate_path: pathlib.Path) -> dict:
             max(changed_y),
         ]
 
-    # The fifteen clear/gradient/bitmap/bitmap-brush/path/stroke/interior
+    # The twenty-five clear/gradient/bitmap/bitmap-brush/path/stroke/interior,
+    # clip, opacity-mask, compatible-target, and layer
     # probes must remain within one channel level.
-    # Metal and llvmpipe/Vulkan currently differ at 151 analytic/vector edge
-    # pixels, all by exactly one level. The bounded whole-frame allowance
+    # Metal and llvmpipe/Vulkan currently differ at no more than 305
+    # analytic/vector edge pixels, all by exactly one level. The bounded
+    # whole-frame allowance
     # rejects a displaced edge, color drift, lost primitive, or backend CPU
     # substitute.
     passed = (
         maximum <= 1
-        and changed_pixels <= 160
+        and changed_pixels <= 320
         and pixels_over_one == 0
         and mean <= 0.03
         and max(probe_differences, default=0) <= 1
@@ -117,7 +130,7 @@ def compare(reference_path: pathlib.Path, candidate_path: pathlib.Path) -> dict:
         "Height": height,
         "Exact": changed_pixels == 0,
         "ChangedPixels": changed_pixels,
-        "ChangedPixelLimit": 160,
+        "ChangedPixelLimit": 320,
         "ChangedBounds": changed_bounds,
         "PixelsOver1": pixels_over_one,
         "MaximumChannelDifference": maximum,
@@ -138,16 +151,17 @@ def main() -> int:
     contract = {
         "Contract": "ProGPU portable Direct2D COM D3D12/Metal/Vulkan differential",
         "Fixture": (
-            "64x48 clear, linear-gradient rectangle, radial-gradient ellipse, "
+            "64x64 clear, linear-gradient rectangle, radial-gradient ellipse, "
             "nearest-sampled BGRA bitmap, repeated nearest-sampled BGRA "
             "bitmap-brush rectangle, stroked ellipse, and path-filled and "
             "stroked triangle, solid stroked rectangle, solid rounded "
-            "rectangle"
+            "rectangle, aliased and antialiased clips, opacity masks, a "
+            "compatible target, and opacity/geometric-mask layers"
         ),
         "Tolerance": {
             "SemanticProbeMaximum": 1,
             "MaximumChannelDifference": 1,
-            "ChangedPixelLimit": 160,
+            "ChangedPixelLimit": 320,
             "PixelsOver1Limit": 0,
             "MeanAbsoluteChannelDifferenceMaximum": 0.03,
         },

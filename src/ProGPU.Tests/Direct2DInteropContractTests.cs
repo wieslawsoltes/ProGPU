@@ -42,8 +42,11 @@ public sealed class Direct2DInteropContractTests
         Assert.Contains("progpu-direct2d-vulkan.ppm", unixBuild, StringComparison.Ordinal);
         Assert.Contains("progpu-direct2d-d3d12.ppm", windowsBuild, StringComparison.Ordinal);
         Assert.Contains("MaximumChannelDifference\": 1", comparator, StringComparison.Ordinal);
+        Assert.Contains("EXPECTED_SIZE = (64, 64)", comparator, StringComparison.Ordinal);
+        Assert.Contains("\"ChangedPixelLimit\": 320", comparator, StringComparison.Ordinal);
         Assert.Contains("linear-gradient rectangle", comparator, StringComparison.Ordinal);
         Assert.Contains("(46, 14)", comparator, StringComparison.Ordinal);
+        Assert.Contains("(63, 50)", comparator, StringComparison.Ordinal);
         Assert.Contains("native-direct2d-webgpu-parity", workflow, StringComparison.Ordinal);
         Assert.Contains("progpu-compare-direct2d-webgpu.py", workflow, StringComparison.Ordinal);
     }
