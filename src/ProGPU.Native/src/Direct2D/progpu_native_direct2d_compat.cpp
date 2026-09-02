@@ -3,6 +3,7 @@
 #include "progpu_native_direct2d_ellipse.hpp"
 #include "progpu_native_direct2d_geometry_group.hpp"
 #include "progpu_native_direct2d_path.hpp"
+#include "progpu_native_direct2d_rectangle.hpp"
 #include "progpu_native_direct2d_render_target.hpp"
 #include "progpu_native_direct2d_rounded_rectangle.hpp"
 #include "progpu_native_direct2d_stroke_style.hpp"
@@ -1107,7 +1108,7 @@ template <std::size_t Capacity>
     return com::ok;
 }
 
-[[nodiscard]] com::result get_rectangle_widened_bounds(
+[[nodiscard]] com::result get_rectangle_widened_bounds_impl(
     factory* owner,
     const rectangle_f& rectangle,
     float stroke_width,
@@ -1186,7 +1187,7 @@ template <std::size_t Capacity>
     return !(positive && negative) && (include_boundary || !boundary);
 }
 
-[[nodiscard]] com::result rectangle_stroke_contains_point(
+[[nodiscard]] com::result rectangle_stroke_contains_point_impl(
     const rectangle_f& rectangle,
     point_2f point,
     float stroke_width,
@@ -1272,7 +1273,7 @@ template <std::size_t Capacity>
     return com::ok;
 }
 
-[[nodiscard]] com::result widen_rectangle(
+[[nodiscard]] com::result widen_rectangle_impl(
     const rectangle_f& rectangle,
     float stroke_width,
     stroke_style* style,
@@ -1663,7 +1664,7 @@ public:
         float flattening_tolerance,
         rectangle_f* bounds) const noexcept override
     {
-        return get_rectangle_widened_bounds(
+        return detail::get_rectangle_widened_bounds(
             owner_.get(),
             geometry_.rectangle(),
             stroke_width,
@@ -1681,7 +1682,7 @@ public:
         float flattening_tolerance,
         std::int32_t* contains) const noexcept override
     {
-        return rectangle_stroke_contains_point(
+        return detail::rectangle_stroke_contains_point(
             geometry_.rectangle(),
             point,
             stroke_width,
@@ -1808,25 +1809,11 @@ public:
         float flattening_tolerance,
         simplified_geometry_sink* sink) const noexcept override
     {
-        if (sink == nullptr) {
-            return com::pointer_error;
-        }
-        if (!std::isfinite(flattening_tolerance) ||
-            flattening_tolerance <= 0.0F) {
-            return com::invalid_argument;
-        }
-        std::array<point_2f, 4U> points{};
-        const com::result status = geometry_.vertices(
-            world_transform, points);
-        if (com::failed(status)) {
-            return status;
-        }
-        sink->SetFillMode(fill_mode::alternate);
-        sink->BeginFigure(points[0U], figure_begin::filled);
-        sink->AddLines(points.data() + 1U, 3U);
-        sink->AddLines(points.data(), 1U);
-        sink->EndFigure(figure_end::closed);
-        return com::ok;
+        return detail::outline_rectangle(
+            geometry_.rectangle(),
+            world_transform,
+            flattening_tolerance,
+            sink);
     }
 
     com::result PROGPU_NATIVE_COM_CALL ComputeArea(
@@ -1868,7 +1855,7 @@ public:
         float flattening_tolerance,
         simplified_geometry_sink* sink) const noexcept override
     {
-        return widen_rectangle(
+        return detail::widen_rectangle(
             geometry_.rectangle(),
             stroke_width,
             style,
@@ -1974,7 +1961,7 @@ public:
             get_axis_preserving_rectangle(&transformed_rectangle);
         return com::failed(rectangle_result)
             ? rectangle_result
-            : get_rectangle_widened_bounds(
+            : detail::get_rectangle_widened_bounds(
                   owner_.get(),
                   transformed_rectangle,
                   stroke_width,
@@ -2001,7 +1988,7 @@ public:
             get_axis_preserving_rectangle(&transformed_rectangle);
         return com::failed(rectangle_result)
             ? rectangle_result
-            : rectangle_stroke_contains_point(
+            : detail::rectangle_stroke_contains_point(
                   transformed_rectangle,
                   point,
                   stroke_width,
@@ -2516,6 +2503,92 @@ private:
 };
 
 } // namespace
+
+namespace detail {
+
+com::result get_rectangle_widened_bounds(
+    factory* owner,
+    const rectangle_f& rectangle,
+    float stroke_width,
+    stroke_style* style,
+    const matrix_3x2_f* world_transform,
+    float flattening_tolerance,
+    rectangle_f* bounds) noexcept
+{
+    return get_rectangle_widened_bounds_impl(
+        owner,
+        rectangle,
+        stroke_width,
+        style,
+        world_transform,
+        flattening_tolerance,
+        bounds);
+}
+
+com::result rectangle_stroke_contains_point(
+    const rectangle_f& rectangle,
+    point_2f point,
+    float stroke_width,
+    stroke_style* style,
+    const matrix_3x2_f* world_transform,
+    float flattening_tolerance,
+    std::int32_t* contains) noexcept
+{
+    return rectangle_stroke_contains_point_impl(
+        rectangle,
+        point,
+        stroke_width,
+        style,
+        world_transform,
+        flattening_tolerance,
+        contains);
+}
+
+com::result outline_rectangle(
+    const rectangle_f& rectangle,
+    const matrix_3x2_f* world_transform,
+    float flattening_tolerance,
+    simplified_geometry_sink* sink) noexcept
+{
+    if (sink == nullptr) {
+        return com::pointer_error;
+    }
+    if (!std::isfinite(flattening_tolerance) ||
+        flattening_tolerance <= 0.0F) {
+        return com::invalid_argument;
+    }
+    std::array<point_2f, 4U> points{};
+    const com::result status = core::rectangle_geometry(rectangle).vertices(
+        world_transform, points);
+    if (com::failed(status)) {
+        return status;
+    }
+    sink->SetFillMode(fill_mode::alternate);
+    sink->BeginFigure(points[0U], figure_begin::filled);
+    sink->AddLines(points.data() + 1U, 3U);
+    sink->AddLines(points.data(), 1U);
+    sink->EndFigure(figure_end::closed);
+    return com::ok;
+}
+
+com::result widen_rectangle(
+    const rectangle_f& rectangle,
+    float stroke_width,
+    stroke_style* style,
+    const matrix_3x2_f* world_transform,
+    float flattening_tolerance,
+    simplified_geometry_sink* sink) noexcept
+{
+    return widen_rectangle_impl(
+        rectangle,
+        stroke_width,
+        style,
+        world_transform,
+        flattening_tolerance,
+        sink);
+}
+
+} // namespace detail
 
 com::result create_factory(factory** value) noexcept
 {

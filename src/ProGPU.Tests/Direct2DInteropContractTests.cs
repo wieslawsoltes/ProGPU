@@ -71,7 +71,6 @@ public sealed class Direct2DInteropContractTests
             "src",
             "Direct2D",
             "progpu_native_direct2d.cpp");
-
         Assert.Contains("using unknown = IUnknown;", header, StringComparison.Ordinal);
         Assert.Contains("struct unknown", header, StringComparison.Ordinal);
         Assert.Contains("atomic_reference_count", header, StringComparison.Ordinal);
@@ -170,6 +169,17 @@ public sealed class Direct2DInteropContractTests
             "src",
             "Direct2D",
             "progpu_native_direct2d.cpp");
+        string rectangleQueries = ReadRepoFile(
+            "src",
+            "ProGPU.Native",
+            "src",
+            "Direct2D",
+            "progpu_native_direct2d_rectangle.hpp");
+        string providerTest = ReadRepoFile(
+            "src",
+            "ProGPU.Native",
+            "tests",
+            "progpu_native_direct2d_tests.cpp");
         string cmake = ReadRepoFile(
             "src",
             "ProGPU.Native",
@@ -181,6 +191,16 @@ public sealed class Direct2DInteropContractTests
         Assert.Contains("progpu_native_direct2d_core_tests", cmake, StringComparison.Ordinal);
         Assert.Contains("include/progpu_native_direct2d_core.hpp", cmake, StringComparison.Ordinal);
         Assert.Contains("direct2d_core::rectangle_geometry geometry", provider, StringComparison.Ordinal);
+        Assert.Contains("detail::get_rectangle_widened_bounds", provider, StringComparison.Ordinal);
+        Assert.Contains("detail::rectangle_stroke_contains_point", provider, StringComparison.Ordinal);
+        Assert.Contains("detail::outline_rectangle", provider, StringComparison.Ordinal);
+        Assert.Contains("detail::widen_rectangle", provider, StringComparison.Ordinal);
+        Assert.Contains("com::result outline_rectangle", rectangleQueries, StringComparison.Ordinal);
+        Assert.Contains("ProGPU rectangle geometry widened bounds changed", providerTest, StringComparison.Ordinal);
+        Assert.Contains("ProGPU rectangle solid-style widened bounds changed", providerTest, StringComparison.Ordinal);
+        Assert.Contains("ProGPU rectangle geometry outline failed", providerTest, StringComparison.Ordinal);
+        Assert.Contains("ProGPU rectangle geometry widening failed", providerTest, StringComparison.Ordinal);
+        Assert.Contains("ProGPU rectangle stroke queries diverged from system Direct2D", providerTest, StringComparison.Ordinal);
         Assert.DoesNotContain("compat_transform_rectangle", provider, StringComparison.Ordinal);
         Assert.Contains("degenerate.point_at_length", nativeTest, StringComparison.Ordinal);
     }

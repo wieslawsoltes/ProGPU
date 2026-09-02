@@ -3277,6 +3277,26 @@ using them must select the typed scene/Canvas alternative or a Windows
 provider; the portable COM target returns its documented failure instead of
 silently rasterizing on the CPU.
 
+### Shared Windows rectangle-query checkpoint
+
+The exported Windows `progpu_native_direct2d_compat_factory_create` facade now
+routes `ID2D1RectangleGeometry::GetWidenedBounds`, `StrokeContainsPoint`,
+`Outline`, and `Widen` through the same typed rectangle-query implementation as
+the portable COM factory. This removes four facade-only `E_NOTIMPL` results
+without duplicating geometry math or adding a CPU raster path. The null/default
+stroke lane preserves the qualified alternate-fill outer/inner transcript;
+same-factory solid styles are admitted by widened bounds, while unsupported
+styled widening continues to fail closed before caller-sink mutation.
+
+The Windows provider test creates these resources through the exported
+`ID2D1Factory1`, validates exact widened bounds and stroke inclusion/exclusion,
+streams outline and widened contours into provider-owned path sinks, and checks
+their bounds and filled hole semantics. It repeats the same operations through
+a genuine system `D2D1CreateFactory` and requires matching bounds and region
+probes. Both Windows 11 ARM64 and x64 builds pass with MSVC `/W4 /WX`; the
+portable optimized and sanitizer suites exercise the identical shared
+implementation on macOS.
+
 ## Delivery order
 
 1. Keep the dependency classifier and resolver fail-closed invariants green.
