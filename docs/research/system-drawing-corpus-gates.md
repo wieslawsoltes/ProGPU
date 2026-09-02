@@ -97,6 +97,12 @@ dotnet run \
   --threshold 0.12
 ```
 
+To reproduce one row through the same isolated worker and inventory checks,
+add an exact key such as
+`--fixture 'resvg|tests/painting/stroke/pattern'`. Corpus-size validation still
+runs before selection, so a partial or stale checkout cannot masquerade as a
+successful focused test.
+
 For representative performance evidence, replace the arguments after `--`
 with:
 

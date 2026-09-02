@@ -2,6 +2,84 @@
 # Format: suite|fixture|exception-type|reason
 # Matching is exact by suite/fixture and exception type. New, changed, and resolved
 # entries fail the gate so this inventory cannot silently conceal regressions.
+resvg|tests/filters/filter-functions/blur-function-mm-value|System.ArgumentOutOfRangeException|SVG.NET filter-function parser fails before drawing
+resvg|tests/filters/filter-functions/blur-function-negative-value|System.ArgumentOutOfRangeException|SVG.NET filter-function parser fails before drawing
+resvg|tests/filters/filter-functions/blur-function-no-values|System.ArgumentOutOfRangeException|SVG.NET filter-function parser fails before drawing
+resvg|tests/filters/filter-functions/blur-function-percent-value|System.ArgumentOutOfRangeException|SVG.NET filter-function parser fails before drawing
+resvg|tests/filters/filter-functions/blur-function-two-values|System.ArgumentOutOfRangeException|SVG.NET filter-function parser fails before drawing
+resvg|tests/filters/filter-functions/blur-function|System.ArgumentOutOfRangeException|SVG.NET filter-function parser fails before drawing
+resvg|tests/filters/filter-functions/color-adjust-functions-0percent|System.ArgumentOutOfRangeException|SVG.NET filter-function parser fails before drawing
+resvg|tests/filters/filter-functions/color-adjust-functions-100percent|System.ArgumentOutOfRangeException|SVG.NET filter-function parser fails before drawing
+resvg|tests/filters/filter-functions/color-adjust-functions-2|System.ArgumentOutOfRangeException|SVG.NET filter-function parser fails before drawing
+resvg|tests/filters/filter-functions/color-adjust-functions-200percent|System.ArgumentOutOfRangeException|SVG.NET filter-function parser fails before drawing
+resvg|tests/filters/filter-functions/color-adjust-functions-50percent|System.ArgumentOutOfRangeException|SVG.NET filter-function parser fails before drawing
+resvg|tests/filters/filter-functions/color-adjust-functions-default-value|System.ArgumentOutOfRangeException|SVG.NET filter-function parser fails before drawing
+resvg|tests/filters/filter-functions/color-adjust-functions-negative|System.ArgumentOutOfRangeException|SVG.NET filter-function parser fails before drawing
+resvg|tests/filters/filter-functions/drop-shadow-function-color-as-attribute|System.ArgumentOutOfRangeException|SVG.NET filter-function parser fails before drawing
+resvg|tests/filters/filter-functions/drop-shadow-function-color-last|System.ArgumentOutOfRangeException|SVG.NET filter-function parser fails before drawing
+resvg|tests/filters/filter-functions/drop-shadow-function-comma-separated|System.ArgumentOutOfRangeException|SVG.NET filter-function parser fails before drawing
+resvg|tests/filters/filter-functions/drop-shadow-function-currentColor|System.ArgumentOutOfRangeException|SVG.NET filter-function parser fails before drawing
+resvg|tests/filters/filter-functions/drop-shadow-function-em-values|System.ArgumentOutOfRangeException|SVG.NET filter-function parser fails before drawing
+resvg|tests/filters/filter-functions/drop-shadow-function-extra-value|System.ArgumentOutOfRangeException|SVG.NET filter-function parser fails before drawing
+resvg|tests/filters/filter-functions/drop-shadow-function-filter-region|System.ArgumentOutOfRangeException|SVG.NET filter-function parser fails before drawing
+resvg|tests/filters/filter-functions/drop-shadow-function-mm-values|System.ArgumentOutOfRangeException|SVG.NET filter-function parser fails before drawing
+resvg|tests/filters/filter-functions/drop-shadow-function-no-color|System.ArgumentOutOfRangeException|SVG.NET filter-function parser fails before drawing
+resvg|tests/filters/filter-functions/drop-shadow-function-no-values|System.ArgumentOutOfRangeException|SVG.NET filter-function parser fails before drawing
+resvg|tests/filters/filter-functions/drop-shadow-function-only-X-offset|System.ArgumentOutOfRangeException|SVG.NET filter-function parser fails before drawing
+resvg|tests/filters/filter-functions/drop-shadow-function-only-offset|System.ArgumentOutOfRangeException|SVG.NET filter-function parser fails before drawing
+resvg|tests/filters/filter-functions/drop-shadow-function-percent-values|System.ArgumentOutOfRangeException|SVG.NET filter-function parser fails before drawing
+resvg|tests/filters/filter-functions/drop-shadow-function|System.ArgumentOutOfRangeException|SVG.NET filter-function parser fails before drawing
+resvg|tests/filters/filter-functions/grayscale-and-opacity|System.ArgumentOutOfRangeException|SVG.NET filter-function parser fails before drawing
+resvg|tests/filters/filter-functions/hue-rotate-function-0.25turn|System.ArgumentOutOfRangeException|SVG.NET filter-function parser fails before drawing
+resvg|tests/filters/filter-functions/hue-rotate-function-45|System.ArgumentOutOfRangeException|SVG.NET filter-function parser fails before drawing
+resvg|tests/filters/filter-functions/hue-rotate-function-45deg|System.ArgumentOutOfRangeException|SVG.NET filter-function parser fails before drawing
+resvg|tests/filters/filter-functions/hue-rotate-function-45grad|System.ArgumentOutOfRangeException|SVG.NET filter-function parser fails before drawing
+resvg|tests/filters/filter-functions/hue-rotate-function-45rad|System.ArgumentOutOfRangeException|SVG.NET filter-function parser fails before drawing
+resvg|tests/filters/filter-functions/hue-rotate-function-999deg|System.ArgumentOutOfRangeException|SVG.NET filter-function parser fails before drawing
+resvg|tests/filters/filter-functions/hue-rotate-function-default-value|System.ArgumentOutOfRangeException|SVG.NET filter-function parser fails before drawing
+resvg|tests/filters/filter-functions/hue-rotate-function-zero|System.ArgumentOutOfRangeException|SVG.NET filter-function parser fails before drawing
+resvg|tests/filters/filter-functions/one-invalid-function-in-list|System.ArgumentOutOfRangeException|SVG.NET filter-function parser fails before drawing
+resvg|tests/filters/filter-functions/one-invalid-url-in-list|System.IO.FileNotFoundException|SVG.NET resolves the deliberately invalid filter URL as a missing document
+resvg|tests/filters/filter-functions/two-drop-shadow-function|System.ArgumentOutOfRangeException|SVG.NET filter-function parser fails before drawing
+resvg|tests/paint-servers/linearGradient/invalid-gradientTransform|System.Runtime.InteropServices.ExternalException|SVG.NET collapses a malformed linear gradient to coincident points rejected by GDI+
+resvg|tests/paint-servers/linearGradient/recursive-xlink-href-1|System.InvalidOperationException|Recursive SVG.NET linear-gradient reference terminates or exceeds the isolated-worker limit
+resvg|tests/paint-servers/linearGradient/recursive-xlink-href-2|System.TimeoutException|Recursive SVG.NET linear-gradient reference terminates or exceeds the isolated-worker limit
+resvg|tests/paint-servers/linearGradient/recursive-xlink-href-3|System.InvalidOperationException|Recursive SVG.NET linear-gradient reference terminates or exceeds the isolated-worker limit
+resvg|tests/paint-servers/linearGradient/self-recursive-xlink-href|System.InvalidOperationException|Recursive SVG.NET linear-gradient reference terminates or exceeds the isolated-worker limit
+resvg|tests/paint-servers/pattern/invalid-patternTransform|System.ArgumentException|SVG.NET submits a singular texture transform rejected by GDI+
+resvg|tests/paint-servers/pattern/recursive-on-child|System.InvalidOperationException|Recursive SVG.NET pattern reference terminates or exceeds the isolated-worker limit
+resvg|tests/paint-servers/pattern/self-recursive-on-child|System.InvalidOperationException|Recursive SVG.NET pattern reference terminates or exceeds the isolated-worker limit
+resvg|tests/paint-servers/pattern/self-recursive|System.TimeoutException|Recursive SVG.NET pattern reference terminates or exceeds the isolated-worker limit
+resvg|tests/paint-servers/radialGradient/recursive-xlink-href|System.InvalidOperationException|Recursive SVG.NET radial-gradient reference terminates the isolated worker
+resvg|tests/paint-servers/radialGradient/self-recursive-xlink-href|System.InvalidOperationException|Recursive SVG.NET radial-gradient reference terminates the isolated worker
+resvg|tests/paint-servers/radialGradient/zero-r-with-stop-opacity-1|System.Runtime.InteropServices.ExternalException|SVG.NET submits a zero-radius path gradient rejected by GDI+
+resvg|tests/paint-servers/radialGradient/zero-r-with-stop-opacity-2|System.Runtime.InteropServices.ExternalException|SVG.NET submits a zero-radius path gradient rejected by GDI+
+resvg|tests/paint-servers/radialGradient/zero-r|System.Runtime.InteropServices.ExternalException|SVG.NET submits a zero-radius path gradient rejected by GDI+
+resvg|tests/paint-servers/stop/missing-offset-2|System.ArgumentException|SVG.NET submits unordered ColorBlend positions rejected by GDI+
+resvg|tests/paint-servers/stop/missing-offset-4|System.ArgumentException|SVG.NET submits unordered ColorBlend positions rejected by GDI+
+resvg|tests/paint-servers/stop/missing-offset-7|System.ArgumentException|SVG.NET submits unordered ColorBlend positions rejected by GDI+
+resvg|tests/paint-servers/stop/stop-color-with-currentColor-4|System.InvalidOperationException|SVG.NET rejects an invalid currentColor gradient stop paint server
+resvg|tests/paint-servers/stop/stop-with-smaller-offset|System.ArgumentException|SVG.NET submits unordered ColorBlend positions rejected by GDI+
+resvg|tests/paint-servers/stop/zero-offset-in-the-middle|System.ArgumentException|SVG.NET submits unordered ColorBlend positions rejected by GDI+
+resvg|tests/painting/marker/empty|System.NullReferenceException|SVG.NET dereferences an absent marker payload
+resvg|tests/structure/image/recursive-2|System.TimeoutException|Recursive SVG.NET image reference exceeds the isolated-worker limit
+resvg|tests/structure/svg/not-UTF-8-encoding|System.Xml.XmlException|SVG.NET cannot decode the deliberately Windows-1251 document in this runner
+resvg|tests/structure/svg/zero-size|System.InvalidOperationException|SVG.NET returns an empty bitmap for a zero-size document
+resvg|tests/text/baseline-shift/invalid-value|System.FormatException|SVG.NET fails to parse the deliberately invalid baseline-shift value
+resvg|tests/text/font-size/negative-size|System.ArgumentException|SVG.NET submits a negative font size rejected by System.Drawing
+resvg|tests/text/textPath/invalid-link|System.InvalidOperationException|Invalid SVG.NET textPath reference terminates the isolated worker
+resvg|tests/text/textPath/invalid-textPath-in-the-middle|System.NullReferenceException|SVG.NET dereferences an absent or invalid textPath
+resvg|tests/text/textPath/link-to-rect|System.NotSupportedException|SVG.NET does not implement this textPath geometry
+resvg|tests/text/textPath/m-L-Z-path|System.NotSupportedException|SVG.NET does not implement this textPath geometry
+resvg|tests/text/textPath/no-link|System.NullReferenceException|SVG.NET dereferences an absent or invalid textPath
+resvg|tests/text/textPath/path-with-ClosePath|System.NotSupportedException|SVG.NET does not implement this textPath geometry
+resvg|tests/text/textPath/path-with-subpaths-and-startOffset|System.NotSupportedException|SVG.NET does not implement this textPath geometry
+resvg|tests/text/textPath/path-with-subpaths|System.NotSupportedException|SVG.NET does not implement this textPath geometry
+resvg|tests/text/textPath/with-baseline-shift-and-rotate|System.NotSupportedException|SVG.NET does not implement this textPath geometry
+resvg|tests/text/textPath/with-baseline-shift|System.NotSupportedException|SVG.NET does not implement this textPath geometry
+resvg|tests/text/textPath/with-invalid-path-and-xlink-href|System.ArgumentOutOfRangeException|SVG.NET textPath parser fails before drawing
+resvg|tests/text/textPath/with-path-and-xlink-href|System.ArgumentOutOfRangeException|SVG.NET textPath parser fails before drawing
+resvg|tests/text/textPath/with-path|System.NullReferenceException|SVG.NET dereferences an absent or invalid textPath
 w3c|fonts-glyph-02-t|System.ArgumentException|SVG.NET duplicate embedded-font glyph dictionary key
 w3c|fonts-glyph-03-t|System.ArgumentException|SVG.NET duplicate embedded-font glyph dictionary key
 w3c|fonts-glyph-04-t|System.InvalidOperationException|SVG.NET empty embedded-font glyph selection

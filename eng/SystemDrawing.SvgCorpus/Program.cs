@@ -45,8 +45,24 @@ internal static class CorpusApplication
 
         var expectedDifferences = DifferenceInventory.Read(options.KnownDifferencesPath, options.Suite);
         var expectedExceptions = ExceptionInventory.Read(options.KnownExceptionsPath, options.Suite);
-        var fixtures = FixtureCatalog.Enumerate(options.CorpusRoot, options.Suite).ToArray();
-        ValidateFixtureCounts(options.Suite, fixtures);
+        var completeFixtureSet = FixtureCatalog.Enumerate(options.CorpusRoot, options.Suite).ToArray();
+        ValidateFixtureCounts(options.Suite, completeFixtureSet);
+        var fixtures = options.FixtureKey == null
+            ? completeFixtureSet
+            : completeFixtureSet.Where(fixture =>
+                StringComparer.Ordinal.Equals(fixture.Key, options.FixtureKey)).ToArray();
+        if (fixtures.Length == 0)
+        {
+            throw new ArgumentException($"Fixture was not found: {options.FixtureKey}", nameof(options.FixtureKey));
+        }
+
+        if (options.FixtureKey != null)
+        {
+            expectedDifferences.IntersectWith([options.FixtureKey]);
+            expectedExceptions = expectedExceptions
+                .Where(pair => StringComparer.Ordinal.Equals(pair.Key, options.FixtureKey))
+                .ToDictionary(static pair => pair.Key, static pair => pair.Value, StringComparer.Ordinal);
+        }
 
         var results = new List<FixtureResult>(fixtures.Length);
         for (var index = 0; index < fixtures.Length; index++)
@@ -607,6 +623,7 @@ internal sealed record Options(
     string KnownDifferencesPath,
     string KnownExceptionsPath,
     string BenchmarkFixturesPath,
+    string? FixtureKey,
     Suite Suite,
     double Threshold,
     int Iterations,
@@ -625,7 +642,8 @@ internal sealed record Options(
                 "Usage: quality|performance --corpus-root PATH --artifacts PATH " +
                 "[--known-differences PATH] [--known-exceptions PATH] " +
                 "[--benchmark-fixtures PATH] " +
-                "[--suite all|resvg|w3c] [--threshold 0.12] [--iterations 7]");
+                "[--fixture suite|path] [--suite all|resvg|w3c] " +
+                "[--threshold 0.12] [--iterations 7]");
         }
 
         var command = args[0] switch
@@ -672,6 +690,7 @@ internal sealed record Options(
             knownDifferences,
             knownExceptions,
             benchmarkFixtures,
+            values.GetValueOrDefault("--fixture"),
             suite,
             threshold,
             iterations,

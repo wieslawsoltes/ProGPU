@@ -5,6 +5,7 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
     <IsPackable>false</IsPackable>
+    <BuildInParallel>false</BuildInParallel>
     <SvgSourceRoot Condition="'$(SvgSourceRoot)' == ''">$(MSBuildThisFileDirectory)..\..\external\Svg.Skia\externals\SVG</SvgSourceRoot>
     <ProGpuSourceRoot Condition="'$(ProGpuSourceRoot)' == ''">$(MSBuildThisFileDirectory)..\..</ProGpuSourceRoot>
     <UseProGpuSystemDrawing>true</UseProGpuSystemDrawing>

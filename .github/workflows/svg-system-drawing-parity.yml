@@ -15,6 +15,7 @@ on:
       - eng/progpu-prepare-svg-system-drawing.sh
       - eng/svg-system-drawing.Directory.Packages.props
       - eng/system-drawing-svg-known-differences.txt
+      - eng/system-drawing-svg-known-exceptions.txt
       - eng/system-drawing-svg-benchmark-fixtures.txt
       - .github/workflows/svg-system-drawing-parity.yml
   push:
@@ -30,11 +31,16 @@ on:
       - eng/progpu-prepare-svg-system-drawing.sh
       - eng/svg-system-drawing.Directory.Packages.props
       - eng/system-drawing-svg-known-differences.txt
+      - eng/system-drawing-svg-known-exceptions.txt
       - eng/system-drawing-svg-benchmark-fixtures.txt
       - .github/workflows/svg-system-drawing-parity.yml
 
 permissions:
   contents: read
+
+concurrency:
+  group: svg-system-drawing-parity-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
 
 env:
   SVG_SKIA_COMMIT: 03f64b67badfca9fca216dc25896d0c0ee04e7b7
