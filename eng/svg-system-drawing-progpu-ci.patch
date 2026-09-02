@@ -15,7 +15,8 @@ diff --git a/Source/Svg.csproj b/Source/Svg.csproj
          <DefineConstants Condition="$(TargetFramework.StartsWith('net9'))">$(DefineConstants);NETCORE;NETNEXT</DefineConstants>
 +        <DefineConstants Condition="$(TargetFramework.StartsWith('net10'))">$(DefineConstants);NETCORE;NETNEXT</DefineConstants>
      </PropertyGroup>
-@@ -151,2 +152,6 @@
+@@ -143,3 +144,7 @@
+     <ItemGroup Condition="'$(TargetFramework)' == 'net9.0'">
          <PackageReference Include="System.Drawing.Common" Version="5.0.3" />
      </ItemGroup>
 +
