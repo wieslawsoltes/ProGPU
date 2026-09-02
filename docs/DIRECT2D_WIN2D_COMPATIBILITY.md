@@ -714,8 +714,8 @@ work, never a CPU raster fallback.
 Portable rectangle and path geometry implement the canonical
 `ID2D1Geometry::Outline` vtable slot for simple filled contours. Rectangle
 outlines are emitted analytically. Path outlines apply the caller's affine and
-flattening tolerance, remove duplicate/zero-length edges, reject transverse
-self-intersections, normalize each contour direction, and emit the
+flattening tolerance, remove duplicate/zero-length edges, normalize each
+contour direction, and emit the
 fill-invariant Direct2D sink shape: alternate fill mode, filled closed figures,
 and explicit closing points. Multiple independent contours, point contact, and
 non-touching alternate-fill nesting are qualified in one transaction. A
@@ -736,10 +736,19 @@ touched edge, matching Direct2D's observable line transcript.
 The implementation matches genuine Direct2D fill mode, unchanged segment-flag
 state, callback counts, and dense disjoint, corner/T-point-touch, shared-edge,
 alternate-overlap, winding-overlap, alternate-hole, and winding-hole regions on
-Windows ARM64 and x64. Self-intersections and transactions with more than two
-interacting contours still fail closed before the caller sink is mutated. The
+Windows ARM64 and x64. Transactions with more than two interacting contours
+still fail closed before the caller sink is mutated. The
 remaining contour tracing is topology-dependent scalar work; there is no
 data-parallel whole-buffer loop being left unvectorized.
+
+A source contour with exactly one proper transverse self-intersection is split
+at the double-precision line intersection into its two simple lobes before the
+same orientation/fill normalization. Candidate self-edge pairs use the shared
+four-lane NEON/SSE2 AABB broad phase; only the dependent lobe walk and signed
+reduction are scalar. Genuine Direct2D ARM64/x64 bow-tie differentials match
+the two-figure/six-line transcript, unchanged flags, dense filled lobes, empty
+side regions, and area. Multiple, collinear, endpoint-ambiguous, or numerically
+invalid self-crossings still fail closed transactionally.
 
 `ID2D1PathGeometry::ComputeArea` now consumes the same transactionally
 normalized Outline contours instead of summing each source figure in
@@ -750,8 +759,8 @@ edges. The dependent signed-area reduction remains scalar by definition; all
 independent boundary-pair work stays in the shared NEON/SSE2 normalizer.
 Portable hole/overlap fixtures and genuine Direct2D ARM64/x64 shared-edge,
 alternate-overlap, winding-overlap, corner-contact, and T-contact comparisons
-match exactly. Self-intersecting source contours remain fail closed with their
-initialized zero output until Outline can normalize their transverse graph.
+match exactly. The qualified single-crossing bow tie shares the same area path;
+multiple or ambiguous self-crossings fail closed with initialized zero output.
 
 Portable nondegenerate rectangle geometry also implements exact
 `GetWidenedBounds` for the default stroke and same-factory solid stroke
@@ -2333,8 +2342,9 @@ ownership, exact vocabulary `Stream`, line/cubic/arc-aware transformed bounds,
 length, point-at-length, and point-plus-segment queries. Fill containment
 applies the selected rule across all flattened figures, while area is qualified
 for independent, nested, point-touching, shared-edge, and two-contour overlap
-through normalized Outline topology. Exact self-intersection and more-than-two
-interacting-figure area remain separate gates. Dashed, open,
+through normalized Outline topology. A single proper transverse
+self-intersection is also qualified; multiple/ambiguous self-crossings and
+more-than-two interacting-figure area remain separate gates. Dashed, open,
 or multi-figure path stroke containment, collapsed/styled/open/
 multi-figure path widening, and styled/open/multi-figure widened bounds,
 multi-contour outline/Boolean normalization, and unsupported tessellation
