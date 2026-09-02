@@ -2108,32 +2108,67 @@ public:
     }
 
     HRESULT STDMETHODCALLTYPE GetWidenedBounds(
-        FLOAT,
-        ID2D1StrokeStyle*,
-        const D2D1_MATRIX_3X2_F*,
-        FLOAT,
+        FLOAT stroke_width,
+        ID2D1StrokeStyle* stroke_style,
+        const D2D1_MATRIX_3X2_F* world_transform,
+        FLOAT flattening_tolerance,
         D2D1_RECT_F* bounds) const noexcept override
     {
         if (bounds == nullptr) {
             return E_POINTER;
         }
         *bounds = {};
-        return E_NOTIMPL;
+        direct2d_compat::path_geometry* raw_path = nullptr;
+        const HRESULT cache_status = get_portable_path(&raw_path);
+        progpu::native::com::pointer<direct2d_compat::path_geometry> path;
+        path.attach(raw_path);
+        if (FAILED(cache_status)) {
+            return cache_status;
+        }
+        progpu_native_direct2d_matrix_3x2_f transform{};
+        direct2d_compat::rectangle_f result{};
+        const HRESULT status = path->GetWidenedBounds(
+            stroke_width,
+            reinterpret_cast<direct2d_compat::stroke_style*>(stroke_style),
+            compat_core_transform(world_transform, transform),
+            flattening_tolerance,
+            &result);
+        if (SUCCEEDED(status)) {
+            *bounds = {result.left, result.top, result.right, result.bottom};
+        }
+        return status;
     }
 
     HRESULT STDMETHODCALLTYPE StrokeContainsPoint(
-        D2D1_POINT_2F,
-        FLOAT,
-        ID2D1StrokeStyle*,
-        const D2D1_MATRIX_3X2_F*,
-        FLOAT,
+        D2D1_POINT_2F point,
+        FLOAT stroke_width,
+        ID2D1StrokeStyle* stroke_style,
+        const D2D1_MATRIX_3X2_F* world_transform,
+        FLOAT flattening_tolerance,
         BOOL* contains) const noexcept override
     {
         if (contains == nullptr) {
             return E_POINTER;
         }
         *contains = FALSE;
-        return E_NOTIMPL;
+        direct2d_compat::path_geometry* raw_path = nullptr;
+        const HRESULT cache_status = get_portable_path(&raw_path);
+        progpu::native::com::pointer<direct2d_compat::path_geometry> path;
+        path.attach(raw_path);
+        if (FAILED(cache_status)) {
+            return cache_status;
+        }
+        progpu_native_direct2d_matrix_3x2_f transform{};
+        std::int32_t result = 0;
+        const HRESULT status = path->StrokeContainsPoint(
+            {point.x, point.y},
+            stroke_width,
+            reinterpret_cast<direct2d_compat::stroke_style*>(stroke_style),
+            compat_core_transform(world_transform, transform),
+            flattening_tolerance,
+            &result);
+        *contains = result == 0 ? FALSE : TRUE;
+        return status;
     }
 
     HRESULT STDMETHODCALLTYPE FillContainsPoint(
@@ -2207,16 +2242,32 @@ public:
     }
 
     HRESULT STDMETHODCALLTYPE CompareWithGeometry(
-        ID2D1Geometry*,
-        const D2D1_MATRIX_3X2_F*,
-        FLOAT,
+        ID2D1Geometry* input_geometry,
+        const D2D1_MATRIX_3X2_F* input_geometry_transform,
+        FLOAT flattening_tolerance,
         D2D1_GEOMETRY_RELATION* relation) const noexcept override
     {
         if (relation == nullptr) {
             return E_POINTER;
         }
         *relation = D2D1_GEOMETRY_RELATION_UNKNOWN;
-        return E_NOTIMPL;
+        direct2d_compat::path_geometry* raw_path = nullptr;
+        const HRESULT cache_status = get_portable_path(&raw_path);
+        progpu::native::com::pointer<direct2d_compat::path_geometry> path;
+        path.attach(raw_path);
+        if (FAILED(cache_status)) {
+            return cache_status;
+        }
+        progpu_native_direct2d_matrix_3x2_f transform{};
+        direct2d_compat::geometry_relation result =
+            direct2d_compat::geometry_relation::unknown;
+        const HRESULT status = path->CompareWithGeometry(
+            reinterpret_cast<direct2d_compat::geometry*>(input_geometry),
+            compat_core_transform(input_geometry_transform, transform),
+            flattening_tolerance,
+            &result);
+        *relation = static_cast<D2D1_GEOMETRY_RELATION>(result);
+        return status;
     }
 
     HRESULT STDMETHODCALLTYPE Simplify(
@@ -2293,29 +2344,67 @@ public:
     }
 
     HRESULT STDMETHODCALLTYPE Tessellate(
-        const D2D1_MATRIX_3X2_F*,
-        FLOAT,
-        ID2D1TessellationSink*) const noexcept override
+        const D2D1_MATRIX_3X2_F* world_transform,
+        FLOAT flattening_tolerance,
+        ID2D1TessellationSink* tessellation_sink) const noexcept override
     {
-        return E_NOTIMPL;
+        direct2d_compat::path_geometry* raw_path = nullptr;
+        const HRESULT cache_status = get_portable_path(&raw_path);
+        progpu::native::com::pointer<direct2d_compat::path_geometry> path;
+        path.attach(raw_path);
+        if (FAILED(cache_status)) {
+            return cache_status;
+        }
+        progpu_native_direct2d_matrix_3x2_f transform{};
+        return path->Tessellate(
+            compat_core_transform(world_transform, transform),
+            flattening_tolerance,
+            reinterpret_cast<direct2d_compat::tessellation_sink*>(
+                tessellation_sink));
     }
 
     HRESULT STDMETHODCALLTYPE CombineWithGeometry(
-        ID2D1Geometry*,
-        D2D1_COMBINE_MODE,
-        const D2D1_MATRIX_3X2_F*,
-        FLOAT,
-        ID2D1SimplifiedGeometrySink*) const noexcept override
+        ID2D1Geometry* input_geometry,
+        D2D1_COMBINE_MODE combine_mode,
+        const D2D1_MATRIX_3X2_F* input_geometry_transform,
+        FLOAT flattening_tolerance,
+        ID2D1SimplifiedGeometrySink* geometry_sink) const noexcept override
     {
-        return E_NOTIMPL;
+        direct2d_compat::path_geometry* raw_path = nullptr;
+        const HRESULT cache_status = get_portable_path(&raw_path);
+        progpu::native::com::pointer<direct2d_compat::path_geometry> path;
+        path.attach(raw_path);
+        if (FAILED(cache_status)) {
+            return cache_status;
+        }
+        progpu_native_direct2d_matrix_3x2_f transform{};
+        return path->CombineWithGeometry(
+            reinterpret_cast<direct2d_compat::geometry*>(input_geometry),
+            static_cast<direct2d_compat::combine_mode>(combine_mode),
+            compat_core_transform(input_geometry_transform, transform),
+            flattening_tolerance,
+            reinterpret_cast<direct2d_compat::simplified_geometry_sink*>(
+                geometry_sink));
     }
 
     HRESULT STDMETHODCALLTYPE Outline(
-        const D2D1_MATRIX_3X2_F*,
-        FLOAT,
-        ID2D1SimplifiedGeometrySink*) const noexcept override
+        const D2D1_MATRIX_3X2_F* world_transform,
+        FLOAT flattening_tolerance,
+        ID2D1SimplifiedGeometrySink* geometry_sink) const noexcept override
     {
-        return E_NOTIMPL;
+        direct2d_compat::path_geometry* raw_path = nullptr;
+        const HRESULT cache_status = get_portable_path(&raw_path);
+        progpu::native::com::pointer<direct2d_compat::path_geometry> path;
+        path.attach(raw_path);
+        if (FAILED(cache_status)) {
+            return cache_status;
+        }
+        progpu_native_direct2d_matrix_3x2_f transform{};
+        return path->Outline(
+            compat_core_transform(world_transform, transform),
+            flattening_tolerance,
+            reinterpret_cast<direct2d_compat::simplified_geometry_sink*>(
+                geometry_sink));
     }
 
     HRESULT STDMETHODCALLTYPE ComputeArea(
@@ -2417,13 +2506,27 @@ public:
     }
 
     HRESULT STDMETHODCALLTYPE Widen(
-        FLOAT,
-        ID2D1StrokeStyle*,
-        const D2D1_MATRIX_3X2_F*,
-        FLOAT,
-        ID2D1SimplifiedGeometrySink*) const noexcept override
+        FLOAT stroke_width,
+        ID2D1StrokeStyle* stroke_style,
+        const D2D1_MATRIX_3X2_F* world_transform,
+        FLOAT flattening_tolerance,
+        ID2D1SimplifiedGeometrySink* geometry_sink) const noexcept override
     {
-        return E_NOTIMPL;
+        direct2d_compat::path_geometry* raw_path = nullptr;
+        const HRESULT cache_status = get_portable_path(&raw_path);
+        progpu::native::com::pointer<direct2d_compat::path_geometry> path;
+        path.attach(raw_path);
+        if (FAILED(cache_status)) {
+            return cache_status;
+        }
+        progpu_native_direct2d_matrix_3x2_f transform{};
+        return path->Widen(
+            stroke_width,
+            reinterpret_cast<direct2d_compat::stroke_style*>(stroke_style),
+            compat_core_transform(world_transform, transform),
+            flattening_tolerance,
+            reinterpret_cast<direct2d_compat::simplified_geometry_sink*>(
+                geometry_sink));
     }
 
     HRESULT STDMETHODCALLTYPE Open(

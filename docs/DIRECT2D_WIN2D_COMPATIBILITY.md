@@ -3297,7 +3297,7 @@ probes. Both Windows 11 ARM64 and x64 builds pass with MSVC `/W4 /WX`; the
 portable optimized and sanitizer suites exercise the identical shared
 implementation on macOS.
 
-### Shared Windows path-area checkpoint
+### Shared Windows path-geometry checkpoint
 
 The exported Windows `ID2D1PathGeometry1::ComputeArea` implementation now
 replays each immutable provider path once into a cached portable path and
@@ -3307,12 +3307,24 @@ and overlapping alternate or winding figures. The cache preserves the original
 line, cubic, quadratic, arc, segment-flag, figure, and fill-mode transcript and
 is protected for concurrent geometry queries.
 
+That same cached transcript now supplies the exported Windows path facade's
+`GetWidenedBounds`, `StrokeContainsPoint`, `Tessellate`, `CompareWithGeometry`,
+`CombineWithGeometry`, `Outline`, and `Widen` methods. These methods therefore
+use the already-qualified portable geometry algorithms and preserve their
+transactional, fail-closed topology limits instead of maintaining a second
+Windows-only implementation. Native Windows input geometries, stroke styles,
+and caller-owned sinks cross only the ABI-compatible typed Direct2D seam; no
+reflection, CPU rasterization, pixel readback, or scalar image fallback is
+introduced.
+
 The Windows provider suite compares nested alternate holes, overlapping
 alternate XOR regions, and overlapping winding unions against a genuine system
 Direct2D factory. Every case is also repeated through an affine scale and
-translation. Both Windows 11 ARM64 and x64 builds require identical qualified
-areas; the portable path suite continues to own the wider self-intersection,
-contact, hole, and winding-layer corpus.
+translation. It additionally compares normalized outline area, hole
+tessellation coverage, path stroke bounds and probes, widened area, geometry
+relation, and Boolean XOR output. Both Windows 11 ARM64 and x64 builds require
+identical qualified results; the portable path suite continues to own the wider
+self-intersection, contact, hole, styled-stroke, and winding-layer corpus.
 
 ## Delivery order
 
