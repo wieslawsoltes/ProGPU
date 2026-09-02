@@ -259,6 +259,24 @@ int main()
             &invalid_compat_stroke_style) == E_INVALIDARG &&
             invalid_compat_stroke_style == nullptr,
         "ProGPU custom stroke style without dashes did not fail closed");
+    D2D1_STROKE_STYLE_PROPERTIES1 compat_solid_stroke_properties{};
+    compat_solid_stroke_properties.startCap = D2D1_CAP_STYLE_FLAT;
+    compat_solid_stroke_properties.endCap = D2D1_CAP_STYLE_FLAT;
+    compat_solid_stroke_properties.dashCap = D2D1_CAP_STYLE_FLAT;
+    compat_solid_stroke_properties.lineJoin = D2D1_LINE_JOIN_MITER;
+    compat_solid_stroke_properties.miterLimit = 10.0F;
+    compat_solid_stroke_properties.dashStyle = D2D1_DASH_STYLE_SOLID;
+    compat_solid_stroke_properties.transformType =
+        D2D1_STROKE_TRANSFORM_TYPE_NORMAL;
+    ComPtr<ID2D1StrokeStyle1> compat_solid_stroke_style;
+    require(
+        compat_factory->CreateStrokeStyle(
+            &compat_solid_stroke_properties,
+            nullptr,
+            0U,
+            &compat_solid_stroke_style) == S_OK &&
+            compat_solid_stroke_style != nullptr,
+        "ProGPU solid stroke style creation failed");
 
     const D2D1_RECT_F compat_rectangle_value = {2.0F, 3.0F, 12.0F, 11.0F};
     ComPtr<ID2D1RectangleGeometry> compat_rectangle;
@@ -345,6 +363,248 @@ int main()
             compat_point.x == 7.0F && compat_point.y == 3.0F &&
             compat_tangent.x == 1.0F && compat_tangent.y == 0.0F,
         "ProGPU rectangle geometry point-at-length changed");
+
+    D2D1_RECT_F compat_widened_bounds{};
+    require(
+        compat_rectangle->GetWidenedBounds(
+            2.0F,
+            nullptr,
+            nullptr,
+            D2D1_DEFAULT_FLATTENING_TOLERANCE,
+            &compat_widened_bounds) == S_OK &&
+            compat_widened_bounds.left == 1.0F &&
+            compat_widened_bounds.top == 2.0F &&
+            compat_widened_bounds.right == 13.0F &&
+            compat_widened_bounds.bottom == 12.0F,
+        "ProGPU rectangle geometry widened bounds changed");
+    D2D1_RECT_F compat_styled_widened_bounds{};
+    require(
+        compat_rectangle->GetWidenedBounds(
+            2.0F,
+            compat_solid_stroke_style.Get(),
+            nullptr,
+            D2D1_DEFAULT_FLATTENING_TOLERANCE,
+            &compat_styled_widened_bounds) == S_OK &&
+            std::memcmp(
+                &compat_widened_bounds,
+                &compat_styled_widened_bounds,
+                sizeof(D2D1_RECT_F)) == 0,
+        "ProGPU rectangle solid-style widened bounds changed");
+    BOOL compat_stroke_edge_contains = FALSE;
+    BOOL compat_stroke_center_contains = TRUE;
+    require(
+        compat_rectangle->StrokeContainsPoint(
+            D2D1::Point2F(1.5F, 7.0F),
+            2.0F,
+            nullptr,
+            nullptr,
+            D2D1_DEFAULT_FLATTENING_TOLERANCE,
+            &compat_stroke_edge_contains) == S_OK &&
+            compat_stroke_edge_contains == TRUE,
+        "ProGPU rectangle geometry rejected an interior stroke point");
+    require(
+        compat_rectangle->StrokeContainsPoint(
+            D2D1::Point2F(7.0F, 7.0F),
+            2.0F,
+            nullptr,
+            nullptr,
+            D2D1_DEFAULT_FLATTENING_TOLERANCE,
+            &compat_stroke_center_contains) == S_OK &&
+            compat_stroke_center_contains == FALSE,
+        "ProGPU rectangle geometry accepted a point outside its stroke");
+
+    ComPtr<ID2D1PathGeometry> compat_rectangle_outline;
+    ComPtr<ID2D1GeometrySink> compat_rectangle_outline_sink;
+    require(
+        compat_factory->CreatePathGeometry(&compat_rectangle_outline) == S_OK &&
+            compat_rectangle_outline->Open(
+                &compat_rectangle_outline_sink) == S_OK &&
+            compat_rectangle->Outline(
+                nullptr,
+                D2D1_DEFAULT_FLATTENING_TOLERANCE,
+                compat_rectangle_outline_sink.Get()) == S_OK &&
+            compat_rectangle_outline_sink->Close() == S_OK,
+        "ProGPU rectangle geometry outline failed");
+    D2D1_RECT_F compat_outline_bounds{};
+    require(
+        compat_rectangle_outline->GetBounds(
+            nullptr, &compat_outline_bounds) == S_OK &&
+            compat_outline_bounds.left == 2.0F &&
+            compat_outline_bounds.top == 3.0F &&
+            compat_outline_bounds.right == 12.0F &&
+            compat_outline_bounds.bottom == 11.0F,
+        "ProGPU rectangle geometry outline bounds changed");
+
+    ComPtr<ID2D1PathGeometry> compat_rectangle_widening;
+    ComPtr<ID2D1GeometrySink> compat_rectangle_widening_sink;
+    require(
+        compat_factory->CreatePathGeometry(
+            &compat_rectangle_widening) == S_OK &&
+            compat_rectangle_widening->Open(
+                &compat_rectangle_widening_sink) == S_OK &&
+            compat_rectangle->Widen(
+                2.0F,
+                nullptr,
+                nullptr,
+                D2D1_DEFAULT_FLATTENING_TOLERANCE,
+                compat_rectangle_widening_sink.Get()) == S_OK &&
+            compat_rectangle_widening_sink->Close() == S_OK,
+        "ProGPU rectangle geometry widening failed");
+    D2D1_RECT_F compat_widening_bounds{};
+    BOOL compat_widened_center_contains = TRUE;
+    BOOL compat_widened_edge_contains = FALSE;
+    require(
+        compat_rectangle_widening->GetBounds(
+            nullptr, &compat_widening_bounds) == S_OK &&
+            compat_widening_bounds.left == 1.0F &&
+            compat_widening_bounds.top == 2.0F &&
+            compat_widening_bounds.right == 13.0F &&
+            compat_widening_bounds.bottom == 12.0F &&
+            compat_rectangle_widening->FillContainsPoint(
+                D2D1::Point2F(7.0F, 7.0F),
+                nullptr,
+                D2D1_DEFAULT_FLATTENING_TOLERANCE,
+                &compat_widened_center_contains) == S_OK &&
+            compat_widened_center_contains == FALSE &&
+            compat_rectangle_widening->FillContainsPoint(
+                D2D1::Point2F(1.5F, 7.0F),
+                nullptr,
+                D2D1_DEFAULT_FLATTENING_TOLERANCE,
+                &compat_widened_edge_contains) == S_OK &&
+            compat_widened_edge_contains == TRUE,
+        "ProGPU rectangle widened geometry changed its fill semantics");
+
+    ComPtr<ID2D1Factory> system_rectangle_factory;
+    ComPtr<ID2D1RectangleGeometry> system_rectangle;
+    ComPtr<ID2D1PathGeometry> system_rectangle_outline;
+    ComPtr<ID2D1GeometrySink> system_rectangle_outline_sink;
+    ComPtr<ID2D1PathGeometry> system_rectangle_widening;
+    ComPtr<ID2D1GeometrySink> system_rectangle_widening_sink;
+    require(
+        D2D1CreateFactory(
+            D2D1_FACTORY_TYPE_SINGLE_THREADED,
+            system_rectangle_factory.GetAddressOf()) == S_OK &&
+            system_rectangle_factory->CreateRectangleGeometry(
+                &compat_rectangle_value, &system_rectangle) == S_OK &&
+            system_rectangle_factory->CreatePathGeometry(
+                &system_rectangle_outline) == S_OK &&
+            system_rectangle_outline->Open(
+                &system_rectangle_outline_sink) == S_OK &&
+            system_rectangle->Outline(
+                nullptr,
+                D2D1_DEFAULT_FLATTENING_TOLERANCE,
+                system_rectangle_outline_sink.Get()) == S_OK &&
+            system_rectangle_outline_sink->Close() == S_OK &&
+            system_rectangle_factory->CreatePathGeometry(
+                &system_rectangle_widening) == S_OK &&
+            system_rectangle_widening->Open(
+                &system_rectangle_widening_sink) == S_OK &&
+            system_rectangle->Widen(
+                2.0F,
+                nullptr,
+                nullptr,
+                D2D1_DEFAULT_FLATTENING_TOLERANCE,
+                system_rectangle_widening_sink.Get()) == S_OK &&
+            system_rectangle_widening_sink->Close() == S_OK,
+        "system Direct2D rectangle oracle creation failed");
+    D2D1_RECT_F system_widened_bounds{};
+    D2D1_RECT_F system_outline_bounds{};
+    D2D1_RECT_F system_widening_bounds{};
+    BOOL system_stroke_edge_contains = FALSE;
+    BOOL system_stroke_center_contains = TRUE;
+    BOOL system_widened_center_contains = TRUE;
+    BOOL system_widened_edge_contains = FALSE;
+    const bool rectangle_oracle_matches =
+        system_rectangle->GetWidenedBounds(
+            2.0F,
+            nullptr,
+            nullptr,
+            D2D1_DEFAULT_FLATTENING_TOLERANCE,
+            &system_widened_bounds) == S_OK &&
+            system_rectangle->StrokeContainsPoint(
+                D2D1::Point2F(1.5F, 7.0F),
+                2.0F,
+                nullptr,
+                nullptr,
+                D2D1_DEFAULT_FLATTENING_TOLERANCE,
+                &system_stroke_edge_contains) == S_OK &&
+            system_rectangle->StrokeContainsPoint(
+                D2D1::Point2F(7.0F, 7.0F),
+                2.0F,
+                nullptr,
+                nullptr,
+                D2D1_DEFAULT_FLATTENING_TOLERANCE,
+                &system_stroke_center_contains) == S_OK &&
+            system_rectangle_outline->GetBounds(
+                nullptr, &system_outline_bounds) == S_OK &&
+            system_rectangle_widening->GetBounds(
+                nullptr, &system_widening_bounds) == S_OK &&
+            system_rectangle_widening->FillContainsPoint(
+                D2D1::Point2F(7.0F, 7.0F),
+                nullptr,
+                D2D1_DEFAULT_FLATTENING_TOLERANCE,
+                &system_widened_center_contains) == S_OK &&
+            system_rectangle_widening->FillContainsPoint(
+                D2D1::Point2F(1.5F, 7.0F),
+                nullptr,
+                D2D1_DEFAULT_FLATTENING_TOLERANCE,
+                &system_widened_edge_contains) == S_OK &&
+            std::memcmp(
+                &compat_widened_bounds,
+                &system_widened_bounds,
+                sizeof(D2D1_RECT_F)) == 0 &&
+            std::memcmp(
+                &compat_outline_bounds,
+                &system_outline_bounds,
+                sizeof(D2D1_RECT_F)) == 0 &&
+            std::memcmp(
+                &compat_widening_bounds,
+                &system_widening_bounds,
+                sizeof(D2D1_RECT_F)) == 0 &&
+            compat_stroke_edge_contains == system_stroke_edge_contains &&
+            compat_stroke_center_contains == system_stroke_center_contains &&
+            compat_widened_center_contains ==
+                system_widened_center_contains &&
+            compat_widened_edge_contains == system_widened_edge_contains;
+    if (!rectangle_oracle_matches) {
+        std::cerr
+            << "rectangle oracle widened bounds "
+            << compat_widened_bounds.left << ','
+            << compat_widened_bounds.top << ','
+            << compat_widened_bounds.right << ','
+            << compat_widened_bounds.bottom << " / "
+            << system_widened_bounds.left << ','
+            << system_widened_bounds.top << ','
+            << system_widened_bounds.right << ','
+            << system_widened_bounds.bottom << "; outline "
+            << compat_outline_bounds.left << ','
+            << compat_outline_bounds.top << ','
+            << compat_outline_bounds.right << ','
+            << compat_outline_bounds.bottom << " / "
+            << system_outline_bounds.left << ','
+            << system_outline_bounds.top << ','
+            << system_outline_bounds.right << ','
+            << system_outline_bounds.bottom << "; widening "
+            << compat_widening_bounds.left << ','
+            << compat_widening_bounds.top << ','
+            << compat_widening_bounds.right << ','
+            << compat_widening_bounds.bottom << " / "
+            << system_widening_bounds.left << ','
+            << system_widening_bounds.top << ','
+            << system_widening_bounds.right << ','
+            << system_widening_bounds.bottom << "; contains "
+            << compat_stroke_edge_contains << '/'
+            << system_stroke_edge_contains << ','
+            << compat_stroke_center_contains << '/'
+            << system_stroke_center_contains << ','
+            << compat_widened_center_contains << '/'
+            << system_widened_center_contains << ','
+            << compat_widened_edge_contains << '/'
+            << system_widened_edge_contains << '\n';
+    }
+    require(
+        rectangle_oracle_matches,
+        "ProGPU rectangle stroke queries diverged from system Direct2D");
 
     ComPtr<ID2D1PathGeometry1> compat_path;
     require(

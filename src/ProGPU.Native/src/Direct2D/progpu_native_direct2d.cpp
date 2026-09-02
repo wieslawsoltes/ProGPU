@@ -1,6 +1,7 @@
 #include "progpu_native_direct2d.h"
 #include "progpu_native_com.hpp"
 #include "progpu_native_direct2d_core.hpp"
+#include "progpu_native_direct2d_rectangle.hpp"
 #include "progpu_native_scene_builder.hpp"
 #include "../Scene/progpu_native_semantic_path_stroke.hpp"
 
@@ -32,6 +33,7 @@ template<typename Interface>
 using ComPtr = progpu::native::com::pointer<Interface>;
 
 namespace direct2d_core = progpu::native::direct2d::core;
+namespace direct2d_compat = progpu::native::direct2d::compat;
 
 MIDL_INTERFACE("A27F0B5D-EC2C-4D4F-948F-0AA1E95E33E6")
 IProGpuWin2DCanvasDevice : public IInspectable {
@@ -624,32 +626,58 @@ public:
     }
 
     HRESULT STDMETHODCALLTYPE GetWidenedBounds(
-        FLOAT,
-        ID2D1StrokeStyle*,
-        const D2D1_MATRIX_3X2_F*,
-        FLOAT,
+        FLOAT stroke_width,
+        ID2D1StrokeStyle* style,
+        const D2D1_MATRIX_3X2_F* world_transform,
+        FLOAT flattening_tolerance,
         D2D1_RECT_F* bounds) const noexcept override
     {
         if (bounds == nullptr) {
             return E_POINTER;
         }
         *bounds = {};
-        return E_NOTIMPL;
+        progpu_native_direct2d_matrix_3x2_f transform{};
+        direct2d_compat::rectangle_f result{};
+        const HRESULT status =
+            direct2d_compat::detail::get_rectangle_widened_bounds(
+                reinterpret_cast<direct2d_compat::factory*>(factory_.Get()),
+                compat_core_rectangle(rectangle_),
+                stroke_width,
+                reinterpret_cast<direct2d_compat::stroke_style*>(style),
+                compat_core_transform(world_transform, transform),
+                flattening_tolerance,
+                &result);
+        if (SUCCEEDED(status)) {
+            *bounds = {result.left, result.top, result.right, result.bottom};
+        }
+        return status;
     }
 
     HRESULT STDMETHODCALLTYPE StrokeContainsPoint(
-        D2D1_POINT_2F,
-        FLOAT,
-        ID2D1StrokeStyle*,
-        const D2D1_MATRIX_3X2_F*,
-        FLOAT,
+        D2D1_POINT_2F point,
+        FLOAT stroke_width,
+        ID2D1StrokeStyle* style,
+        const D2D1_MATRIX_3X2_F* world_transform,
+        FLOAT flattening_tolerance,
         BOOL* contains) const noexcept override
     {
         if (contains == nullptr) {
             return E_POINTER;
         }
         *contains = FALSE;
-        return E_NOTIMPL;
+        progpu_native_direct2d_matrix_3x2_f transform{};
+        std::int32_t result = 0;
+        const HRESULT status =
+            direct2d_compat::detail::rectangle_stroke_contains_point(
+                compat_core_rectangle(rectangle_),
+                {point.x, point.y},
+                stroke_width,
+                reinterpret_cast<direct2d_compat::stroke_style*>(style),
+                compat_core_transform(world_transform, transform),
+                flattening_tolerance,
+                &result);
+        *contains = result == 0 ? FALSE : TRUE;
+        return status;
     }
 
     HRESULT STDMETHODCALLTYPE FillContainsPoint(
@@ -769,11 +797,17 @@ public:
     }
 
     HRESULT STDMETHODCALLTYPE Outline(
-        const D2D1_MATRIX_3X2_F*,
-        FLOAT,
-        ID2D1SimplifiedGeometrySink*) const noexcept override
+        const D2D1_MATRIX_3X2_F* world_transform,
+        FLOAT flattening_tolerance,
+        ID2D1SimplifiedGeometrySink* geometry_sink) const noexcept override
     {
-        return E_NOTIMPL;
+        progpu_native_direct2d_matrix_3x2_f transform{};
+        return direct2d_compat::detail::outline_rectangle(
+            compat_core_rectangle(rectangle_),
+            compat_core_transform(world_transform, transform),
+            flattening_tolerance,
+            reinterpret_cast<direct2d_compat::simplified_geometry_sink*>(
+                geometry_sink));
     }
 
     HRESULT STDMETHODCALLTYPE ComputeArea(
@@ -841,13 +875,21 @@ public:
     }
 
     HRESULT STDMETHODCALLTYPE Widen(
-        FLOAT,
-        ID2D1StrokeStyle*,
-        const D2D1_MATRIX_3X2_F*,
-        FLOAT,
-        ID2D1SimplifiedGeometrySink*) const noexcept override
+        FLOAT stroke_width,
+        ID2D1StrokeStyle* style,
+        const D2D1_MATRIX_3X2_F* world_transform,
+        FLOAT flattening_tolerance,
+        ID2D1SimplifiedGeometrySink* geometry_sink) const noexcept override
     {
-        return E_NOTIMPL;
+        progpu_native_direct2d_matrix_3x2_f transform{};
+        return direct2d_compat::detail::widen_rectangle(
+            compat_core_rectangle(rectangle_),
+            stroke_width,
+            reinterpret_cast<direct2d_compat::stroke_style*>(style),
+            compat_core_transform(world_transform, transform),
+            flattening_tolerance,
+            reinterpret_cast<direct2d_compat::simplified_geometry_sink*>(
+                geometry_sink));
     }
 
     void STDMETHODCALLTYPE GetRect(
