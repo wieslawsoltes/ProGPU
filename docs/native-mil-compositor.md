@@ -6504,8 +6504,13 @@ four-lane NEON/SSE2 edge-bounds broad phase, solved once in double precision,
 and split into two simple lobes before ordinary winding normalization. The
 dependent lobe walk remains scalar. Local and genuine Direct2D ARM64/x64
 bow-tie tests match the two-figure/six-line callback transcript, dense fill,
-and area. Multiple, collinear, endpoint-ambiguous, or numerically invalid
-self-crossings remain transactional typed failures.
+and area. Alternate-fill contours with multiple distinct proper crossings now
+split every nonadjacent pair after the same SIMD broad phase, probe parity on
+both sides of each sub-edge, discard internal edges, and trace all filled
+lobes. A five-crossing pentagram matches genuine Direct2D callback topology,
+area, and dense regions on Windows ARM64/x64. Repeated or triple crossing
+points, collinear or endpoint-ambiguous intersections, numerical invalidity,
+and multiple-crossing winding contours remain transactional typed failures.
 
 `ComputeArea` now invokes that normalized Outline transaction into a private
 caller-owned contour sink and reduces the signed shoelace areas. The result
@@ -6516,9 +6521,10 @@ loop-carried sum and remains scalar; the independent boundary-pair work is
 still four-wide NEON/SSE2 in the shared normalizer. Local optimized and
 sanitizer hole/overlap checks plus genuine Direct2D ARM64/x64 shared-edge,
 alternate-overlap, winding-overlap, corner-contact, and T-contact area
-differentials pass, including arbitrary interacting simple-contour counts and
-the qualified single-crossing bow tie. Multiple or ambiguous
-self-intersections fail closed with the output already initialized to zero.
+differentials pass, including arbitrary interacting simple-contour counts, the
+qualified bow tie, and the alternate five-crossing pentagram. Ambiguous
+crossings and multiple-crossing winding contours fail closed with the output
+already initialized to zero.
 
 `Widen` now consumes that same partition and prepares the complete mixed-
 figure transaction before caller-sink replay. Closed null/default strokes add
