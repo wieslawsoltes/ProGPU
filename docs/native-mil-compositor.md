@@ -6367,13 +6367,15 @@ multi-component-versus-nested-hole operations through genuine system Direct2D
 and ProGPU, then compare dense point lattices for union, intersection, xor, and
 exclusion; all four modes pass.
 
-The follow-up simple-path comparison lane reuses the same normalized contours
-and intrinsic-SIMD boundary broad phase. It distinguishes proper crossing,
-boundary-only contact, equality, containment in either direction, and
-separation without invoking Boolean sink output or CPU rasterization. Local
-optimized and sanitizer fixtures cover every relation. A second clean Windows
-ARM64 build compares transformed and untransformed cases with genuine
-`ID2D1PathGeometry::CompareWithGeometry`; all expected system relations pass.
+The follow-up comparison lane reuses the same normalized component/hole sets
+and intrinsic-SIMD boundary broad phase. Transactional exclusions in both
+directions establish equality and containment; intersection and exact
+post-AABB boundary contact distinguish interior overlap, touching, and
+separation without CPU rasterization. Local optimized and sanitizer fixtures
+cover every relation. Clean Windows ARM64/x64 builds compare transformed
+simple paths plus multi-component containment/equality, nested-hole separation,
+and shared-boundary containment with genuine
+`ID2D1PathGeometry::CompareWithGeometry`; all system relations pass.
 
 The next path slice implements default solid-miter
 `StrokeContainsPoint` for one simple closed contour. It inverse-maps the query

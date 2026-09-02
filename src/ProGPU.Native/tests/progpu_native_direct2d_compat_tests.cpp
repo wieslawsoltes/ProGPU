@@ -2577,6 +2577,67 @@ int run_tests()
         }
       }
     }
+    const compat::rectangle_f multi_relation_envelope{
+        -1.0F, -1.0F, 13.0F, 3.0F};
+    const compat::rectangle_f nested_hole_interior{
+        0.75F, 0.75F, 1.25F, 1.25F};
+    compat::rectangle_geometry* raw_multi_relation_envelope = nullptr;
+    compat::rectangle_geometry* raw_nested_hole_interior = nullptr;
+    if (factory->CreateRectangleGeometry(
+            &multi_relation_envelope,
+            &raw_multi_relation_envelope) != com::ok ||
+        raw_multi_relation_envelope == nullptr ||
+        factory->CreateRectangleGeometry(
+            &nested_hole_interior,
+            &raw_nested_hole_interior) != com::ok ||
+        raw_nested_hole_interior == nullptr) {
+      if (raw_multi_relation_envelope != nullptr) {
+        raw_multi_relation_envelope->Release();
+      }
+      if (raw_nested_hole_interior != nullptr) {
+        raw_nested_hole_interior->Release();
+      }
+      return 449;
+    }
+    com::pointer<compat::rectangle_geometry> multi_relation_envelope_geometry;
+    multi_relation_envelope_geometry.attach(raw_multi_relation_envelope);
+    com::pointer<compat::rectangle_geometry> nested_hole_interior_geometry;
+    nested_hole_interior_geometry.attach(raw_nested_hole_interior);
+    compat::geometry_relation multi_contained_relation =
+        compat::geometry_relation::unknown;
+    compat::geometry_relation hole_disjoint_relation =
+        compat::geometry_relation::unknown;
+    compat::geometry_relation shared_boundary_relation =
+        compat::geometry_relation::unknown;
+    compat::geometry_relation multi_equal_relation =
+        compat::geometry_relation::unknown;
+    if (multi_outline_path->CompareWithGeometry(
+            multi_relation_envelope_geometry.get(),
+            nullptr,
+            0.01F,
+            &multi_contained_relation) != com::ok ||
+        nested_outline_path->CompareWithGeometry(
+            nested_hole_interior_geometry.get(),
+            nullptr,
+            0.01F,
+            &hole_disjoint_relation) != com::ok ||
+        multi_outline_path->CompareWithGeometry(
+            nested_outline_path.get(),
+            nullptr,
+            0.01F,
+            &shared_boundary_relation) != com::ok ||
+        multi_outline_path->CompareWithGeometry(
+            multi_outline_path.get(),
+            nullptr,
+            0.01F,
+            &multi_equal_relation) != com::ok ||
+        multi_contained_relation !=
+            compat::geometry_relation::is_contained ||
+        hole_disjoint_relation != compat::geometry_relation::disjoint ||
+        shared_boundary_relation != compat::geometry_relation::contains ||
+        multi_equal_relation != compat::geometry_relation::is_contained) {
+      return 450;
+    }
     compat::path_geometry* raw_winding_outline_path = nullptr;
     compat::geometry_sink* raw_winding_outline_path_sink = nullptr;
     if (factory->CreatePathGeometry(&raw_winding_outline_path) != com::ok ||
@@ -8921,6 +8982,110 @@ int run_tests()
           }
         }
       }
+    }
+    const D2D1_RECT_F system_multi_relation_envelope{
+        -1.0F, -1.0F, 13.0F, 3.0F};
+    const D2D1_RECT_F system_nested_hole_interior{
+        0.75F, 0.75F, 1.25F, 1.25F};
+    ID2D1RectangleGeometry* portable_multi_relation_envelope = nullptr;
+    ID2D1RectangleGeometry* system_multi_relation_envelope_geometry = nullptr;
+    ID2D1RectangleGeometry* portable_nested_hole_interior = nullptr;
+    ID2D1RectangleGeometry* system_nested_hole_interior_geometry = nullptr;
+    if (FAILED(native_factory->CreateRectangleGeometry(
+            &system_multi_relation_envelope,
+            &portable_multi_relation_envelope)) ||
+        FAILED(system_factory->CreateRectangleGeometry(
+            &system_multi_relation_envelope,
+            &system_multi_relation_envelope_geometry)) ||
+        FAILED(native_factory->CreateRectangleGeometry(
+            &system_nested_hole_interior,
+            &portable_nested_hole_interior)) ||
+        FAILED(system_factory->CreateRectangleGeometry(
+            &system_nested_hole_interior,
+            &system_nested_hole_interior_geometry)) ||
+        portable_multi_relation_envelope == nullptr ||
+        system_multi_relation_envelope_geometry == nullptr ||
+        portable_nested_hole_interior == nullptr ||
+        system_nested_hole_interior_geometry == nullptr) {
+      multi_boolean_matches = false;
+    } else {
+      std::array<D2D1_GEOMETRY_RELATION, 4U> portable_multi_relations{};
+      std::array<D2D1_GEOMETRY_RELATION, 4U> system_multi_relations{};
+      const std::array<HRESULT, 4U> portable_relation_statuses{{
+          portable_multi_boolean_path->CompareWithGeometry(
+              portable_multi_relation_envelope,
+              nullptr,
+              D2D1_DEFAULT_FLATTENING_TOLERANCE,
+              &portable_multi_relations[0U]),
+          portable_nested_boolean_path->CompareWithGeometry(
+              portable_nested_hole_interior,
+              nullptr,
+              D2D1_DEFAULT_FLATTENING_TOLERANCE,
+              &portable_multi_relations[1U]),
+          portable_multi_boolean_path->CompareWithGeometry(
+              portable_nested_boolean_path,
+              nullptr,
+              D2D1_DEFAULT_FLATTENING_TOLERANCE,
+              &portable_multi_relations[2U]),
+          portable_multi_boolean_path->CompareWithGeometry(
+              portable_multi_boolean_path,
+              nullptr,
+              D2D1_DEFAULT_FLATTENING_TOLERANCE,
+              &portable_multi_relations[3U]),
+      }};
+      const std::array<HRESULT, 4U> system_relation_statuses{{
+          system_multi_boolean_path->CompareWithGeometry(
+              system_multi_relation_envelope_geometry,
+              nullptr,
+              D2D1_DEFAULT_FLATTENING_TOLERANCE,
+              &system_multi_relations[0U]),
+          system_nested_boolean_path->CompareWithGeometry(
+              system_nested_hole_interior_geometry,
+              nullptr,
+              D2D1_DEFAULT_FLATTENING_TOLERANCE,
+              &system_multi_relations[1U]),
+          system_multi_boolean_path->CompareWithGeometry(
+              system_nested_boolean_path,
+              nullptr,
+              D2D1_DEFAULT_FLATTENING_TOLERANCE,
+              &system_multi_relations[2U]),
+          system_multi_boolean_path->CompareWithGeometry(
+              system_multi_boolean_path,
+              nullptr,
+              D2D1_DEFAULT_FLATTENING_TOLERANCE,
+              &system_multi_relations[3U]),
+      }};
+      for (std::size_t relation_index = 0U;
+           relation_index < portable_multi_relations.size();
+           ++relation_index) {
+        if (FAILED(portable_relation_statuses[relation_index]) ||
+            FAILED(system_relation_statuses[relation_index]) ||
+            portable_multi_relations[relation_index] !=
+                system_multi_relations[relation_index]) {
+          std::fprintf(
+              stderr,
+              "multi relation %zu status=%ld/%ld relation=%u/%u\n",
+              relation_index,
+              static_cast<long>(portable_relation_statuses[relation_index]),
+              static_cast<long>(system_relation_statuses[relation_index]),
+              static_cast<unsigned>(portable_multi_relations[relation_index]),
+              static_cast<unsigned>(system_multi_relations[relation_index]));
+          multi_boolean_matches = false;
+          break;
+        }
+      }
+    }
+    if (portable_multi_relation_envelope != nullptr) {
+      portable_multi_relation_envelope->Release();
+    }
+    if (system_multi_relation_envelope_geometry != nullptr) {
+      system_multi_relation_envelope_geometry->Release();
+    }
+    if (portable_nested_hole_interior != nullptr) {
+      portable_nested_hole_interior->Release();
+    }
+    if (system_nested_hole_interior_geometry != nullptr) {
+      system_nested_hole_interior_geometry->Release();
     }
     portable_multi_boolean_path->Release();
     system_multi_boolean_path->Release();

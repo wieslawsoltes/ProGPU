@@ -885,17 +885,22 @@ multi-component, and nested-hole inputs. Genuine system Direct2D differentials
 run the multi-component/hole lattice under clean Windows 11 ARM64 and x64
 MSVC `/W4 /WX` builds.
 
-The same simple-path normalization now implements
-`ID2D1PathGeometry::CompareWithGeometry`. It returns all five observable
-relations with Direct2D's orientation: equal paths report `IS_CONTAINED`, a
-source inside the transformed input reports `IS_CONTAINED`, an input inside
-the source reports `CONTAINS`, separated contours report `DISJOINT`, and both
-proper crossings and boundary-only contact report `OVERLAP`. The transformed
-input is simplified through the caller's tolerance and same-factory ownership
-is enforced before analysis. Pairwise boundary checks reuse the intrinsic SIMD
-AABB batches; mixed or unsupported topology fails with the output left at
-`UNKNOWN`. Windows differential cases cover every relation and pass against
-system Direct2D.
+The same normalized contour-set engine now implements
+`ID2D1PathGeometry::CompareWithGeometry` for arbitrary component and hole
+counts. Transactional exclusion in both directions establishes equality and
+containment, intersection establishes interior overlap, and a four-lane
+NEON/SSE2 boundary-contact pass distinguishes touching sets from disjoint
+sets. It returns all five observable relations with Direct2D's orientation:
+equal paths report `IS_CONTAINED`, a source inside the transformed input
+reports `IS_CONTAINED`, an input inside the source reports `CONTAINS`,
+separated contours report `DISJOINT`, and proper crossing or boundary-only
+contact without containment reports `OVERLAP`. Shared boundaries do not erase
+an otherwise exact containment relation. The transformed input is normalized
+through the caller's tolerance and same-factory ownership is enforced before
+analysis. Multiple/ambiguous self-crossings leave the output `UNKNOWN` and
+fail closed. Windows ARM64/x64 differentials cover every simple relation plus
+multi-component containment, equality, nested-hole separation, and shared
+boundary containment against system Direct2D.
 
 `ID2D1PathGeometry::StrokeContainsPoint` now handles one simple closed path
 with the canonical null/default solid miter stroke. The query point is mapped
