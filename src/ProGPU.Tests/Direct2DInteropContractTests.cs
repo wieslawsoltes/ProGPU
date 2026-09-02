@@ -363,8 +363,12 @@ public sealed class Direct2DInteropContractTests
         Assert.Contains("std::vector<std::uint8_t> operands", pathSource, StringComparison.Ordinal);
         Assert.Contains("std::vector<std::uint8_t> interior_left", pathSource, StringComparison.Ordinal);
         Assert.Contains("operand_left[operands[candidate]]", pathSource, StringComparison.Ordinal);
+        Assert.Contains("normalized_contour_boundaries_contact", pathSource, StringComparison.Ordinal);
+        Assert.Contains("combination_is_empty", pathSource, StringComparison.Ordinal);
         Assert.Contains("portable_multi_boolean_path->CombineWithGeometry", nativeTest, StringComparison.Ordinal);
         Assert.Contains("system_multi_boolean_path->CombineWithGeometry", nativeTest, StringComparison.Ordinal);
+        Assert.Contains("portable_multi_boolean_path->CompareWithGeometry", nativeTest, StringComparison.Ordinal);
+        Assert.Contains("system_multi_boolean_path->CompareWithGeometry", nativeTest, StringComparison.Ordinal);
         Assert.Contains("const double result = std::abs(twice_area) * 0.5", pathSource, StringComparison.Ordinal);
         Assert.Contains("sink->SetFillMode(fill_mode::alternate)", pathSource, StringComparison.Ordinal);
         Assert.Contains("system_outline_rectangle->Outline(", nativeTest, StringComparison.Ordinal);
