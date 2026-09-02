@@ -204,6 +204,15 @@ spent roughly 96 seconds in glyph coverage and lost the device; physical
 Windows keeps the complete differential. This is a test-workload boundary,
 not a compute-policy fallback.
 
+The `win-x64` native NuGet consumer applies the same boundary to its 78-command
+broad MIL seed after consecutive hosted runs spent roughly 77 seconds in the
+software driver and then either removed the device or returned a black frame.
+That seed still compiles through both packaged MIL exports. Nine bounded
+retained MIL scenes plus the direct renderer continue to execute on the GPU in
+both JIT and NativeAOT consumers. Every other package RID, including hosted
+Windows ARM64, continues to render the broad seed as well. No product path,
+automatic execution preference, or parity threshold changes.
+
 The hosted full Win2D Canvas oracle deliberately does not use a compute
 fallback. A forced intrinsic-SIMD experiment completed D3D12 readback but
 failed the existing filled-path pixel probe, so CI rejected that route instead

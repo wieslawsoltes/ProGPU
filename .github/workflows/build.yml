@@ -515,13 +515,22 @@ jobs:
         shell: bash
         run: |
           version="0.1.0-preview.${GITHUB_RUN_NUMBER}.ci"
+          broad_scene_args=()
+          if [[ "${{ matrix.rid }}" == "win-x64" ]]; then
+            # Microsoft Basic Render Driver can spend more than a minute in
+            # the broad retained seed and then lose/blank the software device.
+            # Keep full dual-export compilation here; the bounded retained
+            # scenes below retain JIT GPU execution coverage on this RID.
+            broad_scene_args=(--mil-only)
+          fi
           dotnet restore tests/ProGPU.Native.PackageConsumer/ProGPU.Native.PackageConsumer.csproj \
             -p:ProGpuNativePackageSource="${GITHUB_WORKSPACE}/artifacts/packages-native/Release" \
             -p:ProGpuNativePackageVersion="${version}"
           dotnet run --project tests/ProGPU.Native.PackageConsumer/ProGPU.Native.PackageConsumer.csproj \
             --configuration Release --no-restore \
             -p:ProGpuNativePackageSource="${GITHUB_WORKSPACE}/artifacts/packages-native/Release" \
-            -p:ProGpuNativePackageVersion="${version}"
+            -p:ProGpuNativePackageVersion="${version}" -- \
+            "${broad_scene_args[@]}"
           dotnet run --project tests/ProGPU.Native.PackageConsumer/ProGPU.Native.PackageConsumer.csproj \
             --configuration Release --no-restore \
             -p:ProGpuNativePackageSource="${GITHUB_WORKSPACE}/artifacts/packages-native/Release" \
@@ -572,6 +581,10 @@ jobs:
         shell: bash
         run: |
           version="0.1.0-preview.${GITHUB_RUN_NUMBER}.ci"
+          broad_scene_args=()
+          if [[ "${{ matrix.rid }}" == "win-x64" ]]; then
+            broad_scene_args=(--mil-only)
+          fi
           output="${GITHUB_WORKSPACE}/artifacts/progpu-native/package-consumer-aot/${{ matrix.rid }}"
           dotnet publish tests/ProGPU.Native.PackageConsumer/ProGPU.Native.PackageConsumer.csproj \
             --configuration Release \
@@ -586,7 +599,7 @@ jobs:
             executable="${executable}.exe"
           fi
           test -x "${executable}"
-          "${executable}"
+          "${executable}" "${broad_scene_args[@]}"
           "${executable}" --mil-drawing-group-only
           "${executable}" --mil-glyph-run-drawing-only
           "${executable}" --mil-text-render-options-only
