@@ -1104,19 +1104,59 @@ int main()
         D2D1_GEOMETRY_RELATION_UNKNOWN;
     D2D1_GEOMETRY_RELATION system_relation =
         D2D1_GEOMETRY_RELATION_UNKNOWN;
-    require(
+    D2D1_GEOMETRY_RELATION compat_reverse_relation =
+        D2D1_GEOMETRY_RELATION_UNKNOWN;
+    D2D1_GEOMETRY_RELATION system_reverse_relation =
+        D2D1_GEOMETRY_RELATION_UNKNOWN;
+    const HRESULT compat_relation_status =
         compat_rectangle_path->CompareWithGeometry(
             compat_rectangle.Get(),
             nullptr,
             D2D1_DEFAULT_FLATTENING_TOLERANCE,
-            &compat_relation) == S_OK &&
-            system_rectangle_path->CompareWithGeometry(
-                system_compare_rectangle.Get(),
-                nullptr,
-                D2D1_DEFAULT_FLATTENING_TOLERANCE,
-                &system_relation) == S_OK &&
-            compat_relation == D2D1_GEOMETRY_RELATION_OVERLAP &&
-            compat_relation == system_relation,
+            &compat_relation);
+    const HRESULT system_relation_status =
+        system_rectangle_path->CompareWithGeometry(
+            system_compare_rectangle.Get(),
+            nullptr,
+            D2D1_DEFAULT_FLATTENING_TOLERANCE,
+            &system_relation);
+    const HRESULT compat_reverse_relation_status =
+        compat_rectangle->CompareWithGeometry(
+            compat_rectangle_path.Get(),
+            nullptr,
+            D2D1_DEFAULT_FLATTENING_TOLERANCE,
+            &compat_reverse_relation);
+    const HRESULT system_reverse_relation_status =
+        system_compare_rectangle->CompareWithGeometry(
+            system_rectangle_path.Get(),
+            nullptr,
+            D2D1_DEFAULT_FLATTENING_TOLERANCE,
+            &system_reverse_relation);
+    const bool path_relations_match =
+        compat_relation_status == S_OK &&
+        system_relation_status == S_OK &&
+        compat_reverse_relation_status == S_OK &&
+        system_reverse_relation_status == S_OK &&
+        compat_relation == D2D1_GEOMETRY_RELATION_OVERLAP &&
+        compat_relation == system_relation &&
+        compat_reverse_relation == D2D1_GEOMETRY_RELATION_OVERLAP &&
+        compat_reverse_relation == system_reverse_relation;
+    if (!path_relations_match) {
+        std::cerr << "path relations "
+                  << static_cast<unsigned>(compat_relation) << '/'
+                  << static_cast<unsigned>(system_relation) << ", reverse "
+                  << static_cast<unsigned>(compat_reverse_relation) << '/'
+                  << static_cast<unsigned>(system_reverse_relation)
+                  << "; status " << std::hex
+                  << static_cast<unsigned long>(compat_relation_status) << '/'
+                  << static_cast<unsigned long>(system_relation_status) << ','
+                  << static_cast<unsigned long>(compat_reverse_relation_status)
+                  << '/'
+                  << static_cast<unsigned long>(system_reverse_relation_status)
+                  << std::dec << '\n';
+    }
+    require(
+        path_relations_match,
         "ProGPU path comparison diverged from system Direct2D");
 
     ComPtr<ID2D1PathGeometry> compat_combination;
@@ -1159,6 +1199,53 @@ int main()
             approximately_equal(
                 compat_combination_area, system_combination_area, 0.001F),
         "ProGPU path Boolean combination diverged from system Direct2D");
+
+    ComPtr<ID2D1PathGeometry> compat_reverse_combination;
+    ComPtr<ID2D1GeometrySink> compat_reverse_combination_sink;
+    ComPtr<ID2D1PathGeometry> system_reverse_combination;
+    ComPtr<ID2D1GeometrySink> system_reverse_combination_sink;
+    require(
+        compat_factory->CreatePathGeometry(
+            &compat_reverse_combination) == S_OK &&
+            compat_reverse_combination->Open(
+                &compat_reverse_combination_sink) == S_OK &&
+            compat_rectangle->CombineWithGeometry(
+                compat_rectangle_path.Get(),
+                D2D1_COMBINE_MODE_XOR,
+                nullptr,
+                D2D1_DEFAULT_FLATTENING_TOLERANCE,
+                compat_reverse_combination_sink.Get()) == S_OK &&
+            compat_reverse_combination_sink->Close() == S_OK &&
+            system_rectangle_factory->CreatePathGeometry(
+                &system_reverse_combination) == S_OK &&
+            system_reverse_combination->Open(
+                &system_reverse_combination_sink) == S_OK &&
+            system_compare_rectangle->CombineWithGeometry(
+                system_rectangle_path.Get(),
+                D2D1_COMBINE_MODE_XOR,
+                nullptr,
+                D2D1_DEFAULT_FLATTENING_TOLERANCE,
+                system_reverse_combination_sink.Get()) == S_OK &&
+            system_reverse_combination_sink->Close() == S_OK,
+        "ProGPU rectangle Boolean combination failed");
+    float compat_reverse_combination_area = 0.0F;
+    float system_reverse_combination_area = 0.0F;
+    require(
+        compat_reverse_combination->ComputeArea(
+            nullptr,
+            D2D1_DEFAULT_FLATTENING_TOLERANCE,
+            &compat_reverse_combination_area) == S_OK &&
+            system_reverse_combination->ComputeArea(
+                nullptr,
+                D2D1_DEFAULT_FLATTENING_TOLERANCE,
+                &system_reverse_combination_area) == S_OK &&
+            approximately_equal(
+                compat_reverse_combination_area, 80.0F, 0.001F) &&
+            approximately_equal(
+                compat_reverse_combination_area,
+                system_reverse_combination_area,
+                0.001F),
+        "ProGPU rectangle Boolean combination diverged from system Direct2D");
     D2D1_POINT_DESCRIPTION compat_point_description{};
     require(
         compat_rectangle_path->ComputePointAndSegmentAtLength(
