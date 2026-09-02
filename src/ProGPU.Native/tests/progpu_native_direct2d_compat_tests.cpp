@@ -2548,7 +2548,7 @@ int run_tests()
       std::fprintf(
           stderr,
           "nested tessellation status=%d triangles=%u/%u\n",
-          nested_tessellation_status,
+          static_cast<int>(nested_tessellation_status),
           raw_nested_tessellation_sink->count,
           raw_nested_tessellation_sink->captured_count);
       return 459;
@@ -3059,7 +3059,7 @@ int run_tests()
           stderr,
           "winding star outline status=%d area=%g alternate=%g "
           "figures=%u/%u lines=%u\n",
-          winding_star_outline_status,
+          static_cast<int>(winding_star_outline_status),
           winding_star_outline_area,
           star_outline_area,
           raw_winding_star_outline_sink->begin_count,
