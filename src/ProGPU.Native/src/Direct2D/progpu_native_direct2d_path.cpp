@@ -921,16 +921,13 @@ struct polygon_stroke_edges final {
     const double outgoing_unit_y = outgoing_y / outgoing_length;
     const double denominator = incoming_unit_x * outgoing_unit_y -
         incoming_unit_y * outgoing_unit_x;
-    if (denominator == 0.0) {
+    if (std::abs(denominator) <= 1.0e-6) {
         return false;
     }
-    if (join == line_join::round) {
-        const double point_x = static_cast<double>(point.x) - vertex.x;
-        const double point_y = static_cast<double>(point.y) - vertex.y;
-        return point_x * point_x + point_y * point_y <=
-            half_width * half_width;
-    }
     for (const double side : {-1.0, 1.0}) {
+        if (denominator * side >= 0.0) {
+            continue;
+        }
         const point_2f incoming_offset{
             static_cast<float>(
                 vertex.x - incoming_unit_y * half_width * side),
@@ -941,6 +938,40 @@ struct polygon_stroke_edges final {
                 vertex.x - outgoing_unit_y * half_width * side),
             static_cast<float>(
                 vertex.y + outgoing_unit_x * half_width * side)};
+        if (join == line_join::round) {
+            const double point_x = static_cast<double>(point.x) - vertex.x;
+            const double point_y = static_cast<double>(point.y) - vertex.y;
+            if (point_x * point_x + point_y * point_y >
+                half_width * half_width) {
+                continue;
+            }
+            if (point_x == 0.0 && point_y == 0.0) {
+                return true;
+            }
+            const double incoming_offset_x =
+                static_cast<double>(incoming_offset.x) - vertex.x;
+            const double incoming_offset_y =
+                static_cast<double>(incoming_offset.y) - vertex.y;
+            const double outgoing_offset_x =
+                static_cast<double>(outgoing_offset.x) - vertex.x;
+            const double outgoing_offset_y =
+                static_cast<double>(outgoing_offset.y) - vertex.y;
+            const double sweep = std::atan2(
+                incoming_offset_x * outgoing_offset_y -
+                    incoming_offset_y * outgoing_offset_x,
+                incoming_offset_x * outgoing_offset_x +
+                    incoming_offset_y * outgoing_offset_y);
+            const double point_angle = std::atan2(
+                incoming_offset_x * point_y -
+                    incoming_offset_y * point_x,
+                incoming_offset_x * point_x +
+                    incoming_offset_y * point_y);
+            return sweep >= 0.0
+                ? point_angle >= -1.0e-6 &&
+                    point_angle <= sweep + 1.0e-6
+                : point_angle <= 1.0e-6 &&
+                    point_angle >= sweep - 1.0e-6;
+        }
         if (point_in_closed_triangle(
                 point, vertex, incoming_offset, outgoing_offset)) {
             return true;
@@ -1558,7 +1589,7 @@ void append_stroke_join_bounds_points(
     const double outgoing_unit_y = outgoing_y / outgoing_length;
     const double denominator = incoming_unit_x * outgoing_unit_y -
         incoming_unit_y * outgoing_unit_x;
-    if (denominator == 0.0) {
+    if (std::abs(denominator) <= 1.0e-6) {
         return;
     }
     for (const double side : {-1.0, 1.0}) {
@@ -1881,7 +1912,7 @@ void append_dash_side_point(
         static_cast<float>(vertex.y + outgoing_normal_y * side)};
     const double cross = incoming_unit_x * outgoing_unit_y -
         incoming_unit_y * outgoing_unit_x;
-    if (cross == 0.0) {
+    if (std::abs(cross) <= 1.0e-6) {
         append_dash_side_point(output, outgoing_offset);
         return com::ok;
     }

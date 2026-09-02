@@ -6483,6 +6483,15 @@ reverses it, so exact-collapse and fully-consumed interiors match the system
 implementation. Non-convex styled or split-erosion contours, segment flags,
 and invalid topology remain typed fail closed.
 
+The open solid lane is also qualified over tolerance-flattened cubic and
+quadratic source segments. Nearly collinear float directions are treated as a
+straight continuation across containment, widened bounds, and outline
+construction, preventing clipped multi-unit miter spikes from numerical
+cross-product noise. Round-join containment is restricted to its actual outer
+circular sector instead of accepting a full vertex disk. Dense local curve
+output matches `StrokeContainsPoint`, and portable/system curve probes plus
+successful `Widen` transcripts pass on Windows ARM64 and x64.
+
 `GetWidenedBounds` now shares that default-miter path domain. Segment offsets
 and miter extrema are constructed before the world transform; independent
 candidate transforms and min/max reductions execute four-wide through NEON or
