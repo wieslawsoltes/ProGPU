@@ -2572,6 +2572,83 @@ int run_tests()
         captured_fill_contains(*raw_winding_outline_sink, {3.0F, 1.0F})) {
       return 430;
     }
+    for (std::uint32_t winding = 0U; winding < 2U; ++winding) {
+      compat::path_geometry* raw_overlap_outline_path = nullptr;
+      compat::geometry_sink* raw_overlap_outline_path_sink = nullptr;
+      if (factory->CreatePathGeometry(&raw_overlap_outline_path) != com::ok ||
+          raw_overlap_outline_path == nullptr ||
+          raw_overlap_outline_path->Open(
+              &raw_overlap_outline_path_sink) != com::ok ||
+          raw_overlap_outline_path_sink == nullptr) {
+        return 435;
+      }
+      com::pointer<compat::path_geometry> overlap_outline_path;
+      overlap_outline_path.attach(raw_overlap_outline_path);
+      com::pointer<compat::geometry_sink> overlap_outline_path_sink;
+      overlap_outline_path_sink.attach(raw_overlap_outline_path_sink);
+      if (winding != 0U) {
+        overlap_outline_path_sink->SetFillMode(
+            compat::fill_mode::winding);
+      }
+      overlap_outline_path_sink->BeginFigure(
+          {0.0F, 0.0F}, compat::figure_begin::filled);
+      constexpr std::array<compat::point_2f, 3U>
+          first_overlap_outline_points{{
+              {3.0F, 0.0F},
+              {3.0F, 3.0F},
+              {0.0F, 3.0F},
+          }};
+      overlap_outline_path_sink->AddLines(
+          first_overlap_outline_points.data(),
+          static_cast<std::uint32_t>(
+              first_overlap_outline_points.size()));
+      overlap_outline_path_sink->EndFigure(
+          compat::figure_end::closed);
+      overlap_outline_path_sink->BeginFigure(
+          {2.0F, 1.0F}, compat::figure_begin::filled);
+      constexpr std::array<compat::point_2f, 3U>
+          second_overlap_outline_points{{
+              {5.0F, 1.0F},
+              {5.0F, 4.0F},
+              {2.0F, 4.0F},
+          }};
+      overlap_outline_path_sink->AddLines(
+          second_overlap_outline_points.data(),
+          static_cast<std::uint32_t>(
+              second_overlap_outline_points.size()));
+      overlap_outline_path_sink->EndFigure(
+          compat::figure_end::closed);
+      if (overlap_outline_path_sink->Close() != com::ok) {
+        return 436;
+      }
+      overlap_outline_path_sink.Reset();
+      auto* raw_overlap_outline_sink = new simplified_sink();
+      com::pointer<compat::simplified_geometry_sink> overlap_outline_sink;
+      overlap_outline_sink.attach(raw_overlap_outline_sink);
+      if (overlap_outline_path->Outline(
+              nullptr,
+              0.01F,
+              overlap_outline_sink.get()) != com::ok ||
+          raw_overlap_outline_sink->fill_mode !=
+              compat::fill_mode::alternate ||
+          raw_overlap_outline_sink->set_fill_mode_count != 1U ||
+          raw_overlap_outline_sink->set_segment_flags_count != 0U ||
+          raw_overlap_outline_sink->begin_count !=
+              (winding == 0U ? 2U : 1U) ||
+          raw_overlap_outline_sink->end_count !=
+              raw_overlap_outline_sink->begin_count ||
+          raw_overlap_outline_sink->line_count !=
+              (winding == 0U ? 12U : 8U) ||
+          !captured_fill_contains(
+              *raw_overlap_outline_sink, {1.0F, 1.0F}) ||
+          captured_fill_contains(
+              *raw_overlap_outline_sink, {2.5F, 2.0F}) !=
+              (winding != 0U) ||
+          !captured_fill_contains(
+              *raw_overlap_outline_sink, {4.0F, 2.0F})) {
+        return 437;
+      }
+    }
 
     compat::path_geometry* raw_multi_rejected_widen_path = nullptr;
     compat::geometry_sink* raw_multi_rejected_widen_path_sink = nullptr;
@@ -8254,33 +8331,73 @@ int run_tests()
         status = path_value->Open(&sink_value);
       }
       if (SUCCEEDED(status)) {
-        if (scenario == 2U) {
+        if (scenario == 2U || scenario == 5U) {
           sink_value->SetFillMode(D2D1_FILL_MODE_WINDING);
         }
+        const bool overlap = scenario == 4U || scenario == 5U;
+        const bool t_junction = scenario == 7U;
+        const float first_right = t_junction
+            ? 4.0F
+            : (overlap ? 3.0F : 2.0F);
+        const float first_bottom = first_right;
         sink_value->BeginFigure(
             D2D1_POINT_2F{0.0F, 0.0F}, D2D1_FIGURE_BEGIN_FILLED);
-        constexpr std::array<D2D1_POINT_2F, 3U> first_points{{
-            {2.0F, 0.0F},
-            {2.0F, 2.0F},
-            {0.0F, 2.0F},
+        const std::array<D2D1_POINT_2F, 3U> first_points{{
+            {first_right, 0.0F},
+            {first_right, first_bottom},
+            {0.0F, first_bottom},
         }};
         sink_value->AddLines(
             first_points.data(), static_cast<UINT32>(first_points.size()));
         sink_value->EndFigure(D2D1_FIGURE_END_CLOSED);
-        const bool nested = scenario != 0U;
-        const float left = nested ? 0.5F : 10.0F;
-        const float top = nested ? 0.5F : 0.0F;
-        const float right = nested ? 1.5F : 12.0F;
-        const float bottom = nested ? 1.5F : 2.0F;
+        const bool nested = scenario == 1U || scenario == 2U;
+        const bool adjacent = scenario == 3U;
+        const bool corner = scenario == 6U;
+        float left = 10.0F;
+        float top = 0.0F;
+        float right = 12.0F;
+        float bottom = 2.0F;
+        if (nested) {
+          left = 0.5F;
+          top = 0.5F;
+          right = 1.5F;
+          bottom = 1.5F;
+        } else if (adjacent) {
+          left = 2.0F;
+          right = 4.0F;
+        } else if (corner) {
+          left = 2.0F;
+          top = 2.0F;
+          right = 4.0F;
+          bottom = 4.0F;
+        } else if (overlap) {
+          left = 2.0F;
+          top = 1.0F;
+          right = 5.0F;
+          bottom = 4.0F;
+        } else if (t_junction) {
+          left = 4.0F;
+          top = 2.0F;
+          right = 6.0F;
+        }
         sink_value->BeginFigure(
             D2D1_POINT_2F{left, top}, D2D1_FIGURE_BEGIN_FILLED);
-        const std::array<D2D1_POINT_2F, 3U> second_points{{
-            {left, bottom},
-            {right, bottom},
-            {right, top},
-        }};
-        sink_value->AddLines(
-            second_points.data(), static_cast<UINT32>(second_points.size()));
+        if (t_junction) {
+          const std::array<D2D1_POINT_2F, 2U> second_points{{
+              {right, 1.0F}, {right, 3.0F}}};
+          sink_value->AddLines(
+              second_points.data(),
+              static_cast<UINT32>(second_points.size()));
+        } else {
+          const std::array<D2D1_POINT_2F, 3U> second_points = scenario == 5U
+              ? std::array<D2D1_POINT_2F, 3U>{{
+                    {right, top}, {right, bottom}, {left, bottom}}}
+              : std::array<D2D1_POINT_2F, 3U>{{
+                    {left, bottom}, {right, bottom}, {right, top}}};
+          sink_value->AddLines(
+              second_points.data(),
+              static_cast<UINT32>(second_points.size()));
+        }
         sink_value->EndFigure(D2D1_FIGURE_END_CLOSED);
         status = sink_value->Close();
       }
@@ -8604,6 +8721,123 @@ int run_tests()
       system_open_query_path->Release();
       system_factory->Release();
       return 432;
+    }
+    for (std::uint32_t scenario = 3U; scenario <= 7U; ++scenario) {
+      ID2D1PathGeometry* portable_normalized_outline_path = nullptr;
+      ID2D1PathGeometry* system_normalized_outline_path = nullptr;
+      if (FAILED(create_multi_outline_path(
+              native_factory,
+              scenario,
+              &portable_normalized_outline_path)) ||
+          FAILED(create_multi_outline_path(
+              system_factory,
+              scenario,
+              &system_normalized_outline_path)) ||
+          portable_normalized_outline_path == nullptr ||
+          system_normalized_outline_path == nullptr) {
+        if (portable_normalized_outline_path != nullptr) {
+          portable_normalized_outline_path->Release();
+        }
+        if (system_normalized_outline_path != nullptr) {
+          system_normalized_outline_path->Release();
+        }
+        portable_multi_query_path->Release();
+        system_multi_query_path->Release();
+        portable_open_query_path->Release();
+        system_open_query_path->Release();
+        system_factory->Release();
+        return 433;
+      }
+      auto* raw_portable_normalized_outline_sink = new simplified_sink();
+      com::pointer<compat::simplified_geometry_sink>
+          portable_normalized_outline_sink;
+      portable_normalized_outline_sink.attach(
+          raw_portable_normalized_outline_sink);
+      auto* raw_system_normalized_outline_sink = new simplified_sink();
+      com::pointer<compat::simplified_geometry_sink>
+          system_normalized_outline_sink;
+      system_normalized_outline_sink.attach(
+          raw_system_normalized_outline_sink);
+      const HRESULT portable_normalized_outline_status =
+          portable_normalized_outline_path->Outline(
+              nullptr,
+              0.01F,
+              reinterpret_cast<ID2D1SimplifiedGeometrySink*>(
+                  portable_normalized_outline_sink.get()));
+      const HRESULT system_normalized_outline_status =
+          system_normalized_outline_path->Outline(
+              nullptr,
+              0.01F,
+              reinterpret_cast<ID2D1SimplifiedGeometrySink*>(
+                  system_normalized_outline_sink.get()));
+      bool normalized_outline_matches =
+          SUCCEEDED(portable_normalized_outline_status) &&
+          SUCCEEDED(system_normalized_outline_status) &&
+          raw_portable_normalized_outline_sink->fill_mode ==
+              raw_system_normalized_outline_sink->fill_mode &&
+          raw_portable_normalized_outline_sink->segment_flags ==
+              raw_system_normalized_outline_sink->segment_flags &&
+          raw_portable_normalized_outline_sink->set_fill_mode_count ==
+              raw_system_normalized_outline_sink->set_fill_mode_count &&
+          raw_portable_normalized_outline_sink->set_segment_flags_count ==
+              raw_system_normalized_outline_sink->set_segment_flags_count &&
+          raw_portable_normalized_outline_sink->begin_count ==
+              raw_system_normalized_outline_sink->begin_count &&
+          raw_portable_normalized_outline_sink->end_count ==
+              raw_system_normalized_outline_sink->end_count &&
+          raw_portable_normalized_outline_sink->line_count ==
+              raw_system_normalized_outline_sink->line_count;
+      for (std::uint32_t y_index = 0U;
+           normalized_outline_matches && y_index < 20U; ++y_index) {
+        for (std::uint32_t x_index = 0U; x_index < 26U; ++x_index) {
+          const compat::point_2f point{
+              -0.25F + static_cast<float>(x_index) * 0.23F,
+              -0.25F + static_cast<float>(y_index) * 0.23F};
+          if (captured_fill_contains(
+                  *raw_portable_normalized_outline_sink, point) !=
+              captured_fill_contains(
+                  *raw_system_normalized_outline_sink, point)) {
+            normalized_outline_matches = false;
+            break;
+          }
+        }
+      }
+      portable_normalized_outline_path->Release();
+      system_normalized_outline_path->Release();
+      if (!normalized_outline_matches) {
+        std::fprintf(
+            stderr,
+            "normalized outline scenario=%u status=%ld/%ld fill=%u/%u "
+            "flags=%u/%u callbacks=%u/%u,%u/%u geometry=%u/%u,%u/%u,"
+            "%u/%u\n",
+            scenario,
+            static_cast<long>(portable_normalized_outline_status),
+            static_cast<long>(system_normalized_outline_status),
+            static_cast<unsigned>(
+                raw_portable_normalized_outline_sink->fill_mode),
+            static_cast<unsigned>(
+                raw_system_normalized_outline_sink->fill_mode),
+            static_cast<unsigned>(
+                raw_portable_normalized_outline_sink->segment_flags),
+            static_cast<unsigned>(
+                raw_system_normalized_outline_sink->segment_flags),
+            raw_portable_normalized_outline_sink->set_fill_mode_count,
+            raw_system_normalized_outline_sink->set_fill_mode_count,
+            raw_portable_normalized_outline_sink->set_segment_flags_count,
+            raw_system_normalized_outline_sink->set_segment_flags_count,
+            raw_portable_normalized_outline_sink->begin_count,
+            raw_system_normalized_outline_sink->begin_count,
+            raw_portable_normalized_outline_sink->end_count,
+            raw_system_normalized_outline_sink->end_count,
+            raw_portable_normalized_outline_sink->line_count,
+            raw_system_normalized_outline_sink->line_count);
+        portable_multi_query_path->Release();
+        system_multi_query_path->Release();
+        portable_open_query_path->Release();
+        system_open_query_path->Release();
+        system_factory->Release();
+        return 434;
+      }
     }
     const D2D1_STROKE_STYLE_PROPERTIES open_dash_properties{
         D2D1_CAP_STYLE_FLAT,

@@ -717,19 +717,29 @@ outlines are emitted analytically. Path outlines apply the caller's affine and
 flattening tolerance, remove duplicate/zero-length edges, reject transverse
 self-intersections, normalize each contour direction, and emit the
 fill-invariant Direct2D sink shape: alternate fill mode, filled closed figures,
-and explicit closing points. Multiple independent contours and non-touching
-alternate-fill nesting are qualified in one transaction after pairwise
-boundary checks. A containment-depth pass reverses every odd-depth contour so
-holes remain correct under winding consumers too; hollow-only geometry
-produces an empty outline. Winding-rule nesting retains each source contour's
-signed contribution, sums ancestor winding, omits boundaries whose two sides
-remain filled or empty, and reverses true hole boundaries. The implementation
-matches genuine Direct2D fill mode, unchanged segment-flag state, callback
-counts, and dense disjoint, alternate-hole, and winding-hole regions on
-Windows ARM64 and x64. Touching or overlapping boundaries and
-self-intersections still fail closed before the caller sink is mutated. The
-contour walk and intersection checks are topology-dependent scalar work; there
-is no data-parallel whole-buffer loop being left unvectorized.
+and explicit closing points. Multiple independent contours, point contact, and
+non-touching alternate-fill nesting are qualified in one transaction. A
+containment-depth pass reverses every odd-depth contour so holes remain correct
+under winding consumers too; hollow-only geometry produces an empty outline.
+Winding-rule nesting retains each source contour's signed contribution, sums
+ancestor winding, omits boundaries whose two sides remain filled or empty, and
+reverses true hole boundaries.
+
+When two simple contours cross or share an edge, `Outline` routes their
+normalized polygons through the same native Boolean boundary engine used by
+`CombineWithGeometry`. Alternate fill selects xor; winding selects union for
+equal signed contributions and xor for opposing contributions. This removes
+shared/internal edges before any caller callback, while the existing four-lane
+NEON/SSE2 edge-bounds broad phase remains shared. A contact-only T-junction
+keeps both figures and transactionally inserts the contact vertex into the
+touched edge, matching Direct2D's observable line transcript.
+The implementation matches genuine Direct2D fill mode, unchanged segment-flag
+state, callback counts, and dense disjoint, corner/T-point-touch, shared-edge,
+alternate-overlap, winding-overlap, alternate-hole, and winding-hole regions on
+Windows ARM64 and x64. Self-intersections and transactions with more than two
+interacting contours still fail closed before the caller sink is mutated. The
+remaining contour tracing is topology-dependent scalar work; there is no
+data-parallel whole-buffer loop being left unvectorized.
 
 Portable nondegenerate rectangle geometry also implements exact
 `GetWidenedBounds` for the default stroke and same-factory solid stroke
