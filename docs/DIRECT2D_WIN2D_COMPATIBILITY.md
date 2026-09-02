@@ -3335,6 +3335,16 @@ relation, and Boolean XOR output. Both Windows 11 ARM64 and x64 builds require
 identical qualified results; the portable path suite continues to own the wider
 self-intersection, contact, hole, styled-stroke, and winding-layer corpus.
 
+Exported Windows transformed geometries also cache an immutable typed path for
+the two operations that cannot be expressed by merely composing the source's
+world-transform argument: `CompareWithGeometry` and `CombineWithGeometry`.
+The cache is produced through the source geometry's typed cubic/line
+`Simplify` transcript with the intrinsic transform already applied. Relation
+and Boolean evaluation then use the shared path core, while bounds, fill,
+stroke, tessellation, outline, metrics, and widening retain their direct
+transform-composition lane. Windows ARM64/x64 tests compare transformed-path
+overlap and XOR area with system Direct2D.
+
 ## Delivery order
 
 1. Keep the dependency classifier and resolver fail-closed invariants green.

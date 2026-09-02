@@ -1510,6 +1510,77 @@ int main()
             compat_point.x == 10.0F && compat_point.y == -2.0F &&
             compat_tangent.x == 1.0F && compat_tangent.y == 0.0F,
         "ProGPU transformed geometry point-at-length changed");
+    ComPtr<ID2D1TransformedGeometry> system_compare_transformed_geometry;
+    require(
+        system_rectangle_factory->CreateTransformedGeometry(
+            system_rectangle_path.Get(),
+            &compat_geometry_transform,
+            &system_compare_transformed_geometry) == S_OK,
+        "system transformed geometry creation failed");
+    D2D1_GEOMETRY_RELATION compat_transformed_relation =
+        D2D1_GEOMETRY_RELATION_UNKNOWN;
+    D2D1_GEOMETRY_RELATION system_transformed_relation =
+        D2D1_GEOMETRY_RELATION_UNKNOWN;
+    require(
+        compat_transformed_geometry->CompareWithGeometry(
+            compat_rectangle.Get(),
+            nullptr,
+            D2D1_DEFAULT_FLATTENING_TOLERANCE,
+            &compat_transformed_relation) == S_OK &&
+            system_compare_transformed_geometry->CompareWithGeometry(
+                system_compare_rectangle.Get(),
+                nullptr,
+                D2D1_DEFAULT_FLATTENING_TOLERANCE,
+                &system_transformed_relation) == S_OK &&
+            compat_transformed_relation == D2D1_GEOMETRY_RELATION_OVERLAP &&
+            compat_transformed_relation == system_transformed_relation,
+        "ProGPU transformed geometry relation diverged from system Direct2D");
+    ComPtr<ID2D1PathGeometry> compat_transformed_combination;
+    ComPtr<ID2D1GeometrySink> compat_transformed_combination_sink;
+    ComPtr<ID2D1PathGeometry> system_transformed_combination;
+    ComPtr<ID2D1GeometrySink> system_transformed_combination_sink;
+    require(
+        compat_factory->CreatePathGeometry(
+            &compat_transformed_combination) == S_OK &&
+            compat_transformed_combination->Open(
+                &compat_transformed_combination_sink) == S_OK &&
+            compat_transformed_geometry->CombineWithGeometry(
+                compat_rectangle.Get(),
+                D2D1_COMBINE_MODE_XOR,
+                nullptr,
+                D2D1_DEFAULT_FLATTENING_TOLERANCE,
+                compat_transformed_combination_sink.Get()) == S_OK &&
+            compat_transformed_combination_sink->Close() == S_OK &&
+            system_rectangle_factory->CreatePathGeometry(
+                &system_transformed_combination) == S_OK &&
+            system_transformed_combination->Open(
+                &system_transformed_combination_sink) == S_OK &&
+            system_compare_transformed_geometry->CombineWithGeometry(
+                system_compare_rectangle.Get(),
+                D2D1_COMBINE_MODE_XOR,
+                nullptr,
+                D2D1_DEFAULT_FLATTENING_TOLERANCE,
+                system_transformed_combination_sink.Get()) == S_OK &&
+            system_transformed_combination_sink->Close() == S_OK,
+        "ProGPU transformed geometry Boolean combination failed");
+    float compat_transformed_combination_area = 0.0F;
+    float system_transformed_combination_area = 0.0F;
+    require(
+        compat_transformed_combination->ComputeArea(
+            nullptr,
+            D2D1_DEFAULT_FLATTENING_TOLERANCE,
+            &compat_transformed_combination_area) == S_OK &&
+            system_transformed_combination->ComputeArea(
+                nullptr,
+                D2D1_DEFAULT_FLATTENING_TOLERANCE,
+                &system_transformed_combination_area) == S_OK &&
+            approximately_equal(
+                compat_transformed_combination_area, 448.0F, 0.01F) &&
+            approximately_equal(
+                compat_transformed_combination_area,
+                system_transformed_combination_area,
+                0.01F),
+        "ProGPU transformed geometry Boolean combination diverged from system Direct2D");
     ComPtr<ID2D1PathGeometry1> compat_transformed_path;
     ComPtr<ID2D1GeometrySink> compat_transformed_path_sink;
     UINT32 compat_transformed_segment_count = 0U;

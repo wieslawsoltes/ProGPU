@@ -225,6 +225,8 @@ public sealed class Direct2DInteropContractTests
         Assert.Contains("ProGPU path comparison diverged from system Direct2D", providerTest, StringComparison.Ordinal);
         Assert.Contains("ProGPU path Boolean combination diverged from system Direct2D", providerTest, StringComparison.Ordinal);
         Assert.Contains("ProGPU rectangle Boolean combination diverged from system Direct2D", providerTest, StringComparison.Ordinal);
+        Assert.Contains("ProGPU transformed geometry relation diverged from system Direct2D", providerTest, StringComparison.Ordinal);
+        Assert.Contains("ProGPU transformed geometry Boolean combination diverged from system Direct2D", providerTest, StringComparison.Ordinal);
         Assert.DoesNotContain("compat_transform_rectangle", provider, StringComparison.Ordinal);
         Assert.Contains("degenerate.point_at_length", nativeTest, StringComparison.Ordinal);
     }
