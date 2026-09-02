@@ -64,10 +64,10 @@ struct rectangle_u final {
     std::uint32_t bottom;
 };
 
-/* Canonical WIC ABI shapes used by ID2D1RenderTarget::
- * CreateBitmapFromWicBitmap. Keeping this five-method interface in the
- * portable header lets the same Direct2D implementation consume a native
- * IWICBitmapSource on Windows and a compatible decoder/source elsewhere. */
+/* Canonical WIC ABI shapes used by ID2D1RenderTarget bitmap creation and
+ * sharing. Keeping these interfaces in the portable header lets the same
+ * Direct2D implementation consume native WIC objects on Windows and compatible
+ * decoder/source or locked-memory providers elsewhere. */
 struct wic_rectangle final {
     std::int32_t x;
     std::int32_t y;
@@ -217,6 +217,11 @@ inline constexpr com::guid portable_text_layout_factory_interface_id{
     {0xAAU, 0x49U, 0xCEU, 0x74U, 0x91U, 0xD0U, 0xF7U, 0x0EU}};
 inline constexpr com::guid wic_bitmap_source_interface_id{
     0x00000120U,
+    0xA8F2U,
+    0x4877U,
+    {0xBAU, 0x0AU, 0xFDU, 0x2BU, 0x66U, 0x45U, 0xFBU, 0x94U}};
+inline constexpr com::guid wic_bitmap_lock_interface_id{
+    0x00000123U,
     0xA8F2U,
     0x4877U,
     {0xBAU, 0x0AU, 0xFDU, 0x2BU, 0x66U, 0x45U, 0xFBU, 0x94U}};
@@ -730,6 +735,19 @@ struct wic_bitmap_source : com::unknown {
         std::uint32_t stride,
         std::uint32_t buffer_size,
         std::uint8_t* buffer) noexcept = 0;
+};
+
+struct wic_bitmap_lock : com::unknown {
+    virtual com::result PROGPU_NATIVE_COM_CALL GetSize(
+        std::uint32_t* width,
+        std::uint32_t* height) noexcept = 0;
+    virtual com::result PROGPU_NATIVE_COM_CALL GetStride(
+        std::uint32_t* stride) noexcept = 0;
+    virtual com::result PROGPU_NATIVE_COM_CALL GetDataPointer(
+        std::uint32_t* buffer_size,
+        std::uint8_t** data) noexcept = 0;
+    virtual com::result PROGPU_NATIVE_COM_CALL GetPixelFormat(
+        com::guid* pixel_format) noexcept = 0;
 };
 
 struct resource : com::unknown {

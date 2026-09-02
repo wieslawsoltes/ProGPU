@@ -613,6 +613,118 @@ private:
     std::uint32_t height_ = 2U;
 };
 
+class fake_wic_bitmap_lock final : public compat::wic_bitmap_lock {
+public:
+    fake_wic_bitmap_lock(
+        com::guid pixel_format,
+        std::uint32_t width,
+        std::uint32_t height,
+        std::uint32_t stride,
+        std::vector<std::uint8_t> source_pixels) noexcept
+        : pixels(std::move(source_pixels)),
+          pixel_format_(pixel_format),
+          width_(width),
+          height_(height),
+          stride_(stride)
+    {
+    }
+
+    com::result PROGPU_NATIVE_COM_CALL QueryInterface(
+        com::guid_ref interface_id,
+        void** value) noexcept override
+    {
+        if (value == nullptr) {
+            return com::pointer_error;
+        }
+        *value = nullptr;
+        if (com::guid_equal(interface_id, com::unknown_interface_id()) ||
+            com::guid_equal(
+                interface_id, compat::wic_bitmap_lock_interface_id)) {
+            *value = static_cast<compat::wic_bitmap_lock*>(this);
+            AddRef();
+            return com::ok;
+        }
+        return com::no_interface;
+    }
+
+    com::reference_count_value PROGPU_NATIVE_COM_CALL AddRef()
+        noexcept override
+    {
+        return reference_count_.add_ref();
+    }
+
+    com::reference_count_value PROGPU_NATIVE_COM_CALL Release()
+        noexcept override
+    {
+        return reference_count_.release(this);
+    }
+
+    com::result PROGPU_NATIVE_COM_CALL GetSize(
+        std::uint32_t* width,
+        std::uint32_t* height) noexcept override
+    {
+        ++size_call_count;
+        if (width == nullptr || height == nullptr) {
+            return com::invalid_argument;
+        }
+        *width = width_;
+        *height = height_;
+        return com::ok;
+    }
+
+    com::result PROGPU_NATIVE_COM_CALL GetStride(
+        std::uint32_t* stride) noexcept override
+    {
+        ++stride_call_count;
+        if (stride == nullptr) {
+            return com::invalid_argument;
+        }
+        *stride = stride_;
+        return com::ok;
+    }
+
+    com::result PROGPU_NATIVE_COM_CALL GetDataPointer(
+        std::uint32_t* buffer_size,
+        std::uint8_t** data) noexcept override
+    {
+        ++data_call_count;
+        if (buffer_size == nullptr || data == nullptr ||
+            pixels.size() > std::numeric_limits<std::uint32_t>::max()) {
+            return com::invalid_argument;
+        }
+        *buffer_size = static_cast<std::uint32_t>(pixels.size());
+        *data = pixels.data();
+        return com::ok;
+    }
+
+    com::result PROGPU_NATIVE_COM_CALL GetPixelFormat(
+        com::guid* pixel_format) noexcept override
+    {
+        ++format_call_count;
+        if (pixel_format == nullptr) {
+            return com::invalid_argument;
+        }
+        *pixel_format = pixel_format_;
+        return com::ok;
+    }
+
+    std::vector<std::uint8_t> pixels;
+    std::uint32_t size_call_count = 0U;
+    std::uint32_t stride_call_count = 0U;
+    std::uint32_t data_call_count = 0U;
+    std::uint32_t format_call_count = 0U;
+
+private:
+    friend class com::atomic_reference_count<fake_wic_bitmap_lock>;
+    ~fake_wic_bitmap_lock() = default;
+
+    com::atomic_reference_count<fake_wic_bitmap_lock> reference_count_;
+    com::guid pixel_format_{};
+    std::uint32_t width_ = 0U;
+    std::uint32_t height_ = 0U;
+    std::uint32_t stride_ = 0U;
+};
+
 class fake_font_face final : public compat::font_face {
 public:
     com::result PROGPU_NATIVE_COM_CALL QueryInterface(
@@ -6376,6 +6488,197 @@ int run_tests()
         return 480;
     }
 
+    std::vector<std::uint8_t> locked_pixels{
+        0x01U, 0x02U, 0x03U, 0x04U,
+        0x05U, 0x06U, 0x07U, 0x08U,
+        0xA0U, 0xA1U, 0xA2U, 0xA3U,
+        0x11U, 0x12U, 0x13U, 0x14U,
+        0x15U, 0x16U, 0x17U, 0x18U};
+    auto* raw_wic_lock = new fake_wic_bitmap_lock(
+        compat::wic_pixel_format_32bpp_pbgra,
+        2U,
+        2U,
+        12U,
+        std::move(locked_pixels));
+    com::pointer<compat::wic_bitmap_lock> wic_lock;
+    wic_lock.attach(raw_wic_lock);
+#if defined(_WIN32)
+    if (!com::guid_equal(
+            compat::wic_bitmap_lock_interface_id,
+            __uuidof(IWICBitmapLock))) {
+        return 481;
+    }
+    std::uint32_t native_lock_stride = 0U;
+    auto* native_wic_lock = reinterpret_cast<IWICBitmapLock*>(wic_lock.get());
+    if (FAILED(native_wic_lock->GetStride(&native_lock_stride)) ||
+        native_lock_stride != 12U) {
+        return 481;
+    }
+#endif
+    compat::bitmap* raw_locked_bitmap = nullptr;
+    if (target->CreateSharedBitmap(
+            compat::wic_bitmap_lock_interface_id,
+            wic_lock.get(),
+            nullptr,
+            &raw_locked_bitmap) != com::ok ||
+        raw_locked_bitmap == nullptr) {
+        return 482;
+    }
+    com::pointer<compat::bitmap> locked_bitmap;
+    locked_bitmap.attach(raw_locked_bitmap);
+    float locked_dpi_x = 0.0F;
+    float locked_dpi_y = 0.0F;
+    locked_bitmap->GetDpi(&locked_dpi_x, &locked_dpi_y);
+    if (locked_bitmap->GetPixelSize().width != 2U ||
+        locked_bitmap->GetPixelSize().height != 2U ||
+        locked_bitmap->GetPixelFormat().format != 87U ||
+        locked_bitmap->GetPixelFormat().alpha !=
+            compat::alpha_mode::premultiplied ||
+        !approximately_equal(locked_dpi_x, 96.0F) ||
+        !approximately_equal(locked_dpi_y, 96.0F) ||
+        raw_wic_lock->size_call_count != 1U ||
+        raw_wic_lock->stride_call_count == 0U ||
+        raw_wic_lock->data_call_count != 1U ||
+        raw_wic_lock->format_call_count != 1U) {
+        return 483;
+    }
+    raw_wic_lock->pixels[0U] = 0x31U;
+    const std::array<std::uint8_t, 4U> locked_replacement{
+        0x41U, 0x42U, 0x43U, 0x44U};
+    const compat::rectangle_u locked_copy_source{0U, 0U, 1U, 1U};
+    const compat::point_2u locked_copy_destination{0U, 0U};
+    const compat::rectangle_u locked_replacement_rectangle{
+        1U, 1U, 2U, 2U};
+    if (locked_bitmap->CopyFromBitmap(
+            &locked_copy_destination,
+            portable_bitmap.get(),
+            &locked_copy_source) != com::ok ||
+        raw_wic_lock->pixels[0U] != 0x00U ||
+        raw_wic_lock->pixels[2U] != 0xFFU ||
+        locked_bitmap->CopyFromMemory(
+            &locked_replacement_rectangle,
+            locked_replacement.data(),
+            4U) != com::ok ||
+        raw_wic_lock->pixels[16U] != 0x41U ||
+        raw_wic_lock->pixels[19U] != 0x44U) {
+        return 484;
+    }
+    target->BeginDraw();
+    target->DrawBitmap(
+        locked_bitmap.get(),
+        nullptr,
+        1.0F,
+        compat::bitmap_interpolation_mode::nearest_neighbor,
+        nullptr);
+    if (target->EndDraw(nullptr, nullptr) != com::ok) {
+        return 485;
+    }
+    const std::uint64_t locked_scene_size =
+        scene_target->GetRequiredSceneSize();
+    std::vector<std::byte> locked_scene(
+        static_cast<std::size_t>(locked_scene_size));
+    std::uint64_t locked_scene_written = 0U;
+    if (locked_scene_size == 0U ||
+        scene_target->BuildScene(
+            locked_scene.data(),
+            locked_scene.size(),
+            &locked_scene_written) != com::ok ||
+        locked_scene_written != locked_scene_size) {
+        return 485;
+    }
+    const auto* locked_header = reinterpret_cast<
+        const progpu_native_scene_header*>(locked_scene.data());
+    const progpu_native_scene_resource* locked_resource = nullptr;
+    for (std::uint32_t index = 0U;
+         index < locked_header->resource_count;
+         ++index) {
+        const auto* candidate = reinterpret_cast<
+            const progpu_native_scene_resource*>(
+            locked_scene.data() + locked_header->resource_offset +
+            static_cast<std::size_t>(index) *
+                locked_header->resource_stride);
+        if (candidate->kind == PROGPU_NATIVE_SCENE_RESOURCE_IMAGE) {
+            locked_resource = candidate;
+            break;
+        }
+    }
+    if (locked_resource == nullptr ||
+        locked_resource->payload_size != raw_wic_lock->pixels.size() ||
+        std::memcmp(
+            locked_scene.data() + locked_resource->payload_offset,
+            raw_wic_lock->pixels.data(),
+            raw_wic_lock->pixels.size()) != 0) {
+        return 485;
+    }
+
+    auto* raw_rgba_wic_lock = new fake_wic_bitmap_lock(
+        compat::wic_pixel_format_32bpp_prgba,
+        1U,
+        1U,
+        4U,
+        {0x10U, 0x20U, 0x30U, 0x40U});
+    com::pointer<compat::wic_bitmap_lock> rgba_wic_lock;
+    rgba_wic_lock.attach(raw_rgba_wic_lock);
+    compat::bitmap* raw_rgba_locked_bitmap = nullptr;
+    const compat::bitmap_properties rgba_locked_properties{
+        {28U, compat::alpha_mode::premultiplied}, 144.0F, 120.0F};
+    if (target->CreateSharedBitmap(
+            compat::wic_bitmap_lock_interface_id,
+            rgba_wic_lock.get(),
+            &rgba_locked_properties,
+            &raw_rgba_locked_bitmap) != com::ok ||
+        raw_rgba_locked_bitmap == nullptr ||
+        raw_rgba_locked_bitmap->GetPixelFormat().format != 28U) {
+        return 486;
+    }
+    com::pointer<compat::bitmap> rgba_locked_bitmap;
+    rgba_locked_bitmap.attach(raw_rgba_locked_bitmap);
+
+    auto* raw_straight_wic_lock = new fake_wic_bitmap_lock(
+        compat::wic_pixel_format_32bpp_bgra,
+        1U,
+        1U,
+        4U,
+        {0x10U, 0x20U, 0x30U, 0x40U});
+    com::pointer<compat::wic_bitmap_lock> straight_wic_lock;
+    straight_wic_lock.attach(raw_straight_wic_lock);
+    compat::bitmap* rejected_locked_bitmap = reinterpret_cast<compat::bitmap*>(
+        static_cast<std::uintptr_t>(1U));
+    if (target->CreateSharedBitmap(
+            compat::wic_bitmap_lock_interface_id,
+            straight_wic_lock.get(),
+            nullptr,
+            &rejected_locked_bitmap) != compat::not_implemented ||
+        rejected_locked_bitmap != nullptr) {
+        return 487;
+    }
+    auto* raw_short_wic_lock = new fake_wic_bitmap_lock(
+        compat::wic_pixel_format_32bpp_pbgra,
+        2U,
+        2U,
+        7U,
+        std::vector<std::uint8_t>(16U));
+    com::pointer<compat::wic_bitmap_lock> short_wic_lock;
+    short_wic_lock.attach(raw_short_wic_lock);
+    rejected_locked_bitmap = reinterpret_cast<compat::bitmap*>(
+        static_cast<std::uintptr_t>(1U));
+    const compat::bitmap_properties mismatched_locked_properties{
+        {28U, compat::alpha_mode::premultiplied}, 96.0F, 96.0F};
+    if (target->CreateSharedBitmap(
+            compat::wic_bitmap_lock_interface_id,
+            short_wic_lock.get(),
+            nullptr,
+            &rejected_locked_bitmap) != com::invalid_argument ||
+        rejected_locked_bitmap != nullptr ||
+        target->CreateSharedBitmap(
+            compat::wic_bitmap_lock_interface_id,
+            wic_lock.get(),
+            &mismatched_locked_properties,
+            &rejected_locked_bitmap) != compat::not_implemented ||
+        rejected_locked_bitmap != nullptr) {
+        return 488;
+    }
+
     const compat::bitmap_properties shared_bitmap_properties{
         {0U, compat::alpha_mode::unknown}, 144.0F, 120.0F};
     compat::bitmap* raw_shared_bitmap = nullptr;
@@ -7970,6 +8273,25 @@ int run_tests()
         return 254;
     }
     native_shared_bitmap->Release();
+    ID2D1Bitmap* native_wic_locked_bitmap = nullptr;
+    if (FAILED(native_target->CreateSharedBitmap(
+            __uuidof(IWICBitmapLock),
+            reinterpret_cast<IWICBitmapLock*>(wic_lock.get()),
+            nullptr,
+            &native_wic_locked_bitmap)) ||
+        native_wic_locked_bitmap == nullptr ||
+        native_wic_locked_bitmap->GetPixelSize().width != 2U ||
+        native_wic_locked_bitmap->GetPixelSize().height != 2U ||
+        native_wic_locked_bitmap->GetPixelFormat().format !=
+            DXGI_FORMAT_B8G8R8A8_UNORM ||
+        native_wic_locked_bitmap->GetPixelFormat().alphaMode !=
+            D2D1_ALPHA_MODE_PREMULTIPLIED) {
+        if (native_wic_locked_bitmap != nullptr) {
+            native_wic_locked_bitmap->Release();
+        }
+        return 489;
+    }
+    native_wic_locked_bitmap->Release();
     auto* native_bitmap_brush = reinterpret_cast<ID2D1BitmapBrush*>(
         bitmap_brush.get());
     ID2D1BitmapBrush* queried_native_bitmap_brush = nullptr;
