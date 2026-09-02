@@ -951,8 +951,20 @@ cover bevel, round, and full-cover custom dash output. Convex null/default
 strokes also omit the inner alternate-fill ring when inward erosion collapses
 or reverses it, so exact-collapse and fully-consumed interiors now match the
 system implementation instead of being rejected. Non-convex styled or split-
-erosion contours, segment flags, and invalid topology remain typed fail-closed
-domains.
+erosion contours and invalid topology remain typed fail-closed domains.
+
+The same query and widening pipeline now preserves `D2D1_PATH_SEGMENT`
+stroking semantics. `FORCE_UNSTROKED` edges partition each figure into
+independent stroke runs without joining across the omitted edge; dash phase
+restarts for every run, real figure endpoints retain `StartCap`/`EndCap`, and
+the artificial endpoints on either side of an omitted edge use `DashCap`,
+including a solid dash style. `FORCE_ROUND_LINE_JOIN` overrides only the join
+where its incoming source segment ends, never the tolerance-generated
+subsegments used to flatten a curve. Closed figures rotate after the last
+omitted edge so the remaining cyclic run stays coherent. Dense solid and
+dashed local `Widen`/`StrokeContainsPoint` lattices plus genuine Direct2D
+ARM64 and x64 bounds, containment, and widened-output differentials cover the
+qualified behavior.
 
 Open solid `Widen` is now explicitly qualified over tolerance-flattened cubic
 and quadratic segments, in addition to lines. Two numerical correctness fixes
