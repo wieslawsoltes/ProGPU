@@ -6483,9 +6483,17 @@ matching the system line callback transcript. Replay uses Direct2D's alternate
 fill callback and leaves caller segment flags unchanged. Local optimized and
 sanitizer filled-region tests plus Windows ARM64/x64 callback-count and dense
 disjoint/corner-and-T-point-touch/shared-edge/alternate-overlap/winding-overlap/
-alternate-hole/winding-hole differentials qualify the lane. More than two
-interacting contours remain fail closed until the native
-Boolean normalizer can resolve the whole transaction.
+alternate-hole/winding-hole differentials qualify the lane.
+
+The generalized N-contour normalizer handles larger interacting sets in one
+transaction. It splits every proper crossing and positive collinear overlap,
+evaluates alternate parity or retained signed winding on both sides of each
+sub-edge, removes internal/coincident boundaries, and traces the complete
+result. Pair broad phases remain four-wide NEON/SSE2; side classification and
+graph traversal are dependency-bound scalar stages. A one-million-segment cap
+prevents unbounded replay state. Three-overlapping-rectangle tests match
+genuine Direct2D ARM64/x64 callback counts, dense pair/triple membership,
+alternate XOR area 15, and winding union area 20.
 
 A single proper transverse self-intersection is detected through the same
 four-lane NEON/SSE2 edge-bounds broad phase, solved once in double precision,
@@ -6504,9 +6512,9 @@ loop-carried sum and remains scalar; the independent boundary-pair work is
 still four-wide NEON/SSE2 in the shared normalizer. Local optimized and
 sanitizer hole/overlap checks plus genuine Direct2D ARM64/x64 shared-edge,
 alternate-overlap, winding-overlap, corner-contact, and T-contact area
-differentials pass, including the qualified single-crossing bow tie. Multiple
-or ambiguous self-intersections fail closed with the output already initialized
-to zero.
+differentials pass, including arbitrary interacting simple-contour counts and
+the qualified single-crossing bow tie. Multiple or ambiguous
+self-intersections fail closed with the output already initialized to zero.
 
 `Widen` now consumes that same partition and prepares the complete mixed-
 figure transaction before caller-sink replay. Closed null/default strokes add

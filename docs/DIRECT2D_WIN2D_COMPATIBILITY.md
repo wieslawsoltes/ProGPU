@@ -736,10 +736,18 @@ touched edge, matching Direct2D's observable line transcript.
 The implementation matches genuine Direct2D fill mode, unchanged segment-flag
 state, callback counts, and dense disjoint, corner/T-point-touch, shared-edge,
 alternate-overlap, winding-overlap, alternate-hole, and winding-hole regions on
-Windows ARM64 and x64. Transactions with more than two interacting contours
-still fail closed before the caller sink is mutated. The
-remaining contour tracing is topology-dependent scalar work; there is no
-data-parallel whole-buffer loop being left unvectorized.
+Windows ARM64 and x64.
+
+Three or more interacting simple contours use the generalized native
+split/classify/trace transaction. Every contour pair shares the four-lane
+NEON/SSE2 edge-AABB broad phase; exact crossings and positive collinear overlap
+split edge parameters. Each sub-edge then evaluates alternate parity or signed
+winding on both sides against every contour, drops internal edges, deduplicates
+coincident directed boundaries, and traces the remaining graph. The dependent
+classification and graph walk remain scalar. A bounded one-million-segment cap
+fails closed before replay. Local and Windows ARM64/x64 three-rectangle
+differentials match Direct2D callback counts, dense pair/triple regions,
+alternate XOR area 15, and winding union area 20.
 
 A source contour with exactly one proper transverse self-intersection is split
 at the double-precision line intersection into its two simple lobes before the
@@ -2343,8 +2351,9 @@ length, point-at-length, and point-plus-segment queries. Fill containment
 applies the selected rule across all flattened figures, while area is qualified
 for independent, nested, point-touching, shared-edge, and two-contour overlap
 through normalized Outline topology. A single proper transverse
-self-intersection is also qualified; multiple/ambiguous self-crossings and
-more-than-two interacting-figure area remain separate gates. Dashed, open,
+self-intersection is also qualified, as are arbitrary counts of interacting
+simple contours; multiple/ambiguous self-crossings remain a separate gate.
+Dashed, open,
 or multi-figure path stroke containment, collapsed/styled/open/
 multi-figure path widening, and styled/open/multi-figure widened bounds,
 multi-contour outline/Boolean normalization, and unsupported tessellation

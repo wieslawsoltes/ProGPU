@@ -2714,6 +2714,78 @@ int run_tests()
         captured_fill_contains(*raw_self_outline_sink, {0.5F, 2.0F})) {
       return 440;
     }
+    for (std::uint32_t winding = 0U; winding < 2U; ++winding) {
+      compat::path_geometry* raw_triple_outline_path = nullptr;
+      compat::geometry_sink* raw_triple_outline_path_sink = nullptr;
+      if (factory->CreatePathGeometry(&raw_triple_outline_path) != com::ok ||
+          raw_triple_outline_path == nullptr ||
+          raw_triple_outline_path->Open(
+              &raw_triple_outline_path_sink) != com::ok ||
+          raw_triple_outline_path_sink == nullptr) {
+        return 441;
+      }
+      com::pointer<compat::path_geometry> triple_outline_path;
+      triple_outline_path.attach(raw_triple_outline_path);
+      com::pointer<compat::geometry_sink> triple_outline_path_sink;
+      triple_outline_path_sink.attach(raw_triple_outline_path_sink);
+      if (winding != 0U) {
+        triple_outline_path_sink->SetFillMode(
+            compat::fill_mode::winding);
+      }
+      constexpr std::array<std::array<compat::point_2f, 4U>, 3U>
+          triple_rectangles{{
+              {{{0.0F, 0.0F}, {3.0F, 0.0F},
+                 {3.0F, 3.0F}, {0.0F, 3.0F}}},
+              {{{2.0F, 1.0F}, {5.0F, 1.0F},
+                 {5.0F, 4.0F}, {2.0F, 4.0F}}},
+              {{{1.0F, 2.0F}, {4.0F, 2.0F},
+                 {4.0F, 5.0F}, {1.0F, 5.0F}}},
+          }};
+      for (const auto& rectangle_points : triple_rectangles) {
+        triple_outline_path_sink->BeginFigure(
+            rectangle_points[0], compat::figure_begin::filled);
+        triple_outline_path_sink->AddLines(
+            rectangle_points.data() + 1U,
+            static_cast<std::uint32_t>(rectangle_points.size() - 1U));
+        triple_outline_path_sink->EndFigure(
+            compat::figure_end::closed);
+      }
+      if (triple_outline_path_sink->Close() != com::ok) {
+        return 442;
+      }
+      triple_outline_path_sink.Reset();
+      auto* raw_triple_outline_sink = new simplified_sink();
+      com::pointer<compat::simplified_geometry_sink> triple_outline_sink;
+      triple_outline_sink.attach(raw_triple_outline_sink);
+      float triple_outline_area = 0.0F;
+      if (triple_outline_path->Outline(
+              nullptr, 0.01F, triple_outline_sink.get()) != com::ok ||
+          triple_outline_path->ComputeArea(
+              nullptr, 0.01F, &triple_outline_area) != com::ok ||
+          !approximately_equal(
+              triple_outline_area, winding == 0U ? 15.0F : 20.0F) ||
+          raw_triple_outline_sink->fill_mode !=
+              compat::fill_mode::alternate ||
+          raw_triple_outline_sink->set_fill_mode_count != 1U ||
+          raw_triple_outline_sink->set_segment_flags_count != 0U ||
+          raw_triple_outline_sink->begin_count == 0U ||
+          raw_triple_outline_sink->begin_count !=
+              raw_triple_outline_sink->end_count ||
+          !captured_fill_contains(
+              *raw_triple_outline_sink, {0.5F, 0.5F}) ||
+          captured_fill_contains(
+              *raw_triple_outline_sink, {2.5F, 1.5F}) !=
+              (winding != 0U) ||
+          !captured_fill_contains(
+              *raw_triple_outline_sink, {2.5F, 2.5F}) ||
+          captured_fill_contains(
+              *raw_triple_outline_sink, {3.5F, 3.5F}) !=
+              (winding != 0U) ||
+          !captured_fill_contains(
+              *raw_triple_outline_sink, {2.0F, 4.5F})) {
+        return 443;
+      }
+    }
 
     compat::path_geometry* raw_multi_rejected_widen_path = nullptr;
     compat::geometry_sink* raw_multi_rejected_widen_path_sink = nullptr;
@@ -8409,10 +8481,12 @@ int run_tests()
               static_cast<UINT32>(self_points.size()));
           sink_value->EndFigure(D2D1_FIGURE_END_CLOSED);
         } else {
-        if (scenario == 2U || scenario == 5U) {
+        if (scenario == 2U || scenario == 5U || scenario == 10U) {
           sink_value->SetFillMode(D2D1_FILL_MODE_WINDING);
         }
-        const bool overlap = scenario == 4U || scenario == 5U;
+        const bool triple = scenario == 9U || scenario == 10U;
+        const bool overlap =
+            scenario == 4U || scenario == 5U || triple;
         const bool t_junction = scenario == 7U;
         const float first_right = t_junction
             ? 4.0F
@@ -8467,7 +8541,8 @@ int run_tests()
               second_points.data(),
               static_cast<UINT32>(second_points.size()));
         } else {
-          const std::array<D2D1_POINT_2F, 3U> second_points = scenario == 5U
+          const std::array<D2D1_POINT_2F, 3U> second_points =
+              scenario == 5U || scenario == 10U
               ? std::array<D2D1_POINT_2F, 3U>{{
                     {right, top}, {right, bottom}, {left, bottom}}}
               : std::array<D2D1_POINT_2F, 3U>{{
@@ -8477,6 +8552,19 @@ int run_tests()
               static_cast<UINT32>(second_points.size()));
         }
         sink_value->EndFigure(D2D1_FIGURE_END_CLOSED);
+        if (triple) {
+          sink_value->BeginFigure(
+              D2D1_POINT_2F{1.0F, 2.0F}, D2D1_FIGURE_BEGIN_FILLED);
+          constexpr std::array<D2D1_POINT_2F, 3U> third_points{{
+              {4.0F, 2.0F},
+              {4.0F, 5.0F},
+              {1.0F, 5.0F},
+          }};
+          sink_value->AddLines(
+              third_points.data(),
+              static_cast<UINT32>(third_points.size()));
+          sink_value->EndFigure(D2D1_FIGURE_END_CLOSED);
+        }
         }
         status = sink_value->Close();
       }
@@ -8801,7 +8889,7 @@ int run_tests()
       system_factory->Release();
       return 432;
     }
-    for (std::uint32_t scenario = 3U; scenario <= 8U; ++scenario) {
+    for (std::uint32_t scenario = 3U; scenario <= 10U; ++scenario) {
       ID2D1PathGeometry* portable_normalized_outline_path = nullptr;
       ID2D1PathGeometry* system_normalized_outline_path = nullptr;
       if (FAILED(create_multi_outline_path(
@@ -8865,7 +8953,11 @@ int run_tests()
                   ? 16.0F
                   : (scenario == 6U
                       ? 8.0F
-                      : (scenario == 7U ? 18.0F : 8.0F))));
+                      : (scenario == 7U
+                          ? 18.0F
+                          : (scenario == 8U
+                              ? 8.0F
+                              : (scenario == 9U ? 15.0F : 20.0F))))));
       bool normalized_outline_matches =
           SUCCEEDED(portable_normalized_outline_status) &&
           SUCCEEDED(system_normalized_outline_status) &&
