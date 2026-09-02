@@ -3100,6 +3100,86 @@ int run_tests()
             winding_star_outline_area)) {
       return 464;
     }
+    const compat::rectangle_f star_center_rectangle{
+        -0.25F, -0.25F, 0.25F, 0.25F};
+    compat::rectangle_geometry* raw_star_center_geometry = nullptr;
+    if (factory->CreateRectangleGeometry(
+            &star_center_rectangle,
+            &raw_star_center_geometry) != com::ok ||
+        raw_star_center_geometry == nullptr) {
+      return 465;
+    }
+    com::pointer<compat::rectangle_geometry> star_center_geometry;
+    star_center_geometry.attach(raw_star_center_geometry);
+    compat::geometry_relation alternate_star_relation =
+        compat::geometry_relation::unknown;
+    compat::geometry_relation winding_star_relation =
+        compat::geometry_relation::unknown;
+    if (star_outline_path->CompareWithGeometry(
+            star_center_geometry.get(),
+            nullptr,
+            0.01F,
+            &alternate_star_relation) != com::ok ||
+        winding_star_outline_path->CompareWithGeometry(
+            star_center_geometry.get(),
+            nullptr,
+            0.01F,
+            &winding_star_relation) != com::ok ||
+        alternate_star_relation != compat::geometry_relation::disjoint ||
+        winding_star_relation != compat::geometry_relation::contains) {
+      return 466;
+    }
+    const std::array<compat::path_geometry*, 2U> star_boolean_paths{{
+        star_outline_path.get(), winding_star_outline_path.get()}};
+    for (compat::path_geometry* star_path : star_boolean_paths) {
+      for (const compat::combine_mode combination : combination_modes) {
+        auto* raw_star_boolean_sink = new simplified_sink();
+        com::pointer<compat::simplified_geometry_sink> star_boolean_sink;
+        star_boolean_sink.attach(raw_star_boolean_sink);
+        if (star_path->CombineWithGeometry(
+                star_center_geometry.get(),
+                combination,
+                nullptr,
+                0.01F,
+                star_boolean_sink.get()) != com::ok) {
+          return 467;
+        }
+        for (std::uint32_t y_index = 0U; y_index < 46U; ++y_index) {
+          for (std::uint32_t x_index = 0U; x_index < 46U; ++x_index) {
+            const compat::point_2f point{
+                -5.13F + static_cast<float>(x_index) * 0.23F,
+                -5.07F + static_cast<float>(y_index) * 0.23F};
+            std::int32_t in_star = 0;
+            std::int32_t in_rectangle = 0;
+            if (star_path->FillContainsPoint(
+                    point, nullptr, 0.0001F, &in_star) != com::ok ||
+                star_center_geometry->FillContainsPoint(
+                    point, nullptr, 0.0001F, &in_rectangle) != com::ok) {
+              return 468;
+            }
+            bool expected = false;
+            switch (combination) {
+            case compat::combine_mode::union_value:
+              expected = in_star != 0 || in_rectangle != 0;
+              break;
+            case compat::combine_mode::intersect:
+              expected = in_star != 0 && in_rectangle != 0;
+              break;
+            case compat::combine_mode::xor_value:
+              expected = (in_star != 0) != (in_rectangle != 0);
+              break;
+            case compat::combine_mode::exclude:
+              expected = in_star != 0 && in_rectangle == 0;
+              break;
+            }
+            if (captured_fill_contains(*raw_star_boolean_sink, point) !=
+                expected) {
+              return 469;
+            }
+          }
+        }
+      }
+    }
     for (std::uint32_t winding = 0U; winding < 2U; ++winding) {
       compat::path_geometry* raw_triple_outline_path = nullptr;
       compat::geometry_sink* raw_triple_outline_path_sink = nullptr;
@@ -9878,6 +9958,116 @@ int run_tests()
         system_open_query_path->Release();
         system_factory->Release();
         return 434;
+      }
+    }
+    const D2D1_RECT_F star_center_bounds{
+        -0.25F, -0.25F, 0.25F, 0.25F};
+    for (const std::uint32_t scenario : {11U, 13U}) {
+      ID2D1PathGeometry* portable_star_consumer_path = nullptr;
+      ID2D1PathGeometry* system_star_consumer_path = nullptr;
+      ID2D1RectangleGeometry* portable_star_center = nullptr;
+      ID2D1RectangleGeometry* system_star_center = nullptr;
+      bool star_consumer_matches =
+          SUCCEEDED(create_multi_outline_path(
+              native_factory, scenario, &portable_star_consumer_path)) &&
+          SUCCEEDED(create_multi_outline_path(
+              system_factory, scenario, &system_star_consumer_path)) &&
+          SUCCEEDED(native_factory->CreateRectangleGeometry(
+              &star_center_bounds, &portable_star_center)) &&
+          SUCCEEDED(system_factory->CreateRectangleGeometry(
+              &star_center_bounds, &system_star_center)) &&
+          portable_star_consumer_path != nullptr &&
+          system_star_consumer_path != nullptr &&
+          portable_star_center != nullptr &&
+          system_star_center != nullptr;
+      D2D1_GEOMETRY_RELATION portable_star_relation =
+          D2D1_GEOMETRY_RELATION_UNKNOWN;
+      D2D1_GEOMETRY_RELATION system_star_relation =
+          D2D1_GEOMETRY_RELATION_UNKNOWN;
+      if (star_consumer_matches) {
+        star_consumer_matches =
+            SUCCEEDED(portable_star_consumer_path->CompareWithGeometry(
+                portable_star_center,
+                nullptr,
+                0.01F,
+                &portable_star_relation)) &&
+            SUCCEEDED(system_star_consumer_path->CompareWithGeometry(
+                system_star_center,
+                nullptr,
+                0.01F,
+                &system_star_relation)) &&
+            portable_star_relation == system_star_relation;
+      }
+      for (std::size_t mode_index = 0U;
+           star_consumer_matches && mode_index < combination_modes.size();
+           ++mode_index) {
+        auto* raw_portable_star_combination = new simplified_sink();
+        com::pointer<compat::simplified_geometry_sink>
+            portable_star_combination;
+        portable_star_combination.attach(raw_portable_star_combination);
+        auto* raw_system_star_combination = new simplified_sink();
+        com::pointer<compat::simplified_geometry_sink>
+            system_star_combination;
+        system_star_combination.attach(raw_system_star_combination);
+        const HRESULT portable_status =
+            portable_star_consumer_path->CombineWithGeometry(
+                portable_star_center,
+                static_cast<D2D1_COMBINE_MODE>(mode_index),
+                nullptr,
+                0.01F,
+                reinterpret_cast<ID2D1SimplifiedGeometrySink*>(
+                    portable_star_combination.get()));
+        const HRESULT system_status =
+            system_star_consumer_path->CombineWithGeometry(
+                system_star_center,
+                static_cast<D2D1_COMBINE_MODE>(mode_index),
+                nullptr,
+                0.01F,
+                reinterpret_cast<ID2D1SimplifiedGeometrySink*>(
+                    system_star_combination.get()));
+        star_consumer_matches = SUCCEEDED(portable_status) &&
+            SUCCEEDED(system_status);
+        for (std::uint32_t y_index = 0U;
+             star_consumer_matches && y_index < 46U; ++y_index) {
+          for (std::uint32_t x_index = 0U; x_index < 46U; ++x_index) {
+            const compat::point_2f point{
+                -5.13F + static_cast<float>(x_index) * 0.23F,
+                -5.07F + static_cast<float>(y_index) * 0.23F};
+            if (captured_fill_contains(
+                    *raw_portable_star_combination, point) !=
+                captured_fill_contains(
+                    *raw_system_star_combination, point)) {
+              star_consumer_matches = false;
+              break;
+            }
+          }
+        }
+      }
+      if (portable_star_consumer_path != nullptr) {
+        portable_star_consumer_path->Release();
+      }
+      if (system_star_consumer_path != nullptr) {
+        system_star_consumer_path->Release();
+      }
+      if (portable_star_center != nullptr) {
+        portable_star_center->Release();
+      }
+      if (system_star_center != nullptr) {
+        system_star_center->Release();
+      }
+      if (!star_consumer_matches) {
+        std::fprintf(
+            stderr,
+            "star consumer scenario=%u relation=%u/%u\n",
+            scenario,
+            static_cast<unsigned>(portable_star_relation),
+            static_cast<unsigned>(system_star_relation));
+        portable_multi_query_path->Release();
+        system_multi_query_path->Release();
+        portable_open_query_path->Release();
+        system_open_query_path->Release();
+        system_factory->Release();
+        return 470;
       }
     }
     const D2D1_STROKE_STYLE_PROPERTIES open_dash_properties{

@@ -6542,6 +6542,15 @@ multiple holes, and nested islands. Optimized and sanitizer tests plus genuine
 Direct2D ARM64/x64 differentials compare signed area and dense triangle
 coverage; triangle ordering/count is intentionally topology-independent.
 
+The same normalized self-intersection contours are now qualified as direct
+inputs to `CompareWithGeometry` and `CombineWithGeometry`. Alternate-star
+center holes report disjoint from a center rectangle, while mixed-winding
+stars containing that rectangle report contains. All four Boolean modes match
+their source predicates over dense local lattices and genuine Direct2D
+ARM64/x64 outputs. Repeated/triple crossings and ambiguous contacts remain the
+transactional rejection boundary; an arbitrary count of distinct proper
+crossings no longer blocks these downstream COM consumers.
+
 `Widen` now consumes that same partition and prepares the complete mixed-
 figure transaction before caller-sink replay. Closed null/default strokes add
 validated outer and inner rings; open solids and qualified dashed figures add
