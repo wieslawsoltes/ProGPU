@@ -1,8 +1,10 @@
 using System.Diagnostics;
 using System.Drawing.Imaging;
 using System.Globalization;
+using System.Security.Cryptography;
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using ProGPU.Text;
 using Svg;
 
 return await CorpusApplication.RunAsync(args);
@@ -23,12 +25,13 @@ internal static class CorpusApplication
         {
             var options = Options.Parse(args);
             SvgDocument.SkipGdiPlusCapabilityCheck = true;
+            FontCorpusEvidence fontCorpus = CorpusFonts.Register(options.CorpusRoot, options.Suite);
 
             return Task.FromResult(options.Command switch
             {
-                Command.Quality => RunQuality(options),
+                Command.Quality => RunQuality(options, fontCorpus),
                 Command.QualityFixture => RunQualityFixture(options),
-                Command.Performance => RunPerformance(options),
+                Command.Performance => RunPerformance(options, fontCorpus),
                 _ => throw new ArgumentOutOfRangeException()
             });
         }
@@ -39,7 +42,7 @@ internal static class CorpusApplication
         }
     }
 
-    private static int RunQuality(Options options)
+    private static int RunQuality(Options options, FontCorpusEvidence fontCorpus)
     {
         Directory.CreateDirectory(options.ArtifactsRoot);
 
@@ -77,6 +80,7 @@ internal static class CorpusApplication
             {
                 var result = RenderAndCompareIsolated(
                     fixtures[index],
+                    options.CorpusRoot,
                     options.ArtifactsRoot,
                     thresholdOverrides.GetValueOrDefault(
                         fixtures[index].Key,
@@ -114,6 +118,7 @@ internal static class CorpusApplication
         var report = new QualityReport(
             Commit: ReadCommit(),
             GeneratedAtUtc: DateTimeOffset.UtcNow,
+            FontCorpus: fontCorpus,
             Threshold: options.Threshold,
             Total: results.Length,
             Passed: results.Count(static result => result.Outcome == FixtureOutcome.Passed),
@@ -168,6 +173,7 @@ internal static class CorpusApplication
 
     private static FixtureResult RenderAndCompareIsolated(
         Fixture fixture,
+        string corpusRoot,
         string artifactsRoot,
         double threshold,
         int index)
@@ -186,8 +192,9 @@ internal static class CorpusApplication
         };
         startInfo.ArgumentList.Add(typeof(CorpusApplication).Assembly.Location);
         AddArgument(startInfo, "quality-fixture");
-        AddArgument(startInfo, "--corpus-root", ".");
+        AddArgument(startInfo, "--corpus-root", corpusRoot);
         AddArgument(startInfo, "--artifacts", artifactsRoot);
+        AddArgument(startInfo, "--suite", fixture.SuiteName);
         AddArgument(startInfo, "--threshold", threshold.ToString("R", CultureInfo.InvariantCulture));
         AddArgument(startInfo, "--worker-suite", fixture.SuiteName);
         AddArgument(startInfo, "--worker-fixture", fixture.RelativeName);
@@ -253,7 +260,7 @@ internal static class CorpusApplication
             .LastOrDefault(static line => line.Length > 0)
             ?? "No child-process diagnostic was produced.";
 
-    private static int RunPerformance(Options options)
+    private static int RunPerformance(Options options, FontCorpusEvidence fontCorpus)
     {
         Directory.CreateDirectory(options.ArtifactsRoot);
         var requested = BenchmarkFixtureList.Read(options.BenchmarkFixturesPath);
@@ -308,6 +315,7 @@ internal static class CorpusApplication
         var report = new PerformanceReport(
             Commit: ReadCommit(),
             GeneratedAtUtc: DateTimeOffset.UtcNow,
+            FontCorpus: fontCorpus,
             FixtureCount: fixtures.Length,
             Iterations: options.Iterations,
             MedianElapsedMilliseconds: Median(elapsed),
@@ -557,6 +565,109 @@ internal sealed class SvgFixtureIsolationException : Exception
     public SvgFixtureIsolationException(string message)
         : base(message)
     {
+    }
+}
+
+internal static class CorpusFonts
+{
+    private const int MaximumFacesPerFile = 64;
+
+    public static FontCorpusEvidence Register(string corpusRoot, Suite suite)
+    {
+        var directories = new List<string>();
+        // resvg's integration harness defines this pinned directory as its
+        // complete font database and maps generic families to it. Use the same
+        // pack for both suites so W3C workers never depend on host-installed
+        // sans/serif/monospace faces when SVG.NET requests a fallback.
+        directories.Add(Path.Combine(
+            corpusRoot,
+            "externals",
+            "resvg",
+            "crates",
+            "resvg",
+            "tests",
+            "fonts"));
+
+        if (suite is Suite.All or Suite.W3c)
+        {
+            directories.Add(Path.Combine(
+                corpusRoot,
+                "externals",
+                "W3C_SVG_11_TestSuite",
+                "W3C_SVG_11_TestSuite",
+                "resources"));
+        }
+
+        string[] files = directories
+            .SelectMany(directory => Directory.Exists(directory)
+                ? Directory.EnumerateFiles(directory, "*", SearchOption.TopDirectoryOnly)
+                : throw new DirectoryNotFoundException($"SVG corpus font directory was not found: {directory}"))
+            .Where(static path =>
+                Path.GetExtension(path).Equals(".ttf", StringComparison.OrdinalIgnoreCase) ||
+                Path.GetExtension(path).Equals(".otf", StringComparison.OrdinalIgnoreCase))
+            .Order(StringComparer.Ordinal)
+            .ToArray();
+        int expectedFileCount = suite == Suite.Resvg ? 21 : 22;
+        if (files.Length != expectedFileCount)
+        {
+            throw new InvalidOperationException(
+                $"Expected {expectedFileCount} pinned SVG corpus font files, found {files.Length}.");
+        }
+
+        var fileHashes = new List<string>(files.Length);
+        var loadedFamilies = new HashSet<string>(StringComparer.Ordinal);
+        var skippedFiles = new List<string>();
+        var loadedFaceCount = 0;
+
+        foreach (string path in files)
+        {
+            byte[] data = File.ReadAllBytes(path);
+            string relativePath = Path.GetRelativePath(corpusRoot, path)
+                .Replace(Path.DirectorySeparatorChar, '/');
+            fileHashes.Add($"{relativePath}|{Convert.ToHexString(SHA256.HashData(data)).ToLowerInvariant()}");
+
+            for (var faceIndex = 0; faceIndex < MaximumFacesPerFile; faceIndex++)
+            {
+                try
+                {
+                    var font = new TtfFont(data, faceIndex);
+                    FontApi.Manager.RegisterFont(font);
+                    loadedFamilies.Add(font.FamilyName);
+                    loadedFaceCount++;
+                }
+                catch (Exception exception) when (
+                    exception is InvalidDataException or FormatException or ArgumentOutOfRangeException)
+                {
+                    if (faceIndex == 0)
+                    {
+                        skippedFiles.Add($"{relativePath}|{exception.GetType().FullName}");
+                    }
+
+                    break;
+                }
+            }
+        }
+
+        string inventoryHash = Convert.ToHexString(
+            SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(string.Join('\n', fileHashes))))
+            .ToLowerInvariant();
+        if (skippedFiles.Count != 0 || loadedFaceCount != expectedFileCount)
+        {
+            throw new InvalidOperationException(
+                $"Expected {expectedFileCount} loadable SVG corpus font faces, loaded {loadedFaceCount}; " +
+                $"skipped: {string.Join(", ", skippedFiles)}");
+        }
+
+        var evidence = new FontCorpusEvidence(
+            SourceFileCount: files.Length,
+            LoadedFaceCount: loadedFaceCount,
+            InventorySha256: inventoryHash,
+            LoadedFamilies: loadedFamilies.Order(StringComparer.Ordinal).ToArray(),
+            SkippedFiles: skippedFiles);
+        Console.WriteLine(
+            $"SVG corpus fonts: {evidence.LoadedFaceCount} faces from {evidence.SourceFileCount} pinned files, " +
+            $"inventory_sha256={evidence.InventorySha256}, skipped={evidence.SkippedFiles.Count}.");
+        return evidence;
     }
 }
 
@@ -843,6 +954,7 @@ internal sealed record FixtureResult(
 internal sealed record QualityReport(
     string Commit,
     DateTimeOffset GeneratedAtUtc,
+    FontCorpusEvidence FontCorpus,
     double Threshold,
     int Total,
     int Passed,
@@ -856,9 +968,17 @@ internal sealed record QualityReport(
 
 internal sealed record PerformanceSample(int Iteration, double ElapsedMilliseconds, long AllocatedBytes, ulong Checksum);
 
+internal sealed record FontCorpusEvidence(
+    int SourceFileCount,
+    int LoadedFaceCount,
+    string InventorySha256,
+    IReadOnlyList<string> LoadedFamilies,
+    IReadOnlyList<string> SkippedFiles);
+
 internal sealed record PerformanceReport(
     string Commit,
     DateTimeOffset GeneratedAtUtc,
+    FontCorpusEvidence FontCorpus,
     int FixtureCount,
     int Iterations,
     double MedianElapsedMilliseconds,

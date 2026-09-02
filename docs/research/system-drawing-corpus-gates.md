@@ -42,7 +42,13 @@ The quality command performs the following for every fixture:
    legacy transparent references remain raw RGBA comparisons.
 5. Retain only failing PNGs, and write per-fixture time, allocation, error, and
    exception data to `quality-results.json`.
-6. Compare the exact failure keys with
+6. Load the pinned resvg font database directly through ProGPU `TtfFont`
+   before SVG.NET creates any `System.Drawing.Font`. W3C's additional TrueType
+   resources are loaded for that suite as well. The JSON evidence records the
+   source-file count, loaded face count, family names, skipped files, and a
+   SHA-256 of the ordered font inventory; rendering therefore does not depend
+   on fonts installed on the GitHub runner.
+7. Compare the exact failure keys with
    `eng/system-drawing-svg-known-differences.txt`. A new failure or an
    unreviewed improvement fails the job, so changes cannot silently weaken or
    stale the inventory.
@@ -68,11 +74,12 @@ identity rather than completion order.
 `eng/system-drawing-svg-threshold-overrides.txt` contains narrowly reviewed
 per-fixture thresholds for cross-architecture reference variation. The first
 entry raises only W3C `shapes-intro-01-t` from `0.100` to `0.102`: its embedded
-SVG font falls back differently on the local ARM64 and hosted x64 runners and
-was observed at `0.099077` and `0.100143`. The rest of both corpora retains the
-suite threshold. Overrides are parsed as typed finite values, validated against
-the pinned fixture catalog, and carry an inline reason; unknown fixture keys
-fail the gate.
+SVG font has a small remaining rasterization variance between local ARM64 and
+hosted x64 and was observed at `0.099077` and `0.100143`. Host font selection is
+now eliminated separately by loading and hashing the corpus-owned fonts. The
+rest of both corpora retains the suite threshold. Overrides are parsed as typed
+finite values, validated against the pinned fixture catalog, and carry an inline
+reason; unknown fixture keys fail the gate.
 
 The performance command uses ten representative W3C fixtures spanning basic
 shapes, paths, gradients, patterns, and text. It warms the complete pipeline,
@@ -82,11 +89,11 @@ a single-run performance claim. Establish regression budgets only after
 several alternating runs on a pinned runner image; keep the complete corpus as
 a correctness gate and use the representative set for iteration speed.
 
-The first local ARM64/.NET 10.0.400 software-WebGPU run records a `5,223.853`
-ms median and `175,923,832` median allocated bytes for the complete ten-fixture
+The pinned-font local ARM64/.NET 10.0.400 software-WebGPU run records a
+`5,051.554` ms median and `175,932,288` median allocated bytes for the complete ten-fixture
 pipeline. All seven samples produced checksum `1eff2c6cbe8504b8`; elapsed
-samples ranged from `5,101.123` to `7,425.449` ms and allocation from
-`175,916,152` to `176,968,104` bytes. This is a reproducible command-shape and
+samples ranged from `4,993.411` to `5,098.995` ms and allocation from
+`175,928,784` to `177,027,272` bytes. This is a reproducible command-shape and
 allocation baseline, not a cross-machine throughput claim. The roughly 176 MB
 per iteration is also a concrete optimization target after correctness and
 hosted cross-platform behavior are stable.
@@ -114,6 +121,13 @@ resvg difference is intentional attribution rather than a renderer regression:
 SVG.NET constructs a path gradient for the invalid negative-radius SVG while
 the reference ignores that invalid paint server. The earlier reversed sampling
 had only hidden that upstream input-validation difference.
+
+The first hosted x64 run also exposed 16 text fixtures that passed on the
+developer ARM64 machine only because that machine happened to have Noto Sans
+installed. The reference SVGs explicitly request the Noto and related faces
+shipped in resvg's own test font database. Loading those exact pinned files in
+every isolated worker makes all 16 pass under their unchanged suite threshold;
+no text-specific tolerance or platform-difference waiver is used.
 
 The direction rule is documented by Microsoft in
 [`PathGradientBrush::SetInterpolationColors`](https://learn.microsoft.com/windows/win32/api/gdipluspath/nf-gdipluspath-pathgradientbrush-setinterpolationcolors).

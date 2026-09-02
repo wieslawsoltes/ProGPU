@@ -16,6 +16,8 @@
                       AdditionalProperties="ManagePackageVersionsCentrally=false" />
     <ProjectReference Include="$(ProGpuSourceRoot)/src/System.Drawing.Common/System.Drawing.Common.csproj"
                       AdditionalProperties="ManagePackageVersionsCentrally=true" />
+    <ProjectReference Include="$(ProGpuSourceRoot)/src/ProGPU.Text/ProGPU.Text.csproj"
+                      AdditionalProperties="ManagePackageVersionsCentrally=true" />
     <PackageReference Include="StbImageSharp" />
   </ItemGroup>
 </Project>
