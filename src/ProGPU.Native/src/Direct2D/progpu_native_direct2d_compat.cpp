@@ -1822,7 +1822,6 @@ public:
             return status;
         }
         sink->SetFillMode(fill_mode::alternate);
-        sink->SetSegmentFlags(path_segment::none);
         sink->BeginFigure(points[0U], figure_begin::filled);
         sink->AddLines(points.data() + 1U, 3U);
         sink->AddLines(points.data(), 1U);
