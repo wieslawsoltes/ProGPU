@@ -6339,16 +6339,17 @@ canonical scene slice is called backend-qualified; the evidence here qualifies
 the Windows compiler, ARM64 intrinsic execution, decoder, transactional graph,
 scene serialization, and packet oracle.
 
-## Direct2D simple-path Boolean checkpoint
+## Direct2D path Boolean checkpoint
 
 Portable `ID2D1PathGeometry::CombineWithGeometry` now handles every Direct2D
-combine mode for two simple single-filled contours, including concave paths,
-crossings, containment, disjoint regions, identical operands, and positive
-collinear overlap. Curves enter through the existing tolerance-qualified line
-simplifier and only the input operand receives the caller transform. The
-implementation builds the entire boundary graph before invoking the caller's
-sink, so allocation failure, unsupported topology, or numerical ambiguity
-cannot expose a partial result.
+combine mode for arbitrary normalized contour counts, including concave paths,
+crossings, containment, disjoint components, nested holes, identical operands,
+and positive collinear overlap. Curves enter through each operand's
+tolerance-qualified `Outline`; only the input operand receives the caller
+transform. Canonical alternate-fill contours are tagged by operand and passed
+to the shared split/classify/trace graph. The implementation builds the entire
+boundary graph before invoking the caller's sink, so allocation failure,
+unsupported topology, or numerical ambiguity cannot expose a partial result.
 
 The independent edge-bounds broad phase executes in four-lane ARM64 NEON or
 SSE2 batches with a bounded scalar implementation only on architectures that
@@ -6359,11 +6360,12 @@ lanes. The operation never rasterizes pixels, reads back from a GPU, or creates
 per-edge submissions.
 
 The focused optimized and address/undefined-sanitizer CTests pass on Apple
-Silicon. A clean Windows 11 ARM64 Parallels build recompiles the complete
-30-step portable Direct2D core, provider, and oracle with MSVC 19.44. The
-Windows-only fixture records the same rectangle-versus-concave-path operation
-through genuine system Direct2D and ProGPU, then compares a dense point lattice
-for union, intersection, xor, and exclusion; all four modes pass.
+Silicon. Clean Windows 11 ARM64 and x64 Parallels builds recompile the portable
+Direct2D core, provider, and oracle with MSVC 19.44 under `/W4 /WX`. The
+Windows-only fixtures record the same rectangle-versus-concave-path and
+multi-component-versus-nested-hole operations through genuine system Direct2D
+and ProGPU, then compare dense point lattices for union, intersection, xor, and
+exclusion; all four modes pass.
 
 The follow-up simple-path comparison lane reuses the same normalized contours
 and intrinsic-SIMD boundary broad phase. It distinguishes proper crossing,
@@ -6472,11 +6474,11 @@ containment-depth pass reverses odd-depth hole boundaries so the result is fill
 invariant. Winding nesting retains signed source contributions, sums ancestor
 winding, omits redundant same-fill boundaries, and reverses true holes.
 
-Two simple contours that cross or share a positive-length edge reuse the
-existing native `CombineWithGeometry` polygon normalizer before replay.
-Alternate fill and opposing winding contributions select xor, while equal
-winding contributions select union. The shared four-lane NEON/SSE2 edge-bounds
-broad phase rejects independent boundary pairs; the dependent
+Two simple contours that cross or share a positive-length edge now use the
+same generalized N-contour normalizer directly. Alternate fill and opposing
+winding contributions select xor, while equal winding contributions select
+union. The shared four-lane NEON/SSE2 edge-bounds broad phase rejects
+independent boundary pairs; the dependent
 split/classify/trace stages remain scalar. Contact-only T-junctions keep both
 figures and insert the contact point into the touched edge before replay,
 matching the system line callback transcript. Replay uses Direct2D's alternate

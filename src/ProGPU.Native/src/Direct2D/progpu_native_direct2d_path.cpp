@@ -3546,20 +3546,35 @@ void append_polygon_boolean_parameter(std::vector<double> &parameters,
 [[nodiscard]] com::result normalize_interacting_contours(
     std::vector<std::vector<point_2f>>& contours,
     std::span<const std::int8_t> winding_contributions,
-    fill_mode mode)
+    fill_mode mode,
+    std::span<const std::uint8_t> operands = {},
+    combine_mode combination = combine_mode::union_value)
 {
   constexpr double intersection_tolerance = 1.0e-10;
   constexpr std::size_t maximum_boundary_segments = 1U << 20U;
+  const bool combining = !operands.empty();
   if (contours.size() < 2U ||
       contours.size() != winding_contributions.size() ||
-      (mode != fill_mode::alternate && mode != fill_mode::winding)) {
+      (mode != fill_mode::alternate && mode != fill_mode::winding) ||
+      (combining && operands.size() != contours.size()) ||
+      (combining &&
+       combination != combine_mode::union_value &&
+       combination != combine_mode::intersect &&
+       combination != combine_mode::xor_value &&
+       combination != combine_mode::exclude) ||
+      (combining && std::any_of(
+          operands.begin(), operands.end(), [](std::uint8_t operand) {
+            return operand > 1U;
+          }))) {
     return com::invalid_argument;
   }
   try {
     std::vector<std::vector<std::vector<double>>> parameters;
     std::vector<polygon_edge_bounds> edge_bounds;
+    std::vector<std::uint8_t> interior_left;
     parameters.resize(contours.size());
     edge_bounds.reserve(contours.size());
+    interior_left.reserve(contours.size());
     for (std::size_t contour_index = 0U;
          contour_index < contours.size(); ++contour_index) {
       parameters[contour_index].resize(contours[contour_index].size());
@@ -3569,6 +3584,12 @@ void append_polygon_boolean_parameter(std::vector<double> &parameters,
       }
       edge_bounds.push_back(
           make_polygon_edge_bounds(contours[contour_index]));
+      const double twice_area =
+          polygon_twice_signed_area(contours[contour_index]);
+      if (!std::isfinite(twice_area) || twice_area == 0.0) {
+        return com::invalid_argument;
+      }
+      interior_left.push_back(twice_area > 0.0 ? 1U : 0U);
     }
     for (std::size_t first_contour = 0U;
          first_contour < contours.size(); ++first_contour) {
@@ -3764,6 +3785,19 @@ void append_polygon_boolean_parameter(std::vector<double> &parameters,
     const auto filled = [mode](bool alternate, std::int32_t winding) {
       return mode == fill_mode::alternate ? alternate : winding != 0;
     };
+    const auto combined = [combination](bool in_first, bool in_second) {
+      switch (combination) {
+      case combine_mode::union_value:
+        return in_first || in_second;
+      case combine_mode::intersect:
+        return in_first && in_second;
+      case combine_mode::xor_value:
+        return in_first != in_second;
+      case combine_mode::exclude:
+        return in_first && !in_second;
+      }
+      return false;
+    };
     std::vector<polygon_boolean_segment> segments;
     const auto point_tolerance = [&contours](point_2f point) {
       double result = 0.0;
@@ -3816,10 +3850,14 @@ void append_polygon_boolean_parameter(std::vector<double> &parameters,
           bool alternate_right = false;
           std::int32_t winding_left = 0;
           std::int32_t winding_right = 0;
+          std::array<bool, 2U> operand_left{};
+          std::array<bool, 2U> operand_right{};
           for (std::size_t candidate = 0U;
                candidate < contours.size(); ++candidate) {
-            bool inside_left = candidate == source_contour;
-            bool inside_right = false;
+            bool inside_left = candidate == source_contour &&
+                interior_left[candidate] != 0U;
+            bool inside_right = candidate == source_contour &&
+                interior_left[candidate] == 0U;
             if (candidate != source_contour &&
                 !classify_other_sides(
                     contours[candidate],
@@ -3833,16 +3871,26 @@ void append_polygon_boolean_parameter(std::vector<double> &parameters,
             if (inside_left) {
               alternate_left = !alternate_left;
               winding_left += winding_contributions[candidate];
+              if (combining) {
+                operand_left[operands[candidate]] =
+                    !operand_left[operands[candidate]];
+              }
             }
             if (inside_right) {
               alternate_right = !alternate_right;
               winding_right += winding_contributions[candidate];
+              if (combining) {
+                operand_right[operands[candidate]] =
+                    !operand_right[operands[candidate]];
+              }
             }
           }
-          const bool result_inside_left =
-              filled(alternate_left, winding_left);
-          const bool result_inside_right =
-              filled(alternate_right, winding_right);
+          const bool result_inside_left = combining
+              ? combined(operand_left[0U], operand_left[1U])
+              : filled(alternate_left, winding_left);
+          const bool result_inside_right = combining
+              ? combined(operand_right[0U], operand_right[1U])
+              : filled(alternate_right, winding_right);
           if (result_inside_left == result_inside_right) {
             continue;
           }
@@ -5297,387 +5345,91 @@ public:
     }
 
     try {
-      std::uint32_t source_figure = (std::numeric_limits<std::uint32_t>::max)();
-      for (std::size_t index = 0U; index < data_->figures.size(); ++index) {
-        if (data_->figures[index].begin != figure_begin::filled) {
-          continue;
-        }
-        if (source_figure != (std::numeric_limits<std::uint32_t>::max)()) {
-          return not_implemented;
-        }
-        source_figure = static_cast<std::uint32_t>(index);
-      }
-      if (source_figure == (std::numeric_limits<std::uint32_t>::max)()) {
-        return not_implemented;
-      }
-      std::vector<flat_edge> source_edges;
-      com::result result =
-          collect_flat_edges(nullptr, flattening_tolerance, true, source_edges);
-      if (com::failed(result)) {
-        return result;
-      }
-      std::vector<point_2f> first;
-      for (const auto &edge : source_edges) {
-        if (edge.figure_index != source_figure ||
-            same_point(edge.start, edge.end)) {
-          continue;
-        }
-        if (first.empty()) {
-          first.push_back(edge.start);
-        } else if (!same_point(first.back(), edge.start)) {
-          return not_implemented;
-        }
-        first.push_back(edge.end);
-      }
-      if (!normalize_simple_polygon(first)) {
-        return not_implemented;
-      }
-
-      auto *raw_input_sink = new (std::nothrow) single_polygon_sink();
-      if (raw_input_sink == nullptr) {
+      auto *raw_first_sink = new (std::nothrow) polygon_contours_sink();
+      if (raw_first_sink == nullptr) {
         return com::out_of_memory;
       }
-      com::pointer<single_polygon_sink> input_sink;
-      input_sink.attach(raw_input_sink);
-      result = input->Simplify(geometry_simplification_option::lines,
-                               input_transform, flattening_tolerance,
-                               input_sink.get());
+      com::pointer<polygon_contours_sink> first_sink;
+      first_sink.attach(raw_first_sink);
+      com::result result = Outline(
+          nullptr, flattening_tolerance, first_sink.get());
       if (com::failed(result)) {
         return result;
       }
-      result = raw_input_sink->status();
+      result = raw_first_sink->status();
       if (com::failed(result)) {
         return result;
       }
-      std::vector<point_2f> second = raw_input_sink->points();
-      if (!normalize_simple_polygon(second)) {
-        return not_implemented;
-      }
+      std::vector<std::vector<point_2f>> contours =
+          raw_first_sink->take_contours();
+      const std::size_t first_count = contours.size();
 
-      constexpr double intersection_tolerance = 1.0e-10;
-      constexpr std::size_t maximum_boundary_segments = 1U << 20U;
-      std::vector<std::vector<double>> first_parameters(first.size());
-      std::vector<std::vector<double>> second_parameters(second.size());
-      for (auto &parameters : first_parameters) {
-        parameters = {0.0, 1.0};
+      auto *raw_second_sink = new (std::nothrow) polygon_contours_sink();
+      if (raw_second_sink == nullptr) {
+        return com::out_of_memory;
       }
-      for (auto &parameters : second_parameters) {
-        parameters = {0.0, 1.0};
+      com::pointer<polygon_contours_sink> second_sink;
+      second_sink.attach(raw_second_sink);
+      result = input->Outline(
+          input_transform, flattening_tolerance, second_sink.get());
+      if (com::failed(result)) {
+        return result;
       }
-      const polygon_edge_bounds second_edge_bounds =
-          make_polygon_edge_bounds(second);
-      for (std::size_t first_edge = 0U; first_edge < first.size();
-           ++first_edge) {
-        const point_2f first_start = first[first_edge];
-        const point_2f first_end = first[(first_edge + 1U) % first.size()];
-        const double first_x = static_cast<double>(first_end.x) - first_start.x;
-        const double first_y = static_cast<double>(first_end.y) - first_start.y;
-        const float first_minimum_x = std::min(first_start.x, first_end.x);
-        const float first_minimum_y = std::min(first_start.y, first_end.y);
-        const float first_maximum_x = std::max(first_start.x, first_end.x);
-        const float first_maximum_y = std::max(first_start.y, first_end.y);
-        for (std::size_t second_block = 0U;
-             second_block < second_edge_bounds.minimum_x.size();
-             second_block += 4U) {
-          std::uint32_t overlap_mask = polygon_edge_overlap_mask(
-              first_minimum_x, first_minimum_y, first_maximum_x,
-              first_maximum_y, second_edge_bounds, second_block);
-          while (overlap_mask != 0U) {
-            std::uint32_t lane = 0U;
-            while ((overlap_mask & (1U << lane)) == 0U) {
-              ++lane;
-            }
-            overlap_mask &= overlap_mask - 1U;
-            const std::size_t second_edge = second_block + lane;
-            if (second_edge >= second_edge_bounds.edge_count) {
-              continue;
-            }
-            const point_2f second_start = second[second_edge];
-            const point_2f second_end =
-                second[(second_edge + 1U) % second.size()];
-            const double second_x =
-                static_cast<double>(second_end.x) - second_start.x;
-            const double second_y =
-                static_cast<double>(second_end.y) - second_start.y;
-            const double offset_x =
-                static_cast<double>(second_start.x) - first_start.x;
-            const double offset_y =
-                static_cast<double>(second_start.y) - first_start.y;
-            const double denominator = first_x * second_y - first_y * second_x;
-            if (denominator == 0.0) {
-              if (offset_x * first_y - offset_y * first_x != 0.0) {
-                continue;
-              }
-              const bool use_x = std::abs(first_x) >= std::abs(first_y);
-              const double first_axis_start =
-                  use_x ? first_start.x : first_start.y;
-              const double first_axis_end = use_x ? first_end.x : first_end.y;
-              const double second_axis_start =
-                  use_x ? second_start.x : second_start.y;
-              const double second_axis_end =
-                  use_x ? second_end.x : second_end.y;
-              const double overlap =
-                  std::min(std::max(first_axis_start, first_axis_end),
-                           std::max(second_axis_start, second_axis_end)) -
-                  std::max(std::min(first_axis_start, first_axis_end),
-                           std::min(second_axis_start, second_axis_end));
-              if (overlap <= 0.0) {
-                continue;
-              }
-              const double first_axis_delta = first_axis_end - first_axis_start;
-              const double second_axis_delta =
-                  second_axis_end - second_axis_start;
-              const auto append_if_on_edge = [](auto &parameters,
-                                                double value) {
-                if (value < -intersection_tolerance ||
-                    value > 1.0 + intersection_tolerance) {
-                  return;
-                }
-                append_polygon_boolean_parameter(parameters, value);
-              };
-              append_if_on_edge(first_parameters[first_edge],
-                                (second_axis_start - first_axis_start) /
-                                    first_axis_delta);
-              append_if_on_edge(first_parameters[first_edge],
-                                (second_axis_end - first_axis_start) /
-                                    first_axis_delta);
-              append_if_on_edge(second_parameters[second_edge],
-                                (first_axis_start - second_axis_start) /
-                                    second_axis_delta);
-              append_if_on_edge(second_parameters[second_edge],
-                                (first_axis_end - second_axis_start) /
-                                    second_axis_delta);
-              continue;
-            }
-            const double first_parameter =
-                (offset_x * second_y - offset_y * second_x) / denominator;
-            const double second_parameter =
-                (offset_x * first_y - offset_y * first_x) / denominator;
-            if (first_parameter < -intersection_tolerance ||
-                first_parameter > 1.0 + intersection_tolerance ||
-                second_parameter < -intersection_tolerance ||
-                second_parameter > 1.0 + intersection_tolerance) {
-              continue;
-            }
-            append_polygon_boolean_parameter(first_parameters[first_edge],
-                                             first_parameter);
-            append_polygon_boolean_parameter(second_parameters[second_edge],
-                                             second_parameter);
-          }
-        }
+      result = raw_second_sink->status();
+      if (com::failed(result)) {
+        return result;
       }
-      for (auto &parameters : first_parameters) {
-        std::sort(parameters.begin(), parameters.end());
-      }
-      for (auto &parameters : second_parameters) {
-        std::sort(parameters.begin(), parameters.end());
-      }
+      std::vector<std::vector<point_2f>> second_contours =
+          raw_second_sink->take_contours();
+      const std::size_t second_count = second_contours.size();
+      contours.insert(
+          contours.end(),
+          std::make_move_iterator(second_contours.begin()),
+          std::make_move_iterator(second_contours.end()));
 
-      const auto evaluate_mode = [mode](bool in_first,
-                                        bool in_second) noexcept {
-        switch (mode) {
-        case combine_mode::union_value:
-          return in_first || in_second;
-        case combine_mode::intersect:
-          return in_first && in_second;
-        case combine_mode::xor_value:
-          return in_first != in_second;
-        case combine_mode::exclude:
-          return in_first && !in_second;
+      if (first_count == 0U || second_count == 0U) {
+        const bool keep_first = first_count != 0U &&
+            (mode == combine_mode::union_value ||
+             mode == combine_mode::xor_value ||
+             mode == combine_mode::exclude);
+        const bool keep_second = second_count != 0U &&
+            (mode == combine_mode::union_value ||
+             mode == combine_mode::xor_value);
+        if (!keep_first && !keep_second) {
+          contours.clear();
+        } else if (!keep_first && keep_second) {
+          contours.erase(contours.begin(), contours.begin() +
+              static_cast<std::ptrdiff_t>(first_count));
+        } else if (keep_first && !keep_second) {
+          contours.resize(first_count);
         }
-        return false;
-      };
-      const auto classify_other_sides = [](std::span<const point_2f> other,
-                                           point_2f source_start,
-                                           point_2f source_end,
-                                           point_2f midpoint,
-                                           polygon_point_relation relation,
-                                           bool &inside_left,
-                                           bool &inside_right) {
-        if (relation != polygon_point_relation::boundary) {
-          inside_left = relation == polygon_point_relation::inside;
-          inside_right = inside_left;
-          return true;
+      } else {
+        std::vector<std::uint8_t> operands(contours.size(), 1U);
+        std::fill_n(operands.begin(), first_count, std::uint8_t{0U});
+        const std::vector<std::int8_t> contributions(
+            contours.size(), std::int8_t{1});
+        result = normalize_interacting_contours(
+            contours,
+            contributions,
+            fill_mode::alternate,
+            operands,
+            mode);
+        if (com::failed(result)) {
+          return result;
         }
-        const double source_x =
-            static_cast<double>(source_end.x) - source_start.x;
-        const double source_y =
-            static_cast<double>(source_end.y) - source_start.y;
-        const double tolerance = polygon_coordinate_tolerance(other, midpoint);
-        for (std::size_t edge = 0U; edge < other.size(); ++edge) {
-          const point_2f other_start = other[edge];
-          const point_2f other_end = other[(edge + 1U) % other.size()];
-          const double other_x =
-              static_cast<double>(other_end.x) - other_start.x;
-          const double other_y =
-              static_cast<double>(other_end.y) - other_start.y;
-          const double length = std::hypot(other_x, other_y);
-          if (std::abs(triangle_cross(other_start, other_end, midpoint)) >
-              tolerance * std::max(1.0, length)) {
-            continue;
-          }
-          const double midpoint_x =
-              static_cast<double>(midpoint.x) - other_start.x;
-          const double midpoint_y =
-              static_cast<double>(midpoint.y) - other_start.y;
-          const double projection = midpoint_x * other_x + midpoint_y * other_y;
-          const double squared_length = other_x * other_x + other_y * other_y;
-          const double projection_tolerance = tolerance * std::max(1.0, length);
-          if (projection < -projection_tolerance ||
-              projection > squared_length + projection_tolerance) {
-            continue;
-          }
-          const double direction = source_x * other_x + source_y * other_y;
-          if (direction == 0.0) {
-            continue;
-          }
-          inside_left = direction > 0.0;
-          inside_right = !inside_left;
-          return true;
-        }
-        return false;
-      };
-
-      std::vector<polygon_boolean_segment> segments;
-      const auto append_boundary_segment = [&](point_2f start, point_2f end) {
-        const double tolerance =
-            std::max(polygon_coordinate_tolerance(first, start),
-                     polygon_coordinate_tolerance(second, start));
-        for (const auto &segment : segments) {
-          if (same_polygon_boolean_point(segment.start, start, tolerance) &&
-              same_polygon_boolean_point(segment.end, end, tolerance)) {
-            return true;
-          }
-        }
-        if (segments.size() == maximum_boundary_segments) {
-          return false;
-        }
-        segments.push_back({start, end, false});
-        return true;
-      };
-      const auto append_segments = [&](const std::vector<point_2f> &source,
-                                       const std::vector<point_2f> &other,
-                                       const auto &parameters,
-                                       bool first_operand) {
-        for (std::size_t edge = 0U; edge < source.size(); ++edge) {
-          const point_2f edge_start = source[edge];
-          const point_2f edge_end = source[(edge + 1U) % source.size()];
-          for (std::size_t part = 0U; part + 1U < parameters[edge].size();
-               ++part) {
-            const double start_parameter = parameters[edge][part];
-            const double end_parameter = parameters[edge][part + 1U];
-            if (end_parameter - start_parameter <= intersection_tolerance) {
-              continue;
-            }
-            const point_2f start = interpolate_polygon_boolean_point(
-                edge_start, edge_end, start_parameter);
-            const point_2f end = interpolate_polygon_boolean_point(
-                edge_start, edge_end, end_parameter);
-            const point_2f midpoint = interpolate_polygon_boolean_point(
-                edge_start, edge_end, (start_parameter + end_parameter) * 0.5);
-            bool other_inside_left = false;
-            bool other_inside_right = false;
-            if (!classify_other_sides(other, start, end, midpoint,
-                                      classify_polygon_point(other, midpoint),
-                                      other_inside_left, other_inside_right)) {
-              return false;
-            }
-            const bool first_inside_left =
-                first_operand ? true : other_inside_left;
-            const bool first_inside_right =
-                first_operand ? false : other_inside_right;
-            const bool second_inside_left =
-                first_operand ? other_inside_left : true;
-            const bool second_inside_right =
-                first_operand ? other_inside_right : false;
-            const bool result_inside_left =
-                evaluate_mode(first_inside_left, second_inside_left);
-            const bool result_inside_right =
-                evaluate_mode(first_inside_right, second_inside_right);
-            if (result_inside_left == result_inside_right) {
-              continue;
-            }
-            if (!append_boundary_segment(result_inside_left ? start : end,
-                                         result_inside_left ? end : start)) {
-              return false;
-            }
-          }
-        }
-        return true;
-      };
-      if (!append_segments(first, second, first_parameters, true) ||
-          !append_segments(second, first, second_parameters, false)) {
-        return not_implemented;
-      }
-
-      std::vector<std::vector<point_2f>> contours;
-      constexpr double pi = 3.1415926535897932384626433832795;
-      for (std::size_t first_segment = 0U; first_segment < segments.size();
-           ++first_segment) {
-        if (segments[first_segment].used) {
-          continue;
-        }
-        std::vector<point_2f> points;
-        points.push_back(segments[first_segment].start);
-        polygon_boolean_segment *current = &segments[first_segment];
-        current->used = true;
-        const double point_tolerance =
-            std::max(polygon_coordinate_tolerance(first, current->start),
-                     polygon_coordinate_tolerance(second, current->start));
-        while (!same_polygon_boolean_point(current->end, points.front(),
-                                           point_tolerance)) {
-          if (points.size() == maximum_boundary_segments) {
-            return not_implemented;
-          }
-          points.push_back(current->end);
-          polygon_boolean_segment *next = nullptr;
-          double best_angle = std::numeric_limits<double>::infinity();
-          const double incoming_x =
-              static_cast<double>(current->end.x) - current->start.x;
-          const double incoming_y =
-              static_cast<double>(current->end.y) - current->start.y;
-          for (auto &candidate : segments) {
-            if (candidate.used ||
-                !same_polygon_boolean_point(candidate.start, current->end,
-                                            point_tolerance)) {
-              continue;
-            }
-            const double outgoing_x =
-                static_cast<double>(candidate.end.x) - candidate.start.x;
-            const double outgoing_y =
-                static_cast<double>(candidate.end.y) - candidate.start.y;
-            double angle =
-                std::atan2(incoming_x * outgoing_y - incoming_y * outgoing_x,
-                           incoming_x * outgoing_x + incoming_y * outgoing_y);
-            if (angle <= 0.0) {
-              angle += 2.0 * pi;
-            }
-            if (angle < best_angle) {
-              best_angle = angle;
-              next = &candidate;
-            }
-          }
-          if (next == nullptr) {
-            return not_implemented;
-          }
-          next->used = true;
-          current = next;
-        }
-        if (points.size() < 3U) {
-          return not_implemented;
-        }
-        contours.push_back(std::move(points));
       }
 
       sink->SetFillMode(fill_mode::alternate);
       sink->SetSegmentFlags(path_segment::force_unstroked);
-      for (const auto &contour : contours) {
-        if (contour.size() - 1U > (std::numeric_limits<std::uint32_t>::max)()) {
+      for (const std::vector<point_2f> &contour : contours) {
+        if (contour.size() - 1U >
+            (std::numeric_limits<std::uint32_t>::max)()) {
           return com::out_of_memory;
         }
         sink->BeginFigure(contour.front(), figure_begin::filled);
-        sink->AddLines(contour.data() + 1U,
-                       static_cast<std::uint32_t>(contour.size() - 1U));
+        sink->AddLines(
+            contour.data() + 1U,
+            static_cast<std::uint32_t>(contour.size() - 1U));
         sink->AddLines(contour.data(), 1U);
         sink->EndFigure(figure_end::closed);
       }
@@ -6078,84 +5830,13 @@ public:
                 }
             }
             if (requires_boolean_normalization) {
-                if (contours.size() > 2U) {
-                    const com::result result =
-                        normalize_interacting_contours(
-                            contours,
-                            winding_contributions,
-                            data_->mode);
-                    if (com::failed(result)) {
-                        return result;
-                    }
-                } else {
-                const auto create_contour_geometry = [this](
-                    const std::vector<point_2f>& contour,
-                    com::pointer<path_geometry>& geometry) {
-                    if (contour.size() - 1U >
-                        (std::numeric_limits<std::uint32_t>::max)()) {
-                        return com::out_of_memory;
-                    }
-                    path_geometry* raw_geometry = nullptr;
-                    com::result result = create_path_geometry(
-                        owner_.get(), &raw_geometry);
-                    if (com::failed(result)) {
-                        return result;
-                    }
-                    geometry.attach(raw_geometry);
-                    geometry_sink* raw_sink = nullptr;
-                    result = geometry->Open(&raw_sink);
-                    if (com::failed(result)) {
-                        return result;
-                    }
-                    com::pointer<geometry_sink> contour_sink;
-                    contour_sink.attach(raw_sink);
-                    contour_sink->SetFillMode(fill_mode::alternate);
-                    contour_sink->BeginFigure(
-                        contour.front(), figure_begin::filled);
-                    contour_sink->AddLines(
-                        contour.data() + 1U,
-                        static_cast<std::uint32_t>(contour.size() - 1U));
-                    contour_sink->EndFigure(figure_end::closed);
-                    return contour_sink->Close();
-                };
-                com::pointer<path_geometry> first_geometry;
-                com::pointer<path_geometry> second_geometry;
-                com::result result = create_contour_geometry(
-                    contours[0], first_geometry);
+                const com::result result =
+                    normalize_interacting_contours(
+                        contours,
+                        winding_contributions,
+                        data_->mode);
                 if (com::failed(result)) {
                     return result;
-                }
-                result = create_contour_geometry(
-                    contours[1], second_geometry);
-                if (com::failed(result)) {
-                    return result;
-                }
-                auto* raw_contour_sink =
-                    new (std::nothrow) polygon_contours_sink();
-                if (raw_contour_sink == nullptr) {
-                    return com::out_of_memory;
-                }
-                com::pointer<polygon_contours_sink> contour_sink;
-                contour_sink.attach(raw_contour_sink);
-                const combine_mode mode =
-                    data_->mode == fill_mode::alternate ||
-                    winding_contributions[0] != winding_contributions[1]
-                    ? combine_mode::xor_value
-                    : combine_mode::union_value;
-                result = first_geometry->CombineWithGeometry(
-                    second_geometry.get(),
-                    mode,
-                    nullptr,
-                    flattening_tolerance,
-                    contour_sink.get());
-                if (com::failed(result)) {
-                    return result;
-                }
-                result = raw_contour_sink->status();
-                if (com::failed(result)) {
-                    return result;
-                }
-                contours = raw_contour_sink->take_contours();
                 }
             } else {
               for (std::size_t contour_index = 0U;

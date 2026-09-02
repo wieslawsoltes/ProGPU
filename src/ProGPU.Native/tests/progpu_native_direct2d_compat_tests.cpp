@@ -2523,6 +2523,60 @@ int run_tests()
         captured_fill_contains(*raw_nested_outline_sink, {3.0F, 1.0F})) {
       return 425;
     }
+    for (const compat::combine_mode mode : combination_modes) {
+      auto* raw_multi_contour_boolean_sink = new simplified_sink();
+      com::pointer<compat::simplified_geometry_sink>
+          multi_contour_boolean_sink;
+      multi_contour_boolean_sink.attach(raw_multi_contour_boolean_sink);
+      if (multi_outline_path->CombineWithGeometry(
+              nested_outline_path.get(),
+              mode,
+              nullptr,
+              0.01F,
+              multi_contour_boolean_sink.get()) != com::ok ||
+          raw_multi_contour_boolean_sink->fill_mode !=
+              compat::fill_mode::alternate ||
+          raw_multi_contour_boolean_sink->segment_flags !=
+              compat::path_segment::force_unstroked ||
+          raw_multi_contour_boolean_sink->begin_count !=
+              raw_multi_contour_boolean_sink->end_count) {
+        return 444;
+      }
+      for (std::uint32_t y_index = 0U; y_index < 24U; ++y_index) {
+        for (std::uint32_t x_index = 0U; x_index < 52U; ++x_index) {
+          const compat::point_2f point{
+              -0.23F + static_cast<float>(x_index) * 0.25F,
+              -0.19F + static_cast<float>(y_index) * 0.17F};
+          std::int32_t in_first = 0;
+          std::int32_t in_second = 0;
+          if (multi_outline_path->FillContainsPoint(
+                  point, nullptr, 0.01F, &in_first) != com::ok ||
+              nested_outline_path->FillContainsPoint(
+                  point, nullptr, 0.01F, &in_second) != com::ok) {
+            return 445;
+          }
+          bool expected = false;
+          switch (mode) {
+          case compat::combine_mode::union_value:
+            expected = in_first != 0 || in_second != 0;
+            break;
+          case compat::combine_mode::intersect:
+            expected = in_first != 0 && in_second != 0;
+            break;
+          case compat::combine_mode::xor_value:
+            expected = (in_first != 0) != (in_second != 0);
+            break;
+          case compat::combine_mode::exclude:
+            expected = in_first != 0 && in_second == 0;
+            break;
+          }
+          if (captured_fill_contains(
+                  *raw_multi_contour_boolean_sink, point) != expected) {
+            return 446;
+          }
+        }
+      }
+    }
     compat::path_geometry* raw_winding_outline_path = nullptr;
     compat::geometry_sink* raw_winding_outline_path_sink = nullptr;
     if (factory->CreatePathGeometry(&raw_winding_outline_path) != com::ok ||
@@ -8784,6 +8838,101 @@ int run_tests()
       system_open_query_path->Release();
       system_factory->Release();
       return 427;
+    }
+    ID2D1PathGeometry* portable_multi_boolean_path = nullptr;
+    ID2D1PathGeometry* system_multi_boolean_path = nullptr;
+    ID2D1PathGeometry* portable_nested_boolean_path = nullptr;
+    ID2D1PathGeometry* system_nested_boolean_path = nullptr;
+    if (FAILED(create_multi_outline_path(
+            native_factory, 0U, &portable_multi_boolean_path)) ||
+        FAILED(create_multi_outline_path(
+            system_factory, 0U, &system_multi_boolean_path)) ||
+        FAILED(create_multi_outline_path(
+            native_factory, 1U, &portable_nested_boolean_path)) ||
+        FAILED(create_multi_outline_path(
+            system_factory, 1U, &system_nested_boolean_path)) ||
+        portable_multi_boolean_path == nullptr ||
+        system_multi_boolean_path == nullptr ||
+        portable_nested_boolean_path == nullptr ||
+        system_nested_boolean_path == nullptr) {
+      if (portable_multi_boolean_path != nullptr) {
+        portable_multi_boolean_path->Release();
+      }
+      if (system_multi_boolean_path != nullptr) {
+        system_multi_boolean_path->Release();
+      }
+      if (portable_nested_boolean_path != nullptr) {
+        portable_nested_boolean_path->Release();
+      }
+      if (system_nested_boolean_path != nullptr) {
+        system_nested_boolean_path->Release();
+      }
+      portable_multi_query_path->Release();
+      system_multi_query_path->Release();
+      portable_open_query_path->Release();
+      system_open_query_path->Release();
+      system_factory->Release();
+      return 447;
+    }
+    bool multi_boolean_matches = true;
+    for (std::size_t mode_index = 0U;
+         multi_boolean_matches && mode_index < combination_modes.size();
+         ++mode_index) {
+      auto* raw_portable_multi_boolean_sink = new simplified_sink();
+      com::pointer<compat::simplified_geometry_sink>
+          portable_multi_boolean_sink;
+      portable_multi_boolean_sink.attach(raw_portable_multi_boolean_sink);
+      auto* raw_system_multi_boolean_sink = new simplified_sink();
+      com::pointer<compat::simplified_geometry_sink>
+          system_multi_boolean_sink;
+      system_multi_boolean_sink.attach(raw_system_multi_boolean_sink);
+      const HRESULT portable_status =
+          portable_multi_boolean_path->CombineWithGeometry(
+              portable_nested_boolean_path,
+              static_cast<D2D1_COMBINE_MODE>(mode_index),
+              nullptr,
+              D2D1_DEFAULT_FLATTENING_TOLERANCE,
+              reinterpret_cast<ID2D1SimplifiedGeometrySink*>(
+                  portable_multi_boolean_sink.get()));
+      const HRESULT system_status =
+          system_multi_boolean_path->CombineWithGeometry(
+              system_nested_boolean_path,
+              static_cast<D2D1_COMBINE_MODE>(mode_index),
+              nullptr,
+              D2D1_DEFAULT_FLATTENING_TOLERANCE,
+              reinterpret_cast<ID2D1SimplifiedGeometrySink*>(
+                  system_multi_boolean_sink.get()));
+      multi_boolean_matches = SUCCEEDED(portable_status) &&
+          SUCCEEDED(system_status) &&
+          raw_portable_multi_boolean_sink->fill_mode ==
+              raw_system_multi_boolean_sink->fill_mode;
+      for (std::uint32_t y_index = 0U;
+           multi_boolean_matches && y_index < 24U; ++y_index) {
+        for (std::uint32_t x_index = 0U; x_index < 52U; ++x_index) {
+          const compat::point_2f point{
+              -0.23F + static_cast<float>(x_index) * 0.25F,
+              -0.19F + static_cast<float>(y_index) * 0.17F};
+          if (captured_fill_contains(
+                  *raw_portable_multi_boolean_sink, point) !=
+              captured_fill_contains(
+                  *raw_system_multi_boolean_sink, point)) {
+            multi_boolean_matches = false;
+            break;
+          }
+        }
+      }
+    }
+    portable_multi_boolean_path->Release();
+    system_multi_boolean_path->Release();
+    portable_nested_boolean_path->Release();
+    system_nested_boolean_path->Release();
+    if (!multi_boolean_matches) {
+      portable_multi_query_path->Release();
+      system_multi_query_path->Release();
+      portable_open_query_path->Release();
+      system_open_query_path->Release();
+      system_factory->Release();
+      return 448;
     }
     ID2D1PathGeometry* portable_winding_outline_path = nullptr;
     ID2D1PathGeometry* system_winding_outline_path = nullptr;
