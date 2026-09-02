@@ -47,6 +47,13 @@ The quality command performs the following for every fixture:
    unreviewed improvement fails the job, so changes cannot silently weaken or
    stale the inventory.
 
+Expected third-party exceptions are tracked separately in
+`eng/system-drawing-svg-known-exceptions.txt`, including their exact managed
+exception type and a reviewed reason. A new exception, a type change, or a
+resolved entry fails the gate. This keeps SVG.NET parser limitations and
+recursive malformed inputs visible without treating them as ProGPU pixel
+baselines or weakening `System.Drawing` argument validation.
+
 The runner also validates the exact corpus sizes. Missing submodules, silently
 dropped files, or unexpected corpus updates therefore fail before producing a
 misleading parity result. The workflow splits resvg and W3C into independent
@@ -85,6 +92,7 @@ dotnet run \
   --corpus-root "$PWD/external/Svg.Skia" \
   --artifacts "$PWD/artifacts/svg-system-drawing/all" \
   --known-differences "$PWD/eng/system-drawing-svg-known-differences.txt" \
+  --known-exceptions "$PWD/eng/system-drawing-svg-known-exceptions.txt" \
   --suite all \
   --threshold 0.12
 ```

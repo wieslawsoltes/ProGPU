@@ -97,6 +97,7 @@ jobs:
           --corpus-root "${{ github.workspace }}/external/Svg.Skia"
           --artifacts "${{ github.workspace }}/artifacts/svg-system-drawing/${{ matrix.suite }}"
           --known-differences "${{ github.workspace }}/eng/system-drawing-svg-known-differences.txt"
+          --known-exceptions "${{ github.workspace }}/eng/system-drawing-svg-known-exceptions.txt"
           --suite "${{ matrix.suite }}"
           --threshold "${{ matrix.threshold }}"
 

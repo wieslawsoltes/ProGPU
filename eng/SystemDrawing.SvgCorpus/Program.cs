@@ -44,6 +44,7 @@ internal static class CorpusApplication
         Directory.CreateDirectory(options.ArtifactsRoot);
 
         var expectedDifferences = DifferenceInventory.Read(options.KnownDifferencesPath, options.Suite);
+        var expectedExceptions = ExceptionInventory.Read(options.KnownExceptionsPath, options.Suite);
         var fixtures = FixtureCatalog.Enumerate(options.CorpusRoot, options.Suite).ToArray();
         ValidateFixtureCounts(options.Suite, fixtures);
 
@@ -63,13 +64,26 @@ internal static class CorpusApplication
             .Where(static result => result.Outcome == FixtureOutcome.PixelDifference)
             .Select(static result => result.Key)
             .ToHashSet(StringComparer.Ordinal);
-        var exceptions = results
+        var actualExceptions = results
             .Where(static result => result.Outcome == FixtureOutcome.Exception)
-            .Select(static result => result.Key)
-            .Order(StringComparer.Ordinal)
-            .ToArray();
+            .ToDictionary(
+                static result => result.Key,
+                static result => result.ExceptionType ?? string.Empty,
+                StringComparer.Ordinal);
         var added = actualDifferences.Except(expectedDifferences, StringComparer.Ordinal).Order(StringComparer.Ordinal).ToArray();
         var resolved = expectedDifferences.Except(actualDifferences, StringComparer.Ordinal).Order(StringComparer.Ordinal).ToArray();
+        var unexpectedExceptions = actualExceptions
+            .Where(pair => !expectedExceptions.TryGetValue(pair.Key, out string? expectedType) ||
+                !StringComparer.Ordinal.Equals(expectedType, pair.Value))
+            .Select(pair => expectedExceptions.TryGetValue(pair.Key, out string? expectedType)
+                ? $"{pair.Key}|expected:{expectedType}|actual:{pair.Value}"
+                : $"{pair.Key}|unexpected:{pair.Value}")
+            .Order(StringComparer.Ordinal)
+            .ToArray();
+        var resolvedExceptions = expectedExceptions.Keys
+            .Except(actualExceptions.Keys, StringComparer.Ordinal)
+            .Order(StringComparer.Ordinal)
+            .ToArray();
 
         var report = new QualityReport(
             Commit: ReadCommit(),
@@ -81,25 +95,34 @@ internal static class CorpusApplication
             Exceptions: results.Count(static result => result.Outcome == FixtureOutcome.Exception),
             AddedDifferences: added,
             ResolvedDifferences: resolved,
+            UnexpectedExceptions: unexpectedExceptions,
+            ResolvedExceptions: resolvedExceptions,
             Results: results);
 
         WriteJson(Path.Combine(options.ArtifactsRoot, "quality-results.json"), report);
         DifferenceInventory.WriteCandidate(
             Path.Combine(options.ArtifactsRoot, "known-differences.candidate.txt"),
             results.Where(static result => result.Outcome == FixtureOutcome.PixelDifference));
+        ExceptionInventory.WriteCandidate(
+            Path.Combine(options.ArtifactsRoot, "known-exceptions.candidate.txt"),
+            results.Where(static result => result.Outcome == FixtureOutcome.Exception));
 
         Console.WriteLine(
             FormattableString.Invariant(
                 $"SVG System.Drawing quality: {report.Passed}/{report.Total} passed, {report.PixelDifferences} pixel differences, {report.Exceptions} exceptions."));
 
-        if (added.Length == 0 && resolved.Length == 0 && exceptions.Length == 0)
+        if (added.Length == 0 &&
+            resolved.Length == 0 &&
+            unexpectedExceptions.Length == 0 &&
+            resolvedExceptions.Length == 0)
         {
             return 0;
         }
 
         WriteDifferenceSummary("Added differences", added);
         WriteDifferenceSummary("Resolved differences", resolved);
-        WriteDifferenceSummary("Exceptions", exceptions);
+        WriteDifferenceSummary("Unexpected exceptions", unexpectedExceptions);
+        WriteDifferenceSummary("Resolved expected exceptions", resolvedExceptions);
         return 1;
     }
 
@@ -532,6 +555,42 @@ internal static class DifferenceInventory
     }
 }
 
+internal static class ExceptionInventory
+{
+    public static Dictionary<string, string> Read(string path, Suite suite)
+    {
+        if (!File.Exists(path))
+        {
+            throw new FileNotFoundException("Known-exception inventory was not found.", path);
+        }
+
+        return File.ReadLines(path)
+            .Select(static line => line.Trim())
+            .Where(static line => line.Length > 0 && !line.StartsWith('#'))
+            .Select(static line => line.Split('|', 4))
+            .Select(static parts => parts.Length >= 3
+                ? new KeyValuePair<string, string>($"{parts[0]}|{parts[1]}", parts[2])
+                : throw new InvalidDataException($"Invalid known-exception row: {parts[0]}"))
+            .Where(pair => suite == Suite.All ||
+                suite == Suite.Resvg && pair.Key.StartsWith("resvg|", StringComparison.Ordinal) ||
+                suite == Suite.W3c && pair.Key.StartsWith("w3c|", StringComparison.Ordinal))
+            .ToDictionary(static pair => pair.Key, static pair => pair.Value, StringComparer.Ordinal);
+    }
+
+    public static void WriteCandidate(string path, IEnumerable<FixtureResult> results)
+    {
+        using var writer = new StreamWriter(path);
+        writer.WriteLine("# suite|fixture|exception-type|message");
+        foreach (var result in results.OrderBy(static result => result.Key, StringComparer.Ordinal))
+        {
+            string message = (result.ExceptionMessage ?? string.Empty)
+                .Replace('\r', ' ')
+                .Replace('\n', ' ');
+            writer.WriteLine($"{result.Key}|{result.ExceptionType}|{message}");
+        }
+    }
+}
+
 internal static class BenchmarkFixtureList
 {
     public static string[] Read(string path)
@@ -546,6 +605,7 @@ internal sealed record Options(
     string CorpusRoot,
     string ArtifactsRoot,
     string KnownDifferencesPath,
+    string KnownExceptionsPath,
     string BenchmarkFixturesPath,
     Suite Suite,
     double Threshold,
@@ -563,7 +623,8 @@ internal sealed record Options(
         {
             throw new ArgumentException(
                 "Usage: quality|performance --corpus-root PATH --artifacts PATH " +
-                "[--known-differences PATH] [--benchmark-fixtures PATH] " +
+                "[--known-differences PATH] [--known-exceptions PATH] " +
+                "[--benchmark-fixtures PATH] " +
                 "[--suite all|resvg|w3c] [--threshold 0.12] [--iterations 7]");
         }
 
@@ -588,6 +649,7 @@ internal sealed record Options(
         var corpusRoot = Required(values, "--corpus-root");
         var artifactsRoot = Required(values, "--artifacts");
         var knownDifferences = values.GetValueOrDefault("--known-differences", Path.Combine("eng", "system-drawing-svg-known-differences.txt"));
+        var knownExceptions = values.GetValueOrDefault("--known-exceptions", Path.Combine("eng", "system-drawing-svg-known-exceptions.txt"));
         var benchmarkFixtures = values.GetValueOrDefault("--benchmark-fixtures", Path.Combine("eng", "system-drawing-svg-benchmark-fixtures.txt"));
         var suite = values.GetValueOrDefault("--suite", "all") switch
         {
@@ -608,6 +670,7 @@ internal sealed record Options(
             corpusRoot,
             artifactsRoot,
             knownDifferences,
+            knownExceptions,
             benchmarkFixtures,
             suite,
             threshold,
@@ -697,6 +760,8 @@ internal sealed record QualityReport(
     int Exceptions,
     IReadOnlyList<string> AddedDifferences,
     IReadOnlyList<string> ResolvedDifferences,
+    IReadOnlyList<string> UnexpectedExceptions,
+    IReadOnlyList<string> ResolvedExceptions,
     IReadOnlyList<FixtureResult> Results);
 
 internal sealed record PerformanceSample(int Iteration, double ElapsedMilliseconds, long AllocatedBytes, ulong Checksum);

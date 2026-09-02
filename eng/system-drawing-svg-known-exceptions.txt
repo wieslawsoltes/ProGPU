@@ -1,0 +1,13 @@
+# Exact reviewed SVG.NET-on-ProGPU expected-exception inventory.
+# Format: suite|fixture|exception-type|reason
+# Matching is exact by suite/fixture and exception type. New, changed, and resolved
+# entries fail the gate so this inventory cannot silently conceal regressions.
+w3c|fonts-glyph-02-t|System.ArgumentException|SVG.NET duplicate embedded-font glyph dictionary key
+w3c|fonts-glyph-03-t|System.ArgumentException|SVG.NET duplicate embedded-font glyph dictionary key
+w3c|fonts-glyph-04-t|System.InvalidOperationException|SVG.NET empty embedded-font glyph selection
+w3c|pservers-grad-16-b|System.ArgumentException|SVG.NET submits unordered ColorBlend positions rejected by GDI+
+w3c|struct-frag-01-t|System.InvalidOperationException|SVG.NET returns an empty bitmap
+w3c|struct-image-12-b|System.TimeoutException|Recursive SVG.NET external-image reference
+w3c|struct-use-08-b|System.InvalidOperationException|Recursive SVG.NET use terminates the isolated worker
+w3c|styling-css-05-b|System.ArgumentException|SVG.NET duplicate embedded-font glyph dictionary key
+w3c|text-fonts-203-t|System.ArgumentException|SVG.NET duplicate embedded-font glyph dictionary key
