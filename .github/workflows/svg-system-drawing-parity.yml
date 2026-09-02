@@ -12,7 +12,7 @@ on:
       - src/ProGPU.Text/**
       - src/ProGPU.Vector/**
       - eng/SystemDrawing.SvgCorpus/**
-      - eng/svg-system-drawing-progpu-ci.patch
+      - eng/progpu-prepare-svg-system-drawing.sh
       - eng/system-drawing-svg-known-differences.txt
       - eng/system-drawing-svg-benchmark-fixtures.txt
       - .github/workflows/svg-system-drawing-parity.yml
@@ -26,7 +26,7 @@ on:
       - src/ProGPU.Text/**
       - src/ProGPU.Vector/**
       - eng/SystemDrawing.SvgCorpus/**
-      - eng/svg-system-drawing-progpu-ci.patch
+      - eng/progpu-prepare-svg-system-drawing.sh
       - eng/system-drawing-svg-known-differences.txt
       - eng/system-drawing-svg-benchmark-fixtures.txt
       - .github/workflows/svg-system-drawing-parity.yml
@@ -64,8 +64,7 @@ jobs:
           submodules: recursive
 
       - name: Route SVG.NET to ProGPU System.Drawing
-        working-directory: external/Svg.Skia/externals/SVG
-        run: patch --batch --forward --strip=1 < "${{ github.workspace }}/eng/svg-system-drawing-progpu-ci.patch"
+        run: ./eng/progpu-prepare-svg-system-drawing.sh "${{ github.workspace }}/external/Svg.Skia/externals/SVG"
 
       - name: Setup .NET
         uses: actions/setup-dotnet@v5
@@ -123,8 +122,7 @@ jobs:
           submodules: recursive
 
       - name: Route SVG.NET to ProGPU System.Drawing
-        working-directory: external/Svg.Skia/externals/SVG
-        run: patch --batch --forward --strip=1 < "${{ github.workspace }}/eng/svg-system-drawing-progpu-ci.patch"
+        run: ./eng/progpu-prepare-svg-system-drawing.sh "${{ github.workspace }}/external/Svg.Skia/externals/SVG"
 
       - name: Setup .NET
         uses: actions/setup-dotnet@v5

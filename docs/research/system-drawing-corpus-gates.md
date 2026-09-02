@@ -63,8 +63,8 @@ a correctness gate and use the representative set for iteration speed.
 With a recursive pinned Svg.Skia checkout in `external/Svg.Skia`:
 
 ```bash
-git -C external/Svg.Skia/externals/SVG apply \
-  "$PWD/eng/svg-system-drawing-progpu-ci.patch"
+./eng/progpu-prepare-svg-system-drawing.sh \
+  "$PWD/external/Svg.Skia/externals/SVG"
 
 dotnet run \
   --project eng/SystemDrawing.SvgCorpus/SystemDrawing.SvgCorpus.csproj \

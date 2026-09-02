@@ -267,7 +267,7 @@ internal static class FixtureCatalog
 
     private static IEnumerable<Fixture> EnumerateResvg(string corpusRoot)
     {
-        var root = Path.Combine(corpusRoot, "externals", "resvg", "resvg-test-suite");
+        var root = Path.Combine(corpusRoot, "externals", "resvg", "crates", "resvg", "tests");
         foreach (var directoryName in new[] { "tests", "extra" })
         {
             var directory = Path.Combine(root, directoryName);
