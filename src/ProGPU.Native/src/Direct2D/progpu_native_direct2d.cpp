@@ -3623,16 +3623,32 @@ public:
     }
 
     HRESULT STDMETHODCALLTYPE CompareWithGeometry(
-        ID2D1Geometry*,
-        const D2D1_MATRIX_3X2_F*,
-        FLOAT,
+        ID2D1Geometry* input_geometry,
+        const D2D1_MATRIX_3X2_F* input_geometry_transform,
+        FLOAT flattening_tolerance,
         D2D1_GEOMETRY_RELATION* relation) const noexcept override
     {
         if (relation == nullptr) {
             return E_POINTER;
         }
         *relation = D2D1_GEOMETRY_RELATION_UNKNOWN;
-        return E_NOTIMPL;
+        direct2d_compat::path_geometry* raw_path = nullptr;
+        const HRESULT cache_status = get_portable_path(&raw_path);
+        progpu::native::com::pointer<direct2d_compat::path_geometry> path;
+        path.attach(raw_path);
+        if (FAILED(cache_status)) {
+            return cache_status;
+        }
+        progpu_native_direct2d_matrix_3x2_f transform{};
+        direct2d_compat::geometry_relation result =
+            direct2d_compat::geometry_relation::unknown;
+        const HRESULT status = path->CompareWithGeometry(
+            reinterpret_cast<direct2d_compat::geometry*>(input_geometry),
+            compat_core_transform(input_geometry_transform, transform),
+            flattening_tolerance,
+            &result);
+        *relation = static_cast<D2D1_GEOMETRY_RELATION>(result);
+        return status;
     }
 
     HRESULT STDMETHODCALLTYPE Simplify(
@@ -3674,13 +3690,27 @@ public:
     }
 
     HRESULT STDMETHODCALLTYPE CombineWithGeometry(
-        ID2D1Geometry*,
-        D2D1_COMBINE_MODE,
-        const D2D1_MATRIX_3X2_F*,
-        FLOAT,
-        ID2D1SimplifiedGeometrySink*) const noexcept override
+        ID2D1Geometry* input_geometry,
+        D2D1_COMBINE_MODE combine_mode,
+        const D2D1_MATRIX_3X2_F* input_geometry_transform,
+        FLOAT flattening_tolerance,
+        ID2D1SimplifiedGeometrySink* geometry_sink) const noexcept override
     {
-        return E_NOTIMPL;
+        direct2d_compat::path_geometry* raw_path = nullptr;
+        const HRESULT cache_status = get_portable_path(&raw_path);
+        progpu::native::com::pointer<direct2d_compat::path_geometry> path;
+        path.attach(raw_path);
+        if (FAILED(cache_status)) {
+            return cache_status;
+        }
+        progpu_native_direct2d_matrix_3x2_f transform{};
+        return path->CombineWithGeometry(
+            reinterpret_cast<direct2d_compat::geometry*>(input_geometry),
+            static_cast<direct2d_compat::combine_mode>(combine_mode),
+            compat_core_transform(input_geometry_transform, transform),
+            flattening_tolerance,
+            reinterpret_cast<direct2d_compat::simplified_geometry_sink*>(
+                geometry_sink));
     }
 
     HRESULT STDMETHODCALLTYPE Outline(
@@ -3810,6 +3840,51 @@ public:
     }
 
 private:
+    HRESULT get_portable_path(
+        direct2d_compat::path_geometry** path) const noexcept
+    {
+        if (path == nullptr) {
+            return E_POINTER;
+        }
+        *path = nullptr;
+        const std::lock_guard lock(portable_path_mutex_);
+        if (!portable_path_) {
+            direct2d_compat::path_geometry* raw_candidate = nullptr;
+            HRESULT status = direct2d_compat::detail::create_path_geometry(
+                reinterpret_cast<direct2d_compat::factory*>(factory_.Get()),
+                &raw_candidate);
+            progpu::native::com::pointer<direct2d_compat::path_geometry>
+                candidate;
+            candidate.attach(raw_candidate);
+            if (FAILED(status)) {
+                return status;
+            }
+            direct2d_compat::geometry_sink* raw_sink = nullptr;
+            status = candidate->Open(&raw_sink);
+            progpu::native::com::pointer<direct2d_compat::geometry_sink> sink;
+            sink.attach(raw_sink);
+            if (FAILED(status)) {
+                return status;
+            }
+            status = source_->Simplify(
+                D2D1_GEOMETRY_SIMPLIFICATION_OPTION_CUBICS_AND_LINES,
+                &transform_,
+                D2D1_DEFAULT_FLATTENING_TOLERANCE,
+                reinterpret_cast<ID2D1SimplifiedGeometrySink*>(sink.get()));
+            if (FAILED(status)) {
+                return status;
+            }
+            status = sink->Close();
+            if (FAILED(status)) {
+                return status;
+            }
+            portable_path_ = std::move(candidate);
+        }
+        *path = portable_path_.get();
+        (*path)->AddRef();
+        return S_OK;
+    }
+
     bool compose(
         const D2D1_MATRIX_3X2_F* world_transform,
         D2D1_MATRIX_3X2_F& composed) const noexcept
@@ -3822,6 +3897,9 @@ private:
     ComPtr<ID2D1Factory1> factory_;
     ComPtr<ID2D1Geometry> source_;
     D2D1_MATRIX_3X2_F transform_{};
+    mutable std::mutex portable_path_mutex_;
+    mutable progpu::native::com::pointer<direct2d_compat::path_geometry>
+        portable_path_;
 };
 
 class ProGpuD2DGeometryGroup final : public ID2D1GeometryGroup {
