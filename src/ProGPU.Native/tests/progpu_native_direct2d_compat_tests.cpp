@@ -2944,9 +2944,9 @@ int run_tests()
           raw_multi_dashed_widen_sink->end_count) {
     std::fprintf(
         stderr,
-        "multi widen status=%d/%d figures=%u/%u ends=%u/%u\n",
-        multi_default_widen_status,
-        multi_dashed_widen_status,
+        "multi widen status=%ld/%ld figures=%u/%u ends=%u/%u\n",
+        static_cast<long>(multi_default_widen_status),
+        static_cast<long>(multi_dashed_widen_status),
         raw_multi_default_widen_sink->begin_count,
         raw_multi_dashed_widen_sink->begin_count,
         raw_multi_default_widen_sink->end_count,
