@@ -13,7 +13,7 @@ target_frameworks_before='<TargetFrameworks>net8.0;net9.0;netcoreapp3.1;netstand
 target_frameworks_after='<TargetFrameworks>net10.0;net8.0;net9.0;netcoreapp3.1;netstandard2.1;netstandard2.0;net462;net472;net481</TargetFrameworks>'
 net9_constants='<DefineConstants Condition="$(TargetFramework.StartsWith('\''net9'\''))">$(DefineConstants);NETCORE;NETNEXT</DefineConstants>'
 net10_constants='<DefineConstants Condition="$(TargetFramework.StartsWith('\''net10'\''))">$(DefineConstants);NETCORE;NETNEXT</DefineConstants>'
-progpu_reference='<ProjectReference Condition="'\''$(TargetFramework)'\'' == '\''net10.0'\'' and '\''$(UseProGpuSystemDrawing)'\'' == '\''true'\''" Include="$(ProGpuSourceRoot)/src/System.Drawing.Common/System.Drawing.Common.csproj" />'
+progpu_reference='<ProjectReference Condition="'\''$(TargetFramework)'\'' == '\''net10.0'\'' and '\''$(UseProGpuSystemDrawing)'\'' == '\''true'\''" Include="$(ProGpuSourceRoot)/src/System.Drawing.Common/System.Drawing.Common.csproj" AdditionalProperties="ManagePackageVersionsCentrally=true" />'
 
 if ! grep -Fq "$target_frameworks_after" "$svg_project"; then
   grep -Fq "$target_frameworks_before" "$svg_project"
