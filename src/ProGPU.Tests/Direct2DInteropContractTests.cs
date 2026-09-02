@@ -195,6 +195,7 @@ public sealed class Direct2DInteropContractTests
         Assert.Contains("detail::rectangle_stroke_contains_point", provider, StringComparison.Ordinal);
         Assert.Contains("detail::compare_rectangle", provider, StringComparison.Ordinal);
         Assert.Contains("detail::combine_rectangle", provider, StringComparison.Ordinal);
+        Assert.Contains("direct2d_compat::detail::create_drawing_state_block", provider, StringComparison.Ordinal);
         Assert.Contains("detail::outline_rectangle", provider, StringComparison.Ordinal);
         Assert.Contains("detail::widen_rectangle", provider, StringComparison.Ordinal);
         Assert.Contains("get_portable_path", provider, StringComparison.Ordinal);
@@ -227,6 +228,8 @@ public sealed class Direct2DInteropContractTests
         Assert.Contains("ProGPU rectangle Boolean combination diverged from system Direct2D", providerTest, StringComparison.Ordinal);
         Assert.Contains("ProGPU transformed geometry relation diverged from system Direct2D", providerTest, StringComparison.Ordinal);
         Assert.Contains("ProGPU transformed geometry Boolean combination diverged from system Direct2D", providerTest, StringComparison.Ordinal);
+        Assert.Contains("ProGPU base drawing-state block diverged from system Direct2D", providerTest, StringComparison.Ordinal);
+        Assert.Contains("ProGPU base drawing-state mutation diverged from system Direct2D", providerTest, StringComparison.Ordinal);
         Assert.DoesNotContain("compat_transform_rectangle", provider, StringComparison.Ordinal);
         Assert.Contains("degenerate.point_at_length", nativeTest, StringComparison.Ordinal);
     }
