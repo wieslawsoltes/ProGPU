@@ -11,7 +11,10 @@ on:
 
 concurrency:
   group: build-${{ github.event.pull_request.number || github.ref }}
-  cancel-in-progress: true
+  # LibreWPF stages native runtimes by exact ProGPU commit. Preserve every
+  # artifact-producing run so frequent PR checkpoints cannot invalidate its
+  # downstream package gate while that run is still compiling.
+  cancel-in-progress: false
 
 permissions:
   contents: read
