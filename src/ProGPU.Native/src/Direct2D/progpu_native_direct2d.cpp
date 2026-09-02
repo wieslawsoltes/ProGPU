@@ -4803,11 +4803,18 @@ public:
     }
 
     HRESULT STDMETHODCALLTYPE CreateDrawingStateBlock(
-        const D2D1_DRAWING_STATE_DESCRIPTION1*,
-        IDWriteRenderingParams*,
+        const D2D1_DRAWING_STATE_DESCRIPTION1* description,
+        IDWriteRenderingParams* text_rendering_parameters,
         ID2D1DrawingStateBlock1** value) noexcept override
     {
-        return unsupported(value);
+        return direct2d_compat::detail::create_drawing_state_block1(
+            reinterpret_cast<direct2d_compat::factory*>(this),
+            reinterpret_cast<
+                const direct2d_compat::drawing_state_description1*>(
+                    description),
+            reinterpret_cast<direct2d_compat::rendering_parameters*>(
+                text_rendering_parameters),
+            reinterpret_cast<direct2d_compat::drawing_state_block1**>(value));
     }
 
     HRESULT STDMETHODCALLTYPE CreateGdiMetafile(

@@ -3353,10 +3353,13 @@ block preserves antialias modes, text antialias mode, tags, affine transform,
 optional DirectWrite rendering parameters, mutation, and originating factory
 identity through ABI-compatible COM interfaces. Windows ARM64/x64 validation
 compares initial and mutated descriptions with a system Direct2D factory. The
-`ID2D1Factory1` description-v1 overload remains a distinct extension task
-because its extra primitive-blend and unit-mode state requires the longer
-`ID2D1DrawingStateBlock1` vtable; the base object is never miscast to that
-interface.
+`ID2D1Factory1` description-v1 overload now activates the same object through
+its complete `ID2D1DrawingStateBlock1` vtable, including primitive-blend and
+unit-mode state. Base-interface `SetDescription` updates only the common
+prefix and preserves those v1-only fields, matching system Direct2D. The
+portable suite checks v1 querying and state projection; Windows ARM64/x64
+compare both initial v1 state and mixed base/v1 mutation with the system
+factory.
 
 ## Delivery order
 

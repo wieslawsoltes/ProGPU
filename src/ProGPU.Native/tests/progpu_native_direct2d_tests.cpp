@@ -814,6 +814,81 @@ int main()
             compat_drawing_state_text == nullptr,
         "ProGPU base drawing-state mutation diverged from system Direct2D");
 
+    ComPtr<ID2D1Factory1> system_drawing_state_factory1;
+    require(
+        D2D1CreateFactory(
+            D2D1_FACTORY_TYPE_SINGLE_THREADED,
+            system_drawing_state_factory1.GetAddressOf()) == S_OK,
+        "system ID2D1Factory1 creation failed");
+    D2D1_DRAWING_STATE_DESCRIPTION1 drawing_state_description1{};
+    drawing_state_description1.antialiasMode =
+        D2D1_ANTIALIAS_MODE_ALIASED;
+    drawing_state_description1.textAntialiasMode =
+        D2D1_TEXT_ANTIALIAS_MODE_GRAYSCALE;
+    drawing_state_description1.tag1 = 53U;
+    drawing_state_description1.tag2 = 71U;
+    drawing_state_description1.transform =
+        D2D1::Matrix3x2F(0.5F, 0.0F, 0.0F, 2.0F, -4.0F, 6.0F);
+    drawing_state_description1.primitiveBlend = D2D1_PRIMITIVE_BLEND_COPY;
+    drawing_state_description1.unitMode = D2D1_UNIT_MODE_PIXELS;
+    ComPtr<ID2D1DrawingStateBlock1> compat_drawing_state1;
+    ComPtr<ID2D1DrawingStateBlock1> system_drawing_state1;
+    require(
+        compat_factory->CreateDrawingStateBlock(
+            &drawing_state_description1,
+            nullptr,
+            &compat_drawing_state1) == S_OK &&
+            compat_drawing_state1 != nullptr &&
+            system_drawing_state_factory1->CreateDrawingStateBlock(
+                &drawing_state_description1,
+                nullptr,
+                &system_drawing_state1) == S_OK &&
+            system_drawing_state1 != nullptr,
+        "ProGPU drawing-state block1 creation failed");
+    ComPtr<ID2D1DrawingStateBlock> compat_drawing_state1_base;
+    ComPtr<ID2D1DrawingStateBlock> system_drawing_state1_base;
+    require(
+        SUCCEEDED(compat_drawing_state1.As(&compat_drawing_state1_base)) &&
+            SUCCEEDED(system_drawing_state1.As(
+                &system_drawing_state1_base)) &&
+            has_same_com_identity(
+                compat_drawing_state1.Get(),
+                compat_drawing_state1_base.Get()),
+        "ProGPU drawing-state block1 COM identity changed");
+    D2D1_DRAWING_STATE_DESCRIPTION1 compat_returned_drawing_state1{};
+    D2D1_DRAWING_STATE_DESCRIPTION1 system_returned_drawing_state1{};
+    compat_drawing_state1->GetDescription(
+        &compat_returned_drawing_state1);
+    system_drawing_state1->GetDescription(
+        &system_returned_drawing_state1);
+    require(
+        std::memcmp(
+            &compat_returned_drawing_state1,
+            &system_returned_drawing_state1,
+            sizeof(D2D1_DRAWING_STATE_DESCRIPTION1)) == 0,
+        "ProGPU drawing-state block1 diverged from system Direct2D");
+    D2D1_DRAWING_STATE_DESCRIPTION base_state_update{};
+    base_state_update.antialiasMode = D2D1_ANTIALIAS_MODE_PER_PRIMITIVE;
+    base_state_update.textAntialiasMode = D2D1_TEXT_ANTIALIAS_MODE_CLEARTYPE;
+    base_state_update.tag1 = 73U;
+    base_state_update.tag2 = 89U;
+    base_state_update.transform = D2D1::Matrix3x2F::Translation(8.0F, -3.0F);
+    compat_drawing_state1_base->SetDescription(&base_state_update);
+    system_drawing_state1_base->SetDescription(&base_state_update);
+    compat_drawing_state1->GetDescription(
+        &compat_returned_drawing_state1);
+    system_drawing_state1->GetDescription(
+        &system_returned_drawing_state1);
+    require(
+        std::memcmp(
+            &compat_returned_drawing_state1,
+            &system_returned_drawing_state1,
+            sizeof(D2D1_DRAWING_STATE_DESCRIPTION1)) == 0 &&
+            compat_returned_drawing_state1.primitiveBlend ==
+                D2D1_PRIMITIVE_BLEND_COPY &&
+            compat_returned_drawing_state1.unitMode == D2D1_UNIT_MODE_PIXELS,
+        "ProGPU base mutation did not preserve drawing-state block1 fields");
+
     ComPtr<ID2D1PathGeometry1> compat_path;
     require(
         compat_factory->CreatePathGeometry(&compat_path) == S_OK &&
