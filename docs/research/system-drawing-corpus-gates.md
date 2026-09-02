@@ -120,6 +120,16 @@ rendering operations such as
 bitmap and codec behavior, matrices, paths, regions, fonts, and metafiles. The
 repository is MIT licensed and already includes a `mono` compatibility slice.
 
+The 2026-09-02 audit pins dotnet/winforms commit
+[`b8acee9d29af0ed4c9049cea5f05f80570ecf3b0`](https://github.com/dotnet/winforms/commit/b8acee9d29af0ed4c9049cea5f05f80570ecf3b0).
+Its `System/Drawing` test subtree contains 72 test files and 1,822 `[Fact]` or
+`[Theory]` declarations, compared with 549 declarations in ProGPU's focused
+suite. The gap is behavioral depth rather than public API presence: ApiCompat
+already reports zero missing types and members. For example, the official
+linear-gradient tests exposed that coincident endpoint construction must surface
+GDI+'s `ExternalException`, not a generic argument exception; that contract now
+has a focused ProGPU regression.
+
 Proposed integration:
 
 - source-build the tests against ProGPU with the same assembly identity;

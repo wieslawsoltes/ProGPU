@@ -1,5 +1,6 @@
 using System.ComponentModel;
 using System.Numerics;
+using System.Runtime.InteropServices;
 
 namespace System.Drawing.Drawing2D;
 
@@ -30,7 +31,7 @@ public sealed class LinearGradientBrush : Brush, ICloneable
     {
         if (point1 == point2)
         {
-            throw new ArgumentException("The gradient points must be distinct.", nameof(point2));
+            throw new ExternalException("A generic error occurred in GDI+.");
         }
 
         _startPoint = new Vector2(point1.X, point1.Y);

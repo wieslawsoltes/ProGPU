@@ -952,6 +952,17 @@ public sealed class DrawingApiQualityTests
         Assert.Throws<OverflowException>(() => new ColorBlend(-1));
     }
 
+    [Theory]
+    [InlineData(0f, 0f)]
+    [InlineData(1f, 1f)]
+    public void LinearGradientBrushEqualPointsMatchGdiStatusContract(float x, float y)
+    {
+        var point = new PointF(x, y);
+
+        Assert.Throws<ExternalException>(() =>
+            new LinearGradientBrush(point, point, Color.Fuchsia, Color.GhostWhite));
+    }
+
     [Fact]
     public void LinearGradientStateClonesAndLowersToTypedNativeStops()
     {
