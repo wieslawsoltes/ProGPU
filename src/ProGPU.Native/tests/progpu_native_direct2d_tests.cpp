@@ -757,6 +757,63 @@ int main()
         rectangle_oracle_matches,
         "ProGPU rectangle stroke queries diverged from system Direct2D");
 
+    D2D1_DRAWING_STATE_DESCRIPTION drawing_state_description{};
+    drawing_state_description.antialiasMode = D2D1_ANTIALIAS_MODE_ALIASED;
+    drawing_state_description.textAntialiasMode =
+        D2D1_TEXT_ANTIALIAS_MODE_GRAYSCALE;
+    drawing_state_description.tag1 = 17U;
+    drawing_state_description.tag2 = 29U;
+    drawing_state_description.transform =
+        D2D1::Matrix3x2F(1.5F, 0.0F, 0.0F, 0.75F, 3.0F, -2.0F);
+    ComPtr<ID2D1DrawingStateBlock> compat_drawing_state;
+    ComPtr<ID2D1DrawingStateBlock> system_drawing_state;
+    require(
+        compat_factory->CreateDrawingStateBlock(
+            &drawing_state_description,
+            nullptr,
+            &compat_drawing_state) == S_OK &&
+            compat_drawing_state != nullptr &&
+            system_rectangle_factory->CreateDrawingStateBlock(
+                &drawing_state_description,
+                nullptr,
+                &system_drawing_state) == S_OK &&
+            system_drawing_state != nullptr,
+        "ProGPU base drawing-state block creation failed");
+    ComPtr<ID2D1Factory> compat_drawing_state_factory;
+    compat_drawing_state->GetFactory(&compat_drawing_state_factory);
+    D2D1_DRAWING_STATE_DESCRIPTION compat_returned_drawing_state{};
+    D2D1_DRAWING_STATE_DESCRIPTION system_returned_drawing_state{};
+    compat_drawing_state->GetDescription(&compat_returned_drawing_state);
+    system_drawing_state->GetDescription(&system_returned_drawing_state);
+    require(
+        has_same_com_identity(
+            compat_drawing_state_factory.Get(), compat_factory.Get()) &&
+            std::memcmp(
+                &compat_returned_drawing_state,
+                &system_returned_drawing_state,
+                sizeof(D2D1_DRAWING_STATE_DESCRIPTION)) == 0,
+        "ProGPU base drawing-state block diverged from system Direct2D");
+    drawing_state_description.antialiasMode =
+        D2D1_ANTIALIAS_MODE_PER_PRIMITIVE;
+    drawing_state_description.textAntialiasMode =
+        D2D1_TEXT_ANTIALIAS_MODE_CLEARTYPE;
+    drawing_state_description.tag1 = 31U;
+    drawing_state_description.tag2 = 47U;
+    compat_drawing_state->SetDescription(&drawing_state_description);
+    system_drawing_state->SetDescription(&drawing_state_description);
+    compat_drawing_state->GetDescription(&compat_returned_drawing_state);
+    system_drawing_state->GetDescription(&system_returned_drawing_state);
+    ComPtr<IDWriteRenderingParams> compat_drawing_state_text;
+    compat_drawing_state->GetTextRenderingParams(
+        &compat_drawing_state_text);
+    require(
+        std::memcmp(
+            &compat_returned_drawing_state,
+            &system_returned_drawing_state,
+            sizeof(D2D1_DRAWING_STATE_DESCRIPTION)) == 0 &&
+            compat_drawing_state_text == nullptr,
+        "ProGPU base drawing-state mutation diverged from system Direct2D");
+
     ComPtr<ID2D1PathGeometry1> compat_path;
     require(
         compat_factory->CreatePathGeometry(&compat_path) == S_OK &&

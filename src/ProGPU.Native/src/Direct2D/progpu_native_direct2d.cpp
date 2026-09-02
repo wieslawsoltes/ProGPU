@@ -1,6 +1,7 @@
 #include "progpu_native_direct2d.h"
 #include "progpu_native_com.hpp"
 #include "progpu_native_direct2d_core.hpp"
+#include "progpu_native_direct2d_drawing_state.hpp"
 #include "progpu_native_direct2d_path.hpp"
 #include "progpu_native_direct2d_rectangle.hpp"
 #include "progpu_native_scene_builder.hpp"
@@ -4706,11 +4707,18 @@ public:
     }
 
     HRESULT STDMETHODCALLTYPE CreateDrawingStateBlock(
-        const D2D1_DRAWING_STATE_DESCRIPTION*,
-        IDWriteRenderingParams*,
+        const D2D1_DRAWING_STATE_DESCRIPTION* description,
+        IDWriteRenderingParams* text_rendering_parameters,
         ID2D1DrawingStateBlock** value) noexcept override
     {
-        return unsupported(value);
+        return direct2d_compat::detail::create_drawing_state_block(
+            reinterpret_cast<direct2d_compat::factory*>(this),
+            reinterpret_cast<
+                const direct2d_compat::drawing_state_description*>(
+                    description),
+            reinterpret_cast<direct2d_compat::rendering_parameters*>(
+                text_rendering_parameters),
+            reinterpret_cast<direct2d_compat::drawing_state_block**>(value));
     }
 
     HRESULT STDMETHODCALLTYPE CreateWicBitmapRenderTarget(
