@@ -276,7 +276,16 @@ internal static class FixtureCatalog
             {
                 var relative = Path.ChangeExtension(Path.GetRelativePath(directory, svgPath), null)!;
                 relative = $"{directoryName}/{relative}".Replace(Path.DirectorySeparatorChar, '/');
-                var expectedPath = Path.Combine(root, relative.Replace('/', Path.DirectorySeparatorChar) + ".png");
+                var localRelative = relative.Replace('/', Path.DirectorySeparatorChar) + ".png";
+                var officialPath = Path.Combine(root, localRelative);
+                var chromePath = Path.Combine(
+                    corpusRoot,
+                    "tests",
+                    "Svg.Skia.UnitTests",
+                    "ChromeReference",
+                    "resvg",
+                    localRelative);
+                var expectedPath = File.Exists(chromePath) ? chromePath : officialPath;
                 yield return new Fixture("resvg", relative, svgPath, expectedPath);
             }
         }
@@ -290,7 +299,15 @@ internal static class FixtureCatalog
                      .Order(StringComparer.Ordinal))
         {
             var relative = Path.GetFileNameWithoutExtension(svgPath);
-            var expectedPath = Path.Combine(root, "png", relative + ".png");
+            var chromePath = Path.Combine(
+                corpusRoot,
+                "tests",
+                "Svg.Skia.UnitTests",
+                "ChromeReference",
+                "W3C",
+                relative + ".png");
+            var officialPath = Path.Combine(root, "png", relative + ".png");
+            var expectedPath = File.Exists(chromePath) ? chromePath : officialPath;
             if (File.Exists(expectedPath))
             {
                 yield return new Fixture("w3c", relative, svgPath, expectedPath);

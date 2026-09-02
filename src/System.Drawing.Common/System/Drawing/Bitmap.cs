@@ -2409,7 +2409,13 @@ public class Bitmap : Image, IProGpuContextTextureLeaseSource
 
     private void Dispose(bool disposing)
     {
-        lock (_textureLifetimeLock)
+        object? textureLifetimeLock = _textureLifetimeLock;
+        if (textureLifetimeLock is null)
+        {
+            return;
+        }
+
+        lock (textureLifetimeLock)
         {
             if (_isDisposed) return;
             try
