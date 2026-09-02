@@ -361,6 +361,7 @@ public sealed class Direct2DInteropContractTests
         Assert.Contains("crossing_count", pathSource, StringComparison.Ordinal);
         Assert.Contains("normalize_self_intersecting_contour", pathSource, StringComparison.Ordinal);
         Assert.Contains("crossing_points", pathSource, StringComparison.Ordinal);
+        Assert.Contains("source_filled_contour_count", pathSource, StringComparison.Ordinal);
         Assert.Contains("normalize_interacting_contours", pathSource, StringComparison.Ordinal);
         Assert.Contains("std::vector<std::uint8_t> operands", pathSource, StringComparison.Ordinal);
         Assert.Contains("std::vector<std::uint8_t> interior_left", pathSource, StringComparison.Ordinal);
