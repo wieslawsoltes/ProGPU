@@ -717,15 +717,17 @@ outlines are emitted analytically. Path outlines apply the caller's affine and
 flattening tolerance, remove duplicate/zero-length edges, reject transverse
 self-intersections, normalize each contour direction, and emit the
 fill-invariant Direct2D sink shape: alternate fill mode, filled closed figures,
-and explicit closing points. Multiple independent contours are qualified in
-one transaction after pairwise boundary and containment checks; hollow-only
-geometry produces an empty outline. The implementation matches genuine
-Direct2D fill-mode, unchanged segment-flag state, callback counts, and dense
-filled regions on Windows ARM64 and x64. Nested contours, holes, touching or
-overlapping boundaries, and self-intersections still fail closed before the
-caller sink is mutated. The contour walk and intersection checks are
-topology-dependent scalar work; there is no data-parallel whole-buffer loop
-being left unvectorized.
+and explicit closing points. Multiple independent contours and non-touching
+alternate-fill nesting are qualified in one transaction after pairwise
+boundary checks. A containment-depth pass reverses every odd-depth contour so
+holes remain correct under winding consumers too; hollow-only geometry
+produces an empty outline. The implementation matches genuine Direct2D fill
+mode, unchanged segment-flag state, callback counts, and dense filled regions
+on Windows ARM64 and x64. Winding-rule nesting, touching or overlapping
+boundaries, and self-intersections still fail closed before the caller sink is
+mutated. The contour walk and intersection checks are topology-dependent
+scalar work; there is no data-parallel whole-buffer loop being left
+unvectorized.
 
 Portable nondegenerate rectangle geometry also implements exact
 `GetWidenedBounds` for the default stroke and same-factory solid stroke

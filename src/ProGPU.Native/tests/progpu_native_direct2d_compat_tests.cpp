@@ -2504,12 +2504,17 @@ int run_tests()
     if (nested_outline_path->Outline(
             nullptr,
             core::default_flattening_tolerance,
-            nested_outline_sink.get()) != compat::not_implemented ||
-        raw_nested_outline_sink->set_fill_mode_count != 0U ||
+            nested_outline_sink.get()) != com::ok ||
+        raw_nested_outline_sink->fill_mode !=
+            compat::fill_mode::alternate ||
+        raw_nested_outline_sink->set_fill_mode_count != 1U ||
         raw_nested_outline_sink->set_segment_flags_count != 0U ||
-        raw_nested_outline_sink->begin_count != 0U ||
-        raw_nested_outline_sink->end_count != 0U ||
-        raw_nested_outline_sink->line_count != 0U) {
+        raw_nested_outline_sink->begin_count != 2U ||
+        raw_nested_outline_sink->end_count != 2U ||
+        raw_nested_outline_sink->line_count != 8U ||
+        !captured_fill_contains(*raw_nested_outline_sink, {0.25F, 0.25F}) ||
+        captured_fill_contains(*raw_nested_outline_sink, {1.0F, 1.0F}) ||
+        captured_fill_contains(*raw_nested_outline_sink, {3.0F, 1.0F})) {
       return 425;
     }
 
@@ -8181,6 +8186,7 @@ int run_tests()
       return 394;
     }
     const auto create_multi_outline_path = [](ID2D1Factory* path_factory,
+                                               bool nested,
                                                ID2D1PathGeometry** value) {
       if (path_factory == nullptr || value == nullptr) {
         return E_POINTER;
@@ -8203,12 +8209,16 @@ int run_tests()
         sink_value->AddLines(
             first_points.data(), static_cast<UINT32>(first_points.size()));
         sink_value->EndFigure(D2D1_FIGURE_END_CLOSED);
+        const float left = nested ? 0.5F : 10.0F;
+        const float top = nested ? 0.5F : 0.0F;
+        const float right = nested ? 1.5F : 12.0F;
+        const float bottom = nested ? 1.5F : 2.0F;
         sink_value->BeginFigure(
-            D2D1_POINT_2F{10.0F, 0.0F}, D2D1_FIGURE_BEGIN_FILLED);
-        constexpr std::array<D2D1_POINT_2F, 3U> second_points{{
-            {10.0F, 2.0F},
-            {12.0F, 2.0F},
-            {12.0F, 0.0F},
+            D2D1_POINT_2F{left, top}, D2D1_FIGURE_BEGIN_FILLED);
+        const std::array<D2D1_POINT_2F, 3U> second_points{{
+            {left, bottom},
+            {right, bottom},
+            {right, top},
         }};
         sink_value->AddLines(
             second_points.data(), static_cast<UINT32>(second_points.size()));
@@ -8230,9 +8240,9 @@ int run_tests()
     ID2D1PathGeometry* portable_multi_outline_path = nullptr;
     ID2D1PathGeometry* system_multi_outline_path = nullptr;
     if (FAILED(create_multi_outline_path(
-            native_factory, &portable_multi_outline_path)) ||
+            native_factory, false, &portable_multi_outline_path)) ||
         FAILED(create_multi_outline_path(
-            system_factory, &system_multi_outline_path)) ||
+            system_factory, false, &system_multi_outline_path)) ||
         portable_multi_outline_path == nullptr ||
         system_multi_outline_path == nullptr) {
       if (portable_multi_outline_path != nullptr) {
@@ -8328,6 +8338,109 @@ int run_tests()
       system_open_query_path->Release();
       system_factory->Release();
       return 422;
+    }
+    ID2D1PathGeometry* portable_nested_outline_path = nullptr;
+    ID2D1PathGeometry* system_nested_outline_path = nullptr;
+    if (FAILED(create_multi_outline_path(
+            native_factory, true, &portable_nested_outline_path)) ||
+        FAILED(create_multi_outline_path(
+            system_factory, true, &system_nested_outline_path)) ||
+        portable_nested_outline_path == nullptr ||
+        system_nested_outline_path == nullptr) {
+      if (portable_nested_outline_path != nullptr) {
+        portable_nested_outline_path->Release();
+      }
+      if (system_nested_outline_path != nullptr) {
+        system_nested_outline_path->Release();
+      }
+      portable_multi_query_path->Release();
+      system_multi_query_path->Release();
+      portable_open_query_path->Release();
+      system_open_query_path->Release();
+      system_factory->Release();
+      return 426;
+    }
+    auto* raw_portable_nested_outline_sink = new simplified_sink();
+    com::pointer<compat::simplified_geometry_sink>
+        portable_nested_outline_sink;
+    portable_nested_outline_sink.attach(raw_portable_nested_outline_sink);
+    auto* raw_system_nested_outline_sink = new simplified_sink();
+    com::pointer<compat::simplified_geometry_sink> system_nested_outline_sink;
+    system_nested_outline_sink.attach(raw_system_nested_outline_sink);
+    const HRESULT portable_nested_outline_status =
+        portable_nested_outline_path->Outline(
+            nullptr,
+            D2D1_DEFAULT_FLATTENING_TOLERANCE,
+            reinterpret_cast<ID2D1SimplifiedGeometrySink*>(
+                portable_nested_outline_sink.get()));
+    const HRESULT system_nested_outline_status =
+        system_nested_outline_path->Outline(
+            nullptr,
+            D2D1_DEFAULT_FLATTENING_TOLERANCE,
+            reinterpret_cast<ID2D1SimplifiedGeometrySink*>(
+                system_nested_outline_sink.get()));
+    bool nested_outline_matches =
+        SUCCEEDED(portable_nested_outline_status) &&
+        SUCCEEDED(system_nested_outline_status) &&
+        raw_portable_nested_outline_sink->fill_mode ==
+            raw_system_nested_outline_sink->fill_mode &&
+        raw_portable_nested_outline_sink->segment_flags ==
+            raw_system_nested_outline_sink->segment_flags &&
+        raw_portable_nested_outline_sink->set_fill_mode_count ==
+            raw_system_nested_outline_sink->set_fill_mode_count &&
+        raw_portable_nested_outline_sink->set_segment_flags_count ==
+            raw_system_nested_outline_sink->set_segment_flags_count &&
+        raw_portable_nested_outline_sink->begin_count ==
+            raw_system_nested_outline_sink->begin_count &&
+        raw_portable_nested_outline_sink->end_count ==
+            raw_system_nested_outline_sink->end_count &&
+        raw_portable_nested_outline_sink->line_count ==
+            raw_system_nested_outline_sink->line_count;
+    for (std::uint32_t y_index = 0U;
+         nested_outline_matches && y_index < 10U; ++y_index) {
+      for (std::uint32_t x_index = 0U; x_index < 10U; ++x_index) {
+        const compat::point_2f point{
+            -0.25F + static_cast<float>(x_index) * 0.28F,
+            -0.25F + static_cast<float>(y_index) * 0.28F};
+        if (captured_fill_contains(
+                *raw_portable_nested_outline_sink, point) !=
+            captured_fill_contains(*raw_system_nested_outline_sink, point)) {
+          nested_outline_matches = false;
+          break;
+        }
+      }
+    }
+    portable_nested_outline_path->Release();
+    system_nested_outline_path->Release();
+    if (!nested_outline_matches) {
+      std::fprintf(
+          stderr,
+          "nested outline status=%ld/%ld fill=%u/%u flags=%u/%u "
+          "callbacks=%u/%u,%u/%u geometry=%u/%u,%u/%u,%u/%u\n",
+          static_cast<long>(portable_nested_outline_status),
+          static_cast<long>(system_nested_outline_status),
+          static_cast<unsigned>(raw_portable_nested_outline_sink->fill_mode),
+          static_cast<unsigned>(raw_system_nested_outline_sink->fill_mode),
+          static_cast<unsigned>(
+              raw_portable_nested_outline_sink->segment_flags),
+          static_cast<unsigned>(
+              raw_system_nested_outline_sink->segment_flags),
+          raw_portable_nested_outline_sink->set_fill_mode_count,
+          raw_system_nested_outline_sink->set_fill_mode_count,
+          raw_portable_nested_outline_sink->set_segment_flags_count,
+          raw_system_nested_outline_sink->set_segment_flags_count,
+          raw_portable_nested_outline_sink->begin_count,
+          raw_system_nested_outline_sink->begin_count,
+          raw_portable_nested_outline_sink->end_count,
+          raw_system_nested_outline_sink->end_count,
+          raw_portable_nested_outline_sink->line_count,
+          raw_system_nested_outline_sink->line_count);
+      portable_multi_query_path->Release();
+      system_multi_query_path->Release();
+      portable_open_query_path->Release();
+      system_open_query_path->Release();
+      system_factory->Release();
+      return 427;
     }
     const D2D1_STROKE_STYLE_PROPERTIES open_dash_properties{
         D2D1_CAP_STYLE_FLAT,
