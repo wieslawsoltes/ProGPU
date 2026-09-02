@@ -905,12 +905,15 @@ crossings and positive collinear overlaps after four-lane ARM64 NEON or SSE2
 AABB rejection, evaluates each Boolean mode on both sides of every sub-edge,
 deduplicates directed boundaries, and publishes force-unstroked closed
 contours only after the complete graph is valid. Empty-operand identities are
-handled explicitly. Multiple or ambiguous self-crossings and numerically
-invalid graphs still fail before sink mutation. Optimized portable fixtures
-compare all four modes over a dense lattice for concave, identical,
-multi-component, and nested-hole inputs. Genuine system Direct2D differentials
-run the multi-component/hole lattice under clean Windows 11 ARM64 and x64
-MSVC `/W4 /WX` builds.
+handled explicitly. Any count of distinct proper self-crossings is first
+normalized through the same alternate/signed-winding layer transaction, so
+the four modes also accept alternate pentagrams and mixed-figure winding
+pentagrams. Repeated/triple crossing points, ambiguous contacts, and
+numerically invalid graphs still fail before sink mutation. Optimized portable
+fixtures compare all four modes over dense lattices for concave, identical,
+multi-component, nested-hole, and star-center inputs. Genuine system Direct2D
+differentials run those component/hole/star lattices under clean Windows 11
+ARM64 and x64 MSVC `/W4 /WX` builds.
 
 The same normalized contour-set engine now implements
 `ID2D1PathGeometry::CompareWithGeometry` for arbitrary component and hole
@@ -924,10 +927,13 @@ separated contours report `DISJOINT`, and proper crossing or boundary-only
 contact without containment reports `OVERLAP`. Shared boundaries do not erase
 an otherwise exact containment relation. The transformed input is normalized
 through the caller's tolerance and same-factory ownership is enforced before
-analysis. Multiple/ambiguous self-crossings leave the output `UNKNOWN` and
-fail closed. Windows ARM64/x64 differentials cover every simple relation plus
-multi-component containment, equality, nested-hole separation, and shared
-boundary containment against system Direct2D.
+analysis. Distinct proper self-crossings use normalized alternate/signed-
+winding layers, including the alternate pentagram's center hole and the mixed
+winding pentagram's filled center. Repeated/triple crossings and ambiguous
+contacts leave the output `UNKNOWN` and fail closed. Windows ARM64/x64
+differentials cover every simple relation plus multi-component containment,
+equality, nested-hole separation, shared-boundary containment, and both star
+center relations against system Direct2D.
 
 `ID2D1PathGeometry::StrokeContainsPoint` now handles one simple closed path
 with the canonical null/default solid miter stroke. The query point is mapped
@@ -2387,7 +2393,8 @@ applies the selected rule across all flattened figures, while area is qualified
 for independent, nested, point-touching, shared-edge, and two-contour overlap
 through normalized Outline topology. A single proper transverse
 self-intersection is also qualified, as are arbitrary counts of interacting
-simple contours; multiple/ambiguous self-crossings remain a separate gate.
+simple contours and qualified distinct proper self-crossings; repeated/triple
+or contact-ambiguous self-crossings remain a separate gate.
 Dashed, open,
 or multi-figure path stroke containment, collapsed/styled/open/
 multi-figure path widening, and styled/open/multi-figure widened bounds,
