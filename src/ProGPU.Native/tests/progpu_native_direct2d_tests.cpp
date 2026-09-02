@@ -12,6 +12,7 @@
 #include <wrl/client.h>
 
 #include <array>
+#include <atomic>
 #include <cmath>
 #include <cstring>
 #include <cstdlib>
@@ -158,6 +159,112 @@ ComPtr<ID2D1PathGeometry> create_area_path(
         "Direct2D area-oracle path close failed");
     return path;
 }
+
+ComPtr<ID2D1PathGeometry> create_rectangle_path(ID2D1Factory* factory)
+{
+    ComPtr<ID2D1PathGeometry> path;
+    ComPtr<ID2D1GeometrySink> sink;
+    require(
+        factory != nullptr &&
+            factory->CreatePathGeometry(&path) == S_OK &&
+            path->Open(&sink) == S_OK,
+        "Direct2D rectangle path creation failed");
+    record_rectangle_path(sink.Get());
+    require(
+        sink->Close() == S_OK,
+        "Direct2D rectangle path close failed");
+    return path;
+}
+
+class collecting_tessellation_sink final : public ID2D1TessellationSink {
+public:
+    HRESULT STDMETHODCALLTYPE QueryInterface(
+        REFIID interface_id,
+        void** value) noexcept override
+    {
+        if (value == nullptr) {
+            return E_POINTER;
+        }
+        *value = nullptr;
+        if (IsEqualIID(interface_id, IID_IUnknown) ||
+            IsEqualIID(interface_id, __uuidof(ID2D1TessellationSink))) {
+            *value = static_cast<ID2D1TessellationSink*>(this);
+            AddRef();
+            return S_OK;
+        }
+        return E_NOINTERFACE;
+    }
+
+    ULONG STDMETHODCALLTYPE AddRef() noexcept override
+    {
+        return reference_count_.fetch_add(1U, std::memory_order_relaxed) + 1U;
+    }
+
+    ULONG STDMETHODCALLTYPE Release() noexcept override
+    {
+        const ULONG remaining = reference_count_.fetch_sub(
+            1U,
+            std::memory_order_acq_rel) - 1U;
+        if (remaining == 0U) {
+            delete this;
+        }
+        return remaining;
+    }
+
+    void STDMETHODCALLTYPE AddTriangles(
+        const D2D1_TRIANGLE* triangles,
+        UINT32 triangle_count) noexcept override
+    {
+        if (FAILED(status_) ||
+            (triangle_count != 0U && triangles == nullptr)) {
+            status_ = E_INVALIDARG;
+            return;
+        }
+        if (triangle_count == 0U) {
+            return;
+        }
+        try {
+            triangles_.insert(
+                triangles_.end(), triangles, triangles + triangle_count);
+        } catch (const std::bad_alloc&) {
+            status_ = E_OUTOFMEMORY;
+        } catch (...) {
+            status_ = E_FAIL;
+        }
+    }
+
+    HRESULT STDMETHODCALLTYPE Close() noexcept override
+    {
+        return status_;
+    }
+
+    float area() const noexcept
+    {
+        double result = 0.0;
+        for (const D2D1_TRIANGLE& triangle : triangles_) {
+            result += 0.5 * std::abs(
+                (static_cast<double>(triangle.point2.x) - triangle.point1.x) *
+                    (static_cast<double>(triangle.point3.y) -
+                        triangle.point1.y) -
+                (static_cast<double>(triangle.point2.y) - triangle.point1.y) *
+                    (static_cast<double>(triangle.point3.x) -
+                        triangle.point1.x));
+        }
+        return static_cast<float>(result);
+    }
+
+    bool empty() const noexcept
+    {
+        return triangles_.empty();
+    }
+
+private:
+    ~collecting_tessellation_sink() = default;
+
+    std::atomic<ULONG> reference_count_{1U};
+    std::vector<D2D1_TRIANGLE> triangles_;
+    HRESULT status_ = S_OK;
+};
 
 void record_path_vocabulary(ID2D1GeometrySink* sink)
 {
@@ -815,6 +922,243 @@ int main()
         true,
         150.0F,
         "ProGPU winding overlapping path area diverged from system Direct2D");
+
+    const ComPtr<ID2D1PathGeometry> compat_nested_path = create_area_path(
+        compat_factory.Get(), D2D1_FILL_MODE_ALTERNATE, false);
+    const ComPtr<ID2D1PathGeometry> system_nested_path = create_area_path(
+        system_rectangle_factory.Get(), D2D1_FILL_MODE_ALTERNATE, false);
+    ComPtr<ID2D1PathGeometry> compat_nested_outline;
+    ComPtr<ID2D1GeometrySink> compat_nested_outline_sink;
+    ComPtr<ID2D1PathGeometry> system_nested_outline;
+    ComPtr<ID2D1GeometrySink> system_nested_outline_sink;
+    require(
+        compat_factory->CreatePathGeometry(&compat_nested_outline) == S_OK &&
+            compat_nested_outline->Open(
+                &compat_nested_outline_sink) == S_OK &&
+            compat_nested_path->Outline(
+                nullptr,
+                D2D1_DEFAULT_FLATTENING_TOLERANCE,
+                compat_nested_outline_sink.Get()) == S_OK &&
+            compat_nested_outline_sink->Close() == S_OK &&
+            system_rectangle_factory->CreatePathGeometry(
+                &system_nested_outline) == S_OK &&
+            system_nested_outline->Open(
+                &system_nested_outline_sink) == S_OK &&
+            system_nested_path->Outline(
+                nullptr,
+                D2D1_DEFAULT_FLATTENING_TOLERANCE,
+                system_nested_outline_sink.Get()) == S_OK &&
+            system_nested_outline_sink->Close() == S_OK,
+        "ProGPU nested path outline failed");
+    float compat_nested_outline_area = 0.0F;
+    float system_nested_outline_area = 0.0F;
+    require(
+        compat_nested_outline->ComputeArea(
+            nullptr,
+            D2D1_DEFAULT_FLATTENING_TOLERANCE,
+            &compat_nested_outline_area) == S_OK &&
+            system_nested_outline->ComputeArea(
+                nullptr,
+                D2D1_DEFAULT_FLATTENING_TOLERANCE,
+                &system_nested_outline_area) == S_OK &&
+            approximately_equal(compat_nested_outline_area, 96.0F, 0.001F) &&
+            approximately_equal(
+                compat_nested_outline_area,
+                system_nested_outline_area,
+                0.001F),
+        "ProGPU nested path outline diverged from system Direct2D");
+
+    ComPtr<collecting_tessellation_sink> compat_tessellation;
+    ComPtr<collecting_tessellation_sink> system_tessellation;
+    compat_tessellation.Attach(new collecting_tessellation_sink());
+    system_tessellation.Attach(new collecting_tessellation_sink());
+    require(
+        compat_nested_path->Tessellate(
+            nullptr,
+            D2D1_DEFAULT_FLATTENING_TOLERANCE,
+            compat_tessellation.Get()) == S_OK &&
+            system_nested_path->Tessellate(
+                nullptr,
+                D2D1_DEFAULT_FLATTENING_TOLERANCE,
+                system_tessellation.Get()) == S_OK &&
+            compat_tessellation->Close() == S_OK &&
+            system_tessellation->Close() == S_OK &&
+            !compat_tessellation->empty() &&
+            !system_tessellation->empty() &&
+            approximately_equal(compat_tessellation->area(), 96.0F, 0.001F) &&
+            approximately_equal(
+                compat_tessellation->area(),
+                system_tessellation->area(),
+                0.001F),
+        "ProGPU nested path tessellation diverged from system Direct2D");
+
+    const ComPtr<ID2D1PathGeometry> system_rectangle_path =
+        create_rectangle_path(system_rectangle_factory.Get());
+    D2D1_RECT_F compat_path_widened_bounds{};
+    D2D1_RECT_F system_path_widened_bounds{};
+    BOOL compat_path_stroke_edge = FALSE;
+    BOOL system_path_stroke_edge = FALSE;
+    BOOL compat_path_stroke_center = TRUE;
+    BOOL system_path_stroke_center = TRUE;
+    require(
+        compat_rectangle_path->GetWidenedBounds(
+            2.0F,
+            nullptr,
+            nullptr,
+            D2D1_DEFAULT_FLATTENING_TOLERANCE,
+            &compat_path_widened_bounds) == S_OK &&
+            system_rectangle_path->GetWidenedBounds(
+                2.0F,
+                nullptr,
+                nullptr,
+                D2D1_DEFAULT_FLATTENING_TOLERANCE,
+                &system_path_widened_bounds) == S_OK &&
+            compat_rectangle_path->StrokeContainsPoint(
+                D2D1::Point2F(-0.5F, 4.0F),
+                2.0F,
+                nullptr,
+                nullptr,
+                D2D1_DEFAULT_FLATTENING_TOLERANCE,
+                &compat_path_stroke_edge) == S_OK &&
+            system_rectangle_path->StrokeContainsPoint(
+                D2D1::Point2F(-0.5F, 4.0F),
+                2.0F,
+                nullptr,
+                nullptr,
+                D2D1_DEFAULT_FLATTENING_TOLERANCE,
+                &system_path_stroke_edge) == S_OK &&
+            compat_rectangle_path->StrokeContainsPoint(
+                D2D1::Point2F(5.0F, 4.0F),
+                2.0F,
+                nullptr,
+                nullptr,
+                D2D1_DEFAULT_FLATTENING_TOLERANCE,
+                &compat_path_stroke_center) == S_OK &&
+            system_rectangle_path->StrokeContainsPoint(
+                D2D1::Point2F(5.0F, 4.0F),
+                2.0F,
+                nullptr,
+                nullptr,
+                D2D1_DEFAULT_FLATTENING_TOLERANCE,
+                &system_path_stroke_center) == S_OK &&
+            std::memcmp(
+                &compat_path_widened_bounds,
+                &system_path_widened_bounds,
+                sizeof(D2D1_RECT_F)) == 0 &&
+            compat_path_stroke_edge == TRUE &&
+            compat_path_stroke_edge == system_path_stroke_edge &&
+            compat_path_stroke_center == FALSE &&
+            compat_path_stroke_center == system_path_stroke_center,
+        "ProGPU path stroke queries diverged from system Direct2D");
+
+    ComPtr<ID2D1PathGeometry> compat_path_widening;
+    ComPtr<ID2D1GeometrySink> compat_path_widening_sink;
+    ComPtr<ID2D1PathGeometry> system_path_widening;
+    ComPtr<ID2D1GeometrySink> system_path_widening_sink;
+    require(
+        compat_factory->CreatePathGeometry(&compat_path_widening) == S_OK &&
+            compat_path_widening->Open(&compat_path_widening_sink) == S_OK &&
+            compat_rectangle_path->Widen(
+                2.0F,
+                nullptr,
+                nullptr,
+                D2D1_DEFAULT_FLATTENING_TOLERANCE,
+                compat_path_widening_sink.Get()) == S_OK &&
+            compat_path_widening_sink->Close() == S_OK &&
+            system_rectangle_factory->CreatePathGeometry(
+                &system_path_widening) == S_OK &&
+            system_path_widening->Open(&system_path_widening_sink) == S_OK &&
+            system_rectangle_path->Widen(
+                2.0F,
+                nullptr,
+                nullptr,
+                D2D1_DEFAULT_FLATTENING_TOLERANCE,
+                system_path_widening_sink.Get()) == S_OK &&
+            system_path_widening_sink->Close() == S_OK,
+        "ProGPU path widening failed");
+    float compat_path_widening_area = 0.0F;
+    float system_path_widening_area = 0.0F;
+    require(
+        compat_path_widening->ComputeArea(
+            nullptr,
+            D2D1_DEFAULT_FLATTENING_TOLERANCE,
+            &compat_path_widening_area) == S_OK &&
+            system_path_widening->ComputeArea(
+                nullptr,
+                D2D1_DEFAULT_FLATTENING_TOLERANCE,
+                &system_path_widening_area) == S_OK &&
+            approximately_equal(compat_path_widening_area, 72.0F, 0.001F) &&
+            approximately_equal(
+                compat_path_widening_area,
+                system_path_widening_area,
+                0.001F),
+        "ProGPU path widening diverged from system Direct2D");
+
+    ComPtr<ID2D1RectangleGeometry> system_compare_rectangle;
+    require(
+        system_rectangle_factory->CreateRectangleGeometry(
+            &compat_rectangle_value,
+            &system_compare_rectangle) == S_OK,
+        "system comparison rectangle creation failed");
+    D2D1_GEOMETRY_RELATION compat_relation =
+        D2D1_GEOMETRY_RELATION_UNKNOWN;
+    D2D1_GEOMETRY_RELATION system_relation =
+        D2D1_GEOMETRY_RELATION_UNKNOWN;
+    require(
+        compat_rectangle_path->CompareWithGeometry(
+            compat_rectangle.Get(),
+            nullptr,
+            D2D1_DEFAULT_FLATTENING_TOLERANCE,
+            &compat_relation) == S_OK &&
+            system_rectangle_path->CompareWithGeometry(
+                system_compare_rectangle.Get(),
+                nullptr,
+                D2D1_DEFAULT_FLATTENING_TOLERANCE,
+                &system_relation) == S_OK &&
+            compat_relation == D2D1_GEOMETRY_RELATION_OVERLAP &&
+            compat_relation == system_relation,
+        "ProGPU path comparison diverged from system Direct2D");
+
+    ComPtr<ID2D1PathGeometry> compat_combination;
+    ComPtr<ID2D1GeometrySink> compat_combination_sink;
+    ComPtr<ID2D1PathGeometry> system_combination;
+    ComPtr<ID2D1GeometrySink> system_combination_sink;
+    require(
+        compat_factory->CreatePathGeometry(&compat_combination) == S_OK &&
+            compat_combination->Open(&compat_combination_sink) == S_OK &&
+            compat_rectangle_path->CombineWithGeometry(
+                compat_rectangle.Get(),
+                D2D1_COMBINE_MODE_XOR,
+                nullptr,
+                D2D1_DEFAULT_FLATTENING_TOLERANCE,
+                compat_combination_sink.Get()) == S_OK &&
+            compat_combination_sink->Close() == S_OK &&
+            system_rectangle_factory->CreatePathGeometry(
+                &system_combination) == S_OK &&
+            system_combination->Open(&system_combination_sink) == S_OK &&
+            system_rectangle_path->CombineWithGeometry(
+                system_compare_rectangle.Get(),
+                D2D1_COMBINE_MODE_XOR,
+                nullptr,
+                D2D1_DEFAULT_FLATTENING_TOLERANCE,
+                system_combination_sink.Get()) == S_OK &&
+            system_combination_sink->Close() == S_OK,
+        "ProGPU path Boolean combination failed");
+    float compat_combination_area = 0.0F;
+    float system_combination_area = 0.0F;
+    require(
+        compat_combination->ComputeArea(
+            nullptr,
+            D2D1_DEFAULT_FLATTENING_TOLERANCE,
+            &compat_combination_area) == S_OK &&
+            system_combination->ComputeArea(
+                nullptr,
+                D2D1_DEFAULT_FLATTENING_TOLERANCE,
+                &system_combination_area) == S_OK &&
+            approximately_equal(compat_combination_area, 80.0F, 0.001F) &&
+            approximately_equal(
+                compat_combination_area, system_combination_area, 0.001F),
+        "ProGPU path Boolean combination diverged from system Direct2D");
     D2D1_POINT_DESCRIPTION compat_point_description{};
     require(
         compat_rectangle_path->ComputePointAndSegmentAtLength(
