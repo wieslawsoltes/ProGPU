@@ -1,0 +1,4 @@
+# Exact reviewed SVG.NET-on-ProGPU difference inventory.
+# Format: suite|fixture|observed-error-or-exception
+# The observation is documentary; matching uses the exact suite/fixture key.
+# Populate from artifacts/known-differences.candidate.txt after the first reviewed run.
