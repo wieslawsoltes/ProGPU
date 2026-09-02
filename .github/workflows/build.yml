@@ -10,7 +10,7 @@ on:
   workflow_dispatch:
 
 concurrency:
-  group: build-${{ github.event.pull_request.number || github.ref }}
+  group: build-${{ github.event.pull_request.head.sha || github.sha }}
   # LibreWPF stages native runtimes by exact ProGPU commit. Preserve every
   # artifact-producing run so frequent PR checkpoints cannot invalidate its
   # downstream package gate while that run is still compiling.
