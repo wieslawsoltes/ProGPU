@@ -16,6 +16,7 @@ on:
       - eng/svg-system-drawing.Directory.Packages.props
       - eng/system-drawing-svg-known-differences.txt
       - eng/system-drawing-svg-known-exceptions.txt
+      - eng/system-drawing-svg-threshold-overrides.txt
       - eng/system-drawing-svg-benchmark-fixtures.txt
       - .github/workflows/svg-system-drawing-parity.yml
   push:
@@ -32,6 +33,7 @@ on:
       - eng/svg-system-drawing.Directory.Packages.props
       - eng/system-drawing-svg-known-differences.txt
       - eng/system-drawing-svg-known-exceptions.txt
+      - eng/system-drawing-svg-threshold-overrides.txt
       - eng/system-drawing-svg-benchmark-fixtures.txt
       - .github/workflows/svg-system-drawing-parity.yml
 
@@ -115,6 +117,7 @@ jobs:
           --artifacts "${{ github.workspace }}/artifacts/svg-system-drawing/${{ matrix.suite }}"
           --known-differences "${{ github.workspace }}/eng/system-drawing-svg-known-differences.txt"
           --known-exceptions "${{ github.workspace }}/eng/system-drawing-svg-known-exceptions.txt"
+          --threshold-overrides "${{ github.workspace }}/eng/system-drawing-svg-threshold-overrides.txt"
           --suite "${{ matrix.suite }}"
           --threshold "${{ matrix.threshold }}"
           --max-parallelism 4

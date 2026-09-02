@@ -1,0 +1,2 @@
+# suite|fixture|threshold|reason
+w3c|shapes-intro-01-t|0.102|Embedded SVG font fallback crosses the global threshold between ARM64 and hosted x64

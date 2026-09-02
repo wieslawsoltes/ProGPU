@@ -45,8 +45,12 @@ internal static class CorpusApplication
 
         var expectedDifferences = DifferenceInventory.Read(options.KnownDifferencesPath, options.Suite);
         var expectedExceptions = ExceptionInventory.Read(options.KnownExceptionsPath, options.Suite);
+        var thresholdOverrides = ThresholdOverrideInventory.Read(
+            options.ThresholdOverridesPath,
+            options.Suite);
         var completeFixtureSet = FixtureCatalog.Enumerate(options.CorpusRoot, options.Suite).ToArray();
         ValidateFixtureCounts(options.Suite, completeFixtureSet);
+        ValidateThresholdOverrides(completeFixtureSet, thresholdOverrides);
         var fixtures = options.FixtureKey == null
             ? completeFixtureSet
             : completeFixtureSet.Where(fixture =>
@@ -74,7 +78,9 @@ internal static class CorpusApplication
                 var result = RenderAndCompareIsolated(
                     fixtures[index],
                     options.ArtifactsRoot,
-                    options.Threshold,
+                    thresholdOverrides.GetValueOrDefault(
+                        fixtures[index].Key,
+                        options.Threshold),
                     index);
                 results[index] = result;
                 Console.WriteLine(result.ToConsoleLine());
@@ -369,6 +375,22 @@ internal static class CorpusApplication
         }
     }
 
+    private static void ValidateThresholdOverrides(
+        IReadOnlyCollection<Fixture> fixtures,
+        IReadOnlyDictionary<string, double> thresholdOverrides)
+    {
+        var fixtureKeys = fixtures.Select(static fixture => fixture.Key).ToHashSet(StringComparer.Ordinal);
+        string[] unknownKeys = thresholdOverrides.Keys
+            .Except(fixtureKeys, StringComparer.Ordinal)
+            .Order(StringComparer.Ordinal)
+            .ToArray();
+        if (unknownKeys.Length != 0)
+        {
+            throw new InvalidOperationException(
+                $"Threshold overrides reference unknown fixtures: {string.Join(", ", unknownKeys)}");
+        }
+    }
+
     private static void WriteDifferenceSummary(string title, IReadOnlyCollection<string> differences)
     {
         if (differences.Count == 0)
@@ -620,6 +642,31 @@ internal static class ExceptionInventory
     }
 }
 
+internal static class ThresholdOverrideInventory
+{
+    public static Dictionary<string, double> Read(string path, Suite suite)
+    {
+        if (!File.Exists(path))
+        {
+            throw new FileNotFoundException("Threshold-override inventory was not found.", path);
+        }
+
+        return File.ReadLines(path)
+            .Select(static line => line.Trim())
+            .Where(static line => line.Length > 0 && !line.StartsWith('#'))
+            .Select(static line => line.Split('|', 4))
+            .Select(static parts => parts.Length >= 3 &&
+                double.TryParse(parts[2], NumberStyles.Float, CultureInfo.InvariantCulture, out double threshold) &&
+                threshold is >= 0 and <= 1
+                    ? new KeyValuePair<string, double>($"{parts[0]}|{parts[1]}", threshold)
+                    : throw new InvalidDataException($"Invalid threshold-override row: {string.Join('|', parts)}"))
+            .Where(pair => suite == Suite.All ||
+                suite == Suite.Resvg && pair.Key.StartsWith("resvg|", StringComparison.Ordinal) ||
+                suite == Suite.W3c && pair.Key.StartsWith("w3c|", StringComparison.Ordinal))
+            .ToDictionary(static pair => pair.Key, static pair => pair.Value, StringComparer.Ordinal);
+    }
+}
+
 internal static class BenchmarkFixtureList
 {
     public static string[] Read(string path)
@@ -635,6 +682,7 @@ internal sealed record Options(
     string ArtifactsRoot,
     string KnownDifferencesPath,
     string KnownExceptionsPath,
+    string ThresholdOverridesPath,
     string BenchmarkFixturesPath,
     string? FixtureKey,
     Suite Suite,
@@ -655,6 +703,7 @@ internal sealed record Options(
             throw new ArgumentException(
                 "Usage: quality|performance --corpus-root PATH --artifacts PATH " +
                 "[--known-differences PATH] [--known-exceptions PATH] " +
+                "[--threshold-overrides PATH] " +
                 "[--benchmark-fixtures PATH] " +
                 "[--fixture suite|path] [--suite all|resvg|w3c] " +
                 "[--threshold 0.12] [--iterations 7] [--max-parallelism 4]");
@@ -682,6 +731,7 @@ internal sealed record Options(
         var artifactsRoot = Required(values, "--artifacts");
         var knownDifferences = values.GetValueOrDefault("--known-differences", Path.Combine("eng", "system-drawing-svg-known-differences.txt"));
         var knownExceptions = values.GetValueOrDefault("--known-exceptions", Path.Combine("eng", "system-drawing-svg-known-exceptions.txt"));
+        var thresholdOverrides = values.GetValueOrDefault("--threshold-overrides", Path.Combine("eng", "system-drawing-svg-threshold-overrides.txt"));
         var benchmarkFixtures = values.GetValueOrDefault("--benchmark-fixtures", Path.Combine("eng", "system-drawing-svg-benchmark-fixtures.txt"));
         var suite = values.GetValueOrDefault("--suite", "all") switch
         {
@@ -708,6 +758,7 @@ internal sealed record Options(
             artifactsRoot,
             knownDifferences,
             knownExceptions,
+            thresholdOverrides,
             benchmarkFixtures,
             values.GetValueOrDefault("--fixture"),
             suite,

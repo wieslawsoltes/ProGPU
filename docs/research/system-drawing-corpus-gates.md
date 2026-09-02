@@ -65,6 +65,15 @@ concurrently, capped at four by default; `--max-parallelism 1` retains a serial
 diagnostic mode. Results and generated inventories remain sorted by corpus
 identity rather than completion order.
 
+`eng/system-drawing-svg-threshold-overrides.txt` contains narrowly reviewed
+per-fixture thresholds for cross-architecture reference variation. The first
+entry raises only W3C `shapes-intro-01-t` from `0.100` to `0.102`: its embedded
+SVG font falls back differently on the local ARM64 and hosted x64 runners and
+was observed at `0.099077` and `0.100143`. The rest of both corpora retains the
+suite threshold. Overrides are parsed as typed finite values, validated against
+the pinned fixture catalog, and carry an inline reason; unknown fixture keys
+fail the gate.
+
 The performance command uses ten representative W3C fixtures spanning basic
 shapes, paths, gradients, patterns, and text. It warms the complete pipeline,
 then records seven isolated Release samples with elapsed time, total managed
@@ -132,6 +141,7 @@ dotnet run \
   --artifacts "$PWD/artifacts/svg-system-drawing/all" \
   --known-differences "$PWD/eng/system-drawing-svg-known-differences.txt" \
   --known-exceptions "$PWD/eng/system-drawing-svg-known-exceptions.txt" \
+  --threshold-overrides "$PWD/eng/system-drawing-svg-threshold-overrides.txt" \
   --suite all \
   --threshold 0.12
 ```
