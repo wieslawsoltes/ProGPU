@@ -3410,6 +3410,21 @@ its bitmap report the derived per-axis DPI and the original DIP dimensions;
 valid nonuniform density no longer fails merely because the two DPI values
 differ.
 
+### Windows GDI-metafile resource checkpoint
+
+The exported Windows factory now implements `CreateGdiMetafile`. EMF parsing
+and record validation stay in the genuine system Direct2D dependency, while a
+small ProGPU-owned `ID2D1GdiMetafile` facade restores the compatibility
+factory's COM identity. `GetBounds` and `Stream` preserve the system behavior;
+the object does not delegate any ProGPU geometry, render-target, or scene
+ownership and does not claim a portable GDI runtime on macOS or Linux.
+
+The Windows differential records a fresh enhanced metafile through GDI,
+creates it through both factories from independent `IStream` instances,
+requires exact bounds and record transcript hashes, and verifies each resource
+returns its originating factory. Both ARM64 and x64 pass the complete 13-test
+native matrix under MSVC `/W4 /WX`.
+
 ## Delivery order
 
 1. Keep the dependency classifier and resolver fail-closed invariants green.

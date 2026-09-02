@@ -4354,6 +4354,80 @@ private:
     HRESULT failure_ = S_OK;
 };
 
+class ProGpuD2DGdiMetafile final : public ID2D1GdiMetafile {
+public:
+    ProGpuD2DGdiMetafile(
+        ID2D1Factory1* factory,
+        ID2D1GdiMetafile* source) noexcept
+        : factory_(factory), source_(source)
+    {
+    }
+
+    HRESULT STDMETHODCALLTYPE QueryInterface(
+        REFIID interface_id,
+        void** value) noexcept override
+    {
+        if (value == nullptr) {
+            return E_POINTER;
+        }
+        *value = nullptr;
+        if (IsEqualIID(interface_id, IID_IUnknown) ||
+            IsEqualIID(interface_id, __uuidof(ID2D1Resource)) ||
+            IsEqualIID(interface_id, __uuidof(ID2D1GdiMetafile))) {
+            *value = static_cast<ID2D1GdiMetafile*>(this);
+            AddRef();
+            return S_OK;
+        }
+        return E_NOINTERFACE;
+    }
+
+    ULONG STDMETHODCALLTYPE AddRef() noexcept override
+    {
+        return reference_count_.fetch_add(1U, std::memory_order_relaxed) + 1U;
+    }
+
+    ULONG STDMETHODCALLTYPE Release() noexcept override
+    {
+        const ULONG remaining = reference_count_.fetch_sub(
+            1U, std::memory_order_acq_rel) - 1U;
+        if (remaining == 0U) {
+            delete this;
+        }
+        return remaining;
+    }
+
+    void STDMETHODCALLTYPE GetFactory(
+        ID2D1Factory** value) const noexcept override
+    {
+        if (value == nullptr) {
+            return;
+        }
+        *value = static_cast<ID2D1Factory*>(factory_.Get());
+        if (*value != nullptr) {
+            (*value)->AddRef();
+        }
+    }
+
+    HRESULT STDMETHODCALLTYPE Stream(
+        ID2D1GdiMetafileSink* sink) noexcept override
+    {
+        return source_->Stream(sink);
+    }
+
+    HRESULT STDMETHODCALLTYPE GetBounds(
+        D2D1_RECT_F* bounds) noexcept override
+    {
+        return source_->GetBounds(bounds);
+    }
+
+private:
+    ~ProGpuD2DGdiMetafile() = default;
+
+    std::atomic<ULONG> reference_count_{1U};
+    ComPtr<ID2D1Factory1> factory_;
+    ComPtr<ID2D1GdiMetafile> source_;
+};
+
 class ProGpuD2DFactory final :
     public ID2D1Factory1,
     public ID2D1Multithread,
@@ -4363,12 +4437,12 @@ public:
     ProGpuD2DFactory() noexcept
     {
         D2D1_FACTORY_OPTIONS options{};
-        system_effect_factory_result_ = D2D1CreateFactory(
+        system_factory_result_ = D2D1CreateFactory(
             D2D1_FACTORY_TYPE_MULTI_THREADED,
             __uuidof(ID2D1Factory1),
             &options,
             reinterpret_cast<void**>(
-                system_effect_factory_.ReleaseAndGetAddressOf()));
+                system_factory_.ReleaseAndGetAddressOf()));
     }
 
     HRESULT STDMETHODCALLTYPE QueryInterface(
@@ -4883,10 +4957,29 @@ public:
     }
 
     HRESULT STDMETHODCALLTYPE CreateGdiMetafile(
-        IStream*,
+        IStream* stream,
         ID2D1GdiMetafile** value) noexcept override
     {
-        return unsupported(value);
+        if (value == nullptr) {
+            return E_POINTER;
+        }
+        *value = nullptr;
+        if (FAILED(system_factory_result_)) {
+            return system_factory_result_;
+        }
+        ComPtr<ID2D1GdiMetafile> system_metafile;
+        const HRESULT hr = system_factory_->CreateGdiMetafile(
+            stream, &system_metafile);
+        if (FAILED(hr)) {
+            return hr;
+        }
+        auto* created = new (std::nothrow) ProGpuD2DGdiMetafile(
+            this, system_metafile.Get());
+        if (created == nullptr) {
+            return E_OUTOFMEMORY;
+        }
+        *value = created;
+        return S_OK;
     }
 
     HRESULT STDMETHODCALLTYPE RegisterEffectFromStream(
@@ -4896,10 +4989,10 @@ public:
         UINT32 bindings_count,
         const PD2D1_EFFECT_FACTORY effect_factory) noexcept override
     {
-        if (FAILED(system_effect_factory_result_)) {
-            return system_effect_factory_result_;
+        if (FAILED(system_factory_result_)) {
+            return system_factory_result_;
         }
-        return system_effect_factory_->RegisterEffectFromStream(
+        return system_factory_->RegisterEffectFromStream(
             class_id,
             property_xml,
             bindings,
@@ -4914,10 +5007,10 @@ public:
         UINT32 bindings_count,
         const PD2D1_EFFECT_FACTORY effect_factory) noexcept override
     {
-        if (FAILED(system_effect_factory_result_)) {
-            return system_effect_factory_result_;
+        if (FAILED(system_factory_result_)) {
+            return system_factory_result_;
         }
-        return system_effect_factory_->RegisterEffectFromString(
+        return system_factory_->RegisterEffectFromString(
             class_id,
             property_xml,
             bindings,
@@ -4928,10 +5021,10 @@ public:
     HRESULT STDMETHODCALLTYPE UnregisterEffect(
         REFCLSID class_id) noexcept override
     {
-        if (FAILED(system_effect_factory_result_)) {
-            return system_effect_factory_result_;
+        if (FAILED(system_factory_result_)) {
+            return system_factory_result_;
         }
-        return system_effect_factory_->UnregisterEffect(class_id);
+        return system_factory_->UnregisterEffect(class_id);
     }
 
     HRESULT STDMETHODCALLTYPE GetRegisteredEffects(
@@ -4940,16 +5033,16 @@ public:
         UINT32* effects_returned,
         UINT32* effects_registered) const noexcept override
     {
-        if (FAILED(system_effect_factory_result_)) {
+        if (FAILED(system_factory_result_)) {
             if (effects_returned != nullptr) {
                 *effects_returned = 0U;
             }
             if (effects_registered != nullptr) {
                 *effects_registered = 0U;
             }
-            return system_effect_factory_result_;
+            return system_factory_result_;
         }
-        return system_effect_factory_->GetRegisteredEffects(
+        return system_factory_->GetRegisteredEffects(
             effects,
             effects_count,
             effects_returned,
@@ -4964,10 +5057,10 @@ public:
             return E_POINTER;
         }
         *value = nullptr;
-        if (FAILED(system_effect_factory_result_)) {
-            return system_effect_factory_result_;
+        if (FAILED(system_factory_result_)) {
+            return system_factory_result_;
         }
-        return system_effect_factory_->GetEffectProperties(effect_id, value);
+        return system_factory_->GetEffectProperties(effect_id, value);
     }
 
     BOOL STDMETHODCALLTYPE GetMultithreadProtected() const noexcept override
@@ -5045,8 +5138,8 @@ private:
 
     std::atomic<ULONG> reference_count_{1U};
     std::recursive_mutex mutex_;
-    ComPtr<ID2D1Factory1> system_effect_factory_;
-    HRESULT system_effect_factory_result_ = E_FAIL;
+    ComPtr<ID2D1Factory1> system_factory_;
+    HRESULT system_factory_result_ = E_FAIL;
 };
 
 class CommandStreamSummarySink final : public ID2D1CommandSink1 {

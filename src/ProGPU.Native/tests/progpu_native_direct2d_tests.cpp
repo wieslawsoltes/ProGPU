@@ -98,6 +98,105 @@ ComPtr<IStream> create_registry_xml_stream(
     return stream;
 }
 
+std::vector<uint8_t> create_gdi_metafile_bytes()
+{
+    const RECT frame{0, 0, 1600, 1000};
+    HDC recording = CreateEnhMetaFileW(
+        nullptr,
+        nullptr,
+        &frame,
+        L"ProGPU\0Direct2D GDI metafile parity\0");
+    require(recording != nullptr, "GDI metafile recording creation failed");
+    require(
+        MoveToEx(recording, 2, 3, nullptr) != FALSE &&
+            LineTo(recording, 28, 19) != FALSE &&
+            Rectangle(recording, 4, 5, 31, 23) != FALSE,
+        "GDI metafile record creation failed");
+    HENHMETAFILE metafile = CloseEnhMetaFile(recording);
+    require(metafile != nullptr, "GDI metafile recording close failed");
+    const UINT byte_count = GetEnhMetaFileBits(metafile, 0U, nullptr);
+    require(byte_count != 0U, "GDI metafile byte count was empty");
+    std::vector<uint8_t> bytes(byte_count);
+    require(
+        GetEnhMetaFileBits(metafile, byte_count, bytes.data()) == byte_count,
+        "GDI metafile byte extraction failed");
+    require(
+        DeleteEnhMetaFile(metafile) != FALSE,
+        "GDI metafile handle cleanup failed");
+    return bytes;
+}
+
+class GdiRecordSummarySink final : public ID2D1GdiMetafileSink {
+public:
+    HRESULT STDMETHODCALLTYPE QueryInterface(
+        REFIID interface_id,
+        void** value) noexcept override
+    {
+        if (value == nullptr) {
+            return E_POINTER;
+        }
+        *value = nullptr;
+        if (IsEqualIID(interface_id, IID_IUnknown) ||
+            IsEqualIID(interface_id, __uuidof(ID2D1GdiMetafileSink))) {
+            *value = static_cast<ID2D1GdiMetafileSink*>(this);
+            AddRef();
+            return S_OK;
+        }
+        return E_NOINTERFACE;
+    }
+
+    ULONG STDMETHODCALLTYPE AddRef() noexcept override
+    {
+        return reference_count_.fetch_add(1U, std::memory_order_relaxed) + 1U;
+    }
+
+    ULONG STDMETHODCALLTYPE Release() noexcept override
+    {
+        const ULONG remaining = reference_count_.fetch_sub(
+            1U, std::memory_order_acq_rel) - 1U;
+        if (remaining == 0U) {
+            delete this;
+        }
+        return remaining;
+    }
+
+    HRESULT STDMETHODCALLTYPE ProcessRecord(
+        DWORD record_type,
+        const void* record_data,
+        DWORD record_data_size) noexcept override
+    {
+        if (record_data_size != 0U && record_data == nullptr) {
+            return E_POINTER;
+        }
+        ++record_count_;
+        hash_ ^= static_cast<uint64_t>(record_type);
+        hash_ *= 1099511628211ULL;
+        const auto* bytes = static_cast<const uint8_t*>(record_data);
+        for (DWORD index = 0U; index < record_data_size; ++index) {
+            hash_ ^= bytes[index];
+            hash_ *= 1099511628211ULL;
+        }
+        return S_OK;
+    }
+
+    uint32_t record_count() const noexcept
+    {
+        return record_count_;
+    }
+
+    uint64_t hash() const noexcept
+    {
+        return hash_;
+    }
+
+private:
+    ~GdiRecordSummarySink() = default;
+
+    std::atomic<ULONG> reference_count_{1U};
+    uint32_t record_count_ = 0U;
+    uint64_t hash_ = 1469598103934665603ULL;
+};
+
 template<typename T>
 T read_value(const std::vector<uint8_t>& bytes, size_t offset)
 {
@@ -445,6 +544,61 @@ int main()
             D2D1_FACTORY_TYPE_MULTI_THREADED,
             system_effect_registry_factory.GetAddressOf()) == S_OK,
         "system Direct2D effect-registry factory creation failed");
+    const std::vector<uint8_t> gdi_metafile_bytes =
+        create_gdi_metafile_bytes();
+    ComPtr<IStream> compat_gdi_stream = create_registry_xml_stream(
+        reinterpret_cast<const char*>(gdi_metafile_bytes.data()),
+        gdi_metafile_bytes.size());
+    ComPtr<IStream> system_gdi_stream = create_registry_xml_stream(
+        reinterpret_cast<const char*>(gdi_metafile_bytes.data()),
+        gdi_metafile_bytes.size());
+    ComPtr<ID2D1GdiMetafile> compat_gdi_metafile;
+    ComPtr<ID2D1GdiMetafile> system_gdi_metafile;
+    require(
+        compat_factory->CreateGdiMetafile(
+            compat_gdi_stream.Get(), &compat_gdi_metafile) == S_OK &&
+            system_effect_registry_factory->CreateGdiMetafile(
+                system_gdi_stream.Get(), &system_gdi_metafile) == S_OK &&
+            compat_gdi_metafile != nullptr &&
+            system_gdi_metafile != nullptr,
+        "ProGPU or system GDI metafile creation failed");
+    ComPtr<ID2D1Factory> compat_gdi_factory;
+    ComPtr<ID2D1Factory> system_gdi_factory;
+    compat_gdi_metafile->GetFactory(&compat_gdi_factory);
+    system_gdi_metafile->GetFactory(&system_gdi_factory);
+    require(
+        has_same_com_identity(
+            compat_gdi_factory.Get(), compat_factory.Get()) &&
+            has_same_com_identity(
+                system_gdi_factory.Get(),
+                system_effect_registry_factory.Get()),
+        "ProGPU GDI metafile factory identity changed");
+    D2D1_RECT_F compat_gdi_bounds{};
+    D2D1_RECT_F system_gdi_bounds{};
+    require(
+        compat_gdi_metafile->GetBounds(&compat_gdi_bounds) == S_OK &&
+            system_gdi_metafile->GetBounds(&system_gdi_bounds) == S_OK &&
+            approximately_equal(
+                compat_gdi_bounds.left, system_gdi_bounds.left, 0.0F) &&
+            approximately_equal(
+                compat_gdi_bounds.top, system_gdi_bounds.top, 0.0F) &&
+            approximately_equal(
+                compat_gdi_bounds.right, system_gdi_bounds.right, 0.0F) &&
+            approximately_equal(
+                compat_gdi_bounds.bottom, system_gdi_bounds.bottom, 0.0F),
+        "ProGPU GDI metafile bounds diverged from system Direct2D");
+    ComPtr<GdiRecordSummarySink> compat_gdi_sink;
+    compat_gdi_sink.Attach(new GdiRecordSummarySink());
+    ComPtr<GdiRecordSummarySink> system_gdi_sink;
+    system_gdi_sink.Attach(new GdiRecordSummarySink());
+    require(
+        compat_gdi_metafile->Stream(compat_gdi_sink.Get()) == S_OK &&
+            system_gdi_metafile->Stream(system_gdi_sink.Get()) == S_OK &&
+            compat_gdi_sink->record_count() != 0U &&
+            compat_gdi_sink->record_count() ==
+                system_gdi_sink->record_count() &&
+            compat_gdi_sink->hash() == system_gdi_sink->hash(),
+        "ProGPU GDI metafile records diverged from system Direct2D");
     constexpr PCWSTR registry_effect_xml = LR"(<?xml version='1.0'?>
         <Effect>
             <Property name='DisplayName' type='string' value='ProGPU Registry Differential'/>
