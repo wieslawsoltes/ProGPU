@@ -22,6 +22,23 @@ namespace progpu::native::direct2d::compat::detail {
     float flattening_tolerance,
     std::int32_t* contains) noexcept;
 
+[[nodiscard]] com::result compare_rectangle(
+    factory* owner,
+    const rectangle_f& rectangle,
+    geometry* candidate,
+    const matrix_3x2_f* candidate_transform,
+    float flattening_tolerance,
+    geometry_relation* relation) noexcept;
+
+[[nodiscard]] com::result combine_rectangle(
+    factory* owner,
+    const rectangle_f& rectangle,
+    geometry* candidate,
+    combine_mode mode,
+    const matrix_3x2_f* candidate_transform,
+    float flattening_tolerance,
+    simplified_geometry_sink* sink) noexcept;
+
 [[nodiscard]] com::result outline_rectangle(
     const rectangle_f& rectangle,
     const matrix_3x2_f* world_transform,

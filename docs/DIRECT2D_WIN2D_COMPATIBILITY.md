@@ -3281,19 +3281,28 @@ silently rasterizing on the CPU.
 
 The exported Windows `progpu_native_direct2d_compat_factory_create` facade now
 routes `ID2D1RectangleGeometry::GetWidenedBounds`, `StrokeContainsPoint`,
-`Outline`, and `Widen` through the same typed rectangle-query implementation as
-the portable COM factory. This removes four facade-only `E_NOTIMPL` results
+`CompareWithGeometry`, `CombineWithGeometry`, `Outline`, and `Widen` through
+the same typed rectangle-query implementation as the portable COM factory.
+This removes the remaining facade-only geometry-operation `E_NOTIMPL` results
 without duplicating geometry math or adding a CPU raster path. The null/default
 stroke lane preserves the qualified alternate-fill outer/inner transcript;
 same-factory solid styles are admitted by widened bounds, while unsupported
 styled widening continues to fail closed before caller-sink mutation.
 
+Rectangle comparison and combination retain the allocation-free
+rectangle/axis-preserving fast paths. Arbitrary same-factory geometry operands
+fall through to a transient typed rectangle transcript and the shared
+normalized path core, preserving complete fill semantics without penalizing
+the common rectangle lane.
+
 The Windows provider test creates these resources through the exported
 `ID2D1Factory1`, validates exact widened bounds and stroke inclusion/exclusion,
 streams outline and widened contours into provider-owned path sinks, and checks
-their bounds and filled hole semantics. It repeats the same operations through
-a genuine system `D2D1CreateFactory` and requires matching bounds and region
-probes. Both Windows 11 ARM64 and x64 builds pass with MSVC `/W4 /WX`; the
+their bounds and filled hole semantics. It also exercises rectangle-initiated
+relation and Boolean combination against a provider path. It repeats the same
+operations through a genuine system `D2D1CreateFactory` and requires matching
+bounds, regions, relations, and Boolean area. Both Windows 11 ARM64 and x64
+builds pass with MSVC `/W4 /WX`; the
 portable optimized and sanitizer suites exercise the identical shared
 implementation on macOS.
 

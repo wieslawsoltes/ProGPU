@@ -193,6 +193,8 @@ public sealed class Direct2DInteropContractTests
         Assert.Contains("direct2d_core::rectangle_geometry geometry", provider, StringComparison.Ordinal);
         Assert.Contains("detail::get_rectangle_widened_bounds", provider, StringComparison.Ordinal);
         Assert.Contains("detail::rectangle_stroke_contains_point", provider, StringComparison.Ordinal);
+        Assert.Contains("detail::compare_rectangle", provider, StringComparison.Ordinal);
+        Assert.Contains("detail::combine_rectangle", provider, StringComparison.Ordinal);
         Assert.Contains("detail::outline_rectangle", provider, StringComparison.Ordinal);
         Assert.Contains("detail::widen_rectangle", provider, StringComparison.Ordinal);
         Assert.Contains("get_portable_path", provider, StringComparison.Ordinal);
@@ -206,6 +208,8 @@ public sealed class Direct2DInteropContractTests
         Assert.Contains("path->Widen", provider, StringComparison.Ordinal);
         Assert.DoesNotContain("signed_areas.assign", provider, StringComparison.Ordinal);
         Assert.Contains("com::result outline_rectangle", rectangleQueries, StringComparison.Ordinal);
+        Assert.Contains("com::result compare_rectangle", rectangleQueries, StringComparison.Ordinal);
+        Assert.Contains("com::result combine_rectangle", rectangleQueries, StringComparison.Ordinal);
         Assert.Contains("ProGPU rectangle geometry widened bounds changed", providerTest, StringComparison.Ordinal);
         Assert.Contains("ProGPU rectangle solid-style widened bounds changed", providerTest, StringComparison.Ordinal);
         Assert.Contains("ProGPU rectangle geometry outline failed", providerTest, StringComparison.Ordinal);
@@ -220,6 +224,7 @@ public sealed class Direct2DInteropContractTests
         Assert.Contains("ProGPU path widening diverged from system Direct2D", providerTest, StringComparison.Ordinal);
         Assert.Contains("ProGPU path comparison diverged from system Direct2D", providerTest, StringComparison.Ordinal);
         Assert.Contains("ProGPU path Boolean combination diverged from system Direct2D", providerTest, StringComparison.Ordinal);
+        Assert.Contains("ProGPU rectangle Boolean combination diverged from system Direct2D", providerTest, StringComparison.Ordinal);
         Assert.DoesNotContain("compat_transform_rectangle", provider, StringComparison.Ordinal);
         Assert.Contains("degenerate.point_at_length", nativeTest, StringComparison.Ordinal);
     }

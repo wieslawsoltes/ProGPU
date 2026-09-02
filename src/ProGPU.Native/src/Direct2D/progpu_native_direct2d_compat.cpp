@@ -331,6 +331,36 @@ using rectangle_vertices = std::array<point_2f, 4U>;
               relation);
 }
 
+[[nodiscard]] com::result create_rectangle_path_geometry(
+    factory* owner,
+    const rectangle_f& rectangle,
+    com::pointer<path_geometry>& path) noexcept
+{
+    path_geometry* raw_path = nullptr;
+    com::result status = detail::create_path_geometry(owner, &raw_path);
+    path.attach(raw_path);
+    if (com::failed(status)) {
+        return status;
+    }
+    geometry_sink* raw_sink = nullptr;
+    status = path->Open(&raw_sink);
+    com::pointer<geometry_sink> sink;
+    sink.attach(raw_sink);
+    if (com::failed(status)) {
+        return status;
+    }
+    const std::array<point_2f, 3U> points{{
+        {rectangle.right, rectangle.top},
+        {rectangle.right, rectangle.bottom},
+        {rectangle.left, rectangle.bottom}}};
+    sink->SetFillMode(fill_mode::winding);
+    sink->BeginFigure(
+        {rectangle.left, rectangle.top}, figure_begin::filled);
+    sink->AddLines(points.data(), static_cast<std::uint32_t>(points.size()));
+    sink->EndFigure(figure_end::closed);
+    return sink->Close();
+}
+
 struct orthogonal_edge final {
     std::uint8_t start_x = 0U;
     std::uint8_t start_y = 0U;
@@ -1714,7 +1744,7 @@ public:
         float flattening_tolerance,
         geometry_relation* relation) const noexcept override
     {
-        return compare_rectangle_with_geometry(
+        return detail::compare_rectangle(
             owner_.get(),
             geometry_.rectangle(),
             candidate,
@@ -1778,30 +1808,14 @@ public:
         float flattening_tolerance,
         simplified_geometry_sink* sink) const noexcept override
     {
-        const com::result axis_aligned_result =
-            combine_rectangle_with_geometry(
-                owner_.get(),
-                geometry_.rectangle(),
-                candidate,
-                mode,
-                candidate_transform,
-                flattening_tolerance,
-                sink);
-        if (axis_aligned_result != not_implemented) {
-            return axis_aligned_result;
-        }
-        rectangle_vertices first{};
-        const com::result vertex_result = geometry_.vertices(nullptr, first);
-        return com::failed(vertex_result)
-            ? vertex_result
-            : combine_rectangle_vertices_with_geometry(
-                  owner_.get(),
-                  first,
-                  candidate,
-                  mode,
-                  candidate_transform,
-                  flattening_tolerance,
-                  sink);
+        return detail::combine_rectangle(
+            owner_.get(),
+            geometry_.rectangle(),
+            candidate,
+            mode,
+            candidate_transform,
+            flattening_tolerance,
+            sink);
     }
 
     com::result PROGPU_NATIVE_COM_CALL Outline(
@@ -2505,6 +2519,85 @@ private:
 } // namespace
 
 namespace detail {
+
+com::result compare_rectangle(
+    factory* owner,
+    const rectangle_f& rectangle,
+    geometry* candidate,
+    const matrix_3x2_f* candidate_transform,
+    float flattening_tolerance,
+    geometry_relation* relation) noexcept
+{
+    const com::result fast_result = compare_rectangle_with_geometry(
+        owner,
+        rectangle,
+        candidate,
+        candidate_transform,
+        flattening_tolerance,
+        relation);
+    if (fast_result != not_implemented) {
+        return fast_result;
+    }
+    com::pointer<path_geometry> rectangle_path;
+    const com::result path_status = create_rectangle_path_geometry(
+        owner, rectangle, rectangle_path);
+    return com::failed(path_status)
+        ? path_status
+        : rectangle_path->CompareWithGeometry(
+              candidate,
+              candidate_transform,
+              flattening_tolerance,
+              relation);
+}
+
+com::result combine_rectangle(
+    factory* owner,
+    const rectangle_f& rectangle,
+    geometry* candidate,
+    combine_mode mode,
+    const matrix_3x2_f* candidate_transform,
+    float flattening_tolerance,
+    simplified_geometry_sink* sink) noexcept
+{
+    const com::result axis_aligned_result = combine_rectangle_with_geometry(
+        owner,
+        rectangle,
+        candidate,
+        mode,
+        candidate_transform,
+        flattening_tolerance,
+        sink);
+    if (axis_aligned_result != not_implemented) {
+        return axis_aligned_result;
+    }
+    rectangle_vertices first{};
+    const com::result vertex_result =
+        core::rectangle_geometry(rectangle).vertices(nullptr, first);
+    const com::result affine_result = com::failed(vertex_result)
+        ? vertex_result
+        : combine_rectangle_vertices_with_geometry(
+              owner,
+              first,
+              candidate,
+              mode,
+              candidate_transform,
+              flattening_tolerance,
+              sink);
+    if (affine_result != not_implemented) {
+        return affine_result;
+    }
+    com::pointer<path_geometry> rectangle_path;
+    const com::result path_status = create_rectangle_path_geometry(
+        owner, rectangle, rectangle_path);
+    return com::failed(path_status)
+        ? path_status
+        : rectangle_path->CombineWithGeometry(
+              candidate,
+              mode,
+              candidate_transform,
+              flattening_tolerance,
+              sink);
+}
 
 com::result get_rectangle_widened_bounds(
     factory* owner,
