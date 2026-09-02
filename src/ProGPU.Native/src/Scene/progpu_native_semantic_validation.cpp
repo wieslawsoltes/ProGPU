@@ -288,7 +288,8 @@ bool is_valid_semantic_image(
         PROGPU_NATIVE_SCENE_IMAGE_PATCH_BATCH |
         PROGPU_NATIVE_SCENE_IMAGE_ADDRESS_U_MASK |
         PROGPU_NATIVE_SCENE_IMAGE_ADDRESS_V_MASK |
-        PROGPU_NATIVE_SCENE_IMAGE_EXTENDED_SOURCE_RECT;
+        PROGPU_NATIVE_SCENE_IMAGE_EXTENDED_SOURCE_RECT |
+        PROGPU_NATIVE_SCENE_IMAGE_SOURCE_ALPHA_IGNORE;
     const std::uint32_t address_u =
         (image.flags & PROGPU_NATIVE_SCENE_IMAGE_ADDRESS_U_MASK) >>
         PROGPU_NATIVE_SCENE_IMAGE_ADDRESS_U_SHIFT;
@@ -312,6 +313,8 @@ bool is_valid_semantic_image(
         ((address_u == 0U && address_v == 0U) || extended_source) &&
         (!extended_source ||
             (image.flags & PROGPU_NATIVE_SCENE_IMAGE_PATCH_BATCH) == 0U) &&
+        !((image.flags & PROGPU_NATIVE_SCENE_IMAGE_SOURCE_ALPHA_IGNORE) != 0U &&
+            (image.flags & PROGPU_NATIVE_SCENE_IMAGE_PATCH_BATCH) != 0U) &&
         image.image_width != 0U &&
         image.image_height != 0U && image.image_width <= 16384U &&
         image.image_height <= 16384U &&

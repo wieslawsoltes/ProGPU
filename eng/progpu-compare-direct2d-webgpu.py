@@ -25,6 +25,7 @@ PROBES = (
     (2, 34),
     (18, 28),
     (46, 36),
+    (60, 24),
     (8, 56),
     (1, 56),
     (24, 56),
@@ -108,7 +109,7 @@ def compare(reference_path: pathlib.Path, candidate_path: pathlib.Path) -> dict:
             max(changed_y),
         ]
 
-    # The twenty-five clear/gradient/bitmap/bitmap-brush/path/stroke/interior,
+    # The twenty-six clear/gradient/bitmap/bitmap-brush/path/stroke/interior,
     # clip, opacity-mask, compatible-target, and layer
     # probes must remain within one channel level.
     # Metal and llvmpipe/Vulkan currently differ at no more than 305
@@ -153,7 +154,8 @@ def main() -> int:
         "Fixture": (
             "64x64 clear, linear-gradient rectangle, radial-gradient ellipse, "
             "nearest-sampled BGRA bitmap, repeated nearest-sampled BGRA "
-            "bitmap-brush rectangle, stroked ellipse, and path-filled and "
+            "bitmap-brush rectangle, an alpha-ignore BGRA bitmap, stroked "
+            "ellipse, and path-filled and "
             "stroked triangle, solid stroked rectangle, solid rounded "
             "rectangle, aliased and antialiased clips, opacity masks, a "
             "compatible target, and opacity/geometric-mask layers"

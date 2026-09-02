@@ -179,6 +179,15 @@ constexpr com::guid scene_mesh_native_interface_id{
     return false;
 }
 
+[[nodiscard]] constexpr std::uint32_t image_alpha_flags(
+    alpha_mode alpha) noexcept
+{
+    return PROGPU_NATIVE_SCENE_IMAGE_SOURCE_PREMULTIPLIED |
+        (alpha == alpha_mode::ignore
+            ? PROGPU_NATIVE_SCENE_IMAGE_SOURCE_ALPHA_IGNORE
+            : 0U);
+}
+
 [[nodiscard]] constexpr std::uint8_t premultiply_unorm8(
     std::uint8_t channel,
     std::uint8_t alpha) noexcept
@@ -3357,7 +3366,8 @@ public:
                 dxgi_format_r8g8b8a8_unorm &&
                 actual.pixel_format_value.format !=
                     dxgi_format_b8g8r8a8_unorm) ||
-            actual.pixel_format_value.alpha != alpha_mode::premultiplied) {
+            (actual.pixel_format_value.alpha != alpha_mode::premultiplied &&
+                actual.pixel_format_value.alpha != alpha_mode::ignore)) {
             return not_implemented;
         }
         if (actual.dpi_x == 0.0F && actual.dpi_y == 0.0F) {
@@ -3460,7 +3470,8 @@ public:
             actual.pixel_format_value.alpha = alpha_mode::premultiplied;
         }
         if (actual.pixel_format_value.format != dxgi_format ||
-            actual.pixel_format_value.alpha != alpha_mode::premultiplied) {
+            (actual.pixel_format_value.alpha != alpha_mode::premultiplied &&
+                actual.pixel_format_value.alpha != alpha_mode::ignore)) {
             return not_implemented;
         }
         if (actual.dpi_x == 0.0F && actual.dpi_y == 0.0F) {
@@ -3492,7 +3503,8 @@ public:
             if (com::failed(copy_result)) {
                 return copy_result;
             }
-            if (requires_premultiplication) {
+            if (requires_premultiplication &&
+                actual.pixel_format_value.alpha == alpha_mode::premultiplied) {
                 premultiply_rgba8(pixels);
             }
             auto* created = new (std::nothrow) portable_bitmap(
@@ -3552,8 +3564,7 @@ public:
             if (!try_map_wic_pixel_format(
                     source_wic_format,
                     source_dxgi_format,
-                    requires_premultiplication) ||
-                requires_premultiplication) {
+                    requires_premultiplication)) {
                 return not_implemented;
             }
             if (source_size.width == 0U || source_size.height == 0U ||
@@ -3586,8 +3597,12 @@ public:
                 actual.pixel_format_value.alpha = alpha_mode::premultiplied;
             }
             if (actual.pixel_format_value.format != source_dxgi_format ||
-                actual.pixel_format_value.alpha !=
-                    alpha_mode::premultiplied) {
+                (actual.pixel_format_value.alpha !=
+                        alpha_mode::premultiplied &&
+                    actual.pixel_format_value.alpha != alpha_mode::ignore) ||
+                (requires_premultiplication &&
+                    actual.pixel_format_value.alpha ==
+                        alpha_mode::premultiplied)) {
                 return not_implemented;
             }
             if (actual.dpi_x == 0.0F && actual.dpi_y == 0.0F) {
@@ -3649,12 +3664,17 @@ public:
 
         const size_u source_size = source->GetPixelSize();
         const pixel_format source_format = source->GetPixelFormat();
+        const bool color_format =
+            source_format.format == dxgi_format_r8g8b8a8_unorm ||
+            source_format.format == dxgi_format_b8g8r8a8_unorm;
         if (source_size.width == 0U || source_size.height == 0U ||
-            (source_format.format != dxgi_format_r8g8b8a8_unorm &&
-                source_format.format != dxgi_format_b8g8r8a8_unorm &&
+            (!color_format &&
                 (!source_scene ||
                     source_format.format != dxgi_format_a8_unorm)) ||
-            source_format.alpha != alpha_mode::premultiplied) {
+            (color_format
+                    ? source_format.alpha != alpha_mode::premultiplied &&
+                        source_format.alpha != alpha_mode::ignore
+                    : source_format.alpha != alpha_mode::premultiplied)) {
             return not_implemented;
         }
         bitmap_properties actual{};
@@ -3676,7 +3696,12 @@ public:
             }
         }
         if (actual.pixel_format_value.format != source_format.format ||
-            actual.pixel_format_value.alpha != alpha_mode::premultiplied) {
+            (color_format
+                    ? actual.pixel_format_value.alpha !=
+                            alpha_mode::premultiplied &&
+                        actual.pixel_format_value.alpha != alpha_mode::ignore
+                    : actual.pixel_format_value.alpha !=
+                        alpha_mode::premultiplied)) {
             return not_implemented;
         }
         if (!valid_dpi(actual.dpi_x, actual.dpi_y)) {
@@ -4527,8 +4552,7 @@ public:
                 image.image_width = nested_snapshot.width;
                 image.image_height = nested_snapshot.height;
                 image.row_bytes = nested_snapshot.row_bytes;
-                image.flags =
-                    PROGPU_NATIVE_SCENE_IMAGE_SOURCE_PREMULTIPLIED |
+                image.flags = image_alpha_flags(snapshot.format.alpha) |
                     PROGPU_NATIVE_SCENE_IMAGE_EXTENDED_SOURCE_RECT;
                 image.sampling = PROGPU_NATIVE_IMAGE_SAMPLING_LINEAR;
                 image.source_rect = {
@@ -4696,7 +4720,7 @@ public:
         image.image_width = snapshot.width;
         image.image_height = snapshot.height;
         image.row_bytes = snapshot.row_bytes;
-        image.flags = PROGPU_NATIVE_SCENE_IMAGE_SOURCE_PREMULTIPLIED;
+        image.flags = image_alpha_flags(snapshot.format.alpha);
         image.sampling = interpolation ==
                 bitmap_interpolation_mode::nearest_neighbor
             ? PROGPU_NATIVE_IMAGE_SAMPLING_NEAREST
@@ -5944,7 +5968,7 @@ private:
         image.image_width = snapshot.width;
         image.image_height = snapshot.height;
         image.row_bytes = snapshot.row_bytes;
-        image.flags = PROGPU_NATIVE_SCENE_IMAGE_SOURCE_PREMULTIPLIED |
+        image.flags = image_alpha_flags(snapshot.format.alpha) |
             PROGPU_NATIVE_SCENE_IMAGE_EXTENDED_SOURCE_RECT |
             image_address_flags(
                 extend_x, PROGPU_NATIVE_SCENE_IMAGE_ADDRESS_U_SHIFT) |

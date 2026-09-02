@@ -266,7 +266,9 @@ enum {
     PROGPU_NATIVE_SCENE_IMAGE_ADDRESS_V_SHIFT = 7U,
     PROGPU_NATIVE_SCENE_IMAGE_ADDRESS_V_MASK = 3U << 7U,
     /* Allows finite positive source rectangles outside the image extent. */
-    PROGPU_NATIVE_SCENE_IMAGE_EXTENDED_SOURCE_RECT = 1U << 9U
+    PROGPU_NATIVE_SCENE_IMAGE_EXTENDED_SOURCE_RECT = 1U << 9U,
+    /* Ignore sampled source alpha and treat every texel as fully opaque. */
+    PROGPU_NATIVE_SCENE_IMAGE_SOURCE_ALPHA_IGNORE = 1U << 10U
 };
 
 typedef enum progpu_native_image_address_mode {

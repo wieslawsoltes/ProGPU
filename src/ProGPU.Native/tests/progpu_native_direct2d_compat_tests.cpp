@@ -6178,6 +6178,64 @@ int run_tests()
         return 147;
     }
 
+    const compat::bitmap_properties ignored_alpha_bitmap_properties{
+        {87U, compat::alpha_mode::ignore}, 96.0F, 96.0F};
+    const std::array<std::uint8_t, 4U> ignored_alpha_pixels{
+        0x20U, 0x40U, 0x80U, 0x00U};
+    compat::bitmap* raw_ignored_alpha_bitmap = nullptr;
+    if (target->CreateBitmap(
+            {1U, 1U},
+            ignored_alpha_pixels.data(),
+            4U,
+            &ignored_alpha_bitmap_properties,
+            &raw_ignored_alpha_bitmap) != com::ok ||
+        raw_ignored_alpha_bitmap == nullptr ||
+        raw_ignored_alpha_bitmap->GetPixelFormat().alpha !=
+            compat::alpha_mode::ignore) {
+        return 490;
+    }
+    com::pointer<compat::bitmap> ignored_alpha_bitmap;
+    ignored_alpha_bitmap.attach(raw_ignored_alpha_bitmap);
+    target->BeginDraw();
+    target->DrawBitmap(
+        ignored_alpha_bitmap.get(),
+        nullptr,
+        1.0F,
+        compat::bitmap_interpolation_mode::nearest_neighbor,
+        nullptr);
+    if (target->EndDraw(nullptr, nullptr) != com::ok) {
+        return 491;
+    }
+    const std::uint64_t ignored_alpha_scene_size =
+        scene_target->GetRequiredSceneSize();
+    std::vector<std::byte> ignored_alpha_scene(
+        static_cast<std::size_t>(ignored_alpha_scene_size));
+    std::uint64_t ignored_alpha_scene_written = 0U;
+    if (ignored_alpha_scene_size == 0U ||
+        scene_target->BuildScene(
+            ignored_alpha_scene.data(),
+            ignored_alpha_scene.size(),
+            &ignored_alpha_scene_written) != com::ok ||
+        ignored_alpha_scene_written != ignored_alpha_scene_size) {
+        return 491;
+    }
+    const auto* ignored_alpha_header = reinterpret_cast<
+        const progpu_native_scene_header*>(ignored_alpha_scene.data());
+    const auto* ignored_alpha_command = reinterpret_cast<
+        const progpu_native_scene_command*>(
+        ignored_alpha_scene.data() + ignored_alpha_header->command_offset);
+    const auto* ignored_alpha_draw = reinterpret_cast<
+        const progpu_native_scene_image_draw*>(
+        ignored_alpha_scene.data() + ignored_alpha_command->payload_offset);
+    if (ignored_alpha_header->command_count != 1U ||
+        ignored_alpha_command->kind != PROGPU_NATIVE_SCENE_COMMAND_DRAW_IMAGE ||
+        (ignored_alpha_draw->flags &
+            PROGPU_NATIVE_SCENE_IMAGE_SOURCE_ALPHA_IGNORE) == 0U ||
+        (ignored_alpha_draw->flags &
+            PROGPU_NATIVE_SCENE_IMAGE_SOURCE_PREMULTIPLIED) == 0U) {
+        return 491;
+    }
+
     auto* raw_wic_source = new fake_wic_bitmap_source(
         compat::wic_pixel_format_32bpp_pbgra);
     com::pointer<compat::wic_bitmap_source> wic_source;
@@ -6488,6 +6546,77 @@ int run_tests()
         return 480;
     }
 
+    const std::vector<std::uint8_t> ignored_wic_source_pixels{
+        200U, 100U, 50U, 127U};
+    auto* raw_ignored_wic_source = new fake_wic_bitmap_source(
+        compat::wic_pixel_format_32bpp_bgra,
+        1U,
+        1U,
+        ignored_wic_source_pixels);
+    com::pointer<compat::wic_bitmap_source> ignored_wic_source;
+    ignored_wic_source.attach(raw_ignored_wic_source);
+    const compat::bitmap_properties ignored_wic_properties{
+        {87U, compat::alpha_mode::ignore}, 96.0F, 96.0F};
+    compat::bitmap* raw_ignored_wic_bitmap = nullptr;
+    if (target->CreateBitmapFromWicBitmap(
+            static_cast<com::unknown*>(ignored_wic_source.get()),
+            &ignored_wic_properties,
+            &raw_ignored_wic_bitmap) != com::ok ||
+        raw_ignored_wic_bitmap == nullptr ||
+        raw_ignored_wic_bitmap->GetPixelFormat().alpha !=
+            compat::alpha_mode::ignore) {
+        return 492;
+    }
+    com::pointer<compat::bitmap> ignored_wic_bitmap;
+    ignored_wic_bitmap.attach(raw_ignored_wic_bitmap);
+    target->BeginDraw();
+    target->DrawBitmap(
+        ignored_wic_bitmap.get(),
+        nullptr,
+        1.0F,
+        compat::bitmap_interpolation_mode::nearest_neighbor,
+        nullptr);
+    if (target->EndDraw(nullptr, nullptr) != com::ok) {
+        return 492;
+    }
+    const std::uint64_t ignored_wic_scene_size =
+        scene_target->GetRequiredSceneSize();
+    std::vector<std::byte> ignored_wic_scene(
+        static_cast<std::size_t>(ignored_wic_scene_size));
+    std::uint64_t ignored_wic_scene_written = 0U;
+    if (ignored_wic_scene_size == 0U ||
+        scene_target->BuildScene(
+            ignored_wic_scene.data(),
+            ignored_wic_scene.size(),
+            &ignored_wic_scene_written) != com::ok ||
+        ignored_wic_scene_written != ignored_wic_scene_size) {
+        return 492;
+    }
+    const auto* ignored_wic_header = reinterpret_cast<
+        const progpu_native_scene_header*>(ignored_wic_scene.data());
+    const progpu_native_scene_resource* ignored_wic_resource = nullptr;
+    for (std::uint32_t index = 0U;
+         index < ignored_wic_header->resource_count;
+         ++index) {
+        const auto* candidate = reinterpret_cast<
+            const progpu_native_scene_resource*>(
+            ignored_wic_scene.data() + ignored_wic_header->resource_offset +
+            static_cast<std::size_t>(index) *
+                ignored_wic_header->resource_stride);
+        if (candidate->kind == PROGPU_NATIVE_SCENE_RESOURCE_IMAGE) {
+            ignored_wic_resource = candidate;
+            break;
+        }
+    }
+    if (ignored_wic_resource == nullptr ||
+        ignored_wic_resource->payload_size != ignored_wic_source_pixels.size() ||
+        std::memcmp(
+            ignored_wic_scene.data() + ignored_wic_resource->payload_offset,
+            ignored_wic_source_pixels.data(),
+            ignored_wic_source_pixels.size()) != 0) {
+        return 492;
+    }
+
     std::vector<std::uint8_t> locked_pixels{
         0x01U, 0x02U, 0x03U, 0x04U,
         0x05U, 0x06U, 0x07U, 0x08U,
@@ -6642,6 +6771,21 @@ int run_tests()
         {0x10U, 0x20U, 0x30U, 0x40U});
     com::pointer<compat::wic_bitmap_lock> straight_wic_lock;
     straight_wic_lock.attach(raw_straight_wic_lock);
+    const compat::bitmap_properties ignored_straight_lock_properties{
+        {87U, compat::alpha_mode::ignore}, 96.0F, 96.0F};
+    compat::bitmap* raw_ignored_straight_lock_bitmap = nullptr;
+    if (target->CreateSharedBitmap(
+            compat::wic_bitmap_lock_interface_id,
+            straight_wic_lock.get(),
+            &ignored_straight_lock_properties,
+            &raw_ignored_straight_lock_bitmap) != com::ok ||
+        raw_ignored_straight_lock_bitmap == nullptr ||
+        raw_ignored_straight_lock_bitmap->GetPixelFormat().alpha !=
+            compat::alpha_mode::ignore) {
+        return 487;
+    }
+    com::pointer<compat::bitmap> ignored_straight_lock_bitmap;
+    ignored_straight_lock_bitmap.attach(raw_ignored_straight_lock_bitmap);
     compat::bitmap* rejected_locked_bitmap = reinterpret_cast<compat::bitmap*>(
         static_cast<std::uintptr_t>(1U));
     if (target->CreateSharedBitmap(
@@ -6693,6 +6837,21 @@ int run_tests()
     }
     com::pointer<compat::bitmap> shared_bitmap;
     shared_bitmap.attach(raw_shared_bitmap);
+    const compat::bitmap_properties ignored_shared_properties{
+        {87U, compat::alpha_mode::ignore}, 96.0F, 96.0F};
+    compat::bitmap* raw_ignored_shared_bitmap = nullptr;
+    if (target->CreateSharedBitmap(
+            compat::bitmap_interface_id,
+            portable_bitmap.get(),
+            &ignored_shared_properties,
+            &raw_ignored_shared_bitmap) != com::ok ||
+        raw_ignored_shared_bitmap == nullptr ||
+        raw_ignored_shared_bitmap->GetPixelFormat().alpha !=
+            compat::alpha_mode::ignore) {
+        return 493;
+    }
+    com::pointer<compat::bitmap> ignored_shared_bitmap;
+    ignored_shared_bitmap.attach(raw_ignored_shared_bitmap);
     float shared_dpi_x = 0.0F;
     float shared_dpi_y = 0.0F;
     shared_bitmap->GetDpi(&shared_dpi_x, &shared_dpi_y);
@@ -6740,6 +6899,8 @@ int run_tests()
         2.0F, 3.0F, 18.0F, 19.0F};
     const compat::rectangle_f shared_view_destination{
         20.0F, 3.0F, 36.0F, 19.0F};
+    const compat::rectangle_f ignored_shared_view_destination{
+        38.0F, 3.0F, 54.0F, 19.0F};
     target->BeginDraw();
     target->DrawBitmap(
         portable_bitmap.get(),
@@ -6750,6 +6911,12 @@ int run_tests()
     target->DrawBitmap(
         shared_bitmap.get(),
         &shared_view_destination,
+        1.0F,
+        compat::bitmap_interpolation_mode::nearest_neighbor,
+        nullptr);
+    target->DrawBitmap(
+        ignored_shared_bitmap.get(),
+        &ignored_shared_view_destination,
         1.0F,
         compat::bitmap_interpolation_mode::nearest_neighbor,
         nullptr);
@@ -6788,9 +6955,19 @@ int run_tests()
     }
     compat::scene_render_target_summary shared_scene_summary{};
     scene_target->GetSummary(&shared_scene_summary);
-    if (shared_scene_summary.draw_count != 2U ||
-        shared_header->command_count != 1U || shared_image_count != 1U ||
+    const auto* ignored_shared_command = reinterpret_cast<
+        const progpu_native_scene_command*>(
+        shared_scene.data() + shared_header->command_offset +
+        shared_header->command_stride);
+    const auto* ignored_shared_draw = reinterpret_cast<
+        const progpu_native_scene_image_draw*>(
+        shared_scene.data() + ignored_shared_command->payload_offset);
+    if (shared_scene_summary.draw_count != 3U ||
+        shared_header->command_count != 2U || shared_image_count != 1U ||
         shared_image_resource == nullptr ||
+        ignored_shared_command->kind != PROGPU_NATIVE_SCENE_COMMAND_DRAW_IMAGE ||
+        (ignored_shared_draw->flags &
+            PROGPU_NATIVE_SCENE_IMAGE_SOURCE_ALPHA_IGNORE) == 0U ||
         shared_scene[shared_image_resource->payload_offset + 4U] !=
             replacement[0]) {
         std::fprintf(

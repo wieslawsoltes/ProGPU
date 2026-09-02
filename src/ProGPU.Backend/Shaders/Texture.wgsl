@@ -515,6 +515,9 @@ fn texture_fs_main_with_mask(input: VertexOutput, maskAlpha: f32) -> vec4<f32> {
             input.cubicResampler,
             addressModes);
     }
+    if (input.color.b < -0.5) {
+        texColor.a = 1.0;
+    }
 
     // patchKind 3 carries straight atlas samples; 4 carries premultiplied atlas samples.
     if (input.patchKind > 2.5) {
@@ -600,6 +603,9 @@ fn color_matrix_fs_main_with_mask(
             addressedTexCoord,
             input.cubicResampler,
             addressModes);
+    }
+    if (input.color.b < -0.5) {
+        source.a = 1.0;
     }
     if (input.color.g > 0.5) {
         source = atlas_unpremultiply(source);
