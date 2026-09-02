@@ -13,6 +13,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <fstream>
+#include <limits>
 #include <span>
 #include <thread>
 #include <utility>
@@ -489,6 +490,8 @@ struct portable_scene final {
         30.0F, 48.0F, 34.0F, 52.0F};
     const d2d::rectangle_f compatible_mask_destination{
         56.0F, 0.0F, 64.0F, 16.0F};
+    const d2d::rectangle_f full_opacity_layer_bounds{
+        32.0F, 20.0F, 36.0F, 24.0F};
     const d2d::rectangle_f opacity_layer_bounds{
         34.0F, 50.0F, 46.0F, 62.0F};
     const d2d::rectangle_f mask_layer_bounds{
@@ -500,6 +503,15 @@ struct portable_scene final {
         {1.0F, 0.0F, 0.0F, 1.0F, 0.0F, 0.0F},
         0.5F,
         nullptr,
+        d2d::layer_options::none};
+    constexpr float maximum_float = std::numeric_limits<float>::max();
+    const d2d::layer_parameters full_opacity_layer_parameters{
+        {-maximum_float, -maximum_float, maximum_float, maximum_float},
+        nullptr,
+        d2d::antialias_mode::per_primitive,
+        {1.0F, 0.0F, 0.0F, 1.0F, 0.0F, 0.0F},
+        1.0F,
+        static_cast<d2d::brush*>(brushes[3U].get()),
         d2d::layer_options::none};
     const d2d::layer_parameters mask_layer_parameters{
         mask_layer_bounds,
@@ -587,6 +599,11 @@ struct portable_scene final {
     require(target->Flush(nullptr, nullptr) == native_com::ok,
         "portable compatible-target opacity mask recording failed");
     target->SetAntialiasMode(d2d::antialias_mode::per_primitive);
+    target->PushLayer(&full_opacity_layer_parameters, layer.get());
+    target->FillRectangle(
+        &full_opacity_layer_bounds,
+        static_cast<d2d::brush*>(brushes[1U].get()));
+    target->PopLayer();
     target->PushLayer(&opacity_layer_parameters, layer.get());
     target->FillRectangle(
         &opacity_layer_bounds,
@@ -681,8 +698,8 @@ struct portable_scene final {
     const bool render_matches = render_status ==
             PROGPU_NATIVE_STATUS_SUCCESS &&
         diagnostics.stage == d2d::scene_submission_stage::none &&
-        scene_metrics.draw_count == 16U &&
-        frame_metrics.command_count == 24U &&
+        scene_metrics.draw_count == 17U &&
+        frame_metrics.command_count == 27U &&
         frame_metrics.submission_count == 4U;
     if (!render_matches) {
         std::fprintf(
@@ -783,6 +800,8 @@ void verify_pixels(std::span<const std::uint8_t> pixels)
         "portable Direct2D rounded-rectangle pixel is missing");
     require(near_rgba(pixel(60U, 24U), 128, 64, 32),
         "portable Direct2D alpha-ignore bitmap is not opaque");
+    require(near_rgba(pixel(34U, 22U), 134, 13, 147),
+        "portable Direct2D full-target opacity-brush layer is missing");
     require(near_rgba(pixel(22U, 12U), 255, 0, 0) &&
             near_rgba(pixel(23U, 12U), 0, 255, 0) &&
             near_rgba(pixel(22U, 13U), 0, 0, 255) &&
@@ -857,7 +876,7 @@ int main(int argc, char** argv)
         : gpu.properties.name;
     std::printf(
         "Portable Direct2D WebGPU passed: backend=%s adapter=%s "
-        "draws=16 submissions=4 bytes=%zu\n",
+        "draws=17 submissions=4 bytes=%zu\n",
         backend_name(gpu.properties.backendType),
         adapter_name,
         pixels.size());

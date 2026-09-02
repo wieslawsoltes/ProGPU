@@ -5160,11 +5160,16 @@ public:
         }
         const bool full_target = infinite_rectangle(
             parameters->content_bounds);
-        if (full_target && parameters->opacity_brush != nullptr) {
-            latch(not_implemented);
-            return;
+        rectangle_f mask_content_bounds = parameters->content_bounds;
+        if ((full_target && parameters->opacity_brush != nullptr) ||
+            !full_target) {
+            if (!axis_preserving_transform(transform_)) {
+                latch(not_implemented);
+                return;
+            }
         }
-        if (!full_target && !axis_preserving_transform(transform_)) {
+        if (full_target && parameters->opacity_brush != nullptr &&
+            !try_resolve_full_target_local_bounds(mask_content_bounds)) {
             latch(not_implemented);
             return;
         }
@@ -5210,7 +5215,7 @@ public:
                     parameters->geometric_mask,
                     parameters->mask_transform,
                     parameters->opacity_brush,
-                    parameters->content_bounds,
+                    mask_content_bounds,
                     mask_resource_index,
                     mask_bounds,
                     empty_mask)) {
@@ -5227,7 +5232,7 @@ public:
             bool empty_mask = false;
             if (!add_opacity_brush_layer_mask(
                     parameters->opacity_brush,
-                    parameters->content_bounds,
+                    mask_content_bounds,
                     mask_resource_index,
                     empty_mask)) {
                 return;
@@ -5779,6 +5784,41 @@ private:
             static_cast<float>(m31),
             static_cast<float>(m32)};
         return true;
+    }
+
+    [[nodiscard]] bool try_resolve_full_target_local_bounds(
+        rectangle_f& bounds) const noexcept
+    {
+        matrix_3x2_f inverse{};
+        if (!axis_preserving_transform(transform_) ||
+            !try_invert_transform(transform_, inverse)) {
+            return false;
+        }
+        const double target_width =
+            static_cast<double>(pixel_width_) * 96.0 / dpi_x_;
+        const double target_height =
+            static_cast<double>(pixel_height_) * 96.0 / dpi_y_;
+        const double left = inverse.m31;
+        const double top = inverse.m32;
+        const double right = target_width * inverse.m11 + inverse.m31;
+        const double bottom = target_height * inverse.m22 + inverse.m32;
+        constexpr double maximum = std::numeric_limits<float>::max();
+        const double values[]{left, top, right, bottom};
+        if (!std::all_of(
+                std::begin(values),
+                std::end(values),
+                [](double value) {
+                    return std::isfinite(value) && value >= -maximum &&
+                        value <= maximum;
+                })) {
+            return false;
+        }
+        bounds = {
+            static_cast<float>(std::min(left, right)),
+            static_cast<float>(std::min(top, bottom)),
+            static_cast<float>(std::max(left, right)),
+            static_cast<float>(std::max(top, bottom))};
+        return valid_rectangle(bounds);
     }
 
     [[nodiscard]] static matrix_3x2_f compose_transform(

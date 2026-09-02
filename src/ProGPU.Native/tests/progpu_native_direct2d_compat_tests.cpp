@@ -8037,6 +8037,94 @@ int run_tests()
         return 203;
     }
 
+    constexpr float maximum_float = std::numeric_limits<float>::max();
+    compat::layer_parameters full_opacity_brush_layer_parameters =
+        opacity_brush_layer_parameters;
+    full_opacity_brush_layer_parameters.content_bounds = {
+        -maximum_float,
+        -maximum_float,
+        maximum_float,
+        maximum_float};
+    const compat::matrix_3x2_f full_layer_transform{
+        2.0F, 0.0F, 0.0F, 2.0F, 10.0F, 20.0F};
+    target->SetTransform(&full_layer_transform);
+    target->BeginDraw();
+    target->PushLayer(
+        &full_opacity_brush_layer_parameters, target_layer.get());
+    target->FillRectangle(
+        &layer_bounds, static_cast<compat::brush*>(target_brush.get()));
+    target->PopLayer();
+    const com::result full_opacity_brush_result =
+        target->EndDraw(nullptr, nullptr);
+    const compat::matrix_3x2_f identity_matrix{
+        1.0F, 0.0F, 0.0F, 1.0F, 0.0F, 0.0F};
+    target->SetTransform(&identity_matrix);
+    if (full_opacity_brush_result != com::ok ||
+        scene_target->GetRequiredSceneSize() == 0U) {
+        return 494;
+    }
+    const std::uint64_t full_opacity_brush_scene_size =
+        scene_target->GetRequiredSceneSize();
+    std::vector<std::byte> full_opacity_brush_scene(
+        static_cast<std::size_t>(full_opacity_brush_scene_size));
+    std::uint64_t full_opacity_brush_scene_written = 0U;
+    if (scene_target->BuildScene(
+            full_opacity_brush_scene.data(),
+            full_opacity_brush_scene.size(),
+            &full_opacity_brush_scene_written) != com::ok ||
+        full_opacity_brush_scene_written !=
+            full_opacity_brush_scene_size) {
+        return 495;
+    }
+    const auto* full_opacity_brush_header = reinterpret_cast<
+        const progpu_native_scene_header*>(
+        full_opacity_brush_scene.data());
+    const auto* full_opacity_brush_push = reinterpret_cast<
+        const progpu_native_scene_command*>(
+        full_opacity_brush_scene.data() +
+        full_opacity_brush_header->command_offset);
+    const auto* full_opacity_brush_layer = reinterpret_cast<
+        const progpu_native_scene_layer*>(
+        full_opacity_brush_scene.data() +
+        full_opacity_brush_push->payload_offset);
+    if (full_opacity_brush_push->kind !=
+            PROGPU_NATIVE_SCENE_COMMAND_PUSH_LAYER ||
+        (full_opacity_brush_layer->flags &
+            PROGPU_NATIVE_SCENE_LAYER_BOUNDS) != 0U ||
+        full_opacity_brush_layer->mask_resource_index ==
+            PROGPU_NATIVE_SCENE_NO_INDEX ||
+        full_opacity_brush_layer->mask_resource_index >=
+            full_opacity_brush_header->resource_count) {
+        return 496;
+    }
+    const auto* full_opacity_brush_resource = reinterpret_cast<
+        const progpu_native_scene_resource*>(
+        full_opacity_brush_scene.data() +
+        full_opacity_brush_header->resource_offset +
+        static_cast<std::size_t>(
+            full_opacity_brush_layer->mask_resource_index) *
+            full_opacity_brush_header->resource_stride);
+    const auto* full_opacity_brush_mask = reinterpret_cast<
+        const progpu_native_scene_layer_brush_mask*>(
+        full_opacity_brush_scene.data() +
+        full_opacity_brush_resource->payload_offset);
+    if (full_opacity_brush_resource->kind !=
+            PROGPU_NATIVE_SCENE_RESOURCE_LAYER_MASK ||
+        full_opacity_brush_resource->payload_size <
+            sizeof(progpu_native_scene_layer_brush_mask) ||
+        full_opacity_brush_mask->kind !=
+            PROGPU_NATIVE_SCENE_LAYER_MASK_BRUSH ||
+        !approximately_equal(full_opacity_brush_mask->bounds.x, -5.0F) ||
+        !approximately_equal(full_opacity_brush_mask->bounds.y, -10.0F) ||
+        !approximately_equal(full_opacity_brush_mask->bounds.width, 320.0F) ||
+        !approximately_equal(full_opacity_brush_mask->bounds.height, 240.0F) ||
+        !approximately_equal(full_opacity_brush_mask->transform.m11, 2.0F) ||
+        !approximately_equal(full_opacity_brush_mask->transform.m22, 2.0F) ||
+        !approximately_equal(full_opacity_brush_mask->transform.m31, 10.0F) ||
+        !approximately_equal(full_opacity_brush_mask->transform.m32, 20.0F)) {
+        return 497;
+    }
+
     compat::layer_parameters composite_mask_layer_parameters =
         masked_layer_parameters;
     composite_mask_layer_parameters.opacity_brush =
@@ -8384,6 +8472,31 @@ int run_tests()
         return 145;
     }
     auto* native_target = reinterpret_cast<ID2D1RenderTarget*>(target.get());
+    auto* native_target_layer = reinterpret_cast<ID2D1Layer*>(
+        target_layer.get());
+    auto* native_layer_brush = reinterpret_cast<ID2D1SolidColorBrush*>(
+        target_brush.get());
+    const D2D1_MATRIX_3X2_F native_identity{
+        1.0F, 0.0F, 0.0F, 1.0F, 0.0F, 0.0F};
+    const float native_maximum = std::numeric_limits<float>::max();
+    const D2D1_LAYER_PARAMETERS native_full_opacity_layer{
+        {-native_maximum, -native_maximum, native_maximum, native_maximum},
+        nullptr,
+        D2D1_ANTIALIAS_MODE_PER_PRIMITIVE,
+        native_identity,
+        1.0F,
+        native_layer_brush,
+        D2D1_LAYER_OPTIONS_NONE};
+    const D2D1_RECT_F native_layer_fill{0.0F, 0.0F, 20.0F, 20.0F};
+    native_target->SetTransform(native_identity);
+    native_target->BeginDraw();
+    native_target->PushLayer(
+        native_full_opacity_layer, native_target_layer);
+    native_target->FillRectangle(native_layer_fill, native_layer_brush);
+    native_target->PopLayer();
+    if (FAILED(native_target->EndDraw())) {
+        return 498;
+    }
     std::uint32_t native_rendering_parameters_destruction_count = 0U;
     auto* native_rendering_parameters = new fake_rendering_parameters(
         &native_rendering_parameters_destruction_count);
