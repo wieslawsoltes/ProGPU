@@ -369,12 +369,48 @@ public:
     }
 
     HRESULT STDMETHODCALLTYPE CopyTo(
-        IStream*,
-        ULARGE_INTEGER,
-        ULARGE_INTEGER*,
-        ULARGE_INTEGER*) override
+        IStream* destination,
+        ULARGE_INTEGER byte_count,
+        ULARGE_INTEGER* bytes_read,
+        ULARGE_INTEGER* bytes_written) override
     {
-        return E_NOTIMPL;
+        if (bytes_read != nullptr) {
+            bytes_read->QuadPart = 0U;
+        }
+        if (bytes_written != nullptr) {
+            bytes_written->QuadPart = 0U;
+        }
+        if (destination == nullptr) {
+            return STG_E_INVALIDPOINTER;
+        }
+
+        const uint64_t available = size_ - position_;
+        const uint64_t transfer_count = std::min(
+            available,
+            byte_count.QuadPart);
+        if (transfer_count == 0U) {
+            return byte_count.QuadPart == 0U ? S_OK : S_FALSE;
+        }
+        const ULONG transfer_count_32 = static_cast<ULONG>(transfer_count);
+        ULONG written = 0U;
+        position_ += transfer_count;
+        if (bytes_read != nullptr) {
+            bytes_read->QuadPart = transfer_count;
+        }
+        const HRESULT result = destination->Write(
+            data_ + position_ - transfer_count,
+            transfer_count_32,
+            &written);
+        if (bytes_written != nullptr) {
+            bytes_written->QuadPart = written;
+        }
+        if (FAILED(result)) {
+            return result;
+        }
+        if (written != transfer_count_32) {
+            return STG_E_MEDIUMFULL;
+        }
+        return transfer_count == byte_count.QuadPart ? S_OK : S_FALSE;
     }
 
     HRESULT STDMETHODCALLTYPE Commit(DWORD) override
@@ -420,9 +456,21 @@ public:
         return S_OK;
     }
 
-    HRESULT STDMETHODCALLTYPE Clone(IStream**) override
+    HRESULT STDMETHODCALLTYPE Clone(IStream** value) override
     {
-        return E_NOTIMPL;
+        if (value == nullptr) {
+            return STG_E_INVALIDPOINTER;
+        }
+        *value = nullptr;
+        auto* clone = new (std::nothrow) BorrowedMemoryStream(
+            data_,
+            static_cast<uint32_t>(size_));
+        if (clone == nullptr) {
+            return E_OUTOFMEMORY;
+        }
+        clone->position_ = position_;
+        *value = clone;
+        return S_OK;
     }
 
 private:

@@ -1741,7 +1741,10 @@ ABI v22 adds genuine same-device `ID2D1SvgDocument` resources. A bounded
 borrowed `IStream` exposes caller-owned UTF-8 bytes directly to
 `ID2D1DeviceContext5::CreateSvgDocument`; Direct2D consumes it synchronously,
 and the provider neither retains the span nor creates an intermediate XML
-copy. Surface and command-list transactions draw the document through
+copy. The read-only stream implements bounded `CopyTo` with standard read/write
+accounting and `Clone` with an independent seek position over the same borrowed
+span, so a platform parser may use the complete `IStream` read contract without
+forcing ownership or a second buffer. Surface and command-list transactions draw the document through
 `ID2D1DeviceContext5::DrawSvgDocument` with temporary Win2D-compatible
 viewport and origin state that is restored before return. Factory identity,
 finite positive viewports, the 64 MiB input bound, concrete COM kind, and
