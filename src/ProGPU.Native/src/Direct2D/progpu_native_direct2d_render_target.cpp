@@ -182,9 +182,13 @@ constexpr com::guid scene_mesh_native_interface_id{
 [[nodiscard]] constexpr std::uint32_t image_alpha_flags(
     alpha_mode alpha) noexcept
 {
-    return PROGPU_NATIVE_SCENE_IMAGE_SOURCE_PREMULTIPLIED |
+    constexpr std::uint32_t premultiplied = static_cast<std::uint32_t>(
+        PROGPU_NATIVE_SCENE_IMAGE_SOURCE_PREMULTIPLIED);
+    constexpr std::uint32_t ignore = static_cast<std::uint32_t>(
+        PROGPU_NATIVE_SCENE_IMAGE_SOURCE_ALPHA_IGNORE);
+    return premultiplied |
         (alpha == alpha_mode::ignore
-            ? PROGPU_NATIVE_SCENE_IMAGE_SOURCE_ALPHA_IGNORE
+            ? ignore
             : 0U);
 }
 
