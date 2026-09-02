@@ -174,6 +174,34 @@ public sealed class GradientRenderTests
         }
     }
 
+    [Fact]
+    public void PathGradientPresetColorsRunFromBoundaryToCenter()
+    {
+        var window = HeadlessWindow.Shared;
+        window.Resize(32, 32);
+        window.Content = new PathGradientPresetVisual();
+
+        try
+        {
+            window.Render();
+
+            byte[] pixels = window.ReadPixels();
+            RgbaPixel center = ReadPixel(pixels, window.Width, x: 16, y: 16);
+            RgbaPixel edge = ReadPixel(pixels, window.Width, x: 31, y: 16);
+
+            Assert.InRange(center.R, 235, 255);
+            Assert.InRange(center.B, 0, 24);
+            Assert.InRange(edge.R, 0, 24);
+            Assert.InRange(edge.B, 235, 255);
+            Assert.Equal(255, center.A);
+            Assert.Equal(255, edge.A);
+        }
+        finally
+        {
+            window.Content = null;
+        }
+    }
+
     private static RgbaPixel ReadPixel(byte[] pixels, uint width, int x, int y)
     {
         var index = ((y * (int)width) + x) * 4;
@@ -317,6 +345,40 @@ public sealed class GradientRenderTests
                 [
                     new PathGradientBlendStop(1f, 0f),
                     new PathGradientBlendStop(0f, 1f)
+                ]);
+
+            context.DrawRectangle(brush, null, new Rect(0f, 0f, 32f, 32f));
+        }
+    }
+
+    private sealed class PathGradientPresetVisual : FrameworkElement
+    {
+        public PathGradientPresetVisual()
+        {
+            Width = 32f;
+            Height = 32f;
+        }
+
+        public override void OnRender(DrawingContext context)
+        {
+            Vector2[] boundary =
+            [
+                new(0f, 0f),
+                new(32f, 0f),
+                new(32f, 32f),
+                new(0f, 32f)
+            ];
+            Vector4[] surround = Enumerable.Repeat(
+                new Vector4(0f, 0f, 1f, 1f),
+                boundary.Length).ToArray();
+            var brush = new PathGradientBrush(
+                boundary,
+                surround,
+                new Vector2(16f, 16f),
+                new Vector4(1f, 0f, 0f, 1f),
+                [
+                    new GradientStop(new Vector4(0f, 0f, 1f, 1f), 0f),
+                    new GradientStop(new Vector4(1f, 0f, 0f, 1f), 1f)
                 ]);
 
             context.DrawRectangle(brush, null, new Rect(0f, 0f, 32f, 32f));

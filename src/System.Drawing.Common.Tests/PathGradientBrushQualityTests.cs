@@ -193,6 +193,7 @@ public sealed class PathGradientBrushQualityTests
         Assert.Contains("brush.brushType == 9u", Shaders.VectorShader);
         Assert.Contains("min(u32(round(brush.gradientRadius)), 128u)", Shaders.VectorShader);
         Assert.Contains("sample_path_gradient(brush, brushCoord)", Shaders.VectorShader);
+        Assert.Contains("curveCount,\n            1.0 - t);", Shaders.VectorShader);
 
         NativeSceneGradientStop[] records =
         [

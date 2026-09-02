@@ -440,7 +440,7 @@ fn sample_path_gradient(brush: Brush, coordinate: vec2<f32>) -> vec4<f32> {
             brush,
             curveOffset,
             curveCount,
-            t);
+            1.0 - t);
     }
 
     let nextEdge = select(bestEdge + 1u, 0u, bestEdge + 1u == boundaryCount);

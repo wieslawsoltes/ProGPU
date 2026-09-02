@@ -60,7 +60,10 @@ misleading parity result. The workflow splits resvg and W3C into independent
 jobs and uploads JSON, the candidate inventory, and failing images. Each
 quality fixture executes in an isolated child process, so malformed recursive
 SVG input or a native backend termination is reported against that exact row
-instead of discarding the rest of the corpus.
+instead of discarding the rest of the corpus. Independent workers run
+concurrently, capped at four by default; `--max-parallelism 1` retains a serial
+diagnostic mode. Results and generated inventories remain sorted by corpus
+identity rather than completion order.
 
 The performance command uses ten representative W3C fixtures spanning basic
 shapes, paths, gradients, patterns, and text. It warms the complete pipeline,
@@ -69,6 +72,42 @@ allocation, and a pixel-derived checksum. Results are raw evidence rather than
 a single-run performance claim. Establish regression budgets only after
 several alternating runs on a pinned runner image; keep the complete corpus as
 a correctness gate and use the representative set for iteration speed.
+
+The first local ARM64/.NET 10.0.400 software-WebGPU run records a `5,223.853`
+ms median and `175,923,832` median allocated bytes for the complete ten-fixture
+pipeline. All seven samples produced checksum `1eff2c6cbe8504b8`; elapsed
+samples ranged from `5,101.123` to `7,425.449` ms and allocation from
+`175,916,152` to `176,968,104` bytes. This is a reproducible command-shape and
+allocation baseline, not a cross-machine throughput claim. The roughly 176 MB
+per iteration is also a concrete optimization target after correctness and
+hosted cross-platform behavior are stable.
+
+## First corpus-driven repair
+
+The initial reviewed inventory exposed a renderer error rather than an SVG.NET
+parser limitation: ProGPU sampled `PathGradientBrush.InterpolationColors` in
+the opposite direction. The public GDI+ contract defines preset position zero
+at the path boundary and position one at the center; the retained path-gradient
+shader now follows that direction. A direct GPU regression checks blue at the
+boundary and red at the center, while the focused System.Drawing suite checks
+the exact production-shader path. The resvg
+`radialGradient/gradientTransform` error consequently falls from `0.568567` to
+`0.059166`, below the `0.12` gate, and the ordinary radial-gradient cases fall
+to roughly `0.003` error. SVG focal-radius behavior remains separately visible
+because this SVG.NET implementation does not apply its `fr` value when it
+constructs the System.Drawing path gradient.
+
+Across the full pinned corpora, the repair resolves 51 resvg differences and
+two W3C differences. The reviewed baseline moves from 1,110 to 1,160 passing
+resvg fixtures (`492` pixel differences and `78` exceptions) and from 67 to 69
+passing W3C fixtures (`447` pixel differences and `9` exceptions). One new
+resvg difference is intentional attribution rather than a renderer regression:
+SVG.NET constructs a path gradient for the invalid negative-radius SVG while
+the reference ignores that invalid paint server. The earlier reversed sampling
+had only hidden that upstream input-validation difference.
+
+The direction rule is documented by Microsoft in
+[`PathGradientBrush::SetInterpolationColors`](https://learn.microsoft.com/windows/win32/api/gdipluspath/nf-gdipluspath-pathgradientbrush-setinterpolationcolors).
 
 ## Development commands
 

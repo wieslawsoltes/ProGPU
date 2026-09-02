@@ -89,11 +89,22 @@ jobs:
           -p:UseProGpuSystemDrawing=true
           -p:ProGpuSourceRoot="${{ github.workspace }}"
 
+      - name: Build SVG System.Drawing corpus runner serially
+        run: >-
+          dotnet build eng/SystemDrawing.SvgCorpus/SystemDrawing.SvgCorpus.csproj
+          --configuration Release
+          --no-restore
+          --maxcpucount:1
+          -p:SvgSourceRoot="${{ github.workspace }}/external/Svg.Skia/externals/SVG"
+          -p:UseProGpuSystemDrawing=true
+          -p:ProGpuSourceRoot="${{ github.workspace }}"
+
       - name: Run ${{ matrix.suite }} image parity inventory
         run: >-
           dotnet run
           --project eng/SystemDrawing.SvgCorpus/SystemDrawing.SvgCorpus.csproj
           --configuration Release
+          --no-build
           --no-restore
           -p:SvgSourceRoot="${{ github.workspace }}/external/Svg.Skia/externals/SVG"
           -p:UseProGpuSystemDrawing=true
@@ -106,6 +117,7 @@ jobs:
           --known-exceptions "${{ github.workspace }}/eng/system-drawing-svg-known-exceptions.txt"
           --suite "${{ matrix.suite }}"
           --threshold "${{ matrix.threshold }}"
+          --max-parallelism 4
 
       - name: Upload SVG System.Drawing evidence
         if: always()
@@ -144,11 +156,30 @@ jobs:
       - name: Install software WebGPU adapter
         run: ./eng/progpu-install-linux-packages.sh libvulkan1 mesa-vulkan-drivers
 
+      - name: Restore SVG System.Drawing corpus runner
+        run: >-
+          dotnet restore eng/SystemDrawing.SvgCorpus/SystemDrawing.SvgCorpus.csproj
+          -p:SvgSourceRoot="${{ github.workspace }}/external/Svg.Skia/externals/SVG"
+          -p:UseProGpuSystemDrawing=true
+          -p:ProGpuSourceRoot="${{ github.workspace }}"
+
+      - name: Build SVG System.Drawing corpus runner serially
+        run: >-
+          dotnet build eng/SystemDrawing.SvgCorpus/SystemDrawing.SvgCorpus.csproj
+          --configuration Release
+          --no-restore
+          --maxcpucount:1
+          -p:SvgSourceRoot="${{ github.workspace }}/external/Svg.Skia/externals/SVG"
+          -p:UseProGpuSystemDrawing=true
+          -p:ProGpuSourceRoot="${{ github.workspace }}"
+
       - name: Run representative SVG throughput and allocation samples
         run: >-
           dotnet run
           --project eng/SystemDrawing.SvgCorpus/SystemDrawing.SvgCorpus.csproj
           --configuration Release
+          --no-build
+          --no-restore
           -p:SvgSourceRoot="${{ github.workspace }}/external/Svg.Skia/externals/SVG"
           -p:UseProGpuSystemDrawing=true
           -p:ProGpuSourceRoot="${{ github.workspace }}"

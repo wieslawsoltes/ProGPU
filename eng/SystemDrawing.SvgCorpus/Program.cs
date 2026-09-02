@@ -64,17 +64,21 @@ internal static class CorpusApplication
                 .ToDictionary(static pair => pair.Key, static pair => pair.Value, StringComparer.Ordinal);
         }
 
-        var results = new List<FixtureResult>(fixtures.Length);
-        for (var index = 0; index < fixtures.Length; index++)
-        {
-            var result = RenderAndCompareIsolated(
-                fixtures[index],
-                options.ArtifactsRoot,
-                options.Threshold,
-                index);
-            results.Add(result);
-            Console.WriteLine(result.ToConsoleLine());
-        }
+        var results = new FixtureResult[fixtures.Length];
+        Parallel.For(
+            fromInclusive: 0,
+            toExclusive: fixtures.Length,
+            new ParallelOptions { MaxDegreeOfParallelism = options.MaxParallelism },
+            index =>
+            {
+                var result = RenderAndCompareIsolated(
+                    fixtures[index],
+                    options.ArtifactsRoot,
+                    options.Threshold,
+                    index);
+                results[index] = result;
+                Console.WriteLine(result.ToConsoleLine());
+            });
 
         var actualDifferences = results
             .Where(static result => result.Outcome == FixtureOutcome.PixelDifference)
@@ -105,7 +109,7 @@ internal static class CorpusApplication
             Commit: ReadCommit(),
             GeneratedAtUtc: DateTimeOffset.UtcNow,
             Threshold: options.Threshold,
-            Total: results.Count,
+            Total: results.Length,
             Passed: results.Count(static result => result.Outcome == FixtureOutcome.Passed),
             PixelDifferences: results.Count(static result => result.Outcome == FixtureOutcome.PixelDifference),
             Exceptions: results.Count(static result => result.Outcome == FixtureOutcome.Exception),
@@ -198,10 +202,11 @@ internal static class CorpusApplication
         {
             process.Kill(entireProcessTree: true);
             process.WaitForExit();
+            Task.WaitAll(standardOutput, standardError);
             stopwatch.Stop();
             return FixtureResult.Failed(
                 fixture,
-                new TimeoutException(
+                new SvgFixtureIsolationException(
                     $"The isolated SVG fixture exceeded {FixtureTimeoutMilliseconds / 1000} seconds."),
                 stopwatch.Elapsed,
                 allocated: 0);
@@ -220,7 +225,7 @@ internal static class CorpusApplication
         string diagnostic = LastDiagnosticLine(standardError.Result, standardOutput.Result);
         return FixtureResult.Failed(
             fixture,
-            new InvalidOperationException(
+            new SvgFixtureIsolationException(
                 $"Isolated fixture process exited with code {process.ExitCode}. {diagnostic}".Trim()),
             stopwatch.Elapsed,
             allocated: 0);
@@ -525,6 +530,14 @@ internal static class ImageDifference
     }
 }
 
+internal sealed class SvgFixtureIsolationException : Exception
+{
+    public SvgFixtureIsolationException(string message)
+        : base(message)
+    {
+    }
+}
+
 internal static class PngDecoder
 {
     public static DecodedImage Load(string path)
@@ -632,7 +645,8 @@ internal sealed record Options(
     string? WorkerSvgPath,
     string? WorkerExpectedPath,
     string? WorkerResultPath,
-    bool WorkerCompositeOnWhite)
+    bool WorkerCompositeOnWhite,
+    int MaxParallelism)
 {
     public static Options Parse(string[] args)
     {
@@ -643,7 +657,7 @@ internal sealed record Options(
                 "[--known-differences PATH] [--known-exceptions PATH] " +
                 "[--benchmark-fixtures PATH] " +
                 "[--fixture suite|path] [--suite all|resvg|w3c] " +
-                "[--threshold 0.12] [--iterations 7]");
+                "[--threshold 0.12] [--iterations 7] [--max-parallelism 4]");
         }
 
         var command = args[0] switch
@@ -678,7 +692,12 @@ internal sealed record Options(
         };
         var threshold = double.Parse(values.GetValueOrDefault("--threshold", "0.12"), CultureInfo.InvariantCulture);
         var iterations = int.Parse(values.GetValueOrDefault("--iterations", "7"), CultureInfo.InvariantCulture);
-        if (threshold is < 0 or > 1 || iterations < 1)
+        var maxParallelism = int.Parse(
+            values.GetValueOrDefault(
+                "--max-parallelism",
+                Math.Min(Environment.ProcessorCount, 4).ToString(CultureInfo.InvariantCulture)),
+            CultureInfo.InvariantCulture);
+        if (threshold is < 0 or > 1 || iterations < 1 || maxParallelism < 1)
         {
             throw new ArgumentOutOfRangeException(nameof(args));
         }
@@ -699,7 +718,8 @@ internal sealed record Options(
             values.GetValueOrDefault("--worker-svg"),
             values.GetValueOrDefault("--worker-expected"),
             values.GetValueOrDefault("--worker-result"),
-            bool.Parse(values.GetValueOrDefault("--worker-composite-on-white", "false")));
+            bool.Parse(values.GetValueOrDefault("--worker-composite-on-white", "false")),
+            maxParallelism);
     }
 
     private static string Required(IReadOnlyDictionary<string, string> values, string name)
