@@ -2921,6 +2921,22 @@ int run_tests()
         static_cast<std::uint32_t>(star_outline_points.size() - 1U));
     winding_star_outline_path_sink->EndFigure(
         compat::figure_end::closed);
+    // The star center has winding +2.  This reverse-wound square subtracts
+    // one layer, so the center must remain filled rather than become a hole.
+    winding_star_outline_path_sink->BeginFigure(
+        {-0.25F, -0.25F}, compat::figure_begin::filled);
+    constexpr std::array<compat::point_2f, 3U>
+        winding_star_subtraction_points{{
+            {-0.25F, 0.25F},
+            {0.25F, 0.25F},
+            {0.25F, -0.25F},
+        }};
+    winding_star_outline_path_sink->AddLines(
+        winding_star_subtraction_points.data(),
+        static_cast<std::uint32_t>(
+            winding_star_subtraction_points.size()));
+    winding_star_outline_path_sink->EndFigure(
+        compat::figure_end::closed);
     if (winding_star_outline_path_sink->Close() != com::ok) {
       return 456;
     }
@@ -2930,14 +2946,26 @@ int run_tests()
         winding_star_outline_sink;
     winding_star_outline_sink.attach(raw_winding_star_outline_sink);
     float winding_star_outline_area = 0.0F;
-    if (winding_star_outline_path->Outline(
-            nullptr, 0.01F, winding_star_outline_sink.get()) != com::ok ||
+    const com::result winding_star_outline_status =
+        winding_star_outline_path->Outline(
+            nullptr, 0.01F, winding_star_outline_sink.get());
+    if (winding_star_outline_status != com::ok ||
         winding_star_outline_path->ComputeArea(
             nullptr, 0.01F, &winding_star_outline_area) != com::ok ||
         winding_star_outline_area <= star_outline_area ||
         raw_winding_star_outline_sink->begin_count == 0U ||
         raw_winding_star_outline_sink->begin_count !=
             raw_winding_star_outline_sink->end_count) {
+      std::fprintf(
+          stderr,
+          "winding star outline status=%d area=%g alternate=%g "
+          "figures=%u/%u lines=%u\n",
+          winding_star_outline_status,
+          winding_star_outline_area,
+          star_outline_area,
+          raw_winding_star_outline_sink->begin_count,
+          raw_winding_star_outline_sink->end_count,
+          raw_winding_star_outline_sink->line_count);
       return 457;
     }
     for (std::uint32_t y_index = 0U; y_index < 46U; ++y_index) {
@@ -8721,8 +8749,8 @@ int run_tests()
               self_points.data(),
               static_cast<UINT32>(self_points.size()));
           sink_value->EndFigure(D2D1_FIGURE_END_CLOSED);
-        } else if (scenario == 11U || scenario == 12U) {
-          if (scenario == 12U) {
+        } else if (scenario >= 11U && scenario <= 14U) {
+          if (scenario != 11U) {
             sink_value->SetFillMode(D2D1_FILL_MODE_WINDING);
           }
           constexpr std::array<D2D1_POINT_2F, 5U> star_points{{
@@ -8734,10 +8762,47 @@ int run_tests()
           }};
           sink_value->BeginFigure(
               star_points[0U], D2D1_FIGURE_BEGIN_FILLED);
-          sink_value->AddLines(
-              star_points.data() + 1U,
-              static_cast<UINT32>(star_points.size() - 1U));
+          if (scenario == 14U) {
+            constexpr std::array<D2D1_POINT_2F, 4U>
+                reverse_star_points{{
+                    {-2.938926F, 4.045085F},
+                    {4.755283F, -1.545085F},
+                    {-4.755283F, -1.545085F},
+                    {2.938926F, 4.045085F},
+                }};
+            sink_value->AddLines(
+                reverse_star_points.data(),
+                static_cast<UINT32>(reverse_star_points.size()));
+          } else {
+            sink_value->AddLines(
+                star_points.data() + 1U,
+                static_cast<UINT32>(star_points.size() - 1U));
+          }
           sink_value->EndFigure(D2D1_FIGURE_END_CLOSED);
+          if (scenario == 13U || scenario == 14U) {
+            sink_value->BeginFigure(
+                D2D1_POINT_2F{-0.25F, -0.25F},
+                D2D1_FIGURE_BEGIN_FILLED);
+            constexpr std::array<D2D1_POINT_2F, 3U>
+                negative_subtraction{{
+                    {-0.25F, 0.25F},
+                    {0.25F, 0.25F},
+                    {0.25F, -0.25F},
+                }};
+            constexpr std::array<D2D1_POINT_2F, 3U>
+                positive_subtraction{{
+                    {0.25F, -0.25F},
+                    {0.25F, 0.25F},
+                    {-0.25F, 0.25F},
+                }};
+            const auto& subtraction_points = scenario == 13U
+                ? negative_subtraction
+                : positive_subtraction;
+            sink_value->AddLines(
+                subtraction_points.data(),
+                static_cast<UINT32>(subtraction_points.size()));
+            sink_value->EndFigure(D2D1_FIGURE_END_CLOSED);
+          }
         } else {
         if (scenario == 2U || scenario == 5U || scenario == 10U) {
           sink_value->SetFillMode(D2D1_FILL_MODE_WINDING);
@@ -9346,7 +9411,7 @@ int run_tests()
       system_factory->Release();
       return 432;
     }
-    for (std::uint32_t scenario = 3U; scenario <= 12U; ++scenario) {
+    for (std::uint32_t scenario = 3U; scenario <= 14U; ++scenario) {
       ID2D1PathGeometry* portable_normalized_outline_path = nullptr;
       ID2D1PathGeometry* system_normalized_outline_path = nullptr;
       if (FAILED(create_multi_outline_path(

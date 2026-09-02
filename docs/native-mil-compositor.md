@@ -6508,11 +6508,14 @@ and area. Alternate-fill contours with multiple distinct proper crossings now
 split every nonadjacent pair after the same SIMD broad phase, probe parity on
 both sides of each sub-edge, discard internal edges, and trace all filled
 lobes. Alternate and winding five-crossing pentagrams match genuine Direct2D
-callback topology, area, and dense regions on Windows ARM64/x64. Repeated or
-triple crossing points, collinear or endpoint-ambiguous intersections,
-numerical invalidity, and mixing a multiple-crossing winding contour with
-other winding figures remain transactional typed failures until winding
-magnitude is retained across figure boundaries.
+callback topology, area, and dense regions on Windows ARM64/x64. Winding
+inputs now decompose into signed positive/negative integer layers before the
+whole path is normalized. Mixed figures can therefore add or cancel part of a
+self-intersection's winding magnitude: a reverse-wound square subtracting one
+of a pentagram center's two layers matches genuine Direct2D callbacks, area,
+and dense regions on ARM64/x64 without becoming a hole. Repeated or triple
+crossing points, collinear or endpoint-ambiguous intersections, and numerical
+invalidity remain transactional typed failures.
 
 `ComputeArea` now invokes that normalized Outline transaction into a private
 caller-owned contour sink and reduces the signed shoelace areas. The result
@@ -6524,9 +6527,9 @@ still four-wide NEON/SSE2 in the shared normalizer. Local optimized and
 sanitizer hole/overlap checks plus genuine Direct2D ARM64/x64 shared-edge,
 alternate-overlap, winding-overlap, corner-contact, and T-contact area
 differentials pass, including arbitrary interacting simple-contour counts, the
-qualified bow tie, and alternate/winding five-crossing pentagrams. Ambiguous
-crossings and mixed-figure multiple-crossing winding inputs fail closed with
-the output already initialized to zero.
+qualified bow tie, alternate/winding five-crossing pentagrams, and mixed
+signed-layer cancellation. Ambiguous crossings fail closed with the output
+already initialized to zero.
 
 `Widen` now consumes that same partition and prepares the complete mixed-
 figure transaction before caller-sink replay. Closed null/default strokes add
