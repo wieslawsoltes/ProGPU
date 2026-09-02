@@ -587,6 +587,55 @@ int main()
             approximately_equal(
                 compat_gdi_bounds.bottom, system_gdi_bounds.bottom, 0.0F),
         "ProGPU GDI metafile bounds diverged from system Direct2D");
+    ComPtr<ID2D1GdiMetafile1> compat_gdi_metafile1;
+    ComPtr<ID2D1GdiMetafile1> system_gdi_metafile1;
+    const HRESULT compat_gdi1_query =
+        compat_gdi_metafile.As(&compat_gdi_metafile1);
+    const HRESULT system_gdi1_query =
+        system_gdi_metafile.As(&system_gdi_metafile1);
+    require(
+        compat_gdi1_query == system_gdi1_query,
+        "ProGPU GDI metafile1 availability diverged from system Direct2D");
+    if (SUCCEEDED(system_gdi1_query)) {
+        FLOAT compat_gdi_dpi_x = 0.0F;
+        FLOAT compat_gdi_dpi_y = 0.0F;
+        FLOAT system_gdi_dpi_x = 0.0F;
+        FLOAT system_gdi_dpi_y = 0.0F;
+        D2D1_RECT_F compat_gdi_source_bounds{};
+        D2D1_RECT_F system_gdi_source_bounds{};
+        require(
+            compat_gdi_metafile1->GetDpi(
+                &compat_gdi_dpi_x, &compat_gdi_dpi_y) == S_OK &&
+                system_gdi_metafile1->GetDpi(
+                    &system_gdi_dpi_x, &system_gdi_dpi_y) == S_OK &&
+                approximately_equal(
+                    compat_gdi_dpi_x, system_gdi_dpi_x, 0.0F) &&
+                approximately_equal(
+                    compat_gdi_dpi_y, system_gdi_dpi_y, 0.0F),
+            "ProGPU GDI metafile DPI diverged from system Direct2D");
+        require(
+            compat_gdi_metafile1->GetSourceBounds(
+                &compat_gdi_source_bounds) == S_OK &&
+                system_gdi_metafile1->GetSourceBounds(
+                    &system_gdi_source_bounds) == S_OK &&
+                approximately_equal(
+                    compat_gdi_source_bounds.left,
+                    system_gdi_source_bounds.left,
+                    0.0F) &&
+                approximately_equal(
+                    compat_gdi_source_bounds.top,
+                    system_gdi_source_bounds.top,
+                    0.0F) &&
+                approximately_equal(
+                    compat_gdi_source_bounds.right,
+                    system_gdi_source_bounds.right,
+                    0.0F) &&
+                approximately_equal(
+                    compat_gdi_source_bounds.bottom,
+                    system_gdi_source_bounds.bottom,
+                    0.0F),
+            "ProGPU GDI metafile source bounds diverged from system Direct2D");
+    }
     ComPtr<GdiRecordSummarySink> compat_gdi_sink;
     compat_gdi_sink.Attach(new GdiRecordSummarySink());
     ComPtr<GdiRecordSummarySink> system_gdi_sink;
