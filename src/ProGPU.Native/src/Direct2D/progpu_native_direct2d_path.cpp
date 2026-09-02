@@ -5747,37 +5747,32 @@ public:
             !core::valid_transform(world_transform)) {
             return com::invalid_argument;
         }
-        std::vector<flat_edge> edges;
-        const com::result edge_status = collect_flat_edges(
-            world_transform,
-            flattening_tolerance,
-            true,
-            edges);
-        if (com::failed(edge_status)) {
-            return edge_status;
-        }
         try {
-            std::vector<double> signed_areas(
-                data_->figures.size(), 0.0);
-            for (const auto& edge : edges) {
-                if (data_->figures[edge.figure_index].begin ==
-                    figure_begin::filled) {
-                    signed_areas[edge.figure_index] +=
-                        static_cast<double>(edge.start.x) * edge.end.y -
-                        static_cast<double>(edge.start.y) * edge.end.x;
-                }
+            auto* raw_contour_sink =
+                new (std::nothrow) polygon_contours_sink();
+            if (raw_contour_sink == nullptr) {
+                return com::out_of_memory;
             }
-            double result = 0.0;
-            if (data_->mode == fill_mode::alternate) {
-                for (double value : signed_areas) {
-                    result += std::abs(value) * 0.5;
-                }
-            } else {
-                for (double value : signed_areas) {
-                    result += value * 0.5;
-                }
-                result = std::abs(result);
+            com::pointer<polygon_contours_sink> contour_sink;
+            contour_sink.attach(raw_contour_sink);
+            com::result status = Outline(
+                world_transform,
+                flattening_tolerance,
+                contour_sink.get());
+            if (com::failed(status)) {
+                return status;
             }
+            status = raw_contour_sink->status();
+            if (com::failed(status)) {
+                return status;
+            }
+            const std::vector<std::vector<point_2f>> contours =
+                raw_contour_sink->take_contours();
+            double twice_area = 0.0;
+            for (const std::vector<point_2f>& contour : contours) {
+                twice_area += polygon_twice_signed_area(contour);
+            }
+            const double result = std::abs(twice_area) * 0.5;
             if (!std::isfinite(result) ||
                 result > (std::numeric_limits<float>::max)()) {
                 return com::invalid_argument;
