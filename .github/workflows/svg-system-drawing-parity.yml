@@ -65,7 +65,7 @@ jobs:
 
       - name: Route SVG.NET to ProGPU System.Drawing
         working-directory: external/Svg.Skia/externals/SVG
-        run: git apply --ignore-space-change --ignore-whitespace "${{ github.workspace }}/eng/svg-system-drawing-progpu-ci.patch"
+        run: patch --batch --forward --strip=1 < "${{ github.workspace }}/eng/svg-system-drawing-progpu-ci.patch"
 
       - name: Setup .NET
         uses: actions/setup-dotnet@v5
@@ -124,7 +124,7 @@ jobs:
 
       - name: Route SVG.NET to ProGPU System.Drawing
         working-directory: external/Svg.Skia/externals/SVG
-        run: git apply --ignore-space-change --ignore-whitespace "${{ github.workspace }}/eng/svg-system-drawing-progpu-ci.patch"
+        run: patch --batch --forward --strip=1 < "${{ github.workspace }}/eng/svg-system-drawing-progpu-ci.patch"
 
       - name: Setup .NET
         uses: actions/setup-dotnet@v5
