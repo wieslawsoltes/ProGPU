@@ -1,6 +1,7 @@
 #include "progpu_native_direct2d.h"
 #include "progpu_native_com.hpp"
 #include "progpu_native_direct2d_core.hpp"
+#include "progpu_native_direct2d_path.hpp"
 #include "progpu_native_direct2d_rectangle.hpp"
 #include "progpu_native_scene_builder.hpp"
 #include "../Scene/progpu_native_semantic_path_stroke.hpp"
@@ -2326,52 +2327,18 @@ public:
             return E_POINTER;
         }
         *area = 0.0F;
-        if (!valid_tolerance(flattening_tolerance) ||
-            !compat_finite_transform(world_transform)) {
-            return E_INVALIDARG;
+        direct2d_compat::path_geometry* raw_path = nullptr;
+        const HRESULT cache_status = get_portable_path(&raw_path);
+        progpu::native::com::pointer<direct2d_compat::path_geometry> path;
+        path.attach(raw_path);
+        if (FAILED(cache_status)) {
+            return cache_status;
         }
-        std::vector<compat_flat_edge> edges;
-        HRESULT hr = collect_flat_edges(
-            world_transform,
+        progpu_native_direct2d_matrix_3x2_f transform{};
+        return path->ComputeArea(
+            compat_core_transform(world_transform, transform),
             flattening_tolerance,
-            true,
-            edges);
-        if (FAILED(hr)) {
-            return hr;
-        }
-        std::vector<double> signed_areas;
-        try {
-            signed_areas.assign(data_->figures.size(), 0.0);
-        } catch (const std::bad_alloc&) {
-            return E_OUTOFMEMORY;
-        } catch (...) {
-            return E_FAIL;
-        }
-        for (const auto& edge : edges) {
-            if (data_->figures[edge.figure_index].begin ==
-                D2D1_FIGURE_BEGIN_FILLED) {
-                signed_areas[edge.figure_index] +=
-                    static_cast<double>(edge.start.x) * edge.end.y -
-                    static_cast<double>(edge.start.y) * edge.end.x;
-            }
-        }
-        double result = 0.0;
-        if (data_->fill_mode == D2D1_FILL_MODE_ALTERNATE) {
-            for (double value : signed_areas) {
-                result += std::abs(value) * 0.5;
-            }
-        } else {
-            for (double value : signed_areas) {
-                result += value * 0.5;
-            }
-            result = std::abs(result);
-        }
-        if (!std::isfinite(result) ||
-            result > std::numeric_limits<float>::max()) {
-            return E_INVALIDARG;
-        }
-        *area = static_cast<float>(result);
-        return S_OK;
+            area);
     }
 
     HRESULT STDMETHODCALLTYPE ComputeLength(
@@ -2645,6 +2612,106 @@ private:
         return std::isfinite(tolerance) && tolerance > 0.0F;
     }
 
+    HRESULT get_portable_path(
+        direct2d_compat::path_geometry** path) const noexcept
+    {
+        if (path == nullptr) {
+            return E_POINTER;
+        }
+        *path = nullptr;
+        if (!is_closed()) {
+            return D2DERR_WRONG_STATE;
+        }
+        const std::lock_guard lock(portable_path_mutex_);
+        if (!portable_path_) {
+            direct2d_compat::path_geometry* raw_candidate = nullptr;
+            HRESULT status = direct2d_compat::detail::create_path_geometry(
+                reinterpret_cast<direct2d_compat::factory*>(factory_.Get()),
+                &raw_candidate);
+            progpu::native::com::pointer<direct2d_compat::path_geometry>
+                candidate;
+            candidate.attach(raw_candidate);
+            if (FAILED(status)) {
+                return status;
+            }
+            direct2d_compat::geometry_sink* raw_sink = nullptr;
+            status = candidate->Open(&raw_sink);
+            progpu::native::com::pointer<direct2d_compat::geometry_sink> sink;
+            sink.attach(raw_sink);
+            if (FAILED(status)) {
+                return status;
+            }
+            sink->SetFillMode(static_cast<direct2d_compat::fill_mode>(
+                data_->fill_mode));
+            D2D1_PATH_SEGMENT current_flags =
+                D2D1_PATH_SEGMENT_FORCE_DWORD;
+            for (const compat_path_figure& figure : data_->figures) {
+                sink->BeginFigure(
+                    {figure.start.x, figure.start.y},
+                    static_cast<direct2d_compat::figure_begin>(
+                        figure.begin));
+                for (std::uint32_t local_index = 0U;
+                     local_index < figure.segment_count;
+                     ++local_index) {
+                    const compat_path_segment& segment = data_->segments[
+                        figure.first_segment + local_index];
+                    if (segment.flags != current_flags) {
+                        sink->SetSegmentFlags(
+                            static_cast<direct2d_compat::path_segment>(
+                                segment.flags));
+                        current_flags = segment.flags;
+                    }
+                    switch (segment.kind) {
+                    case compat_path_segment_kind::line: {
+                        const direct2d_compat::point_2f point{
+                            segment.end.x, segment.end.y};
+                        sink->AddLine(point);
+                        break;
+                    }
+                    case compat_path_segment_kind::cubic: {
+                        const direct2d_compat::bezier_segment bezier{
+                            {segment.control1.x, segment.control1.y},
+                            {segment.control2.x, segment.control2.y},
+                            {segment.end.x, segment.end.y}};
+                        sink->AddBezier(&bezier);
+                        break;
+                    }
+                    case compat_path_segment_kind::quadratic: {
+                        const direct2d_compat::quadratic_bezier_segment
+                            bezier{
+                                {segment.control1.x, segment.control1.y},
+                                {segment.end.x, segment.end.y}};
+                        sink->AddQuadraticBezier(&bezier);
+                        break;
+                    }
+                    case compat_path_segment_kind::arc: {
+                        const direct2d_compat::arc_segment arc{
+                            {segment.arc.point.x, segment.arc.point.y},
+                            {segment.arc.size.width, segment.arc.size.height},
+                            segment.arc.rotationAngle,
+                            static_cast<direct2d_compat::sweep_direction>(
+                                segment.arc.sweepDirection),
+                            static_cast<direct2d_compat::arc_size>(
+                                segment.arc.arcSize)};
+                        sink->AddArc(&arc);
+                        break;
+                    }
+                    }
+                }
+                sink->EndFigure(
+                    static_cast<direct2d_compat::figure_end>(figure.end));
+            }
+            status = sink->Close();
+            if (FAILED(status)) {
+                return status;
+            }
+            portable_path_ = std::move(candidate);
+        }
+        *path = portable_path_.get();
+        (*path)->AddRef();
+        return S_OK;
+    }
+
     HRESULT collect_flat_edges(
         const D2D1_MATRIX_3X2_F* transform,
         float tolerance,
@@ -2774,6 +2841,9 @@ private:
     std::atomic<ULONG> reference_count_{1U};
     ComPtr<ID2D1Factory1> factory_;
     std::shared_ptr<compat_path_data> data_;
+    mutable std::mutex portable_path_mutex_;
+    mutable progpu::native::com::pointer<direct2d_compat::path_geometry>
+        portable_path_;
 };
 
 class ProGpuD2DRoundedRectangleGeometry final :
