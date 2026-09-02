@@ -636,6 +636,143 @@ private:
   bool supported_ = true;
 };
 
+class polygon_contours_sink final : public simplified_geometry_sink {
+public:
+  com::result PROGPU_NATIVE_COM_CALL
+  QueryInterface(com::guid_ref interface_id, void **value) noexcept override {
+    if (value == nullptr) {
+      return com::pointer_error;
+    }
+    *value = nullptr;
+    if (com::guid_equal(interface_id, com::unknown_interface_id()) ||
+        com::guid_equal(interface_id, simplified_geometry_sink_interface_id)) {
+      *value = static_cast<simplified_geometry_sink *>(this);
+      AddRef();
+      return com::ok;
+    }
+    return com::no_interface;
+  }
+
+  com::reference_count_value PROGPU_NATIVE_COM_CALL AddRef() noexcept override {
+    return reference_count_.add_ref();
+  }
+
+  com::reference_count_value PROGPU_NATIVE_COM_CALL Release() noexcept override {
+    return reference_count_.release(this);
+  }
+
+  void PROGPU_NATIVE_COM_CALL SetFillMode(fill_mode value) noexcept override {
+    if (value != fill_mode::alternate && value != fill_mode::winding) {
+      fail(com::invalid_argument);
+    }
+  }
+
+  void PROGPU_NATIVE_COM_CALL SetSegmentFlags(path_segment) noexcept override {}
+
+  void PROGPU_NATIVE_COM_CALL
+  BeginFigure(point_2f start, figure_begin begin) noexcept override {
+    if (figure_open_ || !finite_point(start) ||
+        (begin != figure_begin::filled && begin != figure_begin::hollow)) {
+      fail(com::invalid_argument);
+      return;
+    }
+    figure_open_ = true;
+    capture_ = begin == figure_begin::filled;
+    if (!capture_) {
+      return;
+    }
+    try {
+      contours_.emplace_back();
+      contours_.back().push_back(start);
+    } catch (const std::bad_alloc &) {
+      fail(com::out_of_memory);
+    } catch (...) {
+      fail(failure);
+    }
+  }
+
+  void PROGPU_NATIVE_COM_CALL AddLines(
+      const point_2f *points, std::uint32_t point_count) noexcept override {
+    if (!figure_open_ || (point_count != 0U && points == nullptr)) {
+      fail(com::invalid_argument);
+      return;
+    }
+    if (!capture_ || com::failed(status_)) {
+      return;
+    }
+    try {
+      std::vector<point_2f> &contour = contours_.back();
+      for (std::uint32_t index = 0U; index < point_count; ++index) {
+        if (!finite_point(points[index])) {
+          fail(com::invalid_argument);
+          return;
+        }
+        if (contour.empty() || !same_point(contour.back(), points[index])) {
+          contour.push_back(points[index]);
+        }
+      }
+    } catch (const std::bad_alloc &) {
+      fail(com::out_of_memory);
+    } catch (...) {
+      fail(failure);
+    }
+  }
+
+  void PROGPU_NATIVE_COM_CALL AddBeziers(
+      const bezier_segment *, std::uint32_t) noexcept override {
+    fail(com::invalid_argument);
+  }
+
+  void PROGPU_NATIVE_COM_CALL EndFigure(figure_end end) noexcept override {
+    if (!figure_open_ ||
+        (end != figure_end::open && end != figure_end::closed)) {
+      fail(com::invalid_argument);
+      return;
+    }
+    if (capture_ && com::succeeded(status_)) {
+      std::vector<point_2f> &contour = contours_.back();
+      while (contour.size() > 1U &&
+             same_point(contour.front(), contour.back())) {
+        contour.pop_back();
+      }
+      if (end != figure_end::closed || contour.size() < 3U) {
+        fail(com::invalid_argument);
+      }
+    }
+    figure_open_ = false;
+    capture_ = false;
+  }
+
+  com::result PROGPU_NATIVE_COM_CALL Close() noexcept override {
+    fail(wrong_state);
+    return status_;
+  }
+
+  [[nodiscard]] com::result status() const noexcept {
+    return figure_open_ ? wrong_state : status_;
+  }
+
+  [[nodiscard]] std::vector<std::vector<point_2f>> take_contours() noexcept {
+    return std::move(contours_);
+  }
+
+private:
+  friend class com::atomic_reference_count<polygon_contours_sink>;
+  ~polygon_contours_sink() = default;
+
+  void fail(com::result value) noexcept {
+    if (com::succeeded(status_)) {
+      status_ = value;
+    }
+  }
+
+  com::atomic_reference_count<polygon_contours_sink> reference_count_;
+  std::vector<std::vector<point_2f>> contours_;
+  com::result status_ = com::ok;
+  bool figure_open_ = false;
+  bool capture_ = false;
+};
+
 enum class polygon_point_relation : std::uint8_t {
   outside,
   boundary,
@@ -5285,32 +5422,251 @@ public:
             contours = std::move(normalized_contours);
             winding_contributions =
                 std::move(normalized_winding_contributions);
+            const auto positive_collinear_overlap = [](
+                point_2f first_start,
+                point_2f first_end,
+                point_2f second_start,
+                point_2f second_end) noexcept {
+                if (triangle_cross(
+                        first_start, first_end, second_start) != 0.0 ||
+                    triangle_cross(
+                        first_start, first_end, second_end) != 0.0) {
+                    return false;
+                }
+                const double first_x =
+                    static_cast<double>(first_end.x) - first_start.x;
+                const double first_y =
+                    static_cast<double>(first_end.y) - first_start.y;
+                const bool use_x = std::abs(first_x) >= std::abs(first_y);
+                const double first_axis_start =
+                    use_x ? first_start.x : first_start.y;
+                const double first_axis_end =
+                    use_x ? first_end.x : first_end.y;
+                const double second_axis_start =
+                    use_x ? second_start.x : second_start.y;
+                const double second_axis_end =
+                    use_x ? second_end.x : second_end.y;
+                return std::min(
+                           std::max(first_axis_start, first_axis_end),
+                           std::max(second_axis_start, second_axis_end)) >
+                    std::max(
+                        std::min(first_axis_start, first_axis_end),
+                        std::min(second_axis_start, second_axis_end));
+            };
+            const auto insert_contact_point = [](
+                std::vector<point_2f>& contour,
+                point_2f point) {
+                if (std::any_of(
+                        contour.begin(),
+                        contour.end(),
+                        [point](point_2f candidate) {
+                            return same_point(point, candidate);
+                        })) {
+                    return true;
+                }
+                for (std::size_t edge = 0U; edge < contour.size(); ++edge) {
+                    const point_2f start = contour[edge];
+                    const point_2f end =
+                        contour[(edge + 1U) % contour.size()];
+                    if (triangle_cross(start, end, point) != 0.0) {
+                        continue;
+                    }
+                    const double delta_x =
+                        static_cast<double>(end.x) - start.x;
+                    const double delta_y =
+                        static_cast<double>(end.y) - start.y;
+                    const double point_x =
+                        static_cast<double>(point.x) - start.x;
+                    const double point_y =
+                        static_cast<double>(point.y) - start.y;
+                    const double projection =
+                        point_x * delta_x + point_y * delta_y;
+                    const double squared_length =
+                        delta_x * delta_x + delta_y * delta_y;
+                    if (projection > 0.0 && projection < squared_length) {
+                        contour.insert(contour.begin() +
+                            static_cast<std::ptrdiff_t>(edge + 1U), point);
+                        return true;
+                    }
+                }
+                return false;
+            };
+            bool requires_boolean_normalization = false;
             for (std::size_t first = 0U;
-                 first < contours.size(); ++first) {
+                 !requires_boolean_normalization && first < contours.size();
+                 ++first) {
                 for (std::size_t second = first + 1U;
+                     !requires_boolean_normalization &&
                      second < contours.size(); ++second) {
                     for (std::size_t first_edge = 0U;
+                         !requires_boolean_normalization &&
                          first_edge < contours[first].size(); ++first_edge) {
+                        const point_2f first_start =
+                            contours[first][first_edge];
+                        const point_2f first_end = contours[first][
+                            (first_edge + 1U) % contours[first].size()];
                         for (std::size_t second_edge = 0U;
                              second_edge < contours[second].size();
                              ++second_edge) {
+                            const point_2f second_start =
+                                contours[second][second_edge];
+                            const point_2f second_end = contours[second][
+                                (second_edge + 1U) %
+                                contours[second].size()];
                             if (segments_intersect(
-                                    contours[first][first_edge],
-                                    contours[first][
-                                        (first_edge + 1U) %
-                                        contours[first].size()],
-                                    contours[second][second_edge],
-                                    contours[second][
-                                        (second_edge + 1U) %
-                                        contours[second].size()])) {
+                                    first_start,
+                                    first_end,
+                                    second_start,
+                                    second_end) ||
+                                positive_collinear_overlap(
+                                    first_start,
+                                    first_end,
+                                    second_start,
+                                    second_end)) {
+                                requires_boolean_normalization = true;
+                                break;
+                            }
+                        }
+                    }
+                    if (!requires_boolean_normalization) {
+                        for (std::size_t point_index = 0U;
+                             point_index < contours[first].size();
+                             ++point_index) {
+                            const point_2f point =
+                                contours[first][point_index];
+                            if (classify_polygon_point(
+                                    contours[second], point) !=
+                                    polygon_point_relation::boundary) {
+                                continue;
+                            }
+                            const point_2f previous = contours[first][
+                                (point_index + contours[first].size() - 1U) %
+                                contours[first].size()];
+                            const point_2f next = contours[first][
+                                (point_index + 1U) % contours[first].size()];
+                            if (classify_polygon_point(
+                                    contours[second], previous) ==
+                                    polygon_point_relation::inside ||
+                                classify_polygon_point(
+                                    contours[second], next) ==
+                                    polygon_point_relation::inside) {
+                                requires_boolean_normalization = true;
+                                break;
+                            }
+                            if (!insert_contact_point(
+                                    contours[second], point)) {
+                                return not_implemented;
+                            }
+                        }
+                    }
+                    if (!requires_boolean_normalization) {
+                        for (std::size_t point_index = 0U;
+                             point_index < contours[second].size();
+                             ++point_index) {
+                            const point_2f point =
+                                contours[second][point_index];
+                            if (classify_polygon_point(
+                                    contours[first], point) !=
+                                    polygon_point_relation::boundary) {
+                                continue;
+                            }
+                            const point_2f previous = contours[second][
+                                (point_index + contours[second].size() - 1U) %
+                                contours[second].size()];
+                            const point_2f next = contours[second][
+                                (point_index + 1U) % contours[second].size()];
+                            if (classify_polygon_point(
+                                    contours[first], previous) ==
+                                    polygon_point_relation::inside ||
+                                classify_polygon_point(
+                                    contours[first], next) ==
+                                    polygon_point_relation::inside) {
+                                requires_boolean_normalization = true;
+                                break;
+                            }
+                            if (!insert_contact_point(
+                                    contours[first], point)) {
                                 return not_implemented;
                             }
                         }
                     }
                 }
             }
-            for (std::size_t contour_index = 0U;
-                 contour_index < contours.size(); ++contour_index) {
+            if (requires_boolean_normalization) {
+                if (contours.size() != 2U) {
+                    return not_implemented;
+                }
+                const auto create_contour_geometry = [this](
+                    const std::vector<point_2f>& contour,
+                    com::pointer<path_geometry>& geometry) {
+                    if (contour.size() - 1U >
+                        (std::numeric_limits<std::uint32_t>::max)()) {
+                        return com::out_of_memory;
+                    }
+                    path_geometry* raw_geometry = nullptr;
+                    com::result result = create_path_geometry(
+                        owner_.get(), &raw_geometry);
+                    if (com::failed(result)) {
+                        return result;
+                    }
+                    geometry.attach(raw_geometry);
+                    geometry_sink* raw_sink = nullptr;
+                    result = geometry->Open(&raw_sink);
+                    if (com::failed(result)) {
+                        return result;
+                    }
+                    com::pointer<geometry_sink> contour_sink;
+                    contour_sink.attach(raw_sink);
+                    contour_sink->SetFillMode(fill_mode::alternate);
+                    contour_sink->BeginFigure(
+                        contour.front(), figure_begin::filled);
+                    contour_sink->AddLines(
+                        contour.data() + 1U,
+                        static_cast<std::uint32_t>(contour.size() - 1U));
+                    contour_sink->EndFigure(figure_end::closed);
+                    return contour_sink->Close();
+                };
+                com::pointer<path_geometry> first_geometry;
+                com::pointer<path_geometry> second_geometry;
+                com::result result = create_contour_geometry(
+                    contours[0], first_geometry);
+                if (com::failed(result)) {
+                    return result;
+                }
+                result = create_contour_geometry(
+                    contours[1], second_geometry);
+                if (com::failed(result)) {
+                    return result;
+                }
+                auto* raw_contour_sink =
+                    new (std::nothrow) polygon_contours_sink();
+                if (raw_contour_sink == nullptr) {
+                    return com::out_of_memory;
+                }
+                com::pointer<polygon_contours_sink> contour_sink;
+                contour_sink.attach(raw_contour_sink);
+                const combine_mode mode =
+                    data_->mode == fill_mode::alternate ||
+                    winding_contributions[0] != winding_contributions[1]
+                    ? combine_mode::xor_value
+                    : combine_mode::union_value;
+                result = first_geometry->CombineWithGeometry(
+                    second_geometry.get(),
+                    mode,
+                    nullptr,
+                    flattening_tolerance,
+                    contour_sink.get());
+                if (com::failed(result)) {
+                    return result;
+                }
+                result = raw_contour_sink->status();
+                if (com::failed(result)) {
+                    return result;
+                }
+                contours = raw_contour_sink->take_contours();
+            } else {
+              for (std::size_t contour_index = 0U;
+                   contour_index < contours.size(); ++contour_index) {
                 std::size_t containment_depth = 0U;
                 std::int32_t outside_winding = 0;
                 for (std::size_t candidate = 0U;
@@ -5343,6 +5699,7 @@ public:
                         contours[contour_index].begin(),
                         contours[contour_index].end());
                 }
+            }
             }
             contours.erase(
                 std::remove_if(

@@ -6465,17 +6465,27 @@ of the figure predicates, while widened bounds union per-figure SIMD
 reductions. A closed-square plus open-polyline fixture covers solid and dashed
 body/gap cases and matches genuine Direct2D on Windows ARM64 and x64.
 
-`ID2D1PathGeometry::Outline` also accepts multiple independent filled
-contours and non-touching alternate-fill nesting. Every contour is
-tolerance-flattened and normalized before pairwise boundary-intersection
-checks; a containment-depth pass reverses odd-depth hole boundaries so the
-result is fill invariant. Winding nesting retains signed source contributions,
-sums ancestor winding, omits redundant same-fill boundaries, and reverses true
-holes. Replay uses Direct2D's alternate fill callback and leaves caller
-segment flags unchanged. Local filled-region tests plus Windows ARM64/x64
-callback-count and dense disjoint/alternate-hole/winding-hole differentials
-qualify the lane. Touching/overlap and self-intersection remain fail closed
-until the native boolean normalizer can publish their exact boundary.
+`ID2D1PathGeometry::Outline` also accepts multiple independent or
+point-touching filled contours and non-touching alternate-fill nesting. Every
+contour is tolerance-flattened and normalized before topology analysis; a
+containment-depth pass reverses odd-depth hole boundaries so the result is fill
+invariant. Winding nesting retains signed source contributions, sums ancestor
+winding, omits redundant same-fill boundaries, and reverses true holes.
+
+Two simple contours that cross or share a positive-length edge reuse the
+existing native `CombineWithGeometry` polygon normalizer before replay.
+Alternate fill and opposing winding contributions select xor, while equal
+winding contributions select union. The shared four-lane NEON/SSE2 edge-bounds
+broad phase rejects independent boundary pairs; the dependent
+split/classify/trace stages remain scalar. Contact-only T-junctions keep both
+figures and insert the contact point into the touched edge before replay,
+matching the system line callback transcript. Replay uses Direct2D's alternate
+fill callback and leaves caller segment flags unchanged. Local optimized and
+sanitizer filled-region tests plus Windows ARM64/x64 callback-count and dense
+disjoint/corner-and-T-point-touch/shared-edge/alternate-overlap/winding-overlap/
+alternate-hole/winding-hole differentials qualify the lane. Self-intersection
+and more than two interacting contours remain fail closed until the native
+Boolean normalizer can resolve the whole transaction.
 
 `Widen` now consumes that same partition and prepares the complete mixed-
 figure transaction before caller-sink replay. Closed null/default strokes add
