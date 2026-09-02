@@ -3428,9 +3428,6 @@ public:
                 return com::invalid_argument;
             }
         }
-        if (std::abs(dpi_x - dpi_y) > 0.0001F) {
-            return not_implemented;
-        }
         const std::uint64_t child_scene_id =
             next_compatible_scene_id.fetch_add(
                 1U, std::memory_order_relaxed);

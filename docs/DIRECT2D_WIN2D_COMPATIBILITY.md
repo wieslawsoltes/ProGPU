@@ -3404,6 +3404,12 @@ factory ownership, record and end a clear-only frame, and require a non-empty
 serialized scene plus exact scene ID, generation, and clear metadata. The
 portable 15-test macOS matrix continues to exercise the shared implementation.
 
+Compatible bitmap targets also preserve independent X/Y DPI when both a DIP
+size and a differently proportioned pixel size are requested. The target and
+its bitmap report the derived per-axis DPI and the original DIP dimensions;
+valid nonuniform density no longer fails merely because the two DPI values
+differ.
+
 ## Delivery order
 
 1. Keep the dependency classifier and resolver fail-closed invariants green.
