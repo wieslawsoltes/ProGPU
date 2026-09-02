@@ -5337,10 +5337,8 @@ public:
             return edge_status;
         }
         try {
-            std::vector<std::vector<point_2f>> contours(
+            std::vector<std::vector<point_2f>> source_contours(
                 data_->figures.size());
-            std::vector<std::int8_t> winding_contributions(
-                data_->figures.size(), 0);
             for (const auto& edge : edges) {
                 if (data_->figures[edge.figure_index].begin !=
                         figure_begin::filled ||
@@ -5348,7 +5346,7 @@ public:
                     continue;
                 }
                 std::vector<point_2f>& points =
-                    contours[edge.figure_index];
+                    source_contours[edge.figure_index];
                 if (points.empty()) {
                     points.push_back(edge.start);
                 } else if (!same_point(points.back(), edge.start)) {
@@ -5358,9 +5356,34 @@ public:
                     points.push_back(edge.end);
                 }
             }
+            std::vector<std::vector<point_2f>> contours;
+            std::vector<std::int8_t> winding_contributions;
+            contours.reserve(source_contours.size() + 1U);
+            winding_contributions.reserve(source_contours.size() + 1U);
+            const auto append_normalized_contour = [
+                &contours,
+                &winding_contributions](std::vector<point_2f> contour) {
+                const double twice_area =
+                    polygon_twice_signed_area(contour);
+                if (!std::isfinite(twice_area)) {
+                    return com::invalid_argument;
+                }
+                if (twice_area == 0.0) {
+                    return com::ok;
+                }
+                const std::int8_t contribution =
+                    twice_area < 0.0 ? -1 : 1;
+                if (contribution < 0) {
+                    std::reverse(contour.begin(), contour.end());
+                }
+                contours.push_back(std::move(contour));
+                winding_contributions.push_back(contribution);
+                return com::ok;
+            };
             for (std::size_t contour_index = 0U;
-                 contour_index < contours.size(); ++contour_index) {
-                std::vector<point_2f>& contour = contours[contour_index];
+                 contour_index < source_contours.size(); ++contour_index) {
+                std::vector<point_2f>& contour =
+                    source_contours[contour_index];
                 while (contour.size() > 1U &&
                        same_point(contour.front(), contour.back())) {
                     contour.pop_back();
@@ -5370,58 +5393,143 @@ public:
                         contour.begin(), contour.end(), same_point),
                     contour.end());
                 if (contour.size() < 3U) {
-                    contour.clear();
                     continue;
                 }
-                for (std::size_t first = 0U;
-                     first < contour.size(); ++first) {
+                std::size_t crossing_first = contour.size();
+                std::size_t crossing_second = contour.size();
+                point_2f crossing_point{};
+                std::uint32_t crossing_count = 0U;
+                const polygon_edge_bounds edge_bounds =
+                    make_polygon_edge_bounds(contour);
+                for (std::size_t first = 0U; first < contour.size(); ++first) {
                     const std::size_t first_next =
                         (first + 1U) % contour.size();
-                    for (std::size_t second = first + 1U;
-                         second < contour.size(); ++second) {
-                        const std::size_t second_next =
-                            (second + 1U) % contour.size();
-                        if (first_next == second || second_next == first) {
-                            continue;
-                        }
-                        if (segments_intersect(
-                                contour[first],
-                                contour[first_next],
-                                contour[second],
-                                contour[second_next])) {
-                            return not_implemented;
+                    const point_2f first_start = contour[first];
+                    const point_2f first_end = contour[first_next];
+                    const float minimum_x =
+                        std::min(first_start.x, first_end.x);
+                    const float minimum_y =
+                        std::min(first_start.y, first_end.y);
+                    const float maximum_x =
+                        std::max(first_start.x, first_end.x);
+                    const float maximum_y =
+                        std::max(first_start.y, first_end.y);
+                    for (std::size_t second_block = 0U;
+                         second_block < edge_bounds.minimum_x.size();
+                         second_block += 4U) {
+                        std::uint32_t mask = polygon_edge_overlap_mask(
+                            minimum_x,
+                            minimum_y,
+                            maximum_x,
+                            maximum_y,
+                            edge_bounds,
+                            second_block);
+                        while (mask != 0U) {
+                            std::uint32_t lane = 0U;
+                            while ((mask & (1U << lane)) == 0U) {
+                                ++lane;
+                            }
+                            mask &= mask - 1U;
+                            const std::size_t second = second_block + lane;
+                            if (second <= first ||
+                                second >= contour.size()) {
+                                continue;
+                            }
+                            const std::size_t second_next =
+                                (second + 1U) % contour.size();
+                            if (first_next == second ||
+                                second_next == first ||
+                                !segments_intersect(
+                                    first_start,
+                                    first_end,
+                                    contour[second],
+                                    contour[second_next])) {
+                                continue;
+                            }
+                            if (++crossing_count != 1U) {
+                                return not_implemented;
+                            }
+                            const double first_x =
+                                static_cast<double>(first_end.x) -
+                                first_start.x;
+                            const double first_y =
+                                static_cast<double>(first_end.y) -
+                                first_start.y;
+                            const double second_x =
+                                static_cast<double>(contour[second_next].x) -
+                                contour[second].x;
+                            const double second_y =
+                                static_cast<double>(contour[second_next].y) -
+                                contour[second].y;
+                            const double offset_x =
+                                static_cast<double>(contour[second].x) -
+                                first_start.x;
+                            const double offset_y =
+                                static_cast<double>(contour[second].y) -
+                                first_start.y;
+                            const double denominator =
+                                first_x * second_y - first_y * second_x;
+                            const double parameter =
+                                (offset_x * second_y -
+                                 offset_y * second_x) /
+                                denominator;
+                            const double x = first_start.x +
+                                parameter * first_x;
+                            const double y = first_start.y +
+                                parameter * first_y;
+                            if (!std::isfinite(x) || !std::isfinite(y) ||
+                                std::abs(x) >
+                                    (std::numeric_limits<float>::max)() ||
+                                std::abs(y) >
+                                    (std::numeric_limits<float>::max)()) {
+                                return com::invalid_argument;
+                            }
+                            crossing_first = first;
+                            crossing_second = second;
+                            crossing_point = {
+                                static_cast<float>(x),
+                                static_cast<float>(y)};
                         }
                     }
                 }
-                const double twice_area =
-                    polygon_twice_signed_area(contour);
-                if (!std::isfinite(twice_area)) {
-                    return com::invalid_argument;
+                if (crossing_count == 0U) {
+                    const com::result status =
+                        append_normalized_contour(std::move(contour));
+                    if (com::failed(status)) {
+                        return status;
+                    }
+                    continue;
                 }
-                if (twice_area == 0.0) {
-                    contour.clear();
-                } else if (twice_area < 0.0) {
-                    winding_contributions[contour_index] = -1;
-                    std::reverse(contour.begin(), contour.end());
-                } else {
-                    winding_contributions[contour_index] = 1;
+                std::vector<point_2f> first_lobe;
+                std::vector<point_2f> second_lobe;
+                first_lobe.reserve(
+                    crossing_second - crossing_first + 1U);
+                second_lobe.reserve(
+                    contour.size() - crossing_second + crossing_first + 1U);
+                first_lobe.push_back(crossing_point);
+                for (std::size_t index = crossing_first + 1U;
+                     index <= crossing_second; ++index) {
+                    first_lobe.push_back(contour[index]);
+                }
+                second_lobe.push_back(crossing_point);
+                for (std::size_t index = crossing_second + 1U;
+                     index < contour.size(); ++index) {
+                    second_lobe.push_back(contour[index]);
+                }
+                for (std::size_t index = 0U;
+                     index <= crossing_first; ++index) {
+                    second_lobe.push_back(contour[index]);
+                }
+                com::result status =
+                    append_normalized_contour(std::move(first_lobe));
+                if (com::failed(status)) {
+                    return status;
+                }
+                status = append_normalized_contour(std::move(second_lobe));
+                if (com::failed(status)) {
+                    return status;
                 }
             }
-            std::vector<std::vector<point_2f>> normalized_contours;
-            std::vector<std::int8_t> normalized_winding_contributions;
-            normalized_contours.reserve(contours.size());
-            normalized_winding_contributions.reserve(contours.size());
-            for (std::size_t index = 0U; index < contours.size(); ++index) {
-                if (!contours[index].empty()) {
-                    normalized_contours.push_back(
-                        std::move(contours[index]));
-                    normalized_winding_contributions.push_back(
-                        winding_contributions[index]);
-                }
-            }
-            contours = std::move(normalized_contours);
-            winding_contributions =
-                std::move(normalized_winding_contributions);
             const auto positive_collinear_overlap = [](
                 point_2f first_start,
                 point_2f first_end,

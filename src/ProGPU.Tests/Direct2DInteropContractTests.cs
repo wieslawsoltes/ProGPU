@@ -358,6 +358,7 @@ public sealed class Direct2DInteropContractTests
         Assert.Contains("classify_polygon_point(", pathSource, StringComparison.Ordinal);
         Assert.Contains("class polygon_contours_sink final", pathSource, StringComparison.Ordinal);
         Assert.Contains("requires_boolean_normalization", pathSource, StringComparison.Ordinal);
+        Assert.Contains("crossing_count", pathSource, StringComparison.Ordinal);
         Assert.Contains("const double result = std::abs(twice_area) * 0.5", pathSource, StringComparison.Ordinal);
         Assert.Contains("sink->SetFillMode(fill_mode::alternate)", pathSource, StringComparison.Ordinal);
         Assert.Contains("system_outline_rectangle->Outline(", nativeTest, StringComparison.Ordinal);

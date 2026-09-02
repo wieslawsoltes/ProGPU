@@ -6483,9 +6483,17 @@ matching the system line callback transcript. Replay uses Direct2D's alternate
 fill callback and leaves caller segment flags unchanged. Local optimized and
 sanitizer filled-region tests plus Windows ARM64/x64 callback-count and dense
 disjoint/corner-and-T-point-touch/shared-edge/alternate-overlap/winding-overlap/
-alternate-hole/winding-hole differentials qualify the lane. Self-intersection
-and more than two interacting contours remain fail closed until the native
+alternate-hole/winding-hole differentials qualify the lane. More than two
+interacting contours remain fail closed until the native
 Boolean normalizer can resolve the whole transaction.
+
+A single proper transverse self-intersection is detected through the same
+four-lane NEON/SSE2 edge-bounds broad phase, solved once in double precision,
+and split into two simple lobes before ordinary winding normalization. The
+dependent lobe walk remains scalar. Local and genuine Direct2D ARM64/x64
+bow-tie tests match the two-figure/six-line callback transcript, dense fill,
+and area. Multiple, collinear, endpoint-ambiguous, or numerically invalid
+self-crossings remain transactional typed failures.
 
 `ComputeArea` now invokes that normalized Outline transaction into a private
 caller-owned contour sink and reduces the signed shoelace areas. The result
@@ -6496,8 +6504,9 @@ loop-carried sum and remains scalar; the independent boundary-pair work is
 still four-wide NEON/SSE2 in the shared normalizer. Local optimized and
 sanitizer hole/overlap checks plus genuine Direct2D ARM64/x64 shared-edge,
 alternate-overlap, winding-overlap, corner-contact, and T-contact area
-differentials pass. Unsupported self-intersection fails closed with the output
-already initialized to zero.
+differentials pass, including the qualified single-crossing bow tie. Multiple
+or ambiguous self-intersections fail closed with the output already initialized
+to zero.
 
 `Widen` now consumes that same partition and prepares the complete mixed-
 figure transaction before caller-sink replay. Closed null/default strokes add
