@@ -18816,6 +18816,17 @@ bool c_abi_is_typed_and_size_versioned() {
 } // namespace
 
 int main() {
+    for (const auto source : {progpu::native::tests::mil_brush_fixture_source::drawing,
+        progpu::native::tests::mil_brush_fixture_source::drawing_image}) {
+        std::vector<std::byte> scene;
+        PROGPU_REQUIRE(progpu::native::tests::build_mil_image_brush_fixture(
+            scene, {.opacity = 0.5, .source = source}, 9490U));
+        PROGPU_REQUIRE(!scene.empty());
+        scene = {std::byte{0x5a}};
+        PROGPU_REQUIRE(!progpu::native::tests::build_mil_image_brush_fixture(
+            scene, {.source = source, .source_cycle = true}, 9491U));
+        PROGPU_REQUIRE(scene == std::vector<std::byte>{std::byte{0x5a}});
+    }
     for (std::uint32_t tile_mode = 1U; tile_mode <= 4U; ++tile_mode) {
         std::vector<std::byte> scene{std::byte{0x5a}};
         PROGPU_REQUIRE(!progpu::native::tests::build_mil_image_brush_fixture(
