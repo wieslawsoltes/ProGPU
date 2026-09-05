@@ -18324,6 +18324,210 @@ bool canonical_viewport3d_scene_uses_wpf_resources() {
     return true;
 }
 
+bool bitmap_dpi_is_atomic_and_preserves_legacy_bindings() {
+    channel state;
+    std::vector<std::byte> create;
+    append_create(create, 1U, 95U);
+    append_create(create, 2U, 96U);
+    PROGPU_REQUIRE(state.apply(create) == status::success);
+    const std::array pixels{std::byte{1}, std::byte{2}, std::byte{3}, std::byte{255}};
+    double dpi_x = -1.0;
+    double dpi_y = -2.0;
+    PROGPU_REQUIRE(state.get_bitmap_source_dpi(1U, dpi_x, dpi_y) == status::invalid_handle);
+    PROGPU_REQUIRE(dpi_x == -1.0 && dpi_y == -2.0);
+    for (const auto handle : {1U, 2U}) {
+        for (const bool external : {false, true}) {
+            const auto bind = [&](double x, double y) {
+                if (handle == 1U) {
+                    return external
+                        ? state.set_bitmap_source_external_image(handle, 1U, 1U, x, y)
+                        : state.set_bitmap_source_rgba8(handle, 1U, 1U, 4U, pixels, x, y);
+                }
+                return external
+                    ? state.set_double_buffered_bitmap_external_image(handle, 1U, 1U, x, y)
+                    : state.set_double_buffered_bitmap_rgba8(handle, 1U, 1U, 4U, pixels, x, y);
+            };
+            PROGPU_REQUIRE(bind(144.0, 192.0) == status::success);
+            PROGPU_REQUIRE(state.get_bitmap_source_dpi(handle, dpi_x, dpi_y) == status::success);
+            PROGPU_REQUIRE(dpi_x == 144.0 && dpi_y == 192.0);
+            const auto generation = state.resource_generation(handle);
+            const std::array invalid{
+                0.0, -1.0, std::numeric_limits<double>::infinity(),
+                std::numeric_limits<double>::quiet_NaN(),
+                std::numeric_limits<double>::denorm_min()};
+            for (const double value : invalid) {
+                PROGPU_REQUIRE(bind(value, 96.0) == status::invalid_argument);
+                PROGPU_REQUIRE(bind(96.0, value) == status::invalid_argument);
+                PROGPU_REQUIRE(state.resource_generation(handle) == generation);
+                PROGPU_REQUIRE(state.get_bitmap_source_dpi(handle, dpi_x, dpi_y) == status::success);
+                PROGPU_REQUIRE(dpi_x == 144.0 && dpi_y == 192.0);
+            }
+            PROGPU_REQUIRE(bind(72.0, 120.0) == status::success);
+            PROGPU_REQUIRE(state.resource_generation(handle) == generation + 1U);
+            PROGPU_REQUIRE(state.get_bitmap_source_dpi(handle, dpi_x, dpi_y) == status::success);
+            PROGPU_REQUIRE(dpi_x == 72.0 && dpi_y == 120.0);
+            const auto legacy = handle == 1U
+                ? (external ? state.set_bitmap_source_external_image(handle, 1U, 1U)
+                    : state.set_bitmap_source_rgba8(handle, 1U, 1U, 4U, pixels))
+                : (external ? state.set_double_buffered_bitmap_external_image(handle, 1U, 1U)
+                    : state.set_double_buffered_bitmap_rgba8(handle, 1U, 1U, 4U, pixels));
+            PROGPU_REQUIRE(legacy == status::success);
+            PROGPU_REQUIRE(state.get_bitmap_source_dpi(handle, dpi_x, dpi_y) == status::success);
+            PROGPU_REQUIRE(dpi_x == 96.0 && dpi_y == 96.0);
+        }
+    }
+    // Exercise all additive C ABI entry points, including rejection before mutation.
+    progpu_native_mil_channel* abi = nullptr;
+    PROGPU_REQUIRE(progpu_native_mil_channel_create(&abi) == PROGPU_NATIVE_MIL_STATUS_SUCCESS);
+    PROGPU_REQUIRE(progpu_native_mil_channel_apply(abi, create.data(), create.size(), nullptr)
+        == PROGPU_NATIVE_MIL_STATUS_SUCCESS);
+    const std::array copied{
+        progpu_native_mil_channel_set_bitmap_source_rgba8_with_dpi,
+        progpu_native_mil_channel_set_double_buffered_bitmap_rgba8_with_dpi};
+    const std::array external{
+        progpu_native_mil_channel_set_bitmap_source_external_image_with_dpi,
+        progpu_native_mil_channel_set_double_buffered_bitmap_external_image_with_dpi};
+    for (std::uint32_t i = 0U; i < copied.size(); ++i) {
+        const auto handle = i + 1U;
+        PROGPU_REQUIRE(copied[i](abi, handle, 1U, 1U, 4U, pixels.data(), pixels.size(), 144.0, 192.0)
+            == PROGPU_NATIVE_MIL_STATUS_SUCCESS);
+        const auto generation = progpu_native_mil_channel_get_resource_generation(abi, handle);
+        PROGPU_REQUIRE(copied[i](abi, handle, 1U, 1U, 4U, nullptr, pixels.size(), 144.0, 192.0)
+            == PROGPU_NATIVE_MIL_STATUS_INVALID_ARGUMENT);
+        PROGPU_REQUIRE(external[i](abi, handle, 1U, 1U, 0.0, 192.0)
+            == PROGPU_NATIVE_MIL_STATUS_INVALID_ARGUMENT);
+        PROGPU_REQUIRE(progpu_native_mil_channel_get_resource_generation(abi, handle) == generation);
+        PROGPU_REQUIRE(external[i](abi, handle, 1U, 1U, 72.0, 120.0)
+            == PROGPU_NATIVE_MIL_STATUS_SUCCESS);
+        PROGPU_REQUIRE(external[i](nullptr, handle, 1U, 1U, 72.0, 120.0)
+            == PROGPU_NATIVE_MIL_STATUS_INVALID_ARGUMENT);
+    }
+    progpu_native_mil_channel_destroy(abi);
+    return true;
+}
+
+bool canonical_tile_brush_packets_are_transactional_and_typed() {
+    using layout = command_layouts::image_brush;
+    static_assert(layout::fixed_size == command_layouts::drawing_brush::fixed_size);
+    static_assert(layout::fixed_size == command_layouts::visual_brush::fixed_size);
+    static_assert(layout::h_image_source_offset == command_layouts::drawing_brush::h_drawing_offset);
+    static_assert(layout::h_image_source_offset == command_layouts::visual_brush::h_visual_offset);
+    const std::array kinds{command::image_brush, command::drawing_brush, command::visual_brush};
+    const std::array brush_types{80U, 81U, 82U};
+    const std::array source_types{95U, 87U, 39U};
+    const auto frame = [](const std::vector<std::byte>& packet) {
+        std::vector<std::byte> bytes;
+        append_value(bytes, static_cast<std::uint32_t>(packet.size() + 4U));
+        bytes.insert(bytes.end(), packet.begin(), packet.end());
+        return bytes;
+    };
+    for (std::size_t kind = 0U; kind < kinds.size(); ++kind) {
+        channel state;
+        std::vector<std::byte> create;
+        append_create(create, 1U, brush_types[kind]);
+        append_create(create, 2U, source_types[kind]);
+        append_create(create, 3U, 66U);
+        append_create(create, 4U, 49U);
+        append_create(create, 5U, 52U);
+        append_create(create, 6U, 52U);
+        PROGPU_REQUIRE(state.apply(create) == status::success);
+        std::vector<std::byte> packet(layout::fixed_size);
+        write_value(packet, 0U, kinds[kind]);
+        write_value(packet, layout::handle_offset, 1U);
+        write_value(packet, layout::opacity_offset, 0.75);
+        const std::array viewport{0.1, 0.2, 0.5, 0.25};
+        const std::array viewbox{0.0, 0.0, 1.0, 1.0};
+        write_value(packet, layout::viewport_offset, viewport);
+        write_value(packet, layout::viewbox_offset, viewbox);
+        write_value(packet, layout::cache_invalidation_threshold_minimum_offset, 0.707);
+        write_value(packet, layout::cache_invalidation_threshold_maximum_offset, 1.414);
+        write_value(packet, layout::h_opacity_animations_offset, 4U);
+        write_value(packet, layout::h_transform_offset, 3U);
+        write_value(packet, layout::h_relative_transform_offset, 3U);
+        write_value(packet, layout::viewport_units_offset, 1U);
+        write_value(packet, layout::viewbox_units_offset, 1U);
+        write_value(packet, layout::h_viewport_animations_offset, 5U);
+        write_value(packet, layout::h_viewbox_animations_offset, 6U);
+        write_value(packet, layout::stretch_offset, 3U);
+        write_value(packet, layout::tile_mode_offset, 3U);
+        write_value(packet, layout::alignment_x_offset, 2U);
+        write_value(packet, layout::alignment_y_offset, 1U);
+        write_value(packet, layout::caching_hint_offset, 1U);
+        write_value(packet, layout::h_image_source_offset, 2U);
+        batch_metrics metrics{};
+        PROGPU_REQUIRE(state.apply(frame(packet), &metrics) == status::success);
+        PROGPU_REQUIRE(metrics.updated_resource_count == 1U);
+        const auto generation = state.resource_generation(1U);
+        const std::array enum_offsets{
+            layout::viewport_units_offset, layout::viewbox_units_offset,
+            layout::stretch_offset, layout::tile_mode_offset,
+            layout::alignment_x_offset, layout::alignment_y_offset,
+            layout::caching_hint_offset};
+        for (const auto offset : enum_offsets) {
+            auto invalid = packet;
+            write_value(invalid, offset, std::numeric_limits<std::uint32_t>::max());
+            auto transaction = frame(packet);
+            const auto malformed = frame(invalid);
+            transaction.insert(transaction.end(), malformed.begin(), malformed.end());
+            PROGPU_REQUIRE(state.apply(transaction) == status::malformed_batch);
+            PROGPU_REQUIRE(state.resource_generation(1U) == generation);
+        }
+        const std::array double_offsets{
+            layout::opacity_offset, layout::viewport_offset, layout::viewbox_offset};
+        for (const auto offset : double_offsets) {
+            auto invalid = packet;
+            write_value(invalid, offset, std::numeric_limits<double>::quiet_NaN());
+            PROGPU_REQUIRE(state.apply(frame(invalid)) == status::malformed_batch);
+            PROGPU_REQUIRE(state.resource_generation(1U) == generation);
+        }
+        const std::array reference_offsets{
+            layout::h_opacity_animations_offset, layout::h_transform_offset,
+            layout::h_relative_transform_offset, layout::h_viewport_animations_offset,
+            layout::h_viewbox_animations_offset, layout::h_image_source_offset};
+        for (const auto offset : reference_offsets) {
+            auto invalid = packet;
+            write_value(invalid, offset, 1U); // The brush is never a valid dependency type.
+            PROGPU_REQUIRE(state.apply(frame(invalid)) == status::invalid_handle);
+            PROGPU_REQUIRE(state.resource_generation(1U) == generation);
+        }
+        const std::array dependency_types{source_types[kind], 66U, 49U, 52U, 52U};
+        for (std::uint32_t i = 0U; i < dependency_types.size(); ++i) {
+            std::vector<std::byte> remove;
+            append_command(remove, command::channel_delete_resource, i + 2U, dependency_types[i]);
+            PROGPU_REQUIRE(state.apply(remove) == status::invalid_graph);
+            PROGPU_REQUIRE(state.resource_count() == 6U);
+        }
+        auto truncated = packet;
+        truncated.resize(packet.size() - 4U);
+        PROGPU_REQUIRE(state.apply(frame(truncated)) == status::malformed_batch);
+        auto oversized = packet;
+        oversized.resize(packet.size() + 4U);
+        PROGPU_REQUIRE(state.apply(frame(oversized)) == status::malformed_batch);
+        // All reference fields are replaceable, including a null content source.
+        for (const auto offset : reference_offsets) write_value(packet, offset, 0U);
+        PROGPU_REQUIRE(state.apply(frame(packet)) == status::success);
+        PROGPU_REQUIRE(state.resource_generation(1U) == generation + 1U);
+        const double infinity = std::numeric_limits<double>::infinity();
+        const std::array empty{infinity, infinity, -infinity, -infinity};
+        write_value(packet, layout::viewport_offset, empty);
+        write_value(packet, layout::viewbox_offset, empty);
+        write_value(packet, layout::cache_invalidation_threshold_minimum_offset,
+            std::numeric_limits<double>::quiet_NaN());
+        write_value(packet, layout::cache_invalidation_threshold_maximum_offset, infinity);
+        PROGPU_REQUIRE(state.apply(frame(packet)) == status::success);
+        for (std::uint32_t i = 0U; i < dependency_types.size(); ++i) {
+            std::vector<std::byte> remove;
+            append_command(remove, command::channel_delete_resource, i + 2U, dependency_types[i]);
+            PROGPU_REQUIRE(state.apply(remove) == status::success);
+        }
+        std::vector<std::byte> remove;
+        append_command(remove, command::channel_delete_resource, 1U, brush_types[kind]);
+        PROGPU_REQUIRE(state.apply(remove) == status::success);
+        PROGPU_REQUIRE(state.resource_count() == 0U);
+    }
+    return true;
+}
+
 bool malformed_and_unsupported_packets_fail_closed() {
     channel state;
     const std::array malformed{
@@ -18688,6 +18892,8 @@ int main() {
         canonical_viewport3d_camera_uses_wpf_transform_resources());
     PROGPU_REQUIRE(canonical_viewport3d_scene_uses_wpf_resources());
     PROGPU_REQUIRE(render_data_scope_errors_fail_closed());
+    PROGPU_REQUIRE(canonical_tile_brush_packets_are_transactional_and_typed());
+    PROGPU_REQUIRE(bitmap_dpi_is_atomic_and_preserves_legacy_bindings());
     PROGPU_REQUIRE(malformed_and_unsupported_packets_fail_closed());
     PROGPU_REQUIRE(c_abi_is_typed_and_size_versioned());
     return 0;

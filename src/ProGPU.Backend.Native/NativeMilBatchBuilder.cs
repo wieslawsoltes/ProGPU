@@ -660,6 +660,61 @@ public sealed class NativeMilBatchBuilder
         WriteSingle(packet, 20, color.Alpha);
     }
 
+    public void SetImageBrush(uint handle, NativeMilTileBrush brush, uint imageSourceHandle = 0) =>
+        SetTileBrush(NativeMilCommand.ImageBrush, handle, brush, imageSourceHandle);
+
+    public void SetDrawingBrush(uint handle, NativeMilTileBrush brush, uint drawingHandle = 0) =>
+        SetTileBrush(NativeMilCommand.DrawingBrush, handle, brush, drawingHandle);
+
+    public void SetVisualBrush(uint handle, NativeMilTileBrush brush, uint visualHandle = 0) =>
+        SetTileBrush(NativeMilCommand.VisualBrush, handle, brush, visualHandle);
+
+    private void SetTileBrush(uint command, uint handle,
+        NativeMilTileBrush brush, uint sourceHandle)
+    {
+        ValidateHandle(handle);
+        static bool ValidRect(NativeMilRect rect) =>
+            (double.IsPositiveInfinity(rect.X) && double.IsPositiveInfinity(rect.Y) &&
+             double.IsNegativeInfinity(rect.Width) && double.IsNegativeInfinity(rect.Height)) ||
+            (double.IsFinite(rect.X) && double.IsFinite(rect.Y) &&
+            double.IsFinite(rect.Width) && double.IsFinite(rect.Height) &&
+            rect.Width >= 0 && rect.Height >= 0);
+        if (!ValidRect(brush.Viewport) || !ValidRect(brush.Viewbox) ||
+            !double.IsFinite(brush.Opacity) || brush.Opacity < 0 || brush.Opacity > 1 ||
+            (uint)brush.ViewportUnits > 1 || (uint)brush.ViewboxUnits > 1 ||
+            (uint)brush.Stretch > 3 || (uint)brush.TileMode > 4 ||
+            (uint)brush.AlignmentX > 2 || (uint)brush.AlignmentY > 2)
+        {
+            throw new ArgumentOutOfRangeException(nameof(brush));
+        }
+        Span<byte> packet = NativeMilBatchEncoding.Allocate(_writer, command, 148);
+        WriteUInt32(packet, 4, handle);
+        WriteDouble(packet, 8, brush.Opacity);
+        WriteDouble(packet, 16, brush.Viewport.X);
+        WriteDouble(packet, 24, brush.Viewport.Y);
+        WriteDouble(packet, 32, brush.Viewport.Width);
+        WriteDouble(packet, 40, brush.Viewport.Height);
+        WriteDouble(packet, 48, brush.Viewbox.X);
+        WriteDouble(packet, 56, brush.Viewbox.Y);
+        WriteDouble(packet, 64, brush.Viewbox.Width);
+        WriteDouble(packet, 72, brush.Viewbox.Height);
+        WriteDouble(packet, 80, brush.CacheInvalidationThresholdMinimum);
+        WriteDouble(packet, 88, brush.CacheInvalidationThresholdMaximum);
+        WriteUInt32(packet, 96, brush.OpacityAnimationHandle);
+        WriteUInt32(packet, 100, brush.TransformHandle);
+        WriteUInt32(packet, 104, brush.RelativeTransformHandle);
+        WriteUInt32(packet, 108, (uint)brush.ViewportUnits);
+        WriteUInt32(packet, 112, (uint)brush.ViewboxUnits);
+        WriteUInt32(packet, 116, brush.ViewportAnimationHandle);
+        WriteUInt32(packet, 120, brush.ViewboxAnimationHandle);
+        WriteUInt32(packet, 124, (uint)brush.Stretch);
+        WriteUInt32(packet, 128, (uint)brush.TileMode);
+        WriteUInt32(packet, 132, (uint)brush.AlignmentX);
+        WriteUInt32(packet, 136, (uint)brush.AlignmentY);
+        WriteUInt32(packet, 140, brush.Cache ? 1U : 0U);
+        WriteUInt32(packet, 144, sourceHandle);
+    }
+
     public void SetSolidColorBrush(
         uint handle,
         NativeMilColor color,
@@ -3270,6 +3325,9 @@ internal static class NativeMilCommand
     internal const uint SolidColorBrush = 0x7e;
     internal const uint LinearGradientBrush = 0x7f;
     internal const uint RadialGradientBrush = 0x80;
+    internal const uint ImageBrush = 0x81;
+    internal const uint DrawingBrush = 0x82;
+    internal const uint VisualBrush = 0x83;
     internal const uint DashStyle = 0x85;
     internal const uint Pen = 0x86;
     internal const uint GeometryDrawing = 0x87;

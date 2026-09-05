@@ -13,15 +13,15 @@
     },
     "decoder": {
       "path": "src/ProGPU.Native/src/Mil/progpu_native_mil.cpp",
-      "sha256": "d6c266a836c1fa4f1647c7bee493ae849aeb128c8e14e390b84fd5d74e3f6e87"
+      "sha256": "38fa00bc3d3adb25cac1a7ffdce684178b9f975bcb63a059ce86f714d6591981"
     }
   },
   "summary": {
     "commandCount": 143,
     "sentinel": 2,
-    "topLevelDecoder": 101,
+    "topLevelDecoder": 104,
     "nestedRenderDataDispatch": 25,
-    "notDispatched": 15
+    "notDispatched": 12
   },
   "commands": [
     {
@@ -930,21 +930,21 @@
       "name": "image_brush",
       "wpfName": "MilCmdImageBrush",
       "value": 129,
-      "executionPath": "not-dispatched",
+      "executionPath": "top-level-decoder",
       "layout": "MILCMD_IMAGEBRUSH"
     },
     {
       "name": "drawing_brush",
       "wpfName": "MilCmdDrawingBrush",
       "value": 130,
-      "executionPath": "not-dispatched",
+      "executionPath": "top-level-decoder",
       "layout": "MILCMD_DRAWINGBRUSH"
     },
     {
       "name": "visual_brush",
       "wpfName": "MilCmdVisualBrush",
       "value": 131,
-      "executionPath": "not-dispatched",
+      "executionPath": "top-level-decoder",
       "layout": "MILCMD_VISUALBRUSH"
     },
     {

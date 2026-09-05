@@ -65,6 +65,9 @@ public enum NativeMilResourceType : uint
     SolidColorBrush = 75,
     LinearGradientBrush = 77,
     RadialGradientBrush = 78,
+    ImageBrush = 80,
+    DrawingBrush = 81,
+    VisualBrush = 82,
     DashStyle = 84,
     Pen = 85,
     GeometryDrawing = 87,
@@ -318,6 +321,55 @@ public enum NativeMilGradientSpreadMethod : uint
     Reflect,
     Repeat
 }
+
+/// <summary>Canonical MIL values; not the portable host enum's numeric order.</summary>
+public enum NativeMilTileMode : uint
+{
+    None = 0,
+    FlipX = 1,
+    FlipY = 2,
+    FlipXY = 3,
+    Tile = 4
+}
+
+public enum NativeMilStretch : uint
+{
+    None,
+    Fill,
+    Uniform,
+    UniformToFill
+}
+
+public enum NativeMilAlignment : uint
+{
+    Start,
+    Center,
+    End
+}
+
+/// <summary>Typed canonical ImageBrush/DrawingBrush/VisualBrush resource state.</summary>
+/// <remarks>
+/// Packet support is distinct from sampled-source rendering support. A native
+/// consumer must fail closed when the requested tile rendering is unavailable.
+/// </remarks>
+public readonly record struct NativeMilTileBrush(
+    NativeMilRect Viewport,
+    NativeMilRect Viewbox,
+    double Opacity = 1.0,
+    NativeMilBrushMappingMode ViewportUnits = NativeMilBrushMappingMode.RelativeToBoundingBox,
+    NativeMilBrushMappingMode ViewboxUnits = NativeMilBrushMappingMode.RelativeToBoundingBox,
+    NativeMilStretch Stretch = NativeMilStretch.Fill,
+    NativeMilTileMode TileMode = NativeMilTileMode.None,
+    NativeMilAlignment AlignmentX = NativeMilAlignment.Center,
+    NativeMilAlignment AlignmentY = NativeMilAlignment.Center,
+    bool Cache = false,
+    double CacheInvalidationThresholdMinimum = 0.707,
+    double CacheInvalidationThresholdMaximum = 1.414,
+    uint OpacityAnimationHandle = 0,
+    uint TransformHandle = 0,
+    uint RelativeTransformHandle = 0,
+    uint ViewportAnimationHandle = 0,
+    uint ViewboxAnimationHandle = 0);
 
 public readonly record struct NativeMilGradientStop(
     double Offset,

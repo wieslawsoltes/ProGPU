@@ -89,6 +89,9 @@ constexpr std::uint32_t type_path_geometry = 73U;
 constexpr std::uint32_t type_solid_color_brush = 75U;
 constexpr std::uint32_t type_linear_gradient_brush = 77U;
 constexpr std::uint32_t type_radial_gradient_brush = 78U;
+constexpr std::uint32_t type_image_brush = 80U;
+constexpr std::uint32_t type_drawing_brush = 81U;
+constexpr std::uint32_t type_visual_brush = 82U;
 constexpr std::uint32_t type_dash_style = 84U;
 constexpr std::uint32_t type_pen = 85U;
 constexpr std::uint32_t type_geometry_drawing = 87U;
@@ -2471,6 +2474,27 @@ struct channel::implementation {
         progpu_native_color color{};
     };
 
+    struct tile_brush_state {
+        double opacity{1.0};
+        rect_resource_state viewport{0.0, 0.0, 1.0, 1.0};
+        rect_resource_state viewbox{0.0, 0.0, 1.0, 1.0};
+        double cache_threshold_minimum{0.707};
+        double cache_threshold_maximum{1.414};
+        std::uint32_t opacity_animation{};
+        std::uint32_t transform_handle{};
+        std::uint32_t relative_transform_handle{};
+        std::uint32_t viewport_units{1U};
+        std::uint32_t viewbox_units{1U};
+        std::uint32_t viewport_animation{};
+        std::uint32_t viewbox_animation{};
+        std::uint32_t stretch{1U};
+        std::uint32_t tile_mode{};
+        std::uint32_t alignment_x{1U};
+        std::uint32_t alignment_y{1U};
+        std::uint32_t caching_hint{};
+        std::uint32_t source_handle{};
+    };
+
     struct gradient_brush_state {
         enum class kind : std::uint32_t {
             linear,
@@ -2566,6 +2590,8 @@ struct channel::implementation {
         std::uint32_t width{};
         std::uint32_t height{};
         std::uint32_t row_bytes{};
+        double dpi_x{96.0};
+        double dpi_y{96.0};
         std::vector<std::byte> pixels;
         bool external_image{};
     };
@@ -2843,6 +2869,7 @@ struct channel::implementation {
     std::unordered_map<std::uint32_t, path_geometry_state> path_geometries;
     std::unordered_map<std::uint32_t, solid_brush_state> solid_brushes;
     std::unordered_map<std::uint32_t, gradient_brush_state> gradient_brushes;
+    std::unordered_map<std::uint32_t, tile_brush_state> tile_brushes;
     std::unordered_map<std::uint32_t, dash_style_state> dash_styles;
     std::unordered_map<std::uint32_t, pen_state> pens;
     std::unordered_map<std::uint32_t, geometry_drawing_state>
@@ -2921,7 +2948,10 @@ struct channel::implementation {
         return found != resources.end() &&
             (found->second.type == type_solid_color_brush ||
              found->second.type == type_linear_gradient_brush ||
-             found->second.type == type_radial_gradient_brush);
+             found->second.type == type_radial_gradient_brush ||
+             found->second.type == type_image_brush ||
+             found->second.type == type_drawing_brush ||
+             found->second.type == type_visual_brush);
     }
 
     bool require_effect(std::uint32_t handle) const noexcept {
@@ -2932,7 +2962,7 @@ struct channel::implementation {
 
     bool has_brush_state(std::uint32_t handle) const noexcept {
         return solid_brushes.contains(handle) ||
-            gradient_brushes.contains(handle);
+            gradient_brushes.contains(handle) || tile_brushes.contains(handle);
     }
 
     bool transform_reaches(
@@ -4897,6 +4927,92 @@ struct channel::implementation {
         }
     }
 
+    template<typename Layout>
+    status apply_tile_brush(
+        const command_view& view,
+        std::uint32_t resource_type,
+        std::uint32_t source_offset,
+        batch_metrics& metrics) {
+        tile_brush_state brush{};
+        std::uint32_t handle{};
+        const auto read_rect = [&](std::uint32_t offset,
+                                   rect_resource_state& rect) {
+            return read_at(view.packet, offset, rect.x) &&
+                read_at(view.packet, offset + 8U, rect.y) &&
+                read_at(view.packet, offset + 16U, rect.width) &&
+                read_at(view.packet, offset + 24U, rect.height);
+        };
+        if (!has_exact_size(view, Layout::fixed_size) ||
+            !read_at(view.packet, Layout::handle_offset, handle) ||
+            !read_at(view.packet, Layout::opacity_offset, brush.opacity) ||
+            !read_rect(Layout::viewport_offset, brush.viewport) ||
+            !read_rect(Layout::viewbox_offset, brush.viewbox) ||
+            !read_at(view.packet, Layout::cache_invalidation_threshold_minimum_offset,
+                brush.cache_threshold_minimum) ||
+            !read_at(view.packet, Layout::cache_invalidation_threshold_maximum_offset,
+                brush.cache_threshold_maximum) ||
+            !read_at(view.packet, Layout::h_opacity_animations_offset, brush.opacity_animation) ||
+            !read_at(view.packet, Layout::h_transform_offset, brush.transform_handle) ||
+            !read_at(view.packet, Layout::h_relative_transform_offset, brush.relative_transform_handle) ||
+            !read_at(view.packet, Layout::viewport_units_offset, brush.viewport_units) ||
+            !read_at(view.packet, Layout::viewbox_units_offset, brush.viewbox_units) ||
+            !read_at(view.packet, Layout::h_viewport_animations_offset, brush.viewport_animation) ||
+            !read_at(view.packet, Layout::h_viewbox_animations_offset, brush.viewbox_animation) ||
+            !read_at(view.packet, Layout::stretch_offset, brush.stretch) ||
+            !read_at(view.packet, Layout::tile_mode_offset, brush.tile_mode) ||
+            !read_at(view.packet, Layout::alignment_x_offset, brush.alignment_x) ||
+            !read_at(view.packet, Layout::alignment_y_offset, brush.alignment_y) ||
+            !read_at(view.packet, Layout::caching_hint_offset, brush.caching_hint) ||
+            !read_at(view.packet, source_offset, brush.source_handle)) {
+            return status::malformed_batch;
+        }
+        if (!require_resource(handle, resource_type) ||
+            (brush.transform_handle != 0U && !require_transform(brush.transform_handle)) ||
+            (brush.relative_transform_handle != 0U && !require_transform(brush.relative_transform_handle)) ||
+            (brush.opacity_animation != 0U && !require_resource(brush.opacity_animation, type_double_resource)) ||
+            (brush.viewport_animation != 0U && !require_resource(brush.viewport_animation, type_rect_resource)) ||
+            (brush.viewbox_animation != 0U && !require_resource(brush.viewbox_animation, type_rect_resource))) {
+            return status::invalid_handle;
+        }
+        if (brush.source_handle != 0U) {
+            const auto source = resources.find(brush.source_handle);
+            if (source == resources.end()) {
+                return status::invalid_handle;
+            }
+            const auto type = source->second.type;
+            const bool valid_source = resource_type == type_image_brush
+                ? (type == type_bitmap_source || type == type_double_buffered_bitmap ||
+                   type == type_d3d_image || type == type_drawing_image)
+                : resource_type == type_drawing_brush
+                    ? is_drawing_type(type) : is_visual_type(type);
+            if (!valid_source) {
+                return status::invalid_handle;
+            }
+        }
+        const auto valid_rect = [](const rect_resource_state& rect) {
+            const double infinity = std::numeric_limits<double>::infinity();
+            const bool empty = rect.x == infinity && rect.y == infinity &&
+                rect.width == -infinity && rect.height == -infinity;
+            return empty || (std::isfinite(rect.x) && std::isfinite(rect.y) &&
+                std::isfinite(rect.width) && std::isfinite(rect.height) &&
+                rect.width >= 0.0 && rect.height >= 0.0);
+        };
+        if (!std::isfinite(brush.opacity) || brush.opacity < 0.0 || brush.opacity > 1.0 ||
+            !valid_rect(brush.viewport) || !valid_rect(brush.viewbox) ||
+            brush.viewport_units > 1U || brush.viewbox_units > 1U ||
+            brush.stretch > 3U || brush.tile_mode > 4U ||
+            brush.alignment_x > 2U || brush.alignment_y > 2U || brush.caching_hint > 1U) {
+            return status::malformed_batch;
+        }
+        // WPF does not validate the optional cache-threshold double properties.
+        // Preserve them as hints; they must never become unchecked allocations
+        // or geometry extents when a tile cache is selected.
+        tile_brushes.insert_or_assign(handle, brush);
+        increment_generation(handle);
+        ++metrics.updated_resource_count;
+        return status::success;
+    }
+
     status apply_command(
         const command_view& view,
         batch_metrics& metrics) {
@@ -5187,6 +5303,14 @@ struct channel::implementation {
                     return status::invalid_graph;
                 }
             }
+            for (const auto& [brush_handle, brush] : tile_brushes) {
+                if (brush_handle != handle &&
+                    (brush.source_handle == handle || brush.opacity_animation == handle ||
+                     brush.transform_handle == handle || brush.relative_transform_handle == handle ||
+                     brush.viewport_animation == handle || brush.viewbox_animation == handle)) {
+                    return status::invalid_graph;
+                }
+            }
             visuals.erase(handle);
             viewport3d_visuals.erase(handle);
             visuals3d.erase(handle);
@@ -5217,6 +5341,7 @@ struct channel::implementation {
             path_geometries.erase(handle);
             solid_brushes.erase(handle);
             gradient_brushes.erase(handle);
+            tile_brushes.erase(handle);
             dash_styles.erase(handle);
             pens.erase(handle);
             geometry_drawings.erase(handle);
@@ -8716,6 +8841,15 @@ struct channel::implementation {
             ++metrics.updated_resource_count;
             return status::success;
         }
+        case command::image_brush:
+            return apply_tile_brush<command_layouts::image_brush>(view,
+                type_image_brush, command_layouts::image_brush::h_image_source_offset, metrics);
+        case command::drawing_brush:
+            return apply_tile_brush<command_layouts::drawing_brush>(view,
+                type_drawing_brush, command_layouts::drawing_brush::h_drawing_offset, metrics);
+        case command::visual_brush:
+            return apply_tile_brush<command_layouts::visual_brush>(view,
+                type_visual_brush, command_layouts::visual_brush::h_visual_offset, metrics);
         case command::solid_color_brush: {
             using layout = command_layouts::solid_color_brush;
             double opacity = 0.0;
@@ -11486,6 +11620,11 @@ struct channel::implementation {
                 brush_indices.emplace(brush_handle, added);
                 result = added;
                 return status::success;
+            }
+            if (tile_brushes.contains(brush_handle)) {
+                // Tile sources require a sampled-image/layer brush, not a
+                // gradient-table approximation. The image lowering path owns it.
+                return status::unsupported_command;
             }
             if (use == nullptr) {
                 return status::unsupported_command;
@@ -17797,6 +17936,20 @@ struct channel::implementation {
                 append_if_success(brush->second.opacity_animation_handle);
                 append_if_success(brush->second.color_animation_handle);
             }
+        } else if (resource->second.type == type_image_brush ||
+            resource->second.type == type_drawing_brush ||
+            resource->second.type == type_visual_brush) {
+            const auto brush = tile_brushes.find(handle);
+            if (brush == tile_brushes.end()) {
+                result = status::invalid_handle;
+            } else {
+                append_if_success(brush->second.source_handle);
+                append_if_success(brush->second.transform_handle);
+                append_if_success(brush->second.relative_transform_handle);
+                append_if_success(brush->second.opacity_animation);
+                append_if_success(brush->second.viewport_animation);
+                append_if_success(brush->second.viewbox_animation);
+            }
         } else if (is_effect_type(resource->second.type)) {
             const auto effect = effects.find(handle);
             if (effect == effects.end()) {
@@ -19238,12 +19391,31 @@ status channel::apply(
     }
 }
 
+status channel::get_bitmap_source_dpi(
+    std::uint32_t handle, double& dpi_x, double& dpi_y) const noexcept {
+    const auto source = implementation_->bitmap_sources.find(handle);
+    if (source == implementation_->bitmap_sources.end()) {
+        return status::invalid_handle;
+    }
+    dpi_x = source->second.dpi_x;
+    dpi_y = source->second.dpi_y;
+    return status::success;
+}
+
 status channel::set_bitmap_source_rgba8(
     std::uint32_t handle,
     std::uint32_t width,
     std::uint32_t height,
     std::uint32_t row_bytes,
-    std::span<const std::byte> pixels) noexcept {
+    std::span<const std::byte> pixels,
+    double dpi_x,
+    double dpi_y) noexcept {
+    if (!std::isfinite(dpi_x) || !std::isfinite(dpi_y) ||
+        dpi_x <= 0.0 || dpi_y <= 0.0 ||
+        !std::isfinite(static_cast<double>(width) * 96.0 / dpi_x) ||
+        !std::isfinite(static_cast<double>(height) * 96.0 / dpi_y)) {
+        return status::invalid_argument;
+    }
     if (!implementation_->require_resource(handle, type_bitmap_source)) {
         return status::invalid_handle;
     }
@@ -19262,6 +19434,8 @@ status channel::set_bitmap_source_rgba8(
         implementation::bitmap_source_state source{};
         source.width = width;
         source.height = height;
+        source.dpi_x = dpi_x;
+        source.dpi_y = dpi_y;
         source.row_bytes = row_bytes;
         source.pixels.assign(pixels.begin(), pixels.end());
         source.external_image = false;
@@ -19280,7 +19454,15 @@ status channel::set_bitmap_source_rgba8(
 status channel::set_bitmap_source_external_image(
     std::uint32_t handle,
     std::uint32_t width,
-    std::uint32_t height) noexcept {
+    std::uint32_t height,
+    double dpi_x,
+    double dpi_y) noexcept {
+    if (!std::isfinite(dpi_x) || !std::isfinite(dpi_y) ||
+        dpi_x <= 0.0 || dpi_y <= 0.0 ||
+        !std::isfinite(static_cast<double>(width) * 96.0 / dpi_x) ||
+        !std::isfinite(static_cast<double>(height) * 96.0 / dpi_y)) {
+        return status::invalid_argument;
+    }
     if (!implementation_->require_resource(handle, type_bitmap_source)) {
         return status::invalid_handle;
     }
@@ -19292,6 +19474,8 @@ status channel::set_bitmap_source_external_image(
         implementation::bitmap_source_state source{};
         source.width = width;
         source.height = height;
+        source.dpi_x = dpi_x;
+        source.dpi_y = dpi_y;
         source.row_bytes = width * 4U;
         source.external_image = true;
         implementation_->bitmap_sources.insert_or_assign(
@@ -19311,7 +19495,15 @@ status channel::set_double_buffered_bitmap_rgba8(
     std::uint32_t width,
     std::uint32_t height,
     std::uint32_t row_bytes,
-    std::span<const std::byte> pixels) noexcept {
+    std::span<const std::byte> pixels,
+    double dpi_x,
+    double dpi_y) noexcept {
+    if (!std::isfinite(dpi_x) || !std::isfinite(dpi_y) ||
+        dpi_x <= 0.0 || dpi_y <= 0.0 ||
+        !std::isfinite(static_cast<double>(width) * 96.0 / dpi_x) ||
+        !std::isfinite(static_cast<double>(height) * 96.0 / dpi_y)) {
+        return status::invalid_argument;
+    }
     if (!implementation_->require_resource(
             handle, type_double_buffered_bitmap)) {
         return status::invalid_handle;
@@ -19331,6 +19523,8 @@ status channel::set_double_buffered_bitmap_rgba8(
         implementation::bitmap_source_state source{};
         source.width = width;
         source.height = height;
+        source.dpi_x = dpi_x;
+        source.dpi_y = dpi_y;
         source.row_bytes = row_bytes;
         source.pixels.assign(pixels.begin(), pixels.end());
         source.external_image = false;
@@ -19349,7 +19543,15 @@ status channel::set_double_buffered_bitmap_rgba8(
 status channel::set_double_buffered_bitmap_external_image(
     std::uint32_t handle,
     std::uint32_t width,
-    std::uint32_t height) noexcept {
+    std::uint32_t height,
+    double dpi_x,
+    double dpi_y) noexcept {
+    if (!std::isfinite(dpi_x) || !std::isfinite(dpi_y) ||
+        dpi_x <= 0.0 || dpi_y <= 0.0 ||
+        !std::isfinite(static_cast<double>(width) * 96.0 / dpi_x) ||
+        !std::isfinite(static_cast<double>(height) * 96.0 / dpi_y)) {
+        return status::invalid_argument;
+    }
     if (!implementation_->require_resource(
             handle, type_double_buffered_bitmap)) {
         return status::invalid_handle;
@@ -19362,6 +19564,8 @@ status channel::set_double_buffered_bitmap_external_image(
         implementation::bitmap_source_state source{};
         source.width = width;
         source.height = height;
+        source.dpi_x = dpi_x;
+        source.dpi_y = dpi_y;
         source.row_bytes = width * 4U;
         source.external_image = true;
         implementation_->bitmap_sources.insert_or_assign(

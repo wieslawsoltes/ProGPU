@@ -4409,3 +4409,76 @@ first rejected the source change because its generated MIL coverage ledger was
 not refreshed. Regeneration and the complete native-contract verification gate
 pass on the follow-up commit; no ledger check, sanitizer, or test is
 disabled. Exact-head hosted results remain a separate requirement.
+
+## Tile-brush resource ingress and bitmap resolution, 2026-09-05
+
+The implementation checkpoint is described in [native MIL compositor](native-mil-compositor.md#tile-brush-ingress-and-source-dpi-checkpoint-2026-09-05).
+It adds three canonical retained brush packets and source-resolution transport;
+sampled tile-brush painting remains fail-closed and unfinished. The existing
+portable replay implementation remains available alongside native MIL.
+
+Research and clean-room provenance:
+
+- [WPF TileBrush overview](https://learn.microsoft.com/en-us/dotnet/desktop/wpf/graphics-multimedia/tilebrush-overview)
+  defines content, mapped base tile, and output region as separate spaces.
+  Adopt this separation; reject whole-image repeat as a general substitute for
+  cropped/padded viewport tiling. Generated packet schemas supply wire contracts,
+  not foreign renderer implementation. WPF TileBrush/RenderOptions public property
+  registrations were checked for Empty rectangles and unconstrained cache hints;
+  no WPF native renderer source was ported.
+- [Direct2D DPI](https://learn.microsoft.com/en-us/windows/win32/direct2d/direct2d-and-high-dpi)
+  distinguishes source bitmap DPI from target DPI. Adopt typed independent X/Y
+  source metadata; do not change physical texture dimensions or explicit image
+  destinations. Exact WPF bitmap-brush numeric/degenerate DPI behavior still
+  needs Windows pixel-oracle qualification; finite positive metadata transport
+  alone is not that qualification.
+- [Win2D CanvasImageBrush](https://microsoft.github.io/Win2D/WinUI3/html/T_Microsoft_Graphics_Canvas_Brushes_CanvasImageBrush.htm)
+  and [Skia image shaders](https://api.skia.org/classSkImage.html) provide source
+  rectangle/tiling/sampling contracts. Retain explicit address and sampling
+  metadata and lazy resource creation; reject implicit filtering changes or a
+  CPU-expanded repeated bitmap.
+- [WebRender scene building](https://doc.servo.org/webrender/scene_building/index.html)
+  and [Vello Scene](https://docs.rs/vello/latest/vello/struct.Scene.html) inform
+  retained source preparation and batched GPU execution. Source generation,
+  transforms, viewbox/viewport, target scale and device identity must participate
+  in future tile-cache keys. No new atlas or tile cache is allocated by decoding
+  these packets; visibility, eviction, and worker scheduling are unchanged.
+- The shaping/layout boundary research above for SkParagraph, DirectWrite,
+  Parley and HarfBuzz remains applicable: this ingress change does not shape,
+  lay out, resolve fallback fonts, rasterize glyphs, or alter variable-font and
+  subpixel keys. Tile brushes used to paint glyphs still require a later exact
+  sampling/mask path; this non-applicability finding does not mark it complete.
+
+Original in-repository rendering precedents examined are
+`src/ProGPU.Avalonia.Rendering/AvaloniaTileBrushMapping.cs` (source-to-base-tile
+stretch/alignment and intermediate clip mapping) and
+`src/ProGPU.Native/src/Direct2D/progpu_native_direct2d_render_target.cpp`
+(`draw_bitmap_brush_image` and exact bitmap-brush geometry masks). These are
+ProGPU-owned sources. The current change does not copy either algorithm or add
+a backend-specific shader. It prepares their reusable native MIL inputs. The
+managed/native applicability audit pairs NativeMilBatchBuilder/NativeMilChannel
+with the C++ channel and both wgpu-native/Dawn imports/export inventories; the
+source-built WPF carrier supplies the shared portable replay metadata. The
+managed scene renderer does not decode canonical MIL packets, and its existing
+tile algorithms have not been replaced by this ingress work.
+
+Complexity: fixed packet parsing and DPI validation are O(1) per binding, with
+no GPU initialization. Existing pixel ownership is still O(B) per changed copied
+bitmap, implemented by contiguous native vector assignment; external bindings
+remain pixel-copy-free. No compute kernel, fallback selection, GPU submission,
+or new whole-buffer scalar loop was introduced. Cached dependency traversal
+reuses existing cycle/depth handling. Tiny fixed-field conformance loops are not
+product pixel-processing workloads. No throughput or frame-rate claim is made.
+
+Local checkpoint qualification: macOS native 15/15, managed 3,931/3,931, headless
+240/240, and LibreWPF 1,474/1,474. New tests cover all canonical brush fields,
+transaction rollback, typed references/deletion, Empty/cache hints, all four
+native copied/external DPI bindings, invalid DPI state preservation, legacy
+96-DPI calls, and both-axis managed retained comparisons. Windows ARM64 passes
+16/16 native targets (GPU test 174.27 s while other validation builds were active;
+this is not a matched throughput measurement). Ubuntu ARM64 GCC 13 MIL passes
+with ASan, UBSan, and leak detection (1.22 s). The source-built LibreWPF host gate
+passes actual managed/native DPI imports, public ImageSource natural-size/clone
+checks, retained viewport regression, and one presented native frame. No test,
+timeout, sanitizer, or image threshold was weakened. Hosted exact-head CI is a
+separate gate; pending jobs are not counted as passes.
