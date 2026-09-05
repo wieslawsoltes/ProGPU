@@ -7571,6 +7571,50 @@ tiled glyphs/opacity masks, per-axis target DPI and the broader MIL/DirectX/
 Direct2D/Win2D goal remain unfinished. Build/encoding evidence is not runtime,
 pixel-parity or performance evidence.
 
+### Implementation-first checkpoint: nested GeometryGroup tile pens
+
+Native MIL GeometryGroup pens now use the tile-brush stroke-mask path. The
+existing depth-bounded group traversal resolves nested group/child transforms,
+then appends each path, nondegenerate line, positive rectangle/rounded rectangle
+or ellipse stroke into one group-owned primitive arena. Only after all children
+succeed does the group create one GPU geometry mask and paint the tile brush
+once. This preserves group-wide brush mapping and avoids applying brush opacity
+again at every child overlap. CombinedGeometry children and degenerate children
+retain their explicit unsupported behavior.
+
+Stroke compilation and mask painting are now separate internal typed operations.
+The same contour compiler, fixed-shape contour construction and line adapter are
+reused by direct draws, PathGeometry and grouped strokes. Source path contours are
+borrowed synchronously, not copied into synthetic managed shapes. Native collection
+uses amortized arena growth; GPU ownership stays with the existing mask/layer/tile
+resources. CPU work remains the existing dependency-ordered stroke/dash expansion
+and group traversal, not a scalar pixel fallback. No shader fork, readback or
+per-visible-tile submission was introduced.
+
+For tile groups, conservative pen expansion is included before each child's
+scale/shear while computing group stroke bounds. Expanding only the transformed
+group by one unscaled pen width could crop a scaled child's mask. The grouped tile
+brush uses this shared expanded group bound for placement and mask storage; final
+WPF image comparisons must qualify that conservative placement policy, especially
+large child scales, miter limits, gaps and nonuniform transforms. Existing non-tile
+group brush handling is unchanged. Active guideline masks remain fail-closed.
+
+Authored fixture coverage adds 40 basic rectangle/ellipse group combinations and
+40 nested mixed rectangle/ellipse/line/path combinations, across four source kinds,
+five tile modes and solid/dashed pens. Nested cases use distinct group/child/paint
+transforms, clipping, Fant and half-opacity, and assert exactly one unit-opacity
+stroke mask for the whole group. The GPU-enabled C++ shared library and native
+MIL test executable compile successfully, and the MIL source digest was
+regenerated. These cases have not been executed. Final gates
+must cover nested/shared children, overlap alpha, dash restarts, source reuse and
+cycles, large child scales, clip nesting, mask eviction/reuse and native Windows
+WPF versus portable rendering on the requested platform matrix.
+
+Combined-geometry boundary stroking, degenerate caps, guideline-aware masks,
+tiled text/opacity masks, nonuniform frame DPI and broader MIL/DirectX/Direct2D/
+Win2D completion remain open. Compilation and encoding assertions are not parity
+or performance qualification.
+
 ## Invariants
 
 - No reflection or private managed field scanning in the product bridge.

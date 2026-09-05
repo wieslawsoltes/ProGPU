@@ -18927,6 +18927,7 @@ int main() {
         progpu::native::tests::mil_brush_fixture_source::visual}) {
         for (const auto shape : {progpu::native::tests::mil_brush_fixture_shape::line,
             progpu::native::tests::mil_brush_fixture_shape::line_geometry,
+            progpu::native::tests::mil_brush_fixture_shape::group,
             progpu::native::tests::mil_brush_fixture_shape::rectangle,
             progpu::native::tests::mil_brush_fixture_shape::ellipse,
             progpu::native::tests::mil_brush_fixture_shape::rounded_rectangle}) {
@@ -19003,6 +19004,41 @@ int main() {
             {.shape = progpu::native::tests::mil_brush_fixture_shape::path,
                 .path_figures = paths[0], .pen = true, .guidelines = true}, 9790U));
         PROGPU_REQUIRE(rejected == std::vector<std::byte>{std::byte{0x5a}});
+    }
+    {
+        const auto figures = make_curve_path_figures();
+        for (const auto source : {progpu::native::tests::mil_brush_fixture_source::bitmap,
+            progpu::native::tests::mil_brush_fixture_source::drawing,
+            progpu::native::tests::mil_brush_fixture_source::drawing_image,
+            progpu::native::tests::mil_brush_fixture_source::visual}) {
+            for (std::uint32_t mode = 0U; mode <= 4U; ++mode) {
+                for (const bool dashed : {false, true}) {
+                    std::vector<std::byte> scene;
+                    PROGPU_REQUIRE(progpu::native::tests::build_mil_image_brush_fixture(scene,
+                        {.tile_mode = mode, .opacity = 0.5, .skew = true, .source = source,
+                            .shape = progpu::native::tests::mil_brush_fixture_shape::group,
+                            .inherited_clip = true, .paint_transform = true, .path_figures = figures,
+                            .viewport = {0.0, 0.0, 0.25, 0.5}, .fant = true, .pen = true,
+                            .dashed = dashed, .nested_group = true}, 9800U + mode));
+                    const auto header = read_value<progpu_native_scene_header>(scene, 0U);
+                    std::uint32_t masks = 0U;
+                    for (std::uint32_t index = 0U; index < header.resource_count; ++index) {
+                        const auto resource = read_value<progpu_native_scene_resource>(scene,
+                            header.resource_offset + index * sizeof(progpu_native_scene_resource));
+                        if (resource.kind == PROGPU_NATIVE_SCENE_RESOURCE_LAYER_MASK &&
+                            resource.payload_size == sizeof(progpu_native_scene_layer_geometry_mask)) {
+                            const auto mask = read_value<progpu_native_scene_layer_geometry_mask>(scene, resource.payload_offset);
+                            if (mask.kind == PROGPU_NATIVE_SCENE_LAYER_MASK_GEOMETRY) {
+                                ++masks;
+                                PROGPU_REQUIRE(mask.primitive_count >= 4U);
+                                PROGPU_REQUIRE(mask.opacity == 1.0F && mask.brush.opacity == 1.0F);
+                            }
+                        }
+                    }
+                    PROGPU_REQUIRE(masks == 1U);
+                }
+            }
+        }
     }
     // Authored during implementation-first work; execution and pixel parity
     // remain part of the final validation phase.
