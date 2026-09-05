@@ -3599,3 +3599,34 @@ ordinary triangle coverage, bitmap mask coverage, and explicit Windows ABI state
 The native library and portable Direct2D compatibility test target compile. Tests,
 VM/image comparisons, sanitizers, benchmarks, verifiers, and CI qualification remain
 unexecuted during the requested implementation-first phase.
+## Implementation-first checkpoint: geometry and layer-mask antialias state
+
+Portable C++ `FillGeometry` and geometry-backed shape fills now inherit the
+render target's geometry antialias setting. Aliased mode selects one pixel-center
+sample; per-primitive mode retains the existing 8x8 coverage policy. Explicit
+glyph coverage remains independent: text callers already supply their own grid
+and do not inherit the geometry setting. Ordinary paint and bitmap-brush vector
+mask paths consume the same selected grid without changing texture filtering.
+
+`PushLayer` now accepts aliased geometric masks. The layer's own
+`maskAntialiasMode`, not the target's mode, is passed through for both a vector-only
+mask and a vector-plus-opacity-brush composite mask. Existing transforms, exact
+geometry, layer opacity, retained bounds, and resource/factory checks remain in
+place. ClearType initialization and unsupported layer transform cases are unchanged.
+
+This original ProGPU change follows the public
+[SetAntialiasMode contract](https://learn.microsoft.com/en-us/windows/win32/api/d2d1/nf-d2d1-id2d1rendertarget-setantialiasmode)
+and [layer mask parameters](https://learn.microsoft.com/en-us/windows/win32/api/d2d1/ns-d2d1-d2d1_layer_parameters).
+Selection costs O(1) time/storage; existing O(S) path serialization for S segments
+and canonical path/clip shader execution remain shared. No C ABI, public module,
+shader fork, CPU pixel fallback, or additional GPU submission is introduced.
+Portable Direct2D callers use the same C++ endpoint; no separate managed Direct2D
+implementation exists for this state selection. The managed semantic renderer's
+existing coverage settings are unchanged.
+
+Authored cases cover both modes, opposite target/mask modes, ordinary/bitmap paint,
+and vector-only/composite layer masks. They replace the previous expected
+aliased-mask rejection with the newly supported behavior. Compilation is recorded
+separately: the native library and Direct2D compatibility test target compile.
+Runtime tests, Windows VM/image parity, performance, and CI qualification
+remain deferred and are not claimed by this checkpoint.

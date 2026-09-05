@@ -5168,12 +5168,6 @@ public:
             latch(not_implemented);
             return;
         }
-        if (parameters->geometric_mask != nullptr &&
-            parameters->mask_antialias_mode !=
-                antialias_mode::per_primitive) {
-            latch(not_implemented);
-            return;
-        }
         const bool full_target = infinite_rectangle(
             parameters->content_bounds);
         rectangle_f mask_content_bounds = parameters->content_bounds;
@@ -5230,6 +5224,7 @@ public:
             if (!add_geometric_layer_mask(
                     parameters->geometric_mask,
                     parameters->mask_transform,
+                    parameters->mask_antialias_mode,
                     parameters->opacity_brush,
                     mask_content_bounds,
                     mask_resource_index,
@@ -6431,6 +6426,7 @@ private:
     [[nodiscard]] bool add_geometric_layer_mask(
         geometry* geometry_value,
         const matrix_3x2_f& mask_transform,
+        antialias_mode mask_antialias,
         brush* opacity_brush,
         const rectangle_f& content_bounds,
         std::uint32_t& resource_index,
@@ -6517,7 +6513,7 @@ private:
                 target_transform.m31,
                 target_transform.m32},
             sink->native_fill_rule(),
-            8U,
+            mask_antialias == antialias_mode::aliased ? 1U : 8U,
             PROGPU_NATIVE_CLIP_INTERSECT,
             0U};
         if (opacity_brush == nullptr) {
@@ -6576,11 +6572,17 @@ private:
         geometry* geometry_value,
         brush* brush_value,
         brush* opacity_brush,
-        std::uint32_t sample_grid = 8U) noexcept
+        std::uint32_t sample_grid = 0U) noexcept
     {
         const std::lock_guard lock(mutex_);
         if (!can_draw()) {
             return;
+        }
+        // Algorithm: inherit geometry raster state only for ordinary draws;
+        // glyph callers pass their independent text coverage grid explicitly.
+        // Time/space: O(1). Existing path/bitmap coverage consumes the same grid.
+        if (sample_grid == 0U) {
+            sample_grid = antialias_mode_ == antialias_mode::aliased ? 1U : 8U;
         }
         if (geometry_value == nullptr || brush_value == nullptr ||
             (sample_grid != 1U && sample_grid != 8U)) {
