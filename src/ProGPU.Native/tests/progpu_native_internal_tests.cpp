@@ -1110,6 +1110,31 @@ void semantic_state_and_layer_cursors_restore_scopes() {
     pop.kind = PROGPU_NATIVE_SCENE_COMMAND_POP_LAYER;
     require(layer_cursor.advance(pop) ==
         progpu::native::semantic::scissor{0U, 0U, 64U, 48U, true});
+
+    // Transient isolation inside a local cache uses that cache's domain,
+    // including pixels outside the presentation window.
+    layer.flags = PROGPU_NATIVE_SCENE_LAYER_BOUNDS |
+        PROGPU_NATIVE_SCENE_LAYER_CACHE_CONTENT |
+        PROGPU_NATIVE_SCENE_LAYER_CACHE_LOCAL_SPACE;
+    layer.bounds = {0.0F, 0.0F, 128.0F, 128.0F};
+    std::memcpy(layer_bytes.data(), &layer, sizeof(layer));
+    require(layer_cursor.advance(push) ==
+        progpu::native::semantic::scissor{0U, 0U, 128U, 128U, true});
+    layer.flags = PROGPU_NATIVE_SCENE_LAYER_BOUNDS |
+        PROGPU_NATIVE_SCENE_LAYER_FORCE_ISOLATION;
+    layer.bounds = {72.0F, 80.0F, 80.0F, 64.0F};
+    std::memcpy(layer_bytes.data(), &layer, sizeof(layer));
+    require(layer_cursor.advance(push) ==
+        progpu::native::semantic::scissor{72U, 80U, 56U, 48U, true});
+    require(layer_cursor.advance(pop) ==
+        progpu::native::semantic::scissor{0U, 0U, 128U, 128U, true});
+    layer.flags = PROGPU_NATIVE_SCENE_LAYER_FORCE_ISOLATION;
+    std::memcpy(layer_bytes.data(), &layer, sizeof(layer));
+    require(layer_cursor.advance(push) ==
+        progpu::native::semantic::scissor{0U, 0U, 128U, 128U, true});
+    (void)layer_cursor.advance(pop);
+    require(layer_cursor.advance(pop) ==
+        progpu::native::semantic::scissor{0U, 0U, 64U, 48U, true});
 }
 
 void semantic_static_guidelines_adjust_state_at_target_dpi() {

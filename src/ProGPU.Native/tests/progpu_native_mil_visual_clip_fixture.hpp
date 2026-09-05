@@ -5,10 +5,46 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <memory>
 #include <span>
 #include <vector>
 
 namespace progpu::native::tests {
+
+struct mil_clip_channel_deleter {
+    void operator()(progpu_native_mil_channel* channel) const noexcept {
+        progpu_native_mil_channel_destroy(channel);
+    }
+};
+using mil_clip_channel = std::unique_ptr<
+    progpu_native_mil_channel, mil_clip_channel_deleter>;
+
+namespace mil_clip_fixture_detail {
+template<class T>
+void append(std::vector<std::byte>& bytes, const T& value) {
+    const auto data = std::as_bytes(std::span(&value, 1U));
+    bytes.insert(bytes.end(), data.begin(), data.end());
+}
+template<class... T>
+void packet(std::vector<std::byte>& bytes, mil::command kind, const T&... values) {
+    append(bytes, static_cast<std::uint32_t>(8U + (sizeof(values) + ... + 0U)));
+    append(bytes, static_cast<std::uint32_t>(kind));
+    (append(bytes, values), ...);
+}
+} // namespace mil_clip_fixture_detail
+
+inline bool serialize_mil_visual_clip_fixture(progpu_native_mil_channel* channel,
+    std::uint64_t scene_id, std::uint64_t generation, std::vector<std::byte>& scene) {
+    std::size_t written = 0U;
+    if (progpu_native_mil_channel_build_scene(channel, 4U, scene_id, generation,
+            nullptr, 0U, &written, nullptr) != PROGPU_NATIVE_MIL_STATUS_SUCCESS) {
+        return false;
+    }
+    scene.resize(written);
+    return progpu_native_mil_channel_build_scene(channel, 4U, scene_id, generation,
+        scene.data(), scene.size(), &written, nullptr) ==
+            PROGPU_NATIVE_MIL_STATUS_SUCCESS && written == scene.size();
+}
 
 enum class mil_clip_effect { none, zero_blur, blur, cached_blur, box_blur, shadow };
 
@@ -21,6 +57,7 @@ struct mil_clip_cache_options {
     bool snaps{};
     bool guidelines{};
     bool nested{};
+    double root_scale{1.0};
 };
 
 // An original raw-MIL fixture exercises the ABI and the exact same engine as
@@ -28,20 +65,11 @@ struct mil_clip_cache_options {
 inline bool build_mil_visual_clip_fixture(std::vector<std::byte>& scene,
     mil_clip_effect effect = mil_clip_effect::none,
     std::uint64_t scene_id = 9011U,
-    const mil_clip_cache_options& cache_options = {}) {
+    const mil_clip_cache_options& cache_options = {},
+    mil_clip_channel* retained_channel = nullptr) {
     using mil::command;
-    const auto append = [](std::vector<std::byte>& bytes, const auto& value) {
-        const auto data = std::as_bytes(std::span(&value, 1U));
-        bytes.insert(bytes.end(), data.begin(), data.end());
-    };
-    const auto packet = [&append](std::vector<std::byte>& bytes,
-                                 command kind, const auto&... values) {
-        const auto size = static_cast<std::uint32_t>(
-            8U + (sizeof(values) + ... + 0U));
-        append(bytes, size);
-        append(bytes, static_cast<std::uint32_t>(kind));
-        (append(bytes, values), ...);
-    };
+    using mil_clip_fixture_detail::append;
+    using mil_clip_fixture_detail::packet;
     std::vector<std::byte> batch;
     for (std::uint32_t visual = 1U; visual <= 3U; ++visual) {
         packet(batch, command::channel_create_resource, visual, 39U);
@@ -78,7 +106,8 @@ inline bool build_mil_visual_clip_fixture(std::vector<std::byte>& scene,
     }
     if (cache_options.nested) {
         packet(batch, command::channel_create_resource, 44U, 94U);
-        packet(batch, command::bitmap_cache, 44U, 1.0, 0U, 0U, 0U);
+        packet(batch, command::bitmap_cache, 44U,
+            cache_options.root_scale, 0U, 0U, 0U);
         packet(batch, command::visual_set_cache_mode, 1U, 44U);
     }
     if (cache_options.gradient) {
@@ -153,20 +182,29 @@ inline bool build_mil_visual_clip_fixture(std::vector<std::byte>& scene,
             channel, child, 0.0, 0.0, 64.0, 64.0) ==
             PROGPU_NATIVE_MIL_STATUS_SUCCESS;
     }
-    std::size_t written = 0U;
     if (success) {
-        success = progpu_native_mil_channel_build_scene(
-            channel, 4U, scene_id, 1U, nullptr, 0U, &written, nullptr) ==
-            PROGPU_NATIVE_MIL_STATUS_SUCCESS;
+        success = serialize_mil_visual_clip_fixture(channel, scene_id, 1U, scene);
     }
-    if (success) {
-        scene.resize(written);
-        success = progpu_native_mil_channel_build_scene(
-            channel, 4U, scene_id, 1U, scene.data(), scene.size(),
-            &written, nullptr) == PROGPU_NATIVE_MIL_STATUS_SUCCESS;
+    if (success && retained_channel != nullptr) {
+        retained_channel->reset(channel);
+    } else {
+        progpu_native_mil_channel_destroy(channel);
     }
-    progpu_native_mil_channel_destroy(channel);
-    return success && written == scene.size();
+    return success;
+}
+
+inline bool update_mil_visual_clip_fixture(progpu_native_mil_channel* channel,
+    std::uint64_t scene_id, std::uint64_t generation,
+    std::vector<std::byte>& scene, double radius_x) {
+    std::vector<std::byte> batch;
+    for (std::uint32_t child = 2U; child <= 3U; ++child) {
+        mil_clip_fixture_detail::packet(batch, mil::command::ellipse_geometry,
+            10U + child, radius_x, 24.0, child == 2U ? 16.0 : 48.0, 32.0,
+            0U, 0U, 0U, 0U);
+    }
+    return progpu_native_mil_channel_apply(channel, batch.data(), batch.size(),
+            nullptr) == PROGPU_NATIVE_MIL_STATUS_SUCCESS &&
+        serialize_mil_visual_clip_fixture(channel, scene_id, generation, scene);
 }
 
 } // namespace progpu::native::tests

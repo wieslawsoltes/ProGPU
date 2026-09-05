@@ -657,7 +657,8 @@ struct portable_scene final {
     std::uint32_t expected_commands = 27U,
     std::uint64_t expected_submissions = 4U,
     std::span<const std::byte> mil_scene = {},
-    std::uint64_t mil_scene_id = 9011U)
+    std::uint64_t mil_scene_id = 9011U,
+    std::uint64_t mil_generation = 1U)
 {
     WGPUTextureDescriptor texture_descriptor{};
     texture_descriptor.label = "ProGPU portable Direct2D target";
@@ -698,7 +699,7 @@ struct portable_scene final {
             frame.target_view = reinterpret_cast<std::uintptr_t>(view);
             frame.clear_color = {0.0F, 0.0F, 0.0F, 1.0F};
             frame.scene_id = mil_scene_id;
-            frame.generation = 1U;
+            frame.generation = mil_generation;
             render_status = progpu_native_engine_render_scene(
                 engine, &frame, &frame_metrics);
         }
@@ -1068,8 +1069,9 @@ int main(int argc, char** argv)
         const auto& cache = cache_cases[index];
         const std::uint64_t scene_id = 9100U + index;
         std::fprintf(stderr, "Native GPU cache variant: %zu\n", index);
+        progpu::native::tests::mil_clip_channel channel_owner;
         require(progpu::native::tests::build_mil_visual_clip_fixture(
-            mil_scene, mil_clip_effect::none, scene_id, cache),
+            mil_scene, mil_clip_effect::none, scene_id, cache, &channel_owner),
             "MIL cached geometry clip compilation failed");
         const auto cached_pixels = render_scene(gpu, engine, nullptr, 2U,
             cache.nested ? 24U : 20U, cache.nested ? 5U : 4U,
@@ -1114,8 +1116,44 @@ int main(int argc, char** argv)
             "MIL clipped bitmap cache rerasterized unchanged content");
         require(retained_pixels == cached_pixels,
             "MIL retained cache hit changed geometry/gradient clip pixels");
+        if (index <= 1U) {
+            require(progpu::native::tests::update_mil_visual_clip_fixture(
+                channel_owner.get(), scene_id, 2U, mil_scene, 4.0),
+                "MIL cache clip-only channel mutation failed");
+            const auto reclipped = render_scene(gpu, engine, nullptr,
+                2U, 20U, 4U, mil_scene, scene_id, 2U);
+            require(progpu_native_engine_get_layer_metrics(engine, &retained_metrics) ==
+                    PROGPU_NATIVE_STATUS_SUCCESS &&
+                    retained_metrics.content_pass_count == 0U,
+                "MIL clip-only mutation rerasterized retained cache content");
+            require(cached_pixels[(32U * width + 8U) * 4U] > 0U &&
+                    reclipped[(32U * width + 8U) * 4U] == 0U &&
+                    reclipped[(32U * width + 16U) * 4U] ==
+                        cached_pixels[(32U * width + 16U) * 4U] &&
+                    reclipped[(32U * width + 48U) * 4U + 2U] ==
+                        cached_pixels[(32U * width + 48U) * 4U + 2U],
+                "MIL clip-only mutation reused stale mask pixels or changed cached source");
+        }
     }
     phase("MIL cache clips passed");
+    for (const auto effect : {mil_clip_effect::blur, mil_clip_effect::cached_blur}) {
+        const mil_clip_cache_options cache{.nested = true, .root_scale = 2.0};
+        const std::uint64_t scene_id = 9200U + static_cast<std::uint64_t>(effect);
+        require(progpu::native::tests::build_mil_visual_clip_fixture(
+            mil_scene, effect, scene_id, cache),
+            "MIL effect inside oversized cache compilation failed");
+        const auto nested_pixels = render_scene(gpu, engine, nullptr, 2U,
+            effect == mil_clip_effect::cached_blur ? 28U : 20U,
+            5U, mil_scene, scene_id);
+        require(nested_pixels[(32U * width + 16U) * 4U] == 255U &&
+                nested_pixels[(32U * width + 48U) * 4U + 2U] == 255U,
+            "MIL nested effect was truncated to the root presentation extent");
+        require(nested_pixels[(32U * width + 58U) * 4U + 2U] == 0U &&
+                nested_pixels[(32U * width + 32U) * 4U] == 0U &&
+                nested_pixels[(32U * width + 32U) * 4U + 2U] == 0U,
+            "MIL nested effect escaped its output geometry clips");
+    }
+    phase("MIL oversized cache effects passed");
     const char* adapter_name = gpu.properties.name == nullptr
         ? "unknown"
         : gpu.properties.name;
