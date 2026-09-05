@@ -8284,6 +8284,71 @@ int run_tests()
 
     compat::layer_parameters composite_mask_layer_parameters =
         masked_layer_parameters;
+    const std::array affine_full_layer_transforms{
+        compat::matrix_3x2_f{0.0F, 1.0F, -1.0F, 0.0F, 10.0F, 20.0F},
+        compat::matrix_3x2_f{0.6F, 0.8F, -0.8F, 0.6F, -30.0F, 10.0F},
+        compat::matrix_3x2_f{1.0F, 0.5F, 0.25F, -1.0F, 17.0F, -23.0F}};
+    float saved_layer_dpi_x = 0.0F;
+    float saved_layer_dpi_y = 0.0F;
+    target->GetDpi(&saved_layer_dpi_x, &saved_layer_dpi_y);
+    const auto layer_pixel_size = target->GetPixelSize();
+    for (const auto dpi : {compat::size_f{96.0F, 96.0F}, compat::size_f{144.0F, 192.0F}}) {
+        target->SetDpi(dpi.width, dpi.height);
+        for (const auto& transform : affine_full_layer_transforms) {
+            for (const bool gradient : {false, true}) {
+                auto parameters = full_opacity_brush_layer_parameters;
+                parameters.opacity_brush = gradient ? static_cast<compat::brush*>(linear_brush.get())
+                    : static_cast<compat::brush*>(target_brush.get());
+                target->SetTransform(&transform);
+                target->BeginDraw();
+                target->PushLayer(&parameters, target_layer.get());
+                target->FillRectangle(&layer_bounds, target_brush.get());
+                target->PopLayer();
+                if (target->EndDraw(nullptr, nullptr) != com::ok) return 318;
+                const auto size = scene_target->GetRequiredSceneSize();
+                std::vector<std::byte> scene(static_cast<std::size_t>(size));
+                std::uint64_t written = 0U;
+                if (size == 0U || scene_target->BuildScene(scene.data(), scene.size(), &written) != com::ok ||
+                    written != size) return 319;
+                const auto* header = reinterpret_cast<const progpu_native_scene_header*>(scene.data());
+                const auto* command = reinterpret_cast<const progpu_native_scene_command*>(scene.data() + header->command_offset);
+                const auto* layer = reinterpret_cast<const progpu_native_scene_layer*>(scene.data() + command->payload_offset);
+                if ((layer->flags & PROGPU_NATIVE_SCENE_LAYER_BOUNDS) != 0U ||
+                    layer->mask_resource_index >= header->resource_count) return 320;
+                const auto* resource = reinterpret_cast<const progpu_native_scene_resource*>(scene.data() +
+                    header->resource_offset + layer->mask_resource_index * header->resource_stride);
+                const auto* mask = reinterpret_cast<const progpu_native_scene_layer_brush_mask*>(scene.data() + resource->payload_offset);
+                if (mask->kind != PROGPU_NATIVE_SCENE_LAYER_MASK_BRUSH ||
+                    mask->transform.m11 != transform.m11 || mask->transform.m12 != transform.m12 ||
+                    mask->transform.m21 != transform.m21 || mask->transform.m22 != transform.m22 ||
+                    mask->transform.m31 != transform.m31 || mask->transform.m32 != transform.m32) return 321;
+                // Independent double inverse oracle: every viewport corner must
+                // remain covered by the local mask domain (float transport tolerance).
+                const double determinant = double{transform.m11} * transform.m22 -
+                    double{transform.m12} * transform.m21;
+                for (const double x : {0.0, static_cast<double>(layer_pixel_size.width) * 96.0 / dpi.width}) {
+                    for (const double y : {0.0, static_cast<double>(layer_pixel_size.height) * 96.0 / dpi.height}) {
+                        const double local_x = ((x - transform.m31) * transform.m22 -
+                            (y - transform.m32) * transform.m21) / determinant;
+                        const double local_y = ((y - transform.m32) * transform.m11 -
+                            (x - transform.m31) * transform.m12) / determinant;
+                        constexpr double tolerance = 0.002;
+                        if (local_x < mask->bounds.x - tolerance || local_y < mask->bounds.y - tolerance ||
+                            local_x > double{mask->bounds.x} + mask->bounds.width + tolerance ||
+                            local_y > double{mask->bounds.y} + mask->bounds.height + tolerance) return 322;
+                    }
+                }
+            }
+        }
+    }
+    const compat::matrix_3x2_f singular_layer_transform{1.0F, 2.0F, 2.0F, 4.0F, 0.0F, 0.0F};
+    target->SetTransform(&singular_layer_transform);
+    target->BeginDraw();
+    target->PushLayer(&full_opacity_brush_layer_parameters, target_layer.get());
+    if (target->EndDraw(nullptr, nullptr) != compat::not_implemented ||
+        scene_target->GetRequiredSceneSize() != 0U) return 323;
+    target->SetTransform(&identity_matrix);
+    target->SetDpi(saved_layer_dpi_x, saved_layer_dpi_y);
     composite_mask_layer_parameters.opacity_brush =
         static_cast<compat::brush*>(linear_brush.get());
     target->BeginDraw();
