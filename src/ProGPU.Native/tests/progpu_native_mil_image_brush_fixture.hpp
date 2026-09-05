@@ -57,6 +57,11 @@ struct mil_image_brush_fixture_options {
     bool opacity_mask{};
     bool drawing_group_mask{};
     bool missing_group_bounds{};
+    bool visual_mask{};
+    bool cached_visual{};
+    bool visual_effect{};
+    bool visual_guidelines{};
+    bool missing_visual_bounds{};
 };
 
 inline bool build_mil_image_brush_fixture(std::vector<std::byte>& scene,
@@ -120,6 +125,27 @@ inline bool build_mil_image_brush_fixture(std::vector<std::byte>& scene,
         0U, options.rotate || options.skew ? 6U : 0U, options.relative_scale ? 7U : 0U,
         1U, options.viewbox_units, 0U, 0U, options.stretch,
         options.tile_mode, 1U, 1U, 0U, 3U);
+    if (options.visual_mask) {
+        packet(batch, command::visual_set_alpha_mask, 1U, 5U);
+        packet(batch, command::visual_set_alpha, 1U, 0.75);
+        if (options.cached_visual) {
+            packet(batch, command::channel_create_resource, 34U, 94U);
+            packet(batch, command::bitmap_cache, 34U, 1.5, 0U, 0U, 0U);
+            packet(batch, command::visual_set_cache_mode, 1U, 34U);
+        }
+        if (options.visual_effect) {
+            packet(batch, command::channel_create_resource, 35U, 36U);
+            packet(batch, command::blur_effect, 35U, 3.0, 0U, 0U, 1U);
+            packet(batch, command::visual_set_effect, 1U, 35U);
+        }
+        if (options.visual_guidelines) {
+            if (options.multiple_guidelines)
+                packet(batch, command::visual_set_guideline_collection, 1U,
+                    std::uint16_t{0U}, std::uint16_t{0U}, std::uint16_t{2U}, std::uint16_t{0U}, 8.25F, 56.25F);
+            else packet(batch, command::visual_set_guideline_collection, 1U,
+                std::uint16_t{0U}, std::uint16_t{0U}, std::uint16_t{1U}, std::uint16_t{0U}, 8.25F);
+        }
+    }
     if (options.pen) {
         if (options.gradient_pen) {
             packet(batch, command::channel_create_resource, 19U, 77U);
@@ -159,15 +185,17 @@ inline bool build_mil_image_brush_fixture(std::vector<std::byte>& scene,
         packet(batch, command::channel_create_resource, 13U, 70U);
         packet(batch, command::ellipse_geometry, 13U,
             24.0, 24.0, 32.0, 32.0, 0U, 0U, 0U, 0U);
-        packet(nested, command::push_clip, 13U, 0U);
+        if (options.visual_mask) packet(batch, command::visual_set_clip, 1U, 13U);
+        else packet(nested, command::push_clip, 13U, 0U);
     }
     if (options.paint_transform) {
         packet(batch, command::channel_create_resource, 14U, 66U);
         packet(batch, command::matrix_transform, 14U,
             0.8, 0.2, -0.1, 0.8, 8.0, 0.0, 0U);
-        packet(nested, command::push_transform, 14U, 0U);
+        if (options.visual_mask) packet(batch, command::visual_set_transform, 1U, 14U);
+        else packet(nested, command::push_transform, 14U, 0U);
     }
-    if (options.opacity_mask && !options.drawing_group_mask)
+    if (options.opacity_mask && !options.drawing_group_mask && !options.visual_mask)
         packet(nested, command::push_opacity_mask, 8.0F, 8.0F, 56.0F, 56.0F, 5U, 0U);
     if (options.shape == mil_brush_fixture_shape::path ||
         options.shape == mil_brush_fixture_shape::group ||
@@ -283,9 +311,9 @@ inline bool build_mil_image_brush_fixture(std::vector<std::byte>& scene,
             options.fixed_extent[0], options.fixed_extent[1], fill_handle, pen_handle);
         break;
     }
-    if (options.opacity_mask && !options.drawing_group_mask) packet(nested, command::pop);
-    if (options.paint_transform) packet(nested, command::pop);
-    if (options.inherited_clip) packet(nested, command::pop);
+    if (options.opacity_mask && !options.drawing_group_mask && !options.visual_mask) packet(nested, command::pop);
+    if (options.paint_transform && !options.visual_mask) packet(nested, command::pop);
+    if (options.inherited_clip && !options.visual_mask) packet(nested, command::pop);
     if (options.guidelines) packet(nested, command::pop);
     append(batch, static_cast<std::uint32_t>(16U + nested.size()));
     append(batch, static_cast<std::uint32_t>(command::render_data));
@@ -299,6 +327,9 @@ inline bool build_mil_image_brush_fixture(std::vector<std::byte>& scene,
     mil_clip_channel channel(raw);
     if (progpu_native_mil_channel_apply(raw, batch.data(), batch.size(), nullptr)
         != PROGPU_NATIVE_MIL_STATUS_SUCCESS) return false;
+    if (options.visual_mask && !options.missing_visual_bounds &&
+        progpu_native_mil_channel_set_visual_cache_bounds(raw, 1U, 8.0, 8.0, 48.0, 48.0)
+            != PROGPU_NATIVE_MIL_STATUS_SUCCESS) return false;
     if (options.opacity_mask && options.drawing_group_mask && !options.missing_group_bounds &&
         progpu_native_mil_channel_set_drawing_group_bounds(raw, 33U, 8.0, 8.0, 48.0, 48.0)
             != PROGPU_NATIVE_MIL_STATUS_SUCCESS) return false;
