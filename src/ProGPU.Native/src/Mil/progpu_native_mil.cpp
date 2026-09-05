@@ -11000,6 +11000,139 @@ struct channel::implementation {
         return status::success;
     }
 
+    status append_geometry_clip(
+        std::uint32_t geometry_handle,
+        const affine_2d_double& target_transform,
+        render_scope_state& state,
+        native::semantic_scene_builder& builder,
+        std::vector<progpu_native_scene_clip_path>& clip_paths,
+        std::vector<progpu_native_path_segment>& clip_segments,
+        std::vector<progpu_native_scene_path_boolean_node>&
+            clip_boolean_nodes) const {
+        clip_paths.resize(state.clip_path_count);
+        clip_segments.resize(state.clip_segment_count);
+        clip_boolean_nodes.resize(state.clip_boolean_node_count);
+        const std::size_t segment_offset =
+            clip_segments.size();
+        const std::size_t boolean_node_offset =
+            clip_boolean_nodes.size();
+        shallow_fill_leaf tree{};
+        std::uint32_t fill_rule = PROGPU_NATIVE_FILL_RULE_NON_ZERO;
+
+        const auto combined = combined_geometries.find(geometry_handle);
+        const auto group = geometry_groups.find(geometry_handle);
+        status append_status = status::success;
+        if (combined != combined_geometries.end()) {
+            append_status = append_boolean_geometry(
+                geometry_handle,
+                clip_segments,
+                clip_boolean_nodes,
+                tree,
+                target_transform);
+        } else if (group != geometry_groups.end()) {
+            fill_rule = group->second.fill_rule == 0U
+                ? PROGPU_NATIVE_FILL_RULE_EVEN_ODD
+                : PROGPU_NATIVE_FILL_RULE_NON_ZERO;
+            if (fill_rule == PROGPU_NATIVE_FILL_RULE_EVEN_ODD) {
+                append_status = append_boolean_geometry(
+                    geometry_handle,
+                    clip_segments,
+                    clip_boolean_nodes,
+                    tree,
+                    target_transform,
+                    1U,
+                    false,
+                    true);
+                if (append_status == status::success &&
+                    clip_boolean_nodes.size() ==
+                        boolean_node_offset + 1U &&
+                    clip_boolean_nodes.back().kind ==
+                        PROGPU_NATIVE_PATH_BOOLEAN_LEAF) {
+                    clip_boolean_nodes.resize(boolean_node_offset);
+                }
+            } else {
+                append_status = append_group_fill_leaf(
+                    geometry_handle,
+                    clip_segments,
+                    tree,
+                    target_transform);
+                if (append_status == status::unsupported_command) {
+                    clip_segments.resize(segment_offset);
+                    clip_boolean_nodes.resize(boolean_node_offset);
+                    append_status = append_boolean_geometry(
+                        geometry_handle,
+                        clip_segments,
+                        clip_boolean_nodes,
+                        tree,
+                        target_transform,
+                        1U,
+                        false,
+                        true);
+                }
+            }
+        } else {
+            append_status = append_group_fill_leaf(
+                geometry_handle,
+                clip_segments,
+                tree,
+                target_transform);
+            fill_rule = tree.fill_rule;
+        }
+        if (append_status != status::success) {
+            clip_segments.resize(segment_offset);
+            clip_boolean_nodes.resize(boolean_node_offset);
+            return append_status;
+        }
+        if (!tree.has_bounds || tree.segment_count == 0U ||
+            tree.right <= tree.left || tree.bottom <= tree.top) {
+            clip_segments.resize(segment_offset);
+            clip_boolean_nodes.resize(boolean_node_offset);
+            state.clip_rect = {};
+            state.has_clip = true;
+            return status::success;
+        }
+        const std::size_t boolean_node_count =
+            clip_boolean_nodes.size() - boolean_node_offset;
+        if (clip_paths.size() >= 64U ||
+            boolean_node_count > 63U) {
+            clip_segments.resize(segment_offset);
+            clip_boolean_nodes.resize(boolean_node_offset);
+            return status::unsupported_command;
+        }
+        clip_paths.push_back({
+            segment_offset,
+            clip_segments.size() - segment_offset,
+            boolean_node_offset,
+            boolean_node_count,
+            static_cast<float>(tree.left),
+            static_cast<float>(tree.top),
+            static_cast<float>(tree.right),
+            static_cast<float>(tree.bottom),
+            {1.0F, 0.0F, 0.0F, 1.0F, 0.0F, 0.0F},
+            fill_rule,
+            8U,
+            PROGPU_NATIVE_CLIP_INTERSECT,
+            0U});
+        std::uint32_t mask_resource_index =
+            PROGPU_NATIVE_SCENE_NO_INDEX;
+        if (!builder.add_vector_clip_mask(
+                clip_paths,
+                clip_segments,
+                clip_boolean_nodes,
+                1.0F,
+                mask_resource_index)) {
+            clip_paths.pop_back();
+            clip_segments.resize(segment_offset);
+            clip_boolean_nodes.resize(boolean_node_offset);
+            return status::invalid_graph;
+        }
+        state.clip_path_count = clip_paths.size();
+        state.clip_segment_count = clip_segments.size();
+        state.clip_boolean_node_count = clip_boolean_nodes.size();
+        state.mask_resource_index = mask_resource_index;
+        return status::success;
+    }
+
     status append_render_data(
         std::uint32_t content_handle,
         const render_scope_state& base_state,
@@ -11009,6 +11142,10 @@ struct channel::implementation {
         std::unordered_map<std::uint64_t, glyph_scene_resource>&
             glyph_resources,
         scene_compile_context* compile_context,
+        std::vector<progpu_native_scene_clip_path>& clip_paths,
+        std::vector<progpu_native_path_segment>& clip_segments,
+        std::vector<progpu_native_scene_path_boolean_node>&
+            clip_boolean_nodes,
         scene_metrics& metrics) const {
         const auto resource = resources.find(content_handle);
         if (resource == resources.end() ||
@@ -11017,10 +11154,6 @@ struct channel::implementation {
         }
 
         std::unordered_set<std::uint32_t> active_drawings;
-        std::vector<progpu_native_scene_clip_path> clip_paths;
-        std::vector<progpu_native_path_segment> clip_segments;
-        std::vector<progpu_native_scene_path_boolean_node>
-            clip_boolean_nodes;
         return append_render_stream(
             resource->second.render_data,
             &resource->second.compact_guidelines,
@@ -11102,128 +11235,9 @@ struct channel::implementation {
             std::uint32_t geometry_handle,
             const affine_2d_double& target_transform,
             render_scope_state& state) {
-            clip_paths.resize(state.clip_path_count);
-            clip_segments.resize(state.clip_segment_count);
-            clip_boolean_nodes.resize(state.clip_boolean_node_count);
-            const std::size_t segment_offset =
-                clip_segments.size();
-            const std::size_t boolean_node_offset =
-                clip_boolean_nodes.size();
-            shallow_fill_leaf tree{};
-            std::uint32_t fill_rule = PROGPU_NATIVE_FILL_RULE_NON_ZERO;
-
-            const auto combined = combined_geometries.find(geometry_handle);
-            const auto group = geometry_groups.find(geometry_handle);
-            status append_status = status::success;
-            if (combined != combined_geometries.end()) {
-                append_status = append_boolean_geometry(
-                    geometry_handle,
-                    clip_segments,
-                    clip_boolean_nodes,
-                    tree,
-                    target_transform);
-            } else if (group != geometry_groups.end()) {
-                fill_rule = group->second.fill_rule == 0U
-                    ? PROGPU_NATIVE_FILL_RULE_EVEN_ODD
-                    : PROGPU_NATIVE_FILL_RULE_NON_ZERO;
-                if (fill_rule == PROGPU_NATIVE_FILL_RULE_EVEN_ODD) {
-                    append_status = append_boolean_geometry(
-                        geometry_handle,
-                        clip_segments,
-                        clip_boolean_nodes,
-                        tree,
-                        target_transform,
-                        1U,
-                        false,
-                        true);
-                    if (append_status == status::success &&
-                        clip_boolean_nodes.size() ==
-                            boolean_node_offset + 1U &&
-                        clip_boolean_nodes.back().kind ==
-                            PROGPU_NATIVE_PATH_BOOLEAN_LEAF) {
-                        clip_boolean_nodes.resize(boolean_node_offset);
-                    }
-                } else {
-                    append_status = append_group_fill_leaf(
-                        geometry_handle,
-                        clip_segments,
-                        tree,
-                        target_transform);
-                    if (append_status == status::unsupported_command) {
-                        clip_segments.resize(segment_offset);
-                        clip_boolean_nodes.resize(boolean_node_offset);
-                        append_status = append_boolean_geometry(
-                            geometry_handle,
-                            clip_segments,
-                            clip_boolean_nodes,
-                            tree,
-                            target_transform,
-                            1U,
-                            false,
-                            true);
-                    }
-                }
-            } else {
-                append_status = append_group_fill_leaf(
-                    geometry_handle,
-                    clip_segments,
-                    tree,
-                    target_transform);
-                fill_rule = tree.fill_rule;
-            }
-            if (append_status != status::success) {
-                clip_segments.resize(segment_offset);
-                clip_boolean_nodes.resize(boolean_node_offset);
-                return append_status;
-            }
-            if (!tree.has_bounds || tree.segment_count == 0U ||
-                tree.right <= tree.left || tree.bottom <= tree.top) {
-                clip_segments.resize(segment_offset);
-                clip_boolean_nodes.resize(boolean_node_offset);
-                state.clip_rect = {};
-                state.has_clip = true;
-                return status::success;
-            }
-            const std::size_t boolean_node_count =
-                clip_boolean_nodes.size() - boolean_node_offset;
-            if (clip_paths.size() >= 64U ||
-                boolean_node_count > 63U) {
-                clip_segments.resize(segment_offset);
-                clip_boolean_nodes.resize(boolean_node_offset);
-                return status::unsupported_command;
-            }
-            clip_paths.push_back({
-                segment_offset,
-                clip_segments.size() - segment_offset,
-                boolean_node_offset,
-                boolean_node_count,
-                static_cast<float>(tree.left),
-                static_cast<float>(tree.top),
-                static_cast<float>(tree.right),
-                static_cast<float>(tree.bottom),
-                {1.0F, 0.0F, 0.0F, 1.0F, 0.0F, 0.0F},
-                fill_rule,
-                8U,
-                PROGPU_NATIVE_CLIP_INTERSECT,
-                0U});
-            std::uint32_t mask_resource_index =
-                PROGPU_NATIVE_SCENE_NO_INDEX;
-            if (!builder.add_vector_clip_mask(
-                    clip_paths,
-                    clip_segments,
-                    clip_boolean_nodes,
-                    1.0F,
-                    mask_resource_index)) {
-                clip_paths.pop_back();
-                clip_segments.resize(segment_offset);
-                clip_boolean_nodes.resize(boolean_node_offset);
-                return status::invalid_graph;
-            }
-            state.clip_path_count = clip_paths.size();
-            state.clip_segment_count = clip_segments.size();
-            state.clip_boolean_node_count = clip_boolean_nodes.size();
-            state.mask_resource_index = mask_resource_index;
-            return status::success;
+            return append_geometry_clip(
+                geometry_handle, target_transform, state, builder,
+                clip_paths, clip_segments, clip_boolean_nodes);
         };
         const auto apply_clip = [
             this,
@@ -18509,6 +18523,10 @@ struct channel::implementation {
             glyph_resources,
         scene_compile_context* compile_context,
         std::unordered_set<std::uint32_t>& active_visuals,
+        std::vector<progpu_native_scene_clip_path>& clip_paths,
+        std::vector<progpu_native_path_segment>& clip_segments,
+        std::vector<progpu_native_scene_path_boolean_node>&
+            clip_boolean_nodes,
         scene_metrics& metrics) const {
         if (depth == 0U || depth > maximum_visual_depth ||
             !active_visuals.insert(handle).second) {
@@ -18689,9 +18707,15 @@ struct channel::implementation {
             current.text_hinting_mode = visual->second.text_hinting_mode;
         }
         if (visual->second.clip_geometry_handle != 0U) {
-            const status clip_status = apply_visual_rectangle_clip(
+            status clip_status = apply_visual_rectangle_clip(
                 visual->second.clip_geometry_handle,
                 current);
+            if (clip_status == status::unsupported_command) {
+                clip_status = append_geometry_clip(
+                    visual->second.clip_geometry_handle,
+                    current.transform, current, builder,
+                    clip_paths, clip_segments, clip_boolean_nodes);
+            }
             if (clip_status != status::success) {
                 active_visuals.erase(handle);
                 return clip_status;
@@ -18974,6 +18998,9 @@ struct channel::implementation {
                     image_indices,
                     glyph_resources,
                     compile_context,
+                    clip_paths,
+                    clip_segments,
+                    clip_boolean_nodes,
                     metrics);
             }
         }
@@ -18990,6 +19017,9 @@ struct channel::implementation {
                     glyph_resources,
                     compile_context,
                     active_visuals,
+                    clip_paths,
+                    clip_segments,
+                    clip_boolean_nodes,
                     metrics);
                 if (result != status::success) {
                     break;
@@ -19702,6 +19732,10 @@ status channel::build_scene_core(
         std::unordered_map<std::uint64_t,
             implementation::glyph_scene_resource> glyph_resources;
         std::unordered_set<std::uint32_t> active_visuals;
+        std::vector<progpu_native_scene_clip_path> clip_paths;
+        std::vector<progpu_native_path_segment> clip_segments;
+        std::vector<progpu_native_scene_path_boolean_node>
+            clip_boolean_nodes;
         if (target->second.root_handle != 0U &&
             (!target->second.is_window_target ||
              target->second.rendering_enabled)) {
@@ -19716,6 +19750,9 @@ status channel::build_scene_core(
                 glyph_resources,
                 request == nullptr ? nullptr : &compile_context,
                 active_visuals,
+                clip_paths,
+                clip_segments,
+                clip_boolean_nodes,
                 local_metrics);
             if (append_status != status::success) {
                 return append_status;
