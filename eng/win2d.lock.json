@@ -1,0 +1,32 @@
+{
+  "implementation": {
+    "repository": "https://github.com/microsoft/Win2D.git",
+    "commit": "25680382dd2136779e10ea6084f0c5ba437ae288",
+    "files": {
+      "LICENSE.txt": "c3ba493105fa52657c4c60d9b1680da7c01b188a8665d7a823c2a187fd259808",
+      "README.md": "62955242058f92464ca6cf77d364bc6b15331eee12ae82064f6df2088fdcbb7d",
+      "winrt/lib/drawing/CanvasDevice.abi.idl": "42e4094446dc6188f9e801c87dbc288857ce5cd6f3d24f2e3716ae20de04e5c5",
+      "winrt/lib/brushes/CanvasBrush.abi.idl": "62eb416edc7733e40721f425fddd17a4c4432801981f0be774548ce6ab1b3b7e",
+      "winrt/lib/brushes/CanvasBrush.cpp": "7b779effc834b85e32dbacb73660186a8a8dac77789f55060d981a3ee4cb5eb6",
+      "winrt/lib/brushes/CanvasImageBrush.cpp": "0f3ec1f3f2c450422d1747574ed50fae99e2511d16e8f3437add6383d852808e",
+      "winrt/lib/brushes/Gradients.h": "688ff307fd43002db32b42efb0d5d443cf22b978b994eafdaf0d5906ff0488c2",
+      "winrt/docsrc/Interop.aml": "5ce8c606788345ba1762ecf3a9904f8a7b2ee26883e50bb6b622e9b055b39f23"
+    }
+  },
+  "samples": {
+    "repository": "https://github.com/microsoft/Win2D-Samples.git",
+    "commit": "cd4c212dae7095838d0d8717fed86a94d579cda3",
+    "files": {
+      "LICENSE.txt": "c3ba493105fa52657c4c60d9b1680da7c01b188a8665d7a823c2a187fd259808",
+      "SimpleSample/SimpleSample/SimpleSample.csproj": "1cf4ccc4b847591baf6108727d770ad15029020d1afd04693798a04f5e9a62f1",
+      "SimpleSample/SimpleSample/MainWindow.xaml.cs": "4d6cae8e9cc5a16c1788193b456f6a7446e23de1a7eb0d5c5e4e95833d228d6d",
+      "ExampleGallery/ShapesExample.xaml.cs": "b1b345a05c95b3e40d53ef6e0c5266d6442e6cfa6ac6b1a77ed82cdee4e60aef",
+      "ExampleGallery/GeometryOperations.xaml.cs": "9abb4b0366ebf5791cfc9e17df1d515cb548504c18ae9240b66a27a6e1669ce1",
+      "ExampleGallery/LayersExample.xaml.cs": "d8e55aed43a6f40302ddbe893057fac919d3eeaa40220ef5362699e1f9f7a09d",
+      "ExampleGallery/EffectsExample.xaml.cs": "573b1ee47a064a9094d97879436cd3877d4c95401c817a72c3de85d1fde3d9a7",
+      "ExampleGallery/TextLayouts.xaml.cs": "72e7ed84be2da459d8da5507aa477b2c9fc14aead3e5d450f992a68129949257",
+      "ExampleGallery/Direct3DInteropExample.xaml.cs": "93362754e0fad5b287539ab2726dd7aa1f8ba3f63b194d1fc01d2e2094b02314",
+      "ExampleGallery/DrawImageEmulations.xaml.cs": "283dd899515331ca3f9ed5097975a5b265846f43686e7b28cfc5435505c04444"
+    }
+  }
+}

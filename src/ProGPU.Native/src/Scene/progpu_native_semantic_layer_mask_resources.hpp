@@ -12,6 +12,7 @@ namespace progpu::native {
 namespace semantic {
 struct scissor;
 struct semantic_layer_mask;
+class semantic_state_cursor;
 }
 namespace execution {
 
@@ -37,6 +38,8 @@ bool create_semantic_brush_mask_binding(
     const semantic::semantic_layer_mask& parsed,
     const semantic::scissor& target_extent,
     float dpi_scale,
+    const semantic::semantic_state_cursor* composite_state_cursor,
+    const progpu_native_scene_state* composite_state,
     semantic_render_bundle_span& operation);
 
 bool create_semantic_geometry_mask_binding(
@@ -60,6 +63,8 @@ bool create_semantic_composite_mask_binding(
     const progpu_native_scene_resource& resource,
     const semantic::scissor& target_extent,
     float dpi_scale,
+    const semantic::semantic_state_cursor* composite_state_cursor,
+    const progpu_native_scene_state* composite_state,
     semantic_render_bundle_span& operation);
 
 } // namespace execution

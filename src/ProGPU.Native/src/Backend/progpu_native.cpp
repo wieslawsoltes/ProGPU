@@ -22,6 +22,7 @@
 #include "progpu_native_child_engine.hpp"
 
 #include <algorithm>
+#include <bit>
 #include <cstddef>
 #include <cstdint>
 #include <cstring>
@@ -33,11 +34,26 @@ namespace {
 
 using progpu::native::initial_vertex_buffer_size;
 
+constexpr bool valid_engine_flags(std::uint64_t flags) noexcept {
+    constexpr std::uint64_t glyph_flags =
+        PROGPU_NATIVE_ENGINE_GLYPH_INTRINSIC_SIMD_CPU_FALLBACK |
+        PROGPU_NATIVE_ENGINE_GLYPH_RASTER_SHADER_FALLBACK |
+        PROGPU_NATIVE_ENGINE_GLYPH_SCALAR_CPU_FALLBACK;
+    constexpr std::uint64_t supported_flags = glyph_flags |
+        PROGPU_NATIVE_ENGINE_IMAGE_EXPLICIT_SHADER_SAMPLING |
+        PROGPU_NATIVE_ENGINE_IMAGE_REQUIRE_NATIVE_SAMPLING;
+    return (flags & ~supported_flags) == 0U &&
+        std::popcount(flags & glyph_flags) <= 1 &&
+        std::popcount(flags & (PROGPU_NATIVE_ENGINE_IMAGE_EXPLICIT_SHADER_SAMPLING |
+            PROGPU_NATIVE_ENGINE_IMAGE_REQUIRE_NATIVE_SAMPLING)) <= 1;
+}
+
 progpu_native_status create_engine(
     WGPUInstance instance,
     WGPUDevice device,
     WGPUQueue queue,
     WGPUTextureFormat target_format,
+    std::uint64_t engine_flags,
     const progpu::native::webgpu::dispatch& webgpu_dispatch,
     progpu_native_engine** engine) {
     try {
@@ -48,6 +64,7 @@ progpu_native_status create_engine(
         result->device = device;
         result->queue = queue;
         result->target_format = target_format;
+        result->engine_flags = engine_flags;
         const progpu::native::webgpu::dispatch_scope dispatch_scope(
             &result->webgpu_dispatch);
         if (result->instance != nullptr) {
@@ -130,6 +147,7 @@ progpu_native_status create_child_engine(
         parent.device,
         parent.queue,
         target_format,
+        parent.engine_flags,
         parent.webgpu_dispatch,
         child);
 }
@@ -187,6 +205,7 @@ uint8_t progpu_native_get_info(progpu_native_engine_info* info) {
         PROGPU_NATIVE_CAPABILITY_ANALYTIC_ROUNDED_GROUP_MASK |
         PROGPU_NATIVE_CAPABILITY_RETAINED_VECTOR_CLIP_CHAIN |
         PROGPU_NATIVE_CAPABILITY_GROUP_GAUSSIAN_BLUR |
+        PROGPU_NATIVE_CAPABILITY_GROUP_BOX_BLUR |
         PROGPU_NATIVE_CAPABILITY_GROUP_DROP_SHADOW |
         PROGPU_NATIVE_CAPABILITY_BOUNDED_GROUP_EFFECT_CHAIN |
         PROGPU_NATIVE_CAPABILITY_GROUP_BLEND_MODES |
@@ -202,6 +221,7 @@ uint8_t progpu_native_get_info(progpu_native_engine_info* info) {
         PROGPU_NATIVE_CAPABILITY_SEMANTIC_STROKE_BATCH |
         PROGPU_NATIVE_CAPABILITY_SEMANTIC_LINE_3D_BATCH |
         PROGPU_NATIVE_CAPABILITY_SEMANTIC_MESH_3D_BATCH |
+        PROGPU_NATIVE_CAPABILITY_SEMANTIC_MESH_3D_MATERIALS |
         PROGPU_NATIVE_CAPABILITY_BULK_TEXT_SHAPING |
         PROGPU_NATIVE_CAPABILITY_BULK_TEXT_LAYOUT |
         PROGPU_NATIVE_CAPABILITY_BULK_TEXT_LINE_BREAKING |
@@ -211,7 +231,8 @@ uint8_t progpu_native_get_info(progpu_native_engine_info* info) {
         PROGPU_NATIVE_CAPABILITY_SEMANTIC_IMAGE_PATCH_BATCH |
         PROGPU_NATIVE_CAPABILITY_SEMANTIC_IMAGE_MIPMAP_SAMPLING |
         PROGPU_NATIVE_CAPABILITY_IMAGE_FRAME_MIPMAP_SAMPLING |
-        PROGPU_NATIVE_CAPABILITY_SEMANTIC_VECTOR_CLIP_MASK;
+        PROGPU_NATIVE_CAPABILITY_SEMANTIC_VECTOR_CLIP_MASK |
+        PROGPU_NATIVE_CAPABILITY_WPF_MIL_CHANNEL;
 #if defined(PROGPU_NATIVE_BROWSER)
     constexpr char name[] = "ProGPU C++ core renderer / browser WebGPU";
 #elif defined(PROGPU_NATIVE_DAWN_ABI)
@@ -249,6 +270,7 @@ progpu_native_status progpu_native_engine_create(
         options->backend_abi !=
             PROGPU_NATIVE_BACKEND_ABI_WGPU_NATIVE_2024_05 ||
         options->device == 0U || options->queue == 0U ||
+        !valid_engine_flags(options->flags) ||
         texture_format(options->target_format) == WGPUTextureFormat_Undefined) {
         return PROGPU_NATIVE_STATUS_INVALID_ARGUMENT;
     }
@@ -258,6 +280,7 @@ progpu_native_status progpu_native_engine_create(
         reinterpret_cast<WGPUDevice>(options->device),
         reinterpret_cast<WGPUQueue>(options->queue),
         texture_format(options->target_format),
+        options->flags,
         webgpu_dispatch,
         engine);
 #endif
@@ -300,7 +323,8 @@ progpu_native_status progpu_native_dawn_engine_create(
             PROGPU_NATIVE_DAWN_ADAPTER_ABI_VERSION ||
         options->provider_abi_version !=
             PROGPU_NATIVE_DAWN_REQUIRED_PROVIDER_ABI_VERSION ||
-        options->reserved != 0U || options->flags != 0U ||
+        options->reserved != 0U ||
+        !valid_engine_flags(options->flags) ||
         options->resolver_context == nullptr ||
         options->resolve_proc == nullptr ||
         options->instance == 0U || options->device == 0U ||
@@ -321,6 +345,7 @@ progpu_native_status progpu_native_dawn_engine_create(
         reinterpret_cast<WGPUDevice>(options->device),
         reinterpret_cast<WGPUQueue>(options->queue),
         texture_format(options->target_format),
+        options->flags,
         webgpu_dispatch,
         engine);
 }
@@ -360,7 +385,11 @@ progpu_native_status progpu_native_browser_engine_create(
         options->adapter_abi_version !=
             PROGPU_NATIVE_BROWSER_ADAPTER_ABI_VERSION ||
         options->reserved0 != 0U || options->reserved1 != 0U ||
-        options->flags != 0U || options->device == 0U ||
+        (options->flags & ~static_cast<std::uint64_t>(
+            PROGPU_NATIVE_ENGINE_IMAGE_EXPLICIT_SHADER_SAMPLING |
+            PROGPU_NATIVE_ENGINE_IMAGE_REQUIRE_NATIVE_SAMPLING)) != 0U ||
+        !valid_engine_flags(options->flags) ||
+        options->device == 0U ||
         options->queue == 0U ||
         texture_format(options->target_format) ==
             WGPUTextureFormat_Undefined) {
@@ -375,6 +404,7 @@ progpu_native_status progpu_native_browser_engine_create(
         reinterpret_cast<WGPUDevice>(options->device),
         reinterpret_cast<WGPUQueue>(options->queue),
         texture_format(options->target_format),
+        options->flags,
         webgpu_dispatch,
         engine);
 }

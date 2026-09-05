@@ -16,6 +16,18 @@ public enum PortableEffectKind
     DropShadow = 1
 }
 
+public enum PortableBlurKernel
+{
+    Gaussian = 0,
+    Box = 1
+}
+
+public enum PortableEffectRenderingBias
+{
+    Performance = 0,
+    Quality = 1
+}
+
 public sealed class PortableBitmapEffectInput
 {
     public PortableBitmapEffectInput(
@@ -40,7 +52,9 @@ public sealed class PortableEffect
         double shadowDepth,
         double direction,
         double opacity,
-        PortableColor color)
+        PortableColor color,
+        PortableBlurKernel blurKernel,
+        PortableEffectRenderingBias renderingBias)
     {
         Kind = kind;
         Radius = double.IsFinite(radius) ? radius : 0.0;
@@ -49,6 +63,8 @@ public sealed class PortableEffect
         Direction = double.IsFinite(direction) ? direction : 0.0;
         Opacity = double.IsFinite(opacity) ? opacity : 1.0;
         Color = color;
+        BlurKernel = blurKernel;
+        RenderingBias = renderingBias;
     }
 
     public PortableEffectKind Kind { get; }
@@ -65,7 +81,15 @@ public sealed class PortableEffect
 
     public PortableColor Color { get; }
 
-    public static PortableEffect Blur(double radius)
+    public PortableBlurKernel BlurKernel { get; }
+
+    public PortableEffectRenderingBias RenderingBias { get; }
+
+    public static PortableEffect Blur(
+        double radius,
+        PortableBlurKernel blurKernel = PortableBlurKernel.Gaussian,
+        PortableEffectRenderingBias renderingBias =
+            PortableEffectRenderingBias.Performance)
     {
         return new PortableEffect(
             PortableEffectKind.Blur,
@@ -74,7 +98,9 @@ public sealed class PortableEffect
             0.0,
             0.0,
             1.0,
-            new PortableColor(255, 0, 0, 0));
+            new PortableColor(255, 0, 0, 0),
+            blurKernel,
+            renderingBias);
     }
 
     public static PortableEffect DropShadow(
@@ -82,7 +108,9 @@ public sealed class PortableEffect
         double shadowDepth,
         double direction,
         double opacity,
-        PortableColor color)
+        PortableColor color,
+        PortableEffectRenderingBias renderingBias =
+            PortableEffectRenderingBias.Performance)
     {
         return new PortableEffect(
             PortableEffectKind.DropShadow,
@@ -91,6 +119,8 @@ public sealed class PortableEffect
             shadowDepth,
             direction,
             opacity,
-            color);
+            color,
+            PortableBlurKernel.Gaussian,
+            renderingBias);
     }
 }

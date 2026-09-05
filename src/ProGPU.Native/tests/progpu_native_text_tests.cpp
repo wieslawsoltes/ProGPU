@@ -8172,6 +8172,20 @@ void complex_script_properties_and_syllable_machines_are_bounded() {
         require(!try_get_unicode_syllable_from_state_action(
             expected.machine, expected.state_count, state_action));
         require(state_action == 0U);
+        const auto last_state = static_cast<std::uint16_t>(expected.state_count - 1U);
+        require(try_get_unicode_syllable_to_state_action(
+            expected.machine, last_state, state_action));
+        require(state_action <= 10U);
+        require(try_get_unicode_syllable_from_state_action(
+            expected.machine, last_state, state_action));
+        require(state_action <= 10U);
+        require(!try_get_unicode_syllable_to_state_action(
+            expected.machine, UINT16_MAX, state_action));
+        require(state_action == 0U);
+        state_action = 99U;
+        require(!try_get_unicode_syllable_from_state_action(
+            expected.machine, UINT16_MAX, state_action));
+        require(state_action == 0U);
         unicode_syllable_transition transition{99U, 99U, 99U};
         require(try_get_unicode_syllable_transition(
             expected.machine, expected.start_state, 1U, transition));

@@ -320,6 +320,40 @@ public sealed unsafe partial class DawnGpuContext
         in ProGpuExternalTextureDescriptor descriptor,
         IDisposable nativeOwner,
         out DawnExplicitSharedTextureAccess access)
+        => TryImportDxgiSharedTextureCore(
+            in descriptor,
+            nativeOwner,
+            "ProGPU Windows encoder DXGI render target"u8,
+            "Imported Windows encoder DXGI render target",
+            out access);
+
+    /// <summary>
+    /// Imports a keyed-mutex DXGI allocation for explicit alternating access
+    /// by a Windows graphics producer and the Dawn D3D12 consumer.
+    /// </summary>
+    /// <remarks>
+    /// The descriptor must include render-attachment usage even when ProGPU
+    /// only samples the allocation. This preserves a single reusable import
+    /// contract for Direct2D targets, media targets, and future Win2D command
+    /// lists. The returned access starts in WebGPU ownership.
+    /// </remarks>
+    public bool TryImportDxgiSharedTexture(
+        in ProGpuExternalTextureDescriptor descriptor,
+        IDisposable nativeOwner,
+        out DawnExplicitSharedTextureAccess access)
+        => TryImportDxgiSharedTextureCore(
+            in descriptor,
+            nativeOwner,
+            "ProGPU shared Direct2D DXGI texture"u8,
+            "Imported Direct2D DXGI texture",
+            out access);
+
+    private bool TryImportDxgiSharedTextureCore(
+        in ProGpuExternalTextureDescriptor descriptor,
+        IDisposable nativeOwner,
+        ReadOnlySpan<byte> nativeLabel,
+        string managedLabel,
+        out DawnExplicitSharedTextureAccess access)
     {
         ArgumentNullException.ThrowIfNull(nativeOwner);
         access = null!;
@@ -374,7 +408,7 @@ public sealed unsafe partial class DawnGpuContext
 
             importedTexture = sharedMemory.CreateTexture(
                 requestedUsage,
-                "ProGPU Windows encoder DXGI render target"u8);
+                nativeLabel);
             sharedMemory.BeginAccess(
                 importedTexture,
                 descriptor.IsInitialized);
@@ -394,7 +428,7 @@ public sealed unsafe partial class DawnGpuContext
                 descriptor.Height,
                 descriptor.Format,
                 descriptor.Usage,
-                "Imported Windows encoder DXGI render target",
+                managedLabel,
                 descriptor.AlphaMode,
                 owner);
             access =

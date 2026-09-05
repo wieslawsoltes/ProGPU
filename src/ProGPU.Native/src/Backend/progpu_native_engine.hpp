@@ -8,6 +8,7 @@
 #include "progpu_native_geometry_spline.hpp"
 #include "progpu_native_gpu_records.hpp"
 #include "progpu_native_semantic_effect_cache.hpp"
+#include "progpu_native_semantic_budget.hpp"
 #include "progpu_native_semantic_identity.hpp"
 #include "progpu_native_semantic_text_style.hpp"
 #include "progpu_webgpu_compat.hpp"
@@ -76,7 +77,16 @@ struct progpu_native_engine {
     WGPUTexture analytic_sentinel_texture = nullptr;
     WGPUTextureView analytic_sentinel_texture_view = nullptr;
     WGPUShaderModule path_raster_shader = nullptr;
+    WGPUShaderModule path_signed_winding_leaf_shader = nullptr;
+    WGPUShaderModule path_signed_winding_evaluate_shader = nullptr;
+    WGPUShaderModule path_signed_winding_coverage_shader = nullptr;
     WGPUComputePipeline path_raster_pipeline = nullptr;
+    WGPUComputePipeline path_raster_ordinary_pipeline = nullptr;
+    WGPUComputePipeline path_split_leaf_pipeline = nullptr;
+    WGPUComputePipeline path_split_signed_leaf_pipeline = nullptr;
+    WGPUComputePipeline path_split_signed_rows_pipeline = nullptr;
+    WGPUComputePipeline path_split_signed_coverage_pipeline = nullptr;
+    WGPUComputePipeline path_split_boolean_combine_pipeline = nullptr;
     WGPUBindGroupLayout path_raster_layout = nullptr;
     WGPUPipelineLayout path_raster_pipeline_layout = nullptr;
     WGPUSampler path_atlas_sampler = nullptr;
@@ -89,6 +99,9 @@ struct progpu_native_engine {
     WGPUComputePipeline glyph_raster_pipeline = nullptr;
     WGPUBindGroupLayout glyph_raster_layout = nullptr;
     WGPUPipelineLayout glyph_raster_pipeline_layout = nullptr;
+    WGPURenderPipeline glyph_raster_fallback_pipeline = nullptr;
+    WGPUBindGroupLayout glyph_raster_fallback_layout = nullptr;
+    WGPUPipelineLayout glyph_raster_fallback_pipeline_layout = nullptr;
     WGPUShaderModule text_shader = nullptr;
     WGPURenderPipeline text_pipeline = nullptr;
     WGPURenderPipeline text_masked_pipeline = nullptr;
@@ -183,6 +196,8 @@ struct progpu_native_engine {
     WGPUSampler image_mipmap_sampler = nullptr;
     std::array<WGPUSampler, 6U> image_filtered_samplers{};
     std::array<WGPUSampler, 15U> image_anisotropic_samplers{};
+    std::array<WGPUSampler, 11U * 17U * 9U>
+        image_addressed_samplers{};
     WGPUTexture image_texture = nullptr;
     WGPUTextureView image_texture_view = nullptr;
     WGPUBindGroup image_texture_bind_group = nullptr;
@@ -394,7 +409,8 @@ struct progpu_native_engine {
     WGPUShaderModule semantic_3d_shader = nullptr;
     WGPURenderPipeline semantic_line_3d_pipeline = nullptr;
     WGPURenderPipeline semantic_mesh_3d_pipeline = nullptr;
-    WGPURenderPipeline semantic_mesh_strip_3d_pipeline = nullptr;
+    WGPURenderPipeline semantic_mesh_front_3d_pipeline = nullptr;
+    WGPURenderPipeline semantic_mesh_back_3d_pipeline = nullptr;
     WGPUBindGroupLayout semantic_3d_layout = nullptr;
     WGPUPipelineLayout semantic_3d_pipeline_layout = nullptr;
     WGPUShaderModule semantic_hit_test_shader = nullptr;
@@ -430,7 +446,10 @@ struct progpu_native_engine {
     std::vector<semantic_render_bundle_span> semantic_render_bundle_spans;
     std::vector<semantic_effect_dispatch> semantic_effect_dispatches;
     std::array<semantic_layer_slot,
-        PROGPU_NATIVE_SCENE_MAX_MATERIALIZED_LAYERS> semantic_layer_slots{};
+        progpu::native::semantic::layer_slot_count> semantic_layer_slots{};
+    std::array<std::uint64_t,
+        progpu::native::semantic::max_cached_layers>
+        semantic_cached_layer_identities{};
     semantic_layer_slot semantic_root_slot{};
     semantic_layer_slot semantic_advanced_source_slot{};
     semantic_layer_slot semantic_advanced_output_slot{};
@@ -457,6 +476,7 @@ struct progpu_native_engine {
     std::uint32_t semantic_render_bundle_draw_call_count = 0U;
     std::uint32_t semantic_render_bundle_family_switch_count = 0U;
     WGPUCommandEncoder semantic_encoder = nullptr;
+    bool semantic_vector_mask_uses_shared_clip_resources = false;
     bool semantic_load_target = false;
     bool semantic_prepare_only = false;
     bool semantic_path_draw_active = false;
@@ -470,6 +490,7 @@ struct progpu_native_engine {
     std::string last_error;
     std::uint64_t submission_count = 0;
     std::uint64_t last_submission_index = 0U;
+    std::uint64_t engine_flags = 0U;
     progpu::native::webgpu::submission_retirement_tracker
         submission_retirement;
     std::uint64_t device_loss_generation = 0U;
@@ -806,13 +827,20 @@ struct progpu_native_engine {
         release_buffer(page.mesh_buffer);
         release_buffer(page.vertex_buffer);
         release_buffer(page.index_buffer);
+        release_buffer(page.light_buffer);
+        release_buffer(page.material_buffer);
+        release_buffer(page.material_gradient_stop_buffer);
         page.draws.clear();
-        page.mesh_topologies.clear();
+        page.mesh_face_flags.clear();
         page.mesh_index_counts.clear();
         page.cache_valid = false;
-        if (semantic_mesh_strip_3d_pipeline != nullptr) {
-            wgpuRenderPipelineRelease(semantic_mesh_strip_3d_pipeline);
-            semantic_mesh_strip_3d_pipeline = nullptr;
+        if (semantic_mesh_back_3d_pipeline != nullptr) {
+            wgpuRenderPipelineRelease(semantic_mesh_back_3d_pipeline);
+            semantic_mesh_back_3d_pipeline = nullptr;
+        }
+        if (semantic_mesh_front_3d_pipeline != nullptr) {
+            wgpuRenderPipelineRelease(semantic_mesh_front_3d_pipeline);
+            semantic_mesh_front_3d_pipeline = nullptr;
         }
         if (semantic_mesh_3d_pipeline != nullptr) {
             wgpuRenderPipelineRelease(semantic_mesh_3d_pipeline);
@@ -1058,6 +1086,10 @@ struct progpu_native_engine {
             if (slot.bind_group != nullptr) {
                 wgpuBindGroupRelease(slot.bind_group);
                 slot.bind_group = nullptr;
+            }
+            if (slot.nearest_bind_group != nullptr) {
+                wgpuBindGroupRelease(slot.nearest_bind_group);
+                slot.nearest_bind_group = nullptr;
             }
             if (slot.view != nullptr) {
                 wgpuTextureViewRelease(slot.view);
@@ -1565,6 +1597,11 @@ struct progpu_native_engine {
                 wgpuSamplerRelease(sampler);
             }
         }
+        for (auto sampler : image_addressed_samplers) {
+            if (sampler != nullptr) {
+                wgpuSamplerRelease(sampler);
+            }
+        }
         if (image_uniform_bind_group != nullptr) {
             wgpuBindGroupRelease(image_uniform_bind_group);
         }
@@ -1636,6 +1673,15 @@ struct progpu_native_engine {
         if (glyph_raster_pipeline != nullptr) {
             wgpuComputePipelineRelease(glyph_raster_pipeline);
         }
+        if (glyph_raster_fallback_pipeline != nullptr) {
+            wgpuRenderPipelineRelease(glyph_raster_fallback_pipeline);
+        }
+        if (glyph_raster_fallback_pipeline_layout != nullptr) {
+            wgpuPipelineLayoutRelease(glyph_raster_fallback_pipeline_layout);
+        }
+        if (glyph_raster_fallback_layout != nullptr) {
+            wgpuBindGroupLayoutRelease(glyph_raster_fallback_layout);
+        }
         if (glyph_raster_pipeline_layout != nullptr) {
             wgpuPipelineLayoutRelease(glyph_raster_pipeline_layout);
         }
@@ -1661,6 +1707,24 @@ struct progpu_native_engine {
         if (path_raster_pipeline != nullptr) {
             wgpuComputePipelineRelease(path_raster_pipeline);
         }
+        if (path_raster_ordinary_pipeline != nullptr) {
+            wgpuComputePipelineRelease(path_raster_ordinary_pipeline);
+        }
+        if (path_split_leaf_pipeline != nullptr) {
+            wgpuComputePipelineRelease(path_split_leaf_pipeline);
+        }
+        if (path_split_signed_leaf_pipeline != nullptr) {
+            wgpuComputePipelineRelease(path_split_signed_leaf_pipeline);
+        }
+        if (path_split_signed_rows_pipeline != nullptr) {
+            wgpuComputePipelineRelease(path_split_signed_rows_pipeline);
+        }
+        if (path_split_signed_coverage_pipeline != nullptr) {
+            wgpuComputePipelineRelease(path_split_signed_coverage_pipeline);
+        }
+        if (path_split_boolean_combine_pipeline != nullptr) {
+            wgpuComputePipelineRelease(path_split_boolean_combine_pipeline);
+        }
         if (path_raster_pipeline_layout != nullptr) {
             wgpuPipelineLayoutRelease(path_raster_pipeline_layout);
         }
@@ -1669,6 +1733,15 @@ struct progpu_native_engine {
         }
         if (path_raster_shader != nullptr) {
             wgpuShaderModuleRelease(path_raster_shader);
+        }
+        if (path_signed_winding_leaf_shader != nullptr) {
+            wgpuShaderModuleRelease(path_signed_winding_leaf_shader);
+        }
+        if (path_signed_winding_evaluate_shader != nullptr) {
+            wgpuShaderModuleRelease(path_signed_winding_evaluate_shader);
+        }
+        if (path_signed_winding_coverage_shader != nullptr) {
+            wgpuShaderModuleRelease(path_signed_winding_coverage_shader);
         }
         if (index_buffer != nullptr) {
             wgpuBufferDestroy(index_buffer);

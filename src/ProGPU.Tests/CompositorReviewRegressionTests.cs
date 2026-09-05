@@ -473,8 +473,19 @@ fn mainImage(fragCoord: vec2<f32>) -> vec4<f32> {
                 Rect = new Rect(index & 7, index & 3, 16f, 16f),
                 SrcRect = new Rect(0f, 0f, 16f, 16f),
                 Transform = transform,
-                TextureSamplingMode = TextureSamplingMode.Linear,
-                TextureMaxAnisotropy = 1
+                TextureSamplingMode =
+                    TextureSamplingMode.MagNearestMinLinearMipLinear,
+                TextureMaxAnisotropy = byte.MaxValue,
+                TextureAddressModeU = TextureAddressMode.Repeat,
+                TextureAddressModeV = TextureAddressMode.MirrorRepeat,
+                TextureOpacity = 0.375f,
+                HasTextureOpacity = true,
+                AllowExtendedTextureSourceRect = true,
+                SnapTextureToPixels = true,
+                IsEdgeAliased = true,
+                PresentationDependencies =
+                    RenderCommandPresentationDependencies.TextureSampling |
+                    RenderCommandPresentationDependencies.TextHinting
             };
         }
 
@@ -956,7 +967,8 @@ fn mainImage(fragCoord: vec2<f32>) -> vec4<f32> {
 
         window.Render();
 
-        Assert.True(window.Compositor.Metrics.SceneCacheHit);
+        Assert.True(window.Compositor.Metrics.SceneCacheHit,
+            window.Compositor.Metrics.SceneCacheMissReason);
         Assert.True(Assert.Single(
             GetDrawCalls(window.Compositor),
             static candidate => candidate.Type == Compositor.DrawCallType.Vector).IsSolidRounded);
@@ -5822,6 +5834,23 @@ fn mainImage(fragCoord: vec2<f32>) -> vec4<f32> {
         }
     }
 
+    [Theory]
+    [InlineData(2.9f, 2u)]
+    [InlineData(-1f, 0u)]
+    [InlineData(200f, 128u)]
+    public void BoxBlurParamsUseBoundedIntegerRadius(
+        float radius,
+        uint expectedRadius)
+    {
+        ComputeAccelerator.GaussianBlurParams parameters =
+            ComputeAccelerator.GaussianBlurParams.Box(radius);
+
+        Assert.Equal(0f, parameters.Sigma);
+        Assert.Equal(expectedRadius, parameters.Radius);
+        Assert.Equal(1u, parameters.KernelType);
+        Assert.Equal(16, Marshal.SizeOf<ComputeAccelerator.GaussianBlurParams>());
+    }
+
     [Fact]
     public void ComputeAcceleratorCreatesOnlyTheRequestedEffectFamilyAndReusesIt()
     {
@@ -5882,6 +5911,15 @@ fn mainImage(fragCoord: vec2<f32>) -> vec4<f32> {
         Assert.Equal(2, accelerator.CachedEffectPipelineCount);
         Assert.Equal(32UL, accelerator.PersistentEffectParameterBufferBytes);
         Assert.Equal(firstResult, destination.ReadPixels());
+
+        accelerator.ApplyBoxBlur(source, temporary, destination, 1f);
+        byte[] boxResult = destination.ReadPixels();
+
+        Assert.Equal(2, accelerator.CachedEffectShaderCount);
+        Assert.Equal(2, accelerator.CachedEffectPipelineCount);
+        Assert.Equal(32UL, accelerator.PersistentEffectParameterBufferBytes);
+        Assert.Contains(boxResult, static value => value != 0);
+        Assert.NotEqual(firstResult, boxResult);
     }
 
     [Fact]

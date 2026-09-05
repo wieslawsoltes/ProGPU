@@ -10,6 +10,10 @@
 #include <cstdint>
 #include <vector>
 
+namespace progpu::native::semantic {
+class semantic_state_cursor;
+}
+
 namespace progpu::native::execution {
 
 void apply_scissor(
@@ -37,6 +41,7 @@ bool rebuild_vector_clip_chain(
 bool prepare_semantic_layer_resources(
     progpu_native_engine& engine,
     const semantic::layer_budget& budget,
+    const semantic::cache_budget& cache_budget,
     std::uint32_t frame_width,
     std::uint32_t frame_height,
     float dpi_scale,
@@ -46,6 +51,7 @@ bool prepare_semantic_layer_resources(
 bool prepare_semantic_depth_resources(
     progpu_native_engine& engine,
     const semantic::layer_budget& budget,
+    const semantic::cache_budget& cache_budget,
     std::uint32_t frame_width,
     std::uint32_t frame_height);
 
@@ -108,12 +114,24 @@ void append_semantic_layer_quad(
     float dpi_scale,
     float opacity);
 
+void append_semantic_transformed_layer_quad(
+    std::vector<vector_vertex>& vertices,
+    const semantic::scissor& source,
+    const semantic::scissor& target,
+    std::uint32_t source_texture_width,
+    std::uint32_t source_texture_height,
+    float dpi_scale,
+    float opacity,
+    const progpu_native_affine_2d& transform);
+
 bool create_semantic_layer_mask_binding(
     progpu_native_engine& engine,
     const std::byte* bytes,
     const progpu_native_scene_resource& resource,
     const semantic::scissor& target_extent,
     float dpi_scale,
+    const semantic::semantic_state_cursor* composite_state_cursor,
+    const progpu_native_scene_state* composite_state,
     semantic_render_bundle_span& operation,
     std::uint64_t& texture_upload_bytes);
 

@@ -1,4 +1,5 @@
 #include "progpu_native_dawn.h"
+#include "progpu_native_direct2d_scene_submission.hpp"
 #include "progpu_native_scene_builder.hpp"
 #include "progpu_native_semantic_backdrop_scene.hpp"
 #include "progpu_native_semantic_color_glyph_scene.hpp"
@@ -294,8 +295,10 @@ std::vector<std::byte> create_native_vector_mask_scene_stream() {
         {140.0F, 80.0F, 360.0F, 220.0F},
         {180.0F, 100.0F, 280.0F, 160.0F}}};
     constexpr mask_rectangle boolean_hole{200.0F, 110.0F, 40.0F, 30.0F};
+    constexpr mask_rectangle group_xor_island{
+        300.0F, 160.0F, 40.0F, 40.0F};
     std::array<progpu_native_path_segment,
-        rectangles.size() * 4U + 4U> segments{};
+        rectangles.size() * 4U + 8U> segments{};
     std::array<progpu_native_scene_clip_path, rectangles.size()> paths{};
     for (std::size_t index = 0; index < rectangles.size(); ++index) {
         const auto& rectangle = rectangles[index];
@@ -344,7 +347,26 @@ std::vector<std::byte> create_native_vector_mask_scene_stream() {
     segments[hole_offset + 3U] = {{boolean_hole.x, hole_bottom},
         {boolean_hole.x, boolean_hole.y}, {}, {},
         PROGPU_NATIVE_PATH_SEGMENT_LINE, 0U, 0U, 0U};
-    std::array<progpu_native_scene_path_boolean_node, 3U> boolean_nodes{};
+    const std::size_t island_offset = hole_offset + 4U;
+    const float island_right = group_xor_island.x + group_xor_island.width;
+    const float island_bottom = group_xor_island.y + group_xor_island.height;
+    segments[island_offset + 0U] = {
+        {group_xor_island.x, group_xor_island.y},
+        {island_right, group_xor_island.y}, {}, {},
+        PROGPU_NATIVE_PATH_SEGMENT_LINE, 0U, 0U, 0U};
+    segments[island_offset + 1U] = {
+        {island_right, group_xor_island.y},
+        {island_right, island_bottom}, {}, {},
+        PROGPU_NATIVE_PATH_SEGMENT_LINE, 0U, 0U, 0U};
+    segments[island_offset + 2U] = {
+        {island_right, island_bottom},
+        {group_xor_island.x, island_bottom}, {}, {},
+        PROGPU_NATIVE_PATH_SEGMENT_LINE, 0U, 0U, 0U};
+    segments[island_offset + 3U] = {
+        {group_xor_island.x, island_bottom},
+        {group_xor_island.x, group_xor_island.y}, {}, {},
+        PROGPU_NATIVE_PATH_SEGMENT_LINE, 0U, 0U, 0U};
+    std::array<progpu_native_scene_path_boolean_node, 5U> boolean_nodes{};
     boolean_nodes[0].segment_count = 4U;
     boolean_nodes[0].min_x = rectangles[0].x;
     boolean_nodes[0].min_y = rectangles[0].y;
@@ -359,6 +381,14 @@ std::vector<std::byte> create_native_vector_mask_scene_stream() {
     boolean_nodes[1].max_y = hole_bottom;
     boolean_nodes[1].kind = PROGPU_NATIVE_PATH_BOOLEAN_LEAF;
     boolean_nodes[2].kind = PROGPU_NATIVE_PATH_BOOLEAN_DIFFERENCE;
+    boolean_nodes[3].segment_offset = island_offset;
+    boolean_nodes[3].segment_count = 4U;
+    boolean_nodes[3].min_x = group_xor_island.x;
+    boolean_nodes[3].min_y = group_xor_island.y;
+    boolean_nodes[3].max_x = island_right;
+    boolean_nodes[3].max_y = island_bottom;
+    boolean_nodes[3].kind = PROGPU_NATIVE_PATH_BOOLEAN_LEAF;
+    boolean_nodes[4].kind = PROGPU_NATIVE_PATH_BOOLEAN_XOR;
     paths[0].segment_count = segments.size();
     paths[0].boolean_node_count = boolean_nodes.size();
     const progpu_native_analytic_primitive content{
@@ -531,7 +561,7 @@ void verify_direct_image_sampler_contract(
         "non-finite direct image cubic coefficients did not fail closed");
 
     frame.cubic_b = 0.0F;
-    frame.sampling = 10U;
+    frame.sampling = 11U;
     require(progpu_native_engine_render_image(engine, &frame, &metrics) ==
             PROGPU_NATIVE_STATUS_INVALID_ARGUMENT,
         "unknown direct image sampling did not fail closed");
@@ -1114,6 +1144,448 @@ std::vector<std::byte> create_semantic_layer_scene_stream() {
         stream.data() + command_offset,
         commands,
         sizeof(commands));
+    return stream;
+}
+
+std::vector<std::byte> create_semantic_retained_cache_scene_stream(
+    std::uint64_t generation,
+    std::uint64_t content_revision,
+    float sibling_blue,
+    float cached_green) {
+    constexpr std::uint64_t scene_id = 1093U;
+    constexpr std::uint64_t cache_identity = 7001U;
+    constexpr std::uint32_t command_count = 4U;
+    constexpr std::uint32_t resource_count = 2U;
+    constexpr std::uint32_t command_offset =
+        sizeof(progpu_native_scene_header);
+    constexpr std::uint32_t resource_offset = command_offset +
+        command_count * sizeof(progpu_native_scene_command);
+    constexpr std::uint32_t arena_offset = resource_offset +
+        resource_count * sizeof(progpu_native_scene_resource);
+    std::vector<std::byte> stream(arena_offset);
+
+    const progpu_native_affine_2d identity{
+        1.0F, 0.0F, 0.0F, 1.0F, 0.0F, 0.0F};
+    const progpu_native_analytic_primitive sibling{
+        PROGPU_NATIVE_PRIMITIVE_RECTANGLE,
+        0U,
+        2.0F,
+        2.0F,
+        10.0F,
+        10.0F,
+        0.0F,
+        0.0F,
+        {0.1F, 0.2F, sibling_blue, 1.0F},
+        identity};
+    const progpu_native_analytic_primitive cached_content{
+        PROGPU_NATIVE_PRIMITIVE_RECTANGLE,
+        0U,
+        20.0F,
+        12.0F,
+        24.0F,
+        18.0F,
+        0.0F,
+        0.0F,
+        {0.2F, cached_green, 0.3F, 1.0F},
+        identity};
+    const std::uint32_t sibling_offset = append_scene_payload(
+        stream,
+        &sibling,
+        1U);
+    const std::uint32_t cached_content_offset = append_scene_payload(
+        stream,
+        &cached_content,
+        1U);
+    const progpu_native_scene_layer cache_layer{
+        sizeof(progpu_native_scene_layer),
+        PROGPU_NATIVE_SCENE_LAYER_BOUNDS |
+            PROGPU_NATIVE_SCENE_LAYER_CACHE_CONTENT,
+        {16.0F, 8.0F, 32.0F, 24.0F},
+        1.0F,
+        PROGPU_NATIVE_BLEND_SRC_OVER,
+        PROGPU_NATIVE_SCENE_NO_INDEX,
+        PROGPU_NATIVE_SCENE_NO_INDEX,
+        content_revision,
+        cache_identity,
+        0U,
+        0U};
+    const std::uint32_t cache_layer_offset = append_scene_payload(
+        stream,
+        &cache_layer,
+        1U);
+
+    progpu_native_scene_header header{};
+    header.struct_size = sizeof(header);
+    header.magic = PROGPU_NATIVE_SCENE_STREAM_MAGIC;
+    header.stream_version = PROGPU_NATIVE_SCENE_STREAM_VERSION;
+    header.endian_marker = PROGPU_NATIVE_SCENE_STREAM_ENDIAN_MARKER;
+    header.total_size = static_cast<std::uint32_t>(stream.size());
+    header.scene_id = scene_id;
+    header.generation = generation;
+    header.command_offset = command_offset;
+    header.command_count = command_count;
+    header.command_stride = sizeof(progpu_native_scene_command);
+    header.resource_offset = resource_offset;
+    header.resource_count = resource_count;
+    header.resource_stride = sizeof(progpu_native_scene_resource);
+    header.arena_offset = arena_offset;
+    header.arena_size = header.total_size - arena_offset;
+    std::memcpy(stream.data(), &header, sizeof(header));
+
+    const progpu_native_scene_resource resources[]{
+        {sizeof(progpu_native_scene_resource),
+            PROGPU_NATIVE_SCENE_RESOURCE_ANALYTIC_BATCH,
+            PROGPU_NATIVE_SCENE_RECORD_REQUIRED,
+            0U,
+            7101U,
+            generation,
+            sibling_offset,
+            sizeof(sibling),
+            0U,
+            0U},
+        {sizeof(progpu_native_scene_resource),
+            PROGPU_NATIVE_SCENE_RESOURCE_ANALYTIC_BATCH,
+            PROGPU_NATIVE_SCENE_RECORD_REQUIRED,
+            0U,
+            7102U,
+            content_revision,
+            cached_content_offset,
+            sizeof(cached_content),
+            0U,
+            0U}
+    };
+    std::memcpy(
+        stream.data() + resource_offset,
+        resources,
+        sizeof(resources));
+
+    const progpu_native_scene_command commands[]{
+        {sizeof(progpu_native_scene_command),
+            PROGPU_NATIVE_SCENE_COMMAND_DRAW_ANALYTIC,
+            PROGPU_NATIVE_SCENE_RECORD_REQUIRED,
+            0U,
+            7201U,
+            PROGPU_NATIVE_SCENE_NO_INDEX,
+            0U,
+            0U,
+            0U,
+            2.0F,
+            2.0F,
+            10.0F,
+            10.0F,
+            0U,
+            0U},
+        {sizeof(progpu_native_scene_command),
+            PROGPU_NATIVE_SCENE_COMMAND_PUSH_LAYER,
+            PROGPU_NATIVE_SCENE_RECORD_REQUIRED,
+            0U,
+            7202U,
+            PROGPU_NATIVE_SCENE_NO_INDEX,
+            PROGPU_NATIVE_SCENE_NO_INDEX,
+            cache_layer_offset,
+            sizeof(cache_layer),
+            16.0F,
+            8.0F,
+            32.0F,
+            24.0F,
+            0U,
+            0U},
+        {sizeof(progpu_native_scene_command),
+            PROGPU_NATIVE_SCENE_COMMAND_DRAW_ANALYTIC,
+            PROGPU_NATIVE_SCENE_RECORD_REQUIRED,
+            0U,
+            7203U,
+            PROGPU_NATIVE_SCENE_NO_INDEX,
+            1U,
+            0U,
+            0U,
+            20.0F,
+            12.0F,
+            24.0F,
+            18.0F,
+            0U,
+            0U},
+        {sizeof(progpu_native_scene_command),
+            PROGPU_NATIVE_SCENE_COMMAND_POP_LAYER,
+            PROGPU_NATIVE_SCENE_RECORD_REQUIRED,
+            0U,
+            7204U,
+            PROGPU_NATIVE_SCENE_NO_INDEX,
+            PROGPU_NATIVE_SCENE_NO_INDEX,
+            0U,
+            0U,
+            16.0F,
+            8.0F,
+            32.0F,
+            24.0F,
+            0U,
+            0U}
+    };
+    std::memcpy(
+        stream.data() + command_offset,
+        commands,
+        sizeof(commands));
+    return stream;
+}
+
+std::vector<std::byte> create_semantic_local_retained_cache_scene_stream(
+    std::uint64_t generation,
+    std::uint64_t content_revision,
+    float outer_offset_x,
+    float raster_scale,
+    bool composite_clip = false,
+    bool nearest_sampling = false,
+    bool fant_sampling = false) {
+    constexpr std::uint64_t scene_id = 1094U;
+    constexpr std::uint64_t cache_identity = 7002U;
+    constexpr std::uint32_t command_count = 5U;
+    constexpr std::uint32_t resource_count = 3U;
+    constexpr std::uint32_t command_offset =
+        sizeof(progpu_native_scene_header);
+    constexpr std::uint32_t resource_offset = command_offset +
+        command_count * sizeof(progpu_native_scene_command);
+    constexpr std::uint32_t arena_offset = resource_offset +
+        resource_count * sizeof(progpu_native_scene_resource);
+    std::vector<std::byte> stream(arena_offset);
+
+    const progpu_native_affine_2d identity{
+        1.0F, 0.0F, 0.0F, 1.0F, 0.0F, 0.0F};
+    const progpu_native_analytic_primitive cached_content{
+        PROGPU_NATIVE_PRIMITIVE_RECTANGLE,
+        0U,
+        4.0F,
+        6.0F,
+        24.0F,
+        18.0F,
+        0.0F,
+        0.0F,
+        {0.2F, 0.7F, 0.3F, 1.0F},
+        identity};
+    progpu_native_scene_state composite_state{};
+    composite_state.struct_size = sizeof(composite_state);
+    composite_state.transform = {
+        1.0F / raster_scale,
+        0.0F,
+        0.0F,
+        1.0F / raster_scale,
+        4.0F + outer_offset_x,
+        6.0F};
+    composite_state.opacity = 1.0F;
+    if (composite_clip) {
+        composite_state.flags = PROGPU_NATIVE_SCENE_STATE_CLIP_RECT;
+        composite_state.clip_rect = {
+            4.0F + outer_offset_x,
+            6.0F,
+            12.0F,
+            18.0F};
+    }
+    progpu_native_scene_state raster_state{};
+    raster_state.struct_size = sizeof(raster_state);
+    raster_state.transform = {
+        raster_scale,
+        0.0F,
+        0.0F,
+        raster_scale,
+        -4.0F * raster_scale,
+        -6.0F * raster_scale};
+    raster_state.opacity = 1.0F;
+    const std::uint32_t content_offset = append_scene_payload(
+        stream, &cached_content, 1U);
+    const std::uint32_t composite_state_offset = append_scene_payload(
+        stream, &composite_state, 1U);
+    const std::uint32_t raster_state_offset = append_scene_payload(
+        stream, &raster_state, 1U);
+    const progpu_native_scene_layer cache_layer{
+        sizeof(progpu_native_scene_layer),
+        PROGPU_NATIVE_SCENE_LAYER_BOUNDS |
+            PROGPU_NATIVE_SCENE_LAYER_CACHE_CONTENT |
+            PROGPU_NATIVE_SCENE_LAYER_CACHE_LOCAL_SPACE |
+            (nearest_sampling
+                ? static_cast<std::uint32_t>(
+                    PROGPU_NATIVE_SCENE_LAYER_CACHE_NEAREST)
+                : 0U) |
+            (fant_sampling
+                ? static_cast<std::uint32_t>(
+                    PROGPU_NATIVE_SCENE_LAYER_CACHE_FANT)
+                : 0U),
+        {0.0F, 0.0F, 24.0F * raster_scale, 18.0F * raster_scale},
+        1.0F,
+        PROGPU_NATIVE_BLEND_SRC_OVER,
+        PROGPU_NATIVE_SCENE_NO_INDEX,
+        PROGPU_NATIVE_SCENE_NO_INDEX,
+        content_revision,
+        cache_identity,
+        1U,
+        0U};
+    const std::uint32_t cache_layer_offset = append_scene_payload(
+        stream, &cache_layer, 1U);
+
+    progpu_native_scene_header header{};
+    header.struct_size = sizeof(header);
+    header.magic = PROGPU_NATIVE_SCENE_STREAM_MAGIC;
+    header.stream_version = PROGPU_NATIVE_SCENE_STREAM_VERSION;
+    header.endian_marker = PROGPU_NATIVE_SCENE_STREAM_ENDIAN_MARKER;
+    header.total_size = static_cast<std::uint32_t>(stream.size());
+    header.scene_id = scene_id;
+    header.generation = generation;
+    header.command_offset = command_offset;
+    header.command_count = command_count;
+    header.command_stride = sizeof(progpu_native_scene_command);
+    header.resource_offset = resource_offset;
+    header.resource_count = resource_count;
+    header.resource_stride = sizeof(progpu_native_scene_resource);
+    header.arena_offset = arena_offset;
+    header.arena_size = header.total_size - arena_offset;
+    std::memcpy(stream.data(), &header, sizeof(header));
+
+    const progpu_native_scene_resource resources[]{
+        {sizeof(progpu_native_scene_resource),
+            PROGPU_NATIVE_SCENE_RESOURCE_ANALYTIC_BATCH,
+            PROGPU_NATIVE_SCENE_RECORD_REQUIRED, 0U,
+            7111U, content_revision, content_offset,
+            sizeof(cached_content), 0U, 0U},
+        {sizeof(progpu_native_scene_resource),
+            PROGPU_NATIVE_SCENE_RESOURCE_STATE,
+            PROGPU_NATIVE_SCENE_RECORD_REQUIRED, 0U,
+            7112U, generation, composite_state_offset,
+            sizeof(composite_state), 0U, 0U},
+        {sizeof(progpu_native_scene_resource),
+            PROGPU_NATIVE_SCENE_RESOURCE_STATE,
+            PROGPU_NATIVE_SCENE_RECORD_REQUIRED, 0U,
+            7113U, content_revision, raster_state_offset,
+            sizeof(raster_state), 0U, 0U}
+    };
+    std::memcpy(
+        stream.data() + resource_offset,
+        resources,
+        sizeof(resources));
+
+    const progpu_native_scene_command commands[]{
+        {sizeof(progpu_native_scene_command),
+            PROGPU_NATIVE_SCENE_COMMAND_PUSH_LAYER,
+            PROGPU_NATIVE_SCENE_RECORD_REQUIRED, 0U, 7211U,
+            PROGPU_NATIVE_SCENE_NO_INDEX,
+            PROGPU_NATIVE_SCENE_NO_INDEX,
+            cache_layer_offset, sizeof(cache_layer),
+            0.0F, 0.0F, 24.0F * raster_scale, 18.0F * raster_scale,
+            0U, 0U},
+        {sizeof(progpu_native_scene_command),
+            PROGPU_NATIVE_SCENE_COMMAND_SAVE,
+            PROGPU_NATIVE_SCENE_RECORD_REQUIRED, 0U, 7212U,
+            2U, PROGPU_NATIVE_SCENE_NO_INDEX,
+            0U, 0U, 0.0F, 0.0F, 0.0F, 0.0F, 0U, 0U},
+        {sizeof(progpu_native_scene_command),
+            PROGPU_NATIVE_SCENE_COMMAND_DRAW_ANALYTIC,
+            PROGPU_NATIVE_SCENE_RECORD_REQUIRED, 0U, 7213U,
+            PROGPU_NATIVE_SCENE_NO_INDEX, 0U,
+            0U, 0U, 0.0F, 0.0F,
+            24.0F * raster_scale, 18.0F * raster_scale, 0U, 0U},
+        {sizeof(progpu_native_scene_command),
+            PROGPU_NATIVE_SCENE_COMMAND_RESTORE,
+            PROGPU_NATIVE_SCENE_RECORD_REQUIRED, 0U, 7214U,
+            PROGPU_NATIVE_SCENE_NO_INDEX,
+            PROGPU_NATIVE_SCENE_NO_INDEX,
+            0U, 0U, 0.0F, 0.0F, 0.0F, 0.0F, 0U, 0U},
+        {sizeof(progpu_native_scene_command),
+            PROGPU_NATIVE_SCENE_COMMAND_POP_LAYER,
+            PROGPU_NATIVE_SCENE_RECORD_REQUIRED, 0U, 7215U,
+            PROGPU_NATIVE_SCENE_NO_INDEX,
+            PROGPU_NATIVE_SCENE_NO_INDEX,
+            0U, 0U, 0.0F, 0.0F,
+            24.0F * raster_scale, 18.0F * raster_scale, 0U, 0U}
+    };
+    std::memcpy(
+        stream.data() + command_offset,
+        commands,
+        sizeof(commands));
+    return stream;
+}
+
+std::vector<std::byte>
+create_semantic_local_retained_cache_brush_mask_scene_stream(
+    std::uint64_t generation,
+    std::uint64_t content_revision,
+    float mask_opacity) {
+    using progpu::native::semantic_scene_builder;
+    semantic_scene_builder builder(1095U, generation);
+
+    auto composite_state = semantic_scene_builder::identity_state();
+    composite_state.transform.m31 = 36.0F;
+    composite_state.transform.m32 = 6.0F;
+    std::uint32_t composite_state_index = PROGPU_NATIVE_SCENE_NO_INDEX;
+    require(builder.add_state(composite_state, composite_state_index),
+        "local cache mask composite-state recording failed");
+
+    auto raster_state = semantic_scene_builder::identity_state();
+    std::uint32_t raster_state_index = PROGPU_NATIVE_SCENE_NO_INDEX;
+    require(builder.add_state(raster_state, raster_state_index),
+        "local cache mask raster-state recording failed");
+
+    progpu_native_scene_brush brush{};
+    brush.type = PROGPU_NATIVE_SCENE_BRUSH_LINEAR_GRADIENT;
+    brush.opacity = mask_opacity;
+    brush.start_point = {36.0F, 6.0F};
+    brush.end_point = {60.0F, 6.0F};
+    brush.stop_count = 2U;
+    brush.spread_method = PROGPU_NATIVE_SCENE_GRADIENT_PAD;
+    brush.color_interpolation_mode =
+        PROGPU_NATIVE_SCENE_GRADIENT_INTERPOLATE_SRGB;
+    brush.coordinate_transform0[0] = 1.0F;
+    brush.coordinate_transform1[1] = 1.0F;
+    const std::array stops{
+        progpu_native_scene_gradient_stop{
+            {1.0F, 1.0F, 1.0F, 0.0F}, 0.0F, 0U, 0U, 0U},
+        progpu_native_scene_gradient_stop{
+            {1.0F, 1.0F, 1.0F, 1.0F}, 1.0F, 0U, 0U, 0U}};
+    progpu_native_scene_layer_brush_mask mask{};
+    mask.struct_size = sizeof(mask);
+    mask.kind = PROGPU_NATIVE_SCENE_LAYER_MASK_BRUSH;
+    mask.gradient_stop_count = static_cast<std::uint32_t>(stops.size());
+    mask.bounds = {36.0F, 6.0F, 24.0F, 18.0F};
+    mask.transform = semantic_scene_builder::identity_transform();
+    mask.opacity = 1.0F;
+    mask.brush = brush;
+    std::uint32_t mask_resource_index = PROGPU_NATIVE_SCENE_NO_INDEX;
+    require(builder.add_brush_mask(mask, stops, mask_resource_index),
+        "local cache brush-mask recording failed");
+
+    progpu_native_scene_layer layer{};
+    layer.struct_size = sizeof(layer);
+    layer.flags = PROGPU_NATIVE_SCENE_LAYER_BOUNDS |
+        PROGPU_NATIVE_SCENE_LAYER_CACHE_CONTENT |
+        PROGPU_NATIVE_SCENE_LAYER_CACHE_LOCAL_SPACE;
+    layer.bounds = {0.0F, 0.0F, 24.0F, 18.0F};
+    layer.opacity = 1.0F;
+    layer.blend_mode = PROGPU_NATIVE_BLEND_SRC_OVER;
+    layer.mask_resource_index = mask_resource_index;
+    layer.effect_resource_index = PROGPU_NATIVE_SCENE_NO_INDEX;
+    layer.content_revision = content_revision;
+    layer.composite_revision = 7003U;
+    layer.reserved0 = composite_state_index;
+    require(builder.push_layer(layer),
+        "local cache masked-layer recording failed");
+    require(builder.save(raster_state_index),
+        "local cache mask raster save failed");
+    const progpu_native_analytic_primitive content{
+        PROGPU_NATIVE_PRIMITIVE_RECTANGLE,
+        0U,
+        0.0F,
+        0.0F,
+        24.0F,
+        18.0F,
+        0.0F,
+        0.0F,
+        {0.2F, 0.7F, 0.3F, 1.0F},
+        semantic_scene_builder::identity_transform()};
+    require(builder.draw_analytic(
+        std::span<const progpu_native_analytic_primitive>(&content, 1U),
+        {},
+        {0.0F, 0.0F, 24.0F, 18.0F}),
+        "local cache mask content recording failed");
+    require(builder.restore(), "local cache mask raster restore failed");
+    require(builder.pop_layer(), "local cache masked-layer pop failed");
+    std::vector<std::byte> stream;
+    require(builder.build(stream), "local cache brush-mask build failed");
     return stream;
 }
 
@@ -2469,8 +2941,10 @@ void verify_semantic_vector_mask_scene(IOSurfaceRef surface) {
         return value[0] <= 20U && value[1] <= 20U &&
             value[2] <= 20U && value[3] >= 240U;
     };
-    require(cyan(pixel(320U, 180U)),
+    require(cyan(pixel(280U, 180U)),
         "retained vector mask lost its interior coverage");
+    require(clear(pixel(320U, 180U)),
+        "retained vector-mask group XOR did not remove its island");
     require(clear(pixel(100U, 180U)),
         "retained vector mask escaped its path boundary");
     require(clear(pixel(500U, 180U)),
@@ -2537,6 +3011,45 @@ void verify_and_capture(IOSurfaceRef surface, const char* output_path) {
         kIOReturnSuccess, "could not unlock IOSurface");
 }
 
+void verify_direct2d_scene(IOSurfaceRef surface) {
+    require(surface != nullptr, "Direct2D scene has no IOSurface");
+    require(IOSurfaceLock(surface, kIOSurfaceLockReadOnly, nullptr) ==
+        kIOReturnSuccess, "could not lock Direct2D scene IOSurface");
+    const auto* bytes = static_cast<const std::uint8_t*>(
+        IOSurfaceGetBaseAddress(surface));
+    const std::size_t width = IOSurfaceGetWidth(surface);
+    const std::size_t height = IOSurfaceGetHeight(surface);
+    const std::size_t row_bytes = IOSurfaceGetBytesPerRow(surface);
+    require(bytes != nullptr && width == 64U && height == 48U &&
+        row_bytes >= width * 4U,
+        "unexpected Direct2D scene IOSurface storage");
+    const auto pixel = [bytes, row_bytes](std::size_t x, std::size_t y) {
+        return bytes + y * row_bytes + x * 4U;
+    };
+    const auto near_bgra = [](const std::uint8_t* value,
+                              int blue,
+                              int green,
+                              int red) {
+        constexpr int tolerance = 48;
+        return std::abs(static_cast<int>(value[0]) - blue) <= tolerance &&
+            std::abs(static_cast<int>(value[1]) - green) <= tolerance &&
+            std::abs(static_cast<int>(value[2]) - red) <= tolerance &&
+            value[3] >= 240U;
+    };
+    require(near_bgra(pixel(2U, 2U), 38, 26, 13),
+        "Direct2D target clear color is missing");
+    require(near_bgra(pixel(10U, 10U), 0, 0, 255),
+        "Direct2D FillRectangle did not reach Metal");
+    require(near_bgra(pixel(40U, 14U), 0, 255, 0),
+        "Direct2D FillEllipse did not reach Metal");
+    require(near_bgra(pixel(18U, 28U), 255, 0, 0),
+        "Direct2D DrawRectangle did not reach Metal");
+    require(near_bgra(pixel(46U, 36U), 255, 0, 255),
+        "Direct2D FillRoundedRectangle did not reach Metal");
+    require(IOSurfaceUnlock(surface, kIOSurfaceLockReadOnly, nullptr) ==
+        kIOReturnSuccess, "could not unlock Direct2D scene IOSurface");
+}
+
 } // namespace
 
 int main(int argc, char** argv) {
@@ -2585,6 +3098,164 @@ int main(int argc, char** argv) {
     require(progpu_native_dawn_engine_create(&engine_options, &engine) ==
         PROGPU_NATIVE_STATUS_SUCCESS && engine != nullptr,
         "ProGPU Dawn engine creation failed");
+
+    namespace d2d = progpu::native::direct2d::compat;
+    namespace native_com = progpu::native::com;
+    d2d::factory* raw_d2d_factory = nullptr;
+    require(d2d::create_factory(&raw_d2d_factory) == native_com::ok &&
+        raw_d2d_factory != nullptr,
+        "portable Direct2D factory creation failed");
+    native_com::pointer<d2d::factory> d2d_factory;
+    d2d_factory.attach(raw_d2d_factory);
+    native_com::pointer<d2d::scene_factory_native> d2d_scene_factory;
+    require(d2d_factory.as(
+            d2d::scene_factory_native_interface_id,
+            d2d_scene_factory) == native_com::ok &&
+        d2d_scene_factory,
+        "portable Direct2D scene factory query failed");
+    const d2d::scene_render_target_properties d2d_target_properties{
+        64U, 48U, 96.0F, 96.0F, 9001U, 1U};
+    d2d::render_target* raw_d2d_target = nullptr;
+    require(d2d_scene_factory->CreateSceneRenderTarget(
+            &d2d_target_properties,
+            &raw_d2d_target) == native_com::ok &&
+        raw_d2d_target != nullptr,
+        "portable Direct2D target creation failed");
+    native_com::pointer<d2d::render_target> d2d_target;
+    d2d_target.attach(raw_d2d_target);
+
+    const d2d::color_f d2d_red{1.0F, 0.0F, 0.0F, 1.0F};
+    const d2d::color_f d2d_green{0.0F, 1.0F, 0.0F, 1.0F};
+    const d2d::color_f d2d_blue{0.0F, 0.0F, 1.0F, 1.0F};
+    const d2d::color_f d2d_magenta{1.0F, 0.0F, 1.0F, 1.0F};
+    d2d::solid_color_brush* raw_d2d_red_brush = nullptr;
+    d2d::solid_color_brush* raw_d2d_green_brush = nullptr;
+    d2d::solid_color_brush* raw_d2d_blue_brush = nullptr;
+    d2d::solid_color_brush* raw_d2d_magenta_brush = nullptr;
+    require(d2d_target->CreateSolidColorBrush(
+            &d2d_red, nullptr, &raw_d2d_red_brush) == native_com::ok &&
+        d2d_target->CreateSolidColorBrush(
+            &d2d_green, nullptr, &raw_d2d_green_brush) == native_com::ok &&
+        d2d_target->CreateSolidColorBrush(
+            &d2d_blue, nullptr, &raw_d2d_blue_brush) == native_com::ok &&
+        d2d_target->CreateSolidColorBrush(
+            &d2d_magenta, nullptr, &raw_d2d_magenta_brush) == native_com::ok &&
+        raw_d2d_red_brush != nullptr && raw_d2d_green_brush != nullptr &&
+        raw_d2d_blue_brush != nullptr && raw_d2d_magenta_brush != nullptr,
+        "portable Direct2D brush creation failed");
+    native_com::pointer<d2d::solid_color_brush> d2d_red_brush;
+    native_com::pointer<d2d::solid_color_brush> d2d_green_brush;
+    native_com::pointer<d2d::solid_color_brush> d2d_blue_brush;
+    native_com::pointer<d2d::solid_color_brush> d2d_magenta_brush;
+    d2d_red_brush.attach(raw_d2d_red_brush);
+    d2d_green_brush.attach(raw_d2d_green_brush);
+    d2d_blue_brush.attach(raw_d2d_blue_brush);
+    d2d_magenta_brush.attach(raw_d2d_magenta_brush);
+    d2d_target->BeginDraw();
+    const d2d::color_f d2d_clear{0.05F, 0.1F, 0.15F, 1.0F};
+    const d2d::rectangle_f d2d_rectangle{4.0F, 4.0F, 20.0F, 20.0F};
+    const d2d::ellipse d2d_ellipse{{40.0F, 14.0F}, 8.0F, 8.0F};
+    const d2d::rectangle_f d2d_stroked_rectangle{
+        8.0F, 28.0F, 28.0F, 42.0F};
+    const d2d::rounded_rectangle d2d_rounded_rectangle{
+        {36.0F, 28.0F, 56.0F, 44.0F}, 4.0F, 4.0F};
+    d2d_target->Clear(&d2d_clear);
+    d2d_target->FillRectangle(
+        &d2d_rectangle, static_cast<d2d::brush*>(d2d_red_brush.get()));
+    d2d_target->FillEllipse(
+        &d2d_ellipse, static_cast<d2d::brush*>(d2d_green_brush.get()));
+    d2d_target->DrawRectangle(
+        &d2d_stroked_rectangle,
+        static_cast<d2d::brush*>(d2d_blue_brush.get()),
+        3.0F,
+        nullptr);
+    d2d_target->FillRoundedRectangle(
+        &d2d_rounded_rectangle,
+        static_cast<d2d::brush*>(d2d_magenta_brush.get()));
+    require(d2d_target->EndDraw(nullptr, nullptr) == native_com::ok,
+        "portable Direct2D recording failed");
+    native_com::pointer<d2d::scene_render_target_native> d2d_scene_target;
+    require(d2d_target.as(
+            d2d::scene_render_target_native_interface_id,
+            d2d_scene_target) == native_com::ok &&
+        d2d_scene_target,
+        "portable Direct2D scene target query failed");
+
+    webscene_gpu_canvas_configuration d2d_canvas_configuration{};
+    d2d_canvas_configuration.struct_size = sizeof(d2d_canvas_configuration);
+    d2d_canvas_configuration.device = reinterpret_cast<std::uintptr_t>(device);
+    d2d_canvas_configuration.usage = WGPUTextureUsage_RenderAttachment |
+        WGPUTextureUsage_CopySrc;
+    d2d_canvas_configuration.pixel_format =
+        WEBSCENE_GPU_PIXEL_FORMAT_BGRA8_UNORM;
+    d2d_canvas_configuration.alpha_mode =
+        WEBSCENE_GPU_ALPHA_MODE_PREMULTIPLIED;
+    d2d_canvas_configuration.buffer_count = 2U;
+    webscene_gpu_canvas* d2d_canvas = api.create_canvas(
+        provider, &d2d_canvas_configuration, 64U, 48U);
+    require(d2d_canvas != nullptr, "Direct2D canvas creation failed");
+    std::uintptr_t d2d_texture_handle = 0U;
+    require(api.acquire(provider, d2d_canvas, &d2d_texture_handle) ==
+            WEBSCENE_GPU_STATUS_SUCCESS &&
+        d2d_texture_handle != 0U,
+        "Direct2D canvas acquisition failed");
+    auto d2d_texture = reinterpret_cast<WGPUTexture>(d2d_texture_handle);
+    WGPUTextureViewDescriptor d2d_view_descriptor =
+        WGPU_TEXTURE_VIEW_DESCRIPTOR_INIT;
+    WGPUTextureView d2d_view = resolve<WGPUProcTextureCreateView>(
+        api, provider, "wgpuTextureCreateView")(
+        d2d_texture, &d2d_view_descriptor);
+    require(d2d_view != nullptr, "Direct2D target view creation failed");
+    std::vector<std::byte> d2d_scene_scratch(
+        static_cast<std::size_t>(d2d_scene_target->GetRequiredSceneSize()));
+    progpu_native_scene_metrics d2d_scene_metrics{};
+    d2d_scene_metrics.struct_size = sizeof(d2d_scene_metrics);
+    progpu_native_scene_frame_metrics d2d_frame_metrics{};
+    d2d_frame_metrics.struct_size = sizeof(d2d_frame_metrics);
+    d2d::scene_submission_diagnostics d2d_diagnostics{};
+    const d2d::scene_render_options d2d_render_options{
+        reinterpret_cast<std::uintptr_t>(d2d_view),
+        PROGPU_NATIVE_SCENE_FRAME_PRESERVE_TARGET};
+    require(d2d::render_scene_target(
+            d2d_scene_target.get(),
+            engine,
+            d2d_render_options,
+            d2d_scene_scratch,
+            &d2d_scene_metrics,
+            &d2d_frame_metrics,
+            &d2d_diagnostics) == PROGPU_NATIVE_STATUS_SUCCESS &&
+        d2d_diagnostics.stage == d2d::scene_submission_stage::none &&
+        d2d_scene_metrics.draw_count == 4U &&
+        d2d_frame_metrics.command_count == 4U &&
+        d2d_frame_metrics.submission_count == 1U,
+        "portable Direct2D scene submission failed");
+    std::uint64_t d2d_submission = 0U;
+    require(progpu_native_engine_get_last_submission(
+            engine, &d2d_submission) == PROGPU_NATIVE_STATUS_SUCCESS &&
+        d2d_submission != 0U,
+        "Direct2D submission token unavailable");
+    std::uint8_t d2d_complete = 0U;
+    require(progpu_native_engine_poll_submission(
+            engine, d2d_submission, 1U, &d2d_complete) ==
+            PROGPU_NATIVE_STATUS_SUCCESS &&
+        d2d_complete != 0U,
+        "Direct2D scene submission did not complete");
+    resolve<WGPUProcTextureViewRelease>(
+        api, provider, "wgpuTextureViewRelease")(d2d_view);
+    resolve<WGPUProcTextureRelease>(
+        api, provider, "wgpuTextureRelease")(d2d_texture);
+    webscene_gpu_external_texture d2d_external{};
+    d2d_external.struct_size = sizeof(d2d_external);
+    require(api.present(provider, d2d_canvas, &d2d_external) ==
+            WEBSCENE_GPU_STATUS_SUCCESS &&
+        d2d_external.handle_kind == WEBSCENE_GPU_HANDLE_IOSURFACE &&
+        (d2d_external.flags &
+            WEBSCENE_GPU_EXTERNAL_TEXTURE_GPU_COMPLETE) != 0U,
+        "Direct2D canvas presentation failed");
+    verify_direct2d_scene(
+        reinterpret_cast<IOSurfaceRef>(d2d_external.shared_handle));
+    api.release_external(provider, &d2d_external);
+    api.destroy_canvas(provider, d2d_canvas);
 
     auto semantic_scene = create_semantic_scene_stream(1U, 2U);
     progpu_native_scene_metrics scene_metrics{};
@@ -4431,13 +5102,14 @@ int main(int argc, char** argv) {
     brush_mask_frame.generation = 1U;
     semantic_metrics = {};
     semantic_metrics.struct_size = sizeof(semantic_metrics);
-    require(progpu_native_engine_render_scene(
+    const auto brush_mask_status = progpu_native_engine_render_scene(
         engine,
         &brush_mask_frame,
-        &semantic_metrics) == PROGPU_NATIVE_STATUS_SUCCESS &&
+        &semantic_metrics);
+    require(brush_mask_status == PROGPU_NATIVE_STATUS_SUCCESS &&
         semantic_metrics.command_count == 3U &&
         semantic_metrics.draw_call_count == 2U &&
-        semantic_metrics.submission_count == 5U &&
+        semantic_metrics.submission_count == 1U &&
         semantic_metrics.texture_upload_bytes == 0U &&
         semantic_metrics.uniform_upload_bytes >= 24U * sizeof(float),
         "semantic GPU-generated brush-mask rendering failed");
@@ -4822,6 +5494,364 @@ int main(int argc, char** argv) {
         semantic_layer_metrics.effect_cache_hit == 1U &&
         semantic_layer_metrics.effect_pass_count == 0U,
         "semantic root effect stable metrics are incorrect");
+
+    auto retained_cache_scene =
+        create_semantic_retained_cache_scene_stream(
+            1U,
+            1U,
+            0.4F,
+            0.7F);
+    scene_metrics = {};
+    scene_metrics.struct_size = sizeof(scene_metrics);
+    require(progpu_native_engine_update_scene(
+        engine,
+        retained_cache_scene.data(),
+        retained_cache_scene.size(),
+        &scene_metrics) == PROGPU_NATIVE_STATUS_SUCCESS &&
+        scene_metrics.command_count == 4U &&
+        scene_metrics.resource_count == 2U &&
+        scene_metrics.draw_count == 2U,
+        "semantic retained cache update failed");
+    progpu_native_scene_frame retained_cache_frame = semantic_frame;
+    retained_cache_frame.target_view =
+        reinterpret_cast<std::uintptr_t>(view);
+    retained_cache_frame.scene_id = 1093U;
+    retained_cache_frame.generation = 1U;
+    semantic_metrics = {};
+    semantic_metrics.struct_size = sizeof(semantic_metrics);
+    require(progpu_native_engine_render_scene(
+        engine,
+        &retained_cache_frame,
+        &semantic_metrics) == PROGPU_NATIVE_STATUS_SUCCESS &&
+        semantic_metrics.draw_call_count == 3U,
+        "semantic retained cache first render failed");
+    semantic_layer_metrics = {};
+    semantic_layer_metrics.struct_size = sizeof(semantic_layer_metrics);
+    require(progpu_native_engine_get_layer_metrics(
+        engine,
+        &semantic_layer_metrics) == PROGPU_NATIVE_STATUS_SUCCESS &&
+        semantic_layer_metrics.content_pass_count == 1U &&
+        semantic_layer_metrics.composite_pass_count == 1U,
+        "semantic retained cache first render metrics are incorrect");
+    semantic_metrics = {};
+    semantic_metrics.struct_size = sizeof(semantic_metrics);
+    require(progpu_native_engine_render_scene(
+        engine,
+        &retained_cache_frame,
+        &semantic_metrics) == PROGPU_NATIVE_STATUS_SUCCESS &&
+        semantic_metrics.draw_call_count == 2U,
+        "semantic retained cache stable replay failed");
+    semantic_layer_metrics = {};
+    semantic_layer_metrics.struct_size = sizeof(semantic_layer_metrics);
+    require(progpu_native_engine_get_layer_metrics(
+        engine,
+        &semantic_layer_metrics) == PROGPU_NATIVE_STATUS_SUCCESS &&
+        semantic_layer_metrics.content_pass_count == 0U &&
+        semantic_layer_metrics.composite_pass_count == 1U,
+        "semantic retained cache stable replay redrew content");
+
+    retained_cache_scene = create_semantic_retained_cache_scene_stream(
+        2U,
+        1U,
+        0.9F,
+        0.7F);
+    scene_metrics = {};
+    scene_metrics.struct_size = sizeof(scene_metrics);
+    require(progpu_native_engine_update_scene(
+        engine,
+        retained_cache_scene.data(),
+        retained_cache_scene.size(),
+        &scene_metrics) == PROGPU_NATIVE_STATUS_SUCCESS,
+        "semantic retained cache sibling update failed");
+    retained_cache_frame.generation = 2U;
+    semantic_metrics = {};
+    semantic_metrics.struct_size = sizeof(semantic_metrics);
+    require(progpu_native_engine_render_scene(
+        engine,
+        &retained_cache_frame,
+        &semantic_metrics) == PROGPU_NATIVE_STATUS_SUCCESS &&
+        semantic_metrics.draw_call_count == 2U,
+        "semantic retained cache sibling replay failed");
+    semantic_layer_metrics = {};
+    semantic_layer_metrics.struct_size = sizeof(semantic_layer_metrics);
+    require(progpu_native_engine_get_layer_metrics(
+        engine,
+        &semantic_layer_metrics) == PROGPU_NATIVE_STATUS_SUCCESS &&
+        semantic_layer_metrics.content_pass_count == 0U,
+        "unrelated sibling invalidated semantic retained cache content");
+
+    retained_cache_scene = create_semantic_retained_cache_scene_stream(
+        3U,
+        2U,
+        0.9F,
+        0.9F);
+    scene_metrics = {};
+    scene_metrics.struct_size = sizeof(scene_metrics);
+    require(progpu_native_engine_update_scene(
+        engine,
+        retained_cache_scene.data(),
+        retained_cache_scene.size(),
+        &scene_metrics) == PROGPU_NATIVE_STATUS_SUCCESS,
+        "semantic retained cache content update failed");
+    retained_cache_frame.generation = 3U;
+    semantic_metrics = {};
+    semantic_metrics.struct_size = sizeof(semantic_metrics);
+    require(progpu_native_engine_render_scene(
+        engine,
+        &retained_cache_frame,
+        &semantic_metrics) == PROGPU_NATIVE_STATUS_SUCCESS &&
+        semantic_metrics.draw_call_count == 3U,
+        "semantic retained cache content replay failed");
+    semantic_layer_metrics = {};
+    semantic_layer_metrics.struct_size = sizeof(semantic_layer_metrics);
+    require(progpu_native_engine_get_layer_metrics(
+        engine,
+        &semantic_layer_metrics) == PROGPU_NATIVE_STATUS_SUCCESS &&
+        semantic_layer_metrics.content_pass_count == 1U,
+        "changed semantic retained cache content was not redrawn");
+
+    auto local_cache_scene =
+        create_semantic_local_retained_cache_scene_stream(
+            1U, 1U, 20.0F, 1.0F);
+    scene_metrics = {};
+    scene_metrics.struct_size = sizeof(scene_metrics);
+    require(progpu_native_engine_update_scene(
+        engine,
+        local_cache_scene.data(),
+        local_cache_scene.size(),
+        &scene_metrics) == PROGPU_NATIVE_STATUS_SUCCESS &&
+        scene_metrics.command_count == 5U &&
+        scene_metrics.resource_count == 3U &&
+        scene_metrics.draw_count == 1U,
+        "semantic local retained cache update failed");
+    progpu_native_scene_frame local_cache_frame = semantic_frame;
+    local_cache_frame.target_view =
+        reinterpret_cast<std::uintptr_t>(view);
+    local_cache_frame.scene_id = 1094U;
+    local_cache_frame.generation = 1U;
+    semantic_metrics = {};
+    semantic_metrics.struct_size = sizeof(semantic_metrics);
+    require(progpu_native_engine_render_scene(
+        engine,
+        &local_cache_frame,
+        &semantic_metrics) == PROGPU_NATIVE_STATUS_SUCCESS &&
+        semantic_metrics.draw_call_count == 2U,
+        "semantic local retained cache first render failed");
+    semantic_layer_metrics = {};
+    semantic_layer_metrics.struct_size = sizeof(semantic_layer_metrics);
+    require(progpu_native_engine_get_layer_metrics(
+        engine,
+        &semantic_layer_metrics) == PROGPU_NATIVE_STATUS_SUCCESS &&
+        semantic_layer_metrics.texture_width == 24U &&
+        semantic_layer_metrics.texture_height == 18U &&
+        semantic_layer_metrics.content_pass_count == 1U &&
+        semantic_layer_metrics.composite_pass_count == 1U,
+        "semantic local retained cache first metrics are incorrect");
+
+    local_cache_scene = create_semantic_local_retained_cache_scene_stream(
+        2U, 1U, 32.0F, 1.0F);
+    scene_metrics = {};
+    scene_metrics.struct_size = sizeof(scene_metrics);
+    require(progpu_native_engine_update_scene(
+        engine,
+        local_cache_scene.data(),
+        local_cache_scene.size(),
+        &scene_metrics) == PROGPU_NATIVE_STATUS_SUCCESS,
+        "semantic local retained cache composite update failed");
+    local_cache_frame.generation = 2U;
+    semantic_metrics = {};
+    semantic_metrics.struct_size = sizeof(semantic_metrics);
+    require(progpu_native_engine_render_scene(
+        engine,
+        &local_cache_frame,
+        &semantic_metrics) == PROGPU_NATIVE_STATUS_SUCCESS &&
+        semantic_metrics.draw_call_count == 1U,
+        "semantic local retained cache composite replay failed");
+    semantic_layer_metrics = {};
+    semantic_layer_metrics.struct_size = sizeof(semantic_layer_metrics);
+    require(progpu_native_engine_get_layer_metrics(
+        engine,
+        &semantic_layer_metrics) == PROGPU_NATIVE_STATUS_SUCCESS &&
+        semantic_layer_metrics.content_pass_count == 0U &&
+        semantic_layer_metrics.composite_pass_count == 1U,
+        "semantic local retained cache outer placement redrew content");
+
+    local_cache_scene = create_semantic_local_retained_cache_scene_stream(
+        3U, 2U, 32.0F, 0.5F);
+    scene_metrics = {};
+    scene_metrics.struct_size = sizeof(scene_metrics);
+    require(progpu_native_engine_update_scene(
+        engine,
+        local_cache_scene.data(),
+        local_cache_scene.size(),
+        &scene_metrics) == PROGPU_NATIVE_STATUS_SUCCESS,
+        "semantic local retained cache raster-scale update failed");
+    local_cache_frame.generation = 3U;
+    semantic_metrics = {};
+    semantic_metrics.struct_size = sizeof(semantic_metrics);
+    require(progpu_native_engine_render_scene(
+        engine,
+        &local_cache_frame,
+        &semantic_metrics) == PROGPU_NATIVE_STATUS_SUCCESS &&
+        semantic_metrics.draw_call_count == 2U,
+        "semantic local retained cache raster-scale replay failed");
+    semantic_layer_metrics = {};
+    semantic_layer_metrics.struct_size = sizeof(semantic_layer_metrics);
+    require(progpu_native_engine_get_layer_metrics(
+        engine,
+        &semantic_layer_metrics) == PROGPU_NATIVE_STATUS_SUCCESS &&
+        semantic_layer_metrics.texture_width == 12U &&
+        semantic_layer_metrics.texture_height == 9U &&
+        semantic_layer_metrics.content_pass_count == 1U,
+        "semantic local retained cache raster-scale metrics are incorrect");
+
+    local_cache_scene = create_semantic_local_retained_cache_scene_stream(
+        4U, 2U, 32.0F, 0.5F, true);
+    scene_metrics = {};
+    scene_metrics.struct_size = sizeof(scene_metrics);
+    require(progpu_native_engine_update_scene(
+        engine,
+        local_cache_scene.data(),
+        local_cache_scene.size(),
+        &scene_metrics) == PROGPU_NATIVE_STATUS_SUCCESS,
+        "semantic local retained cache composite-clip update failed");
+    local_cache_frame.generation = 4U;
+    semantic_metrics = {};
+    semantic_metrics.struct_size = sizeof(semantic_metrics);
+    require(progpu_native_engine_render_scene(
+        engine,
+        &local_cache_frame,
+        &semantic_metrics) == PROGPU_NATIVE_STATUS_SUCCESS &&
+        semantic_metrics.draw_call_count == 1U,
+        "semantic local retained cache clipped composite replay failed");
+    semantic_layer_metrics = {};
+    semantic_layer_metrics.struct_size = sizeof(semantic_layer_metrics);
+    require(progpu_native_engine_get_layer_metrics(
+        engine,
+        &semantic_layer_metrics) == PROGPU_NATIVE_STATUS_SUCCESS &&
+        semantic_layer_metrics.content_pass_count == 0U &&
+        semantic_layer_metrics.composite_pass_count == 1U,
+        "semantic local retained cache composite clip redrew content");
+
+    local_cache_scene = create_semantic_local_retained_cache_scene_stream(
+        5U, 2U, 32.0F, 0.5F, true, true);
+    scene_metrics = {};
+    scene_metrics.struct_size = sizeof(scene_metrics);
+    require(progpu_native_engine_update_scene(
+        engine,
+        local_cache_scene.data(),
+        local_cache_scene.size(),
+        &scene_metrics) == PROGPU_NATIVE_STATUS_SUCCESS,
+        "semantic local retained cache nearest update failed");
+    local_cache_frame.generation = 5U;
+    semantic_metrics = {};
+    semantic_metrics.struct_size = sizeof(semantic_metrics);
+    require(progpu_native_engine_render_scene(
+        engine,
+        &local_cache_frame,
+        &semantic_metrics) == PROGPU_NATIVE_STATUS_SUCCESS &&
+        semantic_metrics.draw_call_count == 1U,
+        "semantic local retained cache nearest replay failed");
+    semantic_layer_metrics = {};
+    semantic_layer_metrics.struct_size = sizeof(semantic_layer_metrics);
+    require(progpu_native_engine_get_layer_metrics(
+        engine,
+        &semantic_layer_metrics) == PROGPU_NATIVE_STATUS_SUCCESS &&
+        semantic_layer_metrics.content_pass_count == 0U &&
+        semantic_layer_metrics.composite_pass_count == 1U,
+        "semantic local retained cache nearest sampling redrew content");
+
+    local_cache_scene = create_semantic_local_retained_cache_scene_stream(
+        6U, 2U, 32.0F, 0.5F, true, false, true);
+    scene_metrics = {};
+    scene_metrics.struct_size = sizeof(scene_metrics);
+    require(progpu_native_engine_update_scene(
+        engine,
+        local_cache_scene.data(),
+        local_cache_scene.size(),
+        &scene_metrics) == PROGPU_NATIVE_STATUS_SUCCESS,
+        "semantic local retained cache Fant update failed");
+    local_cache_frame.generation = 6U;
+    semantic_metrics = {};
+    semantic_metrics.struct_size = sizeof(semantic_metrics);
+    require(progpu_native_engine_render_scene(
+        engine,
+        &local_cache_frame,
+        &semantic_metrics) == PROGPU_NATIVE_STATUS_SUCCESS &&
+        semantic_metrics.draw_call_count == 1U,
+        "semantic local retained cache Fant replay failed");
+    semantic_layer_metrics = {};
+    semantic_layer_metrics.struct_size = sizeof(semantic_layer_metrics);
+    require(progpu_native_engine_get_layer_metrics(
+        engine,
+        &semantic_layer_metrics) == PROGPU_NATIVE_STATUS_SUCCESS &&
+        semantic_layer_metrics.content_pass_count == 0U &&
+        semantic_layer_metrics.composite_pass_count == 1U,
+        "semantic local retained cache Fant sampling redrew content");
+
+    auto local_cache_mask_scene =
+        create_semantic_local_retained_cache_brush_mask_scene_stream(
+            1U, 1U, 1.0F);
+    scene_metrics = {};
+    scene_metrics.struct_size = sizeof(scene_metrics);
+    require(progpu_native_engine_update_scene(
+        engine,
+        local_cache_mask_scene.data(),
+        local_cache_mask_scene.size(),
+        &scene_metrics) == PROGPU_NATIVE_STATUS_SUCCESS,
+        "semantic local retained cache brush-mask update failed");
+    progpu_native_scene_frame local_cache_mask_frame = semantic_frame;
+    local_cache_mask_frame.target_view =
+        reinterpret_cast<std::uintptr_t>(view);
+    local_cache_mask_frame.scene_id = 1095U;
+    local_cache_mask_frame.generation = 1U;
+    semantic_metrics = {};
+    semantic_metrics.struct_size = sizeof(semantic_metrics);
+    require(progpu_native_engine_render_scene(
+        engine,
+        &local_cache_mask_frame,
+        &semantic_metrics) == PROGPU_NATIVE_STATUS_SUCCESS,
+        "semantic local retained cache brush-mask first render failed");
+    semantic_layer_metrics = {};
+    semantic_layer_metrics.struct_size = sizeof(semantic_layer_metrics);
+    require(progpu_native_engine_get_layer_metrics(
+        engine,
+        &semantic_layer_metrics) == PROGPU_NATIVE_STATUS_SUCCESS &&
+        semantic_layer_metrics.mask_kind ==
+            PROGPU_NATIVE_GROUP_MASK_TEXTURE &&
+        semantic_layer_metrics.content_pass_count == 1U &&
+        semantic_layer_metrics.composite_pass_count == 1U,
+        "semantic local retained cache brush-mask metrics are incorrect");
+
+    local_cache_mask_scene =
+        create_semantic_local_retained_cache_brush_mask_scene_stream(
+            2U, 1U, 0.5F);
+    scene_metrics = {};
+    scene_metrics.struct_size = sizeof(scene_metrics);
+    require(progpu_native_engine_update_scene(
+        engine,
+        local_cache_mask_scene.data(),
+        local_cache_mask_scene.size(),
+        &scene_metrics) == PROGPU_NATIVE_STATUS_SUCCESS,
+        "semantic local retained cache brush-mask opacity update failed");
+    local_cache_mask_frame.generation = 2U;
+    semantic_metrics = {};
+    semantic_metrics.struct_size = sizeof(semantic_metrics);
+    require(progpu_native_engine_render_scene(
+        engine,
+        &local_cache_mask_frame,
+        &semantic_metrics) == PROGPU_NATIVE_STATUS_SUCCESS,
+        "semantic local retained cache brush-mask opacity replay failed");
+    semantic_layer_metrics = {};
+    semantic_layer_metrics.struct_size = sizeof(semantic_layer_metrics);
+    require(progpu_native_engine_get_layer_metrics(
+        engine,
+        &semantic_layer_metrics) == PROGPU_NATIVE_STATUS_SUCCESS &&
+        semantic_layer_metrics.mask_kind ==
+            PROGPU_NATIVE_GROUP_MASK_TEXTURE &&
+        semantic_layer_metrics.content_pass_count == 0U &&
+        semantic_layer_metrics.composite_pass_count == 1U,
+        "semantic local retained cache brush-mask update redrew content");
 
     scene_metrics = {};
     scene_metrics.struct_size = sizeof(scene_metrics);

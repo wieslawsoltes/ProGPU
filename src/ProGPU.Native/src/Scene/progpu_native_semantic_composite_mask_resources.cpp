@@ -89,6 +89,8 @@ bool create_semantic_composite_mask_binding(
     const progpu_native_scene_resource& resource,
     const semantic::scissor& target_extent,
     float dpi_scale,
+    const semantic::semantic_state_cursor* composite_state_cursor,
+    const progpu_native_scene_state* composite_state,
     semantic_render_bundle_span& operation) {
     const auto& source = parsed.composite;
     if (source.component_count < 2U ||
@@ -253,6 +255,8 @@ bool create_semantic_composite_mask_binding(
                 child,
                 target_extent,
                 dpi_scale,
+                composite_state_cursor,
+                composite_state,
                 child_operation)) {
             cleanup();
             return false;
@@ -342,7 +346,10 @@ bool create_semantic_composite_mask_binding(
     WGPUCommandEncoderDescriptor encoder_descriptor{};
     encoder_descriptor.label = webgpu::string_view(
         "ProGPU retained composite-mask encoder");
-    encoder = wgpuDeviceCreateCommandEncoder(engine.device, &encoder_descriptor);
+    const bool owns_encoder = engine.semantic_encoder == nullptr;
+    encoder = owns_encoder
+        ? wgpuDeviceCreateCommandEncoder(engine.device, &encoder_descriptor)
+        : engine.semantic_encoder;
     if (encoder == nullptr) {
         cleanup();
         return false;
@@ -377,19 +384,28 @@ bool create_semantic_composite_mask_binding(
         wgpuRenderPassEncoderEnd(pass);
         wgpuRenderPassEncoderRelease(pass);
     }
-    WGPUCommandBufferDescriptor command_descriptor{};
-    command_descriptor.label = webgpu::string_view(
-        "ProGPU retained composite-mask commands");
-    command = wgpuCommandEncoderFinish(encoder, &command_descriptor);
-    wgpuCommandEncoderRelease(encoder);
-    encoder = nullptr;
-    if (command == nullptr) {
-        cleanup();
-        return false;
+    if (owns_encoder) {
+        WGPUCommandBufferDescriptor command_descriptor{};
+        command_descriptor.label = webgpu::string_view(
+            "ProGPU retained composite-mask commands");
+        command = wgpuCommandEncoderFinish(encoder, &command_descriptor);
+        wgpuCommandEncoderRelease(encoder);
+        encoder = nullptr;
+        if (command == nullptr) {
+            cleanup();
+            return false;
+        }
+        engine.submit(command);
+        wgpuCommandBufferRelease(command);
+        command = nullptr;
+    } else {
+        // Child masks are encoded on the semantic encoder. Keep composition
+        // on that encoder as well so the GPU observes child production before
+        // sampling without forcing an otherwise unnecessary queue submit.
+        encoder = nullptr;
     }
-    engine.submit(command);
-    wgpuCommandBufferRelease(command);
-    command = nullptr;
+    // The owning command buffer or shared encoder retains all transient child
+    // resources referenced above; release handles without destroying storage.
     submitted = true;
 
     const std::uint32_t final_index = (source.component_count - 1U) & 1U;

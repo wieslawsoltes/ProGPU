@@ -11,5 +11,11 @@ public interface IPortableNativeImageSource
 
     int PixelHeight { get; }
 
+    /// <summary>Source resolution, not target/device scale. Legacy providers use 96 DPI.</summary>
+    double DpiX => 96.0;
+
+    /// <summary>Source resolution, not target/device scale. Legacy providers use 96 DPI.</summary>
+    double DpiY => 96.0;
+
     bool TryGetPortableNativeImage(out object? nativeImage);
 }

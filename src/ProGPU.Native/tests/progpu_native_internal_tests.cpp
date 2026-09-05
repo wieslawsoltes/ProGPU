@@ -6,6 +6,7 @@
 #include "progpu_native_geometry_spline.hpp"
 #include "progpu_native_geometry_stroke.hpp"
 #include "progpu_native_gpu_records.hpp"
+#include "progpu_native_path_boolean_gpu.hpp"
 #include "progpu_native_semantic_budget.hpp"
 #include "progpu_native_semantic_brush.hpp"
 #include "progpu_native_semantic_brush_tests.hpp"
@@ -36,6 +37,330 @@ void require(bool condition) {
     if (!condition) {
         std::abort();
     }
+}
+
+void native_texture_copy_staging_uses_portable_d3d12_alignment() {
+    using progpu::native::align_up;
+    using progpu::native::align_up_u64;
+    using progpu::native::path_maximum_sample_count;
+    using progpu::native::path_sample_mask_word_count;
+    using progpu::native::webgpu_copy_offset_alignment;
+    using progpu::native::webgpu_copy_row_alignment;
+
+    require(webgpu_copy_row_alignment == 256U);
+    require(webgpu_copy_offset_alignment == 512U);
+    require(webgpu_copy_offset_alignment % webgpu_copy_row_alignment == 0U);
+    require(path_maximum_sample_count == 64U);
+    require(path_sample_mask_word_count == 2U);
+
+    constexpr std::uint32_t width = 57U;
+    constexpr std::uint32_t height = 19U;
+    constexpr std::uint32_t leaf_count = 3U;
+    const std::uint64_t row_bytes = align_up(
+        width,
+        webgpu_copy_row_alignment);
+    const std::uint64_t first_output_offset = align_up_u64(
+        0U,
+        webgpu_copy_offset_alignment);
+    const std::uint64_t first_output_end =
+        first_output_offset + row_bytes * height;
+    const std::uint64_t signed_source_offset = align_up_u64(
+        first_output_end,
+        webgpu_copy_row_alignment);
+    const std::uint64_t signed_leaf_bytes =
+        static_cast<std::uint64_t>(width) * height *
+        path_maximum_sample_count * sizeof(std::uint32_t);
+    const std::uint64_t signed_result_offset =
+        signed_source_offset + signed_leaf_bytes * leaf_count;
+    const std::uint64_t signed_result_bytes =
+        static_cast<std::uint64_t>(width) * height *
+        path_sample_mask_word_count * sizeof(std::uint32_t);
+    const std::uint64_t next_output_offset = align_up_u64(
+        signed_result_offset + signed_result_bytes,
+        webgpu_copy_offset_alignment);
+
+    require(row_bytes % webgpu_copy_row_alignment == 0U);
+    require(first_output_offset % webgpu_copy_offset_alignment == 0U);
+    require(signed_source_offset >= first_output_end);
+    require(signed_result_offset ==
+        signed_source_offset + signed_leaf_bytes * leaf_count);
+    require(next_output_offset >= signed_result_offset + signed_result_bytes);
+    require(next_output_offset % webgpu_copy_offset_alignment == 0U);
+}
+
+void translated_boolean_programs_split_into_independent_gpu_records() {
+    progpu_native_scene_path_fill path{};
+    path.boolean_node_count = 3U;
+    std::array<progpu_native_scene_path_boolean_node, 3U> nodes{};
+    nodes[0U] = {
+        2U, 4U, 1.0F, 2.0F, 9.0F, 10.0F,
+        PROGPU_NATIVE_FILL_RULE_EVEN_ODD,
+        PROGPU_NATIVE_PATH_BOOLEAN_LEAF, 0U, 0U};
+    nodes[1U] = {
+        6U, 4U, 2.0F, 3.0F, 10.0F, 11.0F,
+        PROGPU_NATIVE_FILL_RULE_EVEN_ODD,
+        PROGPU_NATIVE_PATH_BOOLEAN_LEAF, 0U, 0U};
+    nodes[2U].kind = PROGPU_NATIVE_PATH_BOOLEAN_XOR;
+
+    std::vector<progpu::native::gpu_path_record> records;
+    const auto program = progpu::native::path_boolean::append_gpu_records(
+        path,
+        nodes.data(),
+        records);
+    require(program.split_leaf_count == 2U);
+    require(program.path_record_index == 0U);
+    require(program.program_index == 2U);
+    require(program.operation_kind != 0U);
+    require(records.size() == 5U);
+    require(records[0U].start_segment == 2U);
+    require(records[1U].start_segment == 6U);
+
+    path.boolean_node_count = 5U;
+    std::array<progpu_native_scene_path_boolean_node, 5U> ternary_nodes{};
+    ternary_nodes[0U] = nodes[0U];
+    ternary_nodes[1U] = nodes[1U];
+    ternary_nodes[2U] = nodes[2U];
+    ternary_nodes[3U] = {
+        10U, 4U, 3.0F, 4.0F, 11.0F, 12.0F,
+        PROGPU_NATIVE_FILL_RULE_EVEN_ODD,
+        PROGPU_NATIVE_PATH_BOOLEAN_LEAF, 0U, 0U};
+    ternary_nodes[4U].kind = PROGPU_NATIVE_PATH_BOOLEAN_XOR;
+    records.clear();
+    const auto ternary_program =
+        progpu::native::path_boolean::append_gpu_records(
+            path,
+            ternary_nodes.data(),
+            records);
+    require(ternary_program.split_leaf_count == 3U);
+    require(ternary_program.path_record_index == 0U);
+    require(ternary_program.program_index == 3U);
+    require(ternary_program.operation_kind != 0U);
+    require(records.size() == 8U);
+    require(records[0U].start_segment == 2U);
+    require(records[1U].start_segment == 6U);
+    require(records[2U].start_segment == 10U);
+
+    path.boolean_node_count = 7U;
+    std::array<progpu_native_scene_path_boolean_node, 7U> quaternary_nodes{};
+    std::copy(
+        ternary_nodes.begin(),
+        ternary_nodes.end(),
+        quaternary_nodes.begin());
+    quaternary_nodes[5U] = {
+        14U, 4U, 4.0F, 5.0F, 12.0F, 13.0F,
+        PROGPU_NATIVE_FILL_RULE_EVEN_ODD,
+        PROGPU_NATIVE_PATH_BOOLEAN_LEAF, 0U, 0U};
+    quaternary_nodes[6U].kind = PROGPU_NATIVE_PATH_BOOLEAN_XOR;
+    records.clear();
+    const auto quaternary_program =
+        progpu::native::path_boolean::append_gpu_records(
+            path,
+            quaternary_nodes.data(),
+            records);
+    require(quaternary_program.split_leaf_count == 4U);
+    require(records.size() == 11U);
+    require(records[3U].start_segment == 14U);
+
+    quaternary_nodes[6U].kind = PROGPU_NATIVE_PATH_BOOLEAN_UNION;
+    std::array<progpu_native_path_segment, 18U> translated_segments{};
+    const auto set_rectangle = [&translated_segments](
+        std::size_t offset,
+        float left,
+        float top) {
+        const std::array<progpu_native_point, 4U> points{{
+            {left, top},
+            {left + 8.0F, top},
+            {left + 8.0F, top + 8.0F},
+            {left, top + 8.0F}}};
+        for (std::size_t index = 0U; index < points.size(); ++index) {
+            auto& segment = translated_segments[offset + index];
+            segment.p0 = points[index];
+            segment.p1 = points[(index + 1U) % points.size()];
+            segment.kind = PROGPU_NATIVE_PATH_SEGMENT_LINE;
+        }
+    };
+    set_rectangle(2U, 1.0F, 2.0F);
+    set_rectangle(6U, 2.0F, 3.0F);
+    set_rectangle(10U, 3.0F, 4.0F);
+    set_rectangle(14U, 4.0F, 5.0F);
+    records.clear();
+    const auto mixed_program =
+        progpu::native::path_boolean::append_gpu_records(
+            path,
+            quaternary_nodes.data(),
+            records,
+            translated_segments);
+    require(mixed_program.split_leaf_count == 4U);
+    require(mixed_program.operation_kind != 0U);
+    require(records.size() == 11U);
+
+    auto non_equivalent_segments = translated_segments;
+    non_equivalent_segments[6U].p1.x += 0.25F;
+    non_equivalent_segments[10U].p1.x += 0.5F;
+    non_equivalent_segments[14U].p1.x += 0.75F;
+    records.clear();
+    const auto ordinary_mixed_program =
+        progpu::native::path_boolean::append_gpu_records(
+            path,
+            quaternary_nodes.data(),
+            records,
+            non_equivalent_segments);
+    require(ordinary_mixed_program.split_leaf_count == 0U);
+    require(ordinary_mixed_program.operation_kind != 0U);
+    require(records.size() == 11U);
+
+    std::vector<progpu_native_scene_path_boolean_node> maximum_nodes;
+    maximum_nodes.reserve(63U);
+    for (std::uint32_t leaf_index = 0U; leaf_index < 32U; ++leaf_index) {
+        maximum_nodes.push_back({
+            leaf_index * 4U,
+            4U,
+            static_cast<float>(leaf_index),
+            0.0F,
+            static_cast<float>(leaf_index + 8U),
+            8.0F,
+            PROGPU_NATIVE_FILL_RULE_EVEN_ODD,
+            PROGPU_NATIVE_PATH_BOOLEAN_LEAF,
+            0U,
+            0U});
+        if (leaf_index != 0U) {
+            progpu_native_scene_path_boolean_node operation{};
+            operation.kind = PROGPU_NATIVE_PATH_BOOLEAN_XOR;
+            maximum_nodes.push_back(operation);
+        }
+    }
+    path.boolean_node_count = maximum_nodes.size();
+    records.clear();
+    const auto maximum_program =
+        progpu::native::path_boolean::append_gpu_records(
+            path,
+            maximum_nodes.data(),
+            records);
+    require(maximum_program.split_leaf_count == 32U);
+    require(records.size() == 95U);
+    require(records[31U].start_segment == 124U);
+
+    path.segment_offset = 0U;
+    path.segment_count = 12U;
+    path.boolean_node_offset = 0U;
+    path.boolean_node_count = 6U;
+    path.fill_rule = PROGPU_NATIVE_FILL_RULE_NON_ZERO;
+    std::array<progpu_native_scene_path_boolean_node, 6U> winding_nodes{};
+    winding_nodes[0U] = {
+        0U, 4U, 0.0F, 0.0F, 8.0F, 8.0F,
+        PROGPU_NATIVE_FILL_RULE_NON_ZERO,
+        PROGPU_NATIVE_PATH_BOOLEAN_LEAF, 0U, 0U};
+    winding_nodes[1U] = {
+        4U, 4U, 1.0F, 0.0F, 9.0F, 8.0F,
+        PROGPU_NATIVE_FILL_RULE_NON_ZERO,
+        PROGPU_NATIVE_PATH_BOOLEAN_LEAF, 0U, 0U};
+    winding_nodes[2U].kind = PROGPU_NATIVE_PATH_BOOLEAN_UNION;
+    winding_nodes[3U].kind = PROGPU_NATIVE_PATH_BOOLEAN_WINDING_NEGATE;
+    winding_nodes[4U] = {
+        8U, 4U, 0.0F, 0.0F, 8.0F, 8.0F,
+        PROGPU_NATIVE_FILL_RULE_NON_ZERO,
+        PROGPU_NATIVE_PATH_BOOLEAN_WINDING_LEAF, 0U, 0U};
+    winding_nodes[5U].kind = PROGPU_NATIVE_PATH_BOOLEAN_WINDING_ADD;
+    require(progpu::native::path_boolean::validate(
+        path,
+        winding_nodes.data(),
+        winding_nodes.size()));
+    records.clear();
+    const auto winding_program =
+        progpu::native::path_boolean::append_gpu_records(
+            path,
+            winding_nodes.data(),
+            records,
+            translated_segments);
+    require(winding_program.split_leaf_count == 3U);
+    require((winding_program.operation_kind &
+        progpu::native::path_boolean::gpu_program_flag) != 0U);
+    require((winding_program.operation_kind &
+        progpu::native::path_boolean::gpu_signed_winding_program_flag) != 0U);
+    require(records.size() == 9U);
+    require(records[0U].pad1 == 0U);
+    require(records[1U].pad1 == 0U);
+    require(records[2U].pad1 == 1U);
+    require(records[7U].start_segment ==
+        (progpu::native::path_boolean::gpu_winding_leaf_token_flag | 2U));
+
+    path.fill_rule = PROGPU_NATIVE_FILL_RULE_EVEN_ODD;
+    require(!progpu::native::path_boolean::validate(
+        path,
+        winding_nodes.data(),
+        winding_nodes.size()));
+    path.fill_rule = PROGPU_NATIVE_FILL_RULE_NON_ZERO;
+    winding_nodes[4U].fill_rule = PROGPU_NATIVE_FILL_RULE_EVEN_ODD;
+    require(!progpu::native::path_boolean::validate(
+        path,
+        winding_nodes.data(),
+        winding_nodes.size()));
+}
+
+void clipped_miter_join_uses_the_wpf_three_triangle_wedge() {
+    std::array<progpu::native::stroke_triangle, 8U> triangles{};
+    const std::size_t count = progpu::native::create_join_triangles(
+        triangles,
+        PROGPU_NATIVE_STROKE_JOIN_MITER,
+        8.0F,
+        1.0F,
+        {25.0F, 15.0F},
+        {30.0F, 7.5F},
+        {7.5F, 15.0F},
+        true);
+    require(count == 3U);
+    require(progpu::native::is_finite(triangles[0U].p2));
+    require(progpu::native::is_finite(triangles[1U].p1));
+    require(progpu::native::is_finite(triangles[1U].p2));
+    require(progpu::native::is_finite(triangles[2U].p1));
+
+    const std::size_t standard_count =
+        progpu::native::create_join_triangles(
+            triangles,
+            PROGPU_NATIVE_STROKE_JOIN_MITER,
+            8.0F,
+            1.0F,
+            {25.0F, 15.0F},
+            {30.0F, 7.5F},
+            {7.5F, 15.0F});
+    require(standard_count == 1U);
+}
+
+void reversal_joins_match_wpf_collapsed_contours() {
+    std::array<progpu::native::stroke_triangle, 8U> triangles{};
+    const std::size_t square_count =
+        progpu::native::create_join_triangles(
+            triangles,
+            PROGPU_NATIVE_STROKE_JOIN_BEVEL,
+            2.0F,
+            1.0F,
+            {0.0F, 0.0F},
+            {0.0F, -1.0F},
+            {0.0F, 1.0F},
+            true);
+    require(square_count == 3U);
+    require(triangles[0U].p1.x == 1.0F);
+    require(triangles[0U].p2.x == 1.0F);
+    require(triangles[0U].p2.y == -1.0F);
+    require(triangles[1U].p2.x == -1.0F);
+    require(triangles[1U].p2.y == -1.0F);
+    require(triangles[2U].p2.x == -1.0F);
+
+    const std::size_t round_count =
+        progpu::native::create_join_triangles(
+            triangles,
+            PROGPU_NATIVE_STROKE_JOIN_ROUND,
+            2.0F,
+            1.0F,
+            {0.0F, 0.0F},
+            {0.0F, -1.0F},
+            {0.0F, 1.0F},
+            true);
+    require(round_count == 8U);
+    require(triangles[0U].p1.x == 1.0F);
+    require(std::abs(triangles[3U].p2.x) < 0.000001F);
+    require(std::abs(triangles[3U].p2.y + 1.0F) < 0.000001F);
+    require(std::abs(triangles[7U].p2.x + 1.0F) < 0.000001F);
 }
 
 void native_webgpu_scopes_share_one_process_lock() {
@@ -252,6 +577,22 @@ void semantic_compilation_budget_is_checked() {
         0U,
         0U,
         0U));
+}
+
+void semantic_cache_budget_is_owner_keyed_and_bounded() {
+    using progpu::native::semantic::cache_budget;
+    using progpu::native::semantic::scissor;
+    cache_budget budget{};
+    require(budget.add(71U, scissor{0U, 0U, 40U, 32U, true}, false));
+    require(budget.add(72U, scissor{4U, 4U, 24U, 16U, true}, true));
+    require(!budget.add(71U, scissor{0U, 0U, 8U, 8U, true}, false));
+    require(!budget.add(0U, scissor{0U, 0U, 8U, 8U, true}, false));
+    require(budget.count == 2U);
+    require(budget.pooled_bytes() ==
+        (40U * 32U + 24U * 16U) * 4U);
+    require(budget.pooled_effect_bytes() == 24U * 16U * 12U);
+    require(budget.maximum_width() == 40U);
+    require(budget.maximum_height() == 32U);
 }
 
 void semantic_brush_page_is_bounded_deduplicated_and_retained() {
@@ -695,6 +1036,22 @@ void semantic_state_is_cpu_only_and_target_relative() {
     require(target_clip == progpu::native::semantic::scissor{
         2U, 2U, 28U, 18U, true});
 
+    auto cache_state = progpu::native::semantic::semantic_identity_state();
+    const progpu::native::semantic::scissor cache_page{
+        0U, 0U, 128U, 128U, true};
+    require(progpu::native::semantic::resolve_semantic_target_scissor(
+        cache_state, cache_page, 64U, 64U, 1.0F) == cache_page);
+    cache_state.flags = PROGPU_NATIVE_SCENE_STATE_CLIP_RECT;
+    cache_state.clip_rect = {72.0F, 80.0F, 80.0F, 64.0F};
+    require(progpu::native::semantic::resolve_semantic_target_scissor(
+        cache_state, cache_page, 64U, 64U, 1.0F) ==
+        progpu::native::semantic::scissor{72U, 80U, 56U, 48U, true});
+    const progpu::native::semantic::scissor offscreen_page{
+        96U, 96U, 32U, 32U, true};
+    require(progpu::native::semantic::resolve_semantic_target_scissor(
+        cache_state, offscreen_page, 64U, 64U, 1.0F) ==
+        progpu::native::semantic::scissor{0U, 0U, 32U, 32U, true});
+
     const auto localized =
         progpu::native::semantic::localize_semantic_state(
             state, target, 2.0F);
@@ -753,6 +1110,162 @@ void semantic_state_and_layer_cursors_restore_scopes() {
     pop.kind = PROGPU_NATIVE_SCENE_COMMAND_POP_LAYER;
     require(layer_cursor.advance(pop) ==
         progpu::native::semantic::scissor{0U, 0U, 64U, 48U, true});
+
+    // Transient isolation inside a local cache uses that cache's domain,
+    // including pixels outside the presentation window.
+    layer.flags = PROGPU_NATIVE_SCENE_LAYER_BOUNDS |
+        PROGPU_NATIVE_SCENE_LAYER_CACHE_CONTENT |
+        PROGPU_NATIVE_SCENE_LAYER_CACHE_LOCAL_SPACE;
+    layer.bounds = {0.0F, 0.0F, 128.0F, 128.0F};
+    std::memcpy(layer_bytes.data(), &layer, sizeof(layer));
+    require(layer_cursor.advance(push) ==
+        progpu::native::semantic::scissor{0U, 0U, 128U, 128U, true});
+    layer.flags = PROGPU_NATIVE_SCENE_LAYER_BOUNDS |
+        PROGPU_NATIVE_SCENE_LAYER_FORCE_ISOLATION;
+    layer.bounds = {72.0F, 80.0F, 80.0F, 64.0F};
+    std::memcpy(layer_bytes.data(), &layer, sizeof(layer));
+    require(layer_cursor.advance(push) ==
+        progpu::native::semantic::scissor{72U, 80U, 56U, 48U, true});
+    require(layer_cursor.advance(pop) ==
+        progpu::native::semantic::scissor{0U, 0U, 128U, 128U, true});
+    layer.flags = PROGPU_NATIVE_SCENE_LAYER_FORCE_ISOLATION;
+    std::memcpy(layer_bytes.data(), &layer, sizeof(layer));
+    require(layer_cursor.advance(push) ==
+        progpu::native::semantic::scissor{0U, 0U, 128U, 128U, true});
+    (void)layer_cursor.advance(pop);
+    require(layer_cursor.advance(pop) ==
+        progpu::native::semantic::scissor{0U, 0U, 64U, 48U, true});
+}
+
+void semantic_static_guidelines_adjust_state_at_target_dpi() {
+    std::array<std::byte, 512U> storage{};
+    progpu_native_scene_header header{};
+    header.resource_offset = 64U;
+    header.resource_count = 2U;
+    header.resource_stride = sizeof(progpu_native_scene_resource);
+
+    progpu_native_scene_resource guideline_resource{};
+    guideline_resource.kind = PROGPU_NATIVE_SCENE_RESOURCE_GUIDELINE_SET;
+    guideline_resource.payload_offset = 256U;
+    guideline_resource.payload_size =
+        sizeof(progpu_native_scene_guideline_set) + 2U * sizeof(double);
+    std::memcpy(storage.data() + header.resource_offset,
+        &guideline_resource, sizeof(guideline_resource));
+    progpu_native_scene_guideline_set guidelines{};
+    guidelines.struct_size = sizeof(guidelines);
+    guidelines.guideline_x_count = 1U;
+    guidelines.guideline_y_count = 1U;
+    std::memcpy(storage.data() + guideline_resource.payload_offset,
+        &guidelines, sizeof(guidelines));
+    constexpr double guideline_x = 12.25;
+    constexpr double guideline_y = 23.5;
+    std::memcpy(
+        storage.data() + guideline_resource.payload_offset +
+            sizeof(guidelines),
+        &guideline_x,
+        sizeof(guideline_x));
+    std::memcpy(
+        storage.data() + guideline_resource.payload_offset +
+            sizeof(guidelines) + sizeof(guideline_x),
+        &guideline_y,
+        sizeof(guideline_y));
+
+    progpu_native_scene_resource state_resource{};
+    state_resource.kind = PROGPU_NATIVE_SCENE_RESOURCE_STATE;
+    state_resource.payload_offset = 320U;
+    std::memcpy(
+        storage.data() + header.resource_offset +
+            sizeof(progpu_native_scene_resource),
+        &state_resource,
+        sizeof(state_resource));
+    auto state = progpu::native::semantic::semantic_identity_state();
+    state.flags = PROGPU_NATIVE_SCENE_STATE_GUIDELINE_SET;
+    state.guideline_resource_index = 0U;
+    state.transform.m31 = 10.0F;
+    state.transform.m32 = 20.0F;
+    std::memcpy(storage.data() + state_resource.payload_offset,
+        &state, sizeof(state));
+
+    progpu::native::semantic::semantic_state_cursor cursor(
+        storage.data(), header, 1.0F);
+    progpu_native_scene_command save{};
+    save.kind = PROGPU_NATIVE_SCENE_COMMAND_SAVE;
+    save.state_index = 1U;
+    const auto snapped = cursor.advance(save);
+    require(snapped.transform.m31 == 9.75F);
+    require(snapped.transform.m32 == 20.5F);
+
+    guidelines.flags = PROGPU_NATIVE_SCENE_GUIDELINE_EXPLICIT_OFFSETS;
+    guideline_resource.payload_size =
+        sizeof(progpu_native_scene_guideline_set) + 4U * sizeof(double);
+    std::memcpy(storage.data() + header.resource_offset,
+        &guideline_resource, sizeof(guideline_resource));
+    std::memcpy(storage.data() + guideline_resource.payload_offset,
+        &guidelines, sizeof(guidelines));
+    constexpr std::array<double, 2U> explicit_offsets{0.125, -0.25};
+    std::memcpy(
+        storage.data() + guideline_resource.payload_offset +
+            sizeof(guidelines) + 2U * sizeof(double),
+        explicit_offsets.data(),
+        sizeof(explicit_offsets));
+    progpu::native::semantic::semantic_state_cursor explicit_cursor(
+        storage.data(), header, 2.0F);
+    const auto explicitly_snapped = explicit_cursor.advance(save);
+    require(explicitly_snapped.transform.m31 == 10.0625F);
+    require(explicitly_snapped.transform.m32 == 19.875F);
+
+    guidelines.flags = PROGPU_NATIVE_SCENE_GUIDELINE_COMPOSITE_ONLY;
+    guidelines.guideline_x_count = 2U;
+    guidelines.guideline_y_count = 0U;
+    guideline_resource.payload_size =
+        sizeof(progpu_native_scene_guideline_set) + 2U * sizeof(double);
+    std::memcpy(storage.data() + header.resource_offset,
+        &guideline_resource, sizeof(guideline_resource));
+    std::memcpy(storage.data() + guideline_resource.payload_offset,
+        &guidelines, sizeof(guidelines));
+    constexpr std::array<double, 2U> composite_guidelines{10.5, 12.0};
+    std::memcpy(
+        storage.data() + guideline_resource.payload_offset +
+            sizeof(guidelines),
+        composite_guidelines.data(),
+        sizeof(composite_guidelines));
+    progpu::native::semantic::semantic_state_cursor composite_cursor(
+        storage.data(), header, 1.0F);
+    const auto composite_state = composite_cursor.read_composite_state(1U);
+    float midpoint_x = 11.25F;
+    float midpoint_y = 4.0F;
+    composite_cursor.snap_composite_point(
+        composite_state, midpoint_x, midpoint_y);
+    require(midpoint_x == 11.75F);
+    require(midpoint_y == 4.0F);
+    float upper_x = 11.26F;
+    composite_cursor.snap_composite_point(
+        composite_state, upper_x, midpoint_y);
+    require(upper_x == 11.26F);
+
+    guidelines.flags = PROGPU_NATIVE_SCENE_GUIDELINE_PER_POINT;
+    std::memcpy(storage.data() + guideline_resource.payload_offset,
+        &guidelines, sizeof(guidelines));
+    constexpr std::array<double, 2U> per_point_guidelines{10.25, 12.75};
+    std::memcpy(
+        storage.data() + guideline_resource.payload_offset +
+            sizeof(guidelines),
+        per_point_guidelines.data(),
+        sizeof(per_point_guidelines));
+    progpu::native::semantic::semantic_state_cursor per_point_cursor(
+        storage.data(), header, 1.0F);
+    const auto per_point_state = per_point_cursor.resolve_state(1U);
+    require(per_point_state.transform.m31 == 10.0F);
+    require(per_point_state.transform.m32 == 20.0F);
+    float lower_tie_x = 11.5F;
+    float per_point_y = 4.0F;
+    per_point_cursor.snap_draw_point(
+        per_point_state, lower_tie_x, per_point_y);
+    require(lower_tie_x == 11.25F);
+    float upper_nearest_x = 11.51F;
+    per_point_cursor.snap_draw_point(
+        per_point_state, upper_nearest_x, per_point_y);
+    require(std::abs(upper_nearest_x - 11.76F) < 0.0001F);
 }
 
 void semantic_payload_validation_is_bounded_and_cpu_only() {
@@ -761,11 +1274,14 @@ void semantic_payload_validation_is_bounded_and_cpu_only() {
     path.max_x = 10.0F;
     path.max_y = 10.0F;
     path.transform = {1.0F, 0.0F, 0.0F, 1.0F, 0.0F, 0.0F};
-    path.sample_grid = 4U;
+    path.sample_grid = 1U;
     std::uint64_t path_coverage = 0U;
     require(progpu::native::semantic::is_valid_semantic_path(
         path, 1U, &path_coverage));
     require(path_coverage == 256U * 18U);
+    path.sample_grid = 2U;
+    require(!progpu::native::semantic::is_valid_semantic_path(path, 1U));
+    path.sample_grid = 4U;
     path.segment_count = 2U;
     require(!progpu::native::semantic::is_valid_semantic_path(path, 1U));
 
@@ -896,6 +1412,10 @@ void draw_state_resolution_is_cpu_only_and_bounded() {
 } // namespace
 
 int main() {
+    native_texture_copy_staging_uses_portable_d3d12_alignment();
+    translated_boolean_programs_split_into_independent_gpu_records();
+    clipped_miter_join_uses_the_wpf_three_triangle_wedge();
+    reversal_joins_match_wpf_collapsed_contours();
     native_webgpu_scopes_share_one_process_lock();
     native_submission_retirement_is_periodic_and_bounded();
     native_buffer_growth_respects_the_portable_device_limit();
@@ -903,6 +1423,7 @@ int main() {
     effect_plan_uses_three_bounded_intermediates();
     semantic_budget_counts_effected_depth_once();
     semantic_compilation_budget_is_checked();
+    semantic_cache_budget_is_owner_keyed_and_bounded();
     semantic_brush_page_is_bounded_deduplicated_and_retained();
     semantic_mesh_brush_preserves_source_opacity_before_color_blend();
     require(progpu::native::tests::
@@ -913,6 +1434,10 @@ int main() {
         semantic_layer_coverage_mask_is_exact_and_bounded());
     require(progpu::native::tests::
         semantic_scene_builder_is_deterministic_and_valid());
+    require(progpu::native::tests::
+        semantic_scene_builder_bounds_composite_only_guidelines());
+    require(progpu::native::tests::
+        semantic_scene_builder_records_final_composite_clip());
     require(progpu::native::tests::
         semantic_scene_builder_preserves_shared_path_segments());
     require(progpu::native::tests::
@@ -957,6 +1482,7 @@ int main() {
     gpu_records_preserve_alignment_phase_and_cache_identity();
     semantic_state_is_cpu_only_and_target_relative();
     semantic_state_and_layer_cursors_restore_scopes();
+    semantic_static_guidelines_adjust_state_at_target_dpi();
     semantic_payload_validation_is_bounded_and_cpu_only();
     draw_state_resolution_is_cpu_only_and_bounded();
     return 0;

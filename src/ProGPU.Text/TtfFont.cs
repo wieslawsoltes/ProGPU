@@ -55,8 +55,8 @@ public struct GlyphUniforms
     public uint Height;
 
     public float SubpixelX;
-    public float Pad0;
-    public float Pad1;
+    public float AtlasX;
+    public float AtlasY;
     public float Pad2;
 }
 

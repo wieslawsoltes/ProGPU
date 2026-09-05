@@ -19,6 +19,10 @@ using ::progpu_native_scene_image_patch_batch;
 using ::progpu_native_scene_image_sampling_options;
 using ::progpu_native_scene_image_color_matrix;
 using ::progpu_native_scene_image_effect;
+using ::progpu_native_scene_tile_composite;
+using ::PROGPU_NATIVE_IMAGE_ADDRESS_CLAMP;
+using ::PROGPU_NATIVE_IMAGE_ADDRESS_REPEAT;
+using ::PROGPU_NATIVE_IMAGE_ADDRESS_MIRROR_REPEAT;
 using ::progpu_native_scene_brush;
 using ::progpu_native_scene_gradient_stop;
 using ::progpu_native_scene_brush_kind;
@@ -51,6 +55,7 @@ using ::progpu_native_hit_test_node;
 using ::progpu_native_scene_hit_test_index;
 using ::progpu_native_scene_camera_3d;
 using ::progpu_native_scene_line_3d;
+using ::progpu_native_scene_light_3d;
 using ::progpu_native_scene_mesh_3d_vertex;
 using ::progpu_native_scene_mesh_3d;
 

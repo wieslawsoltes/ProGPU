@@ -31,15 +31,17 @@ bool validate(
     const std::uint64_t segment_count = path.segment_count;
     const std::uint64_t segment_end = segment_offset + segment_count;
     std::uint32_t stack_depth = 0U;
+    bool has_signed_winding = false;
     for (std::uint64_t index = program_offset;
          index < program_offset + program_count;
          ++index) {
         const auto& node = nodes[index];
-        if (node.kind > PROGPU_NATIVE_PATH_BOOLEAN_REVERSE_DIFFERENCE ||
+        if (node.kind > PROGPU_NATIVE_PATH_BOOLEAN_WINDING_NEGATE ||
             node.reserved0 != 0U || node.reserved1 != 0U) {
             return false;
         }
-        if (node.kind == PROGPU_NATIVE_PATH_BOOLEAN_LEAF) {
+        if (node.kind == PROGPU_NATIVE_PATH_BOOLEAN_LEAF ||
+            node.kind == PROGPU_NATIVE_PATH_BOOLEAN_WINDING_LEAF) {
             if (stack_depth >= maximum_stack_depth ||
                 node.segment_count == 0U ||
                 node.segment_offset < segment_offset ||
@@ -50,9 +52,13 @@ bool validate(
                 !std::isfinite(node.max_x) ||
                 !std::isfinite(node.max_y) ||
                 node.max_x <= node.min_x || node.max_y <= node.min_y ||
-                node.fill_rule > PROGPU_NATIVE_FILL_RULE_EVEN_ODD) {
+                node.fill_rule > PROGPU_NATIVE_FILL_RULE_EVEN_ODD ||
+                (node.kind == PROGPU_NATIVE_PATH_BOOLEAN_WINDING_LEAF &&
+                    node.fill_rule != PROGPU_NATIVE_FILL_RULE_NON_ZERO)) {
                 return false;
             }
+            has_signed_winding = has_signed_winding ||
+                node.kind == PROGPU_NATIVE_PATH_BOOLEAN_WINDING_LEAF;
             ++stack_depth;
         } else if (node.kind == PROGPU_NATIVE_PATH_BOOLEAN_EMPTY) {
             if (stack_depth >= maximum_stack_depth ||
@@ -63,6 +69,14 @@ bool validate(
                 return false;
             }
             ++stack_depth;
+        } else if (node.kind == PROGPU_NATIVE_PATH_BOOLEAN_WINDING_NEGATE) {
+            if (stack_depth < 1U || node.segment_offset != 0U ||
+                node.segment_count != 0U || node.min_x != 0.0F ||
+                node.min_y != 0.0F || node.max_x != 0.0F ||
+                node.max_y != 0.0F || node.fill_rule != 0U) {
+                return false;
+            }
+            has_signed_winding = true;
         } else {
             if (stack_depth < 2U || node.segment_offset != 0U ||
                 node.segment_count != 0U || node.min_x != 0.0F ||
@@ -70,10 +84,13 @@ bool validate(
                 node.max_y != 0.0F || node.fill_rule != 0U) {
                 return false;
             }
+            has_signed_winding = has_signed_winding ||
+                node.kind == PROGPU_NATIVE_PATH_BOOLEAN_WINDING_ADD;
             --stack_depth;
         }
     }
-    return stack_depth == 1U;
+    return stack_depth == 1U &&
+        (!has_signed_winding || path.fill_rule == PROGPU_NATIVE_FILL_RULE_NON_ZERO);
 }
 
 } // namespace progpu::native::path_boolean

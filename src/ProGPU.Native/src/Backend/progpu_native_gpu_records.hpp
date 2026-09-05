@@ -17,6 +17,18 @@ inline constexpr std::uint32_t native_initial_atlas_size = 1024U;
 inline constexpr std::uint32_t native_max_atlas_size = 4096U;
 inline constexpr std::uint32_t path_padding = 4U;
 inline constexpr std::uint32_t webgpu_copy_row_alignment = 256U;
+// WebGPU exposes a 256-byte row-pitch rule, while D3D12 placed texture
+// footprints additionally require the source offset to be 512-byte aligned.
+// Using the stricter portable placement alignment keeps buffer-to-atlas copies
+// valid on native D3D12 drivers and translation layers.
+inline constexpr std::uint32_t webgpu_copy_offset_alignment = 512U;
+inline constexpr std::uint32_t path_maximum_sample_grid = 8U;
+inline constexpr std::uint32_t path_maximum_sample_count =
+    path_maximum_sample_grid * path_maximum_sample_grid;
+inline constexpr std::uint32_t path_sample_mask_word_count = 2U;
+
+static_assert(
+    webgpu_copy_offset_alignment % webgpu_copy_row_alignment == 0U);
 
 enum class layer_family : std::uint32_t {
     solid = 1U,
@@ -75,7 +87,7 @@ static_assert(sizeof(gpu_advanced_blend_sampling_uniforms) == 32U);
 struct gpu_gaussian_blur_params {
     float sigma;
     std::uint32_t radius;
-    std::uint32_t padding0;
+    std::uint32_t kernel_type;
     std::uint32_t padding1;
 };
 
@@ -92,6 +104,19 @@ struct gpu_path_uniforms {
     std::uint32_t sample_grid;
     std::uint32_t path_index_b;
     std::uint32_t path_op_kind;
+};
+
+struct gpu_path_coverage_combine_uniforms {
+    std::uint32_t source_offset_words;
+    std::uint32_t source_stride_words;
+    std::uint32_t source_count;
+    std::uint32_t program_index;
+    std::uint32_t program_count;
+    std::uint32_t destination_offset_words;
+    std::uint32_t destination_row_words;
+    std::uint32_t width;
+    std::uint32_t height;
+    std::uint32_t sample_grid;
 };
 
 struct gpu_path_record {
@@ -198,8 +223,8 @@ struct gpu_glyph_uniforms {
     std::uint32_t width;
     std::uint32_t height;
     float subpixel_x;
-    float pad0;
-    float pad1;
+    float atlas_x;
+    float atlas_y;
     float pad2;
 };
 
@@ -233,6 +258,7 @@ static_assert(sizeof(gpu_drop_shadow_params) == 32U);
 static_assert(sizeof(gpu_group_blend_uniforms) == 32U);
 static_assert(sizeof(gpu_gaussian_blur_params) == 16U);
 static_assert(sizeof(gpu_path_uniforms) == 48U);
+static_assert(sizeof(gpu_path_coverage_combine_uniforms) == 40U);
 static_assert(sizeof(gpu_path_record) == 32U);
 static_assert(sizeof(gpu_path_record) ==
     sizeof(progpu_native_path_segment) - 16U);
@@ -245,6 +271,12 @@ static_assert(sizeof(gpu_glyph_instance) == 96U);
 [[nodiscard]] constexpr std::uint32_t align_up(
     std::uint32_t value,
     std::uint32_t alignment) noexcept {
+    return (value + alignment - 1U) / alignment * alignment;
+}
+
+[[nodiscard]] constexpr std::uint64_t align_up_u64(
+    std::uint64_t value,
+    std::uint64_t alignment) noexcept {
     return (value + alignment - 1U) / alignment * alignment;
 }
 

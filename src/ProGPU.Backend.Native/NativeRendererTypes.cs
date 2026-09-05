@@ -239,7 +239,11 @@ public enum NativeImageSampling : uint
     MagLinearMinNearestMipNearest = 6,
     MagNearestMinLinearMipLinear = 7,
     MagNearestMinLinearMipNearest = 8,
-    MagNearestMinNearestMipLinear = 9
+    MagNearestMinNearestMipLinear = 9,
+    /// <summary>
+    /// WPF Fant/HighQuality bounded area-prefilter minification.
+    /// </summary>
+    Fant = 10
 }
 
 public enum NativeSceneImagePatchKind : uint
@@ -290,7 +294,12 @@ public enum NativeSceneImageFlags : uint
     Effect = 1U << 1,
     SnapToPixels = 1U << 2,
     SourcePremultiplied = 1U << 3,
-    PatchBatch = 1U << 4
+    PatchBatch = 1U << 4,
+    AddressURepeat = 1U << 5,
+    AddressUMirrorRepeat = 2U << 5,
+    AddressVRepeat = 1U << 7,
+    AddressVMirrorRepeat = 2U << 7,
+    ExtendedSourceRect = 1U << 9
 }
 
 [Flags]
@@ -322,14 +331,53 @@ public enum NativePathBooleanNodeKind : uint
     Intersect = 3,
     Union = 4,
     Xor = 5,
-    ReverseDifference = 6
+    ReverseDifference = 6,
+    WindingLeaf = 7,
+    WindingAdd = 8,
+    WindingNegate = 9
+}
+
+/// <summary>
+/// Selects the exact GPU implementation for signed Nonzero boolean paths.
+/// </summary>
+public enum NativeSignedWindingExecutionPreference
+{
+    /// <summary>Use the fastest qualified exact implementation.</summary>
+    Fastest,
+
+    /// <summary>
+    /// Evaluate the bounded postfix program inline in one vectorized compute
+    /// dispatch without intermediate leaf storage.
+    /// </summary>
+    InlineVectorCompute,
+
+    /// <summary>
+    /// Force the multi-pass leaf/evaluate/coverage compatibility pipeline.
+    /// </summary>
+    StagedVectorCompute
+}
+
+public enum NativeSignedWindingExecutionPath
+{
+    /// <summary>
+    /// The bounded postfix program executes inline without intermediate
+    /// per-leaf storage.
+    /// </summary>
+    InlineVectorCompute,
+
+    /// <summary>
+    /// Leaf evaluation, postfix evaluation, and coverage packing execute in
+    /// separate vectorized GPU passes.
+    /// </summary>
+    StagedVectorCompute
 }
 
 public enum NativeGroupEffectKind : uint
 {
     None = 0,
     GaussianBlur = 1,
-    DropShadow = 2
+    DropShadow = 2,
+    BoxBlur = 3
 }
 
 internal enum NativeMaskTextureFormat : uint
@@ -367,7 +415,8 @@ public enum NativePolylineFlags : uint
     StartCapMask = 3U << 3,
     EndCapMask = 3U << 5,
     JoinMask = 3U << 7,
-    Closed = 1U << 9
+    Closed = 1U << 9,
+    WpfJoinSemantics = 1U << 10
 }
 
 [Flags]
@@ -425,7 +474,10 @@ public enum NativeRendererCapabilities : ulong
     SemanticImageMipmapSampling = 1UL << 48,
     ImageFrameMipmapSampling = 1UL << 49,
     SemanticVectorClipMask = 1UL << 50,
-    RetainedGpuHitTesting = 1UL << 51
+    RetainedGpuHitTesting = 1UL << 51,
+    WpfMilChannel = 1UL << 52,
+    GroupBoxBlur = 1UL << 53,
+    SemanticMesh3DMaterials = 1UL << 54
 }
 
 public enum NativeSceneResourceKind : uint
@@ -445,7 +497,9 @@ public enum NativeSceneResourceKind : uint
     StrokeBatch = 13,
     Line3DBatch = 14,
     Mesh3DBatch = 15,
-    HitTestIndex = 16
+    HitTestIndex = 16,
+    GuidelineSet = 17,
+    TileComposite = 18
 }
 
 public enum NativeGpuHitTestPrimitiveKind : uint
@@ -627,13 +681,31 @@ public enum NativeMesh3DRenderMode : uint
 }
 
 [Flags]
+public enum NativeMesh3DFlags : uint
+{
+    TwoSided = 0,
+    FrontFace = 1U << 0,
+    BackFace = 1U << 1,
+    SpecularMaterial = 1U << 2
+}
+
+public enum NativeLight3DKind : uint
+{
+    Ambient = 0,
+    Directional = 1,
+    Point = 2,
+    Spot = 3
+}
+
+[Flags]
 public enum NativeSceneRecordFlags : uint
 {
     None = 0,
     Required = 1U << 0,
     StyledGlyphs = 1U << 1,
     ColorGlyphBitmaps = 1U << 2,
-    ExternalImage = 1U << 3
+    ExternalImage = 1U << 3,
+    Bgra8Image = 1U << 4
 }
 
 /// <summary>
@@ -676,7 +748,26 @@ public enum NativeSceneStateFlags : uint
 {
     None = 0,
     ClipRect = 1U << 0,
-    Mask = 1U << 1
+    Mask = 1U << 1,
+    GuidelineSet = 1U << 2
+}
+
+[Flags]
+public enum NativeSceneGuidelineSetFlags : uint
+{
+    None = 0,
+
+    /// <summary>
+    /// Allows multiple sorted static guides only when the containing State is
+    /// used by a local retained-cache composite.
+    /// </summary>
+    CompositeOnly = 1U << 0,
+
+    /// <summary>
+    /// Applies multiple sorted static guides independently to each supported
+    /// draw path point after the complete target transform.
+    /// </summary>
+    PerPoint = 1U << 1
 }
 
 [Flags]
@@ -703,7 +794,42 @@ public enum NativeSceneLayerFlags : uint
     /// Materializes an isolated child even when the remaining layer state could
     /// otherwise be lowered directly into its parent.
     /// </summary>
-    ForceIsolation = 1U << 2
+    ForceIsolation = 1U << 2,
+
+    /// <summary>
+    /// Retains this isolated output by stable composite revision and refreshes
+    /// its pixels only when the nonzero content revision changes.
+    /// </summary>
+    CacheContent = 1U << 3,
+
+    /// <summary>
+    /// Rasterizes cached content in a zero-origin local page and composites it
+    /// through <see cref="NativeSceneLayer.CompositeStateResourceIndex"/>.
+    /// </summary>
+    CacheLocalSpace = 1U << 4,
+
+    /// <summary>
+    /// Samples a local cached layer with exact nearest-neighbor filtering.
+    /// This flag is invalid without <see cref="CacheLocalSpace"/>.
+    /// </summary>
+    CacheNearest = 1U << 5,
+
+    /// <summary>
+    /// Uses bounded area-prefilter reconstruction for WPF Fant/HighQuality
+    /// minification and linear reconstruction when no prefilter is required.
+    /// This flag is invalid without <see cref="CacheLocalSpace"/> and is
+    /// mutually exclusive with <see cref="CacheNearest"/>.
+    /// </summary>
+    CacheFant = 1U << 6,
+
+    /// <summary>
+    /// Applies the clip-only state referenced by
+    /// <see cref="NativeSceneLayer.CompositeStateResourceIndex"/> while
+    /// compositing a materialized non-local layer.
+    /// </summary>
+    CompositeState = 1U << 7,
+    /// <summary>Restores a local page through its typed tile-composite resource.</summary>
+    CacheTile = 1U << 8
 }
 
 public enum NativeSceneValidationError : uint
@@ -753,13 +879,19 @@ public readonly struct NativeSceneGradientStop
 /// Gradient stop offsets are local to the matching brush-table resource. The
 /// native compiler remaps them into one scene-wide retained GPU page. Factory
 /// methods initialize the coordinate transform and the first eight inline
-/// stop values consistently with the production managed compositor.
+/// stop values consistently with the production managed compositor. A brush
+/// returned by <see cref="WithPadOutsideColors"/> instead uses the first two
+/// inline colors for its start/end Pad extension while the authoritative
+/// gradient stops remain in the auxiliary table.
 /// </remarks>
 [StructLayout(LayoutKind.Explicit, Size = 256)]
 public struct NativeSceneBrush
 {
     public const uint PerlinTableRecordCount = 512U;
     public const uint MaximumPerlinOctaves = 255U;
+    public const uint GradientSpreadMask = 0x3FFFFFFFU;
+    public const uint PadOutsideColorsFlag = 0x40000000U;
+    public const uint ConicalOutsideColorFlag = 0x80000000U;
 
     [FieldOffset(0)] public NativeSceneBrushKind Kind;
     [FieldOffset(4)] public float Opacity;
@@ -786,6 +918,43 @@ public struct NativeSceneBrush
     [FieldOffset(208)] public Vector4 Offsets1;
     [FieldOffset(224)] public Vector4 CoordinateTransform0;
     [FieldOffset(240)] public Vector4 CoordinateTransform1;
+
+    /// <summary>
+    /// Gets whether <see cref="Color0"/> and <see cref="Color1"/> are the
+    /// colors sampled before and after a Pad gradient. Exact endpoint
+    /// coordinates continue to sample the first and last gradient stops.
+    /// </summary>
+    public readonly bool HasPadOutsideColors =>
+        ((uint)Spread & PadOutsideColorsFlag) != 0U;
+
+    /// <summary>
+    /// Returns a canonical gradient brush with distinct colors for coordinates
+    /// before and after its Pad interval. The 256-byte ABI is unchanged.
+    /// </summary>
+    public readonly NativeSceneBrush WithPadOutsideColors(
+        Vector4 startColor,
+        Vector4 endColor)
+    {
+        uint spread = (uint)Spread;
+        bool gradient = Kind is NativeSceneBrushKind.LinearGradient or
+            NativeSceneBrushKind.RadialGradient or
+            NativeSceneBrushKind.TwoPointConicalGradient or
+            NativeSceneBrushKind.SweepGradient;
+        if (!gradient ||
+            (spread & GradientSpreadMask) !=
+                (uint)NativeSceneGradientSpread.Pad)
+        {
+            throw new InvalidOperationException(
+                "Distinct outside colors require a Pad gradient brush.");
+        }
+
+        var result = this;
+        result.Spread = (NativeSceneGradientSpread)(
+            spread | PadOutsideColorsFlag);
+        result.Color0 = startColor;
+        result.Color1 = endColor;
+        return result;
+    }
 
     public static NativeSceneBrush Solid(
         Vector4 color,
@@ -900,7 +1069,7 @@ public struct NativeSceneBrush
         if (outsideColor is { } color)
         {
             brush.Spread = (NativeSceneGradientSpread)(
-                (uint)brush.Spread | 0x80000000U);
+                (uint)brush.Spread | ConicalOutsideColorFlag);
             brush.Color0 = color;
         }
         return brush;
@@ -1207,7 +1376,7 @@ public readonly struct NativeSceneImageDraw
     public readonly uint MaxAnisotropy;
 
     internal bool HasCanonicalSampling =>
-        Sampling <= NativeImageSampling.MagNearestMinNearestMipLinear &&
+        Sampling <= NativeImageSampling.Fant &&
         MaxAnisotropy <= 16U &&
         (Sampling == NativeImageSampling.LinearMipmap ||
             MaxAnisotropy is 0U or 1U);
@@ -1488,7 +1657,8 @@ public readonly struct NativeSceneState
         float opacity = 1f,
         NativeSceneStateFlags flags = NativeSceneStateFlags.None,
         NativeImageRect clipRect = default,
-        uint maskResourceIndex = 0U)
+        uint maskResourceIndex = 0U,
+        uint guidelineResourceIndex = 0U)
     {
         StructSize = (uint)Unsafe.SizeOf<NativeSceneState>();
         Flags = flags;
@@ -1497,7 +1667,7 @@ public readonly struct NativeSceneState
         Reserved = 0U;
         ClipRect = clipRect;
         MaskResourceIndex = maskResourceIndex;
-        Reserved1 = 0U;
+        GuidelineResourceIndex = guidelineResourceIndex;
     }
 
     public static NativeSceneState Identity => new(Matrix3x2.Identity);
@@ -1509,10 +1679,30 @@ public readonly struct NativeSceneState
     private readonly uint Reserved;
     public readonly NativeImageRect ClipRect;
     public readonly uint MaskResourceIndex;
-    private readonly uint Reserved1;
+    public readonly uint GuidelineResourceIndex;
 
     internal bool HasCanonicalReservedFields =>
-        Reserved == 0U && Reserved1 == 0U;
+        Reserved == 0U;
+}
+
+[StructLayout(LayoutKind.Sequential)]
+internal readonly struct NativeSceneGuidelineSetHeader
+{
+    internal NativeSceneGuidelineSetHeader(
+        uint xCount,
+        uint yCount,
+        NativeSceneGuidelineSetFlags flags)
+    {
+        StructSize = (uint)Unsafe.SizeOf<NativeSceneGuidelineSetHeader>();
+        Flags = flags;
+        GuidelineXCount = xCount;
+        GuidelineYCount = yCount;
+    }
+
+    internal readonly uint StructSize;
+    internal readonly NativeSceneGuidelineSetFlags Flags;
+    internal readonly uint GuidelineXCount;
+    internal readonly uint GuidelineYCount;
 }
 
 /// <summary>
@@ -1522,7 +1712,23 @@ public readonly struct NativeSceneState
 /// Bounds are logical target coordinates. Mask and effect indices reference
 /// preceding typed resources or use <see cref="uint.MaxValue"/> to disable the
 /// feature. Revisions are retained identity hints; zero disables the
-/// corresponding hint.
+/// corresponding hint. For <see cref="NativeSceneLayerFlags.CacheContent"/>,
+/// composite revision is the stable owner identity and content revision is the
+/// subtree pixel version; both must be nonzero. A local-space cache uses
+/// <see cref="CompositeStateResourceIndex"/> to reference a preceding
+/// transform/clip/guideline <see cref="NativeSceneState"/> resource while
+/// retaining the exact 64-byte layer ABI. Its optional
+/// <see cref="MaskResourceIndex"/> is
+/// applied while compositing the retained page and does not invalidate cached
+/// content; effects remain unsupported on local cached layers.
+/// <see cref="NativeSceneLayerFlags.CacheNearest"/> selects nearest-neighbor
+/// filtering, while <see cref="NativeSceneLayerFlags.CacheFant"/> selects
+/// bounded WPF-compatible high-quality minification for that cached-page
+/// composite. <see cref="NativeSceneLayerFlags.CompositeState"/> applies an
+/// identity-transform, clip-only state from
+/// <see cref="CompositeStateResourceIndex"/> when a materialized non-local
+/// layer is restored, allowing effects to receive unclipped input and clip only
+/// their final output.
 /// </remarks>
 [StructLayout(LayoutKind.Sequential)]
 public readonly struct NativeSceneLayer
@@ -1540,7 +1746,9 @@ public readonly struct NativeSceneLayer
         uint maskResourceIndex = uint.MaxValue,
         uint effectResourceIndex = uint.MaxValue,
         ulong contentRevision = 0U,
-        ulong compositeRevision = 0U)
+        ulong compositeRevision = 0U,
+        uint compositeStateResourceIndex = 0U,
+        uint tileCompositeResourceIndex = 0U)
     {
         if ((uint)blendMode > (uint)GpuBlendMode.Modulate)
         {
@@ -1556,8 +1764,8 @@ public readonly struct NativeSceneLayer
         EffectResourceIndex = effectResourceIndex;
         ContentRevision = contentRevision;
         CompositeRevision = compositeRevision;
-        Reserved0 = 0U;
-        Reserved1 = 0U;
+        CompositeStateResourceIndex = compositeStateResourceIndex;
+        TileCompositeResourceIndex = tileCompositeResourceIndex;
     }
 
     public static NativeSceneLayer Default => new(opacity: 1f);
@@ -1571,10 +1779,14 @@ public readonly struct NativeSceneLayer
     public readonly uint EffectResourceIndex;
     public readonly ulong ContentRevision;
     public readonly ulong CompositeRevision;
-    private readonly uint Reserved0;
-    private readonly uint Reserved1;
+    public readonly uint CompositeStateResourceIndex;
+    public readonly uint TileCompositeResourceIndex;
 
-    internal bool HasCanonicalReservedFields => Reserved0 == 0U && Reserved1 == 0U;
+    internal bool HasCanonicalReservedFields =>
+        ((Flags & (NativeSceneLayerFlags.CacheLocalSpace |
+                NativeSceneLayerFlags.CompositeState)) != 0 ||
+            CompositeStateResourceIndex == 0U) &&
+        ((Flags & NativeSceneLayerFlags.CacheTile) != 0 || TileCompositeResourceIndex == 0U);
 }
 
 /// <summary>
@@ -1998,6 +2210,21 @@ public readonly struct NativeSceneEffect
             default,
             revision);
 
+    public static NativeSceneEffect BoxBlur(
+        float radius,
+        uint revision) => BoxBlur(radius, radius, revision);
+
+    public static NativeSceneEffect BoxBlur(
+        float radiusX,
+        float radiusY,
+        uint revision) => new(
+            NativeGroupEffectKind.BoxBlur,
+            radiusX,
+            radiusY,
+            default,
+            default,
+            revision);
+
     public static NativeSceneEffect DropShadow(
         float sigma,
         Vector2 offset,
@@ -2284,6 +2511,21 @@ public readonly struct NativeGroupEffect
             NativeGroupEffectKind.GaussianBlur,
             sigmaX,
             sigmaY,
+            default,
+            default,
+            revision);
+
+    public static NativeGroupEffect BoxBlur(
+        float radius,
+        uint revision) => BoxBlur(radius, radius, revision);
+
+    public static NativeGroupEffect BoxBlur(
+        float radiusX,
+        float radiusY,
+        uint revision) => new(
+            NativeGroupEffectKind.BoxBlur,
+            radiusX,
+            radiusY,
             default,
             default,
             revision);
@@ -3296,8 +3538,13 @@ public sealed unsafe class NativeClipChain
     public NativeClipChain(
         ReadOnlySpan<NativeClipPath> paths,
         ReadOnlySpan<NativePathSegment> segments,
-        ReadOnlySpan<NativePathBooleanNode> booleanNodes = default)
+        ReadOnlySpan<NativePathBooleanNode> booleanNodes = default,
+        NativeSignedWindingExecutionPreference signedWindingExecution =
+            NativeSignedWindingExecutionPreference.Fastest)
     {
+        if (!Enum.IsDefined(signedWindingExecution))
+            throw new ArgumentOutOfRangeException(
+                nameof(signedWindingExecution));
         if (paths.IsEmpty)
             throw new ArgumentException("A native clip chain requires at least one path.", nameof(paths));
         if (paths.Length > 64)
@@ -3381,11 +3628,21 @@ public sealed unsafe class NativeClipChain
         paths.CopyTo(_paths);
         segments.CopyTo(_segments);
         booleanNodes.CopyTo(_booleanNodes);
+        SignedWindingExecutionPreference = signedWindingExecution;
     }
 
     public int PathCount => _paths.Length;
     public int SegmentCount => _segments.Length;
     public int BooleanNodeCount => _booleanNodes.Length;
+
+    public NativeSignedWindingExecutionPreference
+        SignedWindingExecutionPreference { get; }
+
+    public NativeSignedWindingExecutionPath SignedWindingExecutionPath =>
+        SignedWindingExecutionPreference ==
+            NativeSignedWindingExecutionPreference.StagedVectorCompute
+            ? NativeSignedWindingExecutionPath.StagedVectorCompute
+            : NativeSignedWindingExecutionPath.InlineVectorCompute;
 
     internal NativeClipPath* Paths =>
         (NativeClipPath*)Unsafe.AsPointer(
@@ -3422,15 +3679,17 @@ public sealed unsafe class NativeClipChain
             path.BooleanNodeCount > nodeCount - path.BooleanNodeOffset)
             return false;
         int stackDepth = 0;
+        bool hasSignedWinding = false;
         nuint pathSegmentEnd = path.SegmentOffset + path.SegmentCount;
         int start = checked((int)path.BooleanNodeOffset);
         int end = checked(start + (int)path.BooleanNodeCount);
         for (int index = start; index < end; index++)
         {
             NativePathBooleanNode node = nodes[index];
-            if (node.Kind > NativePathBooleanNodeKind.ReverseDifference)
+            if (node.Kind > NativePathBooleanNodeKind.WindingNegate)
                 return false;
-            if (node.Kind == NativePathBooleanNodeKind.Leaf)
+            if (node.Kind is NativePathBooleanNodeKind.Leaf or
+                NativePathBooleanNodeKind.WindingLeaf)
             {
                 if (stackDepth == 16 || node.SegmentCount == 0U ||
                     node.SegmentOffset < path.SegmentOffset ||
@@ -3439,8 +3698,12 @@ public sealed unsafe class NativeClipChain
                     !IsFinite(node.Minimum) || !IsFinite(node.Maximum) ||
                     node.Maximum.X <= node.Minimum.X ||
                     node.Maximum.Y <= node.Minimum.Y ||
-                    node.FillRule > NativeFillRule.EvenOdd)
+                    node.FillRule > NativeFillRule.EvenOdd ||
+                    (node.Kind == NativePathBooleanNodeKind.WindingLeaf &&
+                        node.FillRule != NativeFillRule.NonZero))
                     return false;
+                hasSignedWinding |=
+                    node.Kind == NativePathBooleanNodeKind.WindingLeaf;
                 stackDepth++;
             }
             else if (node.Kind == NativePathBooleanNodeKind.Empty)
@@ -3452,6 +3715,15 @@ public sealed unsafe class NativeClipChain
                     return false;
                 stackDepth++;
             }
+            else if (node.Kind == NativePathBooleanNodeKind.WindingNegate)
+            {
+                if (stackDepth < 1 || node.SegmentOffset != 0U ||
+                    node.SegmentCount != 0U || node.Minimum != Vector2.Zero ||
+                    node.Maximum != Vector2.Zero ||
+                    node.FillRule != NativeFillRule.NonZero)
+                    return false;
+                hasSignedWinding = true;
+            }
             else
             {
                 if (stackDepth < 2 || node.SegmentOffset != 0U ||
@@ -3459,10 +3731,13 @@ public sealed unsafe class NativeClipChain
                     node.Maximum != Vector2.Zero ||
                     node.FillRule != NativeFillRule.NonZero)
                     return false;
+                hasSignedWinding |=
+                    node.Kind == NativePathBooleanNodeKind.WindingAdd;
                 stackDepth--;
             }
         }
-        return stackDepth == 1;
+        return stackDepth == 1 &&
+            (!hasSignedWinding || path.FillRule == NativeFillRule.NonZero);
     }
 }
 
@@ -3572,7 +3847,8 @@ public readonly record struct NativePathFrameMetrics(
     ulong CoverageStagingBytes,
     ulong UniformUploadBytes,
     ulong SubmissionCount,
-    ulong PayloadHash);
+    ulong PayloadHash,
+    NativeSignedWindingExecutionPath SignedWindingExecutionPath);
 
 public readonly record struct NativeGlyphFrameMetrics(
     uint DrawCallCount,
@@ -3665,6 +3941,21 @@ public readonly record struct NativeSceneDamageRect(
     float Y,
     float Width,
     float Height);
+
+/// <summary>
+/// A host-owned WebGPU texture view used as a semantic-scene render target.
+/// </summary>
+/// <remarks>
+/// The view must be a live, single-sample render attachment with the format
+/// configured on the <see cref="NativeCompositor"/> and must belong to that
+/// compositor's device. The caller retains ownership and must keep the view
+/// alive through the <c>RenderScene</c> call and its queue submission, then
+/// follow the owning surface API's present/release contract.
+/// </remarks>
+public readonly record struct NativeSceneExternalTarget(
+    nuint TextureView,
+    uint Width,
+    uint Height);
 
 public readonly record struct NativeSceneFrameMetrics(
     uint CommandCount,

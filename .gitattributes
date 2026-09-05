@@ -7,3 +7,4 @@
 # Reviewed Avalonia source patches must remain byte-stable when Git for Windows
 # enables core.autocrlf, otherwise git apply sees CRLF patch context.
 eng/avalonia/**/*.patch text eol=lf whitespace=-blank-at-eol
+eng/directx-graphics-samples/*.patch text eol=lf whitespace=-blank-at-eol

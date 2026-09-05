@@ -786,14 +786,10 @@ public sealed partial class
             Span<float> processed =
                 effectWorkspace[
                     ..sampleCount];
-            for (int index = 0;
-                 index < samples.Length;
-                 index++)
-            {
-                processed[index] =
-                    samples[index] /
-                    32_768f;
-            }
+            MediaPcm16FloatConverter
+                .ConvertToNormalizedFloat(
+                    samples,
+                    processed);
             long presentationMicroseconds =
                 MediaPcmTimelineMath
                     .GetFrameTimestampMicroseconds(

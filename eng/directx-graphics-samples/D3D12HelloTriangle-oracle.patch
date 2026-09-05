@@ -1,0 +1,256 @@
+diff --git a/Samples/Desktop/D3D12HelloWorld/src/HelloTriangle/D3D12HelloTriangle.cpp b/Samples/Desktop/D3D12HelloWorld/src/HelloTriangle/D3D12HelloTriangle.cpp
+index f1e707e..7cfedb3 100644
+--- a/Samples/Desktop/D3D12HelloWorld/src/HelloTriangle/D3D12HelloTriangle.cpp
++++ b/Samples/Desktop/D3D12HelloWorld/src/HelloTriangle/D3D12HelloTriangle.cpp
+@@ -20,8 +20,26 @@ D3D12HelloTriangle::D3D12HelloTriangle(UINT width, UINT height, std::wstring nam
+     m_frameIndex(0),
+     m_viewport(0.0f, 0.0f, static_cast<float>(width), static_cast<float>(height)),
+     m_scissorRect(0, 0, static_cast<LONG>(width), static_cast<LONG>(height)),
+-    m_rtvDescriptorSize(0)
++    m_rtvDescriptorSize(0),
++    m_captureFootprint{},
++    m_capturePending(false)
+ {
++    const DWORD captureLength = GetEnvironmentVariableW(
++        L"PROGPU_DIRECTX_ORACLE_OUTPUT", nullptr, 0);
++    if (captureLength > 1)
++    {
++        m_capturePath.resize(captureLength);
++        const DWORD copied = GetEnvironmentVariableW(
++            L"PROGPU_DIRECTX_ORACLE_OUTPUT",
++            &m_capturePath[0],
++            captureLength);
++        if (copied == 0 || copied >= captureLength)
++        {
++            ThrowIfFailed(HRESULT_FROM_WIN32(GetLastError()));
++        }
++        m_capturePath.resize(copied);
++        m_capturePending = true;
++    }
+ }
+ 
+ void D3D12HelloTriangle::OnInit()
+@@ -230,6 +248,29 @@ void D3D12HelloTriangle::LoadAssets()
+         m_vertexBufferView.SizeInBytes = vertexBufferSize;
+     }
+ 
++    if (m_capturePending)
++    {
++        UINT64 captureBytes = 0;
++        const D3D12_RESOURCE_DESC targetDescription =
++            m_renderTargets[0]->GetDesc();
++        m_device->GetCopyableFootprints(
++            &targetDescription,
++            0,
++            1,
++            0,
++            &m_captureFootprint,
++            nullptr,
++            nullptr,
++            &captureBytes);
++        ThrowIfFailed(m_device->CreateCommittedResource(
++            &CD3DX12_HEAP_PROPERTIES(D3D12_HEAP_TYPE_READBACK),
++            D3D12_HEAP_FLAG_NONE,
++            &CD3DX12_RESOURCE_DESC::Buffer(captureBytes),
++            D3D12_RESOURCE_STATE_COPY_DEST,
++            nullptr,
++            IID_PPV_ARGS(&m_captureReadback)));
++    }
++
+     // Create synchronization objects and wait until assets have been uploaded to the GPU.
+     {
+         ThrowIfFailed(m_device->CreateFence(0, D3D12_FENCE_FLAG_NONE, IID_PPV_ARGS(&m_fence)));
+@@ -268,6 +309,13 @@ void D3D12HelloTriangle::OnRender()
+     ThrowIfFailed(m_swapChain->Present(1, 0));
+ 
+     WaitForPreviousFrame();
++
++    if (m_capturePending)
++    {
++        WriteCapture();
++        m_capturePending = false;
++        PostQuitMessage(0);
++    }
+ }
+ 
+ void D3D12HelloTriangle::OnDestroy()
+@@ -309,12 +357,69 @@ void D3D12HelloTriangle::PopulateCommandList()
+     m_commandList->IASetVertexBuffers(0, 1, &m_vertexBufferView);
+     m_commandList->DrawInstanced(3, 1, 0, 0);
+ 
+-    // Indicate that the back buffer will now be used to present.
+-    m_commandList->ResourceBarrier(1, &CD3DX12_RESOURCE_BARRIER::Transition(m_renderTargets[m_frameIndex].Get(), D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_PRESENT));
++    // Capture instrumentation preserves the original render commands and
++    // copies the completed native D3D12 back buffer before presentation.
++    if (m_capturePending)
++    {
++        m_commandList->ResourceBarrier(1, &CD3DX12_RESOURCE_BARRIER::Transition(
++            m_renderTargets[m_frameIndex].Get(),
++            D3D12_RESOURCE_STATE_RENDER_TARGET,
++            D3D12_RESOURCE_STATE_COPY_SOURCE));
++        const CD3DX12_TEXTURE_COPY_LOCATION destination(
++            m_captureReadback.Get(), m_captureFootprint);
++        const CD3DX12_TEXTURE_COPY_LOCATION source(
++            m_renderTargets[m_frameIndex].Get(), 0);
++        m_commandList->CopyTextureRegion(
++            &destination, 0, 0, 0, &source, nullptr);
++        m_commandList->ResourceBarrier(1, &CD3DX12_RESOURCE_BARRIER::Transition(
++            m_renderTargets[m_frameIndex].Get(),
++            D3D12_RESOURCE_STATE_COPY_SOURCE,
++            D3D12_RESOURCE_STATE_PRESENT));
++    }
++    else
++    {
++        // Indicate that the back buffer will now be used to present.
++        m_commandList->ResourceBarrier(1, &CD3DX12_RESOURCE_BARRIER::Transition(
++            m_renderTargets[m_frameIndex].Get(),
++            D3D12_RESOURCE_STATE_RENDER_TARGET,
++            D3D12_RESOURCE_STATE_PRESENT));
++    }
+ 
+     ThrowIfFailed(m_commandList->Close());
+ }
+ 
++void D3D12HelloTriangle::WriteCapture()
++{
++    const UINT64 captureBytes = static_cast<UINT64>(
++        m_captureFootprint.Footprint.RowPitch) * m_height;
++    const CD3DX12_RANGE readRange(0, static_cast<SIZE_T>(captureBytes));
++    void* mapped = nullptr;
++    ThrowIfFailed(m_captureReadback->Map(0, &readRange, &mapped));
++    const UINT8* pixels = static_cast<const UINT8*>(mapped);
++
++    FILE* output = nullptr;
++    if (_wfopen_s(&output, m_capturePath.c_str(), L"wb") != 0 ||
++        output == nullptr)
++    {
++        m_captureReadback->Unmap(0, nullptr);
++        ThrowIfFailed(E_FAIL);
++    }
++    fprintf(output, "P6\n%u %u\n255\n", m_width, m_height);
++    for (UINT y = 0; y < m_height; ++y)
++    {
++        const UINT8* row = pixels +
++            static_cast<size_t>(y) * m_captureFootprint.Footprint.RowPitch;
++        for (UINT x = 0; x < m_width; ++x)
++        {
++            const UINT8* rgba = row + static_cast<size_t>(x) * 4;
++            fwrite(rgba, 1, 3, output);
++        }
++    }
++    fclose(output);
++    const CD3DX12_RANGE writtenRange(0, 0);
++    m_captureReadback->Unmap(0, &writtenRange);
++}
++
+ void D3D12HelloTriangle::WaitForPreviousFrame()
+ {
+     // WAITING FOR THE FRAME TO COMPLETE BEFORE CONTINUING IS NOT BEST PRACTICE.
+diff --git a/Samples/Desktop/D3D12HelloWorld/src/HelloTriangle/D3D12HelloTriangle.h b/Samples/Desktop/D3D12HelloWorld/src/HelloTriangle/D3D12HelloTriangle.h
+index 4090a40..0485aeb 100644
+--- a/Samples/Desktop/D3D12HelloWorld/src/HelloTriangle/D3D12HelloTriangle.h
++++ b/Samples/Desktop/D3D12HelloWorld/src/HelloTriangle/D3D12HelloTriangle.h
+@@ -59,6 +59,12 @@ private:
+     ComPtr<ID3D12Resource> m_vertexBuffer;
+     D3D12_VERTEX_BUFFER_VIEW m_vertexBufferView;
+ 
++    // ProGPU gate instrumentation. Empty during normal sample execution.
++    std::wstring m_capturePath;
++    ComPtr<ID3D12Resource> m_captureReadback;
++    D3D12_PLACED_SUBRESOURCE_FOOTPRINT m_captureFootprint;
++    bool m_capturePending;
++
+     // Synchronization objects.
+     UINT m_frameIndex;
+     HANDLE m_fenceEvent;
+@@ -68,5 +74,6 @@ private:
+     void LoadPipeline();
+     void LoadAssets();
+     void PopulateCommandList();
++    void WriteCapture();
+     void WaitForPreviousFrame();
+ };
+diff --git a/Samples/Desktop/D3D12HelloWorld/src/HelloTriangle/Win32Application.cpp b/Samples/Desktop/D3D12HelloWorld/src/HelloTriangle/Win32Application.cpp
+index c766a39..c693a23 100644
+--- a/Samples/Desktop/D3D12HelloWorld/src/HelloTriangle/Win32Application.cpp
++++ b/Samples/Desktop/D3D12HelloWorld/src/HelloTriangle/Win32Application.cpp
+@@ -50,10 +50,18 @@ int Win32Application::Run(DXSample* pSample, HINSTANCE hInstance, int nCmdShow)
+         pSample);
+ 
+     // Initialize the sample. OnInit is defined in each child-implementation of DXSample.
+     pSample->OnInit();
+ 
+     ShowWindow(m_hwnd, nCmdShow);
+ 
++    // A service-hosted CI process may not receive WM_PAINT. The capture-only
++    // path renders exactly one ordinary sample frame deterministically.
++    if (GetEnvironmentVariableW(L"PROGPU_DIRECTX_ORACLE_OUTPUT", nullptr, 0) > 1)
++    {
++        pSample->OnUpdate();
++        pSample->OnRender();
++    }
++
+     // Main sample loop.
+     MSG msg = {};
+     while (msg.message != WM_QUIT)
+diff --git a/Samples/Desktop/D3D12HelloWorld/src/HelloTriangle/Main.cpp b/Samples/Desktop/D3D12HelloWorld/src/HelloTriangle/Main.cpp
+index 59f1f6a..614cceb 100644
+--- a/Samples/Desktop/D3D12HelloWorld/src/HelloTriangle/Main.cpp
++++ b/Samples/Desktop/D3D12HelloWorld/src/HelloTriangle/Main.cpp
+@@ -14,9 +14,54 @@
+ #include "stdafx.h"
+ #include "D3D12HelloTriangle.h"
+ 
++static void WriteOracleFailure(const char* message)
++{
++    const DWORD captureLength = GetEnvironmentVariableW(
++        L"PROGPU_DIRECTX_ORACLE_OUTPUT", nullptr, 0);
++    if (captureLength <= 1)
++    {
++        return;
++    }
++    std::wstring capturePath(captureLength, L'\0');
++    const DWORD copied = GetEnvironmentVariableW(
++        L"PROGPU_DIRECTX_ORACLE_OUTPUT",
++        &capturePath[0],
++        captureLength);
++    if (copied == 0 || copied >= captureLength)
++    {
++        return;
++    }
++    capturePath.resize(copied);
++    capturePath.append(L".error.txt");
++    FILE* output = nullptr;
++    if (_wfopen_s(&output, capturePath.c_str(), L"wb") == 0 && output != nullptr)
++    {
++        fprintf(output, "%s\n", message);
++        fclose(output);
++    }
++}
++
+ _Use_decl_annotations_
+ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int nCmdShow)
+ {
+-    D3D12HelloTriangle sample(1280, 720, L"D3D12 Hello Triangle");
+-    return Win32Application::Run(&sample, hInstance, nCmdShow);
++    try
++    {
++        D3D12HelloTriangle sample(1280, 720, L"D3D12 Hello Triangle");
++        return Win32Application::Run(&sample, hInstance, nCmdShow);
++    }
++    catch (const HrException& error)
++    {
++        WriteOracleFailure(error.what());
++        return static_cast<int>(error.Error());
++    }
++    catch (const std::exception& error)
++    {
++        WriteOracleFailure(error.what());
++        return 1;
++    }
++    catch (...)
++    {
++        WriteOracleFailure("Unknown native exception.");
++        return 1;
++    }
+ }

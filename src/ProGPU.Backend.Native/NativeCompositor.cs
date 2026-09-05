@@ -32,6 +32,10 @@ public sealed unsafe class NativeCompositor : IDisposable
     private nint _engine;
     private int _disposeState;
 
+    /// <summary>Resolved occupied-page sampling policy, independent of ordinary image sampling.</summary>
+    public GpuTilePageSamplingPath TilePageSamplingPath =>
+        GpuImageSamplingPolicy.ResolveTilePagePath(_context.ImageSamplingPreference);
+
     public NativeCompositor(
         WgpuContext context,
         TextureFormat targetFormat)
@@ -55,7 +59,8 @@ public sealed unsafe class NativeCompositor : IDisposable
             BackendAbi = NativeMethods.WgpuNativeMay2024BackendAbi,
             TargetFormat = nativeFormat,
             Device = (nuint)context.Device,
-            Queue = (nuint)context.Queue
+            Queue = (nuint)context.Queue,
+            Flags = GetEngineFlags(context)
         };
 
         lock (context.RenderLock)
@@ -117,6 +122,7 @@ public sealed unsafe class NativeCompositor : IDisposable
         }
 
         var options = CreateDawnOptions(
+            context,
             targetFormat,
             instance,
             device,
@@ -185,7 +191,8 @@ public sealed unsafe class NativeCompositor : IDisposable
             BackendAbi = NativeMethods.WgpuNativeMay2024BackendAbi,
             TargetFormat = ToNativeFormat(_targetFormat),
             Device = (nuint)replacementContext.Device,
-            Queue = (nuint)replacementContext.Queue
+            Queue = (nuint)replacementContext.Queue,
+            Flags = GetEngineFlags(replacementContext)
         };
 
         nint replacement = 0;
@@ -242,6 +249,7 @@ public sealed unsafe class NativeCompositor : IDisposable
         }
 
         var options = CreateDawnOptions(
+            replacementContext,
             _targetFormat,
             instance,
             device,
@@ -587,13 +595,50 @@ public sealed unsafe class NativeCompositor : IDisposable
         float dpiScale,
         ulong sceneId,
         ulong generation,
-        Vector4 clearColor) => RenderScene(
-            target,
+        Vector4 clearColor)
+    {
+        ValidateTarget(target);
+        NativeSceneFrameMetrics metrics = RenderSceneCore(
+            new NativeSceneExternalTarget(
+                (nuint)target.ViewPtr,
+                target.Width,
+                target.Height),
             dpiScale,
             sceneId,
             generation,
             clearColor,
+            preserveTarget: false,
             damage: null);
+        target.NotifyExternalContentChanged();
+        return metrics;
+    }
+
+    /// <summary>
+    /// Renders the installed immutable semantic scene generation while loading
+    /// and preserving the complete target before replay.
+    /// </summary>
+    public NativeSceneFrameMetrics RenderScenePreservingTarget(
+        GpuTexture target,
+        float dpiScale,
+        ulong sceneId,
+        ulong generation,
+        Vector4 clearColor)
+    {
+        ValidateTarget(target);
+        NativeSceneFrameMetrics metrics = RenderSceneCore(
+            new NativeSceneExternalTarget(
+                (nuint)target.ViewPtr,
+                target.Width,
+                target.Height),
+            dpiScale,
+            sceneId,
+            generation,
+            clearColor,
+            preserveTarget: true,
+            damage: null);
+        target.NotifyExternalContentChanged();
+        return metrics;
+    }
 
     /// <summary>
     /// Renders the installed immutable semantic scene generation while
@@ -611,6 +656,83 @@ public sealed unsafe class NativeCompositor : IDisposable
         NativeSceneDamageRect? damage)
     {
         ValidateTarget(target);
+        NativeSceneFrameMetrics metrics = RenderSceneCore(
+            new NativeSceneExternalTarget(
+                (nuint)target.ViewPtr,
+                target.Width,
+                target.Height),
+            dpiScale,
+            sceneId,
+            generation,
+            clearColor,
+            preserveTarget: true,
+            damage);
+        target.NotifyExternalContentChanged();
+        return metrics;
+    }
+
+    /// <summary>
+    /// Renders the installed immutable semantic scene generation directly to
+    /// a host-owned WebGPU texture view without acquiring texture ownership.
+    /// </summary>
+    public NativeSceneFrameMetrics RenderScene(
+        NativeSceneExternalTarget target,
+        float dpiScale,
+        ulong sceneId,
+        ulong generation,
+        Vector4 clearColor)
+    {
+        ValidateExternalTarget(target);
+        return RenderSceneCore(
+            target,
+            dpiScale,
+            sceneId,
+            generation,
+            clearColor,
+            preserveTarget: false,
+            damage: null);
+    }
+
+    /// <summary>
+    /// Renders the installed immutable semantic scene generation directly to
+    /// a host-owned WebGPU texture view while preserving contents outside an
+    /// optional logical damage rectangle.
+    /// </summary>
+    /// <remarks>
+    /// The caller guarantees that the view belongs to this compositor's
+    /// device, matches its configured format, permits render-attachment use,
+    /// and remains alive through submission completion. This overload exists
+    /// for swapchain hosts that already own the acquired view and must not
+    /// transfer its texture reference into a managed wrapper.
+    /// </remarks>
+    public NativeSceneFrameMetrics RenderScene(
+        NativeSceneExternalTarget target,
+        float dpiScale,
+        ulong sceneId,
+        ulong generation,
+        Vector4 clearColor,
+        NativeSceneDamageRect? damage)
+    {
+        ValidateExternalTarget(target);
+        return RenderSceneCore(
+            target,
+            dpiScale,
+            sceneId,
+            generation,
+            clearColor,
+            preserveTarget: true,
+            damage);
+    }
+
+    private NativeSceneFrameMetrics RenderSceneCore(
+        NativeSceneExternalTarget target,
+        float dpiScale,
+        ulong sceneId,
+        ulong generation,
+        Vector4 clearColor,
+        bool preserveTarget,
+        NativeSceneDamageRect? damage)
+    {
         if (damage is { } value &&
             (!float.IsFinite(value.X) || !float.IsFinite(value.Y) ||
              !float.IsFinite(value.Width) || !float.IsFinite(value.Height) ||
@@ -624,7 +746,7 @@ public sealed unsafe class NativeCompositor : IDisposable
             Width = target.Width,
             Height = target.Height,
             DpiScale = dpiScale,
-            TargetView = (nuint)target.ViewPtr,
+            TargetView = target.TextureView,
             ClearColor = new NativeMethods.NativeColor
             {
                 R = clearColor.X,
@@ -634,9 +756,8 @@ public sealed unsafe class NativeCompositor : IDisposable
             },
             SceneId = sceneId,
             Generation = generation,
-            Flags = damage.HasValue
-                ? SceneFramePreserveTargetFlag | SceneFrameDamageRectFlag
-                : 0U,
+            Flags = (preserveTarget ? SceneFramePreserveTargetFlag : 0U) |
+                (damage.HasValue ? SceneFrameDamageRectFlag : 0U),
             DamageX = damage?.X ?? 0f,
             DamageY = damage?.Y ?? 0f,
             DamageWidth = damage?.Width ?? 0f,
@@ -655,7 +776,6 @@ public sealed unsafe class NativeCompositor : IDisposable
             {
                 throw new NativeRendererException(status, ReadLastError());
             }
-            target.NotifyExternalContentChanged();
         }
         return new NativeSceneFrameMetrics(
             metrics.CommandCount,
@@ -1051,9 +1171,21 @@ public sealed unsafe class NativeCompositor : IDisposable
         bool capturePayloadHash = false,
         uint contentRevision = 0,
         NativeDrawState drawState = default,
-        ReadOnlySpan<NativePathBooleanNode> booleanNodes = default)
+        ReadOnlySpan<NativePathBooleanNode> booleanNodes = default,
+        NativeSignedWindingExecutionPreference signedWindingExecution =
+            NativeSignedWindingExecutionPreference.Fastest)
     {
         ValidateTarget(target);
+        if (!Enum.IsDefined(signedWindingExecution))
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(signedWindingExecution));
+        }
+        NativeSignedWindingExecutionPath signedWindingExecutionPath =
+            signedWindingExecution ==
+                NativeSignedWindingExecutionPreference.StagedVectorCompute
+                ? NativeSignedWindingExecutionPath.StagedVectorCompute
+                : NativeSignedWindingExecutionPath.InlineVectorCompute;
         NativeMethods.GroupMask nativeGroupMask = default;
         NativeMethods.ClipChain nativeClipChain = default;
         NativeMethods.GroupEffect nativeGroupEffect = default;
@@ -1096,6 +1228,10 @@ public sealed unsafe class NativeCompositor : IDisposable
                         : 0U) |
                     (contentRevision != 0U
                         ? NativeMethods.GeometryFrameRetainCompiledPayload
+                        : 0U) |
+                    (signedWindingExecutionPath ==
+                        NativeSignedWindingExecutionPath.StagedVectorCompute
+                        ? NativeMethods.PathFrameStagedSignedWinding
                         : 0U),
                 ContentRevision = contentRevision,
                 DrawState = &nativeDrawState,
@@ -1135,7 +1271,8 @@ public sealed unsafe class NativeCompositor : IDisposable
                 metrics.CoverageStagingBytes,
                 metrics.UniformUploadBytes,
                 metrics.SubmissionCount,
-                metrics.PayloadHash);
+                metrics.PayloadHash,
+                signedWindingExecutionPath);
         }
     }
 
@@ -1840,6 +1977,23 @@ public sealed unsafe class NativeCompositor : IDisposable
         }
     }
 
+    private void ValidateExternalTarget(NativeSceneExternalTarget target)
+    {
+        ThrowIfDisposed();
+        if (target.TextureView == 0)
+        {
+            throw new ArgumentException(
+                "A live host-owned WebGPU texture view is required.",
+                nameof(target));
+        }
+        if (target.Width == 0 || target.Height == 0)
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(target),
+                "A host-owned scene target requires nonzero dimensions.");
+        }
+    }
+
     private void ValidateImageSource(GpuTexture source, GpuTexture target)
     {
         ArgumentNullException.ThrowIfNull(source);
@@ -1906,14 +2060,20 @@ public sealed unsafe class NativeCompositor : IDisposable
                 source.Format == TextureFormat.R8Unorm,
             _ => false
         };
+        bool supportedAlphaMode = role ==
+            NativeSceneExternalImageRole.Primary
+                ? source.AlphaMode is
+                    GpuTextureAlphaMode.Straight or
+                    GpuTextureAlphaMode.Premultiplied
+                : source.AlphaMode == GpuTextureAlphaMode.Straight;
         if ((source.Usage & TextureUsage.TextureBinding) == 0 ||
             source.Dimension != GpuTextureDimension.Dimension2D ||
             source.DepthOrArrayLayers != 1 || source.SampleCount != 1 ||
-            source.AlphaMode != GpuTextureAlphaMode.Straight ||
+            !supportedAlphaMode ||
             !supportedFormat)
         {
             throw new ArgumentException(
-                "External scene images require a role-compatible single-sample bindable straight-alpha 2D texture.",
+                "External scene images require a role-compatible single-sample bindable 2D texture; primary images may be straight or premultiplied while chroma and mask planes must be straight alpha.",
                 nameof(source));
         }
     }
@@ -1951,6 +2111,7 @@ public sealed unsafe class NativeCompositor : IDisposable
     }
 
     private static NativeDawnMethods.EngineOptions CreateDawnOptions(
+        WgpuContext context,
         TextureFormat targetFormat,
         nuint instance,
         nuint device,
@@ -1967,7 +2128,8 @@ public sealed unsafe class NativeCompositor : IDisposable
             ResolveProc = resolveProc,
             Instance = instance,
             Device = device,
-            Queue = queue
+            Queue = queue,
+            Flags = GetEngineFlags(context)
         };
 
     private static NativeRendererTextureFormat ToNativeFormat(
@@ -2047,11 +2209,29 @@ public sealed unsafe class NativeCompositor : IDisposable
         };
     }
 
+    private static ulong GetEngineFlags(WgpuContext context) =>
+        (context.ImageSamplingPreference == GpuImageSamplingPreference.NativeSampler
+            ? NativeMethods.EngineImageRequireNativeSampling : 0UL) |
+        (context.ImageSamplingPath == GpuImageSamplingPath.ExplicitShader
+            ? NativeMethods.EngineImageExplicitShaderSampling : 0UL) |
+        (context.GlyphRasterizationPath switch
+        {
+            GpuComputeExecutionPath.NativeCompute => 0UL,
+            GpuComputeExecutionPath.RasterShader =>
+                NativeMethods.EngineGlyphRasterShaderFallback,
+            GpuComputeExecutionPath.IntrinsicSimdCpu =>
+                NativeMethods.EngineGlyphIntrinsicSimdCpuFallback,
+            GpuComputeExecutionPath.ScalarCpu =>
+                NativeMethods.EngineGlyphScalarCpuFallback,
+            _ => throw new ArgumentOutOfRangeException(nameof(context))
+        });
+
     private static NativeMethods.GroupEffect CreateGroupEffect(
         NativeGroupEffect effect)
     {
         const float MaximumSigma = 128f / 3f;
         bool isGaussian = effect.Kind == NativeGroupEffectKind.GaussianBlur;
+        bool isBox = effect.Kind == NativeGroupEffectKind.BoxBlur;
         bool isDropShadow = effect.Kind == NativeGroupEffectKind.DropShadow;
         bool invalidColor = !float.IsFinite(effect.Color.X) ||
             !float.IsFinite(effect.Color.Y) ||
@@ -2061,20 +2241,22 @@ public sealed unsafe class NativeCompositor : IDisposable
             effect.Color.Y < 0f || effect.Color.Y > 1f ||
             effect.Color.Z < 0f || effect.Color.Z > 1f ||
             effect.Color.W < 0f || effect.Color.W > 1f;
-        if ((!isGaussian && !isDropShadow) ||
+        float maximumExtent = isBox ? 128f : MaximumSigma;
+        bool requiresPositiveExtent = isGaussian || isBox;
+        if ((!isGaussian && !isBox && !isDropShadow) ||
             !float.IsFinite(effect.SigmaX) ||
             !float.IsFinite(effect.SigmaY) ||
-            effect.SigmaX < (isGaussian ? 0.01f : 0f) ||
-            effect.SigmaX > MaximumSigma ||
-            effect.SigmaY < (isGaussian ? 0.01f : 0f) ||
-            effect.SigmaY > MaximumSigma ||
+            effect.SigmaX < (requiresPositiveExtent ? 0.01f : 0f) ||
+            effect.SigmaX > maximumExtent ||
+            effect.SigmaY < (requiresPositiveExtent ? 0.01f : 0f) ||
+            effect.SigmaY > maximumExtent ||
             (isDropShadow &&
              (!float.IsFinite(effect.Offset.X) ||
               !float.IsFinite(effect.Offset.Y) || invalidColor)) ||
             effect.Revision == 0U)
         {
             throw new ArgumentException(
-                "A native group effect requires valid finite parameters, bounded sigma, normalized drop-shadow color, and a nonzero revision.",
+                "A native group effect requires valid finite parameters, bounded blur extent, normalized drop-shadow color, and a nonzero revision.",
                 nameof(effect));
         }
 
@@ -2176,6 +2358,10 @@ public sealed unsafe class NativeCompositor : IDisposable
                 *nativeClipChain = new NativeMethods.ClipChain
                 {
                     StructSize = (uint)Unsafe.SizeOf<NativeMethods.ClipChain>(),
+                    Flags = chain.SignedWindingExecutionPath ==
+                        NativeSignedWindingExecutionPath.StagedVectorCompute
+                        ? NativeMethods.ClipChainStagedSignedWinding
+                        : 0U,
                     Paths = chain.Paths,
                     PathCount = (nuint)chain.PathCount,
                     Segments = chain.Segments,

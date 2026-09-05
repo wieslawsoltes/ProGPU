@@ -1,5 +1,5 @@
 // Algorithm: Transform instanced UV meshes, apply a normalized crop plus quarter-turn/mirror presentation transform, sample a leased filterable RGB/NV12 texture or manually reconstruct an unfilterable P010 plane pair, apply the bounded fallback kernel and fused color effects, then evaluate bounded multi-light shading.
-// Time complexity: O(L + S) per fragment for L fixed lights and S source taps, where S is exactly 1 or 9; filterable RGB uses S samples, filterable NV12 uses 2S samples, and unfilterable P010 uses 2S nearest or 8S bilinear texel loads.
+// Time complexity: O(L + S + G) per fragment for L fixed lights, S source taps, and G bounded material-gradient stops; S is exactly 1 or 9, filterable RGB uses S samples, filterable NV12 uses 2S samples, and unfilterable P010 uses 2S nearest or 8S bilinear texel loads.
 // Space complexity: O(1) local/private storage, O(1) material records per mesh, and at most 72 unfilterable texel loads per fragment for the fixed nine-tap fallback.
 struct VSUniforms {
     projection: mat4x4<f32>,
@@ -34,10 +34,37 @@ struct GpuMesh3DRecord {
     yuvGreen: vec4<f32>,
     yuvBlue: vec4<f32>,
     textureSourceRect: vec4<f32>,
+    lightOffset: u32,
+    lightCount: u32,
+    lightPadding: vec2<u32>,
+    materialGradientPoints: vec4<f32>,
+    materialGradientEllipse: vec4<f32>,
+    materialBrushTransform0: vec4<f32>,
+    materialBrushTransform1: vec4<f32>,
+    materialBrushMetadata: vec4<f32>,
+    materialStopMetadata: vec4<f32>,
+};
+
+struct GpuGradientStop {
+    color: vec4<f32>,
+    offset: f32,
+    padding0: f32,
+    padding1: f32,
+    padding2: f32,
+};
+
+struct GpuLight3DRecord {
+    metadata: vec4<f32>,
+    color: vec4<f32>,
+    positionRange: vec4<f32>,
+    directionInnerCos: vec4<f32>,
+    attenuationOuterCos: vec4<f32>,
 };
 
 @group(0) @binding(0) var<uniform> uniforms: VSUniforms;
 @group(0) @binding(1) var<storage, read> meshRecords: array<GpuMesh3DRecord>;
+@group(0) @binding(2) var<storage, read> lightRecords: array<GpuLight3DRecord>;
+@group(0) @binding(3) var<storage, read> materialGradientStops: array<GpuGradientStop>;
 @group(1) @binding(0) var materialSampler: sampler;
 @group(1) @binding(1) var materialTexture: texture_2d<f32>;
 @group(1) @binding(2) var materialChromaTexture: texture_2d<f32>;
@@ -95,6 +122,66 @@ fn GoochShading(N: vec3<f32>, L: vec3<f32>, diffuseColor: vec3<f32>) -> vec3<f32
     let coolCol = vec3<f32>(0.0, 0.0, 0.55) + 0.25 * diffuseColor;
     let warmCol = vec3<f32>(0.3, 0.3, 0.0) + 0.25 * diffuseColor;
     return mix(coolCol, warmCol, t);
+}
+
+fn ComputeWpfLighting(
+    record: GpuMesh3DRecord,
+    N: vec3<f32>,
+    V: vec3<f32>,
+    worldPos: vec3<f32>,
+    albedo: vec3<f32>,
+    materialSpecular: vec3<f32>
+) -> vec3<f32> {
+    var ambient = vec3<f32>(0.0);
+    var diffuse = vec3<f32>(0.0);
+    var specular = vec3<f32>(0.0);
+    let shininess = max(record.specularColor.w, 0.001);
+    for (var lightIndex = 0u; lightIndex < 16u; lightIndex++) {
+        if (lightIndex >= record.lightCount) {
+            break;
+        }
+        let source = lightRecords[record.lightOffset + lightIndex];
+        let kind = u32(source.metadata.x + 0.5);
+        if (kind == 0u) {
+            ambient += source.color.rgb;
+            continue;
+        }
+        var L = normalize(-source.directionInnerCos.xyz);
+        var attenuation = 1.0;
+        if (kind >= 2u) {
+            let toLight = source.positionRange.xyz - worldPos;
+            let distance = length(toLight);
+            if (distance <= 0.000001 || distance > source.positionRange.w) {
+                continue;
+            }
+            L = toLight / distance;
+            let terms = source.attenuationOuterCos.xyz;
+            attenuation = 1.0 / max(
+                terms.x + terms.y * distance +
+                    terms.z * distance * distance,
+                1.0);
+            if (kind == 3u) {
+                let rho = max(dot(
+                    normalize(-source.directionInnerCos.xyz), L), 0.0);
+                let outerCos = source.attenuationOuterCos.w;
+                attenuation *= clamp(
+                    (rho - outerCos) /
+                        max(source.directionInnerCos.w - outerCos, 0.000001),
+                    0.0,
+                    1.0);
+            }
+        }
+        let NdotL = max(dot(N, L), 0.0);
+        if (NdotL <= 0.0) {
+            continue;
+        }
+        diffuse += source.color.rgb * NdotL * attenuation;
+        let H = normalize(V + L);
+        specular += source.color.rgb *
+            pow(max(dot(N, H), 0.0), shininess) * attenuation;
+    }
+    return albedo * (ambient * record.materialAmbient.rgb + diffuse) +
+        materialSpecular * specular;
 }
 
 fn SampleMaterialSource(
@@ -305,6 +392,146 @@ fn TransformMaterialCoordinate(
         localCoordinate * record.textureSourceRect.zw;
 }
 
+fn TransformMaterialBrushCoordinate(
+    record: GpuMesh3DRecord,
+    coordinate: vec2<f32>
+) -> vec2<f32> {
+    let point = vec3<f32>(coordinate, 1.0);
+    return vec2<f32>(
+        dot(point, record.materialBrushTransform0.xyz),
+        dot(point, record.materialBrushTransform1.xyz));
+}
+
+fn ApplyMaterialGradientSpread(value: f32, method: u32) -> f32 {
+    if (method == 1u) {
+        let period = fract(value * 0.5) * 2.0;
+        return select(period, 2.0 - period, period > 1.0);
+    }
+    if (method == 2u) {
+        return fract(value);
+    }
+    return value;
+}
+
+fn SrgbToLinearMaterialComponent(value: f32) -> f32 {
+    if (value <= 0.04045) {
+        return value / 12.92;
+    }
+    return pow((value + 0.055) / 1.055, 2.4);
+}
+
+fn LinearToSrgbMaterialComponent(value: f32) -> f32 {
+    let clamped = max(value, 0.0);
+    if (clamped <= 0.0031308) {
+        return clamped * 12.92;
+    }
+    return 1.055 * pow(clamped, 1.0 / 2.4) - 0.055;
+}
+
+fn InterpolateMaterialGradient(
+    startColor: vec4<f32>,
+    endColor: vec4<f32>,
+    factor: f32,
+    interpolationMode: u32
+) -> vec4<f32> {
+    if (interpolationMode == 1u) {
+        let startLinear = vec3<f32>(
+            SrgbToLinearMaterialComponent(startColor.r),
+            SrgbToLinearMaterialComponent(startColor.g),
+            SrgbToLinearMaterialComponent(startColor.b));
+        let endLinear = vec3<f32>(
+            SrgbToLinearMaterialComponent(endColor.r),
+            SrgbToLinearMaterialComponent(endColor.g),
+            SrgbToLinearMaterialComponent(endColor.b));
+        let mixed = mix(startLinear, endLinear, factor);
+        return vec4<f32>(
+            LinearToSrgbMaterialComponent(mixed.r),
+            LinearToSrgbMaterialComponent(mixed.g),
+            LinearToSrgbMaterialComponent(mixed.b),
+            mix(startColor.a, endColor.a, factor));
+    }
+    return mix(startColor, endColor, factor);
+}
+
+fn SampleMaterialGradientStops(
+    record: GpuMesh3DRecord,
+    value: f32
+) -> vec4<f32> {
+    let stopOffset = u32(record.materialStopMetadata.x + 0.5);
+    let stopCount = u32(record.materialStopMetadata.y + 0.5);
+    var previous = materialGradientStops[stopOffset];
+    if (value < previous.offset) {
+        return previous.color;
+    }
+    for (var index = 1u; index < stopCount; index++) {
+        let current = materialGradientStops[stopOffset + index];
+        if (value < current.offset) {
+            let factor = clamp(
+                (value - previous.offset) /
+                    max(current.offset - previous.offset, 0.0001),
+                0.0,
+                1.0);
+            return InterpolateMaterialGradient(
+                previous.color,
+                current.color,
+                factor,
+                u32(record.materialBrushMetadata.w + 0.5));
+        }
+        previous = current;
+    }
+    return previous.color;
+}
+
+fn SampleMaterialGradient(
+    record: GpuMesh3DRecord,
+    textureCoordinate: vec2<f32>
+) -> vec4<f32> {
+    let coordinate = TransformMaterialBrushCoordinate(
+        record,
+        textureCoordinate);
+    let kind = u32(record.materialBrushMetadata.x + 0.5);
+    var value = 0.0;
+    if (kind == 1u) {
+        let start = record.materialGradientPoints.xy;
+        let direction = record.materialGradientPoints.zw - start;
+        let lengthSquared = dot(direction, direction);
+        if (lengthSquared > 0.0001) {
+            value = dot(coordinate - start, direction) /
+                lengthSquared;
+        }
+    } else {
+        let center = record.materialGradientEllipse.xy;
+        let radii = max(
+            record.materialGradientEllipse.zw,
+            vec2<f32>(0.0001));
+        let point = (coordinate - center) / radii;
+        let origin =
+            (record.materialGradientPoints.xy - center) /
+            radii;
+        let direction = point - origin;
+        let a = dot(direction, direction);
+        if (a > 0.0001) {
+            let b = 2.0 * dot(origin, direction);
+            let c = dot(origin, origin) - 1.0;
+            let discriminant = max(b * b - 4.0 * a * c, 0.0);
+            let boundary = (-b + sqrt(discriminant)) / (2.0 * a);
+            if (boundary > 0.0001) {
+                value = 1.0 / boundary;
+            }
+        }
+    }
+    let spread = u32(record.materialBrushMetadata.z + 0.5);
+    if (spread == 3u && (value < 0.0 || value > 1.0)) {
+        return vec4<f32>(0.0);
+    }
+    let color = SampleMaterialGradientStops(
+        record,
+        ApplyMaterialGradientSpread(value, spread));
+    return vec4<f32>(
+        color.rgb,
+        color.a * record.materialBrushMetadata.y);
+}
+
 fn ApplyMaterialEffects(
     record: GpuMesh3DRecord,
     sampledColor: vec4<f32>
@@ -397,6 +624,11 @@ fn SampleMaterial(
     record: GpuMesh3DRecord,
     textureCoordinate: vec2<f32>
 ) -> vec4<f32> {
+    if (record.materialBrushMetadata.x > 0.5) {
+        return SampleMaterialGradient(
+            record,
+            textureCoordinate);
+    }
     let sourceCoordinate = TransformMaterialCoordinate(
         record,
         textureCoordinate);
@@ -461,6 +693,11 @@ fn SampleMaterialUnfilterable(
     record: GpuMesh3DRecord,
     textureCoordinate: vec2<f32>
 ) -> vec4<f32> {
+    if (record.materialBrushMetadata.x > 0.5) {
+        return SampleMaterialGradient(
+            record,
+            textureCoordinate);
+    }
     let sourceCoordinate = TransformMaterialCoordinate(
         record,
         textureCoordinate);
@@ -526,7 +763,9 @@ fn ComputeLighting(
     instanceIdx: u32,
     worldPos: vec3<f32>,
     worldNormal: vec3<f32>,
-    albedo: vec4<f32>
+    albedo: vec4<f32>,
+    materialSpecular: vec3<f32>,
+    hasSpecularMaterial: bool
 ) -> vec4<f32> {
     let record = meshRecords[instanceIdx];
     let shading = u32(record.shadingMode + 0.5);
@@ -557,6 +796,30 @@ fn ComputeLighting(
     let V = normalize(uniforms.cameraPosition - worldPos);
 
     let shininess = record.specularColor.w;
+    if (record.lightCount != 0u) {
+        var resultColor = ComputeWpfLighting(
+            record,
+            N,
+            V,
+            worldPos,
+            albedo.rgb,
+            materialSpecular);
+        if (shading == 4u) {
+            let gray = dot(
+                resultColor,
+                vec3<f32>(0.2126, 0.7152, 0.0722));
+            resultColor = vec3<f32>(gray);
+        }
+        var explicitOpacity = record.opacity * albedo.a;
+        if (shading == 5u) {
+            explicitOpacity = clamp(
+                0.15 + 0.55 *
+                    pow(1.0 - max(dot(N, V), 0.0), 3.0),
+                0.0,
+                1.0) * record.opacity * albedo.a;
+        }
+        return vec4<f32>(resultColor, explicitOpacity);
+    }
     let roughness = clamp(sqrt(2.0 / (max(shininess, 0.001) + 2.0)), 0.04, 1.0);
     let F0 = mix(vec3<f32>(0.04), albedo.rgb, 0.1);
 
@@ -653,6 +916,10 @@ fn ComputeLighting(
     let rimColor = vec3<f32>(0.85, 0.90, 1.0) * F_rim * 0.25 * keyIntensity;
 
     var resultColor = ambient + diffuseOut + specularOut + rimColor;
+    if (hasSpecularMaterial) {
+        resultColor =
+            diffuseOut + specularOut * materialSpecular;
+    }
 
     if (shading == 4u) { // Shades of Gray
         let gray = dot(resultColor, vec3<f32>(0.2126, 0.7152, 0.0722));
@@ -696,14 +963,27 @@ fn fs_main(input: VertexOutput, @builtin(front_facing) is_front: bool) -> @locat
         normal = -input.worldNormal;
     }
     let record = meshRecords[input.instanceIdx];
-    let materialColor =
-        SampleMaterial(record, input.textureCoordinate) *
-        record.color;
+    let materialSample =
+        SampleMaterial(record, input.textureCoordinate);
+    if (record.materialStopMetadata.z > 0.5) {
+        let materialColor = vec4<f32>(
+            record.color.rgb,
+            materialSample.a * record.color.a);
+        return ComputeLighting(
+            input.instanceIdx,
+            input.worldPosition,
+            normal,
+            materialColor,
+            record.specularColor.rgb * materialSample.rgb,
+            true);
+    }
     return ComputeLighting(
         input.instanceIdx,
         input.worldPosition,
         normal,
-        materialColor);
+        materialSample * record.color,
+        record.specularColor.rgb,
+        false);
 }
 
 @fragment
@@ -716,14 +996,27 @@ fn fs_unfilterable(
         normal = -input.worldNormal;
     }
     let record = meshRecords[input.instanceIdx];
-    let materialColor =
+    let materialSample =
         SampleMaterialUnfilterable(
             record,
-            input.textureCoordinate) *
-        record.color;
+            input.textureCoordinate);
+    if (record.materialStopMetadata.z > 0.5) {
+        let materialColor = vec4<f32>(
+            record.color.rgb,
+            materialSample.a * record.color.a);
+        return ComputeLighting(
+            input.instanceIdx,
+            input.worldPosition,
+            normal,
+            materialColor,
+            record.specularColor.rgb * materialSample.rgb,
+            true);
+    }
     return ComputeLighting(
         input.instanceIdx,
         input.worldPosition,
         normal,
-        materialColor);
+        materialSample * record.color,
+        record.specularColor.rgb,
+        false);
 }

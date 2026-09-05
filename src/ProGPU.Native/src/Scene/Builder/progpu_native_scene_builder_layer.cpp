@@ -97,6 +97,171 @@ bool semantic_scene_builder::add_coverage_mask(
     }
 }
 
+bool semantic_scene_builder::add_brush_mask(
+    const progpu_native_scene_layer_brush_mask& source,
+    std::span<const progpu_native_scene_gradient_stop> gradient_stops,
+    std::uint32_t& resource_index) noexcept {
+    resource_index = PROGPU_NATIVE_SCENE_NO_INDEX;
+    if (gradient_stops.size() >
+            std::numeric_limits<std::uint32_t>::max() ||
+        gradient_stops.size() > PROGPU_NATIVE_SCENE_MAX_GRADIENT_STOPS ||
+        implementation_->resources.size() >=
+            PROGPU_NATIVE_SCENE_MAX_RESOURCES) {
+        return implementation_->fail(scene_build_error::invalid_argument);
+    }
+    progpu_native_scene_layer_brush_mask mask = source;
+    mask.struct_size = sizeof(mask);
+    mask.kind = PROGPU_NATIVE_SCENE_LAYER_MASK_BRUSH;
+    mask.flags = 0U;
+    mask.gradient_stop_count = static_cast<std::uint32_t>(
+        gradient_stops.size());
+    mask.reserved0 = 0U;
+    mask.brush.stop_offset = 0U;
+    if (!semantic::is_valid_semantic_layer_brush_mask(
+            mask, gradient_stops)) {
+        return implementation_->fail(scene_build_error::invalid_argument);
+    }
+    try {
+        implementation_->resources.reserve(
+            implementation_->resources.size() + 1U);
+        implementation::resource_entry resource{};
+        resource.record.struct_size = sizeof(resource.record);
+        resource.record.kind = PROGPU_NATIVE_SCENE_RESOURCE_LAYER_MASK;
+        resource.record.flags = PROGPU_NATIVE_SCENE_RECORD_REQUIRED;
+        resource.record.resource_id = implementation_->resources.size() + 1U;
+        resource.record.generation = implementation_->generation;
+        resource.payload = copy_bytes(
+            std::span<const progpu_native_scene_layer_brush_mask>(&mask, 1U));
+        resource.auxiliary = copy_bytes(gradient_stops);
+        resource_index = static_cast<std::uint32_t>(
+            implementation_->resources.size());
+        implementation_->resources.push_back(std::move(resource));
+        implementation_->error = scene_build_error::none;
+        return true;
+    } catch (const std::bad_alloc&) {
+        return implementation_->fail(scene_build_error::out_of_memory);
+    } catch (...) {
+        return implementation_->fail(scene_build_error::invalid_state);
+    }
+}
+
+bool semantic_scene_builder::add_geometry_mask(
+    const progpu_native_scene_layer_geometry_mask& source,
+    std::span<const progpu_native_geometry_primitive> primitives,
+    std::span<const progpu_native_scene_gradient_stop> gradient_stops,
+    std::uint32_t& resource_index) noexcept {
+    resource_index = PROGPU_NATIVE_SCENE_NO_INDEX;
+    if (primitives.empty() ||
+        primitives.size() > std::numeric_limits<std::uint32_t>::max() ||
+        gradient_stops.size() >
+            std::numeric_limits<std::uint32_t>::max() ||
+        gradient_stops.size() > PROGPU_NATIVE_SCENE_MAX_GRADIENT_STOPS ||
+        implementation_->resources.size() >=
+            PROGPU_NATIVE_SCENE_MAX_RESOURCES) {
+        return implementation_->fail(scene_build_error::invalid_argument);
+    }
+    progpu_native_scene_layer_geometry_mask mask = source;
+    mask.struct_size = sizeof(mask);
+    mask.kind = PROGPU_NATIVE_SCENE_LAYER_MASK_GEOMETRY;
+    mask.flags = 0U;
+    mask.primitive_offset = 0U;
+    mask.primitive_count = static_cast<std::uint32_t>(primitives.size());
+    mask.gradient_stop_count = static_cast<std::uint32_t>(
+        gradient_stops.size());
+    mask.reserved0 = 0U;
+    mask.reserved1 = 0U;
+    mask.reserved2 = 0U;
+    mask.brush.stop_offset = 0U;
+    if (!semantic::is_valid_semantic_layer_geometry_mask(
+            mask, primitives, gradient_stops)) {
+        return implementation_->fail(scene_build_error::invalid_argument);
+    }
+    const std::size_t primitive_bytes = primitives.size_bytes();
+    if (gradient_stops.size_bytes() >
+        std::numeric_limits<std::size_t>::max() - primitive_bytes) {
+        return implementation_->fail(scene_build_error::capacity_exceeded);
+    }
+    try {
+        implementation_->resources.reserve(
+            implementation_->resources.size() + 1U);
+        implementation::resource_entry resource{};
+        resource.record.struct_size = sizeof(resource.record);
+        resource.record.kind = PROGPU_NATIVE_SCENE_RESOURCE_LAYER_MASK;
+        resource.record.flags = PROGPU_NATIVE_SCENE_RECORD_REQUIRED;
+        resource.record.resource_id = implementation_->resources.size() + 1U;
+        resource.record.generation = implementation_->generation;
+        resource.payload = copy_bytes(
+            std::span<const progpu_native_scene_layer_geometry_mask>(
+                &mask, 1U));
+        resource.auxiliary.resize(
+            primitive_bytes + gradient_stops.size_bytes());
+        std::memcpy(
+            resource.auxiliary.data(),
+            primitives.data(),
+            primitive_bytes);
+        if (!gradient_stops.empty()) {
+            std::memcpy(
+                resource.auxiliary.data() + primitive_bytes,
+                gradient_stops.data(),
+                gradient_stops.size_bytes());
+        }
+        resource_index = static_cast<std::uint32_t>(
+            implementation_->resources.size());
+        implementation_->resources.push_back(std::move(resource));
+        implementation_->error = scene_build_error::none;
+        return true;
+    } catch (const std::bad_alloc&) {
+        return implementation_->fail(scene_build_error::out_of_memory);
+    } catch (...) {
+        return implementation_->fail(scene_build_error::invalid_state);
+    }
+}
+
+bool semantic_scene_builder::add_picture_mask(
+    const progpu_native_scene_layer_picture_mask& source,
+    std::span<const std::byte> nested_scene,
+    std::uint32_t& resource_index) noexcept {
+    resource_index = PROGPU_NATIVE_SCENE_NO_INDEX;
+    if (nested_scene.empty() ||
+        nested_scene.size() > std::numeric_limits<std::uint32_t>::max() ||
+        implementation_->resources.size() >=
+            PROGPU_NATIVE_SCENE_MAX_RESOURCES) {
+        return implementation_->fail(scene_build_error::invalid_argument);
+    }
+    progpu_native_scene_layer_picture_mask mask = source;
+    mask.struct_size = sizeof(mask);
+    mask.kind = PROGPU_NATIVE_SCENE_LAYER_MASK_PICTURE;
+    mask.stream_offset = 0U;
+    mask.stream_size = static_cast<std::uint32_t>(nested_scene.size());
+    if (!semantic::is_valid_semantic_layer_picture_mask(
+            mask, nested_scene)) {
+        return implementation_->fail(scene_build_error::invalid_argument);
+    }
+    try {
+        implementation_->resources.reserve(
+            implementation_->resources.size() + 1U);
+        implementation::resource_entry resource{};
+        resource.record.struct_size = sizeof(resource.record);
+        resource.record.kind = PROGPU_NATIVE_SCENE_RESOURCE_LAYER_MASK;
+        resource.record.flags = PROGPU_NATIVE_SCENE_RECORD_REQUIRED;
+        resource.record.resource_id = implementation_->resources.size() + 1U;
+        resource.record.generation = implementation_->generation;
+        resource.payload = copy_bytes(
+            std::span<const progpu_native_scene_layer_picture_mask>(
+                &mask, 1U));
+        resource.auxiliary.assign(nested_scene.begin(), nested_scene.end());
+        resource_index = static_cast<std::uint32_t>(
+            implementation_->resources.size());
+        implementation_->resources.push_back(std::move(resource));
+        implementation_->error = scene_build_error::none;
+        return true;
+    } catch (const std::bad_alloc&) {
+        return implementation_->fail(scene_build_error::out_of_memory);
+    } catch (...) {
+        return implementation_->fail(scene_build_error::invalid_state);
+    }
+}
+
 bool semantic_scene_builder::add_analytic_mask_chain(
     std::span<const progpu_native_scene_layer_mask> masks,
     std::uint32_t& resource_index) noexcept {
@@ -227,6 +392,134 @@ bool semantic_scene_builder::add_vector_clip_mask(
     }
 }
 
+bool semantic_scene_builder::add_composite_mask(
+    std::span<const progpu_native_scene_layer_brush_mask> brush_masks,
+    std::span<const progpu_native_scene_layer_geometry_mask> geometry_masks,
+    std::span<const progpu_native_geometry_primitive> geometry_primitives,
+    std::span<const progpu_native_scene_layer_picture_mask> picture_masks,
+    std::span<const std::byte> picture_streams,
+    std::span<const progpu_native_scene_clip_path> paths,
+    std::span<const progpu_native_path_segment> segments,
+    std::span<const progpu_native_scene_path_boolean_node> boolean_nodes,
+    std::span<const progpu_native_scene_gradient_stop> gradient_stops,
+    float opacity,
+    std::uint32_t& resource_index) noexcept {
+    resource_index = PROGPU_NATIVE_SCENE_NO_INDEX;
+    const std::size_t maximum_count =
+        std::numeric_limits<std::uint32_t>::max();
+    const std::size_t component_count = brush_masks.size() +
+        geometry_masks.size() + picture_masks.size() +
+        (paths.empty() ? 0U : 1U);
+    if (component_count > maximum_count ||
+        brush_masks.size() > maximum_count ||
+        geometry_masks.size() > maximum_count ||
+        geometry_primitives.size() > maximum_count ||
+        picture_masks.size() > maximum_count ||
+        picture_streams.size() > maximum_count ||
+        paths.size() > maximum_count || segments.size() > maximum_count ||
+        boolean_nodes.size() > maximum_count ||
+        gradient_stops.size() > maximum_count ||
+        implementation_->resources.size() >=
+            PROGPU_NATIVE_SCENE_MAX_RESOURCES) {
+        return implementation_->fail(scene_build_error::invalid_argument);
+    }
+
+    progpu_native_scene_layer_composite_mask mask{};
+    mask.struct_size = sizeof(mask);
+    mask.kind = PROGPU_NATIVE_SCENE_LAYER_MASK_COMPOSITE;
+    mask.component_count = static_cast<std::uint32_t>(component_count);
+    mask.brush_mask_count = static_cast<std::uint32_t>(brush_masks.size());
+    mask.path_count = static_cast<std::uint32_t>(paths.size());
+    mask.segment_count = static_cast<std::uint32_t>(segments.size());
+    mask.boolean_node_count = static_cast<std::uint32_t>(boolean_nodes.size());
+    mask.gradient_stop_count = static_cast<std::uint32_t>(
+        gradient_stops.size());
+    mask.opacity = opacity;
+    mask.geometry_mask_count = static_cast<std::uint32_t>(
+        geometry_masks.size());
+    mask.geometry_primitive_count = static_cast<std::uint32_t>(
+        geometry_primitives.size());
+    mask.picture_mask_count = static_cast<std::uint32_t>(
+        picture_masks.size());
+    mask.picture_stream_bytes = static_cast<std::uint32_t>(
+        picture_streams.size());
+    if (!semantic::is_valid_semantic_layer_composite_mask(
+            mask,
+            brush_masks,
+            geometry_masks,
+            geometry_primitives,
+            picture_masks,
+            picture_streams,
+            paths,
+            segments,
+            boolean_nodes,
+            gradient_stops)) {
+        return implementation_->fail(scene_build_error::invalid_argument);
+    }
+
+    std::size_t auxiliary_size = 0U;
+    const auto add_size = [&](std::size_t size) noexcept {
+        if (size > std::numeric_limits<std::size_t>::max() - auxiliary_size) {
+            return false;
+        }
+        auxiliary_size += size;
+        return true;
+    };
+    if (!add_size(brush_masks.size_bytes()) ||
+        !add_size(geometry_masks.size_bytes()) ||
+        !add_size(geometry_primitives.size_bytes()) ||
+        !add_size(picture_masks.size_bytes()) ||
+        !add_size(picture_streams.size_bytes()) ||
+        !add_size(paths.size_bytes()) || !add_size(segments.size_bytes()) ||
+        !add_size(boolean_nodes.size_bytes()) ||
+        !add_size(gradient_stops.size_bytes()) ||
+        auxiliary_size > maximum_count) {
+        return implementation_->fail(scene_build_error::capacity_exceeded);
+    }
+    try {
+        implementation_->resources.reserve(
+            implementation_->resources.size() + 1U);
+        implementation::resource_entry resource{};
+        resource.record.struct_size = sizeof(resource.record);
+        resource.record.kind = PROGPU_NATIVE_SCENE_RESOURCE_LAYER_MASK;
+        resource.record.flags = PROGPU_NATIVE_SCENE_RECORD_REQUIRED;
+        resource.record.resource_id = implementation_->resources.size() + 1U;
+        resource.record.generation = implementation_->generation;
+        resource.payload = copy_bytes(
+            std::span<const progpu_native_scene_layer_composite_mask>(
+                &mask, 1U));
+        resource.auxiliary.resize(auxiliary_size);
+        std::size_t offset = 0U;
+        const auto append = [&](const auto& values) {
+            if (!values.empty()) {
+                std::memcpy(
+                    resource.auxiliary.data() + offset,
+                    values.data(),
+                    values.size_bytes());
+                offset += values.size_bytes();
+            }
+        };
+        append(brush_masks);
+        append(geometry_masks);
+        append(geometry_primitives);
+        append(picture_masks);
+        append(picture_streams);
+        append(paths);
+        append(segments);
+        append(boolean_nodes);
+        append(gradient_stops);
+        resource_index = static_cast<std::uint32_t>(
+            implementation_->resources.size());
+        implementation_->resources.push_back(std::move(resource));
+        implementation_->error = scene_build_error::none;
+        return true;
+    } catch (const std::bad_alloc&) {
+        return implementation_->fail(scene_build_error::out_of_memory);
+    } catch (...) {
+        return implementation_->fail(scene_build_error::invalid_state);
+    }
+}
+
 bool semantic_scene_builder::add_effect_chain(
     std::span<const progpu_native_group_effect> sources,
     std::uint32_t revision,
@@ -281,26 +574,112 @@ bool semantic_scene_builder::add_effect_chain(
     }
 }
 
+bool semantic_scene_builder::add_tile_composite(
+    const progpu_native_scene_tile_composite& tile,
+    std::uint32_t& resource_index) noexcept {
+    resource_index = PROGPU_NATIVE_SCENE_NO_INDEX;
+    if (!semantic::is_valid_semantic_tile_composite(tile) ||
+        implementation_->resources.size() >= PROGPU_NATIVE_SCENE_MAX_RESOURCES) {
+        return implementation_->fail(scene_build_error::invalid_argument);
+    }
+    try {
+        implementation::resource_entry resource{};
+        resource.record.struct_size = sizeof(resource.record);
+        resource.record.kind = PROGPU_NATIVE_SCENE_RESOURCE_TILE_COMPOSITE;
+        resource.record.flags = PROGPU_NATIVE_SCENE_RECORD_REQUIRED;
+        resource.record.resource_id = implementation_->resources.size() + 1U;
+        resource.record.generation = implementation_->generation;
+        resource.payload = copy_bytes(std::span(&tile, 1U));
+        implementation_->resources.push_back(std::move(resource));
+        resource_index = static_cast<std::uint32_t>(implementation_->resources.size() - 1U);
+        implementation_->error = scene_build_error::none;
+        return true;
+    } catch (const std::bad_alloc&) {
+        return implementation_->fail(scene_build_error::out_of_memory);
+    } catch (...) {
+        return implementation_->fail(scene_build_error::invalid_state);
+    }
+}
+
 bool semantic_scene_builder::push_layer(
     const progpu_native_scene_layer& source) noexcept {
     progpu_native_scene_layer layer = source;
     layer.struct_size = sizeof(layer);
-    layer.reserved0 = 0U;
-    layer.reserved1 = 0U;
+    const bool local_cache = (layer.flags &
+        PROGPU_NATIVE_SCENE_LAYER_CACHE_LOCAL_SPACE) != 0U;
+    const bool explicit_composite_state = (layer.flags &
+        PROGPU_NATIVE_SCENE_LAYER_COMPOSITE_STATE) != 0U;
+    if (!local_cache && !explicit_composite_state) {
+        layer.reserved0 = 0U;
+    }
+    const bool tile_cache = (layer.flags & PROGPU_NATIVE_SCENE_LAYER_CACHE_TILE) != 0U;
+    if (!tile_cache) layer.reserved1 = 0U;
     const auto valid_resource = [&](std::uint32_t index,
                                     std::uint32_t kind) noexcept {
         return index == PROGPU_NATIVE_SCENE_NO_INDEX ||
             (index < implementation_->resources.size() &&
                 implementation_->resources[index].record.kind == kind);
     };
+    const auto valid_composite_state = [&]() noexcept {
+        if (!local_cache && !explicit_composite_state) {
+            return true;
+        }
+        if (layer.reserved0 >= implementation_->resources.size()) {
+            return false;
+        }
+        const auto& resource = implementation_->resources[layer.reserved0];
+        if (resource.record.kind != PROGPU_NATIVE_SCENE_RESOURCE_STATE ||
+            resource.payload.size() != sizeof(progpu_native_scene_state)) {
+            return false;
+        }
+        progpu_native_scene_state state{};
+        std::memcpy(&state, resource.payload.data(), sizeof(state));
+        const std::uint32_t composite_flags = local_cache
+            ? PROGPU_NATIVE_SCENE_STATE_CLIP_RECT |
+                PROGPU_NATIVE_SCENE_STATE_GUIDELINE_SET
+            : PROGPU_NATIVE_SCENE_STATE_CLIP_RECT;
+        const bool guideline_is_valid =
+            (state.flags & PROGPU_NATIVE_SCENE_STATE_GUIDELINE_SET) == 0U ||
+            (state.guideline_resource_index <
+                    implementation_->resources.size() &&
+                implementation_->resources[state.guideline_resource_index]
+                        .record.kind ==
+                    PROGPU_NATIVE_SCENE_RESOURCE_GUIDELINE_SET && [&]() {
+                        const auto& guideline_resource =
+                            implementation_->resources[
+                                state.guideline_resource_index];
+                        progpu_native_scene_guideline_set guidelines{};
+                        std::memcpy(
+                            &guidelines,
+                            guideline_resource.payload.data(),
+                            sizeof(guidelines));
+                        return (guidelines.flags &
+                            PROGPU_NATIVE_SCENE_GUIDELINE_PER_POINT) == 0U;
+                    }());
+        const bool canonical_transform = (local_cache && !tile_cache) ||
+            (state.transform.m11 == 1.0F &&
+                state.transform.m12 == 0.0F &&
+                state.transform.m21 == 0.0F &&
+                state.transform.m22 == 1.0F &&
+                state.transform.m31 == 0.0F &&
+                state.transform.m32 == 0.0F);
+        return (state.flags & ~composite_flags) == 0U &&
+            canonical_transform &&
+            state.opacity == 1.0F && state.mask_resource_index == 0U &&
+            guideline_is_valid && (!tile_cache || state.flags ==
+                (state.flags & PROGPU_NATIVE_SCENE_STATE_CLIP_RECT));
+    };
     const bool materialized = scene::layer_requires_materialization(layer);
     if (!semantic::is_valid_semantic_layer(layer) ||
+        (tile_cache && (layer.reserved1 == PROGPU_NATIVE_SCENE_NO_INDEX ||
+            !valid_resource(layer.reserved1, PROGPU_NATIVE_SCENE_RESOURCE_TILE_COMPOSITE))) ||
         !valid_resource(
             layer.mask_resource_index,
             PROGPU_NATIVE_SCENE_RESOURCE_LAYER_MASK) ||
         !valid_resource(
             layer.effect_resource_index,
-            PROGPU_NATIVE_SCENE_RESOURCE_EFFECT_CHAIN)) {
+            PROGPU_NATIVE_SCENE_RESOURCE_EFFECT_CHAIN) ||
+        !valid_composite_state()) {
         return implementation_->fail(scene_build_error::invalid_argument);
     }
     if (implementation_->stack_depth >=

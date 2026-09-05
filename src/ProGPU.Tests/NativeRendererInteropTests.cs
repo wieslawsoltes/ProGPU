@@ -1,3 +1,4 @@
+using System.Buffers.Binary;
 using System.Numerics;
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
@@ -11,6 +12,1634 @@ namespace Avalonia.ProGpu.UnitTests;
 
 public class NativeRendererInteropTests
 {
+    [Fact]
+    public void NativeMilBuildersWritePointerFreeCanonicalD3DImagePackets()
+    {
+        var batch = new NativeMilBatchBuilder();
+        batch.CreateResource(17, NativeMilResourceType.D3DImage);
+        batch.SetD3DImage(17);
+        batch.PresentD3DImage(17);
+        byte[] encoded = batch.ToArray();
+
+        Assert.Equal(64, encoded.Length);
+        Assert.Equal(16U, ReadUInt32(encoded, 0));
+        Assert.Equal(0x07U, ReadUInt32(encoded, 4));
+        Assert.Equal(17U, ReadUInt32(encoded, 8));
+        Assert.Equal(97U, ReadUInt32(encoded, 12));
+
+        Assert.Equal(28U, ReadUInt32(encoded, 16));
+        Assert.Equal(0x0aU, ReadUInt32(encoded, 20));
+        Assert.Equal(17U, ReadUInt32(encoded, 24));
+        Assert.Equal(0UL, ReadUInt64(encoded, 28));
+        Assert.Equal(0UL, ReadUInt64(encoded, 36));
+
+        Assert.Equal(20U, ReadUInt32(encoded, 44));
+        Assert.Equal(0x0bU, ReadUInt32(encoded, 48));
+        Assert.Equal(17U, ReadUInt32(encoded, 52));
+        Assert.Equal(0UL, ReadUInt64(encoded, 56));
+
+        Assert.Throws<ArgumentOutOfRangeException>(() =>
+            batch.SetD3DImage(0));
+        Assert.Throws<ArgumentOutOfRangeException>(() =>
+            batch.PresentD3DImage(0));
+    }
+
+    [Fact]
+    public void NativeMilBuildersWritePointerFreeBitmapAndMediaPackets()
+    {
+        var batch = new NativeMilBatchBuilder();
+        batch.SetBitmapSource(7);
+        batch.InvalidateBitmapSource(7);
+        batch.InvalidateBitmapSource(7, 1, 2, 3, 4);
+        batch.SetMediaPlayer(8, notifyDirect: true);
+        byte[] encoded = batch.ToArray();
+
+        Assert.Equal(108, encoded.Length);
+        Assert.Equal(20U, ReadUInt32(encoded, 0));
+        Assert.Equal(0x0cU, ReadUInt32(encoded, 4));
+        Assert.Equal(7U, ReadUInt32(encoded, 8));
+        Assert.Equal(0UL, ReadUInt64(encoded, 12));
+
+        Assert.Equal(32U, ReadUInt32(encoded, 20));
+        Assert.Equal(0x0dU, ReadUInt32(encoded, 24));
+        Assert.Equal(7U, ReadUInt32(encoded, 28));
+        Assert.Equal(0U, ReadUInt32(encoded, 32));
+
+        Assert.Equal(32U, ReadUInt32(encoded, 52));
+        Assert.Equal(0x0dU, ReadUInt32(encoded, 56));
+        Assert.Equal(1U, ReadUInt32(encoded, 64));
+        Assert.Equal(1U, ReadUInt32(encoded, 68));
+        Assert.Equal(2U, ReadUInt32(encoded, 72));
+        Assert.Equal(4U, ReadUInt32(encoded, 76));
+        Assert.Equal(6U, ReadUInt32(encoded, 80));
+
+        Assert.Equal(24U, ReadUInt32(encoded, 84));
+        Assert.Equal(0x17U, ReadUInt32(encoded, 88));
+        Assert.Equal(8U, ReadUInt32(encoded, 92));
+        Assert.Equal(0UL, ReadUInt64(encoded, 96));
+        Assert.Equal(1U, ReadUInt32(encoded, 104));
+
+        Assert.Throws<ArgumentOutOfRangeException>(() =>
+            batch.InvalidateBitmapSource(7, 0, 0, 0, 1));
+        Assert.Throws<ArgumentOutOfRangeException>(() =>
+            batch.SetMediaPlayer(0));
+    }
+
+    [Fact]
+    public void NativeMilBuildersWritePointerFreeWriteableBitmapPackets()
+    {
+        var batch = new NativeMilBatchBuilder();
+        batch.CreateResource(
+            9, NativeMilResourceType.DoubleBufferedBitmap);
+        batch.SetDoubleBufferedBitmap(9, useBackBuffer: true);
+        batch.CopyForwardDoubleBufferedBitmap(9);
+        batch.CreateResource(10, NativeMilResourceType.VideoDrawing);
+        batch.SetVideoDrawing(10, 1, 2, 30, 40, 8, 11);
+        byte[] encoded = batch.ToArray();
+
+        Assert.Equal(128, encoded.Length);
+        Assert.Equal(16U, ReadUInt32(encoded, 0));
+        Assert.Equal(96U, ReadUInt32(encoded, 12));
+        Assert.Equal(24U, ReadUInt32(encoded, 16));
+        Assert.Equal(0x3bU, ReadUInt32(encoded, 20));
+        Assert.Equal(9U, ReadUInt32(encoded, 24));
+        Assert.Equal(0UL, ReadUInt64(encoded, 28));
+        Assert.Equal(1U, ReadUInt32(encoded, 36));
+        Assert.Equal(20U, ReadUInt32(encoded, 40));
+        Assert.Equal(0x3cU, ReadUInt32(encoded, 44));
+        Assert.Equal(9U, ReadUInt32(encoded, 48));
+        Assert.Equal(0UL, ReadUInt64(encoded, 52));
+        Assert.Equal(90U, ReadUInt32(encoded, 72));
+        Assert.Equal(52U, ReadUInt32(encoded, 76));
+        Assert.Equal(0x8aU, ReadUInt32(encoded, 80));
+        Assert.Equal(10U, ReadUInt32(encoded, 84));
+        Assert.Equal(1.0, ReadDouble(encoded, 88));
+        Assert.Equal(2.0, ReadDouble(encoded, 96));
+        Assert.Equal(30.0, ReadDouble(encoded, 104));
+        Assert.Equal(40.0, ReadDouble(encoded, 112));
+        Assert.Equal(8U, ReadUInt32(encoded, 120));
+        Assert.Equal(11U, ReadUInt32(encoded, 124));
+
+        Assert.Throws<ArgumentOutOfRangeException>(() =>
+            batch.CopyForwardDoubleBufferedBitmap(0));
+        Assert.Throws<ArgumentOutOfRangeException>(() =>
+            batch.SetVideoDrawing(10, 0, 0, -1, 1, 8));
+    }
+
+    [Fact]
+    public void NativeMilBuilderWritesPointerFreeHwndTargetLifecycle()
+    {
+        var batch = new NativeMilBatchBuilder();
+        batch.CreateHwndTarget(
+            12,
+            640,
+            480,
+            new NativeMilColor(0.1f, 0.2f, 0.3f, 1.0f),
+            0x21,
+            -4,
+            1.25,
+            1.5);
+        batch.SuppressHwndTargetLayeredPresentation(12, true);
+        batch.UpdateHwndTargetWindowSettings(
+            12,
+            new NativeMilWindowSettings(
+                new NativeMilWindowRect(-10, 20, 630, 500),
+                NativeMilWindowLayerType.ApplicationManagedLayer,
+                NativeMilTransparencyMode.ConstantAlpha |
+                    NativeMilTransparencyMode.PerPixelAlpha,
+                0.75f,
+                IsChild: false,
+                IsRtl: true,
+                RenderingEnabled: false,
+                new NativeMilColor(0.4f, 0.5f, 0.6f, 1.0f),
+                DisableCookie: 7,
+                GdiBlt: true));
+        batch.NotifyHwndTargetDpiChanged(12, 2.0, 2.25, afterParent: true);
+        byte[] encoded = batch.ToArray();
+
+        Assert.Equal(220, encoded.Length);
+        Assert.Equal(96U, ReadUInt32(encoded, 0));
+        Assert.Equal(0x31U, ReadUInt32(encoded, 4));
+        Assert.Equal(12U, ReadUInt32(encoded, 8));
+        Assert.Equal(0UL, ReadUInt64(encoded, 12));
+        Assert.Equal(0UL, ReadUInt64(encoded, 20));
+        Assert.Equal(0UL, ReadUInt64(encoded, 28));
+        Assert.Equal(640U, ReadUInt32(encoded, 36));
+        Assert.Equal(480U, ReadUInt32(encoded, 40));
+        Assert.Equal(0.1f, ReadSingle(encoded, 44));
+        Assert.Equal(0.2f, ReadSingle(encoded, 48));
+        Assert.Equal(0.3f, ReadSingle(encoded, 52));
+        Assert.Equal(1.0f, ReadSingle(encoded, 56));
+        Assert.Equal(0x21U, ReadUInt32(encoded, 60));
+        Assert.Equal(0UL, ReadUInt64(encoded, 64));
+        Assert.Equal(unchecked((uint)-4), ReadUInt32(encoded, 76));
+        Assert.Equal(1.25, ReadDouble(encoded, 80));
+        Assert.Equal(1.5, ReadDouble(encoded, 88));
+
+        Assert.Equal(16U, ReadUInt32(encoded, 96));
+        Assert.Equal(0x32U, ReadUInt32(encoded, 100));
+        Assert.Equal(12U, ReadUInt32(encoded, 104));
+        Assert.Equal(1U, ReadUInt32(encoded, 108));
+
+        Assert.Equal(76U, ReadUInt32(encoded, 112));
+        Assert.Equal(0x33U, ReadUInt32(encoded, 116));
+        Assert.Equal(12U, ReadUInt32(encoded, 120));
+        Assert.Equal(unchecked((uint)-10), ReadUInt32(encoded, 124));
+        Assert.Equal(20U, ReadUInt32(encoded, 128));
+        Assert.Equal(630U, ReadUInt32(encoded, 132));
+        Assert.Equal(500U, ReadUInt32(encoded, 136));
+        Assert.Equal(2U, ReadUInt32(encoded, 140));
+        Assert.Equal(3U, ReadUInt32(encoded, 144));
+        Assert.Equal(0.75f, ReadSingle(encoded, 148));
+        Assert.Equal(0U, ReadUInt32(encoded, 152));
+        Assert.Equal(1U, ReadUInt32(encoded, 156));
+        Assert.Equal(0U, ReadUInt32(encoded, 160));
+        Assert.Equal(0.4f, ReadSingle(encoded, 164));
+        Assert.Equal(0.5f, ReadSingle(encoded, 168));
+        Assert.Equal(0.6f, ReadSingle(encoded, 172));
+        Assert.Equal(1.0f, ReadSingle(encoded, 176));
+        Assert.Equal(7U, ReadUInt32(encoded, 180));
+        Assert.Equal(1U, ReadUInt32(encoded, 184));
+
+        Assert.Equal(32U, ReadUInt32(encoded, 188));
+        Assert.Equal(0x39U, ReadUInt32(encoded, 192));
+        Assert.Equal(12U, ReadUInt32(encoded, 196));
+        Assert.Equal(2.0, ReadDouble(encoded, 200));
+        Assert.Equal(2.25, ReadDouble(encoded, 208));
+        Assert.Equal(1U, ReadUInt32(encoded, 216));
+
+        Assert.Throws<ArgumentOutOfRangeException>(() =>
+            batch.CreateHwndTarget(
+                12,
+                1,
+                1,
+                new NativeMilColor(),
+                0,
+                0,
+                0,
+                1));
+        Assert.Throws<ArgumentOutOfRangeException>(() =>
+            batch.UpdateHwndTargetWindowSettings(
+                12,
+                new NativeMilWindowSettings(
+                    new NativeMilWindowRect(),
+                    (NativeMilWindowLayerType)3,
+                    NativeMilTransparencyMode.Opaque,
+                    1,
+                    false,
+                    false,
+                    true,
+                    new NativeMilColor(),
+                    0,
+                    false)));
+    }
+
+    [Fact]
+    public void NativeMilBuildersWriteCanonicalBitmapCachePackets()
+    {
+        var batch = new NativeMilBatchBuilder();
+        batch.CreateResource(8, NativeMilResourceType.BitmapCache);
+        batch.CreateResource(9, NativeMilResourceType.DoubleResource);
+        batch.SetDoubleResource(9, 1.5);
+        batch.SetBitmapCache(
+            8,
+            new NativeMilBitmapCache(
+                RenderAtScale: 7.0,
+                SnapsToDevicePixels: true,
+                EnableClearType: true,
+                RenderAtScaleAnimationHandle: 9));
+        batch.SetVisualCacheMode(2, 8);
+        byte[] encoded = batch.ToArray();
+
+        Assert.Equal(100, encoded.Length);
+        Assert.Equal(16U, ReadUInt32(encoded, 0));
+        Assert.Equal(0x07U, ReadUInt32(encoded, 4));
+        Assert.Equal(8U, ReadUInt32(encoded, 8));
+        Assert.Equal(94U, ReadUInt32(encoded, 12));
+        Assert.Equal(20U, ReadUInt32(encoded, 32));
+        Assert.Equal(0x0eU, ReadUInt32(encoded, 36));
+        Assert.Equal(9U, ReadUInt32(encoded, 40));
+        Assert.Equal(1.5, ReadDouble(encoded, 44));
+        Assert.Equal(32U, ReadUInt32(encoded, 52));
+        Assert.Equal(0x8dU, ReadUInt32(encoded, 56));
+        Assert.Equal(8U, ReadUInt32(encoded, 60));
+        Assert.Equal(7.0, ReadDouble(encoded, 64));
+        Assert.Equal(9U, ReadUInt32(encoded, 72));
+        Assert.Equal(1U, ReadUInt32(encoded, 76));
+        Assert.Equal(1U, ReadUInt32(encoded, 80));
+        Assert.Equal(16U, ReadUInt32(encoded, 84));
+        Assert.Equal(0x1eU, ReadUInt32(encoded, 88));
+        Assert.Equal(2U, ReadUInt32(encoded, 92));
+        Assert.Equal(8U, ReadUInt32(encoded, 96));
+
+        Assert.Throws<ArgumentOutOfRangeException>(() =>
+            batch.SetBitmapCache(
+                8,
+                new NativeMilBitmapCache(RenderAtScale: double.NaN)));
+        Assert.Throws<ArgumentOutOfRangeException>(() =>
+            batch.SetVisualCacheMode(0, 8));
+    }
+
+    [Fact]
+    public void NativeMilBuildersWriteCanonicalTransformPackets()
+    {
+        var matrix = new NativeMilMatrix3x2(
+            1.25,
+            0.5,
+            -0.25,
+            2.0,
+            12.0,
+            -4.0);
+        var batch = new NativeMilBatchBuilder();
+        batch.CreateResource(5, NativeMilResourceType.MatrixTransform);
+        batch.SetMatrixTransform(5, matrix);
+        batch.SetVisualTransform(7, 5);
+        byte[] encoded = batch.ToArray();
+
+        Assert.Equal(96, encoded.Length);
+        Assert.Equal(16U, ReadUInt32(encoded, 0));
+        Assert.Equal(0x07U, ReadUInt32(encoded, 4));
+        Assert.Equal(5U, ReadUInt32(encoded, 8));
+        Assert.Equal(66U, ReadUInt32(encoded, 12));
+
+        Assert.Equal(64U, ReadUInt32(encoded, 16));
+        Assert.Equal(0x77U, ReadUInt32(encoded, 20));
+        Assert.Equal(5U, ReadUInt32(encoded, 24));
+        Assert.Equal(matrix.M11, ReadDouble(encoded, 28));
+        Assert.Equal(matrix.M12, ReadDouble(encoded, 36));
+        Assert.Equal(matrix.M21, ReadDouble(encoded, 44));
+        Assert.Equal(matrix.M22, ReadDouble(encoded, 52));
+        Assert.Equal(matrix.OffsetX, ReadDouble(encoded, 60));
+        Assert.Equal(matrix.OffsetY, ReadDouble(encoded, 68));
+        Assert.Equal(0U, ReadUInt32(encoded, 76));
+
+        Assert.Equal(16U, ReadUInt32(encoded, 80));
+        Assert.Equal(0x1cU, ReadUInt32(encoded, 84));
+        Assert.Equal(7U, ReadUInt32(encoded, 88));
+        Assert.Equal(5U, ReadUInt32(encoded, 92));
+
+        var renderData = new NativeMilRenderDataBuilder();
+        renderData.PushTransform(5);
+        renderData.PushClip(6);
+        byte[] nested = renderData.WrittenSpan.ToArray();
+        Assert.Equal(32, nested.Length);
+        Assert.Equal(16U, ReadUInt32(nested, 0));
+        Assert.Equal(0x51U, ReadUInt32(nested, 4));
+        Assert.Equal(5U, ReadUInt32(nested, 8));
+        Assert.Equal(0U, ReadUInt32(nested, 12));
+        Assert.Equal(16U, ReadUInt32(nested, 16));
+        Assert.Equal(0x4dU, ReadUInt32(nested, 20));
+        Assert.Equal(6U, ReadUInt32(nested, 24));
+        Assert.Equal(0U, ReadUInt32(nested, 28));
+
+        Assert.Throws<ArgumentOutOfRangeException>(() =>
+            batch.SetMatrixTransform(
+                5,
+                matrix with { M11 = double.NaN }));
+        renderData.Clear();
+        renderData.PushTransform(0);
+        Assert.Equal(0U, ReadUInt32(renderData.WrittenSpan.ToArray(), 8));
+        Assert.Throws<ArgumentOutOfRangeException>(() => renderData.PushClip(0));
+    }
+
+    [Fact]
+    public void NativeMilBuilderWritesCanonicalViewport3DCameraAndTransforms()
+    {
+        Assert.Equal(3U, (uint)NativeMilResourceType.AxisAngleRotation3D);
+        Assert.Equal(7U, (uint)NativeMilResourceType.PerspectiveCamera);
+        Assert.Equal(8U, (uint)NativeMilResourceType.OrthographicCamera);
+        Assert.Equal(9U, (uint)NativeMilResourceType.MatrixCamera);
+        Assert.Equal(27U, (uint)NativeMilResourceType.Transform3DGroup);
+        Assert.Equal(29U, (uint)NativeMilResourceType.TranslateTransform3D);
+        Assert.Equal(30U, (uint)NativeMilResourceType.ScaleTransform3D);
+        Assert.Equal(31U, (uint)NativeMilResourceType.RotateTransform3D);
+        Assert.Equal(32U, (uint)NativeMilResourceType.MatrixTransform3D);
+        Assert.Equal(40U, (uint)NativeMilResourceType.Viewport3DVisual);
+        Assert.Equal(55U, (uint)NativeMilResourceType.Point3DResource);
+        Assert.Equal(56U, (uint)NativeMilResourceType.Vector3DResource);
+        Assert.Equal(57U, (uint)NativeMilResourceType.QuaternionResource);
+
+        var batch = new NativeMilBatchBuilder();
+        batch.SetPoint3DResource(50, new Vector3(1, 2, 3));
+        batch.SetVector3DResource(51, new Vector3(4, 5, 6));
+        batch.SetQuaternionResource(52, new Quaternion(0, 0, 0, 1));
+        batch.SetViewport3DVisualCamera(40, 80);
+        batch.SetViewport3DVisualViewport(
+            40,
+            new NativeMilRect(
+                double.PositiveInfinity,
+                double.PositiveInfinity,
+                double.NegativeInfinity,
+                double.NegativeInfinity));
+        batch.SetAxisAngleRotation3D(
+            60,
+            double.NaN,
+            new Vector3(float.NaN),
+            axisAnimationHandle: 51,
+            angleAnimationHandle: 70);
+        batch.SetQuaternionRotation3D(
+            61,
+            new Quaternion(float.NaN, float.NaN, float.NaN, float.NaN),
+            quaternionAnimationHandle: 52);
+        batch.SetPerspectiveCamera(
+            80,
+            double.NaN,
+            double.NaN,
+            double.NaN,
+            new Vector3(float.NaN),
+            new Vector3(float.NaN),
+            new Vector3(float.NaN),
+            transformHandle: 75,
+            nearPlaneDistanceAnimationHandle: 70,
+            farPlaneDistanceAnimationHandle: 71,
+            positionAnimationHandle: 50,
+            lookDirectionAnimationHandle: 51,
+            upDirectionAnimationHandle: 51,
+            fieldOfViewAnimationHandle: 72);
+        batch.SetOrthographicCamera(
+            81,
+            -2,
+            double.PositiveInfinity,
+            20,
+            new Vector3(1, 2, 3),
+            new Vector3(0, 0, -1),
+            Vector3.UnitY);
+        var view = Matrix4x4.CreateTranslation(1, 2, 3);
+        var projection = Matrix4x4.CreateScale(2, 3, 4);
+        batch.SetMatrixCamera(82, view, projection, transformHandle: 76);
+        batch.SetTransform3DGroup(75, [73, 74]);
+        batch.SetTranslateTransform3D(
+            73,
+            double.NaN,
+            2,
+            3,
+            offsetXAnimationHandle: 70);
+        batch.SetScaleTransform3D(74, 2, 3, 4, 5, 6, 7);
+        batch.SetRotateTransform3D(76, 61, 8, 9, 10);
+        var transform = Matrix4x4.CreateTranslation(11, 12, 13);
+        batch.SetMatrixTransform3D(77, transform);
+        byte[] encoded = batch.ToArray();
+
+        int offset = 0;
+        int Next(uint itemSize, uint command, uint handle)
+        {
+            int itemOffset = offset;
+            Assert.Equal(itemSize, ReadUInt32(encoded, itemOffset));
+            Assert.Equal(command, ReadUInt32(encoded, itemOffset + 4));
+            Assert.Equal(handle, ReadUInt32(encoded, itemOffset + 8));
+            offset += checked((int)itemSize);
+            return itemOffset;
+        }
+
+        int point = Next(24, 0x14, 50);
+        Assert.Equal(1F, ReadSingle(encoded, point + 12));
+        int vector = Next(24, 0x15, 51);
+        Assert.Equal(6F, ReadSingle(encoded, vector + 20));
+        int quaternion = Next(28, 0x16, 52);
+        Assert.Equal(1F, ReadSingle(encoded, quaternion + 24));
+
+        int cameraBinding = Next(16, 0x29, 40);
+        Assert.Equal(80U, ReadUInt32(encoded, cameraBinding + 12));
+        int viewport = Next(44, 0x2a, 40);
+        Assert.Equal(
+            double.PositiveInfinity,
+            ReadDouble(encoded, viewport + 12));
+        Assert.Equal(
+            double.NegativeInfinity,
+            ReadDouble(encoded, viewport + 36));
+
+        int axisAngle = Next(40, 0x57, 60);
+        Assert.True(double.IsNaN(ReadDouble(encoded, axisAngle + 12)));
+        Assert.Equal(51U, ReadUInt32(encoded, axisAngle + 32));
+        Assert.Equal(70U, ReadUInt32(encoded, axisAngle + 36));
+        int quaternionRotation = Next(32, 0x58, 61);
+        Assert.True(float.IsNaN(ReadSingle(encoded, quaternionRotation + 12)));
+        Assert.Equal(52U, ReadUInt32(encoded, quaternionRotation + 28));
+
+        int perspective = Next(100, 0x59, 80);
+        Assert.True(double.IsNaN(ReadDouble(encoded, perspective + 12)));
+        Assert.Equal(75U, ReadUInt32(encoded, perspective + 48));
+        Assert.Equal(70U, ReadUInt32(encoded, perspective + 64));
+        Assert.Equal(72U, ReadUInt32(encoded, perspective + 96));
+        int orthographic = Next(100, 0x5a, 81);
+        Assert.Equal(-2.0, ReadDouble(encoded, orthographic + 12));
+        Assert.Equal(
+            double.PositiveInfinity,
+            ReadDouble(encoded, orthographic + 20));
+        Assert.Equal(20.0, ReadDouble(encoded, orthographic + 28));
+        int matrixCamera = Next(144, 0x5b, 82);
+        Assert.Equal(view.M41, ReadSingle(encoded, matrixCamera + 60));
+        Assert.Equal(
+            projection.M22,
+            ReadSingle(encoded, matrixCamera + 96));
+        Assert.Equal(76U, ReadUInt32(encoded, matrixCamera + 140));
+
+        int group = Next(24, 0x67, 75);
+        Assert.Equal(8U, ReadUInt32(encoded, group + 12));
+        Assert.Equal(73U, ReadUInt32(encoded, group + 16));
+        Assert.Equal(74U, ReadUInt32(encoded, group + 20));
+        int translate = Next(48, 0x68, 73);
+        Assert.True(double.IsNaN(ReadDouble(encoded, translate + 12)));
+        Assert.Equal(70U, ReadUInt32(encoded, translate + 36));
+        int scale = Next(84, 0x69, 74);
+        Assert.Equal(2.0, ReadDouble(encoded, scale + 12));
+        Assert.Equal(7.0, ReadDouble(encoded, scale + 52));
+        int rotate = Next(52, 0x6a, 76);
+        Assert.Equal(8.0, ReadDouble(encoded, rotate + 12));
+        Assert.Equal(61U, ReadUInt32(encoded, rotate + 48));
+        int matrixTransform = Next(76, 0x6b, 77);
+        Assert.Equal(
+            transform.M43,
+            ReadSingle(encoded, matrixTransform + 68));
+        Assert.Equal(encoded.Length, offset);
+
+        Assert.Throws<ArgumentOutOfRangeException>(() =>
+            batch.SetViewport3DVisualViewport(
+                40,
+                new NativeMilRect(0, 0, -1, 1)));
+        Assert.Throws<ArgumentOutOfRangeException>(() =>
+            batch.SetAxisAngleRotation3D(
+                60,
+                0,
+                new Vector3(float.NaN)));
+    }
+
+    [Fact]
+    public void NativeMilBuilderWritesCanonicalViewport3DSceneGraph()
+    {
+        Assert.Equal(11U, (uint)NativeMilResourceType.Model3DGroup);
+        Assert.Equal(13U, (uint)NativeMilResourceType.AmbientLight);
+        Assert.Equal(14U, (uint)NativeMilResourceType.DirectionalLight);
+        Assert.Equal(16U, (uint)NativeMilResourceType.PointLight);
+        Assert.Equal(17U, (uint)NativeMilResourceType.SpotLight);
+        Assert.Equal(18U, (uint)NativeMilResourceType.GeometryModel3D);
+        Assert.Equal(20U, (uint)NativeMilResourceType.MeshGeometry3D);
+        Assert.Equal(22U, (uint)NativeMilResourceType.MaterialGroup);
+        Assert.Equal(23U, (uint)NativeMilResourceType.DiffuseMaterial);
+        Assert.Equal(24U, (uint)NativeMilResourceType.SpecularMaterial);
+        Assert.Equal(25U, (uint)NativeMilResourceType.EmissiveMaterial);
+        Assert.Equal(41U, (uint)NativeMilResourceType.Visual3D);
+
+        var white = new NativeMilColor(1, 1, 1, 1);
+        var batch = new NativeMilBatchBuilder();
+        batch.SetViewport3DVisualChild(40, 41);
+        batch.SetVisual3DContent(41, 11);
+        batch.SetVisual3DTransform(41, 29);
+        batch.RemoveAllVisual3DChildren(41);
+        batch.RemoveVisual3DChild(41, 42);
+        batch.InsertVisual3DChild(41, 42, 3);
+        batch.SetModel3DGroup(11, 29, [13, 18]);
+        batch.SetAmbientLight(13, white, 29, 50);
+        batch.SetDirectionalLight(
+            14,
+            white,
+            -Vector3.UnitZ,
+            transformHandle: 29,
+            colorAnimationHandle: 50,
+            directionAnimationHandle: 56);
+        batch.SetPointLight(
+            16,
+            white,
+            20,
+            1,
+            0.1,
+            0.01,
+            new Vector3(1, 2, 3),
+            transformHandle: 29,
+            colorAnimationHandle: 50,
+            positionAnimationHandle: 55,
+            rangeAnimationHandle: 49);
+        batch.SetSpotLight(
+            17,
+            white,
+            30,
+            1,
+            0.05,
+            0.005,
+            60,
+            30,
+            new Vector3(4, 5, 6),
+            -Vector3.UnitZ,
+            transformHandle: 29,
+            directionAnimationHandle: 56,
+            outerConeAngleAnimationHandle: 49,
+            innerConeAngleAnimationHandle: 49);
+        batch.SetGeometryModel3D(18, 29, 20, 22, 23);
+        batch.SetMeshGeometry3D(
+            20,
+            [
+                new Vector3(-0.5F, -0.5F, 0),
+                new Vector3(0.5F, -0.5F, 0),
+                new Vector3(0, 0.5F, 0)
+            ],
+            [],
+            [
+                new NativeMilPoint(0, 1),
+                new NativeMilPoint(1, 1),
+                new NativeMilPoint(0.5, 0)
+            ],
+            [0U, 1U, 2U]);
+        batch.SetMaterialGroup(22, [23, 24, 25]);
+        batch.SetDiffuseMaterial(
+            23,
+            new NativeMilColor(0.5F, 1, 0.5F, 0.5F),
+            new NativeMilColor(0.2F, 0.3F, 0.4F, 1),
+            75);
+        batch.SetSpecularMaterial(
+            24,
+            new NativeMilColor(0.25F, 0.5F, 1, 1),
+            32,
+            75);
+        batch.SetEmissiveMaterial(
+            25,
+            new NativeMilColor(1, 0.5F, 0.25F, 1),
+            75);
+        byte[] encoded = batch.ToArray();
+
+        int offset = 0;
+        int Next(uint itemSize, uint command, uint handle)
+        {
+            int itemOffset = offset;
+            Assert.Equal(itemSize, ReadUInt32(encoded, itemOffset));
+            Assert.Equal(command, ReadUInt32(encoded, itemOffset + 4));
+            Assert.Equal(handle, ReadUInt32(encoded, itemOffset + 8));
+            offset += checked((int)itemSize);
+            return itemOffset;
+        }
+
+        Assert.Equal(41U, ReadUInt32(encoded, Next(16, 0x2b, 40) + 12));
+        Assert.Equal(11U, ReadUInt32(encoded, Next(16, 0x2c, 41) + 12));
+        Assert.Equal(29U, ReadUInt32(encoded, Next(16, 0x2d, 41) + 12));
+        Next(12, 0x2e, 41);
+        Assert.Equal(42U, ReadUInt32(encoded, Next(16, 0x2f, 41) + 12));
+        int insert = Next(20, 0x30, 41);
+        Assert.Equal(42U, ReadUInt32(encoded, insert + 12));
+        Assert.Equal(3U, ReadUInt32(encoded, insert + 16));
+
+        int modelGroup = Next(28, 0x5c, 11);
+        Assert.Equal(29U, ReadUInt32(encoded, modelGroup + 12));
+        Assert.Equal(8U, ReadUInt32(encoded, modelGroup + 16));
+        int ambient = Next(36, 0x5d, 13);
+        Assert.Equal(29U, ReadUInt32(encoded, ambient + 28));
+        Assert.Equal(50U, ReadUInt32(encoded, ambient + 32));
+        int directional = Next(52, 0x5e, 14);
+        Assert.Equal(-1F, ReadSingle(encoded, directional + 36));
+        Assert.Equal(56U, ReadUInt32(encoded, directional + 48));
+        int point = Next(100, 0x5f, 16);
+        Assert.Equal(20.0, ReadDouble(encoded, point + 28));
+        Assert.Equal(3F, ReadSingle(encoded, point + 68));
+        Assert.Equal(55U, ReadUInt32(encoded, point + 80));
+        int spot = Next(140, 0x60, 17);
+        Assert.Equal(60.0, ReadDouble(encoded, spot + 60));
+        Assert.Equal(-1F, ReadSingle(encoded, spot + 100));
+        Assert.Equal(56U, ReadUInt32(encoded, spot + 128));
+        Assert.Equal(49U, ReadUInt32(encoded, spot + 136));
+
+        int geometryModel = Next(28, 0x61, 18);
+        Assert.Equal(20U, ReadUInt32(encoded, geometryModel + 16));
+        Assert.Equal(22U, ReadUInt32(encoded, geometryModel + 20));
+        int mesh = Next(124, 0x62, 20);
+        Assert.Equal(36U, ReadUInt32(encoded, mesh + 12));
+        Assert.Equal(0U, ReadUInt32(encoded, mesh + 16));
+        Assert.Equal(48U, ReadUInt32(encoded, mesh + 20));
+        Assert.Equal(12U, ReadUInt32(encoded, mesh + 24));
+        Assert.Equal(-0.5F, ReadSingle(encoded, mesh + 28));
+        Assert.Equal(1.0, ReadDouble(encoded, mesh + 72));
+        Assert.Equal(2U, ReadUInt32(encoded, mesh + 120));
+        int materials = Next(28, 0x63, 22);
+        Assert.Equal(12U, ReadUInt32(encoded, materials + 12));
+        Assert.Equal(25U, ReadUInt32(encoded, materials + 24));
+        int diffuse = Next(48, 0x64, 23);
+        Assert.Equal(0.5F, ReadSingle(encoded, diffuse + 12));
+        Assert.Equal(75U, ReadUInt32(encoded, diffuse + 44));
+        int specular = Next(40, 0x65, 24);
+        Assert.Equal(32.0, ReadDouble(encoded, specular + 28));
+        Assert.Equal(75U, ReadUInt32(encoded, specular + 36));
+        int emissive = Next(32, 0x66, 25);
+        Assert.Equal(75U, ReadUInt32(encoded, emissive + 28));
+        Assert.Equal(encoded.Length, offset);
+
+        Assert.Throws<ArgumentOutOfRangeException>(() =>
+            batch.SetMeshGeometry3D(
+                20,
+                [new Vector3(float.NaN, 0, 0)],
+                [],
+                [],
+                []));
+    }
+
+    [Fact]
+    public void NativeMilBuildersWriteCanonicalSolidPenAndLinePackets()
+    {
+        var batch = new NativeMilBatchBuilder();
+        batch.SetPen(
+            5,
+            new NativeMilPen(
+                BrushHandle: 4,
+                Thickness: 2.5,
+                StartLineCap: NativeMilPenLineCap.Square,
+                EndLineCap: NativeMilPenLineCap.Round,
+                DashCap: NativeMilPenLineCap.Triangle,
+                LineJoin: NativeMilPenLineJoin.Bevel,
+                MiterLimit: 7.0));
+        byte[] encoded = batch.ToArray();
+
+        Assert.Equal(56, encoded.Length);
+        Assert.Equal(56U, ReadUInt32(encoded, 0));
+        Assert.Equal(0x86U, ReadUInt32(encoded, 4));
+        Assert.Equal(5U, ReadUInt32(encoded, 8));
+        Assert.Equal(2.5, ReadDouble(encoded, 12));
+        Assert.Equal(7.0, ReadDouble(encoded, 20));
+        Assert.Equal(4U, ReadUInt32(encoded, 28));
+        Assert.Equal(0U, ReadUInt32(encoded, 32));
+        Assert.Equal(1U, ReadUInt32(encoded, 36));
+        Assert.Equal(2U, ReadUInt32(encoded, 40));
+        Assert.Equal(3U, ReadUInt32(encoded, 44));
+        Assert.Equal(1U, ReadUInt32(encoded, 48));
+        Assert.Equal(0U, ReadUInt32(encoded, 52));
+
+        var renderData = new NativeMilRenderDataBuilder();
+        renderData.DrawLine(1, 2, 5, 8, 5);
+        byte[] nested = renderData.WrittenSpan.ToArray();
+        Assert.Equal(48, nested.Length);
+        Assert.Equal(48U, ReadUInt32(nested, 0));
+        Assert.Equal(0x3eU, ReadUInt32(nested, 4));
+        Assert.Equal(1.0, ReadDouble(nested, 8));
+        Assert.Equal(2.0, ReadDouble(nested, 16));
+        Assert.Equal(5.0, ReadDouble(nested, 24));
+        Assert.Equal(8.0, ReadDouble(nested, 32));
+        Assert.Equal(5U, ReadUInt32(nested, 40));
+        Assert.Equal(0U, ReadUInt32(nested, 44));
+    }
+
+    [Fact]
+    public void NativeMilRenderDataBuilderWritesCanonicalImagePacket()
+    {
+        var renderData = new NativeMilRenderDataBuilder();
+
+        renderData.DrawImage(new NativeMilRect(2, 3, 40, 24), 7);
+        byte[] encoded = renderData.WrittenSpan.ToArray();
+
+        Assert.Equal(48, encoded.Length);
+        Assert.Equal(48U, ReadUInt32(encoded, 0));
+        Assert.Equal(0x47U, ReadUInt32(encoded, 4));
+        Assert.Equal(2.0, ReadDouble(encoded, 8));
+        Assert.Equal(3.0, ReadDouble(encoded, 16));
+        Assert.Equal(40.0, ReadDouble(encoded, 24));
+        Assert.Equal(24.0, ReadDouble(encoded, 32));
+        Assert.Equal(7U, ReadUInt32(encoded, 40));
+        Assert.Equal(0U, ReadUInt32(encoded, 44));
+        Assert.Throws<ArgumentOutOfRangeException>(() =>
+            renderData.DrawImage(new NativeMilRect(0, 0, 1, 1), 0));
+        Assert.Throws<ArgumentOutOfRangeException>(() =>
+            renderData.DrawImage(
+                new NativeMilRect(0, 0, double.NaN, 1),
+                7));
+    }
+
+    [Fact]
+    public void NativeMilRenderDataBuilderWritesCanonicalVideoPackets()
+    {
+        var batch = new NativeMilBatchBuilder();
+        batch.CreateResource(7, NativeMilResourceType.MediaPlayer);
+        var renderData = new NativeMilRenderDataBuilder();
+
+        renderData.DrawVideo(new NativeMilRect(2, 3, 40, 24), 7);
+        renderData.DrawVideo(new NativeMilRect(4, 5, 20, 12), 7, 8);
+        byte[] resource = batch.ToArray();
+        byte[] encoded = renderData.WrittenSpan.ToArray();
+
+        Assert.Equal(1U, ReadUInt32(resource, 12));
+        Assert.Equal(96, encoded.Length);
+        Assert.Equal(48U, ReadUInt32(encoded, 0));
+        Assert.Equal(0x4bU, ReadUInt32(encoded, 4));
+        Assert.Equal(2.0, ReadDouble(encoded, 8));
+        Assert.Equal(3.0, ReadDouble(encoded, 16));
+        Assert.Equal(40.0, ReadDouble(encoded, 24));
+        Assert.Equal(24.0, ReadDouble(encoded, 32));
+        Assert.Equal(7U, ReadUInt32(encoded, 40));
+        Assert.Equal(0U, ReadUInt32(encoded, 44));
+        Assert.Equal(48U, ReadUInt32(encoded, 48));
+        Assert.Equal(0x4cU, ReadUInt32(encoded, 52));
+        Assert.Equal(7U, ReadUInt32(encoded, 88));
+        Assert.Equal(8U, ReadUInt32(encoded, 92));
+        Assert.Throws<ArgumentOutOfRangeException>(() =>
+            renderData.DrawVideo(new NativeMilRect(0, 0, 1, 1), 0));
+        Assert.Throws<ArgumentOutOfRangeException>(() =>
+            renderData.DrawVideo(
+                new NativeMilRect(0, 0, double.NaN, 1),
+                7));
+    }
+
+    [Fact]
+    public void NativeMilBuildersWriteCanonicalAnimationValuePackets()
+    {
+        var batch = new NativeMilBatchBuilder();
+        batch.SetSizeResource(9, new NativeMilSize(12.5, 8.25));
+        batch.SetRectResource(10, new NativeMilRect(1, 2, 30, 40));
+        byte[] encoded = batch.ToArray();
+
+        Assert.Equal(72, encoded.Length);
+        Assert.Equal(28U, ReadUInt32(encoded, 0));
+        Assert.Equal(0x0fU, ReadUInt32(encoded, 4));
+        Assert.Equal(9U, ReadUInt32(encoded, 8));
+        Assert.Equal(12.5, ReadDouble(encoded, 12));
+        Assert.Equal(8.25, ReadDouble(encoded, 20));
+        Assert.Equal(44U, ReadUInt32(encoded, 28));
+        Assert.Equal(0x11U, ReadUInt32(encoded, 32));
+        Assert.Equal(10U, ReadUInt32(encoded, 36));
+        Assert.Equal(1.0, ReadDouble(encoded, 40));
+        Assert.Equal(2.0, ReadDouble(encoded, 48));
+        Assert.Equal(30.0, ReadDouble(encoded, 56));
+        Assert.Equal(40.0, ReadDouble(encoded, 64));
+
+        Assert.Throws<ArgumentOutOfRangeException>(() =>
+            batch.SetSizeResource(9, new NativeMilSize(-1, 1)));
+        Assert.Throws<ArgumentOutOfRangeException>(() =>
+            batch.SetRectResource(10, new NativeMilRect(0, 0, -1, 1)));
+    }
+
+    [Fact]
+    public void NativeMilRenderDataBuilderWritesCanonicalAnimatedDrawPackets()
+    {
+        var renderData = new NativeMilRenderDataBuilder();
+        renderData.DrawLine(1, 2, 3, 4, 5, 6, 7);
+        renderData.DrawRectangle(8, 9, 10, 11, 12, 13, 14);
+        renderData.DrawRoundedRectangle(
+            15, 16, 17, 18, 2, 3, 19, 20, 21, 22, 23);
+        renderData.DrawEllipse(24, 25, 4, 5, 26, 27, 28, 29, 30);
+        renderData.DrawImage(new NativeMilRect(31, 32, 33, 34), 35, 36);
+        byte[] encoded = renderData.WrittenSpan.ToArray();
+
+        Assert.Equal(304, encoded.Length);
+        Assert.Equal(56U, ReadUInt32(encoded, 0));
+        Assert.Equal(0x3fU, ReadUInt32(encoded, 4));
+        Assert.Equal(6U, ReadUInt32(encoded, 44));
+        Assert.Equal(7U, ReadUInt32(encoded, 48));
+        Assert.Equal(0U, ReadUInt32(encoded, 52));
+
+        Assert.Equal(56U, ReadUInt32(encoded, 56));
+        Assert.Equal(0x41U, ReadUInt32(encoded, 60));
+        Assert.Equal(14U, ReadUInt32(encoded, 104));
+        Assert.Equal(0U, ReadUInt32(encoded, 108));
+
+        Assert.Equal(80U, ReadUInt32(encoded, 112));
+        Assert.Equal(0x43U, ReadUInt32(encoded, 116));
+        Assert.Equal(21U, ReadUInt32(encoded, 176));
+        Assert.Equal(22U, ReadUInt32(encoded, 180));
+        Assert.Equal(23U, ReadUInt32(encoded, 184));
+        Assert.Equal(0U, ReadUInt32(encoded, 188));
+
+        Assert.Equal(64U, ReadUInt32(encoded, 192));
+        Assert.Equal(0x45U, ReadUInt32(encoded, 196));
+        Assert.Equal(28U, ReadUInt32(encoded, 240));
+        Assert.Equal(29U, ReadUInt32(encoded, 244));
+        Assert.Equal(30U, ReadUInt32(encoded, 248));
+        Assert.Equal(0U, ReadUInt32(encoded, 252));
+
+        Assert.Equal(48U, ReadUInt32(encoded, 256));
+        Assert.Equal(0x48U, ReadUInt32(encoded, 260));
+        Assert.Equal(35U, ReadUInt32(encoded, 296));
+        Assert.Equal(36U, ReadUInt32(encoded, 300));
+    }
+
+    [Fact]
+    public void NativeMilBuildersWriteCanonicalGeometryDrawingPackets()
+    {
+        var batch = new NativeMilBatchBuilder();
+        batch.CreateResource(7, NativeMilResourceType.GeometryDrawing);
+        batch.SetGeometryDrawing(7, 4, 5, 6);
+        byte[] encoded = batch.ToArray();
+
+        Assert.Equal(40, encoded.Length);
+        Assert.Equal(16U, ReadUInt32(encoded, 0));
+        Assert.Equal(0x07U, ReadUInt32(encoded, 4));
+        Assert.Equal(7U, ReadUInt32(encoded, 8));
+        Assert.Equal(87U, ReadUInt32(encoded, 12));
+        Assert.Equal(24U, ReadUInt32(encoded, 16));
+        Assert.Equal(0x87U, ReadUInt32(encoded, 20));
+        Assert.Equal(7U, ReadUInt32(encoded, 24));
+        Assert.Equal(4U, ReadUInt32(encoded, 28));
+        Assert.Equal(5U, ReadUInt32(encoded, 32));
+        Assert.Equal(6U, ReadUInt32(encoded, 36));
+
+        var renderData = new NativeMilRenderDataBuilder();
+        renderData.DrawDrawing(7);
+        byte[] nested = renderData.WrittenSpan.ToArray();
+        Assert.Equal(16, nested.Length);
+        Assert.Equal(16U, ReadUInt32(nested, 0));
+        Assert.Equal(0x4aU, ReadUInt32(nested, 4));
+        Assert.Equal(7U, ReadUInt32(nested, 8));
+        Assert.Equal(0U, ReadUInt32(nested, 12));
+        Assert.Throws<ArgumentOutOfRangeException>(() =>
+            renderData.DrawDrawing(0));
+    }
+
+    [Fact]
+    public void NativeMilBuildersWriteCanonicalImageDrawingPackets()
+    {
+        var batch = new NativeMilBatchBuilder();
+        batch.CreateResource(7, NativeMilResourceType.ImageDrawing);
+        batch.SetImageDrawing(7, 1.5, 2.5, 30, 40, 8);
+        byte[] encoded = batch.ToArray();
+
+        Assert.Equal(68, encoded.Length);
+        Assert.Equal(16U, ReadUInt32(encoded, 0));
+        Assert.Equal(0x07U, ReadUInt32(encoded, 4));
+        Assert.Equal(7U, ReadUInt32(encoded, 8));
+        Assert.Equal(89U, ReadUInt32(encoded, 12));
+        Assert.Equal(52U, ReadUInt32(encoded, 16));
+        Assert.Equal(0x89U, ReadUInt32(encoded, 20));
+        Assert.Equal(7U, ReadUInt32(encoded, 24));
+        Assert.Equal(1.5, ReadDouble(encoded, 28));
+        Assert.Equal(2.5, ReadDouble(encoded, 36));
+        Assert.Equal(30.0, ReadDouble(encoded, 44));
+        Assert.Equal(40.0, ReadDouble(encoded, 52));
+        Assert.Equal(8U, ReadUInt32(encoded, 60));
+        Assert.Equal(0U, ReadUInt32(encoded, 64));
+        Assert.Throws<ArgumentOutOfRangeException>(() =>
+            batch.SetImageDrawing(7, 0, 0, -1, 1, 8));
+    }
+
+    [Fact]
+    public void NativeMilBuildersWriteCanonicalDrawingImagePackets()
+    {
+        var batch = new NativeMilBatchBuilder();
+        batch.CreateResource(7, NativeMilResourceType.DrawingImage);
+        batch.SetDrawingImage(7, 8);
+        byte[] encoded = batch.ToArray();
+
+        Assert.Equal(32, encoded.Length);
+        Assert.Equal(16U, ReadUInt32(encoded, 0));
+        Assert.Equal(0x07U, ReadUInt32(encoded, 4));
+        Assert.Equal(7U, ReadUInt32(encoded, 8));
+        Assert.Equal(59U, ReadUInt32(encoded, 12));
+        Assert.Equal(16U, ReadUInt32(encoded, 16));
+        Assert.Equal(0x71U, ReadUInt32(encoded, 20));
+        Assert.Equal(7U, ReadUInt32(encoded, 24));
+        Assert.Equal(8U, ReadUInt32(encoded, 28));
+    }
+
+    [Fact]
+    public void NativeMilBuildersWriteCanonicalGlyphRunPackets()
+    {
+        var batch = new NativeMilBatchBuilder();
+        batch.SetGlyphRun(
+            7,
+            new NativeMilGlyphRun(
+                new NativeMilPoint(10, 20),
+                18,
+                new NativeMilRect(8, 4, 42, 24),
+                BidiLevel: 1,
+                MeasuringMethod: NativeMilTextMeasuringMethod.GdiNatural),
+            [3, 4],
+            [7.5f, 8.5f],
+            [new Vector2(1, -2), new Vector2(0.5f, 3)]);
+        batch.CreateResource(8, NativeMilResourceType.GlyphRunDrawing);
+        batch.SetGlyphRunDrawing(8, 7, 9);
+        byte[] encoded = batch.ToArray();
+
+        Assert.Equal(144, encoded.Length);
+        Assert.Equal(108U, ReadUInt32(encoded, 0));
+        Assert.Equal(0x3aU, ReadUInt32(encoded, 4));
+        Assert.Equal(7U, ReadUInt32(encoded, 8));
+        Assert.Equal(0UL, ReadUInt64(encoded, 12));
+        Assert.Equal(0x10U, ReadUInt16(encoded, 20));
+        Assert.Equal(10f, ReadSingle(encoded, 24));
+        Assert.Equal(20f, ReadSingle(encoded, 28));
+        Assert.Equal(18f, ReadSingle(encoded, 32));
+        Assert.Equal(8.0, ReadDouble(encoded, 36));
+        Assert.Equal(4.0, ReadDouble(encoded, 44));
+        Assert.Equal(42.0, ReadDouble(encoded, 52));
+        Assert.Equal(24.0, ReadDouble(encoded, 60));
+        Assert.Equal(2U, ReadUInt16(encoded, 68));
+        Assert.Equal(1U, ReadUInt16(encoded, 72));
+        Assert.Equal(2U, ReadUInt16(encoded, 76));
+        Assert.Equal(3U, ReadUInt16(encoded, 80));
+        Assert.Equal(4U, ReadUInt16(encoded, 82));
+        Assert.Equal(7.5f, ReadSingle(encoded, 84));
+        Assert.Equal(8.5f, ReadSingle(encoded, 88));
+        Assert.Equal(1f, ReadSingle(encoded, 92));
+        Assert.Equal(-2f, ReadSingle(encoded, 96));
+        Assert.Equal(0.5f, ReadSingle(encoded, 100));
+        Assert.Equal(3f, ReadSingle(encoded, 104));
+        Assert.Equal(16U, ReadUInt32(encoded, 108));
+        Assert.Equal(0x07U, ReadUInt32(encoded, 112));
+        Assert.Equal(8U, ReadUInt32(encoded, 116));
+        Assert.Equal(88U, ReadUInt32(encoded, 120));
+        Assert.Equal(20U, ReadUInt32(encoded, 124));
+        Assert.Equal(0x88U, ReadUInt32(encoded, 128));
+        Assert.Equal(8U, ReadUInt32(encoded, 132));
+        Assert.Equal(7U, ReadUInt32(encoded, 136));
+        Assert.Equal(9U, ReadUInt32(encoded, 140));
+
+        var renderData = new NativeMilRenderDataBuilder();
+        renderData.DrawGlyphRun(9, 7);
+        byte[] nested = renderData.WrittenSpan.ToArray();
+        Assert.Equal(16, nested.Length);
+        Assert.Equal(16U, ReadUInt32(nested, 0));
+        Assert.Equal(0x49U, ReadUInt32(nested, 4));
+        Assert.Equal(9U, ReadUInt32(nested, 8));
+        Assert.Equal(7U, ReadUInt32(nested, 12));
+
+        Assert.Throws<ArgumentOutOfRangeException>(() =>
+            batch.SetGlyphRun(
+                7,
+                new NativeMilGlyphRun(
+                    new NativeMilPoint(0, 0),
+                    0,
+                    new NativeMilRect(0, 0, 1, 1)),
+                [1],
+                [1f]));
+    }
+
+    [Fact]
+    public void NativeMilBuildersWriteCanonicalDrawingGroupPackets()
+    {
+        var batch = new NativeMilBatchBuilder();
+        batch.CreateResource(7, NativeMilResourceType.DrawingGroup);
+        batch.SetDrawingGroup(
+            7,
+            new NativeMilDrawingGroup(
+                0.75,
+                ClipGeometryHandle: 2,
+                OpacityAnimationHandle: 3,
+                OpacityMaskHandle: 4,
+                TransformHandle: 5,
+                GuidelineSetHandle: 6,
+                EdgeMode: NativeMilEdgeMode.Aliased,
+                BitmapScalingMode:
+                    NativeMilBitmapScalingMode.NearestNeighbor,
+                ClearTypeHint: NativeMilClearTypeHint.Enabled),
+            [8, 9]);
+        byte[] encoded = batch.ToArray();
+
+        Assert.Equal(80, encoded.Length);
+        Assert.Equal(64U, ReadUInt32(encoded, 16));
+        Assert.Equal(0x8bU, ReadUInt32(encoded, 20));
+        Assert.Equal(7U, ReadUInt32(encoded, 24));
+        Assert.Equal(0.75, ReadDouble(encoded, 28));
+        Assert.Equal(8U, ReadUInt32(encoded, 36));
+        Assert.Equal(2U, ReadUInt32(encoded, 40));
+        Assert.Equal(3U, ReadUInt32(encoded, 44));
+        Assert.Equal(4U, ReadUInt32(encoded, 48));
+        Assert.Equal(5U, ReadUInt32(encoded, 52));
+        Assert.Equal(6U, ReadUInt32(encoded, 56));
+        Assert.Equal(1U, ReadUInt32(encoded, 60));
+        Assert.Equal(3U, ReadUInt32(encoded, 64));
+        Assert.Equal(1U, ReadUInt32(encoded, 68));
+        Assert.Equal(8U, ReadUInt32(encoded, 72));
+        Assert.Equal(9U, ReadUInt32(encoded, 76));
+    }
+
+    [Fact]
+    public void NativeMilBuildersWriteCanonicalVisualRenderOptionsPacket()
+    {
+        var batch = new NativeMilBatchBuilder();
+        batch.SetVisualRenderOptions(
+            7,
+            new NativeMilRenderOptions(
+                NativeMilRenderOptionFlags.BitmapScalingMode |
+                NativeMilRenderOptionFlags.EdgeMode |
+                NativeMilRenderOptionFlags.ClearTypeHint |
+                NativeMilRenderOptionFlags.TextRenderingMode |
+                NativeMilRenderOptionFlags.TextHintingMode,
+                NativeMilEdgeMode.Aliased,
+                NativeMilBitmapScalingMode.NearestNeighbor,
+                NativeMilClearTypeHint.Enabled,
+                NativeMilTextRenderingMode.ClearType,
+                NativeMilTextHintingMode.Fixed));
+        byte[] encoded = batch.ToArray();
+
+        Assert.Equal(40, encoded.Length);
+        Assert.Equal(40U, ReadUInt32(encoded, 0));
+        Assert.Equal(0x21U, ReadUInt32(encoded, 4));
+        Assert.Equal(7U, ReadUInt32(encoded, 8));
+        Assert.Equal(0x3bU, ReadUInt32(encoded, 12));
+        Assert.Equal(1U, ReadUInt32(encoded, 16));
+        Assert.Equal(0U, ReadUInt32(encoded, 20));
+        Assert.Equal(3U, ReadUInt32(encoded, 24));
+        Assert.Equal(1U, ReadUInt32(encoded, 28));
+        Assert.Equal(3U, ReadUInt32(encoded, 32));
+        Assert.Equal(1U, ReadUInt32(encoded, 36));
+
+        Assert.Throws<ArgumentOutOfRangeException>(() =>
+            batch.SetVisualRenderOptions(
+                7,
+                new NativeMilRenderOptions(
+                    NativeMilRenderOptionFlags.CompositingMode)));
+    }
+
+    [Fact]
+    public void NativeMilBuildersWriteCanonicalVisualClipPackets()
+    {
+        var batch = new NativeMilBatchBuilder();
+        batch.SetVisualClip(7, 9);
+        batch.SetVisualScrollableAreaClip(
+            7,
+            new NativeMilRect(1.5, 2.5, 30.5, 40.5));
+        byte[] encoded = batch.ToArray();
+
+        Assert.Equal(64, encoded.Length);
+        Assert.Equal(16U, ReadUInt32(encoded, 0));
+        Assert.Equal(0x1fU, ReadUInt32(encoded, 4));
+        Assert.Equal(7U, ReadUInt32(encoded, 8));
+        Assert.Equal(9U, ReadUInt32(encoded, 12));
+        Assert.Equal(48U, ReadUInt32(encoded, 16));
+        Assert.Equal(0x28U, ReadUInt32(encoded, 20));
+        Assert.Equal(7U, ReadUInt32(encoded, 24));
+        Assert.Equal(1.5, ReadDouble(encoded, 28));
+        Assert.Equal(2.5, ReadDouble(encoded, 36));
+        Assert.Equal(30.5, ReadDouble(encoded, 44));
+        Assert.Equal(40.5, ReadDouble(encoded, 52));
+        Assert.Equal(1U, ReadUInt32(encoded, 60));
+    }
+
+    [Fact]
+    public void NativeMilBuildersWriteCanonicalVisualOpacityMaskPacket()
+    {
+        var batch = new NativeMilBatchBuilder();
+        batch.SetVisualOpacityMask(7, 9);
+        byte[] encoded = batch.ToArray();
+
+        Assert.Equal(16, encoded.Length);
+        Assert.Equal(16U, ReadUInt32(encoded, 0));
+        Assert.Equal(0x23U, ReadUInt32(encoded, 4));
+        Assert.Equal(7U, ReadUInt32(encoded, 8));
+        Assert.Equal(9U, ReadUInt32(encoded, 12));
+    }
+
+    [Fact]
+    public void NativeMilBuildersWriteCanonicalVisualGuidelinePacket()
+    {
+        var batch = new NativeMilBatchBuilder();
+        batch.SetVisualGuidelines(7, [2.25], [3.5]);
+        byte[] encoded = batch.ToArray();
+
+        Assert.Equal(28, encoded.Length);
+        Assert.Equal(28U, ReadUInt32(encoded, 0));
+        Assert.Equal(0x27U, ReadUInt32(encoded, 4));
+        Assert.Equal(7U, ReadUInt32(encoded, 8));
+        Assert.Equal(1U, ReadUInt16(encoded, 12));
+        Assert.Equal(0U, ReadUInt16(encoded, 14));
+        Assert.Equal(1U, ReadUInt16(encoded, 16));
+        Assert.Equal(0U, ReadUInt16(encoded, 18));
+        Assert.Equal(2.25F, ReadSingle(encoded, 20));
+        Assert.Equal(3.5F, ReadSingle(encoded, 24));
+    }
+
+    [Fact]
+    public void NativeMilBuildersWriteCanonicalRenderDataGuidelineScope()
+    {
+        var renderData = new NativeMilRenderDataBuilder();
+        renderData.PushGuidelineSet(9);
+        renderData.Pop();
+        byte[] encoded = renderData.WrittenSpan.ToArray();
+
+        Assert.Equal(24, encoded.Length);
+        Assert.Equal(16U, ReadUInt32(encoded, 0));
+        Assert.Equal(0x52U, ReadUInt32(encoded, 4));
+        Assert.Equal(9U, ReadUInt32(encoded, 8));
+        Assert.Equal(0U, ReadUInt32(encoded, 12));
+        Assert.Equal(8U, ReadUInt32(encoded, 16));
+        Assert.Equal(0x56U, ReadUInt32(encoded, 20));
+
+        renderData.Clear();
+        renderData.PushGuidelineSet(0);
+        Assert.Equal(16, renderData.Length);
+    }
+
+    [Fact]
+    public void NativeMilBuildersWriteCanonicalAnimatedOpacityScope()
+    {
+        var renderData = new NativeMilRenderDataBuilder();
+        renderData.PushOpacity(0.75, 11);
+        byte[] encoded = renderData.WrittenSpan.ToArray();
+
+        Assert.Equal(24, encoded.Length);
+        Assert.Equal(24U, ReadUInt32(encoded, 0));
+        Assert.Equal(0x50U, ReadUInt32(encoded, 4));
+        Assert.Equal(0.75, ReadDouble(encoded, 8));
+        Assert.Equal(11U, ReadUInt32(encoded, 16));
+        Assert.Equal(0U, ReadUInt32(encoded, 20));
+
+        Assert.Throws<ArgumentOutOfRangeException>(() =>
+            renderData.PushOpacity(double.NaN, 11));
+    }
+
+    [Fact]
+    public void NativeMilBuildersWriteCanonicalOpacityMaskScope()
+    {
+        var renderData = new NativeMilRenderDataBuilder();
+        renderData.PushOpacityMask(new NativeMilRect(2, 3, 10, 20), 11);
+        byte[] encoded = renderData.WrittenSpan.ToArray();
+
+        Assert.Equal(32, encoded.Length);
+        Assert.Equal(32U, ReadUInt32(encoded, 0));
+        Assert.Equal(0x4eU, ReadUInt32(encoded, 4));
+        Assert.Equal(2F, ReadSingle(encoded, 8));
+        Assert.Equal(3F, ReadSingle(encoded, 12));
+        Assert.Equal(12F, ReadSingle(encoded, 16));
+        Assert.Equal(23F, ReadSingle(encoded, 20));
+        Assert.Equal(11U, ReadUInt32(encoded, 24));
+        Assert.Equal(0U, ReadUInt32(encoded, 28));
+
+        Assert.Throws<ArgumentOutOfRangeException>(() =>
+            renderData.PushOpacityMask(default, 0));
+        Assert.Throws<ArgumentOutOfRangeException>(() =>
+            renderData.PushOpacityMask(
+                new NativeMilRect(0, 0, double.NaN, 1), 11));
+    }
+
+    [Fact]
+    public void NativeMilBuildersWriteCanonicalVisualEffectPackets()
+    {
+        var batch = new NativeMilBatchBuilder();
+        batch.SetVisualEffect(7, 9);
+        batch.SetBlurEffect(9, 5.5, NativeMilEffectRenderingBias.Quality);
+        batch.SetDropShadowEffect(
+            10,
+            4.0,
+            new NativeMilColor(0.1f, 0.2f, 0.3f, 0.5f),
+            315.0,
+            0.4,
+            6.5);
+        byte[] encoded = batch.ToArray();
+
+        Assert.Equal(132, encoded.Length);
+        Assert.Equal(16U, ReadUInt32(encoded, 0));
+        Assert.Equal(0x1dU, ReadUInt32(encoded, 4));
+        Assert.Equal(7U, ReadUInt32(encoded, 8));
+        Assert.Equal(9U, ReadUInt32(encoded, 12));
+        Assert.Equal(32U, ReadUInt32(encoded, 16));
+        Assert.Equal(0x6eU, ReadUInt32(encoded, 20));
+        Assert.Equal(9U, ReadUInt32(encoded, 24));
+        Assert.Equal(5.5, ReadDouble(encoded, 28));
+        Assert.Equal(0U, ReadUInt32(encoded, 36));
+        Assert.Equal(0U, ReadUInt32(encoded, 40));
+        Assert.Equal(1U, ReadUInt32(encoded, 44));
+        Assert.Equal(84U, ReadUInt32(encoded, 48));
+        Assert.Equal(0x6fU, ReadUInt32(encoded, 52));
+        Assert.Equal(10U, ReadUInt32(encoded, 56));
+        Assert.Equal(4.0, ReadDouble(encoded, 60));
+        Assert.Equal(0.1f, ReadSingle(encoded, 68));
+        Assert.Equal(0.5f, ReadSingle(encoded, 80));
+        Assert.Equal(315.0, ReadDouble(encoded, 84));
+        Assert.Equal(0.4, ReadDouble(encoded, 92));
+        Assert.Equal(6.5, ReadDouble(encoded, 100));
+        Assert.Equal(0U, ReadUInt32(encoded, 128));
+
+        var boxBatch = new NativeMilBatchBuilder();
+        boxBatch.SetBlurEffect(
+            12,
+            7.0,
+            NativeMilEffectRenderingBias.Performance,
+            NativeMilBlurKernelType.Box);
+        byte[] boxEncoded = boxBatch.ToArray();
+        Assert.Equal(1U, ReadUInt32(boxEncoded, 24));
+        Assert.Throws<ArgumentOutOfRangeException>(() =>
+            boxBatch.SetBlurEffect(
+                12,
+                7.0,
+                kernelType: (NativeMilBlurKernelType)2U));
+    }
+
+    [Fact]
+    public void NativeMilBuildersWriteCanonicalGradientPackets()
+    {
+        var stops = new[]
+        {
+            new NativeMilGradientStop(
+                -0.25,
+                new NativeMilColor(1f, 0f, 0f, 1f)),
+            new NativeMilGradientStop(
+                1.25,
+                new NativeMilColor(0f, 0f, 1f, 0.5f))
+        };
+        var batch = new NativeMilBatchBuilder();
+        batch.SetPointResource(3, new NativeMilPoint(0.25, 0.75));
+        batch.SetLinearGradientBrush(
+            4,
+            new NativeMilLinearGradientBrush(
+                new NativeMilPoint(0, 0),
+                new NativeMilPoint(1, 1),
+                Opacity: 0.75,
+                Interpolation: NativeMilGradientInterpolation.ScRgb,
+                MappingMode: NativeMilBrushMappingMode.RelativeToBoundingBox,
+                SpreadMethod: NativeMilGradientSpreadMethod.Reflect,
+                OpacityAnimationHandle: 8,
+                TransformHandle: 9,
+                RelativeTransformHandle: 10,
+                StartPointAnimationHandle: 3,
+                EndPointAnimationHandle: 5),
+            stops);
+        batch.SetRadialGradientBrush(
+            6,
+            new NativeMilRadialGradientBrush(
+                new NativeMilPoint(20, 30),
+                new NativeMilPoint(18, 29),
+                12,
+                8,
+                Opacity: 0.5,
+                Interpolation: NativeMilGradientInterpolation.SRgb,
+                MappingMode: NativeMilBrushMappingMode.Absolute,
+                SpreadMethod: NativeMilGradientSpreadMethod.Repeat,
+                RadiusXAnimationHandle: 11,
+                RadiusYAnimationHandle: 12),
+            stops[..1]);
+
+        byte[] encoded = batch.ToArray();
+        Assert.Equal(28U, ReadUInt32(encoded, 0));
+        Assert.Equal(0x10U, ReadUInt32(encoded, 4));
+        Assert.Equal(3U, ReadUInt32(encoded, 8));
+        Assert.Equal(0.25, ReadDouble(encoded, 12));
+        Assert.Equal(0.75, ReadDouble(encoded, 20));
+
+        const int linearItemOffset = 28;
+        Assert.Equal(136U, ReadUInt32(encoded, linearItemOffset));
+        Assert.Equal(0x7fU, ReadUInt32(encoded, linearItemOffset + 4));
+        Assert.Equal(4U, ReadUInt32(encoded, linearItemOffset + 8));
+        Assert.Equal(0.75, ReadDouble(encoded, linearItemOffset + 12));
+        Assert.Equal(48U, ReadUInt32(encoded, linearItemOffset + 76));
+        Assert.Equal(3U, ReadUInt32(encoded, linearItemOffset + 80));
+        Assert.Equal(5U, ReadUInt32(encoded, linearItemOffset + 84));
+        Assert.Equal(-0.25, ReadDouble(encoded, linearItemOffset + 88));
+
+        const int radialItemOffset = linearItemOffset + 136;
+        Assert.Equal(136U, ReadUInt32(encoded, radialItemOffset));
+        Assert.Equal(0x80U, ReadUInt32(encoded, radialItemOffset + 4));
+        Assert.Equal(6U, ReadUInt32(encoded, radialItemOffset + 8));
+        Assert.Equal(12.0, ReadDouble(encoded, radialItemOffset + 36));
+        Assert.Equal(8.0, ReadDouble(encoded, radialItemOffset + 44));
+        Assert.Equal(24U, ReadUInt32(encoded, radialItemOffset + 92));
+        Assert.Equal(11U, ReadUInt32(encoded, radialItemOffset + 100));
+        Assert.Equal(12U, ReadUInt32(encoded, radialItemOffset + 104));
+    }
+
+    [Fact]
+    public void NativeMilBuildersWritePenOnlyClosedPrimitivePackets()
+    {
+        var renderData = new NativeMilRenderDataBuilder();
+        renderData.DrawRectangle(1, 2, 5, 8, 0, 5);
+        renderData.DrawEllipse(4, 6, 3, 2, 0, 5);
+        renderData.DrawRoundedRectangle(2, 3, 8, 6, 2, 2, 0, 5);
+        byte[] nested = renderData.WrittenSpan.ToArray();
+
+        Assert.Equal(160, nested.Length);
+
+        Assert.Equal(48U, ReadUInt32(nested, 0));
+        Assert.Equal(0x40U, ReadUInt32(nested, 4));
+        Assert.Equal(0U, ReadUInt32(nested, 40));
+        Assert.Equal(5U, ReadUInt32(nested, 44));
+
+        Assert.Equal(48U, ReadUInt32(nested, 48));
+        Assert.Equal(0x44U, ReadUInt32(nested, 52));
+        Assert.Equal(0U, ReadUInt32(nested, 88));
+        Assert.Equal(5U, ReadUInt32(nested, 92));
+
+        Assert.Equal(64U, ReadUInt32(nested, 96));
+        Assert.Equal(0x42U, ReadUInt32(nested, 100));
+        Assert.Equal(0U, ReadUInt32(nested, 152));
+        Assert.Equal(5U, ReadUInt32(nested, 156));
+    }
+
+    [Fact]
+    public void NativeMilBuildersWriteCanonicalPrimitiveGeometryPackets()
+    {
+        var batch = new NativeMilBatchBuilder();
+        batch.SetLineGeometry(9, 1, 2, 5, 8, 6);
+        batch.SetRectangleGeometry(10, 2, 3, 20, 12, 4, 5, 6);
+        batch.SetEllipseGeometry(11, 8, 9, 6, 7, 6);
+        batch.SetPathGeometry(
+            12,
+            new NativeMilPathGeometry(
+                NativeMilPathFillRule.Nonzero,
+                1,
+                2,
+                20,
+                30,
+                [
+                    new NativeMilPathFigure(
+                        new NativeMilPoint(1, 2),
+                        IsFilled: true,
+                        IsClosed: true,
+                        [
+                            NativeMilPathSegment.Line(
+                                new NativeMilPoint(5, 8)),
+                            NativeMilPathSegment.QuadraticBezier(
+                                new NativeMilPoint(7, 3),
+                                new NativeMilPoint(9, 10)),
+                            NativeMilPathSegment.CubicBezier(
+                                new NativeMilPoint(11, 4),
+                                new NativeMilPoint(13, 12),
+                                new NativeMilPoint(15, 6)),
+                            NativeMilPathSegment.Arc(
+                                new NativeMilPoint(1, 2),
+                                8,
+                                6,
+                                30,
+                                isLargeArc: false,
+                                isClockwise: true)
+                        ])
+                ]),
+            6);
+        byte[] encoded = batch.ToArray();
+
+        Assert.Equal(512, encoded.Length);
+        Assert.Equal(56U, ReadUInt32(encoded, 0));
+        Assert.Equal(0x78U, ReadUInt32(encoded, 4));
+        Assert.Equal(9U, ReadUInt32(encoded, 8));
+        Assert.Equal(1.0, ReadDouble(encoded, 12));
+        Assert.Equal(2.0, ReadDouble(encoded, 20));
+        Assert.Equal(5.0, ReadDouble(encoded, 28));
+        Assert.Equal(8.0, ReadDouble(encoded, 36));
+        Assert.Equal(6U, ReadUInt32(encoded, 44));
+        Assert.Equal(0U, ReadUInt32(encoded, 48));
+        Assert.Equal(0U, ReadUInt32(encoded, 52));
+
+        Assert.Equal(76U, ReadUInt32(encoded, 56));
+        Assert.Equal(0x79U, ReadUInt32(encoded, 60));
+        Assert.Equal(10U, ReadUInt32(encoded, 64));
+        Assert.Equal(4.0, ReadDouble(encoded, 68));
+        Assert.Equal(5.0, ReadDouble(encoded, 76));
+        Assert.Equal(2.0, ReadDouble(encoded, 84));
+        Assert.Equal(3.0, ReadDouble(encoded, 92));
+        Assert.Equal(20.0, ReadDouble(encoded, 100));
+        Assert.Equal(12.0, ReadDouble(encoded, 108));
+        Assert.Equal(6U, ReadUInt32(encoded, 116));
+        Assert.Equal(0U, ReadUInt32(encoded, 128));
+
+        Assert.Equal(60U, ReadUInt32(encoded, 132));
+        Assert.Equal(0x7aU, ReadUInt32(encoded, 136));
+        Assert.Equal(11U, ReadUInt32(encoded, 140));
+        Assert.Equal(6.0, ReadDouble(encoded, 144));
+        Assert.Equal(7.0, ReadDouble(encoded, 152));
+        Assert.Equal(8.0, ReadDouble(encoded, 160));
+        Assert.Equal(9.0, ReadDouble(encoded, 168));
+        Assert.Equal(6U, ReadUInt32(encoded, 176));
+        Assert.Equal(0U, ReadUInt32(encoded, 188));
+
+        Assert.Equal(320U, ReadUInt32(encoded, 192));
+        Assert.Equal(0x7dU, ReadUInt32(encoded, 196));
+        Assert.Equal(12U, ReadUInt32(encoded, 200));
+        Assert.Equal(6U, ReadUInt32(encoded, 204));
+        Assert.Equal(1U, ReadUInt32(encoded, 208));
+        Assert.Equal(296U, ReadUInt32(encoded, 212));
+        Assert.Equal(296U, ReadUInt32(encoded, 216));
+        Assert.Equal(3U, ReadUInt32(encoded, 220));
+        Assert.Equal(1.0, ReadDouble(encoded, 224));
+        Assert.Equal(2.0, ReadDouble(encoded, 232));
+        Assert.Equal(21.0, ReadDouble(encoded, 240));
+        Assert.Equal(32.0, ReadDouble(encoded, 248));
+        Assert.Equal(1U, ReadUInt32(encoded, 256));
+        Assert.Equal(14U, ReadUInt32(encoded, 268));
+        Assert.Equal(4U, ReadUInt32(encoded, 272));
+        Assert.Equal(248U, ReadUInt32(encoded, 276));
+        Assert.Equal(184U, ReadUInt32(encoded, 296));
+        Assert.Equal(1U, ReadUInt32(encoded, 304));
+        Assert.Equal(3U, ReadUInt32(encoded, 336));
+        Assert.Equal(32U, ReadUInt32(encoded, 344));
+        Assert.Equal(2U, ReadUInt32(encoded, 384));
+        Assert.Equal(48U, ReadUInt32(encoded, 392));
+        Assert.Equal(15.0, ReadDouble(encoded, 432));
+        Assert.Equal(6.0, ReadDouble(encoded, 440));
+        Assert.Equal(4U, ReadUInt32(encoded, 448));
+        Assert.Equal(64U, ReadUInt32(encoded, 456));
+        Assert.Equal(0U, ReadUInt32(encoded, 460));
+        Assert.Equal(1.0, ReadDouble(encoded, 464));
+        Assert.Equal(2.0, ReadDouble(encoded, 472));
+        Assert.Equal(8.0, ReadDouble(encoded, 480));
+        Assert.Equal(6.0, ReadDouble(encoded, 488));
+        Assert.Equal(30.0, ReadDouble(encoded, 496));
+        Assert.Equal(1U, ReadUInt32(encoded, 504));
+        Assert.Equal(0U, ReadUInt32(encoded, 508));
+
+        var renderData = new NativeMilRenderDataBuilder();
+        renderData.DrawGeometry(4, 5, 9);
+        byte[] nested = renderData.WrittenSpan.ToArray();
+        Assert.Equal(24, nested.Length);
+        Assert.Equal(24U, ReadUInt32(nested, 0));
+        Assert.Equal(0x46U, ReadUInt32(nested, 4));
+        Assert.Equal(4U, ReadUInt32(nested, 8));
+        Assert.Equal(5U, ReadUInt32(nested, 12));
+        Assert.Equal(9U, ReadUInt32(nested, 16));
+        Assert.Equal(0U, ReadUInt32(nested, 20));
+    }
+
+    [Fact]
+    public void NativeMilBuilderWritesCanonicalGeometryGroupPacket()
+    {
+        var batch = new NativeMilBatchBuilder();
+        batch.SetGeometryGroup(
+            13,
+            NativeMilPathFillRule.EvenOdd,
+            [11, 12],
+            6);
+        batch.SetCombinedGeometry(
+            14,
+            NativeMilGeometryCombineMode.Exclude,
+            11,
+            12,
+            6);
+        byte[] encoded = batch.ToArray();
+
+        Assert.Equal(60, encoded.Length);
+        Assert.Equal(32U, ReadUInt32(encoded, 0));
+        Assert.Equal(0x7bU, ReadUInt32(encoded, 4));
+        Assert.Equal(13U, ReadUInt32(encoded, 8));
+        Assert.Equal(6U, ReadUInt32(encoded, 12));
+        Assert.Equal(0U, ReadUInt32(encoded, 16));
+        Assert.Equal(8U, ReadUInt32(encoded, 20));
+        Assert.Equal(11U, ReadUInt32(encoded, 24));
+        Assert.Equal(12U, ReadUInt32(encoded, 28));
+        Assert.Equal(28U, ReadUInt32(encoded, 32));
+        Assert.Equal(0x7cU, ReadUInt32(encoded, 36));
+        Assert.Equal(14U, ReadUInt32(encoded, 40));
+        Assert.Equal(6U, ReadUInt32(encoded, 44));
+        Assert.Equal(3U, ReadUInt32(encoded, 48));
+        Assert.Equal(11U, ReadUInt32(encoded, 52));
+        Assert.Equal(12U, ReadUInt32(encoded, 56));
+
+        Assert.Throws<ArgumentOutOfRangeException>(() =>
+            batch.SetGeometryGroup(
+                14,
+                NativeMilPathFillRule.Nonzero,
+                [0]));
+        Assert.Throws<ArgumentOutOfRangeException>(() =>
+            batch.SetCombinedGeometry(
+                15,
+                (NativeMilGeometryCombineMode)4,
+                11,
+                12));
+        Assert.Equal(60, batch.Length);
+    }
+
+    [Fact]
+    public void NativeMilBuildersWriteCanonicalDashStylePackets()
+    {
+        var batch = new NativeMilBatchBuilder();
+        batch.SetDashStyle(7, 0.5, [2.0, 1.0]);
+        batch.SetPen(
+            5,
+            new NativeMilPen(
+                BrushHandle: 4,
+                Thickness: 2.5,
+                DashCap: NativeMilPenLineCap.Round,
+                DashStyleHandle: 7));
+        byte[] encoded = batch.ToArray();
+
+        Assert.Equal(100, encoded.Length);
+        Assert.Equal(44U, ReadUInt32(encoded, 0));
+        Assert.Equal(0x85U, ReadUInt32(encoded, 4));
+        Assert.Equal(7U, ReadUInt32(encoded, 8));
+        Assert.Equal(0.5, ReadDouble(encoded, 12));
+        Assert.Equal(0U, ReadUInt32(encoded, 20));
+        Assert.Equal(16U, ReadUInt32(encoded, 24));
+        Assert.Equal(2.0, ReadDouble(encoded, 28));
+        Assert.Equal(1.0, ReadDouble(encoded, 36));
+        Assert.Equal(56U, ReadUInt32(encoded, 44));
+        Assert.Equal(0x86U, ReadUInt32(encoded, 48));
+        Assert.Equal(7U, ReadUInt32(encoded, 96));
+
+        Assert.Throws<ArgumentOutOfRangeException>(() =>
+            batch.SetDashStyle(8, 0, [1.0, -1.0]));
+        Assert.Equal(100, batch.Length);
+    }
+
+    [Fact]
+    public void ParallelsD3D12GlyphRasterizationUsesTypedGpuFirstFallback()
+    {
+        string managedContext = File.ReadAllText(FindRepoFile(
+            "src", "ProGPU.Backend", "WgpuContext.cs"));
+        string managedPolicy = File.ReadAllText(FindRepoFile(
+            "src", "ProGPU.Backend", "GpuComputeExecutionPolicy.cs"));
+        string managedAtlas = File.ReadAllText(FindRepoFile(
+            "src", "ProGPU.Text", "GlyphAtlas.cs"));
+        string managedNativeHost = File.ReadAllText(FindRepoFile(
+            "src", "ProGPU.Backend.Native", "NativeCompositor.cs"));
+        string nativeContract = File.ReadAllText(FindRepoFile(
+            "src", "ProGPU.Native", "include", "progpu_native.h"));
+        string nativeGlyphExecution = File.ReadAllText(FindRepoFile(
+            "src", "ProGPU.Native", "src", "Backend",
+            "progpu_native_glyph_execution.cpp"));
+        string benchmarkProject = File.ReadAllText(FindRepoFile(
+            "src", "ProGPU.Native.Benchmarks",
+            "ProGPU.Native.Benchmarks.csproj"));
+        string portableBuild = File.ReadAllText(FindRepoFile(
+            "eng", "build-progpu-native.sh"));
+        string windowsBuild = File.ReadAllText(FindRepoFile(
+            "eng", "build-progpu-native-windows.ps1"));
+
+        Assert.Contains(
+            "GlyphRasterizationPath",
+            managedContext,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "backendType == BackendType.D3D12",
+            managedPolicy,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "Parallels Display Adapter",
+            managedPolicy,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "GpuComputeExecutionPath.RasterShader",
+            managedAtlas,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "RasterizeGlyphWithRasterShader(",
+            managedAtlas,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "Flags = GetEngineFlags(context)",
+            managedNativeHost,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "Flags = GetEngineFlags(replacementContext)",
+            managedNativeHost,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "PROGPU_NATIVE_ENGINE_GLYPH_RASTER_SHADER_FALLBACK",
+            nativeContract,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "glyph_raster_shader_fallback",
+            nativeGlyphExecution,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "intrinsic_winding_16",
+            nativeGlyphExecution,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "intrinsic_winding_8",
+            nativeGlyphExecution,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "$(PROGPU_NATIVE_BUILD_DIR)",
+            benchmarkProject,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "for compute_mode in fastest compute raster simd scalar",
+            portableBuild,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "Native glyph compute is not supported",
+            windowsBuild,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "--glyphs --rectangles 1 --warmup 0 --iterations 1 --sync",
+            windowsBuild,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            "System.Reflection",
+            managedAtlas,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            "System.Reflection",
+            managedNativeHost,
+            StringComparison.Ordinal);
+    }
+
     [Fact]
     public void ManagedAndNativeSubmissionRetirementStayBoundedAndEquivalent()
     {
@@ -667,6 +2296,23 @@ public class NativeRendererInteropTests
     }
 
     [Fact]
+    public void PublicDrawStateCarriesTypedBoxGroupEffect()
+    {
+        var effect = NativeGroupEffect.BoxBlur(5f, 7f, 24U);
+        var sceneEffect = NativeSceneEffect.BoxBlur(5f, 7f, 25U);
+
+        Assert.Equal(NativeGroupEffectKind.BoxBlur, effect.Kind);
+        Assert.Equal(5f, effect.SigmaX);
+        Assert.Equal(7f, effect.SigmaY);
+        Assert.Equal(24U, effect.Revision);
+        Assert.True(effect.IsEnabled);
+        Assert.Equal(NativeGroupEffectKind.BoxBlur, sceneEffect.Kind);
+        Assert.Equal(5f, sceneEffect.SigmaX);
+        Assert.Equal(7f, sceneEffect.SigmaY);
+        Assert.Equal(25U, sceneEffect.Revision);
+    }
+
+    [Fact]
     public void PublicDrawStateCarriesTypedDropShadowGroupEffect()
     {
         var effect = NativeGroupEffect.DropShadow(
@@ -895,6 +2541,82 @@ public class NativeRendererInteropTests
     }
 
     [Fact]
+    public void PublicDrawStateValidatesSignedWindingVectorPrograms()
+    {
+        var segments = new[]
+        {
+            new NativePathSegment(
+                NativePathSegmentKind.Line,
+                Vector2.Zero,
+                new Vector2(10f, 10f)),
+            new NativePathSegment(
+                NativePathSegmentKind.Line,
+                new Vector2(10f, 0f),
+                new Vector2(0f, 10f))
+        };
+        var nodes = new[]
+        {
+            new NativePathBooleanNode(
+                0U, 1U, Vector2.Zero, new Vector2(10f),
+                NativeFillRule.NonZero,
+                NativePathBooleanNodeKind.WindingLeaf),
+            new NativePathBooleanNode(
+                1U, 1U, Vector2.Zero, new Vector2(10f),
+                NativeFillRule.NonZero,
+                NativePathBooleanNodeKind.WindingLeaf),
+            new NativePathBooleanNode(
+                0U, 0U, Vector2.Zero, Vector2.Zero,
+                NativeFillRule.NonZero,
+                NativePathBooleanNodeKind.WindingAdd)
+        };
+        var nonzeroPath = new NativeClipPath(
+            0U,
+            2U,
+            Vector2.Zero,
+            new Vector2(10f),
+            Matrix3x2.Identity,
+            fillRule: NativeFillRule.NonZero,
+            booleanNodeCount: 3U);
+
+        var chain = new NativeClipChain([nonzeroPath], segments, nodes);
+
+        Assert.Equal(3, chain.BooleanNodeCount);
+        Assert.Equal(
+            NativeSignedWindingExecutionPreference.Fastest,
+            chain.SignedWindingExecutionPreference);
+        Assert.Equal(
+            NativeSignedWindingExecutionPath.InlineVectorCompute,
+            chain.SignedWindingExecutionPath);
+
+        var stagedChain = new NativeClipChain(
+            [nonzeroPath],
+            segments,
+            nodes,
+            NativeSignedWindingExecutionPreference.StagedVectorCompute);
+        Assert.Equal(
+            NativeSignedWindingExecutionPath.StagedVectorCompute,
+            stagedChain.SignedWindingExecutionPath);
+        Assert.Throws<ArgumentOutOfRangeException>(() =>
+            new NativeClipChain(
+                [nonzeroPath],
+                segments,
+                nodes,
+                (NativeSignedWindingExecutionPreference)(-1)));
+        Assert.Throws<ArgumentException>(() =>
+            new NativeClipChain(
+                [new NativeClipPath(
+                    0U,
+                    2U,
+                    Vector2.Zero,
+                    new Vector2(10f),
+                    Matrix3x2.Identity,
+                    fillRule: NativeFillRule.EvenOdd,
+                    booleanNodeCount: 3U)],
+                segments,
+                nodes));
+    }
+
+    [Fact]
     public void VectorClipChainRejectsMalformedOrUnownedBooleanPrograms()
     {
         var segments = new[]
@@ -937,6 +2659,9 @@ public class NativeRendererInteropTests
     [Fact]
     public void CapabilityValuesMatchPublishedNativeHeader()
     {
+        Assert.Equal(7U, (uint)NativePathBooleanNodeKind.WindingLeaf);
+        Assert.Equal(8U, (uint)NativePathBooleanNodeKind.WindingAdd);
+        Assert.Equal(9U, (uint)NativePathBooleanNodeKind.WindingNegate);
         Assert.Equal(0U, (uint)NativeSceneExternalImageRole.Primary);
         Assert.Equal(1U, (uint)NativeSceneExternalImageRole.Chroma);
         Assert.Equal(2U, (uint)NativeSceneExternalImageRole.Mask);
@@ -1038,6 +2763,15 @@ public class NativeRendererInteropTests
             2251799813685248UL,
             (ulong)NativeRendererCapabilities.RetainedGpuHitTesting);
         Assert.Equal(
+            4503599627370496UL,
+            (ulong)NativeRendererCapabilities.WpfMilChannel);
+        Assert.Equal(
+            9007199254740992UL,
+            (ulong)NativeRendererCapabilities.GroupBoxBlur);
+        Assert.Equal(
+            18014398509481984UL,
+            (ulong)NativeRendererCapabilities.SemanticMesh3DMaterials);
+        Assert.Equal(
             0x0000_FFFFU,
             (uint)NativeGpuHitTestQueryFlags.ResultCapacityMask);
         Assert.Equal(
@@ -1068,7 +2802,20 @@ public class NativeRendererInteropTests
         Assert.Equal(
             9U,
             (uint)NativeImageSampling.MagNearestMinNearestMipLinear);
+        Assert.Equal(1U << 5, (uint)NativeSceneImageFlags.AddressURepeat);
+        Assert.Equal(
+            2U << 5,
+            (uint)NativeSceneImageFlags.AddressUMirrorRepeat);
+        Assert.Equal(1U << 7, (uint)NativeSceneImageFlags.AddressVRepeat);
+        Assert.Equal(
+            2U << 7,
+            (uint)NativeSceneImageFlags.AddressVMirrorRepeat);
+        Assert.Equal(
+            1U << 9,
+            (uint)NativeSceneImageFlags.ExtendedSourceRect);
         Assert.Equal(16, Unsafe.SizeOf<NativeSubmissionToken>());
+        Assert.Equal(16, Unsafe.SizeOf<NativeSceneMesh3DMaterials>());
+        Assert.Equal(4U, (uint)NativeMesh3DFlags.SpecularMaterial);
         Assert.Equal(3U, (uint)NativeGeometryPrimitiveKind.QuadraticBezier);
         Assert.Equal(4U, (uint)NativeGeometryPrimitiveKind.CubicBezier);
         Assert.Equal(5U, (uint)NativeGeometryPrimitiveKind.DotGrid);
@@ -1176,6 +2923,69 @@ public class NativeRendererInteropTests
         Assert.DoesNotContain(
             (byte)0,
             stream.Slice((int)firstResource.PayloadOffset, 8).ToArray());
+    }
+
+    [Fact]
+    public void SemanticSceneBuilderWritesCanonicalMeshMaterialSideband()
+    {
+        Span<byte> destination = stackalloc byte[4096];
+        var builder = new NativeSceneStreamBuilder(
+            destination,
+            sceneId: 42U,
+            generation: 3U,
+            commandCapacity: 1,
+            resourceCapacity: 2);
+        NativeSceneBrush material = NativeSceneBrush.Solid(Vector4.One);
+        Assert.True(builder.TryAddBrushTableResource(
+            10U,
+            1U,
+            MemoryMarshal.CreateReadOnlySpan(ref material, 1),
+            ReadOnlySpan<NativeSceneGradientStop>.Empty,
+            out uint materialResource));
+        var mesh = new NativeSceneMesh3D
+        {
+            StructSize = (uint)Unsafe.SizeOf<NativeSceneMesh3D>()
+        };
+        var vertex = new NativeSceneMesh3DVertex();
+        uint index = 0U;
+        Assert.True(builder.TryAddMesh3DResource(
+            20U,
+            1U,
+            MemoryMarshal.CreateReadOnlySpan(ref mesh, 1),
+            MemoryMarshal.CreateReadOnlySpan(ref vertex, 1),
+            MemoryMarshal.CreateReadOnlySpan(ref index, 1),
+            out uint meshResource));
+        var camera = new NativeSceneCamera3D(
+            Matrix4x4.Identity,
+            Matrix4x4.Identity,
+            Vector3.UnitZ);
+        Assert.True(builder.TryDrawMesh3D(
+            30U,
+            meshResource,
+            new NativeImageRect(0f, 0f, 64f, 64f),
+            camera,
+            materialResource,
+            MemoryMarshal.CreateReadOnlySpan(ref index, 1)));
+        Assert.True(builder.TryBuild(out ReadOnlySpan<byte> stream));
+
+        var header = MemoryMarshal.Read<NativeMethods.SceneHeader>(stream);
+        var command = MemoryMarshal.Read<NativeMethods.SceneCommand>(
+            stream[(int)header.CommandOffset..]);
+        int cameraSize = Unsafe.SizeOf<NativeSceneCamera3D>();
+        var mapping = MemoryMarshal.Read<NativeSceneMesh3DMaterials>(
+            stream.Slice(
+                checked((int)command.PayloadOffset + cameraSize)));
+        Assert.Equal(
+            (uint)(cameraSize +
+                Unsafe.SizeOf<NativeSceneMesh3DMaterials>() + sizeof(uint)),
+            command.PayloadSize);
+        Assert.Equal(materialResource, mapping.BrushResourceIndex);
+        Assert.Equal(1U, mapping.BrushCount);
+        Assert.Equal(
+            0U,
+            MemoryMarshal.Read<uint>(stream.Slice(
+                checked((int)command.PayloadOffset + cameraSize +
+                    Unsafe.SizeOf<NativeSceneMesh3DMaterials>()))));
     }
 
     [Fact]
@@ -1491,6 +3301,32 @@ public class NativeRendererInteropTests
         Assert.False(builder.TryAddStrokeResource(
             100U, 1U, strokes, points, doubles, out _));
         doubles[1] = 1.0;
+        strokes[0] = new(
+            NativeSceneStrokeKind.Polyline,
+            0U,
+            3U,
+            Matrix3x2.Identity,
+            2f,
+            4f,
+            NativePolylineFlags.FixedDeviceStroke |
+                NativePolylineFlags.WpfJoinSemantics,
+            dashIntervalCount: 2U);
+        Assert.False(builder.TryAddStrokeResource(
+            100U, 1U, strokes, points, doubles, out _));
+        strokes[0] = new(
+            NativeSceneStrokeKind.Polyline,
+            0U,
+            3U,
+            Matrix3x2.Identity,
+            2f,
+            4f,
+            NativePolylineFlags.FixedDeviceStroke,
+            dashIntervalCount: 2U,
+            startCap: NativeStrokeCap.Round,
+            endCap: NativeStrokeCap.Triangle,
+            lineJoin: NativeStrokeJoin.Round,
+            dashCap: NativeStrokeCap.Square,
+            color: Vector4.One);
         Span<NativeSceneStroke> overflowingStrokes =
             stackalloc NativeSceneStroke[2]
             {
@@ -1695,11 +3531,14 @@ public class NativeRendererInteropTests
             stackalloc NativeSceneBrush[2];
         brushes[0] = NativeSceneBrush.Solid(
             new Vector4(0.25f, 0.5f, 0.75f, 1f));
+        Vector4 padStartOutside = new(0f, 1f, 0f, 1f);
+        Vector4 padEndOutside = new(1f, 1f, 0f, 1f);
         brushes[1] = NativeSceneBrush.LinearGradient(
-            Vector2.Zero,
-            new Vector2(64f, 0f),
-            0U,
-            stops);
+                Vector2.Zero,
+                new Vector2(64f, 0f),
+                0U,
+                stops)
+            .WithPadOutsideColors(padStartOutside, padEndOutside);
         Span<uint> brushIndices = stackalloc uint[2] { 0U, 1U };
 
         static bool BuildBrushScene(
@@ -1761,8 +3600,9 @@ public class NativeRendererInteropTests
         Assert.Equal(2U, drawBrushes.BrushCount);
         Assert.Equal(NativeSceneBrushKind.LinearGradient, storedGradient.Kind);
         Assert.Equal(2U, storedGradient.StopCount);
-        Assert.Equal(new Vector4(1f, 0f, 0f, 1f), storedGradient.Color0);
-        Assert.Equal(new Vector4(0f, 0f, 1f, 1f), storedGradient.Color1);
+        Assert.True(storedGradient.HasPadOutsideColors);
+        Assert.Equal(padStartOutside, storedGradient.Color0);
+        Assert.Equal(padEndOutside, storedGradient.Color1);
 
         long before = GC.GetAllocatedBytesForCurrentThread();
         bool success = true;
@@ -1779,6 +3619,15 @@ public class NativeRendererInteropTests
         long allocated = GC.GetAllocatedBytesForCurrentThread() - before;
         Assert.True(success);
         Assert.Equal(0L, allocated);
+
+        NativeSceneBrush reflected = NativeSceneBrush.LinearGradient(
+            Vector2.Zero,
+            Vector2.One,
+            0U,
+            stops,
+            spread: NativeSceneGradientSpread.Reflect);
+        Assert.Throws<InvalidOperationException>(() =>
+            reflected.WithPadOutsideColors(Vector4.Zero, Vector4.One));
 
         Span<NativeAnalyticPrimitive> one =
             stackalloc NativeAnalyticPrimitive[1];
@@ -1984,6 +3833,269 @@ public class NativeRendererInteropTests
             1U,
             in missingResource,
             out _));
+    }
+
+    [Fact]
+    public void SemanticSceneBuilderWritesBoundedStaticGuidelineState()
+    {
+        Span<byte> destination = stackalloc byte[2048];
+        Span<double> guidelinesX = stackalloc double[1] { 12.25 };
+        Span<double> guidelinesY = stackalloc double[1] { 23.5 };
+        var builder = new NativeSceneStreamBuilder(
+            destination,
+            sceneId: 83U,
+            generation: 1U,
+            commandCapacity: 0,
+            resourceCapacity: 2);
+        Assert.True(builder.TryAddGuidelineSetResource(
+            1U,
+            1U,
+            guidelinesX,
+            guidelinesY,
+            out uint guidelineIndex));
+        var state = new NativeSceneState(
+            Matrix3x2.Identity,
+            flags: NativeSceneStateFlags.GuidelineSet,
+            guidelineResourceIndex: guidelineIndex);
+        Assert.True(builder.TryAddStateResource(
+            2U,
+            1U,
+            in state,
+            out uint stateIndex));
+        Assert.True(builder.TryBuild(out ReadOnlySpan<byte> stream));
+
+        var header = MemoryMarshal.Read<NativeMethods.SceneHeader>(stream);
+        var guidelineResource =
+            MemoryMarshal.Read<NativeMethods.SceneResource>(
+                stream[(int)header.ResourceOffset..]);
+        var stateResource = MemoryMarshal.Read<NativeMethods.SceneResource>(
+            stream[((int)header.ResourceOffset + 48)..]);
+        var storedState = MemoryMarshal.Read<NativeSceneState>(
+            stream[(int)stateResource.PayloadOffset..]);
+        Assert.Equal(0U, guidelineIndex);
+        Assert.Equal(1U, stateIndex);
+        Assert.Equal(
+            NativeSceneResourceKind.GuidelineSet,
+            guidelineResource.Kind);
+        Assert.Equal(32U, guidelineResource.PayloadSize);
+        Assert.Equal(
+            12.25,
+            MemoryMarshal.Read<double>(
+                stream[((int)guidelineResource.PayloadOffset + 16)..]));
+        Assert.Equal(
+            23.5,
+            MemoryMarshal.Read<double>(
+                stream[((int)guidelineResource.PayloadOffset + 24)..]));
+        Assert.Equal(
+            NativeSceneStateFlags.GuidelineSet,
+            storedState.Flags);
+        Assert.Equal(guidelineIndex, storedState.GuidelineResourceIndex);
+
+        Span<byte> invalidDestination = stackalloc byte[1024];
+        var invalidBuilder = new NativeSceneStreamBuilder(
+            invalidDestination,
+            sceneId: 84U,
+            generation: 1U,
+            commandCapacity: 0,
+            resourceCapacity: 2);
+        Span<double> tooMany = stackalloc double[2] { 1, 2 };
+        Assert.False(invalidBuilder.TryAddGuidelineSetResource(
+            3U,
+            1U,
+            tooMany,
+            [],
+            out _));
+        var missingResource = new NativeSceneState(
+            Matrix3x2.Identity,
+            flags: NativeSceneStateFlags.GuidelineSet,
+            guidelineResourceIndex: NativeMethods.SceneNoIndex);
+        Assert.False(invalidBuilder.TryAddStateResource(
+            4U,
+            1U,
+            in missingResource,
+            out _));
+    }
+
+    [Fact]
+    public void SemanticSceneBuilderBoundsCompositeOnlyMultiGuidelines()
+    {
+        Span<byte> destination = stackalloc byte[4096];
+        Span<double> guidelinesX = stackalloc double[2] { 2.25, 18.75 };
+        Span<double> guidelinesY = stackalloc double[1] { 3.5 };
+        var builder = new NativeSceneStreamBuilder(
+            destination,
+            sceneId: 85U,
+            generation: 1U,
+            commandCapacity: 2,
+            resourceCapacity: 3);
+        Assert.False(builder.TryAddGuidelineSetResource(
+            1U,
+            1U,
+            guidelinesX,
+            guidelinesY,
+            out _));
+        Assert.True(builder.TryAddCompositeGuidelineSetResource(
+            1U,
+            1U,
+            guidelinesX,
+            guidelinesY,
+            out uint guidelineIndex));
+        var compositeState = new NativeSceneState(
+            Matrix3x2.Identity,
+            flags: NativeSceneStateFlags.GuidelineSet,
+            guidelineResourceIndex: guidelineIndex);
+        Assert.True(builder.TryAddStateResource(
+            2U,
+            1U,
+            in compositeState,
+            out uint stateIndex));
+        Span<NativeAnalyticPrimitive> analytic =
+            stackalloc NativeAnalyticPrimitive[1];
+        analytic[0] = new NativeAnalyticPrimitive(
+            NativeAnalyticPrimitiveKind.Rectangle,
+            0f,
+            0f,
+            24f,
+            18f,
+            Vector4.One,
+            Matrix3x2.Identity);
+        Assert.True(builder.TryAddAnalyticResource(
+            3U,
+            1U,
+            analytic,
+            out uint analyticIndex));
+        Assert.False(builder.TrySave(1U, stateIndex));
+        Assert.False(builder.TryDrawAnalytic(
+            1U,
+            analyticIndex,
+            new NativeImageRect(0f, 0f, 24f, 18f),
+            stateIndex: stateIndex));
+        var layer = new NativeSceneLayer(
+            flags: NativeSceneLayerFlags.Bounds |
+                NativeSceneLayerFlags.CacheContent |
+                NativeSceneLayerFlags.CacheLocalSpace,
+            bounds: new NativeImageRect(0f, 0f, 24f, 18f),
+            contentRevision: 1U,
+            compositeRevision: 1U,
+            compositeStateResourceIndex: stateIndex);
+        Assert.True(builder.TryPushLayer(1U, in layer));
+        Assert.True(builder.TryPopLayer(2U));
+        Assert.True(builder.TryBuild(out ReadOnlySpan<byte> stream));
+
+        var sceneHeader = MemoryMarshal.Read<NativeMethods.SceneHeader>(stream);
+        var guidelineResource =
+            MemoryMarshal.Read<NativeMethods.SceneResource>(
+                stream[(int)sceneHeader.ResourceOffset..]);
+        var guidelineHeader =
+            MemoryMarshal.Read<NativeSceneGuidelineSetHeader>(
+                stream[(int)guidelineResource.PayloadOffset..]);
+        Assert.Equal(
+            NativeSceneGuidelineSetFlags.CompositeOnly,
+            guidelineHeader.Flags);
+        Assert.Equal(2U, guidelineHeader.GuidelineXCount);
+        Assert.Equal(1U, guidelineHeader.GuidelineYCount);
+
+        Span<byte> invalidDestination = stackalloc byte[1024];
+        var invalidBuilder = new NativeSceneStreamBuilder(
+            invalidDestination,
+            sceneId: 86U,
+            generation: 1U,
+            commandCapacity: 0,
+            resourceCapacity: 1);
+        Span<double> unsorted = stackalloc double[2] { 2.0, 1.0 };
+        Assert.False(invalidBuilder.TryAddCompositeGuidelineSetResource(
+            1U,
+            1U,
+            unsorted,
+            [],
+            out _));
+        Assert.False(invalidBuilder.TryAddCompositeGuidelineSetResource(
+            1U,
+            1U,
+            guidelinesY,
+            [],
+            out _));
+    }
+
+    [Fact]
+    public void SemanticSceneBuilderScopesPerPointMultiGuidelinesToPaths()
+    {
+        Span<byte> destination = stackalloc byte[4096];
+        Span<double> guidelinesX = stackalloc double[2] { 2.25, 18.75 };
+        var builder = new NativeSceneStreamBuilder(
+            destination,
+            sceneId: 87U,
+            generation: 1U,
+            commandCapacity: 3,
+            resourceCapacity: 4);
+        Assert.True(builder.TryAddPerPointGuidelineSetResource(
+            1U,
+            1U,
+            guidelinesX,
+            [],
+            out uint guidelineIndex));
+        var state = new NativeSceneState(
+            Matrix3x2.Identity,
+            flags: NativeSceneStateFlags.GuidelineSet,
+            guidelineResourceIndex: guidelineIndex);
+        Assert.True(builder.TryAddStateResource(
+            2U, 1U, in state, out uint stateIndex));
+
+        Span<NativeAnalyticPrimitive> analytic =
+            stackalloc NativeAnalyticPrimitive[1];
+        analytic[0] = new NativeAnalyticPrimitive(
+            NativeAnalyticPrimitiveKind.Rectangle,
+            0f,
+            0f,
+            20f,
+            10f,
+            Vector4.One,
+            Matrix3x2.Identity);
+        Assert.True(builder.TryAddAnalyticResource(
+            3U, 1U, analytic, out uint analyticIndex));
+        Assert.False(builder.TryDrawAnalytic(
+            1U,
+            analyticIndex,
+            new NativeImageRect(0f, 0f, 20f, 10f),
+            stateIndex: stateIndex));
+
+        Span<NativePathSegment> segments = stackalloc NativePathSegment[3]
+        {
+            new(NativePathSegmentKind.Line, new(0f, 0f), new(20f, 0f)),
+            new(NativePathSegmentKind.Line, new(20f, 0f), new(10f, 10f)),
+            new(NativePathSegmentKind.Line, new(10f, 10f), new(0f, 0f))
+        };
+        Span<NativeScenePathFill> paths = stackalloc NativeScenePathFill[1]
+        {
+            new(
+                0U,
+                3U,
+                Vector2.Zero,
+                new Vector2(20f, 10f),
+                Vector4.One,
+                Matrix3x2.Identity,
+                NativeFillRule.NonZero,
+                4U)
+        };
+        Assert.True(builder.TryAddPathResource(
+            4U, 1U, paths, segments, out uint pathIndex));
+        Assert.True(builder.TrySave(1U, stateIndex));
+        Assert.True(builder.TryRestore(2U));
+        Assert.True(builder.TryDrawPath(
+            3U,
+            pathIndex,
+            new NativeImageRect(0f, 0f, 20f, 10f),
+            stateIndex: stateIndex));
+        Assert.True(builder.TryBuild(out ReadOnlySpan<byte> stream));
+
+        var sceneHeader = MemoryMarshal.Read<NativeMethods.SceneHeader>(stream);
+        var guidelineResource = MemoryMarshal.Read<NativeMethods.SceneResource>(
+            stream[(int)sceneHeader.ResourceOffset..]);
+        var guidelineHeader = MemoryMarshal.Read<NativeSceneGuidelineSetHeader>(
+            stream[(int)guidelineResource.PayloadOffset..]);
+        Assert.Equal(
+            NativeSceneGuidelineSetFlags.PerPoint,
+            guidelineHeader.Flags);
     }
 
     [Fact]
@@ -2363,6 +4475,222 @@ public class NativeRendererInteropTests
         long allocated = GC.GetAllocatedBytesForCurrentThread() - before;
         Assert.True(success);
         Assert.Equal(0L, allocated);
+
+        var cachedLayer = new NativeSceneLayer(
+            flags: NativeSceneLayerFlags.Bounds |
+                NativeSceneLayerFlags.CacheContent,
+            bounds: new NativeImageRect(2f, 3f, 40f, 50f),
+            contentRevision: 7U,
+            compositeRevision: 9U);
+        Assert.True(BuildLayer(destination, in cachedLayer, out _));
+        var invalidCachedLayer = new NativeSceneLayer(
+            flags: NativeSceneLayerFlags.Bounds |
+                NativeSceneLayerFlags.CacheContent,
+            bounds: new NativeImageRect(2f, 3f, 40f, 50f),
+            contentRevision: 0U,
+            compositeRevision: 9U);
+        Assert.False(BuildLayer(destination, in invalidCachedLayer, out _));
+        invalidCachedLayer = new NativeSceneLayer(
+            flags: NativeSceneLayerFlags.Bounds |
+                NativeSceneLayerFlags.CacheContent,
+            bounds: new NativeImageRect(2f, 3f, 40f, 50f),
+            contentRevision: 7U,
+            compositeRevision: 0U);
+        Assert.False(BuildLayer(destination, in invalidCachedLayer, out _));
+        invalidCachedLayer = new NativeSceneLayer(
+            flags: NativeSceneLayerFlags.Bounds |
+                NativeSceneLayerFlags.Backdrop |
+                NativeSceneLayerFlags.CacheContent,
+            bounds: new NativeImageRect(2f, 3f, 40f, 50f),
+            contentRevision: 7U,
+            compositeRevision: 9U);
+        Assert.False(BuildLayer(destination, in invalidCachedLayer, out _));
+
+        var localBuilder = new NativeSceneStreamBuilder(
+            destination,
+            11U,
+            1U,
+            commandCapacity: 2,
+            resourceCapacity: 1);
+        var compositeState = new NativeSceneState(
+            Matrix3x2.CreateTranslation(12f, 8f));
+        Assert.True(localBuilder.TryAddStateResource(
+            1U, 1U, in compositeState, out uint compositeStateIndex));
+        var localCachedLayer = new NativeSceneLayer(
+            flags: NativeSceneLayerFlags.Bounds |
+                NativeSceneLayerFlags.CacheContent |
+                NativeSceneLayerFlags.CacheLocalSpace,
+            bounds: new NativeImageRect(0f, 0f, 40f, 50f),
+            contentRevision: 7U,
+            compositeRevision: 9U,
+            compositeStateResourceIndex: compositeStateIndex);
+        Assert.True(localBuilder.TryPushLayer(1U, in localCachedLayer));
+        Assert.Equal(0U, localCachedLayer.CompositeStateResourceIndex);
+
+        var maskedLocalBuilder = new NativeSceneStreamBuilder(
+            destination,
+            12U,
+            1U,
+            commandCapacity: 2,
+            resourceCapacity: 2);
+        Assert.True(maskedLocalBuilder.TryAddStateResource(
+            1U, 1U, in compositeState, out uint maskedCompositeStateIndex));
+        var localMask = new NativeSceneLayerBrushMask(
+            new NativeImageRect(0f, 0f, 40f, 50f),
+            Matrix3x2.Identity,
+            NativeSceneBrush.Solid(Vector4.One),
+            gradientStopCount: 0U);
+        Assert.True(maskedLocalBuilder.TryAddLayerBrushMaskResource(
+            2U,
+            1U,
+            in localMask,
+            [],
+            out uint localMaskIndex));
+        var maskedLocalCachedLayer = new NativeSceneLayer(
+            flags: NativeSceneLayerFlags.Bounds |
+                NativeSceneLayerFlags.CacheContent |
+                NativeSceneLayerFlags.CacheLocalSpace,
+            bounds: new NativeImageRect(0f, 0f, 40f, 50f),
+            maskResourceIndex: localMaskIndex,
+            contentRevision: 7U,
+            compositeRevision: 9U,
+            compositeStateResourceIndex: maskedCompositeStateIndex);
+        Assert.True(maskedLocalBuilder.TryPushLayer(
+            1U, in maskedLocalCachedLayer));
+        Assert.True(maskedLocalBuilder.TryPopLayer(2U));
+        Assert.True(maskedLocalBuilder.TryBuild(out _));
+
+        var nearestLocalCachedLayer = new NativeSceneLayer(
+            flags: NativeSceneLayerFlags.Bounds |
+                NativeSceneLayerFlags.CacheContent |
+                NativeSceneLayerFlags.CacheLocalSpace |
+                NativeSceneLayerFlags.CacheNearest,
+            bounds: new NativeImageRect(0f, 0f, 40f, 50f),
+            contentRevision: 7U,
+            compositeRevision: 9U,
+            compositeStateResourceIndex: compositeStateIndex);
+        Assert.True(localBuilder.TryPushLayer(
+            2U, in nearestLocalCachedLayer));
+
+        var invalidNearestCachedLayer = new NativeSceneLayer(
+            flags: NativeSceneLayerFlags.Bounds |
+                NativeSceneLayerFlags.CacheContent |
+                NativeSceneLayerFlags.CacheNearest,
+            bounds: new NativeImageRect(2f, 3f, 40f, 50f),
+            contentRevision: 7U,
+            compositeRevision: 9U);
+        Assert.False(BuildLayer(
+            destination, in invalidNearestCachedLayer, out _));
+
+        var fantLocalCachedLayer = new NativeSceneLayer(
+            flags: NativeSceneLayerFlags.Bounds |
+                NativeSceneLayerFlags.CacheContent |
+                NativeSceneLayerFlags.CacheLocalSpace |
+                NativeSceneLayerFlags.CacheFant,
+            bounds: new NativeImageRect(0f, 0f, 40f, 50f),
+            contentRevision: 7U,
+            compositeRevision: 9U,
+            compositeStateResourceIndex: 0U);
+        var fantBuilder = new NativeSceneStreamBuilder(
+            destination,
+            13U,
+            1U,
+            commandCapacity: 1,
+            resourceCapacity: 1);
+        Assert.True(fantBuilder.TryAddStateResource(
+            1U, 1U, in compositeState, out uint fantCompositeStateIndex));
+        fantLocalCachedLayer = new NativeSceneLayer(
+            flags: fantLocalCachedLayer.Flags,
+            bounds: fantLocalCachedLayer.Bounds,
+            contentRevision: fantLocalCachedLayer.ContentRevision,
+            compositeRevision: fantLocalCachedLayer.CompositeRevision,
+            compositeStateResourceIndex: fantCompositeStateIndex);
+        Assert.True(fantBuilder.TryPushLayer(
+            1U, in fantLocalCachedLayer));
+
+        var conflictingSamplingLayer = new NativeSceneLayer(
+            flags: NativeSceneLayerFlags.Bounds |
+                NativeSceneLayerFlags.CacheContent |
+                NativeSceneLayerFlags.CacheLocalSpace |
+                NativeSceneLayerFlags.CacheNearest |
+                NativeSceneLayerFlags.CacheFant,
+            bounds: new NativeImageRect(0f, 0f, 40f, 50f),
+            contentRevision: 7U,
+            compositeRevision: 9U,
+            compositeStateResourceIndex: compositeStateIndex);
+        Assert.False(BuildLayer(
+            destination, in conflictingSamplingLayer, out _));
+
+        var missingCompositeState = new NativeSceneLayer(
+            flags: NativeSceneLayerFlags.Bounds |
+                NativeSceneLayerFlags.CacheContent |
+                NativeSceneLayerFlags.CacheLocalSpace,
+            bounds: new NativeImageRect(0f, 0f, 40f, 50f),
+            contentRevision: 7U,
+            compositeRevision: 9U,
+            compositeStateResourceIndex: 1U);
+        Assert.False(BuildLayer(
+            destination, in missingCompositeState, out _));
+
+        var compositeClipBuilder = new NativeSceneStreamBuilder(
+            destination,
+            14U,
+            1U,
+            commandCapacity: 2,
+            resourceCapacity: 1);
+        var compositeClipState = new NativeSceneState(
+            Matrix3x2.Identity,
+            clipRect: new NativeImageRect(6f, 8f, 20f, 14f),
+            flags: NativeSceneStateFlags.ClipRect);
+        Assert.True(compositeClipBuilder.TryAddStateResource(
+            1U, 1U, in compositeClipState, out uint compositeClipStateIndex));
+        var compositeClipLayer = new NativeSceneLayer(
+            flags: NativeSceneLayerFlags.ForceIsolation |
+                NativeSceneLayerFlags.CompositeState,
+            compositeStateResourceIndex: compositeClipStateIndex);
+        Assert.True(compositeClipBuilder.TryPushLayer(
+            1U, in compositeClipLayer));
+        Assert.True(compositeClipBuilder.TryPopLayer(2U));
+        Assert.True(compositeClipBuilder.TryBuild(out _));
+
+        var nonmaterializedCompositeBuilder = new NativeSceneStreamBuilder(
+            destination,
+            15U,
+            1U,
+            commandCapacity: 1,
+            resourceCapacity: 1);
+        Assert.True(nonmaterializedCompositeBuilder.TryAddStateResource(
+            1U,
+            1U,
+            in compositeClipState,
+            out uint nonmaterializedCompositeStateIndex));
+        var nonmaterializedCompositeClip = new NativeSceneLayer(
+            flags: NativeSceneLayerFlags.CompositeState,
+            compositeStateResourceIndex: nonmaterializedCompositeStateIndex);
+        Assert.False(nonmaterializedCompositeBuilder.TryPushLayer(
+            3U, in nonmaterializedCompositeClip));
+
+        var transformedCompositeBuilder = new NativeSceneStreamBuilder(
+            destination,
+            16U,
+            1U,
+            commandCapacity: 1,
+            resourceCapacity: 1);
+        var transformedCompositeState = new NativeSceneState(
+            Matrix3x2.CreateTranslation(1f, 0f),
+            clipRect: new NativeImageRect(6f, 8f, 20f, 14f),
+            flags: NativeSceneStateFlags.ClipRect);
+        Assert.True(transformedCompositeBuilder.TryAddStateResource(
+            1U,
+            1U,
+            in transformedCompositeState,
+            out uint transformedCompositeStateIndex));
+        var transformedCompositeLayer = new NativeSceneLayer(
+            flags: NativeSceneLayerFlags.ForceIsolation |
+                NativeSceneLayerFlags.CompositeState,
+            compositeStateResourceIndex: transformedCompositeStateIndex);
+        Assert.False(transformedCompositeBuilder.TryPushLayer(
+            1U, in transformedCompositeLayer));
 
         NativeSceneLayer invalid = default;
         var invalidBuilder = new NativeSceneStreamBuilder(
@@ -3010,10 +5338,10 @@ public class NativeRendererInteropTests
                 pixels,
                 in image);
         }
+        long allocated =
+            GC.GetAllocatedBytesForCurrentThread() - before;
         Assert.True(success);
-        Assert.Equal(
-            0L,
-            GC.GetAllocatedBytesForCurrentThread() - before);
+        Assert.Equal(0L, allocated);
     }
 
     [Fact]
@@ -3124,9 +5452,10 @@ public class NativeRendererInteropTests
         Assert.True(TryRecord(
             NativeImageSampling.MagNearestMinNearestMipLinear,
             1));
+        Assert.True(TryRecord(NativeImageSampling.Fant, 1));
         Assert.False(TryRecord(NativeImageSampling.LinearMipmap, 17));
         Assert.False(TryRecord(NativeImageSampling.Linear, 2));
-        Assert.False(TryRecord((NativeImageSampling)10U, 1));
+        Assert.False(TryRecord((NativeImageSampling)11U, 1));
     }
 
     [Fact]
@@ -3820,6 +6149,18 @@ public class NativeRendererInteropTests
         string cmake = File.ReadAllText(FindRepoFile(
             "src", "ProGPU.Native", "CMakeLists.txt"));
         Assert.Contains(
+            "/clang:--print-libgcc-file-name",
+            cmake,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "/clang:--rtlib=compiler-rt",
+            cmake,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "string(APPEND CMAKE_CXX_STANDARD_LIBRARIES",
+            cmake,
+            StringComparison.Ordinal);
+        Assert.Contains(
             "../ProGPU.Backend/Shaders/Vector.wgsl",
             cmake,
             StringComparison.Ordinal);
@@ -3936,6 +6277,15 @@ public class NativeRendererInteropTests
         Assert.Contains(
             "GroupDropShadowComposeWgsl.generated.hpp",
             effectExecutionSource,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "PROGPU_NATIVE_GROUP_EFFECT_BOX_BLUR",
+            effectExecutionSource,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "blurParams.kernelType == 1u",
+            File.ReadAllText(FindRepoFile(
+                "src", "ProGPU.Compute", "Shaders", "GaussianBlurHorizontal.wgsl")),
             StringComparison.Ordinal);
         foreach (string source in new[]
                  {
@@ -4154,6 +6504,12 @@ public class NativeRendererInteropTests
             cmake,
             StringComparison.Ordinal);
         Assert.Contains(
+            "target_link_libraries(progpu_native_dawn PRIVATE\n" +
+            "        progpu_native_mil\n" +
+            "        progpu_native_text)",
+            cmake,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain(
             "target_link_libraries(progpu_native_dawn PRIVATE progpu_native_text)",
             cmake,
             StringComparison.Ordinal);
@@ -4270,6 +6626,130 @@ public class NativeRendererInteropTests
             StringComparison.Ordinal);
         Assert.Contains("--managed-picture", nativeBuild, StringComparison.Ordinal);
         Assert.Contains("--managed-picture", windowsBuild, StringComparison.Ordinal);
+        Assert.Contains(
+            "adapter=Parallels Display Adapter",
+            windowsBuild,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "adapter=Microsoft Basic Render Driver",
+            windowsBuild,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "--software-adapter-ci",
+            windowsBuild,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "softwareAdapterQualification",
+            managedSample,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "NativeCompositor.ValidateScene(compiled.Stream)",
+            managedSample,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "HasSoftwareAdapterExpectedColors",
+            managedSample,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "renderedCompiled.SourceCommandCount != 4",
+            managedSample,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "40f * dpiScale * dpiScale",
+            managedSample,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "dpiScale < 1f ? (byte)180 : (byte)220",
+            managedSample,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "--managed-picture --profile-native-only --rectangles 384",
+            windowsBuild,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "--managed-picture --validate-native-stream-only " +
+            "--rectangles 384",
+            windowsBuild,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "if ($IsMicrosoftBasicRenderDriver)",
+            windowsBuild,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "elseif ($IsParallelsDisplayAdapter)",
+            windowsBuild,
+            StringComparison.Ordinal);
+        string managedPictureBenchmark = File.ReadAllText(FindRepoFile(
+            "src", "ProGPU.Native.Benchmarks",
+            "ManagedPictureBenchmark.cs"));
+        Assert.Contains(
+            "HasFlag(args, \"--validate-native-stream-only\")",
+            managedPictureBenchmark,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "!retainedUpdate.SnapshotReused",
+            managedPictureBenchmark,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "Partitioned the full Win2D Canvas oracle into bounded " +
+            "submissions on Microsoft Basic Render Driver.",
+            windowsBuild,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "$Win2DCanvasArguments += \"--software-adapter-ci\"",
+            windowsBuild,
+            StringComparison.Ordinal);
+        string win2DCanvasQualification = File.ReadAllText(FindRepoFile(
+            "src", "ProGPU.Native.Benchmarks",
+            "Win2DCanvasQualification.cs"));
+        string nativeCompositor = File.ReadAllText(FindRepoFile(
+            "src", "ProGPU.Backend.Native", "NativeCompositor.cs"));
+        string canvasDevice = File.ReadAllText(FindRepoFile(
+            "src", "ProGPU.Win2D", "CanvasDevice.cs"));
+        string semanticRenderer = File.ReadAllText(FindRepoFile(
+            "src", "ProGPU.Native", "src", "Scene",
+            "progpu_native_semantic_render_execution.cpp"));
+        Assert.Contains(
+            "FlushPartitionedBatch(",
+            win2DCanvasQualification,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "accumulated.NativeDrawCount + current.NativeDrawCount",
+            win2DCanvasQualification,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "RenderScenePreservingTarget(",
+            nativeCompositor,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "compositor.RenderScenePreservingTarget(",
+            canvasDevice,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "semantic_preserve_target_active\n" +
+            "                    ? WGPULoadOp_Load",
+            semanticRenderer,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "Qualified the Basic Render Driver mixed-picture profile with " +
+            "full native stream validation plus bounded live " +
+            "differential parity.",
+            windowsBuild,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "Qualified the Parallels D3D12 mixed-picture profile with " +
+            "native stress plus bounded differential parity.",
+            windowsBuild,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "Deferred forced signed-winding compute execution on " +
+            "Microsoft Basic Render Driver",
+            windowsBuild,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "if ($IsMicrosoftBasicRenderDriver)",
+            windowsBuild,
+            StringComparison.Ordinal);
 
         using JsonDocument manifest = JsonDocument.Parse(File.ReadAllText(
             FindRepoFile("eng", "progpu-native-dawn.version.json")));
@@ -4404,9 +6884,13 @@ public class NativeRendererInteropTests
             StringComparison.Ordinal);
         Assert.Contains("--semantic-layer-effects", unixBuild,
             StringComparison.Ordinal);
+        Assert.Contains("--semantic-viewport3d", unixBuild,
+            StringComparison.Ordinal);
         Assert.Contains("progpu_native_sample.exe", windowsBuild,
             StringComparison.Ordinal);
         Assert.Contains("--semantic-layer-effects", windowsBuild,
+            StringComparison.Ordinal);
+        Assert.Contains("--semantic-viewport3d", windowsBuild,
             StringComparison.Ordinal);
         Assert.Contains("The D3D12 native renderer backend sample failed.",
             windowsBuild,
@@ -4414,6 +6898,102 @@ public class NativeRendererInteropTests
         Assert.Contains("Upload native backend execution evidence", buildWorkflow,
             StringComparison.Ordinal);
         Assert.Contains("Upload native backend execution evidence", releaseWorkflow,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Native3DTeardownReleasesEveryStorageBuffer()
+    {
+        string engine = File.ReadAllText(FindRepoFile(
+            "src", "ProGPU.Native", "src", "Backend", "progpu_native_engine.hpp"));
+        int start = engine.IndexOf("void release_semantic_3d_resources()", StringComparison.Ordinal);
+        Assert.True(start >= 0);
+        int end = engine.IndexOf("if (semantic_mesh_back_3d_pipeline", start, StringComparison.Ordinal);
+        Assert.True(end > start);
+        string cleanup = engine[start..end];
+        foreach (string buffer in new[] { "camera", "line", "mesh", "vertex", "index",
+                     "light", "material", "material_gradient_stop" })
+        {
+            Assert.Contains($"release_buffer(page.{buffer}_buffer);", cleanup, StringComparison.Ordinal);
+        }
+    }
+
+    [Fact]
+    public void Native3DShaderUsesCanonicalHomogeneousPositions()
+    {
+        string shader = File.ReadAllText(FindRepoFile(
+            "src", "ProGPU.Scene", "Shaders", "Native3D.wgsl"));
+        string execution = File.ReadAllText(FindRepoFile(
+            "src", "ProGPU.Native", "src", "Backend",
+            "progpu_native_3d_execution.cpp"));
+        string contract = File.ReadAllText(FindRepoFile(
+            "src", "ProGPU.Native", "include", "progpu_native.h"));
+
+        Assert.Contains(
+            "vec4<f32>(vertex.position.xyz, 1.0)",
+            shader,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "let light_intensity = max(mesh.light_direction.w, 0.0);",
+            shader,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "let ambient_intensity = max(mesh.ambient_color.w, 0.0);",
+            shader,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "let shininess = max(mesh.specular_color.w, 0.001);",
+            shader,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            "max(dot(view, reflected), 0.0), 24.0",
+            shader,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            "array<vec2<f32>, 6>",
+            shader,
+            StringComparison.Ordinal);
+        Assert.Contains("struct Light3D", shader, StringComparison.Ordinal);
+        Assert.Contains(
+            "@group(0) @binding(5) var<storage, read> lights: array<Light3D>;",
+            shader,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "if (mesh.light_count == 0u)",
+            shader,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "terms.x + terms.y * distance",
+            shader,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "let half_vector = normalize(view + light);",
+            shader,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "source.direction_inner_cos.w - outer_cos",
+            shader,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "depth.stencilFront.compare = WGPUCompareFunction_Always;",
+            execution,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "depth.stencilBack.compare = WGPUCompareFunction_Always;",
+            execution,
+            StringComparison.Ordinal);
+        Assert.Contains("PROGPU_NATIVE_MESH_3D_FRONT_FACE", contract,
+            StringComparison.Ordinal);
+        Assert.Contains("PROGPU_NATIVE_MESH_3D_BACK_FACE", contract,
+            StringComparison.Ordinal);
+        Assert.Contains("progpu_native_scene_light_3d", contract,
+            StringComparison.Ordinal);
+        Assert.Contains("PROGPU_NATIVE_SCENE_MAX_3D_LIGHTS_PER_MESH = 16",
+            contract,
+            StringComparison.Ordinal);
+        Assert.Contains("WGPUCullMode_Back", execution,
+            StringComparison.Ordinal);
+        Assert.Contains("WGPUCullMode_Front", execution,
             StringComparison.Ordinal);
     }
 
@@ -4515,6 +7095,21 @@ public class NativeRendererInteropTests
 
     private static int OffsetOf<T>(string fieldName) where T : struct =>
         checked((int)Marshal.OffsetOf<T>(fieldName));
+
+    private static uint ReadUInt32(byte[] bytes, int offset) =>
+        BinaryPrimitives.ReadUInt32LittleEndian(bytes.AsSpan(offset));
+
+    private static ushort ReadUInt16(byte[] bytes, int offset) =>
+        BinaryPrimitives.ReadUInt16LittleEndian(bytes.AsSpan(offset));
+
+    private static ulong ReadUInt64(byte[] bytes, int offset) =>
+        BinaryPrimitives.ReadUInt64LittleEndian(bytes.AsSpan(offset));
+
+    private static float ReadSingle(byte[] bytes, int offset) =>
+        BinaryPrimitives.ReadSingleLittleEndian(bytes.AsSpan(offset));
+
+    private static double ReadDouble(byte[] bytes, int offset) =>
+        BinaryPrimitives.ReadDoubleLittleEndian(bytes.AsSpan(offset));
 
     private static string FindRepoFile(params string[] pathParts)
     {

@@ -68,6 +68,8 @@ bool is_valid_semantic_image_effect(
 
 bool is_valid_semantic_layer(
     const progpu_native_scene_layer& layer) noexcept;
+bool is_valid_semantic_tile_composite(
+    const progpu_native_scene_tile_composite& tile) noexcept;
 
 bool is_valid_semantic_effect(
     const progpu_native_group_effect& effect) noexcept;
@@ -78,10 +80,14 @@ bool is_valid_semantic_camera_3d(
 bool is_valid_semantic_line_3d(
     const progpu_native_scene_line_3d& line) noexcept;
 
+bool is_valid_semantic_light_3d(
+    const progpu_native_scene_light_3d& light) noexcept;
+
 bool is_valid_semantic_mesh_3d(
     const progpu_native_scene_mesh_3d& mesh,
     std::size_t vertex_count,
-    std::size_t index_count) noexcept;
+    std::size_t index_count,
+    std::size_t light_count) noexcept;
 
 bool is_valid_semantic_mesh_3d_vertex(
     const progpu_native_scene_mesh_3d_vertex& vertex) noexcept;

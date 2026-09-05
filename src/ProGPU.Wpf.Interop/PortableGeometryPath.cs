@@ -7,6 +7,91 @@ public interface IPortableGeometryPathSource
     bool TryGetPortableGeometryPath(out PortableGeometryPath path);
 }
 
+public interface IPortablePrimitiveGeometrySource
+{
+    bool TryGetPortablePrimitiveGeometry(out PortablePrimitiveGeometry geometry);
+}
+
+public enum PortablePrimitiveGeometryKind
+{
+    Line = 0,
+    Rectangle = 1,
+    Ellipse = 2
+}
+
+public readonly struct PortablePrimitiveGeometry
+{
+    private PortablePrimitiveGeometry(
+        PortablePrimitiveGeometryKind kind,
+        PortablePoint point1,
+        PortablePoint point2,
+        PortableRect rect,
+        double radiusX,
+        double radiusY,
+        PortableMatrix3x2 transform)
+    {
+        Kind = kind;
+        Point1 = point1;
+        Point2 = point2;
+        Rect = rect;
+        RadiusX = radiusX;
+        RadiusY = radiusY;
+        Transform = transform;
+    }
+
+    public PortablePrimitiveGeometryKind Kind { get; }
+
+    public PortablePoint Point1 { get; }
+
+    public PortablePoint Point2 { get; }
+
+    public PortableRect Rect { get; }
+
+    public double RadiusX { get; }
+
+    public double RadiusY { get; }
+
+    public PortableMatrix3x2 Transform { get; }
+
+    public static PortablePrimitiveGeometry Line(
+        PortablePoint startPoint,
+        PortablePoint endPoint,
+        PortableMatrix3x2 transform) => new(
+            PortablePrimitiveGeometryKind.Line,
+            startPoint,
+            endPoint,
+            PortableRect.Empty,
+            0.0,
+            0.0,
+            transform);
+
+    public static PortablePrimitiveGeometry Rectangle(
+        PortableRect rect,
+        double radiusX,
+        double radiusY,
+        PortableMatrix3x2 transform) => new(
+            PortablePrimitiveGeometryKind.Rectangle,
+            default,
+            default,
+            rect,
+            radiusX,
+            radiusY,
+            transform);
+
+    public static PortablePrimitiveGeometry Ellipse(
+        PortablePoint center,
+        double radiusX,
+        double radiusY,
+        PortableMatrix3x2 transform) => new(
+            PortablePrimitiveGeometryKind.Ellipse,
+            center,
+            default,
+            PortableRect.Empty,
+            radiusX,
+            radiusY,
+            transform);
+}
+
 public enum PortableGeometryPathKind
 {
     Path = 0,

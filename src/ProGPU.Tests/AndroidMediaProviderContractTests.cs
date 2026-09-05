@@ -666,6 +666,10 @@ public sealed class AndroidMediaProviderContractTests
             timelineMixer,
             StringComparison.Ordinal);
         Assert.Contains(
+            "MediaPcm16FloatConverter",
+            timelineMixer,
+            StringComparison.Ordinal);
+        Assert.Contains(
             "overlay.AudioEnabled",
             audio,
             StringComparison.Ordinal);
@@ -681,11 +685,16 @@ public sealed class AndroidMediaProviderContractTests
                 "AndroidMediaAudioPlannerTests.cs"),
             StringComparison.Ordinal);
         Assert.Contains(
-            "destination[\n",
-            pcmMixer.Replace(
-                "\r\n",
-                "\n",
-                StringComparison.Ordinal),
+            "MediaPcm16ProcessedAccumulator.AddMono(",
+            pcmMixer,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "MediaPcm16ProcessedAccumulator.AddStereo(",
+            pcmMixer,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            "AddProcessedSample(",
+            pcmMixer,
             StringComparison.Ordinal);
         Assert.Contains(
             "_extractor?.Release();",

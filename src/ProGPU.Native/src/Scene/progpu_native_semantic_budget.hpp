@@ -21,6 +21,12 @@ struct scissor final {
 
 inline constexpr std::uint32_t max_draw_passes = 16U * 1024U;
 inline constexpr std::uint32_t max_effect_passes = 16U * 1024U;
+inline constexpr std::uint32_t max_cached_layers =
+    PROGPU_NATIVE_SCENE_MAX_MATERIALIZED_LAYERS;
+inline constexpr std::uint32_t cached_layer_slot_base =
+    PROGPU_NATIVE_SCENE_MAX_MATERIALIZED_LAYERS;
+inline constexpr std::uint32_t layer_slot_count =
+    PROGPU_NATIVE_SCENE_MAX_MATERIALIZED_LAYERS + max_cached_layers;
 inline constexpr std::uint32_t effect_uniform_alignment = 256U;
 inline constexpr std::uint64_t max_vertex_bytes =
     256ULL * 1024ULL * 1024ULL;
@@ -199,6 +205,77 @@ private:
                 width * height * bytes_per_pixel;
             if (result >
                 std::numeric_limits<std::uint64_t>::max() - bytes) {
+                return std::numeric_limits<std::uint64_t>::max();
+            }
+            result += bytes;
+        }
+        return result;
+    }
+};
+
+struct cache_budget {
+    std::array<std::uint64_t, max_cached_layers> identities{};
+    std::array<std::uint32_t, max_cached_layers> widths{};
+    std::array<std::uint32_t, max_cached_layers> heights{};
+    std::array<bool, max_cached_layers> effected{};
+    std::array<std::uint32_t, max_cached_layers> slots{};
+    std::uint32_t count = 0U;
+
+    bool add(
+        std::uint64_t identity,
+        const scissor& extent,
+        bool has_effect) noexcept {
+        for (std::uint32_t index = 0U; index < count; ++index) {
+            if (identities[index] == identity) {
+                return false;
+            }
+        }
+        if (identity == 0U || count == max_cached_layers) {
+            return false;
+        }
+        identities[count] = identity;
+        widths[count] = std::max(extent.width, 1U);
+        heights[count] = std::max(extent.height, 1U);
+        effected[count] = has_effect;
+        ++count;
+        return pooled_bytes() <= PROGPU_NATIVE_SCENE_MAX_LAYER_BYTES;
+    }
+
+    std::uint64_t pooled_bytes() const noexcept {
+        return pooled_bytes_per_pixel(4U, false);
+    }
+
+    std::uint64_t pooled_effect_bytes() const noexcept {
+        return pooled_bytes_per_pixel(12U, true);
+    }
+
+    std::uint32_t maximum_width() const noexcept {
+        return *std::max_element(widths.begin(), widths.end());
+    }
+
+    std::uint32_t maximum_height() const noexcept {
+        return *std::max_element(heights.begin(), heights.end());
+    }
+
+private:
+    std::uint64_t pooled_bytes_per_pixel(
+        std::uint64_t bytes_per_pixel,
+        bool only_effected) const noexcept {
+        std::uint64_t result = 0U;
+        for (std::uint32_t index = 0U; index < count; ++index) {
+            if (only_effected && !effected[index]) {
+                continue;
+            }
+            const std::uint64_t width = widths[index];
+            const std::uint64_t height = heights[index];
+            if (height > std::numeric_limits<std::uint64_t>::max() / width ||
+                width * height >
+                    std::numeric_limits<std::uint64_t>::max() /
+                        bytes_per_pixel) {
+                return std::numeric_limits<std::uint64_t>::max();
+            }
+            const std::uint64_t bytes = width * height * bytes_per_pixel;
+            if (result > std::numeric_limits<std::uint64_t>::max() - bytes) {
                 return std::numeric_limits<std::uint64_t>::max();
             }
             result += bytes;

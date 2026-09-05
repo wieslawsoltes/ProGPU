@@ -31,6 +31,9 @@ public sealed class GpuRenderCommandHitTestCacheBuilder : IDisposable
     private SmallValueStack<float> _opacityStack;
     private float _activeOpacity = 1f;
     private int _nextId;
+    private Vector2 _boundsMin;
+    private Vector2 _boundsMax;
+    private bool _hasBounds;
 
     public GpuRenderCommandHitTestCacheBuilder()
     {
@@ -43,6 +46,20 @@ public sealed class GpuRenderCommandHitTestCacheBuilder : IDisposable
 
     public int PrimitiveCount => _primitives.Count;
 
+    /// <summary>
+    /// Returns the union of the clipped world-space bounds accumulated for
+    /// the commands added since construction or the last <see cref="Clear"/>.
+    /// This reuses the same typed primitive, stroke, path, text, and clip
+    /// lowering as GPU hit testing instead of maintaining a second bounds
+    /// approximation pipeline.
+    /// </summary>
+    public bool TryGetBounds(out Vector2 minimum, out Vector2 maximum)
+    {
+        minimum = _boundsMin;
+        maximum = _boundsMax;
+        return _hasBounds;
+    }
+
     public void Clear()
     {
         _primitives.Clear();
@@ -51,6 +68,9 @@ public sealed class GpuRenderCommandHitTestCacheBuilder : IDisposable
         _opacityStack.Clear();
         _activeOpacity = 1f;
         _nextId = 0;
+        _boundsMin = default;
+        _boundsMax = default;
+        _hasBounds = false;
     }
 
     public void Dispose()
@@ -735,7 +755,7 @@ public sealed class GpuRenderCommandHitTestCacheBuilder : IDisposable
             max,
             startSegment,
             segmentCount,
-            (FillRule)records[0].FillRule);
+            GpuPathFillRuleEncoding.Decode(records[0].FillRule));
         return true;
     }
 
@@ -1974,6 +1994,17 @@ public sealed class GpuRenderCommandHitTestCacheBuilder : IDisposable
         }
 
         _primitives.Add(primitive);
+        if (_hasBounds)
+        {
+            _boundsMin = Vector2.Min(_boundsMin, primitive.BoundsMin);
+            _boundsMax = Vector2.Max(_boundsMax, primitive.BoundsMax);
+        }
+        else
+        {
+            _boundsMin = primitive.BoundsMin;
+            _boundsMax = primitive.BoundsMax;
+            _hasBounds = true;
+        }
     }
 
     public void PushClip(Rect rect, Matrix4x4 transform)

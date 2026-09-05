@@ -66,5 +66,9 @@
            Text="The win-x64 ProGPU Dawn adapter has not been staged." />
     <Error Condition="!Exists('$(ProGpuNativeRuntimeRoot)\runtimes\win-arm64\native\progpu_native_dawn.dll')"
            Text="The win-arm64 ProGPU Dawn adapter has not been staged." />
+    <Error Condition="!Exists('$(ProGpuNativeRuntimeRoot)\runtimes\win-x64\native\progpu_native_direct2d.dll')"
+           Text="The win-x64 ProGPU Direct2D COM provider has not been staged." />
+    <Error Condition="!Exists('$(ProGpuNativeRuntimeRoot)\runtimes\win-arm64\native\progpu_native_direct2d.dll')"
+           Text="The win-arm64 ProGPU Direct2D COM provider has not been staged." />
   </Target>
 </Project>

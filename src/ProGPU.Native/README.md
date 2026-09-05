@@ -148,6 +148,25 @@ Semantic-scene execution follows the same boundary:
 snapshot updates, `progpu_native_semantic_draw_execution.cpp` owns packed-page
 render-bundle encoding, and `progpu_native_semantic_render_execution.cpp` owns
 scene compilation and replay orchestration.
+The native MIL compiler preserves CombinedGeometry children inside EvenOdd
+GeometryGroup fills and vector clips as bounded postfix boolean subtrees, then
+XORs those child predicates with ordinary outer-fill contour leaves. Nonzero
+groups with boolean children remain explicitly unsupported because signed
+winding cannot be recovered from an inside predicate. This is backend-neutral
+scene compilation: all pixel coverage stays in the shared GPU path rasterizer,
+with no CPU readback or scalar raster fallback. The provider-resolved Apple M3
+Pro Metal gate executes and reads back the same five-node Difference/XOR
+program in its retained vector-mask fixture. The standard cross-platform
+hardware sample includes the same isolated boolean tile and asserts its three
+pixels alongside the existing gradient oracle for Metal, D3D12, and Vulkan.
+Overlapping translated-equivalent leaves, including mixed postfix programs,
+use the shared phased GPU-mask route: every leaf preserves its 64 supersamples
+in two packed words, the original Difference/Intersect/Union/XOR/
+ReverseDifference program combines those words, and coverage is quantized once.
+Non-overlapping mixed programs retain the single-dispatch fast path. Neither
+route performs CPU mask construction, readback, repacking, or per-item
+submission. Exact implementation and Windows qualification evidence is in
+[`native-mil-compositor.md`](../../docs/native-mil-compositor.md#general-mixed-boolean-gpu-mask-checkpoint).
 `progpu_native_semantic_identity.cpp` computes allocation-free typed content
 identities once per accepted update. Brush, text-style, analytic, path, glyph,
 and image pages are therefore retained independently across scene generations;
@@ -1273,8 +1292,11 @@ Current native parity:
 - pointer-free retained semantic solid/linear/radial/two-point-conical/sweep
   brushes with exact production `GpuBrush`/gradient-stop layout, compact
   analytic/path maps, scene-wide referenced-range deduplication, GPU-only
-  gradient evaluation, transactional material-buffer growth, and zero stable
-  brush/stop upload on Metal and browser WebGPU;
+  gradient evaluation, WPF-exact stable epsilon-coincident stop consolidation,
+  distinct duplicate-endpoint Pad outside colors, and WPF stroke-bounds mapping
+  for cap-only degenerate gradient pens in the unchanged 256-byte brush ABI,
+  transactional material-buffer growth, and zero stable brush/stop upload on
+  Metal and browser WebGPU;
 - retained Perlin-noise brushes with independent affine brush coordinates,
   bounded 255-octave evaluation, a zero-table deterministic fallback, or one
   exact validated/remapped 512-record permutation/gradient table; stable replay

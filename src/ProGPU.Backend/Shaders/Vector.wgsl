@@ -163,7 +163,12 @@ fn sample_mask_alpha(position: vec2<f32>) -> f32 {
             maskSampling.options.y;
     }
 
-    let uv = (targetPosition - maskSampling.coordinate0.xy) * maskSampling.coordinate1.xy;
+    var uv = (targetPosition - maskSampling.coordinate0.xy) * maskSampling.coordinate1.xy;
+    if (maskSampling.options.z > 0.5) {
+        uv = vec2<f32>(
+            dot(vec3<f32>(targetPosition, 1.0), maskSampling.coordinate0.xyz),
+            dot(vec3<f32>(targetPosition, 1.0), maskSampling.coordinate1.xyz));
+    }
     let sample = textureSample(maskTexture, maskSampler, clamp(uv, vec2<f32>(0.0), vec2<f32>(1.0)));
     let sampled = select(sample.r, sample.a, maskSampling.options.w > 1.5);
     let inside = all(uv >= vec2<f32>(0.0)) && all(uv <= vec2<f32>(1.0));
@@ -266,6 +271,15 @@ fn sample_gradient_color(brush: Brush, t: f32) -> vec4<f32> {
     let stopCount = brush.stopCount;
     if (stopCount == 0u) {
         return vec4<f32>(0.0, 0.0, 0.0, 0.0);
+    }
+
+    if ((brush.spreadMethod & 0x40000000u) != 0u) {
+        if (t < 0.0) {
+            return brush.stopColors0;
+        }
+        if (t > 1.0) {
+            return brush.stopColors1;
+        }
     }
 
     var previousColor = get_gradient_stop_color(brush, 0u);
@@ -764,9 +778,12 @@ fn vs_main(input: VertexInput, @builtin(vertex_index) vertexIndex: u32) -> Verte
         hasLateAffineTransform &&
         hasValidLateAffineTransform &&
         !is_conformal_stroke_transform(directStrokeScales);
+    // Projection consumes target DIPs. Only hairlines ignore the framebuffer
+    // scale; fixed-width Direct2D pens still scale with DPI.
+    let hairlineStrokeThickness = 1.0 / max(uniforms.dpiScale, 0.0001);
     var outputStrokeThickness = select(
         input.strokeThickness,
-        1.0,
+        hairlineStrokeThickness,
         isHairlineStroke);
     outputStrokeThickness = select(
         outputStrokeThickness,
@@ -955,7 +972,7 @@ fn vs_main(input: VertexInput, @builtin(vertex_index) vertexIndex: u32) -> Verte
         let outward = select(direction, -direction, isStart);
         let normal = vec2<f32>(-direction.y, direction.x);
         let deviceStrokeThickness = select(
-            1.0,
+            hairlineStrokeThickness,
             fixedDeviceStrokeThickness,
             isFixedDeviceStroke);
         let capExtent = deviceStrokeThickness * 0.5 + 1.5;
@@ -1004,7 +1021,7 @@ fn vs_main(input: VertexInput, @builtin(vertex_index) vertexIndex: u32) -> Verte
 
         let outerSign = select(1.0, -1.0, turn > 0.0);
         let deviceStrokeThickness = select(
-            1.0,
+            hairlineStrokeThickness,
             fixedDeviceStrokeThickness,
             isFixedDeviceStroke);
         let halfStrokeThickness = deviceStrokeThickness * 0.5;
@@ -2480,10 +2497,10 @@ fn vector_fs_main(input: VertexOutput, maskAlpha: f32) -> vec4<f32> {
             } else {
                 finalColor = vec4<f32>(0.0);
             }
-        } else if ((brush.spreadMethod & 0x7fffffffu) == 3u && (t < 0.0 || t > 1.0)) {
+        } else if ((brush.spreadMethod & 0x3fffffffu) == 3u && (t < 0.0 || t > 1.0)) {
             finalColor = vec4<f32>(0.0);
         } else {
-            t = apply_gradient_spread(t, brush.spreadMethod & 0x7fffffffu);
+            t = apply_gradient_spread(t, brush.spreadMethod & 0x3fffffffu);
             let gradColor = sample_gradient_color(brush, t);
             finalColor = vec4<f32>(gradColor.rgb, gradColor.a * brush.opacity);
         }

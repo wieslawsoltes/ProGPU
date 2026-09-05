@@ -54,6 +54,19 @@ public partial struct NativeSceneCamera3D
     }
 }
 
+public partial struct NativeSceneMesh3DMaterials
+{
+    public NativeSceneMesh3DMaterials(
+        uint brushResourceIndex,
+        uint brushCount)
+    {
+        StructSize = (uint)Unsafe.SizeOf<NativeSceneMesh3DMaterials>();
+        BrushResourceIndex = brushResourceIndex;
+        BrushCount = brushCount;
+        Reserved0 = 0U;
+    }
+}
+
 public partial struct NativeSceneLine3D
 {
     public NativeSceneLine3D(

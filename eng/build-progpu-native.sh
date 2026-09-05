@@ -4,6 +4,7 @@ set -euo pipefail
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 source_dir="${PROGPU_NATIVE_WGPU_SOURCE:-${repo_root}/artifacts/wgpu-native-src}"
 build_dir="${PROGPU_NATIVE_BUILD_DIR:-${repo_root}/artifacts/progpu-native/build}"
+export PROGPU_NATIVE_BUILD_DIR="${build_dir}"
 sample_dir="${PROGPU_NATIVE_SAMPLE_DIR:-${repo_root}/artifacts/progpu-native/sample}"
 include_dir="${PROGPU_NATIVE_INCLUDE_DIR:-${repo_root}/artifacts/progpu-native/include}"
 runtime_dir="${PROGPU_NATIVE_RUNTIME_DIR:-${repo_root}/artifacts/progpu-native/runtime}"
@@ -27,6 +28,16 @@ if [[ "${cmake_generator}" == Ninja* ]] &&
     ! command -v ninja >/dev/null 2>&1; then
   echo "Ninja is required for the selected ProGPU native generator." >&2
   exit 1
+fi
+
+command -v python3 >/dev/null 2>&1 || {
+  echo "python3 is required to verify generated MIL protocol artifacts." >&2
+  exit 1
+}
+python3 "${repo_root}/eng/progpu-generate-mil-protocol.py" --check
+python3 "${repo_root}/eng/progpu-generate-mil-coverage.py" --check
+if [[ "${PROGPU_NATIVE_SKIP_EXTENDED_INTEGRATION:-0}" != "1" ]]; then
+  python3 "${repo_root}/eng/progpu-prepare-win2d-source.py"
 fi
 
 dotnet restore \
@@ -110,6 +121,26 @@ fi
 cmake "${cmake_options[@]}"
 cmake --build "${build_dir}" --config Release --parallel
 ctest --test-dir "${build_dir}" -C Release --output-on-failure
+direct2d_oracle_dir="${repo_root}/artifacts/progpu-native/direct2d-oracle"
+mkdir -p "${direct2d_oracle_dir}"
+case "$(uname -s)" in
+  Darwin)
+    direct2d_oracle_name="progpu-direct2d-metal.ppm"
+    ;;
+  Linux)
+    direct2d_oracle_name="progpu-direct2d-vulkan.ppm"
+    ;;
+  *)
+    echo "Unsupported portable Direct2D oracle host." >&2
+    exit 1
+    ;;
+esac
+direct2d_capture="${build_dir}/progpu-native-direct2d-webgpu.ppm"
+if [[ ! -s "${direct2d_capture}" ]]; then
+  echo "Portable Direct2D WebGPU CTest did not produce ${direct2d_capture}." >&2
+  exit 1
+fi
+cp "${direct2d_capture}" "${direct2d_oracle_dir}/${direct2d_oracle_name}"
 PROGPU_NATIVE_BUILD_DIR="${build_dir}" \
   "${repo_root}/eng/progpu-verify-native-exports.sh"
 
@@ -147,6 +178,7 @@ if [[ "${PROGPU_NATIVE_RUN_SANITIZERS:-0}" == "1" ]]; then
   cmake "${sanitizer_options[@]}"
   cmake --build "${sanitizer_build_dir}" --config RelWithDebInfo --parallel
   ASAN_OPTIONS="detect_leaks=${sanitizer_detect_leaks}:halt_on_error=1" \
+  LSAN_OPTIONS="suppressions=${repo_root}/eng/progpu-native-lsan.supp:print_suppressions=1" \
   UBSAN_OPTIONS="halt_on_error=1:print_stacktrace=1" \
     ctest --test-dir "${sanitizer_build_dir}" \
       -C RelWithDebInfo --output-on-failure
@@ -253,6 +285,15 @@ if [[ "$(uname -s)" == "Darwin" ]]; then
       --project "${repo_root}/src/ProGPU.Native.Benchmarks/ProGPU.Native.Benchmarks.csproj" \
       -c Release -- \
       --paths --atlas-growth --rectangles 1024 --warmup 1 --iterations 2
+  for signed_winding_execution in inline staged; do
+    DYLD_LIBRARY_PATH="${build_dir}:${runtime_dir}${DYLD_LIBRARY_PATH:+:${DYLD_LIBRARY_PATH}}" \
+      dotnet run \
+        --project "${repo_root}/src/ProGPU.Native.Benchmarks/ProGPU.Native.Benchmarks.csproj" \
+        -c Release -- \
+        --paths --signed-winding-paths --rerasterize-paths \
+        --signed-winding-execution "${signed_winding_execution}" \
+        --rectangles 4 --warmup 1 --iterations 2 --sync
+  done
   DYLD_LIBRARY_PATH="${build_dir}:${runtime_dir}${DYLD_LIBRARY_PATH:+:${DYLD_LIBRARY_PATH}}" \
     dotnet run \
       --project "${repo_root}/src/ProGPU.Native.Benchmarks/ProGPU.Native.Benchmarks.csproj" \
@@ -386,6 +427,15 @@ else
       --project "${repo_root}/src/ProGPU.Native.Benchmarks/ProGPU.Native.Benchmarks.csproj" \
       -c Release -- \
       --paths --atlas-growth --rectangles 1024 --warmup 1 --iterations 2
+  for signed_winding_execution in inline staged; do
+    LD_LIBRARY_PATH="${build_dir}:$(dirname "${native_library}")${LD_LIBRARY_PATH:+:${LD_LIBRARY_PATH}}" \
+      dotnet run \
+        --project "${repo_root}/src/ProGPU.Native.Benchmarks/ProGPU.Native.Benchmarks.csproj" \
+        -c Release -- \
+        --paths --signed-winding-paths --rerasterize-paths \
+        --signed-winding-execution "${signed_winding_execution}" \
+        --rectangles 4 --warmup 1 --iterations 2 --sync
+  done
   LD_LIBRARY_PATH="${build_dir}:$(dirname "${native_library}")${LD_LIBRARY_PATH:+:${LD_LIBRARY_PATH}}" \
     dotnet run \
       --project "${repo_root}/src/ProGPU.Native.Benchmarks/ProGPU.Native.Benchmarks.csproj" \
@@ -457,11 +507,34 @@ run_common_mask_benchmark() {
   fi
 }
 
+# Qualify every exact glyph-coverage execution route against the managed
+# renderer. Fastest verifies adapter policy; the forced modes keep native
+# compute, the render-stage substitute, SIMD CPU, and scalar-oracle behavior
+# independently reachable. Raster mode additionally asserts its zero-staging
+# contract inside the benchmark.
+for compute_mode in fastest compute raster simd scalar; do
+  PROGPU_COMPUTE_EXECUTION="${compute_mode}" \
+  PROGPU_BACKEND_DIAGNOSTICS=1 \
+    run_common_mask_benchmark \
+      --glyphs --warmup 0 --iterations 1 --sync
+done
+
 # One batched C ABI call must match the authoritative managed ProGPU shaping
 # result. This also catches stale generated wire layouts and missing packaged
 # text symbols on both macOS and Linux Release integration lanes.
 run_common_mask_benchmark \
   --text-shaping --text-repeats 2 --warmup 8 --iterations 16
+
+# WPF static multi-guidelines deform every eligible path point in absolute
+# target space. Exercise the same two-path differential and fail-closed shared
+# segment contract on both Metal and Vulkan, matching the Windows D3D12 lane.
+run_common_mask_benchmark \
+  --semantic-per-point-path-guideline
+
+# Canonical retained Viewport3D must compile through the pointer-free MIL
+# sideband and remain confined to its typed sub-viewport on every live backend.
+run_common_mask_benchmark \
+  --semantic-viewport3d
 
 for mask_mode in \
   --group-texture-mask \
@@ -484,6 +557,8 @@ done
 # Retained effects share one layer/effect-cache contract across every native
 # frame family. Stable replay must skip family uploads and effect dispatches
 # while preserving managed-renderer image parity.
+run_common_mask_benchmark \
+  --group-box-blur --rectangles 96 --warmup 2 --iterations 4
 for effect_mode in \
   --group-gaussian-blur \
   --group-drop-shadow \
@@ -524,6 +599,27 @@ for blend_mode in ColorDodge Saturation; do
   run_common_mask_benchmark \
     --group-blend-mode "${blend_mode}" --rectangles 96 --warmup 2 --iterations 4
 done
+
+# Reproduce the pinned Microsoft D3D12HelloTriangle draw contract through the
+# shared renderer. CI compares the resulting Metal and Vulkan/WebGPU frames
+# with the independently captured native Windows/D3D12 oracle.
+directx_oracle_dir="${repo_root}/artifacts/progpu-native/directx-oracle"
+run_common_mask_benchmark \
+  --directx-hello-triangle-oracle \
+  --directx-oracle-output "${directx_oracle_dir}"
+run_common_mask_benchmark \
+  --directx-hello-texture-oracle \
+  --directx-oracle-output "${directx_oracle_dir}"
+
+# Compile the pinned SimpleSample drawing body against ProGPU.Win2D, then
+# render the portable Canvas contract through the retained native C++ engine.
+dotnet test \
+  "${repo_root}/tests/ProGPU.Win2D.Tests/ProGPU.Win2D.Tests.csproj" \
+  -c Release --filter FullyQualifiedName~Win2DCanvasCompatibilityTests
+win2d_oracle_dir="${repo_root}/artifacts/progpu-native/win2d-oracle"
+run_common_mask_benchmark \
+  --win2d-canvas \
+  --win2d-output "${win2d_oracle_dir}"
 
 echo "ProGPU native renderer built from ${actual_commit}."
 echo "Sample: ${sample_dir}/progpu-native-sample.ppm"

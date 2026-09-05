@@ -81,7 +81,27 @@ public:
     bool add_state(
         const progpu_native_scene_state& state,
         std::uint32_t& resource_index) noexcept;
+    bool add_guideline_set(
+        std::span<const double> guidelines_x,
+        std::span<const double> guidelines_y,
+        std::uint32_t& resource_index,
+        bool composite_only = false,
+        bool per_point = false) noexcept;
+    bool add_guideline_set_with_offsets(
+        std::span<const double> guidelines_x,
+        std::span<const double> guidelines_y,
+        std::span<const double> offsets_x,
+        std::span<const double> offsets_y,
+        std::uint32_t& resource_index,
+        bool composite_only = false,
+        bool per_point = false) noexcept;
     bool add_rgba8_image(
+        std::uint32_t width,
+        std::uint32_t height,
+        std::uint32_t row_bytes,
+        std::span<const std::byte> pixels,
+        std::uint32_t& resource_index) noexcept;
+    bool add_bgra8_image(
         std::uint32_t width,
         std::uint32_t height,
         std::uint32_t row_bytes,
@@ -92,6 +112,13 @@ public:
         std::uint32_t height,
         std::uint32_t& resource_index) noexcept;
     bool update_rgba8_image(
+        std::uint32_t resource_index,
+        std::uint32_t width,
+        std::uint32_t height,
+        std::uint32_t row_bytes,
+        std::span<const std::byte> pixels,
+        std::uint64_t resource_generation) noexcept;
+    bool update_bgra8_image(
         std::uint32_t resource_index,
         std::uint32_t width,
         std::uint32_t height,
@@ -122,6 +149,23 @@ public:
         const progpu_native_scene_layer_coverage_mask& mask,
         std::span<const std::byte> coverage,
         std::uint32_t& resource_index) noexcept;
+    // Records one canonical typed brush mask and its inline gradient stops.
+    bool add_brush_mask(
+        const progpu_native_scene_layer_brush_mask& mask,
+        std::span<const progpu_native_scene_gradient_stop> gradient_stops,
+        std::uint32_t& resource_index) noexcept;
+    // Records one canonical GPU-rasterized geometry mask. The primitive span
+    // is retained directly and never round-trips through CPU pixels.
+    bool add_geometry_mask(
+        const progpu_native_scene_layer_geometry_mask& mask,
+        std::span<const progpu_native_geometry_primitive> primitives,
+        std::span<const progpu_native_scene_gradient_stop> gradient_stops,
+        std::uint32_t& resource_index) noexcept;
+    // Records one GPU-rendered nested scene as an alpha opacity mask.
+    bool add_picture_mask(
+        const progpu_native_scene_layer_picture_mask& mask,
+        std::span<const std::byte> nested_scene,
+        std::uint32_t& resource_index) noexcept;
     bool add_analytic_mask_chain(
         std::span<const progpu_native_scene_layer_mask> masks,
         std::uint32_t& resource_index) noexcept;
@@ -136,6 +180,18 @@ public:
         std::span<const progpu_native_scene_path_boolean_node> boolean_nodes,
         float opacity,
         std::uint32_t& resource_index) noexcept;
+    bool add_composite_mask(
+        std::span<const progpu_native_scene_layer_brush_mask> brush_masks,
+        std::span<const progpu_native_scene_layer_geometry_mask> geometry_masks,
+        std::span<const progpu_native_geometry_primitive> geometry_primitives,
+        std::span<const progpu_native_scene_layer_picture_mask> picture_masks,
+        std::span<const std::byte> picture_streams,
+        std::span<const progpu_native_scene_clip_path> paths,
+        std::span<const progpu_native_path_segment> segments,
+        std::span<const progpu_native_scene_path_boolean_node> boolean_nodes,
+        std::span<const progpu_native_scene_gradient_stop> gradient_stops,
+        float opacity,
+        std::uint32_t& resource_index) noexcept;
     bool add_effect_chain(
         std::span<const progpu_native_group_effect> effects,
         std::uint32_t revision,
@@ -145,6 +201,8 @@ public:
         std::uint32_t state_resource_index =
             PROGPU_NATIVE_SCENE_NO_INDEX) noexcept;
     bool restore() noexcept;
+    bool add_tile_composite(const progpu_native_scene_tile_composite& tile,
+        std::uint32_t& resource_index) noexcept;
     bool push_layer(const progpu_native_scene_layer& layer) noexcept;
     bool pop_layer() noexcept;
 
@@ -173,6 +231,28 @@ public:
 
     bool draw_lines_3d(
         std::span<const progpu_native_scene_line_3d> lines,
+        const progpu_native_scene_camera_3d& camera,
+        progpu_native_image_rect bounds,
+        std::uint32_t state_resource_index =
+            PROGPU_NATIVE_SCENE_NO_INDEX) noexcept;
+
+    bool draw_meshes_3d(
+        std::span<const progpu_native_scene_mesh_3d> meshes,
+        std::span<const progpu_native_scene_mesh_3d_vertex> vertices,
+        std::span<const std::uint32_t> indices,
+        std::span<const progpu_native_scene_light_3d> lights,
+        std::span<const progpu_native_scene_brush> materials,
+        std::span<const progpu_native_scene_gradient_stop> gradient_stops,
+        const progpu_native_scene_camera_3d& camera,
+        progpu_native_image_rect bounds,
+        std::uint32_t state_resource_index =
+            PROGPU_NATIVE_SCENE_NO_INDEX) noexcept;
+
+    bool draw_meshes_3d(
+        std::span<const progpu_native_scene_mesh_3d> meshes,
+        std::span<const progpu_native_scene_mesh_3d_vertex> vertices,
+        std::span<const std::uint32_t> indices,
+        std::span<const progpu_native_scene_light_3d> lights,
         const progpu_native_scene_camera_3d& camera,
         progpu_native_image_rect bounds,
         std::uint32_t state_resource_index =
@@ -263,6 +343,21 @@ public:
     static progpu_native_scene_state identity_state() noexcept;
 
 private:
+    bool add_32bit_image(
+        std::uint32_t width,
+        std::uint32_t height,
+        std::uint32_t row_bytes,
+        std::span<const std::byte> pixels,
+        bool bgra8,
+        std::uint32_t& resource_index) noexcept;
+    bool update_32bit_image(
+        std::uint32_t resource_index,
+        std::uint32_t width,
+        std::uint32_t height,
+        std::uint32_t row_bytes,
+        std::span<const std::byte> pixels,
+        std::uint64_t resource_generation,
+        bool bgra8) noexcept;
     bool try_measure_stream(
         std::uint32_t& command_offset,
         std::uint32_t& resource_offset,
@@ -275,6 +370,7 @@ private:
         std::vector<std::byte> payload,
         std::vector<std::byte> auxiliary,
         const progpu_native_scene_camera_3d& camera,
+        std::span<const std::uint32_t> material_brush_indices,
         progpu_native_image_rect bounds,
         std::uint32_t state_resource_index);
 

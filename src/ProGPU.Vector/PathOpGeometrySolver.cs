@@ -1152,7 +1152,7 @@ namespace ProGPU.Vector
                 MinY = minY,
                 MaxX = maxX,
                 MaxY = maxY,
-                FillRule = (uint)path.FillRule
+                FillRule = GpuPathFillRuleEncoding.Encode(path.FillRule)
             };
 
             return (records, CopySegments(segments));

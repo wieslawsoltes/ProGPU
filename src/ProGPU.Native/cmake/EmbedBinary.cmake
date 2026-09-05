@@ -9,17 +9,15 @@ if(NOT DEFINED SYMBOL)
 endif()
 
 file(READ "${INPUT}" binary_hex HEX)
-string(REGEX MATCHALL ".." binary_bytes "${binary_hex}")
-set(binary_initializer "")
-set(column 0)
-foreach(byte IN LISTS binary_bytes)
-    string(APPEND binary_initializer "0x${byte},")
-    math(EXPR column "${column} + 1")
-    if(column EQUAL 16)
-        string(APPEND binary_initializer "\n")
-        set(column 0)
-    endif()
+string(REGEX REPLACE
+    "([0-9a-f][0-9a-f])" "0x\\1," binary_initializer "${binary_hex}")
+set(binary_row_pattern "")
+foreach(index RANGE 1 16)
+    string(APPEND binary_row_pattern "0x[0-9a-f][0-9a-f],")
 endforeach()
+string(REGEX REPLACE
+    "(${binary_row_pattern})" "\\1\n" binary_initializer
+    "${binary_initializer}")
 
 get_filename_component(output_directory "${OUTPUT}" DIRECTORY)
 file(MAKE_DIRECTORY "${output_directory}")

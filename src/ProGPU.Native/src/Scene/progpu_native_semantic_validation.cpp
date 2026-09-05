@@ -30,6 +30,7 @@ bool resolve_semantic_image_sampler_options(
             return true;
         case PROGPU_NATIVE_IMAGE_SAMPLING_LINEAR:
         case PROGPU_NATIVE_IMAGE_SAMPLING_CUBIC:
+        case PROGPU_NATIVE_IMAGE_SAMPLING_FANT:
             options.mag_linear = true;
             options.min_linear = true;
             return true;
@@ -129,7 +130,8 @@ bool is_valid_semantic_path(
         path.max_x <= path.min_x || path.max_y <= path.min_y ||
         !is_finite(path.color) || !is_finite(path.transform) ||
         path.fill_rule > PROGPU_NATIVE_FILL_RULE_EVEN_ODD ||
-        (path.sample_grid != 4U && path.sample_grid != 8U)) {
+        (path.sample_grid != 1U && path.sample_grid != 4U &&
+            path.sample_grid != 8U)) {
         return false;
     }
     if (!path_boolean::validate(
@@ -283,11 +285,36 @@ bool is_valid_semantic_image(
         PROGPU_NATIVE_SCENE_IMAGE_EFFECT |
         PROGPU_NATIVE_SCENE_IMAGE_SNAP_TO_PIXELS |
         PROGPU_NATIVE_SCENE_IMAGE_SOURCE_PREMULTIPLIED |
-        PROGPU_NATIVE_SCENE_IMAGE_PATCH_BATCH;
+        PROGPU_NATIVE_SCENE_IMAGE_PATCH_BATCH |
+        PROGPU_NATIVE_SCENE_IMAGE_ADDRESS_U_MASK |
+        PROGPU_NATIVE_SCENE_IMAGE_ADDRESS_V_MASK |
+        PROGPU_NATIVE_SCENE_IMAGE_EXTENDED_SOURCE_RECT |
+        PROGPU_NATIVE_SCENE_IMAGE_SOURCE_ALPHA_IGNORE;
+    const std::uint32_t address_u =
+        (image.flags & PROGPU_NATIVE_SCENE_IMAGE_ADDRESS_U_MASK) >>
+        PROGPU_NATIVE_SCENE_IMAGE_ADDRESS_U_SHIFT;
+    const std::uint32_t address_v =
+        (image.flags & PROGPU_NATIVE_SCENE_IMAGE_ADDRESS_V_MASK) >>
+        PROGPU_NATIVE_SCENE_IMAGE_ADDRESS_V_SHIFT;
+    const bool extended_source =
+        (image.flags & PROGPU_NATIVE_SCENE_IMAGE_EXTENDED_SOURCE_RECT) != 0U;
+    const bool bounded_source = image.source_rect.x >= 0.0F &&
+        image.source_rect.y >= 0.0F &&
+        image.source_rect.x + image.source_rect.width <=
+            static_cast<float>(image.image_width) &&
+        image.source_rect.y + image.source_rect.height <=
+            static_cast<float>(image.image_height);
     semantic_image_sampler_options sampler{};
     return image.struct_size >= sizeof(image) &&
         (image.flags & ~known_flags) == 0U &&
         (image.flags & known_flags) != known_flags &&
+        address_u <= PROGPU_NATIVE_IMAGE_ADDRESS_MIRROR_REPEAT &&
+        address_v <= PROGPU_NATIVE_IMAGE_ADDRESS_MIRROR_REPEAT &&
+        ((address_u == 0U && address_v == 0U) || extended_source) &&
+        (!extended_source ||
+            (image.flags & PROGPU_NATIVE_SCENE_IMAGE_PATCH_BATCH) == 0U) &&
+        !((image.flags & PROGPU_NATIVE_SCENE_IMAGE_SOURCE_ALPHA_IGNORE) != 0U &&
+            (image.flags & PROGPU_NATIVE_SCENE_IMAGE_PATCH_BATCH) != 0U) &&
         image.image_width != 0U &&
         image.image_height != 0U && image.image_width <= 16384U &&
         image.image_height <= 16384U &&
@@ -298,11 +325,7 @@ bool is_valid_semantic_image(
         !((image.flags & PROGPU_NATIVE_SCENE_IMAGE_EFFECT) != 0U &&
             image.sampling == PROGPU_NATIVE_IMAGE_SAMPLING_CUBIC) &&
         valid_rect(image.source_rect) && valid_rect(image.destination_rect) &&
-        image.source_rect.x >= 0.0F && image.source_rect.y >= 0.0F &&
-        image.source_rect.x + image.source_rect.width <=
-            static_cast<float>(image.image_width) &&
-        image.source_rect.y + image.source_rect.height <=
-            static_cast<float>(image.image_height) &&
+        (extended_source || bounded_source) &&
         is_finite(image.transform) &&
         std::isfinite(image.opacity) && image.opacity >= 0.0F &&
         image.opacity <= 1.0F;
@@ -377,12 +400,46 @@ bool is_valid_semantic_image_effect(
         (effect.spherical0[0] == 0.0F || effect.spherical0[0] == 1.0F);
 }
 
+bool is_valid_semantic_tile_composite(
+    const progpu_native_scene_tile_composite& tile) noexcept {
+    const progpu_native_affine_2d transform{tile.m11, tile.m12, tile.m21,
+        tile.m22, tile.m31, tile.m32};
+    return tile.struct_size == sizeof(tile) && tile.reserved == 0U &&
+        tile.reserved0 == 0U && tile.reserved1 == 0U &&
+        tile.address_u <= PROGPU_NATIVE_IMAGE_ADDRESS_MIRROR_REPEAT &&
+        tile.address_v <= PROGPU_NATIVE_IMAGE_ADDRESS_MIRROR_REPEAT &&
+        is_finite(transform) && std::isfinite(tile.output_x) &&
+        std::isfinite(tile.output_y) && std::isfinite(tile.output_width) &&
+        std::isfinite(tile.output_height) && tile.output_width > 0.0F &&
+        tile.output_height > 0.0F && std::isfinite(tile.output_x + tile.output_width) &&
+        std::isfinite(tile.output_y + tile.output_height);
+}
+
 bool is_valid_semantic_layer(
     const progpu_native_scene_layer& layer) noexcept {
     constexpr std::uint32_t known_flags =
         PROGPU_NATIVE_SCENE_LAYER_BOUNDS |
         PROGPU_NATIVE_SCENE_LAYER_BACKDROP |
-        PROGPU_NATIVE_SCENE_LAYER_FORCE_ISOLATION;
+        PROGPU_NATIVE_SCENE_LAYER_FORCE_ISOLATION |
+        PROGPU_NATIVE_SCENE_LAYER_CACHE_CONTENT |
+        PROGPU_NATIVE_SCENE_LAYER_CACHE_LOCAL_SPACE |
+        PROGPU_NATIVE_SCENE_LAYER_CACHE_NEAREST |
+        PROGPU_NATIVE_SCENE_LAYER_CACHE_FANT |
+        PROGPU_NATIVE_SCENE_LAYER_COMPOSITE_STATE |
+        PROGPU_NATIVE_SCENE_LAYER_CACHE_TILE;
+    const bool local_cache =
+        (layer.flags & PROGPU_NATIVE_SCENE_LAYER_CACHE_LOCAL_SPACE) != 0U;
+    const bool explicit_composite_state =
+        (layer.flags & PROGPU_NATIVE_SCENE_LAYER_COMPOSITE_STATE) != 0U;
+    const bool has_composite_state = local_cache || explicit_composite_state;
+    const bool materialized =
+        (layer.flags & (PROGPU_NATIVE_SCENE_LAYER_BACKDROP |
+                PROGPU_NATIVE_SCENE_LAYER_FORCE_ISOLATION |
+                PROGPU_NATIVE_SCENE_LAYER_CACHE_CONTENT)) != 0U ||
+        layer.opacity != 1.0F ||
+        layer.blend_mode != PROGPU_NATIVE_BLEND_SRC_OVER ||
+        layer.mask_resource_index != PROGPU_NATIVE_SCENE_NO_INDEX ||
+        layer.effect_resource_index != PROGPU_NATIVE_SCENE_NO_INDEX;
     const bool bounds_are_canonical =
         (layer.flags & PROGPU_NATIVE_SCENE_LAYER_BOUNDS) != 0U ||
         (layer.bounds.x == 0.0F && layer.bounds.y == 0.0F &&
@@ -397,14 +454,41 @@ bool is_valid_semantic_layer(
         bounds_are_canonical && std::isfinite(layer.opacity) &&
         layer.opacity >= 0.0F && layer.opacity <= 1.0F &&
         layer.blend_mode <= PROGPU_NATIVE_BLEND_MODULATE &&
-        layer.reserved0 == 0U && layer.reserved1 == 0U;
+        (!explicit_composite_state || (!local_cache && materialized)) &&
+        ((layer.flags & PROGPU_NATIVE_SCENE_LAYER_CACHE_CONTENT) == 0U ||
+            ((layer.flags & PROGPU_NATIVE_SCENE_LAYER_BACKDROP) == 0U &&
+                layer.content_revision != 0U &&
+                layer.composite_revision != 0U)) &&
+        (!local_cache ||
+            ((layer.flags & (PROGPU_NATIVE_SCENE_LAYER_CACHE_CONTENT |
+                    PROGPU_NATIVE_SCENE_LAYER_BOUNDS)) ==
+                (PROGPU_NATIVE_SCENE_LAYER_CACHE_CONTENT |
+                    PROGPU_NATIVE_SCENE_LAYER_BOUNDS) &&
+                layer.bounds.x == 0.0F && layer.bounds.y == 0.0F &&
+                layer.bounds.width > 0.0F && layer.bounds.height > 0.0F &&
+                layer.blend_mode == PROGPU_NATIVE_BLEND_SRC_OVER &&
+                layer.effect_resource_index ==
+                    PROGPU_NATIVE_SCENE_NO_INDEX)) &&
+        (((layer.flags & (PROGPU_NATIVE_SCENE_LAYER_CACHE_NEAREST |
+                PROGPU_NATIVE_SCENE_LAYER_CACHE_FANT)) == 0U) ||
+            local_cache) &&
+        ((layer.flags & (PROGPU_NATIVE_SCENE_LAYER_CACHE_NEAREST |
+                PROGPU_NATIVE_SCENE_LAYER_CACHE_FANT)) !=
+            (PROGPU_NATIVE_SCENE_LAYER_CACHE_NEAREST |
+                PROGPU_NATIVE_SCENE_LAYER_CACHE_FANT)) &&
+        (has_composite_state || layer.reserved0 == 0U) &&
+        (((layer.flags & PROGPU_NATIVE_SCENE_LAYER_CACHE_TILE) != 0U)
+            ? local_cache &&
+                layer.reserved1 != PROGPU_NATIVE_SCENE_NO_INDEX
+            : layer.reserved1 == 0U);
 }
 
 bool is_valid_semantic_effect(
     const progpu_native_group_effect& effect) noexcept {
     if (effect.struct_size != sizeof(effect) ||
         (effect.kind != PROGPU_NATIVE_GROUP_EFFECT_GAUSSIAN_BLUR &&
-            effect.kind != PROGPU_NATIVE_GROUP_EFFECT_DROP_SHADOW) ||
+            effect.kind != PROGPU_NATIVE_GROUP_EFFECT_DROP_SHADOW &&
+            effect.kind != PROGPU_NATIVE_GROUP_EFFECT_BOX_BLUR) ||
         effect.flags != 0U || effect.revision == 0U ||
         effect.reserved != 0U || effect.reserved2 != 0U ||
         !std::isfinite(effect.sigma_x) ||
@@ -417,7 +501,8 @@ bool is_valid_semantic_effect(
         !std::isfinite(effect.color_a)) {
         return false;
     }
-    if (effect.kind == PROGPU_NATIVE_GROUP_EFFECT_GAUSSIAN_BLUR) {
+    if (effect.kind == PROGPU_NATIVE_GROUP_EFFECT_GAUSSIAN_BLUR ||
+        effect.kind == PROGPU_NATIVE_GROUP_EFFECT_BOX_BLUR) {
         return effect.sigma_x > 0.01F && effect.sigma_y > 0.01F &&
             effect.offset_x == 0.0F && effect.offset_y == 0.0F &&
             effect.color_r == 0.0F && effect.color_g == 0.0F &&
@@ -481,13 +566,81 @@ bool is_valid_semantic_mesh_3d_vertex(
         vertex.reserved0 == 0U && vertex.reserved1 == 0U;
 }
 
+bool is_valid_semantic_light_3d(
+    const progpu_native_scene_light_3d& light) noexcept {
+    const auto is_zero = [](const progpu_native_float_4& value) noexcept {
+        return value.x == 0.0F && value.y == 0.0F &&
+            value.z == 0.0F && value.w == 0.0F;
+    };
+    const auto has_direction = [](const progpu_native_float_4& value) noexcept {
+        return value.x * value.x + value.y * value.y + value.z * value.z >
+            0.000001F;
+    };
+    if (light.struct_size != sizeof(light) || light.flags != 0U ||
+        light.reserved0 != 0U || !is_finite(light.color) ||
+        !finite_float_4(light.position_range) ||
+        !finite_float_4(light.direction_inner_cos) ||
+        !finite_float_4(light.attenuation_outer_cos)) {
+        return false;
+    }
+    switch (light.kind) {
+    case PROGPU_NATIVE_LIGHT_3D_AMBIENT:
+        return is_zero(light.position_range) &&
+            is_zero(light.direction_inner_cos) &&
+            is_zero(light.attenuation_outer_cos);
+    case PROGPU_NATIVE_LIGHT_3D_DIRECTIONAL:
+        return is_zero(light.position_range) &&
+            has_direction(light.direction_inner_cos) &&
+            light.direction_inner_cos.w == 0.0F &&
+            is_zero(light.attenuation_outer_cos);
+    case PROGPU_NATIVE_LIGHT_3D_POINT:
+        return light.position_range.w > 0.0F &&
+            is_zero(light.direction_inner_cos) &&
+            light.attenuation_outer_cos.w == 0.0F &&
+            light.attenuation_outer_cos.x >= 0.0F &&
+            light.attenuation_outer_cos.y >= 0.0F &&
+            light.attenuation_outer_cos.z >= 0.0F &&
+            (light.attenuation_outer_cos.x > 0.0F ||
+                light.attenuation_outer_cos.y > 0.0F ||
+                light.attenuation_outer_cos.z > 0.0F);
+    case PROGPU_NATIVE_LIGHT_3D_SPOT:
+        return light.position_range.w > 0.0F &&
+            has_direction(light.direction_inner_cos) &&
+            light.direction_inner_cos.w >= -1.0F &&
+            light.direction_inner_cos.w <= 1.0F &&
+            light.attenuation_outer_cos.w >= -1.0F &&
+            light.attenuation_outer_cos.w <= 1.0F &&
+            light.direction_inner_cos.w >=
+                light.attenuation_outer_cos.w &&
+            light.attenuation_outer_cos.x >= 0.0F &&
+            light.attenuation_outer_cos.y >= 0.0F &&
+            light.attenuation_outer_cos.z >= 0.0F &&
+            (light.attenuation_outer_cos.x > 0.0F ||
+                light.attenuation_outer_cos.y > 0.0F ||
+                light.attenuation_outer_cos.z > 0.0F);
+    default:
+        return false;
+    }
+}
+
 bool is_valid_semantic_mesh_3d(
     const progpu_native_scene_mesh_3d& mesh,
     std::size_t vertex_count,
-    std::size_t index_count) noexcept {
+    std::size_t index_count,
+    std::size_t light_count) noexcept {
     const std::size_t mesh_vertex_offset = mesh.vertex_offset;
     const std::size_t mesh_index_offset = mesh.index_offset;
-    return mesh.struct_size == sizeof(mesh) && mesh.flags == 0U &&
+    const std::size_t mesh_light_offset = mesh.light_offset;
+    constexpr std::uint32_t known_flags =
+        PROGPU_NATIVE_MESH_3D_FRONT_FACE |
+        PROGPU_NATIVE_MESH_3D_BACK_FACE |
+        PROGPU_NATIVE_MESH_3D_SPECULAR_MATERIAL;
+    constexpr std::uint32_t face_mask =
+        PROGPU_NATIVE_MESH_3D_FRONT_FACE |
+        PROGPU_NATIVE_MESH_3D_BACK_FACE;
+    const auto face_flags = mesh.flags & face_mask;
+    return mesh.struct_size == sizeof(mesh) &&
+        (mesh.flags & ~known_flags) == 0U && face_flags != face_mask &&
         mesh.topology <= PROGPU_NATIVE_MESH_3D_TRIANGLE_STRIP &&
         mesh.render_mode <= PROGPU_NATIVE_MESH_3D_SOLID_WIREFRAME &&
         mesh.vertex_count >= 3U && mesh.index_count >= 3U &&
@@ -495,15 +648,21 @@ bool is_valid_semantic_mesh_3d(
         mesh.vertex_count <= vertex_count - mesh_vertex_offset &&
         mesh_index_offset <= index_count &&
         mesh.index_count <= index_count - mesh_index_offset &&
+        mesh.light_count <= PROGPU_NATIVE_SCENE_MAX_3D_LIGHTS_PER_MESH &&
+        mesh_light_offset <= light_count &&
+        mesh.light_count <= light_count - mesh_light_offset &&
+        (mesh.light_count != 0U || mesh.light_offset == 0U) &&
         finite_matrix(mesh.model_transform) &&
         finite_matrix(mesh.normal_transform) && is_finite(mesh.color) &&
         finite_float_4(mesh.light_direction) &&
+        mesh.light_direction.w >= 0.0F &&
         finite_float_4(mesh.ambient_color) &&
+        mesh.ambient_color.w >= 0.0F &&
         finite_float_4(mesh.specular_color) &&
+        mesh.specular_color.w > 0.0F &&
         finite_float_4(mesh.material_ambient) &&
         std::isfinite(mesh.opacity) && mesh.opacity >= 0.0F &&
-        mesh.opacity <= 1.0F && mesh.shading_mode <= 6U &&
-        mesh.reserved0 == 0U && mesh.reserved1 == 0U;
+        mesh.opacity <= 1.0F && mesh.shading_mode <= 6U;
 }
 
 } // namespace progpu::native::semantic

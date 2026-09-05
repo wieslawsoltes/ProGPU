@@ -13,6 +13,23 @@ namespace ProGPU.Tests;
 
 public class ShaderResourceTests
 {
+    [Fact]
+    public void TextureShaderKeepsAddressFallbackOnGpu()
+    {
+        Assert.Contains(
+            "fn address_texture_coordinate(value: f32, mode: f32)",
+            Shaders.TextureShader,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "fn address_texture_index(coordinate: i32, size: i32, mode: f32)",
+            Shaders.TextureShader,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "let addressedTexCoord = address_texture_coordinates(",
+            Shaders.TextureShader,
+            StringComparison.Ordinal);
+    }
+
     [Theory]
     [InlineData(0.02f)]
     [InlineData(0.25f)]
@@ -73,6 +90,49 @@ public class ShaderResourceTests
 
         Assert.Same(first, second);
         Assert.Same(Shaders.VectorShader, first);
+    }
+
+    [Fact]
+    public void PathRasterizerKeepsManagedCompatibilityAndNativeStagesEmbedded()
+    {
+        string common = ShaderResource.Load(
+            typeof(Shaders),
+            "PathRasterizerCommon.wgsl");
+
+        Assert.StartsWith(common, Shaders.PathRasterizerShader);
+        Assert.Contains(
+            "fn signed_winding_program_row_coverage_mask(",
+            Shaders.PathRasterizerShader,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "fn cs_main(@builtin(global_invocation_id)",
+            Shaders.PathRasterizerShader,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "fn cs_main_ordinary(@builtin(global_invocation_id)",
+            Shaders.PathRasterizerShader,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "fn ordinary_path_coverage_byte(",
+            Shaders.PathRasterizerShader,
+            StringComparison.Ordinal);
+
+        Assert.Contains(
+            "fn cs_main(",
+            ShaderResource.Load(typeof(Shaders), "PathSignedWindingLeaf.wgsl"),
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "fn split_signed_program_row_winding(",
+            ShaderResource.Load(
+                typeof(Shaders),
+                "PathSignedWindingEvaluate.wgsl"),
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "fn split_signed_program_coverage(",
+            ShaderResource.Load(
+                typeof(Shaders),
+                "PathSignedWindingCoverage.wgsl"),
+            StringComparison.Ordinal);
     }
 
     [Fact]
