@@ -8347,14 +8347,82 @@ int run_tests()
         return 207;
     }
 
-    masked_layer_parameters.mask_antialias_mode =
-        compat::antialias_mode::aliased;
-    target->BeginDraw();
-    target->PushLayer(&masked_layer_parameters, target_layer.get());
-    if (target->EndDraw(nullptr, nullptr) != compat::not_implemented ||
-        scene_target->GetRequiredSceneSize() != 0U) {
-        return 199;
+    for (const auto mode : {compat::antialias_mode::aliased, compat::antialias_mode::per_primitive}) {
+        const std::uint32_t expected_grid = mode == compat::antialias_mode::aliased ? 1U : 8U;
+        for (const bool with_opacity : {false, true}) {
+            auto parameters = masked_layer_parameters;
+            parameters.mask_antialias_mode = mode;
+            if (!with_opacity) parameters.opacity_brush = nullptr;
+            // The mask's mode is independent of the target's geometry mode.
+            target->SetAntialiasMode(mode == compat::antialias_mode::aliased
+                ? compat::antialias_mode::per_primitive : compat::antialias_mode::aliased);
+            target->BeginDraw();
+            target->PushLayer(&parameters, target_layer.get());
+            target->FillRectangle(&layer_bounds, target_brush.get());
+            target->PopLayer();
+            if (target->EndDraw(nullptr, nullptr) != com::ok) return 306;
+            const auto size = scene_target->GetRequiredSceneSize();
+            std::vector<std::byte> scene(static_cast<std::size_t>(size));
+            std::uint64_t written = 0U;
+            if (size == 0U || scene_target->BuildScene(scene.data(), scene.size(), &written) != com::ok ||
+                written != size) return 307;
+            const auto* header = reinterpret_cast<const progpu_native_scene_header*>(scene.data());
+            const auto* command = reinterpret_cast<const progpu_native_scene_command*>(scene.data() + header->command_offset);
+            const auto* layer = reinterpret_cast<const progpu_native_scene_layer*>(scene.data() + command->payload_offset);
+            if (layer->mask_resource_index >= header->resource_count) return 308;
+            const auto* resource = reinterpret_cast<const progpu_native_scene_resource*>(scene.data() +
+                header->resource_offset + layer->mask_resource_index * header->resource_stride);
+            const std::byte* payload = scene.data() + resource->payload_offset;
+            std::size_t path_offset = sizeof(progpu_native_scene_layer_vector_mask);
+            if (with_opacity) {
+                const auto* mask = reinterpret_cast<const progpu_native_scene_layer_composite_mask*>(payload);
+                if (mask->kind != PROGPU_NATIVE_SCENE_LAYER_MASK_COMPOSITE ||
+                    mask->path_count != 1U || mask->brush_mask_count != 1U ||
+                    mask->geometry_mask_count != 0U || mask->picture_mask_count != 0U) return 309;
+                path_offset = sizeof(*mask) + sizeof(progpu_native_scene_layer_brush_mask);
+            } else {
+                const auto* mask = reinterpret_cast<const progpu_native_scene_layer_vector_mask*>(payload);
+                if (mask->kind != PROGPU_NATIVE_SCENE_LAYER_MASK_VECTOR_CLIP_CHAIN || mask->path_count != 1U)
+                    return 310;
+            }
+            const auto* path = reinterpret_cast<const progpu_native_scene_clip_path*>(payload + path_offset);
+            if (path->sample_grid != expected_grid) return 311;
+        }
+        target->SetAntialiasMode(mode);
+        for (const bool bitmap_paint : {false, true}) {
+            target->BeginDraw();
+            target->FillGeometry(path_base.get(), bitmap_paint
+                ? static_cast<compat::brush*>(bitmap_brush.get())
+                : static_cast<compat::brush*>(target_brush.get()), nullptr);
+            if (target->EndDraw(nullptr, nullptr) != com::ok) return 312;
+            const auto size = scene_target->GetRequiredSceneSize();
+            std::vector<std::byte> scene(static_cast<std::size_t>(size));
+            std::uint64_t written = 0U;
+            if (size == 0U || scene_target->BuildScene(scene.data(), scene.size(), &written) != com::ok ||
+                written != size) return 313;
+            const auto* header = reinterpret_cast<const progpu_native_scene_header*>(scene.data());
+            bool found_coverage = false;
+            for (std::uint32_t index = 0U; index < header->resource_count; ++index) {
+                const auto* resource = reinterpret_cast<const progpu_native_scene_resource*>(scene.data() +
+                    header->resource_offset + index * header->resource_stride);
+                const std::byte* payload = scene.data() + resource->payload_offset;
+                if (!bitmap_paint && resource->kind == PROGPU_NATIVE_SCENE_RESOURCE_PATH_BATCH) {
+                    const auto* path = reinterpret_cast<const progpu_native_scene_path_fill*>(payload);
+                    if (path->sample_grid != expected_grid) return 314;
+                    found_coverage = true;
+                } else if (bitmap_paint && resource->kind == PROGPU_NATIVE_SCENE_RESOURCE_LAYER_MASK) {
+                    const auto* mask = reinterpret_cast<const progpu_native_scene_layer_vector_mask*>(payload);
+                    if (mask->kind != PROGPU_NATIVE_SCENE_LAYER_MASK_VECTOR_CLIP_CHAIN || mask->path_count != 1U)
+                        return 315;
+                    const auto* path = reinterpret_cast<const progpu_native_scene_clip_path*>(payload + sizeof(*mask));
+                    if (path->sample_grid != expected_grid) return 316;
+                    found_coverage = true;
+                }
+            }
+            if (!found_coverage) return 317;
+        }
     }
+    target->SetAntialiasMode(compat::antialias_mode::per_primitive);
 
     target->BeginDraw();
     target->FillGeometry(
