@@ -33,6 +33,7 @@ struct mil_image_brush_fixture_options {
     std::uint32_t end_cap{4U};
     std::uint32_t dash_cap{4U};
     bool guidelines{};
+    bool nested_group{};
 };
 
 inline bool build_mil_image_brush_fixture(std::vector<std::byte>& scene,
@@ -148,7 +149,23 @@ inline bool build_mil_image_brush_fixture(std::vector<std::byte>& scene,
             packet(batch, command::channel_create_resource, 15U,
                 options.shape == mil_brush_fixture_shape::group ? 71U : 72U);
             if (options.shape == mil_brush_fixture_shape::group) {
-                packet(batch, command::geometry_group, 15U, 16U, 0U, 8U, 17U, 18U);
+                if (options.nested_group) {
+                    packet(batch, command::channel_create_resource, 25U, 66U);
+                    packet(batch, command::matrix_transform, 25U, 1.4, 0.2, -0.1, 0.7, 2.0, 3.0, 0U);
+                    packet(batch, command::channel_create_resource, 23U, 68U);
+                    packet(batch, command::line_geometry, 23U, 8.0, 16.0, 56.0, 48.0, 0U, 0U, 0U);
+                    packet(batch, command::channel_create_resource, 24U, 73U);
+                    append(batch, static_cast<std::uint32_t>(24U + options.path_figures.size()));
+                    append(batch, static_cast<std::uint32_t>(command::path_geometry));
+                    append(batch, 24U);
+                    append(batch, 16U);
+                    append(batch, 0U);
+                    append(batch, static_cast<std::uint32_t>(options.path_figures.size()));
+                    batch.insert(batch.end(), options.path_figures.begin(), options.path_figures.end());
+                    packet(batch, command::channel_create_resource, 22U, 71U);
+                    packet(batch, command::geometry_group, 22U, 25U, 0U, 12U, 18U, 23U, 24U);
+                }
+                packet(batch, command::geometry_group, 15U, 16U, 0U, 8U, 17U, options.nested_group ? 22U : 18U);
             } else {
                 packet(batch, command::combined_geometry, 15U, 16U, 3U, 17U, 18U);
             }
