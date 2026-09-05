@@ -18842,15 +18842,16 @@ int main() {
         std::vector<std::byte> stream;
         PROGPU_REQUIRE(builder.build(stream));
         PROGPU_REQUIRE(!stream.empty());
-        layer.flags |= PROGPU_NATIVE_SCENE_LAYER_CACHE_FANT;
+        layer.flags |= PROGPU_NATIVE_SCENE_LAYER_CACHE_FANT | PROGPU_NATIVE_SCENE_LAYER_CACHE_NEAREST;
         PROGPU_REQUIRE(!builder.push_layer(layer));
-        layer.flags &= ~PROGPU_NATIVE_SCENE_LAYER_CACHE_FANT;
+        layer.flags &= ~(PROGPU_NATIVE_SCENE_LAYER_CACHE_FANT | PROGPU_NATIVE_SCENE_LAYER_CACHE_NEAREST);
         layer.reserved1 = state_index;
         PROGPU_REQUIRE(!builder.push_layer(layer));
         tile.address_u = 3U;
         PROGPU_REQUIRE(!builder.add_tile_composite(tile, tile_index));
     }
-    for (std::uint32_t sampling = 0U; sampling <= 1U; ++sampling) {
+    for (const std::uint32_t sampling : {PROGPU_NATIVE_IMAGE_SAMPLING_NEAREST,
+        PROGPU_NATIVE_IMAGE_SAMPLING_LINEAR, PROGPU_NATIVE_IMAGE_SAMPLING_FANT}) {
         for (std::uint32_t u = 0U; u <= 2U; ++u) {
             for (std::uint32_t v = 0U; v <= 2U; ++v) {
                 std::array<progpu::native::vector_vertex, 5U> vertices{};
@@ -18864,7 +18865,8 @@ int main() {
                 PROGPU_REQUIRE(vertices[2].texture_coordinate[1] == 3.0F);
                 PROGPU_REQUIRE(vertices[2].color[0] == 3.0F && vertices[2].color[1] == 5.0F);
                 PROGPU_REQUIRE(vertices[2].color[3] == 0.5F && vertices[2].brush_index == -2.0F);
-                PROGPU_REQUIRE(vertices[2].shape_size[0] == (sampling == 0U ? -128.0F : -64.0F));
+                PROGPU_REQUIRE(vertices[2].shape_size[0] == (sampling == PROGPU_NATIVE_IMAGE_SAMPLING_NEAREST ? -128.0F :
+                    sampling == PROGPU_NATIVE_IMAGE_SAMPLING_FANT ? -32.0F : -64.0F));
                 PROGPU_REQUIRE(vertices[2].corner_radius == static_cast<float>(u));
                 PROGPU_REQUIRE(vertices[2].stroke_thickness == static_cast<float>(v));
                 PROGPU_REQUIRE(vertices[4].brush_index == 42.0F);
@@ -18932,12 +18934,12 @@ int main() {
             progpu::native::tests::mil_brush_fixture_source::drawing,
             progpu::native::tests::mil_brush_fixture_source::drawing_image,
             progpu::native::tests::mil_brush_fixture_source::visual}) {
-            for (const bool linear : {false, true}) {
+            for (const std::uint32_t filter : {0U, 1U, 2U}) {
                 std::vector<std::byte> scene;
                 PROGPU_REQUIRE(progpu::native::tests::build_mil_image_brush_fixture(scene,
-                    {.stretch = 2U, .tile_mode = tile_mode, .opacity = 0.5, .linear = linear,
+                    {.stretch = 2U, .tile_mode = tile_mode, .opacity = 0.5, .linear = filter == 1U,
                         .source = source, .shape = progpu::native::tests::mil_brush_fixture_shape::ellipse,
-                        .inherited_clip = true, .viewport = {0.0, 0.0, 0.25, 0.5}}, 9500U + tile_mode));
+                        .inherited_clip = true, .viewport = {0.0, 0.0, 0.25, 0.5}, .fant = filter == 2U}, 9500U + tile_mode));
                 const auto header = read_value<progpu_native_scene_header>(scene, 0U);
                 std::uint32_t tile_resources = 0U;
                 for (std::uint32_t index = 0U; index < header.resource_count; ++index) {

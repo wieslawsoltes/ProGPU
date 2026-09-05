@@ -156,7 +156,7 @@ inline bool try_write_tile_page_quad(
         tile_width > maximum_exact_extent || tile_height > maximum_exact_extent ||
         address_u > PROGPU_NATIVE_IMAGE_ADDRESS_MIRROR_REPEAT ||
         address_v > PROGPU_NATIVE_IMAGE_ADDRESS_MIRROR_REPEAT ||
-        sampling > PROGPU_NATIVE_IMAGE_SAMPLING_LINEAR ||
+        (sampling > PROGPU_NATIVE_IMAGE_SAMPLING_LINEAR && sampling != PROGPU_NATIVE_IMAGE_SAMPLING_FANT) ||
         !std::isfinite(opacity) || opacity < 0.0F || opacity > 1.0F ||
         !is_finite(output_to_tile) || !std::isfinite(output.x) ||
         !std::isfinite(output.y) || !std::isfinite(output.width) ||
@@ -180,7 +180,8 @@ inline bool try_write_tile_page_quad(
         vertex.color[1] = static_cast<float>(tile_height);
         vertex.color[3] = opacity;
         vertex.brush_index = -2.0F;
-        vertex.shape_size[0] = sampling == PROGPU_NATIVE_IMAGE_SAMPLING_NEAREST ? -128.0F : -64.0F;
+        vertex.shape_size[0] = sampling == PROGPU_NATIVE_IMAGE_SAMPLING_NEAREST ? -128.0F :
+            sampling == PROGPU_NATIVE_IMAGE_SAMPLING_FANT ? -32.0F : -64.0F;
         vertex.corner_radius = static_cast<float>(address_u);
         vertex.stroke_thickness = static_cast<float>(address_v);
     }

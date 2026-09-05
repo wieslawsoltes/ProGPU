@@ -26,6 +26,7 @@ struct mil_image_brush_fixture_options {
     bool paint_transform{};
     std::span<const std::byte> path_figures{};
     std::array<double, 4U> viewport{0.0, 0.0, 1.0, 1.0};
+    bool fant{};
 };
 
 inline bool build_mil_image_brush_fixture(std::vector<std::byte>& scene,
@@ -37,7 +38,7 @@ inline bool build_mil_image_brush_fixture(std::vector<std::byte>& scene,
     packet(batch, command::channel_create_resource, 1U, 39U);
     packet(batch, command::visual_create, 1U);
     packet(batch, command::visual_set_render_options, 1U, 0x03U,
-        1U, 0U, options.linear ? 1U : 3U, 0U, 0U, 0U);
+        1U, 0U, options.fant ? 2U : options.linear ? 1U : 3U, 0U, 0U, 0U);
     packet(batch, command::channel_create_resource, 2U, 43U);
     const bool vector_source = options.source != mil_brush_fixture_source::bitmap;
     const bool drawing_brush = options.source == mil_brush_fixture_source::drawing;

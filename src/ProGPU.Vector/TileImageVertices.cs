@@ -10,6 +10,13 @@ public enum TileImageAddressMode
     MirrorRepeat
 }
 
+public enum TileImageSampling
+{
+    Nearest,
+    Linear,
+    Fant
+}
+
 /// <summary>
 /// Encodes one premultiplied, zero-origin GPU tile page for Texture.wgsl.
 /// The occupied extent excludes texture-pool padding. Callers retain the page
@@ -23,19 +30,31 @@ public static class TileImageVertices
     /// <summary>
     /// Writes four vertices transactionally. Output is (x,y,width,height);
     /// outputToTile maps target coordinates to normalized base-tile coordinates.
-    /// Only base-level nearest/linear sampling is supported, never a downgrade
-    /// from cubic, Fant, mipmapped or anisotropic sampling. O(1) time/workspace.
+    /// Base-level nearest/linear adapter. O(1) time/workspace.
     /// </summary>
     public static bool TryWriteQuad(Span<VectorVertex> destination, Vector4 output,
         Matrix3x2 outputToTile, uint tileWidth, uint tileHeight,
         uint textureWidth, uint textureHeight, TileImageAddressMode addressU,
         TileImageAddressMode addressV, bool nearest, float opacity)
+        => TryWriteQuad(destination, output, outputToTile, tileWidth, tileHeight,
+            textureWidth, textureHeight, addressU, addressV,
+            nearest ? TileImageSampling.Nearest : TileImageSampling.Linear, opacity);
+
+    /// <summary>
+    /// Encodes nearest, linear, or the shared bounded Fant footprint. Cubic,
+    /// mipmapped and anisotropic filters must not be downgraded to these modes.
+    /// </summary>
+    public static bool TryWriteQuad(Span<VectorVertex> destination, Vector4 output,
+        Matrix3x2 outputToTile, uint tileWidth, uint tileHeight,
+        uint textureWidth, uint textureHeight, TileImageAddressMode addressU,
+        TileImageAddressMode addressV, TileImageSampling sampling, float opacity)
     {
         const uint maximumExactExtent = 1u << 24;
         if (destination.Length < 4 || tileWidth == 0 || tileHeight == 0 ||
             tileWidth > textureWidth || tileHeight > textureHeight ||
             tileWidth > maximumExactExtent || tileHeight > maximumExactExtent ||
             (uint)addressU > 2 || (uint)addressV > 2 ||
+            (uint)sampling > (uint)TileImageSampling.Fant ||
             !float.IsFinite(opacity) || opacity < 0 || opacity > 1 ||
             !float.IsFinite(output.X) || !float.IsFinite(output.Y) ||
             !float.IsFinite(output.Z) || !float.IsFinite(output.W) || output.Z <= 0 || output.W <= 0 ||
@@ -54,8 +73,8 @@ public static class TileImageVertices
                 !float.IsFinite(uv.X) || !float.IsFinite(uv.Y))
                 return false;
             vertices[index] = new VectorVertex(position, new(tileWidth, tileHeight, 0, opacity), uv,
-                PatchKind, new(nearest ? GpuImageSamplingPolicy.ExplicitNearestCoefficient :
-                    GpuImageSamplingPolicy.ExplicitLinearCoefficient, 0),
+                PatchKind, new(sampling == TileImageSampling.Nearest ? GpuImageSamplingPolicy.ExplicitNearestCoefficient :
+                    sampling == TileImageSampling.Fant ? -32f : GpuImageSamplingPolicy.ExplicitLinearCoefficient, 0),
                 (float)addressU, (float)addressV);
         }
         vertices.CopyTo(destination);

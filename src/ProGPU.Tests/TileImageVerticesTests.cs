@@ -7,9 +7,10 @@ namespace ProGPU.Tests;
 public class TileImageVerticesTests
 {
     [Theory]
-    [InlineData(false)]
-    [InlineData(true)]
-    public void OccupiedExtentIsIndependentOfPoolSize(bool nearest)
+    [InlineData(TileImageSampling.Nearest, -128f)]
+    [InlineData(TileImageSampling.Linear, -64f)]
+    [InlineData(TileImageSampling.Fant, -32f)]
+    public void OccupiedExtentIsIndependentOfPoolSize(TileImageSampling sampling, float coefficient)
     {
         Span<VectorVertex> vertices = stackalloc VectorVertex[5];
         vertices[4].BrushIndex = 42;
@@ -18,12 +19,12 @@ public class TileImageVerticesTests
         {
             Assert.True(TileImageVertices.TryWriteQuad(vertices, new(8, 4, 32, 16),
                 new(0.125f, 0, 0, 0.25f, -2, -2), 3, 5, 64, 64,
-                (TileImageAddressMode)u, (TileImageAddressMode)v, nearest, 0.5f));
+                (TileImageAddressMode)u, (TileImageAddressMode)v, sampling, 0.5f));
             Assert.Equal(new Vector2(-1, -1), vertices[0].TexCoord);
             Assert.Equal(new Vector2(3, 3), vertices[2].TexCoord);
             Assert.Equal(new Vector4(3, 5, 0, 0.5f), vertices[2].Color);
             Assert.Equal(-2, vertices[2].BrushIndex);
-            Assert.Equal(nearest ? -128 : -64, vertices[2].ShapeSize.X);
+            Assert.Equal(coefficient, vertices[2].ShapeSize.X);
             Assert.Equal(u, vertices[2].CornerRadius);
             Assert.Equal(v, vertices[2].StrokeThickness);
             Assert.Equal(42, vertices[4].BrushIndex);

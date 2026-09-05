@@ -1,5 +1,5 @@
 // Algorithm: Transform batched image/lattice/atlas quads, sample occupied zero-origin tile pages with per-tap clamp/repeat/mirror addressing independent of pooled allocation size, emit fixed-color cells without sampling, or sample nearest, linear, Mitchell-Netravali cubic, or a retained-cache Fant-style bounded area footprint; atlas sprites optionally combine sampled source and per-sprite destination colors with a Skia blend mode; semantic color processing optionally applies Skia-compatible post-transform luminance-to-alpha.
-// Time complexity: O(1) per invocation; fixed-color cells perform no image sample, native nearest/linear uses one sampler operation, explicit nearest/linear uses 1/4 base-level texel loads, cubic and Fant filtering perform fixed 4x4 sample footprints, optional semantic color processing performs five fixed dot products plus one luminance dot product, atlas color blending uses bounded scalar work, and semantic mask chains evaluate at most four analytic rounded masks.
+// Time complexity: O(1) per invocation; fixed-color cells perform no image sample, native nearest/linear uses one sampler operation, explicit nearest/linear uses 1/4 base-level texel loads, cubic and Fant filtering perform fixed 4x4 sample footprints (occupied-page Fant uses 4 bilinear loads per stratum, at most 64 loads), optional semantic color processing performs five fixed dot products plus one luminance dot product, atlas color blending uses bounded scalar work, and semantic mask chains evaluate at most four analytic rounded masks.
 // Space complexity: O(1) local storage and bounded texture bandwidth per fragment; texture masks add one sample plus a fixed axis-aligned or affine UV transform, color matrices add one 96-byte uniform record containing 80 bytes of coefficients, and nested analytic masks use one primary 96-byte record plus one fixed 288-byte continuation record without another texture.
 struct VertexInput {
     @location(0) position: vec2<f32>,
@@ -313,17 +313,22 @@ fn is_tile_page(input: VertexOutput) -> bool {
 // parallelogram with a fixed stratified 4x4 footprint. This is stable under
 // rotation/shear, bounded on every backend, and retains ordinary bilinear
 // reconstruction for magnification and small minification.
-fn sample_fant_prefilter(
+fn sample_fant_footprint(
     uv: vec2<f32>,
     uvDx: vec2<f32>,
-    uvDy: vec2<f32>) -> vec4<f32> {
-    let size = textureDimensions(texTexture);
-    let sizef = vec2<f32>(f32(size.x), f32(size.y));
+    uvDy: vec2<f32>,
+    size: vec2<i32>,
+    modes: vec2<f32>,
+    occupiedPage: bool) -> vec4<f32> {
+    let sizef = vec2<f32>(size);
     let texelDx = uvDx * sizef;
     let texelDy = uvDy * sizef;
     let sourceFootprintX = length(vec2<f32>(texelDx.x, texelDy.x));
     let sourceFootprintY = length(vec2<f32>(texelDx.y, texelDy.y));
     if (max(sourceFootprintX, sourceFootprintY) <= 1.41421356237) {
+        if (occupiedPage) {
+            return sample_bilinear_extent(address_texture_coordinates(uv, modes), modes, size);
+        }
         return textureSampleGrad(texTexture, texSampler, uv, uvDx, uvDy);
     }
 
@@ -332,14 +337,21 @@ fn sample_fant_prefilter(
         let offsetY = (f32(y) + 0.5) * 0.25 - 0.5;
         for (var x: i32 = 0; x < 4; x = x + 1) {
             let offsetX = (f32(x) + 0.5) * 0.25 - 0.5;
-            color = color + textureSampleLevel(
-                texTexture,
-                texSampler,
-                uv + uvDx * offsetX + uvDy * offsetY,
-                0.0);
+            let sampleUv = uv + uvDx * offsetX + uvDy * offsetY;
+            if (occupiedPage) {
+                color = color + sample_bilinear_extent(
+                    address_texture_coordinates(sampleUv, modes), modes, size);
+            } else {
+                color = color + textureSampleLevel(texTexture, texSampler, sampleUv, 0.0);
+            }
         }
     }
     return color * 0.0625;
+}
+
+fn sample_fant_prefilter(uv: vec2<f32>, uvDx: vec2<f32>, uvDy: vec2<f32>) -> vec4<f32> {
+    return sample_fant_footprint(uv, uvDx, uvDy,
+        vec2<i32>(textureDimensions(texTexture)), vec2<f32>(0.0), false);
 }
 
 fn sample_image(
@@ -350,6 +362,11 @@ fn sample_image(
             vec2<i32>(textureDimensions(texTexture)));
         if (input.cubicResampler.x == explicit_nearest_coefficient) {
             return sample_nearest_extent(uv, modes, size);
+        }
+        if (input.cubicResampler.x == -32.0) {
+            // Address each stratum from unwrapped UVs. Addressing the center
+            // first would lose mirror parity for a rotated/sheared footprint.
+            return sample_fant_footprint(input.texCoord, uvDx, uvDy, size, modes, true);
         }
         return sample_bilinear_extent(uv, modes, size);
     }
