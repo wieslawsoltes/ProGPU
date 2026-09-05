@@ -7984,6 +7984,48 @@ CI qualification remain deferred at the user's request. This supersedes the
 preceding gradient-foreground rejection, not the open per-point guideline,
 nonuniform-DPI, remaining MIL consumer, DirectX, Direct2D, or Win2D work.
 
+### Implementation-first checkpoint: physical-DPI glyph preparation
+
+Native MIL glyph preparation now receives the stateful build request's target DPI
+for solid, gradient, and tile foregrounds, including `GlyphRunDrawing` and nested
+run-coverage scenes. Outline raster size is `clamp(em * dpi * transformScale, 4, 128)`.
+The positioned glyph's atlas-to-logical scale remains `em / rasterSize`: raising
+coverage resolution does not enlarge logical geometry. The existing resource key
+already includes raster size, so distinct physical sizes do not reuse the wrong
+outline resource. The frame-request cache already includes both DPI fields.
+
+Baseline snapping now transforms to logical target coordinates, multiplies by
+target DPI, selects the existing quarter-pixel X phase / whole-pixel baseline
+policy, divides back to logical coordinates, and applies the inverse transform.
+Animated and rotated/reflected placement retain their existing no-snap behavior.
+Legacy builds without a frame request retain DPI 1. Native frames still expose
+one DPI scalar; unequal requested X/Y DPI now fails closed for glyph draws rather
+than rendering text at an invented average. Per-axis frame support remains work
+to implement, not a claimed supported configuration.
+
+Provenance/applicability: this brings the native MIL consumer into alignment with
+original managed `ProGPU.Scene/Compositor.cs` `ResolveTextRasterization`,
+`ResolveGlyphRasterSize`, and `ResolveTextPlacement`. Managed rendering already
+uses physical target scale and needs no duplicate implementation change. The
+existing [cross-engine research](progpu-avalonia-rendering-research.md) separates
+reusable shaping from raster resolution; the public
+[Direct2D high-DPI contract](https://learn.microsoft.com/en-us/windows/win32/direct2d/direct2d-and-high-dpi)
+keeps DIPs distinct from physical pixels. No foreign implementation was used.
+Font decoding, canonical raster shaders, intrinsics, resource ownership, and
+placement cache topology are unchanged. Preparation remains O(G + S), glyphs G
+and outline segments S, with O(1) extra scalar work per position and no new
+per-frame arrays or submissions. The existing atlas clamp and nonuniform-transform
+phase behavior are not newly qualified by this change.
+
+Added 42 unexecuted scene cases for seven font/DPI combinations, three foreground
+families, and both command forms; four font/DPI pairs match managed
+`TextRenderingModeRenderTests.UiTextRasterizationPreservesItsPhysicalFontSize`.
+Assertions cover physical raster size, inverse geometry scale, physical snapping,
+phase selection, unchanged logical bounds, and one run draw. Another 21 cases
+cover anisotropic-target rejection without output mutation. Native-library and
+MIL-test compilation are the only qualification in this phase. Runtime images,
+VM comparison, verifier, benchmark, and CI execution/qualification remain deferred.
+
 ## Invariants
 
 - No reflection or private managed field scanning in the product bridge.

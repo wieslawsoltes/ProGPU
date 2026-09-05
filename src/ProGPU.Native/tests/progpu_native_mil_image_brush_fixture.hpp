@@ -52,6 +52,8 @@ struct mil_image_brush_fixture_options {
     std::uint32_t glyph_style{};
     bool glyph_drawing{};
     std::span<const std::byte> glyph_brush_commands{};
+    double target_dpi_scale_x{1.0};
+    double target_dpi_scale_y{1.0};
 };
 
 inline bool build_mil_image_brush_fixture(std::vector<std::byte>& scene,
@@ -289,7 +291,7 @@ inline bool build_mil_image_brush_fixture(std::vector<std::byte>& scene,
     // Keep the request identical between sizing and copy, including its serial.
     const progpu_native_mil_scene_build_request request{
         sizeof(progpu_native_mil_scene_build_request), 0U, 4U, 0U,
-        scene_id, 1U, 1.0, 1.0, 0U, 1U};
+        scene_id, 1U, options.target_dpi_scale_x, options.target_dpi_scale_y, 0U, 1U};
     progpu_native_mil_scene_build_result result{};
     result.struct_size = sizeof(result);
     std::size_t written = 0U;
