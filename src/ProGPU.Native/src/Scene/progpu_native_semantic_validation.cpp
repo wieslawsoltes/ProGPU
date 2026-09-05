@@ -268,14 +268,15 @@ bool is_valid_semantic_text_style(
 
 bool is_valid_semantic_image(
     const progpu_native_scene_image_draw& image,
-    std::uint64_t pixel_bytes) noexcept {
+    std::uint64_t pixel_bytes, std::uint32_t bytes_per_pixel) noexcept {
+    if (bytes_per_pixel != 1U && bytes_per_pixel != 4U) return false;
     const auto valid_rect = [](const progpu_native_image_rect& rect) noexcept {
         return std::isfinite(rect.x) && std::isfinite(rect.y) &&
             std::isfinite(rect.width) && std::isfinite(rect.height) &&
             rect.width > 0.0F && rect.height > 0.0F;
     };
     const std::uint64_t minimum_row_bytes =
-        static_cast<std::uint64_t>(image.image_width) * 4U;
+        static_cast<std::uint64_t>(image.image_width) * bytes_per_pixel;
     const std::uint64_t required_pixels = image.image_height == 0U
         ? 0U
         : static_cast<std::uint64_t>(image.row_bytes) *

@@ -55,10 +55,10 @@ bool validate_image_draw_payload(
     const progpu_native_scene_command& command,
     const progpu_native_scene_image_draw& image,
     std::uint64_t pixel_bytes,
-    semantic_image_options& options) noexcept {
+    semantic_image_options& options, std::uint32_t bytes_per_pixel) noexcept {
     options = {};
     if (bytes == nullptr || image.struct_size != sizeof(image) ||
-        !is_valid_semantic_image(image, pixel_bytes)) {
+        !is_valid_semantic_image(image, pixel_bytes, bytes_per_pixel)) {
         return false;
     }
     std::uint64_t cursor = command.payload_offset + sizeof(image);

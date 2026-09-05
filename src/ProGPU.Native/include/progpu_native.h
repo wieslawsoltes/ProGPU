@@ -113,6 +113,8 @@ enum {
     PROGPU_NATIVE_SCENE_EXTERNAL_IMAGE = 1U << 3U,
     /* Upload-backed image payload bytes use BGRA8 rather than RGBA8. */
     PROGPU_NATIVE_SCENE_IMAGE_BGRA8 = 1U << 4U,
+    /* Upload-backed single-channel UNORM bytes; sampled red, zero GB, one A. */
+    PROGPU_NATIVE_SCENE_IMAGE_R8 = 1U << 5U,
     /* Picture-mask stream renders at the source extent carried in reserved0/1. */
     PROGPU_NATIVE_SCENE_PICTURE_MASK_SOURCE_EXTENT = 1U << 0U,
     PROGPU_NATIVE_SCENE_METRICS_SNAPSHOT_REUSED = 1U << 0U

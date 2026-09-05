@@ -192,6 +192,28 @@ constexpr com::guid scene_mesh_native_interface_id{
             : 0U);
 }
 
+[[nodiscard]] constexpr std::uint32_t bitmap_pixel_bytes(pixel_format format) noexcept
+{
+    return format.format == dxgi_format_a8_unorm ? 1U : 4U;
+}
+
+[[nodiscard]] bool encode_bitmap_image(
+    semantic_scene_builder& builder, std::uint32_t resource_index,
+    progpu_native_scene_image_draw image, progpu_native_image_rect bounds,
+    pixel_format format, std::uint32_t state_index = PROGPU_NATIVE_SCENE_NO_INDEX) noexcept
+{
+    if (format.format != dxgi_format_a8_unorm)
+        return builder.draw_image(resource_index, image, bounds, state_index);
+    // Algorithm: upload one byte per pixel, then map sampled R to alpha on the
+    // GPU through the canonical color-matrix stage. O(1) CPU metadata, no pixel
+    // expansion/readback or scalar/SIMD repacking; RGB is zero for alpha-only data.
+    progpu_native_scene_image_color_matrix matrix{};
+    matrix.struct_size = sizeof(matrix);
+    matrix.alpha[0] = 1.0F;
+    image.flags |= PROGPU_NATIVE_SCENE_IMAGE_COLOR_MATRIX;
+    return builder.draw_image(resource_index, image, bounds, state_index, nullptr, &matrix);
+}
+
 [[nodiscard]] constexpr std::uint8_t premultiply_unorm8(
     std::uint8_t channel,
     std::uint8_t alpha) noexcept
@@ -949,7 +971,8 @@ public:
                 properties_.pixel_format_value.alpha) {
             return com::invalid_argument;
         }
-        const std::uint32_t compact_pitch = copy_width * 4U;
+        const auto pixel_bytes = bitmap_pixel_bytes(properties_.pixel_format_value);
+        const std::uint32_t compact_pitch = copy_width * pixel_bytes;
         try {
             std::vector<std::byte> copy(
                 static_cast<std::size_t>(compact_pitch) * copy_height);
@@ -970,7 +993,7 @@ public:
                     pixels_.data() +
                         static_cast<std::size_t>(actual_destination.y + row) *
                             row_bytes_ +
-                        static_cast<std::size_t>(actual_destination.x) * 4U,
+                        static_cast<std::size_t>(actual_destination.x) * pixel_bytes,
                     copy.data() + static_cast<std::size_t>(row) * compact_pitch,
                     compact_pitch);
             }
@@ -1006,7 +1029,8 @@ public:
         }
         const std::uint32_t width = rectangle.right - rectangle.left;
         const std::uint32_t height = rectangle.bottom - rectangle.top;
-        const std::uint32_t copy_bytes = width * 4U;
+        const auto pixel_bytes = bitmap_pixel_bytes(properties_.pixel_format_value);
+        const std::uint32_t copy_bytes = width * pixel_bytes;
         if (pitch < copy_bytes) {
             return com::invalid_argument;
         }
@@ -1019,7 +1043,7 @@ public:
             std::memcpy(
                 pixels_.data() +
                     static_cast<std::size_t>(rectangle.top + row) * row_bytes_ +
-                    static_cast<std::size_t>(rectangle.left) * 4U,
+                    static_cast<std::size_t>(rectangle.left) * pixel_bytes,
                 source + static_cast<std::size_t>(row) * pitch,
                 copy_bytes);
         }
@@ -1056,7 +1080,9 @@ public:
         const std::lock_guard lock(mutex_);
         const bool bgra = properties_.pixel_format_value.format ==
             dxgi_format_b8g8r8a8_unorm;
-        const bool added = bgra
+        const bool added = properties_.pixel_format_value.format == dxgi_format_a8_unorm
+            ? builder->add_r8_image(size_.width, size_.height, row_bytes_, pixels_, *resource_index)
+            : bgra
             ? builder->add_bgra8_image(
                 size_.width, size_.height, row_bytes_, pixels_,
                 *resource_index)
@@ -1092,7 +1118,8 @@ public:
             source_rectangle->right - source_rectangle->left;
         const std::uint32_t height =
             source_rectangle->bottom - source_rectangle->top;
-        const std::uint32_t copy_bytes = width * 4U;
+        const auto pixel_bytes = bitmap_pixel_bytes(properties_.pixel_format_value);
+        const std::uint32_t copy_bytes = width * pixel_bytes;
         if (destination_pitch < copy_bytes) {
             return com::invalid_argument;
         }
@@ -1104,7 +1131,7 @@ public:
                 pixels_.data() +
                     static_cast<std::size_t>(source_rectangle->top + row) *
                         row_bytes_ +
-                    static_cast<std::size_t>(source_rectangle->left) * 4U,
+                    static_cast<std::size_t>(source_rectangle->left) * pixel_bytes,
                 copy_bytes);
         }
         return com::ok;
@@ -3374,12 +3401,13 @@ public:
         if (actual.pixel_format_value.alpha == alpha_mode::unknown) {
             actual.pixel_format_value.alpha = alpha_mode::premultiplied;
         }
-        if ((actual.pixel_format_value.format !=
+        const bool alpha_only = actual.pixel_format_value.format == dxgi_format_a8_unorm;
+        if ((!alpha_only && actual.pixel_format_value.format !=
                 dxgi_format_r8g8b8a8_unorm &&
                 actual.pixel_format_value.format !=
                     dxgi_format_b8g8r8a8_unorm) ||
             (actual.pixel_format_value.alpha != alpha_mode::premultiplied &&
-                actual.pixel_format_value.alpha != alpha_mode::ignore)) {
+                actual.pixel_format_value.alpha != (alpha_only ? alpha_mode::straight : alpha_mode::ignore))) {
             return not_implemented;
         }
         if (actual.dpi_x == 0.0F && actual.dpi_y == 0.0F) {
@@ -3390,7 +3418,7 @@ public:
             return com::invalid_argument;
         }
         const std::uint64_t minimum_row_bytes =
-            static_cast<std::uint64_t>(size.width) * 4U;
+            static_cast<std::uint64_t>(size.width) * bitmap_pixel_bytes(actual.pixel_format_value);
         const std::uint32_t stored_pitch = source_data == nullptr
             ? static_cast<std::uint32_t>(minimum_row_bytes)
             : pitch;
@@ -3680,13 +3708,12 @@ public:
             source_format.format == dxgi_format_r8g8b8a8_unorm ||
             source_format.format == dxgi_format_b8g8r8a8_unorm;
         if (source_size.width == 0U || source_size.height == 0U ||
-            (!color_format &&
-                (!source_scene ||
-                    source_format.format != dxgi_format_a8_unorm)) ||
+            (!color_format && source_format.format != dxgi_format_a8_unorm) ||
             (color_format
                     ? source_format.alpha != alpha_mode::premultiplied &&
                         source_format.alpha != alpha_mode::ignore
-                    : source_format.alpha != alpha_mode::premultiplied)) {
+                    : source_format.alpha != alpha_mode::premultiplied &&
+                        source_format.alpha != alpha_mode::straight)) {
             return not_implemented;
         }
         bitmap_properties actual{};
@@ -3712,8 +3739,8 @@ public:
                     ? actual.pixel_format_value.alpha !=
                             alpha_mode::premultiplied &&
                         actual.pixel_format_value.alpha != alpha_mode::ignore
-                    : actual.pixel_format_value.alpha !=
-                        alpha_mode::premultiplied)) {
+                    : actual.pixel_format_value.alpha != alpha_mode::premultiplied &&
+                        actual.pixel_format_value.alpha != alpha_mode::straight)) {
             return not_implemented;
         }
         if (!valid_dpi(actual.dpi_x, actual.dpi_y)) {
@@ -4590,8 +4617,8 @@ public:
                 image.transform = native_transform();
                 image.opacity = 1.0F;
                 image.max_anisotropy = 1U;
-                if (!mask_builder.draw_image(
-                        image_resource_index, image, target_bounds) ||
+                if (!encode_bitmap_image(mask_builder,
+                        image_resource_index, image, target_bounds, nested_snapshot.format) ||
                     !mask_builder.build(nested_scene)) {
                     latch(mask_builder.last_error() ==
                             scene_build_error::out_of_memory
@@ -4767,7 +4794,7 @@ public:
         if (com::failed(failure_)) {
             return;
         }
-        if (!builder_.draw_image(resource_index, image, bounds)) {
+        if (!encode_bitmap_image(builder_, resource_index, image, bounds, snapshot.format)) {
             latch(builder_failure());
             return;
         }
@@ -6122,10 +6149,11 @@ private:
         }
         auto& destination = picture_scene == nullptr ? builder_ : *picture_scene;
         if (!destination.add_state(state, state_resource_index) ||
-            !destination.draw_image(
+            !encode_bitmap_image(destination,
                 image_resource_index,
                 image,
                 bounds,
+                snapshot.format,
                 state_resource_index)) {
             latch(destination.last_error() == scene_build_error::out_of_memory
                 ? com::out_of_memory : failure);

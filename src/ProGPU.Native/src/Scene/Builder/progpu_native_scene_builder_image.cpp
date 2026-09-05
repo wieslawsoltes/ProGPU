@@ -212,7 +212,7 @@ bool semantic_scene_builder::add_rgba8_image(
     std::uint32_t row_bytes,
     std::span<const std::byte> pixels,
     std::uint32_t& resource_index) noexcept {
-    return add_32bit_image(
+    return add_upload_image(
         width, height, row_bytes, pixels, false, resource_index);
 }
 
@@ -222,20 +222,30 @@ bool semantic_scene_builder::add_bgra8_image(
     std::uint32_t row_bytes,
     std::span<const std::byte> pixels,
     std::uint32_t& resource_index) noexcept {
-    return add_32bit_image(
+    return add_upload_image(
         width, height, row_bytes, pixels, true, resource_index);
 }
 
-bool semantic_scene_builder::add_32bit_image(
+bool semantic_scene_builder::add_r8_image(
+    std::uint32_t width, std::uint32_t height, std::uint32_t row_bytes,
+    std::span<const std::byte> pixels, std::uint32_t& resource_index) noexcept {
+    return add_upload_image(width, height, row_bytes, pixels, false, resource_index, true);
+}
+
+bool semantic_scene_builder::add_upload_image(
     std::uint32_t width,
     std::uint32_t height,
     std::uint32_t row_bytes,
     std::span<const std::byte> pixels,
     bool bgra8,
-    std::uint32_t& resource_index) noexcept {
+    std::uint32_t& resource_index,
+    bool r8) noexcept {
     resource_index = PROGPU_NATIVE_SCENE_NO_INDEX;
+    // Algorithm: retain the upload's native byte layout; GPU texture format
+    // selects R8/RGBA8/BGRA8 interpretation. O(B) byte copy and owned storage,
+    // with no per-pixel conversion. Format flags are mutually exclusive.
     const std::uint64_t minimum_row_bytes =
-        static_cast<std::uint64_t>(width) * 4U;
+        static_cast<std::uint64_t>(width) * (r8 ? 1U : 4U);
     const std::uint64_t required_bytes = height == 0U
         ? 0U
         : static_cast<std::uint64_t>(row_bytes) * (height - 1U) +
@@ -254,12 +264,14 @@ bool semantic_scene_builder::add_32bit_image(
         resource.record.struct_size = sizeof(resource.record);
         resource.record.kind = PROGPU_NATIVE_SCENE_RESOURCE_IMAGE;
         resource.record.flags = PROGPU_NATIVE_SCENE_RECORD_REQUIRED |
-            (bgra8 ? PROGPU_NATIVE_SCENE_IMAGE_BGRA8 : 0U);
+            (bgra8 ? PROGPU_NATIVE_SCENE_IMAGE_BGRA8 : 0U) |
+            (r8 ? PROGPU_NATIVE_SCENE_IMAGE_R8 : 0U);
         resource.record.resource_id = implementation_->resources.size() + 1U;
         resource.record.generation = implementation_->generation;
         resource.payload.assign(pixels.begin(), pixels.end());
-        resource.rgba8_image = !bgra8;
+        resource.rgba8_image = !bgra8 && !r8;
         resource.bgra8_image = bgra8;
+        resource.r8_image = r8;
         resource.image_width = width;
         resource.image_height = height;
         resource.image_row_bytes = row_bytes;
@@ -411,11 +423,11 @@ bool semantic_scene_builder::draw_image(
                 (image.image_height - 1U) +
             static_cast<std::uint64_t>(image.image_width) * 4U
         : resource.payload.size();
-    if ((!resource.rgba8_image && !resource.bgra8_image && !external_image) ||
+    if ((!resource.rgba8_image && !resource.bgra8_image && !resource.r8_image && !external_image) ||
         image.image_width != resource.image_width ||
         image.image_height != resource.image_height ||
         image.row_bytes != resource.image_row_bytes ||
-        !semantic::is_valid_semantic_image(image, validation_bytes) ||
+        !semantic::is_valid_semantic_image(image, validation_bytes, resource.r8_image ? 1U : 4U) ||
         wants_sampling != (sampling_options != nullptr) ||
         wants_matrix != (color_matrix != nullptr) ||
         wants_effect != (effect != nullptr) ||
@@ -526,11 +538,11 @@ bool semantic_scene_builder::draw_image_patches(
                 (image.image_height - 1U) +
             static_cast<std::uint64_t>(image.image_width) * 4U
         : resource.payload.size();
-    if ((!resource.rgba8_image && !resource.bgra8_image && !external_image) ||
+    if ((!resource.rgba8_image && !resource.bgra8_image && !resource.r8_image && !external_image) ||
         image.image_width != resource.image_width ||
         image.image_height != resource.image_height ||
         image.row_bytes != resource.image_row_bytes ||
-        !semantic::is_valid_semantic_image(image, validation_bytes) ||
+        !semantic::is_valid_semantic_image(image, validation_bytes, resource.r8_image ? 1U : 4U) ||
         wants_sampling != (sampling_options != nullptr) ||
         wants_matrix != (color_matrix != nullptr) ||
         wants_effect != (effect != nullptr) ||
@@ -596,7 +608,7 @@ bool semantic_scene_builder::draw_image_patches(
                 command.record,
                 image,
                 validation_bytes,
-                parsed) ||
+                parsed, resource.r8_image ? 1U : 4U) ||
             parsed.patch_count != patches.size()) {
             return implementation_->fail(scene_build_error::invalid_argument);
         }

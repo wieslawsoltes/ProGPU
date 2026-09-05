@@ -67,6 +67,14 @@ int main() {
     if (!builder.try_uniform_guideline_translation(copied_guidelines, 2.0F, displacement) ||
         displacement.x != -0.0625F || displacement.y != 0.0F) return 1;
     std::array<std::byte, 4096U> stream{};
+    const std::array<std::byte, 4U> coverage{
+        std::byte{0}, std::byte{64}, std::byte{128}, std::byte{255}};
+    unsigned int r8_index = progpu::native::PROGPU_NATIVE_SCENE_NO_INDEX;
+    image.row_bytes = 2U;
+    image.sampling = progpu::native::PROGPU_NATIVE_IMAGE_SAMPLING_LINEAR;
+    image.max_anisotropy = 1U;
+    if (!builder.add_r8_image(2U, 2U, 2U, coverage, r8_index) ||
+        !builder.draw_image(r8_index, image, image.destination_rect)) return 1;
     const std::size_t required_size = builder.required_stream_size();
     std::size_t bytes_written = 0U;
     return required_size > 0U && required_size <= stream.size() &&

@@ -1281,7 +1281,7 @@ progpu_native_status render_scene(
                         command,
                         image,
                         validation_bytes,
-                        image_options) &&
+                        image_options, (resource.flags & PROGPU_NATIVE_SCENE_IMAGE_R8) != 0U ? 1U : 4U) &&
                     (!external_image ||
                         (external_binding != nullptr &&
                             external_binding->width == image.image_width &&
@@ -2777,7 +2777,7 @@ progpu_native_status render_scene(
                         command,
                         image,
                         validation_bytes,
-                        image_options) ||
+                        image_options, (resource.flags & PROGPU_NATIVE_SCENE_IMAGE_R8) != 0U ? 1U : 4U) ||
                     (external_image &&
                         (external_binding == nullptr ||
                             external_binding->width != image.image_width ||
@@ -2924,7 +2924,9 @@ progpu_native_status render_scene(
                 WGPUTextureDescriptor texture_descriptor{};
                 texture_descriptor.label =
                     progpu::native::webgpu::string_view(
-                        (resource.flags & PROGPU_NATIVE_SCENE_IMAGE_BGRA8) != 0U
+                        (resource.flags & PROGPU_NATIVE_SCENE_IMAGE_R8) != 0U
+                            ? "ProGPU semantic retained R8 image"
+                            : (resource.flags & PROGPU_NATIVE_SCENE_IMAGE_BGRA8) != 0U
                             ? "ProGPU semantic retained BGRA image"
                             : "ProGPU semantic retained RGBA image");
                 texture_descriptor.usage = WGPUTextureUsage_TextureBinding |
@@ -2933,7 +2935,9 @@ progpu_native_status render_scene(
                 texture_descriptor.size = {
                     image.image_width, image.image_height, 1U};
                 texture_descriptor.format =
-                    (resource.flags & PROGPU_NATIVE_SCENE_IMAGE_BGRA8) != 0U
+                    (resource.flags & PROGPU_NATIVE_SCENE_IMAGE_R8) != 0U
+                    ? WGPUTextureFormat_R8Unorm
+                    : (resource.flags & PROGPU_NATIVE_SCENE_IMAGE_BGRA8) != 0U
                     ? WGPUTextureFormat_BGRA8Unorm
                     : WGPUTextureFormat_RGBA8Unorm;
                 texture_descriptor.mipLevelCount = 1U;
@@ -3069,10 +3073,12 @@ progpu_native_status render_scene(
                     progpu::native::webgpu::texture_data_layout layout{};
                     layout.bytesPerRow = image.row_bytes;
                     layout.rowsPerImage = image.image_height;
+                    const std::uint32_t bytes_per_pixel =
+                        (resource.flags & PROGPU_NATIVE_SCENE_IMAGE_R8) != 0U ? 1U : 4U;
                     const std::uint64_t upload_bytes =
                         static_cast<std::uint64_t>(image.row_bytes) *
                             (image.image_height - 1U) +
-                        static_cast<std::uint64_t>(image.image_width) * 4U;
+                        static_cast<std::uint64_t>(image.image_width) * bytes_per_pixel;
                     const WGPUExtent3D extent{
                         image.image_width, image.image_height, 1U};
                     wgpuQueueWriteTexture(

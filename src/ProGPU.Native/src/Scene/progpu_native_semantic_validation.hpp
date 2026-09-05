@@ -55,7 +55,7 @@ bool is_valid_semantic_text_style(
 
 bool is_valid_semantic_image(
     const progpu_native_scene_image_draw& image,
-    std::uint64_t pixel_bytes) noexcept;
+    std::uint64_t pixel_bytes, std::uint32_t bytes_per_pixel = 4U) noexcept;
 
 bool is_valid_semantic_image_sampling_options(
     const progpu_native_scene_image_sampling_options& options) noexcept;
