@@ -14,6 +14,21 @@
 
 namespace progpu::native {
 
+// Algorithm: Encode base-level image reconstruction for canonical Texture.wgsl;
+// explicit Fant replaces bilinear taps without changing its bounded footprint.
+// Time complexity: O(1). Space complexity: O(1); no resources or allocations.
+inline constexpr float base_image_sampling_coefficient(
+    std::uint64_t engine_flags, std::uint32_t sampling) noexcept {
+    const bool explicit_sampling =
+        (engine_flags & PROGPU_NATIVE_ENGINE_IMAGE_EXPLICIT_SHADER_SAMPLING) != 0U;
+    if (sampling == PROGPU_NATIVE_IMAGE_SAMPLING_FANT)
+        return explicit_sampling ? -256.0F : -32.0F;
+    if (!explicit_sampling) return 0.0F;
+    if (sampling == PROGPU_NATIVE_IMAGE_SAMPLING_NEAREST) return -128.0F;
+    if (sampling == PROGPU_NATIVE_IMAGE_SAMPLING_LINEAR) return -64.0F;
+    return 0.0F;
+}
+
 struct vector_vertex {
     float position[2];
     float color[4];

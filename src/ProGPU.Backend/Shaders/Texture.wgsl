@@ -1,5 +1,5 @@
 // Algorithm: Transform batched image/lattice/atlas quads, sample occupied zero-origin tile pages with per-tap clamp/repeat/mirror addressing independent of pooled allocation size, emit fixed-color cells without sampling, or sample nearest, linear, Mitchell-Netravali cubic, or a retained-cache Fant-style bounded area footprint; atlas sprites optionally combine sampled source and per-sprite destination colors with a Skia blend mode; semantic color processing optionally applies Skia-compatible post-transform luminance-to-alpha.
-// Time complexity: O(1) per invocation; fixed-color cells perform no image sample, native nearest/linear uses one sampler operation, explicit nearest/linear uses 1/4 base-level texel loads, cubic and Fant filtering perform fixed 4x4 sample footprints (occupied-page Fant uses 4 bilinear loads per stratum, at most 64 loads), optional semantic color processing performs five fixed dot products plus one luminance dot product, atlas color blending uses bounded scalar work, and semantic mask chains evaluate at most four analytic rounded masks.
+// Time complexity: O(1) per invocation; fixed-color cells perform no image sample, native nearest/linear uses one sampler operation, explicit nearest/linear uses 1/4 base-level texel loads, cubic and Fant filtering perform fixed 4x4 sample footprints (explicit full-image and occupied-page Fant use 4 bilinear loads per stratum, at most 64 loads), optional semantic color processing performs five fixed dot products plus one luminance dot product, atlas color blending uses bounded scalar work, and semantic mask chains evaluate at most four analytic rounded masks.
 // Space complexity: O(1) local storage and bounded texture bandwidth per fragment; texture masks add one sample plus a fixed axis-aligned or affine UV transform, color matrices add one 96-byte uniform record containing 80 bytes of coefficients, and nested analytic masks use one primary 96-byte record plus one fixed 288-byte continuation record without another texture.
 struct VertexInput {
     @location(0) position: vec2<f32>,
@@ -267,6 +267,7 @@ fn sample_bicubic(
 // unpremultiply individual taps. No CPU work, intermediate image, or sampler.
 const explicit_linear_coefficient: f32 = -64.0;
 const explicit_nearest_coefficient: f32 = -128.0;
+const explicit_fant_coefficient: f32 = -256.0;
 
 fn sample_bilinear_extent(uv: vec2<f32>, modes: vec2<f32>, size: vec2<i32>) -> vec4<f32> {
     let texel = uv * vec2<f32>(size) - vec2<f32>(0.5);
@@ -319,14 +320,14 @@ fn sample_fant_footprint(
     uvDy: vec2<f32>,
     size: vec2<i32>,
     modes: vec2<f32>,
-    occupiedPage: bool) -> vec4<f32> {
+    explicitSampling: bool) -> vec4<f32> {
     let sizef = vec2<f32>(size);
     let texelDx = uvDx * sizef;
     let texelDy = uvDy * sizef;
     let sourceFootprintX = length(vec2<f32>(texelDx.x, texelDy.x));
     let sourceFootprintY = length(vec2<f32>(texelDx.y, texelDy.y));
     if (max(sourceFootprintX, sourceFootprintY) <= 1.41421356237) {
-        if (occupiedPage) {
+        if (explicitSampling) {
             return sample_bilinear_extent(address_texture_coordinates(uv, modes), modes, size);
         }
         return textureSampleGrad(texTexture, texSampler, uv, uvDx, uvDy);
@@ -338,7 +339,7 @@ fn sample_fant_footprint(
         for (var x: i32 = 0; x < 4; x = x + 1) {
             let offsetX = (f32(x) + 0.5) * 0.25 - 0.5;
             let sampleUv = uv + uvDx * offsetX + uvDy * offsetY;
-            if (occupiedPage) {
+            if (explicitSampling) {
                 color = color + sample_bilinear_extent(
                     address_texture_coordinates(sampleUv, modes), modes, size);
             } else {
@@ -370,8 +371,13 @@ fn sample_image(
         }
         return sample_bilinear_extent(uv, modes, size);
     }
-    // Fant/cubic are distinct algorithms, not downgraded by the base-level
-    // policy. Derivatives are evaluated by callers before divergent control.
+    // Full-image explicit Fant keeps the same footprint/threshold, replacing
+    // only each bilinear sampler operation. Preserve unwrapped mirror phase.
+    if (input.cubicResampler.x == explicit_fant_coefficient) {
+        return sample_fant_footprint(input.texCoord, uvDx, uvDy,
+            vec2<i32>(textureDimensions(texTexture)), modes, true);
+    }
+    // Derivatives are evaluated by callers before divergent control.
     if (input.patchKind < -0.5 || input.cubicResampler.x == -32.0) {
         return sample_fant_prefilter(uv, uvDx, uvDy);
     }

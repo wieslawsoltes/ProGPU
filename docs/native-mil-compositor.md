@@ -7379,6 +7379,52 @@ No performance or pixel-parity claim is made. Managed retained-capture adoption,
 tile strokes/text/opacity masks, the remaining filtering/DPI work and broader
 MIL/DirectX/Direct2D/Win2D completion remain open.
 
+### Implementation-first checkpoint: explicit full-image Fant policy
+
+The `PROGPU_IMAGE_SAMPLING=explicit-shader` policy and native engine flag 8 now
+also select explicit Fant reconstruction for direct images, retained scene images
+and ordinary Fant cached-layer restoration. This supersedes the full-image Fant
+policy limitation recorded in the preceding tile checkpoint. Automatic selection
+is unchanged (including the existing Parallels D3D12 adapter rule); forcing native
+sampling retains hardware Fant where that policy is allowed. Tile pages retain
+their independent explicit-only policy and occupied-extent vertex marker.
+
+The shader encoding adds coefficient -256 outside the cubic B/C domain. Both
+managed command compilation and native image execution select that coefficient
+without changing the requested kernel; native default Fant remains -32. The
+existing shared 4-by-4 footprint and square-root-of-two threshold are unchanged,
+but each explicit stratum uses four base-level loads with per-tap addressing.
+Unwrapped UVs preserve mirror phase. The low-minification branch uses four loads;
+the larger-footprint branch is bounded to 64. Masked and color-matrix image paths
+use the same sampling function. This reuses original ProGPU filtering/addressing
+code from the previous checkpoint, with no CPU readback, extra pass or new shader
+fork. Coefficient selection is constant-time metadata work, not a CPU pixel kernel.
+
+Ordinary direct images now encode clamp in the V-address field rather than the
+historical value 1 (repeat). Fant cached layers explicitly encode clamp on both
+axes; retained image address flags remain authoritative. Ordinary cached layers
+still use their existing texture-allocation UVs; this change does not retrofit
+tile-page occupied-extent isolation into every cached-layer sampling mode.
+
+Managed encoding regressions cover native versus explicit nearest/linear/Fant,
+already-encoded Fant, cubic and mipmapped preservation. Native compile-time
+encoding cases cover all current sampling values under default, forced-native and
+explicit flags. These are encoding contracts, not pixel evidence. Final runtime
+qualification must exercise direct and retained images, cached layers, fractional
+source crops, clamp/repeat/mirror edges, masked/color-matrix paths, alpha, rotated
+and sheared footprints, threshold/large-footprint minification, and native versus
+explicit captures on macOS/Linux/Windows. The existing retained-cache Fant gate
+must run under both policy settings on qualified native-sampler adapters, and
+explicit mode on Parallels D3D12. No speed or exact WPF parity claim is made.
+
+Build-only evidence: the GPU-enabled C++ shared library and native MIL test
+executable compile, and the managed test project builds with zero warnings/errors.
+Native compile-time encoding assertions compiled; managed cases were not run.
+Validation execution remains deferred by user request; C++/C# compilation is the
+only implementation-stage check. Cubic/mipmap/anisotropy support for repeated MIL
+capture, nonuniform DPI, managed retained-capture adoption, tile strokes/text/
+opacity masks and the broader MIL/DirectX/Direct2D/Win2D goal remain open.
+
 ## Invariants
 
 - No reflection or private managed field scanning in the product bridge.

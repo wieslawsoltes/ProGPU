@@ -13661,6 +13661,23 @@ SceneStateUploadComplete:
         _textVerticesList.EnsureCapacity(requiredCapacity);
     }
 
+    // Algorithm: Select shared shader encoding without changing the requested
+    // reconstruction kernel. Time/space complexity: O(1), allocation-free.
+    internal static Vector2 ResolveImageSamplingCoefficients(
+        GpuImageSamplingPath path, TextureSamplingMode sampling, Vector2 coefficients)
+    {
+        if (path != GpuImageSamplingPath.ExplicitShader) return coefficients;
+        if (coefficients.X == -32f)
+            return new Vector2(GpuImageSamplingPolicy.ExplicitFantCoefficient, coefficients.Y);
+        // Cubic, mipmapped and pre-encoded modes retain their algorithms.
+        if (coefficients.X >= -16f &&
+            sampling is TextureSamplingMode.Nearest or TextureSamplingMode.Linear)
+            return new Vector2(sampling == TextureSamplingMode.Nearest
+                ? GpuImageSamplingPolicy.ExplicitNearestCoefficient
+                : GpuImageSamplingPolicy.ExplicitLinearCoefficient, 0.5f);
+        return coefficients;
+    }
+
     private void CompileTextureCommand(RenderCommand cmd, Matrix4x4 transform)
     {
         if (cmd.Texture == null) return;
@@ -13691,17 +13708,8 @@ SceneStateUploadComplete:
             float.IsFinite(cmd.TextureCubicCoefficients.Y)
                 ? cmd.TextureCubicCoefficients
                 : new Vector2(0f, 0.5f);
-        // Cubic/Fant and mipmapped modes retain their independent algorithms.
-        if (_imageSamplingPath == GpuImageSamplingPath.ExplicitShader &&
-            cubicCoefficients.X >= -16f &&
-            cmd.TextureSamplingMode is TextureSamplingMode.Nearest or TextureSamplingMode.Linear)
-        {
-            cubicCoefficients = new Vector2(
-                cmd.TextureSamplingMode == TextureSamplingMode.Nearest
-                    ? GpuImageSamplingPolicy.ExplicitNearestCoefficient
-                    : GpuImageSamplingPolicy.ExplicitLinearCoefficient,
-                0.5f);
-        }
+        cubicCoefficients = ResolveImageSamplingCoefficients(
+            _imageSamplingPath, cmd.TextureSamplingMode, cubicCoefficients);
         var indexStart = _textureIndicesList.Count;
         var patches = cmd.TexturePatches;
         var patchCount = patches?.Length ?? 1;

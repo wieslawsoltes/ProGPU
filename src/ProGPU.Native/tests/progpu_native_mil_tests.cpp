@@ -34,6 +34,24 @@ using progpu::native::mil::status;
 
 namespace command_layouts = progpu::native::mil::command_layouts;
 
+// Compile-time encoding regression; GPU pixel differential cases remain in
+// the final image/cache Fant gate under both explicit and native policies.
+static_assert([] {
+    for (std::uint32_t sampling = 0U; sampling <= PROGPU_NATIVE_IMAGE_SAMPLING_FANT; ++sampling) {
+        const float native_coefficient = sampling == PROGPU_NATIVE_IMAGE_SAMPLING_FANT ? -32.0F : 0.0F;
+        const float explicit_coefficient = sampling == PROGPU_NATIVE_IMAGE_SAMPLING_FANT ? -256.0F :
+            sampling == PROGPU_NATIVE_IMAGE_SAMPLING_NEAREST ? -128.0F :
+            sampling == PROGPU_NATIVE_IMAGE_SAMPLING_LINEAR ? -64.0F : 0.0F;
+        if (progpu::native::base_image_sampling_coefficient(0U, sampling) != native_coefficient ||
+            progpu::native::base_image_sampling_coefficient(PROGPU_NATIVE_ENGINE_IMAGE_REQUIRE_NATIVE_SAMPLING,
+                sampling) != native_coefficient ||
+            progpu::native::base_image_sampling_coefficient(PROGPU_NATIVE_ENGINE_IMAGE_EXPLICIT_SHADER_SAMPLING,
+                sampling) != explicit_coefficient)
+            return false;
+    }
+    return true;
+}());
+
 static_assert(static_cast<std::uint32_t>(command::invalid) == 0x00U);
 static_assert(static_cast<std::uint32_t>(command::bitmap_cache) == 0x8dU);
 static_assert(

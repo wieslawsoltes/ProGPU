@@ -922,11 +922,13 @@ typedef enum progpu_native_engine_flag {
     PROGPU_NATIVE_ENGINE_GLYPH_SCALAR_CPU_FALLBACK = 4ULL,
     /*
      * Reconstruct base-level nearest/linear image samples using 1/4 texel
-     * loads in the canonical fragment shader. No readback or extra pass.
+     * loads in the canonical fragment shader. Fant preserves its bounded
+     * 4x4 footprint using explicit bilinear taps (at most 64 texel loads).
+     * No readback or extra pass.
      * Independent of glyph flags; immutable for the engine lifetime.
      * Raw C hosts select this after adapter qualification (Parallels D3D12
      * requires it). Zero preserves the native sampler on other adapters.
-     * Does not replace cubic/Fant, mipmapped, anisotropic or effect samplers.
+     * Does not replace cubic, mipmapped, anisotropic or effect samplers.
      */
     /* PROGPU_CSHARP_ULONG: EngineImageExplicitShaderSampling */
     PROGPU_NATIVE_ENGINE_IMAGE_EXPLICIT_SHADER_SAMPLING = 8ULL,
