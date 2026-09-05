@@ -17,6 +17,12 @@ public enum GpuImageSamplingPath
     ExplicitShader
 }
 
+public enum GpuTilePageSamplingPath
+{
+    ExplicitShader,
+    UnsupportedForcedNativeSampler
+}
+
 /// <summary>
 /// Base-level image sampling policy. Cubic, Fant, mipmapped and anisotropic
 /// sampling retain their own algorithms; this policy never reduces those modes
@@ -24,6 +30,16 @@ public enum GpuImageSamplingPath
 /// </summary>
 public static class GpuImageSamplingPolicy
 {
+    /// <summary>Occupied pooled pages require per-tap subregion addressing.</summary>
+    public static GpuTilePageSamplingPath ResolveTilePagePath(GpuImageSamplingPreference preference) =>
+        preference switch
+        {
+            GpuImageSamplingPreference.Automatic or GpuImageSamplingPreference.ExplicitShader =>
+                GpuTilePageSamplingPath.ExplicitShader,
+            GpuImageSamplingPreference.NativeSampler => GpuTilePageSamplingPath.UnsupportedForcedNativeSampler,
+            _ => throw new ArgumentOutOfRangeException(nameof(preference))
+        };
+
     public const string EnvironmentVariable = "PROGPU_IMAGE_SAMPLING";
 
     // Shared Texture.wgsl vertex encoding, outside the valid cubic B/C range.

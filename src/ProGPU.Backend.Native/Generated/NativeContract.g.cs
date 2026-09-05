@@ -17,6 +17,8 @@ internal static unsafe partial class NativeMethods
     internal const ulong EngineGlyphScalarCpuFallback = 4UL;
     // Native source: PROGPU_NATIVE_ENGINE_IMAGE_EXPLICIT_SHADER_SAMPLING.
     internal const ulong EngineImageExplicitShaderSampling = 8UL;
+    // Native source: PROGPU_NATIVE_ENGINE_IMAGE_REQUIRE_NATIVE_SAMPLING.
+    internal const ulong EngineImageRequireNativeSampling = 16UL;
 }
 
 // Native source: progpu_native_text_scalar.

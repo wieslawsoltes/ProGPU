@@ -25,6 +25,7 @@ struct mil_image_brush_fixture_options {
     bool inherited_clip{};
     bool paint_transform{};
     std::span<const std::byte> path_figures{};
+    std::array<double, 4U> viewport{0.0, 0.0, 1.0, 1.0};
 };
 
 inline bool build_mil_image_brush_fixture(std::vector<std::byte>& scene,
@@ -84,7 +85,7 @@ inline bool build_mil_image_brush_fixture(std::vector<std::byte>& scene,
             0.5, 0.0, 0.0, 0.5, 0.25, 0.25, 0U);
     }
     packet(batch, visual_brush ? command::visual_brush : drawing_brush ? command::drawing_brush : command::image_brush, 5U, options.opacity,
-        std::array{0.0, 0.0, 1.0, 1.0}, options.viewbox, 0.707, 1.414,
+        options.viewport, options.viewbox, 0.707, 1.414,
         0U, options.rotate || options.skew ? 6U : 0U, options.relative_scale ? 7U : 0U,
         1U, options.viewbox_units, 0U, 0U, options.stretch,
         options.tile_mode, 1U, 1U, 0U, 3U);

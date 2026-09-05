@@ -4062,6 +4062,10 @@ progpu_native_status render_scene(
                 const bool materialized =
                     progpu::native::scene::layer_requires_materialization(
                         layer);
+                if ((layer.flags & PROGPU_NATIVE_SCENE_LAYER_CACHE_TILE) != 0U &&
+                    (engine->engine_flags & PROGPU_NATIVE_ENGINE_IMAGE_REQUIRE_NATIVE_SAMPLING) != 0U) {
+                    return fail_bundle(PROGPU_NATIVE_STATUS_UNSUPPORTED);
+                }
                 layer_scope_materialized[layer_scope_depth++] =
                     materialized;
                 if (materialized) {

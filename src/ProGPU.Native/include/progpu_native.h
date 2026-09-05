@@ -929,7 +929,11 @@ typedef enum progpu_native_engine_flag {
      * Does not replace cubic/Fant, mipmapped, anisotropic or effect samplers.
      */
     /* PROGPU_CSHARP_ULONG: EngineImageExplicitShaderSampling */
-    PROGPU_NATIVE_ENGINE_IMAGE_EXPLICIT_SHADER_SAMPLING = 8ULL
+    PROGPU_NATIVE_ENGINE_IMAGE_EXPLICIT_SHADER_SAMPLING = 8ULL,
+    /* Fail instead of using an explicit occupied-tile shader when a host
+     * forces hardware sampling. Mutually exclusive with explicit sampling. */
+    /* PROGPU_CSHARP_ULONG: EngineImageRequireNativeSampling */
+    PROGPU_NATIVE_ENGINE_IMAGE_REQUIRE_NATIVE_SAMPLING = 16ULL
 } progpu_native_engine_flag;
 
 /*

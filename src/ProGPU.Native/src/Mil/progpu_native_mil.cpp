@@ -14333,9 +14333,10 @@ struct channel::implementation {
             if (brush.source_handle == 0U) {
                 return status::success;
             }
-            // Repetition must address the mapped base tile, not the full image.
-            // That requires retained tile capture/subregion-aware sampling.
-            if (brush.tile_mode != 0U) {
+            const bool repeated = brush.tile_mode != 0U;
+            if (brush.tile_mode > 4U || (repeated && (compile_context == nullptr ||
+                (state.image_sampling != PROGPU_NATIVE_IMAGE_SAMPLING_NEAREST &&
+                 state.image_sampling != PROGPU_NATIVE_IMAGE_SAMPLING_LINEAR)))) {
                 return status::unsupported_command;
             }
             double content_x = 0.0;
@@ -14473,17 +14474,19 @@ struct channel::implementation {
             const status paint_clip = apply_rectangle_clip(
                 use.x, use.y, use.width, use.height, paint, clipped);
             if (paint_clip != status::success) return paint_clip;
-            render_scope_state tile = clipped;
-            tile.transform = tile_to_target;
-            clipped = tile;
-            const status tile_clip = apply_rectangle_clip(viewport.x, viewport.y,
-                viewport.width, viewport.height, tile, clipped);
-            if (tile_clip != status::success) return tile_clip;
+            if (!repeated) {
+                render_scope_state tile = clipped;
+                tile.transform = tile_to_target;
+                clipped = tile;
+                const status tile_clip = apply_rectangle_clip(viewport.x, viewport.y,
+                    viewport.width, viewport.height, tile, clipped);
+                if (tile_clip != status::success) return tile_clip;
+            }
             // WPF Viewbox selects the mapping, not a source clip. Content
             // outside it may remain visible until the Viewport clips it.
             clipped.transform = content_to_target;
             clipped.opacity *= opacity;
-            if (vector_source) {
+            if (vector_source || repeated) {
                 if (active_drawings.size() >= maximum_visual_depth ||
                     !active_drawings.insert(brush_handle).second) return status::invalid_graph;
                 // A vector source may contain overlapping primitives. Brush
@@ -14496,7 +14499,103 @@ struct channel::implementation {
                 layer.opacity = static_cast<float>(clipped.opacity);
                 layer.blend_mode = PROGPU_NATIVE_BLEND_SRC_OVER;
                 layer.effect_resource_index = PROGPU_NATIVE_SCENE_NO_INDEX;
-                const status final_clip = attach_visual_output_clip(layer, clipped, builder);
+                status final_clip = status::success;
+                if (repeated) {
+                    // The captured page occupies whole physical texels, even
+                    // when the mapped viewport has fractional dimensions.
+                    const double dpi = static_cast<float>(compile_context->request.dpi_scale_x);
+                    if (compile_context->request.dpi_scale_x != compile_context->request.dpi_scale_y ||
+                        !std::isfinite(dpi) || dpi <= 0.0) {
+                        active_drawings.erase(brush_handle);
+                        return status::unsupported_command;
+                    }
+                    const double pixels_x = std::ceil(viewport.width * dpi *
+                        std::hypot(tile_to_target.m11, tile_to_target.m12));
+                    const double pixels_y = std::ceil(viewport.height * dpi *
+                        std::hypot(tile_to_target.m21, tile_to_target.m22));
+                    const double page_width = pixels_x / dpi;
+                    const double page_height = pixels_y / dpi;
+                    affine_2d_double inverse{};
+                    if (!finite_double_as_float(page_width) || !finite_double_as_float(page_height) ||
+                        page_width <= 0.0 || page_height <= 0.0 ||
+                        !try_invert_affine(tile_to_target, inverse)) {
+                        active_drawings.erase(brush_handle);
+                        return status::unsupported_command;
+                    }
+                    float bound_width = static_cast<float>(page_width);
+                    float bound_height = static_cast<float>(page_height);
+                    // Match the executor's ceil(float logical extent * float
+                    // DPI), avoiding a spurious transparent pool texel after
+                    // rounding an exact pixel extent up to float.
+                    if (std::ceil(static_cast<double>(bound_width) * dpi) > pixels_x)
+                        bound_width = std::nextafter(bound_width, 0.0F);
+                    if (std::ceil(static_cast<double>(bound_height) * dpi) > pixels_y)
+                        bound_height = std::nextafter(bound_height, 0.0F);
+                    if (pixels_x > 16777216.0 || pixels_y > 16777216.0 ||
+                        std::ceil(static_cast<double>(bound_width) * dpi) != pixels_x ||
+                        std::ceil(static_cast<double>(bound_height) * dpi) != pixels_y) {
+                        active_drawings.erase(brush_handle);
+                        return status::unsupported_command;
+                    }
+                    const affine_2d_double normalize{1.0 / viewport.width, 0.0, 0.0,
+                        1.0 / viewport.height, -viewport.x / viewport.width, -viewport.y / viewport.height};
+                    progpu_native_affine_2d inverse_tile{};
+                    progpu_native_image_rect output{};
+                    if (!try_to_native_affine(compose_affine(inverse, normalize), inverse_tile) ||
+                        !try_transform_bounds(use.x, use.y, use.width, use.height, use.effective_transform, output)) {
+                        active_drawings.erase(brush_handle);
+                        return status::invalid_graph;
+                    }
+                    progpu_native_scene_tile_composite tile_composite{sizeof(tile_composite),
+                        brush.tile_mode == 1U || brush.tile_mode == 3U ? 2U : 1U,
+                        brush.tile_mode == 2U || brush.tile_mode == 3U ? 2U : 1U, 0U,
+                        output.x, output.y, output.width, output.height,
+                        inverse_tile.m11, inverse_tile.m12, inverse_tile.m21,
+                        inverse_tile.m22, inverse_tile.m31, inverse_tile.m32, 0U, 0U};
+                    auto composite = native::semantic_scene_builder::identity_state();
+                    if (clipped.has_clip) {
+                        composite.flags = PROGPU_NATIVE_SCENE_STATE_CLIP_RECT;
+                        composite.clip_rect = clipped.clip_rect;
+                    }
+                    layer.flags = PROGPU_NATIVE_SCENE_LAYER_BOUNDS |
+                        PROGPU_NATIVE_SCENE_LAYER_CACHE_CONTENT | PROGPU_NATIVE_SCENE_LAYER_CACHE_LOCAL_SPACE |
+                        PROGPU_NATIVE_SCENE_LAYER_CACHE_TILE;
+                    if (state.image_sampling == PROGPU_NATIVE_IMAGE_SAMPLING_NEAREST)
+                        layer.flags |= PROGPU_NATIVE_SCENE_LAYER_CACHE_NEAREST;
+                    layer.bounds = {0.0F, 0.0F, bound_width, bound_height};
+                    layer.mask_resource_index = clipped.mask_resource_index;
+                    const affine_2d_double viewport_to_page{page_width / viewport.width, 0.0, 0.0,
+                        page_height / viewport.height, -viewport.x * page_width / viewport.width,
+                        -viewport.y * page_height / viewport.height};
+                    clipped.transform = compose_affine(content_to_viewport, viewport_to_page);
+                    std::uint64_t mapping = 14695981039346656037ULL;
+                    append_fnv1a64(mapping, std::uint32_t{0x54494C45U});
+                    append_fnv1a64(mapping, compile_context->scene_id);
+                    append_fnv1a64(mapping, brush_handle);
+                    append_fnv1a64(mapping, dpi);
+                    append_fnv1a64(mapping, page_width);
+                    append_fnv1a64(mapping, page_height);
+                    append_fnv1a64(mapping, clipped.transform);
+                    append_fnv1a64(mapping, content_width);
+                    append_fnv1a64(mapping, content_height);
+                    append_fnv1a64(mapping, state.image_sampling);
+                    append_fnv1a64(mapping, state.edge_aliased);
+                    append_fnv1a64(mapping, state.clear_type_enabled);
+                    append_fnv1a64(mapping, state.subpixel_text_disabled);
+                    append_fnv1a64(mapping, state.text_rendering_mode);
+                    append_fnv1a64(mapping, state.text_hinting_mode);
+                    layer.composite_revision = finish_nonzero_hash(mapping);
+                    std::unordered_set<std::uint32_t> revision_resources;
+                    final_clip = append_cache_resource_revision(brush.source_handle, revision_resources, mapping);
+                    layer.content_revision = finish_nonzero_hash(mapping);
+                    if (final_clip == status::success &&
+                        (!builder.add_state(composite, layer.reserved0) ||
+                         !builder.add_tile_composite(tile_composite, layer.reserved1))) {
+                        final_clip = status::invalid_graph;
+                    }
+                } else {
+                    final_clip = attach_visual_output_clip(layer, clipped, builder);
+                }
                 if (final_clip != status::success || !builder.push_layer(layer)) {
                     active_drawings.erase(brush_handle);
                     return final_clip != status::success ? final_clip : status::invalid_graph;
@@ -14537,7 +14636,7 @@ struct channel::implementation {
                             source_clip_nodes, metrics);
                         if (!builder.restore() && drawn == status::success) drawn = status::invalid_graph;
                     }
-                } else {
+                } else if (vector_source) {
                     // DrawingImage owns its nested mapping and save/restore.
                     // Keep independent clip scratch across that recursion too.
                     auto saved_paths = std::exchange(clip_paths, {});
@@ -14548,6 +14647,14 @@ struct channel::implementation {
                     clip_paths = std::move(saved_paths);
                     clip_segments = std::move(saved_segments);
                     clip_boolean_nodes = std::move(saved_nodes);
+                } else {
+                    render_scope_state image_state = content;
+                    image_state.transform = {};
+                    if (save_state(image_state)) {
+                        drawn = append_bitmap_source(brush.source_handle,
+                            0.0, 0.0, content_width, content_height, content);
+                        if (!builder.restore() && drawn == status::success) drawn = status::invalid_graph;
+                    }
                 }
                 if (!builder.pop_layer() && drawn == status::success) drawn = status::invalid_graph;
                 active_drawings.erase(brush_handle);
@@ -18192,7 +18299,7 @@ struct channel::implementation {
         if (handle == 0U) {
             return status::success;
         }
-        if (!active_resources.insert(handle).second) {
+        if (active_resources.size() >= maximum_visual_depth || !active_resources.insert(handle).second) {
             return status::invalid_graph;
         }
         const auto resource = resources.find(handle);
@@ -18212,7 +18319,10 @@ struct channel::implementation {
                 result = append_dependency(dependency);
             }
         };
-        if (resource->second.type == type_visual3d) {
+        if (resource->second.type == type_visual || resource->second.type == type_viewport3d_visual) {
+            std::unordered_set<std::uint32_t> active_visuals;
+            result = compute_visual_cache_content_revision(handle, true, active_visuals, active_resources, hash);
+        } else if (resource->second.type == type_visual3d) {
             const auto visual = visuals3d.find(handle);
             if (visual == visuals3d.end()) {
                 result = status::invalid_handle;
@@ -18671,7 +18781,8 @@ struct channel::implementation {
         std::unordered_set<std::uint32_t>& active_visuals,
         std::unordered_set<std::uint32_t>& active_resources,
         std::uint64_t& hash) const {
-        if (!active_visuals.insert(handle).second) {
+        if (active_visuals.size() + active_resources.size() >= maximum_visual_depth ||
+            !active_visuals.insert(handle).second) {
             return status::invalid_graph;
         }
         const auto visual = visuals.find(handle);
