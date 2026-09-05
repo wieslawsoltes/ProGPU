@@ -12255,7 +12255,8 @@ struct channel::implementation {
             double radius_y,
             const pen_state& pen,
             const affine_2d_double& local_transform,
-            const affine_2d_double& effective_transform) noexcept {
+            const affine_2d_double& effective_transform,
+            std::uint32_t supplied_brush_index = PROGPU_NATIVE_SCENE_NO_INDEX) noexcept {
             if (pen.brush_handle == 0U || pen.thickness == 0.0) {
                 return status::success;
             }
@@ -12276,14 +12277,15 @@ struct channel::implementation {
                         local_height)) {
                     return status::invalid_graph;
                 }
-                std::uint32_t brush_index = PROGPU_NATIVE_SCENE_NO_INDEX;
+                std::uint32_t brush_index = supplied_brush_index;
                 const brush_use_state brush_use{
                     local_x,
                     local_y,
                     local_width,
                     local_height,
                     effective_transform};
-                const status brush_status = resolve_brush_index(
+                const status brush_status = supplied_brush_index != PROGPU_NATIVE_SCENE_NO_INDEX
+                    ? status::success : resolve_brush_index(
                     pen.brush_handle,
                     brush_index,
                     &brush_use);
@@ -12317,8 +12319,9 @@ struct channel::implementation {
                 radius_x * 2.0 + pen.thickness,
                 radius_y * 2.0 + pen.thickness,
                 effective_transform};
-            std::uint32_t brush_index = PROGPU_NATIVE_SCENE_NO_INDEX;
-            const status brush_status = resolve_brush_index(
+            std::uint32_t brush_index = supplied_brush_index;
+            const status brush_status = supplied_brush_index != PROGPU_NATIVE_SCENE_NO_INDEX
+                    ? status::success : resolve_brush_index(
                 pen.brush_handle,
                 brush_index,
                 &brush_use);
@@ -13554,7 +13557,8 @@ struct channel::implementation {
             double radius_y,
             const pen_state& pen,
             const affine_2d_double& local_transform,
-            const affine_2d_double& effective_transform) noexcept {
+            const affine_2d_double& effective_transform,
+            std::uint32_t supplied_brush_index = PROGPU_NATIVE_SCENE_NO_INDEX) noexcept {
             if (pen.brush_handle == 0U || pen.thickness == 0.0) {
                 return status::success;
             }
@@ -13576,9 +13580,9 @@ struct channel::implementation {
                     pen.thickness,
                     pen.thickness,
                     effective_transform};
-                std::uint32_t brush_index =
-                    PROGPU_NATIVE_SCENE_NO_INDEX;
-                const status brush_status = resolve_brush_index(
+                std::uint32_t brush_index = supplied_brush_index;
+                const status brush_status = supplied_brush_index != PROGPU_NATIVE_SCENE_NO_INDEX
+                    ? status::success : resolve_brush_index(
                     pen.brush_handle,
                     brush_index,
                     &brush_use);
@@ -13613,7 +13617,7 @@ struct channel::implementation {
                     smooth_pen,
                     local_transform,
                     effective_transform,
-                    PROGPU_NATIVE_SCENE_NO_INDEX);
+                    supplied_brush_index);
             }
             const double half_thickness = pen.thickness * 0.5;
             const double left = x - half_thickness;
@@ -13626,8 +13630,9 @@ struct channel::implementation {
                 right - left,
                 bottom - top,
                 effective_transform};
-            std::uint32_t brush_index = PROGPU_NATIVE_SCENE_NO_INDEX;
-            const status brush_status = resolve_brush_index(
+            std::uint32_t brush_index = supplied_brush_index;
+            const status brush_status = supplied_brush_index != PROGPU_NATIVE_SCENE_NO_INDEX
+                    ? status::success : resolve_brush_index(
                 pen.brush_handle,
                 brush_index,
                 &brush_use);
@@ -16433,8 +16438,7 @@ struct channel::implementation {
                                     } else if (
                                         resolved_fixed.kind ==
                                             fixed_geometry_kind::ellipse &&
-                                        (tile_stroke_bounds ? resolved_fixed.third >= 0.0 : resolved_fixed.third > 0.0) &&
-                                        (tile_stroke_bounds ? resolved_fixed.fourth >= 0.0 : resolved_fixed.fourth > 0.0)) {
+                                        resolved_fixed.third >= 0.0 && resolved_fixed.fourth >= 0.0) {
                                         child_left = resolved_fixed.first -
                                             resolved_fixed.third;
                                         child_top = resolved_fixed.second -
@@ -16446,8 +16450,7 @@ struct channel::implementation {
                                     } else if (
                                         resolved_fixed.kind ==
                                             fixed_geometry_kind::rectangle &&
-                                        (tile_stroke_bounds ? resolved_fixed.third >= 0.0 : resolved_fixed.third > 0.0) &&
-                                        (tile_stroke_bounds ? resolved_fixed.fourth >= 0.0 : resolved_fixed.fourth > 0.0)) {
+                                        resolved_fixed.third >= 0.0 && resolved_fixed.fourth >= 0.0) {
                                         child_left = resolved_fixed.first;
                                         child_top = resolved_fixed.second;
                                         child_right = resolved_fixed.first +
@@ -16769,6 +16772,7 @@ struct channel::implementation {
                             &append_positive_fixed_shape_stroke,
                             &append_tile_pen, &append_tile_line_pen, &make_tile_fixed_geometry,
                             &append_degenerate_tile_shape,
+                            &append_degenerate_ellipse_stroke, &append_degenerate_rectangle_stroke,
                             &tile_primitives, &tile_paths, &tile_segments, &stroke_brush_use, tile_pen,
                             &combined_stroke_outlines, &combined_stroke_cursor,
                             &group_pen,
@@ -16847,8 +16851,7 @@ struct channel::implementation {
                                                fixed_geometry_kind::ellipse ||
                                           resolved_line.kind ==
                                                fixed_geometry_kind::rectangle) &&
-                                        (tile_pen ? resolved_line.third >= 0.0 : resolved_line.third > 0.0) &&
-                                        (tile_pen ? resolved_line.fourth >= 0.0 : resolved_line.fourth > 0.0))) {
+                                        resolved_line.third >= 0.0 && resolved_line.fourth >= 0.0)) {
                                     return status::unsupported_command;
                                 }
                                 child_transform_handle =
@@ -16931,6 +16934,17 @@ struct channel::implementation {
                                     child_local_transform,
                                     child_effective_transform,
                                     stroke_brush_index);
+                            } else if (resolved_line.third == 0.0 || resolved_line.fourth == 0.0) {
+                                // Reuse the group-resolved material: relative gradients
+                                // must not restart their mapping at each collapsed child.
+                                stroke_status = resolved_line.kind == fixed_geometry_kind::ellipse
+                                    ? append_degenerate_ellipse_stroke(resolved_line.first, resolved_line.second,
+                                        resolved_line.third, resolved_line.fourth, group_pen,
+                                        child_local_transform, child_effective_transform, stroke_brush_index)
+                                    : append_degenerate_rectangle_stroke(resolved_line.first, resolved_line.second,
+                                        resolved_line.third, resolved_line.fourth, resolved_line.radius_x,
+                                        resolved_line.radius_y, group_pen, child_local_transform,
+                                        child_effective_transform, stroke_brush_index);
                             } else {
                                 stroke_status =
                                     append_positive_fixed_shape_stroke(

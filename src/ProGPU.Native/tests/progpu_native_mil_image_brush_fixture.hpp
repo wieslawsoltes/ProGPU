@@ -44,6 +44,7 @@ struct mil_image_brush_fixture_options {
     std::array<double, 2U> fixed_extent{48.0, 48.0};
     std::uint32_t line_join{PROGPU_NATIVE_STROKE_JOIN_ROUND};
     bool collapsed_group{};
+    bool gradient_pen{};
 };
 
 inline bool build_mil_image_brush_fixture(std::vector<std::byte>& scene,
@@ -108,7 +109,13 @@ inline bool build_mil_image_brush_fixture(std::vector<std::byte>& scene,
         1U, options.viewbox_units, 0U, 0U, options.stretch,
         options.tile_mode, 1U, 1U, 0U, 3U);
     if (options.pen) {
-        if (options.solid_pen) {
+        if (options.gradient_pen) {
+            packet(batch, command::channel_create_resource, 19U, 77U);
+            packet(batch, command::linear_gradient_brush, 19U, 0.5,
+                0.0, 0.0, 1.0, 1.0, 0U, 0U, 0U, 0U, 1U, 0U, 48U, 0U, 0U,
+                0.0, progpu_native_color{1.0F, 0.0F, 0.0F, 1.0F},
+                1.0, progpu_native_color{0.0F, 0.0F, 1.0F, 1.0F});
+        } else if (options.solid_pen) {
             packet(batch, command::channel_create_resource, 19U, 75U);
             packet(batch, command::solid_color_brush, 19U, 1.0,
                 progpu_native_color{0.0F, 1.0F, 0.0F, 1.0F}, 0U, 0U, 0U, 0U);
@@ -118,7 +125,7 @@ inline bool build_mil_image_brush_fixture(std::vector<std::byte>& scene,
             packet(batch, command::channel_create_resource, 21U, 84U);
             packet(batch, command::dash_style, 21U, options.dash_offset, 0U, 16U, 2.0, 1.0);
         }
-        packet(batch, command::pen, 20U, 4.0, 10.0, options.solid_pen ? 19U : 5U, 0U,
+        packet(batch, command::pen, 20U, 4.0, 10.0, options.solid_pen || options.gradient_pen ? 19U : 5U, 0U,
             options.cap, options.end_cap < 4U ? options.end_cap : options.cap,
             options.dash_cap < 4U ? options.dash_cap : options.cap,
             options.line_join, options.dashed ? 21U : 0U);
