@@ -6,6 +6,7 @@
 #include "../src/Scene/progpu_native_semantic_path_stroke.hpp"
 #include "progpu_native_text.hpp"
 #include "../src/Geometry/progpu_native_arc.hpp"
+#include "../src/Backend/progpu_native_geometry_base.hpp"
 
 #include <array>
 #include <bit>
@@ -18816,6 +18817,32 @@ bool c_abi_is_typed_and_size_versioned() {
 } // namespace
 
 int main() {
+    for (std::uint32_t sampling = 0U; sampling <= 1U; ++sampling) {
+        for (std::uint32_t u = 0U; u <= 2U; ++u) {
+            for (std::uint32_t v = 0U; v <= 2U; ++v) {
+                std::array<progpu::native::vector_vertex, 5U> vertices{};
+                vertices[4].brush_index = 42.0F;
+                PROGPU_REQUIRE(progpu::native::try_write_tile_page_quad(vertices,
+                    {8.0F, 4.0F, 32.0F, 16.0F}, {0.125F, 0.0F, 0.0F, 0.25F, -2.0F, -2.0F},
+                    3U, 5U, 64U, 64U, u, v, sampling, 0.5F));
+                PROGPU_REQUIRE(vertices[0].texture_coordinate[0] == -1.0F);
+                PROGPU_REQUIRE(vertices[0].texture_coordinate[1] == -1.0F);
+                PROGPU_REQUIRE(vertices[2].texture_coordinate[0] == 3.0F);
+                PROGPU_REQUIRE(vertices[2].texture_coordinate[1] == 3.0F);
+                PROGPU_REQUIRE(vertices[2].color[0] == 3.0F && vertices[2].color[1] == 5.0F);
+                PROGPU_REQUIRE(vertices[2].color[3] == 0.5F && vertices[2].brush_index == -2.0F);
+                PROGPU_REQUIRE(vertices[2].shape_size[0] == (sampling == 0U ? -128.0F : -64.0F));
+                PROGPU_REQUIRE(vertices[2].corner_radius == static_cast<float>(u));
+                PROGPU_REQUIRE(vertices[2].stroke_thickness == static_cast<float>(v));
+                PROGPU_REQUIRE(vertices[4].brush_index == 42.0F);
+                vertices[0].brush_index = 42.0F;
+                PROGPU_REQUIRE(!progpu::native::try_write_tile_page_quad(vertices,
+                    {0.0F, 0.0F, 8.0F, 8.0F}, {1.0F, 0.0F, 0.0F, 1.0F, 0.0F, 0.0F},
+                    65U, 5U, 64U, 64U, u, v, sampling, 1.0F));
+                PROGPU_REQUIRE(vertices[0].brush_index == 42.0F);
+            }
+        }
+    }
     // Authored during implementation-first work; execution and pixel parity
     // remain part of the final validation phase.
     for (const auto source : {progpu::native::tests::mil_brush_fixture_source::bitmap,
