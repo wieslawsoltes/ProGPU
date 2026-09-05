@@ -159,7 +159,10 @@ public sealed class GameSession
         for (int i = CheckpointIndex + 1; i < Level.Checkpoints.Length; i++)
         {
             var checkpoint = Level.Checkpoints[i];
-            if (Math.Abs(Position.X - checkpoint.X) > 38 || Math.Abs(Position.Y + PlayerHeight - checkpoint.Y) > 70) continue;
+            // A lantern also serves the room's upper route. Always retain its
+            // authored safe floor as the respawn point, even when crossing above it.
+            float checkpointHeight = Position.Y + PlayerHeight - checkpoint.Y;
+            if (Math.Abs(Position.X - checkpoint.X) > 38 || checkpointHeight < -220 || checkpointHeight > 70) continue;
             CheckpointIndex = i; _respawn = new(checkpoint.X, checkpoint.Y - PlayerHeight);
             Hearts = 3; Burst(_respawn, 20, 1);
         }

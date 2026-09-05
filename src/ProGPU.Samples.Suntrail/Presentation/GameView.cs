@@ -24,6 +24,7 @@ public sealed class GameView : Grid
     public event Action<int>? TouchOptionsChanged;
     private readonly Grid _touch;
     private readonly Button _primary, _levels, _pause;
+    private readonly Style _actionStyle;
     private readonly Button[] _mapButtons = new Button[8];
     private readonly Grid _mapGrid = new();
     private bool _left, _right, _jump, _run, _mapOpen;
@@ -37,6 +38,9 @@ public sealed class GameView : Grid
 
     public GameView(int unlockedLevel = 0, int touchOptions = 12)
     {
+        // Apply the loaded Fluent template explicitly: its visual states resolve
+        // the per-button resources below, including hover after a menu reappears.
+        _actionStyle = XamlResourceResolver.Resolve<Style>(Application.Current.Resources, typeof(Button));
         Surface.Session.SetUnlockedLevel(unlockedLevel);
         AddChild(Surface);
         _hud = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 30, Margin = new Thickness(36, 26, 130, 0), VerticalAlignment = VerticalAlignment.Top, IsHitTestVisible = false };
@@ -131,7 +135,7 @@ public sealed class GameView : Grid
     };
     private Button ActionButton(string text, Action action, bool primary)
     {
-        var b = new Button { Content = Label(text, 15, primary ? "SuntrailInk" : "SuntrailCream", true), Font = InterFontFamily.Bold, FontSize = 15,
+        var b = new Button { Style = _actionStyle, Content = Label(text, 15, primary ? "SuntrailInk" : "SuntrailCream", true), Font = InterFontFamily.Bold, FontSize = 15,
             Padding = new Thickness(23, 14, 23, 14), MinHeight = 48, CornerRadius = new CornerRadius(8),
             Background = new ThemeResourceBrush(primary ? "SuntrailGold" : "SuntrailButton"),
             Foreground = new ThemeResourceBrush(primary ? "SuntrailInk" : "SuntrailCream") };
@@ -218,7 +222,11 @@ public sealed class GameView : Grid
                 GameMode.LevelComplete => $"{s.Coins} sunsparks collected · {s.Relics} hidden relics\n{Level.Names[Math.Min(s.Level.Index + 1, 7)]} awaits.",
                 _ => $"All eight worlds are shining again.\nThank you for walking the Suntrail."
             };
-            if (_primary.Content is TextBlock primaryText) primaryText.Text = s.Mode switch { GameMode.Title => s.UnlockedLevel == 0 ? "Begin adventure   →" : "Continue adventure   →", GameMode.Paused => "Back to the trail   →", GameMode.Fallen => "Try again   →", GameMode.LevelComplete => "Next island   →", _ => "Play again   →" };
+            if (_primary.Content is TextBlock primaryText)
+            {
+                primaryText.Text = s.Mode switch { GameMode.Title => s.UnlockedLevel == 0 ? "Begin adventure   →" : "Continue adventure   →", GameMode.Paused => "Back to the trail   →", GameMode.Fallen => "Try again   →", GameMode.LevelComplete => "Next island   →", _ => "Play again   →" };
+                AutomationProperties.SetName(_primary, primaryText.Text);
+            }
             if (s.Mode is GameMode.LevelComplete or GameMode.Complete) ProgressChanged?.Invoke(s.UnlockedLevel);
         }
         if (_lastLevel != s.Level.Index + (s.Level.IsDungeon ? 8 : 0)) { _lastLevel = s.Level.Index + (s.Level.IsDungeon ? 8 : 0); _stage.Text = s.Level.IsDungeon ? "SECRET VAULT · ↓ on a pipe to return" : $"{s.Level.Index + 1:00} / {Level.Names[s.Level.Index]}"; }

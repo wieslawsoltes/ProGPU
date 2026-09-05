@@ -26,7 +26,7 @@ The iPhone black screen was fixed and the user confirmed gameplay. Smooth iPhone
 is not yet verified. The controls pass targeted input tests and native visual checks. Eight optional vaults,
 two-way pipe travel, and three timed hazard families are implemented and tested.
 The main campaign still needs a broader encounter redesign; new rooms do not by
-themselves complete that request. Current sample validation: 54 Release tests. The reported unresponsive joystick was
+themselves complete that request. Current sample validation: 65 Release tests. The reported unresponsive joystick was
 reproduced through platform pointer injection and fixed in the shared WinUI panel
 hit-test path; two-axis thumb feedback now repaints during dragging.
 No level-format compatibility, editor, or full 3D completion is claimed by this list.
@@ -48,7 +48,16 @@ without changing compared pixels or resource cost. The fixed-input benchmark sup
 all eight worlds and explicit baseline/coverage options. This is an incremental
 shader improvement; it does not close the smooth-iPhone-FPS requirement.
 
-Next input regression: in Desktop, click Begin adventure, leave the pointer over
-that button, then press Escape. The reappearing primary pause action has incorrect
-hover/pressed rendering until the pointer leaves. Reproduce through the real input
-root and repair hidden-button state cleanup before the next iPhone installation.
+The pause-action hover defect is fixed by explicitly applying the existing Fluent
+button style. Routed mouse/touch tests and the native reproduction pass.
+
+All eight main routes now have authored section widths, elevations, gaps and
+encounter sequences, including main-path tunnels, brambles and timed mechanisms.
+Ordinary-input completion passes. Further distinct mechanics, branching-room travel,
+format compatibility and editor support remain open; this is not a completion claim
+for the expanded world-diversity request.
+
+The user reconnected and requested installation. The authored-campaign/menu revision
+with early coverage is installed and launched on iPhone (2026-09-05 11:48 local).
+Device work is authorized again. Smooth FPS and real-device control feedback remain
+open; this launch alone does not close those requirements.

@@ -10,6 +10,32 @@ public sealed class SimulationTests
     [Theory]
     [InlineData(0)] [InlineData(1)] [InlineData(2)] [InlineData(3)]
     [InlineData(4)] [InlineData(5)] [InlineData(6)] [InlineData(7)]
+    public void CampaignMixesNarrowCrossingsWithRoomsAndMainPathObstacles(int world)
+    {
+        var level = new Level(world);
+        var ground = level.Platforms.Where(p => p.Kind == PlatformKind.Ground).ToArray();
+        Assert.True(ground.Count(p => p.Bounds.Width < 350) >= 2, "Worlds need short crossings between their larger rooms.");
+        Assert.True(ground.Count(p => p.Bounds.Width > 600) >= 3);
+        var gaps = ground.Zip(ground.Skip(1), (a, b) => b.Bounds.X - a.Bounds.Right).ToArray();
+        Assert.True(gaps.Max() - gaps.Min() >= 25, "Do not return to a constant jump rhythm.");
+        Assert.Equal(3, level.Pickups.Count(p => p.IsRelic));
+        Assert.Contains(ground, floor => level.Hazards.Any(h => Math.Abs(h.Bottom - floor.Bounds.Y) < 1 && h.X > floor.Bounds.X && h.Right < floor.Bounds.Right)
+            || level.Mechanisms.Any(m => Math.Abs(m.Bounds.Bottom + (m.Kind == MechanismKind.Crusher ? m.Travel : 0) - floor.Bounds.Y) < 1
+                && m.Bounds.X > floor.Bounds.X && m.Bounds.Right < floor.Bounds.Right));
+        // Keep a machine-readable overview for visual review of the actual collision map.
+        var folder = Environment.GetEnvironmentVariable("SUNTRAIL_ARTIFACTS") ?? Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "../../../../../artifacts/suntrail"));
+        Directory.CreateDirectory(folder);
+        File.WriteAllText(Path.Combine(folder, $"campaign-{world + 1}.json"), System.Text.Json.JsonSerializer.Serialize(new
+        {
+            world = world + 1, title = Level.Names[world], platforms = level.Platforms,
+            hazards = level.Hazards, mechanisms = level.Mechanisms, checkpoints = level.Checkpoints,
+            exit = new { x = level.Exit.X, y = level.Exit.Y }
+        }));
+    }
+
+    [Theory]
+    [InlineData(0)] [InlineData(1)] [InlineData(2)] [InlineData(3)]
+    [InlineData(4)] [InlineData(5)] [InlineData(6)] [InlineData(7)]
     public void EveryIslandCanBeCompletedWithOnlyOrdinaryInputs(int level)
     {
         var game = new GameSession(); game.StartLevel(level);
@@ -70,6 +96,20 @@ public sealed class SimulationTests
         Assert.Equal(position,g.Position);Assert.Equal(tick,g.Tick);
         g.TogglePause();g.Advance(GameSession.StepSeconds,default);Assert.Equal(tick+1,g.Tick);
     }
+    [Fact]
+    public void UpperRouteActivatesLanternAndRespawnsOnItsSafeFloor()
+    {
+        var game = new GameSession(); game.StartLevel(0);
+        for (int tick = 0; tick < 120; tick++) game.Step(default);
+        for (int tick = 0; tick < 40; tick++) game.Step(new(0, true, tick == 0, false));
+        Assert.True(game.Position.Y + GameSession.PlayerHeight < 500);
+        game.Level.Checkpoints[0] = new(game.Position.X, 600);
+        game.Step(new(0, true, false, false));
+        Assert.Equal(0, game.CheckpointIndex);
+        game.Respawn();
+        Assert.Equal(600 - GameSession.PlayerHeight, game.Position.Y);
+    }
+
     [Fact]
     public void CheckpointRespawnKeepsCollectiblesAndRestoresHealth()
     {

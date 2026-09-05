@@ -47,17 +47,6 @@ public sealed class Level
         "Find the high route through snow pines and blue ice.",
         "Thread basalt ledges and thorn fields above an ember sea.",
         "A final climb through cloud islands and marble sky gardens."];
-    // Elevation scores are authored per world, rather than repeating one section cycle.
-    // Adjacent rises stay within a full ordinary jump; high routes are optional.
-    private static readonly int[][] Elevations = [
-        [0, 0, 24, 0, 40, 24, 0, 48, 24, 0],
-        [0, 32, 64, 32, 0, 32, 64, 80, 48, 24, 0],
-        [0, 48, 96, 64, 32, 80, 112, 64, 16, 48, 0],
-        [0, 0, 24, 0, 48, 24, 0, 32, 0, 24, 0, 0],
-        [0, 48, 96, 144, 96, 48, 96, 144, 112, 64, 24, 0],
-        [0, 56, 24, 80, 128, 80, 24, 64, 112, 64, 24, 0],
-        [0, 32, 80, 48, 0, 48, 96, 48, 0, 56, 24, 0],
-        [0, 48, 96, 144, 96, 48, 96, 144, 96, 48, 0, 48, 0]];
     public int Index { get; }
     public bool IsDungeon { get; }
     public int Biome => Index;
@@ -132,19 +121,18 @@ public sealed class Level
         }
         float x = 0;
         float lastY = 600;
-        int sections = Elevations[index].Length;
+        var route = CampaignRoute.ForWorld(index);
+        int sections = route.Length;
         for (int section = 0; section < sections; section++)
         {
             bool first = section == 0, last = section == sections - 1;
             int rhythm = (section * 5 + index * 3) % 4;
-            float width = first ? 930 : last ? 850 :
-                index switch { 1 => 620 + rhythm * 70, 3 => 720 + rhythm * 55,
-                    4 => 620 + rhythm * 40, 5 => 590 + rhythm * 45,
-                    7 => 610 + rhythm * 65, _ => 560 + rhythm * 50 };
-            float y = 600 - Elevations[index][section];
+            var score = route[section];
+            float width = score.Width;
+            float y = 600 - score.Elevation;
             platforms.Add(new(new(x, y, width, 510), PlatformKind.Ground));
-            if (section == 3 || section == sections - 4) checkpoints.Add(new(x + 95, y));
-            if (!first && !last)
+            if (section == 3 || section == sections - 4) checkpoints.Add(new(x + (score.Encounter == EncounterKind.Tunnel ? width * .5f : 95), y));
+            if (!first && !last && width >= 520 && score.Encounter != EncounterKind.Tunnel)
             {
                 bool relicRoute = section is 1 or 4 or 7;
                 float shelfX = x + 110 + rhythm * 12;
@@ -171,18 +159,27 @@ public sealed class Level
                     platforms.Add(new(new(x + width - 230, y - 83, 104, 24), PlatformKind.Ledge));
                 }
                 else platforms.Add(new(new(x + 305, y - 54, 54, 54), PlatformKind.Crate));
-                if (rhythm != 2 || index >= 4)
+                if (score.Encounter == EncounterKind.Open && (rhythm != 2 || index >= 4))
                     enemies.Add(new() { Position = new(x + width - 125, y - 34), Left = x + width - 205, Right = x + width - 45, Speed = -(50 + index * 7) });
-                if ((index >= 2 && rhythm == 2) || (index == 6 && section % 2 == 0))
+                if (score.Encounter == EncounterKind.Open && ((index >= 2 && rhythm == 2) || (index == 6 && section % 2 == 0)))
                     hazards.Add(new(x + 255, y - 22, index == 6 ? 76 : 52, 22));
             }
-            int coinRow = first ? 5 : 4 + rhythm;
+            if (score.Encounter == EncounterKind.Tunnel)
+            {
+                // Side steps reach the roof without trapping the lower walking route.
+                platforms.Add(new(new(x + 50, y - 75, 70, 24), PlatformKind.Ledge));
+                platforms.Add(new(new(x + width - 120, y - 75, 70, 24), PlatformKind.Ledge));
+                if (section is 1 or 4 or 7)
+                    pickups.Add(new() { Position = new(x + width * .5f, y - 195), IsRelic = true });
+            }
+            CampaignRoute.AddEncounter(score, x, y, platforms, hazards, mechanisms);
+            int coinRow = first ? 5 : Math.Min(4 + rhythm, Math.Max(3, (int)(width - 150) / 35));
             for (int c = 0; c < coinRow; c++)
                 pickups.Add(new() { Position = new(x + (first ? 370 : 135) + c * 35,
-                    y - (first ? 65 : 140) - MathF.Sin(c * MathF.PI / (coinRow - 1)) * 26) });
+                    y - (first || score.Encounter == EncounterKind.Tunnel ? 65 : 140) - MathF.Sin(c * MathF.PI / (coinRow - 1)) * 26) });
             if (!last)
             {
-                float gap = 96 + ((section * 3 + index) % 5) * 10;
+                float gap = score.Gap;
                 for (int c = 0; c < 3; c++)
                     pickups.Add(new() { Position = new(x + width - 20 + c * (gap + 40) / 2,
                         y - 100 - MathF.Sin(c * MathF.PI / 2) * 35) });

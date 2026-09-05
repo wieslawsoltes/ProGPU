@@ -297,3 +297,29 @@ until the user reconnects the iPhone.
 Adding eight more dedicated background entry points was tested and rejected.
 Additional branch specialization increased pipeline startup and painter-order draw
 switches without a consistent benefit. The six existing pipelines are retained.
+
+
+## Authored campaign scores and menu styling
+
+`Game/CampaignRoute.cs` replaces the shared width/gap formula with eight explicit
+original route scores. Narrow crossings alternate with broad rooms, rising terraces,
+sheltered tunnels, paired brambles, moving saws, timed flame gates and crusher halls.
+Main-path encounters are added independently of optional upper galleries. Tunnels
+have side steps onto their solid roofs and separate lower coin routes. Geometry is
+created in O(S) time and storage for S sections at level load; simulation and culling
+continue using the same bounded platform/hazard records. No renderer/shader or C ABI
+implementation changed. The C++ renderer has no WinUI game simulation counterpart.
+
+Checkpoint lanterns activate up to 220 units above their floor and 70 below it, within
+38 horizontal units. This covers upper galleries and tunnel roofs; respawn always
+uses the authored safe floor, never the crossing player's aerial position. Ordinary
+input traversal and a focused upper-crossing/respawn regression cover this behavior.
+
+The menu issue was the fallback button style ignoring scoped hover colors, not a
+stuck pressed flag. The game now explicitly selects its already-loaded generated
+Fluent button style once per view and reuses it across actions. The existing local
+ThemeResourceBrush overrides then apply through that template's visual states.
+[Microsoft's lightweight and per-control styling contract](https://learn.microsoft.com/en-us/windows/apps/develop/platform/xaml/xaml-styles)
+informs this use of the existing theme rather than replacing the template or copying
+external control code. Dynamic primary-action text also updates its automation name.
+Routed mouse/touch tests reproduce click, hide, pause, hover, press, cancel and resume.

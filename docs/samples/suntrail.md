@@ -138,3 +138,10 @@ normal early-coverage optimization, and `on` tests only the optional sky cache.
 Each run warms 120 frames and records 600 frames of identical simulation input;
 CSV timings measure serialized completion latency, not displayed FPS. Ordinary
 play enables early coverage and keeps the sky cache off unless `--sky-cache` is set.
+
+
+The main campaign now alternates short crossings with authored chambers and terraces.
+Low tunnels have a walking route beneath the roof and optional steps onto it; some
+relics sit above those passages. Later worlds put saws, flame gates and crushers on
+the main route. Lantern checkpoints recognize upper-route crossings and always
+respawn you on their safe floor.
