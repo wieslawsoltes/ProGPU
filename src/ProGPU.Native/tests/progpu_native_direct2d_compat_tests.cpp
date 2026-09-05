@@ -6117,6 +6117,60 @@ int run_tests()
     if (target->EndDraw(nullptr, nullptr) != com::ok) {
         return 192;
     }
+    // Automatic scopes share the same semantic stream as explicit resources,
+    // but independent null layers may nest without acquiring a COM use lease.
+    target->BeginDraw();
+    target->PushLayer(&layer_parameters, nullptr);
+    target->FillRectangle(&rectangle, target_brush.get());
+    target->PopLayer();
+    if (target->EndDraw(nullptr, nullptr) != com::ok) return 331;
+    std::vector<std::byte> automatic_layer_scene(
+        static_cast<std::size_t>(scene_target->GetRequiredSceneSize()));
+    std::uint64_t automatic_layer_written = 0U;
+    if (scene_target->BuildScene(automatic_layer_scene.data(), automatic_layer_scene.size(),
+            &automatic_layer_written) != com::ok || automatic_layer_written != layer_scene_written ||
+        automatic_layer_scene != layer_scene) return 332;
+    target->BeginDraw();
+    target->PushLayer(&layer_parameters, nullptr);
+    target->PushLayer(&layer_parameters, target_layer.get());
+    target->PushAxisAlignedClip(&outer_clip, compat::antialias_mode::aliased);
+    target->PushLayer(&layer_parameters, nullptr);
+    target->FillRectangle(&rectangle, target_brush.get());
+    target->PopLayer();
+    target->PopAxisAlignedClip();
+    target->PopLayer();
+    target->PopLayer();
+    if (target->EndDraw(nullptr, nullptr) != com::ok) return 333;
+    // Errors must release explicit leases even when automatic scopes surround
+    // them, and the next BeginDraw must discard all failed automatic scopes.
+    target->BeginDraw();
+    target->PushLayer(&layer_parameters, nullptr);
+    target->PushLayer(&layer_parameters, target_layer.get());
+    target->PushLayer(&layer_parameters, nullptr);
+    if (target->EndDraw(nullptr, nullptr) != compat::wrong_state ||
+        scene_target->GetRequiredSceneSize() != 0U) return 334;
+    target->BeginDraw();
+    target->PushLayer(&layer_parameters, target_layer.get());
+    target->PopLayer();
+    if (target->EndDraw(nullptr, nullptr) != com::ok) return 335;
+    target->BeginDraw();
+    target->PushLayer(&layer_parameters, nullptr);
+    target->PushAxisAlignedClip(&outer_clip, compat::antialias_mode::aliased);
+    target->PopLayer();
+    if (target->EndDraw(nullptr, nullptr) != compat::wrong_state) return 336;
+    target->BeginDraw();
+    target->PushLayer(&layer_parameters, nullptr);
+    target->PopLayer();
+    target->PopLayer();
+    if (target->EndDraw(nullptr, nullptr) != compat::wrong_state) return 337;
+    target->BeginDraw();
+    for (std::uint32_t index = 0U; index <= PROGPU_NATIVE_SCENE_MAX_STACK_DEPTH; ++index)
+        target->PushLayer(&layer_parameters, nullptr);
+    if (target->EndDraw(nullptr, nullptr) != com::out_of_memory ||
+        scene_target->GetRequiredSceneSize() != 0U) return 338;
+    target->BeginDraw();
+    target->PushLayer(nullptr, nullptr);
+    if (target->EndDraw(nullptr, nullptr) != com::invalid_argument) return 339;
     // The native secondary COM interface must own an active nested layer
     // even after the caller releases its primary interface reference.
     raw_layer = nullptr;
@@ -8476,6 +8530,25 @@ int run_tests()
     target->SetAntialiasMode(compat::antialias_mode::per_primitive);
     composite_mask_layer_parameters.opacity_brush =
         static_cast<compat::brush*>(linear_brush.get());
+    for (const auto* parameters : std::array<const compat::layer_parameters*, 6U>{&layer_parameters, &masked_layer_parameters,
+            &opacity_brush_layer_parameters, &full_opacity_brush_layer_parameters,
+            &composite_mask_layer_parameters, &missing_bitmap_layer}) {
+        std::vector<std::byte> explicit_scene;
+        for (const bool automatic : {false, true}) {
+            target->BeginDraw();
+            target->PushLayer(parameters, automatic ? nullptr : target_layer.get());
+            target->FillRectangle(&layer_bounds, target_brush.get());
+            target->PopLayer();
+            if (target->EndDraw(nullptr, nullptr) != com::ok) return 340;
+            const auto size = scene_target->GetRequiredSceneSize();
+            std::vector<std::byte> scene(static_cast<std::size_t>(size));
+            std::uint64_t written = 0U;
+            if (size == 0U || scene_target->BuildScene(scene.data(), size, &written) != com::ok ||
+                size != written) return 341;
+            if (!automatic) explicit_scene = std::move(scene);
+            else if (scene != explicit_scene) return 342;
+        }
+    }
     target->BeginDraw();
     target->PushLayer(
         &composite_mask_layer_parameters, target_layer.get());
@@ -8954,7 +9027,9 @@ int run_tests()
     native_target->BeginDraw();
     native_target->PushLayer(
         native_full_opacity_layer, native_target_layer);
+    native_target->PushLayer(native_full_opacity_layer, nullptr);
     native_target->FillRectangle(native_layer_fill, native_layer_brush);
+    native_target->PopLayer();
     native_target->PopLayer();
     if (FAILED(native_target->EndDraw())) {
         return 498;

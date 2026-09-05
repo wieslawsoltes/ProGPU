@@ -5146,7 +5146,7 @@ public:
         if (!can_draw()) {
             return;
         }
-        if (parameters == nullptr || layer_value == nullptr ||
+        if (parameters == nullptr ||
             !valid_rectangle(parameters->content_bounds) ||
             !core::valid_transform(&parameters->mask_transform) ||
             !valid_opacity(parameters->opacity)) {
@@ -5186,25 +5186,30 @@ public:
             latch(com::out_of_memory);
             return;
         }
-        factory* raw_factory = nullptr;
-        layer_value->GetFactory(&raw_factory);
-        com::pointer<factory> layer_factory;
-        layer_factory.attach(raw_factory);
-        if (layer_factory.get() != owner_.get()) {
-            latch(wrong_factory);
-            return;
-        }
-        scene_layer_native* raw_native = nullptr;
-        const com::result query_result = layer_value->QueryInterface(
-            scene_layer_native_interface_id,
-            reinterpret_cast<void**>(&raw_native));
         com::pointer<scene_layer_native> layer_native;
-        layer_native.attach(raw_native);
-        if (com::failed(query_result) || !layer_native) {
-            latch(query_result == com::no_interface
-                ? not_implemented
-                : query_result);
-            return;
+        // Algorithm: a null public layer uses the semantic compositor's own
+        // intermediate storage; an explicit layer additionally owns a use lease.
+        // Time/space: O(1) per scope, no synthetic COM object or pixel allocation.
+        // Scope kind (not resource-pointer presence) records stack membership.
+        if (layer_value != nullptr) {
+            factory* raw_factory = nullptr;
+            layer_value->GetFactory(&raw_factory);
+            com::pointer<factory> layer_factory;
+            layer_factory.attach(raw_factory);
+            if (layer_factory.get() != owner_.get()) {
+                latch(wrong_factory);
+                return;
+            }
+            scene_layer_native* raw_native = nullptr;
+            const com::result query_result = layer_value->QueryInterface(
+                scene_layer_native_interface_id,
+                reinterpret_cast<void**>(&raw_native));
+            layer_native.attach(raw_native);
+            if (com::failed(query_result) || !layer_native) {
+                latch(com::failed(query_result) && query_result != com::no_interface
+                    ? query_result : not_implemented);
+                return;
+            }
         }
         progpu_native_image_rect bounds = full_target
             ? progpu_native_image_rect{}
@@ -5258,11 +5263,13 @@ public:
             : size_f{
                 static_cast<float>(pixel_width_) * 96.0F / dpi_x_,
                 static_cast<float>(pixel_height_) * 96.0F / dpi_y_};
-        const com::result begin_use_result = layer_native->BeginUse(
-            this, required_size);
-        if (com::failed(begin_use_result)) {
-            latch(begin_use_result);
-            return;
+        if (layer_native) {
+            const com::result begin_use_result = layer_native->BeginUse(
+                this, required_size);
+            if (com::failed(begin_use_result)) {
+                latch(begin_use_result);
+                return;
+            }
         }
         const progpu_native_scene_layer native_layer{
             sizeof(progpu_native_scene_layer),
@@ -5280,7 +5287,7 @@ public:
             0U,
             0U};
         if (!builder_.push_layer(native_layer)) {
-            layer_native->EndUse(this);
+            if (layer_native) layer_native->EndUse(this);
             latch(builder_failure());
             return;
         }
@@ -5296,8 +5303,7 @@ public:
             return;
         }
         if (scope_depth_ == 0U ||
-            scope_stack_[scope_depth_ - 1U] != scope_opacity_layer ||
-            !layer_stack_[scope_depth_ - 1U]) {
+            scope_stack_[scope_depth_ - 1U] != scope_opacity_layer) {
             latch(wrong_state);
             return;
         }
@@ -5306,7 +5312,7 @@ public:
             return;
         }
         --scope_depth_;
-        layer_stack_[scope_depth_]->EndUse(this);
+        if (layer_stack_[scope_depth_]) layer_stack_[scope_depth_]->EndUse(this);
         layer_stack_[scope_depth_].reset();
         scope_stack_[scope_depth_] = scope_none;
     }
