@@ -51,6 +51,7 @@ bool prepare_semantic_layer_resources(
 bool prepare_semantic_depth_resources(
     progpu_native_engine& engine,
     const semantic::layer_budget& budget,
+    const semantic::cache_budget& cache_budget,
     std::uint32_t frame_width,
     std::uint32_t frame_height);
 

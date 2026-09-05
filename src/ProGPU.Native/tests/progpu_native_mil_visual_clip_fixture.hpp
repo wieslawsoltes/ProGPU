@@ -4,7 +4,9 @@
 #include "progpu_native_mil_commands.generated.hpp"
 
 #include <cstddef>
+#include <array>
 #include <cstdint>
+#include <cstdio>
 #include <memory>
 #include <span>
 #include <vector>
@@ -36,8 +38,10 @@ void packet(std::vector<std::byte>& bytes, mil::command kind, const T&... values
 inline bool serialize_mil_visual_clip_fixture(progpu_native_mil_channel* channel,
     std::uint64_t scene_id, std::uint64_t generation, std::vector<std::byte>& scene) {
     std::size_t written = 0U;
-    if (progpu_native_mil_channel_build_scene(channel, 4U, scene_id, generation,
-            nullptr, 0U, &written, nullptr) != PROGPU_NATIVE_MIL_STATUS_SUCCESS) {
+    const auto status = progpu_native_mil_channel_build_scene(
+        channel, 4U, scene_id, generation, nullptr, 0U, &written, nullptr);
+    if (status != PROGPU_NATIVE_MIL_STATUS_SUCCESS) {
+        std::fprintf(stderr, "MIL clip fixture build status=%u\n", static_cast<unsigned>(status));
         return false;
     }
     scene.resize(written);
@@ -58,6 +62,7 @@ struct mil_clip_cache_options {
     bool guidelines{};
     bool nested{};
     double root_scale{1.0};
+    bool viewport3d{};
 };
 
 // An original raw-MIL fixture exercises the ABI and the exact same engine as
@@ -72,7 +77,8 @@ inline bool build_mil_visual_clip_fixture(std::vector<std::byte>& scene,
     using mil_clip_fixture_detail::packet;
     std::vector<std::byte> batch;
     for (std::uint32_t visual = 1U; visual <= 3U; ++visual) {
-        packet(batch, command::channel_create_resource, visual, 39U);
+        packet(batch, command::channel_create_resource, visual,
+            cache_options.viewport3d && visual != 1U ? 40U : 39U);
         packet(batch, command::visual_create, visual);
     }
     packet(batch, command::channel_create_resource, 4U, 47U);
@@ -148,6 +154,7 @@ inline bool build_mil_visual_clip_fixture(std::vector<std::byte>& scene,
                 0.25F, 63.75F, 0.25F, 63.75F);
         }
         packet(batch, command::visual_insert_child_at, 1U, child, child - 2U);
+        if (cache_options.viewport3d) continue;
         packet(batch, command::channel_create_resource, brush, 75U);
         const progpu_native_color color = child == 2U
             ? progpu_native_color{1.0F, 0.0F, 0.0F, 1.0F}
@@ -181,6 +188,54 @@ inline bool build_mil_visual_clip_fixture(std::vector<std::byte>& scene,
         success = progpu_native_mil_channel_set_visual_cache_bounds(
             channel, child, 0.0, 0.0, 64.0, 64.0) ==
             PROGPU_NATIVE_MIL_STATUS_SUCCESS;
+    }
+    if (success && cache_options.viewport3d) {
+        const progpu_native_matrix_4x4 identity{
+            1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1};
+        progpu_native_scene_camera_3d camera{};
+        camera.struct_size = sizeof(camera);
+        camera.view = identity;
+        camera.projection = identity;
+        camera.camera_position = {0, 0, 2, 0};
+        std::array<progpu_native_scene_mesh_3d_vertex, 8U> vertices{};
+        for (std::uint32_t index = 0; index < vertices.size(); ++index) {
+            vertices[index].position = {
+                (index & 1U) != 0U ? 1.0F : -1.0F,
+                (index & 2U) != 0U ? 1.0F : -1.0F,
+                index < 4U ? 0.25F : 0.75F, 0};
+            vertices[index].normal = {0, 0, 1, 0};
+        }
+        const std::array<std::uint32_t, 12U> indices{
+            0, 1, 2, 2, 1, 3, 0, 1, 2, 2, 1, 3};
+        std::array<progpu_native_scene_mesh_3d, 2U> meshes{};
+        for (std::uint32_t index = 0; index < meshes.size(); ++index) {
+            auto& mesh = meshes[index];
+            mesh.struct_size = sizeof(mesh);
+            mesh.vertex_offset = index * 4U;
+            mesh.vertex_count = 4U;
+            mesh.index_offset = index * 6U;
+            mesh.index_count = 6U;
+            mesh.model_transform = identity;
+            mesh.normal_transform = identity;
+            mesh.opacity = 1.0F;
+            mesh.specular_color = {0, 0, 0, 1};
+            mesh.shading_mode = 0U; // Native3D unlit material-color mode.
+        }
+        // A later green plane lies behind each colored plane. Losing the
+        // isolated target's depth buffer changes center pixels to green.
+        meshes[1].color = {0, 1, 0, 1};
+        for (std::uint32_t child = 2U; success && child <= 3U; ++child) {
+            meshes[0].color = child == 2U
+                ? progpu_native_color{1, 0, 0, 1}
+                : progpu_native_color{0, 0, 1, 1};
+            const auto viewport_status = progpu_native_mil_channel_set_viewport3d_scene(
+                channel, child, &camera, {0, 0, 64, 64},
+                meshes.data(), meshes.size(), vertices.data(), vertices.size(),
+                indices.data(), indices.size());
+            success = viewport_status == PROGPU_NATIVE_MIL_STATUS_SUCCESS;
+            if (!success) std::fprintf(stderr, "MIL viewport fixture sideband status=%u\n",
+                static_cast<unsigned>(viewport_status));
+        }
     }
     if (success) {
         success = serialize_mil_visual_clip_fixture(channel, scene_id, 1U, scene);

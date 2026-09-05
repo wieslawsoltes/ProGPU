@@ -1154,6 +1154,70 @@ int main(int argc, char** argv)
             "MIL nested effect escaped its output geometry clips");
     }
     phase("MIL oversized cache effects passed");
+    const std::array viewport_cases{
+        mil_clip_cache_options{.viewport3d = true},
+        mil_clip_cache_options{.enabled = true, .viewport3d = true},
+        mil_clip_cache_options{.enabled = true, .gradient = true, .viewport3d = true},
+        mil_clip_cache_options{.enabled = true, .scale = 2.0, .viewport3d = true},
+        mil_clip_cache_options{.viewport3d = true},
+        mil_clip_cache_options{.viewport3d = true},
+        mil_clip_cache_options{.enabled = true, .nested = true, .viewport3d = true}};
+    std::vector<std::uint8_t> viewport_reference;
+    for (std::size_t index = 0; index < viewport_cases.size(); ++index) {
+        const auto& viewport_options = viewport_cases[index];
+        const auto viewport_effect = index == 4U ? mil_clip_effect::blur :
+            index == 5U ? mil_clip_effect::cached_blur : mil_clip_effect::none;
+        const std::uint64_t viewport_id = 9300U + index;
+        std::fprintf(stderr, "Native GPU Viewport3D variant: %zu\n", index);
+        require(progpu::native::tests::build_mil_visual_clip_fixture(
+            mil_scene, viewport_effect, viewport_id, viewport_options),
+            "MIL Viewport3D output geometry clip compilation failed");
+        const std::uint32_t viewport_commands = viewport_options.enabled ?
+            (viewport_options.nested ? 20U : 16U) : index == 5U ? 20U : 12U;
+        const std::uint32_t viewport_submissions = viewport_options.enabled || index == 5U
+            ? (viewport_options.nested ? 3U : 2U) : 2U;
+        const auto viewport_pixels = render_scene(gpu, engine, nullptr,
+            2U, viewport_commands, viewport_submissions, mil_scene, viewport_id);
+        const auto viewport_channel = [&viewport_pixels](std::uint32_t x,
+            std::uint32_t y, std::uint32_t component) {
+            return viewport_pixels[(y * width + x) * 4U + component];
+        };
+        std::fprintf(stderr, "MIL viewport centers red=%u green=%u blue=%u green=%u\n",
+            viewport_channel(16U, 32U, 0U), viewport_channel(16U, 32U, 1U),
+            viewport_channel(48U, 32U, 2U), viewport_channel(48U, 32U, 1U));
+        require(std::abs(static_cast<int>(viewport_channel(16U, 32U, 0U)) -
+                    (viewport_options.gradient ? 66 : 255)) <= (viewport_options.gradient ? 1 : 0) &&
+                std::abs(static_cast<int>(viewport_channel(48U, 32U, 2U)) -
+                    (viewport_options.gradient ? 193 : 255)) <= (viewport_options.gradient ? 1 : 0) &&
+                viewport_channel(16U, 32U, 1U) == 0U &&
+                viewport_channel(48U, 32U, 1U) == 0U,
+            "MIL clipped Viewport3D lost sibling pixels or isolated depth");
+        require(viewport_channel(5U, 17U, 0U) == 0U &&
+                viewport_channel(32U, 32U, 0U) == 0U &&
+                viewport_channel(32U, 32U, 2U) == 0U &&
+                viewport_channel(58U, 32U, 2U) == 0U,
+            "MIL Viewport3D geometry clip broadened or leaked");
+        if (index == 0U) viewport_reference = viewport_pixels;
+        if (index == 1U) require(viewport_reference == viewport_pixels,
+            "MIL Viewport3D identity cache changed exact clip coverage");
+        if (viewport_options.enabled || index == 5U) {
+            const auto warm_pixels = render_scene(gpu, engine, nullptr, 2U,
+                viewport_commands, 1U, mil_scene, viewport_id);
+            require(warm_pixels == viewport_pixels,
+                "MIL Viewport3D warm cache changed depth/clip pixels");
+            progpu_native_layer_metrics metrics{};
+            metrics.struct_size = sizeof(metrics);
+            require(progpu_native_engine_get_layer_metrics(engine, &metrics) ==
+                    PROGPU_NATIVE_STATUS_SUCCESS, "MIL Viewport3D metrics unavailable");
+            std::fprintf(stderr, "MIL viewport warm content=%u cache=%u effect=%u\n",
+                metrics.content_pass_count, metrics.cache_hit, metrics.effect_cache_hit);
+            // An uncached outer blur still composes its cached mesh source in
+            // two sibling effect targets; neither retained mesh page is redrawn.
+            require(metrics.content_pass_count == (index == 5U ? 2U : 0U),
+                "MIL Viewport3D unchanged cache rerasterized its content");
+        }
+    }
+    phase("MIL Viewport3D geometry clips passed");
     const char* adapter_name = gpu.properties.name == nullptr
         ? "unknown"
         : gpu.properties.name;

@@ -6638,6 +6638,25 @@ assertions and platform qualification. These additions do not remove the
 remaining Viewport3D, programmable effect, tile-brush, nested effect-domain,
 DirectX/Direct2D/Win2D, or final platform-parity gates.
 
+## Viewport3D output geometry checkpoint, 2026-09-05
+
+Viewport3D visuals now isolate exact vector output clips using the same native
+layer masks as ordinary retained composition. Effects and BitmapCache reuse
+their existing output isolation; no per-mesh mask support is advertised and no
+CPU pixels are introduced. Typed cache bounds accept both Visual and
+Viewport3DVisual resources. Depth targets include retained cache slots, and
+group composites transition to depth-free passes while storing mesh depth for
+later continuations.
+
+Seven raw-MIL GPU cases cover sibling/ancestor clips, plain output, identity
+and twice-resolution caches, gradient cache masks, blur, cached blur, and
+nested caches. A later green plane behind each red/blue plane must remain
+occluded. Identity-cache pixels equal uncached pixels exactly; unchanged
+cache pages are not rerasterized. An uncached outer blur still performs two
+sibling effect-content passes around the retained mesh pages. This does not
+claim arbitrary mixed 2D/3D bundle, guideline, transformed-viewport, or full
+lighting/shading-mode parity; those remain explicit implementation gates.
+
 ## Invariants
 
 - No reflection or private managed field scanning in the product bridge.

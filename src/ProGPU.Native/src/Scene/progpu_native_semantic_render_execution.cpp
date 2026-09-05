@@ -3574,6 +3574,7 @@ progpu_native_status render_scene(
         if (!prepare_semantic_depth_resources(
                 *engine,
                 layer_budget,
+                cache_budget,
                 frame->width,
                 frame->height)) {
             discard_encoder();
@@ -4955,9 +4956,11 @@ progpu_native_status render_scene(
                 ? engine->semantic_layer_slots[target_layer].depth_view
                 : nullptr;
         };
+        bool active_depth_attachment = false;
         const auto begin_pass = [&](
             std::uint32_t target_layer,
-            WGPULoadOp load_op) {
+            WGPULoadOp load_op,
+            bool use_depth = true) {
             WGPUTextureView view = target_view(target_layer);
             if (view == nullptr) {
                 return false;
@@ -4982,7 +4985,8 @@ progpu_native_status render_scene(
             pass_descriptor.colorAttachmentCount = 1U;
             pass_descriptor.colorAttachments = &color_attachment;
             WGPURenderPassDepthStencilAttachment depth_attachment{};
-            depth_attachment.view = target_depth_view(target_layer);
+            depth_attachment.view = use_depth
+                ? target_depth_view(target_layer) : nullptr;
             if (depth_attachment.view != nullptr) {
                 depth_attachment.depthLoadOp = load_op;
                 depth_attachment.depthStoreOp = WGPUStoreOp_Store;
@@ -4995,6 +4999,7 @@ progpu_native_status render_scene(
                 engine->semantic_encoder,
                 &pass_descriptor);
             active_target_layer = target_layer;
+            active_depth_attachment = depth_attachment.view != nullptr;
             return pass != nullptr;
         };
         const auto fail_replay = [&](const char* message) {
@@ -5083,7 +5088,10 @@ progpu_native_status render_scene(
                 }
                 const bool advanced_blend =
                     is_advanced_group_blend(operation.blend_mode);
-                if (!content_cached || advanced_blend) {
+                // Group composites are 2D pipelines. End a depth-bearing
+                // mesh pass before compositing, but preserve its stored depth
+                // for any later mesh continuation in the same parent target.
+                if (!content_cached || advanced_blend || active_depth_attachment) {
                     finish_pass();
                 }
                 bool effect_ready = true;
@@ -5158,11 +5166,11 @@ progpu_native_status render_scene(
                                     operation) &&
                                 begin_pass(
                                     operation.target_layer,
-                                    WGPULoadOp_Load);
+                                    WGPULoadOp_Load, false);
                         })()
                         : (((pass != nullptr) || begin_pass(
                                   operation.target_layer,
-                                  WGPULoadOp_Load)) &&
+                                  WGPULoadOp_Load, false)) &&
                             encode_semantic_layer_composite(
                                 *engine,
                                 pass,
@@ -5176,7 +5184,8 @@ progpu_native_status render_scene(
                     : 0U;
                 continue;
             }
-            if (operation.target_layer != active_target_layer) {
+            if (operation.target_layer != active_target_layer ||
+                active_depth_attachment != (semantic_3d_draw_count != 0U)) {
                 finish_pass();
                 if (!begin_pass(
                         operation.target_layer,

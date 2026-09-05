@@ -595,6 +595,7 @@ bool ensure_semantic_depth_slot(
 bool prepare_semantic_depth_resources(
     progpu_native_engine& engine,
     const semantic_layer_budget& budget,
+    const semantic::cache_budget& cache_budget,
     std::uint32_t frame_width,
     std::uint32_t frame_height) {
     if (!ensure_semantic_depth_slot(
@@ -614,6 +615,15 @@ bool prepare_semantic_depth_resources(
                 budget.slot_widths[index],
                 budget.slot_heights[index],
                 "ProGPU semantic isolated-layer 3D depth")) {
+            return false;
+        }
+    }
+    for (std::uint32_t index = 0U; index < cache_budget.count; ++index) {
+        const auto slot = cache_budget.slots[index];
+        if (slot >= engine.semantic_layer_slots.size() ||
+            !ensure_semantic_depth_slot(engine, engine.semantic_layer_slots[slot],
+                cache_budget.widths[index], cache_budget.heights[index],
+                "ProGPU semantic retained-cache 3D depth")) {
             return false;
         }
     }

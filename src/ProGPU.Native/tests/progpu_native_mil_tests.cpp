@@ -3131,6 +3131,50 @@ bool visual_clips_compile_to_exact_semantic_state() {
     return true;
 }
 
+bool viewport3d_geometry_clips_apply_to_isolated_outputs() {
+    using progpu::native::tests::mil_clip_cache_options;
+    using progpu::native::tests::mil_clip_effect;
+    for (const auto effect : {mil_clip_effect::none, mil_clip_effect::blur,
+                             mil_clip_effect::cached_blur}) {
+        for (const bool cached : {false, true}) {
+            const mil_clip_cache_options options{
+                .enabled = cached, .viewport3d = true};
+            std::vector<std::byte> stream;
+            PROGPU_REQUIRE(progpu::native::tests::build_mil_visual_clip_fixture(
+                stream, effect, 9300U, options));
+            const auto header = read_value<progpu_native_scene_header>(stream, 0U);
+            const auto layers = get_scene_layers(stream);
+            std::uint32_t masked_outputs = 0U;
+            for (const auto& layer : layers) {
+                if (layer.mask_resource_index == PROGPU_NATIVE_SCENE_NO_INDEX) continue;
+                const auto resource = read_value<progpu_native_scene_resource>(stream,
+                    header.resource_offset + layer.mask_resource_index *
+                        sizeof(progpu_native_scene_resource));
+                const auto mask = read_value<progpu_native_scene_layer_vector_mask>(
+                    stream, resource.payload_offset);
+                PROGPU_REQUIRE(mask.kind == PROGPU_NATIVE_SCENE_LAYER_MASK_VECTOR_CLIP_CHAIN);
+                PROGPU_REQUIRE(mask.path_count == 2U);
+                ++masked_outputs;
+            }
+            PROGPU_REQUIRE(masked_outputs == 2U);
+            std::uint32_t mesh_draws = 0U;
+            for (std::uint32_t index = 0U; index < header.command_count; ++index) {
+                const auto draw = read_value<progpu_native_scene_command>(stream,
+                    header.command_offset + index * sizeof(progpu_native_scene_command));
+                if (draw.kind != PROGPU_NATIVE_SCENE_COMMAND_DRAW_MESH_3D_BATCH) continue;
+                const auto state = read_value<progpu_native_scene_state>(stream,
+                    read_value<progpu_native_scene_resource>(stream,
+                        header.resource_offset + draw.state_index *
+                            sizeof(progpu_native_scene_resource)).payload_offset);
+                PROGPU_REQUIRE((state.flags & PROGPU_NATIVE_SCENE_STATE_MASK) == 0U);
+                ++mesh_draws;
+            }
+            PROGPU_REQUIRE(mesh_draws == 2U);
+        }
+    }
+    return true;
+}
+
 bool visual_geometry_clips_apply_after_effects() {
     using progpu::native::tests::mil_clip_effect;
     for (const auto effect : {mil_clip_effect::zero_blur,
@@ -18521,6 +18565,7 @@ int main() {
     PROGPU_REQUIRE(animated_pen_and_dash_resources_drive_strokes());
     PROGPU_REQUIRE(visual_clips_compile_to_exact_semantic_state());
     PROGPU_REQUIRE(visual_geometry_clips_apply_after_effects());
+    PROGPU_REQUIRE(viewport3d_geometry_clips_apply_to_isolated_outputs());
     PROGPU_REQUIRE(visual_geometry_clips_apply_after_local_caches());
     PROGPU_REQUIRE(visual_solid_opacity_mask_composes_and_updates());
     PROGPU_REQUIRE(visual_gaussian_effects_compile_to_isolated_layers());
