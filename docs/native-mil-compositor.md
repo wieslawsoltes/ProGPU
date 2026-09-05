@@ -6995,6 +6995,69 @@ than tile content. Same-device tile-image views require typed leases and bounded
 page residency. Both renderers must consume the same tile sampling shader and
 quality policy. Do not substitute CPU tile synthesis or per-tile submissions.
 
+## VisualBrush source replay and shared recursion, 2026-09-05
+
+Implementation-first continuation: `TileMode.None` VisualBrush rectangle fills
+now enter the existing native `append_visual` renderer inside the isolated
+single-tile GPU layer. Canonical Visual state, child traversal, retained content,
+clips, opacity, effects and cache behavior use the same executor as onscreen
+visuals, subject to that executor's existing capability limits. Brush opacity
+and final paint/viewport masks remain outside source replay. No WPF-shaped
+object, reflection adapter, CPU rasterizer or new shader fork is introduced.
+
+VisualBrush natural bounds come from the existing typed Visual descendant-bounds
+sideband (cache-named for ABI compatibility). They are not guessed from the
+destination viewport or arbitrary UI properties. The source bounds origin is
+included in relative Viewbox mapping, like DrawingBrush. Missing native source
+bounds fail closed. The LibreWPF producer explicitly emits these bounds for
+visual brush sources, including when an already-recorded onscreen visual is
+referenced; known empty typed bounds become a null/no-op brush source.
+
+Native visual and drawing traversal now share one active-resource set across
+VisualBrush boundaries. A cycle cannot evade detection by re-entering the visual
+renderer through a drawing or brush with a fresh local set. Mixed source nesting
+is bounded by the existing maximum depth. The compile context carries the scene
+identity and a nested brush-source depth. Dynamic guidelines suppress animation
+while rendering a brush source without changing the caller's request flags or
+the surrounding onscreen phase. Brush-mode cached visual pages have separate
+owner/content identities from onscreen pages because their guideline realization
+may differ even within the same frame.
+
+LibreWPF source production distinguishes a brush reference from visual parenting.
+Multiple brushes and the ordinary visual tree may reference one source visual
+handle, regardless of traversal order, while multiple actual parents and active
+visual/drawing source cycles still fail closed. Exact bounds are emitted once per
+source handle. Source traversal and graph checks are O(V + E) with O(V) identity
+sets for V visual/drawing resources and E references; no per-frame property scan,
+CPU pixel work or new independent-lane CPU kernel was added. Native retained
+rendering continues to own GPU work. No performance improvement is claimed.
+
+Provenance/applicability: original ProGPU native visual execution and dynamic
+guideline policy from `87747134`, plus LibreWPF's typed source compiler. The
+existing managed `WpfDrawingReplay.TryReplayPortableVisualBrushFill` already
+uses `WpfVisualTreeRenderer.ReplaySubtree`; that path remains available and must
+be compared with the native path in the final differential pass. Existing
+cross-engine source/scene/resource ownership research remains applicable; no
+foreign implementation was copied.
+
+Compilation checkpoint: the Release Apple Clang C++20 native MIL target and the
+LibreWPF compiler/test graph build. The initial managed rebuild reported existing
+WinForms compatibility/style warnings; the subsequent incremental build completed
+with zero warnings/errors. Native VisualBrush source/cycle fixtures and managed
+source-reuse (both tree orders), multiple-parent, and self-reference regressions
+are authored and compiled. They have not been executed. The MIL source-digest
+ledger was regenerated; runtime/VM/image/sanitizer/performance/CI qualification
+remains deferred under the requested implementation-first sequence.
+
+Final validation must include source root transforms/offsets, exact descendant
+bounds under clipping/effects, mixed VisualBrush/DrawingBrush/DrawingImage cycles,
+maximum-depth failure, nested dynamic guidelines, simultaneous onscreen and brush
+cache ownership, invalidation and device loss, shared-source producer order, and
+native Windows WPF versus both ProGPU renderers. Repeated/flipped retained tile
+pages, broader fill/stroke/text/mask brush coverage and cache performance remain
+implementation work; this checkpoint does not complete those requirements or
+the full goal.
+
 ## Invariants
 
 - No reflection or private managed field scanning in the product bridge.
