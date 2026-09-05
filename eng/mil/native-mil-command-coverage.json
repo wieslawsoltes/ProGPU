@@ -13,7 +13,7 @@
     },
     "decoder": {
       "path": "src/ProGPU.Native/src/Mil/progpu_native_mil.cpp",
-      "sha256": "37c108f93e93061b7102d7cd9fbe7e516cd758ae28b29319d31579b29967b59d"
+      "sha256": "297d1de77ae95608acef13e4bfe10b832c0d4117b9e660b664cccac3af3ca2c6"
     }
   },
   "summary": {

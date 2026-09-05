@@ -18817,7 +18817,8 @@ bool c_abi_is_typed_and_size_versioned() {
 
 int main() {
     for (const auto source : {progpu::native::tests::mil_brush_fixture_source::drawing,
-        progpu::native::tests::mil_brush_fixture_source::drawing_image}) {
+        progpu::native::tests::mil_brush_fixture_source::drawing_image,
+        progpu::native::tests::mil_brush_fixture_source::visual}) {
         std::vector<std::byte> scene;
         PROGPU_REQUIRE(progpu::native::tests::build_mil_image_brush_fixture(
             scene, {.opacity = 0.5, .source = source}, 9490U));

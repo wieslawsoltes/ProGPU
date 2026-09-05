@@ -2302,6 +2302,14 @@ struct scene_compile_context {
     const scene_build_request& request;
     std::uint32_t current_time_milliseconds{};
     bool needs_more_cycles{};
+    std::uint32_t visual_brush_depth{};
+    std::uint64_t scene_id{};
+
+    bool is_visual_brush() const noexcept {
+        return visual_brush_depth != 0U ||
+            (static_cast<std::uint32_t>(request.flags) &
+                static_cast<std::uint32_t>(scene_build_request_flags::visual_brush)) != 0U;
+    }
 };
 
 struct channel::implementation {
@@ -11276,6 +11284,7 @@ struct channel::implementation {
         std::unordered_map<std::uint64_t, glyph_scene_resource>&
             glyph_resources,
         scene_compile_context* compile_context,
+        std::unordered_set<std::uint32_t>& active_drawings,
         std::vector<progpu_native_scene_clip_path>& clip_paths,
         std::vector<progpu_native_path_segment>& clip_segments,
         std::vector<progpu_native_scene_path_boolean_node>&
@@ -11287,7 +11296,6 @@ struct channel::implementation {
             return status::invalid_handle;
         }
 
-        std::unordered_set<std::uint32_t> active_drawings;
         return append_render_stream(
             resource->second.render_data,
             &resource->second.compact_guidelines,
@@ -14316,8 +14324,9 @@ struct channel::implementation {
             const render_scope_state& state) -> status {
             const auto found = tile_brushes.find(brush_handle);
             const bool drawing_brush = require_resource(brush_handle, type_drawing_brush);
+            const bool visual_brush = require_resource(brush_handle, type_visual_brush);
             if (found == tile_brushes.end() ||
-                (!require_resource(brush_handle, type_image_brush) && !drawing_brush)) {
+                (!require_resource(brush_handle, type_image_brush) && !drawing_brush && !visual_brush)) {
                 return status::unsupported_command;
             }
             const auto& brush = found->second;
@@ -14333,8 +14342,20 @@ struct channel::implementation {
             double content_y = 0.0;
             double content_width = 0.0;
             double content_height = 0.0;
-            bool vector_source = drawing_brush;
-            if (drawing_brush) {
+            bool vector_source = drawing_brush || visual_brush;
+            if (visual_brush) {
+                if (compile_context == nullptr) return status::unsupported_command;
+                const auto visual = visuals.find(brush.source_handle);
+                if (visual == visuals.end()) return status::invalid_handle;
+                // Source-built Visual owns exact descendant bounds. Never infer
+                // a visual's extent by scraping UI properties or using viewport
+                // bounds as a substitute for missing content geometry.
+                if (!visual->second.has_cache_bounds) return status::unsupported_command;
+                content_x = visual->second.cache_bounds_x;
+                content_y = visual->second.cache_bounds_y;
+                content_width = visual->second.cache_bounds_width;
+                content_height = visual->second.cache_bounds_height;
+            } else if (drawing_brush) {
                 progpu_native_image_rect bounds{};
                 const status resolved = resolve_drawing_image_bounds(
                     resolve_drawing_image_bounds, brush.source_handle, 0U, {}, nullptr, bounds);
@@ -14463,7 +14484,8 @@ struct channel::implementation {
             clipped.transform = content_to_target;
             clipped.opacity *= opacity;
             if (vector_source) {
-                if (!active_drawings.insert(brush_handle).second) return status::invalid_graph;
+                if (active_drawings.size() >= maximum_visual_depth ||
+                    !active_drawings.insert(brush_handle).second) return status::invalid_graph;
                 // A vector source may contain overlapping primitives. Brush
                 // opacity and exact output masks apply once to the completed
                 // tile, not separately to each primitive. Source effects keep
@@ -14492,7 +14514,16 @@ struct channel::implementation {
                 std::vector<progpu_native_path_segment> source_clip_segments;
                 std::vector<progpu_native_scene_path_boolean_node> source_clip_nodes;
                 status drawn = status::invalid_graph;
-                if (drawing_brush) {
+                if (visual_brush) {
+                    ++compile_context->visual_brush_depth;
+                    drawn = append_visual(brush.source_handle, content,
+                        static_cast<std::uint32_t>(active_drawings.size() + 1U),
+                        compile_context->scene_id, builder, brush_indices,
+                        image_indices, glyph_resources, compile_context,
+                        active_drawings, source_clip_paths, source_clip_segments,
+                        source_clip_nodes, metrics);
+                    --compile_context->visual_brush_depth;
+                } else if (drawing_brush) {
                     if (save_state(content)) {
                         // Original MIL DrawDrawing framing: one borrowed stack
                         // packet, decoded synchronously with shared cycle/depth state.
@@ -17553,9 +17584,7 @@ struct channel::implementation {
         const std::size_t count_x = source.guidelines_x.size() / 2U;
         const std::size_t count_y = source.guidelines_y.size() / 2U;
         if (state.transform.m12 != 0.0 || state.transform.m21 != 0.0) {
-            if ((static_cast<std::uint32_t>(context->request.flags) &
-                    static_cast<std::uint32_t>(
-                        scene_build_request_flags::visual_brush)) == 0U) {
+            if (!context->is_visual_brush()) {
                 try {
                     source.runtime_x.resize(count_x);
                     source.runtime_y.resize(count_y);
@@ -17593,10 +17622,7 @@ struct channel::implementation {
         } catch (const std::bad_alloc&) {
             return status::capacity_exceeded;
         }
-        const bool suppress_animation =
-            (static_cast<std::uint32_t>(context->request.flags) &
-                static_cast<std::uint32_t>(
-                    scene_build_request_flags::visual_brush)) != 0U;
+        const bool suppress_animation = context->is_visual_brush();
         const auto resolve_axis = [&](std::span<const double> values,
                                       std::vector<guideline_set_state::runtime_state>& runtime,
                                       double scale,
@@ -18686,6 +18712,7 @@ struct channel::implementation {
         std::uint32_t cache_handle,
         std::uint32_t visual_handle,
         std::uint64_t scene_id,
+        bool visual_brush,
         const render_scope_state& state,
         std::span<const progpu_native_scene_clip_path> clip_paths,
         std::span<const progpu_native_path_segment> clip_segments,
@@ -18769,6 +18796,7 @@ struct channel::implementation {
             return status::invalid_graph;
         }
         std::uint64_t content_revision = 14695981039346656037ULL;
+        if (visual_brush) append_fnv1a64(content_revision, std::uint32_t{0x56425253U});
         append_fnv1a64(content_revision, cache_handle);
         append_fnv1a64(content_revision, render_at_scale);
         append_fnv1a64(content_revision, cache->second.enable_clear_type);
@@ -18799,6 +18827,9 @@ struct channel::implementation {
         constexpr std::uint32_t owner_kind = 0x43414348U; // CACH
         append_fnv1a64(owner_identity, owner_kind);
         append_fnv1a64(owner_identity, scene_id);
+        // Brush rendering suppresses dynamic-guideline animation. Its page
+        // must not alias an onscreen page of the same Visual in the same frame.
+        if (visual_brush) append_fnv1a64(owner_identity, std::uint32_t{0x56425253U});
         append_fnv1a64(owner_identity, visual_handle);
         const affine_2d_double raster_to_local{
             1.0 / render_at_scale,
@@ -18957,6 +18988,7 @@ struct channel::implementation {
             clip_boolean_nodes,
         scene_metrics& metrics) const {
         if (depth == 0U || depth > maximum_visual_depth ||
+            active_visuals.size() >= maximum_visual_depth ||
             !active_visuals.insert(handle).second) {
             return status::invalid_graph;
         }
@@ -19298,6 +19330,7 @@ struct channel::implementation {
             visual->second.cache_mode_handle,
             handle,
             scene_id,
+            compile_context != nullptr && compile_context->is_visual_brush(),
             cache_input_scope,
             clip_paths,
             clip_segments,
@@ -19480,6 +19513,7 @@ struct channel::implementation {
                     image_indices,
                     glyph_resources,
                     compile_context,
+                    active_visuals,
                     content_clip_paths,
                     content_clip_segments,
                     content_clip_boolean_nodes,
@@ -20246,7 +20280,7 @@ status channel::build_scene_core(
             ? 0U
             : static_cast<std::uint32_t>(
                 request->monotonic_time_nanoseconds / 1'000'000U),
-        false};
+        false, 0U, scene_id};
     try {
         native::semantic_scene_builder builder(scene_id, generation);
         std::unordered_map<std::uint32_t, std::uint32_t> brush_indices;
