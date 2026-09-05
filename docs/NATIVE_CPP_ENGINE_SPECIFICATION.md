@@ -4401,3 +4401,11 @@ working-set delta is asserted. Capture cost and O(B) retained memory remain
 explicit tradeoffs. Metal profiling is not applicable to this CPU-only ingress
 workload. No application FPS, end-to-end allocation, or GPU throughput claim is
 made from these component observations.
+
+Final validated-baseline early-out qualification: macOS native 15/15 and both
+LibreWPF native host smokes pass; Windows native 16/16 passes (GPU 95.29 s), and
+GCC 13 ARM64 MIL passes with ASan/UBSan and leak detection (0.65 s). ProGPU PR CI
+first rejected the source change because its generated MIL coverage ledger was
+not refreshed. Regeneration and the complete native-contract verification gate
+are required before the follow-up push; no ledger check, sanitizer, or test is
+disabled. Exact-head hosted results remain a separate requirement.
