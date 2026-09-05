@@ -7058,6 +7058,42 @@ pages, broader fill/stroke/text/mask brush coverage and cache performance remain
 implementation work; this checkpoint does not complete those requirements or
 the full goal.
 
+### Implementation-first checkpoint: curved primitive tile-brush fills
+
+Native MIL single-tile image, DrawingImage, DrawingBrush and VisualBrush fills
+now accept ellipses and rounded rectangles, including unequal corner radii.
+The fill shape is appended to the inherited vector-clip chain before the paint
+bounds and transformed viewport are intersected. Bounds remain scissors/mapping
+metadata, not replacements for curved geometry. The path carries the complete
+geometry-to-target affine transform exactly once; brush transforms affect source
+placement and viewport, not the paint shape. Isolated vector-source layers apply
+the resulting mask and brush opacity to the completed source image.
+
+This reuses original ProGPU full-ellipse arc encoding, rounded-rectangle segment
+emission and native vector mask execution. No foreign renderer code, managed
+reflection, CPU image synthesis, readback or per-pixel fallback was introduced.
+Fixed shape emission adds one ellipse segment or eight rounded-rectangle segments
+directly to reusable clip scratch, without constructing stroke contours. Emission
+is O(1) time/space per primitive; serializing the bounded inherited mask chain is
+O(S + P + B) in segments, paths and boolean nodes. Rasterization stays on the
+existing shared GPU path. No new independent-lane CPU kernel or performance claim
+is introduced. Managed applicability: the portable WPF tile-brush ellipse/geometry
+replay already exists and remains unchanged as the comparison implementation.
+
+The Release Apple Clang C++20 MIL library and regression executable compile.
+An initial test compilation used an incorrect mask-resource enum; it was corrected
+to the existing layer-mask resource plus vector-chain kind. Sixteen source/shape/
+transform cases are authored, including inherited ellipse clips, asymmetric
+rounding, skewed brush viewports and transformed paint geometry. They are compiled
+but **not executed**. The source-digest ledger was regenerated, not verified.
+
+Final qualification must execute these cases and compare native Windows WPF,
+ProGPU Windows, macOS and Linux images, including edge aliasing, extreme/clamped
+radii, mirrored/nonuniform transforms, clip-stack restoration, overlapping vector
+content opacity, and degenerate shapes. Arbitrary path/group/boolean fills,
+tile-brush strokes/text/masks and repeated/flipped retained tile capture remain
+implementation work. This checkpoint is not a parity or release qualification.
+
 ## Invariants
 
 - No reflection or private managed field scanning in the product bridge.

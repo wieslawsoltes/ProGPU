@@ -16818,9 +16818,57 @@ struct channel::implementation {
             }
             const bool has_tile_fill = brush_handle != 0U && tile_brushes.contains(brush_handle);
             if (has_tile_fill && width > 0.0 && height > 0.0) {
-                if (is_ellipse || has_rounded_corners) return status::unsupported_command;
+                render_scope_state paint_state = current;
+                if (is_ellipse || has_rounded_corners) {
+                    // Append to the inherited vector chain so the subsequent
+                    // paint/viewport clips intersect this shape rather than
+                    // replacing its mask. Segment coordinates stay local; the
+                    // path owns the complete geometry-to-target transform.
+                    if (current.clip_path_count >= 64U ||
+                        !finite_double_as_float(x + width) ||
+                        !finite_double_as_float(y + height)) {
+                        return status::unsupported_command;
+                    }
+                    progpu_native_affine_2d shape_transform{};
+                    if (!try_to_native_affine(effective_transform, shape_transform)) {
+                        return status::invalid_graph;
+                    }
+                    clip_paths.resize(current.clip_path_count);
+                    clip_segments.resize(current.clip_segment_count);
+                    clip_boolean_nodes.resize(current.clip_boolean_node_count);
+                    const auto segment_offset = clip_segments.size();
+                    if (is_ellipse) {
+                        progpu_native_path_segment arc{};
+                        arc.kind = PROGPU_NATIVE_PATH_SEGMENT_ARC;
+                        arc.p0 = arc.p1 = {static_cast<float>(first + third),
+                            static_cast<float>(second)};
+                        arc.p2 = {static_cast<float>(first), static_cast<float>(second)};
+                        arc.p3 = {static_cast<float>(third), static_cast<float>(fourth)};
+                        arc.pad1 = std::bit_cast<std::uint32_t>(2.0F * std::numbers::pi_v<float>);
+                        clip_segments.push_back(arc);
+                    } else {
+                        append_rounded_rectangle_path(clip_segments, x, y,
+                            x + width, y + height, radius_x, radius_y);
+                    }
+                    clip_paths.push_back({segment_offset,
+                        clip_segments.size() - segment_offset,
+                        clip_boolean_nodes.size(), 0U,
+                        static_cast<float>(x), static_cast<float>(y),
+                        static_cast<float>(x + width), static_cast<float>(y + height),
+                        shape_transform, PROGPU_NATIVE_FILL_RULE_NON_ZERO,
+                        current.edge_aliased ? 1U : 8U, PROGPU_NATIVE_CLIP_INTERSECT, 0U});
+                    if (!builder.add_vector_clip_mask(clip_paths, clip_segments,
+                            clip_boolean_nodes, 1.0F, paint_state.mask_resource_index)) {
+                        clip_paths.resize(current.clip_path_count);
+                        clip_segments.resize(current.clip_segment_count);
+                        return status::invalid_graph;
+                    }
+                    paint_state.clip_path_count = clip_paths.size();
+                    paint_state.clip_segment_count = clip_segments.size();
+                    paint_state.clip_boolean_node_count = clip_boolean_nodes.size();
+                }
                 const brush_use_state brush_use{x, y, width, height, effective_transform};
-                const status tile_status = append_single_tile_brush(brush_handle, brush_use, current);
+                const status tile_status = append_single_tile_brush(brush_handle, brush_use, paint_state);
                 if (tile_status != status::success) return tile_status;
             }
             if (!has_tile_fill && brush_handle != 0U && width > 0.0 && height > 0.0) {

@@ -18816,6 +18816,39 @@ bool c_abi_is_typed_and_size_versioned() {
 } // namespace
 
 int main() {
+    // Authored during implementation-first work; execution and pixel parity
+    // remain part of the final validation phase.
+    for (const auto source : {progpu::native::tests::mil_brush_fixture_source::bitmap,
+        progpu::native::tests::mil_brush_fixture_source::drawing,
+        progpu::native::tests::mil_brush_fixture_source::drawing_image,
+        progpu::native::tests::mil_brush_fixture_source::visual}) {
+        for (const auto shape : {progpu::native::tests::mil_brush_fixture_shape::ellipse,
+            progpu::native::tests::mil_brush_fixture_shape::rounded_rectangle}) {
+            for (const bool transformed : {false, true}) {
+                std::vector<std::byte> scene;
+                PROGPU_REQUIRE(progpu::native::tests::build_mil_image_brush_fixture(
+                    scene, {.opacity = 0.5, .skew = transformed, .source = source,
+                        .shape = shape, .inherited_clip = true, .paint_transform = transformed}, 9480U));
+                const auto header = read_value<progpu_native_scene_header>(scene, 0U);
+                bool found_shape_chain = false;
+                for (std::uint32_t index = 0U; index < header.resource_count; ++index) {
+                    const auto resource = read_value<progpu_native_scene_resource>(scene,
+                        header.resource_offset + index * sizeof(progpu_native_scene_resource));
+                    if (resource.kind != PROGPU_NATIVE_SCENE_RESOURCE_LAYER_MASK) continue;
+                    const auto base_mask = read_value<progpu_native_scene_layer_mask>(scene,
+                        resource.payload_offset);
+                    if (base_mask.kind != PROGPU_NATIVE_SCENE_LAYER_MASK_VECTOR_CLIP_CHAIN) continue;
+                    const auto mask = read_value<progpu_native_scene_layer_vector_mask>(scene,
+                        resource.payload_offset);
+                    // Inherited ellipse plus paint shape must survive both
+                    // rectangle scissors and non-axis-aligned viewport masks.
+                    found_shape_chain |= mask.path_count >= 2U &&
+                        mask.segment_count >= (shape == progpu::native::tests::mil_brush_fixture_shape::ellipse ? 2U : 9U);
+                }
+                PROGPU_REQUIRE(found_shape_chain);
+            }
+        }
+    }
     for (const auto source : {progpu::native::tests::mil_brush_fixture_source::drawing,
         progpu::native::tests::mil_brush_fixture_source::drawing_image,
         progpu::native::tests::mil_brush_fixture_source::visual}) {

@@ -5,6 +5,7 @@
 namespace progpu::native::tests {
 
 enum class mil_brush_fixture_source { bitmap, drawing_image, drawing, visual };
+enum class mil_brush_fixture_shape { rectangle, ellipse, rounded_rectangle };
 
 struct mil_image_brush_fixture_options {
     std::uint32_t stretch{1U};
@@ -20,6 +21,9 @@ struct mil_image_brush_fixture_options {
     bool linear{};
     mil_brush_fixture_source source{mil_brush_fixture_source::bitmap};
     bool source_cycle{};
+    mil_brush_fixture_shape shape{mil_brush_fixture_shape::rectangle};
+    bool inherited_clip{};
+    bool paint_transform{};
 };
 
 inline bool build_mil_image_brush_fixture(std::vector<std::byte>& scene,
@@ -84,7 +88,32 @@ inline bool build_mil_image_brush_fixture(std::vector<std::byte>& scene,
         1U, options.viewbox_units, 0U, 0U, options.stretch,
         options.tile_mode, 1U, 1U, 0U, 3U);
     std::vector<std::byte> nested;
-    packet(nested, command::draw_rectangle, 8.0, 8.0, 48.0, 48.0, 5U, 0U);
+    if (options.inherited_clip) {
+        packet(batch, command::channel_create_resource, 13U, 70U);
+        packet(batch, command::ellipse_geometry, 13U,
+            24.0, 24.0, 32.0, 32.0, 0U, 0U, 0U, 0U);
+        packet(nested, command::push_clip, 13U, 0U);
+    }
+    if (options.paint_transform) {
+        packet(batch, command::channel_create_resource, 14U, 66U);
+        packet(batch, command::matrix_transform, 14U,
+            0.8, 0.2, -0.1, 0.8, 8.0, 0.0, 0U);
+        packet(nested, command::push_transform, 14U, 0U);
+    }
+    switch (options.shape) {
+    case mil_brush_fixture_shape::ellipse:
+        packet(nested, command::draw_ellipse, 32.0, 32.0, 24.0, 24.0, 5U, 0U);
+        break;
+    case mil_brush_fixture_shape::rounded_rectangle:
+        packet(nested, command::draw_rounded_rectangle,
+            8.0, 8.0, 48.0, 48.0, 12.0, 6.0, 5U, 0U);
+        break;
+    default:
+        packet(nested, command::draw_rectangle, 8.0, 8.0, 48.0, 48.0, 5U, 0U);
+        break;
+    }
+    if (options.paint_transform) packet(nested, command::pop);
+    if (options.inherited_clip) packet(nested, command::pop);
     append(batch, static_cast<std::uint32_t>(16U + nested.size()));
     append(batch, static_cast<std::uint32_t>(command::render_data));
     append(batch, 2U);
