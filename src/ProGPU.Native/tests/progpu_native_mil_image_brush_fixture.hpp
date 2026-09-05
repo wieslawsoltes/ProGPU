@@ -5,7 +5,7 @@
 namespace progpu::native::tests {
 
 enum class mil_brush_fixture_source { bitmap, drawing_image, drawing, visual };
-enum class mil_brush_fixture_shape { rectangle, ellipse, rounded_rectangle, path, group, combined, line, line_geometry };
+enum class mil_brush_fixture_shape { rectangle, ellipse, rounded_rectangle, path, group, combined, line, line_geometry, glyphs };
 
 struct mil_image_brush_fixture_options {
     std::uint32_t stretch{1U};
@@ -47,6 +47,10 @@ struct mil_image_brush_fixture_options {
     bool gradient_pen{};
     bool multiple_guidelines{};
     bool static_guidelines{};
+    std::span<const std::byte> glyph_commands{};
+    std::span<const std::byte> glyph_font{};
+    std::uint32_t glyph_style{};
+    bool glyph_drawing{};
 };
 
 inline bool build_mil_image_brush_fixture(std::vector<std::byte>& scene,
@@ -216,6 +220,14 @@ inline bool build_mil_image_brush_fixture(std::vector<std::byte>& scene,
         }
     }
     switch (options.shape) {
+    case mil_brush_fixture_shape::glyphs:
+        batch.insert(batch.end(), options.glyph_commands.begin(), options.glyph_commands.end());
+        if (options.glyph_drawing) {
+            packet(batch, command::channel_create_resource, 29U, 88U);
+            packet(batch, command::glyph_run_drawing, 29U, 28U, 5U);
+            packet(nested, command::draw_drawing, 29U, 0U);
+        } else packet(nested, command::draw_glyph_run, 5U, 28U);
+        break;
     case mil_brush_fixture_shape::line_geometry:
         packet(batch, command::channel_create_resource, 15U, 68U);
         packet(batch, command::line_geometry, 15U, 8.0, 16.0,
@@ -258,6 +270,9 @@ inline bool build_mil_image_brush_fixture(std::vector<std::byte>& scene,
         return false;
     mil_clip_channel channel(raw);
     if (progpu_native_mil_channel_apply(raw, batch.data(), batch.size(), nullptr)
+        != PROGPU_NATIVE_MIL_STATUS_SUCCESS) return false;
+    if (!options.glyph_font.empty() && progpu_native_mil_channel_set_glyph_run_font_sfnt(raw,
+            28U, 0U, options.glyph_style, options.glyph_font.data(), options.glyph_font.size())
         != PROGPU_NATIVE_MIL_STATUS_SUCCESS) return false;
     if (visual_brush && progpu_native_mil_channel_set_visual_cache_bounds(raw,
         3U, 10.0, 20.0, 20.0, 10.0) != PROGPU_NATIVE_MIL_STATUS_SUCCESS) return false;
