@@ -17335,6 +17335,24 @@ struct channel::implementation {
         return status::success;
     }
 
+    static status attach_visual_output_clip(
+        progpu_native_scene_layer& layer,
+        const render_scope_state& state,
+        native::semantic_scene_builder& builder) {
+        layer.mask_resource_index = state.mask_resource_index;
+        if (!state.has_clip) return status::success;
+        auto composite_state = native::semantic_scene_builder::identity_state();
+        composite_state.flags = PROGPU_NATIVE_SCENE_STATE_CLIP_RECT;
+        composite_state.clip_rect = state.clip_rect;
+        std::uint32_t composite_state_index = PROGPU_NATIVE_SCENE_NO_INDEX;
+        if (!builder.add_state(composite_state, composite_state_index)) {
+            return status::invalid_graph;
+        }
+        layer.flags |= PROGPU_NATIVE_SCENE_LAYER_COMPOSITE_STATE;
+        layer.reserved0 = composite_state_index;
+        return status::success;
+    }
+
     status add_visual_effect_layer(
         std::uint32_t visual_handle,
         std::uint32_t effect_handle,
@@ -17385,23 +17403,7 @@ struct channel::implementation {
             (state.opacity != 1.0 || has_spatial_opacity_mask);
         const auto attach_final_clip = [&](
                 progpu_native_scene_layer& layer) -> status {
-            layer.mask_resource_index = state.mask_resource_index;
-            if (!state.has_clip) {
-                return status::success;
-            }
-            auto composite_state =
-                native::semantic_scene_builder::identity_state();
-            composite_state.flags = PROGPU_NATIVE_SCENE_STATE_CLIP_RECT;
-            composite_state.clip_rect = state.clip_rect;
-            std::uint32_t composite_state_index =
-                PROGPU_NATIVE_SCENE_NO_INDEX;
-            if (!builder.add_state(
-                    composite_state, composite_state_index)) {
-                return status::invalid_graph;
-            }
-            layer.flags |= PROGPU_NATIVE_SCENE_LAYER_COMPOSITE_STATE;
-            layer.reserved0 = composite_state_index;
-            return status::success;
+            return attach_visual_output_clip(layer, state, builder);
         };
         const auto push_source_composite_layer = [&]() -> status {
             if (!isolate_source_composite) {
@@ -18755,6 +18757,13 @@ struct channel::implementation {
             }
         }
 
+        const auto visual_resource = resources.find(handle);
+        const bool is_viewport3d = visual_resource != resources.end() &&
+            visual_resource->second.type == type_viewport3d_visual;
+        const bool isolate_viewport_clip = is_viewport3d &&
+            current.mask_resource_index != PROGPU_NATIVE_SCENE_NO_INDEX &&
+            visual->second.effect_handle == 0U &&
+            visual->second.cache_mode_handle == 0U;
         auto state = native::semantic_scene_builder::identity_state();
         if (!try_to_native_affine(current.transform, state.transform)) {
             active_visuals.erase(handle);
@@ -18771,7 +18780,7 @@ struct channel::implementation {
         }
         if (current.mask_resource_index != PROGPU_NATIVE_SCENE_NO_INDEX &&
             visual->second.effect_handle == 0U &&
-            visual->second.cache_mode_handle == 0U) {
+            visual->second.cache_mode_handle == 0U && !isolate_viewport_clip) {
             state.flags |= PROGPU_NATIVE_SCENE_STATE_MASK;
             state.mask_resource_index = current.mask_resource_index;
         }
@@ -18838,13 +18847,32 @@ struct channel::implementation {
         }
 
         std::uint32_t effect_layer_count = 0U;
-        const status effect_status = add_visual_effect_layer(
+        status effect_status = add_visual_effect_layer(
             handle,
             visual->second.effect_handle,
             current,
             visual->second.cache_mode_handle != 0U,
             builder,
             effect_layer_count);
+        if (effect_status == status::success && isolate_viewport_clip) {
+            // Mesh shaders retain their depth-tested rendering contract.
+            // Clip the completed 3D image with the shared layer-mask path;
+            // never silently drop a mask from an unsupported per-draw state.
+            progpu_native_scene_layer clip_layer{};
+            clip_layer.struct_size = sizeof(clip_layer);
+            clip_layer.flags = PROGPU_NATIVE_SCENE_LAYER_FORCE_ISOLATION;
+            clip_layer.opacity = 1.0F;
+            clip_layer.blend_mode = PROGPU_NATIVE_BLEND_SRC_OVER;
+            clip_layer.effect_resource_index = PROGPU_NATIVE_SCENE_NO_INDEX;
+            effect_status = attach_visual_output_clip(clip_layer, current, builder);
+            if (effect_status == status::success) {
+                if (builder.push_layer(clip_layer)) {
+                    ++effect_layer_count;
+                } else {
+                    effect_status = status::invalid_graph;
+                }
+            }
+        }
         if (effect_status != status::success) {
             while (effect_layer_count != 0U) {
                 builder.pop_layer();
@@ -18862,7 +18890,7 @@ struct channel::implementation {
         bool skip_cached_content = false;
         bool cache_content_state_pushed = false;
         render_scope_state content_scope = current;
-        // Clip belongs to the completed effect output. Nested render-data
+        // Clip belongs to the completed effect/isolated-3D output. Nested render-data
         // scopes and descendant visuals must see the untruncated source,
         // including when that source is a local bitmap cache.
         if (effect_layer_count != 0U) {
@@ -18932,9 +18960,6 @@ struct channel::implementation {
         metrics.maximum_visual_depth =
             std::max(metrics.maximum_visual_depth, depth);
         status result = status::success;
-        const auto visual_resource = resources.find(handle);
-        const bool is_viewport3d = visual_resource != resources.end() &&
-            visual_resource->second.type == type_viewport3d_visual;
         if (!skip_cached_content && is_viewport3d) {
             if (content_scope.mask_resource_index !=
                            PROGPU_NATIVE_SCENE_NO_INDEX ||
@@ -19462,8 +19487,7 @@ status channel::set_visual_cache_bounds(
     double y,
     double width,
     double height) noexcept {
-    if (!implementation_->require_resource(handle, type_visual) ||
-        !implementation_->visuals.contains(handle)) {
+    if (!implementation_->require_visual(handle)) {
         return status::invalid_handle;
     }
     if (!finite_double_as_float(x) || !finite_double_as_float(y) ||

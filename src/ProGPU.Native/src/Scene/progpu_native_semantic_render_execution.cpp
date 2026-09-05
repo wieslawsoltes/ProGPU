@@ -3574,6 +3574,7 @@ progpu_native_status render_scene(
         if (!prepare_semantic_depth_resources(
                 *engine,
                 layer_budget,
+                cache_budget,
                 frame->width,
                 frame->height)) {
             discard_encoder();

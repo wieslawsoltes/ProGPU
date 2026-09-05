@@ -4115,7 +4115,7 @@ Qualification: macOS native 15/15, MIL/internal ASan+UBSan 2/2,
 x64/Rosetta MIL/internal 2/2, generated native/MIL/Unicode contracts, and the
 complete managed suite 3,922/3,922 pass. Windows and hosted exact-head
 qualification remain separate pending evidence. Full MIL/DirectX/Direct2D/
-Win2D parity is not implied: Viewport3D output masks, broader nested
+Win2D parity is not implied: broader Viewport3D composition, broader nested
 effect/oversized-cache domains, tile-brush packets, programmable shader
 effects, and the remaining protocol/API families stay in scope.
 
@@ -4157,3 +4157,36 @@ the product or its budget. The cause remains unproven; evidence is retained
 under artifacts/performance/appwindow-allocation-20260905. The subsequent
 full managed rerun passes 3,922/3,922 with its TRX retained there; this is not
 a claim that the intermittent allocation issue has been fixed.
+
+### Viewport3D geometry output and cached depth, 2026-09-05
+
+Native MIL creates a clip-only isolated output layer for Viewport3D geometry
+masks when no effect/cache already owns isolation. Shared output-clip attachment
+keeps ancestor rectangles and exact vector masks on the final image. Mesh
+draw states and their depth shaders remain mask-free. Typed visual cache bounds
+now accept Viewport3DVisual as well as Visual, with all other handle and finite
+bounds validation preserved.
+
+This exposed two independent GPU backend gaps: 2D layer composites inherited
+depth-bearing render passes, and retained cache slots had no depth allocation.
+Replay now ends/stores the mesh pass before a depth-free group composite and
+loads stored depth for subsequent mesh bundles. Depth allocation includes
+stable retained-cache slots at their own physical page dimensions.
+
+The original raw-MIL gate now contains seven Viewport3D variants: plain,
+identity cache, gradient-masked cache, twice-resolution cache, blur, cached
+blur, and nested cache. Two sibling foreground planes must occlude later green
+background planes. Exact ellipse/ancestor boundaries, unchanged warm pixels,
+identity-cache/uncached whole-image equality, and zero retained mesh-content
+passes are checked. Cached blur still has two outer effect-content passes;
+its effect-cache diagnostic is one and neither mesh page is redrawn.
+
+Qualification: native MIL structural tests, MIL/internal sanitizer 2/2,
+x64/Rosetta 2/2, native contract verification, managed ProGPU 3,922/3,922,
+and LibreWPF 1,472/1,472 pass locally. All seven GPU variants pass on Metal and
+Windows ARM64 D3D12 (Parallels Display Adapter, 101.79 seconds, unchanged
+300-second gate timeout). Hosted exact-head CI is a separate pending gate.
+Mixed 2D/3D bundle transitions, general viewport transforms, guideline
+deformation, and complete shading-mode/lighting parity remain unqualified;
+the test explicitly uses Native3D's material-color mode rather than assuming
+its numeric shading modes are interchangeable with Mesh3DSolid.
