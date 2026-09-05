@@ -41,6 +41,8 @@ struct mil_image_brush_fixture_options {
     bool identical_combined_operands{};
     bool zero_length_line{};
     double dash_offset{0.25};
+    std::array<double, 2U> fixed_extent{48.0, 48.0};
+    std::uint32_t line_join{PROGPU_NATIVE_STROKE_JOIN_ROUND};
 };
 
 inline bool build_mil_image_brush_fixture(std::vector<std::byte>& scene,
@@ -118,7 +120,7 @@ inline bool build_mil_image_brush_fixture(std::vector<std::byte>& scene,
         packet(batch, command::pen, 20U, 4.0, 10.0, options.solid_pen ? 19U : 5U, 0U,
             options.cap, options.end_cap < 4U ? options.end_cap : options.cap,
             options.dash_cap < 4U ? options.dash_cap : options.cap,
-            PROGPU_NATIVE_STROKE_JOIN_ROUND, options.dashed ? 21U : 0U);
+            options.line_join, options.dashed ? 21U : 0U);
     }
     const std::uint32_t fill_handle = options.pen && !options.fill_with_pen ? 0U : 5U;
     const std::uint32_t pen_handle = options.pen ? 20U : 0U;
@@ -207,14 +209,16 @@ inline bool build_mil_image_brush_fixture(std::vector<std::byte>& scene,
         packet(nested, command::draw_geometry, fill_handle, pen_handle, 15U, 0U);
         break;
     case mil_brush_fixture_shape::ellipse:
-        packet(nested, command::draw_ellipse, 32.0, 32.0, 24.0, 24.0, fill_handle, pen_handle);
+        packet(nested, command::draw_ellipse, 32.0, 32.0,
+            options.fixed_extent[0] * 0.5, options.fixed_extent[1] * 0.5, fill_handle, pen_handle);
         break;
     case mil_brush_fixture_shape::rounded_rectangle:
         packet(nested, command::draw_rounded_rectangle,
-            8.0, 8.0, 48.0, 48.0, 12.0, 6.0, fill_handle, pen_handle);
+            8.0, 8.0, options.fixed_extent[0], options.fixed_extent[1], 12.0, 6.0, fill_handle, pen_handle);
         break;
     default:
-        packet(nested, command::draw_rectangle, 8.0, 8.0, 48.0, 48.0, fill_handle, pen_handle);
+        packet(nested, command::draw_rectangle, 8.0, 8.0,
+            options.fixed_extent[0], options.fixed_extent[1], fill_handle, pen_handle);
         break;
     }
     if (options.paint_transform) packet(nested, command::pop);

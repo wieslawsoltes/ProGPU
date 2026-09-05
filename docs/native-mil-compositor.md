@@ -7734,6 +7734,37 @@ ledger was regenerated. This is not a cap-pixel-parity or speed claim.
 Degenerate fixed rectangle/ellipse tile pens and guideline-aware geometry masks
 remain open, together with the other MIL/DirectX/Direct2D/Win2D goal work.
 
+### Implementation-first checkpoint: collapsed fixed-shape tile pens
+
+Direct fixed-shape MIL draws now accept tiled pens when rectangle/rounded-rectangle
+width or height, or an ellipse radius, collapses to zero. Ordinary collapsed
+rectangle outline construction was extracted without changing its line, rounded
+corner, bevel, or miter rules; undashed tiled rectangles paint through that exact
+filled outer path. Dashed rectangles retain the original closed perimeter or WPF
+rounded-rectangle path. Collapsed ellipses share the ordinary four-point traversal
+for dashes, round-ended line coverage for a nonzero remaining axis, and the shared
+round cap pair when both radii vanish. Brush opacity, placement, transform, clip,
+and Fant sampling remain on the existing tile source path.
+
+The original ProGPU `append_degenerate_rectangle_stroke` outline block and
+`append_degenerate_ellipse_stroke` point ordering are the implementation provenance.
+The extracted helpers have O(1) setup/storage; dashed emission adds O(D) dash pieces.
+There is no new CPU pixel algorithm, SIMD fallback, shader fork, reflection, or
+readback. This is native MIL consumer integration; managed replay and the shared
+managed/native shader/scene ABI remain unchanged. Matched output qualification
+against existing managed replay and Windows WPF is still a final-gate requirement.
+
+Release WebGPU-enabled native-library and MIL-test executable builds pass.
+432 new fixture cases cover four sources, three fixed shapes, three collapse axes,
+continuous/dashed pens, three joins, and on/gap dash phases. Cases are authored and
+compiled, **not executed**. Coverage metadata was regenerated; runtime/image/VM
+tests, verifiers, benchmarks, and CI qualification remain deferred. No pixel parity
+or performance claim follows from the builds.
+
+Collapsed fixed children in `GeometryGroup` still need integration with the single
+group coverage collector. Guideline-aware tile masks and the remaining broad
+MIL/DirectX/Direct2D/Win2D scope remain open.
+
 ## Invariants
 
 - No reflection or private managed field scanning in the product bridge.
