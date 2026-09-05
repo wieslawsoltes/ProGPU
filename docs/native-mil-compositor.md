@@ -7425,6 +7425,54 @@ only implementation-stage check. Cubic/mipmap/anisotropy support for repeated MI
 capture, nonuniform DPI, managed retained-capture adoption, tile strokes/text/
 opacity masks and the broader MIL/DirectX/Direct2D/Win2D goal remain open.
 
+### Implementation-first checkpoint: occupied-extent layer restoration
+
+Explicit image sampling now also governs nearest/linear restoration of ordinary
+materialized semantic layers, including retained local-content caches. Fant
+restoration in explicit mode uses the same occupied-page encoding. This closes
+the allocation-UV limitation recorded in the previous full-image Fant checkpoint
+for this restore path: all three filters clamp each tap to the captured content's
+width/height, not the larger leased texture. Native-sampler mode retains the
+existing sampler-based restoration; repeated tiles retain their independent
+explicit-only policy and repeat/mirror metadata.
+
+The new native `try_encode_captured_page_quad` and managed
+`TileImageVertices.TryEncodeCapturedPageQuad` reuse the original occupied-page
+encoder. They preserve the four already transformed/snapped positions, replace
+full-page UVs with exact unit corners, and publish occupied dimensions plus
+once-only opacity. These APIs require a full-page quad in canonical corner order,
+not a crop or arbitrary UV mapping. Conversion is transactional and allocation-
+free, with fixed four-corner metadata work and stack storage; this is not a CPU
+image kernel. The canonical shader performs the existing 1/4/64-load bounded
+nearest/linear/Fant work. No shader fork, image readback, new capture pass or
+resource-ownership transfer is introduced.
+
+Native semantic POP_LAYER selects the encoder for non-tile, nonempty captures
+under engine flag 8. The current managed semantic layer submission shares that
+native executor; the standalone managed encoder is available to portable retained
+capture adoption, which remains unfinished. Ordinary source-image crops retain
+their existing typed UV path rather than being misidentified as full captures.
+
+Authored paired encoder cases preserve skewed positions and opacity, check exact
+unit UVs for a 3-by-5 capture in a 64-by-128 pool allocation, cover all three
+filters, preserve a destination sentinel, and reject invalid positions/extents
+transactionally. The GPU-enabled C++ shared library/native MIL test executable
+and managed test project compile (managed: zero warnings/errors). The authored
+cases were not executed. Runtime execution is deferred. Final gates must poison pool
+padding and exercise transformed cache restoration, nearest/linear/Fant,
+mask/effect and fixed-blend composition, eviction/reuse, and native versus explicit
+policy on macOS/Linux/Windows. No fidelity or performance claim follows from
+encoding coverage or compilation alone.
+
+Nonuniform-DPI investigation: MIL build requests and dynamic guidelines carry
+independent X/Y scales, but `progpu_native_frame` and semantic frame submission
+still use a scalar DPI for coordinate-to-pixel mapping. Removing the repeated
+capture equality guard alone would not implement end-to-end anisotropic target
+mapping. The guard is retained. A paired frame/host coordinate contract, including
+per-axis guideline offsets and cache raster extents, remains required; source
+bitmap X/Y DPI metadata is a separate already-supported contract. Broader
+MIL/DirectX/Direct2D/Win2D implementation remains open.
+
 ## Invariants
 
 - No reflection or private managed field scanning in the product bridge.

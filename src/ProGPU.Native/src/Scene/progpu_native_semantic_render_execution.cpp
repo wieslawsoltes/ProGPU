@@ -4287,7 +4287,21 @@ progpu_native_status render_scene(
                             frame->dpi_scale,
                             layer.opacity);
                     }
-                    if ((layer.flags & (PROGPU_NATIVE_SCENE_LAYER_CACHE_FANT |
+                    if ((layer.flags & PROGPU_NATIVE_SCENE_LAYER_CACHE_TILE) == 0U &&
+                        (engine->engine_flags & PROGPU_NATIVE_ENGINE_IMAGE_EXPLICIT_SHADER_SAMPLING) != 0U &&
+                        source_extent.width != 0U && source_extent.height != 0U) {
+                        const auto sampling = (layer.flags & PROGPU_NATIVE_SCENE_LAYER_CACHE_NEAREST) != 0U
+                            ? PROGPU_NATIVE_IMAGE_SAMPLING_NEAREST :
+                            (layer.flags & PROGPU_NATIVE_SCENE_LAYER_CACHE_FANT) != 0U
+                                ? PROGPU_NATIVE_IMAGE_SAMPLING_FANT : PROGPU_NATIVE_IMAGE_SAMPLING_LINEAR;
+                        if (!::progpu::native::try_encode_captured_page_quad(
+                                std::span(semantic_layer_vertices).subspan(first_vertex, 4U),
+                                source_extent.width, source_extent.height,
+                                engine->semantic_layer_slots[source_layer].width,
+                                engine->semantic_layer_slots[source_layer].height,
+                                sampling, layer.opacity))
+                            return fail_bundle(PROGPU_NATIVE_STATUS_UNSUPPORTED);
+                    } else if ((layer.flags & (PROGPU_NATIVE_SCENE_LAYER_CACHE_FANT |
                             PROGPU_NATIVE_SCENE_LAYER_CACHE_TILE)) == PROGPU_NATIVE_SCENE_LAYER_CACHE_FANT) {
                         for (std::size_t vertex_index = first_vertex;
                              vertex_index < semantic_layer_vertices.size();

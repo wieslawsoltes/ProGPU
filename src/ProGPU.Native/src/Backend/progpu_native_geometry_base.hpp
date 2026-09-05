@@ -204,6 +204,30 @@ inline bool try_write_tile_page_quad(
     return true;
 }
 
+// Algorithm: Re-encode a full captured-page quad using occupied-page clamp
+// sampling while preserving its already transformed/snapped four positions.
+// Time complexity: O(1). Space complexity: O(1), transactional stack storage.
+inline bool try_encode_captured_page_quad(
+    std::span<vector_vertex> destination,
+    std::uint32_t page_width, std::uint32_t page_height,
+    std::uint32_t texture_width, std::uint32_t texture_height,
+    std::uint32_t sampling, float opacity) noexcept {
+    if (destination.size() < 4U) return false;
+    std::array<vector_vertex, 4U> quad{};
+    if (!try_write_tile_page_quad(quad, {0.0F, 0.0F, 1.0F, 1.0F},
+            {1.0F, 0.0F, 0.0F, 1.0F, 0.0F, 0.0F}, page_width, page_height,
+            texture_width, texture_height, PROGPU_NATIVE_IMAGE_ADDRESS_CLAMP,
+            PROGPU_NATIVE_IMAGE_ADDRESS_CLAMP, sampling, opacity)) return false;
+    for (std::size_t index = 0U; index < quad.size(); ++index) {
+        const auto& source = destination[index];
+        if (!std::isfinite(source.position[0]) || !std::isfinite(source.position[1])) return false;
+        quad[index].position[0] = source.position[0];
+        quad[index].position[1] = source.position[1];
+    }
+    std::copy(quad.begin(), quad.end(), destination.begin());
+    return true;
+}
+
 inline void transform_vector(
     const progpu_native_affine_2d& transform,
     float x,
