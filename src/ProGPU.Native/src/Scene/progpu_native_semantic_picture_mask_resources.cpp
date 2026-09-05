@@ -68,7 +68,7 @@ void release_texture(WGPUTexture& texture, WGPUTextureView& view) noexcept {
 
 } // namespace
 
-bool create_semantic_picture_mask_binding(
+static bool create_semantic_picture_binding(
     progpu_native_engine& engine,
     const progpu_native_scene_layer_picture_mask& picture,
     const std::byte* nested_scene,
@@ -76,13 +76,16 @@ bool create_semantic_picture_mask_binding(
     float dpi_scale,
     const semantic::semantic_state_cursor* composite_state_cursor,
     const progpu_native_scene_state* composite_state,
-    semantic_render_bundle_span& operation) {
+    semantic_render_bundle_span& operation,
+    semantic_image_draw* image_output,
+    progpu_native_scene_frame_metrics* image_metrics,
+    const progpu_native_color* source_clear) {
     if (nested_scene == nullptr || picture.stream_size == 0U ||
         target_extent.width == 0U || target_extent.height == 0U ||
         !std::isfinite(dpi_scale) || dpi_scale <= 0.0F ||
         target_extent.x > 16384U - target_extent.width ||
         target_extent.y > 16384U - target_extent.height ||
-        !create_layer_mask_resources(engine)) {
+        (image_output == nullptr && !create_layer_mask_resources(engine))) {
         return false;
     }
 
@@ -191,6 +194,10 @@ bool create_semantic_picture_mask_binding(
         return false;
     }
     child_frame.dpi_scale = source_dpi_scale;
+    if (source_clear != nullptr) {
+        child_frame.clear_color = {source_clear->r * source_clear->a,
+            source_clear->g * source_clear->a, source_clear->b * source_clear->a, source_clear->a};
+    }
     child_frame.target_view = reinterpret_cast<std::uintptr_t>(source_view);
     child_frame.scene_id = nested_header.scene_id;
     child_frame.generation = nested_header.generation;
@@ -205,6 +212,15 @@ bool create_semantic_picture_mask_binding(
     }
     engine.submission_count += child->submission_count;
     child.reset();
+
+    if (image_output != nullptr) {
+        // Shared source rasterization; ordinary picture images retain full RGBA
+        // and do not allocate the mask-only sampling uniform/bind group.
+        image_output->texture = source_texture;
+        image_output->view = source_view;
+        if (image_metrics != nullptr) *image_metrics = child_metrics;
+        return true;
+    }
 
     gpu_mask_sampling_uniforms sampling{};
     if (source_extent) {
@@ -349,6 +365,37 @@ bool create_semantic_picture_mask_binding(
     sampling_bind_group = nullptr;
     ++engine.layer_mask_bind_group_generation;
     return true;
+}
+
+bool create_semantic_picture_mask_binding(
+    progpu_native_engine& engine,
+    const progpu_native_scene_layer_picture_mask& picture,
+    const std::byte* nested_scene,
+    const semantic::scissor& target_extent, float dpi_scale,
+    const semantic::semantic_state_cursor* composite_state_cursor,
+    const progpu_native_scene_state* composite_state,
+    semantic_render_bundle_span& operation) {
+    return create_semantic_picture_binding(engine, picture, nested_scene, target_extent,
+        dpi_scale, composite_state_cursor, composite_state, operation, nullptr, nullptr, nullptr);
+}
+
+bool create_semantic_picture_image(
+    progpu_native_engine& engine,
+    const progpu_native_scene_picture_image& source,
+    const std::byte* nested_scene, std::uint32_t scene_size,
+    semantic_image_draw& draw,
+    progpu_native_scene_frame_metrics& child_metrics) {
+    progpu_native_scene_layer_picture_mask picture{};
+    picture.struct_size = sizeof(picture);
+    picture.kind = PROGPU_NATIVE_SCENE_LAYER_MASK_PICTURE;
+    picture.stream_size = scene_size;
+    picture.bounds = {0.0F, 0.0F, static_cast<float>(source.width), static_cast<float>(source.height)};
+    picture.transform = {1.0F, 0.0F, 0.0F, 1.0F, 0.0F, 0.0F};
+    picture.opacity = 1.0F;
+    semantic_render_bundle_span unused_mask{};
+    return create_semantic_picture_binding(engine, picture, nested_scene,
+        {0U, 0U, source.width, source.height, true}, source.dpi_scale,
+        nullptr, nullptr, unused_mask, &draw, &child_metrics, &source.clear_color);
 }
 
 } // namespace progpu::native::execution

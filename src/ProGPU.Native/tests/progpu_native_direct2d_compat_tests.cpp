@@ -7512,6 +7512,7 @@ int run_tests()
         const progpu_native_scene_header*>(compatible_mask_scene.data());
     const progpu_native_scene_layer_picture_mask*
         compatible_mask_picture = nullptr;
+    const progpu_native_scene_resource* compatible_mask_resource = nullptr;
     for (std::uint32_t index = 0U;
          index < compatible_mask_header->resource_count;
          ++index) {
@@ -7523,6 +7524,7 @@ int run_tests()
                 compatible_mask_header->resource_stride);
         if (candidate_resource->kind ==
             PROGPU_NATIVE_SCENE_RESOURCE_LAYER_MASK) {
+            compatible_mask_resource = candidate_resource;
             compatible_mask_picture = reinterpret_cast<
                 const progpu_native_scene_layer_picture_mask*>(
                 compatible_mask_scene.data() +
@@ -7532,17 +7534,124 @@ int run_tests()
     }
     if (compatible_mask_header->command_count != 1U ||
         compatible_mask_picture == nullptr ||
-        compatible_mask_picture->flags !=
-            PROGPU_NATIVE_SCENE_PICTURE_MASK_SOURCE_EXTENT ||
-        compatible_mask_picture->reserved0 != 16U ||
-        compatible_mask_picture->reserved1 != 12U ||
-        !approximately_equal(compatible_mask_picture->bounds.width, 16.0F) ||
-        !approximately_equal(compatible_mask_picture->bounds.height, 12.0F) ||
-        !approximately_equal(compatible_mask_picture->transform.m11, 3.0F) ||
-        !approximately_equal(compatible_mask_picture->transform.m22, 2.0F) ||
-        !approximately_equal(compatible_mask_picture->transform.m31, 54.0F) ||
-        !approximately_equal(compatible_mask_picture->transform.m32, 2.0F)) {
+        compatible_mask_picture->flags != 0U ||
+        compatible_mask_picture->reserved0 != 0U ||
+        compatible_mask_picture->reserved1 != 0U ||
+        !approximately_equal(compatible_mask_picture->bounds.width, 24.0F) ||
+        !approximately_equal(compatible_mask_picture->bounds.height, 16.0F) ||
+        !approximately_equal(compatible_mask_picture->transform.m11, 1.0F) ||
+        !approximately_equal(compatible_mask_picture->transform.m22, 1.0F)) {
         return 231;
+    }
+    // Mask capture uses the same image resource as DrawBitmap, including A8's
+    // alpha-channel projection from the retained RGBA target, never sampled R.
+    const auto* mask_image_bytes = compatible_mask_scene.data() + compatible_mask_resource->auxiliary_offset;
+    const auto* mask_image_header = reinterpret_cast<const progpu_native_scene_header*>(mask_image_bytes);
+    const auto* mask_image_resource = reinterpret_cast<const progpu_native_scene_resource*>(
+        mask_image_bytes + mask_image_header->resource_offset);
+    const auto* mask_image_command = reinterpret_cast<const progpu_native_scene_command*>(
+        mask_image_bytes + mask_image_header->command_offset);
+    const auto* mask_image_draw = reinterpret_cast<const progpu_native_scene_image_draw*>(
+        mask_image_bytes + mask_image_command->payload_offset);
+    const auto* mask_image_matrix = reinterpret_cast<const progpu_native_scene_image_color_matrix*>(
+        reinterpret_cast<const std::byte*>(mask_image_draw) + sizeof(*mask_image_draw));
+    if ((mask_image_resource->flags & PROGPU_NATIVE_SCENE_IMAGE_PICTURE) == 0U ||
+        mask_image_draw->image_width != 16U || mask_image_draw->image_height != 12U ||
+        mask_image_draw->source_rect.x != 2.0F || mask_image_draw->source_rect.y != 1.0F ||
+        mask_image_draw->source_rect.width != 8.0F || mask_image_draw->source_rect.height != 8.0F ||
+        mask_image_draw->destination_rect.x != 60.0F || mask_image_draw->destination_rect.y != 4.0F ||
+        mask_image_matrix->alpha[3] != 1.0F || mask_image_matrix->alpha[0] != 0.0F) return 231;
+
+    // Captures are immutable per draw; a source redraw creates a new generation
+    // while unchanged original/shared aliases reuse one parent scene resource.
+    for (const std::uint32_t format : {28U, 87U, 65U}) {
+        const compat::pixel_format source_format{format, compat::alpha_mode::premultiplied};
+        const compat::size_u high_dpi_pixels{32U, 24U};
+        compat::bitmap_render_target* raw_source_target = nullptr;
+        if (target->CreateCompatibleRenderTarget(&compatible_size, &high_dpi_pixels,
+                &source_format, compat::compatible_render_target_options::none, &raw_source_target) != com::ok)
+            return 280;
+        com::pointer<compat::bitmap_render_target> source_target;
+        source_target.attach(raw_source_target);
+        const compat::color_f first_clear{0.25F, 0.5F, 1.0F, 0.75F};
+        const compat::color_f second_clear{1.0F, 0.0F, 0.0F, 0.5F};
+        source_target->BeginDraw();
+        source_target->Clear(&first_clear);
+        if (source_target->EndDraw(nullptr, nullptr) != com::ok) return 280;
+        compat::bitmap* raw_source_bitmap = nullptr;
+        if (source_target->GetBitmap(&raw_source_bitmap) != com::ok) return 280;
+        com::pointer<compat::bitmap> source_bitmap;
+        source_bitmap.attach(raw_source_bitmap);
+        compat::bitmap* raw_alias = nullptr;
+        if (target->CreateSharedBitmap(compat::bitmap_interface_id, source_bitmap.get(), nullptr, &raw_alias) != com::ok)
+            return 280;
+        com::pointer<compat::bitmap> alias;
+        alias.attach(raw_alias);
+        target->BeginDraw();
+        target->DrawBitmap(source_bitmap.get(), &compatible_destination, 0.625F,
+            compat::bitmap_interpolation_mode::nearest_neighbor, &compatible_source);
+        target->DrawBitmap(alias.get(), &compatible_destination, 1.0F,
+            compat::bitmap_interpolation_mode::linear, &compatible_source);
+        source_target->BeginDraw();
+        source_target->Clear(&second_clear);
+        if (source_target->EndDraw(nullptr, nullptr) != com::ok) return 280;
+        target->DrawBitmap(alias.get(), &compatible_destination, 1.0F,
+            compat::bitmap_interpolation_mode::linear, &compatible_source);
+        if (target->EndDraw(nullptr, nullptr) != com::ok) return 280;
+        std::vector<std::byte> draw_scene(static_cast<std::size_t>(scene_target->GetRequiredSceneSize()));
+        std::uint64_t draw_written = 0U;
+        if (scene_target->BuildScene(draw_scene.data(), draw_scene.size(), &draw_written) != com::ok) return 280;
+        const auto* header = reinterpret_cast<const progpu_native_scene_header*>(draw_scene.data());
+        if (header->resource_count != 2U || header->command_count != 3U || draw_written != draw_scene.size()) return 280;
+        for (std::uint32_t i = 0U; i < 3U; ++i) {
+            const auto* command = reinterpret_cast<const progpu_native_scene_command*>(
+                draw_scene.data() + header->command_offset + i * header->command_stride);
+            const auto* resource = reinterpret_cast<const progpu_native_scene_resource*>(
+                draw_scene.data() + header->resource_offset + command->resource_index * header->resource_stride);
+            const auto* descriptor = reinterpret_cast<const progpu_native_scene_picture_image*>(
+                draw_scene.data() + resource->payload_offset);
+            const auto* draw = reinterpret_cast<const progpu_native_scene_image_draw*>(draw_scene.data() + command->payload_offset);
+            if (command->resource_index != (i == 2U ? 1U : 0U) ||
+                (resource->flags & PROGPU_NATIVE_SCENE_IMAGE_PICTURE) == 0U ||
+                descriptor->width != 32U || descriptor->height != 24U || descriptor->dpi_scale != 2.0F ||
+                descriptor->clear_color.r != (i == 2U ? 1.0F : 0.25F) ||
+                descriptor->clear_color.a != (i == 2U ? 0.5F : 0.75F) ||
+                draw->row_bytes != 128U || draw->source_rect.x != 4.0F || draw->source_rect.y != 2.0F ||
+                draw->source_rect.width != 16.0F || draw->source_rect.height != 16.0F ||
+                draw->opacity != (i == 0U ? 0.625F : 1.0F) ||
+                (draw->flags & PROGPU_NATIVE_SCENE_IMAGE_SOURCE_PREMULTIPLIED) == 0U) return 280;
+            if (format == 65U) {
+                const auto* matrix = reinterpret_cast<const progpu_native_scene_image_color_matrix*>(
+                    reinterpret_cast<const std::byte*>(draw) + sizeof(*draw));
+                if ((draw->flags & PROGPU_NATIVE_SCENE_IMAGE_COLOR_MATRIX) == 0U ||
+                    matrix->alpha[3] != 1.0F || matrix->alpha[0] != 0.0F) return 280;
+            }
+        }
+        compat::bitmap_brush* raw_picture_brush = nullptr;
+        const compat::bitmap_brush_properties picture_brush_properties{
+            compat::extend_mode::wrap, compat::extend_mode::mirror,
+            compat::bitmap_interpolation_mode::linear};
+        if (target->CreateBitmapBrush(alias.get(), &picture_brush_properties, nullptr, &raw_picture_brush) != com::ok)
+            return 281;
+        com::pointer<compat::bitmap_brush> picture_brush;
+        picture_brush.attach(raw_picture_brush);
+        target->BeginDraw();
+        target->FillRectangle(&compatible_destination, picture_brush.get());
+        if (target->EndDraw(nullptr, nullptr) != com::ok) return 281;
+        source_target->BeginDraw();
+        source_target->DrawBitmap(alias.get(), nullptr, 1.0F, compat::bitmap_interpolation_mode::linear, nullptr);
+        if (source_target->EndDraw(nullptr, nullptr) != compat::wrong_state) return 281;
+        source_target->BeginDraw();
+        source_target->Clear(&first_clear);
+        target->BeginDraw();
+        target->DrawBitmap(source_bitmap.get(), nullptr, 1.0F, compat::bitmap_interpolation_mode::linear, nullptr);
+        if (target->EndDraw(nullptr, nullptr) != compat::wrong_state ||
+            source_target->EndDraw(nullptr, nullptr) != com::ok) return 281;
+        source_target->BeginDraw(); // A delta-only scene must not pretend to be a full bitmap.
+        if (source_target->EndDraw(nullptr, nullptr) != com::ok) return 281;
+        target->BeginDraw();
+        target->DrawBitmap(source_bitmap.get(), nullptr, 1.0F, compat::bitmap_interpolation_mode::linear, nullptr);
+        if (target->EndDraw(nullptr, nullptr) != compat::not_implemented) return 281;
     }
 
     const compat::bitmap_brush_properties bitmap_brush_properties{
@@ -9398,6 +9507,9 @@ int run_tests()
         D2D1_OPACITY_MASK_CONTENT_GRAPHICS,
         &native_compatible_destination,
         nullptr);
+    native_target->DrawBitmap(native_shared_compatible_bitmap,
+        &native_compatible_destination, 0.5F,
+        D2D1_BITMAP_INTERPOLATION_MODE_LINEAR, nullptr);
     const HRESULT native_compatible_draw_status = native_target->EndDraw();
     native_shared_compatible_bitmap->Release();
     native_compatible_bitmap->Release();

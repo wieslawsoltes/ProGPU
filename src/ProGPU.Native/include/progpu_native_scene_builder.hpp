@@ -127,6 +127,12 @@ public:
         std::uint32_t row_bytes,
         std::span<const std::byte> pixels,
         std::uint32_t& resource_index) noexcept;
+    // Rasterize an owned nested scene at its declared source resolution before
+    // sampling it as an ordinary premultiplied image. No CPU pixel materialization.
+    bool add_picture_image(
+        const progpu_native_scene_picture_image& picture,
+        std::span<const std::byte> nested_scene,
+        std::uint32_t& resource_index) noexcept;
     bool add_external_image(
         std::uint32_t width,
         std::uint32_t height,

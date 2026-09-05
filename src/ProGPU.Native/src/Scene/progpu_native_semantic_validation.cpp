@@ -266,6 +266,20 @@ bool is_valid_semantic_text_style(
         style.reserved2 == 0U;
 }
 
+bool is_valid_semantic_picture_image(const progpu_native_scene_picture_image& picture) noexcept {
+    return picture.struct_size == sizeof(picture) && picture.flags == 0U &&
+        picture.width != 0U && picture.height != 0U &&
+        picture.width <= 16384U && picture.height <= 16384U &&
+        std::isfinite(picture.dpi_scale) && picture.dpi_scale > 0.0F &&
+        is_finite(picture.clear_color) &&
+        picture.clear_color.r >= 0.0F && picture.clear_color.r <= 1.0F &&
+        picture.clear_color.g >= 0.0F && picture.clear_color.g <= 1.0F &&
+        picture.clear_color.b >= 0.0F && picture.clear_color.b <= 1.0F &&
+        picture.clear_color.a >= 0.0F && picture.clear_color.a <= 1.0F &&
+        picture.reserved[0] == 0U && picture.reserved[1] == 0U && picture.reserved[2] == 0U &&
+        static_cast<std::uint64_t>(picture.width) * picture.height * 4U <= PROGPU_NATIVE_SCENE_MAX_LAYER_BYTES;
+}
+
 bool is_valid_semantic_image(
     const progpu_native_scene_image_draw& image,
     std::uint64_t pixel_bytes, std::uint32_t bytes_per_pixel) noexcept {

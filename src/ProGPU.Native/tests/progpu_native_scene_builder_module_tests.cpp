@@ -75,6 +75,23 @@ int main() {
     image.max_anisotropy = 1U;
     if (!builder.add_r8_image(2U, 2U, 2U, coverage, r8_index) ||
         !builder.draw_image(r8_index, image, image.destination_rect)) return 1;
+    progpu::native::semantic_scene_builder child(9003U, 1U);
+    unsigned int child_image = progpu::native::PROGPU_NATIVE_SCENE_NO_INDEX;
+    if (!child.add_r8_image(2U, 2U, 2U, coverage, child_image) ||
+        !child.draw_image(child_image, image, image.destination_rect)) return 1;
+    std::array<std::byte, 1024U> child_stream{};
+    std::size_t child_written = 0U;
+    if (!child.build_into(child_stream, child_written)) return 1;
+    progpu::native::progpu_native_scene_picture_image picture{};
+    picture.struct_size = sizeof(picture);
+    picture.width = picture.height = 2U;
+    picture.dpi_scale = 2.0F;
+    picture.clear_color = {0.25F, 0.5F, 1.0F, 0.75F};
+    unsigned int picture_index = progpu::native::PROGPU_NATIVE_SCENE_NO_INDEX;
+    image.row_bytes = 8U;
+    image.flags = progpu::native::PROGPU_NATIVE_SCENE_IMAGE_SOURCE_PREMULTIPLIED;
+    if (!builder.add_picture_image(picture, {child_stream.data(), child_written}, picture_index) ||
+        !builder.draw_image(picture_index, image, image.destination_rect)) return 1;
     const std::size_t required_size = builder.required_stream_size();
     std::size_t bytes_written = 0U;
     return required_size > 0U && required_size <= stream.size() &&

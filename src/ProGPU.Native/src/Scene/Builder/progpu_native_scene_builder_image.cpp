@@ -287,6 +287,43 @@ bool semantic_scene_builder::add_upload_image(
     }
 }
 
+bool semantic_scene_builder::add_picture_image(
+    const progpu_native_scene_picture_image& picture,
+    std::span<const std::byte> nested_scene,
+    std::uint32_t& resource_index) noexcept {
+    resource_index = PROGPU_NATIVE_SCENE_NO_INDEX;
+    if (!semantic::is_valid_semantic_picture_image(picture) ||
+        nested_scene.size() < sizeof(progpu_native_scene_header) ||
+        nested_scene.size() > PROGPU_NATIVE_SCENE_MAX_STREAM_BYTES ||
+        implementation_->resources.size() >= PROGPU_NATIVE_SCENE_MAX_RESOURCES)
+        return implementation_->fail(scene_build_error::invalid_argument);
+    try {
+        // Retain source scene bytes, not CPU-rendered pixels. O(S) copying/storage
+        // for S serialized bytes; nested stream validation occurs at scene ingestion.
+        implementation::resource_entry resource{};
+        resource.record.struct_size = sizeof(resource.record);
+        resource.record.kind = PROGPU_NATIVE_SCENE_RESOURCE_IMAGE;
+        resource.record.flags = PROGPU_NATIVE_SCENE_RECORD_REQUIRED | PROGPU_NATIVE_SCENE_IMAGE_PICTURE;
+        resource.record.resource_id = implementation_->resources.size() + 1U;
+        resource.record.generation = implementation_->generation;
+        resource.payload.resize(sizeof(picture));
+        std::memcpy(resource.payload.data(), &picture, sizeof(picture));
+        resource.auxiliary.assign(nested_scene.begin(), nested_scene.end());
+        resource.picture_image = true;
+        resource.image_width = picture.width;
+        resource.image_height = picture.height;
+        resource.image_row_bytes = picture.width * 4U;
+        implementation_->resources.push_back(std::move(resource));
+        resource_index = static_cast<std::uint32_t>(implementation_->resources.size() - 1U);
+        implementation_->error = scene_build_error::none;
+        return true;
+    } catch (const std::bad_alloc&) {
+        return implementation_->fail(scene_build_error::out_of_memory);
+    } catch (...) {
+        return implementation_->fail(scene_build_error::invalid_state);
+    }
+}
+
 bool semantic_scene_builder::add_external_image(
     std::uint32_t width,
     std::uint32_t height,
@@ -418,12 +455,13 @@ bool semantic_scene_builder::draw_image(
         (image.flags & PROGPU_NATIVE_SCENE_IMAGE_EFFECT) != 0U;
     const bool external_image =
         (resource.record.flags & PROGPU_NATIVE_SCENE_EXTERNAL_IMAGE) != 0U;
-    const std::uint64_t validation_bytes = external_image
+    const std::uint64_t validation_bytes = (external_image || resource.picture_image)
         ? static_cast<std::uint64_t>(image.row_bytes) *
                 (image.image_height - 1U) +
             static_cast<std::uint64_t>(image.image_width) * 4U
         : resource.payload.size();
-    if ((!resource.rgba8_image && !resource.bgra8_image && !resource.r8_image && !external_image) ||
+    if ((!resource.rgba8_image && !resource.bgra8_image && !resource.r8_image && !resource.picture_image && !external_image) ||
+        (resource.picture_image && (image.flags & PROGPU_NATIVE_SCENE_IMAGE_SOURCE_PREMULTIPLIED) == 0U) ||
         image.image_width != resource.image_width ||
         image.image_height != resource.image_height ||
         image.row_bytes != resource.image_row_bytes ||
@@ -533,12 +571,13 @@ bool semantic_scene_builder::draw_image_patches(
         (image.flags & PROGPU_NATIVE_SCENE_IMAGE_EFFECT) != 0U;
     const bool external_image =
         (resource.record.flags & PROGPU_NATIVE_SCENE_EXTERNAL_IMAGE) != 0U;
-    const std::uint64_t validation_bytes = external_image
+    const std::uint64_t validation_bytes = (external_image || resource.picture_image)
         ? static_cast<std::uint64_t>(image.row_bytes) *
                 (image.image_height - 1U) +
             static_cast<std::uint64_t>(image.image_width) * 4U
         : resource.payload.size();
-    if ((!resource.rgba8_image && !resource.bgra8_image && !resource.r8_image && !external_image) ||
+    if ((!resource.rgba8_image && !resource.bgra8_image && !resource.r8_image && !resource.picture_image && !external_image) ||
+        (resource.picture_image && (image.flags & PROGPU_NATIVE_SCENE_IMAGE_SOURCE_PREMULTIPLIED) == 0U) ||
         image.image_width != resource.image_width ||
         image.image_height != resource.image_height ||
         image.row_bytes != resource.image_row_bytes ||

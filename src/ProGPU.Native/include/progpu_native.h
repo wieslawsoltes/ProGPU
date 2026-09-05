@@ -115,6 +115,8 @@ enum {
     PROGPU_NATIVE_SCENE_IMAGE_BGRA8 = 1U << 4U,
     /* Upload-backed single-channel UNORM bytes; sampled red, zero GB, one A. */
     PROGPU_NATIVE_SCENE_IMAGE_R8 = 1U << 5U,
+    /* Image payload is a picture descriptor, auxiliary bytes a nested scene. */
+    PROGPU_NATIVE_SCENE_IMAGE_PICTURE = 1U << 6U,
     /* Picture-mask stream renders at the source extent carried in reserved0/1. */
     PROGPU_NATIVE_SCENE_PICTURE_MASK_SOURCE_EXTENT = 1U << 0U,
     PROGPU_NATIVE_SCENE_METRICS_SNAPSHOT_REUSED = 1U << 0U
@@ -1319,6 +1321,23 @@ typedef struct progpu_native_scene_image_patch {
     progpu_native_affine_2d transform;
     float color[4];
 } progpu_native_scene_image_patch;
+
+/*
+ * IMAGE_PICTURE resource payload; auxiliary bytes own a complete nested scene.
+ * Width/height are physical pixels, dpi_scale is uniform, clear_color is straight
+ * RGBA. Rasterization produces a premultiplied image without CPU pixel readback.
+ * Flags and reserved words must be zero. Image draws must match these dimensions
+ * and use width * 4 row bytes and premultiplied-alpha sampling.
+ */
+typedef struct progpu_native_scene_picture_image {
+    uint32_t struct_size;
+    uint32_t flags;
+    uint32_t width;
+    uint32_t height;
+    float dpi_scale;
+    uint32_t reserved[3];
+    progpu_native_color clear_color;
+} progpu_native_scene_picture_image;
 
 /*
  * Optional suffix required by semantic image draws whose sampling mode is

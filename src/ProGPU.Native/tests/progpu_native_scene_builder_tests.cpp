@@ -12,6 +12,7 @@
 #include <vector>
 
 namespace progpu::native::tests {
+static_assert(sizeof(progpu_native_scene_picture_image) == 48U);
 namespace {
 
 template<typename T>
@@ -985,6 +986,67 @@ bool semantic_scene_builder_reuses_retained_images() {
     if (scene::validate(r8_stream.data(), r8_stream.size()).status == PROGPU_NATIVE_STATUS_SUCCESS ||
         r8_builder.add_r8_image(2U, 2U, 1U, r8_pixels, r8_index) ||
         r8_builder.add_r8_image(2U, 2U, 3U, std::span<const std::byte>(r8_pixels).first(4U), r8_index)) return false;
+
+    semantic_scene_builder pictures(7033U, 1U);
+    progpu_native_scene_picture_image picture{};
+    picture.struct_size = sizeof(picture);
+    picture.width = picture.height = 2U;
+    picture.dpi_scale = 1.25F;
+    picture.clear_color = {0.25F, 0.5F, 1.0F, 0.75F};
+    std::uint32_t picture_index = PROGPU_NATIVE_SCENE_NO_INDEX;
+    auto source_scene = bgra_stream;
+    auto picture_draw = image;
+    picture_draw.flags |= PROGPU_NATIVE_SCENE_IMAGE_SOURCE_PREMULTIPLIED;
+    if (!pictures.add_picture_image(picture, source_scene, picture_index) ||
+        !pictures.draw_image(picture_index, picture_draw, picture_draw.destination_rect,
+            PROGPU_NATIVE_SCENE_NO_INDEX, &sampling, &matrix)) return false;
+    source_scene[0] = std::byte{0}; // Builder owns the original nested stream.
+    std::vector<std::byte> picture_stream;
+    if (!pictures.build(picture_stream)) return false;
+    const auto picture_validation = scene::validate(picture_stream.data(), picture_stream.size());
+    if (picture_validation.status != PROGPU_NATIVE_STATUS_SUCCESS) return false;
+    const auto picture_resource = read<progpu_native_scene_resource>(
+        picture_stream, picture_validation.header.resource_offset);
+    const auto captured_picture = read<progpu_native_scene_picture_image>(picture_stream, picture_resource.payload_offset);
+    if (picture_resource.flags != (PROGPU_NATIVE_SCENE_RECORD_REQUIRED | PROGPU_NATIVE_SCENE_IMAGE_PICTURE) ||
+        picture_resource.payload_size != sizeof(picture) ||
+        picture_resource.auxiliary_size != bgra_stream.size() ||
+        std::memcmp(picture_stream.data() + picture_resource.auxiliary_offset,
+            bgra_stream.data(), bgra_stream.size()) != 0 ||
+        captured_picture.dpi_scale != 1.25F || captured_picture.clear_color.a != 0.75F) return false;
+    for (const auto incompatible : {PROGPU_NATIVE_SCENE_IMAGE_R8,
+            PROGPU_NATIVE_SCENE_IMAGE_BGRA8, PROGPU_NATIVE_SCENE_EXTERNAL_IMAGE}) {
+        auto corrupt = picture_stream;
+        auto resource = picture_resource;
+        resource.flags |= incompatible;
+        std::memcpy(corrupt.data() + picture_validation.header.resource_offset, &resource, sizeof(resource));
+        if (scene::validate(corrupt.data(), corrupt.size()).status == PROGPU_NATIVE_STATUS_SUCCESS) return false;
+    }
+    auto corrupt_nested = picture_stream;
+    corrupt_nested[picture_resource.auxiliary_offset] = std::byte{0};
+    if (scene::validate(corrupt_nested.data(), corrupt_nested.size()).status == PROGPU_NATIVE_STATUS_SUCCESS) return false;
+    picture_draw.row_bytes = 12U;
+    if (pictures.draw_image(picture_index, picture_draw, picture_draw.destination_rect,
+            PROGPU_NATIVE_SCENE_NO_INDEX, &sampling, &matrix)) return false;
+    picture_draw.row_bytes = 8U;
+    picture_draw.flags &= ~PROGPU_NATIVE_SCENE_IMAGE_SOURCE_PREMULTIPLIED;
+    if (pictures.draw_image(picture_index, picture_draw, picture_draw.destination_rect,
+            PROGPU_NATIVE_SCENE_NO_INDEX, &sampling, &matrix)) return false;
+    for (unsigned int invalid_case = 0U; invalid_case < 5U; ++invalid_case) {
+        auto bad = picture;
+        if (invalid_case == 0U) bad.width = 0U;
+        if (invalid_case == 1U) bad.dpi_scale = std::numeric_limits<float>::infinity();
+        if (invalid_case == 2U) bad.reserved[2] = 1U;
+        if (invalid_case == 3U) bad.clear_color.a = -1.0F;
+        if (invalid_case == 4U) bad.flags = 1U;
+        if (pictures.add_picture_image(bad, bgra_stream, picture_index)) return false;
+    }
+    auto deep_scene = bgra_stream;
+    for (unsigned int depth = 0U; depth <= PROGPU_NATIVE_SCENE_MAX_PICTURE_MASK_DEPTH; ++depth) {
+        semantic_scene_builder nested(7040U + depth, 1U);
+        if (!nested.add_picture_image(picture, deep_scene, picture_index) || !nested.build(deep_scene)) return false;
+    }
+    if (scene::validate(deep_scene.data(), deep_scene.size()).status == PROGPU_NATIVE_STATUS_SUCCESS) return false;
 
     semantic_scene_builder invalid(704U, 1U);
     std::uint32_t invalid_index = PROGPU_NATIVE_SCENE_NO_INDEX;

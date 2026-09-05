@@ -206,8 +206,10 @@ constexpr com::guid scene_mesh_native_interface_id{
 [[nodiscard]] bool encode_bitmap_image(
     semantic_scene_builder& builder, std::uint32_t resource_index,
     progpu_native_scene_image_draw image, progpu_native_image_rect bounds,
-    pixel_format format, std::uint32_t state_index = PROGPU_NATIVE_SCENE_NO_INDEX) noexcept
+    pixel_format format, std::uint32_t state_index = PROGPU_NATIVE_SCENE_NO_INDEX,
+    bool picture_image = false) noexcept
 {
+    if (picture_image) image.flags |= PROGPU_NATIVE_SCENE_IMAGE_SOURCE_PREMULTIPLIED;
     if (format.format != dxgi_format_a8_unorm)
         return builder.draw_image(resource_index, image, bounds, state_index);
     // Algorithm: upload one byte per pixel, then map sampled R to alpha on the
@@ -215,7 +217,7 @@ constexpr com::guid scene_mesh_native_interface_id{
     // expansion/readback or scalar/SIMD repacking; RGB is zero for alpha-only data.
     progpu_native_scene_image_color_matrix matrix{};
     matrix.struct_size = sizeof(matrix);
-    matrix.alpha[0] = 1.0F;
+    matrix.alpha[picture_image ? 3U : 0U] = 1.0F;
     image.flags |= PROGPU_NATIVE_SCENE_IMAGE_COLOR_MATRIX;
     return builder.draw_image(resource_index, image, bounds, state_index, nullptr, &matrix);
 }
@@ -313,6 +315,11 @@ struct bitmap_snapshot final {
     float dpi_x = 96.0F;
     float dpi_y = 96.0F;
     std::uint64_t generation = 0U;
+    // Picture resources own their nested bytes; no source COM lease is needed.
+    // Scene identity prevents cache collisions after a released target's address
+    // is reused. Pixel storage continues to use its existing retained lease.
+    std::uint64_t scene_id = 0U;
+    bool picture_image = false;
 };
 
 struct scene_bitmap_native : com::unknown {
@@ -1520,7 +1527,8 @@ private:
 
 class portable_shared_bitmap final :
     public bitmap,
-    public scene_bitmap_native {
+    public scene_bitmap_native,
+    public scene_render_target_native {
 public:
     portable_shared_bitmap(
         factory* owner,
@@ -1536,6 +1544,7 @@ public:
           properties_(properties),
           source_format_(source_format)
     {
+        source_.as(scene_render_target_native_interface_id, source_scene_);
     }
 
     com::result PROGPU_NATIVE_COM_CALL QueryInterface(
@@ -1553,6 +1562,9 @@ public:
         } else if (com::guid_equal(
                 interface_id, scene_bitmap_native_interface_id)) {
             *value = static_cast<scene_bitmap_native*>(this);
+        } else if (source_scene_ && com::guid_equal(
+                interface_id, scene_render_target_native_interface_id)) {
+            *value = static_cast<scene_render_target_native*>(this);
         } else {
             return com::no_interface;
         }
@@ -1701,6 +1713,27 @@ private:
         snapshot.dpi_y = properties_.dpi_y;
     }
 
+public:
+    std::uint64_t PROGPU_NATIVE_COM_CALL GetRequiredSceneSize() const noexcept override
+    {
+        return source_scene_ ? source_scene_->GetRequiredSceneSize() : 0U;
+    }
+
+    com::result PROGPU_NATIVE_COM_CALL BuildScene(void* destination,
+        std::uint64_t destination_size, std::uint64_t* written) const noexcept override
+    {
+        if (source_scene_) return source_scene_->BuildScene(destination, destination_size, written);
+        if (written != nullptr) *written = 0U;
+        return not_implemented;
+    }
+
+    void PROGPU_NATIVE_COM_CALL GetSummary(scene_render_target_summary* summary) const noexcept override
+    {
+        if (source_scene_) source_scene_->GetSummary(summary);
+        else if (summary != nullptr) *summary = {};
+    }
+
+private:
     friend class com::atomic_reference_count<portable_shared_bitmap>;
     ~portable_shared_bitmap() = default;
 
@@ -1708,6 +1741,7 @@ private:
     com::pointer<factory> owner_;
     com::pointer<bitmap> source_;
     com::pointer<scene_bitmap_native> source_native_;
+    com::pointer<scene_render_target_native> source_scene_;
     size_u size_{};
     bitmap_properties properties_{};
     pixel_format source_format_{};
@@ -2695,7 +2729,8 @@ private:
 
 class portable_render_target_bitmap final :
     public bitmap,
-    public scene_render_target_native {
+    public scene_render_target_native,
+    public scene_bitmap_native {
 public:
     portable_render_target_bitmap(
         factory* owner,
@@ -2730,6 +2765,8 @@ public:
         } else if (com::guid_equal(
                 interface_id, scene_render_target_native_interface_id)) {
             *value = static_cast<scene_render_target_native*>(this);
+        } else if (com::guid_equal(interface_id, scene_bitmap_native_interface_id)) {
+            *value = static_cast<scene_bitmap_native*>(this);
         } else {
             return com::no_interface;
         }
@@ -2806,6 +2843,75 @@ public:
     com::result PROGPU_NATIVE_COM_CALL CopyFromMemory(
         const rectangle_u*, const void*, std::uint32_t) noexcept override
     {
+        return not_implemented;
+    }
+
+    const void* PROGPU_NATIVE_COM_CALL GetStorageIdentity() const noexcept override
+    {
+        return target_.get();
+    }
+
+    com::result PROGPU_NATIVE_COM_CALL GetSnapshot(bitmap_snapshot* snapshot) const noexcept override
+    {
+        if (snapshot == nullptr) return com::pointer_error;
+        *snapshot = {};
+        if (dpi_x_ != dpi_y_) return not_implemented;
+        if (scene_->GetRequiredSceneSize() == 0U) return wrong_state;
+        scene_render_target_summary summary{};
+        scene_->GetSummary(&summary);
+        // Delta-only scenes require persistent target backing before they can be
+        // exported as an independent bitmap. Do not silently discard old pixels.
+        if (summary.has_clear == 0) return not_implemented;
+        *snapshot = {pixel_size_.width, pixel_size_.height, pixel_size_.width * 4U,
+            format_, dpi_x_, dpi_y_, summary.generation, summary.scene_id, true};
+        return com::ok;
+    }
+
+    com::result PROGPU_NATIVE_COM_CALL AddToScene(
+        semantic_scene_builder* builder, std::uint32_t* resource_index,
+        bitmap_snapshot* snapshot) const noexcept override
+    {
+        if (builder == nullptr || resource_index == nullptr || snapshot == nullptr)
+            return com::pointer_error;
+        *resource_index = PROGPU_NATIVE_SCENE_NO_INDEX;
+        const auto result = GetSnapshot(snapshot);
+        if (com::failed(result)) return result;
+        try {
+            const std::uint64_t required = scene_->GetRequiredSceneSize();
+            if (required == 0U || required > PROGPU_NATIVE_SCENE_MAX_STREAM_BYTES)
+                return wrong_state;
+            std::vector<std::byte> bytes(static_cast<std::size_t>(required));
+            std::uint64_t written = 0U;
+            const auto built = scene_->BuildScene(bytes.data(), required, &written);
+            if (com::failed(built)) return built;
+            scene_render_target_summary summary{};
+            scene_->GetSummary(&summary);
+            if (written != required || summary.generation != snapshot->generation)
+                return wrong_state;
+            progpu_native_scene_picture_image picture{};
+            picture.struct_size = sizeof(picture);
+            picture.width = pixel_size_.width;
+            picture.height = pixel_size_.height;
+            picture.dpi_scale = dpi_x_ / 96.0F;
+            if (summary.has_clear != 0) {
+                picture.clear_color = {summary.clear_color.red, summary.clear_color.green,
+                    summary.clear_color.blue, summary.clear_color.alpha};
+            }
+            if (format_.alpha == alpha_mode::ignore) picture.clear_color.a = 1.0F;
+            return builder->add_picture_image(picture, bytes, *resource_index)
+                ? com::ok : builder->last_error() == scene_build_error::out_of_memory
+                    ? com::out_of_memory : failure;
+        } catch (const std::bad_alloc&) {
+            return com::out_of_memory;
+        } catch (...) {
+            return failure;
+        }
+    }
+
+    com::result PROGPU_NATIVE_COM_CALL CopyPixels(
+        const rectangle_u*, pixel_format, void*, std::uint32_t) const noexcept override
+    {
+        // CPU readback is a separate explicit API operation, never a draw fallback.
         return not_implemented;
     }
 
@@ -4476,13 +4582,20 @@ public:
             return;
         }
         scene_bitmap_native* raw_native = nullptr;
-        const com::result query = scene_target
-            ? com::no_interface
-            : mask->QueryInterface(
+        const com::result query = mask->QueryInterface(
                 scene_bitmap_native_interface_id,
                 reinterpret_cast<void**>(&raw_native));
         com::pointer<scene_bitmap_native> native;
         native.attach(raw_native);
+        if (native) {
+            // Native compatible bitmaps now share the image path, preserving
+            // clear color and source ownership as well as ordinary draw support.
+            scene_target.reset();
+            if (native->GetStorageIdentity() == static_cast<render_target*>(this)) {
+                latch(wrong_state);
+                return;
+            }
+        }
         if (!scene_target && (com::failed(query) || !native)) {
             latch(com::failed(query) ? query : not_implemented);
             return;
@@ -4599,12 +4712,8 @@ public:
                 std::uint32_t image_resource_index =
                     PROGPU_NATIVE_SCENE_NO_INDEX;
                 bitmap_snapshot nested_snapshot{};
-                const com::result add_result = native->AddToScene(
-                    &mask_builder, &image_resource_index, &nested_snapshot);
-                if (com::failed(add_result)) {
-                    latch(add_result);
-                    return;
-                }
+                if (!add_bitmap_resource(native.get(), image_resource_index,
+                        nested_snapshot, &mask_builder)) return;
                 const float pixels_per_dip_x =
                     nested_snapshot.dpi_x / 96.0F;
                 const float pixels_per_dip_y =
@@ -4632,7 +4741,8 @@ public:
                 image.opacity = 1.0F;
                 image.max_anisotropy = 1U;
                 if (!encode_bitmap_image(mask_builder,
-                        image_resource_index, image, target_bounds, nested_snapshot.format) ||
+                        image_resource_index, image, target_bounds, nested_snapshot.format,
+                        PROGPU_NATIVE_SCENE_NO_INDEX, nested_snapshot.picture_image) ||
                     !mask_builder.build(nested_scene)) {
                     latch(mask_builder.last_error() ==
                             scene_build_error::out_of_memory
@@ -4808,7 +4918,8 @@ public:
         if (com::failed(failure_)) {
             return;
         }
-        if (!encode_bitmap_image(builder_, resource_index, image, bounds, snapshot.format)) {
+        if (!encode_bitmap_image(builder_, resource_index, image, bounds, snapshot.format,
+                PROGPU_NATIVE_SCENE_NO_INDEX, snapshot.picture_image)) {
             latch(builder_failure());
             return;
         }
@@ -5929,6 +6040,11 @@ private:
         bitmap_snapshot& snapshot,
         semantic_scene_builder* picture_scene = nullptr) noexcept
     {
+        const void* storage_identity = source->GetStorageIdentity();
+        if (storage_identity == nullptr || storage_identity == static_cast<render_target*>(this)) {
+            latch(wrong_state);
+            return false;
+        }
         if (picture_scene != nullptr) {
             const com::result result = source->AddToScene(picture_scene, &resource_index, &snapshot);
             if (com::failed(result)) {
@@ -5938,7 +6054,7 @@ private:
             try {
                 // Keep external/shared bitmap storage alive for the parent scene,
                 // just as the normal scene's bitmap resource cache does.
-                picture_bitmap_sources_.emplace_back(source);
+                if (!snapshot.picture_image) picture_bitmap_sources_.emplace_back(source);
                 return true;
             } catch (const std::bad_alloc&) {
                 latch(com::out_of_memory);
@@ -5953,16 +6069,12 @@ private:
             latch(snapshot_result);
             return false;
         }
-        const void* storage_identity = source->GetStorageIdentity();
-        if (storage_identity == nullptr) {
-            latch(failure);
-            return false;
-        }
         const auto existing = std::find_if(
             bitmap_resources_.begin(),
             bitmap_resources_.end(),
             [storage_identity, &snapshot](const bitmap_resource_entry& entry) {
                 return entry.storage_identity == storage_identity &&
+                    entry.snapshot.scene_id == snapshot.scene_id &&
                     entry.snapshot.generation == snapshot.generation;
             });
         if (existing != bitmap_resources_.end()) {
@@ -5977,7 +6089,7 @@ private:
         }
         try {
             bitmap_resources_.push_back({
-                com::pointer<scene_bitmap_native>(source),
+                com::pointer<scene_bitmap_native>(snapshot.picture_image ? nullptr : source),
                 storage_identity,
                 snapshot,
                 resource_index});
@@ -6168,7 +6280,8 @@ private:
                 image,
                 bounds,
                 snapshot.format,
-                state_resource_index)) {
+                state_resource_index,
+                snapshot.picture_image)) {
             latch(destination.last_error() == scene_build_error::out_of_memory
                 ? com::out_of_memory : failure);
             return false;

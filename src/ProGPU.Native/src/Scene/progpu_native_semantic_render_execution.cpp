@@ -1,6 +1,8 @@
 #include "progpu_native_frame_execution_common.hpp"
 #include "progpu_native_semantic_draw_execution.hpp"
+#include "progpu_native_semantic_layer_mask_resources.hpp"
 #include "progpu_native_3d_execution.hpp"
+#include <unordered_map>
 
 namespace progpu::native::execution {
 
@@ -1253,7 +1255,10 @@ progpu_native_status render_scene(
                 semantic_image_options image_options{};
                 const bool external_image =
                     (resource.flags & PROGPU_NATIVE_SCENE_EXTERNAL_IMAGE) != 0U;
-                const std::uint64_t validation_bytes = external_image
+                const bool picture_image = (resource.flags & PROGPU_NATIVE_SCENE_IMAGE_PICTURE) != 0U;
+                progpu_native_scene_picture_image picture{};
+                if (picture_image) std::memcpy(&picture, bytes + resource.payload_offset, sizeof(picture));
+                const std::uint64_t validation_bytes = (external_image || picture_image)
                     ? static_cast<std::uint64_t>(image.row_bytes) *
                             (image.image_height - 1U) +
                         static_cast<std::uint64_t>(image.image_width) * 4U
@@ -1275,7 +1280,10 @@ progpu_native_status render_scene(
                         resource.generation,
                         PROGPU_NATIVE_SCENE_EXTERNAL_IMAGE_MASK)
                     : nullptr;
-                valid = resource.auxiliary_size == 0U &&
+                valid = (picture_image || resource.auxiliary_size == 0U) &&
+                    (!picture_image || (picture.width == image.image_width && picture.height == image.image_height &&
+                        image.row_bytes == picture.width * 4U &&
+                        (image.flags & PROGPU_NATIVE_SCENE_IMAGE_SOURCE_PREMULTIPLIED) != 0U)) &&
                     validate_image_draw_payload(
                         bytes,
                         command,
@@ -1305,6 +1313,7 @@ progpu_native_status render_scene(
                     : 0U;
                 compiled_texture_bytes = external_image
                     ? 0U
+                    : picture_image ? static_cast<std::uint64_t>(picture.width) * picture.height * 4U
                     : resource.payload_size;
                 if (valid) {
                     semantic_image_vertex_count += image_vertex_count;
@@ -2643,6 +2652,9 @@ progpu_native_status render_scene(
             "The semantic retained color-glyph atlas could not be prepared.");
     }
 
+    const std::uint64_t submission_start = engine->submission_count;
+    std::uint64_t picture_vertex_upload_bytes = 0U;
+    std::uint64_t picture_index_upload_bytes = 0U;
     std::uint64_t semantic_image_vertex_upload_bytes = 0U;
     std::uint64_t semantic_image_index_upload_bytes = 0U;
     std::uint64_t semantic_image_texture_upload_bytes = 0U;
@@ -2671,6 +2683,9 @@ progpu_native_status render_scene(
         }
         std::vector<progpu::native::vector_vertex> vertices;
         std::vector<semantic_image_draw> compiled_draws;
+        // Borrowed views remain owned by the first draw in this page. Repeated
+        // picture instances rasterize once per resource, not once per draw.
+        std::unordered_map<std::uint32_t, WGPUTextureView> picture_views;
         WGPUBuffer compiled_vertex_buffer = nullptr;
         const auto release_compiled = [&]() noexcept {
             for (auto& draw : compiled_draws) {
@@ -2750,7 +2765,8 @@ progpu_native_status render_scene(
                 semantic_image_options image_options{};
                 const bool external_image =
                     (resource.flags & PROGPU_NATIVE_SCENE_EXTERNAL_IMAGE) != 0U;
-                const std::uint64_t validation_bytes = external_image
+                const bool picture_image = (resource.flags & PROGPU_NATIVE_SCENE_IMAGE_PICTURE) != 0U;
+                const std::uint64_t validation_bytes = (external_image || picture_image)
                     ? static_cast<std::uint64_t>(image.row_bytes) *
                             (image.image_height - 1U) +
                         static_cast<std::uint64_t>(image.image_width) * 4U
@@ -2967,7 +2983,27 @@ progpu_native_status render_scene(
                         "An image effect is missing its mask binding.");
                 }
                 draw.has_effect_mask = requires_effect_mask;
-                if (external_image) {
+                if (picture_image) {
+                    const auto existing_picture = picture_views.find(command.resource_index);
+                    if (existing_picture != picture_views.end()) {
+                        draw.view = existing_picture->second;
+                        progpu::native::webgpu::texture_view_add_ref(draw.view);
+                    } else {
+                        progpu_native_scene_picture_image picture{};
+                        std::memcpy(&picture, bytes + resource.payload_offset, sizeof(picture));
+                        progpu_native_scene_frame_metrics child_metrics{};
+                        if (!create_semantic_picture_image(*engine, picture,
+                                bytes + resource.auxiliary_offset, resource.auxiliary_size, draw, child_metrics)) {
+                            release_compiled();
+                            return engine->fail(PROGPU_NATIVE_STATUS_INVALID_ARGUMENT,
+                                "A retained picture image could not be rendered.");
+                        }
+                        semantic_image_texture_upload_bytes += child_metrics.texture_upload_bytes;
+                        semantic_image_color_uniform_upload_bytes += child_metrics.uniform_upload_bytes;
+                        picture_vertex_upload_bytes += child_metrics.vertex_upload_bytes;
+                        picture_index_upload_bytes += child_metrics.index_upload_bytes;
+                    }
+                } else if (external_image) {
                     draw.view = external_binding->view;
                     progpu::native::webgpu::texture_view_add_ref(draw.view);
                 } else {
@@ -2975,7 +3011,7 @@ progpu_native_status render_scene(
                         engine->device,
                         &texture_descriptor);
                 }
-                if (!external_image && draw.texture != nullptr) {
+                if (!external_image && !picture_image && draw.texture != nullptr) {
                     draw.view = wgpuTextureCreateView(draw.texture, nullptr);
                 }
                 const WGPUSampler image_sampler =
@@ -3051,7 +3087,7 @@ progpu_native_status render_scene(
                 }
                 compiled_draws.push_back(draw);
                 auto& retained_draw = compiled_draws.back();
-                if ((!external_image && retained_draw.texture == nullptr) ||
+                if ((!external_image && !picture_image && retained_draw.texture == nullptr) ||
                     retained_draw.view == nullptr ||
                     retained_draw.texture_bind_group == nullptr ||
                     (image_options.has_color_matrix &&
@@ -3066,7 +3102,9 @@ progpu_native_status render_scene(
                         PROGPU_NATIVE_STATUS_OUT_OF_MEMORY,
                         "A semantic image page texture could not be allocated.");
                 }
-                if (!external_image) {
+                if (picture_image && retained_draw.texture != nullptr)
+                    picture_views.emplace(command.resource_index, retained_draw.view);
+                if (!external_image && !picture_image) {
                     progpu::native::webgpu::image_copy_texture destination{};
                     destination.texture = retained_draw.texture;
                     destination.aspect = WGPUTextureAspect_All;
@@ -3153,16 +3191,15 @@ progpu_native_status render_scene(
             : 0U;
     }
 
-    const std::uint64_t submission_start = engine->submission_count;
     std::uint32_t draw_calls = 0U;
     std::uint32_t family_switches = 0U;
     std::uint32_t previous_family = 0U;
     std::uint64_t vertex_upload_bytes =
         semantic_analytic_vertex_upload_bytes +
-        semantic_image_vertex_upload_bytes;
+        semantic_image_vertex_upload_bytes + picture_vertex_upload_bytes;
     std::uint64_t index_upload_bytes =
         semantic_analytic_index_upload_bytes +
-        semantic_image_index_upload_bytes;
+        semantic_image_index_upload_bytes + picture_index_upload_bytes;
     std::uint64_t texture_upload_bytes =
         semantic_image_texture_upload_bytes +
         semantic_color_glyph_upload_bytes;
