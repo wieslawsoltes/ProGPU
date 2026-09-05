@@ -34,7 +34,7 @@ public sealed class RenderingTests : IDisposable
     {
         using var context=new WgpuContext();context.Initialize(null);
         using var compositor=new Compositor(context,TextureFormat.Rgba8Unorm);
-        var pipeline=new ProceduralPipeline();compositor.RegisterExtension(ProceduralDrawingContextExtensions.ExtensionId,pipeline);
+        var pipeline=new ProceduralPipeline { EnableEarlyCoverage = false };compositor.RegisterExtension(ProceduralDrawingContextExtensions.ExtensionId,pipeline);
         using var target=new GpuTexture(context,1280,800,TextureFormat.Rgba8Unorm,TextureUsage.RenderAttachment|TextureUsage.CopySrc,"Suntrail verification",alphaMode:GpuTextureAlphaMode.Premultiplied);
         var game=new GameSession();var batch=new ProceduralBatch();var visual=new BatchVisual(batch);
         visual.Measure(new(1280,800));visual.Arrange(new Rect(0,0,1280,800));
@@ -50,6 +50,10 @@ public sealed class RenderingTests : IDisposable
                 compositor.RenderScene(visual,1280,800,target.ViewPtr);context.WaitIdle();
                 Assert.True(errors.Count == 0, string.Join("\n", errors));
                 var pixels=target.ReadPixels();
+                pipeline.EnableEarlyCoverage = true;
+                compositor.RenderScene(visual,1280,800,target.ViewPtr);
+                EarlyCoverageTests.AssertSamePixels(pixels, target.ReadPixels(), $"surface-{biome + 1}");
+                pipeline.EnableEarlyCoverage = false;
                 pipeline.EnableSkyCache = true;
                 compositor.RenderScene(visual,1280,800,target.ViewPtr);
                 Assert.Equal(pixels,target.ReadPixels());
@@ -93,7 +97,7 @@ public sealed class RenderingTests : IDisposable
     {
         using var context = new WgpuContext(); context.Initialize(null);
         using var compositor = new Compositor(context, TextureFormat.Rgba8Unorm);
-        var pipeline = new ProceduralPipeline();
+        var pipeline = new ProceduralPipeline { EnableEarlyCoverage = false };
         compositor.RegisterExtension(ProceduralDrawingContextExtensions.ExtensionId, pipeline);
         using var target = new GpuTexture(context, 1280, 800, TextureFormat.Rgba8Unorm,
             TextureUsage.RenderAttachment | TextureUsage.CopySrc, "Suntrail vault verification", alphaMode: GpuTextureAlphaMode.Premultiplied);
@@ -115,6 +119,10 @@ public sealed class RenderingTests : IDisposable
             visual.Measure(new(1280, 800)); visual.Arrange(new Rect(0, 0, 1280, 800));
             compositor.RenderScene(visual, 1280, 800, target.ViewPtr);
             var pixels = target.ReadPixels();
+            pipeline.EnableEarlyCoverage = true;
+            compositor.RenderScene(visual, 1280, 800, target.ViewPtr);
+            EarlyCoverageTests.AssertSamePixels(pixels, target.ReadPixels(), $"vault-{world + 1}");
+            pipeline.EnableEarlyCoverage = false;
             pipeline.EnableSkyCache = true;
             compositor.RenderScene(visual, 1280, 800, target.ViewPtr);
             Assert.Equal(pixels, target.ReadPixels());

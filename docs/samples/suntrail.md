@@ -129,3 +129,12 @@ The independent C++ retained renderer is outside this WinUI sample's host contra
 
 Expanded campaign work, Mario format import/edit support, and full 3D remain in
 [the work list](suntrail-work-list.md). These features are not all implemented yet.
+
+
+For deterministic offscreen GPU measurements, run the Desktop executable with
+`--render-benchmark OUTPUT_PREFIX off|coverage|on 600 [WORLD]`. World is 1–8
+(default 1): `off` disables the two experimental switches, `coverage` enables the
+normal early-coverage optimization, and `on` tests only the optional sky cache.
+Each run warms 120 frames and records 600 frames of identical simulation input;
+CSV timings measure serialized completion latency, not displayed FPS. Ordinary
+play enables early coverage and keeps the sky cache off unless `--sky-cache` is set.

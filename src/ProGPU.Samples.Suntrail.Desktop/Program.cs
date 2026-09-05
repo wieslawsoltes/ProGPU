@@ -10,9 +10,12 @@ public static class Program
     {
         if (args.Length > 0 && args[0] == "--render-benchmark")
         {
-            if (args.Length != 4 || args[2] is not ("on" or "off") || !int.TryParse(args[3], out int renderFrames) || renderFrames < 60 || renderFrames > 36000)
-                throw new ArgumentException("--render-benchmark requires output-prefix, sky-cache on/off, and 60–36000 frames.");
-            GpuWorkload.Run(args[1], args[2] == "on", renderFrames);
+            if (args.Length is not (4 or 5) || args[2] is not ("on" or "off" or "coverage") || !int.TryParse(args[3], out int renderFrames) || renderFrames < 60 || renderFrames > 36000)
+                throw new ArgumentException("--render-benchmark requires output-prefix, on/off/coverage, 60–36000 frames, and optional world 1–8.");
+            int renderWorld = 1;
+            if (args.Length == 5 && (!int.TryParse(args[4], out renderWorld) || renderWorld < 1 || renderWorld > 8))
+                throw new ArgumentException("World must be 1 through 8.");
+            GpuWorkload.Run(args[1], args[2] == "on", renderFrames, renderWorld - 1, args[2] == "coverage");
             return;
         }
         long launched=System.Diagnostics.Stopwatch.GetTimestamp();

@@ -48,6 +48,12 @@ public sealed unsafe partial class ProceduralPipeline : ICompositorExtension, ID
     private Matrix4x4 _transform = Matrix4x4.Identity;
     private Vector4 _clip;
     private bool _uniformsDirty = true;
+    private bool _earlyCoverage = true;
+    public bool EnableEarlyCoverage
+    {
+        get => _earlyCoverage;
+        set { if (_earlyCoverage != value) { _earlyCoverage = value; _uniformsDirty = true; } }
+    }
     public long UploadedBytes { get; private set; }
     public long Draws { get; private set; }
 
@@ -75,7 +81,7 @@ public sealed unsafe partial class ProceduralPipeline : ICompositorExtension, ID
         if (_uniformsDirty)
         {
             _uniforms!.WriteSingle(new FrameUniforms { Transform = _transform, Scene = batch.Scene, Clip = _clip, Light0 = batch.Light0, Light1 = batch.Light1, Light2 = batch.Light2,
-                Occlusion = new(batch.OccluderCount, batch.IsDungeon ? 1 : 0, 0, 0),
+                Occlusion = new(batch.OccluderCount, batch.IsDungeon ? 1 : 0, _earlyCoverage ? 1 : 0, 0),
                 Ground0 = batch.Occluders[0], Ground1 = batch.Occluders[1], Ground2 = batch.Occluders[2], Ground3 = batch.Occluders[3],
                 Ground4 = batch.Occluders[4], Ground5 = batch.Occluders[5], Ground6 = batch.Occluders[6], Ground7 = batch.Occluders[7]
             });

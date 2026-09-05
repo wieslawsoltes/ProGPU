@@ -276,3 +276,69 @@ verification, not a new device-control or phone-FPS claim. Oversized and transla
 cache requests are also checked against live rendering. Completed raw Metal/CPU
 trace bundles and the incomplete Allocations bundle were removed after export.
 The larger GPU XML tables are gzip-compressed with SHA-256 round-trip verification.
+
+
+## Exact transparent-coverage rejection
+
+The sphere, canopy and mountain materials now evaluate their existing antialiased
+coverage before lighting and skip lighting only for exactly zero alpha. The final
+sample suite passes 54 Release tests, including 64 differential captures spanning
+all eight surface worlds, eight vault palettes and 1×/3× DPI scrolling scenes.
+All 450,265,600 compared RGBA8 channels match exactly with the optimization toggled.
+The shader resource audit passes 19 tests. This preserves physical resolution,
+4× MSAA, derivative coverage, material noise and lighting precision.
+
+The final same-binary all-world benchmark uses the sky experiment's 600-frame
+workload, alternating option order by world. These are serialized GPU completion
+latencies, not displayed FPS. Files, commands and binary hashes are retained under
+`artifacts/suntrail/performance/coverage-final-*`.
+
+| World | Disabled p50 / p95 / p99 (ms) | Enabled p50 / p95 / p99 (ms) |
+| --- | --- | --- |
+| 1 | 17.112 / 25.143 / 28.952 | 16.357 / 25.074 / 29.076 |
+| 2 | 18.010 / 27.627 / 32.122 | 17.545 / 25.598 / 29.093 |
+| 3 | 15.961 / 23.978 / 29.262 | 14.770 / 22.230 / 25.556 |
+| 4 | 16.395 / 24.068 / 27.511 | 16.077 / 23.925 / 26.861 |
+| 5 | 17.295 / 25.449 / 29.261 | 16.268 / 24.668 / 28.199 |
+| 6 | 15.297 / 23.273 / 27.299 | 14.737 / 21.479 / 26.011 |
+| 7 | 15.239 / 22.858 / 27.230 | 15.357 / 23.384 / 27.966 |
+| 8 | 15.254 / 23.079 / 25.789 | 15.043 / 22.831 / 26.759 |
+
+Each option finishes the same route at tick 1200 with zero deaths. Within each
+world the upload bytes, draw count, managed allocations (177,600 bytes) and native
+Metal residency (83,132,416 bytes) are identical. Median changes range from a 7.5%
+reduction to a 0.8% increase; world 7 and world 8 tails need cautious interpretation.
+Startup numbers include driver caches and are not cold-start comparisons.
+
+An expanded fourteen-pipeline experiment was rejected: it increased draw switches
+and startup work without a consistent latency benefit. It also introduced a small
+number of one-step RGBA8 rounding differences. Those extra pipelines and entry
+points were removed; the production pipeline count remains six.
+
+
+Reversed-order confirmation runs for worlds 7 and 8 also finish identical routes:
+world 7 off 10.381 / 16.506 / 18.900 ms, coverage 10.160 / 16.306 / 18.805 ms;
+world 8 off 11.122 / 17.402 / 19.817 ms, coverage 10.121 / 16.004 / 18.641 ms.
+These lower absolute timings show the host's changing performance state, so only
+within-pair comparisons are meaningful. The small exact-output optimization is now
+enabled by default; sustained phone FPS remains an open gate.
+
+Final Time Profiler and Metal System Trace captures each complete the full 120-frame
+warmup plus 600 measured frames and end because the target exits, without truncation.
+CPU sample exports contain 1,009 baseline and 1,214 optimized samples; raw stack
+addresses limit attribution and these totals do not prove reduced CPU work. Metal
+resource snapshots and its allocation-size export agree at 83,132,416 bytes for both
+options. GPU interval exports contain overlapping/nested execution intervals, not
+one row per game frame; their distributions are retained for diagnosis rather than
+reported as FPS. No managed/native ownership changes were introduced. The previous
+Allocations authorization failure remains a missing measurement lane.
+
+Useful exports, target summaries and exact profiling commands are retained under
+`artifacts/suntrail/performance/coverage-*`. Four completed raw trace bundles were
+removed only after XML parsing and SHA-256-verified compression of the GPU exports.
+Desktop and Browser AOT builds pass, and Computer Use verifies the Desktop title,
+start/pause flow and Browser title rendering. Native review also found a separate
+pause-menu defect: after clicking Begin adventure and pressing Escape with the
+pointer still over the original button, its label/background remain incorrect until
+the pointer leaves. This is recorded for a focused input-state fix; visual review
+does not imply every menu state is correct.

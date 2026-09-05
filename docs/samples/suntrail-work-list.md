@@ -26,7 +26,7 @@ The iPhone black screen was fixed and the user confirmed gameplay. Smooth iPhone
 is not yet verified. The controls pass targeted input tests and native visual checks. Eight optional vaults,
 two-way pipe travel, and three timed hazard families are implemented and tested.
 The main campaign still needs a broader encounter redesign; new rooms do not by
-themselves complete that request. Current sample validation: 46 Release tests. The reported unresponsive joystick was
+themselves complete that request. Current sample validation: 54 Release tests. The reported unresponsive joystick was
 reproduced through platform pointer injection and fixed in the shared WinUI panel
 hit-test path; two-axis thumb feedback now repaints during dragging.
 No level-format compatibility, editor, or full 3D completion is claimed by this list.
@@ -42,3 +42,13 @@ implemented. Exact pixels pass across worlds, vaults and Retina scales. The cach
 remains disabled by default because its memory cost and missing device validation
 do not yet justify enabling it on iPhone. Device work stopped after installing
 the joystick fix (`29366d4f`), as requested; further device validation awaits reconnection.
+
+Exact-zero coverage rejection now skips invisible sphere/canopy/mountain lighting
+without changing compared pixels or resource cost. The fixed-input benchmark supports
+all eight worlds and explicit baseline/coverage options. This is an incremental
+shader improvement; it does not close the smooth-iPhone-FPS requirement.
+
+Next input regression: in Desktop, click Begin adventure, leave the pointer over
+that button, then press Escape. The reappearing primary pause action has incorrect
+hover/pressed rendering until the pointer leaves. Reproduce through the real input
+root and repair hidden-button state cleanup before the next iPhone installation.

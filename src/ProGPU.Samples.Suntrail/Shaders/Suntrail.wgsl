@@ -5,6 +5,9 @@
 // Coverage uses physical-pixel derivatives; premultiplied alpha, source-over composition.
 // Fixed loops: stone neighborhood 9, tree branches 7 and canopy lobes 7, fern fronds 2 with 6 leaf pairs each, grass blades 6, petals 5, portal sparks 6, palm fronds 8, pine boughs 6, crystal prisms 3, local lights 3, conservative opaque rectangles at most 8. No ray marching or screen-space history.
 // Lighting is an art-directed ellipsoid approximation, not a physically based ray tracer.
+// Sphere, canopy and mountain coverage is evaluated before lighting. An optional
+// exact-zero early return skips transparent lanes while retaining the same fwidth
+// coverage value for visible lanes; worst-case loop bounds and precision are unchanged.
 
 // Each instance is two triangles with flat material; all lanes of an interior quad
 // select the same artwork. Helper invocations preserve derivatives at its edges.
@@ -84,13 +87,17 @@ fn paint(rgb: vec3<f32>, d: f32) -> vec4<f32> { return ink(rgb, coverage(d)); }
 fn sphere(p: vec2<f32>, center: vec2<f32>, radius: vec2<f32>, rgb: vec3<f32>, gloss: f32) -> vec4<f32> {
     let q = (p - center) / radius;
     let d = (length(q) - 1.) * min(radius.x, radius.y);
+    // Evaluate coverage before lighting. The derivative runs before any lane
+    // returns, preserving edge helper quads; only exactly transparent lanes skip.
+    let alpha=coverage(d);
+    if(frame.occlusion.z>.5 && alpha==0.) { return vec4(0.); }
     let z = sqrt(max(0., 1. - dot(q,q)));
     let n = normalize(vec3(q * .8, max(z, .05)));
     let light = normalize(vec3(-.52, -.7, .85));
     let diffuse = max(0., dot(n, light));
     let rim = pow(1. - z, 3.) * .12;
     let spec = pow(max(0., dot(n, normalize(vec3(-.3,-.42,1.)))), 28.) * gloss;
-    return paint(rgb * (.55 + .53 * diffuse) + vec3(1., .91, .68) * (spec + rim), d);
+    return ink(rgb * (.55 + .53 * diffuse) + vec3(1., .91, .68) * (spec + rim), alpha);
 }
 fn world() -> u32 { return u32(frame.scene.y+.5); }
 fn foliage() -> vec3<f32> {
@@ -134,6 +141,8 @@ fn mountain(p: vec2<f32>, layer: f32, seed: f32) -> vec4<f32> {
     var ridge=.92-broad*(.52+noise(vec2(p.x*6.,seed*29.))*.30);
     if(world()==1u){ridge=max(.25,.93-broad*.90)+noise(vec2(p.x*18.,seed))*.055;}
     if(world()==5u || world()==6u){ridge=.9-broad*.75+abs(sin(p.x*17.+seed))*.065;}
+    let alpha=coverage(ridge-p.y);
+    if(frame.occlusion.z>.5 && alpha==0.) { return vec4(0.); }
     let folds=noise(vec2(p.x*23.,p.y*3.)+seed*19.);
     var tint=mix(vec3(.44,.53,.47),vec3(.24,.37,.31),layer*.34);
     switch world() {
@@ -149,7 +158,7 @@ fn mountain(p: vec2<f32>, layer: f32, seed: f32) -> vec4<f32> {
     if(world()==5u){tint=mix(tint,vec3(.83,.89,.90),1.-smoothstep(ridge+.02,ridge+.11+folds*.07,p.y));}
     tint*=.87+folds*.20;
     tint=mix(tint,vec3(.63,.67,.57),smoothstep(.4,1.2,p.y)*.22);
-    return paint(tint,ridge-p.y);
+    return ink(tint,alpha);
 }
 
 fn cloud(p: vec2<f32>) -> vec4<f32> {
@@ -230,13 +239,15 @@ fn cliff(uv: vec2<f32>, size: vec2<f32>, seed: f32) -> vec4<f32> {
 fn canopy(p: vec2<f32>, center: vec2<f32>, radius: vec2<f32>, tint: vec3<f32>, leaf: f32, edgeNoise: f32) -> vec4<f32> {
     let q=(p-center)/radius;
     let d=(length(q)-1.)*min(radius.x,radius.y)+(edgeNoise-.5)*.034;
+    let alpha=coverage(d);
+    if(frame.occlusion.z>.5 && alpha==0.) { return vec4(0.); }
     let z=sqrt(max(.025,1.-dot(q,q)*.83));
     let normal=normalize(vec3(q*vec2(.63,.75),z));
     let lit=max(0.,dot(normal,normalize(vec3(-.52,-.72,.72))));
     let scattering=pow(1.-z,2.)*max(0.,-.3-q.x-q.y)*.17;
     var color=tint*(.28+lit*.95)*(.84+leaf*.30);
     color+=vec3(.28,.29,.09)*scattering;
-    return paint(color,d);
+    return ink(color,alpha);
 }
 fn tree(p0: vec2<f32>, seed: f32) -> vec4<f32> {
     var p=p0; p.x+=sin(frame.scene.x*.8+seed*8.)*.003*(1.-p.y);

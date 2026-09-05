@@ -266,3 +266,34 @@ measures submission CPU and serialized GPU completion separately. It is delibera
 labelled latency, not displayed FPS. Both settings use one final Release binary,
 identical input, framebuffer, MSAA, allocations and upload workload. Device FPS still
 requires a later iPhone run after reconnection.
+
+
+## Exact transparent-coverage rejection
+
+The original ProGPU-owned sphere, canopy and mountain implementations in
+`src/ProGPU.Samples.Suntrail/Shaders/Suntrail.wgsl` (parent `ce5c49fa`) are the source
+provenance. Coverage is evaluated once before an optional exactly-zero-alpha return;
+visible lanes reuse that value, keeping derivatives ahead of nonuniform control flow.
+This skips only invisible lighting work. Worst-case time and private storage remain
+O(1) per fragment with the existing fixed loop bounds; instances, uploads, buffers,
+shader precision and submissions do not increase. `EnableEarlyCoverage` changes one
+existing uniform component and marks it dirty through the existing version contract.
+
+The previously consulted [Apple shader optimization guidance](https://developer.apple.com/videos/play/tech-talks/111373/)
+and [GPU performance guidance](https://developer.apple.com/videos/play/wwdc2023/10127/)
+inform reducing unnecessary fragment work and checking compiler/branch tradeoffs.
+The [WGSL derivative and uniformity contracts](https://www.w3.org/TR/WGSL/)
+inform evaluating coverage before the return, rather than recomputing derivatives
+inside divergent lighting control flow. No external shader implementation was copied.
+The earlier cross-engine research table still governs ownership, reuse and culling;
+this change introduces no new renderer, scene, text, or pipeline architecture.
+
+Applicability: all three managed WinUI sample hosts consume this same canonical
+shader. The C++ renderer has no corresponding Suntrail application extension, so
+there is no native algorithm fork or C ABI change. Matched on/off pixel tests
+exercise the shared sample implementation. Device performance remains unverified
+until the user reconnects the iPhone.
+
+Adding eight more dedicated background entry points was tested and rejected.
+Additional branch specialization increased pipeline startup and painter-order draw
+switches without a consistent benefit. The six existing pipelines are retained.
