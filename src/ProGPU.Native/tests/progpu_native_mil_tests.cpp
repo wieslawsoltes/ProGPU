@@ -1,5 +1,6 @@
 #include "progpu_native_mil.hpp"
 #include "progpu_native_mil.h"
+#include "progpu_native_mil_visual_clip_fixture.hpp"
 #include "../src/Mil/progpu_native_mil_curve_dash.hpp"
 #include "../src/Scene/progpu_native_semantic_path_stroke.hpp"
 #include "progpu_native_text.hpp"
@@ -3127,6 +3128,58 @@ bool visual_clips_compile_to_exact_semantic_state() {
         1U);
     PROGPU_REQUIRE(
         state.apply(malformed_clip) == status::malformed_batch);
+    return true;
+}
+
+bool visual_geometry_clips_apply_after_effects() {
+    using progpu::native::tests::mil_clip_effect;
+    for (const auto effect : {mil_clip_effect::zero_blur,
+                             mil_clip_effect::blur,
+                             mil_clip_effect::cached_blur,
+                             mil_clip_effect::box_blur,
+                             mil_clip_effect::shadow}) {
+        std::vector<std::byte> stream;
+        PROGPU_REQUIRE(progpu::native::tests::build_mil_visual_clip_fixture(
+            stream, effect));
+        const auto layers = get_scene_layers(stream);
+        PROGPU_REQUIRE(layers.size() ==
+            (effect == mil_clip_effect::cached_blur ? 4U : 2U));
+        const auto header = read_value<progpu_native_scene_header>(stream, 0U);
+        const auto mask_paths = [&](std::uint32_t mask_index) {
+            const auto resource = read_value<progpu_native_scene_resource>(
+                stream, header.resource_offset +
+                    mask_index * sizeof(progpu_native_scene_resource));
+            return read_value<progpu_native_scene_layer_vector_mask>(
+                stream, resource.payload_offset).path_count;
+        };
+        std::uint32_t masked_outputs = 0U;
+        for (const auto& layer : layers) {
+            if (layer.mask_resource_index == PROGPU_NATIVE_SCENE_NO_INDEX) {
+                PROGPU_REQUIRE((layer.flags &
+                    PROGPU_NATIVE_SCENE_LAYER_CACHE_LOCAL_SPACE) != 0U);
+                continue;
+            }
+            PROGPU_REQUIRE(mask_paths(layer.mask_resource_index) == 2U);
+            ++masked_outputs;
+        }
+        PROGPU_REQUIRE(masked_outputs == 2U);
+        for (std::uint32_t index = 0U; index < header.resource_count; ++index) {
+            const auto resource = read_value<progpu_native_scene_resource>(
+                stream, header.resource_offset +
+                    index * sizeof(progpu_native_scene_resource));
+            if (resource.kind != PROGPU_NATIVE_SCENE_RESOURCE_STATE) {
+                continue;
+            }
+            const auto value = read_value<progpu_native_scene_state>(
+                stream, resource.payload_offset);
+            if ((value.flags & PROGPU_NATIVE_SCENE_STATE_MASK) != 0U) {
+                // Root has one clip; effect content has its independent
+                // one-clip frame. No draw state may pre-apply the two-clip
+                // final output mask or prepend it to nested content clips.
+                PROGPU_REQUIRE(mask_paths(value.mask_resource_index) == 1U);
+            }
+        }
+    }
     return true;
 }
 
@@ -18377,6 +18430,7 @@ int main() {
         animated_fixed_geometry_resources_drive_retained_geometry());
     PROGPU_REQUIRE(animated_pen_and_dash_resources_drive_strokes());
     PROGPU_REQUIRE(visual_clips_compile_to_exact_semantic_state());
+    PROGPU_REQUIRE(visual_geometry_clips_apply_after_effects());
     PROGPU_REQUIRE(visual_solid_opacity_mask_composes_and_updates());
     PROGPU_REQUIRE(visual_gaussian_effects_compile_to_isolated_layers());
     PROGPU_REQUIRE(visual_bitmap_cache_uses_canonical_typed_retention());

@@ -10,9 +10,12 @@
 
 namespace progpu::native::tests {
 
+enum class mil_clip_effect { none, zero_blur, blur, cached_blur, box_blur, shadow };
+
 // An original raw-MIL fixture exercises the ABI and the exact same engine as
 // the portable Direct2D integration gate, without a managed WPF adapter.
-inline bool build_mil_visual_clip_fixture(std::vector<std::byte>& scene) {
+inline bool build_mil_visual_clip_fixture(std::vector<std::byte>& scene,
+    mil_clip_effect effect = mil_clip_effect::none) {
     using mil::command;
     const auto append = [](std::vector<std::byte>& bytes, const auto& value) {
         const auto data = std::as_bytes(std::span(&value, 1U));
@@ -42,6 +45,21 @@ inline bool build_mil_visual_clip_fixture(std::vector<std::byte>& scene) {
     packet(batch, command::channel_create_resource, 6U, 69U);
     packet(batch, command::rectangle_geometry, 6U,
         4.0, 4.0, 0.0, 16.0, 64.0, 32.0, 0U, 0U, 0U, 0U);
+    if (effect == mil_clip_effect::shadow) {
+        packet(batch, command::channel_create_resource, 40U, 37U);
+        packet(batch, command::drop_shadow_effect, 40U, 4.0,
+            progpu_native_color{0.0F, 1.0F, 0.0F, 1.0F}, 0.0, 1.0, 6.0,
+            0U, 0U, 0U, 0U, 0U, 0U);
+    } else if (effect != mil_clip_effect::none) {
+        packet(batch, command::channel_create_resource, 40U, 36U);
+        packet(batch, command::blur_effect, 40U,
+            effect == mil_clip_effect::zero_blur ? 0.0 : 6.0,
+            0U, effect == mil_clip_effect::box_blur ? 1U : 0U, 0U);
+    }
+    if (effect == mil_clip_effect::cached_blur) {
+        packet(batch, command::channel_create_resource, 41U, 94U);
+        packet(batch, command::bitmap_cache, 41U, 1.0, 0U, 0U, 0U);
+    }
     for (std::uint32_t child = 2U; child <= 3U; ++child) {
         const std::uint32_t clip = 10U + child;
         const std::uint32_t content = 20U + child;
@@ -51,6 +69,12 @@ inline bool build_mil_visual_clip_fixture(std::vector<std::byte>& scene) {
             12.0, 24.0, child == 2U ? 16.0 : 48.0, 32.0,
             0U, 0U, 0U, 0U);
         packet(batch, command::visual_set_clip, child, clip);
+        if (effect != mil_clip_effect::none) {
+            packet(batch, command::visual_set_effect, child, 40U);
+        }
+        if (effect == mil_clip_effect::cached_blur) {
+            packet(batch, command::visual_set_cache_mode, child, 41U);
+        }
         packet(batch, command::visual_insert_child_at, 1U, child, child - 2U);
         packet(batch, command::channel_create_resource, brush, 75U);
         const progpu_native_color color = child == 2U
@@ -81,6 +105,11 @@ inline bool build_mil_visual_clip_fixture(std::vector<std::byte>& scene) {
     bool success = progpu_native_mil_channel_apply(
         channel, batch.data(), batch.size(), nullptr) ==
         PROGPU_NATIVE_MIL_STATUS_SUCCESS;
+    for (std::uint32_t child = 2U; success && child <= 3U; ++child) {
+        success = progpu_native_mil_channel_set_visual_cache_bounds(
+            channel, child, 0.0, 0.0, 64.0, 64.0) ==
+            PROGPU_NATIVE_MIL_STATUS_SUCCESS;
+    }
     std::size_t written = 0U;
     if (success) {
         success = progpu_native_mil_channel_build_scene(

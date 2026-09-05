@@ -17375,9 +17375,6 @@ struct channel::implementation {
         // visual. Uncached uniform opacity and a typed spatial mask are
         // represented by one bounded inner isolation layer so they execute
         // once before the outer effect.
-        if (state.mask_resource_index != PROGPU_NATIVE_SCENE_NO_INDEX) {
-            return status::unsupported_command;
-        }
         const bool has_spatial_opacity_mask =
             !has_local_cache_input &&
             visual->second.alpha_mask_handle != 0U &&
@@ -17388,6 +17385,7 @@ struct channel::implementation {
             (state.opacity != 1.0 || has_spatial_opacity_mask);
         const auto attach_final_clip = [&](
                 progpu_native_scene_layer& layer) -> status {
+            layer.mask_resource_index = state.mask_resource_index;
             if (!state.has_clip) {
                 return status::success;
             }
@@ -17498,10 +17496,12 @@ struct channel::implementation {
         descriptor.sigma_y = descriptor.sigma_x;
         if (resolved_effect.type == effect_state::kind::blur) {
             if (descriptor.sigma_x <= 0.01F) {
-                if (!state.has_clip && !isolate_source_composite) {
+                const bool has_final_clip = state.has_clip ||
+                    state.mask_resource_index != PROGPU_NATIVE_SCENE_NO_INDEX;
+                if (!has_final_clip && !isolate_source_composite) {
                     return status::success;
                 }
-                if (state.has_clip) {
+                if (has_final_clip) {
                     progpu_native_scene_layer clip_layer{};
                     clip_layer.struct_size = sizeof(clip_layer);
                     clip_layer.flags =
@@ -17589,7 +17589,6 @@ struct channel::implementation {
         }
         layer.opacity = 1.0F;
         layer.blend_mode = PROGPU_NATIVE_BLEND_SRC_OVER;
-        layer.mask_resource_index = PROGPU_NATIVE_SCENE_NO_INDEX;
         layer.effect_resource_index = effect_index;
         layer.content_revision = effect_revision;
         layer.composite_revision = effect_revision;
@@ -18736,8 +18735,8 @@ struct channel::implementation {
             state.flags |= PROGPU_NATIVE_SCENE_STATE_CLIP_RECT;
             state.clip_rect = current.clip_rect;
         }
-        if (current.mask_resource_index !=
-            PROGPU_NATIVE_SCENE_NO_INDEX) {
+        if (current.mask_resource_index != PROGPU_NATIVE_SCENE_NO_INDEX &&
+            visual->second.effect_handle == 0U) {
             state.flags |= PROGPU_NATIVE_SCENE_STATE_MASK;
             state.mask_resource_index = current.mask_resource_index;
         }
@@ -18828,11 +18827,22 @@ struct channel::implementation {
         bool skip_cached_content = false;
         bool cache_content_state_pushed = false;
         render_scope_state content_scope = current;
+        // Clip belongs to the completed effect output. Nested render-data
+        // scopes and descendant visuals must see the untruncated source,
+        // including when that source is a local bitmap cache.
+        if (effect_layer_count != 0U) {
+            content_scope.has_clip = false;
+            content_scope.mask_resource_index = PROGPU_NATIVE_SCENE_NO_INDEX;
+            content_scope.clip_path_count = 0U;
+            content_scope.clip_segment_count = 0U;
+            content_scope.clip_boolean_node_count = 0U;
+        }
+        const render_scope_state cache_input_scope = content_scope;
         const status cache_status = add_visual_cache_layer(
             visual->second.cache_mode_handle,
             handle,
             scene_id,
-            current,
+            cache_input_scope,
             builder,
             cache_layer_pushed,
             skip_cached_content,
@@ -18863,6 +18873,22 @@ struct channel::implementation {
                 content_scope.opacity = parent_state.opacity;
             }
         }
+
+        // Keep outer clip prefixes intact while an isolated source records
+        // its own clip coordinate frame. Empty vectors allocate nothing;
+        // only actual nested geometry clips materialize scratch storage.
+        std::vector<progpu_native_scene_clip_path> isolated_clip_paths;
+        std::vector<progpu_native_path_segment> isolated_clip_segments;
+        std::vector<progpu_native_scene_path_boolean_node>
+            isolated_clip_boolean_nodes;
+        const bool isolated_clip_frame = effect_layer_count != 0U ||
+            cache_layer_pushed;
+        auto& content_clip_paths = isolated_clip_frame
+            ? isolated_clip_paths : clip_paths;
+        auto& content_clip_segments = isolated_clip_frame
+            ? isolated_clip_segments : clip_segments;
+        auto& content_clip_boolean_nodes = isolated_clip_frame
+            ? isolated_clip_boolean_nodes : clip_boolean_nodes;
 
         ++metrics.visual_count;
         metrics.maximum_visual_depth =
@@ -18998,9 +19024,9 @@ struct channel::implementation {
                     image_indices,
                     glyph_resources,
                     compile_context,
-                    clip_paths,
-                    clip_segments,
-                    clip_boolean_nodes,
+                    content_clip_paths,
+                    content_clip_segments,
+                    content_clip_boolean_nodes,
                     metrics);
             }
         }
@@ -19017,9 +19043,9 @@ struct channel::implementation {
                     glyph_resources,
                     compile_context,
                     active_visuals,
-                    clip_paths,
-                    clip_segments,
-                    clip_boolean_nodes,
+                    content_clip_paths,
+                    content_clip_segments,
+                    content_clip_boolean_nodes,
                     metrics);
                 if (result != status::success) {
                     break;

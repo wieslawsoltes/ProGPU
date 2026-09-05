@@ -980,6 +980,51 @@ int main(int argc, char** argv)
     require(mil_pixel(32U, 32U, 0U, 0U), "MIL sibling clip leaked");
     require(mil_pixel(58U, 32U, 0U, 0U), "MIL ancestor rounded clip leaked");
     require(mil_pixel(16U, 12U, 0U, 0U), "MIL nested render-data clip leaked");
+    using progpu::native::tests::mil_clip_effect;
+    for (const auto effect : {mil_clip_effect::zero_blur,
+                             mil_clip_effect::blur,
+                             mil_clip_effect::cached_blur,
+                             mil_clip_effect::box_blur,
+                             mil_clip_effect::shadow}) {
+        require(progpu::native::tests::build_mil_visual_clip_fixture(
+            mil_scene, effect), "MIL effect geometry clip compilation failed");
+        const auto effect_pixels = render_scene(gpu, nullptr, 2U,
+            effect == mil_clip_effect::cached_blur ? 24U : 16U,
+            4U, mil_scene);
+        const auto component = [&effect_pixels](std::uint32_t x,
+                                                std::uint32_t y,
+                                                std::uint32_t channel) {
+            return effect_pixels[(y * width + x) * 4U + channel];
+        };
+        std::fprintf(stderr, "MIL clip effect=%u edge=%u center=%u spread=%u\n",
+            static_cast<unsigned>(effect),
+            static_cast<unsigned>(component(7U, 32U, 0U)),
+            static_cast<unsigned>(component(48U, 32U, 2U)),
+            static_cast<unsigned>(component(16U, 12U, 0U)));
+        // x=7 is outside the radius-six influence of the source's x=0
+        // edge, but inside that of the visual ellipse's x=4 edge.
+        require(component(7U, 32U, 0U) == 255U,
+            "MIL effect source was prematurely clipped by its visual ellipse");
+        require(component(48U, 32U, 2U) == 255U,
+            "MIL effect sibling lost its independent clip frame");
+        require(component(58U, 32U, 2U) == 0U &&
+            component(58U, 32U, 1U) == 0U,
+            "MIL effect output escaped its ancestor clip");
+        require(component(32U, 32U, 0U) == 0U &&
+            component(32U, 32U, 2U) == 0U &&
+            component(32U, 32U, 1U) == 0U,
+            "MIL effect output escaped its final ellipse clip");
+        if (effect == mil_clip_effect::zero_blur) {
+            require(effect_pixels == mil_pixels,
+                "MIL zero-radius effect changed exact clip coverage");
+        } else {
+            const std::uint32_t spread_channel =
+                effect == mil_clip_effect::shadow ? 1U : 0U;
+            require(component(16U, 12U, spread_channel) > 0U &&
+                component(16U, 12U, spread_channel) < 255U,
+                "MIL nested content clip was incorrectly applied after blur");
+        }
+    }
     const char* adapter_name = gpu.properties.name == nullptr
         ? "unknown"
         : gpu.properties.name;

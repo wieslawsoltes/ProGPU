@@ -4009,3 +4009,44 @@ post-composite mask ordering is implemented. Rotated/sheared accelerated
 scrollable-area clips remain unsupported. This does not resolve the separate
 ImageBrush/DrawingBrush/VisualBrush or programmable shader-effect packet gaps,
 and does not complete the full replacement goal.
+
+### Exact geometry clips at native MIL effect output, 2026-09-05
+
+Visual geometry masks now attach to the existing semantic effect layer's
+output mask, alongside the independent final rectangle scissor. The complete
+source is isolated before Gaussian/box blur or drop shadow; the clip is not
+applied to source draws or propagated into their nested render-data scopes.
+Zero-radius blur retains a clip-only isolation layer when a geometry mask is
+present, preserving the same pixels as ordinary clipped replay.
+
+A BitmapCache used as an effect source now records without the outer geometry
+clip; the completed cache feeds the effect, whose output receives that clip.
+Uncached source opacity/gradient masks retain their existing inner isolation
+order. Isolated effect/cache content gets independent geometry-clip scratch
+only when it records nested clips, preserving the outer visual tree's scratch
+prefix for siblings. Empty scratch containers allocate nothing; scene recording
+is not claimed allocation-free. No shader, CPU fallback, or ABI change is
+needed: this composes the existing native layer-mask and effect contracts.
+
+LibreWPF's typed producer can now send rounded/affine/ellipse/path geometry
+clips for effects instead of enforcing its obsolete rectangle-only preflight.
+Unsupported or missing typed geometry still fails closed through the normal
+resolver. Native effect transform restrictions remain authoritative.
+
+The raw-MIL integration fixture covers zero-radius blur, Gaussian blur,
+box blur, green drop shadow, and a BitmapCache Gaussian-blur source. Each has
+two separately clipped siblings, an ancestor mask, and an independent nested
+content clip. Source-edge probes remain fully colored; blur/shadow can spread
+outside the inner content clip but never outside the final geometry clip.
+Zero-radius pixels match the non-effect fixture exactly. All effect fixtures
+use four submissions; ordinary variants record sixteen commands and the
+cached-source variant twenty-four. Structural tests assert that final
+two-path masks occur only on output layers, never on source draw states.
+macOS native 15/15, native MIL sanitizer/x64 checks, and freshly rebuilt
+LibreWPF scene-compiler 104/104 pass. Windows and exact-head CI are separate
+qualification evidence in the implementation PR.
+
+The remaining direct local-cache case without an outer effect still needs
+geometry-clip plus opacity-mask/guideline composition. Viewport3D masks,
+rotated accelerated scroll clips, tile-brush packets, programmable shader
+effects, and the broader DirectX/Direct2D/Win2D families remain in the goal.
