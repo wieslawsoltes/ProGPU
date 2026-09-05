@@ -1,4 +1,4 @@
-// Algorithm: Transform batched image/lattice/atlas quads, emit fixed-color cells without sampling, or sample nearest, linear, Mitchell-Netravali cubic, or a retained-cache Fant-style bounded area footprint; atlas sprites optionally combine sampled source and per-sprite destination colors with a Skia blend mode; semantic color processing optionally applies Skia-compatible post-transform luminance-to-alpha.
+// Algorithm: Transform batched image/lattice/atlas quads, sample occupied zero-origin tile pages with per-tap clamp/repeat/mirror addressing independent of pooled allocation size, emit fixed-color cells without sampling, or sample nearest, linear, Mitchell-Netravali cubic, or a retained-cache Fant-style bounded area footprint; atlas sprites optionally combine sampled source and per-sprite destination colors with a Skia blend mode; semantic color processing optionally applies Skia-compatible post-transform luminance-to-alpha.
 // Time complexity: O(1) per invocation; fixed-color cells perform no image sample, native nearest/linear uses one sampler operation, explicit nearest/linear uses 1/4 base-level texel loads, cubic and Fant filtering perform fixed 4x4 sample footprints, optional semantic color processing performs five fixed dot products plus one luminance dot product, atlas color blending uses bounded scalar work, and semantic mask chains evaluate at most four analytic rounded masks.
 // Space complexity: O(1) local storage and bounded texture bandwidth per fragment; texture masks add one sample plus a fixed axis-aligned or affine UV transform, color matrices add one 96-byte uniform record containing 80 bytes of coefficients, and nested analytic masks use one primary 96-byte record plus one fixed 288-byte continuation record without another texture.
 struct VertexInput {
@@ -268,8 +268,7 @@ fn sample_bicubic(
 const explicit_linear_coefficient: f32 = -64.0;
 const explicit_nearest_coefficient: f32 = -128.0;
 
-fn sample_bilinear_explicit(uv: vec2<f32>, modes: vec2<f32>) -> vec4<f32> {
-    let size = vec2<i32>(textureDimensions(texTexture));
+fn sample_bilinear_extent(uv: vec2<f32>, modes: vec2<f32>, size: vec2<i32>) -> vec4<f32> {
     let texel = uv * vec2<f32>(size) - vec2<f32>(0.5);
     let base = vec2<i32>(floor(texel));
     let f = fract(texel);
@@ -284,13 +283,28 @@ fn sample_bilinear_explicit(uv: vec2<f32>, modes: vec2<f32>) -> vec4<f32> {
     return mix(top, bottom, f.y);
 }
 
-fn sample_nearest_explicit(uv: vec2<f32>, modes: vec2<f32>) -> vec4<f32> {
-    let size = vec2<i32>(textureDimensions(texTexture));
+fn sample_nearest_extent(uv: vec2<f32>, modes: vec2<f32>, size: vec2<i32>) -> vec4<f32> {
     let texel = vec2<i32>(floor(uv * vec2<f32>(size)));
     let coordinate = vec2<i32>(
         address_texture_index(texel.x, size.x, modes.x),
         address_texture_index(texel.y, size.y, modes.y));
     return textureLoad(texTexture, coordinate, 0);
+}
+
+fn sample_bilinear_explicit(uv: vec2<f32>, modes: vec2<f32>) -> vec4<f32> {
+    return sample_bilinear_extent(uv, modes, vec2<i32>(textureDimensions(texTexture)));
+}
+
+fn sample_nearest_explicit(uv: vec2<f32>, modes: vec2<f32>) -> vec4<f32> {
+    return sample_nearest_extent(uv, modes, vec2<i32>(textureDimensions(texTexture)));
+}
+
+// patchKind -2 is a premultiplied, zero-origin retained tile page. Color RG
+// carries its occupied integer texel extent, A its once-only output opacity.
+// UVs are normalized to that extent, not to the pooled allocation. Sampling
+// each tap inside the tile preserves bilinear repeat seams and mirror edges.
+fn is_tile_page(input: VertexOutput) -> bool {
+    return input.patchKind == -2.0;
 }
 
 // WPF maps BitmapScalingMode.Fant/HighQuality to a prefilter only after either
@@ -331,6 +345,14 @@ fn sample_fant_prefilter(
 fn sample_image(
     input: VertexOutput, uv: vec2<f32>, modes: vec2<f32>,
     uvDx: vec2<f32>, uvDy: vec2<f32>) -> vec4<f32> {
+    if (is_tile_page(input)) {
+        let size = clamp(vec2<i32>(input.color.rg), vec2<i32>(1),
+            vec2<i32>(textureDimensions(texTexture)));
+        if (input.cubicResampler.x == explicit_nearest_coefficient) {
+            return sample_nearest_extent(uv, modes, size);
+        }
+        return sample_bilinear_extent(uv, modes, size);
+    }
     // Fant/cubic are distinct algorithms, not downgraded by the base-level
     // policy. Derivatives are evaluated by callers before divergent control.
     if (input.patchKind < -0.5 || input.cubicResampler.x == -32.0) {
@@ -570,8 +592,8 @@ fn texture_fs_main_with_mask(input: VertexOutput, maskAlpha: f32) -> vec4<f32> {
     }
 
     let opacity = abs(input.color.a);
-    let sourceIsPremultiplied = input.color.g > 0.5;
-    let rgbScale = input.color.r;
+    let sourceIsPremultiplied = is_tile_page(input) || input.color.g > 0.5;
+    let rgbScale = select(input.color.r, opacity, is_tile_page(input));
     let coverage = opacity * maskAlpha;
     if (sourceIsPremultiplied) {
         return vec4<f32>(texColor.rgb * rgbScale * maskAlpha, texColor.a * coverage);
@@ -633,7 +655,7 @@ fn color_matrix_fs_main_with_mask(
     if (input.color.b < -0.5) {
         source.a = 1.0;
     }
-    if (input.color.g > 0.5) {
+    if (is_tile_page(input) || input.color.g > 0.5) {
         source = atlas_unpremultiply(source);
     }
     var transformed = vec4<f32>(
@@ -656,7 +678,7 @@ fn color_matrix_fs_main_with_mask(
         vec4<f32>(0.0),
         vec4<f32>(1.0));
     return vec4<f32>(
-        transformed.rgb * input.color.r,
+        transformed.rgb * select(input.color.r, abs(input.color.a), is_tile_page(input)),
         transformed.a * abs(input.color.a) * maskAlpha);
 }
 

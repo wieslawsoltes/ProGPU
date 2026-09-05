@@ -7137,6 +7137,63 @@ tile-brush strokes, glyph/text and opacity-mask use, plus cache ownership and
 invalidation integration. Existing broader MIL/DirectX/Direct2D/Win2D and final
 cross-platform qualification gates remain open.
 
+### Implementation-first dependency: occupied tile-page sampling
+
+Repeated/flipped MIL tiles need a GPU page containing the **mapped base tile**,
+including transparent stretch padding. A pooled texture may be larger than that
+page. Wrapping normalized allocation UVs would repeat unused storage, and merely
+clamping addressed UVs would break bilinear seams. The next capture stage therefore
+uses an explicit occupied-extent sampling primitive, now implemented in the shared
+`ProGPU.Backend/Shaders/Texture.wgsl` module.
+
+`patchKind = -2` identifies a premultiplied zero-origin tile page. Vertex color RG
+contains occupied integer texel width/height, A is composite opacity, and UVs are
+normalized to the occupied page rather than the allocation. The existing address
+fields select clamp/repeat/mirror independently per axis. Base-level nearest and
+linear use respectively one and four texel loads, applying addressing separately
+to each tap. Masked, unmasked and semantic-color-matrix entry points share this
+sampling function and interpret tile opacity without treating the extent as color.
+Existing ordinary image, atlas, cubic and Fant encodings remain separate.
+
+Original ProGPU-owned provenance is the explicit base-image sampling implementation
+at `723f91ce`: its texel-center and integer addressing algorithms are now shared
+between full-image and occupied-extent samplers. No foreign implementation was
+copied. The native `try_write_tile_page_quad` in the existing geometry-base helper
+and managed `ProGPU.Vector.TileImageVertices.TryWriteQuad` produce matching four-
+vertex payloads from a target rectangle and target-to-tile affine transform.
+Both reject invalid extents, unsupported address values, nonfinite coordinates and
+opacity, and leave caller output untouched on failure. Vertex generation is O(1)
+time and fixed stack storage; managed coordinate math uses runtime-intrinsic
+`Vector2`, while native four-corner emission is bounded protocol construction,
+not a whole-buffer CPU compute fallback. Shader work is O(1) per covered pixel,
+with no CPU pixel synthesis, repacking, readback or per-tile submission.
+
+Research/contract references: the [WPF TileBrush overview](https://learn.microsoft.com/en-us/dotnet/desktop/wpf/graphics-multimedia/tilebrush-overview)
+separates content, base tile and output area; [Direct2D image brush properties](https://learn.microsoft.com/en-us/windows/win32/api/d2d1_1helper/nf-d2d1_1helper-imagebrushproperties)
+separate source extent, axis extension and interpolation. These contracts inform
+the extent/address separation, not implementation text. The existing
+[cross-engine rendering research](progpu-avalonia-rendering-research.md), including
+Skia/SkParagraph, DirectWrite/Direct2D/Win2D, WebRender, Vello/Parley and HarfBuzz,
+continues to govern bounded page residency, retained identity and immutable source
+ownership. This change does not alter shaping, layout, fonts or glyph caches.
+
+Build-only result: native MIL library/test executable and the managed renderer
+test project compile; the final managed build has zero warnings/errors. The native
+shader embedding was regenerated. Matched encoder cases cover all nine axis-mode
+pairs with nearest/linear, negative/repeated coordinates, a 3x5 occupied page in a
+64x64 allocation, output-tail preservation and transactional invalid extents.
+They are **not executed**. Embedding WGSL is not GPU pipeline compilation; shader
+validation, pixel parity and all runtime/VM/benchmark/CI qualification remain deferred.
+
+This is an explicit shader primitive, not a new automatic fallback decision.
+Callers must own a same-device premultiplied page lease and select a qualified
+sampling path. It must not silently replace cubic, Fant, mipmapped, anisotropic or
+forced-native-sampler modes. The primitive is not yet called by MIL tile capture;
+MIL repeat/flip remain fail-closed. Remaining integration: retained capture and
+generation/device/raster-scale keys, source-to-page mapping and padding, bounded
+leases/eviction, one output-quad scene operation, typed configuration/diagnostics,
+managed/native callers and final seam/alpha/mask/transform differential images.
+
 ## Invariants
 
 - No reflection or private managed field scanning in the product bridge.
