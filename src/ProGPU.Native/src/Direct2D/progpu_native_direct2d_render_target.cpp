@@ -7135,15 +7135,18 @@ private:
                 latch(com::failed(result) ? result : com::invalid_argument);
                 return;
             }
-            const float padding = stroke_width * 0.5F *
-                std::max(1.0F, style.miter_limit);
+            const float padding = style.transform_type == stroke_transform_type::normal
+                ? stroke_width * 0.5F * std::max(1.0F, style.miter_limit)
+                : 0.0F;
             rectangle_f local_bounds{
                 geometry_bounds.left - padding,
                 geometry_bounds.top - padding,
                 geometry_bounds.right + padding,
                 geometry_bounds.bottom + padding};
-            progpu_native_image_rect target_bounds =
-                transformed_bounds(local_bounds);
+            progpu_native_image_rect target_bounds{};
+            if (style.transform_type == stroke_transform_type::normal) {
+                target_bounds = transformed_bounds(local_bounds);
+            }
             if (style.transform_type != stroke_transform_type::normal) {
                 result = geometry_value->GetBounds(&transform_, &geometry_bounds);
                 if (com::failed(result) || !valid_rectangle(geometry_bounds)) {

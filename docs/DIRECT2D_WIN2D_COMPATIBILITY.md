@@ -1210,6 +1210,10 @@ Local validation: macOS ARM64 native 15/15, focused ASan/UBSan compatibility
 D3D12; final-source Windows and hosted PR checks are recorded separately so
 earlier passes are not mistaken for final-head qualification.
 
+The follow-up bounds regression also passes the largest finite float as the
+ignored curved-hairline width: device-stroke bounds must not first expand a
+normal pen and overflow before applying the hairline policy.
+
 ## Current support matrix
 
 ### What cross-platform COM compatibility means
