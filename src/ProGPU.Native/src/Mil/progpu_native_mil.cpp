@@ -6,6 +6,7 @@
 #include "../Scene/progpu_native_semantic_brush.hpp"
 #include "../Scene/progpu_native_semantic_validation.hpp"
 #include "../Scene/progpu_native_semantic_path_stroke.hpp"
+#include "../Direct2D/progpu_native_direct2d_path.hpp"
 
 #include <algorithm>
 #include <array>
@@ -11314,6 +11315,142 @@ struct channel::implementation {
             metrics);
     }
 
+    // Algorithm: Reuse portable Direct2D boolean/outline processing, then expose
+    // its actual closed boundary as native MIL stroke contours. No operand-edge
+    // concatenation or CPU pixel mask. Cost is the shared bounded arrangement
+    // algorithm plus O(B) retained boundary points; traversal depth is bounded.
+    status resolve_combined_stroke_outline(std::uint32_t handle, float tolerance,
+        path_geometry_state& output) const {
+        namespace d2d = native::direct2d::compat;
+        namespace com = native::com;
+        const auto convert = [](com::result result) {
+            return com::succeeded(result) ? status::success :
+                result == com::out_of_memory ? status::capacity_exceeded : status::unsupported_command;
+        };
+        com::pointer<d2d::factory> factory;
+        auto hr = d2d::create_factory(factory.put());
+        if (com::failed(hr)) return convert(hr);
+        const auto build = [&](auto&& self, std::uint32_t resource, std::uint32_t depth,
+            bool root, float target_tolerance, com::pointer<d2d::geometry>& destination) -> status {
+            if (depth > maximum_visual_depth) return status::invalid_graph;
+            std::uint32_t transform_handle = 0U;
+            const auto group = geometry_groups.find(resource);
+            const auto combined = combined_geometries.find(resource);
+            if (group != geometry_groups.end()) transform_handle = group->second.transform_handle;
+            else if (combined != combined_geometries.end()) transform_handle = combined->second.transform_handle;
+            float local_tolerance = target_tolerance;
+            if (!root && transform_handle != 0U) {
+                affine_2d_double transform{};
+                const status result = resolve_transform(transform_handle, transform);
+                if (result != status::success) return result;
+                const double scale = std::hypot(std::hypot(transform.m11, transform.m12),
+                    std::hypot(transform.m21, transform.m22));
+                local_tolerance = static_cast<float>(target_tolerance / std::max(1.0, scale));
+                if (!std::isfinite(local_tolerance) || local_tolerance <= 0.0F) return status::unsupported_command;
+            }
+            if (group != geometry_groups.end()) {
+                std::vector<com::pointer<d2d::geometry>> children(group->second.children.size());
+                std::vector<d2d::geometry*> pointers;
+                pointers.reserve(children.size());
+                for (std::size_t index = 0U; index < children.size(); ++index) {
+                    const status result = self(self, group->second.children[index], depth + 1U, false, local_tolerance, children[index]);
+                    if (result != status::success) return result;
+                    pointers.push_back(children[index].get());
+                }
+                com::pointer<d2d::geometry_group> value;
+                hr = factory->CreateGeometryGroup(group->second.fill_rule == 0U ? d2d::fill_mode::alternate : d2d::fill_mode::winding,
+                    pointers.data(), static_cast<std::uint32_t>(pointers.size()), value.put());
+                if (com::failed(hr)) return convert(hr);
+                destination.attach(value.detach());
+                transform_handle = group->second.transform_handle;
+            } else if (combined != combined_geometries.end()) {
+                com::pointer<d2d::geometry> first, second;
+                status result = self(self, combined->second.geometry1_handle, depth + 1U, false, local_tolerance, first);
+                if (result != status::success) return result;
+                result = self(self, combined->second.geometry2_handle, depth + 1U, false, local_tolerance, second);
+                if (result != status::success) return result;
+                com::pointer<d2d::path_geometry> value;
+                hr = factory->CreatePathGeometry(value.put());
+                if (com::failed(hr)) return convert(hr);
+                com::pointer<d2d::geometry_sink> sink;
+                hr = value->Open(sink.put());
+                if (com::failed(hr)) return convert(hr);
+                hr = first->CombineWithGeometry(second.get(), static_cast<d2d::combine_mode>(combined->second.combine_mode),
+                    nullptr, local_tolerance, sink.get());
+                if (com::failed(hr)) return convert(hr);
+                hr = sink->Close();
+                if (com::failed(hr)) return convert(hr);
+                destination.attach(value.detach());
+                transform_handle = combined->second.transform_handle;
+            } else {
+                std::vector<progpu_native_path_segment> segments;
+                shallow_fill_leaf leaf{};
+                if (resource != 0U) {
+                    const status result = append_group_fill_leaf(resource, segments, leaf);
+                    if (result != status::success) return result;
+                }
+                com::pointer<d2d::path_geometry> value;
+                hr = d2d::detail::create_native_fill_geometry(factory.get(), segments,
+                    leaf.fill_rule == PROGPU_NATIVE_FILL_RULE_EVEN_ODD ? d2d::fill_mode::alternate : d2d::fill_mode::winding,
+                    value.put());
+                if (com::failed(hr)) return convert(hr);
+                destination.attach(value.detach());
+                // Leaf lowering already includes its own resource transform.
+            }
+            if (!root && transform_handle != 0U) {
+                affine_2d_double transform{};
+                const status result = resolve_transform(transform_handle, transform);
+                if (result != status::success) return result;
+                progpu_native_affine_2d native{};
+                if (!try_to_native_affine(transform, native)) return status::invalid_graph;
+                const d2d::matrix_3x2_f matrix{native.m11, native.m12, native.m21, native.m22, native.m31, native.m32};
+                com::pointer<d2d::transformed_geometry> transformed;
+                hr = factory->CreateTransformedGeometry(destination.get(), &matrix, transformed.put());
+                if (com::failed(hr)) return convert(hr);
+                destination.attach(transformed.detach());
+            }
+            return status::success;
+        };
+        com::pointer<d2d::geometry> geometry;
+        const status built = build(build, handle, 1U, true, tolerance, geometry);
+        if (built != status::success) return built;
+        std::vector<std::vector<d2d::point_2f>> contours;
+        hr = d2d::detail::extract_outline_contours(geometry.get(), tolerance, contours);
+        if (com::failed(hr)) return convert(hr);
+        path_geometry_state result{};
+        result.fill_rule = 1U;
+        if (!contours.empty()) {
+            d2d::rectangle_f bounds{};
+            hr = geometry->GetBounds(nullptr, &bounds);
+            if (com::failed(hr)) return convert(hr);
+            result.left = bounds.left;
+            result.top = bounds.top;
+            result.right = bounds.right;
+            result.bottom = bounds.bottom;
+        }
+        for (const auto& points : contours) {
+            if (points.size() < 3U) return status::invalid_graph;
+            path_stroke_contour_state contour{};
+            contour.closed = true;
+            contour.points.reserve(points.size());
+            contour.segments.reserve(points.size());
+            contour.smooth_joins.assign(points.size(), 0U);
+            for (std::size_t index = 0U; index < points.size(); ++index) {
+                const auto& point = points[index];
+                const auto& next = points[(index + 1U) % points.size()];
+                progpu_native_path_segment segment{};
+                segment.kind = PROGPU_NATIVE_PATH_SEGMENT_LINE;
+                segment.p0 = {point.x, point.y};
+                segment.p1 = {next.x, next.y};
+                contour.points.push_back(segment.p0);
+                contour.segments.push_back(segment);
+            }
+            result.stroke_contours.push_back(std::move(contour));
+        }
+        output = std::move(result);
+        return status::success;
+    }
+
     status append_render_stream(
         std::span<const std::byte> bytes,
         compact_guideline_state_map* compact_guidelines,
@@ -16659,23 +16796,46 @@ struct channel::implementation {
                 if (combined_geometry != combined_geometries.end()) {
                     const bool has_zero_area =
                         affine_has_zero_area(effective_transform);
+                    pen_state combined_pen{};
                     if (pen_handle != 0U) {
-                        pen_state pen{};
                         const status pen_status = resolve_pen(
-                            pen_handle, pen);
+                            pen_handle, combined_pen);
                         if (pen_status != status::success) {
                             return pen_status;
-                        }
-                        if (!has_zero_area &&
-                            pen.brush_handle != 0U &&
-                            pen.thickness > 0.0) {
-                            return status::unsupported_command;
                         }
                     }
                     if (has_zero_area) {
                         continue;
                     }
+                    const auto append_combined_pen = [&]() -> status {
+                        if (combined_pen.brush_handle == 0U || combined_pen.thickness <= 0.0) return status::success;
+                        if (current.guideline_resource_index != PROGPU_NATIVE_SCENE_NO_INDEX || current.per_point_guidelines)
+                            return status::unsupported_command;
+                        // Quarter-physical-pixel flattening target, conservatively
+                        // scaled by the transform Frobenius norm. Fail if the
+                        // required tolerance cannot be represented by the core.
+                        const double dpi = compile_context == nullptr ? 1.0 : std::max(
+                            compile_context->request.dpi_scale_x, compile_context->request.dpi_scale_y);
+                        const double scale = std::hypot(std::hypot(effective_transform.m11, effective_transform.m12),
+                            std::hypot(effective_transform.m21, effective_transform.m22));
+                        const float tolerance = static_cast<float>(0.25 / (dpi * scale));
+                        if (!std::isfinite(tolerance) || tolerance <= 0.0F) return status::unsupported_command;
+                        path_geometry_state outline;
+                        const status outlined = resolve_combined_stroke_outline(geometry_handle, tolerance, outline);
+                        if (outlined != status::success || outline.stroke_contours.empty()) return outlined;
+                        if (tile_brushes.contains(combined_pen.brush_handle)) {
+                            const double expansion = combined_pen.thickness * 0.5 * std::max(1.0, combined_pen.miter_limit);
+                            const brush_use_state use{outline.left - expansion, outline.top - expansion,
+                                outline.right - outline.left + expansion * 2.0,
+                                outline.bottom - outline.top + expansion * 2.0, effective_transform};
+                            return append_tile_pen(combined_pen, use, current, {}, {}, false, outline.stroke_contours);
+                        }
+                        return append_path_strokes(outline, combined_pen, local_transform, effective_transform,
+                            PROGPU_NATIVE_SCENE_NO_INDEX);
+                    };
                     if (brush_handle == 0U) {
+                        const status stroked = append_combined_pen();
+                        if (stroked != status::success) return stroked;
                         continue;
                     }
                     std::vector<progpu_native_path_segment>
@@ -16753,6 +16913,8 @@ struct channel::implementation {
                             brush_use, current, combined_segments, boolean_nodes,
                             PROGPU_NATIVE_FILL_RULE_NON_ZERO);
                         if (tile_status != status::success) return tile_status;
+                        const status stroked = append_combined_pen();
+                        if (stroked != status::success) return stroked;
                         continue;
                     }
                     const status brush_status = resolve_brush_index(
@@ -16802,6 +16964,8 @@ struct channel::implementation {
                             boolean_nodes)) {
                         return status::invalid_graph;
                     }
+                    const status stroked = append_combined_pen();
+                    if (stroked != status::success) return stroked;
                     continue;
                 }
                 if (path_geometry != path_geometries.end()) {

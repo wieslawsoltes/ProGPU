@@ -34,6 +34,9 @@ struct mil_image_brush_fixture_options {
     std::uint32_t dash_cap{4U};
     bool guidelines{};
     bool nested_group{};
+    std::uint32_t combined_mode{3U};
+    bool solid_pen{};
+    bool fill_with_pen{};
 };
 
 inline bool build_mil_image_brush_fixture(std::vector<std::byte>& scene,
@@ -98,17 +101,22 @@ inline bool build_mil_image_brush_fixture(std::vector<std::byte>& scene,
         1U, options.viewbox_units, 0U, 0U, options.stretch,
         options.tile_mode, 1U, 1U, 0U, 3U);
     if (options.pen) {
+        if (options.solid_pen) {
+            packet(batch, command::channel_create_resource, 19U, 75U);
+            packet(batch, command::solid_color_brush, 19U, 1.0,
+                progpu_native_color{0.0F, 1.0F, 0.0F, 1.0F}, 0U, 0U, 0U, 0U);
+        }
         packet(batch, command::channel_create_resource, 20U, 85U);
         if (options.dashed) {
             packet(batch, command::channel_create_resource, 21U, 84U);
             packet(batch, command::dash_style, 21U, 0.25, 0U, 16U, 2.0, 1.0);
         }
-        packet(batch, command::pen, 20U, 4.0, 10.0, 5U, 0U,
+        packet(batch, command::pen, 20U, 4.0, 10.0, options.solid_pen ? 19U : 5U, 0U,
             options.cap, options.end_cap < 4U ? options.end_cap : options.cap,
             options.dash_cap < 4U ? options.dash_cap : options.cap,
             PROGPU_NATIVE_STROKE_JOIN_ROUND, options.dashed ? 21U : 0U);
     }
-    const std::uint32_t fill_handle = options.pen ? 0U : 5U;
+    const std::uint32_t fill_handle = options.pen && !options.fill_with_pen ? 0U : 5U;
     const std::uint32_t pen_handle = options.pen ? 20U : 0U;
     std::vector<std::byte> nested;
     if (options.guidelines) packet(nested, command::push_guideline_y1, 0.25);
@@ -167,7 +175,7 @@ inline bool build_mil_image_brush_fixture(std::vector<std::byte>& scene,
                 }
                 packet(batch, command::geometry_group, 15U, 16U, 0U, 8U, 17U, options.nested_group ? 22U : 18U);
             } else {
-                packet(batch, command::combined_geometry, 15U, 16U, 3U, 17U, 18U);
+                packet(batch, command::combined_geometry, 15U, 16U, options.combined_mode, 17U, 18U);
             }
         }
     }
