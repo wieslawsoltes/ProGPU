@@ -2977,13 +2977,42 @@ bool visual_clips_compile_to_exact_semantic_state() {
     }
     PROGPU_REQUIRE(found_clip);
 
-    std::vector<std::byte> unsupported_clip;
+    const auto has_vector_clip = [&stream](std::uint32_t path_count) {
+        const auto scene = read_value<progpu_native_scene_header>(stream, 0U);
+        for (std::uint32_t index = 0U; index < scene.resource_count; ++index) {
+            const auto resource = read_value<progpu_native_scene_resource>(
+                stream, scene.resource_offset +
+                    index * sizeof(progpu_native_scene_resource));
+            if (resource.kind != PROGPU_NATIVE_SCENE_RESOURCE_STATE) {
+                continue;
+            }
+            const auto value = read_value<progpu_native_scene_state>(
+                stream, resource.payload_offset);
+            if ((value.flags & PROGPU_NATIVE_SCENE_STATE_MASK) == 0U) {
+                continue;
+            }
+            const auto mask_resource =
+                read_value<progpu_native_scene_resource>(
+                    stream, scene.resource_offset +
+                        value.mask_resource_index *
+                            sizeof(progpu_native_scene_resource));
+            const auto mask =
+                read_value<progpu_native_scene_layer_vector_mask>(
+                    stream, mask_resource.payload_offset);
+            if (mask.path_count == path_count && mask.segment_count != 0U) {
+                return true;
+            }
+        }
+        return false;
+    };
+    std::vector<std::byte> ellipse_clip;
     append_command(
-        unsupported_clip, command::visual_set_clip, child, ellipse);
-    PROGPU_REQUIRE(state.apply(unsupported_clip) == status::success);
+        ellipse_clip, command::visual_set_clip, child, ellipse);
+    PROGPU_REQUIRE(state.apply(ellipse_clip) == status::success);
     PROGPU_REQUIRE(
         state.build_scene(target, 9010U, 2U, stream, &metrics) ==
-        status::unsupported_command);
+        status::success);
+    PROGPU_REQUIRE(has_vector_clip(1U));
 
     std::vector<std::byte> rounded_clip;
     append_command(
@@ -2991,7 +3020,7 @@ bool visual_clips_compile_to_exact_semantic_state() {
         command::rectangle_geometry,
         clip,
         3.0,
-        0.0,
+        3.0,
         0.0,
         0.0,
         40.0,
@@ -3004,7 +3033,40 @@ bool visual_clips_compile_to_exact_semantic_state() {
     PROGPU_REQUIRE(state.apply(rounded_clip) == status::success);
     PROGPU_REQUIRE(
         state.build_scene(target, 9010U, 3U, stream, &metrics) ==
-        status::unsupported_command);
+        status::success);
+    PROGPU_REQUIRE(has_vector_clip(1U));
+
+    // A visual mask must survive both a nested render-data clip and the
+    // return to its sibling. Each sibling starts at the parent's prefix.
+    constexpr std::uint32_t sibling = 9U;
+    std::vector<std::byte> inherited_clip;
+    append_create(inherited_clip, sibling, 39U);
+    append_command(inherited_clip, command::visual_create, sibling);
+    append_command(inherited_clip, command::visual_set_clip, root, ellipse);
+    append_command(inherited_clip, command::visual_set_clip, sibling, ellipse);
+    append_command(inherited_clip, command::visual_set_content, sibling, content);
+    append_command(
+        inherited_clip, command::visual_insert_child_at, root, sibling, 1U);
+    std::vector<std::byte> clipped_nested;
+    append_command(clipped_nested, command::push_clip, ellipse, 0U);
+    clipped_nested.insert(clipped_nested.end(), nested.begin(), nested.end());
+    append_command(clipped_nested, command::pop);
+    clipped_nested.insert(clipped_nested.end(), nested.begin(), nested.end());
+    append_render_data(inherited_clip, content, clipped_nested);
+    PROGPU_REQUIRE(state.apply(inherited_clip) == status::success);
+    PROGPU_REQUIRE(
+        state.build_scene(target, 9010U, 4U, stream, &metrics) ==
+        status::success);
+    PROGPU_REQUIRE(has_vector_clip(1U));
+    PROGPU_REQUIRE(has_vector_clip(2U));
+    PROGPU_REQUIRE(has_vector_clip(3U));
+    PROGPU_REQUIRE(!has_vector_clip(4U));
+
+    std::vector<std::byte> clear_inherited_clip;
+    append_command(clear_inherited_clip, command::visual_set_clip, root, 0U);
+    append_command(clear_inherited_clip, command::visual_set_clip, sibling, 0U);
+    append_render_data(clear_inherited_clip, content, nested);
+    PROGPU_REQUIRE(state.apply(clear_inherited_clip) == status::success);
 
     std::vector<std::byte> transformed_scroll_clip;
     append_command(
@@ -3036,6 +3098,14 @@ bool visual_clips_compile_to_exact_semantic_state() {
         0.0,
         0.0,
         0U);
+    PROGPU_REQUIRE(state.apply(clear_clip) == status::success);
+    std::vector<std::byte> sheared_clip;
+    append_command(sheared_clip, command::visual_set_clip, child, ellipse);
+    PROGPU_REQUIRE(state.apply(sheared_clip) == status::success);
+    PROGPU_REQUIRE(
+        state.build_scene(target, 9010U, 5U, stream, &metrics) ==
+        status::success);
+    PROGPU_REQUIRE(has_vector_clip(1U));
     PROGPU_REQUIRE(state.apply(clear_clip) == status::success);
     std::vector<std::byte> delete_clip;
     append_command(
@@ -15857,6 +15927,45 @@ bool retained_geometry_group_compiles_to_one_semantic_path() {
     PROGPU_REQUIRE(found_complete_clip_chain);
     PROGPU_REQUIRE(found_complete_clip_state);
     PROGPU_REQUIRE(found_restored_clip_chain);
+
+    // The visual property and the render-data opcode must use the same
+    // path/group/boolean lowering, including the exact postfix mask program.
+    for (const auto geometry_handle : std::array{path_a, group, combined}) {
+        std::vector<std::byte> visual_clip_update;
+        append_command(visual_clip_update,
+            command::visual_set_clip, visual, geometry_handle);
+        std::vector<std::byte> visual_content;
+        append_command(visual_content, command::draw_rectangle,
+            0.0, 0.0, 64.0, 64.0, brush, 0U);
+        append_render_data(visual_clip_update, content, visual_content);
+        PROGPU_REQUIRE(state.apply(visual_clip_update) == status::success);
+        PROGPU_REQUIRE(
+            state.build_scene(target, 7003U, 11U, stream) == status::success);
+        const auto visual_header =
+            read_value<progpu_native_scene_header>(stream, 0U);
+        bool found_visual_clip = false;
+        for (std::uint32_t index = 0U;
+             index < visual_header.resource_count; ++index) {
+            const auto resource = read_value<progpu_native_scene_resource>(
+                stream, visual_header.resource_offset +
+                    index * sizeof(progpu_native_scene_resource));
+            if (resource.kind != PROGPU_NATIVE_SCENE_RESOURCE_LAYER_MASK) {
+                continue;
+            }
+            const auto mask =
+                read_value<progpu_native_scene_layer_vector_mask>(
+                    stream, resource.payload_offset);
+            PROGPU_REQUIRE(mask.kind ==
+                PROGPU_NATIVE_SCENE_LAYER_MASK_VECTOR_CLIP_CHAIN);
+            PROGPU_REQUIRE(mask.path_count == 1U);
+            PROGPU_REQUIRE(mask.segment_count != 0U);
+            PROGPU_REQUIRE(geometry_handle == path_a
+                ? mask.boolean_node_count == 0U
+                : mask.boolean_node_count == 3U);
+            found_visual_clip = true;
+        }
+        PROGPU_REQUIRE(found_visual_clip);
+    }
     return true;
 }
 

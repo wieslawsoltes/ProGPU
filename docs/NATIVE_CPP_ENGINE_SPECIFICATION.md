@@ -3967,3 +3967,45 @@ See [the compatibility design and validation record](DIRECT2D_WIN2D_COMPATIBILIT
 for source provenance, primary references, DPI limits, SIMD oracle coverage,
 and remaining Factory1/device-context gaps. This checkpoint does not complete
 the broader LibreWPF MIL/DirectX/Direct2D/Win2D replacement goal.
+
+### Exact native MIL visual geometry clips, 2026-09-05
+
+`Visual.SetClip` now reuses the existing ProGPU-owned render-data geometry
+clip compiler for ellipses, rounded rectangles, paths, geometry groups, and
+combined geometry. Axis-preserving plain rectangles retain the analytic
+rectangle fast path; rotated/sheared geometry stays exact through the shared
+vector-mask resource instead of becoming its bounding rectangle. Geometry
+transforms, winding rules, and boolean programs use the same original native
+lowering as `PushClip`, with no new shader, public ABI, or CPU raster fallback.
+
+The scene build owns one path/segment/boolean scratch set for visual traversal
+and render-data replay. Each scope retains prefix counts and its immutable
+semantic mask index, so nested clips intersect ancestors and siblings restore
+their parent's prefix. This removes the former per-visual render-data scratch
+containers; it does not claim an allocation-free scene build or measured
+speedup. Recording is proportional to the emitted geometry and active clip
+chain, bounded by the existing 64-path/63-boolean-instruction limits. Pixel
+coverage stays in the existing GPU path-mask implementation; no new scalar
+compute-heavy CPU fallback is introduced.
+
+Regression coverage checks rectangle fast paths, ellipse/rounded masks,
+sheared ellipses, path/group/combined boolean programs, inherited clips,
+nested `PushClip`/`Pop`, and sibling restoration. The existing portable
+Direct2D WebGPU executable also submits an original raw-MIL fixture through
+the exported C ABI: two independently colored sibling ellipses intersect a
+rounded ancestor and an additional rounded render-data clip. Exact interior
+pixels check all three clip levels and reject bounding-box broadening. The
+fixture records two draws, twelve commands, and two submissions (mask
+preparation plus rendering); it runs unchanged in the existing Metal,
+Vulkan, and D3D12 gate without replacing the Direct2D oracle capture.
+
+Qualification so far: macOS ARM64 15/15 native tests including the GPU fixture;
+native MIL tests also pass under ASan/UBSan and x64/Rosetta. Windows and CI
+qualification are recorded with the implementation PR checkpoint.
+
+Remaining boundaries are explicit: arbitrary masks combined with visual
+effects, local bitmap caches, and Viewport3D still fail closed until their
+post-composite mask ordering is implemented. Rotated/sheared accelerated
+scrollable-area clips remain unsupported. This does not resolve the separate
+ImageBrush/DrawingBrush/VisualBrush or programmable shader-effect packet gaps,
+and does not complete the full replacement goal.

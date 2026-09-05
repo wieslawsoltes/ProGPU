@@ -1,5 +1,6 @@
 #include "progpu_native.h"
 #include "progpu_native_direct2d_scene_submission.hpp"
+#include "progpu_native_mil_visual_clip_fixture.hpp"
 
 #include <wgpu.h>
 
@@ -637,7 +638,8 @@ struct portable_scene final {
     d2d::scene_render_target_native* scene_target,
     std::uint32_t expected_draws = 17U,
     std::uint32_t expected_commands = 27U,
-    std::uint64_t expected_submissions = 4U)
+    std::uint64_t expected_submissions = 4U,
+    std::span<const std::byte> mil_scene = {})
 {
     progpu_native_engine_options options{};
     options.struct_size = sizeof(options);
@@ -667,6 +669,7 @@ struct portable_scene final {
     require(view != nullptr, "WebGPU target view creation failed");
 
     std::vector<std::byte> scratch(
+        scene_target == nullptr ? 0U :
         static_cast<std::size_t>(scene_target->GetRequiredSceneSize()));
     progpu_native_scene_metrics scene_metrics{};
     scene_metrics.struct_size = sizeof(scene_metrics);
@@ -676,7 +679,25 @@ struct portable_scene final {
     const d2d::scene_render_options render_options{
         reinterpret_cast<std::uintptr_t>(view),
         PROGPU_NATIVE_SCENE_FRAME_NONE};
-    const progpu_native_status render_status = d2d::render_scene_target(
+    progpu_native_status render_status = PROGPU_NATIVE_STATUS_SUCCESS;
+    if (!mil_scene.empty()) {
+        render_status = progpu_native_engine_update_scene(
+            engine, mil_scene.data(), mil_scene.size(), &scene_metrics);
+        if (render_status == PROGPU_NATIVE_STATUS_SUCCESS) {
+            progpu_native_scene_frame frame{};
+            frame.struct_size = sizeof(frame);
+            frame.width = width;
+            frame.height = height;
+            frame.dpi_scale = 1.0F;
+            frame.target_view = reinterpret_cast<std::uintptr_t>(view);
+            frame.clear_color = {0.0F, 0.0F, 0.0F, 1.0F};
+            frame.scene_id = 9011U;
+            frame.generation = 1U;
+            render_status = progpu_native_engine_render_scene(
+                engine, &frame, &frame_metrics);
+        }
+    } else {
+        render_status = d2d::render_scene_target(
             scene_target,
             engine,
             render_options,
@@ -684,6 +705,7 @@ struct portable_scene final {
             &scene_metrics,
             &frame_metrics,
             &diagnostics);
+    }
     if (render_status != PROGPU_NATIVE_STATUS_SUCCESS) {
         std::array<char, 512U> error{};
         (void)progpu_native_engine_get_last_error(
@@ -942,6 +964,22 @@ int main(int argc, char** argv)
     write_capture(argc == 2 ? argv[1] : nullptr, pixels);
     verify_pixels(pixels);
     verify_stroke_transforms(gpu, scene);
+    std::vector<std::byte> mil_scene;
+    require(progpu::native::tests::build_mil_visual_clip_fixture(mil_scene),
+        "MIL visual geometry clip compilation failed");
+    const auto mil_pixels = render_scene(gpu, nullptr, 2U, 12U, 2U, mil_scene);
+    const auto mil_pixel = [&mil_pixels](std::uint32_t x, std::uint32_t y,
+                                       std::uint8_t red, std::uint8_t blue) {
+        const std::size_t offset = (y * width + x) * 4U;
+        return mil_pixels[offset] == red && mil_pixels[offset + 1U] == 0U &&
+            mil_pixels[offset + 2U] == blue && mil_pixels[offset + 3U] == 255U;
+    };
+    require(mil_pixel(16U, 32U, 255U, 0U), "MIL first clipped sibling missing");
+    require(mil_pixel(48U, 32U, 0U, 255U), "MIL sibling inherited wrong mask");
+    require(mil_pixel(5U, 17U, 0U, 0U), "MIL ellipse clip broadened to bounds");
+    require(mil_pixel(32U, 32U, 0U, 0U), "MIL sibling clip leaked");
+    require(mil_pixel(58U, 32U, 0U, 0U), "MIL ancestor rounded clip leaked");
+    require(mil_pixel(16U, 12U, 0U, 0U), "MIL nested render-data clip leaked");
     const char* adapter_name = gpu.properties.name == nullptr
         ? "unknown"
         : gpu.properties.name;
