@@ -4407,5 +4407,5 @@ LibreWPF native host smokes pass; Windows native 16/16 passes (GPU 95.29 s), and
 GCC 13 ARM64 MIL passes with ASan/UBSan and leak detection (0.65 s). ProGPU PR CI
 first rejected the source change because its generated MIL coverage ledger was
 not refreshed. Regeneration and the complete native-contract verification gate
-are required before the follow-up push; no ledger check, sanitizer, or test is
+pass on the follow-up commit; no ledger check, sanitizer, or test is
 disabled. Exact-head hosted results remain a separate requirement.

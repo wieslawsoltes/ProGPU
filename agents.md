@@ -150,6 +150,11 @@ include an explicit applicability audit for both implementations.
   use equivalent workloads and report comparable Release counters and p50/p95/p99 evidence,
   including stable replay, retained uploads, allocations, and GPU resource residency where
   applicable.
+* Every edit to `src/ProGPU.Native/src/Mil/progpu_native_mil.cpp`, including
+  implementation-only optimizations, changes the coverage ledger's source digest.
+  Run `python3 eng/progpu-generate-mil-coverage.py`, review the generated diff, and
+  run `eng/progpu-verify-native-contract.sh` before committing. Do not hand-edit
+  ledger hashes or disable freshness checks to make CI pass.
 * Keep shared public C records, generated C# wire declarations, canonical shaders, fixtures,
   and expected results synchronized. A wire or shader change is incomplete while generated
   output is stale or only one implementation consumes the new contract.
