@@ -19150,6 +19150,52 @@ int main() {
             }
         }
     }
+    {
+        const std::array<std::array<double, 2U>, 2U> collapsed_points{{{1.0, 2.0}, {1.0, 2.0}}};
+        const auto open = make_single_bezier_path_figures(3U, collapsed_points);
+        const auto closed = make_rectangle_path_figures(1.0, 2.0, 1.0, 2.0);
+        for (const auto source : {progpu::native::tests::mil_brush_fixture_source::bitmap,
+            progpu::native::tests::mil_brush_fixture_source::drawing,
+            progpu::native::tests::mil_brush_fixture_source::drawing_image,
+            progpu::native::tests::mil_brush_fixture_source::visual}) {
+            for (std::uint32_t start = 0U; start < 4U; ++start) {
+                for (std::uint32_t end = 0U; end < 4U; ++end) {
+                    for (const bool dashed : {false, true}) {
+                        for (const bool gap : {false, true}) {
+                            for (std::uint32_t shape = 0U; shape < 4U; ++shape) {
+                                std::vector<std::byte> scene;
+                                PROGPU_REQUIRE(progpu::native::tests::build_mil_image_brush_fixture(scene,
+                                    {.tile_mode = 3U, .opacity = 0.5, .source = source,
+                                        .shape = shape == 0U ? progpu::native::tests::mil_brush_fixture_shape::line :
+                                            shape == 1U ? progpu::native::tests::mil_brush_fixture_shape::line_geometry :
+                                                progpu::native::tests::mil_brush_fixture_shape::path,
+                                        .paint_transform = true, .path_figures = shape == 3U ? closed : open,
+                                        .fant = true, .pen = true, .dashed = dashed, .cap = start, .end_cap = end,
+                                        .zero_length_line = true, .dash_offset = gap ? 2.5 : 0.25}, 9990U + shape));
+                                const auto header = read_value<progpu_native_scene_header>(scene, 0U);
+                                const std::uint32_t expected_caps = dashed && gap ? 0U :
+                                    shape == 3U ? 2U : (start != 0U) + (end != 0U);
+                                std::uint32_t masks = 0U;
+                                for (std::uint32_t index = 0U; index < header.resource_count; ++index) {
+                                    const auto resource = read_value<progpu_native_scene_resource>(scene,
+                                        header.resource_offset + index * sizeof(progpu_native_scene_resource));
+                                    if (resource.kind == PROGPU_NATIVE_SCENE_RESOURCE_LAYER_MASK &&
+                                        resource.payload_size == sizeof(progpu_native_scene_layer_geometry_mask)) {
+                                        const auto mask = read_value<progpu_native_scene_layer_geometry_mask>(scene, resource.payload_offset);
+                                        if (mask.kind == PROGPU_NATIVE_SCENE_LAYER_MASK_GEOMETRY) {
+                                            ++masks;
+                                            PROGPU_REQUIRE(mask.primitive_count == expected_caps);
+                                        }
+                                    }
+                                }
+                                PROGPU_REQUIRE(masks == (expected_caps == 0U ? 0U : 1U));
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
     // Authored during implementation-first work; execution and pixel parity
     // remain part of the final validation phase.
     for (const auto source : {progpu::native::tests::mil_brush_fixture_source::bitmap,

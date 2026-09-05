@@ -11867,7 +11867,8 @@ struct channel::implementation {
             const affine_2d_double& effective_transform,
             std::uint32_t start_cap,
             std::uint32_t end_cap,
-            bool& emitted) noexcept {
+            bool& emitted,
+            std::vector<progpu_native_geometry_primitive>* collected = nullptr) {
             emitted = false;
             if (start_cap == PROGPU_NATIVE_STROKE_CAP_FLAT &&
                 end_cap == PROGPU_NATIVE_STROKE_CAP_FLAT) {
@@ -12002,6 +12003,14 @@ struct channel::implementation {
             };
             append_cap(start_cap, true);
             append_cap(end_cap, false);
+            if (collected != nullptr) {
+                // Algorithm: reuse the fixed pair of analytic cap primitives
+                // for a tile-mask collector. Time/space: O(1), at most two caps.
+                // The caller supplies target-space transforms for mask storage.
+                collected->insert(collected->end(), primitives.begin(), primitives.begin() + primitive_count);
+                emitted = true;
+                return status::success;
+            }
             if (!builder.draw_geometry(
                     std::span<const progpu_native_geometry_primitive>(
                         primitives.data(),
@@ -14903,7 +14912,7 @@ struct channel::implementation {
             const bool restored = builder.pop_layer();
             return drawn != status::success ? drawn : restored ? status::success : status::invalid_graph;
         };
-        const auto append_tile_pen = [this, &paint_tile_pen_mask](
+        const auto append_tile_pen = [this, &paint_tile_pen_mask, &append_degenerate_cap_stroke](
             const pen_state& pen, const brush_use_state& use,
             const render_scope_state& state,
             std::span<const progpu_native_path_segment> segments,
@@ -14936,7 +14945,23 @@ struct channel::implementation {
             auto& primitives = collected == nullptr ? local_primitives : *collected;
             std::vector<std::uint32_t> brushes;
             const auto compile_run = [&](std::span<const progpu_native_path_segment> run,
-                std::span<const std::uint8_t> joins, bool run_closed) {
+                std::span<const std::uint8_t> joins, bool run_closed,
+                const progpu_native_point* anchor = nullptr) {
+                if (run.empty() && anchor == nullptr) return status::success;
+                if (!std::ranges::any_of(run, [](const auto& segment) {
+                        progpu_native_point tangent{};
+                        return native::semantic_path_stroke::try_tangent(segment, true, tangent) ||
+                            native::semantic_path_stroke::try_tangent(segment, false, tangent);
+                    })) {
+                    // Reuse ordinary MIL zero-length cap and dash-phase semantics;
+                    // closed collapsed contours use a round cap pair there too.
+                    const auto cap = static_cast<std::uint32_t>(PROGPU_NATIVE_STROKE_CAP_ROUND);
+                    bool emitted = false;
+                    return append_degenerate_cap_stroke(pen, anchor == nullptr ? run.front().p0 : *anchor,
+                        0U, use.effective_transform, use.effective_transform,
+                        run_closed ? cap : style.start_cap, run_closed ? cap : style.end_cap,
+                        emitted, &primitives);
+                }
                 const auto compiled = native::semantic_path_stroke::compile(run, joins,
                     run_closed, intervals, style, 0U, scratch, primitives, brushes);
                 return compiled == native::semantic_path_stroke::result::success ? status::success :
@@ -14951,17 +14976,9 @@ struct channel::implementation {
                     style.start_cap = contour.start_uses_dash_cap ? pen.dash_cap : pen.start_line_cap;
                     style.end_cap = contour.end_uses_dash_cap ? pen.dash_cap : pen.end_line_cap;
                     if (contour.points.empty() && contour.segments.empty()) continue;
-                    if (!std::ranges::any_of(contour.segments, [](const auto& segment) {
-                            progpu_native_point tangent{};
-                            return native::semantic_path_stroke::try_tangent(segment, true, tangent) ||
-                                native::semantic_path_stroke::try_tangent(segment, false, tangent);
-                        })) {
-                        if (!contour.closed && style.start_cap == PROGPU_NATIVE_STROKE_CAP_FLAT &&
-                            style.end_cap == PROGPU_NATIVE_STROKE_CAP_FLAT) continue;
-                        return status::unsupported_command;
-                    }
                     const status compiled = compile_run(contour.segments,
-                        contour.smooth_joins, contour.closed);
+                        contour.smooth_joins, contour.closed,
+                        contour.points.empty() ? nullptr : &contour.points.front());
                     if (compiled != status::success) return compiled;
                 }
             }
@@ -14976,9 +14993,15 @@ struct channel::implementation {
             if (pen.thickness <= 0.0) return status::success;
             brush_use_state use{};
             use.effective_transform = transform;
-            if (!try_line_stroke_bounds(x0, y0, x1, y1, pen.thickness,
-                    pen.start_line_cap, pen.end_line_cap,
-                    use.x, use.y, use.width, use.height)) return status::unsupported_command;
+            if (x0 == x1 && y0 == y1) {
+                if (pen.start_line_cap == PROGPU_NATIVE_STROKE_CAP_FLAT &&
+                    pen.end_line_cap == PROGPU_NATIVE_STROKE_CAP_FLAT) return status::success;
+                if (!try_degenerate_cap_stroke_bounds(x0, y0, pen.thickness,
+                        pen.start_line_cap, pen.end_line_cap,
+                        use.x, use.y, use.width, use.height)) return status::invalid_graph;
+            } else if (!try_line_stroke_bounds(x0, y0, x1, y1, pen.thickness,
+                           pen.start_line_cap, pen.end_line_cap,
+                           use.x, use.y, use.width, use.height)) return status::unsupported_command;
             progpu_native_path_segment segment{};
             segment.kind = PROGPU_NATIVE_PATH_SEGMENT_LINE;
             segment.p0 = {static_cast<float>(x0), static_cast<float>(y0)};

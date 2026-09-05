@@ -7704,6 +7704,36 @@ geometry, guideline-aware tile masks, tiled glyph/opacity masks, nonuniform targ
 DPI, remaining tile filters, managed retained-capture adoption, and the broader
 DirectX/Direct2D/Win2D goal remain open. Compilation does not establish parity.
 
+### Implementation-first checkpoint: degenerate tile-pen caps
+
+Zero-length `DrawLine`/`LineGeometry` and collapsed path contours now paint tile
+pens through the same analytic cap primitives and dash-phase selection as ordinary
+native MIL strokes. The existing `append_degenerate_cap_stroke` has an optional
+primitive collector; ordinary draws retain their original builder path, while tile
+masks supply target-space transforms and collect at most two caps. No separate cap
+shape approximation or shader was introduced. Asymmetric flat/square/round/triangle
+ends are preserved; both flat ends emit nothing, a dash gap emits nothing, and a
+collapsed closed contour follows the existing ordinary-path round-cap-pair rule.
+The group collector can consume these primitives without additional brush paints.
+
+Provenance: original ProGPU `append_degenerate_cap_stroke`,
+`try_degenerate_cap_stroke_bounds`, and semantic path-stroke tangent detection.
+Cap generation has O(1) time/storage (at most two primitives); dash phase retains
+the existing dependency-ordered O(D) interval traversal. There is no independent
+pixel loop, CPU readback, or new SIMD kernel. This completes another native MIL
+consumer route; shared managed/native shaders and scene contracts are unchanged.
+Managed/native/WPF differential qualification remains required at the final gate.
+
+The WebGPU-enabled Release native library and MIL test executable compile.
+1,024 authored cases cover four brush sources, all start/end cap pairs, continuous
+and dashed pens, on/gap phases, zero-length line commands/resources, and collapsed
+open/closed paths. These cases are **not executed**; image parity, verifiers,
+benchmarks, VM integration, and CI qualification remain deferred. The coverage
+ledger was regenerated. This is not a cap-pixel-parity or speed claim.
+
+Degenerate fixed rectangle/ellipse tile pens and guideline-aware geometry masks
+remain open, together with the other MIL/DirectX/Direct2D/Win2D goal work.
+
 ## Invariants
 
 - No reflection or private managed field scanning in the product bridge.

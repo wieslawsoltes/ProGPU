@@ -39,6 +39,8 @@ struct mil_image_brush_fixture_options {
     bool fill_with_pen{};
     bool group_combined{};
     bool identical_combined_operands{};
+    bool zero_length_line{};
+    double dash_offset{0.25};
 };
 
 inline bool build_mil_image_brush_fixture(std::vector<std::byte>& scene,
@@ -111,7 +113,7 @@ inline bool build_mil_image_brush_fixture(std::vector<std::byte>& scene,
         packet(batch, command::channel_create_resource, 20U, 85U);
         if (options.dashed) {
             packet(batch, command::channel_create_resource, 21U, 84U);
-            packet(batch, command::dash_style, 21U, 0.25, 0U, 16U, 2.0, 1.0);
+            packet(batch, command::dash_style, 21U, options.dash_offset, 0U, 16U, 2.0, 1.0);
         }
         packet(batch, command::pen, 20U, 4.0, 10.0, options.solid_pen ? 19U : 5U, 0U,
             options.cap, options.end_cap < 4U ? options.end_cap : options.cap,
@@ -191,11 +193,13 @@ inline bool build_mil_image_brush_fixture(std::vector<std::byte>& scene,
     switch (options.shape) {
     case mil_brush_fixture_shape::line_geometry:
         packet(batch, command::channel_create_resource, 15U, 68U);
-        packet(batch, command::line_geometry, 15U, 8.0, 16.0, 56.0, 48.0, 0U, 0U, 0U);
+        packet(batch, command::line_geometry, 15U, 8.0, 16.0,
+            options.zero_length_line ? 8.0 : 56.0, options.zero_length_line ? 16.0 : 48.0, 0U, 0U, 0U);
         packet(nested, command::draw_geometry, fill_handle, pen_handle, 15U, 0U);
         break;
     case mil_brush_fixture_shape::line:
-        packet(nested, command::draw_line, 8.0, 16.0, 56.0, 48.0, pen_handle, 0U);
+        packet(nested, command::draw_line, 8.0, 16.0,
+            options.zero_length_line ? 8.0 : 56.0, options.zero_length_line ? 16.0 : 48.0, pen_handle, 0U);
         break;
     case mil_brush_fixture_shape::path:
     case mil_brush_fixture_shape::group:
