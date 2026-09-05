@@ -62,6 +62,8 @@ jobs:
     name: Native C++ renderer (${{ matrix.rid }})
     runs-on: ${{ matrix.os }}
     timeout-minutes: 60
+    env:
+      PROGPU_NATIVE_MIL_IMAGE_BRUSH_CAPTURE_DIR: ${{ github.workspace }}/artifacts/progpu-native/image-brush-oracle
     strategy:
       fail-fast: false
       matrix:
@@ -149,6 +151,14 @@ jobs:
           ./eng/build-progpu-native-windows.ps1
           -Rid "${{ matrix.rid }}"
           -BenchmarkProfile Smoke
+
+      - name: Upload native MIL ImageBrush frames
+        if: matrix.rid == 'linux-x64' || matrix.rid == 'osx-arm64' || matrix.rid == 'win-x64'
+        uses: actions/upload-artifact@v7
+        with:
+          name: progpu-mil-image-brush-${{ matrix.rid }}
+          path: artifacts/progpu-native/image-brush-oracle
+          if-no-files-found: error
 
       - name: Capture pinned Microsoft DirectX sample oracles
         if: matrix.rid == 'win-x64'
@@ -300,6 +310,35 @@ jobs:
         with:
           name: progpu-win2d-canvas-differential
           path: artifacts/progpu-native/win2d-oracle
+          if-no-files-found: error
+
+  native-mil-image-brush-parity:
+    name: Native MIL ImageBrush versus Windows WPF (D3D12/Metal/Vulkan)
+    needs: native-cpp
+    runs-on: windows-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ env.PROGPU_QUALIFIED_COMMIT }}
+      - uses: actions/download-artifact@v8
+        with:
+          pattern: progpu-mil-image-brush-*
+          path: artifacts/image-brush-inputs
+      - name: Compare every captured pixel against native WPF
+        shell: pwsh
+        run: |
+          foreach ($rid in @('linux-x64', 'osx-arm64', 'win-x64')) {
+            powershell.exe -NoProfile -Sta -File eng/mil/progpu-wpf-image-brush-oracle.ps1 `
+              -ProGpuCaptureDirectory "artifacts/image-brush-inputs/progpu-mil-image-brush-$rid" `
+              -OutputDirectory "artifacts/image-brush-wpf/$rid"
+            if ($LASTEXITCODE -ne 0) { throw "Native WPF ImageBrush comparison failed: $rid" }
+          }
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: progpu-mil-image-brush-wpf-differential
+          path: artifacts/image-brush-wpf
           if-no-files-found: error
 
   native-direct2d-webgpu-parity:
