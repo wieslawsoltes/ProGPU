@@ -55,6 +55,14 @@ int main() {
     tile.m22 = 0.25F;
     unsigned int tile_index = progpu::native::PROGPU_NATIVE_SCENE_NO_INDEX;
     if (!builder.add_tile_composite(tile, tile_index)) return 1;
+    progpu::native::semantic_scene_builder guideline_source(9002U, 1U);
+    const std::array coordinates{2.25};
+    const std::array offsets{-0.125};
+    unsigned int source_guidelines = progpu::native::PROGPU_NATIVE_SCENE_NO_INDEX;
+    unsigned int copied_guidelines = progpu::native::PROGPU_NATIVE_SCENE_NO_INDEX;
+    if (!guideline_source.add_guideline_set_with_offsets(coordinates, {}, offsets, {}, source_guidelines) ||
+        !builder.copy_guideline_set_from(guideline_source, source_guidelines, copied_guidelines) ||
+        copied_guidelines == progpu::native::PROGPU_NATIVE_SCENE_NO_INDEX) return 1;
     std::array<std::byte, 4096U> stream{};
     const std::size_t required_size = builder.required_stream_size();
     std::size_t bytes_written = 0U;

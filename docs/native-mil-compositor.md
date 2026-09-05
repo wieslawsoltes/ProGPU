@@ -7827,6 +7827,38 @@ non-tiled collapsed-group rejection; guideline-aware tile masks, mixed-picture-m
 performance qualification, and the broader MIL/DirectX/Direct2D/Win2D scope remain
 incomplete.
 
+### Implementation-first checkpoint: typed nested-scene guideline ownership
+
+Added `semantic_scene_builder::copy_guideline_set_from` to the shared include/module
+C++ builder surface. A nested mask scene can now copy a builder-validated guideline
+resource directly, preserving static/composite/per-point flags, coordinates, and
+resolved dynamic offsets. It receives a destination-owned resource index, identity,
+generation, and byte storage; no parent index leaks into the child scene and no
+whole-scene serialization/parsing or dynamic guideline re-evaluation is required.
+The copy is self-alias-safe and rejects non-guideline/out-of-range resources before
+mutation. Source reset does not invalidate the copied payload.
+
+Algorithm provenance is the existing ProGPU builder resource ownership and
+guideline layout. Copy cost is O(G) time/storage in guideline coordinates and
+optional offsets using owned bulk byte copies, not a new scalar numerical loop.
+This C++ builder-only ownership operation does not change the C scene ABI, managed
+guideline behavior, or canonical shaders. Managed snapshot ownership remains the
+paired contract; runtime parity is not established by this API addition.
+
+Authored include-based cases compare copied bytes/flags, destination metadata,
+self-copy, invalid-resource non-mutation, and source-reset independence for three
+guideline forms. The import-based consumer exercises explicit-offset copying.
+Native library, MIL/native/internal test executables, and the LLVM C++20 module
+consumer compile; tests were **not executed**. Runtime/image/VM tests, verifiers,
+benchmarks, and CI qualification remain deferred.
+
+This is a prerequisite, **not completed guideline-aware tile masking**. Executor
+preflight currently permits per-point deformation only for `DRAW_PATH`, rejecting
+stroke-primitive draws. Subsequent mask integration must preserve single/composite
+translation versus per-point path deformation, avoid double-snapping at layer
+restore, and retain shifted mask storage bounds. Existing fail-closed tile-mask
+guards stay in place until those execution semantics are implemented.
+
 ## Invariants
 
 - No reflection or private managed field scanning in the product bridge.

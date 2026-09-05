@@ -95,6 +95,13 @@ public:
         std::uint32_t& resource_index,
         bool composite_only = false,
         bool per_point = false) noexcept;
+    // Copy one typed guideline resource into an independently owned scene.
+    // Preserves coordinates, flags and resolved dynamic offsets without a
+    // serialize/parse round trip. Source indices never escape into the target.
+    bool copy_guideline_set_from(
+        const semantic_scene_builder& source,
+        std::uint32_t source_resource_index,
+        std::uint32_t& resource_index) noexcept;
     bool add_rgba8_image(
         std::uint32_t width,
         std::uint32_t height,
