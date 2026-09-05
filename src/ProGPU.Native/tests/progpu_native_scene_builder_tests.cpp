@@ -963,6 +963,29 @@ bool semantic_scene_builder_reuses_retained_images() {
         return false;
     }
 
+    semantic_scene_builder r8_builder(7032U, 1U);
+    const std::array<std::byte, 5U> r8_pixels{
+        std::byte{0}, std::byte{64}, std::byte{0xee}, std::byte{128}, std::byte{255}};
+    std::uint32_t r8_index = PROGPU_NATIVE_SCENE_NO_INDEX;
+    auto r8_image = image;
+    r8_image.row_bytes = 3U;
+    if (!r8_builder.add_r8_image(2U, 2U, 3U, r8_pixels, r8_index) ||
+        !r8_builder.draw_image(r8_index, r8_image, {0.0F, 0.0F, 2.0F, 2.0F},
+            PROGPU_NATIVE_SCENE_NO_INDEX, &sampling, &matrix)) return false;
+    std::vector<std::byte> r8_stream;
+    if (!r8_builder.build(r8_stream)) return false;
+    const auto r8_validation = scene::validate(r8_stream.data(), r8_stream.size());
+    if (r8_validation.status != PROGPU_NATIVE_STATUS_SUCCESS) return false;
+    auto r8_resource = read<progpu_native_scene_resource>(r8_stream, r8_validation.header.resource_offset);
+    if (r8_resource.flags != (PROGPU_NATIVE_SCENE_RECORD_REQUIRED | PROGPU_NATIVE_SCENE_IMAGE_R8) ||
+        r8_resource.payload_size != r8_pixels.size() ||
+        std::memcmp(r8_stream.data() + r8_resource.payload_offset, r8_pixels.data(), r8_pixels.size()) != 0) return false;
+    r8_resource.flags |= PROGPU_NATIVE_SCENE_IMAGE_BGRA8;
+    std::memcpy(r8_stream.data() + r8_validation.header.resource_offset, &r8_resource, sizeof(r8_resource));
+    if (scene::validate(r8_stream.data(), r8_stream.size()).status == PROGPU_NATIVE_STATUS_SUCCESS ||
+        r8_builder.add_r8_image(2U, 2U, 1U, r8_pixels, r8_index) ||
+        r8_builder.add_r8_image(2U, 2U, 3U, std::span<const std::byte>(r8_pixels).first(4U), r8_index)) return false;
+
     semantic_scene_builder invalid(704U, 1U);
     std::uint32_t invalid_index = PROGPU_NATIVE_SCENE_NO_INDEX;
     if (invalid.add_rgba8_image(

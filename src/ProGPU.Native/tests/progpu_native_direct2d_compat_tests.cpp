@@ -6221,6 +6221,68 @@ int run_tests()
 
     const compat::bitmap_properties bitmap_properties{
         {87U, compat::alpha_mode::premultiplied}, 96.0F, 96.0F};
+    // A8 remains compact across upload, subrectangle copies, aliases, and scene
+    // export; only the GPU color matrix maps the sampled red channel to alpha.
+    for (const auto alpha : {compat::alpha_mode::premultiplied, compat::alpha_mode::straight,
+            compat::alpha_mode::unknown}) {
+        const compat::bitmap_properties properties{{65U, alpha}, 144.0F, 192.0F};
+        const std::array<std::byte, 7U> pixels{std::byte{0}, std::byte{64}, std::byte{128},
+            std::byte{0xee}, std::byte{192}, std::byte{254}, std::byte{255}};
+        compat::bitmap* raw = nullptr;
+        if (target->CreateBitmap({3U, 2U}, pixels.data(), 4U, &properties, &raw) != com::ok) return 343;
+        com::pointer<compat::bitmap> mask;
+        mask.attach(raw);
+        const auto expected_alpha = alpha == compat::alpha_mode::unknown ? compat::alpha_mode::premultiplied : alpha;
+        if (!mask || mask->GetPixelFormat().format != 65U || mask->GetPixelFormat().alpha != expected_alpha ||
+            !approximately_equal(mask->GetSize().width, 2.0F) ||
+            !approximately_equal(mask->GetSize().height, 1.0F)) return 344;
+        const compat::rectangle_u update{1U, 0U, 3U, 1U};
+        const std::array<std::byte, 2U> updated{std::byte{17}, std::byte{31}};
+        if (mask->CopyFromMemory(&update, updated.data(), 1U) != com::invalid_argument ||
+            mask->CopyFromMemory(&update, updated.data(), 2U) != com::ok) return 345;
+        const compat::rectangle_u source{0U, 0U, 2U, 1U};
+        const compat::point_2u destination{1U, 1U};
+        if (mask->CopyFromBitmap(&destination, mask.get(), &source) != com::ok) return 346;
+        raw = nullptr;
+        if (target->CreateSharedBitmap(compat::bitmap_interface_id, mask.get(), nullptr, &raw) != com::ok) return 347;
+        com::pointer<compat::bitmap> alias;
+        alias.attach(raw);
+        target->BeginDraw();
+        target->DrawBitmap(alias.get(), nullptr, 0.5F, compat::bitmap_interpolation_mode::nearest_neighbor, nullptr);
+        if (target->EndDraw(nullptr, nullptr) != com::ok) return 348;
+        const auto size = scene_target->GetRequiredSceneSize();
+        std::vector<std::byte> bytes(static_cast<std::size_t>(size));
+        std::uint64_t written = 0U;
+        if (size == 0U || scene_target->BuildScene(bytes.data(), size, &written) != com::ok || written != size) return 349;
+        const auto* header = reinterpret_cast<const progpu_native_scene_header*>(bytes.data());
+        const auto* command = reinterpret_cast<const progpu_native_scene_command*>(bytes.data() + header->command_offset);
+        const auto* image = reinterpret_cast<const progpu_native_scene_image_draw*>(bytes.data() + command->payload_offset);
+        const auto* matrix = reinterpret_cast<const progpu_native_scene_image_color_matrix*>(image + 1);
+        const auto* resource = reinterpret_cast<const progpu_native_scene_resource*>(bytes.data() +
+            header->resource_offset + command->resource_index * header->resource_stride);
+        const std::array<std::byte, 7U> expected{std::byte{0}, std::byte{17}, std::byte{31},
+            std::byte{0xee}, std::byte{192}, std::byte{0}, std::byte{17}};
+        if (header->command_count != 1U || image->row_bytes != 4U || image->opacity != 0.5F ||
+            (image->flags & PROGPU_NATIVE_SCENE_IMAGE_COLOR_MATRIX) == 0U ||
+            resource->flags != (PROGPU_NATIVE_SCENE_RECORD_REQUIRED | PROGPU_NATIVE_SCENE_IMAGE_R8) ||
+            resource->payload_size != expected.size() || matrix->alpha[0] != 1.0F ||
+            matrix->alpha[3] != 0.0F || matrix->red[0] != 0.0F ||
+            std::memcmp(bytes.data() + resource->payload_offset, expected.data(), expected.size()) != 0) return 350;
+        compat::bitmap_brush* raw_brush = nullptr;
+        if (target->CreateBitmapBrush(alias.get(), nullptr, nullptr, &raw_brush) != com::ok) return 351;
+        com::pointer<compat::bitmap_brush> opacity;
+        opacity.attach(raw_brush);
+        auto parameters = layer_parameters;
+        parameters.opacity_brush = opacity.get();
+        target->BeginDraw();
+        target->SetAntialiasMode(compat::antialias_mode::aliased);
+        target->FillOpacityMask(alias.get(), target_brush.get(), compat::opacity_mask_content::graphics, nullptr, nullptr);
+        target->PushLayer(&parameters, nullptr);
+        target->FillRectangle(&layer_bounds, target_brush.get());
+        target->PopLayer();
+        if (target->EndDraw(nullptr, nullptr) != com::ok || scene_target->GetRequiredSceneSize() == 0U) return 352;
+    }
+    target->SetAntialiasMode(compat::antialias_mode::per_primitive);
     const std::byte bitmap_pixels[]{
         std::byte{0x00}, std::byte{0x00}, std::byte{0xff}, std::byte{0xff},
         std::byte{0x00}, std::byte{0xff}, std::byte{0x00}, std::byte{0xff},

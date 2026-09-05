@@ -119,6 +119,14 @@ public:
         std::uint32_t row_bytes,
         std::span<const std::byte> pixels,
         std::uint32_t& resource_index) noexcept;
+    // Retain compact one-channel bytes, including row padding but no final-row
+    // padding. Samples are (R, 0, 0, 1); use a color matrix for alpha-only masks.
+    bool add_r8_image(
+        std::uint32_t width,
+        std::uint32_t height,
+        std::uint32_t row_bytes,
+        std::span<const std::byte> pixels,
+        std::uint32_t& resource_index) noexcept;
     bool add_external_image(
         std::uint32_t width,
         std::uint32_t height,
@@ -355,13 +363,14 @@ public:
     static progpu_native_scene_state identity_state() noexcept;
 
 private:
-    bool add_32bit_image(
+    bool add_upload_image(
         std::uint32_t width,
         std::uint32_t height,
         std::uint32_t row_bytes,
         std::span<const std::byte> pixels,
         bool bgra8,
-        std::uint32_t& resource_index) noexcept;
+        std::uint32_t& resource_index,
+        bool r8 = false) noexcept;
     bool update_32bit_image(
         std::uint32_t resource_index,
         std::uint32_t width,

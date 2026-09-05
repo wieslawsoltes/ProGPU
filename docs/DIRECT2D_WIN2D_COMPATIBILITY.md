@@ -3726,3 +3726,48 @@ compile. Runtime tests, Windows-specific compilation/execution, GPU/VM image
 comparisons, benchmarks, and CI qualification remain deferred. Bounded general
 rotation/shear is still rejected: the reviewed documentation did not establish
 its exact edge behavior sufficiently to replace the planned Windows oracle.
+
+## Implementation-first checkpoint: compact A8 bitmap uploads
+
+`CreateBitmap` now accepts `DXGI_FORMAT_A8_UNORM` with premultiplied, straight,
+or default/unknown alpha (resolved to premultiplied). These are the documented
+[Direct2D bitmap format combinations](https://learn.microsoft.com/en-us/windows/win32/direct2d/supported-pixel-formats-and-alpha-modes#specifying-a-pixel-format-for-an-id2d1bitmap).
+The alpha byte is identical in straight and premultiplied A8. Ignored alpha is
+not accepted for this format. Copy/update rectangles use one-byte pixel offsets
+and pitches, including overlap-safe self-copy; shared bitmap aliases retain the
+source byte layout and metadata. Existing generation-based scene invalidation
+continues to apply.
+
+ProGPU's reusable scene builder now exposes `add_r8_image` through its C++ header
+and module. The additive C scene resource flag `PROGPU_NATIVE_SCENE_IMAGE_R8`
+selects compact single-channel payloads and `R8Unorm` GPU textures. It cannot be
+combined with BGRA8 or external-image flags. Upload sizes and image/payload
+validation use one byte per pixel, without relaxing RGBA/BGRA stride checks.
+Old consumers reject the unknown resource flag; producer/consumer versions must
+be deployed together. No existing structure size or function signature in the
+stable C ABI changes. The native C# contract generator was rerun and emitted no
+tracked binding changes for this constant-only addition.
+
+R8 samples have `(R, 0, 0, 1)` semantics. Direct2D A8 drawing explicitly uses the
+canonical image color-matrix stage to produce `(0, 0, 0, R)`. This works through
+ordinary bitmap drawing, bitmap brushes, `FillOpacityMask`, and the retained
+bitmap-opacity layer capture, without CPU expansion, readback, or new shaders.
+Upload storage/copy work remains O(B) for B source bytes, using the existing
+byte-copy implementation; the channel mapping is O(1) CPU metadata and GPU
+per-pixel work. No new compute-heavy CPU loop or SIMD fallback is introduced.
+Performance is not measured; this does not claim a speedup from byte-count alone.
+
+This is original ProGPU code reusing its resource validator, image builder,
+WebGPU uploader, and canonical color-matrix pipeline. Portable COM callers share
+the C++ endpoint. There is no separate managed Direct2D implementation to update;
+the current managed WPF renderer is unchanged. WIC 8bpp-alpha import/lock support,
+arbitrary Windows providers, and render-target readback copies remain separate
+gaps; the new upload route does not claim them.
+
+Authored cases cover three alpha modes, padded rows, non-square DPI, short-pitch
+rejection, subrectangle updates, overlapping self-copy, shared aliases, compact
+scene bytes, red-to-alpha metadata, opacity-mask/layer recording, malformed R8
+resource flags/lengths, and a module-import consumer. Native library, Direct2D
+compatibility target, internal test target, and C++ module consumer compile.
+No tests, GPU scenes, Windows/Linux builds, VM comparisons, benchmarks, or CI
+qualification were executed during this implementation-first checkpoint.
