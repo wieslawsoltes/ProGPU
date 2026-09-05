@@ -6117,6 +6117,23 @@ int run_tests()
     if (target->EndDraw(nullptr, nullptr) != com::ok) {
         return 192;
     }
+    // The native secondary COM interface must own an active nested layer
+    // even after the caller releases its primary interface reference.
+    raw_layer = nullptr;
+    if (target->CreateLayer(nullptr, &raw_layer) != com::ok ||
+        raw_layer == nullptr) {
+        return 192;
+    }
+    target->BeginDraw();
+    target->PushLayer(&layer_parameters, target_layer.get());
+    target->PushLayer(&layer_parameters, raw_layer);
+    raw_layer->Release();
+    raw_layer = nullptr;
+    target->PopLayer();
+    target->PopLayer();
+    if (target->EndDraw(nullptr, nullptr) != com::ok) {
+        return 192;
+    }
     compat::layer_parameters unsupported_layer = layer_parameters;
     unsupported_layer.options =
         compat::layer_options::initialize_for_cleartype;

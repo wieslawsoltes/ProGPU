@@ -2627,6 +2627,14 @@ public:
         return com::ok;
     }
 
+#if defined(__GNUC__) && !defined(__clang__) && __GNUC__ == 13 && \
+    defined(__aarch64__) && defined(__SANITIZE_ADDRESS__)
+    // GCC 13 ARM64 sanitizer IPA replaces this secondary-base thunk with
+    // __ubsan_handle_builtin_unreachable even for a live portable_layer.
+    // Keep the method instrumented, but opaque to that optimizer. Remove
+    // this workaround when the GCC 13 sanitizer lane is retired/qualified.
+    __attribute__((noipa))
+#endif
     void PROGPU_NATIVE_COM_CALL EndUse(
         const void* target) noexcept override
     {
