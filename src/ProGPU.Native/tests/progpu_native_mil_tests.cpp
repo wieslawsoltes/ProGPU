@@ -18926,6 +18926,7 @@ int main() {
         progpu::native::tests::mil_brush_fixture_source::drawing_image,
         progpu::native::tests::mil_brush_fixture_source::visual}) {
         for (const auto shape : {progpu::native::tests::mil_brush_fixture_shape::line,
+            progpu::native::tests::mil_brush_fixture_shape::line_geometry,
             progpu::native::tests::mil_brush_fixture_shape::rectangle,
             progpu::native::tests::mil_brush_fixture_shape::ellipse,
             progpu::native::tests::mil_brush_fixture_shape::rounded_rectangle}) {
@@ -18953,6 +18954,55 @@ int main() {
                 }
             }
         }
+    }
+    {
+        auto multiple = make_curve_path_figures();
+        const auto second = make_arc_path_figures();
+        const auto second_offset = multiple.size();
+        multiple.insert(multiple.end(), second.begin() + 48U, second.end());
+        write_value(multiple, 0U, static_cast<std::uint32_t>(multiple.size()));
+        write_value(multiple, 4U, 0U); // Compute bounds across both figures.
+        write_value(multiple, 40U, 2U);
+        write_value(multiple, second_offset, static_cast<std::uint32_t>(second_offset - 48U));
+        auto broken = make_curve_path_figures();
+        write_value(broken, 52U, 0x0aU); // Open, filled figure.
+        write_value(broken, 124U, 0x24U); // Unstroked quadratic splits two runs.
+        const std::array paths{make_curve_path_figures(), make_arc_path_figures(), multiple, broken};
+        for (const auto& figures : paths) {
+            for (const auto source : {progpu::native::tests::mil_brush_fixture_source::bitmap,
+                progpu::native::tests::mil_brush_fixture_source::drawing,
+                progpu::native::tests::mil_brush_fixture_source::drawing_image,
+                progpu::native::tests::mil_brush_fixture_source::visual}) {
+                for (const std::uint32_t mode : {0U, 3U}) {
+                    for (const bool dashed : {false, true}) {
+                        std::vector<std::byte> scene;
+                        PROGPU_REQUIRE(progpu::native::tests::build_mil_image_brush_fixture(scene,
+                            {.tile_mode = mode, .opacity = 0.5, .skew = true, .source = source,
+                                .shape = progpu::native::tests::mil_brush_fixture_shape::path,
+                                .inherited_clip = true, .paint_transform = true, .path_figures = figures,
+                                .viewport = {0.0, 0.0, 0.25, 0.5}, .fant = true, .pen = true,
+                                .dashed = dashed, .cap = 0U, .end_cap = 1U, .dash_cap = 2U}, 9700U + mode));
+                        const auto header = read_value<progpu_native_scene_header>(scene, 0U);
+                        std::uint32_t stroke_mask_count = 0U;
+                        for (std::uint32_t index = 0U; index < header.resource_count; ++index) {
+                            const auto resource = read_value<progpu_native_scene_resource>(scene,
+                                header.resource_offset + index * sizeof(progpu_native_scene_resource));
+                            if (resource.kind == PROGPU_NATIVE_SCENE_RESOURCE_LAYER_MASK &&
+                                resource.payload_size == sizeof(progpu_native_scene_layer_geometry_mask)) {
+                                const auto mask = read_value<progpu_native_scene_layer_geometry_mask>(scene, resource.payload_offset);
+                                stroke_mask_count += mask.kind == PROGPU_NATIVE_SCENE_LAYER_MASK_GEOMETRY && mask.primitive_count > 0U;
+                            }
+                        }
+                        PROGPU_REQUIRE(stroke_mask_count == 1U);
+                    }
+                }
+            }
+        }
+        std::vector<std::byte> rejected{std::byte{0x5a}};
+        PROGPU_REQUIRE(!progpu::native::tests::build_mil_image_brush_fixture(rejected,
+            {.shape = progpu::native::tests::mil_brush_fixture_shape::path,
+                .path_figures = paths[0], .pen = true, .guidelines = true}, 9790U));
+        PROGPU_REQUIRE(rejected == std::vector<std::byte>{std::byte{0x5a}});
     }
     // Authored during implementation-first work; execution and pixel parity
     // remain part of the final validation phase.
