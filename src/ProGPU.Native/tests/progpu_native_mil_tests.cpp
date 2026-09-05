@@ -17473,6 +17473,66 @@ bool retained_viewport3d_uses_pointer_free_mesh_sideband() {
     }
     PROGPU_REQUIRE(found_material_table);
     PROGPU_REQUIRE(found_material_draw);
+    // Rebinding equal wire values must preserve identity and the compiled scene.
+    // Use distinct arrays, then mutate each family (including aliased producers).
+    auto current_camera = camera;
+    auto current_viewport = viewport;
+    auto current_mesh = mesh;
+    auto current_vertices = vertices;
+    auto current_indices = indices;
+    auto current_lights = lights;
+    auto current_material = material;
+    auto current_stops = stops;
+    const auto bind = [&]() {
+        return state.set_viewport3d_scene(
+            viewport_handle, current_camera, current_viewport,
+            std::span<const progpu_native_scene_mesh_3d>{&current_mesh, 1U},
+            current_vertices, current_indices, current_lights,
+            std::span<const progpu_native_scene_brush>{&current_material, 1U},
+            current_stops);
+    };
+    auto generation = state.resource_generation(viewport_handle);
+    PROGPU_REQUIRE(bind() == status::success);
+    PROGPU_REQUIRE(state.resource_generation(viewport_handle) == generation);
+    std::vector<std::byte> unchanged_stream;
+    PROGPU_REQUIRE(state.build_scene(target, 8200U, 3U, unchanged_stream) ==
+        status::success);
+    PROGPU_REQUIRE(unchanged_stream == stream);
+    const auto changed_once = [&]() {
+        if (bind() != status::success ||
+            state.resource_generation(viewport_handle) != ++generation) {
+            return false;
+        }
+        return bind() == status::success &&
+            state.resource_generation(viewport_handle) == generation;
+    };
+    current_camera.camera_position.z += 1.0F;
+    PROGPU_REQUIRE(changed_once());
+    current_viewport.x += 1.0F;
+    PROGPU_REQUIRE(changed_once());
+    current_mesh.opacity = 0.75F;
+    PROGPU_REQUIRE(changed_once());
+    current_vertices[0].position.x += 0.1F;
+    PROGPU_REQUIRE(changed_once());
+    std::swap(current_indices[0], current_indices[1]);
+    PROGPU_REQUIRE(changed_once());
+    current_lights[0].color.r = 0.4F;
+    PROGPU_REQUIRE(changed_once());
+    current_material.opacity = 0.5F;
+    PROGPU_REQUIRE(changed_once());
+    current_stops[0].color.r = 0.5F;
+    PROGPU_REQUIRE(changed_once());
+    current_vertices[0].reserved0 = 1U;
+    PROGPU_REQUIRE(bind() == status::invalid_argument);
+    PROGPU_REQUIRE(state.resource_generation(viewport_handle) == generation);
+    current_vertices[0].reserved0 = 0U;
+    current_indices[0] = 99U;
+    PROGPU_REQUIRE(bind() == status::invalid_argument);
+    PROGPU_REQUIRE(state.resource_generation(viewport_handle) == generation);
+    current_indices = indices;
+    std::swap(current_indices[0], current_indices[1]);
+    PROGPU_REQUIRE(bind() == status::success);
+    PROGPU_REQUIRE(state.resource_generation(viewport_handle) == generation);
     return true;
 }
 

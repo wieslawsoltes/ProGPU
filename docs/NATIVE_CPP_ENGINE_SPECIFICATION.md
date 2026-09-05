@@ -4301,3 +4301,103 @@ compatibility-test line 4555), before the layer tests. No timeout, allocation
 budget, or sanitizer option was relaxed. This GCC sanitizer CPU qualification
 gap remains open; neither the successful GPU gate nor other-platform COM
 passes are substituted for it. Exact-head hosted PR CI remains required.
+
+### Immutable viewport ingress retention, 2026-09-05
+
+The native MIL channel now compares an incoming viewport with its previously
+validated owned state after handle/envelope checks and before allocating replacement arrays.
+Exact equality proves the payload is still valid; changed bits or lengths still
+run every per-element validator. This avoids repeating a full vertex-validation
+pass on an identical payload without weakening invalid-input behavior.
+Equal wire values do not advance resource generation or discard the build cache.
+The managed native adapter additionally provides `NativeMilViewport3DSnapshot`,
+which lets LibreWPF skip that ABI call entirely on unchanged producer updates.
+It owns its baseline; comparing previous DTO array references would be incorrect
+when producers mutate them in place. The ABI byte-coverage test recursively
+checks every field and mutates every byte, including reserved bytes. Native
+regressions check camera, viewport, mesh, vertex, index, light, material, gradient
+changes, invalid input, unchanged generation, and byte-identical scene output.
+
+Applicability review: this is a native MIL ingress/lifetime change shared by
+wgpu-native and Dawn, with a backend-neutral managed comparison helper. The
+managed `Mesh3DExtensionPipeline` owns separate pooled `ViewportResource` state;
+it does not call the MIL sideband API. No rendering or shader algorithm changed,
+so no duplicate managed/native shader implementation is introduced. The current
+native validator still runs for changed direct-native payloads, and this work does not
+claim to SIMD-vectorize its existing semantic-validation loops. Comparison uses
+runtime-intrinsic `SequenceEqual` or the platform's optimized `memcmp`, and the
+managed tests also run with hardware intrinsics disabled as a scalar oracle.
+
+Cross-engine primary-source review (concepts only; no foreign code copied):
+
+- [Skia pictures](https://api.skia.org/classSkPicture.html) retain recorded work;
+  immutable identity is useful only if mutation is excluded. Our mutable DTO
+  arrays instead require an owned baseline.
+- [Direct2D resource reuse](https://learn.microsoft.com/en-us/windows/win32/direct2d/improving-direct2d-performance)
+  and [Win2D command lists](https://microsoft.github.io/Win2D/WinUI3/html/T_Microsoft_Graphics_Canvas_CanvasCommandList.htm)
+  motivate avoiding repeated construction at replay boundaries, without changing
+  device ownership or treating a bounds rectangle as an exact clip.
+- [WebRender scene building](https://doc.servo.org/webrender/scene_building/index.html)
+  and [Vello Scene](https://docs.rs/vello/latest/vello/struct.Scene.html) inform the
+  distinction between retained content identity and mutable submission state.
+  We use collision-free exact bytes, not an unverified content hash.
+- [DirectWrite layout reuse](https://learn.microsoft.com/en-us/windows/win32/direct2d/direct2d-and-directwrite),
+  [SkParagraph's layout/paint boundary](https://github.com/google/skia/blob/main/modules/skparagraph/include/Paragraph.h),
+  [Parley layout](https://docs.rs/parley/latest/parley/layout/struct.Layout.html),
+  and [HarfBuzz shape plans](https://harfbuzz.github.io/harfbuzz-hb-shape-plan.html)
+  were checked for applicability. This change does not touch shaping, glyph
+  placement, font identity, DPI raster keys, atlases, or text rendering; their
+  existing generation and device-lifetime rules remain authoritative.
+
+Memory/latency boundary: one baseline stores O(B) bytes per viewport and copies
+on successful initial/changed binding. Unchanged matches allocate nothing but
+scan O(B) bytes; native equality reuses its already-owned vectors. No GPU is
+initialized by the component benchmark. Producer flattening, semantic stream
+allocation, GPU upload, rasterization, and frame pacing are excluded. Neither
+this component test nor primary-source reuse guidance establishes an FPS gain.
+
+Initial macOS ARM64 Release qualification passes native 15/15, managed 3,926/3,926,
+and the new managed tests 3/3 with hardware intrinsics disabled. LibreWPF passes
+1,473/1,473 and its actual-channel smoke verifies unchanged content, in-place
+producer mutation, mutable target resize, structural replacement, and disposal.
+The smoke is part of the existing native-MIL package SDK gate on all three OSes.
+Windows and GCC/ASan Linux qualification and exact-head CI are recorded in the
+corresponding PR updates; unfinished jobs are not counted as passes.
+
+The full managed headless suite additionally passes 240/240. The initial native
+implementation passed Windows 16/16 (GPU 104.97 s) and GCC 13 ARM64 MIL with
+ASan/UBSan/leak detection. The latter initially lacked the staged Inter test font;
+copying that existing fixture restored the unchanged test without a gate or
+source workaround. Final qualification is repeated after moving the exact-match
+check before redundant per-vertex validation.
+
+Matched component observations on M3 Pro / macOS 26.6, .NET 10.0.5 Release,
+`DOTNET_TieredCompilation=0`, 128 warmups and nine 500-update batches:
+
+| Vertices / owned bytes | Previous native binding median (us) | Managed retained match median (us) | Final direct native binding median (us) |
+| --- | ---: | ---: | ---: |
+| 3 / 412 | 0.142 | 0.039 | 0.045 |
+| 3,000 / 156,256 | 10.555 | 3.196 | 3.479 |
+| 60,000 / 3,120,256 | 205.748 | 67.306 | 68.653 |
+
+These are medians of batch means, not per-call p95/p99. The large retained case
+had a 151.463 us maximum batch mean; all raw samples remain in the local artifact
+`artifacts/performance/viewport3d-sidebands-20260905/final-matched-release.txt`.
+Old bindings advanced generation 4,500 times; both new paths advanced it zero
+times. Every timed path measured zero managed thread allocations. Native old
+binding allocations are not counted by that managed metric. The earlier native
+prototype checked equality after every validator and regressed direct-call cost;
+measurement prompted the validated-baseline early-out now tested above.
+
+Time Profiler captures include the old native validation/vector assignment work
+and the retained comparison workload. Matched .NET 10.0.5 captures are named
+`before-matched-time.trace`, `after-time.trace`, and `final-native-time.trace`.
+The first exploratory `before-time.trace` used another runtime installation and
+hit its time limit; it is excluded from matched timing conclusions. Allocations
+captures (`before-allocations.trace`, `after-allocations.trace`) both exited zero
+and include VM Tracker. This Xcode export exposes those as Instruments detail
+tracks, not allocation schema rows; no fabricated native allocation totals or
+working-set delta is asserted. Capture cost and O(B) retained memory remain
+explicit tradeoffs. Metal profiling is not applicable to this CPU-only ingress
+workload. No application FPS, end-to-end allocation, or GPU throughput claim is
+made from these component observations.

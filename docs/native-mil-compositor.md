@@ -6673,6 +6673,37 @@ submission counts are asserted alongside depth ordering. This is ten GPU
 variants in total, not a claim of every possible draw-family transition or
 complete Viewport3D transform/guideline/shading parity.
 
+## Unchanged Viewport3D sidebands, 2026-09-05
+
+`NativeMilViewport3DSnapshot` owns an immutable exact-byte baseline of the
+camera, viewport, mesh/vertex/index/light arrays, materials, and gradient stops.
+LibreWPF retains it only after a successful native binding. An unchanged update
+skips the ABI call; changed producer arrays (even the same array instances) bind
+and replace the baseline. Topology replacement creates new baselines with the
+replacement channel, and disposal releases them. Capture failure after a partial
+update keeps the existing fail-closed rebuild requirement.
+
+The C++ MIL channel independently recognizes identical fully validated sidebands
+and preserves both resource generation and compiled-scene cache. The shared
+channel serves wgpu-native and Dawn; no backend-specific shader or ABI version
+was added. Exact comparison includes reserved fields. Managed ABI tests prove
+there is no implicit padding and mutate every byte, so neither hash collisions
+nor source-object identity can conceal a change. Native tests cover all payload
+families, invalid reserved/index values, and identical compiled output.
+
+Matching uses runtime-intrinsic span comparison in managed code and platform
+`memcmp` in C++; no new whole-buffer scalar comparison loop exists. The owned
+managed baseline costs O(B) memory per viewport and a copy at initial/changed
+binding; matching is O(B), allocation-free. The C++ check reuses existing owned
+vectors. This does not optimize producer flattening or change GPU selection,
+shaders, lighting, geometry quality, or device-loss semantics. The legacy managed
+mesh extension uses its own pooled viewport resources, not this MIL ingress;
+there is no second shader/mesh algorithm to port for this change.
+
+The reusable component workload is in `tools/ProGPU.NativeMil.Benchmarks`.
+Application frame-rate and producer-side allocation claims require separate
+end-to-end evidence. See the engine specification for research and qualification.
+
 ## Invariants
 
 - No reflection or private managed field scanning in the product bridge.
