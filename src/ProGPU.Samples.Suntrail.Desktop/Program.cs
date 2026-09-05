@@ -27,6 +27,8 @@ public static class Program
             throw new ArgumentException("--world requires a number from 1 through 8.");
         if (args.Contains("--no-occlusion", StringComparer.Ordinal))
             App.Started += (view, _) => view.Surface.Batch.EnableBackgroundOcclusion = false;
+        if (args.Contains("--material-pages", StringComparer.Ordinal))
+            App.Started += (_, window) => ((Rendering.ProceduralPipeline)window.Compositor!.GetDrawingExtension(Rendering.ProceduralDrawingContextExtensions.Definition)!).EnableMaterialPages = true;
         if (args.Contains("--sky-cache", StringComparer.Ordinal))
             App.Started += (_, window) => ((Rendering.ProceduralPipeline)window.Compositor!.GetDrawingExtension(Rendering.ProceduralDrawingContextExtensions.Definition)!).EnableSkyCache = true;
         if (world > 0) App.Started += (view, _) => view.Surface.Session.StartLevel(world - 1);

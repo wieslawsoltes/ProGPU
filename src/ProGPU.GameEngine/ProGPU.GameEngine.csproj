@@ -1,0 +1,12 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <Description>Reusable bounded game rendering and procedural material infrastructure for ProGPU.</Description>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="../ProGPU.Backend/ProGPU.Backend.csproj" />
+  </ItemGroup>
+</Project>

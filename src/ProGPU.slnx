@@ -61,6 +61,9 @@
   <Project Path="ProGPU.Dxf/ProGPU.Dxf.csproj" />
   <Project Path="ProGPU.Tests.Headless/ProGPU.Tests.Headless.csproj" />
   <Project Path="ProGPU.Tests/ProGPU.Tests.csproj" />
+  <Folder Name="/Rendering/">
+    <Project Path="ProGPU.GameEngine/ProGPU.GameEngine.csproj" />
+  </Folder>
   <Project Path="../tests/ProGPU.Avalonia.ContractTests/ProGPU.Avalonia.ContractTests.csproj" />
   <Project Path="../tests/ProGPU.Avalonia.HeadlessPixelTests/ProGPU.Avalonia.HeadlessPixelTests.csproj" />
   <Project Path="../tests/ProGPU.Avalonia.SilkNet.ContractTests/ProGPU.Avalonia.SilkNet.ContractTests.csproj" />

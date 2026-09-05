@@ -79,6 +79,7 @@ public sealed unsafe partial class ProceduralPipeline : ICompositorExtension, ID
     };
     private ProceduralBatch? _lastBatch;
     private uint _lastGeneration;
+    private bool _lastUsedPages;
     private Matrix4x4 _transform = Matrix4x4.Identity;
     private Vector4 _clip;
     private bool _uniformsDirty = true;
@@ -106,11 +107,14 @@ public sealed unsafe partial class ProceduralPipeline : ICompositorExtension, ID
         if (dc.DataParam is not ProceduralBatch batch || batch.Count == 0) return;
         EnsureResources(compositor);
         var api = compositor.Context.Api;
-        if (!ReferenceEquals(_lastBatch, batch) || _lastGeneration != batch.Generation)
+        if (!ReferenceEquals(_lastBatch, batch) || _lastGeneration != batch.Generation || _lastUsedPages != _pagesPrepared)
         {
-            _instances!.Write(batch.Sprites);
-            UploadedBytes += batch.Count * 48;
-            _lastBatch = batch; _lastGeneration = batch.Generation; _uniformsDirty = true;
+            if (!_pagesPrepared)
+            {
+                _instances!.Write(batch.Sprites);
+                UploadedBytes += batch.Count * 48;
+            }
+            _lastBatch = batch; _lastGeneration = batch.Generation; _lastUsedPages = _pagesPrepared; _uniformsDirty = true;
         }
         if (_uniformsDirty)
         {
@@ -123,6 +127,7 @@ public sealed unsafe partial class ProceduralPipeline : ICompositorExtension, ID
         }
         var pass = (RenderPassEncoder*)renderPassEncoder;
         api.RenderPassEncoderSetBindGroup(pass, 0, _group, 0, null);
+        if (_pagesPrepared) { RenderMaterialPages(compositor, pass, isOffscreen, batch); return; }
         api.RenderPassEncoderSetVertexBuffer(pass, 0, _instances!.BufferPtr, 0, _instances.Size);
         var sprites = batch.Sprites;
         // Scan once, retain painter order and the single immutable instance upload.
@@ -191,6 +196,7 @@ public sealed unsafe partial class ProceduralPipeline : ICompositorExtension, ID
 
     public void Dispose()
     {
+        DisposeMaterials();
         DisposeSkyCache();
         if (_context is { IsDisposed: false } context)
         {

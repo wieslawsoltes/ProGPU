@@ -23,8 +23,9 @@ internal sealed class DeviceMeasurement
         _pipeline = (ProceduralPipeline)window.Compositor!.GetDrawingExtension(ProceduralDrawingContextExtensions.Definition)!;
         _pipeline.EnableSpecializedShaders = Environment.GetEnvironmentVariable("SUNTRAIL_GENERIC_SHADER") != "1";
         _pipeline.EnableWorldShaders = Environment.GetEnvironmentVariable("SUNTRAIL_WORLD_SHADERS") == "1";
+        _pipeline.EnableMaterialPages = Environment.GetEnvironmentVariable("SUNTRAIL_MATERIAL_PAGES") == "1";
         window.Rendering += Record;
-        Console.WriteLine($"SUNTRAIL_MEASURE specializedShaders={_pipeline.EnableSpecializedShaders} worldShaders={_pipeline.EnableWorldShaders} fixedStep=1/60");
+        Console.WriteLine($"SUNTRAIL_MEASURE specializedShaders={_pipeline.EnableSpecializedShaders} worldShaders={_pipeline.EnableWorldShaders} materialPages={_pipeline.EnableMaterialPages} fixedStep=1/60");
         Console.WriteLine("SUNTRAIL_MEASURE starting: 120 warmup, 600 measured frames");
     }
 
@@ -48,6 +49,7 @@ internal sealed class DeviceMeasurement
         // Hold the exact final pose for paired Instruments captures after timing.
         _view.Surface.AutoPlay = false; _view.Surface.Session.TogglePause(); _view.ClearInput();
         long allocated = GC.GetTotalAllocatedBytes(true) - _allocated;
+        Console.WriteLine($"SUNTRAIL_MEASURE materialBakes={_pipeline.MaterialBakeCount} materialBytes={_pipeline.MaterialResidentBytes} residentPages={_pipeline.MaterialResidentPages} visiblePages={_pipeline.MaterialVisiblePages} fallbackPages={_pipeline.MaterialFallbackPages} evictions={_pipeline.MaterialEvictions}");
         _window.WgpuContext!.TryCaptureNativeResourceSnapshot(out var native);
         foreach (var values in new[] { _intervals, _simulation, _compositor }) Array.Sort(values);
         static string Percentiles(double[] a) => FormattableString.Invariant($"p50={a[299]:F3} p95={a[569]:F3} p99={a[593]:F3} max={a[^1]:F3}");

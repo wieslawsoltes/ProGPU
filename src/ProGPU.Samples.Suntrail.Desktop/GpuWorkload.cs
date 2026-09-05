@@ -20,6 +20,7 @@ internal static class GpuWorkload
         using var compositor = new Compositor(context, TextureFormat.Rgba8Unorm);
         var pipeline = (ProceduralPipeline)compositor.RegisterDrawingExtension(ProceduralDrawingContextExtensions.Definition);
         pipeline.EnableSkyCache = cacheSky;
+        pipeline.EnableMaterialPages = Environment.GetEnvironmentVariable("SUNTRAIL_MATERIAL_PAGES") == "1";
         pipeline.EnableEarlyCoverage = earlyCoverage;
         pipeline.EnableWorldShaders = Environment.GetEnvironmentVariable("SUNTRAIL_WORLD_SHADERS") == "1";
         using var target = new GpuTexture(context, width * dpi, height * dpi, TextureFormat.Rgba8Unorm,
@@ -52,7 +53,7 @@ internal static class GpuWorkload
         }
         Array.Sort(latency); Array.Sort(cpu);
         double P(double[] values, double p) => values[(int)Math.Ceiling(values.Length * p) - 1];
-        var summary = FormattableString.Invariant($"adapter={context.AdapterName} logical={width}x{height} framebuffer={target.Width}x{target.Height} dpi={dpi} samples={compositor.Options.PrimarySampleCount} frames={frames} warmup=120 skyCache={cacheSky} earlyCoverage={earlyCoverage} worldShaders={pipeline.EnableWorldShaders} world={world + 1} processFirstFrameMs={firstCompletion:F3}\nserializedCompletionMs p50={P(latency,.5):F3} p95={P(latency,.95):F3} p99={P(latency,.99):F3}\nsubmitCpuMs p50={P(cpu,.5):F3} p95={P(cpu,.95):F3} p99={P(cpu,.99):F3}\nallocatedBytes={allocated} uploadBytes={uploads} draws={pipeline.Draws - draws} skyBakes={pipeline.SkyBakeCount} skyResidentBytes={pipeline.SkyResidentBytes} metalAllocatedBytes={native.MetalAllocatedBytes}\nfinalX={view.Session.Position.X} finalY={view.Session.Position.Y} tick={view.Session.Tick} deaths={view.Session.Deaths}\n");
+        var summary = FormattableString.Invariant($"adapter={context.AdapterName} logical={width}x{height} framebuffer={target.Width}x{target.Height} dpi={dpi} samples={compositor.Options.PrimarySampleCount} frames={frames} warmup=120 skyCache={cacheSky} earlyCoverage={earlyCoverage} materialPages={pipeline.EnableMaterialPages} worldShaders={pipeline.EnableWorldShaders} world={world + 1} processFirstFrameMs={firstCompletion:F3}\nserializedCompletionMs p50={P(latency,.5):F3} p95={P(latency,.95):F3} p99={P(latency,.99):F3}\nsubmitCpuMs p50={P(cpu,.5):F3} p95={P(cpu,.95):F3} p99={P(cpu,.99):F3}\nallocatedBytes={allocated} uploadBytes={uploads} draws={pipeline.Draws - draws} materialBakes={pipeline.MaterialBakeCount} materialBytes={pipeline.MaterialResidentBytes} materialFallback={pipeline.MaterialFallbackPages} skyBakes={pipeline.SkyBakeCount} skyResidentBytes={pipeline.SkyResidentBytes} metalAllocatedBytes={native.MetalAllocatedBytes}\nfinalX={view.Session.Position.X} finalY={view.Session.Position.Y} tick={view.Session.Tick} deaths={view.Session.Deaths}\n");
         File.WriteAllText(prefix + ".txt", summary); Console.Write(summary);
     }
 }

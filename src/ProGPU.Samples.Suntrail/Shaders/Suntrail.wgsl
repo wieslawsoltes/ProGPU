@@ -1,6 +1,6 @@
 // Algorithm: Instanced analytic 2.5D artwork with rough stone cells, layered noise, textured foliage and fur, atmospheric extinction, and directional illumination. Original Suntrail artwork.
-// Time complexity: O(V + F) for V visible sprites and F covered fragments; six vertices per sprite, at most 36 bounded shape layers per fragment; material noise uses three fixed octaves and stone cells use a 3x3 neighborhood, no scene-length loops or ray marching. An optional sky-cache miss adds O(P) work for P framebuffer pixels once per key; hits replace sky noise with one O(1) texel load per visible fragment. Optional world-specialized entries fold world branches without changing the six material runs or fragment equations.
-// Space complexity: O(V) uploaded 48-byte sprite records in a fixed 2048-instance buffer; O(1) private fragment storage and a 288-byte frame uniform. Optional retained sky uses one physical-resolution RGBA32Float image capped at 96 MiB; replay performs one unfiltered 16-byte texel load per sky fragment. Other entries use zero texture samples. Device-owned pipelines are lazy and bounded to six dynamic plus 48 world variants per target configuration.
+// Time complexity: Optional material pages compile O(B * 130^2) fragments for B<=32 misses per preparation; resident replay uses one filtered sample plus bounded live lighting per fragment. Page culling/residency uses bounded CPU storage. Original path: O(V + F) for V visible sprites and F covered fragments; six vertices per sprite, at most 36 bounded shape layers per fragment; material noise uses three fixed octaves and stone cells use a 3x3 neighborhood, with three evaluations for the reusable cliff normal field, no scene-length loops or ray marching. An optional sky-cache miss adds O(P) work for P framebuffer pixels once per key; hits replace sky noise with one O(1) texel load per visible fragment. Optional world-specialized entries fold world branches without changing the six material runs or fragment equations.
+// Space complexity: Optional material atlas is capped at 192 MiB RGBA16Float, 1444 guttered pages, 8192 96-byte instances and 32 bake records. No material texture readback. Original path: O(V) uploaded 48-byte sprite records in a fixed 2048-instance buffer; O(1) private fragment storage and a 288-byte frame uniform. Optional retained sky uses one physical-resolution RGBA32Float image capped at 96 MiB; replay performs one unfiltered 16-byte texel load per sky fragment. Other analytic entries use zero texture samples. Device-owned pipelines are lazy and bounded to six dynamic plus 48 world variants per target configuration.
 // Coordinates are logical pixels, projected to physical framebuffer pixels by ProGPU.
 // Coverage uses physical-pixel derivatives; premultiplied alpha, source-over composition.
 // Fixed loops: stone neighborhood 9, tree branches 7 and canopy lobes 7, fern fronds 2 with 6 leaf pairs each, grass blades 6, petals 5, portal sparks 6, palm fronds 8, pine boughs 6, crystal prisms 3, local lights 3, conservative opaque rectangles at most 8. No ray marching or screen-space history.
@@ -28,6 +28,7 @@ struct Varying {
     @location(2) @interpolate(flat) material: vec4<f32>,
     @location(3) @interpolate(flat) size: vec2<f32>,
     @location(4) local: vec2<f32>,
+    @location(5) atlas_uv: vec2<f32>,
 };
 @vertex fn vs_main(sprite: Sprite, @builtin(vertex_index) vertex: u32) -> Varying {
     var corners = array<vec2<f32>, 6>(vec2(0.,0.),vec2(1.,0.),vec2(1.,1.),vec2(0.,0.),vec2(1.,1.),vec2(0.,1.));
@@ -176,6 +177,24 @@ fn cloud(p: vec2<f32>) -> vec4<f32> {
     return ink(col,alpha);
 }
 
+// Material-space height is independent of screen derivative quads. A fixed
+// half-world-unit stencil gives the compiler a reusable normal field instead of
+// baking a camera-phase-dependent dpdx/dpdy lighting result into the material.
+fn cliff_height(p: vec2<f32>, seed: f32) -> f32 {
+    if(world()==1u) {
+        let strata=noise(vec2(p.x*.016,p.y*.055+noise(vec2(p.x*.029,seed))*1.8));
+        return strata*3.+noise(p*vec2(.012,.20))*1.4;
+    }
+    let warp=vec2(noise(p*.021),noise(p*.016+17.))*.16;
+    var cellSize=vec2(81.,64.);
+    if(world()==5u){cellSize=vec2(57.,151.);}
+    if(world()==6u){cellSize=vec2(62.,140.);}
+    if(world()==7u){cellSize=vec2(114.,47.);}
+    let cell=stone_cells(p/cellSize+warp+seed*20.);
+    if(world()==5u){return smoothstep(.008,.17,cell.y)*3.+noise(p*vec2(.1,.007));}
+    return smoothstep(.008,.17,cell.y)*5.+noise(p*.13)*.5;
+}
+
 fn cliff(uv: vec2<f32>, size: vec2<f32>, seed: f32) -> vec4<f32> {
     let p=uv*size;
     let grain=detail(p*vec2(.033,.046)+seed*91.);
@@ -201,11 +220,12 @@ fn cliff(uv: vec2<f32>, size: vec2<f32>, seed: f32) -> vec4<f32> {
     }
     rock*=.77+strata*.37;
     rock*=1.-crack*.22;
-    // Height-derived normals bevel the fractured rock and retain physical-pixel AA.
+    // A fixed material-space height stencil bevels rock independently of camera phase.
+    // Physical-pixel derivatives remain exclusively in silhouette coverage.
     var height=smoothstep(.008,.17,cell.y)*5.+noise(p*.13)*.5;
     if(world()==1u){height=strata*3.+noise(p*vec2(.012,.20))*1.4;}
     if(world()==5u){height=smoothstep(.008,.17,cell.y)*3.+noise(p*vec2(.1,.007));}
-    let gradient=vec2(dpdx(height)/max(length(dpdx(p)),.001),dpdy(height)/max(length(dpdy(p)),.001));
+    let gradient=vec2(cliff_height(p+vec2(.5,0.),seed)-height,cliff_height(p+vec2(0.,.5),seed)-height)*2.;
     let normal=normalize(vec3(-gradient,1.));
     let light=max(0.,dot(normal,normalize(vec3(-.45,-.65,.8))));
     rock*=.43+light*.82;
@@ -250,8 +270,8 @@ fn canopy(p: vec2<f32>, center: vec2<f32>, radius: vec2<f32>, tint: vec3<f32>, l
     color+=vec3(.28,.29,.09)*scattering;
     return ink(color,alpha);
 }
-fn tree(p0: vec2<f32>, seed: f32) -> vec4<f32> {
-    var p=p0; p.x+=sin(frame.scene.x*.8+seed*8.)*.003*(1.-p.y);
+fn tree(p0: vec2<f32>, seed: f32, compiled: bool) -> vec4<f32> {
+    var p=p0; if(!compiled) { p.x+=sin(frame.scene.x*.8+seed*8.)*.003*(1.-p.y); }
     let curve=.50+sin(p.y*8.+seed*3.)*.022;
     let trunk=abs(p.x-curve)-(.013+p.y*.022);
     let bark=noise(vec2(p.x*180.,p.y*11.)+seed*29.);
@@ -632,9 +652,7 @@ fn crusher_art(p: vec2<f32>, phase: f32) -> vec4<f32> {
     return c;
 }
 
-fn shade(v: Varying, kind: u32, biome: u32) -> vec4<f32> {
-    selected_world=biome;
-    let p=v.uv;
+fn hidden_backdrop(v: Varying, kind: u32) -> bool {
     // Opaque terrain is drawn later. Skip only fragments deep inside its interior;
     // all edge helper quads and every gap still execute the original artwork.
     let backdrop=kind==0u || kind==14u || kind==15u || kind==16u || kind==27u || kind==28u ||
@@ -642,15 +660,23 @@ fn shade(v: Varying, kind: u32, biome: u32) -> vec4<f32> {
     if(backdrop) {
         for(var i=0u;i<u32(frame.occlusion.x);i++) {
             let rect=frame.ground[i];
-            if(all(v.local>rect.xy) && all(v.local<rect.zw)){return vec4(0.);}
+            if(all(v.local>rect.xy) && all(v.local<rect.zw)){return true;}
         }
     }
+    return false;
+}
+
+// Expensive appearance is independent of camera, local lights, tint and vignette.
+// Only materials explicitly classified static by the host enter the page compiler.
+fn material_art(v: Varying, kind: u32, biome: u32) -> vec4<f32> {
+    selected_world=biome;
+    let p=v.uv;
     var c=vec4(0.);
     switch kind {
         case 0u: {c=sky(p);}
         case 1u: {c=cliff(p,v.size,v.material.y);}
         case 2u: {
-            c=tree(p,v.material.y);
+            c=tree(p,v.material.y,frame.occlusion.w>.5 || v.material.w>.5);
             if(v.material.z>.5) {
                 var haze=vec3(.44,.56,.51);
                 if(world()==4u){haze=vec3(.58,.44,.32);}
@@ -695,6 +721,10 @@ fn shade(v: Varying, kind: u32, biome: u32) -> vec4<f32> {
         case 32u: {c=crusher_art(p,v.material.y);}
         default: {}
     }
+    return c;
+}
+fn finish_material(v: Varying, kind: u32, appearance: vec4<f32>) -> vec4<f32> {
+    var c=appearance;
     // Three bounded world-space emitters; no per-sprite lights or native crossings.
     if(kind==1u || kind==3u || kind==5u || kind==7u || kind==8u || kind==11u || kind==23u) {
         var illumination=vec3(0.);
@@ -709,6 +739,11 @@ fn shade(v: Varying, kind: u32, biome: u32) -> vec4<f32> {
     let screen=v.local/frame.clip.zw;
     let vignette=1.-dot((screen-.5)*vec2(.45,.25),(screen-.5)*vec2(.45,.25));
     return vec4(c.rgb*v.color.rgb*v.color.a*vignette,c.a*v.color.a);
+}
+
+fn shade(v: Varying, kind: u32, biome: u32) -> vec4<f32> {
+    if(hidden_backdrop(v,kind)){return vec4(0.);}
+    return finish_material(v,kind,material_art(v,kind,biome));
 }
 
 // Constant entry points let the backend eliminate unrelated material branches.
@@ -785,4 +820,47 @@ fn shade(v: Varying, kind: u32, biome: u32) -> vec4<f32> {
     let extent=vec2<i32>(textureDimensions(retained_sky));
     let texel=clamp(vec2<i32>(v.uv*vec2<f32>(extent)),vec2<i32>(0),extent-1);
     return textureLoad(retained_sky,texel,0);
+}
+
+// Procedural asset compiler and page replay. Each gutter is evaluated from the
+// same original material coordinates, so tile boundaries do not clamp the art.
+// Tree wind is an affine vertex deformation of cached static artwork; water,
+// character animation, particles and articulated foliage retain live evaluation.
+struct PageSprite {
+    @location(0) bounds: vec4<f32>,
+    @location(1) color: vec4<f32>,
+    @location(2) material: vec4<f32>,
+    @location(3) source_rect: vec4<f32>,
+    @location(4) atlas_rect: vec4<f32>,
+    @location(5) source_size: vec4<f32>,
+};
+fn page_vertex(sprite: PageSprite, vertex: u32, bake: bool) -> Varying {
+    var corners=array<vec2<f32>,6>(vec2(0.,0.),vec2(1.,0.),vec2(1.,1.),vec2(0.,0.),vec2(1.,1.),vec2(0.,1.));
+    let corner=corners[vertex];
+    let uv=sprite.source_rect.xy+corner*sprite.source_rect.zw;
+    var position_uv=uv;
+    if(!bake && sprite.material.x==2.) {
+        position_uv.x-=sin(frame.scene.x*.8+sprite.material.y*8.)*.003*(1.-uv.y);
+    }
+    var local=sprite.bounds.xy+position_uv*sprite.bounds.zw;
+    if(bake){local=sprite.bounds.xy+corner*sprite.bounds.zw;}
+    let transformed=frame.transform*vec4(local,0.,1.);
+    var o: Varying;
+    o.position=vec4(transformed.x/frame.clip.z*2.-1.,1.-transformed.y/frame.clip.w*2.,0.,1.);
+    o.uv=uv; o.color=sprite.color; o.material=sprite.material;
+    if(!bake && sprite.material.x==2.){o.material.w=1.;}
+    o.size=sprite.source_size.xy; o.local=transformed.xy;
+    o.atlas_uv=sprite.atlas_rect.xy+corner*sprite.atlas_rect.zw;
+    return o;
+}
+@vertex fn vs_page(sprite: PageSprite, @builtin(vertex_index) vertex: u32) -> Varying { return page_vertex(sprite,vertex,false); }
+@vertex fn vs_material_bake(sprite: PageSprite, @builtin(vertex_index) vertex: u32) -> Varying { return page_vertex(sprite,vertex,true); }
+@fragment fn fs_material_bake(v: Varying) -> @location(0) vec4<f32> {
+    return material_art(v,u32(v.material.x+.5),u32(frame.scene.y+.5));
+}
+@group(1) @binding(1) var material_sampler: sampler;
+@fragment fn fs_material_cached(v: Varying) -> @location(0) vec4<f32> {
+    let kind=u32(v.material.x+.5);
+    if(hidden_backdrop(v,kind)){return vec4(0.);}
+    return finish_material(v,kind,textureSampleLevel(retained_sky,material_sampler,v.atlas_uv,0.));
 }

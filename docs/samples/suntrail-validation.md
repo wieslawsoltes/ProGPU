@@ -540,3 +540,82 @@ improvement is claimed. Verified nonempty GPU/CPU exports, compressed copies, TO
 and command lists remain; the four raw device traces were removed after validation.
 The two rejected desktop/device experiments likewise retain useful exports but no
 unneeded raw traces. The broad final validation phase remains deferred as requested.
+
+
+## Reusable material engine, September 5 afternoon
+
+The new `ProGPU.GameEngine` library provides bounded typed material-page residency,
+device-owned guttered GPU storage and contiguous instance records. Suntrail compiles
+its original artwork through the canonical shader, then applies current lighting,
+tint and tree wind at replay. See [architecture, scope, and primary research](suntrail-engine.md).
+This is a reusable rendering foundation; full 3D and broader engine extraction remain open.
+
+The first 128 MiB candidate reduced matched paused iPhone fragment p50 from 29.538 to
+17.308 ms, but left 117 visible pages uncached. The final candidate uses 190.125 MiB
+of fixed RGBA16Float storage and a material-space normal field. The final same-binary
+six-run device comparison used 120 warmup + 600 fixed-step samples, native 2796×1290
+pixels, 4× MSAA, normal power, and Nominal thermal state in all six runs:
+
+| Mode | Per-run interval p50 (ms) | Median p95 / p99 (ms) |
+| --- | --- | --- |
+| Direct procedural reference | 39.224, 39.350, 39.782 | 50.044 / 66.681 |
+| Material pages | 28.888, 29.034, 28.997 | 50.011 / 50.011 |
+
+Median frame interval decreased about 26%. Both modes finish at tick 1440, x=3414.0393,
+145 source sprites and zero deaths. The final cache reports 1,756 page bakes over the
+whole run, 1,444 resident pages, 1,110 visible requests, zero visible fallbacks and
+312 evictions. Uploads increased from 4,674,528 to 65,791,680 bytes over the measured
+600 frames; total draws increased from 10,947 to 17,535 over warmup + measured frames.
+Whole-app allocation remained approximately 1.64 MB per measured run. These are explicit
+CPU/upload/memory tradeoffs, not a claim that every cost improved.
+
+Final same-binary Instruments captures hold the identical last pose, filter the exact
+Suntrail PID, and union fragmented GPU intervals within each frame. Fragment p50/p95/p99
+is 30.603/30.643/30.667 ms for the direct reference and 16.508/16.533/16.543 ms for pages
+(236 and 263 frames). That is about 46% less median fragment time. The reference now
+uses the same fixed material-space cliff normal field as the compiler; the earlier
+128 MiB pair separately records the preceding screen-derivative reference. No claim
+of sustained 60 FPS follows: the complete frame still exceeds budget and p95 remains
+about 50 ms. Overdraw, page preparation and presentation scheduling remain to investigate.
+
+Ten focused material tests pass: pinned residency, reservation cancellation/stale
+handles, all eight world comparisons, Retina cases, settled upload/bake reuse, mode
+switching and the memory bound. Material images differ from analytic evaluation by
+mean 0.09–0.37 code values per channel in the final captures; all meet the declared
+mean <2 and <1% channels differing by more than 16 contract. This is filtered material
+artwork, not bit-identical screenshot caching. A low-DPI world initially failed; replacing
+screen-dependent rock normal derivatives with a fixed material-space height stencil
+resolved it. `ShaderResourceTests`: 19 passed using the existing Release audit runner.
+Shared and Desktop Release builds pass without warnings; signed iOS Release builds with
+four existing trimming warnings, strict code-sign verification and 250 exported WebGPU
+symbols. Broad game/browser validation remains deferred as requested.
+
+The optimized iOS build is installed and launched in normal play at 15:24:46 local,
+with material pages enabled by default and no autoplay/measurement environment flags.
+Phone controls have not received new user confirmation. Artifacts, exact commands,
+binary hashes, dirty-source manifest, run summaries, image comparisons and Instruments
+exports are under `artifacts/suntrail/performance/iphone-current/material-pages/` and
+`artifacts/suntrail/material-pages/`. Native Metal byte counter zero on iPhone means
+unavailable; cache allocation is counted from the owned texture dimensions instead.
+Pre-existing unfinished custom-room edits were present in both modes and are recorded
+in the source manifest; the normal campaign workload is identical.
+
+
+Matched M3 Pro Release workloads (same six-run ordering, 120 warmup/600 measured
+frames) give serialized completion median p50/p95/p99 of 8.277/11.108/12.695 ms for
+the direct reference and 7.579/8.782/9.027 ms for pages. CPU submission rises from
+0.406/0.623/0.668 to 0.631/1.408/1.790 ms, which supports further retained-instance
+work rather than pretending the new cache is free. Native Metal allocation is
+83,132,416 versus 285,392,896 bytes; the increase tracks the 199,360,512-byte atlas
+plus its page buffers. Whole-workload managed allocation remains about 178 KB.
+These are serialized GPU completion measurements, not displayed FPS.
+
+Matched macOS Metal System Trace and Time Profiler captures and their tables are
+retained. Allocations launch stalled before tracing at `_dyld_start` (96 KB process
+footprint); the owned recorder/target were terminated after a standalone stack capture.
+There is no valid Allocations-profile result. Memory conclusions use the explicit
+texture budget, native Metal counter and managed allocation counters, not that failed
+recording. Twelve valid raw traces from this material pass were removed after verifying
+exported tables; the empty failed recording was discarded with its failure record and
+process stack retained. The final eight-trace export/cleanup manifest is in the final
+artifact directory; the initial four-trace manifest is in its parent.

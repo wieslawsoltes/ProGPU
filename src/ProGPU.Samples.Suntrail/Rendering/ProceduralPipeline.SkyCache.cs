@@ -27,6 +27,9 @@ public sealed unsafe partial class ProceduralPipeline
     {
         preparedDrawCall = drawCall;
         _skyReady = false;
+        _pagesPrepared = false;
+        if (drawCall.DataParam is ProceduralBatch materialBatch) PrepareMaterialPages(compositor, materialBatch);
+        if (_pagesPrepared) return false;
         if (!EnableSkyCache || drawCall.DataParam is not ProceduralBatch batch || batch.Count == 0 ||
             _transform != Matrix4x4.Identity) return false;
         var sky = batch.Sprites[0];

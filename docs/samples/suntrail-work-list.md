@@ -86,10 +86,25 @@ The user requested implementation batching and deferred broad validation until t
 end, with rendering optimization and an updated iPhone installation first. The
 current device pass prioritizes measured rendering changes and focused image/signing
 checks; broader platform suites and feature validation are deferred until that final
-validation phase. Connected-room editor work has not started yet.
+validation phase. Connected-room document/session data is partially implemented; serialization and editor integration remain unfinished.
 
 World-specialized shaders are now enabled by default on iOS and installed in normal
 play. Three nominal-temperature pairs reduced median frame intervals by about 16%;
 a later Fair-temperature pair did not retain that frame-rate gain. Matched paused
 GPU traces show about 8% lower fragment time. Sustained smooth FPS remains open;
 this closes the current optimization/install pass, not the full performance goal.
+
+## Reusable engine scope (September 5 steering)
+
+- [ ] Complete the separate `ProGPU.GameEngine` material residency/compiler foundation and migrate Suntrail rendering, with measured iPhone improvement and visual quality. See [design and research](suntrail-engine.md).
+- [ ] Add only scene/chunk, asset and input/simulation boundaries required by Suntrail, keeping game content outside the engine.
+- [ ] Full 3D remains last, including meshes/depth, material channels/mips, camera, controls and collision; do not label orthographic sprite rendering full 3D.
+
+
+The first reusable material engine is implemented, measured and installed on iPhone.
+It reduces median frame interval about 26% and paused fragment time about 46%, with
+190 MiB bounded material residency and zero visible page fallbacks in the measured route.
+Smooth 60 FPS is still open. Next rendering work should address overdraw and persistent
+GPU scene/instance preparation, with predictive asset preparation where justified.
+Full scene/depth rendering, 3D materials and gameplay remain later steps, not completed
+features of this first library. Broad validation stays deferred until the requested end phase.

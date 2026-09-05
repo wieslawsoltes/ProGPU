@@ -7,6 +7,7 @@
     <ProGpuUseWindowsBaseShim>true</ProGpuUseWindowsBaseShim>
   </PropertyGroup>
   <ItemGroup>
+    <ProjectReference Include="../ProGPU.GameEngine/ProGPU.GameEngine.csproj" />
     <ProjectReference Include="../ProGPU.WinUI/ProGPU.WinUI.csproj" />
     <ProjectReference Include="../ProGPU.WinUI.Themes.Fluent/ProGPU.WinUI.Themes.Fluent.csproj" />
     <ProjectReference Include="../ProGPU.Fonts.Inter/ProGPU.Fonts.Inter.csproj" />
