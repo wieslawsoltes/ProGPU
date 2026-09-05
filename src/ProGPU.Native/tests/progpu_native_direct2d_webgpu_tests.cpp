@@ -154,7 +154,7 @@ struct gpu_context final {
     WGPUAdapterProperties properties{};
 };
 
-[[nodiscard]] gpu_context create_gpu()
+[[nodiscard]] gpu_context create_gpu(bool software = false)
 {
     WGPUInstanceExtras extras{};
     extras.chain.sType = static_cast<WGPUSType>(WGPUSType_InstanceExtras);
@@ -175,9 +175,19 @@ struct gpu_context final {
         instance, &adapter_options, adapters.data());
     require(written != 0U && adapters[0U] != nullptr,
         "WebGPU adapter enumeration failed");
-    WGPUAdapter adapter = adapters[0U];
-    for (std::size_t index = 1U; index < written; ++index) {
-        wgpuAdapterRelease(adapters[index]);
+    std::size_t selected = 0U;
+    if (software) {
+        selected = written;
+        for (std::size_t index = 0U; index < written; ++index) {
+            WGPUAdapterProperties candidate{};
+            wgpuAdapterGetProperties(adapters[index], &candidate);
+            if (candidate.adapterType == WGPUAdapterType_CPU) selected = index;
+        }
+        require(selected != written, "requested software adapter is unavailable");
+    }
+    WGPUAdapter adapter = adapters[selected];
+    for (std::size_t index = 0U; index < written; ++index) {
+        if (index != selected) wgpuAdapterRelease(adapters[index]);
     }
 
     WGPUAdapterProperties properties{};
@@ -1001,8 +1011,28 @@ void verify_mil_image_brushes(const gpu_context& gpu, progpu_native_engine* engi
             std::vector<std::byte> linear_stream;
             require(progpu::native::tests::build_mil_image_brush_fixture(
                 linear_stream, linear_options, identity + 100U), "linear ImageBrush fixture failed");
+            bool found_linear = false;
+            for (std::uint32_t command_index = 0U; command_index < header.command_count; ++command_index) {
+                progpu_native_scene_command command{};
+                std::memcpy(&command, linear_stream.data() + header.command_offset +
+                    command_index * sizeof(command), sizeof(command));
+                if (command.kind == PROGPU_NATIVE_SCENE_COMMAND_DRAW_IMAGE) {
+                    progpu_native_scene_image_draw draw{};
+                    std::memcpy(&draw, linear_stream.data() + command.payload_offset, sizeof(draw));
+                    require(draw.sampling == PROGPU_NATIVE_IMAGE_SAMPLING_LINEAR,
+                        "ImageBrush linear sampling was lost during MIL lowering");
+                    found_linear = true;
+                }
+            }
+            require(found_linear, "linear ImageBrush image record missing");
             const auto linear_pixels = render_scene(gpu, engine, nullptr, 1U,
                 header.command_count, 1U, linear_stream, identity + 100U);
+            if (i == 0U) {
+                const auto offset = (8U * width + 20U) * 4U;
+                if (std::abs(static_cast<int>(linear_pixels[offset]) - 250) > 1 ||
+                    std::abs(static_cast<int>(linear_pixels[offset + 2U]) - 5) > 1)
+                    fail("ImageBrush linear sampler did not interpolate the source texels");
+            }
             const auto linear_path = std::filesystem::path(directory) /
                 ("image-brush-linear-" + std::to_string(i) + ".ppm");
             write_capture(linear_path.string().c_str(), linear_pixels);
@@ -1080,7 +1110,8 @@ void write_capture(
 
 int main(int argc, char** argv)
 {
-    require(argc == 1 || argc == 2, "usage: test [CAPTURE_PPM]");
+    require(argc == 1 || argc == 2,
+        "usage: test [CAPTURE_PPM|--mil-image-brush-only|--mil-image-brush-software]");
     const auto started = std::chrono::steady_clock::now();
     const auto phase = [&started](const char* name) {
         const auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(
@@ -1089,11 +1120,21 @@ int main(int argc, char** argv)
             static_cast<long long>(elapsed));
     };
     phase("request adapter");
-    gpu_context gpu = create_gpu();
+    const bool software = argc == 2 && std::strcmp(argv[1], "--mil-image-brush-software") == 0;
+    gpu_context gpu = create_gpu(software);
+    std::fprintf(stderr, "Native GPU adapter: backend=%s name=%s\n",
+        backend_name(gpu.properties.backendType),
+        gpu.properties.name == nullptr ? "unknown" : gpu.properties.name);
     // A host owns one engine across scene updates. Keep its device-local
     // pipelines alive across fixtures too: recreating them per image repeats
     // expensive cold D3D12 shader compilation, not rendering validation.
     progpu_native_engine* engine = create_engine(gpu);
+    if (software || (argc == 2 && std::strcmp(argv[1], "--mil-image-brush-only") == 0)) {
+        verify_mil_image_brushes(gpu, engine);
+        progpu_native_engine_destroy(engine);
+        release_gpu(gpu);
+        return EXIT_SUCCESS;
+    }
     phase("record Direct2D");
     portable_scene scene = record_scene();
     const std::vector<std::uint8_t> pixels = render_scene(

@@ -6801,10 +6801,28 @@ Qualification and reproduction:
   separate D3D12/Metal/Vulkan captures; exact-head hosted completion is separate.
   Ubuntu ARM64 GCC 13 MIL CPU tests also pass with ASan, UBSan and leak detection
   enabled (0.80 seconds); this is not a Linux GPU image comparison.
+  After merging latest main `102e39e5`, managed tests pass 3,936/3,936, headless
+  tests 240/240, LibreWPF 1,479/1,479 and the source-built host passes again.
 - Windows WPF software RenderTargetBitmap blended this two-pixel ImageBrush
   when nearest-neighbor was requested, while ProGPU used nearest. The comparison
   explicitly sets Linear on both sides; it does not relax pixel thresholds or
   claim nearest-WPF parity. Further sampling qualification remains required.
+- Enabling linear captures on the Parallels Display Adapter (WDDM), D3D12,
+  exposes a separate failure: MIL carries the correct Linear enum but the GPU
+  returns nearest-filtered pixels. A fresh engine reproduces it; changing the
+  sampler LOD clamp did not fix it and that experiment was reverted. The normal
+  16-target Windows regression above did not enable linear captures and is not
+  evidence that this new comparison passes on Parallels hardware.
+  `--mil-image-brush-only` reproduces the focused hardware test without the
+  unrelated Direct2D cold shader workload; `--mil-image-brush-software` explicitly
+  selects a CPU WebGPU adapter or fails if unavailable. Neither changes the
+  production adapter policy or silently substitutes a different device.
+  The focused test passes on Windows ARM64 Microsoft Basic Render Driver
+  (D3D12/WARP), including the linear-sampler probe, eight captured variants and
+  skew exclusion. All eight WARP linear captures then match native Windows WPF
+  across 32,768 pixels at the same tolerance 1. This isolates the observed
+  mismatch to the Parallels-adapter path, not a general Windows comparison
+  failure; a qualified same-device remedy still belongs to the full goal.
 
 Remaining: repeated/flipped base tiles, DrawingBrush/VisualBrush and DrawingImage/
 D3DImage brush sources, arbitrary/rounded/elliptical fills, strokes, text, masks,
