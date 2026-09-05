@@ -8164,6 +8164,35 @@ executed. Final image/Windows/VM comparisons, verifier, benchmark, and CI gates
 remain deferred. This supersedes the prior cached-picture multi-coordinate
 rejection, not the broader per-point path/stroke or per-axis target-DPI backlog.
 
+### Implementation-first checkpoint: physical BitmapCache origin snapping
+
+`BitmapCache.SnapsToDevicePixels` now floors the retained bitmap origin in physical
+target pixels, converts the fractional displacement back to logical coordinates,
+and applies the same displacement to cache composition and its opacity-mask
+transform. It uses the composed raster-origin translation, not the minimum of a
+transformed bounding box, which differs under rotation/reflection. Raster geometry,
+cache content revision, and transform basis are unchanged. Negative positions
+retain floor semantics. Legacy builds use DPI 1; unequal target X/Y DPI fails
+closed in this scalar-frame path, and non-finite physical coordinates are rejected.
+
+Provenance/applicability: original managed `ProGPU.Scene/Compositor.cs`
+`ApplyAndDrawLayer` already multiplies the transformed local origin by target DPI,
+floors physical coordinates, and translates cache composition back in logical
+units. This change brings native MIL cache placement into that contract, without
+changing the managed implementation. The [existing cross-engine research](progpu-avalonia-rendering-research.md)
+continues to govern retained cache ownership and DPI separation. No foreign
+implementation, shader, ABI, image kernel, readback, or submission is added.
+The calculation is fixed-work O(1), allocation-free scalar metadata arithmetic.
+
+Added 320 unexecuted paired cases (640 scene builds when run) across four mask
+sources, five DPIs, positive/negative/integer offsets, identity/affine transforms,
+and cached/cached-effect visuals. Assertions compare snapped composition and mask
+displacement and preserve content revisions, raster bounds, and transform basis.
+Native-library and MIL-test compilation are the only current qualification.
+Windows image parity, fractional-scale behavior, broader per-axis DPI, and
+performance remain unqualified; final runtime/VM, verifier, benchmark and CI
+gates remain deferred with the full goal still open.
+
 ## Invariants
 
 - No reflection or private managed field scanning in the product bridge.

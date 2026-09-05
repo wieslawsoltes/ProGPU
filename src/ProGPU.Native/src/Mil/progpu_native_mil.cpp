@@ -19905,25 +19905,25 @@ struct channel::implementation {
         affine_2d_double composite_transform = compose_affine(
             raster_to_local, state.transform);
         if (cache->second.snaps_to_device_pixels) {
-            progpu_native_image_rect world_bounds{};
-            if (!try_transform_bounds(
-                    cache_visual.cache_bounds_x,
-                    cache_visual.cache_bounds_y,
-                    cache_visual.cache_bounds_width,
-                    cache_visual.cache_bounds_height,
-                    state.transform,
-                    world_bounds)) {
-                return status::invalid_graph;
-            }
+            const auto* frame = mask_context.frame;
+            if (frame != nullptr && frame->request.dpi_scale_x != frame->request.dpi_scale_y)
+                return status::unsupported_command;
+            const float dpi = frame == nullptr ? 1.0F : static_cast<float>(frame->request.dpi_scale_x);
+            // Algorithm: snap the retained quad's local origin in physical
+            // pixels, then apply the logical displacement to content and mask.
+            // Time/space: O(1), allocation-free, matching managed ApplyAndDrawLayer.
+            // A transformed AABB minimum is not the bitmap origin under rotation.
+            const float physical_x = static_cast<float>(composite_transform.m31) * dpi;
+            const float physical_y = static_cast<float>(composite_transform.m32) * dpi;
+            if (!std::isfinite(dpi) || dpi <= 0.0F ||
+                !std::isfinite(physical_x) || !std::isfinite(physical_y)) return status::invalid_graph;
             const affine_2d_double snap_offset{
                 1.0,
                 0.0,
                 0.0,
                 1.0,
-                -static_cast<double>(
-                    world_bounds.x - std::floor(world_bounds.x)),
-                -static_cast<double>(
-                    world_bounds.y - std::floor(world_bounds.y))};
+                -static_cast<double>((physical_x - std::floor(physical_x)) / dpi),
+                -static_cast<double>((physical_y - std::floor(physical_y)) / dpi)};
             composite_transform = compose_affine(
                 composite_transform, snap_offset);
             mask_transform = compose_affine(mask_transform, snap_offset);
