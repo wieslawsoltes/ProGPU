@@ -3771,3 +3771,40 @@ resource flags/lengths, and a module-import consumer. Native library, Direct2D
 compatibility target, internal test target, and C++ module consumer compile.
 No tests, GPU scenes, Windows/Linux builds, VM comparisons, benchmarks, or CI
 qualification were executed during this implementation-first checkpoint.
+
+## Implementation-first checkpoint: WIC A8 sources and locks
+
+`CreateBitmapFromWicBitmap` and `CreateSharedBitmap(IWICBitmapLock, ...)` now
+recognize `GUID_WICPixelFormat8bppAlpha`. The portable compatibility header
+publishes its GUID from Microsoft's
+[Windows SDK declaration](https://github.com/microsoft/win32metadata/blob/main/generation/WinSDK/RecompiledIdlHeaders/um/wincodec.h).
+The format/alpha combinations follow the public
+[supported WIC formats table](https://learn.microsoft.com/en-us/windows/win32/direct2d/supported-pixel-formats-and-alpha-modes#supported-wic-formats):
+straight and premultiplied A8 are accepted, unknown resolves to premultiplied,
+and ignored alpha is rejected. Existing DPI defaults are unchanged.
+
+WIC source imports call `CopyPixels` into owned compact one-byte rows. Shared
+locks retain their original data pointer, padding and COM lifetime; the snapshot
+uploaded into a semantic scene remains owned by that scene, as with existing
+color locks. Lock copies, subrectangle writes, overlapping self-copy and copies
+back to owned bitmaps use format-aware offsets/pitches. The reusable R8 resource
+and GPU red-to-alpha encoder from the previous checkpoint handle rendering.
+No WIC A8 premultiplication, CPU RGBA expansion, pixel readback, or new shader is
+introduced. Copying uses the existing byte-copy path: O(B) work for B bytes,
+O(B) owned storage for imports/overlap snapshots, and O(1) retained lock metadata.
+There is no new compute-heavy scalar pixel loop and no measured speedup claim.
+
+This is original ProGPU implementation extending its typed WIC COM adapters,
+not a foreign implementation or a managed WPF workaround. No stable C ABI or
+public module signature changes; the additive GUID is in the C++ compatibility
+header. Portable Windows/macOS/Linux callers share this endpoint. Windows ABI
+GUID comparison is authored but not compiled/executed on Windows in this phase.
+
+Authored cases cover all three accepted alpha selections, exact compact import
+sizes, source mutation independence, padded lock storage, bidirectional copies,
+self-overlap, one-byte replacement, aliases, retained-lock lifetime, short stride,
+short buffer and ignored-alpha rejection. The native library and compatibility
+test target compile; tests are unexecuted. This supersedes the earlier WIC A8
+import/lock gap, but not WIC render-target creation, arbitrary format conversion,
+render-target readback copies, Windows/GPU parity, performance or CI qualification.
+The latest fetched ProGPU `main` is already contained in the feature branch.
