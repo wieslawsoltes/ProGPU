@@ -10100,7 +10100,8 @@ struct channel::implementation {
         const render_scope_state& current,
         native::semantic_scene_builder& builder,
         std::unordered_map<std::uint64_t, glyph_scene_resource>&
-            glyph_resources) const {
+            glyph_resources,
+        bool coverage_only = false) const {
         if (glyph_run_handle == 0U || foreground_brush_handle == 0U) {
             return status::success;
         }
@@ -10108,9 +10109,9 @@ struct channel::implementation {
         if (glyph_run_entry == glyph_runs.end()) {
             return status::invalid_handle;
         }
-        progpu_native_color text_color{};
-        double text_opacity = 0.0;
-        const status brush_status = resolve_solid_brush(
+        progpu_native_color text_color{1.0F, 1.0F, 1.0F, 1.0F};
+        double text_opacity = 1.0;
+        const status brush_status = coverage_only ? status::success : resolve_solid_brush(
             foreground_brush_handle,
             text_color,
             text_opacity);
@@ -14847,6 +14848,19 @@ struct channel::implementation {
             state.guideline_resource_index = PROGPU_NATIVE_SCENE_NO_INDEX;
             return status::success;
         };
+        const auto paint_tile_source_in_mask = [&builder, &save_state, &append_single_tile_brush](
+            std::uint32_t brush_handle, const brush_use_state& use, const render_scope_state& state,
+            const progpu_native_scene_layer& layer, bool isolate_snapping) -> status {
+            if (isolate_snapping && !save_state(state)) return status::invalid_graph;
+            if (!builder.push_layer(layer)) {
+                if (isolate_snapping) (void)builder.restore();
+                return status::invalid_graph;
+            }
+            const status drawn = append_single_tile_brush(brush_handle, use, state);
+            const bool restored = builder.pop_layer();
+            const bool scope_restored = !isolate_snapping || builder.restore();
+            return drawn != status::success ? drawn : restored && scope_restored ? status::success : status::invalid_graph;
+        };
         const auto append_path_tile_brush = [
             &builder, &clip_paths, &clip_segments, &clip_boolean_nodes,
             &append_single_tile_brush, &resolve_uniform_tile_guidelines, &save_state](
@@ -14917,7 +14931,7 @@ struct channel::implementation {
         // then apply the native tile source through an isolated masked layer.
         // Time/space: O(S + D) retained primitives for S segments and D dash
         // pieces; dash traversal is sequential, not an independent CPU pixel loop.
-        const auto paint_tile_pen_mask = [&builder, &append_single_tile_brush, &resolve_uniform_tile_guidelines, &save_state](
+        const auto paint_tile_pen_mask = [&builder, &resolve_uniform_tile_guidelines, &paint_tile_source_in_mask](
             const pen_state& pen, const brush_use_state& source_use,
             const render_scope_state& source_state,
             std::span<const progpu_native_geometry_primitive> primitives,
@@ -14965,15 +14979,7 @@ struct channel::implementation {
                     return status::invalid_graph;
             }
             const bool isolate_snapping = source_state.guideline_resource_index != PROGPU_NATIVE_SCENE_NO_INDEX;
-            if (isolate_snapping && !save_state(state)) return status::invalid_graph;
-            if (!builder.push_layer(layer)) {
-                if (isolate_snapping) (void)builder.restore();
-                return status::invalid_graph;
-            }
-            const status drawn = append_single_tile_brush(pen.brush_handle, use, state);
-            const bool restored = builder.pop_layer();
-            const bool scope_restored = !isolate_snapping || builder.restore();
-            return drawn != status::success ? drawn : restored && scope_restored ? status::success : status::invalid_graph;
+            return paint_tile_source_in_mask(pen.brush_handle, use, state, layer, isolate_snapping);
         };
         const auto append_tile_pen = [this, &paint_tile_pen_mask, &append_degenerate_cap_stroke, &resolve_uniform_tile_guidelines](
             const pen_state& pen, const brush_use_state& use,
@@ -15165,6 +15171,65 @@ struct channel::implementation {
             pen_state stroke_pen = pen;
             if (rounded) stroke_pen.miter_limit = 1.0;
             return append_tile_pen(stroke_pen, use, state, {}, {}, true, geometry.stroke_contours, collected);
+        };
+        const auto append_brushed_glyph_run = [this, &builder, &glyph_resources,
+            &resolve_uniform_tile_guidelines, &paint_tile_source_in_mask](
+            std::uint32_t glyph_handle, std::uint32_t brush_handle,
+            const render_scope_state& source_state) -> status {
+            if (!tile_brushes.contains(brush_handle))
+                return append_glyph_run(glyph_handle, brush_handle, source_state, builder, glyph_resources);
+            if (glyph_handle == 0U || affine_has_zero_area(source_state.transform)) return status::success;
+            const auto found = glyph_runs.find(glyph_handle);
+            if (found == glyph_runs.end()) return status::invalid_handle;
+            const auto& glyph = found->second;
+            // Tile mapping requires the typed run's real bounds; do not derive
+            // relative placement from a synthetic em-size rectangle.
+            if (glyph.bounds_width <= 0.0 || glyph.bounds_height <= 0.0) return status::unsupported_command;
+            brush_use_state use{glyph.bounds_x, glyph.bounds_y, glyph.bounds_width, glyph.bounds_height,
+                source_state.transform};
+            auto paint = source_state;
+            const status snapped = resolve_uniform_tile_guidelines(use, paint);
+            if (snapped != status::success) return snapped;
+            progpu_native_image_rect bounds{};
+            if (!try_transform_bounds(use.x, use.y, use.width, use.height, use.effective_transform, bounds))
+                return status::invalid_graph;
+            // Algorithm: retain one white glyph-run scene as GPU alpha coverage,
+            // then paint its tile source once. Time/space: O(G + S), positioned
+            // glyphs G and decoded outline segments S, using the ordinary glyph
+            // cache/placement implementation. No per-glyph scene or submission.
+            native::semantic_scene_builder coverage(builder.scene_id(), builder.generation());
+            auto coverage_scope = paint;
+            coverage_scope.opacity = 1.0;
+            coverage_scope.has_clip = false;
+            coverage_scope.mask_resource_index = PROGPU_NATIVE_SCENE_NO_INDEX;
+            coverage_scope.clip_path_count = coverage_scope.clip_segment_count = coverage_scope.clip_boolean_node_count = 0U;
+            coverage_scope.subpixel_text_disabled = true;
+            if (coverage_scope.text_rendering_mode != 1U) coverage_scope.text_rendering_mode = 2U;
+            auto state = native::semantic_scene_builder::identity_state();
+            if (!try_to_native_affine(coverage_scope.transform, state.transform)) return status::invalid_graph;
+            std::uint32_t state_index = PROGPU_NATIVE_SCENE_NO_INDEX;
+            if (!coverage.add_state(state, state_index) || !coverage.save(state_index)) return status::invalid_graph;
+            std::unordered_map<std::uint64_t, glyph_scene_resource> coverage_glyphs;
+            const status drawn = append_glyph_run(glyph_handle, brush_handle, coverage_scope,
+                coverage, coverage_glyphs, true);
+            if (drawn != status::success) return drawn;
+            if (!coverage.restore()) return status::invalid_graph;
+            std::vector<std::byte> scene;
+            if (!coverage.build(scene)) return status::invalid_graph;
+            progpu_native_scene_layer_picture_mask mask{};
+            mask.bounds = bounds;
+            mask.transform = native::semantic_scene_builder::identity_transform();
+            mask.opacity = 1.0F;
+            progpu_native_scene_layer layer{};
+            layer.struct_size = sizeof(layer);
+            layer.flags = PROGPU_NATIVE_SCENE_LAYER_FORCE_ISOLATION | PROGPU_NATIVE_SCENE_LAYER_BOUNDS;
+            layer.bounds = bounds;
+            layer.opacity = 1.0F;
+            layer.blend_mode = PROGPU_NATIVE_BLEND_SRC_OVER;
+            layer.effect_resource_index = PROGPU_NATIVE_SCENE_NO_INDEX;
+            if (!builder.add_picture_mask(mask, scene, layer.mask_resource_index)) return status::invalid_graph;
+            return paint_tile_source_in_mask(brush_handle, use, paint, layer,
+                source_state.guideline_resource_index != PROGPU_NATIVE_SCENE_NO_INDEX);
         };
         const auto append_media_player = [
             this,
@@ -15827,12 +15892,10 @@ struct channel::implementation {
                         glyph_run_handle)) {
                     return status::malformed_batch;
                 }
-                const status glyph_status = append_glyph_run(
+                const status glyph_status = append_brushed_glyph_run(
                     glyph_run_handle,
                     foreground_brush_handle,
-                    current,
-                    builder,
-                    glyph_resources);
+                    current);
                 if (glyph_status != status::success) {
                     return glyph_status;
                 }
@@ -16051,12 +16114,10 @@ struct channel::implementation {
                     const auto glyph = glyph_run_drawings.find(
                         drawing_handle);
                     if (glyph != glyph_run_drawings.end()) {
-                        const status glyph_status = append_glyph_run(
+                        const status glyph_status = append_brushed_glyph_run(
                             glyph->second.glyph_run_handle,
                             glyph->second.foreground_brush_handle,
-                            current,
-                            builder,
-                            glyph_resources);
+                            current);
                         if (glyph_status != status::success) {
                             return glyph_status;
                         }

@@ -7900,6 +7900,46 @@ nonuniform frame DPI, mixed-picture-mask performance qualification, and the full
 MIL/DirectX/Direct2D/Win2D objective remain open. Uniform snapping still requires
 pixel-level qualification, including nested clipping and layer restore.
 
+### Implementation-first checkpoint: tiled glyph-run foregrounds
+
+Native MIL `DrawGlyphRun` and `GlyphRunDrawing` now accept ImageBrush, DrawingBrush,
+DrawingImage-backed ImageBrush, and VisualBrush foregrounds through the existing
+tile material path. One nested semantic scene records the complete run as white
+alpha coverage, using the ordinary native font-sideband decoding, unique-glyph
+outline map, placement, advances/offsets, and style-simulation implementation. The
+source brush is painted once through that picture mask; no per-glyph scene, path
+draw, CPU pixel copy, or submission is introduced. Ordinary solid text bypasses
+this mask path and retains its existing glyph resources.
+
+Coverage is alpha-only: aliased text remains aliased and other text uses grayscale
+instead of RGB ClearType coverage. Run bounds must be supplied by the typed MIL
+resource; absent/empty placement bounds do not trigger a synthetic em-size brush
+rectangle. Uniform guidelines use the preceding shared translation and isolated
+restore handling. Clip and brush opacity are applied outside the white coverage
+scene. Font data remains a pointer-free SFNT sideband owned by the channel; a missing
+font fails before publishing the caller's scene.
+
+Provenance is original ProGPU `append_glyph_run`, `semantic_scene_builder` picture
+masks, and `append_single_tile_brush`. Preparation is O(G + S) time/storage for
+positioned glyphs G and decoded outline segments S, with the ordinary four-phase
+outline generation retained. The nested run owns its own builder-resource map;
+cross-builder resource indices are not reused. Repeated mask runs currently rebuild
+their coverage resources when compiling a changed scene, and the existing picture
+executor creates a child engine/target-space intermediate. Those reuse/residency
+and submission costs require final performance qualification; this is not a
+fastest-path claim. Existing intrinsic font kernels and canonical shaders are
+unchanged. Managed replay remains the paired image/text reference for this native
+MIL consumer addition.
+
+The WebGPU-enabled Release native library and MIL-test executable compile. Added
+320 cases covering four tile sources, five tile modes, both glyph command forms,
+uniform guidelines, and four style-simulation combinations, plus missing-font
+non-mutation coverage. They assert one picture mask with one retained glyph draw
+per run. Tests are authored/compiled, **not executed**; runtime/image/VM testing,
+verifiers, benchmarks, and CI qualification remain deferred. Coverage metadata was
+regenerated. Gradient glyph foregrounds, per-point guidelines, remaining opacity
+mask/consumer work, and the broader MIL/DirectX/Direct2D/Win2D scope remain open.
+
 ## Invariants
 
 - No reflection or private managed field scanning in the product bridge.

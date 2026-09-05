@@ -19373,6 +19373,67 @@ int main() {
         PROGPU_REQUIRE(after.first.bounds.height == before.first.bounds.height);
         PROGPU_REQUIRE(after.second.transform.m32 == before.second.transform.m32 - 0.25F);
     }
+    {
+        const auto font_bytes = load_inter_test_font();
+        progpu::native::text::sfnt_font_view font{};
+        PROGPU_REQUIRE(progpu::native::text::sfnt_font_view::try_create(font_bytes, 0U, font));
+        std::uint16_t first = 0U;
+        std::uint16_t second = 0U;
+        PROGPU_REQUIRE(font.try_get_glyph_index('A', first) && font.try_get_glyph_index('g', second));
+        std::vector<std::byte> glyph_commands;
+        const std::array glyphs{first, second, first};
+        const std::array advances{18.0F, 19.0F, 18.0F};
+        append_glyph_run_create(glyph_commands, 28U, 8.0F, 38.0F, 24.0F,
+            glyphs, advances, {}, 8.0, 8.0, 56.0, 48.0);
+        for (const auto source : {progpu::native::tests::mil_brush_fixture_source::bitmap,
+            progpu::native::tests::mil_brush_fixture_source::drawing,
+            progpu::native::tests::mil_brush_fixture_source::drawing_image,
+            progpu::native::tests::mil_brush_fixture_source::visual}) {
+            for (std::uint32_t mode = 0U; mode < 5U; ++mode) {
+                for (const bool drawing : {false, true}) {
+                    for (const bool guidelines : {false, true}) {
+                        for (std::uint32_t style = 0U; style < 4U; ++style) {
+                            std::vector<std::byte> scene;
+                            PROGPU_REQUIRE(progpu::native::tests::build_mil_image_brush_fixture(scene,
+                                {.tile_mode = mode, .opacity = 0.5, .skew = true, .source = source,
+                                    .shape = progpu::native::tests::mil_brush_fixture_shape::glyphs,
+                                    .inherited_clip = true, .paint_transform = true,
+                                    .viewport = {0.0, 0.0, 0.25, 0.5}, .fant = true, .guidelines = guidelines,
+                                    .static_guidelines = true, .glyph_commands = glyph_commands,
+                                    .glyph_font = font_bytes, .glyph_style = style, .glyph_drawing = drawing}, 10150U + mode));
+                            const auto header = read_value<progpu_native_scene_header>(scene, 0U);
+                            std::uint32_t pictures = 0U;
+                            for (std::uint32_t index = 0U; index < header.resource_count; ++index) {
+                                const auto resource = read_value<progpu_native_scene_resource>(scene,
+                                    header.resource_offset + index * sizeof(progpu_native_scene_resource));
+                                if (resource.kind != PROGPU_NATIVE_SCENE_RESOURCE_LAYER_MASK ||
+                                    resource.payload_size != sizeof(progpu_native_scene_layer_picture_mask)) continue;
+                                const auto mask = read_value<progpu_native_scene_layer_picture_mask>(scene, resource.payload_offset);
+                                if (mask.kind != PROGPU_NATIVE_SCENE_LAYER_MASK_PICTURE) continue;
+                                ++pictures;
+                                PROGPU_REQUIRE(mask.opacity == 1.0F);
+                                const auto base = resource.auxiliary_offset + mask.stream_offset;
+                                const auto nested = read_value<progpu_native_scene_header>(scene, base);
+                                std::uint32_t glyph_draws = 0U;
+                                for (std::uint32_t command = 0U; command < nested.command_count; ++command) {
+                                    const auto record = read_value<progpu_native_scene_command>(scene,
+                                        base + nested.command_offset + command * sizeof(progpu_native_scene_command));
+                                    glyph_draws += record.kind == PROGPU_NATIVE_SCENE_COMMAND_DRAW_GLYPH_RUN;
+                                }
+                                PROGPU_REQUIRE(glyph_draws == 1U);
+                            }
+                            PROGPU_REQUIRE(pictures == 1U);
+                        }
+                    }
+                }
+            }
+        }
+        std::vector<std::byte> rejected{std::byte{0x5a}};
+        PROGPU_REQUIRE(!progpu::native::tests::build_mil_image_brush_fixture(rejected,
+            {.shape = progpu::native::tests::mil_brush_fixture_shape::glyphs,
+                .glyph_commands = glyph_commands}, 10160U));
+        PROGPU_REQUIRE(rejected == std::vector<std::byte>{std::byte{0x5a}});
+    }
     // Authored during implementation-first work; execution and pixel parity
     // remain part of the final validation phase.
     for (const auto source : {progpu::native::tests::mil_brush_fixture_source::bitmap,
