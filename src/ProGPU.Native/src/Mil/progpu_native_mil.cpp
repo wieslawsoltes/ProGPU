@@ -19570,6 +19570,34 @@ status channel::set_viewport3d_scene(
         !semantic::is_valid_semantic_camera_3d(camera)) {
         return status::invalid_argument;
     }
+    // The owned baseline passed every semantic validator before insertion.
+    // Exact equality (including all reserved bits and array lengths) therefore
+    // proves validity without repeating per-element validation on a no-op.
+    // Changed input continues through every validator below. These pointer-free
+    // wire records have no implicit padding (ABI layout tests). libc memcmp
+    // selects the platform SIMD implementation without temporary allocations.
+    const auto equal_bytes = []<typename T>(
+        std::span<const T> left, std::span<const T> right) noexcept {
+        return left.size() == right.size() &&
+            (left.empty() || std::memcmp(
+                left.data(), right.data(), left.size_bytes()) == 0);
+    };
+    const auto retained = implementation_->viewport3d_scenes.find(handle);
+    if (retained != implementation_->viewport3d_scenes.end()) {
+        const auto& old = retained->second;
+        if (equal_bytes(std::span{&old.camera, 1U},
+                std::span{&camera, 1U}) &&
+            equal_bytes(std::span{&old.viewport, 1U},
+                std::span<const progpu_native_image_rect>{&viewport, 1U}) &&
+            equal_bytes(std::span{old.meshes}, meshes) &&
+            equal_bytes(std::span{old.vertices}, vertices) &&
+            equal_bytes(std::span{old.indices}, indices) &&
+            equal_bytes(std::span{old.lights}, lights) &&
+            equal_bytes(std::span{old.materials}, materials) &&
+            equal_bytes(std::span{old.gradient_stops}, gradient_stops)) {
+            return status::success;
+        }
+    }
     for (const auto& vertex : vertices) {
         if (!semantic::is_valid_semantic_mesh_3d_vertex(vertex)) {
             return status::invalid_argument;
