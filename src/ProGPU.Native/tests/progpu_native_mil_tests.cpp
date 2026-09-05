@@ -18921,6 +18921,39 @@ int main() {
             }
         }
     }
+    for (const auto source : {progpu::native::tests::mil_brush_fixture_source::bitmap,
+        progpu::native::tests::mil_brush_fixture_source::drawing,
+        progpu::native::tests::mil_brush_fixture_source::drawing_image,
+        progpu::native::tests::mil_brush_fixture_source::visual}) {
+        for (const auto shape : {progpu::native::tests::mil_brush_fixture_shape::line,
+            progpu::native::tests::mil_brush_fixture_shape::rectangle,
+            progpu::native::tests::mil_brush_fixture_shape::ellipse,
+            progpu::native::tests::mil_brush_fixture_shape::rounded_rectangle}) {
+            for (std::uint32_t mode = 0U; mode <= 4U; ++mode) {
+                for (const bool dashed : {false, true}) {
+                    std::vector<std::byte> scene;
+                    PROGPU_REQUIRE(progpu::native::tests::build_mil_image_brush_fixture(scene,
+                        {.tile_mode = mode, .opacity = 0.5, .skew = true, .source = source,
+                            .shape = shape, .inherited_clip = true, .paint_transform = true,
+                            .viewport = {0.0, 0.0, 0.25, 0.5}, .fant = true,
+                            .pen = true, .dashed = dashed, .cap = mode % 4U}, 9600U + mode));
+                    const auto header = read_value<progpu_native_scene_header>(scene, 0U);
+                    bool found_stroke_mask = false;
+                    for (std::uint32_t index = 0U; index < header.resource_count; ++index) {
+                        const auto resource = read_value<progpu_native_scene_resource>(scene,
+                            header.resource_offset + index * sizeof(progpu_native_scene_resource));
+                        if (resource.kind == PROGPU_NATIVE_SCENE_RESOURCE_LAYER_MASK &&
+                            resource.payload_size == sizeof(progpu_native_scene_layer_geometry_mask)) {
+                            const auto mask = read_value<progpu_native_scene_layer_geometry_mask>(scene, resource.payload_offset);
+                            found_stroke_mask |= mask.kind == PROGPU_NATIVE_SCENE_LAYER_MASK_GEOMETRY &&
+                                mask.primitive_count > 0U && mask.opacity == 1.0F && mask.brush.opacity == 1.0F;
+                        }
+                    }
+                    PROGPU_REQUIRE(found_stroke_mask);
+                }
+            }
+        }
+    }
     // Authored during implementation-first work; execution and pixel parity
     // remain part of the final validation phase.
     for (const auto source : {progpu::native::tests::mil_brush_fixture_source::bitmap,
