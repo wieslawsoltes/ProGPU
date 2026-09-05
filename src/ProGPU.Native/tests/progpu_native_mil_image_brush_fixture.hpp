@@ -5,7 +5,7 @@
 namespace progpu::native::tests {
 
 enum class mil_brush_fixture_source { bitmap, drawing_image, drawing, visual };
-enum class mil_brush_fixture_shape { rectangle, ellipse, rounded_rectangle, path, group, combined, line };
+enum class mil_brush_fixture_shape { rectangle, ellipse, rounded_rectangle, path, group, combined, line, line_geometry };
 
 struct mil_image_brush_fixture_options {
     std::uint32_t stretch{1U};
@@ -30,6 +30,9 @@ struct mil_image_brush_fixture_options {
     bool pen{};
     bool dashed{};
     std::uint32_t cap{PROGPU_NATIVE_STROKE_CAP_ROUND};
+    std::uint32_t end_cap{4U};
+    std::uint32_t dash_cap{4U};
+    bool guidelines{};
 };
 
 inline bool build_mil_image_brush_fixture(std::vector<std::byte>& scene,
@@ -100,11 +103,14 @@ inline bool build_mil_image_brush_fixture(std::vector<std::byte>& scene,
             packet(batch, command::dash_style, 21U, 0.25, 0U, 16U, 2.0, 1.0);
         }
         packet(batch, command::pen, 20U, 4.0, 10.0, 5U, 0U,
-            options.cap, options.cap, options.cap, PROGPU_NATIVE_STROKE_JOIN_ROUND, options.dashed ? 21U : 0U);
+            options.cap, options.end_cap < 4U ? options.end_cap : options.cap,
+            options.dash_cap < 4U ? options.dash_cap : options.cap,
+            PROGPU_NATIVE_STROKE_JOIN_ROUND, options.dashed ? 21U : 0U);
     }
     const std::uint32_t fill_handle = options.pen ? 0U : 5U;
     const std::uint32_t pen_handle = options.pen ? 20U : 0U;
     std::vector<std::byte> nested;
+    if (options.guidelines) packet(nested, command::push_guideline_y1, 0.25);
     if (options.inherited_clip) {
         packet(batch, command::channel_create_resource, 13U, 70U);
         packet(batch, command::ellipse_geometry, 13U,
@@ -149,6 +155,11 @@ inline bool build_mil_image_brush_fixture(std::vector<std::byte>& scene,
         }
     }
     switch (options.shape) {
+    case mil_brush_fixture_shape::line_geometry:
+        packet(batch, command::channel_create_resource, 15U, 68U);
+        packet(batch, command::line_geometry, 15U, 8.0, 16.0, 56.0, 48.0, 0U, 0U, 0U);
+        packet(nested, command::draw_geometry, fill_handle, pen_handle, 15U, 0U);
+        break;
     case mil_brush_fixture_shape::line:
         packet(nested, command::draw_line, 8.0, 16.0, 56.0, 48.0, pen_handle, 0U);
         break;
@@ -170,6 +181,7 @@ inline bool build_mil_image_brush_fixture(std::vector<std::byte>& scene,
     }
     if (options.paint_transform) packet(nested, command::pop);
     if (options.inherited_clip) packet(nested, command::pop);
+    if (options.guidelines) packet(nested, command::pop);
     append(batch, static_cast<std::uint32_t>(16U + nested.size()));
     append(batch, static_cast<std::uint32_t>(command::render_data));
     append(batch, 2U);
@@ -188,7 +200,20 @@ inline bool build_mil_image_brush_fixture(std::vector<std::byte>& scene,
     if (!vector_source && progpu_native_mil_channel_set_bitmap_source_rgba8_with_dpi(raw,
         3U, 2U, 1U, 8U, pixels.data(), pixels.size(), options.dpi_x, options.dpi_y)
         != PROGPU_NATIVE_MIL_STATUS_SUCCESS) return false;
-    return serialize_mil_visual_clip_fixture(raw, scene_id, 1U, scene);
+    // Repeated pages and visual sources require the stateful frame contract.
+    // Keep the request identical between sizing and copy, including its serial.
+    const progpu_native_mil_scene_build_request request{
+        sizeof(progpu_native_mil_scene_build_request), 0U, 4U, 0U,
+        scene_id, 1U, 1.0, 1.0, 0U, 1U};
+    progpu_native_mil_scene_build_result result{};
+    result.struct_size = sizeof(result);
+    std::size_t written = 0U;
+    if (progpu_native_mil_channel_build_scene_with_request(raw, &request,
+            nullptr, 0U, &written, nullptr, &result) != PROGPU_NATIVE_MIL_STATUS_SUCCESS) return false;
+    scene.resize(written);
+    return progpu_native_mil_channel_build_scene_with_request(raw, &request,
+        scene.data(), scene.size(), &written, nullptr, &result) == PROGPU_NATIVE_MIL_STATUS_SUCCESS &&
+        written == scene.size();
 }
 
 } // namespace progpu::native::tests

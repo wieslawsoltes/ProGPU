@@ -7521,6 +7521,56 @@ GeometryGroup/CombinedGeometry and degenerate tile pens remain open, as do tiled
 glyphs/opacity masks, nonuniform target DPI, remaining filters and the broader
 MIL/DirectX/Direct2D/Win2D goal. No pixel-parity or performance claim is made.
 
+### Implementation-first checkpoint: multi-contour tile path pens
+
+Native MIL DrawGeometry now paints tile-brush PathGeometry strokes through the
+same native geometry-mask route as fixed-shape pens. All parsed stroke contours
+append to one canonical stroke primitive arena and one alpha mask; the tile brush
+is painted once for the complete path, not once per contour. Closed/open state,
+smooth joins, dash intervals/offsets and the parser's start/end dash-cap markers
+for unstroked-segment breaks remain authoritative. Fill segments are not used as
+a replacement for the stroke contours. Nondegenerate LineGeometry resources also
+share the DrawLine tile-pen adapter, including the effective geometry/paint
+transform. Path placement retains the existing native path-pen bounds expansion.
+
+The implementation reuses original ProGPU MIL contour extraction and
+`semantic_path_stroke::compile` append semantics; it does not add a curve
+flattening algorithm, CPU mask bitmap, shader fork or managed reflection adapter.
+Each contour restarts the existing dash compiler as normal path replay does.
+Primitive/brush arenas share the mask's lifetime, with work/storage proportional
+to the existing stroke/dash expansion. Empty flat-capped open contour runs can be
+omitted; nonempty degenerate cap geometry remains unsupported by this adapter.
+Source-built LibreWPF already emits the typed PathGeometry/LineGeometry, pen and
+brush contracts, so the change remains in ProGPU's native consumer.
+
+The geometry-mask contract currently carries no guideline-resource reference.
+Tile pens now explicitly reject active guideline/per-point snapping instead of
+silently omitting it. This is a documented remaining typed-contract gap, including
+fixed-shape tile pens from the previous checkpoint, not a claim of snapping parity.
+
+The brush fixture now uses `progpu_native_mil_channel_build_scene_with_request`
+with identical request/serial for sizing and copy. Its old legacy entry point
+could not supply the compile context required by repeated pages and VisualBrush
+sources. Earlier fixture matrices were compiled but never executed; correcting
+the producer does not retroactively qualify them. The independent general clip
+fixture retains its legacy API coverage.
+
+Authored coverage adds 64 path combinations (curve/arc/multiple figures/broken
+open contours, four sources, single/FlipXY, solid/dashed) with distinct start/end/
+dash caps and exactly one stroke-mask assertion. The fixed-shape/source/tile/dash
+matrix gains 40 LineGeometry cases, bringing it to 200. A guideline rejection
+case preserves its destination sentinel. The GPU-enabled C++ shared library and
+native MIL test executable compile successfully; none of these cases have run.
+The MIL source-coverage digest was regenerated. Runtime execution remains deferred;
+final gates must compare overlapping contours, cap substitutions at stroke
+breaks, smooth joins, dash restart/seams, transformations, opacity and source
+mapping against native Windows WPF and portable replay.
+
+GeometryGroup/CombinedGeometry tile pens, degenerate caps, guideline-aware masks,
+tiled glyphs/opacity masks, per-axis target DPI and the broader MIL/DirectX/
+Direct2D/Win2D goal remain unfinished. Build/encoding evidence is not runtime,
+pixel-parity or performance evidence.
+
 ## Invariants
 
 - No reflection or private managed field scanning in the product bridge.

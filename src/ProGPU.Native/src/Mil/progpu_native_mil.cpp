@@ -14742,9 +14742,14 @@ struct channel::implementation {
             const pen_state& pen, const brush_use_state& use,
             const render_scope_state& state,
             std::span<const progpu_native_path_segment> segments,
-            std::span<const std::uint8_t> smooth_joins, bool closed) -> status {
+            std::span<const std::uint8_t> smooth_joins, bool closed,
+            std::span<const path_stroke_contour_state> contours = {}) -> status {
             if (pen.thickness <= 0.0 || pen.brush_handle == 0U ||
                 affine_has_zero_area(use.effective_transform)) return status::success;
+            // Geometry-mask primitives currently have no guideline-resource
+            // carrier. Do not silently discard active snapping on a tile pen.
+            if (state.guideline_resource_index != PROGPU_NATIVE_SCENE_NO_INDEX ||
+                state.per_point_guidelines) return status::unsupported_command;
             std::span<const double> intervals;
             double dash_offset = 0.0;
             if (pen.dash_style_handle != 0U) {
@@ -14766,11 +14771,36 @@ struct channel::implementation {
             curve_dash::run_buffer scratch;
             std::vector<progpu_native_geometry_primitive> primitives;
             std::vector<std::uint32_t> brushes;
-            const auto compiled = native::semantic_path_stroke::compile(segments, smooth_joins,
-                closed, intervals, style, 0U, scratch, primitives, brushes);
-            if (compiled != native::semantic_path_stroke::result::success)
-                return compiled == native::semantic_path_stroke::result::capacity_exceeded
-                    ? status::capacity_exceeded : status::unsupported_command;
+            const auto compile_run = [&](std::span<const progpu_native_path_segment> run,
+                std::span<const std::uint8_t> joins, bool run_closed) {
+                const auto compiled = native::semantic_path_stroke::compile(run, joins,
+                    run_closed, intervals, style, 0U, scratch, primitives, brushes);
+                return compiled == native::semantic_path_stroke::result::success ? status::success :
+                    compiled == native::semantic_path_stroke::result::capacity_exceeded
+                        ? status::capacity_exceeded : status::unsupported_command;
+            };
+            if (contours.empty()) {
+                const status compiled = compile_run(segments, smooth_joins, closed);
+                if (compiled != status::success) return compiled;
+            } else {
+                for (const auto& contour : contours) {
+                    style.start_cap = contour.start_uses_dash_cap ? pen.dash_cap : pen.start_line_cap;
+                    style.end_cap = contour.end_uses_dash_cap ? pen.dash_cap : pen.end_line_cap;
+                    if (contour.points.empty() && contour.segments.empty()) continue;
+                    if (!std::ranges::any_of(contour.segments, [](const auto& segment) {
+                            progpu_native_point tangent{};
+                            return native::semantic_path_stroke::try_tangent(segment, true, tangent) ||
+                                native::semantic_path_stroke::try_tangent(segment, false, tangent);
+                        })) {
+                        if (!contour.closed && style.start_cap == PROGPU_NATIVE_STROKE_CAP_FLAT &&
+                            style.end_cap == PROGPU_NATIVE_STROKE_CAP_FLAT) continue;
+                        return status::unsupported_command;
+                    }
+                    const status compiled = compile_run(contour.segments,
+                        contour.smooth_joins, contour.closed);
+                    if (compiled != status::success) return compiled;
+                }
+            }
             if (primitives.empty()) return status::success;
             progpu_native_scene_layer_geometry_mask mask{};
             mask.bounds = bounds;
@@ -14793,6 +14823,22 @@ struct channel::implementation {
             const status drawn = append_single_tile_brush(pen.brush_handle, use, state);
             const bool restored = builder.pop_layer();
             return drawn != status::success ? drawn : restored ? status::success : status::invalid_graph;
+        };
+        const auto append_tile_line_pen = [&append_tile_pen](
+            const pen_state& pen, double x0, double y0, double x1, double y1,
+            const affine_2d_double& transform, const render_scope_state& state) -> status {
+            if (pen.thickness <= 0.0) return status::success;
+            brush_use_state use{};
+            use.effective_transform = transform;
+            if (!try_line_stroke_bounds(x0, y0, x1, y1, pen.thickness,
+                    pen.start_line_cap, pen.end_line_cap,
+                    use.x, use.y, use.width, use.height)) return status::unsupported_command;
+            progpu_native_path_segment segment{};
+            segment.kind = PROGPU_NATIVE_PATH_SEGMENT_LINE;
+            segment.p0 = {static_cast<float>(x0), static_cast<float>(y0)};
+            segment.p1 = {static_cast<float>(x1), static_cast<float>(y1)};
+            const std::array<std::uint8_t, 1U> smooth{0U};
+            return append_tile_pen(pen, use, state, std::span(&segment, 1U), smooth, false);
         };
         const auto append_media_player = [
             this,
@@ -15546,21 +15592,8 @@ struct channel::implementation {
                     const status resolved = resolve_pen(pen_handle, pen);
                     if (resolved != status::success) return resolved;
                     if (tile_brushes.contains(pen.brush_handle)) {
-                        if (pen.thickness <= 0.0) continue;
-                        // Degenerate line caps retain their existing explicit
-                        // unsupported behavior until the tile-cap adapter exists.
-                        brush_use_state use{};
-                        use.effective_transform = current.transform;
-                        if (!try_line_stroke_bounds(x0, y0, x1, y1, pen.thickness,
-                                pen.start_line_cap, pen.end_line_cap,
-                                use.x, use.y, use.width, use.height)) return status::unsupported_command;
-                        progpu_native_path_segment segment{};
-                        segment.kind = PROGPU_NATIVE_PATH_SEGMENT_LINE;
-                        segment.p0 = {static_cast<float>(x0), static_cast<float>(y0)};
-                        segment.p1 = {static_cast<float>(x1), static_cast<float>(y1)};
-                        const std::array<std::uint8_t, 1U> smooth{0U};
-                        const status drawn = append_tile_pen(pen, use, current,
-                            std::span(&segment, 1U), smooth, false);
+                        const status drawn = append_tile_line_pen(pen, x0, y0, x1, y1,
+                            current.transform, current);
                         if (drawn != status::success) return drawn;
                         ++metrics.line_count;
                         continue;
@@ -16803,12 +16836,24 @@ struct channel::implementation {
                         if (pen_status != status::success) {
                             return pen_status;
                         }
-                        const status stroke_status = append_path_strokes(
-                            path_geometry->second,
-                            pen,
-                            local_transform,
-                            effective_transform,
-                            PROGPU_NATIVE_SCENE_NO_INDEX);
+                        status stroke_status = status::success;
+                        if (tile_brushes.contains(pen.brush_handle)) {
+                            const auto& geometry = path_geometry->second;
+                            if (pen.thickness > 0.0 && !geometry.stroke_contours.empty()) {
+                                const double expansion = pen.thickness * 0.5 * std::max(1.0, pen.miter_limit);
+                                if (!finite_double_as_float(expansion)) return status::invalid_graph;
+                                const brush_use_state use{geometry.left - expansion, geometry.top - expansion,
+                                    geometry.right - geometry.left + expansion * 2.0,
+                                    geometry.bottom - geometry.top + expansion * 2.0, effective_transform};
+                                // All contours share one mask and one brush paint,
+                                // including disjoint/non-stroked-segment breaks.
+                                stroke_status = append_tile_pen(pen, use, current, {}, {}, false,
+                                    geometry.stroke_contours);
+                            }
+                        } else {
+                            stroke_status = append_path_strokes(path_geometry->second, pen,
+                                local_transform, effective_transform, PROGPU_NATIVE_SCENE_NO_INDEX);
+                        }
                         if (stroke_status != status::success) {
                             return stroke_status;
                         }
@@ -16816,6 +16861,19 @@ struct channel::implementation {
                     continue;
                 }
                 if (resolved_geometry.kind == fixed_geometry_kind::line) {
+                    if (pen_handle != 0U) {
+                        pen_state pen{};
+                        const status resolved = resolve_pen(pen_handle, pen);
+                        if (resolved != status::success) return resolved;
+                        if (tile_brushes.contains(pen.brush_handle)) {
+                            const status drawn = append_tile_line_pen(pen, resolved_geometry.first,
+                                resolved_geometry.second, resolved_geometry.third, resolved_geometry.fourth,
+                                effective_transform, current);
+                            if (drawn != status::success) return drawn;
+                            ++metrics.line_count;
+                            continue;
+                        }
+                    }
                     const status line_status = append_line_stroke(
                         resolved_geometry.first,
                         resolved_geometry.second,
