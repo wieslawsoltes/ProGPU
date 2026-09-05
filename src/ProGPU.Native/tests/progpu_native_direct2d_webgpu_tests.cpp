@@ -1,6 +1,7 @@
 #include "progpu_native.h"
 #include "progpu_native_direct2d_scene_submission.hpp"
 #include "progpu_native_mil_visual_clip_fixture.hpp"
+#include "progpu_native_mil_image_brush_fixture.hpp"
 
 #include <wgpu.h>
 
@@ -11,9 +12,11 @@
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
+#include <cstring>
 #include <cstdio>
 #include <cstdlib>
 #include <fstream>
+#include <filesystem>
 #include <limits>
 #include <span>
 #include <thread>
@@ -942,6 +945,112 @@ void verify_stroke_transforms(const gpu_context& gpu,
     }
 }
 
+void write_capture(const char* path, std::span<const std::uint8_t> pixels);
+
+std::string image_brush_capture_directory()
+{
+#if defined(_MSC_VER)
+    char* value = nullptr;
+    std::size_t length = 0U;
+    if (_dupenv_s(&value, &length, "PROGPU_NATIVE_MIL_IMAGE_BRUSH_CAPTURE_DIR") != 0)
+        fail("could not read ImageBrush capture directory");
+    const std::string result = value == nullptr ? "" : value;
+    std::free(value);
+    return result;
+#else
+    const char* value = std::getenv("PROGPU_NATIVE_MIL_IMAGE_BRUSH_CAPTURE_DIR");
+    return value == nullptr ? "" : value;
+#endif
+}
+
+void verify_mil_image_brushes(const gpu_context& gpu, progpu_native_engine* engine)
+{
+    using progpu::native::tests::mil_image_brush_fixture_options;
+    struct box { std::uint32_t left, top, right, bottom; };
+    struct sample { mil_image_brush_fixture_options options; box red; box blue; };
+    const std::array cases{
+        sample{{}, {8, 8, 32, 56}, {32, 8, 56, 56}},
+        sample{{.stretch = 2U}, {8, 20, 32, 44}, {32, 20, 56, 44}},
+        sample{{.stretch = 3U}, {8, 8, 32, 56}, {32, 8, 56, 56}},
+        sample{{.stretch = 0U, .dpi_x = 6.0, .dpi_y = 12.0},
+            {16, 28, 32, 36}, {32, 28, 48, 36}},
+        // Viewbox is mapping-only. The red source outside it must be visible.
+        sample{{.stretch = 2U, .viewbox = {1.0, 0.0, 1.0, 2.0}, .viewbox_units = 0U},
+            {8, 8, 20, 32}, {20, 8, 44, 32}},
+        sample{{.rotate = true}, {8, 8, 56, 32}, {8, 32, 56, 56}},
+        sample{{.relative_scale = true}, {20, 20, 32, 44}, {32, 20, 44, 44}},
+        sample{{.opacity = 0.5}, {8, 8, 32, 56}, {32, 8, 56, 56}}};
+    for (std::size_t i = 0U; i < cases.size(); ++i) {
+        std::vector<std::byte> stream;
+        const auto identity = 9400U + i;
+        require(progpu::native::tests::build_mil_image_brush_fixture(
+            stream, cases[i].options, identity), "MIL ImageBrush fixture failed");
+        progpu_native_scene_header header{};
+        std::memcpy(&header, stream.data(), sizeof(header));
+        require(header.command_count == 5U, "MIL ImageBrush command budget changed");
+        const auto pixels = render_scene(gpu, engine, nullptr, 1U,
+            header.command_count, 1U, stream, identity);
+        const auto directory = image_brush_capture_directory();
+        if (!directory.empty()) {
+            std::filesystem::create_directories(directory);
+            const auto path = std::filesystem::path(directory) /
+                ("image-brush-" + std::to_string(i) + ".ppm");
+            write_capture(path.string().c_str(), pixels);
+            auto linear_options = cases[i].options;
+            linear_options.linear = true;
+            std::vector<std::byte> linear_stream;
+            require(progpu::native::tests::build_mil_image_brush_fixture(
+                linear_stream, linear_options, identity + 100U), "linear ImageBrush fixture failed");
+            const auto linear_pixels = render_scene(gpu, engine, nullptr, 1U,
+                header.command_count, 1U, linear_stream, identity + 100U);
+            const auto linear_path = std::filesystem::path(directory) /
+                ("image-brush-linear-" + std::to_string(i) + ".ppm");
+            write_capture(linear_path.string().c_str(), linear_pixels);
+        }
+        const auto inside = [](box area, std::uint32_t x, std::uint32_t y) {
+            return x >= area.left && x < area.right && y >= area.top && y < area.bottom;
+        };
+        // Explicit scalar pixel oracle: independent integer rectangles, not a
+        // copy of the product's viewbox/stretch/transform algorithm.
+        for (std::uint32_t y = 0U; y < height; ++y) {
+            for (std::uint32_t x = 0U; x < width; ++x) {
+                const auto offset = (y * width + x) * 4U;
+                const int intensity = cases[i].options.opacity == 1.0 ? 255 : 128;
+                const int red = inside(cases[i].red, x, y) ? intensity : 0;
+                const int blue = inside(cases[i].blue, x, y) ? intensity : 0;
+                if (std::abs(static_cast<int>(pixels[offset]) - red) > 1 ||
+                    pixels[offset + 1U] != 0U ||
+                    std::abs(static_cast<int>(pixels[offset + 2U]) - blue) > 1 ||
+                    pixels[offset + 3U] != 255U) {
+                    std::fprintf(stderr, "ImageBrush case=%zu pixel=%u,%u rgba=%u,%u,%u,%u expected=%d,0,%d,255\n",
+                        i, x, y, pixels[offset], pixels[offset+1U], pixels[offset+2U], pixels[offset+3U], red, blue);
+                    fail("MIL ImageBrush pixel oracle mismatch");
+                }
+            }
+        }
+        const auto warm = render_scene(gpu, engine, nullptr, 1U,
+            header.command_count, 1U, stream, identity);
+        require(pixels == warm, "MIL ImageBrush stable replay changed pixels");
+    }
+    std::vector<std::byte> skewed;
+    require(progpu::native::tests::build_mil_image_brush_fixture(skewed,
+        {.skew = true}, 9490U), "skewed ImageBrush fixture failed");
+    progpu_native_scene_header header{};
+    std::memcpy(&header, skewed.data(), sizeof(header));
+    require(header.command_count == 5U, "skewed ImageBrush command budget changed");
+    const auto pixels = render_scene(gpu, engine, nullptr, 1U,
+        header.command_count, 1U, skewed, 9490U);
+    const auto rgb = [&pixels](std::uint32_t x, std::uint32_t y) {
+        const auto offset = (y * width + x) * 4U;
+        return std::array{pixels[offset], pixels[offset + 1U], pixels[offset + 2U]};
+    };
+    require(rgb(10U, 50U) == std::array<std::uint8_t, 3U>{0, 0, 0},
+        "skewed viewport clip was broadened to bounds");
+    require(rgb(24U, 32U) == std::array<std::uint8_t, 3U>{255, 0, 0} &&
+        rgb(40U, 32U) == std::array<std::uint8_t, 3U>{0, 0, 255},
+        "skewed viewport lost its source mapping");
+}
+
 void write_capture(
     const char* path,
     std::span<const std::uint8_t> pixels)
@@ -993,6 +1102,8 @@ int main(int argc, char** argv)
     verify_pixels(pixels);
     phase("Direct2D pixels passed; start stroke transforms");
     verify_stroke_transforms(gpu, engine, scene);
+    phase("start MIL image brushes");
+    verify_mil_image_brushes(gpu, engine);
     phase("stroke transforms passed; start MIL geometry");
     std::vector<std::byte> mil_scene;
     require(progpu::native::tests::build_mil_visual_clip_fixture(mil_scene),

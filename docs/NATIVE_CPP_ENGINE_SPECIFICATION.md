@@ -4412,9 +4412,41 @@ disabled. Exact-head hosted results remain a separate requirement.
 
 ## Tile-brush resource ingress and bitmap resolution, 2026-09-05
 
+### Single-tile rendering continuation and provenance
+
+The subsequent [single ImageBrush checkpoint](native-mil-compositor.md#single-imagebrush-rendering-checkpoint-2026-09-05)
+uses original ProGPU-owned image drawing, retained bitmap resources, gradient
+relative-transform conjugation and exact MIL rectangle/vector clipping. The
+in-repository `AvaloniaTileBrushMapping.cs` supplied the established content /
+viewport / alignment decomposition; no Avalonia host code or foreign renderer
+implementation was ported. Managed and native paths continue consuming the same
+production image and clip shaders; no duplicate shader algorithm was added.
+LibreWPF emits typed packets with explicit portable-to-MIL tile enum mapping.
+
+[WPF Viewbox documentation](https://learn.microsoft.com/en-us/dotnet/api/system.windows.media.tilebrush.viewbox)
+establishes that Viewbox is mapping, not clipping; adopt that distinction and
+reject source-rectangle cropping as a substitute. The independent test deliberately
+makes red source content outside Viewbox visible inside Viewport. Public
+[BitmapScalingMode](https://learn.microsoft.com/en-us/dotnet/api/system.windows.media.bitmapscalingmode)
+contracts and native Windows WPF observations inform filtering qualification.
+Native WPF uses a linear blend for the tested ImageBrush despite requesting
+nearest; its explicit Linear output matches ProGPU's explicit Linear output.
+Native WPF rendering code was inspected only to locate option propagation while
+diagnosing that observation; no source text or implementation structure was
+copied. No claim is made that the discrepancy's cause is resolved.
+
+Original raw-packet fixtures and a public-API Windows WPF C# oracle provide
+independent conformance evidence. C++ nearest-neighbor reference boxes are hand
+specified; the Windows linear comparison uses the actual Microsoft renderer,
+not a duplicate mapping implementation. Scalar pixel loops exist only in these
+diagnostic oracles. Product work is fixed-size mapping and existing GPU batching,
+not a new whole-buffer CPU fallback. The bitmap adapter's pre-existing scalar
+conversion debt remains open under the full intrinsic-SIMD goal.
+
 The implementation checkpoint is described in [native MIL compositor](native-mil-compositor.md#tile-brush-ingress-and-source-dpi-checkpoint-2026-09-05).
 It adds three canonical retained brush packets and source-resolution transport;
-sampled tile-brush painting remains fail-closed and unfinished. The existing
+general sampled tile-brush painting remains unfinished; the later single-tile
+ImageBrush checkpoint adds a rectangular subset. The existing
 portable replay implementation remains available alongside native MIL.
 
 Research and clean-room provenance:

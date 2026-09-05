@@ -1,6 +1,7 @@
 #include "progpu_native_mil.hpp"
 #include "progpu_native_mil.h"
 #include "progpu_native_mil_visual_clip_fixture.hpp"
+#include "progpu_native_mil_image_brush_fixture.hpp"
 #include "../src/Mil/progpu_native_mil_curve_dash.hpp"
 #include "../src/Scene/progpu_native_semantic_path_stroke.hpp"
 #include "progpu_native_text.hpp"
@@ -18815,6 +18816,12 @@ bool c_abi_is_typed_and_size_versioned() {
 } // namespace
 
 int main() {
+    for (std::uint32_t tile_mode = 1U; tile_mode <= 4U; ++tile_mode) {
+        std::vector<std::byte> scene{std::byte{0x5a}};
+        PROGPU_REQUIRE(!progpu::native::tests::build_mil_image_brush_fixture(
+            scene, {.tile_mode = tile_mode}, 9500U + tile_mode));
+        PROGPU_REQUIRE(scene == std::vector<std::byte>{std::byte{0x5a}});
+    }
     PROGPU_REQUIRE(curve_dashes_match_managed_reference_contracts());
     PROGPU_REQUIRE(
         semantic_path_strokes_preserve_curves_and_forced_joins());

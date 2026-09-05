@@ -14301,6 +14301,138 @@ struct channel::implementation {
                 ? status::success
                 : status::invalid_graph;
         };
+        // A single ImageBrush tile is a source image mapped into its viewport,
+        // then clipped to the independently transformed paint geometry. This
+        // reuses image batching and exact MIL clips; it never copies pixels to
+        // synthesize padding or broadens a transformed viewport to loose bounds.
+        const auto append_image_brush_tile = [
+            this, &builder, &append_bitmap_source, &apply_rectangle_clip,
+            &save_state](
+            std::uint32_t brush_handle,
+            const brush_use_state& use,
+            const render_scope_state& state) -> status {
+            const auto found = tile_brushes.find(brush_handle);
+            if (found == tile_brushes.end() ||
+                !require_resource(brush_handle, type_image_brush)) {
+                return status::unsupported_command;
+            }
+            const auto& brush = found->second;
+            if (brush.source_handle == 0U) {
+                return status::success;
+            }
+            // Repetition must address the mapped base tile, not the full image.
+            // That requires retained tile capture/subregion-aware sampling.
+            if (brush.tile_mode != 0U) {
+                return status::unsupported_command;
+            }
+            const auto bitmap = bitmap_sources.find(brush.source_handle);
+            if (bitmap == bitmap_sources.end()) {
+                return status::unsupported_command;
+            }
+            const auto& source = bitmap->second;
+            const double content_width = static_cast<double>(source.width) * 96.0 / source.dpi_x;
+            const double content_height = static_cast<double>(source.height) * 96.0 / source.dpi_y;
+            rect_resource_state viewport{};
+            rect_resource_state viewbox{};
+            const auto resolve_rect = [this](const rect_resource_state& base,
+                std::uint32_t animation, rect_resource_state& value) {
+                return resolve_animated_rect(base.x, base.y, base.width, base.height,
+                    animation, value.x, value.y, value.width, value.height);
+            };
+            const status viewport_status = resolve_rect(
+                brush.viewport, brush.viewport_animation, viewport);
+            const status viewbox_status = resolve_rect(
+                brush.viewbox, brush.viewbox_animation, viewbox);
+            if (viewport_status != status::success) return viewport_status;
+            if (viewbox_status != status::success) return viewbox_status;
+            if (viewport.width <= 0.0 || viewport.height <= 0.0 ||
+                viewbox.width <= 0.0 || viewbox.height <= 0.0) {
+                return status::success;
+            }
+            if (brush.viewport_units == 1U) {
+                viewport = {use.x + viewport.x * use.width,
+                    use.y + viewport.y * use.height,
+                    viewport.width * use.width, viewport.height * use.height};
+            }
+            if (brush.viewbox_units == 1U) {
+                viewbox = {viewbox.x * content_width, viewbox.y * content_height,
+                    viewbox.width * content_width, viewbox.height * content_height};
+            }
+            double scale_x = viewport.width / viewbox.width;
+            double scale_y = viewport.height / viewbox.height;
+            if (brush.stretch == 0U) {
+                scale_x = scale_y = 1.0;
+            } else if (brush.stretch == 2U) {
+                scale_x = scale_y = std::min(scale_x, scale_y);
+            } else if (brush.stretch == 3U) {
+                scale_x = scale_y = std::max(scale_x, scale_y);
+            }
+            const affine_2d_double content_to_viewport{
+                scale_x, 0.0, 0.0, scale_y,
+                viewport.x + (viewport.width - viewbox.width * scale_x) *
+                    static_cast<double>(brush.alignment_x) * 0.5 - viewbox.x * scale_x,
+                viewport.y + (viewport.height - viewbox.height * scale_y) *
+                    static_cast<double>(brush.alignment_y) * 0.5 - viewbox.y * scale_y};
+            affine_2d_double brush_transform{};
+            if (brush.relative_transform_handle != 0U) {
+                affine_2d_double relative{};
+                const status resolved = resolve_transform(brush.relative_transform_handle, relative);
+                if (resolved != status::success) return resolved;
+                const affine_2d_double to_relative{1.0 / use.width, 0.0, 0.0,
+                    1.0 / use.height, -use.x / use.width, -use.y / use.height};
+                const affine_2d_double from_relative{use.width, 0.0, 0.0,
+                    use.height, use.x, use.y};
+                brush_transform = compose_affine(compose_affine(to_relative, relative), from_relative);
+            }
+            if (brush.transform_handle != 0U) {
+                affine_2d_double absolute{};
+                const status resolved = resolve_transform(brush.transform_handle, absolute);
+                if (resolved != status::success) return resolved;
+                brush_transform = compose_affine(brush_transform, absolute);
+            }
+            const auto tile_to_target = compose_affine(brush_transform, use.effective_transform);
+            const auto content_to_target = compose_affine(content_to_viewport, tile_to_target);
+            progpu_native_affine_2d validated{};
+            if (!try_to_native_affine(content_to_target, validated) ||
+                !finite_double_as_float(content_width) || !finite_double_as_float(content_height)) {
+                return status::unsupported_command;
+            }
+            if (affine_has_zero_area(content_to_target)) return status::success;
+            double opacity{};
+            const status opacity_status = resolve_animated_double(
+                brush.opacity, brush.opacity_animation, opacity);
+            if (opacity_status != status::success) return opacity_status;
+            if (!std::isfinite(opacity) || opacity < 0.0 || opacity > 1.0) {
+                return status::invalid_graph;
+            }
+            render_scope_state paint = state;
+            paint.transform = use.effective_transform;
+            render_scope_state clipped = paint;
+            const status paint_clip = apply_rectangle_clip(
+                use.x, use.y, use.width, use.height, paint, clipped);
+            if (paint_clip != status::success) return paint_clip;
+            render_scope_state tile = clipped;
+            tile.transform = tile_to_target;
+            clipped = tile;
+            const status tile_clip = apply_rectangle_clip(viewport.x, viewport.y,
+                viewport.width, viewport.height, tile, clipped);
+            if (tile_clip != status::success) return tile_clip;
+            // WPF Viewbox selects the mapping, not a source clip. Content
+            // outside it may remain visible until the Viewport clips it.
+            clipped.transform = content_to_target;
+            clipped.opacity *= opacity;
+            // append_bitmap_source emits the complete content-to-target matrix
+            // in the image record. The saved state owns only opacity/clipping;
+            // composing the same matrix there would transform the image twice.
+            render_scope_state image_state = clipped;
+            image_state.transform = {};
+            if (!save_state(image_state)) return status::invalid_graph;
+            const status drawn = append_bitmap_source(brush.source_handle,
+                0.0, 0.0, content_width, content_height, clipped);
+            const bool restored = builder.restore();
+            if (drawn != status::success) return drawn;
+            return restored ? status::success : status::invalid_graph;
+        };
         const auto append_media_player = [
             this,
             &builder,
@@ -16552,7 +16684,14 @@ struct channel::implementation {
                     native_local_transform)) {
                 return status::invalid_graph;
             }
-            if (brush_handle != 0U && width > 0.0 && height > 0.0) {
+            const bool has_tile_fill = brush_handle != 0U && tile_brushes.contains(brush_handle);
+            if (has_tile_fill && width > 0.0 && height > 0.0) {
+                if (is_ellipse || has_rounded_corners) return status::unsupported_command;
+                const brush_use_state brush_use{x, y, width, height, effective_transform};
+                const status tile_status = append_image_brush_tile(brush_handle, brush_use, current);
+                if (tile_status != status::success) return tile_status;
+            }
+            if (!has_tile_fill && brush_handle != 0U && width > 0.0 && height > 0.0) {
                 progpu_native_image_rect fill_bounds{};
                 if (!try_transform_bounds(
                         x,

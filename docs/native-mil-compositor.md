@@ -6717,9 +6717,9 @@ Malformed updates roll back the complete batch, including resource generations.
 Canonical `Rect.Empty` and WPF's unconstrained cache-threshold hints are retained;
 cache hints must never drive unchecked allocation or extent arithmetic.
 
-This is **resource-protocol support, not tile-brush rendering parity**. Sampled
-brush resolution still returns `unsupported_command`; the WPF native compiler
-has not switched its brush producer to these packets. BitmapCacheBrush is also
+This ingress checkpoint was **resource-protocol support, not tile-brush rendering parity**.
+The subsequent single ImageBrush subset below now paints selected fills; general
+sampled-brush resolution remains unsupported. BitmapCacheBrush is also
 unfinished. The coverage ledger records dispatch (104 top-level, 25 nested,
 12 undispatched), not pixel/API completion. Do not infer rendering support from
 the three new dispatch entries.
@@ -6745,9 +6745,10 @@ remains part of the full goal, not a claim made by this checkpoint.
 ### Rendering continuation
 
 WPF repeats a mapped **base viewport**, including transparent padding after
-Uniform/None stretch; it does not generally repeat the entire bitmap. Cropped
-viewboxes also need subregion-aware filtering. The full renderer must implement
-this distinction before enabling brush packets, using the same-device image and
+Uniform/None stretch; it does not generally repeat the entire bitmap. Viewbox
+selects the source mapping, not a clip; Viewport clips the tile. Repeated
+viewports need boundary-aware filtering. The full renderer must implement
+this distinction before enabling repetition, using the same-device image and
 exact path-mask infrastructure already shared with Direct2D. A retained mapped
 tile texture can preserve padding and support Drawing/Visual sources; a direct
 shader-domain path needs equivalent boundary/filtering semantics. Neither may
@@ -6759,6 +6760,59 @@ transforms, anisotropic source DPI, all stretch/alignment/flip combinations,
 cropping/padding, exact fill/stroke/text/mask use, Drawing/Visual capture and cycles,
 cache hints/retention/device loss, and Windows native-WPF pixel comparisons.
 No tile-rendering performance or end-to-end parity claim is made here.
+
+## Single ImageBrush rendering checkpoint, 2026-09-05
+
+Original C++ MIL lowering now paints `TileMode.None` ImageBrush resources backed
+by copied or same-device BitmapSource/DoubleBufferedBitmap sidebands on
+non-rounded rectangular fills. Relative/absolute viewbox and viewport, all four
+stretch modes, alignment, anisotropic source DPI, animated rectangle/opacity
+resolution and absolute/relative brush transforms reuse retained typed state.
+Source mapping is clipped by the transformed viewport and separately by the
+paint geometry. Non-axis-aligned viewport clips use the existing exact vector
+mask, never loose bounds. Viewbox itself is **not** a source clip.
+
+This is O(1) mapping per fill and one image primitive, not CPU tile synthesis or
+per-tile submissions. Existing shared image/filter/clip shaders run on the same
+device; no new shader fork, readback, pixel repacking or compute fallback exists.
+Saved image state owns opacity/clipping with an identity transform because the
+image record already carries the full transform. No SIMD or application
+performance claim is made for fixed-size mapping.
+
+Qualification and reproduction:
+
+- `progpu_native_direct2d_webgpu_tests` checks eight full nearest-neighbor frames
+  against independent integer rectangles, warm-stream equality and five-command/
+  one-draw/one-submission budgets. A ninth skew fixture checks exact viewport
+  exclusion. MIL CPU tests reject all four repeat/flip modes without replacing
+  caller output.
+- Set `PROGPU_NATIVE_MIL_IMAGE_BRUSH_CAPTURE_DIR` to an absolute directory during
+  the GPU test to capture nearest and linear variants. The original public-API
+  `eng/mil/ProGpuWpfImageBrushOracle.cs` compares eight linear frames against
+  native Windows WPF: every RGB channel within 1 and opaque output. It writes
+  PNG evidence and a result including the WPF assembly identity. Run its wrapper
+  with `powershell.exe -NoProfile -Sta -File` and `-ProGpuCaptureDirectory` /
+  `-OutputDirectory`, or compile the C# executable against WindowsBase,
+  PresentationCore and System.Xaml and pass those directories. No VM script
+  policy changes are necessary.
+- macOS native 15/15, Windows ARM64 native 16/16, LibreWPF 1,479/1,479 and the
+  source-built native host smoke pass. macOS linear frames match Windows ARM64
+  native .NET Framework WPF across 32,768 pixels. The CI comparison job requires
+  separate D3D12/Metal/Vulkan captures; exact-head hosted completion is separate.
+  Ubuntu ARM64 GCC 13 MIL CPU tests also pass with ASan, UBSan and leak detection
+  enabled (0.80 seconds); this is not a Linux GPU image comparison.
+- Windows WPF software RenderTargetBitmap blended this two-pixel ImageBrush
+  when nearest-neighbor was requested, while ProGPU used nearest. The comparison
+  explicitly sets Linear on both sides; it does not relax pixel thresholds or
+  claim nearest-WPF parity. Further sampling qualification remains required.
+
+Remaining: repeated/flipped base tiles, DrawingBrush/VisualBrush and DrawingImage/
+D3DImage brush sources, arbitrary/rounded/elliptical fills, strokes, text, masks,
+cache hints and device-loss/cycle handling for captured tiles. Animation/alignment
+extremes, external-image brush pixels and transformed target cases need broader
+differential coverage. Unsupported uses fail closed. The earlier general image
+draw transform composition should also be audited; this checkpoint fixes
+transform ownership only for its new brush lowering.
 
 ## Invariants
 
