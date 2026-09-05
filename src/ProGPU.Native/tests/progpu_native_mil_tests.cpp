@@ -3183,6 +3183,66 @@ bool visual_geometry_clips_apply_after_effects() {
     return true;
 }
 
+bool visual_geometry_clips_apply_after_local_caches() {
+    using progpu::native::tests::mil_clip_cache_options;
+    using progpu::native::tests::mil_clip_effect;
+    for (const bool gradient : {false, true}) {
+        for (const bool nested : {false, true}) {
+            const mil_clip_cache_options cache{
+                .enabled = true, .gradient = gradient, .scale = 2.0,
+                .offset_x = 0.25, .offset_y = 0.25,
+                .snaps = true, .guidelines = true, .nested = nested};
+            std::vector<std::byte> stream;
+            PROGPU_REQUIRE(progpu::native::tests::build_mil_visual_clip_fixture(
+                stream, mil_clip_effect::none, 9120U, cache));
+            const auto header = read_value<progpu_native_scene_header>(stream, 0U);
+            const auto resource_at = [&](std::uint32_t index) {
+                return read_value<progpu_native_scene_resource>(stream,
+                    header.resource_offset + index * sizeof(progpu_native_scene_resource));
+            };
+            const auto layers = get_scene_layers(stream);
+            PROGPU_REQUIRE(layers.size() == (nested ? 3U : 2U));
+            for (std::size_t index = 0U; index < layers.size(); ++index) {
+                const auto& layer = layers[index];
+                const bool parent = nested && index == 0U;
+                PROGPU_REQUIRE((layer.flags &
+                    PROGPU_NATIVE_SCENE_LAYER_CACHE_LOCAL_SPACE) != 0U);
+                PROGPU_REQUIRE(layer.bounds.width == (parent ? 64.0F : 128.0F));
+                PROGPU_REQUIRE(layer.mask_resource_index != PROGPU_NATIVE_SCENE_NO_INDEX);
+                const auto resource = resource_at(layer.mask_resource_index);
+                if (gradient && !parent) {
+                    const auto mask = read_value<progpu_native_scene_layer_composite_mask>(
+                        stream, resource.payload_offset);
+                    PROGPU_REQUIRE(mask.kind == PROGPU_NATIVE_SCENE_LAYER_MASK_COMPOSITE);
+                    PROGPU_REQUIRE(mask.component_count == 2U);
+                    PROGPU_REQUIRE(mask.brush_mask_count == 1U);
+                    PROGPU_REQUIRE(mask.gradient_stop_count == 2U);
+                    PROGPU_REQUIRE(mask.path_count == (nested ? 1U : 2U));
+                } else {
+                    const auto mask = read_value<progpu_native_scene_layer_vector_mask>(
+                        stream, resource.payload_offset);
+                    PROGPU_REQUIRE(mask.kind == PROGPU_NATIVE_SCENE_LAYER_MASK_VECTOR_CLIP_CHAIN);
+                    PROGPU_REQUIRE(mask.path_count == (nested ? 1U : 2U));
+                }
+            }
+            for (std::uint32_t index = 0U; index < header.resource_count; ++index) {
+                const auto resource = resource_at(index);
+                if (resource.kind != PROGPU_NATIVE_SCENE_RESOURCE_STATE) continue;
+                const auto value = read_value<progpu_native_scene_state>(
+                    stream, resource.payload_offset);
+                if ((value.flags & PROGPU_NATIVE_SCENE_STATE_MASK) == 0U) continue;
+                const auto mask_resource = resource_at(value.mask_resource_index);
+                const auto mask = read_value<progpu_native_scene_layer_vector_mask>(
+                    stream, mask_resource.payload_offset);
+                // Only a cache's own render-data clip applies to its pixels.
+                // Neither ancestor nor cache-root clips belong in this frame.
+                PROGPU_REQUIRE(mask.path_count == 1U);
+            }
+        }
+    }
+    return true;
+}
+
 bool visual_solid_opacity_mask_composes_and_updates() {
     constexpr std::uint32_t visual = 1U;
     constexpr std::uint32_t content = 2U;
@@ -4971,6 +5031,36 @@ bool visual_bitmap_cache_applies_gradient_mask_at_composite() {
     PROGPU_REQUIRE(guideline_set.guideline_x_count == 1U);
     PROGPU_REQUIRE(guideline_set.guideline_y_count == 1U);
 
+    constexpr std::uint32_t cache_clip = 9U;
+    std::vector<std::byte> clipped_cache;
+    append_create(clipped_cache, cache_clip, 69U);
+    append_command(clipped_cache, command::rectangle_geometry, cache_clip,
+        3.0, 3.0, 0.0, 0.0, 24.0, 18.0, 0U, 0U, 0U, 0U);
+    append_command(clipped_cache, command::visual_set_clip, visual, cache_clip);
+    PROGPU_REQUIRE(state.apply(clipped_cache) == status::success);
+    PROGPU_REQUIRE(state.build_scene(target, 9018U, 4U, stream, &metrics) == status::success);
+    progpu_native_scene_layer clipped{};
+    PROGPU_REQUIRE(try_get_cached_layer(stream, clipped));
+    PROGPU_REQUIRE(clipped.content_revision == guided.content_revision);
+    const auto composite_header = read_value<progpu_native_scene_header>(stream, 0U);
+    const auto composite_resource = read_value<progpu_native_scene_resource>(stream,
+        composite_header.resource_offset + clipped.mask_resource_index *
+            sizeof(progpu_native_scene_resource));
+    const auto composite_mask = read_value<progpu_native_scene_layer_composite_mask>(
+        stream, composite_resource.payload_offset);
+    PROGPU_REQUIRE(composite_mask.kind == PROGPU_NATIVE_SCENE_LAYER_MASK_COMPOSITE);
+    PROGPU_REQUIRE(composite_mask.path_count == 1U);
+    PROGPU_REQUIRE(composite_mask.brush_mask_count == 1U);
+    std::vector<std::byte> changed_clip;
+    append_command(changed_clip, command::rectangle_geometry, cache_clip,
+        5.0, 5.0, 1.0, 1.0, 22.0, 16.0, 0U, 0U, 0U, 0U);
+    PROGPU_REQUIRE(state.apply(changed_clip) == status::success);
+    PROGPU_REQUIRE(state.build_scene(target, 9018U, 5U, stream, &metrics) == status::success);
+    progpu_native_scene_layer reclipped{};
+    PROGPU_REQUIRE(try_get_cached_layer(stream, reclipped));
+    PROGPU_REQUIRE(reclipped.content_revision == guided.content_revision);
+    PROGPU_REQUIRE(reclipped.composite_revision == guided.composite_revision);
+
     std::vector<std::byte> masked_effect;
     append_create(masked_effect, blur, 36U);
     append_command(
@@ -4985,7 +5075,7 @@ bool visual_bitmap_cache_applies_gradient_mask_at_composite() {
     append_command(masked_effect, command::visual_set_alpha, visual, 0.5);
     PROGPU_REQUIRE(state.apply(masked_effect) == status::success);
     PROGPU_REQUIRE(
-        state.build_scene(target, 9018U, 4U, stream, &metrics) ==
+        state.build_scene(target, 9018U, 6U, stream, &metrics) ==
         status::success);
     const auto layers = get_scene_layers(stream);
     PROGPU_REQUIRE(layers.size() == 2U);
@@ -5027,7 +5117,7 @@ bool visual_bitmap_cache_applies_gradient_mask_at_composite() {
         0U);
     PROGPU_REQUIRE(state.apply(uncached_masked_effect) == status::success);
     PROGPU_REQUIRE(
-        state.build_scene(target, 9018U, 5U, stream, &metrics) ==
+        state.build_scene(target, 9018U, 7U, stream, &metrics) ==
         status::success);
     const auto uncached_layers = get_scene_layers(stream);
     PROGPU_REQUIRE(uncached_layers.size() == 2U);
@@ -18431,6 +18521,7 @@ int main() {
     PROGPU_REQUIRE(animated_pen_and_dash_resources_drive_strokes());
     PROGPU_REQUIRE(visual_clips_compile_to_exact_semantic_state());
     PROGPU_REQUIRE(visual_geometry_clips_apply_after_effects());
+    PROGPU_REQUIRE(visual_geometry_clips_apply_after_local_caches());
     PROGPU_REQUIRE(visual_solid_opacity_mask_composes_and_updates());
     PROGPU_REQUIRE(visual_gaussian_effects_compile_to_isolated_layers());
     PROGPU_REQUIRE(visual_bitmap_cache_uses_canonical_typed_retention());

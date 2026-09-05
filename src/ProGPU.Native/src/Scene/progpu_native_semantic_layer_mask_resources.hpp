@@ -63,6 +63,8 @@ bool create_semantic_composite_mask_binding(
     const progpu_native_scene_resource& resource,
     const semantic::scissor& target_extent,
     float dpi_scale,
+    const semantic::semantic_state_cursor* composite_state_cursor,
+    const progpu_native_scene_state* composite_state,
     semantic_render_bundle_span& operation);
 
 } // namespace execution

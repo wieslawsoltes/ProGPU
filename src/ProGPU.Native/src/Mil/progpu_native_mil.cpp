@@ -18218,7 +18218,11 @@ struct channel::implementation {
         double bounds_height,
         const affine_2d_double& mask_transform,
         native::semantic_scene_builder& builder,
-        std::uint32_t& mask_resource_index) const {
+        std::uint32_t& mask_resource_index,
+        std::span<const progpu_native_scene_clip_path> clip_paths = {},
+        std::span<const progpu_native_path_segment> clip_segments = {},
+        std::span<const progpu_native_scene_path_boolean_node>
+            clip_boolean_nodes = {}) const {
         mask_resource_index = PROGPU_NATIVE_SCENE_NO_INDEX;
         if (brush_handle == 0U) {
             return status::success;
@@ -18250,6 +18254,13 @@ struct channel::implementation {
         }
         mask.opacity = 1.0F;
         mask.brush = brush;
+        if (!clip_paths.empty()) {
+            return builder.add_composite_mask(
+                std::span(&mask, 1U), {}, {}, {}, {},
+                clip_paths, clip_segments, clip_boolean_nodes,
+                stops, 1.0F, mask_resource_index)
+                ? status::success : status::invalid_graph;
+        }
         return builder.add_brush_mask(mask, stops, mask_resource_index)
             ? status::success
             : status::invalid_graph;
@@ -18260,7 +18271,11 @@ struct channel::implementation {
         const visual_state& visual,
         const affine_2d_double& mask_transform,
         native::semantic_scene_builder& builder,
-        std::uint32_t& mask_resource_index) const {
+        std::uint32_t& mask_resource_index,
+        std::span<const progpu_native_scene_clip_path> clip_paths = {},
+        std::span<const progpu_native_path_segment> clip_segments = {},
+        std::span<const progpu_native_scene_path_boolean_node>
+            clip_boolean_nodes = {}) const {
         return add_gradient_opacity_mask(
             brush_handle,
             visual.cache_bounds_x,
@@ -18269,7 +18284,7 @@ struct channel::implementation {
             visual.cache_bounds_height,
             mask_transform,
             builder,
-            mask_resource_index);
+            mask_resource_index, clip_paths, clip_segments, clip_boolean_nodes);
     }
 
     status add_visual_cache_layer(
@@ -18277,6 +18292,9 @@ struct channel::implementation {
         std::uint32_t visual_handle,
         std::uint64_t scene_id,
         const render_scope_state& state,
+        std::span<const progpu_native_scene_clip_path> clip_paths,
+        std::span<const progpu_native_path_segment> clip_segments,
+        std::span<const progpu_native_scene_path_boolean_node> clip_boolean_nodes,
         native::semantic_scene_builder& builder,
         bool& pushed,
         bool& skip_content,
@@ -18328,12 +18346,22 @@ struct channel::implementation {
         // effect execution, matching WPF. Static cache-root guidelines share
         // the same composite State; the backend deforms the retained quad and
         // brush-mask coverage through that frame without rerasterizing cached
-        // content. Arbitrary inherited semantic masks remain fail closed.
+        // content. Exact inherited vector clips are multiplied with the
+        // gradient in the existing GPU composite-mask resource. Their world
+        // coordinates do not inherit cache-root guideline deformation.
         // Fant/HighQuality sampling is retained as composite-only state.
-        if (state.mask_resource_index != PROGPU_NATIVE_SCENE_NO_INDEX ||
-            (state.image_sampling != PROGPU_NATIVE_IMAGE_SAMPLING_LINEAR &&
+        if (state.image_sampling != PROGPU_NATIVE_IMAGE_SAMPLING_LINEAR &&
                 state.image_sampling != PROGPU_NATIVE_IMAGE_SAMPLING_NEAREST &&
-                state.image_sampling != PROGPU_NATIVE_IMAGE_SAMPLING_FANT)) {
+                state.image_sampling != PROGPU_NATIVE_IMAGE_SAMPLING_FANT) {
+            return status::unsupported_command;
+        }
+        if (state.clip_path_count > clip_paths.size() ||
+            state.clip_segment_count > clip_segments.size() ||
+            state.clip_boolean_node_count > clip_boolean_nodes.size()) {
+            return status::invalid_graph;
+        }
+        if (state.mask_resource_index != PROGPU_NATIVE_SCENE_NO_INDEX &&
+            state.clip_path_count == 0U) {
             return status::unsupported_command;
         }
         const double raster_width =
@@ -18434,14 +18462,17 @@ struct channel::implementation {
             return status::invalid_graph;
         }
         std::uint32_t opacity_mask_resource_index =
-            PROGPU_NATIVE_SCENE_NO_INDEX;
+            state.mask_resource_index;
         if (has_spatial_opacity_mask) {
             const status opacity_mask_status = add_visual_opacity_mask(
                 cache_visual.alpha_mask_handle,
                 cache_visual,
                 mask_transform,
                 builder,
-                opacity_mask_resource_index);
+                opacity_mask_resource_index,
+                clip_paths.first(state.clip_path_count),
+                clip_segments.first(state.clip_segment_count),
+                clip_boolean_nodes.first(state.clip_boolean_node_count));
             if (opacity_mask_status != status::success) {
                 return opacity_mask_status;
             }
@@ -18456,6 +18487,9 @@ struct channel::implementation {
         content_state.opacity = 1.0;
         content_state.has_clip = false;
         content_state.mask_resource_index = PROGPU_NATIVE_SCENE_NO_INDEX;
+        content_state.clip_path_count = 0U;
+        content_state.clip_segment_count = 0U;
+        content_state.clip_boolean_node_count = 0U;
         content_state.guideline_resource_index =
             PROGPU_NATIVE_SCENE_NO_INDEX;
         content_state.per_point_guidelines = false;
@@ -18736,7 +18770,8 @@ struct channel::implementation {
             state.clip_rect = current.clip_rect;
         }
         if (current.mask_resource_index != PROGPU_NATIVE_SCENE_NO_INDEX &&
-            visual->second.effect_handle == 0U) {
+            visual->second.effect_handle == 0U &&
+            visual->second.cache_mode_handle == 0U) {
             state.flags |= PROGPU_NATIVE_SCENE_STATE_MASK;
             state.mask_resource_index = current.mask_resource_index;
         }
@@ -18843,6 +18878,9 @@ struct channel::implementation {
             handle,
             scene_id,
             cache_input_scope,
+            clip_paths,
+            clip_segments,
+            clip_boolean_nodes,
             builder,
             cache_layer_pushed,
             skip_cached_content,

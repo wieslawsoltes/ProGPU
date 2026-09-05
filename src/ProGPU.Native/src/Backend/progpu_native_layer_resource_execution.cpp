@@ -908,6 +908,8 @@ bool create_semantic_layer_mask_binding(
             resource,
             target_extent,
             dpi_scale,
+            composite_state_cursor,
+            composite_state,
             operation);
     }
     if (!create_layer_mask_resources(engine)) {

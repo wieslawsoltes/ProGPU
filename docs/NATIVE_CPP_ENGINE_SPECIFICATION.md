@@ -4079,3 +4079,48 @@ parameter and now also guards engine ownership and independent MIL scene
 identities. Its 10 Direct2D contract tests pass locally. The interrupted
 Parallels rerun is not counted as qualification; hosted ClangCL and full
 managed exact-head checks still require their own results.
+
+### Exact geometry clips on native MIL local bitmap caches, 2026-09-05
+
+The local BitmapCache output now consumes its cache-root/ancestor vector
+clip chain directly. When a linear/radial gradient opacity mask is also
+present, the compiler emits the existing two-component GPU composite mask:
+one vector chain and one typed brush. No CPU pixel path, shader fork, extra
+color-isolation layer, or public ABI is introduced. Composite guidelines
+deform only the brush component; vector clips retain their world-space
+coordinates. SnapsToDevicePixels still moves the cached quad and its brush
+together. Cache content starts with empty clip prefixes, so nested render-data
+clips cannot inherit or overwrite the parent/sibling output masks.
+
+The scaled-page regression exposed a separate native scissor bug: local
+cache targets larger than the presentation window were clipped to the root
+frame before localization. The shared target-scissor resolver now includes
+the actual target's coordinate domain, with overflow-safe extent arithmetic.
+Explicit state clips still intersect that target exactly. Unit probes cover
+128x128 pages behind a 64x64 window, explicit clips beyond the window edge,
+and offset offscreen targets.
+
+Raw-MIL GPU cases cover plain and gradient-masked caches, RenderAtScale=2,
+fractional placement plus snapping/multiple guidelines, and nested caches.
+Each has two clipped siblings, an ancestor rounded clip, and an independent
+render-data clip. An identity cache matches uncached pixels exactly; gradient
+probes allow only one byte of channel rounding. Warm replays match every
+pixel, submit once, and report zero cache-content passes. Cold cases retain
+20 commands/four submissions, or 24 commands/five submissions for the nested
+cache, including the necessary shared vector-mask reuse fences. Structural
+tests additionally cover scaled nested gradient caches and prove clip-only
+updates preserve content revision and owner identity.
+
+Qualification: macOS native 15/15, MIL/internal ASan+UBSan 2/2,
+x64/Rosetta MIL/internal 2/2, generated native/MIL/Unicode contracts, and the
+complete managed suite 3,922/3,922 pass. Windows and hosted exact-head
+qualification remain separate pending evidence. Full MIL/DirectX/Direct2D/
+Win2D parity is not implied: Viewport3D output masks, broader nested
+effect/oversized-cache domains, tile-brush packets, programmable shader
+effects, and the remaining protocol/API families stay in scope.
+
+The subsequent strict MSVC ARM64 Parallels build passes all 16 native tests,
+including all five new cold cache variants; the GPU gate takes 143.07 seconds
+under its unchanged 300-second limit. The additional warm-cache assertions
+and tightened one-byte gradient probes are being rerun separately on Windows;
+hosted exact-head jobs remain a distinct gate.
