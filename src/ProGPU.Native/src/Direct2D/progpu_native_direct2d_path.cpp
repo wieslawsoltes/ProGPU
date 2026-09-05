@@ -4,11 +4,13 @@
 #include <algorithm>
 #include <array>
 #include <atomic>
+#include <bit>
 #include <cmath>
 #include <limits>
 #include <memory>
 #include <mutex>
 #include <new>
+#include <numbers>
 #include <span>
 #include <utility>
 #include <vector>
@@ -7040,6 +7042,117 @@ private:
 };
 
 } // namespace
+
+// Algorithm: Stream canonical native fill segments into the portable Direct2D
+// path implementation. Full ellipses split into two endpoint arcs; no flattening
+// or CPU pixels are introduced here. Time/space: O(S) retained path records.
+com::result create_native_fill_geometry(factory* owner,
+    std::span<const progpu_native_path_segment> segments, fill_mode mode,
+    path_geometry** value) noexcept
+{
+    if (value == nullptr) return com::pointer_error;
+    *value = nullptr;
+    if (owner == nullptr || segments.size() > (1U << 20U) ||
+        (mode != fill_mode::alternate && mode != fill_mode::winding)) return com::invalid_argument;
+    com::pointer<path_geometry> path;
+    com::result result = owner->CreatePathGeometry(path.put());
+    if (com::failed(result)) return result;
+    com::pointer<geometry_sink> sink;
+    result = path->Open(sink.put());
+    if (com::failed(result)) return result;
+    sink->SetFillMode(mode);
+    bool open = false;
+    point_2f start{}, previous{};
+    for (const auto& segment : segments) {
+        const point_2f first{segment.p0.x, segment.p0.y};
+        if (!finite_point(first)) return com::invalid_argument;
+        if (!open || !same_point(previous, first)) {
+            if (open) sink->EndFigure(figure_end::closed);
+            sink->BeginFigure(first, figure_begin::filled);
+            start = first;
+            open = true;
+        }
+        point_2f end{};
+        switch (segment.kind) {
+        case PROGPU_NATIVE_PATH_SEGMENT_LINE:
+            end = {segment.p1.x, segment.p1.y};
+            sink->AddLine(end);
+            break;
+        case PROGPU_NATIVE_PATH_SEGMENT_QUADRATIC: {
+            end = {segment.p2.x, segment.p2.y};
+            const quadratic_bezier_segment curve{{segment.p1.x, segment.p1.y}, end};
+            sink->AddQuadraticBezier(&curve);
+            break;
+        }
+        case PROGPU_NATIVE_PATH_SEGMENT_CUBIC: {
+            end = {segment.p3.x, segment.p3.y};
+            const bezier_segment curve{{segment.p1.x, segment.p1.y}, {segment.p2.x, segment.p2.y}, end};
+            sink->AddBezier(&curve);
+            break;
+        }
+        case PROGPU_NATIVE_PATH_SEGMENT_ARC: {
+            const float theta = std::bit_cast<float>(segment.pad0);
+            const float sweep = std::bit_cast<float>(segment.pad1);
+            const float rotation = std::bit_cast<float>(segment.pad2);
+            if (!std::isfinite(theta) || !std::isfinite(sweep) || !std::isfinite(rotation) ||
+                !finite_point({segment.p2.x, segment.p2.y}) ||
+                !std::isfinite(segment.p3.x) || !std::isfinite(segment.p3.y) ||
+                segment.p3.x <= 0.0F || segment.p3.y <= 0.0F ||
+                std::abs(sweep) > 2.0F * std::numbers::pi_v<float> + 0.000001F) return com::invalid_argument;
+            end = {segment.p1.x, segment.p1.y};
+            const std::uint32_t pieces = std::abs(sweep) > std::numbers::pi_v<float> ? 2U : 1U;
+            for (std::uint32_t index = 1U; index <= pieces; ++index) {
+                point_2f endpoint = end;
+                if (index != pieces) {
+                    const float angle = theta + sweep * (static_cast<float>(index) / static_cast<float>(pieces));
+                    const float x = segment.p3.x * std::cos(angle);
+                    const float y = segment.p3.y * std::sin(angle);
+                    endpoint = {segment.p2.x + x * std::cos(rotation) - y * std::sin(rotation),
+                        segment.p2.y + x * std::sin(rotation) + y * std::cos(rotation)};
+                }
+                const arc_segment arc{endpoint, {segment.p3.x, segment.p3.y},
+                    rotation * (180.0F / std::numbers::pi_v<float>),
+                    sweep < 0.0F ? sweep_direction::counter_clockwise : sweep_direction::clockwise,
+                    arc_size::small_value};
+                sink->AddArc(&arc);
+            }
+            break;
+        }
+        default:
+            return com::invalid_argument;
+        }
+        if (!finite_point(end)) return com::invalid_argument;
+        previous = end;
+        if (same_point(end, start)) {
+            sink->EndFigure(figure_end::closed);
+            open = false;
+        }
+    }
+    if (open) sink->EndFigure(figure_end::closed);
+    result = sink->Close();
+    if (com::failed(result)) return result;
+    *value = path.detach();
+    return com::ok;
+}
+
+// Algorithm: Reuse production Outline and its bounded polygon collector.
+// Time/space: existing curve flattening/arrangement cost plus O(B) output for
+// B boundary points. All intersection/SIMD kernels stay in the shared core.
+com::result extract_outline_contours(geometry* source, float tolerance,
+    std::vector<std::vector<point_2f>>& contours) noexcept
+{
+    if (source == nullptr || !valid_tolerance(tolerance)) return com::invalid_argument;
+    auto* raw = new (std::nothrow) polygon_contours_sink();
+    if (raw == nullptr) return com::out_of_memory;
+    com::pointer<polygon_contours_sink> sink;
+    sink.attach(raw);
+    com::result result = source->Outline(nullptr, tolerance, raw);
+    if (com::failed(result)) return result;
+    result = raw->status();
+    if (com::failed(result)) return result;
+    contours = raw->take_contours();
+    return com::ok;
+}
 
 com::result create_path_geometry(
     factory* owner,

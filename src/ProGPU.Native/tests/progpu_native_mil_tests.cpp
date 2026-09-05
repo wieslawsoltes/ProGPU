@@ -8,6 +8,7 @@
 #include "progpu_native_text.hpp"
 #include "../src/Geometry/progpu_native_arc.hpp"
 #include "../src/Backend/progpu_native_geometry_base.hpp"
+#include "../src/Direct2D/progpu_native_direct2d_path.hpp"
 
 #include <array>
 #include <bit>
@@ -19036,6 +19037,75 @@ int main() {
                         }
                     }
                     PROGPU_REQUIRE(masks == 1U);
+                }
+            }
+        }
+    }
+    {
+        namespace d2d = progpu::native::direct2d::compat;
+        namespace com = progpu::native::com;
+        com::pointer<d2d::factory> factory;
+        PROGPU_REQUIRE(com::succeeded(d2d::create_factory(factory.put())));
+        const std::array<progpu_native_path_segment, 4U> rectangle = [] {
+            std::array<progpu_native_path_segment, 4U> segments{};
+            const std::array<progpu_native_point, 4U> points{{{0, 0}, {4, 0}, {4, 4}, {0, 4}}};
+            for (std::size_t index = 0U; index < 4U; ++index) {
+                segments[index].kind = PROGPU_NATIVE_PATH_SEGMENT_LINE;
+                segments[index].p0 = points[index];
+                segments[index].p1 = points[(index + 1U) % 4U];
+            }
+            return segments;
+        }();
+        com::pointer<d2d::path_geometry> first;
+        PROGPU_REQUIRE(com::succeeded(d2d::detail::create_native_fill_geometry(factory.get(), rectangle,
+            d2d::fill_mode::winding, first.put())));
+        auto shifted = rectangle;
+        for (auto& segment : shifted) { segment.p0.x += 2.0F; segment.p1.x += 2.0F; }
+        com::pointer<d2d::path_geometry> second;
+        PROGPU_REQUIRE(com::succeeded(d2d::detail::create_native_fill_geometry(factory.get(), shifted,
+            d2d::fill_mode::winding, second.put())));
+        const std::array<double, 4U> areas{24.0, 8.0, 16.0, 8.0};
+        for (std::uint32_t mode = 0U; mode < 4U; ++mode) {
+            com::pointer<d2d::path_geometry> combined;
+            PROGPU_REQUIRE(com::succeeded(factory->CreatePathGeometry(combined.put())));
+            com::pointer<d2d::geometry_sink> sink;
+            PROGPU_REQUIRE(com::succeeded(combined->Open(sink.put())));
+            PROGPU_REQUIRE(com::succeeded(first->CombineWithGeometry(second.get(),
+                static_cast<d2d::combine_mode>(mode), nullptr, 0.01F, sink.get())));
+            PROGPU_REQUIRE(com::succeeded(sink->Close()));
+            std::vector<std::vector<d2d::point_2f>> contours;
+            PROGPU_REQUIRE(com::succeeded(d2d::detail::extract_outline_contours(combined.get(), 0.01F, contours)));
+            double area = 0.0;
+            for (const auto& contour : contours) {
+                double twice = 0.0;
+                for (std::size_t index = 0U; index < contour.size(); ++index) {
+                    const auto& a = contour[index];
+                    const auto& b = contour[(index + 1U) % contour.size()];
+                    twice += double{a.x} * b.y - double{b.x} * a.y;
+                    if (mode == 0U && a.x == b.x)
+                        PROGPU_REQUIRE(a.x != 2.0F && a.x != 4.0F); // No hidden operand edges.
+                }
+                area += twice * 0.5;
+            }
+            PROGPU_REQUIRE(std::abs(std::abs(area) - areas[mode]) < 0.0001);
+        }
+        for (std::uint32_t combination = 0U; combination < 4U; ++combination) {
+            for (const auto source : {progpu::native::tests::mil_brush_fixture_source::bitmap,
+                progpu::native::tests::mil_brush_fixture_source::drawing,
+                progpu::native::tests::mil_brush_fixture_source::drawing_image,
+                progpu::native::tests::mil_brush_fixture_source::visual}) {
+                for (const bool solid : {false, true}) {
+                    for (const bool dashed : {false, true}) {
+                        std::vector<std::byte> scene;
+                        PROGPU_REQUIRE(progpu::native::tests::build_mil_image_brush_fixture(scene,
+                            {.tile_mode = 3U, .opacity = 0.5, .skew = true, .source = source,
+                                .shape = progpu::native::tests::mil_brush_fixture_shape::combined,
+                                .inherited_clip = true, .paint_transform = true,
+                                .viewport = {0.0, 0.0, 0.25, 0.5}, .fant = true, .pen = true,
+                                .dashed = dashed, .combined_mode = combination, .solid_pen = solid,
+                                .fill_with_pen = true}, 9900U + combination));
+                        PROGPU_REQUIRE(!scene.empty());
+                    }
                 }
             }
         }

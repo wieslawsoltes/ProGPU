@@ -7615,6 +7615,59 @@ tiled text/opacity masks, nonuniform frame DPI and broader MIL/DirectX/Direct2D/
 Win2D completion remain open. Compilation and encoding assertions are not parity
 or performance qualification.
 
+### Implementation-first checkpoint: shared CombinedGeometry stroke boundaries
+
+Native MIL now lowers a CombinedGeometry pen from the actual boolean result's
+closed boundary, rather than rejecting all pens or stroking the original operand
+edges. Union, intersection, XOR and difference route through ProGPU's portable
+Direct2D `CombineWithGeometry`/`Outline` implementation. The resulting contours
+feed the existing native stroke compiler for solid/gradient pens or the one-mask/
+one-paint tile-pen path. Fill remains before stroke. Empty results produce no
+stroke; active guidelines remain explicitly unsupported by this adapter.
+
+Two internal typed Direct2D helpers bridge canonical native fill segments to the
+portable geometry sink and extract outline contours transactionally. Lines,
+quadratics and cubics retain their original representation on input; native arcs
+convert to endpoint arcs, splitting full ellipses into two arcs rather than
+introducing a separate flattening algorithm. The MIL resolver recursively builds
+native geometry groups and combined operands with their transforms, using one
+local portable factory and RAII references. There is no operating-system COM
+activation, Windows dependency, reflection or external application COM contract.
+MIL now privately links the existing portable Direct2D core, already included in
+native installation/export targets. No ABI or managed producer change is required.
+
+The chosen outline tolerance targets one quarter physical pixel, conservatively
+scaled by the effective transform Frobenius norm and the larger requested DPI
+axis. Nested group/combined transforms tighten the tolerance before intermediate
+boolean flattening, preventing later magnification from reusing a coarser local
+boundary. Unrepresentable tolerances and core capacity/unsupported results fail
+closed. This is an implementation quality target, not proof of a global error
+bound or native WPF pixel parity. Final gates must qualify topology, cusps, tiny
+features, joins on flattened curves and large nested transforms.
+
+Provenance is original ProGPU portable Direct2D path/arrangement code, its existing
+intrinsic classification/bounds work and MIL's native path/stroke compiler.
+Bounds are obtained from that same geometry core rather than adding another
+per-point scalar bounds pass. CPU topology/flattening and retained record emission
+remain dependency-ordered; GPU stroke/tile rendering adds no CPU image readback
+or pixel synthesis. This is not a new GPU boolean-boundary algorithm, and no
+performance claim is made. Native request/scene caching and this additional
+geometry compilation cost must be measured in final qualification.
+
+Authored cases cover the four operations on overlapping rectangles, including
+signed boundary area and exclusion of hidden operand edges, plus 64 MIL
+operation/source/solid-or-tile/dash combinations with simultaneous tile fill and
+pen, transformed geometry/paint, clipping, half opacity and Fant. No case has
+been executed. Direct2D core, GPU-enabled native renderer and MIL test executable
+compilation are the implementation-stage evidence; the MIL source digest is
+regenerated. Runtime, shader/image, Windows VM/macOS/Linux parity, sanitizers,
+performance and CI qualification remain deferred.
+
+CombinedGeometry as a stroked GeometryGroup child still needs integration in the
+group collector. Degenerate cap geometry, guideline-aware stroke masks, tiled
+glyphs/opacity masks, per-axis target-frame DPI, remaining filters and broader
+MIL/DirectX/Direct2D/Win2D requirements remain open.
+
 ## Invariants
 
 - No reflection or private managed field scanning in the product bridge.

@@ -964,7 +964,7 @@ target_include_directories(progpu_native_mil PUBLIC
     "$<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}>")
 target_link_libraries(progpu_native_mil
     PUBLIC progpu_native_scene_builder
-    PRIVATE progpu_native_text)
+    PRIVATE progpu_native_text progpu_native_direct2d_core)
 set_target_properties(progpu_native_mil PROPERTIES
     POSITION_INDEPENDENT_CODE ON
     CXX_VISIBILITY_PRESET hidden
