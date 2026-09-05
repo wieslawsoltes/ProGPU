@@ -34,6 +34,17 @@ namespace {
 
 using progpu::native::initial_vertex_buffer_size;
 
+constexpr bool valid_engine_flags(std::uint64_t flags) noexcept {
+    constexpr std::uint64_t glyph_flags =
+        PROGPU_NATIVE_ENGINE_GLYPH_INTRINSIC_SIMD_CPU_FALLBACK |
+        PROGPU_NATIVE_ENGINE_GLYPH_RASTER_SHADER_FALLBACK |
+        PROGPU_NATIVE_ENGINE_GLYPH_SCALAR_CPU_FALLBACK;
+    constexpr std::uint64_t supported_flags = glyph_flags |
+        PROGPU_NATIVE_ENGINE_IMAGE_EXPLICIT_SHADER_SAMPLING;
+    return (flags & ~supported_flags) == 0U &&
+        std::popcount(flags & glyph_flags) <= 1;
+}
+
 progpu_native_status create_engine(
     WGPUInstance instance,
     WGPUDevice device,
@@ -256,12 +267,7 @@ progpu_native_status progpu_native_engine_create(
         options->backend_abi !=
             PROGPU_NATIVE_BACKEND_ABI_WGPU_NATIVE_2024_05 ||
         options->device == 0U || options->queue == 0U ||
-        (options->flags &
-            ~static_cast<std::uint64_t>(
-                PROGPU_NATIVE_ENGINE_GLYPH_INTRINSIC_SIMD_CPU_FALLBACK |
-                PROGPU_NATIVE_ENGINE_GLYPH_RASTER_SHADER_FALLBACK |
-                PROGPU_NATIVE_ENGINE_GLYPH_SCALAR_CPU_FALLBACK)) != 0U ||
-        std::popcount(options->flags) > 1 ||
+        !valid_engine_flags(options->flags) ||
         texture_format(options->target_format) == WGPUTextureFormat_Undefined) {
         return PROGPU_NATIVE_STATUS_INVALID_ARGUMENT;
     }
@@ -315,12 +321,7 @@ progpu_native_status progpu_native_dawn_engine_create(
         options->provider_abi_version !=
             PROGPU_NATIVE_DAWN_REQUIRED_PROVIDER_ABI_VERSION ||
         options->reserved != 0U ||
-        (options->flags &
-            ~static_cast<std::uint64_t>(
-                PROGPU_NATIVE_ENGINE_GLYPH_INTRINSIC_SIMD_CPU_FALLBACK |
-                PROGPU_NATIVE_ENGINE_GLYPH_RASTER_SHADER_FALLBACK |
-                PROGPU_NATIVE_ENGINE_GLYPH_SCALAR_CPU_FALLBACK)) != 0U ||
-        std::popcount(options->flags) > 1 ||
+        !valid_engine_flags(options->flags) ||
         options->resolver_context == nullptr ||
         options->resolve_proc == nullptr ||
         options->instance == 0U || options->device == 0U ||
@@ -381,7 +382,9 @@ progpu_native_status progpu_native_browser_engine_create(
         options->adapter_abi_version !=
             PROGPU_NATIVE_BROWSER_ADAPTER_ABI_VERSION ||
         options->reserved0 != 0U || options->reserved1 != 0U ||
-        options->flags != 0U || options->device == 0U ||
+        (options->flags & ~static_cast<std::uint64_t>(
+            PROGPU_NATIVE_ENGINE_IMAGE_EXPLICIT_SHADER_SAMPLING)) != 0U ||
+        options->device == 0U ||
         options->queue == 0U ||
         texture_format(options->target_format) ==
             WGPUTextureFormat_Undefined) {

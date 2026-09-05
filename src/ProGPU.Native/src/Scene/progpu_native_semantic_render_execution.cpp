@@ -2793,8 +2793,10 @@ progpu_native_status render_scene(
                     image.sampling == PROGPU_NATIVE_IMAGE_SAMPLING_FANT;
                 const std::uint32_t first_vertex =
                     static_cast<std::uint32_t>(vertices.size());
+                const float base_sampling = base_image_sampling_coefficient(
+                    engine->engine_flags, image.sampling);
                 const auto append_quad = [&image, &image_options, &vertices,
-                    frame, cubic_sampling, fant_sampling](
+                    frame, cubic_sampling, fant_sampling, base_sampling](
                     const progpu_native_scene_image_patch* patch) {
                     const auto& source = patch == nullptr
                         ? image.source_rect
@@ -2894,7 +2896,8 @@ progpu_native_status render_scene(
                         vertex.brush_index = patch_kind;
                         vertex.shape_size[0] = cubic_sampling
                             ? image_options.cubic_b
-                            : fant_sampling ? -32.0F : 0.0F;
+                            : fant_sampling ? -32.0F
+                            : base_sampling;
                         vertex.shape_size[1] = cubic_sampling
                             ? image_options.cubic_c
                             : 0.5F;

@@ -7,6 +7,18 @@ using System.Numerics;
 
 namespace ProGPU.Backend.Native;
 
+internal static unsafe partial class NativeMethods
+{
+    // Native source: PROGPU_NATIVE_ENGINE_GLYPH_INTRINSIC_SIMD_CPU_FALLBACK.
+    internal const ulong EngineGlyphIntrinsicSimdCpuFallback = 1UL;
+    // Native source: PROGPU_NATIVE_ENGINE_GLYPH_RASTER_SHADER_FALLBACK.
+    internal const ulong EngineGlyphRasterShaderFallback = 2UL;
+    // Native source: PROGPU_NATIVE_ENGINE_GLYPH_SCALAR_CPU_FALLBACK.
+    internal const ulong EngineGlyphScalarCpuFallback = 4UL;
+    // Native source: PROGPU_NATIVE_ENGINE_IMAGE_EXPLICIT_SHADER_SAMPLING.
+    internal const ulong EngineImageExplicitShaderSampling = 8UL;
+}
+
 // Native source: progpu_native_text_scalar.
 [StructLayout(LayoutKind.Sequential)]
 public partial struct NativeTextScalar

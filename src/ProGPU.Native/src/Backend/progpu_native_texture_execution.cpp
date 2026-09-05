@@ -236,7 +236,8 @@ progpu_native_status render_image(
                 ? cubic_b
                 : frame->sampling == PROGPU_NATIVE_IMAGE_SAMPLING_FANT
                     ? -32.0F
-                    : 0.0F;
+                    : base_image_sampling_coefficient(
+                        engine->engine_flags, frame->sampling);
             vertex.shape_size[1] = frame->sampling ==
                 PROGPU_NATIVE_IMAGE_SAMPLING_CUBIC ? cubic_c : 0.5F;
             vertex.corner_radius = 0.0F;

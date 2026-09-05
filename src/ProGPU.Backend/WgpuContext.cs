@@ -55,6 +55,11 @@ public unsafe class WgpuContext : IDisposable
     public bool SupportsTextureFormatsTier1 { get; private set; }
     public BackendType AdapterBackendType { get; private set; } = BackendType.Undefined;
     public string AdapterName { get; private set; } = string.Empty;
+    /// <summary>Configure before device creation; retained vertices keep the resolved path.</summary>
+    public GpuImageSamplingPreference ImageSamplingPreference { get; init; } =
+        GpuImageSamplingPolicy.ReadEnvironmentPreference();
+    public GpuImageSamplingPath ImageSamplingPath => GpuImageSamplingPolicy.Resolve(
+        ImageSamplingPreference, AdapterBackendType, AdapterName);
     /// <summary>
     /// Gets or sets the requested compute execution policy. Set this before
     /// constructing workload-owned GPU resources.
@@ -1761,6 +1766,10 @@ public unsafe class WgpuContext : IDisposable
         AdapterSelectionDiagnostics = diagnostics;
         AdapterBackendType = diagnostics.BackendType;
         AdapterName = diagnostics.Name;
+        ProGpuBackendDiagnostics.WriteLine(
+            $"[Image] Base-level sampling path={ImageSamplingPath}, " +
+            $"preference={ImageSamplingPreference}, adapter='{AdapterName}', " +
+            $"backend={AdapterBackendType}.");
         ProGpuBackendDiagnostics.WriteLine(
             $"[Compute] Glyph rasterization path={GlyphRasterizationPath}, " +
             $"preference={ComputeExecutionPreference}, adapter='{AdapterName}', " +

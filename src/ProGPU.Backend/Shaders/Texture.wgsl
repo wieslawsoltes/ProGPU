@@ -1,5 +1,5 @@
 // Algorithm: Transform batched image/lattice/atlas quads, emit fixed-color cells without sampling, or sample nearest, linear, Mitchell-Netravali cubic, or a retained-cache Fant-style bounded area footprint; atlas sprites optionally combine sampled source and per-sprite destination colors with a Skia blend mode; semantic color processing optionally applies Skia-compatible post-transform luminance-to-alpha.
-// Time complexity: O(1) per invocation; fixed-color cells perform no image sample, cubic and Fant filtering perform fixed 4x4 sample footprints, optional semantic color processing performs five fixed dot products plus one luminance dot product, atlas color blending uses bounded scalar work, and semantic mask chains evaluate at most four analytic rounded masks.
+// Time complexity: O(1) per invocation; fixed-color cells perform no image sample, native nearest/linear uses one sampler operation, explicit nearest/linear uses 1/4 base-level texel loads, cubic and Fant filtering perform fixed 4x4 sample footprints, optional semantic color processing performs five fixed dot products plus one luminance dot product, atlas color blending uses bounded scalar work, and semantic mask chains evaluate at most four analytic rounded masks.
 // Space complexity: O(1) local storage and bounded texture bandwidth per fragment; texture masks add one sample plus a fixed axis-aligned or affine UV transform, color matrices add one 96-byte uniform record containing 80 bytes of coefficients, and nested analytic masks use one primary 96-byte record plus one fixed 288-byte continuation record without another texture.
 struct VertexInput {
     @location(0) position: vec2<f32>,
@@ -262,6 +262,37 @@ fn sample_bicubic(
     return color / max(total, 0.0001);
 }
 
+// Same base-level texel-center and per-tap clamp/repeat/mirror addressing as
+// bicubic sampling. Mix in the texture's existing alpha representation; never
+// unpremultiply individual taps. No CPU work, intermediate image, or sampler.
+const explicit_linear_coefficient: f32 = -64.0;
+const explicit_nearest_coefficient: f32 = -128.0;
+
+fn sample_bilinear_explicit(uv: vec2<f32>, modes: vec2<f32>) -> vec4<f32> {
+    let size = vec2<i32>(textureDimensions(texTexture));
+    let texel = uv * vec2<f32>(size) - vec2<f32>(0.5);
+    let base = vec2<i32>(floor(texel));
+    let f = fract(texel);
+    let x0 = address_texture_index(base.x, size.x, modes.x);
+    let x1 = address_texture_index(base.x + 1, size.x, modes.x);
+    let y0 = address_texture_index(base.y, size.y, modes.y);
+    let y1 = address_texture_index(base.y + 1, size.y, modes.y);
+    let top = mix(textureLoad(texTexture, vec2<i32>(x0, y0), 0),
+                  textureLoad(texTexture, vec2<i32>(x1, y0), 0), f.x);
+    let bottom = mix(textureLoad(texTexture, vec2<i32>(x0, y1), 0),
+                     textureLoad(texTexture, vec2<i32>(x1, y1), 0), f.x);
+    return mix(top, bottom, f.y);
+}
+
+fn sample_nearest_explicit(uv: vec2<f32>, modes: vec2<f32>) -> vec4<f32> {
+    let size = vec2<i32>(textureDimensions(texTexture));
+    let texel = vec2<i32>(floor(uv * vec2<f32>(size)));
+    let coordinate = vec2<i32>(
+        address_texture_index(texel.x, size.x, modes.x),
+        address_texture_index(texel.y, size.y, modes.y));
+    return textureLoad(texTexture, coordinate, 0);
+}
+
 // WPF maps BitmapScalingMode.Fant/HighQuality to a prefilter only after either
 // source axis shrinks beyond the sqrt(2) threshold. The native image/cache path
 // keeps the same threshold and integrates one destination-pixel
@@ -295,6 +326,26 @@ fn sample_fant_prefilter(
         }
     }
     return color * 0.0625;
+}
+
+fn sample_image(
+    input: VertexOutput, uv: vec2<f32>, modes: vec2<f32>,
+    uvDx: vec2<f32>, uvDy: vec2<f32>) -> vec4<f32> {
+    // Fant/cubic are distinct algorithms, not downgraded by the base-level
+    // policy. Derivatives are evaluated by callers before divergent control.
+    if (input.patchKind < -0.5 || input.cubicResampler.x == -32.0) {
+        return sample_fant_prefilter(uv, uvDx, uvDy);
+    }
+    if (input.cubicResampler.x == explicit_nearest_coefficient) {
+        return sample_nearest_explicit(uv, modes);
+    }
+    if (input.cubicResampler.x == explicit_linear_coefficient) {
+        return sample_bilinear_explicit(uv, modes);
+    }
+    if (input.color.a < 0.0 || (input.patchKind > 2.5 && input.patchOpacity < 0.0)) {
+        return sample_bicubic(uv, input.cubicResampler, modes);
+    }
+    return textureSampleGrad(texTexture, texSampler, uv, uvDx, uvDy);
 }
 
 fn atlas_unpremultiply(color: vec4<f32>) -> vec4<f32> {
@@ -498,23 +549,8 @@ fn texture_fs_main_with_mask(input: VertexOutput, maskAlpha: f32) -> vec4<f32> {
         return vec4<f32>(input.color.rgb, input.color.a * maskAlpha);
     }
 
-    var texColor = textureSampleGrad(
-        texTexture,
-        texSampler,
-        addressedTexCoord,
-        textureCoordDx,
-        textureCoordDy);
-    if (input.patchKind < -0.5 || input.cubicResampler.x < -16.5) {
-        texColor = sample_fant_prefilter(
-            addressedTexCoord,
-            textureCoordDx,
-            textureCoordDy);
-    } else if (input.color.a < 0.0 || (input.patchKind > 2.5 && input.patchOpacity < 0.0)) {
-        texColor = sample_bicubic(
-            addressedTexCoord,
-            input.cubicResampler,
-            addressModes);
-    }
+    var texColor = sample_image(input, addressedTexCoord, addressModes,
+        textureCoordDx, textureCoordDy);
     if (input.color.b < -0.5) {
         texColor.a = 1.0;
     }
@@ -592,18 +628,8 @@ fn color_matrix_fs_main_with_mask(
     let addressedTexCoord = address_texture_coordinates(
         input.texCoord,
         addressModes);
-    var source = textureSampleGrad(
-        texTexture,
-        texSampler,
-        addressedTexCoord,
-        textureCoordDx,
-        textureCoordDy);
-    if (input.color.a < 0.0) {
-        source = sample_bicubic(
-            addressedTexCoord,
-            input.cubicResampler,
-            addressModes);
-    }
+    var source = sample_image(input, addressedTexCoord, addressModes,
+        textureCoordDx, textureCoordDy);
     if (input.color.b < -0.5) {
         source.a = 1.0;
     }
