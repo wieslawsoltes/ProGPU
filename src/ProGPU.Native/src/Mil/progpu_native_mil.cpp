@@ -14859,6 +14859,64 @@ struct channel::implementation {
             state.guideline_resource_index = PROGPU_NATIVE_SCENE_NO_INDEX;
             return status::success;
         };
+        const auto add_spatial_opacity_mask = [this, &builder,
+            compile_context, drawing_depth, &active_drawings, &metrics](
+            std::uint32_t brush_handle, double x, double y, double width, double height,
+            const render_scope_state& source_state, std::uint32_t& mask_index) -> status {
+            if (!tile_brushes.contains(brush_handle)) return add_gradient_opacity_mask(
+                brush_handle, x, y, width, height, source_state.transform, builder, mask_index);
+            mask_index = PROGPU_NATIVE_SCENE_NO_INDEX;
+            if (width <= 0.0 || height <= 0.0) return status::unsupported_command;
+            auto state = source_state;
+            // Algorithm: compile one original MIL rectangle through the shared
+            // tile-source path in an owned child scene, then consume its alpha.
+            // Time/space: O(C + R) for captured source commands C/resources R;
+            // framing adds O(1) stack storage. No CPU pixels or per-tile replay.
+            native::semantic_scene_builder coverage(builder.scene_id(), builder.generation());
+            state.opacity = 1.0;
+            state.has_clip = false;
+            state.mask_resource_index = PROGPU_NATIVE_SCENE_NO_INDEX;
+            state.clip_path_count = state.clip_segment_count = state.clip_boolean_node_count = 0U;
+            // Like a gradient mask, this is a material field in the group's
+            // local bounds. Content snapping must not deform its brush space.
+            state.guideline_resource_index = PROGPU_NATIVE_SCENE_NO_INDEX;
+            state.per_point_guidelines = false;
+            state.subpixel_text_disabled = true;
+            state.edge_aliased = true;
+            auto native_state = native::semantic_scene_builder::identity_state();
+            if (!try_to_native_affine(state.transform, native_state.transform)) return status::invalid_graph;
+            std::uint32_t state_index = PROGPU_NATIVE_SCENE_NO_INDEX;
+            if (!coverage.add_state(native_state, state_index) || !coverage.save(state_index)) return status::invalid_graph;
+            using layout = command_layouts::draw_rectangle;
+            constexpr std::uint32_t frame_size = sizeof(std::uint32_t) + layout::fixed_size;
+            std::array<std::byte, frame_size> packet{};
+            const auto write = [&packet](std::size_t offset, const auto& value) {
+                std::memcpy(packet.data() + offset, &value, sizeof(value));
+            };
+            write(0U, frame_size);
+            write(4U + layout::type_offset, static_cast<std::uint32_t>(command::draw_rectangle));
+            const std::array rectangle{x, y, width, height};
+            write(4U + layout::rectangle_offset, rectangle);
+            write(4U + layout::h_brush_offset, brush_handle);
+            std::unordered_map<std::uint32_t, std::uint32_t> brushes;
+            std::unordered_map<std::uint32_t, std::uint32_t> images;
+            std::unordered_map<std::uint64_t, glyph_scene_resource> glyphs;
+            std::vector<progpu_native_scene_clip_path> paths;
+            std::vector<progpu_native_path_segment> segments;
+            std::vector<progpu_native_scene_path_boolean_node> nodes;
+            const status drawn = append_render_stream(packet, nullptr, state, drawing_depth + 1U,
+                coverage, brushes, images, glyphs, compile_context, active_drawings,
+                paths, segments, nodes, metrics);
+            if (drawn != status::success) return drawn;
+            if (!coverage.restore()) return status::invalid_graph;
+            std::vector<std::byte> scene;
+            if (!coverage.build(scene)) return status::invalid_graph;
+            progpu_native_scene_layer_picture_mask mask{};
+            if (!try_transform_bounds(x, y, width, height, state.transform, mask.bounds)) return status::invalid_graph;
+            mask.transform = native::semantic_scene_builder::identity_transform();
+            mask.opacity = 1.0F;
+            return builder.add_picture_mask(mask, scene, mask_index) ? status::success : status::invalid_graph;
+        };
         const auto paint_tile_source_in_mask = [&builder, &save_state, &append_single_tile_brush](
             std::uint32_t brush_handle, const brush_use_state& use, const render_scope_state& state,
             const progpu_native_scene_layer& layer, bool isolate_snapping) -> status {
@@ -15489,17 +15547,16 @@ struct channel::implementation {
                 double uniform_alpha = 1.0;
                 std::uint32_t mask_resource_index =
                     PROGPU_NATIVE_SCENE_NO_INDEX;
-                const bool spatial_mask = gradient_brushes.contains(
-                    opacity_mask_handle);
+                const bool spatial_mask = gradient_brushes.contains(opacity_mask_handle) ||
+                    tile_brushes.contains(opacity_mask_handle);
                 const status mask_status = spatial_mask
-                    ? add_gradient_opacity_mask(
+                    ? add_spatial_opacity_mask(
                         opacity_mask_handle,
                         left,
                         top,
                         width,
                         height,
-                        current.transform,
-                        builder,
+                        current,
                         mask_resource_index)
                     : resolve_uniform_opacity_mask_alpha(
                         opacity_mask_handle,
@@ -16213,8 +16270,8 @@ struct channel::implementation {
                     double opacity_mask_alpha = 1.0;
                     const bool has_spatial_opacity_mask =
                         group->second.opacity_mask_handle != 0U &&
-                        gradient_brushes.contains(
-                            group->second.opacity_mask_handle);
+                        (gradient_brushes.contains(group->second.opacity_mask_handle) ||
+                            tile_brushes.contains(group->second.opacity_mask_handle));
                     const status opacity_mask_status =
                         has_spatial_opacity_mask
                         ? status::success
@@ -16300,14 +16357,13 @@ struct channel::implementation {
                         PROGPU_NATIVE_SCENE_NO_INDEX;
                     if (has_spatial_opacity_mask) {
                         const status spatial_mask_status =
-                            add_gradient_opacity_mask(
+                            add_spatial_opacity_mask(
                                 group->second.opacity_mask_handle,
                                 group->second.bounds_x,
                                 group->second.bounds_y,
                                 group->second.bounds_width,
                                 group->second.bounds_height,
-                                next.transform,
-                                builder,
+                                next,
                                 opacity_mask_resource_index);
                         if (spatial_mask_status != status::success) {
                             active_drawings.erase(drawing_handle);

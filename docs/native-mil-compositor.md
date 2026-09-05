@@ -8026,6 +8026,53 @@ cover anisotropic-target rejection without output mutation. Native-library and
 MIL-test compilation are the only qualification in this phase. Runtime images,
 VM comparison, verifier, benchmark, and CI execution/qualification remain deferred.
 
+### Implementation-first checkpoint: tile opacity masks in render data and drawings
+
+`PushOpacityMask` and `DrawingGroup.OpacityMask` now accept ImageBrush,
+DrawingImage-backed ImageBrush, DrawingBrush, and VisualBrush. The new spatial-mask
+adapter compiles one bounded rectangle through the existing native MIL tile-source
+path into an owned child scene; a picture mask consumes that scene's alpha.
+Gradient masks retain their existing direct brush-mask representation, and solid
+masks retain their uniform-alpha path. This adds no parallel brush mapper, shader,
+bitmap converter, or per-visible-tile submission loop.
+
+Mask preparation starts with opacity one, no inherited clip/mask, no parent
+guideline resource, and alpha-compatible text state. Brush opacity is evaluated
+inside the source scene, while group opacity and content clipping remain outside.
+As with gradient opacity masks, content guidelines do not deform the mask's
+material coordinate field. Exact group bounds are required through the existing
+typed sideband. The child owns its brush/image/glyph maps and clip scratch; source
+cycle detection and bounded recursive depth remain shared with native replay.
+Missing group bounds and cyclic source graphs fail before caller output is
+published. Empty/nonpositive spatial bounds remain unsupported.
+
+Provenance: original ProGPU `append_render_stream`, `append_single_tile_brush`,
+and semantic picture-mask ownership/execution. One fixed stack packet uses the
+generated MIL rectangle layout, following the existing internal DrawDrawing
+framing pattern. The [WPF opacity-mask contract](https://learn.microsoft.com/en-us/dotnet/desktop/wpf/graphics-multimedia/opacity-masks-overview)
+defines mask alpha independently of brush RGB and combines it with content
+opacity. The existing [cross-engine research](progpu-avalonia-rendering-research.md)
+informs retained source reuse and GPU offscreen composition rather than CPU
+readback. No foreign implementation code was used. Managed replay remains the
+semantic reference; this is a native MIL consumer extension, with canonical
+shaders, shared SIMD kernels, C ABI, and managed algorithms unchanged.
+
+Scene preparation adds O(C + R) source command/resource storage and traversal on
+top of the existing brush-source algorithms, plus O(1) stack framing. Pixel work
+stays in the current same-device picture/tile executor. Its child engine,
+intermediate allocation, nested submission, and changed-scene reuse costs remain
+unqualified; this is not a throughput or fastest-path claim.
+
+Added 480 unexecuted scene cases across four sources, five tile modes, both mask
+boundaries, nearest/linear/Fant sampling, transforms, active static guidelines,
+and DPI 1/2. They assert one owned picture mask and isolated initial state. Four
+missing-bounds and six source-cycle cases cover non-mutation failures. Native
+library and MIL-test compilation are the only qualification in this phase.
+Visual-level masks, effect/cache visual masks, nonuniform target DPI, remaining
+filters/consumers, and the full DirectX/Direct2D/Win2D scope remain open. Runtime
+images, Windows comparisons, verifiers, benchmarks, and CI qualification remain
+deferred until the final validation phase.
+
 ## Invariants
 
 - No reflection or private managed field scanning in the product bridge.
