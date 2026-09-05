@@ -28,6 +28,32 @@ public static class TileImageVertices
     public const float PatchKind = -2f;
 
     /// <summary>
+    /// Re-encodes four full-page corners with occupied-extent clamp sampling,
+    /// preserving their transformed/snapped positions. The input must represent
+    /// the full page in top-left, top-right, bottom-right, bottom-left order,
+    /// not a source crop or arbitrary UV mapping. O(1) time/stack space.
+    /// </summary>
+    public static bool TryEncodeCapturedPageQuad(Span<VectorVertex> destination,
+        uint pageWidth, uint pageHeight, uint textureWidth, uint textureHeight,
+        TileImageSampling sampling, float opacity)
+    {
+        if (destination.Length < 4) return false;
+        Span<VectorVertex> quad = stackalloc VectorVertex[4];
+        if (!TryWriteQuad(quad, new(0, 0, 1, 1), Matrix3x2.Identity,
+            pageWidth, pageHeight, textureWidth, textureHeight,
+            TileImageAddressMode.Clamp, TileImageAddressMode.Clamp, sampling, opacity))
+            return false;
+        for (int index = 0; index < 4; index++)
+        {
+            var position = destination[index].Position;
+            if (!float.IsFinite(position.X) || !float.IsFinite(position.Y)) return false;
+            quad[index].Position = position;
+        }
+        quad.CopyTo(destination);
+        return true;
+    }
+
+    /// <summary>
     /// Writes four vertices transactionally. Output is (x,y,width,height);
     /// outputToTile maps target coordinates to normalized base-tile coordinates.
     /// Base-level nearest/linear adapter. O(1) time/workspace.

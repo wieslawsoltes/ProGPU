@@ -18870,6 +18870,31 @@ int main() {
     }
     for (const std::uint32_t sampling : {PROGPU_NATIVE_IMAGE_SAMPLING_NEAREST,
         PROGPU_NATIVE_IMAGE_SAMPLING_LINEAR, PROGPU_NATIVE_IMAGE_SAMPLING_FANT}) {
+        {
+            std::array<progpu::native::vector_vertex, 5U> quad{};
+            constexpr std::array<std::array<float, 2U>, 4U> positions{{
+                {2.0F, 3.0F}, {9.0F, 5.0F}, {7.0F, 11.0F}, {0.0F, 9.0F}}};
+            for (std::size_t index = 0U; index < 4U; ++index)
+                std::copy(positions[index].begin(), positions[index].end(), quad[index].position);
+            quad[4].brush_index = 42.0F;
+            PROGPU_REQUIRE(progpu::native::try_encode_captured_page_quad(quad, 3U, 5U, 64U, 128U, sampling, 0.25F));
+            for (std::size_t index = 0U; index < 4U; ++index) {
+                PROGPU_REQUIRE(quad[index].position[0] == positions[index][0] && quad[index].position[1] == positions[index][1]);
+                PROGPU_REQUIRE(quad[index].color[0] == 3.0F && quad[index].color[1] == 5.0F && quad[index].color[3] == 0.25F);
+                PROGPU_REQUIRE(quad[index].brush_index == -2.0F && quad[index].corner_radius == 0.0F && quad[index].stroke_thickness == 0.0F);
+                PROGPU_REQUIRE(quad[index].shape_size[0] == (sampling == PROGPU_NATIVE_IMAGE_SAMPLING_NEAREST ? -128.0F :
+                    sampling == PROGPU_NATIVE_IMAGE_SAMPLING_FANT ? -32.0F : -64.0F));
+            }
+            PROGPU_REQUIRE(quad[0].texture_coordinate[0] == 0.0F && quad[0].texture_coordinate[1] == 0.0F);
+            PROGPU_REQUIRE(quad[2].texture_coordinate[0] == 1.0F && quad[2].texture_coordinate[1] == 1.0F);
+            PROGPU_REQUIRE(quad[4].brush_index == 42.0F);
+            quad[0].brush_index = 43.0F;
+            quad[3].position[0] = std::numeric_limits<float>::quiet_NaN();
+            PROGPU_REQUIRE(!progpu::native::try_encode_captured_page_quad(quad, 3U, 5U, 64U, 128U, sampling, 0.25F));
+            PROGPU_REQUIRE(quad[0].brush_index == 43.0F);
+            PROGPU_REQUIRE(!progpu::native::try_encode_captured_page_quad(quad, 65U, 5U, 64U, 128U, sampling, 0.25F));
+            PROGPU_REQUIRE(quad[0].brush_index == 43.0F);
+        }
         for (std::uint32_t u = 0U; u <= 2U; ++u) {
             for (std::uint32_t v = 0U; v <= 2U; ++v) {
                 std::array<progpu::native::vector_vertex, 5U> vertices{};
