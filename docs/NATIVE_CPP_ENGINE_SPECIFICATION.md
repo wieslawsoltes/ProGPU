@@ -4071,3 +4071,11 @@ Timestamped fixture phases remain in failure logs. macOS passes all 15 native
 tests with this change; Windows and hosted exact-head qualification remain
 pending until those runs complete. This is test-lifetime correction, not a
 claim of new product rendering throughput or reduced cold-start latency.
+
+Hosted MSVC qualification at `26b29a40` passes all 16 native tests; the GPU
+fixture takes 76.20 seconds under the unchanged timeout. The managed gate's
+source-contract assertion is updated for the explicit retained-engine
+parameter and now also guards engine ownership and independent MIL scene
+identities. Its 10 Direct2D contract tests pass locally. The interrupted
+Parallels rerun is not counted as qualification; hosted ClangCL and full
+managed exact-head checks still require their own results.
