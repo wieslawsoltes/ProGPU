@@ -7737,7 +7737,7 @@ int run_tests()
             target->SetTransform(&device_stroke_transform);
             target->BeginDraw();
             const float requested_width = mode == compat::stroke_transform_type::hairline
-                ? 0.0F : 2.0F;
+                ? (curved ? std::numeric_limits<float>::max() : 0.0F) : 2.0F;
             if (curved) {
                 target->DrawEllipse(&ellipse_value, target_brush.get(),
                     requested_width, device_style.get());
@@ -7819,7 +7819,8 @@ int run_tests()
             const std::uint32_t expected = mode == compat::stroke_transform_type::fixed
                 ? fixed_flag : mode == compat::stroke_transform_type::hairline ? hairline_flag : 0U;
             if ((flags & (fixed_flag | hairline_flag)) != expected ||
-                thickness != requested_width) {
+                thickness != (mode == compat::stroke_transform_type::hairline
+                    ? 0.0F : requested_width)) {
                 return 419;
             }
         }
