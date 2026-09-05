@@ -54,6 +54,9 @@ struct mil_image_brush_fixture_options {
     std::span<const std::byte> glyph_brush_commands{};
     double target_dpi_scale_x{1.0};
     double target_dpi_scale_y{1.0};
+    bool opacity_mask{};
+    bool drawing_group_mask{};
+    bool missing_group_bounds{};
 };
 
 inline bool build_mil_image_brush_fixture(std::vector<std::byte>& scene,
@@ -164,6 +167,8 @@ inline bool build_mil_image_brush_fixture(std::vector<std::byte>& scene,
             0.8, 0.2, -0.1, 0.8, 8.0, 0.0, 0U);
         packet(nested, command::push_transform, 14U, 0U);
     }
+    if (options.opacity_mask && !options.drawing_group_mask)
+        packet(nested, command::push_opacity_mask, 8.0F, 8.0F, 56.0F, 56.0F, 5U, 0U);
     if (options.shape == mil_brush_fixture_shape::path ||
         options.shape == mil_brush_fixture_shape::group ||
         options.shape == mil_brush_fixture_shape::combined) {
@@ -222,7 +227,22 @@ inline bool build_mil_image_brush_fixture(std::vector<std::byte>& scene,
             }
         }
     }
-    switch (options.shape) {
+    if (options.opacity_mask) {
+        packet(batch, command::channel_create_resource, 30U, 75U);
+        packet(batch, command::solid_color_brush, 30U, 1.0,
+            progpu_native_color{0.0F, 1.0F, 0.0F, 1.0F}, 0U, 0U, 0U, 0U);
+        if (options.drawing_group_mask) {
+            packet(batch, command::channel_create_resource, 31U, 69U);
+            packet(batch, command::rectangle_geometry, 31U,
+                0.0, 0.0, 8.0, 8.0, 48.0, 48.0, 0U, 0U, 0U, 0U);
+            packet(batch, command::channel_create_resource, 32U, 87U);
+            packet(batch, command::geometry_drawing, 32U, 30U, 0U, 31U);
+            packet(batch, command::channel_create_resource, 33U, 91U);
+            packet(batch, command::drawing_group, 33U, 0.75, 4U,
+                0U, 0U, 5U, 0U, 0U, 0U, 0U, 0U, 32U);
+            packet(nested, command::draw_drawing, 33U, 0U);
+        } else packet(nested, command::draw_rectangle, 8.0, 8.0, 48.0, 48.0, 30U, 0U);
+    } else switch (options.shape) {
     case mil_brush_fixture_shape::glyphs:
     {
         batch.insert(batch.end(), options.glyph_commands.begin(), options.glyph_commands.end());
@@ -263,6 +283,7 @@ inline bool build_mil_image_brush_fixture(std::vector<std::byte>& scene,
             options.fixed_extent[0], options.fixed_extent[1], fill_handle, pen_handle);
         break;
     }
+    if (options.opacity_mask && !options.drawing_group_mask) packet(nested, command::pop);
     if (options.paint_transform) packet(nested, command::pop);
     if (options.inherited_clip) packet(nested, command::pop);
     if (options.guidelines) packet(nested, command::pop);
@@ -278,6 +299,9 @@ inline bool build_mil_image_brush_fixture(std::vector<std::byte>& scene,
     mil_clip_channel channel(raw);
     if (progpu_native_mil_channel_apply(raw, batch.data(), batch.size(), nullptr)
         != PROGPU_NATIVE_MIL_STATUS_SUCCESS) return false;
+    if (options.opacity_mask && options.drawing_group_mask && !options.missing_group_bounds &&
+        progpu_native_mil_channel_set_drawing_group_bounds(raw, 33U, 8.0, 8.0, 48.0, 48.0)
+            != PROGPU_NATIVE_MIL_STATUS_SUCCESS) return false;
     if (!options.glyph_font.empty() && progpu_native_mil_channel_set_glyph_run_font_sfnt(raw,
             28U, 0U, options.glyph_style, options.glyph_font.data(), options.glyph_font.size())
         != PROGPU_NATIVE_MIL_STATUS_SUCCESS) return false;

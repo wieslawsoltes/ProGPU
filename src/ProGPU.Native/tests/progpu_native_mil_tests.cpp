@@ -19597,6 +19597,73 @@ int main() {
             }
         }
     }
+    {
+        for (const auto source : {progpu::native::tests::mil_brush_fixture_source::bitmap,
+            progpu::native::tests::mil_brush_fixture_source::drawing,
+            progpu::native::tests::mil_brush_fixture_source::drawing_image,
+            progpu::native::tests::mil_brush_fixture_source::visual}) {
+            for (std::uint32_t mode = 0U; mode < 5U; ++mode) {
+                for (const bool group : {false, true}) {
+                    for (std::uint32_t sampling = 0U; sampling < 3U; ++sampling) {
+                        for (const bool transformed : {false, true}) {
+                            for (const double dpi : {1.0, 2.0}) {
+                                std::vector<std::byte> scene;
+                                PROGPU_REQUIRE(progpu::native::tests::build_mil_image_brush_fixture(scene,
+                                    {.tile_mode = mode, .opacity = 0.5, .relative_scale = transformed,
+                                        .skew = transformed, .linear = sampling == 1U, .source = source,
+                                        .inherited_clip = true, .paint_transform = transformed,
+                                        .viewport = {0.0, 0.0, 0.25, 0.5}, .fant = sampling == 2U,
+                                        .guidelines = true, .static_guidelines = true,
+                                        .target_dpi_scale_x = dpi, .target_dpi_scale_y = dpi,
+                                        .opacity_mask = true, .drawing_group_mask = group}, 10250U + mode));
+                                const auto header = read_value<progpu_native_scene_header>(scene, 0U);
+                                std::uint32_t pictures = 0U;
+                                for (std::uint32_t index = 0U; index < header.resource_count; ++index) {
+                                    const auto resource = read_value<progpu_native_scene_resource>(scene,
+                                        header.resource_offset + index * sizeof(progpu_native_scene_resource));
+                                    if (resource.kind != PROGPU_NATIVE_SCENE_RESOURCE_LAYER_MASK ||
+                                        resource.payload_size != sizeof(progpu_native_scene_layer_picture_mask)) continue;
+                                    const auto mask = read_value<progpu_native_scene_layer_picture_mask>(scene, resource.payload_offset);
+                                    if (mask.kind != PROGPU_NATIVE_SCENE_LAYER_MASK_PICTURE) continue;
+                                    ++pictures;
+                                    PROGPU_REQUIRE(mask.opacity == 1.0F);
+                                    PROGPU_REQUIRE(mask.transform.m11 == 1.0F && mask.transform.m22 == 1.0F);
+                                    const auto base = resource.auxiliary_offset + mask.stream_offset;
+                                    const auto nested = read_value<progpu_native_scene_header>(scene, base);
+                                    PROGPU_REQUIRE(nested.command_count != 0U);
+                                    // The alpha scene owns its state/resources and must not
+                                    // retain a parent guideline index or inherited clip.
+                                    const auto first = read_value<progpu_native_scene_command>(scene,
+                                        base + nested.command_offset);
+                                    PROGPU_REQUIRE(first.kind == PROGPU_NATIVE_SCENE_COMMAND_SAVE);
+                                    const auto state_resource = read_value<progpu_native_scene_resource>(scene,
+                                        base + nested.resource_offset + first.state_index * sizeof(progpu_native_scene_resource));
+                                    const auto state = read_value<progpu_native_scene_state>(scene,
+                                        base + state_resource.payload_offset);
+                                    PROGPU_REQUIRE(state.flags == 0U && state.opacity == 1.0F);
+                                }
+                                PROGPU_REQUIRE(pictures == 1U);
+                            }
+                        }
+                    }
+                }
+            }
+            std::vector<std::byte> missing_bounds{std::byte{0x5a}};
+            PROGPU_REQUIRE(!progpu::native::tests::build_mil_image_brush_fixture(missing_bounds,
+                {.source = source, .opacity_mask = true, .drawing_group_mask = true,
+                    .missing_group_bounds = true}, 10260U));
+            PROGPU_REQUIRE(missing_bounds == std::vector<std::byte>{std::byte{0x5a}});
+            if (source != progpu::native::tests::mil_brush_fixture_source::bitmap) {
+                for (const bool group : {false, true}) {
+                    std::vector<std::byte> cyclic{std::byte{0x5a}};
+                    PROGPU_REQUIRE(!progpu::native::tests::build_mil_image_brush_fixture(cyclic,
+                        {.source = source, .source_cycle = true, .opacity_mask = true,
+                            .drawing_group_mask = group}, 10261U));
+                    PROGPU_REQUIRE(cyclic == std::vector<std::byte>{std::byte{0x5a}});
+                }
+            }
+        }
+    }
     // Authored during implementation-first work; execution and pixel parity
     // remain part of the final validation phase.
     for (const auto source : {progpu::native::tests::mil_brush_fixture_source::bitmap,
