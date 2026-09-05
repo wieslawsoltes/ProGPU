@@ -4124,3 +4124,36 @@ including all five new cold cache variants; the GPU gate takes 143.07 seconds
 under its unchanged 300-second limit. The additional warm-cache assertions
 and tightened one-byte gradient probes are being rerun separately on Windows;
 hosted exact-head jobs remain a distinct gate.
+
+### Nested effect domains and live cache clip updates, 2026-09-05
+
+Transient isolated layers nested inside local bitmap caches now resolve their
+declared bounds against the parent target's coordinate domain, not only the
+presentation window. The same overflow-safe extent helper is shared with
+draw scissoring. Explicit bounds still intersect the parent exactly, layers
+without explicit bounds inherit its full extent, and pop restores the parent
+and finally the presentation domain.
+
+Before the change, both a CPU target-cursor test and a raw-MIL GPU fixture
+failed: Gaussian-blur siblings inside a 128x128 root cache behind a 64x64
+window lost their center pixels. The fixture now passes with both ordinary
+and BitmapCache-backed effect sources while retaining their exact output
+geometry clips. This extends the oversized-cache fix beyond ordinary draws.
+
+The raw-MIL fixture can also retain its channel through RAII ownership.
+Plain and gradient-masked caches now mutate both ellipse clips on that same
+channel, advance scene generation, and submit the newly compiled stream.
+The changed edge pixels and unchanged center pixels are asserted together
+with zero cache-content passes. No stream-header patch, fabricated resource
+generation, or fresh-channel substitution is used to make the cache hit.
+
+Local native 15/15, MIL/internal sanitizers 2/2 and x64/Rosetta 2/2 pass. A
+strict Windows ARM64 build passes 16/16 including the nested-effect cases
+(GPU 180.88 seconds under the unchanged 300-second timeout); the final live
+clip-update GPU rerun passes in 83.44 seconds. A complete managed run observed
+one intermittent AppWindow property-allocation assertion (6,192 bytes versus
+zero); its isolated test and three 20-test class reruns pass without changing
+the product or its budget. The cause remains unproven; evidence is retained
+under artifacts/performance/appwindow-allocation-20260905. The subsequent
+full managed rerun passes 3,922/3,922 with its TRX retained there; this is not
+a claim that the intermittent allocation issue has been fixed.

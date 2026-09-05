@@ -12,6 +12,15 @@ namespace progpu::native::semantic {
 
 namespace {
 
+std::uint32_t target_domain_extent(std::uint32_t frame_extent,
+                                  std::uint32_t origin,
+                                  std::uint32_t extent) noexcept {
+    const auto end = std::min<std::uint64_t>(
+        static_cast<std::uint64_t>(origin) + extent,
+        std::numeric_limits<std::uint32_t>::max());
+    return std::max(frame_extent, static_cast<std::uint32_t>(end));
+}
+
 float snap_scissor_coordinate(float value) noexcept {
     const float rounded = std::round(value);
     return std::abs(value - rounded) < 0.0001F ? rounded : value;
@@ -560,19 +569,11 @@ scissor resolve_semantic_target_scissor(
     // A local bitmap-cache page may be larger than the presentation frame
     // (RenderAtScale, or an offscreen subtree). Clip against that page's
     // coordinate domain before localizing, not against the root window.
-    const auto domain_extent = [](std::uint32_t frame_extent,
-                                  std::uint32_t origin,
-                                  std::uint32_t extent) noexcept {
-        const auto end = std::min<std::uint64_t>(
-            static_cast<std::uint64_t>(origin) + extent,
-            std::numeric_limits<std::uint32_t>::max());
-        return std::max(frame_extent, static_cast<std::uint32_t>(end));
-    };
     auto clipped = intersect_semantic_scissors(
         resolve_semantic_scissor(
             state,
-            domain_extent(frame_width, target.x, target.width),
-            domain_extent(frame_height, target.y, target.height),
+            target_domain_extent(frame_width, target.x, target.width),
+            target_domain_extent(frame_height, target.y, target.height),
             dpi_scale),
         target);
     if (!clipped.drawable) {
@@ -636,13 +637,14 @@ scissor semantic_layer_target_cursor::advance(
                 extents_[materialized_depth_++] = {
                     0U, 0U, width, height, width != 0U && height != 0U};
             } else {
+                const auto parent = current();
                 const auto declared = resolve_semantic_layer_scissor(
                     layer,
-                    frame_width_,
-                    frame_height_,
+                    target_domain_extent(frame_width_, parent.x, parent.width),
+                    target_domain_extent(frame_height_, parent.y, parent.height),
                     dpi_scale_);
                 extents_[materialized_depth_++] =
-                    intersect_semantic_scissors(current(), declared);
+                    intersect_semantic_scissors(parent, declared);
             }
         }
     } else if (command.kind == PROGPU_NATIVE_SCENE_COMMAND_POP_LAYER) {
