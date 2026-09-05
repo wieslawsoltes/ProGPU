@@ -7,6 +7,7 @@
 
 struct progpu_native_engine;
 struct semantic_render_bundle_span;
+struct semantic_image_draw;
 
 namespace progpu::native {
 namespace semantic {
@@ -58,6 +59,14 @@ bool create_semantic_picture_mask_binding(
     const semantic::semantic_state_cursor* composite_state_cursor,
     const progpu_native_scene_state* composite_state,
     semantic_render_bundle_span& operation);
+
+bool create_semantic_picture_image(
+    progpu_native_engine& engine,
+    const progpu_native_scene_picture_image& picture,
+    const std::byte* nested_scene,
+    std::uint32_t scene_size,
+    semantic_image_draw& draw,
+    progpu_native_scene_frame_metrics& child_metrics);
 
 bool create_semantic_composite_mask_binding(
     progpu_native_engine& engine,

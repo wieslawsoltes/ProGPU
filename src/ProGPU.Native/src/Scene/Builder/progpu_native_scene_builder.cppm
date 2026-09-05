@@ -15,6 +15,8 @@ using ::progpu_native_point_3d;
 using ::progpu_native_point;
 using ::progpu_native_image_rect;
 using ::progpu_native_scene_image_draw;
+using ::progpu_native_scene_picture_image;
+using ::PROGPU_NATIVE_SCENE_IMAGE_SOURCE_PREMULTIPLIED;
 using ::progpu_native_scene_image_patch;
 using ::progpu_native_scene_image_patch_batch;
 using ::progpu_native_scene_image_sampling_options;

@@ -3808,3 +3808,69 @@ test target compile; tests are unexecuted. This supersedes the earlier WIC A8
 import/lock gap, but not WIC render-target creation, arbitrary format conversion,
 render-target readback copies, Windows/GPU parity, performance or CI qualification.
 The latest fetched ProGPU `main` is already contained in the feature branch.
+
+## Implementation-first checkpoint: retained picture images and compatible bitmap draws
+
+Compatible render-target bitmaps now implement the private typed bitmap source
+contract used by `DrawBitmap`, bitmap brushes and opacity capture. Shared aliases
+preserve bitmap and scene-query interfaces, source identity and per-view DPI/alpha
+metadata. A completed, cleared source is captured as owned nested scene bytes;
+subsequent source redraws get a new generation without changing earlier draws.
+Original and shared aliases reuse one parent resource for an unchanged source.
+Self-target drawing is rejected before acquiring the source target lock.
+
+The reusable backend primitive is `semantic_scene_builder::add_picture_image`.
+Its C wire resource is `IMAGE | IMAGE_PICTURE`, with a fixed 48-byte
+`progpu_native_scene_picture_image` payload and a complete auxiliary scene stream.
+The descriptor records physical dimensions, uniform DPI and straight clear RGBA.
+Reserved words/flags must be zero; dimensions, byte limits and recursive depth
+are checked during scene ingestion. Image commands require matching dimensions,
+four-byte logical stride and premultiplied-source sampling. Existing C ABI
+records/functions are unchanged; this additive resource requires a matching
+producer/consumer. The public module exports the same descriptor and builder.
+
+The original ProGPU `progpu_native_semantic_picture_mask_resources.cpp` source
+rasterizer is shared, not copied: picture images retain its full RGBA texture
+instead of allocating the alpha-mask-only binding. Clear RGB is premultiplied
+before the render attachment clear. Exact descriptor DPI avoids reconstructing
+DPI by dividing rounded source bounds. Repeated references share one texture
+per compiled image page and distinct picture resource; stable page replay retains
+that texture. Ordinary sampling, color matrices, effects and brush addressing
+reuse the existing image execution and canonical shaders. An A8 picture projects
+sampled alpha to transparent black, whereas uploaded R8 still projects sampled red.
+There is no CPU pixel readback, pixel expansion, new scalar pixel loop or shader
+fork. This is original ProGPU implementation using its existing native picture
+and image algorithms, not third-party implementation text.
+
+For S captured stream bytes and P output pixels, recording owns O(S) bytes and
+rasterization owns O(P) texture storage, plus the existing child-scene rendering
+cost. Parent identity lookup follows the current bitmap resource cache; backend
+picture-view lookup is expected O(1) per image command with O(R) temporary entries
+for R distinct pictures. Source scene bytes own their uploaded/nested resources,
+so picture cache entries do not keep source COM targets alive and cannot introduce
+mutual target ownership cycles. Scene identity plus generation protects a cache
+entry when a released target address is reused. Pixel-backed bitmap entries keep
+their existing source lease. No measured performance claim is made.
+
+Applicability: this implements the native C++ Direct2D endpoint and its reusable
+native scene resource. Managed/portable Direct2D callers reach that same endpoint;
+there is no second managed Direct2D implementation. Managed WPF's existing retained
+render-target path is unchanged. This native wire descriptor is not currently an
+opted-in generated managed record; the native contract generator was rerun without
+changing generated bindings. No hot-path reflection or WPF-only workaround is added.
+
+Authored coverage includes descriptor/flag/stride/depth rejection, nested stream
+ownership and corruption, include/module consumers, RGBA/BGRA/A8 compatible draws,
+high DPI, cropped sampling, opacity, shared aliases, source generation changes,
+bitmap brushes, A8 opacity-mask projection, self-target and active-source failures.
+The Windows COM case now records `DrawBitmap` as well as `FillOpacityMask`.
+The native library, internal and portable Direct2D test targets, and LLVM C++
+module consumer compile. Tests, Windows ABI execution, GPU image comparisons,
+macOS/Linux/Windows parity, benchmarks and CI qualification remain deferred.
+
+Remaining work is explicit: persistent backing for delta-only compatible target
+updates (currently rejected, not rendered with lost old pixels), nonuniform source
+raster DPI (currently rejected), arbitrary provider scenes/external GPU leases,
+render-target copies/readback, broader device-context/Win2D support and full
+runtime/resource-lifetime qualification. This checkpoint does not claim full
+Direct2D render-target parity or readiness to merge without those final gates.
