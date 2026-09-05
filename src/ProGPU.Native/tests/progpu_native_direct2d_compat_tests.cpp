@@ -4,7 +4,7 @@
 
 #if defined(_WIN32)
 #  include <dwrite.h>
-#  include <d2d1.h>
+#  include <d2d1_1.h>
 #  include <wincodec.h>
 #endif
 
@@ -7692,6 +7692,145 @@ int run_tests()
     if (styled_primitive_command->kind !=
         PROGPU_NATIVE_SCENE_COMMAND_DRAW_GEOMETRY) {
         return 243;
+    }
+
+    const compat::stroke_style_properties device_stroke_properties{
+        compat::cap_style::round, compat::cap_style::round,
+        compat::cap_style::round, compat::line_join::round,
+        4.0F, compat::dash_style::custom, 0.5F};
+    const float device_stroke_dashes[]{1.0F, 2.0F, 3.0F};
+    const compat::matrix_3x2_f device_stroke_transform{
+        2.0F, 0.25F, 0.5F, 3.0F, 10.0F, 20.0F};
+    compat::matrix_3x2_f saved_stroke_transform{};
+    target->GetTransform(&saved_stroke_transform);
+    float saved_stroke_dpi_x{}, saved_stroke_dpi_y{};
+    target->GetDpi(&saved_stroke_dpi_x, &saved_stroke_dpi_y);
+    target->SetDpi(192.0F, 192.0F);
+    for (const auto mode : {compat::stroke_transform_type::normal,
+                           compat::stroke_transform_type::fixed,
+                           compat::stroke_transform_type::hairline}) {
+        com::pointer<compat::stroke_style1> device_style;
+        if (compat::create_stroke_style1(
+                factory.get(), &device_stroke_properties, mode,
+                device_stroke_dashes, 3U, device_style.put()) != com::ok ||
+            !device_style || device_style->GetStrokeTransformType() != mode) {
+            return 411;
+        }
+        com::pointer<compat::stroke_style> device_base;
+        com::pointer<compat::stroke_style1> device_roundtrip;
+        if (device_style.as(compat::stroke_style_interface_id, device_base) != com::ok ||
+            device_base.as(compat::stroke_style1_interface_id, device_roundtrip) != com::ok ||
+            device_roundtrip.get() != device_style.get()) {
+            return 412;
+        }
+#if defined(_WIN32)
+        auto* sdk_style = reinterpret_cast<ID2D1StrokeStyle1*>(device_style.get());
+        if (!com::guid_equal(compat::stroke_style1_interface_id,
+                __uuidof(ID2D1StrokeStyle1)) ||
+            static_cast<std::uint32_t>(sdk_style->GetStrokeTransformType()) !=
+                static_cast<std::uint32_t>(mode) ||
+            sdk_style->GetStartCap() != D2D1_CAP_STYLE_ROUND) {
+            return 413;
+        }
+#endif
+        for (const bool curved : {false, true}) {
+            target->SetTransform(&device_stroke_transform);
+            target->BeginDraw();
+            const float requested_width = mode == compat::stroke_transform_type::hairline
+                ? 0.0F : 2.0F;
+            if (curved) {
+                target->DrawEllipse(&ellipse_value, target_brush.get(),
+                    requested_width, device_style.get());
+            } else {
+                target->DrawLine({1.0F, 2.0F}, {18.0F, 12.0F}, target_brush.get(),
+                    requested_width, device_style.get());
+            }
+            if (target->EndDraw(nullptr, nullptr) != com::ok) {
+                return 414;
+            }
+            std::vector<std::byte> bytes(
+                static_cast<std::size_t>(scene_target->GetRequiredSceneSize()));
+            std::uint64_t written{};
+            if (scene_target->BuildScene(bytes.data(), bytes.size(), &written) != com::ok ||
+                written != bytes.size()) {
+                return 415;
+            }
+            const auto* header = reinterpret_cast<const progpu_native_scene_header*>(bytes.data());
+            if (header->command_count != 1U) {
+                std::fprintf(stderr, "stroke mode=%u curved=%d commands=%u resources=%u\n",
+                    static_cast<unsigned>(mode), curved, header->command_count, header->resource_count);
+                return 416;
+            }
+            const progpu_native_scene_resource* device_stroke_resource = nullptr;
+            const auto expected_kind = static_cast<std::uint32_t>(curved
+                ? PROGPU_NATIVE_SCENE_RESOURCE_GEOMETRY_BATCH
+                : PROGPU_NATIVE_SCENE_RESOURCE_STROKE_BATCH);
+            for (std::uint32_t index = 0U; index < header->resource_count; ++index) {
+                const auto* candidate = reinterpret_cast<const progpu_native_scene_resource*>(
+                    bytes.data() + header->resource_offset + index * header->resource_stride);
+                if (candidate->kind == expected_kind) {
+                    if (device_stroke_resource != nullptr) {
+                        return 416;
+                    }
+                    device_stroke_resource = candidate;
+                }
+            }
+            if (device_stroke_resource == nullptr) {
+                return 416;
+            }
+            std::uint32_t flags{};
+            float thickness{};
+            if (curved) {
+                if (device_stroke_resource->kind != PROGPU_NATIVE_SCENE_RESOURCE_GEOMETRY_BATCH) {
+                    return 417;
+                }
+                const auto* primitive = reinterpret_cast<const progpu_native_geometry_primitive*>(
+                    bytes.data() + device_stroke_resource->payload_offset);
+                flags = primitive->flags;
+                thickness = primitive->stroke_thickness;
+            } else {
+                if (device_stroke_resource->kind != PROGPU_NATIVE_SCENE_RESOURCE_STROKE_BATCH) {
+                    return 418;
+                }
+                const auto* stroke = reinterpret_cast<const progpu_native_scene_stroke*>(
+                    bytes.data() + device_stroke_resource->payload_offset);
+                flags = stroke->flags;
+                thickness = stroke->stroke_thickness;
+                const auto* intervals = reinterpret_cast<const double*>(
+                    bytes.data() + device_stroke_resource->auxiliary_offset +
+                    stroke->point_count * sizeof(progpu_native_point));
+                const double scale = mode == compat::stroke_transform_type::hairline ? 0.5 : 1.0;
+                if (stroke->dash_interval_count != 3U ||
+                    stroke->dash_offset != 0.5 * scale) {
+                    return 419;
+                }
+                for (std::size_t index = 0U; index < 3U; ++index) {
+                    if (intervals[index] != device_stroke_dashes[index] * scale) {
+                        return 419;
+                    }
+                }
+            }
+            const std::uint32_t fixed_flag = curved
+                ? static_cast<std::uint32_t>(PROGPU_NATIVE_PRIMITIVE_FLAG_FIXED_DEVICE_STROKE)
+                : static_cast<std::uint32_t>(PROGPU_NATIVE_POLYLINE_FLAG_FIXED_DEVICE_STROKE);
+            const std::uint32_t hairline_flag = curved
+                ? static_cast<std::uint32_t>(PROGPU_NATIVE_PRIMITIVE_FLAG_HAIRLINE)
+                : static_cast<std::uint32_t>(PROGPU_NATIVE_POLYLINE_FLAG_HAIRLINE);
+            const std::uint32_t expected = mode == compat::stroke_transform_type::fixed
+                ? fixed_flag : mode == compat::stroke_transform_type::hairline ? hairline_flag : 0U;
+            if ((flags & (fixed_flag | hairline_flag)) != expected ||
+                thickness != requested_width) {
+                return 419;
+            }
+        }
+    }
+    target->SetTransform(&saved_stroke_transform);
+    target->SetDpi(saved_stroke_dpi_x, saved_stroke_dpi_y);
+    com::pointer<compat::stroke_style1> invalid_device_style;
+    if (compat::create_stroke_style1(factory.get(), &device_stroke_properties,
+            static_cast<compat::stroke_transform_type>(3U), nullptr, 0U,
+            invalid_device_style.put()) != com::invalid_argument || invalid_device_style) {
+        return 420;
     }
 
     auto* raw_font_face = new fake_font_face();

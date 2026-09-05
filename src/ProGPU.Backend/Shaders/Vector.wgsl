@@ -923,9 +923,12 @@ fn vs_main(input: VertexInput, @builtin(vertex_index) vertexIndex: u32) -> Verte
         hasLateAffineTransform &&
         hasValidLateAffineTransform &&
         !is_conformal_stroke_transform(directStrokeScales);
+    // Projection consumes target DIPs. Only hairlines ignore the framebuffer
+    // scale; fixed-width Direct2D pens still scale with DPI.
+    let hairlineStrokeThickness = 1.0 / max(uniforms.dpiScale, 0.0001);
     var outputStrokeThickness = select(
         input.strokeThickness,
-        1.0,
+        hairlineStrokeThickness,
         isHairlineStroke);
     outputStrokeThickness = select(
         outputStrokeThickness,
@@ -1114,7 +1117,7 @@ fn vs_main(input: VertexInput, @builtin(vertex_index) vertexIndex: u32) -> Verte
         let outward = select(direction, -direction, isStart);
         let normal = vec2<f32>(-direction.y, direction.x);
         let deviceStrokeThickness = select(
-            1.0,
+            hairlineStrokeThickness,
             fixedDeviceStrokeThickness,
             isFixedDeviceStroke);
         let capExtent = deviceStrokeThickness * 0.5 + 1.5;
@@ -1163,7 +1166,7 @@ fn vs_main(input: VertexInput, @builtin(vertex_index) vertexIndex: u32) -> Verte
 
         let outerSign = select(1.0, -1.0, turn > 0.0);
         let deviceStrokeThickness = select(
-            1.0,
+            hairlineStrokeThickness,
             fixedDeviceStrokeThickness,
             isFixedDeviceStroke);
         let halfStrokeThickness = deviceStrokeThickness * 0.5;

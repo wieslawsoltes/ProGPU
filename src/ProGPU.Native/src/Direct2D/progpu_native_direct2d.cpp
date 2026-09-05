@@ -8093,6 +8093,9 @@ private:
                     stroke.flags = run.closed
                         ? PROGPU_NATIVE_POLYLINE_FLAG_CLOSED
                         : 0U;
+                    if (antialias_mode_ == D2D1_ANTIALIAS_MODE_ALIASED) {
+                        stroke.flags |= PROGPU_NATIVE_POLYLINE_FLAG_EDGE_ALIASED;
+                    }
                     if (style.transform_type ==
                         D2D1_STROKE_TRANSFORM_TYPE_FIXED) {
                         stroke.flags |=
