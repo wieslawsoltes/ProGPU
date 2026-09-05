@@ -4867,6 +4867,29 @@ public class DrawingContext :
             _retainedResources ??= new List<RetainedResourceLease>());
     }
 
+    /// <summary>
+    /// Records one application drawing command. Register the definition with the
+    /// target Window or Compositor before rendering. The payload remains caller
+    /// owned and must stay stable through submission; mutations require visual
+    /// invalidation and any extension-specific generation advance. Bounds are in
+    /// local logical coordinates. This method performs no GPU work or data copy.
+    /// </summary>
+    [System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.AggressiveInlining)]
+    public void DrawExtension<TData>(DrawingExtension<TData> extension, Rect bounds, TData data, Matrix4x4 transform = default)
+        where TData : class
+    {
+        ArgumentNullException.ThrowIfNull(extension);
+        ArgumentNullException.ThrowIfNull(data);
+        Commands.Add(new RenderCommand
+        {
+            Type = RenderCommandType.DrawExtension,
+            ExtensionId = extension.Id,
+            Rect = bounds,
+            DataParam = data,
+            Transform = transform
+        });
+    }
+
     public void DrawExtension(
         int extensionId,
         int intParam = 0,

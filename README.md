@@ -117,6 +117,9 @@ PROGPU_PACKAGE_GROUP=portable ./eng/progpu-pack.sh
 ./scripts/progpu-pack.sh
 ```
 
+See [application drawing extensions](docs/drawing-extensions.md) for registering
+custom GPU drawing from an ordinary WinUI NuGet consumer.
+
 See [`docs/progpu-packaging.md`](docs/progpu-packaging.md) for package-only
 consumer validation, version overrides, and publishing.
 
