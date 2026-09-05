@@ -37,6 +37,8 @@ struct mil_image_brush_fixture_options {
     std::uint32_t combined_mode{3U};
     bool solid_pen{};
     bool fill_with_pen{};
+    bool group_combined{};
+    bool identical_combined_operands{};
 };
 
 inline bool build_mil_image_brush_fixture(std::vector<std::byte>& scene,
@@ -157,6 +159,11 @@ inline bool build_mil_image_brush_fixture(std::vector<std::byte>& scene,
             packet(batch, command::channel_create_resource, 15U,
                 options.shape == mil_brush_fixture_shape::group ? 71U : 72U);
             if (options.shape == mil_brush_fixture_shape::group) {
+                if (options.group_combined) {
+                    packet(batch, command::channel_create_resource, 26U, 72U);
+                    packet(batch, command::combined_geometry, 26U, 16U, options.combined_mode,
+                        17U, options.identical_combined_operands ? 17U : 18U);
+                }
                 if (options.nested_group) {
                     packet(batch, command::channel_create_resource, 25U, 66U);
                     packet(batch, command::matrix_transform, 25U, 1.4, 0.2, -0.1, 0.7, 2.0, 3.0, 0U);
@@ -171,9 +178,11 @@ inline bool build_mil_image_brush_fixture(std::vector<std::byte>& scene,
                     append(batch, static_cast<std::uint32_t>(options.path_figures.size()));
                     batch.insert(batch.end(), options.path_figures.begin(), options.path_figures.end());
                     packet(batch, command::channel_create_resource, 22U, 71U);
-                    packet(batch, command::geometry_group, 22U, 25U, 0U, 12U, 18U, 23U, 24U);
+                    packet(batch, command::geometry_group, 22U, 25U, 0U, 12U,
+                        options.group_combined ? 26U : 18U, 23U, 24U);
                 }
-                packet(batch, command::geometry_group, 15U, 16U, 0U, 8U, 17U, options.nested_group ? 22U : 18U);
+                packet(batch, command::geometry_group, 15U, 16U, 0U, 8U,
+                    options.group_combined ? 26U : 17U, options.nested_group ? 22U : 18U);
             } else {
                 packet(batch, command::combined_geometry, 15U, 16U, options.combined_mode, 17U, 18U);
             }
