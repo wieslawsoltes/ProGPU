@@ -318,7 +318,7 @@ enum {
     PROGPU_NATIVE_SCENE_LAYER_CACHE_FANT = 1U << 6U,
     /* Applies the clip-only STATE in reserved0 to a materialized composite. */
     PROGPU_NATIVE_SCENE_LAYER_COMPOSITE_STATE = 1U << 7U,
-    /* reserved1 references TILE_COMPOSITE; requires local cache, excludes Fant. */
+    /* reserved1 references TILE_COMPOSITE; requires local cache. */
     PROGPU_NATIVE_SCENE_LAYER_CACHE_TILE = 1U << 8U
 };
 
@@ -1169,8 +1169,8 @@ typedef struct progpu_native_scene_layer {
 
 /* Zero-origin premultiplied page; inverse mapping yields normalized tile UVs.
  * No pointers, texture ownership or source data cross this 64-byte record.
- * Address modes use progpu_native_image_address_mode; nearest/linear is owned
- * by the containing layer's CACHE_NEAREST flag. */
+ * Address modes use progpu_native_image_address_mode; the containing layer's
+ * CACHE_NEAREST/CACHE_FANT flags select nearest/Fant, otherwise linear. */
 /* PROGPU_CSHARP_STRUCT: Public.NativeSceneTileComposite */
 typedef struct progpu_native_scene_tile_composite {
     uint32_t struct_size;

@@ -7334,6 +7334,51 @@ native rejection before output, device loss/eviction and native Windows WPF pari
 High-quality filtering/nonuniform DPI, tile-brush strokes/text/opacity masks,
 managed retained capture adoption and broader MIL/DirectX/Direct2D/Win2D gates remain.
 
+### Implementation-first checkpoint: occupied-page Fant sampling
+
+Repeated MIL ImageBrush, DrawingBrush and VisualBrush capture now accepts Fant in
+addition to nearest and linear. This supersedes the Fant rejection in the previous
+capture checkpoint; cubic, mipmapped/anisotropic modes and nonuniform DPI remain
+unsupported. `CacheFant` is permitted with `CacheTile`, while simultaneous nearest
+and Fant flags remain invalid. Native restoration preserves the tile-page vertex
+marker so ordinary cached-image Fant handling cannot replace its occupied extent
+or addressing behavior. No ABI layout or numeric constant changed.
+
+The canonical `Texture.wgsl` now shares the existing ProGPU bounded Fant footprint
+algorithm between ordinary images and occupied tile pages. It retains the square-
+root-of-two threshold and fixed 4-by-4 stratified footprint. Occupied-page samples
+use explicit bilinear texel loads with repeat/mirror addressing per tap, bounded
+to the occupied page rather than the pooled allocation: at most 64 loads per
+fragment. The unwrapped UV enters the footprint calculation and each stratum is
+addressed independently, preserving mirror phase under skew/reflection. This is
+the existing bounded ProGPU filter, not a claim of exact general WPF resampling.
+Ordinary image Fant retains its existing hardware-sampler path; extending the
+full-image explicit-sampling policy to Fant is separate remaining work.
+
+Both native and managed quad encoders emit the Fant coefficient. The managed
+encoder exposes typed `TileImageSampling` and preserves its boolean overload as
+a compatibility forwarder. Native and managed scene builders accept the same
+tile/filter contract. This reuses original ProGPU texture filtering, occupied-page
+addressing and local-layer capture code; no foreign implementation or CPU pixel
+fallback was introduced. CPU emission remains a fixed four-corner operation;
+filtering stays in the shared GPU shader, without readback or per-tile submissions.
+
+Build-only evidence: the GPU-enabled Apple Clang C++20 shared library and native
+MIL test executable built successfully; the managed test project built with zero
+warnings and errors. Authored native repeat/source/filter coverage now contains
+48 combinations, and quad encoding covers 27 filter/address combinations, with
+paired managed encoder and layer-contract cases. These cases were compiled but
+**not executed**. The MIL coverage source digest was regenerated. Shader embedding
+in a C++ build is not GPU pipeline validation. No runtime, image, VM, sanitizer,
+benchmark or CI qualification was performed for this checkpoint.
+
+Final qualification must cover minification around the threshold and large
+footprints, mirrored/skewed seams, transparent padding and poisoned pool storage,
+premultiplied alpha and once-only opacity, plus native Windows WPF comparison.
+No performance or pixel-parity claim is made. Managed retained-capture adoption,
+tile strokes/text/opacity masks, the remaining filtering/DPI work and broader
+MIL/DirectX/Direct2D/Win2D completion remain open.
+
 ## Invariants
 
 - No reflection or private managed field scanning in the product bridge.

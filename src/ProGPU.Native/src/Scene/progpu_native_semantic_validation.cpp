@@ -478,7 +478,7 @@ bool is_valid_semantic_layer(
                 PROGPU_NATIVE_SCENE_LAYER_CACHE_FANT)) &&
         (has_composite_state || layer.reserved0 == 0U) &&
         (((layer.flags & PROGPU_NATIVE_SCENE_LAYER_CACHE_TILE) != 0U)
-            ? local_cache && (layer.flags & PROGPU_NATIVE_SCENE_LAYER_CACHE_FANT) == 0U &&
+            ? local_cache &&
                 layer.reserved1 != PROGPU_NATIVE_SCENE_NO_INDEX
             : layer.reserved1 == 0U);
 }

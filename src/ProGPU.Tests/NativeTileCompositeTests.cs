@@ -7,8 +7,11 @@ namespace ProGPU.Tests;
 
 public class NativeTileCompositeTests
 {
-    [Fact]
-    public void LocalTileCaptureHasSeparateCompositeResource()
+    [Theory]
+    [InlineData(NativeSceneLayerFlags.None)]
+    [InlineData(NativeSceneLayerFlags.CacheNearest)]
+    [InlineData(NativeSceneLayerFlags.CacheFant)]
+    public void LocalTileCaptureHasSeparateCompositeResource(NativeSceneLayerFlags sampling)
     {
         Assert.Equal(64, Unsafe.SizeOf<NativeSceneTileComposite>());
         byte[] bytes = new byte[4096];
@@ -20,7 +23,7 @@ public class NativeTileCompositeTests
         Assert.True(builder.TryAddTileCompositeResource(2, 1, in tile, out uint tileIndex));
         var layer = new NativeSceneLayer(flags: NativeSceneLayerFlags.Bounds |
             NativeSceneLayerFlags.CacheContent | NativeSceneLayerFlags.CacheLocalSpace |
-            NativeSceneLayerFlags.CacheTile, bounds: new(0, 0, 3, 5),
+            NativeSceneLayerFlags.CacheTile | sampling, bounds: new(0, 0, 3, 5),
             contentRevision: 7, compositeRevision: 9,
             compositeStateResourceIndex: stateIndex, tileCompositeResourceIndex: tileIndex);
         Assert.True(builder.TryPushLayer(1, in layer));
@@ -41,7 +44,7 @@ public class NativeTileCompositeTests
         Assert.True(builder.TryAddTileCompositeResource(2, 1, in tile, out uint tileIndex));
         var layer = new NativeSceneLayer(flags: NativeSceneLayerFlags.Bounds |
             NativeSceneLayerFlags.CacheContent | NativeSceneLayerFlags.CacheLocalSpace |
-            NativeSceneLayerFlags.CacheTile | NativeSceneLayerFlags.CacheFant,
+            NativeSceneLayerFlags.CacheTile | NativeSceneLayerFlags.CacheFant | NativeSceneLayerFlags.CacheNearest,
             bounds: new(0, 0, 3, 5), contentRevision: 7, compositeRevision: 9,
             compositeStateResourceIndex: stateIndex, tileCompositeResourceIndex: tileIndex);
         Assert.False(builder.TryPushLayer(1, in layer));

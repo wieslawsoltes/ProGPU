@@ -14336,7 +14336,8 @@ struct channel::implementation {
             const bool repeated = brush.tile_mode != 0U;
             if (brush.tile_mode > 4U || (repeated && (compile_context == nullptr ||
                 (state.image_sampling != PROGPU_NATIVE_IMAGE_SAMPLING_NEAREST &&
-                 state.image_sampling != PROGPU_NATIVE_IMAGE_SAMPLING_LINEAR)))) {
+                 state.image_sampling != PROGPU_NATIVE_IMAGE_SAMPLING_LINEAR &&
+                 state.image_sampling != PROGPU_NATIVE_IMAGE_SAMPLING_FANT)))) {
                 return status::unsupported_command;
             }
             double content_x = 0.0;
@@ -14562,6 +14563,8 @@ struct channel::implementation {
                         PROGPU_NATIVE_SCENE_LAYER_CACHE_TILE;
                     if (state.image_sampling == PROGPU_NATIVE_IMAGE_SAMPLING_NEAREST)
                         layer.flags |= PROGPU_NATIVE_SCENE_LAYER_CACHE_NEAREST;
+                    else if (state.image_sampling == PROGPU_NATIVE_IMAGE_SAMPLING_FANT)
+                        layer.flags |= PROGPU_NATIVE_SCENE_LAYER_CACHE_FANT;
                     layer.bounds = {0.0F, 0.0F, bound_width, bound_height};
                     layer.mask_resource_index = clipped.mask_resource_index;
                     const affine_2d_double viewport_to_page{page_width / viewport.width, 0.0, 0.0,

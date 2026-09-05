@@ -3247,7 +3247,7 @@ public ref struct NativeSceneStreamBuilder
                 (NativeSceneLayerFlags.CacheNearest |
                     NativeSceneLayerFlags.CacheFant) &&
             ((layer.Flags & NativeSceneLayerFlags.CacheTile) == 0 ||
-                (localCache && (layer.Flags & NativeSceneLayerFlags.CacheFant) == 0 &&
+                (localCache &&
                     layer.TileCompositeResourceIndex != NativeMethods.SceneNoIndex)) &&
             layer.HasCanonicalReservedFields;
     }

@@ -4230,7 +4230,9 @@ progpu_native_status render_scene(
                                 engine->semantic_layer_slots[source_layer].height,
                                 tile.address_u, tile.address_v,
                                 (layer.flags & PROGPU_NATIVE_SCENE_LAYER_CACHE_NEAREST) != 0U
-                                    ? PROGPU_NATIVE_IMAGE_SAMPLING_NEAREST : PROGPU_NATIVE_IMAGE_SAMPLING_LINEAR,
+                                    ? PROGPU_NATIVE_IMAGE_SAMPLING_NEAREST :
+                                    (layer.flags & PROGPU_NATIVE_SCENE_LAYER_CACHE_FANT) != 0U
+                                        ? PROGPU_NATIVE_IMAGE_SAMPLING_FANT : PROGPU_NATIVE_IMAGE_SAMPLING_LINEAR,
                                 layer.opacity)) {
                             return fail_bundle(PROGPU_NATIVE_STATUS_INVALID_ARGUMENT);
                         }
@@ -4288,8 +4290,8 @@ progpu_native_status render_scene(
                             frame->dpi_scale,
                             layer.opacity);
                     }
-                    if ((layer.flags &
-                            PROGPU_NATIVE_SCENE_LAYER_CACHE_FANT) != 0U) {
+                    if ((layer.flags & (PROGPU_NATIVE_SCENE_LAYER_CACHE_FANT |
+                            PROGPU_NATIVE_SCENE_LAYER_CACHE_TILE)) == PROGPU_NATIVE_SCENE_LAYER_CACHE_FANT) {
                         for (std::size_t vertex_index = first_vertex;
                              vertex_index < semantic_layer_vertices.size();
                              ++vertex_index) {
