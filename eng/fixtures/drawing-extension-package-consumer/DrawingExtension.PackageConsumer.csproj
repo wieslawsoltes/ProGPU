@@ -1,0 +1,15 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <SignAssembly>false</SignAssembly>
+    <ProGpuPackageVersion Condition="'$(ProGpuPackageVersion)' == ''">0.1.0-preview.62</ProGpuPackageVersion>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="ProGPU.WinUI" Version="$(ProGpuPackageVersion)" />
+    <EmbeddedResource Include="Shaders/*.wgsl" LogicalName="$(AssemblyName).Shaders.%(Filename)%(Extension)" />
+  </ItemGroup>
+</Project>
