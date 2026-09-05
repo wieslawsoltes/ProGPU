@@ -12231,11 +12231,22 @@ struct channel::implementation {
                 effective_transform,
                 PROGPU_NATIVE_SCENE_NO_INDEX);
         };
+        // Algorithm: retain the ordinary collapsed ellipse's traversal order.
+        // Time/space complexity: O(1), exactly four points.
+        const auto degenerate_ellipse_points = [](double x, double y, double rx, double ry) {
+            const progpu_native_point center{static_cast<float>(x), static_cast<float>(y)};
+            return rx == 0.0
+                ? std::array{center, progpu_native_point{center.x, static_cast<float>(y + ry)},
+                    center, progpu_native_point{center.x, static_cast<float>(y - ry)}}
+                : std::array{progpu_native_point{static_cast<float>(x + rx), center.y}, center,
+                    progpu_native_point{static_cast<float>(x - rx), center.y}, center};
+        };
         const auto append_degenerate_ellipse_stroke = [
             this,
             &builder,
             &resolve_brush_index,
             &append_degenerate_cap_stroke,
+            &degenerate_ellipse_points,
             &append_polyline_stroke,
             &current](
             double center_x,
@@ -12332,28 +12343,7 @@ struct channel::implementation {
                 return status::invalid_graph;
             }
             if (has_nonempty_dash) {
-                const progpu_native_point center{
-                    static_cast<float>(center_x),
-                    static_cast<float>(center_y)};
-                const std::array points = radius_x == 0.0
-                    ? std::array{
-                          center,
-                          progpu_native_point{
-                              static_cast<float>(center_x),
-                              static_cast<float>(center_y + radius_y)},
-                          center,
-                          progpu_native_point{
-                              static_cast<float>(center_x),
-                              static_cast<float>(center_y - radius_y)}}
-                    : std::array{
-                          progpu_native_point{
-                              static_cast<float>(center_x + radius_x),
-                              static_cast<float>(center_y)},
-                          center,
-                          progpu_native_point{
-                              static_cast<float>(center_x - radius_x),
-                              static_cast<float>(center_y)},
-                          center};
+                const auto points = degenerate_ellipse_points(center_x, center_y, radius_x, radius_y);
                 pen_state smooth_pen = pen;
                 smooth_pen.line_join = PROGPU_NATIVE_STROKE_JOIN_ROUND;
                 return append_polyline_stroke(
@@ -13448,6 +13438,104 @@ struct channel::implementation {
                 pen.end_line_cap,
                 true);
         };
+        // Algorithm: preserve the ordinary MIL collapsed-rectangle outer contour.
+        // Time/space: O(1), bounded line/rounded-corner segment storage.
+        const auto make_degenerate_rectangle_outline = [&append_rounded_rectangle_path](
+            double left, double top, double right, double bottom,
+            double radius_x, double radius_y, const pen_state& pen) {
+            const double half_thickness = pen.thickness * 0.5;
+            std::vector<progpu_native_path_segment> segments;
+            const auto append_line = [&segments](
+                double x0,
+                double y0,
+                double x1,
+                double y1) {
+                progpu_native_path_segment segment{};
+                segment.kind = PROGPU_NATIVE_PATH_SEGMENT_LINE;
+                segment.p0 = {
+                    static_cast<float>(x0), static_cast<float>(y0)};
+                segment.p1 = {
+                    static_cast<float>(x1), static_cast<float>(y1)};
+                segments.push_back(segment);
+            };
+            if ((radius_x > 0.0 && radius_y > 0.0) ||
+                pen.line_join == PROGPU_NATIVE_STROKE_JOIN_ROUND) {
+                const double outer_radius_x = radius_x + half_thickness;
+                const double outer_radius_y = radius_y + half_thickness;
+                const double clamped_radius_x = std::min(
+                    outer_radius_x, (right - left) * 0.5);
+                const double clamped_radius_y = std::min(
+                    outer_radius_y, (bottom - top) * 0.5);
+                append_rounded_rectangle_path(
+                    segments,
+                    left,
+                    top,
+                    right,
+                    bottom,
+                    clamped_radius_x,
+                    clamped_radius_y);
+            } else {
+                double bevel_offset = 0.0;
+                if (pen.line_join == PROGPU_NATIVE_STROKE_JOIN_BEVEL) {
+                    bevel_offset = half_thickness;
+                } else {
+                    bevel_offset = std::clamp(
+                        2.0 - std::numbers::sqrt2_v<double> *
+                            pen.miter_limit,
+                        0.0,
+                        1.0) * half_thickness;
+                }
+                bevel_offset = std::clamp(
+                    bevel_offset,
+                    0.0,
+                    0.5 * std::min(right - left, bottom - top));
+                if (bevel_offset == 0.0) {
+                    append_line(left, top, right, top);
+                    append_line(right, top, right, bottom);
+                    append_line(right, bottom, left, bottom);
+                    append_line(left, bottom, left, top);
+                } else {
+                    append_line(
+                        left, top + bevel_offset, left + bevel_offset, top);
+                    append_line(
+                        left + bevel_offset,
+                        top,
+                        right - bevel_offset,
+                        top);
+                    append_line(
+                        right - bevel_offset,
+                        top,
+                        right,
+                        top + bevel_offset);
+                    append_line(
+                        right,
+                        top + bevel_offset,
+                        right,
+                        bottom - bevel_offset);
+                    append_line(
+                        right,
+                        bottom - bevel_offset,
+                        right - bevel_offset,
+                        bottom);
+                    append_line(
+                        right - bevel_offset,
+                        bottom,
+                        left + bevel_offset,
+                        bottom);
+                    append_line(
+                        left + bevel_offset,
+                        bottom,
+                        left,
+                        bottom - bevel_offset);
+                    append_line(
+                        left,
+                        bottom - bevel_offset,
+                        left,
+                        top + bevel_offset);
+                }
+            }
+            return segments;
+        };
         const auto append_degenerate_rectangle_stroke = [
             this,
             &builder,
@@ -13456,7 +13544,7 @@ struct channel::implementation {
             &append_degenerate_cap_stroke,
             &append_path_strokes,
             &make_wpf_rounded_rectangle_geometry,
-            &append_rounded_rectangle_path,
+            &make_degenerate_rectangle_outline,
             &current](
             double x,
             double y,
@@ -13587,96 +13675,8 @@ struct channel::implementation {
                     pen.end_line_cap,
                     true);
             }
-            std::vector<progpu_native_path_segment> segments;
-            const auto append_line = [&segments](
-                double x0,
-                double y0,
-                double x1,
-                double y1) {
-                progpu_native_path_segment segment{};
-                segment.kind = PROGPU_NATIVE_PATH_SEGMENT_LINE;
-                segment.p0 = {
-                    static_cast<float>(x0), static_cast<float>(y0)};
-                segment.p1 = {
-                    static_cast<float>(x1), static_cast<float>(y1)};
-                segments.push_back(segment);
-            };
-            if ((radius_x > 0.0 && radius_y > 0.0) ||
-                pen.line_join == PROGPU_NATIVE_STROKE_JOIN_ROUND) {
-                const double outer_radius_x = radius_x + half_thickness;
-                const double outer_radius_y = radius_y + half_thickness;
-                const double clamped_radius_x = std::min(
-                    outer_radius_x, (right - left) * 0.5);
-                const double clamped_radius_y = std::min(
-                    outer_radius_y, (bottom - top) * 0.5);
-                append_rounded_rectangle_path(
-                    segments,
-                    left,
-                    top,
-                    right,
-                    bottom,
-                    clamped_radius_x,
-                    clamped_radius_y);
-            } else {
-                double bevel_offset = 0.0;
-                if (pen.line_join == PROGPU_NATIVE_STROKE_JOIN_BEVEL) {
-                    bevel_offset = half_thickness;
-                } else {
-                    bevel_offset = std::clamp(
-                        2.0 - std::numbers::sqrt2_v<double> *
-                            pen.miter_limit,
-                        0.0,
-                        1.0) * half_thickness;
-                }
-                bevel_offset = std::clamp(
-                    bevel_offset,
-                    0.0,
-                    0.5 * std::min(right - left, bottom - top));
-                if (bevel_offset == 0.0) {
-                    append_line(left, top, right, top);
-                    append_line(right, top, right, bottom);
-                    append_line(right, bottom, left, bottom);
-                    append_line(left, bottom, left, top);
-                } else {
-                    append_line(
-                        left, top + bevel_offset, left + bevel_offset, top);
-                    append_line(
-                        left + bevel_offset,
-                        top,
-                        right - bevel_offset,
-                        top);
-                    append_line(
-                        right - bevel_offset,
-                        top,
-                        right,
-                        top + bevel_offset);
-                    append_line(
-                        right,
-                        top + bevel_offset,
-                        right,
-                        bottom - bevel_offset);
-                    append_line(
-                        right,
-                        bottom - bevel_offset,
-                        right - bevel_offset,
-                        bottom);
-                    append_line(
-                        right - bevel_offset,
-                        bottom,
-                        left + bevel_offset,
-                        bottom);
-                    append_line(
-                        left + bevel_offset,
-                        bottom,
-                        left,
-                        bottom - bevel_offset);
-                    append_line(
-                        left,
-                        bottom - bevel_offset,
-                        left,
-                        top + bevel_offset);
-                }
-            }
+            const auto segments = make_degenerate_rectangle_outline(
+                left, top, right, bottom, radius_x, radius_y, pen);
             const std::array paths{
                 progpu_native_scene_path_fill{
                     0U,
@@ -15034,6 +15034,53 @@ struct channel::implementation {
             }
             geometry.stroke_contours.push_back(std::move(contour));
             return geometry;
+        };
+        // Algorithm: lower collapsed fixed shapes using the ordinary MIL
+        // contour/centerline rules, then paint one tile source through coverage.
+        // Time/space: O(1) shape setup plus O(D) emitted dash pieces.
+        const auto append_degenerate_tile_shape = [this, &append_tile_pen, &append_tile_line_pen,
+            &append_path_tile_brush, &make_degenerate_rectangle_outline, &make_tile_fixed_geometry,
+            &make_wpf_rounded_rectangle_geometry, &degenerate_ellipse_points](
+            const fixed_geometry_state& shape, const pen_state& pen,
+            const brush_use_state& use, const render_scope_state& state) -> status {
+            if (state.guideline_resource_index != PROGPU_NATIVE_SCENE_NO_INDEX || state.per_point_guidelines)
+                return status::unsupported_command;
+            bool dashed = false;
+            if (pen.dash_style_handle != 0U) {
+                const auto found = dash_styles.find(pen.dash_style_handle);
+                if (found == dash_styles.end()) return status::invalid_handle;
+                dashed = !found->second.intervals.empty();
+            }
+            if (shape.kind == fixed_geometry_kind::ellipse) {
+                pen_state smooth_pen = pen;
+                smooth_pen.line_join = PROGPU_NATIVE_STROKE_JOIN_ROUND;
+                if (!dashed && (shape.third != 0.0 || shape.fourth != 0.0)) {
+                    smooth_pen.start_line_cap = PROGPU_NATIVE_STROKE_CAP_ROUND;
+                    smooth_pen.end_line_cap = PROGPU_NATIVE_STROKE_CAP_ROUND;
+                    return append_tile_line_pen(smooth_pen, shape.first - shape.third, shape.second - shape.fourth,
+                        shape.first + shape.third, shape.second + shape.fourth, use.effective_transform, state);
+                }
+                const auto points = degenerate_ellipse_points(shape.first, shape.second, shape.third, shape.fourth);
+                std::array<progpu_native_path_segment, 4U> segments{};
+                const std::array<std::uint8_t, 4U> joins{};
+                for (std::size_t index = 0U; index < segments.size(); ++index) {
+                    segments[index].kind = PROGPU_NATIVE_PATH_SEGMENT_LINE;
+                    segments[index].p0 = points[index];
+                    segments[index].p1 = points[(index + 1U) % points.size()];
+                }
+                return append_tile_pen(smooth_pen, use, state, segments, joins, true);
+            }
+            if (!dashed) {
+                const auto segments = make_degenerate_rectangle_outline(use.x, use.y,
+                    use.x + use.width, use.y + use.height, shape.radius_x, shape.radius_y, pen);
+                return append_path_tile_brush(pen.brush_handle, use, state, segments, {}, PROGPU_NATIVE_FILL_RULE_EVEN_ODD);
+            }
+            const bool rounded = shape.radius_x > 0.0 && shape.radius_y > 0.0;
+            const auto geometry = rounded ? make_wpf_rounded_rectangle_geometry(shape.first, shape.second,
+                shape.third, shape.fourth, shape.radius_x, shape.radius_y) : make_tile_fixed_geometry(shape);
+            pen_state stroke_pen = pen;
+            if (rounded) stroke_pen.miter_limit = 1.0;
+            return append_tile_pen(stroke_pen, use, state, {}, {}, true, geometry.stroke_contours);
         };
         const auto append_media_player = [
             this,
@@ -17593,7 +17640,7 @@ struct channel::implementation {
                     return pen_status;
                 }
                 if (pen.brush_handle != 0U && pen.thickness > 0.0) {
-                    if (tile_brushes.contains(pen.brush_handle) && width > 0.0 && height > 0.0) {
+                    if (tile_brushes.contains(pen.brush_handle)) {
                         fixed_geometry_state shape{};
                         shape.kind = is_ellipse ? fixed_geometry_kind::ellipse : fixed_geometry_kind::rectangle;
                         shape.first = first;
@@ -17602,13 +17649,21 @@ struct channel::implementation {
                         shape.fourth = fourth;
                         shape.radius_x = radius_x;
                         shape.radius_y = radius_y;
-                        const auto geometry = make_tile_fixed_geometry(shape);
                         const double half = pen.thickness * 0.5;
                         const brush_use_state use{x - half, y - half, width + pen.thickness,
                             height + pen.thickness, effective_transform};
-                        const auto& contour = geometry.stroke_contours.front();
-                        const status drawn = append_tile_pen(pen, use, current,
-                            contour.segments, contour.smooth_joins, true);
+                        status drawn = status::success;
+                        if (width == 0.0 || height == 0.0) {
+                            // Unrounded rectangles ignore otherwise unused radii,
+                            // exactly as the ordinary collapsed-shape route does.
+                            if (!has_rounded_corners) shape.radius_x = shape.radius_y = 0.0;
+                            drawn = append_degenerate_tile_shape(shape, pen, use, current);
+                        } else {
+                            const auto geometry = make_tile_fixed_geometry(shape);
+                            const auto& contour = geometry.stroke_contours.front();
+                            drawn = append_tile_pen(pen, use, current,
+                                contour.segments, contour.smooth_joins, true);
+                        }
                         if (drawn != status::success) return drawn;
                     } else if (width == 0.0 || height == 0.0) {
                         const status stroke_status = is_ellipse

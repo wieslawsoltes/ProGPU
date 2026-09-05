@@ -19196,6 +19196,34 @@ int main() {
             }
         }
     }
+    {
+        for (const auto source : {progpu::native::tests::mil_brush_fixture_source::bitmap,
+            progpu::native::tests::mil_brush_fixture_source::drawing,
+            progpu::native::tests::mil_brush_fixture_source::drawing_image,
+            progpu::native::tests::mil_brush_fixture_source::visual}) {
+            for (const auto shape : {progpu::native::tests::mil_brush_fixture_shape::rectangle,
+                progpu::native::tests::mil_brush_fixture_shape::rounded_rectangle,
+                progpu::native::tests::mil_brush_fixture_shape::ellipse}) {
+                for (const auto extent : {std::array{0.0, 48.0}, std::array{48.0, 0.0}, std::array{0.0, 0.0}}) {
+                    for (const bool dashed : {false, true}) {
+                        for (std::uint32_t join = 0U; join < 3U; ++join) {
+                            for (const bool gap : {false, true}) {
+                                std::vector<std::byte> scene;
+                                PROGPU_REQUIRE(progpu::native::tests::build_mil_image_brush_fixture(scene,
+                                    {.tile_mode = 3U, .opacity = 0.5, .skew = true, .source = source,
+                                        .shape = shape, .inherited_clip = true, .paint_transform = true,
+                                        .viewport = {0.0, 0.0, 0.25, 0.5}, .fant = true, .pen = true,
+                                        .dashed = dashed, .cap = PROGPU_NATIVE_STROKE_CAP_TRIANGLE,
+                                        .dash_offset = gap ? 2.5 : 0.25, .fixed_extent = extent,
+                                        .line_join = join}, 10020U + join));
+                                PROGPU_REQUIRE(scene.size() >= sizeof(progpu_native_scene_header));
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
     // Authored during implementation-first work; execution and pixel parity
     // remain part of the final validation phase.
     for (const auto source : {progpu::native::tests::mil_brush_fixture_source::bitmap,
