@@ -3574,3 +3574,28 @@ whole-frame limit is consequently 320 changed pixels while retaining a strict
 The `Microsoft.Direct3D.D3D12` NuGet package remains useful for the native
 Windows D3D12/Agility SDK oracle lane. It does not provide Direct2D or make
 Win2D portable, so it is not a replacement for either compatibility tier.
+## Implementation-first checkpoint: aliased mesh coverage
+
+The portable C++ `ID2D1RenderTarget::FillMesh` implementation now requires aliased
+antialias mode and latches `wrong_state` before retaining draw resources when the
+mode is incompatible. Both ordinary brush triangle paths and bitmap-brush vector
+masks use a one-sample, pixel-center coverage grid. The bitmap's own texture
+sampling policy is unchanged. This follows the public
+[FillMesh contract](https://learn.microsoft.com/en-us/windows/win32/api/d2d1/nf-d2d1-id2d1rendertarget-fillmesh),
+which requires aliased mode and deferred error reporting through EndDraw/Flush.
+
+Provenance is the original in-repository portable render-target implementation,
+with no foreign implementation port. The state check is O(1); existing O(T)
+triangle storage/serialization and the single recorded draw remain for T triangles.
+Canonical native path and clip shaders consume the coverage setting; no shader
+fork, C ABI, public module, readback, or per-triangle submission is introduced.
+
+Applicability: portable Direct2D COM calls, including Windows ABI consumers, reach
+this shared C++ implementation. There is no separate managed FillMesh renderer to
+patch. Native Windows command-list resource extraction remains a separate feature
+gap; this change does not add arbitrary native ID2D1Mesh extraction or establish
+full Win2D compatibility. Authored cases cover rejected antialiased state, recovery,
+ordinary triangle coverage, bitmap mask coverage, and explicit Windows ABI state.
+The native library and portable Direct2D compatibility test target compile. Tests,
+VM/image comparisons, sanitizers, benchmarks, verifiers, and CI qualification remain
+unexecuted during the requested implementation-first phase.
