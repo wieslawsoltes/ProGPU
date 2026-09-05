@@ -15,7 +15,8 @@ enum class mil_clip_effect { none, zero_blur, blur, cached_blur, box_blur, shado
 // An original raw-MIL fixture exercises the ABI and the exact same engine as
 // the portable Direct2D integration gate, without a managed WPF adapter.
 inline bool build_mil_visual_clip_fixture(std::vector<std::byte>& scene,
-    mil_clip_effect effect = mil_clip_effect::none) {
+    mil_clip_effect effect = mil_clip_effect::none,
+    std::uint64_t scene_id = 9011U) {
     using mil::command;
     const auto append = [](std::vector<std::byte>& bytes, const auto& value) {
         const auto data = std::as_bytes(std::span(&value, 1U));
@@ -113,13 +114,13 @@ inline bool build_mil_visual_clip_fixture(std::vector<std::byte>& scene,
     std::size_t written = 0U;
     if (success) {
         success = progpu_native_mil_channel_build_scene(
-            channel, 4U, 9011U, 1U, nullptr, 0U, &written, nullptr) ==
+            channel, 4U, scene_id, 1U, nullptr, 0U, &written, nullptr) ==
             PROGPU_NATIVE_MIL_STATUS_SUCCESS;
     }
     if (success) {
         scene.resize(written);
         success = progpu_native_mil_channel_build_scene(
-            channel, 4U, 9011U, 1U, scene.data(), scene.size(),
+            channel, 4U, scene_id, 1U, scene.data(), scene.size(),
             &written, nullptr) == PROGPU_NATIVE_MIL_STATUS_SUCCESS;
     }
     progpu_native_mil_channel_destroy(channel);
