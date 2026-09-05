@@ -420,6 +420,49 @@ bool semantic_scene_builder_bounds_composite_only_guidelines() {
         return false;
     }
 
+    // Typed copies preserve composite/per-point flags and explicit dynamic
+    // offsets, while owning destination metadata and independent storage.
+    const std::array sources{&builder, &per_point, &explicit_builder};
+    const std::array source_indices{guideline_index, per_point_guideline_index, explicit_index};
+    for (std::size_t index = 0U; index < sources.size(); ++index) {
+        std::vector<std::byte> source_bytes;
+        semantic_scene_builder destination(706U, 9U);
+        std::uint32_t copied = PROGPU_NATIVE_SCENE_NO_INDEX;
+        if (!sources[index]->build(source_bytes) ||
+            !destination.copy_guideline_set_from(*sources[index], source_indices[index], copied)) return false;
+        std::uint32_t duplicate = PROGPU_NATIVE_SCENE_NO_INDEX;
+        if (!destination.copy_guideline_set_from(destination, copied, duplicate) || duplicate == copied) return false;
+        std::vector<std::byte> target_bytes;
+        if (!destination.build(target_bytes)) return false;
+        const auto source_header = read<progpu_native_scene_header>(source_bytes, 0U);
+        const auto target_header = read<progpu_native_scene_header>(target_bytes, 0U);
+        const auto original = read<progpu_native_scene_resource>(source_bytes,
+            source_header.resource_offset + source_indices[index] * source_header.resource_stride);
+        for (const auto target_index : {copied, duplicate}) {
+            const auto target = read<progpu_native_scene_resource>(target_bytes,
+                target_header.resource_offset + target_index * target_header.resource_stride);
+            if (target.kind != PROGPU_NATIVE_SCENE_RESOURCE_GUIDELINE_SET || target.generation != 9U ||
+                target.resource_id != target_index + 1U || target.payload_size != original.payload_size ||
+                std::memcmp(target_bytes.data() + target.payload_offset,
+                    source_bytes.data() + original.payload_offset, original.payload_size) != 0) return false;
+        }
+        std::uint32_t invalid_index = 0U;
+        if (destination.copy_guideline_set_from(explicit_builder, explicit_state_index, invalid_index) ||
+            invalid_index != PROGPU_NATIVE_SCENE_NO_INDEX ||
+            destination.copy_guideline_set_from(destination, PROGPU_NATIVE_SCENE_NO_INDEX, invalid_index)) return false;
+        std::vector<std::byte> after_failure;
+        if (!destination.build(after_failure) || after_failure != target_bytes) return false;
+        semantic_scene_builder owned(707U, 1U);
+        if (!owned.copy_guideline_set_from(destination, copied, duplicate) ||
+            !destination.reset(708U, 1U)) return false;
+        std::vector<std::byte> after_source_reset;
+        if (!owned.build(after_source_reset)) return false;
+        const auto owned_header = read<progpu_native_scene_header>(after_source_reset, 0U);
+        const auto owned_resource = read<progpu_native_scene_resource>(after_source_reset, owned_header.resource_offset);
+        if (std::memcmp(after_source_reset.data() + owned_resource.payload_offset,
+                source_bytes.data() + original.payload_offset, original.payload_size) != 0) return false;
+    }
+
     semantic_scene_builder invalid(705U, 1U);
     const std::array unsorted{2.0, 1.0};
     return !invalid.add_guideline_set(

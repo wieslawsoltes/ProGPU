@@ -166,6 +166,41 @@ bool semantic_scene_builder::add_state(
     }
 }
 
+bool semantic_scene_builder::copy_guideline_set_from(
+    const semantic_scene_builder& source,
+    std::uint32_t source_resource_index,
+    std::uint32_t& resource_index) noexcept {
+    // Algorithm: snapshot one builder-validated typed resource before growing
+    // the destination arena, so self-copy and allocation failure are safe.
+    // Time/space complexity: O(G), G coordinates plus optional dynamic offsets.
+    // This is an owned bulk byte copy, not a scalar numerical hot loop.
+    resource_index = PROGPU_NATIVE_SCENE_NO_INDEX;
+    if (implementation_ == nullptr) return false;
+    if (source.implementation_ == nullptr ||
+        source_resource_index >= source.implementation_->resources.size() ||
+        source.implementation_->resources[source_resource_index].record.kind !=
+            PROGPU_NATIVE_SCENE_RESOURCE_GUIDELINE_SET) {
+        return implementation_->fail(scene_build_error::invalid_argument);
+    }
+    if (implementation_->resources.size() >= PROGPU_NATIVE_SCENE_MAX_RESOURCES) {
+        return implementation_->fail(scene_build_error::capacity_exceeded);
+    }
+    try {
+        auto copied = source.implementation_->resources[source_resource_index];
+        copied.record.resource_id = implementation_->resources.size() + 1U;
+        copied.record.generation = implementation_->generation;
+        const auto index = static_cast<std::uint32_t>(implementation_->resources.size());
+        implementation_->resources.push_back(std::move(copied));
+        resource_index = index;
+        implementation_->error = scene_build_error::none;
+        return true;
+    } catch (const std::bad_alloc&) {
+        return implementation_->fail(scene_build_error::out_of_memory);
+    } catch (...) {
+        return implementation_->fail(scene_build_error::invalid_state);
+    }
+}
+
 bool semantic_scene_builder::add_guideline_set(
     std::span<const double> guidelines_x,
     std::span<const double> guidelines_y,
