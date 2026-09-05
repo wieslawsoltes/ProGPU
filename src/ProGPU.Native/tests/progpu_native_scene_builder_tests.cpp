@@ -394,6 +394,22 @@ bool semantic_scene_builder_bounds_composite_only_guidelines() {
         !explicit_builder.restore()) {
         return false;
     }
+    progpu_native_point displacement{10.0F, 20.0F};
+    if (!explicit_builder.try_uniform_guideline_translation(explicit_index, 2.0F, displacement) ||
+        displacement.x != 0.0625F || displacement.y != -0.125F) return false;
+    const auto unchanged = displacement;
+    if (per_point.try_uniform_guideline_translation(per_point_guideline_index, 1.0F, displacement) ||
+        builder.try_uniform_guideline_translation(guideline_index, 1.0F, displacement) ||
+        explicit_builder.try_uniform_guideline_translation(explicit_state_index, 1.0F, displacement) ||
+        explicit_builder.try_uniform_guideline_translation(explicit_index, 0.0F, displacement) ||
+        displacement.x != unchanged.x || displacement.y != unchanged.y) return false;
+    semantic_scene_builder single(709U, 1U);
+    const std::array half_negative{-1.5};
+    const std::array quarter{2.25};
+    std::uint32_t single_index = PROGPU_NATIVE_SCENE_NO_INDEX;
+    if (!single.add_guideline_set(half_negative, quarter, single_index) ||
+        !single.try_uniform_guideline_translation(single_index, 1.0F, displacement) ||
+        displacement.x != 0.5F || displacement.y != -0.25F) return false;
     std::vector<std::byte> explicit_stream;
     if (!explicit_builder.build(explicit_stream)) {
         return false;

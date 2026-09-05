@@ -7859,6 +7859,47 @@ translation versus per-point path deformation, avoid double-snapping at layer
 restore, and retain shifted mask storage bounds. Existing fail-closed tile-mask
 guards stay in place until those execution semantics are implemented.
 
+### Implementation-first checkpoint: uniform tile-pen guideline translation
+
+Single-coordinate-per-axis snapping now reaches native MIL tile-pen coverage,
+mask storage bounds, and brush placement. The C++ builder exposes an allocation-free
+`try_uniform_guideline_translation` query over its typed resource. It and the
+semantic executor share the original native WPF rounding implementation and
+explicit dynamic physical-offset handling. Unsupported multi-coordinate or
+per-point resources fail without mutating the result; they are not approximated
+as a translation. The build request must supply a uniform target DPI.
+
+The MIL adapter bakes the one target-space displacement into stroke/cap/path
+transforms and mask bounds. An isolated paint state clears the original guideline
+resource before its layer is pushed/restored, preventing a second layer-restore
+snap. Existing group collectors retain one paint, and un-guided draws do not gain
+the additional save/restore scope. Path tile-clip construction uses the same
+translation. Combined-geometry strokes no longer reject uniform guidelines solely
+because a guideline resource is present. Per-point deformation remains explicitly
+unsupported for tile masks.
+
+Provenance: original `wpf_guideline_offset` and `semantic_state_cursor` offset
+rules, now shared in the internal semantic-state header; the builder query and MIL
+adapter are O(1), allocation-free coordinate work. No numerical buffer loop, new
+SIMD fallback, CPU readback, or shader fork was introduced. Public scene C records
+are unchanged; the include/module C++ query surface and point export are updated.
+Managed replay retains its existing guideline algorithm and remains the paired
+differential reference; this native consumer integration is not a managed behavior
+change or a parity claim.
+
+The Release native library, MIL/internal regression executables, and LLVM C++20
+module consumer compile. Added 400 MIL fixture combinations plus a paired static
+translation case, builder checks for negative half-integers/explicit offsets and
+rejection non-mutation, and an import-based query case. The old blanket-rejection
+fixture now targets true multi-guideline deformation. All are authored/compiled,
+**not executed**. Coverage metadata was regenerated. Runtime/image/VM tests,
+verifiers, benchmarks, and CI qualification remain deferred.
+
+Multi-guideline/per-point tile-mask deformation, remaining tile consumers and
+nonuniform frame DPI, mixed-picture-mask performance qualification, and the full
+MIL/DirectX/Direct2D/Win2D objective remain open. Uniform snapping still requires
+pixel-level qualification, including nested clipping and layer restore.
+
 ## Invariants
 
 - No reflection or private managed field scanning in the product bridge.

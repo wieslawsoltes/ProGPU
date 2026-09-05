@@ -40,22 +40,6 @@ float round_to_even(float value) noexcept {
         : lower + 1.0F;
 }
 
-float wpf_guideline_offset(float value) noexcept {
-    // CFloatFPU::OffsetToRounded resolves every half-integer toward the
-    // numerically larger integer and leaves floats with no fractional bits
-    // unchanged.
-    constexpr float minimum_float_without_fraction = 8388608.0F;
-    if (!(std::abs(value) < minimum_float_without_fraction)) {
-        return 0.0F;
-    }
-    const float rounded = std::floor(value + 0.5F);
-    float offset = rounded - value;
-    if (offset <= -0.5F) {
-        offset += 1.0F;
-    }
-    return offset;
-}
-
 } // namespace
 
 progpu_native_scene_state semantic_identity_state() noexcept {
@@ -281,6 +265,13 @@ progpu_native_scene_state semantic_state_cursor::resolve_guidelines(
         bytes_ + resource.payload_offset,
         sizeof(guidelines));
     if ((guidelines.flags & PROGPU_NATIVE_SCENE_GUIDELINE_PER_POINT) != 0U) {
+        return state;
+    }
+    progpu_native_point translation{};
+    if (try_uniform_guideline_translation(
+            {bytes_ + resource.payload_offset, static_cast<std::size_t>(resource.payload_size)}, dpi_scale_, translation)) {
+        state.transform.m31 += translation.x;
+        state.transform.m32 += translation.y;
         return state;
     }
     std::size_t offset = resource.payload_offset + sizeof(guidelines);

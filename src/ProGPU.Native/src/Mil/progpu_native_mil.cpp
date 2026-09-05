@@ -14827,15 +14827,39 @@ struct channel::implementation {
             if (drawn != status::success) return drawn;
             return restored ? status::success : status::invalid_graph;
         };
+        const auto resolve_uniform_tile_guidelines = [&builder, compile_context](
+            brush_use_state& use, render_scope_state& state) -> status {
+            if (state.per_point_guidelines) return status::unsupported_command;
+            if (state.guideline_resource_index == PROGPU_NATIVE_SCENE_NO_INDEX) return status::success;
+            if (compile_context == nullptr ||
+                compile_context->request.dpi_scale_x != compile_context->request.dpi_scale_y)
+                return status::unsupported_command;
+            progpu_native_point offset{};
+            if (!builder.try_uniform_guideline_translation(state.guideline_resource_index,
+                    static_cast<float>(compile_context->request.dpi_scale_x), offset)) return status::unsupported_command;
+            // Bake one uniform displacement into coverage and material placement.
+            // Clear the resource on the isolated paint scope to avoid snapping
+            // the restored layer a second time. Time/space complexity: O(1).
+            use.effective_transform.m31 = static_cast<float>(use.effective_transform.m31) + offset.x;
+            use.effective_transform.m32 = static_cast<float>(use.effective_transform.m32) + offset.y;
+            state.transform.m31 = static_cast<float>(state.transform.m31) + offset.x;
+            state.transform.m32 = static_cast<float>(state.transform.m32) + offset.y;
+            state.guideline_resource_index = PROGPU_NATIVE_SCENE_NO_INDEX;
+            return status::success;
+        };
         const auto append_path_tile_brush = [
             &builder, &clip_paths, &clip_segments, &clip_boolean_nodes,
-            &append_single_tile_brush](
+            &append_single_tile_brush, &resolve_uniform_tile_guidelines, &save_state](
             std::uint32_t brush_handle,
-            const brush_use_state& use,
-            const render_scope_state& state,
+            const brush_use_state& source_use,
+            const render_scope_state& source_state,
             std::span<const progpu_native_path_segment> segments,
             std::span<const progpu_native_scene_path_boolean_node> nodes,
             std::uint32_t fill_rule) -> status {
+            auto use = source_use;
+            auto state = source_state;
+            const status snapped = resolve_uniform_tile_guidelines(use, state);
+            if (snapped != status::success) return snapped;
             if (segments.empty() || use.width <= 0.0 || use.height <= 0.0) {
                 return status::success;
             }
@@ -14883,19 +14907,27 @@ struct channel::implementation {
             paint.clip_path_count = clip_paths.size();
             paint.clip_segment_count = clip_segments.size();
             paint.clip_boolean_node_count = clip_boolean_nodes.size();
-            return append_single_tile_brush(brush_handle, use, paint);
+            const bool isolate_snapping = source_state.guideline_resource_index != PROGPU_NATIVE_SCENE_NO_INDEX;
+            if (isolate_snapping && !save_state(paint)) return status::invalid_graph;
+            const status drawn = append_single_tile_brush(brush_handle, use, paint);
+            const bool restored = !isolate_snapping || builder.restore();
+            return drawn != status::success ? drawn : restored ? status::success : status::invalid_graph;
         };
         // Algorithm: Compile the canonical stroke once into a GPU alpha mask,
         // then apply the native tile source through an isolated masked layer.
         // Time/space: O(S + D) retained primitives for S segments and D dash
         // pieces; dash traversal is sequential, not an independent CPU pixel loop.
-        const auto paint_tile_pen_mask = [&builder, &append_single_tile_brush](
-            const pen_state& pen, const brush_use_state& use,
-            const render_scope_state& state,
+        const auto paint_tile_pen_mask = [&builder, &append_single_tile_brush, &resolve_uniform_tile_guidelines, &save_state](
+            const pen_state& pen, const brush_use_state& source_use,
+            const render_scope_state& source_state,
             std::span<const progpu_native_geometry_primitive> primitives,
             std::span<const progpu_native_scene_path_fill> paths = {},
             std::span<const progpu_native_path_segment> segments = {}) -> status {
             if (primitives.empty() && paths.empty()) return status::success;
+            auto use = source_use;
+            auto state = source_state;
+            const status snapped = resolve_uniform_tile_guidelines(use, state);
+            if (snapped != status::success) return snapped;
             progpu_native_image_rect bounds{};
             if (!try_transform_bounds(use.x, use.y, use.width, use.height,
                     use.effective_transform, bounds)) return status::invalid_graph;
@@ -14932,12 +14964,18 @@ struct channel::implementation {
                 if (!coverage.build(scene) || !builder.add_picture_mask(picture, scene, layer.mask_resource_index))
                     return status::invalid_graph;
             }
-            if (!builder.push_layer(layer)) return status::invalid_graph;
+            const bool isolate_snapping = source_state.guideline_resource_index != PROGPU_NATIVE_SCENE_NO_INDEX;
+            if (isolate_snapping && !save_state(state)) return status::invalid_graph;
+            if (!builder.push_layer(layer)) {
+                if (isolate_snapping) (void)builder.restore();
+                return status::invalid_graph;
+            }
             const status drawn = append_single_tile_brush(pen.brush_handle, use, state);
             const bool restored = builder.pop_layer();
-            return drawn != status::success ? drawn : restored ? status::success : status::invalid_graph;
+            const bool scope_restored = !isolate_snapping || builder.restore();
+            return drawn != status::success ? drawn : restored && scope_restored ? status::success : status::invalid_graph;
         };
-        const auto append_tile_pen = [this, &paint_tile_pen_mask, &append_degenerate_cap_stroke](
+        const auto append_tile_pen = [this, &paint_tile_pen_mask, &append_degenerate_cap_stroke, &resolve_uniform_tile_guidelines](
             const pen_state& pen, const brush_use_state& use,
             const render_scope_state& state,
             std::span<const progpu_native_path_segment> segments,
@@ -14946,10 +14984,10 @@ struct channel::implementation {
             std::vector<progpu_native_geometry_primitive>* collected = nullptr) -> status {
             if (pen.thickness <= 0.0 || pen.brush_handle == 0U ||
                 affine_has_zero_area(use.effective_transform)) return status::success;
-            // Geometry-mask primitives currently have no guideline-resource
-            // carrier. Do not silently discard active snapping on a tile pen.
-            if (state.guideline_resource_index != PROGPU_NATIVE_SCENE_NO_INDEX ||
-                state.per_point_guidelines) return status::unsupported_command;
+            auto snapped_use = use;
+            auto snapped_state = state;
+            const status snapped = resolve_uniform_tile_guidelines(snapped_use, snapped_state);
+            if (snapped != status::success) return snapped;
             std::span<const double> intervals;
             double dash_offset = 0.0;
             if (pen.dash_style_handle != 0U) {
@@ -14960,7 +14998,7 @@ struct channel::implementation {
                 if (resolved != status::success) return resolved;
             }
             progpu_native_affine_2d transform{};
-            if (!try_to_native_affine(use.effective_transform, transform)) return status::invalid_graph;
+            if (!try_to_native_affine(snapped_use.effective_transform, transform)) return status::invalid_graph;
             native::semantic_path_stroke::style style{transform,
                 static_cast<float>(pen.thickness), static_cast<float>(std::max(1.0, pen.miter_limit)),
                 dash_offset, pen.start_line_cap, pen.end_line_cap, pen.dash_cap, pen.line_join,
@@ -14983,7 +15021,7 @@ struct channel::implementation {
                     const auto cap = static_cast<std::uint32_t>(PROGPU_NATIVE_STROKE_CAP_ROUND);
                     bool emitted = false;
                     return append_degenerate_cap_stroke(pen, anchor == nullptr ? run.front().p0 : *anchor,
-                        0U, use.effective_transform, use.effective_transform,
+                        0U, snapped_use.effective_transform, snapped_use.effective_transform,
                         run_closed ? cap : style.start_cap, run_closed ? cap : style.end_cap,
                         emitted, &primitives);
                 }
@@ -15065,7 +15103,7 @@ struct channel::implementation {
         // Time/space: O(1) shape setup plus O(D) emitted dash pieces.
         const auto append_degenerate_tile_shape = [this, &append_tile_pen, &append_tile_line_pen,
             &append_path_tile_brush, &make_degenerate_rectangle_outline, &make_tile_fixed_geometry,
-            &make_wpf_rounded_rectangle_geometry, &degenerate_ellipse_points](
+            &make_wpf_rounded_rectangle_geometry, &degenerate_ellipse_points, &resolve_uniform_tile_guidelines](
             const fixed_geometry_state& shape, const pen_state& pen,
             const brush_use_state& use, const render_scope_state& state,
             std::vector<progpu_native_geometry_primitive>* collected = nullptr,
@@ -15073,7 +15111,7 @@ struct channel::implementation {
             std::vector<progpu_native_path_segment>* collected_segments = nullptr) -> status {
             if ((collected == nullptr) != (collected_paths == nullptr) ||
                 (collected == nullptr) != (collected_segments == nullptr)) return status::invalid_graph;
-            if (state.guideline_resource_index != PROGPU_NATIVE_SCENE_NO_INDEX || state.per_point_guidelines)
+            if (state.per_point_guidelines)
                 return status::unsupported_command;
             bool dashed = false;
             if (pen.dash_style_handle != 0U) {
@@ -15104,8 +15142,12 @@ struct channel::implementation {
                 const auto segments = make_degenerate_rectangle_outline(use.x, use.y,
                     use.x + use.width, use.y + use.height, shape.radius_x, shape.radius_y, pen);
                 if (collected != nullptr) {
+                    auto snapped_use = use;
+                    auto snapped_state = state;
+                    const status snapped = resolve_uniform_tile_guidelines(snapped_use, snapped_state);
+                    if (snapped != status::success) return snapped;
                     progpu_native_affine_2d transform{};
-                    if (!try_to_native_affine(use.effective_transform, transform)) return status::invalid_graph;
+                    if (!try_to_native_affine(snapped_use.effective_transform, transform)) return status::invalid_graph;
                     const progpu_native_scene_path_fill path{collected_segments->size(), segments.size(), 0U, 0U,
                         static_cast<float>(use.x), static_cast<float>(use.y),
                         static_cast<float>(use.x + use.width), static_cast<float>(use.y + use.height),
@@ -16484,7 +16526,7 @@ struct channel::implementation {
                                     return status::success;
                                 }
                                 if (combined_child != combined_geometries.end()) {
-                                    if (current.guideline_resource_index != PROGPU_NATIVE_SCENE_NO_INDEX || current.per_point_guidelines)
+                                    if (current.per_point_guidelines)
                                         return status::unsupported_command;
                                     const float tolerance = combined_stroke_tolerance(
                                         compose_affine(child_transform, effective_transform));
@@ -16995,7 +17037,7 @@ struct channel::implementation {
                     }
                     const auto append_combined_pen = [&]() -> status {
                         if (combined_pen.brush_handle == 0U || combined_pen.thickness <= 0.0) return status::success;
-                        if (current.guideline_resource_index != PROGPU_NATIVE_SCENE_NO_INDEX || current.per_point_guidelines)
+                        if (current.per_point_guidelines)
                             return status::unsupported_command;
                         // Quarter-physical-pixel flattening target, conservatively
                         // scaled by the transform Frobenius norm. Fail if the

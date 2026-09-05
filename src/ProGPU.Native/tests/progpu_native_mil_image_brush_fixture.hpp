@@ -45,6 +45,8 @@ struct mil_image_brush_fixture_options {
     std::uint32_t line_join{PROGPU_NATIVE_STROKE_JOIN_ROUND};
     bool collapsed_group{};
     bool gradient_pen{};
+    bool multiple_guidelines{};
+    bool static_guidelines{};
 };
 
 inline bool build_mil_image_brush_fixture(std::vector<std::byte>& scene,
@@ -133,7 +135,16 @@ inline bool build_mil_image_brush_fixture(std::vector<std::byte>& scene,
     const std::uint32_t fill_handle = options.pen && !options.fill_with_pen ? 0U : 5U;
     const std::uint32_t pen_handle = options.pen ? 20U : 0U;
     std::vector<std::byte> nested;
-    if (options.guidelines) packet(nested, command::push_guideline_y1, 0.25);
+    if (options.guidelines) {
+        if (options.multiple_guidelines || options.static_guidelines) {
+            packet(batch, command::channel_create_resource, 27U, 92U);
+            if (options.multiple_guidelines)
+                packet(batch, command::guideline_set, 27U, 0U, 16U, 0U, 0.25, 32.25);
+            else
+                packet(batch, command::guideline_set, 27U, 0U, 8U, 0U, 0.25);
+            packet(nested, command::push_guideline_set, 27U, 0U);
+        } else packet(nested, command::push_guideline_y1, 0.25);
+    }
     if (options.inherited_clip) {
         packet(batch, command::channel_create_resource, 13U, 70U);
         packet(batch, command::ellipse_geometry, 13U,
