@@ -80,3 +80,16 @@ TMX CSV/XML and raw/gzip/zlib base64. Matching solid runs coalesce into bounded
 rectangles; independently authored and randomized fixtures verify occupancy,
 format equivalence, corruption limits and ordinary-input completion. External
 tileset/asset bundles, infinite maps, zstd, NES and SMBX remain open.
+
+
+The user requested implementation batching and deferred broad validation until the
+end, with rendering optimization and an updated iPhone installation first. The
+current device pass prioritizes measured rendering changes and focused image/signing
+checks; broader platform suites and feature validation are deferred until that final
+validation phase. Connected-room editor work has not started yet.
+
+World-specialized shaders are now enabled by default on iOS and installed in normal
+play. Three nominal-temperature pairs reduced median frame intervals by about 16%;
+a later Fair-temperature pair did not retain that frame-rate gain. Matched paused
+GPU traces show about 8% lower fragment time. Sustained smooth FPS remains open;
+this closes the current optimization/install pass, not the full performance goal.

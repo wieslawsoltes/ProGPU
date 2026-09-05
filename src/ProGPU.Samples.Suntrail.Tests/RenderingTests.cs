@@ -29,13 +29,16 @@ public sealed class RenderingTests : IDisposable
         Assert.Equal(48,System.Runtime.InteropServices.Marshal.SizeOf<ProceduralSprite>());
     }
 
-    [Fact]
-    public unsafe void AllBiomesRenderAndUnchangedReplayDoesNotUpload()
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public unsafe void AllBiomesRenderAndUnchangedReplayDoesNotUpload(bool worldShaders)
     {
         using var context=new WgpuContext();context.Initialize(null);
         using var compositor=new Compositor(context,TextureFormat.Rgba8Unorm);
         var pipeline = (ProceduralPipeline)compositor.RegisterDrawingExtension(ProceduralDrawingContextExtensions.Definition);
         pipeline.EnableEarlyCoverage = false;
+        pipeline.EnableWorldShaders = worldShaders;
         using var target=new GpuTexture(context,1280,800,TextureFormat.Rgba8Unorm,TextureUsage.RenderAttachment|TextureUsage.CopySrc,"Suntrail verification",alphaMode:GpuTextureAlphaMode.Premultiplied);
         var game=new GameSession();var batch=new ProceduralBatch();var visual=new BatchVisual(batch);
         visual.Measure(new(1280,800));visual.Arrange(new Rect(0,0,1280,800));
@@ -51,6 +54,26 @@ public sealed class RenderingTests : IDisposable
                 compositor.RenderScene(visual,1280,800,target.ViewPtr);context.WaitIdle();
                 Assert.True(errors.Count == 0, string.Join("\n", errors));
                 var pixels=target.ReadPixels();
+                if (worldShaders)
+                {
+                    pipeline.EnableWorldShaders = false;
+                    compositor.RenderScene(visual,1280,800,target.ViewPtr);
+                    var dynamicPixels = target.ReadPixels();
+                    int changed = 0, maximum = 0, alpha = 0;
+                    for (int c = 0; c < pixels.Length; c++)
+                    {
+                        int delta = Math.Abs(pixels[c] - dynamicPixels[c]);
+                        if (delta != 0) changed++;
+                        maximum = Math.Max(maximum, delta);
+                        if (c % 4 == 3) alpha = Math.Max(alpha, delta);
+                    }
+                    // Constant folding can cross an RGBA8 rounding boundary. Keep
+                    // coverage exact and cap RGB drift to one code value in 0.01% of channels.
+                    string report = $"world={biome} changed={changed}/{pixels.Length} maximum={maximum} alpha={alpha}";
+                    File.AppendAllText(Path.Combine(Artifacts(), "world-shader-parity.txt"), report + "\n");
+                    Assert.True(maximum <= 1 && alpha == 0 && changed <= pixels.Length / 10000, report);
+                    pipeline.EnableWorldShaders = true;
+                }
                 pipeline.EnableEarlyCoverage = true;
                 compositor.RenderScene(visual,1280,800,target.ViewPtr);
                 EarlyCoverageTests.AssertSamePixels(pixels, target.ReadPixels(), $"surface-{biome + 1}");
@@ -65,7 +88,7 @@ public sealed class RenderingTests : IDisposable
                 pipeline.EnableSkyCache = false;
                 pipeline.EnableSpecializedShaders = false;
                 compositor.RenderScene(visual,1280,800,target.ViewPtr);
-                AssertEntryPointParity(pixels, target.ReadPixels(), biome);
+                if (!worldShaders) AssertEntryPointParity(pixels, target.ReadPixels(), biome);
                 pipeline.EnableSpecializedShaders = true;
                 Assert.True(pixels.Where((_,i)=>i%4!=3).Distinct().Count()>100,"Artwork needs a broad tonal range, not a blank clear.");
                 PngEncoder.SavePng(Path.Combine(Artifacts(),$"biome-{biome+1}.png"),pixels,1280,800);

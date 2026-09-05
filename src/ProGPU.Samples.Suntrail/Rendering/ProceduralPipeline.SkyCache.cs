@@ -20,7 +20,7 @@ public sealed unsafe partial class ProceduralPipeline
     private readonly nint[] _skyReplay = new nint[2];
     private SkyKey _skyKey;
     private bool _skyReady;
-    private readonly record struct SkyKey(Vector2 Size, uint Width, uint Height, float World, bool Dungeon, Vector4 Color);
+    private readonly record struct SkyKey(Vector2 Size, uint Width, uint Height, float World, bool Dungeon, Vector4 Color, bool WorldShaders);
 
     public bool TryPrepareDrawCall(Compositor compositor, bool isOffscreen,
         in Compositor.CompositorDrawCall drawCall, out Compositor.CompositorDrawCall preparedDrawCall)
@@ -39,7 +39,7 @@ public sealed unsafe partial class ProceduralPipeline
         // Fractional framebuffer extents cannot be represented by an exact texel replay.
         if (MathF.Abs(width - pixelWidth) > .001f || MathF.Abs(height - pixelHeight) > .001f) return false;
         EnsureResources(compositor);
-        var key = new SkyKey(batch.Size, width, height, batch.Scene.Y, batch.IsDungeon, sky.Color);
+        var key = new SkyKey(batch.Size, width, height, batch.Scene.Y, batch.IsDungeon, sky.Color, EnableWorldShaders);
         if (_skyTexture is null || key != _skyKey)
         {
             EnsureSkyResources(width, height);
@@ -87,7 +87,7 @@ public sealed unsafe partial class ProceduralPipeline
             Occlusion = new(0, batch.IsDungeon ? 1 : 0, 0, 0) });
         _skyInstance!.WriteSingle(sky);
         UploadedBytes += 336;
-        var pipeline = CreateSkyPipeline(compositor, bake: true, isOffscreen: true);
+        var pipeline = CreateSkyPipeline(compositor, bake: true, isOffscreen: true, (int)batch.Scene.Y);
         var encoder = api.DeviceCreateCommandEncoder(context.Device, null);
         CommandBuffer* commands = null;
         try
@@ -118,15 +118,15 @@ public sealed unsafe partial class ProceduralPipeline
         return (RenderPipeline*)_skyReplay[index];
     }
 
-    private RenderPipeline* CreateSkyPipeline(Compositor compositor, bool bake, bool isOffscreen)
+    private RenderPipeline* CreateSkyPipeline(Compositor compositor, bool bake, bool isOffscreen, int world = 0)
     {
         var module = _cache!.GetOrCreateShader("Suntrail.Art.v1", Shader, "Suntrail procedural artwork");
         var attributes = stackalloc VertexAttribute[3];
         for (uint i = 0; i < 3; i++) attributes[i] = new() { ShaderLocation = i, Offset = i * 16, Format = VertexFormat.Float32x4 };
         Span<VertexBufferLayout> buffers = stackalloc VertexBufferLayout[1];
         buffers[0] = new() { ArrayStride = 48, StepMode = VertexStepMode.Instance, AttributeCount = 3, Attributes = attributes };
-        return _cache.GetOrCreateRenderPipeline(bake ? "Art.sky.bake" : isOffscreen ? "Art.sky.replay.off" : "Art.sky.replay.on",
-            module, buffers, fragmentEntry: bake ? "fs_sky" : "fs_sky_cached",
+        return _cache.GetOrCreateRenderPipeline(bake ? (EnableWorldShaders ? "Art.sky.bake.world" + world : "Art.sky.bake") : isOffscreen ? "Art.sky.replay.off" : "Art.sky.replay.on",
+            module, buffers, fragmentEntry: bake ? (EnableWorldShaders ? Entries[7 + world * 6] : "fs_sky") : "fs_sky_cached",
             targetFormat: bake ? TextureFormat.Rgba32float : compositor.RenderFormat,
             enableBlend: !bake, sampleCount: bake || isOffscreen ? 1u : compositor.Options.PrimarySampleCount,
             pipelineLayout: bake ? _pipelineLayout : _skyReplayLayout, sourceAlphaMode: GpuTextureAlphaMode.Premultiplied);

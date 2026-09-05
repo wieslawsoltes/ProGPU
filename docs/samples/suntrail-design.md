@@ -323,3 +323,45 @@ ThemeResourceBrush overrides then apply through that template's visual states.
 informs this use of the existing theme rather than replacing the template or copying
 external control code. Dynamic primary-action text also updates its automation name.
 Routed mouse/touch tests reproduce click, hide, pause, hover, press, cancel and resume.
+
+
+## iPhone world specialization experiment
+
+The current iPhone baseline at `e8b24d4e` measured 34.74 ms median fragment execution
+versus 0.22 ms vertex execution. Two rejected experiments are retained only as
+patches/logs in ignored artifacts: expanding six material variants to 33 did not
+produce repeatable gains and caused a 190 ms first-use compositor hitch; replacing
+lattice hashes with an exact 4 MiB GPU lookup table made iPhone rendering slower.
+Neither experiment is included in the final implementation tree.
+
+The current experiment specializes the existing six pipelines by world. Every
+entry still calls the original `shade` implementation from `Shaders/Suntrail.wgsl`
+at `e8b24d4e`. An invocation-private world value is initialized once by the entry,
+allowing constant-folding of world branches. The original dynamic-world entries
+remain available for matched same-binary comparisons. No material formula, precision,
+resolution, coverage, lighting, instance upload, painter order or frame draw count
+changes. There are at most six dynamic entries and 48 world entries per target;
+only entries demanded by the current world are compiled and retained per device.
+
+[Apple's shader performance guidance](https://developer.apple.com/videos/play/tech-talks/111373/)
+informs specialization and the compilation/runtime tradeoff. Existing Skia,
+Direct2D/Win2D, WebRender, Vello/Parley and HarfBuzz research above continues to govern
+retained ownership, CPU text/layout reuse and device lifetime. This is original
+sample-owned code; all three managed hosts consume the same canonical WGSL. No
+C ABI/core renderer algorithm changes apply. The native C++ renderer has no
+corresponding WinUI game host.
+
+The sky cache includes specialization mode in its key and bakes through the same
+world entry as live rendering. Cache/replay/coverage comparisons remain exact.
+Independent world constant-folding can cross RGB8 rounding boundaries: the focused
+comparison permits at most one code value in 0.01% of channels, with unchanged alpha.
+No tolerance was added to the existing dynamic material-entry, coverage or cache
+contracts. Recording/submission complexity and per-frame resources are unchanged;
+new-world pipeline compilation and bounded pipeline retention remain tradeoffs.
+
+The opt-in iOS workload uses 120 warmup and 600 measured frames at fixed 1/60
+simulation/atmosphere seconds per frame, recording viewport, thermal/power state,
+final pose, CPU time, allocations and uploads. Ordinary play keeps elapsed-time
+simulation. Matched iPhone runs justify enabling world specialization by default on iOS.
+Desktop and Browser keep dynamic-world pipelines by default pending final platform
+validation; both modes retain the same canonical shader and artwork equations.

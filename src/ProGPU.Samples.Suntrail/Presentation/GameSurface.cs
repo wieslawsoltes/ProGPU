@@ -13,6 +13,8 @@ public sealed class GameSurface : FrameworkElement
     public ProceduralBatch Batch { get; } = new();
     public GameInput Input { get; set; }
     public bool AutoPlay { get; set; }
+    // Opt-in measurement clock: identical simulation poses across render-speed comparisons.
+    public bool FixedAutoPlayStep { get; set; }
     public event Action? Updated;
     private float _atmosphere;
     private uint _revision = uint.MaxValue;
@@ -28,10 +30,11 @@ public sealed class GameSurface : FrameworkElement
             if (Session.Mode != GameMode.Playing) Session.Continue();
             Input = RoutePilot.GetInput(Session);
         }
-        Session.Advance(elapsedSeconds, Input);
+        float gameElapsed = AutoPlay && FixedAutoPlayStep ? 1f / 60 : elapsedSeconds;
+        Session.Advance(gameElapsed, Input);
         Input = Input with { JumpPressed = false, InteractPressed = false };
         bool animate = Session.Mode is GameMode.Playing or GameMode.Title;
-        if (animate) _atmosphere += Math.Clamp(elapsedSeconds, 0, .1f);
+        if (animate) _atmosphere += Math.Clamp(gameElapsed, 0, .1f);
         if (animate || _revision != Session.Revision || _builtSize != Size)
         {
             Batch.Build(Session, Size, _atmosphere);

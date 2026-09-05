@@ -33,10 +33,44 @@ public sealed unsafe partial class ProceduralPipeline : ICompositorExtension, ID
     private BindGroupLayout* _layout;
     private PipelineLayout* _pipelineLayout;
     private BindGroup* _group;
-    private static readonly string[] Entries = ["fs_main", "fs_sky", "fs_cliff", "fs_mountain", "fs_tree", "fs_shafts"];
-    private static readonly string[] OnscreenKeys = ["Art.main.on", "Art.sky.on", "Art.cliff.on", "Art.mountain.on", "Art.tree.on", "Art.shafts.on"];
-    private static readonly string[] OffscreenKeys = ["Art.main.off", "Art.sky.off", "Art.cliff.off", "Art.mountain.off", "Art.tree.off", "Art.shafts.off"];
-    private readonly nint[] _onscreen = new nint[6], _offscreen = new nint[6];
+    private static readonly string[] Entries =
+    [
+        "fs_main", "fs_sky", "fs_cliff", "fs_mountain", "fs_tree", "fs_shafts",
+        "fs_main_world0", "fs_sky_world0", "fs_cliff_world0", "fs_mountain_world0", "fs_tree_world0", "fs_shafts_world0",
+        "fs_main_world1", "fs_sky_world1", "fs_cliff_world1", "fs_mountain_world1", "fs_tree_world1", "fs_shafts_world1",
+        "fs_main_world2", "fs_sky_world2", "fs_cliff_world2", "fs_mountain_world2", "fs_tree_world2", "fs_shafts_world2",
+        "fs_main_world3", "fs_sky_world3", "fs_cliff_world3", "fs_mountain_world3", "fs_tree_world3", "fs_shafts_world3",
+        "fs_main_world4", "fs_sky_world4", "fs_cliff_world4", "fs_mountain_world4", "fs_tree_world4", "fs_shafts_world4",
+        "fs_main_world5", "fs_sky_world5", "fs_cliff_world5", "fs_mountain_world5", "fs_tree_world5", "fs_shafts_world5",
+        "fs_main_world6", "fs_sky_world6", "fs_cliff_world6", "fs_mountain_world6", "fs_tree_world6", "fs_shafts_world6",
+        "fs_main_world7", "fs_sky_world7", "fs_cliff_world7", "fs_mountain_world7", "fs_tree_world7", "fs_shafts_world7",
+    ];
+    private static readonly string[] OnscreenKeys =
+    [
+        "Art.main.on", "Art.sky.on", "Art.cliff.on", "Art.mountain.on", "Art.tree.on", "Art.shafts.on",
+        "Art.main_world0.on", "Art.sky_world0.on", "Art.cliff_world0.on", "Art.mountain_world0.on", "Art.tree_world0.on", "Art.shafts_world0.on",
+        "Art.main_world1.on", "Art.sky_world1.on", "Art.cliff_world1.on", "Art.mountain_world1.on", "Art.tree_world1.on", "Art.shafts_world1.on",
+        "Art.main_world2.on", "Art.sky_world2.on", "Art.cliff_world2.on", "Art.mountain_world2.on", "Art.tree_world2.on", "Art.shafts_world2.on",
+        "Art.main_world3.on", "Art.sky_world3.on", "Art.cliff_world3.on", "Art.mountain_world3.on", "Art.tree_world3.on", "Art.shafts_world3.on",
+        "Art.main_world4.on", "Art.sky_world4.on", "Art.cliff_world4.on", "Art.mountain_world4.on", "Art.tree_world4.on", "Art.shafts_world4.on",
+        "Art.main_world5.on", "Art.sky_world5.on", "Art.cliff_world5.on", "Art.mountain_world5.on", "Art.tree_world5.on", "Art.shafts_world5.on",
+        "Art.main_world6.on", "Art.sky_world6.on", "Art.cliff_world6.on", "Art.mountain_world6.on", "Art.tree_world6.on", "Art.shafts_world6.on",
+        "Art.main_world7.on", "Art.sky_world7.on", "Art.cliff_world7.on", "Art.mountain_world7.on", "Art.tree_world7.on", "Art.shafts_world7.on",
+    ];
+    private static readonly string[] OffscreenKeys =
+    [
+        "Art.main.off", "Art.sky.off", "Art.cliff.off", "Art.mountain.off", "Art.tree.off", "Art.shafts.off",
+        "Art.main_world0.off", "Art.sky_world0.off", "Art.cliff_world0.off", "Art.mountain_world0.off", "Art.tree_world0.off", "Art.shafts_world0.off",
+        "Art.main_world1.off", "Art.sky_world1.off", "Art.cliff_world1.off", "Art.mountain_world1.off", "Art.tree_world1.off", "Art.shafts_world1.off",
+        "Art.main_world2.off", "Art.sky_world2.off", "Art.cliff_world2.off", "Art.mountain_world2.off", "Art.tree_world2.off", "Art.shafts_world2.off",
+        "Art.main_world3.off", "Art.sky_world3.off", "Art.cliff_world3.off", "Art.mountain_world3.off", "Art.tree_world3.off", "Art.shafts_world3.off",
+        "Art.main_world4.off", "Art.sky_world4.off", "Art.cliff_world4.off", "Art.mountain_world4.off", "Art.tree_world4.off", "Art.shafts_world4.off",
+        "Art.main_world5.off", "Art.sky_world5.off", "Art.cliff_world5.off", "Art.mountain_world5.off", "Art.tree_world5.off", "Art.shafts_world5.off",
+        "Art.main_world6.off", "Art.sky_world6.off", "Art.cliff_world6.off", "Art.mountain_world6.off", "Art.tree_world6.off", "Art.shafts_world6.off",
+        "Art.main_world7.off", "Art.sky_world7.off", "Art.cliff_world7.off", "Art.mountain_world7.off", "Art.tree_world7.off", "Art.shafts_world7.off",
+    ];
+    private readonly nint[] _onscreen = new nint[Entries.Length], _offscreen = new nint[Entries.Length];
+    public bool EnableWorldShaders { get; set; } = OperatingSystem.IsIOS();
     public bool EnableSpecializedShaders { get; set; } = true;
     private static int Variant(float kind) => (Artwork)(int)kind switch
     {
@@ -105,7 +139,7 @@ public sealed unsafe partial class ProceduralPipeline : ICompositorExtension, ID
             int variant = EnableSpecializedShaders ? Variant(sprites[first].Material.X) : 0;
             int end = first + 1;
             while (end < sprites.Length && (!EnableSpecializedShaders || Variant(sprites[end].Material.X) == variant)) end++;
-            api.RenderPassEncoderSetPipeline(pass, GetPipeline(compositor, isOffscreen, variant));
+            api.RenderPassEncoderSetPipeline(pass, GetPipeline(compositor, isOffscreen, EnableWorldShaders ? 6 + (int)batch.Scene.Y * 6 + variant : variant));
             api.RenderPassEncoderDraw(pass, 6, (uint)(end - first), 0, (uint)first);
             Draws++; first = end;
         }

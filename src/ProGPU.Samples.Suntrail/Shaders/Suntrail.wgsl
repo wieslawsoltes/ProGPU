@@ -1,6 +1,6 @@
 // Algorithm: Instanced analytic 2.5D artwork with rough stone cells, layered noise, textured foliage and fur, atmospheric extinction, and directional illumination. Original Suntrail artwork.
-// Time complexity: O(V + F) for V visible sprites and F covered fragments; six vertices per sprite, at most 36 bounded shape layers per fragment; material noise uses three fixed octaves and stone cells use a 3x3 neighborhood, no scene-length loops or ray marching. An optional sky-cache miss adds O(P) work for P framebuffer pixels once per key; hits replace sky noise with one O(1) texel load per visible fragment.
-// Space complexity: O(V) uploaded 48-byte sprite records in a fixed 2048-instance buffer; O(1) private fragment storage and a 288-byte frame uniform. Optional retained sky uses one physical-resolution RGBA32Float image capped at 96 MiB; replay performs one unfiltered 16-byte texel load per sky fragment. Other entries use zero texture samples.
+// Time complexity: O(V + F) for V visible sprites and F covered fragments; six vertices per sprite, at most 36 bounded shape layers per fragment; material noise uses three fixed octaves and stone cells use a 3x3 neighborhood, no scene-length loops or ray marching. An optional sky-cache miss adds O(P) work for P framebuffer pixels once per key; hits replace sky noise with one O(1) texel load per visible fragment. Optional world-specialized entries fold world branches without changing the six material runs or fragment equations.
+// Space complexity: O(V) uploaded 48-byte sprite records in a fixed 2048-instance buffer; O(1) private fragment storage and a 288-byte frame uniform. Optional retained sky uses one physical-resolution RGBA32Float image capped at 96 MiB; replay performs one unfiltered 16-byte texel load per sky fragment. Other entries use zero texture samples. Device-owned pipelines are lazy and bounded to six dynamic plus 48 world variants per target configuration.
 // Coordinates are logical pixels, projected to physical framebuffer pixels by ProGPU.
 // Coverage uses physical-pixel derivatives; premultiplied alpha, source-over composition.
 // Fixed loops: stone neighborhood 9, tree branches 7 and canopy lobes 7, fern fronds 2 with 6 leaf pairs each, grass blades 6, petals 5, portal sparks 6, palm fronds 8, pine boughs 6, crystal prisms 3, local lights 3, conservative opaque rectangles at most 8. No ray marching or screen-space history.
@@ -99,7 +99,8 @@ fn sphere(p: vec2<f32>, center: vec2<f32>, radius: vec2<f32>, rgb: vec3<f32>, gl
     let spec = pow(max(0., dot(n, normalize(vec3(-.3,-.42,1.)))), 28.) * gloss;
     return ink(rgb * (.55 + .53 * diffuse) + vec3(1., .91, .68) * (spec + rim), alpha);
 }
-fn world() -> u32 { return u32(frame.scene.y+.5); }
+var<private> selected_world: u32;
+fn world() -> u32 { return selected_world; }
 fn foliage() -> vec3<f32> {
     switch world() {
         case 0u: { return vec3(.20,.31,.105); }
@@ -631,7 +632,8 @@ fn crusher_art(p: vec2<f32>, phase: f32) -> vec4<f32> {
     return c;
 }
 
-fn shade(v: Varying, kind: u32) -> vec4<f32> {
+fn shade(v: Varying, kind: u32, biome: u32) -> vec4<f32> {
+    selected_world=biome;
     let p=v.uv;
     // Opaque terrain is drawn later. Skip only fragments deep inside its interior;
     // all edge helper quads and every gap still execute the original artwork.
@@ -711,12 +713,64 @@ fn shade(v: Varying, kind: u32) -> vec4<f32> {
 
 // Constant entry points let the backend eliminate unrelated material branches.
 // Identical functions, derivatives and compositing; no lower-detail mobile variant.
-@fragment fn fs_main(v: Varying) -> @location(0) vec4<f32> { return shade(v,u32(v.material.x+.5)); }
-@fragment fn fs_sky(v: Varying) -> @location(0) vec4<f32> { return shade(v,0u); }
-@fragment fn fs_cliff(v: Varying) -> @location(0) vec4<f32> { return shade(v,1u); }
-@fragment fn fs_mountain(v: Varying) -> @location(0) vec4<f32> { return shade(v,15u); }
-@fragment fn fs_tree(v: Varying) -> @location(0) vec4<f32> { return shade(v,2u); }
-@fragment fn fs_shafts(v: Varying) -> @location(0) vec4<f32> { return shade(v,20u); }
+@fragment fn fs_main(v: Varying) -> @location(0) vec4<f32> { return shade(v,u32(v.material.x+.5),u32(frame.scene.y+.5)); }
+@fragment fn fs_sky(v: Varying) -> @location(0) vec4<f32> { return shade(v,0u,u32(frame.scene.y+.5)); }
+@fragment fn fs_cliff(v: Varying) -> @location(0) vec4<f32> { return shade(v,1u,u32(frame.scene.y+.5)); }
+@fragment fn fs_mountain(v: Varying) -> @location(0) vec4<f32> { return shade(v,15u,u32(frame.scene.y+.5)); }
+@fragment fn fs_tree(v: Varying) -> @location(0) vec4<f32> { return shade(v,2u,u32(frame.scene.y+.5)); }
+@fragment fn fs_shafts(v: Varying) -> @location(0) vec4<f32> { return shade(v,20u,u32(frame.scene.y+.5)); }
+
+
+// A world selects the same six material runs. Constant world state lets the
+// compiler eliminate unreachable biome branches without increasing frame draws.
+@fragment fn fs_main_world0(v: Varying) -> @location(0) vec4<f32> { return shade(v,u32(v.material.x+.5),0u); }
+@fragment fn fs_sky_world0(v: Varying) -> @location(0) vec4<f32> { return shade(v,0u,0u); }
+@fragment fn fs_cliff_world0(v: Varying) -> @location(0) vec4<f32> { return shade(v,1u,0u); }
+@fragment fn fs_mountain_world0(v: Varying) -> @location(0) vec4<f32> { return shade(v,15u,0u); }
+@fragment fn fs_tree_world0(v: Varying) -> @location(0) vec4<f32> { return shade(v,2u,0u); }
+@fragment fn fs_shafts_world0(v: Varying) -> @location(0) vec4<f32> { return shade(v,20u,0u); }
+@fragment fn fs_main_world1(v: Varying) -> @location(0) vec4<f32> { return shade(v,u32(v.material.x+.5),1u); }
+@fragment fn fs_sky_world1(v: Varying) -> @location(0) vec4<f32> { return shade(v,0u,1u); }
+@fragment fn fs_cliff_world1(v: Varying) -> @location(0) vec4<f32> { return shade(v,1u,1u); }
+@fragment fn fs_mountain_world1(v: Varying) -> @location(0) vec4<f32> { return shade(v,15u,1u); }
+@fragment fn fs_tree_world1(v: Varying) -> @location(0) vec4<f32> { return shade(v,2u,1u); }
+@fragment fn fs_shafts_world1(v: Varying) -> @location(0) vec4<f32> { return shade(v,20u,1u); }
+@fragment fn fs_main_world2(v: Varying) -> @location(0) vec4<f32> { return shade(v,u32(v.material.x+.5),2u); }
+@fragment fn fs_sky_world2(v: Varying) -> @location(0) vec4<f32> { return shade(v,0u,2u); }
+@fragment fn fs_cliff_world2(v: Varying) -> @location(0) vec4<f32> { return shade(v,1u,2u); }
+@fragment fn fs_mountain_world2(v: Varying) -> @location(0) vec4<f32> { return shade(v,15u,2u); }
+@fragment fn fs_tree_world2(v: Varying) -> @location(0) vec4<f32> { return shade(v,2u,2u); }
+@fragment fn fs_shafts_world2(v: Varying) -> @location(0) vec4<f32> { return shade(v,20u,2u); }
+@fragment fn fs_main_world3(v: Varying) -> @location(0) vec4<f32> { return shade(v,u32(v.material.x+.5),3u); }
+@fragment fn fs_sky_world3(v: Varying) -> @location(0) vec4<f32> { return shade(v,0u,3u); }
+@fragment fn fs_cliff_world3(v: Varying) -> @location(0) vec4<f32> { return shade(v,1u,3u); }
+@fragment fn fs_mountain_world3(v: Varying) -> @location(0) vec4<f32> { return shade(v,15u,3u); }
+@fragment fn fs_tree_world3(v: Varying) -> @location(0) vec4<f32> { return shade(v,2u,3u); }
+@fragment fn fs_shafts_world3(v: Varying) -> @location(0) vec4<f32> { return shade(v,20u,3u); }
+@fragment fn fs_main_world4(v: Varying) -> @location(0) vec4<f32> { return shade(v,u32(v.material.x+.5),4u); }
+@fragment fn fs_sky_world4(v: Varying) -> @location(0) vec4<f32> { return shade(v,0u,4u); }
+@fragment fn fs_cliff_world4(v: Varying) -> @location(0) vec4<f32> { return shade(v,1u,4u); }
+@fragment fn fs_mountain_world4(v: Varying) -> @location(0) vec4<f32> { return shade(v,15u,4u); }
+@fragment fn fs_tree_world4(v: Varying) -> @location(0) vec4<f32> { return shade(v,2u,4u); }
+@fragment fn fs_shafts_world4(v: Varying) -> @location(0) vec4<f32> { return shade(v,20u,4u); }
+@fragment fn fs_main_world5(v: Varying) -> @location(0) vec4<f32> { return shade(v,u32(v.material.x+.5),5u); }
+@fragment fn fs_sky_world5(v: Varying) -> @location(0) vec4<f32> { return shade(v,0u,5u); }
+@fragment fn fs_cliff_world5(v: Varying) -> @location(0) vec4<f32> { return shade(v,1u,5u); }
+@fragment fn fs_mountain_world5(v: Varying) -> @location(0) vec4<f32> { return shade(v,15u,5u); }
+@fragment fn fs_tree_world5(v: Varying) -> @location(0) vec4<f32> { return shade(v,2u,5u); }
+@fragment fn fs_shafts_world5(v: Varying) -> @location(0) vec4<f32> { return shade(v,20u,5u); }
+@fragment fn fs_main_world6(v: Varying) -> @location(0) vec4<f32> { return shade(v,u32(v.material.x+.5),6u); }
+@fragment fn fs_sky_world6(v: Varying) -> @location(0) vec4<f32> { return shade(v,0u,6u); }
+@fragment fn fs_cliff_world6(v: Varying) -> @location(0) vec4<f32> { return shade(v,1u,6u); }
+@fragment fn fs_mountain_world6(v: Varying) -> @location(0) vec4<f32> { return shade(v,15u,6u); }
+@fragment fn fs_tree_world6(v: Varying) -> @location(0) vec4<f32> { return shade(v,2u,6u); }
+@fragment fn fs_shafts_world6(v: Varying) -> @location(0) vec4<f32> { return shade(v,20u,6u); }
+@fragment fn fs_main_world7(v: Varying) -> @location(0) vec4<f32> { return shade(v,u32(v.material.x+.5),7u); }
+@fragment fn fs_sky_world7(v: Varying) -> @location(0) vec4<f32> { return shade(v,0u,7u); }
+@fragment fn fs_cliff_world7(v: Varying) -> @location(0) vec4<f32> { return shade(v,1u,7u); }
+@fragment fn fs_mountain_world7(v: Varying) -> @location(0) vec4<f32> { return shade(v,15u,7u); }
+@fragment fn fs_tree_world7(v: Varying) -> @location(0) vec4<f32> { return shade(v,2u,7u); }
+@fragment fn fs_shafts_world7(v: Varying) -> @location(0) vec4<f32> { return shade(v,20u,7u); }
 
 // Bake uses fs_sky with occlusion disabled. Replay restores current occlusion and
 // loads the identical physical pixel: no filtering, quantization, or temporal reuse

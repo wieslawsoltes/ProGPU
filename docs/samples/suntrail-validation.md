@@ -470,3 +470,73 @@ image assets, infinite chunks, zstd and NES/SMBX adapters remain unsupported.
 
 The separate API PR's hosted image-parity, macOS x64 native and mobile-package
 checks have now passed; three other macOS jobs remained queued at this check.
+
+
+## iPhone world specialization (2026-09-05)
+
+The reconnected iPhone baseline at `e8b24d4e` measured 39.945/50.011/66.681 ms
+frame intervals (p50/p95/p99), with CPU simulation 0.051 ms and compositor 1.448 ms
+at the median. An 8-second Metal System Trace identified 211 fragment intervals
+at median 34.737 ms and p95 36.583 ms, versus median vertex 0.223 ms. Time Profiler
+exports include managed/native symbols; native Metal residency reports zero on this
+host and remains unavailable rather than zero residency.
+
+Two experiments were rejected: 33 material pipelines did not consistently improve
+frame pacing and caused a 190 ms first-use compositor hitch; an exact 4 MiB hash
+texture did not improve iPhone performance. Their patches and logs remain ignored
+artifacts. Overlapping cancelled build chains briefly installed an older experiment;
+those logs are explicitly excluded, and accepted runs verify their configuration
+header, binary hash, final pose and counters.
+
+World specialization retains six contiguous material runs. Three runs per mode
+used the same signed binary, 932×430 logical / 2796×1290 physical framebuffer,
+120 warmup frames and 600 measured frames at fixed 1/60-second simulation/atmosphere
+steps. All runs reported nominal thermal state, low-power mode off, zero deaths,
+1440 final ticks, x=3414.0393, 4,674,528 uploaded bytes and 10,947 total draws.
+Median-of-run-percentiles results:
+
+| Pipeline mode | Frame p50 | Frame p95 | Frame p99 |
+| --- | ---: | ---: | ---: |
+| Dynamic world | 39.550 ms | 66.681 ms | 66.681 ms |
+| Constant world | 33.360 ms | 50.011 ms | 51.265 ms |
+
+This is a repeatable improvement in this route prefix, about 15.7% lower median
+frame time; it does not establish sustained 60 FPS or all-world device performance.
+The focused two-case GPU test covers both modes across all eight worlds. Alpha,
+coverage, sky-cache and unchanged replay stay exact. World constant-folding changes
+at most one RGB8 code value in a small number of channels; the independent bound
+is 0.01% of channels with no alpha changes. The existing dynamic material-entry
+rounding contract remains unchanged. Broader validation is deferred as requested.
+
+Evidence is under `artifacts/suntrail/performance/iphone-current/world`, including
+`paired-binary.json`, `paired-commands.json`, `paired-summary.json`, six run logs and
+focused image/build logs. The final iOS default is world specialization; Desktop
+and Browser remain opt-in pending final platform validation. Pipeline compilation
+on first visiting another world remains a transition-time cost to examine later.
+
+
+The final signed build passes strict code-signature verification and retains all
+250 WebGPU exports. It was installed and launched normally on the connected iPhone
+at 14:29:51 local, PID 9704, with no measurement/autoplay flags. The 19-test shader
+resource audit passed. The final app hash and installation/launch logs are retained.
+
+Final same-binary route measurements at **Fair** thermal state were
+39.101/50.011/51.486 ms (dynamic) and 39.254/50.011/66.681 ms (specialized), so the
+nominal-temperature frame-time gain did not persist in that pair. Subsequent matched
+8-second Metal and Time Profiler captures held the identical final gameplay pose
+paused. GPU analysis filters the exact Suntrail PID and unions split fragment
+intervals per frame, excluding unrelated processes and overlapping intervals:
+
+| Paused final pose, 240 frames each | Fragment p50 | Fragment p95 | Fragment p99 |
+| --- | ---: | ---: | ---: |
+| Dynamic world | 32.017 ms | 34.275 ms | 34.416 ms |
+| Constant world | 29.547 ms | 30.918 ms | 31.080 ms |
+
+This supports reduced shader cost (about 7.7% at the median), not sustained 60 FPS.
+System GPU compute activity differed between captures: about 220 ms summed in the
+first trace and 721 ms in the second; this contention and thermal state limit FPS
+interpretation. CPU exports retain symbolicated samples; no allocation or memory
+improvement is claimed. Verified nonempty GPU/CPU exports, compressed copies, TOCs
+and command lists remain; the four raw device traces were removed after validation.
+The two rejected desktop/device experiments likewise retain useful exports but no
+unneeded raw traces. The broad final validation phase remains deferred as requested.
