@@ -7094,6 +7094,49 @@ content opacity, and degenerate shapes. Arbitrary path/group/boolean fills,
 tile-brush strokes/text/masks and repeated/flipped retained tile capture remain
 implementation work. This checkpoint is not a parity or release qualification.
 
+### Implementation-first checkpoint: path/group/boolean tile-brush fills
+
+Following the curved-primitive checkpoint, native MIL now feeds already-lowered
+PathGeometry, GeometryGroup and CombinedGeometry fill programs into the same
+single-tile brush replay. This covers image, DrawingImage, DrawingBrush and
+VisualBrush sources without a new host-specific rendering path. Existing path
+fill rules, selected per-point segment data and group winding/boolean programs
+are reused. Geometry transforms remain on the mask and brush-use mapping; brush
+transforms do not deform the paint shape. Existing pen execution is unchanged:
+tile-brush pens and previously unsupported combined-geometry strokes are not
+claimed as implemented by this change.
+
+The native helper appends fill segments to inherited clip scratch, rebases only
+leaf segment references in bounded postfix boolean programs, and retains the
+existing 64-path/63-instruction limits. Empty boolean programs now publish zero
+offsets in geometry, transformed-rectangle and curved-primitive clip descriptors,
+as required by the existing native mask contract. In particular, a simple paint
+or viewport clip following a boolean geometry mask no longer carries a spurious
+nonzero program offset. No geometry is reduced to its bounding rectangle.
+
+Provenance/applicability: original ProGPU MIL fill lowering, typed scene mask
+descriptors and GPU vector-clip execution; the managed portable geometry tile
+replay remains the counterpart. No foreign code or new shader algorithm is
+introduced. Appending uses contiguous vector range copies (O(S + B) time and
+scratch); the conditional reference fixup is bounded protocol metadata handling
+over at most 63 instructions, not an image/geometry compute fallback. Existing
+GPU execution owns rasterization. Performance, memory residency and SIMD claims
+require the deferred measurements; none are made here.
+
+The native Release library and test executable compile. The authored matrix is
+now 40 source/shape/transform cases, adding curved path data, even-odd geometry
+groups, difference geometry, local geometry transforms and boolean masks followed
+by skewed viewports. These cases have **not run**. The MIL source-digest ledger
+was regenerated; no runtime, VM, pixel, sanitizer, benchmark or CI qualification
+was performed. Final tests must additionally cover nested mixed winding rules,
+all boolean operators, inherited boolean clips, sibling clip restoration,
+per-point guidelines and paths with nonfilled/open figures against native WPF.
+
+Remaining brush implementation includes repeat/flip retained tile capture,
+tile-brush strokes, glyph/text and opacity-mask use, plus cache ownership and
+invalidation integration. Existing broader MIL/DirectX/Direct2D/Win2D and final
+cross-platform qualification gates remain open.
+
 ## Invariants
 
 - No reflection or private managed field scanning in the product bridge.

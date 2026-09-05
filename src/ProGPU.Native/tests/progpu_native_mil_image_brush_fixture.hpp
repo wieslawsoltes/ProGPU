@@ -5,7 +5,7 @@
 namespace progpu::native::tests {
 
 enum class mil_brush_fixture_source { bitmap, drawing_image, drawing, visual };
-enum class mil_brush_fixture_shape { rectangle, ellipse, rounded_rectangle };
+enum class mil_brush_fixture_shape { rectangle, ellipse, rounded_rectangle, path, group, combined };
 
 struct mil_image_brush_fixture_options {
     std::uint32_t stretch{1U};
@@ -24,6 +24,7 @@ struct mil_image_brush_fixture_options {
     mil_brush_fixture_shape shape{mil_brush_fixture_shape::rectangle};
     bool inherited_clip{};
     bool paint_transform{};
+    std::span<const std::byte> path_figures{};
 };
 
 inline bool build_mil_image_brush_fixture(std::vector<std::byte>& scene,
@@ -100,7 +101,43 @@ inline bool build_mil_image_brush_fixture(std::vector<std::byte>& scene,
             0.8, 0.2, -0.1, 0.8, 8.0, 0.0, 0U);
         packet(nested, command::push_transform, 14U, 0U);
     }
+    if (options.shape == mil_brush_fixture_shape::path ||
+        options.shape == mil_brush_fixture_shape::group ||
+        options.shape == mil_brush_fixture_shape::combined) {
+        packet(batch, command::channel_create_resource, 16U, 66U);
+        packet(batch, command::matrix_transform, 16U,
+            0.9, 0.0, 0.0, 0.8, 3.0, 5.0, 0U);
+        if (options.shape == mil_brush_fixture_shape::path) {
+            packet(batch, command::channel_create_resource, 15U, 73U);
+            append(batch, static_cast<std::uint32_t>(24U + options.path_figures.size()));
+            append(batch, static_cast<std::uint32_t>(command::path_geometry));
+            append(batch, 15U);
+            append(batch, 16U);
+            append(batch, 0U);
+            append(batch, static_cast<std::uint32_t>(options.path_figures.size()));
+            batch.insert(batch.end(), options.path_figures.begin(), options.path_figures.end());
+        } else {
+            packet(batch, command::channel_create_resource, 17U, 69U);
+            packet(batch, command::rectangle_geometry, 17U,
+                0.0, 0.0, 8.0, 8.0, 48.0, 48.0, 0U, 0U, 0U, 0U);
+            packet(batch, command::channel_create_resource, 18U, 70U);
+            packet(batch, command::ellipse_geometry, 18U,
+                12.0, 18.0, 32.0, 32.0, 0U, 0U, 0U, 0U);
+            packet(batch, command::channel_create_resource, 15U,
+                options.shape == mil_brush_fixture_shape::group ? 71U : 72U);
+            if (options.shape == mil_brush_fixture_shape::group) {
+                packet(batch, command::geometry_group, 15U, 16U, 0U, 8U, 17U, 18U);
+            } else {
+                packet(batch, command::combined_geometry, 15U, 16U, 3U, 17U, 18U);
+            }
+        }
+    }
     switch (options.shape) {
+    case mil_brush_fixture_shape::path:
+    case mil_brush_fixture_shape::group:
+    case mil_brush_fixture_shape::combined:
+        packet(nested, command::draw_geometry, 5U, 0U, 15U, 0U);
+        break;
     case mil_brush_fixture_shape::ellipse:
         packet(nested, command::draw_ellipse, 32.0, 32.0, 24.0, 24.0, 5U, 0U);
         break;

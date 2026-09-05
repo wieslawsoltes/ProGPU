@@ -11244,7 +11244,7 @@ struct channel::implementation {
         clip_paths.push_back({
             segment_offset,
             clip_segments.size() - segment_offset,
-            boolean_node_offset,
+            boolean_node_count == 0U ? 0U : boolean_node_offset,
             boolean_node_count,
             static_cast<float>(tree.left),
             static_cast<float>(tree.top),
@@ -11566,7 +11566,7 @@ struct channel::implementation {
             clip_paths.push_back({
                 segment_offset,
                 4U,
-                clip_boolean_nodes.size(),
+                0U,
                 0U,
                 left,
                 top,
@@ -14565,6 +14565,64 @@ struct channel::implementation {
             if (drawn != status::success) return drawn;
             return restored ? status::success : status::invalid_graph;
         };
+        const auto append_path_tile_brush = [
+            &builder, &clip_paths, &clip_segments, &clip_boolean_nodes,
+            &append_single_tile_brush](
+            std::uint32_t brush_handle,
+            const brush_use_state& use,
+            const render_scope_state& state,
+            std::span<const progpu_native_path_segment> segments,
+            std::span<const progpu_native_scene_path_boolean_node> nodes,
+            std::uint32_t fill_rule) -> status {
+            if (segments.empty() || use.width <= 0.0 || use.height <= 0.0) {
+                return status::success;
+            }
+            if (state.clip_path_count >= 64U || nodes.size() > 63U) {
+                return status::unsupported_command;
+            }
+            progpu_native_affine_2d transform{};
+            if (!try_to_native_affine(use.effective_transform, transform) ||
+                !finite_double_as_float(use.x) || !finite_double_as_float(use.y) ||
+                !finite_double_as_float(use.x + use.width) ||
+                !finite_double_as_float(use.y + use.height)) {
+                return status::invalid_graph;
+            }
+            clip_paths.resize(state.clip_path_count);
+            clip_segments.resize(state.clip_segment_count);
+            clip_boolean_nodes.resize(state.clip_boolean_node_count);
+            const auto segment_offset = clip_segments.size();
+            const auto node_offset = clip_boolean_nodes.size();
+            // Reuse the renderer's already-lowered fill program. Only leaf
+            // segment references change when appended after inherited clips;
+            // postfix operations and winding semantics remain unchanged.
+            clip_segments.insert(clip_segments.end(), segments.begin(), segments.end());
+            clip_boolean_nodes.insert(clip_boolean_nodes.end(), nodes.begin(), nodes.end());
+            for (std::size_t index = node_offset; index < clip_boolean_nodes.size(); ++index) {
+                auto& node = clip_boolean_nodes[index];
+                if (node.kind == PROGPU_NATIVE_PATH_BOOLEAN_LEAF ||
+                    node.kind == PROGPU_NATIVE_PATH_BOOLEAN_WINDING_LEAF) {
+                    node.segment_offset += segment_offset;
+                }
+            }
+            clip_paths.push_back({segment_offset, segments.size(),
+                nodes.empty() ? 0U : node_offset, nodes.size(),
+                static_cast<float>(use.x), static_cast<float>(use.y),
+                static_cast<float>(use.x + use.width), static_cast<float>(use.y + use.height),
+                transform, fill_rule, state.edge_aliased ? 1U : 8U,
+                PROGPU_NATIVE_CLIP_INTERSECT, 0U});
+            render_scope_state paint = state;
+            if (!builder.add_vector_clip_mask(clip_paths, clip_segments,
+                    clip_boolean_nodes, 1.0F, paint.mask_resource_index)) {
+                clip_paths.resize(state.clip_path_count);
+                clip_segments.resize(state.clip_segment_count);
+                clip_boolean_nodes.resize(state.clip_boolean_node_count);
+                return status::invalid_graph;
+            }
+            paint.clip_path_count = clip_paths.size();
+            paint.clip_segment_count = clip_segments.size();
+            paint.clip_boolean_node_count = clip_boolean_nodes.size();
+            return append_single_tile_brush(brush_handle, use, paint);
+        };
         const auto append_media_player = [
             this,
             &builder,
@@ -16056,7 +16114,15 @@ struct channel::implementation {
                         group_boolean_nodes.size() > 63U) {
                         return status::unsupported_command;
                     }
-                    if (has_group_fill) {
+                    if (has_group_fill && tile_brushes.contains(brush_handle)) {
+                        const brush_use_state brush_use{group_left, group_top,
+                            group_right - group_left, group_bottom - group_top,
+                            effective_transform};
+                        const status tile_status = append_path_tile_brush(brush_handle,
+                            brush_use, current, group_segments, group_boolean_nodes, group_fill_rule);
+                        if (tile_status != status::success) return tile_status;
+                    }
+                    if (has_group_fill && !tile_brushes.contains(brush_handle)) {
                         const brush_use_state brush_use{
                             group_left,
                             group_top,
@@ -16387,6 +16453,13 @@ struct channel::implementation {
                         combined_tree.right - combined_tree.left,
                         combined_tree.bottom - combined_tree.top,
                         effective_transform};
+                    if (tile_brushes.contains(brush_handle)) {
+                        const status tile_status = append_path_tile_brush(brush_handle,
+                            brush_use, current, combined_segments, boolean_nodes,
+                            PROGPU_NATIVE_FILL_RULE_NON_ZERO);
+                        if (tile_status != status::success) return tile_status;
+                        continue;
+                    }
                     const status brush_status = resolve_brush_index(
                         brush_handle,
                         brush_index,
@@ -16460,8 +16533,16 @@ struct channel::implementation {
                         !fill_segments.empty() &&
                         try_get_path_segment_bounds(
                             fill_segments, local_path_bounds);
-                    if (brush_handle != 0U &&
-                        has_fill_bounds) {
+                    if (brush_handle != 0U && has_fill_bounds && tile_brushes.contains(brush_handle)) {
+                        const brush_use_state brush_use{local_path_bounds.x, local_path_bounds.y,
+                            local_path_bounds.width, local_path_bounds.height, effective_transform};
+                        const status tile_status = append_path_tile_brush(brush_handle,
+                            brush_use, current, fill_segments, {},
+                            path_geometry->second.fill_rule == 0U
+                                ? PROGPU_NATIVE_FILL_RULE_EVEN_ODD : PROGPU_NATIVE_FILL_RULE_NON_ZERO);
+                        if (tile_status != status::success) return tile_status;
+                    }
+                    if (brush_handle != 0U && has_fill_bounds && !tile_brushes.contains(brush_handle)) {
                         std::uint32_t brush_index =
                             PROGPU_NATIVE_SCENE_NO_INDEX;
                         const brush_use_state brush_use{
@@ -16852,7 +16933,7 @@ struct channel::implementation {
                     }
                     clip_paths.push_back({segment_offset,
                         clip_segments.size() - segment_offset,
-                        clip_boolean_nodes.size(), 0U,
+                        0U, 0U,
                         static_cast<float>(x), static_cast<float>(y),
                         static_cast<float>(x + width), static_cast<float>(y + height),
                         shape_transform, PROGPU_NATIVE_FILL_RULE_NON_ZERO,
