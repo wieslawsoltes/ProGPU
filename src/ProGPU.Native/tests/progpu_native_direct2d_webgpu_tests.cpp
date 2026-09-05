@@ -604,7 +604,14 @@ struct portable_scene final {
     target->FillRectangle(
         &full_opacity_layer_bounds,
         static_cast<d2d::brush*>(brushes[1U].get()));
+    // Active layer lifetime belongs to the render target's retained COM
+    // interface, not to the caller's primary layer pointer.
+    layer.reset();
     target->PopLayer();
+    raw_layer = nullptr;
+    require(target->CreateLayer(nullptr, &raw_layer) == native_com::ok &&
+        raw_layer != nullptr, "portable replacement layer creation failed");
+    layer.attach(raw_layer);
     target->PushLayer(&opacity_layer_parameters, layer.get());
     target->FillRectangle(
         &opacity_layer_bounds,

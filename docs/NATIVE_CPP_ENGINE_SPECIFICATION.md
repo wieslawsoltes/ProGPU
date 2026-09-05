@@ -4255,3 +4255,49 @@ build now succeeds. This does not yet qualify Linux runtime parity: its GPU
 test subsequently stops in GCC UBSan at the Direct2D `PopLayer` / `EndUse`
 call, before rendering or leak qualification finishes. That separate issue
 remains under investigation; no sanitizer was disabled in the gate.
+
+### GCC 13 ARM64 sanitized COM layer release, 2026-09-05
+
+The Linux debugger confirmed that the stopped `scene_layer_native` pointer
+referenced a live `portable_layer` secondary base and its expected `EndUse`
+thunk. GCC's optimized-tree dump showed the speculative branch comparing
+that exact thunk and then calling `__ubsan_handle_builtin_unreachable` with
+the layer object as its argument instead of invoking `EndUse`. Preventing
+interprocedural optimization of that one implementation preserves the call
+and passes the previously failing GPU run. The workaround is guarded to GCC
+13, ARM64, and address-sanitized builds only; normal release builds and other
+compilers retain their existing optimization. It leaves sanitizer
+instrumentation enabled. See GCC's
+[function-attribute reference](https://gcc.gnu.org/onlinedocs/gcc-13.3.0/gcc/Common-Function-Attributes.html#index-noipa-function-attribute)
+for the `noipa` boundary. Retire this workaround when the GCC 13 sanitizer
+lane is retired or its replacement has passed without it; no upstream bug
+number or fixed compiler version is asserted.
+
+The portable COM regression additionally releases a nested layer's primary
+interface while it is active, then pops both layers. The retained secondary
+interface must preserve lifetime and release ownership without a stale
+pointer. Existing wrong-state unwind and layer-reuse assertions remain.
+
+The initial workaround experiment passes the entire Linux Direct2D WebGPU
+gate in 4.93 seconds, including all ten MIL Viewport3D variants and final
+resource teardown, with ASan/UBSan halt-on-error and LeakSanitizer enabled.
+The existing suppression file is unchanged. The observed adapter is Vulkan
+llvmpipe (LLVM 20.1.2, 128 bits), which qualifies software-adapter correctness,
+not native GPU throughput. The committed conditional form and added ownership
+regression require the follow-up qualification recorded in the PR.
+
+Follow-up qualification: the conditional source workaround passes Linux's
+GPU gate in 6.05 seconds. The extended GPU ownership regression then passes
+in 2.63 seconds with leak detection enabled. macOS passes native 15/15 and
+the focused COM sanitizer test; Windows passes native 16/16 (GPU 238.26
+seconds) with the nested COM regression and all three buffer releases. The
+last GPU-only primary-reference release assertion was added after that
+Windows run and is locally qualified on Metal and Linux Vulkan.
+
+The broad GCC-sanitized COM test separately times out at its unchanged
+60-second deadline. A debugger sample during that run was in stroke polygon
+construction (`build_flat_polylines`, called by the containment grid around
+compatibility-test line 4555), before the layer tests. No timeout, allocation
+budget, or sanitizer option was relaxed. This GCC sanitizer CPU qualification
+gap remains open; neither the successful GPU gate nor other-platform COM
+passes are substituted for it. Exact-head hosted PR CI remains required.
