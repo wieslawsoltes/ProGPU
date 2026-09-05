@@ -8349,6 +8349,131 @@ int run_tests()
         scene_target->GetRequiredSceneSize() != 0U) return 323;
     target->SetTransform(&identity_matrix);
     target->SetDpi(saved_layer_dpi_x, saved_layer_dpi_y);
+    // Bitmap opacity is captured as a child image scene. Inspect its retained
+    // contract independently of the eventual Windows/GPU image comparison.
+    const auto inspect_bitmap_opacity = [&](const std::vector<std::byte>& scene,
+        bool composite, std::uint32_t expected_grid,
+        compat::bitmap_interpolation_mode interpolation,
+        const compat::matrix_3x2_f& world) {
+        const auto* header = reinterpret_cast<const progpu_native_scene_header*>(scene.data());
+        const progpu_native_scene_layer_picture_mask* picture = nullptr;
+        const std::byte* stream = nullptr;
+        for (std::uint32_t index = 0U; index < header->resource_count; ++index) {
+            const auto* resource = reinterpret_cast<const progpu_native_scene_resource*>(scene.data() +
+                header->resource_offset + index * header->resource_stride);
+            if (resource->kind != PROGPU_NATIVE_SCENE_RESOURCE_LAYER_MASK) continue;
+            const auto* candidate = reinterpret_cast<const progpu_native_scene_layer_picture_mask*>(
+                scene.data() + resource->payload_offset);
+            if (!composite && candidate->kind == PROGPU_NATIVE_SCENE_LAYER_MASK_PICTURE) {
+                picture = candidate;
+                stream = scene.data() + resource->auxiliary_offset + picture->stream_offset;
+                break;
+            }
+            if (composite && candidate->kind == PROGPU_NATIVE_SCENE_LAYER_MASK_COMPOSITE) {
+                const auto* mask = reinterpret_cast<const progpu_native_scene_layer_composite_mask*>(candidate);
+                if (mask->component_count != 2U || mask->picture_mask_count != 1U ||
+                    mask->path_count != 1U || mask->brush_mask_count != 0U ||
+                    mask->geometry_mask_count != 0U || mask->geometry_primitive_count != 0U ||
+                    mask->gradient_stop_count != 0U || mask->opacity != 1.0F) return false;
+                picture = reinterpret_cast<const progpu_native_scene_layer_picture_mask*>(
+                    scene.data() + resource->auxiliary_offset);
+                stream = reinterpret_cast<const std::byte*>(picture + 1) + picture->stream_offset;
+                const auto* path = reinterpret_cast<const progpu_native_scene_clip_path*>(
+                    reinterpret_cast<const std::byte*>(picture + 1) + mask->picture_stream_bytes);
+                if (path->sample_grid != expected_grid || path->segment_count == 0U) return false;
+                break;
+            }
+        }
+        if (picture == nullptr || picture->kind != PROGPU_NATIVE_SCENE_LAYER_MASK_PICTURE ||
+            picture->opacity != 1.0F || picture->transform.m11 != 1.0F ||
+            picture->transform.m22 != 1.0F || picture->transform.m31 != 0.0F ||
+            picture->transform.m32 != 0.0F || picture->stream_size < sizeof(progpu_native_scene_header)) return false;
+        const auto* child = reinterpret_cast<const progpu_native_scene_header*>(stream);
+        if (child->command_count != 1U) return false;
+        const auto* command = reinterpret_cast<const progpu_native_scene_command*>(stream + child->command_offset);
+        if (command->kind != PROGPU_NATIVE_SCENE_COMMAND_DRAW_IMAGE) return false;
+        const auto* image = reinterpret_cast<const progpu_native_scene_image_draw*>(stream + command->payload_offset);
+        const auto expected_sampling = interpolation == compat::bitmap_interpolation_mode::nearest_neighbor
+            ? PROGPU_NATIVE_IMAGE_SAMPLING_NEAREST : PROGPU_NATIVE_IMAGE_SAMPLING_LINEAR;
+        return image->opacity == 0.375F && image->sampling == expected_sampling &&
+            (image->flags & PROGPU_NATIVE_SCENE_IMAGE_EXTENDED_SOURCE_RECT) != 0U &&
+            ((image->flags >> PROGPU_NATIVE_SCENE_IMAGE_ADDRESS_U_SHIFT) & 3U) == PROGPU_NATIVE_IMAGE_ADDRESS_REPEAT &&
+            ((image->flags >> PROGPU_NATIVE_SCENE_IMAGE_ADDRESS_V_SHIFT) & 3U) == PROGPU_NATIVE_IMAGE_ADDRESS_MIRROR_REPEAT &&
+            image->transform.m11 == world.m11 && image->transform.m12 == world.m12 &&
+            image->transform.m21 == world.m21 && image->transform.m22 == world.m22 &&
+            approximately_equal(image->transform.m31, world.m11 + 2.0F * world.m21 + world.m31) &&
+            approximately_equal(image->transform.m32, world.m12 + 2.0F * world.m22 + world.m32);
+    };
+    for (const auto interpolation : {compat::bitmap_interpolation_mode::nearest_neighbor,
+            compat::bitmap_interpolation_mode::linear}) {
+        for (const bool full_target : {false, true}) {
+            for (const bool geometric : {false, true}) {
+                for (const auto mode : {compat::antialias_mode::aliased, compat::antialias_mode::per_primitive}) {
+                    auto parameters = full_target ? full_opacity_brush_layer_parameters : opacity_brush_layer_parameters;
+                    parameters.opacity_brush = bitmap_brush.get();
+                    parameters.geometric_mask = geometric ? path_base.get() : nullptr;
+                    parameters.mask_antialias_mode = mode;
+                    const auto world = full_target ? affine_full_layer_transforms[1] : identity_matrix;
+                    bitmap_brush->SetOpacity(0.375F);
+                    bitmap_brush->SetExtendModeX(compat::extend_mode::wrap);
+                    bitmap_brush->SetExtendModeY(compat::extend_mode::mirror);
+                    bitmap_brush->SetInterpolationMode(interpolation);
+                    target->SetTransform(&world);
+                    target->BeginDraw();
+                    target->PushLayer(&parameters, target_layer.get());
+                    // Snapshot lifetime must not depend on subsequent brush mutations.
+                    bitmap_brush->SetBitmap(nullptr);
+                    bitmap_brush->SetOpacity(0.875F);
+                    target->FillRectangle(&layer_bounds, target_brush.get());
+                    target->PopLayer();
+                    bitmap_brush->SetBitmap(portable_bitmap.get());
+                    // A main-scene image must not reuse child-scene resource indices.
+                    target->FillRectangle(&layer_bounds, bitmap_brush.get());
+                    if (target->EndDraw(nullptr, nullptr) != com::ok) return 324;
+                    scene_target->GetSummary(&target_summary);
+                    if (target_summary.draw_count != 2U) return 325;
+                    const auto size = scene_target->GetRequiredSceneSize();
+                    std::vector<std::byte> scene(static_cast<std::size_t>(size));
+                    std::uint64_t written = 0U;
+                    if (size == 0U || scene_target->BuildScene(scene.data(), size, &written) != com::ok ||
+                        written != size || !inspect_bitmap_opacity(scene, geometric,
+                            mode == compat::antialias_mode::aliased ? 1U : 8U, interpolation, world)) return 326;
+                }
+            }
+        }
+    }
+    target->SetTransform(&identity_matrix);
+    for (const bool bitmap_paint : {false, true}) {
+        for (const auto mode : {compat::antialias_mode::aliased, compat::antialias_mode::per_primitive}) {
+            bitmap_brush->SetOpacity(0.375F);
+            target->SetAntialiasMode(mode);
+            target->BeginDraw();
+            target->FillGeometry(path_base.get(), bitmap_paint ? bitmap_brush_base.get()
+                : static_cast<compat::brush*>(target_brush.get()), bitmap_brush.get());
+            if (target->EndDraw(nullptr, nullptr) != com::ok) return 327;
+            scene_target->GetSummary(&target_summary);
+            if (target_summary.draw_count != 1U) return 328;
+            const auto size = scene_target->GetRequiredSceneSize();
+            std::vector<std::byte> scene(static_cast<std::size_t>(size));
+            std::uint64_t written = 0U;
+            if (size == 0U || scene_target->BuildScene(scene.data(), size, &written) != com::ok ||
+                written != size || !inspect_bitmap_opacity(scene, bitmap_paint,
+                    mode == compat::antialias_mode::aliased ? 1U : 8U,
+                    compat::bitmap_interpolation_mode::linear, identity_matrix)) return 329;
+        }
+    }
+    bitmap_brush->SetBitmap(nullptr);
+    auto missing_bitmap_layer = opacity_brush_layer_parameters;
+    missing_bitmap_layer.opacity_brush = bitmap_brush.get();
+    target->BeginDraw();
+    target->PushLayer(&missing_bitmap_layer, target_layer.get());
+    if (target->EndDraw(nullptr, nullptr) != com::invalid_argument ||
+        scene_target->GetRequiredSceneSize() != 0U) return 330;
+    bitmap_brush->SetBitmap(portable_bitmap.get());
+    bitmap_brush->SetOpacity(0.75F);
+    bitmap_brush->SetExtendModeX(compat::extend_mode::clamp);
+    bitmap_brush->SetExtendModeY(compat::extend_mode::wrap);
+    target->SetAntialiasMode(compat::antialias_mode::per_primitive);
     composite_mask_layer_parameters.opacity_brush =
         static_cast<compat::brush*>(linear_brush.get());
     target->BeginDraw();

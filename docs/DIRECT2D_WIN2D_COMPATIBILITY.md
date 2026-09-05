@@ -3657,3 +3657,42 @@ linear-gradient brushes, three affine transforms, equal/unequal DPI, corner-doma
 containment, and singular failure. Runtime/Windows image parity and performance
 remain unverified during the implementation-first phase.
 The native library and Direct2D compatibility test target compile successfully.
+
+## Implementation-first checkpoint: bitmap opacity brushes
+
+Portable Direct2D now accepts native bitmap brushes as opacity brushes in
+`PushLayer` and `FillGeometry`, including bitmap-painted geometry and combined
+geometric/bitmap layer masks. A child semantic scene captures the bitmap-brush
+image draw; the existing picture-mask pipeline consumes its alpha. Geometric
+coverage is intersected through the existing composite-mask representation.
+The bitmap's DPI, alpha interpretation, addressing, nearest/linear sampling,
+brush transform and opacity all use the same encoder as ordinary bitmap paint.
+Brush opacity is encoded once in the child image; layer opacity remains separate.
+
+Child resource indices stay local to their scene. Bitmap source COM references
+are retained until the parent target's next `BeginDraw`, matching the normal
+bitmap resource-cache lifetime. The child capture does not increment public
+draw counts. Missing bitmap data, unsupported native bitmap sources, incompatible
+factories, and invalid transforms fail closed. Shared/external sources retain
+their existing import contract; this change adds no CPU pixel processing or
+readback. It does add retained picture capture and mask rendering work, whose
+runtime cost is not yet measured. Serialization takes O(B + S) time/storage for
+serialized image bytes B and clip segments S; there is no new scalar pixel loop.
+
+This is original ProGPU code based on the public
+[layer opacity-brush contract](https://learn.microsoft.com/en-us/windows/win32/api/d2d1/ns-d2d1-d2d1_layer_parameters),
+reusing ProGPU image and picture/composite-mask code rather than foreign source.
+Portable COM callers share this C++ endpoint; no separate managed Direct2D
+implementation or public C ABI/module change is needed. Canonical shaders are
+unchanged. This supersedes the earlier bitmap-opacity-brush gap for native
+bitmap sources supported by the ordinary bitmap-brush encoder; it does not
+qualify arbitrary Windows bitmap providers or make Win2D binaries portable.
+Bounded rotated/sheared layers and ClearType layer initialization remain open.
+
+Authored cases cover 16 layer combinations (bounded/full-target, geometry/no
+geometry, nearest/linear, and both mask antialias modes), four geometry-fill
+combinations, brush mutation after capture, parent/child image coexistence,
+draw counts, and missing-source failure. The native library and compatibility
+test target compile. Tests are not executed: Windows/native differential images,
+macOS/Linux GPU behavior, source lifetime stress, performance, and CI qualification
+remain deferred to the final validation phase.
