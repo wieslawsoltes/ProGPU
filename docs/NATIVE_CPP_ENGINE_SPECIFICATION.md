@@ -4235,3 +4235,23 @@ and material-gradient-stop storage buffers. They now use the same destroy /
 release / null sequence as the other five 3D buffers. A managed source guard
 requires all eight releases, and the existing full GPU teardown remains the
 LeakSanitizer regression gate. No leak suppression or CI timeout was changed.
+
+### GCC Unicode action-table bounds, 2026-09-05
+
+The follow-up full managed run passes 3,923/3,923, including the new 3D buffer
+ownership guard; LibreWPF passes 1,472/1,472. The earlier intermittent cache
+and allocation observations remain unresolved rather than being declared
+fixed by a successful rerun.
+
+An additional Ubuntu 24.04 ARM64 / GCC 13.3 sanitizer build rejected the
+templated Unicode action lookup with `-Werror=array-bounds`, reporting a
+138-entry array specialization against the 127-entry USE from-state table.
+The shared lookup now takes `std::span<const std::uint8_t>` so its range check
+and indexed read use the same explicit table extent. The last valid state,
+first invalid state, and maximum 16-bit state are covered for both action
+directions in all four syllable machines, including zeroed failure output.
+The macOS native text sanitizer test passes and the strict Linux GPU target
+build now succeeds. This does not yet qualify Linux runtime parity: its GPU
+test subsequently stops in GCC UBSan at the Direct2D `PopLayer` / `EndUse`
+call, before rendering or leak qualification finishes. That separate issue
+remains under investigation; no sanitizer was disabled in the gate.
