@@ -32,6 +32,10 @@ public sealed unsafe class NativeCompositor : IDisposable
     private nint _engine;
     private int _disposeState;
 
+    /// <summary>Resolved occupied-page sampling policy, independent of ordinary image sampling.</summary>
+    public GpuTilePageSamplingPath TilePageSamplingPath =>
+        GpuImageSamplingPolicy.ResolveTilePagePath(_context.ImageSamplingPreference);
+
     public NativeCompositor(
         WgpuContext context,
         TextureFormat targetFormat)
@@ -2206,6 +2210,8 @@ public sealed unsafe class NativeCompositor : IDisposable
     }
 
     private static ulong GetEngineFlags(WgpuContext context) =>
+        (context.ImageSamplingPreference == GpuImageSamplingPreference.NativeSampler
+            ? NativeMethods.EngineImageRequireNativeSampling : 0UL) |
         (context.ImageSamplingPath == GpuImageSamplingPath.ExplicitShader
             ? NativeMethods.EngineImageExplicitShaderSampling : 0UL) |
         (context.GlyphRasterizationPath switch

@@ -18928,10 +18928,36 @@ int main() {
         PROGPU_REQUIRE(scene == std::vector<std::byte>{std::byte{0x5a}});
     }
     for (std::uint32_t tile_mode = 1U; tile_mode <= 4U; ++tile_mode) {
-        std::vector<std::byte> scene{std::byte{0x5a}};
-        PROGPU_REQUIRE(!progpu::native::tests::build_mil_image_brush_fixture(
-            scene, {.tile_mode = tile_mode}, 9500U + tile_mode));
-        PROGPU_REQUIRE(scene == std::vector<std::byte>{std::byte{0x5a}});
+        for (const auto source : {progpu::native::tests::mil_brush_fixture_source::bitmap,
+            progpu::native::tests::mil_brush_fixture_source::drawing,
+            progpu::native::tests::mil_brush_fixture_source::drawing_image,
+            progpu::native::tests::mil_brush_fixture_source::visual}) {
+            for (const bool linear : {false, true}) {
+                std::vector<std::byte> scene;
+                PROGPU_REQUIRE(progpu::native::tests::build_mil_image_brush_fixture(scene,
+                    {.stretch = 2U, .tile_mode = tile_mode, .opacity = 0.5, .linear = linear,
+                        .source = source, .shape = progpu::native::tests::mil_brush_fixture_shape::ellipse,
+                        .inherited_clip = true, .viewport = {0.0, 0.0, 0.25, 0.5}}, 9500U + tile_mode));
+                const auto header = read_value<progpu_native_scene_header>(scene, 0U);
+                std::uint32_t tile_resources = 0U;
+                for (std::uint32_t index = 0U; index < header.resource_count; ++index) {
+                    const auto resource = read_value<progpu_native_scene_resource>(scene,
+                        header.resource_offset + index * sizeof(progpu_native_scene_resource));
+                    if (resource.kind != PROGPU_NATIVE_SCENE_RESOURCE_TILE_COMPOSITE) continue;
+                    const auto tile = read_value<progpu_native_scene_tile_composite>(scene, resource.payload_offset);
+                    PROGPU_REQUIRE(tile.address_u == (tile_mode == 1U || tile_mode == 3U ? 2U : 1U));
+                    PROGPU_REQUIRE(tile.address_v == (tile_mode == 2U || tile_mode == 3U ? 2U : 1U));
+                    ++tile_resources;
+                }
+                PROGPU_REQUIRE(tile_resources == 1U);
+                if (source != progpu::native::tests::mil_brush_fixture_source::bitmap) {
+                    scene = {std::byte{0x5a}};
+                    PROGPU_REQUIRE(!progpu::native::tests::build_mil_image_brush_fixture(scene,
+                        {.tile_mode = tile_mode, .source = source, .source_cycle = true}, 9510U + tile_mode));
+                    PROGPU_REQUIRE(scene == std::vector<std::byte>{std::byte{0x5a}});
+                }
+            }
+        }
     }
     PROGPU_REQUIRE(curve_dashes_match_managed_reference_contracts());
     PROGPU_REQUIRE(

@@ -40,9 +40,12 @@ constexpr bool valid_engine_flags(std::uint64_t flags) noexcept {
         PROGPU_NATIVE_ENGINE_GLYPH_RASTER_SHADER_FALLBACK |
         PROGPU_NATIVE_ENGINE_GLYPH_SCALAR_CPU_FALLBACK;
     constexpr std::uint64_t supported_flags = glyph_flags |
-        PROGPU_NATIVE_ENGINE_IMAGE_EXPLICIT_SHADER_SAMPLING;
+        PROGPU_NATIVE_ENGINE_IMAGE_EXPLICIT_SHADER_SAMPLING |
+        PROGPU_NATIVE_ENGINE_IMAGE_REQUIRE_NATIVE_SAMPLING;
     return (flags & ~supported_flags) == 0U &&
-        std::popcount(flags & glyph_flags) <= 1;
+        std::popcount(flags & glyph_flags) <= 1 &&
+        std::popcount(flags & (PROGPU_NATIVE_ENGINE_IMAGE_EXPLICIT_SHADER_SAMPLING |
+            PROGPU_NATIVE_ENGINE_IMAGE_REQUIRE_NATIVE_SAMPLING)) <= 1;
 }
 
 progpu_native_status create_engine(
@@ -383,7 +386,9 @@ progpu_native_status progpu_native_browser_engine_create(
             PROGPU_NATIVE_BROWSER_ADAPTER_ABI_VERSION ||
         options->reserved0 != 0U || options->reserved1 != 0U ||
         (options->flags & ~static_cast<std::uint64_t>(
-            PROGPU_NATIVE_ENGINE_IMAGE_EXPLICIT_SHADER_SAMPLING)) != 0U ||
+            PROGPU_NATIVE_ENGINE_IMAGE_EXPLICIT_SHADER_SAMPLING |
+            PROGPU_NATIVE_ENGINE_IMAGE_REQUIRE_NATIVE_SAMPLING)) != 0U ||
+        !valid_engine_flags(options->flags) ||
         options->device == 0U ||
         options->queue == 0U ||
         texture_format(options->target_format) ==

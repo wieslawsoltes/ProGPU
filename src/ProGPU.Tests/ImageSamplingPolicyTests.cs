@@ -7,6 +7,13 @@ namespace ProGPU.Tests;
 public class ImageSamplingPolicyTests
 {
     [Theory]
+    [InlineData(GpuImageSamplingPreference.Automatic, GpuTilePageSamplingPath.ExplicitShader)]
+    [InlineData(GpuImageSamplingPreference.ExplicitShader, GpuTilePageSamplingPath.ExplicitShader)]
+    [InlineData(GpuImageSamplingPreference.NativeSampler, GpuTilePageSamplingPath.UnsupportedForcedNativeSampler)]
+    public void TilePagesExposeAnIndependentFailClosedPolicy(GpuImageSamplingPreference preference,
+        GpuTilePageSamplingPath expected) => Assert.Equal(expected, GpuImageSamplingPolicy.ResolveTilePagePath(preference));
+
+    [Theory]
     [InlineData(null, GpuImageSamplingPreference.Automatic)]
     [InlineData("auto", GpuImageSamplingPreference.Automatic)]
     [InlineData("fastest", GpuImageSamplingPreference.Automatic)]

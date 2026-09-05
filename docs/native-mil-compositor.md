@@ -7254,6 +7254,86 @@ targets, output-only changes with unchanged page contents, enclosing-cache
 invalidation, resource-table reordering, malformed streams, eviction/device loss,
 all alpha/mask cases and native Windows WPF comparisons.
 
+### Implementation-first checkpoint: MIL repeated source capture
+
+MIL Tile/FlipX/FlipY/FlipXY brushes now lower through retained base-page capture
+and the preceding tile-composite operation for base-level nearest/linear sampling.
+ImageBrush bitmap and synchronized D3DImage sources, DrawingImage, DrawingBrush
+and VisualBrush use the same mapped page and output primitive. The authored image
+matrix currently exercises bitmap/DrawingImage/DrawingBrush/VisualBrush; the shared
+D3DImage route still requires its final live binding/fence test.
+
+The producer first computes the ordinary Viewbox/Viewport/Stretch/alignment map,
+then captures it into a zero-origin GPU page. Raster dimensions derive from the
+viewport basis lengths under the brush/paint transform and uniform device DPI.
+Occupied page extents are whole physical pixels. Float layer bounds are adjusted
+down by at most one ULP when needed so the executor's ceil operation cannot add
+an unintended transparent texel. Unrepresentable extents fail closed; native
+device limits and existing page budgets still govern allocation.
+
+Paint geometry is clipped before capture setup but applied to the restored output,
+not to page content. Repetition has no single-viewport output clip. The source is
+mapped/clipped by the page target, preserving Uniform/None transparent padding;
+one target-to-normalized-tile transform and independent repeat/mirror axes cover
+the final output quad. Brush opacity applies once at restoration, including vector
+sources with overlapping primitives. Bitmap capture saves an identity transform
+state because its image record already owns the complete source-to-page mapping.
+Vector sources retain their existing visual/drawing traversal and isolated clip
+scratch. No CPU image synthesis, pixel readback or per-visible-tile draw loop was
+added.
+
+Cache owner identity includes scene/brush identity, source-to-page mapping, source
+extent, raster extent/DPI and inherited sampling/text/render options. Source graph
+generations extend that identity into a content revision. Output-only translation,
+opacity and repeat/mirror selection do not enter captured pixels. Native cache
+revision traversal now follows Visual/Viewport3D source subtrees reached through
+brush dependencies, not merely the visual handle's own generation. Resource and
+visual revision recursion are depth-bounded and cycles fail closed. Graph hashing
+is O(R) for R visited dependency occurrences, with bounded recursion sets (shared
+subgraphs are not memoized by this traversal); emission is O(1) per brush plus
+the existing source traversal/scene work. GPU residency/reuse uses the existing
+local-layer owner and slot budget. No performance claim is made without the final
+retention and timing measurements.
+
+Sampling is configurable through the existing `PROGPU_IMAGE_SAMPLING`/typed context
+preference. Automatic and explicit-shader select the required occupied-page shader;
+forced native-sampler is incompatible and rejects tiled restoration. The new
+generated engine flag `PROGPU_NATIVE_ENGINE_IMAGE_REQUIRE_NATIVE_SAMPLING` (16)
+preserves that forced preference for native/Dawn/browser engines and is mutually
+exclusive with explicit sampling (8). Raw C hosts requesting forced native behavior
+must set 16; zero remains automatic. `NativeCompositor.TilePageSamplingPath` exposes
+the separate resolved tile-page policy, so ordinary image sampler diagnostics do
+not imply that occupied pages use hardware addressing. Tile capture rejects Fant,
+cubic/mip/anisotropic modes rather than reducing their quality; nonuniform DPI also
+remains explicitly unsupported by this initial capture path.
+
+Original ProGPU MIL single-tile source replay, cache revision traversal, local-page
+ownership and shared occupied-page sampling from `1c6d7524` are the provenance.
+Managed applicability: typed LibreWPF source production already emits every tile
+mode; NativeCompositor propagates the forced sampling contract, while the portable
+managed WPF replay remains available alongside native MIL. Moving the managed
+portable recorder onto this same retained capture operation remains work; its
+historical tile loop is not presented as equivalent GPU batching performance.
+
+Build-only checkpoint: the Apple Clang C++20 GPU shared library and native MIL test
+executable compile, and the managed renderer test project builds with zero warnings/
+errors. Native regressions now author 32 repeat-mode/source/filter combinations,
+elliptical paint plus inherited clipping, a fractional viewport with Uniform padding,
+address-mode resource assertions and repeated source-cycle rejection. Existing 40
+single-tile shape cases remain. Typed tile-policy cases are authored on the managed
+side. **None have run.** C# constants and the MIL coverage source digest were
+regenerated; no runtime, GPU shader validation, VM/image, sanitizer, benchmark or
+hosted-CI qualification was performed.
+
+This supersedes the earlier blanket repeat/flip rejection for the stated sampling/
+DPI scope only. Final qualification must include fractional DPI and phase, skew/
+reflection, viewbox origins/crops, padding/seams against poisoned pool storage,
+shared-source and same-brush different mappings, output-only reuse, nested cached
+visual changes, effect sampling beyond a tile edge, D3DImage updates/fences, forced
+native rejection before output, device loss/eviction and native Windows WPF parity.
+High-quality filtering/nonuniform DPI, tile-brush strokes/text/opacity masks,
+managed retained capture adoption and broader MIL/DirectX/Direct2D/Win2D gates remain.
+
 ## Invariants
 
 - No reflection or private managed field scanning in the product bridge.
