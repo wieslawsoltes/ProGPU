@@ -19224,6 +19224,55 @@ int main() {
             }
         }
     }
+    {
+        const auto figures = make_curve_path_figures();
+        for (const auto source : {progpu::native::tests::mil_brush_fixture_source::bitmap,
+            progpu::native::tests::mil_brush_fixture_source::drawing,
+            progpu::native::tests::mil_brush_fixture_source::drawing_image,
+            progpu::native::tests::mil_brush_fixture_source::visual}) {
+            for (const auto extent : {std::array{0.0, 48.0}, std::array{48.0, 0.0}, std::array{0.0, 0.0}}) {
+                for (const bool dashed : {false, true}) {
+                    for (std::uint32_t join = 0U; join < 3U; ++join) {
+                        for (const bool gap : {false, true}) {
+                            for (std::uint32_t mode = 0U; mode < 5U; ++mode) {
+                                std::vector<std::byte> scene;
+                                PROGPU_REQUIRE(progpu::native::tests::build_mil_image_brush_fixture(scene,
+                                    {.tile_mode = mode, .opacity = 0.5, .skew = true, .source = source,
+                                        .shape = progpu::native::tests::mil_brush_fixture_shape::group,
+                                        .inherited_clip = true, .paint_transform = true, .path_figures = figures,
+                                        .viewport = {0.0, 0.0, 0.25, 0.5}, .fant = true, .pen = true,
+                                        .dashed = dashed, .nested_group = true, .dash_offset = gap ? 2.5 : 0.25,
+                                        .fixed_extent = extent, .line_join = join, .collapsed_group = true}, 10050U + mode));
+                                const auto header = read_value<progpu_native_scene_header>(scene, 0U);
+                                std::uint32_t pictures = 0U;
+                                std::uint32_t geometries = 0U;
+                                for (std::uint32_t index = 0U; index < header.resource_count; ++index) {
+                                    const auto resource = read_value<progpu_native_scene_resource>(scene,
+                                        header.resource_offset + index * sizeof(progpu_native_scene_resource));
+                                    if (resource.kind != PROGPU_NATIVE_SCENE_RESOURCE_LAYER_MASK) continue;
+                                    if (resource.payload_size == sizeof(progpu_native_scene_layer_picture_mask)) {
+                                        const auto mask = read_value<progpu_native_scene_layer_picture_mask>(scene, resource.payload_offset);
+                                        if (mask.kind == PROGPU_NATIVE_SCENE_LAYER_MASK_PICTURE) {
+                                            ++pictures;
+                                            PROGPU_REQUIRE(mask.opacity == 1.0F);
+                                            const auto nested = read_value<progpu_native_scene_header>(scene,
+                                                resource.auxiliary_offset + mask.stream_offset);
+                                            PROGPU_REQUIRE(nested.command_count >= 2U);
+                                        }
+                                    } else if (resource.payload_size == sizeof(progpu_native_scene_layer_geometry_mask)) {
+                                        const auto mask = read_value<progpu_native_scene_layer_geometry_mask>(scene, resource.payload_offset);
+                                        geometries += mask.kind == PROGPU_NATIVE_SCENE_LAYER_MASK_GEOMETRY;
+                                    }
+                                }
+                                PROGPU_REQUIRE(pictures == (dashed ? 0U : 1U));
+                                PROGPU_REQUIRE(geometries == (dashed ? 1U : 0U));
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
     // Authored during implementation-first work; execution and pixel parity
     // remain part of the final validation phase.
     for (const auto source : {progpu::native::tests::mil_brush_fixture_source::bitmap,
