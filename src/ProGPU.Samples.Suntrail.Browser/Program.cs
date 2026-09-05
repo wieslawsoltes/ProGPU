@@ -13,6 +13,7 @@ public static partial class Program
             await JSHost.ImportAsync("suntrail-progress", "../progress.js");
             App.LoadProgress = LoadProgress;
             App.SaveProgress = SaveProgress;
+            App.LoadTouchOptions = LoadTouchOptions; App.SaveTouchOptions = SaveTouchOptions;
             var capabilities = await BrowserGpuRuntime.InitializeAsync(new BrowserAppHostOptions
             {
                 CanvasSelector = "#progpu-canvas", ExecutionMode = BrowserExecutionMode.Auto,
@@ -28,6 +29,10 @@ public static partial class Program
     }
     [JSImport("setStatus", "progpu-browser")]
     private static partial void SetStatus(string title, string detail, bool isError);
+    [JSImport("loadTouchOptions", "suntrail-progress")]
+    private static partial int LoadTouchOptions();
+    [JSImport("saveTouchOptions", "suntrail-progress")]
+    private static partial void SaveTouchOptions(int value);
     [JSImport("loadProgress", "suntrail-progress")]
     private static partial int LoadProgress();
     [JSImport("saveProgress", "suntrail-progress")]

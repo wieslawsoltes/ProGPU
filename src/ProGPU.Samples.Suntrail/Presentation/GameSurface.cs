@@ -28,7 +28,7 @@ public sealed class GameSurface : FrameworkElement
             Input = RoutePilot.GetInput(Session);
         }
         Session.Advance(elapsedSeconds, Input);
-        Input = Input with { JumpPressed = false };
+        Input = Input with { JumpPressed = false, InteractPressed = false };
         bool animate = Session.Mode is GameMode.Playing or GameMode.Title;
         if (animate) _atmosphere += Math.Clamp(elapsedSeconds, 0, .1f);
         if (animate || _revision != Session.Revision || _builtSize != Size)

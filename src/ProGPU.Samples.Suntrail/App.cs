@@ -14,6 +14,9 @@ namespace ProGPU.Samples.Suntrail;
 
 public sealed class App : Application
 {
+    public static Action? TouchFeedback { get; set; }
+    public static Func<int> LoadTouchOptions { get; set; } = ProgressStore.LoadTouchOptions;
+    public static Action<int> SaveTouchOptions { get; set; } = ProgressStore.SaveTouchOptions;
     public static bool AutoPlay { get; set; }
     public static Func<int> LoadProgress { get; set; } = ProgressStore.Load;
     public static Action<int> SaveProgress { get; set; } = ProgressStore.Save;
@@ -29,6 +32,7 @@ public sealed class App : Application
         Register("SuntrailInk", new(.12f,.20f,.20f,1));
         Register("SuntrailButton", new(.08f,.17f,.18f,.82f));
         Register("SuntrailVeil", new(.03f,.12f,.15f,.40f));
+        Register("SuntrailTransparent", Vector4.Zero);
     }
     private void Register(string name, Vector4 color) => Resources[name] = new SolidColorBrush(color);
     protected override void OnLaunched(LaunchActivatedEventArgs args)
@@ -46,8 +50,8 @@ public sealed class App : Application
         FontApi.RegisterPlatformFallbackFont(InterFontFamily.Regular);
         PopupService.DefaultFont = InterFontFamily.Regular;
         _window.Compositor.RegisterExtension(ProceduralDrawingContextExtensions.ExtensionId, new ProceduralPipeline());
-        _view = new GameView(AutoPlay ? 0 : LoadProgress()); _view.Surface.AutoPlay = AutoPlay;
-        if (!AutoPlay) _view.ProgressChanged += SaveProgress;
+        _view = new GameView(AutoPlay ? 0 : LoadProgress(), LoadTouchOptions()); _view.Surface.AutoPlay = AutoPlay;
+        if (!AutoPlay) { _view.ProgressChanged += SaveProgress; _view.TouchOptionsChanged += SaveTouchOptions; }
         _view.SetSafeArea(_window.Insets.SafeArea);
         _window.Content = _view; InputSystem.SetFocus(_view);
         Started?.Invoke(_view, _window);

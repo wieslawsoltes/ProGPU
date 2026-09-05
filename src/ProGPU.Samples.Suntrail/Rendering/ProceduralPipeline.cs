@@ -9,7 +9,7 @@ namespace ProGPU.Samples.Suntrail.Rendering;
 
 /// <summary>
 /// Sample-local instanced compositor extension: one 48-byte record per visible sprite,
-/// one upload per changed generation and one GPU draw. No per-sprite native calls.
+/// one upload per changed generation and contiguous material runs. Painter order is preserved.
 /// The same canonical WGSL is consumed by desktop, iOS and browser WebGPU devices.
 /// </summary>
 public sealed unsafe class ProceduralPipeline : ICompositorExtension, IDisposable
@@ -33,8 +33,16 @@ public sealed unsafe class ProceduralPipeline : ICompositorExtension, IDisposabl
     private BindGroupLayout* _layout;
     private PipelineLayout* _pipelineLayout;
     private BindGroup* _group;
-    private RenderPipeline* _onscreen;
-    private RenderPipeline* _offscreen;
+    private static readonly string[] Entries = ["fs_main", "fs_sky", "fs_cliff", "fs_mountain", "fs_tree", "fs_shafts"];
+    private static readonly string[] OnscreenKeys = ["Art.main.on", "Art.sky.on", "Art.cliff.on", "Art.mountain.on", "Art.tree.on", "Art.shafts.on"];
+    private static readonly string[] OffscreenKeys = ["Art.main.off", "Art.sky.off", "Art.cliff.off", "Art.mountain.off", "Art.tree.off", "Art.shafts.off"];
+    private readonly nint[] _onscreen = new nint[6], _offscreen = new nint[6];
+    public bool EnableSpecializedShaders { get; set; } = true;
+    private static int Variant(float kind) => (Artwork)(int)kind switch
+    {
+        Artwork.Sky => 1, Artwork.Cliff => 2, Artwork.Mountain => 3,
+        Artwork.Tree => 4, Artwork.SunShaft => 5, _ => 0
+    };
     private ProceduralBatch? _lastBatch;
     private uint _lastGeneration;
     private Matrix4x4 _transform = Matrix4x4.Identity;
@@ -67,36 +75,49 @@ public sealed unsafe class ProceduralPipeline : ICompositorExtension, IDisposabl
         if (_uniformsDirty)
         {
             _uniforms!.WriteSingle(new FrameUniforms { Transform = _transform, Scene = batch.Scene, Clip = _clip, Light0 = batch.Light0, Light1 = batch.Light1, Light2 = batch.Light2,
-                Occlusion = new(batch.OccluderCount, 0, 0, 0),
+                Occlusion = new(batch.OccluderCount, batch.IsDungeon ? 1 : 0, 0, 0),
                 Ground0 = batch.Occluders[0], Ground1 = batch.Occluders[1], Ground2 = batch.Occluders[2], Ground3 = batch.Occluders[3],
                 Ground4 = batch.Occluders[4], Ground5 = batch.Occluders[5], Ground6 = batch.Occluders[6], Ground7 = batch.Occluders[7]
             });
             UploadedBytes += 288; _uniformsDirty = false;
         }
-        var pipeline = isOffscreen ? _offscreen : _onscreen;
-        if (pipeline == null)
-        {
-            var module = _cache!.GetOrCreateShader("Suntrail.Art.v1", Shader, "Suntrail procedural artwork");
-            Span<VertexAttribute> attributes = stackalloc VertexAttribute[3];
-            for (uint i = 0; i < 3; i++) attributes[(int)i] = new() { ShaderLocation = i, Offset = i * 16, Format = VertexFormat.Float32x4 };
-            fixed (VertexAttribute* ptr = attributes)
-            {
-                Span<VertexBufferLayout> buffers = stackalloc VertexBufferLayout[1];
-                buffers[0] = new() { ArrayStride = 48, StepMode = VertexStepMode.Instance, AttributeCount = 3, Attributes = ptr };
-                pipeline = _cache!.GetOrCreateRenderPipeline(
-                    isOffscreen ? "Suntrail.Art.offscreen" : "Suntrail.Art.onscreen", module, buffers,
-                    topology: PrimitiveTopology.TriangleList, targetFormat: compositor.RenderFormat,
-                    sampleCount: isOffscreen ? 1u : compositor.Options.PrimarySampleCount,
-                    pipelineLayout: _pipelineLayout, sourceAlphaMode: GpuTextureAlphaMode.Premultiplied);
-            }
-            if (isOffscreen) _offscreen = pipeline; else _onscreen = pipeline;
-        }
         var pass = (RenderPassEncoder*)renderPassEncoder;
-        api.RenderPassEncoderSetPipeline(pass, pipeline);
         api.RenderPassEncoderSetBindGroup(pass, 0, _group, 0, null);
         api.RenderPassEncoderSetVertexBuffer(pass, 0, _instances!.BufferPtr, 0, _instances.Size);
-        api.RenderPassEncoderDraw(pass, 6, (uint)batch.Count, 0, 0);
-        Draws++;
+        var sprites = batch.Sprites;
+        // Scan once, retain painter order and the single immutable instance upload.
+        // No sorting, scratch storage or per-sprite resource changes.
+        for (int first = 0; first < sprites.Length;)
+        {
+            int variant = EnableSpecializedShaders ? Variant(sprites[first].Material.X) : 0;
+            int end = first + 1;
+            while (end < sprites.Length && (!EnableSpecializedShaders || Variant(sprites[end].Material.X) == variant)) end++;
+            api.RenderPassEncoderSetPipeline(pass, GetPipeline(compositor, isOffscreen, variant));
+            api.RenderPassEncoderDraw(pass, 6, (uint)(end - first), 0, (uint)first);
+            Draws++; first = end;
+        }
+    }
+
+    private RenderPipeline* GetPipeline(Compositor compositor, bool isOffscreen, int variant)
+    {
+        var pipelines = isOffscreen ? _offscreen : _onscreen;
+        if (pipelines[variant] != 0) return (RenderPipeline*)pipelines[variant];
+        var module = _cache!.GetOrCreateShader("Suntrail.Art.v1", Shader, "Suntrail procedural artwork");
+        Span<VertexAttribute> attributes = stackalloc VertexAttribute[3];
+        for (uint i = 0; i < 3; i++) attributes[(int)i] = new() { ShaderLocation = i, Offset = i * 16, Format = VertexFormat.Float32x4 };
+        fixed (VertexAttribute* ptr = attributes)
+        {
+            Span<VertexBufferLayout> buffers = stackalloc VertexBufferLayout[1];
+            buffers[0] = new() { ArrayStride = 48, StepMode = VertexStepMode.Instance, AttributeCount = 3, Attributes = ptr };
+            var pipeline = _cache.GetOrCreateRenderPipeline(
+                (isOffscreen ? OffscreenKeys : OnscreenKeys)[variant], module, buffers,
+                fragmentEntry: Entries[variant], topology: PrimitiveTopology.TriangleList,
+                targetFormat: compositor.RenderFormat,
+                sampleCount: isOffscreen ? 1u : compositor.Options.PrimarySampleCount,
+                pipelineLayout: _pipelineLayout, sourceAlphaMode: GpuTextureAlphaMode.Premultiplied);
+            pipelines[variant] = (nint)pipeline;
+            return pipeline;
+        }
     }
 
     private void EnsureResources(Compositor compositor)
@@ -131,7 +152,7 @@ public sealed unsafe class ProceduralPipeline : ICompositorExtension, IDisposabl
         }
         _cache?.Dispose(); _cache = null;
         _instances?.Dispose(); _uniforms?.Dispose(); _instances = _uniforms = null;
-        _group = null; _layout = null; _pipelineLayout = null; _onscreen = _offscreen = null;
+        _group = null; _layout = null; _pipelineLayout = null; Array.Clear(_onscreen); Array.Clear(_offscreen);
         _context = null; _lastBatch = null; _uniformsDirty = true;
     }
 }

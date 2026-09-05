@@ -2,7 +2,7 @@ using System.Numerics;
 
 namespace ProGPU.Samples.Suntrail.Game;
 
-public readonly record struct GameInput(float Move, bool JumpHeld, bool JumpPressed, bool Run);
+public readonly record struct GameInput(float Move, bool JumpHeld, bool JumpPressed, bool Run, bool InteractPressed = false);
 
 /// <summary>Allocation-free fixed 120 Hz simulation. Rendering never advances game state.</summary>
 public sealed class GameSession
@@ -35,6 +35,9 @@ public sealed class GameSession
     private float _coyote, _jumpBuffer;
     private int _standingPlatform = -1, _particleCursor;
     private bool _jumpQueued;
+    private bool _interactQueued;
+    private Level? _overworld, _dungeon;
+    private Vector2 _pipeReturn;
     private Vector2 _respawn = new(140, 552);
     private uint _random = 0x53554e31;
     public Box PlayerBounds => new(Position.X, Position.Y, PlayerWidth, PlayerHeight);
@@ -42,6 +45,7 @@ public sealed class GameSession
     public void StartLevel(int index)
     {
         Level = new(index); Position = PreviousPosition = _respawn = Level.Spawn;
+        _overworld = Level; _dungeon = new(index, true); _interactQueued = false;
         Velocity = Vector2.Zero; Hearts = 3; Coins = Relics = 0; Time = 0; Tick = 0;
         CheckpointIndex = -1; CameraX = CameraY = 0; Invulnerability = 0;
         Grounded = false; _standingPlatform = -1; _accumulator = 0; _coyote = _jumpBuffer = 0; _jumpQueued = false;
@@ -54,7 +58,7 @@ public sealed class GameSession
     {
         if (Mode == GameMode.Playing) Mode = GameMode.Paused;
         else if (Mode == GameMode.Paused) Mode = GameMode.Playing;
-        _jumpQueued = false; _jumpBuffer = 0; _accumulator = 0; Revision++;
+        _jumpQueued = _interactQueued = false; _jumpBuffer = 0; _accumulator = 0; Revision++;
     }
     public void ShowTitle() { Mode = GameMode.Title; Revision++; }
     public void Continue()
@@ -70,9 +74,10 @@ public sealed class GameSession
     }
     public void Respawn()
     {
+        if (Level.IsDungeon && _overworld is not null) Level = _overworld;
         Position = PreviousPosition = _respawn; Velocity = Vector2.Zero; Hearts = 3;
         Invulnerability = 1.5f; Grounded = false; _standingPlatform = -1;
-        _jumpBuffer = _coyote = 0; _jumpQueued = false; _accumulator = 0;
+        _jumpBuffer = _coyote = 0; _jumpQueued = _interactQueued = false; _accumulator = 0;
         CameraX = Math.Clamp(Position.X - ViewWidth * .32f, 0, Math.Max(0, Level.Width - ViewWidth));
         Mode = GameMode.Playing; Revision++;
     }
@@ -81,12 +86,13 @@ public sealed class GameSession
     {
         if (Mode != GameMode.Playing || !float.IsFinite(elapsed) || elapsed <= 0) return;
         _jumpQueued |= input.JumpPressed;
+        _interactQueued |= input.InteractPressed;
         _accumulator += Math.Min(elapsed, .1f);
         int steps = 0;
         while (_accumulator >= StepSeconds && steps++ < 12 && Mode == GameMode.Playing)
         {
-            Step(input with { JumpPressed = _jumpQueued });
-            _jumpQueued = false;
+            Step(input with { JumpPressed = _jumpQueued, InteractPressed = _interactQueued });
+            _jumpQueued = _interactQueued = false;
             _accumulator -= StepSeconds;
         }
     }
@@ -97,6 +103,7 @@ public sealed class GameSession
         const float dt = StepSeconds;
         PreviousPosition = Position; float oldTime = Time;
         Time = ++Tick * dt; Revision++;
+        if (input.InteractPressed && TryUsePipe()) return;
         Invulnerability = Math.Max(0, Invulnerability - dt);
         _jumpBuffer = input.JumpPressed ? .13f : Math.Max(0, _jumpBuffer - dt);
         _coyote = Grounded ? .11f : Math.Max(0, _coyote - dt);
@@ -143,6 +150,12 @@ public sealed class GameSession
             else Damage(enemy.Position.X + 21);
         }
         foreach (var hazard in Level.Hazards) if (PlayerBounds.Intersects(hazard)) Damage(hazard.X + hazard.Width / 2);
+        foreach (var mechanism in Level.Mechanisms)
+        {
+            if (!mechanism.IsDangerous(Time)) continue;
+            var bounds = mechanism.At(Time);
+            if (PlayerBounds.Intersects(bounds)) Damage(bounds.X + bounds.Width / 2);
+        }
         for (int i = CheckpointIndex + 1; i < Level.Checkpoints.Length; i++)
         {
             var checkpoint = Level.Checkpoints[i];
@@ -151,7 +164,7 @@ public sealed class GameSession
             Hearts = 3; Burst(_respawn, 20, 1);
         }
         if (Position.Y > 1080) Die();
-        if (PlayerBounds.Intersects(new(Level.Exit.X - 15, Level.Exit.Y - 150, 100, 150)))
+        if (!Level.IsDungeon && PlayerBounds.Intersects(new(Level.Exit.X - 15, Level.Exit.Y - 150, 100, 150)))
         {
             Mode = Level.Index == Level.Names.Length - 1 ? GameMode.Complete : GameMode.LevelComplete;
             UnlockedLevel = Math.Max(UnlockedLevel, Math.Min(Level.Index + 1, Level.Names.Length - 1));
@@ -159,7 +172,7 @@ public sealed class GameSession
         }
         float cameraTarget = Math.Clamp(Position.X - ViewWidth * .34f + Velocity.X * .15f, 0, Math.Max(0, Level.Width - ViewWidth));
         CameraX += (cameraTarget - CameraX) * (1 - MathF.Exp(-5.5f * dt));
-        CameraY += (Math.Clamp(Position.Y - 460, -155, 30) - CameraY) * (1 - MathF.Exp(-3 * dt));
+        CameraY += (Math.Clamp(Position.Y - 460, Level.IsDungeon ? -320 : -155, Level.IsDungeon ? 140 : 30) - CameraY) * (1 - MathF.Exp(-3 * dt));
         for (int i = 0; i < Particles.Length; i++)
         {
             ref var p = ref Particles[i]; if (p.Life <= 0) continue;
@@ -190,11 +203,35 @@ public sealed class GameSession
                 Position = new(Position.X, b.Y - PlayerHeight); Velocity = new(Velocity.X, 0);
                 Grounded = true; _standingPlatform = i;
             }
-            else if (Velocity.Y < 0 && platform.Kind is PlatformKind.Ground or PlatformKind.Crate)
+            else if (Velocity.Y < 0 && platform.Kind is not (PlatformKind.Ledge or PlatformKind.Moving))
             {
                 Position = new(Position.X, b.Bottom); Velocity = new(Velocity.X, 0);
             }
         }
+    }
+    public bool CanUsePipe
+    {
+        get
+        {
+            if (!Grounded || Mode != GameMode.Playing) return false;
+            foreach (var pipe in Level.Pipes)
+                if (Position.X >= pipe.X && Position.X + PlayerWidth <= pipe.Right && Math.Abs(Position.Y + PlayerHeight - pipe.Y) < 2) return true;
+            return false;
+        }
+    }
+    private bool TryUsePipe()
+    {
+        if (!CanUsePipe || _overworld is null || _dungeon is null) return false;
+        if (Level.IsDungeon) { Level = _overworld; Position = _pipeReturn; }
+        else { _pipeReturn = Position; Level = _dungeon; Position = Level.Spawn; }
+        PreviousPosition = Position; Velocity = Vector2.Zero; Grounded = false;
+        _standingPlatform = -1; _coyote = _jumpBuffer = 0;
+        _jumpQueued = _interactQueued = false;
+        CameraX = Math.Clamp(Position.X - ViewWidth * .34f, 0, Math.Max(0, Level.Width - ViewWidth));
+        CameraY = Math.Clamp(Position.Y - 460, -320, 140);
+        Invulnerability = Math.Max(Invulnerability, .5f);
+        Array.Clear(Particles); Revision++;
+        return true;
     }
     private void Damage(float fromX)
     {

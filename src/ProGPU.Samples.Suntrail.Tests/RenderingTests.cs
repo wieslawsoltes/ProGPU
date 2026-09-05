@@ -50,6 +50,10 @@ public sealed class RenderingTests : IDisposable
                 compositor.RenderScene(visual,1280,800,target.ViewPtr);context.WaitIdle();
                 Assert.True(errors.Count == 0, string.Join("\n", errors));
                 var pixels=target.ReadPixels();
+                pipeline.EnableSpecializedShaders = false;
+                compositor.RenderScene(visual,1280,800,target.ViewPtr);
+                Assert.Equal(pixels,target.ReadPixels());
+                pipeline.EnableSpecializedShaders = true;
                 Assert.True(pixels.Where((_,i)=>i%4!=3).Distinct().Count()>100,"Artwork needs a broad tonal range, not a blank clear.");
                 PngEncoder.SavePng(Path.Combine(Artifacts(),$"biome-{biome+1}.png"),pixels,1280,800);
                 long uploaded=pipeline.UploadedBytes;
@@ -74,6 +78,39 @@ public sealed class RenderingTests : IDisposable
             }
         }
         finally { WgpuContext.OnWebGpuError-=Error; }
+    }
+
+    [Fact]
+    public unsafe void UndergroundRoomsRenderWithTheirWorldMaterials()
+    {
+        using var context = new WgpuContext(); context.Initialize(null);
+        using var compositor = new Compositor(context, TextureFormat.Rgba8Unorm);
+        compositor.RegisterExtension(ProceduralDrawingContextExtensions.ExtensionId, new ProceduralPipeline());
+        using var target = new GpuTexture(context, 1280, 800, TextureFormat.Rgba8Unorm,
+            TextureUsage.RenderAttachment | TextureUsage.CopySrc, "Suntrail vault verification", alphaMode: GpuTextureAlphaMode.Premultiplied);
+        var signatures = new HashSet<string>();
+        for (int world = 0; world < 8; world++)
+        {
+            var game = new GameSession(); game.StartLevel(world);
+            for (int tick = 0; tick < 2000 && !game.CanUsePipe; tick++)
+            {
+                float distance = 615 - game.Position.X;
+                game.Step(new(Math.Clamp(distance * .07f, -1, 1), true, game.Grounded && Math.Abs(distance) < 190, false));
+            }
+            Assert.True(game.CanUsePipe);
+            game.Step(new(0, false, false, false, true));
+            Assert.True(game.Level.IsDungeon);
+            for (int tick = 0; tick < 550; tick++) game.Step(RoutePilot.GetInput(game));
+            var batch = new ProceduralBatch(); batch.Build(game, new(1280, 800), game.Time);
+            var visual = new BatchVisual(batch);
+            visual.Measure(new(1280, 800)); visual.Arrange(new Rect(0, 0, 1280, 800));
+            compositor.RenderScene(visual, 1280, 800, target.ViewPtr);
+            var pixels = target.ReadPixels();
+            Assert.True(pixels.Where((_, i) => i % 4 != 3).Distinct().Count() > 100);
+            signatures.Add(Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(pixels)));
+            PngEncoder.SavePng(Path.Combine(Artifacts(), $"vault-{world + 1}.png"), pixels, 1280, 800);
+        }
+        Assert.Equal(8, signatures.Count);
     }
 
     [Fact]
@@ -126,6 +163,18 @@ public sealed class RenderingTests : IDisposable
             "The primary hover background must preserve contrast with its dark label.");
         Assert.Equal(GameMode.Paused, view.Surface.Session.Mode);
         Assert.Equal(default, view.Surface.Input);
+        var settingsButton = (Microsoft.UI.Xaml.Controls.Button)actions.Children[2];
+        settingsButton.OnKeyDown(new() { Key = Silk.NET.Input.Key.Enter });
+        view.OnKeyDown(new() { Key = Silk.NET.Input.Key.Space });
+        Assert.Equal(GameMode.Paused, view.Surface.Session.Mode);
+        for (int pass = 0; pass < 3; pass++)
+        {
+            view.Measure(new(844, 390)); view.Arrange(new Rect(0, 0, 844, 390));
+        }
+        compositor.RenderScene(view, 844, 390, target.ViewPtr);
+        PngEncoder.SavePng(Path.Combine(Artifacts(), "phone-settings.png"), target.ReadPixels(), 844, 390);
+        view.OnKeyDown(new() { Key = Silk.NET.Input.Key.Escape });
+        Assert.Equal(GameMode.Paused, view.Surface.Session.Mode);
     }
 
     [Fact]

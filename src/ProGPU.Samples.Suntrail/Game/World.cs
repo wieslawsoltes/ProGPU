@@ -3,7 +3,7 @@ using System.Numerics;
 namespace ProGPU.Samples.Suntrail.Game;
 
 public enum GameMode { Title, Playing, Paused, Fallen, LevelComplete, Complete }
-public enum PlatformKind { Ground, Ledge, Moving, Crate }
+public enum PlatformKind { Ground, Ledge, Moving, Crate, Pipe, Stone }
 public readonly record struct Box(float X, float Y, float Width, float Height)
 {
     public float Right => X + Width;
@@ -15,6 +15,20 @@ public readonly record struct Platform(Box Bounds, PlatformKind Kind, float Trav
     public Box At(float time) => Bounds with { X = Bounds.X + MathF.Sin(time * 1.4f + Phase) * Travel, Y = Bounds.Y + MathF.Sin(time * 1.4f + Phase) * VerticalTravel };
 }
 public readonly record struct Checkpoint(float X, float Y);
+public enum MechanismKind { Saw, FlameJet, Crusher }
+public readonly record struct Mechanism(Box Bounds, MechanismKind Kind, float Phase = 0, float Travel = 0)
+{
+    public float Cycle(float time) => (time / 3.2f + Phase) - MathF.Floor(time / 3.2f + Phase);
+    public bool IsDangerous(float time) => Kind != MechanismKind.FlameJet || Cycle(time) is > .30f and < .64f;
+    public Box At(float time) => Kind switch
+    {
+        MechanismKind.Saw => Bounds with { X = Bounds.X + MathF.Sin(time * 1.8f + Phase) * Travel },
+        // Slow retraction, brief held warning, rapid drop, then a grounded pause.
+        MechanismKind.Crusher => Bounds with { Y = Bounds.Y + Travel * Drop(Cycle(time)) },
+        _ => Bounds
+    };
+    private static float Drop(float t) => t < .40f ? 1 - t / .40f : t < .65f ? 0 : t < .75f ? (t - .65f) / .10f : 1;
+}
 public struct Pickup { public Vector2 Position; public bool Collected; public bool IsRelic; }
 public struct Enemy { public Vector2 Position; public float Left, Right, Speed; public bool Defeated; }
 public struct Particle { public Vector2 Position, Velocity; public float Life, MaxLife; public int Kind; }
@@ -45,7 +59,10 @@ public sealed class Level
         [0, 32, 80, 48, 0, 48, 96, 48, 0, 56, 24, 0],
         [0, 48, 96, 144, 96, 48, 96, 144, 96, 48, 0, 48, 0]];
     public int Index { get; }
+    public bool IsDungeon { get; }
     public int Biome => Index;
+    public Box[] Pipes { get; }
+    public Mechanism[] Mechanisms { get; }
     public Platform[] Platforms { get; }
     public Pickup[] Pickups { get; }
     public Enemy[] Enemies { get; }
@@ -56,15 +73,63 @@ public sealed class Level
     public float Width => Exit.X + 500;
     public int CoinCount { get; }
 
-    public Level(int index)
+    public Level(int index, bool isDungeon = false)
     {
         if ((uint)index >= Names.Length) throw new ArgumentOutOfRangeException(nameof(index));
         Index = index;
+        IsDungeon = isDungeon;
         var platforms = new List<Platform>();
         var pickups = new List<Pickup>();
         var enemies = new List<Enemy>();
         var hazards = new List<Box>();
         var checkpoints = new List<Checkpoint>();
+        var mechanisms = new List<Mechanism>();
+        if (isDungeon)
+        {
+            // Each vault has its own silhouette: descent, terraces, central trench,
+            // ascending gallery, two pits, low tunnel, furnace steps, and sky crypt.
+            int[][] heights = [[600, 650, 650, 600], [600, 540, 480, 540, 600],
+                [600, 600, 690, 600], [600, 520, 440, 520, 600],
+                [600, 660, 580, 660, 600], [600, 600, 600, 600],
+                [600, 520, 580, 500, 600], [600, 520, 440, 360, 440, 520, 600]];
+            float roomX = 0;
+            for (int room = 0; room < heights[index].Length; room++)
+            {
+                float floorY = heights[index][room];
+                float span = room == 0 ? 880 : 380 + ((index + room * 3) % 4) * 60;
+                platforms.Add(new(new(roomX, floorY, span, 510), PlatformKind.Ground));
+                if (room > 0)
+                {
+                    platforms.Add(new(new(roomX + 75, floorY - 92, 150, 24), PlatformKind.Ledge));
+                    if (index is 2 or 4 or 6)
+                        hazards.Add(new(roomX + span - 160, floorY - 22, 58, 22));
+                    if (index is 1 or 5)
+                        platforms.Add(new(new(roomX + 280, floorY - 54, 54, 54), PlatformKind.Stone));
+                    // Optional high galleries have hazards distinct from the lower coin route.
+                    if (index is 1 or 3 or 5)
+                        mechanisms.Add(new(new(roomX + 138, floorY - 140, 42, 42), MechanismKind.Saw, room * .3f, 40));
+                    else if (index is 2 or 6)
+                        mechanisms.Add(new(new(roomX + 175, floorY - 185, 28, 70), MechanismKind.FlameJet, room * .2f));
+                    else if (index == 7)
+                        mechanisms.Add(new(new(roomX + 140, floorY - 330, 52, 70), MechanismKind.Crusher, room * .17f, 150));
+                }
+                for (int coin = 0; coin < 6; coin++)
+                    pickups.Add(new() { Position = new(roomX + 160 + coin * 32, floorY - 58 - MathF.Sin(coin * MathF.PI / 5) * 50) });
+                roomX += span + (index == 5 ? 70 : 104);
+            }
+            float end = roomX - (index == 5 ? 70 : 104) - 200;
+            // A two-way entrance allows a player to leave the optional room at once.
+            Pipes = [new(65, 504, 100, 96), new(end, 504, 100, 96)];
+            foreach (var pipe in Pipes) platforms.Add(new(pipe, PlatformKind.Pipe));
+            // Ceiling does not intersect the highest authored jump route.
+            platforms.Add(new(new(0, 130, roomX, 44), PlatformKind.Stone));
+            Spawn = new(210, 530); Exit = new(end + 100, 600);
+            Platforms = platforms.ToArray(); Pickups = pickups.ToArray(); Enemies = [];
+            Hazards = hazards.ToArray(); Checkpoints = [];
+            Mechanisms = mechanisms.ToArray();
+            CoinCount = Pickups.Length;
+            return;
+        }
         float x = 0;
         float lastY = 600;
         int sections = Elevations[index].Length;
@@ -92,6 +157,12 @@ public sealed class Level
                     platforms.Add(new(new(x + 325, y - 188, 124, 24), PlatformKind.Moving,
                         lift ? 0 : 38, section, lift ? 24 : 0));
                     pickups.Add(new() { Position = new(x + 384, y - 232), IsRelic = true });
+                    if (index is 1 or 4 or 5)
+                        mechanisms.Add(new(new(x + 322, y - 260, 40, 40), MechanismKind.Saw, section * .21f, 55));
+                    else if (index is 2 or 6)
+                        mechanisms.Add(new(new(x + 440, y - 268, 30, 80), MechanismKind.FlameJet, section * .13f));
+                    else if (index == 7)
+                        mechanisms.Add(new(new(x + 430, y - 405, 56, 80), MechanismKind.Crusher, section * .17f, 120));
                 }
                 else if (index is 1 or 2 or 7 || rhythm == 0)
                 {
@@ -119,6 +190,9 @@ public sealed class Level
             }
             lastY = y;
         }
+        Pipes = [new(580, 504, 100, 96)];
+        Mechanisms = mechanisms.ToArray();
+        platforms.Add(new(Pipes[0], PlatformKind.Pipe));
         Platforms = platforms.ToArray(); Pickups = pickups.ToArray(); Enemies = enemies.ToArray();
         Hazards = hazards.ToArray(); Checkpoints = checkpoints.ToArray();
         Exit = new(x + 615, lastY);

@@ -36,13 +36,36 @@ public static class RoutePilot
             {
                 var b = p.At(game.Time);
                 if (front + 42 >= b.X && front + 42 < b.Right && System.Math.Abs(b.Y - foot) < 5) floorAhead = true;
-                if (p.Kind == PlatformKind.Crate && b.X > front && b.X < front + 95 && foot > b.Y) jump = true;
+                if (p.Kind is PlatformKind.Crate or PlatformKind.Pipe or PlatformKind.Stone && b.X > front && b.X < front + 95 && foot > b.Y) jump = true;
             }
             jump |= !floorAhead;
             foreach (var e in game.Level.Enemies)
                 if (!e.Defeated && e.Position.X > front - 5 && e.Position.X < front + 110 && System.Math.Abs(e.Position.Y + 34 - foot) < 35) jump = true;
             foreach (var h in game.Level.Hazards)
                 if (h.X > front - 5 && h.X < front + 95 && System.Math.Abs(h.Bottom - foot) < 35) jump = true;
+            foreach (var mechanism in game.Level.Mechanisms)
+            {
+                var h = mechanism.At(game.Time);
+                if (h.Right > game.Position.X && h.X < front + 110 && System.Math.Abs(h.Bottom - foot) < 40)
+                    jump = true;
+            }
+            if (jump)
+            {
+                // Wait for a clear launch window beneath moving gallery hazards.
+                // Predict the ordinary held-jump arc; this never changes collision.
+                foreach (var mechanism in game.Level.Mechanisms)
+                {
+                    for (int sample = 1; sample <= 5; sample++)
+                    {
+                        float t = sample * .1f;
+                        var arc = new Box(game.Position.X + 300 * t,
+                            game.Position.Y - 720 * t + 880 * t * t,
+                            GameSession.PlayerWidth, GameSession.PlayerHeight);
+                        if (mechanism.IsDangerous(game.Time + t) && arc.Intersects(mechanism.At(game.Time + t)))
+                            return new(0, true, false, false);
+                    }
+                }
+            }
         }
         return new(1, true, jump, false);
     }

@@ -53,12 +53,17 @@ python3 eng/verify-suntrail-ios.py src/ProGPU.Samples.Suntrail.iOS/bin/Release/n
 
 | Action | Keyboard | Touch |
 | --- | --- | --- |
-| Move | Arrows or A/D | Left/right buttons |
+| Move | Left/right or A/D | Floating/fixed thumbstick or arrow buttons |
 | Jump | Space, W, or up; hold for height | Hold JUMP |
-| Sprint | Shift | Hold RUN |
+| Sprint | Shift | Outer thumbstick edge, automatic arrows, or separate RUN |
+| Enter/leave a vault | Down or S while standing on a pipe | ↓ while standing on a pipe |
 | Pause/resume | Escape or P | Pause / resume button |
 | Continue / retry | Enter | Primary menu button |
 | Return to checkpoint | R | Retry after falling |
+
+Open Settings from the title or pause menu to choose a touch layout, sprint behavior,
+and button size. Settings are saved on each device. Hold JUMP for the same full-height
+arc as the keyboard; two independent fingers can move and jump simultaneously.
 
 Land on beetles to bounce. Side contact and thorns cost one of three hearts.
 Lanterns save a checkpoint; falling allows unlimited retries and retains collected
@@ -79,6 +84,12 @@ is required.
 | Frostbound Peaks | Snow boughs, ice fractures, snowfall, alternating heights and vertical lifts |
 | Obsidian Forge | Basalt columns, warm fissures, ember sea, denser thorn challenges |
 | Celestial Gardens | Marble pillars, pale ledges, cloud colors, the longest sequence of upper routes |
+
+Each world now has an enterable pipe to an optional underground vault. Both vault
+pipes return to the surface entry; collected coins persist across visits, and retry
+returns to the surface checkpoint. Vault geometry and materials vary by world.
+Selected upper galleries and relic routes add oscillating saws, flame jets with
+advance warning, and crushers with a slow retraction and rapid drop.
 
 Each world has its own authored elevation score, section lengths, obstacle rhythm,
 three optional relic routes, and two checkpoints. The campaign uses 10–13 ground
@@ -115,3 +126,6 @@ normal frame rates. See [design/research](suntrail-design.md) and
 The extension is a full-window game surface. It owns its projection and one
 compositor/device's buffers; it is not a general masked/nested drawing primitive.
 The independent C++ retained renderer is outside this WinUI sample's host contract.
+
+Expanded campaign work, Mario format import/edit support, and full 3D remain in
+[the work list](suntrail-work-list.md). These features are not all implemented yet.

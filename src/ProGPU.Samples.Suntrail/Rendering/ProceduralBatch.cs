@@ -5,7 +5,7 @@ using ProGPU.Samples.Suntrail.Game;
 
 namespace ProGPU.Samples.Suntrail.Rendering;
 
-public enum Artwork { Sky, Cliff, Tree, Bush, Flower, Crate, Coin, Courier, Beetle, Lantern, Portal, Ledge, Thorns, Spark, Cloud, Mountain, Ruin, Mushroom, Shadow = 19, SunShaft, Fern, Grass, Crystal, Palm, Pine, Spire, Water, Cavern }
+public enum Artwork { Sky, Cliff, Tree, Bush, Flower, Crate, Coin, Courier, Beetle, Lantern, Portal, Ledge, Thorns, Spark, Cloud, Mountain, Ruin, Mushroom, Shadow = 19, SunShaft, Fern, Grass, Crystal, Palm, Pine, Spire, Water, Cavern, Pipe, Saw, FlameJet, Crusher }
 
 [StructLayout(LayoutKind.Sequential)]
 public readonly record struct ProceduralSprite(Vector4 Bounds, Vector4 Color, Vector4 Material);
@@ -24,6 +24,7 @@ public sealed class ProceduralBatch
     public uint Generation { get; private set; }
     public Vector2 Size { get; private set; }
     public Vector4 Scene { get; private set; }
+    public bool IsDungeon { get; private set; }
     public bool EnableBackgroundOcclusion { get; set; } = true;
     private readonly Vector4[] _occluders = new Vector4[8];
     public ReadOnlySpan<Vector4> Occluders => _occluders;
@@ -36,6 +37,7 @@ public sealed class ProceduralBatch
     public void Build(GameSession game, Vector2 size, float atmosphereTime)
     {
         if (size.X <= 0 || size.Y <= 0) return;
+        IsDungeon = game.Level.IsDungeon;
         Count = 0; Size = size; _scale = size.Y / 800;
         float worldWidth = size.X / _scale;
         game.ViewWidth = worldWidth;
@@ -56,11 +58,12 @@ public sealed class ProceduralBatch
                     (b.Bottom - inset - _cameraY) * _scale);
             }
         }
-        Light0 = Light(game.Level.Checkpoints[0].X + 25, game.Level.Checkpoints[0].Y - 77, 225, .38f);
-        Light1 = Light(game.Level.Checkpoints[1].X + 25, game.Level.Checkpoints[1].Y - 77, 225, .38f);
+        Light0 = game.Level.Checkpoints.Length > 0 ? Light(game.Level.Checkpoints[0].X + 25, game.Level.Checkpoints[0].Y - 77, 225, .38f) : Light(150, 500, 300, .5f);
+        Light1 = game.Level.Checkpoints.Length > 1 ? Light(game.Level.Checkpoints[1].X + 25, game.Level.Checkpoints[1].Y - 77, 225, .38f) : Light(game.Level.Exit.X - 150, 400, 300, .5f);
         Light2 = Light(game.Level.Exit.X + 37, game.Level.Exit.Y - 85, 290, .52f);
         int biome = game.Level.Biome;
-        Artwork landmark = biome switch { 1 or 3 => Artwork.Palm, 2 => Artwork.Crystal, 5 => Artwork.Pine, 6 or 7 => Artwork.Spire, _ => Artwork.Tree };
+        bool cavern = IsDungeon || biome == 2;
+        Artwork landmark = cavern ? (biome is 0 or 2 or 5 or 7 ? Artwork.Crystal : Artwork.Spire) : biome switch { 1 or 3 => Artwork.Palm, 2 => Artwork.Crystal, 5 => Artwork.Pine, 6 or 7 => Artwork.Spire, _ => Artwork.Tree };
         AddScreen(Artwork.Sky, 0, 0, size.X, size.Y);
         // Three depth planes with different camera factors; all generated from integer coordinates.
         for (int layer = 0; layer < 3; layer++)
@@ -75,7 +78,7 @@ public sealed class ProceduralBatch
                     new(1, 1, 1, 1), layer, seed);
             }
         }
-        for (int i = -1; biome != 2 && i < 7; i++)
+        for (int i = -1; !cavern && i < 7; i++)
         {
             float x = i * 370 - (_cameraX * .09f + atmosphereTime * 3) % 370;
             AddScreen(Artwork.Cloud, x * _scale, (65 + Hash(i + 75) * 160) * _scale, 240 * _scale, 100 * _scale, new(1, 1, 1, .75f));
@@ -87,7 +90,7 @@ public sealed class ProceduralBatch
             AddScreen(landmark, (i * 225 - _cameraX * .52f) * _scale, (640 - h - _cameraY * .3f) * _scale, 235 * _scale, h * _scale,
                 Vector4.One, seed, 1);
         }
-        if (biome == 2) AddScreen(Artwork.Cavern, 0, 0, size.X, 265 * _scale);
+        if (cavern) AddScreen(Artwork.Cavern, 0, 0, size.X, 265 * _scale);
         if (biome is 3 or 6)
             AddScreen(Artwork.Water, 0, (690 - _cameraY * .2f) * _scale, size.X, 260 * _scale);
         int ruinCell = (int)MathF.Floor(_cameraX * .25f / 1200);
@@ -113,7 +116,7 @@ public sealed class ProceduralBatch
                 {
                     float variation = Hash(k * 71 + (int)b.X);
                     float px = b.X + 16 + k * 72 + variation * 32;
-                    if (biome is 2 or 6) {
+                    if (IsDungeon || biome is 2 or 6) {
                         Add(Artwork.Crystal, px, b.Y - 36 - variation * 30, 45 + variation * 25, 44 + variation * 30, Vector4.One, variation);
                         continue;
                     }
@@ -124,11 +127,17 @@ public sealed class ProceduralBatch
                     else if (variation < .40f) Add(Artwork.Flower, px + 8, b.Y - 32 - variation * 18, 21, 42, Vector4.One, variation);
                     else if (variation > .72f) Add(Artwork.Fern, px, b.Y - 48, 76, 54, Vector4.One, variation);
                 }
-                if (biome is 0 or 3 or 4 or 7) Add(Artwork.Bush, b.X + b.Width * .55f, b.Y - 67, 145, 76, Vector4.One, seed);
+                if (!IsDungeon && biome is 0 or 3 or 4 or 7) Add(Artwork.Bush, b.X + b.Width * .55f, b.Y - 67, 145, 76, Vector4.One, seed);
             }
-            else Add(platform.Kind == PlatformKind.Crate ? Artwork.Crate : Artwork.Ledge, b.X - 3, b.Y - 5, b.Width + 6, b.Height + 12, Vector4.One, platform.Phase);
+            else Add(platform.Kind == PlatformKind.Pipe ? Artwork.Pipe : platform.Kind == PlatformKind.Crate ? Artwork.Crate : Artwork.Ledge, b.X - 3, b.Y - 5, b.Width + 6, b.Height + 12, Vector4.One, platform.Phase);
         }
         foreach (var hazard in game.Level.Hazards) Add(Artwork.Thorns, hazard.X - 3, hazard.Y - 5, hazard.Width + 6, hazard.Height + 9);
+        foreach (var mechanism in game.Level.Mechanisms)
+        {
+            var b = mechanism.At(game.Time);
+            var kind = mechanism.Kind switch { MechanismKind.Saw => Artwork.Saw, MechanismKind.FlameJet => Artwork.FlameJet, _ => Artwork.Crusher };
+            Add(kind, b.X - 3, b.Y - 3, b.Width + 6, b.Height + 6, Vector4.One, mechanism.Cycle(game.Time), mechanism.IsDangerous(game.Time) ? 1 : 0);
+        }
         foreach (var pickup in game.Level.Pickups)
             if (!pickup.Collected) Add(Artwork.Coin, pickup.Position.X - 20, pickup.Position.Y - 24, 40, 48, Vector4.One, pickup.Position.X * .017f, pickup.IsRelic ? 1 : 0);
         for (int i = 0; i < game.Level.Checkpoints.Length; i++)
@@ -136,7 +145,7 @@ public sealed class ProceduralBatch
             var cp = game.Level.Checkpoints[i];
             Add(Artwork.Lantern, cp.X - 22, cp.Y - 118, 75, 125, Vector4.One, i <= game.CheckpointIndex ? 1 : 0);
         }
-        Add(Artwork.Portal, game.Level.Exit.X - 40, game.Level.Exit.Y - 188, 155, 205);
+        if (!game.Level.IsDungeon) Add(Artwork.Portal, game.Level.Exit.X - 40, game.Level.Exit.Y - 188, 155, 205);
         foreach (var enemy in game.Level.Enemies)
         {
             if (enemy.Defeated) continue;

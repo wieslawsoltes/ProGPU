@@ -15,13 +15,19 @@ public sealed class GameView : Grid
     public GameSurface Surface { get; } = new();
     private readonly TextBlock _stage, _score, _health, _timer, _heading, _eyebrow, _description, _controls;
     private readonly Border _veil;
-    private readonly StackPanel _menu, _map, _hud;
+    private readonly StackPanel _menu, _map, _hud, _settings, _directions, _abilities;
+    private readonly TouchStick _stick;
+    private readonly Button[] _layoutButtons = new Button[3];
+    private readonly Button _sprintSetting, _sizeSetting;
+    private bool _settingsOpen, _autoSprint = true, _largeTouch = true;
+    public TouchLayout ControlLayout { get; private set; }
+    public event Action<int>? TouchOptionsChanged;
     private readonly Grid _touch;
     private readonly Button _primary, _levels, _pause;
     private readonly Button[] _mapButtons = new Button[8];
     private readonly Grid _mapGrid = new();
     private bool _left, _right, _jump, _run, _mapOpen;
-    private bool _touchLeft, _touchRight, _touchJump, _touchRun;
+    private bool _touchLeft, _touchRight, _touchJump, _touchRun, _interact;
     private GameMode _lastMode = (GameMode)(-1);
     private int _lastCoins = -1, _lastHearts = -1, _lastSecond = -1, _lastLevel = -1;
     private readonly List<HoldButton> _holdButtons = new(4);
@@ -29,7 +35,7 @@ public sealed class GameView : Grid
     public void SetSafeArea(Thickness insets) { _safeArea = insets; InvalidateMeasure(); }
     public event Action<int>? ProgressChanged;
 
-    public GameView(int unlockedLevel = 0)
+    public GameView(int unlockedLevel = 0, int touchOptions = 12)
     {
         Surface.Session.SetUnlockedLevel(unlockedLevel);
         AddChild(Surface);
@@ -51,8 +57,8 @@ public sealed class GameView : Grid
         _description = Label("Chase the light beyond the horizon.\nEight worlds. Follow the light from forest to sky.", 21); _menu.AddChild(_description);
         var actions = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 14, Margin = new Thickness(0, 12, 0, 0) };
         _primary = ActionButton("Begin adventure   →", () => { Surface.Session.Continue(); _mapOpen = false; ClearInput(); }, true); actions.AddChild(_primary);
-        _levels = ActionButton("The worlds", ToggleMap, false); actions.AddChild(_levels); _menu.AddChild(actions);
-        _controls = Label("← → or A D  move     SPACE  jump     SHIFT  sprint\nHold jump to leap higher · Land on beetles to bounce", 13); _menu.AddChild(_controls);
+        _levels = ActionButton("The worlds", ToggleMap, false); actions.AddChild(_levels); actions.AddChild(ActionButton("Settings", ToggleSettings, false)); _menu.AddChild(actions);
+        _controls = Label("← → or A D  move     SPACE  jump     SHIFT  sprint\nHold jump to leap higher · ↓ / S enters pipes", 13); _menu.AddChild(_controls);
         AddChild(_menu);
         _map = new StackPanel { Spacing = 7, HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(25), Visibility = Visibility.Collapsed };
         _map.AddChild(Label("THE EIGHT WORLDS", 17, "SuntrailGold", true));
@@ -72,20 +78,48 @@ public sealed class GameView : Grid
         _map.AddChild(_mapGrid);
         _map.AddChild(ActionButton("← Back", ToggleMap, false));
         AddChild(_map);
-        _touch = new Grid { Height = 54, HorizontalAlignment = HorizontalAlignment.Stretch, VerticalAlignment = VerticalAlignment.Bottom, Margin = new Thickness(25, 0, 25, 22) };
-        var directions = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 12, HorizontalAlignment = HorizontalAlignment.Left };
+        _settings = new StackPanel { Spacing = 12, HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center, MaxWidth = 640, Visibility = Visibility.Collapsed };
+        _settings.AddChild(Label("MAKE YOURSELF AT HOME", 13, "SuntrailGold", true));
+        _settings.AddChild(Label("Touch controls", 32, "SuntrailCream", true));
+        _settings.AddChild(Label("Move with your left thumb. Hold JUMP to leap higher.", 14));
+        var layouts = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8 };
+        string[] layoutNames = ["Floating stick", "Fixed stick", "Arrow buttons"];
+        for (int i = 0; i < 3; i++)
+        {
+            int selected = i;
+            _layoutButtons[i] = ActionButton(layoutNames[i], () => SetOptions((TouchLayout)selected, _autoSprint, _largeTouch), false);
+            _layoutButtons[i].Padding = new Thickness(14, 12, 14, 12);
+            layouts.AddChild(_layoutButtons[i]);
+        }
+        _settings.AddChild(layouts);
+        _sprintSetting = ActionButton("", () => SetOptions(ControlLayout, !_autoSprint, _largeTouch), false);
+        _sizeSetting = ActionButton("", () => SetOptions(ControlLayout, _autoSprint, !_largeTouch), false);
+        _settings.AddChild(_sprintSetting); _settings.AddChild(_sizeSetting);
+        _settings.AddChild(ActionButton("Save & back", ToggleSettings, true));
+        AddChild(_settings);
+        _touch = new Grid { Height = 160, HorizontalAlignment = HorizontalAlignment.Stretch, VerticalAlignment = VerticalAlignment.Bottom, Margin = new Thickness(25, 0, 25, 22) };
+        var directions = _directions = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 12, HorizontalAlignment = HorizontalAlignment.Left, VerticalAlignment = VerticalAlignment.Bottom, Margin = new Thickness(0,0,0,10) };
         directions.AddChild(Hold("←", active => _touchLeft = active));
         directions.AddChild(Hold("→", active => _touchRight = active));
         _touch.AddChild(directions);
-        var abilities = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 12, HorizontalAlignment = HorizontalAlignment.Right };
+        var abilities = _abilities = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 18, HorizontalAlignment = HorizontalAlignment.Right, VerticalAlignment = VerticalAlignment.Bottom, Margin = new Thickness(0,0,0,10) };
         abilities.AddChild(Hold("RUN", active => _touchRun = active));
         abilities.AddChild(Hold("JUMP", active =>
         {
             if (active && !_touchJump) Surface.Input = Surface.Input with { JumpPressed = true };
             _touchJump = active;
         }));
+        abilities.AddChild(Hold("↓", active =>
+        {
+            if (active) Surface.Input = Surface.Input with { InteractPressed = true };
+        }));
         _touch.AddChild(abilities);
+        _stick = new TouchStick { Width = 300, Height = 160, HorizontalAlignment = HorizontalAlignment.Left, VerticalAlignment = VerticalAlignment.Bottom };
+        AutomationProperties.SetName(_stick, "Movement thumbstick");
+        _stick.InputChanged += Refresh;
+        _touch.AddChild(_stick);
         AddChild(_touch);
+        ApplyTouchOptions(touchOptions);
         Surface.Updated += Refresh;
         Refresh();
     }
@@ -112,17 +146,53 @@ public sealed class GameView : Grid
     }
     private HoldButton Hold(string text, Action<bool> action)
     {
-        var b = new HoldButton(action) { Content = text, Font = InterFontFamily.Bold, FontSize = 17, MinWidth = text.Length > 1 ? 90 : 60,
+        var b = new HoldButton(active => { action(active); Refresh(); }) { Content = text, Font = InterFontFamily.Bold, FontSize = 17, MinWidth = text.Length > 1 ? 90 : 60,
             Height = 54, CornerRadius = new CornerRadius(12), Background = new ThemeResourceBrush("SuntrailButton"), Foreground = new ThemeResourceBrush("SuntrailCream") };
         AutomationProperties.SetName(b, text switch { "←" => "Move left", "→" => "Move right", _ => text });
         _holdButtons.Add(b);
         return b;
     }
-    private void ToggleMap() { _mapOpen = !_mapOpen; RefreshMap(); }
+    public int TouchOptions => (int)ControlLayout | (_autoSprint ? 4 : 0) | (_largeTouch ? 8 : 0);
+    public void ApplyTouchOptions(int value)
+    {
+        if (value < 0 || value > 14 || (value & 3) == 3) value = 12;
+        SetOptions((TouchLayout)(value & 3), (value & 4) != 0, (value & 8) != 0, false);
+    }
+    private void SetOptions(TouchLayout layout, bool autoSprint, bool large, bool save = true)
+    {
+        ClearInput(); ControlLayout = layout; _autoSprint = autoSprint; _largeTouch = large;
+        _stick.Floating = layout == TouchLayout.FloatingStick; _stick.AutoSprint = autoSprint;
+        _stick.Visibility = layout == TouchLayout.Buttons ? Visibility.Collapsed : Visibility.Visible;
+        _directions.Visibility = layout == TouchLayout.Buttons ? Visibility.Visible : Visibility.Collapsed;
+        ((FrameworkElement)_abilities.Children[0]).Visibility = autoSprint ? Visibility.Collapsed : Visibility.Visible;
+        foreach (var b in _holdButtons)
+        {
+            bool jump = Equals(b.Content, "JUMP");
+            b.Width = b.MinWidth = jump ? (large ? 94 : 78) : (large ? 74 : 62);
+            b.Height = jump ? (large ? 94 : 78) : (large ? 74 : 62);
+            b.CornerRadius = new(jump ? b.Height / 2 : 22); b.Opacity = .72f;
+            b.VerticalAlignment = VerticalAlignment.Bottom;
+        }
+        for (int i = 0; i < _layoutButtons.Length; i++)
+        {
+            var button = _layoutButtons[i]; bool selected = i == (int)layout;
+            foreach (string state in new[] { "", "PointerOver", "Pressed" })
+                button.Resources["ButtonBackground" + state] = new ThemeResourceBrush(selected ? "SuntrailGold" : "SuntrailButton");
+            button.Background = new ThemeResourceBrush(selected ? "SuntrailGold" : "SuntrailButton");
+            if (button.Content is TextBlock label) label.Foreground = new ThemeResourceBrush(selected ? "SuntrailInk" : "SuntrailCream");
+        }
+        ((TextBlock)_sprintSetting.Content!).Text = autoSprint ? (layout == TouchLayout.Buttons ? "Sprint: Automatic" : "Sprint: Push to the outer edge") : "Sprint: Separate RUN button";
+        ((TextBlock)_sizeSetting.Content!).Text = large ? "Button size: Large" : "Button size: Standard";
+        if (save) TouchOptionsChanged?.Invoke(TouchOptions);
+        InvalidateMeasure(); Refresh();
+    }
+    private void ToggleSettings() { ClearInput(); _settingsOpen = !_settingsOpen; _mapOpen = false; RefreshMap(); }
+    private void ToggleMap() { _mapOpen = !_mapOpen; _settingsOpen = false; RefreshMap(); }
     private void RefreshMap()
     {
         _map.Visibility = _mapOpen ? Visibility.Visible : Visibility.Collapsed;
-        _menu.Visibility = _mapOpen || Surface.Session.Mode == GameMode.Playing ? Visibility.Collapsed : Visibility.Visible;
+        _settings.Visibility = _settingsOpen ? Visibility.Visible : Visibility.Collapsed;
+        _menu.Visibility = _settingsOpen || _mapOpen || Surface.Session.Mode == GameMode.Playing ? Visibility.Collapsed : Visibility.Visible;
         for (int i = 0; i < Level.Names.Length; i++)
             _mapButtons[i].IsEnabled = i <= Surface.Session.UnlockedLevel;
     }
@@ -136,7 +206,7 @@ public sealed class GameView : Grid
             _touch.Visibility = playing ? Visibility.Visible : Visibility.Collapsed;
             _hud.Visibility = s.Mode == GameMode.Title ? Visibility.Collapsed : Visibility.Visible;
             _pause.Visibility = playing ? Visibility.Visible : Visibility.Collapsed;
-            _mapOpen = false; RefreshMap();
+            _mapOpen = _settingsOpen = false; RefreshMap();
             _heading.Text = s.Mode switch { GameMode.Title => "SUNTRAIL", GameMode.Paused => "Take a breath.", GameMode.Fallen => "One more leap.", GameMode.LevelComplete => "Island restored.", GameMode.Complete => "A new sunrise.", _ => "" };
             _heading.FontSize = s.Mode == GameMode.Title ? (Size.X < 700 ? 53 : 88) : (Size.X < 700 ? 38 : 62);
             _eyebrow.Text = s.Mode switch { GameMode.Title => "A LITTLE COURIER. A GREAT BIG WORLD.", GameMode.Paused => "THE TRAIL WILL WAIT", GameMode.Fallen => "EVERY ADVENTURE TAKES PRACTICE", GameMode.LevelComplete => "A LITTLE LIGHT GOES A LONG WAY", _ => "YOU BROUGHT THE LIGHT HOME" };
@@ -151,16 +221,21 @@ public sealed class GameView : Grid
             if (_primary.Content is TextBlock primaryText) primaryText.Text = s.Mode switch { GameMode.Title => s.UnlockedLevel == 0 ? "Begin adventure   →" : "Continue adventure   →", GameMode.Paused => "Back to the trail   →", GameMode.Fallen => "Try again   →", GameMode.LevelComplete => "Next island   →", _ => "Play again   →" };
             if (s.Mode is GameMode.LevelComplete or GameMode.Complete) ProgressChanged?.Invoke(s.UnlockedLevel);
         }
-        if (_lastLevel != s.Level.Index) { _lastLevel = s.Level.Index; _stage.Text = $"{s.Level.Index + 1:00} / {Level.Names[s.Level.Index]}"; }
+        if (_lastLevel != s.Level.Index + (s.Level.IsDungeon ? 8 : 0)) { _lastLevel = s.Level.Index + (s.Level.IsDungeon ? 8 : 0); _stage.Text = s.Level.IsDungeon ? "SECRET VAULT · ↓ on a pipe to return" : $"{s.Level.Index + 1:00} / {Level.Names[s.Level.Index]}"; }
         if (_lastCoins != s.Coins * 10 + s.Relics) { _lastCoins = s.Coins * 10 + s.Relics; _score.Text = $"{s.Coins:00}  SUNSPARKS   ·   {s.Relics}/3 RELICS"; }
         if (_lastHearts != s.Hearts) { _lastHearts = s.Hearts; _health.Text = s.Hearts switch { 3 => "● ● ●", 2 => "● ● ○", 1 => "● ○ ○", _ => "○ ○ ○" }; }
         if (_lastSecond != (int)s.Time) { _lastSecond = (int)s.Time; _timer.Text = $"{_lastSecond / 60}:{_lastSecond % 60:00}"; }
         if (!Surface.AutoPlay)
-            Surface.Input = new((_right || _touchRight ? 1 : 0) - (_left || _touchLeft ? 1 : 0), _jump || _touchJump, Surface.Input.JumpPressed, _run || _touchRun);
+            Surface.Input = new(Math.Clamp((_right || _touchRight ? 1 : 0) - (_left || _touchLeft ? 1 : 0) + _stick.Axis, -1, 1),
+                _jump || _touchJump, Surface.Input.JumpPressed,
+                _run || _touchRun || _stick.Sprint || (_autoSprint && (_touchLeft || _touchRight)), Surface.Input.InteractPressed);
     }
     protected override void ArrangeOverride(ProGPU.Scene.Rect arrangeRect)
     {
         bool compact = arrangeRect.Width < 850 || arrangeRect.Height < 500;
+        _settings.Margin = new Thickness(_safeArea.Left + 20, _safeArea.Top + 8, _safeArea.Right + 20, _safeArea.Bottom + 8);
+        _settings.Spacing = arrangeRect.Height < 500 ? 7 : 12;
+        _stick.Width = Math.Min(300, arrangeRect.Width * .43f);
         _menu.Spacing = arrangeRect.Height < 500 ? 10 : 18;
         _controls.Visibility = arrangeRect.Height < 500 ? Visibility.Collapsed : Visibility.Visible;
         _map.Width = Math.Min(740, arrangeRect.Width - 50);
@@ -186,8 +261,9 @@ public sealed class GameView : Grid
     }
     public void ClearInput()
     {
-        _left = _right = _jump = _run = _touchLeft = _touchRight = _touchJump = _touchRun = false;
+        _left = _right = _jump = _run = _touchLeft = _touchRight = _touchJump = _touchRun = _interact = false;
         foreach (var button in _holdButtons) button.Reset();
+        _stick?.Reset();
         Surface.Input = default;
     }
     public void Deactivate()
@@ -196,6 +272,12 @@ public sealed class GameView : Grid
     }
     public override void OnKeyDown(KeyRoutedEventArgs e)
     {
+        // A settings/map overlay owns keyboard focus until it is dismissed.
+        // Space/Enter must not secretly resume the simulation behind the panel.
+        if ((_settingsOpen || _mapOpen) && e.Key is not (Key.Escape or Key.P))
+        {
+            base.OnKeyDown(e); return;
+        }
         switch(e.Key)
         {
             case Key.Left: case Key.A: _left = true; break;
@@ -203,8 +285,10 @@ public sealed class GameView : Grid
             case Key.Space: case Key.Up: case Key.W:
                 if (Surface.Session.Mode != GameMode.Playing) { Surface.Session.Continue(); break; }
                 if (!_jump) Surface.Input = Surface.Input with { JumpPressed = true }; _jump = true; break;
+            case Key.Down: case Key.S:
+                if (!_interact) Surface.Input = Surface.Input with { InteractPressed = true }; _interact = true; break;
             case Key.ShiftLeft: case Key.ShiftRight: _run = true; break;
-            case Key.Escape: case Key.P: if (_mapOpen) ToggleMap(); else Surface.Session.TogglePause(); ClearInput(); break;
+            case Key.Escape: case Key.P: if (_settingsOpen) ToggleSettings(); else if (_mapOpen) ToggleMap(); else Surface.Session.TogglePause(); ClearInput(); break;
             case Key.Enter: Surface.Session.Continue(); ClearInput(); break;
             case Key.R: Surface.Session.Respawn(); ClearInput(); break;
             default: base.OnKeyDown(e); return;
@@ -218,6 +302,7 @@ public sealed class GameView : Grid
             case Key.Left: case Key.A: _left = false; break;
             case Key.Right: case Key.D: _right = false; break;
             case Key.Space: case Key.Up: case Key.W: _jump = false; break;
+            case Key.Down: case Key.S: _interact = false; break;
             case Key.ShiftLeft: case Key.ShiftRight: _run = false; break;
             default: base.OnKeyUp(e); return;
         }
@@ -231,23 +316,23 @@ public sealed class GameView : Grid
         public override void OnPointerPressed(PointerRoutedEventArgs e)
         {
             if (_pointer.HasValue) return;
-            _pointer = e.Pointer.PointerId; CapturePointer(e.Pointer); changed(true); e.Handled = true;
+            _pointer = e.Pointer.PointerId; CapturePointer(e.Pointer); Opacity = 1; changed(true); App.TouchFeedback?.Invoke(); e.Handled = true;
         }
         public override void OnPointerReleased(PointerRoutedEventArgs e) => Release(e);
         public override void OnPointerCanceled(PointerRoutedEventArgs e) => Release(e);
         public override void OnPointerCaptureLost(PointerRoutedEventArgs e)
         {
             if (_pointer != e.Pointer.PointerId) return;
-            _pointer = null; changed(false); e.Handled = true;
+            _pointer = null; Opacity = .72f; changed(false); e.Handled = true;
         }
         public void Reset()
         {
-            _pointer = null; ReleasePointerCaptures(); changed(false);
+            _pointer = null; ReleasePointerCaptures(); Opacity = .72f; changed(false);
         }
         private void Release(PointerRoutedEventArgs e)
         {
             if (_pointer != e.Pointer.PointerId) return;
-            _pointer = null; ReleasePointerCapture(e.Pointer); changed(false); e.Handled = true;
+            _pointer = null; ReleasePointerCapture(e.Pointer); Opacity = .72f; changed(false); e.Handled = true;
         }
     }
 }

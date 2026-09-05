@@ -118,10 +118,11 @@ fn sky(uv: vec2<f32>) -> vec4<f32> {
         case 7u: {top=vec3(.27,.30,.52);horizon=vec3(.98,.76,.56);}
         default: {}
     }
+    if(frame.occlusion.y>.5){top*=.18;horizon*=.25;}
     let sun=length((uv-vec2(.76,.19))*vec2(1.8,1.));
     var col=mix(top,horizon,pow(uv.y,.66));
-    if(world()!=2u){col+=vec3(.95,.66,.32)*exp(-sun*5.5)*.27;}
-    if(world()!=2u && world()!=6u) { col=mix(col,vec3(1.,.94,.73),1.-smoothstep(.031,.035,sun)); }
+    if(world()!=2u && frame.occlusion.y<.5){col+=vec3(.95,.66,.32)*exp(-sun*5.5)*.27;}
+    if(world()!=2u && world()!=6u && frame.occlusion.y<.5) { col=mix(col,vec3(1.,.94,.73),1.-smoothstep(.031,.035,sun)); }
     let cirrus=pow(detail(uv*vec2(9.,43.)+vec2(11.,4.)),4.);
     col=mix(col,vec3(.80,.85,.82),cirrus*.42*(1.-uv.y));
     col+=(noise(uv*vec2(13.,7.))-.5)*.013;
@@ -451,7 +452,7 @@ fn shafts(p: vec2<f32>) -> vec4<f32> {
     let third=exp(-pow((diagonal+.19)/.025,2.));
     let density=.6+.4*noise(p*vec2(4.,7.)+vec2(frame.scene.x*.012,0.));
     let alpha=(first+second*.7+third*.5)*density*.039*(1.-p.y*.62);
-    return ink(vec3(.98,.82,.49),alpha*select(1.,.12,world()==2u || world()==6u));
+    return ink(vec3(.98,.82,.49),alpha*select(1.,.12,world()==2u || world()==6u || frame.occlusion.y>.5));
 }
 fn fern(p: vec2<f32>, seed: f32) -> vec4<f32> {
     var c=vec4(0.);
@@ -566,8 +567,61 @@ fn cavern(p: vec2<f32>, size: vec2<f32>) -> vec4<f32> {
     return paint(col,p.y-edge);
 }
 
-@fragment fn fs_main(v: Varying) -> @location(0) vec4<f32> {
-    let kind=u32(v.material.x+.5); let p=v.uv;
+// Glazed copper conduit: rounded rim, recessed opening, cylindrical highlight and
+// deterministic oxidation. One analytic cylinder plus three bounded shape layers.
+fn pipe_art(p: vec2<f32>) -> vec4<f32> {
+    let body=rounded(p,vec2(.5,.57),vec2(.36,.42),.025);
+    let cylinder=sqrt(max(0.,1.-pow((p.x-.5)/.38,2.)));
+    let patina=detail(p*vec2(17.,9.));
+    var metal=mix(vec3(.08,.23,.19),vec3(.25,.51,.36),cylinder);
+    metal=mix(metal,vec3(.34,.25,.11),smoothstep(.55,.82,patina)*.55);
+    metal+=vec3(.65,.73,.44)*pow(max(0.,1.-abs(p.x-.32)*8.),12.)*.45;
+    var c=paint(metal,body);
+    c=over(c,paint(metal*1.17,rounded(p,vec2(.5,.16),vec2(.46,.105),.025)));
+    c=over(c,paint(vec3(.018,.05,.04),ellipse(p,vec2(.5,.08),vec2(.39,.044))));
+    c=over(c,paint(vec3(.49,.61,.32),abs(p.y-.25)-.007));
+    return c;
+}
+
+// Original bounded clockwork hazards. Phase comes from the simulation, so visual
+// flame activation/drop warnings and collision use the same deterministic clock.
+fn saw_art(p: vec2<f32>) -> vec4<f32> {
+    let q=p-.5; let r=length(q);
+    let angle=atan2(q.y,q.x)+frame.scene.x*3.;
+    let teeth=.38+.07*smoothstep(-.4,.5,sin(angle*14.));
+    let steel=mix(vec3(.20,.26,.28),vec3(.76,.80,.70),.5+.5*sin(angle*2.));
+    var c=paint(steel,r-teeth);
+    c=over(c,paint(vec3(.11,.16,.16),abs(r-.28)-.025));
+    c=over(c,sphere(p,vec2(.5),vec2(.10),vec3(.53,.31,.09),.6));
+    return c;
+}
+fn flame_jet(p: vec2<f32>, phase: f32, emitting: f32) -> vec4<f32> {
+    var c=paint(vec3(.23,.24,.20),rounded(p,vec2(.5,.93),vec2(.47,.06),.03));
+    let warning=smoothstep(.16,.30,phase)*(1.-step(.64,phase));
+    if(emitting>.5) {
+        let sway=sin(p.y*15.-frame.scene.x*14.)*.08*(1.-p.y);
+        let edge=abs(p.x-.5-sway)-(.055+p.y*.29);
+        let d=max(edge,.025-p.y);
+        let heat=clamp((.35-abs(p.x-.5))*3.,0.,1.);
+        c=over(c,paint(mix(vec3(1.,.19,.015),vec3(1.,.93,.43),heat),d));
+    }
+    c=over(c,paint(vec3(1.,.36+.4*warning,.04)*(.25+.75*warning),ellipse(p,vec2(.5,.91),vec2(.31,.023))));
+    return c;
+}
+fn crusher_art(p: vec2<f32>, phase: f32) -> vec4<f32> {
+    let d=rounded(p,vec2(.5),vec2(.44,.47),.045);
+    let grain=detail(p*vec2(14.,18.));
+    var c=paint(mix(vec3(.17,.20,.23),vec3(.41,.43,.39),grain)*(.6+.4*(1.-p.x)),d);
+    let edge=min(min(p.x,1.-p.x),min(p.y,1.-p.y));
+    c=over(c,paint(vec3(.53,.44,.25),max(d,abs(edge-.10)-.018)));
+    let warning=select(.2,1.,phase>.40 && phase<.75);
+    c=over(c,paint(vec3(1.,.37,.08)*warning,ellipse(p,vec2(.34,.39),vec2(.08,.045))));
+    c=over(c,paint(vec3(1.,.37,.08)*warning,ellipse(p,vec2(.66,.39),vec2(.08,.045))));
+    return c;
+}
+
+fn shade(v: Varying, kind: u32) -> vec4<f32> {
+    let p=v.uv;
     // Opaque terrain is drawn later. Skip only fragments deep inside its interior;
     // all edge helper quads and every gap still execute the original artwork.
     let backdrop=kind==0u || kind==14u || kind==15u || kind==16u || kind==27u || kind==28u ||
@@ -622,6 +676,10 @@ fn cavern(p: vec2<f32>, size: vec2<f32>) -> vec4<f32> {
         case 26u: {c=spire(p,v.material.y);}
         case 27u: {c=water(p);}
         case 28u: {c=cavern(p,v.size);}
+        case 29u: {c=pipe_art(p);}
+        case 30u: {c=saw_art(p);}
+        case 31u: {c=flame_jet(p,v.material.y,v.material.z);}
+        case 32u: {c=crusher_art(p,v.material.y);}
         default: {}
     }
     // Three bounded world-space emitters; no per-sprite lights or native crossings.
@@ -639,3 +697,12 @@ fn cavern(p: vec2<f32>, size: vec2<f32>) -> vec4<f32> {
     let vignette=1.-dot((screen-.5)*vec2(.45,.25),(screen-.5)*vec2(.45,.25));
     return vec4(c.rgb*v.color.rgb*v.color.a*vignette,c.a*v.color.a);
 }
+
+// Constant entry points let the backend eliminate unrelated material branches.
+// Identical functions, derivatives and compositing; no lower-detail mobile variant.
+@fragment fn fs_main(v: Varying) -> @location(0) vec4<f32> { return shade(v,u32(v.material.x+.5)); }
+@fragment fn fs_sky(v: Varying) -> @location(0) vec4<f32> { return shade(v,0u); }
+@fragment fn fs_cliff(v: Varying) -> @location(0) vec4<f32> { return shade(v,1u); }
+@fragment fn fs_mountain(v: Varying) -> @location(0) vec4<f32> { return shade(v,15u); }
+@fragment fn fs_tree(v: Varying) -> @location(0) vec4<f32> { return shade(v,2u); }
+@fragment fn fs_shafts(v: Varying) -> @location(0) vec4<f32> { return shade(v,20u); }

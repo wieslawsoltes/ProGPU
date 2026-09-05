@@ -1,5 +1,42 @@
 # Suntrail design and clean-room record
 
+The expanded scope and remaining implementation work are tracked in
+[the work list](suntrail-work-list.md), including import/edit compatibility and full 3D.
+
+## Touch and iPhone performance investigation (2026-09-05)
+
+[Apple game-control guidance](https://developer.apple.com/design/human-interface-guidelines/game-controls)
+informs floating/fixed thumbstick options, separate button controls, thumb-sized jump,
+optional outer-edge sprint, safe areas, and immediate visual/haptic feedback.
+The touch jump fix publishes both pressed and held state before the next fixed step.
+Regression tests compare every touch/keyboard jump frame at 120, 30 and 10 Hz and cover
+dead zones, sprint thresholds, independent fingers, cancellation and setting changes.
+
+[Apple shader performance guidance](https://developer.apple.com/videos/play/tech-talks/111373/)
+and [GPU renderer optimization](https://developer.apple.com/videos/play/wwdc2023/10127/)
+identify material specialization as a way to remove unreachable branches and reduce
+register pressure. Suntrail now experiments with six cached entry points in the same
+canonical shader: general artwork, sky, cliff, mountains, trees and shafts. They call
+the identical shading function with a constant material kind; AA, noise, physical
+resolution, lighting and painter order remain unchanged. Contiguous instance runs
+replace the single draw, with O(V) scanning, fixed pipeline storage, and no additional
+uploads or per-frame managed allocations. This is sample-extension-only; the existing
+managed/native applicability finding below still applies. A runtime switch provides
+same-binary comparison. Performance acceptance requires real device measurements;
+specialization alone is not evidence of a speedup.
+
+The first device Release run reported median/p95/p99 intervals 50.011/62.434/72.873 ms,
+simulation 0.053/0.127/0.161 ms and compositor CPU 1.506/1.866/2.380 ms. These separate
+CPU work from frame intervals; they do not prove GPU duration by subtraction. An
+iPhone Metal System Trace was captured for correlation. A zero native Metal resource
+counter on this host is unavailable instrumentation, not zero GPU memory use.
+
+Compatibility research starts with the [TMX specification](https://docs.mapeditor.org/en/latest/reference/tmx-map-format/)
+and [iNES container specification](https://www.nesdev.org/wiki/INES). An iNES header
+describes cartridge storage, not a universal level format. Each game revision and each
+SMBX format version needs its own independently implemented, tested adapter. No source
+code or commercial level/art data is copied into Suntrail by this research.
+
 Suntrail is an original eight-stage 2.5D platform adventure. Its visual thesis is a
 warm miniature world: sculpted foliage, layered atmospheric islands, amber light,
 and a small orange courier with a teal scarf. The opening is a full-canvas poster;
@@ -152,3 +189,23 @@ symbol metadata; it does not add per-frame work or change the rendering algorith
 and signing, for essential adapter/device/pipeline/submission/presentation functions.
 Both device and simulator packages must pass. This is a host packaging correction;
 the standalone C++ renderer, Desktop, and Browser symbol resolution are unaffected.
+
+
+## Vaults and timed obstacles
+
+Optional vaults are preconstructed with each surface level. Pipe entry changes the
+active level reference and camera/spawn state without recreating collectibles. Return
+restores the surface entry position; death/retry restores the surface checkpoint.
+The fixed simulation clock continues through room changes, and each transition clears
+standing-platform, jump-buffer and particle state. Down/S and a touch arrow are explicit
+entry actions; accidental contact never changes rooms. Closed ceilings use a solid
+stone platform kind; moving/one-way ledges retain their original collision contract.
+
+Saw motion is analytic sinusoidal translation. Flame jets have a warning interval
+before their active collision interval; crushers retract over 40% of a 3.2-second
+cycle, hold, drop over 10%, and rest. Their immutable definitions are shared by visual
+preparation and collision. Per-step cost adds O(H) for H mechanisms, with no allocation;
+render preparation adds only visible fixed-size instance records. Procedural conduit,
+saw, jet and crusher art is original and uses bounded analytic shapes. The uniform's
+previously reserved occlusion Y component identifies an underground room, retaining
+its world material while suppressing the outdoor sun and clouds.

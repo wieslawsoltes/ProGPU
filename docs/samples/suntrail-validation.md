@@ -9,16 +9,15 @@ a certification established by a shader test or FPS counter.
 
 | Check | Result |
 | --- | --- |
-| Sample Release tests | 23 passed, including eight input-only route completions with no deaths |
+| Sample Release tests | 40 passed in the current revision, including eight surface completions and eight vault entry/traversal/return tests |
 | Main `ProGPU.Tests` Release suite | 3,809 passed, including shader resource and rendering regressions |
 | `ProGPU.Tests.Headless` Release suite | 240 passed |
 | Desktop Release | Built and ran on macOS arm64 / Apple M3 Pro |
 | Browser Release | WebAssembly AOT publish; Chrome WebGPU rendered title, scrolling gameplay, collectibles, stage progression, retry, and pause |
-| iPhone 15 Pro Max | Corrected Release AOT package installed; 250 WebGPU exports verified; attached console passes renderer startup; on-device visual confirmation pending |
+| iPhone 15 Pro Max | Corrected Release AOT package installed; 250 WebGPU exports verified; attached console passes renderer startup; user confirmed display and gameplay; slow FPS investigation below |
 | iOS simulator | Release simulator build installed and launched on iPhone 17 Pro / iOS 26.4; visually checked landscape rendering and safe-area layout |
 
-The simulator uses the interpreter. iPhone installation/launch is verified; native
-iPhone frame times, Windows, Linux, and mobile-browser performance are not inferred
+The simulator uses the interpreter. iPhone installation/launch is verified; Windows, Linux, and mobile-browser performance are not inferred
 from these results. Computer Use could
 capture Simulator output but rejected coordinate interactions after focus changes;
 host touch gestures therefore have a narrower verification claim than browser input.
@@ -164,3 +163,52 @@ The full native executable is 65 MB (108 MB app bundle) with symbols retained;
 managed full trimming and AOT remain enabled. The clean device rebuild has four
 existing framework/dependency trim warnings and zero errors. Actual phone visual
 confirmation remains separate from console and process verification.
+
+
+## iPhone controls, pipes and GPU investigation (2026-09-05)
+
+The user confirmed the symbol fix displays and plays on the physical iPhone. They
+reported poor frame rate and weak touch jumps. Touch now publishes pressed and held
+state together before simulation. Targeted tests compare touch/keyboard trajectories
+at 120, 30 and 10 Hz; floating/fixed/arrow controls, independent pointers and saved
+settings are also exercised. Pipe tests traverse each of the eight vaults through
+ordinary input, return to the same surface position, retain coins on re-entry and
+restore the surface checkpoint on retry. New vault captures live in the ignored
+local artifacts folder; hazard collision shares the animation clock.
+
+The iPhone 15 Pro Max runs a signed, fully AOT Release build at its normal physical
+framebuffer resolution. The initial 600-frame run after 120 warmup frames measured
+interval p50/p95/p99 50.011/62.434/72.873 ms, simulation 0.053/0.127/0.161 ms and
+compositor CPU 1.506/1.866/2.380 ms. Instruments Metal System Trace subsequently
+identified Suntrail fragment execution at median 56.065 ms (110 intervals) and
+main-thread drawable wait at median 55.128 ms (111 intervals). Native Metal residency
+counters are unavailable on this device build: reported zero is not zero residency.
+
+Six canonical shader entry points specialize the largest materials without changing
+their equations or quality. Exact specialized/general pixel comparisons pass for all
+eight surface worlds. The same installed binary supports `SUNTRAIL_MEASURE=1` and
+`SUNTRAIL_GENERIC_SHADER=1` for the bounded input-driven workload:
+
+| Run | Shader | Frame interval p50 / p95 / p99 (ms) | Deaths |
+| --- | --- | --- | --- |
+| A | Specialized | 33.598 / 56.214 / 66.681 | 0 |
+| B | General | 66.560 / 77.248 / 82.328 | 1 |
+| C | Specialized | 42.984 / 66.681 / 66.681 | 1 |
+
+A separate specialized Metal trace reported median fragment execution 32.516 ms
+(166 intervals) and drawable wait 34.275 ms (164 intervals). This supports continued
+work on fragment cost. It does **not** establish sustained 60 FPS: workloads advance
+by wall clock, route deaths differ, and thermal conditions were not held constant.
+The final pipe/hazard build was subsequently installed with all 250 WebGPU exports
+verified. Its normal-play launch is checked separately; the timing runs above belong
+to the preceding specialization comparison and are not final campaign performance. No smooth-FPS completion is claimed.
+
+Exports and compact summaries are under `artifacts/suntrail/performance/iphone-*`.
+Both raw device `.trace` bundles were removed after successful export, as requested.
+The prior full renderer/headless suite results above belong to the earlier commit;
+new sample and shader-resource tests are run for this revision. Format importers,
+drag-and-drop editing and full 3D remain explicitly unfinished in the work list.
+
+Current platform checks: signed iOS Release build and installation passed; Browser
+WebAssembly AOT publish passed, and Chrome visibly renders the title and the new
+touch settings panel. Current shader-resource audit: 19 tests passed.
