@@ -50,7 +50,7 @@ public class DashStyle : IPortableDashStyleSource
     }
 }
 
-public class Pen : IPortablePenSource
+public class Pen : IPortablePenSource, IPortablePenStateSource
 {
     public Brush? Brush { get; set; }
     public double Thickness { get; set; } = 1.0;
@@ -156,6 +156,17 @@ public class Pen : IPortablePenSource
             PenLineCap.Triangle => ProGPU.Vector.PenLineCap.Triangle,
             _ => ProGPU.Vector.PenLineCap.Flat
         };
+    }
+
+    bool IPortablePenStateSource.TryGetPortablePenState(out PortablePenState state)
+    {
+        // Algorithm: snapshot scalar stroke state and the dash array; retain brush identity.
+        // Time: O(D) for D dashes. Space: O(D) durable snapshot, no pixel or geometry work.
+        state = new PortablePenState(Brush, Thickness,
+            (PortablePenLineCap)StartLineCap, (PortablePenLineCap)EndLineCap,
+            (PortablePenLineCap)DashCap, (PortablePenLineJoin)LineJoin, MiterLimit,
+            DashStyle?.Dashes ?? global::System.Array.Empty<double>(), DashStyle?.Offset ?? 0.0);
+        return true;
     }
 
     bool IPortablePenSource.TryGetPortablePen(out PortablePen pen)

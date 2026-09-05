@@ -8193,6 +8193,39 @@ Windows image parity, fractional-scale behavior, broader per-axis DPI, and
 performance remain unqualified; final runtime/VM, verifier, benchmark and CI
 gates remain deferred with the full goal still open.
 
+### Resource-preserving portable pen state
+
+`ProGPU.Wpf.Interop` now exposes `IPortablePenStateSource` and the neutral value
+snapshot `PortablePenState`. Unlike the existing `PortablePen` compatibility DTO,
+it retains a brush resource implementing the typed brush/tile-brush contracts.
+It carries thickness, cap/join/miter settings, dash offset, and publisher-owned
+read-only dash memory. Null brush state remains representable; unavailable state
+must fail closed rather than falling back to an older reduced descriptor.
+
+This original ProGPU contract separates paint-resource identity from stroke
+geometry, consistent with the public [WPF Pen.Brush contract](https://learn.microsoft.com/en-us/dotnet/api/system.windows.media.pen.brush?view=windowsdesktop-10.0).
+The existing in-repository `PortablePen`/PresentationCore pen metadata defines
+the stroke fields; no foreign renderer implementation is ported. Export snapshots
+cost O(D) time/storage for D dash entries and retain brush identity in O(1).
+No pixel processing, readback, shader change, or C ABI change is introduced.
+
+Both ProGPU's PresentationCore shim and source-built LibreWPF publish the new
+contract. The native MIL producer consumes it before the compatibility contract,
+reuses the common brush graph serializer and native pen encoder, and therefore
+allows image/drawing/visual tile pen resources to reach the existing C++ stroke
+coverage and material implementation. Shared fill/stroke brushes reuse one handle.
+The managed compositor's existing pen conversion remains unchanged; migration of
+its tile-pen replay to retained brush resources is still an open follow-up, not
+claimed complete by this transport checkpoint. Existing scalar/gradient consumers
+continue using `IPortablePenSource` without an API break.
+
+Authored cases cover shim brush identity, dash snapshot ownership, all four native
+tile source forms, shared fill/stroke handles, cap/join/miter/dash transport, and
+unavailable-state rejection. Tests, GPU/VM/image comparison, benchmarks, verifiers,
+and CI qualification remain deferred under the implementation-first sequence.
+ProGPU.Tests Release compilation succeeds with zero warnings/errors; the source-built
+LibreWPF PresentationCore build also succeeds (four unrelated font-source warnings).
+
 ## Invariants
 
 - No reflection or private managed field scanning in the product bridge.

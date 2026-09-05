@@ -7,6 +7,29 @@ public interface IPortablePenSource
     bool TryGetPortablePen(out PortablePen pen);
 }
 
+/// <summary>Publishes stroke state without reducing a brush resource to a color/gradient DTO.</summary>
+public interface IPortablePenStateSource
+{
+    bool TryGetPortablePenState(out PortablePenState state);
+}
+
+/// <summary>
+/// Package-neutral stroke snapshot. Brush is null or a resource implementing
+/// IPortableBrushSource/IPortableTileBrushSource; consumers must not inspect object shape.
+/// The publisher owns the dash snapshot and must not mutate it after publication.
+/// Brush identity is retained so the scene compiler can share resources and detect cycles.
+/// </summary>
+public readonly record struct PortablePenState(
+    object? Brush,
+    double Thickness,
+    PortablePenLineCap StartLineCap,
+    PortablePenLineCap EndLineCap,
+    PortablePenLineCap DashCap,
+    PortablePenLineJoin LineJoin,
+    double MiterLimit,
+    ReadOnlyMemory<double> Dashes,
+    double DashOffset);
+
 public interface IPortableDashStyleSource
 {
     int PortableDashCount { get; }

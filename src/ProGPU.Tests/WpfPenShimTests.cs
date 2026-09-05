@@ -12,6 +12,44 @@ namespace ProGPU.Tests;
 public sealed class WpfPenShimTests
 {
     [Fact]
+    public void PortablePenStateRetainsTileBrushIdentityAndOwnsDashSnapshot()
+    {
+        var brush = new DeferredTileBrush();
+        var dash = new WpfDashStyle([1.0, 2.0], 0.5);
+        var pen = new WpfPen(brush, 2)
+        {
+            DashStyle = dash,
+            StartLineCap = WpfPenLineCap.Square,
+            EndLineCap = WpfPenLineCap.Triangle,
+            DashCap = WpfPenLineCap.Round,
+            LineJoin = WpfPenLineJoin.Bevel,
+            MiterLimit = 3.5
+        };
+        Assert.True(((ProGPU.Wpf.Interop.IPortablePenStateSource)pen).TryGetPortablePenState(out var state));
+        Assert.Same(brush, state.Brush);
+        Assert.Equal(2, state.Thickness);
+        Assert.Equal(ProGPU.Wpf.Interop.PortablePenLineCap.Square, state.StartLineCap);
+        Assert.Equal(ProGPU.Wpf.Interop.PortablePenLineCap.Triangle, state.EndLineCap);
+        Assert.Equal(ProGPU.Wpf.Interop.PortablePenLineCap.Round, state.DashCap);
+        Assert.Equal(ProGPU.Wpf.Interop.PortablePenLineJoin.Bevel, state.LineJoin);
+        Assert.Equal(3.5, state.MiterLimit);
+        Assert.Equal(0.5, state.DashOffset);
+        dash.Dashes = [9.0];
+        Assert.Equal(new[] { 1.0, 2.0 }, state.Dashes.ToArray());
+        pen.Brush = null;
+        Assert.True(((ProGPU.Wpf.Interop.IPortablePenStateSource)pen).TryGetPortablePenState(out var empty));
+        Assert.Null(empty.Brush);
+        Assert.Same(brush, state.Brush);
+    }
+
+    private sealed class DeferredTileBrush : System.Windows.Media.Brush,
+        ProGPU.Wpf.Interop.IPortableTileBrushSource
+    {
+        public bool TryGetPortableTileBrush(out ProGPU.Wpf.Interop.PortableTileBrush brush) =>
+            throw new System.InvalidOperationException("Pen snapshot must not eagerly resolve tile content.");
+    }
+
+    [Fact]
     public void PresentationCorePenDefaultConstructorUsesWpfThickness()
     {
         var pen = new WpfPen
