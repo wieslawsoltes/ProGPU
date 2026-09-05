@@ -45,17 +45,6 @@
 
 namespace progpu::native::execution {
 
-// Canonical Texture.wgsl vertex encoding, outside the valid cubic B/C range.
-// The engine flag is immutable, so retained geometry cannot reuse another path.
-inline float base_image_sampling_coefficient(
-    std::uint64_t engine_flags, std::uint32_t sampling) noexcept {
-    if ((engine_flags & PROGPU_NATIVE_ENGINE_IMAGE_EXPLICIT_SHADER_SAMPLING) == 0U)
-        return 0.0F;
-    if (sampling == PROGPU_NATIVE_IMAGE_SAMPLING_NEAREST) return -128.0F;
-    if (sampling == PROGPU_NATIVE_IMAGE_SAMPLING_LINEAR) return -64.0F;
-    return 0.0F;
-}
-
 using semantic_scissor = semantic::scissor;
 using semantic_compilation_budget = semantic::compilation_budget;
 using semantic_layer_budget = semantic::layer_budget;

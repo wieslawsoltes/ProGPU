@@ -234,14 +234,13 @@ progpu_native_status render_image(
             vertex.shape_size[0] = frame->sampling ==
                 PROGPU_NATIVE_IMAGE_SAMPLING_CUBIC
                 ? cubic_b
-                : frame->sampling == PROGPU_NATIVE_IMAGE_SAMPLING_FANT
-                    ? -32.0F
-                    : base_image_sampling_coefficient(
-                        engine->engine_flags, frame->sampling);
+                : base_image_sampling_coefficient(
+                    engine->engine_flags, frame->sampling);
             vertex.shape_size[1] = frame->sampling ==
                 PROGPU_NATIVE_IMAGE_SAMPLING_CUBIC ? cubic_c : 0.5F;
             vertex.corner_radius = 0.0F;
-            vertex.stroke_thickness = 1.0F;
+            // Ordinary images use clamp on both axes; this field is V addressing.
+            vertex.stroke_thickness = 0.0F;
             vertex.shape_type = 0.0F;
         }
         engine->image_payload_hash = append_fnv1a64(
