@@ -1,4 +1,4 @@
-// Algorithm: Rasterize ordinary, binary-boolean, or bounded postfix path-expression coverage by supersampling each atlas texel, applying analytic winding tests, and combining per-sample membership before coverage averaging.
+// Algorithm: Rasterize ordinary, binary-boolean, or bounded postfix path-expression coverage by supersampling each atlas texel, applying analytic line, polynomial Bezier, positive-weight rational-quadratic/rational-cubic, and elliptic-arc winding tests, and combining per-sample membership before coverage averaging.
 // Time complexity: O(A*(S+N)) per expression texel for A anti-aliasing samples, total leaf segment visits S, and N postfix instructions; ordinary paths are O(A*S).
 // Space complexity: O(D) private mask storage for expression stack depth D<=16 plus O(S+N) read-only record/segment bandwidth and one packed u32 output write per four R8 texels.
 const BOOLEAN_PROGRAM_FLAG: u32 = 0x80000000u;
@@ -301,6 +301,8 @@ fn row_coverage_mask(
 
             let roots = solve_quadratic(a, b, c);
 
+            // A quadratic contributes at most two roots, so this loop is fixed
+            // and does not depend on path size or zoom.
             for (var r: u32 = 0u; r < roots.count; r = r + 1u) {
                 let t = quadratic_root_at(roots, r);
                 if (t >= -0.01 && t <= 1.01) {
@@ -337,25 +339,142 @@ fn row_coverage_mask(
                     }
                 }
             }
-        } else if (seg.segmentType == 2u) {
+        } else if (seg.segmentType == 4u) {
+            let A = seg.p0;
+            let B = seg.p1;
+            let C = seg.p2;
+            let weight = bitcast<f32>(seg._pad0);
+
+            // Solve Ny(t) - sampleY*W(t) in the power basis. Positive
+            // weights keep W(t) positive throughout the segment.
+            let ay = A.y - sampleY;
+            let by = B.y - sampleY;
+            let cy = C.y - sampleY;
+            let a = ay - 2.0 * weight * by + cy;
+            let b = 2.0 * (weight * by - ay);
+            let c = ay;
+            let coefficient_scale = max(max(abs(a), abs(b)), abs(c));
+            let roots = solve_quadratic(
+                a / max(coefficient_scale, 1.0e-30),
+                b / max(coefficient_scale, 1.0e-30),
+                c / max(coefficient_scale, 1.0e-30));
+
+            for (var r: u32 = 0u; r < roots.count; r = r + 1u) {
+                let t = quadratic_root_at(roots, r);
+                if (t >= -0.01 && t <= 1.01) {
+                    let t_eval = clamp(t, 0.00001, 0.99999);
+                    let omt_eval = 1.0 - t_eval;
+                    let numerator_y = omt_eval * omt_eval * A.y
+                        + 2.0 * weight * omt_eval * t_eval * B.y
+                        + t_eval * t_eval * C.y;
+                    let denominator = omt_eval * omt_eval
+                        + 2.0 * weight * omt_eval * t_eval
+                        + t_eval * t_eval;
+                    let numerator_derivative_y =
+                        2.0 * omt_eval * (weight * B.y - A.y)
+                        + 2.0 * t_eval * (C.y - weight * B.y);
+                    let denominator_derivative =
+                        2.0 * omt_eval * (weight - 1.0)
+                        + 2.0 * t_eval * (1.0 - weight);
+                    let deriv_y = numerator_derivative_y * denominator
+                        - numerator_y * denominator_derivative;
+
+                    // Preserve the direction-aware half-open intervals exactly:
+                    // upward [0,1), downward (0,1].
+                    var is_valid = false;
+                    if (t < 0.005) {
+                        if (deriv_y > 0.0) {
+                            is_valid = (sampleY >= A.y);
+                        } else if (deriv_y < 0.0) {
+                            is_valid = (sampleY < A.y);
+                        }
+                    } else if (t > 0.995) {
+                        if (deriv_y > 0.0) {
+                            is_valid = (sampleY < C.y);
+                        } else if (deriv_y < 0.0) {
+                            is_valid = (sampleY >= C.y);
+                        }
+                    } else {
+                        is_valid = true;
+                    }
+
+                    if (is_valid) {
+                        let tc = clamp(t, 0.0, 1.0);
+                        let omt = 1.0 - tc;
+                        let rational_denominator = omt * omt
+                            + 2.0 * weight * omt * tc
+                            + tc * tc;
+                        let x_t = (omt * omt * A.x
+                            + 2.0 * weight * omt * tc * B.x
+                            + tc * tc * C.x) / rational_denominator;
+                        if (deriv_y > 0.0) {
+                            add_crossing(&winding, samplePositionsX, x_t, 1);
+                        } else if (deriv_y < 0.0) {
+                            add_crossing(&winding, samplePositionsX, x_t, -1);
+                        }
+                    }
+                }
+            }
+        } else if (seg.segmentType == 2u || seg.segmentType == 5u) {
             let A = seg.p0;
             let B = seg.p1;
             let C = seg.p2;
             let D_pt = seg.p3;
+            let rational = seg.segmentType == 5u;
+            let weight1 = select(1.0, bitcast<f32>(seg._pad0), rational);
+            let weight2 = select(1.0, bitcast<f32>(seg._pad1), rational);
 
-            let a = -A.y + 3.0 * B.y - 3.0 * C.y + D_pt.y;
-            let b = 3.0 * A.y - 6.0 * B.y + 3.0 * C.y;
-            let c = -3.0 * A.y + 3.0 * B.y;
-            let d = A.y - sampleY;
+            // Polynomial cubics are the unit-weight case of this homogeneous
+            // equation. Sharing the branch keeps D3D12 shader compilation
+            // bounded while preserving the exact positive-weight curve.
+            let ay = A.y - sampleY;
+            let by = weight1 * (B.y - sampleY);
+            let cy = weight2 * (C.y - sampleY);
+            let dy = D_pt.y - sampleY;
+            let a = -ay + 3.0 * by - 3.0 * cy + dy;
+            let b = 3.0 * ay - 6.0 * by + 3.0 * cy;
+            let c = -3.0 * ay + 3.0 * by;
+            let d = ay;
+            let coefficient_scale = max(
+                max(abs(a), abs(b)),
+                max(abs(c), abs(d)));
+            let roots = solve_cubic(
+                a / max(coefficient_scale, 1.0e-30),
+                b / max(coefficient_scale, 1.0e-30),
+                c / max(coefficient_scale, 1.0e-30),
+                d / max(coefficient_scale, 1.0e-30));
 
-            let roots = solve_cubic(a, b, c, d);
-
+            // A rational cubic contributes at most three roots. This bound is
+            // fixed and independent of path size, zoom, and control geometry.
             for (var r: u32 = 0u; r < roots.count; r = r + 1u) {
                 let t = cubic_root_at(roots, r);
                 if (t >= -0.01 && t <= 1.01) {
                     let t_eval = clamp(t, 0.00001, 0.99999);
-                    let deriv_y = 3.0 * a * t_eval * t_eval + 2.0 * b * t_eval + c;
+                    let omt_eval = 1.0 - t_eval;
+                    let omt2_eval = omt_eval * omt_eval;
+                    let t2_eval = t_eval * t_eval;
+                    let numerator_y = omt2_eval * omt_eval * A.y
+                        + 3.0 * weight1 * omt2_eval * t_eval * B.y
+                        + 3.0 * weight2 * omt_eval * t2_eval * C.y
+                        + t2_eval * t_eval * D_pt.y;
+                    let denominator = omt2_eval * omt_eval
+                        + 3.0 * weight1 * omt2_eval * t_eval
+                        + 3.0 * weight2 * omt_eval * t2_eval
+                        + t2_eval * t_eval;
+                    let numerator_derivative_y = 3.0 * (
+                        omt2_eval * (weight1 * B.y - A.y)
+                        + 2.0 * omt_eval * t_eval *
+                            (weight2 * C.y - weight1 * B.y)
+                        + t2_eval * (D_pt.y - weight2 * C.y));
+                    let denominator_derivative = 3.0 * (
+                        omt2_eval * (weight1 - 1.0)
+                        + 2.0 * omt_eval * t_eval * (weight2 - weight1)
+                        + t2_eval * (1.0 - weight2));
+                    let deriv_y = numerator_derivative_y * denominator
+                        - numerator_y * denominator_derivative;
 
+                    // Preserve the direction-aware half-open intervals exactly:
+                    // upward [0,1), downward (0,1].
                     var is_valid = false;
                     if (t < 0.005) {
                         if (deriv_y > 0.0) {
@@ -376,10 +495,16 @@ fn row_coverage_mask(
                     if (is_valid) {
                         let tc = clamp(t, 0.0, 1.0);
                         let omt = 1.0 - tc;
-                        let x_t = omt * omt * omt * A.x
-                                + 3.0 * omt * omt * tc * B.x
-                                + 3.0 * omt * tc * tc * C.x
-                                + tc * tc * tc * D_pt.x;
+                        let omt2 = omt * omt;
+                        let t2 = tc * tc;
+                        let rational_denominator = omt2 * omt
+                            + 3.0 * weight1 * omt2 * tc
+                            + 3.0 * weight2 * omt * t2
+                            + t2 * tc;
+                        let x_t = (omt2 * omt * A.x
+                            + 3.0 * weight1 * omt2 * tc * B.x
+                            + 3.0 * weight2 * omt * t2 * C.x
+                            + t2 * tc * D_pt.x) / rational_denominator;
                         if (deriv_y > 0.0) {
                             add_crossing(&winding, samplePositionsX, x_t, 1);
                         } else if (deriv_y < 0.0) {

@@ -272,8 +272,19 @@ public class Pen
 
 public class HatchPatternBrush : Brush
 {
+    /// <summary>
+    /// Gets or sets the affine transform from geometry-local coordinates into
+    /// pattern coordinates.
+    /// </summary>
+    public Matrix4x4 CoordinateTransform { get; set; } = Matrix4x4.Identity;
+
+    /// <summary>The angle, in radians, of the pattern's periodic normal axis.</summary>
     public float Angle { get; set; }
     public float Spacing { get; set; }
+    /// <summary>
+    /// Gets or sets the pattern-coordinate line width. Zero selects a
+    /// derivative-based one-device-pixel hairline.
+    /// </summary>
     public float Thickness { get; set; }
     public Vector4 Color { get; set; }
 
@@ -288,8 +299,19 @@ public class HatchPatternBrush : Brush
 
 public class CrossHatchBrush : Brush
 {
+    /// <summary>
+    /// Gets or sets the affine transform from geometry-local coordinates into
+    /// pattern coordinates.
+    /// </summary>
+    public Matrix4x4 CoordinateTransform { get; set; } = Matrix4x4.Identity;
+
+    /// <summary>The angle, in radians, of the first periodic normal axis.</summary>
     public float Angle { get; set; }
     public float Spacing { get; set; }
+    /// <summary>
+    /// Gets or sets the pattern-coordinate line width. Zero selects a
+    /// derivative-based one-device-pixel hairline.
+    /// </summary>
     public float Thickness { get; set; }
     public Vector4 Color { get; set; }
 
@@ -300,4 +322,111 @@ public class CrossHatchBrush : Brush
         Thickness = thickness;
         Color = color;
     }
+}
+
+/// <summary>
+/// One immutable line family in a procedural hatch pattern. The direction is
+/// the unit line tangent, spacing is the positive perpendicular row distance,
+/// and tangent shift advances successive rows along the line. Dash values use
+/// the DXF/PAT convention: positive draws, negative skips, and zero draws a dot.
+/// </summary>
+public readonly record struct HatchPatternLineFamily(
+    Vector2 BasePoint,
+    Vector2 Direction,
+    float TangentShift,
+    float Spacing,
+    int DashOffset,
+    int DashCount,
+    float DashPeriod);
+
+/// <summary>
+/// A bounded, retained multi-family DXF/PAT hatch evaluated procedurally by
+/// the GPU. Family and dash arrays are snapshotted at construction. Positive
+/// thickness may not exceed any family's row spacing; zero selects a device
+/// hairline.
+/// </summary>
+public sealed class HatchPatternSetBrush : Brush
+{
+    /// <summary>The Autodesk PAT/DXF maximum dash items per family.</summary>
+    public const int MaximumDashCount = 6;
+
+    private readonly HatchPatternLineFamily[] _families;
+    private readonly float[] _dashes;
+
+    public HatchPatternSetBrush(
+        ReadOnlySpan<HatchPatternLineFamily> families,
+        ReadOnlySpan<float> dashes,
+        float thickness,
+        Vector4 color)
+    {
+        if (families.IsEmpty)
+            throw new ArgumentException("A hatch pattern set requires at least one line family.", nameof(families));
+        if (!float.IsFinite(thickness) || thickness < 0f)
+            throw new ArgumentOutOfRangeException(nameof(thickness));
+        if (!IsFinite(color))
+            throw new ArgumentException("The hatch color must be finite.", nameof(color));
+
+        int expectedDashOffset = 0;
+        for (int i = 0; i < families.Length; i++)
+        {
+            HatchPatternLineFamily family = families[i];
+            float directionLengthSquared = family.Direction.LengthSquared();
+            if (!IsFinite(family.BasePoint) || !IsFinite(family.Direction) ||
+                !float.IsFinite(family.TangentShift) ||
+                !float.IsFinite(family.Spacing) || family.Spacing <= 0f ||
+                thickness > family.Spacing ||
+                !float.IsFinite(family.DashPeriod) || family.DashPeriod < 0f ||
+                !float.IsFinite(directionLengthSquared) ||
+                MathF.Abs(directionLengthSquared - 1f) > 0.001f ||
+                family.DashOffset != expectedDashOffset || family.DashCount < 0 ||
+                family.DashCount > MaximumDashCount ||
+                family.DashOffset > dashes.Length - family.DashCount)
+            {
+                throw new ArgumentException("A hatch line family is invalid.", nameof(families));
+            }
+
+            if (family.DashCount == 0)
+            {
+                if (family.DashPeriod != 0f)
+                    throw new ArgumentException("A continuous hatch family must have a zero dash period.", nameof(families));
+                continue;
+            }
+
+            float period = 0f;
+            bool draws = false;
+            for (int dashIndex = 0; dashIndex < family.DashCount; dashIndex++)
+            {
+                float dash = dashes[family.DashOffset + dashIndex];
+                if (!float.IsFinite(dash))
+                    throw new ArgumentException("Hatch dash values must be finite.", nameof(dashes));
+                period += MathF.Abs(dash);
+                draws |= dash >= 0f;
+            }
+            float tolerance = MathF.Max(1f, period) * 0.00001f;
+            if (!draws || period <= 0f || MathF.Abs(period - family.DashPeriod) > tolerance)
+                throw new ArgumentException("A dashed hatch family has an invalid period.", nameof(families));
+            expectedDashOffset += family.DashCount;
+        }
+
+        if (expectedDashOffset != dashes.Length)
+            throw new ArgumentException("Hatch dashes must be referenced contiguously by the family stream.", nameof(dashes));
+
+        _families = families.ToArray();
+        _dashes = dashes.ToArray();
+        Thickness = thickness;
+        Color = color;
+    }
+
+    public ReadOnlyMemory<HatchPatternLineFamily> Families => _families;
+    public ReadOnlyMemory<float> Dashes => _dashes;
+    public float Thickness { get; set; }
+    public Vector4 Color { get; set; }
+    public Matrix4x4 CoordinateTransform { get; set; } = Matrix4x4.Identity;
+
+    private static bool IsFinite(Vector2 value) =>
+        float.IsFinite(value.X) && float.IsFinite(value.Y);
+
+    private static bool IsFinite(Vector4 value) =>
+        float.IsFinite(value.X) && float.IsFinite(value.Y) &&
+        float.IsFinite(value.Z) && float.IsFinite(value.W);
 }

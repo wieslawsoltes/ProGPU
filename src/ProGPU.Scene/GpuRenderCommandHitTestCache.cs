@@ -137,6 +137,7 @@ public sealed class GpuRenderCommandHitTestCacheBuilder : IDisposable
                 AddEllipse(command, activeTransform, primitiveId, zIndex);
                 break;
             case RenderCommandType.DrawDotGrid:
+            case RenderCommandType.DrawDeviceDotGrid:
                 AddBounds(command.Rect, activeTransform, primitiveId, zIndex);
                 break;
             case RenderCommandType.DrawCircle:
@@ -178,7 +179,7 @@ public sealed class GpuRenderCommandHitTestCacheBuilder : IDisposable
                 AddVertexMesh(command, activeTransform, primitiveId, zIndex);
                 break;
             case RenderCommandType.DrawPointBatch:
-                AddPointBatch(command, activeTransform, primitiveId, zIndex);
+                AddPointBatch(command, activeTransform, primitiveId, zIndex, provider);
                 break;
             case RenderCommandType.FillQuad:
                 AddQuadFill(command, activeTransform, primitiveId, zIndex);
@@ -962,6 +963,14 @@ public sealed class GpuRenderCommandHitTestCacheBuilder : IDisposable
                     count++;
                     currentPoint = quadratic.Point;
                     break;
+                case RationalQuadraticBezierSegment rationalQuadratic:
+                    count++;
+                    currentPoint = rationalQuadratic.Point;
+                    break;
+                case RationalCubicBezierSegment rationalCubic:
+                    count++;
+                    currentPoint = rationalCubic.Point;
+                    break;
                 case CubicBezierSegment cubic:
                     count++;
                     currentPoint = cubic.Point;
@@ -1033,6 +1042,17 @@ public sealed class GpuRenderCommandHitTestCacheBuilder : IDisposable
                     Update(quadratic.ControlPoint);
                     Update(quadratic.Point);
                     currentPoint = quadratic.Point;
+                    break;
+                case RationalQuadraticBezierSegment rationalQuadratic:
+                    Update(rationalQuadratic.ControlPoint);
+                    Update(rationalQuadratic.Point);
+                    currentPoint = rationalQuadratic.Point;
+                    break;
+                case RationalCubicBezierSegment rationalCubic:
+                    Update(rationalCubic.ControlPoint1);
+                    Update(rationalCubic.ControlPoint2);
+                    Update(rationalCubic.Point);
+                    currentPoint = rationalCubic.Point;
                     break;
                 case CubicBezierSegment cubic:
                     Update(cubic.ControlPoint1);
@@ -1556,9 +1576,15 @@ public sealed class GpuRenderCommandHitTestCacheBuilder : IDisposable
         }
     }
 
-    private void AddPointBatch(RenderCommand command, Matrix4x4 transform, int id, float zIndex)
+    private void AddPointBatch(
+        RenderCommand command,
+        Matrix4x4 transform,
+        int id,
+        float zIndex,
+        IRenderDataProvider? provider)
     {
-        if (command.Brush is null || command.PolylinePoints is not { Length: > 0 } points)
+        ReadOnlySpan<Vector2> points = GetPointBuffer(command, provider);
+        if (command.Brush is null || points.IsEmpty)
         {
             return;
         }

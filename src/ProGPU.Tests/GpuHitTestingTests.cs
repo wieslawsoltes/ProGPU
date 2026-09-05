@@ -574,6 +574,36 @@ public sealed class GpuHitTestingTests
     }
 
     [Fact]
+    public void RenderCommandCacheConsumesSpanBackedPointBatch()
+    {
+        var context = new DrawingContext();
+        Span<Vector2> source = stackalloc Vector2[1] { new(4f, 5f) };
+        context.DrawPointBatch(
+            new SolidColorBrush(Vector4.One),
+            source,
+            radius: 2f,
+            round: true);
+        RenderCommand command = Assert.Single(context.Commands);
+        Assert.Null(command.PolylinePoints);
+        using var builder = new GpuRenderCommandHitTestCacheBuilder();
+
+        builder.AddCommand(
+            command,
+            Matrix4x4.CreateTranslation(3f, 4f, 0f),
+            context,
+            id: 4324);
+        GpuHitTestIndex index = builder.BuildIndex(
+            maxDepth: 2,
+            maxPrimitivesPerNode: 1);
+
+        GpuHitTestPrimitive primitive = Assert.Single(index.Primitives);
+        Assert.Equal(4324, primitive.Id);
+        Assert.Equal(GpuHitTestPrimitiveKind.EllipseFill, primitive.Kind);
+        Assert.Equal(new Vector2(5f, 7f), primitive.BoundsMin);
+        Assert.Equal(new Vector2(9f, 11f), primitive.BoundsMax);
+    }
+
+    [Fact]
     public void HairlineArcHitGeometryAdaptsToFramebufferRadius()
     {
         var path = new PathGeometry();
@@ -623,6 +653,67 @@ public sealed class GpuHitTestingTests
         Assert.Equal(GpuHitTestPrimitiveKind.PathFill, primitive.Kind);
         Assert.Equal(77, primitive.Id);
         Assert.Equal(3, index.PathSegments.Count);
+    }
+
+    [Fact]
+    public void RenderCommandCachePreservesRationalQuadraticPathWeight()
+    {
+        var path = new PathGeometry();
+        var figure = new PathFigure(Vector2.Zero, isClosed: true);
+        figure.Segments.Add(new RationalQuadraticBezierSegment(
+            new Vector2(6f, 12f),
+            new Vector2(12f, 0f),
+            0.5f));
+        path.Figures.Add(figure);
+        var builder = new GpuRenderCommandHitTestCacheBuilder();
+        builder.AddCommand(new RenderCommand
+        {
+            Type = RenderCommandType.DrawPath,
+            HitTestId = 771,
+            Path = path,
+            Brush = new SolidColorBrush(Vector4.One)
+        }, Matrix4x4.Identity);
+
+        var index = builder.BuildIndex(maxDepth: 2, maxPrimitivesPerNode: 1);
+
+        Assert.Equal(2, index.PathSegments.Count);
+        Assert.Equal(4u, index.PathSegments[0].SegmentType);
+        Assert.Equal(
+            0.5f,
+            BitConverter.UInt32BitsToSingle(index.PathSegments[0].Pad0));
+    }
+
+    [Fact]
+    public void RenderCommandCachePreservesRationalCubicPathWeights()
+    {
+        var path = new PathGeometry();
+        var figure = new PathFigure(Vector2.Zero, isClosed: true);
+        figure.Segments.Add(new RationalCubicBezierSegment(
+            new Vector2(0f, 12f),
+            new Vector2(12f, 12f),
+            new Vector2(12f, 0f),
+            0.5f,
+            1.5f));
+        path.Figures.Add(figure);
+        var builder = new GpuRenderCommandHitTestCacheBuilder();
+        builder.AddCommand(new RenderCommand
+        {
+            Type = RenderCommandType.DrawPath,
+            HitTestId = 772,
+            Path = path,
+            Brush = new SolidColorBrush(Vector4.One)
+        }, Matrix4x4.Identity);
+
+        var index = builder.BuildIndex(maxDepth: 2, maxPrimitivesPerNode: 1);
+
+        Assert.Equal(2, index.PathSegments.Count);
+        Assert.Equal(5u, index.PathSegments[0].SegmentType);
+        Assert.Equal(
+            0.5f,
+            BitConverter.UInt32BitsToSingle(index.PathSegments[0].Pad0));
+        Assert.Equal(
+            1.5f,
+            BitConverter.UInt32BitsToSingle(index.PathSegments[0].Pad1));
     }
 
     [Fact]

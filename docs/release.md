@@ -5,6 +5,38 @@ The release workflow does not pack samples, tests, diagnostic tools, or framewor
 It also builds the separately versioned Avalonia 11 and 12 integration packages
 from `scripts/progpu-package-list.sh`.
 
+ProGPU.CAD now resolves documented legacy `POLYLINE` entity default widths and
+per-vertex segment overrides into the existing exact constant-width retained
+stroke when every actual segment is uniform. Analytic bulges, affine bounds,
+point and Window/Crossing selection, print output, and managed/native replay all
+reuse the same bevel/butt contract as `LWPOLYLINE`; variable/tapered widths,
+FILLMODE-off outlines, and extrusions remain typed unsupported geometry. The
+pinned ACadSharp feature commit `90a423e0` adds the missing DXF groups 39/40/41
+writer path and three-version round-trip coverage, while ACadSharp `master`
+remains synchronized with upstream.
+
+ProGPU.CAD's shared desktop/browser Mesh3D editor now applies Delete to
+generation-owned modern-MESH face, edge, and vertex selections. Face deletion
+leaves an open boundary, edge deletion removes adjacent faces, and vertex
+deletion removes incident faces. The bounded transactional command compacts
+newly isolated control vertices, remaps UV and crease indices, removes a mesh
+entity when no faces survive, retains exact topology for Undo/Redo, rebuilds
+subdivision and both renderer inputs once per generation, and round-trips the
+result through DXF and DWG. Nested occurrences, locked layers, stale IDs, and
+invalid topology fail before mutation; no shader or native ABI changes.
+
+The same editor now provides AutoCAD-compatible Smooth More/Smooth Less for
+whole modern-MESH selections and Set crease/Uncrease for generation-owned
+face, edge, and vertex selections. Smoothness changes each eligible persisted
+subdivision level by exactly one under the existing six-level, one-million-
+corner rendering budget. Edge selections affect themselves, faces expand to
+their boundary edges, and vertices expand to incident edges; `-1`, zero, and
+positive semi-sharp crease values retain their documented meanings, while a
+fractional value requires the persisted Blend Crease flag. Multi-mesh edits
+are preflighted transactionally, retain exact Undo/Redo state, rebuild the
+canonical managed/native scene once, and round-trip through DXF and DWG. This
+adds no shader, native ABI, or renderer-specific implementation fork.
+
 Preview.62 advances the successfully published preview.61 boundary with a
 second measured optimization round for the ProGPU-backed SkiaSharp compatibility
 layer. Avalonia's common bounded SaveLayer containing one analytic rounded
@@ -20,6 +52,337 @@ All other layer shapes continue through the existing exact compact picture
 path. This is a SkiaSharp front-end storage change: the managed and native scene
 compilers receive the same expanded commands, so no one-sided renderer change
 is required.
+
+The ProGPU.CAD plan grid now preserves exact active-VPORT isometric drafting
+state. Left, Top, and Right use their documented 90/150, 30/150, and 30/90
+degree pairs; point acquisition chooses the Euclidean-nearest equal-aspect
+triangular-lattice point with fixed O(9), allocation-free work; and Ortho uses
+the active pair. The shared desktop/browser shell edits SNAPUNIT, SNAPSTYL, and
+SNAPISOPAIR in the same generation-safe grid command. Isometric display reuses
+the existing one-quad affine dot primitive because lined GRIDSTYLE does not
+follow the isometric lattice. The pinned ACadSharp.ProGPU fork now emits VPORT
+DXF groups 77/78, with DXF/DWG round-trip coverage and no native ABI or shader
+fork.
+
+The same desktop/browser CAD shell now cycles drawing-persisted SNAPISOPAIR
+Left to Top to Right with F5 or Ctrl+E. Each cycle changes only the active
+VPORT pair as one generation-safe reversible edit, immediately refreshes the
+isometric grid and Ortho basis, retains a dormant plane under rectangular
+SNAPSTYL, and blocks instead of discarding staged grid-panel values. The browser
+reserves both shortcuts from its reload/navigation defaults. This input/edit
+follow-up reuses the existing paired renderer and changes no shader or native
+ABI.
+
+Shared desktop/browser F8 now edits drawing-persisted ORTHOMODE through one
+exact reversible command, while F10 retains profile-scoped Polar Tracking and
+changes the drawing only when mutual exclusion must commit ORTHOMODE=0. The
+controls use the same paths, active point prompts are reevaluated immediately,
+Undo/Redo refreshes both constraint state and controls, staged grid-panel input
+is preserved, and browser defaults are reserved. The pinned ACadSharp.ProGPU
+fork now emits `$ORTHOMODE` in default DXF header output with three versioned
+round-trip regressions. No shader, native ABI, GPU resource, or native scene
+compiler changes.
+
+Shared desktop/browser F9 and the Grid/Polar snap controls now edit drawing-
+persisted active-VPORT SNAPMODE through one exact reversible command, while
+SNAPTYPE and POLARDIST remain profile-scoped as Autodesk specifies. PolarSnap
+quantizes only an acquired polar path, uses Snap X spacing when its configured
+distance is zero, keeps object snaps authoritative, and leaves typed direct
+distance exact. Grid and Polar types are mutually exclusive, a disabled F9
+retains its type, active prompts refresh immediately, staged grid input is
+protected, and the browser reserves F9. Exact DXF/DWG SNAPMODE round trips and
+zero-allocation warm queries pass. This input/edit slice changes no shader,
+native ABI, GPU resource, or native scene compiler.
+
+Shared desktop/browser polar tracking now supports the profile-scoped
+POLARADDANG contract: up to ten semicolon-separated invariant-degree angles,
+explicit enablement, absolute non-incremental path arbitration, periodic
+normalization, and immediate pending-prompt reevaluation. The ten values live
+inline and every warm pointer query remains allocation-free bounded `O(A)` for
+`A <= 10`. Object snap still wins, additional paths compose with PolarSnap, and
+typed direct distance preserves its exact length. Invalid lists fail closed and
+produce no drawing generation. Last-segment-relative POLARMODE is never guessed
+from MOVE/COPY state and now uses only a real LINE segment context. No shader,
+native ABI, GPU resource, or native scene compiler changes.
+
+Shared desktop/browser ProGPU.CAD now provides bounded LINE authoring. Clicks or
+typed absolute/relative Cartesian and polar points create a contiguous sequence
+of separate LINE entities; object snap, grid, Ortho, polar, PolarSnap, and exact
+direct distance reuse the shared point-acquisition pipeline. Relative polar mode
+uses the actual previous authored segment and fails closed when none exists.
+Accepted segments remain a retained transient picture, `U` removes only the
+latest segment, Close is available after two segments, and Enter/Escape finish.
+Completion captures current entity properties and publishes the entire sequence
+as one generation-safe Undo/Redo command with DXF/DWG round trips. The ordinary
+line renderer is unchanged, so this adds no shader, native ABI, or one-sided
+managed/native rendering path.
+
+Shared desktop/browser ProGPU.CAD now also provides bounded centerline PLINE
+authoring as one planar `LwPolyline`. Straight and tangent-arc modes preserve
+exact DXF bulges, the real endpoint tangent drives relative polar and direct-
+distance input after either segment kind, `U` removes one segment, and Close
+uses the entity flag with either a straight or tangent closing segment.
+Accepted arcs use one retained analytic path; only the live pointer arc uses a
+DPI-aware allocation-free approximation capped at 512 lines. Completion
+captures current entity properties plus PLINEGEN and publishes one entity as
+one generation-safe Undo/Redo action with DXF/DWG round trips. Width and
+Halfwidth now retain start/end widths, carry each ending width forward, update
+PLINEWID reversibly, and suppress PLINEGEN for a variable profile. Line-mode
+Length continues the actual endpoint tangent after either a line or arc.
+Arc construction now also follows the contextual nested PLINE prompts: Angle
+can finish from a fixed Center or from Radius plus chord direction, while
+Center can finish from a signed Angle or signed chord Length. Positive chord
+length selects the minor counterclockwise interval and negative length the
+major interval. Point-final Radius now likewise uses a positive value for the
+minor interval and a negative value for the major interval, while holding Ctrl
+independently selects the clockwise solution for Center, Direction, or Radius.
+The modifier refreshes live preview and applies equally to typed or pointer
+acceptance. The shared selector, typed keywords, pointer preview, viewport
+validation, and recoverable prompt state all use the same exact O(1) solver.
+Constant and straight tapered widths retain exact filled or FILLMODE-off
+model-space outlines through affine blocks, camera replay, managed/native
+compilation, and printing.
+Point and Window/Crossing selection now tests that exact filled stroke,
+including affine line strips, bevels, signed-radius rational bulges, widths at
+or above a bulge diameter, and boxes wholly inside a curved strip, with zero
+warm-query allocation. Variable-width arcs and patterned-wide caps fail
+explicitly rather than reducing to a cosmetic centerline. The maximum-bound
+65,536-segment authoring lane has checked-in p50/p95/p99 evidence, and DXF now
+persists the resulting PLINEWID through the reviewed ACadSharp fork. No shader
+or ABI fork is introduced.
+
+Shared desktop/browser ProGPU.CAD now also authors exact plan-view CIRCLEs by
+center/radius, center/diameter, two diameter endpoints, or three circumference
+points. Three-point construction uses a normalized constant-work solve that
+does not square the large absolute WCS origin. The prompt retains at most two
+points, previews one analytic ellipse without tessellation, preserves the first
+point's exact WCS-Z plane, and cancels with Escape. The final point remains
+non-mutating until one entity and one history generation commit successfully;
+locked layers, invalid CELTSCALE, and nonzero THICKNESS therefore fail without
+losing the prompt. Current entity properties are captured once and DXF/DWG
+round trips pass. TTR and Tan-Tan-Tan remain deferred rather than approximated.
+The established managed/native analytic circle lowering is unchanged, so no
+shader, ABI, resource, or device-loss fork is introduced.
+
+Shared desktop/browser ProGPU.CAD now also authors exact plan-view ARCs through
+all ten independent 3P, Center/Start, Start/Center, and Start/End construction
+families using endpoint, included-angle, chord-length, tangent-direction, or
+radius input. Signed angle/chord/radius values preserve clockwise and
+minor/major semantics, current ANGDIR is honored, and large-WCS 3P/direction
+solves avoid origin-relative precision loss. The prompt retains exactly two
+points. Holding Ctrl transiently selects the clockwise route for point-final
+Center/Start/End, Start/Center/End, and Start/End/Direction, refreshes the live
+preview, and applies identically to pointer and typed point acceptance without
+altering three-point or signed-scalar behavior. Point-final feedback records
+one analytic `ArcSegment` without
+tessellation or model compilation. One successful final solve publishes one
+Axis-Z `Arc` and one history generation, while locked layer, invalid CELTSCALE,
+and nonzero THICKNESS failures retain the prompt. Tangent Continue remains
+deferred to the global command-chaining contract rather than approximated. The
+existing managed/native analytic ARC lowering is unchanged, so no shader, ABI,
+resource, cache, upload, or device-loss fork is introduced.
+
+The checked-in 65,536-solve Release ARC authoring lane records matched default
+and Ctrl-clockwise p50/p95/p99 latency for all three eligible constructions.
+
+Shared desktop/browser ProGPU.CAD now also authors exact plan-view full
+ELLIPSEs and elliptical ARCs through axis-endpoint or Center construction,
+point-defined other-axis distance or Rotation, and Angle, Parameter, or
+Included Angle arc input. Large-WCS midpoint and direction solves avoid
+origin-relative precision loss, longer point-defined axes are canonicalized
+without changing geometry, and scalar direction input honors the current UCS,
+ANGBASE, and ANGDIR. The prompt uses the shared object-snap/grid/Ortho/polar/
+PolarSnap/direct-distance pipeline and previews one transformed analytic
+ellipse or `ArcSegment` without tessellation or model mutation. A successful
+final solve publishes one Axis-Z `Ellipse` and one history generation; locked
+layer, invalid CELTSCALE, and nonzero THICKNESS failures retain the prompt.
+When SNAPSTYL is Isometric, the same command exposes Isocircle Radius and
+Diameter. It captures the active rotated SNAPISOPAIR basis and projects the
+circle exactly to a full analytic ellipse with major radius `r*sqrt(3/2)` and
+ratio `1/sqrt(3)` for Left, Top, or Right planes; rectangular style fails
+closed. The checked-in 65,536-solve Release lane records Radius and Diameter
+p50/p95/p99 across rotated mixed-isoplane sessions. The established
+managed/native analytic ellipse lowering is unchanged, so no shader, ABI,
+resource, cache, upload, or device-loss fork is introduced.
+
+The shared ProGPU.CAD plan grid now defaults to AutoCAD's lined model-space
+GRIDSTYLE and exposes a shared desktop/browser Dots toggle. Autodesk documents
+GRIDSTYLE as registry-backed host state, so the toggle intentionally changes no
+DXF/DWG value or document generation. Minor lines remain one physical pixel and
+every persisted GRIDMAJOR line is two physical pixels under affine rotation,
+anisotropic scale, and shear. Dots and lines use the same one-quad canonical
+managed/native shader path with no new ABI record or per-lattice upload.
+
+The ProGPU.CAD continuation also adds atomic multi-source populated-layer merge.
+The shared desktop/browser shell queues generation-stamped source layers and
+commits them to one explicit target as one history generation; Undo restores
+every exact entity and viewport frozen-layer reference. DXF/DWG round trips and
+native picture replay cover the result. The ACadSharp feature branch supplies a
+preflighted range removal with one immutable typed notification, while its master
+branch remains synchronized with upstream. This is a document/UI transaction
+change, not a renderer optimization, and makes no performance-improvement claim.
+
+The ProGPU.CAD publishing path now writes bounded white-paper raster PDF and
+single-page PNG output directly from retained physical print-job pages. It
+preserves mixed media, quarter-turn orientation, collated/uncollated copy order,
+explicit DPI, physical lineweights, plotted ACI 7, and shaped retained content;
+PDF embeds the exact same RGB raster verified against PNG. Per-page, total-pixel,
+dimension, and encoded-byte budgets plus staging make validation, replay,
+encoding, and pre-commit cancellation destination-safe. The shared
+desktop/browser shell exposes supported-selected-page PDF/PNG picker output.
+This is a portable CPU publishing adapter; vector PDF/SVG, printer submission,
+GPU readback, color management, and GPU/native pixel certification remain.
+
+The shared ProGPU.CAD desktop/browser editor now supports selected-set
+`Move points…`, `Copy points…`, and bounded `Copy multiple…`: one WCS-XY base
+point plus one second point define the exact displacement. Hovering records only a fixed-device guide and
+translated selection bounds, with no entity mutation, snapshot publication, or
+scene rebuild; the second click commits through the existing one-generation
+transactional MOVE/COPY commands. Escape and document/selection teardown cancel
+without edits, source handles remain selected, and coincident MOVE/COPY behavior
+is explicit. The same prompts now accept bounded typed coordinates and exact
+running Intersection/Endpoint/Midpoint/Center/Quadrant/Node/Nearest points and
+base-referenced Perpendicular or Tangent second points;
+Nearest covers documented linear, conic, polyline, POINT, and rational-spline
+families without flattening; Tangent keeps every exact root on documented conic,
+bulge-arc, and rational-spline families. UCS/arbitrary-camera planes and full
+geometry ghosting remain.
+This workflow changes no renderer,
+shader, GPU/native ABI, or persistence contract and makes no performance-
+improvement claim.
+
+The shared editor now also provides CAD-object `Copy base…` and `Paste…` point
+prompts. A bounded, versioned, SHA-256-checked text envelope transports exact
+base-point bits and dependency-complete binary DXF through the same desktop and
+browser clipboard seam. Cross-document paste translates complete detached
+graphs before one reversible batch, reuses destination named records on name
+conflicts, retains exact entity identity through Undo/Redo, and rebuilds the
+single managed/native retained scene only after commit.
+
+The same continuation adds bounded external `.lin` library loading and reload to
+the shared desktop/browser shell. A clean-room ASCII parser retains simple,
+text, and SHX-shape descriptors; one reversible command rejects collisions or
+replaces existing definitions without changing their object identity, handles,
+or references. Upright `U=` entries remain typed and are reported as unchanged
+because the persisted dependency flags cannot distinguish them. Focused parser,
+rollback, Undo/Redo, DXF/DWG persistence, UI, and managed/native picture tests
+cover the workflow. ACadSharp feature commits `ff65795e` and `3d074ec4` provide
+atomic segment replacement and restore DXF complex-linetype STYLE handles, while
+ACadSharp `master` stays exactly synchronized with upstream. This is document IO
+and edit orchestration, changes no renderer hot path, and makes no performance
+claim.
+
+ProGPU.CAD now includes an explicitly non-browser path store over its existing
+caller-owned stream API. Path saves serialize to a unique same-directory file,
+defer the session saved-generation commit, flush and close the staged file, and
+replace the destination only after successful serialization and cancellation
+checks. Failures preserve the prior destination, keep the session dirty, and
+clean only the owned staging file. Auto save format recognizes `.dxf`/`.dwg`;
+path loads retain the normalized absolute source name while keeping content
+detection and resource limits in the stream store. DXF/DWG round trips,
+replacement, cancellation, serialization/commit failure, progress, cleanup,
+and missing-directory policy are covered. This is filesystem orchestration and
+does not change rendering, shaders, native ABI, or managed/native parity.
+
+The CAD shell now exposes bounded block-attribute value editing for exactly one
+selected INSERT. A generation-tagged catalog distinguishes reference-owned
+variable ATTRIB values from definition-owned constant ATTDEF values and variable
+ATTDEF defaults, including explicit duplicate-tag occurrences and
+multiline/hidden metadata. All three commands update single-line plus embedded
+MTEXT payloads transactionally. Constant edits retain block-definition identity
+and affect every INSERT instance; variable-default edits preserve assigned
+values on existing references while future INSERTs inherit the new default.
+Undo/Redo, DXF/DWG round trips, shared desktop/browser controls, and
+managed/native retained-text compilation are covered. The existing TEXT/MTEXT
+renderer, caches, shaders, and native ABI are unchanged, so this slice makes no
+rendering-performance claim.
+
+ProGPU.CAD now parses and renders regular and extended compiled AutoCAD-86 Big
+Fonts through a clean-room indexed container, strict persisted drawing-code-page
+mapping, immutable primary/Big-Font resolution, and the existing retained SHX
+path pipeline. Extended composite primitives preserve caller advance, apply
+independent documented width/height scaling, and retain transformed arcs as
+analytic ellipses. TEXT, horizontal MTEXT, complex linetypes, ordered desktop
+discovery, exact selection, printing, managed/native picture replay, and
+DXF/DWG code-page/style/content round trips share the same font pair. The change
+adds no shader, texture, upload, or native ABI and makes no performance claim;
+format provenance and the cross-engine audit are recorded in
+`PROGPU_CAD_SHX_BIGFONT_RESEARCH.md`.
+
+ProGPU.CAD now also honors the remaining compiled UNIFONT metadata roles.
+Encoding 1 performs strict one- or two-byte character-identity mapping through
+the drawing's persisted code page for TEXT, horizontal MTEXT, complex
+linetypes, selection, printing, and managed/native retained replay. Encoding 2
+is a typed non-text shape-file role: it is excluded from text and alternate-font
+resolution while its named and numbered definitions reuse the standalone SHAPE
+pipeline. Original synthetic fixtures cover DXF/DWG persistence and bounded
+failure behavior; independent AutoCAD conformance with licensed encoding-1 and
+encoding-2 artifacts remains an explicit gate. No shader, native ABI, or replay
+resource contract changed, and no performance or image-quality improvement is
+claimed. The evidence boundary and cross-engine audit are recorded in
+`PROGPU_CAD_SHX_PACKED_UNIFONT_RESEARCH.md`.
+
+Definition entries in that catalog now also expose their persisted ATTDEF
+prompt. The shared shell can edit either constant or variable definition
+prompts through the selected INSERT with explicit tag/occurrence addressing,
+the documented 256-code-unit limit, locked-layer authorization, and exact
+Undo/Redo identity. Assigned ATTRIB values are never rewritten; prompt changes
+survive DXF/DWG round trips and affect future insertion interaction only. This
+is document/history state, so managed/native picture replay, shaders, caches,
+uploads, DPI behavior, and device-loss contracts remain unchanged.
+
+The same definition-only surface can rename an ATTDEF tag. New tags use the
+DXF 256-code-unit boundary, reject whitespace and `!`, normalize to uppercase,
+and retain duplicate-occurrence addressing. Existing ATTRIB tags and assigned
+values stay exact until the separate `Sync properties` edit is requested; Sync
+then applies the new tag without changing the assigned value. Exact definition
+identity/order validation, locked-layer rejection, Undo/Redo, duplicate tags,
+DXF/DWG persistence, and shared-shell behavior are covered.
+
+Definition-only mode editing now covers Invisible, Verify, Preset, and Lock
+position while preserving constant and multiline ownership. Variable reference
+modes change only through the explicit synchronization edit; assigned values
+remain exact. Invisible changes flow through the existing snapshot visibility,
+printing, managed picture, and native-picture paths with no new shader or cache.
+ACadSharp feature commit `faf19483` adds version-aware DXF group-280 position
+lock persistence for both ATTDEF and ATTRIB; DWG already carried that field.
+Focused mode, duplicate-occurrence, locked-layer, Undo/Redo, synchronization,
+managed/native retained-output, shared-shell, and DXF/DWG regressions cover the
+slice.
+
+Attribute-definition Constant mode is now a structural, bounded edit rather
+than a cosmetic flag change. One command transitions single-line or multiline
+ATTDEF ownership and synchronizes every reference to the selected block:
+variable-to-constant removes ATTRIBs, constant-to-variable creates transformed
+references from the definition default, and Undo/Redo retains exact values,
+embedded MTEXT, handles, order, and XData. Synchronization now emits references
+only for variable definitions and removes malformed constant references.
+ACadSharp feature commit `cb6d92ec` applies the same invariant to new INSERTs
+and `UpdateAttributes`. The shared dynamically themed shell exposes the explicit
+`Constant (sync all)` control. Managed snapshot and native-picture regressions
+confirm the existing retained text path changes ownership without a shader,
+ABI, cache, upload, DPI, or device-loss fork.
+
+The same selected-INSERT workflow now includes a bounded `Sync properties`
+edit. It synchronizes entity, text, tag, mode, and transform-baked geometry
+properties from the block definitions across every registered reference while
+preserving assigned values. Duplicate tags and tag renames retain deterministic
+value ownership; the complete batch is preflighted and exactly reversible.
+Locked references, XRef/unloaded or dynamic blocks, malformed multiline data,
+and source/target collections above the bounded limits are rejected before any
+mutation. Structural differences now add default-valued references, remove
+obsolete references, and restore exact ATTRIB/SEQEND identities and handles
+through Undo/Redo. Inactive handles live only in private history-owned leases;
+capacity eviction, redo replacement, divergence reset, and Clear release them.
+Following Autodesk's ATTSYNC warning, the same transaction now clears bounded
+XData application payloads from each matching INSERT and its ATTRIB/SEQEND
+sequence while leaving definition-owned BlockRecord/ATTDEF XData intact. Undo
+restores the exact registered AppId and payload identities, Redo clears them
+again, and the shared shell reports the cleared payload count. ACadSharp feature
+commit `ac9301e5` supplies the constant-time application-entry count used by the
+normal XData-free preflight path.
+Focused semantic, lease-lifecycle, persistence, shared-shell, and managed/native
+retained-picture regressions cover the slice.
 
 ## Preview.62 retained SaveLayer optimization closure
 
@@ -93,6 +456,9 @@ pinned in `docs/WINUI_API_PARITY.md`, `docs/SKIASHARP_API_PARITY.md`, and
 - `ProGPU.Avalonia`
 - `ProGPU.Uno`
 - `ProGPU.Dxf`
+- `ACadSharp.ProGPU`
+- `ProGPU.CAD`
+- `ProGPU.CAD.Native`
 - `ProGPU.SkiaSharp`
 - `ProGPU.BinaryCompatibility`
 - `ProGPU.System.Drawing.Common`
@@ -101,6 +467,21 @@ pinned in `docs/WINUI_API_PARITY.md`, `docs/SKIASHARP_API_PARITY.md`, and
 - `ProGPU.iOS`
 - `ProGPU.Android.Media`
 - `ProGPU.Apple.Media`
+
+`ACadSharp.ProGPU` is the net10.0 package built from the reviewed ACadSharp
+feature commit pinned by the ProGPU submodule. It is packed before `ProGPU.CAD`
+at the same ProGPU version; `ProGPU.CAD` has an exact dependency on that distinct
+identity so NuGet cannot substitute upstream `ACadSharp`.
+
+ProGPU.CAD's shared desktop/browser depth view now preserves its perspective
+camera across same-session snapshot replacements instead of fitting after every
+edit. A two-part double-WCS position survives large-coordinate rebase changes;
+new/reset documents and explicit Fit retain the established Z-up view. Orbit,
+pan, and zoom publish one atomic camera update with contractual-zero scene
+compilations, entity/batch visits, geometry uploads, and native crossings. The
+same typed viewport supplies exact projection/view/local-position state to the
+managed `Viewport3D` and existing one-resource/one-draw native Mesh3D ABI, with
+no shader or C ABI change.
 
 ## Avalonia Integration Packages
 

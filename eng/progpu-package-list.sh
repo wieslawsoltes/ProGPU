@@ -39,6 +39,9 @@ progpu_portable_package_ids=(
   ProGPU.Avalonia
   ProGPU.Uno
   ProGPU.Dxf
+  ACadSharp.ProGPU
+  ProGPU.CAD
+  ProGPU.CAD.Native
   ProGPU.SkiaSharp
   ProGPU.BinaryCompatibility
   ProGPU.System.Drawing.Common
@@ -82,6 +85,9 @@ progpu_portable_package_projects=(
   src/ProGPU.Avalonia/ProGPU.Avalonia.csproj
   src/ProGPU.Uno/ProGPU.Uno.csproj
   src/ProGPU.Dxf/ProGPU.Dxf.csproj
+  external/ACadSharp/src/ACadSharp/ACadSharp.csproj
+  src/ProGPU.CAD/ProGPU.CAD.csproj
+  src/ProGPU.CAD.Native/ProGPU.CAD.Native.csproj
   src/SkiaSharp/SkiaSharp.csproj
   src/ProGPU.BinaryCompatibility/ProGPU.BinaryCompatibility.csproj
   src/System.Drawing.Common/System.Drawing.Common.csproj
@@ -125,10 +131,26 @@ progpu_portable_package_purposes=(
   "Avalonia integration and compositor backend adapter."
   "Uno/WinUI integration and compositor backend adapter."
   "DXF import/rendering support for ProGPU vector scenes."
+  "Pinned ProGPU-reviewed ACadSharp fork used by ProGPU.CAD."
+  "ACadSharp-backed DXF/DWG document sessions and retained GPU-accelerated CAD engine foundation."
+  "Optional native C++ scene adapter for immutable ProGPU CAD content."
   "ProGPU-backed portable SkiaSharp compatibility shim used by drawing and imaging adapters."
   "Opt-in official-identity SkiaSharp and Avalonia.Skia runtime/publish compatibility assets."
   "ProGPU-backed portable System.Drawing.Common compatibility shim for LibreWinForms and GDI-style callers."
   "LibreWPF portable interop contracts consumed by the ProGPU/Silk.NET SDK lane."
+)
+
+# Focused package/source-equivalence probe for the CAD dependency boundary.
+# Keep the reviewed fork first so ProGPU.CAD records the same-version package
+# dependency generated from the pinned submodule source.
+progpu_cad_package_ids=(
+  ACadSharp.ProGPU
+  ProGPU.CAD
+)
+
+progpu_cad_package_projects=(
+  external/ACadSharp/src/ACadSharp/ACadSharp.csproj
+  src/ProGPU.CAD/ProGPU.CAD.csproj
 )
 
 # Exact runtime dependency closure of the Avalonia renderer and Silk.NET host.
@@ -209,6 +231,10 @@ progpu_nonshipping_projects=(
   src/ProGPU.Avalonia.SkiaSourceCompatibility/ProGPU.Avalonia.SkiaSourceCompatibility.csproj
   src/ProGPU.Avalonia.Skia.BinaryCompatibility/ProGPU.Avalonia.Skia.BinaryCompatibility.csproj
   src/ProGPU.Avalonia.Skia.BinaryCompatibility.V11/ProGPU.Avalonia.Skia.BinaryCompatibility.V11.csproj
+  src/ProGPU.CAD.Benchmarks/ProGPU.CAD.Benchmarks.csproj
+  src/ProGPU.CAD.Sample/ProGPU.CAD.Sample.csproj
+  src/ProGPU.CAD.Sample.Browser/ProGPU.CAD.Sample.Browser.csproj
+  src/ProGPU.CAD.Sample.Desktop/ProGPU.CAD.Sample.Desktop.csproj
   src/ProGPU.Native.Benchmarks/ProGPU.Native.Benchmarks.csproj
   src/ProGPU.Native.ManagedSample/ProGPU.Native.ManagedSample.csproj
   src/ProGPU.Samples.ActivityMonitor/ProGPU.Samples.ActivityMonitor.csproj
@@ -219,6 +245,7 @@ progpu_nonshipping_projects=(
   src/ProGPU.Samples.Uno/ProGPU.Samples.Uno/ProGPU.Samples.Uno.csproj
   src/ProGPU.Samples.iOS/ProGPU.Samples.iOS.csproj
   src/ProGPU.Samples/ProGPU.Samples.csproj
+  src/ProGPU.CAD.Tests/ProGPU.CAD.Tests.csproj
   src/ProGPU.Tests.Headless/ProGPU.Tests.Headless.csproj
   src/ProGPU.Tests/ProGPU.Tests.csproj
   src/ProGPU.Voxel.Tests/ProGPU.Voxel.Tests.csproj
@@ -231,6 +258,10 @@ progpu_nonshipping_reasons=(
   "Non-shipping source dependency used to validate the ProGPU SkiaSharp contract against Avalonia's ordinary Skia backend."
   "Non-shipping Avalonia.Skia facade shipped inside ProGPU.BinaryCompatibility."
   "Non-shipping Avalonia 11 validation facade for the universal compatibility identity."
+  "ProGPU.CAD immutable snapshot, retained-scene, and spatial-query benchmark."
+  "Shared interactive ProGPU.CAD sample surface."
+  "Standalone browser WebAssembly ProGPU.CAD sample application."
+  "Standalone desktop ProGPU.CAD sample application."
   "Native C++ renderer differential and performance benchmark."
   "Native C++ renderer managed-host sample."
   "Activity Monitor sample application."
@@ -241,6 +272,7 @@ progpu_nonshipping_reasons=(
   "Uno sample application."
   "iOS sample application."
   "Shared sample gallery."
+  "ProGPU.CAD foundation and conformance test project."
   "Headless test project."
   "Test project."
   "Voxel engine test project."

@@ -50,7 +50,8 @@ public enum RenderCommandType
     DrawGlyphRun,
     DrawVertexMesh,
     DrawPointBatch,
-    DrawDotGrid
+    DrawDotGrid,
+    DrawDeviceDotGrid
 }
 
 public enum VertexMeshTopology
@@ -2540,6 +2541,9 @@ public class GpuPicture :
     private readonly ImageEffectCommandData[] _imageEffectBuffer;
     private readonly RetainedResourceLease[] _retainedResources;
     private bool _disposed;
+    private int _ownerReleased;
+    private int _lifetimeReferenceCount;
+    private int _disposeStarted;
 
     public int RetainedResourceCount => _retainedResources.Length;
     internal int ImageEffectCount => _imageEffectBuffer.Length;
@@ -2629,6 +2633,16 @@ public class GpuPicture :
 
     public GpuPicture Clone()
     {
+        if (Volatile.Read(ref _ownerReleased) != 0)
+        {
+            throw new ObjectDisposedException(nameof(GpuPicture));
+        }
+
+        return CloneRetained();
+    }
+
+    internal GpuPicture CloneRetained()
+    {
         if (_disposed)
         {
             throw new ObjectDisposedException(nameof(GpuPicture));
@@ -2694,6 +2708,24 @@ public class GpuPicture :
         }
     }
 
+    internal IDisposable RetainLifetime()
+    {
+        if (Volatile.Read(ref _ownerReleased) != 0 ||
+            Volatile.Read(ref _disposeStarted) != 0)
+        {
+            throw new ObjectDisposedException(nameof(GpuPicture));
+        }
+        Interlocked.Increment(ref _lifetimeReferenceCount);
+        if (Volatile.Read(ref _ownerReleased) == 0 &&
+            Volatile.Read(ref _disposeStarted) == 0)
+        {
+            return new LifetimeLease(this);
+        }
+
+        ReleaseLifetime();
+        throw new ObjectDisposedException(nameof(GpuPicture));
+    }
+
     private static bool HasRetainedResourceIdentity(
         List<RetainedResourceLease> resources,
         object identity)
@@ -2711,13 +2743,44 @@ public class GpuPicture :
 
     public void Dispose()
     {
-        if (_disposed)
+        if (Interlocked.Exchange(ref _ownerReleased, 1) != 0)
+        {
+            return;
+        }
+
+        TryCompleteDispose();
+    }
+
+    private void ReleaseLifetime()
+    {
+        int remaining = Interlocked.Decrement(ref _lifetimeReferenceCount);
+        if (remaining < 0)
+        {
+            throw new InvalidOperationException(
+                "A retained GPU picture lifetime reference was released more than once.");
+        }
+        TryCompleteDispose();
+    }
+
+    private void TryCompleteDispose()
+    {
+        if (Volatile.Read(ref _ownerReleased) == 0 ||
+            Volatile.Read(ref _lifetimeReferenceCount) != 0 ||
+            Interlocked.Exchange(ref _disposeStarted, 1) != 0)
         {
             return;
         }
 
         _disposed = true;
         DisposeRetainedResources(_retainedResources);
+    }
+
+    private sealed class LifetimeLease(GpuPicture picture) : IDisposable
+    {
+        private GpuPicture? _picture = picture;
+
+        public void Dispose() =>
+            Interlocked.Exchange(ref _picture, null)?.ReleaseLifetime();
     }
 
     private static void DisposeRetainedResources(RetainedResourceLease[] resources)
@@ -2776,12 +2839,12 @@ public class GpuPictureRecorder
             command.UseGpuTransforms ||
             command.Transform != default ||
             _recordingContext.RetainedResourceCount !=
-                child.RetainedResourceCount)
+                child.RetainedResourceCount + 1)
         {
             return false;
         }
 
-        picture = child.Clone();
+        picture = child.CloneRetained();
         return true;
     }
 
@@ -3324,6 +3387,48 @@ public class DrawingContext :
     }
 
     /// <summary>
+    /// Adds an independent reference to a texture lease already retained by this
+    /// context to <paramref name="destination"/>. No GPU work or resource lookup is
+    /// performed; the method is O(R) for the bounded retained-resource lists.
+    /// </summary>
+    public bool TryShareRetainedTexture(
+        GpuTexture texture,
+        DrawingContext destination)
+    {
+        ArgumentNullException.ThrowIfNull(texture);
+        ArgumentNullException.ThrowIfNull(destination);
+        if (texture.IsDisposed || _retainedResources is null)
+        {
+            return false;
+        }
+        if (destination.HasRetainedResourceIdentity(texture))
+        {
+            return true;
+        }
+        for (int index = 0; index < _retainedResources.Count; index++)
+        {
+            RetainedResourceLease resource = _retainedResources[index];
+            if (!ReferenceEquals(resource.Identity, texture))
+            {
+                continue;
+            }
+            RetainedResourceLease shared = resource.AddRef();
+            try
+            {
+                (destination._retainedResources ??=
+                    new List<RetainedResourceLease>()).Add(shared);
+            }
+            catch
+            {
+                shared.Dispose();
+                throw;
+            }
+            return true;
+        }
+        return false;
+    }
+
+    /// <summary>
     /// Retains the current texture from <paramref name="source"/> for deferred
     /// command replay. A context keeps at most one lease for a given texture,
     /// so repeated draws reuse both the texture and its lifetime token.
@@ -3441,6 +3546,36 @@ public class DrawingContext :
                 .Add(RetainedResourceLease.Create(lease, leasedTexture));
         }
 
+        texture = leasedTexture;
+        return true;
+    }
+
+    /// <summary>
+    /// Transfers an already acquired texture lease into this retained drawing
+    /// context without selecting a consumer device. Device compatibility remains
+    /// validated when the retained picture is compiled or submitted.
+    /// </summary>
+    public bool TryRetainTextureLease(
+        IProGpuTextureLease textureLease,
+        out GpuTexture texture)
+    {
+        ArgumentNullException.ThrowIfNull(textureLease);
+        GpuTexture leasedTexture = textureLease.Texture;
+        if (leasedTexture is null || leasedTexture.IsDisposed)
+        {
+            textureLease.Dispose();
+            texture = null!;
+            return false;
+        }
+        if (HasRetainedResourceIdentity(leasedTexture))
+        {
+            textureLease.Dispose();
+        }
+        else
+        {
+            (_retainedResources ??= new List<RetainedResourceLease>())
+                .Add(RetainedResourceLease.Create(textureLease, leasedTexture));
+        }
         texture = leasedTexture;
         return true;
     }
@@ -3991,6 +4126,62 @@ public class DrawingContext :
             fontSkewX);
     }
 
+    /// <summary>
+    /// Records a transformed range of an existing shaped glyph stream without
+    /// allocating sliced arrays. Glyph positions remain outside the local font
+    /// stretch and shear, matching <see cref="DrawTransformedGlyphRun"/>.
+    /// </summary>
+    public void DrawTransformedGlyphRunRange(
+        ushort[] glyphIndices,
+        Vector2[] glyphPositions,
+        int glyphRangeStart,
+        int glyphRangeCount,
+        TtfFont font,
+        float fontSize,
+        Brush brush,
+        Vector2 position,
+        Matrix4x4 transform = default,
+        bool isBold = false,
+        bool isItalic = false,
+        TextRenderingMode textRenderingMode = TextRenderingMode.Grayscale,
+        TextHintingMode textHintingMode = TextHintingMode.Auto,
+        bool useVectorGlyphRendering = false,
+        bool preferGlyphAtlas = false,
+        bool useLogicalGlyphAtlasResolution = false,
+        float fontScaleX = 1f,
+        float fontSkewX = 0f)
+    {
+        ArgumentNullException.ThrowIfNull(glyphIndices);
+        ArgumentNullException.ThrowIfNull(glyphPositions);
+        ArgumentOutOfRangeException.ThrowIfNegative(glyphRangeStart);
+        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(glyphRangeCount);
+        if (glyphRangeStart > glyphIndices.Length - glyphRangeCount ||
+            glyphRangeStart > glyphPositions.Length - glyphRangeCount)
+        {
+            throw new ArgumentOutOfRangeException(nameof(glyphRangeCount));
+        }
+
+        AddGlyphRun(
+            glyphIndices,
+            glyphPositions,
+            glyphRangeStart,
+            glyphRangeCount,
+            font,
+            fontSize,
+            brush,
+            position,
+            transform,
+            isBold,
+            isItalic,
+            textRenderingMode,
+            textHintingMode,
+            useVectorGlyphRendering,
+            preferGlyphAtlas,
+            useLogicalGlyphAtlasResolution,
+            fontScaleX,
+            fontSkewX);
+    }
+
     private void AddGlyphRun(
         ushort[] glyphIndices,
         Vector2[] glyphPositions,
@@ -4323,6 +4514,82 @@ public class DrawingContext :
         });
     }
 
+    /// <summary>
+    /// Records an affine rectangular dot grid as one analytic quad. Grid centers
+    /// use local lattice coordinates while the dot radius remains fixed in physical
+    /// framebuffer pixels under rotation, anisotropic scale, and shear.
+    /// </summary>
+    public void DrawDeviceDotGrid(
+        Brush brush,
+        Rect bounds,
+        Vector2 spacing,
+        float radius,
+        Matrix4x4 transform = default)
+    {
+        ArgumentNullException.ThrowIfNull(brush);
+        if (!float.IsFinite(spacing.X) || spacing.X <= 0f ||
+            !float.IsFinite(spacing.Y) || spacing.Y <= 0f)
+        {
+            throw new ArgumentOutOfRangeException(nameof(spacing));
+        }
+        if (!float.IsFinite(radius) || radius <= 0f)
+        {
+            throw new ArgumentOutOfRangeException(nameof(radius));
+        }
+
+        Commands.Add(new RenderCommand
+        {
+            Type = RenderCommandType.DrawDeviceDotGrid,
+            Brush = brush,
+            Rect = bounds,
+            Position2 = spacing,
+            RadiusX = radius,
+            Transform = transform
+        });
+    }
+
+    /// <summary>
+    /// Records an affine rectangular line grid as one analytic quad. Minor and
+    /// emphasized major lines retain fixed physical-framebuffer widths under
+    /// rotation, anisotropic scale, and shear.
+    /// </summary>
+    public void DrawDeviceLineGrid(
+        Brush brush,
+        Rect bounds,
+        Vector2 spacing,
+        float minorLineWidth,
+        int minorLinesPerMajorLine,
+        Matrix4x4 transform = default)
+    {
+        ArgumentNullException.ThrowIfNull(brush);
+        if (!float.IsFinite(spacing.X) || spacing.X <= 0f ||
+            !float.IsFinite(spacing.Y) || spacing.Y <= 0f)
+        {
+            throw new ArgumentOutOfRangeException(nameof(spacing));
+        }
+        if (!float.IsFinite(minorLineWidth) || minorLineWidth <= 0f)
+        {
+            throw new ArgumentOutOfRangeException(nameof(minorLineWidth));
+        }
+        if (minorLinesPerMajorLine is < 1 or > 100)
+        {
+            throw new ArgumentOutOfRangeException(nameof(minorLinesPerMajorLine));
+        }
+
+        Commands.Add(new RenderCommand
+        {
+            // Keep one stable semantic/native primitive. RadiusY == 0 denotes
+            // dots; a positive integral RadiusY carries the major-line cadence.
+            Type = RenderCommandType.DrawDeviceDotGrid,
+            Brush = brush,
+            Rect = bounds,
+            Position2 = spacing,
+            RadiusX = minorLineWidth,
+            RadiusY = minorLinesPerMajorLine,
+            Transform = transform
+        });
+    }
+
     public void DrawRoundedRectangle(Brush? brush, Pen? pen, Rect rect, float radius)
     {
         DrawRoundedRectangle(brush, pen, rect, radius, radius);
@@ -4488,19 +4755,26 @@ public class DrawingContext :
 
     public void DrawPointBatch(
         Brush brush,
-        Vector2[] points,
+        ReadOnlySpan<Vector2> points,
         float radius,
         bool round,
         Matrix4x4 transform = default,
         bool isEdgeAliased = false)
     {
         ArgumentNullException.ThrowIfNull(brush);
-        ArgumentNullException.ThrowIfNull(points);
+        int offset = PointBuffer.Count;
+        int count = points.Length;
+        int required = checked(offset + count);
+        if (PointBuffer.Capacity < required)
+            PointBuffer.Capacity = Math.Max(required, PointBuffer.Capacity * 2);
+        CollectionsMarshal.SetCount(PointBuffer, required);
+        points.CopyTo(CollectionsMarshal.AsSpan(PointBuffer).Slice(offset, count));
         Commands.Add(new RenderCommand
         {
             Type = RenderCommandType.DrawPointBatch,
             Brush = brush,
-            PolylinePoints = points,
+            PointBufferOffset = offset,
+            PointBufferCount = count,
             RadiusX = radius,
             IntParam = round ? 1 : 0,
             Transform = transform,
@@ -4725,11 +4999,25 @@ public class DrawingContext :
     private void RetainPictureResources(GpuPicture picture)
     {
         ArgumentNullException.ThrowIfNull(picture);
-        if (picture.RetainedResourceCount == 0)
-            return;
+
+        _retainedResources ??= new List<RetainedResourceLease>();
+        if (!HasRetainedResourceIdentity(picture))
+        {
+            IDisposable lifetime = picture.RetainLifetime();
+            try
+            {
+                _retainedResources.Add(
+                    RetainedResourceLease.Create(lifetime, picture));
+            }
+            catch
+            {
+                lifetime.Dispose();
+                throw;
+            }
+        }
 
         picture.AppendRetainedResourcesTo(
-            _retainedResources ??= new List<RetainedResourceLease>());
+            _retainedResources);
     }
 
     /// <summary>
@@ -4782,6 +5070,27 @@ public class DrawingContext :
     }
 
     // --- Backward Compatible Overloads (Forward to Spans) ---
+
+    public void DrawPointBatch(
+        Brush brush,
+        Vector2[] points,
+        float radius,
+        bool round,
+        Matrix4x4 transform = default,
+        bool isEdgeAliased = false)
+    {
+        ArgumentNullException.ThrowIfNull(points);
+        DrawPointBatch(
+            brush,
+            new ReadOnlySpan<Vector2>(points),
+            radius,
+            round,
+            transform,
+            isEdgeAliased);
+        RenderCommand command = Commands[^1];
+        command.PolylinePoints = points;
+        Commands[^1] = command;
+    }
 
     public void DrawPolyline(Pen pen, Vector2[] points, bool isClosed = false)
     {
@@ -5249,6 +5558,7 @@ public class DrawingContext :
             RenderCommandType.DrawVisual or
             RenderCommandType.DrawHatch or
             RenderCommandType.DrawDotGrid or
+            RenderCommandType.DrawDeviceDotGrid or
             RenderCommandType.DrawLine3D or
             RenderCommandType.DrawAcisSolid or
             RenderCommandType.DrawStaticDxf)

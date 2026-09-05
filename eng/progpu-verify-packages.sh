@@ -15,6 +15,9 @@ case "${package_group}" in
   portable)
     selected_package_ids=("${progpu_portable_package_ids[@]}")
     ;;
+  cad)
+    selected_package_ids=("${progpu_cad_package_ids[@]}")
+    ;;
   avalonia-runtime)
     selected_package_ids=("${progpu_avalonia_runtime_package_ids[@]}")
     ;;
@@ -22,7 +25,7 @@ case "${package_group}" in
     selected_package_ids=("${progpu_mobile_package_ids[@]}")
     ;;
   *)
-    echo "Unknown PROGPU_PACKAGE_GROUP '${package_group}'. Expected all, portable, avalonia-runtime, or mobile." >&2
+    echo "Unknown PROGPU_PACKAGE_GROUP '${package_group}'. Expected all, portable, cad, avalonia-runtime, or mobile." >&2
     exit 1
     ;;
 esac
@@ -132,6 +135,23 @@ for package_id in "${selected_package_ids[@]}"; do
         exit 1
       fi
     done
+  fi
+
+  if [[ "${package_id}" == "ACadSharp.ProGPU" ]]; then
+    if ! unzip -Z1 "${package}" | grep -Fx "lib/net10.0/ACadSharp.dll" >/dev/null; then
+      echo "${package_id} is missing its net10.0 ACadSharp assembly." >&2
+      exit 1
+    fi
+  elif [[ "${package_id}" == "ProGPU.CAD" ]]; then
+    cad_nuspec="$(unzip -p "${package}" '*.nuspec')"
+    if ! grep -F '<dependency id="ACadSharp.ProGPU" version="' <<<"${cad_nuspec}" >/dev/null; then
+      echo "${package_id} must depend on the reviewed ACadSharp.ProGPU fork package." >&2
+      exit 1
+    fi
+    if grep -F '<dependency id="ACadSharp" ' <<<"${cad_nuspec}" >/dev/null; then
+      echo "${package_id} must not resolve the upstream ACadSharp package identity." >&2
+      exit 1
+    fi
   fi
 
   while IFS=$'\t' read -r dependency_id dependency_version; do

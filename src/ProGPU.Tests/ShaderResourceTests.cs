@@ -6,6 +6,7 @@ using ProGPU.Compute;
 using ProGPU.DirectX;
 using ProGPU.Samples;
 using ProGPU.Scene;
+using ProGPU.Scene.Extensions;
 using ProGPU.Vector;
 using Xunit;
 
@@ -73,6 +74,33 @@ public class ShaderResourceTests
 
         Assert.Same(first, second);
         Assert.Same(Shaders.VectorShader, first);
+    }
+
+    [Fact]
+    public void Native3DMaterialSamplingUsesExplicitLevelInsideMaterialBranches()
+    {
+        string source = ShaderResource.Load(
+            typeof(Mesh3DExtensionPipeline),
+            "Native3D.wgsl");
+
+        Assert.Contains(
+            "textureSampleLevel(\n                material_texture",
+            source,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            "textureSample(\n                material_texture",
+            source,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void VectorShaderRetainsBoundedMultiFamilyHatchGrammar()
+    {
+        Assert.Contains("fn hatch_pattern_set_coverage(", Shaders.VectorShader, StringComparison.Ordinal);
+        Assert.Contains("familyIndex * 4u", Shaders.VectorShader, StringComparison.Ordinal);
+        Assert.Contains("dashIndex >= 6u", Shaders.VectorShader, StringComparison.Ordinal);
+        Assert.Contains("brush.brushType == 8u", Shaders.VectorShader, StringComparison.Ordinal);
+        Assert.Contains("row * record1.color.x", Shaders.VectorShader, StringComparison.Ordinal);
     }
 
     [Fact]

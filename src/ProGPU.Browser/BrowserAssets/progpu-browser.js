@@ -590,7 +590,9 @@ function installBrowserInput() {
       (event.key === 'Backspace' || event.key === 'Delete' || event.key === 'Enter' || textSinkOwnsPaste)) return;
     const key = browserKeyCodes.get(event.code) || 0;
     if (key !== 0) queueInputEvent(5, 0, 0, 0, 0, key, eventModifiers(event), event.repeat ? 1 : 0);
-    if (['Tab', 'ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', 'PageUp', 'PageDown', 'Home', 'End', 'Space'].includes(event.code)) {
+    if (event.code === 'F5' || event.code === 'F8' || event.code === 'F9' || event.code === 'F10' ||
+      (event.code === 'KeyE' && event.ctrlKey) ||
+      ['Tab', 'ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', 'PageUp', 'PageDown', 'Home', 'End', 'Space'].includes(event.code)) {
       event.preventDefault();
     }
   }, true);

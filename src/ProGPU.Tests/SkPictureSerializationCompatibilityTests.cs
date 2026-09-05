@@ -216,6 +216,90 @@ public sealed class SkPictureSerializationCompatibilityTests
     }
 
     [Fact]
+    public void VersionThreeArchiveDefaultsHatchCoordinateTransformToIdentity()
+    {
+        var brush = new HatchPatternBrush(0.5f, 8f, 0f, Vector4.One)
+        {
+            CoordinateTransform = Matrix4x4.CreateTranslation(3f, 5f, 0f),
+        };
+        var picture = new GpuPicture(
+            [new RenderCommand
+            {
+                Type = RenderCommandType.DrawRect,
+                Rect = new Rect(0f, 0f, 24f, 8f),
+                Brush = brush,
+            }],
+            [],
+            [],
+            [],
+            []);
+        byte[] bytes = PictureArchive.Serialize(
+            picture,
+            new SKRect(0f, 0f, 24f, 8f),
+            archiveVersion: 3);
+
+        using SKPicture? copy = SKPicture.Deserialize(bytes);
+
+        Assert.NotNull(copy);
+        var actual = Assert.IsType<HatchPatternBrush>(
+            Assert.Single(copy.Picture.Commands).Brush);
+        Assert.Equal(Matrix4x4.Identity, actual.CoordinateTransform);
+    }
+
+    [Fact]
+    public void VersionFiveArchiveRoundTripsBoundedHatchPatternGrammar()
+    {
+        var brush = new HatchPatternSetBrush(
+            [
+                new HatchPatternLineFamily(
+                    new Vector2(2f, 3f),
+                    Vector2.UnitX,
+                    4f,
+                    5f,
+                    0,
+                    6,
+                    8.5f),
+                new HatchPatternLineFamily(
+                    new Vector2(-1f, 7f),
+                    Vector2.UnitY,
+                    -2f,
+                    9f,
+                    6,
+                    0,
+                    0f),
+            ],
+            [2f, -1f, 0f, -0.5f, 3f, -2f],
+            0f,
+            new Vector4(0.1f, 0.2f, 0.3f, 1f))
+        {
+            Opacity = 0.75f,
+            CoordinateTransform = Matrix4x4.CreateTranslation(11f, 13f, 0f),
+        };
+        using var picture = new SKPicture(
+            new GpuPicture(
+                [new RenderCommand
+                {
+                    Type = RenderCommandType.DrawRect,
+                    Rect = new Rect(0f, 0f, 20f, 20f),
+                    Brush = brush,
+                }],
+                [], [], [], []),
+            new SKRect(0f, 0f, 20f, 20f));
+
+        using SKData data = picture.Serialize();
+        using SKPicture? copy = SKPicture.Deserialize(data);
+
+        Assert.NotNull(copy);
+        HatchPatternSetBrush actual = Assert.IsType<HatchPatternSetBrush>(
+            Assert.Single(copy.Picture.Commands).Brush);
+        Assert.Equal(brush.Opacity, actual.Opacity);
+        Assert.Equal(brush.Color, actual.Color);
+        Assert.Equal(brush.CoordinateTransform, actual.CoordinateTransform);
+        Assert.Equal(brush.Families.ToArray(), actual.Families.ToArray());
+        Assert.Equal(brush.Dashes.ToArray(), actual.Dashes.ToArray());
+    }
+
+    [Fact]
     public void ArchiveRoundTripsNestedPicturesAndVertexMeshes()
     {
         var child = new GpuPicture(
@@ -298,8 +382,14 @@ public sealed class SkPictureSerializationCompatibilityTests
                 SpreadMethod = GradientSpreadMethod.Reflect,
             },
             new PerlinNoiseBrush(true, new Vector2(0.1f, 0.2f), 4, 3f, new Vector2(32f, 48f)),
-            new HatchPatternBrush(30f, 5f, 2f, Vector4.One),
-            new CrossHatchBrush(45f, 6f, 3f, Vector4.UnitW),
+            new HatchPatternBrush(30f, 5f, 2f, Vector4.One)
+            {
+                CoordinateTransform = Matrix4x4.CreateTranslation(2f, 3f, 0f),
+            },
+            new CrossHatchBrush(45f, 6f, 3f, Vector4.UnitW)
+            {
+                CoordinateTransform = Matrix4x4.CreateScale(2f, 4f, 1f),
+            },
             new ThemeResourceBrush("AccentBrush"),
             backdrop,
         ];
@@ -337,6 +427,10 @@ public sealed class SkPictureSerializationCompatibilityTests
         var actualNoise = Assert.IsType<PerlinNoiseBrush>(copy.Picture.Commands[4].Brush);
         Assert.Equal(4, actualNoise.NumOctaves);
         Assert.Equal(new Vector2(32f, 48f), actualNoise.TileSize);
+        var actualHatch = Assert.IsType<HatchPatternBrush>(copy.Picture.Commands[5].Brush);
+        Assert.Equal(Matrix4x4.CreateTranslation(2f, 3f, 0f), actualHatch.CoordinateTransform);
+        var actualCrossHatch = Assert.IsType<CrossHatchBrush>(copy.Picture.Commands[6].Brush);
+        Assert.Equal(Matrix4x4.CreateScale(2f, 4f, 1f), actualCrossHatch.CoordinateTransform);
         Assert.Equal("AccentBrush", Assert.IsType<ThemeResourceBrush>(copy.Picture.Commands[7].Brush).ResourceKey);
         var actualBackdrop = Assert.IsType<BackdropMaterialBrush>(copy.Picture.Commands[8].Brush);
         Assert.Equal(BackdropMaterialKind.Mica, actualBackdrop.Kind);

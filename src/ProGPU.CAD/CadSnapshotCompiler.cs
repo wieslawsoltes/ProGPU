@@ -1,0 +1,6814 @@
+using ACadSharp;
+using ACadSharp.Blocks;
+using ACadSharp.Entities;
+using ACadSharp.Extensions;
+using ACadSharp.Header;
+using ACadSharp.Objects;
+using ACadSharp.Tables;
+using ACadSharp.Types.Units;
+using CSMath;
+using ProGPU.Text;
+using System.Numerics;
+
+namespace ProGPU.CAD;
+
+public sealed class CadSnapshotOptions
+{
+    public const int DefaultDiagnosticLimit = 256;
+    public const int DefaultMaxBlockNestingDepth = 32;
+    public const int DefaultMaxBlockArrayInstances = 1_000_000;
+    public const int DefaultMaxExpandedEntities = 5_000_000;
+    public const int DefaultMaxTextCodeUnitsPerEntity = 65_536;
+    public const int DefaultMaxTextGlyphs = 4_000_000;
+    public const int DefaultMaxLineTypePatterns = 65_536;
+    public const int DefaultMaxLineTypeElements = 1_000_000;
+    public const int DefaultMaxHatchLoops = 1_000_000;
+    public const int DefaultMaxHatchSegments = 5_000_000;
+    public const int DefaultMaxHatchPatterns = 1_000_000;
+    public const int DefaultMaxHatchPatternFamilies = 1_000_000;
+    public const int DefaultMaxHatchPatternDashes = 6_000_000;
+    public const int DefaultMaxHatchTopologyVisits = 10_000_000;
+    public const int DefaultMaxHatchSplineSourceValues = 10_000_000;
+    public const int DefaultMaxMeshFaceIndices = 10_000_000;
+    public const int DefaultMaxMeshSubdivisionLevel = 6;
+    public const int DefaultMaxMeshSubdivisionTopologyVisits = 1_000_000;
+    public const int DefaultMaxWipeoutClipVerticesPerEntity = 65_536;
+    public const int DefaultMaxWipeoutClipVertices = 1_000_000;
+    public const int DefaultMaxRasterImageResources = 65_536;
+    public const int DefaultMaxMaterialResources = 65_536;
+    public const int DefaultMaxMaterialPathCodeUnits = 32_768;
+    public const int DefaultMaxRasterImagePathCodeUnits = 32_768;
+    public const int DefaultMaxRasterImageClipVerticesPerEntity = 65_536;
+    public const int DefaultMaxRasterImageClipVertices = 1_000_000;
+    public const int DefaultMaxModelerGeometryWires = 1_000_000;
+    public const int DefaultMaxModelerGeometryPoints = 10_000_000;
+    public const int DefaultMaxModelerGeometryPayloadBytesPerEntity = 64 * 1024 * 1024;
+    public const int DefaultMaxModelerGeometryPayloadBytes = 256 * 1024 * 1024;
+    public const int DefaultMaxMLineStrokes = 5_000_000;
+    public const int DefaultMaxMLineFillTriangles = 5_000_000;
+    public const int DefaultMaxLeaderVerticesPerEntity = 65_536;
+    public const int DefaultMaxLeaderControlPoints = 1_000_000;
+    public const int DefaultMaxMultiLeaderPaths = 1_000_000;
+    public const int DefaultMaxMultiLeaderVerticesPerPath = 65_536;
+    public const int DefaultMaxMultiLeaderControlPoints = 4_000_000;
+    public const int DefaultMaxToleranceCellsPerEntity = 1_024;
+    public const int DefaultMaxToleranceCells = 1_000_000;
+    public const int DefaultMaxToleranceStrokes = 4_000_000;
+    public const int DefaultMaxViewports = 16_384;
+    public const int DefaultMaxViewportFrozenLayers = 1_000_000;
+
+    public double DefaultLineWeightMillimeters { get; init; } = 0.25;
+    public int DiagnosticLimit { get; init; } = DefaultDiagnosticLimit;
+    public int MaxBlockNestingDepth { get; init; } = DefaultMaxBlockNestingDepth;
+    public int MaxBlockArrayInstances { get; init; } = DefaultMaxBlockArrayInstances;
+    public int MaxExpandedEntities { get; init; } = DefaultMaxExpandedEntities;
+    public int MaxTextCodeUnitsPerEntity { get; init; } = DefaultMaxTextCodeUnitsPerEntity;
+    public int MaxTextGlyphs { get; init; } = DefaultMaxTextGlyphs;
+    public int MaxLineTypePatterns { get; init; } = DefaultMaxLineTypePatterns;
+    public int MaxLineTypeElements { get; init; } = DefaultMaxLineTypeElements;
+    public int MaxHatchLoops { get; init; } = DefaultMaxHatchLoops;
+    public int MaxHatchSegments { get; init; } = DefaultMaxHatchSegments;
+    public int MaxHatchPatterns { get; init; } = DefaultMaxHatchPatterns;
+    public int MaxHatchPatternFamilies { get; init; } = DefaultMaxHatchPatternFamilies;
+    public int MaxHatchPatternDashes { get; init; } = DefaultMaxHatchPatternDashes;
+    public int MaxHatchTopologyVisits { get; init; } = DefaultMaxHatchTopologyVisits;
+    public int MaxHatchSplineSourceValues { get; init; } = DefaultMaxHatchSplineSourceValues;
+    public int MaxMeshFaceIndices { get; init; } = DefaultMaxMeshFaceIndices;
+    public int MaxMeshSubdivisionLevel { get; init; } = DefaultMaxMeshSubdivisionLevel;
+    public int MaxMeshSubdivisionTopologyVisits { get; init; } =
+        DefaultMaxMeshSubdivisionTopologyVisits;
+    public int MaxWipeoutClipVerticesPerEntity { get; init; } =
+        DefaultMaxWipeoutClipVerticesPerEntity;
+    public int MaxWipeoutClipVertices { get; init; } =
+        DefaultMaxWipeoutClipVertices;
+    public int MaxRasterImageResources { get; init; } =
+        DefaultMaxRasterImageResources;
+    public int MaxMaterialResources { get; init; } =
+        DefaultMaxMaterialResources;
+    public int MaxMaterialPathCodeUnits { get; init; } =
+        DefaultMaxMaterialPathCodeUnits;
+    public int MaxRasterImagePathCodeUnits { get; init; } =
+        DefaultMaxRasterImagePathCodeUnits;
+    public int MaxRasterImageClipVerticesPerEntity { get; init; } =
+        DefaultMaxRasterImageClipVerticesPerEntity;
+    public int MaxRasterImageClipVertices { get; init; } =
+        DefaultMaxRasterImageClipVertices;
+    public int MaxModelerGeometryWires { get; init; } =
+        DefaultMaxModelerGeometryWires;
+    public int MaxModelerGeometryPoints { get; init; } =
+        DefaultMaxModelerGeometryPoints;
+    public int MaxModelerGeometryPayloadBytesPerEntity { get; init; } =
+        DefaultMaxModelerGeometryPayloadBytesPerEntity;
+    public int MaxModelerGeometryPayloadBytes { get; init; } =
+        DefaultMaxModelerGeometryPayloadBytes;
+    public int MaxMLineStrokes { get; init; } = DefaultMaxMLineStrokes;
+    public int MaxMLineFillTriangles { get; init; } = DefaultMaxMLineFillTriangles;
+    public int MaxLeaderVerticesPerEntity { get; init; } =
+        DefaultMaxLeaderVerticesPerEntity;
+    public int MaxLeaderControlPoints { get; init; } =
+        DefaultMaxLeaderControlPoints;
+    public int MaxMultiLeaderPaths { get; init; } = DefaultMaxMultiLeaderPaths;
+    public int MaxMultiLeaderVerticesPerPath { get; init; } =
+        DefaultMaxMultiLeaderVerticesPerPath;
+    public int MaxMultiLeaderControlPoints { get; init; } =
+        DefaultMaxMultiLeaderControlPoints;
+    public int MaxToleranceCellsPerEntity { get; init; } =
+        DefaultMaxToleranceCellsPerEntity;
+    public int MaxToleranceCells { get; init; } = DefaultMaxToleranceCells;
+    public int MaxToleranceStrokes { get; init; } = DefaultMaxToleranceStrokes;
+    public int MaxViewports { get; init; } = DefaultMaxViewports;
+    public int MaxViewportFrozenLayers { get; init; } =
+        DefaultMaxViewportFrozenLayers;
+
+    /// <summary>
+    /// Selects whether snapshot entity order represents interactive
+    /// regeneration or persisted plotting semantics.
+    /// </summary>
+    public CadDrawOrderPurpose DrawOrderPurpose { get; init; } =
+        CadDrawOrderPurpose.Regeneration;
+    public bool IncludeNonPlottableLayers { get; init; } = true;
+    public ICadTextFontResolver? TextFontResolver { get; init; }
+    public ICadShxFontResolver? ShxFontResolver { get; init; }
+    public CadColor32 DrawingBackgroundColor { get; init; } = new(0, 0, 0);
+}
+
+/// <summary>Compiles the mutable ACadSharp graph into immutable ProGPU CAD streams.</summary>
+public sealed partial class CadSnapshotCompiler
+{
+    private const double TwoPi = Math.PI * 2.0;
+
+    [Flags]
+    private enum TextDecorationFlags : byte
+    {
+        None = 0,
+        Overline = 1 << 0,
+        Underline = 1 << 1,
+        StrikeThrough = 1 << 2,
+    }
+
+    private readonly record struct DecodedTextContent(
+        string Text,
+        TextDecorationFlags[]? Decorations);
+
+    private readonly record struct CadCompiledTextMetrics(double Advance);
+
+    public CadDocumentSnapshot Compile(
+        CadDocumentSession session,
+        CadSnapshotOptions? options = null,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(session);
+        options ??= new CadSnapshotOptions();
+        ValidateOptions(options);
+
+        return session.Capture(
+            (document, generation) => CompileSpace(
+                document,
+                generation,
+                session.SourceName,
+                document.ModelSpace,
+                options,
+                cancellationToken));
+    }
+
+    internal static CadDocumentSnapshot CompileSpace(
+        CadDocument document,
+        ulong generation,
+        string? sourceName,
+        BlockRecord sourceSpace,
+        CadSnapshotOptions options,
+        CancellationToken cancellationToken)
+    {
+        ICadShxFontResolver? shxFontResolver = options.ShxFontResolver is CadShxFontCatalog catalog
+            ? catalog.CreateResolverSnapshot()
+            : options.ShxFontResolver;
+        ICadShxShapeResolver? shxShapeResolver = shxFontResolver as ICadShxShapeResolver;
+        var layers = new List<CadLayerSnapshot>();
+        var layerIndices = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+        var styles = new List<CadStrokeStyle>();
+        var styleIndices = new Dictionary<CadStrokeStyle, int>();
+        var lineTypePatterns = new List<CadLineTypePattern>();
+        var lineTypePatternIndices = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+        var lineTypeElements = new List<CadLineTypeElement>();
+        var lineTypeTextResources = new List<CadLineTypeTextResource>();
+        var lineTypeShapeResources = new List<CadLineTypeShapeResource>();
+        var entities = new List<CadEntityHeader>(sourceSpace.Entities.Count);
+        var planBlockInstances = new List<CadPlanBlockInstanceRange>();
+        var lines = new List<CadLinePrimitive>();
+        var mLines = new List<CadMLinePrimitive>();
+        var mLineElementPaths = new List<CadMLineElementPath>();
+        var mLineStrokes = new List<CadMLineStroke>();
+        var mLineFillTriangles = new List<CadMLineFillTriangle>();
+        var leaders = new List<CadLeaderPrimitive>();
+        var multiLeaders = new List<CadMultiLeaderPrimitive>();
+        var tolerances = new List<CadTolerancePrimitive>();
+        var toleranceStrokes = new List<CadToleranceStroke>();
+        var viewports = new List<CadViewportPrimitive>();
+        var viewportFrozenLayers = new List<CadViewportFrozenLayer>();
+        var points = new List<CadPointPrimitive>();
+        var constructionLines = new List<CadConstructionLinePrimitive>();
+        var wipeouts = new List<CadWipeoutPrimitive>();
+        var wipeoutClipPoints = new List<CadWipeoutClipPoint>();
+        var rasterImages = new List<CadRasterImagePrimitive>();
+        var rasterImageResources = new List<CadRasterImageResource>();
+        var rasterImageResourceIndices = new Dictionary<ImageDefinition, int>(
+            ReferenceEqualityComparer.Instance);
+        var rasterImageClipPoints = new List<CadWipeoutClipPoint>();
+        var mesh3DMaterials = new List<CadMesh3DMaterial>();
+        var mesh3DMaterialIndices = new Dictionary<CadMesh3DMaterial, int>();
+        var materialTextureResources = new List<CadMaterialTextureResource>();
+        var materialTextureResourceIndices =
+            new Dictionary<CadMaterialTextureResource, int>();
+        var meshes3D = new List<CadMesh3DPrimitive>();
+        var mesh3DDrawRanges = new List<CadMesh3DDrawRange>();
+        var mesh3DVertices = new List<CadMesh3DVertex>();
+        var mesh3DIndices = new List<uint>();
+        var mesh3DVertexSubobjectIndices = new List<int>();
+        var mesh3DEdgeSubobjectIndices = new List<int>();
+        var mesh3DSubobjectPoints = new List<CadPoint3D>();
+        var mesh3DSubobjectEdges = new List<CadMesh3DSubobjectEdge>();
+        var mesh3DSubobjectFaces = new List<CadMesh3DSubobjectFace>();
+        var mesh3DSubobjectFaceEdgeIndices = new List<int>();
+        var modelerGeometries = new List<CadModelerGeometryPrimitive>();
+        var modelerGeometryWires = new List<CadModelerGeometryWire>();
+        var modelerGeometryPoints = new List<CadPoint3D>();
+        var modelerGeometryPayloadBytes = new List<byte>();
+        var circles = new List<CadCirclePrimitive>();
+        var arcs = new List<CadArcPrimitive>();
+        var ellipses = new List<CadEllipsePrimitive>();
+        var faces = new List<CadFacePrimitive>();
+        var splines = new List<CadSplinePrimitive>();
+        var polylines = new List<CadPolylinePrimitive>();
+        var polylines3D = new List<CadPolyline3DPrimitive>();
+        var hatches = new List<CadHatchPrimitive>();
+        var hatchPatterns = new List<CadHatchPattern>();
+        var hatchPatternFamilies = new List<CadHatchPatternFamily>();
+        var hatchPatternDashes = new List<double>();
+        var hatchLoops = new List<CadHatchLoop>();
+        var hatchSegments = new List<CadHatchSegment>();
+        var texts = new List<CadTextPrimitive>();
+        var textGlyphRuns = new List<CadTextGlyphRun>();
+        var textDecorations = new List<CadTextDecoration>();
+        var mtexts = new List<CadMTextPrimitive>();
+        var mtextGlyphRuns = new List<CadMTextGlyphRun>();
+        var mtextBackgrounds = new List<CadMTextRectangle>();
+        var mtextDecorations = new List<CadMTextRectangle>();
+        var mtextStrokes = new List<CadMTextStroke>();
+        var textGlyphIndices = new List<ushort>();
+        var textGlyphPositions = new List<Vector2>();
+        var textFonts = new List<TtfFont>();
+        var textFontIndices = new Dictionary<TtfFont, int>(ReferenceEqualityComparer.Instance);
+        var shxTexts = new List<CadShxTextPrimitive>();
+        var shxMTexts = new List<CadShxMTextPrimitive>();
+        var shxMTextGlyphRuns = new List<CadShxMTextGlyphRun>();
+        var shxGlyphInstances = new List<CadShxGlyphInstance>();
+        var shxShapes = new List<CadShxShapePrimitive>();
+        int retainedLeaderControlPoints = 0;
+        int retainedMultiLeaderControlPoints = 0;
+        int retainedToleranceCells = 0;
+        var shxDecorationSegments = new List<CadShxDecorationSegment>();
+        var polylineVertices = new List<CadPolylineVertex>();
+        var polyline3DPoints = new List<CadPoint3D>();
+        var splineControlPoints = new List<CadPoint3D>();
+        var splineKnots = new List<double>();
+        var splineWeights = new List<double>();
+        var diagnostics = new List<CadDiagnostic>(Math.Min(options.DiagnosticLimit, 16));
+        CadBounds3D documentBounds = CadBounds3D.Empty;
+        int visibleCount = 0;
+        int expandedCount = 0;
+        int unsupportedCount = 0;
+        int invalidCount = 0;
+        int remainingMeshFaceIndices = options.MaxMeshFaceIndices;
+        int remainingMeshSubdivisionTopologyVisits =
+            options.MaxMeshSubdivisionTopologyVisits;
+        WipeoutFrameType? resolvedWipeoutFrame = null;
+        CadRasterImageDisplaySettings? resolvedRasterImageSettings = null;
+        var hatchTopologyBudget = new CadHatchTopologyBudget(
+            options.MaxHatchTopologyVisits);
+        var hatchSplineSourceBudget = new CadHatchSplineSourceBudget(
+            options.MaxHatchSplineSourceValues);
+        var activeBlocks = new HashSet<BlockRecord>(ReferenceEqualityComparer.Instance);
+        var orderedBlockEntities = new Dictionary<BlockRecord, Entity[]>(
+            ReferenceEqualityComparer.Instance);
+        bool hasDrawOrderOverrides = false;
+        AttributeVisibilityMode attributeVisibility =
+            document.Header.AttributeVisibility;
+        ValidateAttributeVisibility(attributeVisibility);
+        bool applySortOrder = options.DrawOrderPurpose switch
+        {
+            CadDrawOrderPurpose.Regeneration => true,
+            CadDrawOrderPurpose.Plotting =>
+                (document.Header.EntitySortingFlags & ObjectSortingFlags.Plotting) != 0,
+            _ => throw new ArgumentOutOfRangeException(nameof(options)),
+        };
+        double globalLineTypeScale = document.Header.LineTypeScale;
+        string drawingCodePage = document.Header.CodePage;
+        if (!double.IsFinite(globalLineTypeScale) || globalLineTypeScale <= 0.0)
+        {
+            throw new ArgumentException(
+                "Drawing LTSCALE must be finite and positive.",
+                nameof(document));
+        }
+
+        var viewportDependencies = new HashSet<Entity>(ReferenceEqualityComparer.Instance);
+        foreach (Entity entity in sourceSpace.Entities)
+        {
+            if (entity is Viewport viewport)
+            {
+                viewportDependencies.Add(viewport);
+                if (viewport.Boundary is not null)
+                {
+                    viewportDependencies.Add(viewport.Boundary);
+                }
+            }
+        }
+
+        foreach (Entity entity in GetOrderedEntities(sourceSpace))
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            bool isViewportDependency = viewportDependencies.Contains(entity);
+            bool forceCapture = isViewportDependency &&
+                (entity is not Viewport || !entity.IsInvisible);
+            bool isVisible = !entity.IsInvisible &&
+                entity.Layer.IsOn &&
+                !IsLayerFrozen(entity.Layer) &&
+                (options.IncludeNonPlottableLayers || entity.Layer.PlotFlag) &&
+                !IsAttributeExcluded(entity, attributeVisibility);
+            if (!isVisible && !forceCapture)
+            {
+                continue;
+            }
+
+            if (isVisible)
+            {
+                visibleCount++;
+            }
+            CompileEntityTree(
+                entity,
+                CadAffineTransform3D.Identity,
+                false,
+                entity.Handle,
+                inheritedLayer: null,
+                byBlockStyle: null,
+                depth: 0,
+                forceCapture: forceCapture);
+        }
+
+        return new CadDocumentSnapshot(
+            generation,
+            sourceName,
+            options.DrawOrderPurpose,
+            hasDrawOrderOverrides,
+            options.DrawOrderPurpose == CadDrawOrderPurpose.Plotting ||
+                !hasDrawOrderOverrides ||
+                (document.Header.EntitySortingFlags & ObjectSortingFlags.Plotting) != 0,
+            globalLineTypeScale,
+            CapturePlanGridDisplaySettings(document),
+            CapturePlanGridSnapSettings(document),
+            CapturePlanPolarTrackingSettings(document),
+            CapturePlanAuthoringContext(document),
+            document.Header.OrthoMode,
+            documentBounds,
+            new CadSnapshotStatistics(
+                sourceSpace.Entities.Count,
+                visibleCount,
+                expandedCount,
+                unsupportedCount,
+                invalidCount),
+            layers.ToArray(),
+            styles.ToArray(),
+            lineTypePatterns.ToArray(),
+            lineTypeElements.ToArray(),
+            lineTypeTextResources.ToArray(),
+            lineTypeShapeResources.ToArray(),
+            entities.ToArray(),
+            planBlockInstances.ToArray(),
+            lines.ToArray(),
+            mLines.ToArray(),
+            mLineElementPaths.ToArray(),
+            mLineStrokes.ToArray(),
+            mLineFillTriangles.ToArray(),
+            leaders.ToArray(),
+            multiLeaders.ToArray(),
+            tolerances.ToArray(),
+            toleranceStrokes.ToArray(),
+            viewports.ToArray(),
+            viewportFrozenLayers.ToArray(),
+            points.ToArray(),
+            constructionLines.ToArray(),
+            wipeouts.ToArray(),
+            wipeoutClipPoints.ToArray(),
+            rasterImages.ToArray(),
+            rasterImageResources.ToArray(),
+            rasterImageClipPoints.ToArray(),
+            mesh3DMaterials.ToArray(),
+            materialTextureResources.ToArray(),
+            meshes3D.ToArray(),
+            mesh3DDrawRanges.ToArray(),
+            mesh3DVertices.ToArray(),
+            mesh3DIndices.ToArray(),
+            mesh3DVertexSubobjectIndices.ToArray(),
+            mesh3DEdgeSubobjectIndices.ToArray(),
+            mesh3DSubobjectPoints.ToArray(),
+            mesh3DSubobjectEdges.ToArray(),
+            mesh3DSubobjectFaces.ToArray(),
+            mesh3DSubobjectFaceEdgeIndices.ToArray(),
+            modelerGeometries.ToArray(),
+            modelerGeometryWires.ToArray(),
+            modelerGeometryPoints.ToArray(),
+            modelerGeometryPayloadBytes.ToArray(),
+            circles.ToArray(),
+            arcs.ToArray(),
+            ellipses.ToArray(),
+            faces.ToArray(),
+            splines.ToArray(),
+            polylines.ToArray(),
+            polylines3D.ToArray(),
+            hatches.ToArray(),
+            hatchPatterns.ToArray(),
+            hatchPatternFamilies.ToArray(),
+            hatchPatternDashes.ToArray(),
+            hatchLoops.ToArray(),
+            hatchSegments.ToArray(),
+            texts.ToArray(),
+            textGlyphRuns.ToArray(),
+            textDecorations.ToArray(),
+            mtexts.ToArray(),
+            mtextGlyphRuns.ToArray(),
+            mtextBackgrounds.ToArray(),
+            mtextDecorations.ToArray(),
+            mtextStrokes.ToArray(),
+            textGlyphIndices.ToArray(),
+            textGlyphPositions.ToArray(),
+            textFonts.ToArray(),
+            shxTexts.ToArray(),
+            shxMTexts.ToArray(),
+            shxMTextGlyphRuns.ToArray(),
+            shxGlyphInstances.ToArray(),
+            shxShapes.ToArray(),
+            shxDecorationSegments.ToArray(),
+            polylineVertices.ToArray(),
+            polyline3DPoints.ToArray(),
+            splineControlPoints.ToArray(),
+            splineKnots.ToArray(),
+            splineWeights.ToArray(),
+            diagnostics.ToArray());
+
+        void CompileEntityTree(
+            Entity entity,
+            CadAffineTransform3D transform,
+            bool hasTransform,
+            ulong rootHandle,
+            Layer? inheritedLayer,
+            CadResolvedStyle? byBlockStyle,
+            int depth,
+            bool forceCapture = false,
+            Material? byBlockMaterial = null)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            Layer effectiveLayer = inheritedLayer is not null && IsLayerZero(entity.Layer)
+                ? inheritedLayer
+                : entity.Layer;
+            if (!forceCapture && (entity.IsInvisible || !effectiveLayer.IsOn ||
+                IsLayerFrozen(effectiveLayer) ||
+                (!options.IncludeNonPlottableLayers && !effectiveLayer.PlotFlag)))
+            {
+                return;
+            }
+            if (IsAttributeExcluded(entity, attributeVisibility))
+            {
+                return;
+            }
+
+            try
+            {
+                if (expandedCount >= options.MaxExpandedEntities)
+                {
+                    throw new CadSnapshotExpansionLimitException(
+                        $"Expanded entity count exceeds the configured limit of {options.MaxExpandedEntities}.");
+                }
+
+                expandedCount++;
+
+                CadResolvedStyle resolvedStyle = ResolveStyle(
+                    entity,
+                    effectiveLayer,
+                    byBlockStyle,
+                    options,
+                    globalLineTypeScale);
+                Material resolvedMaterial = ResolveMaterial(
+                    entity,
+                    effectiveLayer,
+                    byBlockMaterial,
+                    document);
+                int surfaceMaterialIndex = entity is
+                    (Mesh or PolygonMesh or PolyfaceMesh or Solid or Face3D)
+                        ? InternMaterial(
+                            resolvedMaterial,
+                            resolvedStyle,
+                            mesh3DMaterials,
+                            mesh3DMaterialIndices,
+                            materialTextureResources,
+                            materialTextureResourceIndices,
+                            options)
+                        : -1;
+                if (entity is TableEntity table)
+                {
+                    CompileTable(
+                        table,
+                        transform,
+                        hasTransform,
+                        rootHandle,
+                        effectiveLayer,
+                        resolvedStyle,
+                        resolvedMaterial,
+                        depth);
+                    return;
+                }
+                if (entity is Insert insert)
+                {
+                    CompileInsert(
+                        insert,
+                        transform,
+                        hasTransform,
+                        rootHandle,
+                        effectiveLayer,
+                        resolvedStyle,
+                        resolvedMaterial,
+                        depth);
+                    return;
+                }
+                if (entity is Dimension dimension)
+                {
+                    CompileDimension(
+                        dimension,
+                        transform,
+                        hasTransform,
+                        rootHandle,
+                        effectiveLayer,
+                        resolvedStyle,
+                        resolvedMaterial,
+                        depth);
+                    return;
+                }
+                if (entity is Leader leader)
+                {
+                    CompileLeaderTree(
+                        leader,
+                        transform,
+                        hasTransform,
+                        rootHandle,
+                        effectiveLayer,
+                        resolvedStyle,
+                        resolvedMaterial,
+                        depth);
+                    return;
+                }
+                if (entity is MultiLeader multiLeader)
+                {
+                    CompileMultiLeaderTree(
+                        multiLeader,
+                        transform,
+                        hasTransform,
+                        rootHandle,
+                        effectiveLayer,
+                        resolvedStyle,
+                        resolvedMaterial,
+                        depth);
+                    return;
+                }
+                if (entity is Tolerance tolerance)
+                {
+                    CompileToleranceTree(
+                        tolerance,
+                        transform,
+                        hasTransform,
+                        rootHandle,
+                        effectiveLayer,
+                        resolvedStyle);
+                    return;
+                }
+                if (entity is Viewport viewport)
+                {
+                    CompileViewportTree(
+                        viewport,
+                        transform,
+                        hasTransform,
+                        rootHandle,
+                        effectiveLayer,
+                        resolvedStyle,
+                        depth);
+                    return;
+                }
+                if (entity is Mesh mesh)
+                {
+                    CompileMesh(
+                        mesh,
+                        transform,
+                        hasTransform,
+                        rootHandle,
+                        effectiveLayer,
+                        resolvedStyle,
+                        surfaceMaterialIndex);
+                    return;
+                }
+                if (entity is PolygonMesh polygonMesh)
+                {
+                    CompilePolygonMesh(
+                        polygonMesh,
+                        transform,
+                        hasTransform,
+                        rootHandle,
+                        effectiveLayer,
+                        resolvedStyle,
+                        surfaceMaterialIndex);
+                    return;
+                }
+                if (entity is PolyfaceMesh polyfaceMesh)
+                {
+                    CompilePolyfaceMesh(
+                        polyfaceMesh,
+                        transform,
+                        hasTransform,
+                        rootHandle,
+                        effectiveLayer,
+                        resolvedStyle,
+                        surfaceMaterialIndex);
+                    return;
+                }
+                if (entity is ACadSharp.Entities.Point pointEntity)
+                {
+                    ValidatePoint(
+                        pointEntity,
+                        document.Header.PointDisplayMode,
+                        document.Header.PointDisplaySize);
+                    if (document.Header.PointDisplayMode == 1)
+                    {
+                        return;
+                    }
+                }
+
+                int layerIndex = InternLayer(effectiveLayer, layers, layerIndices);
+                int styleIndex = InternStyle(
+                    resolvedStyle,
+                    styles,
+                    styleIndices,
+                    lineTypePatterns,
+                    lineTypePatternIndices,
+                    lineTypeElements,
+                    lineTypeTextResources,
+                    lineTypeShapeResources,
+                    textGlyphRuns,
+                    textGlyphIndices,
+                    textGlyphPositions,
+                    textFonts,
+                    textFontIndices,
+                    shxGlyphInstances,
+                    shxFontResolver,
+                    options,
+                    drawingCodePage);
+                CadEntityHeader? header = entity switch
+                {
+                    AttributeBase attributeEntity => CompileAttribute(
+                        attributeEntity,
+                        rootHandle,
+                        transform,
+                        hasTransform,
+                        layerIndex,
+                        styleIndex,
+                        resolvedStyle,
+                        effectiveLayer.Color),
+                    Line line => CompileLine(line, rootHandle, transform, hasTransform, layerIndex, styleIndex, lines),
+                    MLine mline => CompileMLine(
+                        mline,
+                        rootHandle,
+                        transform,
+                        hasTransform,
+                        layerIndex,
+                        styleIndex,
+                        resolvedStyle,
+                        effectiveLayer,
+                        options,
+                        mLines,
+                        mLineElementPaths,
+                        mLineStrokes,
+                        mLineFillTriangles,
+                        styles,
+                        styleIndices,
+                        lineTypePatterns,
+                        lineTypePatternIndices,
+                        lineTypeElements,
+                        lineTypeTextResources,
+                        lineTypeShapeResources,
+                        textGlyphRuns,
+                        textGlyphIndices,
+                        textGlyphPositions,
+                        textFonts,
+                        textFontIndices,
+                        shxGlyphInstances,
+                        shxFontResolver,
+                        drawingCodePage),
+                    ACadSharp.Entities.Point point => CompilePoint(
+                        point,
+                        rootHandle,
+                        transform,
+                        hasTransform,
+                        layerIndex,
+                        styleIndex,
+                        points,
+                        document.Header.PointDisplayMode,
+                        document.Header.PointDisplaySize),
+                    Ray ray => CompileConstructionLine(
+                        ray.StartPoint,
+                        ray.Direction,
+                        false,
+                        rootHandle,
+                        transform,
+                        hasTransform,
+                        layerIndex,
+                        styleIndex,
+                        constructionLines),
+                    XLine xline => CompileConstructionLine(
+                        xline.FirstPoint,
+                        xline.Direction,
+                        true,
+                        rootHandle,
+                        transform,
+                        hasTransform,
+                        layerIndex,
+                        styleIndex,
+                        constructionLines),
+                    Wipeout wipeout => CompileWipeout(
+                        wipeout,
+                        GetResolvedWipeoutFrame(),
+                        rootHandle,
+                        transform,
+                        hasTransform,
+                        layerIndex,
+                        styleIndex,
+                        options,
+                        wipeouts,
+                        wipeoutClipPoints),
+                    RasterImage rasterImage => CompileRasterImage(
+                        rasterImage,
+                        GetResolvedRasterImageSettings(),
+                        rootHandle,
+                        transform,
+                        hasTransform,
+                        layerIndex,
+                        styleIndex,
+                        options,
+                        rasterImages,
+                        rasterImageResources,
+                        rasterImageResourceIndices,
+                        rasterImageClipPoints),
+                    ModelerGeometry modelerGeometry => CompileModelerGeometry(
+                        modelerGeometry,
+                        rootHandle,
+                        transform,
+                        hasTransform,
+                        layerIndex,
+                        styleIndex,
+                        options,
+                        modelerGeometries,
+                        modelerGeometryWires,
+                        modelerGeometryPoints,
+                        modelerGeometryPayloadBytes),
+                    Arc arc => CompileArc(arc, rootHandle, transform, hasTransform, layerIndex, styleIndex, arcs),
+                    Circle circle => CompileCircle(circle, rootHandle, transform, hasTransform, layerIndex, styleIndex, circles),
+                    Ellipse ellipse => CompileEllipse(ellipse, rootHandle, transform, hasTransform, layerIndex, styleIndex, ellipses),
+                    Solid solid => CompileSolid(solid, rootHandle, transform, hasTransform, layerIndex, styleIndex, faces),
+                    Face3D face => CompileFace3D(face, rootHandle, transform, hasTransform, layerIndex, styleIndex, faces),
+                    Spline spline => CompileSpline(
+                        spline,
+                        rootHandle,
+                        transform,
+                        hasTransform,
+                        layerIndex,
+                        styleIndex,
+                        splines,
+                        splineControlPoints,
+                        splineKnots,
+                        splineWeights),
+                    LwPolyline polyline => CompilePolyline(
+                        polyline,
+                        rootHandle,
+                        transform,
+                        hasTransform,
+                        layerIndex,
+                        styleIndex,
+                        document.Header.FillMode,
+                        polylines,
+                        polylineVertices),
+                    Polyline2D polyline => CompilePolyline2D(
+                        polyline,
+                        rootHandle,
+                        transform,
+                        hasTransform,
+                        layerIndex,
+                        styleIndex,
+                        document.Header.FillMode,
+                        polylines,
+                        polylineVertices),
+                    Polyline3D polyline => CompilePolyline3D(
+                        polyline,
+                        rootHandle,
+                        transform,
+                        hasTransform,
+                        layerIndex,
+                        styleIndex,
+                        polylines3D,
+                        polyline3DPoints),
+                    Hatch hatch => CompileHatch(
+                        hatch,
+                        rootHandle,
+                        transform,
+                        hasTransform,
+                        layerIndex,
+                        styleIndex,
+                        options,
+                        hatches,
+                        hatchPatterns,
+                        hatchPatternFamilies,
+                        hatchPatternDashes,
+                        hatchLoops,
+                        hatchSegments,
+                        hatchTopologyBudget,
+                        hatchSplineSourceBudget),
+                    Shape shape => CompileShxShape(
+                        shape,
+                        rootHandle,
+                        transform,
+                        hasTransform,
+                        layerIndex,
+                        styleIndex,
+                        options,
+                        diagnostics,
+                        shxShapes,
+                        shxShapeResolver),
+                    TextEntity text => CompileText(
+                        text,
+                        rootHandle,
+                        transform,
+                        hasTransform,
+                        layerIndex,
+                        styleIndex,
+                        options,
+                        diagnostics,
+                        texts,
+                        textGlyphRuns,
+                        textDecorations,
+                        textGlyphIndices,
+                        textGlyphPositions,
+                        textFonts,
+                        textFontIndices,
+                        shxTexts,
+                        shxGlyphInstances,
+                        shxDecorationSegments,
+                        shxFontResolver,
+                        drawingCodePage),
+                    MText mtext => CompileMText(
+                        mtext,
+                        rootHandle,
+                        transform,
+                        hasTransform,
+                        layerIndex,
+                        styleIndex,
+                        resolvedStyle,
+                        effectiveLayer.Color,
+                        options,
+                        diagnostics,
+                        mtexts,
+                        mtextGlyphRuns,
+                        mtextBackgrounds,
+                        mtextDecorations,
+                        mtextStrokes,
+                        textGlyphIndices,
+                        textGlyphPositions,
+                        textFonts,
+                        textFontIndices,
+                        shxMTexts,
+                        shxMTextGlyphRuns,
+                        shxGlyphInstances,
+                        shxFontResolver,
+                        drawingCodePage),
+                    _ => null,
+                };
+
+                if (header is CadEntityHeader value)
+                {
+                    value = value with
+                    {
+                        IsVisible = !entity.IsInvisible &&
+                            effectiveLayer.IsOn &&
+                            !IsLayerFrozen(effectiveLayer),
+                        MaterialIndex = surfaceMaterialIndex,
+                    };
+                    entities.Add(value);
+                    documentBounds = documentBounds.Union(value.Bounds);
+                    return;
+                }
+
+                unsupportedCount++;
+                AddDiagnostic(
+                    diagnostics,
+                    options.DiagnosticLimit,
+                    new CadDiagnostic(
+                        CadDiagnosticSeverity.Information,
+                        "CADSNAP001",
+                        $"Entity path {FormatEntityPath(rootHandle, entity.Handle)} ({entity.ObjectName}) is not yet represented in the analytic snapshot."));
+            }
+            catch (CadUnsupportedEntityException exception)
+            {
+                unsupportedCount++;
+                AddDiagnostic(
+                    diagnostics,
+                    options.DiagnosticLimit,
+                    new CadDiagnostic(
+                        CadDiagnosticSeverity.Information,
+                        "CADSNAP003",
+                        $"Entity path {FormatEntityPath(rootHandle, entity.Handle)} ({entity.ObjectName}) is not yet supported: {exception.Message}"));
+            }
+            catch (Exception exception) when (
+                (exception is ArgumentException or ArithmeticException or InvalidOperationException or FormatException) &&
+                exception is not CadSnapshotExpansionLimitException)
+            {
+                invalidCount++;
+                AddDiagnostic(
+                    diagnostics,
+                    options.DiagnosticLimit,
+                    new CadDiagnostic(
+                        CadDiagnosticSeverity.Warning,
+                        "CADSNAP002",
+                        $"Entity path {FormatEntityPath(rootHandle, entity.Handle)} ({entity.ObjectName}) was rejected: {exception.Message}"));
+            }
+        }
+
+        WipeoutFrameType GetResolvedWipeoutFrame()
+        {
+            resolvedWipeoutFrame ??= ResolveWipeoutFrame(document);
+            return resolvedWipeoutFrame.Value;
+        }
+
+        CadRasterImageDisplaySettings GetResolvedRasterImageSettings()
+        {
+            resolvedRasterImageSettings ??= ResolveRasterImageDisplaySettings(document);
+            return resolvedRasterImageSettings.Value;
+        }
+
+        void CompileViewportTree(
+            Viewport viewport,
+            CadAffineTransform3D parentTransform,
+            bool parentHasTransform,
+            ulong rootHandle,
+            Layer effectiveLayer,
+            CadResolvedStyle resolvedStyle,
+            int depth)
+        {
+            if (parentHasTransform || depth != 0 ||
+                parentTransform != CadAffineTransform3D.Identity)
+            {
+                throw new CadUnsupportedEntityException(
+                    "VIEWPORT entities nested in block references require explicit paper-space ownership lowering.");
+            }
+            if (viewports.Count >= options.MaxViewports)
+            {
+                throw new CadSnapshotExpansionLimitException(
+                    $"VIEWPORT count exceeds the configured limit of {options.MaxViewports}.");
+            }
+            if (!double.IsFinite(viewport.Width) || viewport.Width <= 0.0 ||
+                !double.IsFinite(viewport.Height) || viewport.Height <= 0.0 ||
+                !double.IsFinite(viewport.ViewHeight) ||
+                (!viewport.RepresentsPaper && viewport.ViewHeight <= 0.0) ||
+                !double.IsFinite(viewport.ViewCenter.X) ||
+                !double.IsFinite(viewport.ViewCenter.Y) ||
+                !double.IsFinite(viewport.TwistAngle) ||
+                !double.IsFinite(viewport.LensLength) ||
+                !double.IsFinite(viewport.FrontClipPlane) ||
+                !double.IsFinite(viewport.BackClipPlane))
+            {
+                throw new ArgumentException(
+                    "VIEWPORT paper dimensions, camera values, and clipping planes must be finite, with positive paper size and model view height.");
+            }
+
+            CadPoint3D center = ToPoint(viewport.Center);
+            CadPoint3D target = ToPoint(viewport.ViewTarget);
+            CadPoint3D direction = ToPoint(viewport.ViewDirection).Normalize();
+            EnsureFinite(center);
+            EnsureFinite(target);
+            int frozenLayerOffset = viewportFrozenLayers.Count;
+            if (viewport.FrozenLayers.Count >
+                options.MaxViewportFrozenLayers - frozenLayerOffset)
+            {
+                throw new CadSnapshotExpansionLimitException(
+                    $"VIEWPORT frozen-layer references exceed the configured limit of {options.MaxViewportFrozenLayers}.");
+            }
+            foreach (Layer frozenLayer in viewport.FrozenLayers)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                viewportFrozenLayers.Add(new CadViewportFrozenLayer(
+                    new string(frozenLayer.Name.AsSpan())));
+            }
+
+            int layerIndex = InternLayer(effectiveLayer, layers, layerIndices);
+            int styleIndex = InternStyle(
+                resolvedStyle,
+                styles,
+                styleIndices,
+                lineTypePatterns,
+                lineTypePatternIndices,
+                lineTypeElements,
+                lineTypeTextResources,
+                lineTypeShapeResources,
+                textGlyphRuns,
+                textGlyphIndices,
+                textGlyphPositions,
+                textFonts,
+                textFontIndices,
+                shxGlyphInstances,
+                shxFontResolver,
+                options,
+                drawingCodePage);
+            int primitiveIndex = viewports.Count;
+            viewports.Add(new CadViewportPrimitive(
+                center,
+                viewport.Width,
+                viewport.Height,
+                viewport.ViewCenter.X,
+                viewport.ViewCenter.Y,
+                target,
+                direction,
+                viewport.ViewHeight,
+                viewport.TwistAngle,
+                viewport.LensLength,
+                viewport.FrontClipPlane,
+                viewport.BackClipPlane,
+                frozenLayerOffset,
+                viewport.FrozenLayers.Count,
+                viewport.ActiveStatus,
+                unchecked((uint)viewport.Status),
+                (int)viewport.RenderMode,
+                (int)viewport.ShadePlotMode,
+                viewport.Boundary?.Handle ?? 0UL,
+                viewport.RepresentsPaper));
+            CadPoint3D half = new(viewport.Width * 0.5, viewport.Height * 0.5, 0.0);
+            var bounds = new CadBounds3D(center - half, center + half);
+            var header = new CadEntityHeader(
+                rootHandle,
+                CadEntityKind.Viewport,
+                layerIndex,
+                styleIndex,
+                primitiveIndex,
+                bounds)
+            {
+                IsVisible = !viewport.IsInvisible &&
+                    effectiveLayer.IsOn &&
+                    !IsLayerFrozen(effectiveLayer),
+            };
+            entities.Add(header);
+            documentBounds = documentBounds.Union(bounds);
+        }
+
+        void CompileTable(
+            TableEntity table,
+            CadAffineTransform3D parentTransform,
+            bool parentHasTransform,
+            ulong rootHandle,
+            Layer effectiveLayer,
+            CadResolvedStyle resolvedStyle,
+            Material resolvedMaterial,
+            int depth)
+        {
+            BlockRecord block = table.Block ?? throw new ArgumentException(
+                "TABLE has no persisted table-cache block.");
+            if (block.Entities.Count == 0)
+            {
+                throw new CadUnsupportedEntityException(
+                    "TABLE persisted table-cache block is empty; cell layout regeneration is intentionally not performed during snapshot capture.");
+            }
+
+            // ACAD_TABLE derives from AcDbBlockReference and group 343 owns the
+            // anonymous *T display cache. Expanding that cache preserves cell
+            // borders, fills, formatted text, fields, and block-cell graphics
+            // without maintaining a second table layout engine. The ordinary
+            // INSERT path supplies bounded nesting, XRef/dynamic-block rejection,
+            // affine placement, ByBlock inheritance, and semantic root handles.
+            CompileInsert(
+                table,
+                parentTransform,
+                parentHasTransform,
+                rootHandle,
+                effectiveLayer,
+                resolvedStyle,
+                resolvedMaterial,
+                depth);
+        }
+
+        void CompileInsert(
+            Insert insert,
+            CadAffineTransform3D parentTransform,
+            bool parentHasTransform,
+            ulong rootHandle,
+            Layer effectiveLayer,
+            CadResolvedStyle resolvedStyle,
+            Material resolvedMaterial,
+            int depth)
+        {
+            if (depth >= options.MaxBlockNestingDepth)
+            {
+                throw new CadUnsupportedEntityException(
+                    $"Block nesting exceeds the configured depth of {options.MaxBlockNestingDepth}.");
+            }
+
+            BlockRecord block = insert.Block ?? throw new ArgumentException(
+                "INSERT has no block definition.");
+            if ((block.Flags & (BlockTypeFlags.XRef | BlockTypeFlags.XRefOverlay | BlockTypeFlags.XRefDependent)) != 0 ||
+                block.BlockEntity.IsUnloaded)
+            {
+                throw new CadUnsupportedEntityException(
+                    "External-reference blocks require an explicit resolved XRef snapshot.");
+            }
+
+            if (block.EvaluationGraph is not null)
+            {
+                throw new CadUnsupportedEntityException(
+                    "Dynamic blocks require evaluation-state lowering before expansion.");
+            }
+
+            int columnCount = insert.ColumnCount;
+            int rowCount = insert.RowCount;
+            if (columnCount < 1 || rowCount < 1)
+            {
+                throw new ArgumentException(
+                    "INSERT row and column counts must be positive.");
+            }
+
+            if (!double.IsFinite(insert.ColumnSpacing) ||
+                !double.IsFinite(insert.RowSpacing))
+            {
+                throw new ArgumentException(
+                    "INSERT row and column spacing must be finite.");
+            }
+
+            long instanceCount = checked((long)columnCount * rowCount);
+            if (instanceCount > options.MaxBlockArrayInstances)
+            {
+                throw new CadUnsupportedEntityException(
+                    $"MINSERT instance count {instanceCount} exceeds the configured limit of {options.MaxBlockArrayInstances}.");
+            }
+
+            if (!activeBlocks.Add(block))
+            {
+                throw new CadUnsupportedEntityException(
+                    $"Recursive block cycle detected at '{block.Name}'.");
+            }
+
+            try
+            {
+                CadAffineTransform3D localTransform = CreateInsertTransform(insert);
+                CadAffineTransform3D baseInstanceTransform = parentTransform.Compose(localTransform);
+                CadPoint3D columnStep = parentTransform.TransformVector(
+                    localTransform.XAxis / insert.XScale) * insert.ColumnSpacing;
+                CadPoint3D rowStep = parentTransform.TransformVector(
+                    localTransform.YAxis / insert.YScale) * insert.RowSpacing;
+                EnsureFinite(baseInstanceTransform);
+                EnsureFinite(columnStep);
+                EnsureFinite(rowStep);
+                for (int row = 0; row < rowCount; row++)
+                {
+                    cancellationToken.ThrowIfCancellationRequested();
+                    CadPoint3D rowTranslation = baseInstanceTransform.Translation + (rowStep * row);
+                    for (int column = 0; column < columnCount; column++)
+                    {
+                        if ((column & 255) == 0)
+                        {
+                            cancellationToken.ThrowIfCancellationRequested();
+                        }
+
+                        CadPoint3D translation = rowTranslation + (columnStep * column);
+                        EnsureFinite(translation);
+                        var instanceTransform = new CadAffineTransform3D(
+                            baseInstanceTransform.XAxis,
+                            baseInstanceTransform.YAxis,
+                            baseInstanceTransform.ZAxis,
+                            translation);
+                        int definitionEntityOffset = entities.Count;
+                        foreach (Entity child in GetOrderedEntities(block))
+                        {
+                            if (child is AttributeDefinition definition &&
+                                !IsConstantAttribute(definition))
+                            {
+                                continue;
+                            }
+
+                            CompileEntityTree(
+                                child,
+                                instanceTransform,
+                                true,
+                                rootHandle,
+                                effectiveLayer,
+                                resolvedStyle,
+                                depth + 1,
+                                byBlockMaterial: resolvedMaterial);
+                        }
+
+                        int definitionEntityCount =
+                            entities.Count - definitionEntityOffset;
+                        if (depth == 0 &&
+                            rootHandle == insert.Handle &&
+                            definitionEntityCount != 0)
+                        {
+                            planBlockInstances.Add(
+                                new CadPlanBlockInstanceRange(
+                                    definitionEntityOffset,
+                                    definitionEntityCount,
+                                    rootHandle,
+                                    block.Handle,
+                                    instanceTransform));
+                        }
+
+                        if (insert.Attributes.Count == 0)
+                        {
+                            continue;
+                        }
+
+                        // ATTRIB geometry is persisted in the INSERT's containing
+                        // coordinate system after its own block transform is baked.
+                        // Only ancestor composition and this MINSERT cell offset
+                        // remain. Work is O(A) for A references in each array cell.
+                        CadPoint3D attributeTranslation = parentTransform.Translation +
+                            (rowStep * row) +
+                            (columnStep * column);
+                        EnsureFinite(attributeTranslation);
+                        var attributeTransform = new CadAffineTransform3D(
+                            parentTransform.XAxis,
+                            parentTransform.YAxis,
+                            parentTransform.ZAxis,
+                            attributeTranslation);
+                        bool attributeHasTransform = parentHasTransform || row != 0 || column != 0;
+                        foreach (AttributeEntity attribute in insert.Attributes)
+                        {
+                            if (IsConstantAttribute(attribute))
+                            {
+                                continue;
+                            }
+
+                            CompileEntityTree(
+                                attribute,
+                                attributeTransform,
+                                attributeHasTransform,
+                                rootHandle,
+                                effectiveLayer,
+                                resolvedStyle,
+                                depth + 1,
+                                byBlockMaterial: resolvedMaterial);
+                        }
+                    }
+                }
+            }
+            finally
+            {
+                activeBlocks.Remove(block);
+            }
+        }
+
+        void CompileDimension(
+            Dimension dimension,
+            CadAffineTransform3D parentTransform,
+            bool parentHasTransform,
+            ulong rootHandle,
+            Layer effectiveLayer,
+            CadResolvedStyle resolvedStyle,
+            Material resolvedMaterial,
+            int depth)
+        {
+            if (depth >= options.MaxBlockNestingDepth)
+            {
+                throw new CadUnsupportedEntityException(
+                    $"Dimension-picture nesting exceeds the configured depth of {options.MaxBlockNestingDepth}.");
+            }
+
+            BlockRecord block = dimension.Block ?? throw new ArgumentException(
+                "DIMENSION has no persisted picture block.");
+            if (block.Entities.Count == 0)
+            {
+                throw new CadUnsupportedEntityException(
+                    "DIMENSION persisted picture block is empty; layout regeneration is intentionally not performed during snapshot capture.");
+            }
+            if ((block.Flags & (BlockTypeFlags.XRef | BlockTypeFlags.XRefOverlay | BlockTypeFlags.XRefDependent)) != 0 ||
+                block.BlockEntity.IsUnloaded)
+            {
+                throw new CadUnsupportedEntityException(
+                    "External-reference dimension pictures require an explicit resolved XRef snapshot.");
+            }
+
+            if (block.EvaluationGraph is not null)
+            {
+                throw new CadUnsupportedEntityException(
+                    "Dynamic dimension pictures require evaluation-state lowering before expansion.");
+            }
+
+            if (!activeBlocks.Add(block))
+            {
+                throw new CadUnsupportedEntityException(
+                    $"Recursive dimension-picture block cycle detected at '{block.Name}'.");
+            }
+
+            try
+            {
+                // DIMENSION group 12 is persisted in the entity OCS but denotes the
+                // relative WCS displacement of its already-authored picture block.
+                // A generated picture uses zero displacement; definition point 10
+                // must not be reapplied to its absolute microspace geometry.
+                CadCoordinateSystem basis = CadCoordinateSystem.FromNormal(
+                    ToPoint(dimension.Normal));
+                CadPoint3D displacement = basis.Transform(
+                    ToPoint(dimension.InsertionPoint));
+                EnsureFinite(displacement);
+                CadAffineTransform3D localTransform = displacement == CadPoint3D.Zero
+                    ? CadAffineTransform3D.Identity
+                    : new CadAffineTransform3D(
+                        CadAffineTransform3D.Identity.XAxis,
+                        CadAffineTransform3D.Identity.YAxis,
+                        CadAffineTransform3D.Identity.ZAxis,
+                        displacement);
+                CadAffineTransform3D pictureTransform = parentTransform.Compose(localTransform);
+                EnsureFinite(pictureTransform);
+                bool pictureHasTransform = parentHasTransform || displacement != CadPoint3D.Zero;
+
+                foreach (Entity child in GetOrderedEntities(block))
+                {
+                    // Anonymous dimension pictures persist definition/control
+                    // points as non-plotting POINT records. They are construction
+                    // metadata, not PDMODE glyphs belonging to the dimension picture.
+                    if (child is Point &&
+                        child.Layer.Name.Equals(
+                            Layer.DefpointsName,
+                            StringComparison.OrdinalIgnoreCase))
+                    {
+                        continue;
+                    }
+
+                    CompileEntityTree(
+                        child,
+                        pictureTransform,
+                        pictureHasTransform,
+                        rootHandle,
+                        effectiveLayer,
+                        resolvedStyle,
+                        depth + 1,
+                        byBlockMaterial: resolvedMaterial);
+                }
+            }
+            finally
+            {
+                activeBlocks.Remove(block);
+            }
+        }
+
+        void CompileLeaderTree(
+            Leader leader,
+            CadAffineTransform3D parentTransform,
+            bool parentHasTransform,
+            ulong rootHandle,
+            Layer effectiveLayer,
+            CadResolvedStyle entityStyle,
+            Material resolvedMaterial,
+            int depth)
+        {
+            int layerIndex = InternLayer(effectiveLayer, layers, layerIndices);
+            CadResolvedStyle leaderStyle = ResolveLeaderStyle(
+                leader,
+                effectiveLayer,
+                entityStyle,
+                options,
+                out CadLeaderDimensionContract dimensionContract);
+            int styleIndex = InternStyle(
+                leaderStyle,
+                styles,
+                styleIndices,
+                lineTypePatterns,
+                lineTypePatternIndices,
+                lineTypeElements,
+                lineTypeTextResources,
+                lineTypeShapeResources,
+                textGlyphRuns,
+                textGlyphIndices,
+                textGlyphPositions,
+                textFonts,
+                textFontIndices,
+                shxGlyphInstances,
+                shxFontResolver,
+                options,
+                drawingCodePage);
+            CadEntityHeader header = CompileLeader(
+                leader,
+                rootHandle,
+                parentTransform,
+                parentHasTransform,
+                layerIndex,
+                styleIndex,
+                dimensionContract,
+                options,
+                leaders,
+                splines,
+                splineControlPoints,
+                splineKnots,
+                ref retainedLeaderControlPoints,
+                out CadLeaderArrowExpansion? customArrow);
+            entities.Add(header);
+            documentBounds = documentBounds.Union(header.Bounds);
+
+            if (customArrow is not CadLeaderArrowExpansion arrow)
+            {
+                return;
+            }
+            if (depth >= options.MaxBlockNestingDepth)
+            {
+                AddDiagnostic(
+                    diagnostics,
+                    options.DiagnosticLimit,
+                    new CadDiagnostic(
+                        CadDiagnosticSeverity.Information,
+                        "CADSNAP013",
+                        $"LEADER custom arrow block '{arrow.Block.Name}' exceeds the configured nesting depth; the leader path remains retained."));
+                return;
+            }
+            if ((arrow.Block.Flags &
+                    (BlockTypeFlags.XRef | BlockTypeFlags.XRefOverlay | BlockTypeFlags.XRefDependent)) != 0 ||
+                arrow.Block.BlockEntity.IsUnloaded ||
+                arrow.Block.EvaluationGraph is not null ||
+                arrow.Block.Entities.Count == 0)
+            {
+                AddDiagnostic(
+                    diagnostics,
+                    options.DiagnosticLimit,
+                    new CadDiagnostic(
+                        CadDiagnosticSeverity.Information,
+                        "CADSNAP013",
+                        $"LEADER custom arrow block '{arrow.Block.Name}' has no bounded static definition; the leader path remains retained."));
+                return;
+            }
+            if (!activeBlocks.Add(arrow.Block))
+            {
+                AddDiagnostic(
+                    diagnostics,
+                    options.DiagnosticLimit,
+                    new CadDiagnostic(
+                        CadDiagnosticSeverity.Information,
+                        "CADSNAP013",
+                        $"LEADER custom arrow block '{arrow.Block.Name}' forms a recursive cycle; the leader path remains retained."));
+                return;
+            }
+
+            try
+            {
+                foreach (Entity child in GetOrderedEntities(arrow.Block))
+                {
+                    CompileEntityTree(
+                        child,
+                        arrow.Transform,
+                        true,
+                        rootHandle,
+                        effectiveLayer,
+                        leaderStyle,
+                        depth + 1,
+                        byBlockMaterial: resolvedMaterial);
+                }
+            }
+            finally
+            {
+                activeBlocks.Remove(arrow.Block);
+            }
+        }
+
+        void CompileMultiLeaderTree(
+            MultiLeader multiLeader,
+            CadAffineTransform3D parentTransform,
+            bool parentHasTransform,
+            ulong rootHandle,
+            Layer effectiveLayer,
+            CadResolvedStyle entityStyle,
+            Material resolvedMaterial,
+            int depth)
+        {
+            MultiLeaderObjectContextData context = multiLeader.ContextData;
+            if (multiLeader.EnableAnnotationScale)
+            {
+                throw new CadUnsupportedEntityException(
+                    "Annotative MULTILEADER requires a synchronized active annotation context; ACadSharp currently exposes only the unsynchronized embedded context.");
+            }
+            if (context.LeaderRoots.Any(root => root.BreakStartEndPointsPairs.Count != 0) ||
+                context.LeaderRoots.SelectMany(root => root.Lines).Any(line => line.StartEndPoints.Count != 0))
+            {
+                throw new CadUnsupportedEntityException(
+                    "MULTILEADER authored break intervals require phase-preserving path segmentation.");
+            }
+            if (multiLeader.BlockAttributes.Count != 0)
+            {
+                throw new CadUnsupportedEntityException(
+                    "MULTILEADER block attributes require synchronized attribute-value expansion.");
+            }
+            LeaderContentType contentType = multiLeader.PropertyOverrideFlags.HasFlag(
+                MultiLeaderPropertyOverrideFlags.ContentType)
+                ? multiLeader.ContentType
+                : multiLeader.Style.ContentType;
+            BlockRecord? contentBlock = null;
+            CadAffineTransform3D? contentBlockTransform = null;
+            CadResolvedStyle? contentBlockStyle = null;
+            if (contentType == LeaderContentType.Block)
+            {
+                CadAffineTransform3D localBlockTransform =
+                    CreateMultiLeaderBlockTransform(multiLeader, out BlockRecord resolvedBlock);
+                if (depth >= options.MaxBlockNestingDepth)
+                {
+                    throw new CadUnsupportedEntityException(
+                        $"MULTILEADER block-content nesting exceeds the configured depth of {options.MaxBlockNestingDepth}.");
+                }
+                if ((resolvedBlock.Flags &
+                        (BlockTypeFlags.XRef | BlockTypeFlags.XRefOverlay | BlockTypeFlags.XRefDependent)) != 0 ||
+                    resolvedBlock.BlockEntity.IsUnloaded)
+                {
+                    throw new CadUnsupportedEntityException(
+                        "External-reference MULTILEADER block content requires an explicit resolved XRef snapshot.");
+                }
+                if (resolvedBlock.EvaluationGraph is not null)
+                {
+                    throw new CadUnsupportedEntityException(
+                        "Dynamic MULTILEADER block content requires evaluation-state lowering before expansion.");
+                }
+                if (resolvedBlock.Entities.Count == 0)
+                {
+                    throw new CadUnsupportedEntityException(
+                        "MULTILEADER block content has an empty definition.");
+                }
+                if (activeBlocks.Contains(resolvedBlock))
+                {
+                    throw new CadUnsupportedEntityException(
+                        $"Recursive MULTILEADER block-content cycle detected at '{resolvedBlock.Name}'.");
+                }
+                ACadSharp.Color blockColor = context.BlockContentColor.IsByBlock
+                    ? entityStyle.Color
+                    : context.BlockContentColor.IsByLayer
+                        ? effectiveLayer.Color
+                        : context.BlockContentColor;
+                contentBlockStyle = entityStyle with
+                {
+                    Color = ResolveBackgroundAdaptiveColor(
+                        blockColor,
+                        options.DrawingBackgroundColor),
+                };
+                contentBlock = resolvedBlock;
+                contentBlockTransform = parentHasTransform
+                    ? parentTransform.Compose(localBlockTransform)
+                    : localBlockTransform;
+            }
+
+            int visibleLineCount = 0;
+            int doglegCount = 0;
+            bool enableLanding = multiLeader.PropertyOverrideFlags.HasFlag(
+                MultiLeaderPropertyOverrideFlags.EnableLanding)
+                ? multiLeader.EnableLanding
+                : multiLeader.Style.EnableLanding;
+            bool enableDogleg = multiLeader.PropertyOverrideFlags.HasFlag(
+                MultiLeaderPropertyOverrideFlags.EnableDogleg)
+                ? multiLeader.EnableDogleg
+                : multiLeader.Style.EnableDogleg;
+            foreach (MultiLeaderObjectContextData.LeaderRoot root in context.LeaderRoots)
+            {
+                foreach (MultiLeaderObjectContextData.LeaderLine line in root.Lines)
+                {
+                    CadMultiLeaderLineContract contract = ResolveMultiLeaderLineContract(
+                        multiLeader,
+                        line);
+                    if (contract.PathType != MultiLeaderPathType.Invisible)
+                    {
+                        visibleLineCount++;
+                    }
+                }
+                if (enableLanding && enableDogleg && root.Lines.Count != 0 &&
+                    root.Direction.GetLength() > LeaderVertexTolerance &&
+                    root.LandingDistance > LeaderVertexTolerance)
+                {
+                    doglegCount++;
+                }
+            }
+            int pathCount = checked(visibleLineCount + doglegCount);
+            if (pathCount == 0 && contentType == LeaderContentType.None)
+            {
+                throw new CadUnsupportedEntityException(
+                    "MULTILEADER contains no visible retained path or content.");
+            }
+            if (pathCount > options.MaxMultiLeaderPaths - multiLeaders.Count)
+            {
+                throw new CadUnsupportedEntityException(
+                    $"MULTILEADER retained paths exceed the configured document limit of {options.MaxMultiLeaderPaths}.");
+            }
+
+            CadPoint3D planeNormal = CadPoint3D.Cross(
+                ToPoint(context.BaseDirection),
+                ToPoint(context.BaseVertical));
+            if (planeNormal.Length <= LeaderVertexTolerance)
+            {
+                planeNormal = ToPoint(context.TextNormal);
+            }
+            if (planeNormal.Length <= LeaderVertexTolerance)
+            {
+                planeNormal = new CadPoint3D(0.0, 0.0, 1.0);
+            }
+
+            int entityStart = entities.Count;
+            int primitiveStart = multiLeaders.Count;
+            int splineStart = splines.Count;
+            int controlStart = splineControlPoints.Count;
+            int knotStart = splineKnots.Count;
+            int chargedBefore = retainedMultiLeaderControlPoints;
+            CadBounds3D boundsBefore = documentBounds;
+            var customArrows = new List<(CadLeaderArrowExpansion Arrow, CadResolvedStyle Style)>();
+            try
+            {
+                for (int rootIndex = 0; rootIndex < context.LeaderRoots.Count; rootIndex++)
+                {
+                    MultiLeaderObjectContextData.LeaderRoot root = context.LeaderRoots[rootIndex];
+                    CadResolvedStyle? rootStyle = null;
+                    int rootStyleIndex = -1;
+                    for (int lineIndex = 0; lineIndex < root.Lines.Count; lineIndex++)
+                    {
+                        MultiLeaderObjectContextData.LeaderLine line = root.Lines[lineIndex];
+                        CadMultiLeaderLineContract contract = ResolveMultiLeaderLineContract(
+                            multiLeader,
+                            line);
+                        if (contract.PathType == MultiLeaderPathType.Invisible)
+                        {
+                            continue;
+                        }
+                        if (line.Points.Count == 0)
+                        {
+                            throw new ArgumentException(
+                                "MULTILEADER visible leader line contains no vertices.");
+                        }
+                        var points = new CadPoint3D[line.Points.Count + 1];
+                        for (int index = 0; index < line.Points.Count; index++)
+                        {
+                            points[index] = ToPoint(line.Points[index]);
+                        }
+                        points[^1] = ToPoint(root.ConnectionPoint);
+                        if (points.Length >= 3 &&
+                            (points[^1] - points[^2]).Length <= LeaderVertexTolerance)
+                        {
+                            Array.Resize(ref points, points.Length - 1);
+                        }
+
+                        CadResolvedStyle lineStyle = ResolveMultiLeaderStyle(
+                            contract,
+                            effectiveLayer,
+                            entityStyle,
+                            options);
+                        int styleIndex = InternStyle(
+                            lineStyle,
+                            styles,
+                            styleIndices,
+                            lineTypePatterns,
+                            lineTypePatternIndices,
+                            lineTypeElements,
+                            lineTypeTextResources,
+                            lineTypeShapeResources,
+                            textGlyphRuns,
+                            textGlyphIndices,
+                            textGlyphPositions,
+                            textFonts,
+                            textFontIndices,
+                            shxGlyphInstances,
+                            shxFontResolver,
+                            options,
+                            drawingCodePage);
+                        int layerIndex = InternLayer(effectiveLayer, layers, layerIndices);
+                        CadMultiLeaderPathResult result = CompileMultiLeaderPath(
+                            points,
+                            planeNormal,
+                            rootHandle,
+                            parentTransform,
+                            parentHasTransform,
+                            layerIndex,
+                            styleIndex,
+                            contract,
+                            rootIndex,
+                            lineIndex,
+                            isDogleg: false,
+                            options,
+                            multiLeaders,
+                            splines,
+                            splineControlPoints,
+                            splineKnots,
+                            ref retainedMultiLeaderControlPoints);
+                        entities.Add(result.Header);
+                        documentBounds = documentBounds.Union(result.Header.Bounds);
+                        if (result.CustomArrow is CadLeaderArrowExpansion arrow)
+                        {
+                            customArrows.Add((arrow, lineStyle));
+                        }
+                        if (rootStyle is null)
+                        {
+                            rootStyle = lineStyle;
+                            rootStyleIndex = styleIndex;
+                        }
+                    }
+
+                    if (rootStyle is CadResolvedStyle doglegStyle &&
+                        enableLanding && enableDogleg &&
+                        root.Direction.GetLength() > LeaderVertexTolerance &&
+                        root.LandingDistance > LeaderVertexTolerance)
+                    {
+                        CadPoint3D connection = ToPoint(root.ConnectionPoint);
+                        CadPoint3D direction = ToPoint(root.Direction).Normalize();
+                        CadPoint3D end = connection + (direction * root.LandingDistance);
+                        CadMultiLeaderLineContract contract = ResolveMultiLeaderLineContract(
+                            multiLeader,
+                            root.Lines[0]);
+                        CadMultiLeaderPathResult result = CompileMultiLeaderPath(
+                            new[] { connection, end },
+                            planeNormal,
+                            rootHandle,
+                            parentTransform,
+                            parentHasTransform,
+                            InternLayer(effectiveLayer, layers, layerIndices),
+                            rootStyleIndex,
+                            contract with
+                            {
+                                PathType = MultiLeaderPathType.StraightLineSegments,
+                                ArrowBlock = null,
+                                ArrowSize = 0.0,
+                            },
+                            rootIndex,
+                            -1,
+                            isDogleg: true,
+                            options,
+                            multiLeaders,
+                            splines,
+                            splineControlPoints,
+                            splineKnots,
+                            ref retainedMultiLeaderControlPoints);
+                        entities.Add(result.Header);
+                        documentBounds = documentBounds.Union(result.Header.Bounds);
+                    }
+                }
+
+                if (contentType == LeaderContentType.MText)
+                {
+                    MText content = CreateMultiLeaderMText(multiLeader, entityStyle);
+                    CadResolvedStyle contentStyle = ResolveStyle(
+                        content,
+                        effectiveLayer,
+                        entityStyle,
+                        options,
+                        globalLineTypeScale);
+                    int contentStyleIndex = InternStyle(
+                        contentStyle,
+                        styles,
+                        styleIndices,
+                        lineTypePatterns,
+                        lineTypePatternIndices,
+                        lineTypeElements,
+                        lineTypeTextResources,
+                        lineTypeShapeResources,
+                        textGlyphRuns,
+                        textGlyphIndices,
+                        textGlyphPositions,
+                        textFonts,
+                        textFontIndices,
+                        shxGlyphInstances,
+                        shxFontResolver,
+                        options,
+                        drawingCodePage);
+                    CadEntityHeader contentHeader = CompileMText(
+                        content,
+                        rootHandle,
+                        parentTransform,
+                        parentHasTransform,
+                        InternLayer(effectiveLayer, layers, layerIndices),
+                        contentStyleIndex,
+                        contentStyle,
+                        effectiveLayer.Color,
+                        options,
+                        diagnostics,
+                        mtexts,
+                        mtextGlyphRuns,
+                        mtextBackgrounds,
+                        mtextDecorations,
+                        mtextStrokes,
+                        textGlyphIndices,
+                        textGlyphPositions,
+                        textFonts,
+                        textFontIndices,
+                        shxMTexts,
+                        shxMTextGlyphRuns,
+                        shxGlyphInstances,
+                        shxFontResolver,
+                        drawingCodePage);
+                    entities.Add(contentHeader);
+                    documentBounds = documentBounds.Union(contentHeader.Bounds);
+                }
+                else if (contentType == LeaderContentType.Tolerance)
+                {
+                    Tolerance content = CreateMultiLeaderTolerance(
+                        multiLeader,
+                        entityStyle);
+                    CompileToleranceTree(
+                        content,
+                        parentTransform,
+                        parentHasTransform,
+                        rootHandle,
+                        effectiveLayer,
+                        entityStyle);
+                }
+            }
+            catch
+            {
+                if (entities.Count > entityStart)
+                {
+                    entities.RemoveRange(entityStart, entities.Count - entityStart);
+                }
+                if (multiLeaders.Count > primitiveStart)
+                {
+                    multiLeaders.RemoveRange(primitiveStart, multiLeaders.Count - primitiveStart);
+                }
+                if (splines.Count > splineStart)
+                {
+                    splines.RemoveRange(splineStart, splines.Count - splineStart);
+                }
+                if (splineControlPoints.Count > controlStart)
+                {
+                    splineControlPoints.RemoveRange(controlStart, splineControlPoints.Count - controlStart);
+                }
+                if (splineKnots.Count > knotStart)
+                {
+                    splineKnots.RemoveRange(knotStart, splineKnots.Count - knotStart);
+                }
+                retainedMultiLeaderControlPoints = chargedBefore;
+                documentBounds = boundsBefore;
+                throw;
+            }
+
+            foreach ((CadLeaderArrowExpansion arrow, CadResolvedStyle arrowStyle) in customArrows)
+            {
+                if (depth >= options.MaxBlockNestingDepth ||
+                    (arrow.Block.Flags &
+                        (BlockTypeFlags.XRef | BlockTypeFlags.XRefOverlay | BlockTypeFlags.XRefDependent)) != 0 ||
+                    arrow.Block.BlockEntity.IsUnloaded ||
+                    arrow.Block.EvaluationGraph is not null ||
+                    arrow.Block.Entities.Count == 0 ||
+                    !activeBlocks.Add(arrow.Block))
+                {
+                    AddDiagnostic(
+                        diagnostics,
+                        options.DiagnosticLimit,
+                        new CadDiagnostic(
+                            CadDiagnosticSeverity.Information,
+                            "CADSNAP014",
+                            $"MULTILEADER custom arrow block '{arrow.Block.Name}' has no bounded acyclic static definition; the leader path remains retained."));
+                    continue;
+                }
+                try
+                {
+                    foreach (Entity child in GetOrderedEntities(arrow.Block))
+                    {
+                        CompileEntityTree(
+                            child,
+                            arrow.Transform,
+                            true,
+                            rootHandle,
+                            effectiveLayer,
+                            arrowStyle,
+                            depth + 1,
+                            byBlockMaterial: resolvedMaterial);
+                    }
+                }
+                finally
+                {
+                    activeBlocks.Remove(arrow.Block);
+                }
+            }
+
+            if (contentBlock is BlockRecord block &&
+                contentBlockTransform is CadAffineTransform3D blockTransform &&
+                contentBlockStyle is CadResolvedStyle blockStyle)
+            {
+                if (!activeBlocks.Add(block))
+                {
+                    throw new InvalidOperationException(
+                        $"Recursive MULTILEADER block-content cycle detected at '{block.Name}'.");
+                }
+                try
+                {
+                    foreach (Entity child in GetOrderedEntities(block))
+                    {
+                        CompileEntityTree(
+                            child,
+                            blockTransform,
+                            true,
+                            rootHandle,
+                            effectiveLayer,
+                            blockStyle,
+                            depth + 1,
+                            byBlockMaterial: resolvedMaterial);
+                    }
+                }
+                finally
+                {
+                    activeBlocks.Remove(block);
+                }
+            }
+        }
+
+        void CompileToleranceTree(
+            Tolerance tolerance,
+            CadAffineTransform3D transform,
+            bool hasTransform,
+            ulong rootHandle,
+            Layer effectiveLayer,
+            CadResolvedStyle entityStyle)
+        {
+            ResolveToleranceStyles(
+                tolerance,
+                effectiveLayer,
+                entityStyle,
+                options,
+                out CadToleranceContract contract,
+                out CadResolvedStyle frameStyle,
+                out CadResolvedStyle textStyle);
+            int layerIndex = InternLayer(effectiveLayer, layers, layerIndices);
+            int frameStyleIndex = InternStyle(
+                frameStyle,
+                styles,
+                styleIndices,
+                lineTypePatterns,
+                lineTypePatternIndices,
+                lineTypeElements,
+                lineTypeTextResources,
+                lineTypeShapeResources,
+                textGlyphRuns,
+                textGlyphIndices,
+                textGlyphPositions,
+                textFonts,
+                textFontIndices,
+                shxGlyphInstances,
+                shxFontResolver,
+                options,
+                drawingCodePage);
+            int textStyleIndex = InternStyle(
+                textStyle,
+                styles,
+                styleIndices,
+                lineTypePatterns,
+                lineTypePatternIndices,
+                lineTypeElements,
+                lineTypeTextResources,
+                lineTypeShapeResources,
+                textGlyphRuns,
+                textGlyphIndices,
+                textGlyphPositions,
+                textFonts,
+                textFontIndices,
+                shxGlyphInstances,
+                shxFontResolver,
+                options,
+                drawingCodePage);
+            CadEntityHeader[] headers = CompileTolerance(
+                tolerance,
+                rootHandle,
+                transform,
+                hasTransform,
+                layerIndex,
+                frameStyleIndex,
+                textStyleIndex,
+                contract,
+                options,
+                diagnostics,
+                tolerances,
+                toleranceStrokes,
+                texts,
+                textGlyphRuns,
+                textDecorations,
+                textGlyphIndices,
+                textGlyphPositions,
+                textFonts,
+                textFontIndices,
+                shxTexts,
+                shxGlyphInstances,
+                shxDecorationSegments,
+                shxFontResolver,
+                drawingCodePage,
+                ref retainedToleranceCells);
+            for (int index = 0; index < headers.Length; index++)
+            {
+                entities.Add(headers[index]);
+                documentBounds = documentBounds.Union(headers[index].Bounds);
+            }
+        }
+
+        void CompileMesh(
+            Mesh mesh,
+            CadAffineTransform3D transform,
+            bool hasTransform,
+            ulong rootHandle,
+            Layer effectiveLayer,
+            CadResolvedStyle resolvedStyle,
+            int materialIndex)
+        {
+            if (mesh.SubdivisionLevel < 0)
+            {
+                throw new ArgumentException("MESH subdivision level cannot be negative.");
+            }
+            if (mesh.SubdivisionLevel > options.MaxMeshSubdivisionLevel)
+            {
+                throw new CadUnsupportedEntityException(
+                    $"MESH subdivision level {mesh.SubdivisionLevel} exceeds the configured limit of {options.MaxMeshSubdivisionLevel}.");
+            }
+            if (mesh.Vertices.Count < 3 || mesh.Faces.Count == 0)
+            {
+                throw new ArgumentException(
+                    "A MESH requires at least three control vertices and one face.");
+            }
+
+            var worldVertices = new CadPoint3D[mesh.Vertices.Count];
+            for (int i = 0; i < mesh.Vertices.Count; i++)
+            {
+                CadPoint3D point = TransformPoint(
+                    transform,
+                    hasTransform,
+                    ToPoint(mesh.Vertices[i]));
+                EnsureFinite(point);
+                worldVertices[i] = point;
+            }
+
+            var sourceFaceVertices = new HashSet<int>();
+            foreach (int[] face in mesh.Faces)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                if (face is null || face.Length < 3)
+                {
+                    throw new ArgumentException(
+                        "Every MESH face must contain at least three control-vertex indices.");
+                }
+                if (face.Length > remainingMeshFaceIndices)
+                {
+                    remainingMeshFaceIndices = 0;
+                    throw new CadUnsupportedEntityException(
+                        $"MESH topology exceeds the configured {options.MaxMeshFaceIndices}-index document limit.");
+                }
+                remainingMeshFaceIndices -= face.Length;
+
+                sourceFaceVertices.Clear();
+                for (int i = 0; i < face.Length; i++)
+                {
+                    if ((i & 1023) == 0)
+                    {
+                        cancellationToken.ThrowIfCancellationRequested();
+                    }
+                    int start = face[i];
+                    int end = face[(i + 1) % face.Length];
+                    if ((uint)start >= (uint)worldVertices.Length ||
+                        (uint)end >= (uint)worldVertices.Length)
+                    {
+                        throw new ArgumentException(
+                            "A MESH face references a vertex outside the persisted control array.");
+                    }
+                    sourceFaceVertices.Add(start);
+                    if (start == end)
+                    {
+                        continue;
+                    }
+                    if (worldVertices[start] == worldVertices[end])
+                    {
+                        throw new ArgumentException(
+                            "A MESH face contains a geometrically collapsed control edge.");
+                    }
+                }
+                if (sourceFaceVertices.Count < 3)
+                {
+                    throw new ArgumentException(
+                        "A MESH face must reference at least three distinct control vertices.");
+                }
+            }
+
+            XYZ[] textureValues = mesh.TextureCoordinates.ToArray();
+            if (textureValues.Length != 0 &&
+                textureValues.Length != worldVertices.Length)
+            {
+                throw new ArgumentException(
+                    "A MESH texture-coordinate count must match its control-vertex count.");
+            }
+            var sourceTextureCoordinates = textureValues.Length == 0
+                ? Array.Empty<CadPoint3D>()
+                : new CadPoint3D[textureValues.Length];
+            for (int i = 0; i < textureValues.Length; i++)
+            {
+                XYZ texture = textureValues[i];
+                if (!double.IsFinite(texture.X) ||
+                    !double.IsFinite(texture.Y) ||
+                    !double.IsFinite(texture.Z))
+                {
+                    throw new ArgumentException("A MESH texture coordinate must be finite.");
+                }
+                sourceTextureCoordinates[i] = new CadPoint3D(
+                    texture.X,
+                    texture.Y,
+                    texture.Z);
+            }
+
+            CadPoint3D[] displayVertices = worldVertices;
+            CadPoint3D[] displayTextureCoordinates = sourceTextureCoordinates;
+            IReadOnlyList<int[]> displayFaces = mesh.Faces;
+            CadPoint3D[][] displayNormals = Array.Empty<CadPoint3D[]>();
+            CadMeshSourceTopology authoredSubobjectTopology =
+                CadMeshSubdivision.CreateSourceTopology(mesh.Faces);
+            int[] displayFaceSourceIndices =
+                authoredSubobjectTopology.FaceSourceIndices;
+            int[][] displayFaceCornerSourceEdgeIndices =
+                authoredSubobjectTopology.FaceCornerSourceEdgeIndices;
+            int[][] sourceEdgeVertexChains =
+                authoredSubobjectTopology.SourceEdgeVertexChains;
+            int subdivisionTopologyVisits = 0;
+            if (mesh.SubdivisionLevel > 0)
+            {
+                var sourceEdges = new CadMeshSubdivisionEdge[mesh.Edges.Count];
+                for (int i = 0; i < sourceEdges.Length; i++)
+                {
+                    Mesh.Edge edge = mesh.Edges[i];
+                    sourceEdges[i] = new CadMeshSubdivisionEdge(
+                        edge.Start,
+                        edge.End,
+                        edge.Crease);
+                }
+                CadMeshSubdivisionResult subdivision = CadMeshSubdivision.Refine(
+                    worldVertices,
+                    sourceTextureCoordinates,
+                    mesh.Faces,
+                    sourceEdges,
+                    mesh.SubdivisionLevel,
+                    mesh.BlendCrease,
+                    remainingMeshSubdivisionTopologyVisits,
+                    cancellationToken);
+                subdivisionTopologyVisits = subdivision.TopologyVisitCount;
+                displayVertices = subdivision.Vertices;
+                displayTextureCoordinates = subdivision.TextureCoordinates;
+                displayFaces = subdivision.Faces;
+                displayNormals = subdivision.FaceCornerNormals;
+                displayFaceSourceIndices = subdivision.FaceSourceIndices;
+                displayFaceCornerSourceEdgeIndices =
+                    subdivision.FaceCornerSourceEdgeIndices;
+                sourceEdgeVertexChains = subdivision.SourceEdgeVertexChains;
+            }
+
+            var uniqueEdges = new HashSet<ulong>();
+            var orderedEdges = new List<(int Start, int End)>();
+            int availableExpandedEntities = options.MaxExpandedEntities - expandedCount;
+            foreach (int[] face in displayFaces)
+            {
+                for (int i = 0; i < face.Length; i++)
+                {
+                    int start = face[i];
+                    int end = face[(i + 1) % face.Length];
+                    int lower = Math.Min(start, end);
+                    int upper = Math.Max(start, end);
+                    ulong key = ((ulong)(uint)lower << 32) | (uint)upper;
+                    if (!uniqueEdges.Add(key))
+                    {
+                        continue;
+                    }
+                    if (orderedEdges.Count >= availableExpandedEntities)
+                    {
+                        throw new CadSnapshotExpansionLimitException(
+                            $"Expanded entity count exceeds the configured limit of {options.MaxExpandedEntities}.");
+                    }
+                    orderedEdges.Add((start, end));
+                }
+            }
+            if (orderedEdges.Count == 0)
+            {
+                throw new ArgumentException("A MESH has no visible topology edges.");
+            }
+
+            int layerIndex = InternLayer(effectiveLayer, layers, layerIndices);
+            int styleIndex = InternStyle(
+                resolvedStyle,
+                styles,
+                styleIndices,
+                lineTypePatterns,
+                lineTypePatternIndices,
+                lineTypeElements,
+                lineTypeTextResources,
+                lineTypeShapeResources,
+                textGlyphRuns,
+                textGlyphIndices,
+                textGlyphPositions,
+                textFonts,
+                textFontIndices,
+                shxGlyphInstances,
+                shxFontResolver,
+                options,
+                drawingCodePage);
+            var meshFaces = new List<CadMesh3DFaceSource>(displayFaces.Count);
+            for (int faceIndex = 0; faceIndex < displayFaces.Count; faceIndex++)
+            {
+                int[] face = displayFaces[faceIndex];
+                var facePoints = new CadPoint3D[face.Length];
+                var faceTextureCoordinates = displayTextureCoordinates.Length == 0
+                    ? Array.Empty<Vector2>()
+                    : new Vector2[face.Length];
+                for (int i = 0; i < face.Length; i++)
+                {
+                    int sourceIndex = face[i];
+                    facePoints[i] = displayVertices[sourceIndex];
+                    if (displayTextureCoordinates.Length != 0)
+                    {
+                        CadPoint3D texture =
+                            displayTextureCoordinates[sourceIndex];
+                        float u = checked((float)texture.X);
+                        float v = checked((float)texture.Y);
+                        if (!float.IsFinite(u) || !float.IsFinite(v))
+                        {
+                            throw new ArgumentException(
+                                "A MESH texture coordinate cannot be represented by the retained GPU scene.");
+                        }
+                        faceTextureCoordinates[i] = new Vector2(u, v);
+                    }
+                }
+                var vertexSubobjectIndices = new int[face.Length];
+                for (int i = 0; i < face.Length; i++)
+                {
+                    int sourceIndex = face[i];
+                    vertexSubobjectIndices[i] = sourceIndex < worldVertices.Length
+                        ? sourceIndex
+                        : -1;
+                }
+                meshFaces.Add(new CadMesh3DFaceSource(
+                    facePoints,
+                    faceTextureCoordinates,
+                    layerIndex,
+                    styleIndex,
+                    materialIndex,
+                    AllowNonPlanarQuad: true)
+                {
+                    FaceSubobjectIndex = displayFaceSourceIndices[faceIndex],
+                    VertexSubobjectIndices = vertexSubobjectIndices,
+                    EdgeSubobjectIndices =
+                        displayFaceCornerSourceEdgeIndices[faceIndex],
+                    Normals = displayNormals.Length == 0
+                        ? Array.Empty<CadPoint3D>()
+                        : displayNormals[faceIndex],
+                    HasTextureCoordinates =
+                        displayTextureCoordinates.Length != 0,
+                });
+            }
+            CommitMesh3D(
+                meshFaces,
+                rootHandle,
+                displayVertices,
+                worldVertices.Length,
+                sourceEdgeVertexChains,
+                authoredSubobjectTopology.FaceCornerSourceEdgeIndices,
+                mesh.Handle,
+                hasTransform ? transform : CadAffineTransform3D.Identity,
+                !hasTransform && rootHandle == mesh.Handle);
+            expandedCount = checked(expandedCount + orderedEdges.Count);
+            for (int i = 0; i < orderedEdges.Count; i++)
+            {
+                if ((i & 1023) == 0)
+                {
+                    cancellationToken.ThrowIfCancellationRequested();
+                }
+                (int startIndex, int endIndex) = orderedEdges[i];
+                CadPoint3D start = displayVertices[startIndex];
+                CadPoint3D end = displayVertices[endIndex];
+                int primitiveIndex = lines.Count;
+                lines.Add(new CadLinePrimitive(start, end));
+                CadBounds3D bounds = CadBounds3D.FromPoint(start).Include(end);
+                entities.Add(new CadEntityHeader(
+                    rootHandle,
+                    CadEntityKind.Line,
+                    layerIndex,
+                    styleIndex,
+                    primitiveIndex,
+                    bounds));
+                documentBounds = documentBounds.Union(bounds);
+            }
+            remainingMeshSubdivisionTopologyVisits -= subdivisionTopologyVisits;
+        }
+
+        void CompilePolygonMesh(
+            PolygonMesh mesh,
+            CadAffineTransform3D transform,
+            bool hasTransform,
+            ulong rootHandle,
+            Layer effectiveLayer,
+            CadResolvedStyle resolvedStyle,
+            int materialIndex)
+        {
+            ValidateLegacyMeshHeader(mesh);
+            int mCount = mesh.MVertexCount;
+            int nCount = mesh.NVertexCount;
+            if (mCount < 2 || nCount < 2 ||
+                (long)mCount * nCount != mesh.Vertices.Count)
+            {
+                throw new ArgumentException(
+                    "A polygon MESH requires positive M/N dimensions whose product equals its vertex count.");
+            }
+            int topologyVisits = checked(mCount * nCount * 2);
+            ConsumeMeshTopology(topologyVisits);
+            bool closeM = (mesh.Flags & PolylineFlags.ClosedPolylineOrClosedPolygonMeshInM) != 0;
+            bool closeN = (mesh.Flags & PolylineFlags.ClosedPolygonMeshInN) != 0;
+            int edgeCount = checked(
+                ((mCount - 1) * nCount) +
+                ((closeM && mCount > 2) ? nCount : 0) +
+                (mCount * (nCount - 1)) +
+                ((closeN && nCount > 2) ? mCount : 0));
+            EnsureDerivedEdgeCapacity(edgeCount);
+
+            var worldVertices = new CadPoint3D[mesh.Vertices.Count];
+            for (int i = 0; i < mesh.Vertices.Count; i++)
+            {
+                PolygonMeshVertex vertex = mesh.Vertices[i];
+                if (vertex.StartWidth != 0.0 || vertex.EndWidth != 0.0 || vertex.Bulge != 0.0)
+                {
+                    throw new CadUnsupportedEntityException(
+                        "Polygon MESH vertex width and bulge require a separate fitted-edge contract.");
+                }
+                worldVertices[i] = TransformPoint(
+                    transform,
+                    hasTransform,
+                    ToPoint(vertex.Location));
+                EnsureFinite(worldVertices[i]);
+            }
+
+            var uniqueEdges = new HashSet<ulong>(edgeCount);
+            var orderedEdges = new List<(int Start, int End)>(edgeCount);
+            for (int m = 0; m < mCount; m++)
+            {
+                for (int n = 0; n < nCount; n++)
+                {
+                    cancellationToken.ThrowIfCancellationRequested();
+                    int start = checked((m * nCount) + n);
+                    if (n + 1 < nCount || closeN)
+                    {
+                        AddLegacyEdge(start, (m * nCount) + ((n + 1) % nCount));
+                    }
+                    if (m + 1 < mCount || closeM)
+                    {
+                        AddLegacyEdge(start, (((m + 1) % mCount) * nCount) + n);
+                    }
+                }
+            }
+
+            int layerIndex = InternLayer(effectiveLayer, layers, layerIndices);
+            int styleIndex = InternStyle(
+                resolvedStyle,
+                styles,
+                styleIndices,
+                lineTypePatterns,
+                lineTypePatternIndices,
+                lineTypeElements,
+                lineTypeTextResources,
+                lineTypeShapeResources,
+                textGlyphRuns,
+                textGlyphIndices,
+                textGlyphPositions,
+                textFonts,
+                textFontIndices,
+                shxGlyphInstances,
+                shxFontResolver,
+                options,
+                drawingCodePage);
+            int mFaceCount = (mCount - 1) + (closeM && mCount > 2 ? 1 : 0);
+            int nFaceCount = (nCount - 1) + (closeN && nCount > 2 ? 1 : 0);
+            var meshFaces = new List<CadMesh3DFaceSource>(checked(mFaceCount * nFaceCount));
+            for (int m = 0; m < mFaceCount; m++)
+            {
+                int nextM = (m + 1) % mCount;
+                for (int n = 0; n < nFaceCount; n++)
+                {
+                    int nextN = (n + 1) % nCount;
+                    meshFaces.Add(new CadMesh3DFaceSource(
+                        [
+                            worldVertices[(m * nCount) + n],
+                            worldVertices[(nextM * nCount) + n],
+                            worldVertices[(nextM * nCount) + nextN],
+                            worldVertices[(m * nCount) + nextN],
+                        ],
+                        Array.Empty<Vector2>(),
+                        layerIndex,
+                        styleIndex,
+                        materialIndex,
+                        AllowNonPlanarQuad: true));
+                }
+            }
+            CommitMesh3D(meshFaces, rootHandle);
+            EmitUniformEdges(
+                orderedEdges,
+                worldVertices,
+                rootHandle,
+                layerIndex,
+                styleIndex);
+
+            void AddLegacyEdge(int start, int end)
+            {
+                if (start == end || worldVertices[start] == worldVertices[end])
+                {
+                    throw new ArgumentException(
+                        "A polygon MESH contains a collapsed topology edge.");
+                }
+                int lower = Math.Min(start, end);
+                int upper = Math.Max(start, end);
+                ulong key = ((ulong)(uint)lower << 32) | (uint)upper;
+                if (uniqueEdges.Add(key))
+                {
+                    orderedEdges.Add((start, end));
+                }
+            }
+        }
+
+        void CompilePolyfaceMesh(
+            PolyfaceMesh mesh,
+            CadAffineTransform3D transform,
+            bool hasTransform,
+            ulong rootHandle,
+            Layer effectiveLayer,
+            CadResolvedStyle resolvedStyle,
+            int materialIndex)
+        {
+            ValidateLegacyMeshHeader(mesh);
+            if (mesh.Vertices.Count == 0 || mesh.Faces.Count == 0)
+            {
+                throw new ArgumentException(
+                    "A polyface MESH requires at least one coordinate vertex and one face record.");
+            }
+
+            var worldVertices = new CadPoint3D[mesh.Vertices.Count];
+            for (int i = 0; i < mesh.Vertices.Count; i++)
+            {
+                VertexFaceMesh vertex = mesh.Vertices[i];
+                if (vertex.StartWidth != 0.0 || vertex.EndWidth != 0.0 || vertex.Bulge != 0.0)
+                {
+                    throw new CadUnsupportedEntityException(
+                        "Polyface MESH coordinate-vertex width and bulge require a separate edge contract.");
+                }
+                worldVertices[i] = TransformPoint(
+                    transform,
+                    hasTransform,
+                    ToPoint(vertex.Location));
+                EnsureFinite(worldVertices[i]);
+            }
+
+            Span<int> raw = stackalloc int[4];
+            foreach (VertexFaceRecord face in mesh.Faces)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                int count = ReadLegacyFace(face, raw);
+                ConsumeMeshTopology(raw.Length);
+                if (count == 1)
+                {
+                    int vertexIndex = Math.Abs(raw[0]) - 1;
+                    if ((uint)vertexIndex >= (uint)worldVertices.Length)
+                    {
+                        throw new ArgumentException(
+                            "A polyface MESH point record references a coordinate vertex outside its 1-based array.");
+                    }
+                    ValidatePointDisplay(
+                        document.Header.PointDisplayMode,
+                        document.Header.PointDisplaySize);
+                    continue;
+                }
+                for (int i = 0; i < (count == 2 ? 1 : count); i++)
+                {
+                    int next = count == 2 ? 1 : (i + 1) % count;
+                    int start = Math.Abs(raw[i]) - 1;
+                    int end = Math.Abs(raw[next]) - 1;
+                    if ((uint)start >= (uint)worldVertices.Length ||
+                        (uint)end >= (uint)worldVertices.Length)
+                    {
+                        throw new ArgumentException(
+                            "A polyface MESH face references a coordinate vertex outside its 1-based array.");
+                    }
+                    if (raw[i] >= 0 &&
+                        (start == end || worldVertices[start] == worldVertices[end]))
+                    {
+                        throw new ArgumentException(
+                            "A polyface MESH face contains a collapsed visible edge.");
+                    }
+                }
+            }
+
+            var styledEdges = new HashSet<(ulong Edge, int Layer, int Style)>();
+            var styledPoints = new HashSet<(int Vertex, int Layer, int Style)>();
+            var orderedEdges = new List<(
+                CadPoint3D Start,
+                CadPoint3D End,
+                int Layer,
+                int Style)>();
+            var orderedPoints = new List<(
+                CadPoint3D Position,
+                int Layer,
+                int Style)>();
+            var meshFaces = new List<CadMesh3DFaceSource>(mesh.Faces.Count);
+            foreach (VertexFaceRecord face in mesh.Faces)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                int count = ReadLegacyFace(face, raw);
+
+                Layer faceLayer = IsLayerZero(face.Layer) ? effectiveLayer : face.Layer;
+                if (face.IsInvisible || !faceLayer.IsOn ||
+                    IsLayerFrozen(faceLayer) ||
+                    (!options.IncludeNonPlottableLayers && !faceLayer.PlotFlag))
+                {
+                    continue;
+                }
+                if (count == 1 && document.Header.PointDisplayMode == 1)
+                {
+                    continue;
+                }
+                CadResolvedStyle faceStyle = ResolveStyle(
+                    face,
+                    faceLayer,
+                    resolvedStyle,
+                    options,
+                    globalLineTypeScale);
+                int layerIndex = InternLayer(faceLayer, layers, layerIndices);
+                int styleIndex = InternStyle(
+                    faceStyle,
+                    styles,
+                    styleIndices,
+                    lineTypePatterns,
+                    lineTypePatternIndices,
+                    lineTypeElements,
+                    lineTypeTextResources,
+                    lineTypeShapeResources,
+                    textGlyphRuns,
+                    textGlyphIndices,
+                    textGlyphPositions,
+                    textFonts,
+                    textFontIndices,
+                    shxGlyphInstances,
+                    shxFontResolver,
+                    options,
+                    drawingCodePage);
+
+                if (count == 1)
+                {
+                    int vertexIndex = Math.Abs(raw[0]) - 1;
+                    if (!styledPoints.Add((vertexIndex, layerIndex, styleIndex)))
+                    {
+                        continue;
+                    }
+                    if (orderedEdges.Count + orderedPoints.Count >=
+                        options.MaxExpandedEntities - expandedCount)
+                    {
+                        throw new CadSnapshotExpansionLimitException(
+                            $"Expanded entity count exceeds the configured limit of {options.MaxExpandedEntities}.");
+                    }
+                    orderedPoints.Add((worldVertices[vertexIndex], layerIndex, styleIndex));
+                    continue;
+                }
+
+                if (count >= 3)
+                {
+                    var facePoints = new CadPoint3D[count];
+                    for (int i = 0; i < count; i++)
+                    {
+                        facePoints[i] = worldVertices[Math.Abs(raw[i]) - 1];
+                    }
+                    meshFaces.Add(new CadMesh3DFaceSource(
+                        facePoints,
+                        Array.Empty<Vector2>(),
+                        layerIndex,
+                        styleIndex,
+                        materialIndex,
+                        AllowNonPlanarQuad: true));
+                }
+
+                for (int i = 0; i < (count == 2 ? 1 : count); i++)
+                {
+                    int next = count == 2 ? 1 : (i + 1) % count;
+                    int start = Math.Abs(raw[i]) - 1;
+                    int end = Math.Abs(raw[next]) - 1;
+                    if (raw[i] < 0)
+                    {
+                        continue;
+                    }
+                    int lower = Math.Min(start, end);
+                    int upper = Math.Max(start, end);
+                    ulong edgeKey = ((ulong)(uint)lower << 32) | (uint)upper;
+                    if (!styledEdges.Add((edgeKey, layerIndex, styleIndex)))
+                    {
+                        continue;
+                    }
+                    if (orderedEdges.Count + orderedPoints.Count >=
+                        options.MaxExpandedEntities - expandedCount)
+                    {
+                        throw new CadSnapshotExpansionLimitException(
+                            $"Expanded entity count exceeds the configured limit of {options.MaxExpandedEntities}.");
+                    }
+                    orderedEdges.Add((
+                        worldVertices[start],
+                        worldVertices[end],
+                        layerIndex,
+                        styleIndex));
+                }
+            }
+
+            EnsureDerivedEdgeCapacity(checked(orderedEdges.Count + orderedPoints.Count));
+            CommitMesh3D(meshFaces, rootHandle);
+            foreach ((CadPoint3D start, CadPoint3D end, int layer, int style) in orderedEdges)
+            {
+                EmitEdge(start, end, rootHandle, layer, style);
+            }
+            foreach ((CadPoint3D position, int layer, int style) in orderedPoints)
+            {
+                EmitPoint(position, rootHandle, layer, style);
+            }
+        }
+
+        static int ReadLegacyFace(VertexFaceRecord face, Span<int> indices)
+        {
+            indices[0] = face.Index1;
+            indices[1] = face.Index2;
+            indices[2] = face.Index3;
+            indices[3] = face.Index4;
+            int count = indices.IndexOf(0);
+            if (count < 0)
+            {
+                count = indices.Length;
+            }
+            else if (indices[count..].IndexOfAnyExcept(0) >= 0)
+            {
+                throw new ArgumentException(
+                    "A polyface MESH face contains a nonzero index after its terminating zero.");
+            }
+            if (count == 0)
+            {
+                throw new ArgumentException(
+                    "A polyface MESH face record requires at least one coordinate-vertex index.");
+            }
+            return count;
+        }
+
+        void ValidateLegacyMeshHeader<TVertex>(Polyline<TVertex> mesh)
+            where TVertex : Entity, IVertex
+        {
+            if (mesh.SmoothSurface != SmoothSurfaceType.NoSmooth ||
+                (mesh.Flags & (PolylineFlags.CurveFit | PolylineFlags.SplineFit)) != 0)
+            {
+                throw new CadUnsupportedEntityException(
+                    "Fitted legacy MESH surfaces require exact quadratic/cubic/Bezier surface evaluation.");
+            }
+            if (mesh.StartWidth != 0.0 || mesh.EndWidth != 0.0 || mesh.Thickness != 0.0)
+            {
+                throw new CadUnsupportedEntityException(
+                    "Legacy MESH width and thickness require retained surface extrusion semantics.");
+            }
+        }
+
+        void ConsumeMeshTopology(int visits)
+        {
+            if (visits < 0 || visits > remainingMeshFaceIndices)
+            {
+                remainingMeshFaceIndices = 0;
+                throw new CadUnsupportedEntityException(
+                    $"MESH topology exceeds the configured {options.MaxMeshFaceIndices}-index document limit.");
+            }
+            remainingMeshFaceIndices -= visits;
+        }
+
+        void EmitUniformEdges(
+            List<(int Start, int End)> orderedEdges,
+            CadPoint3D[] worldVertices,
+            ulong rootHandle,
+            int layerIndex,
+            int styleIndex)
+        {
+            EnsureDerivedEdgeCapacity(orderedEdges.Count);
+            foreach ((int start, int end) in orderedEdges)
+            {
+                EmitEdge(worldVertices[start], worldVertices[end], rootHandle, layerIndex, styleIndex);
+            }
+        }
+
+        void EnsureDerivedEdgeCapacity(int count)
+        {
+            if (count < 0 || count > options.MaxExpandedEntities - expandedCount)
+            {
+                throw new CadSnapshotExpansionLimitException(
+                    $"Expanded entity count exceeds the configured limit of {options.MaxExpandedEntities}.");
+            }
+        }
+
+        void CommitMesh3D(
+            IReadOnlyList<CadMesh3DFaceSource> sourceFaces,
+            ulong rootHandle,
+            CadPoint3D[]? subobjectDisplayVertices = null,
+            int subobjectVertexCount = 0,
+            int[][]? subobjectEdgeVertexChains = null,
+            int[][]? subobjectFaceEdgeIndices = null,
+            ulong subobjectSourceHandle = 0,
+            CadAffineTransform3D subobjectSourceToWorld = default,
+            bool isDirectModelSpaceSubobjectSource = false)
+        {
+            if (sourceFaces.Count == 0)
+            {
+                return;
+            }
+
+            CadMesh3DBuildResult build = CadMesh3DTopology.Build(sourceFaces);
+            int vertexOffset = mesh3DVertices.Count;
+            int indexOffset = mesh3DIndices.Count;
+            int rangeOffset = mesh3DDrawRanges.Count;
+            mesh3DVertices.AddRange(build.Vertices);
+            mesh3DIndices.AddRange(build.Indices);
+            mesh3DVertexSubobjectIndices.AddRange(
+                build.VertexSubobjectIndices);
+            mesh3DEdgeSubobjectIndices.AddRange(
+                build.EdgeSubobjectIndices);
+            for (int i = 0; i < build.DrawRanges.Length; i++)
+            {
+                CadMesh3DDrawRange range = build.DrawRanges[i];
+                mesh3DDrawRanges.Add(range with
+                {
+                    VertexOffset = checked(range.VertexOffset + vertexOffset),
+                    IndexOffset = checked(range.IndexOffset + indexOffset),
+                });
+            }
+
+            int subobjectVertexPointOffset = 0;
+            int subobjectEdgeOffset = 0;
+            int subobjectFaceOffset = 0;
+            int subobjectEdgeCount = 0;
+            int subobjectFaceCount = 0;
+            if (subobjectDisplayVertices is not null)
+            {
+                if (subobjectEdgeVertexChains is null)
+                {
+                    throw new ArgumentNullException(
+                        nameof(subobjectEdgeVertexChains));
+                }
+                if (subobjectFaceEdgeIndices is null)
+                {
+                    throw new ArgumentNullException(
+                        nameof(subobjectFaceEdgeIndices));
+                }
+                if (subobjectVertexCount <= 0 ||
+                    subobjectVertexCount > subobjectDisplayVertices.Length)
+                {
+                    throw new ArgumentOutOfRangeException(
+                        nameof(subobjectVertexCount));
+                }
+
+                subobjectVertexPointOffset = mesh3DSubobjectPoints.Count;
+                for (int vertex = 0; vertex < subobjectVertexCount; vertex++)
+                {
+                    mesh3DSubobjectPoints.Add(subobjectDisplayVertices[vertex]);
+                }
+
+                subobjectEdgeOffset = mesh3DSubobjectEdges.Count;
+                for (int edge = 0; edge < subobjectEdgeVertexChains.Length; edge++)
+                {
+                    int[] chain = subobjectEdgeVertexChains[edge];
+                    if (chain is null || chain.Length < 2)
+                    {
+                        throw new InvalidOperationException(
+                            "A modern MESH subobject edge requires a display polyline.");
+                    }
+                    int pointOffset = mesh3DSubobjectPoints.Count;
+                    for (int point = 0; point < chain.Length; point++)
+                    {
+                        int displayVertexIndex = chain[point];
+                        if ((uint)displayVertexIndex >=
+                            (uint)subobjectDisplayVertices.Length)
+                        {
+                            throw new InvalidOperationException(
+                                "A modern MESH subobject edge references a display vertex outside its topology.");
+                        }
+                        mesh3DSubobjectPoints.Add(
+                            subobjectDisplayVertices[displayVertexIndex]);
+                    }
+                    mesh3DSubobjectEdges.Add(new CadMesh3DSubobjectEdge(
+                        pointOffset,
+                        chain.Length));
+                }
+                subobjectEdgeCount = subobjectEdgeVertexChains.Length;
+
+                subobjectFaceOffset = mesh3DSubobjectFaces.Count;
+                for (int face = 0; face < subobjectFaceEdgeIndices.Length; face++)
+                {
+                    int[] faceEdges = subobjectFaceEdgeIndices[face];
+                    if (faceEdges is null || faceEdges.Length < 3)
+                    {
+                        throw new InvalidOperationException(
+                            "A modern MESH subobject face requires an authored edge loop.");
+                    }
+                    int edgeIndexOffset = mesh3DSubobjectFaceEdgeIndices.Count;
+                    for (int edge = 0; edge < faceEdges.Length; edge++)
+                    {
+                        int localEdgeIndex = faceEdges[edge];
+                        if ((uint)localEdgeIndex >= (uint)subobjectEdgeCount)
+                        {
+                            throw new InvalidOperationException(
+                                "A modern MESH subobject face references an edge outside its topology.");
+                        }
+                        mesh3DSubobjectFaceEdgeIndices.Add(
+                            checked(subobjectEdgeOffset + localEdgeIndex));
+                    }
+                    mesh3DSubobjectFaces.Add(new CadMesh3DSubobjectFace(
+                        edgeIndexOffset,
+                        faceEdges.Length));
+                }
+                subobjectFaceCount = subobjectFaceEdgeIndices.Length;
+            }
+
+            int primitiveIndex = meshes3D.Count;
+            meshes3D.Add(new CadMesh3DPrimitive(
+                rangeOffset,
+                build.DrawRanges.Length,
+                build.Bounds)
+            {
+                SubobjectSourceHandle = subobjectSourceHandle,
+                SubobjectSourceToWorld = subobjectDisplayVertices is null
+                    ? CadAffineTransform3D.Identity
+                    : subobjectSourceToWorld,
+                IsDirectModelSpaceSubobjectSource =
+                    isDirectModelSpaceSubobjectSource,
+                SubobjectVertexPointOffset = subobjectVertexPointOffset,
+                SubobjectVertexCount = subobjectVertexCount,
+                SubobjectEdgeOffset = subobjectEdgeOffset,
+                SubobjectEdgeCount = subobjectEdgeCount,
+                SubobjectFaceOffset = subobjectFaceOffset,
+                SubobjectFaceCount = subobjectFaceCount,
+            });
+            CadMesh3DDrawRange firstRange = build.DrawRanges[0];
+            entities.Add(new CadEntityHeader(
+                rootHandle,
+                CadEntityKind.Mesh3D,
+                firstRange.LayerIndex,
+                firstRange.StyleIndex,
+                primitiveIndex,
+                build.Bounds));
+            documentBounds = documentBounds.Union(build.Bounds);
+        }
+
+        void EmitEdge(
+            CadPoint3D start,
+            CadPoint3D end,
+            ulong rootHandle,
+            int layerIndex,
+            int styleIndex)
+        {
+            if (expandedCount >= options.MaxExpandedEntities)
+            {
+                throw new CadSnapshotExpansionLimitException(
+                    $"Expanded entity count exceeds the configured limit of {options.MaxExpandedEntities}.");
+            }
+            expandedCount++;
+            int primitiveIndex = lines.Count;
+            lines.Add(new CadLinePrimitive(start, end));
+            CadBounds3D bounds = CadBounds3D.FromPoint(start).Include(end);
+            entities.Add(new CadEntityHeader(
+                rootHandle,
+                CadEntityKind.Line,
+                layerIndex,
+                styleIndex,
+                primitiveIndex,
+                bounds));
+            documentBounds = documentBounds.Union(bounds);
+        }
+
+        void EmitPoint(
+            CadPoint3D position,
+            ulong rootHandle,
+            int layerIndex,
+            int styleIndex)
+        {
+            if (expandedCount >= options.MaxExpandedEntities)
+            {
+                throw new CadSnapshotExpansionLimitException(
+                    $"Expanded entity count exceeds the configured limit of {options.MaxExpandedEntities}.");
+            }
+            expandedCount++;
+            int primitiveIndex = points.Count;
+            CadCoordinateSystem markerBasis = CadCoordinateSystem.FromNormal(
+                new CadPoint3D(0.0, 0.0, 1.0));
+            points.Add(new CadPointPrimitive(
+                position,
+                markerBasis.XAxis,
+                markerBasis.YAxis,
+                document.Header.PointDisplayMode,
+                document.Header.PointDisplaySize));
+            CadBounds3D bounds = CadBounds3D.FromPoint(position);
+            entities.Add(new CadEntityHeader(
+                rootHandle,
+                CadEntityKind.Point,
+                layerIndex,
+                styleIndex,
+                primitiveIndex,
+                bounds));
+            documentBounds = documentBounds.Union(bounds);
+        }
+
+        Entity[] GetOrderedEntities(BlockRecord block)
+        {
+            if (orderedBlockEntities.TryGetValue(block, out Entity[]? cached))
+            {
+                return cached;
+            }
+
+            CadDrawOrderResolution resolution = CadDrawOrderResolver.Resolve(
+                block,
+                applySortOrder);
+            hasDrawOrderOverrides |= resolution.HasOverrides;
+            orderedBlockEntities.Add(block, resolution.Entities);
+            return resolution.Entities;
+        }
+
+        CadEntityHeader CompileAttribute(
+            AttributeBase attribute,
+            ulong handle,
+            CadAffineTransform3D transform,
+            bool hasTransform,
+            int layerIndex,
+            int styleIndex,
+            CadResolvedStyle entityStyle,
+            ACadSharp.Color layerColor)
+        {
+            return attribute.AttributeType switch
+            {
+                AttributeType.SingleLine => CompileText(
+                    attribute,
+                    handle,
+                    transform,
+                    hasTransform,
+                    layerIndex,
+                    styleIndex,
+                    options,
+                    diagnostics,
+                    texts,
+                    textGlyphRuns,
+                    textDecorations,
+                    textGlyphIndices,
+                    textGlyphPositions,
+                    textFonts,
+                    textFontIndices,
+                    shxTexts,
+                    shxGlyphInstances,
+                    shxDecorationSegments,
+                    shxFontResolver,
+                    drawingCodePage),
+                AttributeType.MultiLine or AttributeType.ConstantMultiLine
+                    when attribute.MText is not null => CompileMText(
+                        attribute.MText,
+                        handle,
+                        transform,
+                        hasTransform,
+                        layerIndex,
+                        styleIndex,
+                        entityStyle,
+                        layerColor,
+                        options,
+                        diagnostics,
+                        mtexts,
+                        mtextGlyphRuns,
+                        mtextBackgrounds,
+                        mtextDecorations,
+                        mtextStrokes,
+                        textGlyphIndices,
+                        textGlyphPositions,
+                        textFonts,
+                        textFontIndices,
+                        shxMTexts,
+                        shxMTextGlyphRuns,
+                        shxGlyphInstances,
+                        shxFontResolver,
+                        drawingCodePage),
+                AttributeType.MultiLine or AttributeType.ConstantMultiLine =>
+                    throw new CadUnsupportedEntityException(
+                        "Multiline attribute has no embedded MTEXT payload."),
+                _ => throw new CadUnsupportedEntityException(
+                    $"Attribute type {(int)attribute.AttributeType} is not supported."),
+            };
+        }
+    }
+
+    private static bool IsConstantAttribute(AttributeBase attribute) =>
+        (attribute.Flags & AttributeFlags.Constant) != 0 ||
+        attribute.AttributeType == AttributeType.ConstantMultiLine;
+
+    private static bool IsAttributeExcluded(
+        Entity entity,
+        AttributeVisibilityMode visibility) =>
+        entity is AttributeBase attribute &&
+        (visibility == AttributeVisibilityMode.None ||
+            (visibility == AttributeVisibilityMode.Normal &&
+                (attribute.Flags & AttributeFlags.Hidden) != 0));
+
+    private static void ValidateAttributeVisibility(
+        AttributeVisibilityMode visibility)
+    {
+        if (visibility is not (
+            AttributeVisibilityMode.None or
+            AttributeVisibilityMode.Normal or
+            AttributeVisibilityMode.All))
+        {
+            throw new InvalidDataException(
+                $"Drawing ATTMODE value {(int)visibility} is invalid.");
+        }
+    }
+
+    private static CadEntityHeader CompileLine(
+        Line line,
+        ulong handle,
+        CadAffineTransform3D transform,
+        bool hasTransform,
+        int layerIndex,
+        int styleIndex,
+        List<CadLinePrimitive> destination)
+    {
+        CadPoint3D start = TransformPoint(transform, hasTransform, ToPoint(line.StartPoint));
+        CadPoint3D end = TransformPoint(transform, hasTransform, ToPoint(line.EndPoint));
+        EnsureFinite(start);
+        EnsureFinite(end);
+        int primitiveIndex = destination.Count;
+        destination.Add(new CadLinePrimitive(start, end));
+        return new CadEntityHeader(
+            handle,
+            CadEntityKind.Line,
+            layerIndex,
+            styleIndex,
+            primitiveIndex,
+            CadBounds3D.FromPoint(start).Include(end));
+    }
+
+    private static CadEntityHeader CompileConstructionLine(
+        XYZ basePointValue,
+        XYZ directionValue,
+        bool isXLine,
+        ulong handle,
+        CadAffineTransform3D transform,
+        bool hasTransform,
+        int layerIndex,
+        int styleIndex,
+        List<CadConstructionLinePrimitive> destination)
+    {
+        CadPoint3D basePoint = TransformPoint(
+            transform,
+            hasTransform,
+            ToPoint(basePointValue));
+        CadPoint3D direction = hasTransform
+            ? transform.TransformVector(ToPoint(directionValue))
+            : ToPoint(directionValue);
+        EnsureFinite(basePoint);
+        EnsureFinite(direction);
+        double length = direction.Length;
+        if (!double.IsFinite(length) || length <= 0.0)
+        {
+            throw new ArgumentException(
+                $"{(isXLine ? "XLINE" : "RAY")} direction must be finite and nonzero.");
+        }
+
+        direction /= length;
+        int primitiveIndex = destination.Count;
+        destination.Add(new CadConstructionLinePrimitive(basePoint, direction));
+        return new CadEntityHeader(
+            handle,
+            isXLine ? CadEntityKind.XLine : CadEntityKind.Ray,
+            layerIndex,
+            styleIndex,
+            primitiveIndex,
+            CadBounds3D.Empty);
+    }
+
+    private static void ValidatePoint(
+        ACadSharp.Entities.Point point,
+        short displayMode,
+        double displaySize)
+    {
+        if (!double.IsFinite(point.Thickness))
+        {
+            throw new ArgumentException("POINT thickness must be finite.");
+        }
+        if (point.Thickness != 0.0)
+        {
+            throw new CadUnsupportedEntityException(
+                "POINT thickness requires retained extrusion geometry.");
+        }
+        if (!double.IsFinite(point.Rotation))
+        {
+            throw new ArgumentException("POINT rotation must be finite.");
+        }
+        ValidatePointDisplay(displayMode, displaySize);
+        _ = CadCoordinateSystem.FromNormal(ToPoint(point.Normal));
+        EnsureFinite(ToPoint(point.Location));
+    }
+
+    private static void ValidatePointDisplay(short displayMode, double displaySize)
+    {
+        int baseMode = displayMode & 31;
+        int enclosureMode = displayMode & 96;
+        if (displayMode < 0 || baseMode > 4 ||
+            enclosureMode is not (0 or 32 or 64 or 96) ||
+            displayMode != baseMode + enclosureMode)
+        {
+            throw new CadUnsupportedEntityException(
+                $"PDMODE {displayMode} is outside the documented base and enclosure combinations.");
+        }
+        if (!double.IsFinite(displaySize))
+        {
+            throw new ArgumentException("PDSIZE must be finite.");
+        }
+    }
+
+    private static CadEntityHeader CompilePoint(
+        ACadSharp.Entities.Point point,
+        ulong handle,
+        CadAffineTransform3D transform,
+        bool hasTransform,
+        int layerIndex,
+        int styleIndex,
+        List<CadPointPrimitive> destination,
+        short displayMode,
+        double displaySize)
+    {
+        CadCoordinateSystem localBasis = CadCoordinateSystem.FromNormal(ToPoint(point.Normal));
+        double cosine = Math.Cos(point.Rotation);
+        double sine = Math.Sin(point.Rotation);
+        CadCoordinateSystem rotatedBasis = new(
+            (localBasis.XAxis * cosine) + (localBasis.YAxis * sine),
+            (localBasis.XAxis * -sine) + (localBasis.YAxis * cosine),
+            localBasis.ZAxis);
+        CadCoordinateSystem markerBasis = hasTransform
+            ? TransformBasis(transform, rotatedBasis)
+            : rotatedBasis;
+        CadPoint3D position = TransformPoint(
+            transform,
+            hasTransform,
+            ToPoint(point.Location));
+        EnsureFinite(position);
+        EnsureFinite(markerBasis.XAxis);
+        EnsureFinite(markerBasis.YAxis);
+        int primitiveIndex = destination.Count;
+        destination.Add(new CadPointPrimitive(
+            position,
+            markerBasis.XAxis,
+            markerBasis.YAxis,
+            displayMode,
+            displaySize));
+        return new CadEntityHeader(
+            handle,
+            CadEntityKind.Point,
+            layerIndex,
+            styleIndex,
+            primitiveIndex,
+            CadBounds3D.FromPoint(position));
+    }
+
+    private static CadEntityHeader CompileCircle(
+        Circle circle,
+        ulong handle,
+        CadAffineTransform3D transform,
+        bool hasTransform,
+        int layerIndex,
+        int styleIndex,
+        List<CadCirclePrimitive> destination)
+    {
+        ValidateRadius(circle.Radius);
+        CadCoordinateSystem localBasis = CadCoordinateSystem.FromNormal(ToPoint(circle.Normal));
+        CadPoint3D center = TransformPoint(
+            transform,
+            hasTransform,
+            localBasis.Transform(ToPoint(circle.Center)));
+        CadCoordinateSystem basis = hasTransform
+            ? TransformBasis(transform, localBasis)
+            : localBasis;
+        EnsureFinite(center);
+        int primitiveIndex = destination.Count;
+        destination.Add(new CadCirclePrimitive(center, basis, circle.Radius));
+        return new CadEntityHeader(
+            handle,
+            CadEntityKind.Circle,
+            layerIndex,
+            styleIndex,
+            primitiveIndex,
+            CadBounds3D.Circle(center, basis, circle.Radius));
+    }
+
+    private static CadEntityHeader CompileArc(
+        Arc arc,
+        ulong handle,
+        CadAffineTransform3D transform,
+        bool hasTransform,
+        int layerIndex,
+        int styleIndex,
+        List<CadArcPrimitive> destination)
+    {
+        ValidateRadius(arc.Radius);
+        if (!double.IsFinite(arc.StartAngle) || !double.IsFinite(arc.EndAngle))
+        {
+            throw new ArgumentException("Arc angles must be finite.");
+        }
+
+        CadCoordinateSystem localBasis = CadCoordinateSystem.FromNormal(ToPoint(arc.Normal));
+        CadPoint3D center = TransformPoint(
+            transform,
+            hasTransform,
+            localBasis.Transform(ToPoint(arc.Center)));
+        CadCoordinateSystem basis = hasTransform
+            ? TransformBasis(transform, localBasis)
+            : localBasis;
+        EnsureFinite(center);
+        double start = NormalizeAngle(arc.StartAngle);
+        double sweep = NormalizePositiveSweep(arc.StartAngle, arc.EndAngle);
+        int primitiveIndex = destination.Count;
+        destination.Add(new CadArcPrimitive(center, basis, arc.Radius, start, sweep));
+        return new CadEntityHeader(
+            handle,
+            CadEntityKind.Arc,
+            layerIndex,
+            styleIndex,
+            primitiveIndex,
+            CadBounds3D.Arc(center, basis, arc.Radius, start, sweep));
+    }
+
+    private static CadEntityHeader CompileEllipse(
+        Ellipse ellipse,
+        ulong handle,
+        CadAffineTransform3D transform,
+        bool hasTransform,
+        int layerIndex,
+        int styleIndex,
+        List<CadEllipsePrimitive> destination)
+    {
+        if (ellipse.Thickness != 0.0)
+        {
+            throw new CadUnsupportedEntityException(
+                "Extruded ellipses require 3D side-surface lowering.");
+        }
+
+        CadPoint3D center = ToPoint(ellipse.Center);
+        CadPoint3D majorAxis = ToPoint(ellipse.MajorAxisEndPoint);
+        CadPoint3D normal = ToPoint(ellipse.Normal).Normalize();
+        EnsureFinite(center);
+        EnsureFinite(majorAxis);
+        double majorLength = majorAxis.Length;
+        if (!double.IsFinite(majorLength) || majorLength <= 0.0 ||
+            !double.IsFinite(ellipse.RadiusRatio) ||
+            ellipse.RadiusRatio <= 0.0 || ellipse.RadiusRatio > 1.0)
+        {
+            throw new ArgumentException(
+                "Ellipse axes and radius ratio must be finite and positive, with ratio at most one.");
+        }
+
+        double perpendicularError = Math.Abs(CadPoint3D.Dot(normal, majorAxis)) / majorLength;
+        if (perpendicularError > 1e-10)
+        {
+            throw new ArgumentException("Ellipse normal and major axis must be perpendicular.");
+        }
+
+        if (!double.IsFinite(ellipse.StartParameter) || !double.IsFinite(ellipse.EndParameter))
+        {
+            throw new ArgumentException("Ellipse parameters must be finite.");
+        }
+
+        CadPoint3D minorAxis = CadPoint3D.Cross(normal, majorAxis).Normalize() *
+            (majorLength * ellipse.RadiusRatio);
+        if (hasTransform)
+        {
+            center = transform.TransformPoint(center);
+            majorAxis = transform.TransformVector(majorAxis);
+            minorAxis = transform.TransformVector(minorAxis);
+        }
+        EnsureFinite(center);
+        EnsureFinite(majorAxis);
+        EnsureFinite(minorAxis);
+        double start = NormalizeAngle(ellipse.StartParameter);
+        double sweep = NormalizePositiveSweep(ellipse.StartParameter, ellipse.EndParameter);
+        int primitiveIndex = destination.Count;
+        destination.Add(new CadEllipsePrimitive(center, majorAxis, minorAxis, start, sweep));
+        return new CadEntityHeader(
+            handle,
+            CadEntityKind.Ellipse,
+            layerIndex,
+            styleIndex,
+            primitiveIndex,
+            CadBounds3D.EllipseArc(center, majorAxis, minorAxis, start, sweep));
+    }
+
+    private static CadEntityHeader CompileSolid(
+        Solid solid,
+        ulong handle,
+        CadAffineTransform3D transform,
+        bool hasTransform,
+        int layerIndex,
+        int styleIndex,
+        List<CadFacePrimitive> destination)
+    {
+        if (!double.IsFinite(solid.Thickness))
+        {
+            throw new ArgumentException("A SOLID thickness must be finite.");
+        }
+
+        CadCoordinateSystem basis = CadCoordinateSystem.FromNormal(ToPoint(solid.Normal));
+        CadPoint3D first = TransformPoint(transform, hasTransform, basis.Transform(ToPoint(solid.FirstCorner)));
+        CadPoint3D second = TransformPoint(transform, hasTransform, basis.Transform(ToPoint(solid.SecondCorner)));
+        CadPoint3D third = TransformPoint(transform, hasTransform, basis.Transform(ToPoint(solid.ThirdCorner)));
+        CadPoint3D fourth = TransformPoint(transform, hasTransform, basis.Transform(ToPoint(solid.FourthCorner)));
+        CadPoint3D extrusion = basis.ZAxis * solid.Thickness;
+        if (hasTransform)
+        {
+            extrusion = transform.TransformVector(extrusion);
+        }
+        return AddFace(
+            handle,
+            CadEntityKind.Solid,
+            layerIndex,
+            styleIndex,
+            destination,
+            first,
+            second,
+            fourth,
+            third,
+            0,
+            extrusion);
+    }
+
+    private static CadEntityHeader CompileFace3D(
+        Face3D face,
+        ulong handle,
+        CadAffineTransform3D transform,
+        bool hasTransform,
+        int layerIndex,
+        int styleIndex,
+        List<CadFacePrimitive> destination)
+    {
+        int invisibleEdges = (int)face.Flags;
+        if ((invisibleEdges & ~0xF) != 0)
+        {
+            throw new ArgumentException("A 3DFACE contains unsupported invisible-edge flags.");
+        }
+
+        return AddFace(
+            handle,
+            CadEntityKind.Face3D,
+            layerIndex,
+            styleIndex,
+            destination,
+            TransformPoint(transform, hasTransform, ToPoint(face.FirstCorner)),
+            TransformPoint(transform, hasTransform, ToPoint(face.SecondCorner)),
+            TransformPoint(transform, hasTransform, ToPoint(face.ThirdCorner)),
+            TransformPoint(transform, hasTransform, ToPoint(face.FourthCorner)),
+            (byte)invisibleEdges);
+    }
+
+    private static CadEntityHeader AddFace(
+        ulong handle,
+        CadEntityKind kind,
+        int layerIndex,
+        int styleIndex,
+        List<CadFacePrimitive> destination,
+        CadPoint3D first,
+        CadPoint3D second,
+        CadPoint3D third,
+        CadPoint3D fourth,
+        byte invisibleEdgeMask,
+        CadPoint3D extrusion = default)
+    {
+        EnsureFinite(first);
+        EnsureFinite(second);
+        EnsureFinite(third);
+        EnsureFinite(fourth);
+        EnsureFinite(extrusion);
+        int primitiveIndex = destination.Count;
+        destination.Add(new CadFacePrimitive(
+            first,
+            second,
+            third,
+            fourth,
+            invisibleEdgeMask)
+        {
+            Extrusion = extrusion,
+        });
+        CadBounds3D bounds = CadBounds3D.FromPoint(first)
+            .Include(second)
+            .Include(third)
+            .Include(fourth);
+        if (extrusion != CadPoint3D.Zero)
+        {
+            bounds = bounds
+                .Include(first + extrusion)
+                .Include(second + extrusion)
+                .Include(third + extrusion)
+                .Include(fourth + extrusion);
+        }
+        return new CadEntityHeader(
+            handle,
+            kind,
+            layerIndex,
+            styleIndex,
+            primitiveIndex,
+            bounds);
+    }
+
+    private static CadEntityHeader CompileSpline(
+        Spline spline,
+        ulong handle,
+        CadAffineTransform3D transform,
+        bool hasTransform,
+        int layerIndex,
+        int styleIndex,
+        List<CadSplinePrimitive> destination,
+        List<CadPoint3D> controlPoints,
+        List<double> knots,
+        List<double> weights)
+    {
+        if (spline.Degree < 1 || spline.Degree > Spline.MaxDegree ||
+            spline.ControlPoints.Count < spline.Degree + 1 ||
+            spline.Knots.Count == 0)
+        {
+            throw new ArgumentException("Spline degree, control points, or knot vector is invalid.");
+        }
+
+        if (spline.Weights.Count != 0 && spline.Weights.Count != spline.ControlPoints.Count)
+        {
+            throw new ArgumentException("Spline weight count must be zero or match its control-point count.");
+        }
+
+        CadBounds3D bounds = CadBounds3D.Empty;
+        var transformedControlPoints = new CadPoint3D[spline.ControlPoints.Count];
+        int transformedIndex = 0;
+        foreach (XYZ value in spline.ControlPoints)
+        {
+            CadPoint3D point = TransformPoint(transform, hasTransform, ToPoint(value));
+            EnsureFinite(point);
+            transformedControlPoints[transformedIndex++] = point;
+            bounds = bounds.Include(point);
+        }
+
+        foreach (double knot in spline.Knots)
+        {
+            if (!double.IsFinite(knot))
+            {
+                throw new ArgumentException("Spline knots must be finite.");
+            }
+        }
+
+        foreach (double weight in spline.Weights)
+        {
+            if (!double.IsFinite(weight) || weight <= 0.0)
+            {
+                throw new ArgumentException("Spline weights must be finite and positive.");
+            }
+        }
+
+        int controlOffset = controlPoints.Count;
+        controlPoints.AddRange(transformedControlPoints);
+        int knotOffset = knots.Count;
+        knots.AddRange(spline.Knots);
+        int weightOffset = weights.Count;
+        weights.AddRange(spline.Weights);
+        int primitiveIndex = destination.Count;
+        destination.Add(new CadSplinePrimitive(
+            controlOffset,
+            spline.ControlPoints.Count,
+            knotOffset,
+            spline.Knots.Count,
+            weightOffset,
+            spline.Weights.Count,
+            spline.Degree,
+            spline.IsClosed,
+            spline.IsPeriodic));
+        return new CadEntityHeader(
+            handle,
+            CadEntityKind.Spline,
+            layerIndex,
+            styleIndex,
+            primitiveIndex,
+            bounds);
+    }
+
+    private static CadEntityHeader CompilePolyline(
+        LwPolyline polyline,
+        ulong handle,
+        CadAffineTransform3D transform,
+        bool hasTransform,
+        int layerIndex,
+        int styleIndex,
+        bool fillMode,
+        List<CadPolylinePrimitive> destination,
+        List<CadPolylineVertex> vertices)
+    {
+        if (polyline.Vertices.Count < 2)
+        {
+            throw new ArgumentException("A lightweight polyline must contain at least two vertices.");
+        }
+
+        if (polyline.Thickness != 0.0)
+        {
+            throw new CadUnsupportedEntityException(
+                "Extruded lightweight polylines require 3D side-surface lowering.");
+        }
+
+        double constantWidth = polyline.ConstantWidth;
+        ValidatePolylineWidth(constantWidth, "Lightweight-polyline constant");
+
+        if (!double.IsFinite(polyline.Elevation))
+        {
+            throw new ArgumentException("Polyline elevation must be finite.");
+        }
+
+        CadCoordinateSystem basis = CadCoordinateSystem.FromNormal(ToPoint(polyline.Normal));
+        LwPolyline.Vertex first = polyline.Vertices[0];
+        double localOriginX = first.Location.X;
+        double localOriginY = first.Location.Y;
+        CadPoint3D worldOrigin = TransformPoint(
+            transform,
+            hasTransform,
+            basis.Transform(new CadPoint3D(localOriginX, localOriginY, polyline.Elevation)));
+        if (hasTransform)
+        {
+            basis = TransformBasis(transform, basis);
+        }
+        EnsureFinite(worldOrigin);
+
+        int segmentCount = polyline.IsClosed
+            ? polyline.Vertices.Count
+            : polyline.Vertices.Count - 1;
+        bool hasExplicitSegmentWidth = false;
+        for (int i = 0; i < segmentCount; i++)
+        {
+            LwPolyline.Vertex vertex = polyline.Vertices[i];
+            ValidatePolylineWidth(vertex.StartWidth, "Lightweight-polyline vertex start");
+            ValidatePolylineWidth(vertex.EndWidth, "Lightweight-polyline vertex end");
+            hasExplicitSegmentWidth |= vertex.HasStartWidth || vertex.HasEndWidth;
+        }
+
+        var normalizedVertices = new CadPolylineVertex[polyline.Vertices.Count];
+        double uniformWidth = double.NaN;
+        bool hasVariableWidth = false;
+        for (int i = 0; i < polyline.Vertices.Count; i++)
+        {
+            LwPolyline.Vertex vertex = polyline.Vertices[i];
+            double x = vertex.Location.X - localOriginX;
+            double y = vertex.Location.Y - localOriginY;
+            if (!double.IsFinite(x) || !double.IsFinite(y) || !double.IsFinite(vertex.Bulge))
+            {
+                throw new ArgumentException("Polyline locations and bulges must be finite.");
+            }
+
+            double startWidth = 0.0;
+            double endWidth = 0.0;
+            if (hasExplicitSegmentWidth && i < segmentCount)
+            {
+                startWidth = vertex.HasStartWidth ? vertex.StartWidth : 0.0;
+                endWidth = vertex.HasEndWidth ? vertex.EndWidth : 0.0;
+                AccumulatePolylineWidthProfile(
+                    startWidth,
+                    endWidth,
+                    ref uniformWidth,
+                    ref hasVariableWidth);
+            }
+
+            normalizedVertices[i] = new CadPolylineVertex(
+                x,
+                y,
+                vertex.Bulge,
+                startWidth,
+                endWidth);
+        }
+
+        if (hasExplicitSegmentWidth)
+        {
+            constantWidth = hasVariableWidth ? 0.0 : uniformWidth;
+        }
+        hasVariableWidth &= hasExplicitSegmentWidth;
+        ValidateVariablePolylineProfile(
+            "lightweight polyline",
+            fillMode,
+            constantWidth,
+            hasVariableWidth,
+            normalizedVertices,
+            segmentCount);
+
+        return AddPlanarPolyline(
+            handle,
+            CadEntityKind.LightweightPolyline,
+            layerIndex,
+            styleIndex,
+            worldOrigin,
+            basis,
+            polyline.IsClosed,
+            polyline.Flags.HasFlag(LwPolylineFlags.Plinegen),
+            fillMode,
+            constantWidth,
+            hasVariableWidth,
+            normalizedVertices,
+            destination,
+            vertices);
+    }
+
+    private static CadEntityHeader CompilePolyline2D(
+        Polyline2D polyline,
+        ulong handle,
+        CadAffineTransform3D transform,
+        bool hasTransform,
+        int layerIndex,
+        int styleIndex,
+        bool fillMode,
+        List<CadPolylinePrimitive> destination,
+        List<CadPolylineVertex> vertices)
+    {
+        if (polyline.Vertices.Count < 2)
+        {
+            throw new ArgumentException("A 2D polyline must contain at least two vertices.");
+        }
+
+        int widthSegmentCount = polyline.IsClosed
+            ? polyline.Vertices.Count
+            : polyline.Vertices.Count - 1;
+        ValidatePolylineWidth(polyline.StartWidth, "2D-polyline default start");
+        ValidatePolylineWidth(polyline.EndWidth, "2D-polyline default end");
+
+        if (polyline.Thickness != 0.0)
+        {
+            throw new CadUnsupportedEntityException(
+                "Extruded 2D polylines require 3D side-surface lowering.");
+        }
+
+        if (polyline.SmoothSurface != SmoothSurfaceType.NoSmooth ||
+            (polyline.Flags & (PolylineFlags.CurveFit | PolylineFlags.SplineFit)) != 0)
+        {
+            throw new CadUnsupportedEntityException(
+                "Curve-fit and spline-fit legacy polylines require fitted-vertex semantic lowering.");
+        }
+
+        if (!double.IsFinite(polyline.Elevation))
+        {
+            throw new ArgumentException("Polyline elevation must be finite.");
+        }
+
+        CadCoordinateSystem basis = CadCoordinateSystem.FromNormal(ToPoint(polyline.Normal));
+        Vertex2D first = polyline.Vertices[0];
+        double localOriginX = first.Location.X;
+        double localOriginY = first.Location.Y;
+        CadPoint3D worldOrigin = TransformPoint(
+            transform,
+            hasTransform,
+            basis.Transform(new CadPoint3D(localOriginX, localOriginY, polyline.Elevation)));
+        if (hasTransform)
+        {
+            basis = TransformBasis(transform, basis);
+        }
+        EnsureFinite(worldOrigin);
+
+        var normalizedVertices = new CadPolylineVertex[polyline.Vertices.Count];
+        double uniformWidth = double.NaN;
+        bool hasVariableWidth = false;
+        for (int i = 0; i < polyline.Vertices.Count; i++)
+        {
+            Vertex2D vertex = polyline.Vertices[i];
+            double x = vertex.Location.X - localOriginX;
+            double y = vertex.Location.Y - localOriginY;
+            if (!double.IsFinite(x) || !double.IsFinite(y) ||
+                !double.IsFinite(vertex.Location.Z) || !double.IsFinite(vertex.Bulge))
+            {
+                throw new ArgumentException("Polyline locations and bulges must be finite.");
+            }
+
+            double startWidth = 0.0;
+            double endWidth = 0.0;
+            if (i < widthSegmentCount)
+            {
+                ValidatePolylineWidth(vertex.StartWidth, "2D-polyline vertex start");
+                ValidatePolylineWidth(vertex.EndWidth, "2D-polyline vertex end");
+                // Legacy POLYLINE entity widths are defaults only when the
+                // corresponding VERTEX group is absent. Presence must
+                // distinguish omission from an authored endpoint of zero.
+                startWidth = vertex.HasStartWidth
+                    ? vertex.StartWidth
+                    : polyline.StartWidth;
+                endWidth = vertex.HasEndWidth
+                    ? vertex.EndWidth
+                    : polyline.EndWidth;
+                AccumulatePolylineWidthProfile(
+                    startWidth,
+                    endWidth,
+                    ref uniformWidth,
+                    ref hasVariableWidth);
+            }
+
+            normalizedVertices[i] = new CadPolylineVertex(
+                x,
+                y,
+                vertex.Bulge,
+                startWidth,
+                endWidth);
+        }
+
+        double constantWidth = hasVariableWidth || double.IsNaN(uniformWidth)
+            ? 0.0
+            : uniformWidth;
+        ValidateVariablePolylineProfile(
+            "2D polyline",
+            fillMode,
+            constantWidth,
+            hasVariableWidth,
+            normalizedVertices,
+            widthSegmentCount);
+
+        return AddPlanarPolyline(
+            handle,
+            CadEntityKind.Polyline2D,
+            layerIndex,
+            styleIndex,
+            worldOrigin,
+            basis,
+            polyline.IsClosed,
+            polyline.Flags.HasFlag(PolylineFlags.ContinuousLinetypePattern),
+            fillMode,
+            constantWidth,
+            hasVariableWidth,
+            normalizedVertices,
+            destination,
+            vertices);
+    }
+
+    private static void AccumulatePolylineWidthProfile(
+        double startWidth,
+        double endWidth,
+        ref double uniformWidth,
+        ref bool hasVariableWidth)
+    {
+        if (double.IsNaN(uniformWidth))
+        {
+            uniformWidth = startWidth;
+        }
+        hasVariableWidth |= startWidth != endWidth || startWidth != uniformWidth;
+    }
+
+    private static void ValidatePolylineWidth(double width, string role)
+    {
+        if (!double.IsFinite(width) || width < 0.0)
+        {
+            throw new ArgumentException(
+                $"{role} width must be finite and non-negative.");
+        }
+        if (width > float.MaxValue)
+        {
+            throw new ArgumentException(
+                $"{role} width exceeds the retained float geometry domain.");
+        }
+    }
+
+    private static void ValidateVariablePolylineProfile(
+        string role,
+        bool fillMode,
+        double constantWidth,
+        bool hasVariableWidth,
+        CadPolylineVertex[] normalizedVertices,
+        int segmentCount)
+    {
+        for (int i = 0; i < segmentCount; i++)
+        {
+            CadPolylineVertex vertex = normalizedVertices[i];
+            if (hasVariableWidth && vertex.Bulge != 0.0)
+            {
+                throw new CadUnsupportedEntityException(
+                    $"Variable-width {role} bulges require analytic spiral-boundary lowering.");
+            }
+            if (hasVariableWidth &&
+                vertex.StartWidth == 0.0 && vertex.EndWidth == 0.0)
+            {
+                throw new CadUnsupportedEntityException(
+                    $"Variable-width {role}s containing a zero-width segment require mixed filled-outline and skinny-stroke lowering.");
+            }
+            if (!fillMode && constantWidth > 0.0 && vertex.Bulge != 0.0)
+            {
+                CadPolylineVertex end = normalizedVertices[(i + 1) % normalizedVertices.Length];
+                GetBulgeArc(
+                    vertex,
+                    end,
+                    out _,
+                    out _,
+                    out double radius,
+                    out _,
+                    out _);
+                if ((constantWidth * 0.5) > radius)
+                {
+                    throw new CadUnsupportedEntityException(
+                        $"FILLMODE-off wide {role} bulges whose width crosses the arc center require signed-inner-boundary topology lowering.");
+                }
+            }
+        }
+    }
+
+    private static CadEntityHeader AddPlanarPolyline(
+        ulong handle,
+        CadEntityKind kind,
+        int layerIndex,
+        int styleIndex,
+        CadPoint3D worldOrigin,
+        CadCoordinateSystem basis,
+        bool isClosed,
+        bool isLineTypeContinuous,
+        bool fillMode,
+        double constantWidth,
+        bool hasVariableWidth,
+        CadPolylineVertex[] normalizedVertices,
+        List<CadPolylinePrimitive> destination,
+        List<CadPolylineVertex> vertices)
+    {
+        ReadOnlySpan<CadPolylineVertex> added = normalizedVertices;
+        CadBounds3D bounds = CadBounds3D.Empty;
+        int segmentCount = isClosed ? added.Length : added.Length - 1;
+        for (int i = 0; i < segmentCount; i++)
+        {
+            CadPolylineVertex start = added[i];
+            CadPolylineVertex end = added[(i + 1) % added.Length];
+            CadPoint3D worldStart = TransformPolylinePoint(worldOrigin, basis, start);
+            CadPoint3D worldEnd = TransformPolylinePoint(worldOrigin, basis, end);
+            if (start.Bulge == 0.0)
+            {
+                CadBounds3D segmentBounds =
+                    CadBounds3D.FromPoint(worldStart).Include(worldEnd);
+                if (constantWidth > 0.0 || hasVariableWidth)
+                {
+                    double dx = end.X - start.X;
+                    double dy = end.Y - start.Y;
+                    double length = Hypot(dx, dy);
+                    if (length > 0.0)
+                    {
+                        double startHalfWidth = hasVariableWidth
+                            ? start.StartWidth * 0.5
+                            : constantWidth * 0.5;
+                        double endHalfWidth = hasVariableWidth
+                            ? start.EndWidth * 0.5
+                            : constantWidth * 0.5;
+                        double normalX = -dy / length;
+                        double normalY = dx / length;
+                        CadPoint3D worldStartOffset =
+                            (basis.XAxis * (normalX * startHalfWidth)) +
+                            (basis.YAxis * (normalY * startHalfWidth));
+                        CadPoint3D worldEndOffset =
+                            (basis.XAxis * (normalX * endHalfWidth)) +
+                            (basis.YAxis * (normalY * endHalfWidth));
+                        segmentBounds = segmentBounds
+                            .Include(worldStart + worldStartOffset)
+                            .Include(worldStart - worldStartOffset)
+                            .Include(worldEnd + worldEndOffset)
+                            .Include(worldEnd - worldEndOffset);
+                    }
+                }
+                bounds = bounds.Union(segmentBounds);
+                continue;
+            }
+
+            GetBulgeArc(start, end, out double centerX, out double centerY, out double radius, out double startAngle, out double sweep);
+            CadPoint3D center = worldOrigin + (basis.XAxis * centerX) + (basis.YAxis * centerY);
+            if (constantWidth == 0.0)
+            {
+                bounds = bounds.Union(
+                    CadBounds3D.Arc(
+                        center,
+                        basis,
+                        radius,
+                        startAngle,
+                        sweep));
+                continue;
+            }
+
+            double arcHalfWidth = constantWidth * 0.5;
+            bounds = bounds
+                .Union(CadBounds3D.Arc(
+                    center,
+                    basis,
+                    radius + arcHalfWidth,
+                    startAngle,
+                    sweep))
+                .Union(CadBounds3D.Arc(
+                    center,
+                    basis,
+                    radius - arcHalfWidth,
+                    startAngle,
+                    sweep));
+        }
+
+        int vertexOffset = vertices.Count;
+        vertices.AddRange(normalizedVertices);
+        int primitiveIndex = destination.Count;
+        destination.Add(new CadPolylinePrimitive(
+            worldOrigin,
+            basis,
+            vertexOffset,
+            normalizedVertices.Length,
+            isClosed,
+            isLineTypeContinuous,
+            constantWidth,
+            hasVariableWidth,
+            fillMode));
+        return new CadEntityHeader(
+            handle,
+            kind,
+            layerIndex,
+            styleIndex,
+            primitiveIndex,
+            bounds);
+    }
+
+    private static CadEntityHeader CompilePolyline3D(
+        Polyline3D polyline,
+        ulong handle,
+        CadAffineTransform3D transform,
+        bool hasTransform,
+        int layerIndex,
+        int styleIndex,
+        List<CadPolyline3DPrimitive> destination,
+        List<CadPoint3D> points)
+    {
+        if (polyline.Vertices.Count < 2)
+        {
+            throw new ArgumentException("A 3D polyline must contain at least two vertices.");
+        }
+
+        if (polyline.StartWidth != 0.0 || polyline.EndWidth != 0.0 ||
+            polyline.Thickness != 0.0 ||
+            polyline.Vertices.Any(vertex =>
+                vertex.StartWidth != 0.0 || vertex.EndWidth != 0.0 || vertex.Bulge != 0.0))
+        {
+            throw new CadUnsupportedEntityException(
+                "Width, thickness, and bulge are not valid retained centerline semantics for a 3D polyline.");
+        }
+
+        if (polyline.SmoothSurface != SmoothSurfaceType.NoSmooth ||
+            (polyline.Flags & (PolylineFlags.CurveFit | PolylineFlags.SplineFit)) != 0)
+        {
+            throw new CadUnsupportedEntityException(
+                "Curve-fit and spline-fit 3D polylines require fitted-vertex semantic lowering.");
+        }
+
+        var normalizedPoints = new CadPoint3D[polyline.Vertices.Count];
+        CadBounds3D bounds = CadBounds3D.Empty;
+        for (int i = 0; i < polyline.Vertices.Count; i++)
+        {
+            Vertex3D vertex = polyline.Vertices[i];
+            CadPoint3D point = TransformPoint(transform, hasTransform, ToPoint(vertex.Location));
+            EnsureFinite(point);
+            normalizedPoints[i] = point;
+            bounds = bounds.Include(point);
+        }
+
+        int pointOffset = points.Count;
+        points.AddRange(normalizedPoints);
+        int primitiveIndex = destination.Count;
+        destination.Add(new CadPolyline3DPrimitive(
+            pointOffset,
+            polyline.Vertices.Count,
+            polyline.IsClosed));
+        return new CadEntityHeader(
+            handle,
+            CadEntityKind.Polyline3D,
+            layerIndex,
+            styleIndex,
+            primitiveIndex,
+            bounds);
+    }
+
+    private static CadEntityHeader CompileShxShape(
+        Shape shape,
+        ulong handle,
+        CadAffineTransform3D transform,
+        bool hasTransform,
+        int layerIndex,
+        int styleIndex,
+        CadSnapshotOptions options,
+        List<CadDiagnostic> diagnostics,
+        List<CadShxShapePrimitive> destination,
+        ICadShxShapeResolver? shxShapeResolver)
+    {
+        if (shape.Thickness != 0.0)
+        {
+            throw new CadUnsupportedEntityException(
+                "SHAPE thickness requires the 3D extrusion and hidden-surface contract.");
+        }
+        if (!double.IsFinite(shape.Size) || shape.Size <= 0.0 ||
+            !double.IsFinite(shape.RelativeXScale) || shape.RelativeXScale <= 0.0 ||
+            !double.IsFinite(shape.Rotation) ||
+            !double.IsFinite(shape.ObliqueAngle) ||
+            Math.Abs(shape.ObliqueAngle) >= Math.PI * 0.5)
+        {
+            throw new ArgumentException(
+                "SHAPE size, relative X scale, rotation, and oblique angle must define a finite non-degenerate transform.");
+        }
+
+        ICadShxShapeResolver resolver = shxShapeResolver ??
+            throw new CadUnsupportedEntityException(
+                "SHAPE requires a host resolver that supports standalone SHX shape identities.");
+        CadShxShapeResolution resolution = resolver.ResolveShape(new CadShxShapeRequest(
+            shape.ShapeName,
+            shape.ShapeNumber,
+            shape.ShapeStyle?.Filename ?? string.Empty));
+        CadShxGlyphCache cache = resolution.GlyphCache ??
+            throw new CadUnsupportedEntityException(
+                $"SHX shape '{shape.ShapeName}' number {shape.ShapeNumber} could not be resolved.");
+
+        CadShxGlyph glyph;
+        try
+        {
+            glyph = cache.GetGlyph(resolution.ShapeNumber);
+        }
+        catch (Exception exception) when (
+            exception is InvalidDataException or NotSupportedException or
+                KeyNotFoundException or ArgumentOutOfRangeException)
+        {
+            throw new CadUnsupportedEntityException(exception.Message);
+        }
+        if (!glyph.HasGeometry)
+        {
+            throw new CadUnsupportedEntityException(
+                $"SHX shape {resolution.ShapeNumber} has no drawable geometry.");
+        }
+
+        CadCoordinateSystem basis = CadCoordinateSystem.FromNormal(ToPoint(shape.Normal));
+        double cosine = Math.Cos(shape.Rotation);
+        double sine = Math.Sin(shape.Rotation);
+        CadPoint3D horizontal = (basis.XAxis * cosine) + (basis.YAxis * sine);
+        CadPoint3D vertical = (basis.XAxis * -sine) + (basis.YAxis * cosine);
+        CadPoint3D origin = ToPoint(shape.InsertionPoint);
+        CadPoint3D xAxis = horizontal * (shape.Size * shape.RelativeXScale);
+        CadPoint3D yAxis =
+            (horizontal * (shape.Size * Math.Tan(shape.ObliqueAngle))) +
+            (vertical * shape.Size);
+        if (hasTransform)
+        {
+            origin = transform.TransformPoint(origin);
+            xAxis = transform.TransformVector(xAxis);
+            yAxis = transform.TransformVector(yAxis);
+        }
+        EnsureFinite(origin);
+        EnsureFinite(xAxis);
+        EnsureFinite(yAxis);
+
+        double minimumX = glyph.BoundsMin.X;
+        double minimumY = glyph.BoundsMin.Y;
+        double maximumX = glyph.BoundsMax.X;
+        double maximumY = glyph.BoundsMax.Y;
+        CadBounds3D bounds = CadBounds3D.FromPoint(
+            TransformTextPoint(origin, xAxis, yAxis, minimumX, minimumY));
+        bounds = bounds
+            .Include(TransformTextPoint(origin, xAxis, yAxis, maximumX, minimumY))
+            .Include(TransformTextPoint(origin, xAxis, yAxis, minimumX, maximumY))
+            .Include(TransformTextPoint(origin, xAxis, yAxis, maximumX, maximumY));
+
+        int primitiveIndex = destination.Count;
+        destination.Add(new CadShxShapePrimitive(origin, xAxis, yAxis, glyph));
+        if (resolution.IsSubstitution)
+        {
+            AddDiagnostic(
+                diagnostics,
+                options.DiagnosticLimit,
+                new CadDiagnostic(
+                    CadDiagnosticSeverity.Warning,
+                    "CADSNAP007",
+                    $"SHAPE path {FormatEntityPath(handle, shape.Handle)} substitutes its SHX file with '{resolution.ResolvedFontName}'."));
+        }
+        return new CadEntityHeader(
+            handle,
+            CadEntityKind.ShxShape,
+            layerIndex,
+            styleIndex,
+            primitiveIndex,
+            bounds);
+    }
+
+    private static CadEntityHeader CompileText(
+        TextEntity text,
+        ulong handle,
+        CadAffineTransform3D transform,
+        bool hasTransform,
+        int layerIndex,
+        int styleIndex,
+        CadSnapshotOptions options,
+        List<CadDiagnostic> diagnostics,
+        List<CadTextPrimitive> destination,
+        List<CadTextGlyphRun> runs,
+        List<CadTextDecoration> decorations,
+        List<ushort> glyphIndices,
+        List<Vector2> glyphPositions,
+        List<TtfFont> fonts,
+        Dictionary<TtfFont, int> fontIndices,
+        List<CadShxTextPrimitive> shxTexts,
+        List<CadShxGlyphInstance> shxGlyphInstances,
+        List<CadShxDecorationSegment> shxDecorationSegments,
+        ICadShxFontResolver? shxFontResolver,
+        string drawingCodePage)
+    {
+        return CompileText(
+            text,
+            handle,
+            transform,
+            hasTransform,
+            layerIndex,
+            styleIndex,
+            options,
+            diagnostics,
+            destination,
+            runs,
+            decorations,
+            glyphIndices,
+            glyphPositions,
+            fonts,
+            fontIndices,
+            shxTexts,
+            shxGlyphInstances,
+            shxDecorationSegments,
+            shxFontResolver,
+            drawingCodePage,
+            out _);
+    }
+
+    private static CadEntityHeader CompileText(
+        TextEntity text,
+        ulong handle,
+        CadAffineTransform3D transform,
+        bool hasTransform,
+        int layerIndex,
+        int styleIndex,
+        CadSnapshotOptions options,
+        List<CadDiagnostic> diagnostics,
+        List<CadTextPrimitive> destination,
+        List<CadTextGlyphRun> runs,
+        List<CadTextDecoration> decorations,
+        List<ushort> glyphIndices,
+        List<Vector2> glyphPositions,
+        List<TtfFont> fonts,
+        Dictionary<TtfFont, int> fontIndices,
+        List<CadShxTextPrimitive> shxTexts,
+        List<CadShxGlyphInstance> shxGlyphInstances,
+        List<CadShxDecorationSegment> shxDecorationSegments,
+        ICadShxFontResolver? shxFontResolver,
+        string drawingCodePage,
+        out CadCompiledTextMetrics metrics)
+    {
+        metrics = default;
+        if (text.Thickness != 0.0)
+        {
+            throw new CadUnsupportedEntityException(
+                "Extruded TEXT requires 3D side-surface lowering.");
+        }
+
+        if (string.IsNullOrEmpty(text.Value) ||
+            text.Value.IndexOfAny(['\r', '\n']) >= 0)
+        {
+            throw new CadUnsupportedEntityException(
+                "TEXT must contain one non-empty logical line.");
+        }
+
+        if (text.Value.Length > options.MaxTextCodeUnitsPerEntity)
+        {
+            throw new CadSnapshotExpansionLimitException(
+                $"TEXT path {FormatEntityPath(handle, text.Handle)} exceeds the configured per-entity limit of {options.MaxTextCodeUnitsPerEntity} UTF-16 code units.");
+        }
+
+        bool isTwoPointAlignment = text.HorizontalAlignment is
+            TextHorizontalAlignment.Aligned or TextHorizontalAlignment.Fit;
+        if (isTwoPointAlignment &&
+            text.VerticalAlignment != TextVerticalAlignmentType.Baseline)
+        {
+            throw new CadUnsupportedEntityException(
+                "Aligned and fit TEXT require baseline vertical alignment.");
+        }
+
+        TextStyle cadStyle = text.Style;
+        bool usesShx = cadStyle.IsShapeFile ||
+            cadStyle.Filename.EndsWith(".shx", StringComparison.OrdinalIgnoreCase);
+        if (usesShx || !string.IsNullOrWhiteSpace(cadStyle.BigFontFilename))
+        {
+            return CompileShxText(
+                text,
+                handle,
+                transform,
+                hasTransform,
+                layerIndex,
+                styleIndex,
+                options,
+                diagnostics,
+                shxTexts,
+                shxGlyphInstances,
+                shxDecorationSegments,
+                glyphIndices.Count,
+                shxFontResolver,
+                drawingCodePage,
+                out metrics);
+        }
+
+        if (cadStyle.Flags.HasFlag(StyleFlags.VerticalText))
+        {
+            throw new CadUnsupportedEntityException(
+                "Vertical TrueType STYLE requires vertical shaping and glyph-orientation lowering.");
+        }
+
+        DecodedTextContent decodedContent = DecodeTextContent(text.Value);
+        string content = decodedContent.Text;
+
+        ICadTextFontResolver resolver = options.TextFontResolver ??
+            throw new CadUnsupportedEntityException(
+                "TrueType TEXT requires a host text-font resolver.");
+        bool isBold = cadStyle.TrueType.HasFlag(FontFlags.Bold);
+        bool isItalic = cadStyle.TrueType.HasFlag(FontFlags.Italic);
+        CadTextFontResolution fontResolution = resolver.Resolve(new CadTextFontRequest(
+            cadStyle.Name,
+            cadStyle.Filename,
+            cadStyle.BigFontFilename,
+            isBold,
+            isItalic));
+        TtfFont font = fontResolution.Font ?? throw new CadUnsupportedEntityException(
+                $"Text style '{cadStyle.Name}' could not resolve a TrueType font.");
+        double height = text.Height;
+        double widthFactor = text.WidthFactor;
+        double oblique = text.ObliqueAngle;
+        if (!double.IsFinite(height) || height <= 0.0 ||
+            !double.IsFinite(widthFactor) || widthFactor <= 0.0 ||
+            !double.IsFinite(text.Rotation) ||
+            !double.IsFinite(oblique) || Math.Abs(oblique) >= Math.PI * 0.5)
+        {
+            throw new ArgumentException(
+                "TEXT height, width, rotation, and oblique angle must define a finite non-degenerate transform.");
+        }
+
+        var layout = new TextLayout(content, font, 1.0f, float.PositiveInfinity);
+        if (layout.Glyphs.Count == 0 || font.UnitsPerEm == 0)
+        {
+            throw new CadUnsupportedEntityException(
+                "TEXT shaping produced no drawable glyph run.");
+        }
+
+        if (layout.Glyphs.Count > options.MaxTextGlyphs -
+            glyphIndices.Count - shxGlyphInstances.Count)
+        {
+            throw new CadSnapshotExpansionLimitException(
+                $"Retained TEXT glyph count exceeds the configured document limit of {options.MaxTextGlyphs}.");
+        }
+
+        double ascent = (double)font.Ascender / font.UnitsPerEm;
+        double descent = (double)font.Descender / font.UnitsPerEm;
+        double width = layout.ContentSize.X;
+        if (!double.IsFinite(width) || (isTwoPointAlignment && width <= 0.0))
+        {
+            throw new CadUnsupportedEntityException(
+                "Aligned and fit TEXT require a finite positive shaped advance.");
+        }
+
+        double horizontalOffset = text.HorizontalAlignment switch
+        {
+            TextHorizontalAlignment.Center or TextHorizontalAlignment.Middle => -width * 0.5,
+            TextHorizontalAlignment.Right => -width,
+            _ => 0.0,
+        };
+        TextVerticalAlignmentType verticalAlignment = text.HorizontalAlignment == TextHorizontalAlignment.Middle
+            ? TextVerticalAlignmentType.Middle
+            : text.VerticalAlignment;
+        double verticalOffset = verticalAlignment switch
+        {
+            TextVerticalAlignmentType.Top => ascent,
+            TextVerticalAlignmentType.Middle => (ascent + descent) * 0.5,
+            TextVerticalAlignmentType.Bottom => descent,
+            _ => 0.0,
+        };
+
+        CadCoordinateSystem basis = CadCoordinateSystem.FromNormal(ToPoint(text.Normal));
+        CadPoint3D anchor;
+        double cosine;
+        double sine;
+        double xScale;
+        double effectiveHeight = height;
+        if (isTwoPointAlignment)
+        {
+            CadPoint3D start = ToPoint(text.InsertPoint);
+            CadPoint3D end = ToPoint(text.AlignmentPoint);
+            double deltaX = end.X - start.X;
+            double deltaY = end.Y - start.Y;
+            double deltaZ = end.Z - start.Z;
+            double baselineLength = new CadPoint3D(deltaX, deltaY, 0.0).Length;
+            if (!double.IsFinite(deltaZ) || !double.IsFinite(baselineLength) ||
+                baselineLength <= 0.0 ||
+                Math.Abs(deltaZ) > Math.Max(1.0, baselineLength) * 1e-12)
+            {
+                throw new ArgumentException(
+                    "Aligned and fit TEXT require two distinct coplanar OCS baseline points.");
+            }
+
+            cosine = deltaX / baselineLength;
+            sine = deltaY / baselineLength;
+            xScale = baselineLength / width;
+            if (text.HorizontalAlignment == TextHorizontalAlignment.Aligned)
+            {
+                effectiveHeight = xScale / widthFactor;
+            }
+
+            anchor = basis.Transform(
+                text.Mirror.HasFlag(TextMirrorFlag.Backward) ? end : start);
+        }
+        else
+        {
+            bool usesAlignmentPoint = text.HorizontalAlignment != TextHorizontalAlignment.Left ||
+                text.VerticalAlignment != TextVerticalAlignmentType.Baseline;
+            anchor = basis.Transform(ToPoint(
+                usesAlignmentPoint ? text.AlignmentPoint : text.InsertPoint));
+            cosine = Math.Cos(text.Rotation);
+            sine = Math.Sin(text.Rotation);
+            xScale = height * widthFactor;
+        }
+
+        if (!double.IsFinite(effectiveHeight) || effectiveHeight <= 0.0 ||
+            !double.IsFinite(xScale) || xScale <= 0.0)
+        {
+            throw new ArithmeticException(
+                "TEXT alignment scaling exceeds the supported numeric range.");
+        }
+
+        CadPoint3D horizontal = (basis.XAxis * cosine) + (basis.YAxis * sine);
+        CadPoint3D vertical = (basis.XAxis * -sine) + (basis.YAxis * cosine);
+        TextMirrorFlag mirror = text.Mirror;
+        double mirrorX = mirror.HasFlag(TextMirrorFlag.Backward) ? -1.0 : 1.0;
+        double mirrorY = mirror.HasFlag(TextMirrorFlag.UpsideDown) ? -1.0 : 1.0;
+        CadPoint3D xAxis = horizontal * (xScale * mirrorX);
+        CadPoint3D yAxis =
+            (horizontal * (-effectiveHeight * Math.Tan(oblique) * mirrorY)) +
+            (vertical * (-effectiveHeight * mirrorY));
+        if (hasTransform)
+        {
+            anchor = transform.TransformPoint(anchor);
+            xAxis = transform.TransformVector(xAxis);
+            yAxis = transform.TransformVector(yAxis);
+        }
+        EnsureFinite(anchor);
+        EnsureFinite(xAxis);
+        EnsureFinite(yAxis);
+
+        var compiledGlyphIndices = new ushort[layout.Glyphs.Count];
+        var compiledGlyphPositions = new Vector2[layout.Glyphs.Count];
+        var compiledRuns = new List<(int Offset, int Count, TtfFont Font)>();
+        TtfFont? runFont = null;
+        int currentRunOffset = 0;
+        double minimumX = horizontalOffset;
+        double maximumX = horizontalOffset + width;
+        double minimumY = verticalOffset - ascent;
+        double maximumY = verticalOffset - descent;
+        for (int i = 0; i < layout.Glyphs.Count; i++)
+        {
+            TextRunGlyph glyph = layout.Glyphs[i];
+            TtfFont glyphFont = glyph.Font ?? font;
+            if (runFont is not null && !ReferenceEquals(runFont, glyphFont))
+            {
+                compiledRuns.Add((
+                    currentRunOffset,
+                    i - currentRunOffset,
+                    runFont));
+                currentRunOffset = i;
+            }
+            runFont = glyphFont;
+
+            float x = checked((float)(glyph.Position.X + horizontalOffset));
+            float y = checked((float)(glyph.Position.Y - ascent + verticalOffset));
+            if (!float.IsFinite(x) || !float.IsFinite(y))
+            {
+                throw new ArithmeticException("TEXT glyph positions exceed the retained numeric range.");
+            }
+            compiledGlyphIndices[i] = glyph.GlyphIndex;
+            compiledGlyphPositions[i] = new Vector2(x, y);
+
+            if (glyphFont.UnitsPerEm != 0 && glyphFont.TryGetGlyphBounds(
+                glyph.GlyphIndex,
+                out short xMin,
+                out short yMin,
+                out short xMax,
+                out short yMax))
+            {
+                double scale = 1.0 / glyphFont.UnitsPerEm;
+                minimumX = Math.Min(minimumX, x + (xMin * scale));
+                maximumX = Math.Max(maximumX, x + (xMax * scale));
+                minimumY = Math.Min(minimumY, y - (yMax * scale));
+                maximumY = Math.Max(maximumY, y - (yMin * scale));
+            }
+        }
+
+        if (runFont is not null)
+        {
+            compiledRuns.Add((
+                currentRunOffset,
+                compiledGlyphIndices.Length - currentRunOffset,
+                runFont));
+        }
+
+        List<CadTextDecoration>? compiledDecorations = CompileTextDecorations(
+            decodedContent,
+            layout,
+            font,
+            horizontalOffset,
+            verticalOffset);
+        if (compiledDecorations is not null)
+        {
+            for (int i = 0; i < compiledDecorations.Count; i++)
+            {
+                CadTextDecoration decoration = compiledDecorations[i];
+                minimumX = Math.Min(minimumX, decoration.X);
+                maximumX = Math.Max(maximumX, decoration.X + decoration.Width);
+                minimumY = Math.Min(minimumY, decoration.Y);
+                maximumY = Math.Max(maximumY, decoration.Y + decoration.Height);
+            }
+        }
+
+        CadBounds3D bounds = CadBounds3D.FromPoint(
+            TransformTextPoint(anchor, xAxis, yAxis, minimumX, minimumY));
+        bounds = bounds
+            .Include(TransformTextPoint(anchor, xAxis, yAxis, maximumX, minimumY))
+            .Include(TransformTextPoint(anchor, xAxis, yAxis, minimumX, maximumY))
+            .Include(TransformTextPoint(anchor, xAxis, yAxis, maximumX, maximumY));
+        int glyphOffset = glyphIndices.Count;
+        int runOffset = runs.Count;
+        int decorationOffset = decorations.Count;
+        glyphIndices.AddRange(compiledGlyphIndices);
+        glyphPositions.AddRange(compiledGlyphPositions);
+        for (int i = 0; i < compiledRuns.Count; i++)
+        {
+            (int offset, int count, TtfFont runTypeFace) = compiledRuns[i];
+            runs.Add(new CadTextGlyphRun(
+                glyphOffset + offset,
+                count,
+                InternTextFont(runTypeFace, fonts, fontIndices)));
+        }
+        if (compiledDecorations is not null)
+        {
+            decorations.AddRange(compiledDecorations);
+        }
+        int primitiveIndex = destination.Count;
+        destination.Add(new CadTextPrimitive(
+            anchor,
+            xAxis,
+            yAxis,
+            glyphOffset,
+            compiledGlyphIndices.Length,
+            runOffset,
+            runs.Count - runOffset,
+            decorationOffset,
+            decorations.Count - decorationOffset));
+        if (fontResolution.IsSubstitution)
+        {
+            AddDiagnostic(
+                diagnostics,
+                options.DiagnosticLimit,
+                new CadDiagnostic(
+                    CadDiagnosticSeverity.Warning,
+                    "CADSNAP005",
+                    $"TEXT path {FormatEntityPath(handle, text.Handle)} substitutes '{cadStyle.Filename}' with '{font.FamilyName}'."));
+        }
+
+        metrics = new CadCompiledTextMetrics(width * xScale);
+
+        return new CadEntityHeader(
+            handle,
+            CadEntityKind.Text,
+            layerIndex,
+            styleIndex,
+            primitiveIndex,
+            bounds);
+    }
+
+    private static CadEntityHeader CompileShxText(
+        TextEntity text,
+        ulong handle,
+        CadAffineTransform3D transform,
+        bool hasTransform,
+        int layerIndex,
+        int styleIndex,
+        CadSnapshotOptions options,
+        List<CadDiagnostic> diagnostics,
+        List<CadShxTextPrimitive> destination,
+        List<CadShxGlyphInstance> glyphInstances,
+        List<CadShxDecorationSegment> decorationSegments,
+        int retainedTrueTypeGlyphCount,
+        ICadShxFontResolver? shxFontResolver,
+        string drawingCodePage,
+        out CadCompiledTextMetrics metrics)
+    {
+        metrics = default;
+        TextStyle cadStyle = text.Style;
+        bool isVertical = cadStyle.Flags.HasFlag(StyleFlags.VerticalText);
+        if (isVertical &&
+            (text.HorizontalAlignment != TextHorizontalAlignment.Left ||
+             text.VerticalAlignment != TextVerticalAlignmentType.Baseline))
+        {
+            throw new CadUnsupportedEntityException(
+                "Vertical SHX TEXT currently requires the documented default top-center insertion contract; non-default justification requires a verified vertical placement contract.");
+        }
+
+        ICadShxFontResolver resolver = shxFontResolver ??
+            throw new CadUnsupportedEntityException(
+                "SHX TEXT requires a host SHX font resolver.");
+        CadShxFontResolution fontResolution = resolver.Resolve(new CadShxFontRequest(
+            cadStyle.Name,
+            cadStyle.Filename,
+            cadStyle.BigFontFilename));
+        if (!string.IsNullOrWhiteSpace(cadStyle.BigFontFilename) &&
+            fontResolution.BigFontGlyphCache is null)
+        {
+            throw new CadUnsupportedEntityException(
+                $"Big Font TEXT font '{cadStyle.BigFontFilename}' could not resolve an SHX Big Font.");
+        }
+        CadShxGlyphCache cache = fontResolution.GlyphCache ??
+            throw new CadUnsupportedEntityException(
+                $"Text style '{cadStyle.Name}' could not resolve an SHX font.");
+
+        CadShxTextLayout layout;
+        try
+        {
+            layout = new CadShxTextLayout(
+                text.Value,
+                cache,
+                isVertical ? CadShxOrientation.Vertical : CadShxOrientation.Horizontal,
+                new CadShxTextLayoutOptions
+                {
+                    MaxCodeUnits = options.MaxTextCodeUnitsPerEntity,
+                    MaxGlyphs = options.MaxTextGlyphs,
+                },
+                fontResolution.BigFontGlyphCache,
+                drawingCodePage);
+        }
+        catch (Exception exception) when (
+            exception is InvalidDataException or NotSupportedException or
+                KeyNotFoundException or ArgumentOutOfRangeException)
+        {
+            throw new CadUnsupportedEntityException(exception.Message);
+        }
+
+        ReadOnlySpan<CadShxGlyphPlacement> placements = layout.Glyphs.Span;
+        if (isVertical)
+        {
+            for (int i = 0; i < placements.Length; i++)
+            {
+                CadShxGlyphPlacement placement = placements[i];
+                if (placement.Decorations != CadShxTextDecoration.None)
+                {
+                    throw new CadUnsupportedEntityException(
+                        "Decorated vertical SHX TEXT requires independently verified vertical decoration placement.");
+                }
+                if (Math.Abs(placement.Glyph.Advance.X) >
+                        Math.Max(1.0, Math.Abs(placement.Glyph.Advance.Y)) * 1e-6 ||
+                    placement.Glyph.Advance.Y > 0.0f)
+                {
+                    throw new CadUnsupportedEntityException(
+                        $"Vertical SHX TEXT requires downward Y-only character advances; " +
+                        $"font '{cache.Font.Name}' shape {placement.Glyph.ShapeNumber} produced " +
+                        $"({placement.Glyph.Advance.X:R}, {placement.Glyph.Advance.Y:R}).");
+                }
+            }
+        }
+        else
+        {
+            for (int i = 0; i < placements.Length; i++)
+            {
+                CadShxGlyphPlacement placement = placements[i];
+                if (Math.Abs(placement.Glyph.Advance.Y) >
+                        Math.Max(1.0, Math.Abs(placement.Glyph.Advance.X)) * 1e-6 ||
+                    placement.Glyph.Advance.X < 0.0f)
+                {
+                    throw new CadUnsupportedEntityException(
+                        $"Horizontal SHX TEXT requires nonnegative X-only character advances; " +
+                        $"font '{cache.Font.Name}' shape {placement.Glyph.ShapeNumber} produced " +
+                        $"({placement.Glyph.Advance.X:R}, {placement.Glyph.Advance.Y:R}).");
+                }
+            }
+        }
+        if (placements.Length > options.MaxTextGlyphs -
+            retainedTrueTypeGlyphCount - glyphInstances.Count)
+        {
+            throw new CadSnapshotExpansionLimitException(
+                $"Retained TEXT glyph count exceeds the configured document limit of {options.MaxTextGlyphs}.");
+        }
+
+        double height = text.Height;
+        double widthFactor = text.WidthFactor;
+        double oblique = text.ObliqueAngle;
+        if (!double.IsFinite(height) || height <= 0.0 ||
+            !double.IsFinite(widthFactor) || widthFactor <= 0.0 ||
+            !double.IsFinite(text.Rotation) ||
+            !double.IsFinite(oblique) || Math.Abs(oblique) >= Math.PI * 0.5)
+        {
+            throw new ArgumentException(
+                "TEXT height, width, rotation, and oblique angle must define a finite non-degenerate transform.");
+        }
+
+        double flowLength = isVertical ? -layout.Advance.Y : layout.Advance.X;
+        double crossAdvance = isVertical ? layout.Advance.X : layout.Advance.Y;
+        if (!double.IsFinite(flowLength) || flowLength <= 0.0 ||
+            Math.Abs(crossAdvance) > Math.Max(1.0, flowLength) * 1e-6)
+        {
+            throw new CadUnsupportedEntityException(
+                $"{(isVertical ? "Vertical" : "Horizontal")} SHX TEXT requires a finite positive axis-aligned advance; " +
+                $"font '{cache.Font.Name}' produced ({layout.Advance.X:R}, {layout.Advance.Y:R}).");
+        }
+
+        double horizontalOffset = isVertical ? 0.0 : text.HorizontalAlignment switch
+        {
+            TextHorizontalAlignment.Center or TextHorizontalAlignment.Middle => -flowLength * 0.5,
+            TextHorizontalAlignment.Right => -flowLength,
+            _ => 0.0,
+        };
+        TextVerticalAlignmentType verticalAlignment = text.HorizontalAlignment == TextHorizontalAlignment.Middle
+            ? TextVerticalAlignmentType.Middle
+            : text.VerticalAlignment;
+        double verticalOffset = isVertical ? 0.0 : verticalAlignment switch
+        {
+            TextVerticalAlignmentType.Top => -cache.Font.Above,
+            TextVerticalAlignmentType.Middle => -(cache.Font.Above - cache.Font.Below) * 0.5,
+            TextVerticalAlignmentType.Bottom => cache.Font.Below,
+            _ => 0.0,
+        };
+
+        bool isTwoPointAlignment = !isVertical && text.HorizontalAlignment is
+            TextHorizontalAlignment.Aligned or TextHorizontalAlignment.Fit;
+        CadCoordinateSystem basis = CadCoordinateSystem.FromNormal(ToPoint(text.Normal));
+        CadPoint3D anchor;
+        double cosine;
+        double sine;
+        double xScale;
+        double yScale = height / cache.Font.Above;
+        if (isTwoPointAlignment)
+        {
+            CadPoint3D start = ToPoint(text.InsertPoint);
+            CadPoint3D end = ToPoint(text.AlignmentPoint);
+            double deltaX = end.X - start.X;
+            double deltaY = end.Y - start.Y;
+            double deltaZ = end.Z - start.Z;
+            double baselineLength = new CadPoint3D(deltaX, deltaY, 0.0).Length;
+            if (!double.IsFinite(deltaZ) || !double.IsFinite(baselineLength) ||
+                baselineLength <= 0.0 ||
+                Math.Abs(deltaZ) > Math.Max(1.0, baselineLength) * 1e-12)
+            {
+                throw new ArgumentException(
+                    "Aligned and fit TEXT require two distinct coplanar OCS baseline points.");
+            }
+
+            cosine = deltaX / baselineLength;
+            sine = deltaY / baselineLength;
+            xScale = baselineLength / flowLength;
+            if (text.HorizontalAlignment == TextHorizontalAlignment.Aligned)
+            {
+                yScale = xScale / widthFactor;
+            }
+            anchor = basis.Transform(
+                text.Mirror.HasFlag(TextMirrorFlag.Backward) ? end : start);
+        }
+        else
+        {
+            bool usesAlignmentPoint = !isVertical &&
+                (text.HorizontalAlignment != TextHorizontalAlignment.Left ||
+                 text.VerticalAlignment != TextVerticalAlignmentType.Baseline);
+            anchor = basis.Transform(ToPoint(
+                usesAlignmentPoint ? text.AlignmentPoint : text.InsertPoint));
+            cosine = Math.Cos(text.Rotation);
+            sine = Math.Sin(text.Rotation);
+            xScale = yScale * widthFactor;
+        }
+
+        if (!double.IsFinite(xScale) || xScale <= 0.0 ||
+            !double.IsFinite(yScale) || yScale <= 0.0)
+        {
+            throw new ArithmeticException(
+                "SHX TEXT alignment scaling exceeds the supported numeric range.");
+        }
+
+        CadPoint3D horizontal = (basis.XAxis * cosine) + (basis.YAxis * sine);
+        CadPoint3D vertical = (basis.XAxis * -sine) + (basis.YAxis * cosine);
+        TextMirrorFlag mirror = text.Mirror;
+        double mirrorX = mirror.HasFlag(TextMirrorFlag.Backward) ? -1.0 : 1.0;
+        double mirrorY = mirror.HasFlag(TextMirrorFlag.UpsideDown) ? -1.0 : 1.0;
+        CadPoint3D xAxis = horizontal * (xScale * mirrorX);
+        CadPoint3D yAxis =
+            (horizontal * (yScale * Math.Tan(oblique) * mirrorY)) +
+            (vertical * (yScale * mirrorY));
+        if (hasTransform)
+        {
+            anchor = transform.TransformPoint(anchor);
+            xAxis = transform.TransformVector(xAxis);
+            yAxis = transform.TransformVector(yAxis);
+        }
+        EnsureFinite(anchor);
+        EnsureFinite(xAxis);
+        EnsureFinite(yAxis);
+
+        double minimumX;
+        double maximumX;
+        double minimumY;
+        double maximumY;
+        if (isVertical)
+        {
+            minimumX = Math.Min(0.0, layout.BoundsMin.X);
+            maximumX = Math.Max(0.0, layout.BoundsMax.X);
+            minimumY = Math.Min(layout.Advance.Y, layout.BoundsMin.Y);
+            maximumY = Math.Max(0.0, layout.BoundsMax.Y);
+        }
+        else
+        {
+            minimumX = Math.Min(horizontalOffset, layout.BoundsMin.X + horizontalOffset);
+            maximumX = Math.Max(
+                horizontalOffset + flowLength,
+                layout.BoundsMax.X + horizontalOffset);
+            minimumY = Math.Min(
+                verticalOffset - cache.Font.Below,
+                layout.BoundsMin.Y + verticalOffset);
+            maximumY = Math.Max(
+                verticalOffset + cache.Font.Above,
+                layout.BoundsMax.Y + verticalOffset);
+        }
+        CadBounds3D bounds = CadBounds3D.FromPoint(
+            TransformTextPoint(anchor, xAxis, yAxis, minimumX, minimumY));
+        bounds = bounds
+            .Include(TransformTextPoint(anchor, xAxis, yAxis, maximumX, minimumY))
+            .Include(TransformTextPoint(anchor, xAxis, yAxis, minimumX, maximumY))
+            .Include(TransformTextPoint(anchor, xAxis, yAxis, maximumX, maximumY));
+
+        int glyphOffset = glyphInstances.Count;
+        for (int i = 0; i < placements.Length; i++)
+        {
+            CadShxGlyphPlacement placement = placements[i];
+            float x = checked((float)(placement.Origin.X + horizontalOffset));
+            float y = checked((float)(placement.Origin.Y + verticalOffset));
+            if (!float.IsFinite(x) || !float.IsFinite(y))
+            {
+                throw new ArithmeticException(
+                    "SHX TEXT glyph positions exceed the retained numeric range.");
+            }
+            glyphInstances.Add(new CadShxGlyphInstance(placement.Glyph, x, y));
+        }
+
+        int decorationOffset = decorationSegments.Count;
+        int decorationCount = isVertical
+            ? 0
+            : AppendShxDecorations(
+                placements,
+                cache.Font,
+                horizontalOffset,
+                verticalOffset,
+                decorationSegments);
+        int primitiveIndex = destination.Count;
+        destination.Add(new CadShxTextPrimitive(
+            anchor,
+            xAxis,
+            yAxis,
+            glyphOffset,
+            placements.Length,
+            decorationOffset,
+            decorationCount));
+        if (fontResolution.IsSubstitution)
+        {
+            string resolvedPrimary = string.IsNullOrWhiteSpace(fontResolution.ResolvedFontName)
+                ? cache.Font.Name
+                : fontResolution.ResolvedFontName;
+            string requested = string.IsNullOrWhiteSpace(cadStyle.BigFontFilename)
+                ? cadStyle.Filename
+                : $"{cadStyle.Filename}, {cadStyle.BigFontFilename}";
+            string resolved = string.IsNullOrWhiteSpace(fontResolution.ResolvedBigFontName)
+                ? resolvedPrimary
+                : $"{resolvedPrimary}, {fontResolution.ResolvedBigFontName}";
+            string resolutionKind = string.IsNullOrWhiteSpace(cadStyle.BigFontFilename)
+                ? "font"
+                : "font pair";
+            AddDiagnostic(
+                diagnostics,
+                options.DiagnosticLimit,
+                new CadDiagnostic(
+                    CadDiagnosticSeverity.Warning,
+                    "CADSNAP006",
+                    $"TEXT path {FormatEntityPath(handle, text.Handle)} substitutes '{requested}' with SHX {resolutionKind} '{resolved}'."));
+        }
+
+        metrics = new CadCompiledTextMetrics(flowLength * xScale);
+
+        return new CadEntityHeader(
+            handle,
+            CadEntityKind.ShxText,
+            layerIndex,
+            styleIndex,
+            primitiveIndex,
+            bounds);
+    }
+
+    private struct ShxDecorationAccumulator
+    {
+        public bool IsActive;
+        public double Start;
+        public double End;
+    }
+
+    private static int AppendShxDecorations(
+        ReadOnlySpan<CadShxGlyphPlacement> placements,
+        CadShxFont font,
+        double horizontalOffset,
+        double verticalOffset,
+        List<CadShxDecorationSegment> destination)
+    {
+        CadShxTextDecoration used = CadShxTextDecoration.None;
+        for (int i = 0; i < placements.Length; i++)
+        {
+            used |= placements[i].Decorations;
+        }
+        if (used == CadShxTextDecoration.None)
+        {
+            return 0;
+        }
+
+        int initialCount = destination.Count;
+        var overline = new ShxDecorationAccumulator();
+        var underline = new ShxDecorationAccumulator();
+        var strikeThrough = new ShxDecorationAccumulator();
+        double overlineY = verticalOffset + font.Above;
+        double underlineY = verticalOffset - font.Below;
+        double strikeThroughY = verticalOffset + ((font.Above - font.Below) * 0.5);
+        for (int i = 0; i < placements.Length; i++)
+        {
+            CadShxGlyphPlacement placement = placements[i];
+            double start = horizontalOffset + placement.Origin.X;
+            double end = start + placement.Glyph.Advance.X;
+            UpdateShxDecoration(
+                ref overline,
+                placement.Decorations.HasFlag(CadShxTextDecoration.Overline),
+                start,
+                end,
+                overlineY,
+                destination);
+            UpdateShxDecoration(
+                ref underline,
+                placement.Decorations.HasFlag(CadShxTextDecoration.Underline),
+                start,
+                end,
+                underlineY,
+                destination);
+            UpdateShxDecoration(
+                ref strikeThrough,
+                placement.Decorations.HasFlag(CadShxTextDecoration.StrikeThrough),
+                start,
+                end,
+                strikeThroughY,
+                destination);
+        }
+
+        FlushShxDecoration(ref overline, overlineY, destination);
+        FlushShxDecoration(ref underline, underlineY, destination);
+        FlushShxDecoration(ref strikeThrough, strikeThroughY, destination);
+        return destination.Count - initialCount;
+    }
+
+    private static void UpdateShxDecoration(
+        ref ShxDecorationAccumulator accumulator,
+        bool enabled,
+        double start,
+        double end,
+        double y,
+        List<CadShxDecorationSegment> destination)
+    {
+        if (!enabled)
+        {
+            FlushShxDecoration(ref accumulator, y, destination);
+            return;
+        }
+
+        if (!accumulator.IsActive)
+        {
+            accumulator.IsActive = true;
+            accumulator.Start = start;
+        }
+        accumulator.End = end;
+    }
+
+    private static void FlushShxDecoration(
+        ref ShxDecorationAccumulator accumulator,
+        double y,
+        List<CadShxDecorationSegment> destination)
+    {
+        if (!accumulator.IsActive)
+        {
+            return;
+        }
+
+        if (accumulator.Start != accumulator.End)
+        {
+            float start = checked((float)accumulator.Start);
+            float end = checked((float)accumulator.End);
+            float ordinate = checked((float)y);
+            if (!float.IsFinite(start) || !float.IsFinite(end) || !float.IsFinite(ordinate))
+            {
+                throw new ArithmeticException(
+                    "SHX TEXT decoration coordinates exceed the retained numeric range.");
+            }
+            destination.Add(new CadShxDecorationSegment(
+                start,
+                ordinate,
+                end,
+                ordinate));
+        }
+        accumulator = default;
+    }
+
+    private static int InternTextFont(
+        TtfFont font,
+        List<TtfFont> fonts,
+        Dictionary<TtfFont, int> indices)
+    {
+        if (indices.TryGetValue(font, out int index))
+        {
+            return index;
+        }
+
+        index = fonts.Count;
+        fonts.Add(font);
+        indices.Add(font, index);
+        return index;
+    }
+
+    private static CadPoint3D TransformTextPoint(
+        CadPoint3D origin,
+        CadPoint3D xAxis,
+        CadPoint3D yAxis,
+        double x,
+        double y) => origin + (xAxis * x) + (yAxis * y);
+
+    private struct DecorationAccumulator
+    {
+        public bool IsActive;
+        public double Start;
+        public double End;
+    }
+
+    private static List<CadTextDecoration>? CompileTextDecorations(
+        DecodedTextContent content,
+        TextLayout layout,
+        TtfFont font,
+        double horizontalOffset,
+        double verticalOffset)
+    {
+        TextDecorationFlags[]? sourceFlags = content.Decorations;
+        if (sourceFlags is null)
+        {
+            return null;
+        }
+
+        TextDecorationFlags usedFlags = TextDecorationFlags.None;
+        for (int i = 0; i < content.Text.Length; i++)
+        {
+            usedFlags |= sourceFlags[i];
+        }
+        if (usedFlags == TextDecorationFlags.None)
+        {
+            return null;
+        }
+
+        if (font.UnitsPerEm == 0)
+        {
+            throw new CadUnsupportedEntityException(
+                "Decorated TEXT requires finite OpenType font metrics.");
+        }
+
+        double unitsPerEm = font.UnitsPerEm;
+        double underlineThickness = (font.UnderlineThickness ?? 0) / unitsPerEm;
+        double strikeThickness = (font.StrikeoutThickness ?? 0) / unitsPerEm;
+        if ((usedFlags & (TextDecorationFlags.Overline | TextDecorationFlags.Underline)) != 0 &&
+            underlineThickness <= 0.0)
+        {
+            throw new CadUnsupportedEntityException(
+                "Overlined and underlined TEXT require a valid OpenType post-table underline thickness.");
+        }
+        if (usedFlags.HasFlag(TextDecorationFlags.Underline) &&
+            !font.UnderlinePosition.HasValue)
+        {
+            throw new CadUnsupportedEntityException(
+                "Underlined TEXT requires a valid OpenType post-table underline position.");
+        }
+        if (usedFlags.HasFlag(TextDecorationFlags.StrikeThrough) &&
+            (!font.StrikeoutPosition.HasValue || strikeThickness <= 0.0))
+        {
+            throw new CadUnsupportedEntityException(
+                "Strike-through TEXT requires valid OpenType OS/2 strikeout metrics.");
+        }
+
+        int textLength = content.Text.Length;
+        var clusterStarts = new bool[textLength];
+        for (int i = 0; i < layout.Glyphs.Count; i++)
+        {
+            int cluster = layout.Glyphs[i].Cluster;
+            if ((uint)cluster >= (uint)textLength)
+            {
+                throw new InvalidOperationException(
+                    "TEXT shaping returned a cluster outside the decoded UTF-16 range.");
+            }
+            clusterStarts[cluster] = true;
+        }
+
+        var clusterEnds = new int[textLength];
+        int nextCluster = textLength;
+        for (int i = textLength - 1; i >= 0; i--)
+        {
+            if (!clusterStarts[i])
+            {
+                continue;
+            }
+            clusterEnds[i] = nextCluster;
+            nextCluster = i;
+        }
+
+        var result = new List<CadTextDecoration>();
+        var overline = new DecorationAccumulator();
+        var underline = new DecorationAccumulator();
+        var strikeThrough = new DecorationAccumulator();
+        for (int glyphIndex = 0; glyphIndex < layout.Glyphs.Count;)
+        {
+            TextRunGlyph first = layout.Glyphs[glyphIndex];
+            int cluster = first.Cluster;
+            int clusterEnd = clusterEnds[cluster];
+            TextDecorationFlags flags = sourceFlags[cluster];
+            for (int i = cluster + 1; i < clusterEnd; i++)
+            {
+                if (sourceFlags[i] != flags)
+                {
+                    throw new CadUnsupportedEntityException(
+                        "A TEXT decoration boundary splits one shaped glyph cluster.");
+                }
+            }
+
+            double left = first.Position.X;
+            double right = first.Position.X + Math.Max(0.0f, first.Glyph.Advance);
+            int glyphEnd = glyphIndex + 1;
+            while (glyphEnd < layout.Glyphs.Count &&
+                   layout.Glyphs[glyphEnd].Cluster == cluster)
+            {
+                TextRunGlyph glyph = layout.Glyphs[glyphEnd++];
+                left = Math.Min(left, glyph.Position.X);
+                right = Math.Max(
+                    right,
+                    glyph.Position.X + Math.Max(0.0f, glyph.Glyph.Advance));
+            }
+
+            left += horizontalOffset;
+            right += horizontalOffset;
+            UpdateDecorationAccumulator(
+                ref overline,
+                flags.HasFlag(TextDecorationFlags.Overline),
+                left,
+                right,
+                TextDecorationFlags.Overline,
+                font,
+                underlineThickness,
+                strikeThickness,
+                verticalOffset,
+                result);
+            UpdateDecorationAccumulator(
+                ref underline,
+                flags.HasFlag(TextDecorationFlags.Underline),
+                left,
+                right,
+                TextDecorationFlags.Underline,
+                font,
+                underlineThickness,
+                strikeThickness,
+                verticalOffset,
+                result);
+            UpdateDecorationAccumulator(
+                ref strikeThrough,
+                flags.HasFlag(TextDecorationFlags.StrikeThrough),
+                left,
+                right,
+                TextDecorationFlags.StrikeThrough,
+                font,
+                underlineThickness,
+                strikeThickness,
+                verticalOffset,
+                result);
+            glyphIndex = glyphEnd;
+        }
+
+        FlushDecorationAccumulator(
+            ref overline,
+            TextDecorationFlags.Overline,
+            font,
+            underlineThickness,
+            strikeThickness,
+            verticalOffset,
+            result);
+        FlushDecorationAccumulator(
+            ref underline,
+            TextDecorationFlags.Underline,
+            font,
+            underlineThickness,
+            strikeThickness,
+            verticalOffset,
+            result);
+        FlushDecorationAccumulator(
+            ref strikeThrough,
+            TextDecorationFlags.StrikeThrough,
+            font,
+            underlineThickness,
+            strikeThickness,
+            verticalOffset,
+            result);
+        return result;
+    }
+
+    private static void UpdateDecorationAccumulator(
+        ref DecorationAccumulator accumulator,
+        bool enabled,
+        double left,
+        double right,
+        TextDecorationFlags kind,
+        TtfFont font,
+        double underlineThickness,
+        double strikeThickness,
+        double verticalOffset,
+        List<CadTextDecoration> destination)
+    {
+        if (!enabled || right <= left)
+        {
+            FlushDecorationAccumulator(
+                ref accumulator,
+                kind,
+                font,
+                underlineThickness,
+                strikeThickness,
+                verticalOffset,
+                destination);
+            return;
+        }
+
+        const double mergeTolerance = 1e-5;
+        if (accumulator.IsActive && left <= accumulator.End + mergeTolerance)
+        {
+            accumulator.Start = Math.Min(accumulator.Start, left);
+            accumulator.End = Math.Max(accumulator.End, right);
+            return;
+        }
+
+        FlushDecorationAccumulator(
+            ref accumulator,
+            kind,
+            font,
+            underlineThickness,
+            strikeThickness,
+            verticalOffset,
+            destination);
+        accumulator.IsActive = true;
+        accumulator.Start = left;
+        accumulator.End = right;
+    }
+
+    private static void FlushDecorationAccumulator(
+        ref DecorationAccumulator accumulator,
+        TextDecorationFlags kind,
+        TtfFont font,
+        double underlineThickness,
+        double strikeThickness,
+        double verticalOffset,
+        List<CadTextDecoration> destination)
+    {
+        if (!accumulator.IsActive)
+        {
+            return;
+        }
+
+        double top;
+        double thickness;
+        switch (kind)
+        {
+            case TextDecorationFlags.Overline:
+                top = verticalOffset - ((double)font.Ascender / font.UnitsPerEm);
+                thickness = underlineThickness;
+                break;
+            case TextDecorationFlags.Underline:
+                top = verticalOffset - ((double)font.UnderlinePosition!.Value / font.UnitsPerEm);
+                thickness = underlineThickness;
+                break;
+            case TextDecorationFlags.StrikeThrough:
+                top = verticalOffset - ((double)font.StrikeoutPosition!.Value / font.UnitsPerEm);
+                thickness = strikeThickness;
+                break;
+            default:
+                throw new InvalidOperationException("Unknown TEXT decoration kind.");
+        }
+
+        float x = checked((float)accumulator.Start);
+        float y = checked((float)top);
+        float width = checked((float)(accumulator.End - accumulator.Start));
+        float height = checked((float)thickness);
+        if (!float.IsFinite(x) || !float.IsFinite(y) ||
+            !float.IsFinite(width) || !float.IsFinite(height))
+        {
+            throw new ArithmeticException(
+                "TEXT decoration geometry exceeds the retained numeric range.");
+        }
+
+        destination.Add(new CadTextDecoration(x, y, width, height));
+        accumulator = default;
+    }
+
+    private static DecodedTextContent DecodeTextContent(string source)
+    {
+        bool requiresDecoding = source.Contains("%%", StringComparison.Ordinal) ||
+            source.Contains("\\U+", StringComparison.OrdinalIgnoreCase);
+        if (!requiresDecoding)
+        {
+            EnsureValidUtf16(source);
+            return new DecodedTextContent(source, null);
+        }
+
+        var decoded = new char[source.Length];
+        var decorations = new TextDecorationFlags[source.Length];
+        TextDecorationFlags activeDecorations = TextDecorationFlags.None;
+        bool hasDecorations = false;
+        int written = 0;
+        for (int i = 0; i < source.Length; i++)
+        {
+            char value = source[i];
+            if (value == '\\' && i + 2 < source.Length &&
+                (source[i + 1] is 'U' or 'u') && source[i + 2] == '+')
+            {
+                if (i + 6 >= source.Length)
+                {
+                    throw new CadUnsupportedEntityException(
+                        "TEXT contains a truncated DXF Unicode escape.");
+                }
+
+                int scalar = 0;
+                for (int digit = 0; digit < 4; digit++)
+                {
+                    int hex = HexValue(source[i + 3 + digit]);
+                    if (hex < 0)
+                    {
+                        throw new CadUnsupportedEntityException(
+                            "TEXT contains an invalid DXF Unicode escape.");
+                    }
+
+                    scalar = (scalar << 4) | hex;
+                }
+
+                decoded[written] = (char)scalar;
+                decorations[written++] = activeDecorations;
+                i += 6;
+                continue;
+            }
+
+            if (value == '%' && i + 1 < source.Length && source[i + 1] == '%')
+            {
+                if (i + 2 >= source.Length)
+                {
+                    throw new CadUnsupportedEntityException(
+                        "TEXT contains a truncated AutoCAD control code.");
+                }
+
+                char code = char.ToLowerInvariant(source[i + 2]);
+                if (code is 'o' or 'u' or 'k')
+                {
+                    TextDecorationFlags decoration = code switch
+                    {
+                        'o' => TextDecorationFlags.Overline,
+                        'u' => TextDecorationFlags.Underline,
+                        _ => TextDecorationFlags.StrikeThrough,
+                    };
+                    activeDecorations ^= decoration;
+                    hasDecorations = true;
+                    i += 2;
+                    continue;
+                }
+
+                if (code is >= '0' and <= '9')
+                {
+                    if (i + 4 >= source.Length ||
+                        source[i + 3] is < '0' or > '9' ||
+                        source[i + 4] is < '0' or > '9')
+                    {
+                        throw new CadUnsupportedEntityException(
+                            "TEXT numeric control codes require exactly three decimal digits.");
+                    }
+
+                    int scalar = ((source[i + 2] - '0') * 100) +
+                        ((source[i + 3] - '0') * 10) +
+                        (source[i + 4] - '0');
+                    decoded[written] = (char)scalar;
+                    decorations[written++] = activeDecorations;
+                    i += 4;
+                    continue;
+                }
+
+                decoded[written] = code switch
+                {
+                    'd' => '\u00B0',
+                    'p' => '\u00B1',
+                    'c' => '\u2205',
+                    '%' => '%',
+                    _ => throw new CadUnsupportedEntityException(
+                        $"TEXT contains unsupported AutoCAD control code '%%{source[i + 2]}'."),
+                };
+                decorations[written++] = activeDecorations;
+                i += 2;
+                continue;
+            }
+
+            decoded[written] = value;
+            decorations[written++] = activeDecorations;
+        }
+
+        EnsureValidUtf16(decoded.AsSpan(0, written));
+        return new DecodedTextContent(
+            new string(decoded, 0, written),
+            hasDecorations ? decorations : null);
+    }
+
+    private static int HexValue(char value) => value switch
+    {
+        >= '0' and <= '9' => value - '0',
+        >= 'A' and <= 'F' => value - 'A' + 10,
+        >= 'a' and <= 'f' => value - 'a' + 10,
+        _ => -1,
+    };
+
+    private static void EnsureValidUtf16(ReadOnlySpan<char> value)
+    {
+        for (int i = 0; i < value.Length; i++)
+        {
+            if (char.IsHighSurrogate(value[i]))
+            {
+                if (i + 1 >= value.Length || !char.IsLowSurrogate(value[i + 1]))
+                {
+                    throw new CadUnsupportedEntityException(
+                        "TEXT contains an unpaired UTF-16 surrogate.");
+                }
+
+                i++;
+            }
+            else if (char.IsLowSurrogate(value[i]))
+            {
+                throw new CadUnsupportedEntityException(
+                    "TEXT contains an unpaired UTF-16 surrogate.");
+            }
+        }
+    }
+
+    internal static void GetBulgeArc(
+        CadPolylineVertex start,
+        CadPolylineVertex end,
+        out double centerX,
+        out double centerY,
+        out double radius,
+        out double startAngle,
+        out double sweep)
+    {
+        double dx = end.X - start.X;
+        double dy = end.Y - start.Y;
+        double scale = Math.Max(Math.Abs(dx), Math.Abs(dy));
+        double chord = scale == 0.0
+            ? 0.0
+            : scale * Math.Sqrt(((dx / scale) * (dx / scale)) + ((dy / scale) * (dy / scale)));
+        double bulge = start.Bulge;
+        if (!double.IsFinite(chord) || chord <= 0.0 || bulge == 0.0)
+        {
+            throw new ArgumentException("A bulge arc requires distinct endpoints and a non-zero bulge.");
+        }
+
+        double centerFactor = ((1.0 / bulge) - bulge) * 0.25;
+        centerX = start.X + (dx * 0.5) - (dy * centerFactor);
+        centerY = start.Y + (dy * 0.5) + (dx * centerFactor);
+        double absoluteBulge = Math.Abs(bulge);
+        radius = (chord * 0.25) * (absoluteBulge + (1.0 / absoluteBulge));
+        startAngle = Math.Atan2(start.Y - centerY, start.X - centerX);
+        sweep = 4.0 * Math.Atan(bulge);
+        if (!double.IsFinite(centerX) || !double.IsFinite(centerY) ||
+            !double.IsFinite(radius) || !double.IsFinite(startAngle) || !double.IsFinite(sweep))
+        {
+            throw new ArithmeticException("Polyline bulge geometry exceeds the supported numeric range.");
+        }
+    }
+
+    private static double Hypot(double x, double y)
+    {
+        double scale = Math.Max(Math.Abs(x), Math.Abs(y));
+        return scale == 0.0
+            ? 0.0
+            : scale * Math.Sqrt(
+                ((x / scale) * (x / scale)) +
+                ((y / scale) * (y / scale)));
+    }
+
+    private static CadPoint3D TransformPolylinePoint(
+        CadPoint3D worldOrigin,
+        CadCoordinateSystem basis,
+        CadPolylineVertex vertex) =>
+        worldOrigin + (basis.XAxis * vertex.X) + (basis.YAxis * vertex.Y);
+
+    private static int InternLayer(
+        Layer layer,
+        List<CadLayerSnapshot> layers,
+        Dictionary<string, int> indices)
+    {
+        string name = layer.Name;
+        if (indices.TryGetValue(name, out int index))
+        {
+            return index;
+        }
+
+        index = layers.Count;
+        indices.Add(name, index);
+        bool isFrozen = IsLayerFrozen(layer);
+        layers.Add(new CadLayerSnapshot(
+            name,
+            layer.IsOn && !isFrozen,
+            layer.PlotFlag)
+        {
+            IsFrozen = isFrozen,
+        });
+        return index;
+    }
+
+    private static bool IsLayerFrozen(Layer layer) =>
+        (layer.Flags & LayerFlags.Frozen) != 0;
+
+    private static int InternStyle(
+        CadResolvedStyle resolved,
+        List<CadStrokeStyle> styles,
+        Dictionary<CadStrokeStyle, int> indices,
+        List<CadLineTypePattern> lineTypePatterns,
+        Dictionary<string, int> lineTypePatternIndices,
+        List<CadLineTypeElement> lineTypeElements,
+        List<CadLineTypeTextResource> lineTypeTextResources,
+        List<CadLineTypeShapeResource> lineTypeShapeResources,
+        List<CadTextGlyphRun> textGlyphRuns,
+        List<ushort> textGlyphIndices,
+        List<Vector2> textGlyphPositions,
+        List<TtfFont> textFonts,
+        Dictionary<TtfFont, int> textFontIndices,
+        List<CadShxGlyphInstance> shxGlyphInstances,
+        ICadShxFontResolver? shxFontResolver,
+        CadSnapshotOptions options,
+        string drawingCodePage)
+    {
+        ACadSharp.Color color = resolved.Color;
+        LineWeightType lineWeight = resolved.LineWeight;
+        double millimeters = lineWeight is LineWeightType.Default or LineWeightType.ByLayer or LineWeightType.ByBlock
+            ? resolved.DefaultLineWeightMillimeters
+            : lineWeight.GetLineWeightValue();
+        short transparency = resolved.Transparency;
+        byte alpha = transparency is < 0 or > 90
+            ? byte.MaxValue
+            : (byte)Math.Round(255.0 * (100.0 - transparency) / 100.0);
+        int lineTypePatternIndex = InternLineTypePattern(
+            resolved.LineType,
+            lineTypePatterns,
+            lineTypePatternIndices,
+            lineTypeElements,
+            lineTypeTextResources,
+            lineTypeShapeResources,
+            textGlyphRuns,
+            textGlyphIndices,
+            textGlyphPositions,
+            textFonts,
+            textFontIndices,
+            shxGlyphInstances,
+            shxFontResolver,
+            options,
+            drawingCodePage);
+        CadStrokeStyle style = new(
+            color.R,
+            color.G,
+            color.B,
+            alpha,
+            millimeters,
+            lineWeight == LineWeightType.W0,
+            resolved.LineType.Name,
+            resolved.LineTypeScale,
+            lineTypePatternIndex);
+
+        if (indices.TryGetValue(style, out int index))
+        {
+            return index;
+        }
+
+        index = styles.Count;
+        indices.Add(style, index);
+        styles.Add(style);
+        return index;
+    }
+
+    private static int InternLineTypePattern(
+        LineType lineType,
+        List<CadLineTypePattern> patterns,
+        Dictionary<string, int> indices,
+        List<CadLineTypeElement> elements,
+        List<CadLineTypeTextResource> textResources,
+        List<CadLineTypeShapeResource> shapeResources,
+        List<CadTextGlyphRun> textGlyphRuns,
+        List<ushort> textGlyphIndices,
+        List<Vector2> textGlyphPositions,
+        List<TtfFont> textFonts,
+        Dictionary<TtfFont, int> textFontIndices,
+        List<CadShxGlyphInstance> shxGlyphInstances,
+        ICadShxFontResolver? shxFontResolver,
+        CadSnapshotOptions options,
+        string drawingCodePage)
+    {
+        string name = lineType.Name;
+        if (indices.TryGetValue(name, out int existing))
+        {
+            return existing;
+        }
+
+        if (patterns.Count >= options.MaxLineTypePatterns)
+        {
+            throw new CadSnapshotExpansionLimitException(
+                $"Referenced linetype count exceeds the configured limit of {options.MaxLineTypePatterns}.");
+        }
+
+        int elementOffset = elements.Count;
+        int textResourceOffset = textResources.Count;
+        int shapeResourceOffset = shapeResources.Count;
+        int textRunOffset = textGlyphRuns.Count;
+        int textGlyphOffset = textGlyphIndices.Count;
+        int textFontOffset = textFonts.Count;
+        int shxGlyphOffset = shxGlyphInstances.Count;
+        int elementCount = 0;
+        bool hasComplexElement = false;
+        double patternLength = 0.0;
+        double firstLength = 0.0;
+        try
+        {
+            foreach (LineType.Segment segment in lineType.Segments)
+            {
+                if (elements.Count >= options.MaxLineTypeElements)
+                {
+                    throw new CadSnapshotExpansionLimitException(
+                        $"Referenced linetype element count exceeds the configured limit of {options.MaxLineTypeElements}.");
+                }
+
+                double length = segment.Length;
+                if (!double.IsFinite(length))
+                {
+                    throw new ArgumentException(
+                        $"Linetype '{name}' contains a non-finite element length.");
+                }
+
+                if (elementCount == 0)
+                {
+                    firstLength = length;
+                }
+
+                patternLength += Math.Abs(length);
+                if (!double.IsFinite(patternLength))
+                {
+                    throw new ArgumentException(
+                        $"Linetype '{name}' pattern length exceeds the finite CAD range.");
+                }
+
+                byte complexTypeFlags = checked((byte)segment.Flags);
+                hasComplexElement |= complexTypeFlags != 0;
+                elements.Add(CompileLineTypeElement(
+                    segment,
+                    complexTypeFlags,
+                    textResources,
+                    shapeResources,
+                    textGlyphRuns,
+                    textGlyphIndices,
+                    textGlyphPositions,
+                    textFonts,
+                    textFontIndices,
+                    shxGlyphInstances,
+                    shxFontResolver,
+                    options,
+                    drawingCodePage));
+                elementCount++;
+            }
+
+            bool namedContinuous = IsContinuousLineTypeName(name);
+            CadLineTypePatternKind kind;
+            if (namedContinuous || elementCount == 0)
+            {
+                kind = CadLineTypePatternKind.Continuous;
+            }
+            else if (lineType.Alignment != 'A')
+            {
+                kind = CadLineTypePatternKind.UnsupportedAlignment;
+            }
+            else
+            {
+                if (elementCount < 2 || firstLength < 0.0 || patternLength <= 0.0)
+                {
+                    throw new ArgumentException(
+                        $"A-aligned linetype '{name}' requires at least two elements, a non-negative first element, and a positive pattern length.");
+                }
+
+                kind = hasComplexElement
+                    ? CadLineTypePatternKind.Complex
+                    : CadLineTypePatternKind.Simple;
+            }
+
+            int index = patterns.Count;
+            patterns.Add(new CadLineTypePattern(
+                name,
+                lineType.Alignment,
+                elementOffset,
+                elementCount,
+                patternLength,
+                kind));
+            indices.Add(name, index);
+            return index;
+        }
+        catch
+        {
+            if (elements.Count > elementOffset)
+            {
+                elements.RemoveRange(elementOffset, elements.Count - elementOffset);
+            }
+            if (textResources.Count > textResourceOffset)
+            {
+                textResources.RemoveRange(
+                    textResourceOffset,
+                    textResources.Count - textResourceOffset);
+            }
+            if (shapeResources.Count > shapeResourceOffset)
+            {
+                shapeResources.RemoveRange(
+                    shapeResourceOffset,
+                    shapeResources.Count - shapeResourceOffset);
+            }
+            if (textGlyphRuns.Count > textRunOffset)
+            {
+                textGlyphRuns.RemoveRange(textRunOffset, textGlyphRuns.Count - textRunOffset);
+            }
+            if (textGlyphIndices.Count > textGlyphOffset)
+            {
+                textGlyphIndices.RemoveRange(textGlyphOffset, textGlyphIndices.Count - textGlyphOffset);
+                textGlyphPositions.RemoveRange(textGlyphOffset, textGlyphPositions.Count - textGlyphOffset);
+            }
+            if (textFonts.Count > textFontOffset)
+            {
+                for (int i = textFonts.Count - 1; i >= textFontOffset; i--)
+                {
+                    textFontIndices.Remove(textFonts[i]);
+                }
+                textFonts.RemoveRange(textFontOffset, textFonts.Count - textFontOffset);
+            }
+            if (shxGlyphInstances.Count > shxGlyphOffset)
+            {
+                shxGlyphInstances.RemoveRange(shxGlyphOffset, shxGlyphInstances.Count - shxGlyphOffset);
+            }
+
+            throw;
+        }
+    }
+
+    private static CadLineTypeElement CompileLineTypeElement(
+        LineType.Segment segment,
+        byte complexTypeFlags,
+        List<CadLineTypeTextResource> textResources,
+        List<CadLineTypeShapeResource> shapeResources,
+        List<CadTextGlyphRun> textGlyphRuns,
+        List<ushort> textGlyphIndices,
+        List<Vector2> textGlyphPositions,
+        List<TtfFont> textFonts,
+        Dictionary<TtfFont, int> textFontIndices,
+        List<CadShxGlyphInstance> shxGlyphInstances,
+        ICadShxFontResolver? shxFontResolver,
+        CadSnapshotOptions options,
+        string drawingCodePage)
+    {
+        int textResourceOffset = textResources.Count;
+        int shapeResourceOffset = shapeResources.Count;
+        int runOffsetBefore = textGlyphRuns.Count;
+        int trueTypeGlyphOffsetBefore = textGlyphIndices.Count;
+        int textFontOffset = textFonts.Count;
+        int shxGlyphOffsetBefore = shxGlyphInstances.Count;
+        if (complexTypeFlags == 0)
+        {
+            return new CadLineTypeElement(segment.Length, complexTypeFlags);
+        }
+
+        if (!double.IsFinite(segment.Scale) || segment.Scale == 0.0 ||
+            !double.IsFinite(segment.Rotation) ||
+            !double.IsFinite(segment.Offset.X) ||
+            !double.IsFinite(segment.Offset.Y))
+        {
+            throw new ArgumentException(
+                "Complex linetype scale, rotation, and offsets must be finite and scale must be non-zero.");
+        }
+
+        CadLineTypeRotationMode rotationMode =
+            segment.Flags.HasFlag(LineTypeShapeFlags.RotationIsAbsolute)
+                ? CadLineTypeRotationMode.Absolute
+                : CadLineTypeRotationMode.Relative;
+        CadLineTypeElement Unresolved() => new(
+            segment.Length,
+            complexTypeFlags,
+            CadLineTypeElementKind.UnresolvedComplex,
+            rotationMode,
+            segment.Rotation,
+            segment.Offset.X,
+            segment.Offset.Y,
+            -1);
+
+        if (segment.Length != 0.0 || segment.IsText == segment.IsShape || segment.Style is null)
+        {
+            return Unresolved();
+        }
+
+        try
+        {
+            if (segment.IsShape)
+            {
+                if (shxFontResolver is null || segment.ShapeNumber <= 0)
+                {
+                    return Unresolved();
+                }
+
+                TextStyle style = segment.Style;
+                CadShxFontResolution resolution = shxFontResolver.Resolve(new CadShxFontRequest(
+                    style.Name,
+                    style.Filename,
+                    style.BigFontFilename));
+                CadShxGlyphCache? cache = resolution.GlyphCache;
+                if (cache is null)
+                {
+                    return Unresolved();
+                }
+
+                CadShxGlyph glyph = cache.GetGlyph(checked((ushort)segment.ShapeNumber));
+                int resourceIndex = shapeResources.Count;
+                shapeResources.Add(new CadLineTypeShapeResource(
+                    glyph,
+                    segment.Scale,
+                    resolution.IsSubstitution));
+                return new CadLineTypeElement(
+                    segment.Length,
+                    complexTypeFlags,
+                    CadLineTypeElementKind.ShxShape,
+                    rotationMode,
+                    segment.Rotation,
+                    segment.Offset.X,
+                    segment.Offset.Y,
+                    resourceIndex);
+            }
+
+            string source = segment.Text;
+            if (source.Length == 0 || source.IndexOfAny(['\r', '\n']) >= 0 ||
+                source.Length > options.MaxTextCodeUnitsPerEntity)
+            {
+                return Unresolved();
+            }
+
+            TextStyle textStyle = segment.Style;
+            if (!double.IsFinite(textStyle.Height) || textStyle.Height < 0.0 ||
+                !double.IsFinite(textStyle.Width) || textStyle.Width <= 0.0 ||
+                !double.IsFinite(textStyle.ObliqueAngle) ||
+                Math.Abs(textStyle.ObliqueAngle) >= Math.PI * 0.5)
+            {
+                return Unresolved();
+            }
+
+            double height = textStyle.Height == 0.0
+                ? segment.Scale
+                : textStyle.Height * segment.Scale;
+            if (!double.IsFinite(height) || height == 0.0)
+            {
+                return Unresolved();
+            }
+
+            bool usesShx = textStyle.IsShapeFile ||
+                textStyle.Filename.EndsWith(".shx", StringComparison.OrdinalIgnoreCase);
+            int resource = textResources.Count;
+            if (usesShx)
+            {
+                if (shxFontResolver is null)
+                {
+                    return Unresolved();
+                }
+                CadShxFontResolution resolution = shxFontResolver.Resolve(new CadShxFontRequest(
+                    textStyle.Name,
+                    textStyle.Filename,
+                    textStyle.BigFontFilename));
+                CadShxGlyphCache? cache = resolution.GlyphCache;
+                if (cache is null || !cache.Font.IsTextFont || cache.Font.Above == 0 ||
+                    (!string.IsNullOrWhiteSpace(textStyle.BigFontFilename) &&
+                     resolution.BigFontGlyphCache is null))
+                {
+                    return Unresolved();
+                }
+                var layout = new CadShxTextLayout(
+                    source,
+                    cache,
+                    CadShxOrientation.Horizontal,
+                    new CadShxTextLayoutOptions
+                    {
+                        MaxCodeUnits = options.MaxTextCodeUnitsPerEntity,
+                        MaxGlyphs = options.MaxTextGlyphs,
+                    },
+                    resolution.BigFontGlyphCache,
+                    drawingCodePage);
+                ReadOnlySpan<CadShxGlyphPlacement> placements = layout.Glyphs.Span;
+                if (placements.Length > options.MaxTextGlyphs -
+                    textGlyphIndices.Count - shxGlyphInstances.Count)
+                {
+                    throw new CadSnapshotExpansionLimitException(
+                        $"Retained linetype text glyph count exceeds the configured document limit of {options.MaxTextGlyphs}.");
+                }
+                int glyphOffset = shxGlyphInstances.Count;
+                for (int i = 0; i < placements.Length; i++)
+                {
+                    CadShxGlyphPlacement placement = placements[i];
+                    if (placement.Decorations != CadShxTextDecoration.None)
+                    {
+                        return Unresolved();
+                    }
+                }
+                for (int i = 0; i < placements.Length; i++)
+                {
+                    CadShxGlyphPlacement placement = placements[i];
+                    shxGlyphInstances.Add(new CadShxGlyphInstance(
+                        placement.Glyph,
+                        placement.Origin.X,
+                        placement.Origin.Y));
+                }
+                double yScale = height / cache.Font.Above;
+                textResources.Add(new CadLineTypeTextResource(
+                    CadLineTypeElementKind.ShxText,
+                    glyphOffset,
+                    placements.Length,
+                    0,
+                    0,
+                    yScale * textStyle.Width,
+                    yScale,
+                    textStyle.ObliqueAngle,
+                    textStyle.MirrorFlag.HasFlag(TextMirrorFlag.Backward),
+                    textStyle.MirrorFlag.HasFlag(TextMirrorFlag.UpsideDown),
+                    resolution.IsSubstitution));
+                return new CadLineTypeElement(
+                    segment.Length,
+                    complexTypeFlags,
+                    CadLineTypeElementKind.ShxText,
+                    rotationMode,
+                    segment.Rotation,
+                    segment.Offset.X,
+                    segment.Offset.Y,
+                    resource);
+            }
+
+            ICadTextFontResolver? textResolver = options.TextFontResolver;
+            if (textResolver is null ||
+                textStyle.Flags.HasFlag(StyleFlags.VerticalText))
+            {
+                return Unresolved();
+            }
+            CadTextFontResolution fontResolution = textResolver.Resolve(new CadTextFontRequest(
+                textStyle.Name,
+                textStyle.Filename,
+                textStyle.BigFontFilename,
+                textStyle.TrueType.HasFlag(FontFlags.Bold),
+                textStyle.TrueType.HasFlag(FontFlags.Italic)));
+            TtfFont? font = fontResolution.Font;
+            if (font is null || font.UnitsPerEm == 0)
+            {
+                return Unresolved();
+            }
+            DecodedTextContent decoded = DecodeTextContent(source);
+            if (decoded.Decorations is not null)
+            {
+                return Unresolved();
+            }
+            var textLayout = new TextLayout(decoded.Text, font, 1.0f, float.PositiveInfinity);
+            if (textLayout.Glyphs.Count == 0)
+            {
+                return Unresolved();
+            }
+            if (textLayout.Glyphs.Count > options.MaxTextGlyphs -
+                textGlyphIndices.Count - shxGlyphInstances.Count)
+            {
+                throw new CadSnapshotExpansionLimitException(
+                    $"Retained linetype text glyph count exceeds the configured document limit of {options.MaxTextGlyphs}.");
+            }
+
+            int trueTypeGlyphOffset = textGlyphIndices.Count;
+            int runOffset = textGlyphRuns.Count;
+            TtfFont? runFont = null;
+            int currentRunOffset = 0;
+            double ascent = (double)font.Ascender / font.UnitsPerEm;
+            for (int i = 0; i < textLayout.Glyphs.Count; i++)
+            {
+                TextRunGlyph glyph = textLayout.Glyphs[i];
+                TtfFont glyphFont = glyph.Font ?? font;
+                if (runFont is not null && !ReferenceEquals(runFont, glyphFont))
+                {
+                    textGlyphRuns.Add(new CadTextGlyphRun(
+                        trueTypeGlyphOffset + currentRunOffset,
+                        i - currentRunOffset,
+                        InternTextFont(runFont, textFonts, textFontIndices)));
+                    currentRunOffset = i;
+                }
+                runFont = glyphFont;
+                textGlyphIndices.Add(glyph.GlyphIndex);
+                textGlyphPositions.Add(new Vector2(
+                    glyph.Position.X,
+                    checked((float)(glyph.Position.Y - ascent))));
+            }
+            if (runFont is not null)
+            {
+                textGlyphRuns.Add(new CadTextGlyphRun(
+                    trueTypeGlyphOffset + currentRunOffset,
+                    textLayout.Glyphs.Count - currentRunOffset,
+                    InternTextFont(runFont, textFonts, textFontIndices)));
+            }
+            textResources.Add(new CadLineTypeTextResource(
+                CadLineTypeElementKind.TrueTypeText,
+                trueTypeGlyphOffset,
+                textLayout.Glyphs.Count,
+                runOffset,
+                textGlyphRuns.Count - runOffset,
+                height * textStyle.Width,
+                height,
+                textStyle.ObliqueAngle,
+                textStyle.MirrorFlag.HasFlag(TextMirrorFlag.Backward),
+                textStyle.MirrorFlag.HasFlag(TextMirrorFlag.UpsideDown),
+                fontResolution.IsSubstitution));
+            return new CadLineTypeElement(
+                segment.Length,
+                complexTypeFlags,
+                CadLineTypeElementKind.TrueTypeText,
+                rotationMode,
+                segment.Rotation,
+                segment.Offset.X,
+                segment.Offset.Y,
+                resource);
+        }
+        catch (Exception exception) when (
+            exception is InvalidDataException or NotSupportedException or
+                KeyNotFoundException or ArgumentOutOfRangeException or
+                ArithmeticException)
+        {
+            if (textResources.Count > textResourceOffset)
+            {
+                textResources.RemoveRange(textResourceOffset, textResources.Count - textResourceOffset);
+            }
+            if (shapeResources.Count > shapeResourceOffset)
+            {
+                shapeResources.RemoveRange(shapeResourceOffset, shapeResources.Count - shapeResourceOffset);
+            }
+            if (textGlyphRuns.Count > runOffsetBefore)
+            {
+                textGlyphRuns.RemoveRange(runOffsetBefore, textGlyphRuns.Count - runOffsetBefore);
+            }
+            if (textGlyphIndices.Count > trueTypeGlyphOffsetBefore)
+            {
+                textGlyphIndices.RemoveRange(
+                    trueTypeGlyphOffsetBefore,
+                    textGlyphIndices.Count - trueTypeGlyphOffsetBefore);
+                textGlyphPositions.RemoveRange(
+                    trueTypeGlyphOffsetBefore,
+                    textGlyphPositions.Count - trueTypeGlyphOffsetBefore);
+            }
+            if (textFonts.Count > textFontOffset)
+            {
+                for (int i = textFonts.Count - 1; i >= textFontOffset; i--)
+                {
+                    textFontIndices.Remove(textFonts[i]);
+                }
+                textFonts.RemoveRange(textFontOffset, textFonts.Count - textFontOffset);
+            }
+            if (shxGlyphInstances.Count > shxGlyphOffsetBefore)
+            {
+                shxGlyphInstances.RemoveRange(
+                    shxGlyphOffsetBefore,
+                    shxGlyphInstances.Count - shxGlyphOffsetBefore);
+            }
+            return Unresolved();
+        }
+    }
+
+    private static CadResolvedStyle ResolveStyle(
+        Entity entity,
+        Layer effectiveLayer,
+        CadResolvedStyle? byBlock,
+        CadSnapshotOptions options,
+        double globalLineTypeScale)
+    {
+        ACadSharp.Color color = entity.Color.IsByLayer
+            ? effectiveLayer.Color
+            : entity.Color.IsByBlock
+                ? byBlock?.Color ?? ACadSharp.Color.Default
+                : entity.Color;
+        color = ResolveBackgroundAdaptiveColor(
+            color,
+            options.DrawingBackgroundColor);
+        LineWeightType lineWeight = entity.LineWeight switch
+        {
+            LineWeightType.ByLayer => effectiveLayer.LineWeight,
+            LineWeightType.ByBlock => byBlock?.LineWeight ?? LineWeightType.Default,
+            _ => entity.LineWeight,
+        };
+        LineType lineType = entity.LineType.Name.Equals(
+            LineType.ByLayerName,
+            StringComparison.OrdinalIgnoreCase)
+            ? effectiveLayer.LineType
+            : entity.LineType.Name.Equals(
+                LineType.ByBlockName,
+                StringComparison.OrdinalIgnoreCase)
+                ? byBlock?.LineType ?? LineType.Continuous
+                : entity.LineType;
+        short transparency = entity.Transparency.IsByLayer
+            ? (short)0
+            : entity.Transparency.IsByBlock
+                ? byBlock?.Transparency ?? (short)0
+                : entity.Transparency.Value;
+        if (!double.IsFinite(entity.LineTypeScale) || entity.LineTypeScale <= 0.0)
+        {
+            throw new ArgumentException("Entity linetype scale must be finite and positive.");
+        }
+
+        double effectiveLineTypeScale = entity.LineTypeScale * globalLineTypeScale;
+        if (!double.IsFinite(effectiveLineTypeScale) || effectiveLineTypeScale <= 0.0)
+        {
+            throw new ArgumentException(
+                "The product of drawing and entity linetype scales must be finite and positive.");
+        }
+
+        return new CadResolvedStyle(
+            color,
+            lineWeight,
+            lineType,
+            transparency,
+            effectiveLineTypeScale,
+            options.DefaultLineWeightMillimeters);
+    }
+
+    private static Material ResolveMaterial(
+        Entity entity,
+        Layer effectiveLayer,
+        Material? byBlock,
+        CadDocument document)
+    {
+        Material? material = entity.Material;
+        if (material is null || IsMaterialNamed(material, Material.ByLayerName))
+        {
+            material = effectiveLayer.Material;
+        }
+        if (material is not null && IsMaterialNamed(material, Material.ByBlockName))
+        {
+            material = byBlock;
+        }
+        if (material is null ||
+            IsMaterialNamed(material, Material.ByLayerName) ||
+            IsMaterialNamed(material, Material.ByBlockName))
+        {
+            material = document.Materials.TryGet(
+                Material.GlobalName,
+                out Material global)
+                    ? global
+                    : new Material(Material.GlobalName);
+        }
+        return material;
+    }
+
+    private static bool IsMaterialNamed(Material material, string name) =>
+        material.Name.Equals(name, StringComparison.OrdinalIgnoreCase);
+
+    private static int InternMaterial(
+        Material material,
+        CadResolvedStyle style,
+        List<CadMesh3DMaterial> materials,
+        Dictionary<CadMesh3DMaterial, int> materialIndices,
+        List<CadMaterialTextureResource> textureResources,
+        Dictionary<CadMaterialTextureResource, int> textureResourceIndices,
+        CadSnapshotOptions options)
+    {
+        ValidateUnit(material.AmbientColorFactor, nameof(material.AmbientColorFactor));
+        ValidateUnit(material.DiffuseColorFactor, nameof(material.DiffuseColorFactor));
+        ValidateUnit(material.SpecularColorFactor, nameof(material.SpecularColorFactor));
+        ValidateUnit(material.Opacity, nameof(material.Opacity));
+        ValidateUnit(material.Translucence, nameof(material.Translucence));
+        ValidateUnit(material.SelfIllumination, nameof(material.SelfIllumination));
+        ValidateUnit(material.SpecularGlossFactor, nameof(material.SpecularGlossFactor));
+        ValidateUnit(material.DiffuseMapBlendFactor, nameof(material.DiffuseMapBlendFactor));
+        const AutoTransformMethodFlags knownAutoTransform =
+            AutoTransformMethodFlags.NoAutoTransform |
+            AutoTransformMethodFlags.ScaleMapper |
+            AutoTransformMethodFlags.IncludeCurrentBlock;
+        if ((material.DiffuseAutoTransform & ~knownAutoTransform) != 0)
+        {
+            throw new CadUnsupportedEntityException(
+                "Material diffuse-map auto-transform flags are not defined.");
+        }
+
+        ACadSharp.Color current = style.Color;
+        CadColor32 diffuse = ResolveMaterialColor(
+            material.DiffuseColorMethod,
+            material.DiffuseColor,
+            current,
+            material.DiffuseColorFactor,
+            ResolveStyleAlpha(style.Transparency));
+        CadColor32 ambient = ResolveMaterialColor(
+            material.AmbientColorMethod,
+            material.AmbientColor,
+            current,
+            material.AmbientColorFactor,
+            byte.MaxValue);
+        CadColor32 specular = ResolveMaterialColor(
+            material.SpecularColorMethod,
+            material.SpecularColor,
+            current,
+            material.SpecularColorFactor,
+            byte.MaxValue);
+
+        int textureResourceIndex = -1;
+        bool usesDiffuse =
+            (material.ChannelFlags & MaterialChannelFlags.UseDiffuse) != 0;
+        if (usesDiffuse &&
+            material.DiffuseMapSource == MapSource.UseImageFile &&
+            material.DiffuseMapBlendFactor > 0.0 &&
+            !string.IsNullOrWhiteSpace(material.DiffuseMapFileName))
+        {
+            string fileName = material.DiffuseMapFileName;
+            if (fileName.Length > options.MaxMaterialPathCodeUnits)
+            {
+                throw new CadUnsupportedEntityException(
+                    $"Material diffuse-map path exceeds the configured {options.MaxMaterialPathCodeUnits}-code-unit limit.");
+            }
+            var resource = new CadMaterialTextureResource(
+                material.Handle,
+                fileName);
+            if (!textureResourceIndices.TryGetValue(resource, out textureResourceIndex))
+            {
+                if (textureResources.Count >= options.MaxMaterialResources)
+                {
+                    throw new CadSnapshotExpansionLimitException(
+                        $"Material texture resource count exceeds the configured limit of {options.MaxMaterialResources}.");
+                }
+                textureResourceIndex = textureResources.Count;
+                textureResourceIndices.Add(resource, textureResourceIndex);
+                textureResources.Add(resource);
+            }
+        }
+
+        Matrix4x4 textureTransform = ToTextureTransform(material.DiffuseMatrix);
+        var retained = new CadMesh3DMaterial(
+            material.Name,
+            diffuse,
+            ambient,
+            specular,
+            checked((float)(material.Opacity * (1.0 - material.Translucence))),
+            checked((float)Math.Max(1.0, material.SpecularGlossFactor * 128.0)),
+            checked((float)material.SelfIllumination),
+            textureResourceIndex >= 0
+                ? checked((float)material.DiffuseMapBlendFactor)
+                : 0.0f,
+            material.DiffuseProjectionMethod switch
+            {
+                ProjectionMethod.None => CadMaterialTextureProjection.None,
+                ProjectionMethod.Planar => CadMaterialTextureProjection.Planar,
+                ProjectionMethod.Box => CadMaterialTextureProjection.Box,
+                ProjectionMethod.Cylinder => CadMaterialTextureProjection.Cylinder,
+                ProjectionMethod.Sphere => CadMaterialTextureProjection.Sphere,
+                _ => throw new CadUnsupportedEntityException(
+                    "Material diffuse-map projection mode is not defined."),
+            },
+            material.DiffuseTilingMethod switch
+            {
+                TilingMethod.None => CadMaterialTextureTiling.None,
+                TilingMethod.Tile => CadMaterialTextureTiling.Tile,
+                TilingMethod.Crop => CadMaterialTextureTiling.Crop,
+                TilingMethod.Clamp => CadMaterialTextureTiling.Clamp,
+                _ => throw new CadUnsupportedEntityException(
+                    "Material diffuse-map tiling mode is not defined."),
+            },
+            (material.DiffuseAutoTransform &
+                AutoTransformMethodFlags.ScaleMapper) != 0,
+            textureTransform,
+            textureResourceIndex);
+        if (materialIndices.TryGetValue(retained, out int index))
+        {
+            return index;
+        }
+        if (materials.Count >= options.MaxMaterialResources)
+        {
+            throw new CadSnapshotExpansionLimitException(
+                $"Resolved material count exceeds the configured limit of {options.MaxMaterialResources}.");
+        }
+        index = materials.Count;
+        materialIndices.Add(retained, index);
+        materials.Add(retained);
+        return index;
+
+        static void ValidateUnit(double value, string name)
+        {
+            if (!double.IsFinite(value) || value < 0.0 || value > 1.0)
+            {
+                throw new ArgumentException($"Material {name} must be finite in [0, 1].");
+            }
+        }
+    }
+
+    private static CadColor32 ResolveMaterialColor(
+        ColorMethod method,
+        ACadSharp.Color authored,
+        ACadSharp.Color current,
+        double factor,
+        byte alpha)
+    {
+        ACadSharp.Color source = method switch
+        {
+            ColorMethod.Current => current,
+            ColorMethod.Override => authored,
+            _ => throw new CadUnsupportedEntityException(
+                "Material color method is not defined."),
+        };
+        return new CadColor32(
+            Scale(source.R, factor),
+            Scale(source.G, factor),
+            Scale(source.B, factor),
+            alpha);
+
+        static byte Scale(byte value, double factor) =>
+            checked((byte)Math.Clamp(Math.Round(value * factor), 0.0, 255.0));
+    }
+
+    private static byte ResolveStyleAlpha(short transparency) =>
+        transparency is < 0 or > 90
+            ? byte.MaxValue
+            : checked((byte)Math.Round(255.0 * (100.0 - transparency) / 100.0));
+
+    private static Matrix4x4 ToTextureTransform(Matrix4 value)
+    {
+        double[] values =
+        [
+            value.M00, value.M01, value.M02, value.M03,
+            value.M10, value.M11, value.M12, value.M13,
+            value.M20, value.M21, value.M22, value.M23,
+            value.M30, value.M31, value.M32, value.M33,
+        ];
+        for (int index = 0; index < values.Length; index++)
+        {
+            if (!double.IsFinite(values[index]) ||
+                values[index] < float.MinValue ||
+                values[index] > float.MaxValue)
+            {
+                throw new ArgumentException(
+                    "Material diffuse-map transform must be finite and representable by the retained GPU scene.");
+            }
+        }
+        return new Matrix4x4(
+            (float)value.M00, (float)value.M01, (float)value.M02, (float)value.M03,
+            (float)value.M10, (float)value.M11, (float)value.M12, (float)value.M13,
+            (float)value.M20, (float)value.M21, (float)value.M22, (float)value.M23,
+            (float)value.M30, (float)value.M31, (float)value.M32, (float)value.M33);
+    }
+
+    /// <summary>
+    /// Resolves ACI 7 to black on a light drawing background or white on a dark
+    /// drawing background. Explicit true colors and every other ACI value remain
+    /// unchanged.
+    /// </summary>
+    private static ACadSharp.Color ResolveBackgroundAdaptiveColor(
+        ACadSharp.Color color,
+        CadColor32 background)
+    {
+        if (color.IsTrueColor || color.Index != 7)
+        {
+            return color;
+        }
+
+        // Integer Rec. 709 luminance weights keep the decision deterministic.
+        // The midpoint classifies the sample's black model canvas and white
+        // physical page without changing explicitly authored true colors.
+        int luminance =
+            (2_126 * background.Red) +
+            (7_152 * background.Green) +
+            (722 * background.Blue);
+        return luminance >= 1_275_000
+            ? new ACadSharp.Color(0, 0, 0)
+            : new ACadSharp.Color(byte.MaxValue, byte.MaxValue, byte.MaxValue);
+    }
+
+    private static bool IsContinuousLineTypeName(string name) =>
+        name.Equals(LineType.ContinuousName, StringComparison.OrdinalIgnoreCase) ||
+        name.Equals(LineType.ByLayerName, StringComparison.OrdinalIgnoreCase) ||
+        name.Equals(LineType.ByBlockName, StringComparison.OrdinalIgnoreCase);
+
+    private static CadAffineTransform3D CreateInsertTransform(Insert insert)
+    {
+        CadPoint3D insertion = ToPoint(insert.InsertPoint);
+        CadPoint3D basePoint = ToPoint(insert.Block.BlockEntity.BasePoint);
+        if (!double.IsFinite(insert.Rotation) ||
+            !double.IsFinite(insert.XScale) || insert.XScale == 0.0 ||
+            !double.IsFinite(insert.YScale) || insert.YScale == 0.0 ||
+            !double.IsFinite(insert.ZScale) || insert.ZScale == 0.0)
+        {
+            throw new ArgumentException(
+                "INSERT rotation and non-zero scale factors must be finite.");
+        }
+
+        EnsureFinite(insertion);
+        EnsureFinite(basePoint);
+        CadCoordinateSystem basis = CadCoordinateSystem.FromNormal(ToPoint(insert.Normal));
+        double cosine = Math.Cos(insert.Rotation);
+        double sine = Math.Sin(insert.Rotation);
+        CadPoint3D xAxis = (basis.XAxis * (cosine * insert.XScale)) +
+            (basis.YAxis * (sine * insert.XScale));
+        CadPoint3D yAxis = (basis.XAxis * (-sine * insert.YScale)) +
+            (basis.YAxis * (cosine * insert.YScale));
+        CadPoint3D zAxis = basis.ZAxis * insert.ZScale;
+        CadPoint3D translation = insertion -
+            (xAxis * basePoint.X) -
+            (yAxis * basePoint.Y) -
+            (zAxis * basePoint.Z);
+        EnsureFinite(xAxis);
+        EnsureFinite(yAxis);
+        EnsureFinite(zAxis);
+        EnsureFinite(translation);
+        return new CadAffineTransform3D(xAxis, yAxis, zAxis, translation);
+    }
+
+    private static CadCoordinateSystem TransformBasis(
+        CadAffineTransform3D transform,
+        CadCoordinateSystem basis) =>
+        new(
+            transform.TransformVector(basis.XAxis),
+            transform.TransformVector(basis.YAxis),
+            transform.TransformVector(basis.ZAxis));
+
+    private static CadPoint3D TransformPoint(
+        CadAffineTransform3D transform,
+        bool hasTransform,
+        CadPoint3D point) =>
+        hasTransform ? transform.TransformPoint(point) : point;
+
+    private static bool IsLayerZero(Layer layer) =>
+        layer.Name.Equals(Layer.DefaultName, StringComparison.OrdinalIgnoreCase);
+
+    private static string FormatEntityPath(ulong rootHandle, ulong currentHandle) =>
+        rootHandle == currentHandle
+            ? $"{rootHandle:X}"
+            : $"{rootHandle:X}/.../{currentHandle:X}";
+
+    private static double NormalizePositiveSweep(double start, double end)
+    {
+        double sweep = (end - start) % TwoPi;
+        if (sweep < 0.0)
+        {
+            sweep += TwoPi;
+        }
+
+        return sweep == 0.0 ? TwoPi : sweep;
+    }
+
+    private static double NormalizeAngle(double angle)
+    {
+        double normalized = angle % TwoPi;
+        return normalized < 0.0 ? normalized + TwoPi : normalized;
+    }
+
+    private static void ValidateRadius(double radius)
+    {
+        if (!double.IsFinite(radius) || radius <= 0.0)
+        {
+            throw new ArgumentException("A circle or arc radius must be finite and positive.");
+        }
+    }
+
+    internal static void ValidateOptions(CadSnapshotOptions options)
+    {
+        if (options.DrawOrderPurpose is not
+            (CadDrawOrderPurpose.Regeneration or CadDrawOrderPurpose.Plotting))
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(options),
+                "Draw-order purpose is not defined.");
+        }
+
+        if (!double.IsFinite(options.DefaultLineWeightMillimeters) ||
+            options.DefaultLineWeightMillimeters <= 0.0)
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(options),
+                "Default lineweight must be finite and positive.");
+        }
+
+        ArgumentOutOfRangeException.ThrowIfNegative(options.DiagnosticLimit);
+        ArgumentOutOfRangeException.ThrowIfLessThan(
+            options.MaxBlockNestingDepth,
+            1);
+        ArgumentOutOfRangeException.ThrowIfLessThan(
+            options.MaxBlockArrayInstances,
+            1);
+        ArgumentOutOfRangeException.ThrowIfLessThan(
+            options.MaxExpandedEntities,
+            1);
+        ArgumentOutOfRangeException.ThrowIfLessThan(
+            options.MaxTextCodeUnitsPerEntity,
+            1);
+        ArgumentOutOfRangeException.ThrowIfLessThan(
+            options.MaxTextGlyphs,
+            1);
+        ArgumentOutOfRangeException.ThrowIfLessThan(
+            options.MaxLineTypePatterns,
+            1);
+        ArgumentOutOfRangeException.ThrowIfLessThan(
+            options.MaxLineTypeElements,
+            1);
+        ArgumentOutOfRangeException.ThrowIfLessThan(
+            options.MaxHatchLoops,
+            1);
+        ArgumentOutOfRangeException.ThrowIfLessThan(
+            options.MaxHatchSegments,
+            1);
+        ArgumentOutOfRangeException.ThrowIfLessThan(
+            options.MaxHatchPatterns,
+            1);
+        ArgumentOutOfRangeException.ThrowIfLessThan(
+            options.MaxHatchPatternFamilies,
+            1);
+        ArgumentOutOfRangeException.ThrowIfLessThan(
+            options.MaxHatchPatternDashes,
+            1);
+        ArgumentOutOfRangeException.ThrowIfLessThan(
+            options.MaxHatchTopologyVisits,
+            1);
+        ArgumentOutOfRangeException.ThrowIfLessThan(
+            options.MaxHatchSplineSourceValues,
+            1);
+        ArgumentOutOfRangeException.ThrowIfLessThan(
+            options.MaxMeshFaceIndices,
+            1);
+        ArgumentOutOfRangeException.ThrowIfLessThan(
+            options.MaxMeshSubdivisionLevel,
+            0);
+        ArgumentOutOfRangeException.ThrowIfGreaterThan(
+            options.MaxMeshSubdivisionLevel,
+            30);
+        ArgumentOutOfRangeException.ThrowIfLessThan(
+            options.MaxMeshSubdivisionTopologyVisits,
+            1);
+        ArgumentOutOfRangeException.ThrowIfLessThan(
+            options.MaxWipeoutClipVerticesPerEntity,
+            4);
+        ArgumentOutOfRangeException.ThrowIfLessThan(
+            options.MaxWipeoutClipVertices,
+            4);
+        ArgumentOutOfRangeException.ThrowIfLessThan(
+            options.MaxRasterImageResources,
+            1);
+        ArgumentOutOfRangeException.ThrowIfLessThan(
+            options.MaxRasterImagePathCodeUnits,
+            1);
+        ArgumentOutOfRangeException.ThrowIfLessThan(
+            options.MaxMaterialResources,
+            1);
+        ArgumentOutOfRangeException.ThrowIfLessThan(
+            options.MaxMaterialPathCodeUnits,
+            1);
+        ArgumentOutOfRangeException.ThrowIfLessThan(
+            options.MaxRasterImageClipVerticesPerEntity,
+            4);
+        ArgumentOutOfRangeException.ThrowIfLessThan(
+            options.MaxRasterImageClipVertices,
+            4);
+        ArgumentOutOfRangeException.ThrowIfLessThan(
+            options.MaxModelerGeometryWires,
+            1);
+        ArgumentOutOfRangeException.ThrowIfLessThan(
+            options.MaxModelerGeometryPoints,
+            1);
+        ArgumentOutOfRangeException.ThrowIfLessThan(
+            options.MaxModelerGeometryPayloadBytesPerEntity,
+            1);
+        ArgumentOutOfRangeException.ThrowIfLessThan(
+            options.MaxModelerGeometryPayloadBytes,
+            options.MaxModelerGeometryPayloadBytesPerEntity);
+        ArgumentOutOfRangeException.ThrowIfLessThan(options.MaxMLineStrokes, 1);
+        ArgumentOutOfRangeException.ThrowIfLessThan(options.MaxMLineFillTriangles, 1);
+        ArgumentOutOfRangeException.ThrowIfLessThan(options.MaxLeaderVerticesPerEntity, 2);
+        ArgumentOutOfRangeException.ThrowIfLessThan(options.MaxLeaderControlPoints, 4);
+        ArgumentOutOfRangeException.ThrowIfLessThan(options.MaxMultiLeaderPaths, 1);
+        ArgumentOutOfRangeException.ThrowIfLessThan(options.MaxMultiLeaderVerticesPerPath, 2);
+        ArgumentOutOfRangeException.ThrowIfLessThan(options.MaxMultiLeaderControlPoints, 4);
+        ArgumentOutOfRangeException.ThrowIfLessThan(options.MaxToleranceCellsPerEntity, 1);
+        ArgumentOutOfRangeException.ThrowIfLessThan(
+            options.MaxToleranceCells,
+            options.MaxToleranceCellsPerEntity);
+        ArgumentOutOfRangeException.ThrowIfLessThan(options.MaxToleranceStrokes, 4);
+        ArgumentOutOfRangeException.ThrowIfLessThan(options.MaxViewports, 1);
+        ArgumentOutOfRangeException.ThrowIfLessThan(
+            options.MaxViewportFrozenLayers,
+            1);
+    }
+
+    private static void AddDiagnostic(
+        List<CadDiagnostic> diagnostics,
+        int limit,
+        CadDiagnostic diagnostic)
+    {
+        if (diagnostics.Count < limit)
+        {
+            diagnostics.Add(diagnostic);
+        }
+    }
+
+    private static CadPlanGridSnapSettings CapturePlanGridSnapSettings(
+        CadDocument document)
+    {
+        if (!document.VPorts.TryGetValue(VPort.DefaultName, out VPort? active) ||
+            active is null)
+        {
+            return CadPlanGridSnapSettings.Disabled;
+        }
+
+        double spacingX = active.SnapSpacing.X;
+        double spacingY = active.SnapSpacing.Y;
+        if (!double.IsFinite(spacingX) || spacingX <= 0.0 ||
+            !double.IsFinite(spacingY) || spacingY <= 0.0)
+        {
+            return CadPlanGridSnapSettings.Disabled;
+        }
+
+        if (!TryCapturePlanGridBasis(
+                active,
+                out CadPoint3D basePoint,
+                out CadPoint3D snapX,
+                out CadPoint3D snapY) ||
+            !TryCapturePlanGridStyle(
+                active,
+                ref snapX,
+                ref snapY,
+                out CadPlanGridSnapStyle style,
+                out CadPlanIsoplane isoplane))
+        {
+            return CadPlanGridSnapSettings.Disabled;
+        }
+        if (style == CadPlanGridSnapStyle.Isometric && spacingX != spacingY)
+        {
+            return CadPlanGridSnapSettings.Disabled;
+        }
+
+        return new CadPlanGridSnapSettings(
+            active.SnapOn,
+            style,
+            basePoint,
+            snapX,
+            snapY,
+            spacingX,
+            spacingY,
+            isoplane);
+    }
+
+    private static CadPlanGridDisplaySettings CapturePlanGridDisplaySettings(
+        CadDocument document)
+    {
+        if (!document.VPorts.TryGetValue(VPort.DefaultName, out VPort? active) ||
+            active is null ||
+            !TryResolveGridDisplaySpacing(
+                active.GridSpacing.X,
+                active.SnapSpacing.X,
+                out double spacingX) ||
+            !TryResolveGridDisplaySpacing(
+                active.GridSpacing.Y,
+                active.SnapSpacing.Y,
+                out double spacingY) ||
+            !TryCapturePlanGridBasis(
+                active,
+                out CadPoint3D origin,
+                out CadPoint3D xAxis,
+                out CadPoint3D yAxis) ||
+            !TryCapturePlanGridStyle(
+                active,
+                ref xAxis,
+                ref yAxis,
+                out CadPlanGridSnapStyle snapStyle,
+                out CadPlanIsoplane isoplane))
+        {
+            return CadPlanGridDisplaySettings.Hidden;
+        }
+        if (snapStyle == CadPlanGridSnapStyle.Isometric && spacingX != spacingY)
+        {
+            return CadPlanGridDisplaySettings.Hidden;
+        }
+
+        double minimumX = document.Header.ModelSpaceLimitsMin.X;
+        double minimumY = document.Header.ModelSpaceLimitsMin.Y;
+        double maximumX = document.Header.ModelSpaceLimitsMax.X;
+        double maximumY = document.Header.ModelSpaceLimitsMax.Y;
+        if (!double.IsFinite(minimumX) || !double.IsFinite(minimumY) ||
+            !double.IsFinite(maximumX) || !double.IsFinite(maximumY) ||
+            minimumX > maximumX || minimumY > maximumY)
+        {
+            return CadPlanGridDisplaySettings.Hidden;
+        }
+
+        int gridFlags = (short)active.GridFlags;
+        int majorCadence = active.MinorGridLinesPerMajorGridLine;
+        if (majorCadence is < 1 or > 100)
+        {
+            return CadPlanGridDisplaySettings.Hidden;
+        }
+
+        return new CadPlanGridDisplaySettings(
+            active.ShowGrid,
+            snapStyle == CadPlanGridSnapStyle.Isometric
+                ? CadPlanGridDisplayStyle.Isometric
+                : CadPlanGridDisplayStyle.RectangularDots,
+            origin,
+            xAxis,
+            yAxis,
+            spacingX,
+            spacingY,
+            (gridFlags & 2) != 0,
+            (gridFlags & 4) != 0,
+            (gridFlags & 1) != 0,
+            (gridFlags & 8) != 0,
+            majorCadence,
+            new CadBounds3D(
+                new CadPoint3D(minimumX, minimumY, 0.0),
+                new CadPoint3D(maximumX, maximumY, 0.0)),
+            isoplane);
+    }
+
+    private static bool TryResolveGridDisplaySpacing(
+        double gridSpacing,
+        double snapSpacing,
+        out double effectiveSpacing)
+    {
+        effectiveSpacing = gridSpacing == 0.0 ? snapSpacing : gridSpacing;
+        return double.IsFinite(gridSpacing) && gridSpacing >= 0.0 &&
+            double.IsFinite(effectiveSpacing) && effectiveSpacing > 0.0;
+    }
+
+    private static bool TryCapturePlanGridBasis(
+        VPort active,
+        out CadPoint3D origin,
+        out CadPoint3D xAxis,
+        out CadPoint3D yAxis)
+    {
+        origin = default;
+        xAxis = default;
+        yAxis = default;
+        CadPoint3D ucsOrigin = ToPoint(active.Origin);
+        CadPoint3D ucsX;
+        CadPoint3D ucsY;
+        try
+        {
+            ucsX = ToPoint(active.XAxis).Normalize();
+            ucsY = ToPoint(active.YAxis).Normalize();
+        }
+        catch (ArgumentException)
+        {
+            return false;
+        }
+
+        double axesDot = CadPoint3D.Dot(ucsX, ucsY);
+        double cosine = Math.Cos(active.SnapRotation);
+        double sine = Math.Sin(active.SnapRotation);
+        origin = ucsOrigin +
+            (ucsX * active.SnapBasePoint.X) +
+            (ucsY * active.SnapBasePoint.Y);
+        xAxis = (ucsX * cosine) + (ucsY * sine);
+        yAxis = (ucsY * cosine) - (ucsX * sine);
+        return double.IsFinite(axesDot) && Math.Abs(axesDot) <= 1e-10 &&
+            double.IsFinite(cosine) && double.IsFinite(sine) &&
+            double.IsFinite(origin.X) && double.IsFinite(origin.Y) &&
+            double.IsFinite(origin.Z);
+    }
+
+    private static bool TryCapturePlanGridStyle(
+        VPort active,
+        ref CadPoint3D xAxis,
+        ref CadPoint3D yAxis,
+        out CadPlanGridSnapStyle style,
+        out CadPlanIsoplane isoplane)
+    {
+        style = active.IsometricSnap
+            ? CadPlanGridSnapStyle.Isometric
+            : CadPlanGridSnapStyle.Rectangular;
+        if (style == CadPlanGridSnapStyle.Rectangular)
+        {
+            isoplane = CadPlanIsoplane.Left;
+            return true;
+        }
+
+        isoplane = (CadPlanIsoplane)active.SnapIsoPair;
+        if (!Enum.IsDefined(isoplane))
+        {
+            return false;
+        }
+
+        CadPlanGridSnapSettings.GetIsometricAxes(
+            xAxis,
+            yAxis,
+            isoplane,
+            out CadPoint3D isometricX,
+            out CadPoint3D isometricY);
+        xAxis = isometricX;
+        yAxis = isometricY;
+        return true;
+    }
+
+    private static CadPlanPolarTrackingSettings CapturePlanPolarTrackingSettings(
+        CadDocument document)
+    {
+        if (!document.VPorts.TryGetValue(VPort.DefaultName, out VPort? active) ||
+            active is null ||
+            !double.IsFinite(document.Header.AngleBase) ||
+            !Enum.IsDefined(document.Header.AngularDirection))
+        {
+            return CadPlanPolarTrackingSettings.Unsupported;
+        }
+
+        CadPoint3D ucsX;
+        CadPoint3D ucsY;
+        try
+        {
+            ucsX = ToPoint(active.XAxis).Normalize();
+            ucsY = ToPoint(active.YAxis).Normalize();
+        }
+        catch (ArgumentException)
+        {
+            return CadPlanPolarTrackingSettings.Unsupported;
+        }
+
+        double axesDot = CadPoint3D.Dot(ucsX, ucsY);
+        double cosine = Math.Cos(document.Header.AngleBase);
+        double sine = Math.Sin(document.Header.AngleBase);
+        if (!double.IsFinite(axesDot) ||
+            Math.Abs(axesDot) > 1e-10 ||
+            !double.IsFinite(cosine) ||
+            !double.IsFinite(sine))
+        {
+            return CadPlanPolarTrackingSettings.Unsupported;
+        }
+
+        return new CadPlanPolarTrackingSettings(
+            false,
+            (ucsX * cosine) + (ucsY * sine),
+            (ucsY * cosine) - (ucsX * sine),
+            document.Header.AngularDirection == AngularDirection.ClockWise,
+            Math.PI / 2.0);
+    }
+
+    private static CadPlanAuthoringContext CapturePlanAuthoringContext(
+        CadDocument document)
+    {
+        if (!document.VPorts.TryGetValue(VPort.DefaultName, out VPort? active) ||
+            active is null ||
+            !double.IsFinite(document.Header.AngleBase) ||
+            !Enum.IsDefined(document.Header.AngularDirection))
+        {
+            return CadPlanAuthoringContext.Unsupported;
+        }
+
+        try
+        {
+            return new CadPlanAuthoringContext(
+                ToPoint(active.Origin),
+                ToPoint(active.XAxis),
+                ToPoint(active.YAxis),
+                document.Header.AngleBase,
+                document.Header.AngularDirection == AngularDirection.ClockWise);
+        }
+        catch (ArgumentException)
+        {
+            return CadPlanAuthoringContext.Unsupported;
+        }
+    }
+
+    private static CadPoint3D ToPoint(XYZ point) => new(point.X, point.Y, point.Z);
+
+    private static void EnsureFinite(CadPoint3D point)
+    {
+        if (!double.IsFinite(point.X) || !double.IsFinite(point.Y) || !double.IsFinite(point.Z))
+        {
+            throw new ArgumentException("CAD coordinates must be finite.");
+        }
+    }
+
+    private static void EnsureFinite(CadAffineTransform3D transform)
+    {
+        EnsureFinite(transform.XAxis);
+        EnsureFinite(transform.YAxis);
+        EnsureFinite(transform.ZAxis);
+        EnsureFinite(transform.Translation);
+    }
+
+    private readonly record struct CadResolvedStyle(
+        ACadSharp.Color Color,
+        LineWeightType LineWeight,
+        LineType LineType,
+        short Transparency,
+        double LineTypeScale,
+        double DefaultLineWeightMillimeters);
+
+    private sealed class CadSnapshotExpansionLimitException : InvalidOperationException
+    {
+        public CadSnapshotExpansionLimitException(string message)
+            : base(message)
+        {
+        }
+    }
+}

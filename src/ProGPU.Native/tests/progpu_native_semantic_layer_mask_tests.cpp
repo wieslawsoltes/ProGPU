@@ -5,6 +5,7 @@
 #include "progpu_native_semantic_layer_mask.hpp"
 
 #include <array>
+#include <bit>
 #include <cstddef>
 #include <cstring>
 #include <limits>
@@ -21,6 +22,8 @@ bool semantic_layer_coverage_mask_is_exact_and_bounded() {
     static_assert(sizeof(progpu_native_scene_layer_composite_mask) == 64U);
     static_assert(sizeof(progpu_native_scene_clip_path) == 88U);
     static_assert(sizeof(progpu_native_scene_path_boolean_node) == 48U);
+    static_assert(PROGPU_NATIVE_PATH_SEGMENT_RATIONAL_QUADRATIC == 4U);
+    static_assert(PROGPU_NATIVE_PATH_SEGMENT_RATIONAL_CUBIC == 5U);
     constexpr std::size_t coverage_size = 16U;
     std::array<std::byte,
         sizeof(progpu_native_scene_layer_coverage_mask) + coverage_size>
@@ -158,6 +161,79 @@ bool semantic_layer_coverage_mask_is_exact_and_bounded() {
             PROGPU_NATIVE_PATH_SEGMENT_LINE) {
         return false;
     }
+    vector_segment.kind = PROGPU_NATIVE_PATH_SEGMENT_RATIONAL_QUADRATIC;
+    vector_segment.p0 = {0.0F, 0.0F};
+    vector_segment.p1 = {6.0F, 12.0F};
+    vector_segment.p2 = {12.0F, 0.0F};
+    vector_segment.p3 = {0.0F, 0.0F};
+    vector_segment.pad0 = std::bit_cast<std::uint32_t>(0.5F);
+    vector_segment.pad1 = 0U;
+    vector_segment.pad2 = 0U;
+    std::memcpy(
+        vector_bytes.data() + sizeof(vector_mask) + sizeof(vector_path),
+        &vector_segment,
+        sizeof(vector_segment));
+    if (!semantic::validate_layer_mask_resource(
+            vector_bytes.data(), resource, error_offset, &parsed) ||
+        parsed.vector_segments[0].kind !=
+            PROGPU_NATIVE_PATH_SEGMENT_RATIONAL_QUADRATIC) {
+        return false;
+    }
+    vector_segment.p3 = {1.0F, 0.0F};
+    std::memcpy(
+        vector_bytes.data() + sizeof(vector_mask) + sizeof(vector_path),
+        &vector_segment,
+        sizeof(vector_segment));
+    if (semantic::validate_layer_mask_resource(
+            vector_bytes.data(), resource, error_offset)) {
+        return false;
+    }
+    vector_segment.p3 = {0.0F, 0.0F};
+    vector_segment.pad0 = std::bit_cast<std::uint32_t>(
+        std::numeric_limits<float>::max());
+    std::memcpy(
+        vector_bytes.data() + sizeof(vector_mask) + sizeof(vector_path),
+        &vector_segment,
+        sizeof(vector_segment));
+    if (semantic::validate_layer_mask_resource(
+            vector_bytes.data(), resource, error_offset)) {
+        return false;
+    }
+    vector_segment.kind = PROGPU_NATIVE_PATH_SEGMENT_RATIONAL_CUBIC;
+    vector_segment.p0 = {0.0F, 0.0F};
+    vector_segment.p1 = {0.0F, 12.0F};
+    vector_segment.p2 = {12.0F, 12.0F};
+    vector_segment.p3 = {12.0F, 0.0F};
+    vector_segment.pad0 = std::bit_cast<std::uint32_t>(0.5F);
+    vector_segment.pad1 = std::bit_cast<std::uint32_t>(1.5F);
+    vector_segment.pad2 = 0U;
+    std::memcpy(
+        vector_bytes.data() + sizeof(vector_mask) + sizeof(vector_path),
+        &vector_segment,
+        sizeof(vector_segment));
+    if (!semantic::validate_layer_mask_resource(
+            vector_bytes.data(), resource, error_offset, &parsed) ||
+        parsed.vector_segments[0].kind !=
+            PROGPU_NATIVE_PATH_SEGMENT_RATIONAL_CUBIC) {
+        return false;
+    }
+    vector_segment.pad2 = 1U;
+    std::memcpy(
+        vector_bytes.data() + sizeof(vector_mask) + sizeof(vector_path),
+        &vector_segment,
+        sizeof(vector_segment));
+    if (semantic::validate_layer_mask_resource(
+            vector_bytes.data(), resource, error_offset)) {
+        return false;
+    }
+    vector_segment = {};
+    vector_segment.kind = PROGPU_NATIVE_PATH_SEGMENT_LINE;
+    vector_segment.p0 = {0.0F, 0.0F};
+    vector_segment.p1 = {12.0F, 8.0F};
+    std::memcpy(
+        vector_bytes.data() + sizeof(vector_mask) + sizeof(vector_path),
+        &vector_segment,
+        sizeof(vector_segment));
     vector_path.reserved = 1U;
     std::memcpy(
         vector_bytes.data() + sizeof(vector_mask),

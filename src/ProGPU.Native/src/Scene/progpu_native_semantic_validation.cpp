@@ -98,21 +98,50 @@ bool is_valid_semantic_segment(
     const progpu_native_path_segment& segment,
     bool allow_arc) noexcept {
     const bool is_arc = segment.kind == PROGPU_NATIVE_PATH_SEGMENT_ARC;
+    const bool is_rational_quadratic = segment.kind ==
+        PROGPU_NATIVE_PATH_SEGMENT_RATIONAL_QUADRATIC;
+    const bool is_rational_cubic = segment.kind ==
+        PROGPU_NATIVE_PATH_SEGMENT_RATIONAL_CUBIC;
     const std::uint32_t maximum_kind = static_cast<std::uint32_t>(allow_arc
-        ? PROGPU_NATIVE_PATH_SEGMENT_ARC
+        ? PROGPU_NATIVE_PATH_SEGMENT_RATIONAL_CUBIC
         : PROGPU_NATIVE_PATH_SEGMENT_CUBIC);
+    const float rational_weight1 = std::bit_cast<float>(segment.pad0);
+    const float rational_weight2 = std::bit_cast<float>(segment.pad1);
+    const double rational_scale = std::fmax(1.0, std::fmax(
+        std::fmax(std::abs(segment.p0.x), std::abs(segment.p0.y)),
+        std::fmax(
+            std::fmax(std::abs(segment.p1.x), std::abs(segment.p1.y)),
+            std::fmax(
+                std::fmax(std::abs(segment.p2.x), std::abs(segment.p2.y)),
+                std::fmax(std::abs(segment.p3.x), std::abs(segment.p3.y))))));
+    const double quadratic_weight_limit =
+        std::numeric_limits<float>::max() / (4.0 * rational_scale);
+    const double cubic_weight_limit =
+        std::numeric_limits<float>::max() / (8.0 * rational_scale);
     return segment.kind <= maximum_kind &&
         is_finite(segment.p0) &&
         is_finite(segment.p1) &&
         is_finite(segment.p2) &&
         is_finite(segment.p3) &&
-        ((!is_arc && segment.pad0 == 0U && segment.pad1 == 0U &&
-             segment.pad2 == 0U) ||
+        ((!is_arc && !is_rational_quadratic && !is_rational_cubic &&
+             segment.pad0 == 0U &&
+             segment.pad1 == 0U && segment.pad2 == 0U) ||
          (allow_arc && is_arc && segment.p3.x > 0.0F &&
              segment.p3.y > 0.0F &&
              std::isfinite(std::bit_cast<float>(segment.pad0)) &&
              std::isfinite(std::bit_cast<float>(segment.pad1)) &&
-             std::isfinite(std::bit_cast<float>(segment.pad2))));
+             std::isfinite(std::bit_cast<float>(segment.pad2))) ||
+         (allow_arc && is_rational_quadratic && segment.p3.x == 0.0F &&
+             segment.p3.y == 0.0F && std::isfinite(rational_weight1) &&
+             rational_weight1 > 0.0F &&
+             rational_weight1 <= quadratic_weight_limit &&
+             segment.pad1 == 0U && segment.pad2 == 0U) ||
+         (allow_arc && is_rational_cubic &&
+             std::isfinite(rational_weight1) &&
+             std::isfinite(rational_weight2) &&
+             rational_weight1 > 0.0F && rational_weight2 > 0.0F &&
+             rational_weight1 <= cubic_weight_limit &&
+             rational_weight2 <= cubic_weight_limit && segment.pad2 == 0U));
 }
 
 bool is_valid_semantic_path(
@@ -481,16 +510,52 @@ bool is_valid_semantic_mesh_3d_vertex(
         vertex.reserved0 == 0U && vertex.reserved1 == 0U;
 }
 
+bool is_valid_semantic_mesh_3d_edge_pair(
+    const progpu_native_scene_mesh_3d_vertex& first,
+    const progpu_native_scene_mesh_3d_vertex& second) noexcept {
+    return is_valid_semantic_mesh_3d_vertex(first) &&
+        is_valid_semantic_mesh_3d_vertex(second) &&
+        first.texture_coordinate.x >=
+            static_cast<float>(PROGPU_NATIVE_MESH_3D_EDGE_MANIFOLD) &&
+        first.texture_coordinate.x <=
+            static_cast<float>(PROGPU_NATIVE_MESH_3D_EDGE_NON_MANIFOLD) &&
+        std::floor(first.texture_coordinate.x) ==
+            first.texture_coordinate.x &&
+        first.texture_coordinate.y == 0.0F &&
+        second.texture_coordinate.x == 0.0F &&
+        second.texture_coordinate.y == 0.0F;
+}
+
 bool is_valid_semantic_mesh_3d(
     const progpu_native_scene_mesh_3d& mesh,
     std::size_t vertex_count,
     std::size_t index_count) noexcept {
+    constexpr std::uint32_t material_flags =
+        PROGPU_NATIVE_MESH_3D_MATERIAL_IMAGE |
+        PROGPU_NATIVE_MESH_3D_TILING_MASK;
+    const bool is_edge_list =
+        mesh.topology == PROGPU_NATIVE_MESH_3D_EDGE_LIST;
+    const std::uint32_t known_flags = is_edge_list
+        ? static_cast<std::uint32_t>(
+            PROGPU_NATIVE_MESH_3D_EDGE_DISPLAY_MASK)
+        : material_flags;
+    const bool has_material_image =
+        (mesh.flags & PROGPU_NATIVE_MESH_3D_MATERIAL_IMAGE) != 0U;
     const std::size_t mesh_vertex_offset = mesh.vertex_offset;
     const std::size_t mesh_index_offset = mesh.index_offset;
-    return mesh.struct_size == sizeof(mesh) && mesh.flags == 0U &&
-        mesh.topology <= PROGPU_NATIVE_MESH_3D_TRIANGLE_STRIP &&
+    return mesh.struct_size == sizeof(mesh) &&
+        (mesh.flags & ~known_flags) == 0U &&
+        (has_material_image ||
+            (mesh.flags & PROGPU_NATIVE_MESH_3D_TILING_MASK) == 0U) &&
+        mesh.topology <= PROGPU_NATIVE_MESH_3D_EDGE_LIST &&
         mesh.render_mode <= PROGPU_NATIVE_MESH_3D_SOLID_WIREFRAME &&
-        mesh.vertex_count >= 3U && mesh.index_count >= 3U &&
+        (is_edge_list
+            ? mesh.vertex_count >= 2U &&
+                (mesh.vertex_count & 1U) == 0U &&
+                mesh.index_count == 0U &&
+                (mesh.flags &
+                    PROGPU_NATIVE_MESH_3D_EDGE_DISPLAY_MASK) != 0U
+            : mesh.vertex_count >= 3U && mesh.index_count >= 3U) &&
         mesh_vertex_offset <= vertex_count &&
         mesh.vertex_count <= vertex_count - mesh_vertex_offset &&
         mesh_index_offset <= index_count &&
@@ -502,8 +567,23 @@ bool is_valid_semantic_mesh_3d(
         finite_float_4(mesh.specular_color) &&
         finite_float_4(mesh.material_ambient) &&
         std::isfinite(mesh.opacity) && mesh.opacity >= 0.0F &&
-        mesh.opacity <= 1.0F && mesh.shading_mode <= 6U &&
-        mesh.reserved0 == 0U && mesh.reserved1 == 0U;
+        mesh.opacity <= 1.0F &&
+        mesh.shading_mode <= PROGPU_NATIVE_MESH_3D_NORMALS &&
+        (has_material_image || mesh.material_image_resource_index == 0U) &&
+        (!is_edge_list ||
+            (!has_material_image &&
+             mesh.light_direction.x > 0.0F &&
+             mesh.light_direction.x <= 64.0F &&
+             mesh.light_direction.y >= -1.0F &&
+             mesh.light_direction.y <= 1.0F &&
+             mesh.light_direction.z > 0.0F &&
+             mesh.light_direction.w >= 0.0F &&
+             mesh.specular_color.x >= 0.0F &&
+             mesh.specular_color.x <= 64.0F &&
+             mesh.specular_color.y >= 0.0F &&
+             mesh.specular_color.y <= 16.0F &&
+             mesh.specular_color.z == 0.0F &&
+             mesh.specular_color.w == 0.0F));
 }
 
 } // namespace progpu::native::semantic

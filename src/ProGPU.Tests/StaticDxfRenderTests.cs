@@ -15,6 +15,69 @@ namespace ProGPU.Tests;
 public sealed class StaticDxfRenderTests
 {
     [Fact]
+    public void AffineHatchPatternBrushRendersInPatternSpace()
+    {
+        using var window = new HeadlessWindow(64, 32);
+        window.Content = new PatternHatchVisual();
+
+        window.Render();
+
+        byte[] pixels = window.ReadPixels();
+        foreach (int x in new[] { 16, 48 })
+        {
+            RgbaPixel line = ReadPixel(pixels, window.Width, x, y: 3);
+            RgbaPixel gap = ReadPixel(pixels, window.Width, x, y: 7);
+            Assert.True(line.R >= 180, $"Expected transformed red hatch line at x={x}, found {line}.");
+            Assert.True(line.B <= 80, $"Expected low blue on transformed hatch line at x={x}, found {line}.");
+            Assert.True(gap.R <= 80, $"Expected low red between hatch lines at x={x}, found {gap}.");
+            Assert.True(gap.B >= 180, $"Expected blue between hatch lines at x={x}, found {gap}.");
+        }
+    }
+
+    [Fact]
+    public void MultiFamilyDashGapDotPatternRendersAcrossBothHatchPipelines()
+    {
+        using var window = new HeadlessWindow(64, 32);
+        window.Content = new PatternSetHatchVisual();
+
+        window.Render();
+
+        byte[] pixels = window.ReadPixels();
+        foreach (int offset in new[] { 0, 32 })
+        {
+            RgbaPixel dash = ReadPixel(pixels, window.Width, offset + 2, y: 3);
+            RgbaPixel gap = ReadPixel(pixels, window.Width, offset + 6, y: 3);
+            RgbaPixel shiftedDash = ReadPixel(pixels, window.Width, offset + 4, y: 11);
+            RgbaPixel shiftedGap = ReadPixel(pixels, window.Width, offset + 1, y: 11);
+            RgbaPixel dot = ReadPixel(pixels, window.Width, offset + 7, y: 7);
+            RgbaPixel dotGap = ReadPixel(pixels, window.Width, offset + 7, y: 9);
+            Assert.True(dash.R >= 160 && dash.B <= 100, $"Expected dash coverage at offset {offset}, found {dash}.");
+            Assert.True(gap.R <= 100 && gap.B >= 160, $"Expected authored gap at offset {offset}, found {gap}.");
+            Assert.True(shiftedDash.R >= 160 && shiftedDash.B <= 100, $"Expected tangent-shifted dash at offset {offset}, found {shiftedDash}.");
+            Assert.True(shiftedGap.R <= 100 && shiftedGap.B >= 160, $"Expected tangent-shifted gap at offset {offset}, found {shiftedGap}.");
+            Assert.True(dot.R >= 120, $"Expected retained zero-length dot at offset {offset}, found {dot}.");
+            Assert.True(dotGap.R <= 100 && dotGap.B >= 160, $"Expected dot-family gap at offset {offset}, found {dotGap}.");
+        }
+    }
+
+    [Fact]
+    public void RationalCubicHatchBoundaryRendersExactCoverage()
+    {
+        using var window = new HeadlessWindow(16, 12);
+        window.Content = new RationalCubicHatchVisual();
+
+        window.Render();
+
+        byte[] pixels = window.ReadPixels();
+        RgbaPixel inside = ReadPixel(pixels, window.Width, x: 6, y: 3);
+        RgbaPixel outside = ReadPixel(pixels, window.Width, x: 6, y: 9);
+        Assert.True(inside.R >= 180 && inside.B <= 80,
+            $"Expected rational-cubic HATCH interior coverage, found {inside}.");
+        Assert.True(outside.R <= 80 && outside.B >= 180,
+            $"Expected background above the rational-cubic HATCH boundary, found {outside}.");
+    }
+
+    [Fact]
     public void DrawStaticDxfHonorsActiveOpacityMask()
     {
         var window = HeadlessWindow.Shared;
@@ -485,6 +548,111 @@ public sealed class StaticDxfRenderTests
     }
 
     private readonly record struct RgbaPixel(byte R, byte G, byte B, byte A);
+
+    private sealed class PatternHatchVisual : FrameworkElement
+    {
+        private readonly SolidColorBrush _background =
+            new(new Vector4(0f, 0f, 1f, 1f));
+        private readonly HatchPatternBrush _pattern = new(
+            MathF.PI / 2f,
+            spacing: 8f,
+            thickness: 0f,
+            color: new Vector4(1f, 0f, 0f, 1f))
+        {
+            CoordinateTransform = Matrix4x4.CreateTranslation(0f, 0.5f, 0f),
+        };
+        private readonly PathGeometry _extensionPath =
+            PrimitivePathGeometry.CreateRectangle(32f, 0f, 32f, 32f);
+
+        public PatternHatchVisual()
+        {
+            Width = 64f;
+            Height = 32f;
+        }
+
+        public override void OnRender(DrawingContext context)
+        {
+            context.DrawRectangle(_background, null, new Rect(0f, 0f, 64f, 32f));
+            context.DrawRectangle(_pattern, null, new Rect(0f, 0f, 32f, 32f));
+            context.DrawHatch(_pattern, _extensionPath);
+        }
+    }
+
+    private sealed class PatternSetHatchVisual : FrameworkElement
+    {
+        private readonly SolidColorBrush _background =
+            new(new Vector4(0f, 0f, 1f, 1f));
+        private readonly HatchPatternSetBrush _pattern = new(
+            [
+                new HatchPatternLineFamily(
+                    new Vector2(0f, 3.5f),
+                    Vector2.UnitX,
+                    2f,
+                    8f,
+                    0,
+                    2,
+                    8f),
+                new HatchPatternLineFamily(
+                    new Vector2(7.5f, 7.5f),
+                    Vector2.UnitY,
+                    0f,
+                    16f,
+                    2,
+                    2,
+                    8f),
+            ],
+            [4f, -4f, 0f, -8f],
+            thickness: 0f,
+            color: new Vector4(1f, 0f, 0f, 1f));
+        private readonly PathGeometry _extensionPath =
+            PrimitivePathGeometry.CreateRectangle(32f, 0f, 32f, 32f);
+
+        public PatternSetHatchVisual()
+        {
+            Width = 64f;
+            Height = 32f;
+        }
+
+        public override void OnRender(DrawingContext context)
+        {
+            context.DrawRectangle(_background, null, new Rect(0f, 0f, 64f, 32f));
+            context.DrawRectangle(_pattern, null, new Rect(0f, 0f, 32f, 32f));
+            context.DrawHatch(_pattern, _extensionPath);
+        }
+    }
+
+    private sealed class RationalCubicHatchVisual : FrameworkElement
+    {
+        private readonly SolidColorBrush _background =
+            new(new Vector4(0f, 0f, 1f, 1f));
+        private readonly HatchPatternBrush _pattern = new(
+            0f,
+            spacing: 1f,
+            thickness: 2f,
+            color: new Vector4(1f, 0f, 0f, 1f));
+        private readonly PathGeometry _path;
+
+        public RationalCubicHatchVisual()
+        {
+            Width = 16f;
+            Height = 12f;
+            _path = new PathGeometry();
+            var figure = new PathFigure(Vector2.Zero, isClosed: true);
+            figure.Segments.Add(new RationalCubicBezierSegment(
+                new Vector2(0f, 10f),
+                new Vector2(10f, 10f),
+                new Vector2(10f, 0f),
+                0.5f,
+                1.5f));
+            _path.Figures.Add(figure);
+        }
+
+        public override void OnRender(DrawingContext context)
+        {
+            context.DrawRectangle(_background, null, new Rect(0f, 0f, 16f, 12f));
+            context.DrawHatch(_pattern, _path);
+        }
+    }
 
     private sealed class MaskedStaticDxfVisual : FrameworkElement
     {

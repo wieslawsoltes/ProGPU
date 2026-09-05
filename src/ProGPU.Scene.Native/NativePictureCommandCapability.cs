@@ -45,7 +45,8 @@ public static partial class GpuPictureNativeSceneCompiler
         RenderCommandType.DrawGlyphRun or
         RenderCommandType.DrawVertexMesh or
         RenderCommandType.DrawPointBatch or
-        RenderCommandType.DrawDotGrid =>
+        RenderCommandType.DrawDotGrid or
+        RenderCommandType.DrawDeviceDotGrid =>
             NativePictureCommandCapability.DirectDraw,
 
         RenderCommandType.DrawHatch =>

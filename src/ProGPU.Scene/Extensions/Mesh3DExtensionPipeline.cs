@@ -28,6 +28,144 @@ namespace ProGPU.Scene.Extensions
         Normals = 6
     }
 
+    [Flags]
+    public enum Mesh3DEdgeDisplay : uint
+    {
+        None = 0,
+        Boundary = 1U << 0,
+        Crease = 1U << 1,
+        Silhouette = 1U << 2,
+        Occluded = 1U << 3,
+    }
+
+    public readonly record struct Mesh3DEdgeStyle(
+        Mesh3DEdgeDisplay Display,
+        Vector4 VisibleColor,
+        Vector4 OccludedColor,
+        float Width,
+        float CreaseAngleDegrees,
+        float OccludedDashLength,
+        float OccludedGapLength)
+    {
+        /// <summary>
+        /// Physical pixels added beyond each projected endpoint. The modifier
+        /// is suppressed when the projected edge is shorter than twice this
+        /// value.
+        /// </summary>
+        public float ExtensionLength { get; init; }
+
+        /// <summary>
+        /// Maximum physical-pixel displacement of each of two deterministic
+        /// auxiliary sketch strokes. Zero retains the ordinary single stroke.
+        /// </summary>
+        public float JitterAmount { get; init; }
+
+        public static Mesh3DEdgeStyle Disabled { get; } = new(
+            Mesh3DEdgeDisplay.None,
+            new Vector4(0.85f, 0.85f, 0.9f, 1.0f),
+            new Vector4(0.45f, 0.45f, 0.5f, 0.7f),
+            1.0f,
+            30.0f,
+            6.0f,
+            4.0f);
+
+        public Mesh3DEdgeStyle Validate()
+        {
+            const Mesh3DEdgeDisplay known =
+                Mesh3DEdgeDisplay.Boundary |
+                Mesh3DEdgeDisplay.Crease |
+                Mesh3DEdgeDisplay.Silhouette |
+                Mesh3DEdgeDisplay.Occluded;
+            if ((Display & ~known) != 0 ||
+                !IsFinite(VisibleColor) ||
+                !IsFinite(OccludedColor) ||
+                !IsNormalized(VisibleColor) ||
+                !IsNormalized(OccludedColor) ||
+                !float.IsFinite(Width) || Width <= 0.0f || Width > 64.0f ||
+                !float.IsFinite(CreaseAngleDegrees) ||
+                CreaseAngleDegrees < 0.0f || CreaseAngleDegrees > 180.0f ||
+                !float.IsFinite(OccludedDashLength) ||
+                OccludedDashLength <= 0.0f ||
+                !float.IsFinite(OccludedGapLength) ||
+                OccludedGapLength < 0.0f ||
+                !float.IsFinite(ExtensionLength) ||
+                ExtensionLength < 0.0f || ExtensionLength > 64.0f ||
+                !float.IsFinite(JitterAmount) ||
+                JitterAmount < 0.0f || JitterAmount > 16.0f)
+            {
+                throw new ArgumentOutOfRangeException(
+                    nameof(Mesh3DEdgeStyle),
+                    "Mesh edge style values must be finite and within the documented bounds.");
+            }
+            return this;
+        }
+
+        private static bool IsFinite(Vector4 value) =>
+            float.IsFinite(value.X) &&
+            float.IsFinite(value.Y) &&
+            float.IsFinite(value.Z) &&
+            float.IsFinite(value.W);
+
+        private static bool IsNormalized(Vector4 value) =>
+            value.X is >= 0.0f and <= 1.0f &&
+            value.Y is >= 0.0f and <= 1.0f &&
+            value.Z is >= 0.0f and <= 1.0f &&
+            value.W is >= 0.0f and <= 1.0f;
+    }
+
+    public enum MeshEdgeTopology3D : byte
+    {
+        Manifold = 0,
+        Boundary = 1,
+        NonManifold = 2,
+    }
+
+    public readonly record struct MeshEdge3D(
+        Vector3 Start,
+        Vector3 End,
+        Vector3 FirstFaceNormal,
+        Vector3 SecondFaceNormal,
+        MeshEdgeTopology3D Topology);
+
+    /// <summary>
+    /// Actual managed Mesh3D work observed for the most recently completed
+    /// compositor frame. Upload byte counts describe queue buffer writes, and
+    /// <see cref="QueueSubmissionCount"/> is the shared extension-frame total.
+    /// </summary>
+    public readonly record struct Mesh3DFrameMetrics(
+        ulong FrameNumber,
+        ulong SceneGeneration,
+        ulong RecordGeneration,
+        bool SceneReused,
+        int ViewportCount,
+        int MeshCount,
+        int DrawCallCount,
+        int SceneCompilationCount,
+        int ModelVisualVisitCount,
+        int GeometryCacheHitCount,
+        int GeometryCacheMissCount,
+        ulong GeometryVertexUploadBytes,
+        ulong RecordUploadBytes,
+        ulong RecordIndexUploadBytes,
+        ulong EdgeUploadBytes,
+        ulong UniformUploadBytes,
+        int GeometryResidentCount,
+        ulong GeometryBufferResidentBytes,
+        int ViewportResourceCount,
+        ulong ViewportBufferResidentBytes,
+        ulong LogicalTargetTextureBytes,
+        int CommandBufferCount,
+        int QueueSubmissionCount);
+
+    /// <summary>
+    /// Stable target used by a viewport to observe extension-frame metrics
+    /// without allocating a per-frame callback or delegate.
+    /// </summary>
+    public sealed class Mesh3DFrameMetricsTarget
+    {
+        public Mesh3DFrameMetrics LastFrameMetrics { get; internal set; }
+    }
+
     [StructLayout(LayoutKind.Sequential, Pack = 1)]
     public struct GpuVertex3D
     {
@@ -55,11 +193,11 @@ namespace ProGPU.Scene.Extensions
         public Vector4 LightDirection;        // xyz = direction, w = intensity
         public Vector4 AmbientColor;          // rgb = color, w = intensity
         public Vector4 SpecularColor;         // rgb = Specular Ks, w = Exponent Ns
-        public Vector4 MaterialAmbient;       // rgb = Material Ka, w = unused
+        public Vector4 MaterialAmbient;       // rgb = Material Ka, w = self illumination
         public float Opacity;
         public float RenderMode;              // 0.0f = Solid, 1.0f = Wireframe, 2.0f = SolidWireframe
         public float ShadingMode;             // AutoCAD Shading Mode (0=Realistic, 1=Conceptual, 2=Flat, 3=HiddenLine, 4=ShadesOfGray, 5=XRay, 6=Normals)
-        public float TextureSamplingMode;      // 0.0f = nearest, 1.0f = linear
+        public float TextureSamplingMode;      // bit 0 = linear; floor(value / 2) = tiling mode
         public Vector4 TextureEffects0;        // brightness, contrast, saturation, grayscale
         public Vector4 TextureEffects1;        // sepia, invert, blur sigma, texture enabled
         public Vector4 TextureInfo;            // width, height, premultiplied source, luminance-to-alpha
@@ -83,6 +221,24 @@ namespace ProGPU.Scene.Extensions
         public Matrix4x4 View;
         public Vector3 CameraPosition;
         private float _pad;
+        public Vector4 VisibleEdgeColor;
+        public Vector4 OccludedEdgeColor;
+        public Vector4 EdgeOptions0; // width, crease cosine, dash, gap
+        public Vector4 EdgeOptions1; // display flags, viewport width/height, extension
+        public Vector4 EdgeOptions2; // jitter, reserved
+    }
+
+    [StructLayout(LayoutKind.Sequential, Pack = 16)]
+    public struct GpuMesh3DEdge
+    {
+        public Vector4 Start;
+        public Vector4 End;
+        public Vector4 FirstFaceNormal;
+        public Vector4 SecondFaceNormal;
+        public uint RecordIndex;
+        public uint Topology;
+        private uint _reserved0;
+        private uint _reserved1;
     }
 
     internal sealed class Mesh3DCompileScratch
@@ -95,6 +251,8 @@ namespace ProGPU.Scene.Extensions
             Array.Empty<uint>();
         private byte[] _unfilterableMaterials =
             Array.Empty<byte>();
+        private GpuMesh3DEdge[] _edges =
+            Array.Empty<GpuMesh3DEdge>();
 
         internal int Capacity => _records.Length;
 
@@ -109,6 +267,8 @@ namespace ProGPU.Scene.Extensions
 
         internal Span<byte> UnfilterableMaterials =>
             _unfilterableMaterials;
+
+        internal Span<GpuMesh3DEdge> Edges => _edges;
 
         internal void EnsureCapacity(int requiredCapacity)
         {
@@ -158,6 +318,29 @@ namespace ProGPU.Scene.Extensions
             _unfilterableMaterials =
                 unfilterableMaterials;
         }
+
+        internal void EnsureEdgeCapacity(int requiredCapacity)
+        {
+            if (requiredCapacity < 0 || requiredCapacity > Array.MaxLength)
+            {
+                throw new ArgumentOutOfRangeException(
+                    nameof(requiredCapacity));
+            }
+            if (requiredCapacity <= _edges.Length)
+            {
+                return;
+            }
+
+            int capacity = Math.Max(4, _edges.Length);
+            while (capacity < requiredCapacity)
+            {
+                int growth = Math.Max(4, capacity);
+                capacity = capacity > Array.MaxLength - growth
+                    ? Array.MaxLength
+                    : capacity + growth;
+            }
+            Array.Resize(ref _edges, capacity);
+        }
     }
 
     public class Mesh3DExtensionPipeline : ICompositorExtension
@@ -167,6 +350,8 @@ namespace ProGPU.Scene.Extensions
         private static readonly string Mesh3DSolidShaderCode = ShaderResource.Load(typeof(Mesh3DExtensionPipeline), "Mesh3DSolid.wgsl");
  
         private static readonly string Mesh3DWireframeShaderCode = ShaderResource.Load(typeof(Mesh3DExtensionPipeline), "Mesh3DWireframe.wgsl");
+
+        private static readonly string Mesh3DEdgeShaderCode = ShaderResource.Load(typeof(Mesh3DExtensionPipeline), "Mesh3DEdges.wgsl");
 
         private class CachedGeometry
         {
@@ -180,10 +365,17 @@ namespace ProGPU.Scene.Extensions
             public GpuBuffer UniformsBuffer;
             public GpuBuffer? DynamicRecordsBuffer;
             public GpuBuffer? RecordIndexBuffer;
+            public GpuBuffer? EdgeBuffer;
+            public uint EdgeCount;
             public unsafe BindGroup* SolidBindGroup;
             public unsafe BindGroup* WireframeBindGroup;
             public int RecordGen = -1;
             public uint SampleCount;
+            public ulong UploadedRecordGeneration;
+            public int UploadedRecordCount;
+            public int UploadedOpacityBits;
+            public ulong UploadedEdgeSceneGeneration;
+            public int UploadedEdgeCount;
 
             public ViewportResource(WgpuContext context, uint uniformsSize)
             {
@@ -195,6 +387,7 @@ namespace ProGPU.Scene.Extensions
                 UniformsBuffer.Dispose();
                 DynamicRecordsBuffer?.Dispose();
                 RecordIndexBuffer?.Dispose();
+                EdgeBuffer?.Dispose();
                 if (SolidBindGroup != null) context.Api.BindGroupRelease(SolidBindGroup);
                 if (WireframeBindGroup != null) context.Api.BindGroupRelease(WireframeBindGroup);
             }
@@ -333,6 +526,8 @@ namespace ProGPU.Scene.Extensions
         private readonly Dictionary<object, CachedGeometry> _geometryCache = new();
         private readonly List<ViewportResource> _viewportResources = new();
         private readonly List<nint> _pendingCommandBuffers = new();
+        private readonly List<Mesh3DFrameMetricsTarget>
+            _pendingMetricsTargets = new();
         private readonly List<nint> _pendingTextureBindGroups = new();
         private readonly List<IProGpuTextureLease> _pendingTextureLeases =
             new();
@@ -345,11 +540,31 @@ namespace ProGPU.Scene.Extensions
         private int _liveMaterialBlurSubmissionCount;
         private int _currentCompileIndex;
         private WgpuContext? _context;
+        private ulong _frameSceneGeneration;
+        private ulong _frameRecordGeneration;
+        private bool _frameSceneReused;
+        private int _frameViewportCount;
+        private int _frameMeshCount;
+        private int _frameDrawCallCount;
+        private int _frameSceneCompilationCount;
+        private int _frameModelVisualVisitCount;
+        private int _frameGeometryCacheHitCount;
+        private int _frameGeometryCacheMissCount;
+        private ulong _frameGeometryVertexUploadBytes;
+        private ulong _frameRecordUploadBytes;
+        private ulong _frameRecordIndexUploadBytes;
+        private ulong _frameEdgeUploadBytes;
+        private ulong _frameUniformUploadBytes;
+        private ulong _frameLogicalTargetTextureBytes;
+        private int _frameCommandBufferCount;
+        private ulong _geometryBufferResidentBytes;
+        private ulong _viewportBufferResidentBytes;
         private unsafe BindGroupLayout* _solidBindGroupLayout;
         private unsafe BindGroupLayout* _textureBindGroupLayout;
         private unsafe BindGroupLayout*
             _unfilterableTextureBindGroupLayout;
         private unsafe PipelineLayout* _solidPipelineLayout;
+        private unsafe PipelineLayout* _edgePipelineLayout;
         private unsafe PipelineLayout*
             _unfilterableSolidPipelineLayout;
         private GpuTexture? _whiteTexture;
@@ -362,6 +577,10 @@ namespace ProGPU.Scene.Extensions
         private unsafe RenderPipeline* _cachedPipelineMsaa;
         private unsafe RenderPipeline* _cachedBackFacePipelineMsaa;
         private unsafe RenderPipeline* _cachedWireframePipelineMsaa;
+        private unsafe RenderPipeline* _cachedVisibleEdgePipelineSingle;
+        private unsafe RenderPipeline* _cachedVisibleEdgePipelineMsaa;
+        private unsafe RenderPipeline* _cachedOccludedEdgePipelineSingle;
+        private unsafe RenderPipeline* _cachedOccludedEdgePipelineMsaa;
         private unsafe RenderPipeline*
             _cachedUnfilterablePipelineSingle;
         private unsafe RenderPipeline*
@@ -377,6 +596,12 @@ namespace ProGPU.Scene.Extensions
             _preparedLiveMaterialCount;
         internal int LiveMaterialBlurSubmissionCount =>
             _liveMaterialBlurSubmissionCount;
+
+        /// <summary>
+        /// Gets actual managed Mesh3D work for the most recently completed
+        /// compositor frame.
+        /// </summary>
+        public Mesh3DFrameMetrics LastFrameMetrics { get; private set; }
 
         private unsafe RenderPipeline* CreateMeshPipeline(
             Compositor compositor,
@@ -440,6 +665,110 @@ namespace ProGPU.Scene.Extensions
                 );
             }
         }
+
+        private unsafe RenderPipeline* CreateEdgePipeline(
+            Compositor compositor,
+            uint sampleCount,
+            bool occluded)
+        {
+            ShaderModule* shaderModule =
+                compositor.PipelineCache.GetOrCreateShader(
+                    $"Mesh3DEdgeShader_3D_v1_{sampleCount}",
+                    Mesh3DEdgeShaderCode,
+                    "Mesh3D retained edge WGSL shader");
+            Span<VertexAttribute> attributes =
+                stackalloc VertexAttribute[6];
+            attributes[0] = new VertexAttribute
+            {
+                Format = VertexFormat.Float32x4,
+                Offset = 0,
+                ShaderLocation = 0
+            };
+            attributes[1] = new VertexAttribute
+            {
+                Format = VertexFormat.Float32x4,
+                Offset = 16,
+                ShaderLocation = 1
+            };
+            attributes[2] = new VertexAttribute
+            {
+                Format = VertexFormat.Float32x4,
+                Offset = 32,
+                ShaderLocation = 2
+            };
+            attributes[3] = new VertexAttribute
+            {
+                Format = VertexFormat.Float32x4,
+                Offset = 48,
+                ShaderLocation = 3
+            };
+            attributes[4] = new VertexAttribute
+            {
+                Format = VertexFormat.Uint32,
+                Offset = 64,
+                ShaderLocation = 4
+            };
+            attributes[5] = new VertexAttribute
+            {
+                Format = VertexFormat.Uint32,
+                Offset = 68,
+                ShaderLocation = 5
+            };
+
+            fixed (VertexAttribute* attributesPointer = attributes)
+            {
+                Span<VertexBufferLayout> layouts =
+                    stackalloc VertexBufferLayout[1];
+                layouts[0] = new VertexBufferLayout
+                {
+                    ArrayStride =
+                        (uint)Unsafe.SizeOf<GpuMesh3DEdge>(),
+                    StepMode = VertexStepMode.Instance,
+                    AttributeCount = 6,
+                    Attributes = attributesPointer
+                };
+                return compositor.PipelineCache
+                    .GetOrCreateRenderPipeline(
+                        $"Mesh3DEdgePipeline_3D_v1_{sampleCount}_{(occluded ? "occluded" : "visible")}",
+                        shaderModule,
+                        layouts,
+                        fragmentEntry: occluded
+                            ? "fs_occluded"
+                            : "fs_visible",
+                        targetFormat: TextureFormat.Rgba8Unorm,
+                        topology: PrimitiveTopology.TriangleList,
+                        enableDepthStencil: true,
+                        depthFormat:
+                            TextureFormat.Depth24PlusStencil8,
+                        sampleCount: sampleCount,
+                        depthWriteEnabled: false,
+                        depthCompare: occluded
+                            ? CompareFunction.Greater
+                            : CompareFunction.LessEqual,
+                        cullMode: CullMode.None,
+                        pipelineLayout: _edgePipelineLayout);
+            }
+        }
+
+        private static void ValidateEdge(MeshEdge3D edge)
+        {
+            if (!IsFinite(edge.Start) ||
+                !IsFinite(edge.End) ||
+                !IsFinite(edge.FirstFaceNormal) ||
+                !IsFinite(edge.SecondFaceNormal) ||
+                edge.Topology is < MeshEdgeTopology3D.Manifold or
+                    > MeshEdgeTopology3D.NonManifold)
+            {
+                throw new ArgumentOutOfRangeException(
+                    nameof(edge),
+                    "Mesh edge geometry must be finite and use a known topology.");
+            }
+        }
+
+        private static bool IsFinite(Vector3 value) =>
+            float.IsFinite(value.X) &&
+            float.IsFinite(value.Y) &&
+            float.IsFinite(value.Z);
 
         private unsafe void EnsureSolidLayouts(Compositor compositor)
         {
@@ -583,6 +912,19 @@ namespace ProGPU.Scene.Extensions
                     device,
                     &pipelineLayoutDesc);
 
+            var edgeLayouts = stackalloc BindGroupLayout*[1];
+            edgeLayouts[0] = _solidBindGroupLayout;
+            var edgePipelineLayoutDesc =
+                new PipelineLayoutDescriptor
+                {
+                    BindGroupLayoutCount = 1,
+                    BindGroupLayouts = edgeLayouts
+                };
+            _edgePipelineLayout =
+                wgpu.DeviceCreatePipelineLayout(
+                    device,
+                    &edgePipelineLayoutDesc);
+
             layouts[1] =
                 _unfilterableTextureBindGroupLayout;
             _unfilterableSolidPipelineLayout =
@@ -609,6 +951,24 @@ namespace ProGPU.Scene.Extensions
             _usedLiveMaterialBlurCount = 0;
             _preparedLiveMaterialCount = 0;
             _liveMaterialBlurSubmissionCount = 0;
+            _frameSceneGeneration = 0;
+            _frameRecordGeneration = 0;
+            _frameSceneReused = true;
+            _frameViewportCount = 0;
+            _frameMeshCount = 0;
+            _frameDrawCallCount = 0;
+            _frameSceneCompilationCount = 0;
+            _frameModelVisualVisitCount = 0;
+            _frameGeometryCacheHitCount = 0;
+            _frameGeometryCacheMissCount = 0;
+            _frameGeometryVertexUploadBytes = 0;
+            _frameRecordUploadBytes = 0;
+            _frameRecordIndexUploadBytes = 0;
+            _frameEdgeUploadBytes = 0;
+            _frameUniformUploadBytes = 0;
+            _frameLogicalTargetTextureBytes = 0;
+            _frameCommandBufferCount = 0;
+            _pendingMetricsTargets.Clear();
             if (_pendingCommandBuffers.Count > 0)
             {
                 var wgpu = compositor.Context.Api;
@@ -628,6 +988,7 @@ namespace ProGPU.Scene.Extensions
                 cache.VertexBuffer.Dispose();
             }
             _geometryCache.Clear();
+            _geometryBufferResidentBytes = 0;
 
             if (_context != null)
             {
@@ -635,6 +996,7 @@ namespace ProGPU.Scene.Extensions
                 {
                     res.Dispose(_context);
                 }
+                _viewportBufferResidentBytes = 0;
                 ReleasePendingTextureResources(_context);
                 var wgpu = _context.Api;
                 if (_whiteLinearBindGroup != null)
@@ -651,6 +1013,11 @@ namespace ProGPU.Scene.Extensions
                 {
                     wgpu.PipelineLayoutRelease(_solidPipelineLayout);
                     _solidPipelineLayout = null;
+                }
+                if (_edgePipelineLayout != null)
+                {
+                    wgpu.PipelineLayoutRelease(_edgePipelineLayout);
+                    _edgePipelineLayout = null;
                 }
                 if (_unfilterableSolidPipelineLayout != null)
                 {
@@ -1144,12 +1511,46 @@ namespace ProGPU.Scene.Extensions
             uint sampleCount = payload.SampleCount is 1 or 4 ? payload.SampleCount : 4u;
             EnsureSolidLayouts(compositor);
 
+            if (_frameViewportCount == 0)
+            {
+                _frameSceneGeneration = payload.SceneGeneration;
+                _frameRecordGeneration = payload.RecordGeneration;
+            }
+            else
+            {
+                if (_frameSceneGeneration != payload.SceneGeneration)
+                {
+                    _frameSceneGeneration = 0;
+                }
+                if (_frameRecordGeneration != payload.RecordGeneration)
+                {
+                    _frameRecordGeneration = 0;
+                }
+            }
+            _frameSceneReused &= payload.SceneReused;
+            _frameViewportCount++;
+            _frameMeshCount += payload.Meshes.Count;
+            _frameSceneCompilationCount += payload.SceneCompilationCount;
+            _frameModelVisualVisitCount += payload.ModelVisualVisitCount;
+            _frameLogicalTargetTextureBytes +=
+                payload.LogicalTargetTextureBytes;
+            if (payload.MetricsTarget is { } metricsTarget &&
+                !_pendingMetricsTargets.Contains(metricsTarget))
+            {
+                _pendingMetricsTargets.Add(metricsTarget);
+            }
+
             uint uniformsSize = (uint)Marshal.SizeOf<GpuMesh3DUniforms>();
 
             // Ensure pooled resource exists for current viewport compile index
             while (_viewportResources.Count <= _currentCompileIndex)
             {
-                _viewportResources.Add(new ViewportResource(compositor.Context, uniformsSize));
+                var viewportResource = new ViewportResource(
+                    compositor.Context,
+                    uniformsSize);
+                _viewportResources.Add(viewportResource);
+                _viewportBufferResidentBytes +=
+                    viewportResource.UniformsBuffer.AllocatedSize;
             }
             var res = _viewportResources[_currentCompileIndex];
 
@@ -1157,22 +1558,125 @@ namespace ProGPU.Scene.Extensions
             int recordCount = payload.Meshes.Count;
 
             uint reqRecordsSize = (uint)recordCount * (uint)Marshal.SizeOf<GpuMesh3DRecord>();
+            bool recordBufferChanged = false;
             if (res.DynamicRecordsBuffer == null || res.DynamicRecordsBuffer.Size < reqRecordsSize)
             {
+                if (res.DynamicRecordsBuffer is { } oldRecordsBuffer)
+                {
+                    _viewportBufferResidentBytes -=
+                        oldRecordsBuffer.AllocatedSize;
+                }
                 res.DynamicRecordsBuffer?.Dispose();
                 res.DynamicRecordsBuffer = new GpuBuffer(compositor.Context, reqRecordsSize * 2, BufferUsage.Storage | BufferUsage.CopyDst, "Dynamic Mesh3D Records Buffer");
+                _viewportBufferResidentBytes +=
+                    res.DynamicRecordsBuffer.AllocatedSize;
                 res.RecordGen = -1; // Force bind group recreation
+                recordBufferChanged = true;
             }
             uint reqRecordIndicesSize = (uint)recordCount * sizeof(uint);
+            bool recordIndexBufferChanged = false;
             if (res.RecordIndexBuffer == null ||
                 res.RecordIndexBuffer.Size < reqRecordIndicesSize)
             {
+                if (res.RecordIndexBuffer is { } oldIndexBuffer)
+                {
+                    _viewportBufferResidentBytes -=
+                        oldIndexBuffer.AllocatedSize;
+                }
                 res.RecordIndexBuffer?.Dispose();
                 res.RecordIndexBuffer = new GpuBuffer(
                     compositor.Context,
                     reqRecordIndicesSize * 2,
                     BufferUsage.Vertex | BufferUsage.CopyDst,
                     "Dynamic Mesh3D Record Indices Buffer");
+                _viewportBufferResidentBytes +=
+                    res.RecordIndexBuffer.AllocatedSize;
+                recordIndexBufferChanged = true;
+            }
+
+            int edgeCount = 0;
+            for (int i = 0; i < recordCount; i++)
+            {
+                edgeCount = checked(
+                    edgeCount + payload.Meshes[i].Edges.Length);
+            }
+            uint requiredEdgeSize = checked(
+                (uint)edgeCount *
+                (uint)Unsafe.SizeOf<GpuMesh3DEdge>());
+            bool edgeBufferChanged = false;
+            if (edgeCount > 0 &&
+                (res.EdgeBuffer == null ||
+                 res.EdgeBuffer.Size < requiredEdgeSize))
+            {
+                if (res.EdgeBuffer is { } oldEdgeBuffer)
+                {
+                    _viewportBufferResidentBytes -=
+                        oldEdgeBuffer.AllocatedSize;
+                }
+                res.EdgeBuffer?.Dispose();
+                res.EdgeBuffer = new GpuBuffer(
+                    compositor.Context,
+                    requiredEdgeSize <= uint.MaxValue / 2
+                        ? requiredEdgeSize * 2
+                        : requiredEdgeSize,
+                    BufferUsage.Vertex | BufferUsage.CopyDst,
+                    "Retained Mesh3D Edge Buffer");
+                _viewportBufferResidentBytes +=
+                    res.EdgeBuffer.AllocatedSize;
+                edgeBufferChanged = true;
+            }
+            res.EdgeCount = (uint)edgeCount;
+
+            bool uploadEdges = edgeCount > 0 &&
+                (payload.SceneGeneration == 0 ||
+                 edgeBufferChanged ||
+                 res.UploadedEdgeSceneGeneration !=
+                    payload.SceneGeneration ||
+                 res.UploadedEdgeCount != edgeCount);
+            if (uploadEdges)
+            {
+                _compileScratch.EnsureEdgeCapacity(edgeCount);
+                Span<GpuMesh3DEdge> gpuEdges =
+                    _compileScratch.Edges[..edgeCount];
+                int edgeIndex = 0;
+                for (int recordIndex = 0;
+                     recordIndex < recordCount;
+                     recordIndex++)
+                {
+                    ReadOnlySpan<MeshEdge3D> meshEdges =
+                        payload.Meshes[recordIndex].Edges;
+                    for (int localEdgeIndex = 0;
+                         localEdgeIndex < meshEdges.Length;
+                         localEdgeIndex++)
+                    {
+                        MeshEdge3D edge =
+                            meshEdges[localEdgeIndex];
+                        ValidateEdge(edge);
+                        gpuEdges[edgeIndex++] =
+                            new GpuMesh3DEdge
+                            {
+                                Start = new Vector4(
+                                    edge.Start,
+                                    1.0f),
+                                End = new Vector4(
+                                    edge.End,
+                                    1.0f),
+                                FirstFaceNormal = new Vector4(
+                                    edge.FirstFaceNormal,
+                                    0.0f),
+                                SecondFaceNormal = new Vector4(
+                                    edge.SecondFaceNormal,
+                                    0.0f),
+                                RecordIndex = (uint)recordIndex,
+                                Topology = (uint)edge.Topology
+                            };
+                    }
+                }
+                res.EdgeBuffer!.Write(gpuEdges);
+                res.UploadedEdgeSceneGeneration =
+                    payload.SceneGeneration;
+                res.UploadedEdgeCount = edgeCount;
+                _frameEdgeUploadBytes += requiredEdgeSize;
             }
 
             // 2. Upload records data
@@ -1187,10 +1691,27 @@ namespace ProGPU.Scene.Extensions
                 _compileScratch
                     .UnfilterableMaterials[..recordCount];
             bool hasUnfilterableMaterials = false;
+            bool hasDynamicTextureSource = false;
+            for (int i = 0; i < recordCount; i++)
+            {
+                hasDynamicTextureSource |=
+                    payload.Meshes[i].TextureSource is not null;
+            }
+            int activeOpacityBits =
+                BitConverter.SingleToInt32Bits(
+                    compositor.ActiveOpacity);
+            bool uploadRecords =
+                payload.RecordGeneration == 0 ||
+                recordBufferChanged ||
+                recordIndexBufferChanged ||
+                res.UploadedRecordGeneration !=
+                    payload.RecordGeneration ||
+                res.UploadedRecordCount != recordCount ||
+                res.UploadedOpacityBits != activeOpacityBits ||
+                hasDynamicTextureSource;
             int n = recordCount;
             for (int i = 0; i < n; i++)
             {
-                recordIndices[i] = (uint)i;
                 var mesh = payload.Meshes[i];
                 textureBindGroups[i] =
                     (nint)GetTextureBindGroup(
@@ -1207,6 +1728,13 @@ namespace ProGPU.Scene.Extensions
                         : (byte)0;
                 hasUnfilterableMaterials |=
                     usesUnfilterableMaterial;
+                if (!uploadRecords &&
+                    mesh.TextureSource is null)
+                {
+                    continue;
+                }
+                uploadRecords = true;
+                recordIndices[i] = (uint)i;
                 MeshTextureEffect textureEffect =
                     hasMaterialTexture
                         ? hasPreparedGaussianBlur
@@ -1244,15 +1772,16 @@ namespace ProGPU.Scene.Extensions
                     LightDirection = new Vector4(payload.LightDirection, payload.LightIntensity),
                     AmbientColor = new Vector4(payload.AmbientColor, payload.AmbientIntensity),
                     SpecularColor = new Vector4(mesh.SpecularColor, mesh.Shininess),
-                    MaterialAmbient = new Vector4(mesh.AmbientColor, 1.0f),
+                    MaterialAmbient = new Vector4(
+                        mesh.AmbientColor,
+                        Math.Clamp(mesh.SelfIllumination, 0.0f, 1.0f)),
                     Opacity = mesh.Opacity * compositor.ActiveOpacity,
                     RenderMode = rMode,
                     ShadingMode = (float)payload.ShadingMode,
                     TextureSamplingMode =
-                        mesh.TextureSamplingMode ==
-                            TextureSamplingMode.Nearest
-                                ? 0f
-                                : 1f,
+                        (mesh.TextureSamplingMode ==
+                            TextureSamplingMode.Nearest ? 0f : 1f) +
+                        (2f * (float)mesh.TextureTilingMode),
                     TextureEffects0 = new Vector4(
                         textureEffect.Brightness,
                         textureEffect.Contrast,
@@ -1302,25 +1831,67 @@ namespace ProGPU.Scene.Extensions
                             .NormalizedSourceRect
                 };
             }
-            res.DynamicRecordsBuffer.Write(cpuRecords);
-            res.RecordIndexBuffer.Write(recordIndices);
+            if (uploadRecords)
+            {
+                res.DynamicRecordsBuffer.Write(cpuRecords);
+                res.RecordIndexBuffer.Write(recordIndices);
+                res.UploadedRecordGeneration =
+                    payload.RecordGeneration;
+                res.UploadedRecordCount = recordCount;
+                res.UploadedOpacityBits = activeOpacityBits;
+                _frameRecordUploadBytes += reqRecordsSize;
+                _frameRecordIndexUploadBytes +=
+                    reqRecordIndicesSize;
+            }
 
             Matrix4x4.Invert(cmd.CameraView, out var invView);
             Vector3 cameraPos = invView.Translation;
 
             // 3. Upload uniforms data
+            Mesh3DEdgeStyle edgeStyle =
+                payload.EdgeStyle.Validate();
             var cpuUniforms = new GpuMesh3DUniforms
             {
                 Projection = cmd.Transform, // Perspective projection matrix
                 View = cmd.CameraView,      // View matrix
-                CameraPosition = cameraPos
+                CameraPosition = cameraPos,
+                VisibleEdgeColor =
+                    edgeStyle.VisibleColor,
+                OccludedEdgeColor =
+                    edgeStyle.OccludedColor,
+                EdgeOptions0 = new Vector4(
+                    edgeStyle.Width,
+                    MathF.Cos(
+                        edgeStyle.CreaseAngleDegrees *
+                        MathF.PI / 180.0f),
+                    edgeStyle.OccludedDashLength,
+                    edgeStyle.OccludedGapLength),
+                EdgeOptions1 = new Vector4(
+                    (uint)edgeStyle.Display,
+                    payload.ColorTexture.Width,
+                    payload.ColorTexture.Height,
+                    edgeStyle.ExtensionLength),
+                EdgeOptions2 = new Vector4(
+                    edgeStyle.JitterAmount,
+                    0.0f,
+                    0.0f,
+                    0.0f)
             };
             res.UniformsBuffer.WriteSingle(cpuUniforms);
+            _frameUniformUploadBytes += uniformsSize;
 
             // 4. Create the physical-resolution or 4x-MSAA pipeline variant on demand.
             RenderPipeline* cachedPipeline = sampleCount == 1 ? _cachedPipelineSingle : _cachedPipelineMsaa;
             RenderPipeline* cachedBackFacePipeline = sampleCount == 1 ? _cachedBackFacePipelineSingle : _cachedBackFacePipelineMsaa;
             RenderPipeline* cachedWireframePipeline = sampleCount == 1 ? _cachedWireframePipelineSingle : _cachedWireframePipelineMsaa;
+            RenderPipeline* cachedVisibleEdgePipeline =
+                sampleCount == 1
+                    ? _cachedVisibleEdgePipelineSingle
+                    : _cachedVisibleEdgePipelineMsaa;
+            RenderPipeline* cachedOccludedEdgePipeline =
+                sampleCount == 1
+                    ? _cachedOccludedEdgePipelineSingle
+                    : _cachedOccludedEdgePipelineMsaa;
             RenderPipeline* cachedUnfilterablePipeline =
                 sampleCount == 1
                     ? _cachedUnfilterablePipelineSingle
@@ -1427,6 +1998,56 @@ namespace ProGPU.Scene.Extensions
                 else _cachedWireframePipelineMsaa = cachedWireframePipeline;
             }
 
+            Mesh3DEdgeDisplay visibleEdgeClasses =
+                edgeStyle.Display &
+                (Mesh3DEdgeDisplay.Boundary |
+                 Mesh3DEdgeDisplay.Crease |
+                 Mesh3DEdgeDisplay.Silhouette);
+            bool renderVisibleEdges =
+                res.EdgeCount > 0 &&
+                visibleEdgeClasses != Mesh3DEdgeDisplay.None;
+            bool renderOccludedEdges =
+                renderVisibleEdges &&
+                (edgeStyle.Display & Mesh3DEdgeDisplay.Occluded) != 0;
+            if (renderVisibleEdges &&
+                cachedVisibleEdgePipeline == null)
+            {
+                cachedVisibleEdgePipeline =
+                    CreateEdgePipeline(
+                        compositor,
+                        sampleCount,
+                        occluded: false);
+                if (sampleCount == 1)
+                {
+                    _cachedVisibleEdgePipelineSingle =
+                        cachedVisibleEdgePipeline;
+                }
+                else
+                {
+                    _cachedVisibleEdgePipelineMsaa =
+                        cachedVisibleEdgePipeline;
+                }
+            }
+            if (renderOccludedEdges &&
+                cachedOccludedEdgePipeline == null)
+            {
+                cachedOccludedEdgePipeline =
+                    CreateEdgePipeline(
+                        compositor,
+                        sampleCount,
+                        occluded: true);
+                if (sampleCount == 1)
+                {
+                    _cachedOccludedEdgePipelineSingle =
+                        cachedOccludedEdgePipeline;
+                }
+                else
+                {
+                    _cachedOccludedEdgePipelineMsaa =
+                        cachedOccludedEdgePipeline;
+                }
+            }
+
             // 5. Create or get cached BindGroup
             int currentGen = res.DynamicRecordsBuffer.GetHashCode() ^ res.UniformsBuffer.GetHashCode();
             if (res.SolidBindGroup == null ||
@@ -1483,9 +2104,19 @@ namespace ProGPU.Scene.Extensions
             }
 
             // 6. Begin offscreen WebGPU Render Pass targeting the custom color and depth textures!
-            var encoderDesc = new CommandEncoderDescriptor { Label = (byte*)SilkMarshal.StringToPtr("Mesh3D Offscreen Encoder") };
-            var encoder = wgpu.DeviceCreateCommandEncoder(device, &encoderDesc);
-            SilkMarshal.Free((nint)encoderDesc.Label);
+            CommandEncoder* encoder;
+            ReadOnlySpan<byte> encoderLabel =
+                "Mesh3D Offscreen Encoder\0"u8;
+            fixed (byte* encoderLabelPointer = encoderLabel)
+            {
+                var encoderDesc = new CommandEncoderDescriptor
+                {
+                    Label = encoderLabelPointer
+                };
+                encoder = wgpu.DeviceCreateCommandEncoder(
+                    device,
+                    &encoderDesc);
+            }
 
             var colorAttachment = new RenderPassColorAttachment
             {
@@ -1529,13 +2160,21 @@ namespace ProGPU.Scene.Extensions
                 {
                     if (cache.Version != entry.GeometryVersion)
                     {
+                        _geometryBufferResidentBytes -=
+                            cache.VertexBuffer.AllocatedSize;
                         cache.VertexBuffer.Dispose();
                         needsRebuild = true;
+                        _frameGeometryCacheMissCount++;
+                    }
+                    else
+                    {
+                        _frameGeometryCacheHitCount++;
                     }
                 }
                 else
                 {
                     needsRebuild = true;
+                    _frameGeometryCacheMissCount++;
                 }
 
                 if (needsRebuild)
@@ -1560,6 +2199,9 @@ namespace ProGPU.Scene.Extensions
                     uint vSize = (uint)cpuVertices.Length * (uint)Marshal.SizeOf<GpuVertex3D>();
                     var vBuffer = new GpuBuffer(compositor.Context, vSize, BufferUsage.Vertex | BufferUsage.CopyDst, "3D Mesh Vertex Buffer");
                     vBuffer.Write(cpuVertices);
+                    _frameGeometryVertexUploadBytes += vSize;
+                    _geometryBufferResidentBytes +=
+                        vBuffer.AllocatedSize;
 
                     cache = new CachedGeometry
                     {
@@ -1605,6 +2247,7 @@ namespace ProGPU.Scene.Extensions
                     wgpu.RenderPassEncoderSetVertexBuffer(pass, 0, cache.VertexBuffer.BufferPtr, 0, cache.VertexBuffer.Size);
                     wgpu.RenderPassEncoderSetVertexBuffer(pass, 1, res.RecordIndexBuffer.BufferPtr, (ulong)i * sizeof(uint), sizeof(uint));
                     wgpu.RenderPassEncoderDraw(pass, cache.VertexCount, 1, 0, 0);
+                    _frameDrawCallCount++;
                 }
 
                 wgpu.RenderPassEncoderSetBindGroup(pass, 0, res.SolidBindGroup, 0, null);
@@ -1636,6 +2279,7 @@ namespace ProGPU.Scene.Extensions
                     wgpu.RenderPassEncoderSetVertexBuffer(pass, 0, cache.VertexBuffer.BufferPtr, 0, cache.VertexBuffer.Size);
                     wgpu.RenderPassEncoderSetVertexBuffer(pass, 1, res.RecordIndexBuffer.BufferPtr, (ulong)i * sizeof(uint), sizeof(uint));
                     wgpu.RenderPassEncoderDraw(pass, cache.VertexCount, 1, 0, 0);
+                    _frameDrawCallCount++;
                 }
             }
             else if (mode == RenderMode3D.Wireframe || mode == RenderMode3D.SolidWireframe)
@@ -1652,18 +2296,70 @@ namespace ProGPU.Scene.Extensions
                     wgpu.RenderPassEncoderSetVertexBuffer(pass, 0, cache.VertexBuffer.BufferPtr, 0, cache.VertexBuffer.Size);
                     wgpu.RenderPassEncoderSetVertexBuffer(pass, 1, res.RecordIndexBuffer.BufferPtr, (ulong)i * sizeof(uint), sizeof(uint));
                     wgpu.RenderPassEncoderDraw(pass, cache.VertexCount, 1, 0, 0);
+                    _frameDrawCallCount++;
                 }
+            }
+
+            if (renderVisibleEdges)
+            {
+                wgpu.RenderPassEncoderSetPipeline(
+                    pass,
+                    cachedVisibleEdgePipeline);
+                wgpu.RenderPassEncoderSetBindGroup(
+                    pass,
+                    0,
+                    res.SolidBindGroup,
+                    0,
+                    null);
+                wgpu.RenderPassEncoderSetVertexBuffer(
+                    pass,
+                    0,
+                    res.EdgeBuffer!.BufferPtr,
+                    0,
+                    requiredEdgeSize);
+                wgpu.RenderPassEncoderDraw(
+                    pass,
+                    edgeStyle.JitterAmount > 0.0f ? 18U : 6U,
+                    res.EdgeCount,
+                    0,
+                    0);
+                _frameDrawCallCount++;
+            }
+            if (renderOccludedEdges)
+            {
+                wgpu.RenderPassEncoderSetPipeline(
+                    pass,
+                    cachedOccludedEdgePipeline);
+                wgpu.RenderPassEncoderDraw(
+                    pass,
+                    edgeStyle.JitterAmount > 0.0f ? 18U : 6U,
+                    res.EdgeCount,
+                    0,
+                    0);
+                _frameDrawCallCount++;
             }
 
             wgpu.RenderPassEncoderEnd(pass);
             wgpu.RenderPassEncoderRelease(pass);
 
             // 8. Add offscreen command buffer to the deferred submission queue
-            var cmdDesc = new CommandBufferDescriptor { Label = (byte*)SilkMarshal.StringToPtr("Mesh3D Offscreen Command Buffer") };
-            var cmdBuffer = wgpu.CommandEncoderFinish(encoder, &cmdDesc);
-            SilkMarshal.Free((nint)cmdDesc.Label);
+            CommandBuffer* cmdBuffer;
+            ReadOnlySpan<byte> commandBufferLabel =
+                "Mesh3D Offscreen Command Buffer\0"u8;
+            fixed (byte* commandBufferLabelPointer =
+                       commandBufferLabel)
+            {
+                var cmdDesc = new CommandBufferDescriptor
+                {
+                    Label = commandBufferLabelPointer
+                };
+                cmdBuffer = wgpu.CommandEncoderFinish(
+                    encoder,
+                    &cmdDesc);
+            }
 
             _pendingCommandBuffers.Add((nint)cmdBuffer);
+            _frameCommandBufferCount++;
 
             wgpu.CommandEncoderRelease(encoder);
 
@@ -1677,6 +2373,7 @@ namespace ProGPU.Scene.Extensions
 
         public unsafe void EndFrame(Compositor compositor)
         {
+            int queueSubmissionCount = 0;
             if (_pendingCommandBuffers.Count > 0)
             {
                 var wgpu = compositor.Context.Api;
@@ -1690,6 +2387,7 @@ namespace ProGPU.Scene.Extensions
                 }
 
                 compositor.Context.Submit((uint)count, buffers);
+                queueSubmissionCount = 1;
 
                 for (int i = 0; i < count; i++)
                 {
@@ -1721,6 +2419,36 @@ namespace ProGPU.Scene.Extensions
                 resources.Dispose();
                 _liveMaterialBlurPool.RemoveAt(index);
             }
+
+            LastFrameMetrics = new Mesh3DFrameMetrics(
+                compositor.FrameNumber,
+                _frameSceneGeneration,
+                _frameRecordGeneration,
+                _frameViewportCount > 0 && _frameSceneReused,
+                _frameViewportCount,
+                _frameMeshCount,
+                _frameDrawCallCount,
+                _frameSceneCompilationCount,
+                _frameModelVisualVisitCount,
+                _frameGeometryCacheHitCount,
+                _frameGeometryCacheMissCount,
+                _frameGeometryVertexUploadBytes,
+                _frameRecordUploadBytes,
+                _frameRecordIndexUploadBytes,
+                _frameEdgeUploadBytes,
+                _frameUniformUploadBytes,
+                _geometryCache.Count,
+                _geometryBufferResidentBytes,
+                _viewportResources.Count,
+                _viewportBufferResidentBytes,
+                _frameLogicalTargetTextureBytes,
+                _frameCommandBufferCount,
+                queueSubmissionCount);
+            for (int i = 0; i < _pendingMetricsTargets.Count; i++)
+            {
+                _pendingMetricsTargets[i].LastFrameMetrics =
+                    LastFrameMetrics;
+            }
         }
 
         public unsafe void Render(
@@ -1735,6 +2463,17 @@ namespace ProGPU.Scene.Extensions
 
     public class Viewport3DCompilationPayload
     {
+        /// <summary>
+        /// Nonzero for an explicitly retained CPU scene. Zero preserves the
+        /// legacy dynamic behavior and forces record uploads on every frame.
+        /// </summary>
+        public ulong SceneGeneration { get; set; }
+        public ulong RecordGeneration { get; set; }
+        public bool SceneReused { get; set; }
+        public int SceneCompilationCount { get; set; }
+        public int ModelVisualVisitCount { get; set; }
+        public Mesh3DFrameMetricsTarget? MetricsTarget { get; set; }
+        public ulong LogicalTargetTextureBytes { get; set; }
         public Vector2 ViewportSize { get; set; } = new Vector2(400f, 300f);
         public Vector3 LightDirection { get; set; } = new Vector3(0.5f, 1f, -0.5f);
         public float LightIntensity { get; set; } = 1.0f;
@@ -1749,6 +2488,7 @@ namespace ProGPU.Scene.Extensions
         
         public RenderMode3D RenderMode { get; set; } = RenderMode3D.Solid;
         public ShadingMode3D ShadingMode { get; set; } = ShadingMode3D.Realistic;
+        public Mesh3DEdgeStyle EdgeStyle { get; set; } = Mesh3DEdgeStyle.Disabled;
     }
 
     public class MeshCompilationEntry
@@ -1760,11 +2500,14 @@ namespace ProGPU.Scene.Extensions
         public int[] Indices { get; set; } = Array.Empty<int>();
         public Vector2[] TextureCoordinates { get; set; } =
             Array.Empty<Vector2>();
+        public MeshEdge3D[] Edges { get; set; } = Array.Empty<MeshEdge3D>();
         public IProGpuTextureLeaseSource? TextureSource { get; set; }
         public MeshTextureEffect TextureEffect { get; set; } =
             MeshTextureEffect.Identity;
         public TextureSamplingMode TextureSamplingMode { get; set; } =
             TextureSamplingMode.Linear;
+        public MeshTextureTilingMode TextureTilingMode { get; set; } =
+            MeshTextureTilingMode.None;
         public ImageEffectYuvConversion? YuvConversion { get; set; }
         public MeshTexturePresentation TexturePresentation { get; set; } =
             MeshTexturePresentation.Identity;
@@ -1773,6 +2516,7 @@ namespace ProGPU.Scene.Extensions
         public Vector3 SpecularColor { get; set; } = new Vector3(0.2f, 0.2f, 0.2f);
         public float Shininess { get; set; } = 32.0f;
         public Vector3 AmbientColor { get; set; } = new Vector3(0.2f, 0.2f, 0.2f);
+        public float SelfIllumination { get; set; }
         public float Opacity { get; set; } = 1.0f;
         public bool IsBackFace { get; set; } = false;
     }
@@ -1836,6 +2580,14 @@ namespace ProGPU.Scene.Extensions
         public Vector4 NormalizedSourceRect { get; }
         public int ClockwiseQuarterTurns { get; }
         public bool IsMirrored { get; }
+    }
+
+    public enum MeshTextureTilingMode
+    {
+        None = 0,
+        Tile = 1,
+        Crop = 2,
+        Clamp = 3,
     }
 
     /// <summary>

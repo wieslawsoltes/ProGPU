@@ -31,6 +31,7 @@ namespace Microsoft.UI.Xaml.Media.Media3D
         private Vector3[] _normals = Array.Empty<Vector3>();
         private Vector2[] _textureCoordinates = Array.Empty<Vector2>();
         private int[] _triangleIndices = Array.Empty<int>();
+        private MeshEdge3D[] _edges = Array.Empty<MeshEdge3D>();
 
         public Vector3[] Positions
         {
@@ -54,6 +55,12 @@ namespace Microsoft.UI.Xaml.Media.Media3D
         {
             get => _triangleIndices;
             set { _triangleIndices = value; Invalidate(); }
+        }
+
+        public MeshEdge3D[] Edges
+        {
+            get => _edges;
+            set { _edges = value; Invalidate(); }
         }
 
         public Vector3[] GetNormalsOrCompute()
@@ -118,6 +125,7 @@ namespace Microsoft.UI.Xaml.Media.Media3D
         public Vector3 SpecularColor { get; set; } = new Vector3(0.2f, 0.2f, 0.2f);
         public float Shininess { get; set; } = 32.0f;
         public Vector3 AmbientColor { get; set; } = new Vector3(0.2f, 0.2f, 0.2f);
+        public float SelfIllumination { get; set; }
 
         public DiffuseMaterial()
         {
@@ -129,12 +137,162 @@ namespace Microsoft.UI.Xaml.Media.Media3D
         }
     }
 
+    internal interface IProGpuMeshTextureMaterial
+    {
+        event EventHandler? Changed;
+        IProGpuTextureLeaseSource? TextureSource { get; }
+        MeshTextureEffect TextureEffect { get; }
+        TextureSamplingMode SamplingMode { get; }
+        MeshTextureTilingMode TilingMode { get; }
+        MeshTexturePresentation TexturePresentation { get; }
+        ImageEffectYuvConversion? YuvConversion { get; }
+    }
+
+    /// <summary>
+    /// Typed retained texture material for static images and host-owned GPU
+    /// surfaces. The source is leased by the Mesh3D submission path.
+    /// </summary>
+    public sealed class ProGpuTextureMaterial :
+        DiffuseMaterial,
+        IProGpuMeshTextureMaterial,
+        IDisposable
+    {
+        private IProGpuTextureLeaseSource? _textureSource;
+        private MeshTextureEffect _textureEffect = MeshTextureEffect.Identity;
+        private TextureSamplingMode _samplingMode = TextureSamplingMode.Linear;
+        private MeshTextureTilingMode _tilingMode = MeshTextureTilingMode.None;
+        private MeshTexturePresentation _texturePresentation =
+            MeshTexturePresentation.Identity;
+        private ImageEffectYuvConversion? _yuvConversion;
+        private bool _disposed;
+
+        public IProGpuTextureLeaseSource? TextureSource
+        {
+            get => _textureSource;
+            set
+            {
+                ObjectDisposedException.ThrowIf(_disposed, this);
+                if (ReferenceEquals(_textureSource, value))
+                {
+                    return;
+                }
+                ObserveInvalidatingSource(_textureSource, subscribe: false);
+                _textureSource = value;
+                ObserveInvalidatingSource(_textureSource, subscribe: true);
+                Changed?.Invoke(this, EventArgs.Empty);
+            }
+        }
+
+        public MeshTextureEffect TextureEffect
+        {
+            get => _textureEffect;
+            set
+            {
+                ObjectDisposedException.ThrowIf(_disposed, this);
+                _textureEffect = value;
+                Changed?.Invoke(this, EventArgs.Empty);
+            }
+        }
+
+        public TextureSamplingMode SamplingMode
+        {
+            get => _samplingMode;
+            set
+            {
+                ObjectDisposedException.ThrowIf(_disposed, this);
+                if (_samplingMode != value)
+                {
+                    _samplingMode = value;
+                    Changed?.Invoke(this, EventArgs.Empty);
+                }
+            }
+        }
+
+        public MeshTexturePresentation TexturePresentation
+        {
+            get => _texturePresentation;
+            set
+            {
+                ObjectDisposedException.ThrowIf(_disposed, this);
+                _texturePresentation = value;
+                Changed?.Invoke(this, EventArgs.Empty);
+            }
+        }
+
+        public MeshTextureTilingMode TilingMode
+        {
+            get => _tilingMode;
+            set
+            {
+                ObjectDisposedException.ThrowIf(_disposed, this);
+                if (_tilingMode != value)
+                {
+                    _tilingMode = value;
+                    Changed?.Invoke(this, EventArgs.Empty);
+                }
+            }
+        }
+
+        public ImageEffectYuvConversion? YuvConversion
+        {
+            get => _yuvConversion;
+            set
+            {
+                ObjectDisposedException.ThrowIf(_disposed, this);
+                _yuvConversion = value;
+                Changed?.Invoke(this, EventArgs.Empty);
+            }
+        }
+
+        internal event EventHandler? Changed;
+
+        event EventHandler? IProGpuMeshTextureMaterial.Changed
+        {
+            add => Changed += value;
+            remove => Changed -= value;
+        }
+
+        private void OnTextureChanged(object? sender, EventArgs args) =>
+            Changed?.Invoke(this, EventArgs.Empty);
+
+        private void ObserveInvalidatingSource(
+            IProGpuTextureLeaseSource? source,
+            bool subscribe)
+        {
+            if (source is not IProGpuInvalidatingTextureSource invalidating)
+            {
+                return;
+            }
+            if (subscribe)
+            {
+                invalidating.TextureChanged += OnTextureChanged;
+            }
+            else
+            {
+                invalidating.TextureChanged -= OnTextureChanged;
+            }
+        }
+
+        public void Dispose()
+        {
+            if (_disposed)
+            {
+                return;
+            }
+            _disposed = true;
+            ObserveInvalidatingSource(_textureSource, subscribe: false);
+            _textureSource = null;
+            Changed = null;
+        }
+    }
+
     /// <summary>
     /// ProGPU extension material that samples the current WinUI MediaPlayer
     /// frame directly in the Mesh3D WebGPU pass.
     /// </summary>
     public sealed class ProGpuMediaTextureMaterial :
         DiffuseMaterial,
+        IProGpuMeshTextureMaterial,
         IDisposable
     {
         private Windows.Media.Playback.MediaPlayer? _mediaPlayer;
@@ -204,6 +362,43 @@ namespace Microsoft.UI.Xaml.Media.Media3D
         }
 
         internal event EventHandler? Changed;
+
+        event EventHandler? IProGpuMeshTextureMaterial.Changed
+        {
+            add => Changed += value;
+            remove => Changed -= value;
+        }
+
+        MeshTextureEffect IProGpuMeshTextureMaterial.TextureEffect
+        {
+            get
+            {
+                MediaVideoEffectOptions effects = Effects;
+                return new MeshTextureEffect(
+                    effects.Brightness,
+                    effects.Contrast,
+                    effects.Saturation,
+                    effects.Grayscale,
+                    effects.Sepia,
+                    effects.Invert,
+                    effects.BlurSigma,
+                    effects.ColorMatrix,
+                    effects.LuminanceToAlpha);
+            }
+        }
+
+        ImageEffectYuvConversion? IProGpuMeshTextureMaterial.YuvConversion =>
+            null;
+
+        IProGpuTextureLeaseSource?
+            IProGpuMeshTextureMaterial.TextureSource => TextureSource;
+
+        MeshTexturePresentation
+            IProGpuMeshTextureMaterial.TexturePresentation =>
+                TexturePresentation;
+
+        MeshTextureTilingMode IProGpuMeshTextureMaterial.TilingMode =>
+            MeshTextureTilingMode.None;
 
         internal IProGpuTextureLeaseSource? TextureSource =>
             _mediaPlayer?.ProGpuVideoSurface;
@@ -406,6 +601,23 @@ namespace Microsoft.UI.Xaml.Media.Media3D
             set => LookDirection = value - Position;
         }
 
+        /// <summary>
+        /// Atomically replaces the camera position and look direction and
+        /// publishes one invalidation. Orbit and pan controllers use this to
+        /// avoid exposing a transient half-updated view.
+        /// </summary>
+        public void SetView(Vector3 position, Vector3 lookDirection)
+        {
+            if (_position == position && _lookDirection == lookDirection)
+            {
+                return;
+            }
+
+            _position = position;
+            _lookDirection = lookDirection;
+            RaiseChanged();
+        }
+
         public override Matrix4x4 GetViewMatrix()
         {
             var view = Matrix4x4.CreateLookAt(Position, Position + LookDirection, UpDirection);
@@ -471,8 +683,248 @@ namespace Microsoft.UI.Xaml.Controls
 {
     using Microsoft.UI.Xaml.Media.Media3D;
 
+    /// <summary>Projected selection semantics for one 3D region gesture.</summary>
+    public enum Viewport3DRegionSelectionMode
+    {
+        Window,
+        Crossing,
+        Fence,
+    }
+
+    /// <summary>One stationary primary-button click inside a 3D viewport.</summary>
+    public sealed class Viewport3DClickEventArgs : EventArgs
+    {
+        public Vector2 Position { get; }
+
+        public bool IsControlPressed { get; }
+
+        public bool IsAltPressed { get; }
+
+        public bool IsShiftPressed { get; }
+
+        internal Viewport3DClickEventArgs(
+            Vector2 position,
+            bool isControlPressed,
+            bool isAltPressed,
+            bool isShiftPressed)
+        {
+            Position = position;
+            IsControlPressed = isControlPressed;
+            IsAltPressed = isAltPressed;
+            IsShiftPressed = isShiftPressed;
+        }
+    }
+
+    /// <summary>One Ctrl+Space subobject-candidate cycle request.</summary>
+    public sealed class Viewport3DSubobjectCycleEventArgs : EventArgs
+    {
+        public Vector2 Position { get; }
+
+        internal Viewport3DSubobjectCycleEventArgs(Vector2 position)
+        {
+            Position = position;
+        }
+    }
+
+    /// <summary>
+    /// Synchronous arbitration for a primary-button drag that exceeded the
+    /// stationary-click threshold.
+    /// </summary>
+    public sealed class Viewport3DSelectionDragStartingEventArgs : EventArgs
+    {
+        public Vector2 Origin { get; }
+
+        public Vector2 Position { get; }
+
+        public bool UseRegionSelection { get; set; }
+
+        internal Viewport3DSelectionDragStartingEventArgs(
+            Vector2 origin,
+            Vector2 position)
+        {
+            Origin = origin;
+            Position = position;
+        }
+    }
+
+    /// <summary>One completed rectangular or freehand selection gesture.</summary>
+    public sealed class Viewport3DRegionSelectionEventArgs : EventArgs
+    {
+        private readonly Vector2[] _points;
+        private readonly int _pointCount;
+
+        public Vector2 Origin { get; }
+
+        public Vector2 Position { get; }
+
+        public Viewport3DRegionSelectionMode Mode { get; }
+
+        public bool IsWindow => Mode == Viewport3DRegionSelectionMode.Window;
+
+        public bool IsLasso { get; }
+
+        public bool WasTruncated { get; }
+
+        /// <summary>
+        /// Gets gesture points valid for the synchronous event callback. A
+        /// rectangular gesture has its two corners; a lasso has its sampled
+        /// open path and is implicitly closed except in Fence mode.
+        /// </summary>
+        public ReadOnlySpan<Vector2> Points =>
+            _points.AsSpan(0, _pointCount);
+
+        public bool IsControlPressed { get; }
+
+        internal Viewport3DRegionSelectionEventArgs(
+            Vector2 origin,
+            Vector2 position,
+            Viewport3DRegionSelectionMode mode,
+            bool isLasso,
+            bool wasTruncated,
+            Vector2[] points,
+            int pointCount,
+            bool isControlPressed)
+        {
+            Origin = origin;
+            Position = position;
+            Mode = mode;
+            IsLasso = isLasso;
+            WasTruncated = wasTruncated;
+            _points = points;
+            _pointCount = pointCount;
+            IsControlPressed = isControlPressed;
+        }
+    }
+
     public class Viewport3D : Control
     {
+        public const int MaximumLassoPointCount = 4_096;
+
+        private const float ClickDragThreshold = 4.0f;
+        private const float LassoSampleDistance = 1.0f;
+
+        private bool _enableRetainedSceneCache;
+        private ulong _sceneGeneration = 1;
+        private ulong _recordGeneration = 1;
+        private ulong _compiledSceneGeneration;
+        private long _sceneCompilationCount;
+        private readonly Viewport3DCompilationPayload
+            _retainedPayload = new();
+        private readonly Mesh3DFrameMetricsTarget
+            _metricsTarget = new();
+        private readonly Brush _compassBackgroundBrush =
+            new ThemeResourceBrush("CardBackground")
+            {
+                Opacity = 0.45f
+            };
+        private readonly Brush _compassOriginBrush =
+            new ThemeResourceBrush("TextPrimary")
+            {
+                Opacity = 0.85f
+            };
+        private readonly Brush _compassLabelBrush =
+            new ThemeResourceBrush("TextPrimary");
+        private readonly Brush _compassXBrush =
+            new ThemeResourceBrush("Viewport3DXAxis");
+        private readonly Brush _compassYBrush =
+            new ThemeResourceBrush("Viewport3DYAxis");
+        private readonly Brush _compassZBrush =
+            new ThemeResourceBrush("Viewport3DZAxis");
+        private readonly Pen _compassBorderPen;
+        private readonly Pen _compassTipBorderPen;
+        private readonly Pen _compassXPen;
+        private readonly Pen _compassYPen;
+        private readonly Pen _compassZPen;
+        private readonly Brush _windowSelectionFillBrush =
+            new ThemeResourceBrush("SystemAccentColor")
+            {
+                Opacity = 0.16f,
+            };
+        private readonly Brush _crossingSelectionFillBrush =
+            new ThemeResourceBrush("SystemAccentColorLight1")
+            {
+                Opacity = 0.22f,
+            };
+        private readonly Pen _windowSelectionPen;
+        private readonly Pen _crossingSelectionPen;
+
+        /// <summary>
+        /// Enables generation-retained model compilation. Call
+        /// <see cref="InvalidateScene"/> after mutating children, models,
+        /// geometry, or materials while this option is enabled.
+        /// </summary>
+        public bool EnableRetainedSceneCache
+        {
+            get => _enableRetainedSceneCache;
+            set
+            {
+                if (_enableRetainedSceneCache == value)
+                {
+                    return;
+                }
+                _enableRetainedSceneCache = value;
+                InvalidateScene();
+            }
+        }
+
+        public ulong SceneGeneration => _sceneGeneration;
+
+        public long SceneCompilationCount => _sceneCompilationCount;
+
+        public Mesh3DFrameMetrics LastMesh3DFrameMetrics =>
+            _metricsTarget.LastFrameMetrics;
+
+        /// <summary>
+        /// Raised for a stationary left click. Orbit and pan drags retain
+        /// exclusive ownership after crossing the movement threshold.
+        /// </summary>
+        public event EventHandler<Viewport3DClickEventArgs>? ViewportClicked;
+
+        /// <summary>
+        /// Raised for Ctrl+Space at the last pointer position when no lasso
+        /// gesture owns Space.
+        /// </summary>
+        public event EventHandler<Viewport3DSubobjectCycleEventArgs>?
+            SubobjectCycleRequested;
+
+        /// <summary>
+        /// Raised once when a primary drag crosses the click threshold. A host
+        /// may claim an empty-origin drag for region selection; otherwise the
+        /// control begins its ordinary orbit gesture.
+        /// </summary>
+        public event EventHandler<Viewport3DSelectionDragStartingEventArgs>?
+            SelectionDragStarting;
+
+        /// <summary>Raised once when a claimed region drag completes.</summary>
+        public event EventHandler<Viewport3DRegionSelectionEventArgs>?
+            RegionSelectionCompleted;
+
+        /// <summary>
+        /// Uses a bounded freehand path for a claimed primary selection drag.
+        /// Direction chooses initial Window/Crossing semantics and Space
+        /// cycles Window, Fence, and Crossing while the gesture is active.
+        /// </summary>
+        public bool UseLassoSelection { get; set; }
+
+        /// <summary>
+        /// Advances the immutable model generation and schedules a redraw.
+        /// </summary>
+        public void InvalidateScene()
+        {
+            _sceneGeneration = NextGeneration(_sceneGeneration);
+            _recordGeneration = NextGeneration(_recordGeneration);
+            Invalidate();
+        }
+
+        private void InvalidateRecords()
+        {
+            _recordGeneration = NextGeneration(_recordGeneration);
+            Invalidate();
+        }
+
+        private static ulong NextGeneration(ulong generation) =>
+            generation == ulong.MaxValue ? 1 : generation + 1;
+
         private Camera _camera = new PerspectiveCamera();
         public Camera Camera
         {
@@ -508,32 +960,123 @@ namespace Microsoft.UI.Xaml.Controls
         public new List<Visual3D> Children { get; } = new();
 
         // High-performance directional + ambient lighting parameters
-        public Vector3 LightDirection { get; set; } = new Vector3(0.5f, 1f, -0.5f);
-        public float LightIntensity { get; set; } = 1.0f;
-        public Vector3 AmbientColor { get; set; } = new Vector3(1f, 1f, 1f);
-        public float AmbientIntensity { get; set; } = 0.25f;
+        private Vector3 _lightDirection = new(0.5f, 1f, -0.5f);
+        private float _lightIntensity = 1.0f;
+        private Vector3 _ambientColor = Vector3.One;
+        private float _ambientIntensity = 0.25f;
+        private RenderMode3D _renderMode = RenderMode3D.Solid;
+        private ShadingMode3D _shadingMode = ShadingMode3D.Realistic;
+        private Mesh3DEdgeStyle _edgeStyle = Mesh3DEdgeStyle.Disabled;
 
-        public RenderMode3D RenderMode { get; set; } = RenderMode3D.Solid;
-        public ShadingMode3D ShadingMode { get; set; } = ShadingMode3D.Realistic;
+        public Vector3 LightDirection
+        {
+            get => _lightDirection;
+            set
+            {
+                if (_lightDirection == value) return;
+                _lightDirection = value;
+                InvalidateRecords();
+            }
+        }
+
+        public float LightIntensity
+        {
+            get => _lightIntensity;
+            set
+            {
+                if (_lightIntensity == value) return;
+                _lightIntensity = value;
+                InvalidateRecords();
+            }
+        }
+
+        public Vector3 AmbientColor
+        {
+            get => _ambientColor;
+            set
+            {
+                if (_ambientColor == value) return;
+                _ambientColor = value;
+                InvalidateRecords();
+            }
+        }
+
+        public float AmbientIntensity
+        {
+            get => _ambientIntensity;
+            set
+            {
+                if (_ambientIntensity == value) return;
+                _ambientIntensity = value;
+                InvalidateRecords();
+            }
+        }
+
+        public RenderMode3D RenderMode
+        {
+            get => _renderMode;
+            set
+            {
+                if (_renderMode == value) return;
+                _renderMode = value;
+                InvalidateRecords();
+            }
+        }
+
+        public ShadingMode3D ShadingMode
+        {
+            get => _shadingMode;
+            set
+            {
+                if (_shadingMode == value) return;
+                _shadingMode = value;
+                InvalidateRecords();
+            }
+        }
+
+        public Mesh3DEdgeStyle EdgeStyle
+        {
+            get => _edgeStyle;
+            set
+            {
+                value = value.Validate();
+                if (_edgeStyle == value) return;
+                _edgeStyle = value;
+                InvalidateRecords();
+            }
+        }
 
         private GpuTexture? _colorTexture;
         private GpuTexture? _msaaColorTexture;
         private GpuTexture? _depthTexture;
+        private WgpuContext? _textureContext;
         private uint _textureSampleCount;
-        private readonly HashSet<ProGpuMediaTextureMaterial>
+        private readonly HashSet<IProGpuMeshTextureMaterial>
             _observedMediaMaterials = new();
-        private readonly HashSet<ProGpuMediaTextureMaterial>
+        private readonly HashSet<IProGpuMeshTextureMaterial>
             _usedMediaMaterials = new();
-        private readonly List<ProGpuMediaTextureMaterial>
+        private readonly List<IProGpuMeshTextureMaterial>
             _staleMediaMaterials = new();
 
         private bool _isOrbiting = false;
         private bool _isPanning = false;
+        private bool _isPendingPrimaryDrag;
+        private bool _isRegionSelecting;
         private Vector2 _lastPointerPosition;
+        private Vector2 _clickOrigin;
+        private Vector2 _regionSelectionCurrent;
+        private readonly Vector2[] _regionSelectionPoints =
+            new Vector2[MaximumLassoPointCount];
+        private int _regionSelectionPointCount;
+        private bool _regionSelectionWasTruncated;
+        private bool _regionSelectionIsLasso;
+        private Viewport3DRegionSelectionMode _regionSelectionMode;
+        private bool _isClickCandidate;
 
         private float _cameraTheta = 0f;
         private float _cameraPhi = 0.5f;
         private float _cameraRadius = 10f;
+        private Vector3 _cameraTarget;
         private bool _cameraInitialized = false;
         private bool _isUpdatingCameraState = false;
 
@@ -548,6 +1091,7 @@ namespace Microsoft.UI.Xaml.Controls
                 _cameraTheta = MathF.Atan2(dir.X, dir.Z);
                 float lenXZ = MathF.Sqrt(dir.X * dir.X + dir.Z * dir.Z);
                 _cameraPhi = MathF.Atan2(lenXZ, dir.Y);
+                _cameraTarget = projCamera.LookAt;
                 
                 // Clamp phi to prevent crossing poles
                 _cameraPhi = Math.Clamp(_cameraPhi, 0.01f, MathF.PI - 0.01f);
@@ -568,15 +1112,13 @@ namespace Microsoft.UI.Xaml.Controls
                     float sinTheta = MathF.Sin(_cameraTheta);
                     float cosTheta = MathF.Cos(_cameraTheta);
 
-                    var target = projCamera.LookAt;
                     var offset = new Vector3(
                         _cameraRadius * sinPhi * sinTheta,
                         _cameraRadius * cosPhi,
                         _cameraRadius * sinPhi * cosTheta
                     );
 
-                    projCamera.Position = target + offset;
-                    projCamera.LookDirection = -offset;
+                    projCamera.SetView(_cameraTarget + offset, -offset);
                     
                     Invalidate();
                 }
@@ -589,6 +1131,24 @@ namespace Microsoft.UI.Xaml.Controls
 
         public Viewport3D()
         {
+            _compassBorderPen = new Pen(
+                new ThemeResourceBrush("ControlBorder"),
+                1f);
+            _compassTipBorderPen = new Pen(
+                new ThemeResourceBrush("TextPrimary")
+                {
+                    Opacity = 0.9f
+                },
+                1f);
+            _compassXPen = new Pen(_compassXBrush, 2f);
+            _compassYPen = new Pen(_compassYBrush, 2f);
+            _compassZPen = new Pen(_compassZBrush, 2f);
+            _windowSelectionPen = new Pen(
+                new ThemeResourceBrush("SystemAccentColor"),
+                1f);
+            _crossingSelectionPen = new Pen(
+                new ThemeResourceBrush("SystemAccentColorLight1"),
+                1f);
             _camera.Changed += OnCameraChanged;
             HorizontalAlignment = HorizontalAlignment.Stretch;
             VerticalAlignment = VerticalAlignment.Stretch;
@@ -609,6 +1169,7 @@ namespace Microsoft.UI.Xaml.Controls
             _depthTexture?.Dispose();
             _depthTexture = null;
             _textureSampleCount = 0;
+            _textureContext = null;
         }
 
         protected override Vector2 MeasureOverride(Vector2 availableSize)
@@ -655,6 +1216,13 @@ namespace Microsoft.UI.Xaml.Controls
             var wgpuContext = GetActiveWgpuContext();
             if (wgpuContext == null) return;
 
+            if (_textureContext != null &&
+                !ReferenceEquals(_textureContext, wgpuContext))
+            {
+                DisposeTextures();
+            }
+            _textureContext = wgpuContext;
+
             float dpiScale = (float)DisplayScaleResolver.ResolveWindowDisplayScale(wgpuContext.Window);
 
             uint width = (uint)Math.Max(1, Size.X * dpiScale);
@@ -686,27 +1254,60 @@ namespace Microsoft.UI.Xaml.Controls
             var projection = Camera.GetProjectionMatrix(aspectRatio);
             var view = Camera.GetViewMatrix();
 
-            // 2. Build recursive payload for Mesh3DExtensionPipeline
-            var payload = new Viewport3DCompilationPayload
-            {
-                ViewportSize = Size,
-                LightDirection = LightDirection,
-                LightIntensity = LightIntensity,
-                AmbientColor = AmbientColor,
-                AmbientIntensity = AmbientIntensity,
-                ColorTexture = _colorTexture,
-                MsaaColorTexture = _msaaColorTexture,
-                DepthTexture = _depthTexture,
-                SampleCount = sampleCount,
-                RenderMode = RenderMode,
-                ShadingMode = ShadingMode
-            };
+            // 2. Build or reuse the generation-owned recursive payload.
+            Viewport3DCompilationPayload payload =
+                EnableRetainedSceneCache
+                    ? _retainedPayload
+                    : new Viewport3DCompilationPayload();
+            bool compileScene =
+                !EnableRetainedSceneCache ||
+                _compiledSceneGeneration != _sceneGeneration;
+            payload.ViewportSize = Size;
+            payload.LightDirection = LightDirection;
+            payload.LightIntensity = LightIntensity;
+            payload.AmbientColor = AmbientColor;
+            payload.AmbientIntensity = AmbientIntensity;
+            payload.ColorTexture = _colorTexture;
+            payload.MsaaColorTexture = _msaaColorTexture;
+            payload.DepthTexture = _depthTexture;
+            payload.SampleCount = sampleCount;
+            ulong targetPixelCount = (ulong)width * height;
+            ulong targetSampleLayers =
+                1UL + sampleCount +
+                (sampleCount > 1 ? sampleCount : 0UL);
+            payload.LogicalTargetTextureBytes = checked(
+                targetPixelCount * 4UL * targetSampleLayers);
+            payload.RenderMode = RenderMode;
+            payload.ShadingMode = ShadingMode;
+            payload.EdgeStyle = EdgeStyle;
+            payload.SceneGeneration = EnableRetainedSceneCache
+                ? _sceneGeneration
+                : 0;
+            payload.RecordGeneration = EnableRetainedSceneCache
+                ? _recordGeneration
+                : 0;
+            payload.SceneReused = !compileScene;
+            payload.SceneCompilationCount = compileScene ? 1 : 0;
+            payload.ModelVisualVisitCount = 0;
+            payload.MetricsTarget = _metricsTarget;
 
-            foreach (var visual in Children)
+            if (compileScene)
             {
-                CompileVisual(visual, Matrix4x4.Identity, payload);
+                payload.Meshes.Clear();
+                foreach (var visual in Children)
+                {
+                    CompileVisual(
+                        visual,
+                        Matrix4x4.Identity,
+                        payload);
+                }
+                SynchronizeMediaMaterialSubscriptions();
+                _sceneCompilationCount++;
+                if (EnableRetainedSceneCache)
+                {
+                    _compiledSceneGeneration = _sceneGeneration;
+                }
             }
-            SynchronizeMediaMaterialSubscriptions();
 
             if (payload.Meshes.Count > 0)
             {
@@ -730,13 +1331,14 @@ namespace Microsoft.UI.Xaml.Controls
                 });
             }
 
+            DrawRegionSelection(context);
             DrawCoordinateCompass(context, view);
 
             base.OnRender(context);
         }
 
         private void ObserveMediaMaterial(
-            ProGpuMediaTextureMaterial material)
+            IProGpuMeshTextureMaterial material)
         {
             _usedMediaMaterials.Add(material);
             if (_observedMediaMaterials.Add(material))
@@ -750,7 +1352,7 @@ namespace Microsoft.UI.Xaml.Controls
             if (_observedMediaMaterials.Count !=
                 _usedMediaMaterials.Count)
             {
-                foreach (ProGpuMediaTextureMaterial material in
+                foreach (IProGpuMeshTextureMaterial material in
                          _observedMediaMaterials)
                 {
                     if (!_usedMediaMaterials.Contains(material))
@@ -762,7 +1364,7 @@ namespace Microsoft.UI.Xaml.Controls
                      index < _staleMediaMaterials.Count;
                      index++)
                 {
-                    ProGpuMediaTextureMaterial material =
+                    IProGpuMeshTextureMaterial material =
                         _staleMediaMaterials[index];
                     material.Changed -= OnMediaMaterialChanged;
                     _observedMediaMaterials.Remove(material);
@@ -774,7 +1376,7 @@ namespace Microsoft.UI.Xaml.Controls
 
         private void ClearMediaMaterialSubscriptions()
         {
-            foreach (ProGpuMediaTextureMaterial material in
+            foreach (IProGpuMeshTextureMaterial material in
                      _observedMediaMaterials)
             {
                 material.Changed -= OnMediaMaterialChanged;
@@ -787,10 +1389,11 @@ namespace Microsoft.UI.Xaml.Controls
         private void OnMediaMaterialChanged(
             object? sender,
             EventArgs args) =>
-            Invalidate();
+            InvalidateScene();
 
         private void CompileVisual(Visual3D visual, Matrix4x4 parentTransform, Viewport3DCompilationPayload payload)
         {
+            payload.ModelVisualVisitCount++;
             if (visual is ModelVisual3D modelVisual)
             {
                 var localTransform = parentTransform;
@@ -814,6 +1417,7 @@ namespace Microsoft.UI.Xaml.Controls
                                 Vector3 specularColor = new Vector3(0.2f, 0.2f, 0.2f);
                                 float shininess = 32.0f;
                                 Vector3 ambientColor = new Vector3(0.2f, 0.2f, 0.2f);
+                                float selfIllumination = 0.0f;
                                 float opacity = 1.0f;
                                 IProGpuTextureLeaseSource?
                                     textureSource = null;
@@ -821,6 +1425,8 @@ namespace Microsoft.UI.Xaml.Controls
                                     MeshTextureEffect.Identity;
                                 TextureSamplingMode textureSamplingMode =
                                     TextureSamplingMode.Linear;
+                                MeshTextureTilingMode textureTilingMode =
+                                    MeshTextureTilingMode.None;
                                 ImageEffectYuvConversion?
                                     textureYuvConversion = null;
                                 MeshTexturePresentation
@@ -834,6 +1440,7 @@ namespace Microsoft.UI.Xaml.Controls
                                     specularColor = diffuse.SpecularColor;
                                     shininess = diffuse.Shininess;
                                     ambientColor = diffuse.AmbientColor;
+                                    selfIllumination = diffuse.SelfIllumination;
 
                                     // If the brush is a dynamic theme resource brush, resolve it against the active theme family
                                     Brush? activeBrush = diffuse.Brush;
@@ -857,34 +1464,25 @@ namespace Microsoft.UI.Xaml.Controls
                                     opacity *= diffuseColor.W;
 
                                     if (diffuse is
-                                        ProGpuMediaTextureMaterial
-                                            mediaMaterial)
+                                        IProGpuMeshTextureMaterial
+                                            textureMaterial)
                                     {
                                         ObserveMediaMaterial(
-                                            mediaMaterial);
+                                            textureMaterial);
                                         textureSource =
-                                            mediaMaterial.TextureSource;
-                                        MediaVideoEffectOptions effects =
-                                            mediaMaterial.Effects;
+                                            textureMaterial.TextureSource;
                                         textureEffect =
-                                            new MeshTextureEffect(
-                                                effects.Brightness,
-                                                effects.Contrast,
-                                                effects.Saturation,
-                                                effects.Grayscale,
-                                                effects.Sepia,
-                                                effects.Invert,
-                                                effects.BlurSigma,
-                                                effects.ColorMatrix,
-                                                effects
-                                                    .LuminanceToAlpha);
+                                            textureMaterial.TextureEffect;
                                         textureSamplingMode =
-                                            mediaMaterial.SamplingMode;
+                                            textureMaterial.SamplingMode;
+                                        textureTilingMode =
+                                            textureMaterial.TilingMode;
                                         textureYuvConversion =
-                                            GetMediaYuvConversion(
-                                                textureSource);
+                                            textureMaterial.YuvConversion ??
+                                                GetMediaYuvConversion(
+                                                    textureSource);
                                         texturePresentation =
-                                            mediaMaterial
+                                            textureMaterial
                                                 .TexturePresentation;
                                     }
                                 }
@@ -900,10 +1498,13 @@ namespace Microsoft.UI.Xaml.Controls
                                         Indices = indices,
                                         TextureCoordinates =
                                             mesh.TextureCoordinates,
+                                        Edges = mesh.Edges,
                                         TextureSource = textureSource,
                                         TextureEffect = textureEffect,
                                         TextureSamplingMode =
                                             textureSamplingMode,
+                                        TextureTilingMode =
+                                            textureTilingMode,
                                         YuvConversion =
                                             textureYuvConversion,
                                         TexturePresentation =
@@ -913,6 +1514,7 @@ namespace Microsoft.UI.Xaml.Controls
                                         SpecularColor = specularColor,
                                         Shininess = shininess,
                                         AmbientColor = ambientColor,
+                                        SelfIllumination = selfIllumination,
                                         Opacity = opacity,
                                         IsBackFace = false
                                     });
@@ -932,6 +1534,9 @@ namespace Microsoft.UI.Xaml.Controls
                                     TextureSamplingMode
                                         backTextureSamplingMode =
                                             TextureSamplingMode.Linear;
+                                    MeshTextureTilingMode
+                                        backTextureTilingMode =
+                                            MeshTextureTilingMode.None;
                                     ImageEffectYuvConversion?
                                         backTextureYuvConversion =
                                             null;
@@ -960,36 +1565,30 @@ namespace Microsoft.UI.Xaml.Controls
                                     backOpacity *= backDiffuseColor.W;
 
                                     if (backDiffuse is
-                                        ProGpuMediaTextureMaterial
-                                            backMediaMaterial)
+                                        IProGpuMeshTextureMaterial
+                                            backTextureMaterial)
                                     {
                                         ObserveMediaMaterial(
-                                            backMediaMaterial);
+                                            backTextureMaterial);
                                         backTextureSource =
-                                            backMediaMaterial
+                                            backTextureMaterial
                                                 .TextureSource;
-                                        MediaVideoEffectOptions effects =
-                                            backMediaMaterial.Effects;
                                         backTextureEffect =
-                                            new MeshTextureEffect(
-                                                effects.Brightness,
-                                                effects.Contrast,
-                                                effects.Saturation,
-                                                effects.Grayscale,
-                                                effects.Sepia,
-                                                effects.Invert,
-                                                effects.BlurSigma,
-                                                effects.ColorMatrix,
-                                                effects
-                                                    .LuminanceToAlpha);
+                                            backTextureMaterial
+                                                .TextureEffect;
                                         backTextureSamplingMode =
-                                            backMediaMaterial
+                                            backTextureMaterial
                                                 .SamplingMode;
+                                        backTextureTilingMode =
+                                            backTextureMaterial
+                                                .TilingMode;
                                         backTextureYuvConversion =
-                                            GetMediaYuvConversion(
-                                                backTextureSource);
+                                            backTextureMaterial
+                                                .YuvConversion ??
+                                                GetMediaYuvConversion(
+                                                    backTextureSource);
                                         backTexturePresentation =
-                                            backMediaMaterial
+                                            backTextureMaterial
                                                 .TexturePresentation;
                                     }
 
@@ -1002,12 +1601,15 @@ namespace Microsoft.UI.Xaml.Controls
                                         Indices = indices,
                                         TextureCoordinates =
                                             mesh.TextureCoordinates,
+                                        Edges = Array.Empty<MeshEdge3D>(),
                                         TextureSource =
                                             backTextureSource,
                                         TextureEffect =
                                             backTextureEffect,
                                         TextureSamplingMode =
                                             backTextureSamplingMode,
+                                        TextureTilingMode =
+                                            backTextureTilingMode,
                                         YuvConversion =
                                             backTextureYuvConversion,
                                         TexturePresentation =
@@ -1017,6 +1619,8 @@ namespace Microsoft.UI.Xaml.Controls
                                         SpecularColor = backSpecularColor,
                                         Shininess = backShininess,
                                         AmbientColor = backAmbientColor,
+                                        SelfIllumination =
+                                            backDiffuse.SelfIllumination,
                                         Opacity = backOpacity,
                                         IsBackFace = true
                                     });
@@ -1052,6 +1656,58 @@ namespace Microsoft.UI.Xaml.Controls
                 : null;
         }
 
+        private void BeginRegionSelection(Vector2 position)
+        {
+            _isRegionSelecting = true;
+            _regionSelectionCurrent = position;
+            _regionSelectionIsLasso = UseLassoSelection;
+            _regionSelectionMode = position.X >= _clickOrigin.X
+                ? Viewport3DRegionSelectionMode.Window
+                : Viewport3DRegionSelectionMode.Crossing;
+            _regionSelectionPointCount = 0;
+            _regionSelectionWasTruncated = false;
+            if (_regionSelectionIsLasso)
+            {
+                AddRegionSelectionPoint(_clickOrigin, force: true);
+                AddRegionSelectionPoint(position, force: true);
+            }
+        }
+
+        private void AddRegionSelectionPoint(
+            Vector2 point,
+            bool force = false)
+        {
+            if (_regionSelectionPointCount > 0)
+            {
+                Vector2 previous = _regionSelectionPoints[
+                    _regionSelectionPointCount - 1];
+                if (point == previous ||
+                    !force && Vector2.DistanceSquared(point, previous) <
+                        LassoSampleDistance * LassoSampleDistance)
+                {
+                    return;
+                }
+            }
+            if (_regionSelectionPointCount ==
+                _regionSelectionPoints.Length)
+            {
+                _regionSelectionWasTruncated = true;
+                _regionSelectionPoints[^1] = point;
+                return;
+            }
+            _regionSelectionPoints[_regionSelectionPointCount++] = point;
+        }
+
+        private static Viewport3DRegionSelectionMode NextLassoMode(
+            Viewport3DRegionSelectionMode mode) => mode switch
+            {
+                Viewport3DRegionSelectionMode.Crossing =>
+                    Viewport3DRegionSelectionMode.Window,
+                Viewport3DRegionSelectionMode.Window =>
+                    Viewport3DRegionSelectionMode.Fence,
+                _ => Viewport3DRegionSelectionMode.Crossing,
+            };
+
         public override void OnPointerPressed(PointerRoutedEventArgs e)
         {
             if (IsEnabled)
@@ -1065,14 +1721,23 @@ namespace Microsoft.UI.Xaml.Controls
                 {
                     if (!_cameraInitialized) InitializeCameraState();
 
+                    _clickOrigin = e.Position;
+                    _isClickCandidate = true;
+                    _isRegionSelecting = false;
+                    _regionSelectionCurrent = e.Position;
+                    _regionSelectionPointCount = 0;
+                    _regionSelectionWasTruncated = false;
+
                     if (isShift || Camera is OrthographicCamera)
                     {
+                        _isPendingPrimaryDrag = false;
                         _isOrbiting = false;
                         _isPanning = true;
                     }
                     else
                     {
-                        _isOrbiting = true;
+                        _isPendingPrimaryDrag = true;
+                        _isOrbiting = false;
                         _isPanning = false;
                     }
 
@@ -1083,10 +1748,21 @@ namespace Microsoft.UI.Xaml.Controls
                 {
                     if (!_cameraInitialized) InitializeCameraState();
 
+                    _isClickCandidate = false;
+                    _isPendingPrimaryDrag = false;
+                    _isRegionSelecting = false;
+                    _regionSelectionPointCount = 0;
                     _isOrbiting = false;
                     _isPanning = true;
                     _lastPointerPosition = e.Position;
                     InputSystem.CapturePointer(this);
+                }
+                else
+                {
+                    _isClickCandidate = false;
+                    _isPendingPrimaryDrag = false;
+                    _isRegionSelecting = false;
+                    _regionSelectionPointCount = 0;
                 }
             }
             base.OnPointerPressed(e);
@@ -1097,11 +1773,61 @@ namespace Microsoft.UI.Xaml.Controls
             if (IsEnabled)
             {
                 e.Handled = true;
-                if (_isOrbiting || _isPanning)
+                bool publishClick = _isClickCandidate &&
+                    Vector2.DistanceSquared(e.Position, _clickOrigin) <=
+                    ClickDragThreshold * ClickDragThreshold;
+                bool publishRegionSelection = _isRegionSelecting;
+                if (publishRegionSelection)
+                {
+                    if (_regionSelectionIsLasso)
+                    {
+                        AddRegionSelectionPoint(e.Position, force: true);
+                    }
+                    else
+                    {
+                        _regionSelectionPoints[0] = _clickOrigin;
+                        _regionSelectionPoints[1] = e.Position;
+                        _regionSelectionPointCount = 2;
+                        _regionSelectionMode = e.Position.X >= _clickOrigin.X
+                            ? Viewport3DRegionSelectionMode.Window
+                            : Viewport3DRegionSelectionMode.Crossing;
+                    }
+                }
+                bool releaseCapture = _isPendingPrimaryDrag ||
+                    _isOrbiting || _isPanning || _isRegionSelecting;
+                _isClickCandidate = false;
+                _isPendingPrimaryDrag = false;
+                _isRegionSelecting = false;
+                if (releaseCapture)
                 {
                     InputSystem.ReleasePointerCapture();
                     _isOrbiting = false;
                     _isPanning = false;
+                }
+                if (publishRegionSelection)
+                {
+                    Invalidate();
+                    RegionSelectionCompleted?.Invoke(
+                        this,
+                        new Viewport3DRegionSelectionEventArgs(
+                            _clickOrigin,
+                            e.Position,
+                            _regionSelectionMode,
+                            _regionSelectionIsLasso,
+                            _regionSelectionWasTruncated,
+                            _regionSelectionPoints,
+                            _regionSelectionPointCount,
+                            InputSystem.Current.IsControlPressed));
+                }
+                if (publishClick)
+                {
+                    ViewportClicked?.Invoke(
+                        this,
+                        new Viewport3DClickEventArgs(
+                            e.Position,
+                            InputSystem.Current.IsControlPressed,
+                            InputSystem.Current.IsAltPressed,
+                            InputSystem.Current.IsShiftPressed));
                 }
             }
             base.OnPointerReleased(e);
@@ -1111,7 +1837,54 @@ namespace Microsoft.UI.Xaml.Controls
         {
             if (IsEnabled)
             {
-                if (_isOrbiting)
+                float dragDistanceSquared = Vector2.DistanceSquared(
+                    e.Position,
+                    _clickOrigin);
+                if (_isPendingPrimaryDrag &&
+                    dragDistanceSquared >
+                    ClickDragThreshold * ClickDragThreshold)
+                {
+                    _isClickCandidate = false;
+                    bool useRegionSelection = false;
+                    EventHandler<Viewport3DSelectionDragStartingEventArgs>?
+                        starting = SelectionDragStarting;
+                    if (starting is not null)
+                    {
+                        var args = new Viewport3DSelectionDragStartingEventArgs(
+                            _clickOrigin,
+                            e.Position);
+                        starting(this, args);
+                        useRegionSelection = args.UseRegionSelection;
+                    }
+                    _isPendingPrimaryDrag = false;
+                    if (useRegionSelection)
+                    {
+                        BeginRegionSelection(e.Position);
+                        Invalidate();
+                    }
+                    else
+                    {
+                        _isOrbiting = true;
+                        _lastPointerPosition = _clickOrigin;
+                    }
+                }
+                else if (_isClickCandidate &&
+                    dragDistanceSquared >
+                    ClickDragThreshold * ClickDragThreshold)
+                {
+                    _isClickCandidate = false;
+                }
+                if (_isRegionSelecting)
+                {
+                    e.Handled = true;
+                    _regionSelectionCurrent = e.Position;
+                    if (_regionSelectionIsLasso)
+                    {
+                        AddRegionSelectionPoint(e.Position);
+                    }
+                    Invalidate();
+                }
+                else if (_isOrbiting)
                 {
                     e.Handled = true;
                     if (!_cameraInitialized) InitializeCameraState();
@@ -1140,13 +1913,39 @@ namespace Microsoft.UI.Xaml.Controls
                     var up = Vector3.Normalize(Vector3.Cross(right, forward));
 
                     float panSpeed = _cameraRadius * 0.0015f;
-                    projCamera.LookAt -= right * (delta.X * panSpeed);
-                    projCamera.LookAt += up * (delta.Y * panSpeed);
+                    _cameraTarget -= right * (delta.X * panSpeed);
+                    _cameraTarget += up * (delta.Y * panSpeed);
 
                     ApplyCameraState();
                 }
             }
             base.OnPointerMoved(e);
+        }
+
+        public override void OnPointerCanceled(PointerRoutedEventArgs e)
+        {
+            _isClickCandidate = false;
+            _isPendingPrimaryDrag = false;
+            _isRegionSelecting = false;
+            _regionSelectionPointCount = 0;
+            _regionSelectionWasTruncated = false;
+            _isOrbiting = false;
+            _isPanning = false;
+            Invalidate();
+            base.OnPointerCanceled(e);
+        }
+
+        public override void OnPointerCaptureLost(PointerRoutedEventArgs e)
+        {
+            _isClickCandidate = false;
+            _isPendingPrimaryDrag = false;
+            _isRegionSelecting = false;
+            _regionSelectionPointCount = 0;
+            _regionSelectionWasTruncated = false;
+            _isOrbiting = false;
+            _isPanning = false;
+            Invalidate();
+            base.OnPointerCaptureLost(e);
         }
 
         public override void OnPointerWheelChanged(PointerRoutedEventArgs e)
@@ -1176,6 +1975,30 @@ namespace Microsoft.UI.Xaml.Controls
 
         public override void OnKeyDown(KeyRoutedEventArgs e)
         {
+            if (IsEnabled && IsFocused &&
+                _isRegionSelecting && _regionSelectionIsLasso &&
+                e.Key == Silk.NET.Input.Key.Space)
+            {
+                _regionSelectionMode = NextLassoMode(
+                    _regionSelectionMode);
+                e.Handled = true;
+                Invalidate();
+                base.OnKeyDown(e);
+                return;
+            }
+            if (IsEnabled && IsFocused &&
+                !_isRegionSelecting &&
+                InputSystem.Current.IsControlPressed &&
+                e.Key == Silk.NET.Input.Key.Space)
+            {
+                SubobjectCycleRequested?.Invoke(
+                    this,
+                    new Viewport3DSubobjectCycleEventArgs(
+                        _lastPointerPosition));
+                e.Handled = true;
+                base.OnKeyDown(e);
+                return;
+            }
             if (IsEnabled && IsFocused && Camera is ProjectionCamera projCamera)
             {
                 if (!_cameraInitialized) InitializeCameraState();
@@ -1194,7 +2017,7 @@ namespace Microsoft.UI.Xaml.Controls
                 {
                     if (isShift || projCamera is OrthographicCamera)
                     {
-                        projCamera.LookAt -= right * panSpeed;
+                        _cameraTarget -= right * panSpeed;
                     }
                     else
                     {
@@ -1206,7 +2029,7 @@ namespace Microsoft.UI.Xaml.Controls
                 {
                     if (isShift || projCamera is OrthographicCamera)
                     {
-                        projCamera.LookAt += right * panSpeed;
+                        _cameraTarget += right * panSpeed;
                     }
                     else
                     {
@@ -1218,7 +2041,7 @@ namespace Microsoft.UI.Xaml.Controls
                 {
                     if (isShift || projCamera is OrthographicCamera)
                     {
-                        projCamera.LookAt += up * panSpeed;
+                        _cameraTarget += up * panSpeed;
                     }
                     else
                     {
@@ -1231,7 +2054,7 @@ namespace Microsoft.UI.Xaml.Controls
                 {
                     if (isShift || projCamera is OrthographicCamera)
                     {
-                        projCamera.LookAt -= up * panSpeed;
+                        _cameraTarget -= up * panSpeed;
                     }
                     else
                     {
@@ -1280,10 +2103,66 @@ namespace Microsoft.UI.Xaml.Controls
 
         private struct ProjectedAxis
         {
-            public Vector4 Color;
+            public Brush Brush;
+            public Pen Pen;
             public string Label;
             public Vector3 VCam;
             public Vector2 ProjPos;
+        }
+
+        private void DrawRegionSelection(DrawingContext context)
+        {
+            if (!_isRegionSelecting)
+            {
+                return;
+            }
+            if (_regionSelectionIsLasso)
+            {
+                Pen pen = _regionSelectionMode ==
+                    Viewport3DRegionSelectionMode.Window
+                        ? _windowSelectionPen
+                        : _crossingSelectionPen;
+                for (int index = 1;
+                     index < _regionSelectionPointCount;
+                     index++)
+                {
+                    context.DrawLine(
+                        pen,
+                        _regionSelectionPoints[index - 1],
+                        _regionSelectionPoints[index]);
+                }
+                if (_regionSelectionMode !=
+                        Viewport3DRegionSelectionMode.Fence &&
+                    _regionSelectionPointCount > 2)
+                {
+                    context.DrawLine(
+                        pen,
+                        _regionSelectionPoints[
+                            _regionSelectionPointCount - 1],
+                        _regionSelectionPoints[0]);
+                }
+                return;
+            }
+            float minimumX = MathF.Min(
+                _clickOrigin.X,
+                _regionSelectionCurrent.X);
+            float minimumY = MathF.Min(
+                _clickOrigin.Y,
+                _regionSelectionCurrent.Y);
+            var bounds = new Rect(
+                minimumX,
+                minimumY,
+                MathF.Abs(_regionSelectionCurrent.X - _clickOrigin.X),
+                MathF.Abs(_regionSelectionCurrent.Y - _clickOrigin.Y));
+            bool isWindow = _regionSelectionCurrent.X >= _clickOrigin.X;
+            context.DrawRectangle(
+                isWindow
+                    ? _windowSelectionFillBrush
+                    : _crossingSelectionFillBrush,
+                isWindow
+                    ? _windowSelectionPen
+                    : _crossingSelectionPen,
+                bounds);
         }
 
         private void DrawCoordinateCompass(DrawingContext context, Matrix4x4 view)
@@ -1298,23 +2177,24 @@ namespace Microsoft.UI.Xaml.Controls
 
             Vector2 center = new Vector2(Size.X - padding, padding);
 
-            // Dynamic glass backdrop background and border
-            var bgBrush = new SolidColorBrush(new Vector4(0.08f, 0.08f, 0.1f, 0.45f));
-            var borderBrush = ThemeManager.GetBrush("ControlBorder", ActualTheme, ActualThemeFamily) 
-                              ?? new SolidColorBrush(new Vector4(0.25f, 0.25f, 0.3f, 0.4f));
-            var bgPen = new Pen(borderBrush, 1f);
-
-            context.FillCircle(bgBrush, center, bgRadius);
-            context.DrawCircle(null, bgPen, center, bgRadius);
+            context.FillCircle(
+                _compassBackgroundBrush,
+                center,
+                bgRadius);
+            context.DrawCircle(
+                null,
+                _compassBorderPen,
+                center,
+                bgRadius);
 
             // Project axes directions in camera space
-            var axisX = new ProjectedAxis { Color = new Vector4(0.92f, 0.25f, 0.25f, 1f), Label = "X", VCam = Vector3.TransformNormal(Vector3.UnitX, view) };
+            var axisX = new ProjectedAxis { Brush = _compassXBrush, Pen = _compassXPen, Label = "X", VCam = Vector3.TransformNormal(Vector3.UnitX, view) };
             axisX.ProjPos = new Vector2(center.X + axisX.VCam.X * axisLength, center.Y - axisX.VCam.Y * axisLength);
 
-            var axisY = new ProjectedAxis { Color = new Vector4(0.20f, 0.80f, 0.30f, 1f), Label = "Y", VCam = Vector3.TransformNormal(Vector3.UnitY, view) };
+            var axisY = new ProjectedAxis { Brush = _compassYBrush, Pen = _compassYPen, Label = "Y", VCam = Vector3.TransformNormal(Vector3.UnitY, view) };
             axisY.ProjPos = new Vector2(center.X + axisY.VCam.X * axisLength, center.Y - axisY.VCam.Y * axisLength);
 
-            var axisZ = new ProjectedAxis { Color = new Vector4(0.18f, 0.50f, 0.95f, 1f), Label = "Z", VCam = Vector3.TransformNormal(Vector3.UnitZ, view) };
+            var axisZ = new ProjectedAxis { Brush = _compassZBrush, Pen = _compassZPen, Label = "Z", VCam = Vector3.TransformNormal(Vector3.UnitZ, view) };
             axisZ.ProjPos = new Vector2(center.X + axisZ.VCam.X * axisLength, center.Y - axisZ.VCam.Y * axisLength);
 
             // Zero-allocation bubble sort of three elements by depth
@@ -1342,28 +2222,52 @@ namespace Microsoft.UI.Xaml.Controls
             }
 
             // Draw center origin dot
-            var originBrush = new SolidColorBrush(new Vector4(0.85f, 0.85f, 0.85f, 1f));
-            context.FillCircle(originBrush, center, 3.5f);
+            context.FillCircle(
+                _compassOriginBrush,
+                center,
+                3.5f);
 
-            var labelBrush = new SolidColorBrush(new Vector4(1f, 1f, 1f, 1f));
-            var tipBorderPen = new Pen(new SolidColorBrush(new Vector4(1f, 1f, 1f, 0.9f)), 1f);
+            DrawCompassAxis(
+                context,
+                first,
+                center,
+                tipRadius,
+                font);
+            DrawCompassAxis(
+                context,
+                second,
+                center,
+                tipRadius,
+                font);
+            DrawCompassAxis(
+                context,
+                third,
+                center,
+                tipRadius,
+                font);
+        }
 
-            // Draw axes in depth order
-            void DrawAxis(ProjectedAxis axis)
-            {
-                var linePen = new Pen(new SolidColorBrush(axis.Color), 2f);
-                context.DrawLine(linePen, center, axis.ProjPos);
-
-                var tipBrush = new SolidColorBrush(axis.Color);
-                context.FillCircle(tipBrush, axis.ProjPos, tipRadius);
-                context.DrawCircle(null, tipBorderPen, axis.ProjPos, tipRadius);
-
-                context.DrawText(axis.Label, font, 10f, labelBrush, axis.ProjPos + new Vector2(-3.5f, -5.5f), isBold: true);
-            }
-
-            DrawAxis(first);
-            DrawAxis(second);
-            DrawAxis(third);
+        private void DrawCompassAxis(
+            DrawingContext context,
+            ProjectedAxis axis,
+            Vector2 center,
+            float tipRadius,
+            TtfFont font)
+        {
+            context.DrawLine(axis.Pen, center, axis.ProjPos);
+            context.FillCircle(axis.Brush, axis.ProjPos, tipRadius);
+            context.DrawCircle(
+                null,
+                _compassTipBorderPen,
+                axis.ProjPos,
+                tipRadius);
+            context.DrawText(
+                axis.Label,
+                font,
+                10f,
+                _compassLabelBrush,
+                axis.ProjPos + new Vector2(-3.5f, -5.5f),
+                isBold: true);
         }
     }
 }
