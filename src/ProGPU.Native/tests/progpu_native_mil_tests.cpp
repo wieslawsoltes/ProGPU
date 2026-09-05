@@ -18823,27 +18823,33 @@ int main() {
         progpu::native::tests::mil_brush_fixture_source::drawing_image,
         progpu::native::tests::mil_brush_fixture_source::visual}) {
         for (const auto shape : {progpu::native::tests::mil_brush_fixture_shape::ellipse,
-            progpu::native::tests::mil_brush_fixture_shape::rounded_rectangle}) {
+            progpu::native::tests::mil_brush_fixture_shape::rounded_rectangle,
+            progpu::native::tests::mil_brush_fixture_shape::path,
+            progpu::native::tests::mil_brush_fixture_shape::group,
+            progpu::native::tests::mil_brush_fixture_shape::combined}) {
             for (const bool transformed : {false, true}) {
                 std::vector<std::byte> scene;
+                const auto figures = make_curve_path_figures();
                 PROGPU_REQUIRE(progpu::native::tests::build_mil_image_brush_fixture(
                     scene, {.opacity = 0.5, .skew = transformed, .source = source,
-                        .shape = shape, .inherited_clip = true, .paint_transform = transformed}, 9480U));
+                        .shape = shape, .inherited_clip = true, .paint_transform = transformed,
+                        .path_figures = figures}, 9480U));
                 const auto header = read_value<progpu_native_scene_header>(scene, 0U);
                 bool found_shape_chain = false;
                 for (std::uint32_t index = 0U; index < header.resource_count; ++index) {
                     const auto resource = read_value<progpu_native_scene_resource>(scene,
                         header.resource_offset + index * sizeof(progpu_native_scene_resource));
                     if (resource.kind != PROGPU_NATIVE_SCENE_RESOURCE_LAYER_MASK) continue;
-                    const auto base_mask = read_value<progpu_native_scene_layer_mask>(scene,
-                        resource.payload_offset);
-                    if (base_mask.kind != PROGPU_NATIVE_SCENE_LAYER_MASK_VECTOR_CLIP_CHAIN) continue;
+                    const auto mask_kind = read_value<std::uint32_t>(scene,
+                        resource.payload_offset + offsetof(progpu_native_scene_layer_mask, kind));
+                    if (mask_kind != PROGPU_NATIVE_SCENE_LAYER_MASK_VECTOR_CLIP_CHAIN) continue;
                     const auto mask = read_value<progpu_native_scene_layer_vector_mask>(scene,
                         resource.payload_offset);
                     // Inherited ellipse plus paint shape must survive both
                     // rectangle scissors and non-axis-aligned viewport masks.
                     found_shape_chain |= mask.path_count >= 2U &&
-                        mask.segment_count >= (shape == progpu::native::tests::mil_brush_fixture_shape::ellipse ? 2U : 9U);
+                        mask.segment_count >= (shape == progpu::native::tests::mil_brush_fixture_shape::rounded_rectangle ? 9U : 2U) &&
+                        (shape != progpu::native::tests::mil_brush_fixture_shape::combined || mask.boolean_node_count >= 3U);
                 }
                 PROGPU_REQUIRE(found_shape_chain);
             }
