@@ -27,12 +27,16 @@ case "${package_group}" in
     selected_package_ids=("${progpu_avalonia_runtime_package_ids[@]}")
     selected_package_projects=("${progpu_avalonia_runtime_package_projects[@]}")
     ;;
+  drawing-runtime)
+    selected_package_ids=("${progpu_drawing_runtime_package_ids[@]}")
+    selected_package_projects=("${progpu_drawing_runtime_package_projects[@]}")
+    ;;
   mobile)
     selected_package_ids=("${progpu_mobile_package_ids[@]}")
     selected_package_projects=("${progpu_mobile_package_projects[@]}")
     ;;
   *)
-    echo "Unknown PROGPU_PACKAGE_GROUP '${package_group}'. Expected all, portable, avalonia-runtime, or mobile." >&2
+    echo "Unknown PROGPU_PACKAGE_GROUP '${package_group}'. Expected all, portable, avalonia-runtime, drawing-runtime, or mobile." >&2
     exit 1
     ;;
 esac

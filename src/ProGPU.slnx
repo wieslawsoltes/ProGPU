@@ -2,6 +2,7 @@
   <Project Path="SkiaSharp/SkiaSharp.csproj" />
   <Project Path="ProGPU.Transpiler/ProGPU.Transpiler.csproj" />
   <Project Path="ProGPU.Backend/ProGPU.Backend.csproj" />
+  <Project Path="ProGPU.Backend.Tests/ProGPU.Backend.Tests.csproj" />
   <Project Path="ProGPU.Backend.Native/ProGPU.Backend.Native.csproj" />
   <Project Path="ProGPU.Backend.Dawn/ProGPU.Backend.Dawn.csproj" />
   <Project Path="ProGPU.Media/ProGPU.Media.csproj" />
@@ -28,6 +29,8 @@
   <Project Path="ProGPU.Voxel.Tests/ProGPU.Voxel.Tests.csproj" />
   <Project Path="ProGPU.Wpf.Interop/ProGPU.Wpf.Interop.csproj" />
   <Project Path="System.Drawing.Common/System.Drawing.Common.csproj" />
+  <Project Path="System.Drawing.Common.Tests/System.Drawing.Common.Tests.csproj" />
+  <Project Path="System.Drawing.Common.Benchmarks/System.Drawing.Common.Benchmarks.csproj" />
   <Project Path="PresentationCore/PresentationCore.csproj" />
   <Project Path="ProGPU.Layout/ProGPU.Layout.csproj" />
   <Project Path="ProGPU.Virtualization/ProGPU.Virtualization.csproj" />

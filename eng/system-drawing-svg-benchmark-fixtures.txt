@@ -1,0 +1,11 @@
+# Stable SVG.NET-on-ProGPU development workload. Keys are suite|fixture.
+w3c|shapes-circle-01-t
+w3c|shapes-ellipse-01-t
+w3c|shapes-line-01-t
+w3c|shapes-polygon-01-t
+w3c|shapes-polyline-01-t
+w3c|shapes-rect-01-t
+w3c|paths-data-01-t
+w3c|pservers-grad-01-b
+w3c|pservers-pattern-01-b
+w3c|text-text-01-b

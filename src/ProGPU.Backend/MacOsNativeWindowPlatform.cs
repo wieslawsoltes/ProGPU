@@ -72,7 +72,11 @@ internal sealed class MacOsNativeWindowPlatform : GlfwNativeWindowPlatform
                 }
                 break;
             case NativeWindowDecorations.Full:
-                style |= StyleTitled | StyleClosable;
+                style |= StyleTitled;
+                if (state.CanClose)
+                {
+                    style |= StyleClosable;
+                }
                 if (state.CanMinimize)
                 {
                     style |= StyleMiniaturizable;
@@ -101,7 +105,7 @@ internal sealed class MacOsNativeWindowPlatform : GlfwNativeWindowPlatform
         var showButtons =
             state.Decorations == NativeWindowDecorations.Full &&
             (!state.ExtendClientArea || wantsSystemChrome);
-        SetStandardButtonState(0, showButtons, _enabled);
+        SetStandardButtonState(0, showButtons && state.CanClose, state.CanClose && _enabled);
         SetStandardButtonState(1, showButtons, state.CanMinimize && _enabled);
         SetStandardButtonState(2, showButtons, state.CanMaximize && state.CanResize && _enabled);
         ApplyToolbar(
@@ -122,6 +126,21 @@ internal sealed class MacOsNativeWindowPlatform : GlfwNativeWindowPlatform
     {
         _enabled = value;
         return ApplyChrome(_state);
+    }
+
+    public override bool SetZOrder(NativeWindowZOrder value)
+    {
+        switch (value)
+        {
+            case NativeWindowZOrder.Front:
+                SendVoidObject(_nsWindow, "orderFront:", 0);
+                return true;
+            case NativeWindowZOrder.Back:
+                SendVoidObject(_nsWindow, "orderBack:", 0);
+                return true;
+            default:
+                return false;
+        }
     }
 
     public override bool SetParent(NativeWindowHandle parent)

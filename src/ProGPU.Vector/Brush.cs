@@ -14,6 +14,22 @@ public struct GradientStop
     }
 }
 
+/// <summary>
+/// One scalar center-to-boundary blend sample for a path gradient.
+/// </summary>
+public readonly struct PathGradientBlendStop
+{
+    public PathGradientBlendStop(float factor, float offset)
+    {
+        Factor = factor;
+        Offset = offset;
+    }
+
+    public float Factor { get; }
+
+    public float Offset { get; }
+}
+
 public abstract class Brush
 {
     public float Opacity { get; set; } = 1.0f;
@@ -120,6 +136,114 @@ public class RadialGradientBrush : Brush
         RadiusY = radiusY;
         Stops = stops;
     }
+}
+
+/// <summary>
+/// A bounded semantic gradient whose center color falls off toward an
+/// arbitrary polygon boundary with independently interpolated surround colors.
+/// </summary>
+/// <remarks>
+/// The production shader evaluates at most <see cref="MaximumBoundaryPoints"/>
+/// edges per fragment. Framework adapters should flatten curves and simplify
+/// larger contours before constructing this retained brush.
+/// </remarks>
+public sealed class PathGradientBrush : Brush
+{
+    public const int MaximumBoundaryPoints = 128;
+
+    private readonly Vector2[] _boundaryPoints;
+    private readonly Vector4[] _surroundColors;
+    private readonly PathGradientBlendStop[] _blendStops;
+    private readonly GradientStop[] _presetStops;
+
+    public PathGradientBrush(
+        ReadOnlySpan<Vector2> boundaryPoints,
+        ReadOnlySpan<Vector4> surroundColors,
+        Vector2 center,
+        Vector4 centerColor,
+        ReadOnlySpan<PathGradientBlendStop> blendStops)
+        : this(
+            boundaryPoints,
+            surroundColors,
+            center,
+            centerColor,
+            blendStops,
+            default)
+    {
+    }
+
+    public PathGradientBrush(
+        ReadOnlySpan<Vector2> boundaryPoints,
+        ReadOnlySpan<Vector4> surroundColors,
+        Vector2 center,
+        Vector4 centerColor,
+        ReadOnlySpan<GradientStop> presetStops)
+        : this(
+            boundaryPoints,
+            surroundColors,
+            center,
+            centerColor,
+            default,
+            presetStops)
+    {
+    }
+
+    private PathGradientBrush(
+        ReadOnlySpan<Vector2> boundaryPoints,
+        ReadOnlySpan<Vector4> surroundColors,
+        Vector2 center,
+        Vector4 centerColor,
+        ReadOnlySpan<PathGradientBlendStop> blendStops,
+        ReadOnlySpan<GradientStop> presetStops)
+    {
+        if (boundaryPoints.Length is < 2 or > MaximumBoundaryPoints)
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(boundaryPoints),
+                $"A path gradient requires between 2 and {MaximumBoundaryPoints} boundary points.");
+        }
+        if (surroundColors.Length != boundaryPoints.Length)
+        {
+            throw new ArgumentException(
+                "Every path-gradient boundary point requires one surround color.",
+                nameof(surroundColors));
+        }
+        if (blendStops.IsEmpty == presetStops.IsEmpty)
+        {
+            throw new ArgumentException(
+                "A path gradient requires exactly one blend curve or preset-color curve.");
+        }
+
+        _boundaryPoints = boundaryPoints.ToArray();
+        _surroundColors = surroundColors.ToArray();
+        _blendStops = blendStops.ToArray();
+        _presetStops = presetStops.ToArray();
+        Center = center;
+        CenterColor = centerColor;
+    }
+
+    public ReadOnlyMemory<Vector2> BoundaryPoints => _boundaryPoints;
+
+    public ReadOnlyMemory<Vector4> SurroundColors => _surroundColors;
+
+    public ReadOnlyMemory<PathGradientBlendStop> BlendStops => _blendStops;
+
+    public ReadOnlyMemory<GradientStop> PresetStops => _presetStops;
+
+    public bool UsesPresetColors => _presetStops.Length != 0;
+
+    public Vector2 Center { get; set; }
+
+    public Vector4 CenterColor { get; set; }
+
+    public Vector2 FocusScales { get; set; }
+
+    public Matrix4x4 CoordinateTransform { get; set; } = Matrix4x4.Identity;
+
+    public GradientSpreadMethod SpreadMethod { get; set; } = GradientSpreadMethod.Pad;
+
+    public GradientColorInterpolationMode ColorInterpolationMode { get; set; } =
+        GradientColorInterpolationMode.SRgbLinearInterpolation;
 }
 
 public class TwoPointConicalGradientBrush : Brush
@@ -299,5 +423,50 @@ public class CrossHatchBrush : Brush
         Spacing = spacing;
         Thickness = thickness;
         Color = color;
+    }
+}
+
+/// <summary>
+/// Paints a repeating, axis-aligned 8 by 8 one-bit tile with independent
+/// foreground and background colors.
+/// </summary>
+/// <remarks>
+/// Bit <c>y * 8 + x</c> selects the foreground color at integer tile
+/// coordinate <c>(x, y)</c>; a cleared bit selects the background color.
+/// The immutable value payload lets retained pictures share the brush safely.
+/// </remarks>
+public sealed class TilePatternBrush : Brush
+{
+    public ulong Pattern { get; }
+    public Vector4 ForegroundColor { get; }
+    public Vector4 BackgroundColor { get; }
+    public Vector2 Origin { get; }
+
+    public TilePatternBrush(
+        ulong pattern,
+        Vector4 foregroundColor,
+        Vector4 backgroundColor)
+        : this(pattern, foregroundColor, backgroundColor, Vector2.Zero)
+    {
+    }
+
+    public TilePatternBrush(
+        ulong pattern,
+        Vector4 foregroundColor,
+        Vector4 backgroundColor,
+        Vector2 origin)
+    {
+        Pattern = pattern;
+        ForegroundColor = foregroundColor;
+        BackgroundColor = backgroundColor;
+        Origin = origin;
+    }
+
+    public bool IsForegroundPixel(int x, int y)
+    {
+        int tileX = x & 7;
+        int tileY = y & 7;
+        int bitIndex = (tileY * 8) + tileX;
+        return ((Pattern >> bitIndex) & 1UL) != 0UL;
     }
 }

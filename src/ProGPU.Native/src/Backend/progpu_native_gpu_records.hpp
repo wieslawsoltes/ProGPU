@@ -67,10 +67,23 @@ struct gpu_advanced_blend_sampling_uniforms {
     float source_origin[2];
     float source_extent[2];
     std::uint32_t blend_mode;
-    std::uint32_t padding[3];
+    std::uint32_t operation_kind;
+    std::uint32_t raster_operation_code;
+    std::uint32_t pattern_kind;
+    float pattern_color[4];
+    float pattern_background_color[4];
+    float pattern_origin[2];
+    std::uint32_t pattern_mask_low;
+    std::uint32_t pattern_mask_high;
+    std::uint32_t pattern_flags;
+    std::uint32_t padding;
+    float pattern_texture_extent[2];
 };
 
-static_assert(sizeof(gpu_advanced_blend_sampling_uniforms) == 32U);
+static_assert(sizeof(gpu_advanced_blend_sampling_uniforms) == 96U);
+static_assert(offsetof(gpu_advanced_blend_sampling_uniforms, operation_kind) == 20U);
+static_assert(offsetof(gpu_advanced_blend_sampling_uniforms, pattern_color) == 32U);
+static_assert(offsetof(gpu_advanced_blend_sampling_uniforms, pattern_texture_extent) == 88U);
 
 struct gpu_gaussian_blur_params {
     float sigma;

@@ -19,7 +19,7 @@ namespace ProGPU.Scene;
 [StructLayout(LayoutKind.Explicit, Size = 256)]
 public struct GpuBrush
 {
-    [FieldOffset(0)] public uint Type;             // 0 = Solid, 1 = Linear, 2 = Radial, 5 = Two-point conical, 6 = Sweep, 7 = Perlin noise
+    [FieldOffset(0)] public uint Type;             // 0 = Solid, 1 = Linear, 2 = Radial, 5 = Two-point conical, 6 = Sweep, 7 = Perlin noise, 8 = 8x8 tile, 9 = Path gradient
     [FieldOffset(4)] public float Opacity;
     [FieldOffset(8)] public Vector2 StartPoint;
     [FieldOffset(16)] public Vector2 EndPoint;
@@ -105,12 +105,22 @@ internal struct MaskSamplingUniforms : IEquatable<MaskSamplingUniforms>
             Options);
 }
 
-[StructLayout(LayoutKind.Explicit, Size = 32)]
+[StructLayout(LayoutKind.Explicit, Size = 96)]
 internal struct AdvancedBlendSamplingUniforms
 {
     [FieldOffset(0)] public Vector2 SourceOrigin;
     [FieldOffset(8)] public Vector2 SourceExtent;
     [FieldOffset(16)] public uint BlendMode;
+    [FieldOffset(20)] public uint OperationKind;
+    [FieldOffset(24)] public uint RasterOperationCode;
+    [FieldOffset(28)] public uint PatternKind;
+    [FieldOffset(32)] public Vector4 PatternColor;
+    [FieldOffset(48)] public Vector4 PatternBackgroundColor;
+    [FieldOffset(64)] public Vector2 PatternOrigin;
+    [FieldOffset(72)] public uint PatternMaskLow;
+    [FieldOffset(76)] public uint PatternMaskHigh;
+    [FieldOffset(80)] public uint PatternFlags;
+    [FieldOffset(88)] public Vector2 PatternTextureExtent;
 }
 
 [StructLayout(LayoutKind.Sequential, Pack = 16)]
@@ -300,6 +310,7 @@ public struct CompositorMetrics
     public ulong AdvancedBlendScratchTextureBytes;
     public ulong AdvancedBlendSourceTextureBytes;
     public ulong AdvancedBlendTextureBytes;
+    public ulong RasterPresentationTextureBytes;
     public ulong WavefrontTextureBytes;
     public ulong MsaaTextureBytes;
     public ulong TrackedIntermediateTextureBytes;
@@ -410,6 +421,16 @@ public unsafe partial class Compositor : IDisposable
 
         private WavefrontFrameFallbackException()
             : base("The experimental Wavefront engine requires an Atlas frame fallback for this command stream.")
+        {
+        }
+    }
+
+    private sealed class RasterOperationPresentationFallbackException : InvalidOperationException
+    {
+        public static RasterOperationPresentationFallbackException Instance { get; } = new();
+
+        private RasterOperationPresentationFallbackException()
+            : base("Ternary raster operations require bindable presentation composition.")
         {
         }
     }
@@ -1076,6 +1097,7 @@ public unsafe partial class Compositor : IDisposable
     private uint _msaaHeight;
     private GpuTexture? _advancedBlendScratchTexture;
     private GpuTexture? _advancedBlendSourceTexture;
+    private GpuTexture? _rasterPresentationTexture;
     private BindGroupLayout* _advancedBlendBindGroupLayout;
     private PipelineLayout* _advancedBlendPipelineLayout;
     private RenderPipeline* _advancedBlendPipeline;
@@ -1083,6 +1105,7 @@ public unsafe partial class Compositor : IDisposable
     private int _advancedBlendPassResourceCount;
     private uint _advancedBlendSourceUnderutilizedFrames;
     private ulong _advancedBlendLastUsedFrame;
+    private ulong _rasterPresentationLastUsedFrame;
     private const uint AdvancedBlendShrinkDelayFrames = 240;
 
     // Uniform buffer (Projection Matrix)
@@ -1302,6 +1325,7 @@ public unsafe partial class Compositor : IDisposable
         public TextureSamplingMode TextureSamplingMode;
         public byte TextureMaxAnisotropy;
         public GpuTextureAlphaMode TextureAlphaMode;
+        public GpuRasterOperation RasterOperation;
         public bool HasImageEffect;
         public ImageEffectCommandData ImageEffect;
 
@@ -1379,6 +1403,7 @@ public unsafe partial class Compositor : IDisposable
     {
         public required GpuBuffer UniformBuffer { get; init; }
         public nint TextureUniformBindGroupPtr { get; init; }
+        public GpuTexture? RasterPatternTexture { get; set; }
     }
 
     private readonly List<CompositorDrawCall> _drawCalls = new();
@@ -2846,6 +2871,15 @@ public unsafe partial class Compositor : IDisposable
                 ProGpuSceneDiagnostics.WriteLine(
                     "[Compositor] Retrying the experimental Wavefront frame with the ordered Atlas renderer because the scene uses unsupported or mixed content.");
             }
+            catch (RasterOperationPresentationFallbackException)
+            {
+                RenderRasterOperationPresentation(
+                    root,
+                    width,
+                    height,
+                    targetView);
+                return;
+            }
             catch (PathAtlasCapacityExceededException)
             {
                 if (retriedAfterPathAtlasReset)
@@ -2877,6 +2911,82 @@ public unsafe partial class Compositor : IDisposable
             _frameRetainedResources[index].Dispose();
         }
         _frameRetainedResources.Clear();
+    }
+
+    private void RenderRasterOperationPresentation(
+        Visual root,
+        uint logicalWidth,
+        uint logicalHeight,
+        TextureView* targetView)
+    {
+        uint targetWidth = _explicitRenderTargetWidth ?? Math.Max(1u, logicalWidth);
+        uint targetHeight = _explicitRenderTargetHeight ?? Math.Max(1u, logicalHeight);
+        RenderTargetViewport viewport = NormalizeRenderTargetViewport(
+            _explicitRenderTargetViewport ?? RenderTargetViewport.Full(targetWidth, targetHeight),
+            targetWidth,
+            targetHeight);
+        uint presentationWidth = Math.Max(1u, RoundNonNegativeToUInt(viewport.Width));
+        uint presentationHeight = Math.Max(1u, RoundNonNegativeToUInt(viewport.Height));
+        if (_rasterPresentationTexture is null ||
+            _rasterPresentationTexture.Width != presentationWidth ||
+            _rasterPresentationTexture.Height != presentationHeight ||
+            _rasterPresentationTexture.Format != RenderFormat)
+        {
+            _rasterPresentationTexture?.Dispose();
+            _rasterPresentationTexture = new GpuTexture(
+                _context,
+                presentationWidth,
+                presentationHeight,
+                RenderFormat,
+                TextureUsage.RenderAttachment | TextureUsage.TextureBinding,
+                "Raster-operation presentation",
+                alphaMode: GpuTextureAlphaMode.Premultiplied);
+        }
+        _rasterPresentationLastUsedFrame = _frameNumber;
+
+        float dpiScale = _explicitDpiScale ?? _currentDpiScale;
+        RenderOffscreen(
+            root,
+            logicalWidth,
+            logicalHeight,
+            _rasterPresentationTexture,
+            padding: 0f,
+            dpiScale: dpiScale,
+            clearColor: ClearColor,
+            loadExistingContents: false,
+            includeRootTransform: true,
+            includeRootVisualState: true);
+
+        Vector4 clear = ClearColor;
+        GpuTextureBlitter.Blit(
+            _rasterPresentationTexture,
+            targetView,
+            RenderFormat,
+            new GpuTextureBlitViewport(
+                viewport.X,
+                viewport.Y,
+                viewport.Width,
+                viewport.Height),
+            new Color
+            {
+                R = clear.X,
+                G = clear.Y,
+                B = clear.Z,
+                A = clear.W
+            });
+    }
+
+    private void ReleaseIdleRasterPresentationTexture()
+    {
+        if (_rasterPresentationTexture is null ||
+            _frameNumber - _rasterPresentationLastUsedFrame <
+                AdvancedBlendShrinkDelayFrames)
+        {
+            return;
+        }
+
+        _rasterPresentationTexture.Dispose();
+        _rasterPresentationTexture = null;
     }
 
     private void RenderSceneCore(Visual root, uint width, uint height, TextureView* targetView)
@@ -3269,6 +3379,11 @@ SceneCompilationComplete:
             throw WavefrontFrameFallbackException.Instance;
         }
 
+        if (HasRasterOperationDrawCall())
+        {
+            throw RasterOperationPresentationFallbackException.Instance;
+        }
+
         if (_pathAtlas.CapacityExceeded ||
             _pathAtlas.Generation != pathAtlasGenerationAtCompilationStart)
         {
@@ -3425,6 +3540,7 @@ DynamicBufferUploadComplete:
         }
 
 SceneStateUploadComplete:
+        ReleaseIdleRasterPresentationTexture();
         RefreshAtlasBindGroupsIfNeeded();
         if (_compiledRenderBundle == null &&
             _compiledSceneReusable &&
@@ -3933,6 +4049,7 @@ SceneStateUploadComplete:
             AdvancedBlendScratchTextureBytes = GetTextureBytes(_advancedBlendScratchTexture),
             AdvancedBlendSourceTextureBytes = GetTextureBytes(_advancedBlendSourceTexture),
             AdvancedBlendTextureBytes = GetAdvancedBlendTextureBytes(),
+            RasterPresentationTextureBytes = GetTextureBytes(_rasterPresentationTexture),
             WavefrontTextureBytes = GetTextureBytes(_wavefrontColorTexture),
             MsaaTextureBytes = GetMsaaTextureBytes(),
             TrackedIntermediateTextureBytes = GetTrackedIntermediateTextureBytes(),
@@ -4470,6 +4587,7 @@ SceneStateUploadComplete:
             GetEffectTextureBytes() +
             GetLayerTextureBytes() +
             GetAdvancedBlendTextureBytes() +
+            GetTextureBytes(_rasterPresentationTexture) +
             GetTextureBytes(_wavefrontColorTexture) +
             GetMsaaTextureBytes();
     }
@@ -6354,6 +6472,9 @@ SceneStateUploadComplete:
                 ColorInterpolationMode = radial.ColorInterpolationMode,
                 CoordinateTransform = inverseCommandTransform * radial.CoordinateTransform
             },
+            PathGradientBrush pathGradient => ClonePathGradientBrush(
+                pathGradient,
+                inverseCommandTransform * pathGradient.CoordinateTransform),
             TwoPointConicalGradientBrush conical => new TwoPointConicalGradientBrush(
                 conical.StartCenter,
                 conical.StartRadius,
@@ -7421,6 +7542,100 @@ SceneStateUploadComplete:
         contour.CornerRadii.Z > 0f ||
         contour.CornerRadii.W > 0f;
 
+    private PathGeometry? CullPathFiguresOutsideRasterViewport(
+        PathGeometry path,
+        Matrix4x4 transform)
+    {
+        if (path.IsCombined ||
+            path.Figures.Count <= 1 ||
+            ActiveCompilationContext != null ||
+            _useGpuTransformsActive)
+        {
+            return path;
+        }
+
+        Rect viewport = _activeClipRect ?? new Rect(0f, 0f, _currentWidth, _currentHeight);
+        float left = viewport.X - 1f;
+        float top = viewport.Y - 1f;
+        float right = viewport.X + viewport.Width + 1f;
+        float bottom = viewport.Y + viewport.Height + 1f;
+        if (right <= left || bottom <= top)
+        {
+            return null;
+        }
+
+        List<PathFigure>? visibleFigures = null;
+        var figures = path.Figures;
+        for (int figureIndex = 0; figureIndex < figures.Count; figureIndex++)
+        {
+            PathFigure figure = figures[figureIndex];
+            bool isVisible = !PathGeometry.TryGetBounds(figure, out Vector2 localMin, out Vector2 localMax) ||
+                TransformedBoundsIntersectViewport(
+                    localMin,
+                    localMax,
+                    transform,
+                    left,
+                    top,
+                    right,
+                    bottom);
+            if (isVisible)
+            {
+                visibleFigures?.Add(figure);
+                continue;
+            }
+
+            if (visibleFigures == null)
+            {
+                visibleFigures = new List<PathFigure>(figures.Count);
+                for (int visibleIndex = 0; visibleIndex < figureIndex; visibleIndex++)
+                {
+                    visibleFigures.Add(figures[visibleIndex]);
+                }
+            }
+        }
+
+        if (visibleFigures == null)
+        {
+            return path;
+        }
+
+        if (visibleFigures.Count == 0)
+        {
+            return null;
+        }
+
+        var visiblePath = new PathGeometry
+        {
+            FillRule = path.FillRule
+        };
+        visiblePath.Figures.AddRange(visibleFigures);
+        return visiblePath;
+    }
+
+    private static bool TransformedBoundsIntersectViewport(
+        Vector2 localMin,
+        Vector2 localMax,
+        Matrix4x4 transform,
+        float left,
+        float top,
+        float right,
+        float bottom)
+    {
+        Vector2 p0 = Vector2.Transform(localMin, transform);
+        Vector2 p1 = Vector2.Transform(new Vector2(localMax.X, localMin.Y), transform);
+        Vector2 p2 = Vector2.Transform(localMax, transform);
+        Vector2 p3 = Vector2.Transform(new Vector2(localMin.X, localMax.Y), transform);
+        float minX = MathF.Min(MathF.Min(p0.X, p1.X), MathF.Min(p2.X, p3.X));
+        float minY = MathF.Min(MathF.Min(p0.Y, p1.Y), MathF.Min(p2.Y, p3.Y));
+        float maxX = MathF.Max(MathF.Max(p0.X, p1.X), MathF.Max(p2.X, p3.X));
+        float maxY = MathF.Max(MathF.Max(p0.Y, p1.Y), MathF.Max(p2.Y, p3.Y));
+        return !float.IsFinite(minX) ||
+            !float.IsFinite(minY) ||
+            !float.IsFinite(maxX) ||
+            !float.IsFinite(maxY) ||
+            (maxX >= left && minX <= right && maxY >= top && minY <= bottom);
+    }
+
     private void CompilePathCommand(
         RenderCommand cmd,
         Matrix4x4 transform,
@@ -7489,6 +7704,12 @@ SceneStateUploadComplete:
             TryCompileDirectRoundedRectanglePathFill(cmd, transform);
         if (cmd.Brush != null && !compiledDirectRoundedFill)
         {
+            PathGeometry? rasterPath = CullPathFiguresOutsideRasterViewport(cmd.Path, transform);
+            if (rasterPath == null)
+            {
+                goto CompilePathStroke;
+            }
+
             float bIdx = RegisterBrush(cmd.Brush);
             var brush = cmd.Brush as SolidColorBrush;
             var color = brush?.Color ?? new Vector4(1f, 1f, 1f, 1f);
@@ -7510,7 +7731,7 @@ SceneStateUploadComplete:
             scaleY *= rasterScale;
 
             var info = _pathAtlas.GetOrCreatePath(
-                cmd.Path,
+                rasterPath,
                 scaleX,
                 scaleY,
                 GetSubpixelPhase(transform.M41 * rasterScale),
@@ -7582,6 +7803,8 @@ SceneStateUploadComplete:
                 indexSpan[5] = idxStart + 3;
             }
         }
+
+CompilePathStroke:
 
         if (IsRenderableStroke(cmd.Pen))
         {
@@ -12121,6 +12344,27 @@ SceneStateUploadComplete:
             gpuBrush.ColorInterpolationMode = (uint)radial.ColorInterpolationMode;
             ApplyGradientStops(ref gpuBrush, radial.Stops);
         }
+        else if (brush is PathGradientBrush pathGradient)
+        {
+            gpuBrush.Type = 9;
+            gpuBrush.Center = pathGradient.Center;
+            gpuBrush.EndPoint = pathGradient.FocusScales;
+            gpuBrush.Color0 = pathGradient.CenterColor;
+            gpuBrush.Color1 = new Vector4(pathGradient.UsesPresetColors ? 1f : 0f, 0f, 0f, 0f);
+            SetBrushCoordinateTransform(ref gpuBrush, pathGradient.CoordinateTransform);
+            gpuBrush.SpreadMethod = (uint)pathGradient.SpreadMethod;
+            gpuBrush.ColorInterpolationMode = (uint)pathGradient.ColorInterpolationMode;
+            if (!ApplyPathGradientRecords(ref gpuBrush, pathGradient))
+            {
+                gpuBrush = new GpuBrush
+                {
+                    Type = 0,
+                    Opacity = 0f,
+                    Color0 = Vector4.Zero
+                };
+                SetBrushCoordinateTransform(ref gpuBrush, Matrix4x4.Identity);
+            }
+        }
         else if (brush is TwoPointConicalGradientBrush conical)
         {
             gpuBrush.Type = 5;
@@ -12177,6 +12421,17 @@ SceneStateUploadComplete:
             gpuBrush.Color0 = crossHatch.Color;
             gpuBrush.StopCount = 1;
         }
+        else if (brush is TilePatternBrush tilePattern)
+        {
+            gpuBrush.Type = 8;
+            gpuBrush.StopCount = (uint)tilePattern.Pattern;
+            gpuBrush.StopOffset = (uint)(tilePattern.Pattern >> 32);
+            gpuBrush.Color0 = tilePattern.ForegroundColor;
+            gpuBrush.Color1 = tilePattern.BackgroundColor;
+            SetBrushCoordinateTransform(
+                ref gpuBrush,
+                Matrix4x4.CreateTranslation(-tilePattern.Origin.X, -tilePattern.Origin.Y, 0f));
+        }
 
         for (int i = 0; i < _activeBrushes.Count; i++)
         {
@@ -12230,6 +12485,11 @@ SceneStateUploadComplete:
             return false;
         }
 
+        if (a.Type == 8 && a.StopOffset != b.StopOffset)
+        {
+            return false;
+        }
+
         return !IsGradientBrushType(a.Type) || GradientStopsEqual(a, b);
     }
 
@@ -12273,7 +12533,7 @@ SceneStateUploadComplete:
 
     private static bool IsGradientBrushType(uint brushType)
     {
-        return brushType == 1 || brushType == 2 || brushType == 5 || brushType == 6;
+        return brushType == 1 || brushType == 2 || brushType == 5 || brushType == 6 || brushType == 9;
     }
 
     private static void SetBrushCoordinateTransform(ref GpuBrush gpuBrush, Matrix4x4 transform)
@@ -12497,6 +12757,109 @@ SceneStateUploadComplete:
         var o7 = stopCount > 7 ? stops[7].Offset : 1f;
         gpuBrush.Offsets = new Vector4(o0, o1, o2, o3);
         gpuBrush.Offsets1 = new Vector4(o4, o5, o6, o7);
+    }
+
+    private bool ApplyPathGradientRecords(
+        ref GpuBrush gpuBrush,
+        PathGradientBrush brush)
+    {
+        ReadOnlySpan<Vector2> points = brush.BoundaryPoints.Span;
+        ReadOnlySpan<Vector4> colors = brush.SurroundColors.Span;
+        ReadOnlySpan<PathGradientBlendStop> blendStops = brush.BlendStops.Span;
+        ReadOnlySpan<GradientStop> presetStops = brush.PresetStops.Span;
+        int curveCount = brush.UsesPresetColors ? presetStops.Length : blendStops.Length;
+        int recordCount = checked(points.Length * 2 + curveCount);
+        if (!IsFinite(brush.Center) ||
+            !IsFiniteVector4(brush.CenterColor) ||
+            !IsFinite(brush.FocusScales) ||
+            !IsFiniteInvertibleAffine2D(brush.CoordinateTransform) ||
+            brush.SpreadMethod is < GradientSpreadMethod.Pad or > GradientSpreadMethod.Decal ||
+            brush.ColorInterpolationMode is < GradientColorInterpolationMode.SRgbLinearInterpolation or > GradientColorInterpolationMode.ScRgbLinearInterpolation ||
+            points.Length is < 2 or > PathGradientBrush.MaximumBoundaryPoints ||
+            colors.Length != points.Length ||
+            curveCount == 0 ||
+            recordCount > MaxGradientStops - _activeGradientStops.Count)
+        {
+            return false;
+        }
+
+        for (int index = 0; index < points.Length; index++)
+        {
+            if (!IsFinite(points[index]) || !IsFiniteVector4(colors[index]))
+            {
+                return false;
+            }
+        }
+
+        float previousOffset = float.NegativeInfinity;
+        if (brush.UsesPresetColors)
+        {
+            foreach (GradientStop stop in presetStops)
+            {
+                if (!IsFiniteVector4(stop.Color) || !IsValidCurveOffset(stop.Offset, previousOffset))
+                {
+                    return false;
+                }
+                previousOffset = stop.Offset;
+            }
+        }
+        else
+        {
+            foreach (PathGradientBlendStop stop in blendStops)
+            {
+                if (!float.IsFinite(stop.Factor) || stop.Factor is < 0f or > 1f ||
+                    !IsValidCurveOffset(stop.Offset, previousOffset))
+                {
+                    return false;
+                }
+                previousOffset = stop.Offset;
+            }
+        }
+
+        gpuBrush.StopOffset = checked((uint)_activeGradientStops.Count);
+        gpuBrush.StopCount = checked((uint)recordCount);
+        gpuBrush.Radius = points.Length;
+        gpuBrush.RadiusY = curveCount;
+        for (int index = 0; index < points.Length; index++)
+        {
+            Vector2 point = points[index];
+            _activeGradientStops.Add(new GpuGradientStop
+            {
+                Color = new Vector4(point.X, point.Y, 0f, 0f)
+            });
+            _activeGradientStops.Add(new GpuGradientStop
+            {
+                Color = colors[index]
+            });
+        }
+
+        if (brush.UsesPresetColors)
+        {
+            foreach (GradientStop stop in presetStops)
+            {
+                _activeGradientStops.Add(new GpuGradientStop
+                {
+                    Color = stop.Color,
+                    Offset = stop.Offset
+                });
+            }
+        }
+        else
+        {
+            foreach (PathGradientBlendStop stop in blendStops)
+            {
+                _activeGradientStops.Add(new GpuGradientStop
+                {
+                    Color = new Vector4(stop.Factor, 0f, 0f, 0f),
+                    Offset = stop.Offset
+                });
+            }
+        }
+
+        return true;
+
+        static bool IsValidCurveOffset(float value, float prior) =>
+            float.IsFinite(value) && value is >= 0f and <= 1f && value >= prior;
     }
 
     private bool TryGetCachedTextLayout(TextLayoutCacheKey key, out TextLayout? layout)
@@ -13592,6 +13955,31 @@ SceneStateUploadComplete:
         }
     }
 
+    private static PathGradientBrush ClonePathGradientBrush(
+        PathGradientBrush source,
+        Matrix4x4 coordinateTransform)
+    {
+        PathGradientBrush clone = source.UsesPresetColors
+            ? new PathGradientBrush(
+                source.BoundaryPoints.Span,
+                source.SurroundColors.Span,
+                source.Center,
+                source.CenterColor,
+                source.PresetStops.Span)
+            : new PathGradientBrush(
+                source.BoundaryPoints.Span,
+                source.SurroundColors.Span,
+                source.Center,
+                source.CenterColor,
+                source.BlendStops.Span);
+        clone.Opacity = source.Opacity;
+        clone.FocusScales = source.FocusScales;
+        clone.SpreadMethod = source.SpreadMethod;
+        clone.ColorInterpolationMode = source.ColorInterpolationMode;
+        clone.CoordinateTransform = coordinateTransform;
+        return clone;
+    }
+
     private void EnsureTextVertexCapacity(int additionalCapacity)
     {
         if (additionalCapacity <= 0)
@@ -13644,7 +14032,13 @@ SceneStateUploadComplete:
                 hasDestinationTransform: false,
                 colorBlendMode: 0f,
                 patchOpacity: 1f,
-                cmd.SnapTextureToPixels);
+                cmd.SnapTextureToPixels,
+                hasExplicitDestination: cmd.HasTextureDestinationQuad,
+                destination0: cmd.TextureDestination0,
+                destination1: cmd.TextureDestination1,
+                destination2: cmd.TextureDestination2,
+                destination3: cmd.TextureDestination3,
+                projectiveWeights: cmd.TextureDestinationProjectiveWeights);
         }
         else
         {
@@ -13736,7 +14130,8 @@ SceneStateUploadComplete:
             BlendMode = _activeBlendMode,
             TextureSamplingMode = cmd.TextureSamplingMode,
             TextureMaxAnisotropy = cmd.TextureMaxAnisotropy,
-            TextureAlphaMode = cmd.Texture.AlphaMode
+            TextureAlphaMode = cmd.Texture.AlphaMode,
+            RasterOperation = cmd.RasterOperation
         };
         AppendOrMergeTextureDrawCall(drawCall);
     }
@@ -13773,6 +14168,7 @@ SceneStateUploadComplete:
             previous.TextureSamplingMode != current.TextureSamplingMode ||
             previous.TextureMaxAnisotropy != current.TextureMaxAnisotropy ||
             previous.TextureAlphaMode != current.TextureAlphaMode ||
+            previous.RasterOperation != current.RasterOperation ||
             previous.HasImageEffect || current.HasImageEffect)
         {
             return false;
@@ -13794,13 +14190,33 @@ SceneStateUploadComplete:
         bool hasDestinationTransform,
         float colorBlendMode,
         float patchOpacity,
-        bool snapToPixels)
+        bool snapToPixels,
+        bool hasExplicitDestination = false,
+        Vector2 destination0 = default,
+        Vector2 destination1 = default,
+        Vector2 destination2 = default,
+        Vector2 destination3 = default,
+        Vector4 projectiveWeights = default)
     {
-        var r = destination;
-        var v0 = new Vector2(r.X, r.Y);
-        var v1 = new Vector2(r.X + r.Width, r.Y);
-        var v2 = new Vector2(r.X + r.Width, r.Y + r.Height);
-        var v3 = new Vector2(r.X, r.Y + r.Height);
+        Vector2 v0;
+        Vector2 v1;
+        Vector2 v2;
+        Vector2 v3;
+        if (hasExplicitDestination)
+        {
+            v0 = destination0;
+            v1 = destination1;
+            v2 = destination2;
+            v3 = destination3;
+        }
+        else
+        {
+            var r = destination;
+            v0 = new Vector2(r.X, r.Y);
+            v1 = new Vector2(r.X + r.Width, r.Y);
+            v2 = new Vector2(r.X + r.Width, r.Y + r.Height);
+            v3 = new Vector2(r.X, r.Y + r.Height);
+        }
         if (hasDestinationTransform)
         {
             v0 = Vector2.Transform(v0, destinationTransform);
@@ -13864,7 +14280,8 @@ SceneStateUploadComplete:
                 return;
             }
 
-            if (!QuadClipper.TryClipAxisAlignedQuad(
+            if (!hasExplicitDestination &&
+                !QuadClipper.TryClipAxisAlignedQuad(
                     _activeClipRect.Value,
                     ref v0,
                     ref v1,
@@ -13884,14 +14301,18 @@ SceneStateUploadComplete:
         CollectionsMarshal.SetCount(_textureVerticesList, originalVertexCount + 4);
         var vertexSpan = CollectionsMarshal.AsSpan(_textureVerticesList).Slice(originalVertexCount, 4);
 
+        Vector4 q = hasExplicitDestination
+            ? projectiveWeights
+            : Vector4.One;
+
         vertexSpan[0] = new VectorVertex(
-            v0, color, uv0, patchKind, cubicCoefficients, colorBlendMode, patchOpacity);
+            v0, color, uv0, patchKind, cubicCoefficients, colorBlendMode, patchOpacity, q.X);
         vertexSpan[1] = new VectorVertex(
-            v1, color, uv1, patchKind, cubicCoefficients, colorBlendMode, patchOpacity);
+            v1, color, uv1, patchKind, cubicCoefficients, colorBlendMode, patchOpacity, q.Y);
         vertexSpan[2] = new VectorVertex(
-            v2, color, uv2, patchKind, cubicCoefficients, colorBlendMode, patchOpacity);
+            v2, color, uv2, patchKind, cubicCoefficients, colorBlendMode, patchOpacity, q.Z);
         vertexSpan[3] = new VectorVertex(
-            v3, color, uv3, patchKind, cubicCoefficients, colorBlendMode, patchOpacity);
+            v3, color, uv3, patchKind, cubicCoefficients, colorBlendMode, patchOpacity, q.W);
 
         int originalIndexCount = _textureIndicesList.Count;
         CollectionsMarshal.SetCount(_textureIndicesList, originalIndexCount + 6);
@@ -14322,6 +14743,8 @@ SceneStateUploadComplete:
             }
 
             ReleaseMsaaResources();
+            _rasterPresentationTexture?.Dispose();
+            _rasterPresentationTexture = null;
 
             _uniformBuffer.Dispose();
             _brushesStorageBuffer.Dispose();
@@ -14631,11 +15054,26 @@ SceneStateUploadComplete:
             GpuBlendMode.Luminosity;
     }
 
+    private bool HasRasterOperationDrawCall()
+    {
+        for (int index = 0; index < _drawCalls.Count; index++)
+        {
+            if (_drawCalls[index].RasterOperation.IsEnabled)
+            {
+                return true;
+            }
+        }
+        return false;
+    }
+
     private bool CanEncodeAdvancedBlend(in CompositorDrawCall drawCall, GpuTexture targetTexture)
     {
+        GpuTexture? patternTexture = drawCall.RasterOperation.TexturePattern?.Texture;
         return drawCall.Type == DrawCallType.Texture &&
             IsTextureBindable(drawCall.Texture) &&
-            RequiresDestinationSampling(drawCall.BlendMode) &&
+            (patternTexture is null || IsTextureBindable(patternTexture)) &&
+            (RequiresDestinationSampling(drawCall.BlendMode) ||
+                drawCall.RasterOperation.IsEnabled) &&
             (targetTexture.Usage & TextureUsage.TextureBinding) != 0;
     }
 
@@ -14869,8 +15307,8 @@ SceneStateUploadComplete:
             return;
         }
 
-        var entries = stackalloc BindGroupLayoutEntry[3];
-        for (var index = 0; index < 2; index++)
+        var entries = stackalloc BindGroupLayoutEntry[4];
+        for (var index = 0; index < 3; index++)
         {
             entries[index] = new BindGroupLayoutEntry
             {
@@ -14884,9 +15322,9 @@ SceneStateUploadComplete:
                 }
             };
         }
-        entries[2] = new BindGroupLayoutEntry
+        entries[3] = new BindGroupLayoutEntry
         {
-            Binding = 2,
+            Binding = 3,
             Visibility = ShaderStage.Fragment,
             Buffer = new BufferBindingLayout
             {
@@ -14898,7 +15336,7 @@ SceneStateUploadComplete:
 
         var bindGroupLayoutDescriptor = new BindGroupLayoutDescriptor
         {
-            EntryCount = 3,
+            EntryCount = 4,
             Entries = entries
         };
         _advancedBlendBindGroupLayout = _context.Api.DeviceCreateBindGroupLayout(
@@ -14928,7 +15366,8 @@ SceneStateUploadComplete:
     private AdvancedBlendPassResource AcquireAdvancedBlendPassResource(
         MaskPixelBounds bounds,
         GpuTexture sourceTarget,
-        GpuBlendMode blendMode)
+        GpuBlendMode blendMode,
+        GpuRasterOperation rasterOperation = default)
     {
         AdvancedBlendPassResource resource;
         if (_advancedBlendPassResourceCount < _advancedBlendPassResources.Count)
@@ -14974,6 +15413,7 @@ SceneStateUploadComplete:
         }
 
         _advancedBlendPassResourceCount++;
+        resource.RasterPatternTexture = rasterOperation.TexturePattern?.Texture;
         float dpiScale = _currentDpiScale;
         float sourceWidth = sourceTarget.Width;
         float sourceHeight = sourceTarget.Height;
@@ -14994,15 +15434,44 @@ SceneStateUploadComplete:
             // origin only when Pad0 opts this bounded source pass in.
             CanvasSize = new Vector2(bounds.X, bounds.Y),
             DpiScale = dpiScale,
-            Pad0 = 1f
+            Pad0 = rasterOperation.IsEnabled ? 2f : 1f
         };
         resource.UniformBuffer.WriteSingle(sourceUniforms);
+        TilePatternBrush? patternBrush = rasterOperation.PatternBrush;
+        GpuRasterTexturePattern? texturePattern = rasterOperation.TexturePattern;
         resource.UniformBuffer.WriteSingle(
             new AdvancedBlendSamplingUniforms
             {
                 SourceOrigin = new Vector2(bounds.X, bounds.Y),
                 SourceExtent = new Vector2(bounds.Width, bounds.Height),
-                BlendMode = (uint)blendMode
+                BlendMode = (uint)blendMode,
+                OperationKind = rasterOperation.IsEnabled ? 1u : 0u,
+                RasterOperationCode = rasterOperation.Code,
+                PatternKind = texturePattern is not null
+                    ? 2u
+                    : patternBrush is null ? 0u : 1u,
+                PatternColor = rasterOperation.PatternColor,
+                PatternBackgroundColor = patternBrush?.BackgroundColor ?? default,
+                PatternOrigin = texturePattern is not null
+                    ? texturePattern.Origin * dpiScale
+                    : patternBrush is null
+                        ? default
+                        : patternBrush.Origin * dpiScale,
+                PatternMaskLow = patternBrush is null
+                    ? 0u
+                    : (uint)patternBrush.Pattern,
+                PatternMaskHigh = patternBrush is null
+                    ? 0u
+                    : (uint)(patternBrush.Pattern >> 32),
+                PatternFlags = patternBrush is not null &&
+                    patternBrush.BackgroundColor.W <= 0f
+                    ? 1u
+                    : 0u,
+                PatternTextureExtent = texturePattern is null
+                    ? default
+                    : new Vector2(
+                        texturePattern.Texture.Width,
+                        texturePattern.Texture.Height)
             },
             256);
         return resource;
@@ -15148,7 +15617,7 @@ SceneStateUploadComplete:
         AdvancedBlendPassResource passResource)
     {
         EnsureAdvancedBlendLayout();
-        var entries = stackalloc BindGroupEntry[3];
+        var entries = stackalloc BindGroupEntry[4];
         entries[0] = new BindGroupEntry
         {
             Binding = 0,
@@ -15162,6 +15631,11 @@ SceneStateUploadComplete:
         entries[2] = new BindGroupEntry
         {
             Binding = 2,
+            TextureView = (passResource.RasterPatternTexture ?? source).ViewPtr
+        };
+        entries[3] = new BindGroupEntry
+        {
+            Binding = 3,
             Buffer = passResource.UniformBuffer.BufferPtr,
             Offset = 256,
             Size = (uint)Marshal.SizeOf<AdvancedBlendSamplingUniforms>()
@@ -15169,7 +15643,7 @@ SceneStateUploadComplete:
         var bindGroupDescriptor = new BindGroupDescriptor
         {
             Layout = _advancedBlendBindGroupLayout,
-            EntryCount = 3,
+            EntryCount = 4,
             Entries = entries
         };
         var bindGroup = _context.Api.DeviceCreateBindGroup(
@@ -17012,7 +17486,8 @@ SceneStateUploadComplete:
                 var advancedBlendPassResource = AcquireAdvancedBlendPassResource(
                     advancedBlendBounds,
                     _advancedBlendSourceTexture!,
-                    dc.BlendMode);
+                    dc.BlendMode,
+                    dc.RasterOperation);
                 EncodeAdvancedBlendSource(
                     encoder,
                     _advancedBlendSourceTexture!,
@@ -17405,6 +17880,7 @@ SceneStateUploadComplete:
             AdvancedBlendScratchTextureBytes = GetTextureBytes(_advancedBlendScratchTexture),
             AdvancedBlendSourceTextureBytes = GetTextureBytes(_advancedBlendSourceTexture),
             AdvancedBlendTextureBytes = GetAdvancedBlendTextureBytes(),
+            RasterPresentationTextureBytes = GetTextureBytes(_rasterPresentationTexture),
             WavefrontTextureBytes = GetTextureBytes(_wavefrontColorTexture),
             MsaaTextureBytes = GetMsaaTextureBytes(),
             TrackedIntermediateTextureBytes = GetTrackedIntermediateTextureBytes(),

@@ -78,6 +78,20 @@ internal unsafe class GlfwNativeWindowPlatform : INativeWindowPlatform
     }
 
     public virtual bool SetEnabled(bool value) => false;
+
+    public virtual bool SetOpacity(double value)
+    {
+        if (GlfwWindow == null || !double.IsFinite(value) || value is < 0d or > 1d)
+        {
+            return false;
+        }
+
+        Glfw.SetWindowOpacity(GlfwWindow, (float)value);
+        return true;
+    }
+
+    public virtual bool SetZOrder(NativeWindowZOrder value) => false;
+
     public virtual bool SetShowInTaskbar(bool value) => false;
     public virtual bool SetParent(NativeWindowHandle parent) => false;
 

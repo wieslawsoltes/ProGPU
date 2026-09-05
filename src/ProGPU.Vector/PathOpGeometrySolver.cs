@@ -223,6 +223,21 @@ namespace ProGPU.Vector
             return path;
         }
 
+        public static PathGeometry CreateDeferred(
+            PathGeometry pathA,
+            PathGeometry pathB,
+            PathBooleanOperation operation,
+            PathGeometry? reusableResult = null)
+        {
+            if (operation < PathBooleanOperation.Difference ||
+                operation > PathBooleanOperation.ReverseDifference)
+            {
+                throw new ArgumentOutOfRangeException(nameof(operation));
+            }
+
+            return CreateDeferred(pathA, pathB, (int)operation, reusableResult);
+        }
+
         internal static PathGeometry CreateDeferred(
             PathGeometry pathA,
             PathGeometry pathB,

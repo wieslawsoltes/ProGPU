@@ -177,6 +177,48 @@ progpu_avalonia_runtime_package_purposes=(
   "Avalonia runtime closure: opt-in official assembly identity substitution."
 )
 
+# Exact package closure required by the ProGPU System.Drawing.Common adapter.
+# Keep this topologically ordered so source-first consumers can produce a small,
+# internally version-aligned local feed without packing unrelated UI frameworks.
+progpu_drawing_runtime_package_ids=(
+  ProGPU.Backend
+  ProGPU.Text.Shaping
+  ProGPU.Transpiler
+  ProGPU.WinRT
+  ProGPU.Vector
+  ProGPU.Text
+  ProGPU.Compute
+  ProGPU.Scene
+  ProGPU.SkiaSharp
+  ProGPU.System.Drawing.Common
+)
+
+progpu_drawing_runtime_package_projects=(
+  src/ProGPU.Backend/ProGPU.Backend.csproj
+  src/ProGPU.Text.Shaping/ProGPU.Text.Shaping.csproj
+  src/ProGPU.Transpiler/ProGPU.Transpiler.csproj
+  src/ProGPU.WinRT/ProGPU.WinRT.csproj
+  src/ProGPU.Vector/ProGPU.Vector.csproj
+  src/ProGPU.Text/ProGPU.Text.csproj
+  src/ProGPU.Compute/ProGPU.Compute.csproj
+  src/ProGPU.Scene/ProGPU.Scene.csproj
+  src/SkiaSharp/SkiaSharp.csproj
+  src/System.Drawing.Common/System.Drawing.Common.csproj
+)
+
+progpu_drawing_runtime_package_purposes=(
+  "Drawing runtime closure: WebGPU device and platform backend."
+  "Drawing runtime closure: AOT-safe OpenType shaping."
+  "Drawing runtime closure: shader/source transformation."
+  "Drawing runtime closure: platform-neutral WinRT value contracts."
+  "Drawing runtime closure: retained vector primitives."
+  "Drawing runtime closure: text layout and rendering."
+  "Drawing runtime closure: compute pipelines."
+  "Drawing runtime closure: retained compositor scene."
+  "Drawing runtime closure: SkiaSharp compatibility surface."
+  "Drawing runtime closure: portable System.Drawing.Common implementation."
+)
+
 progpu_mobile_package_ids=(
   ProGPU.Android
   ProGPU.iOS
@@ -206,6 +248,7 @@ progpu_package_purposes=("${progpu_portable_package_purposes[@]}" "${progpu_mobi
 # non-shipping. The verifier fails when a newly added project is omitted.
 progpu_nonshipping_projects=(
   src/PresentationCore/PresentationCore.csproj
+  src/ProGPU.Backend.Tests/ProGPU.Backend.Tests.csproj
   src/ProGPU.Avalonia.SkiaSourceCompatibility/ProGPU.Avalonia.SkiaSourceCompatibility.csproj
   src/ProGPU.Avalonia.Skia.BinaryCompatibility/ProGPU.Avalonia.Skia.BinaryCompatibility.csproj
   src/ProGPU.Avalonia.Skia.BinaryCompatibility.V11/ProGPU.Avalonia.Skia.BinaryCompatibility.V11.csproj
@@ -219,6 +262,8 @@ progpu_nonshipping_projects=(
   src/ProGPU.Samples.Uno/ProGPU.Samples.Uno/ProGPU.Samples.Uno.csproj
   src/ProGPU.Samples.iOS/ProGPU.Samples.iOS.csproj
   src/ProGPU.Samples/ProGPU.Samples.csproj
+  src/System.Drawing.Common.Benchmarks/System.Drawing.Common.Benchmarks.csproj
+  src/System.Drawing.Common.Tests/System.Drawing.Common.Tests.csproj
   src/ProGPU.Tests.Headless/ProGPU.Tests.Headless.csproj
   src/ProGPU.Tests/ProGPU.Tests.csproj
   src/ProGPU.Voxel.Tests/ProGPU.Voxel.Tests.csproj
@@ -228,6 +273,7 @@ progpu_nonshipping_projects=(
 
 progpu_nonshipping_reasons=(
   "Framework implementation shim; shipped through consuming compatibility packages."
+  "Backend ownership-registry and native-window state test project."
   "Non-shipping source dependency used to validate the ProGPU SkiaSharp contract against Avalonia's ordinary Skia backend."
   "Non-shipping Avalonia.Skia facade shipped inside ProGPU.BinaryCompatibility."
   "Non-shipping Avalonia 11 validation facade for the universal compatibility identity."
@@ -241,6 +287,8 @@ progpu_nonshipping_reasons=(
   "Uno sample application."
   "iOS sample application."
   "Shared sample gallery."
+  "System.Drawing performance benchmark project."
+  "System.Drawing API and behavior test project."
   "Headless test project."
   "Test project."
   "Voxel engine test project."
@@ -279,6 +327,7 @@ validate_parallel_arrays() {
 
 validate_parallel_arrays portable "${#progpu_portable_package_ids[@]}" "${#progpu_portable_package_projects[@]}" "${#progpu_portable_package_purposes[@]}"
 validate_parallel_arrays avalonia-runtime "${#progpu_avalonia_runtime_package_ids[@]}" "${#progpu_avalonia_runtime_package_projects[@]}" "${#progpu_avalonia_runtime_package_purposes[@]}"
+validate_parallel_arrays drawing-runtime "${#progpu_drawing_runtime_package_ids[@]}" "${#progpu_drawing_runtime_package_projects[@]}" "${#progpu_drawing_runtime_package_purposes[@]}"
 validate_parallel_arrays mobile "${#progpu_mobile_package_ids[@]}" "${#progpu_mobile_package_projects[@]}" "${#progpu_mobile_package_purposes[@]}"
 validate_parallel_arrays complete "${#progpu_package_ids[@]}" "${#progpu_package_projects[@]}" "${#progpu_package_purposes[@]}"
 

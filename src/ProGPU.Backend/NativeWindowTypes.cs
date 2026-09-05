@@ -56,6 +56,12 @@ public enum NativeResizeEdge
     BottomRight = 7
 }
 
+public enum NativeWindowZOrder
+{
+    Front = 0,
+    Back = 1
+}
+
 [Flags]
 public enum NativeWindowFeatures
 {
@@ -75,7 +81,10 @@ public enum NativeWindowFeatures
     Transparent = 1 << 12,
     Blur = 1 << 13,
     Acrylic = 1 << 14,
-    Mica = 1 << 15
+    Mica = 1 << 15,
+    CloseButton = 1 << 16,
+    Opacity = 1 << 17,
+    ZOrder = 1 << 18
 }
 
 [Flags]
@@ -169,6 +178,9 @@ public readonly record struct NativeWindowCapabilities(
         {
             NativeWindowKind.Win32 => new NativeWindowCapabilities(kind,
                 common |
+                NativeWindowFeatures.ZOrder |
+                NativeWindowFeatures.Opacity |
+                NativeWindowFeatures.CloseButton |
                 NativeWindowFeatures.MinimizeButton |
                 NativeWindowFeatures.MaximizeButton |
                 NativeWindowFeatures.ClientAreaExtension |
@@ -182,6 +194,9 @@ public readonly record struct NativeWindowCapabilities(
                 NativeWindowFeatures.Mica),
             NativeWindowKind.Cocoa => new NativeWindowCapabilities(kind,
                 common |
+                NativeWindowFeatures.ZOrder |
+                NativeWindowFeatures.Opacity |
+                NativeWindowFeatures.CloseButton |
                 NativeWindowFeatures.MinimizeButton |
                 NativeWindowFeatures.MaximizeButton |
                 NativeWindowFeatures.ClientAreaExtension |
@@ -194,6 +209,9 @@ public readonly record struct NativeWindowCapabilities(
                 NativeWindowFeatures.Mica),
             NativeWindowKind.X11 => new NativeWindowCapabilities(kind,
                 common |
+                NativeWindowFeatures.ZOrder |
+                NativeWindowFeatures.Opacity |
+                NativeWindowFeatures.CloseButton |
                 NativeWindowFeatures.MinimizeButton |
                 NativeWindowFeatures.MaximizeButton |
                 NativeWindowFeatures.ClientAreaExtension |
@@ -219,10 +237,12 @@ public readonly record struct NativeWindowCapabilities(
 internal readonly record struct NativeWindowState(
     NativeWindowDecorations Decorations,
     bool CanResize,
+    bool CanClose,
     bool CanMinimize,
     bool CanMaximize,
     bool TopMost,
     bool Enabled,
+    double Opacity,
     bool ShowInTaskbar,
     bool AddShadow,
     bool ExtendClientArea,
@@ -238,10 +258,12 @@ internal readonly record struct NativeWindowState(
     public static NativeWindowState Default => new(
         NativeWindowDecorations.Full,
         CanResize: true,
+        CanClose: true,
         CanMinimize: true,
         CanMaximize: true,
         TopMost: false,
         Enabled: true,
+        Opacity: 1d,
         ShowInTaskbar: true,
         AddShadow: true,
         ExtendClientArea: false,

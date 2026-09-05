@@ -1969,6 +1969,44 @@ fn mainImage(fragCoord: vec2<f32>) -> vec4<f32> {
     }
 
     [Fact]
+    public unsafe void CompositorCullsFarSeparatedFiguresBeforePathAtlasRasterization()
+    {
+        using var window = new HeadlessWindow(
+            96,
+            96,
+            CompositorOptions.Default with { PathAtlasSize = 64 });
+        var path = new PathGeometry();
+        var visible = new PathFigure(new Vector2(12f, 12f), isClosed: true);
+        visible.Segments.Add(new LineSegment(new Vector2(36f, 12f)));
+        visible.Segments.Add(new LineSegment(new Vector2(24f, 36f)));
+        path.Figures.Add(visible);
+        var distant = new PathFigure(new Vector2(10_000f, 12f), isClosed: true);
+        distant.Segments.Add(new LineSegment(new Vector2(10_024f, 12f)));
+        distant.Segments.Add(new LineSegment(new Vector2(10_012f, 36f)));
+        path.Figures.Add(distant);
+
+        var visual = new DrawingVisual { Size = new Vector2(96f, 96f) };
+        visual.Context.DrawPath(
+            new SolidColorBrush(new Vector4(1f, 0f, 0f, 1f)),
+            pen: null,
+            path);
+        using var target = new GpuTexture(
+            window.Context,
+            96,
+            96,
+            TextureFormat.Rgba8Unorm,
+            TextureUsage.RenderAttachment | TextureUsage.CopySrc,
+            "Far-separated path figure render target");
+
+        window.Compositor.RenderScene(visual, 96, 96, target.ViewPtr);
+
+        Assert.False(window.Compositor.PathAtlas.CapacityExceeded);
+        Assert.Equal(1, window.Compositor.PathAtlas.CachedPathCount);
+        byte[] pixels = target.ReadPixels();
+        Assert.True(pixels[(20 * 96 + 24) * 4] > 200);
+    }
+
+    [Fact]
     public unsafe void TallCanonicalRoundedPathBypassesAtlasAndRendersOnTheFirstFrame()
     {
         using var window = new HeadlessWindow(
@@ -4670,6 +4708,40 @@ fn mainImage(fragCoord: vec2<f32>) -> vec4<f32> {
                 255, 0, 0, 255, 255, 255, 255, 255
             },
             destination.ReadPixels());
+    }
+
+    [Fact]
+    public unsafe void GpuTextureBlitterBoundsFractionalViewportWithoutClippingEdgePixels()
+    {
+        using var window = new HeadlessWindow(5, 5);
+        using var source = new GpuTexture(
+            window.Context,
+            1,
+            1,
+            TextureFormat.Rgba8Unorm,
+            TextureUsage.TextureBinding | TextureUsage.CopyDst,
+            "GPU bounded-blit source");
+        using var destination = new GpuTexture(
+            window.Context,
+            5,
+            5,
+            TextureFormat.Rgba8Unorm,
+            TextureUsage.RenderAttachment | TextureUsage.CopySrc,
+            "GPU bounded-blit destination");
+        source.WritePixels<byte>([255, 0, 0, 255]);
+
+        GpuTextureBlitter.Blit(
+            source,
+            destination.ViewPtr,
+            destination.Format,
+            new GpuTextureBlitViewport(1.25f, 1.25f, 2.5f, 2.5f),
+            new Silk.NET.WebGPU.Color { B = 1f, A = 1f });
+
+        byte[] pixels = destination.ReadPixels();
+        Assert.Equal(new RgbaPixel(255, 0, 0, 255), ReadPixel(pixels, 5, 1, 1));
+        Assert.Equal(new RgbaPixel(255, 0, 0, 255), ReadPixel(pixels, 5, 3, 3));
+        Assert.Equal(new RgbaPixel(0, 0, 255, 255), ReadPixel(pixels, 5, 0, 0));
+        Assert.Equal(new RgbaPixel(0, 0, 255, 255), ReadPixel(pixels, 5, 4, 4));
     }
 
     [Fact]

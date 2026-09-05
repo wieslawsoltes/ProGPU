@@ -926,6 +926,99 @@ public class NativePictureCompilerTests
             command.PayloadSize);
     }
 
+    [Fact]
+    public void CompilerLowersAffineTextureDestinationQuadExactly()
+    {
+        using GpuTexture texture = CreateUnbackedTexture(16U, 8U);
+        using var picture = new GpuPicture(
+            [
+                new RenderCommand
+                {
+                    Type = RenderCommandType.DrawTexture,
+                    Texture = texture,
+                    Rect = new Rect(2f, 3f, 8f, 6f),
+                    SrcRect = new Rect(0f, 0f, 16f, 8f),
+                    TextureSamplingMode = TextureSamplingMode.Linear,
+                    TextureDestination0 = new Vector2(10f, 4f),
+                    TextureDestination1 = new Vector2(14f, 10f),
+                    TextureDestination2 = new Vector2(5f, 16f),
+                    TextureDestination3 = new Vector2(1f, 10f),
+                    TextureDestinationProjectiveWeights = Vector4.One,
+                    HasTextureDestinationQuad = true,
+                    Transform = Matrix4x4.Identity
+                }
+            ],
+            Array.Empty<Vector2>(),
+            Array.Empty<double>(),
+            Array.Empty<Line3D>(),
+            Array.Empty<float>());
+
+        Assert.True(GpuPictureNativeSceneCompiler.TryCompile(
+            picture,
+            124U,
+            1U,
+            out NativeCompiledPicture? compiled,
+            out NativePictureCompileFailure failure),
+            failure.ToString());
+        Assert.NotNull(compiled);
+
+        NativeMethods.SceneHeader header =
+            MemoryMarshal.Read<NativeMethods.SceneHeader>(compiled.Stream);
+        NativeMethods.SceneCommand command =
+            MemoryMarshal.Read<NativeMethods.SceneCommand>(
+                compiled.Stream.Slice(checked((int)header.CommandOffset)));
+        NativeSceneImageDraw draw =
+            MemoryMarshal.Read<NativeSceneImageDraw>(
+                compiled.Stream.Slice(checked((int)command.PayloadOffset)));
+        Assert.Equal(new NativeImageRect(0f, 0f, 1f, 1f), draw.DestinationRect);
+        Assert.Equal(
+            new Matrix3x2(4f, 6f, -9f, 6f, 10f, 4f),
+            draw.Transform);
+        Assert.Equal(1f, command.Bounds.X);
+        Assert.Equal(4f, command.Bounds.Y);
+        Assert.Equal(13f, command.Bounds.Width);
+        Assert.Equal(12f, command.Bounds.Height);
+    }
+
+    [Fact]
+    public void CompilerRejectsProjectiveTextureDestinationQuadWithoutApproximation()
+    {
+        using GpuTexture texture = CreateUnbackedTexture(16U, 8U);
+        using var picture = new GpuPicture(
+            [
+                new RenderCommand
+                {
+                    Type = RenderCommandType.DrawTexture,
+                    Texture = texture,
+                    Rect = new Rect(0f, 0f, 8f, 8f),
+                    SrcRect = new Rect(0f, 0f, 16f, 8f),
+                    TextureSamplingMode = TextureSamplingMode.Linear,
+                    TextureDestination0 = new Vector2(0f, 0f),
+                    TextureDestination1 = new Vector2(8f, 0f),
+                    TextureDestination2 = new Vector2(4f, 8f),
+                    TextureDestination3 = new Vector2(0f, 8f),
+                    TextureDestinationProjectiveWeights =
+                        new Vector4(1f, 1f, 0.5f, 0.5f),
+                    HasTextureDestinationQuad = true,
+                    Transform = Matrix4x4.Identity
+                }
+            ],
+            Array.Empty<Vector2>(),
+            Array.Empty<double>(),
+            Array.Empty<Line3D>(),
+            Array.Empty<float>());
+
+        Assert.False(GpuPictureNativeSceneCompiler.TryCompile(
+            picture,
+            125U,
+            1U,
+            out NativeCompiledPicture? compiled,
+            out NativePictureCompileFailure failure));
+        Assert.Null(compiled);
+        Assert.Equal(NativePictureCompileError.UnsupportedCommand, failure.Error);
+        Assert.Equal(0, failure.CommandIndex);
+    }
+
     [Theory]
     [InlineData(TextureSamplingMode.Nearest, NativeImageSampling.Nearest, 1U)]
     [InlineData(TextureSamplingMode.Linear, NativeImageSampling.Linear, 1U)]
@@ -1383,13 +1476,36 @@ public class NativePictureCompilerTests
             StartAngle = 20f,
             EndAngle = 300f
         };
+        var pathGradient = new PathGradientBrush(
+            [
+                new Vector2(0f, 0f),
+                new Vector2(10f, 0f),
+                new Vector2(10f, 10f),
+                new Vector2(0f, 10f)
+            ],
+            [
+                new Vector4(1f, 0f, 0f, 1f),
+                new Vector4(0f, 1f, 0f, 1f),
+                new Vector4(0f, 0f, 1f, 1f),
+                new Vector4(1f, 1f, 0f, 1f)
+            ],
+            new Vector2(5f, 5f),
+            Vector4.One,
+            [
+                new PathGradientBlendStop(1f, 0f),
+                new PathGradientBlendStop(0f, 1f)
+            ])
+        {
+            FocusScales = new Vector2(0.2f, 0.4f)
+        };
         using var picture = new GpuPicture(
             new[]
             {
                 Rectangle(linear, 0f),
                 Rectangle(radial, 12f),
                 Rectangle(conical, 24f),
-                Rectangle(sweep, 36f)
+                Rectangle(sweep, 36f),
+                Rectangle(pathGradient, 48f)
             },
             Array.Empty<Vector2>(),
             Array.Empty<double>(),
@@ -1406,8 +1522,8 @@ public class NativePictureCompilerTests
         Assert.NotNull(compiled);
         Assert.Equal(1, compiled.NativeCommandCount);
         Assert.Equal(1, compiled.NativeDrawCount);
-        Assert.Equal(4, compiled.BrushCount);
-        Assert.Equal(8, compiled.GradientStopCount);
+        Assert.Equal(5, compiled.BrushCount);
+        Assert.Equal(18, compiled.GradientStopCount);
 
         var header = MemoryMarshal.Read<NativeMethods.SceneHeader>(compiled.Stream);
         Assert.Equal(1U, header.CommandCount);
@@ -1425,9 +1541,13 @@ public class NativePictureCompilerTests
         Assert.Equal(NativeSceneBrushKind.RadialGradient, brushes[1].Kind);
         Assert.Equal(NativeSceneBrushKind.TwoPointConicalGradient, brushes[2].Kind);
         Assert.Equal(NativeSceneBrushKind.SweepGradient, brushes[3].Kind);
+        Assert.Equal(NativeSceneBrushKind.PathGradient, brushes[4].Kind);
         Assert.Equal(0.75f, brushes[0].Opacity);
         Assert.Equal(4f, brushes[0].CoordinateTransform0.Z);
         Assert.Equal(5f, brushes[0].CoordinateTransform1.Z);
+        Assert.Equal(4f, brushes[4].Radius);
+        Assert.Equal(2f, brushes[4].RadiusY);
+        Assert.Equal(10U, brushes[4].StopCount);
 
         static RenderCommand Rectangle(Brush brush, float x) => new()
         {

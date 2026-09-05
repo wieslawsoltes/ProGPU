@@ -1,0 +1,38 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <IsPackable>false</IsPackable>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.NET.Test.Sdk" />
+    <PackageReference Include="xunit" />
+    <PackageReference Include="xunit.runner.visualstudio" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\ProGPU.Backend.Native\ProGPU.Backend.Native.csproj" />
+    <ProjectReference Include="..\ProGPU.Scene.Native\ProGPU.Scene.Native.csproj" />
+    <ProjectReference Include="..\System.Drawing.Common\System.Drawing.Common.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <None Update="xunit.runner.json">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+    <None Include="..\ProGPU.Fonts.Inter\Fonts\Inter-Regular.ttf"
+          Link="Fonts\Inter-Regular.ttf"
+          CopyToOutputDirectory="PreserveNewest" />
+    <None Include="..\ProGPU.Fonts.Noto\Fonts\NotoSansCJKjp-Regular.otf"
+          Link="Fonts\NotoSansCJKjp-Regular.otf"
+          CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <EmbeddedResource Include="..\..\build\Assets\ProGpuAvaloniaIcon.png"
+                      Link="Resources\ProGpuAvaloniaIcon.png"
+                      LogicalName="ProGPU.SystemDrawing.Tests.Resources.ProGpuAvaloniaIcon.png" />
+  </ItemGroup>
+</Project>

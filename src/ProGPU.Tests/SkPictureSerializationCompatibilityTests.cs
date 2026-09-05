@@ -300,6 +300,23 @@ public sealed class SkPictureSerializationCompatibilityTests
             new PerlinNoiseBrush(true, new Vector2(0.1f, 0.2f), 4, 3f, new Vector2(32f, 48f)),
             new HatchPatternBrush(30f, 5f, 2f, Vector4.One),
             new CrossHatchBrush(45f, 6f, 3f, Vector4.UnitW),
+            new TilePatternBrush(
+                0xfedcba9876543210UL,
+                new Vector4(1f, 0.5f, 0.25f, 0.75f),
+                new Vector4(0.1f, 0.2f, 0.3f, 0.4f)),
+            new PathGradientBrush(
+                [Vector2.Zero, new Vector2(10f, 0f), new Vector2(5f, 10f)],
+                [Vector4.UnitX, Vector4.UnitY, Vector4.UnitZ],
+                new Vector2(5f, 4f),
+                Vector4.One,
+                [
+                    new PathGradientBlendStop(1f, 0f),
+                    new PathGradientBlendStop(0f, 1f)
+                ])
+            {
+                FocusScales = new Vector2(0.2f, 0.4f),
+                SpreadMethod = GradientSpreadMethod.Reflect
+            },
             new ThemeResourceBrush("AccentBrush"),
             backdrop,
         ];
@@ -337,8 +354,17 @@ public sealed class SkPictureSerializationCompatibilityTests
         var actualNoise = Assert.IsType<PerlinNoiseBrush>(copy.Picture.Commands[4].Brush);
         Assert.Equal(4, actualNoise.NumOctaves);
         Assert.Equal(new Vector2(32f, 48f), actualNoise.TileSize);
-        Assert.Equal("AccentBrush", Assert.IsType<ThemeResourceBrush>(copy.Picture.Commands[7].Brush).ResourceKey);
-        var actualBackdrop = Assert.IsType<BackdropMaterialBrush>(copy.Picture.Commands[8].Brush);
+        var actualTile = Assert.IsType<TilePatternBrush>(copy.Picture.Commands[7].Brush);
+        Assert.Equal(0xfedcba9876543210UL, actualTile.Pattern);
+        Assert.Equal(new Vector4(1f, 0.5f, 0.25f, 0.75f), actualTile.ForegroundColor);
+        Assert.Equal(new Vector4(0.1f, 0.2f, 0.3f, 0.4f), actualTile.BackgroundColor);
+        var actualPath = Assert.IsType<PathGradientBrush>(copy.Picture.Commands[8].Brush);
+        Assert.Equal(new Vector2(0.2f, 0.4f), actualPath.FocusScales);
+        Assert.Equal(GradientSpreadMethod.Reflect, actualPath.SpreadMethod);
+        Assert.Equal(3, actualPath.BoundaryPoints.Length);
+        Assert.Equal(2, actualPath.BlendStops.Length);
+        Assert.Equal("AccentBrush", Assert.IsType<ThemeResourceBrush>(copy.Picture.Commands[9].Brush).ResourceKey);
+        var actualBackdrop = Assert.IsType<BackdropMaterialBrush>(copy.Picture.Commands[10].Brush);
         Assert.Equal(BackdropMaterialKind.Mica, actualBackdrop.Kind);
         Assert.Equal(BackdropMaterialSource.Texture, actualBackdrop.Source);
         Assert.True(actualBackdrop.UseFallback);

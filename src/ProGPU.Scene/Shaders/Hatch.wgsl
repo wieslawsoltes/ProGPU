@@ -560,6 +560,16 @@ fn fs_main(input: VertexOutput) -> @location(0) vec4<f32> {
         } else {
             discard;
         }
+    } else if (brush.brushType == 8u) {
+        let brushCoord = transform_brush_coordinate(brush, evalCoord);
+        let integerCoord = vec2<i32>(floor(brushCoord));
+        let tileX = u32(((integerCoord.x % 8) + 8) % 8);
+        let tileY = u32(((integerCoord.y % 8) + 8) % 8);
+        let bitIndex = tileY * 8u + tileX;
+        let word = select(brush.stopCount, brush.stopOffset, bitIndex >= 32u);
+        let patternBit = (word >> (bitIndex & 31u)) & 1u;
+        let patternColor = select(brush.stopColors1, brush.stopColors0, patternBit != 0u);
+        finalColor = vec4<f32>(patternColor.rgb, patternColor.a * brush.opacity);
     } else {
         let brushCoord = transform_brush_coordinate(brush, evalCoord);
         var t: f32 = 0.0;

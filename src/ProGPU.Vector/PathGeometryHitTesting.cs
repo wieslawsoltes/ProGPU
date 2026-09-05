@@ -24,15 +24,63 @@ static class PathGeometryHitTesting
         float tolerance,
         bool relativeTolerance,
         out bool contains)
+        => TryContainsFillCore(
+            geometry,
+            point,
+            tolerance,
+            relativeTolerance,
+            depth: 0,
+            out contains);
+
+    private static bool TryContainsFillCore(
+        PathGeometry? geometry,
+        Vector2 point,
+        float tolerance,
+        bool relativeTolerance,
+        int depth,
+        out bool contains)
     {
         contains = false;
 
         if (geometry == null ||
-            geometry.IsCombined ||
             !IsFinite(point) ||
             !float.IsFinite(tolerance))
         {
             return false;
+        }
+
+        if (geometry.IsCombined)
+        {
+            if (depth >= 256 || geometry.PathA == null || geometry.PathB == null ||
+                (uint)geometry.Op > (uint)PathBooleanOperation.ReverseDifference ||
+                !TryContainsFillCore(
+                    geometry.PathA,
+                    point,
+                    tolerance,
+                    relativeTolerance,
+                    depth + 1,
+                    out bool containsA) ||
+                !TryContainsFillCore(
+                    geometry.PathB,
+                    point,
+                    tolerance,
+                    relativeTolerance,
+                    depth + 1,
+                    out bool containsB))
+            {
+                return false;
+            }
+
+            contains = (PathBooleanOperation)geometry.Op switch
+            {
+                PathBooleanOperation.Difference => containsA && !containsB,
+                PathBooleanOperation.Intersect => containsA && containsB,
+                PathBooleanOperation.Union => containsA || containsB,
+                PathBooleanOperation.ExclusiveOr => containsA != containsB,
+                PathBooleanOperation.ReverseDifference => containsB && !containsA,
+                _ => false,
+            };
+            return true;
         }
 
         var figures = geometry.Figures;

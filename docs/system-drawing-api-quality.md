@@ -1,0 +1,1130 @@
+# ProGPU System.Drawing API, Quality, and Performance Contract
+
+## Objective
+
+`ProGPU.System.Drawing.Common` is the portable `System.Drawing.Common` implementation used by LibreWinForms. Public API presence, managed behavior, rendering quality, and hot-path performance are one compatibility contract.
+
+The implementation remains clean-room. Official reference assemblies and documentation define public contracts and observable behavior; implementation code is original ProGPU code built on typed ProGPU services. Upstream implementation source must not be copied or mechanically ported into this repository.
+
+## Pinned API contract
+
+The current contract is `System.Drawing.Common.dll` from `Microsoft.WindowsDesktop.App.Ref` 10.0.11. The repository pins Microsoft ApiCompat 10.0.400 through the local tool manifest.
+
+Run:
+
+```bash
+./eng/progpu-verify-system-drawing-api.sh
+```
+
+The verifier:
+
+1. restores the pinned reference pack and local ApiCompat tool;
+2. builds the exact Release implementation assembly;
+3. writes the complete current diagnostic report under `artifacts/system-drawing-api-compat`;
+4. prints missing-type, missing-member, other-shape, and total counts;
+5. rejects every incompatibility not present in the reviewed suppression file; and
+6. rejects stale suppressions when an incompatibility has been fixed.
+
+Only regenerate the baseline after reviewing the complete diff:
+
+```bash
+./eng/progpu-verify-system-drawing-api.sh --update-baseline
+```
+
+The suppression file is debt, not acceptance of permanent incompatibility. Pull requests should normally remove suppressions and must never add suppressions merely to make CI green.
+Baseline regeneration removes machine-specific left/right assembly paths, so suppressions are keyed by diagnostic and API target and behave identically in local clones and hosted CI. The verifier rejects a committed baseline that still contains absolute assembly paths.
+
+## Current measured debt
+
+After the component-model converter, hosted graphics-flush, graphics-state, point/source-rectangle and destination-point image-overload, coordinate-space, graphics-container, image-convenience, drawing-identity, brush-base, pen-ownership, stock-icon, printer-settings collection, image-attributes, page device-selection, managed printing-shape, effects, cached-bitmap, managed-metadata, managed-identity, pen-transform, typed-LOGFONT, custom-cap/compound-pen, path-gradient, metafile parser, metafile enumeration, type-scoped bitmap-resource, cumulative graphics-context, managed icon-extraction, managed serialization/base-shape, typed desktop-capture, typed native-image-import, typed native font/graphics interop, portable metafile-comment recording, and bounded typed EMF/WMF vector playback compatibility slices:
+
+| Diagnostic group | Count |
+| --- | ---: |
+| Missing types (`CP0001`) | 0 |
+| Missing members (`CP0002`) | 0 |
+| Other shape diagnostics | 13 |
+| Total | 13 |
+
+The starting measured baseline was 121 missing types, 906 missing members, 25 other diagnostics, and 1,052 total. Completing coherent resource, graphics, imaging, matrix, brush, path, text/font, icon, buffered-graphics, printing, and component-model converter groups, followed by typed graphics-flush, graphics-state, and point/source-rectangle image-overload boundaries, reduced the current debt to 48 missing types, 292 missing members, 47 other diagnostics, and 387 total. The first image-overload slice adds point/integer placement, unscaled/clipped drawing, source-rectangle-at-point drawing, and float-source rectangle callback/attributes overloads over the existing typed retained-texture path. It preserves exact source pixels and dimensions, clips without stretching, applies image remapping, and honors abort callbacks before recording; no screen capture, HDC, or platform bitmap is introduced. The destination-point follow-up adds all ten array overloads with affine parallelogram and homogeneous perspective-quad mapping in the managed GPU renderer, exact affine native lowering, and explicit native rejection for projective commands the current native wire cannot represent. The graphics-state slice adds the official `CompositingMode` identity, source-over/source-copy state, rendering origin, text contrast, allocation-free `TransformElements`, ordered world-transform overloads, and rectangle visibility overloads. `SourceCopy` records a balanced typed `GpuBlendMode.Src` scope, survives intermediate flushes, and replaces destination alpha in production bitmap rendering. Rendering origin shifts the retained 8×8 hatch coordinate space with a two-float payload, preserving the existing bounded hatch-lowering allocation gate. Save/restore retains the new state; vector text keeps `TextContrast` as validated compatibility state because its glyph coverage is not GDI raster contrast. `Drawing2D.FlushIntention` and both official `Graphics.Flush` overloads have functional bitmap and hosted-recorder behavior rather than API-only storage: batches are balanced before handoff, persistent clip and compositing state is restored for subsequent drawing, `Sync` polls the explicit WebGPU device, and a recorder without a submission target fails at an explicit boundary. The formatted-text slice removes sixteen exact member suppressions by completing the official string/span draw and measurement entry points and routing measurable ranges through typed shaped-cluster selection geometry. Wrapped lines, alignment offsets, clipped versus `NoClip` bounds, empty-span validation order, and bounded warmed measurement allocation now have focused gates. The retained-primitive slice removes 56 exact member suppressions by routing every official arc, Bézier, cardinal/closed-curve, pie, rectangle, rounded-rectangle, and fill-rule overload—including the .NET 10 span surface—through typed `GraphicsPath`/`PathGeometry` and analytic rectangle commands. `Font`, `FontFamily`, `FontCollection`, `GenericFontFamilies`, `InstalledFontCollection`, and `PrivateFontCollection` now use exact typed ProGPU catalog resolution, owned private file/memory faces, real OpenType metrics, canonical overload/base/interface shapes, independent snapshots, explicit fallback identity, and allocation-free warmed metric reads. Native GDI pointer interfaces remain reviewed platform-boundary debt. `HatchBrush` and the complete `HatchStyle` enum lower all 53 concrete styles to deterministic two-color 8×8 tiles consumed by both managed and native ProGPU paths. The sealed `TextureBrush` now supplies every official constructor, clone/interface shape, mutable wrap mode, and transform operation over an owned bitmap snapshot. Rectangle, ellipse, path, polygon, curve, rounded-rectangle, and region fills share typed texture commands and rectangular or retained-geometry clips; tile, mirror-X, mirror-Y, mirror-XY, clamp, crop, remap, color-matrix, brush transform, and graphics transform behavior are applied instead of stored or ignored. The imaging slice includes the official `ColorMap`, `ColorPalette`, `PaletteFlags`, `PaletteType`, `DitherType`, complete `PixelFormat` and `ImageFormat` identities, `PropertyItem`, `Encoder`, `EncoderParameter`, `EncoderParameters`, and truthful managed `ImageCodecInfo` discovery shapes; defensively snapshotted/cloned image metadata, codec descriptors, and `ImageAttributes` state; behaviorally applied bitmap and palette remap/matrix operations rather than API-only storage; CPU-only image resolution/tag/frame/bounds contracts; deterministic fixed and optimal palette generation; typed scan0/caller-buffer pixel-memory conversion across packed, indexed, premultiplied, and high-depth formats; functional `ConvertFormat` palette, alpha-threshold, ordered/spiral/error-diffusion, and reduced-direct-color quantization; and managed PNG/BMP/JPEG encoding with typed JPEG quality selection. `Drawing2D.Matrix` now has its official base/sealed shape and functional parallelogram, composition, pivot, shear, inverse, point/vector, array/span, value, cloning, and disposal contracts. `Blend`, `ColorBlend`, and `LinearGradientBrush` now provide the official public surface plus functional scalable-angle geometry, state ownership, transforms, gamma/spread mapping, custom stops, and renderable triangular/bell falloffs. `GraphicsPath`, `PathData`, `PathPointType`, and `GraphicsPathIterator` now expose source-compatible path construction, shaped text outlines, cardinal curves, clone/composition, point/type export and iteration, analytic bounds, transforms, fill and outline hit-testing, widening, perspective/bilinear warping, reversal, and adaptive flattening directly over retained ProGPU geometry. The missing-member and other-shape subtotals are not monotonic: once a formerly absent type is added, ApiCompat can report the still-missing members and shape details on that type. The committed suppression file is the reviewed current debt and the gate rejects both new and stale suppressions.
+
+The first metafile checkpoint restores the complete eight-type public identity
+group and every official `Metafile` constructor/header/handle/play-record member.
+File and stream construction now snapshots and transactionally parses bounded
+placeable-WMF, standard-WMF, EMF, and initial embedded EMF+ record tables;
+header queries, cloning, non-seekable streams, checksum/signature/alignment/count
+validation, and explicit Windows handle/HDC seams have focused gates. The
+second checkpoint restores all 36 `Graphics.EnumerateMetafile` overloads over
+the owned record table. It pins the source snapshot for the callback lifetime,
+exposes payload spans without per-record copies, preserves EMF+ source order,
+stops on `false`, validates all destination/source overload families, and
+matches the managed adapter's null playback-callback behavior. Focused tests
+execute every overload and enforce a warmed 4,098-record allocation ceiling.
+This reduces measured debt further from 54 to 18 missing members and from 69
+to 33 total diagnostics. The portable comment-recording checkpoint adds
+`ProGPU.SystemDrawing.PortableMetafile.Create`, an HDC-free, caller-owned stream
+target, exclusive `Graphics.FromImage` recording lifetime, and functional
+`Graphics.AddMetafileComment`. It encodes bounded, aligned EMF+ comment records
+inside a valid EMF transport, reparses the owned output before publication,
+and leaves the caller's stream open. Input arrays are copied immediately;
+read-only targets, invalid bounds, concurrent/repeated recorders, incomplete
+headers, and disposed owners fail explicitly. Ordinary drawing records are not
+silently discarded: this initial encoder aborts without writing when its
+retained command list is nonempty. The checkpoint removes the last missing
+member suppression, leaving zero missing types, zero missing members, and 13
+    reviewed shape diagnostics. It does not claim drawing-record encoding.
+    The following direct-playback slice adds transactional `Graphics.DrawImage`
+    lowering for an initial bounded EMF vector family: affine destination/source
+    mapping; `MM_TEXT` and anisotropic window/viewport state; world transforms;
+    save/relative restore including clip state; fill/background state and
+    `R2_COPYPEN`; move/line, rectangle, ellipse,
+    polygon/polyline/poly-polygon/poly-polyline; intersect-clip rectangles; and
+    solid/null cosmetic pens and brushes with stock/dynamic object selection.
+    The parser accepts the bounded legacy EMF record-count convention that
+    excludes `EMR_HEADER`, as used by a canonical WinForms test asset, while
+    rejecting every other count mismatch. Unsupported or malformed records report their type and
+    source offset and publish no partial commands. A follow-up WMF path decodes
+    16-bit Y/X state parameters, uses the required lowest-free object-table
+    allocation, and supports the state, solid/null pen/brush, polygon, polyline,
+    and counterclockwise arc records used by the canonical LibreWinForms
+    `telescope_01.wmf` asset, plus filled/stroked rectangles and ellipses and
+    rounded rectangles, pies, chords, poly-polygons, current-position lines,
+    explicit-color device pixels, and exact pattern-copy/blackness/whiteness
+    rectangle blits, plus intersect/exclude/offset rectangle clip
+    state. Typed `CREATEFONTINDIRECT`, `SETTEXTCOLOR`, and charset-decoded
+    `TEXTOUT` add selected font/color output, alignment/current-position state,
+    transparent or measured opaque backgrounds, and retained underline/strikeout
+    decorations from selected WMF font flags. Matching compatible-mode font
+    escapement/orientation rotates baselines, glyphs, backgrounds, and
+    decorations in device space and advances `TA_UPDATECP` along the rotated
+    baseline. Typed `META_SETTEXTCHAREXTRA` state adds its unsigned logical-unit
+    spacing to every character cell when text uses default spacing, rounds the
+    transformed value to a device pixel outside `MM_TEXT`, and participates in
+    alignment, measured backgrounds, rotated current-position updates, and
+    SaveDC/RestoreDC. An explicit `EXTTEXTOUT` `Dx` array overrides that default
+    spacing. Typed `META_SETTEXTJUSTIFICATION` distributes its total extra among
+    space break characters, carries integer remainder across text runs, and
+    participates in the same map, rotation, extent, and saved-state path.
+    `EXTTEXTOUT` adds explicit
+    opaque/clipped rectangles, RTL layout without explicit advances, and signed
+    one-byte-character advances. WMF SaveDC and relative RestoreDC
+    snapshot window/viewport origins and extents, current point, world
+    transform, fill/map/background/raster/text/background-color settings,
+    selected pen, brush, and font, text color, and the typed `GraphicsState` clip; restoration
+    therefore removes inner clip changes without losing the outer clip. Typed
+    `MM_TEXT`/`MM_ANISOTROPIC` state now includes set/offset origins and y-first
+    ratio scaling for both window and viewport extents. Four-point
+    perspective, image attributes, paths,
+    `EXTTEXTOUT` glyph-index, numeric-substitution, two-dimensional, DBCS-
+    advance, and bidi-advance modes, independent escapement/orientation,
+    vertical fonts, SYMBOL
+    glyph-index mapping, source-required playback-DC pixels, other
+    WMF drawing families, and nonstructural EMF+ drawing remain
+    explicit follow-up work. Contract, security bounds, and benchmark evidence are recorded
+in
+[`docs/research/system-drawing-metafile-contract.md`](research/system-drawing-metafile-contract.md).
+
+The typed EMF fixed-geometry follow-up adds `EMR_SETARCDIRECTION`, `EMR_ARC`,
+`EMR_PIE`, `EMR_CHORD`, `EMR_ROUNDRECT`, and `EMR_SETPIXELV` over the existing
+managed `Graphics` primitives. The official counterclockwise default and
+clockwise alternative survive SaveDC/RestoreDC; malformed directions and
+degenerate bounds abort transactional publication. Open arcs, center-radial
+pies, straight-closure chords, rounded fill/outline geometry, and transformed
+one-device-pixel color output have focused retained-command and raster gates.
+No native handle, runtime reflection, or compatibility-shaped object is added.
+
+The current-position and compact-vector follow-up adds 32- and 16-bit
+Bezier/BezierTo/PolylineTo, PolyDraw, polygon/polyline/poly-poly, ArcTo, and
+AngleArc records. It validates exact variable layouts and cubic/type groupings,
+sign-extends compact points, preserves the most recent MoveTo figure origin
+through SaveDC/RestoreDC, and distinguishes records that must not change the
+current point from the `To`, ArcTo, AngleArc, and PolyDraw forms that must.
+PolyDraw closes across record boundaries to that saved figure origin. ArcTo
+uses the shared radial-intersection decoder and saved direction, while
+AngleArc converts the documented counterclockwise angle convention before
+lowering to typed retained geometry. Malformed records still roll back the
+entire temporary command stream.
+
+The EMF clip-state follow-up adds exact typed `EMR_OFFSETCLIPRGN` and
+`EMR_EXCLUDECLIPRECT` dispatch. Both use the active logical-to-device transform
+and existing `GraphicsState` clip snapshots, so relative RestoreDC removes an
+inner moved/excluded scope without losing the outer intersection. Exact point
+and ordered-rectangle layouts are validated before drawing, and a malformed
+record rolls back earlier temporary geometry.
+
+The EMF path-bracket follow-up adds typed Begin/End/Close/Abort lifecycle,
+fill/stroke, flatten/widen, five-mode clip selection, and saved miter-limit
+state. Every implemented vector family captures managed `GraphicsPath`
+geometry while a bracket is open, applying each record's transform immediately
+so later DC changes cannot relocate earlier points. Selected paths are consumed
+by fill, stroke, combined stroke/fill, or clip operations; malformed lifecycle,
+payload, mode, or unsupported text-outline capture aborts transactional
+publication. Raster, retained-command, per-vector-family, transform-change,
+selected-path consumption, widening, abort, and rollback gates cover the slice
+without native handles, reflection, or compatibility-shaped objects.
+
+The type-scoped bitmap-resource slice restores `Bitmap(Type, string)` as a
+functional managed path for designer and control artwork embedded beside its
+owning type. It performs the exact case-sensitive namespace-scoped manifest
+lookup, decodes through the existing owned ProGPU bitmap pipeline, and closes
+the resource stream before construction returns. The lookup is the API's
+explicit typed contract, not an assembly scan or shape probe. This removes one
+exact member suppression, reducing measured debt to 17 missing members and 32
+total diagnostics. Contract and focused-test evidence is recorded in
+[`docs/research/system-drawing-bitmap-resource-contract.md`](research/system-drawing-bitmap-resource-contract.md).
+
+The cumulative graphics-context slice restores all three `GetContextInfo`
+members. It tracks the transform active when each clip is applied, composes
+saved contexts in stack order, returns an independently owned cumulative clip,
+and keeps the offset-only overload allocation-free when warm. The legacy
+object-array form retains its official obsolete marker and returns a `Region`
+plus full `Matrix`; the newer clip overload returns null for an infinite clip.
+This removes three exact member suppressions, reducing measured debt to 14
+missing members and 29 total diagnostics. Contract, canonical WinForms usage,
+and focused-test evidence is recorded in
+[`docs/research/system-drawing-graphics-context-contract.md`](research/system-drawing-graphics-context-contract.md).
+
+The managed icon-extraction slice restores all three `ExtractAssociatedIcon`
+and `ExtractIcon` members over bounded ICO and PE-resource parsing. It supports
+zero-based group indices, negative numeric group-resource identifiers,
+closest-frame size selection and resampling, source-independent owned pixels,
+and managed-image fallback for associated icons. The parser validates every PE
+header, resource-directory, RVA, and payload extent and never loads or executes
+the source file. Shell associations and native HICON transport remain explicit
+platform work. This removes three exact suppressions, reducing measured debt to
+11 missing members and 26 total diagnostics. Contract and focused-test evidence
+is recorded in
+[`docs/research/system-drawing-icon-extraction-contract.md`](research/system-drawing-icon-extraction-contract.md).
+
+The managed serialization/base-shape slice restores the canonical
+`MarshalByRefObject` base for `Graphics` and `Icon`, plus owned `ISerializable`
+contracts for `Icon` and `Image`. Icon snapshots retain the canonical
+`IconData`/`IconSize` fields; bitmaps retain the canonical `Data` field and use
+the existing managed encoder, while metafiles retain their validated owned
+source. The native `IGraphics`, `IImage`, `IPointer`, and
+HDC handle shapes remain explicit adapter debt rather than empty lookalikes.
+Completing `Icon` serialization exposes its separate internal
+`IIcon : IHandle<HICON>` diagnostic, so the type-level native-shape suppression
+remains. This removes two reviewed base-type suppressions, reducing other
+diagnostics to 13 and total diagnostics to 24. Contract and focused-test
+evidence is recorded in
+[`docs/research/system-drawing-managed-serialization-shape-contract.md`](research/system-drawing-managed-serialization-shape-contract.md).
+
+The typed desktop-capture slice restores all four `Graphics.CopyFromScreen`
+overloads over a process-scoped `ProGPU.SystemDrawing.IDesktopCaptureService`.
+The provider fills caller-owned exact-length RGBA8 storage and cannot retain
+its span; the retained drawing command owns the captured pixels after return.
+SourceCopy plus the documented capture/no-mirror modifiers is functional.
+Missing providers and destination/pattern-dependent raster operations fail at
+explicit typed boundaries instead of importing an HDC or rendering a fake
+application-only desktop. This removes four exact member suppressions,
+reducing measured debt to 7 missing members and 20 total diagnostics. Contract,
+ownership, platform-boundary, and allocation evidence is recorded in
+[`docs/research/system-drawing-desktop-capture-contract.md`](research/system-drawing-desktop-capture-contract.md).
+
+The typed native-image-import slice restores `Bitmap.FromHicon` and
+`Bitmap.FromResource` and makes the already-present `Icon.FromHandle` image
+path functional. A process-scoped `INativeImageImportService` receives the
+original handle/name and writes exactly one positive, exact-length RGBA8 image
+into a guarded destination. The destination synchronously copies provider
+storage and becomes inactive after return, so the resulting bitmap owns its
+pixels without retaining an HICON, module, resource pointer, or provider
+buffer. Missing, duplicate, late, and incorrectly sized writes fail explicitly;
+missing providers remain a typed local-OS boundary. This removes two exact
+member suppressions, reducing measured debt to 5 missing members and 18 total
+diagnostics. Contract, ownership, validation, and allocation evidence is
+recorded in
+[`docs/research/system-drawing-native-image-import-contract.md`](research/system-drawing-native-image-import-contract.md).
+
+The typed native font/graphics interop slice restores `Font.FromHdc`,
+`Graphics.FromHdcInternal`, `Graphics.FromHwndInternal`, and
+`Graphics.GetHalftonePalette`, and replaces the previous placeholder behavior
+of the public HDC/HWND entries. Independent process-scoped
+`INativeFontInteropService` and `INativeGraphicsInteropService` contracts carry
+exact native handles into explicit local-OS adapters. Adapters return owned,
+typed `Font` or `Graphics` products and may preserve ProGPU bounds, transforms,
+flush, target-device, and completion contracts; zero HDCs, missing providers,
+and null products fail explicitly. Portable tests now create retained recorders
+through `FromProGpuDrawingContext` instead of treating a zero HWND as an empty
+fake window. This removes four exact member suppressions, reducing measured
+debt to 1 missing member and 14 total diagnostics at that checkpoint. The
+subsequent portable metafile-comment recorder removes that final missing member.
+Contract, lifetime, boundary, and allocation evidence is recorded in
+[`docs/research/system-drawing-native-interop-contract.md`](research/system-drawing-native-interop-contract.md).
+
+`MetafileBenchmarks.Enumerate4098RecordsWithoutPayloadCopies` guards the owned,
+pinned callback walk independently from parsing. The 2026-08-27 ARM64/.NET
+10.0.11 ShortRun measured a 1.593 microsecond median (1.495 microsecond mean,
+0.177 microsecond standard deviation) with zero managed allocation. The focused
+suite independently executes all 36 overloads and permits at most 4,096 bytes
+    across sixteen warmed 4,098-record walks. This remains enumeration evidence;
+    direct rendering has its own gate below.
+
+`MetafileBenchmarks.Playback256RectanglesToRetainedCommands` measures typed EMF
+record traversal, state lowering, transactional temporary recording, append,
+and cleanup. The 2026-08-27 ARM64/.NET 10.0.11 ShortRun measured a 154.013
+microsecond median (163.161 microsecond mean, 32.602 microsecond standard
+deviation) and 305.26 KB allocation for 256 filled rectangles. This first
+coarse baseline includes transactional command/resource ownership and is an
+optimization target, not a zero-allocation claim. Focused gates independently
+verify pixels, destination transforms, saved/map/world state, explicit feature
+boundaries, saved clip and multi-polygon behavior, and rollback after partial
+temporary lowering. A local unchanged-asset smoke renders the canonical
+WinForms `milkmateya01.emf` fixture end to end; the repository-owned synthetic
+gates preserve the same required record families for standalone ProGPU CI.
+
+`MetafileBenchmarks.Playback256EmfArcFamilyToRetainedCommands` guards 256
+alternating open arc, pie, and chord records with explicit clockwise state. The
+2026-08-31 ARM64/.NET 10.0.11 ShortRun measured a 129.7 microsecond mean (8.87
+microsecond standard deviation) and 258.04 KB allocated. The three-iteration,
+denied-priority run is coarse local regression evidence; exact direction,
+closure, SaveDC/RestoreDC, rounded-corner, pixel-color, and rollback tests are
+authoritative. The complete drawing suite passes 462/462 and ApiCompat remains
+at zero missing types, zero missing members, and 13 reviewed differences.
+
+`MetafileBenchmarks.Playback256EmfPolyDraw16ToRetainedCommands` guards 256
+compact MoveTo-plus-cubic records. The 2026-08-31 ARM64/.NET 10.0.11 ShortRun
+measured a 230.0 microsecond median (239.1 microsecond mean, 31.53 microsecond
+standard deviation) and 483.46 KB allocated. Three iterations and denied
+priority elevation make this coarse local evidence; eight focused gates remain
+the current-position, signed-storage, closure-origin, orientation, malformed-
+input, and rollback authority. The complete drawing suite passes 470/470 and
+ApiCompat remains at zero missing types, zero missing members, and 13 reviewed
+differences.
+
+`MetafileBenchmarks.Playback256EmfOffsetExcludeClipSequences` guards 256 saved
+offset/exclude/rectangle/restore groups. The 2026-08-31 ARM64/.NET 10.0.11
+ShortRun measured a 5.499 millisecond median (5.566 millisecond mean, 1.306
+millisecond standard deviation) and 2.41 MB allocated. Three iterations and
+denied priority elevation make this coarse state-heavy evidence; exact moved,
+excluded, restored, and transactional-rollback pixels are authoritative. The
+complete drawing suite passes 472/472 and ApiCompat remains at zero missing
+types, zero missing members, and 13 reviewed differences.
+
+`MetafileBenchmarks.Playback256EmfRegionDataClipSelections` guards 256 two-
+rectangle `EMR_EXTSELECTCLIPRGN` records cycling through all five region modes
+behind an `EMR_SETMETARGN` boundary. The 2026-08-31 ARM64/.NET 10.0.11 ShortRun
+measured a 10.177 millisecond median (10.257 millisecond mean, 0.623 millisecond
+standard deviation) with 19.72 MB allocated. Three iterations and denied
+priority elevation make this coarse local state-heavy evidence. The focused
+64-selection gate independently measured 5,516,529 warmed bytes per complete
+playback and enforces a 4-7 MiB window. Region scan materialization is therefore
+an explicit optimization target, while exact combine-mode, metaclip, transform,
+SaveDC/RestoreDC, malformed-input, and transactional pixel tests remain the
+correctness authority.
+The complete drawing suite passes 503/503 and ApiCompat remains at zero missing
+types, zero missing members, and 13 reviewed differences.
+
+`MetafileBenchmarks.Playback256EmfDibImagesToRetainedCommands` guards the
+shared bounded BI_RGB decoder and typed retained-texture lowering used by
+`EMR_STRETCHDIBITS` and `EMR_SETDIBITSTODEVICE`. The 2026-08-31
+ARM64/.NET 10.0.11 ShortRun measured a 69.391 ms median (64.169 ms mean,
+18.101 ms standard deviation) and 501.73 KB allocated for 256 two-by-two
+embedded images. Three measured iterations, denied priority elevation, and
+high timing variance make this coarse local allocation/command-ownership
+evidence rather than a throughput claim. Twelve focused cases independently
+cover exact bottom-up/top-down pixels and stride, source clipping/crop,
+mirroring, transforms, all six BI_RGB bit depths, partial scan bands in both
+orientations, saved stretch sampling, buffer/range/ROP failures, transactional
+rollback, and a warmed 64-image allocation ceiling. Unsupported compression
+fails at a named boundary; logical-palette color usage and JPEG/PNG transport
+are covered by subsequent typed checkpoints. ApiCompat is unaffected because this closes managed behavior behind
+the existing public surface.
+
+`MetafileBenchmarks.Playback256EmfBitmapBltsToRetainedCommands` extends the
+bounded EMF source-image path to `EMR_BITBLT` and `EMR_STRETCHBLT`. The records
+validate disjoint record-relative bitmap buffers, decode through the shared DIB
+and logical-palette path, retain fractional source rectangles, and support
+source-XFORM scale, translation, and mirroring. Rotation and shear are rejected
+at the same explicit source-transform boundary documented by native BitBlt, and
+source-independent ROP3 records may omit the source buffers without sampling a
+fake device context. Focused gates cover both records, crop/stretch pixels,
+transform mirroring, omitted-source pattern copy, malformed-record transactional
+rollback, and warmed allocation.
+
+The 2026-09-01 ARM64/.NET 10.0.11 in-process ShortRun measured a 6.037 ms median
+(6.721 ms mean, 3.214 ms standard deviation) and 501.77 KB allocated for 256
+alternating records. Three iterations, denied priority elevation, a
+minimum-iteration warning, and high variance make this allocation/command-shape
+evidence rather than a throughput claim. The isolated toolchain exceeded its
+120-second generated-build timeout before measurement on this host. The full
+System.Drawing suite passes 600/600 in Debug and Release; ApiCompat remains at
+zero missing types, zero missing members, and 13 reviewed shape diagnostics.
+
+`MetafileBenchmarks.Playback256EmfImageBlendsToRetainedCommands` extends the
+same typed transfer envelope to `EMR_ALPHABLEND` and `EMR_TRANSPARENTBLT`.
+AlphaBlend supports global alpha and validated premultiplied 32-bit `BI_RGB`
+per-pixel alpha; TransparentBlt applies an exact typed color key to non-32-bit
+sources. Both require complete source bounds, disjoint record-relative buffers,
+positive nonmirrored rectangles, and an axis-only source transform. Adjusted
+JPEG/PNG alpha and 32-bit TransparentBlt destination-alpha composition fail at
+documented typed boundaries rather than being approximated.
+
+Seven focused cases cover exact alpha/color-key pixels, transformed sampling,
+malformed premultiplication and offsets, unsupported variants, transactional
+rollback, and a warmed 64-record allocation ceiling. The 2026-09-01 ARM64/.NET
+10.0.11 in-process ShortRun measured an 8.178 ms median (8.612 ms mean, 1.250 ms
+standard deviation) and 1.1 MB allocated for 256 alternating records. Three
+iterations, denied priority elevation, and the wide confidence interval make
+this command-playback/allocation evidence, not a throughput claim. The complete
+System.Drawing suite passes 607/607 in Debug and Release; ApiCompat remains at
+zero missing types, zero missing members, and 13 reviewed shape diagnostics.
+
+`EMR_GRADIENTFILL` now lowers rectangle-horizontal, rectangle-vertical, and
+triangle vertex-color meshes through typed `VertexMesh2D` commands. Exact record
+lengths, DWORD indices, modes, bounds, and rectangle ordering are validated
+before output allocation; rectangle padding and `TRIVERTEX.Alpha` follow their
+documented ignored semantics. Retained geometry/color assertions, raster
+interpolation, transforms, empty input, path rejection, transactional malformed
+input, and a 512 KB warmed 64-record allocation ceiling form the correctness
+gate. The 2026-09-01 ARM64/.NET 10.0.11 in-process ShortRun measured a 379.401
+microsecond median (411.111 microsecond mean, 93.315 microsecond standard
+deviation) and 348.97 KB allocated for 256 alternating rectangle/triangle
+records. The three-iteration result is a coarse allocation/command checkpoint,
+not a throughput claim. The complete Release suite passes 612/612 and ApiCompat
+remains at 0 missing types, 0 missing members, and 13 reviewed shape diagnostics.
+
+The current enum/switch inventory is 165 handled of 192 enum-backed EMF/WMF
+records, with 27 explicit unsupported boundaries; handled does not imply full
+semantic parity. The latest implementation batch adds typed `EMR_EXTCREATEPEN`
+objects (geometric/cosmetic styles, custom dashes, caps, joins, hatch and DIB
+paint), EMF region fill/paint/frame/destination-invert, full WMF scan-region
+object/drawing/clip playback, saved mapper flags, and the specified reserved
+record behavior. Three focused retained-command gates pass; the complete suite,
+allocation ceiling, and performance benchmark remain intentionally deferred
+until the implementation batch closes.
+
+`MetafileBenchmarks.Playback256WmfDibImagesToRetainedCommands` extends that
+same decoder and retained-texture gate to source-bearing `META_DIBBITBLT`,
+`META_DIBSTRETCHBLT`, `META_STRETCHDIB`, and `META_SETDIBTODEV`. Packed
+BITMAPINFO/color-table boundaries are validated before the exact remaining bytes
+are decoded as rows; direct-color optimization tables are skipped without being
+misread as pixels. The 2026-08-31 ARM64/.NET 10.0.11 ShortRun measured an
+18.268 ms median (18.582 ms mean, 9.289 ms standard deviation) and 501.73 KB
+allocated for 256 packed two-by-two images. Three iterations, denied priority
+elevation, and high timing variance make this coarse ownership/allocation
+evidence. Ten focused cases independently cover all four layouts, bottom-up
+padding, top-down and bottom-up partial bands, packed color tables, retained
+sampling, malformed usage/ROP/scan/buffer inputs, transactional rollback,
+source-required playback-DC boundaries, and a warmed allocation ceiling.
+Source-required playback-device-context pixels remain an explicit typed
+boundary.
+ApiCompat remains 0/0/13.
+Both complete Debug and Release drawing suites pass 569/569.
+
+`MetafileBenchmarks.Playback256BitFieldDibImagesToRetainedCommands` extends the
+same shared decoder to 16/32-bit `BI_BITFIELDS`. Forty-byte headers supply three
+external masks; V4/V5 headers supply embedded masks and an optional alpha mask.
+Nonzero RGB masks and any alpha mask must be contiguous, in-range, and disjoint
+before allocation, while arbitrary channel widths scale with rounded integer
+math. Exact packed splitting accounts for external masks and direct-color
+optimization tables. Seven focused cases cover RGB565 through all three header
+sizes, custom 32-bit channel order and alpha, packed WMF tables, malformed-mask
+rollback in both EMF and WMF, and warmed allocation. The 2026-08-31
+ARM64/.NET 10.0.11 ShortRun measured a 17.411 ms median (16.561 ms mean,
+9.096 ms standard deviation) and 501.79 KB allocated for 256 packed RGB565
+images. Three iterations, denied priority elevation, and high timing variance
+make this allocation and ownership evidence, not a throughput comparison.
+
+`MetafileBenchmarks.Playback256RleDibImagesToRetainedCommands` extends the
+shared DIB path to bottom-up 8-bit `BI_RLE8` and 4-bit `BI_RLE4`. The bounded
+state machine validates encoded and absolute runs, RLE4 nibble alternation,
+word padding, end-of-line/end-of-bitmap escapes, deltas, exact `biSizeImage`,
+cursor/run bounds, and palette indexes before retained pixels publish. Skipped
+pixels use palette index zero, and partial `SetDIBitsToDevice` bands decode only
+their supplied rows. Six focused cases cover RLE8/RLE4 pixels, EMF/WMF scan
+bands, malformed-stream transactional rollback in both formats, and warmed
+allocation. The 2026-08-31 ARM64/.NET 10.0.11 ShortRun measured a 30.944 ms
+median (25.515 ms mean, 16.116 ms standard deviation) and 509.73 KB allocated
+for 256 packed two-by-two RLE8 images. Three iterations and high timing variance
+make this allocation and command-ownership evidence rather than a throughput
+claim. The official contracts are
+[`Bitmap Compression`](https://learn.microsoft.com/en-us/windows/win32/gdi/bitmap-compression),
+[`Compression`](https://learn.microsoft.com/en-us/openspecs/windows_protocols/ms-wmf/4e588f70-bd92-4a6f-b77f-35d0feaf7a57), and the
+[`RLE4 bitmap example`](https://learn.microsoft.com/en-us/openspecs/windows_protocols/ms-wmf/73b57f24-6d78-4eeb-9c06-8f892d88f1ab).
+
+`MetafileBenchmarks.Playback256EncodedDibImagesToRetainedCommands` extends the
+same DIB records to complete `BI_JPEG` and `BI_PNG` file buffers. The metafile
+layer requires bit count zero, positive dimensions, no color table, exact
+nonzero `biSizeImage`, a compression-matching signature, and codec dimensions
+equal to the header before pixel allocation. WMF word padding is excluded from
+the encoded buffer and decode failures roll back the complete temporary command
+stream. For `SetDIBitsToDevice`, the complete validated JPEG/PNG file is decoded
+once per record and `StartScan`/`cScans` selects only the requested decoded rows.
+Focused cases cover PNG pixels, crop/mirroring, JPEG color bounds, odd-sized WMF
+buffers, complete and partial EMF/WMF set-DIB images for both encoded formats,
+malformed buffer/codec and out-of-range scan rollback in both formats, and
+warmed allocation. The 2026-08-31 ARM64/.NET 10.0.11
+ShortRun measured a 19.527 ms median (18.959 ms mean, 3.838 ms standard
+deviation) and 743.78 KB allocated for 256 packed two-by-two PNG images. Three
+iterations and timing variance make this allocation and command-ownership
+evidence rather than a throughput claim. The official contracts are the
+[`BITMAPINFOHEADER`](https://learn.microsoft.com/en-us/previous-versions/dd183376%28v%3Dvs.85%29),
+[`SetDIBitsToDevice`](https://learn.microsoft.com/en-us/windows/win32/api/wingdi/nf-wingdi-setdibitstodevice), and
+[`JPEG and PNG bitmap extensions`](https://learn.microsoft.com/en-us/windows/win32/gdi/jpeg-and-png-extensions-for-specific-bitmap-functions-and-structures).
+
+`MetafileBenchmarks.Playback256EncodedDibScanBandsToRetainedCommands` guards
+that scan-band continuation with 256 packed `BI_PNG` `META_SETDIBTODEV`
+records. The 2026-09-01 ARM64/.NET 10.0.11 ShortRun measured a 21.815 ms median
+(28.512 ms mean, 15.321 ms standard deviation) and 743.85 KB allocated. Three
+iterations, denied priority elevation, and high variance make this a component
+checkpoint; exact JPEG/PNG pixels, transactional failure, and the warmed
+allocation ceiling remain the quality gates.
+
+`MetafileBenchmarks.Playback256LogicalPaletteDibImagesToRetainedCommands`
+extends the shared indexed-image path to `DIB_PAL_COLORS` and
+`DIB_PAL_INDICES`. Typed EMF and WMF palette objects support create, select,
+set, resize, realize, WMF animation, selected-object lifetime, and saved-device-
+context restoration. Complete table/object/range/flag validation happens before
+pixel allocation or command publication; retained playback resolves logical
+colors directly, so hardware-palette realization is an explicit validated
+no-op. Six focused cases cover exact pixels in both metafile formats,
+set/resize/animation semantics, saved palette selection, malformed rollback,
+and warmed allocation. The 2026-08-31 ARM64/.NET 10.0.11 ShortRun measured a
+15.186 ms median (19.553 ms mean, 8.962 ms standard deviation) and 502.08 KB
+allocated for 256 packed two-by-two images. Three iterations, denied priority
+elevation, and timing variance make allocation and command ownership the
+authoritative evidence. The official contracts are
+[`DIBColors`](https://learn.microsoft.com/en-us/openspecs/windows_protocols/ms-emf/a5e722e3-891a-4a67-be1a-ed5a48a7fda1),
+[`EMR_CREATEPALETTE`](https://learn.microsoft.com/en-us/openspecs/windows_protocols/ms-emf/07e1492b-e4bb-4394-934f-4eaee67ab8ff), and
+[`META_ANIMATEPALETTE`](https://learn.microsoft.com/en-us/openspecs/windows_protocols/ms-wmf/abac3df4-c19a-4102-9344-b5bf68fcfa99).
+
+`MetafileBenchmarks.Playback256CmykDibImagesToRetainedCommands` completes the
+official `BI_CMYK`, `BI_CMYKRLE8`, and `BI_CMYKRLE4` compression family.
+Uncompressed input requires 32-bit C/M/Y/K pixels and uses the same
+multiplicative black/colorant conversion as ProGPU's typed `Cmyk32` backend
+path. The indexed CMYK variants require bottom-up 8-bit or 4-bit input and
+reuse the exact-size bounded RLE and RGBQUAD/logical-palette machinery. Six
+focused metafile cases cover direct pixels in both orientations, mixed
+colorant/black conversion, both RLE variants, malformed transactional rollback,
+and warmed allocation. The 2026-08-31 ARM64/.NET 10.0.11 ShortRun measured a
+41.660 ms median (40.847 ms mean, 19.178 ms standard deviation) and 501.71 KB
+allocated for 256 packed two-by-two images. Three iterations, denied priority
+elevation, and high variance make allocation and ownership authoritative. The
+official contracts are the
+[`Compression enumeration`](https://learn.microsoft.com/en-us/openspecs/windows_protocols/ms-wmf/4e588f70-bd92-4a6f-b77f-35d0feaf7a57),
+[`DeviceIndependentBitmap object`](https://learn.microsoft.com/en-us/openspecs/windows_protocols/ms-wmf/7376542a-cce9-4625-8ead-585e9538f9f1), and
+[`CMY and CMYK color spaces`](https://learn.microsoft.com/en-us/windows/win32/wcs/cmy-and-cmyk-color-spaces).
+
+`MetafileBenchmarks.Playback256NotSourceCopyDibImagesToRetainedCommands`
+extends every source-bearing EMF/WMF DIB family beyond `SRCCOPY` with the
+destination-independent common `BLACKNESS`, `WHITENESS`, `NOTSRCCOPY`, and
+selected-brush `PATCOPY` operations. Black, white, and pattern copies fill the
+same clipped and transformed destination parallelogram. `NOTSRCCOPY` performs
+an exact bitwise inversion of straight RGB channels while preserving alpha and
+correctly crossing premultiplied storage. Destination-dependent AND/OR/XOR and
+merge operations continue to reject transactionally until a typed destination-
+read composition seam exists. Three focused cases cover exact inversion,
+black/white/pattern output, rollback coverage, and warmed allocation. The
+2026-09-01 ARM64/.NET 10.0.11 in-process ShortRun measured a 51.551 ms median
+(61.174 ms mean, 23.446 ms standard deviation) and 605.85 KB allocated for 256
+packed two-by-two images. Three iterations, denied priority elevation, and high
+variance make correctness and allocation authoritative. The official contract
+is the
+[`TernaryRasterOperation enumeration`](https://learn.microsoft.com/en-us/openspecs/windows_protocols/ms-wmf/1605dd68-a635-4639-ab81-99ff3e3fc5a3).
+
+`MetafileBenchmarks.Playback256WmfSourceIndependentBitmapRecordsToRetainedCommands`
+extends source-independent playback to the official no-source layouts of
+`META_BITBLT`, `META_STRETCHBLT`, `META_DIBBITBLT`, and
+`META_DIBSTRETCHBLT`. `BLACKNESS`, `WHITENESS`, and selected-brush `PATCOPY`
+produce exact output without a fabricated source. Source-bearing
+`META_BITBLT`/`META_STRETCHBLT` records validate the full `Bitmap16` envelope
+before drawing even when the operation ignores its pixels. Five focused cases
+cover all four layouts, exact output, valid and malformed envelopes,
+source-required transactional rejection, rollback, and warmed allocation.
+The 2026-09-01 ARM64/.NET 10.0.11 in-process ShortRun measured an
+810.465 microsecond median (859.788 microsecond mean, 104.814 microsecond
+standard deviation) and 464.05 KB allocated for 256 records. Three iterations
+and denied priority elevation make the exact-pixel and deterministic allocation
+gates authoritative. The official contracts are the
+[`Bitmap16 Object`](https://learn.microsoft.com/en-us/openspecs/windows_protocols/ms-wmf/dc487315-3bb9-40c8-9f49-55ffc6152d8c),
+[`META_BITBLT Record`](https://learn.microsoft.com/en-us/openspecs/windows_protocols/ms-wmf/0d703ede-9633-47a0-a92d-c98b2bca6a2b), and
+[`META_STRETCHBLT Record`](https://learn.microsoft.com/en-us/openspecs/windows_protocols/ms-wmf/61370adb-d37d-48c4-b5dd-7f7a64e0a9ea).
+
+`MetafileBenchmarks.Playback256WmfBitmap16AdapterRecordsToRetainedCommands`
+closes embedded device-dependent bitmap-source playback through the public
+typed `WmfBitmap16DecodeServices` registration seam. The decoder receives a
+validated immutable metadata value plus the exact bounded raw bit span and
+must synchronously publish exactly one top-down straight-alpha RGBA8 snapshot.
+The destination owns its copy and rejects missing, wrong-sized, duplicate, or
+late writes. `META_BITBLT` and `META_STRETCHBLT` reuse the established typed
+crop, mirror, transform, stretch-mode, and ROP3 path after normalization. Four
+focused gates cover exact pixels and adapter metadata for both record families,
+exact `SRCINVERT` composition, registration and output failures with whole-
+stream rollback, and warmed allocation. The 2026-09-01 ARM64/.NET 10.0.11
+in-process
+ShortRun measured a 23.843 ms median (27.789 ms mean, 9.288 ms standard
+deviation) and 569.88 KB allocated for 256 embedded 8-by-8 sources. Three
+iterations, denied priority elevation, and visible timing variance make exact
+pixels, provider ownership, rollback, and allocation authoritative. The
+portable renderer never guesses the device-dependent bit layout; the
+registered local adapter owns that interpretation.
+
+`MetafileBenchmarks.Playback256DestinationDependentDibImagesToRetainedCommands`
+closes the next ROP3 behavior slice over the existing typed ProGPU offscreen
+destination-sampling seam. A `GpuRasterOperation` retained-texture value carries
+the official truth-table byte plus a solid pattern color without increasing
+the hot `RenderCommand` size. The bounded source pass preserves geometry/mask
+coverage while excluding source alpha from GDI device RGB. The full-screen pass
+quantizes source, solid pattern, and current destination to bytes, evaluates any
+of the 256 ternary Boolean functions, and publishes opaque device pixels.
+`SRCINVERT` and selected-solid-brush `PATINVERT` have exact pixel gates; retained
+round trips, clipped GPU source-memory sizing, malformed-record rollback, and a
+warmed 64-record allocation ceiling guard the non-pixel contracts. Raw
+swapchain views use one bounded bindable presentation texture plus a GPU-only
+viewport blit; offset HiDPI output has an exact pixel gate and the texture is
+memory-accounted and retired after 240 idle frames. Both complete
+Debug and Release drawing suites pass 574/574, and ApiCompat remains 0 missing
+types, 0 missing members, and 13 reviewed shape differences. The 2026-09-01
+ARM64/.NET 10.0.11 ShortRun measured a 21.579 ms median (20.781 ms mean, 1.680
+ms standard deviation) and 501.8 KB allocated for 256 packed `SRCINVERT`
+records. Three iterations and denied priority elevation make the deterministic
+correctness and allocation gates authoritative.
+
+`MetafileBenchmarks.Playback256WmfDestinationOnlyBitmapRecordsToRetainedCommands`
+extends that truth-table path to every WMF bitmap record whose ROP3 byte does
+not depend on source input, even when the official record omits its bitmap.
+The official
+[`META_BITBLT` without-bitmap contract](https://learn.microsoft.com/en-us/openspecs/windows_protocols/ms-wmf/e6dd5312-c622-4fb9-9945-22297cee3ad4)
+requires source-dependent operations in that form to fail; no playback-DC
+snapshot seam is therefore missing from the conforming portable path.
+The renderer classifies `S` dependency directly from the eight truth-table
+bits before source clipping, preserves the existing black/white/pattern fast
+paths, and uses one typed one-pixel coverage bitmap per playback for operations
+such as `DSTINVERT` and solid-brush `PATINVERT`. Source-dependent operations
+without a bitmap still reject transactionally. Exact pixels cover all four
+no-source layouts, irrelevant and out-of-range source coordinates, selected
+patterns, unchanged exterior pixels, the typed `Bitmap16` path, and a warmed
+64-record allocation ceiling. The 2026-09-01 ARM64/.NET 10.0.11 ShortRun
+measured a 454.471 microsecond median (450.983 microsecond mean, 216.582
+microsecond standard deviation) and 296.73 KB allocated for 256 `DSTINVERT`
+records. Three iterations, denied priority elevation, and high timing variance
+make the exact-pixel, transactional, and allocation gates authoritative.
+
+`MetafileBenchmarks.Playback256WmfHatchPatternCopiesToRetainedCommands`
+adds typed `BS_HATCHED` object creation to both EMF and WMF playback. All six
+official hatch orientations validate before object-table publication. The
+selected immutable hatch definition resolves through the existing managed
+`HatchBrush` path at draw time, so current `SetBkMode`/`SetBkColor` state
+controls transparent or opaque background pixels and EMF `SetBrushOrgEx`
+controls device-pattern alignment. Save/RestoreDC retains the selected object,
+background state, and rendering origin. Ordinary shape fills and the existing
+source-independent `PATCOPY` path accept the hatch brush. That foundation
+initially kept destination-reading hatch ROP3 functions explicit until the
+following typed shader-payload checkpoint. Both Debug and Release drawing suites pass
+577/577. Exact tests cover EMF and WMF foreground/background pixels,
+transparent preservation, brush-origin movement, saved-state restoration,
+`PATCOPY`, invalid-enum rollback, object lifetime, and bounded warmed
+allocation. The 2026-09-01
+ARM64/.NET 10.0.11 ShortRun measured a 161.322 microsecond median (173.049
+microsecond mean, 32.199 microsecond standard deviation) and 313.9 KB allocated
+for 256 hatch `PATCOPY` records. Three iterations, denied priority elevation,
+and timing variance make exact pixels, rollback, and retained command shape
+authoritative. The behavior follows the official
+[`LOGBRUSH`](https://learn.microsoft.com/en-us/windows/win32/api/wingdi/ns-wingdi-logbrush)
+and [`SetBkMode`](https://learn.microsoft.com/en-us/windows/win32/api/wingdi/nf-wingdi-setbkmode)
+contracts.
+
+`MetafileBenchmarks.Playback256WmfHatchPatternInvertsToRetainedCommands`
+closes destination-reading hatch ROP3 playback without increasing the hot
+`RenderCommand` size. `GpuRasterOperation` carries the existing immutable
+`TilePatternBrush` through the command's object union slot; retained pictures
+round-trip the typed mask, foreground/background colors, and brush origin, and
+value-equivalent payloads remain batchable. The bounded advanced-composition
+uniform grows from 48 to 96 bytes and evaluates the 8-by-8 mask in physical
+device pixels before the existing exact bytewise ROP3 truth table. Opaque
+background pixels participate with the current DC background color;
+transparent hatch holes preserve the destination rather than substituting a
+color. `META_PATBLT` now admits every truth-table byte independent of source
+input and continues to reject source-dependent functions transactionally.
+Exact device tests cover source/pattern/destination RGB, origin phase, opaque
+and transparent backgrounds, retained pictures, and
+uniform layout. Metafile tests cover `PATINVERT`, shared per-playback typed
+payloads, and unchanged exterior pixels. Debug and Release drawing suites pass
+579/579, ApiCompat remains 0 missing types, 0 missing members, and 13 reviewed
+shape differences, and `RenderCommand` remains within its 576-byte ceiling.
+The 2026-09-01 ARM64/.NET 10.0.11 ShortRun measured a 358.096 microsecond
+median (359.472 microsecond mean, 19.634 microsecond standard deviation) with
+296.98 KB allocated for 256 horizontal hatch `PATINVERT` records. Three
+iterations and denied priority elevation make the exact pixels, retained
+payload, and allocation gates authoritative.
+
+`MetafileBenchmarks.Playback256EmfPathBracketsToRetainedCommands` guards 256
+Begin/rectangle/End/StrokeAndFill groups. The 2026-08-31 ARM64/.NET 10.0.11
+ShortRun measured a 1.520 millisecond median (1.477 millisecond mean, 0.381
+millisecond standard deviation) with 713.5 KB allocated. Three iterations,
+denied priority elevation, and visible timing variance make this coarse local
+evidence; the focused path lifecycle, device-coordinate, pixel, retained-
+command, and rollback gates are the correctness authority.
+The complete drawing suite passes 497/497 and ApiCompat remains at zero missing
+types, zero missing members, and 13 reviewed differences.
+
+`MetafileBenchmarks.Playback256WmfRectanglesToRetainedCommands` guards the shared ordered-box decoder and typed selected brush/pen lowering. The 2026-08-31 ARM64/.NET 10.0.11 in-process ShortRun measured a 757.639 µs median (753.507 µs mean, 139.549 µs standard deviation) with 622.08 KB allocated for 256 rectangles. The three-iteration result is coarse transactional retained-command evidence; exact selected-fill pixels and shared malformed-bound rollback remain the correctness gates.
+
+`MetafileBenchmarks.Playback256WmfRectanglesWithClipState` wraps that fixture in
+an outer intersect clip and a saved inner exclude scope restored halfway
+through the 256 records. The 2026-08-31 ARM64/.NET 10.0.11 in-process ShortRun
+measured a 561.572 µs median (599.013 µs mean, 103.320 µs standard deviation)
+with 628.33 KB allocated. Three iterations make this coarse state-lowering
+evidence; independent inside, excluded-hole, restored-clip, intersection-edge,
+invalid-relative-level, and transactional-rollback gates remain authoritative.
+The complete drawing suite passes 419/419, and ApiCompat remains at zero
+missing types, zero missing members, and 13 reviewed platform annotations.
+
+`MetafileBenchmarks.Playback256WmfEllipsesToRetainedCommands` guards typed WMF ellipse playback through the selected fill and outline objects. The 2026-08-31 ARM64/.NET 10.0.11 in-process ShortRun measured a 1.060 ms median (1.109 ms mean, 0.115 ms standard deviation) with 622.14 KB allocated for 256 ellipses. The three-iteration result is coarse retained-command evidence; exact pixels and rollback after a later unsupported `STRETCHBLT` record remain the independent correctness gates.
+
+`MetafileBenchmarks.Playback256WmfRoundRectanglesToRetainedCommands` guards the
+official height/width plus bottom/right/top/left parameter order and typed
+rounded-geometry lowering through the selected fill and outline objects. The
+2026-08-31 ARM64/.NET 10.0.11 in-process ShortRun measured a 1.347 ms median
+(1.379 ms mean, 0.234 ms standard deviation) with 1.05 MB allocated for 256
+rounded rectangles. The three-iteration result is coarse curve-lowering
+evidence; exact center, antialiased outline, transparent-corner, zero-corner
+rectangle fallback, and invalid-bound rollback gates remain authoritative.
+
+`MetafileBenchmarks.Playback256WmfPiesToRetainedCommands` and
+`Playback256WmfChordsToRetainedCommands` guard the shared official radial2,
+radial1, and bottom/right/top/left parameter order while measuring the distinct
+center-radial and straight-chord closures. The 2026-08-31 ARM64/.NET 10.0.11
+in-process ShortRun measured pies at a 1.382 ms median (1.621 ms mean, 0.785 ms
+standard deviation) with 816.23 KB allocated, and chords at a 792.480 µs median
+(946.270 µs mean, 284.554 µs standard deviation) with 800.03 KB allocated.
+Three high-variance iterations make these coarse curve-lowering checkpoints;
+independent closure pixels and invalid-chord rollback after an earlier valid pie
+remain the authoritative correctness evidence.
+
+`MetafileBenchmarks.Playback256WmfLinesToRetainedCommands` guards selected-pen
+lowering and logical current-position progression. The 2026-08-31 ARM64/.NET
+10.0.11 in-process ShortRun measured a 503.124 µs median (477.934 µs mean,
+206.828 µs standard deviation) with 323.97 KB allocated.
+`Playback256WmfSetPixelsToRetainedCommands` guards explicit `COLORREF` decoding
+and one-device-pixel output after the complete graphics transform; it measured
+a 199.155 µs median (199.350 µs mean, 14.387 µs standard deviation) with 305.70
+KB allocated. Three iterations make the line result high-variance coarse
+evidence and the pixel result a local checkpoint. Exact scaled pixels,
+SaveDC/RestoreDC current-point behavior, and rollback after both supported
+records remain the correctness gates.
+
+`MetafileBenchmarks.Playback256WmfPolyPolygonsToRetainedCommands` guards the
+unsigned WMF polygon-count arrays and selected fill/outline lowering for two
+closed figures per record. The 2026-08-31 ARM64/.NET 10.0.11 in-process ShortRun
+measured a 2.405 ms median (2.542 ms mean, 0.463 ms standard deviation) with
+1.85 MB allocated for 256 records and 512 polygons. Three iterations make this
+coarse evidence and expose array/path allocation as an optimization target.
+Exact disjoint pixels, unchanged current-position behavior, invalid count
+rejection, and rollback after a later unsupported record remain the correctness
+gates.
+
+`MetafileBenchmarks.Playback256WmfMappedPixelsWithViewportState` guards 256
+balanced cycles of signed window/viewport origin offsets, y-first window and
+viewport extent ratios, and transformed one-device-pixel output. The 2026-08-31
+ARM64/.NET 10.0.11 in-process ShortRun measured a 155.282 µs median (156.556 µs
+mean, 3.099 µs standard deviation) with 305.71 KB allocated. Exact pixels cover
+`MM_ANISOTROPIC`, set/offset/scale composition, and SaveDC/RestoreDC; a zero
+denominator rollback gate remains the correctness authority.
+
+`MetafileBenchmarks.Playback256WmfPatternCopiesToRetainedCommands` guards exact
+selected-brush `PATCOPY` lowering. The 2026-08-31 ARM64/.NET 10.0.11 in-process
+ShortRun measured a 133.616 µs median (135.580 µs mean, 16.236 µs standard
+deviation) with 305.88 KB allocated for 256 records. Exact `PATCOPY`,
+`BLACKNESS`, and `WHITENESS` pixels remain the correctness gate;
+destination-dependent `PATINVERT` was explicit transactional debt at that
+checkpoint. The typed destination-read/compositing seam described below now
+supersedes it for source-bearing bitmap records.
+
+`MetafileBenchmarks.Playback256WmfPatternCopiesWithOffsetClipState` guards 256
+pattern fills surrounded by 512 balanced signed logical clip translations. The
+2026-08-31 ARM64/.NET 10.0.11 in-process ShortRun measured a 4.148 ms median
+(4.425 ms mean, 1.005 ms standard deviation) with 2.12 MB allocated. Three
+high-variance iterations expose Region clone/path repush allocation as an
+optimization target; exact old/moved/restored pixels and later-record rollback
+remain the correctness gates.
+
+`MetafileBenchmarks.Playback256WmfTextOutToRetainedCommands` guards a selected
+WMF font and 256 charset-decoded `TEXTOUT` records through typed measurement,
+brushes, and retained glyph commands. The 2026-08-31 ARM64/.NET 10.0.11
+in-process ShortRun measured an 884.902 µs median (912.665 µs mean,
+279.158 µs standard deviation) with 562.05 KB allocated. Five iterations make
+this high-variance coarse evidence. Colored glyph/background pixels, restored
+font and text-color state, and invalid-alignment rollback are the independent
+correctness gates; per-record measurement and transient brushes remain explicit
+optimization debt.
+
+Playback now reuses its typed foreground and opaque-background `SolidBrush`
+until the corresponding canonical color changes. The same five-iteration local
+ShortRun reduced allocation from 562.05 KB to 550.25 KB per operation (11.80
+KB, 2.1%). The rerun's 1.140 ms median and 1.494 ms mean were much noisier, so
+only the allocation reduction is claimed; per-record measurement remains the
+larger explicit text-playback optimization target.
+
+`MetafileBenchmarks.Playback256WmfExtTextOutWithClipAndAdvances` guards 256
+official `EXTTEXTOUT` layouts with opaque/clipped Rect objects and three signed
+character advances each. The 2026-08-31 ARM64/.NET 10.0.11 in-process ShortRun
+measured a 5.874 ms median (5.929 ms mean, 0.970 ms standard deviation) with
+3.28 MB allocated across five iterations. Exact clip/background/spaced-glyph
+pixels, current-position progression, malformed arrays, unsupported options,
+and rollback remain the correctness gates. Per-character shaping, fragmented
+glyph commands, and clip-state ownership are explicit optimization debt.
+
+The typed follow-up shapes each string once, remaps its cluster origins to the
+requested character cells, preserves fallback/mark offsets, and emits one glyph
+run per resolved font. A command-level gate proves two 20-unit-spaced characters
+remain one run. The comparable five-iteration ShortRun improved to a 5.227 ms
+median (5.474 ms mean, 0.527 ms standard deviation) and 2.66 MB allocated,
+reducing median by 0.647 ms (11.0%) and allocation by 0.62 MB (18.9%). Repeated
+layout/caret construction and Region clip state remain explicit debt.
+
+`MetafileBenchmarks.Playback256WmfRotatedExtTextOutWithAdvances` adds a
+90-degree compatible-mode font to the same 256-record explicit-advance shape.
+The first full-`GraphicsState` restoration measured 4.05 MB allocation; exact
+base-transform restoration lowers the optimized checkpoint to 2.66 MB, the same
+allocation as the unrotated workload. Its five-iteration ARM64/.NET 10.0.11
+ShortRun measured a 5.599 ms median (5.831 ms mean, 0.821 ms standard
+deviation). Command gates independently prove upward baseline rotation,
+decoration-transform identity, deterministic `TA_UPDATECP`, and transactional
+rejection of independent orientation. The complete suite passes 423/423 and
+ApiCompat remains 0/0/13.
+
+`MetafileBenchmarks.Playback256WmfSpacedRotatedTextOutToRetainedCommands`
+guards the new default-spacing path with one selected 90-degree font, one
+`META_SETTEXTCHAREXTRA`, and 256 three-character `TEXTOUT` records. The
+2026-08-31 ARM64/.NET 10.0.11 paired five-iteration in-process ShortRun measured
+a 799.768 µs median (795.294 µs mean, 24.929 µs standard deviation after one
+outlier) and 800.19 KB allocated. The paired unspaced, unrotated retained-text
+workload measured a 492.332 µs median (499.250 µs mean, 26.098 µs standard
+deviation) and 550.16 KB; it is a workload-cost reference, not an equivalence
+claim. State restoration, exact `Dx` override, non-`MM_TEXT` rounding, shaped
+glyph spacing, right alignment/background extent, rotated `TA_UPDATECP`,
+malformed-record rollback, and the complete 429/429 drawing suite are the
+correctness authority. ApiCompat remains 0/0/13.
+
+`MetafileBenchmarks.Playback256WmfJustifiedRotatedTextOutToRetainedCommands`
+adds one `META_SETTEXTJUSTIFICATION` and a break character to the preceding
+rotated default-spacing workload. Its stable managed-allocation checkpoint is
+800.26 KB versus 799.95 KB for the paired character-extra-only workload. Host
+contention made the paired five-iteration timing samples range from 5.197 ms to
+111.522 ms, so no latency comparison is valid or claimed. Fixed-size rollback,
+SaveDC/RestoreDC, exact `Dx` override, integer remainder across records,
+anisotropic total rounding, combined rotated current-position progression, and
+the complete 433/433 drawing suite are the correctness authority. ApiCompat
+remains 0/0/13.
+
+`MetafileBenchmarks.Playback256EmfExtTextOutWWithAdvances` guards the typed EMF
+Unicode text path: one object-table `LOGFONTW` and 256 three-character
+`EMR_EXTTEXTOUTW` records with record-relative UTF-16, 32-bit advances, and the
+common ASCII `ETO_IGNORELANGUAGE` form. The 2026-08-31 ARM64/.NET 10.0.11
+in-process ShortRun allocated 1.1 MB per playback (1,152,936 diagnostic bytes).
+Its three timing samples ranged from 22.188 to 49.840 ms with 14.505 ms standard
+deviation under severe host contention, so no latency baseline is claimed.
+Unicode glyph identity, cell origins, colors, `TA_UPDATECP`, saved/restored
+justification and remainder, opaque clipping, bounded/aligned offsets, invalid
+UTF-16, and transactional rollback are covered by the complete 438/438 drawing
+suite. ApiCompat remains 0/0/13.
+
+`MetafileBenchmarks.Playback256EmfExtTextOutAWithAdvances` reuses the typed EMF
+record parser and shaped advance path while decoding bytes through the selected
+logical font's GDI charset. Its 2026-08-31 ARM64/.NET 10.0.11 in-process
+ShortRun allocated 1.07 MB for 256 records. Timing ranged from 3.510 to 10.228
+ms with 3.833 ms standard deviation, so no latency baseline is claimed. CP1252
+non-ASCII glyphs at odd-byte offsets, exact origins/colors, Shift-JIS decoding
+without explicit advances, invalid Shift-JIS, explicit DBCS-advance rejection,
+and transaction rollback are covered by the complete 442/442 suite. ApiCompat
+remains 0/0/13.
+
+`EMR_POLYTEXTOUTA/W` now parse the official counted array of fixed `EmrText`
+descriptors and execute each entry through the existing typed EMF text engine.
+Record-relative buffers are bounded, Unicode remains 16-bit aligned, ANSI
+remains byte aligned and selected-font-charset driven, advances remain 32-bit
+aligned, and no variable data may overlap the complete descriptor array.
+Independent Unicode anchors/advances, CP1252 euro conversion at an odd offset,
+and malformed-later-entry rollback are covered by the complete 445/445 suite.
+ApiCompat remains 0/0/13.
+
+`MetafileBenchmarks.Playback256EmfPolyTextOutWTwoStringsWithAdvances` records
+2.17 MB allocated for 256 two-string records producing 512 retained commands.
+The in-process timing samples ranged from 117.397 to 519.049 ms with 215.618 ms
+standard deviation under severe contention, so no latency baseline is claimed.
+The default isolated harness could not restore its generated project while
+network access was unavailable; the allocation result and focused command and
+rollback gates remain the authoritative local evidence.
+
+`EMR_SMALLTEXTOUT` now validates its compact fixed header, optional bounds, and
+inline text through a dedicated typed decoder. `ETO_NO_RECT` omits bounds;
+`ETO_SMALL_CHARS` maps bytes to Unicode low-byte code points rather than the
+selected ANSI charset; ordinary strings use strict UTF-16. Present-bounds
+opaque/clipped pixels, compact Unicode identity, Latin low-byte identity with a
+Shift-JIS selected font, contradictory-option rejection, and rollback are
+covered by the complete 449/449 suite. ApiCompat remains 0/0/13.
+
+`MetafileBenchmarks.Playback256EmfSmallTextOutSmallChars` measured a 754.892 us
+median (750.068 us mean, 34.800 us standard deviation) and 516.24 KB allocated
+for 256 compact records on ARM64/.NET 10.0.11. Three measured iterations and
+denied priority elevation make this coarse local regression evidence.
+
+`ETO_PDY` extends the private text path with typed two-dimensional character
+cells rather than flattening vertical advances. Glyph origins, transparent
+background extent, escapement, and `TA_UPDATECP` use the cumulative X/Y path.
+Decorated-font PDY and explicit bidi positioning remain named boundaries.
+Exact `(20,5)` glyph displacement, `(44,12)` current-point progression,
+out-of-range rejection, and rollback are covered by the complete 451/451 suite.
+ApiCompat remains 0/0/13.
+
+`MetafileBenchmarks.Playback256EmfExtTextOutWPdyAdvances` measured a 4.032 ms
+median (4.449 ms mean, 0.850 ms standard deviation) and 1.08 MB allocated for
+256 records. Three measured iterations and denied priority elevation make this
+coarse local allocation/command-shape evidence.
+
+Unicode `ETO_GLYPH_INDEX` records the supplied 16-bit IDs directly against the
+selected font, without Unicode lookup, fallback, or OpenType substitution. The
+typed floating-point path preserves scalar/PDY cells or, when `offDx` is zero,
+uses each selected-font glyph's natural advance without cumulative integer
+rounding. Alignment, background and clip state, escapement, and current-position
+updates remain intact. ANSI storage is rejected transactionally until its
+separate 16-bit contract is implemented. Because glyph input is already
+language-processed, record-level RTL, `TA_RTLREADING`, and
+`ETO_IGNORELANGUAGE` retain the stored glyph order without another bidi pass.
+Decorated two-dimensional glyph-index text remains an explicit boundary. Horizontal
+explicit and natural cells now use selected-font OpenType metrics for retained
+underline/strikeout rectangles without reconstructing Unicode; decorated PDY
+rejects until per-cell vertical geometry is defined. Exact IDs, explicit and
+natural cell origins, `TA_UPDATECP`, both horizontal decoration forms, ANSI and
+PDY-decoration rejection, stored-order language suppression, and rollback are
+covered by the complete 458/458 suite. ApiCompat remains 0/0/13.
+
+`MetafileBenchmarks.Playback256EmfExtTextOutWGlyphIndices` measured a 3.818 ms
+median (4.194 ms mean, 1.187 ms standard deviation) and 528.25 KB allocated for
+256 direct three-glyph records. The 3.241-5.524 ms spread makes this coarse
+local allocation evidence, not a portable latency baseline.
+The post-decoration undecorated rerun retains 528.24 KB allocation and measures
+a 1.069 ms median (1.187 ms mean, 0.334 ms standard deviation). Three samples
+and denied priority elevation make this allocation/command-shape confirmation,
+not a throughput claim.
+
+`MetafileBenchmarks.Playback256EmfExtTextOutWNaturalGlyphIndices` removes the
+explicit advance array from the same 256-record workload. Its three-iteration
+ARM64/.NET 10.0.11 in-process run measured a 1.650 ms mean (0.324 ms standard
+deviation) and 528.24 KB allocated. This is coarse local allocation and command-
+shape evidence, not a portable latency baseline.
+
+`MetafileBenchmarks.RecordAndFinalize256PortableComments` measures construction,
+256 owned 64-byte comment copies, bounded EMF+ encoding, validation through the
+same parser used by consumers, and final stream publication. The 2026-08-27
+ARM64/.NET 10.0.11 ShortRun measured an 11.346 microsecond median (11.348
+microsecond mean, 0.406 microsecond standard deviation) and 150.72 KB allocated
+for the complete 19 KB owned document and typed record tables. This is coarse
+one-launch throughput/allocation evidence, not a rendering or zero-allocation
+claim; recording cost is intentionally linear in encoded bytes and record count.
+
+The preceding synthesis paragraph's 387 subtotal records the immediately prior image-overload checkpoint; the table above is authoritative for the current head. The coordinate-space slice adds the official `Drawing2D.CoordinateSpace` identity and all four array/span `Graphics.TransformPoints` entry points. World, page, and device conversion uses the same world, page-unit/page-scale, and host base matrices used by retained drawing. Caller-owned storage is mutated in place without allocation; invalid spaces, empty inputs, non-invertible destinations, and disposed graphics fail explicitly. This slice reduces the current measured debt to 47 missing types, 288 missing members, 47 other diagnostics, and 382 total. Contract evidence is recorded in [`docs/research/system-drawing-graphics-coordinate-space-contract.md`](research/system-drawing-graphics-coordinate-space-contract.md).
+
+The effects slice source-reuses the complete 23-type .NET 10 `System.Drawing.Imaging.Effects` public model and adds `Bitmap.ApplyEffect` plus both effect-aware `Graphics.DrawImage` overloads. The Windows GDI+ effect handle is replaced at the platform seam by typed ProGPU bitmap execution: pointwise matrices, lookup tables, curves, levels, tint, brightness, and balance operate in one allocation-free warmed pixel pass, while blur and sharpen use pooled, separable linear-time box passes. CPU-resident bitmaps remain CPU-only; a materialized GPU texture crosses one explicit readback/writeback boundary. Effect drawing snapshots the source, maps the selected rectangle through the typed affine transform, composes image attributes, and retains the result without mutating caller storage. Rectangle clipping, premultiplied-alpha conversion, construction snapshots, disposal, validation, representative canonical pixels, and allocation behavior have focused gates. This slice reduces measured debt from 40 missing types, 127 missing members, 17 other diagnostics, and 184 total to 17 missing types, 124 missing members, 17 other diagnostics, and 158 total. Contract and architecture evidence is recorded in [`docs/research/system-drawing-effects-contract.md`](research/system-drawing-effects-contract.md).
+
+The cached-bitmap slice restores the official `System.Drawing.Imaging.CachedBitmap` type and `Graphics.DrawCachedBitmap` member over an immutable, device-bound ProGPU texture snapshot. Typed resource leases preserve deferred-command lifetime and reuse one retained texture across repeated draws; caller transforms are limited to translation without treating the host base transform as caller state. This slice reduces measured debt to 16 missing types, 123 missing members, 17 other diagnostics, and 156 total. Contract, ownership, and performance evidence is recorded in [`docs/research/system-drawing-cached-bitmap-contract.md`](research/system-drawing-cached-bitmap-contract.md).
+
+The managed-metadata slice restores the missing `BitmapSuffixInSameAssemblyAttribute`, `System.Drawing.Design.CategoryNameCollection`, and `System.Drawing.Imaging.ColorMode` identities and corrects the existing satellite bitmap-suffix attribute from sealed to inheritable. These contracts are wholly managed and require no GDI+, renderer, reflection-based product path, or local-OS adapter. This slice reduces measured debt to 13 missing types, 123 missing members, 16 other diagnostics, and 152 total. Contract and focused-test evidence is recorded in [`docs/research/system-drawing-managed-metadata-contract.md`](research/system-drawing-managed-metadata-contract.md).
+
+The managed-identity completion slice restores every official `CopyPixelOperation` value and corrects `ToolboxBitmapAttribute` to its inheritable .NET 10 shape. Desktop capture remains a separate typed local-OS service boundary rather than an HDC operation hidden inside ProGPU. This slice reduces measured debt to 12 missing types, 123 missing members, 15 other diagnostics, and 150 total. Contract and focused-test evidence is recorded in [`docs/research/system-drawing-managed-identity-completion-contract.md`](research/system-drawing-managed-identity-completion-contract.md).
+
+The pen-transform slice restores all eleven `Pen.Transform` property and operation members with defensive managed matrix ownership. Anisotropic tip geometry uses `P × stroke(P⁻¹ × path)`, carrying the existing width, joins, caps, and dashes through one typed widen/fill path shared by rendering, `GraphicsPath.Widen`, bounds, and outline hit testing. Translation remains public matrix state but does not move the pen tip; singular transforms produce no fabricated stroke. Focused gates include production bitmap pixels and zero allocation across warmed transform mutations, and `GraphicsPathBenchmarks.WidenAnisotropicPenClone` tracks the geometry cost. This slice reduces measured debt to 12 missing types, 112 missing members, 15 other diagnostics, and 139 total. Contract evidence is recorded in [`docs/research/system-drawing-pen-transform-contract.md`](research/system-drawing-pen-transform-contract.md).
+
+The typed-LOGFONT slice restores the exact 92-byte Unicode `System.Drawing.Interop.LOGFONT` identity and all eight `Font` conversion members. Typed imports and exports carry face, vertical identity, charset, logical height, weight, and style through managed ProGPU font resolution; graphics-aware export uses the typed DPI contract. Boxed canonical values remain source-compatible without reflection, while arbitrary lookalike object layouts are rejected and HDC-aware selection stays at an explicit Windows GDI adapter boundary. Nine focused tests include exact layout, invalid/default selection, boxed mutation, lifetime behavior, and zero allocation across 10,000 warmed typed exports. This slice reduces measured debt to 11 missing types, 104 missing members, 15 other diagnostics, and 130 total. Contract evidence is recorded in [`docs/research/system-drawing-logfont-contract.md`](research/system-drawing-logfont-contract.md).
+
+The custom-cap and compound-pen slice restores `CustomLineCap`, `AdjustableArrowCap`, and all six `Pen.CompoundArray`/custom-cap accessors with defensive ownership and upstream-compatible state validation. Compound fractions lower to typed offset stroke bands with retained run metadata and physical dash scale. Generic fill/stroke caps and adjustable arrows use endpoint-local retained geometry shared by rendering, widening, bounds, and outline hit testing; nonfinite public state is preserved but never converted into fabricated renderer geometry. Twelve focused tests cover production pixels, center gaps, orientation, inset, ownership, disposal/state contracts, and allocation bounds. This slice reduces measured debt to 9 missing types, 98 missing members, 15 other diagnostics, and 122 total. Alternate-fill nested-cap normalization and Windows GDI+ acute-offset differentials remain explicit rendering-quality work. Contract evidence is recorded in [`docs/research/system-drawing-custom-cap-compound-pen-contract.md`](research/system-drawing-custom-cap-compound-pen-contract.md).
+
+The path-gradient slice restores the complete .NET 10 `Drawing2D.PathGradientBrush` surface and lowers it to a typed retained ProGPU material used by fills, pens, text, portable pictures, and native scene compilation. The shared shader intersects the fragment's center ray with the retained polygon boundary, interpolates per-edge surround colors, applies focus scales and blend or preset-color curves, and preserves the common clamp/repeat/reflect/decal policy without substituting a bounding ellipse. Managed and standalone C++ validators enforce an exact, finite, pointer-free record layout capped at 128 boundary vertices. Eight focused managed tests, a discriminating headless GPU pixel test, portable-picture round-trip coverage, native compiler snapshots, and the native C++ internal suite guard behavior and transport. This slice removes the final ordinary managed renderer-type suppression and reduces measured debt to 8 missing types, 98 missing members, 15 other diagnostics, and 121 total. Concave/self-intersecting and multi-figure Windows image differentials remain explicit rendering-quality work. Contract evidence is recorded in [`docs/research/system-drawing-path-gradient-contract.md`](research/system-drawing-path-gradient-contract.md).
+
+The graphics-container slice adds the official sealed `Drawing2D.GraphicsContainer` token and every `BeginContainer`/`EndContainer` member. Parent transforms and clips remain effective through typed hidden container state while the public world transform, clip, page, and rendering-quality properties reset to official defaults. Rectangle containers map source units into destination coordinates; nested containers, `Save` scopes, cross-instance and reused tokens, restore invalidation, and disposal balance are explicit. This slice reduces the current measured debt to 46 missing types, 284 missing members, 47 other diagnostics, and 377 total. Contract and allocation-gate evidence is recorded in [`docs/research/system-drawing-graphics-container-contract.md`](research/system-drawing-graphics-container-contract.md).
+
+The image-convenience slice adds the official `Image.GetThumbnailImageAbort`, `Image.GetThumbnailImage`, and coordinate `Graphics.DrawIcon` surface. Bitmap thumbnails reuse the typed retained-texture resize path, the compatibility callback is not invoked, and unsupported image storage fails explicitly rather than fabricating pixels. Coordinate icon drawing preserves native size and placement through the existing typed unscaled-image command. This slice reduces the current measured debt to 45 missing types, 282 missing members, 47 other diagnostics, and 374 total. Contract and allocation evidence is recorded in [`docs/research/system-drawing-image-convenience-contract.md`](research/system-drawing-image-convenience-contract.md).
+
+The drawing-identity slice adds the exact `Drawing2D.QualityMode`, `StringUnit`, and `Drawing2D.PenType` enums plus brush-derived `Pen.PenType`. Supported brush kinds are classified through direct managed type matches with zero warmed getter allocation. `Pen.Transform` remains explicit debt because its official pen-tip transformation is not equivalent to moving the stroke centerline and requires a typed anisotropic stroke contract. This slice reduces the current measured debt to 42 missing types, 281 missing members, 47 other diagnostics, and 370 total. Contract evidence is recorded in [`docs/research/system-drawing-drawing-identities-contract.md`](research/system-drawing-drawing-identities-contract.md).
+
+The brush-base slice restores the official `MarshalByRefObject`, `ICloneable`, abstract `Clone`, and protected disposal inheritance contract. The ProGPU brush-lowering method moves off the public surface to an internal virtual seam with an explicit unsupported default for third-party subclasses. Built-in brushes preserve typed lowering, and `SolidBrush` now clones independently and rejects use after disposal. Native brush injection fails at the explicit Windows-adapter boundary. This slice reduces the current measured debt to 42 missing types, 278 missing members, 44 other diagnostics, and 364 total. Contract evidence is recorded in [`docs/research/system-drawing-brush-base-contract.md`](research/system-drawing-brush-base-contract.md).
+
+The pen-ownership slice restores the official sealed `MarshalByRefObject`, `ICloneable`, and `IDisposable` shape and removes the ProGPU lowering method from the public API. Pens own cloned brush state; constructors and setters snapshot input, the public getter returns an independent clone, `Clone` deep-copies brush/dash state, and disposed pens reject reuse. Cached known-color brushes and pens are immutable while their clones are ordinary mutable resources. Rendering reads the owned brush through the internal typed seam, so the defensive public getter adds no per-draw allocation. This slice reduces current measured debt to 42 missing types, 278 missing members, 43 other diagnostics, and 363 total. Contract and performance evidence is recorded in [`docs/research/system-drawing-pen-ownership-contract.md`](research/system-drawing-pen-ownership-contract.md).
+
+The stock-icon slice restores all 93 official `StockIconId` identities, the complete `StockIconOptions` flags enum, and the option-based `SystemIcons.GetStockIcon` overload. Caller-requested icons are independent disposable resources, static properties remain cached, and direct owned-bitmap transfer avoids an encode/decode round trip. A deterministic managed semantic catalog provides useful notification, folder, drive, media, document, printer, network, security, device, action, and application glyphs on every platform. It does not claim Windows shell-theme parity: exact local artwork and shell metrics remain typed local-OS adapter work. This slice reduces measured debt to 41 missing types, 189 missing members, 43 other diagnostics, and 273 total. Contract, platform-boundary, and performance evidence is recorded in [`docs/research/system-drawing-stock-icon-contract.md`](research/system-drawing-stock-icon-contract.md).
+
+The printer-settings collection slice restores the direct-object, inheritable, mutable `ICollection` shapes for strings, paper sizes, paper sources, and printer resolutions, including public array constructors, virtual indexers, additions, counts, copying, and enumeration. Collections snapshot the caller's array, retain insertion order, and provide ordinary unsynchronized collection semantics. `InstalledPrinters` returns an isolated portable snapshot; real printer enumeration and capabilities remain a typed local-OS printing-service boundary rather than fabricated data. This slice reduces measured debt to 41 missing types, 173 missing members, 23 other diagnostics, and 237 total. Contract, platform-boundary, and performance evidence is recorded in [`docs/research/system-drawing-printer-settings-collections-contract.md`](research/system-drawing-printer-settings-collections-contract.md).
+
+The page device-selection slice restores the public `PageSettings(PrinterSettings)` constructor, page-level paper-source and resolution state, raw custom-bin mapping, mutable validated resolution kinds, clone/reset semantics, and allocation-free warmed reads. The managed printing-shape continuation then restores canonical `Component`/`PrintEventArgs` inheritance, the inheritable query event, virtual preview antialiasing, and the protected legacy exception constructor without introducing native printing behavior. Together these two slices reduce measured debt from 207 to 194 diagnostics. Contract and boundary evidence is recorded in [`docs/research/system-drawing-page-settings-contract.md`](research/system-drawing-page-settings-contract.md) and [`docs/research/system-drawing-managed-printing-shape-contract.md`](research/system-drawing-managed-printing-shape-contract.md).
+
+The destination-point image slice then removes ten exact `Graphics.DrawImage` suppressions, reducing measured debt from 194 to 184 diagnostics. Three-point arrays record affine parallelograms; four-point arrays record homogeneous projective quads with perspective-correct texture gradients. The typed texture payload survives retained pictures and translated context append. The native compiler lowers affine quads exactly and fails closed for projective quads until its wire gains homogeneous vertices. Contract and gate evidence is recorded in [`docs/research/system-drawing-destination-point-image-contract.md`](research/system-drawing-destination-point-image-contract.md).
+
+The managed compatibility slice also adds typed deferred path boolean operations used by `Region` and `Graphics` clipping. It does not change the native command wire, C++ backend, shader ABI, text shaping, or image codec boundaries. Managed/native rendering parity therefore remains guarded by the repository renderer and headless suites rather than by a new native implementation fork.
+
+## Quality gates
+
+Focused managed tests live in `src/System.Drawing.Common.Tests`:
+
+```bash
+dotnet test src/System.Drawing.Common.Tests/System.Drawing.Common.Tests.csproj -c Release
+```
+
+Every API slice should cover:
+
+- public signature and assembly-shape changes through ApiCompat;
+- state, validation, disposal, cloning, events, and exception semantics where applicable;
+- concurrency when resources or registries are shared;
+- deterministic pixel or geometry output for rendering behavior;
+- lazy GPU initialization and bounded resource ownership; and
+- platform-boundary behavior for unsupported local-OS operations.
+
+The known-color slice uses a 256-entry indexed cache per resource kind. Lookup is O(1), first access creates at most one retained resource, concurrent races publish one instance, and warmed access allocates zero bytes.
+
+## Performance gates
+
+Allocation-sensitive performance assertions run with the focused test suite. BenchmarkDotNet measurements provide review evidence for latency and allocation changes:
+
+```bash
+dotnet run --project src/System.Drawing.Common.Benchmarks/System.Drawing.Common.Benchmarks.csproj \
+  -c Release -- --job short --filter '*'
+```
+
+CI uploads the JSON benchmark results with the raw ApiCompat report. For performance-sensitive rendering changes, also run the repository-wide Release renderer/headless suites and the applicable GPU workload from `agents.md`. Compare the same final binaries and hardware; investigate statistically repeatable regressions rather than accepting a single timing sample.
+
+The 2026-08-21 ARM64 ShortRun checkpoint measured warmed cached brushes at 2.763 ns/op with 0 B allocated and warmed cached pens at 2.857 ns/op with 0 B allocated. Fresh `SolidBrush` and `Pen` construction measured 4.487 ns/op with 40 B and 11.195 ns/op with 112 B respectively. These are local microbenchmark observations, not broad renderer performance claims; the allocation-free warmed-resource invariant is also enforced by tests.
+
+`ImageAttributesBenchmarks.RemapCpuBackedIcon64x64` guards the canonical WinForms recoloring path. Remapping is one source snapshot, one destination bitmap/pixel buffer, one O(M) lookup table, and one O(P) pixel pass for M mappings and P pixels. CPU-backed icons do not initialize a GPU device; a GPU-backed source requires one explicit readback because arbitrary exact color maps are not representable by the existing color-matrix shader.
+
+`ImageAttributesBenchmarks.GammaThresholdCpuBackedIcon64x64` guards the managed fallback for adjustment combinations that cannot use the single color-matrix shader. The 2026-08-27 ARM64/.NET 10.0.11 ShortRun measured a 120.910 µs median (120.647 µs mean, 0.760 µs standard deviation) with 16.39 KB allocated. The focused suite independently enforces a 16,384–20,000-byte warmed allocation window and covers category fallback, brush remapping, color keys, paired color/gray matrices, gamma, threshold, no-op, CMYK channel separation, and the explicit ICC-profile platform boundary. Contract and follow-up adapter evidence is recorded in [`docs/research/system-drawing-image-attributes-contract.md`](research/system-drawing-image-attributes-contract.md).
+
+`ColorPaletteBenchmarks.CreateOptimalPalette16From64x64` guards the CPU-only quantization path. The implementation takes one straight-pixel snapshot, builds a weighted unique-color histogram in O(P), and performs deterministic weighted median-cut partitioning with a palette size bounded to 256. It does not initialize a GPU device. Fixed-palette cardinalities and palette/property ownership boundaries are enforced by focused tests; the public contract was checked against the official [`ColorPalette` constructors](https://learn.microsoft.com/dotnet/api/system.drawing.imaging.colorpalette.-ctor?view=windowsdesktop-10.0), [`PaletteType`](https://learn.microsoft.com/dotnet/api/system.drawing.imaging.palettetype?view=windowsdesktop-10.0), [`CreateOptimalPalette`](https://learn.microsoft.com/dotnet/api/system.drawing.imaging.colorpalette.createoptimalpalette?view=windowsdesktop-10.0), and [`Image.Palette`](https://learn.microsoft.com/dotnet/api/system.drawing.image.palette?view=windowsdesktop-10.0) documentation. The quantizer is original ProGPU code and does not copy framework implementation source.
+
+`BitmapPixelMemoryBenchmarks.CopyRgbaToCallerOwnedLockBuffer` guards the CPU-only 256×256 BGRA export path used by caller-owned `LockBits`. The 2026-08-22 ARM64/.NET 10.0.11 ShortRun checkpoint measured a 111.658 µs median (120.210 µs mean) with zero managed allocation. The three measured iterations make this coarse subsystem evidence rather than a universal throughput claim. The focused suite independently requires at most 512 bytes across 32 warmed 64×64 exports and covers packed/indexed/high-depth round trips. Public contract research and the managed/GPU boundary audit are recorded in [`docs/research/system-drawing-bitmap-pixel-memory-contract.md`](research/system-drawing-bitmap-pixel-memory-contract.md).
+
+`BitmapPixelMemoryBenchmarks.ConvertRgbaToErrorDiffusedIndexedClone` guards a CPU-only 256×256 clone converted to 4-bit indexed color with a fixed custom palette and Floyd-Steinberg diffusion. Removing a redundant straight-alpha full-frame copy reduced the isolated ShortRun median from 4.549 ms to 3.844 ms (15.5%) and allocation from 519.62 KB to 263.54 KB (49.3%) on the same host. The three measured iterations are coarse subsystem evidence. The focused suite independently enforces an 18,000–24,000-byte window for the matching 64×64 clone-and-convert workload.
+
+`ImageCodecBenchmarks.EncodeJpegToReusableStream` guards managed 256×256 JPEG encoding with a typed `Encoder.Quality` parameter and a preallocated destination stream. Removing the redundant SKBitmap staging/copy reduced the isolated ARM64/.NET 10.0.11 ShortRun median from 2.751 ms to 1.013 ms (63.2%) and allocation from 525.41 KB to 257.5 KB (51.0%) on the same host. The three measured iterations are coarse subsystem evidence, and the runner could not acquire high process priority in the restricted environment. The focused suite independently enforces a 16,384–30,000-byte warmed allocation window for the matching 64×64 managed JPEG workload. Public contract sources and the managed/native applicability audit are recorded in [`docs/research/system-drawing-image-codec-contract.md`](research/system-drawing-image-codec-contract.md).
+
+The 2026-08-21 ARM64 in-process ShortRun checkpoint measured 16-color quantization of the deterministic 64×64 gradient fixture at 1.491 ms/op with 496.75 KB allocated. The focused test independently enforces deterministic output and a 400,000–600,000-byte post-warmup allocation window. As with the recoloring checkpoint, this is local regression evidence from the restricted development environment rather than a renderer-wide claim.
+
+`MatrixBenchmarks.TransformPointBatch` guards the managed affine hot path. It updates a preallocated 1,024-point span in place through the same `Matrix3x2` value consumed by the renderer. The 2026-08-21 ARM64 in-process ShortRun checkpoint measured 0.9072 ns per point with zero managed allocation. The focused suite independently requires exactly zero bytes across 64 warmed 1,024-point transforms. Contract sources and the managed/native applicability audit are recorded in [`docs/research/system-drawing-matrix-contract.md`](research/system-drawing-matrix-contract.md).
+
+`LinearGradientBrushBenchmarks.LowerEightStopGradient` guards typed lowering of a custom eight-stop gradient, including spread, gamma mode, and coordinate transform state. The 2026-08-21 ARM64 in-process ShortRun checkpoint measured 62.66 ns/op with 304 B allocated. The focused suite independently enforces a 288–352-byte warmed allocation window. Public contract research, scalable-angle math, and the managed/native applicability audit are recorded in [`docs/research/system-drawing-linear-gradient-contract.md`](research/system-drawing-linear-gradient-contract.md).
+
+`HatchBrushBenchmarks.LowerEightByEightHatchTile` guards O(1) typed lowering of immutable hatch state into one retained tile-pattern brush. The 2026-08-22 ARM64/.NET 10.0.11 ShortRun checkpoint measured a 12.172 ns median (13.319 ns mean) with 64 B allocated. The three measured iterations and unavailable high process priority make this coarse local subsystem evidence. The focused suite independently enforces one bounded 32–96-byte allocation per lowering, exact foreground/background color transport, stable negative-coordinate tiling, declared percentage densities, and nonempty bounded output for every concrete style. Public contract sources, original pattern policy, shader/native ABI applicability, and validation evidence are recorded in [`docs/research/system-drawing-hatch-brush-contract.md`](research/system-drawing-hatch-brush-contract.md).
+
+`TextureBrushBenchmarks.RecordAndReleaseFourTileFill` guards typed recording and retained-resource release for a 4×4 mirror-XY fill backed by a 2×2 owned texture. The 2026-08-22 ARM64/.NET 10.0.11 ShortRun checkpoint measured a 556.757 ns median (556.451 ns mean) with 96 B allocated. The three measured iterations and unavailable high process priority make this coarse local subsystem evidence. The focused suite independently requires zero allocation for warmed transform mutation, at most 512 B for the matching four-tile record/release cycle, exact pixels for every wrap mode, independent source/clone ownership, and geometry-clipped non-rectangle fills. Public contract sources, transform/wrap policy, typed renderer applicability, and validation evidence are recorded in [`docs/research/system-drawing-texture-brush-contract.md`](research/system-drawing-texture-brush-contract.md).
+
+`FontBenchmarks.ReadTypefaceMetrics` guards 4,000 warmed `FontFamily` metric reads over a privately owned Inter face. The 2026-08-22 ARM64/.NET 10.0.11 ShortRun checkpoint measured an 8.368 ns median per read (8.383 ns mean, 0.026 ns standard deviation) with zero managed allocation. This used one launch, three warmups, and three measured iterations; process-priority elevation was denied, so it is a coarse local subsystem checkpoint rather than an end-to-end text claim. The focused suite independently requires exactly zero bytes for the same 4,000 reads and preserves the existing shaped-outline allocation gate. Contract, ownership, native-boundary, and validation evidence are recorded in [`docs/research/system-drawing-font-contract.md`](research/system-drawing-font-contract.md).
+
+Typed `Font.ToLogFont(out LOGFONT)` is a scalar compatibility path rather than a renderer workload, so it uses a focused allocation gate instead of a standalone BenchmarkDotNet job. After warmup, 10,000 nonvertical exports must allocate exactly zero managed bytes while writing the fixed face buffer, logical height, weight, style, and charset. Contract and boundary evidence is recorded in [`docs/research/system-drawing-logfont-contract.md`](research/system-drawing-logfont-contract.md).
+
+`GraphicsPrimitiveBenchmarks.RecordCurveSpan` guards typed recording of a four-point `ReadOnlySpan<PointF>` cardinal curve and release of the retained command. The 2026-08-22 ARM64/.NET 10.0.11 ShortRun measured a 209.644 ns median (207.170 ns mean, 17.922 ns standard deviation) with 792 B allocated. One launch, three warmups, three measured iterations, and denied process-priority elevation make this coarse subsystem evidence. The focused suite independently enforces a 1,024-byte upper allocation bound, exact retained fill rules, validation-before-recording, and production filled-pie pixels. Public surface, architecture, platform-boundary, and gate evidence are recorded in [`docs/research/system-drawing-graphics-primitives-contract.md`](research/system-drawing-graphics-primitives-contract.md).
+
+`GraphicsFlushBenchmarks.RecordAndFlushRectangle` guards one warmed retained rectangle record followed by synchronous host batch consumption. The 2026-08-26 ARM64/.NET 10.0.11 ShortRun measured a 155.881 ns median (155.858 ns mean, 2.573 ns standard deviation) with 40 B allocated. The focused suite independently enforces a 64-byte upper bound and covers enum identity, bitmap pixels, balanced clip batches, continued drawing, disposed behavior, missing-target failure, and callback consumption. Contract and architecture evidence are recorded in [`docs/research/system-drawing-graphics-flush-contract.md`](research/system-drawing-graphics-flush-contract.md).
+
+The graphics-state slice preserves the allocation-free `TransformElements` value path and the existing 32–96-byte hatch-lowering bound. Focused gates cover exact defaults and validation, disposal, save/restore, append/prepend composition, effective-clip rectangle visibility, production `SourceCopy` alpha replacement, and production rendering-origin pixels. Contract and architecture evidence are recorded in [`docs/research/system-drawing-graphics-state-contract.md`](research/system-drawing-graphics-state-contract.md).
+
+The graphics-container slice keeps its hidden transform as one `Matrix3x2` value and uses the existing retained geometry-clip and blend scopes. Twelve focused tests cover state restoration, nested and rectangle mappings, production inherited-clip pixels, scope invalidation, command balance, and a 256-byte-per-round-trip upper allocation bound across 1,024 warmed transitions. Contract evidence is recorded in [`docs/research/system-drawing-graphics-container-contract.md`](research/system-drawing-graphics-container-contract.md).
+
+`ImageConvenienceBenchmarks.CreateAndDisposeThumbnail` guards the typed retained-texture 64x64-to-32x32 thumbnail path. The 2026-08-26 ARM64/.NET 10.0.11 ShortRun measured a 170.455 microsecond median (192.464 microsecond mean, 38.656 microsecond standard deviation) with 7.77 KB allocated. Three measured iterations and denied process-priority elevation make this coarse local subsystem evidence. The focused suite independently enforces a 4,608-byte-per-operation upper bound across 32 warmed 8x8-to-4x4 thumbnail creations and covers callback, validation, unsupported-storage, icon-pixel, placement, and command-ownership behavior. Contract evidence is recorded in [`docs/research/system-drawing-image-convenience-contract.md`](research/system-drawing-image-convenience-contract.md).
+
+The drawing-identity slice adds no renderer hot-path work. Its focused allocation gate requires exactly zero managed bytes across 4,096 warmed `Pen.PenType` reads and verifies each supported brush mapping. The deferred anisotropic pen-tip work is documented in [`docs/research/system-drawing-drawing-identities-contract.md`](research/system-drawing-drawing-identities-contract.md).
+
+The brush-base slice changes ownership and public shape without adding renderer hot-path work. Four focused tests guard clone independence, disposal, derived-class hooks, and explicit unsupported seams; the existing brush-specific allocation and pixel gates remain authoritative. Contract evidence is recorded in [`docs/research/system-drawing-brush-base-contract.md`](research/system-drawing-brush-base-contract.md).
+
+`KnownColorResourceBenchmarks.ReadCachedPenStateBatch` guards the scalar read path used by cached system pens. The 2026-08-27 ARM64/.NET 10.0.11 ShortRun measured 2.271 ns per `Color`/`PenType`/`Width` group with zero managed allocation. The focused suite independently requires exactly zero bytes across 100,000 warmed groups and verifies that defensive brush snapshots stay off the renderer path. Contract evidence is recorded in [`docs/research/system-drawing-pen-ownership-contract.md`](research/system-drawing-pen-ownership-contract.md).
+
+`SystemIconBenchmarks` guards direct owned-bitmap creation for a plain 32×32 folder and an overlaid selected 32×32 document. The 2026-08-27 ARM64/.NET 10.0.11 ShortRun measured the plain icon at a 1.490 microsecond median (1.512 microsecond mean) with 13.97 KB allocated and the decorated icon at a 2.884 microsecond median (3.262 microsecond mean) with 14.65 KB allocated. Three measured iterations and denied process-priority elevation make these coarse local subsystem checkpoints. The focused suite independently covers every identifier and enforces a 36 KB-per-operation warmed in-process allocation ceiling. Contract and platform-boundary evidence is recorded in [`docs/research/system-drawing-stock-icon-contract.md`](research/system-drawing-stock-icon-contract.md).
+
+`PrinterSettingsCollectionBenchmarks.ReadPaperSizeWidthBatch` guards allocation-free virtual indexed access through the managed printing model. The 2026-08-27 ARM64/.NET 10.0.11 ShortRun measured a 0.965 ns median (0.947 ns mean, 0.041 ns standard deviation) per indexed width read with 0 B allocated. One launch, three measured iterations, and denied process-priority elevation make this coarse local subsystem evidence. The focused suite independently requires exactly zero bytes across 100,000 warmed reads and covers snapshot, mutation, copying, enumeration, and installed-printer isolation. Contract and platform-boundary evidence is recorded in [`docs/research/system-drawing-printer-settings-collections-contract.md`](research/system-drawing-printer-settings-collections-contract.md).
+
+`PrinterSettingsCollectionBenchmarks.ReadPageDeviceSelectionBatch` guards allocation-free page-level paper-source and resolution reads. The 2026-08-27 ARM64/.NET 10.0.11 ShortRun measured a 0.615 ns median (0.615 ns mean, 0.004 ns standard deviation) per alternating page read group with 0 B allocated. The focused suite independently requires zero bytes across 100,000 warmed groups and covers constructor association, raw/custom source values, mutable resolution validation, clone ownership, and the native printer-capability boundary. Contract evidence is recorded in [`docs/research/system-drawing-page-settings-contract.md`](research/system-drawing-page-settings-contract.md).
+
+The managed printing-shape continuation changes inheritance, disposal/event ownership, virtual dispatch, and legacy serialization shape only; it adds no renderer or printing hot-path work. Two focused tests cover exact base/sealed/virtual/constructor metadata, inherited `Component.Dispose` notification, query-page settings reset semantics, and derived preview-controller dispatch. Contract evidence is recorded in [`docs/research/system-drawing-managed-printing-shape-contract.md`](research/system-drawing-managed-printing-shape-contract.md).
+
+The point/source-rectangle image-overload slice reuses the existing texture retention, unit conversion, sampling, remap, color-matrix, and callback path. The destination-point follow-up adds a zero-allocation warmed recording path, exact affine corner mapping, and projective-correct sampling without a diagonal seam. Focused tests cover pixels, typed command retention/translation, attributes, callbacks, validation, and native affine/projective boundaries. The 2026-08-27 ARM64/.NET 10.0.11 `ImageConvenienceBenchmarks.RecordPerspectiveDrawImage` ShortRun measured a 116.578 ns median (119.490 ns mean, 7.541 ns standard deviation) with zero managed allocation. One launch, three measured iterations, and denied process-priority elevation make this coarse local evidence; the focused suite independently requires exactly zero bytes across 1,000 warmed recordings. Contracts are recorded in [`docs/research/system-drawing-graphics-image-overloads-contract.md`](research/system-drawing-graphics-image-overloads-contract.md) and [`docs/research/system-drawing-destination-point-image-contract.md`](research/system-drawing-destination-point-image-contract.md).
+
+`EffectsBenchmarks` isolates 256×256 warmed pointwise inversion, radius-eight blur, and a 64×64 retained effect draw. The 2026-08-27 ARM64/.NET 10.0.11 ShortRun measured inversion at a 756.184 µs median (747.744 µs mean), blur at a 1.744 ms median (1.806 ms mean), and effect draw at a 282.715 µs median (309.593 µs mean) with 17,200 B allocated. Pointwise and blur operations allocated zero managed bytes. One launch, three measured iterations, and denied process-priority elevation make these coarse local checkpoints. The pointwise path mutates a CPU-resident RGBA buffer without allocation. Blur and sharpen rent three bounded scratch buffers and use two moving-window passes, so runtime is O(width × height) rather than O(radius² × pixels). Effect draw owns one 64×64 snapshot plus retained-resource state. The focused suite independently requires exactly zero bytes across 128 warmed pointwise applications and covers clipped areas, alpha, LUT and matrix snapshots, convolution pixels, identity sharpening, disposal, constructor ranges, draw ownership, transforms, attributes, and validation-before-recording. Contract evidence is recorded in [`docs/research/system-drawing-effects-contract.md`](research/system-drawing-effects-contract.md).
+
+`CachedBitmapBenchmarks` compares warmed ordinary and device-cached 64×64 retained recording. The 2026-08-27 ARM64/.NET 10.0.11 ShortRun measured a 225.040 ns median for ordinary bitmap recording and a 169.996 ns median for cached recording, with 96 B allocated by each record/release cycle. One launch, three measured iterations, and denied process-priority elevation make this coarse local checkpoint. The cached path owns one immutable device-domain snapshot at construction, records a direct texture command, and shares one typed texture lease across repeated draws in a retained context. Focused tests cover source independence and disposal, translation-only semantics, validation before recording, exact pixels, deferred command lifetime, retained-resource reuse, and a 128-byte-per-record warmed allocation ceiling. Contract and platform-boundary evidence is recorded in [`docs/research/system-drawing-cached-bitmap-contract.md`](research/system-drawing-cached-bitmap-contract.md).
+
+`GraphicsStringFormatBenchmarks.MeasureSpan` guards one warmed `ReadOnlySpan<char>` measurement through the same typed shaping, wrapping, bidi, fallback, and cluster layout used for retained drawing and character-range geometry. The original 2026-08-22 ARM64/.NET 10.0.11 in-process ShortRun measured a 10.709 µs median (11.316 µs mean, 1.490 µs standard deviation) with 6,712 B/op. The paired advanced-format checkpoint measured the baseline at an 11.909 µs median and 6.64 KB/op, while `MeasureAdvancedFormatSpan`—tab stops, Arabic digit substitution, and trailing-space measurement—measured a 7.235 µs median and 5.67 KB/op. The mnemonic checkpoint's `RecordMnemonicString` measured a 3.021 µs median and 2.02 KB/op. The slash-aware `MeasureEllipsisPathSpan` checkpoint measured an 88.79 µs mean and 70.02 KB/op. The decorated-font checkpoint's `RecordDecoratedString` measured a 10.093 µs median (10.694 µs mean, 2.418 µs standard deviation) and 1.7 KB/op while recording one retained text command plus OpenType-metric underline and strikeout rectangles. Its five measured iterations had high timing variance, so it is a coarse allocation/command-shape baseline rather than a throughput claim. The focused suite covers retained decorations across point, clipped rectangle, formatted rectangle, explicit-character-advance, and WMF-selected-font paths. One launch, three warmups, three measured iterations for the earlier checkpoints—and five measured iterations for the decoration checkpoint—with denied process-priority elevation make this coarse managed-layout/recording evidence. The focused suite independently enforces 16,384-byte baseline, 24,576-byte advanced, 24,576-byte mnemonic-recording, and 98,304-byte path-trimming upper allocation bounds and covers span/string equality, typed glyph recording, wrapped selection regions, clipped versus `NoClip` bounds, explicit tab origins, vertical flow, digit substitution, fallback suppression, trailing-space width, visible default-ignorable representatives, mnemonic underline geometry, whole-line versus partial-final-line limits, path-prefix/final-segment retention with a retained-tail mnemonic, and official empty-input validation order. Contract, architecture, remaining semantics, and gate evidence are recorded in [`docs/research/system-drawing-string-format-contract.md`](research/system-drawing-string-format-contract.md).
+
+`GraphicsPathBenchmarks` guards caller-owned point/type export, allocation-free iterator enumeration, analytic retained-geometry bounds, outline queries, curve widening, retained path deformation, and shaped text-outline materialization. The 2026-08-21 ARM64 isolated ShortRun checkpoint measured export of sixteen retained ellipses at 7.620 µs/op and bounds at 2.220 µs/op, both with zero managed allocation. The 2026-08-22 iterator checkpoint measured enumeration of the same 208-point snapshot into caller storage at 37.59 ns/op with zero managed allocation. The 2026-08-22 stroke checkpoint measured a retained four-point outline query at a 54.53 ns median and 112 B/op. Replacing two triangle figures per stroke rectangle with one closed retained quad reduced the sixteen-ellipse clone-and-widen median from 143.06 µs to 119.02 µs (16.8%) and allocation from 345,744 B to 256,120 B (25.9%) on the same .NET 10.0.11 ARM64 host. The first bilinear clone-and-warp checkpoint measured a 28.260 µs median (28.733 µs mean) with 55.99 KB allocated. The warmed `LibreWinForms` shaped-outline checkpoint measured an 11.439 µs median (11.200 µs mean) with 17.45 KB allocated. These ShortRun measurements have only three measured iterations, so raw artifacts remain the evidence and the results are coarse subsystem checkpoints rather than universal timing claims. The focused suite independently requires exactly zero bytes across warmed span exports and iterator enumeration, at most 256 B per line-outline query, at most 280,000 B for the fixed sixteen-ellipse widening workload, at most 72,000 B for the matching bilinear warp workload, and at most 24,000 B for the warmed shaped-outline workload. Public contract research, curve mathematics, text-outline architecture, and the managed/native applicability audit are recorded in [`docs/research/system-drawing-graphics-path-contract.md`](research/system-drawing-graphics-path-contract.md).
+
+`GraphicsPathBenchmarks.WidenAnisotropicPenClone` guards the `Pen.Transform` inverse-space widening path. The 2026-08-27 ARM64/.NET 10.0.11 ShortRun measured a 1.678 µs median (1.697 µs mean, 0.038 µs standard deviation) with 7.16 KB allocated. One launch, three warmups, three measured iterations, and denied process-priority elevation make this coarse local subsystem evidence. The focused suite independently enforces a 6.5–8.5 KB warmed allocation window and exactly zero allocation across 10,000 managed transform-mutation groups. Contract, geometry, pixel, and boundary evidence is recorded in [`docs/research/system-drawing-pen-transform-contract.md`](research/system-drawing-pen-transform-contract.md).
+
+`GraphicsPathBenchmarks.WidenCompoundArrowPenClone` guards two compound bands, a round join, and a filled adjustable end arrow on the shared widened-geometry path. The 2026-08-27 ARM64/.NET 10.0.11 ShortRun measured a 3.757 µs median (3.488 µs mean, 0.594 µs standard deviation) with 9.27 KB allocated. One launch, three warmups, three measured iterations, and denied process-priority elevation make this coarse local subsystem evidence. The focused suite independently enforces an 8-12 KB warmed allocation window, zero allocation for 10,000 cap-state mutation groups, and exact production pixel/bounds/hit-test behavior for representative compound, arrow, generic-fill, and generic-stroke cases. Contract and remaining differential work are recorded in [`docs/research/system-drawing-custom-cap-compound-pen-contract.md`](research/system-drawing-custom-cap-compound-pen-contract.md).
+
+`GraphicsPathBenchmarks.LowerMaximumBoundaryPathGradient` guards managed lowering of a 128-point path gradient with alternating surround colors, anisotropic focus scales, and a triangular blend curve. The 2026-08-27 ARM64/.NET 10.0.11 ShortRun measured a 3.807 µs median (3.706 µs mean, 0.366 µs standard deviation) with 6.34 KB allocated. One launch, three warmups, three measured iterations, and denied process-priority elevation make this coarse local subsystem evidence. The focused suite independently enforces a 400–1,400-byte allocation window for a smaller canonical brush, while the renderer/native gates prove bounded 128-edge transport and polygon-aware pixels. Contract and remaining differential work are recorded in [`docs/research/system-drawing-path-gradient-contract.md`](research/system-drawing-path-gradient-contract.md).
+
+The 2026-08-21 ARM64 in-process ShortRun checkpoint measured the 64×64 remap at 19.59 µs/op with 16.48 KB allocated. The focused test independently enforces a bounded 16,384–20,000-byte allocation window after warmup. The in-process result is local diagnostic evidence for the restricted development environment; CI uses BenchmarkDotNet's normal isolated toolchain and publishes its JSON result.
+
+`DesktopCaptureBenchmarks.CaptureAndMaterialize64x64` guards the complete typed
+provider, owned RGBA snapshot, retained texture command, and destination bitmap
+materialization path. The 2026-08-27 ARM64/.NET 10.0.11 ShortRun measured a
+578.0 us median (789.3 us mean, 466.4 us standard deviation) and 33.25 KB per
+64-by-64 capture. One launch and three measured iterations produced high timing
+variance, so this is coarse subsystem evidence rather than a regression
+threshold. The focused gate independently permits at most 65,536 managed bytes
+across sixteen warmed 16-by-16 captures (4 KiB per operation), including the
+unavoidable 1 KiB pixel payload. OS capture latency remains adapter specific
+and is not represented by the filling-provider benchmark. Contract and
+boundary evidence is recorded in
+[`docs/research/system-drawing-desktop-capture-contract.md`](research/system-drawing-desktop-capture-contract.md).
+
+`NativeImageImportBenchmarks.Import64x64IconSnapshot` guards the typed provider
+call, guarded synchronous copy, owned bitmap construction, pixel read, and
+disposal. The 2026-08-27 ARM64/.NET 10.0.11 ShortRun measured a 648.615 ns
+median (645.822 ns mean, 15.825 ns standard deviation) and 16.43 KB per import.
+The filling provider deliberately excludes OS/GDI handle-decoding latency. The
+focused suite independently permits at most 32,768 bytes across sixteen warmed
+16-by-16 imports, including the unavoidable 1 KiB owned pixel snapshot per
+result. Contract and platform-boundary evidence is recorded in
+[`docs/research/system-drawing-native-image-import-contract.md`](research/system-drawing-native-image-import-contract.md).
+
+`NativeDrawingInteropBenchmarks.GetHalftonePaletteDispatch` guards the typed
+registry and state-changing, no-inline provider call without native OS work.
+The 2026-08-27 ARM64/.NET 10.0.11 ShortRun measured a 0.634 ns median (0.609 ns
+mean, 0.074 ns standard deviation) and zero managed allocation. The workload is
+close to timer/harness resolution and the three-iteration confidence interval
+is wider than the mean, so it is evidence of a nonallocating dispatch path, not
+a portable nanosecond latency claim. The focused suite independently requires
+exactly zero managed bytes across 10,000 warmed palette dispatches. Contract
+and platform-boundary evidence is recorded in
+[`docs/research/system-drawing-native-interop-contract.md`](research/system-drawing-native-interop-contract.md).
+
+The current metafile pattern slice materializes `EMR_CREATEDIBPATTERNBRUSHPT`,
+`EMR_CREATEMONOBRUSH`, `META_DIBCREATEPATTERNBRUSH`, and
+`META_CREATEPATTERNBRUSH` through typed managed paths. Packed DIB records reuse
+the bounded DIB decoder; the legacy WMF form validates the official partial
+`Bitmap16`/reserved envelope before invoking the registered device-format
+decoder. Pattern bitmaps are decoded before object-table publication, owned by
+the playback object, cached by selected brush and origin, and disposed with
+normal GDI object lifetime.
+
+Arbitrary bitmap-pattern ROP3 uses a typed ProGPU texture payload in the
+destination-composition bind group. It keeps the advanced uniform at 96 bytes,
+does not enlarge the hot `RenderCommand`, performs exact repeating device-pixel
+loads in WGSL, and reuses one retained pattern texture across repeated commands.
+Focused device tests cover source/pattern/destination XOR, origin phase, exact
+2-by-2 RGB tiles, one-bit EMF rejection, legacy-WMF adapter input, unchanged
+outside pixels, retained-command round trips, texture-lease sharing, and
+transactional malformed-input rollback. A dedicated
+`Playback256WmfDibPatternInvertsToRetainedCommands` benchmark guards decode,
+pattern caching, retained ROP publication, and cleanup without treating a
+short-run timing sample as a portable throughput claim. The 2026-09-01
+ARM64/.NET 10.0.11 ShortRun measured a 579.442 microsecond median (482.158
+microsecond mean, 172.568 microsecond standard deviation) and 305,349 bytes
+allocated. The complete 102-benchmark Release run finished successfully in
+14 minutes 34 seconds; three iterations, denied priority elevation, and high
+variance keep the exact-pixel, retained-resource, and allocation gates
+authoritative. The complete System.Drawing suite passes 600/600 in both Debug
+and Release, the Linux-equivalent ProGPU Release lane passes 3,759/3,759, the
+headless lane passes 240/240, and ApiCompat remains at zero missing types and
+zero missing members.
+
+## Implementation order
+
+API work should proceed in dependency groups:
+
+1. base ownership and shape (`Brush`, `Pen`, `Image`, `Graphics`, `Matrix`);
+2. imaging codecs, pixel formats, palettes, locking, and image attributes;
+3. drawing primitives, paths, regions, transforms, text, and fonts;
+4. complete managed printing model with a typed backend boundary;
+5. icons, cursors, native-handle adapters, and platform-specific escape hatches; and
+6. remaining design-time converters and metadata.
+
+Adding a type without its managed contract can increase the member-diagnostic count because ApiCompat begins inspecting that type. A subsystem is complete only when its full public shape and normal managed semantics are present, even if an unavailable OS operation fails explicitly at the backend boundary.

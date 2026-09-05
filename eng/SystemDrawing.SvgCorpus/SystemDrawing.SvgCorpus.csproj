@@ -1,0 +1,23 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <IsPackable>false</IsPackable>
+    <BuildInParallel>false</BuildInParallel>
+    <SvgSourceRoot Condition="'$(SvgSourceRoot)' == ''">$(MSBuildThisFileDirectory)..\..\external\Svg.Skia\externals\SVG</SvgSourceRoot>
+    <ProGpuSourceRoot Condition="'$(ProGpuSourceRoot)' == ''">$(MSBuildThisFileDirectory)..\..</ProGpuSourceRoot>
+    <UseProGpuSystemDrawing>true</UseProGpuSystemDrawing>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="$(SvgSourceRoot)\Source\Svg.csproj"
+                      AdditionalProperties="ManagePackageVersionsCentrally=false" />
+    <ProjectReference Include="$(ProGpuSourceRoot)/src/System.Drawing.Common/System.Drawing.Common.csproj"
+                      AdditionalProperties="ManagePackageVersionsCentrally=true" />
+    <ProjectReference Include="$(ProGpuSourceRoot)/src/ProGPU.Text/ProGPU.Text.csproj"
+                      AdditionalProperties="ManagePackageVersionsCentrally=true" />
+    <PackageReference Include="StbImageSharp" />
+  </ItemGroup>
+</Project>

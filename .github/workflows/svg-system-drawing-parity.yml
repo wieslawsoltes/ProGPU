@@ -1,0 +1,202 @@
+name: SVG System.Drawing parity
+
+on:
+  workflow_dispatch:
+  pull_request:
+    branches:
+      - main
+    paths:
+      - src/System.Drawing.Common/**
+      - src/ProGPU.Backend/**
+      - src/ProGPU.Scene/**
+      - src/ProGPU.Text/**
+      - src/ProGPU.Vector/**
+      - eng/SystemDrawing.SvgCorpus/**
+      - eng/progpu-prepare-svg-system-drawing.sh
+      - eng/svg-system-drawing.Directory.Packages.props
+      - eng/system-drawing-svg-known-differences.txt
+      - eng/system-drawing-svg-known-exceptions.txt
+      - eng/system-drawing-svg-threshold-overrides.txt
+      - eng/system-drawing-svg-benchmark-fixtures.txt
+      - .github/workflows/svg-system-drawing-parity.yml
+  push:
+    branches:
+      - main
+    paths:
+      - src/System.Drawing.Common/**
+      - src/ProGPU.Backend/**
+      - src/ProGPU.Scene/**
+      - src/ProGPU.Text/**
+      - src/ProGPU.Vector/**
+      - eng/SystemDrawing.SvgCorpus/**
+      - eng/progpu-prepare-svg-system-drawing.sh
+      - eng/svg-system-drawing.Directory.Packages.props
+      - eng/system-drawing-svg-known-differences.txt
+      - eng/system-drawing-svg-known-exceptions.txt
+      - eng/system-drawing-svg-threshold-overrides.txt
+      - eng/system-drawing-svg-benchmark-fixtures.txt
+      - .github/workflows/svg-system-drawing-parity.yml
+
+permissions:
+  contents: read
+
+concurrency:
+  group: svg-system-drawing-parity-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+env:
+  SVG_SKIA_COMMIT: 03f64b67badfca9fca216dc25896d0c0ee04e7b7
+
+jobs:
+  quality:
+    name: SVG.NET ${{ matrix.suite }} quality
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - suite: resvg
+            threshold: 0.12
+          - suite: w3c
+            threshold: 0.10
+
+    steps:
+      - name: Checkout ProGPU
+        uses: actions/checkout@v7
+
+      - name: Checkout pinned Svg.Skia corpora
+        uses: actions/checkout@v7
+        with:
+          repository: wieslawsoltes/Svg.Skia
+          ref: ${{ env.SVG_SKIA_COMMIT }}
+          path: external/Svg.Skia
+          submodules: recursive
+
+      - name: Route SVG.NET to ProGPU System.Drawing
+        run: ./eng/progpu-prepare-svg-system-drawing.sh "${{ github.workspace }}/external/Svg.Skia/externals/SVG"
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v5
+        with:
+          global-json-file: global.json
+
+      - name: Install software WebGPU adapter
+        run: ./eng/progpu-install-linux-packages.sh libvulkan1 mesa-vulkan-drivers
+
+      - name: Restore SVG System.Drawing corpus runner
+        run: >-
+          dotnet restore eng/SystemDrawing.SvgCorpus/SystemDrawing.SvgCorpus.csproj
+          -p:SvgSourceRoot="${{ github.workspace }}/external/Svg.Skia/externals/SVG"
+          -p:UseProGpuSystemDrawing=true
+          -p:ProGpuSourceRoot="${{ github.workspace }}"
+
+      - name: Build SVG System.Drawing corpus runner serially
+        run: >-
+          dotnet build eng/SystemDrawing.SvgCorpus/SystemDrawing.SvgCorpus.csproj
+          --configuration Release
+          --no-restore
+          --maxcpucount:1
+          -p:SvgSourceRoot="${{ github.workspace }}/external/Svg.Skia/externals/SVG"
+          -p:UseProGpuSystemDrawing=true
+          -p:ProGpuSourceRoot="${{ github.workspace }}"
+
+      - name: Run ${{ matrix.suite }} image parity inventory
+        run: >-
+          dotnet run
+          --project eng/SystemDrawing.SvgCorpus/SystemDrawing.SvgCorpus.csproj
+          --configuration Release
+          --no-build
+          --no-restore
+          -p:SvgSourceRoot="${{ github.workspace }}/external/Svg.Skia/externals/SVG"
+          -p:UseProGpuSystemDrawing=true
+          -p:ProGpuSourceRoot="${{ github.workspace }}"
+          --
+          quality
+          --corpus-root "${{ github.workspace }}/external/Svg.Skia"
+          --artifacts "${{ github.workspace }}/artifacts/svg-system-drawing/${{ matrix.suite }}"
+          --known-differences "${{ github.workspace }}/eng/system-drawing-svg-known-differences.txt"
+          --known-exceptions "${{ github.workspace }}/eng/system-drawing-svg-known-exceptions.txt"
+          --threshold-overrides "${{ github.workspace }}/eng/system-drawing-svg-threshold-overrides.txt"
+          --suite "${{ matrix.suite }}"
+          --threshold "${{ matrix.threshold }}"
+          --max-parallelism 4
+
+      - name: Upload SVG System.Drawing evidence
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: svg-system-drawing-${{ matrix.suite }}-${{ github.sha }}
+          path: artifacts/svg-system-drawing/${{ matrix.suite }}/**
+          if-no-files-found: warn
+
+  performance:
+    name: SVG.NET representative performance
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout ProGPU
+        uses: actions/checkout@v7
+
+      - name: Checkout pinned Svg.Skia corpora
+        uses: actions/checkout@v7
+        with:
+          repository: wieslawsoltes/Svg.Skia
+          ref: ${{ env.SVG_SKIA_COMMIT }}
+          path: external/Svg.Skia
+          submodules: recursive
+
+      - name: Route SVG.NET to ProGPU System.Drawing
+        run: ./eng/progpu-prepare-svg-system-drawing.sh "${{ github.workspace }}/external/Svg.Skia/externals/SVG"
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v5
+        with:
+          global-json-file: global.json
+
+      - name: Install software WebGPU adapter
+        run: ./eng/progpu-install-linux-packages.sh libvulkan1 mesa-vulkan-drivers
+
+      - name: Restore SVG System.Drawing corpus runner
+        run: >-
+          dotnet restore eng/SystemDrawing.SvgCorpus/SystemDrawing.SvgCorpus.csproj
+          -p:SvgSourceRoot="${{ github.workspace }}/external/Svg.Skia/externals/SVG"
+          -p:UseProGpuSystemDrawing=true
+          -p:ProGpuSourceRoot="${{ github.workspace }}"
+
+      - name: Build SVG System.Drawing corpus runner serially
+        run: >-
+          dotnet build eng/SystemDrawing.SvgCorpus/SystemDrawing.SvgCorpus.csproj
+          --configuration Release
+          --no-restore
+          --maxcpucount:1
+          -p:SvgSourceRoot="${{ github.workspace }}/external/Svg.Skia/externals/SVG"
+          -p:UseProGpuSystemDrawing=true
+          -p:ProGpuSourceRoot="${{ github.workspace }}"
+
+      - name: Run representative SVG throughput and allocation samples
+        run: >-
+          dotnet run
+          --project eng/SystemDrawing.SvgCorpus/SystemDrawing.SvgCorpus.csproj
+          --configuration Release
+          --no-build
+          --no-restore
+          -p:SvgSourceRoot="${{ github.workspace }}/external/Svg.Skia/externals/SVG"
+          -p:UseProGpuSystemDrawing=true
+          -p:ProGpuSourceRoot="${{ github.workspace }}"
+          --
+          performance
+          --corpus-root "${{ github.workspace }}/external/Svg.Skia"
+          --artifacts "${{ github.workspace }}/artifacts/svg-system-drawing/performance"
+          --benchmark-fixtures "${{ github.workspace }}/eng/system-drawing-svg-benchmark-fixtures.txt"
+          --iterations 7
+
+      - name: Upload SVG performance evidence
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: svg-system-drawing-performance-${{ github.sha }}
+          path: artifacts/svg-system-drawing/performance/**
+          if-no-files-found: error

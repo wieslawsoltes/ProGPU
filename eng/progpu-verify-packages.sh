@@ -18,11 +18,14 @@ case "${package_group}" in
   avalonia-runtime)
     selected_package_ids=("${progpu_avalonia_runtime_package_ids[@]}")
     ;;
+  drawing-runtime)
+    selected_package_ids=("${progpu_drawing_runtime_package_ids[@]}")
+    ;;
   mobile)
     selected_package_ids=("${progpu_mobile_package_ids[@]}")
     ;;
   *)
-    echo "Unknown PROGPU_PACKAGE_GROUP '${package_group}'. Expected all, portable, avalonia-runtime, or mobile." >&2
+    echo "Unknown PROGPU_PACKAGE_GROUP '${package_group}'. Expected all, portable, avalonia-runtime, drawing-runtime, or mobile." >&2
     exit 1
     ;;
 esac
@@ -141,8 +144,8 @@ for package_id in "${selected_package_ids[@]}"; do
         echo "${package_id} depends on ${dependency_id} ${dependency_version}, expected ${package_version}." >&2
         exit 1
       fi
-      if [[ "${package_group}" == "avalonia-runtime" ]] && ! is_selected_package_id "${dependency_id}"; then
-        echo "${package_id} depends on ${dependency_id}, which is missing from the isolated avalonia-runtime package closure." >&2
+      if [[ ("${package_group}" == "avalonia-runtime" || "${package_group}" == "drawing-runtime") ]] && ! is_selected_package_id "${dependency_id}"; then
+        echo "${package_id} depends on ${dependency_id}, which is missing from the isolated ${package_group} package closure." >&2
         exit 1
       fi
     elif [[ "${dependency_id}" == ProGPU.* || "${dependency_id}" == LibreWPF.* ]] || is_owned_nonshipping_project_id "${dependency_id}"; then

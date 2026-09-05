@@ -431,7 +431,7 @@ public sealed class PathShimCompatibilityTests
         using var path = new DrawingGraphicsPath();
         path.AddArc(0f, 0f, 20f, 10f, 0f, 360f);
 
-        using var graphics = DrawingGraphics.FromHwnd(IntPtr.Zero);
+        using var graphics = DrawingGraphics.FromProGpuDrawingContext(new DrawingContext());
         graphics.DrawPath(DrawingPens.Black, path);
 
         var command = Assert.Single(graphics.DrawingContext.Commands);
@@ -451,7 +451,7 @@ public sealed class PathShimCompatibilityTests
         path.AddRectangle(new System.Drawing.RectangleF(0f, 0f, 30f, 30f));
         path.AddRectangle(new System.Drawing.RectangleF(10f, 10f, 10f, 10f));
 
-        using var graphics = DrawingGraphics.FromHwnd(IntPtr.Zero);
+        using var graphics = DrawingGraphics.FromProGpuDrawingContext(new DrawingContext());
         graphics.FillPath(System.Drawing.Brushes.Black, path);
 
         var command = Assert.Single(graphics.DrawingContext.Commands);

@@ -140,7 +140,7 @@ public partial class SKPicture
 internal static class PictureArchive
 {
     private const ulong Magic = 0x314349504B534750UL;
-    private const int Version = 3;
+    private const int Version = 4;
     private const int MinimumSupportedVersion = 1;
     private const int MaxDepth = 64;
     private const int MaxCommands = 1_000_000;
@@ -163,6 +163,8 @@ internal static class PictureArchive
         ThemeResource,
         BackdropMaterial,
         SweepAngles,
+        TilePattern,
+        PathGradient,
     }
 
     private enum SegmentKind : byte
@@ -535,6 +537,8 @@ internal static class PictureArchive
             PerlinNoiseBrush => BrushKind.PerlinNoise,
             HatchPatternBrush => BrushKind.Hatch,
             CrossHatchBrush => BrushKind.CrossHatch,
+            TilePatternBrush => BrushKind.TilePattern,
+            PathGradientBrush => BrushKind.PathGradient,
             ThemeResourceBrush => BrushKind.ThemeResource,
             BackdropMaterialBrush => BrushKind.BackdropMaterial,
             _ => throw new NotSupportedException($"Brush type '{brush.GetType().FullName}' is not serializable."),
@@ -567,6 +571,25 @@ internal static class PictureArchive
                 writer.Write((int)radial.SpreadMethod);
                 writer.Write((int)radial.ColorInterpolationMode);
                 WriteGradientStops(writer, radial.Stops);
+                break;
+            case PathGradientBrush pathGradient:
+                WriteVector2Array(writer, pathGradient.BoundaryPoints.Span);
+                WriteVector4Array(writer, pathGradient.SurroundColors.Span);
+                WriteVector2(writer, pathGradient.Center);
+                WriteVector4(writer, pathGradient.CenterColor);
+                WriteVector2(writer, pathGradient.FocusScales);
+                WriteMatrix(writer, pathGradient.CoordinateTransform);
+                writer.Write((int)pathGradient.SpreadMethod);
+                writer.Write((int)pathGradient.ColorInterpolationMode);
+                writer.Write(pathGradient.UsesPresetColors);
+                if (pathGradient.UsesPresetColors)
+                {
+                    WriteGradientStops(writer, pathGradient.PresetStops.Span);
+                }
+                else
+                {
+                    WritePathGradientBlendStops(writer, pathGradient.BlendStops.Span);
+                }
                 break;
             case TwoPointConicalGradientBrush conical:
                 WriteVector2(writer, conical.StartCenter);
@@ -614,6 +637,11 @@ internal static class PictureArchive
                 writer.Write(crossHatch.Spacing);
                 writer.Write(crossHatch.Thickness);
                 WriteVector4(writer, crossHatch.Color);
+                break;
+            case TilePatternBrush tilePattern:
+                writer.Write(tilePattern.Pattern);
+                WriteVector4(writer, tilePattern.ForegroundColor);
+                WriteVector4(writer, tilePattern.BackgroundColor);
                 break;
             case ThemeResourceBrush theme:
                 WriteString(writer, theme.ResourceKey as string ?? throw new NotSupportedException(
@@ -664,6 +692,11 @@ internal static class PictureArchive
                 reader.ReadSingle(),
                 reader.ReadSingle(),
                 ReadVector4(reader)),
+            BrushKind.TilePattern => new TilePatternBrush(
+                reader.ReadUInt64(),
+                ReadVector4(reader),
+                ReadVector4(reader)),
+            BrushKind.PathGradient => ReadPathGradient(reader),
             BrushKind.ThemeResource => new ThemeResourceBrush(
                 ReadString(reader) ?? throw new InvalidDataException("Theme resource keys cannot be null.")),
             BrushKind.BackdropMaterial => ReadBackdropMaterial(reader),
@@ -703,6 +736,38 @@ internal static class PictureArchive
             SpreadMethod = spread,
             ColorInterpolationMode = colorMode,
         };
+    }
+
+    private static PathGradientBrush ReadPathGradient(BinaryReader reader)
+    {
+        Vector2[] boundary = ReadVector2Array(reader);
+        Vector4[] surround = ReadVector4Array(reader);
+        Vector2 center = ReadVector2(reader);
+        Vector4 centerColor = ReadVector4(reader);
+        Vector2 focusScales = ReadVector2(reader);
+        Matrix4x4 transform = ReadMatrix(reader);
+        GradientSpreadMethod spread = ReadEnum<GradientSpreadMethod>(reader);
+        GradientColorInterpolationMode colorMode =
+            ReadEnum<GradientColorInterpolationMode>(reader);
+        bool usesPresetColors = reader.ReadBoolean();
+        PathGradientBrush brush = usesPresetColors
+            ? new PathGradientBrush(
+                boundary,
+                surround,
+                center,
+                centerColor,
+                ReadGradientStops(reader))
+            : new PathGradientBrush(
+                boundary,
+                surround,
+                center,
+                centerColor,
+                ReadPathGradientBlendStops(reader));
+        brush.FocusScales = focusScales;
+        brush.CoordinateTransform = transform;
+        brush.SpreadMethod = spread;
+        brush.ColorInterpolationMode = colorMode;
+        return brush;
     }
 
     private static TwoPointConicalGradientBrush ReadConicalGradient(BinaryReader reader)
@@ -1054,12 +1119,43 @@ internal static class PictureArchive
     private static void WriteGradientStops(BinaryWriter writer, GradientStop[] stops)
     {
         ArgumentNullException.ThrowIfNull(stops);
+        WriteGradientStops(writer, (ReadOnlySpan<GradientStop>)stops);
+    }
+
+    private static void WriteGradientStops(BinaryWriter writer, ReadOnlySpan<GradientStop> stops)
+    {
         WriteCount(writer, stops.Length, MaxArrayElements, "gradient stops");
         foreach (var stop in stops)
         {
             WriteVector4(writer, stop.Color);
             writer.Write(stop.Offset);
         }
+    }
+
+    private static void WritePathGradientBlendStops(
+        BinaryWriter writer,
+        ReadOnlySpan<PathGradientBlendStop> stops)
+    {
+        WriteCount(writer, stops.Length, MaxArrayElements, "path-gradient blend stops");
+        foreach (PathGradientBlendStop stop in stops)
+        {
+            writer.Write(stop.Factor);
+            writer.Write(stop.Offset);
+        }
+    }
+
+    private static PathGradientBlendStop[] ReadPathGradientBlendStops(
+        BinaryReader reader)
+    {
+        int count = ReadCount(reader, MaxArrayElements, "path-gradient blend stops");
+        var stops = new PathGradientBlendStop[count];
+        for (int index = 0; index < stops.Length; index++)
+        {
+            stops[index] = new PathGradientBlendStop(
+                reader.ReadSingle(),
+                reader.ReadSingle());
+        }
+        return stops;
     }
 
     private static GradientStop[] ReadGradientStops(BinaryReader reader)

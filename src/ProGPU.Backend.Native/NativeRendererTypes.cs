@@ -566,7 +566,9 @@ public enum NativeSceneBrushKind : uint
     CrossHatch = 4,
     TwoPointConicalGradient = 5,
     SweepGradient = 6,
-    PerlinNoise = 7
+    PerlinNoise = 7,
+    TilePattern = 8,
+    PathGradient = 9
 }
 
 public enum NativeSceneGradientSpread : uint
@@ -760,6 +762,7 @@ public struct NativeSceneBrush
 {
     public const uint PerlinTableRecordCount = 512U;
     public const uint MaximumPerlinOctaves = 255U;
+    public const uint MaximumPathGradientBoundaryPoints = 128U;
 
     [FieldOffset(0)] public NativeSceneBrushKind Kind;
     [FieldOffset(4)] public float Opacity;
@@ -851,6 +854,38 @@ public struct NativeSceneBrush
         return brush;
     }
 
+    public static NativeSceneBrush PathGradient(
+        Vector2 center,
+        Vector4 centerColor,
+        Vector2 focusScales,
+        uint boundaryPointCount,
+        uint curveCount,
+        bool usesPresetColors,
+        uint recordOffset,
+        ReadOnlySpan<NativeSceneGradientStop> records,
+        float opacity = 1f,
+        NativeSceneGradientSpread spread = NativeSceneGradientSpread.Pad,
+        NativeSceneGradientInterpolation interpolation =
+            NativeSceneGradientInterpolation.SRgb,
+        Matrix3x2? coordinateTransform = null)
+    {
+        var brush = CreateGradient(
+            NativeSceneBrushKind.PathGradient,
+            recordOffset,
+            records,
+            opacity,
+            spread,
+            interpolation,
+            coordinateTransform ?? Matrix3x2.Identity);
+        brush.Center = center;
+        brush.EndPoint = focusScales;
+        brush.Radius = boundaryPointCount;
+        brush.RadiusY = curveCount;
+        brush.Color0 = centerColor;
+        brush.Color1 = new Vector4(usesPresetColors ? 1f : 0f, 0f, 0f, 0f);
+        return brush;
+    }
+
     public static NativeSceneBrush HatchPattern(
         float angle,
         float spacing,
@@ -868,6 +903,23 @@ public struct NativeSceneBrush
         brush.Radius = angle;
         brush.Center = new Vector2(spacing, thickness);
         brush.Color0 = color;
+        return brush;
+    }
+
+    public static NativeSceneBrush TilePattern(
+        ulong pattern,
+        Vector4 foregroundColor,
+        Vector4 backgroundColor,
+        float opacity = 1f)
+    {
+        var brush = CreateBase(
+            NativeSceneBrushKind.TilePattern,
+            opacity,
+            Matrix3x2.Identity);
+        brush.StopCount = (uint)pattern;
+        brush.StopOffset = (uint)(pattern >> 32);
+        brush.Color0 = foregroundColor;
+        brush.Color1 = backgroundColor;
         return brush;
     }
 

@@ -5,7 +5,7 @@
     <Nullable>enable</Nullable>
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
     <AssemblyName>System.Drawing.Common</AssemblyName>
-    <AssemblyVersion>0.0.0.0</AssemblyVersion>
+    <AssemblyVersion>10.0.0.0</AssemblyVersion>
     <RootNamespace>System.Drawing</RootNamespace>
     <PackageId>ProGPU.System.Drawing.Common</PackageId>
     <Description>ProGPU-backed portable System.Drawing.Common compatibility shim.</Description>
@@ -14,10 +14,20 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <PackageReference Include="StbImageWriteSharp" />
+  </ItemGroup>
+
+  <ItemGroup>
     <ProjectReference Include="..\ProGPU.Backend\ProGPU.Backend.csproj" />
     <ProjectReference Include="..\ProGPU.Vector\ProGPU.Vector.csproj" />
     <ProjectReference Include="..\ProGPU.Text\ProGPU.Text.csproj" />
     <ProjectReference Include="..\ProGPU.Scene\ProGPU.Scene.csproj" />
     <ProjectReference Include="..\SkiaSharp\SkiaSharp.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="System.Drawing.Common.Tests, PublicKey=$(ProGPUPublicKey)" />
+    <InternalsVisibleTo Include="System.Drawing.Common.Benchmarks, PublicKey=$(ProGPUPublicKey)" />
+    <InternalsVisibleTo Include="ProGPU.Tests.Headless, PublicKey=$(ProGPUPublicKey)" />
   </ItemGroup>
 </Project>

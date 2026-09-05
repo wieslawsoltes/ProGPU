@@ -1323,7 +1323,54 @@ public unsafe class WgpuContext : IDisposable
             return new WebGPU(new LamdaNativeContext(ResolveAndroidWebGpuSymbol));
         }
 
-        return WebGPU.GetApi();
+        return new WebGPU(new LamdaNativeContext(ResolveDesktopWebGpuSymbol));
+    }
+
+    private static readonly object s_desktopWebGpuLibraryLock = new();
+    private static nint s_desktopWebGpuLibrary;
+
+    private static nint ResolveDesktopWebGpuSymbol(string symbol)
+    {
+        if (s_desktopWebGpuLibrary == 0)
+        {
+            lock (s_desktopWebGpuLibraryLock)
+            {
+                if (s_desktopWebGpuLibrary == 0)
+                {
+                    s_desktopWebGpuLibrary = LoadDesktopWebGpuLibrary();
+                }
+            }
+        }
+
+        return NativeLibrary.TryGetExport(s_desktopWebGpuLibrary, symbol, out nint address)
+            ? address
+            : 0;
+    }
+
+    private static nint LoadDesktopWebGpuLibrary()
+    {
+        string libraryName = OperatingSystem.IsWindows()
+            ? "wgpu_native.dll"
+            : OperatingSystem.IsMacOS()
+                ? "libwgpu_native.dylib"
+                : "libwgpu_native.so";
+        string baseDirectory = AppContext.BaseDirectory;
+        string runtimeAsset = Path.Combine(
+            baseDirectory,
+            "runtimes",
+            RuntimeInformation.RuntimeIdentifier,
+            "native",
+            libraryName);
+
+        if (NativeLibrary.TryLoad(runtimeAsset, out nint library)
+            || NativeLibrary.TryLoad(Path.Combine(baseDirectory, libraryName), out library)
+            || NativeLibrary.TryLoad(libraryName, out library))
+        {
+            return library;
+        }
+
+        throw new DllNotFoundException(
+            $"Unable to load {libraryName}. The packaged runtime asset was expected at '{runtimeAsset}'.");
     }
 
     private static readonly object s_androidWebGpuLibraryLock = new();
