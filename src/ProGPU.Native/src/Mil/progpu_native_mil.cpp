@@ -14301,19 +14301,23 @@ struct channel::implementation {
                 ? status::success
                 : status::invalid_graph;
         };
-        // A single ImageBrush tile is a source image mapped into its viewport,
+        // A single tile is source content mapped into its viewport,
         // then clipped to the independently transformed paint geometry. This
         // reuses image batching and exact MIL clips; it never copies pixels to
         // synthesize padding or broadens a transformed viewport to loose bounds.
-        const auto append_image_brush_tile = [
+        const auto append_single_tile_brush = [
             this, &builder, &append_bitmap_source, &apply_rectangle_clip,
-            &save_state](
+            &save_state, &resolve_drawing_image_bounds, drawing_depth,
+            &brush_indices, &image_indices, &glyph_resources, compile_context,
+            &active_drawings, &clip_paths, &clip_segments, &clip_boolean_nodes,
+            &metrics](
             std::uint32_t brush_handle,
             const brush_use_state& use,
             const render_scope_state& state) -> status {
             const auto found = tile_brushes.find(brush_handle);
+            const bool drawing_brush = require_resource(brush_handle, type_drawing_brush);
             if (found == tile_brushes.end() ||
-                !require_resource(brush_handle, type_image_brush)) {
+                (!require_resource(brush_handle, type_image_brush) && !drawing_brush)) {
                 return status::unsupported_command;
             }
             const auto& brush = found->second;
@@ -14325,13 +14329,50 @@ struct channel::implementation {
             if (brush.tile_mode != 0U) {
                 return status::unsupported_command;
             }
-            const auto bitmap = bitmap_sources.find(brush.source_handle);
-            if (bitmap == bitmap_sources.end()) {
+            double content_x = 0.0;
+            double content_y = 0.0;
+            double content_width = 0.0;
+            double content_height = 0.0;
+            bool vector_source = drawing_brush;
+            if (drawing_brush) {
+                progpu_native_image_rect bounds{};
+                const status resolved = resolve_drawing_image_bounds(
+                    resolve_drawing_image_bounds, brush.source_handle, 0U, {}, nullptr, bounds);
+                if (resolved != status::success) return resolved;
+                content_x = bounds.x;
+                content_y = bounds.y;
+                content_width = bounds.width;
+                content_height = bounds.height;
+            } else if (const auto bitmap = bitmap_sources.find(brush.source_handle);
+                bitmap != bitmap_sources.end()) {
+                content_width = static_cast<double>(bitmap->second.width) * 96.0 / bitmap->second.dpi_x;
+                content_height = static_cast<double>(bitmap->second.height) * 96.0 / bitmap->second.dpi_y;
+            } else if (const auto shared = d3d_images.find(brush.source_handle);
+                shared != d3d_images.end()) {
+                if (!shared->second.has_external_image) return status::invalid_handle;
+                content_width = shared->second.width;
+                content_height = shared->second.height;
+            } else if (const auto image = drawing_images.find(brush.source_handle);
+                image != drawing_images.end()) {
+                if (image->second.drawing_handle == 0U) return status::success;
+                vector_source = true;
+                if (image->second.has_bounds) {
+                    content_width = image->second.bounds_width;
+                    content_height = image->second.bounds_height;
+                } else {
+                    progpu_native_image_rect bounds{};
+                    const status resolved = resolve_drawing_image_bounds(
+                        resolve_drawing_image_bounds, image->second.drawing_handle, 0U, {}, nullptr, bounds);
+                    if (resolved != status::success) return resolved;
+                    content_width = bounds.width;
+                    content_height = bounds.height;
+                }
+                // DrawingImage has a zero-origin natural image extent. Its
+                // drawing bounds origin is removed by append_drawing_image.
+            } else {
                 return status::unsupported_command;
             }
-            const auto& source = bitmap->second;
-            const double content_width = static_cast<double>(source.width) * 96.0 / source.dpi_x;
-            const double content_height = static_cast<double>(source.height) * 96.0 / source.dpi_y;
+            if (content_width <= 0.0 || content_height <= 0.0) return status::success;
             rect_resource_state viewport{};
             rect_resource_state viewbox{};
             const auto resolve_rect = [this](const rect_resource_state& base,
@@ -14355,7 +14396,7 @@ struct channel::implementation {
                     viewport.width * use.width, viewport.height * use.height};
             }
             if (brush.viewbox_units == 1U) {
-                viewbox = {viewbox.x * content_width, viewbox.y * content_height,
+                viewbox = {content_x + viewbox.x * content_width, content_y + viewbox.y * content_height,
                     viewbox.width * content_width, viewbox.height * content_height};
             }
             double scale_x = viewport.width / viewbox.width;
@@ -14421,6 +14462,66 @@ struct channel::implementation {
             // outside it may remain visible until the Viewport clips it.
             clipped.transform = content_to_target;
             clipped.opacity *= opacity;
+            if (vector_source) {
+                if (!active_drawings.insert(brush_handle).second) return status::invalid_graph;
+                // A vector source may contain overlapping primitives. Brush
+                // opacity and exact output masks apply once to the completed
+                // tile, not separately to each primitive. Source effects keep
+                // their own input bounds; viewport clipping is at restoration.
+                progpu_native_scene_layer layer{};
+                layer.struct_size = sizeof(layer);
+                layer.flags = PROGPU_NATIVE_SCENE_LAYER_FORCE_ISOLATION;
+                layer.opacity = static_cast<float>(clipped.opacity);
+                layer.blend_mode = PROGPU_NATIVE_BLEND_SRC_OVER;
+                layer.effect_resource_index = PROGPU_NATIVE_SCENE_NO_INDEX;
+                const status final_clip = attach_visual_output_clip(layer, clipped, builder);
+                if (final_clip != status::success || !builder.push_layer(layer)) {
+                    active_drawings.erase(brush_handle);
+                    return final_clip != status::success ? final_clip : status::invalid_graph;
+                }
+                render_scope_state content = clipped;
+                content.opacity = 1.0;
+                content.has_clip = false;
+                content.clip_rect = {};
+                content.mask_resource_index = PROGPU_NATIVE_SCENE_NO_INDEX;
+                content.clip_path_count = content.clip_segment_count = content.clip_boolean_node_count = 0U;
+                content.guideline_resource_index = PROGPU_NATIVE_SCENE_NO_INDEX;
+                content.per_point_guidelines = false;
+                // Isolated clip scratch must not overwrite parent mask prefixes.
+                std::vector<progpu_native_scene_clip_path> source_clip_paths;
+                std::vector<progpu_native_path_segment> source_clip_segments;
+                std::vector<progpu_native_scene_path_boolean_node> source_clip_nodes;
+                status drawn = status::invalid_graph;
+                if (drawing_brush) {
+                    if (save_state(content)) {
+                        // Original MIL DrawDrawing framing: one borrowed stack
+                        // packet, decoded synchronously with shared cycle/depth state.
+                        const std::array<std::uint32_t, 4U> packet{
+                            16U, static_cast<std::uint32_t>(command::draw_drawing),
+                            brush.source_handle, 0U};
+                        drawn = append_render_stream(std::as_bytes(std::span(packet)),
+                            nullptr, content, drawing_depth + 1U, builder,
+                            brush_indices, image_indices, glyph_resources, compile_context,
+                            active_drawings, source_clip_paths, source_clip_segments,
+                            source_clip_nodes, metrics);
+                        if (!builder.restore() && drawn == status::success) drawn = status::invalid_graph;
+                    }
+                } else {
+                    // DrawingImage owns its nested mapping and save/restore.
+                    // Keep independent clip scratch across that recursion too.
+                    auto saved_paths = std::exchange(clip_paths, {});
+                    auto saved_segments = std::exchange(clip_segments, {});
+                    auto saved_nodes = std::exchange(clip_boolean_nodes, {});
+                    drawn = append_bitmap_source(brush.source_handle,
+                        0.0, 0.0, content_width, content_height, content);
+                    clip_paths = std::move(saved_paths);
+                    clip_segments = std::move(saved_segments);
+                    clip_boolean_nodes = std::move(saved_nodes);
+                }
+                if (!builder.pop_layer() && drawn == status::success) drawn = status::invalid_graph;
+                active_drawings.erase(brush_handle);
+                return drawn;
+            }
             // append_bitmap_source emits the complete content-to-target matrix
             // in the image record. The saved state owns only opacity/clipping;
             // composing the same matrix there would transform the image twice.
@@ -16688,7 +16789,7 @@ struct channel::implementation {
             if (has_tile_fill && width > 0.0 && height > 0.0) {
                 if (is_ellipse || has_rounded_corners) return status::unsupported_command;
                 const brush_use_state brush_use{x, y, width, height, effective_transform};
-                const status tile_status = append_image_brush_tile(brush_handle, brush_use, current);
+                const status tile_status = append_single_tile_brush(brush_handle, brush_use, current);
                 if (tile_status != status::success) return tile_status;
             }
             if (!has_tile_fill && brush_handle != 0U && width > 0.0 && height > 0.0) {

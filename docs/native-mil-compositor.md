@@ -6922,6 +6922,79 @@ missing from this feature branch. These are build facts, not runtime passes.
    package-mode SDK/Toolkit/AvalonDock and available licensed Xceed/SciChart
    gates; require every final-head PR CI gate to pass before integration.
 
+## Vector and shared-image single-tile sources, 2026-09-05
+
+Implementation-first continuation (runtime verification deferred): canonical
+`DrawingBrush` now replays its drawing graph through the native MIL decoder for
+`TileMode.None` rectangle fills. `ImageBrush` additionally accepts DrawingImage
+and synchronized D3DImage sources through the existing native image/source
+bindings. BitmapSource/DoubleBufferedBitmap remain on their direct image path.
+
+DrawingBrush relative Viewbox mapping includes the drawing bounds origin;
+DrawingImage instead has a zero-origin natural image extent and its existing
+image replay removes the underlying drawing's bounds origin. Existing exact
+typed DrawingImage bounds are reused when supplied; otherwise the existing
+native drawing-bounds traversal is used. Empty sources are no-ops. D3DImage
+requires the existing live external-image binding and keeps its pixel extent;
+no texture lease, synchronization, upload, or native-handle contract changes.
+
+Vector tiles use one existing isolated GPU layer: brush opacity and the exact
+paint/viewport mask apply once when that layer is restored, not once per child
+primitive. Source drawing opacity and source clip/mask scopes remain inside the
+layer. Its source scope has independent clip scratch; outer vector mask prefixes
+are retained, not overwritten by nested decoding. DrawingBrush recursion uses a
+borrowed fixed-size DrawDrawing packet with the existing depth and active-resource
+checks. DrawingImage uses the original nested image replay and adds the brush
+handle to the same active-resource set. No CPU raster surface, pixel conversion,
+temporary WPF shape, or reflection bridge is introduced.
+
+This extends original ProGPU `append_drawing_image`, drawing-bounds inference,
+`append_render_stream`, and isolated-layer output clipping from checkpoint
+`419047e6`; no foreign implementation is copied. The existing cross-engine
+research record and single-tile mapping design remain applicable. Compilation is
+O(D) for D visited drawing records (plus existing bounds inference when needed),
+with bounded recursive/cycle tracking; fixed source/viewport mapping is O(1).
+Rasterization/composition stays on GPU. The current isolated vector tile can
+occupy a target-sized layer; tighter retained tile-page allocation and reuse are
+still required before performance qualification. This is not a SIMD speed claim:
+there is no new CPU pixel kernel, and resource-graph traversal is dependency-based.
+
+Paired implementation: LibreWPF's native compiler now emits DrawingBrush packets
+from `IPortableTileBrushSource` plus typed drawing contracts, and removes the
+DrawingImage rejection from ImageBrush. Null brush content becomes a native null
+source. The existing managed portable `WpfDrawingReplay` already dispatches
+DrawingBrush/DrawingImage sources and scopes brush opacity; it is not replaced
+or disabled. The final differential gate must compare these two replay paths.
+
+Build evidence only: native C++20 MIL/image targets built before an unrelated
+artifact-directory removal; final native MIL sources and new source/cycle
+fixtures were subsequently compiled in a separate temporary Release build.
+LibreWPF's changed compiler and authored batch regressions also build. No new
+runtime, GPU image, sanitizer or performance tests were executed, as requested.
+The generated coverage ledger was refreshed; its counts remain 104 top-level,
+25 nested and 12 undispatched, and do not measure semantic completeness.
+
+Deferred checks include vector bounds-origin mapping, DrawingImage versus
+DrawingBrush equivalence, overlapping child opacity, nested source masks and
+effects, non-axis-aligned viewport clips, cycles and output preservation,
+external-image device loss, and managed/native/Windows WPF pixels. The new native
+fixtures cover DrawingBrush and DrawingImage source construction plus cycles;
+the new LibreWPF tests cover typed packet emission without bitmap conversion.
+They are compiled but not yet run.
+
+Remaining brush implementation is explicit: VisualBrush graph capture, retained
+base-tile repeat/flip sampling, arbitrary/rounded/ellipse fill coverage, strokes,
+text and opacity-mask uses, and cache hints/recovery. Repetition must sample the
+**mapped and clipped base tile**, not simply wrap the original source bitmap.
+The next shared primitive should retain one GPU-owned tile page per source and
+mapping generation, render its source subtree once, and composite one paint
+quad with inverse-mapped repeat/mirror coordinates. Its cache key must include
+source revision, source bounds, viewbox/viewport mapping, raster scale/format and
+device domain; opacity and final paint clipping belong to the composite rather
+than tile content. Same-device tile-image views require typed leases and bounded
+page residency. Both renderers must consume the same tile sampling shader and
+quality policy. Do not substitute CPU tile synthesis or per-tile submissions.
+
 ## Invariants
 
 - No reflection or private managed field scanning in the product bridge.
