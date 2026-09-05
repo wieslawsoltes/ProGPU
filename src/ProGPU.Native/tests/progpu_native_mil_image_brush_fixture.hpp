@@ -62,6 +62,8 @@ struct mil_image_brush_fixture_options {
     bool visual_effect{};
     bool visual_guidelines{};
     bool missing_visual_bounds{};
+    bool snap_cache_pixels{};
+    std::array<double, 2U> visual_offset{};
 };
 
 inline bool build_mil_image_brush_fixture(std::vector<std::byte>& scene,
@@ -128,9 +130,10 @@ inline bool build_mil_image_brush_fixture(std::vector<std::byte>& scene,
     if (options.visual_mask) {
         packet(batch, command::visual_set_alpha_mask, 1U, 5U);
         packet(batch, command::visual_set_alpha, 1U, 0.75);
+        packet(batch, command::visual_set_offset, 1U, options.visual_offset[0], options.visual_offset[1]);
         if (options.cached_visual) {
             packet(batch, command::channel_create_resource, 34U, 94U);
-            packet(batch, command::bitmap_cache, 34U, 1.5, 0U, 0U, 0U);
+            packet(batch, command::bitmap_cache, 34U, 1.5, 0U, options.snap_cache_pixels ? 1U : 0U, 0U);
             packet(batch, command::visual_set_cache_mode, 1U, 34U);
         }
         if (options.visual_effect) {

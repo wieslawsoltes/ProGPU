@@ -19743,6 +19743,68 @@ int main() {
             }
         }
     }
+    {
+        for (const auto source : {progpu::native::tests::mil_brush_fixture_source::bitmap,
+            progpu::native::tests::mil_brush_fixture_source::drawing,
+            progpu::native::tests::mil_brush_fixture_source::drawing_image,
+            progpu::native::tests::mil_brush_fixture_source::visual}) {
+            for (const double dpi : {1.0, 1.5, 2.0, 2.625, 3.0}) {
+                for (const auto offset : {std::array{0.25, 0.375}, std::array{-8.25, -8.375},
+                    std::array{0.0, 0.0}, std::array{-0.75, 1.125}}) {
+                    for (const bool transformed : {false, true}) {
+                        for (const bool effect : {false, true}) {
+                            std::array<std::vector<std::byte>, 2U> scenes;
+                            std::array<progpu_native_scene_state, 2U> states{};
+                            std::array<progpu_native_scene_layer, 2U> layers{};
+                            std::array<progpu_native_scene_layer_picture_mask, 2U> masks{};
+                            for (std::size_t snapped = 0U; snapped < scenes.size(); ++snapped) {
+                                auto& scene = scenes[snapped];
+                                PROGPU_REQUIRE(progpu::native::tests::build_mil_image_brush_fixture(scene,
+                                    {.tile_mode = 4U, .opacity = 0.5, .source = source,
+                                        .paint_transform = transformed, .viewport = {0.0, 0.0, 0.25, 0.5},
+                                        .target_dpi_scale_x = dpi, .target_dpi_scale_y = dpi,
+                                        .opacity_mask = true, .visual_mask = true, .cached_visual = true,
+                                        .visual_effect = effect, .snap_cache_pixels = snapped != 0U,
+                                        .visual_offset = offset}, 10350U));
+                                PROGPU_REQUIRE(try_get_cached_layer(scene, layers[snapped]));
+                                const auto header = read_value<progpu_native_scene_header>(scene, 0U);
+                                const auto resource = read_value<progpu_native_scene_resource>(scene,
+                                    header.resource_offset + layers[snapped].reserved0 * sizeof(progpu_native_scene_resource));
+                                states[snapped] = read_value<progpu_native_scene_state>(scene, resource.payload_offset);
+                                bool found = false;
+                                for (std::uint32_t index = 0U; index < header.resource_count; ++index) {
+                                    const auto entry = read_value<progpu_native_scene_resource>(scene,
+                                        header.resource_offset + index * sizeof(progpu_native_scene_resource));
+                                    if (entry.kind != PROGPU_NATIVE_SCENE_RESOURCE_LAYER_MASK ||
+                                        entry.payload_size != sizeof(progpu_native_scene_layer_picture_mask)) continue;
+                                    const auto mask = read_value<progpu_native_scene_layer_picture_mask>(scene, entry.payload_offset);
+                                    if (mask.kind != PROGPU_NATIVE_SCENE_LAYER_MASK_PICTURE) continue;
+                                    masks[snapped] = mask;
+                                    found = true;
+                                }
+                                PROGPU_REQUIRE(found);
+                            }
+                            const auto& before = states[0].transform;
+                            const auto& after = states[1].transform;
+                            const float physical_x = before.m31 * static_cast<float>(dpi);
+                            const float physical_y = before.m32 * static_cast<float>(dpi);
+                            const float dx = -(physical_x - std::floor(physical_x)) / static_cast<float>(dpi);
+                            const float dy = -(physical_y - std::floor(physical_y)) / static_cast<float>(dpi);
+                            PROGPU_REQUIRE(std::abs(after.m31 - before.m31 - dx) < 0.00001F);
+                            PROGPU_REQUIRE(std::abs(after.m32 - before.m32 - dy) < 0.00001F);
+                            PROGPU_REQUIRE(std::abs(masks[1].bounds.x - masks[0].bounds.x - dx) < 0.00001F);
+                            PROGPU_REQUIRE(std::abs(masks[1].bounds.y - masks[0].bounds.y - dy) < 0.00001F);
+                            PROGPU_REQUIRE(after.m11 == before.m11 && after.m12 == before.m12 &&
+                                after.m21 == before.m21 && after.m22 == before.m22);
+                            PROGPU_REQUIRE(layers[0].content_revision == layers[1].content_revision);
+                            PROGPU_REQUIRE(layers[0].bounds.width == layers[1].bounds.width &&
+                                layers[0].bounds.height == layers[1].bounds.height);
+                        }
+                    }
+                }
+            }
+        }
+    }
     // Authored during implementation-first work; execution and pixel parity
     // remain part of the final validation phase.
     for (const auto source : {progpu::native::tests::mil_brush_fixture_source::bitmap,
