@@ -63,6 +63,9 @@ int main() {
     if (!guideline_source.add_guideline_set_with_offsets(coordinates, {}, offsets, {}, source_guidelines) ||
         !builder.copy_guideline_set_from(guideline_source, source_guidelines, copied_guidelines) ||
         copied_guidelines == progpu::native::PROGPU_NATIVE_SCENE_NO_INDEX) return 1;
+    progpu::native::progpu_native_point displacement{};
+    if (!builder.try_uniform_guideline_translation(copied_guidelines, 2.0F, displacement) ||
+        displacement.x != -0.0625F || displacement.y != 0.0F) return 1;
     std::array<std::byte, 4096U> stream{};
     const std::size_t required_size = builder.required_stream_size();
     std::size_t bytes_written = 0U;

@@ -102,6 +102,11 @@ public:
         const semantic_scene_builder& source,
         std::uint32_t source_resource_index,
         std::uint32_t& resource_index) noexcept;
+    // Resolve a single-coordinate-per-axis resource with the executor's exact
+    // rounding/offset rules. Multi-coordinate resources fail without mutation.
+    bool try_uniform_guideline_translation(
+        std::uint32_t resource_index, float dpi_scale,
+        progpu_native_point& translation) const noexcept;
     bool add_rgba8_image(
         std::uint32_t width,
         std::uint32_t height,

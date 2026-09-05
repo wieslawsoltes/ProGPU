@@ -12,6 +12,7 @@ using ::progpu::native::shaped_text_scene_options;
 using ::progpu::native::semantic_scene_builder;
 
 using ::progpu_native_point_3d;
+using ::progpu_native_point;
 using ::progpu_native_image_rect;
 using ::progpu_native_scene_image_draw;
 using ::progpu_native_scene_image_patch;

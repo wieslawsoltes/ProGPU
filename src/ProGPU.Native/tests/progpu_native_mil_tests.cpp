@@ -19003,7 +19003,7 @@ int main() {
         std::vector<std::byte> rejected{std::byte{0x5a}};
         PROGPU_REQUIRE(!progpu::native::tests::build_mil_image_brush_fixture(rejected,
             {.shape = progpu::native::tests::mil_brush_fixture_shape::path,
-                .path_figures = paths[0], .pen = true, .guidelines = true}, 9790U));
+                .path_figures = paths[0], .pen = true, .guidelines = true, .multiple_guidelines = true}, 9790U));
         PROGPU_REQUIRE(rejected == std::vector<std::byte>{std::byte{0x5a}});
     }
     {
@@ -19321,6 +19321,57 @@ int main() {
                 }
             }
         }
+    }
+    {
+        const auto figures = make_curve_path_figures();
+        for (const auto source : {progpu::native::tests::mil_brush_fixture_source::bitmap,
+            progpu::native::tests::mil_brush_fixture_source::drawing,
+            progpu::native::tests::mil_brush_fixture_source::drawing_image,
+            progpu::native::tests::mil_brush_fixture_source::visual}) {
+            for (const auto shape : {progpu::native::tests::mil_brush_fixture_shape::line,
+                progpu::native::tests::mil_brush_fixture_shape::rectangle,
+                progpu::native::tests::mil_brush_fixture_shape::path,
+                progpu::native::tests::mil_brush_fixture_shape::group,
+                progpu::native::tests::mil_brush_fixture_shape::combined}) {
+                for (const bool dashed : {false, true}) {
+                    for (const bool fixed : {false, true}) {
+                        for (std::uint32_t mode = 0U; mode < 5U; ++mode) {
+                            std::vector<std::byte> scene;
+                            PROGPU_REQUIRE(progpu::native::tests::build_mil_image_brush_fixture(scene,
+                                {.tile_mode = mode, .opacity = 0.5, .source = source, .shape = shape,
+                                    .inherited_clip = true, .paint_transform = true, .path_figures = figures,
+                                    .fant = true, .pen = true, .dashed = dashed, .guidelines = true,
+                                    .nested_group = true, .static_guidelines = fixed}, 10100U + mode));
+                            PROGPU_REQUIRE(scene.size() >= sizeof(progpu_native_scene_header));
+                        }
+                    }
+                }
+            }
+        }
+        // A static quarter-pixel guideline shifts coverage and storage together.
+        std::array<std::vector<std::byte>, 2U> scenes;
+        for (std::size_t index = 0U; index < scenes.size(); ++index)
+            PROGPU_REQUIRE(progpu::native::tests::build_mil_image_brush_fixture(scenes[index],
+                {.shape = progpu::native::tests::mil_brush_fixture_shape::line, .pen = true,
+                    .guidelines = index != 0U, .static_guidelines = true}, 10120U + index));
+        const auto mask = [](const std::vector<std::byte>& scene) {
+            const auto header = read_value<progpu_native_scene_header>(scene, 0U);
+            for (std::uint32_t index = 0U; index < header.resource_count; ++index) {
+                const auto resource = read_value<progpu_native_scene_resource>(scene,
+                    header.resource_offset + index * sizeof(progpu_native_scene_resource));
+                if (resource.kind == PROGPU_NATIVE_SCENE_RESOURCE_LAYER_MASK &&
+                    resource.payload_size == sizeof(progpu_native_scene_layer_geometry_mask))
+                    return std::pair{read_value<progpu_native_scene_layer_geometry_mask>(scene, resource.payload_offset),
+                        read_value<progpu_native_geometry_primitive>(scene, resource.auxiliary_offset)};
+            }
+            PROGPU_REQUIRE(false);
+            return std::pair{progpu_native_scene_layer_geometry_mask{}, progpu_native_geometry_primitive{}};
+        };
+        const auto before = mask(scenes[0]);
+        const auto after = mask(scenes[1]);
+        PROGPU_REQUIRE(after.first.bounds.y == before.first.bounds.y - 0.25F);
+        PROGPU_REQUIRE(after.first.bounds.height == before.first.bounds.height);
+        PROGPU_REQUIRE(after.second.transform.m32 == before.second.transform.m32 - 0.25F);
     }
     // Authored during implementation-first work; execution and pixel parity
     // remain part of the final validation phase.

@@ -1,5 +1,6 @@
 #include "progpu_native_scene_builder.hpp"
 #include "progpu_native_scene_builder_internal.hpp"
+#include "progpu_native_semantic_state.hpp"
 
 #include <algorithm>
 #include <cmath>
@@ -164,6 +165,15 @@ bool semantic_scene_builder::add_state(
     } catch (...) {
         return implementation_->fail(scene_build_error::invalid_state);
     }
+}
+
+bool semantic_scene_builder::try_uniform_guideline_translation(
+    std::uint32_t resource_index, float dpi_scale,
+    progpu_native_point& translation) const noexcept {
+    if (implementation_ == nullptr || resource_index >= implementation_->resources.size()) return false;
+    const auto& resource = implementation_->resources[resource_index];
+    return resource.record.kind == PROGPU_NATIVE_SCENE_RESOURCE_GUIDELINE_SET &&
+        semantic::try_uniform_guideline_translation(resource.payload, dpi_scale, translation);
 }
 
 bool semantic_scene_builder::copy_guideline_set_from(
