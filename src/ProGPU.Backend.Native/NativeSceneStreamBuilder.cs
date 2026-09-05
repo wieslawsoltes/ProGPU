@@ -902,6 +902,15 @@ public ref struct NativeSceneStreamBuilder
             flags);
     }
 
+    public bool TryAddTileCompositeResource(ulong resourceId, ulong generation,
+        in NativeSceneTileComposite tile, out uint resourceIndex)
+    {
+        resourceIndex = NativeMethods.SceneNoIndex;
+        return tile.IsValid && TryAddResource(NativeSceneResourceKind.TileComposite,
+            resourceId, generation, MemoryMarshal.AsBytes(MemoryMarshal.CreateReadOnlySpan(
+                ref Unsafe.AsRef(in tile), 1)), out resourceIndex);
+    }
+
     public bool TryAddStateResource(
         ulong resourceId,
         ulong generation,
@@ -1872,7 +1881,10 @@ public ref struct NativeSceneStreamBuilder
             !HasOptionalResourceKind(
                 layer.EffectResourceIndex,
                 NativeSceneResourceKind.EffectChain) ||
-            !HasValidCompositeState(in layer))
+            !HasValidCompositeState(in layer) ||
+            ((layer.Flags & NativeSceneLayerFlags.CacheTile) != 0 &&
+                (layer.TileCompositeResourceIndex == NativeMethods.SceneNoIndex ||
+                    !HasOptionalResourceKind(layer.TileCompositeResourceIndex, NativeSceneResourceKind.TileComposite))))
         {
             return false;
         }
@@ -3055,7 +3067,7 @@ public ref struct NativeSceneStreamBuilder
 
     private static bool IsKnownResource(NativeSceneResourceKind kind) =>
         kind is >= NativeSceneResourceKind.AnalyticBatch and
-            <= NativeSceneResourceKind.GuidelineSet;
+            <= NativeSceneResourceKind.TileComposite;
 
     private static bool IsValidBrushTable(
         ReadOnlySpan<NativeSceneBrush> brushes,
@@ -3197,7 +3209,7 @@ public ref struct NativeSceneStreamBuilder
             NativeSceneLayerFlags.CacheLocalSpace |
             NativeSceneLayerFlags.CacheNearest |
             NativeSceneLayerFlags.CacheFant |
-            NativeSceneLayerFlags.CompositeState;
+            NativeSceneLayerFlags.CompositeState | NativeSceneLayerFlags.CacheTile;
         bool localCache =
             (layer.Flags & NativeSceneLayerFlags.CacheLocalSpace) != 0;
         bool explicitCompositeState =
@@ -3234,6 +3246,9 @@ public ref struct NativeSceneStreamBuilder
                     NativeSceneLayerFlags.CacheFant)) !=
                 (NativeSceneLayerFlags.CacheNearest |
                     NativeSceneLayerFlags.CacheFant) &&
+            ((layer.Flags & NativeSceneLayerFlags.CacheTile) == 0 ||
+                (localCache && (layer.Flags & NativeSceneLayerFlags.CacheFant) == 0 &&
+                    layer.TileCompositeResourceIndex != NativeMethods.SceneNoIndex)) &&
             layer.HasCanonicalReservedFields;
     }
 
@@ -3246,10 +3261,11 @@ public ref struct NativeSceneStreamBuilder
             (layer.Flags & NativeSceneLayerFlags.CompositeState) != 0;
         if (!localCache && !explicitCompositeState)
             return true;
+        bool tileCache = (layer.Flags & NativeSceneLayerFlags.CacheTile) != 0;
         uint resourceIndex = layer.CompositeStateResourceIndex;
         if (!TryReadState(resourceIndex, out NativeSceneState state))
             return false;
-        NativeSceneStateFlags supportedFlags = localCache
+        NativeSceneStateFlags supportedFlags = localCache && !tileCache
             ? NativeSceneStateFlags.ClipRect |
                 NativeSceneStateFlags.GuidelineSet
             : NativeSceneStateFlags.ClipRect;
@@ -3268,7 +3284,7 @@ public ref struct NativeSceneStreamBuilder
             state.HasCanonicalReservedFields &&
             (state.Flags & ~supportedFlags) == 0 &&
             IsFinite(state.Transform) &&
-            (localCache || state.Transform == Matrix3x2.Identity) &&
+            ((localCache && !tileCache) || state.Transform == Matrix3x2.Identity) &&
             state.Opacity == 1f &&
             IsFiniteBounds(state.ClipRect) && canonicalClip &&
             state.MaskResourceIndex == 0U && guidelinesAreValid;

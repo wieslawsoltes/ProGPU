@@ -68,6 +68,8 @@ bool is_valid_semantic_image_effect(
 
 bool is_valid_semantic_layer(
     const progpu_native_scene_layer& layer) noexcept;
+bool is_valid_semantic_tile_composite(
+    const progpu_native_scene_tile_composite& tile) noexcept;
 
 bool is_valid_semantic_effect(
     const progpu_native_group_effect& effect) noexcept;

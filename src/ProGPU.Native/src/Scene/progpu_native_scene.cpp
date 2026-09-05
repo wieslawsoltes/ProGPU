@@ -85,7 +85,7 @@ bool span_lives_in_arena(
 
 bool is_known_resource(std::uint32_t kind) noexcept {
     return kind >= PROGPU_NATIVE_SCENE_RESOURCE_ANALYTIC_BATCH &&
-        kind <= PROGPU_NATIVE_SCENE_RESOURCE_GUIDELINE_SET;
+        kind <= PROGPU_NATIVE_SCENE_RESOURCE_TILE_COMPOSITE;
 }
 
 bool is_known_command(std::uint32_t kind) noexcept {
@@ -577,6 +577,14 @@ validation_result validate(
                         PROGPU_NATIVE_SCENE_VALIDATION_RECORD,
                         resource.payload_offset);
                 }
+            }
+        }
+        if (resource.kind == PROGPU_NATIVE_SCENE_RESOURCE_TILE_COMPOSITE) {
+            if (resource.payload_size != sizeof(progpu_native_scene_tile_composite) ||
+                resource.auxiliary_size != 0U ||
+                !semantic::is_valid_semantic_tile_composite(
+                    read_record<progpu_native_scene_tile_composite>(bytes, resource.payload_offset))) {
+                return fail(header, PROGPU_NATIVE_SCENE_VALIDATION_VALUE, offset);
             }
         }
         if (resource.kind == PROGPU_NATIVE_SCENE_RESOURCE_GUIDELINE_SET) {
@@ -1364,6 +1372,11 @@ validation_result validate(
             }
             const bool local_cache = (layer.flags &
                 PROGPU_NATIVE_SCENE_LAYER_CACHE_LOCAL_SPACE) != 0U;
+            const bool tile_cache = (layer.flags & PROGPU_NATIVE_SCENE_LAYER_CACHE_TILE) != 0U;
+            if (tile_cache && (layer.reserved1 == PROGPU_NATIVE_SCENE_NO_INDEX ||
+                !valid_layer_resource(layer.reserved1, PROGPU_NATIVE_SCENE_RESOURCE_TILE_COMPOSITE))) {
+                return fail(header, PROGPU_NATIVE_SCENE_VALIDATION_RECORD, offset);
+            }
             const bool has_composite_state = local_cache ||
                 (layer.flags &
                     PROGPU_NATIVE_SCENE_LAYER_COMPOSITE_STATE) != 0U;
@@ -1381,7 +1394,7 @@ validation_result validate(
                     ? PROGPU_NATIVE_SCENE_STATE_CLIP_RECT |
                         PROGPU_NATIVE_SCENE_STATE_GUIDELINE_SET
                     : PROGPU_NATIVE_SCENE_STATE_CLIP_RECT;
-                const bool canonical_transform = local_cache ||
+                const bool canonical_transform = (local_cache && !tile_cache) ||
                     (composite_state.transform.m11 == 1.0F &&
                         composite_state.transform.m12 == 0.0F &&
                         composite_state.transform.m21 == 0.0F &&
@@ -1405,6 +1418,8 @@ validation_result validate(
                         PROGPU_NATIVE_SCENE_GUIDELINE_PER_POINT) == 0U;
                 }
                 if ((composite_state.flags & ~composite_flags) != 0U ||
+                    (tile_cache && (composite_state.flags &
+                        ~PROGPU_NATIVE_SCENE_STATE_CLIP_RECT) != 0U) ||
                     !canonical_transform ||
                     !composite_guideline_is_valid ||
                     composite_state.opacity != 1.0F ||

@@ -498,7 +498,8 @@ public enum NativeSceneResourceKind : uint
     Line3DBatch = 14,
     Mesh3DBatch = 15,
     HitTestIndex = 16,
-    GuidelineSet = 17
+    GuidelineSet = 17,
+    TileComposite = 18
 }
 
 public enum NativeGpuHitTestPrimitiveKind : uint
@@ -826,7 +827,9 @@ public enum NativeSceneLayerFlags : uint
     /// <see cref="NativeSceneLayer.CompositeStateResourceIndex"/> while
     /// compositing a materialized non-local layer.
     /// </summary>
-    CompositeState = 1U << 7
+    CompositeState = 1U << 7,
+    /// <summary>Restores a local page through its typed tile-composite resource.</summary>
+    CacheTile = 1U << 8
 }
 
 public enum NativeSceneValidationError : uint
@@ -1744,7 +1747,8 @@ public readonly struct NativeSceneLayer
         uint effectResourceIndex = uint.MaxValue,
         ulong contentRevision = 0U,
         ulong compositeRevision = 0U,
-        uint compositeStateResourceIndex = 0U)
+        uint compositeStateResourceIndex = 0U,
+        uint tileCompositeResourceIndex = 0U)
     {
         if ((uint)blendMode > (uint)GpuBlendMode.Modulate)
         {
@@ -1761,7 +1765,7 @@ public readonly struct NativeSceneLayer
         ContentRevision = contentRevision;
         CompositeRevision = compositeRevision;
         CompositeStateResourceIndex = compositeStateResourceIndex;
-        Reserved1 = 0U;
+        TileCompositeResourceIndex = tileCompositeResourceIndex;
     }
 
     public static NativeSceneLayer Default => new(opacity: 1f);
@@ -1776,12 +1780,13 @@ public readonly struct NativeSceneLayer
     public readonly ulong ContentRevision;
     public readonly ulong CompositeRevision;
     public readonly uint CompositeStateResourceIndex;
-    private readonly uint Reserved1;
+    public readonly uint TileCompositeResourceIndex;
 
     internal bool HasCanonicalReservedFields =>
         ((Flags & (NativeSceneLayerFlags.CacheLocalSpace |
                 NativeSceneLayerFlags.CompositeState)) != 0 ||
-            CompositeStateResourceIndex == 0U) && Reserved1 == 0U;
+            CompositeStateResourceIndex == 0U) &&
+        ((Flags & NativeSceneLayerFlags.CacheTile) != 0 || TileCompositeResourceIndex == 0U);
 }
 
 /// <summary>

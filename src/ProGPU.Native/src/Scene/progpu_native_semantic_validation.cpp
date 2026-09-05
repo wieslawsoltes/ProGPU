@@ -400,6 +400,21 @@ bool is_valid_semantic_image_effect(
         (effect.spherical0[0] == 0.0F || effect.spherical0[0] == 1.0F);
 }
 
+bool is_valid_semantic_tile_composite(
+    const progpu_native_scene_tile_composite& tile) noexcept {
+    const progpu_native_affine_2d transform{tile.m11, tile.m12, tile.m21,
+        tile.m22, tile.m31, tile.m32};
+    return tile.struct_size == sizeof(tile) && tile.reserved == 0U &&
+        tile.reserved0 == 0U && tile.reserved1 == 0U &&
+        tile.address_u <= PROGPU_NATIVE_IMAGE_ADDRESS_MIRROR_REPEAT &&
+        tile.address_v <= PROGPU_NATIVE_IMAGE_ADDRESS_MIRROR_REPEAT &&
+        is_finite(transform) && std::isfinite(tile.output_x) &&
+        std::isfinite(tile.output_y) && std::isfinite(tile.output_width) &&
+        std::isfinite(tile.output_height) && tile.output_width > 0.0F &&
+        tile.output_height > 0.0F && std::isfinite(tile.output_x + tile.output_width) &&
+        std::isfinite(tile.output_y + tile.output_height);
+}
+
 bool is_valid_semantic_layer(
     const progpu_native_scene_layer& layer) noexcept {
     constexpr std::uint32_t known_flags =
@@ -410,7 +425,8 @@ bool is_valid_semantic_layer(
         PROGPU_NATIVE_SCENE_LAYER_CACHE_LOCAL_SPACE |
         PROGPU_NATIVE_SCENE_LAYER_CACHE_NEAREST |
         PROGPU_NATIVE_SCENE_LAYER_CACHE_FANT |
-        PROGPU_NATIVE_SCENE_LAYER_COMPOSITE_STATE;
+        PROGPU_NATIVE_SCENE_LAYER_COMPOSITE_STATE |
+        PROGPU_NATIVE_SCENE_LAYER_CACHE_TILE;
     const bool local_cache =
         (layer.flags & PROGPU_NATIVE_SCENE_LAYER_CACHE_LOCAL_SPACE) != 0U;
     const bool explicit_composite_state =
@@ -461,7 +477,10 @@ bool is_valid_semantic_layer(
             (PROGPU_NATIVE_SCENE_LAYER_CACHE_NEAREST |
                 PROGPU_NATIVE_SCENE_LAYER_CACHE_FANT)) &&
         (has_composite_state || layer.reserved0 == 0U) &&
-        layer.reserved1 == 0U;
+        (((layer.flags & PROGPU_NATIVE_SCENE_LAYER_CACHE_TILE) != 0U)
+            ? local_cache && (layer.flags & PROGPU_NATIVE_SCENE_LAYER_CACHE_FANT) == 0U &&
+                layer.reserved1 != PROGPU_NATIVE_SCENE_NO_INDEX
+            : layer.reserved1 == 0U);
 }
 
 bool is_valid_semantic_effect(

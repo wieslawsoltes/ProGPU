@@ -45,6 +45,16 @@ int main() {
         !builder.advance_generation(4U) || builder.generation() != 4U) {
         return 1;
     }
+    progpu::native::progpu_native_scene_tile_composite tile{};
+    tile.struct_size = sizeof(tile);
+    tile.address_u = progpu::native::PROGPU_NATIVE_IMAGE_ADDRESS_REPEAT;
+    tile.address_v = progpu::native::PROGPU_NATIVE_IMAGE_ADDRESS_MIRROR_REPEAT;
+    tile.output_width = 32.0F;
+    tile.output_height = 16.0F;
+    tile.m11 = 0.125F;
+    tile.m22 = 0.25F;
+    unsigned int tile_index = progpu::native::PROGPU_NATIVE_SCENE_NO_INDEX;
+    if (!builder.add_tile_composite(tile, tile_index)) return 1;
     std::array<std::byte, 4096U> stream{};
     const std::size_t required_size = builder.required_stream_size();
     std::size_t bytes_written = 0U;

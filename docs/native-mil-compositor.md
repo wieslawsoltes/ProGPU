@@ -7194,6 +7194,66 @@ generation/device/raster-scale keys, source-to-page mapping and padding, bounded
 leases/eviction, one output-quad scene operation, typed configuration/diagnostics,
 managed/native callers and final seam/alpha/mask/transform differential images.
 
+### Implementation-first checkpoint: retained tile composite scene operation
+
+The occupied-page sampler is now connected to native retained-layer restoration.
+`PROGPU_NATIVE_SCENE_RESOURCE_TILE_COMPOSITE` (18) carries one pointer-free,
+64-byte record: output bounds in parent logical target coordinates, an affine
+output-to-normalized-tile mapping, and independent clamp/repeat/mirror address
+modes. `PROGPU_NATIVE_SCENE_LAYER_CACHE_TILE` extends the existing 64-byte layer
+record: `reserved1` references that resource, while `reserved0` remains an
+identity-transform, clip-only final composite state. Tile layers require the
+existing zero-origin local-content cache and reject Fant. Ordinary layer flags,
+layouts and source capture remain unchanged.
+
+The native scene builder and serialized-stream validator enforce the resource
+kind, exact size, finite bounds/mapping, reserved zeros, address range, required
+local-cache state and composite-state restrictions. Native scope hashing includes
+the tile resource's contents instead of its table ordinal, so enclosing retained
+content responds to mapping changes without confusing resource reordering with
+pixel changes. The tile page itself still uses the existing caller-owned content
+revision and cache-owner identity: final mapping, clipping and opacity are
+composite state, not inputs to its captured pixels.
+
+At restore, the GPU-backed native executor emits exactly four tile vertices and
+uses the existing layer-slot source texture, occupied extent, lifetime and bounded
+cache ownership. The output quad is positioned relative to the parent target;
+UVs are computed in parent logical coordinates before that translation. This
+uses the prior canonical occupied-page shader, with nearest/linear selected by
+the existing cache sampling flag. It does not emit one command per visible tile,
+copy pixels to CPU, or create a second GPU resource owner. Construction remains
+O(1), plus existing retained-stream and cache work; no speedup is claimed.
+
+Managed/native applicability: the C header generates `NativeSceneTileComposite`;
+`NativeSceneStreamBuilder.TryAddTileCompositeResource` and `NativeSceneLayer` expose
+the paired typed stream contract and matching failure rules. The public C++ named
+module exports the descriptor/address modes and has an import-based consumer
+case. The original ProGPU local-layer execution and occupied-page sampling at
+`97eeba44` are the implementation provenance. Cross-engine ownership and WPF/
+Direct2D source/base-tile research remain as recorded in the preceding section;
+no foreign source implementation was introduced.
+
+Build-only work includes the GPU-backed Apple Clang C++20 shared library, the
+header-based native MIL test executable, the LLVM Clang 22.1.8 C++20 named-module
+consumer, and the managed renderer test project.
+The latter compiles with zero warnings/errors. A native test initially requested
+a validator symbol outside the MIL executable's link graph; the builder case now
+checks stream production there, with full stream validation remaining in its
+own final gate. Positive resource/layer construction and invalid addressing,
+wrong resource kinds and unsupported Fant combinations are authored, not run.
+Generated C# was refreshed. No runtime, GPU shader validation, images, VMs,
+sanitizers, benchmarks or hosted-CI qualification ran.
+
+MIL repeat/flip is still fail-closed: the scene operation is ready for explicit
+consumers, but MIL must still record source content into a page, define exact
+source/mapping/raster-scale revisions, apply same-device leases and invalidation,
+and select/report a qualified execution policy without overriding forced sampler
+or high-quality modes. Managed renderer capture/recording integration also remains.
+Final qualification must include oversized pool padding, seams, nested local
+targets, output-only changes with unchanged page contents, enclosing-cache
+invalidation, resource-table reordering, malformed streams, eviction/device loss,
+all alpha/mask cases and native Windows WPF comparisons.
+
 ## Invariants
 
 - No reflection or private managed field scanning in the product bridge.

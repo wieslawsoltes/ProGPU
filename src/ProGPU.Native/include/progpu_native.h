@@ -136,7 +136,8 @@ typedef enum progpu_native_scene_resource_kind {
     PROGPU_NATIVE_SCENE_RESOURCE_MESH_3D_BATCH = 15,
     PROGPU_NATIVE_SCENE_RESOURCE_HIT_TEST_INDEX = 16,
     /* Device-space WPF/MIL pixel-snapping coordinates referenced by state. */
-    PROGPU_NATIVE_SCENE_RESOURCE_GUIDELINE_SET = 17
+    PROGPU_NATIVE_SCENE_RESOURCE_GUIDELINE_SET = 17,
+    PROGPU_NATIVE_SCENE_RESOURCE_TILE_COMPOSITE = 18
 } progpu_native_scene_resource_kind;
 
 typedef enum progpu_native_scene_text_rendering_mode {
@@ -316,7 +317,9 @@ enum {
     /* Selects bounded Fant-style minification for a local cache composite. */
     PROGPU_NATIVE_SCENE_LAYER_CACHE_FANT = 1U << 6U,
     /* Applies the clip-only STATE in reserved0 to a materialized composite. */
-    PROGPU_NATIVE_SCENE_LAYER_COMPOSITE_STATE = 1U << 7U
+    PROGPU_NATIVE_SCENE_LAYER_COMPOSITE_STATE = 1U << 7U,
+    /* reserved1 references TILE_COMPOSITE; requires local cache, excludes Fant. */
+    PROGPU_NATIVE_SCENE_LAYER_CACHE_TILE = 1U << 8U
 };
 
 typedef enum progpu_native_image_sampling {
@@ -1140,6 +1143,12 @@ typedef struct progpu_native_scene_guideline_set {
  * final-output clipping after effects without clipping their sampled input.
  * The 64-byte version-one record remains unchanged.
  */
+/*
+ * CACHE_TILE restores the occupied local page over the TILE_COMPOSITE output
+ * rectangle in parent logical target coordinates. reserved0 remains the final
+ * clip-only composite state; reserved1 is the tile-composite resource index.
+ * The tile mapping is output-only state, not captured content identity.
+ */
 typedef struct progpu_native_scene_layer {
     uint32_t struct_size;
     uint32_t flags;
@@ -1153,6 +1162,30 @@ typedef struct progpu_native_scene_layer {
     uint32_t reserved0;
     uint32_t reserved1;
 } progpu_native_scene_layer;
+
+/* Zero-origin premultiplied page; inverse mapping yields normalized tile UVs.
+ * No pointers, texture ownership or source data cross this 64-byte record.
+ * Address modes use progpu_native_image_address_mode; nearest/linear is owned
+ * by the containing layer's CACHE_NEAREST flag. */
+/* PROGPU_CSHARP_STRUCT: Public.NativeSceneTileComposite */
+typedef struct progpu_native_scene_tile_composite {
+    uint32_t struct_size;
+    uint32_t address_u;
+    uint32_t address_v;
+    uint32_t reserved;
+    float output_x;
+    float output_y;
+    float output_width;
+    float output_height;
+    float m11;
+    float m12;
+    float m21;
+    float m22;
+    float m31;
+    float m32;
+    uint32_t reserved0;
+    uint32_t reserved1;
+} progpu_native_scene_tile_composite;
 
 /*
  * Pointer-free semantic layer mask. The first additive kind is an analytic

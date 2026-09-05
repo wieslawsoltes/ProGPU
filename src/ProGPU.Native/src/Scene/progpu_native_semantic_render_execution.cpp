@@ -4213,7 +4213,31 @@ progpu_native_status render_scene(
                             composite_drawable = composite_scissor.drawable;
                         }
                     }
-                    if (local_cache) {
+                    if ((layer.flags & PROGPU_NATIVE_SCENE_LAYER_CACHE_TILE) != 0U) {
+                        const auto resource = read_resource(layer.reserved1);
+                        progpu_native_scene_tile_composite tile{};
+                        std::memcpy(&tile, bytes + resource.payload_offset, sizeof(tile));
+                        std::array<::progpu::native::vector_vertex, 4U> quad{};
+                        if (!::progpu::native::try_write_tile_page_quad(quad,
+                                {tile.output_x, tile.output_y, tile.output_width, tile.output_height},
+                                {tile.m11, tile.m12, tile.m21, tile.m22, tile.m31, tile.m32},
+                                source_extent.width, source_extent.height,
+                                engine->semantic_layer_slots[source_layer].width,
+                                engine->semantic_layer_slots[source_layer].height,
+                                tile.address_u, tile.address_v,
+                                (layer.flags & PROGPU_NATIVE_SCENE_LAYER_CACHE_NEAREST) != 0U
+                                    ? PROGPU_NATIVE_IMAGE_SAMPLING_NEAREST : PROGPU_NATIVE_IMAGE_SAMPLING_LINEAR,
+                                layer.opacity)) {
+                            return fail_bundle(PROGPU_NATIVE_STATUS_INVALID_ARGUMENT);
+                        }
+                        const float target_x = static_cast<float>(target_extent.x) / frame->dpi_scale;
+                        const float target_y = static_cast<float>(target_extent.y) / frame->dpi_scale;
+                        for (auto& vertex : quad) {
+                            vertex.position[0] -= target_x;
+                            vertex.position[1] -= target_y;
+                        }
+                        semantic_layer_vertices.insert(semantic_layer_vertices.end(), quad.begin(), quad.end());
+                    } else if (local_cache) {
                         append_semantic_transformed_layer_quad(
                             semantic_layer_vertices,
                             source_extent,
