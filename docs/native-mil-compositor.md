@@ -7940,6 +7940,50 @@ verifiers, benchmarks, and CI qualification remain deferred. Coverage metadata w
 regenerated. Gradient glyph foregrounds, per-point guidelines, remaining opacity
 mask/consumer work, and the broader MIL/DirectX/Direct2D/Win2D scope remain open.
 
+### Implementation-first checkpoint: gradient glyph-run foregrounds
+
+Both native MIL glyph command forms now accept linear and radial gradients through
+the same whole-run white coverage scene used for tile foregrounds. The original
+`resolve_gradient_scene_brush` / `resolve_brush_index` implementation owns relative
+or absolute mapping, brush transforms, animated parameters, normalized stops,
+interpolation, spread, degeneracy, and opacity. One world-space analytic rectangle
+paints the material through the run mask. Its draw state is identity because the
+gradient coordinate mapper already includes the inverse run transform; inherited
+clip/opacity are retained, and scope state is restored afterward. Rectangle edge
+antialiasing is disabled because glyph coverage owns the boundary. Solid text
+continues to bypass this offscreen route.
+
+Research/provenance: this extends original ProGPU `append_glyph_run`, gradient
+mapping, analytic drawing, and picture masks, without foreign implementation code.
+The existing [cross-engine research](progpu-avalonia-rendering-research.md) provides
+the shaped-run, retained resource, and GPU offscreen design: preserve CPU shaping
+and one retained run rather than repeat layout or submit each glyph. The public
+[Direct2D glyph drawing contract](https://learn.microsoft.com/en-us/windows/win32/api/d2d1/nf-d2d1-id2d1rendertarget-drawglyphrun)
+also separates the positioned glyph run from its foreground brush. No new shaping,
+font discovery, atlas eviction, worker scheduling, or device-loss policy is added.
+Existing canonical gradient/glyph shaders and intrinsic font kernels are unchanged.
+
+Native-only applicability: this closes a MIL consumer rejection; managed brush and
+text rendering already supplies the paired semantic reference and is not given a
+new algorithm or wire contract. Coverage preparation remains O(G + S) time/storage
+for glyphs G and decoded outline segments S. Gradient normalization retains its
+existing stop-dependent ordering and allocation costs; one material draw adds
+O(1) command work/storage. There is no CPU pixel fallback or readback, and no
+per-glyph gradient mapping. Picture-mask child-engine, intermediate extent, and
+changed-scene cache reuse costs remain unqualified, so this is not a performance
+claim or a final default-path qualification.
+
+Added 384 unexecuted scene cases across both gradients, two mapping modes, three
+spread modes, two interpolation modes, both glyph command forms, uniform
+guidelines, and four style combinations. They include inherited clipping and run
+transforms, plus absolute/relative brush transforms for linear gradients, and
+assert one material table, picture mask, and outer paint. Another 24 failure cases
+cover missing-font non-mutation. Compile-only builds and regenerated command
+coverage accompany this change; runtime/image/VM tests, verifiers, benchmarks, and
+CI qualification remain deferred at the user's request. This supersedes the
+preceding gradient-foreground rejection, not the open per-point guideline,
+nonuniform-DPI, remaining MIL consumer, DirectX, Direct2D, or Win2D work.
+
 ## Invariants
 
 - No reflection or private managed field scanning in the product bridge.

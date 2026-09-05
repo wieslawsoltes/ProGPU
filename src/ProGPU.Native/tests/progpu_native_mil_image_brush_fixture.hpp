@@ -51,6 +51,7 @@ struct mil_image_brush_fixture_options {
     std::span<const std::byte> glyph_font{};
     std::uint32_t glyph_style{};
     bool glyph_drawing{};
+    std::span<const std::byte> glyph_brush_commands{};
 };
 
 inline bool build_mil_image_brush_fixture(std::vector<std::byte>& scene,
@@ -221,13 +222,17 @@ inline bool build_mil_image_brush_fixture(std::vector<std::byte>& scene,
     }
     switch (options.shape) {
     case mil_brush_fixture_shape::glyphs:
+    {
         batch.insert(batch.end(), options.glyph_commands.begin(), options.glyph_commands.end());
+        batch.insert(batch.end(), options.glyph_brush_commands.begin(), options.glyph_brush_commands.end());
+        const std::uint32_t foreground = options.glyph_brush_commands.empty() ? 5U : 19U;
         if (options.glyph_drawing) {
             packet(batch, command::channel_create_resource, 29U, 88U);
-            packet(batch, command::glyph_run_drawing, 29U, 28U, 5U);
+            packet(batch, command::glyph_run_drawing, 29U, 28U, foreground);
             packet(nested, command::draw_drawing, 29U, 0U);
-        } else packet(nested, command::draw_glyph_run, 5U, 28U);
+        } else packet(nested, command::draw_glyph_run, foreground, 28U);
         break;
+    }
     case mil_brush_fixture_shape::line_geometry:
         packet(batch, command::channel_create_resource, 15U, 68U);
         packet(batch, command::line_geometry, 15U, 8.0, 16.0,

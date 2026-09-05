@@ -15173,16 +15173,17 @@ struct channel::implementation {
             return append_tile_pen(stroke_pen, use, state, {}, {}, true, geometry.stroke_contours, collected);
         };
         const auto append_brushed_glyph_run = [this, &builder, &glyph_resources,
-            &resolve_uniform_tile_guidelines, &paint_tile_source_in_mask](
+            &resolve_uniform_tile_guidelines, &paint_tile_source_in_mask, &resolve_brush_index, &save_state](
             std::uint32_t glyph_handle, std::uint32_t brush_handle,
             const render_scope_state& source_state) -> status {
-            if (!tile_brushes.contains(brush_handle))
+            const bool tiled = tile_brushes.contains(brush_handle);
+            if (!tiled && !gradient_brushes.contains(brush_handle))
                 return append_glyph_run(glyph_handle, brush_handle, source_state, builder, glyph_resources);
             if (glyph_handle == 0U || affine_has_zero_area(source_state.transform)) return status::success;
             const auto found = glyph_runs.find(glyph_handle);
             if (found == glyph_runs.end()) return status::invalid_handle;
             const auto& glyph = found->second;
-            // Tile mapping requires the typed run's real bounds; do not derive
+            // Spatial brush mapping requires the typed run's real bounds; do not derive
             // relative placement from a synthetic em-size rectangle.
             if (glyph.bounds_width <= 0.0 || glyph.bounds_height <= 0.0) return status::unsupported_command;
             brush_use_state use{glyph.bounds_x, glyph.bounds_y, glyph.bounds_width, glyph.bounds_height,
@@ -15194,7 +15195,7 @@ struct channel::implementation {
             if (!try_transform_bounds(use.x, use.y, use.width, use.height, use.effective_transform, bounds))
                 return status::invalid_graph;
             // Algorithm: retain one white glyph-run scene as GPU alpha coverage,
-            // then paint its tile source once. Time/space: O(G + S), positioned
+            // then paint its spatial brush once. Time/space: O(G + S), positioned
             // glyphs G and decoded outline segments S, using the ordinary glyph
             // cache/placement implementation. No per-glyph scene or submission.
             native::semantic_scene_builder coverage(builder.scene_id(), builder.generation());
@@ -15228,8 +15229,35 @@ struct channel::implementation {
             layer.blend_mode = PROGPU_NATIVE_BLEND_SRC_OVER;
             layer.effect_resource_index = PROGPU_NATIVE_SCENE_NO_INDEX;
             if (!builder.add_picture_mask(mask, scene, layer.mask_resource_index)) return status::invalid_graph;
-            return paint_tile_source_in_mask(brush_handle, use, paint, layer,
+            if (tiled) return paint_tile_source_in_mask(brush_handle, use, paint, layer,
                 source_state.guideline_resource_index != PROGPU_NATIVE_SCENE_NO_INDEX);
+
+            // Algorithm: evaluate the existing gradient material over one world-
+            // space rectangle, with the run supplying alpha coverage. Mapping
+            // preparation retains the shared stop algorithm; the paint command
+            // adds O(1) time/storage. No per-glyph gradients or CPU pixel work.
+            std::uint32_t brush_index = PROGPU_NATIVE_SCENE_NO_INDEX;
+            const status mapped = resolve_brush_index(brush_handle, brush_index, &use);
+            if (mapped != status::success) return mapped;
+            auto material_state = paint;
+            material_state.transform = {};
+            if (!save_state(material_state)) return status::invalid_graph;
+            if (!builder.push_layer(layer)) {
+                (void)builder.restore();
+                return status::invalid_graph;
+            }
+            // The mapper already includes the inverse effective transform.
+            // Identity draw state prevents applying the run transform twice.
+            // Coverage owns edge antialiasing; this rectangle is storage only.
+            const std::array primitive{progpu_native_analytic_primitive{
+                PROGPU_NATIVE_PRIMITIVE_RECTANGLE, PROGPU_NATIVE_PRIMITIVE_FLAG_EDGE_ALIASED,
+                bounds.x, bounds.y, bounds.width, bounds.height, 0.0F, 0.0F,
+                {1.0F, 1.0F, 1.0F, 1.0F}, native::semantic_scene_builder::identity_transform()}};
+            const std::array brushes{brush_index};
+            const bool painted = builder.draw_analytic(primitive, brushes, bounds);
+            const bool popped = builder.pop_layer();
+            const bool restored = builder.restore();
+            return painted && popped && restored ? status::success : status::invalid_graph;
         };
         const auto append_media_player = [
             this,
