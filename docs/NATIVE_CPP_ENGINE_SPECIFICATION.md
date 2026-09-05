@@ -4050,3 +4050,24 @@ The remaining direct local-cache case without an outer effect still needs
 geometry-clip plus opacity-mask/guideline composition. Viewport3D masks,
 rotated accelerated scroll clips, tile-brush packets, programmable shader
 effects, and the broader DirectX/Direct2D/Win2D families remain in the goal.
+
+### Retained-engine GPU integration gate, 2026-09-05
+
+The Windows MSVC, ClangCL x64, and ClangCL ARM64 jobs at `86f8bfb2`
+compiled successfully but exceeded the GPU test's 300-second bound. An
+instrumented, uninterrupted Parallels ARM64 run passed every original
+Direct2D, stroke, MIL geometry, and effect pixel assertion in 590.230 seconds:
+Direct2D completed at 145.594 seconds, strokes at 153.294 seconds, and MIL
+geometry at 255.974 seconds. This was a timeout, not evidence of pixel parity
+failure or a deadlock.
+
+The integration test now owns one native engine across its scene updates,
+like a retained host, instead of destroying its device-local pipelines after
+every fixture. Independently compiled MIL fixtures use distinct scene IDs;
+generation-one contents never overwrite another fixture under the same
+identity. Per-frame command/submission assertions, pixel assertions, capture
+output, and the 300-second Windows/60-second desktop timeouts are unchanged.
+Timestamped fixture phases remain in failure logs. macOS passes all 15 native
+tests with this change; Windows and hosted exact-head qualification remain
+pending until those runs complete. This is test-lifetime correction, not a
+claim of new product rendering throughput or reduced cold-start latency.

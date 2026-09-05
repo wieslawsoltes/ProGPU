@@ -633,13 +633,7 @@ struct portable_scene final {
     return {std::move(factory), std::move(target), std::move(scene_target)};
 }
 
-[[nodiscard]] std::vector<std::uint8_t> render_scene(
-    const gpu_context& gpu,
-    d2d::scene_render_target_native* scene_target,
-    std::uint32_t expected_draws = 17U,
-    std::uint32_t expected_commands = 27U,
-    std::uint64_t expected_submissions = 4U,
-    std::span<const std::byte> mil_scene = {})
+[[nodiscard]] progpu_native_engine* create_engine(const gpu_context& gpu)
 {
     progpu_native_engine_options options{};
     options.struct_size = sizeof(options);
@@ -652,7 +646,19 @@ struct portable_scene final {
     require(progpu_native_engine_create(&options, &engine) ==
             PROGPU_NATIVE_STATUS_SUCCESS &&
         engine != nullptr, "ProGPU WebGPU engine creation failed");
+    return engine;
+}
 
+[[nodiscard]] std::vector<std::uint8_t> render_scene(
+    const gpu_context& gpu,
+    progpu_native_engine* engine,
+    d2d::scene_render_target_native* scene_target,
+    std::uint32_t expected_draws = 17U,
+    std::uint32_t expected_commands = 27U,
+    std::uint64_t expected_submissions = 4U,
+    std::span<const std::byte> mil_scene = {},
+    std::uint64_t mil_scene_id = 9011U)
+{
     WGPUTextureDescriptor texture_descriptor{};
     texture_descriptor.label = "ProGPU portable Direct2D target";
     texture_descriptor.usage = WGPUTextureUsage_RenderAttachment |
@@ -691,7 +697,7 @@ struct portable_scene final {
             frame.dpi_scale = 1.0F;
             frame.target_view = reinterpret_cast<std::uintptr_t>(view);
             frame.clear_color = {0.0F, 0.0F, 0.0F, 1.0F};
-            frame.scene_id = 9011U;
+            frame.scene_id = mil_scene_id;
             frame.generation = 1U;
             render_status = progpu_native_engine_render_scene(
                 engine, &frame, &frame_metrics);
@@ -789,7 +795,6 @@ struct portable_scene final {
     wgpuTextureViewRelease(view);
     wgpuTextureDestroy(texture);
     wgpuTextureRelease(texture);
-    progpu_native_engine_destroy(engine);
     return result;
 }
 
@@ -860,7 +865,8 @@ void verify_pixels(std::span<const std::uint8_t> pixels)
         "portable Direct2D geometric mask leaked outside its path");
 }
 
-void verify_stroke_transforms(const gpu_context& gpu, portable_scene& scene)
+void verify_stroke_transforms(const gpu_context& gpu,
+    progpu_native_engine* engine, portable_scene& scene)
 {
     const d2d::stroke_style_properties properties{
         d2d::cap_style::flat, d2d::cap_style::flat, d2d::cap_style::flat,
@@ -905,7 +911,8 @@ void verify_stroke_transforms(const gpu_context& gpu, portable_scene& scene)
         }
         require(scene.target->EndDraw(nullptr, nullptr) == native_com::ok,
             "device stroke recording failed");
-        const auto pixels = render_scene(gpu, scene.scene_target.get(), 3U, 3U, 1U);
+        const auto pixels = render_scene(gpu, engine,
+            scene.scene_target.get(), 3U, 3U, 1U);
         const auto is_blue = [&](std::uint32_t y) {
             const auto offset = static_cast<std::size_t>(y) * row_bytes + 20U * 4U;
             return pixels[offset] == 0U && pixels[offset + 1U] == 0U &&
@@ -957,17 +964,32 @@ void write_capture(
 int main(int argc, char** argv)
 {
     require(argc == 1 || argc == 2, "usage: test [CAPTURE_PPM]");
+    const auto started = std::chrono::steady_clock::now();
+    const auto phase = [&started](const char* name) {
+        const auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(
+            std::chrono::steady_clock::now() - started).count();
+        std::fprintf(stderr, "Native GPU phase: %s (%lld ms)\n", name,
+            static_cast<long long>(elapsed));
+    };
+    phase("request adapter");
     gpu_context gpu = create_gpu();
+    // A host owns one engine across scene updates. Keep its device-local
+    // pipelines alive across fixtures too: recreating them per image repeats
+    // expensive cold D3D12 shader compilation, not rendering validation.
+    progpu_native_engine* engine = create_engine(gpu);
+    phase("record Direct2D");
     portable_scene scene = record_scene();
     const std::vector<std::uint8_t> pixels = render_scene(
-        gpu, scene.scene_target.get());
+        gpu, engine, scene.scene_target.get());
     write_capture(argc == 2 ? argv[1] : nullptr, pixels);
     verify_pixels(pixels);
-    verify_stroke_transforms(gpu, scene);
+    phase("Direct2D pixels passed; start stroke transforms");
+    verify_stroke_transforms(gpu, engine, scene);
+    phase("stroke transforms passed; start MIL geometry");
     std::vector<std::byte> mil_scene;
     require(progpu::native::tests::build_mil_visual_clip_fixture(mil_scene),
         "MIL visual geometry clip compilation failed");
-    const auto mil_pixels = render_scene(gpu, nullptr, 2U, 12U, 2U, mil_scene);
+    const auto mil_pixels = render_scene(gpu, engine, nullptr, 2U, 12U, 2U, mil_scene);
     const auto mil_pixel = [&mil_pixels](std::uint32_t x, std::uint32_t y,
                                        std::uint8_t red, std::uint8_t blue) {
         const std::size_t offset = (y * width + x) * 4U;
@@ -980,17 +1002,24 @@ int main(int argc, char** argv)
     require(mil_pixel(32U, 32U, 0U, 0U), "MIL sibling clip leaked");
     require(mil_pixel(58U, 32U, 0U, 0U), "MIL ancestor rounded clip leaked");
     require(mil_pixel(16U, 12U, 0U, 0U), "MIL nested render-data clip leaked");
+    phase("MIL geometry passed; start effects");
     using progpu::native::tests::mil_clip_effect;
     for (const auto effect : {mil_clip_effect::zero_blur,
                              mil_clip_effect::blur,
                              mil_clip_effect::cached_blur,
                              mil_clip_effect::box_blur,
                              mil_clip_effect::shadow}) {
+        std::fprintf(stderr, "Native GPU effect variant: %u\n",
+            static_cast<unsigned>(effect));
+        // Each independently compiled MIL channel has a distinct scene
+        // identity; generation one must never replace different contents of
+        // another generation-one scene or reuse its retained bitmap pixels.
+        const std::uint64_t scene_id = 9011U + static_cast<std::uint64_t>(effect);
         require(progpu::native::tests::build_mil_visual_clip_fixture(
-            mil_scene, effect), "MIL effect geometry clip compilation failed");
-        const auto effect_pixels = render_scene(gpu, nullptr, 2U,
+            mil_scene, effect, scene_id), "MIL effect geometry clip compilation failed");
+        const auto effect_pixels = render_scene(gpu, engine, nullptr, 2U,
             effect == mil_clip_effect::cached_blur ? 24U : 16U,
-            4U, mil_scene);
+            4U, mil_scene, scene_id);
         const auto component = [&effect_pixels](std::uint32_t x,
                                                 std::uint32_t y,
                                                 std::uint32_t channel) {
@@ -1025,6 +1054,7 @@ int main(int argc, char** argv)
                 "MIL nested content clip was incorrectly applied after blur");
         }
     }
+    phase("MIL effects passed");
     const char* adapter_name = gpu.properties.name == nullptr
         ? "unknown"
         : gpu.properties.name;
@@ -1035,6 +1065,7 @@ int main(int argc, char** argv)
         adapter_name,
         pixels.size());
     scene = {};
+    progpu_native_engine_destroy(engine);
     release_gpu(gpu);
     return EXIT_SUCCESS;
 }
