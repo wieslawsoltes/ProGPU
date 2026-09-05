@@ -105,6 +105,22 @@ public class Window : DependencyObject
     public IWindow? SilkWindow => _silkWindow;
     public WgpuContext? WgpuContext => _wgpuContext;
     public Compositor? Compositor => _compositor;
+    private List<DrawingExtension>? _drawingExtensions;
+
+    /// <summary>
+    /// Registers application drawing on this window, before or after activation.
+    /// A fresh instance is created for each renderer, including after a mobile
+    /// surface is recreated. Definitions are retained; instances and GPU resources
+    /// are owned and disposed by the compositor. Call on the window's UI thread.
+    /// </summary>
+    public void RegisterDrawingExtension(DrawingExtension extension)
+    {
+        ArgumentNullException.ThrowIfNull(extension);
+        if (_isClosed) throw new InvalidOperationException("The window is closed.");
+        if (_drawingExtensions?.Contains(extension) == true) return;
+        _compositor?.RegisterDrawingExtension(extension);
+        (_drawingExtensions ??= new()).Add(extension);
+    }
     public WindowInputState? InputState => _inputState;
     public SilkWindowController? NativeWindowController => _windowController;
     public NativeWindowHandle NativeHandle => _windowController?.Handle ?? NativeWindowHandle.Empty;
@@ -609,6 +625,9 @@ public class Window : DependencyObject
     private void ConfigureCompositorHooks()
     {
         if (_compositor == null) return;
+        if (_drawingExtensions is not null)
+            foreach (var extension in _drawingExtensions)
+                _compositor.RegisterDrawingExtension(extension);
         _compositor.PreRender += (w, h) => PopupService.MeasureAndArrangePopups(new Vector2(w, h));
         _compositor.GetExternalLayers = () => PopupService.ActivePopups;
         _compositor.GetTooltip = () => InputSystem.ActiveToolTip;

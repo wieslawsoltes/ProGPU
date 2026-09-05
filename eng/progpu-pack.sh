@@ -79,6 +79,10 @@ if [[ "${package_group}" == "portable" || "${package_group}" == "all" ]]; then
   PROGPU_PACKAGE_VERSION="${package_version}" \
   PROGPU_PACKAGE_OUTPUT="${package_output}" \
     "${repo_root}/eng/progpu-verify-xaml-package-consumer.sh"
+  PROGPU_CONFIGURATION="${configuration}" \
+  PROGPU_PACKAGE_VERSION="${package_version}" \
+  PROGPU_PACKAGE_OUTPUT="${package_output}" \
+    "${repo_root}/eng/progpu-verify-drawing-extension-package-consumer.sh"
 fi
 
 echo "ProGPU ${package_group} NuGet package build succeeded for ${package_version}."
