@@ -580,7 +580,8 @@ public:
         ++copy_call_count;
         last_stride = stride;
         last_buffer_size = buffer_size;
-        const std::uint32_t row_bytes = width_ * 4U;
+        const std::uint32_t row_bytes = width_ *
+            (com::guid_equal(pixel_format_, compat::wic_pixel_format_8bpp_alpha) ? 1U : 4U);
         if (rectangle != nullptr || buffer == nullptr ||
             stride < row_bytes || height_ == 0U ||
             buffer_size < stride * height_ ||
@@ -620,12 +621,14 @@ public:
         std::uint32_t width,
         std::uint32_t height,
         std::uint32_t stride,
-        std::vector<std::uint8_t> source_pixels) noexcept
+        std::vector<std::uint8_t> source_pixels,
+        std::uint32_t* destruction_count = nullptr) noexcept
         : pixels(std::move(source_pixels)),
           pixel_format_(pixel_format),
           width_(width),
           height_(height),
-          stride_(stride)
+          stride_(stride),
+          destruction_count_(destruction_count)
     {
     }
 
@@ -716,13 +719,16 @@ public:
 
 private:
     friend class com::atomic_reference_count<fake_wic_bitmap_lock>;
-    ~fake_wic_bitmap_lock() = default;
+    ~fake_wic_bitmap_lock() {
+        if (destruction_count_ != nullptr) ++*destruction_count_;
+    }
 
     com::atomic_reference_count<fake_wic_bitmap_lock> reference_count_;
     com::guid pixel_format_{};
     std::uint32_t width_ = 0U;
     std::uint32_t height_ = 0U;
     std::uint32_t stride_ = 0U;
+    std::uint32_t* destruction_count_ = nullptr;
 };
 
 class fake_font_face final : public compat::font_face {
@@ -6377,6 +6383,7 @@ int run_tests()
     if (!com::guid_equal(
             compat::wic_bitmap_source_interface_id,
             __uuidof(IWICBitmapSource)) ||
+        !com::guid_equal(compat::wic_pixel_format_8bpp_alpha, GUID_WICPixelFormat8bppAlpha) ||
         !com::guid_equal(
             compat::wic_pixel_format_32bpp_pbgra,
             GUID_WICPixelFormat32bppPBGRA) ||
@@ -6749,6 +6756,97 @@ int run_tests()
             ignored_wic_source_pixels.size()) != 0) {
         return 492;
     }
+
+    const auto captured_a8_bytes_equal = [&](compat::bitmap* bitmap, std::span<const std::uint8_t> expected,
+        std::uint32_t expected_stride) {
+        target->BeginDraw();
+        target->DrawBitmap(bitmap, nullptr, 1.0F, compat::bitmap_interpolation_mode::linear, nullptr);
+        if (target->EndDraw(nullptr, nullptr) != com::ok) return false;
+        const auto size = scene_target->GetRequiredSceneSize();
+        std::vector<std::byte> scene(static_cast<std::size_t>(size));
+        std::uint64_t written = 0U;
+        if (size == 0U || scene_target->BuildScene(scene.data(), size, &written) != com::ok || written != size) return false;
+        const auto* header = reinterpret_cast<const progpu_native_scene_header*>(scene.data());
+        const auto* command = reinterpret_cast<const progpu_native_scene_command*>(scene.data() + header->command_offset);
+        const auto* image = reinterpret_cast<const progpu_native_scene_image_draw*>(scene.data() + command->payload_offset);
+        const auto* resource = reinterpret_cast<const progpu_native_scene_resource*>(scene.data() + header->resource_offset +
+            command->resource_index * header->resource_stride);
+        return image->row_bytes == expected_stride &&
+            (image->flags & PROGPU_NATIVE_SCENE_IMAGE_COLOR_MATRIX) != 0U &&
+            resource->flags == (PROGPU_NATIVE_SCENE_RECORD_REQUIRED | PROGPU_NATIVE_SCENE_IMAGE_R8) &&
+            resource->payload_size == expected.size() &&
+            std::memcmp(scene.data() + resource->payload_offset, expected.data(), expected.size()) == 0;
+    };
+    for (const auto alpha : {compat::alpha_mode::premultiplied, compat::alpha_mode::straight,
+            compat::alpha_mode::unknown}) {
+        const compat::bitmap_properties properties{{65U, alpha}, 144.0F, 192.0F};
+        auto* raw_source = new fake_wic_bitmap_source(compat::wic_pixel_format_8bpp_alpha,
+            3U, 2U, {0U, 64U, 128U, 192U, 254U, 255U});
+        com::pointer<compat::wic_bitmap_source> source;
+        source.attach(raw_source);
+        compat::bitmap* raw_imported = nullptr;
+        if (target->CreateBitmapFromWicBitmap(source.get(), &properties, &raw_imported) != com::ok) return 353;
+        com::pointer<compat::bitmap> imported;
+        imported.attach(raw_imported);
+        if (!imported || raw_source->copy_call_count != 1U || raw_source->last_stride != 3U ||
+            raw_source->last_buffer_size != 6U || !approximately_equal(imported->GetSize().width, 2.0F) ||
+            !approximately_equal(imported->GetSize().height, 1.0F)) return 354;
+        raw_source->pixels.assign(6U, 17U);
+        const std::array<std::uint8_t, 6U> original{0U, 64U, 128U, 192U, 254U, 255U};
+        if (!captured_a8_bytes_equal(imported.get(), original, 3U)) return 355;
+        std::uint32_t destroyed = 0U;
+        auto* raw_lock = new fake_wic_bitmap_lock(compat::wic_pixel_format_8bpp_alpha,
+            3U, 2U, 4U, {0U, 0U, 0U, 0xeeU, 0U, 0U, 0U}, &destroyed);
+        com::pointer<compat::wic_bitmap_lock> lock;
+        lock.attach(raw_lock);
+        compat::bitmap* raw_locked = nullptr;
+        if (target->CreateSharedBitmap(compat::wic_bitmap_lock_interface_id, lock.get(),
+                &properties, &raw_locked) != com::ok) return 356;
+        com::pointer<compat::bitmap> locked;
+        locked.attach(raw_locked);
+        if (locked->CopyFromBitmap(nullptr, imported.get(), nullptr) != com::ok) return 357;
+        const compat::rectangle_u last_pixel{2U, 1U, 3U, 2U};
+        const std::uint8_t replacement = 17U;
+        const compat::rectangle_u self_source{0U, 0U, 2U, 1U};
+        const compat::point_2u self_destination{1U, 0U};
+        if (locked->CopyFromMemory(&last_pixel, &replacement, 1U) != com::ok ||
+            locked->CopyFromBitmap(&self_destination, locked.get(), &self_source) != com::ok) return 358;
+        const std::array<std::uint8_t, 7U> expected{0U, 0U, 64U, 0xeeU, 192U, 254U, 17U};
+        if (!std::equal(expected.begin(), expected.end(), raw_lock->pixels.begin()) ||
+            !captured_a8_bytes_equal(locked.get(), expected, 4U)) return 359;
+        if (imported->CopyFromBitmap(nullptr, locked.get(), nullptr) != com::ok) return 360;
+        const std::array<std::uint8_t, 6U> compact_expected{0U, 0U, 64U, 192U, 254U, 17U};
+        if (!captured_a8_bytes_equal(imported.get(), compact_expected, 3U)) return 361;
+        // An alias and the retained scene must keep the WIC lock alive after
+        // the caller releases the primary lock and bitmap references.
+        compat::bitmap* raw_alias = nullptr;
+        if (target->CreateSharedBitmap(compat::bitmap_interface_id, locked.get(), nullptr, &raw_alias) != com::ok) return 362;
+        com::pointer<compat::bitmap> alias;
+        alias.attach(raw_alias);
+        locked.reset();
+        lock.reset();
+        if (destroyed != 0U || !captured_a8_bytes_equal(alias.get(), expected, 4U)) return 363;
+        alias.reset();
+        if (destroyed != 0U) return 364;
+        target->BeginDraw();
+        if (destroyed != 1U || target->EndDraw(nullptr, nullptr) != com::ok) return 365;
+    }
+    for (const bool short_stride : {false, true}) {
+        auto* raw_lock = new fake_wic_bitmap_lock(compat::wic_pixel_format_8bpp_alpha,
+            3U, 2U, short_stride ? 2U : 4U, std::vector<std::uint8_t>(6U));
+        com::pointer<compat::wic_bitmap_lock> lock;
+        lock.attach(raw_lock);
+        compat::bitmap* rejected = nullptr;
+        if (target->CreateSharedBitmap(compat::wic_bitmap_lock_interface_id, lock.get(), nullptr,
+                &rejected) != com::invalid_argument || rejected != nullptr) return 366;
+    }
+    const compat::bitmap_properties ignored_a8{{65U, compat::alpha_mode::ignore}, 96.0F, 96.0F};
+    auto* raw_alpha_source = new fake_wic_bitmap_source(compat::wic_pixel_format_8bpp_alpha, 1U, 1U, {255U});
+    com::pointer<compat::wic_bitmap_source> alpha_source;
+    alpha_source.attach(raw_alpha_source);
+    compat::bitmap* rejected_alpha = nullptr;
+    if (target->CreateBitmapFromWicBitmap(alpha_source.get(), &ignored_a8, &rejected_alpha) !=
+            compat::not_implemented || rejected_alpha != nullptr || raw_alpha_source->copy_call_count != 0U) return 367;
 
     std::vector<std::uint8_t> locked_pixels{
         0x01U, 0x02U, 0x03U, 0x04U,

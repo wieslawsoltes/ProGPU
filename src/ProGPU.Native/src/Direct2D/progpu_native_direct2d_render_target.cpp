@@ -157,6 +157,12 @@ constexpr com::guid scene_mesh_native_interface_id{
     bool& requires_premultiplication) noexcept
 {
     requires_premultiplication = false;
+    if (com::guid_equal(wic_format, wic_pixel_format_8bpp_alpha)) {
+        // A8 straight/premultiplied storage is identical: preserve the byte
+        // layout and let the shared GPU image encoder interpret coverage.
+        dxgi_format = dxgi_format_a8_unorm;
+        return true;
+    }
     if (com::guid_equal(wic_format, wic_pixel_format_32bpp_pbgra)) {
         dxgi_format = dxgi_format_b8g8r8a8_unorm;
         return true;
@@ -1317,7 +1323,8 @@ public:
                 properties_.pixel_format_value.alpha) {
             return com::invalid_argument;
         }
-        const std::uint32_t compact_pitch = copy_width * 4U;
+        const auto pixel_bytes = bitmap_pixel_bytes(properties_.pixel_format_value);
+        const std::uint32_t compact_pitch = copy_width * pixel_bytes;
         try {
             std::vector<std::byte> copy(
                 static_cast<std::size_t>(compact_pitch) * copy_height);
@@ -1338,7 +1345,7 @@ public:
                     pixels_ +
                         static_cast<std::size_t>(actual_destination.y + row) *
                             row_bytes_ +
-                        static_cast<std::size_t>(actual_destination.x) * 4U,
+                        static_cast<std::size_t>(actual_destination.x) * pixel_bytes,
                     copy.data() + static_cast<std::size_t>(row) * compact_pitch,
                     compact_pitch);
             }
@@ -1374,7 +1381,8 @@ public:
         }
         const std::uint32_t width = rectangle.right - rectangle.left;
         const std::uint32_t height = rectangle.bottom - rectangle.top;
-        const std::uint32_t copy_bytes = width * 4U;
+        const auto pixel_bytes = bitmap_pixel_bytes(properties_.pixel_format_value);
+        const std::uint32_t copy_bytes = width * pixel_bytes;
         if (pitch < copy_bytes) {
             return com::invalid_argument;
         }
@@ -1387,7 +1395,7 @@ public:
             std::memcpy(
                 pixels_ +
                     static_cast<std::size_t>(rectangle.top + row) * row_bytes_ +
-                    static_cast<std::size_t>(rectangle.left) * 4U,
+                    static_cast<std::size_t>(rectangle.left) * pixel_bytes,
                 source_bytes + static_cast<std::size_t>(row) * pitch,
                 copy_bytes);
         }
@@ -1425,7 +1433,9 @@ public:
         const std::span<const std::byte> pixels(pixels_, required_bytes_);
         const bool bgra = properties_.pixel_format_value.format ==
             dxgi_format_b8g8r8a8_unorm;
-        const bool added = bgra
+        const bool added = properties_.pixel_format_value.format == dxgi_format_a8_unorm
+            ? builder->add_r8_image(size_.width, size_.height, row_bytes_, pixels, *resource_index)
+            : bgra
             ? builder->add_bgra8_image(
                 size_.width, size_.height, row_bytes_, pixels,
                 *resource_index)
@@ -1461,7 +1471,8 @@ public:
             source_rectangle->right - source_rectangle->left;
         const std::uint32_t height =
             source_rectangle->bottom - source_rectangle->top;
-        const std::uint32_t copy_bytes = width * 4U;
+        const auto pixel_bytes = bitmap_pixel_bytes(properties_.pixel_format_value);
+        const std::uint32_t copy_bytes = width * pixel_bytes;
         if (destination_pitch < copy_bytes) {
             return com::invalid_argument;
         }
@@ -1473,7 +1484,7 @@ public:
                 pixels_ +
                     static_cast<std::size_t>(source_rectangle->top + row) *
                         row_bytes_ +
-                    static_cast<std::size_t>(source_rectangle->left) * 4U,
+                    static_cast<std::size_t>(source_rectangle->left) * pixel_bytes,
                 copy_bytes);
         }
         return com::ok;
@@ -3511,7 +3522,8 @@ public:
         }
         if (actual.pixel_format_value.format != dxgi_format ||
             (actual.pixel_format_value.alpha != alpha_mode::premultiplied &&
-                actual.pixel_format_value.alpha != alpha_mode::ignore)) {
+                actual.pixel_format_value.alpha != (dxgi_format == dxgi_format_a8_unorm
+                    ? alpha_mode::straight : alpha_mode::ignore))) {
             return not_implemented;
         }
         if (actual.dpi_x == 0.0F && actual.dpi_y == 0.0F) {
@@ -3522,7 +3534,7 @@ public:
         }
 
         const std::uint64_t row_bytes_64 =
-            static_cast<std::uint64_t>(size.width) * 4U;
+            static_cast<std::uint64_t>(size.width) * bitmap_pixel_bytes(actual.pixel_format_value);
         const std::uint64_t required_bytes =
             row_bytes_64 * static_cast<std::uint64_t>(size.height);
         if (row_bytes_64 > std::numeric_limits<std::uint32_t>::max() ||
@@ -3613,7 +3625,8 @@ public:
                 return com::invalid_argument;
             }
             const std::uint64_t minimum_row_bytes =
-                static_cast<std::uint64_t>(source_size.width) * 4U;
+                static_cast<std::uint64_t>(source_size.width) *
+                    bitmap_pixel_bytes({source_dxgi_format, alpha_mode::premultiplied});
             const std::uint64_t required_bytes =
                 static_cast<std::uint64_t>(source_stride) *
                     (source_size.height - 1U) +
@@ -3639,7 +3652,8 @@ public:
             if (actual.pixel_format_value.format != source_dxgi_format ||
                 (actual.pixel_format_value.alpha !=
                         alpha_mode::premultiplied &&
-                    actual.pixel_format_value.alpha != alpha_mode::ignore) ||
+                    actual.pixel_format_value.alpha != (source_dxgi_format == dxgi_format_a8_unorm
+                        ? alpha_mode::straight : alpha_mode::ignore)) ||
                 (requires_premultiplication &&
                     actual.pixel_format_value.alpha ==
                         alpha_mode::premultiplied)) {
