@@ -19273,6 +19273,55 @@ int main() {
             }
         }
     }
+    {
+        const auto figures = make_curve_path_figures();
+        for (const auto extent : {std::array{0.0, 48.0}, std::array{48.0, 0.0}, std::array{0.0, 0.0}}) {
+            for (const bool dashed : {false, true}) {
+                for (std::uint32_t join = 0U; join < 3U; ++join) {
+                    for (const bool gap : {false, true}) {
+                        for (const bool gradient : {false, true}) {
+                            for (const bool nested : {false, true}) {
+                                std::vector<std::byte> scene;
+                                PROGPU_REQUIRE(progpu::native::tests::build_mil_image_brush_fixture(scene,
+                                    {.shape = progpu::native::tests::mil_brush_fixture_shape::group,
+                                        .inherited_clip = true, .paint_transform = true, .path_figures = figures,
+                                        .pen = true, .dashed = dashed, .nested_group = nested, .solid_pen = !gradient,
+                                        .dash_offset = gap ? 2.5 : 0.25, .fixed_extent = extent, .line_join = join,
+                                        .collapsed_group = true, .gradient_pen = gradient}, 10080U + join));
+                                const auto header = read_value<progpu_native_scene_header>(scene, 0U);
+                                std::uint32_t tables = 0U;
+                                for (std::uint32_t index = 0U; index < header.resource_count; ++index) {
+                                    const auto resource = read_value<progpu_native_scene_resource>(scene,
+                                        header.resource_offset + index * sizeof(progpu_native_scene_resource));
+                                    if (resource.kind == PROGPU_NATIVE_SCENE_RESOURCE_BRUSH_TABLE) {
+                                        ++tables;
+                                        PROGPU_REQUIRE(resource.payload_size == sizeof(progpu_native_scene_brush));
+                                        const auto brush = read_value<progpu_native_scene_brush>(scene, resource.payload_offset);
+                                        PROGPU_REQUIRE(brush.type == (gradient ? PROGPU_NATIVE_SCENE_BRUSH_LINEAR_GRADIENT :
+                                            PROGPU_NATIVE_SCENE_BRUSH_SOLID));
+                                        if (gradient) PROGPU_REQUIRE(brush.opacity == 0.5F);
+                                    }
+                                }
+                                // One group mapping, not a separate gradient per child.
+                                PROGPU_REQUIRE(tables == 1U);
+                                for (std::uint32_t index = 0U; index < header.command_count; ++index) {
+                                    const auto command = read_value<progpu_native_scene_command>(scene,
+                                        header.command_offset + index * sizeof(progpu_native_scene_command));
+                                    if (command.kind != PROGPU_NATIVE_SCENE_COMMAND_DRAW_GEOMETRY &&
+                                        command.kind != PROGPU_NATIVE_SCENE_COMMAND_DRAW_PATH) continue;
+                                    const auto brushes = read_value<progpu_native_scene_draw_brushes>(scene, command.payload_offset);
+                                    for (std::uint32_t brush = 0U; brush < brushes.brush_count; ++brush) {
+                                        PROGPU_REQUIRE(read_value<std::uint32_t>(scene,
+                                            command.payload_offset + sizeof(brushes) + brush * sizeof(std::uint32_t)) == 0U);
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
     // Authored during implementation-first work; execution and pixel parity
     // remain part of the final validation phase.
     for (const auto source : {progpu::native::tests::mil_brush_fixture_source::bitmap,

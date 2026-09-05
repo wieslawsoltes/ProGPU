@@ -7801,6 +7801,32 @@ remain deferred. Non-tiled collapsed fixed children remain explicitly unsupporte
 in the group walker; completing those brush-mapping semantics, guideline-aware
 masks, and the broader MIL/DirectX/Direct2D/Win2D scope remains required.
 
+### Implementation-first checkpoint: non-tiled collapsed group strokes
+
+Collapsed fixed rectangle and ellipse children now also work with ordinary
+non-tiled group pens. The group walker passes its already-resolved brush index to
+the original direct-shape degenerate stroke routines. Those routines accept an
+optional supplied material and otherwise retain their direct-draw brush resolution.
+This includes the collapsed-point cap branch and the rounded dashed-path branch;
+relative gradients must not acquire a new mapping for each child.
+
+Provenance is the original ProGPU direct fixed-shape stroke implementation and the
+existing group material-resolution contract. The new adapter adds O(1) work per
+child with no additional brush resolution, GPU mask, pixel loop, or shader change.
+Existing contour/dash work and SIMD kernels are unchanged. This is native MIL
+consumer completion, not a shared renderer ABI/algorithm change; managed portable
+replay remains the differential reference to qualify at the final gate.
+
+The Release WebGPU-enabled native library and MIL regression executable compile.
+144 authored cases cover solid and relative linear-gradient pens, nested and flat
+groups, three collapse axes, three joins, and dash on/gap phases. They check one
+shared material table and index across the emitted group strokes. They are **not
+executed**. Coverage metadata was regenerated; runtime/image/VM tests, verifiers,
+benchmarks, and CI qualification remain deferred. This supersedes the preceding
+non-tiled collapsed-group rejection; guideline-aware tile masks, mixed-picture-mask
+performance qualification, and the broader MIL/DirectX/Direct2D/Win2D scope remain
+incomplete.
+
 ## Invariants
 
 - No reflection or private managed field scanning in the product bridge.
