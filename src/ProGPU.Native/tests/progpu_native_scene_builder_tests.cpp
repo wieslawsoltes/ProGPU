@@ -3,9 +3,12 @@
 #include "progpu_native_scene.hpp"
 #include "progpu_native_scene_builder.hpp"
 #include "progpu_native_semantic_identity.hpp"
+#include "progpu_native_semantic_state.hpp"
 
 #include <array>
 #include <cstring>
+#include <cmath>
+#include <limits>
 #include <vector>
 
 namespace progpu::native::tests {
@@ -328,6 +331,45 @@ bool semantic_scene_builder_bounds_composite_only_guidelines() {
         return false;
     }
 
+    const auto near = [](float actual, float expected) { return std::abs(actual - expected) < 0.0001F; };
+    const semantic::semantic_state_cursor cursor(stream.data(), validated.header, 1.0F);
+    progpu_native_affine_2d inverse{};
+    bool visible = false;
+    if (!cursor.try_composite_rectangle_inverse(state, {2.25F, 3.5F, 16.5F, 10.0F}, inverse, visible) ||
+        !visible || !near(inverse.m11, 16.5F / 17.0F) || inverse.m22 != 1.0F ||
+        !near(2.0F * inverse.m11 + inverse.m31, 2.25F) ||
+        !near(19.0F * inverse.m11 + inverse.m31, 18.75F) ||
+        !near(4.0F * inverse.m22 + inverse.m32, 3.5F) ||
+        !near(14.0F * inverse.m22 + inverse.m32, 13.5F)) return false;
+    const auto unchanged_inverse = inverse;
+    if (cursor.try_composite_rectangle_inverse(state,
+            {std::numeric_limits<float>::infinity(), 0.0F, 1.0F, 1.0F}, inverse, visible) ||
+        std::memcmp(&inverse, &unchanged_inverse, sizeof(inverse)) != 0 || !visible) return false;
+    for (const float dpi : {1.5F, 2.625F, 3.0F}) {
+        const semantic::semantic_state_cursor scaled_cursor(stream.data(), validated.header, dpi);
+        if (!scaled_cursor.try_composite_rectangle_inverse(state,
+                {2.25F, 3.5F, 16.5F, 10.0F}, inverse, visible) || !visible) return false;
+        float left = 2.25F, top = 3.5F, right = 18.75F, bottom = 13.5F;
+        scaled_cursor.snap_composite_point(state, left, top);
+        scaled_cursor.snap_composite_point(state, right, bottom);
+        if (!near(left * inverse.m11 + inverse.m31, 2.25F) ||
+            !near(right * inverse.m11 + inverse.m31, 18.75F) ||
+            !near(top * inverse.m22 + inverse.m32, 3.5F) ||
+            !near(bottom * inverse.m22 + inverse.m32, 13.5F)) return false;
+    }
+    semantic_scene_builder collapsed(710U, 1U);
+    const std::array tiny{0.1, 0.4};
+    std::uint32_t collapsed_index = PROGPU_NATIVE_SCENE_NO_INDEX;
+    if (!collapsed.add_guideline_set(tiny, tiny, collapsed_index, true)) return false;
+    std::vector<std::byte> collapsed_stream;
+    if (!collapsed.build(collapsed_stream)) return false;
+    const auto collapsed_header = read<progpu_native_scene_header>(collapsed_stream, 0U);
+    const semantic::semantic_state_cursor collapsed_cursor(collapsed_stream.data(), collapsed_header, 1.0F);
+    auto collapsed_state = state;
+    collapsed_state.guideline_resource_index = collapsed_index;
+    if (!collapsed_cursor.try_composite_rectangle_inverse(collapsed_state,
+            {0.1F, 0.1F, 0.3F, 0.3F}, inverse, visible) || visible) return false;
+
     semantic_scene_builder per_point(703U, 1U);
     if (!per_point.reserve(2U, 2U, 512U)) {
         return false;
@@ -419,6 +461,11 @@ bool semantic_scene_builder_bounds_composite_only_guidelines() {
     if (explicit_validated.status != PROGPU_NATIVE_STATUS_SUCCESS) {
         return false;
     }
+    const semantic::semantic_state_cursor explicit_cursor(explicit_stream.data(), explicit_validated.header, 2.0F);
+    if (!explicit_cursor.try_composite_rectangle_inverse(explicit_state,
+            {2.0F, 3.0F, 10.0F, 8.0F}, inverse, visible) || !visible ||
+        inverse.m11 != 1.0F || inverse.m22 != 1.0F ||
+        inverse.m31 != -0.0625F || inverse.m32 != 0.125F) return false;
     const auto explicit_resource = read<progpu_native_scene_resource>(
         explicit_stream,
         explicit_validated.header.resource_offset + explicit_index *

@@ -213,6 +213,8 @@ bool create_semantic_composite_mask_binding(
                 parsed.composite_picture_streams + picture.stream_offset,
                 target_extent,
                 dpi_scale,
+                composite_state_cursor,
+                composite_state,
                 child_operation)) {
             cleanup();
             return false;

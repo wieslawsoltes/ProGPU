@@ -108,6 +108,48 @@ bool semantic_state_cursor::has_per_point_guidelines(
         PROGPU_NATIVE_SCENE_GUIDELINE_PER_POINT) != 0U;
 }
 
+bool semantic_state_cursor::try_composite_rectangle_inverse(
+    const progpu_native_scene_state& state,
+    progpu_native_image_rect bounds,
+    progpu_native_affine_2d& inverse,
+    bool& visible) const noexcept {
+    // Algorithm: snap opposite corners with the same nearest-guideline search
+    // as the retained cache quad, then invert its separable deformation.
+    // Time: O(log X + log Y) for X/Y guidelines. Space: O(1), allocation-free.
+    if (!std::isfinite(bounds.x) || !std::isfinite(bounds.y) ||
+        !std::isfinite(bounds.width) || !std::isfinite(bounds.height) ||
+        bounds.width <= 0.0F || bounds.height <= 0.0F) return false;
+    const float right = bounds.x + bounds.width;
+    const float bottom = bounds.y + bounds.height;
+    if (!std::isfinite(right) || !std::isfinite(bottom)) return false;
+    float snapped_left = bounds.x;
+    float snapped_top = bounds.y;
+    float snapped_right = right;
+    float snapped_bottom = bottom;
+    snap_composite_point(state, snapped_left, snapped_top);
+    snap_composite_point(state, snapped_right, snapped_bottom);
+    if (!std::isfinite(snapped_left) || !std::isfinite(snapped_top) ||
+        !std::isfinite(snapped_right) || !std::isfinite(snapped_bottom)) return false;
+    const double width = static_cast<double>(snapped_right) - snapped_left;
+    const double height = static_cast<double>(snapped_bottom) - snapped_top;
+    if (width <= 0.0 || height <= 0.0) {
+        inverse = {1.0F, 0.0F, 0.0F, 1.0F, 0.0F, 0.0F};
+        visible = false;
+        return true;
+    }
+    const double sx = static_cast<double>(right - bounds.x) / width;
+    const double sy = static_cast<double>(bottom - bounds.y) / height;
+    const double tx = bounds.x - snapped_left * sx;
+    const double ty = bounds.y - snapped_top * sy;
+    constexpr double limit = std::numeric_limits<float>::max();
+    for (const double value : {sx, sy, tx, ty})
+        if (!std::isfinite(value) || std::abs(value) > limit) return false;
+    inverse = {static_cast<float>(sx), 0.0F, 0.0F, static_cast<float>(sy),
+        static_cast<float>(tx), static_cast<float>(ty)};
+    visible = true;
+    return true;
+}
+
 void semantic_state_cursor::snap_draw_point(
     const progpu_native_scene_state& state,
     float& target_x,

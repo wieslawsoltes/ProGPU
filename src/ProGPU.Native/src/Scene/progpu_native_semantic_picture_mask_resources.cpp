@@ -15,6 +15,7 @@
 #include "progpu_native_pipeline.hpp"
 #include "progpu_native_semantic_budget.hpp"
 #include "progpu_native_semantic_replay.hpp"
+#include "progpu_native_semantic_state.hpp"
 #include "progpu_webgpu_compat.hpp"
 
 #include <algorithm>
@@ -73,6 +74,8 @@ bool create_semantic_picture_mask_binding(
     const std::byte* nested_scene,
     const semantic::scissor& target_extent,
     float dpi_scale,
+    const semantic::semantic_state_cursor* composite_state_cursor,
+    const progpu_native_scene_state* composite_state,
     semantic_render_bundle_span& operation) {
     if (nested_scene == nullptr || picture.stream_size == 0U ||
         target_extent.width == 0U || target_extent.height == 0U ||
@@ -254,6 +257,53 @@ bool create_semantic_picture_mask_binding(
     }
     sampling.options[0] = 1.0F;
     sampling.options[1] = picture.opacity;
+    if (composite_state_cursor != nullptr && composite_state != nullptr &&
+        (composite_state->flags & PROGPU_NATIVE_SCENE_STATE_GUIDELINE_SET) != 0U &&
+        !composite_state_cursor->has_per_point_guidelines(*composite_state)) {
+        // The MIL picture is already rendered in target space. Resample it
+        // through the inverse cache-quad deformation, not a second glyph/path
+        // rasterization. Canonical sampled-mask shaders already accept this
+        // affine UV form. Four scalar coefficients add O(1) work/storage.
+        auto bounds = picture.bounds;
+        if (source_extent) {
+            if (picture.transform.m12 != 0.0F || picture.transform.m21 != 0.0F) {
+                cleanup();
+                return false;
+            }
+            const float x0 = bounds.x * picture.transform.m11 + picture.transform.m31;
+            const float y0 = bounds.y * picture.transform.m22 + picture.transform.m32;
+            const float x1 = (bounds.x + bounds.width) * picture.transform.m11 + picture.transform.m31;
+            const float y1 = (bounds.y + bounds.height) * picture.transform.m22 + picture.transform.m32;
+            bounds = {std::min(x0, x1), std::min(y0, y1), std::abs(x1 - x0), std::abs(y1 - y0)};
+        }
+        progpu_native_affine_2d inverse{};
+        bool visible = true;
+        if (!composite_state_cursor->try_composite_rectangle_inverse(*composite_state, bounds, inverse, visible)) {
+            cleanup();
+            return false;
+        }
+        if (!visible) sampling.options[1] = 0.0F;
+        if (!source_extent) {
+            sampling.coordinate0[0] = 1.0F / static_cast<float>(source_width);
+            sampling.coordinate0[1] = 0.0F;
+            sampling.coordinate0[2] = 0.0F;
+            sampling.coordinate1[0] = 0.0F;
+            sampling.coordinate1[1] = 1.0F / static_cast<float>(source_height);
+            sampling.coordinate1[2] = 0.0F;
+        }
+        const float tx = inverse.m31 * dpi_scale;
+        const float ty = inverse.m32 * dpi_scale;
+        for (auto* row : {sampling.coordinate0, sampling.coordinate1}) {
+            row[2] += row[0] * tx + row[1] * ty;
+            row[0] *= inverse.m11;
+            row[1] *= inverse.m22;
+            if (!std::isfinite(row[0]) || !std::isfinite(row[1]) || !std::isfinite(row[2])) {
+                cleanup();
+                return false;
+            }
+        }
+        sampling.options[2] = 1.0F;
+    }
     // Two selects the RGBA source alpha channel; one retains the existing R8
     // red-channel contract for all other sampled masks.
     sampling.options[3] = 2.0F;
