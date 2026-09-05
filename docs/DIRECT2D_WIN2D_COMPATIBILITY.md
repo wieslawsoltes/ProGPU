@@ -1139,13 +1139,76 @@ neither the COM ABI version nor the export allowlist.
 
 WIC codec activation/decoding itself, render-target-to-bitmap copies,
 straight-alpha WIC lock sharing as premultiplied content,
-`ID2D1StrokeStyle1` fixed/hairline transform modes,
+portable `ID2D1Factory1` activation,
 multi-contour/boolean/widen geometry operations,
 color-glyph translation, and
 device-context bitmap generations remain fail
 closed. `CopyFromMemory` and copied WIC-source ingestion remain explicit
 bounded resource uploads; WIC-lock sharing aliases the retained lock memory;
 steady drawing never repacks or reads pixels back from the GPU.
+
+### Portable stroke-transform parity (2026-09-05)
+
+The portable compatibility library now implements the `ID2D1StrokeStyle1`
+vtable, IID, inherited resource identity, and immutable transform policy.
+`compat::create_stroke_style1` constructs it against an existing portable
+factory; base `CreateStrokeStyle` produces normal-transform styles. This
+typed constructor does **not** claim portable `ID2D1Factory1` activation:
+that wider factory/device-context family remains a separate gap.
+
+The portable render target queries this interface and lowers normal, fixed,
+and hairline strokes into the existing retained `STROKE_BATCH` and analytic
+`GEOMETRY_BATCH` algorithms. Provenance is the original ProGPU Windows recorder
+in `src/ProGPU.Native/src/Direct2D/progpu_native_direct2d.cpp` and the shared
+`progpu_native_semantic_path_stroke.hpp`; no external implementation is copied.
+Curves, custom dashes, caps, joins, geometry gaps, bitmap-brush masks, and
+brush ownership continue through their existing paths. Fixed-stroke bounds
+expand after the world transform; bitmap masks inverse-map that envelope.
+Hairlines ignore the supplied nonnegative width, including zero. Unequal-axis
+DPI fails closed, matching the scene-submission lane's existing scalar-DPI
+boundary. Singular bitmap-brush transforms also fail explicitly.
+
+Hairline dash intervals and phase are converted from physical units to target
+DIPs once while recording. ARM64 NEON and x64 SSE2 multiply two doubles at a
+time, with one scalar tail; targets without double-lane intrinsics retain the
+scalar portability path. The odd-three-interval fixture checks every value
+against its scalar arithmetic oracle. No speedup is claimed.
+
+Two shared correctness gaps surfaced during validation: both portable and
+Windows COM recorders now preserve aliased edges in polyline batches, and the
+canonical `ProGPU.Backend/Shaders/Vector.wgsl` converts hairline body/cap/join
+width to target DIPs before projection. Fixed widths still respect DPI. Both
+managed and native renderers consume that same shader, with no ABI, shader
+fork, new pipeline, CPU pixel fallback, or per-segment submission.
+
+The existing cross-platform GPU gate additionally renders straight and cubic
+normal/fixed/hairline fixtures at 96 and 192 DPI. Each three-stroke fixture
+requires three commands and one submission; neighboring-pixel checks prove
+world scaling, DPI scaling, and exactly one physical hairline pixel. Its
+original 17-draw/27-command/four-submission comparison capture is unchanged.
+Managed `SkiaHairlineRenderingTests` additionally checks 96/192/384 DPI.
+The COM oracle checks SDK vtable dispatch on Windows and immutable IID
+round-trips, policy rejection, custom dash scaling, and both batch payloads
+on every native target.
+
+Design references: [Direct2D stroke transforms](https://learn.microsoft.com/windows/win32/api/d2d1_1/ne-d2d1_1-d2d1_stroke_transform_type)
+and [Win2D stroke-transform behavior](https://microsoft.github.io/Win2D/WinUI3/html/T_Microsoft_Graphics_Canvas_Geometry_CanvasStrokeTransformBehavior.htm)
+define the world/DPI/physical-pixel distinction; [Skia paint](https://api.skia.org/classSkPaint.html)
+provides the independent hairline contract. [Vello scenes](https://docs.rs/vello/latest/vello/struct.Scene.html)
+and [WebRender display lists](https://docs.rs/webrender_api/latest/webrender_api/struct.DisplayListBuilder.html)
+support keeping strokes in typed retained records rather than immediate
+per-segment submissions. [Parley](https://docs.rs/parley/latest/parley/)
+and [HarfBuzz](https://harfbuzz.github.io/what-is-harfbuzz.html) remain shaping/
+layout references, not stroke rasterizers: font fallback, shaping caches,
+startup discovery, glyph uploads, and atlas/device-loss ownership are unchanged.
+This is a wiring/correctness extension of the existing architecture, not a
+replacement rendering or text algorithm.
+
+Local validation: macOS ARM64 native 15/15, focused ASan/UBSan compatibility
+1/1, x64/Rosetta compatibility 1/1, full managed 3,922/3,922, and headless
+240/240. The initial Windows ARM64 `/W4 /WX` build passed 16/16, including
+D3D12; final-source Windows and hosted PR checks are recorded separately so
+earlier passes are not mistaken for final-head qualification.
 
 ## Current support matrix
 

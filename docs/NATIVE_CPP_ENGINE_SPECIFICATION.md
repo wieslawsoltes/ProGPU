@@ -3950,3 +3950,20 @@ path with WebGPU validation and bounded resource policies.
    to be reported as hardware evidence.
 5. Complete the requested desktop/browser manual review. Mark the draft ready
    or merge only after explicit user approval.
+
+### Portable Direct2D stroke-transform integration, 2026-09-05
+
+The portable COM recorder now preserves `ID2D1StrokeStyle1` normal/fixed/
+hairline policies through the same ProGPU-owned semantic stroke compiler used
+by the Windows recorder. The installed compatibility header adds a typed
+constructor without claiming the wider portable Factory1 activation surface.
+The canonical vector shader fixes high-DPI hairline body/cap/join widths for
+both managed and native consumers; neither implementation gains a shader
+fork or CPU rendering fallback. Aliased stroke-batch edges are preserved by
+both COM recorders, and portable hairline dash scaling uses NEON/SSE2 with a
+bounded tail. No public scene/C ABI version changes.
+
+See [the compatibility design and validation record](DIRECT2D_WIN2D_COMPATIBILITY.md#portable-stroke-transform-parity-2026-09-05)
+for source provenance, primary references, DPI limits, SIMD oracle coverage,
+and remaining Factory1/device-context gaps. This checkpoint does not complete
+the broader LibreWPF MIL/DirectX/Direct2D/Win2D replacement goal.

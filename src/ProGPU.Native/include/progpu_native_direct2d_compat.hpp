@@ -23,6 +23,12 @@ using line_join = core::line_join;
 using dash_style = core::dash_style;
 using stroke_style_properties = core::stroke_style_properties_f;
 
+enum class stroke_transform_type : std::uint32_t {
+    normal = 0U,
+    fixed = 1U,
+    hairline = 2U
+};
+
 struct color_f final {
     float red;
     float green;
@@ -150,6 +156,11 @@ inline constexpr com::guid stroke_style_interface_id{
     0x12E2U,
     0x11DCU,
     {0x9FU, 0xEDU, 0x00U, 0x11U, 0x43U, 0xA0U, 0x55U, 0xF9U}};
+inline constexpr com::guid stroke_style1_interface_id{
+    0x10A72A66U,
+    0xE91CU,
+    0x43F4U,
+    {0x99U, 0x3FU, 0xDDU, 0xF4U, 0xB8U, 0x2BU, 0x0BU, 0x4AU}};
 inline constexpr com::guid drawing_state_block_interface_id{
     0x28506E39U,
     0xEBF6U,
@@ -882,6 +893,11 @@ struct stroke_style : resource {
         std::uint32_t dash_count) const noexcept = 0;
 };
 
+struct stroke_style1 : stroke_style {
+    virtual stroke_transform_type PROGPU_NATIVE_COM_CALL
+        GetStrokeTransformType() const noexcept = 0;
+};
+
 struct drawing_state_block : resource {
     virtual void PROGPU_NATIVE_COM_CALL GetDescription(
         drawing_state_description* description) const noexcept = 0;
@@ -1290,5 +1306,14 @@ struct factory : com::unknown {
 };
 
 [[nodiscard]] com::result create_factory(factory** value) noexcept;
+
+// Typed portable construction; does not advertise the separate Factory1 ABI.
+[[nodiscard]] com::result create_stroke_style1(
+    factory* owner,
+    const stroke_style_properties* properties,
+    stroke_transform_type transform_type,
+    const float* dashes,
+    std::uint32_t dash_count,
+    stroke_style1** value) noexcept;
 
 } // namespace progpu::native::direct2d::compat

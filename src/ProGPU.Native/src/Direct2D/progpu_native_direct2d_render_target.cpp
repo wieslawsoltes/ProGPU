@@ -6699,6 +6699,7 @@ private:
     }
 
     struct stroke_style_snapshot final {
+        stroke_transform_type transform_type = stroke_transform_type::normal;
         cap_style start_cap = cap_style::flat;
         cap_style end_cap = cap_style::flat;
         cap_style dash_cap = cap_style::flat;
@@ -6716,6 +6717,17 @@ private:
         if (source == nullptr) {
             return com::ok;
         }
+        com::pointer<stroke_style1> extended;
+        const com::result query = source->QueryInterface(
+            stroke_style1_interface_id, reinterpret_cast<void**>(extended.put()));
+        if (com::succeeded(query)) {
+            if (!extended) {
+                return failure;
+            }
+            result.transform_type = extended->GetStrokeTransformType();
+        } else if (query != com::no_interface) {
+            return query;
+        }
         result.start_cap = source->GetStartCap();
         result.end_cap = source->GetEndCap();
         result.dash_cap = source->GetDashCap();
@@ -6723,7 +6735,8 @@ private:
         result.miter_limit = source->GetMiterLimit();
         result.dash_offset = source->GetDashOffset();
         const dash_style dash = source->GetDashStyle();
-        if (result.start_cap > cap_style::triangle ||
+        if (result.transform_type > stroke_transform_type::hairline ||
+            result.start_cap > cap_style::triangle ||
             result.end_cap > cap_style::triangle ||
             result.dash_cap > cap_style::triangle ||
             result.join > line_join::miter_or_bevel ||
@@ -6789,6 +6802,35 @@ private:
         }
     }
 
+    static void scale_hairline_dashes(stroke_style_snapshot& style, float dpi) noexcept
+    {
+        if (style.dash_intervals.empty() || dpi == 96.0F) {
+            return;
+        }
+        const double scale = 96.0 / static_cast<double>(dpi);
+        style.dash_offset *= scale;
+        auto& intervals = style.dash_intervals;
+        std::size_t index = 0U;
+#if defined(__aarch64__) || defined(_M_ARM64)
+        const float64x2_t factor = vdupq_n_f64(scale);
+        for (; index + 2U <= intervals.size(); index += 2U) {
+            vst1q_f64(intervals.data() + index,
+                vmulq_f64(vld1q_f64(intervals.data() + index), factor));
+        }
+#elif defined(PROGPU_NATIVE_DIRECT2D_RENDER_TARGET_INTRINSICS_SSE2)
+        const __m128d factor = _mm_set1_pd(scale);
+        for (; index + 2U <= intervals.size(); index += 2U) {
+            _mm_storeu_pd(intervals.data() + index,
+                _mm_mul_pd(_mm_loadu_pd(intervals.data() + index), factor));
+        }
+#endif
+        // One double tail on ARM64/x64; scalar portability for targets without
+        // double-lane intrinsics, consistent with the native compatibility lane.
+        for (; index < intervals.size(); ++index) {
+            intervals[index] *= scale;
+        }
+    }
+
     void draw_styled_line(
         point_2f point0,
         point_2f point1,
@@ -6797,7 +6839,7 @@ private:
         stroke_style* style) noexcept
     {
         if (!valid_point(point0) || !valid_point(point1) ||
-            !std::isfinite(stroke_width) || stroke_width <= 0.0F) {
+            !std::isfinite(stroke_width) || stroke_width < 0.0F) {
             latch_draw_failure(com::invalid_argument);
             return;
         }
@@ -6897,8 +6939,16 @@ private:
             latch(result);
             return;
         }
-        if (stroke_width == 0.0F) {
+        if (stroke_width == 0.0F &&
+            style.transform_type != stroke_transform_type::hairline) {
             return;
+        }
+        if (style.transform_type == stroke_transform_type::hairline) {
+            if (dpi_x_ != dpi_y_) {
+                latch(not_implemented);
+                return;
+            }
+            scale_hairline_dashes(style, dpi_x_);
         }
 
         auto* raw_sink = new (std::nothrow) portable_scene_stroke_sink();
@@ -7087,13 +7137,31 @@ private:
             }
             const float padding = stroke_width * 0.5F *
                 std::max(1.0F, style.miter_limit);
-            const rectangle_f local_bounds{
+            rectangle_f local_bounds{
                 geometry_bounds.left - padding,
                 geometry_bounds.top - padding,
                 geometry_bounds.right + padding,
                 geometry_bounds.bottom + padding};
-            const progpu_native_image_rect target_bounds =
+            progpu_native_image_rect target_bounds =
                 transformed_bounds(local_bounds);
+            if (style.transform_type != stroke_transform_type::normal) {
+                result = geometry_value->GetBounds(&transform_, &geometry_bounds);
+                if (com::failed(result) || !valid_rectangle(geometry_bounds)) {
+                    latch(com::failed(result) ? result : com::invalid_argument);
+                    return;
+                }
+                // Scene bounds are in target DIPs; a hairline is one physical pixel.
+                const float extent = 0.5F * std::max(1.0F, style.miter_limit);
+                const float pad_x = extent * (style.transform_type ==
+                    stroke_transform_type::hairline ? 96.0F / dpi_x_ : stroke_width);
+                const float pad_y = extent * (style.transform_type ==
+                    stroke_transform_type::hairline ? 96.0F / dpi_y_ : stroke_width);
+                target_bounds = {
+                    geometry_bounds.left - pad_x,
+                    geometry_bounds.top - pad_y,
+                    geometry_bounds.right - geometry_bounds.left + pad_x * 2.0F,
+                    geometry_bounds.bottom - geometry_bounds.top + pad_y * 2.0F};
+            }
             if (com::failed(failure_)) {
                 return;
             }
@@ -7110,6 +7178,25 @@ private:
             } else if (bitmap_query != com::no_interface) {
                 latch(com::failed(bitmap_query) ? bitmap_query : failure);
                 return;
+            }
+
+            if (bitmap_brush && style.transform_type != stroke_transform_type::normal) {
+                // Bitmap coverage is recorded in local coordinates. Inverse-map the
+                // device-space stroke envelope, not a world-scaled local pen width.
+                matrix_3x2_f inverse{};
+                if (!try_invert_transform(transform_, inverse)) {
+                    latch(com::invalid_argument);
+                    return;
+                }
+                const core::rectangle_geometry envelope({
+                    target_bounds.x, target_bounds.y,
+                    target_bounds.x + target_bounds.width,
+                    target_bounds.y + target_bounds.height});
+                result = envelope.bounds(&inverse, &local_bounds);
+                if (com::failed(result)) {
+                    latch(result);
+                    return;
+                }
             }
 
             bool use_polyline_batch = !bitmap_brush;
@@ -7157,6 +7244,14 @@ private:
                         ? static_cast<std::uint32_t>(
                             PROGPU_NATIVE_POLYLINE_FLAG_CLOSED)
                         : 0U;
+                    if (antialias_mode_ == antialias_mode::aliased) {
+                        stroke.flags |= PROGPU_NATIVE_POLYLINE_FLAG_EDGE_ALIASED;
+                    }
+                    if (style.transform_type == stroke_transform_type::fixed) {
+                        stroke.flags |= PROGPU_NATIVE_POLYLINE_FLAG_FIXED_DEVICE_STROKE;
+                    } else if (style.transform_type == stroke_transform_type::hairline) {
+                        stroke.flags |= PROGPU_NATIVE_POLYLINE_FLAG_HAIRLINE;
+                    }
                     stroke.point_offset = points.size();
                     stroke.point_count = segments.size() +
                         (run.closed ? 0U : 1U);
@@ -7164,7 +7259,8 @@ private:
                     stroke.dash_interval_count = style.dash_intervals.size();
                     stroke.color = {1.0F, 1.0F, 1.0F, 1.0F};
                     stroke.transform = native_transform();
-                    stroke.stroke_thickness = stroke_width;
+                    stroke.stroke_thickness = style.transform_type ==
+                        stroke_transform_type::hairline ? 0.0F : stroke_width;
                     stroke.miter_limit = std::max(1.0F, style.miter_limit);
                     stroke.dash_offset = style.dash_offset;
                     stroke.start_cap = run.start_uses_dash_cap
@@ -7207,7 +7303,8 @@ private:
             } else {
                 semantic_path_stroke::style semantic_style{};
                 semantic_style.transform = native_transform();
-                semantic_style.thickness = stroke_width;
+                semantic_style.thickness = style.transform_type ==
+                    stroke_transform_type::hairline ? 0.0F : stroke_width;
                 semantic_style.miter_limit =
                     std::max(1.0F, style.miter_limit);
                 semantic_style.dash_offset = style.dash_offset;
@@ -7219,6 +7316,12 @@ private:
                         PROGPU_NATIVE_STROKE_JOIN_MITER)
                     : static_cast<std::uint32_t>(style.join);
                 semantic_style.primitive_flags = primitive_flags();
+                if (style.transform_type == stroke_transform_type::fixed) {
+                    semantic_style.primitive_flags |=
+                        PROGPU_NATIVE_PRIMITIVE_FLAG_FIXED_DEVICE_STROKE;
+                } else if (style.transform_type == stroke_transform_type::hairline) {
+                    semantic_style.primitive_flags |= PROGPU_NATIVE_PRIMITIVE_FLAG_HAIRLINE;
+                }
                 mil::curve_dash::run_buffer dash_scratch;
                 std::vector<progpu_native_geometry_primitive> primitives;
                 std::vector<std::uint32_t> brush_indices;

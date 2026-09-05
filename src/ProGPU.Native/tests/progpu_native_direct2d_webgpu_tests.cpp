@@ -634,7 +634,10 @@ struct portable_scene final {
 
 [[nodiscard]] std::vector<std::uint8_t> render_scene(
     const gpu_context& gpu,
-    d2d::scene_render_target_native* scene_target)
+    d2d::scene_render_target_native* scene_target,
+    std::uint32_t expected_draws = 17U,
+    std::uint32_t expected_commands = 27U,
+    std::uint64_t expected_submissions = 4U)
 {
     progpu_native_engine_options options{};
     options.struct_size = sizeof(options);
@@ -698,9 +701,9 @@ struct portable_scene final {
     const bool render_matches = render_status ==
             PROGPU_NATIVE_STATUS_SUCCESS &&
         diagnostics.stage == d2d::scene_submission_stage::none &&
-        scene_metrics.draw_count == 17U &&
-        frame_metrics.command_count == 27U &&
-        frame_metrics.submission_count == 4U;
+        scene_metrics.draw_count == expected_draws &&
+        frame_metrics.command_count == expected_commands &&
+        frame_metrics.submission_count == expected_submissions;
     if (!render_matches) {
         std::fprintf(
             stderr,
@@ -835,6 +838,73 @@ void verify_pixels(std::span<const std::uint8_t> pixels)
         "portable Direct2D geometric mask leaked outside its path");
 }
 
+void verify_stroke_transforms(const gpu_context& gpu, portable_scene& scene)
+{
+    const d2d::stroke_style_properties properties{
+        d2d::cap_style::flat, d2d::cap_style::flat, d2d::cap_style::flat,
+        d2d::line_join::miter, 4.0F, d2d::dash_style::solid, 0.0F};
+    const d2d::color_f blue{0.0F, 0.0F, 1.0F, 1.0F};
+    const d2d::color_f clear{0.0F, 0.0F, 0.0F, 1.0F};
+    native_com::pointer<d2d::solid_color_brush> brush;
+    require(scene.target->CreateSolidColorBrush(&blue, nullptr, brush.put()) == native_com::ok,
+        "device stroke brush creation failed");
+    for (const bool curved : {false, true}) {
+      for (const float dpi_scale : {1.0F, 2.0F}) {
+        scene.target->SetDpi(96.0F * dpi_scale, 96.0F * dpi_scale);
+        const d2d::matrix_3x2_f transform{
+            2.0F, 0.0F, 0.0F, 3.0F, 0.0F, 0.5F / dpi_scale};
+        scene.target->SetTransform(&transform);
+        scene.target->SetAntialiasMode(d2d::antialias_mode::aliased);
+        scene.target->BeginDraw();
+        scene.target->Clear(&clear);
+        for (std::uint32_t index = 0U; index < 3U; ++index) {
+            native_com::pointer<d2d::stroke_style1> style;
+            require(d2d::create_stroke_style1(scene.factory.get(), &properties,
+                    static_cast<d2d::stroke_transform_type>(index), nullptr, 0U,
+                    style.put()) == native_com::ok,
+                "device stroke style creation failed");
+            const float y = 2.0F + 3.0F * static_cast<float>(index);
+            const float stroke_width = index == 2U ? 0.0F : 2.0F;
+            if (curved) {
+                native_com::pointer<d2d::path_geometry> path;
+                native_com::pointer<d2d::geometry_sink> sink;
+                require(scene.factory->CreatePathGeometry(path.put()) == native_com::ok &&
+                    path->Open(sink.put()) == native_com::ok, "stroke curve creation failed");
+                sink->BeginFigure({2.0F, y}, d2d::figure_begin::hollow);
+                const d2d::bezier_segment curve{{5.0F, y}, {9.0F, y}, {12.0F, y}};
+                sink->AddBezier(&curve);
+                sink->EndFigure(d2d::figure_end::open);
+                require(sink->Close() == native_com::ok, "stroke curve close failed");
+                scene.target->DrawGeometry(path.get(), brush.get(), stroke_width, style.get());
+            } else {
+                scene.target->DrawLine({2.0F, y}, {12.0F, y}, brush.get(),
+                    stroke_width, style.get());
+            }
+        }
+        require(scene.target->EndDraw(nullptr, nullptr) == native_com::ok,
+            "device stroke recording failed");
+        const auto pixels = render_scene(gpu, scene.scene_target.get(), 3U, 3U, 1U);
+        const auto is_blue = [&](std::uint32_t y) {
+            const auto offset = static_cast<std::size_t>(y) * row_bytes + 20U * 4U;
+            return pixels[offset] == 0U && pixels[offset + 1U] == 0U &&
+                pixels[offset + 2U] == 255U;
+        };
+        const auto scale = static_cast<std::uint32_t>(dpi_scale);
+        require(is_blue(6U * scale) && is_blue(6U * scale + 2U * scale),
+            "normal stroke lost world/DPI scaling");
+        require(is_blue(15U * scale) && !is_blue(15U * scale + 2U * scale),
+            "fixed stroke incorrectly inherited world scaling");
+        if (scale == 2U) {
+            require(is_blue(15U * scale + 1U),
+                "fixed stroke lost DPI scaling");
+        }
+        require(is_blue(24U * scale) && !is_blue(24U * scale - 1U) &&
+                !is_blue(24U * scale + 1U),
+            "hairline did not remain one physical pixel at changed DPI");
+      }
+    }
+}
+
 void write_capture(
     const char* path,
     std::span<const std::uint8_t> pixels)
@@ -871,6 +941,7 @@ int main(int argc, char** argv)
         gpu, scene.scene_target.get());
     write_capture(argc == 2 ? argv[1] : nullptr, pixels);
     verify_pixels(pixels);
+    verify_stroke_transforms(gpu, scene);
     const char* adapter_name = gpu.properties.name == nullptr
         ? "unknown"
         : gpu.properties.name;
