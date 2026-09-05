@@ -19664,6 +19664,85 @@ int main() {
             }
         }
     }
+    {
+        for (const auto source : {progpu::native::tests::mil_brush_fixture_source::bitmap,
+            progpu::native::tests::mil_brush_fixture_source::drawing,
+            progpu::native::tests::mil_brush_fixture_source::drawing_image,
+            progpu::native::tests::mil_brush_fixture_source::visual}) {
+            for (const bool cached : {false, true}) {
+                for (const bool effect : {false, true}) {
+                    for (std::uint32_t mode = 0U; mode < 5U; ++mode) {
+                        for (std::uint32_t sampling = 0U; sampling < 3U; ++sampling) {
+                            for (const bool transformed : {false, true}) {
+                                for (const double dpi : {1.0, 2.0}) {
+                                    std::vector<std::byte> scene;
+                                    PROGPU_REQUIRE(progpu::native::tests::build_mil_image_brush_fixture(scene,
+                                        {.tile_mode = mode, .opacity = 0.5, .relative_scale = transformed,
+                                            .skew = transformed, .linear = sampling == 1U, .source = source,
+                                            .inherited_clip = true, .paint_transform = transformed,
+                                            .viewport = {0.0, 0.0, 0.25, 0.5}, .fant = sampling == 2U,
+                                            .target_dpi_scale_x = dpi, .target_dpi_scale_y = dpi,
+                                            .opacity_mask = true, .visual_mask = true, .cached_visual = cached,
+                                            .visual_effect = effect, .visual_guidelines = true}, 10300U + mode));
+                                    const auto header = read_value<progpu_native_scene_header>(scene, 0U);
+                                    std::uint32_t pictures = 0U;
+                                    std::uint32_t composed = 0U;
+                                    for (std::uint32_t index = 0U; index < header.resource_count; ++index) {
+                                        const auto resource = read_value<progpu_native_scene_resource>(scene,
+                                            header.resource_offset + index * sizeof(progpu_native_scene_resource));
+                                        if (resource.kind != PROGPU_NATIVE_SCENE_RESOURCE_LAYER_MASK) continue;
+                                        const auto kind = read_value<std::uint32_t>(scene,
+                                            resource.payload_offset + offsetof(progpu_native_scene_layer_mask, kind));
+                                        pictures += kind == PROGPU_NATIVE_SCENE_LAYER_MASK_PICTURE;
+                                        if (kind == PROGPU_NATIVE_SCENE_LAYER_MASK_COMPOSITE) {
+                                            const auto mask = read_value<progpu_native_scene_layer_composite_mask>(scene,
+                                                resource.payload_offset);
+                                            pictures += mask.picture_mask_count;
+                                            if (mask.picture_mask_count != 0U) {
+                                                ++composed;
+                                                PROGPU_REQUIRE(mask.path_count != 0U);
+                                            }
+                                        }
+                                    }
+                                    PROGPU_REQUIRE(pictures == 1U);
+                                    PROGPU_REQUIRE(composed == (cached && !effect ? 1U : 0U));
+                                    std::uint32_t cache_layers = 0U;
+                                    for (std::uint32_t index = 0U; index < header.command_count; ++index) {
+                                        const auto command = read_value<progpu_native_scene_command>(scene,
+                                            header.command_offset + index * sizeof(progpu_native_scene_command));
+                                        if (command.kind != PROGPU_NATIVE_SCENE_COMMAND_PUSH_LAYER) continue;
+                                        const auto layer = read_value<progpu_native_scene_layer>(scene, command.payload_offset);
+                                        cache_layers += (layer.flags & PROGPU_NATIVE_SCENE_LAYER_CACHE_LOCAL_SPACE) != 0U;
+                                    }
+                                    PROGPU_REQUIRE(cache_layers == (cached ? 1U : 0U));
+                                }
+                            }
+                        }
+                    }
+                    std::vector<std::byte> missing{std::byte{0x5a}};
+                    PROGPU_REQUIRE(!progpu::native::tests::build_mil_image_brush_fixture(missing,
+                        {.source = source, .opacity_mask = true, .visual_mask = true,
+                            .cached_visual = cached, .visual_effect = effect, .missing_visual_bounds = true}, 10310U));
+                    PROGPU_REQUIRE(missing == std::vector<std::byte>{std::byte{0x5a}});
+                    if (source != progpu::native::tests::mil_brush_fixture_source::bitmap) {
+                        std::vector<std::byte> cyclic{std::byte{0x5a}};
+                        PROGPU_REQUIRE(!progpu::native::tests::build_mil_image_brush_fixture(cyclic,
+                            {.source = source, .source_cycle = true, .opacity_mask = true, .visual_mask = true,
+                                .cached_visual = cached, .visual_effect = effect}, 10311U));
+                        PROGPU_REQUIRE(cyclic == std::vector<std::byte>{std::byte{0x5a}});
+                    }
+                    if (cached) {
+                        std::vector<std::byte> deformed{std::byte{0x5a}};
+                        PROGPU_REQUIRE(!progpu::native::tests::build_mil_image_brush_fixture(deformed,
+                            {.source = source, .multiple_guidelines = true, .opacity_mask = true,
+                                .visual_mask = true, .cached_visual = true, .visual_effect = effect,
+                                .visual_guidelines = true}, 10312U));
+                        PROGPU_REQUIRE(deformed == std::vector<std::byte>{std::byte{0x5a}});
+                    }
+                }
+            }
+        }
+    }
     // Authored during implementation-first work; execution and pixel parity
     // remain part of the final validation phase.
     for (const auto source : {progpu::native::tests::mil_brush_fixture_source::bitmap,

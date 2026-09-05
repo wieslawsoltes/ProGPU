@@ -8073,6 +8073,54 @@ filters/consumers, and the full DirectX/Direct2D/Win2D scope remain open. Runtim
 images, Windows comparisons, verifiers, benchmarks, and CI qualification remain
 deferred until the final validation phase.
 
+### Implementation-first checkpoint: visual, effect, and cached tile opacity masks
+
+The spatial opacity-mask compiler is now a reusable native MIL member shared by
+render-data scopes, DrawingGroup, ordinary Visual, effect-bearing Visual, and
+BitmapCache composition. A typed replay context carries the frame request,
+existing active-resource set, recursion depth, and metrics. Child mask scenes
+continue to own their resource maps and clip scratch. Visual source cycles cannot
+escape detection by entering a separately constructed mask scene.
+
+Visual masks require exact source-built descendant bounds. Ordinary visual
+composition retains its bounded outer opacity/mask layer. Effect-bearing visuals
+retain the existing effect/source-composite ordering; cached visuals attach the
+mask to cache composition, outside reusable content pixels and inside an outer
+effect when present. Brush/visual opacity is not folded into the child mask's
+initial state a second time. No bitmap-cache content-invalidation or ownership
+rule is replaced by this change.
+
+Tile masks with cache-output vector clips use the existing GPU composite-mask
+resource: one picture component plus exact world-space clip paths. Clips are not
+replaced with their bounding rectangles. Uniform cache-root guideline translation
+is baked into the picture's material transform so it follows the snapped cache
+quad, while world clips stay fixed. Gradient masks retain their existing direct
+deformation path. Multi-point cache-root picture deformation fails closed pending
+executor support; per-axis target DPI and cache pixel-snapping edge cases still
+need implementation/qualification. Those gaps are not declared parity-complete.
+
+Provenance/applicability: original ProGPU mask/tile compilation, visual composition,
+semantic picture masks, composite masks, and uniform-guideline query. The existing
+[cross-engine design record](progpu-avalonia-rendering-research.md) and
+[WPF opacity-mask contract](https://learn.microsoft.com/en-us/dotnet/desktop/wpf/graphics-multimedia/opacity-masks-overview)
+inform retained source reuse and alpha-only composition. No foreign code, public
+ABI, shader, CPU pixel fallback, or managed algorithm is introduced. Managed visual
+mask replay remains the paired semantic reference for this native MIL consumer
+integration. Preparation retains the shared source algorithm costs plus O(C + R)
+scene ownership for commands C/resources R and O(K) clip serialization for K clip
+segments; the uniform shift is allocation-free O(1). Picture child-engine,
+intermediate, submission, and changed-scene reuse costs remain unmeasured.
+
+Added 960 unexecuted cases across four sources, ordinary/cached/effect/cached-effect
+boundaries, five tile modes, three sampling modes, brush/visual transforms,
+uniform visual guidelines, and DPI 1/2. Assertions cover picture/composite mask
+ownership, retained exact clips, and cache-layer presence. Another 36 cases cover
+missing bounds, source cycles, and unsupported multi-point cache deformation with
+unchanged output. Native library and MIL-test compilation remain the only current
+qualification. Final image/Windows/VM, verifier, benchmark, and CI gates are still
+deferred. This closes the preceding visual-consumer rejection, not the complete
+MIL/DirectX/Direct2D/Win2D or rendering/performance goal.
+
 ## Invariants
 
 - No reflection or private managed field scanning in the product bridge.

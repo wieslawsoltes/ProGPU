@@ -10013,6 +10013,13 @@ struct channel::implementation {
         progpu_native_point position{};
     };
 
+    struct mask_replay_context {
+        scene_compile_context* frame;
+        std::unordered_set<std::uint32_t>& active_resources;
+        scene_metrics& metrics;
+        std::uint32_t depth;
+    };
+
     static std::uint64_t glyph_outline_key(
         std::uint16_t glyph_index,
         std::uint32_t subpixel_index) noexcept {
@@ -14863,59 +14870,8 @@ struct channel::implementation {
             compile_context, drawing_depth, &active_drawings, &metrics](
             std::uint32_t brush_handle, double x, double y, double width, double height,
             const render_scope_state& source_state, std::uint32_t& mask_index) -> status {
-            if (!tile_brushes.contains(brush_handle)) return add_gradient_opacity_mask(
-                brush_handle, x, y, width, height, source_state.transform, builder, mask_index);
-            mask_index = PROGPU_NATIVE_SCENE_NO_INDEX;
-            if (width <= 0.0 || height <= 0.0) return status::unsupported_command;
-            auto state = source_state;
-            // Algorithm: compile one original MIL rectangle through the shared
-            // tile-source path in an owned child scene, then consume its alpha.
-            // Time/space: O(C + R) for captured source commands C/resources R;
-            // framing adds O(1) stack storage. No CPU pixels or per-tile replay.
-            native::semantic_scene_builder coverage(builder.scene_id(), builder.generation());
-            state.opacity = 1.0;
-            state.has_clip = false;
-            state.mask_resource_index = PROGPU_NATIVE_SCENE_NO_INDEX;
-            state.clip_path_count = state.clip_segment_count = state.clip_boolean_node_count = 0U;
-            // Like a gradient mask, this is a material field in the group's
-            // local bounds. Content snapping must not deform its brush space.
-            state.guideline_resource_index = PROGPU_NATIVE_SCENE_NO_INDEX;
-            state.per_point_guidelines = false;
-            state.subpixel_text_disabled = true;
-            state.edge_aliased = true;
-            auto native_state = native::semantic_scene_builder::identity_state();
-            if (!try_to_native_affine(state.transform, native_state.transform)) return status::invalid_graph;
-            std::uint32_t state_index = PROGPU_NATIVE_SCENE_NO_INDEX;
-            if (!coverage.add_state(native_state, state_index) || !coverage.save(state_index)) return status::invalid_graph;
-            using layout = command_layouts::draw_rectangle;
-            constexpr std::uint32_t frame_size = sizeof(std::uint32_t) + layout::fixed_size;
-            std::array<std::byte, frame_size> packet{};
-            const auto write = [&packet](std::size_t offset, const auto& value) {
-                std::memcpy(packet.data() + offset, &value, sizeof(value));
-            };
-            write(0U, frame_size);
-            write(4U + layout::type_offset, static_cast<std::uint32_t>(command::draw_rectangle));
-            const std::array rectangle{x, y, width, height};
-            write(4U + layout::rectangle_offset, rectangle);
-            write(4U + layout::h_brush_offset, brush_handle);
-            std::unordered_map<std::uint32_t, std::uint32_t> brushes;
-            std::unordered_map<std::uint32_t, std::uint32_t> images;
-            std::unordered_map<std::uint64_t, glyph_scene_resource> glyphs;
-            std::vector<progpu_native_scene_clip_path> paths;
-            std::vector<progpu_native_path_segment> segments;
-            std::vector<progpu_native_scene_path_boolean_node> nodes;
-            const status drawn = append_render_stream(packet, nullptr, state, drawing_depth + 1U,
-                coverage, brushes, images, glyphs, compile_context, active_drawings,
-                paths, segments, nodes, metrics);
-            if (drawn != status::success) return drawn;
-            if (!coverage.restore()) return status::invalid_graph;
-            std::vector<std::byte> scene;
-            if (!coverage.build(scene)) return status::invalid_graph;
-            progpu_native_scene_layer_picture_mask mask{};
-            if (!try_transform_bounds(x, y, width, height, state.transform, mask.bounds)) return status::invalid_graph;
-            mask.transform = native::semantic_scene_builder::identity_transform();
-            mask.opacity = 1.0F;
-            return builder.add_picture_mask(mask, scene, mask_index) ? status::success : status::invalid_graph;
+            return this->add_spatial_opacity_mask(brush_handle, x, y, width, height, source_state,
+                builder, mask_index, {compile_context, active_drawings, metrics, drawing_depth});
         };
         const auto paint_tile_source_in_mask = [&builder, &save_state, &append_single_tile_brush](
             std::uint32_t brush_handle, const brush_use_state& use, const render_scope_state& state,
@@ -18791,6 +18747,7 @@ struct channel::implementation {
         const render_scope_state& state,
         bool has_local_cache_input,
         native::semantic_scene_builder& builder,
+        const mask_replay_context& mask_context,
         std::uint32_t& pushed_count) const {
         pushed_count = 0U;
         if (effect_handle == 0U) {
@@ -18828,8 +18785,8 @@ struct channel::implementation {
         const bool has_spatial_opacity_mask =
             !has_local_cache_input &&
             visual->second.alpha_mask_handle != 0U &&
-            gradient_brushes.contains(
-                visual->second.alpha_mask_handle);
+            (gradient_brushes.contains(visual->second.alpha_mask_handle) ||
+                tile_brushes.contains(visual->second.alpha_mask_handle));
         const bool isolate_source_composite =
             !has_local_cache_input &&
             (state.opacity != 1.0 || has_spatial_opacity_mask);
@@ -18847,9 +18804,9 @@ struct channel::implementation {
                 const status opacity_mask_status = add_visual_opacity_mask(
                     visual->second.alpha_mask_handle,
                     visual->second,
-                    state.transform,
+                    state,
                     builder,
-                    opacity_mask_resource_index);
+                    opacity_mask_resource_index, mask_context);
                 if (opacity_mask_status != status::success) {
                     return opacity_mask_status;
                 }
@@ -19718,25 +19675,96 @@ struct channel::implementation {
             : status::invalid_graph;
     }
 
+    status add_spatial_opacity_mask(
+        std::uint32_t brush_handle, double x, double y, double width, double height,
+        const render_scope_state& source_state, native::semantic_scene_builder& builder,
+        std::uint32_t& mask_index, const mask_replay_context& context,
+        std::span<const progpu_native_scene_clip_path> clip_paths = {},
+        std::span<const progpu_native_path_segment> clip_segments = {},
+        std::span<const progpu_native_scene_path_boolean_node> clip_nodes = {}) const {
+        if (!tile_brushes.contains(brush_handle)) return add_gradient_opacity_mask(
+            brush_handle, x, y, width, height, source_state.transform, builder, mask_index,
+            clip_paths, clip_segments, clip_nodes);
+        mask_index = PROGPU_NATIVE_SCENE_NO_INDEX;
+        if (width <= 0.0 || height <= 0.0) return status::unsupported_command;
+        auto state = source_state;
+        // Algorithm: compile one original MIL rectangle through the shared
+        // tile-source path in an owned child scene, then consume its alpha.
+        // Time/space: O(C + R) for captured source commands C/resources R;
+        // framing adds O(1) stack storage. No CPU pixels or per-tile replay.
+        native::semantic_scene_builder coverage(builder.scene_id(), builder.generation());
+        state.opacity = 1.0;
+        state.has_clip = false;
+        state.mask_resource_index = PROGPU_NATIVE_SCENE_NO_INDEX;
+        state.clip_path_count = state.clip_segment_count = state.clip_boolean_node_count = 0U;
+        // Material coordinates are independent of content guideline deformation.
+        state.guideline_resource_index = PROGPU_NATIVE_SCENE_NO_INDEX;
+        state.per_point_guidelines = false;
+        state.subpixel_text_disabled = true;
+        state.edge_aliased = true;
+        auto native_state = native::semantic_scene_builder::identity_state();
+        if (!try_to_native_affine(state.transform, native_state.transform)) return status::invalid_graph;
+        std::uint32_t state_index = PROGPU_NATIVE_SCENE_NO_INDEX;
+        if (!coverage.add_state(native_state, state_index) || !coverage.save(state_index)) return status::invalid_graph;
+        using layout = command_layouts::draw_rectangle;
+        constexpr std::uint32_t frame_size = sizeof(std::uint32_t) + layout::fixed_size;
+        std::array<std::byte, frame_size> packet{};
+        const auto write = [&packet](std::size_t offset, const auto& value) {
+            std::memcpy(packet.data() + offset, &value, sizeof(value));
+        };
+        write(0U, frame_size);
+        write(4U + layout::type_offset, static_cast<std::uint32_t>(command::draw_rectangle));
+        const std::array rectangle{x, y, width, height};
+        write(4U + layout::rectangle_offset, rectangle);
+        write(4U + layout::h_brush_offset, brush_handle);
+        std::unordered_map<std::uint32_t, std::uint32_t> brushes;
+        std::unordered_map<std::uint32_t, std::uint32_t> images;
+        std::unordered_map<std::uint64_t, glyph_scene_resource> glyphs;
+        std::vector<progpu_native_scene_clip_path> paths;
+        std::vector<progpu_native_path_segment> segments;
+        std::vector<progpu_native_scene_path_boolean_node> nodes;
+        const status drawn = append_render_stream(packet, nullptr, state, context.depth + 1U,
+            coverage, brushes, images, glyphs, context.frame, context.active_resources,
+            paths, segments, nodes, context.metrics);
+        if (drawn != status::success) return drawn;
+        if (!coverage.restore()) return status::invalid_graph;
+        std::vector<std::byte> scene;
+        if (!coverage.build(scene)) return status::invalid_graph;
+        progpu_native_scene_layer_picture_mask mask{};
+        if (!try_transform_bounds(x, y, width, height, state.transform, mask.bounds)) return status::invalid_graph;
+        mask.transform = native::semantic_scene_builder::identity_transform();
+        mask.opacity = 1.0F;
+        if (!clip_paths.empty()) {
+            mask.struct_size = sizeof(mask);
+            mask.kind = PROGPU_NATIVE_SCENE_LAYER_MASK_PICTURE;
+            mask.stream_size = scene.size();
+            return builder.add_composite_mask({}, {}, {}, std::span(&mask, 1U), scene,
+                clip_paths, clip_segments, clip_nodes, {}, 1.0F, mask_index)
+                ? status::success : status::invalid_graph;
+        }
+        return builder.add_picture_mask(mask, scene, mask_index) ? status::success : status::invalid_graph;
+    }
+
     status add_visual_opacity_mask(
         std::uint32_t brush_handle,
         const visual_state& visual,
-        const affine_2d_double& mask_transform,
+        const render_scope_state& mask_state,
         native::semantic_scene_builder& builder,
         std::uint32_t& mask_resource_index,
+        const mask_replay_context& context,
         std::span<const progpu_native_scene_clip_path> clip_paths = {},
         std::span<const progpu_native_path_segment> clip_segments = {},
         std::span<const progpu_native_scene_path_boolean_node>
             clip_boolean_nodes = {}) const {
-        return add_gradient_opacity_mask(
+        return add_spatial_opacity_mask(
             brush_handle,
             visual.cache_bounds_x,
             visual.cache_bounds_y,
             visual.cache_bounds_width,
             visual.cache_bounds_height,
-            mask_transform,
+            mask_state,
             builder,
-            mask_resource_index, clip_paths, clip_segments, clip_boolean_nodes);
+            mask_resource_index, context, clip_paths, clip_segments, clip_boolean_nodes);
     }
 
     status add_visual_cache_layer(
@@ -19749,6 +19777,7 @@ struct channel::implementation {
         std::span<const progpu_native_path_segment> clip_segments,
         std::span<const progpu_native_scene_path_boolean_node> clip_boolean_nodes,
         native::semantic_scene_builder& builder,
+        const mask_replay_context& mask_context,
         bool& pushed,
         bool& skip_content,
         bool& pushed_content_state,
@@ -19789,19 +19818,22 @@ struct channel::implementation {
         }
         const bool has_spatial_opacity_mask =
             cache_visual.alpha_mask_handle != 0U &&
-            gradient_brushes.contains(cache_visual.alpha_mask_handle);
+            (gradient_brushes.contains(cache_visual.alpha_mask_handle) ||
+                tile_brushes.contains(cache_visual.alpha_mask_handle));
         // Local cached pixels are independent of the cache-root Visual's
         // properties. WPF applies those properties while drawing the retained
-        // bitmap. A single typed linear/radial opacity brush can use the
-        // reusable GPU brush-mask resource at composite time. When an effect
+        // bitmap. Typed gradients use GPU brush masks and tile sources use
+        // owned picture masks at composite time. When an effect
         // is present this cache layer is nested inside the effect layer, so
         // the spatial mask is applied to the isolated retained page before
         // effect execution, matching WPF. Static cache-root guidelines share
         // the same composite State; the backend deforms the retained quad and
         // brush-mask coverage through that frame without rerasterizing cached
         // content. Exact inherited vector clips are multiplied with the
-        // gradient in the existing GPU composite-mask resource. Their world
+        // material in the existing GPU composite-mask resource. Their world
         // coordinates do not inherit cache-root guideline deformation.
+        // Picture masks currently bake uniform guideline shifts; multi-point
+        // picture deformation fails closed until the executor supports it.
         // Fant/HighQuality sampling is retained as composite-only state.
         if (state.image_sampling != PROGPU_NATIVE_IMAGE_SAMPLING_LINEAR &&
                 state.image_sampling != PROGPU_NATIVE_IMAGE_SAMPLING_NEAREST &&
@@ -19921,12 +19953,29 @@ struct channel::implementation {
         std::uint32_t opacity_mask_resource_index =
             state.mask_resource_index;
         if (has_spatial_opacity_mask) {
+            auto mask_state = state;
+            mask_state.transform = mask_transform;
+            if (tile_brushes.contains(cache_visual.alpha_mask_handle) &&
+                state.guideline_resource_index != PROGPU_NATIVE_SCENE_NO_INDEX) {
+                const auto* frame = mask_context.frame;
+                if (frame != nullptr && frame->request.dpi_scale_x != frame->request.dpi_scale_y)
+                    return status::unsupported_command;
+                progpu_native_point offset{};
+                if (!builder.try_uniform_guideline_translation(state.guideline_resource_index,
+                        frame == nullptr ? 1.0F : static_cast<float>(frame->request.dpi_scale_x), offset))
+                    return status::unsupported_command;
+                // The cache quad snaps at composition. Bake the same uniform
+                // shift into picture coverage, leaving world clip paths fixed.
+                mask_state.transform.m31 = static_cast<float>(mask_state.transform.m31) + offset.x;
+                mask_state.transform.m32 = static_cast<float>(mask_state.transform.m32) + offset.y;
+            }
             const status opacity_mask_status = add_visual_opacity_mask(
                 cache_visual.alpha_mask_handle,
                 cache_visual,
-                mask_transform,
+                mask_state,
                 builder,
                 opacity_mask_resource_index,
+                mask_context,
                 clip_paths.first(state.clip_path_count),
                 clip_segments.first(state.clip_segment_count),
                 clip_boolean_nodes.first(state.clip_boolean_node_count));
@@ -20118,11 +20167,12 @@ struct channel::implementation {
             active_visuals.erase(handle);
             return guideline_status;
         }
+        const mask_replay_context mask_context{compile_context, active_visuals, metrics, depth};
         double opacity_mask_alpha = 1.0;
         const bool has_spatial_visual_opacity_mask =
             visual->second.alpha_mask_handle != 0U &&
-            gradient_brushes.contains(
-                visual->second.alpha_mask_handle);
+            (gradient_brushes.contains(visual->second.alpha_mask_handle) ||
+                tile_brushes.contains(visual->second.alpha_mask_handle));
         const status opacity_mask_status = has_spatial_visual_opacity_mask
             ? status::success
             : resolve_uniform_opacity_mask_alpha(
@@ -20266,9 +20316,9 @@ struct channel::implementation {
                 const status mask_status = add_visual_opacity_mask(
                     visual->second.alpha_mask_handle,
                     visual->second,
-                    current.transform,
+                    current,
                     builder,
-                    opacity_mask_resource_index);
+                    opacity_mask_resource_index, mask_context);
                 if (mask_status != status::success) {
                     builder.restore();
                     active_visuals.erase(handle);
@@ -20309,6 +20359,7 @@ struct channel::implementation {
             current,
             visual->second.cache_mode_handle != 0U,
             builder,
+            mask_context,
             effect_layer_count);
         if (effect_status == status::success && isolate_viewport_clip) {
             // Mesh shaders retain their depth-tested rendering contract.
@@ -20367,6 +20418,7 @@ struct channel::implementation {
             clip_segments,
             clip_boolean_nodes,
             builder,
+            mask_context,
             cache_layer_pushed,
             skip_cached_content,
             cache_content_state_pushed,
