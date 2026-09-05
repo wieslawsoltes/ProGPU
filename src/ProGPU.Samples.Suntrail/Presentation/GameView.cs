@@ -25,12 +25,15 @@ public sealed class GameView : Grid
     private readonly Grid _touch;
     private readonly Button _primary, _levels, _pause;
     private readonly Style _actionStyle;
+    private LevelWorkshop? _workshop;
+    private bool _workshopOpen;
     private readonly Button[] _mapButtons = new Button[8];
     private readonly Grid _mapGrid = new();
     private bool _left, _right, _jump, _run, _mapOpen;
     private bool _touchLeft, _touchRight, _touchJump, _touchRun, _interact;
     private GameMode _lastMode = (GameMode)(-1);
-    private int _lastCoins = -1, _lastHearts = -1, _lastSecond = -1, _lastLevel = -1;
+    private int _lastHearts = -1, _lastSecond = -1, _lastLevel = -1;
+    private (int Coins, int Relics, bool Custom) _lastScore = (-1, -1, false);
     private readonly List<HoldButton> _holdButtons = new(4);
     private Thickness _safeArea;
     public void SetSafeArea(Thickness insets) { _safeArea = insets; InvalidateMeasure(); }
@@ -63,6 +66,8 @@ public sealed class GameView : Grid
         _primary = ActionButton("Begin adventure   →", () => { Surface.Session.Continue(); _mapOpen = false; ClearInput(); }, true); actions.AddChild(_primary);
         _levels = ActionButton("The worlds", ToggleMap, false); actions.AddChild(_levels); actions.AddChild(ActionButton("Settings", ToggleSettings, false)); _menu.AddChild(actions);
         _controls = Label("← → or A D  move     SPACE  jump     SHIFT  sprint\nHold jump to leap higher · ↓ / S enters pipes", 13); _menu.AddChild(_controls);
+        var workshopButton = ActionButton("Level workshop   ↗", OpenWorkshop, false);
+        workshopButton.HorizontalAlignment = HorizontalAlignment.Left; _menu.AddChild(workshopButton);
         AddChild(_menu);
         _map = new StackPanel { Spacing = 7, HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(25), Visibility = Visibility.Collapsed };
         _map.AddChild(Label("THE EIGHT WORLDS", 17, "SuntrailGold", true));
@@ -191,17 +196,41 @@ public sealed class GameView : Grid
         InvalidateMeasure(); Refresh();
     }
     private void ToggleSettings() { ClearInput(); _settingsOpen = !_settingsOpen; _mapOpen = false; RefreshMap(); }
+    private void OpenWorkshop()
+    {
+        ClearInput();
+        if (Surface.Session.Mode == GameMode.Playing) Surface.Session.TogglePause();
+        if (_workshop is null)
+        {
+            _workshop = new LevelWorkshop(ActionButton);
+            _workshop.PlayRequested += document =>
+            {
+                _workshopOpen = false; _workshop.Visibility = Visibility.Collapsed; Surface.Visibility = Visibility.Visible;
+                _lastLevel = -1; _lastMode = (GameMode)(-1); Surface.Session.StartDocument(document); ClearInput(); Refresh();
+            };
+            _workshop.CloseRequested += () =>
+            {
+                _workshopOpen = false; _workshop.Visibility = Visibility.Collapsed; Surface.Visibility = Visibility.Visible;
+                _lastMode = (GameMode)(-1); ClearInput(); Refresh(); RefreshMap();
+            };
+            AddChild(_workshop);
+        }
+        _workshopOpen = true; _workshop.Visibility = Visibility.Visible; Surface.Visibility = Visibility.Collapsed;
+        _menu.Visibility = _hud.Visibility = _pause.Visibility = _touch.Visibility = _veil.Visibility = Visibility.Collapsed;
+        _mapOpen = _settingsOpen = false; RefreshMap();
+    }
     private void ToggleMap() { _mapOpen = !_mapOpen; _settingsOpen = false; RefreshMap(); }
     private void RefreshMap()
     {
         _map.Visibility = _mapOpen ? Visibility.Visible : Visibility.Collapsed;
         _settings.Visibility = _settingsOpen ? Visibility.Visible : Visibility.Collapsed;
-        _menu.Visibility = _settingsOpen || _mapOpen || Surface.Session.Mode == GameMode.Playing ? Visibility.Collapsed : Visibility.Visible;
+        _menu.Visibility = _workshopOpen || _settingsOpen || _mapOpen || Surface.Session.Mode == GameMode.Playing ? Visibility.Collapsed : Visibility.Visible;
         for (int i = 0; i < Level.Names.Length; i++)
             _mapButtons[i].IsEnabled = i <= Surface.Session.UnlockedLevel;
     }
     private void Refresh()
     {
+        if (_workshopOpen) return;
         var s = Surface.Session;
         if (_lastMode != s.Mode)
         {
@@ -217,20 +246,27 @@ public sealed class GameView : Grid
             _description.Text = s.Mode switch
             {
                 GameMode.Title => "Chase the light beyond the horizon.\nEight worlds. Follow the light from forest to sky.",
-                GameMode.Paused => Level.Regions[s.Level.Index] + "\n" + Level.Descriptions[s.Level.Index],
+                GameMode.Paused => s.Level.Document is null ? Level.Regions[s.Level.Index] + "\n" + Level.Descriptions[s.Level.Index] : s.Level.Name + "\nReturn to the workshop to keep editing.",
                 GameMode.Fallen => "Return to your last lantern and try again.\nYour collected sunsparks stay with you.",
                 GameMode.LevelComplete => $"{s.Coins} sunsparks collected · {s.Relics} hidden relics\n{Level.Names[Math.Min(s.Level.Index + 1, 7)]} awaits.",
-                _ => $"All eight worlds are shining again.\nThank you for walking the Suntrail."
+                _ => s.Level.Document is null ? "All eight worlds are shining again.\nThank you for walking the Suntrail." : "Trail complete.\nReturn to the workshop to keep creating."
             };
             if (_primary.Content is TextBlock primaryText)
             {
                 primaryText.Text = s.Mode switch { GameMode.Title => s.UnlockedLevel == 0 ? "Begin adventure   →" : "Continue adventure   →", GameMode.Paused => "Back to the trail   →", GameMode.Fallen => "Try again   →", GameMode.LevelComplete => "Next island   →", _ => "Play again   →" };
                 AutomationProperties.SetName(_primary, primaryText.Text);
             }
-            if (s.Mode is GameMode.LevelComplete or GameMode.Complete) ProgressChanged?.Invoke(s.UnlockedLevel);
+            if (s.Level.Document is null && s.Mode is GameMode.LevelComplete or GameMode.Complete) ProgressChanged?.Invoke(s.UnlockedLevel);
         }
-        if (_lastLevel != s.Level.Index + (s.Level.IsDungeon ? 8 : 0)) { _lastLevel = s.Level.Index + (s.Level.IsDungeon ? 8 : 0); _stage.Text = s.Level.IsDungeon ? "SECRET VAULT · ↓ on a pipe to return" : $"{s.Level.Index + 1:00} / {Level.Names[s.Level.Index]}"; }
-        if (_lastCoins != s.Coins * 10 + s.Relics) { _lastCoins = s.Coins * 10 + s.Relics; _score.Text = $"{s.Coins:00}  SUNSPARKS   ·   {s.Relics}/3 RELICS"; }
+        if (_lastLevel != s.Level.Index + (s.Level.IsDungeon ? 8 : 0)) { _lastLevel = s.Level.Index + (s.Level.IsDungeon ? 8 : 0); _stage.Text = s.Level.Document is not null ? s.Level.Name : s.Level.IsDungeon ? "SECRET VAULT · ↓ on a pipe to return" : $"{s.Level.Index + 1:00} / {Level.Names[s.Level.Index]}"; }
+        var score = (s.Coins, s.Relics, s.Level.Document is not null);
+        if (_lastScore != score)
+        {
+            _lastScore = score;
+            _score.Text = s.Level.Document is null
+                ? $"{s.Coins:00}  SUNSPARKS   ·   {s.Relics}/3 RELICS"
+                : $"{s.Coins:00}  SUNSPARKS   ·   {s.Relics} RELICS";
+        }
         if (_lastHearts != s.Hearts) { _lastHearts = s.Hearts; _health.Text = s.Hearts switch { 3 => "● ● ●", 2 => "● ● ○", 1 => "● ○ ○", _ => "○ ○ ○" }; }
         if (_lastSecond != (int)s.Time) { _lastSecond = (int)s.Time; _timer.Text = $"{_lastSecond / 60}:{_lastSecond % 60:00}"; }
         if (!Surface.AutoPlay)
@@ -241,6 +277,7 @@ public sealed class GameView : Grid
     protected override void ArrangeOverride(ProGPU.Scene.Rect arrangeRect)
     {
         bool compact = arrangeRect.Width < 850 || arrangeRect.Height < 500;
+        if (_workshop is not null) _workshop.Margin = _safeArea;
         _settings.Margin = new Thickness(_safeArea.Left + 20, _safeArea.Top + 8, _safeArea.Right + 20, _safeArea.Bottom + 8);
         _settings.Spacing = arrangeRect.Height < 500 ? 7 : 12;
         _stick.Width = Math.Min(300, arrangeRect.Width * .43f);
@@ -280,6 +317,7 @@ public sealed class GameView : Grid
     }
     public override void OnKeyDown(KeyRoutedEventArgs e)
     {
+        if (_workshopOpen) { _workshop?.HandleKey(e.Key); e.Handled = true; return; }
         // A settings/map overlay owns keyboard focus until it is dismissed.
         // Space/Enter must not secretly resume the simulation behind the panel.
         if ((_settingsOpen || _mapOpen) && e.Key is not (Key.Escape or Key.P))

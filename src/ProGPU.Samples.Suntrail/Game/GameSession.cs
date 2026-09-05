@@ -44,12 +44,19 @@ public sealed class GameSession
 
     public void StartLevel(int index)
     {
-        Level = new(index); Position = PreviousPosition = _respawn = Level.Spawn;
-        _overworld = Level; _dungeon = new(index, true); _interactQueued = false;
+        Start(new(index), new(index, true));
+    }
+
+    public void StartDocument(LevelDocument document) => Start(document.CreateLevel(), null);
+
+    private void Start(Level level, Level? dungeon)
+    {
+        Level = level; Position = PreviousPosition = _respawn = Level.Spawn;
+        _overworld = Level; _dungeon = dungeon; _interactQueued = false;
         Velocity = Vector2.Zero; Hearts = 3; Coins = Relics = 0; Time = 0; Tick = 0;
         CheckpointIndex = -1; CameraX = CameraY = 0; Invulnerability = 0;
         Grounded = false; _standingPlatform = -1; _accumulator = 0; _coyote = _jumpBuffer = 0; _jumpQueued = false;
-        Array.Clear(Particles); _random = 0x53554e31u + (uint)index;
+        Array.Clear(Particles); _random = 0x53554e31u + (uint)Level.Index;
         Mode = GameMode.Playing; Revision++;
     }
 
@@ -69,7 +76,9 @@ public sealed class GameSession
             case GameMode.Paused: TogglePause(); break;
             case GameMode.Fallen: Respawn(); break;
             case GameMode.LevelComplete: StartLevel(Level.Index + 1); break;
-            case GameMode.Complete: StartLevel(0); break;
+            case GameMode.Complete:
+                if (Level.Document is { } document) StartDocument(document); else StartLevel(0);
+                break;
         }
     }
     public void Respawn()
@@ -169,8 +178,8 @@ public sealed class GameSession
         if (Position.Y > 1080) Die();
         if (!Level.IsDungeon && PlayerBounds.Intersects(new(Level.Exit.X - 15, Level.Exit.Y - 150, 100, 150)))
         {
-            Mode = Level.Index == Level.Names.Length - 1 ? GameMode.Complete : GameMode.LevelComplete;
-            UnlockedLevel = Math.Max(UnlockedLevel, Math.Min(Level.Index + 1, Level.Names.Length - 1));
+            Mode = Level.Document is not null || Level.Index == Level.Names.Length - 1 ? GameMode.Complete : GameMode.LevelComplete;
+            if (Level.Document is null) UnlockedLevel = Math.Max(UnlockedLevel, Math.Min(Level.Index + 1, Level.Names.Length - 1));
             Burst(Position, 80, 1);
         }
         float cameraTarget = Math.Clamp(Position.X - ViewWidth * .34f + Velocity.X * .15f, 0, Math.Max(0, Level.Width - ViewWidth));

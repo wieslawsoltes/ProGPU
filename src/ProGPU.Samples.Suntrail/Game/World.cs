@@ -48,6 +48,8 @@ public sealed class Level
         "Thread basalt ledges and thorn fields above an ember sea.",
         "A final climb through cloud islands and marble sky gardens."];
     public int Index { get; }
+    public LevelDocument? Document { get; }
+    public string Name => Document?.Name ?? Names[Index];
     public bool IsDungeon { get; }
     public int Biome => Index;
     public Box[] Pipes { get; }
@@ -59,8 +61,49 @@ public sealed class Level
     public Checkpoint[] Checkpoints { get; }
     public Vector2 Spawn { get; } = new(140, 530);
     public Vector2 Exit { get; }
-    public float Width => Exit.X + 500;
+    private readonly float _customWidth;
+    public float Width => Math.Max(Exit.X + 500, _customWidth);
     public int CoinCount { get; }
+
+    internal Level(LevelDocument document)
+    {
+        Document = document; Index = document.Biome;
+        var platforms = new List<Platform>();
+        var pickups = new List<Pickup>();
+        var enemies = new List<Enemy>();
+        var hazards = new List<Box>();
+        var checkpoints = new List<Checkpoint>();
+        var mechanisms = new List<Mechanism>();
+        foreach (var item in document.Objects)
+        {
+            var b = item.Bounds;
+            _customWidth = Math.Max(_customWidth, b.Right + 100);
+            var position = new Vector2(b.X, b.Y);
+            switch (item.Kind)
+            {
+                case LevelObjectKind.Spawn: Spawn = position; break;
+                case LevelObjectKind.Exit: Exit = position; break;
+                case LevelObjectKind.Coin: case LevelObjectKind.Relic:
+                    pickups.Add(new() { Position = position, IsRelic = item.Kind == LevelObjectKind.Relic }); break;
+                case LevelObjectKind.Checkpoint: checkpoints.Add(new(b.X, b.Y)); break;
+                case LevelObjectKind.Enemy:
+                    enemies.Add(new() { Position = position, Left = b.X, Right = b.X + Math.Abs(item.Travel), Speed = -60 }); break;
+                case LevelObjectKind.Hazard: hazards.Add(b); break;
+                case LevelObjectKind.Saw: case LevelObjectKind.Flame: case LevelObjectKind.Crusher:
+                    mechanisms.Add(new(b, item.Kind == LevelObjectKind.Saw ? MechanismKind.Saw : item.Kind == LevelObjectKind.Flame ? MechanismKind.FlameJet : MechanismKind.Crusher, item.Phase, item.Travel)); break;
+                default:
+                    platforms.Add(new(b, item.Kind switch {
+                        LevelObjectKind.Ground => PlatformKind.Ground, LevelObjectKind.Ledge => PlatformKind.Ledge,
+                        LevelObjectKind.Moving => PlatformKind.Moving, LevelObjectKind.Crate => PlatformKind.Crate,
+                        LevelObjectKind.Pipe => PlatformKind.Pipe, _ => PlatformKind.Stone }, item.Travel, item.Phase, item.VerticalTravel)); break;
+            }
+        }
+        Platforms = platforms.ToArray(); Pickups = pickups.ToArray(); Enemies = enemies.ToArray();
+        Hazards = hazards.ToArray(); Mechanisms = mechanisms.ToArray();
+        Checkpoints = checkpoints.OrderBy(c => c.X).ToArray();
+        // Imported pipe shapes remain solids until an explicit destination is authored.
+        Pipes = []; CoinCount = Pickups.Count(p => !p.IsRelic);
+    }
 
     public Level(int index, bool isDungeon = false)
     {

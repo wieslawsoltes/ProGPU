@@ -378,3 +378,25 @@ installs the authored campaign, menu fix and previously validated early coverage
 Logs: `campaign-ios-build.log`, `campaign-ios-install.log`, `campaign-ios-console.log`
 under `artifacts/suntrail`. Joystick feel and sustained device FPS await feedback or
 measurement on this version; successful launch does not establish either.
+
+## Workshop and object-map import
+
+The sample now passes 83 Release tests, including isolated custom-level completion,
+immutable save/load snapshots, one-step drag undo, mouse/touch palette capture,
+selection/movement/cancel, workshop/menu transitions, and paired independent Tiled
+JSON/TMX fixtures. Invalid geometry, unknown gameplay classes, malformed input,
+external XML entities, oversized documents and unsupported format families fail
+explicitly before replacing the active level. Logs: `workshop-all-tests.log`.
+
+Desktop Release and Browser AOT publish passed. Computer Use verified desktop and
+browser palette drag placement and playtest rendering. In foreground Chrome, the
+native file picker imported `workshop-fixture.tmx`; the editor showed Lumen Caverns
+and playtest rendered its ground, moving platform, spawn and exit. A background-tab
+chooser attempt did not open, so browser picker validation uses a foreground tab.
+The import exposed a reused-label defect on smaller editor shapes; clearing that
+child fixes the stale label. Custom-level scores no longer assume three relics.
+
+These changes use the existing WinUI controls and application shader extension;
+no managed/native renderer algorithm or wire format changes are involved. They do
+not establish NES/SMBX/tile-layer compatibility, connected custom-room authoring,
+full editor completion, iPhone editor usability or smooth device frame pacing.

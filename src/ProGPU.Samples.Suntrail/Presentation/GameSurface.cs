@@ -22,6 +22,7 @@ public sealed class GameSurface : FrameworkElement
     protected override void OnUpdateAnimations(float elapsedSeconds)
     {
         base.OnUpdateAnimations(elapsedSeconds);
+        if (Visibility == Visibility.Collapsed) return;
         if (AutoPlay)
         {
             if (Session.Mode != GameMode.Playing) Session.Continue();

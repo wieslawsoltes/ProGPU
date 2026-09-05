@@ -145,3 +145,42 @@ Low tunnels have a walking route beneath the roof and optional steps onto it; so
 relics sit above those passages. Later worlds put saws, flame gates and crushers on
 the main route. Lantern checkpoints recognize upper-route crossings and always
 respawn you on their safe floor.
+
+
+## Level workshop
+
+Choose **Level workshop** from the title or pause menu. Drag a palette item onto
+the map, or tap a tool and then tap the map. **Select / drag** moves existing
+objects; **Undo**, **Redo**, **Delete**, and width controls edit the draft. **World**
+cycles the eight procedural environments. **Play test** starts a separate playable
+snapshot. Pause and return to the workshop to resume editing; playtest completion
+does not unlock campaign levels.
+
+**Save** writes a `.suntrail` version 1 JSON document. **Open** accepts these files
+and finite orthogonal Tiled `.json` / `.tmx` object maps. The object-map adapter
+uses rectangle and point objects with a gameplay class: `ground`, `ledge`,
+`moving`, `crate`, `pipe`, `stone`, `coin`, `relic`, `enemy`, `hazard`, `checkpoint`,
+`spawn`, `exit`, `saw`, `flame`, or `crusher`. Map properties `suntrail.name` and
+`suntrail.biome` select the title and environment (0–7). Object properties
+`travel`, `phase`, and `verticalTravel` configure supported movement. Nested
+object groups and pixel offsets are supported. Coordinates use the game's
+logical units; spawn uses the player's top edge, checkpoint/exit use floor
+height, and coin/relic use their center. Enemy collision size is 42 × 34.
+
+Import is a conversion into Suntrail gameplay geometry and procedural artwork.
+Tiled editor colors, visibility, opacity and drawing order do not select gameplay
+rules. Saving creates a Suntrail copy; it does not round-trip Tiled metadata.
+Tile/image layers, rotated/nonrectangular objects, templates, external assets,
+NES cartridges and SMBX files are not implemented yet. Custom pipes currently
+provide solid pipe geometry; authoring connected room destinations remains open.
+
+Documents are capped at 1 MiB and 256 objects, with bounded coordinates, motion
+and procedural artwork cost. Exactly one spawn and exit are required. Validation
+checks structural limits; authors must still playtest reachability. Save drafts
+before leaving the application; automatic draft recovery is not implemented.
+
+The independent readers follow the official [Tiled JSON specification](https://doc.mapeditor.org/en/stable/reference/json-map-format/)
+and [TMX specification](https://doc.mapeditor.org/en/stable/reference/tmx-map-format/).
+Only their public field contracts informed this original implementation; no Tiled
+source or commercial game assets are included. Paired authored JSON/TMX fixtures
+verify equivalent geometry and ordinary-input playtest completion.
