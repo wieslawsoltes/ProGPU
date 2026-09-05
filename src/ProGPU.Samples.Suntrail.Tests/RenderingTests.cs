@@ -34,7 +34,8 @@ public sealed class RenderingTests : IDisposable
     {
         using var context=new WgpuContext();context.Initialize(null);
         using var compositor=new Compositor(context,TextureFormat.Rgba8Unorm);
-        var pipeline=new ProceduralPipeline { EnableEarlyCoverage = false };compositor.RegisterExtension(ProceduralDrawingContextExtensions.ExtensionId,pipeline);
+        var pipeline = (ProceduralPipeline)compositor.RegisterDrawingExtension(ProceduralDrawingContextExtensions.Definition);
+        pipeline.EnableEarlyCoverage = false;
         using var target=new GpuTexture(context,1280,800,TextureFormat.Rgba8Unorm,TextureUsage.RenderAttachment|TextureUsage.CopySrc,"Suntrail verification",alphaMode:GpuTextureAlphaMode.Premultiplied);
         var game=new GameSession();var batch=new ProceduralBatch();var visual=new BatchVisual(batch);
         visual.Measure(new(1280,800));visual.Arrange(new Rect(0,0,1280,800));
@@ -116,8 +117,8 @@ public sealed class RenderingTests : IDisposable
     {
         using var context = new WgpuContext(); context.Initialize(null);
         using var compositor = new Compositor(context, TextureFormat.Rgba8Unorm);
-        var pipeline = new ProceduralPipeline { EnableEarlyCoverage = false };
-        compositor.RegisterExtension(ProceduralDrawingContextExtensions.ExtensionId, pipeline);
+        var pipeline = (ProceduralPipeline)compositor.RegisterDrawingExtension(ProceduralDrawingContextExtensions.Definition);
+        pipeline.EnableEarlyCoverage = false;
         using var target = new GpuTexture(context, 1280, 800, TextureFormat.Rgba8Unorm,
             TextureUsage.RenderAttachment | TextureUsage.CopySrc, "Suntrail vault verification", alphaMode: GpuTextureAlphaMode.Premultiplied);
         var signatures = new HashSet<string>();
@@ -158,7 +159,7 @@ public sealed class RenderingTests : IDisposable
     {
         using var context=new WgpuContext();context.Initialize(null);
         using var compositor=new Compositor(context,TextureFormat.Rgba8Unorm);
-        compositor.RegisterExtension(ProceduralDrawingContextExtensions.ExtensionId,new ProceduralPipeline());
+        compositor.RegisterDrawingExtension(ProceduralDrawingContextExtensions.Definition);
         using var target=new GpuTexture(context,1440,900,TextureFormat.Rgba8Unorm,TextureUsage.RenderAttachment|TextureUsage.CopySrc,"Suntrail UI verification",alphaMode:GpuTextureAlphaMode.Premultiplied);
         var view=new GameView();
         view.Measure(new(1440,900));view.Arrange(new Rect(0,0,1440,900));view.UpdateAnimations(.016f);
@@ -175,7 +176,7 @@ public sealed class RenderingTests : IDisposable
     {
         using var context = new WgpuContext(); context.Initialize(null);
         using var compositor = new Compositor(context, TextureFormat.Rgba8Unorm);
-        compositor.RegisterExtension(ProceduralDrawingContextExtensions.ExtensionId, new ProceduralPipeline());
+        compositor.RegisterDrawingExtension(ProceduralDrawingContextExtensions.Definition);
         using var target = new GpuTexture(context, 844, 390, TextureFormat.Rgba8Unorm, TextureUsage.RenderAttachment | TextureUsage.CopySrc, "Suntrail phone verification", alphaMode: GpuTextureAlphaMode.Premultiplied);
         var view = new GameView();
         foreach (string state in new[] { "phone-title", "phone-playing", "phone-paused" })
@@ -292,6 +293,35 @@ public sealed class RenderingTests : IDisposable
         right.OnPointerCanceled(new());
         view.UpdateAnimations(GameSession.StepSeconds);
         Assert.Equal(0, view.Surface.Input.Move);
+    }
+
+    [Fact]
+    public unsafe void WindowRegistrationRestoresProceduralPixelsAfterSurfaceSuspension()
+    {
+        using var context = new WgpuContext(); context.Initialize(null);
+        var window = new Window();
+        window.RegisterDrawingExtension(ProceduralDrawingContextExtensions.Definition);
+        var game = new GameSession(); game.StartLevel(2);
+        var batch = new ProceduralBatch(); batch.Build(game, new(320, 180), 0);
+        var visual = new BatchVisual(batch);
+        visual.Measure(new(320, 180)); visual.Arrange(new Rect(0, 0, 320, 180));
+        using var target = new GpuTexture(context, 320, 180, context.SwapChainFormat,
+            TextureUsage.RenderAttachment | TextureUsage.CopySrc, "Suntrail surface recreation");
+        try
+        {
+            window.InitializeExternalRenderer(context, 2);
+            var first = Assert.IsType<ProceduralPipeline>(window.Compositor!.GetDrawingExtension(ProceduralDrawingContextExtensions.Definition));
+            window.Compositor.RenderScene(visual, 320, 180, target.ViewPtr);
+            byte[] expected = target.ReadPixels();
+            Assert.True(first.Draws > 0); Assert.Contains(expected, value => value != 0);
+            window.SuspendExternalRenderer();
+            window.InitializeExternalRenderer(context, 2);
+            var second = Assert.IsType<ProceduralPipeline>(window.Compositor!.GetDrawingExtension(ProceduralDrawingContextExtensions.Definition));
+            Assert.NotSame(first, second);
+            window.Compositor.RenderScene(visual, 320, 180, target.ViewPtr);
+            Assert.Equal(expected, target.ReadPixels()); Assert.True(second.Draws > 0);
+        }
+        finally { window.SuspendExternalRenderer(); }
     }
 
     private static string Artifacts()

@@ -197,15 +197,12 @@ public sealed class ProceduralBatch
 
 public static class ProceduralDrawingContextExtensions
 {
-    // Application-reserved extension ID. Registration is per compositor/device.
-    public const int ExtensionId = 0x53554e;
+    public static readonly DrawingExtension<ProceduralBatch> Definition =
+        new("Suntrail procedural world", static () => new ProceduralPipeline());
+
     public static void DrawProceduralWorld(this DrawingContext context, ProceduralBatch batch)
     {
         ArgumentNullException.ThrowIfNull(batch);
-        context.Commands.Add(new RenderCommand
-        {
-            Type = RenderCommandType.DrawExtension, ExtensionId = ExtensionId,
-            Rect = new(0, 0, batch.Size.X, batch.Size.Y), DataParam = batch
-        });
+        context.DrawExtension(Definition, new Rect(0, 0, batch.Size.X, batch.Size.Y), batch);
     }
 }

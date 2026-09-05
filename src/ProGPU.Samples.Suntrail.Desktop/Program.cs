@@ -28,7 +28,7 @@ public static class Program
         if (args.Contains("--no-occlusion", StringComparer.Ordinal))
             App.Started += (view, _) => view.Surface.Batch.EnableBackgroundOcclusion = false;
         if (args.Contains("--sky-cache", StringComparer.Ordinal))
-            App.Started += (_, window) => ((Rendering.ProceduralPipeline)window.Compositor!.GetExtension(Rendering.ProceduralDrawingContextExtensions.ExtensionId)!).EnableSkyCache = true;
+            App.Started += (_, window) => ((Rendering.ProceduralPipeline)window.Compositor!.GetDrawingExtension(Rendering.ProceduralDrawingContextExtensions.Definition)!).EnableSkyCache = true;
         if (world > 0) App.Started += (view, _) => view.Surface.Session.StartLevel(world - 1);
         if(benchmark>=0)
         {

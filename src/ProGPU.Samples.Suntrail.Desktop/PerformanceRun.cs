@@ -15,7 +15,7 @@ internal sealed class PerformanceRun(string path, int frames, long launched)
     private double _firstFrame;
     public void Attach(GameView view, Window window)
     {
-        var pipeline=(ProceduralPipeline)window.Compositor!.GetExtension(ProceduralDrawingContextExtensions.ExtensionId)!;
+        var pipeline=(ProceduralPipeline)window.Compositor!.GetDrawingExtension(ProceduralDrawingContextExtensions.Definition)!;
         window.Rendering += (_,delta) =>
         {
             if(_frame==1) _firstFrame=Stopwatch.GetElapsedTime(launched).TotalMilliseconds;

@@ -18,8 +18,9 @@ internal static class GpuWorkload
         const uint width = 932, height = 430, dpi = 3;
         using var context = new WgpuContext(); context.Initialize(null);
         using var compositor = new Compositor(context, TextureFormat.Rgba8Unorm);
-        var pipeline = new ProceduralPipeline { EnableSkyCache = cacheSky, EnableEarlyCoverage = earlyCoverage };
-        compositor.RegisterExtension(ProceduralDrawingContextExtensions.ExtensionId, pipeline);
+        var pipeline = (ProceduralPipeline)compositor.RegisterDrawingExtension(ProceduralDrawingContextExtensions.Definition);
+        pipeline.EnableSkyCache = cacheSky;
+        pipeline.EnableEarlyCoverage = earlyCoverage;
         using var target = new GpuTexture(context, width * dpi, height * dpi, TextureFormat.Rgba8Unorm,
             TextureUsage.RenderAttachment, "Suntrail phone-sized latency workload");
         var view = new GameSurface(); view.Session.StartLevel(world);

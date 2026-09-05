@@ -18,7 +18,7 @@ internal sealed class DeviceMeasurement
     public void Attach(GameView view, Window window)
     {
         _view = view; _window = window;
-        _pipeline = (ProceduralPipeline)window.Compositor!.GetExtension(ProceduralDrawingContextExtensions.ExtensionId)!;
+        _pipeline = (ProceduralPipeline)window.Compositor!.GetDrawingExtension(ProceduralDrawingContextExtensions.Definition)!;
         _pipeline.EnableSpecializedShaders = Environment.GetEnvironmentVariable("SUNTRAIL_GENERIC_SHADER") != "1";
         window.Rendering += Record;
         Console.WriteLine($"SUNTRAIL_MEASURE specializedShaders={_pipeline.EnableSpecializedShaders}");

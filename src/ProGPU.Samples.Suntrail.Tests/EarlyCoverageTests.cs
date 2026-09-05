@@ -17,8 +17,7 @@ public sealed class EarlyCoverageTests
     {
         using var context = new WgpuContext(); context.Initialize(null);
         using var compositor = new Compositor(context, TextureFormat.Rgba8Unorm);
-        var pipeline = new ProceduralPipeline();
-        compositor.RegisterExtension(ProceduralDrawingContextExtensions.ExtensionId, pipeline);
+        var pipeline = (ProceduralPipeline)compositor.RegisterDrawingExtension(ProceduralDrawingContextExtensions.Definition);
         var view = new GameSurface(); view.Session.StartLevel(world);
         foreach (int dpi in new[] { 1, 3 })
         {

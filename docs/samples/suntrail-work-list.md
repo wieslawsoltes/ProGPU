@@ -26,7 +26,7 @@ The iPhone black screen was fixed and the user confirmed gameplay. Smooth iPhone
 is not yet verified. The controls pass targeted input tests and native visual checks. Eight optional vaults,
 two-way pipe travel, and three timed hazard families are implemented and tested.
 The main campaign still needs a broader encounter redesign; new rooms do not by
-themselves complete that request. Current sample validation: 83 Release tests. The reported unresponsive joystick was
+themselves complete that request. Current sample validation: 84 Release tests. The reported unresponsive joystick was
 reproduced through platform pointer injection and fixed in the shared WinUI panel
 hit-test path; two-axis thumb feedback now repaints during dragging.
 Full Mario format compatibility, editor completeness and full 3D remain open.
@@ -68,3 +68,9 @@ and isolated playtests. Original finite Tiled object-map JSON/TMX adapters are t
 tile layers, NES and SMBX data, connected custom pipes, asset import and robust format
 round trips remain open. Desktop drag and playtest were visually checked. Browser AOT
 and the latest application-owned extension API integration are being validated.
+
+Public drawing-extension registration was split into PR #159 and merged into main.
+This branch merged main and uses the typed API across the game, GPU fixtures and
+measurement tools. A procedural-pixel regression covers mobile surface recreation.
+This completes the API extraction/integration request, independently of the open
+gameplay, compatibility, editor and full-3D scope above.

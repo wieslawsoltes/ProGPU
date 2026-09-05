@@ -184,3 +184,19 @@ and [TMX specification](https://doc.mapeditor.org/en/stable/reference/tmx-map-fo
 Only their public field contracts informed this original implementation; no Tiled
 source or commercial game assets are included. Paired authored JSON/TMX fixtures
 verify equivalent geometry and ordinary-input playtest completion.
+
+
+## Application-owned GPU registration
+
+Suntrail uses the public typed registration API from merged [PR #159](https://github.com/wieslawsoltes/ProGPU/pull/159).
+Its shared `DrawingExtension<ProceduralBatch>` definition creates a separate
+`ProceduralPipeline` for each compositor. `App` registers it on the window before
+activation, and the drawing-context helper records it with local bounds. Mobile
+surface recreation automatically receives a fresh pipeline; numeric extension IDs
+and manual registration in the activation handler are removed.
+
+The application uses public APIs only. Its test assembly's existing friend access
+is limited to installing/restoring the application's resource scope in fixtures.
+See [package-consumer usage and ownership](../drawing-extensions.md). The API is
+merged into main; it still needs a package release before consumers can use it from
+an ordinary published NuGet version.

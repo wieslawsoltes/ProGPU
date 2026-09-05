@@ -400,3 +400,39 @@ These changes use the existing WinUI controls and application shader extension;
 no managed/native renderer algorithm or wire format changes are involved. They do
 not establish NES/SMBX/tile-layer compatibility, connected custom-room authoring,
 full editor completion, iPhone editor usability or smooth device frame pacing.
+
+The workshop also passes signed iOS device Release compilation (2:06, zero errors,
+four existing dependency/initialization trim warnings). This build has not been
+installed; the current device installation remains the authored-campaign revision.
+
+
+## Public drawing API integration
+
+PR #159 merged as `102e39e5088b462624da6296ff70a43ed2c5d8b4`; Suntrail then
+merged main and replaced all numeric registration/lookup call sites. The 84 sample
+Release tests pass, including a new exact-pixel test across renderer suspension
+and recreation with the real procedural pipeline. The 24 focused core registration
+and shader-resource tests also pass. Desktop Release builds without warnings and
+Computer Use confirms normal procedural title-screen startup through the new API.
+
+The separate API validation passed 3,814 core and 240 headless tests, unsigned
+package-only and NativeAOT GPU consumers, and matched recording/GPU measurements.
+The typed wrapper adds 1.4–2.9 ns median recording cost, with zero recording
+allocation, payload copy or native crossing and unchanged GPU dispatch. This is
+not a displayed-FPS claim. Verified Instruments exports remain available; raw
+traces were removed after verification.
+
+The full pinned Svg.Skia workflow comparison was also run locally before merge:
+native W3C 530 passes/3 skips; resvg 927 passes/37 skips; remaining tests 1,147
+passes; ProGPU W3C 486 passes/44 established differences/3 skips. The exact W3C
+inventory verifier passed. Fifteen hosted checks had passed at integration, while
+macOS jobs were still queued/in progress; their status was not counted as a pass.
+The local parity logs, commands, TRX files and generated images are retained under
+`artifacts/public-drawing-extensions/parity` in the separate API worktree.
+
+The final API-integrated Browser AOT publish and signed iOS Release rebuild pass
+(iOS 2:23, zero errors, four existing trim warnings). Browser startup was visually
+verified with no captured warning/error messages. Code-signature verification and
+all 250 WebGPU exports pass for the iOS build. The new build has not been installed;
+the user is still evaluating the earlier installed controls/campaign revision.
+Logs use the `public-api-` prefix under `artifacts/suntrail`.

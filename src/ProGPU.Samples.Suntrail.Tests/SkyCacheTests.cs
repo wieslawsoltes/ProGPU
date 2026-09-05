@@ -16,8 +16,7 @@ public sealed class SkyCacheTests
     {
         using var context = new WgpuContext(); context.Initialize(null);
         using var compositor = new Compositor(context, TextureFormat.Rgba8Unorm);
-        var pipeline = new ProceduralPipeline();
-        compositor.RegisterExtension(ProceduralDrawingContextExtensions.ExtensionId, pipeline);
+        var pipeline = (ProceduralPipeline)compositor.RegisterDrawingExtension(ProceduralDrawingContextExtensions.Definition);
         uint width = translated ? 932u : 4100u;
         const uint height = 430;
         using var target = new GpuTexture(context, width, height, TextureFormat.Rgba8Unorm,
@@ -39,8 +38,7 @@ public sealed class SkyCacheTests
     {
         using var context = new WgpuContext(); context.Initialize(null);
         using var compositor = new Compositor(context, TextureFormat.Rgba8Unorm);
-        var pipeline = new ProceduralPipeline();
-        compositor.RegisterExtension(ProceduralDrawingContextExtensions.ExtensionId, pipeline);
+        var pipeline = (ProceduralPipeline)compositor.RegisterDrawingExtension(ProceduralDrawingContextExtensions.Definition);
         var view = new GameSurface();
         long bakes = 0;
         foreach (uint width in new uint[] { 844, 932 })

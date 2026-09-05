@@ -38,6 +38,7 @@ public sealed class App : Application
     protected override void OnLaunched(LaunchActivatedEventArgs args)
     {
         _window = new Window { Title = "Suntrail — A little light goes a long way", Width = 1440, Height = 900, GlyphAtlasSize = 1024, ExtendsContentIntoSystemInsets = true };
+        _window.RegisterDrawingExtension(ProceduralDrawingContextExtensions.Definition);
         _window.Activated += OnActivated;
         _window.InsetsChanged += (_, _) => { if (_view is not null) _view.SetSafeArea(_window.Insets.SafeArea); };
         _window.Activate();
@@ -49,7 +50,6 @@ public sealed class App : Application
         InterFontFamily.RegisterFonts();
         FontApi.RegisterPlatformFallbackFont(InterFontFamily.Regular);
         PopupService.DefaultFont = InterFontFamily.Regular;
-        _window.Compositor.RegisterExtension(ProceduralDrawingContextExtensions.ExtensionId, new ProceduralPipeline());
         _view = new GameView(AutoPlay ? 0 : LoadProgress(), LoadTouchOptions()); _view.Surface.AutoPlay = AutoPlay;
         if (!AutoPlay) { _view.ProgressChanged += SaveProgress; _view.TouchOptionsChanged += SaveTouchOptions; }
         _view.SetSafeArea(_window.Insets.SafeArea);
