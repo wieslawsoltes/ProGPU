@@ -8121,6 +8121,49 @@ qualification. Final image/Windows/VM, verifier, benchmark, and CI gates are sti
 deferred. This closes the preceding visual-consumer rejection, not the complete
 MIL/DirectX/Direct2D/Win2D or rendering/performance goal.
 
+### Implementation-first checkpoint: cached picture-mask guideline deformation
+
+The native picture-mask executor now receives the same composite state/cursor as
+the cache quad, both for direct picture masks and picture components multiplied
+with exact vector clips. `semantic_state_cursor::try_composite_rectangle_inverse`
+snaps opposite rectangle corners with the existing nearest-guideline algorithm
+and returns the separable inverse deformation. Sampled-mask UV coordinates compose
+that inverse in physical target coordinates, preserving the existing alpha-only
+sampling path. A collapsed snapped rectangle has zero mask opacity; invalid or
+unrepresentable mappings fail closed. World-space vector clips remain undeformed.
+
+MIL no longer rejects multi-coordinate cached tile-mask guidelines or pre-bakes a
+uniform offset: both uniform and multi-coordinate cases go through this single
+executor path. Uncached masks and picture masks without composite guidelines keep
+their prior sampling path. Per-point draw guidelines remain independent and are
+not reapplied at cache composition. Source-extent pictures support axis-aligned
+transforms on this path; transformed non-axis-aligned source-extent pictures with
+composite guidelines remain unsupported. MIL visual guidelines are disabled under
+rotation/shear by the existing source-state policy.
+
+Provenance is original ProGPU cache-quad corner snapping, semantic-state nearest
+guideline lookup, picture-mask sampling, and canonical shader affine-mask support.
+No new shader, wire record, public C ABI, pixel readback, CPU image kernel, or
+per-tile submission is introduced. The [existing rendering design research](progpu-avalonia-rendering-research.md)
+continues to govern device-owned retained composition. This is native semantic
+picture-mask transport work; managed composition remains the paired image
+reference and receives no duplicated algorithm. Runtime comparisons must confirm
+material/edge behavior, especially fractional cache scales and zero-area edges.
+
+The inverse needs O(log X + log Y) time for X/Y guideline coordinates and O(1)
+allocation-free storage. Uniform composition adds fixed arithmetic to the existing
+sampling uniforms, with no extra draw or texture beyond the existing picture mask.
+Existing child-engine/intermediate and residency costs remain unqualified.
+
+Authored native internal regressions cover independent endpoint shifts, inverse
+corner round-trips at four DPIs, explicit offsets, collapsed coverage, and invalid
+input output preservation. The eight MIL cached multi-guideline rejection cases
+are now positive scene cases; their opposing guidelines use different offsets.
+Native library, MIL-test, and internal-test executables compile. Tests are not
+executed. Final image/Windows/VM comparisons, verifier, benchmark, and CI gates
+remain deferred. This supersedes the prior cached-picture multi-coordinate
+rejection, not the broader per-point path/stroke or per-axis target-DPI backlog.
+
 ## Invariants
 
 - No reflection or private managed field scanning in the product bridge.

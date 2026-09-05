@@ -19832,8 +19832,8 @@ struct channel::implementation {
         // content. Exact inherited vector clips are multiplied with the
         // material in the existing GPU composite-mask resource. Their world
         // coordinates do not inherit cache-root guideline deformation.
-        // Picture masks currently bake uniform guideline shifts; multi-point
-        // picture deformation fails closed until the executor supports it.
+        // Picture masks follow the same snapped cache rectangle through the
+        // executor's inverse sampling transform, including multi-point guides.
         // Fant/HighQuality sampling is retained as composite-only state.
         if (state.image_sampling != PROGPU_NATIVE_IMAGE_SAMPLING_LINEAR &&
                 state.image_sampling != PROGPU_NATIVE_IMAGE_SAMPLING_NEAREST &&
@@ -19960,14 +19960,6 @@ struct channel::implementation {
                 const auto* frame = mask_context.frame;
                 if (frame != nullptr && frame->request.dpi_scale_x != frame->request.dpi_scale_y)
                     return status::unsupported_command;
-                progpu_native_point offset{};
-                if (!builder.try_uniform_guideline_translation(state.guideline_resource_index,
-                        frame == nullptr ? 1.0F : static_cast<float>(frame->request.dpi_scale_x), offset))
-                    return status::unsupported_command;
-                // The cache quad snaps at composition. Bake the same uniform
-                // shift into picture coverage, leaving world clip paths fixed.
-                mask_state.transform.m31 = static_cast<float>(mask_state.transform.m31) + offset.x;
-                mask_state.transform.m32 = static_cast<float>(mask_state.transform.m32) + offset.y;
             }
             const status opacity_mask_status = add_visual_opacity_mask(
                 cache_visual.alpha_mask_handle,

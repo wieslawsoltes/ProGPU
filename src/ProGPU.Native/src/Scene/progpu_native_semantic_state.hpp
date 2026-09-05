@@ -71,6 +71,12 @@ public:
         float& target_x,
         float& target_y) const noexcept;
 
+    bool try_composite_rectangle_inverse(
+        const progpu_native_scene_state& state,
+        progpu_native_image_rect bounds,
+        progpu_native_affine_2d& inverse,
+        bool& visible) const noexcept;
+
     bool has_per_point_guidelines(
         const progpu_native_scene_state& state) const noexcept;
 

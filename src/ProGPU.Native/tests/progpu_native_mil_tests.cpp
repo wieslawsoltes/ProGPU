@@ -19732,12 +19732,12 @@ int main() {
                         PROGPU_REQUIRE(cyclic == std::vector<std::byte>{std::byte{0x5a}});
                     }
                     if (cached) {
-                        std::vector<std::byte> deformed{std::byte{0x5a}};
-                        PROGPU_REQUIRE(!progpu::native::tests::build_mil_image_brush_fixture(deformed,
+                        std::vector<std::byte> deformed;
+                        PROGPU_REQUIRE(progpu::native::tests::build_mil_image_brush_fixture(deformed,
                             {.source = source, .multiple_guidelines = true, .opacity_mask = true,
                                 .visual_mask = true, .cached_visual = true, .visual_effect = effect,
                                 .visual_guidelines = true}, 10312U));
-                        PROGPU_REQUIRE(deformed == std::vector<std::byte>{std::byte{0x5a}});
+                        PROGPU_REQUIRE(deformed.size() >= sizeof(progpu_native_scene_header));
                     }
                 }
             }

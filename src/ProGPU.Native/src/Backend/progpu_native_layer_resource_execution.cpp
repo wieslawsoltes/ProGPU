@@ -909,6 +909,8 @@ bool create_semantic_layer_mask_binding(
             parsed.composite_picture_streams,
             target_extent,
             dpi_scale,
+            composite_state_cursor,
+            composite_state,
             operation);
     }
     if (parsed.kind == PROGPU_NATIVE_SCENE_LAYER_MASK_COMPOSITE) {

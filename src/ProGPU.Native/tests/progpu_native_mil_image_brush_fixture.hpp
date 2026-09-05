@@ -141,7 +141,7 @@ inline bool build_mil_image_brush_fixture(std::vector<std::byte>& scene,
         if (options.visual_guidelines) {
             if (options.multiple_guidelines)
                 packet(batch, command::visual_set_guideline_collection, 1U,
-                    std::uint16_t{0U}, std::uint16_t{0U}, std::uint16_t{2U}, std::uint16_t{0U}, 8.25F, 56.25F);
+                    std::uint16_t{0U}, std::uint16_t{0U}, std::uint16_t{2U}, std::uint16_t{0U}, 8.25F, 56.75F);
             else packet(batch, command::visual_set_guideline_collection, 1U,
                 std::uint16_t{0U}, std::uint16_t{0U}, std::uint16_t{1U}, std::uint16_t{0U}, 8.25F);
         }
