@@ -138,7 +138,9 @@ public:
         std::uint32_t width,
         std::uint32_t height,
         std::uint32_t row_bytes,
-        std::span<const std::byte> pixels) noexcept;
+        std::span<const std::byte> pixels,
+        double dpi_x = 96.0,
+        double dpi_y = 96.0) noexcept;
 
     // Declares a canonical TYPE_BITMAPSOURCE as a live external image. This
     // is the zero-copy counterpart to set_bitmap_source_rgba8 for typed
@@ -146,7 +148,9 @@ public:
     status set_bitmap_source_external_image(
         std::uint32_t handle,
         std::uint32_t width,
-        std::uint32_t height) noexcept;
+        std::uint32_t height,
+        double dpi_x = 96.0,
+        double dpi_y = 96.0) noexcept;
 
     // Portable front-buffer binding for canonical TYPE_DOUBLEBUFFEREDBITMAP.
     // The canonical update/copy-forward packets keep their process pointer
@@ -157,12 +161,16 @@ public:
         std::uint32_t width,
         std::uint32_t height,
         std::uint32_t row_bytes,
-        std::span<const std::byte> pixels) noexcept;
+        std::span<const std::byte> pixels,
+        double dpi_x = 96.0,
+        double dpi_y = 96.0) noexcept;
 
     status set_double_buffered_bitmap_external_image(
         std::uint32_t handle,
         std::uint32_t width,
-        std::uint32_t height) noexcept;
+        std::uint32_t height,
+        double dpi_x = 96.0,
+        double dpi_y = 96.0) noexcept;
 
     // Declares a canonical TYPE_MEDIAPLAYER as a live external image. The
     // semantic scene carries only dimensions and a stable resource identity;
@@ -257,6 +265,11 @@ public:
     bool has_resource(std::uint32_t handle) const noexcept;
     std::uint32_t resource_type(std::uint32_t handle) const noexcept;
     std::uint64_t resource_generation(std::uint32_t handle) const noexcept;
+
+    // Diagnostic/source-planning query; never reads pixels or initializes a GPU.
+    // On failure neither output is modified. Supports both bitmap resource types.
+    status get_bitmap_source_dpi(
+        std::uint32_t handle, double& dpi_x, double& dpi_y) const noexcept;
     bool try_get_visual(
         std::uint32_t handle,
         visual_snapshot& snapshot) const noexcept;

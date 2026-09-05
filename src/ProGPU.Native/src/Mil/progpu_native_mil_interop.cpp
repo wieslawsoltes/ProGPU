@@ -115,6 +115,26 @@ progpu_native_mil_status progpu_native_mil_channel_apply(
 }
 
 progpu_native_mil_status
+progpu_native_mil_channel_set_bitmap_source_rgba8_with_dpi(
+    progpu_native_mil_channel* channel,
+    uint32_t handle,
+    uint32_t width,
+    uint32_t height,
+    uint32_t row_bytes,
+    const void* pixels,
+    size_t pixel_size,
+    double dpi_x,
+    double dpi_y) {
+    if (channel == nullptr || (pixels == nullptr && pixel_size != 0U)) {
+        return PROGPU_NATIVE_MIL_STATUS_INVALID_ARGUMENT;
+    }
+    return to_abi(channel->state.set_bitmap_source_rgba8(
+        handle, width, height, row_bytes,
+        std::span<const std::byte>{
+            static_cast<const std::byte*>(pixels), pixel_size}, dpi_x, dpi_y));
+}
+
+progpu_native_mil_status
 progpu_native_mil_channel_set_bitmap_source_rgba8(
     progpu_native_mil_channel* channel,
     uint32_t handle,
@@ -136,6 +156,21 @@ progpu_native_mil_channel_set_bitmap_source_rgba8(
 }
 
 progpu_native_mil_status
+progpu_native_mil_channel_set_bitmap_source_external_image_with_dpi(
+    progpu_native_mil_channel* channel,
+    uint32_t handle,
+    uint32_t width,
+    uint32_t height,
+    double dpi_x,
+    double dpi_y) {
+    if (channel == nullptr) {
+        return PROGPU_NATIVE_MIL_STATUS_INVALID_ARGUMENT;
+    }
+    return to_abi(channel->state.set_bitmap_source_external_image(
+        handle, width, height, dpi_x, dpi_y));
+}
+
+progpu_native_mil_status
 progpu_native_mil_channel_set_bitmap_source_external_image(
     progpu_native_mil_channel* channel,
     uint32_t handle,
@@ -146,6 +181,26 @@ progpu_native_mil_channel_set_bitmap_source_external_image(
     }
     return to_abi(channel->state.set_bitmap_source_external_image(
         handle, width, height));
+}
+
+progpu_native_mil_status
+progpu_native_mil_channel_set_double_buffered_bitmap_rgba8_with_dpi(
+    progpu_native_mil_channel* channel,
+    uint32_t handle,
+    uint32_t width,
+    uint32_t height,
+    uint32_t row_bytes,
+    const void* pixels,
+    size_t pixel_size,
+    double dpi_x,
+    double dpi_y) {
+    if (channel == nullptr || (pixels == nullptr && pixel_size != 0U)) {
+        return PROGPU_NATIVE_MIL_STATUS_INVALID_ARGUMENT;
+    }
+    return to_abi(channel->state.set_double_buffered_bitmap_rgba8(
+        handle, width, height, row_bytes,
+        std::span<const std::byte>{
+            static_cast<const std::byte*>(pixels), pixel_size}, dpi_x, dpi_y));
 }
 
 progpu_native_mil_status
@@ -167,6 +222,21 @@ progpu_native_mil_channel_set_double_buffered_bitmap_rgba8(
         row_bytes,
         std::span<const std::byte>{
             static_cast<const std::byte*>(pixels), pixel_size}));
+}
+
+progpu_native_mil_status
+progpu_native_mil_channel_set_double_buffered_bitmap_external_image_with_dpi(
+    progpu_native_mil_channel* channel,
+    uint32_t handle,
+    uint32_t width,
+    uint32_t height,
+    double dpi_x,
+    double dpi_y) {
+    if (channel == nullptr) {
+        return PROGPU_NATIVE_MIL_STATUS_INVALID_ARGUMENT;
+    }
+    return to_abi(channel->state.set_double_buffered_bitmap_external_image(
+        handle, width, height, dpi_x, dpi_y));
 }
 
 progpu_native_mil_status

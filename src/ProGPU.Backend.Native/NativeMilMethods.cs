@@ -98,7 +98,7 @@ internal static unsafe partial class NativeMilMethods
         nuint batchSize,
         BatchMetrics* metrics);
 
-    [LibraryImport(NativeMethods.LibraryName, EntryPoint = "progpu_native_mil_channel_set_bitmap_source_rgba8")]
+    [LibraryImport(NativeMethods.LibraryName, EntryPoint = "progpu_native_mil_channel_set_bitmap_source_rgba8_with_dpi")]
     [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
     internal static partial NativeMilStatus SetBitmapSourceRgba8(
         nint channel,
@@ -107,17 +107,21 @@ internal static unsafe partial class NativeMilMethods
         uint height,
         uint rowBytes,
         void* pixels,
-        nuint pixelSize);
+        nuint pixelSize,
+        double dpiX,
+        double dpiY);
 
-    [LibraryImport(NativeMethods.LibraryName, EntryPoint = "progpu_native_mil_channel_set_bitmap_source_external_image")]
+    [LibraryImport(NativeMethods.LibraryName, EntryPoint = "progpu_native_mil_channel_set_bitmap_source_external_image_with_dpi")]
     [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
     internal static partial NativeMilStatus SetBitmapSourceExternalImage(
         nint channel,
         uint handle,
         uint width,
-        uint height);
+        uint height,
+        double dpiX,
+        double dpiY);
 
-    [LibraryImport(NativeMethods.LibraryName, EntryPoint = "progpu_native_mil_channel_set_double_buffered_bitmap_rgba8")]
+    [LibraryImport(NativeMethods.LibraryName, EntryPoint = "progpu_native_mil_channel_set_double_buffered_bitmap_rgba8_with_dpi")]
     [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
     internal static partial NativeMilStatus SetDoubleBufferedBitmapRgba8(
         nint channel,
@@ -126,15 +130,19 @@ internal static unsafe partial class NativeMilMethods
         uint height,
         uint rowBytes,
         void* pixels,
-        nuint pixelSize);
+        nuint pixelSize,
+        double dpiX,
+        double dpiY);
 
-    [LibraryImport(NativeMethods.LibraryName, EntryPoint = "progpu_native_mil_channel_set_double_buffered_bitmap_external_image")]
+    [LibraryImport(NativeMethods.LibraryName, EntryPoint = "progpu_native_mil_channel_set_double_buffered_bitmap_external_image_with_dpi")]
     [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
     internal static partial NativeMilStatus SetDoubleBufferedBitmapExternalImage(
         nint channel,
         uint handle,
         uint width,
-        uint height);
+        uint height,
+        double dpiX,
+        double dpiY);
 
     [LibraryImport(NativeMethods.LibraryName, EntryPoint = "progpu_native_mil_channel_set_media_player_external_image")]
     [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
@@ -323,7 +331,7 @@ internal static unsafe partial class NativeMilDawnMethods
         nuint batchSize,
         NativeMilMethods.BatchMetrics* metrics);
 
-    [LibraryImport(NativeDawnMethods.LibraryName, EntryPoint = "progpu_native_mil_channel_set_bitmap_source_rgba8")]
+    [LibraryImport(NativeDawnMethods.LibraryName, EntryPoint = "progpu_native_mil_channel_set_bitmap_source_rgba8_with_dpi")]
     [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
     internal static partial NativeMilStatus SetBitmapSourceRgba8(
         nint channel,
@@ -332,17 +340,21 @@ internal static unsafe partial class NativeMilDawnMethods
         uint height,
         uint rowBytes,
         void* pixels,
-        nuint pixelSize);
+        nuint pixelSize,
+        double dpiX,
+        double dpiY);
 
-    [LibraryImport(NativeDawnMethods.LibraryName, EntryPoint = "progpu_native_mil_channel_set_bitmap_source_external_image")]
+    [LibraryImport(NativeDawnMethods.LibraryName, EntryPoint = "progpu_native_mil_channel_set_bitmap_source_external_image_with_dpi")]
     [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
     internal static partial NativeMilStatus SetBitmapSourceExternalImage(
         nint channel,
         uint handle,
         uint width,
-        uint height);
+        uint height,
+        double dpiX,
+        double dpiY);
 
-    [LibraryImport(NativeDawnMethods.LibraryName, EntryPoint = "progpu_native_mil_channel_set_double_buffered_bitmap_rgba8")]
+    [LibraryImport(NativeDawnMethods.LibraryName, EntryPoint = "progpu_native_mil_channel_set_double_buffered_bitmap_rgba8_with_dpi")]
     [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
     internal static partial NativeMilStatus SetDoubleBufferedBitmapRgba8(
         nint channel,
@@ -351,15 +363,19 @@ internal static unsafe partial class NativeMilDawnMethods
         uint height,
         uint rowBytes,
         void* pixels,
-        nuint pixelSize);
+        nuint pixelSize,
+        double dpiX,
+        double dpiY);
 
-    [LibraryImport(NativeDawnMethods.LibraryName, EntryPoint = "progpu_native_mil_channel_set_double_buffered_bitmap_external_image")]
+    [LibraryImport(NativeDawnMethods.LibraryName, EntryPoint = "progpu_native_mil_channel_set_double_buffered_bitmap_external_image_with_dpi")]
     [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
     internal static partial NativeMilStatus SetDoubleBufferedBitmapExternalImage(
         nint channel,
         uint handle,
         uint width,
-        uint height);
+        uint height,
+        double dpiX,
+        double dpiY);
 
     [LibraryImport(NativeDawnMethods.LibraryName, EntryPoint = "progpu_native_mil_channel_set_media_player_external_image")]
     [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]

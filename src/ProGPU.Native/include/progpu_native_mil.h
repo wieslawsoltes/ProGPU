@@ -122,7 +122,22 @@ PROGPU_NATIVE_API progpu_native_mil_status progpu_native_mil_channel_apply(
 /*
  * Binds copied RGBA8 pixels to a canonical TYPE_BITMAPSOURCE handle. This is
  * the portable replacement for MilCmdBitmapSource's process-local WIC pointer.
+ * The _with_dpi variants retain source DPI atomically with content. Both axes
+ * must be finite and positive and yield finite natural dimensions. Existing
+ * entry points remain ABI-compatible and bind at 96 DPI. DPI never changes
+ * physical pixel dimensions, row stride, or explicit ImageDrawing destinations.
  */
+PROGPU_NATIVE_API progpu_native_mil_status
+progpu_native_mil_channel_set_bitmap_source_rgba8_with_dpi(
+    progpu_native_mil_channel* channel,
+    uint32_t handle,
+    uint32_t width,
+    uint32_t height,
+    uint32_t row_bytes,
+    const void* pixels,
+    size_t pixel_size,
+    double dpi_x,
+    double dpi_y);
 PROGPU_NATIVE_API progpu_native_mil_status
 progpu_native_mil_channel_set_bitmap_source_rgba8(
     progpu_native_mil_channel* channel,
@@ -138,6 +153,14 @@ progpu_native_mil_channel_set_bitmap_source_rgba8(
  * view before installation.
  */
 PROGPU_NATIVE_API progpu_native_mil_status
+progpu_native_mil_channel_set_bitmap_source_external_image_with_dpi(
+    progpu_native_mil_channel* channel,
+    uint32_t handle,
+    uint32_t width,
+    uint32_t height,
+    double dpi_x,
+    double dpi_y);
+PROGPU_NATIVE_API progpu_native_mil_status
 progpu_native_mil_channel_set_bitmap_source_external_image(
     progpu_native_mil_channel* channel,
     uint32_t handle,
@@ -147,6 +170,17 @@ progpu_native_mil_channel_set_bitmap_source_external_image(
  * Binds copied front-buffer pixels to TYPE_DOUBLEBUFFEREDBITMAP. This replaces
  * the process-local CSwDoubleBufferedBitmap pointer used by WriteableBitmap.
  */
+PROGPU_NATIVE_API progpu_native_mil_status
+progpu_native_mil_channel_set_double_buffered_bitmap_rgba8_with_dpi(
+    progpu_native_mil_channel* channel,
+    uint32_t handle,
+    uint32_t width,
+    uint32_t height,
+    uint32_t row_bytes,
+    const void* pixels,
+    size_t pixel_size,
+    double dpi_x,
+    double dpi_y);
 PROGPU_NATIVE_API progpu_native_mil_status
 progpu_native_mil_channel_set_double_buffered_bitmap_rgba8(
     progpu_native_mil_channel* channel,
@@ -160,6 +194,14 @@ progpu_native_mil_channel_set_double_buffered_bitmap_rgba8(
  * Declares TYPE_DOUBLEBUFFEREDBITMAP front-buffer content as a live typed
  * same-device image. Copy-forward synchronization completes before binding.
  */
+PROGPU_NATIVE_API progpu_native_mil_status
+progpu_native_mil_channel_set_double_buffered_bitmap_external_image_with_dpi(
+    progpu_native_mil_channel* channel,
+    uint32_t handle,
+    uint32_t width,
+    uint32_t height,
+    double dpi_x,
+    double dpi_y);
 PROGPU_NATIVE_API progpu_native_mil_status
 progpu_native_mil_channel_set_double_buffered_bitmap_external_image(
     progpu_native_mil_channel* channel,

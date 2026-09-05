@@ -94,7 +94,18 @@ public sealed unsafe class NativeMilChannel : IDisposable
         uint width,
         uint height,
         uint rowBytes,
-        ReadOnlySpan<byte> pixels)
+        ReadOnlySpan<byte> pixels) =>
+        SetBitmapSourceRgba8(handle, width, height, rowBytes, pixels, 96.0, 96.0);
+
+    /// <summary>Binds bitmap pixels with their finite positive source DPI in the same native call.</summary>
+    public void SetBitmapSourceRgba8(
+        uint handle,
+        uint width,
+        uint height,
+        uint rowBytes,
+        ReadOnlySpan<byte> pixels,
+        double dpiX,
+        double dpiY)
     {
         nint channel = GetChannel();
         fixed (byte* pixelPointer = pixels)
@@ -107,7 +118,9 @@ public sealed unsafe class NativeMilChannel : IDisposable
                     height,
                     rowBytes,
                     pixelPointer,
-                    (nuint)pixels.Length)
+                    (nuint)pixels.Length,
+                    dpiX,
+                    dpiY)
                 : NativeMilMethods.SetBitmapSourceRgba8(
                     channel,
                     handle,
@@ -115,7 +128,9 @@ public sealed unsafe class NativeMilChannel : IDisposable
                     height,
                     rowBytes,
                     pixelPointer,
-                    (nuint)pixels.Length);
+                    (nuint)pixels.Length,
+                    dpiX,
+                    dpiY);
             if (status != NativeMilStatus.Success)
             {
                 throw new NativeMilException(
@@ -134,7 +149,15 @@ public sealed unsafe class NativeMilChannel : IDisposable
     public void SetBitmapSourceExternalImage(
         uint handle,
         uint width,
-        uint height)
+        uint height) => SetBitmapSourceExternalImage(handle, width, height, 96.0, 96.0);
+
+    /// <summary>Binds bitmap content with its finite positive source DPI in the same native call.</summary>
+    public void SetBitmapSourceExternalImage(
+        uint handle,
+        uint width,
+        uint height,
+        double dpiX,
+        double dpiY)
     {
         ArgumentOutOfRangeException.ThrowIfZero(handle);
         ArgumentOutOfRangeException.ThrowIfZero(width);
@@ -142,9 +165,9 @@ public sealed unsafe class NativeMilChannel : IDisposable
         nint channel = GetChannel();
         NativeMilStatus status = _backend == NativeMilBackend.Dawn
             ? NativeMilDawnMethods.SetBitmapSourceExternalImage(
-                channel, handle, width, height)
+                channel, handle, width, height, dpiX, dpiY)
             : NativeMilMethods.SetBitmapSourceExternalImage(
-                channel, handle, width, height);
+                channel, handle, width, height, dpiX, dpiY);
         if (status != NativeMilStatus.Success)
         {
             throw new NativeMilException(
@@ -162,7 +185,18 @@ public sealed unsafe class NativeMilChannel : IDisposable
         uint width,
         uint height,
         uint rowBytes,
-        ReadOnlySpan<byte> pixels)
+        ReadOnlySpan<byte> pixels) =>
+        SetDoubleBufferedBitmapRgba8(handle, width, height, rowBytes, pixels, 96.0, 96.0);
+
+    /// <summary>Binds bitmap pixels with their finite positive source DPI in the same native call.</summary>
+    public void SetDoubleBufferedBitmapRgba8(
+        uint handle,
+        uint width,
+        uint height,
+        uint rowBytes,
+        ReadOnlySpan<byte> pixels,
+        double dpiX,
+        double dpiY)
     {
         nint channel = GetChannel();
         fixed (byte* pixelPointer = pixels)
@@ -175,7 +209,9 @@ public sealed unsafe class NativeMilChannel : IDisposable
                     height,
                     rowBytes,
                     pixelPointer,
-                    (nuint)pixels.Length)
+                    (nuint)pixels.Length,
+                    dpiX,
+                    dpiY)
                 : NativeMilMethods.SetDoubleBufferedBitmapRgba8(
                     channel,
                     handle,
@@ -183,7 +219,9 @@ public sealed unsafe class NativeMilChannel : IDisposable
                     height,
                     rowBytes,
                     pixelPointer,
-                    (nuint)pixels.Length);
+                    (nuint)pixels.Length,
+                    dpiX,
+                    dpiY);
             if (status != NativeMilStatus.Success)
             {
                 throw new NativeMilException(
@@ -200,7 +238,15 @@ public sealed unsafe class NativeMilChannel : IDisposable
     public void SetDoubleBufferedBitmapExternalImage(
         uint handle,
         uint width,
-        uint height)
+        uint height) => SetDoubleBufferedBitmapExternalImage(handle, width, height, 96.0, 96.0);
+
+    /// <summary>Binds bitmap content with its finite positive source DPI in the same native call.</summary>
+    public void SetDoubleBufferedBitmapExternalImage(
+        uint handle,
+        uint width,
+        uint height,
+        double dpiX,
+        double dpiY)
     {
         ArgumentOutOfRangeException.ThrowIfZero(handle);
         ArgumentOutOfRangeException.ThrowIfZero(width);
@@ -208,9 +254,9 @@ public sealed unsafe class NativeMilChannel : IDisposable
         nint channel = GetChannel();
         NativeMilStatus status = _backend == NativeMilBackend.Dawn
             ? NativeMilDawnMethods.SetDoubleBufferedBitmapExternalImage(
-                channel, handle, width, height)
+                channel, handle, width, height, dpiX, dpiY)
             : NativeMilMethods.SetDoubleBufferedBitmapExternalImage(
-                channel, handle, width, height);
+                channel, handle, width, height, dpiX, dpiY);
         if (status != NativeMilStatus.Success)
         {
             throw new NativeMilException(

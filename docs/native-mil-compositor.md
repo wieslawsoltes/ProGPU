@@ -6704,6 +6704,62 @@ The reusable component workload is in `tools/ProGPU.NativeMil.Benchmarks`.
 Application frame-rate and producer-side allocation claims require separate
 end-to-end evidence. See the engine specification for research and qualification.
 
+## Tile-brush ingress and source DPI checkpoint, 2026-09-05
+
+The native channel now decodes and retains canonical `MilCmdImageBrush`,
+`MilCmdDrawingBrush`, and `MilCmdVisualBrush` packets (148-byte payloads).
+The managed batch builder emits every field, including both mappings,
+stretch/alignment, flip modes, animation/transform references, source handles,
+and cache hints. MIL tile-mode numbering is **not** the portable host enum's
+numbering; producers must map explicitly. Resource deletion protects all six
+dependency slots, and retained fingerprint traversal follows those references.
+Malformed updates roll back the complete batch, including resource generations.
+Canonical `Rect.Empty` and WPF's unconstrained cache-threshold hints are retained;
+cache hints must never drive unchecked allocation or extent arithmetic.
+
+This is **resource-protocol support, not tile-brush rendering parity**. Sampled
+brush resolution still returns `unsupported_command`; the WPF native compiler
+has not switched its brush producer to these packets. BitmapCacheBrush is also
+unfinished. The coverage ledger records dispatch (104 top-level, 25 nested,
+12 undispatched), not pixel/API completion. Do not infer rendering support from
+the three new dispatch entries.
+
+Copied and same-device `BitmapSource`/`DoubleBufferedBitmap` bindings now retain
+source DPI atomically with content through additive `_with_dpi` C entry points.
+Old C entry points and managed overloads retain their 96-DPI behavior. Both axes
+must be finite/positive with finite natural dimensions; rejected bindings do not
+change pixels, external-image state, generations, or compilation caches. No new
+per-image metadata P/Invoke, pixel conversion, or readback is introduced. The
+C++ `get_bitmap_source_dpi` query is a CPU-only diagnostic/planning surface.
+
+LibreWPF carries DPI from the same portable pixel snapshot or from typed native
+image providers, includes both axes in retained comparisons, and passes them in
+the content binding. `IPortableNativeImageSource` adds default 96-DPI metadata for
+existing providers. The source-built WPF image carrier snapshots that metadata,
+forwards it through the interface/clone, and uses WPF's existing pixel-to-DIP
+conversion for natural Width/Height. Explicit DrawImage rectangles and physical
+texture sizes are unchanged. The existing pixel-copy adapter's scalar conversion
+loop is unchanged by this metadata work; replacing it with matched intrinsic SIMD
+remains part of the full goal, not a claim made by this checkpoint.
+
+### Rendering continuation
+
+WPF repeats a mapped **base viewport**, including transparent padding after
+Uniform/None stretch; it does not generally repeat the entire bitmap. Cropped
+viewboxes also need subregion-aware filtering. The full renderer must implement
+this distinction before enabling brush packets, using the same-device image and
+exact path-mask infrastructure already shared with Direct2D. A retained mapped
+tile texture can preserve padding and support Drawing/Visual sources; a direct
+shader-domain path needs equivalent boundary/filtering semantics. Neither may
+read pixels back, enumerate unbounded tiles, or submit once per tile. New sampling
+shaders must be canonical sources consumed by managed and native backends.
+
+Remaining gates include animated rectangles/opacity, absolute and relative brush
+transforms, anisotropic source DPI, all stretch/alignment/flip combinations,
+cropping/padding, exact fill/stroke/text/mask use, Drawing/Visual capture and cycles,
+cache hints/retention/device loss, and Windows native-WPF pixel comparisons.
+No tile-rendering performance or end-to-end parity claim is made here.
+
 ## Invariants
 
 - No reflection or private managed field scanning in the product bridge.
