@@ -19428,6 +19428,78 @@ int main() {
                 }
             }
         }
+        const std::array stops{
+            mil_gradient_stop{0.0, {1.0F, 0.0F, 0.0F, 1.0F}},
+            mil_gradient_stop{0.4, {0.0F, 1.0F, 0.0F, 0.5F}},
+            mil_gradient_stop{1.0, {0.0F, 0.0F, 1.0F, 1.0F}}};
+        for (const bool radial : {false, true}) {
+            for (std::uint32_t mapping = 0U; mapping < 2U; ++mapping) {
+                for (std::uint32_t spread = 0U; spread < 3U; ++spread) {
+                    for (std::uint32_t interpolation = 0U; interpolation < 2U; ++interpolation) {
+                        std::vector<std::byte> material;
+                        append_create(material, 19U, radial ? 78U : 77U);
+                        if (radial) append_radial_gradient_brush(material, 19U, 0.5,
+                            mapping ? 0.5 : 32.0, mapping ? 0.5 : 28.0,
+                            mapping ? 0.5 : 24.0, mapping ? 0.4 : 16.0,
+                            mapping ? 0.3 : 24.0, mapping ? 0.4 : 24.0,
+                            interpolation, mapping, spread, 0U, 0U, stops);
+                        else append_linear_gradient_brush(material, 19U, 0.5,
+                            0.0, 0.0, mapping ? 1.0 : 56.0, mapping ? 1.0 : 48.0,
+                            0U, 6U, 7U, interpolation, mapping, spread, 0U, 0U, stops);
+                        for (const bool drawing : {false, true}) {
+                            for (const bool guidelines : {false, true}) {
+                                for (std::uint32_t style = 0U; style < 4U; ++style) {
+                                    std::vector<std::byte> scene;
+                                    PROGPU_REQUIRE(progpu::native::tests::build_mil_image_brush_fixture(scene,
+                                        {.relative_scale = true, .skew = true,
+                                            .shape = progpu::native::tests::mil_brush_fixture_shape::glyphs,
+                                            .inherited_clip = true, .paint_transform = true,
+                                            .guidelines = guidelines, .static_guidelines = true,
+                                            .glyph_commands = glyph_commands, .glyph_font = font_bytes,
+                                            .glyph_style = style, .glyph_drawing = drawing,
+                                            .glyph_brush_commands = material}, 10170U + spread));
+                                    const auto header = read_value<progpu_native_scene_header>(scene, 0U);
+                                    std::uint32_t brush_tables = 0U;
+                                    std::uint32_t pictures = 0U;
+                                    for (std::uint32_t index = 0U; index < header.resource_count; ++index) {
+                                        const auto resource = read_value<progpu_native_scene_resource>(scene,
+                                            header.resource_offset + index * sizeof(progpu_native_scene_resource));
+                                        if (resource.kind == PROGPU_NATIVE_SCENE_RESOURCE_BRUSH_TABLE) {
+                                            ++brush_tables;
+                                            PROGPU_REQUIRE(resource.payload_size == sizeof(progpu_native_scene_brush));
+                                            const auto brush = read_value<progpu_native_scene_brush>(scene, resource.payload_offset);
+                                            PROGPU_REQUIRE(brush.type == (radial ? PROGPU_NATIVE_SCENE_BRUSH_RADIAL_GRADIENT :
+                                                PROGPU_NATIVE_SCENE_BRUSH_LINEAR_GRADIENT));
+                                            PROGPU_REQUIRE(brush.opacity == 0.5F);
+                                        }
+                                        if (resource.kind == PROGPU_NATIVE_SCENE_RESOURCE_LAYER_MASK &&
+                                            resource.payload_size == sizeof(progpu_native_scene_layer_picture_mask)) {
+                                            const auto mask = read_value<progpu_native_scene_layer_picture_mask>(scene, resource.payload_offset);
+                                            pictures += mask.kind == PROGPU_NATIVE_SCENE_LAYER_MASK_PICTURE;
+                                        }
+                                    }
+                                    PROGPU_REQUIRE(brush_tables == 1U && pictures == 1U);
+                                    std::uint32_t paints = 0U;
+                                    for (std::uint32_t index = 0U; index < header.command_count; ++index) {
+                                        const auto command = read_value<progpu_native_scene_command>(scene,
+                                            header.command_offset + index * sizeof(progpu_native_scene_command));
+                                        paints += command.kind == PROGPU_NATIVE_SCENE_COMMAND_DRAW_ANALYTIC;
+                                    }
+                                    PROGPU_REQUIRE(paints == 1U);
+                                }
+                            }
+                        }
+                        // Missing font sideband must not publish a partially painted scene.
+                        std::vector<std::byte> missing_font{std::byte{0x5a}};
+                        PROGPU_REQUIRE(!progpu::native::tests::build_mil_image_brush_fixture(missing_font,
+                            {.relative_scale = true, .skew = true,
+                                .shape = progpu::native::tests::mil_brush_fixture_shape::glyphs,
+                                .glyph_commands = glyph_commands, .glyph_brush_commands = material}, 10180U));
+                        PROGPU_REQUIRE(missing_font == std::vector<std::byte>{std::byte{0x5a}});
+                    }
+                }
+            }
+        }
         std::vector<std::byte> rejected{std::byte{0x5a}};
         PROGPU_REQUIRE(!progpu::native::tests::build_mil_image_brush_fixture(rejected,
             {.shape = progpu::native::tests::mil_brush_fixture_shape::glyphs,
