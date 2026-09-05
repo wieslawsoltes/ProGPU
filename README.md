@@ -156,6 +156,8 @@ and device validation gates are in [`docs/android.md`](docs/android.md).
 
 ## Browser WebGPU sample
 
+[Suntrail](docs/samples/suntrail.md) is an original, playable eight-island platform adventure built with ProGPU.WinUI and a single instanced procedural-art shader. It has a shared game project and thin desktop, iOS, and browser hosts.
+
 The gallery is split into a shared `ProGPU.Samples` library and thin `ProGPU.Samples.Desktop`, `ProGPU.Samples.Browser`, `ProGPU.Samples.iOS`, and `ProGPU.Samples.Android` hosts. The browser host publishes with the .NET WebAssembly SDK, negotiates WebGPU capabilities, sends aligned binary command packets directly from WASM memory, and passes embedded WGSL unchanged to `GPUDevice.createShaderModule`.
 
 ### Prerequisites

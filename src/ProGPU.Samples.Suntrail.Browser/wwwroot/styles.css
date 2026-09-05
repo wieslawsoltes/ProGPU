@@ -1,0 +1,7 @@
+html,body { width:100%; height:100%; margin:0; overflow:hidden; background:#183738; color:#fcf5dc; font-family:system-ui,sans-serif; }
+body { position:fixed; inset:0; overscroll-behavior:none; }
+#progpu-canvas { display:block; width:100%; height:100%; touch-action:none; outline:none; }
+#diagnostics { position:fixed; inset:10% 10% auto; padding:28px; background:#142a2e; border-radius:12px; }
+#diagnostics[hidden] { display:none; }
+pre { white-space:pre-wrap; }
+dl { display:none; }

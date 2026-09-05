@@ -74,4 +74,8 @@
   <Project Path="../tools/HarfBuzzParity/HarfBuzzParity.csproj" />
   <Project Path="../tools/ProGPU.Voxel.Benchmarks/ProGPU.Voxel.Benchmarks.csproj" />
   <Project Path="../tools/ProGPU.Xaml.Cli/ProGPU.Xaml.Cli.csproj" />
+  <Project Path="ProGPU.Samples.Suntrail/ProGPU.Samples.Suntrail.csproj" />
+  <Project Path="ProGPU.Samples.Suntrail.Desktop/ProGPU.Samples.Suntrail.Desktop.csproj" />
+  <Project Path="ProGPU.Samples.Suntrail.Browser/ProGPU.Samples.Suntrail.Browser.csproj" />
+  <Project Path="ProGPU.Samples.Suntrail.Tests/ProGPU.Samples.Suntrail.Tests.csproj" />
 </Solution>

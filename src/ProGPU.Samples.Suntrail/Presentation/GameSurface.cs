@@ -1,0 +1,46 @@
+using System.Numerics;
+using Microsoft.UI.Xaml;
+using ProGPU.Scene;
+using ProGPU.Samples.Suntrail.Game;
+using ProGPU.Samples.Suntrail.Rendering;
+
+namespace ProGPU.Samples.Suntrail.Presentation;
+
+public sealed class GameSurface : FrameworkElement
+{
+    public GameSurface() => SetCustomAnimationActive(true);
+    public GameSession Session { get; } = new();
+    public ProceduralBatch Batch { get; } = new();
+    public GameInput Input { get; set; }
+    public bool AutoPlay { get; set; }
+    public event Action? Updated;
+    private float _atmosphere;
+    private uint _revision = uint.MaxValue;
+    private Vector2 _builtSize;
+
+    protected override Vector2 MeasureOverride(Vector2 availableSize) => new(float.IsFinite(availableSize.X) ? availableSize.X : 1280, float.IsFinite(availableSize.Y) ? availableSize.Y : 800);
+    protected override void OnUpdateAnimations(float elapsedSeconds)
+    {
+        base.OnUpdateAnimations(elapsedSeconds);
+        if (AutoPlay)
+        {
+            if (Session.Mode != GameMode.Playing) Session.Continue();
+            Input = RoutePilot.GetInput(Session);
+        }
+        Session.Advance(elapsedSeconds, Input);
+        Input = Input with { JumpPressed = false };
+        bool animate = Session.Mode is GameMode.Playing or GameMode.Title;
+        if (animate) _atmosphere += Math.Clamp(elapsedSeconds, 0, .1f);
+        if (animate || _revision != Session.Revision || _builtSize != Size)
+        {
+            Batch.Build(Session, Size, _atmosphere);
+            _revision = Session.Revision; _builtSize = Size;
+            Invalidate();
+        }
+        Updated?.Invoke();
+    }
+    public override void OnRender(DrawingContext context)
+    {
+        if (Batch.Count > 0) context.DrawProceduralWorld(Batch);
+    }
+}
