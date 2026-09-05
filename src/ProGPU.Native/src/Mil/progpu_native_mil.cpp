@@ -14887,8 +14887,10 @@ struct channel::implementation {
         const auto paint_tile_pen_mask = [&builder, &append_single_tile_brush](
             const pen_state& pen, const brush_use_state& use,
             const render_scope_state& state,
-            std::span<const progpu_native_geometry_primitive> primitives) -> status {
-            if (primitives.empty()) return status::success;
+            std::span<const progpu_native_geometry_primitive> primitives,
+            std::span<const progpu_native_scene_path_fill> paths = {},
+            std::span<const progpu_native_path_segment> segments = {}) -> status {
+            if (primitives.empty() && paths.empty()) return status::success;
             progpu_native_image_rect bounds{};
             if (!try_transform_bounds(use.x, use.y, use.width, use.height,
                     use.effective_transform, bounds)) return status::invalid_graph;
@@ -14906,8 +14908,26 @@ struct channel::implementation {
             layer.opacity = 1.0F;
             layer.blend_mode = PROGPU_NATIVE_BLEND_SRC_OVER;
             layer.effect_resource_index = PROGPU_NATIVE_SCENE_NO_INDEX;
-            if (!builder.add_geometry_mask(mask, primitives, {}, layer.mask_resource_index) ||
-                !builder.push_layer(layer)) return status::invalid_graph;
+            if (paths.empty()) {
+                if (!builder.add_geometry_mask(mask, primitives, {}, layer.mask_resource_index)) return status::invalid_graph;
+            } else {
+                // Algorithm: batch mixed filled/stroked coverage into one white
+                // retained picture, preserving GPU alpha union and one paint.
+                // Time/space: O(P + S), primitives/paths P and segments S.
+                // Primitive-only groups retain the lighter geometry-mask path.
+                native::semantic_scene_builder coverage(builder.scene_id(), builder.generation());
+                if ((!primitives.empty() && !coverage.draw_geometry(primitives, {}, bounds)) ||
+                    !coverage.draw_paths(paths, segments, {}, bounds))
+                    return status::invalid_graph;
+                std::vector<std::byte> scene;
+                progpu_native_scene_layer_picture_mask picture{};
+                picture.bounds = bounds;
+                picture.transform = mask.transform;
+                picture.opacity = 1.0F;
+                if (!coverage.build(scene) || !builder.add_picture_mask(picture, scene, layer.mask_resource_index))
+                    return status::invalid_graph;
+            }
+            if (!builder.push_layer(layer)) return status::invalid_graph;
             const status drawn = append_single_tile_brush(pen.brush_handle, use, state);
             const bool restored = builder.pop_layer();
             return drawn != status::success ? drawn : restored ? status::success : status::invalid_graph;
@@ -15042,7 +15062,12 @@ struct channel::implementation {
             &append_path_tile_brush, &make_degenerate_rectangle_outline, &make_tile_fixed_geometry,
             &make_wpf_rounded_rectangle_geometry, &degenerate_ellipse_points](
             const fixed_geometry_state& shape, const pen_state& pen,
-            const brush_use_state& use, const render_scope_state& state) -> status {
+            const brush_use_state& use, const render_scope_state& state,
+            std::vector<progpu_native_geometry_primitive>* collected = nullptr,
+            std::vector<progpu_native_scene_path_fill>* collected_paths = nullptr,
+            std::vector<progpu_native_path_segment>* collected_segments = nullptr) -> status {
+            if ((collected == nullptr) != (collected_paths == nullptr) ||
+                (collected == nullptr) != (collected_segments == nullptr)) return status::invalid_graph;
             if (state.guideline_resource_index != PROGPU_NATIVE_SCENE_NO_INDEX || state.per_point_guidelines)
                 return status::unsupported_command;
             bool dashed = false;
@@ -15058,7 +15083,7 @@ struct channel::implementation {
                     smooth_pen.start_line_cap = PROGPU_NATIVE_STROKE_CAP_ROUND;
                     smooth_pen.end_line_cap = PROGPU_NATIVE_STROKE_CAP_ROUND;
                     return append_tile_line_pen(smooth_pen, shape.first - shape.third, shape.second - shape.fourth,
-                        shape.first + shape.third, shape.second + shape.fourth, use.effective_transform, state);
+                        shape.first + shape.third, shape.second + shape.fourth, use.effective_transform, state, collected);
                 }
                 const auto points = degenerate_ellipse_points(shape.first, shape.second, shape.third, shape.fourth);
                 std::array<progpu_native_path_segment, 4U> segments{};
@@ -15068,11 +15093,23 @@ struct channel::implementation {
                     segments[index].p0 = points[index];
                     segments[index].p1 = points[(index + 1U) % points.size()];
                 }
-                return append_tile_pen(smooth_pen, use, state, segments, joins, true);
+                return append_tile_pen(smooth_pen, use, state, segments, joins, true, {}, collected);
             }
             if (!dashed) {
                 const auto segments = make_degenerate_rectangle_outline(use.x, use.y,
                     use.x + use.width, use.y + use.height, shape.radius_x, shape.radius_y, pen);
+                if (collected != nullptr) {
+                    progpu_native_affine_2d transform{};
+                    if (!try_to_native_affine(use.effective_transform, transform)) return status::invalid_graph;
+                    const progpu_native_scene_path_fill path{collected_segments->size(), segments.size(), 0U, 0U,
+                        static_cast<float>(use.x), static_cast<float>(use.y),
+                        static_cast<float>(use.x + use.width), static_cast<float>(use.y + use.height),
+                        {1.0F, 1.0F, 1.0F, 1.0F}, transform, PROGPU_NATIVE_FILL_RULE_EVEN_ODD,
+                        state.edge_aliased ? 1U : 8U};
+                    collected_paths->push_back(path);
+                    collected_segments->insert(collected_segments->end(), segments.begin(), segments.end());
+                    return status::success;
+                }
                 return append_path_tile_brush(pen.brush_handle, use, state, segments, {}, PROGPU_NATIVE_FILL_RULE_EVEN_ODD);
             }
             const bool rounded = shape.radius_x > 0.0 && shape.radius_y > 0.0;
@@ -15080,7 +15117,7 @@ struct channel::implementation {
                 shape.third, shape.fourth, shape.radius_x, shape.radius_y) : make_tile_fixed_geometry(shape);
             pen_state stroke_pen = pen;
             if (rounded) stroke_pen.miter_limit = 1.0;
-            return append_tile_pen(stroke_pen, use, state, {}, {}, true, geometry.stroke_contours);
+            return append_tile_pen(stroke_pen, use, state, {}, {}, true, geometry.stroke_contours, collected);
         };
         const auto append_media_player = [
             this,
@@ -16396,8 +16433,8 @@ struct channel::implementation {
                                     } else if (
                                         resolved_fixed.kind ==
                                             fixed_geometry_kind::ellipse &&
-                                        resolved_fixed.third > 0.0 &&
-                                        resolved_fixed.fourth > 0.0) {
+                                        (tile_stroke_bounds ? resolved_fixed.third >= 0.0 : resolved_fixed.third > 0.0) &&
+                                        (tile_stroke_bounds ? resolved_fixed.fourth >= 0.0 : resolved_fixed.fourth > 0.0)) {
                                         child_left = resolved_fixed.first -
                                             resolved_fixed.third;
                                         child_top = resolved_fixed.second -
@@ -16409,8 +16446,8 @@ struct channel::implementation {
                                     } else if (
                                         resolved_fixed.kind ==
                                             fixed_geometry_kind::rectangle &&
-                                        resolved_fixed.third > 0.0 &&
-                                        resolved_fixed.fourth > 0.0) {
+                                        (tile_stroke_bounds ? resolved_fixed.third >= 0.0 : resolved_fixed.third > 0.0) &&
+                                        (tile_stroke_bounds ? resolved_fixed.fourth >= 0.0 : resolved_fixed.fourth > 0.0)) {
                                         child_left = resolved_fixed.first;
                                         child_top = resolved_fixed.second;
                                         child_right = resolved_fixed.first +
@@ -16715,6 +16752,8 @@ struct channel::implementation {
                         std::uint32_t stroke_brush_index =
                             PROGPU_NATIVE_SCENE_NO_INDEX;
                         std::vector<progpu_native_geometry_primitive> tile_primitives;
+                        std::vector<progpu_native_scene_path_fill> tile_paths;
+                        std::vector<progpu_native_path_segment> tile_segments;
                         std::size_t combined_stroke_cursor = 0U;
                         const status brush_status = tile_pen ? status::success : resolve_brush_index(
                             group_pen.brush_handle,
@@ -16729,7 +16768,8 @@ struct channel::implementation {
                             &append_resolved_line_stroke,
                             &append_positive_fixed_shape_stroke,
                             &append_tile_pen, &append_tile_line_pen, &make_tile_fixed_geometry,
-                            &tile_primitives, &stroke_brush_use, tile_pen,
+                            &append_degenerate_tile_shape,
+                            &tile_primitives, &tile_paths, &tile_segments, &stroke_brush_use, tile_pen,
                             &combined_stroke_outlines, &combined_stroke_cursor,
                             &group_pen,
                             stroke_brush_index,
@@ -16807,8 +16847,8 @@ struct channel::implementation {
                                                fixed_geometry_kind::ellipse ||
                                           resolved_line.kind ==
                                                fixed_geometry_kind::rectangle) &&
-                                        resolved_line.third > 0.0 &&
-                                        resolved_line.fourth > 0.0)) {
+                                        (tile_pen ? resolved_line.third >= 0.0 : resolved_line.third > 0.0) &&
+                                        (tile_pen ? resolved_line.fourth >= 0.0 : resolved_line.fourth > 0.0))) {
                                     return status::unsupported_command;
                                 }
                                 child_transform_handle =
@@ -16858,9 +16898,20 @@ struct channel::implementation {
                                         resolved_line.second, resolved_line.third, resolved_line.fourth,
                                         child_effective_transform, current, &tile_primitives);
                                 } else {
-                                    const auto geometry = make_tile_fixed_geometry(resolved_line);
-                                    stroke_status = append_tile_pen(group_pen, child_use, current, {}, {}, false,
-                                        geometry.stroke_contours, &tile_primitives);
+                                    if (resolved_line.third == 0.0 || resolved_line.fourth == 0.0) {
+                                        const bool ellipse = resolved_line.kind == fixed_geometry_kind::ellipse;
+                                        const double half = group_pen.thickness * 0.5;
+                                        child_use.x = resolved_line.first - (ellipse ? resolved_line.third : 0.0) - half;
+                                        child_use.y = resolved_line.second - (ellipse ? resolved_line.fourth : 0.0) - half;
+                                        child_use.width = resolved_line.third * (ellipse ? 2.0 : 1.0) + group_pen.thickness;
+                                        child_use.height = resolved_line.fourth * (ellipse ? 2.0 : 1.0) + group_pen.thickness;
+                                        stroke_status = append_degenerate_tile_shape(resolved_line, group_pen, child_use,
+                                            current, &tile_primitives, &tile_paths, &tile_segments);
+                                    } else {
+                                        const auto geometry = make_tile_fixed_geometry(resolved_line);
+                                        stroke_status = append_tile_pen(group_pen, child_use, current, {}, {}, false,
+                                            geometry.stroke_contours, &tile_primitives);
+                                    }
                                 }
                             } else if (stroke_path != nullptr) {
                                 stroke_status = append_path_strokes(
@@ -16907,7 +16958,8 @@ struct channel::implementation {
                         }
                         if (combined_stroke_cursor != combined_stroke_outlines.size()) return status::invalid_graph;
                         if (tile_pen) {
-                            const status painted = paint_tile_pen_mask(group_pen, stroke_brush_use, current, tile_primitives);
+                            const status painted = paint_tile_pen_mask(group_pen, stroke_brush_use, current,
+                                tile_primitives, tile_paths, tile_segments);
                             if (painted != status::success) return painted;
                         }
                     }

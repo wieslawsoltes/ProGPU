@@ -43,6 +43,7 @@ struct mil_image_brush_fixture_options {
     double dash_offset{0.25};
     std::array<double, 2U> fixed_extent{48.0, 48.0};
     std::uint32_t line_join{PROGPU_NATIVE_STROKE_JOIN_ROUND};
+    bool collapsed_group{};
 };
 
 inline bool build_mil_image_brush_fixture(std::vector<std::byte>& scene,
@@ -156,10 +157,14 @@ inline bool build_mil_image_brush_fixture(std::vector<std::byte>& scene,
         } else {
             packet(batch, command::channel_create_resource, 17U, 69U);
             packet(batch, command::rectangle_geometry, 17U,
-                0.0, 0.0, 8.0, 8.0, 48.0, 48.0, 0U, 0U, 0U, 0U);
+                0.0, 0.0, 8.0, 8.0,
+                options.collapsed_group ? options.fixed_extent[0] : 48.0,
+                options.collapsed_group ? options.fixed_extent[1] : 48.0, 0U, 0U, 0U, 0U);
             packet(batch, command::channel_create_resource, 18U, 70U);
             packet(batch, command::ellipse_geometry, 18U,
-                12.0, 18.0, 32.0, 32.0, 0U, 0U, 0U, 0U);
+                options.collapsed_group ? options.fixed_extent[0] * 0.5 : 12.0,
+                options.collapsed_group ? options.fixed_extent[1] * 0.5 : 18.0,
+                32.0, 32.0, 0U, 0U, 0U, 0U);
             packet(batch, command::channel_create_resource, 15U,
                 options.shape == mil_brush_fixture_shape::group ? 71U : 72U);
             if (options.shape == mil_brush_fixture_shape::group) {

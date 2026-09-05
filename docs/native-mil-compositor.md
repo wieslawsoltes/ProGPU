@@ -7765,6 +7765,42 @@ Collapsed fixed children in `GeometryGroup` still need integration with the sing
 group coverage collector. Guideline-aware tile masks and the remaining broad
 MIL/DirectX/Direct2D/Win2D scope remain open.
 
+### Implementation-first checkpoint: collapsed fixed children in tile-pen groups
+
+The native MIL group bounds/stroke walkers now accept collapsed rectangle and
+ellipse children for tiled pens, including nested transforms. Each child's stroke
+extent is expanded before its transform; all child coverage is collected before
+the one group brush paint. Dashed/ellipse coverage reuses the geometry primitive
+collector. Undashed collapsed rectangles retain their exact filled outer contours
+in a path/segment arena instead of approximating them as ordinary line strokes.
+
+Primitive-only groups keep the existing geometry-mask resource. Mixed filled and
+stroked groups use the existing retained picture-mask resource with a white nested
+scene containing at most one geometry batch and one path batch. This preserves
+GPU alpha composition and one tile paint without CPU pixel readback or per-child
+submission. The picture executor currently creates a same-device child engine and
+target-space intermediate; its residency, startup, submission, and frame-time costs
+must be measured and optimized/qualified in the final performance phase. This is
+not evidence that the mixed-mask route is the fastest qualified default.
+
+Provenance: original ProGPU fixed-shape adapters from the preceding checkpoint,
+`semantic_scene_builder::draw_geometry`/`draw_paths`/`add_picture_mask`, and the
+existing picture-mask GPU executor. No public ABI, canonical shader, or managed
+renderer semantics changed. Managed replay remains the paired differential
+reference for this native MIL resource-consumer work. Bookkeeping and nested-scene
+serialization are O(P + S) time/storage in collected primitives/paths P and segments
+S; topology/dash traversal retains its dependency-ordered algorithms. No independent
+CPU pixel loop or new SIMD kernel was introduced.
+
+The Release WebGPU-enabled native library and MIL-test executable compile. Added
+720 fixture cases across sources, collapse axes, joins, dash phases, and all tile
+modes; they assert one picture mask for mixed coverage or one geometry mask for
+primitive-only coverage. They are **not executed**. The coverage ledger was
+regenerated; runtime/image/VM tests, verifiers, benchmarks, and CI qualification
+remain deferred. Non-tiled collapsed fixed children remain explicitly unsupported
+in the group walker; completing those brush-mapping semantics, guideline-aware
+masks, and the broader MIL/DirectX/Direct2D/Win2D scope remains required.
+
 ## Invariants
 
 - No reflection or private managed field scanning in the product bridge.
