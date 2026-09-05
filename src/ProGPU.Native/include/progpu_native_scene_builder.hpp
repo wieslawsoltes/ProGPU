@@ -201,6 +201,8 @@ public:
         std::uint32_t state_resource_index =
             PROGPU_NATIVE_SCENE_NO_INDEX) noexcept;
     bool restore() noexcept;
+    bool add_tile_composite(const progpu_native_scene_tile_composite& tile,
+        std::uint32_t& resource_index) noexcept;
     bool push_layer(const progpu_native_scene_layer& layer) noexcept;
     bool pop_layer() noexcept;
 

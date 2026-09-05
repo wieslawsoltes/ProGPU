@@ -341,6 +341,28 @@ public partial struct NativeTextParagraphResult
     public ulong ScratchBytesUsed;
 }
 
+// Native source: progpu_native_scene_tile_composite.
+[StructLayout(LayoutKind.Sequential)]
+public partial struct NativeSceneTileComposite
+{
+    public uint StructSize;
+    public uint AddressU;
+    public uint AddressV;
+    public uint Reserved;
+    public float OutputX;
+    public float OutputY;
+    public float OutputWidth;
+    public float OutputHeight;
+    public float M11;
+    public float M12;
+    public float M21;
+    public float M22;
+    public float M31;
+    public float M32;
+    public uint Reserved0;
+    public uint Reserved1;
+}
+
 // Native source: progpu_native_point_3d.
 [StructLayout(LayoutKind.Sequential)]
 public partial struct NativePoint3D

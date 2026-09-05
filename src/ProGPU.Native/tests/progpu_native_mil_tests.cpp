@@ -1,5 +1,6 @@
 #include "progpu_native_mil.hpp"
 #include "progpu_native_mil.h"
+#include "progpu_native_scene_builder.hpp"
 #include "progpu_native_mil_visual_clip_fixture.hpp"
 #include "progpu_native_mil_image_brush_fixture.hpp"
 #include "../src/Mil/progpu_native_mil_curve_dash.hpp"
@@ -18817,6 +18818,38 @@ bool c_abi_is_typed_and_size_versioned() {
 } // namespace
 
 int main() {
+    {
+        static_assert(sizeof(progpu_native_scene_tile_composite) == 64U);
+        progpu::native::semantic_scene_builder builder(9510U, 1U);
+        std::uint32_t state_index{}, tile_index{};
+        PROGPU_REQUIRE(builder.add_state(progpu::native::semantic_scene_builder::identity_state(), state_index));
+        progpu_native_scene_tile_composite tile{sizeof(tile), 1U, 2U, 0U,
+            8.0F, 4.0F, 32.0F, 16.0F, 0.125F, 0.0F, 0.0F, 0.25F, -2.0F, -2.0F, 0U, 0U};
+        PROGPU_REQUIRE(builder.add_tile_composite(tile, tile_index));
+        progpu_native_scene_layer layer{};
+        layer.struct_size = sizeof(layer);
+        layer.flags = PROGPU_NATIVE_SCENE_LAYER_BOUNDS | PROGPU_NATIVE_SCENE_LAYER_CACHE_CONTENT |
+            PROGPU_NATIVE_SCENE_LAYER_CACHE_LOCAL_SPACE | PROGPU_NATIVE_SCENE_LAYER_CACHE_TILE;
+        layer.bounds = {0.0F, 0.0F, 3.0F, 5.0F};
+        layer.opacity = 1.0F;
+        layer.mask_resource_index = layer.effect_resource_index = PROGPU_NATIVE_SCENE_NO_INDEX;
+        layer.content_revision = 7U;
+        layer.composite_revision = 9U;
+        layer.reserved0 = state_index;
+        layer.reserved1 = tile_index;
+        PROGPU_REQUIRE(builder.push_layer(layer));
+        PROGPU_REQUIRE(builder.pop_layer());
+        std::vector<std::byte> stream;
+        PROGPU_REQUIRE(builder.build(stream));
+        PROGPU_REQUIRE(!stream.empty());
+        layer.flags |= PROGPU_NATIVE_SCENE_LAYER_CACHE_FANT;
+        PROGPU_REQUIRE(!builder.push_layer(layer));
+        layer.flags &= ~PROGPU_NATIVE_SCENE_LAYER_CACHE_FANT;
+        layer.reserved1 = state_index;
+        PROGPU_REQUIRE(!builder.push_layer(layer));
+        tile.address_u = 3U;
+        PROGPU_REQUIRE(!builder.add_tile_composite(tile, tile_index));
+    }
     for (std::uint32_t sampling = 0U; sampling <= 1U; ++sampling) {
         for (std::uint32_t u = 0U; u <= 2U; ++u) {
             for (std::uint32_t v = 0U; v <= 2U; ++v) {

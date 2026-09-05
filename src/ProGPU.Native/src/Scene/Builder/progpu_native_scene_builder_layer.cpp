@@ -574,6 +574,33 @@ bool semantic_scene_builder::add_effect_chain(
     }
 }
 
+bool semantic_scene_builder::add_tile_composite(
+    const progpu_native_scene_tile_composite& tile,
+    std::uint32_t& resource_index) noexcept {
+    resource_index = PROGPU_NATIVE_SCENE_NO_INDEX;
+    if (!semantic::is_valid_semantic_tile_composite(tile) ||
+        implementation_->resources.size() >= PROGPU_NATIVE_SCENE_MAX_RESOURCES) {
+        return implementation_->fail(scene_build_error::invalid_argument);
+    }
+    try {
+        implementation::resource_entry resource{};
+        resource.record.struct_size = sizeof(resource.record);
+        resource.record.kind = PROGPU_NATIVE_SCENE_RESOURCE_TILE_COMPOSITE;
+        resource.record.flags = PROGPU_NATIVE_SCENE_RECORD_REQUIRED;
+        resource.record.resource_id = implementation_->resources.size() + 1U;
+        resource.record.generation = implementation_->generation;
+        resource.payload = copy_bytes(std::span(&tile, 1U));
+        implementation_->resources.push_back(std::move(resource));
+        resource_index = static_cast<std::uint32_t>(implementation_->resources.size() - 1U);
+        implementation_->error = scene_build_error::none;
+        return true;
+    } catch (const std::bad_alloc&) {
+        return implementation_->fail(scene_build_error::out_of_memory);
+    } catch (...) {
+        return implementation_->fail(scene_build_error::invalid_state);
+    }
+}
+
 bool semantic_scene_builder::push_layer(
     const progpu_native_scene_layer& source) noexcept {
     progpu_native_scene_layer layer = source;
@@ -585,7 +612,8 @@ bool semantic_scene_builder::push_layer(
     if (!local_cache && !explicit_composite_state) {
         layer.reserved0 = 0U;
     }
-    layer.reserved1 = 0U;
+    const bool tile_cache = (layer.flags & PROGPU_NATIVE_SCENE_LAYER_CACHE_TILE) != 0U;
+    if (!tile_cache) layer.reserved1 = 0U;
     const auto valid_resource = [&](std::uint32_t index,
                                     std::uint32_t kind) noexcept {
         return index == PROGPU_NATIVE_SCENE_NO_INDEX ||
@@ -628,7 +656,7 @@ bool semantic_scene_builder::push_layer(
                         return (guidelines.flags &
                             PROGPU_NATIVE_SCENE_GUIDELINE_PER_POINT) == 0U;
                     }());
-        const bool canonical_transform = local_cache ||
+        const bool canonical_transform = (local_cache && !tile_cache) ||
             (state.transform.m11 == 1.0F &&
                 state.transform.m12 == 0.0F &&
                 state.transform.m21 == 0.0F &&
@@ -638,10 +666,13 @@ bool semantic_scene_builder::push_layer(
         return (state.flags & ~composite_flags) == 0U &&
             canonical_transform &&
             state.opacity == 1.0F && state.mask_resource_index == 0U &&
-            guideline_is_valid;
+            guideline_is_valid && (!tile_cache || state.flags ==
+                (state.flags & PROGPU_NATIVE_SCENE_STATE_CLIP_RECT));
     };
     const bool materialized = scene::layer_requires_materialization(layer);
     if (!semantic::is_valid_semantic_layer(layer) ||
+        (tile_cache && (layer.reserved1 == PROGPU_NATIVE_SCENE_NO_INDEX ||
+            !valid_resource(layer.reserved1, PROGPU_NATIVE_SCENE_RESOURCE_TILE_COMPOSITE))) ||
         !valid_resource(
             layer.mask_resource_index,
             PROGPU_NATIVE_SCENE_RESOURCE_LAYER_MASK) ||

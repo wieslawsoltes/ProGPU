@@ -172,6 +172,9 @@ std::uint64_t append_scope_command(
         (layer.flags & (PROGPU_NATIVE_SCENE_LAYER_CACHE_LOCAL_SPACE |
             PROGPU_NATIVE_SCENE_LAYER_COMPOSITE_STATE)) != 0U;
     const std::uint32_t composite_state_resource_index = layer.reserved0;
+    const bool tile_cache = (layer.flags & PROGPU_NATIVE_SCENE_LAYER_CACHE_TILE) != 0U;
+    const std::uint32_t tile_resource_index = layer.reserved1;
+    if (tile_cache) layer.reserved1 = 0U;
     layer.mask_resource_index = 0U;
     layer.effect_resource_index = 0U;
     if (has_composite_state) {
@@ -182,6 +185,7 @@ std::uint64_t append_scope_command(
         hash, bytes, header, mask_resource_index);
     hash = append_resource_reference(
         hash, bytes, header, effect_resource_index);
+    if (tile_cache) hash = append_resource_reference(hash, bytes, header, tile_resource_index);
     return has_composite_state
         ? append_resource_reference(
             hash, bytes, header, composite_state_resource_index)
