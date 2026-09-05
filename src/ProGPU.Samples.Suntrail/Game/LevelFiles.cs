@@ -6,12 +6,13 @@ using System.Xml.Linq;
 namespace ProGPU.Samples.Suntrail.Game;
 
 /// <summary>
-/// Original readers of the documented Tiled object-map contracts, plus Suntrail v1.
-/// O(B + N) time/storage at import, capped at 1 MiB and 256 objects; no reflection,
+/// Original readers of the documented Tiled map contracts, plus Suntrail v1.
+/// Bounded import parsing; tile decoding/coalescing costs are documented in LevelFiles.Tiles.cs.
+/// Files are capped at 1 MiB and compiled levels at 256 objects; no reflection,
 /// file references, code execution, or parsing during simulation/rendering.
 /// Unsupported geometry fails transactionally instead of changing collision rules.
 /// </summary>
-public static class LevelFiles
+public static partial class LevelFiles
 {
     private static readonly string[] Kinds = ["ground", "ledge", "moving", "crate", "pipe", "stone", "coin", "relic", "enemy", "hazard", "checkpoint", "spawn", "exit", "saw", "flame", "crusher"];
     public static string KindName(LevelObjectKind kind) => Kinds[(int)kind];
@@ -31,12 +32,12 @@ public static class LevelFiles
             {
                 ".json" or ".suntrail" => ReadJson(bytes, Path.GetFileNameWithoutExtension(fileName)),
                 ".tmx" => ReadTmx(bytes, Path.GetFileNameWithoutExtension(fileName)),
-                ".nes" => throw new FormatException("NES cartridge level decoding is not available yet. This loader currently accepts Suntrail and Tiled object maps."),
-                ".lvl" or ".lvlx" => throw new FormatException("SMBX level decoding is not available yet. This loader currently accepts Suntrail and Tiled object maps."),
-                _ => throw new FormatException("Choose a Suntrail .suntrail, Tiled .json or .tmx object map.")
+                ".nes" => throw new FormatException("NES cartridge level decoding is not available yet. This loader currently accepts Suntrail and Tiled maps."),
+                ".lvl" or ".lvlx" => throw new FormatException("SMBX level decoding is not available yet. This loader currently accepts Suntrail and Tiled maps."),
+                _ => throw new FormatException("Choose a Suntrail .suntrail, Tiled .json or .tmx map.")
             };
         }
-        catch (Exception e) when (e is JsonException or XmlException or InvalidOperationException or OverflowException or KeyNotFoundException)
+        catch (Exception e) when (e is JsonException or XmlException or InvalidOperationException or OverflowException or KeyNotFoundException or IOException)
         { throw new FormatException("The level file is malformed: " + e.Message, e); }
     }
 
@@ -54,24 +55,25 @@ public static class LevelFiles
         else
         {
             if (Text(root, "type") != "map" || Text(root, "orientation") != "orthogonal" || Flag(root, "infinite"))
-                throw new FormatException("Only finite orthogonal Tiled object maps are supported.");
-            ReadLayers(root.GetProperty("layers"), default, items, 0);
+                throw new FormatException("Only finite orthogonal Tiled maps are supported.");
+            ReadLayers(root.GetProperty("layers"), default, items, 0, new TiledTiles(root));
         }
         return new(native ? Text(root, "name") : PropertyText(root, "suntrail.name", fallbackName),
             Integer(native ? Number(root, "biome") : PropertyNumber(root, "suntrail.biome")), items.ToArray());
     }
 
-    private static void ReadLayers(JsonElement layers, System.Numerics.Vector2 offset, List<LevelObject> items, int depth)
+    private static void ReadLayers(JsonElement layers, System.Numerics.Vector2 offset, List<LevelObject> items, int depth, TiledTiles tiles)
     {
         if (depth > 16) throw new FormatException("Tiled groups may be nested at most 16 levels.");
         foreach (var layer in layers.EnumerateArray())
         {
             var position = offset + new System.Numerics.Vector2(Number(layer, "offsetx"), Number(layer, "offsety"));
             string type = Text(layer, "type");
-            if (type == "group") ReadLayers(layer.GetProperty("layers"), position, items, depth + 1);
+            if (type == "group") ReadLayers(layer.GetProperty("layers"), position, items, depth + 1, tiles);
             else if (type == "objectgroup")
                 foreach (var item in layer.GetProperty("objects").EnumerateArray()) ReadObject(item, position, false, items);
-            else throw new FormatException($"Layer '{Text(layer, "name")}' uses {type}. Tile/image layers are not supported by the object-map adapter yet.");
+            else if (type == "tilelayer") tiles.Read(layer, position, items);
+            else throw new FormatException($"Layer '{Text(layer, "name")}' uses {type}. Image layers are not supported yet.");
         }
     }
 
@@ -95,20 +97,21 @@ public static class LevelFiles
             MaxCharactersInDocument = LevelDocument.MaximumBytes, IgnoreComments = true });
         var root = XDocument.Load(reader).Root ?? throw new FormatException("Missing TMX map.");
         if (root.Name != "map" || Attribute(root, "orientation") != "orthogonal" || Attribute(root, "infinite", "0") != "0")
-            throw new FormatException("Only finite orthogonal Tiled object maps are supported.");
+            throw new FormatException("Only finite orthogonal Tiled maps are supported.");
         var items = new List<LevelObject>();
-        ReadXmlLayers(root, default, items, 0);
+        ReadXmlLayers(root, default, items, 0, new TiledTiles(root));
         return new(XmlProperty(root, "suntrail.name", fallbackName), Integer(ParseNumber(XmlProperty(root, "suntrail.biome", "0"))), items.ToArray());
     }
 
-    private static void ReadXmlLayers(XElement parent, System.Numerics.Vector2 offset, List<LevelObject> items, int depth)
+    private static void ReadXmlLayers(XElement parent, System.Numerics.Vector2 offset, List<LevelObject> items, int depth, TiledTiles tiles)
     {
         if (depth > 16) throw new FormatException("Tiled groups may be nested at most 16 levels.");
         foreach (var layer in parent.Elements())
         {
             if (layer.Name == "properties" || layer.Name == "tileset") continue;
             var position = offset + new System.Numerics.Vector2(XmlNumber(layer, "offsetx"), XmlNumber(layer, "offsety"));
-            if (layer.Name == "group") { ReadXmlLayers(layer, position, items, depth + 1); continue; }
+            if (layer.Name == "group") { ReadXmlLayers(layer, position, items, depth + 1, tiles); continue; }
+            if (layer.Name == "layer") { tiles.Read(layer, position, items); continue; }
             if (layer.Name != "objectgroup") throw new FormatException($"TMX layer '{Attribute(layer, "name")}' uses unsupported {layer.Name} geometry.");
             foreach (var item in layer.Elements("object"))
             {

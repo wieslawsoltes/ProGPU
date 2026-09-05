@@ -157,7 +157,7 @@ snapshot. Pause and return to the workshop to resume editing; playtest completio
 does not unlock campaign levels.
 
 **Save** writes a `.suntrail` version 1 JSON document. **Open** accepts these files
-and finite orthogonal Tiled `.json` / `.tmx` object maps. The object-map adapter
+and finite orthogonal Tiled `.json` / `.tmx` maps. The object-map adapter
 uses rectangle and point objects with a gameplay class: `ground`, `ledge`,
 `moving`, `crate`, `pipe`, `stone`, `coin`, `relic`, `enemy`, `hazard`, `checkpoint`,
 `spawn`, `exit`, `saw`, `flame`, or `crusher`. Map properties `suntrail.name` and
@@ -170,7 +170,7 @@ height, and coin/relic use their center. Enemy collision size is 42 × 34.
 Import is a conversion into Suntrail gameplay geometry and procedural artwork.
 Tiled editor colors, visibility, opacity and drawing order do not select gameplay
 rules. Saving creates a Suntrail copy; it does not round-trip Tiled metadata.
-Tile/image layers, rotated/nonrectangular objects, templates, external assets,
+Image layers, rotated/nonrectangular objects, templates, external assets,
 NES cartridges and SMBX files are not implemented yet. Custom pipes currently
 provide solid pipe geometry; authoring connected room destinations remains open.
 
@@ -200,3 +200,34 @@ is limited to installing/restoring the application's resource scope in fixtures.
 See [package-consumer usage and ownership](../drawing-extensions.md). The API is
 merged into main; it still needs a package release before consumers can use it from
 an ordinary published NuGet version.
+
+
+### Tiled tile layers
+
+Finite tile layers support JSON integer arrays and TMX CSV or individual `<tile>`
+elements. Both formats also accept base64 data containing little-endian 32-bit tile
+IDs, optionally compressed with gzip or zlib. Embedded tileset `type` / `class`
+values use the same gameplay names as object layers. Multiple tilesets, sparse
+local IDs and nested pixel offsets are resolved before compiling gameplay objects.
+
+Contiguous static `ground`, `ledge` and `stone` cells with matching properties merge
+into collision rectangles. Individual actors, moving platforms and mechanisms keep
+their identity. Coins use cell centers; spawn/enemy markers align their feet with
+the bottom of the cell; checkpoints and exits use bottom-center coordinates.
+Horizontal/vertical/diagonal tile flags preserve symmetric whole-cell solids;
+transformed actors and mechanisms report an unsupported-transform error. The stale
+hexagonal rotation bit is cleared for orthogonal maps as required by Tiled's
+[GID contract](https://doc.mapeditor.org/en/stable/reference/global-tile-ids/).
+
+The importer caps all layers together at 65,536 cells and 4,096 tilesets/gameplay
+definitions, then enforces the usual 256-object/artwork limits. Decompression reads
+only the declared cell bytes and checks for extra or missing data. Invalid IDs,
+overlapping tileset ranges and unsupported encodings fail transactionally. External
+TSX/TSJ dependencies, zstd compression, infinite chunks and custom per-tile collision
+object groups remain open. Embed tilesets and use whole-cell classes for this lane.
+Tileset images are not imported: the map becomes Suntrail procedural gameplay art.
+
+The independently authored [tile-crossing fixture](levels/tile-crossing.tmx) has
+three stretches of ground separated by two gaps. It imports, plays to completion
+and remains editable. Its 504 solid cells compile to three ground rectangles.
+This extends Tiled compatibility; it does not establish NES or SMBX compatibility.

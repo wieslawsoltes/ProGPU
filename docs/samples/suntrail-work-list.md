@@ -26,7 +26,7 @@ The iPhone black screen was fixed and the user confirmed gameplay. Smooth iPhone
 is not yet verified. The controls pass targeted input tests and native visual checks. Eight optional vaults,
 two-way pipe travel, and three timed hazard families are implemented and tested.
 The main campaign still needs a broader encounter redesign; new rooms do not by
-themselves complete that request. Current sample validation: 84 Release tests. The reported unresponsive joystick was
+themselves complete that request. Current sample validation: 97 Release tests. The reported unresponsive joystick was
 reproduced through platform pointer injection and fixed in the shared WinUI panel
 hit-test path; two-axis thumb feedback now repaints during dragging.
 Full Mario format compatibility, editor completeness and full 3D remain open.
@@ -65,12 +65,18 @@ open; this launch alone does not close those requirements.
 The first workshop now supports mouse/touch palette placement, selection and drag,
 one-step drag undo, redo, deletion, width edits, biome changes, bounded JSON save/load
 and isolated playtests. Original finite Tiled object-map JSON/TMX adapters are tested;
-tile layers, NES and SMBX data, connected custom pipes, asset import and robust format
-round trips remain open. Desktop drag and playtest were visually checked. Browser AOT
-and the latest application-owned extension API integration are being validated.
+At that stage tile layers, NES and SMBX data, connected custom pipes, asset import
+and robust format round trips remained open. Desktop drag and playtest were visually
+checked. Browser AOT and the application-owned extension API integration now pass.
 
 Public drawing-extension registration was split into PR #159 and merged into main.
 This branch merged main and uses the typed API across the game, GPU fixtures and
 measurement tools. A procedural-pixel regression covers mobile surface recreation.
 This completes the API extraction/integration request, independently of the open
 gameplay, compatibility, editor and full-3D scope above.
+
+Finite Tiled tile layers now compile embedded gameplay classes from JSON arrays,
+TMX CSV/XML and raw/gzip/zlib base64. Matching solid runs coalesce into bounded
+rectangles; independently authored and randomized fixtures verify occupancy,
+format equivalence, corruption limits and ordinary-input completion. External
+tileset/asset bundles, infinite maps, zstd, NES and SMBX remain open.

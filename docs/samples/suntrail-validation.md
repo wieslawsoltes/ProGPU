@@ -436,3 +436,37 @@ verified with no captured warning/error messages. Code-signature verification an
 all 250 WebGPU exports pass for the iOS build. The new build has not been installed;
 the user is still evaluating the earlier installed controls/campaign revision.
 Logs use the `public-api-` prefix under `artifacts/suntrail`.
+
+
+## Finite Tiled tile layers
+
+The sample now passes 97 Release tests. Nine independently authored representations
+(JSON arrays; TMX CSV and individual XML tiles; raw/gzip/zlib base64 in both formats)
+produce identical Suntrail snapshots and complete with ordinary route-pilot inputs
+and zero deaths. Thirty seeded occupancy maps verify solid coalescing without gaps
+or overlap; malformed IDs, unsupported transforms, oversized layers and compressed
+length mismatches fail before replacing the draft. The representative 504-cell
+terrain compiles to three bounded solid rectangles. This reduces imported object
+count; it is not an FPS measurement.
+
+Desktop Release (zero warnings), Browser AOT publish and signed iOS Release pass.
+The iOS build takes 2:00 with four existing trim warnings; strict code-signature
+verification passes and all 250 WebGPU exports remain present. This build has not
+been installed. Logs and the signed-binary manifest use the `tile-import-` prefix
+under `artifacts/suntrail`.
+
+Computer Use opened the gzip-compressed JSON fixture through foreground Chrome's
+native file picker. The workshop displayed its Sandstone Reach biome, three ground
+rectangles, markers and moving tile. Its playtest rendered the imported scene;
+no browser warning/error messages were captured. Full automated completion is
+covered by the simulation tests rather than inferred from this visual check.
+
+The importer is original application-level CPU code based on the documented
+[Tiled JSON fields](https://doc.mapeditor.org/en/stable/reference/json-map-format/),
+[TMX data encodings](https://doc.mapeditor.org/en/stable/reference/tmx-map-format/)
+and [global tile IDs](https://doc.mapeditor.org/en/stable/reference/global-tile-ids/).
+No renderer, canonical shader or native ABI contract changed. External tilesets,
+image assets, infinite chunks, zstd and NES/SMBX adapters remain unsupported.
+
+The separate API PR's hosted image-parity, macOS x64 native and mobile-package
+checks have now passed; three other macOS jobs remained queued at this check.
