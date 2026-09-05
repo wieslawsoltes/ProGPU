@@ -6657,6 +6657,22 @@ sibling effect-content passes around the retained mesh pages. This does not
 claim arbitrary mixed 2D/3D bundle, guideline, transformed-viewport, or full
 lighting/shading-mode parity; those remain explicit implementation gates.
 
+## Mixed 2D/3D composition checkpoint, 2026-09-05
+
+Native draw bundles now carry a per-bundle depth requirement. Compilation
+splits at 2D/3D transitions as well as clip/target/mask changes, and replay
+switches compatible render passes without discarding stored mesh depth. A
+frame containing 3D uses this transition-aware path even without isolated
+layers; the all-2D single-pass path is unchanged. Layer-free successful frames
+also clear stale layer diagnostics from the preceding scene.
+
+Three additional raw-MIL cases draw cyan 2D content before and after the
+red/blue Viewport3D siblings: exact vector clips, rectangular direct-to-window
+clips without isolation, and nested retained caches. Cold/warm pixels and
+submission counts are asserted alongside depth ordering. This is ten GPU
+variants in total, not a claim of every possible draw-family transition or
+complete Viewport3D transform/guideline/shading parity.
+
 ## Invariants
 
 - No reflection or private managed field scanning in the product bridge.

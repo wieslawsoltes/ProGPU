@@ -3687,13 +3687,13 @@ progpu_native_status render_scene(
         WGPURenderBundleEncoder bundle_encoder = nullptr;
         std::uint32_t semantic_effect_uniform_cursor = 0U;
         std::uint32_t active_bundle_draw_count = 0U;
+        bool active_bundle_uses_depth = false;
         semantic_scissor active_scissor{};
         bool has_active_scissor = false;
         std::uint32_t active_target_layer =
             PROGPU_NATIVE_SCENE_NO_INDEX;
         std::uint32_t active_mask_resource_index =
             PROGPU_NATIVE_SCENE_NO_INDEX;
-        bool active_bundle_uses_depth = false;
         semantic_render_bundle_span active_mask{};
         enum class pending_draw_kind : std::uint8_t {
             none,
@@ -5325,10 +5325,11 @@ progpu_native_status render_scene(
         uniform_upload_bytes += clear_metrics.uniform_upload_bytes;
     }
 
+    // A successful layer-free frame must not report the previous scene's
+    // offscreen passes or cache hits when the same engine is reused.
+    engine->last_layer_metrics = {};
+    engine->last_layer_metrics.struct_size = sizeof(progpu_native_layer_metrics);
     if (semantic_has_materialized_layers || semantic_has_state_masks) {
-        engine->last_layer_metrics = {};
-        engine->last_layer_metrics.struct_size =
-            sizeof(progpu_native_layer_metrics);
         std::uint32_t texture_generation = 0U;
         std::uint32_t effect_texture_generation = 0U;
         for (std::uint32_t index = 0U;
