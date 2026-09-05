@@ -3696,3 +3696,33 @@ draw counts, and missing-source failure. The native library and compatibility
 test target compile. Tests are not executed: Windows/native differential images,
 macOS/Linux GPU behavior, source lifetime stress, performance, and CI qualification
 remain deferred to the final validation phase.
+
+## Implementation-first checkpoint: automatic Direct2D layers
+
+The portable render target now accepts `PushLayer(parameters, nullptr)`, following
+the Windows 8-and-later optional-resource behavior documented by
+[ID2D1RenderTarget::PushLayer](https://learn.microsoft.com/en-us/windows/win32/api/d2d1/nf-d2d1-id2d1rendertarget-pushlayer%28constd2d1_layer_parameters__id2d1layer%29).
+Automatic scopes emit the same semantic layers as explicit resources, allowing
+the existing compositor to own intermediate targets. They do not manufacture
+COM layer objects or introduce a separate rendering path. Scope membership is
+tracked by the existing typed scope stack, independently of whether a public
+resource is present. Explicit layers still retain factory checks, exclusive
+use leases, size tracking, and release-on-error/destruction behavior.
+
+Original ProGPU implementation: O(1) additional scope bookkeeping in fixed-capacity
+storage; existing mask serialization and renderer allocation policies are unchanged.
+No CPU pixel work, shader change, C ABI/module change, or managed WPF workaround
+is introduced. Portable callers, including Windows COM ABI callers, share this
+C++ endpoint. The separate Windows command-list consumer already accepts absent
+layer resources and is not changed here. This does not implement its remaining
+mask/transform gaps or claim full `ID2D1DeviceContext`/Win2D parity.
+
+Authored regressions compare explicit/automatic scene bytes for unmasked,
+geometric, solid-opacity, full-target opacity, composite-gradient, and bitmap
+opacity layers; cover mixed clips/layers, unbalanced scopes, overflow, invalid
+parameters, explicit-lease recovery; and extend the Windows ABI fixture with a
+nested automatic layer. The native library and portable compatibility target
+compile. Runtime tests, Windows-specific compilation/execution, GPU/VM image
+comparisons, benchmarks, and CI qualification remain deferred. Bounded general
+rotation/shear is still rejected: the reviewed documentation did not establish
+its exact edge behavior sufficiently to replace the planned Windows oracle.
