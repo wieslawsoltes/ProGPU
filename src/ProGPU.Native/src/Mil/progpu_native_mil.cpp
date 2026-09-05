@@ -5,6 +5,7 @@
 #include "../Geometry/progpu_native_arc.hpp"
 #include "../Scene/progpu_native_semantic_brush.hpp"
 #include "../Scene/progpu_native_semantic_validation.hpp"
+#include "../Scene/progpu_native_semantic_path_stroke.hpp"
 
 #include <algorithm>
 #include <array>
@@ -14733,6 +14734,66 @@ struct channel::implementation {
             paint.clip_boolean_node_count = clip_boolean_nodes.size();
             return append_single_tile_brush(brush_handle, use, paint);
         };
+        // Algorithm: Compile the canonical stroke once into a GPU alpha mask,
+        // then apply the native tile source through an isolated masked layer.
+        // Time/space: O(S + D) retained primitives for S segments and D dash
+        // pieces; dash traversal is sequential, not an independent CPU pixel loop.
+        const auto append_tile_pen = [this, &builder, &append_single_tile_brush](
+            const pen_state& pen, const brush_use_state& use,
+            const render_scope_state& state,
+            std::span<const progpu_native_path_segment> segments,
+            std::span<const std::uint8_t> smooth_joins, bool closed) -> status {
+            if (pen.thickness <= 0.0 || pen.brush_handle == 0U ||
+                affine_has_zero_area(use.effective_transform)) return status::success;
+            std::span<const double> intervals;
+            double dash_offset = 0.0;
+            if (pen.dash_style_handle != 0U) {
+                const auto found = dash_styles.find(pen.dash_style_handle);
+                if (found == dash_styles.end()) return status::invalid_handle;
+                intervals = found->second.intervals;
+                const status resolved = resolve_dash_offset(pen.dash_style_handle, dash_offset);
+                if (resolved != status::success) return resolved;
+            }
+            progpu_native_affine_2d transform{};
+            progpu_native_image_rect bounds{};
+            if (!try_to_native_affine(use.effective_transform, transform) ||
+                !try_transform_bounds(use.x, use.y, use.width, use.height,
+                    use.effective_transform, bounds)) return status::invalid_graph;
+            native::semantic_path_stroke::style style{transform,
+                static_cast<float>(pen.thickness), static_cast<float>(std::max(1.0, pen.miter_limit)),
+                dash_offset, pen.start_line_cap, pen.end_line_cap, pen.dash_cap, pen.line_join,
+                state.edge_aliased ? static_cast<std::uint32_t>(PROGPU_NATIVE_PRIMITIVE_FLAG_EDGE_ALIASED) : 0U};
+            curve_dash::run_buffer scratch;
+            std::vector<progpu_native_geometry_primitive> primitives;
+            std::vector<std::uint32_t> brushes;
+            const auto compiled = native::semantic_path_stroke::compile(segments, smooth_joins,
+                closed, intervals, style, 0U, scratch, primitives, brushes);
+            if (compiled != native::semantic_path_stroke::result::success)
+                return compiled == native::semantic_path_stroke::result::capacity_exceeded
+                    ? status::capacity_exceeded : status::unsupported_command;
+            if (primitives.empty()) return status::success;
+            progpu_native_scene_layer_geometry_mask mask{};
+            mask.bounds = bounds;
+            mask.transform = {1.0F, 0.0F, 0.0F, 1.0F, 0.0F, 0.0F};
+            mask.opacity = 1.0F;
+            mask.brush.type = PROGPU_NATIVE_SCENE_BRUSH_SOLID;
+            mask.brush.opacity = 1.0F;
+            mask.brush.colors[0] = {1.0F, 1.0F, 1.0F, 1.0F};
+            progpu_native_scene_layer layer{};
+            layer.struct_size = sizeof(layer);
+            layer.flags = PROGPU_NATIVE_SCENE_LAYER_FORCE_ISOLATION | PROGPU_NATIVE_SCENE_LAYER_BOUNDS;
+            layer.bounds = bounds;
+            layer.opacity = 1.0F;
+            layer.blend_mode = PROGPU_NATIVE_BLEND_SRC_OVER;
+            layer.effect_resource_index = PROGPU_NATIVE_SCENE_NO_INDEX;
+            if (!builder.add_geometry_mask(mask, primitives, {}, layer.mask_resource_index) ||
+                !builder.push_layer(layer)) return status::invalid_graph;
+            // The outer mask survives inner paint/viewport clip construction.
+            // Brush opacity and inherited clipping stay on the normal tile path.
+            const status drawn = append_single_tile_brush(pen.brush_handle, use, state);
+            const bool restored = builder.pop_layer();
+            return drawn != status::success ? drawn : restored ? status::success : status::invalid_graph;
+        };
         const auto append_media_player = [
             this,
             &builder,
@@ -15480,6 +15541,31 @@ struct channel::implementation {
                     return point1_status;
                 }
                 const affine_2d_double identity{};
+                if (pen_handle != 0U) {
+                    pen_state pen{};
+                    const status resolved = resolve_pen(pen_handle, pen);
+                    if (resolved != status::success) return resolved;
+                    if (tile_brushes.contains(pen.brush_handle)) {
+                        if (pen.thickness <= 0.0) continue;
+                        // Degenerate line caps retain their existing explicit
+                        // unsupported behavior until the tile-cap adapter exists.
+                        brush_use_state use{};
+                        use.effective_transform = current.transform;
+                        if (!try_line_stroke_bounds(x0, y0, x1, y1, pen.thickness,
+                                pen.start_line_cap, pen.end_line_cap,
+                                use.x, use.y, use.width, use.height)) return status::unsupported_command;
+                        progpu_native_path_segment segment{};
+                        segment.kind = PROGPU_NATIVE_PATH_SEGMENT_LINE;
+                        segment.p0 = {static_cast<float>(x0), static_cast<float>(y0)};
+                        segment.p1 = {static_cast<float>(x1), static_cast<float>(y1)};
+                        const std::array<std::uint8_t, 1U> smooth{0U};
+                        const status drawn = append_tile_pen(pen, use, current,
+                            std::span(&segment, 1U), smooth, false);
+                        if (drawn != status::success) return drawn;
+                        ++metrics.line_count;
+                        continue;
+                    }
+                }
                 const status line_status = append_line_stroke(
                     x0,
                     y0,
@@ -17150,7 +17236,36 @@ struct channel::implementation {
                     return pen_status;
                 }
                 if (pen.brush_handle != 0U && pen.thickness > 0.0) {
-                    if (width == 0.0 || height == 0.0) {
+                    if (tile_brushes.contains(pen.brush_handle) && width > 0.0 && height > 0.0) {
+                        path_geometry_state geometry;
+                        if (is_ellipse) {
+                            geometry = make_ellipse_path_geometry(first, second, third, fourth);
+                        } else if (has_rounded_corners) {
+                            geometry = make_rounded_rectangle_geometry(x, y, width, height, radius_x, radius_y);
+                        } else {
+                            constexpr std::array<std::array<double, 2U>, 4U> corners{{
+                                {0.0, 0.0}, {1.0, 0.0}, {1.0, 1.0}, {0.0, 1.0}}};
+                            path_stroke_contour_state contour{};
+                            contour.closed = true;
+                            for (std::size_t index = 0U; index < 4U; ++index) {
+                                const auto& next = corners[(index + 1U) % 4U];
+                                progpu_native_path_segment segment{};
+                                segment.kind = PROGPU_NATIVE_PATH_SEGMENT_LINE;
+                                segment.p0 = {static_cast<float>(x + corners[index][0] * width), static_cast<float>(y + corners[index][1] * height)};
+                                segment.p1 = {static_cast<float>(x + next[0] * width), static_cast<float>(y + next[1] * height)};
+                                contour.segments.push_back(segment);
+                                contour.smooth_joins.push_back(0U);
+                            }
+                            geometry.stroke_contours.push_back(std::move(contour));
+                        }
+                        const double half = pen.thickness * 0.5;
+                        const brush_use_state use{x - half, y - half, width + pen.thickness,
+                            height + pen.thickness, effective_transform};
+                        const auto& contour = geometry.stroke_contours.front();
+                        const status drawn = append_tile_pen(pen, use, current,
+                            contour.segments, contour.smooth_joins, true);
+                        if (drawn != status::success) return drawn;
+                    } else if (width == 0.0 || height == 0.0) {
                         const status stroke_status = is_ellipse
                             ? append_degenerate_ellipse_stroke(
                                   first,

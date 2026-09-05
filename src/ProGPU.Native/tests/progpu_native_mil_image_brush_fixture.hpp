@@ -5,7 +5,7 @@
 namespace progpu::native::tests {
 
 enum class mil_brush_fixture_source { bitmap, drawing_image, drawing, visual };
-enum class mil_brush_fixture_shape { rectangle, ellipse, rounded_rectangle, path, group, combined };
+enum class mil_brush_fixture_shape { rectangle, ellipse, rounded_rectangle, path, group, combined, line };
 
 struct mil_image_brush_fixture_options {
     std::uint32_t stretch{1U};
@@ -27,6 +27,9 @@ struct mil_image_brush_fixture_options {
     std::span<const std::byte> path_figures{};
     std::array<double, 4U> viewport{0.0, 0.0, 1.0, 1.0};
     bool fant{};
+    bool pen{};
+    bool dashed{};
+    std::uint32_t cap{PROGPU_NATIVE_STROKE_CAP_ROUND};
 };
 
 inline bool build_mil_image_brush_fixture(std::vector<std::byte>& scene,
@@ -90,6 +93,17 @@ inline bool build_mil_image_brush_fixture(std::vector<std::byte>& scene,
         0U, options.rotate || options.skew ? 6U : 0U, options.relative_scale ? 7U : 0U,
         1U, options.viewbox_units, 0U, 0U, options.stretch,
         options.tile_mode, 1U, 1U, 0U, 3U);
+    if (options.pen) {
+        packet(batch, command::channel_create_resource, 20U, 85U);
+        if (options.dashed) {
+            packet(batch, command::channel_create_resource, 21U, 84U);
+            packet(batch, command::dash_style, 21U, 0.25, 0U, 16U, 2.0, 1.0);
+        }
+        packet(batch, command::pen, 20U, 4.0, 10.0, 5U, 0U,
+            options.cap, options.cap, options.cap, PROGPU_NATIVE_STROKE_JOIN_ROUND, options.dashed ? 21U : 0U);
+    }
+    const std::uint32_t fill_handle = options.pen ? 0U : 5U;
+    const std::uint32_t pen_handle = options.pen ? 20U : 0U;
     std::vector<std::byte> nested;
     if (options.inherited_clip) {
         packet(batch, command::channel_create_resource, 13U, 70U);
@@ -135,20 +149,23 @@ inline bool build_mil_image_brush_fixture(std::vector<std::byte>& scene,
         }
     }
     switch (options.shape) {
+    case mil_brush_fixture_shape::line:
+        packet(nested, command::draw_line, 8.0, 16.0, 56.0, 48.0, pen_handle, 0U);
+        break;
     case mil_brush_fixture_shape::path:
     case mil_brush_fixture_shape::group:
     case mil_brush_fixture_shape::combined:
-        packet(nested, command::draw_geometry, 5U, 0U, 15U, 0U);
+        packet(nested, command::draw_geometry, fill_handle, pen_handle, 15U, 0U);
         break;
     case mil_brush_fixture_shape::ellipse:
-        packet(nested, command::draw_ellipse, 32.0, 32.0, 24.0, 24.0, 5U, 0U);
+        packet(nested, command::draw_ellipse, 32.0, 32.0, 24.0, 24.0, fill_handle, pen_handle);
         break;
     case mil_brush_fixture_shape::rounded_rectangle:
         packet(nested, command::draw_rounded_rectangle,
-            8.0, 8.0, 48.0, 48.0, 12.0, 6.0, 5U, 0U);
+            8.0, 8.0, 48.0, 48.0, 12.0, 6.0, fill_handle, pen_handle);
         break;
     default:
-        packet(nested, command::draw_rectangle, 8.0, 8.0, 48.0, 48.0, 5U, 0U);
+        packet(nested, command::draw_rectangle, 8.0, 8.0, 48.0, 48.0, fill_handle, pen_handle);
         break;
     }
     if (options.paint_transform) packet(nested, command::pop);

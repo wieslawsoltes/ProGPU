@@ -7473,6 +7473,54 @@ per-axis guideline offsets and cache raster extents, remains required; source
 bitmap X/Y DPI metadata is a separate already-supported contract. Broader
 MIL/DirectX/Direct2D/Win2D implementation remains open.
 
+### Implementation-first checkpoint: tile-brush line and fixed-shape pens
+
+Native MIL now routes tile-brush pens on nondegenerate DrawLine (including its
+animated form), DrawRectangle, DrawEllipse and DrawRoundedRectangle through the
+shared native stroke compiler and a GPU-rasterized geometry alpha mask. The
+existing tile-source path then paints through that mask. ImageBrush, DrawingBrush
+and VisualBrush sources retain their existing single/repeated/flip capture and
+nearest/linear/Fant policies. Missing source data, source cycles and unsupported
+sampling continue to fail through the same typed source contract.
+
+The implementation reuses original ProGPU `semantic_path_stroke::compile`, MIL
+fixed-shape contours, native line pen bounds, `add_geometry_mask`, Vector.wgsl
+and tile restoration. Caps, joins, miter limits, dash intervals and animated dash
+offsets are passed to the canonical stroke compiler, not recreated as CPU pixels
+or a second shader implementation. Geometry primitives carry the complete paint
+transform. An outer isolated layer owns the stroke mask, so inner paint/viewport
+clip construction cannot replace it; inherited clipping remains inside and brush
+opacity is applied once by tile painting. This uses GPU mask rasterization plus
+an isolation/composite pass, not a claim of zero additional GPU work.
+
+Rectangle brush placement uses the existing positive fixed-shape pen bounds;
+line placement uses the existing line/cap bounds. Sharp rectangles emit four
+closed line segments; ellipses and rounded rectangles reuse their canonical arc/
+curve contours. CPU work is stroke/dash compilation and retained primitive
+emission, with sequential dash/join dependencies, not a scalar image fallback.
+No reflection, readback, CPU pixel synthesis or per-visible-tile submission was
+added. Managed applicability is already source-integrated: LibreWPF
+`WpfNativeMilSceneCompiler.ResolvePen` consumes `IPortablePenSource`, resolves
+its brush through `AddPortableBrush`, and writes the same native pen/dash records.
+No managed bridge workaround or ABI change is needed for this consumer change.
+
+Build-only evidence: the GPU-enabled Apple Clang C++20 shared library and native
+MIL test executable compile. The native fixture authors 160 combinations of four
+source kinds, four stroke shapes, five tile modes and solid/dashed pens, with
+skewed brush mapping, transformed paint, inherited clipping, Fant and opacity.
+Cap selection spans all four cap values; this is not a full independent cap/join
+cross-product. Cases assert a retained geometry mask with unit mask opacity.
+**No test executable or GPU pipeline was run.** The MIL source-coverage digest was
+regenerated; managed product code and the ABI are unchanged in this checkpoint.
+
+Final qualification must compare stroke coverage, caps/joins/miter clipping,
+dash phase/seams, degenerate geometry, thick/short strokes, smooth closed seams,
+source bounds/crops, source-cycle rejection, alpha/opacity and transformed nested
+clips against native Windows WPF and the portable path. General PathGeometry,
+GeometryGroup/CombinedGeometry and degenerate tile pens remain open, as do tiled
+glyphs/opacity masks, nonuniform target DPI, remaining filters and the broader
+MIL/DirectX/Direct2D/Win2D goal. No pixel-parity or performance claim is made.
+
 ## Invariants
 
 - No reflection or private managed field scanning in the product bridge.
