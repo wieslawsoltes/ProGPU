@@ -19110,6 +19110,46 @@ int main() {
             }
         }
     }
+    {
+        // The same combined resource occurs at root and nested transforms;
+        // identical operands also cover empty XOR/exclude outlines without
+        // desynchronizing the prepared-outline traversal.
+        const auto figures = make_curve_path_figures();
+        for (std::uint32_t combination = 0U; combination < 4U; ++combination) {
+            for (const auto source : {progpu::native::tests::mil_brush_fixture_source::bitmap,
+                progpu::native::tests::mil_brush_fixture_source::drawing,
+                progpu::native::tests::mil_brush_fixture_source::drawing_image,
+                progpu::native::tests::mil_brush_fixture_source::visual}) {
+                for (const bool solid : {false, true}) {
+                    for (const bool dashed : {false, true}) {
+                        for (const bool identical : {false, true}) {
+                            std::vector<std::byte> scene;
+                            PROGPU_REQUIRE(progpu::native::tests::build_mil_image_brush_fixture(scene,
+                                {.tile_mode = 3U, .opacity = 0.5, .skew = true, .source = source,
+                                    .shape = progpu::native::tests::mil_brush_fixture_shape::group,
+                                    .inherited_clip = true, .paint_transform = true, .path_figures = figures,
+                                    .viewport = {0.0, 0.0, 0.25, 0.5}, .fant = true, .pen = true,
+                                    .dashed = dashed, .nested_group = true, .combined_mode = combination,
+                                    .solid_pen = solid, .group_combined = true,
+                                    .identical_combined_operands = identical}, 9950U + combination));
+                            const auto header = read_value<progpu_native_scene_header>(scene, 0U);
+                            std::uint32_t masks = 0U;
+                            for (std::uint32_t index = 0U; index < header.resource_count; ++index) {
+                                const auto resource = read_value<progpu_native_scene_resource>(scene,
+                                    header.resource_offset + index * sizeof(progpu_native_scene_resource));
+                                if (resource.kind == PROGPU_NATIVE_SCENE_RESOURCE_LAYER_MASK &&
+                                    resource.payload_size == sizeof(progpu_native_scene_layer_geometry_mask)) {
+                                    const auto mask = read_value<progpu_native_scene_layer_geometry_mask>(scene, resource.payload_offset);
+                                    masks += mask.kind == PROGPU_NATIVE_SCENE_LAYER_MASK_GEOMETRY;
+                                }
+                            }
+                            PROGPU_REQUIRE(masks == (solid ? 0U : 1U));
+                        }
+                    }
+                }
+            }
+        }
+    }
     // Authored during implementation-first work; execution and pixel parity
     // remain part of the final validation phase.
     for (const auto source : {progpu::native::tests::mil_brush_fixture_source::bitmap,

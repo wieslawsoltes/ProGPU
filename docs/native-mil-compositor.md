@@ -7668,6 +7668,42 @@ group collector. Degenerate cap geometry, guideline-aware stroke masks, tiled
 glyphs/opacity masks, per-axis target-frame DPI, remaining filters and broader
 MIL/DirectX/Direct2D/Win2D requirements remain open.
 
+### Implementation-first checkpoint: combined children in stroked groups
+
+Native MIL `GeometryGroup` stroking now accepts `CombinedGeometry` children,
+including repeated references below different nested transforms. The bounds pass
+resolves the actual boolean boundary through the existing portable Direct2D core
+and retains each occurrence's outline for the subsequent stroke pass. Both passes
+walk depth-first; checked handle/cursor pairing preserves empty boolean results
+without rebuilding topology. Child transforms are applied once, and flattening
+tolerance uses the complete child-to-target transform and request DPI. Tile pens
+still collect all group stroke primitives into one geometry mask and paint once;
+solid/gradient pens reuse the ordinary path stroker.
+
+Provenance is the original ProGPU `resolve_combined_stroke_outline` adapter and
+portable Direct2D path implementation introduced in the preceding checkpoint;
+no foreign source, OS COM activation, new shader algorithm, readback, or managed
+bridge workaround was introduced. Bookkeeping is O(C) for C combined occurrences,
+with O(P) retained outline-point storage in addition to the existing bounded core
+solver. Topology traversal remains dependency-ordered CPU work; existing core
+intrinsic kernels are unchanged. This is native MIL resource-consumer completion,
+not a change to shared managed/native rasterization or the public scene ABI. The
+managed portable producer and renderer remain unchanged; differential qualification
+against their existing geometry replay is still required at the final gate.
+
+The Release WebGPU-enabled native library and MIL regression executable compile.
+128 additional fixture cases cover four boolean modes, four tile sources, solid
+and tiled pens, dashed and continuous strokes, and identical/nonidentical operands
+under repeated nested transforms. Tests, GPU execution, image parity, contract
+verification, benchmarks, VM validation, and CI qualification were **not run** in
+this implementation-first checkpoint. The coverage ledger was regenerated; the
+latest fetched ProGPU main has no commits missing from this feature branch.
+
+This supersedes the preceding combined-child stroke limitation. Degenerate cap
+geometry, guideline-aware tile masks, tiled glyph/opacity masks, nonuniform target
+DPI, remaining tile filters, managed retained-capture adoption, and the broader
+DirectX/Direct2D/Win2D goal remain open. Compilation does not establish parity.
+
 ## Invariants
 
 - No reflection or private managed field scanning in the product bridge.

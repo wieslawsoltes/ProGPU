@@ -16187,6 +16187,15 @@ struct channel::implementation {
                 effective_transform = compose_affine(
                     local_transform,
                     current.transform);
+                const auto combined_stroke_tolerance = [compile_context](affine_2d_double transform) {
+                    // Algorithm: convert a quarter-physical-pixel target using
+                    // the affine Frobenius norm. Time/space complexity: O(1).
+                    const double dpi = compile_context == nullptr ? 1.0 : std::max(
+                        compile_context->request.dpi_scale_x, compile_context->request.dpi_scale_y);
+                    const double scale = std::hypot(std::hypot(transform.m11, transform.m12),
+                        std::hypot(transform.m21, transform.m22));
+                    return static_cast<float>(0.25 / (dpi * scale));
+                };
                 if (geometry_group != geometry_groups.end()) {
                     const bool has_zero_area =
                         affine_has_zero_area(effective_transform);
@@ -16197,6 +16206,12 @@ struct channel::implementation {
                     double group_stroke_top = 0.0;
                     double group_stroke_right = 0.0;
                     double group_stroke_bottom = 0.0;
+                    // Algorithm: retain one outline per non-collapsed combined
+                    // occurrence in depth-first order, then consume that same
+                    // order for stroking. Repeated handles can have different
+                    // transforms/tolerances. Time: O(C) bookkeeping; space: O(P)
+                    // retained outline points, in addition to the core solver.
+                    std::vector<std::pair<std::uint32_t, path_geometry_state>> combined_stroke_outlines;
                     if (pen_handle != 0U) {
                         const status pen_status = resolve_pen(
                             pen_handle, group_pen);
@@ -16211,6 +16226,7 @@ struct channel::implementation {
                             const auto include_stroke_bounds = [
                                 this,
                                 &group_pen, tile_stroke_bounds,
+                                &combined_stroke_outlines, &combined_stroke_tolerance, &current,
                                 &effective_transform,
                                 &has_group_stroke_bounds,
                                 &group_stroke_left,
@@ -16264,6 +16280,7 @@ struct channel::implementation {
                                 }
                                 const auto child =
                                     path_geometries.find(child_handle);
+                                const auto combined_child = combined_geometries.find(child_handle);
                                 double child_left = 0.0;
                                 double child_top = 0.0;
                                 double child_right = 0.0;
@@ -16276,6 +16293,8 @@ struct channel::implementation {
                                     child_bottom = child->second.bottom;
                                     child_transform_handle =
                                         child->second.transform_handle;
+                                } else if (combined_child != combined_geometries.end()) {
+                                    child_transform_handle = combined_child->second.transform_handle;
                                 } else {
                                     const auto fixed =
                                         fixed_geometries.find(child_handle);
@@ -16353,6 +16372,23 @@ struct channel::implementation {
                                         child_transform,
                                         effective_transform))) {
                                     return status::success;
+                                }
+                                if (combined_child != combined_geometries.end()) {
+                                    if (current.guideline_resource_index != PROGPU_NATIVE_SCENE_NO_INDEX || current.per_point_guidelines)
+                                        return status::unsupported_command;
+                                    const float tolerance = combined_stroke_tolerance(
+                                        compose_affine(child_transform, effective_transform));
+                                    if (!std::isfinite(tolerance) || tolerance <= 0.0F) return status::unsupported_command;
+                                    path_geometry_state outline;
+                                    const status outlined = resolve_combined_stroke_outline(child_handle, tolerance, outline);
+                                    if (outlined != status::success) return outlined;
+                                    combined_stroke_outlines.emplace_back(child_handle, std::move(outline));
+                                    const auto& prepared = combined_stroke_outlines.back().second;
+                                    if (prepared.stroke_contours.empty()) return status::success;
+                                    child_left = prepared.left;
+                                    child_top = prepared.top;
+                                    child_right = prepared.right;
+                                    child_bottom = prepared.bottom;
                                 }
                                 progpu_native_image_rect child_bounds{};
                                 // Tile mask storage must include the pen before
@@ -16609,6 +16645,7 @@ struct channel::implementation {
                         std::uint32_t stroke_brush_index =
                             PROGPU_NATIVE_SCENE_NO_INDEX;
                         std::vector<progpu_native_geometry_primitive> tile_primitives;
+                        std::size_t combined_stroke_cursor = 0U;
                         const status brush_status = tile_pen ? status::success : resolve_brush_index(
                             group_pen.brush_handle,
                             stroke_brush_index,
@@ -16623,6 +16660,7 @@ struct channel::implementation {
                             &append_positive_fixed_shape_stroke,
                             &append_tile_pen, &append_tile_line_pen, &make_tile_fixed_geometry,
                             &tile_primitives, &stroke_brush_use, tile_pen,
+                            &combined_stroke_outlines, &combined_stroke_cursor,
                             &group_pen,
                             stroke_brush_index,
                             &current](
@@ -16672,6 +16710,7 @@ struct channel::implementation {
                             }
                             const auto child =
                                 path_geometries.find(child_handle);
+                            const auto combined_child = combined_geometries.find(child_handle);
                             fixed_geometry_state resolved_line{};
                             std::uint32_t child_transform_handle = 0U;
                             if (child != path_geometries.end()) {
@@ -16682,6 +16721,8 @@ struct channel::implementation {
                                 }
                                 child_transform_handle =
                                     child->second.transform_handle;
+                            } else if (combined_child != combined_geometries.end()) {
+                                child_transform_handle = combined_child->second.transform_handle;
                             } else {
                                 const status line_status =
                                     resolve_fixed_geometry(
@@ -16726,14 +16767,22 @@ struct channel::implementation {
                                     child_effective_transform)) {
                                 return status::success;
                             }
+                            const path_geometry_state* stroke_path = child != path_geometries.end() ? &child->second : nullptr;
+                            if (combined_child != combined_geometries.end()) {
+                                if (combined_stroke_cursor >= combined_stroke_outlines.size() ||
+                                    combined_stroke_outlines[combined_stroke_cursor].first != child_handle)
+                                    return status::invalid_graph;
+                                stroke_path = &combined_stroke_outlines[combined_stroke_cursor++].second;
+                                if (stroke_path->stroke_contours.empty()) return status::success;
+                            }
                             status stroke_status = status::success;
                             if (tile_pen) {
                                 brush_use_state child_use = stroke_brush_use;
                                 child_use.effective_transform = child_effective_transform;
-                                if (child != path_geometries.end()) {
-                                    if (child->second.stroke_contours.empty()) return status::success;
+                                if (stroke_path != nullptr) {
+                                    if (stroke_path->stroke_contours.empty()) return status::success;
                                     stroke_status = append_tile_pen(group_pen, child_use, current, {}, {}, false,
-                                        child->second.stroke_contours, &tile_primitives);
+                                        stroke_path->stroke_contours, &tile_primitives);
                                 } else if (resolved_line.kind == fixed_geometry_kind::line) {
                                     stroke_status = append_tile_line_pen(group_pen, resolved_line.first,
                                         resolved_line.second, resolved_line.third, resolved_line.fourth,
@@ -16743,9 +16792,9 @@ struct channel::implementation {
                                     stroke_status = append_tile_pen(group_pen, child_use, current, {}, {}, false,
                                         geometry.stroke_contours, &tile_primitives);
                                 }
-                            } else if (child != path_geometries.end()) {
+                            } else if (stroke_path != nullptr) {
                                 stroke_status = append_path_strokes(
-                                    child->second,
+                                    *stroke_path,
                                     group_pen,
                                     child_local_transform,
                                     child_effective_transform,
@@ -16786,6 +16835,7 @@ struct channel::implementation {
                                 return stroke_status;
                             }
                         }
+                        if (combined_stroke_cursor != combined_stroke_outlines.size()) return status::invalid_graph;
                         if (tile_pen) {
                             const status painted = paint_tile_pen_mask(group_pen, stroke_brush_use, current, tile_primitives);
                             if (painted != status::success) return painted;
@@ -16814,11 +16864,7 @@ struct channel::implementation {
                         // Quarter-physical-pixel flattening target, conservatively
                         // scaled by the transform Frobenius norm. Fail if the
                         // required tolerance cannot be represented by the core.
-                        const double dpi = compile_context == nullptr ? 1.0 : std::max(
-                            compile_context->request.dpi_scale_x, compile_context->request.dpi_scale_y);
-                        const double scale = std::hypot(std::hypot(effective_transform.m11, effective_transform.m12),
-                            std::hypot(effective_transform.m21, effective_transform.m22));
-                        const float tolerance = static_cast<float>(0.25 / (dpi * scale));
+                        const float tolerance = combined_stroke_tolerance(effective_transform);
                         if (!std::isfinite(tolerance) || tolerance <= 0.0F) return status::unsupported_command;
                         path_geometry_state outline;
                         const status outlined = resolve_combined_stroke_outline(geometry_handle, tolerance, outline);
