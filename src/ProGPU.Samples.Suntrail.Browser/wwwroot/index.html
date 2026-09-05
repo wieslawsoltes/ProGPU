@@ -1,0 +1,21 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,user-scalable=no">
+  <meta name="theme-color" content="#183738">
+  <title>Suntrail · A little light goes a long way</title>
+  <base href="./">
+  <link rel="icon" href="data:,">
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <canvas id="progpu-canvas" tabindex="0" aria-label="Suntrail platform adventure. Arrow keys or A D to move, Space to jump, Shift to sprint, Escape to pause."></canvas>
+  <aside id="diagnostics" aria-live="polite" hidden>
+    <h1 id="status-title">Starting Suntrail…</h1>
+    <pre id="status-detail">Loading your islands.</pre>
+    <dl><dt>Frames</dt><dd id="counter-frames">0</dd><dt>Dispatches</dt><dd id="counter-dispatches">0</dd><dt>Bytes</dt><dd id="counter-bytes">0</dd></dl>
+  </aside>
+  <script type="module" src="main.js"></script>
+</body>
+</html>
