@@ -148,6 +148,34 @@ public sealed class RenderingTests : IDisposable
             }
             compositor.RenderScene(view, 844, 390, target.ViewPtr);
             PngEncoder.SavePng(Path.Combine(Artifacts(), state + ".png"), target.ReadPixels(), 844, 390);
+            if (state == "phone-playing")
+            {
+                var previousInput = Microsoft.UI.Xaml.Input.InputSystem.Current;
+                Microsoft.UI.Xaml.Input.InputSystem.Current = Microsoft.UI.Xaml.Input.InputSystem.CreateExternalState(view);
+                try
+                {
+                    var touchPanel = (Microsoft.UI.Xaml.Controls.Grid)view.Children.Last();
+                    var stick = (TouchStick)touchPanel.Children[2];
+                    var start = Vector2.Transform(new Vector2(76, 80), stick.GetGlobalCoordinateTransformMatrix());
+                    void Send(Microsoft.UI.Xaml.Input.PointerInputKind kind, Vector2 point) =>
+                        Microsoft.UI.Xaml.Input.InputSystem.InjectPointer(new(kind, 10,
+                            Windows.Devices.Input.PointerDeviceType.Touch, point, 1_000_000,
+                            IsInContact: kind != Microsoft.UI.Xaml.Input.PointerInputKind.Canceled));
+                    Send(Microsoft.UI.Xaml.Input.PointerInputKind.Pressed, start);
+                    view.Measure(new(844, 390)); view.Arrange(new Rect(0, 0, 844, 390));
+                    compositor.RenderScene(view, 844, 390, target.ViewPtr);
+                    var centered = target.ReadPixels();
+                    PngEncoder.SavePng(Path.Combine(Artifacts(), "phone-stick-center.png"), centered, 844, 390);
+                    Send(Microsoft.UI.Xaml.Input.PointerInputKind.Moved, start + new Vector2(48, -18));
+                    view.Measure(new(844, 390)); view.Arrange(new Rect(0, 0, 844, 390));
+                    compositor.RenderScene(view, 844, 390, target.ViewPtr);
+                    var dragged = target.ReadPixels();
+                    Assert.False(centered.AsSpan().SequenceEqual(dragged), "Dragging must repaint the retained thumb visual without advancing the game.");
+                    PngEncoder.SavePng(Path.Combine(Artifacts(), "phone-stick-drag.png"), dragged, 844, 390);
+                    Send(Microsoft.UI.Xaml.Input.PointerInputKind.Canceled, start);
+                }
+                finally { Microsoft.UI.Xaml.Input.InputSystem.Current = previousInput; }
+            }
         }
         // Exercise the primary action while hovered after the menu has been hidden.
         var menu = (Microsoft.UI.Xaml.Controls.StackPanel)view.Children[4];

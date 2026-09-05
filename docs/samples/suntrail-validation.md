@@ -212,3 +212,14 @@ drag-and-drop editing and full 3D remain explicitly unfinished in the work list.
 Current platform checks: signed iOS Release build and installation passed; Browser
 WebAssembly AOT publish passed, and Chrome visibly renders the title and the new
 touch settings panel. Current shader-resource audit: 19 tests passed.
+
+
+Joystick correction (2026-09-05): the new phone-root pointer-injection tests failed
+before the fix because the hit target was GameSurface instead of TouchStick. Both
+floating and fixed layouts now pass movement, simultaneous jump, captured movement
+outside the control, cancellation, and visible thumb-position checks. All 42 sample
+Release tests pass; the extended phone render test also passes and writes
+`phone-stick-center.png` / `phone-stick-drag.png` without advancing simulation between
+captures. The focused core pointer/hit-testing suite passes 161 tests, including new
+Panel/Grid/StackPanel null/transparent-background regressions. This is an input and
+feedback fix, not a claim that the outstanding iPhone GPU bottleneck is resolved.

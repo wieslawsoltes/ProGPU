@@ -26,7 +26,9 @@ The iPhone black screen was fixed and the user confirmed gameplay. Smooth iPhone
 is not yet verified. The controls pass targeted input tests and native visual checks. Eight optional vaults,
 two-way pipe travel, and three timed hazard families are implemented and tested.
 The main campaign still needs a broader encounter redesign; new rooms do not by
-themselves complete that request. Current sample validation: 40 Release tests.
+themselves complete that request. Current sample validation: 42 Release tests. The reported unresponsive joystick was
+reproduced through platform pointer injection and fixed in the shared WinUI panel
+hit-test path; two-axis thumb feedback now repaints during dragging.
 No level-format compatibility, editor, or full 3D completion is claimed by this list.
 
 Next rendering investigation: retain expensive static procedural materials in a bounded

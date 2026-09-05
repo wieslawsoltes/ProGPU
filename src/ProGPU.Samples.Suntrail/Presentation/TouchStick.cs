@@ -14,6 +14,7 @@ public sealed class TouchStick : Grid
     private readonly Border _base, _thumb;
     private uint? _pointer;
     private Vector2 _origin;
+    private Vector2 _thumbDisplacement;
     public bool Floating { get; set; } = true;
     public bool AutoSprint { get; set; } = true;
     public float Axis { get; private set; }
@@ -48,6 +49,11 @@ public sealed class TouchStick : Grid
 
     private void Update(Vector2 p)
     {
+        // Follow the finger in both axes; gameplay uses only the horizontal axis.
+        // Keep the thumb inside the ring without introducing input smoothing latency.
+        var displacement = p - _origin;
+        float distance = displacement.Length();
+        _thumbDisplacement = displacement * (distance > 48 ? 44 / distance : 44f / 48);
         float raw = Math.Clamp((p.X - _origin.X) / 48, -1, 1);
         Axis = MathF.Abs(raw) < .15f ? 0 : MathF.CopySign((MathF.Abs(raw) - .15f) / .85f, raw);
         Sprint = AutoSprint && MathF.Abs(raw) > .85f;
@@ -58,7 +64,7 @@ public sealed class TouchStick : Grid
     {
         var origin = _pointer.HasValue ? _origin : new Vector2(76, Math.Max(75, Size.Y / 2));
         _base.Margin = new(origin.X - 56, origin.Y - 56, 0, 0);
-        _thumb.Margin = new(origin.X - 24 + Axis * 44, origin.Y - 24, 0, 0);
+        _thumb.Margin = new(origin.X - 24 + _thumbDisplacement.X, origin.Y - 24 + _thumbDisplacement.Y, 0, 0);
         _base.Opacity = _pointer.HasValue ? .75f : .28f;
         _thumb.Opacity = _pointer.HasValue ? .95f : .42f;
     }
@@ -79,6 +85,6 @@ public sealed class TouchStick : Grid
     }
     public void Reset()
     {
-        _pointer = null; ReleasePointerCaptures(); Axis = 0; Sprint = false; UpdateVisual(); InputChanged?.Invoke();
+        _pointer = null; ReleasePointerCaptures(); Axis = 0; Sprint = false; _thumbDisplacement = default; UpdateVisual(); InputChanged?.Invoke();
     }
 }

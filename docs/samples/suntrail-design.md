@@ -209,3 +209,22 @@ render preparation adds only visible fixed-size instance records. Procedural con
 saw, jet and crusher art is original and uses bounded analytic shapes. The uniform's
 previously reserved occlusion Y component identifies an underground room, retaining
 its world material while suppressing the outdoor sun and clouds.
+# Routed joystick input correction (2026-09-05)
+
+The iPhone joystick failure came from WinUI CPU hit testing: `HasBackground`
+recognized Control and Border but omitted Panel, so even the joystick Grid's
+assigned transparent background passed touches through to GameSurface. The shared
+input path now recognizes Panel.Background. Null backgrounds still pass through;
+transparent assigned brushes accept hits. The public contract was checked against
+[Microsoft’s hit-testing contract](https://learn.microsoft.com/en-us/windows/uwp/xaml-platform/events-and-routed-events-overview#hit-testing-and-input-events).
+The implementation is original and adds one constant-time type/property check to
+the existing traversal, with no native crossing or rendering algorithm change.
+The native C++ renderer has no WinUI routed-input implementation to update.
+
+Thumb feedback uses bounded two-axis displacement inside a 44-point radius while
+the gameplay axis retains its horizontal dead zone and sprint threshold. It updates
+existing child margins and opacity through ordinary layout/visual invalidation.
+No animation timer, input smoothing delay, shader, or per-frame polling is added.
+Regression tests inject platform-style pointers into the actual arranged phone root,
+check captured off-control movement and simultaneous jump, and compare rendered
+centered/dragged frames without advancing simulation.
