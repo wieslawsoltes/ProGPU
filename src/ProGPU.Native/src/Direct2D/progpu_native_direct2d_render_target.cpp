@@ -4224,6 +4224,13 @@ public:
             latch(com::invalid_argument);
             return;
         }
+        // Algorithm: reject incompatible raster state before retaining mesh
+        // commands; Direct2D meshes require pixel-center (aliased) coverage.
+        // Time/space: O(1). The existing O(T) triangle batch remains unchanged.
+        if (antialias_mode_ != antialias_mode::aliased) {
+            latch(wrong_state);
+            return;
+        }
         factory* raw_factory = nullptr;
         mesh_value->GetFactory(&raw_factory);
         com::pointer<factory> mesh_factory;
@@ -4334,7 +4341,7 @@ public:
                     {1.0F, 1.0F, 1.0F, 1.0F},
                     native_transform(),
                     PROGPU_NATIVE_FILL_RULE_NON_ZERO,
-                    8U});
+                    1U});
             }
             if (local_bounds.right == local_bounds.left ||
                 local_bounds.bottom == local_bounds.top) {
@@ -4346,7 +4353,8 @@ public:
                     nullptr,
                     segments,
                     PROGPU_NATIVE_FILL_RULE_NON_ZERO,
-                    local_bounds);
+                    local_bounds,
+                    1U);
             if (bitmap_result != bitmap_brush_draw_result::not_bitmap) {
                 return;
             }

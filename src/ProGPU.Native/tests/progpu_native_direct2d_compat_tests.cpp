@@ -8425,6 +8425,15 @@ int run_tests()
         target_mesh->Open(&raw_mesh_sink) != compat::wrong_state) {
         return 211;
     }
+    target->SetAntialiasMode(compat::antialias_mode::per_primitive);
+    target->BeginDraw();
+    target->FillMesh(target_mesh.get(), target_brush.get());
+    if (target->EndDraw(nullptr, nullptr) != compat::wrong_state ||
+        scene_target->GetRequiredSceneSize() != 0U) {
+        std::fprintf(stderr, "FillMesh must reject per-primitive antialiasing\n");
+        return 300;
+    }
+    target->SetAntialiasMode(compat::antialias_mode::aliased);
     target->BeginDraw();
     target->FillMesh(
         target_mesh.get(), static_cast<compat::brush*>(target_brush.get()));
@@ -8469,9 +8478,42 @@ int run_tests()
         mesh_paths[1].segment_offset != 3U ||
         mesh_paths[1].segment_count != 3U ||
         mesh_paths[2].segment_offset != 6U ||
-        mesh_paths[2].segment_count != 3U) {
+        mesh_paths[2].segment_count != 3U ||
+        mesh_paths[0].sample_grid != 1U ||
+        mesh_paths[1].sample_grid != 1U ||
+        mesh_paths[2].sample_grid != 1U) {
         return 215;
     }
+
+    // The sampled-brush lane must use the same aliased mesh coverage as the
+    // ordinary brush lane, without changing texture sampling or draw count.
+    target->BeginDraw();
+    target->FillMesh(target_mesh.get(), bitmap_brush.get());
+    if (target->EndDraw(nullptr, nullptr) != com::ok) return 301;
+    const auto bitmap_mesh_size = scene_target->GetRequiredSceneSize();
+    std::vector<std::byte> bitmap_mesh_scene(static_cast<std::size_t>(bitmap_mesh_size));
+    std::uint64_t bitmap_mesh_written = 0U;
+    if (bitmap_mesh_size == 0U || scene_target->BuildScene(bitmap_mesh_scene.data(),
+            bitmap_mesh_scene.size(), &bitmap_mesh_written) != com::ok ||
+        bitmap_mesh_written != bitmap_mesh_size) return 302;
+    const auto* bitmap_mesh_header = reinterpret_cast<const progpu_native_scene_header*>(bitmap_mesh_scene.data());
+    bool found_mesh_mask = false;
+    for (std::uint32_t index = 0U; index < bitmap_mesh_header->resource_count; ++index) {
+        const auto* resource = reinterpret_cast<const progpu_native_scene_resource*>(
+            bitmap_mesh_scene.data() + bitmap_mesh_header->resource_offset +
+            index * bitmap_mesh_header->resource_stride);
+        if (resource->kind != PROGPU_NATIVE_SCENE_RESOURCE_LAYER_MASK) continue;
+        const auto* mask = reinterpret_cast<const progpu_native_scene_layer_vector_mask*>(
+            bitmap_mesh_scene.data() + resource->payload_offset);
+        if (mask->kind != PROGPU_NATIVE_SCENE_LAYER_MASK_VECTOR_CLIP_CHAIN || mask->path_count != 1U)
+            return 303;
+        const auto* path = reinterpret_cast<const progpu_native_scene_clip_path*>(
+            reinterpret_cast<const std::byte*>(mask) + sizeof(*mask));
+        if (path->sample_grid != 1U || path->segment_count != 9U) return 304;
+        found_mesh_mask = true;
+    }
+    if (!found_mesh_mask || bitmap_mesh_header->command_count != 1U) return 305;
+    target->SetAntialiasMode(compat::antialias_mode::per_primitive);
 
     compat::render_target* unsupported =
         reinterpret_cast<compat::render_target*>(
@@ -9032,7 +9074,9 @@ int run_tests()
         1.0F,
         D2D1_BITMAP_INTERPOLATION_MODE_NEAREST_NEIGHBOR,
         nullptr);
+    native_target->SetAntialiasMode(D2D1_ANTIALIAS_MODE_ALIASED);
     native_target->FillMesh(native_target_mesh, native_target_brush);
+    native_target->SetAntialiasMode(D2D1_ANTIALIAS_MODE_PER_PRIMITIVE);
     const HRESULT native_target_end_status = native_target->EndDraw();
     native_target_mesh->Release();
     native_target_brush->Release();
