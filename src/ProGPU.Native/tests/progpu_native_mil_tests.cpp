@@ -19506,6 +19506,97 @@ int main() {
                 .glyph_commands = glyph_commands}, 10160U));
         PROGPU_REQUIRE(rejected == std::vector<std::byte>{std::byte{0x5a}});
     }
+    {
+        const auto font_bytes = load_inter_test_font();
+        progpu::native::text::sfnt_font_view font{};
+        PROGPU_REQUIRE(progpu::native::text::sfnt_font_view::try_create(font_bytes, 0U, font));
+        progpu::native::text::sfnt_header_metrics metrics{};
+        PROGPU_REQUIRE(font.try_get_header_metrics(metrics));
+        std::uint16_t glyph_index = 0U;
+        PROGPU_REQUIRE(font.try_get_glyph_index('A', glyph_index));
+        struct dpi_case { float em; double dpi; float raster; float x; float y; std::uint32_t phase; };
+        // The four high-DPI UI sizes match managed TextRenderingModeRenderTests.
+        const std::array cases{
+            dpi_case{6.0F, 2.0, 12.0F, 8.0F, 38.5F, 3U},
+            dpi_case{11.0F, 3.0, 33.0F, 25.0F / 3.0F, 115.0F / 3.0F, 0U},
+            dpi_case{11.5F, 3.0, 34.5F, 25.0F / 3.0F, 115.0F / 3.0F, 0U},
+            dpi_case{14.0F, 2.625, 36.75F, 22.0F / 2.625F, 101.0F / 2.625F, 0U},
+            dpi_case{26.0F, 3.0, 78.0F, 25.0F / 3.0F, 115.0F / 3.0F, 0U},
+            dpi_case{12.0F, 1.0, 12.0F, 8.0F, 38.0F, 2U},
+            dpi_case{96.0F, 2.0, 128.0F, 8.5F, 38.5F, 0U}};
+        for (std::uint32_t brush_kind = 0U; brush_kind < 3U; ++brush_kind) {
+            std::vector<std::byte> material;
+            if (brush_kind == 1U) {
+                append_create(material, 19U, 75U);
+                append_command(material, command::solid_color_brush, 19U, 0.5,
+                    progpu_native_color{0.0F, 1.0F, 0.0F, 1.0F}, 0U, 0U, 0U, 0U);
+            } else if (brush_kind == 2U) {
+                append_create(material, 19U, 77U);
+                const std::array stops{mil_gradient_stop{0.0, {1.0F, 0.0F, 0.0F, 1.0F}},
+                    mil_gradient_stop{1.0, {0.0F, 0.0F, 1.0F, 1.0F}}};
+                append_linear_gradient_brush(material, 19U, 0.5, 0.0, 0.0, 1.0, 1.0,
+                    0U, 0U, 0U, 0U, 1U, 0U, 0U, 0U, stops);
+            }
+            for (const auto& item : cases) {
+                std::vector<std::byte> glyph_commands;
+                const std::array glyphs{glyph_index};
+                const std::array advances{item.em};
+                append_glyph_run_create(glyph_commands, 28U, 8.375F, 38.4F, item.em,
+                    glyphs, advances, {}, 8.0, 8.0, 56.0, 48.0);
+                for (const bool drawing : {false, true}) {
+                    std::vector<std::byte> scene;
+                    PROGPU_REQUIRE(progpu::native::tests::build_mil_image_brush_fixture(scene,
+                        {.shape = progpu::native::tests::mil_brush_fixture_shape::glyphs,
+                            .glyph_commands = glyph_commands, .glyph_font = font_bytes, .glyph_drawing = drawing,
+                            .glyph_brush_commands = material, .target_dpi_scale_x = item.dpi,
+                            .target_dpi_scale_y = item.dpi}, 10200U + brush_kind));
+                    auto header = read_value<progpu_native_scene_header>(scene, 0U);
+                    std::uint64_t base = 0U;
+                    if (brush_kind != 1U) {
+                        for (std::uint32_t index = 0U; index < header.resource_count; ++index) {
+                            const auto resource = read_value<progpu_native_scene_resource>(scene,
+                                header.resource_offset + index * sizeof(progpu_native_scene_resource));
+                            if (resource.kind != PROGPU_NATIVE_SCENE_RESOURCE_LAYER_MASK ||
+                                resource.payload_size != sizeof(progpu_native_scene_layer_picture_mask)) continue;
+                            const auto mask = read_value<progpu_native_scene_layer_picture_mask>(scene, resource.payload_offset);
+                            if (mask.kind == PROGPU_NATIVE_SCENE_LAYER_MASK_PICTURE)
+                                base = resource.auxiliary_offset + mask.stream_offset;
+                        }
+                        PROGPU_REQUIRE(base != 0U);
+                        header = read_value<progpu_native_scene_header>(scene, base);
+                    }
+                    std::uint32_t draws = 0U;
+                    for (std::uint32_t index = 0U; index < header.command_count; ++index) {
+                        const auto record = read_value<progpu_native_scene_command>(scene,
+                            base + header.command_offset + index * sizeof(progpu_native_scene_command));
+                        if (record.kind != PROGPU_NATIVE_SCENE_COMMAND_DRAW_GLYPH_RUN) continue;
+                        ++draws;
+                        const auto glyph = read_value<progpu_native_positioned_glyph>(scene,
+                            base + record.payload_offset + sizeof(progpu_native_scene_glyph_draw));
+                        const auto resource = read_value<progpu_native_scene_resource>(scene,
+                            base + header.resource_offset + record.resource_index * sizeof(progpu_native_scene_resource));
+                        const auto outline = read_value<progpu_native_scene_glyph_outline>(scene,
+                            base + resource.payload_offset + glyph.outline_index * sizeof(progpu_native_scene_glyph_outline));
+                        PROGPU_REQUIRE(std::abs(outline.raster_scale * metrics.units_per_em - item.raster) < 0.0001F);
+                        PROGPU_REQUIRE(std::abs(glyph.atlas_to_logical_scale * item.raster - item.em) < 0.0001F);
+                        PROGPU_REQUIRE(std::abs(glyph.position.x - item.x) < 0.0001F);
+                        PROGPU_REQUIRE(std::abs(glyph.position.y - item.y) < 0.0001F);
+                        PROGPU_REQUIRE(glyph.outline_index % 4U == item.phase);
+                        PROGPU_REQUIRE(record.bounds_x == 8.0F && record.bounds_y == 8.0F);
+                        PROGPU_REQUIRE(record.bounds_width == 56.0F && record.bounds_height == 48.0F);
+                    }
+                    PROGPU_REQUIRE(draws == 1U);
+                }
+                std::vector<std::byte> rejected{std::byte{0x5a}};
+                PROGPU_REQUIRE(!progpu::native::tests::build_mil_image_brush_fixture(rejected,
+                    {.shape = progpu::native::tests::mil_brush_fixture_shape::glyphs,
+                        .glyph_commands = glyph_commands, .glyph_font = font_bytes,
+                        .glyph_brush_commands = material, .target_dpi_scale_x = 1.0,
+                        .target_dpi_scale_y = 2.0}, 10210U));
+                PROGPU_REQUIRE(rejected == std::vector<std::byte>{std::byte{0x5a}});
+            }
+        }
+    }
     // Authored during implementation-first work; execution and pixel parity
     // remain part of the final validation phase.
     for (const auto source : {progpu::native::tests::mil_brush_fixture_source::bitmap,

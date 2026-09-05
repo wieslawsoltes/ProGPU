@@ -10036,7 +10036,8 @@ struct channel::implementation {
         const progpu_native_point& position,
         const affine_2d_double& transform,
         float target_raster_size,
-        std::uint32_t text_hinting_mode) noexcept {
+        std::uint32_t text_hinting_mode,
+        float dpi_scale) noexcept {
         constexpr double transformed_epsilon = 0.0001;
         const bool transformed_placement =
             std::abs(transform.m12) > transformed_epsilon ||
@@ -10051,6 +10052,11 @@ struct channel::implementation {
         }
         progpu_native_point world = transform_affine_point(
             position, transform);
+        // Algorithm: snap in physical pixels, then return through logical and
+        // local coordinates. Time/space: O(1), allocation-free. The atlas phase
+        // is a physical quarter pixel, not a quarter DIP on high-DPI targets.
+        world.x *= dpi_scale;
+        world.y *= dpi_scale;
         std::uint32_t phase = 0U;
         if (target_raster_size <= 24.0F) {
             double integer_x = std::floor(world.x);
@@ -10066,6 +10072,8 @@ struct channel::implementation {
             world.x = static_cast<float>(std::nearbyint(world.x));
         }
         world.y = static_cast<float>(std::nearbyint(world.y));
+        world.x /= dpi_scale;
+        world.y /= dpi_scale;
         return {phase, transform_affine_point(world, inverse)};
     }
 
@@ -10101,6 +10109,7 @@ struct channel::implementation {
         native::semantic_scene_builder& builder,
         std::unordered_map<std::uint64_t, glyph_scene_resource>&
             glyph_resources,
+        float dpi_scale,
         bool coverage_only = false) const {
         if (glyph_run_handle == 0U || foreground_brush_handle == 0U) {
             return status::success;
@@ -10133,8 +10142,9 @@ struct channel::implementation {
         if (!try_get_affine_scale(current.transform, transform_scale)) {
             return status::invalid_graph;
         }
+        if (!std::isfinite(dpi_scale) || dpi_scale <= 0.0F) return status::invalid_graph;
         const float target_raster_size = std::clamp(
-            glyph_run.em_size * transform_scale, 4.0F, 128.0F);
+            glyph_run.em_size * dpi_scale * transform_scale, 4.0F, 128.0F);
         const std::uint64_t cache_key =
             static_cast<std::uint64_t>(glyph_run_handle) << 32U |
             std::bit_cast<std::uint32_t>(target_raster_size);
@@ -10265,7 +10275,8 @@ struct channel::implementation {
                 source_position,
                 current.transform,
                 target_raster_size,
-                current.text_hinting_mode);
+                current.text_hinting_mode,
+                dpi_scale);
             const auto outline = scene_resource.outline_indices.find(
                 glyph_outline_key(
                     glyph_run.glyph_indices[index],
@@ -15173,12 +15184,21 @@ struct channel::implementation {
             return append_tile_pen(stroke_pen, use, state, {}, {}, true, geometry.stroke_contours, collected);
         };
         const auto append_brushed_glyph_run = [this, &builder, &glyph_resources,
-            &resolve_uniform_tile_guidelines, &paint_tile_source_in_mask, &resolve_brush_index, &save_state](
+            &resolve_uniform_tile_guidelines, &paint_tile_source_in_mask, &resolve_brush_index, &save_state,
+            compile_context](
             std::uint32_t glyph_handle, std::uint32_t brush_handle,
             const render_scope_state& source_state) -> status {
+            if (glyph_handle == 0U || brush_handle == 0U) return status::success;
+            // Native frames currently have one physical DPI scalar. Reject an
+            // anisotropic target rather than prepare text at an invented mean.
+            if (compile_context != nullptr &&
+                compile_context->request.dpi_scale_x != compile_context->request.dpi_scale_y)
+                return status::unsupported_command;
+            const float dpi_scale = compile_context == nullptr ? 1.0F :
+                static_cast<float>(compile_context->request.dpi_scale_x);
             const bool tiled = tile_brushes.contains(brush_handle);
             if (!tiled && !gradient_brushes.contains(brush_handle))
-                return append_glyph_run(glyph_handle, brush_handle, source_state, builder, glyph_resources);
+                return append_glyph_run(glyph_handle, brush_handle, source_state, builder, glyph_resources, dpi_scale);
             if (glyph_handle == 0U || affine_has_zero_area(source_state.transform)) return status::success;
             const auto found = glyph_runs.find(glyph_handle);
             if (found == glyph_runs.end()) return status::invalid_handle;
@@ -15212,7 +15232,7 @@ struct channel::implementation {
             if (!coverage.add_state(state, state_index) || !coverage.save(state_index)) return status::invalid_graph;
             std::unordered_map<std::uint64_t, glyph_scene_resource> coverage_glyphs;
             const status drawn = append_glyph_run(glyph_handle, brush_handle, coverage_scope,
-                coverage, coverage_glyphs, true);
+                coverage, coverage_glyphs, dpi_scale, true);
             if (drawn != status::success) return drawn;
             if (!coverage.restore()) return status::invalid_graph;
             std::vector<std::byte> scene;
