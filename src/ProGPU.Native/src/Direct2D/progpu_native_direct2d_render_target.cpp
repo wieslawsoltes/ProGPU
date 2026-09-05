@@ -5171,8 +5171,7 @@ public:
         const bool full_target = infinite_rectangle(
             parameters->content_bounds);
         rectangle_f mask_content_bounds = parameters->content_bounds;
-        if ((full_target && parameters->opacity_brush != nullptr) ||
-            !full_target) {
+        if (!full_target) {
             if (!axis_preserving_transform(transform_)) {
                 latch(not_implemented);
                 return;
@@ -5801,20 +5800,31 @@ private:
         rectangle_f& bounds) const noexcept
     {
         matrix_3x2_f inverse{};
-        if (!axis_preserving_transform(transform_) ||
-            !try_invert_transform(transform_, inverse)) {
+        if (!try_invert_transform(transform_, inverse)) {
             return false;
         }
         const double target_width =
             static_cast<double>(pixel_width_) * 96.0 / dpi_x_;
         const double target_height =
             static_cast<double>(pixel_height_) * 96.0 / dpi_y_;
-        const double left = inverse.m31;
-        const double top = inverse.m32;
-        const double right = target_width * inverse.m11 + inverse.m31;
-        const double bottom = target_height * inverse.m22 + inverse.m32;
+        // Algorithm: inverse-map the four physical-viewport DIP corners and
+        // retain their conservative local envelope for full-target brush coverage.
+        // This envelope is storage/domain metadata, not a replacement geometric clip.
+        // Time/space: O(1), four fixed corners, no pixel work or allocations.
+        const double x0 = inverse.m31;
+        const double y0 = inverse.m32;
+        const double x1 = target_width * inverse.m11 + inverse.m31;
+        const double y1 = target_width * inverse.m12 + inverse.m32;
+        const double x2 = target_height * inverse.m21 + inverse.m31;
+        const double y2 = target_height * inverse.m22 + inverse.m32;
+        const double x3 = target_width * inverse.m11 + target_height * inverse.m21 + inverse.m31;
+        const double y3 = target_width * inverse.m12 + target_height * inverse.m22 + inverse.m32;
+        const double left = std::min({x0, x1, x2, x3});
+        const double top = std::min({y0, y1, y2, y3});
+        const double right = std::max({x0, x1, x2, x3});
+        const double bottom = std::max({y0, y1, y2, y3});
         constexpr double maximum = std::numeric_limits<float>::max();
-        const double values[]{left, top, right, bottom};
+        const double values[]{left, top, right, bottom, right - left, bottom - top};
         if (!std::all_of(
                 std::begin(values),
                 std::end(values),
@@ -5824,12 +5834,25 @@ private:
                 })) {
             return false;
         }
-        bounds = {
-            static_cast<float>(std::min(left, right)),
-            static_cast<float>(std::min(top, bottom)),
-            static_cast<float>(std::max(left, right)),
-            static_cast<float>(std::max(top, bottom))};
-        return valid_rectangle(bounds);
+        const auto outward = [](double value, bool upper) noexcept {
+            float rounded = static_cast<float>(value);
+            if (upper ? double{rounded} < value : double{rounded} > value)
+                rounded = std::nextafter(rounded, upper
+                    ? std::numeric_limits<float>::infinity()
+                    : -std::numeric_limits<float>::infinity());
+            return rounded;
+        };
+        bounds = {outward(left, false), outward(top, false),
+            outward(right, true), outward(bottom, true)};
+        // Brush masks encode origin+extent, so also round the extent outward
+        // when a distant origin would otherwise absorb the opposite edge.
+        const float width = outward(double{bounds.right} - bounds.left, true);
+        const float height = outward(double{bounds.bottom} - bounds.top, true);
+        bounds.right = bounds.left + width;
+        bounds.bottom = bounds.top + height;
+        return valid_rectangle(bounds) &&
+            std::isfinite(bounds.right - bounds.left) &&
+            std::isfinite(bounds.bottom - bounds.top);
     }
 
     [[nodiscard]] static matrix_3x2_f compose_transform(

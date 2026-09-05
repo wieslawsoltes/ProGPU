@@ -3630,3 +3630,30 @@ aliased-mask rejection with the newly supported behavior. Compilation is recorde
 separately: the native library and Direct2D compatibility test target compile.
 Runtime tests, Windows VM/image parity, performance, and CI qualification
 remain deferred and are not claimed by this checkpoint.
+## Implementation-first checkpoint: affine full-target opacity layers
+
+Full-target layers with an opacity brush now accept finite invertible affine
+world transforms, including quarter-turns, general rotation, shear, and reflection.
+The native helper inverse-maps all four viewport corners in DIP coordinates using
+both target DPI axes. It retains their local envelope as the opacity-mask domain
+and preserves the original world transform for brush evaluation. The viewport
+remains the visible boundary: this envelope is not a substituted geometric clip.
+
+Corner bounds and origin/extent encoding are rounded outward when narrowed to
+float, including cancellation at a distant origin. Non-finite/unrepresentable
+domains and singular transforms fail closed. Work and stack storage remain O(1)
+for four fixed corners; there is no pixel loop, readback, shader change, or new
+submission. Existing solid/gradient mask pipelines and typed ownership are reused.
+This extends the original ProGPU `try_resolve_full_target_local_bounds` helper,
+consistent with full-target/default bounds and world-relative mask transforms in
+the [Direct2D layers overview](https://learn.microsoft.com/en-us/windows/win32/direct2d/direct2d-layers-overview).
+
+The bounded-layer rotation/shear restriction is deliberately unchanged: its exact
+content-bound clipping semantics still need implementation and qualification.
+ClearType initialization and bitmap opacity-brush support also remain separate
+gaps. Portable Direct2D callers share this C++ endpoint; no separate managed
+Direct2D layer-domain implementation is changed. Authored cases cover solid and
+linear-gradient brushes, three affine transforms, equal/unequal DPI, corner-domain
+containment, and singular failure. Runtime/Windows image parity and performance
+remain unverified during the implementation-first phase.
+The native library and Direct2D compatibility test target compile successfully.
