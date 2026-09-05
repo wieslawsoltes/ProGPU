@@ -1055,6 +1055,67 @@ int main(int argc, char** argv)
         }
     }
     phase("MIL effects passed");
+    using progpu::native::tests::mil_clip_cache_options;
+    const std::array cache_cases{
+        mil_clip_cache_options{.enabled = true},
+        mil_clip_cache_options{.enabled = true, .gradient = true},
+        mil_clip_cache_options{.enabled = true, .scale = 2.0},
+        mil_clip_cache_options{.enabled = true, .gradient = true,
+            .offset_x = 0.25, .offset_y = 0.25,
+            .snaps = true, .guidelines = true},
+        mil_clip_cache_options{.enabled = true, .nested = true}};
+    for (std::size_t index = 0U; index < cache_cases.size(); ++index) {
+        const auto& cache = cache_cases[index];
+        const std::uint64_t scene_id = 9100U + index;
+        std::fprintf(stderr, "Native GPU cache variant: %zu\n", index);
+        require(progpu::native::tests::build_mil_visual_clip_fixture(
+            mil_scene, mil_clip_effect::none, scene_id, cache),
+            "MIL cached geometry clip compilation failed");
+        const auto cached_pixels = render_scene(gpu, engine, nullptr, 2U,
+            cache.nested ? 24U : 20U, cache.nested ? 5U : 4U,
+            mil_scene, scene_id);
+        const auto channel = [&cached_pixels](std::uint32_t x,
+                                              std::uint32_t y,
+                                              std::uint32_t component) {
+            return cached_pixels[(y * width + x) * 4U + component];
+        };
+        std::fprintf(stderr, "MIL cache=%zu red=%u blue=%u\n", index,
+            static_cast<unsigned>(channel(16U, 32U, 0U)),
+            static_cast<unsigned>(channel(48U, 32U, 2U)));
+        require(channel(32U, 32U, 0U) == 0U &&
+                channel(32U, 32U, 2U) == 0U &&
+                channel(58U, 32U, 2U) == 0U &&
+                channel(5U, 17U, 0U) == 0U &&
+                channel(16U, 12U, 0U) == 0U,
+            "MIL cache geometry/content clip escaped or inherited a sibling mask");
+        if (cache.gradient) {
+            const int expected_red = cache.guidelines ? 64 : 66;
+            require(std::abs(static_cast<int>(channel(16U, 32U, 0U)) -
+                        expected_red) <= 1 &&
+                    std::abs(static_cast<int>(channel(48U, 32U, 2U)) - 193) <= 1 &&
+                    channel(8U, 32U, 0U) < channel(24U, 32U, 0U),
+                "MIL cached gradient mask lost its world/guideline coordinates");
+        } else {
+            require(channel(16U, 32U, 0U) == 255U &&
+                    channel(48U, 32U, 2U) == 255U,
+                "MIL local cache lost clipped sibling contents");
+            if (index == 0U) {
+                require(cached_pixels == mil_pixels,
+                    "MIL identity local cache changed exact clip coverage");
+            }
+        }
+        const auto retained_pixels = render_scene(gpu, engine, nullptr, 2U,
+            cache.nested ? 24U : 20U, 1U, mil_scene, scene_id);
+        progpu_native_layer_metrics retained_metrics{};
+        retained_metrics.struct_size = sizeof(retained_metrics);
+        require(progpu_native_engine_get_layer_metrics(engine, &retained_metrics) ==
+                PROGPU_NATIVE_STATUS_SUCCESS &&
+                retained_metrics.content_pass_count == 0U,
+            "MIL clipped bitmap cache rerasterized unchanged content");
+        require(retained_pixels == cached_pixels,
+            "MIL retained cache hit changed geometry/gradient clip pixels");
+    }
+    phase("MIL cache clips passed");
     const char* adapter_name = gpu.properties.name == nullptr
         ? "unknown"
         : gpu.properties.name;

@@ -89,6 +89,8 @@ bool create_semantic_composite_mask_binding(
     const progpu_native_scene_resource& resource,
     const semantic::scissor& target_extent,
     float dpi_scale,
+    const semantic::semantic_state_cursor* composite_state_cursor,
+    const progpu_native_scene_state* composite_state,
     semantic_render_bundle_span& operation) {
     const auto& source = parsed.composite;
     if (source.component_count < 2U ||
@@ -253,8 +255,8 @@ bool create_semantic_composite_mask_binding(
                 child,
                 target_extent,
                 dpi_scale,
-                nullptr,
-                nullptr,
+                composite_state_cursor,
+                composite_state,
                 child_operation)) {
             cleanup();
             return false;

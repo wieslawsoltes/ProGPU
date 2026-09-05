@@ -1036,6 +1036,22 @@ void semantic_state_is_cpu_only_and_target_relative() {
     require(target_clip == progpu::native::semantic::scissor{
         2U, 2U, 28U, 18U, true});
 
+    auto cache_state = progpu::native::semantic::semantic_identity_state();
+    const progpu::native::semantic::scissor cache_page{
+        0U, 0U, 128U, 128U, true};
+    require(progpu::native::semantic::resolve_semantic_target_scissor(
+        cache_state, cache_page, 64U, 64U, 1.0F) == cache_page);
+    cache_state.flags = PROGPU_NATIVE_SCENE_STATE_CLIP_RECT;
+    cache_state.clip_rect = {72.0F, 80.0F, 80.0F, 64.0F};
+    require(progpu::native::semantic::resolve_semantic_target_scissor(
+        cache_state, cache_page, 64U, 64U, 1.0F) ==
+        progpu::native::semantic::scissor{72U, 80U, 56U, 48U, true});
+    const progpu::native::semantic::scissor offscreen_page{
+        96U, 96U, 32U, 32U, true};
+    require(progpu::native::semantic::resolve_semantic_target_scissor(
+        cache_state, offscreen_page, 64U, 64U, 1.0F) ==
+        progpu::native::semantic::scissor{0U, 0U, 32U, 32U, true});
+
     const auto localized =
         progpu::native::semantic::localize_semantic_state(
             state, target, 2.0F);

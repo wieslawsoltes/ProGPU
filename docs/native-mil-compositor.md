@@ -6621,6 +6621,23 @@ no figures. Callback-count comparisons prove that no Widen lane changes caller
 segment flags. Unsupported collapsed or split/self-intersecting non-convex
 offsets remain fail closed.
 
+## Native local-cache geometry-clip checkpoint, 2026-09-05
+
+Native MIL BitmapCache replay applies exact cache-root/ancestor vector clips
+to the retained output, including a GPU composite with linear/radial gradient
+opacity masks. Cache pixels and their own nested clips use an isolated clip
+frame. Composite brush guidelines and SnapsToDevicePixels remain separate
+from world-space output geometry. Mask-only changes preserve cached content
+revision, and unchanged warm GPU replays perform no cache-content passes.
+
+The same gate covers two sibling caches, nested caches, multi-guideline
+gradient masks, and twice-resolution pages. The latter also repairs native
+target scissoring that previously truncated oversized cache pages to the
+window dimensions. See `NATIVE_CPP_ENGINE_SPECIFICATION.md` for exact
+assertions and platform qualification. These additions do not remove the
+remaining Viewport3D, programmable effect, tile-brush, nested effect-domain,
+DirectX/Direct2D/Win2D, or final platform-parity gates.
+
 ## Invariants
 
 - No reflection or private managed field scanning in the product bridge.

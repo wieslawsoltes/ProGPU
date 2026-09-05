@@ -557,11 +557,22 @@ scissor resolve_semantic_target_scissor(
     std::uint32_t frame_width,
     std::uint32_t frame_height,
     float dpi_scale) noexcept {
+    // A local bitmap-cache page may be larger than the presentation frame
+    // (RenderAtScale, or an offscreen subtree). Clip against that page's
+    // coordinate domain before localizing, not against the root window.
+    const auto domain_extent = [](std::uint32_t frame_extent,
+                                  std::uint32_t origin,
+                                  std::uint32_t extent) noexcept {
+        const auto end = std::min<std::uint64_t>(
+            static_cast<std::uint64_t>(origin) + extent,
+            std::numeric_limits<std::uint32_t>::max());
+        return std::max(frame_extent, static_cast<std::uint32_t>(end));
+    };
     auto clipped = intersect_semantic_scissors(
         resolve_semantic_scissor(
             state,
-            frame_width,
-            frame_height,
+            domain_extent(frame_width, target.x, target.width),
+            domain_extent(frame_height, target.y, target.height),
             dpi_scale),
         target);
     if (!clipped.drawable) {
