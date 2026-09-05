@@ -135,6 +135,7 @@ a separate ABI feature with ownership and submission requirements of its own.
 
 On macOS 26.6 / Apple M3 Pro with .NET 10, the core Release suite passes 3,814
 tests, including five new registration/recording/lifecycle/native-rejection tests.
+All 240 headless Release rendering tests also pass.
 The package-only fixture restores 13 locally packed ProGPU dependencies outside
 the source tree and builds unsigned with zero warnings. The optional `--gpu` run
 renders the original packaged shader through both APIs: all 16,384 compared RGBA8
@@ -157,5 +158,11 @@ FPS or an assertion that every timing sample is identical.
 
 The fixture and commands are checked in. Logs, exact-binary hashes and Instruments
 exports live under `artifacts/public-drawing-extensions/` in the validation checkout.
+Time Profiler captured 3,234 samples and Metal System Trace recorded the complete
+alternating workload, with a 6,455,296-byte peak Metal allocation. Both instrumented
+runs completed the same pixel/draw checks. Some managed JIT frames remain raw
+addresses; the trace is not used to assign nanosecond wrapper costs. Exported tables
+were parsed and gzip round trips/hash-verified before removing the two raw `.trace`
+bundles at the user's request. No runtime performance logging is added to ProGPU.
 `eng/progpu-pack.sh` runs the package consumer gate for portable/all packaging; set
 `PROGPU_EXTENSION_GPU_TEST=1` on a WebGPU-capable host to include GPU validation.
