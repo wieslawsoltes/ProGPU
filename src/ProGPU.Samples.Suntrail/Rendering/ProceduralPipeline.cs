@@ -12,7 +12,7 @@ namespace ProGPU.Samples.Suntrail.Rendering;
 /// one upload per changed generation and contiguous material runs. Painter order is preserved.
 /// The same canonical WGSL is consumed by desktop, iOS and browser WebGPU devices.
 /// </summary>
-public sealed unsafe class ProceduralPipeline : ICompositorExtension, IDisposable
+public sealed unsafe partial class ProceduralPipeline : ICompositorExtension, IDisposable
 {
     private static readonly string Shader = LoadShader();
     private static string LoadShader()
@@ -89,6 +89,13 @@ public sealed unsafe class ProceduralPipeline : ICompositorExtension, IDisposabl
         // No sorting, scratch storage or per-sprite resource changes.
         for (int first = 0; first < sprites.Length;)
         {
+            if (first == 0 && _skyReady)
+            {
+                api.RenderPassEncoderSetPipeline(pass, GetSkyReplayPipeline(compositor, isOffscreen));
+                api.RenderPassEncoderSetBindGroup(pass, 1, _skySampleGroup, 0, null);
+                api.RenderPassEncoderDraw(pass, 6, 1, 0, 0);
+                Draws++; first++; continue;
+            }
             int variant = EnableSpecializedShaders ? Variant(sprites[first].Material.X) : 0;
             int end = first + 1;
             while (end < sprites.Length && (!EnableSpecializedShaders || Variant(sprites[end].Material.X) == variant)) end++;
@@ -144,6 +151,7 @@ public sealed unsafe class ProceduralPipeline : ICompositorExtension, IDisposabl
 
     public void Dispose()
     {
+        DisposeSkyCache();
         if (_context is { IsDisposed: false } context)
         {
             if (_group != null) context.QueueBindGroupDisposal((nint)_group);

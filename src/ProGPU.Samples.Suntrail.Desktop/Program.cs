@@ -8,6 +8,13 @@ public static class Program
 {
     public static void Main(string[] args)
     {
+        if (args.Length > 0 && args[0] == "--render-benchmark")
+        {
+            if (args.Length != 4 || args[2] is not ("on" or "off") || !int.TryParse(args[3], out int renderFrames) || renderFrames < 60 || renderFrames > 36000)
+                throw new ArgumentException("--render-benchmark requires output-prefix, sky-cache on/off, and 60–36000 frames.");
+            GpuWorkload.Run(args[1], args[2] == "on", renderFrames);
+            return;
+        }
         long launched=System.Diagnostics.Stopwatch.GetTimestamp();
         int benchmark=Array.IndexOf(args,"--benchmark");
         App.AutoPlay = args.Contains("--autoplay", StringComparer.Ordinal) || benchmark>=0;
@@ -17,6 +24,8 @@ public static class Program
             throw new ArgumentException("--world requires a number from 1 through 8.");
         if (args.Contains("--no-occlusion", StringComparer.Ordinal))
             App.Started += (view, _) => view.Surface.Batch.EnableBackgroundOcclusion = false;
+        if (args.Contains("--sky-cache", StringComparer.Ordinal))
+            App.Started += (_, window) => ((Rendering.ProceduralPipeline)window.Compositor!.GetExtension(Rendering.ProceduralDrawingContextExtensions.ExtensionId)!).EnableSkyCache = true;
         if (world > 0) App.Started += (view, _) => view.Surface.Session.StartLevel(world - 1);
         if(benchmark>=0)
         {

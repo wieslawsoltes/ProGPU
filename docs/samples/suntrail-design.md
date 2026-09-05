@@ -228,3 +228,41 @@ No animation timer, input smoothing delay, shader, or per-frame polling is added
 Regression tests inject platform-style pointers into the actual arranged phone root,
 check captured off-control movement and simultaneous jump, and compare rendered
 centered/dragged frames without advancing simulation.
+
+
+## Retained full-precision sky experiment
+
+`ProceduralPipeline.SkyCache.cs` caches only the static sky entry point from the
+original canonical `Shaders/Suntrail.wgsl`; it does not cache moving clouds, foliage,
+terrain, dynamic lights, or the camera. The existing research on retained immutable
+resources (Skia, WebRender, Vello, Direct2D/Win2D) informs the ownership and invalidation
+choice; no external implementation was copied. The same original shader is baked by
+the same WebGPU device and replayed by Desktop, Browser and iOS managed extensions.
+The native C++ renderer has no corresponding WinUI sample extension. No C ABI or
+core renderer algorithm changes are required.
+
+The cache is opt-in pending representative performance validation. One RGBA32Float
+image preserves the shader's float output before the normal target-format conversion.
+Replay uses `textureLoad` at the identical physical pixel, with no reduced resolution,
+filtering, compression, or lower precision. Current opaque-ground masks are checked
+at replay, so scrolling never reuses obsolete visibility. The key includes logical
+and physical dimensions, world, room, and tint; only identity-transformed full-viewport
+skies with integral physical dimensions are eligible. Unsupported extents and
+transforms use live shading. A device owns its texture and bind groups; disposal
+queues their release through the existing submission lifetime.
+
+Preparation runs through `TryPrepareDrawCall` before the compositor render pass. A
+miss adds one bounded GPU bake submission and 336 uploaded bytes; a hit adds no
+upload or submission. The current image is capped at 96 MiB and 4096 pixels per axis,
+with normal deferred release potentially retaining the preceding image until its
+in-flight submission finishes. At 932×430 logical pixels and 3× DPI it occupies
+57,709,440 bytes. The image is reused across animation time, scrolling, and lighting
+changes; it never contains those changing effects. GPU state remains confined to
+the sample's single procedural batch per compositor.
+
+The `--render-benchmark OUTPUT on|off FRAMES` Desktop harness advances exactly two
+120 Hz simulation steps per frame, resets the route after 120 warmup frames, and
+measures submission CPU and serialized GPU completion separately. It is deliberately
+labelled latency, not displayed FPS. Both settings use one final Release binary,
+identical input, framebuffer, MSAA, allocations and upload workload. Device FPS still
+requires a later iPhone run after reconnection.

@@ -26,7 +26,7 @@ The iPhone black screen was fixed and the user confirmed gameplay. Smooth iPhone
 is not yet verified. The controls pass targeted input tests and native visual checks. Eight optional vaults,
 two-way pipe travel, and three timed hazard families are implemented and tested.
 The main campaign still needs a broader encounter redesign; new rooms do not by
-themselves complete that request. Current sample validation: 42 Release tests. The reported unresponsive joystick was
+themselves complete that request. Current sample validation: 46 Release tests. The reported unresponsive joystick was
 reproduced through platform pointer injection and fixed in the shared WinUI panel
 hit-test path; two-axis thumb feedback now repaints during dragging.
 No level-format compatibility, editor, or full 3D completion is claimed by this list.
@@ -36,3 +36,9 @@ GPU texture cache, while keeping animated foliage, lights, and other changing ef
 dynamic. Any such change needs physical-resolution and device-generation keys, bounded
 residency, correct invalidation, image comparisons, and matched iPhone Release traces.
 The six-pipeline specialization improved the measured fragment cost but is insufficient.
+
+An opt-in full-precision sky cache and fixed-input GPU latency benchmark are now
+implemented. Exact pixels pass across worlds, vaults and Retina scales. The cache
+remains disabled by default because its memory cost and missing device validation
+do not yet justify enabling it on iPhone. Device work stopped after installing
+the joystick fix (`29366d4f`), as requested; further device validation awaits reconnection.

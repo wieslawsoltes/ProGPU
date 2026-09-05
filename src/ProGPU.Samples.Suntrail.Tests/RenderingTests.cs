@@ -50,6 +50,14 @@ public sealed class RenderingTests : IDisposable
                 compositor.RenderScene(visual,1280,800,target.ViewPtr);context.WaitIdle();
                 Assert.True(errors.Count == 0, string.Join("\n", errors));
                 var pixels=target.ReadPixels();
+                pipeline.EnableSkyCache = true;
+                compositor.RenderScene(visual,1280,800,target.ViewPtr);
+                Assert.Equal(pixels,target.ReadPixels());
+                Assert.True(pipeline.SkyResidentBytes > 0);
+                long bakes = pipeline.SkyBakeCount;
+                for (int replay = 0; replay < 3; replay++) compositor.RenderScene(visual,1280,800,target.ViewPtr);
+                Assert.Equal(bakes, pipeline.SkyBakeCount);
+                pipeline.EnableSkyCache = false;
                 pipeline.EnableSpecializedShaders = false;
                 compositor.RenderScene(visual,1280,800,target.ViewPtr);
                 Assert.Equal(pixels,target.ReadPixels());
@@ -85,7 +93,8 @@ public sealed class RenderingTests : IDisposable
     {
         using var context = new WgpuContext(); context.Initialize(null);
         using var compositor = new Compositor(context, TextureFormat.Rgba8Unorm);
-        compositor.RegisterExtension(ProceduralDrawingContextExtensions.ExtensionId, new ProceduralPipeline());
+        var pipeline = new ProceduralPipeline();
+        compositor.RegisterExtension(ProceduralDrawingContextExtensions.ExtensionId, pipeline);
         using var target = new GpuTexture(context, 1280, 800, TextureFormat.Rgba8Unorm,
             TextureUsage.RenderAttachment | TextureUsage.CopySrc, "Suntrail vault verification", alphaMode: GpuTextureAlphaMode.Premultiplied);
         var signatures = new HashSet<string>();
@@ -106,6 +115,10 @@ public sealed class RenderingTests : IDisposable
             visual.Measure(new(1280, 800)); visual.Arrange(new Rect(0, 0, 1280, 800));
             compositor.RenderScene(visual, 1280, 800, target.ViewPtr);
             var pixels = target.ReadPixels();
+            pipeline.EnableSkyCache = true;
+            compositor.RenderScene(visual, 1280, 800, target.ViewPtr);
+            Assert.Equal(pixels, target.ReadPixels());
+            pipeline.EnableSkyCache = false;
             Assert.True(pixels.Where((_, i) => i % 4 != 3).Distinct().Count() > 100);
             signatures.Add(Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(pixels)));
             PngEncoder.SavePng(Path.Combine(Artifacts(), $"vault-{world + 1}.png"), pixels, 1280, 800);

@@ -1,6 +1,6 @@
 // Algorithm: Instanced analytic 2.5D artwork with rough stone cells, layered noise, textured foliage and fur, atmospheric extinction, and directional illumination. Original Suntrail artwork.
-// Time complexity: O(V + F) for V visible sprites and F covered fragments; six vertices per sprite, at most 36 bounded shape layers per fragment; material noise uses three fixed octaves and stone cells use a 3x3 neighborhood, no scene-length loops or ray marching.
-// Space complexity: O(V) uploaded 48-byte sprite records in a fixed 2048-instance buffer; O(1) private fragment storage and a 288-byte frame uniform; zero texture samples or artwork textures.
+// Time complexity: O(V + F) for V visible sprites and F covered fragments; six vertices per sprite, at most 36 bounded shape layers per fragment; material noise uses three fixed octaves and stone cells use a 3x3 neighborhood, no scene-length loops or ray marching. An optional sky-cache miss adds O(P) work for P framebuffer pixels once per key; hits replace sky noise with one O(1) texel load per visible fragment.
+// Space complexity: O(V) uploaded 48-byte sprite records in a fixed 2048-instance buffer; O(1) private fragment storage and a 288-byte frame uniform. Optional retained sky uses one physical-resolution RGBA32Float image capped at 96 MiB; replay performs one unfiltered 16-byte texel load per sky fragment. Other entries use zero texture samples.
 // Coordinates are logical pixels, projected to physical framebuffer pixels by ProGPU.
 // Coverage uses physical-pixel derivatives; premultiplied alpha, source-over composition.
 // Fixed loops: stone neighborhood 9, tree branches 7 and canopy lobes 7, fern fronds 2 with 6 leaf pairs each, grass blades 6, petals 5, portal sparks 6, palm fronds 8, pine boughs 6, crystal prisms 3, local lights 3, conservative opaque rectangles at most 8. No ray marching or screen-space history.
@@ -706,3 +706,18 @@ fn shade(v: Varying, kind: u32) -> vec4<f32> {
 @fragment fn fs_mountain(v: Varying) -> @location(0) vec4<f32> { return shade(v,15u); }
 @fragment fn fs_tree(v: Varying) -> @location(0) vec4<f32> { return shade(v,2u); }
 @fragment fn fs_shafts(v: Varying) -> @location(0) vec4<f32> { return shade(v,20u); }
+
+// Bake uses fs_sky with occlusion disabled. Replay restores current occlusion and
+// loads the identical physical pixel: no filtering, quantization, or temporal reuse
+// of changing effects. World, room, dimensions, DPI and tint invalidate the image.
+@group(1) @binding(0) var retained_sky: texture_2d<f32>;
+@fragment fn fs_sky_cached(v: Varying) -> @location(0) vec4<f32> {
+    for(var i=0u;i<u32(frame.occlusion.x);i++) {
+        let rect=frame.ground[i];
+        if(all(v.local>rect.xy) && all(v.local<rect.zw)){return vec4(0.);}
+    }
+    if(any(v.local<frame.clip.xy)||any(v.local>frame.clip.zw)){discard;}
+    let extent=vec2<i32>(textureDimensions(retained_sky));
+    let texel=clamp(vec2<i32>(v.uv*vec2<f32>(extent)),vec2<i32>(0),extent-1);
+    return textureLoad(retained_sky,texel,0);
+}

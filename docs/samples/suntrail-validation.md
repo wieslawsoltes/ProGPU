@@ -223,3 +223,56 @@ Release tests pass; the extended phone render test also passes and writes
 captures. The focused core pointer/hit-testing suite passes 161 tests, including new
 Panel/Grid/StackPanel null/transparent-background regressions. This is an input and
 feedback fix, not a claim that the outstanding iPhone GPU bottleneck is resolved.
+
+
+## Full-precision sky cache experiment
+
+The optional sky cache passes exact RGBA8 comparisons for all eight surface worlds
+and all eight vault palettes. Additional tests cover 2×/3× DPI, camera movement,
+world/viewport-size changes, retained upload reuse, and disposal. Current sample
+suite: 46 Release tests; canonical shader audit: 19 tests. The default is disabled;
+Desktop `--sky-cache` enables normal-play review, while `--render-benchmark PREFIX
+on|off 600` runs the fixed-input offscreen workload. The installed iPhone version
+remains the joystick fix, commit `29366d4f`; device work stopped when the user
+disconnected, and this experiment has not been installed or measured on iPhone.
+
+The benchmark uses 932×430 logical pixels, 2796×1290 framebuffer pixels and 4× MSAA
+on Apple M3 Pro. Each run warms 120 frames, restarts the simulation, then records
+600 frames with exactly two simulation steps per frame. Submission CPU and serialized
+GPU completion are separate; completion latency is not display FPS. All runs finish
+at tick 1200, position (2977.0835, 552), zero deaths, 4,484,784 uploaded bytes and
+177,600 total managed allocated bytes during measurement. Cache-on performs exactly
+one sky bake during warmup, with no additional measured upload.
+
+Metal System Trace corroborates resource residency: 83,132,416 bytes without the
+cache and 142,508,032 with it, matching the application snapshots. The sky texture
+itself occupies 57,709,440 bytes. Trace GPU interval distributions are not frame
+durations and the short launch captures include unequal startup windows; they are
+not used to claim a GPU speedup. Time Profiler exports contain 685 baseline and 565
+cache-on samples. An Allocations launch remained in `AuthorizationCopyRights` with
+the target stopped, so it was canceled; native allocation-stack evidence is missing.
+The bounded texture and matching counters are not a substitute for that missing lane.
+
+Six same-binary measurements and their environment/hash record are retained as
+`artifacts/suntrail/performance/sky-final-*`. The earlier exploratory pairs showed
+4–6% lower median latency but mixed p99 results. No sustained smooth-FPS claim or
+default enablement follows from this experiment. Static terrain and other large
+materials still need optimization and a later iPhone measurement.
+
+Final same-binary results (alternating off/on, on/off, off/on):
+
+| Pair | Sky cache | Serialized completion p50 / p95 / p99 (ms) |
+| --- | --- | --- |
+| 1 | off | 17.595 / 25.798 / 28.797 |
+| 1 | on | 16.250 / 23.934 / 27.335 |
+| 2 | off | 17.669 / 26.294 / 30.917 |
+| 2 | on | 16.346 / 24.719 / 28.027 |
+| 3 | off | 17.485 / 25.302 / 29.922 |
+| 3 | on | 16.453 / 23.848 / 29.766 |
+
+Desktop and Browser AOT builds pass. Native Desktop title/gameplay and Browser
+title rendering were visually reviewed with Computer Use. This is visual rendering
+verification, not a new device-control or phone-FPS claim. Oversized and translated
+cache requests are also checked against live rendering. Completed raw Metal/CPU
+trace bundles and the incomplete Allocations bundle were removed after export.
+The larger GPU XML tables are gzip-compressed with SHA-256 round-trip verification.
