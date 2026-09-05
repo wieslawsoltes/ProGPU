@@ -827,6 +827,9 @@ struct progpu_native_engine {
         release_buffer(page.mesh_buffer);
         release_buffer(page.vertex_buffer);
         release_buffer(page.index_buffer);
+        release_buffer(page.light_buffer);
+        release_buffer(page.material_buffer);
+        release_buffer(page.material_gradient_stop_buffer);
         page.draws.clear();
         page.mesh_face_flags.clear();
         page.mesh_index_counts.clear();

@@ -63,6 +63,8 @@ struct mil_clip_cache_options {
     bool nested{};
     double root_scale{1.0};
     bool viewport3d{};
+    bool mixed2d{};
+    bool rectangular_clips{};
 };
 
 // An original raw-MIL fixture exercises the ABI and the exact same engine as
@@ -87,7 +89,9 @@ inline bool build_mil_visual_clip_fixture(std::vector<std::byte>& scene,
     packet(batch, command::target_set_root, 4U, 1U);
     packet(batch, command::channel_create_resource, 5U, 69U);
     packet(batch, command::rectangle_geometry, 5U,
-        8.0, 8.0, 0.0, 0.0, 56.0, 64.0, 0U, 0U, 0U, 0U);
+        cache_options.rectangular_clips ? 0.0 : 8.0,
+        cache_options.rectangular_clips ? 0.0 : 8.0,
+        0.0, 0.0, 56.0, 64.0, 0U, 0U, 0U, 0U);
     packet(batch, command::visual_set_clip, 1U, 5U);
     packet(batch, command::channel_create_resource, 6U, 69U);
     packet(batch, command::rectangle_geometry, 6U,
@@ -129,10 +133,17 @@ inline bool build_mil_visual_clip_fixture(std::vector<std::byte>& scene,
         const std::uint32_t clip = 10U + child;
         const std::uint32_t content = 20U + child;
         const std::uint32_t brush = 30U + child;
-        packet(batch, command::channel_create_resource, clip, 70U);
-        packet(batch, command::ellipse_geometry, clip,
-            12.0, 24.0, child == 2U ? 16.0 : 48.0, 32.0,
-            0U, 0U, 0U, 0U);
+        packet(batch, command::channel_create_resource, clip,
+            cache_options.rectangular_clips ? 69U : 70U);
+        if (cache_options.rectangular_clips) {
+            packet(batch, command::rectangle_geometry, clip,
+                0.0, 0.0, child == 2U ? 4.0 : 36.0, 8.0, 24.0, 48.0,
+                0U, 0U, 0U, 0U);
+        } else {
+            packet(batch, command::ellipse_geometry, clip,
+                12.0, 24.0, child == 2U ? 16.0 : 48.0, 32.0,
+                0U, 0U, 0U, 0U);
+        }
         packet(batch, command::visual_set_clip, child, clip);
         if (effect != mil_clip_effect::none) {
             packet(batch, command::visual_set_effect, child, 40U);
@@ -175,6 +186,27 @@ inline bool build_mil_visual_clip_fixture(std::vector<std::byte>& scene,
         append(batch, content);
         append(batch, static_cast<std::uint32_t>(commands.size()));
         batch.insert(batch.end(), commands.begin(), commands.end());
+    }
+    if (cache_options.mixed2d) {
+        packet(batch, command::channel_create_resource, 50U, 39U);
+        packet(batch, command::visual_create, 50U);
+        packet(batch, command::visual_insert_child_at, 1U, 50U, 2U);
+        packet(batch, command::channel_create_resource, 51U, 75U);
+        packet(batch, command::solid_color_brush, 51U, 1.0,
+            progpu_native_color{0, 1, 1, 1}, 0U, 0U, 0U, 0U);
+        for (std::uint32_t index = 0; index < 2U; ++index) {
+            const auto content = 52U + index;
+            packet(batch, command::channel_create_resource, content, 43U);
+            packet(batch, command::visual_set_content, index == 0U ? 1U : 50U, content);
+            std::vector<std::byte> commands;
+            packet(commands, command::draw_rectangle,
+                0.0, index == 0U ? 58.0 : 0.0, 64.0, 6.0, 51U, 0U);
+            append(batch, static_cast<std::uint32_t>(16U + commands.size()));
+            append(batch, static_cast<std::uint32_t>(command::render_data));
+            append(batch, content);
+            append(batch, static_cast<std::uint32_t>(commands.size()));
+            batch.insert(batch.end(), commands.begin(), commands.end());
+        }
     }
     progpu_native_mil_channel* channel = nullptr;
     if (progpu_native_mil_channel_create(&channel) !=

@@ -967,7 +967,8 @@ fn mainImage(fragCoord: vec2<f32>) -> vec4<f32> {
 
         window.Render();
 
-        Assert.True(window.Compositor.Metrics.SceneCacheHit);
+        Assert.True(window.Compositor.Metrics.SceneCacheHit,
+            window.Compositor.Metrics.SceneCacheMissReason);
         Assert.True(Assert.Single(
             GetDrawCalls(window.Compositor),
             static candidate => candidate.Type == Compositor.DrawCallType.Vector).IsSolidRounded);

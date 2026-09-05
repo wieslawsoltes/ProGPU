@@ -4190,3 +4190,48 @@ Mixed 2D/3D bundle transitions, general viewport transforms, guideline
 deformation, and complete shading-mode/lighting parity remain unqualified;
 the test explicitly uses Native3D's material-color mode rather than assuming
 its numeric shading modes are interchangeable with Mesh3DSolid.
+
+### Mixed 2D/3D bundle transitions, 2026-09-05
+
+The next raw-MIL fixture reproduced a WebGPU validation abort when a masked
+2D draw inherited the frame-wide Depth24Plus bundle descriptor merely because
+the frame also contained 3D. Each compiled bundle now records `uses_depth`;
+the compiler flushes at changes of depth requirement and the replay pass
+matches that flag. The transition-aware replay path also handles layer-free
+3D frames, while the all-2D fast path remains one depth-free pass. Stored
+depth survives intervening 2D passes and resumes with load semantics.
+
+The gate now has ten variants. The added mixed cases place 2D rectangles
+before and after clipped 3D siblings, with exact vector clips, rectangle-only
+clips directly on the presentation target, and nested retained caches. Cold
+and warm pixels, exact clip probes, occlusion, cache-content pass counts, and
+submission counts are enforced. Reusing the same engine also caught stale
+layer diagnostics after a layer-free frame; successful semantic frames now
+reset those metrics before publishing current layer/mask data.
+
+The earlier Viewport3D checkpoint passed the complete Windows native suite
+16/16 (GPU 71.95 seconds). The mixed-scene extension passes local native
+15/15 and a Windows ARM64 16/16 run (GPU 107.55 seconds); final warm-frame
+and diagnostic-reset qualification is recorded with the subsequent PR update.
+One full managed run observed a third-frame cache miss in the existing dense
+rounded-rectangle specialization test after its specialization and pixel
+equality checks passed. Its isolated test and initial 229-test class rerun
+pass; the assertion now reports the existing typed miss reason without
+weakening the invariant. Evidence is retained under
+`artifacts/performance/rounded-scene-cache-20260905`; no cause or product fix
+is claimed from a non-reproduced cache miss. Exact-head CI remains required.
+
+The final mixed cold/warm Windows GPU gate passes in 158.45 seconds and the
+Metal native suite passes 15/15. The rounded-cache test also passes a second
+229-test class run and the next full run, but that full run instead observes
+an unrelated SurfaceBrush zero-allocation assertion (6,192 bytes versus zero).
+Its isolated rerun passes; both observations remain explicitly unresolved.
+
+Hosted Linux x64 CI on `d8052ea6` passed every pixel case but failed
+LeakSanitizer at shutdown: three direct `wgpuDeviceCreateBuffer` allocations
+retained their Vulkan resources. Source ownership inspection identified the
+three missing releases in `release_semantic_3d_resources`: light, material,
+and material-gradient-stop storage buffers. They now use the same destroy /
+release / null sequence as the other five 3D buffers. A managed source guard
+requires all eight releases, and the existing full GPU teardown remains the
+LeakSanitizer regression gate. No leak suppression or CI timeout was changed.

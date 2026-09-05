@@ -6902,6 +6902,23 @@ public class NativeRendererInteropTests
     }
 
     [Fact]
+    public void Native3DTeardownReleasesEveryStorageBuffer()
+    {
+        string engine = File.ReadAllText(FindRepoFile(
+            "src", "ProGPU.Native", "src", "Backend", "progpu_native_engine.hpp"));
+        int start = engine.IndexOf("void release_semantic_3d_resources()", StringComparison.Ordinal);
+        Assert.True(start >= 0);
+        int end = engine.IndexOf("if (semantic_mesh_back_3d_pipeline", start, StringComparison.Ordinal);
+        Assert.True(end > start);
+        string cleanup = engine[start..end];
+        foreach (string buffer in new[] { "camera", "line", "mesh", "vertex", "index",
+                     "light", "material", "material_gradient_stop" })
+        {
+            Assert.Contains($"release_buffer(page.{buffer}_buffer);", cleanup, StringComparison.Ordinal);
+        }
+    }
+
+    [Fact]
     public void Native3DShaderUsesCanonicalHomogeneousPositions()
     {
         string shader = File.ReadAllText(FindRepoFile(

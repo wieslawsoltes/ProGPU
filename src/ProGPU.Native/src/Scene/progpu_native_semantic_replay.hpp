@@ -255,6 +255,7 @@ struct semantic_render_bundle_span {
     bool has_composite_scissor = false;
     bool composite_drawable = true;
     bool composite_nearest = false;
+    bool uses_depth = false;
 };
 
 struct semantic_layer_slot {
