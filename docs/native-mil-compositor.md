@@ -6832,6 +6832,96 @@ differential coverage. Unsupported uses fail closed. The earlier general image
 draw transform composition should also be audited; this checkpoint fixes
 transform ownership only for its new brush lowering.
 
+## Implementation-first sequencing, 2026-09-05
+
+At the user's request, continue feature implementation and compilation before
+the final exhaustive validation pass. Do not repeatedly run VM/image/sample,
+unit/headless, sanitizer or benchmark suites between implementation slices.
+Keep authoring regressions alongside features, regenerate ABI/protocol sources
+when their authorities change, compile the changed dependency graph, and commit
+the implementation with its outstanding qualification listed. Existing CI gates
+remain enabled; a queued or historical pass does not qualify a new head. Nothing
+in this sequencing change reduces the full MIL/DirectX/Direct2D/Win2D goal or
+permits declaring unvalidated work complete.
+
+### Configurable same-device base-level image sampling
+
+The preliminary explicit-nearest plus explicit-linear shader experiment on the
+Parallels D3D12 adapter completed the focused native ImageBrush test and matched
+all eight native Windows WPF oracle frames (32,768 pixels, RGB tolerance 1).
+This was before the implementation-first request and before the final policy
+integration below. It is evidence for the algorithm, **not qualification of the
+integrated implementation**. An earlier linear-only experiment passed the linear
+probe but changed subsequent nearest warm replay (case 1, byte 5200: 255 to 250),
+so the compatible path must cover both nearest and linear sampling.
+
+Implemented, runtime qualification deferred:
+
+- `WgpuContext.ImageSamplingPreference` is an initialization-only typed policy;
+  `ImageSamplingPath` reports the resolved implementation. The environment
+  selector is `PROGPU_IMAGE_SAMPLING=auto|native-sampler|explicit-shader`.
+  Automatic chooses explicit reconstruction for Parallels Display Adapter on
+  D3D12 and retains the native sampler elsewhere. Forced native sampling fails
+  closed on that known-unqualified adapter. No adapter/device is substituted.
+- The managed compositor snapshots the path at construction (no adapter-name
+  scans per image). Native compositor creation/recovery maps it to the generated
+  `PROGPU_NATIVE_ENGINE_IMAGE_EXPLICIT_SHADER_SAMPLING` flag. Raw C/C++ clients
+  supply that flag after adapter qualification; the C engine cannot identify an
+  opaque external device's adapter. Child engines inherit the flag, and browser
+  and Dawn entry points accept it independently of mutually exclusive glyph
+  fallback flags. Native flags now have generated C# literal authority.
+- Original canonical `ProGPU.Backend/Shaders/Texture.wgsl` reconstructs nearest
+  with one base-level `textureLoad`, and linear with four loads and bilinear
+  interpolation at texel centers. Per-tap clamp/repeat/mirror addressing reuses
+  the original ProGPU bicubic helper. Texture alpha representation is retained
+  during interpolation. Regular, masked and color-matrix image entry points
+  share selection and avoid an unused hardware sample before reconstruction.
+- Original managed `Compositor.CompileTexture` and native semantic-image plus
+  direct-image vertex producers carry the same reserved coefficient encoding
+  (-128 nearest, -64 linear). This changes no wire record size, resource lease,
+  retained upload/submission count or image ownership boundary. Selection and
+  vertex preparation are O(1) per quad; fragment work is bounded 1/4 texel loads
+  with O(1) private storage. There is no CPU fallback, readback or pixel repacking.
+- This is a **base-level image policy**, not a universal sampler override.
+  Cubic/Fant, mipmapping, anisotropy, masks' own sampling and programmable effect
+  sampler algorithms remain separate. Do not claim that their Parallels behavior
+  is qualified by these eight images, or replace them with level-zero sampling.
+
+Research/provenance: the existing [cross-engine design record](progpu-avalonia-rendering-research.md)
+covers Skia/SkParagraph, Direct2D/DirectWrite/Win2D, WebRender, Vello/Parley and
+HarfBuzz. This slice preserves its retained-scene, device-domain, lazy pipeline,
+batched GPU and CPU shaping boundaries; it changes no culling, glyph/font cache,
+font fallback, DPI placement or layout policy. The additional public contract
+references are [WGSL textureLoad](https://www.w3.org/TR/WGSL/#textureload) and
+[textureSampleGrad](https://www.w3.org/TR/WGSL/#texturesamplegrad). Adopt explicit
+same-device texel access and original ProGPU addressing; reject CPU synthesis,
+per-item passes and foreign implementation code. No performance speedup is
+claimed without the deferred matched measurements.
+
+Deferred final gates for this slice:
+
+Compilation checkpoint: the Release `ProGPU.Tests` dependency graph builds with
+zero warnings/errors (test execution deliberately deferred), and the macOS
+Clang C++20 `progpu_native_direct2d_webgpu_tests` target builds and links. The
+native C# contract was regenerated. `origin/main` was fetched with zero commits
+missing from this feature branch. These are build facts, not runtime passes.
+
+1. Execute the new `ImageSamplingPolicyTests`, native Dawn flag-combination
+   cases, native image/semantic/Direct2D tests, managed/headless suites, and
+   shader resource/ABI checks against the final binaries.
+2. Repeat the final integrated Parallels hardware/WARP and Metal/Vulkan oracle
+   comparisons, including alternating nearest/linear warm draws. Add managed
+   versus native forced-path comparisons for repeat/mirror seams, alpha,
+   color-matrix/mask entry points, external textures, transforms, and one-pixel
+   dimensions; retain independent native-sampler controls on qualified adapters.
+3. Run device-recreation and child-engine cases, browser/Dawn builds and live
+   provider cases, all RID packaging, and unchanged-workload retained upload,
+   allocation and submission counters. Add final Instruments/Release matched
+   measurements before making any speed claim.
+4. Execute the broader MIL, DirectX samples, native Windows comparisons,
+   package-mode SDK/Toolkit/AvalonDock and available licensed Xceed/SciChart
+   gates; require every final-head PR CI gate to pass before integration.
+
 ## Invariants
 
 - No reflection or private managed field scanning in the product bridge.

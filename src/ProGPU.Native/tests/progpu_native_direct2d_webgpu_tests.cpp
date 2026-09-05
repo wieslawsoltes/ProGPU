@@ -662,6 +662,14 @@ struct portable_scene final {
     options.target_format = PROGPU_NATIVE_TEXTURE_FORMAT_RGBA8_UNORM;
     options.device = reinterpret_cast<std::uintptr_t>(gpu.device);
     options.queue = reinterpret_cast<std::uintptr_t>(gpu.queue);
+    const bool explicit_sampling =
+        gpu.properties.backendType == WGPUBackendType_D3D12 &&
+        gpu.properties.name != nullptr &&
+        std::strstr(gpu.properties.name, "Parallels Display Adapter") != nullptr;
+    if (explicit_sampling)
+        options.flags |= PROGPU_NATIVE_ENGINE_IMAGE_EXPLICIT_SHADER_SAMPLING;
+    std::fprintf(stderr, "Native image base-level sampling: %s\n",
+        explicit_sampling ? "explicit-shader" : "native-sampler");
     progpu_native_engine* engine = nullptr;
     require(progpu_native_engine_create(&options, &engine) ==
             PROGPU_NATIVE_STATUS_SUCCESS &&
@@ -1060,6 +1068,12 @@ void verify_mil_image_brushes(const gpu_context& gpu, progpu_native_engine* engi
         }
         const auto warm = render_scene(gpu, engine, nullptr, 1U,
             header.command_count, 1U, stream, identity);
+        if (pixels != warm) {
+            const auto mismatch = std::mismatch(pixels.begin(), pixels.end(), warm.begin());
+            std::fprintf(stderr, "ImageBrush warm mismatch: case=%zu byte=%zu initial=%u warm=%u\n",
+                i, static_cast<std::size_t>(mismatch.first - pixels.begin()),
+                *mismatch.first, *mismatch.second);
+        }
         require(pixels == warm, "MIL ImageBrush stable replay changed pixels");
     }
     std::vector<std::byte> skewed;

@@ -2206,7 +2206,9 @@ public sealed unsafe class NativeCompositor : IDisposable
     }
 
     private static ulong GetEngineFlags(WgpuContext context) =>
-        context.GlyphRasterizationPath switch
+        (context.ImageSamplingPath == GpuImageSamplingPath.ExplicitShader
+            ? NativeMethods.EngineImageExplicitShaderSampling : 0UL) |
+        (context.GlyphRasterizationPath switch
         {
             GpuComputeExecutionPath.NativeCompute => 0UL,
             GpuComputeExecutionPath.RasterShader =>
@@ -2216,7 +2218,7 @@ public sealed unsafe class NativeCompositor : IDisposable
             GpuComputeExecutionPath.ScalarCpu =>
                 NativeMethods.EngineGlyphScalarCpuFallback,
             _ => throw new ArgumentOutOfRangeException(nameof(context))
-        };
+        });
 
     private static NativeMethods.GroupEffect CreateGroupEffect(
         NativeGroupEffect effect)

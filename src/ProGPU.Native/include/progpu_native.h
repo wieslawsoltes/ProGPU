@@ -903,7 +903,8 @@ typedef enum progpu_native_engine_flag {
      * Rasterize cold monochrome glyph coverage with the intrinsic-SIMD CPU
      * implementation and upload it to the retained atlas.
      */
-    PROGPU_NATIVE_ENGINE_GLYPH_INTRINSIC_SIMD_CPU_FALLBACK = 1ULL << 0U,
+    /* PROGPU_CSHARP_ULONG: EngineGlyphIntrinsicSimdCpuFallback */
+    PROGPU_NATIVE_ENGINE_GLYPH_INTRINSIC_SIMD_CPU_FALLBACK = 1ULL,
     /* Source-compatible name retained for clients built against ABI v3. */
     PROGPU_NATIVE_ENGINE_GLYPH_COMPUTE_FALLBACK =
         PROGPU_NATIVE_ENGINE_GLYPH_INTRINSIC_SIMD_CPU_FALLBACK,
@@ -911,9 +912,21 @@ typedef enum progpu_native_engine_flag {
      * Run the equivalent fragment shader directly against the retained R8
      * atlas. This is the automatic Parallels D3D12 fallback and stays on GPU.
      */
-    PROGPU_NATIVE_ENGINE_GLYPH_RASTER_SHADER_FALLBACK = 1ULL << 1U,
+    /* PROGPU_CSHARP_ULONG: EngineGlyphRasterShaderFallback */
+    PROGPU_NATIVE_ENGINE_GLYPH_RASTER_SHADER_FALLBACK = 2ULL,
     /* Explicit scalar CPU reference path for diagnostics and parity tests. */
-    PROGPU_NATIVE_ENGINE_GLYPH_SCALAR_CPU_FALLBACK = 1ULL << 2U
+    /* PROGPU_CSHARP_ULONG: EngineGlyphScalarCpuFallback */
+    PROGPU_NATIVE_ENGINE_GLYPH_SCALAR_CPU_FALLBACK = 4ULL,
+    /*
+     * Reconstruct base-level nearest/linear image samples using 1/4 texel
+     * loads in the canonical fragment shader. No readback or extra pass.
+     * Independent of glyph flags; immutable for the engine lifetime.
+     * Raw C hosts select this after adapter qualification (Parallels D3D12
+     * requires it). Zero preserves the native sampler on other adapters.
+     * Does not replace cubic/Fant, mipmapped, anisotropic or effect samplers.
+     */
+    /* PROGPU_CSHARP_ULONG: EngineImageExplicitShaderSampling */
+    PROGPU_NATIVE_ENGINE_IMAGE_EXPLICIT_SHADER_SAMPLING = 8ULL
 } progpu_native_engine_flag;
 
 /*

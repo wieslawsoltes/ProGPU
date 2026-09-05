@@ -1047,6 +1047,7 @@ public unsafe partial class Compositor : IDisposable
     internal unsafe BindGroupLayout* MaskBindGroupLayoutOffscreen => _maskBindGroupLayoutOffscreen;
 
     private readonly WgpuContext _context;
+    private readonly GpuImageSamplingPath _imageSamplingPath;
     private readonly RenderPipelineCache _pipelineCache;
     private readonly GlyphAtlas _atlas;
     private readonly PathAtlas _pathAtlas;
@@ -1821,6 +1822,7 @@ public unsafe partial class Compositor : IDisposable
         options.Validate();
 
         _context = context;
+        _imageSamplingPath = context.ImageSamplingPath;
         Options = options;
         RenderFormat = renderFormat ?? _context.SwapChainFormat;
         _pipelineCache = new RenderPipelineCache(_context);
@@ -13689,6 +13691,17 @@ SceneStateUploadComplete:
             float.IsFinite(cmd.TextureCubicCoefficients.Y)
                 ? cmd.TextureCubicCoefficients
                 : new Vector2(0f, 0.5f);
+        // Cubic/Fant and mipmapped modes retain their independent algorithms.
+        if (_imageSamplingPath == GpuImageSamplingPath.ExplicitShader &&
+            cubicCoefficients.X >= -16f &&
+            cmd.TextureSamplingMode is TextureSamplingMode.Nearest or TextureSamplingMode.Linear)
+        {
+            cubicCoefficients = new Vector2(
+                cmd.TextureSamplingMode == TextureSamplingMode.Nearest
+                    ? GpuImageSamplingPolicy.ExplicitNearestCoefficient
+                    : GpuImageSamplingPolicy.ExplicitLinearCoefficient,
+                0.5f);
+        }
         var indexStart = _textureIndicesList.Count;
         var patches = cmd.TexturePatches;
         var patchCount = patches?.Length ?? 1;
