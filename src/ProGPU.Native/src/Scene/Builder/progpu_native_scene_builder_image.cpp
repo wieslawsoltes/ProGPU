@@ -237,9 +237,49 @@ bool semantic_scene_builder::copy_image_from_memory(
     std::uint32_t storage_flags,
     std::span<const std::byte> pixels,
     const progpu_native_scene_image_color_matrix* color_matrix) noexcept {
+    if (storage_flags != 0U && storage_flags != PROGPU_NATIVE_SCENE_IMAGE_BGRA8 &&
+        storage_flags != PROGPU_NATIVE_SCENE_IMAGE_R8)
+        return implementation_->fail(scene_build_error::invalid_argument);
+    const auto resource_count = implementation_->resources.size();
+    std::uint32_t resource_index = PROGPU_NATIVE_SCENE_NO_INDEX;
+    if (add_upload_image(image.image_width, image.image_height, image.row_bytes,
+            pixels, storage_flags == PROGPU_NATIVE_SCENE_IMAGE_BGRA8, resource_index,
+            storage_flags == PROGPU_NATIVE_SCENE_IMAGE_R8) &&
+        append_image_copy_commands(resource_index, image, color_matrix)) return true;
+    implementation_->resources.resize(resource_count);
+    return false;
+}
+
+bool semantic_scene_builder::copy_image_from_builder(
+    semantic_scene_builder source, std::uint32_t source_resource_index,
+    const progpu_native_scene_image_draw& image,
+    const progpu_native_scene_image_color_matrix* color_matrix) noexcept {
+    if (!source.implementation_ || source_resource_index >= source.implementation_->resources.size())
+        return implementation_->fail(scene_build_error::invalid_argument);
+    auto& resource = source.implementation_->resources[source_resource_index];
+    if ((!resource.rgba8_image && !resource.bgra8_image && !resource.r8_image && !resource.picture_image) ||
+        implementation_->resources.size() >= PROGPU_NATIVE_SCENE_MAX_RESOURCES)
+        return implementation_->fail(scene_build_error::invalid_argument);
+    try {
+        implementation_->resources.reserve(implementation_->resources.size() + 1U);
+        resource.record.resource_id = implementation_->resources.size() + 1U;
+        resource.record.generation = implementation_->generation;
+        const auto resource_index = static_cast<std::uint32_t>(implementation_->resources.size());
+        implementation_->resources.push_back(std::move(resource));
+        if (append_image_copy_commands(resource_index, image, color_matrix)) return true;
+        implementation_->resources.pop_back();
+        return false;
+    } catch (const std::bad_alloc&) {
+        return implementation_->fail(scene_build_error::out_of_memory);
+    } catch (...) {
+        return implementation_->fail(scene_build_error::invalid_state);
+    }
+}
+
+bool semantic_scene_builder::append_image_copy_commands(
+    std::uint32_t resource_index, const progpu_native_scene_image_draw& image,
+    const progpu_native_scene_image_color_matrix* color_matrix) noexcept {
     if (implementation_->stack_depth != 0U ||
-        (storage_flags != 0U && storage_flags != PROGPU_NATIVE_SCENE_IMAGE_BGRA8 &&
-            storage_flags != PROGPU_NATIVE_SCENE_IMAGE_R8) ||
         image.transform.m11 != 1.0F || image.transform.m12 != 0.0F ||
         image.transform.m21 != 0.0F || image.transform.m22 != 1.0F ||
         image.transform.m31 != 0.0F || image.transform.m32 != 0.0F ||
@@ -249,7 +289,6 @@ bool semantic_scene_builder::copy_image_from_memory(
     // Append-only transaction: the leading layer prevents image merging from
     // modifying any prior command. Only newly appended vectors/stack metadata
     // need rollback; existing history is never serialized or cloned.
-    const auto resource_count = implementation_->resources.size();
     const auto command_count = implementation_->commands.size();
     const auto maximum_stack_depth = implementation_->maximum_stack_depth;
     const progpu_native_scene_layer layer{
@@ -257,16 +296,11 @@ bool semantic_scene_builder::copy_image_from_memory(
         image.destination_rect, 1.0F, PROGPU_NATIVE_BLEND_SRC,
         PROGPU_NATIVE_SCENE_NO_INDEX, PROGPU_NATIVE_SCENE_NO_INDEX,
         0U, 0U, 0U, 0U};
-    std::uint32_t resource_index = PROGPU_NATIVE_SCENE_NO_INDEX;
-    if (add_upload_image(image.image_width, image.image_height, image.row_bytes,
-            pixels, storage_flags == PROGPU_NATIVE_SCENE_IMAGE_BGRA8, resource_index,
-            storage_flags == PROGPU_NATIVE_SCENE_IMAGE_R8) &&
-        push_layer(layer) && draw_image(resource_index, image, image.destination_rect,
+    if (push_layer(layer) && draw_image(resource_index, image, image.destination_rect,
             PROGPU_NATIVE_SCENE_NO_INDEX, nullptr, color_matrix) && pop_layer()) {
         return true;
     }
     implementation_->commands.resize(command_count);
-    implementation_->resources.resize(resource_count);
     implementation_->stack_depth = 0U;
     implementation_->materialized_layer_depth = 0U;
     implementation_->maximum_stack_depth = maximum_stack_depth;

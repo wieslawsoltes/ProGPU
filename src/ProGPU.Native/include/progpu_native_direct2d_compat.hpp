@@ -85,6 +85,7 @@ inline constexpr com::result not_implemented = -2147467263;
 inline constexpr com::result failure = -2147467259;
 inline constexpr com::result wrong_factory = -2003238894;
 inline constexpr com::result wrong_state = -2003238911;
+inline constexpr com::result render_target_has_layer_or_cliprect = -2003238889; // 0x88990017
 
 inline constexpr com::guid resource_interface_id{
     0x2CD90691U,

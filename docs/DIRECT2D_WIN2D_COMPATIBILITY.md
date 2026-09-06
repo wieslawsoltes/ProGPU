@@ -4097,3 +4097,69 @@ Contract reference: Microsoft's
 documents region copies, byte pitch, no resizing/conversion and active-batch error
 behavior. The scoped-recording restriction above is an implementation gap, not a
 claim about native Direct2D's permitted calls.
+
+## Implementation-first checkpoint: bitmap and compatible-target source copies
+
+Native compatible bitmap destinations now implement `CopyFromBitmap` and
+`CopyFromRenderTarget` through the private typed image-source contract. Bitmap
+sources include owned uploads, WIC lock-backed/shared views and compatible target
+views. Render-target sources currently mean native compatible targets, not
+arbitrary HWND, DC, DXGI or public-scene-only target implementations. Null origin
+means (0,0), null source rectangle means the complete source, and all copy
+coordinates are physical pixels. Source format and alpha mode must match the
+destination; bounds and extent checks avoid integer wrapping and resizing.
+
+Source capture happens before acquiring the destination lock. A self-copy or
+shared alias therefore captures pre-copy content, including overlapping regions,
+and opposing cross-target copies do not hold two target locks. This does not
+promise a simultaneous multi-target transaction: another source operation can
+occur between capture and destination publication. The snapshot owns source bytes
+and never retains source target COM ownership, avoiding cyclic target references.
+Shared views preserve their typed DPI/alpha metadata during capture.
+
+The new reusable C++ `copy_image_from_builder` consumes a staging builder and moves
+its selected owned upload/picture resource into the destination. There is no
+second copy of the captured payload or nested scene. Its command transaction is
+shared with memory uploads: a bounded SRC layer, nearest image draw and pop replace
+pixels and alpha while preserving the rest of the destination. Errors roll back
+new resources/commands and leave destination content and generation unchanged.
+R8/A8 uses the existing canonical alpha matrix, selecting sampled R for uploaded
+bytes and A for picture images. No CPU pixel expansion, readback or new shader is
+introduced. Provenance is original ProGPU image capture, scene builder, picture
+rasterization and layer composition code.
+
+The copy-only capture seam accepts an unscoped active source without calling
+`EndDraw` or publishing its completed-export cache. Active snapshots serialize
+current balanced commands afresh, because further drawing within that session
+need not advance its generation. Completed sources retain cached exports. Source
+errors propagate without clearing the source's error state; source clips/layers
+return `render_target_has_layer_or_cliprect` (0x88990017). Ordinary bitmap drawing
+still rejects active-source capture. Destinations with active clips/layers remain
+unsupported, as do mixed/nonuniform DPI histories and CPU bitmap destinations
+that would require target readback.
+
+Capture remains O(B) ownership work/storage for a pixel bitmap of B bytes or O(H)
+for a retained source stream of H bytes, even for a small source rectangle. Active
+sources additionally serialize H bytes. The staging-to-destination payload move
+is constant-time, while container growth may relocate resource metadata. Rendering
+uses existing picture caching and GPU composition; no speedup is claimed.
+Repeated self/cross-target copies can grow retained history and picture nesting;
+existing stream/nesting limits still apply. Bounded-storage persistent texture
+copies, copy-history compaction and arbitrarily long copy chains remain required
+work, not completed parity.
+
+Authored fixtures cover pixel-backed crop metadata, source/destination DPI
+independence, invalid inputs, active source errors/clips, source mutation after
+capture, shared-alias overlap, transferred-resource rollback and GPU replacement
+pixels across RGBA/BGRA/A8/ignored alpha. The native library, internal and Direct2D
+test executables and C++ module consumer compile. Tests are not executed in this
+phase; Windows HRESULT assertions, overlap pixel fidelity, allocation/concurrency
+stress, platform comparisons, benchmarks and CI qualification remain deferred.
+Stable C ABI records and public COM layouts are unchanged. Native and managed
+Direct2D callers share this endpoint; the independent managed WPF renderer is
+unchanged, and full MIL/DirectX/Direct2D/Win2D parity remains open.
+
+Contract references: Microsoft's
+[CopyFromBitmap](https://learn.microsoft.com/en-us/windows/win32/api/d2d1/nf-d2d1-id2d1bitmap-copyfrombitmap),
+[CopyFromRenderTarget](https://learn.microsoft.com/en-us/windows/win32/api/d2d1/nf-d2d1-id2d1bitmap-copyfromrendertarget)
+and [Direct2D HRESULT definitions](https://learn.microsoft.com/en-us/windows/win32/com/com-error-codes-10).

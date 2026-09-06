@@ -137,6 +137,15 @@ public:
         std::uint32_t storage_flags,
         std::span<const std::byte> pixels,
         const progpu_native_scene_image_color_matrix* color_matrix = nullptr) noexcept;
+    // Consume a staging builder and move its selected owned image into an
+    // atomic SRC copy. Accepts uploaded or picture images, not external handles.
+    // The staging builder is consumed even on failure; destination history is
+    // unchanged on failure. No second payload/scene byte copy is performed.
+    bool copy_image_from_builder(
+        semantic_scene_builder source,
+        std::uint32_t source_resource_index,
+        const progpu_native_scene_image_draw& image,
+        const progpu_native_scene_image_color_matrix* color_matrix = nullptr) noexcept;
     // Rasterize an owned nested scene at its declared source resolution before
     // sampling it as an ordinary premultiplied image. No CPU pixel materialization.
     bool add_picture_image(
@@ -379,6 +388,10 @@ public:
     static progpu_native_scene_state identity_state() noexcept;
 
 private:
+    bool append_image_copy_commands(
+        std::uint32_t resource_index,
+        const progpu_native_scene_image_draw& image,
+        const progpu_native_scene_image_color_matrix* color_matrix) noexcept;
     bool add_upload_image(
         std::uint32_t width,
         std::uint32_t height,
