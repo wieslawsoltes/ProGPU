@@ -4344,3 +4344,28 @@ paint, then cover a fully visible closed dash run. They check hit results and
 query/output bounds. Native library, MIL/Direct2D compatibility and Direct2D
 WebGPU test targets compile. No tests, Windows/VM differential images, performance
 measurements or CI qualification are executed under implementation-first sequencing.
+
+### Implementation-first checkpoint: query-specific stroke topology
+
+The original native path core now uses a typed contour-usage policy: stroke query,
+solid outline or dashed outline. Queries preserve contour start/direction and
+accept crossings, retracing, zero signed area and closed two-edge contours, since
+their strip/join algorithms do not require a simple filled polygon. They no
+longer run the O(P²) pairwise simple-polygon predicate. Outline construction keeps
+its existing checks and fail-closed result for unsupported topology. This is not
+yet arbitrary self-intersecting `Widen` support.
+
+Round 180-degree reversal hit tests now include the outer semicircle. The inner
+half is not added as a full disk, which would falsely hit beyond short segments
+with flat endpoint caps. Existing native strip, cap, dash and join kernels are
+reused; there is no foreign implementation, raster fallback, GPU readback or
+public COM/C ABI/module change. The MIL caller separately uses its established
+point-cap semantics when native contour flattening has no nonzero edges.
+
+Authored fixtures cover a zero-area bow tie with solid/full-visible dashed styles,
+visible crossing versus unpainted interior points, explicit complex-outline
+rejection, a closed retrace and a short open reversal. Native library, MIL and
+Direct2D compatibility/WebGPU test targets compile. No fixture execution,
+Windows/VM comparison, image review, performance measurements or CI qualification
+has run; query preparation's reduced work is not a benchmark result. Full native
+Direct2D point-cap and arbitrary widened-outline parity remain open.

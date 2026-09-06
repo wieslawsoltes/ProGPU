@@ -1069,6 +1069,15 @@ struct polygon_stroke_edges final {
     const double denominator = incoming_unit_x * outgoing_unit_y -
         incoming_unit_y * outgoing_unit_x;
     if (std::abs(denominator) <= 1.0e-6) {
+        // A reversal has a round outer semicircle even though its cross
+        // product is zero. A straight continuation has no additional join.
+        if (join == line_join::round &&
+            incoming_unit_x * outgoing_unit_x + incoming_unit_y * outgoing_unit_y < 0.0) {
+            const double x = static_cast<double>(point.x) - vertex.x;
+            const double y = static_cast<double>(point.y) - vertex.y;
+            return x * outgoing_unit_x + y * outgoing_unit_y <= 0.0 &&
+                x * x + y * y <= half_width * half_width;
+        }
         return false;
     }
     for (const double side : {-1.0, 1.0}) {
@@ -3382,22 +3391,28 @@ struct flat_polyline final {
   bool ends_at_figure_end{};
 };
 
-[[nodiscard]] bool normalize_simple_stroke_polygon(
-    flat_polyline& polyline, bool normalize_orientation) noexcept {
+enum class stroke_contour_usage { query, solid_outline, dashed_outline };
+
+[[nodiscard]] bool prepare_closed_stroke_contour(
+    flat_polyline& polyline, stroke_contour_usage usage) noexcept {
   while (polyline.points.size() > 1U &&
          same_point(polyline.points.front(), polyline.points.back())) {
     polyline.points.pop_back();
     polyline.round_joins.pop_back();
   }
-  if (polyline.points.size() < 3U ||
+  if (polyline.points.size() < (usage == stroke_contour_usage::query ? 2U : 3U) ||
       polyline.round_joins.size() != polyline.points.size()) {
     return false;
   }
+  // Bounds/hit kernels operate on segment strips and joins, not a filled
+  // polygon. Crossings, retracing and zero signed area are valid there.
+  // Avoid the outline-only O(P^2) simple-polygon predicate for these queries.
+  if (usage == stroke_contour_usage::query) return true;
   const double twice_area = polygon_twice_signed_area(polyline.points);
   if (!std::isfinite(twice_area) || twice_area == 0.0) {
     return false;
   }
-  if (normalize_orientation && twice_area < 0.0) {
+  if (usage == stroke_contour_usage::solid_outline && twice_area < 0.0) {
     std::reverse(polyline.points.begin(), polyline.points.end());
     std::reverse(polyline.round_joins.begin(), polyline.round_joins.end());
   }
@@ -3425,7 +3440,7 @@ struct flat_polyline final {
     std::span<const flat_edge> edges,
     std::span<const stored_figure> figures,
     std::vector<flat_polyline>& polylines,
-    bool normalize_orientation = true) {
+    stroke_contour_usage usage) {
   // Stroke queries and dashing require the source start/direction. Only the
   // undashed offset-contour construction requests canonical orientation.
   polylines.clear();
@@ -3516,7 +3531,7 @@ struct flat_polyline final {
     }
     for (flat_polyline& polyline : polylines) {
       if (polyline.closed) {
-        if (!normalize_simple_stroke_polygon(polyline, normalize_orientation)) {
+        if (!prepare_closed_stroke_contour(polyline, usage)) {
           return not_implemented;
         }
       } else if (polyline.points.size() < 2U ||
@@ -5254,7 +5269,7 @@ public:
             }
             std::vector<flat_polyline> polylines;
             const com::result polyline_status = build_flat_polylines(
-                edges, data_->figures, polylines, false);
+                edges, data_->figures, polylines, stroke_contour_usage::query);
             if (com::failed(polyline_status)) {
                 return polyline_status;
             }
@@ -5385,7 +5400,7 @@ public:
             }
             std::vector<flat_polyline> polylines;
             const com::result polyline_status = build_flat_polylines(
-                edges, data_->figures, polylines, false);
+                edges, data_->figures, polylines, stroke_contour_usage::query);
             if (com::failed(polyline_status)) {
                 return polyline_status;
             }
@@ -6688,7 +6703,8 @@ public:
             }
             std::vector<flat_polyline> polylines;
             const com::result polyline_status = build_flat_polylines(
-                edges, data_->figures, polylines, !dashed);
+                edges, data_->figures, polylines, dashed
+                    ? stroke_contour_usage::dashed_outline : stroke_contour_usage::solid_outline);
             if (com::failed(polyline_status)) {
                 return polyline_status;
             }

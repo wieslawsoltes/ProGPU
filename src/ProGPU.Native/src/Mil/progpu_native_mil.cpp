@@ -2074,12 +2074,14 @@ bool try_transformed_line_stroke_bounds(
     const double delta_x = x1 - x0;
     const double delta_y = y1 - y0;
     const double length = std::hypot(delta_x, delta_y);
-    if (!std::isfinite(length) || length <= 0.0 || thickness <= 0.0) {
+    if (!std::isfinite(length) || thickness <= 0.0) {
         return false;
     }
     const double half_thickness = thickness * 0.5;
-    const double unit_x = delta_x / length;
-    const double unit_y = delta_y / length;
+    // The canonical MIL point-cap pair uses an X-axis tangent. Reuse the
+    // same transformed square/triangle/round support as nondegenerate lines.
+    const double unit_x = length == 0.0 ? 1.0 : delta_x / length;
+    const double unit_y = length == 0.0 ? 0.0 : delta_y / length;
     const double normal_x = -unit_y * half_thickness;
     const double normal_y = unit_x * half_thickness;
     double minimum_x = std::numeric_limits<double>::infinity();
@@ -3238,6 +3240,44 @@ struct channel::implementation {
         return finite_double_as_float(value)
             ? status::success
             : status::invalid_graph;
+    }
+
+    // Shared zero-length dash contract for native cap replay and bounds.
+    // Preserve odd-pattern repetition, checked prefix accumulation and the
+    // existing inclusive dash-end rule. O(D), allocation-free; the phase walk
+    // depends on preceding intervals rather than independent pixel lanes.
+    status resolve_degenerate_dash_visibility(std::uint32_t handle, bool& visible) const noexcept {
+        visible = true;
+        if (handle == 0U) return status::success;
+        const auto dash = dash_styles.find(handle);
+        if (dash == dash_styles.end()) return status::invalid_handle;
+        const auto& intervals = dash->second.intervals;
+        if (intervals.empty()) return status::success;
+        const std::size_t source_count = intervals.size();
+        if (source_count > std::numeric_limits<std::size_t>::max() / 2U)
+            return status::unsupported_command;
+        const std::size_t count = (source_count & 1U) == 0U ? source_count : source_count * 2U;
+        double length = 0.0;
+        for (std::size_t index = 0U; index < count; ++index) {
+            const double interval = intervals[index % source_count];
+            if (length > std::numeric_limits<double>::max() - interval) return status::unsupported_command;
+            length += interval;
+        }
+        if (!std::isfinite(length) || length <= 0.0) return status::unsupported_command;
+        double offset = 0.0;
+        const status resolved = resolve_dash_offset(handle, offset);
+        if (resolved != status::success) return resolved;
+        offset = std::fmod(offset, length);
+        if (!std::isfinite(offset)) return status::unsupported_command;
+        if (offset < 0.0) offset += length;
+        std::size_t index = 0U;
+        double end = intervals.front();
+        while (index + 1U < count && end < offset) {
+            ++index;
+            end += intervals[index % source_count];
+        }
+        visible = (index & 1U) == 0U;
+        return status::success;
     }
 
     status resolve_effect(
@@ -11575,12 +11615,36 @@ struct channel::implementation {
                 hr = path->GetWidenedBounds(static_cast<float>(pen.thickness), style.get(),
                     &world_matrix, tolerance, &bounds);
                 if (com::failed(hr)) return convert(hr);
-                // Do not silently lose degenerate-cap contours that the
-                // shared widening core cannot yet represent as an area.
                 if (!std::isfinite(bounds.left) || !std::isfinite(bounds.top) ||
-                    !std::isfinite(bounds.right) || !std::isfinite(bounds.bottom) ||
-                    bounds.right <= bounds.left || bounds.bottom <= bounds.top)
+                    !std::isfinite(bounds.right) || !std::isfinite(bounds.bottom))
                     return status::unsupported_command;
+                if (bounds.right <= bounds.left || bounds.bottom <= bounds.top) {
+                    d2d::rectangle_f spine{};
+                    hr = path->GetBounds(nullptr, &spine);
+                    if (com::failed(hr)) return convert(hr);
+                    // A collapsed native contour has no flat edges for D2D
+                    // widening. MIL still owns an explicit cap pair there.
+                    // Do not use this fallback for merely small/nonpoint paths.
+                    if (!std::isfinite(spine.left) || !std::isfinite(spine.top) ||
+                        spine.left != spine.right || spine.top != spine.bottom)
+                        return status::unsupported_command;
+                    const std::uint32_t start = contour.closed
+                        ? static_cast<std::uint32_t>(PROGPU_NATIVE_STROKE_CAP_ROUND)
+                        : contour.start_uses_dash_cap ? pen.dash_cap : pen.start_line_cap;
+                    const std::uint32_t end = contour.closed
+                        ? static_cast<std::uint32_t>(PROGPU_NATIVE_STROKE_CAP_ROUND)
+                        : contour.end_uses_dash_cap ? pen.dash_cap : pen.end_line_cap;
+                    if (start == PROGPU_NATIVE_STROKE_CAP_FLAT && end == PROGPU_NATIVE_STROKE_CAP_FLAT) continue;
+                    bool visible = false;
+                    const status phase = resolve_degenerate_dash_visibility(pen.dash_style_handle, visible);
+                    if (phase != status::success) return phase;
+                    if (!visible) continue;
+                    progpu_native_image_rect cap_bounds{};
+                    if (!try_transformed_line_stroke_bounds(spine.left, spine.top, spine.right, spine.bottom,
+                            pen.thickness, start, end, world, cap_bounds)) return status::unsupported_command;
+                    bounds = {cap_bounds.x, cap_bounds.y,
+                        cap_bounds.x + cap_bounds.width, cap_bounds.y + cap_bounds.height};
+                }
                 left = has_bounds ? std::min(left, double{bounds.left}) : bounds.left;
                 top = has_bounds ? std::min(top, double{bounds.top}) : bounds.top;
                 right = has_bounds ? std::max(right, double{bounds.right}) : bounds.right;
@@ -12199,65 +12263,10 @@ struct channel::implementation {
                 end_cap == PROGPU_NATIVE_STROKE_CAP_FLAT) {
                 return status::success;
             }
-            if (pen.dash_style_handle != 0U) {
-                const auto dash = dash_styles.find(pen.dash_style_handle);
-                if (dash == dash_styles.end()) {
-                    return status::invalid_handle;
-                }
-                if (!dash->second.intervals.empty()) {
-                    const std::size_t source_count =
-                        dash->second.intervals.size();
-                    if (source_count >
-                        std::numeric_limits<std::size_t>::max() / 2U) {
-                        return status::unsupported_command;
-                    }
-                    const std::size_t effective_count =
-                        (source_count & 1U) == 0U
-                            ? source_count
-                            : source_count * 2U;
-                    double pattern_length = 0.0;
-                    for (std::size_t index = 0U;
-                         index < effective_count;
-                         ++index) {
-                        const double interval = dash->second.intervals[
-                            index % source_count];
-                        if (pattern_length >
-                            std::numeric_limits<double>::max() - interval) {
-                            return status::unsupported_command;
-                        }
-                        pattern_length += interval;
-                    }
-                    if (!std::isfinite(pattern_length) ||
-                        pattern_length <= 0.0) {
-                        return status::unsupported_command;
-                    }
-                    double dash_offset = 0.0;
-                    const status dash_status = resolve_dash_offset(
-                        pen.dash_style_handle,
-                        dash_offset);
-                    if (dash_status != status::success) {
-                        return dash_status;
-                    }
-                    double offset = std::fmod(dash_offset, pattern_length);
-                    if (!std::isfinite(offset)) {
-                        return status::unsupported_command;
-                    }
-                    if (offset < 0.0) {
-                        offset += pattern_length;
-                    }
-                    std::size_t dash_index = 0U;
-                    double dash_end = dash->second.intervals[0U];
-                    while (dash_index + 1U < effective_count &&
-                        dash_end < offset) {
-                        ++dash_index;
-                        dash_end += dash->second.intervals[
-                            dash_index % source_count];
-                    }
-                    if ((dash_index & 1U) != 0U) {
-                        return status::success;
-                    }
-                }
-            }
+            bool visible = false;
+            const status phase = resolve_degenerate_dash_visibility(pen.dash_style_handle, visible);
+            if (phase != status::success) return phase;
+            if (!visible) return status::success;
             progpu_native_affine_2d native_local_transform{};
             if (!try_to_native_affine(
                     local_transform,
@@ -14533,6 +14542,12 @@ struct channel::implementation {
                 const double y1 = geometry.third * geometry_transform.m12 +
                     geometry.fourth * geometry_transform.m22 +
                     geometry_transform.m32;
+                if (x0 == x1 && y0 == y1 &&
+                    pen.start_line_cap == PROGPU_NATIVE_STROKE_CAP_FLAT &&
+                    pen.end_line_cap == PROGPU_NATIVE_STROKE_CAP_FLAT) {
+                    bounds = {};
+                    return status::success;
+                }
                 if (!try_transformed_line_stroke_bounds(
                         x0,
                         y0,
