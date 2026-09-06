@@ -8226,6 +8226,38 @@ and CI qualification remain deferred under the implementation-first sequence.
 ProGPU.Tests Release compilation succeeds with zero warnings/errors; the source-built
 LibreWPF PresentationCore build also succeeds (four unrelated font-source warnings).
 
+### Implementation-first checkpoint: nonpainting pen and empty drawing bounds
+
+Native `DrawingImage` natural-bounds inference now distinguishes pen resource
+presence from pen contribution. A pen with a null brush no longer rejects a valid
+filled geometry, including path geometry that previously entered the fixed-stroke
+only branch. A pen with a brush but zero resolved thickness uses unwidened geometry
+bounds, even when there is no fill. Animated thickness is resolved before that
+decision. Null geometry and drawings with neither a fill brush nor a contributing
+pen return empty bounds, allowing the image replay to remain an empty operation
+instead of rejecting the containing scene.
+
+This follows source-built WPF `Pen.ContributesToBounds` (pen and brush presence,
+not thickness) and `BoundsDrawingContextWalker.DrawGeometry` (geometry presence
+and either fill or pen contribution). Those sources define the contract; this is
+an original adaptation of ProGPU's existing typed pen resolution and geometry
+bounds code, not a copied foreign renderer algorithm. The public
+[GeometryDrawing contract](https://learn.microsoft.com/en-us/dotnet/api/system.windows.media.geometrydrawing?view=windowsdesktop-10.0)
+describes its separate fill and stroke resources. Positive-width stroke inference
+retains its existing supported shapes and explicit unsupported cases; general
+path/dashed-stroke natural bounds are not claimed complete.
+
+The new dispatch adds fixed-work typed metadata checks with existing hash lookup,
+no resource arrays, pixel loop, shader, readback or ABI change. Managed WPF and
+ProGPU managed rendering remain unchanged. Authored native fixtures cover positive
+and zero-width brushless pens, zero-width brushed pens with/without fills,
+animated-to-zero thickness, unpainted drawings and null geometry, asserting native
+image-mapping state or its absence. The required MIL coverage manifest is
+regenerated. Native library and MIL test executable compile; tests, native Windows
+image/VM comparison, benchmarks, verifier and CI qualification remain deferred
+under implementation-first sequencing. The full MIL/DirectX/Direct2D/Win2D goal
+remains open.
+
 ## Invariants
 
 - No reflection or private managed field scanning in the product bridge.
