@@ -2737,6 +2737,7 @@ public:
         factory* owner,
         render_target* target,
         scene_render_target_native* scene,
+        scene_bitmap_native* bitmap_source,
         size_u pixel_size,
         pixel_format format,
         float dpi_x,
@@ -2744,6 +2745,7 @@ public:
         : owner_(owner),
           target_(target),
           scene_(scene),
+          bitmap_source_(bitmap_source),
           pixel_size_(pixel_size),
           format_(format),
           dpi_x_(dpi_x),
@@ -2854,58 +2856,14 @@ public:
 
     com::result PROGPU_NATIVE_COM_CALL GetSnapshot(bitmap_snapshot* snapshot) const noexcept override
     {
-        if (snapshot == nullptr) return com::pointer_error;
-        *snapshot = {};
-        float raster_dpi_x = 0.0F, raster_dpi_y = 0.0F;
-        target_->GetDpi(&raster_dpi_x, &raster_dpi_y);
-        if (raster_dpi_x != raster_dpi_y) return not_implemented;
-        if (scene_->GetRequiredSceneSize() == 0U) return wrong_state;
-        scene_render_target_summary summary{};
-        scene_->GetSummary(&summary);
-        *snapshot = {pixel_size_.width, pixel_size_.height, pixel_size_.width * 4U,
-            format_, dpi_x_, dpi_y_, summary.generation, summary.scene_id, true, raster_dpi_x / 96.0F};
-        return com::ok;
+        return bitmap_source_->GetSnapshot(snapshot);
     }
 
     com::result PROGPU_NATIVE_COM_CALL AddToScene(
         semantic_scene_builder* builder, std::uint32_t* resource_index,
         bitmap_snapshot* snapshot) const noexcept override
     {
-        if (builder == nullptr || resource_index == nullptr || snapshot == nullptr)
-            return com::pointer_error;
-        *resource_index = PROGPU_NATIVE_SCENE_NO_INDEX;
-        const auto result = GetSnapshot(snapshot);
-        if (com::failed(result)) return result;
-        try {
-            const std::uint64_t required = scene_->GetRequiredSceneSize();
-            if (required == 0U || required > PROGPU_NATIVE_SCENE_MAX_STREAM_BYTES)
-                return wrong_state;
-            std::vector<std::byte> bytes(static_cast<std::size_t>(required));
-            std::uint64_t written = 0U;
-            const auto built = scene_->BuildScene(bytes.data(), required, &written);
-            if (com::failed(built)) return built;
-            scene_render_target_summary summary{};
-            scene_->GetSummary(&summary);
-            if (written != required || summary.generation != snapshot->generation)
-                return wrong_state;
-            progpu_native_scene_picture_image picture{};
-            picture.struct_size = sizeof(picture);
-            picture.width = pixel_size_.width;
-            picture.height = pixel_size_.height;
-            picture.dpi_scale = snapshot->picture_raster_dpi_scale;
-            if (summary.has_clear != 0) {
-                picture.clear_color = {summary.clear_color.red, summary.clear_color.green,
-                    summary.clear_color.blue, summary.clear_color.alpha};
-            }
-            if (format_.alpha == alpha_mode::ignore) picture.clear_color.a = 1.0F;
-            return builder->add_picture_image(picture, bytes, *resource_index)
-                ? com::ok : builder->last_error() == scene_build_error::out_of_memory
-                    ? com::out_of_memory : failure;
-        } catch (const std::bad_alloc&) {
-            return com::out_of_memory;
-        } catch (...) {
-            return failure;
-        }
+        return bitmap_source_->AddToScene(builder, resource_index, snapshot);
     }
 
     com::result PROGPU_NATIVE_COM_CALL CopyPixels(
@@ -2945,6 +2903,7 @@ private:
     com::pointer<factory> owner_;
     com::pointer<render_target> target_;
     com::pointer<scene_render_target_native> scene_;
+    com::pointer<scene_bitmap_native> bitmap_source_;
     size_u pixel_size_{};
     pixel_format format_{};
     float dpi_x_ = 96.0F;
@@ -3426,7 +3385,8 @@ private:
 
 class portable_scene_render_target final :
     public bitmap_render_target,
-    public scene_render_target_native {
+    public scene_render_target_native,
+    public scene_bitmap_native {
 public:
     portable_scene_render_target(
         factory* owner,
@@ -3463,6 +3423,8 @@ public:
         } else if (compatible_ && com::guid_equal(
                 interface_id, bitmap_render_target_interface_id)) {
             *value = static_cast<bitmap_render_target*>(this);
+        } else if (compatible_ && com::guid_equal(interface_id, scene_bitmap_native_interface_id)) {
+            *value = static_cast<scene_bitmap_native*>(this);
         } else if (com::guid_equal(
                 interface_id, scene_render_target_native_interface_id)) {
             *value = static_cast<scene_render_target_native*>(this);
@@ -5766,6 +5728,7 @@ public:
             owner_.get(),
             static_cast<render_target*>(this),
             static_cast<scene_render_target_native*>(this),
+            static_cast<scene_bitmap_native*>(this),
             pixel_size,
             format,
             dpi_x,
@@ -5841,9 +5804,7 @@ public:
         const noexcept override
     {
         const std::lock_guard lock(mutex_);
-        return ended_ && com::succeeded(failure_) && (!compatible_ || compatible_history_dpi_valid_)
-            ? static_cast<std::uint64_t>(builder_.required_stream_size())
-            : 0U;
+        return com::succeeded(ensure_scene_export_locked()) ? exported_scene_.size() : 0U;
     }
 
     com::result PROGPU_NATIVE_COM_CALL BuildScene(
@@ -5856,27 +5817,59 @@ public:
         }
         *bytes_written = 0U;
         const std::lock_guard lock(mutex_);
-        if (!ended_ || com::failed(failure_) || (compatible_ && !compatible_history_dpi_valid_)) {
-            return wrong_state;
-        }
-        const std::size_t required = builder_.required_stream_size();
-        if (required == 0U) {
-            return failure;
-        }
+        const auto result = ensure_scene_export_locked();
+        if (com::failed(result)) return result;
+        const auto required = exported_scene_.size();
         if (destination == nullptr || destination_size < required ||
             destination_size > std::numeric_limits<std::size_t>::max()) {
             return com::invalid_argument;
         }
-        std::size_t written = 0U;
-        if (!builder_.build_into(
-                std::span<std::byte>(
-                    static_cast<std::byte*>(destination),
-                    static_cast<std::size_t>(destination_size)),
-                written)) {
-            return failure;
-        }
-        *bytes_written = static_cast<std::uint64_t>(written);
+        std::memcpy(destination, exported_scene_.data(), required);
+        *bytes_written = required;
         return com::ok;
+    }
+
+    const void* PROGPU_NATIVE_COM_CALL GetStorageIdentity() const noexcept override
+    {
+        return static_cast<const render_target*>(this);
+    }
+
+    com::result PROGPU_NATIVE_COM_CALL GetSnapshot(bitmap_snapshot* snapshot) const noexcept override
+    {
+        if (snapshot == nullptr) return com::pointer_error;
+        const std::lock_guard lock(mutex_);
+        return get_bitmap_snapshot_locked(*snapshot);
+    }
+
+    com::result PROGPU_NATIVE_COM_CALL AddToScene(semantic_scene_builder* destination,
+        std::uint32_t* resource_index, bitmap_snapshot* snapshot) const noexcept override
+    {
+        if (destination == nullptr || resource_index == nullptr || snapshot == nullptr) return com::pointer_error;
+        *resource_index = PROGPU_NATIVE_SCENE_NO_INDEX;
+        const std::lock_guard lock(mutex_);
+        if (destination == &builder_) return wrong_state;
+        auto result = get_bitmap_snapshot_locked(*snapshot);
+        if (com::failed(result)) return result;
+        result = ensure_scene_export_locked();
+        if (com::failed(result)) return result;
+        progpu_native_scene_picture_image picture{};
+        picture.struct_size = sizeof(picture);
+        picture.width = pixel_width_;
+        picture.height = pixel_height_;
+        picture.dpi_scale = snapshot->picture_raster_dpi_scale;
+        picture.clear_color = {clear_color_.red, clear_color_.green, clear_color_.blue, clear_color_.alpha};
+        if (pixel_format_.alpha == alpha_mode::ignore) picture.clear_color.a = 1.0F;
+        // One ownership copy directly from the cached export into the receiving
+        // builder. Metadata and bytes are captured under this same target lock.
+        return destination->add_picture_image(picture, exported_scene_, *resource_index)
+            ? com::ok : destination->last_error() == scene_build_error::out_of_memory
+                ? com::out_of_memory : failure;
+    }
+
+    com::result PROGPU_NATIVE_COM_CALL CopyPixels(
+        const rectangle_u*, pixel_format, void*, std::uint32_t) const noexcept override
+    {
+        return not_implemented;
     }
 
     void PROGPU_NATIVE_COM_CALL GetSummary(
@@ -5895,6 +5888,27 @@ public:
     }
 
 private:
+    com::result get_bitmap_snapshot_locked(bitmap_snapshot& snapshot) const noexcept
+    {
+        snapshot = {};
+        if (!compatible_) return not_implemented;
+        if (dpi_x_ != dpi_y_) return not_implemented;
+        if (!ended_ || com::failed(failure_) || !compatible_history_dpi_valid_) return wrong_state;
+        snapshot = {pixel_width_, pixel_height_, pixel_width_ * 4U, pixel_format_,
+            bitmap_dpi_x_, bitmap_dpi_y_, generation_, scene_id_, true, dpi_x_ / 96.0F};
+        return com::ok;
+    }
+
+    com::result ensure_scene_export_locked() const noexcept
+    {
+        if (!ended_ || com::failed(failure_) || (compatible_ && !compatible_history_dpi_valid_)) return wrong_state;
+        if (exported_generation_ == generation_) return com::ok;
+        if (!builder_.build(exported_scene_))
+            return builder_.last_error() == scene_build_error::out_of_memory ? com::out_of_memory : failure;
+        exported_generation_ = generation_;
+        return com::ok;
+    }
+
     template<typename Interface>
     [[nodiscard]] static com::result unsupported_output(
         Interface** value) noexcept
@@ -8458,6 +8472,8 @@ private:
     com::pointer<factory> owner_;
     mutable std::mutex mutex_;
     semantic_scene_builder builder_;
+    mutable std::vector<std::byte> exported_scene_;
+    mutable std::uint64_t exported_generation_ = 0U;
     std::vector<bitmap_resource_entry> bitmap_resources_;
     std::vector<com::pointer<scene_bitmap_native>> picture_bitmap_sources_;
     std::uint64_t scene_id_ = 0U;

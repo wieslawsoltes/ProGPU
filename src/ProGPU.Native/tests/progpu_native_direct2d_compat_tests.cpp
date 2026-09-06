@@ -7675,6 +7675,27 @@ int run_tests()
             return 282;
         const auto* retained_header = reinterpret_cast<const progpu_native_scene_header*>(retained_history.data());
         if (retained_written != retained_history.size() || retained_header->command_count != 24U) return 282;
+        // Cached exports remain target-owned. Public buffers may be reused or
+        // mutated without affecting the next capture, and failed writes leave
+        // caller storage untouched.
+        if (persistent_scene->GetRequiredSceneSize() != retained_history.size() ||
+            persistent_scene->GetRequiredSceneSize() != retained_history.size()) return 286;
+        std::vector<std::byte> export_buffer(retained_history.size() + 8U, std::byte{0x5a});
+        std::uint64_t export_written = 123U;
+        if (persistent_scene->BuildScene(nullptr, export_buffer.size(), &export_written) != com::invalid_argument ||
+            export_written != 0U ||
+            persistent_scene->BuildScene(export_buffer.data(), retained_history.size() - 1U, &export_written) != com::invalid_argument ||
+            export_written != 0U ||
+            !std::all_of(export_buffer.begin(), export_buffer.end(), [](std::byte b) { return b == std::byte{0x5a}; }))
+            return 286;
+        if (persistent_scene->BuildScene(export_buffer.data(), export_buffer.size(), &export_written) != com::ok ||
+            export_written != retained_history.size() ||
+            std::memcmp(export_buffer.data(), retained_history.data(), retained_history.size()) != 0 ||
+            !std::all_of(export_buffer.begin() + static_cast<std::ptrdiff_t>(retained_history.size()),
+                export_buffer.end(), [](std::byte b) { return b == std::byte{0x5a}; })) return 286;
+        export_buffer[0] ^= std::byte{0xff};
+        if (persistent_scene->BuildScene(export_buffer.data(), export_buffer.size(), &export_written) != com::ok ||
+            std::memcmp(export_buffer.data(), retained_history.data(), retained_history.size()) != 0) return 286;
         for (std::uint32_t i = 0U; i < retained_header->resource_count; ++i) {
             const auto* resource = reinterpret_cast<const progpu_native_scene_resource*>(
                 retained_history.data() + retained_header->resource_offset + i * retained_header->resource_stride);
@@ -7739,8 +7760,18 @@ int run_tests()
         // A later full Clear replaces all history, while the already captured
         // parent retains the old commands and pixels' source metadata.
         source_target->BeginDraw();
+        export_written = 123U;
+        if (persistent_scene->GetRequiredSceneSize() != 0U ||
+            persistent_scene->BuildScene(export_buffer.data(), export_buffer.size(), &export_written) != compat::wrong_state ||
+            export_written != 0U) return 286;
         source_target->Clear(&second_clear);
         if (source_target->EndDraw(nullptr, nullptr) != com::ok) return 283;
+        if (persistent_scene->GetRequiredSceneSize() >= retained_history.size() ||
+            persistent_scene->BuildScene(export_buffer.data(), export_buffer.size(), &export_written) != com::ok)
+            return 286;
+        const auto* cleared_header = reinterpret_cast<const progpu_native_scene_header*>(export_buffer.data());
+        if (cleared_header->command_count != 0U || cleared_header->resource_count != 0U ||
+            cleared_header->generation <= retained_header->generation) return 286;
         persistent_scene->GetSummary(&persistent_summary);
         if (persistent_summary.draw_count != 0U || persistent_summary.clear_color.red != 1.0F ||
             persistent_summary.clear_color.alpha != 0.5F) return 283;
