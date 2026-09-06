@@ -4163,3 +4163,49 @@ Contract references: Microsoft's
 [CopyFromBitmap](https://learn.microsoft.com/en-us/windows/win32/api/d2d1/nf-d2d1-id2d1bitmap-copyfrombitmap),
 [CopyFromRenderTarget](https://learn.microsoft.com/en-us/windows/win32/api/d2d1/nf-d2d1-id2d1bitmap-copyfromrendertarget)
 and [Direct2D HRESULT definitions](https://learn.microsoft.com/en-us/windows/win32/com/com-error-codes-10).
+
+## Implementation-first checkpoint: atomic full-copy history replacement
+
+Full-coverage compatible bitmap writes now replace destination history rather than
+append to it. This applies to memory uploads and bitmap/render-target source
+copies, including explicit rectangles that cover every destination pixel. The
+new copy is recorded in an independent builder; only a successful recording swaps
+it into the target. Old command/resource payloads, bitmap leases and cached export
+bytes are then released. Invalid input or recording allocation failure leaves
+the old builder, export and target metadata intact. Destination generation advances
+after publication, and summary draw count describes the retained replacement
+(one image draw) rather than the lifetime number of writes.
+
+Because a full write preserves no old pixels, it can also replace a mixed-DPI
+history at the current uniform raster DPI. Partial writes still reject that
+history. Existing latched target errors are not cleared by copying, and active
+clip/layer restrictions are unchanged. Drawing transforms and other drawing-state
+settings are preserved; only the overwritten storage/history and clear metadata
+are replaced. Identical-region self/alias copies return success after source and
+destination validation without adding commands or advancing generation.
+
+Repeated full memory uploads now retain one upload and three commands, independent
+of the number of overwrites; full copies from pixel-backed bitmaps similarly
+discard obsolete destination resources. For N old records and B new upload bytes,
+replacement still costs O(B) capture and O(N) destruction, and temporarily holds
+both old and new storage to preserve atomic failure semantics. There is no
+per-pixel CPU conversion, readback or new shader; the existing native byte-copy,
+scene-builder and GPU SRC composition paths are reused. Cache invalidation is
+generation-based, and already exported/captured parent scenes keep their own
+immutable history. Engine-owned GPU caches retain their existing budgets/lifetime.
+
+This does not flatten the *source* of a retained-picture copy. Repeated cross-target
+picture copies and partial self-copies can still grow nested source history and
+reach stream/nesting limits. Identical-region copies currently still perform the
+typed source capture before the no-op decision; no zero-allocation or constant-time
+claim is made for that path. Persistent GPU resource copies and general history
+compaction remain open requirements.
+
+Authored regressions include 48 full uploads per RGBA/BGRA/A8/ignored-alpha case
+with constant export size, one retained resource, failed-overwrite preservation,
+mixed-DPI replacement, unchanged self-copy generation and replacing a populated
+GPU destination before overlap checks. Native library and Direct2D compatibility/
+WebGPU executables compile. Tests, OOM stress, allocation measurements, GPU/native
+pixel parity and CI qualification remain deferred. No public interface, C ABI,
+module or generated managed contract changes; the independent managed WPF path
+is unchanged. Full goal parity is not established by this checkpoint.

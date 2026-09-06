@@ -7913,6 +7913,33 @@ int run_tests()
         if (after_copy.generation <= before_copy.generation || after_copy.draw_count != 2U) return 288;
         std::vector<std::byte> full_upload(8U * 8U * pixel_bytes, std::byte{0});
         if (upload_bitmap->CopyFromMemory(nullptr, full_upload.data(), 8U * pixel_bytes) != com::ok) return 288;
+        const auto full_copy_size = upload_scene->GetRequiredSceneSize();
+        for (unsigned int full_copy = 0U; full_copy < 48U; ++full_copy) {
+            std::fill(full_upload.begin(), full_upload.end(), static_cast<std::byte>(full_copy));
+            if (upload_bitmap->CopyFromMemory(nullptr, full_upload.data(), 8U * pixel_bytes) != com::ok ||
+                upload_scene->GetRequiredSceneSize() != full_copy_size) return 294;
+            compat::scene_render_target_summary full_copy_summary{};
+            upload_scene->GetSummary(&full_copy_summary);
+            if (full_copy_summary.draw_count != 1U) return 294;
+        }
+        std::vector<std::byte> compact_copy(static_cast<std::size_t>(full_copy_size));
+        if (upload_scene->BuildScene(compact_copy.data(), compact_copy.size(), &upload_written) != com::ok) return 294;
+        const auto* compact_header = reinterpret_cast<const progpu_native_scene_header*>(compact_copy.data());
+        if (compact_header->command_count != 3U || compact_header->resource_count != 1U) return 294;
+        // A failed full overwrite preserves the previous immutable export.
+        if (upload_bitmap->CopyFromMemory(nullptr, full_upload.data(), 8U * pixel_bytes - 1U) != com::invalid_argument)
+            return 294;
+        std::vector<std::byte> compact_after_failure(compact_copy.size());
+        if (upload_scene->BuildScene(compact_after_failure.data(), compact_after_failure.size(), &upload_written) != com::ok ||
+            compact_after_failure != compact_copy) return 294;
+        // Full coverage replaces invalid mixed-DPI history; a partial write
+        // cannot reinterpret old content at the newly selected raster DPI.
+        upload_target->SetDpi(144.0F, 144.0F);
+        if (upload_bitmap->CopyFromMemory(&destination, upload_bytes.data(), pitch) != compat::not_implemented ||
+            upload_bitmap->CopyFromMemory(nullptr, full_upload.data(), 8U * pixel_bytes) != com::ok ||
+            upload_scene->GetRequiredSceneSize() == 0U) return 295;
+        upload_target->SetDpi(192.0F, 192.0F);
+        if (upload_bitmap->CopyFromMemory(nullptr, full_upload.data(), 8U * pixel_bytes) != com::ok) return 295;
         // Pixel-backed copies retain an image resource directly (not a nested
         // picture), crop source pixels and ignore either bitmap's DPI view.
         compat::bitmap* raw_pixel_source = nullptr;
@@ -7991,6 +8018,17 @@ int run_tests()
         compat::scene_render_target_summary self_copy_summary{};
         copied_scene->GetSummary(&self_copy_summary);
         if (self_copy_summary.draw_count != 2U || copied_scene->GetRequiredSceneSize() <= captured_copy.size()) return 292;
+        const auto before_noop_size = copied_scene->GetRequiredSceneSize();
+        const compat::point_2u same_region{1U, 1U};
+        if (copy_bitmap->CopyFromBitmap(&same_region, copy_alias.get(), &cropped_source) != com::ok ||
+            copy_bitmap->CopyFromBitmap(nullptr, copy_alias.get(), nullptr) != com::ok ||
+            copy_bitmap->CopyFromRenderTarget(nullptr, copy_target.get(), nullptr) != com::ok)
+            return 296;
+        compat::scene_render_target_summary after_noop{};
+        copied_scene->GetSummary(&after_noop);
+        if (after_noop.generation != self_copy_summary.generation ||
+            after_noop.draw_count != self_copy_summary.draw_count || copied_scene->GetRequiredSceneSize() != before_noop_size)
+            return 296;
         upload_target->BeginDraw();
         const compat::color_f invalid_clear{-1.0F, 0.0F, 0.0F, 1.0F};
         upload_target->Clear(&invalid_clear);
