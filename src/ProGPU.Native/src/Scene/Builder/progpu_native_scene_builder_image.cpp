@@ -268,7 +268,6 @@ bool semantic_scene_builder::try_get_full_image_copy(
     const auto& resource = implementation_->resources[draw.record.resource_index];
     const bool matrix = (image.flags & PROGPU_NATIVE_SCENE_IMAGE_COLOR_MATRIX) != 0U;
     if ((!resource.rgba8_image && !resource.bgra8_image && !resource.r8_image && !resource.picture_image) ||
-        image.image_width != pixel_width || image.image_height != pixel_height ||
         image.image_width != resource.image_width || image.image_height != resource.image_height ||
         image.row_bytes != resource.image_row_bytes || image.opacity != 1.0F ||
         image.sampling != PROGPU_NATIVE_IMAGE_SAMPLING_NEAREST || image.max_anisotropy != 1U ||
@@ -278,7 +277,13 @@ bool semantic_scene_builder::try_get_full_image_copy(
         image.transform.m21 != 0.0F || image.transform.m22 != 1.0F ||
         image.transform.m31 != 0.0F || image.transform.m32 != 0.0F ||
         !same_rect(image.destination_rect, bounds) ||
-        !same_rect(image.source_rect, {0.0F, 0.0F, static_cast<float>(pixel_width), static_cast<float>(pixel_height)}) ||
+        image.source_rect.width != static_cast<float>(pixel_width) ||
+        image.source_rect.height != static_cast<float>(pixel_height) ||
+        !std::isfinite(image.source_rect.x) || !std::isfinite(image.source_rect.y) ||
+        image.source_rect.x < 0.0F || image.source_rect.y < 0.0F ||
+        std::floor(image.source_rect.x) != image.source_rect.x || std::floor(image.source_rect.y) != image.source_rect.y ||
+        image.source_rect.x + image.source_rect.width > static_cast<float>(image.image_width) ||
+        image.source_rect.y + image.source_rect.height > static_cast<float>(image.image_height) ||
         !same_rect({draw.record.bounds_x, draw.record.bounds_y, draw.record.bounds_width, draw.record.bounds_height}, bounds) ||
         draw.payload.size() != sizeof(image) + (matrix ? sizeof(candidate.color_matrix) : 0U)) return false;
     if (matrix) std::memcpy(&candidate.color_matrix, draw.payload.data() + sizeof(image), sizeof(candidate.color_matrix));

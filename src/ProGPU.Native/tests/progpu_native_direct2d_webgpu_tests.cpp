@@ -1028,6 +1028,38 @@ void verify_compatible_bitmap_uploads(const gpu_context& gpu, progpu_native_engi
             : near_copy_pixel(2U, 2U, 0, 255, 0) && near_copy_pixel(7U, 7U, 128, 0, 0) &&
                 near_copy_pixel(9U, 7U, 0, 0, 0) && near_copy_pixel(13U, 5U, 128, 0, 0),
             "snapshot copy changed source, alpha, DPI or overlapping pixels");
+        std::array<native_com::pointer<d2d::bitmap_render_target>, 2U> crop_targets;
+        std::array<native_com::pointer<d2d::bitmap>, 2U> crop_bitmaps;
+        for (unsigned int crop = 0U; crop < 2U; ++crop) {
+            const auto size = crop == 0U ? 8U : 2U;
+            const d2d::size_u crop_pixels{size, size};
+            const d2d::size_f crop_logical{crop == 0U ? 4.0F : 2.0F, crop == 0U ? 4.0F : 2.0F};
+            d2d::bitmap_render_target* raw_crop_target = nullptr;
+            require(parent.target->CreateCompatibleRenderTarget(&crop_logical, &crop_pixels, &format,
+                d2d::compatible_render_target_options::none, &raw_crop_target) == native_com::ok, "crop target creation");
+            crop_targets[crop].attach(raw_crop_target);
+            d2d::bitmap* raw_crop_bitmap = nullptr;
+            require(crop_targets[crop]->GetBitmap(&raw_crop_bitmap) == native_com::ok, "crop bitmap creation");
+            crop_bitmaps[crop].attach(raw_crop_bitmap);
+            const d2d::rectangle_u region = crop == 0U ? patch : d2d::rectangle_u{2U, 2U, 4U, 4U};
+            require(crop_bitmaps[crop]->CopyFromBitmap(nullptr,
+                crop == 0U ? bitmap.get() : crop_bitmaps[0].get(), &region) == native_com::ok, "composed pixel crop");
+        }
+        parent.target->BeginDraw();
+        parent.target->Clear(&background);
+        const d2d::rectangle_f enlarged_crop{0.0F, 0.0F, 8.0F, 8.0F};
+        parent.target->DrawBitmap(crop_bitmaps[1].get(), &enlarged_crop, 1.0F,
+            d2d::bitmap_interpolation_mode::nearest_neighbor, nullptr);
+        require(parent.target->EndDraw(nullptr, nullptr) == native_com::ok, "crop parent end");
+        const auto cropped_pixels = render_scene(gpu, engine, parent.scene_target.get(), 1U, 1U, 0U);
+        const auto near_crop = [&](std::uint32_t x, std::uint32_t y, int r, int g, int b) {
+            const auto* value = cropped_pixels.data() + y * row_bytes + x * 4U;
+            return std::abs(static_cast<int>(value[0]) - r) <= 1 &&
+                std::abs(static_cast<int>(value[1]) - g) <= 1 &&
+                std::abs(static_cast<int>(value[2]) - b) <= 1 && value[3] == 255U;
+        };
+        require(alpha_only ? near_crop(2U, 2U, 127, 127, 127) && near_crop(6U, 6U, 255, 255, 255)
+            : near_crop(2U, 2U, 128, 0, 0) && near_crop(6U, 6U, 0, 0, 0), "composed source crop pixel/alpha mismatch");
     }
 }
 

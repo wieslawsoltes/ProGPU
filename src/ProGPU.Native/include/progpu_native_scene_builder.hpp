@@ -156,7 +156,8 @@ public:
         const progpu_native_scene_image_draw& image,
         const progpu_native_scene_image_color_matrix* color_matrix = nullptr) noexcept;
     // Recognize exactly one root SRC-layer/full-image/pop covering bounds with
-    // 1:1 pixel sampling. No allocations or serialization. The caller must also
+    // 1:1 pixel sampling and integral source origin (including exact crops).
+    // No allocations or serialization. The caller must also
     // qualify alpha flags/matrix and storage format before bypassing rasterization.
     bool try_get_full_image_copy(
         progpu_native_image_rect bounds, std::uint32_t pixel_width,

@@ -145,6 +145,18 @@ int main() {
     if (!canonical_copy.copy_image_from_memory(image, progpu::native::PROGPU_NATIVE_SCENE_IMAGE_R8, coverage) ||
         canonical_copy.try_get_full_image_copy(image.destination_rect, 2U, 2U, full_image) ||
         full_image.resource_index != progpu::native::PROGPU_NATIVE_SCENE_NO_INDEX) return 1;
+    const std::array<std::byte, 16U> crop_pixels{};
+    image.image_width = image.image_height = image.row_bytes = 4U;
+    image.source_rect = {1.0F, 1.0F, 2.0F, 2.0F};
+    image.destination_rect = {0.0F, 0.0F, 2.0F, 2.0F};
+    if (!canonical_copy.reset(9006U, 3U) ||
+        !canonical_copy.copy_image_from_memory(image, progpu::native::PROGPU_NATIVE_SCENE_IMAGE_R8, crop_pixels) ||
+        !canonical_copy.try_get_full_image_copy(image.destination_rect, 2U, 2U, full_image) ||
+        full_image.image.source_rect.x != 1.0F || full_image.image.image_width != 4U) return 1;
+    image.source_rect.x = 1.5F;
+    if (!canonical_copy.reset(9006U, 4U) ||
+        !canonical_copy.copy_image_from_memory(image, progpu::native::PROGPU_NATIVE_SCENE_IMAGE_R8, crop_pixels) ||
+        canonical_copy.try_get_full_image_copy(image.destination_rect, 2U, 2U, full_image)) return 1;
     const std::size_t required_size = builder.required_stream_size();
     std::size_t bytes_written = 0U;
     return required_size > 0U && required_size <= stream.size() &&

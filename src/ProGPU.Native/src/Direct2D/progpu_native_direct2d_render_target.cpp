@@ -327,6 +327,12 @@ struct bitmap_snapshot final {
     std::uint64_t scene_id = 0U;
     bool picture_image = false;
     float picture_raster_dpi_scale = 1.0F;
+    // Copy-only captures may expose an exact pixel crop of a larger immutable
+    // image. Zero dimensions mean the normal width/height resource layout.
+    std::uint32_t copy_image_width = 0U;
+    std::uint32_t copy_image_height = 0U;
+    std::uint32_t copy_source_x = 0U;
+    std::uint32_t copy_source_y = 0U;
 };
 
 struct scene_bitmap_native : com::unknown {
@@ -6089,13 +6095,14 @@ private:
                 (!replace_contents && draw_count_ == std::numeric_limits<std::uint32_t>::max())) return failure;
             const float dips_per_pixel = 96.0F / dpi_x_;
             progpu_native_scene_image_draw image{};
-            image.image_width = snapshot.width;
-            image.image_height = snapshot.height;
+            image.image_width = snapshot.copy_image_width == 0U ? snapshot.width : snapshot.copy_image_width;
+            image.image_height = snapshot.copy_image_height == 0U ? snapshot.height : snapshot.copy_image_height;
             image.row_bytes = snapshot.row_bytes;
             image.flags = image_alpha_flags(snapshot.format.alpha);
             image.sampling = PROGPU_NATIVE_IMAGE_SAMPLING_NEAREST;
             image.max_anisotropy = 1U;
-            image.source_rect = {static_cast<float>(source_rect.left), static_cast<float>(source_rect.top),
+            image.source_rect = {static_cast<float>(snapshot.copy_source_x) + static_cast<float>(source_rect.left),
+                static_cast<float>(snapshot.copy_source_y) + static_cast<float>(source_rect.top),
                 static_cast<float>(source_rect.right - source_rect.left), static_cast<float>(source_rect.bottom - source_rect.top)};
             image.destination_rect = {point.x * dips_per_pixel, point.y * dips_per_pixel,
                 image.source_rect.width * dips_per_pixel, image.source_rect.height * dips_per_pixel};
@@ -6151,6 +6158,10 @@ private:
                     snapshot.row_bytes = copy.image.row_bytes;
                     snapshot.picture_image = picture;
                     snapshot.picture_raster_dpi_scale = picture ? copy.picture.dpi_scale : 1.0F;
+                    snapshot.copy_image_width = copy.image.image_width;
+                    snapshot.copy_image_height = copy.image.image_height;
+                    snapshot.copy_source_x = static_cast<std::uint32_t>(copy.image.source_rect.x);
+                    snapshot.copy_source_y = static_cast<std::uint32_t>(copy.image.source_rect.y);
                     return com::ok;
                 }
             }
