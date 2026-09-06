@@ -403,6 +403,8 @@ struct progpu_native_engine {
     semantic_path_page semantic_path_cache;
     semantic_glyph_page semantic_glyph_cache;
     semantic_image_page semantic_image_cache;
+    // Small FIFO bounded independently of page-owned picture snapshots.
+    std::vector<std::shared_ptr<semantic_picture_backing>> semantic_picture_cache;
     std::vector<semantic_external_image_binding>
         semantic_external_image_bindings;
     semantic_3d_page semantic_3d_cache;
@@ -1388,6 +1390,7 @@ struct progpu_native_engine {
         release_semantic_render_bundle();
         release_semantic_layer_resources();
         release_semantic_image_page();
+        semantic_picture_cache.clear();
         release_semantic_external_image_bindings();
         release_semantic_analytic_page();
         release_semantic_3d_resources();

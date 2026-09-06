@@ -3102,7 +3102,7 @@ progpu_native_status render_scene(
                         PROGPU_NATIVE_STATUS_OUT_OF_MEMORY,
                         "A semantic image page texture could not be allocated.");
                 }
-                if (picture_image && retained_draw.texture != nullptr)
+                if (picture_image)
                     picture_views.emplace(command.resource_index, retained_draw.view);
                 if (!external_image && !picture_image) {
                     progpu::native::webgpu::image_copy_texture destination{};

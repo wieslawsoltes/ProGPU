@@ -1,5 +1,6 @@
 #include "progpu_native.h"
 #include "progpu_native_direct2d_scene_submission.hpp"
+#include "progpu_native_scene_builder.hpp"
 #include "progpu_native_mil_visual_clip_fixture.hpp"
 #include "progpu_native_mil_image_brush_fixture.hpp"
 
@@ -827,6 +828,77 @@ struct portable_scene final {
     return result;
 }
 
+void verify_incremental_picture_backing(const gpu_context& gpu, progpu_native_engine* engine)
+{
+    using progpu::native::semantic_scene_builder;
+    semantic_scene_builder history(0x91F0U, 1U);
+    std::uint32_t brush = PROGPU_NATIVE_SCENE_NO_INDEX;
+    progpu_native_analytic_primitive rectangle{};
+    rectangle.kind = PROGPU_NATIVE_PRIMITIVE_RECTANGLE;
+    rectangle.width = rectangle.height = 8.0F;
+    rectangle.color = {1.0F, 1.0F, 1.0F, 1.0F};
+    rectangle.transform = semantic_scene_builder::identity_transform();
+    require(history.add_solid_brush({1.0F, 0.0F, 0.0F, 0.5F}, 1.0F, brush) &&
+        history.draw_analytic({&rectangle, 1U}, {&brush, 1U}, {0.0F, 0.0F, 8.0F, 8.0F}), "picture history first draw");
+    std::vector<std::byte> first, appended;
+    require(history.build(first) && history.advance_generation(2U), "picture first capture");
+    rectangle.x = rectangle.width = 4.0F;
+    require(history.add_solid_brush({0.0F, 1.0F, 0.0F, 0.5F}, 1.0F, brush) &&
+        history.draw_analytic({&rectangle, 1U}, {&brush, 1U}, {4.0F, 0.0F, 4.0F, 8.0F}) &&
+        history.build(appended), "picture history append");
+    const auto make_parent = [&](std::uint64_t generation, std::span<const std::byte> nested,
+                                 bool include_old = false) {
+        semantic_scene_builder parent(0x91F1U, generation);
+        progpu_native_scene_picture_image descriptor{};
+        descriptor.struct_size = sizeof(descriptor);
+        descriptor.width = descriptor.height = 8U;
+        descriptor.dpi_scale = 1.0F;
+        progpu_native_scene_image_draw image{};
+        image.image_width = image.image_height = 8U;
+        image.row_bytes = 32U;
+        image.sampling = PROGPU_NATIVE_IMAGE_SAMPLING_NEAREST;
+        image.flags = PROGPU_NATIVE_SCENE_IMAGE_SOURCE_PREMULTIPLIED;
+        image.source_rect = {0.0F, 0.0F, 8.0F, 8.0F};
+        image.destination_rect = {0.0F, 0.0F, 16.0F, 16.0F};
+        image.transform = semantic_scene_builder::identity_transform();
+        image.opacity = 1.0F;
+        const auto append_image = [&](std::span<const std::byte> bytes) {
+            std::uint32_t resource = PROGPU_NATIVE_SCENE_NO_INDEX;
+            require(parent.add_picture_image(descriptor, bytes, resource) &&
+                parent.draw_image(resource, image, image.destination_rect), "picture parent image");
+        };
+        if (include_old) { append_image(first); image.destination_rect.x = 32.0F; }
+        append_image(nested);
+        std::vector<std::byte> result;
+        require(parent.build(result), "picture parent capture");
+        return result;
+    };
+    const auto first_parent = make_parent(1U, first);
+    const auto first_pixels = render_scene(gpu, engine, nullptr, 1U, 1U, 2U, first_parent, 0x91F1U, 1U);
+    const auto appended_parent = make_parent(2U, appended);
+    const auto incremental = render_scene(gpu, engine, nullptr, 1U, 1U, 3U, appended_parent, 0x91F1U, 2U);
+    auto* reference_engine = create_engine(gpu);
+    const auto full = render_scene(gpu, reference_engine, nullptr, 1U, 1U, 2U, appended_parent, 0x91F1U, 2U);
+    require(incremental == full && incremental != first_pixels, "incremental picture differs from full replay");
+    const auto warm = render_scene(gpu, engine, nullptr, 1U, 1U, 1U, appended_parent, 0x91F1U, 2U);
+    require(warm == full, "warm picture backing changed pixels");
+    // Two generations in the same parent must keep distinct pixels. The old
+    // resource is rendered first; appending the new one must not mutate it.
+    const auto combined_parent = make_parent(3U, appended, true);
+    const auto combined = render_scene(gpu, engine, nullptr, 2U, 2U, 4U, combined_parent, 0x91F1U, 3U);
+    const auto pixel = [&](std::uint32_t x, std::uint32_t y) {
+        return combined.data() + static_cast<std::size_t>(y) * row_bytes + x * 4U;
+    };
+    const auto near_rgba = [](const std::uint8_t* value, int red, int green, int blue) {
+        return std::abs(static_cast<int>(value[0]) - red) <= 1 &&
+            std::abs(static_cast<int>(value[1]) - green) <= 1 &&
+            std::abs(static_cast<int>(value[2]) - blue) <= 1 && value[3] == 255U;
+    };
+    require(near_rgba(pixel(12U, 4U), 128, 0, 0) && near_rgba(pixel(44U, 4U), 64, 128, 0),
+        "picture copy-on-write mutated an older capture");
+    progpu_native_engine_destroy(reference_engine);
+}
+
 void verify_pixels(std::span<const std::uint8_t> pixels)
 {
     require(pixels.size() == static_cast<std::size_t>(row_bytes) * height,
@@ -1150,6 +1222,7 @@ int main(int argc, char** argv)
         return EXIT_SUCCESS;
     }
     phase("record Direct2D");
+    verify_incremental_picture_backing(gpu, engine);
     portable_scene scene = record_scene();
     const std::vector<std::uint8_t> pixels = render_scene(
         gpu, engine, scene.scene_target.get());

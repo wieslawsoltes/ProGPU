@@ -2524,6 +2524,67 @@ bool semantic_scene_builder_records_retained_3d_families() {
 }
 
 bool semantic_scene_content_hashes_isolate_image_updates() {
+    // SIMD byte equality against a scalar oracle, including unaligned starts,
+    // short tails and every possible mismatch position in representative spans.
+    std::array<std::byte, 100U> equality_left{}, equality_right{};
+    for (std::size_t i = 0U; i < equality_left.size(); ++i)
+        equality_left[i] = equality_right[i] = static_cast<std::byte>(i);
+    for (std::size_t alignment = 0U; alignment < 4U; ++alignment) {
+        for (std::size_t size = 0U; size <= 80U; ++size) {
+            auto left = std::span<const std::byte>(equality_left).subspan(alignment, size);
+            auto right = std::span<const std::byte>(equality_right).subspan(alignment, size);
+            if (!semantic::scene_bytes_equal(left, right)) return false;
+            for (std::size_t mismatch = 0U; mismatch < size; ++mismatch) {
+                equality_right[alignment + mismatch] ^= std::byte{0x80};
+                bool scalar_equal = true;
+                for (std::size_t i = 0U; i < size; ++i) scalar_equal &= left[i] == right[i];
+                if (semantic::scene_bytes_equal(left, right) != scalar_equal) return false;
+                equality_right[alignment + mismatch] ^= std::byte{0x80};
+            }
+        }
+    }
+    if (semantic::scene_bytes_equal(std::span<const std::byte>(equality_left).first(1U), {})) return false;
+
+    semantic_scene_builder history(7099U, 1U);
+    std::uint32_t history_brush = PROGPU_NATIVE_SCENE_NO_INDEX;
+    progpu_native_analytic_primitive history_rectangle{};
+    history_rectangle.kind = PROGPU_NATIVE_PRIMITIVE_RECTANGLE;
+    history_rectangle.width = history_rectangle.height = 8.0F;
+    history_rectangle.color = {1.0F, 1.0F, 1.0F, 1.0F};
+    history_rectangle.transform = semantic_scene_builder::identity_transform();
+    if (!history.add_solid_brush({1.0F, 0.0F, 0.0F, 0.5F}, 1.0F, history_brush) ||
+        !history.draw_analytic({&history_rectangle, 1U}, {&history_brush, 1U}, {0.0F, 0.0F, 8.0F, 8.0F})) return false;
+    std::vector<std::byte> old_history, new_history;
+    if (!history.build(old_history) || !history.advance_generation(2U) ||
+        !history.add_solid_brush({0.0F, 1.0F, 0.0F, 0.5F}, 1.0F, history_brush) ||
+        !history.draw_analytic({&history_rectangle, 1U}, {&history_brush, 1U}, {0.0F, 0.0F, 8.0F, 8.0F}) ||
+        !history.build(new_history)) return false;
+    const auto old_header = read<progpu_native_scene_header>(old_history, 0U);
+    const auto new_header = read<progpu_native_scene_header>(new_history, 0U);
+    std::uint32_t first_new = 0U;
+    if (!semantic::find_append_only_scene_suffix(old_history.data(), old_header, new_history.data(), new_header, first_new) ||
+        first_new != 1U ||
+        !semantic::find_append_only_scene_suffix(new_history.data(), new_header, new_history.data(), new_header, first_new) ||
+        first_new != 2U) return false;
+    auto suffix = new_history;
+    auto suffix_header = new_header;
+    suffix_header.command_offset += old_header.command_count * suffix_header.command_stride;
+    suffix_header.command_count -= old_header.command_count;
+    std::memcpy(suffix.data(), &suffix_header, sizeof(suffix_header));
+    if (scene::validate(suffix.data(), suffix.size()).status != PROGPU_NATIVE_STATUS_SUCCESS) return false;
+    auto changed_brush = new_history;
+    const auto brush_resource = read<progpu_native_scene_resource>(changed_brush, new_header.resource_offset);
+    auto previous_brush = read<progpu_native_scene_brush>(changed_brush, brush_resource.payload_offset);
+    previous_brush.opacity = 0.25F;
+    std::memcpy(changed_brush.data() + brush_resource.payload_offset, &previous_brush, sizeof(previous_brush));
+    if (semantic::find_append_only_scene_suffix(old_history.data(), old_header, changed_brush.data(), new_header, first_new)) return false;
+    auto changed_command = new_history;
+    auto previous_command = read<progpu_native_scene_command>(changed_command, new_header.command_offset);
+    previous_command.bounds_x += 1.0F;
+    std::memcpy(changed_command.data() + new_header.command_offset, &previous_command, sizeof(previous_command));
+    if (semantic::find_append_only_scene_suffix(old_history.data(), old_header, changed_command.data(), new_header, first_new) ||
+        semantic::find_append_only_scene_suffix(new_history.data(), new_header, old_history.data(), old_header, first_new)) return false;
+
     semantic_scene_builder builder(710U, 1U);
     std::uint32_t brush = PROGPU_NATIVE_SCENE_NO_INDEX;
     std::uint32_t alternate_brush = PROGPU_NATIVE_SCENE_NO_INDEX;
@@ -2587,6 +2648,7 @@ bool semantic_scene_content_hashes_isolate_image_updates() {
     }
     const auto first_header = read<progpu_native_scene_header>(first, 0U);
     const auto second_header = read<progpu_native_scene_header>(second, 0U);
+    if (semantic::find_append_only_scene_suffix(first.data(), first_header, second.data(), second_header, first_new)) return false;
     const auto first_hashes = semantic::compute_content_hashes(
         first.data(), first_header);
     const auto second_hashes = semantic::compute_content_hashes(
