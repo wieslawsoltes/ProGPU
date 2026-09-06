@@ -11470,6 +11470,133 @@ struct channel::implementation {
         return status::success;
     }
 
+    // Reuse ProGPU's native path widening, not a MIL-specific stroke envelope.
+    // Geometry.Transform changes the spine; world transforms widen results.
+    // Contour traversal is sequential topology work. Dash conversion uses
+    // intrinsic lanes with a bounded tail; no pixels or GPU transfers occur.
+    status resolve_path_stroke_bounds(const path_geometry_state& source,
+        const pen_state& pen, const affine_2d_double& world,
+        progpu_native_image_rect& output) const noexcept {
+        namespace d2d = native::direct2d::compat;
+        namespace com = native::com;
+        const auto convert = [](com::result result) {
+            return com::succeeded(result) ? status::success :
+                result == com::out_of_memory ? status::capacity_exceeded : status::unsupported_command;
+        };
+        output = {};
+        try {
+            affine_2d_double local{};
+            if (source.transform_handle != 0U) {
+                const status resolved = resolve_transform(source.transform_handle, local);
+                if (resolved != status::success) return resolved;
+            }
+            progpu_native_affine_2d native_local{}, native_world{};
+            if (!try_to_native_affine(local, native_local) || !try_to_native_affine(world, native_world) ||
+                !finite_double_as_float(pen.thickness) || !finite_double_as_float(pen.miter_limit)) {
+                return status::unsupported_command;
+            }
+            const d2d::matrix_3x2_f geometry_matrix{native_local.m11, native_local.m12,
+                native_local.m21, native_local.m22, native_local.m31, native_local.m32};
+            const d2d::matrix_3x2_f world_matrix{native_world.m11, native_world.m12,
+                native_world.m21, native_world.m22, native_world.m31, native_world.m32};
+            const bool transform_spine = local.m11 != 1.0 || local.m12 != 0.0 ||
+                local.m21 != 0.0 || local.m22 != 1.0 || local.m31 != 0.0 || local.m32 != 0.0;
+            // Absolute 0.25 world-unit approximation, with the same WPF default
+            // tolerance and a conservative matrix norm for post-widen scaling.
+            const double scale = std::hypot(std::hypot(world.m11, world.m12),
+                std::hypot(world.m21, world.m22));
+            const float tolerance = static_cast<float>(0.25 / std::max(1.0, scale));
+            if (!(tolerance > 0.0F)) return status::unsupported_command;
+            std::vector<float> dashes;
+            double dash_offset = 0.0;
+            if (pen.dash_style_handle != 0U) {
+                const auto found = dash_styles.find(pen.dash_style_handle);
+                if (found == dash_styles.end()) return status::invalid_handle;
+                const status resolved = resolve_dash_offset(pen.dash_style_handle, dash_offset);
+                if (resolved != status::success) return resolved;
+                const auto& intervals = found->second.intervals;
+                dashes.resize(intervals.size());
+                std::size_t index = 0U;
+#if defined(PROGPU_NATIVE_MIL_INTRINSICS_NEON)
+                for (; index + 2U <= intervals.size(); index += 2U)
+                    vst1_f32(dashes.data() + index, vcvt_f32_f64(vld1q_f64(intervals.data() + index)));
+#elif defined(PROGPU_NATIVE_MIL_INTRINSICS_SSE2)
+                for (; index + 2U <= intervals.size(); index += 2U) {
+                    const __m128 converted = _mm_cvtpd_ps(_mm_loadu_pd(intervals.data() + index));
+                    const std::array<float, 2U> values{_mm_cvtss_f32(converted),
+                        _mm_cvtss_f32(_mm_shuffle_ps(converted, converted, _MM_SHUFFLE(1, 1, 1, 1)))};
+                    std::memcpy(dashes.data() + index, values.data(), sizeof(values));
+                }
+#endif
+                for (; index < intervals.size(); ++index) dashes[index] = static_cast<float>(intervals[index]);
+            }
+            if (!finite_double_as_float(dash_offset)) return status::unsupported_command;
+            com::pointer<d2d::factory> factory;
+            auto hr = d2d::create_factory(factory.put());
+            if (com::failed(hr)) return convert(hr);
+            bool has_bounds = false;
+            double left = 0.0, top = 0.0, right = 0.0, bottom = 0.0;
+            for (const auto& contour : source.stroke_contours) {
+                if (contour.segments.empty()) continue;
+                com::pointer<d2d::path_geometry> path;
+                hr = d2d::detail::create_native_stroke_geometry(factory.get(), contour.segments,
+                    contour.smooth_joins, contour.closed, path.put());
+                if (com::failed(hr)) return convert(hr);
+                if (transform_spine) {
+                    com::pointer<d2d::path_geometry> transformed;
+                    hr = factory->CreatePathGeometry(transformed.put());
+                    if (com::failed(hr)) return convert(hr);
+                    com::pointer<d2d::geometry_sink> sink;
+                    hr = transformed->Open(sink.put());
+                    if (com::failed(hr)) return convert(hr);
+                    hr = path->Simplify(d2d::geometry_simplification_option::cubics_and_lines,
+                        &geometry_matrix, tolerance, sink.get());
+                    if (com::failed(hr)) return convert(hr);
+                    hr = sink->Close();
+                    if (com::failed(hr)) return convert(hr);
+                    path = std::move(transformed);
+                }
+                d2d::stroke_style_properties properties{
+                    static_cast<d2d::cap_style>(contour.start_uses_dash_cap ? pen.dash_cap : pen.start_line_cap),
+                    static_cast<d2d::cap_style>(contour.end_uses_dash_cap ? pen.dash_cap : pen.end_line_cap),
+                    static_cast<d2d::cap_style>(pen.dash_cap), static_cast<d2d::line_join>(pen.line_join),
+                    static_cast<float>(std::max(1.0, pen.miter_limit)),
+                    dashes.empty() ? d2d::dash_style::solid : d2d::dash_style::custom,
+                    static_cast<float>(dash_offset)};
+                com::pointer<d2d::stroke_style> style;
+                hr = factory->CreateStrokeStyle(&properties, dashes.data(),
+                    static_cast<std::uint32_t>(dashes.size()), style.put());
+                if (com::failed(hr)) return convert(hr);
+                d2d::rectangle_f bounds{};
+                hr = path->GetWidenedBounds(static_cast<float>(pen.thickness), style.get(),
+                    &world_matrix, tolerance, &bounds);
+                if (com::failed(hr)) return convert(hr);
+                // Do not silently lose degenerate-cap contours that the
+                // shared widening core cannot yet represent as an area.
+                if (!std::isfinite(bounds.left) || !std::isfinite(bounds.top) ||
+                    !std::isfinite(bounds.right) || !std::isfinite(bounds.bottom) ||
+                    bounds.right <= bounds.left || bounds.bottom <= bounds.top)
+                    return status::unsupported_command;
+                left = has_bounds ? std::min(left, double{bounds.left}) : bounds.left;
+                top = has_bounds ? std::min(top, double{bounds.top}) : bounds.top;
+                right = has_bounds ? std::max(right, double{bounds.right}) : bounds.right;
+                bottom = has_bounds ? std::max(bottom, double{bounds.bottom}) : bounds.bottom;
+                has_bounds = true;
+            }
+            if (has_bounds) {
+                if (!finite_double_as_float(right - left) || !finite_double_as_float(bottom - top))
+                    return status::unsupported_command;
+                output = {static_cast<float>(left), static_cast<float>(top),
+                    static_cast<float>(right - left), static_cast<float>(bottom - top)};
+            }
+            return status::success;
+        } catch (const std::bad_alloc&) {
+            return status::capacity_exceeded;
+        } catch (...) {
+            return status::unsupported_command;
+        }
+    }
+
     status append_render_stream(
         std::span<const std::byte> bytes,
         compact_guideline_state_map* compact_guidelines,
@@ -13726,7 +13853,9 @@ struct channel::implementation {
         };
         const auto resolve_drawing_image_bounds = [
             this,
-            &drawing_image_bounds_segments](
+            &drawing_image_bounds_segments,
+            &make_wpf_rounded_rectangle_geometry,
+            &make_ellipse_path_geometry](
             auto&& resolve_bounds,
             std::uint32_t drawing_handle,
             std::uint32_t depth,
@@ -14003,7 +14132,37 @@ struct channel::implementation {
             // A brushless pen cannot suppress a valid fill; a zero-width pen
             // with a brush still contributes the unwidened geometry bounds.
             const bool pen_contributes_bounds = pen.brush_handle != 0U;
+            const auto finish_stroked_geometry_bounds = [&]() -> status {
+                // Geometry.GetBoundsInternal includes filled figures as
+                // well as their pen. Hollow/unstroked contours are not
+                // manufactured into filled paths by the stroke adapter.
+                drawing_image_bounds_segments.clear();
+                shallow_fill_leaf fill{};
+                const status filled = append_shallow_fill_leaf(drawing->second.geometry_handle,
+                    drawing_image_bounds_segments, fill, current_transform);
+                if (filled != status::success) return filled;
+                if (fill.has_bounds && fill.right > fill.left && fill.bottom > fill.top) {
+                    const bool has_stroke = bounds.width > 0.0F && bounds.height > 0.0F;
+                    const double left = has_stroke ? std::min(double{bounds.x}, fill.left) : fill.left;
+                    const double top = has_stroke ? std::min(double{bounds.y}, fill.top) : fill.top;
+                    const double right = has_stroke ? std::max(double{bounds.x} + bounds.width, fill.right) : fill.right;
+                    const double bottom = has_stroke ? std::max(double{bounds.y} + bounds.height, fill.bottom) : fill.bottom;
+                    if (!finite_double_as_float(left) || !finite_double_as_float(top) ||
+                        !finite_double_as_float(right - left) || !finite_double_as_float(bottom - top))
+                        return status::unsupported_command;
+                    bounds = {static_cast<float>(left), static_cast<float>(top),
+                        static_cast<float>(right - left), static_cast<float>(bottom - top)};
+                }
+                return finish_bounds();
+            };
             if (pen_contributes_bounds && pen.thickness > 0.0) {
+                const auto path = path_geometries.find(drawing->second.geometry_handle);
+                if (path != path_geometries.end()) {
+                    const status widened = resolve_path_stroke_bounds(path->second, pen,
+                        current_transform, bounds);
+                    if (widened != status::success) return widened;
+                    return finish_stroked_geometry_bounds();
+                }
                 const auto fixed = fixed_geometries.find(
                     drawing->second.geometry_handle);
                 if (fixed == fixed_geometries.end()) {
@@ -14022,7 +14181,43 @@ struct channel::implementation {
                         return status::invalid_handle;
                     }
                     if (!dash->second.intervals.empty()) {
-                        return status::unsupported_command;
+                      try {
+                        path_geometry_state stroke_path{};
+                        if (geometry.kind == fixed_geometry_kind::line) {
+                            progpu_native_path_segment segment{};
+                            segment.kind = PROGPU_NATIVE_PATH_SEGMENT_LINE;
+                            segment.p0 = {static_cast<float>(geometry.first), static_cast<float>(geometry.second)};
+                            segment.p1 = {static_cast<float>(geometry.third), static_cast<float>(geometry.fourth)};
+                            path_stroke_contour_state contour{};
+                            contour.points = {segment.p0, segment.p1};
+                            contour.segments.push_back(segment);
+                            contour.smooth_joins.push_back(0U);
+                            stroke_path.stroke_contours.push_back(std::move(contour));
+                        } else if (geometry.kind == fixed_geometry_kind::rectangle &&
+                            geometry.third > 0.0 && geometry.fourth > 0.0) {
+                            stroke_path = make_wpf_rounded_rectangle_geometry(geometry.first, geometry.second,
+                                geometry.third, geometry.fourth, geometry.radius_x, geometry.radius_y);
+                            // Square corners retain the pen's join; rounded
+                            // corners use the shared smooth Bezier contour.
+                            if (geometry.radius_x == 0.0 || geometry.radius_y == 0.0) {
+                                stroke_path.stroke_contours.front().smooth_joins.assign(
+                                    stroke_path.stroke_contours.front().segments.size(), 0U);
+                            }
+                        } else if (geometry.kind == fixed_geometry_kind::ellipse &&
+                            geometry.third > 0.0 && geometry.fourth > 0.0) {
+                            stroke_path = make_ellipse_path_geometry(geometry.first, geometry.second,
+                                geometry.third, geometry.fourth);
+                        } else {
+                            return status::unsupported_command;
+                        }
+                        stroke_path.transform_handle = geometry.transform_handle;
+                        const status widened = resolve_path_stroke_bounds(stroke_path, pen,
+                            current_transform, bounds);
+                        if (widened != status::success) return widened;
+                        return finish_stroked_geometry_bounds();
+                      } catch (const std::bad_alloc&) {
+                        return status::capacity_exceeded;
+                      }
                     }
                 }
                 affine_2d_double geometry_transform{};

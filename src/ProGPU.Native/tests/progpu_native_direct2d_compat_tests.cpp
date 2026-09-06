@@ -1,6 +1,7 @@
 #include "progpu_native_direct2d_compat.hpp"
 #include "progpu_native_direct2d_scene_submission.hpp"
 #include "progpu_native.h"
+#include "../src/Direct2D/progpu_native_direct2d_path.hpp"
 
 #if defined(_WIN32)
 #  include <dwrite.h>
@@ -1392,6 +1393,42 @@ int run_tests()
         return 2;
     }
     factory.attach(raw_factory);
+
+    // Native contour adaptation must not turn a return to the starting point
+    // into a closed filled figure, or connect disjoint stroke runs.
+    {
+        std::array<progpu_native_path_segment, 3U> segments{};
+        const std::array<progpu_native_point, 4U> points{{{0, 0}, {10, 0}, {0, 0}, {0, 10}}};
+        for (std::size_t index = 0U; index < segments.size(); ++index) {
+            segments[index].kind = PROGPU_NATIVE_PATH_SEGMENT_LINE;
+            segments[index].p0 = points[index];
+            segments[index].p1 = points[index + 1U];
+        }
+        const std::array<std::uint8_t, 3U> joins{1U, 0U, 1U};
+        com::pointer<compat::path_geometry> path;
+        if (compat::detail::create_native_stroke_geometry(factory.get(), segments, joins,
+                false, path.put()) != com::ok) return 9001;
+        com::pointer<simplified_sink> sink;
+        sink.attach(new simplified_sink());
+        if (path->Stream(sink.get()) != com::ok || sink->begin_count != 1U ||
+            sink->end_count != 1U || sink->line_count != 3U ||
+            sink->figure_begin != compat::figure_begin::hollow ||
+            sink->figure_end != compat::figure_end::open ||
+            sink->segment_flags != compat::path_segment::none) return 9002;
+        com::pointer<compat::path_geometry> rejected;
+        if (compat::detail::create_native_stroke_geometry(factory.get(), segments,
+                std::span{joins}.first(2U), false, rejected.put()) != com::invalid_argument ||
+            rejected.get() != nullptr) return 9003;
+        segments[1U].p0.x = 11.0F;
+        if (compat::detail::create_native_stroke_geometry(factory.get(), segments, joins,
+                false, rejected.put()) != com::invalid_argument || rejected.get() != nullptr) return 9004;
+        segments[1U].p0 = points[1U];
+        if (compat::detail::create_native_stroke_geometry(factory.get(), segments, joins,
+                true, path.put()) != com::ok) return 9005;
+        sink.attach(new simplified_sink());
+        if (path->Stream(sink.get()) != com::ok || sink->begin_count != 1U ||
+            sink->figure_end != compat::figure_end::closed) return 9006;
+    }
 
     com::pointer<com::unknown> identity;
     if (factory.as(com::unknown_interface_id(), identity) != com::ok ||

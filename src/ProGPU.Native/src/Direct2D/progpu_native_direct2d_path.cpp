@@ -7046,14 +7046,16 @@ private:
 // Algorithm: Stream canonical native fill segments into the portable Direct2D
 // path implementation. Full ellipses split into two endpoint arcs; no flattening
 // or CPU pixels are introduced here. Time/space: O(S) retained path records.
-com::result create_native_fill_geometry(factory* owner,
+static com::result create_native_geometry(factory* owner,
     std::span<const progpu_native_path_segment> segments, fill_mode mode,
+    std::span<const std::uint8_t> smooth_joins, bool filled, bool closed,
     path_geometry** value) noexcept
 {
     if (value == nullptr) return com::pointer_error;
     *value = nullptr;
     if (owner == nullptr || segments.size() > (1U << 20U) ||
-        (mode != fill_mode::alternate && mode != fill_mode::winding)) return com::invalid_argument;
+        (mode != fill_mode::alternate && mode != fill_mode::winding) ||
+        (!filled && smooth_joins.size() != segments.size())) return com::invalid_argument;
     com::pointer<path_geometry> path;
     com::result result = owner->CreatePathGeometry(path.put());
     if (com::failed(result)) return result;
@@ -7063,14 +7065,21 @@ com::result create_native_fill_geometry(factory* owner,
     sink->SetFillMode(mode);
     bool open = false;
     point_2f start{}, previous{};
-    for (const auto& segment : segments) {
+    for (std::size_t segment_index = 0U; segment_index < segments.size(); ++segment_index) {
+        const auto& segment = segments[segment_index];
         const point_2f first{segment.p0.x, segment.p0.y};
         if (!finite_point(first)) return com::invalid_argument;
         if (!open || !same_point(previous, first)) {
+            if (!filled && open) return com::invalid_argument;
             if (open) sink->EndFigure(figure_end::closed);
-            sink->BeginFigure(first, figure_begin::filled);
+            sink->BeginFigure(first, filled ? figure_begin::filled : figure_begin::hollow);
             start = first;
             open = true;
+        }
+        if (!filled) {
+            const bool smooth = (segment_index != 0U || closed) &&
+                smooth_joins[segment_index == 0U ? segments.size() - 1U : segment_index - 1U] != 0U;
+            sink->SetSegmentFlags(smooth ? path_segment::force_round_line_join : path_segment::none);
         }
         point_2f end{};
         switch (segment.kind) {
@@ -7115,6 +7124,9 @@ com::result create_native_fill_geometry(factory* owner,
                     sweep < 0.0F ? sweep_direction::counter_clockwise : sweep_direction::clockwise,
                     arc_size::small_value};
                 sink->AddArc(&arc);
+                // An internal split in one smooth arc must not become a
+                // caller-selected bevel/miter join.
+                if (!filled) sink->SetSegmentFlags(path_segment::force_round_line_join);
             }
             break;
         }
@@ -7123,16 +7135,32 @@ com::result create_native_fill_geometry(factory* owner,
         }
         if (!finite_point(end)) return com::invalid_argument;
         previous = end;
-        if (same_point(end, start)) {
+        if (filled && same_point(end, start)) {
             sink->EndFigure(figure_end::closed);
             open = false;
         }
     }
-    if (open) sink->EndFigure(figure_end::closed);
+    if (open) sink->EndFigure(closed ? figure_end::closed : figure_end::open);
     result = sink->Close();
     if (com::failed(result)) return result;
     *value = path.detach();
     return com::ok;
+}
+
+com::result create_native_fill_geometry(factory* owner,
+    std::span<const progpu_native_path_segment> segments, fill_mode mode,
+    path_geometry** value) noexcept
+{
+    return create_native_geometry(owner, segments, mode, {}, true, true, value);
+}
+
+com::result create_native_stroke_geometry(factory* owner,
+    std::span<const progpu_native_path_segment> segments,
+    std::span<const std::uint8_t> smooth_joins, bool closed,
+    path_geometry** value) noexcept
+{
+    return create_native_geometry(owner, segments, fill_mode::winding,
+        smooth_joins, false, closed, value);
 }
 
 // Algorithm: Reuse production Outline and its bounded polygon collector.
