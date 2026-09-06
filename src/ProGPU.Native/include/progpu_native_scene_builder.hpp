@@ -40,6 +40,15 @@ struct shaped_text_scene_options final {
     float italic_skew = 0.0F;
 };
 
+// Typed metadata only; no pointer into builder-owned resource storage is exposed.
+struct scene_full_image_copy final {
+    std::uint32_t resource_index = PROGPU_NATIVE_SCENE_NO_INDEX;
+    std::uint32_t resource_flags = 0U;
+    progpu_native_scene_image_draw image{};
+    progpu_native_scene_image_color_matrix color_matrix{};
+    progpu_native_scene_picture_image picture{};
+};
+
 /*
  * Standalone retained-scene recorder/compiler for native C++ clients.
  * Recording is O(C + R + P) in commands, resources, and payload bytes.
@@ -146,6 +155,17 @@ public:
         std::uint32_t source_resource_index,
         const progpu_native_scene_image_draw& image,
         const progpu_native_scene_image_color_matrix* color_matrix = nullptr) noexcept;
+    // Recognize exactly one root SRC-layer/full-image/pop covering bounds with
+    // 1:1 pixel sampling. No allocations or serialization. The caller must also
+    // qualify alpha flags/matrix and storage format before bypassing rasterization.
+    bool try_get_full_image_copy(
+        progpu_native_image_rect bounds, std::uint32_t pixel_width,
+        std::uint32_t pixel_height, scene_full_image_copy& copy) const noexcept;
+    // Copy an owned upload/picture resource without adding a drawing command.
+    // Resource ownership is independent; rejects self-import/external handles.
+    bool copy_image_resource_from(
+        const semantic_scene_builder& source, std::uint32_t source_resource_index,
+        std::uint32_t& resource_index) noexcept;
     // Rasterize an owned nested scene at its declared source resolution before
     // sampling it as an ordinary premultiplied image. No CPU pixel materialization.
     bool add_picture_image(

@@ -4209,3 +4209,52 @@ WebGPU executables compile. Tests, OOM stress, allocation measurements, GPU/nati
 pixel parity and CI qualification remain deferred. No public interface, C ABI,
 module or generated managed contract changes; the independent managed WPF path
 is unchanged. Full goal parity is not established by this checkpoint.
+
+## Implementation-first checkpoint: flatten full-image copy sources
+
+Copy-only capture now recognizes a compatible target whose complete content is
+one canonical SRC-layer/full-image/pop. It copies the underlying owned image
+resource directly rather than wrapping that three-command scene in another
+picture. This keeps repeated full bitmap/target copy chains at constant retained
+size and nesting for this representation: uploaded RGBA/BGRA/R8 images remain
+uploads, and an existing picture keeps its original nested stream unchanged.
+There is no recursive unwrap, CPU rasterization or GPU pixel readback.
+
+The reusable C++ builder query `try_get_full_image_copy` reads exactly three typed
+command records and one resource, without allocation/serialization. It requires
+full source pixels and target bounds, identity transform, nearest sampling,
+full opacity, no state/effects/masks and the exact root SRC layer shape. The native
+Direct2D caller additionally checks storage format, premultiplied/ignored-alpha
+flags and A8's exact canonical R-to-alpha or A-to-alpha matrix. Unsupported shapes
+keep normal picture capture. Consequently a cropped, transformed or effect draw
+cannot silently bypass its rasterization. Ordinary `DrawBitmap` capture retains
+the existing public scene/picture behavior; only storage-copy capture is flattened.
+
+`copy_image_resource_from` creates independent destination ownership of the
+selected upload or nested picture bytes. It rejects self-import and external
+handles, and leaves the destination unchanged on failure. The staging resource
+then uses the existing move-only atomic copy operation. Metadata reports the
+underlying row pitch, picture flag and original picture raster DPI rather than
+manufacturing a new target-raster picture descriptor. Shared bitmap views still
+apply their typed alpha/DPI view after source capture.
+
+Recognition is O(1) CPU metadata work. Ownership capture still costs O(B) time and
+storage for B underlying upload/nested-picture bytes, plus container metadata
+growth; this is not a device-local constant-time copy. It avoids serializing the
+copy wrapper and adds no new picture level per eligible full copy. The original
+ProGPU image resource ownership, canonical alpha matrix and SRC composition code
+are reused, with no new shader, conversion loop or measured speedup claim.
+Partial/compound target histories, differently sized source crops and general
+persistent GPU copies remain open work. Already nested source pictures are not
+retrospectively flattened; their existing limits still apply.
+
+Authored coverage includes 64 two-way full-upload copy iterations per supported
+format, 32 two-way picture-copy iterations with byte-identical nested streams,
+24 full-picture transfers before GPU overlap checks, module resource ownership,
+self-import rejection and rejecting cropped/multi-command shapes. Native library,
+internal and Direct2D test executables and the C++ module consumer compile; none
+of these tests is executed in this phase. GPU/platform parity, long-chain runtime,
+allocation/latency measurements, OOM/concurrency cases and CI qualification remain
+deferred. The added metadata/query/import APIs are native C++ only; stable C ABI
+and public COM layouts are unchanged. Managed Direct2D shares the native endpoint;
+the independent managed WPF renderer remains unchanged.

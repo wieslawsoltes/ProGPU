@@ -120,6 +120,31 @@ int main() {
     if (builder.copy_image_from_builder(std::move(rejected_image), staged_index, image) ||
         !builder.build_into(after_failed_copy, after_failed_copy_written) ||
         after_failed_copy_written != before_copy_written || before_copy != after_failed_copy) return 1;
+    progpu::native::semantic_scene_builder canonical_copy(9006U);
+    image.flags = 0U;
+    if (!canonical_copy.copy_image_from_memory(image, progpu::native::PROGPU_NATIVE_SCENE_IMAGE_R8, coverage)) return 1;
+    progpu::native::scene_full_image_copy full_image{};
+    if (!canonical_copy.try_get_full_image_copy(image.destination_rect, 2U, 2U, full_image) ||
+        full_image.image.row_bytes != 2U) return 1;
+    progpu::native::semantic_scene_builder extracted(9007U);
+    unsigned int extracted_index = progpu::native::PROGPU_NATIVE_SCENE_NO_INDEX;
+    if (!extracted.copy_image_resource_from(canonical_copy, full_image.resource_index, extracted_index)) return 1;
+    progpu::native::semantic_scene_builder flattened(9008U);
+    if (!flattened.copy_image_from_builder(std::move(extracted), extracted_index, image) ||
+        !flattened.try_get_full_image_copy(image.destination_rect, 2U, 2U, full_image)) return 1;
+    // Imported ownership remains valid after releasing the original history.
+    if (!canonical_copy.reset(9006U, 2U) ||
+        !flattened.try_get_full_image_copy(image.destination_rect, 2U, 2U, full_image)) return 1;
+    unsigned int rejected_index = 123U;
+    if (flattened.copy_image_resource_from(flattened, full_image.resource_index, rejected_index) ||
+        rejected_index != progpu::native::PROGPU_NATIVE_SCENE_NO_INDEX) return 1;
+    image.source_rect.width = 1.0F;
+    if (!canonical_copy.copy_image_from_memory(image, progpu::native::PROGPU_NATIVE_SCENE_IMAGE_R8, coverage) ||
+        canonical_copy.try_get_full_image_copy(image.destination_rect, 2U, 2U, full_image)) return 1;
+    image.source_rect.width = 2.0F;
+    if (!canonical_copy.copy_image_from_memory(image, progpu::native::PROGPU_NATIVE_SCENE_IMAGE_R8, coverage) ||
+        canonical_copy.try_get_full_image_copy(image.destination_rect, 2U, 2U, full_image) ||
+        full_image.resource_index != progpu::native::PROGPU_NATIVE_SCENE_NO_INDEX) return 1;
     const std::size_t required_size = builder.required_stream_size();
     std::size_t bytes_written = 0U;
     return required_size > 0U && required_size <= stream.size() &&

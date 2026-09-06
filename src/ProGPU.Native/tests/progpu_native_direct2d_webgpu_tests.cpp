@@ -1000,6 +1000,11 @@ void verify_compatible_bitmap_uploads(const gpu_context& gpu, progpu_native_engi
         const d2d::color_f blue{0.0F, 0.0F, 1.0F, 1.0F};
         source->Clear(&blue);
         require(source->EndDraw(nullptr, nullptr) == native_com::ok, "copy source mutation end");
+        for (unsigned int copy = 0U; copy < 24U; ++copy) {
+            require(bitmap->CopyFromBitmap(nullptr, copied_bitmap.get(), nullptr) == native_com::ok &&
+                copied_bitmap->CopyFromRenderTarget(nullptr, source.get(), nullptr) == native_com::ok &&
+                copied_scene->GetRequiredSceneSize() == copied_stream.size(), "full picture copy chain grew nesting");
+        }
         const d2d::point_2u overlap_destination{6U, 4U};
         // An overlapping rightward shift must sample the complete pre-copy
         // rectangle, including the transparent center, not earlier copy writes.
