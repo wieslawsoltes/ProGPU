@@ -3930,3 +3930,66 @@ parity, performance measurements and CI qualification remain deferred under the
 requested implementation-first sequencing. Delta-session rejection from the
 previous checkpoint is superseded for supported uniform-DPI histories; full
 Direct2D/Win2D, incremental backing, copy/readback and final gates remain open.
+
+## Implementation-first checkpoint: incremental GPU picture backing
+
+Retained picture images now keep device-owned backing textures across parent
+scene changes. Before reusing pixels, ProGPU compares the source descriptor,
+engine flags and complete previous command/resource prefix. Immutable resource
+payloads must match exactly; brush/text-style tables may append unchanged-prefix
+records. Both input streams have already passed scene validation, so the previous
+command boundary has balanced scopes. Changed earlier commands/resources, changed
+clear color/size/DPI, decreasing generations, 3D depth-dependent scenes and external
+image bindings take the existing full rasterization path. No hash collision or
+resource-generation assumption alone authorizes pixel reuse.
+
+For an exact append, the renderer allocates a new source texture, copies existing
+pixels with a GPU texture-to-texture command, then executes a suffix view of the
+new scene with `PRESERVE_TARGET`. Resource indices and arena offsets remain those
+of the validated full stream. No earlier command is submitted for drawing in that
+suffix. Copy-on-write is intentional: two bitmap generations in the same parent
+must preserve distinct pixels, and a later append must not mutate an older draw.
+If no commands were appended, the existing texture is shared directly. The original
+ProGPU picture-mask source rasterizer and canonical image shaders are reused;
+mask behavior is unchanged. There is no pixel readback or CPU repacking.
+
+The engine's FIFO backing cache holds at most eight entries and 64 MiB of combined
+texture/owned source-stream storage. Larger pictures still render but are not kept
+in that cache. Page-owned shared leases can keep evicted captures alive until their
+page is released; those are separate from the additional cache budget. GPU handles
+are released under the engine's dispatch scope. Optional cache allocation failure
+does not invalidate a completed draw. Device replacement gets a fresh cache;
+device-local textures are not included in retained CPU-state cloning.
+
+Exact byte comparison uses unaligned NEON, SSE2 or Wasm SIMD128 loads with a bounded
+scalar tail. Other targets delegate to the platform byte-comparison routine. This
+is original ProGPU code; tests compare SIMD results against a scalar oracle over
+unaligned spans, tails and every mismatch location in representative lengths.
+Metadata traversal follows typed indexed scene records; no reflection, per-pixel
+scalar loop, public ABI/module change or generated managed layout is introduced.
+
+For H retained source bytes, prefix classification and snapshot/child ingestion
+remain O(H) CPU work/storage. GPU work for an eligible change is one O(P) texture
+copy for P pixels plus rendering appended commands, instead of rendering the full
+history. A cache candidate lookup is bounded by eight entries. Stable parent-page
+replay still does no picture compilation. Copy submissions contribute to existing
+submission metrics; copies are not reported as CPU uploads. This checkpoint does
+not claim a measured speedup, O(delta) CPU submission, history compaction, or
+complete persistent target semantics for mixed-DPI epochs/3D depth.
+
+Applicability: the optimization concerns the native serialized-picture transport
+used by native Direct2D, MIL and other C++ scene clients. Managed Direct2D callers
+use that same endpoint. The managed WPF renderer's independent retained target
+implementation is unchanged, and no separate shader algorithm was introduced.
+Provenance is the in-repository semantic identity/builder code and
+`progpu_native_semantic_picture_mask_resources.cpp` source rasterizer.
+
+Authored regressions cover exact prefix acceptance, appended brush tables,
+modified old brush/command/image rejection, suffix stream validity, SIMD/scalar
+equality, incremental-versus-fresh-full GPU output, warm reuse and simultaneous
+old/new captures. Native library, internal tests, portable Direct2D tests and the
+Direct2D WebGPU test executable compile. None of these tests was executed in this
+implementation-first checkpoint. SIMD on x86/Wasm, GPU copy-on-write, cache-budget
+eviction, device recovery, platform image parity, performance and CI still require
+final qualification. CPU history compaction, mixed/nonuniform raster DPI,
+render-target copy/readback and full Win2D remain open goal work.

@@ -10,6 +10,7 @@
 
 #include <array>
 #include <cstdint>
+#include <memory>
 #include <vector>
 
 struct semantic_analytic_page {
@@ -65,7 +66,20 @@ struct semantic_glyph_page {
     std::vector<semantic_glyph_draw> draws;
 };
 
+struct semantic_picture_backing {
+    WGPUTexture texture = nullptr;
+    WGPUTextureView view = nullptr;
+    progpu_native_scene_picture_image descriptor{};
+    std::uint64_t engine_flags = 0U;
+    std::vector<std::byte> scene;
+    ~semantic_picture_backing();
+    std::uint64_t byte_cost() const noexcept {
+        return static_cast<std::uint64_t>(descriptor.width) * descriptor.height * 4U + scene.size();
+    }
+};
+
 struct semantic_image_draw {
+    std::shared_ptr<semantic_picture_backing> picture_backing;
     WGPUTexture texture = nullptr;
     WGPUTextureView view = nullptr;
     WGPUBindGroup texture_bind_group = nullptr;

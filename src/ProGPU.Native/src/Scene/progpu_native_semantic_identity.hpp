@@ -4,6 +4,7 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <span>
 
 namespace progpu::native::semantic {
 
@@ -28,5 +29,15 @@ struct semantic_content_hashes final {
 semantic_content_hashes compute_content_hashes(
     const std::byte* bytes,
     const progpu_native_scene_header& header) noexcept;
+
+// Exact, alignment-safe SIMD comparison; scalar tail only on supported ISAs.
+bool scene_bytes_equal(std::span<const std::byte> left, std::span<const std::byte> right) noexcept;
+
+// Inputs must already have passed scene validation. Accept only unchanged
+// resource/command prefixes ending at a balanced scope boundary. 3D depth
+// history cannot be preserved by a color-only target and requires full replay.
+bool find_append_only_scene_suffix(const std::byte* previous,
+    const progpu_native_scene_header& previous_header, const std::byte* current,
+    const progpu_native_scene_header& current_header, std::uint32_t& first_command) noexcept;
 
 } // namespace progpu::native::semantic

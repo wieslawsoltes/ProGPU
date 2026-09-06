@@ -29,6 +29,14 @@
 #include <new>
 #include <vector>
 
+semantic_picture_backing::~semantic_picture_backing() {
+    if (view != nullptr) wgpuTextureViewRelease(view);
+    if (texture != nullptr) {
+        wgpuTextureDestroy(texture);
+        wgpuTextureRelease(texture);
+    }
+}
+
 namespace progpu::native::execution {
 namespace {
 
@@ -79,7 +87,8 @@ static bool create_semantic_picture_binding(
     semantic_render_bundle_span& operation,
     semantic_image_draw* image_output,
     progpu_native_scene_frame_metrics* image_metrics,
-    const progpu_native_color* source_clear) {
+    const progpu_native_color* source_clear,
+    WGPUTexture seed_texture = nullptr, std::uint32_t first_command = 0U) {
     if (nested_scene == nullptr || picture.stream_size == 0U ||
         target_extent.width == 0U || target_extent.height == 0U ||
         !std::isfinite(dpi_scale) || dpi_scale <= 0.0F ||
@@ -122,6 +131,8 @@ static bool create_semantic_picture_binding(
         "ProGPU retained picture-mask RGBA source");
     source_descriptor.usage = WGPUTextureUsage_RenderAttachment |
         WGPUTextureUsage_TextureBinding;
+    if (image_output != nullptr)
+        source_descriptor.usage |= WGPUTextureUsage_CopySrc | WGPUTextureUsage_CopyDst;
     source_descriptor.dimension = WGPUTextureDimension_2D;
     source_descriptor.size = {source_width, source_height, 1U};
     source_descriptor.format = engine.target_format;
@@ -163,6 +174,39 @@ static bool create_semantic_picture_binding(
         cleanup();
         return false;
     }
+    std::vector<std::byte> suffix_scene;
+    if (seed_texture != nullptr) {
+        // Preserve immutable earlier captures: copy on the GPU into a fresh
+        // backing, then render only the appended commands with attachment load.
+        try {
+            suffix_scene.assign(nested_scene, nested_scene + picture.stream_size);
+        } catch (const std::bad_alloc&) {
+            cleanup();
+            return false;
+        }
+        progpu_native_scene_header suffix_header{};
+        std::memcpy(&suffix_header, suffix_scene.data(), sizeof(suffix_header));
+        if (first_command > suffix_header.command_count) { cleanup(); return false; }
+        suffix_header.command_offset += first_command * suffix_header.command_stride;
+        suffix_header.command_count -= first_command;
+        std::memcpy(suffix_scene.data(), &suffix_header, sizeof(suffix_header));
+        nested_scene = suffix_scene.data();
+        WGPUCommandEncoder copy_encoder = wgpuDeviceCreateCommandEncoder(engine.device, nullptr);
+        if (copy_encoder == nullptr) { cleanup(); return false; }
+        webgpu::image_copy_texture source_copy{}, destination_copy{};
+        source_copy.texture = seed_texture;
+        source_copy.aspect = WGPUTextureAspect_All;
+        destination_copy.texture = source_texture;
+        destination_copy.aspect = WGPUTextureAspect_All;
+        const WGPUExtent3D extent{source_width, source_height, 1U};
+        wgpuCommandEncoderCopyTextureToTexture(copy_encoder, &source_copy, &destination_copy, &extent);
+        WGPUCommandBuffer copy_commands = wgpuCommandEncoderFinish(copy_encoder, nullptr);
+        wgpuCommandEncoderRelease(copy_encoder);
+        if (copy_commands == nullptr) { cleanup(); return false; }
+        wgpuQueueSubmit(engine.queue, 1U, &copy_commands);
+        wgpuCommandBufferRelease(copy_commands);
+        ++engine.submission_count;
+    }
     if (progpu_native_engine_bind_scene_external_images(
             child.get(),
             bindings.data(),
@@ -194,6 +238,7 @@ static bool create_semantic_picture_binding(
         return false;
     }
     child_frame.dpi_scale = source_dpi_scale;
+    if (seed_texture != nullptr) child_frame.flags |= PROGPU_NATIVE_SCENE_FRAME_PRESERVE_TARGET;
     if (source_clear != nullptr) {
         child_frame.clear_color = {source_clear->r * source_clear->a,
             source_clear->g * source_clear->a, source_clear->b * source_clear->a, source_clear->a};
@@ -385,6 +430,44 @@ bool create_semantic_picture_image(
     const std::byte* nested_scene, std::uint32_t scene_size,
     semantic_image_draw& draw,
     progpu_native_scene_frame_metrics& child_metrics) {
+    constexpr std::uint64_t cache_budget = 64ULL * 1024U * 1024U;
+    constexpr std::size_t maximum_entries = 8U;
+    progpu_native_scene_header header{};
+    std::memcpy(&header, nested_scene, sizeof(header));
+    auto& cache = engine.semantic_picture_cache;
+    std::shared_ptr<semantic_picture_backing> previous;
+    std::uint32_t first_command = 0U;
+    const bool cache_eligible = engine.semantic_external_image_bindings.empty();
+    if (cache_eligible) {
+        for (const auto& entry : cache) {
+            progpu_native_scene_header prior{};
+            std::memcpy(&prior, entry->scene.data(), sizeof(prior));
+            if (prior.scene_id == header.scene_id && entry->engine_flags == engine.engine_flags &&
+                semantic::scene_bytes_equal(std::as_bytes(std::span(&entry->descriptor, 1U)),
+                    std::as_bytes(std::span(&source, 1U))) &&
+                semantic::find_append_only_scene_suffix(entry->scene.data(), prior, nested_scene, header, first_command)) {
+                previous = entry;
+                break;
+            }
+        }
+    }
+    if (previous && first_command == header.command_count) {
+        draw.picture_backing = previous;
+        draw.view = previous->view;
+        webgpu::texture_view_add_ref(draw.view);
+        return true;
+    }
+    std::shared_ptr<semantic_picture_backing> backing;
+    const auto cost = static_cast<std::uint64_t>(source.width) * source.height * 4U + scene_size;
+    const bool retain_history = cache_eligible && cost <= cache_budget;
+    try {
+        backing = std::make_shared<semantic_picture_backing>();
+        backing->descriptor = source;
+        backing->engine_flags = engine.engine_flags;
+        if (retain_history) backing->scene.assign(nested_scene, nested_scene + scene_size);
+    } catch (const std::bad_alloc&) {
+        return false;
+    }
     progpu_native_scene_layer_picture_mask picture{};
     picture.struct_size = sizeof(picture);
     picture.kind = PROGPU_NATIVE_SCENE_LAYER_MASK_PICTURE;
@@ -393,9 +476,33 @@ bool create_semantic_picture_image(
     picture.transform = {1.0F, 0.0F, 0.0F, 1.0F, 0.0F, 0.0F};
     picture.opacity = 1.0F;
     semantic_render_bundle_span unused_mask{};
-    return create_semantic_picture_binding(engine, picture, nested_scene,
+    if (!create_semantic_picture_binding(engine, picture, nested_scene,
         {0U, 0U, source.width, source.height, true}, source.dpi_scale,
-        nullptr, nullptr, unused_mask, &draw, &child_metrics, &source.clear_color);
+        nullptr, nullptr, unused_mask, &draw, &child_metrics, &source.clear_color,
+        previous ? previous->texture : nullptr, first_command)) return false;
+    backing->texture = draw.texture;
+    backing->view = draw.view;
+    draw.texture = nullptr;
+    webgpu::texture_view_add_ref(draw.view);
+    draw.picture_backing = backing;
+    if (retain_history) {
+        // FIFO eviction is bounded to eight entries. Page draws own independent
+        // shared leases, so replacing a cache slot never changes older captures.
+        std::uint64_t retained_bytes = 0U;
+        for (auto it = cache.begin(); it != cache.end();) {
+            progpu_native_scene_header prior{};
+            std::memcpy(&prior, (*it)->scene.data(), sizeof(prior));
+            if (prior.scene_id == header.scene_id) it = cache.erase(it);
+            else { retained_bytes += (*it)->byte_cost(); ++it; }
+        }
+        while (!cache.empty() && (cache.size() >= maximum_entries || retained_bytes > cache_budget - cost)) {
+            retained_bytes -= cache.front()->byte_cost();
+            cache.erase(cache.begin());
+        }
+        try { cache.push_back(backing); }
+        catch (const std::bad_alloc&) { /* Cache retention is optional, drawing is not. */ }
+    }
+    return true;
 }
 
 } // namespace progpu::native::execution
