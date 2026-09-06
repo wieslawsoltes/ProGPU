@@ -10,6 +10,7 @@ using ::progpu::native::scene_build_error;
 using ::progpu::native::scene_build_metrics;
 using ::progpu::native::shaped_text_scene_options;
 using ::progpu::native::semantic_scene_builder;
+using ::progpu::native::scene_full_image_copy;
 
 using ::progpu_native_point_3d;
 using ::progpu_native_point;

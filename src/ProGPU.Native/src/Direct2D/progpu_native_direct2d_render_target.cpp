@@ -6125,6 +6125,36 @@ private:
         }
         auto result = get_bitmap_snapshot_locked(snapshot, for_copy);
         if (com::failed(result)) return result;
+        if (for_copy) {
+            scene_full_image_copy copy{};
+            const float dips_per_pixel = 96.0F / dpi_x_;
+            const progpu_native_image_rect bounds{0.0F, 0.0F,
+                pixel_width_ * dips_per_pixel, pixel_height_ * dips_per_pixel};
+            if (builder_.try_get_full_image_copy(bounds, pixel_width_, pixel_height_, copy)) {
+                const bool picture = (copy.resource_flags & PROGPU_NATIVE_SCENE_IMAGE_PICTURE) != 0U;
+                const bool alpha_only = pixel_format_.format == dxgi_format_a8_unorm;
+                const auto expected_matrix = bitmap_alpha_matrix(picture);
+                const auto expected_image_flags = image_alpha_flags(pixel_format_.alpha) |
+                    (alpha_only ? PROGPU_NATIVE_SCENE_IMAGE_COLOR_MATRIX : 0U);
+                const auto expected_storage_flags = picture ? PROGPU_NATIVE_SCENE_IMAGE_PICTURE
+                    : alpha_only ? PROGPU_NATIVE_SCENE_IMAGE_R8
+                    : pixel_format_.format == dxgi_format_b8g8r8a8_unorm ? PROGPU_NATIVE_SCENE_IMAGE_BGRA8 : 0U;
+                if (copy.image.flags == expected_image_flags &&
+                    copy.resource_flags == (PROGPU_NATIVE_SCENE_RECORD_REQUIRED | expected_storage_flags) &&
+                    (!alpha_only || std::memcmp(&copy.color_matrix, &expected_matrix, sizeof(expected_matrix)) == 0)) {
+                    // A 1:1 full replacement is already the target's complete
+                    // image. Capture its owned resource instead of nesting the
+                    // three-command wrapper again. Matrix/alpha/format checks
+                    // above prevent bypassing any target-visible conversion.
+                    if (!destination.copy_image_resource_from(builder_, copy.resource_index, resource_index))
+                        return destination.last_error() == scene_build_error::out_of_memory ? com::out_of_memory : failure;
+                    snapshot.row_bytes = copy.image.row_bytes;
+                    snapshot.picture_image = picture;
+                    snapshot.picture_raster_dpi_scale = picture ? copy.picture.dpi_scale : 1.0F;
+                    return com::ok;
+                }
+            }
+        }
         std::vector<std::byte> active_capture;
         std::span<const std::byte> bytes;
         if (!ended_) {

@@ -7940,6 +7940,30 @@ int run_tests()
             upload_scene->GetRequiredSceneSize() == 0U) return 295;
         upload_target->SetDpi(192.0F, 192.0F);
         if (upload_bitmap->CopyFromMemory(nullptr, full_upload.data(), 8U * pixel_bytes) != com::ok) return 295;
+        const compat::size_f chain_size{8.0F, 8.0F};
+        compat::bitmap_render_target* raw_chain_target = nullptr;
+        if (target->CreateCompatibleRenderTarget(&chain_size, &pixel_size, &upload_format,
+                compat::compatible_render_target_options::none, &raw_chain_target) != com::ok) return 297;
+        com::pointer<compat::bitmap_render_target> chain_target;
+        chain_target.attach(raw_chain_target);
+        compat::bitmap* raw_chain_bitmap = nullptr;
+        if (chain_target->GetBitmap(&raw_chain_bitmap) != com::ok) return 297;
+        com::pointer<compat::bitmap> chain_bitmap;
+        chain_bitmap.attach(raw_chain_bitmap);
+        for (unsigned int chain_copy = 0U; chain_copy < 64U; ++chain_copy) {
+            if (chain_bitmap->CopyFromBitmap(nullptr, upload_bitmap.get(), nullptr) != com::ok ||
+                upload_bitmap->CopyFromRenderTarget(nullptr, chain_target.get(), nullptr) != com::ok ||
+                upload_scene->GetRequiredSceneSize() != full_copy_size) return 297;
+        }
+        std::vector<std::byte> chain_stream(static_cast<std::size_t>(upload_scene->GetRequiredSceneSize()));
+        if (upload_scene->BuildScene(chain_stream.data(), chain_stream.size(), &upload_written) != com::ok) return 297;
+        const auto* chain_header = reinterpret_cast<const progpu_native_scene_header*>(chain_stream.data());
+        const auto* chain_resource = reinterpret_cast<const progpu_native_scene_resource*>(chain_stream.data() + chain_header->resource_offset);
+        if (chain_header->command_count != 3U || chain_header->resource_count != 1U ||
+            (chain_resource->flags & PROGPU_NATIVE_SCENE_IMAGE_PICTURE) != 0U ||
+            chain_resource->payload_size != full_upload.size() ||
+            std::memcmp(chain_stream.data() + chain_resource->payload_offset, full_upload.data(), full_upload.size()) != 0)
+            return 297;
         // Pixel-backed copies retain an image resource directly (not a nested
         // picture), crop source pixels and ignore either bitmap's DPI view.
         compat::bitmap* raw_pixel_source = nullptr;
@@ -8005,6 +8029,19 @@ int run_tests()
         if (copied_header->command_count != 3U || (copied_resource->flags & PROGPU_NATIVE_SCENE_IMAGE_PICTURE) == 0U) return 291;
         const auto* captured_header = reinterpret_cast<const progpu_native_scene_header*>(captured_copy.data() + copied_resource->auxiliary_offset);
         if (captured_header->command_count <= 3U) return 291; // Later source Clear did not replace the capture.
+        for (unsigned int picture_copy = 0U; picture_copy < 32U; ++picture_copy) {
+            if (upload_bitmap->CopyFromBitmap(nullptr, copy_bitmap.get(), nullptr) != com::ok ||
+                copy_bitmap->CopyFromRenderTarget(nullptr, upload_target.get(), nullptr) != com::ok ||
+                copied_scene->GetRequiredSceneSize() != captured_copy.size()) return 298;
+        }
+        std::vector<std::byte> chained_picture(captured_copy.size());
+        if (copied_scene->BuildScene(chained_picture.data(), chained_picture.size(), &upload_written) != com::ok) return 298;
+        const auto* chained_header = reinterpret_cast<const progpu_native_scene_header*>(chained_picture.data());
+        const auto* chained_resource = reinterpret_cast<const progpu_native_scene_resource*>(chained_picture.data() + chained_header->resource_offset);
+        if (chained_resource->auxiliary_size != copied_resource->auxiliary_size ||
+            std::memcmp(chained_picture.data() + chained_resource->auxiliary_offset,
+                captured_copy.data() + copied_resource->auxiliary_offset, copied_resource->auxiliary_size) != 0)
+            return 298;
         // Self-overlap through a shared alias consumes an immutable source and
         // has no source-to-destination COM ownership cycle.
         compat::bitmap* raw_copy_alias = nullptr;
