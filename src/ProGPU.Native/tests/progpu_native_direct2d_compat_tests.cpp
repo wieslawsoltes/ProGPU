@@ -1430,6 +1430,51 @@ int run_tests()
             sink->figure_end != compat::figure_end::closed) return 9006;
     }
 
+    // Counter-clockwise source order must survive dash splitting. Only the
+    // first two units of the left edge are visible with this long-gap style.
+    {
+        const std::array<progpu_native_point, 4U> points{{{0, 0}, {0, 10}, {20, 10}, {20, 0}}};
+        std::array<progpu_native_path_segment, 4U> segments{};
+        const std::array<std::uint8_t, 4U> joins{};
+        for (std::size_t index = 0U; index < segments.size(); ++index) {
+            segments[index].kind = PROGPU_NATIVE_PATH_SEGMENT_LINE;
+            segments[index].p0 = points[index];
+            segments[index].p1 = points[(index + 1U) % points.size()];
+        }
+        com::pointer<compat::path_geometry> path;
+        if (compat::detail::create_native_stroke_geometry(factory.get(), segments, joins,
+                true, path.put()) != com::ok) return 9010;
+        compat::stroke_style_properties properties{compat::cap_style::flat, compat::cap_style::flat,
+            compat::cap_style::flat, compat::line_join::miter, 10.0F, compat::dash_style::custom, 0.0F};
+        const std::array<float, 2U> dashes{1.0F, 100.0F};
+        com::pointer<compat::stroke_style> style;
+        if (factory->CreateStrokeStyle(&properties, dashes.data(), 2U, style.put()) != com::ok) return 9011;
+        std::int32_t contains = 0;
+        if (path->StrokeContainsPoint({0, 1}, 2.0F, style.get(), nullptr, 0.01F, &contains) != com::ok ||
+            contains == 0) return 9012;
+        if (path->StrokeContainsPoint({20, 1}, 2.0F, style.get(), nullptr, 0.01F, &contains) != com::ok ||
+            contains != 0) return 9013;
+        compat::rectangle_f bounds{};
+        if (path->GetWidenedBounds(2.0F, style.get(), nullptr, 0.01F, &bounds) != com::ok ||
+            !approximately_equal(bounds.left, -1.0F) || !approximately_equal(bounds.right, 20.0F)) return 9014;
+        com::pointer<compat::path_geometry> widened;
+        com::pointer<compat::geometry_sink> sink;
+        if (factory->CreatePathGeometry(widened.put()) != com::ok || widened->Open(sink.put()) != com::ok ||
+            path->Widen(2.0F, style.get(), nullptr, 0.01F, sink.get()) != com::ok || sink->Close() != com::ok ||
+            widened->GetBounds(nullptr, &bounds) != com::ok ||
+            !approximately_equal(bounds.left, -1.0F) || !approximately_equal(bounds.right, 1.0F) ||
+            !approximately_equal(bounds.top, 0.0F) || !approximately_equal(bounds.bottom, 2.0F)) return 9015;
+        // The full closed-run case still needs inward/outward sides selected
+        // from the source winding, after phase-sensitive splitting is finished.
+        const std::array<float, 2U> full_dashes{100.0F, 1.0F};
+        if (factory->CreateStrokeStyle(&properties, full_dashes.data(), 2U, style.put()) != com::ok ||
+            factory->CreatePathGeometry(widened.put()) != com::ok || widened->Open(sink.put()) != com::ok ||
+            path->Widen(2.0F, style.get(), nullptr, 0.01F, sink.get()) != com::ok || sink->Close() != com::ok ||
+            widened->GetBounds(nullptr, &bounds) != com::ok ||
+            !approximately_equal(bounds.left, -1.0F) || !approximately_equal(bounds.right, 21.0F) ||
+            !approximately_equal(bounds.top, -1.0F) || !approximately_equal(bounds.bottom, 11.0F)) return 9016;
+    }
+
     com::pointer<com::unknown> identity;
     if (factory.as(com::unknown_interface_id(), identity) != com::ok ||
         identity.get() != static_cast<com::unknown*>(raw_factory)) {

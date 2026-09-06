@@ -2337,6 +2337,9 @@ struct widened_outline final {
 [[nodiscard]] bool normalize_simple_polygon(
     std::vector<point_2f>& polygon) noexcept;
 
+[[nodiscard]] double polygon_twice_signed_area(
+    std::span<const point_2f> polygon) noexcept;
+
 [[nodiscard]] polygon_point_relation classify_polygon_point(
     std::span<const point_2f> polygon,
     point_2f point) noexcept;
@@ -2582,8 +2585,12 @@ void reverse_widened_outline(widened_outline& outline)
     std::array<std::vector<point_2f>, 2U> flattened;
     const double topology_tolerance =
         std::max(1.0e-4, half_width * 1.0e-3);
+    // A fully visible closed dash run retains the original contour direction.
+    // Choose the inward side from its winding instead of reversing the source
+    // (which would change dash phase and the first point for partial runs).
+    const double inward_side = polygon_twice_signed_area(points) < 0.0 ? -1.0 : 1.0;
     for (std::size_t index = 0U; index < sides.size(); ++index) {
-        const double side = index == 0U ? 1.0 : -1.0;
+        const double side = index == 0U ? inward_side : -inward_side;
         com::result result = build_closed_stroke_side(
             segments,
             round_joins,
@@ -3376,7 +3383,7 @@ struct flat_polyline final {
 };
 
 [[nodiscard]] bool normalize_simple_stroke_polygon(
-    flat_polyline& polyline) noexcept {
+    flat_polyline& polyline, bool normalize_orientation) noexcept {
   while (polyline.points.size() > 1U &&
          same_point(polyline.points.front(), polyline.points.back())) {
     polyline.points.pop_back();
@@ -3390,7 +3397,7 @@ struct flat_polyline final {
   if (!std::isfinite(twice_area) || twice_area == 0.0) {
     return false;
   }
-  if (twice_area < 0.0) {
+  if (normalize_orientation && twice_area < 0.0) {
     std::reverse(polyline.points.begin(), polyline.points.end());
     std::reverse(polyline.round_joins.begin(), polyline.round_joins.end());
   }
@@ -3417,7 +3424,10 @@ struct flat_polyline final {
 [[nodiscard]] com::result build_flat_polylines(
     std::span<const flat_edge> edges,
     std::span<const stored_figure> figures,
-    std::vector<flat_polyline>& polylines) {
+    std::vector<flat_polyline>& polylines,
+    bool normalize_orientation = true) {
+  // Stroke queries and dashing require the source start/direction. Only the
+  // undashed offset-contour construction requests canonical orientation.
   polylines.clear();
   try {
     std::size_t edge_offset = 0U;
@@ -3506,7 +3516,7 @@ struct flat_polyline final {
     }
     for (flat_polyline& polyline : polylines) {
       if (polyline.closed) {
-        if (!normalize_simple_stroke_polygon(polyline)) {
+        if (!normalize_simple_stroke_polygon(polyline, normalize_orientation)) {
           return not_implemented;
         }
       } else if (polyline.points.size() < 2U ||
@@ -5244,7 +5254,7 @@ public:
             }
             std::vector<flat_polyline> polylines;
             const com::result polyline_status = build_flat_polylines(
-                edges, data_->figures, polylines);
+                edges, data_->figures, polylines, false);
             if (com::failed(polyline_status)) {
                 return polyline_status;
             }
@@ -5375,7 +5385,7 @@ public:
             }
             std::vector<flat_polyline> polylines;
             const com::result polyline_status = build_flat_polylines(
-                edges, data_->figures, polylines);
+                edges, data_->figures, polylines, false);
             if (com::failed(polyline_status)) {
                 return polyline_status;
             }
@@ -6678,7 +6688,7 @@ public:
             }
             std::vector<flat_polyline> polylines;
             const com::result polyline_status = build_flat_polylines(
-                edges, data_->figures, polylines);
+                edges, data_->figures, polylines, !dashed);
             if (com::failed(polyline_status)) {
                 return polyline_status;
             }

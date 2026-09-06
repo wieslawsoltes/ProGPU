@@ -4320,3 +4320,27 @@ consumer construction. Native library, MIL test and Direct2D compatibility test
 targets compile. Execution, native Windows differential/image checks, performance
 measurements and CI qualification remain deferred. No public COM, stable C ABI,
 public C++ module surface or independent managed WPF implementation changes.
+
+### Implementation-first checkpoint: winding-preserving stroke queries/dashes
+
+The original native path core now retains a closed contour's first point and
+direction for `GetWidenedBounds`, `StrokeContainsPoint` and dashed `Widen`.
+Previously, canonicalizing a negative signed-area contour reversed its point
+order before dash splitting, which moved the dash origin and reversed its phase
+progression. The undashed offset-contour path still requests canonical winding.
+For a fully visible closed dash run, the shared closed-widening helper chooses
+its inward side from the original signed area after the phase-sensitive work.
+
+This reuses existing ProGPU dash, join, cap, area and outline algorithms; it adds
+no foreign implementation, shader, pixel work, public COM/C ABI or module change.
+Traversal/space complexity is unchanged apart from an O(P) signed-area query for
+fully closed widening, with P contour points. Existing simple-topology limits
+remain; arbitrary self-intersecting and degenerate stroke handling is not claimed
+complete. MIL group/combined source bounds consume this same native core.
+
+Authored fixtures use an asymmetric long-gap style on a counter-clockwise
+rectangle to distinguish left-edge paint from incorrectly relocated right-edge
+paint, then cover a fully visible closed dash run. They check hit results and
+query/output bounds. Native library, MIL/Direct2D compatibility and Direct2D
+WebGPU test targets compile. No tests, Windows/VM differential images, performance
+measurements or CI qualification are executed under implementation-first sequencing.

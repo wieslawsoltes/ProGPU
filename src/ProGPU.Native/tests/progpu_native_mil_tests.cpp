@@ -13340,7 +13340,17 @@ bool retained_drawing_image_infers_line_path_bounds() {
     PROGPU_REQUIRE(state.apply(multi_child_update) == status::success);
     PROGPU_REQUIRE(
         state.build_scene(target, 7007U, 6U, stream, nullptr) ==
-        status::unsupported_command);
+        status::success);
+    const auto cancelled_header = read_value<progpu_native_scene_header>(stream, 0U);
+    for (std::uint32_t index = 0U; index < cancelled_header.resource_count; ++index) {
+        const auto resource = read_value<progpu_native_scene_resource>(stream,
+            cancelled_header.resource_offset + index * sizeof(progpu_native_scene_resource));
+        if (resource.kind != PROGPU_NATIVE_SCENE_RESOURCE_STATE) continue;
+        const auto native_state = read_value<progpu_native_scene_state>(stream, resource.payload_offset);
+        PROGPU_REQUIRE((native_state.flags & PROGPU_NATIVE_SCENE_STATE_CLIP_RECT) == 0U ||
+            native_state.clip_rect.x != 2.0F || native_state.clip_rect.y != 4.0F ||
+            native_state.clip_rect.width != 40.0F || native_state.clip_rect.height != 20.0F);
+    }
     return true;
 }
 
@@ -14237,6 +14247,117 @@ bool retained_drawing_image_infers_fixed_stroke_bounds() {
         status::success);
     PROGPU_REQUIRE(contains_mapping(
         10.0F / 7.0F, 2.5F, -46.0F / 7.0F, -36.0F));
+    return true;
+}
+
+bool retained_drawing_image_infers_composite_geometry_bounds() {
+    constexpr std::uint32_t visual = 1U, content = 2U, target = 3U, brush = 4U, pen = 5U;
+    constexpr std::uint32_t first = 6U, second = 7U, inner = 8U, group = 9U, combined = 10U;
+    constexpr std::uint32_t root_transform = 11U, inner_transform = 12U, drawing = 13U, image = 14U;
+    constexpr std::uint32_t drawing_group = 15U, world = 16U;
+    std::vector<std::byte> batch;
+    for (const auto [handle, type] : std::array{
+        std::pair{visual, 39U}, std::pair{content, 43U}, std::pair{target, 47U},
+        std::pair{brush, 75U}, std::pair{pen, 85U}, std::pair{first, 69U}, std::pair{second, 69U},
+        std::pair{inner, 71U}, std::pair{group, 71U}, std::pair{combined, 72U},
+        std::pair{root_transform, 66U}, std::pair{inner_transform, 66U}, std::pair{drawing, 87U},
+        std::pair{image, 59U}, std::pair{drawing_group, 91U}, std::pair{world, 66U}}) {
+        append_create(batch, handle, type);
+    }
+    append_command(batch, command::visual_create, visual);
+    append_command(batch, command::visual_set_content, visual, content);
+    append_command(batch, command::solid_color_brush, brush, 1.0,
+        progpu_native_color{0.2F, 0.6F, 0.4F, 1.0F}, 0U, 0U, 0U, 0U);
+    append_command(batch, command::pen, pen, 4.0, 10.0, brush, 0U,
+        PROGPU_NATIVE_STROKE_CAP_SQUARE, PROGPU_NATIVE_STROKE_CAP_SQUARE,
+        PROGPU_NATIVE_STROKE_CAP_FLAT, PROGPU_NATIVE_STROKE_JOIN_MITER, 0U);
+    append_command(batch, command::rectangle_geometry, first,
+        0.0, 0.0, 10.0, 20.0, 20.0, 10.0, 0U, 0U, 0U, 0U);
+    append_command(batch, command::rectangle_geometry, second,
+        0.0, 0.0, 20.0, 20.0, 20.0, 10.0, 0U, 0U, 0U, 0U);
+    append_command(batch, command::matrix_transform, root_transform, 1.0, 0.0, 0.0, 1.0, 5.0, 7.0, 0U);
+    append_command(batch, command::matrix_transform, inner_transform, 2.0, 0.0, 0.0, 3.0, 0.0, 0.0, 0U);
+    append_command(batch, command::matrix_transform, world, 2.0, 0.0, 0.0, 3.0, 0.0, 0.0, 0U);
+    append_command(batch, command::drawing_group, drawing_group,
+        1.0, 4U, 0U, 0U, 0U, world, 0U, 0U, 0U, 0U, drawing);
+    std::vector<std::byte> commands;
+    append_command(commands, command::draw_image, 2.0, 4.0, 48.0, 28.0, image, 0U);
+    append_render_data(batch, content, commands);
+    append_command(batch, command::generic_target_create, target, std::uint64_t{0U}, std::uint64_t{0U}, 64U, 64U, 0U);
+    append_command(batch, command::target_set_root, target, visual);
+    channel state;
+    PROGPU_REQUIRE(state.apply(batch) == status::success);
+    std::uint64_t generation = 1U;
+    const auto expect = [&](std::vector<std::byte> update, std::uint32_t source,
+        bool stroke, bool world_transform, progpu_native_image_rect expected) -> bool {
+        append_command(update, command::geometry_drawing, drawing, brush, stroke ? pen : 0U, source);
+        append_command(update, command::drawing_image, image, world_transform ? drawing_group : drawing);
+        PROGPU_REQUIRE(state.apply(update) == status::success);
+        std::vector<std::byte> stream;
+        PROGPU_REQUIRE(state.build_scene(target, 7109U, generation++, stream, nullptr) == status::success);
+        const auto header = read_value<progpu_native_scene_header>(stream, 0U);
+        const bool empty = expected.width <= 0.0F || expected.height <= 0.0F;
+        bool mapped = false;
+        for (std::uint32_t index = 0U; index < header.resource_count; ++index) {
+            const auto resource = read_value<progpu_native_scene_resource>(stream,
+                header.resource_offset + index * sizeof(progpu_native_scene_resource));
+            if (resource.kind != PROGPU_NATIVE_SCENE_RESOURCE_STATE) continue;
+            const auto native_state = read_value<progpu_native_scene_state>(stream, resource.payload_offset);
+            if ((native_state.flags & PROGPU_NATIVE_SCENE_STATE_CLIP_RECT) == 0U ||
+                native_state.clip_rect.x != 2.0F || native_state.clip_rect.y != 4.0F ||
+                native_state.clip_rect.width != 48.0F || native_state.clip_rect.height != 28.0F) continue;
+            PROGPU_REQUIRE(!empty);
+            const float sx = 48.0F / expected.width, sy = 28.0F / expected.height;
+            mapped |= std::abs(native_state.transform.m11 - sx) < 0.0001F &&
+                std::abs(native_state.transform.m22 - sy) < 0.0001F &&
+                std::abs(native_state.transform.m31 - (2.0F - expected.x * sx)) < 0.0001F &&
+                std::abs(native_state.transform.m32 - (4.0F - expected.y * sy)) < 0.0001F;
+        }
+        PROGPU_REQUIRE(mapped != empty);
+        return true;
+    };
+    std::vector<std::byte> update;
+    const std::array distinct{first, second};
+    append_geometry_group(update, group, 0U, 1U, distinct);
+    PROGPU_REQUIRE(expect(update, group, false, false, {10, 20, 30, 10}));
+    PROGPU_REQUIRE(expect({}, group, true, false, {8, 18, 34, 14}));
+    update.clear();
+    const std::array duplicates{first, first};
+    append_geometry_group(update, group, 0U, 0U, duplicates);
+    PROGPU_REQUIRE(expect(update, group, false, false, {}));
+    // The canceled fill cannot erase the original child stroke contours.
+    PROGPU_REQUIRE(expect({}, group, true, false, {8, 18, 24, 14}));
+    update.clear();
+    append_geometry_group(update, group, 0U, 1U, duplicates);
+    PROGPU_REQUIRE(expect(update, group, false, false, {10, 20, 20, 10}));
+    const std::array<progpu_native_image_rect, 4U> boolean_bounds{{
+        {10, 20, 30, 10}, {20, 20, 10, 10}, {10, 20, 30, 10}, {10, 20, 10, 10}}};
+    for (std::uint32_t mode = 0U; mode < boolean_bounds.size(); ++mode) {
+        update.clear();
+        append_command(update, command::combined_geometry, combined, 0U, mode, first, second);
+        PROGPU_REQUIRE(expect(update, combined, false, false, boolean_bounds[mode]));
+        const auto fill = boolean_bounds[mode];
+        PROGPU_REQUIRE(expect({}, combined, true, false,
+            {fill.x - 2, fill.y - 2, fill.width + 4, fill.height + 4}));
+    }
+    update.clear();
+    append_command(update, command::combined_geometry, combined, 0U, 2U, first, first);
+    PROGPU_REQUIRE(expect(update, combined, true, false, {}));
+    update.clear();
+    append_command(update, command::combined_geometry, combined, 0U, 3U, first, second);
+    const std::array mixed{combined, second};
+    append_geometry_group(update, group, 0U, 1U, mixed);
+    PROGPU_REQUIRE(expect(update, group, true, false, {8, 18, 34, 14}));
+    update.clear();
+    const std::array inner_children{first};
+    append_geometry_group(update, inner, inner_transform, 1U, inner_children);
+    const std::array nested{inner, second};
+    append_geometry_group(update, group, root_transform, 1U, nested);
+    PROGPU_REQUIRE(expect(update, group, true, false, {23, 25, 44, 74}));
+    PROGPU_REQUIRE(expect({}, group, true, true, {46, 75, 88, 222}));
+    update.clear();
+    append_geometry_group(update, group, 0U, 0U, std::span<const std::uint32_t>{});
+    PROGPU_REQUIRE(expect(update, group, true, false, {}));
     return true;
 }
 
@@ -20132,6 +20253,7 @@ int main() {
     PROGPU_REQUIRE(retained_drawing_image_preserves_nonpainting_pen_bounds());
     PROGPU_REQUIRE(retained_drawing_image_infers_fixed_stroke_bounds());
     PROGPU_REQUIRE(retained_drawing_image_infers_path_stroke_bounds());
+    PROGPU_REQUIRE(retained_drawing_image_infers_composite_geometry_bounds());
     PROGPU_REQUIRE(retained_drawing_image_infers_drawing_group_bounds());
     PROGPU_REQUIRE(
         retained_glyph_run_drawing_uses_pointer_free_sfnt_sideband());
