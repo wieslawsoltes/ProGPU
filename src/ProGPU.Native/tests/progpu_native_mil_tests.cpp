@@ -12827,6 +12827,73 @@ bool retained_drawing_image_maps_vector_content_into_destination() {
     return true;
 }
 
+bool retained_drawing_image_preserves_nonpainting_pen_bounds() {
+    constexpr std::uint32_t visual = 1U, content = 2U, target = 3U, brush = 4U;
+    constexpr std::uint32_t geometry = 5U, drawing = 6U, image = 7U, pen = 8U, animation = 9U;
+    std::vector<std::byte> batch;
+    append_create(batch, visual, 39U);
+    append_create(batch, content, 43U);
+    append_create(batch, target, 47U);
+    append_create(batch, brush, 75U);
+    append_create(batch, geometry, 73U);
+    append_create(batch, drawing, 87U);
+    append_create(batch, image, 59U);
+    append_create(batch, pen, 85U);
+    append_create(batch, animation, 49U);
+    append_command(batch, command::visual_create, visual);
+    append_command(batch, command::visual_set_content, visual, content);
+    append_command(batch, command::solid_color_brush, brush, 1.0,
+        progpu_native_color{0.2F, 0.6F, 0.4F, 1.0F}, 0U, 0U, 0U, 0U);
+    append_path_geometry(batch, geometry, 0U, 1U, make_rectangle_path_figures(10.0, 20.0, 30.0, 30.0));
+    append_command(batch, command::double_resource, animation, 0.0);
+    append_command(batch, command::geometry_drawing, drawing, brush, 0U, geometry);
+    append_command(batch, command::drawing_image, image, drawing);
+    std::vector<std::byte> commands;
+    append_command(commands, command::draw_image, 2.0, 4.0, 40.0, 20.0, image, 0U);
+    append_render_data(batch, content, commands);
+    append_command(batch, command::generic_target_create, target, std::uint64_t{0U}, std::uint64_t{0U}, 64U, 64U, 0U);
+    append_command(batch, command::target_set_root, target, visual);
+    channel state;
+    PROGPU_REQUIRE(state.apply(batch) == status::success);
+    struct bounds_case {
+        std::uint32_t fill, pen_brush, geometry_handle;
+        double thickness;
+        bool animated, expected_mapping;
+    };
+    const std::array cases{
+        bounds_case{brush, 0U, geometry, 5.0, false, true},
+        bounds_case{brush, 0U, geometry, 0.0, false, true},
+        bounds_case{brush, brush, geometry, 0.0, false, true},
+        bounds_case{0U, brush, geometry, 0.0, false, true},
+        bounds_case{brush, brush, geometry, 5.0, true, true},
+        bounds_case{0U, 0U, geometry, 5.0, false, false},
+        bounds_case{brush, brush, 0U, 5.0, false, false}};
+    std::uint64_t generation = 1U;
+    for (const auto& test : cases) {
+        std::vector<std::byte> update;
+        append_command(update, command::pen, pen, test.thickness, 10.0, test.pen_brush,
+            test.animated ? animation : 0U,
+            PROGPU_NATIVE_STROKE_CAP_SQUARE, PROGPU_NATIVE_STROKE_CAP_SQUARE,
+            PROGPU_NATIVE_STROKE_CAP_FLAT, PROGPU_NATIVE_STROKE_JOIN_MITER, 0U);
+        append_command(update, command::geometry_drawing, drawing, test.fill, pen, test.geometry_handle);
+        PROGPU_REQUIRE(state.apply(update) == status::success);
+        std::vector<std::byte> stream;
+        PROGPU_REQUIRE(state.build_scene(target, 7107U, generation++, stream, nullptr) == status::success);
+        const auto header = read_value<progpu_native_scene_header>(stream, 0U);
+        bool mapped = false;
+        for (std::uint32_t index = 0U; index < header.resource_count; ++index) {
+            const auto resource = read_value<progpu_native_scene_resource>(stream,
+                header.resource_offset + index * sizeof(progpu_native_scene_resource));
+            if (resource.kind != PROGPU_NATIVE_SCENE_RESOURCE_STATE) continue;
+            const auto native_state = read_value<progpu_native_scene_state>(stream, resource.payload_offset);
+            mapped |= native_state.transform.m11 == 2.0F && native_state.transform.m22 == 2.0F &&
+                native_state.transform.m31 == -18.0F && native_state.transform.m32 == -36.0F;
+        }
+        PROGPU_REQUIRE(mapped == test.expected_mapping);
+    }
+    return true;
+}
+
 bool retained_drawing_image_infers_line_path_bounds() {
     constexpr std::uint32_t visual = 1U;
     constexpr std::uint32_t content = 2U;
@@ -19948,6 +20015,7 @@ int main() {
     PROGPU_REQUIRE(
         retained_drawing_image_maps_vector_content_into_destination());
     PROGPU_REQUIRE(retained_drawing_image_infers_line_path_bounds());
+    PROGPU_REQUIRE(retained_drawing_image_preserves_nonpainting_pen_bounds());
     PROGPU_REQUIRE(retained_drawing_image_infers_fixed_stroke_bounds());
     PROGPU_REQUIRE(retained_drawing_image_infers_drawing_group_bounds());
     PROGPU_REQUIRE(

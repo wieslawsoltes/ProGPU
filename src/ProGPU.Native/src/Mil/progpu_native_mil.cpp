@@ -13987,11 +13987,23 @@ struct channel::implementation {
                 return finish_bounds();
             }
             const auto drawing = geometry_drawings.find(drawing_handle);
-            if (drawing == geometry_drawings.end() ||
-                drawing->second.geometry_handle == 0U) {
+            if (drawing == geometry_drawings.end()) {
                 return status::unsupported_command;
             }
+            if (drawing->second.geometry_handle == 0U) {
+                bounds = {};
+                return status::success;
+            }
+            pen_state pen{};
             if (drawing->second.pen_handle != 0U) {
+                const status pen_status = resolve_pen(drawing->second.pen_handle, pen);
+                if (pen_status != status::success) return pen_status;
+            }
+            // WPF Pen.ContributesToBounds depends on brush presence, not width.
+            // A brushless pen cannot suppress a valid fill; a zero-width pen
+            // with a brush still contributes the unwidened geometry bounds.
+            const bool pen_contributes_bounds = pen.brush_handle != 0U;
+            if (pen_contributes_bounds && pen.thickness > 0.0) {
                 const auto fixed = fixed_geometries.find(
                     drawing->second.geometry_handle);
                 if (fixed == fixed_geometries.end()) {
@@ -14002,15 +14014,6 @@ struct channel::implementation {
                     drawing->second.geometry_handle, geometry);
                 if (geometry_status != status::success) {
                     return geometry_status;
-                }
-                pen_state pen{};
-                const status pen_status = resolve_pen(
-                    drawing->second.pen_handle, pen);
-                if (pen_status != status::success) {
-                    return pen_status;
-                }
-                if (pen.brush_handle == 0U || pen.thickness <= 0.0) {
-                    return status::unsupported_command;
                 }
                 if (pen.dash_style_handle != 0U) {
                     const auto dash = dash_styles.find(
@@ -14154,8 +14157,9 @@ struct channel::implementation {
                 }
                 return finish_bounds();
             }
-            if (drawing->second.brush_handle == 0U) {
-                return status::unsupported_command;
+            if (drawing->second.brush_handle == 0U && !pen_contributes_bounds) {
+                bounds = {};
+                return status::success;
             }
             const auto group = geometry_groups.find(
                 drawing->second.geometry_handle);
