@@ -4258,3 +4258,40 @@ allocation/latency measurements, OOM/concurrency cases and CI qualification rema
 deferred. The added metadata/query/import APIs are native C++ only; stable C ABI
 and public COM layouts are unchanged. Managed Direct2D shares the native endpoint;
 the independent managed WPF renderer remains unchanged.
+
+## Implementation-first checkpoint: composable integer pixel crop captures
+
+The full-target copy recognizer now accepts an integral, unscaled source rectangle
+inside a larger owned image, not just the entire source image. It still requires
+one exact root SRC/full-destination image/pop, nearest sampling, identity transform
+and qualified alpha/format semantics. Source width/height must equal the target's
+physical pixel dimensions, and the finite integer source origin plus extent must
+fit within the resource. Fractional origins or rescaled source extents retain the
+normal picture path.
+
+Private copy snapshots distinguish bitmap-view dimensions from underlying image
+dimensions and preserve integer source offsets. `CopyFromBitmap` and
+`CopyFromRenderTarget` validate rectangles against the view, then compose requested
+coordinates with those offsets while keeping the original resource dimensions
+and pitch. A second crop of a cropped bitmap therefore points at the corresponding
+original pixels instead of sampling from (0,0), repacking rows or nesting another
+scene. Shared views preserve this metadata. Ordinary bitmap drawing still captures
+the target's rendered picture and does not consume the copy-only offset fields.
+
+Typed metadata work is O(1). Ownership still retains/copies the complete underlying
+upload or picture, even for a small crop, so this is not region-sized storage or a
+zero-copy device operation. Eligible repeated full-view transfers/crops do not add
+picture levels; partial destination updates and compound histories remain outside
+this optimization. Existing ProGPU source ownership, integer-coordinate metadata,
+alpha matrix and GPU SRC image paths are reused without new shaders, scalar pixel
+loops, CPU repacking or readback.
+
+Authored tests cover 32 two-way crop transfers across 192/96 DPI, composing another
+crop while retaining original resource dimensions/pitch/bytes, exact versus
+fractional crop recognition, and GPU color/alpha positions after two crop stages.
+Native library, internal/Direct2D test executables and the C++ module consumer
+compile; tests remain unexecuted under implementation-first sequencing. Windows
+and cross-platform pixel parity, stress/allocation/performance and CI qualification
+remain deferred. Stable C ABI/public COM layouts are unchanged, as is the
+independent managed WPF renderer. This extends the previous full-image optimization
+to integer crops; general persistent GPU copies and full goal parity remain open.

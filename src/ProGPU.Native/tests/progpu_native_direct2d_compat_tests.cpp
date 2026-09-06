@@ -7974,6 +7974,55 @@ int run_tests()
         com::pointer<compat::bitmap> pixel_source;
         pixel_source.attach(raw_pixel_source);
         const compat::rectangle_u cropped_source{1U, 1U, 3U, 3U};
+        std::array<com::pointer<compat::bitmap_render_target>, 2U> crop_targets;
+        std::array<com::pointer<compat::bitmap>, 2U> crop_bitmaps;
+        for (unsigned int crop = 0U; crop < 2U; ++crop) {
+            const compat::size_f crop_logical{crop == 0U ? 1.0F : 2.0F, crop == 0U ? 1.0F : 2.0F};
+            const compat::size_u crop_pixels{2U, 2U};
+            compat::bitmap_render_target* raw_crop_target = nullptr;
+            if (target->CreateCompatibleRenderTarget(&crop_logical, &crop_pixels, &upload_format,
+                    compat::compatible_render_target_options::none, &raw_crop_target) != com::ok) return 299;
+            crop_targets[crop].attach(raw_crop_target);
+            compat::bitmap* raw_crop_bitmap = nullptr;
+            if (crop_targets[crop]->GetBitmap(&raw_crop_bitmap) != com::ok) return 299;
+            crop_bitmaps[crop].attach(raw_crop_bitmap);
+        }
+        if (crop_bitmaps[0]->CopyFromBitmap(nullptr, pixel_source.get(), &cropped_source) != com::ok) return 299;
+        for (unsigned int copy = 0U; copy < 32U; ++copy) {
+            if (crop_bitmaps[1]->CopyFromRenderTarget(nullptr, crop_targets[0].get(), nullptr) != com::ok ||
+                crop_bitmaps[0]->CopyFromBitmap(nullptr, crop_bitmaps[1].get(), nullptr) != com::ok) return 299;
+        }
+        const compat::size_f one_logical{1.0F, 1.0F};
+        const compat::size_u one_pixel{1U, 1U};
+        compat::bitmap_render_target* raw_one_target = nullptr;
+        if (target->CreateCompatibleRenderTarget(&one_logical, &one_pixel, &upload_format,
+                compat::compatible_render_target_options::none, &raw_one_target) != com::ok) return 299;
+        com::pointer<compat::bitmap_render_target> one_target;
+        one_target.attach(raw_one_target);
+        compat::bitmap* raw_one_bitmap = nullptr;
+        if (one_target->GetBitmap(&raw_one_bitmap) != com::ok) return 299;
+        com::pointer<compat::bitmap> one_bitmap;
+        one_bitmap.attach(raw_one_bitmap);
+        const compat::rectangle_u crop_again{1U, 0U, 2U, 1U};
+        if (one_bitmap->CopyFromBitmap(nullptr, crop_bitmaps[0].get(), &crop_again) != com::ok) return 299;
+        com::pointer<compat::scene_render_target_native> one_scene;
+        if (one_bitmap.as(compat::scene_render_target_native_interface_id, one_scene) != com::ok) return 299;
+        std::vector<std::byte> crop_stream(static_cast<std::size_t>(one_scene->GetRequiredSceneSize()));
+        if (one_scene->BuildScene(crop_stream.data(), crop_stream.size(), &upload_written) != com::ok) return 299;
+        const auto* crop_header = reinterpret_cast<const progpu_native_scene_header*>(crop_stream.data());
+        const auto* crop_command = reinterpret_cast<const progpu_native_scene_command*>(crop_stream.data() +
+            crop_header->command_offset + crop_header->command_stride);
+        const auto* crop_image = reinterpret_cast<const progpu_native_scene_image_draw*>(crop_stream.data() + crop_command->payload_offset);
+        const auto* crop_resource = reinterpret_cast<const progpu_native_scene_resource*>(crop_stream.data() + crop_header->resource_offset);
+        if (crop_header->command_count != 3U || crop_header->resource_count != 1U ||
+            crop_image->image_width != 4U || crop_image->image_height != 4U ||
+            crop_image->source_rect.x != 2.0F || crop_image->source_rect.y != 1.0F ||
+            crop_image->source_rect.width != 1.0F || crop_image->source_rect.height != 1.0F ||
+            crop_image->row_bytes != 4U * pixel_bytes ||
+            (crop_resource->flags & PROGPU_NATIVE_SCENE_IMAGE_PICTURE) != 0U ||
+            crop_resource->payload_size != pixel_source_data.size() ||
+            std::memcmp(crop_stream.data() + crop_resource->payload_offset, pixel_source_data.data(), pixel_source_data.size()) != 0)
+            return 299;
         const compat::point_2u copied_point{4U, 4U};
         if (upload_bitmap->CopyFromBitmap(&copied_point, pixel_source.get(), &cropped_source) != com::ok) return 289;
         std::vector<std::byte> pixel_copy_stream(static_cast<std::size_t>(upload_scene->GetRequiredSceneSize()));
