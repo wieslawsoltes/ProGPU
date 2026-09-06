@@ -7829,6 +7829,88 @@ int run_tests()
             persistent_summary.clear_color.alpha != 0.0F) return 285;
     }
 
+    // Compatible storage uploads replace alpha, use physical pixel coordinates
+    // independently of drawing state, and own the caller's padded upload bytes.
+    for (const compat::pixel_format upload_format : {
+            compat::pixel_format{28U, compat::alpha_mode::premultiplied},
+            compat::pixel_format{87U, compat::alpha_mode::premultiplied},
+            compat::pixel_format{87U, compat::alpha_mode::ignore},
+            compat::pixel_format{65U, compat::alpha_mode::premultiplied}}) {
+        const compat::size_f logical_size{4.0F, 4.0F};
+        const compat::size_u pixel_size{8U, 8U};
+        compat::bitmap_render_target* raw_upload_target = nullptr;
+        if (target->CreateCompatibleRenderTarget(&logical_size, &pixel_size,
+                &upload_format, compat::compatible_render_target_options::none, &raw_upload_target) != com::ok)
+            return 287;
+        com::pointer<compat::bitmap_render_target> upload_target;
+        upload_target.attach(raw_upload_target);
+        compat::bitmap* raw_upload_bitmap = nullptr;
+        if (upload_target->GetBitmap(&raw_upload_bitmap) != com::ok) return 287;
+        com::pointer<compat::bitmap> upload_bitmap;
+        upload_bitmap.attach(raw_upload_bitmap);
+        com::pointer<compat::scene_render_target_native> upload_scene;
+        if (upload_bitmap.as(compat::scene_render_target_native_interface_id, upload_scene) != com::ok) return 287;
+        const auto pixel_bytes = upload_format.format == 65U ? 1U : 4U;
+        const auto pitch = pixel_bytes * 2U + 3U;
+        std::vector<std::byte> upload_bytes(pitch + pixel_bytes * 2U, std::byte{0x40});
+        const auto original_upload = upload_bytes;
+        const compat::rectangle_u destination{2U, 1U, 4U, 3U};
+        const compat::matrix_3x2_f unrelated_transform{2.0F, 0.0F, 0.0F, 3.0F, 200.0F, 300.0F};
+        upload_target->SetTransform(&unrelated_transform);
+        if (upload_bitmap->CopyFromMemory(&destination, upload_bytes.data(), pitch) != com::ok) return 287;
+        std::fill(upload_bytes.begin(), upload_bytes.end(), std::byte{0xff});
+        std::vector<std::byte> upload_stream(static_cast<std::size_t>(upload_scene->GetRequiredSceneSize()));
+        std::uint64_t upload_written = 0U;
+        if (upload_scene->BuildScene(upload_stream.data(), upload_stream.size(), &upload_written) != com::ok)
+            return 287;
+        const auto* header = reinterpret_cast<const progpu_native_scene_header*>(upload_stream.data());
+        if (header->command_count != 3U || header->resource_count != 1U) return 287;
+        const auto* resource = reinterpret_cast<const progpu_native_scene_resource*>(upload_stream.data() + header->resource_offset);
+        const auto* commands = upload_stream.data() + header->command_offset;
+        const auto* push = reinterpret_cast<const progpu_native_scene_command*>(commands);
+        const auto* draw = reinterpret_cast<const progpu_native_scene_command*>(commands + header->command_stride);
+        const auto* pop = reinterpret_cast<const progpu_native_scene_command*>(commands + 2U * header->command_stride);
+        const auto* layer = reinterpret_cast<const progpu_native_scene_layer*>(upload_stream.data() + push->payload_offset);
+        const auto* image = reinterpret_cast<const progpu_native_scene_image_draw*>(upload_stream.data() + draw->payload_offset);
+        if (push->kind != PROGPU_NATIVE_SCENE_COMMAND_PUSH_LAYER || pop->kind != PROGPU_NATIVE_SCENE_COMMAND_POP_LAYER ||
+            draw->kind != PROGPU_NATIVE_SCENE_COMMAND_DRAW_IMAGE || layer->blend_mode != PROGPU_NATIVE_BLEND_SRC ||
+            layer->bounds.x != 1.0F || layer->bounds.y != 0.5F || layer->bounds.width != 1.0F || layer->bounds.height != 1.0F ||
+            image->image_width != 2U || image->image_height != 2U || image->row_bytes != pitch ||
+            image->transform.m11 != 1.0F || image->transform.m22 != 1.0F || image->transform.m31 != 0.0F ||
+            image->transform.m32 != 0.0F || image->sampling != PROGPU_NATIVE_IMAGE_SAMPLING_NEAREST ||
+            resource->payload_size != original_upload.size() ||
+            std::memcmp(upload_stream.data() + resource->payload_offset, original_upload.data(), original_upload.size()) != 0)
+            return 287;
+        if (upload_format.format == 65U) {
+            const auto* matrix = reinterpret_cast<const progpu_native_scene_image_color_matrix*>(
+                reinterpret_cast<const std::byte*>(image) + sizeof(*image));
+            if ((resource->flags & PROGPU_NATIVE_SCENE_IMAGE_R8) == 0U ||
+                (image->flags & PROGPU_NATIVE_SCENE_IMAGE_COLOR_MATRIX) == 0U || matrix->alpha[0] != 1.0F) return 287;
+        }
+        compat::scene_render_target_summary before_copy{};
+        upload_scene->GetSummary(&before_copy);
+        const compat::rectangle_u invalid_destination{7U, 0U, 9U, 2U};
+        if (upload_bitmap->CopyFromMemory(nullptr, nullptr, pitch) != com::pointer_error ||
+            upload_bitmap->CopyFromMemory(&invalid_destination, upload_bytes.data(), pitch) != com::invalid_argument ||
+            upload_bitmap->CopyFromMemory(&destination, upload_bytes.data(), pixel_bytes * 2U - 1U) != com::invalid_argument)
+            return 288;
+        std::vector<std::byte> unchanged(upload_stream.size());
+        if (upload_scene->BuildScene(unchanged.data(), unchanged.size(), &upload_written) != com::ok || unchanged != upload_stream)
+            return 288;
+        upload_target->BeginDraw();
+        const compat::rectangle_f clip{0.0F, 0.0F, 2.0F, 2.0F};
+        upload_target->PushAxisAlignedClip(&clip, compat::antialias_mode::aliased);
+        if (upload_bitmap->CopyFromMemory(&destination, upload_bytes.data(), pitch) != compat::wrong_state) return 288;
+        upload_target->PopAxisAlignedClip();
+        if (upload_bitmap->CopyFromMemory(&destination, upload_bytes.data(), pitch) != com::ok ||
+            upload_target->EndDraw(nullptr, nullptr) != com::ok) return 288;
+        compat::scene_render_target_summary after_copy{};
+        upload_scene->GetSummary(&after_copy);
+        if (after_copy.generation <= before_copy.generation || after_copy.draw_count != 2U) return 288;
+        std::vector<std::byte> full_upload(8U * 8U * pixel_bytes, std::byte{0});
+        if (upload_bitmap->CopyFromMemory(nullptr, full_upload.data(), 8U * pixel_bytes) != com::ok) return 288;
+    }
+
     const compat::bitmap_brush_properties bitmap_brush_properties{
         compat::extend_mode::wrap,
         compat::extend_mode::mirror,

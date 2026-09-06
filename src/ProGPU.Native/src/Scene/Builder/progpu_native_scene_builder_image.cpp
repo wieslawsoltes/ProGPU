@@ -232,6 +232,48 @@ bool semantic_scene_builder::add_r8_image(
     return add_upload_image(width, height, row_bytes, pixels, false, resource_index, true);
 }
 
+bool semantic_scene_builder::copy_image_from_memory(
+    const progpu_native_scene_image_draw& image,
+    std::uint32_t storage_flags,
+    std::span<const std::byte> pixels,
+    const progpu_native_scene_image_color_matrix* color_matrix) noexcept {
+    if (implementation_->stack_depth != 0U ||
+        (storage_flags != 0U && storage_flags != PROGPU_NATIVE_SCENE_IMAGE_BGRA8 &&
+            storage_flags != PROGPU_NATIVE_SCENE_IMAGE_R8) ||
+        image.transform.m11 != 1.0F || image.transform.m12 != 0.0F ||
+        image.transform.m21 != 0.0F || image.transform.m22 != 1.0F ||
+        image.transform.m31 != 0.0F || image.transform.m32 != 0.0F ||
+        image.opacity != 1.0F || image.sampling != PROGPU_NATIVE_IMAGE_SAMPLING_NEAREST) {
+        return implementation_->fail(scene_build_error::invalid_argument);
+    }
+    // Append-only transaction: the leading layer prevents image merging from
+    // modifying any prior command. Only newly appended vectors/stack metadata
+    // need rollback; existing history is never serialized or cloned.
+    const auto resource_count = implementation_->resources.size();
+    const auto command_count = implementation_->commands.size();
+    const auto maximum_stack_depth = implementation_->maximum_stack_depth;
+    const progpu_native_scene_layer layer{
+        sizeof(progpu_native_scene_layer), PROGPU_NATIVE_SCENE_LAYER_BOUNDS,
+        image.destination_rect, 1.0F, PROGPU_NATIVE_BLEND_SRC,
+        PROGPU_NATIVE_SCENE_NO_INDEX, PROGPU_NATIVE_SCENE_NO_INDEX,
+        0U, 0U, 0U, 0U};
+    std::uint32_t resource_index = PROGPU_NATIVE_SCENE_NO_INDEX;
+    if (add_upload_image(image.image_width, image.image_height, image.row_bytes,
+            pixels, storage_flags == PROGPU_NATIVE_SCENE_IMAGE_BGRA8, resource_index,
+            storage_flags == PROGPU_NATIVE_SCENE_IMAGE_R8) &&
+        push_layer(layer) && draw_image(resource_index, image, image.destination_rect,
+            PROGPU_NATIVE_SCENE_NO_INDEX, nullptr, color_matrix) && pop_layer()) {
+        return true;
+    }
+    implementation_->commands.resize(command_count);
+    implementation_->resources.resize(resource_count);
+    implementation_->stack_depth = 0U;
+    implementation_->materialized_layer_depth = 0U;
+    implementation_->maximum_stack_depth = maximum_stack_depth;
+    implementation_->stack_kinds[0] = 0U;
+    return false;
+}
+
 bool semantic_scene_builder::add_upload_image(
     std::uint32_t width,
     std::uint32_t height,

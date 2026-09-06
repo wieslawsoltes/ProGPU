@@ -92,6 +92,22 @@ int main() {
     image.flags = progpu::native::PROGPU_NATIVE_SCENE_IMAGE_SOURCE_PREMULTIPLIED;
     if (!builder.add_picture_image(picture, {child_stream.data(), child_written}, picture_index) ||
         !builder.draw_image(picture_index, image, image.destination_rect)) return 1;
+    const auto before_copy_size = builder.required_stream_size();
+    std::array<std::byte, 4096U> before_copy{};
+    std::array<std::byte, 4096U> after_failed_copy{};
+    std::size_t before_copy_written = 0U;
+    std::size_t after_failed_copy_written = 0U;
+    if (!builder.build_into(before_copy, before_copy_written)) return 1;
+    image.row_bytes = 2U;
+    image.sampling = progpu::native::PROGPU_NATIVE_IMAGE_SAMPLING_NEAREST;
+    image.flags = progpu::native::PROGPU_NATIVE_SCENE_IMAGE_COLOR_MATRIX;
+    // Missing matrix fails after upload/layer append; transaction restores both.
+    if (builder.copy_image_from_memory(image, progpu::native::PROGPU_NATIVE_SCENE_IMAGE_R8, coverage) ||
+        builder.required_stream_size() != before_copy_size ||
+        !builder.build_into(after_failed_copy, after_failed_copy_written) ||
+        after_failed_copy_written != before_copy_written || before_copy != after_failed_copy) return 1;
+    image.flags = 0U;
+    if (!builder.copy_image_from_memory(image, progpu::native::PROGPU_NATIVE_SCENE_IMAGE_R8, coverage)) return 1;
     const std::size_t required_size = builder.required_stream_size();
     std::size_t bytes_written = 0U;
     return required_size > 0U && required_size <= stream.size() &&

@@ -203,6 +203,14 @@ constexpr com::guid scene_mesh_native_interface_id{
     return format.format == dxgi_format_a8_unorm ? 1U : 4U;
 }
 
+[[nodiscard]] progpu_native_scene_image_color_matrix bitmap_alpha_matrix(bool picture_image) noexcept
+{
+    progpu_native_scene_image_color_matrix matrix{};
+    matrix.struct_size = sizeof(matrix);
+    matrix.alpha[picture_image ? 3U : 0U] = 1.0F;
+    return matrix;
+}
+
 [[nodiscard]] bool encode_bitmap_image(
     semantic_scene_builder& builder, std::uint32_t resource_index,
     progpu_native_scene_image_draw image, progpu_native_image_rect bounds,
@@ -215,9 +223,7 @@ constexpr com::guid scene_mesh_native_interface_id{
     // Algorithm: upload one byte per pixel, then map sampled R to alpha on the
     // GPU through the canonical color-matrix stage. O(1) CPU metadata, no pixel
     // expansion/readback or scalar/SIMD repacking; RGB is zero for alpha-only data.
-    progpu_native_scene_image_color_matrix matrix{};
-    matrix.struct_size = sizeof(matrix);
-    matrix.alpha[picture_image ? 3U : 0U] = 1.0F;
+    const auto matrix = bitmap_alpha_matrix(picture_image);
     image.flags |= PROGPU_NATIVE_SCENE_IMAGE_COLOR_MATRIX;
     return builder.draw_image(resource_index, image, bounds, state_index, nullptr, &matrix);
 }
@@ -324,6 +330,11 @@ struct bitmap_snapshot final {
 };
 
 struct scene_bitmap_native : com::unknown {
+    virtual com::result PROGPU_NATIVE_COM_CALL CopyFromMemory(
+        const rectangle_u*, const void*, std::uint32_t) noexcept
+    {
+        return not_implemented;
+    }
     virtual const void* PROGPU_NATIVE_COM_CALL GetStorageIdentity()
         const noexcept = 0;
     virtual com::result PROGPU_NATIVE_COM_CALL GetSnapshot(
@@ -2844,9 +2855,9 @@ public:
     }
 
     com::result PROGPU_NATIVE_COM_CALL CopyFromMemory(
-        const rectangle_u*, const void*, std::uint32_t) noexcept override
+        const rectangle_u* destination, const void* source, std::uint32_t pitch) noexcept override
     {
-        return not_implemented;
+        return bitmap_source_->CopyFromMemory(destination, source, pitch);
     }
 
     const void* PROGPU_NATIVE_COM_CALL GetStorageIdentity() const noexcept override
@@ -5839,6 +5850,68 @@ public:
         if (snapshot == nullptr) return com::pointer_error;
         const std::lock_guard lock(mutex_);
         return get_bitmap_snapshot_locked(*snapshot);
+    }
+
+    com::result PROGPU_NATIVE_COM_CALL CopyFromMemory(
+        const rectangle_u* destination, const void* source, std::uint32_t pitch) noexcept override
+    {
+        if (source == nullptr) return com::pointer_error;
+        const std::lock_guard lock(mutex_);
+        if (!compatible_) return not_implemented;
+        if (com::failed(failure_)) return failure_;
+        // Copy is in physical pixels and ignores the target's drawing transform.
+        // Scoped recording needs a future suspend/resume transport; never apply
+        // its current clip or opacity to a bitmap storage operation.
+        if (scope_depth_ != 0U || clip_depth_ != 0U) return wrong_state;
+        if (dpi_x_ != dpi_y_ || !compatible_history_dpi_valid_) return not_implemented;
+        const rectangle_u rectangle = destination == nullptr
+            ? rectangle_u{0U, 0U, pixel_width_, pixel_height_} : *destination;
+        if (!valid_rectangle(rectangle) || rectangle.right > pixel_width_ ||
+            rectangle.bottom > pixel_height_) return com::invalid_argument;
+        const auto width = rectangle.right - rectangle.left;
+        const auto height = rectangle.bottom - rectangle.top;
+        const auto pixel_bytes = bitmap_pixel_bytes(pixel_format_);
+        const std::uint64_t row_bytes = static_cast<std::uint64_t>(width) * pixel_bytes;
+        if (pitch < row_bytes) return com::invalid_argument;
+        const std::uint64_t required_bytes = static_cast<std::uint64_t>(pitch) * (height - 1U) + row_bytes;
+        if (required_bytes > PROGPU_NATIVE_SCENE_MAX_STREAM_BYTES ||
+            required_bytes > std::numeric_limits<std::size_t>::max()) return com::invalid_argument;
+        if (generation_ == std::numeric_limits<std::uint64_t>::max() ||
+            draw_count_ == std::numeric_limits<std::uint32_t>::max()) return failure;
+
+        progpu_native_scene_image_draw image{};
+        image.image_width = width;
+        image.image_height = height;
+        image.row_bytes = pitch;
+        image.flags = image_alpha_flags(pixel_format_.alpha);
+        image.sampling = PROGPU_NATIVE_IMAGE_SAMPLING_NEAREST;
+        image.max_anisotropy = 1U;
+        image.source_rect = {0.0F, 0.0F, static_cast<float>(width), static_cast<float>(height)};
+        const float dips_per_pixel = 96.0F / dpi_x_;
+        image.destination_rect = {rectangle.left * dips_per_pixel, rectangle.top * dips_per_pixel,
+            width * dips_per_pixel, height * dips_per_pixel};
+        image.transform = {1.0F, 0.0F, 0.0F, 1.0F, 0.0F, 0.0F};
+        image.opacity = 1.0F;
+        const bool alpha_only = pixel_format_.format == dxgi_format_a8_unorm;
+        const auto alpha_matrix = bitmap_alpha_matrix(false);
+        if (alpha_only) image.flags |= PROGPU_NATIVE_SCENE_IMAGE_COLOR_MATRIX;
+        const std::uint32_t storage_flags = alpha_only ? PROGPU_NATIVE_SCENE_IMAGE_R8
+            : pixel_format_.format == dxgi_format_b8g8r8a8_unorm ? PROGPU_NATIVE_SCENE_IMAGE_BGRA8 : 0U;
+        if (!builder_.copy_image_from_memory(image, storage_flags,
+                {static_cast<const std::byte*>(source), static_cast<std::size_t>(required_bytes)},
+                alpha_only ? &alpha_matrix : nullptr)) return builder_failure();
+        // No fallible operation remains after the append transaction succeeds.
+        // Advance also invalidates lazy exports and bitmap aliases' cache keys.
+        builder_.advance_generation(++generation_);
+        ++draw_count_;
+        if (!begun_) {
+            begun_ = true;
+            ended_ = true;
+            clear_color_ = {};
+            if (pixel_format_.alpha == alpha_mode::ignore) clear_color_.alpha = 1.0F;
+            has_clear_ = true;
+        }
+        return com::ok;
     }
 
     com::result PROGPU_NATIVE_COM_CALL AddToScene(semantic_scene_builder* destination,
