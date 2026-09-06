@@ -1475,6 +1475,67 @@ int run_tests()
             !approximately_equal(bounds.top, -1.0F) || !approximately_equal(bounds.bottom, 11.0F)) return 9016;
     }
 
+    // Stroke queries do not require a simple fill polygon: a bow tie has zero
+    // signed area but still has visible diagonal strips and ordinary joins.
+    {
+        const std::array<progpu_native_point, 4U> points{{{0, 0}, {10, 10}, {0, 10}, {10, 0}}};
+        std::array<progpu_native_path_segment, 4U> segments{};
+        const std::array<std::uint8_t, 4U> joins{};
+        for (std::size_t index = 0U; index < segments.size(); ++index) {
+            segments[index].kind = PROGPU_NATIVE_PATH_SEGMENT_LINE;
+            segments[index].p0 = points[index];
+            segments[index].p1 = points[(index + 1U) % points.size()];
+        }
+        com::pointer<compat::path_geometry> path;
+        if (compat::detail::create_native_stroke_geometry(factory.get(), segments, joins,
+                true, path.put()) != com::ok) return 9020;
+        compat::stroke_style_properties properties{compat::cap_style::flat, compat::cap_style::flat,
+            compat::cap_style::flat, compat::line_join::bevel, 10.0F, compat::dash_style::solid, 0.0F};
+        com::pointer<compat::stroke_style> style;
+        const std::array<float, 2U> dashes{100.0F, 1.0F};
+        for (const bool dashed : {false, true}) {
+            properties.dash = dashed ? compat::dash_style::custom : compat::dash_style::solid;
+            if (factory->CreateStrokeStyle(&properties, dashed ? dashes.data() : nullptr,
+                    dashed ? 2U : 0U, style.put()) != com::ok) return 9021;
+            compat::rectangle_f bounds{};
+            const float diagonal = std::sqrt(0.5F);
+            if (path->GetWidenedBounds(2.0F, style.get(), nullptr, 0.01F, &bounds) != com::ok ||
+                !approximately_equal(bounds.left, -diagonal) || !approximately_equal(bounds.right, 10.0F + diagonal) ||
+                !approximately_equal(bounds.top, -1.0F) || !approximately_equal(bounds.bottom, 11.0F)) return 9022;
+            std::int32_t contains = 0;
+            if (path->StrokeContainsPoint({5, 5}, 2.0F, style.get(), nullptr, 0.01F, &contains) != com::ok ||
+                contains == 0) return 9023;
+            if (path->StrokeContainsPoint({5, 2}, 2.0F, style.get(), nullptr, 0.01F, &contains) != com::ok ||
+                contains != 0) return 9024;
+            com::pointer<simplified_sink> sink;
+            sink.attach(new simplified_sink());
+            if (path->Widen(2.0F, style.get(), nullptr, 0.01F, sink.get()) != compat::not_implemented ||
+                sink->begin_count != 0U) return 9025;
+        }
+        // A closed two-edge retrace has no enclosed area either. Round joins
+        // still contribute disks at its reversal points.
+        segments[0U].p0 = {0, 0}; segments[0U].p1 = {10, 0};
+        segments[1U].p0 = {10, 0}; segments[1U].p1 = {0, 0};
+        if (compat::detail::create_native_stroke_geometry(factory.get(), std::span{segments}.first(2U),
+                std::span{joins}.first(2U), true, path.put()) != com::ok) return 9026;
+        properties.dash = compat::dash_style::solid;
+        properties.join = compat::line_join::round;
+        if (factory->CreateStrokeStyle(&properties, nullptr, 0U, style.put()) != com::ok) return 9027;
+        compat::rectangle_f bounds{};
+        if (path->GetWidenedBounds(2.0F, style.get(), nullptr, 0.01F, &bounds) != com::ok ||
+            !approximately_equal(bounds.left, -1.0F) || !approximately_equal(bounds.right, 11.0F) ||
+            !approximately_equal(bounds.top, -1.0F) || !approximately_equal(bounds.bottom, 1.0F)) return 9028;
+        std::int32_t contains = 0;
+        if (path->StrokeContainsPoint({-0.5F, 0}, 2.0F, style.get(), nullptr, 0.01F, &contains) != com::ok ||
+            contains == 0) return 9029;
+        segments[0U].p0 = {0.1F, 0}; segments[0U].p1 = {0, 0};
+        segments[1U].p0 = {0, 0}; segments[1U].p1 = {0.1F, 0};
+        if (compat::detail::create_native_stroke_geometry(factory.get(), std::span{segments}.first(2U),
+                std::span{joins}.first(2U), false, path.put()) != com::ok) return 9030;
+        if (path->StrokeContainsPoint({0.5F, 0}, 2.0F, style.get(), nullptr, 0.01F, &contains) != com::ok ||
+            contains != 0) return 9031;
+    }
+
     com::pointer<com::unknown> identity;
     if (factory.as(com::unknown_interface_id(), identity) != com::ok ||
         identity.get() != static_cast<com::unknown*>(raw_factory)) {

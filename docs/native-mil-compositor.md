@@ -8351,6 +8351,50 @@ deferred. Curved composite bounds retain the native solver's tolerance, while
 unsupported/self-intersecting stroke topology and collapsed-cap cases still fail
 closed. Full MIL/DirectX/Direct2D/Win2D parity is not established.
 
+### Implementation-first checkpoint: crossing queries and point-cap bounds
+
+Native MIL path bounds now benefit from a typed distinction between Direct2D
+stroke queries and widened-outline construction. Bounds/hit queries operate on
+the original strips and joins, so closed self-intersections, retraces and zero
+signed area no longer enter the outline-only simple-polygon rejection path.
+Closed two-edge retraces are queryable too. This removes the O(P²) pairwise
+topology predicate from query preparation; actual query and curve/dash costs
+remain, and no measured speedup is claimed. Widened-outline construction retains
+its explicit simple-topology limitation rather than publishing an invalid fill.
+The native hit kernel also recognizes the outer round semicircle at a 180-degree
+reversal, without turning it into a full disk extending past short flat-ended
+segments on the inner side.
+
+When a native MIL stroke contour collapses to a point, bounds now query that
+actual transformed spine and reuse the existing transformed line-cap support
+with the canonical X-axis point tangent. Open contours keep their start/end or
+gap-cap choices; closed point contours use MIL's existing round pair. Flat/flat
+point contours and point caps hidden by their dash phase produce empty bounds.
+Fixed zero-length line sources accept visible cap bounds and empty flat pairs.
+Nonpoint contours that fail to produce a widened area are not treated as point
+caps, preserving fail-closed behavior for unresolved tiny/all-gap cases.
+
+The zero-length dash visibility calculation is now one allocation-free native
+method shared by cap replay and bounds. It preserves odd-pattern repetition,
+animated/negative offsets, overflow checks and the existing inclusive dash-end
+rule. Its checked prefix/phase traversal is O(D) dependency-carrying metadata
+work; point-cap extrema reuse bounded native support calculations. Existing
+SIMD strip/hit and curve kernels remain authoritative, with no new CPU pixels,
+GPU readback, shader, public ABI/module surface or managed WPF workaround.
+Provenance is original ProGPU path-query, MIL cap and dash code, not a copied
+foreign rendering algorithm.
+
+Authored Direct2D fixtures cover bow-tie bounds/hits with solid and dashed pens,
+two-edge round retraces, short open reversals and explicit unsupported complex
+`Widen`. Authored MIL mapping/empty-source fixtures cover bow ties, open/closed
+point paths, square/round/triangle/flat cap combinations, odd dash patterns,
+positive/negative animated phase boundaries and fixed point lines. Native library,
+MIL/Direct2D compatibility and Direct2D WebGPU test targets compile; fixtures are
+not executed. Full Direct2D point-cap/widened-outline parity, transform-induced
+collapse replay fidelity, tiny/all-gap nonpoint contours and cross-platform/VM
+images, benchmarks and CI qualification remain open. Bounds support is not a
+claim that these final rendering/qualification requirements have been met.
+
 ## Invariants
 
 - No reflection or private managed field scanning in the product bridge.
