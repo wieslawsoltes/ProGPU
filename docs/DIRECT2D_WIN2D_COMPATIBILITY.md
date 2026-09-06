@@ -4295,3 +4295,28 @@ and cross-platform pixel parity, stress/allocation/performance and CI qualificat
 remain deferred. Stable C ABI/public COM layouts are unchanged, as is the
 independent managed WPF renderer. This extends the previous full-image optimization
 to integer crops; general persistent GPU copies and full goal parity remain open.
+
+### Implementation-first checkpoint: canonical native stroke-contour bridge
+
+The native path core now exposes an internal typed `create_native_stroke_geometry`
+bridge alongside fill conversion. Both share the original ProGPU canonical
+line/quadratic/cubic/arc emitter. Stroke conversion records one hollow contour,
+preserves explicit closure even when intermediate endpoints return to the start,
+rejects discontinuities and mismatched join metadata, and maps outgoing smooth
+joins to Direct2D incoming-segment flags. Arc subdivision gets a smooth internal
+seam. Fill conversion retains its existing closure/fill behavior.
+
+MIL now consumes this bridge for path and dashed fixed-shape source bounds using
+the existing native `Simplify` and `GetWidenedBounds` implementation; transformed
+spines and post-widen world transforms remain distinct. This is original ProGPU
+reuse, not a second widening implementation or platform COM activation. Conversion
+uses O(S) time/storage plus the existing tolerance-based widening/dash work.
+Unsupported widening topology and degenerate cap cases remain explicit failures;
+this does not establish exact curved/dashed bounds or full Win2D compatibility.
+
+Authored compatibility fixtures check hollow/open/closed recording, returning
+endpoints and invalid topology publication; MIL fixtures cover bounds mapping and
+consumer construction. Native library, MIL test and Direct2D compatibility test
+targets compile. Execution, native Windows differential/image checks, performance
+measurements and CI qualification remain deferred. No public COM, stable C ABI,
+public C++ module surface or independent managed WPF implementation changes.

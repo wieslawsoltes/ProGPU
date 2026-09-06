@@ -12894,6 +12894,107 @@ bool retained_drawing_image_preserves_nonpainting_pen_bounds() {
     return true;
 }
 
+bool retained_drawing_image_infers_path_stroke_bounds() {
+    constexpr std::uint32_t visual = 1U, content = 2U, target = 3U, brush = 4U;
+    constexpr std::uint32_t geometry = 5U, drawing = 6U, image = 7U, pen = 8U;
+    constexpr std::uint32_t transform = 9U, dash = 10U, animation = 11U;
+    std::vector<std::byte> batch;
+    append_create(batch, visual, 39U);
+    append_create(batch, content, 43U);
+    append_create(batch, target, 47U);
+    append_create(batch, brush, 75U);
+    append_create(batch, geometry, 73U);
+    append_create(batch, drawing, 87U);
+    append_create(batch, image, 59U);
+    append_create(batch, pen, 85U);
+    append_create(batch, transform, 66U);
+    append_create(batch, dash, 84U);
+    append_create(batch, animation, 49U);
+    append_command(batch, command::visual_create, visual);
+    append_command(batch, command::visual_set_content, visual, content);
+    append_command(batch, command::solid_color_brush, brush, 1.0,
+        progpu_native_color{0.2F, 0.6F, 0.4F, 1.0F}, 0U, 0U, 0U, 0U);
+    append_command(batch, command::matrix_transform, transform, 2.0, 0.0, 0.0, 3.0, 0.0, 0.0, 0U);
+    append_command(batch, command::double_resource, animation, 0.0);
+    const std::array intervals{2.0, 1.0};
+    append_dash_style(batch, dash, 0.0, animation, intervals);
+    append_command(batch, command::geometry_drawing, drawing, 0U, pen, geometry);
+    append_command(batch, command::drawing_image, image, drawing);
+    std::vector<std::byte> commands;
+    append_command(commands, command::draw_image, 2.0, 4.0, 48.0, 28.0, image, 0U);
+    append_render_data(batch, content, commands);
+    append_command(batch, command::generic_target_create, target, std::uint64_t{0U}, std::uint64_t{0U}, 64U, 64U, 0U);
+    append_command(batch, command::target_set_root, target, visual);
+    channel state;
+    PROGPU_REQUIRE(state.apply(batch) == status::success);
+
+    auto line = make_rectangle_path_figures(10.0, 20.0, 30.0, 20.0);
+    line.resize(120U);
+    const auto set = [&line](std::size_t offset, std::uint32_t value) {
+        std::memcpy(line.data() + offset, &value, sizeof(value));
+    };
+    set(0U, 120U); set(52U, 0U); set(56U, 1U); set(60U, 72U); set(80U, 40U);
+    struct mapping_case {
+        std::vector<std::byte> figures;
+        std::uint32_t transform_handle, dash_handle;
+        float left, top, width, height;
+    };
+    const std::array cases{
+        mapping_case{line, 0U, 0U, 8.0F, 18.0F, 24.0F, 4.0F},
+        mapping_case{line, 0U, dash, 8.0F, 18.0F, 24.0F, 4.0F},
+        mapping_case{line, transform, 0U, 18.0F, 58.0F, 44.0F, 4.0F},
+        mapping_case{make_rectangle_path_figures(10, 20, 30, 30), 0U, 0U, 8.0F, 18.0F, 24.0F, 14.0F}};
+    std::uint64_t generation = 1U;
+    for (const auto& test : cases) {
+        std::vector<std::byte> update;
+        append_path_geometry(update, geometry, test.transform_handle, 1U, test.figures);
+        append_command(update, command::pen, pen, 4.0, 10.0, brush, 0U,
+            PROGPU_NATIVE_STROKE_CAP_SQUARE, PROGPU_NATIVE_STROKE_CAP_SQUARE,
+            PROGPU_NATIVE_STROKE_CAP_FLAT, PROGPU_NATIVE_STROKE_JOIN_MITER, test.dash_handle);
+        PROGPU_REQUIRE(state.apply(update) == status::success);
+        std::vector<std::byte> stream;
+        PROGPU_REQUIRE(state.build_scene(target, 7108U, generation++, stream, nullptr) == status::success);
+        const auto header = read_value<progpu_native_scene_header>(stream, 0U);
+        bool mapped = false;
+        for (std::uint32_t index = 0U; index < header.resource_count; ++index) {
+            const auto resource = read_value<progpu_native_scene_resource>(stream,
+                header.resource_offset + index * sizeof(progpu_native_scene_resource));
+            if (resource.kind != PROGPU_NATIVE_SCENE_RESOURCE_STATE) continue;
+            const auto native_state = read_value<progpu_native_scene_state>(stream, resource.payload_offset);
+            const float sx = 48.0F / test.width, sy = 28.0F / test.height;
+            mapped |= std::abs(native_state.transform.m11 - sx) < 0.0001F &&
+                std::abs(native_state.transform.m22 - sy) < 0.0001F &&
+                std::abs(native_state.transform.m31 - (2.0F - test.left * sx)) < 0.0001F &&
+                std::abs(native_state.transform.m32 - (4.0F - test.top * sy)) < 0.0001F;
+        }
+        PROGPU_REQUIRE(mapped);
+    }
+    // Curve, smooth-join and dash-phase fixtures are authored for the final
+    // execution/Windows image lane; the analytic line cases above own the
+    // independent exact mapping oracle.
+    auto smooth = make_curve_path_figures();
+    const std::uint32_t smooth_flag = 0x08U;
+    std::memcpy(smooth.data() + 92U, &smooth_flag, sizeof(smooth_flag));
+    auto gap = make_rectangle_path_figures(10, 20, 30, 30);
+    const std::uint32_t unstroked_flag = 0x04U;
+    std::memcpy(gap.data() + 124U, &unstroked_flag, sizeof(unstroked_flag));
+    for (const auto& figures : {make_curve_path_figures(), make_arc_path_figures(), smooth, gap}) {
+        for (const bool dashed : {false, true}) {
+            std::vector<std::byte> update;
+            append_path_geometry(update, geometry, transform, 0U, figures);
+            append_command(update, command::double_resource, animation, 0.5);
+            append_command(update, command::pen, pen, 2.0, 10.0, brush, 0U,
+                PROGPU_NATIVE_STROKE_CAP_ROUND, PROGPU_NATIVE_STROKE_CAP_ROUND,
+                PROGPU_NATIVE_STROKE_CAP_ROUND, PROGPU_NATIVE_STROKE_JOIN_ROUND, dashed ? dash : 0U);
+            PROGPU_REQUIRE(state.apply(update) == status::success);
+            std::vector<std::byte> stream;
+            PROGPU_REQUIRE(state.build_scene(target, 7108U, generation++, stream, nullptr) == status::success);
+            PROGPU_REQUIRE(!stream.empty());
+        }
+    }
+    return true;
+}
+
 bool retained_drawing_image_infers_line_path_bounds() {
     constexpr std::uint32_t visual = 1U;
     constexpr std::uint32_t content = 2U;
@@ -14107,9 +14208,22 @@ bool retained_drawing_image_infers_fixed_stroke_bounds() {
     PROGPU_REQUIRE(state.apply(dashed_update) == status::success);
     PROGPU_REQUIRE(
         state.build_scene(target, 7008U, 16U, stream, nullptr) ==
-        status::unsupported_command);
+        status::success);
+    PROGPU_REQUIRE(contains_mapping(10.0F / 7.0F, 2.5F, -46.0F / 7.0F, -36.0F));
+
+    for (const auto shape : {rectangle_geometry, ellipse_geometry}) {
+        std::vector<std::byte> shape_update;
+        append_command(shape_update, command::rectangle_geometry, rectangle_geometry,
+            3.0, 4.0, 10.0, 20.0, 20.0, 10.0, 0U, 0U, 0U, 0U);
+        append_command(shape_update, command::ellipse_geometry, ellipse_geometry,
+            10.0, 5.0, 20.0, 30.0, 0U, 0U, 0U, 0U);
+        append_command(shape_update, command::geometry_drawing, geometry_drawing, brush, pen, shape);
+        PROGPU_REQUIRE(state.apply(shape_update) == status::success);
+        PROGPU_REQUIRE(state.build_scene(target, 7008U, 17U, stream, &metrics) == status::success);
+    }
 
     std::vector<std::byte> solid_dash_style_update;
+    append_command(solid_dash_style_update, command::geometry_drawing, geometry_drawing, 0U, pen, geometry);
     append_dash_style(
         solid_dash_style_update,
         dash_style,
@@ -20017,6 +20131,7 @@ int main() {
     PROGPU_REQUIRE(retained_drawing_image_infers_line_path_bounds());
     PROGPU_REQUIRE(retained_drawing_image_preserves_nonpainting_pen_bounds());
     PROGPU_REQUIRE(retained_drawing_image_infers_fixed_stroke_bounds());
+    PROGPU_REQUIRE(retained_drawing_image_infers_path_stroke_bounds());
     PROGPU_REQUIRE(retained_drawing_image_infers_drawing_group_bounds());
     PROGPU_REQUIRE(
         retained_glyph_run_drawing_uses_pointer_free_sfnt_sideband());

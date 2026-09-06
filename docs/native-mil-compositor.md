@@ -8258,6 +8258,53 @@ image/VM comparison, benchmarks, verifier and CI qualification remain deferred
 under implementation-first sequencing. The full MIL/DirectX/Direct2D/Win2D goal
 remains open.
 
+### Implementation-first checkpoint: shared native path and dashed-stroke bounds
+
+Native MIL natural bounds for `DrawingImage`/`DrawingBrush` sources now route
+positive-width path pens through ProGPU's native Direct2D path widening. This
+includes line/quadratic/cubic/arc contours, caps, smooth joins, split unstroked
+runs, custom dashes and animated dash offset. Dashed fixed lines, positive-area
+rectangles/rounded rectangles and ellipses use the existing native path builders
+and the same widening endpoint. Existing analytic solid fixed-shape bounds stay
+on their exact helpers. Filled-figure bounds are unioned through the existing
+native fill bounds reader; hollow stroke figures are not made fillable.
+
+The new internal `create_native_stroke_geometry` shares the canonical native
+segment emitter with fill conversion but retains explicit open/closed state,
+rejects disconnected segments, and shifts MIL outgoing smooth-join metadata to
+Direct2D's incoming-segment flags. A return to the start point does not close an
+open stroke. Full arcs still split into endpoint arcs, with a smooth internal
+seam. No public COM/C ABI/module contract changes are introduced.
+
+Geometry transforms are applied to the spine with the existing native `Simplify`
+implementation before widening. DrawingGroup/world transforms apply afterward.
+Curve bounds use the existing native flattening/widening approximation with the
+WPF default 0.25 tolerance tightened by a conservative world-matrix norm. This
+is not a claim of analytically exact curved/dashed extrema or Windows pixel
+parity. Native widening still rejects unsupported closed topology; collapsed
+contours without a representable widened area fail explicitly rather than losing
+cap paint. General stroked geometry groups/combined geometries, degenerate dashed
+fixed shapes, and exact curve/dash differential qualification remain open.
+
+Provenance: original ProGPU native path conversion, Direct2D widening, dash and
+fixed-shape builders; source-built WPF `Geometry.StandardFlatteningTolerance`,
+`GetBoundsInternal` and `BoundsDrawingContextWalker.DrawGeometry` supply contracts,
+not copied foreign rendering algorithms. Traversal/storage is O(S) for source
+segments plus existing bounded flattening/dash work and its temporary records.
+Spine conversion occurs only for a nonidentity geometry transform. Double-to-float
+dash adaptation uses NEON/SSE2 lanes and a bounded scalar tail where available;
+contour/segment traversal is state-dependent topology work, not a pixel fallback.
+There are no new shaders, readbacks, pixel loops or managed WPF workarounds.
+
+Authored fixtures cover open-returning contours, explicit closure, malformed
+join counts/discontinuity, exact line/rectangle image mapping, nonuniform spine
+transform ordering, dashed line mapping, fixed dashed shape compilation and
+curved/smooth/animated-dash scene construction. The MIL coverage manifest is
+regenerated. Native library, MIL tests and Direct2D compatibility tests compile;
+fixtures are not executed. Windows/VM and cross-platform images, allocation/stress,
+benchmarks and CI qualification remain deferred under implementation-first
+sequencing. The independent managed WPF implementation is unchanged.
+
 ## Invariants
 
 - No reflection or private managed field scanning in the product bridge.
