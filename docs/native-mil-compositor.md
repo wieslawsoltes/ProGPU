@@ -8305,6 +8305,52 @@ fixtures are not executed. Windows/VM and cross-platform images, allocation/stre
 benchmarks and CI qualification remain deferred under implementation-first
 sequencing. The independent managed WPF implementation is unchanged.
 
+### Implementation-first checkpoint: composite geometry source bounds
+
+Native drawing-source bounds now accept multi-child/nested `GeometryGroup` and
+`CombinedGeometry` inputs. Filled bounds come from the existing ProGPU native
+boolean/outline solver, not the union of operand rectangles. Even-odd duplicate
+fills can therefore produce an empty drawing source. Stroked groups separately
+visit original child contours, so fill cancellation cannot erase a visible pen;
+combined-geometry strokes use the actual combined boundary, never operand edges.
+The root combined outline is reused for its fill and pen queries.
+
+Every ancestor geometry transform is accumulated before widening, while the
+drawing/world transform remains post-widen state. Existing singleton-group fill
+bounds retain their exact native leaf path; empty groups return without creating
+native geometry. Fixed leaf stroke paths share the same internal factory used by
+dashed fixed-shape bounds. The outlined native path DTO now contains canonical
+fill segments as well as stroke contours, and its metadata bounds describe those
+actual segments rather than the original operands' potentially larger extent.
+
+This exposed and fixes a shared native Direct2D dash-order issue: stroke queries
+must not reverse a closed contour to normalize its winding before splitting its
+dash pattern. Bounds and hit queries retain original order. Dashed `Widen` also
+retains it; a fully visible closed run chooses inward/outward sides from its
+original winding after splitting. Undashed offset-contour construction retains
+its existing canonical orientation. The fix belongs in ProGPU's path core and
+benefits native Direct2D consumers as well as MIL.
+
+Provenance is original ProGPU boolean, native path, fixed-shape, dash and widening
+code. The WPF typed geometry graph supplies topology and transform contracts.
+There is no copied foreign renderer, managed bridge workaround, pixel readback,
+new shader or public ABI/module change. Complexity is bounded graph traversal
+plus the existing outline/flattening/dash costs and O(B) retained boundary data;
+shared handles are processed per transformed occurrence. Composite outlines and
+temporary native path objects are not yet retained across bounds queries, and
+no performance improvement is claimed without later measurement.
+
+Authored MIL cases cover distinct/repeated group children, alternate-fill
+cancellation with and without a pen, winding fill, union/intersect/xor/exclude,
+empty combined results, combined children in groups, nested geometry transforms,
+post-widen DrawingGroup transforms, and empty groups. Authored Direct2D cases
+cover counter-clockwise partial/full dashed widening, hit queries and bounds.
+Native library, MIL/Direct2D compatibility and Direct2D WebGPU test targets
+compile; test execution and all VM/image/benchmark/CI qualification remain
+deferred. Curved composite bounds retain the native solver's tolerance, while
+unsupported/self-intersecting stroke topology and collapsed-cap cases still fail
+closed. Full MIL/DirectX/Direct2D/Win2D parity is not established.
+
 ## Invariants
 
 - No reflection or private managed field scanning in the product bridge.

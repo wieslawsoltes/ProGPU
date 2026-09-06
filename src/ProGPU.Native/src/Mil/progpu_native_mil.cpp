@@ -11438,15 +11438,6 @@ struct channel::implementation {
         if (com::failed(hr)) return convert(hr);
         path_geometry_state result{};
         result.fill_rule = 1U;
-        if (!contours.empty()) {
-            d2d::rectangle_f bounds{};
-            hr = geometry->GetBounds(nullptr, &bounds);
-            if (com::failed(hr)) return convert(hr);
-            result.left = bounds.left;
-            result.top = bounds.top;
-            result.right = bounds.right;
-            result.bottom = bounds.bottom;
-        }
         for (const auto& points : contours) {
             if (points.size() < 3U) return status::invalid_graph;
             path_stroke_contour_state contour{};
@@ -11463,8 +11454,19 @@ struct channel::implementation {
                 segment.p1 = {next.x, next.y};
                 contour.points.push_back(segment.p0);
                 contour.segments.push_back(segment);
+                result.segments.push_back(segment);
             }
             result.stroke_contours.push_back(std::move(contour));
+        }
+        // Composite GetBounds may describe operand extents even when fill
+        // cancellation removes them. Publish the actual outlined boundary.
+        if (!result.segments.empty()) {
+            progpu_native_image_rect bounds{};
+            if (!try_get_path_segment_bounds(result.segments, bounds)) return status::invalid_graph;
+            result.left = bounds.x;
+            result.top = bounds.y;
+            result.right = double{bounds.x} + bounds.width;
+            result.bottom = double{bounds.y} + bounds.height;
         }
         output = std::move(result);
         return status::success;
@@ -11476,7 +11478,8 @@ struct channel::implementation {
     // intrinsic lanes with a bounded tail; no pixels or GPU transfers occur.
     status resolve_path_stroke_bounds(const path_geometry_state& source,
         const pen_state& pen, const affine_2d_double& world,
-        progpu_native_image_rect& output) const noexcept {
+        progpu_native_image_rect& output,
+        const affine_2d_double& parent_geometry_transform = {}) const noexcept {
         namespace d2d = native::direct2d::compat;
         namespace com = native::com;
         const auto convert = [](com::result result) {
@@ -11490,6 +11493,7 @@ struct channel::implementation {
                 const status resolved = resolve_transform(source.transform_handle, local);
                 if (resolved != status::success) return resolved;
             }
+            local = compose_affine(local, parent_geometry_transform);
             progpu_native_affine_2d native_local{}, native_world{};
             if (!try_to_native_affine(local, native_local) || !try_to_native_affine(world, native_world) ||
                 !finite_double_as_float(pen.thickness) || !finite_double_as_float(pen.miter_limit)) {
@@ -11585,6 +11589,181 @@ struct channel::implementation {
             }
             if (has_bounds) {
                 if (!finite_double_as_float(right - left) || !finite_double_as_float(bottom - top))
+                    return status::unsupported_command;
+                output = {static_cast<float>(left), static_cast<float>(top),
+                    static_cast<float>(right - left), static_cast<float>(bottom - top)};
+            }
+            return status::success;
+        } catch (const std::bad_alloc&) {
+            return status::capacity_exceeded;
+        } catch (...) {
+            return status::unsupported_command;
+        }
+    }
+
+    // Composite fills use the actual boolean outline. Group strokes instead
+    // retain every child's contour (including contours whose fills cancel).
+    // All geometry-ancestor transforms precede widening; world state follows.
+    template<typename FixedPathFactory>
+    status resolve_composite_drawing_bounds(std::uint32_t handle, const pen_state& pen,
+        const affine_2d_double& world, const FixedPathFactory& make_fixed_path,
+        progpu_native_image_rect& output) const noexcept {
+        namespace d2d = native::direct2d::compat;
+        namespace com = native::com;
+        output = {};
+        try {
+            const auto root_group = geometry_groups.find(handle);
+            const auto root_combined = combined_geometries.find(handle);
+            if (root_group == geometry_groups.end() && root_combined == combined_geometries.end())
+                return status::invalid_handle;
+            if (root_group != geometry_groups.end() && root_group->second.children.empty())
+                return status::success;
+            // Preserve the existing exact leaf bounds for singleton groups:
+            // there is no sibling fill cancellation requiring an outline.
+            if (root_group != geometry_groups.end() &&
+                (pen.brush_handle == 0U || pen.thickness == 0.0)) {
+                std::uint32_t leaf_handle = handle;
+                std::uint32_t depth = 0U;
+                for (; depth < maximum_visual_depth; ++depth) {
+                    const auto group = geometry_groups.find(leaf_handle);
+                    if (group == geometry_groups.end() || group->second.children.size() != 1U) break;
+                    leaf_handle = group->second.children.front();
+                }
+                if (depth == maximum_visual_depth) return status::invalid_graph;
+                if (!geometry_groups.contains(leaf_handle) && !combined_geometries.contains(leaf_handle)) {
+                    std::vector<progpu_native_path_segment> segments;
+                    shallow_fill_leaf leaf{};
+                    const status result = append_group_fill_leaf(handle, segments, leaf, world);
+                    if (result != status::success) return result;
+                    if (leaf.has_bounds && leaf.right > leaf.left && leaf.bottom > leaf.top) {
+                        if (!finite_double_as_float(leaf.left) || !finite_double_as_float(leaf.top) ||
+                            !finite_double_as_float(leaf.right - leaf.left) ||
+                            !finite_double_as_float(leaf.bottom - leaf.top)) return status::unsupported_command;
+                        output = {static_cast<float>(leaf.left), static_cast<float>(leaf.top),
+                            static_cast<float>(leaf.right - leaf.left), static_cast<float>(leaf.bottom - leaf.top)};
+                    }
+                    return status::success;
+                }
+            }
+            const std::uint32_t root_transform_handle = root_group != geometry_groups.end()
+                ? root_group->second.transform_handle : root_combined->second.transform_handle;
+            affine_2d_double root_transform{};
+            if (root_transform_handle != 0U) {
+                const status resolved = resolve_transform(root_transform_handle, root_transform);
+                if (resolved != status::success) return resolved;
+            }
+            const auto outline_tolerance = [](const affine_2d_double& transform) {
+                const double scale = std::hypot(std::hypot(transform.m11, transform.m12),
+                    std::hypot(transform.m21, transform.m22));
+                return static_cast<float>(0.25 / std::max(1.0, scale));
+            };
+            const affine_2d_double root_world = compose_affine(root_transform, world);
+            const float tolerance = outline_tolerance(root_world);
+            if (!std::isfinite(tolerance) || tolerance <= 0.0F) return status::unsupported_command;
+            path_geometry_state root_outline{};
+            status resolved = resolve_combined_stroke_outline(handle, tolerance, root_outline);
+            if (resolved != status::success) return resolved;
+            root_outline.transform_handle = root_transform_handle;
+            bool has_bounds = false;
+            double left = 0.0, top = 0.0, right = 0.0, bottom = 0.0;
+            const auto include = [&](double l, double t, double r, double b) {
+                if (!std::isfinite(l) || !std::isfinite(t) || !std::isfinite(r) || !std::isfinite(b))
+                    return false;
+                if (r <= l || b <= t) return true;
+                left = has_bounds ? std::min(left, l) : l;
+                top = has_bounds ? std::min(top, t) : t;
+                right = has_bounds ? std::max(right, r) : r;
+                bottom = has_bounds ? std::max(bottom, b) : b;
+                has_bounds = true;
+                return true;
+            };
+            if (!root_outline.segments.empty()) {
+                // Ask the original native path core to transform the actual
+                // boundary, not the axis-aligned rectangle around that boundary.
+                com::pointer<d2d::factory> factory;
+                auto hr = d2d::create_factory(factory.put());
+                if (com::failed(hr)) return hr == com::out_of_memory
+                    ? status::capacity_exceeded : status::unsupported_command;
+                com::pointer<d2d::path_geometry> path;
+                hr = d2d::detail::create_native_fill_geometry(factory.get(), root_outline.segments,
+                    d2d::fill_mode::winding, path.put());
+                if (com::failed(hr)) return hr == com::out_of_memory
+                    ? status::capacity_exceeded : status::unsupported_command;
+                progpu_native_affine_2d native{};
+                if (!try_to_native_affine(root_world, native)) return status::unsupported_command;
+                const d2d::matrix_3x2_f matrix{native.m11, native.m12, native.m21,
+                    native.m22, native.m31, native.m32};
+                d2d::rectangle_f bounds{};
+                hr = path->GetBounds(&matrix, &bounds);
+                if (com::failed(hr)) return hr == com::out_of_memory
+                    ? status::capacity_exceeded : status::unsupported_command;
+                if (!include(bounds.left, bounds.top, bounds.right, bounds.bottom))
+                    return status::unsupported_command;
+            }
+            if (pen.brush_handle != 0U && pen.thickness > 0.0) {
+                const auto visit = [&](auto&& self, std::uint32_t resource,
+                    affine_2d_double parent, std::uint32_t depth) -> status {
+                    if (depth > maximum_visual_depth) return status::invalid_graph;
+                    if (resource == 0U) return status::success;
+                    const auto group = geometry_groups.find(resource);
+                    if (group != geometry_groups.end()) {
+                        if (group->second.transform_handle != 0U) {
+                            affine_2d_double local{};
+                            const status result = resolve_transform(group->second.transform_handle, local);
+                            if (result != status::success) return result;
+                            parent = compose_affine(local, parent);
+                        }
+                        for (const auto child : group->second.children) {
+                            const status result = self(self, child, parent, depth + 1U);
+                            if (result != status::success) return result;
+                        }
+                        return status::success;
+                    }
+                    const path_geometry_state* path = nullptr;
+                    path_geometry_state temporary{};
+                    const auto found_path = path_geometries.find(resource);
+                    const auto combined = combined_geometries.find(resource);
+                    if (found_path != path_geometries.end()) {
+                        path = &found_path->second;
+                    } else if (combined != combined_geometries.end()) {
+                        if (resource == handle) {
+                            path = &root_outline;
+                        } else {
+                            affine_2d_double local{};
+                            if (combined->second.transform_handle != 0U) {
+                                const status result = resolve_transform(combined->second.transform_handle, local);
+                                if (result != status::success) return result;
+                            }
+                            const float child_tolerance = outline_tolerance(
+                                compose_affine(local, compose_affine(parent, world)));
+                            if (!std::isfinite(child_tolerance) || child_tolerance <= 0.0F)
+                                return status::unsupported_command;
+                            const status result = resolve_combined_stroke_outline(resource, child_tolerance, temporary);
+                            if (result != status::success) return result;
+                            temporary.transform_handle = combined->second.transform_handle;
+                            path = &temporary;
+                        }
+                    } else {
+                        fixed_geometry_state fixed{};
+                        status result = resolve_fixed_geometry(resource, fixed);
+                        if (result != status::success) return result;
+                        result = make_fixed_path(fixed, temporary);
+                        if (result != status::success) return result;
+                        temporary.transform_handle = fixed.transform_handle;
+                        path = &temporary;
+                    }
+                    progpu_native_image_rect stroke{};
+                    const status result = resolve_path_stroke_bounds(*path, pen, world, stroke, parent);
+                    if (result != status::success) return result;
+                    return include(stroke.x, stroke.y, double{stroke.x} + stroke.width,
+                        double{stroke.y} + stroke.height) ? status::success : status::unsupported_command;
+                };
+                resolved = visit(visit, handle, {}, 1U);
+                if (resolved != status::success) return resolved;
+            }
+            if (has_bounds) {
+                if (!finite_double_as_float(left) || !finite_double_as_float(top) ||
+                    !finite_double_as_float(right - left) || !finite_double_as_float(bottom - top))
                     return status::unsupported_command;
                 output = {static_cast<float>(left), static_cast<float>(top),
                     static_cast<float>(right - left), static_cast<float>(bottom - top)};
@@ -13851,11 +14030,43 @@ struct channel::implementation {
                 ? status::success
                 : status::invalid_graph;
         };
+        const auto make_fixed_bounds_path = [&make_wpf_rounded_rectangle_geometry,
+            &make_ellipse_path_geometry](const fixed_geometry_state& geometry,
+                path_geometry_state& output) -> status {
+            path_geometry_state path{};
+            if (geometry.kind == fixed_geometry_kind::line) {
+                progpu_native_path_segment segment{};
+                segment.kind = PROGPU_NATIVE_PATH_SEGMENT_LINE;
+                segment.p0 = {static_cast<float>(geometry.first), static_cast<float>(geometry.second)};
+                segment.p1 = {static_cast<float>(geometry.third), static_cast<float>(geometry.fourth)};
+                path_stroke_contour_state contour{};
+                contour.points = {segment.p0, segment.p1};
+                contour.segments.push_back(segment);
+                contour.smooth_joins.push_back(0U);
+                path.stroke_contours.push_back(std::move(contour));
+            } else if (geometry.kind == fixed_geometry_kind::rectangle &&
+                geometry.third > 0.0 && geometry.fourth > 0.0) {
+                path = make_wpf_rounded_rectangle_geometry(geometry.first, geometry.second,
+                    geometry.third, geometry.fourth, geometry.radius_x, geometry.radius_y);
+                if (geometry.radius_x == 0.0 || geometry.radius_y == 0.0) {
+                    path.stroke_contours.front().smooth_joins.assign(
+                        path.stroke_contours.front().segments.size(), 0U);
+                }
+            } else if (geometry.kind == fixed_geometry_kind::ellipse &&
+                geometry.third > 0.0 && geometry.fourth > 0.0) {
+                path = make_ellipse_path_geometry(geometry.first, geometry.second,
+                    geometry.third, geometry.fourth);
+            } else {
+                return status::unsupported_command;
+            }
+            path.transform_handle = geometry.transform_handle;
+            output = std::move(path);
+            return status::success;
+        };
         const auto resolve_drawing_image_bounds = [
             this,
             &drawing_image_bounds_segments,
-            &make_wpf_rounded_rectangle_geometry,
-            &make_ellipse_path_geometry](
+            &make_fixed_bounds_path](
             auto&& resolve_bounds,
             std::uint32_t drawing_handle,
             std::uint32_t depth,
@@ -14132,6 +14343,17 @@ struct channel::implementation {
             // A brushless pen cannot suppress a valid fill; a zero-width pen
             // with a brush still contributes the unwidened geometry bounds.
             const bool pen_contributes_bounds = pen.brush_handle != 0U;
+            if (geometry_groups.contains(drawing->second.geometry_handle) ||
+                combined_geometries.contains(drawing->second.geometry_handle)) {
+                if (drawing->second.brush_handle == 0U && !pen_contributes_bounds) {
+                    bounds = {};
+                    return status::success;
+                }
+                const status resolved = resolve_composite_drawing_bounds(drawing->second.geometry_handle,
+                    pen, current_transform, make_fixed_bounds_path, bounds);
+                if (resolved != status::success) return resolved;
+                return finish_bounds();
+            }
             const auto finish_stroked_geometry_bounds = [&]() -> status {
                 // Geometry.GetBoundsInternal includes filled figures as
                 // well as their pen. Hollow/unstroked contours are not
@@ -14183,34 +14405,8 @@ struct channel::implementation {
                     if (!dash->second.intervals.empty()) {
                       try {
                         path_geometry_state stroke_path{};
-                        if (geometry.kind == fixed_geometry_kind::line) {
-                            progpu_native_path_segment segment{};
-                            segment.kind = PROGPU_NATIVE_PATH_SEGMENT_LINE;
-                            segment.p0 = {static_cast<float>(geometry.first), static_cast<float>(geometry.second)};
-                            segment.p1 = {static_cast<float>(geometry.third), static_cast<float>(geometry.fourth)};
-                            path_stroke_contour_state contour{};
-                            contour.points = {segment.p0, segment.p1};
-                            contour.segments.push_back(segment);
-                            contour.smooth_joins.push_back(0U);
-                            stroke_path.stroke_contours.push_back(std::move(contour));
-                        } else if (geometry.kind == fixed_geometry_kind::rectangle &&
-                            geometry.third > 0.0 && geometry.fourth > 0.0) {
-                            stroke_path = make_wpf_rounded_rectangle_geometry(geometry.first, geometry.second,
-                                geometry.third, geometry.fourth, geometry.radius_x, geometry.radius_y);
-                            // Square corners retain the pen's join; rounded
-                            // corners use the shared smooth Bezier contour.
-                            if (geometry.radius_x == 0.0 || geometry.radius_y == 0.0) {
-                                stroke_path.stroke_contours.front().smooth_joins.assign(
-                                    stroke_path.stroke_contours.front().segments.size(), 0U);
-                            }
-                        } else if (geometry.kind == fixed_geometry_kind::ellipse &&
-                            geometry.third > 0.0 && geometry.fourth > 0.0) {
-                            stroke_path = make_ellipse_path_geometry(geometry.first, geometry.second,
-                                geometry.third, geometry.fourth);
-                        } else {
-                            return status::unsupported_command;
-                        }
-                        stroke_path.transform_handle = geometry.transform_handle;
+                        const status made = make_fixed_bounds_path(geometry, stroke_path);
+                        if (made != status::success) return made;
                         const status widened = resolve_path_stroke_bounds(stroke_path, pen,
                             current_transform, bounds);
                         if (widened != status::success) return widened;
@@ -14356,37 +14552,9 @@ struct channel::implementation {
                 bounds = {};
                 return status::success;
             }
-            const auto group = geometry_groups.find(
-                drawing->second.geometry_handle);
-            if (group != geometry_groups.end()) {
-                std::uint32_t child_handle =
-                    drawing->second.geometry_handle;
-                for (std::uint32_t geometry_depth = 0U;
-                     geometry_depth < maximum_visual_depth;
-                     ++geometry_depth) {
-                    const auto child_group = geometry_groups.find(
-                        child_handle);
-                    if (child_group == geometry_groups.end()) {
-                        break;
-                    }
-                    if (child_group->second.children.size() != 1U) {
-                        return status::unsupported_command;
-                    }
-                    child_handle = child_group->second.children.front();
-                }
-                if (geometry_groups.contains(child_handle)) {
-                    return status::invalid_graph;
-                }
-            }
             drawing_image_bounds_segments.clear();
             shallow_fill_leaf leaf{};
-            const status geometry_status = group != geometry_groups.end()
-                ? append_group_fill_leaf(
-                    drawing->second.geometry_handle,
-                    drawing_image_bounds_segments,
-                    leaf,
-                    current_transform)
-                : append_shallow_fill_leaf(
+            const status geometry_status = append_shallow_fill_leaf(
                     drawing->second.geometry_handle,
                     drawing_image_bounds_segments,
                     leaf,
