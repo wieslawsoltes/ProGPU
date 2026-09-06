@@ -5896,13 +5896,16 @@ public:
         // Scoped recording needs a future suspend/resume transport; never apply
         // its current clip or opacity to a bitmap storage operation.
         if (scope_depth_ != 0U || clip_depth_ != 0U) return wrong_state;
-        if (dpi_x_ != dpi_y_ || !compatible_history_dpi_valid_) return not_implemented;
+        if (dpi_x_ != dpi_y_) return not_implemented;
         const rectangle_u rectangle = destination == nullptr
             ? rectangle_u{0U, 0U, pixel_width_, pixel_height_} : *destination;
         if (!valid_rectangle(rectangle) || rectangle.right > pixel_width_ ||
             rectangle.bottom > pixel_height_) return com::invalid_argument;
         const auto width = rectangle.right - rectangle.left;
         const auto height = rectangle.bottom - rectangle.top;
+        const bool replace_contents = rectangle.left == 0U && rectangle.top == 0U &&
+            width == pixel_width_ && height == pixel_height_;
+        if (!compatible_history_dpi_valid_ && !replace_contents) return not_implemented;
         const auto pixel_bytes = bitmap_pixel_bytes(pixel_format_);
         const std::uint64_t row_bytes = static_cast<std::uint64_t>(width) * pixel_bytes;
         if (pitch < row_bytes) return com::invalid_argument;
@@ -5910,7 +5913,7 @@ public:
         if (required_bytes > PROGPU_NATIVE_SCENE_MAX_STREAM_BYTES ||
             required_bytes > std::numeric_limits<std::size_t>::max()) return com::invalid_argument;
         if (generation_ == std::numeric_limits<std::uint64_t>::max() ||
-            draw_count_ == std::numeric_limits<std::uint32_t>::max()) return failure;
+            (!replace_contents && draw_count_ == std::numeric_limits<std::uint32_t>::max())) return failure;
 
         progpu_native_scene_image_draw image{};
         image.image_width = width;
@@ -5930,11 +5933,11 @@ public:
         if (alpha_only) image.flags |= PROGPU_NATIVE_SCENE_IMAGE_COLOR_MATRIX;
         const std::uint32_t storage_flags = alpha_only ? PROGPU_NATIVE_SCENE_IMAGE_R8
             : pixel_format_.format == dxgi_format_b8g8r8a8_unorm ? PROGPU_NATIVE_SCENE_IMAGE_BGRA8 : 0U;
-        if (!builder_.copy_image_from_memory(image, storage_flags,
+        return record_bitmap_copy_locked(replace_contents, [&](semantic_scene_builder& recording) {
+            return recording.copy_image_from_memory(image, storage_flags,
                 {static_cast<const std::byte*>(source), static_cast<std::size_t>(required_bytes)},
-                alpha_only ? &alpha_matrix : nullptr)) return builder_failure();
-        publish_bitmap_copy_locked();
-        return com::ok;
+                alpha_only ? &alpha_matrix : nullptr);
+        });
     }
 
     com::result PROGPU_NATIVE_COM_CALL CopyFromBitmap(
@@ -5989,6 +5992,39 @@ public:
     }
 
 private:
+    template<typename RecordCopy>
+    com::result record_bitmap_copy_locked(bool replace_contents, RecordCopy&& record) noexcept
+    {
+        if (!replace_contents) {
+            if (!record(builder_)) return builder_failure();
+            publish_bitmap_copy_locked();
+            return com::ok;
+        }
+        try {
+            // Record a full overwrite independently: no reset, lease release or
+            // history/DPI mutation is visible until all allocations succeed.
+            semantic_scene_builder replacement(scene_id_, generation_);
+            if (!record(replacement)) return replacement.last_error() == scene_build_error::out_of_memory
+                ? com::out_of_memory : failure;
+            builder_ = std::move(replacement);
+            bitmap_resources_.clear();
+            picture_bitmap_sources_.clear();
+            std::vector<std::byte>().swap(exported_scene_);
+            exported_generation_ = 0U;
+            draw_count_ = 0U;
+            clear_color_ = {};
+            if (pixel_format_.alpha == alpha_mode::ignore) clear_color_.alpha = 1.0F;
+            has_clear_ = true;
+            compatible_history_dpi_valid_ = true;
+            publish_bitmap_copy_locked();
+            return com::ok;
+        } catch (const std::bad_alloc&) {
+            return com::out_of_memory;
+        } catch (...) {
+            return failure;
+        }
+    }
+
     void publish_bitmap_copy_locked() noexcept
     {
         // Caller checks overflow before its atomic append. No fallible operation
@@ -6019,6 +6055,7 @@ private:
             reinterpret_cast<void**>(&raw_native));
         native.attach(raw_native);
         if (com::failed(query) || !native) return not_implemented;
+        const bool same_storage = native->GetStorageIdentity() == static_cast<render_target*>(this);
         try {
             // Capture before destination locking: self/alias overlap sees old
             // immutable bytes, and opposing cross-target copies never hold both
@@ -6032,7 +6069,7 @@ private:
             if (!compatible_) return not_implemented;
             if (com::failed(failure_)) return failure_;
             if (scope_depth_ != 0U || clip_depth_ != 0U) return wrong_state;
-            if (dpi_x_ != dpi_y_ || !compatible_history_dpi_valid_) return not_implemented;
+            if (dpi_x_ != dpi_y_) return not_implemented;
             const auto source_rect = rectangle == nullptr
                 ? rectangle_u{0U, 0U, snapshot.width, snapshot.height} : *rectangle;
             const auto point = destination == nullptr ? point_2u{0U, 0U} : *destination;
@@ -6042,8 +6079,14 @@ private:
                 source_rect.bottom - source_rect.top > pixel_height_ - point.y ||
                 snapshot.format.format != pixel_format_.format || snapshot.format.alpha != pixel_format_.alpha)
                 return com::invalid_argument;
+            if (same_storage && point.x == source_rect.left && point.y == source_rect.top)
+                return compatible_history_dpi_valid_ ? com::ok : not_implemented;
+            const bool replace_contents = point.x == 0U && point.y == 0U &&
+                source_rect.right - source_rect.left == pixel_width_ &&
+                source_rect.bottom - source_rect.top == pixel_height_;
+            if (!compatible_history_dpi_valid_ && !replace_contents) return not_implemented;
             if (generation_ == std::numeric_limits<std::uint64_t>::max() ||
-                draw_count_ == std::numeric_limits<std::uint32_t>::max()) return failure;
+                (!replace_contents && draw_count_ == std::numeric_limits<std::uint32_t>::max())) return failure;
             const float dips_per_pixel = 96.0F / dpi_x_;
             progpu_native_scene_image_draw image{};
             image.image_width = snapshot.width;
@@ -6061,10 +6104,10 @@ private:
             const bool alpha_only = pixel_format_.format == dxgi_format_a8_unorm;
             const auto matrix = bitmap_alpha_matrix(snapshot.picture_image);
             if (alpha_only) image.flags |= PROGPU_NATIVE_SCENE_IMAGE_COLOR_MATRIX;
-            if (!builder_.copy_image_from_builder(std::move(captured), resource_index, image,
-                    alpha_only ? &matrix : nullptr)) return builder_failure();
-            publish_bitmap_copy_locked();
-            return com::ok;
+            return record_bitmap_copy_locked(replace_contents, [&](semantic_scene_builder& recording) {
+                return recording.copy_image_from_builder(std::move(captured), resource_index, image,
+                    alpha_only ? &matrix : nullptr);
+            });
         } catch (const std::bad_alloc&) {
             return com::out_of_memory;
         } catch (...) {

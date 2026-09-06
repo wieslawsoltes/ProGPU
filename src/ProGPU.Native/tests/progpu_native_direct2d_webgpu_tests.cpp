@@ -981,9 +981,22 @@ void verify_compatible_bitmap_uploads(const gpu_context& gpu, progpu_native_engi
         require(copied_target->GetBitmap(&raw_copied_bitmap) == native_com::ok, "copy target destination bitmap");
         native_com::pointer<d2d::bitmap> copied_bitmap;
         copied_bitmap.attach(raw_copied_bitmap);
+        const std::vector<std::byte> obsolete_pixels(16U * 16U * bytes_per_pixel, std::byte{255});
+        require(copied_bitmap->CopyFromMemory(nullptr, obsolete_pixels.data(), 16U * bytes_per_pixel) == native_com::ok,
+            "full copy obsolete destination upload");
         source->BeginDraw();
         require(copied_bitmap->CopyFromRenderTarget(nullptr, source.get(), nullptr) == native_com::ok,
             "active render target copy");
+        native_com::pointer<d2d::scene_render_target_native> copied_scene;
+        require(copied_bitmap.as(d2d::scene_render_target_native_interface_id, copied_scene) == native_com::ok,
+            "full copy scene query");
+        std::vector<std::byte> copied_stream(static_cast<std::size_t>(copied_scene->GetRequiredSceneSize()));
+        std::uint64_t copied_written = 0U;
+        require(copied_scene->BuildScene(copied_stream.data(), copied_stream.size(), &copied_written) == native_com::ok,
+            "full copy scene export");
+        const auto* copied_header = reinterpret_cast<const progpu_native_scene_header*>(copied_stream.data());
+        require(copied_header->command_count == 3U && copied_header->resource_count == 1U,
+            "full target copy retained obsolete destination commands/resources");
         const d2d::color_f blue{0.0F, 0.0F, 1.0F, 1.0F};
         source->Clear(&blue);
         require(source->EndDraw(nullptr, nullptr) == native_com::ok, "copy source mutation end");
