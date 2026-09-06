@@ -761,7 +761,8 @@ struct portable_scene final {
         diagnostics.stage == d2d::scene_submission_stage::none &&
         scene_metrics.draw_count == expected_draws &&
         frame_metrics.command_count == expected_commands &&
-        frame_metrics.submission_count == expected_submissions;
+        (expected_submissions == 0U ? frame_metrics.submission_count > 0U
+                                    : frame_metrics.submission_count == expected_submissions);
     if (!render_matches) {
         std::fprintf(
             stderr,
@@ -897,6 +898,76 @@ void verify_incremental_picture_backing(const gpu_context& gpu, progpu_native_en
     require(near_rgba(pixel(12U, 4U), 128, 0, 0) && near_rgba(pixel(44U, 4U), 64, 128, 0),
         "picture copy-on-write mutated an older capture");
     progpu_native_engine_destroy(reference_engine);
+}
+
+void verify_compatible_bitmap_uploads(const gpu_context& gpu, progpu_native_engine* engine)
+{
+    auto parent = record_scene();
+    for (const d2d::pixel_format format : {
+            d2d::pixel_format{28U, d2d::alpha_mode::premultiplied},
+            d2d::pixel_format{87U, d2d::alpha_mode::premultiplied},
+            d2d::pixel_format{87U, d2d::alpha_mode::ignore},
+            d2d::pixel_format{65U, d2d::alpha_mode::premultiplied}}) {
+        const bool alpha_only = format.format == 65U;
+        const auto bytes_per_pixel = alpha_only ? 1U : 4U;
+        const d2d::size_f logical_size{8.0F, 8.0F};
+        const d2d::size_u pixels{16U, 16U};
+        d2d::bitmap_render_target* raw_source = nullptr;
+        require(parent.target->CreateCompatibleRenderTarget(&logical_size, &pixels,
+            &format, d2d::compatible_render_target_options::none, &raw_source) == native_com::ok,
+            "copy bitmap target creation");
+        native_com::pointer<d2d::bitmap_render_target> source;
+        source.attach(raw_source);
+        source->BeginDraw();
+        const d2d::color_f green{0.0F, 1.0F, 0.0F, 1.0F};
+        source->Clear(&green);
+        require(source->EndDraw(nullptr, nullptr) == native_com::ok, "copy bitmap initial clear");
+        d2d::bitmap* raw_bitmap = nullptr;
+        require(source->GetBitmap(&raw_bitmap) == native_com::ok, "copy bitmap view");
+        native_com::pointer<d2d::bitmap> bitmap;
+        bitmap.attach(raw_bitmap);
+        const auto pitch = 8U * bytes_per_pixel + 4U;
+        std::vector<std::byte> upload(7U * pitch + 8U * bytes_per_pixel, std::byte{0});
+        for (std::uint32_t y = 0U; y < 8U; ++y) {
+            for (std::uint32_t x = 0U; x < 8U; ++x) {
+                auto* pixel = upload.data() + y * pitch + x * bytes_per_pixel;
+                pixel[alpha_only || format.format == 28U ? 0U : 2U] = std::byte{128};
+                if (!alpha_only) pixel[3] = std::byte{128};
+            }
+        }
+        const d2d::rectangle_u patch{4U, 4U, 12U, 12U};
+        const d2d::matrix_3x2_f unrelated{2.0F, 0.0F, 0.0F, 2.0F, 100.0F, 100.0F};
+        source->SetTransform(&unrelated);
+        require(bitmap->CopyFromMemory(&patch, upload.data(), pitch) == native_com::ok,
+            "copy bitmap padded color patch");
+        const d2d::rectangle_u transparent_patch{7U, 7U, 9U, 9U};
+        const std::array<std::byte, 16U> transparent{};
+        require(bitmap->CopyFromMemory(&transparent_patch, transparent.data(), 2U * bytes_per_pixel) == native_com::ok,
+            "copy bitmap transparent replacement");
+        // Mutation after return must not change the captured upload.
+        std::fill(upload.begin(), upload.end(), std::byte{255});
+        parent.target->BeginDraw();
+        const d2d::color_f background = alpha_only ? d2d::color_f{1.0F, 1.0F, 1.0F, 1.0F}
+            : d2d::color_f{0.0F, 0.0F, 0.0F, 1.0F};
+        parent.target->Clear(&background);
+        const d2d::rectangle_f destination{0.0F, 0.0F, 16.0F, 16.0F};
+        parent.target->DrawBitmap(bitmap.get(), &destination, 1.0F,
+            d2d::bitmap_interpolation_mode::nearest_neighbor, nullptr);
+        require(parent.target->EndDraw(nullptr, nullptr) == native_com::ok, "copy bitmap parent end");
+        // This fixture asserts pixels, not a fixed materialized-layer submission
+        // schedule. Existing transport fixtures retain their exact count checks.
+        const auto rendered = render_scene(gpu, engine, parent.scene_target.get(), 1U, 1U, 0U);
+        const auto near_pixel = [&](std::uint32_t x, std::uint32_t y, int r, int g, int b) {
+            const auto* value = rendered.data() + y * row_bytes + x * 4U;
+            return std::abs(static_cast<int>(value[0]) - r) <= 1 &&
+                std::abs(static_cast<int>(value[1]) - g) <= 1 &&
+                std::abs(static_cast<int>(value[2]) - b) <= 1 && value[3] == 255U;
+        };
+        require(alpha_only ? near_pixel(2U, 2U, 0, 0, 0) && near_pixel(5U, 5U, 127, 127, 127) &&
+                near_pixel(8U, 8U, 255, 255, 255)
+            : near_pixel(2U, 2U, 0, 255, 0) && near_pixel(5U, 5U, 128, 0, 0) &&
+                near_pixel(8U, 8U, 0, 0, 0), "copy bitmap replaced pixels/alpha or physical placement mismatch");
+    }
 }
 
 void verify_pixels(std::span<const std::uint8_t> pixels)
@@ -1223,6 +1294,7 @@ int main(int argc, char** argv)
     }
     phase("record Direct2D");
     verify_incremental_picture_backing(gpu, engine);
+    verify_compatible_bitmap_uploads(gpu, engine);
     portable_scene scene = record_scene();
     const std::vector<std::uint8_t> pixels = render_scene(
         gpu, engine, scene.scene_target.get());

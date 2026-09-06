@@ -127,6 +127,16 @@ public:
         std::uint32_t row_bytes,
         std::span<const std::byte> pixels,
         std::uint32_t& resource_index) noexcept;
+    // Atomically append an owned upload and a bounded SRC layer/image/pop.
+    // Root scope only, identity transform, nearest sampling and full opacity.
+    // storage_flags is zero (RGBA8), IMAGE_BGRA8 or IMAGE_R8. An optional
+    // canonical color matrix supports compact alpha-only uploads. Failure
+    // leaves prior commands/resources unchanged; last_error reports the cause.
+    bool copy_image_from_memory(
+        const progpu_native_scene_image_draw& image,
+        std::uint32_t storage_flags,
+        std::span<const std::byte> pixels,
+        const progpu_native_scene_image_color_matrix* color_matrix = nullptr) noexcept;
     // Rasterize an owned nested scene at its declared source resolution before
     // sampling it as an ordinary premultiplied image. No CPU pixel materialization.
     bool add_picture_image(

@@ -4039,3 +4039,61 @@ compatibility tests and Direct2D WebGPU test executable compile. Tests, concurre
 stress/OOM cases, Windows ABI execution, GPU image comparisons, allocation/latency
 measurements and CI qualification remain deferred under implementation-first
 sequencing. The full MIL/DirectX/Direct2D/Win2D goal remains open.
+
+## Implementation-first checkpoint: compatible bitmap memory copies
+
+Native compatible render-target bitmap views now implement `CopyFromMemory`,
+including shared aliases of those views. The destination rectangle uses physical
+pixels and null selects the complete bitmap. RGBA8/BGRA8 premultiplied or ignored
+alpha and compact A8 uploads reuse the target's existing supported formats;
+there is no format conversion. Padded source rows are retained, excluding unused
+final-row padding. The target owns the bytes before returning, so callers can
+immediately reuse their source storage. Invalid/null inputs and undersized pitch
+return errors without changing recorded content or generation.
+
+The operation appends a bounded source-replacement layer, nearest-sampled image
+and layer pop through the reusable C++ `semantic_scene_builder::copy_image_from_memory`
+API. Source replacement overwrites destination alpha rather than source-over
+blending with old pixels. Destination bounds are converted with actual raster
+DPI, independent of the bitmap view's creation DPI and current drawing transform.
+RGBA/BGRA resources retain their byte layout; A8 stays one byte per pixel and uses
+the same canonical color-matrix alpha projection as ordinary bitmap drawing.
+Original ProGPU image upload, layer composition and shaders are reused. No new
+shader, CPU pixel expansion, GPU readback or per-pixel submission is introduced.
+
+The builder helper is an append-only transaction. Failure rolls back newly added
+commands/resources and stack metadata without cloning or serializing previous
+history. A leading layer prevents image batching from modifying earlier commands.
+The target publishes its next generation only after that transaction succeeds,
+invalidating cached exports and aliases' generation keys. A successful copy can
+initialize a fresh compatible target, update a completed session or append during
+unscoped recording; the next `BeginDraw` retains copied contents. Existing target
+errors remain errors. Active clip/layer scopes currently return `wrong_state`,
+and nonuniform or invalid mixed-DPI histories remain unsupported. Suspending and
+resuming active drawing scopes around a storage copy is still required for full
+Direct2D parity. Repeated full uploads currently retain old command history until
+a full `Clear`; upload-history compaction remains open.
+
+For B supplied bytes, upload ownership costs O(B) time/storage through native bulk
+byte copies, plus three appended commands and bounded layer rendering. Container
+growth can relocate existing metadata; no O(1) append or measured speedup is
+claimed. Previously captured parent scenes keep independent bytes. The C++ builder
+module exports the required storage/matrix flags; no public COM slot, stable C ABI
+record or managed-generated layout changes. Native and managed Direct2D clients
+share this endpoint; the independent managed WPF renderer is unchanged.
+
+Authored compatibility tests cover fresh/session uploads, formats, padded rows,
+physical placement, caller ownership, invalid inputs, scoped rejection and export
+generation changes. The module consumer includes byte-identical rollback after
+an image-validation failure. GPU fixtures cover partial replacement over existing
+pixels, transparent replacement, A8 coverage, ignored alpha and 192-DPI placement.
+Compilation only is performed in this phase; these tests, OOM/concurrency stress,
+Windows native comparisons, GPU pixel fidelity, performance and CI qualification
+remain deferred. `CopyFromBitmap`, `CopyFromRenderTarget`, readback and wider
+Direct2D/Win2D/MIL parity remain open.
+
+Contract reference: Microsoft's
+[ID2D1Bitmap::CopyFromMemory](https://learn.microsoft.com/en-us/windows/win32/api/d2d1/nf-d2d1-id2d1bitmap-copyfrommemory)
+documents region copies, byte pitch, no resizing/conversion and active-batch error
+behavior. The scoped-recording restriction above is an implementation gap, not a
+claim about native Direct2D's permitted calls.
