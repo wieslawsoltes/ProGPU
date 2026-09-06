@@ -1,5 +1,6 @@
 #include <array>
 #include <cstddef>
+#include <utility>
 
 import progpu.native.scene_builder;
 
@@ -108,6 +109,17 @@ int main() {
         after_failed_copy_written != before_copy_written || before_copy != after_failed_copy) return 1;
     image.flags = 0U;
     if (!builder.copy_image_from_memory(image, progpu::native::PROGPU_NATIVE_SCENE_IMAGE_R8, coverage)) return 1;
+    progpu::native::semantic_scene_builder staged_image(9004U);
+    unsigned int staged_index = progpu::native::PROGPU_NATIVE_SCENE_NO_INDEX;
+    if (!staged_image.add_r8_image(2U, 2U, 2U, coverage, staged_index) ||
+        !builder.copy_image_from_builder(std::move(staged_image), staged_index, image)) return 1;
+    if (!builder.build_into(before_copy, before_copy_written)) return 1;
+    progpu::native::semantic_scene_builder rejected_image(9005U);
+    if (!rejected_image.add_r8_image(2U, 2U, 2U, coverage, staged_index)) return 1;
+    image.flags = progpu::native::PROGPU_NATIVE_SCENE_IMAGE_COLOR_MATRIX;
+    if (builder.copy_image_from_builder(std::move(rejected_image), staged_index, image) ||
+        !builder.build_into(after_failed_copy, after_failed_copy_written) ||
+        after_failed_copy_written != before_copy_written || before_copy != after_failed_copy) return 1;
     const std::size_t required_size = builder.required_stream_size();
     std::size_t bytes_written = 0U;
     return required_size > 0U && required_size <= stream.size() &&

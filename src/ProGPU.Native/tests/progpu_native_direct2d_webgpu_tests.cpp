@@ -967,6 +967,49 @@ void verify_compatible_bitmap_uploads(const gpu_context& gpu, progpu_native_engi
                 near_pixel(8U, 8U, 255, 255, 255)
             : near_pixel(2U, 2U, 0, 255, 0) && near_pixel(5U, 5U, 128, 0, 0) &&
                 near_pixel(8U, 8U, 0, 0, 0), "copy bitmap replaced pixels/alpha or physical placement mismatch");
+
+        // Copy from an active 192-DPI source into a 96-DPI destination. Its
+        // dimensions are physical pixels, not either bitmap's logical view.
+        const d2d::size_f copied_logical{16.0F, 16.0F};
+        d2d::bitmap_render_target* raw_copied_target = nullptr;
+        require(parent.target->CreateCompatibleRenderTarget(&copied_logical, &pixels, &format,
+            d2d::compatible_render_target_options::none, &raw_copied_target) == native_com::ok,
+            "copy target destination creation");
+        native_com::pointer<d2d::bitmap_render_target> copied_target;
+        copied_target.attach(raw_copied_target);
+        d2d::bitmap* raw_copied_bitmap = nullptr;
+        require(copied_target->GetBitmap(&raw_copied_bitmap) == native_com::ok, "copy target destination bitmap");
+        native_com::pointer<d2d::bitmap> copied_bitmap;
+        copied_bitmap.attach(raw_copied_bitmap);
+        source->BeginDraw();
+        require(copied_bitmap->CopyFromRenderTarget(nullptr, source.get(), nullptr) == native_com::ok,
+            "active render target copy");
+        const d2d::color_f blue{0.0F, 0.0F, 1.0F, 1.0F};
+        source->Clear(&blue);
+        require(source->EndDraw(nullptr, nullptr) == native_com::ok, "copy source mutation end");
+        const d2d::point_2u overlap_destination{6U, 4U};
+        // An overlapping rightward shift must sample the complete pre-copy
+        // rectangle, including the transparent center, not earlier copy writes.
+        copied_target->BeginDraw();
+        require(copied_bitmap->CopyFromBitmap(&overlap_destination, copied_bitmap.get(), &patch) == native_com::ok &&
+            copied_target->EndDraw(nullptr, nullptr) == native_com::ok, "overlapping active bitmap copy");
+        parent.target->BeginDraw();
+        parent.target->Clear(&background);
+        parent.target->DrawBitmap(copied_bitmap.get(), &destination, 1.0F,
+            d2d::bitmap_interpolation_mode::nearest_neighbor, nullptr);
+        require(parent.target->EndDraw(nullptr, nullptr) == native_com::ok, "overlap parent end");
+        const auto overlap_pixels = render_scene(gpu, engine, parent.scene_target.get(), 1U, 1U, 0U);
+        const auto near_copy_pixel = [&](std::uint32_t x, std::uint32_t y, int r, int g, int b) {
+            const auto* value = overlap_pixels.data() + y * row_bytes + x * 4U;
+            return std::abs(static_cast<int>(value[0]) - r) <= 1 &&
+                std::abs(static_cast<int>(value[1]) - g) <= 1 &&
+                std::abs(static_cast<int>(value[2]) - b) <= 1 && value[3] == 255U;
+        };
+        require(alpha_only ? near_copy_pixel(2U, 2U, 0, 0, 0) && near_copy_pixel(7U, 7U, 127, 127, 127) &&
+                near_copy_pixel(9U, 7U, 255, 255, 255) && near_copy_pixel(13U, 5U, 127, 127, 127)
+            : near_copy_pixel(2U, 2U, 0, 255, 0) && near_copy_pixel(7U, 7U, 128, 0, 0) &&
+                near_copy_pixel(9U, 7U, 0, 0, 0) && near_copy_pixel(13U, 5U, 128, 0, 0),
+            "snapshot copy changed source, alpha, DPI or overlapping pixels");
     }
 }
 

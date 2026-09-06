@@ -23,6 +23,10 @@ namespace compat = progpu::native::direct2d::compat;
 namespace core = progpu::native::direct2d::core;
 namespace com = progpu::native::com;
 
+#if defined(_WIN32)
+static_assert(compat::render_target_has_layer_or_cliprect == D2DERR_RENDER_TARGET_HAS_LAYER_OR_CLIPRECT);
+#endif
+
 namespace {
 
 [[nodiscard]] bool approximately_equal(float left, float right) noexcept
@@ -7909,6 +7913,93 @@ int run_tests()
         if (after_copy.generation <= before_copy.generation || after_copy.draw_count != 2U) return 288;
         std::vector<std::byte> full_upload(8U * 8U * pixel_bytes, std::byte{0});
         if (upload_bitmap->CopyFromMemory(nullptr, full_upload.data(), 8U * pixel_bytes) != com::ok) return 288;
+        // Pixel-backed copies retain an image resource directly (not a nested
+        // picture), crop source pixels and ignore either bitmap's DPI view.
+        compat::bitmap* raw_pixel_source = nullptr;
+        const compat::bitmap_properties source_properties{upload_format, 144.0F, 144.0F};
+        std::vector<std::byte> pixel_source_data(4U * 4U * pixel_bytes, std::byte{0x20});
+        if (target->CreateBitmap({4U, 4U}, pixel_source_data.data(), 4U * pixel_bytes,
+                &source_properties, &raw_pixel_source) != com::ok) return 289;
+        com::pointer<compat::bitmap> pixel_source;
+        pixel_source.attach(raw_pixel_source);
+        const compat::rectangle_u cropped_source{1U, 1U, 3U, 3U};
+        const compat::point_2u copied_point{4U, 4U};
+        if (upload_bitmap->CopyFromBitmap(&copied_point, pixel_source.get(), &cropped_source) != com::ok) return 289;
+        std::vector<std::byte> pixel_copy_stream(static_cast<std::size_t>(upload_scene->GetRequiredSceneSize()));
+        if (upload_scene->BuildScene(pixel_copy_stream.data(), pixel_copy_stream.size(), &upload_written) != com::ok) return 289;
+        const auto* copy_header = reinterpret_cast<const progpu_native_scene_header*>(pixel_copy_stream.data());
+        const auto* copy_command = reinterpret_cast<const progpu_native_scene_command*>(pixel_copy_stream.data() +
+            copy_header->command_offset + (copy_header->command_count - 2U) * copy_header->command_stride);
+        const auto* copy_image = reinterpret_cast<const progpu_native_scene_image_draw*>(pixel_copy_stream.data() + copy_command->payload_offset);
+        const auto* copy_resource = reinterpret_cast<const progpu_native_scene_resource*>(pixel_copy_stream.data() +
+            copy_header->resource_offset + copy_command->resource_index * copy_header->resource_stride);
+        if (copy_image->source_rect.x != 1.0F || copy_image->source_rect.width != 2.0F ||
+            copy_image->destination_rect.x != 2.0F || copy_image->destination_rect.width != 1.0F ||
+            (copy_resource->flags & PROGPU_NATIVE_SCENE_IMAGE_PICTURE) != 0U ||
+            copy_resource->payload_size != pixel_source_data.size()) return 289;
+
+        const compat::point_2u outside_point{7U, 7U};
+        if (upload_bitmap->CopyFromBitmap(nullptr, nullptr, nullptr) != com::invalid_argument ||
+            upload_bitmap->CopyFromRenderTarget(nullptr, nullptr, nullptr) != com::invalid_argument ||
+            upload_bitmap->CopyFromBitmap(&outside_point, pixel_source.get(), &cropped_source) != com::invalid_argument)
+            return 290;
+        std::vector<std::byte> after_invalid_copy(pixel_copy_stream.size());
+        if (upload_scene->BuildScene(after_invalid_copy.data(), after_invalid_copy.size(), &upload_written) != com::ok ||
+            after_invalid_copy != pixel_copy_stream) return 290;
+
+        // Capture a source that is still recording. Active copy snapshots must
+        // not mark the source ended or poison its completed-export cache.
+        const compat::size_f copy_logical_size{8.0F, 8.0F};
+        compat::bitmap_render_target* raw_copy_target = nullptr;
+        if (target->CreateCompatibleRenderTarget(&copy_logical_size, &pixel_size, &upload_format,
+                compat::compatible_render_target_options::none, &raw_copy_target) != com::ok) return 291;
+        com::pointer<compat::bitmap_render_target> copy_target;
+        copy_target.attach(raw_copy_target);
+        compat::bitmap* raw_copy_bitmap = nullptr;
+        if (copy_target->GetBitmap(&raw_copy_bitmap) != com::ok) return 291;
+        com::pointer<compat::bitmap> copy_bitmap;
+        copy_bitmap.attach(raw_copy_bitmap);
+        upload_target->BeginDraw();
+        upload_target->PushAxisAlignedClip(&clip, compat::antialias_mode::aliased);
+        if (copy_bitmap->CopyFromRenderTarget(nullptr, upload_target.get(), nullptr) != compat::render_target_has_layer_or_cliprect)
+            return 291;
+        upload_target->PopAxisAlignedClip();
+        if (copy_bitmap->CopyFromRenderTarget(nullptr, upload_target.get(), nullptr) != com::ok ||
+            upload_scene->GetRequiredSceneSize() != 0U) return 291;
+        const compat::color_f later_clear{0.0F, 0.0F, 1.0F, 1.0F};
+        upload_target->Clear(&later_clear);
+        if (upload_target->EndDraw(nullptr, nullptr) != com::ok) return 291;
+        com::pointer<compat::scene_render_target_native> copied_scene;
+        if (copy_bitmap.as(compat::scene_render_target_native_interface_id, copied_scene) != com::ok) return 291;
+        std::vector<std::byte> captured_copy(static_cast<std::size_t>(copied_scene->GetRequiredSceneSize()));
+        if (copied_scene->BuildScene(captured_copy.data(), captured_copy.size(), &upload_written) != com::ok) return 291;
+        const auto* copied_header = reinterpret_cast<const progpu_native_scene_header*>(captured_copy.data());
+        const auto* copied_resource = reinterpret_cast<const progpu_native_scene_resource*>(captured_copy.data() + copied_header->resource_offset);
+        if (copied_header->command_count != 3U || (copied_resource->flags & PROGPU_NATIVE_SCENE_IMAGE_PICTURE) == 0U) return 291;
+        const auto* captured_header = reinterpret_cast<const progpu_native_scene_header*>(captured_copy.data() + copied_resource->auxiliary_offset);
+        if (captured_header->command_count <= 3U) return 291; // Later source Clear did not replace the capture.
+        // Self-overlap through a shared alias consumes an immutable source and
+        // has no source-to-destination COM ownership cycle.
+        compat::bitmap* raw_copy_alias = nullptr;
+        if (target->CreateSharedBitmap(compat::bitmap_interface_id, copy_bitmap.get(), nullptr, &raw_copy_alias) != com::ok)
+            return 292;
+        com::pointer<compat::bitmap> copy_alias;
+        copy_alias.attach(raw_copy_alias);
+        copy_target->BeginDraw();
+        if (copy_bitmap->CopyFromBitmap(&copied_point, copy_alias.get(), &cropped_source) != com::ok ||
+            copy_target->EndDraw(nullptr, nullptr) != com::ok) return 292;
+        compat::scene_render_target_summary self_copy_summary{};
+        copied_scene->GetSummary(&self_copy_summary);
+        if (self_copy_summary.draw_count != 2U || copied_scene->GetRequiredSceneSize() <= captured_copy.size()) return 292;
+        upload_target->BeginDraw();
+        const compat::color_f invalid_clear{-1.0F, 0.0F, 0.0F, 1.0F};
+        upload_target->Clear(&invalid_clear);
+        if (copy_bitmap->CopyFromRenderTarget(nullptr, upload_target.get(), nullptr) != com::invalid_argument ||
+            upload_target->EndDraw(nullptr, nullptr) != com::invalid_argument) return 293;
+        compat::scene_render_target_summary after_failed_source{};
+        copied_scene->GetSummary(&after_failed_source);
+        if (after_failed_source.generation != self_copy_summary.generation ||
+            after_failed_source.draw_count != self_copy_summary.draw_count) return 293;
     }
 
     const compat::bitmap_brush_properties bitmap_brush_properties{

@@ -330,6 +330,16 @@ struct bitmap_snapshot final {
 };
 
 struct scene_bitmap_native : com::unknown {
+    virtual com::result PROGPU_NATIVE_COM_CALL CopyFromBitmap(
+        const point_2u*, bitmap*, const rectangle_u*) noexcept
+    {
+        return not_implemented;
+    }
+    virtual com::result PROGPU_NATIVE_COM_CALL CopyFromRenderTarget(
+        const point_2u*, render_target*, const rectangle_u*) noexcept
+    {
+        return not_implemented;
+    }
     virtual com::result PROGPU_NATIVE_COM_CALL CopyFromMemory(
         const rectangle_u*, const void*, std::uint32_t) noexcept
     {
@@ -343,6 +353,12 @@ struct scene_bitmap_native : com::unknown {
         semantic_scene_builder* builder,
         std::uint32_t* resource_index,
         bitmap_snapshot* snapshot) const noexcept = 0;
+    virtual com::result PROGPU_NATIVE_COM_CALL CaptureForCopy(
+        semantic_scene_builder* builder, std::uint32_t* resource_index,
+        bitmap_snapshot* snapshot) const noexcept
+    {
+        return AddToScene(builder, resource_index, snapshot);
+    }
     virtual com::result PROGPU_NATIVE_COM_CALL CopyPixels(
         const rectangle_u* source_rectangle,
         pixel_format expected_format,
@@ -1717,6 +1733,16 @@ public:
             destination_pitch);
     }
 
+    com::result PROGPU_NATIVE_COM_CALL CaptureForCopy(
+        semantic_scene_builder* builder, std::uint32_t* resource_index,
+        bitmap_snapshot* snapshot) const noexcept override
+    {
+        if (snapshot == nullptr) return com::pointer_error;
+        const auto result = source_native_->CaptureForCopy(builder, resource_index, snapshot);
+        if (com::succeeded(result)) apply_view(*snapshot);
+        return result;
+    }
+
 private:
     void apply_view(bitmap_snapshot& snapshot) const noexcept
     {
@@ -2843,15 +2869,15 @@ public:
     }
 
     com::result PROGPU_NATIVE_COM_CALL CopyFromBitmap(
-        const point_2u*, bitmap*, const rectangle_u*) noexcept override
+        const point_2u* destination, bitmap* source, const rectangle_u* rectangle) noexcept override
     {
-        return not_implemented;
+        return bitmap_source_->CopyFromBitmap(destination, source, rectangle);
     }
 
     com::result PROGPU_NATIVE_COM_CALL CopyFromRenderTarget(
-        const point_2u*, render_target*, const rectangle_u*) noexcept override
+        const point_2u* destination, render_target* source, const rectangle_u* rectangle) noexcept override
     {
-        return not_implemented;
+        return bitmap_source_->CopyFromRenderTarget(destination, source, rectangle);
     }
 
     com::result PROGPU_NATIVE_COM_CALL CopyFromMemory(
@@ -2875,6 +2901,13 @@ public:
         bitmap_snapshot* snapshot) const noexcept override
     {
         return bitmap_source_->AddToScene(builder, resource_index, snapshot);
+    }
+
+    com::result PROGPU_NATIVE_COM_CALL CaptureForCopy(
+        semantic_scene_builder* builder, std::uint32_t* resource_index,
+        bitmap_snapshot* snapshot) const noexcept override
+    {
+        return bitmap_source_->CaptureForCopy(builder, resource_index, snapshot);
     }
 
     com::result PROGPU_NATIVE_COM_CALL CopyPixels(
@@ -5900,18 +5933,20 @@ public:
         if (!builder_.copy_image_from_memory(image, storage_flags,
                 {static_cast<const std::byte*>(source), static_cast<std::size_t>(required_bytes)},
                 alpha_only ? &alpha_matrix : nullptr)) return builder_failure();
-        // No fallible operation remains after the append transaction succeeds.
-        // Advance also invalidates lazy exports and bitmap aliases' cache keys.
-        builder_.advance_generation(++generation_);
-        ++draw_count_;
-        if (!begun_) {
-            begun_ = true;
-            ended_ = true;
-            clear_color_ = {};
-            if (pixel_format_.alpha == alpha_mode::ignore) clear_color_.alpha = 1.0F;
-            has_clear_ = true;
-        }
+        publish_bitmap_copy_locked();
         return com::ok;
+    }
+
+    com::result PROGPU_NATIVE_COM_CALL CopyFromBitmap(
+        const point_2u* destination, bitmap* source, const rectangle_u* rectangle) noexcept override
+    {
+        return copy_from_source(destination, source, rectangle);
+    }
+
+    com::result PROGPU_NATIVE_COM_CALL CopyFromRenderTarget(
+        const point_2u* destination, render_target* source, const rectangle_u* rectangle) noexcept override
+    {
+        return copy_from_source(destination, source, rectangle);
     }
 
     com::result PROGPU_NATIVE_COM_CALL AddToScene(semantic_scene_builder* destination,
@@ -5920,23 +5955,16 @@ public:
         if (destination == nullptr || resource_index == nullptr || snapshot == nullptr) return com::pointer_error;
         *resource_index = PROGPU_NATIVE_SCENE_NO_INDEX;
         const std::lock_guard lock(mutex_);
-        if (destination == &builder_) return wrong_state;
-        auto result = get_bitmap_snapshot_locked(*snapshot);
-        if (com::failed(result)) return result;
-        result = ensure_scene_export_locked();
-        if (com::failed(result)) return result;
-        progpu_native_scene_picture_image picture{};
-        picture.struct_size = sizeof(picture);
-        picture.width = pixel_width_;
-        picture.height = pixel_height_;
-        picture.dpi_scale = snapshot->picture_raster_dpi_scale;
-        picture.clear_color = {clear_color_.red, clear_color_.green, clear_color_.blue, clear_color_.alpha};
-        if (pixel_format_.alpha == alpha_mode::ignore) picture.clear_color.a = 1.0F;
-        // One ownership copy directly from the cached export into the receiving
-        // builder. Metadata and bytes are captured under this same target lock.
-        return destination->add_picture_image(picture, exported_scene_, *resource_index)
-            ? com::ok : destination->last_error() == scene_build_error::out_of_memory
-                ? com::out_of_memory : failure;
+        return capture_picture_locked(*destination, *resource_index, *snapshot, false);
+    }
+
+    com::result PROGPU_NATIVE_COM_CALL CaptureForCopy(semantic_scene_builder* destination,
+        std::uint32_t* resource_index, bitmap_snapshot* snapshot) const noexcept override
+    {
+        if (destination == nullptr || resource_index == nullptr || snapshot == nullptr) return com::pointer_error;
+        *resource_index = PROGPU_NATIVE_SCENE_NO_INDEX;
+        const std::lock_guard lock(mutex_);
+        return capture_picture_locked(*destination, *resource_index, *snapshot, true);
     }
 
     com::result PROGPU_NATIVE_COM_CALL CopyPixels(
@@ -5961,12 +5989,128 @@ public:
     }
 
 private:
-    com::result get_bitmap_snapshot_locked(bitmap_snapshot& snapshot) const noexcept
+    void publish_bitmap_copy_locked() noexcept
+    {
+        // Caller checks overflow before its atomic append. No fallible operation
+        // remains; generation invalidates lazy exports and bitmap alias keys.
+        builder_.advance_generation(++generation_);
+        ++draw_count_;
+        if (!begun_) {
+            begun_ = true;
+            ended_ = true;
+            clear_color_ = {};
+            if (pixel_format_.alpha == alpha_mode::ignore) clear_color_.alpha = 1.0F;
+            has_clear_ = true;
+        }
+    }
+
+    com::result copy_from_source(const point_2u* destination, resource* source,
+        const rectangle_u* rectangle) noexcept
+    {
+        if (source == nullptr) return com::invalid_argument;
+        factory* raw_factory = nullptr;
+        source->GetFactory(&raw_factory);
+        com::pointer<factory> source_factory;
+        source_factory.attach(raw_factory);
+        if (source_factory.get() != owner_.get()) return wrong_factory;
+        com::pointer<scene_bitmap_native> native;
+        scene_bitmap_native* raw_native = nullptr;
+        const auto query = source->QueryInterface(scene_bitmap_native_interface_id,
+            reinterpret_cast<void**>(&raw_native));
+        native.attach(raw_native);
+        if (com::failed(query) || !native) return not_implemented;
+        try {
+            // Capture before destination locking: self/alias overlap sees old
+            // immutable bytes, and opposing cross-target copies never hold both
+            // target locks. Only the staged image is moved into the destination.
+            semantic_scene_builder captured(1U);
+            std::uint32_t resource_index = PROGPU_NATIVE_SCENE_NO_INDEX;
+            bitmap_snapshot snapshot{};
+            auto result = native->CaptureForCopy(&captured, &resource_index, &snapshot);
+            if (com::failed(result)) return result;
+            const std::lock_guard lock(mutex_);
+            if (!compatible_) return not_implemented;
+            if (com::failed(failure_)) return failure_;
+            if (scope_depth_ != 0U || clip_depth_ != 0U) return wrong_state;
+            if (dpi_x_ != dpi_y_ || !compatible_history_dpi_valid_) return not_implemented;
+            const auto source_rect = rectangle == nullptr
+                ? rectangle_u{0U, 0U, snapshot.width, snapshot.height} : *rectangle;
+            const auto point = destination == nullptr ? point_2u{0U, 0U} : *destination;
+            if (!valid_rectangle(source_rect) || source_rect.right > snapshot.width ||
+                source_rect.bottom > snapshot.height || point.x > pixel_width_ || point.y > pixel_height_ ||
+                source_rect.right - source_rect.left > pixel_width_ - point.x ||
+                source_rect.bottom - source_rect.top > pixel_height_ - point.y ||
+                snapshot.format.format != pixel_format_.format || snapshot.format.alpha != pixel_format_.alpha)
+                return com::invalid_argument;
+            if (generation_ == std::numeric_limits<std::uint64_t>::max() ||
+                draw_count_ == std::numeric_limits<std::uint32_t>::max()) return failure;
+            const float dips_per_pixel = 96.0F / dpi_x_;
+            progpu_native_scene_image_draw image{};
+            image.image_width = snapshot.width;
+            image.image_height = snapshot.height;
+            image.row_bytes = snapshot.row_bytes;
+            image.flags = image_alpha_flags(snapshot.format.alpha);
+            image.sampling = PROGPU_NATIVE_IMAGE_SAMPLING_NEAREST;
+            image.max_anisotropy = 1U;
+            image.source_rect = {static_cast<float>(source_rect.left), static_cast<float>(source_rect.top),
+                static_cast<float>(source_rect.right - source_rect.left), static_cast<float>(source_rect.bottom - source_rect.top)};
+            image.destination_rect = {point.x * dips_per_pixel, point.y * dips_per_pixel,
+                image.source_rect.width * dips_per_pixel, image.source_rect.height * dips_per_pixel};
+            image.transform = semantic_scene_builder::identity_transform();
+            image.opacity = 1.0F;
+            const bool alpha_only = pixel_format_.format == dxgi_format_a8_unorm;
+            const auto matrix = bitmap_alpha_matrix(snapshot.picture_image);
+            if (alpha_only) image.flags |= PROGPU_NATIVE_SCENE_IMAGE_COLOR_MATRIX;
+            if (!builder_.copy_image_from_builder(std::move(captured), resource_index, image,
+                    alpha_only ? &matrix : nullptr)) return builder_failure();
+            publish_bitmap_copy_locked();
+            return com::ok;
+        } catch (const std::bad_alloc&) {
+            return com::out_of_memory;
+        } catch (...) {
+            return failure;
+        }
+    }
+
+    com::result capture_picture_locked(semantic_scene_builder& destination,
+        std::uint32_t& resource_index, bitmap_snapshot& snapshot, bool for_copy) const noexcept
+    {
+        if (&destination == &builder_) return wrong_state;
+        if (for_copy) {
+            if (com::failed(failure_)) return failure_;
+            if (scope_depth_ != 0U || clip_depth_ != 0U) return render_target_has_layer_or_cliprect;
+        }
+        auto result = get_bitmap_snapshot_locked(snapshot, for_copy);
+        if (com::failed(result)) return result;
+        std::vector<std::byte> active_capture;
+        std::span<const std::byte> bytes;
+        if (!ended_) {
+            // Active content can change without advancing its recording-session
+            // generation. Never publish or reuse the completed-export cache here.
+            if (!builder_.build(active_capture)) return builder_failure();
+            bytes = active_capture;
+        } else {
+            result = ensure_scene_export_locked();
+            if (com::failed(result)) return result;
+            bytes = exported_scene_;
+        }
+        progpu_native_scene_picture_image picture{};
+        picture.struct_size = sizeof(picture);
+        picture.width = pixel_width_;
+        picture.height = pixel_height_;
+        picture.dpi_scale = snapshot.picture_raster_dpi_scale;
+        picture.clear_color = {clear_color_.red, clear_color_.green, clear_color_.blue, clear_color_.alpha};
+        if (pixel_format_.alpha == alpha_mode::ignore) picture.clear_color.a = 1.0F;
+        return destination.add_picture_image(picture, bytes, resource_index)
+            ? com::ok : destination.last_error() == scene_build_error::out_of_memory ? com::out_of_memory : failure;
+    }
+
+    com::result get_bitmap_snapshot_locked(bitmap_snapshot& snapshot, bool allow_active = false) const noexcept
     {
         snapshot = {};
         if (!compatible_) return not_implemented;
         if (dpi_x_ != dpi_y_) return not_implemented;
-        if (!ended_ || com::failed(failure_) || !compatible_history_dpi_valid_) return wrong_state;
+        if (!begun_ || (!ended_ && !allow_active) || com::failed(failure_) || !compatible_history_dpi_valid_) return wrong_state;
         snapshot = {pixel_width_, pixel_height_, pixel_width_ * 4U, pixel_format_,
             bitmap_dpi_x_, bitmap_dpi_y_, generation_, scene_id_, true, dpi_x_ / 96.0F};
         return com::ok;
