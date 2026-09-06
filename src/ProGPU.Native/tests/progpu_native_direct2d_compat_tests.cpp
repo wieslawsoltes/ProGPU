@@ -7647,11 +7647,155 @@ int run_tests()
         target->DrawBitmap(source_bitmap.get(), nullptr, 1.0F, compat::bitmap_interpolation_mode::linear, nullptr);
         if (target->EndDraw(nullptr, nullptr) != compat::wrong_state ||
             source_target->EndDraw(nullptr, nullptr) != com::ok) return 281;
-        source_target->BeginDraw(); // A delta-only scene must not pretend to be a full bitmap.
+        source_target->BeginDraw(); // Empty sessions preserve the complete bitmap.
         if (source_target->EndDraw(nullptr, nullptr) != com::ok) return 281;
         target->BeginDraw();
         target->DrawBitmap(source_bitmap.get(), nullptr, 1.0F, compat::bitmap_interpolation_mode::linear, nullptr);
-        if (target->EndDraw(nullptr, nullptr) != compat::not_implemented) return 281;
+        if (target->EndDraw(nullptr, nullptr) != com::ok) return 281;
+
+        com::pointer<compat::scene_render_target_native> persistent_scene;
+        if (source_target.as(compat::scene_render_target_native_interface_id, persistent_scene) != com::ok)
+            return 282;
+        const compat::rectangle_f persistent_rectangle{1.0F, 1.0F, 7.0F, 5.0F};
+        // More sessions than the nested-picture depth limit: persistence must be
+        // flat retained commands, not one recursive picture per drawing session.
+        for (unsigned int session = 0U; session < 24U; ++session) {
+            source_target->BeginDraw();
+            source_target->FillRectangle(&persistent_rectangle, target_brush.get());
+            if (source_target->EndDraw(nullptr, nullptr) != com::ok) return 282;
+        }
+        compat::scene_render_target_summary persistent_summary{};
+        persistent_scene->GetSummary(&persistent_summary);
+        if (persistent_summary.draw_count != 24U || persistent_summary.has_clear != 1 ||
+            persistent_summary.clear_color.red != first_clear.red ||
+            persistent_summary.clear_color.alpha != first_clear.alpha) return 282;
+        std::vector<std::byte> retained_history(static_cast<std::size_t>(persistent_scene->GetRequiredSceneSize()));
+        std::uint64_t retained_written = 0U;
+        if (persistent_scene->BuildScene(retained_history.data(), retained_history.size(), &retained_written) != com::ok)
+            return 282;
+        const auto* retained_header = reinterpret_cast<const progpu_native_scene_header*>(retained_history.data());
+        if (retained_written != retained_history.size() || retained_header->command_count != 24U) return 282;
+        for (std::uint32_t i = 0U; i < retained_header->resource_count; ++i) {
+            const auto* resource = reinterpret_cast<const progpu_native_scene_resource*>(
+                retained_history.data() + retained_header->resource_offset + i * retained_header->resource_stride);
+            if ((resource->flags & PROGPU_NATIVE_SCENE_IMAGE_PICTURE) != 0U) return 282;
+        }
+        compat::bitmap_render_target* raw_single_session = nullptr;
+        if (target->CreateCompatibleRenderTarget(&compatible_size, &high_dpi_pixels,
+                &source_format, compat::compatible_render_target_options::none, &raw_single_session) != com::ok)
+            return 282;
+        com::pointer<compat::bitmap_render_target> single_session;
+        single_session.attach(raw_single_session);
+        single_session->BeginDraw();
+        single_session->Clear(&first_clear);
+        for (unsigned int i = 0U; i < 24U; ++i)
+            single_session->FillRectangle(&persistent_rectangle, target_brush.get());
+        if (single_session->EndDraw(nullptr, nullptr) != com::ok) return 282;
+        com::pointer<compat::scene_render_target_native> single_scene;
+        if (single_session.as(compat::scene_render_target_native_interface_id, single_scene) != com::ok) return 282;
+        std::vector<std::byte> single_bytes(static_cast<std::size_t>(single_scene->GetRequiredSceneSize()));
+        std::uint64_t single_written = 0U;
+        if (single_scene->BuildScene(single_bytes.data(), single_bytes.size(), &single_written) != com::ok) return 282;
+        const auto* single_header = reinterpret_cast<const progpu_native_scene_header*>(single_bytes.data());
+        if (single_header->command_count != retained_header->command_count ||
+            single_header->resource_count != retained_header->resource_count) return 282;
+        // Compare original single-session and retained multi-session producers:
+        // scene/resource generations differ, command/resource payloads must not.
+        for (std::uint32_t i = 0U; i < retained_header->command_count; ++i) {
+            const auto* multi = reinterpret_cast<const progpu_native_scene_command*>(
+                retained_history.data() + retained_header->command_offset + i * retained_header->command_stride);
+            const auto* one = reinterpret_cast<const progpu_native_scene_command*>(
+                single_bytes.data() + single_header->command_offset + i * single_header->command_stride);
+            if (multi->kind != one->kind || multi->resource_index != one->resource_index ||
+                multi->state_index != one->state_index || multi->payload_size != one->payload_size ||
+                std::memcmp(retained_history.data() + multi->payload_offset,
+                    single_bytes.data() + one->payload_offset, one->payload_size) != 0) return 282;
+        }
+        for (std::uint32_t i = 0U; i < retained_header->resource_count; ++i) {
+            const auto* multi = reinterpret_cast<const progpu_native_scene_resource*>(
+                retained_history.data() + retained_header->resource_offset + i * retained_header->resource_stride);
+            const auto* one = reinterpret_cast<const progpu_native_scene_resource*>(
+                single_bytes.data() + single_header->resource_offset + i * single_header->resource_stride);
+            if (multi->kind != one->kind || multi->flags != one->flags || multi->payload_size != one->payload_size ||
+                multi->auxiliary_size != one->auxiliary_size ||
+                std::memcmp(retained_history.data() + multi->payload_offset,
+                    single_bytes.data() + one->payload_offset, one->payload_size) != 0 ||
+                std::memcmp(retained_history.data() + multi->auxiliary_offset,
+                    single_bytes.data() + one->auxiliary_offset, one->auxiliary_size) != 0) return 282;
+        }
+        target->BeginDraw();
+        target->DrawBitmap(alias.get(), nullptr, 1.0F, compat::bitmap_interpolation_mode::linear, nullptr);
+        if (target->EndDraw(nullptr, nullptr) != com::ok) return 282;
+        std::vector<std::byte> retained_parent(static_cast<std::size_t>(scene_target->GetRequiredSceneSize()));
+        std::uint64_t parent_written = 0U;
+        if (scene_target->BuildScene(retained_parent.data(), retained_parent.size(), &parent_written) != com::ok) return 282;
+        const auto* parent_header = reinterpret_cast<const progpu_native_scene_header*>(retained_parent.data());
+        const auto* parent_image = reinterpret_cast<const progpu_native_scene_resource*>(
+            retained_parent.data() + parent_header->resource_offset);
+        if (parent_image->auxiliary_size != retained_history.size() ||
+            std::memcmp(retained_parent.data() + parent_image->auxiliary_offset,
+                retained_history.data(), retained_history.size()) != 0) return 282;
+
+        // A later full Clear replaces all history, while the already captured
+        // parent retains the old commands and pixels' source metadata.
+        source_target->BeginDraw();
+        source_target->Clear(&second_clear);
+        if (source_target->EndDraw(nullptr, nullptr) != com::ok) return 283;
+        persistent_scene->GetSummary(&persistent_summary);
+        if (persistent_summary.draw_count != 0U || persistent_summary.clear_color.red != 1.0F ||
+            persistent_summary.clear_color.alpha != 0.5F) return 283;
+        source_target->BeginDraw();
+        source_target->FillRectangle(&persistent_rectangle, target_brush.get());
+        source_target->Clear(&first_clear);
+        source_target->FillRectangle(&persistent_rectangle, target_brush.get());
+        source_target->Clear(&second_clear);
+        if (source_target->EndDraw(nullptr, nullptr) != com::ok) return 283;
+        persistent_scene->GetSummary(&persistent_summary);
+        if (persistent_summary.draw_count != 0U || persistent_summary.clear_color.alpha != 0.5F) return 283;
+        std::vector<std::byte> parent_after_clear(retained_parent.size());
+        if (scene_target->BuildScene(parent_after_clear.data(), parent_after_clear.size(), &parent_written) != com::ok ||
+            parent_after_clear != retained_parent) return 283;
+
+        // Bitmap DPI is fixed at target creation; render DPI belongs to the
+        // captured image, not to the bitmap's logical-size view.
+        source_target->SetDpi(144.0F, 144.0F);
+        source_target->BeginDraw();
+        source_target->Clear(&first_clear);
+        source_target->FillRectangle(&persistent_rectangle, target_brush.get());
+        if (source_target->EndDraw(nullptr, nullptr) != com::ok) return 284;
+        compat::bitmap* raw_dpi_bitmap = nullptr;
+        if (source_target->GetBitmap(&raw_dpi_bitmap) != com::ok) return 284;
+        com::pointer<compat::bitmap> dpi_bitmap;
+        dpi_bitmap.attach(raw_dpi_bitmap);
+        float bitmap_dpi_x = 0.0F, bitmap_dpi_y = 0.0F;
+        dpi_bitmap->GetDpi(&bitmap_dpi_x, &bitmap_dpi_y);
+        if (bitmap_dpi_x != 192.0F || bitmap_dpi_y != 192.0F ||
+            dpi_bitmap->GetSize().width != 16.0F || dpi_bitmap->GetSize().height != 12.0F) return 284;
+        target->BeginDraw();
+        target->DrawBitmap(dpi_bitmap.get(), nullptr, 1.0F, compat::bitmap_interpolation_mode::linear, nullptr);
+        if (target->EndDraw(nullptr, nullptr) != com::ok) return 284;
+        std::vector<std::byte> dpi_scene(static_cast<std::size_t>(scene_target->GetRequiredSceneSize()));
+        std::uint64_t dpi_written = 0U;
+        if (scene_target->BuildScene(dpi_scene.data(), dpi_scene.size(), &dpi_written) != com::ok) return 284;
+        const auto* dpi_header = reinterpret_cast<const progpu_native_scene_header*>(dpi_scene.data());
+        const auto* dpi_resource = reinterpret_cast<const progpu_native_scene_resource*>(dpi_scene.data() + dpi_header->resource_offset);
+        const auto* dpi_picture = reinterpret_cast<const progpu_native_scene_picture_image*>(dpi_scene.data() + dpi_resource->payload_offset);
+        const auto* dpi_command = reinterpret_cast<const progpu_native_scene_command*>(dpi_scene.data() + dpi_header->command_offset);
+        const auto* dpi_draw = reinterpret_cast<const progpu_native_scene_image_draw*>(dpi_scene.data() + dpi_command->payload_offset);
+        if (dpi_picture->dpi_scale != 1.5F || dpi_draw->destination_rect.width != 16.0F ||
+            dpi_draw->destination_rect.height != 12.0F) return 284;
+        // Changing raster DPI with old DIP commands cannot silently rescale the
+        // bitmap. It needs an explicit new Clear until physical epochs exist.
+        source_target->SetDpi(96.0F, 96.0F);
+        if (persistent_scene->GetRequiredSceneSize() != 0U) return 285;
+        source_target->BeginDraw();
+        if (source_target->EndDraw(nullptr, nullptr) != compat::not_implemented) return 285;
+        source_target->BeginDraw(); // Fresh target state after the reported error.
+        source_target->FillRectangle(&persistent_rectangle, target_brush.get());
+        if (source_target->EndDraw(nullptr, nullptr) != com::ok) return 285;
+        persistent_scene->GetSummary(&persistent_summary);
+        if (persistent_summary.draw_count != 1U || persistent_summary.has_clear != 1 ||
+            persistent_summary.clear_color.alpha != 0.0F) return 285;
     }
 
     const compat::bitmap_brush_properties bitmap_brush_properties{
@@ -9461,6 +9605,15 @@ int run_tests()
         native_target_brush->Release();
         std::fprintf(stderr,
             "portable Windows ID2D1BitmapRenderTarget EndDraw failed\n");
+        return 233;
+    }
+    native_compatible_target->BeginDraw();
+    const D2D1_RECT_F native_persistent_rectangle{1.0F, 1.0F, 4.0F, 4.0F};
+    native_compatible_target->FillRectangle(&native_persistent_rectangle, native_target_brush);
+    if (FAILED(native_compatible_target->EndDraw())) {
+        native_compatible_target->Release();
+        native_target_brush->Release();
+        std::fprintf(stderr, "portable Windows compatible bitmap persistent session failed\n");
         return 233;
     }
     ID2D1Bitmap* native_compatible_bitmap = nullptr;

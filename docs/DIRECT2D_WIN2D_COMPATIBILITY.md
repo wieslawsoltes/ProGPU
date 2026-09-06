@@ -3874,3 +3874,59 @@ raster DPI (currently rejected), arbitrary provider scenes/external GPU leases,
 render-target copies/readback, broader device-context/Win2D support and full
 runtime/resource-lifetime qualification. This checkpoint does not claim full
 Direct2D render-target parity or readiness to merge without those final gates.
+
+## Implementation-first checkpoint: retained compatible-target drawing sessions
+
+Successful compatible-target `BeginDraw`/`EndDraw` sessions now append to the
+existing semantic builder instead of resetting it. Earlier commands, immutable
+brush/pixel/picture resources and the original clear color remain available to
+later `GetBitmap` captures. Empty sessions preserve content. There is no recursive
+picture wrapper per session: a sequence of sessions produces one flat retained
+command/resource stream. Other render-target types retain their existing
+per-session recording and external-target preservation behavior.
+
+An unscoped compatible-target `Clear` replaces all retained commands/resources,
+including draws earlier in the current session. Multiple full clears in one
+session are supported. Fresh compatible recording starts with transparent black
+(opaque black for ignored alpha). Previously captured parent scenes own their
+bytes and do not change when their source is cleared. Failed/unbalanced sessions
+remain non-exportable; the existing new-session error recovery resets recording
+instead of exposing partially failed history. This does not promise rollback to
+the last successful GPU contents after a drawing error.
+
+The behavioral references are Microsoft's
+[BeginDraw contract](https://learn.microsoft.com/en-us/windows/win32/api/d2d1/nf-d2d1-id2d1rendertarget-begindraw)
+and [GetBitmap contract](https://learn.microsoft.com/en-us/windows/win32/api/d2d1/nf-d2d1-id2d1bitmaprendertarget-getbitmap).
+The latter explicitly separates bitmap creation DPI from subsequent render-target
+DPI. The native target now stores creation DPI immutably, while picture capture
+uses the actual uniform raster DPI. Shared aliases change their logical bitmap
+view without overwriting that source raster scale. A full clear can establish a
+new raster-DPI history. A DPI change with retained DIP geometry is detected and
+rejected for export/EndDraw until Clear, rather than rescaling old pixels.
+Nonuniform raster DPI and mixed-DPI retained epochs still require implementation.
+No Microsoft source implementation was copied; these references supply behavior,
+not code. The algorithm reuses ProGPU's original semantic builder
+`advance_generation`/`reset` and native image capture.
+
+Performance and applicability: retaining a session boundary is O(1), and new
+recording retains its existing command/resource costs. For H total retained
+commands/resources/payload since the last clear, storage and export remain O(H).
+A changed picture currently rasterizes the complete retained history; stable
+native image-page replay reuses its texture. Incremental device-owned target
+backing and bounded GPU history compaction remain required performance work,
+not a completed part of this checkpoint. Existing stream/command/resource limits
+continue to fail closed. No CPU pixel loop/readback or new shader is introduced.
+This is the shared native C++ Direct2D endpoint; managed callers use that endpoint,
+and the independent managed WPF renderer is unchanged. No public wire, C ABI,
+module or generated managed layout changed.
+
+Authored tests compare 24 separate sessions against one session's command and
+resource payloads for RGBA/BGRA/A8, check flat history beyond picture nesting depth,
+empty sessions, unchanged captured parents, full/repeated clears, creation-DPI
+versus raster-DPI metadata, and fail-closed mixed-DPI history. The Windows COM
+case includes a second no-clear drawing session. Native library and portable
+compatibility tests compile. Tests, Windows ABI compilation/execution, GPU image
+parity, performance measurements and CI qualification remain deferred under the
+requested implementation-first sequencing. Delta-session rejection from the
+previous checkpoint is superseded for supported uniform-DPI histories; full
+Direct2D/Win2D, incremental backing, copy/readback and final gates remain open.

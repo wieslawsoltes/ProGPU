@@ -320,6 +320,7 @@ struct bitmap_snapshot final {
     // is reused. Pixel storage continues to use its existing retained lease.
     std::uint64_t scene_id = 0U;
     bool picture_image = false;
+    float picture_raster_dpi_scale = 1.0F;
 };
 
 struct scene_bitmap_native : com::unknown {
@@ -2855,15 +2856,14 @@ public:
     {
         if (snapshot == nullptr) return com::pointer_error;
         *snapshot = {};
-        if (dpi_x_ != dpi_y_) return not_implemented;
+        float raster_dpi_x = 0.0F, raster_dpi_y = 0.0F;
+        target_->GetDpi(&raster_dpi_x, &raster_dpi_y);
+        if (raster_dpi_x != raster_dpi_y) return not_implemented;
         if (scene_->GetRequiredSceneSize() == 0U) return wrong_state;
         scene_render_target_summary summary{};
         scene_->GetSummary(&summary);
-        // Delta-only scenes require persistent target backing before they can be
-        // exported as an independent bitmap. Do not silently discard old pixels.
-        if (summary.has_clear == 0) return not_implemented;
         *snapshot = {pixel_size_.width, pixel_size_.height, pixel_size_.width * 4U,
-            format_, dpi_x_, dpi_y_, summary.generation, summary.scene_id, true};
+            format_, dpi_x_, dpi_y_, summary.generation, summary.scene_id, true, raster_dpi_x / 96.0F};
         return com::ok;
     }
 
@@ -2892,7 +2892,7 @@ public:
             picture.struct_size = sizeof(picture);
             picture.width = pixel_size_.width;
             picture.height = pixel_size_.height;
-            picture.dpi_scale = dpi_x_ / 96.0F;
+            picture.dpi_scale = snapshot->picture_raster_dpi_scale;
             if (summary.has_clear != 0) {
                 picture.clear_color = {summary.clear_color.red, summary.clear_color.green,
                     summary.clear_color.blue, summary.clear_color.alpha};
@@ -3441,6 +3441,8 @@ public:
           pixel_height_(properties.pixel_height),
           dpi_x_(properties.dpi_x),
           dpi_y_(properties.dpi_y),
+          bitmap_dpi_x_(properties.dpi_x),
+          bitmap_dpi_y_(properties.dpi_y),
           pixel_format_(format),
           compatible_(compatible)
     {
@@ -5649,9 +5651,23 @@ public:
             latch(com::invalid_argument);
             return;
         }
-        if (has_clear_ || draw_count_ != 0U) {
+        if ((compatible_ ? scope_depth_ != 0U
+                         : has_clear_ || draw_count_ != 0U)) {
             latch(not_implemented);
             return;
+        }
+        if (compatible_) {
+            // A full-target clear discards retained history, not just this
+            // recording session. Commands still reference immutable resources
+            // until this explicit replacement boundary.
+            if (!builder_.reset(scene_id_, generation_)) {
+                latch(builder_failure());
+                return;
+            }
+            bitmap_resources_.clear();
+            picture_bitmap_sources_.clear();
+            draw_count_ = 0U;
+            compatible_history_dpi_valid_ = true;
         }
         clear_color_ = value;
         has_clear_ = true;
@@ -5664,6 +5680,8 @@ public:
             latch(wrong_state);
             return;
         }
+        const bool preserve_history = compatible_ && begun_ && ended_ &&
+            com::succeeded(failure_) && scope_depth_ == 0U && clip_depth_ == 0U;
         if (begun_) {
             if (generation_ == std::numeric_limits<std::uint64_t>::max()) {
                 failure_ = com::invalid_argument;
@@ -5672,20 +5690,28 @@ public:
             ++generation_;
         }
         release_active_layers();
-        if (!builder_.reset(scene_id_, generation_)) {
+        if (!(preserve_history ? builder_.advance_generation(generation_)
+                               : builder_.reset(scene_id_, generation_))) {
             failure_ = builder_failure();
             return;
         }
-        bitmap_resources_.clear();
-        picture_bitmap_sources_.clear();
-        clear_color_ = {};
-        draw_count_ = 0U;
+        if (!preserve_history) {
+            bitmap_resources_.clear();
+            picture_bitmap_sources_.clear();
+            clear_color_ = {};
+            draw_count_ = 0U;
+            // Native compatible bitmaps own their complete contents. A fresh
+            // recorder starts transparent (opaque black for ignored alpha).
+            if (compatible_ && pixel_format_.alpha == alpha_mode::ignore)
+                clear_color_.alpha = 1.0F;
+            has_clear_ = compatible_;
+            compatible_history_dpi_valid_ = true;
+        }
         clip_depth_ = 0U;
         scope_depth_ = 0U;
         clip_stack_.fill({});
         scope_stack_.fill(scope_none);
         failure_ = com::ok;
-        has_clear_ = false;
         begun_ = true;
         ended_ = false;
     }
@@ -5702,6 +5728,7 @@ public:
         if (scope_depth_ != 0U || clip_depth_ != 0U) {
             latch(wrong_state);
         }
+        if (compatible_ && !compatible_history_dpi_valid_) latch(not_implemented);
         ended_ = true;
         publish_tags(tag1, tag2);
         return failure_;
@@ -5732,8 +5759,8 @@ public:
             }
             pixel_size = {pixel_width_, pixel_height_};
             format = pixel_format_;
-            dpi_x = dpi_x_;
-            dpi_y = dpi_y_;
+            dpi_x = bitmap_dpi_x_;
+            dpi_y = bitmap_dpi_y_;
         }
         auto* created = new (std::nothrow) portable_render_target_bitmap(
             owner_.get(),
@@ -5756,14 +5783,18 @@ public:
     {
         const std::lock_guard lock(mutex_);
         if (dpi_x == 0.0F && dpi_y == 0.0F) {
-            dpi_x_ = 96.0F;
-            dpi_y_ = 96.0F;
-            return;
+            dpi_x = 96.0F;
+            dpi_y = 96.0F;
         }
         if (!valid_dpi(dpi_x, dpi_y)) {
             latch(com::invalid_argument);
             return;
         }
+        // Replaying old DIP commands at a different raster DPI would change
+        // existing pixels. Until mixed-DPI epochs have physical target backing,
+        // require a full Clear to establish a new history at the requested DPI.
+        if (compatible_ && draw_count_ != 0U && (dpi_x != dpi_x_ || dpi_y != dpi_y_))
+            compatible_history_dpi_valid_ = false;
         dpi_x_ = dpi_x;
         dpi_y_ = dpi_y;
     }
@@ -5810,7 +5841,7 @@ public:
         const noexcept override
     {
         const std::lock_guard lock(mutex_);
-        return ended_ && com::succeeded(failure_)
+        return ended_ && com::succeeded(failure_) && (!compatible_ || compatible_history_dpi_valid_)
             ? static_cast<std::uint64_t>(builder_.required_stream_size())
             : 0U;
     }
@@ -5825,7 +5856,7 @@ public:
         }
         *bytes_written = 0U;
         const std::lock_guard lock(mutex_);
-        if (!ended_ || com::failed(failure_)) {
+        if (!ended_ || com::failed(failure_) || (compatible_ && !compatible_history_dpi_valid_)) {
             return wrong_state;
         }
         const std::size_t required = builder_.required_stream_size();
@@ -8450,6 +8481,8 @@ private:
     std::size_t scope_depth_ = 0U;
     float dpi_x_ = 96.0F;
     float dpi_y_ = 96.0F;
+    const float bitmap_dpi_x_ = 96.0F;
+    const float bitmap_dpi_y_ = 96.0F;
     pixel_format pixel_format_{0U, alpha_mode::premultiplied};
     matrix_3x2_f transform_ = identity_transform;
     antialias_mode antialias_mode_ = antialias_mode::per_primitive;
@@ -8462,6 +8495,7 @@ private:
     bool ended_ = false;
     bool has_clear_ = false;
     bool compatible_ = false;
+    bool compatible_history_dpi_valid_ = true;
 };
 
 } // namespace
