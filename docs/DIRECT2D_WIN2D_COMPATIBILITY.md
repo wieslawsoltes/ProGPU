@@ -3993,3 +3993,49 @@ implementation-first checkpoint. SIMD on x86/Wasm, GPU copy-on-write, cache-budg
 eviction, device recovery, platform image parity, performance and CI still require
 final qualification. CPU history compaction, mixed/nonuniform raster DPI,
 render-target copy/readback and full Win2D remain open goal work.
+
+## Implementation-first checkpoint: atomic cached native scene exports
+
+Native scene targets now lazily serialize a completed generation into target-owned
+export storage once. Repeated `GetRequiredSceneSize` calls reuse its length, and
+`BuildScene` copies those immutable bytes directly into caller-owned storage.
+Recording, failed sessions and invalid mixed-DPI histories remain non-exportable;
+a later successful generation replaces the cached bytes on its first export.
+The first size query can therefore allocate/materialize an export and returns zero
+on failure. No pointer into the target-owned cache is exposed to callers.
+
+Compatible targets implement the existing private typed bitmap-source interface.
+`GetBitmap` wrappers delegate metadata/capture to that source rather than separately
+querying DPI, size, summary and serialized bytes. Metadata snapshots are O(1) under
+one target lock. `AddToScene` captures generation, bitmap view, raster DPI, clear
+color and scene bytes under the same lock, then performs one ownership copy from
+the cached export into the destination semantic builder. The temporary full-scene
+vector previously allocated by each bitmap wrapper capture is removed. Shared
+aliases still apply their own DPI/alpha view after that atomic source capture.
+Existing self-target checks run before source locking, and source-to-own-builder
+capture is also rejected explicitly.
+
+This reuses original ProGPU semantic builder serialization, native scene target
+ownership and typed bitmap-source contracts. Public Direct2D/scene interfaces,
+stable C ABI, modules and generated managed records are unchanged. Native and
+managed Direct2D callers share this native endpoint; the independent managed WPF
+renderer is not changed. No reflection, pixel conversion, new scalar pixel loop,
+readback or shader is introduced. Bulk byte ownership copies use the existing
+native byte-copy path.
+
+For H retained scene bytes, the first export after a changed generation still
+costs O(H) time/storage. Warm size/bitmap-metadata queries are O(1); public export
+and capture into a new destination require O(H) copying but no repeated source
+serialization. The target retains one export vector within existing scene-size
+limits; allocation capacity may be reused. This does not implement CPU history
+compaction, delta-only transport, or an O(delta) update boundary, and no measured
+speedup is claimed.
+
+Authored regressions cover repeated exports, caller-buffer mutation independence,
+untouched short-buffer/canary storage, active-session rejection, and clearing a
+previously cached large history. Existing multi-generation, shared-alias, DPI and
+incremental GPU fixtures exercise the same capture path. Native library, portable
+compatibility tests and Direct2D WebGPU test executable compile. Tests, concurrent
+stress/OOM cases, Windows ABI execution, GPU image comparisons, allocation/latency
+measurements and CI qualification remain deferred under implementation-first
+sequencing. The full MIL/DirectX/Direct2D/Win2D goal remains open.
