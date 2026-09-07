@@ -8676,6 +8676,54 @@ nonconstant collapsed segments, precision-limit arc cases, retained preparation
 caching and the broader MIL/DirectX/Direct2D/Win2D scope remain open. This is not
 full transform-collapse or pixel-parity qualification.
 
+## Implementation-first checkpoint: shared mixed-collapse stroke compiler
+
+MIL curved/smooth contour replay now uses the original shared
+`semantic_path_stroke::compile` also used by tile pens and native Direct2D
+render-target adapters. The duplicate MIL tangent, primitive, cap, join and
+dash-run compiler has been removed. MIL still owns typed pen resolution, brush
+mapping, point-only cap policy, command bounds and the ordinary polyline fast
+path. Shared stroke style receives the original cap/gap metadata, drawing
+transform, pen width, clamped miter limit, dash phase and edge flags.
+
+The shared compiler now compacts exact constant line/quadratic/cubic segments
+when a contour also contains moving segments. Constancy checks all active
+control coordinates, not just endpoints, so retracing curves and tiny nonzero
+segments remain. NEON/SSE2 lanes compare four control coordinates with one fixed
+cubic coordinate-pair tail. Arcs are not classified as constant by endpoint
+coincidence. Connectivity is checked before in-place mutation; disconnected
+input is rejected, not repaired. Forced-round outgoing flags are OR-combined
+across removed zero-distance chains, including the closed seam. Entirely
+constant contours retain their caller-owned point-cap policy.
+
+Transformed MIL spines compact their owned segment/join arrays before rebuilding
+polyline points. Direct identity spines containing mixed constant segments use
+the same preparation, so a pretransformed packet and Geometry.Transform replay
+take equivalent paths. Other shared compiler consumers allocate a normalized
+copy only for mixed contours; ordinary contours keep their original spans.
+Compaction is O(S) sequential topology work and O(1) additional storage for
+caller-owned arrays; compiler-owned copies use O(S) temporary storage. Intrinsic
+constancy scanning is O(S), and no new pixel work, shader, readback or submission
+is introduced. Original ProGPU `semantic_path_stroke`, `curve_dash` and MIL
+stroke helpers are the provenance; public C/COM/module and managed contracts
+remain unchanged. No speed claim is made before profiling.
+
+Authored cases compare intrinsic constancy with a scalar oracle over active and
+inactive controls, signed zero, tiny offsets and nonfinite values. They check
+storage-preserving compaction, open/closed smooth metadata, disconnected-input
+transactionality, and primitive output against independently specified compact
+contours for caps, dashes and affine state. MIL path differentials now include
+the projection that collapses a leading line while curves remain. The recently
+authored arc fixture was corrected to assert scaled basis-vector lengths rather
+than incorrectly interpreting center/basis fields as endpoints. Native library,
+MIL and Direct2D compatibility/WebGPU targets compile; runtime tests,
+SIMD/Windows/VM/image/performance/verifier/CI qualification remain deferred.
+
+This addresses exact constant segments, not precision-near-zero pruning or all
+degenerate Direct2D semantics. Forced-round propagation still requires the final
+Windows differential gate. Nested group/other fixed-shape transform ordering,
+retained preparation caching and the wider full-goal scope remain open.
+
 ## Invariants
 
 - No reflection or private managed field scanning in the product bridge.

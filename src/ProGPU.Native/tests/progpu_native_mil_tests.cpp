@@ -1442,6 +1442,97 @@ bool semantic_path_strokes_preserve_curves_and_forced_joins() {
     return true;
 }
 
+bool semantic_path_strokes_compact_constant_segments() {
+    namespace stroke = progpu::native::semantic_path_stroke;
+    const auto line = [](progpu_native_point start, progpu_native_point end) {
+        progpu_native_path_segment segment{};
+        segment.kind = PROGPU_NATIVE_PATH_SEGMENT_LINE;
+        segment.p0 = start;
+        segment.p1 = end;
+        return segment;
+    };
+    const auto constant = [&](progpu_native_point anchor, std::uint32_t kind) {
+        auto segment = line(anchor, anchor);
+        segment.p2 = anchor;
+        segment.p3 = anchor;
+        segment.kind = kind;
+        return segment;
+    };
+    // Scalar oracle checks all active controls, not only the two endpoints.
+    for (const auto kind : {PROGPU_NATIVE_PATH_SEGMENT_LINE, PROGPU_NATIVE_PATH_SEGMENT_QUADRATIC,
+             PROGPU_NATIVE_PATH_SEGMENT_CUBIC}) {
+        for (std::uint32_t coordinate = 0U; coordinate < 8U; ++coordinate) {
+            for (const float value : {0.0F, -0.0F, 0.000001F, 2.0F,
+                     std::numeric_limits<float>::infinity(), std::numeric_limits<float>::quiet_NaN()}) {
+                auto segment = constant({}, kind);
+                const std::array<progpu_native_point*, 4U> points{&segment.p0, &segment.p1, &segment.p2, &segment.p3};
+                auto& point = *points[coordinate / 2U];
+                (coordinate % 2U == 0U ? point.x : point.y) = value;
+                const auto same = [anchor = segment.p0](progpu_native_point item) {
+                    return item.x == anchor.x && item.y == anchor.y;
+                };
+                const bool expected = std::isfinite(segment.p0.x) && std::isfinite(segment.p0.y) &&
+                    same(segment.p1) && (kind == PROGPU_NATIVE_PATH_SEGMENT_LINE || same(segment.p2)) &&
+                    (kind != PROGPU_NATIVE_PATH_SEGMENT_CUBIC || same(segment.p3));
+                PROGPU_REQUIRE(stroke::is_constant_segment(segment) == expected);
+            }
+        }
+    }
+    const std::array anchors{progpu_native_point{0.0F, 0.0F}, progpu_native_point{8.0F, 0.0F},
+        progpu_native_point{8.0F, 8.0F}};
+    for (const bool closed : {false, true}) {
+        const std::vector<progpu_native_path_segment> reference_segments = closed
+            ? std::vector{line(anchors[0], anchors[1]), line(anchors[1], anchors[2]), line(anchors[2], anchors[0])}
+            : std::vector{line(anchors[0], anchors[1]), line(anchors[1], anchors[2])};
+        std::vector<progpu_native_path_segment> mixed{constant(anchors[0], PROGPU_NATIVE_PATH_SEGMENT_LINE),
+            reference_segments[0], constant(anchors[1], PROGPU_NATIVE_PATH_SEGMENT_QUADRATIC), reference_segments[1]};
+        if (closed) mixed.push_back(reference_segments.back());
+        mixed.push_back(constant(closed ? anchors[0] : anchors[2], PROGPU_NATIVE_PATH_SEGMENT_CUBIC));
+        std::vector<std::uint8_t> flags(mixed.size());
+        flags[0U] = 1U;
+        flags[2U] = 1U;
+        std::vector<std::uint8_t> expected_flags(reference_segments.size());
+        expected_flags[0U] = 1U;
+        if (closed) expected_flags.back() = 1U;
+        auto compacted = mixed;
+        auto compacted_flags = flags;
+        const auto* storage = compacted.data();
+        const auto capacity = compacted.capacity();
+        std::size_t count = 99U;
+        PROGPU_REQUIRE(stroke::compact_constant_segments(compacted, compacted_flags, closed, count) == stroke::result::success);
+        PROGPU_REQUIRE(count == reference_segments.size() && storage == compacted.data() && capacity == compacted.capacity());
+        PROGPU_REQUIRE(std::equal(expected_flags.begin(), expected_flags.end(), compacted_flags.begin()));
+        for (std::size_t index = 0U; index < count; ++index) {
+            PROGPU_REQUIRE(compacted[index].p0.x == reference_segments[index].p0.x && compacted[index].p0.y == reference_segments[index].p0.y);
+            PROGPU_REQUIRE(compacted[index].p1.x == reference_segments[index].p1.x && compacted[index].p1.y == reference_segments[index].p1.y);
+        }
+        for (const bool dashed : {false, true}) {
+            for (std::uint32_t cap = 0U; cap < 4U; ++cap) {
+                stroke::style style{{0.75F, 0.25F, -0.5F, 1.0F, 12.0F, 4.0F},
+                    2.0F, 4.0F, -0.25, cap, (cap + 1U) % 4U, cap, PROGPU_NATIVE_STROKE_JOIN_BEVEL, 0U};
+                const std::array intervals{1.0, 1.0};
+                progpu::native::mil::curve_dash::run_buffer scratch;
+                std::vector<progpu_native_geometry_primitive> actual, expected;
+                std::vector<std::uint32_t> actual_brushes, expected_brushes;
+                const auto pattern = dashed ? std::span<const double>(intervals) : std::span<const double>{};
+                PROGPU_REQUIRE(stroke::compile(mixed, flags, closed, pattern, style, 7U, scratch, actual, actual_brushes) == stroke::result::success);
+                PROGPU_REQUIRE(stroke::compile(reference_segments, expected_flags, closed, pattern, style, 7U, scratch, expected, expected_brushes) == stroke::result::success);
+                PROGPU_REQUIRE(actual.size() == expected.size() && actual_brushes == expected_brushes);
+                PROGPU_REQUIRE(std::memcmp(actual.data(), expected.data(), actual.size() * sizeof(actual[0])) == 0);
+            }
+        }
+        // A disconnected constant segment must not be silently removed.
+        mixed[0U] = constant({2.0F, 3.0F}, PROGPU_NATIVE_PATH_SEGMENT_LINE);
+        const auto original = mixed;
+        const auto original_flags = flags;
+        count = 99U;
+        PROGPU_REQUIRE(stroke::compact_constant_segments(mixed, flags, closed, count) == stroke::result::invalid);
+        PROGPU_REQUIRE(count == 99U && flags == original_flags);
+        PROGPU_REQUIRE(std::memcmp(mixed.data(), original.data(), mixed.size() * sizeof(mixed[0])) == 0);
+    }
+    return true;
+}
+
 bool channel_retains_visual_target_graph() {
     constexpr std::uint32_t visual_type = 39U;
     constexpr std::uint32_t render_data_type = 43U;
@@ -9223,8 +9314,9 @@ bool retained_line_path_stroke_preserves_closure_gaps_and_pen_state() {
         PROGPU_REQUIRE(primitive.transform.m22 == 1.0F);
         PROGPU_REQUIRE(primitive.transform.m31 == 0.0F);
         PROGPU_REQUIRE(primitive.transform.m32 == 0.0F);
-        PROGPU_REQUIRE(primitive.p0.x == 3.5F && primitive.p0.y == 6.0F);
-        PROGPU_REQUIRE(primitive.p1.x == 15.5F && primitive.p1.y == 15.0F);
+        // Arc primitives encode center/basis vectors, not endpoint pairs.
+        PROGPU_REQUIRE(std::abs(std::hypot(primitive.p1.x, primitive.p1.y) - 12.0F) < 0.0001F);
+        PROGPU_REQUIRE(std::abs(std::hypot(primitive.p2.x, primitive.p2.y) - 9.0F) < 0.0001F);
         PROGPU_REQUIRE(primitive.p3.y > 0.0F);
         found_arc_stroke = true;
     }
@@ -17428,10 +17520,11 @@ bool path_geometry_transform_precedes_pen_widening() {
     const std::uint32_t gap = 0x04U, smooth_curve = 0x28U;
     std::memcpy(cases[3U].figures.data() + 92U, &gap, sizeof(gap));
     std::memcpy(cases[3U].figures.data() + 124U, &smooth_curve, sizeof(smooth_curve));
-    const std::array<std::array<double, 6U>, 5U> matrices{{
+    const std::array<std::array<double, 6U>, 6U> matrices{{
         {2.0, 0.0, 0.0, 3.0, 4.0, 8.0},
         {-1.0, 0.5, 0.25, 1.0, 40.0, 8.0},
         {1.0, 0.0, 0.0, 0.0, 0.0, 24.0},
+        {0.0, 0.0, 0.0, 1.0, 24.0, 0.0},
         {0.0, 0.0, 0.0, 0.0, 24.0, 32.0},
         {0.0, 1.0, -1.0, 0.0, 40.0, 0.0}}};
     const std::array sources{mil_brush_fixture_source::bitmap,
@@ -20497,6 +20590,7 @@ int main() {
     PROGPU_REQUIRE(curve_dashes_match_managed_reference_contracts());
     PROGPU_REQUIRE(
         semantic_path_strokes_preserve_curves_and_forced_joins());
+    PROGPU_REQUIRE(semantic_path_strokes_compact_constant_segments());
     PROGPU_REQUIRE(channel_retains_visual_target_graph());
     PROGPU_REQUIRE(canonical_hwnd_target_uses_portable_surface_state());
     PROGPU_REQUIRE(failed_batches_roll_back());

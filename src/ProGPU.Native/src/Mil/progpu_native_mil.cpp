@@ -11626,6 +11626,14 @@ struct channel::implementation {
                     start = cubic.p3;
                 }
             }
+            if (native::semantic_path_stroke::has_mixed_constant_segments(contour.segments)) {
+                std::size_t count = 0U;
+                if (native::semantic_path_stroke::compact_constant_segments(contour.segments,
+                        contour.smooth_joins, contour.closed, count) != native::semantic_path_stroke::result::success)
+                    return status::invalid_graph;
+                contour.segments.resize(count);
+                contour.smooth_joins.resize(count);
+            }
             if (contour.segments.empty()) {
                 contour.points = original.points;
                 std::size_t index = 0U;
@@ -13080,415 +13088,39 @@ struct channel::implementation {
                         stroke_bounds)) {
                     return status::invalid_graph;
                 }
-                if (has_curves || has_smooth_joins) {
-                    bool has_dashed_runs = false;
+                if (has_curves || has_smooth_joins ||
+                    native::semantic_path_stroke::has_mixed_constant_segments(contour.segments)) {
+                    std::span<const double> intervals;
+                    double offset = 0.0;
                     if (pen.dash_style_handle != 0U) {
-                        const auto dash = dash_styles.find(
-                            pen.dash_style_handle);
-                        if (dash == dash_styles.end()) {
-                            return status::invalid_handle;
-                        }
-                        if (!dash->second.intervals.empty()) {
-                            double dash_offset = 0.0;
-                            const status dash_status = resolve_dash_offset(
-                                pen.dash_style_handle,
-                                dash_offset);
-                            if (dash_status != status::success) {
-                                return dash_status;
-                            }
-                            const auto dash_result =
-                                curve_dash::try_create_runs(
-                                    contour.segments,
-                                    contour.smooth_joins,
-                                    contour.closed,
-                                    dash->second.intervals,
-                                    dash_offset,
-                                    static_cast<float>(pen.thickness),
-                                    dashed_runs);
-                            if (dash_result ==
-                                curve_dash::result::capacity_exceeded) {
-                                return status::capacity_exceeded;
-                            }
-                            if (dash_result != curve_dash::result::success) {
-                                return status::unsupported_command;
-                            }
-                            has_dashed_runs = true;
+                        const auto dash = dash_styles.find(pen.dash_style_handle);
+                        if (dash == dash_styles.end()) return status::invalid_handle;
+                        intervals = dash->second.intervals;
+                        if (!intervals.empty()) {
+                            const status resolved = resolve_dash_offset(pen.dash_style_handle, offset);
+                            if (resolved != status::success) return resolved;
                         }
                     }
-                    const std::uint32_t start_cap =
-                        contour.start_uses_dash_cap
-                            ? pen.dash_cap
-                            : pen.start_line_cap;
-                    const std::uint32_t end_cap =
-                        contour.end_uses_dash_cap
-                            ? pen.dash_cap
-                            : pen.end_line_cap;
-                    const auto segment_end = [](
-                        const progpu_native_path_segment& segment) noexcept {
-                        return segment.kind ==
-                                PROGPU_NATIVE_PATH_SEGMENT_QUADRATIC
-                            ? segment.p2
-                            : segment.kind ==
-                                    PROGPU_NATIVE_PATH_SEGMENT_CUBIC
-                                ? segment.p3
-                                : segment.p1;
-                    };
-                    const auto subtract = [](
-                        progpu_native_point first,
-                        progpu_native_point second) noexcept {
-                        return progpu_native_point{
-                            first.x - second.x,
-                            first.y - second.y};
-                    };
-                    const auto nonzero = [](progpu_native_point value) noexcept {
-                        return value.x != 0.0F || value.y != 0.0F;
-                    };
-                    const auto try_tangent = [
-                        &subtract,
-                        &nonzero](
-                        const progpu_native_path_segment& segment,
-                        bool at_start,
-                        progpu_native_point& tangent) noexcept {
-                        switch (segment.kind) {
-                        case PROGPU_NATIVE_PATH_SEGMENT_LINE:
-                            tangent = subtract(segment.p1, segment.p0);
-                            return nonzero(tangent);
-                        case PROGPU_NATIVE_PATH_SEGMENT_QUADRATIC:
-                            tangent = at_start
-                                ? subtract(segment.p1, segment.p0)
-                                : subtract(segment.p2, segment.p1);
-                            if (!nonzero(tangent)) {
-                                tangent = subtract(segment.p2, segment.p0);
-                            }
-                            return nonzero(tangent);
-                        case PROGPU_NATIVE_PATH_SEGMENT_CUBIC: {
-                            const std::array candidates = at_start
-                                ? std::array{
-                                      subtract(segment.p1, segment.p0),
-                                      subtract(segment.p2, segment.p0),
-                                      subtract(segment.p3, segment.p0)}
-                                : std::array{
-                                      subtract(segment.p3, segment.p2),
-                                      subtract(segment.p3, segment.p1),
-                                      subtract(segment.p3, segment.p0)};
-                            for (const auto candidate : candidates) {
-                                if (nonzero(candidate)) {
-                                    tangent = candidate;
-                                    return true;
-                                }
-                            }
-                            return false;
-                        }
-                        case PROGPU_NATIVE_PATH_SEGMENT_ARC: {
-                            const float theta =
-                                std::bit_cast<float>(segment.pad0) +
-                                (at_start
-                                     ? 0.0F
-                                     : std::bit_cast<float>(segment.pad1));
-                            const float direction =
-                                std::bit_cast<float>(segment.pad1) < 0.0F
-                                ? -1.0F
-                                : 1.0F;
-                            const float rotation =
-                                std::bit_cast<float>(segment.pad2);
-                            const float cosine_rotation = std::cos(rotation);
-                            const float sine_rotation = std::sin(rotation);
-                            const progpu_native_point axis_x{
-                                segment.p3.x * cosine_rotation,
-                                segment.p3.x * sine_rotation};
-                            const progpu_native_point axis_y{
-                                -segment.p3.y * sine_rotation,
-                                segment.p3.y * cosine_rotation};
-                            tangent = {
-                                direction *
-                                    (-axis_x.x * std::sin(theta) +
-                                     axis_y.x * std::cos(theta)),
-                                direction *
-                                    (-axis_x.y * std::sin(theta) +
-                                     axis_y.y * std::cos(theta))};
-                            return nonzero(tangent);
-                        }
-                        default:
-                            return false;
-                        }
-                    };
-                    const auto make_primitive = [
-                        &native_local_transform,
-                        &pen,
-                        &current](
-                        const progpu_native_path_segment& segment,
-                        progpu_native_geometry_primitive& primitive) noexcept {
-                        primitive = {};
-                        primitive.flags = current.edge_aliased
-                            ? static_cast<std::uint32_t>(
-                                PROGPU_NATIVE_PRIMITIVE_FLAG_EDGE_ALIASED)
-                            : 0U;
-                        primitive.stroke_thickness =
-                            static_cast<float>(pen.thickness);
-                        primitive.color = {1.0F, 1.0F, 1.0F, 1.0F};
-                        primitive.transform = native_local_transform;
-                        switch (segment.kind) {
-                        case PROGPU_NATIVE_PATH_SEGMENT_LINE:
-                            primitive.kind = PROGPU_NATIVE_GEOMETRY_LINE;
-                            primitive.p0 = segment.p0;
-                            primitive.p1 = segment.p1;
-                            return true;
-                        case PROGPU_NATIVE_PATH_SEGMENT_QUADRATIC:
-                            primitive.kind =
-                                PROGPU_NATIVE_GEOMETRY_QUADRATIC_BEZIER;
-                            primitive.p0 = segment.p0;
-                            primitive.p1 = segment.p1;
-                            primitive.p2 = segment.p2;
-                            return true;
-                        case PROGPU_NATIVE_PATH_SEGMENT_CUBIC:
-                            primitive.kind =
-                                PROGPU_NATIVE_GEOMETRY_CUBIC_BEZIER;
-                            primitive.p0 = segment.p0;
-                            primitive.p1 = segment.p1;
-                            primitive.p2 = segment.p2;
-                            primitive.p3 = segment.p3;
-                            return true;
-                        case PROGPU_NATIVE_PATH_SEGMENT_ARC: {
-                            primitive.kind = PROGPU_NATIVE_GEOMETRY_ARC;
-                            primitive.p0 = segment.p2;
-                            const float rotation =
-                                std::bit_cast<float>(segment.pad2);
-                            const float cosine_rotation = std::cos(rotation);
-                            const float sine_rotation = std::sin(rotation);
-                            primitive.p1 = {
-                                segment.p3.x * cosine_rotation,
-                                segment.p3.x * sine_rotation};
-                            primitive.p2 = {
-                                -segment.p3.y * sine_rotation,
-                                segment.p3.y * cosine_rotation};
-                            primitive.p3 = {
-                                std::bit_cast<float>(segment.pad0),
-                                std::bit_cast<float>(segment.pad1)};
-                            return true;
-                        }
-                        default:
-                            return false;
-                        }
-                    };
+                    const native::semantic_path_stroke::style stroke{
+                        native_local_transform, static_cast<float>(pen.thickness),
+                        static_cast<float>(std::max(1.0, pen.miter_limit)), offset,
+                        contour.start_uses_dash_cap ? pen.dash_cap : pen.start_line_cap,
+                        contour.end_uses_dash_cap ? pen.dash_cap : pen.end_line_cap,
+                        pen.dash_cap, pen.line_join,
+                        current.edge_aliased ? static_cast<std::uint32_t>(
+                            PROGPU_NATIVE_PRIMITIVE_FLAG_EDGE_ALIASED) : 0U};
                     std::vector<progpu_native_geometry_primitive> primitives;
                     std::vector<std::uint32_t> brushes;
                     primitives.reserve(contour.segments.size() * 2U + 2U);
                     brushes.reserve(contour.segments.size() * 2U + 2U);
-                    const auto append_cap = [
-                        &primitives,
-                        &brushes,
-                        &try_tangent,
-                        &segment_end,
-                        &native_local_transform,
-                        &pen,
-                        brush_index,
-                        &current](
-                        const progpu_native_path_segment& segment,
-                        std::uint32_t cap,
-                        bool at_start) {
-                        if (cap == PROGPU_NATIVE_STROKE_CAP_FLAT) {
-                            return true;
-                        }
-                        progpu_native_point tangent{};
-                        if (!try_tangent(segment, at_start, tangent)) {
-                            return false;
-                        }
-                        progpu_native_geometry_primitive primitive{};
-                        primitive.kind = PROGPU_NATIVE_GEOMETRY_PATH_CAP;
-                        primitive.flags =
-                            (current.edge_aliased
-                                ? static_cast<std::uint32_t>(
-                                    PROGPU_NATIVE_PRIMITIVE_FLAG_EDGE_ALIASED)
-                                : 0U) |
-                            (cap <<
-                                PROGPU_NATIVE_PRIMITIVE_START_CAP_SHIFT);
-                        primitive.p0 = at_start ? segment.p0 : segment_end(segment);
-                        primitive.p1 = tangent;
-                        primitive.p2.x = at_start ? 1.0F : 0.0F;
-                        primitive.stroke_thickness =
-                            static_cast<float>(pen.thickness);
-                        primitive.color = {1.0F, 1.0F, 1.0F, 1.0F};
-                        primitive.transform = native_local_transform;
-                        primitives.push_back(primitive);
-                        brushes.push_back(brush_index);
-                        return true;
-                    };
-                    const auto append_join = [
-                        &primitives,
-                        &brushes,
-                        &try_tangent,
-                        &segment_end,
-                        &native_local_transform,
-                        &pen,
-                        brush_index,
-                        &current](
-                        const progpu_native_path_segment& incoming,
-                        const progpu_native_path_segment& outgoing,
-                        bool smooth_join) {
-                        const auto join_point = segment_end(incoming);
-                        if (join_point.x != outgoing.p0.x ||
-                            join_point.y != outgoing.p0.y) {
-                            return false;
-                        }
-                        progpu_native_point incoming_tangent{};
-                        progpu_native_point outgoing_tangent{};
-                        if (!try_tangent(
-                                incoming,
-                                false,
-                                incoming_tangent) ||
-                            !try_tangent(
-                                outgoing,
-                                true,
-                                outgoing_tangent)) {
-                            return false;
-                        }
-                        progpu_native_geometry_primitive join{};
-                        join.kind = PROGPU_NATIVE_GEOMETRY_PATH_JOIN;
-                        join.flags =
-                            (current.edge_aliased
-                                ? static_cast<std::uint32_t>(
-                                    PROGPU_NATIVE_PRIMITIVE_FLAG_EDGE_ALIASED)
-                                : 0U) |
-                            ((smooth_join
-                                  ? static_cast<std::uint32_t>(
-                                      PROGPU_NATIVE_STROKE_JOIN_ROUND)
-                                  : pen.line_join) <<
-                                PROGPU_NATIVE_PRIMITIVE_START_CAP_SHIFT);
-                        join.p0 = join_point;
-                        join.p1 = incoming_tangent;
-                        join.p2 = outgoing_tangent;
-                        join.p3.x = static_cast<float>(pen.miter_limit);
-                        join.stroke_thickness =
-                            static_cast<float>(pen.thickness);
-                        join.color = {1.0F, 1.0F, 1.0F, 1.0F};
-                        join.transform = native_local_transform;
-                        primitives.push_back(join);
-                        brushes.push_back(brush_index);
-                        return true;
-                    };
-                    const auto append_run = [
-                        &append_cap,
-                        &append_join,
-                        &make_primitive,
-                        &primitives,
-                        &brushes,
-                        brush_index](
-                        std::span<const progpu_native_path_segment> segments,
-                        std::span<const std::uint8_t> smooth_joins,
-                        bool closed,
-                        bool closing_smooth_join,
-                        std::uint32_t run_start_cap,
-                        std::uint32_t run_end_cap) {
-                        if (segments.empty() ||
-                            smooth_joins.size() + 1U != segments.size()) {
-                            return false;
-                        }
-                        if (!closed && !append_cap(
-                                segments.front(), run_start_cap, true)) {
-                            return false;
-                        }
-                        for (std::size_t segment_index = 0U;
-                             segment_index < segments.size();
-                             ++segment_index) {
-                            if (segment_index != 0U &&
-                                !append_join(
-                                    segments[segment_index - 1U],
-                                    segments[segment_index],
-                                    smooth_joins[segment_index - 1U] != 0U)) {
-                                return false;
-                            }
-                            progpu_native_geometry_primitive primitive{};
-                            if (!make_primitive(
-                                    segments[segment_index], primitive)) {
-                                return false;
-                            }
-                            primitives.push_back(primitive);
-                            brushes.push_back(brush_index);
-                        }
-                        if (closed && !append_join(
-                                segments.back(),
-                                segments.front(),
-                                closing_smooth_join)) {
-                            return false;
-                        }
-                        return closed || append_cap(
-                            segments.back(), run_end_cap, false);
-                    };
-                    if (has_dashed_runs) {
-                        for (const auto& run : dashed_runs.runs) {
-                            const std::uint32_t run_start_cap =
-                                run.starts_at_source_start
-                                    ? start_cap
-                                    : pen.dash_cap;
-                            const std::uint32_t run_end_cap =
-                                run.ends_at_source_end
-                                    ? end_cap
-                                    : pen.dash_cap;
-                            if (!append_run(
-                                    dashed_runs.segments_for(run),
-                                    dashed_runs.smooth_joins_for(run),
-                                    run.closed,
-                                    run.closing_smooth_join,
-                                    run_start_cap,
-                                    run_end_cap)) {
-                                return status::unsupported_command;
-                            }
-                        }
-                        if (dashed_runs.terminal_visible_point) {
-                            progpu_native_point tangent{};
-                            if (!try_tangent(
-                                    contour.segments.back(),
-                                    false,
-                                    tangent)) {
-                                return status::unsupported_command;
-                            }
-                            const progpu_native_point endpoint =
-                                segment_end(contour.segments.back());
-                            progpu_native_path_segment terminal_start{};
-                            terminal_start.kind =
-                                PROGPU_NATIVE_PATH_SEGMENT_LINE;
-                            terminal_start.p0 = endpoint;
-                            terminal_start.p1 = {
-                                endpoint.x + tangent.x,
-                                endpoint.y + tangent.y};
-                            progpu_native_path_segment terminal_end{};
-                            terminal_end.kind =
-                                PROGPU_NATIVE_PATH_SEGMENT_LINE;
-                            terminal_end.p0 = {
-                                endpoint.x - tangent.x,
-                                endpoint.y - tangent.y};
-                            terminal_end.p1 = endpoint;
-                            if (!append_cap(
-                                    terminal_start,
-                                    pen.dash_cap,
-                                    true) ||
-                                !append_cap(
-                                    terminal_end,
-                                    end_cap,
-                                    false)) {
-                                return status::unsupported_command;
-                            }
-                        }
-                    } else if (!append_run(
-                            contour.segments,
-                            std::span<const std::uint8_t>(
-                                contour.smooth_joins.data(),
-                                contour.smooth_joins.size() - 1U),
-                            contour.closed,
-                            contour.smooth_joins.back() != 0U,
-                            start_cap,
-                            end_cap)) {
-                        return status::unsupported_command;
-                    }
-                    if (primitives.empty()) {
-                        continue;
-                    }
-                    if (!builder.draw_geometry(
-                            primitives,
-                            brushes,
-                            stroke_bounds)) {
+                    const auto compiled = native::semantic_path_stroke::compile(
+                        contour.segments, contour.smooth_joins, contour.closed,
+                        intervals, stroke, brush_index, dashed_runs, primitives, brushes);
+                    if (compiled != native::semantic_path_stroke::result::success)
+                        return compiled == native::semantic_path_stroke::result::capacity_exceeded
+                            ? status::capacity_exceeded : status::unsupported_command;
+                    if (!primitives.empty() && !builder.draw_geometry(primitives, brushes, stroke_bounds))
                         return status::invalid_graph;
-                    }
                     continue;
                 }
                 const status stroke_status = append_polyline_stroke(
@@ -17985,11 +17617,13 @@ struct channel::implementation {
                         const bool transform_spine = local_transform.m11 != 1.0 || local_transform.m12 != 0.0 ||
                             local_transform.m21 != 0.0 || local_transform.m22 != 1.0 ||
                             local_transform.m31 != 0.0 || local_transform.m32 != 0.0;
-                        if (transform_spine) {
+                        const bool normalize_spine = transform_spine || std::ranges::any_of(source.stroke_contours,
+                            [](const auto& contour) { return native::semantic_path_stroke::has_mixed_constant_segments(contour.segments); });
+                        if (normalize_spine) {
                             const status mapped = transform_path_stroke_spine(source, local_transform, transformed_spine);
                             if (mapped != status::success) return mapped;
                         }
-                        const auto& geometry = transform_spine ? transformed_spine : source;
+                        const auto& geometry = normalize_spine ? transformed_spine : source;
                         brush_use_state spatial_use{};
                         const bool spatial = gradient_brushes.contains(pen.brush_handle) || tile_brushes.contains(pen.brush_handle);
                         if (spatial) {
