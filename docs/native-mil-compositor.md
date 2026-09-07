@@ -8868,6 +8868,49 @@ differentials, benchmarks, verifiers and CI qualification remain unexecuted by
 the implementation-first request. Coverage source digest was regenerated; no
 full MIL/DirectX/Direct2D/Win2D completion or speed claim is made.
 
+## Implementation-first checkpoint: prepared DrawingImage stroke bounds
+
+`resolve_path_stroke_bounds` now shares `transform_path_stroke_spine` with MIL
+replay instead of creating a second native COM path and calling Simplify with a
+separately float-converted geometry matrix. Geometry and ancestor matrices are
+composed before the original paired-double intrinsic mapping. This keeps source
+bounds on the same analytic arc preparation, full-ellipse rank-reduction and
+mixed constant-segment compaction rules as replay. Identity paths without mixed
+constant segments continue to borrow the source contour storage.
+
+DrawingImage positive rectangle/rounded-rectangle/ellipse resources use this
+prepared path route when Geometry.Transform collapses their area, as well as for
+existing dashed bounds. Noncollapsed solid fixed shapes retain their analytic
+bounds fast paths. Zero-size sources retain the rigid pen-frame adapter from the
+preceding checkpoint. Direct solid line source bounds now use the shared paired
+double mapper instead of four duplicated scalar affine expressions. A zero-area
+world transform returns empty stroke bounds after resource/style validation.
+
+Original ProGPU native MIL preparation, native Direct2D widening and shared
+semantic stroke compaction are the implementation provenance. There is no new
+shader, raster algorithm, readback, public C/COM/module surface or managed
+workaround. Transformation preparation is O(P) time/storage for P segments and
+uses NEON/SSE2 coordinate pairs; constant-contour classification and topology
+traversal retain their existing dependent control flow. The extra COM transformed
+path/sink per contour is removed, but prepared vectors and native widening
+objects still allocate during compilation. Retained preparation/bounds caching
+and measured performance remain open; no speed improvement is claimed.
+
+Managed applicability is the same native-MIL adapter boundary documented above:
+portable WPF conversion already materializes geometry transforms, and managed
+Direct2D Widen stays provider-backed. No shared shader or public provider Widen
+semantics change. Matched managed/native degenerate output still needs final
+qualification rather than assuming native compilation proves equivalent output.
+
+Authored DrawingImage fixtures compare hollow quadratic source geometry under
+scale, reflection/shear and rank reduction against independently scalar-mapped
+wire coordinates, with solid, gradient and tiled dashed/non-dashed pens. Scalar
+capsule-bound cases now include positive ellipses projected to either axis or a
+point, with the transform on a leaf or group ancestor. The native library and
+MIL/Direct2D compatibility/WebGPU targets compile. Runtime tests, VM/images,
+SIMD differentials, benchmarks, verifiers and CI qualification remain deferred;
+the broader MIL/DirectX/Direct2D/Win2D goal remains open.
+
 ## Invariants
 
 - No reflection or private managed field scanning in the product bridge.

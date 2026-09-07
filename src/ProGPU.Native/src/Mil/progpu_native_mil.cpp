@@ -11747,17 +11747,28 @@ struct channel::implementation {
                 if (resolved != status::success) return resolved;
             }
             local = compose_affine(local, parent_geometry_transform);
-            progpu_native_affine_2d native_local{}, native_world{};
-            if (!try_to_native_affine(local, native_local) || !try_to_native_affine(world, native_world) ||
+            progpu_native_affine_2d native_world{};
+            if (!try_to_native_affine(world, native_world) ||
                 !finite_double_as_float(pen.thickness) || !finite_double_as_float(pen.miter_limit)) {
                 return status::unsupported_command;
             }
-            const d2d::matrix_3x2_f geometry_matrix{native_local.m11, native_local.m12,
-                native_local.m21, native_local.m22, native_local.m31, native_local.m32};
             const d2d::matrix_3x2_f world_matrix{native_world.m11, native_world.m12,
                 native_world.m21, native_world.m22, native_world.m31, native_world.m32};
             const bool transform_spine = local.m11 != 1.0 || local.m12 != 0.0 ||
                 local.m21 != 0.0 || local.m22 != 1.0 || local.m31 != 0.0 || local.m32 != 0.0;
+            const bool prepare_spine = transform_spine || std::any_of(source.stroke_contours.begin(), source.stroke_contours.end(),
+                [](const auto& contour) { return native::semantic_path_stroke::has_mixed_constant_segments(contour.segments); });
+            path_geometry_state prepared{};
+            const path_geometry_state* stroke_spine = &source;
+            if (prepare_spine) {
+                // Use the same analytic/intrinsic geometry preparation as MIL
+                // replay, including full-ellipse rank reduction and partial
+                // constant-segment compaction. Do not independently Simplify
+                // through a float COM matrix before widening source bounds.
+                const status mapped = transform_path_stroke_spine(source, local, prepared);
+                if (mapped != status::success) return mapped;
+                stroke_spine = &prepared;
+            }
             // Absolute 0.25 world-unit approximation, with the same WPF default
             // tolerance and a conservative matrix norm for post-widen scaling.
             const double scale = std::hypot(std::hypot(world.m11, world.m12),
@@ -11788,31 +11799,18 @@ struct channel::implementation {
                 for (; index < intervals.size(); ++index) dashes[index] = static_cast<float>(intervals[index]);
             }
             if (!finite_double_as_float(dash_offset)) return status::unsupported_command;
+            if (affine_has_zero_area(world)) return status::success;
             com::pointer<d2d::factory> factory;
             auto hr = d2d::create_factory(factory.put());
             if (com::failed(hr)) return convert(hr);
             bool has_bounds = false;
             double left = 0.0, top = 0.0, right = 0.0, bottom = 0.0;
-            for (const auto& contour : source.stroke_contours) {
+            for (const auto& contour : stroke_spine->stroke_contours) {
                 if (contour.segments.empty()) continue;
                 com::pointer<d2d::path_geometry> path;
                 hr = d2d::detail::create_native_stroke_geometry(factory.get(), contour.segments,
                     contour.smooth_joins, contour.closed, path.put());
                 if (com::failed(hr)) return convert(hr);
-                if (transform_spine) {
-                    com::pointer<d2d::path_geometry> transformed;
-                    hr = factory->CreatePathGeometry(transformed.put());
-                    if (com::failed(hr)) return convert(hr);
-                    com::pointer<d2d::geometry_sink> sink;
-                    hr = transformed->Open(sink.put());
-                    if (com::failed(hr)) return convert(hr);
-                    hr = path->Simplify(d2d::geometry_simplification_option::cubics_and_lines,
-                        &geometry_matrix, tolerance, sink.get());
-                    if (com::failed(hr)) return convert(hr);
-                    hr = sink->Close();
-                    if (com::failed(hr)) return convert(hr);
-                    path = std::move(transformed);
-                }
                 d2d::stroke_style_properties properties{
                     static_cast<d2d::cap_style>(contour.start_uses_dash_cap ? pen.dash_cap : pen.start_line_cap),
                     static_cast<d2d::cap_style>(contour.end_uses_dash_cap ? pen.dash_cap : pen.end_line_cap),
@@ -14368,47 +14366,43 @@ struct channel::implementation {
                 if (geometry_status != status::success) {
                     return geometry_status;
                 }
+                affine_2d_double geometry_transform{};
+                if (geometry.transform_handle != 0U) {
+                    const status resolved = resolve_transform(geometry.transform_handle, geometry_transform);
+                    if (resolved != status::success) return resolved;
+                }
                 if (geometry.kind != fixed_geometry_kind::line &&
                     (geometry.third == 0.0 || geometry.fourth == 0.0)) {
-                    affine_2d_double local{}, frame{};
-                    if (geometry.transform_handle != 0U) {
-                        const status resolved = resolve_transform(geometry.transform_handle, local);
-                        if (resolved != status::success) return resolved;
-                    }
-                    const status prepared = prepare_degenerate_fixed_geometry(geometry, local, geometry, frame);
+                    affine_2d_double frame{};
+                    const status prepared = prepare_degenerate_fixed_geometry(geometry, geometry_transform, geometry, frame);
                     if (prepared != status::success) return prepared;
                     const status widened = resolve_degenerate_fixed_bounds(geometry, pen,
                         compose_affine(frame, current_transform), bounds);
                     if (widened != status::success) return widened;
                     return finish_bounds();
                 }
+                bool requires_path_bounds = geometry.kind != fixed_geometry_kind::line &&
+                    affine_has_zero_area(geometry_transform);
                 if (pen.dash_style_handle != 0U) {
                     const auto dash = dash_styles.find(
                         pen.dash_style_handle);
                     if (dash == dash_styles.end()) {
                         return status::invalid_handle;
                     }
-                    if (!dash->second.intervals.empty()) {
-                      try {
-                        path_geometry_state stroke_path{};
-                        const status made = make_fixed_bounds_path(geometry, stroke_path);
-                        if (made != status::success) return made;
-                        const status widened = resolve_path_stroke_bounds(stroke_path, pen,
-                            current_transform, bounds);
-                        if (widened != status::success) return widened;
-                        return finish_stroked_geometry_bounds();
-                      } catch (const std::bad_alloc&) {
-                        return status::capacity_exceeded;
-                      }
-                    }
+                    requires_path_bounds = requires_path_bounds || !dash->second.intervals.empty();
                 }
-                affine_2d_double geometry_transform{};
-                if (geometry.transform_handle != 0U) {
-                    const status transform_status = resolve_transform(
-                        geometry.transform_handle, geometry_transform);
-                    if (transform_status != status::success) {
-                        return transform_status;
-                    }
+                if (requires_path_bounds) {
+                  try {
+                    path_geometry_state stroke_path{};
+                    const status made = make_fixed_bounds_path(geometry, stroke_path);
+                    if (made != status::success) return made;
+                    const status widened = resolve_path_stroke_bounds(stroke_path, pen,
+                        current_transform, bounds);
+                    if (widened != status::success) return widened;
+                    return finish_stroked_geometry_bounds();
+                  } catch (const std::bad_alloc&) {
+                    return status::capacity_exceeded;
+                  }
                 }
                 if (geometry.kind != fixed_geometry_kind::line) {
                     const bool is_ellipse =
@@ -14507,18 +14501,10 @@ struct channel::implementation {
                 // WPF transforms the spine by Geometry.Transform before pen
                 // widening, then applies the DrawingGroup/world transform to
                 // the widened stroke. Keep those matrices separate.
-                const double x0 = geometry.first * geometry_transform.m11 +
-                    geometry.second * geometry_transform.m21 +
-                    geometry_transform.m31;
-                const double y0 = geometry.first * geometry_transform.m12 +
-                    geometry.second * geometry_transform.m22 +
-                    geometry_transform.m32;
-                const double x1 = geometry.third * geometry_transform.m11 +
-                    geometry.fourth * geometry_transform.m21 +
-                    geometry_transform.m31;
-                const double y1 = geometry.third * geometry_transform.m12 +
-                    geometry.fourth * geometry_transform.m22 +
-                    geometry_transform.m32;
+                double x0 = geometry.first, y0 = geometry.second;
+                double x1 = geometry.third, y1 = geometry.fourth;
+                if (!try_transform_line_spine(x0, y0, x1, y1, geometry_transform))
+                    return status::unsupported_command;
                 if (x0 == x1 && y0 == y1 &&
                     pen.start_line_cap == PROGPU_NATIVE_STROKE_CAP_FLAT &&
                     pen.end_line_cap == PROGPU_NATIVE_STROKE_CAP_FLAT) {

@@ -17637,13 +17637,20 @@ bool degenerate_fixed_geometry_scale_matches_materialized_shape() {
 }
 
 bool drawing_image_degenerate_ellipse_uses_unscaled_pen_bounds() {
-    const std::array<std::array<double, 6U>, 4U> transforms{{
+    const std::array<std::array<double, 6U>, 6U> transforms{{
         {2.0, 0.0, 0.0, 3.0, 4.0, 8.0},
         {0.0, 2.0, -3.0, 0.0, 40.0, 8.0},
         {-1.0, 0.5, 0.25, 1.0, 40.0, 8.0},
+        {1.0, 0.0, 0.0, 0.0, 0.0, 24.0},
+        {0.0, 0.0, 0.0, 1.0, 24.0, 0.0},
         {0.0, 0.0, 0.0, 0.0, 24.0, 32.0}}};
     for (const auto& matrix : transforms) {
-        for (const auto radii : {std::array{8.0, 0.0}, std::array{0.0, 6.0}, std::array{0.0, 0.0}}) {
+        for (const auto radii : {std::array{8.0, 0.0}, std::array{0.0, 6.0},
+            std::array{0.0, 0.0}, std::array{8.0, 6.0}}) {
+            // A positive ellipse only has capsule coverage after projection;
+            // the nonsingular ellipse retains its separate analytic oracle.
+            if (radii[0] > 0.0 && radii[1] > 0.0 &&
+                matrix[0] * matrix[3] != matrix[1] * matrix[2]) continue;
             for (const bool grouped : {false, true}) {
                 std::vector<std::byte> batch;
                 for (const auto resource : {std::array{1U, 39U}, std::array{2U, 43U},
@@ -17697,6 +17704,52 @@ bool drawing_image_degenerate_ellipse_uses_unscaled_pen_bounds() {
                         std::abs(scene.transform.m32 - ty) < 0.0001) found = true;
                 }
                 PROGPU_REQUIRE(found);
+            }
+        }
+    }
+    return true;
+}
+
+bool drawing_image_path_bounds_match_scalar_pretransformed_spines() {
+    using namespace progpu::native::tests;
+    const std::array controls{std::array{14.0, 22.0}, std::array{25.0, 6.0}};
+    auto source = make_single_bezier_path_figures(3U, controls);
+    // Hollow quadratic: its source image bounds must come from stroke only.
+    const auto flags = read_value<std::uint32_t>(source, 52U) & ~0x08U;
+    std::memcpy(source.data() + 52U, &flags, sizeof(flags));
+    const std::array<std::array<double, 6U>, 5U> transforms{{
+        {2.0, 0.0, 0.0, 3.0, 4.0, 8.0},
+        {-1.0, 0.5, 0.25, 1.0, 40.0, 8.0},
+        {1.0, 0.0, 0.0, 0.0, 0.0, 24.0},
+        {0.0, 0.0, 0.0, 1.0, 24.0, 0.0},
+        {0.0, 0.0, 0.0, 0.0, 24.0, 32.0}}};
+    for (const auto& matrix : transforms) {
+        auto mapped = source;
+        for (const auto offset : {64U, 104U, 120U}) {
+            const double x = read_value<double>(source, offset), y = read_value<double>(source, offset + 8U);
+            const std::array point{x * matrix[0] + y * matrix[2] + matrix[4],
+                x * matrix[1] + y * matrix[3] + matrix[5]};
+            std::memcpy(mapped.data() + offset, point.data(), sizeof(point));
+        }
+        for (std::uint32_t brush = 0U; brush < 3U; ++brush) {
+            for (const bool dashed : {false, true}) {
+                mil_image_brush_fixture_options options{};
+                options.shape = mil_brush_fixture_shape::path;
+                options.geometry_drawing_image = true;
+                options.pen = true;
+                options.dashed = dashed;
+                options.solid_pen = brush == 0U;
+                options.gradient_pen = brush == 1U;
+                options.tile_mode = 3U;
+                options.paint_transform = true;
+                options.path_figures = source;
+                options.path_matrix = matrix;
+                std::vector<std::byte> actual, expected;
+                PROGPU_REQUIRE(build_mil_image_brush_fixture(actual, options, 8114U));
+                options.path_figures = mapped;
+                options.path_matrix = {1.0, 0.0, 0.0, 1.0, 0.0, 0.0};
+                PROGPU_REQUIRE(build_mil_image_brush_fixture(expected, options, 8114U));
+                PROGPU_REQUIRE(actual == expected);
             }
         }
     }
@@ -20980,6 +21033,7 @@ int main() {
     PROGPU_REQUIRE(fixed_geometry_spines_match_single_child_groups());
     PROGPU_REQUIRE(degenerate_fixed_geometry_scale_matches_materialized_shape());
     PROGPU_REQUIRE(drawing_image_degenerate_ellipse_uses_unscaled_pen_bounds());
+    PROGPU_REQUIRE(drawing_image_path_bounds_match_scalar_pretransformed_spines());
     PROGPU_REQUIRE(
         retained_gradient_stops_match_wpf_coincidence_and_pad_edges());
     PROGPU_REQUIRE(retained_viewport3d_uses_pointer_free_mesh_sideband());
