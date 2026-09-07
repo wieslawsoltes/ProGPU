@@ -4455,3 +4455,35 @@ sanitizer/verifier/CI qualification executed under implementation-first sequenci
 This supersedes the preceding compact-offset eligibility limitation; point-only,
 tiny/near-degenerate contours, transform-collapse fidelity and full platform
 parity remain open, and no speedup or full Direct2D compatibility is claimed.
+
+### Implementation-first checkpoint: emitted-outline bounds collector
+
+The internal `get_widened_outline_bounds` bridge now supplies actual `Widen`
+output bounds and an explicit empty flag to native MIL. Public
+`GetWidenedBounds` retains its original-spine-inclusive behavior; the internal
+helper is for callers that separately account for fill and require only painted
+stroke coverage. Its simplified sink retains O(1) state, reduces line spans with
+the existing ProGPU SIMD bounds kernel, and computes cubic extrema with the
+existing analytic path-bounds evaluator. It records no second path and publishes
+neither output on failure. World transforms remain after widening.
+
+Implementation provenance is the original ProGPU `Widen`,
+`transformed_point_bounds` and `include_cubic_bounds` in
+`progpu_native_direct2d_path.cpp`. No foreign source, second geometry algorithm,
+shader, pixel fallback or readback is added. The helper is internal native C++;
+public C/COM/module interfaces and managed provider dispatch remain unchanged.
+The collector takes O(P) work, O(1) state and one owned sink object for P output
+segments; widening still owns its documented O(P) intermediates and compact
+topology costs. Sequential current-point/cubic processing is bounded per segment.
+
+Native MIL uses this for partial/all-gap dashed source inference and retains its
+separate fill union and point-cap handling. Before accepting an empty nonpoint
+dash result, it checks one solid widening to distinguish a gap from a curve lost
+at the current flattening tolerance. The latter remains explicitly unsupported.
+Authored fixtures distinguish public-query versus actual partial-dash bounds,
+all-gap empty output, unchanged outputs on failure, and analytic round-cap bounds
+under shear/reflection compared with recorded `Widen` geometry. Native MIL also
+has drawing-image mapping fixtures for all-gap diagonal/curved/tiny-line paths
+and a visible short dash followed by a long gap. Native targets compile; runtime,
+Windows/VM/image, verifier, profiling and CI qualification remain deferred.
+This is not full point/tiny-contour or Direct2D/Win2D parity qualification.

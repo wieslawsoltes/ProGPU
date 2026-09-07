@@ -20,6 +20,13 @@ namespace progpu::native::direct2d::compat::detail {
     std::span<const std::uint8_t> smooth_joins, bool closed,
     path_geometry** value) noexcept;
 
+// Bounds of emitted stroke coverage only, unlike GetWidenedBounds which may
+// include original path extents. Does not materialize a second path geometry.
+// Empty output is explicit; both outputs change only on success.
+[[nodiscard]] com::result get_widened_outline_bounds(geometry* source,
+    float width, stroke_style* style, const matrix_3x2_f* transform,
+    float tolerance, rectangle_f& bounds, bool& has_outline) noexcept;
+
 // Returns the actual filled boundary, not the original operand stroke paths.
 // Output changes only on success; tolerance is in the geometry's coordinates.
 [[nodiscard]] com::result extract_outline_contours(geometry* source, float tolerance,

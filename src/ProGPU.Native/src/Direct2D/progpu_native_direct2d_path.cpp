@@ -1671,6 +1671,83 @@ void append_round_support_points(
     append_axis(matrix.m12, matrix.m22);
 }
 
+// Synchronous Widen output collector: no retained point/segment arrays and no
+// second path recording. Lines use the shared SIMD bounds kernel; cubic roots
+// use the same analytic evaluator as ordinary path GetBounds. Current-point
+// and figure state make segment traversal sequential.
+class widened_bounds_sink final : public simplified_geometry_sink {
+public:
+    com::result PROGPU_NATIVE_COM_CALL QueryInterface(com::guid_ref id, void** value) noexcept override {
+        if (value == nullptr) return com::pointer_error;
+        *value = nullptr;
+        if (com::guid_equal(id, com::unknown_interface_id()) ||
+            com::guid_equal(id, simplified_geometry_sink_interface_id)) {
+            *value = static_cast<simplified_geometry_sink*>(this);
+            AddRef();
+            return com::ok;
+        }
+        return com::no_interface;
+    }
+    com::reference_count_value PROGPU_NATIVE_COM_CALL AddRef() noexcept override { return references_.add_ref(); }
+    com::reference_count_value PROGPU_NATIVE_COM_CALL Release() noexcept override { return references_.release(this); }
+    void PROGPU_NATIVE_COM_CALL SetFillMode(fill_mode) noexcept override {}
+    void PROGPU_NATIVE_COM_CALL SetSegmentFlags(path_segment) noexcept override {}
+    void PROGPU_NATIVE_COM_CALL BeginFigure(point_2f point, figure_begin begin) noexcept override {
+        if (open_ || !finite_point(point) || begin != figure_begin::filled) { result_ = com::invalid_argument; return; }
+        current_ = point;
+        figure_bounds_ = {point.x, point.y, point.x, point.y};
+        open_ = true;
+        has_segments_ = false;
+    }
+    void PROGPU_NATIVE_COM_CALL AddLines(const point_2f* points, std::uint32_t count) noexcept override {
+        if (!open_ || (points == nullptr && count != 0U)) { result_ = com::invalid_argument; return; }
+        if (count == 0U || com::failed(result_)) return;
+        rectangle_f bounds{};
+        result_ = transformed_point_bounds(std::span(points, count), nullptr, bounds);
+        if (com::failed(result_)) return;
+        unite(figure_bounds_, bounds);
+        current_ = points[count - 1U];
+        has_segments_ = true;
+    }
+    void PROGPU_NATIVE_COM_CALL AddBeziers(const bezier_segment* curves, std::uint32_t count) noexcept override {
+        if (!open_ || (curves == nullptr && count != 0U)) { result_ = com::invalid_argument; return; }
+        if (com::failed(result_)) return;
+        for (std::uint32_t i = 0U; i < count; ++i) {
+            const auto& curve = curves[i];
+            if (!finite_point(curve.point1) || !finite_point(curve.point2) || !finite_point(curve.point3)) {
+                result_ = com::invalid_argument;
+                return;
+            }
+            include_cubic_bounds(current_, curve.point1, curve.point2, curve.point3, figure_bounds_);
+            current_ = curve.point3;
+            has_segments_ = true;
+        }
+    }
+    void PROGPU_NATIVE_COM_CALL EndFigure(figure_end end) noexcept override {
+        if (!open_ || end != figure_end::closed) { result_ = com::invalid_argument; return; }
+        open_ = false;
+        if (com::failed(result_) || !has_segments_) return;
+        if (has_outline_) unite(bounds_, figure_bounds_);
+        else bounds_ = figure_bounds_;
+        has_outline_ = true;
+    }
+    com::result PROGPU_NATIVE_COM_CALL Close() noexcept override { return open_ ? wrong_state : result_; }
+    [[nodiscard]] rectangle_f bounds() const noexcept { return bounds_; }
+    [[nodiscard]] bool has_outline() const noexcept { return has_outline_; }
+private:
+    friend class com::atomic_reference_count<widened_bounds_sink>;
+    ~widened_bounds_sink() = default;
+    static void unite(rectangle_f& a, const rectangle_f& b) noexcept {
+        a = {std::min(a.left, b.left), std::min(a.top, b.top),
+            std::max(a.right, b.right), std::max(a.bottom, b.bottom)};
+    }
+    com::atomic_reference_count<widened_bounds_sink> references_;
+    com::result result_ = com::ok;
+    rectangle_f bounds_{}, figure_bounds_{};
+    point_2f current_{};
+    bool open_{}, has_segments_{}, has_outline_{};
+};
+
 [[nodiscard]] com::result append_stroke_segment_bounds_points(
     const progpu_native_path_segment& segment,
     double half_width,
@@ -7499,6 +7576,24 @@ com::result create_native_fill_geometry(factory* owner,
     path_geometry** value) noexcept
 {
     return create_native_geometry(owner, segments, mode, {}, true, true, value);
+}
+
+com::result get_widened_outline_bounds(geometry* source,
+    float width, stroke_style* style, const matrix_3x2_f* transform,
+    float tolerance, rectangle_f& bounds, bool& has_outline) noexcept
+{
+    if (source == nullptr) return com::invalid_argument;
+    auto* raw = new (std::nothrow) widened_bounds_sink();
+    if (raw == nullptr) return com::out_of_memory;
+    com::pointer<widened_bounds_sink> sink;
+    sink.attach(raw);
+    com::result result = source->Widen(width, style, transform, tolerance, raw);
+    if (com::failed(result)) return result;
+    result = raw->Close();
+    if (com::failed(result)) return result;
+    bounds = raw->bounds();
+    has_outline = raw->has_outline();
+    return com::ok;
 }
 
 com::result create_native_stroke_geometry(factory* owner,

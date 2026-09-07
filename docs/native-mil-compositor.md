@@ -8469,6 +8469,48 @@ from the compound-widening checkpoint. General point/tiny-contour behavior and
 transform-collapse fidelity remain implementation work; complete platform and
 DirectX/Direct2D/Win2D parity is not established by these builds.
 
+## Implementation-first checkpoint: actual dashed-stroke source bounds
+
+MIL drawing-source inference now measures emitted dashed stroke outlines instead
+of using the public Direct2D `GetWidenedBounds` query's original-spine-inclusive
+envelope. Actual fill bounds are still unioned separately by the existing typed
+fill collector. A partial dash on a hollow path therefore does not acquire an
+unpainted tail, and an all-gap diagonal/curve does not become a positive-area
+source simply because its original path has a bounding rectangle.
+
+The shared internal `get_widened_outline_bounds` helper consumes `Widen` through
+a constant-storage simplified sink. It reuses original ProGPU
+`transformed_point_bounds` for line spans and `include_cubic_bounds` for analytic
+curve extrema, without recording a second path or storing sink-side point arrays.
+The bounds and explicit `has_outline` output publish only on success; the public
+Direct2D query and public COM/C/module contracts are unchanged. MIL point contours
+still use the established cap-pair/phase logic. For an empty nonpoint dash result,
+one solid-outline probe confirms that flattening retained geometry before the
+result is accepted as empty. Tiny curves lost by flattening remain fail-closed.
+An emitted outline collapsed to zero area by the world transform has no
+DrawingImage source area. Solid ordinary-stroke bounds keep their existing path.
+
+Provenance/applicability: original ProGPU native `Widen`, dash/compound/compact
+helpers, affine SIMD bounds and cubic extrema are the implementation sources.
+The LibreWPF WpfGfx `CShapeBase::GetTightBounds` fill/stroke/hollow contract was
+consulted only for observable bounds semantics, not copied or translated.
+The managed WPF renderer continues to use its source-integrated geometry bounds;
+this closes a native MIL adaptation gap rather than adding managed workarounds.
+No shaders, CPU pixels/readback or per-item GPU submissions are introduced.
+
+For P emitted stroke segments, the sink costs O(P) work and O(1) state plus one
+small owned sink object. It retains the widening algorithm's existing work and
+O(P) temporary outlines; the all-gap probe is one additional bounded widening,
+not a retry loop. Line spans use the existing SIMD reducer; current-point/cubic
+root traversal is sequential with constant work per segment. No performance
+claim is made. Fixtures cover partial/all-gap line bounds, a positive-area
+all-gap diagonal and curve, tiny nonzero lines, output preservation on failure,
+and analytic transformed cap bounds versus recorded geometry. Native library,
+MIL and Direct2D compatibility/WebGPU test targets compile, and the MIL source
+digest was regenerated. Tests, verifiers, images/VMs, profiling and CI qualification
+remain deferred. General point-only Direct2D behavior, lost tiny curves,
+transform-collapse replay fidelity and full platform parity remain open.
+
 ## Invariants
 
 - No reflection or private managed field scanning in the product bridge.

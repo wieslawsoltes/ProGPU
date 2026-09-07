@@ -1705,6 +1705,58 @@ int run_tests()
         }
     }
 
+    // Stroke-only bounds must not inherit the public bounds query's original
+    // spine extent. An empty dash result is distinct from an origin rectangle.
+    {
+        com::pointer<compat::path_geometry> path;
+        com::pointer<compat::geometry_sink> sink;
+        if (factory->CreatePathGeometry(path.put()) != com::ok || path->Open(sink.put()) != com::ok) return 9070;
+        sink->BeginFigure({10, 10}, compat::figure_begin::hollow);
+        sink->AddLine({20, 10});
+        sink->EndFigure(compat::figure_end::open);
+        if (sink->Close() != com::ok) return 9071;
+        const std::array<float, 2U> dashes{1.0F, 100.0F};
+        compat::stroke_style_properties properties{compat::cap_style::flat, compat::cap_style::flat,
+            compat::cap_style::flat, compat::line_join::miter, 10.0F, compat::dash_style::custom, 0.0F};
+        com::pointer<compat::stroke_style> style;
+        compat::rectangle_f bounds{};
+        bool has_outline = false;
+        if (factory->CreateStrokeStyle(&properties, dashes.data(), 2U, style.put()) != com::ok ||
+            compat::detail::get_widened_outline_bounds(path.get(), 2.0F, style.get(), nullptr, 0.001F,
+                bounds, has_outline) != com::ok || !has_outline ||
+            !approximately_equal(bounds.left, 10.0F) || !approximately_equal(bounds.top, 9.0F) ||
+            !approximately_equal(bounds.right, 12.0F) || !approximately_equal(bounds.bottom, 11.0F)) return 9072;
+        if (path->GetWidenedBounds(2.0F, style.get(), nullptr, 0.001F, &bounds) != com::ok ||
+            !approximately_equal(bounds.right, 20.0F)) return 9073;
+        properties.dash_offset = 2.0F;
+        if (factory->CreateStrokeStyle(&properties, dashes.data(), 2U, style.put()) != com::ok ||
+            compat::detail::get_widened_outline_bounds(path.get(), 2.0F, style.get(), nullptr, 0.001F,
+                bounds, has_outline) != com::ok || has_outline ||
+            bounds.left != 0.0F || bounds.top != 0.0F || bounds.right != 0.0F || bounds.bottom != 0.0F) return 9074;
+        bounds = {1, 2, 3, 4}; has_outline = true;
+        if (compat::detail::get_widened_outline_bounds(path.get(), -1.0F, style.get(), nullptr, 0.001F,
+                bounds, has_outline) != com::invalid_argument || !has_outline ||
+            bounds.left != 1 || bounds.top != 2 || bounds.right != 3 || bounds.bottom != 4) return 9075;
+
+        // Curved caps under shear/reflection use analytic cubic extrema, not
+        // control-polygon bounds. Compare the collector with a recorded path.
+        properties.start_cap = compat::cap_style::round;
+        properties.end_cap = compat::cap_style::round;
+        properties.dash_cap = compat::cap_style::round;
+        properties.dash_offset = 0.0F;
+        const compat::matrix_3x2_f transform{-1.0F, 0.5F, 0.25F, 1.25F, 3, -4};
+        com::pointer<compat::path_geometry> recorded;
+        compat::rectangle_f expected{};
+        if (factory->CreateStrokeStyle(&properties, dashes.data(), 2U, style.put()) != com::ok ||
+            factory->CreatePathGeometry(recorded.put()) != com::ok || recorded->Open(sink.put()) != com::ok ||
+            path->Widen(2.0F, style.get(), &transform, 0.001F, sink.get()) != com::ok || sink->Close() != com::ok ||
+            recorded->GetBounds(nullptr, &expected) != com::ok ||
+            compat::detail::get_widened_outline_bounds(path.get(), 2.0F, style.get(), &transform, 0.001F,
+                bounds, has_outline) != com::ok || !has_outline ||
+            !approximately_equal(bounds.left, expected.left) || !approximately_equal(bounds.top, expected.top) ||
+            !approximately_equal(bounds.right, expected.right) || !approximately_equal(bounds.bottom, expected.bottom)) return 9076;
+    }
+
     com::pointer<com::unknown> identity;
     if (factory.as(com::unknown_interface_id(), identity) != com::ok ||
         identity.get() != static_cast<com::unknown*>(raw_factory)) {
