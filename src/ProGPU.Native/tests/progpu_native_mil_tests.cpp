@@ -17412,6 +17412,62 @@ bool retained_gradient_brushes_compile_with_wpf_mapping_and_animation() {
     return true;
 }
 
+bool line_geometry_transform_precedes_pen_widening() {
+    using namespace progpu::native::tests;
+    // Independently mapped DrawLine is the stream oracle: brush coordinates,
+    // dash lengths, caps, mask geometry and world state must all agree.
+    const std::array<std::array<double, 6U>, 5U> geometry_matrices{{
+        {2.0, 0.0, 0.0, 3.0, -12.0, -32.0},
+        {-1.0, 0.5, 0.25, 1.0, 64.0, -8.0},
+        {1.0, 0.0, 0.0, 0.0, 0.0, 24.0},
+        {0.0, 0.0, 0.0, 0.0, 24.0, 32.0},
+        {0.0, 1.0, -1.0, 0.0, 64.0, 0.0}}};
+    const std::array<std::array<double, 6U>, 3U> world_matrices{{
+        {1.0, 0.0, 0.0, 1.0, 0.0, 0.0},
+        {0.75, 0.25, -0.5, 1.0, 12.0, 4.0},
+        {1.0, 0.0, 0.0, 0.0, 0.0, 24.0}}};
+    const std::array sources{mil_brush_fixture_source::bitmap,
+        mil_brush_fixture_source::drawing, mil_brush_fixture_source::drawing_image,
+        mil_brush_fixture_source::visual};
+    for (const auto& matrix : geometry_matrices) {
+        for (const auto& world : world_matrices) {
+            for (std::uint32_t brush = 0U; brush < 6U; ++brush) {
+                for (const bool dashed : {false, true}) {
+                    for (std::uint32_t cap = 0U; cap < 5U; ++cap) {
+                        mil_image_brush_fixture_options options{};
+                        options.tile_mode = 3U;
+                        options.source = sources[brush < 2U ? 0U : brush - 2U];
+                        options.shape = mil_brush_fixture_shape::line_geometry;
+                        options.paint_transform = true;
+                        options.pen = true;
+                        options.dashed = dashed;
+                        options.cap = cap % 4U;
+                        options.end_cap = cap == 4U ? 0U : (cap + 1U) % 4U;
+                        options.solid_pen = brush == 0U;
+                        options.gradient_pen = brush == 1U;
+                        options.transform_line_geometry = true;
+                        options.line_geometry_matrix = matrix;
+                        options.paint_matrix = world;
+                        std::vector<std::byte> transformed;
+                        PROGPU_REQUIRE(build_mil_image_brush_fixture(transformed, options, 8103U));
+                        options.shape = mil_brush_fixture_shape::line;
+                        for (std::size_t index = 0U; index < 4U; index += 2U) {
+                            const double x = options.line_points[index];
+                            const double y = options.line_points[index + 1U];
+                            options.line_points[index] = x * matrix[0U] + y * matrix[2U] + matrix[4U];
+                            options.line_points[index + 1U] = x * matrix[1U] + y * matrix[3U] + matrix[5U];
+                        }
+                        std::vector<std::byte> reference;
+                        PROGPU_REQUIRE(build_mil_image_brush_fixture(reference, options, 8103U));
+                        PROGPU_REQUIRE(transformed == reference);
+                    }
+                }
+            }
+        }
+    }
+    return true;
+}
+
 bool degenerate_gradient_pen_caps_use_wpf_stroke_bounds() {
     constexpr std::uint32_t visual = 800U;
     constexpr std::uint32_t content = 801U;
@@ -20387,6 +20443,7 @@ int main() {
     PROGPU_REQUIRE(
         retained_gradient_brushes_compile_with_wpf_mapping_and_animation());
     PROGPU_REQUIRE(degenerate_gradient_pen_caps_use_wpf_stroke_bounds());
+    PROGPU_REQUIRE(line_geometry_transform_precedes_pen_widening());
     PROGPU_REQUIRE(
         retained_gradient_stops_match_wpf_coincidence_and_pad_edges());
     PROGPU_REQUIRE(retained_viewport3d_uses_pointer_free_mesh_sideband());

@@ -4556,3 +4556,22 @@ Direct2D compatibility/WebGPU test targets compile. Tests, Windows/VM/images,
 profiling, verifiers and CI qualification remain deferred. General point-only,
 precision-limit and transform-collapse cases and full Direct2D/Win2D qualification
 remain open; prior full-disk-support limitations are superseded by this checkpoint.
+
+### Implementation-first checkpoint: MIL line-spine transform ordering
+
+Native MIL direct LineGeometry now applies Geometry.Transform to its endpoints
+before widening, preserving pen width, dash units and caps in drawing space.
+Only drawing/world state transforms the widened result. Existing solid/gradient
+stroke and tile-mask adapters are reused, with a fixed O(1), allocation-free
+NEON/SSE2 double endpoint mapper. Rank-one and point-collapsing geometry matrices
+no longer remove otherwise visible line/cap coverage solely by determinant.
+Zero-area world transforms still remove coverage. There is no public COM/C/module
+or managed-provider change, new raster algorithm, shader, or readback.
+
+Provenance and scope are recorded in the native MIL specification. Authored stream
+differentials compare against independently scalar-mapped DrawLine input across
+brush/source families, affine/collapsed transforms, dashes and asymmetric caps.
+The native library and MIL/Direct2D compatibility/WebGPU test targets compile;
+execution, Windows/VM/images, SIMD/performance and CI qualification are deferred.
+General path/group/other fixed-shape transform ordering and full Direct2D/Win2D
+qualification remain open.
