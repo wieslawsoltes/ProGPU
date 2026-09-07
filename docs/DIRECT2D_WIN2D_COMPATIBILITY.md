@@ -4613,3 +4613,22 @@ library, MIL and Direct2D compatibility/WebGPU targets compile; execution,
 Windows/VM/images, performance, verifier and CI qualification remain deferred.
 Forced-round propagation and broader degenerate/Direct2D/Win2D parity must still
 pass the final Windows comparison. No measured performance improvement is claimed.
+
+### Implementation-first checkpoint: prepared MIL group strokes
+
+Native MIL groups now retain one drawing-coordinate stroke preparation per
+child occurrence, including repeated resources under different ancestors.
+Paths, lines, positive-size fixed shapes and combined outlines transform before
+widening; one widened group bound maps spatial brushes, and tile coverage still
+uses one group mask/paint. World transforms remain after widening. Collapsed
+full ellipses use two halves through original ProGPU cubic lowering. Existing
+already-zero-size fixed-shape renderers remain explicit legacy entries whose
+geometry-transform ordering still needs implementation.
+
+The native MIL specification records original-code provenance, O(R + P)
+preparation/storage plus Boolean/widening costs, and pending cross-compilation
+caching. No public COM/C/module change or pixel fallback is introduced. Nested
+versus flattened stream fixtures and fixed/combined collapse cases are authored;
+native library and MIL/Direct2D compatibility/WebGPU targets compile. Runtime,
+Windows/VM/images, performance, verifier and CI qualification remain deferred.
+This does not establish full group, Direct2D or Win2D parity.

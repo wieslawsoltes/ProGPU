@@ -11564,7 +11564,8 @@ struct channel::implementation {
 
     // Materialize only stroke data; fills retain their original analytic path.
     // Coordinate pairs use shared intrinsic mapping. Contour topology and arc
-    // expansion are sequential, bounded by four pieces per original segment.
+    // expansion are sequential, bounded by four pieces per endpoint arc or
+    // two such halves for a closed full ellipse.
     status transform_path_stroke_spine(const path_geometry_state& source,
         const affine_2d_double& transform, path_geometry_state& output) const {
         path_geometry_state result{};
@@ -11604,26 +11605,39 @@ struct channel::implementation {
                     continue;
                 }
                 std::array<native::geometry::wpf_cubic_arc_piece, 4U> pieces{};
-                int count = -1;
                 const float sweep = std::bit_cast<float>(segment.pad1);
-                if (!native::geometry::lower_wpf_arc_to_cubics(
-                        {segment.p0.x, segment.p0.y}, {segment.p1.x, segment.p1.y},
-                        {segment.p3.x, segment.p3.y},
-                        std::bit_cast<float>(segment.pad2) * 180.0F / std::numbers::pi_v<float>,
-                        std::abs(sweep) > std::numbers::pi_v<float>, sweep > 0.0F,
-                        pieces, count) || count <= 0) return status::unsupported_command;
+                const bool full_circle = segment.p0.x == segment.p1.x && segment.p0.y == segment.p1.y &&
+                    std::abs(std::abs(sweep) - 2.0F * std::numbers::pi_v<float>) <= 0.000001F;
+                progpu_native_point opposite{};
+                if (full_circle) {
+                    const double x = 2.0 * double{segment.p2.x} - segment.p0.x;
+                    const double y = 2.0 * double{segment.p2.y} - segment.p0.y;
+                    if (!finite_double_as_float(x) || !finite_double_as_float(y)) return status::invalid_graph;
+                    opposite = {static_cast<float>(x), static_cast<float>(y)};
+                }
                 auto start = segment.p0;
-                for (int piece_index = 0; piece_index < count; ++piece_index) {
-                    const auto& piece = pieces[static_cast<std::size_t>(piece_index)];
-                    progpu_native_path_segment cubic{};
-                    cubic.kind = PROGPU_NATIVE_PATH_SEGMENT_CUBIC;
-                    cubic.p0 = start;
-                    cubic.p1 = {piece.control1.x, piece.control1.y};
-                    cubic.p2 = {piece.control2.x, piece.control2.y};
-                    cubic.p3 = {piece.end.x, piece.end.y};
-                    const status mapped = append(cubic, piece_index + 1 == count ? original.smooth_joins[index] : 1U);
-                    if (mapped != status::success) return mapped;
-                    start = cubic.p3;
+                const int parts = full_circle ? 2 : 1;
+                for (int part = 0; part < parts; ++part) {
+                    const auto end = full_circle && part == 0 ? opposite : segment.p1;
+                    int count = -1;
+                    if (!native::geometry::lower_wpf_arc_to_cubics(
+                            {start.x, start.y}, {end.x, end.y}, {segment.p3.x, segment.p3.y},
+                            std::bit_cast<float>(segment.pad2) * 180.0F / std::numbers::pi_v<float>,
+                            !full_circle && std::abs(sweep) > std::numbers::pi_v<float>, sweep > 0.0F,
+                            pieces, count) || count <= 0) return status::unsupported_command;
+                    for (int piece_index = 0; piece_index < count; ++piece_index) {
+                        const auto& piece = pieces[static_cast<std::size_t>(piece_index)];
+                        progpu_native_path_segment cubic{};
+                        cubic.kind = PROGPU_NATIVE_PATH_SEGMENT_CUBIC;
+                        cubic.p0 = start;
+                        cubic.p1 = {piece.control1.x, piece.control1.y};
+                        cubic.p2 = {piece.control2.x, piece.control2.y};
+                        cubic.p3 = {piece.end.x, piece.end.y};
+                        const status mapped = append(cubic, part + 1 == parts && piece_index + 1 == count
+                            ? original.smooth_joins[index] : 1U);
+                        if (mapped != status::success) return mapped;
+                        start = cubic.p3;
+                    }
                 }
             }
             if (native::semantic_path_stroke::has_mixed_constant_segments(contour.segments)) {
@@ -16668,7 +16682,7 @@ struct channel::implementation {
                         compile_context->request.dpi_scale_x, compile_context->request.dpi_scale_y);
                     const double scale = std::hypot(std::hypot(transform.m11, transform.m12),
                         std::hypot(transform.m21, transform.m22));
-                    return static_cast<float>(0.25 / (dpi * scale));
+                    return static_cast<float>(0.25 / (dpi * std::max(1.0, scale)));
                 };
                 if (geometry_group != geometry_groups.end()) {
                     const bool has_zero_area =
@@ -16676,251 +16690,122 @@ struct channel::implementation {
                     pen_state group_pen{};
                     bool has_group_stroke = false;
                     bool has_group_stroke_bounds = false;
-                    double group_stroke_left = 0.0;
-                    double group_stroke_top = 0.0;
-                    double group_stroke_right = 0.0;
-                    double group_stroke_bottom = 0.0;
-                    // Algorithm: retain one outline per non-collapsed combined
-                    // occurrence in depth-first order, then consume that same
-                    // order for stroking. Repeated handles can have different
-                    // transforms/tolerances. Time: O(C) bookkeeping; space: O(P)
-                    // retained outline points, in addition to the core solver.
-                    std::vector<std::pair<std::uint32_t, path_geometry_state>> combined_stroke_outlines;
+                    double group_stroke_left = 0.0, group_stroke_top = 0.0;
+                    double group_stroke_right = 0.0, group_stroke_bottom = 0.0;
+                    struct prepared_group_stroke {
+                        path_geometry_state spine;
+                        fixed_geometry_state fixed;
+                        affine_2d_double legacy_transform{};
+                        bool line{};
+                        bool legacy_degenerate{};
+                    };
+                    std::vector<prepared_group_stroke> prepared_strokes;
                     if (pen_handle != 0U) {
-                        const status pen_status = resolve_pen(
-                            pen_handle, group_pen);
-                        if (pen_status != status::success) {
-                            return pen_status;
-                        }
-                        has_group_stroke = !has_zero_area &&
-                            group_pen.brush_handle != 0U &&
-                            group_pen.thickness > 0.0;
-                        if (has_group_stroke) {
-                            const bool tile_stroke_bounds = tile_brushes.contains(group_pen.brush_handle);
-                            const auto include_stroke_bounds = [
-                                this,
-                                &group_pen, tile_stroke_bounds,
-                                &combined_stroke_outlines, &combined_stroke_tolerance, &current,
-                                &effective_transform,
-                                &has_group_stroke_bounds,
-                                &group_stroke_left,
-                                &group_stroke_top,
-                                &group_stroke_right,
-                                &group_stroke_bottom](
-                                auto&& self,
-                                std::uint32_t child_handle,
-                                affine_2d_double parent_transform,
-                                std::uint32_t depth) -> status {
-                                if (depth == 0U ||
-                                    depth > maximum_visual_depth) {
-                                    return status::invalid_graph;
-                                }
-                                const auto nested_group =
-                                    geometry_groups.find(child_handle);
-                                if (nested_group != geometry_groups.end()) {
-                                    if (nested_group->second
-                                            .transform_handle != 0U) {
-                                        affine_2d_double nested_transform{};
-                                        const status transform_status =
-                                            resolve_transform(
-                                                nested_group->second
-                                                    .transform_handle,
-                                                nested_transform);
-                                        if (transform_status !=
-                                            status::success) {
-                                            return transform_status;
-                                        }
-                                        parent_transform = compose_affine(
-                                            nested_transform,
-                                            parent_transform);
-                                    }
-                                    if (affine_has_zero_area(compose_affine(
-                                            parent_transform,
-                                            effective_transform))) {
-                                        return status::success;
-                                    }
-                                    for (const std::uint32_t nested_child :
-                                         nested_group->second.children) {
-                                        const status child_status = self(
-                                            self,
-                                            nested_child,
-                                            parent_transform,
-                                            depth + 1U);
-                                        if (child_status != status::success) {
-                                            return child_status;
-                                        }
-                                    }
-                                    return status::success;
-                                }
-                                const auto child =
-                                    path_geometries.find(child_handle);
-                                const auto combined_child = combined_geometries.find(child_handle);
-                                double child_left = 0.0;
-                                double child_top = 0.0;
-                                double child_right = 0.0;
-                                double child_bottom = 0.0;
-                                std::uint32_t child_transform_handle = 0U;
-                                if (child != path_geometries.end()) {
-                                    child_left = child->second.left;
-                                    child_top = child->second.top;
-                                    child_right = child->second.right;
-                                    child_bottom = child->second.bottom;
-                                    child_transform_handle =
-                                        child->second.transform_handle;
-                                } else if (combined_child != combined_geometries.end()) {
-                                    child_transform_handle = combined_child->second.transform_handle;
-                                } else {
-                                    const auto fixed =
-                                        fixed_geometries.find(child_handle);
-                                    if (fixed == fixed_geometries.end()) {
-                                        return status::unsupported_command;
-                                    }
-                                    fixed_geometry_state resolved_fixed{};
-                                    const status fixed_status =
-                                        resolve_fixed_geometry(
-                                            child_handle,
-                                            resolved_fixed);
-                                    if (fixed_status != status::success) {
-                                        return fixed_status;
-                                    }
-                                    if (resolved_fixed.kind ==
-                                        fixed_geometry_kind::line) {
-                                        child_left = std::min(
-                                            resolved_fixed.first,
-                                            resolved_fixed.third);
-                                        child_top = std::min(
-                                            resolved_fixed.second,
-                                            resolved_fixed.fourth);
-                                        child_right = std::max(
-                                            resolved_fixed.first,
-                                            resolved_fixed.third);
-                                        child_bottom = std::max(
-                                            resolved_fixed.second,
-                                            resolved_fixed.fourth);
-                                    } else if (
-                                        resolved_fixed.kind ==
-                                            fixed_geometry_kind::ellipse &&
-                                        resolved_fixed.third >= 0.0 && resolved_fixed.fourth >= 0.0) {
-                                        child_left = resolved_fixed.first -
-                                            resolved_fixed.third;
-                                        child_top = resolved_fixed.second -
-                                            resolved_fixed.fourth;
-                                        child_right = resolved_fixed.first +
-                                            resolved_fixed.third;
-                                        child_bottom = resolved_fixed.second +
-                                            resolved_fixed.fourth;
-                                    } else if (
-                                        resolved_fixed.kind ==
-                                            fixed_geometry_kind::rectangle &&
-                                        resolved_fixed.third >= 0.0 && resolved_fixed.fourth >= 0.0) {
-                                        child_left = resolved_fixed.first;
-                                        child_top = resolved_fixed.second;
-                                        child_right = resolved_fixed.first +
-                                            resolved_fixed.third;
-                                        child_bottom = resolved_fixed.second +
-                                            resolved_fixed.fourth;
-                                    } else {
-                                        return status::unsupported_command;
-                                    }
-                                    child_transform_handle =
-                                        resolved_fixed.transform_handle;
-                                }
-                                affine_2d_double child_transform =
-                                    parent_transform;
-                                if (child_transform_handle != 0U) {
-                                    affine_2d_double local_transform{};
-                                    const status transform_status =
-                                        resolve_transform(
-                                            child_transform_handle,
-                                            local_transform);
-                                    if (transform_status != status::success) {
-                                        return transform_status;
-                                    }
-                                    child_transform = compose_affine(
-                                        local_transform,
-                                        parent_transform);
-                                }
-                                if (affine_has_zero_area(compose_affine(
-                                        child_transform,
-                                        effective_transform))) {
-                                    return status::success;
-                                }
-                                if (combined_child != combined_geometries.end()) {
-                                    if (current.per_point_guidelines)
-                                        return status::unsupported_command;
-                                    const float tolerance = combined_stroke_tolerance(
-                                        compose_affine(child_transform, effective_transform));
-                                    if (!std::isfinite(tolerance) || tolerance <= 0.0F) return status::unsupported_command;
-                                    path_geometry_state outline;
-                                    const status outlined = resolve_combined_stroke_outline(child_handle, tolerance, outline);
-                                    if (outlined != status::success) return outlined;
-                                    combined_stroke_outlines.emplace_back(child_handle, std::move(outline));
-                                    const auto& prepared = combined_stroke_outlines.back().second;
-                                    if (prepared.stroke_contours.empty()) return status::success;
-                                    child_left = prepared.left;
-                                    child_top = prepared.top;
-                                    child_right = prepared.right;
-                                    child_bottom = prepared.bottom;
-                                }
-                                progpu_native_image_rect child_bounds{};
-                                // Tile mask storage must include the pen before
-                                // each child's scale/shear, not merely expand
-                                // the already-transformed group by one width.
-                                const double child_expansion = tile_stroke_bounds
-                                    ? group_pen.thickness * 0.5 * std::max(1.0, group_pen.miter_limit) : 0.0;
-                                if (!try_transform_bounds(
-                                        child_left - child_expansion,
-                                        child_top - child_expansion,
-                                        child_right - child_left + child_expansion * 2.0,
-                                        child_bottom - child_top + child_expansion * 2.0,
-                                        child_transform,
-                                        child_bounds)) {
-                                    return status::invalid_graph;
-                                }
-                                const double transformed_child_right =
-                                    child_bounds.x + child_bounds.width;
-                                const double transformed_child_bottom =
-                                    child_bounds.y + child_bounds.height;
-                                if (!has_group_stroke_bounds) {
-                                    group_stroke_left = child_bounds.x;
-                                    group_stroke_top = child_bounds.y;
-                                    group_stroke_right =
-                                        transformed_child_right;
-                                    group_stroke_bottom =
-                                        transformed_child_bottom;
-                                    has_group_stroke_bounds = true;
-                                } else {
-                                    group_stroke_left = std::min(
-                                        group_stroke_left,
-                                        double{child_bounds.x});
-                                    group_stroke_top = std::min(
-                                        group_stroke_top,
-                                        double{child_bounds.y});
-                                    group_stroke_right = std::max(
-                                        group_stroke_right,
-                                        transformed_child_right);
-                                    group_stroke_bottom = std::max(
-                                        group_stroke_bottom,
-                                        transformed_child_bottom);
+                        const status resolved = resolve_pen(pen_handle, group_pen);
+                        if (resolved != status::success) return resolved;
+                        has_group_stroke = group_pen.brush_handle != 0U && group_pen.thickness > 0.0;
+                    }
+                    if (affine_has_zero_area(current.transform)) continue;
+                    if (has_group_stroke) {
+                        const bool spatial = gradient_brushes.contains(group_pen.brush_handle) ||
+                            tile_brushes.contains(group_pen.brush_handle);
+                        const auto prepare = [&](auto&& self, std::uint32_t handle,
+                            affine_2d_double parent, std::uint32_t depth) -> status {
+                            if (depth == 0U || depth > maximum_visual_depth) return status::invalid_graph;
+                            const auto group = geometry_groups.find(handle);
+                            const auto path = path_geometries.find(handle);
+                            const auto combined = combined_geometries.find(handle);
+                            prepared_group_stroke entry{};
+                            std::uint32_t transform_handle = 0U;
+                            if (group != geometry_groups.end()) transform_handle = group->second.transform_handle;
+                            else if (path != path_geometries.end()) transform_handle = path->second.transform_handle;
+                            else if (combined != combined_geometries.end()) transform_handle = combined->second.transform_handle;
+                            else {
+                                const status resolved = resolve_fixed_geometry(handle, entry.fixed);
+                                if (resolved != status::success) return resolved;
+                                transform_handle = entry.fixed.transform_handle;
+                                entry.line = entry.fixed.kind == fixed_geometry_kind::line;
+                                entry.legacy_degenerate = !entry.line &&
+                                    (entry.fixed.third == 0.0 || entry.fixed.fourth == 0.0);
+                            }
+                            if (transform_handle != 0U) {
+                                affine_2d_double local{};
+                                const status resolved = resolve_transform(transform_handle, local);
+                                if (resolved != status::success) return resolved;
+                                parent = compose_affine(local, parent);
+                            }
+                            if (group != geometry_groups.end()) {
+                                for (const auto child : group->second.children) {
+                                    const status prepared = self(self, child, parent, depth + 1U);
+                                    if (prepared != status::success) return prepared;
                                 }
                                 return status::success;
-                            };
-                            for (const std::uint32_t child_handle :
-                                 geometry_group->second.children) {
-                                const status child_status =
-                                    include_stroke_bounds(
-                                        include_stroke_bounds,
-                                        child_handle,
-                                        {},
-                                        1U);
-                                if (child_status != status::success) {
-                                    return child_status;
+                            }
+                            progpu_native_image_rect bounds{};
+                            if (entry.legacy_degenerate) {
+                                // Preserve the existing specialized zero-size fixed-shape
+                                // convention until its geometry-space adapter is implemented.
+                                const bool ellipse = entry.fixed.kind == fixed_geometry_kind::ellipse;
+                                if (!try_fixed_shape_stroke_bounds(
+                                        entry.fixed.first - (ellipse ? entry.fixed.third : 0.0),
+                                        entry.fixed.second - (ellipse ? entry.fixed.fourth : 0.0),
+                                        entry.fixed.third * (ellipse ? 2.0 : 1.0),
+                                        entry.fixed.fourth * (ellipse ? 2.0 : 1.0),
+                                        group_pen.thickness, parent, bounds)) return status::invalid_graph;
+                                entry.legacy_transform = parent;
+                            } else {
+                                path_geometry_state owned_source{};
+                                const path_geometry_state* source = nullptr;
+                                if (path != path_geometries.end()) {
+                                    if (current.per_point_guidelines && !path->second.per_point_segments_supported)
+                                        return status::unsupported_command;
+                                    source = &path->second;
+                                } else if (combined != combined_geometries.end()) {
+                                    if (current.per_point_guidelines) return status::unsupported_command;
+                                    const float tolerance = combined_stroke_tolerance(compose_affine(parent, current.transform));
+                                    if (!std::isfinite(tolerance) || tolerance <= 0.0F) return status::unsupported_command;
+                                    const status outlined = resolve_combined_stroke_outline(handle, tolerance, owned_source);
+                                    if (outlined != status::success) return outlined;
+                                    source = &owned_source;
+                                } else {
+                                    if (entry.line) {
+                                        if (!try_transform_line_spine(entry.fixed.first, entry.fixed.second,
+                                                entry.fixed.third, entry.fixed.fourth, parent)) return status::invalid_graph;
+                                        parent = {};
+                                        entry.fixed.transform_handle = 0U;
+                                    }
+                                    const status made = make_fixed_bounds_path(entry.fixed, owned_source);
+                                    if (made != status::success) return made;
+                                    source = &owned_source;
+                                }
+                                if (source->stroke_contours.empty()) return status::success;
+                                const status mapped = transform_path_stroke_spine(*source, parent, entry.spine);
+                                if (mapped != status::success) return mapped;
+                                if (spatial) {
+                                    const status measured = resolve_path_stroke_bounds(entry.spine, group_pen, {}, bounds);
+                                    if (measured != status::success) return measured;
+                                } else {
+                                    const double expansion = group_pen.thickness * 0.5 * std::max(1.0, group_pen.miter_limit);
+                                    if (!try_transform_bounds(entry.spine.left - expansion, entry.spine.top - expansion,
+                                            entry.spine.right - entry.spine.left + expansion * 2.0,
+                                            entry.spine.bottom - entry.spine.top + expansion * 2.0, {}, bounds))
+                                        return status::invalid_graph;
                                 }
                             }
+                            if (bounds.width <= 0.0F || bounds.height <= 0.0F) return status::success;
+                            group_stroke_left = has_group_stroke_bounds ? std::min(group_stroke_left, double{bounds.x}) : bounds.x;
+                            group_stroke_top = has_group_stroke_bounds ? std::min(group_stroke_top, double{bounds.y}) : bounds.y;
+                            group_stroke_right = has_group_stroke_bounds ? std::max(group_stroke_right, double{bounds.x} + bounds.width) : double{bounds.x} + bounds.width;
+                            group_stroke_bottom = has_group_stroke_bounds ? std::max(group_stroke_bottom, double{bounds.y} + bounds.height) : double{bounds.y} + bounds.height;
+                            has_group_stroke_bounds = true;
+                            prepared_strokes.push_back(std::move(entry));
+                            return status::success;
+                        };
+                        for (const auto child : geometry_group->second.children) {
+                            const status prepared = prepare(prepare, child, local_transform, 1U);
+                            if (prepared != status::success) return prepared;
                         }
-                    }
-                    if (has_zero_area) {
-                        continue;
+                        has_group_stroke = !prepared_strokes.empty();
                     }
                     if ((brush_handle == 0U && !has_group_stroke) ||
                         geometry_group->second.children.empty()) {
@@ -16935,7 +16820,9 @@ struct channel::implementation {
                         : PROGPU_NATIVE_FILL_RULE_NON_ZERO;
                     shallow_fill_leaf group_tree{};
                     status group_fill_status = status::success;
-                    if (group_fill_rule ==
+                    if (brush_handle == 0U || has_zero_area) {
+                        group_tree.fill_rule = group_fill_rule;
+                    } else if (group_fill_rule ==
                         PROGPU_NATIVE_FILL_RULE_EVEN_ODD) {
                         group_fill_status = append_group_winding_program(
                             geometry_handle,
@@ -17013,7 +16900,7 @@ struct channel::implementation {
                     const double group_top = group_tree.top;
                     const double group_right = group_tree.right;
                     const double group_bottom = group_tree.bottom;
-                    const bool has_group_fill = brush_handle != 0U &&
+                    const bool has_group_fill = !has_zero_area && brush_handle != 0U &&
                         !group_segments.empty() && has_group_bounds;
                     if (!has_group_fill &&
                         (!has_group_stroke || !has_group_stroke_bounds)) {
@@ -17099,242 +16986,53 @@ struct channel::implementation {
                         }
                     }
                     if (has_group_stroke) {
-                        const bool tile_pen = tile_brushes.contains(group_pen.brush_handle);
-                        const double expansion =
-                            tile_pen ? 0.0 : group_pen.thickness * 0.5 *
-                            std::max(1.0, group_pen.miter_limit);
-                        if (!finite_double_as_float(expansion)) {
-                            return status::invalid_graph;
+                        const bool tiled = tile_brushes.contains(group_pen.brush_handle);
+                        const brush_use_state use{group_stroke_left, group_stroke_top,
+                            group_stroke_right - group_stroke_left, group_stroke_bottom - group_stroke_top,
+                            current.transform};
+                        std::uint32_t brush_index = PROGPU_NATIVE_SCENE_NO_INDEX;
+                        if (!tiled) {
+                            const status resolved = resolve_brush_index(group_pen.brush_handle, brush_index, &use);
+                            if (resolved != status::success) return resolved;
                         }
-                        const brush_use_state stroke_brush_use{
-                            group_stroke_left - expansion,
-                            group_stroke_top - expansion,
-                            group_stroke_right - group_stroke_left +
-                                expansion * 2.0,
-                            group_stroke_bottom - group_stroke_top +
-                                expansion * 2.0,
-                            effective_transform};
-                        std::uint32_t stroke_brush_index =
-                            PROGPU_NATIVE_SCENE_NO_INDEX;
                         std::vector<progpu_native_geometry_primitive> tile_primitives;
                         std::vector<progpu_native_scene_path_fill> tile_paths;
                         std::vector<progpu_native_path_segment> tile_segments;
-                        std::size_t combined_stroke_cursor = 0U;
-                        const status brush_status = tile_pen ? status::success : resolve_brush_index(
-                            group_pen.brush_handle,
-                            stroke_brush_index,
-                            &stroke_brush_use);
-                        if (brush_status != status::success) {
-                            return brush_status;
-                        }
-                        const auto append_group_stroke = [
-                            this,
-                            &append_path_strokes,
-                            &append_resolved_line_stroke,
-                            &append_positive_fixed_shape_stroke,
-                            &append_tile_pen, &append_tile_line_pen, &make_tile_fixed_geometry,
-                            &append_degenerate_tile_shape,
-                            &append_degenerate_ellipse_stroke, &append_degenerate_rectangle_stroke,
-                            &tile_primitives, &tile_paths, &tile_segments, &stroke_brush_use, tile_pen,
-                            &combined_stroke_outlines, &combined_stroke_cursor,
-                            &group_pen,
-                            stroke_brush_index,
-                            &current](
-                            auto&& self,
-                            std::uint32_t child_handle,
-                            affine_2d_double parent_local_transform,
-                            std::uint32_t depth) -> status {
-                            if (depth == 0U ||
-                                depth > maximum_visual_depth) {
-                                return status::invalid_graph;
-                            }
-                            const auto nested_group =
-                                geometry_groups.find(child_handle);
-                            if (nested_group != geometry_groups.end()) {
-                                if (nested_group->second.transform_handle !=
-                                    0U) {
-                                    affine_2d_double nested_transform{};
-                                    const status transform_status =
-                                        resolve_transform(
-                                            nested_group->second
-                                                .transform_handle,
-                                            nested_transform);
-                                    if (transform_status != status::success) {
-                                        return transform_status;
-                                    }
-                                    parent_local_transform = compose_affine(
-                                        nested_transform,
-                                        parent_local_transform);
-                                }
-                                if (affine_has_zero_area(compose_affine(
-                                        parent_local_transform,
-                                        current.transform))) {
-                                    return status::success;
-                                }
-                                for (const std::uint32_t nested_child :
-                                     nested_group->second.children) {
-                                    const status child_status = self(
-                                        self,
-                                        nested_child,
-                                        parent_local_transform,
-                                        depth + 1U);
-                                    if (child_status != status::success) {
-                                        return child_status;
-                                    }
-                                }
-                                return status::success;
-                            }
-                            const auto child =
-                                path_geometries.find(child_handle);
-                            const auto combined_child = combined_geometries.find(child_handle);
-                            fixed_geometry_state resolved_line{};
-                            std::uint32_t child_transform_handle = 0U;
-                            if (child != path_geometries.end()) {
-                                if (current.per_point_guidelines &&
-                                    !child->second
-                                         .per_point_segments_supported) {
-                                    return status::unsupported_command;
-                                }
-                                child_transform_handle =
-                                    child->second.transform_handle;
-                            } else if (combined_child != combined_geometries.end()) {
-                                child_transform_handle = combined_child->second.transform_handle;
-                            } else {
-                                const status line_status =
-                                    resolve_fixed_geometry(
-                                        child_handle,
-                                        resolved_line);
-                                if (line_status != status::success) {
-                                    return line_status;
-                                }
-                                if (resolved_line.kind !=
-                                        fixed_geometry_kind::line &&
-                                    !((resolved_line.kind ==
-                                               fixed_geometry_kind::ellipse ||
-                                          resolved_line.kind ==
-                                               fixed_geometry_kind::rectangle) &&
-                                        resolved_line.third >= 0.0 && resolved_line.fourth >= 0.0)) {
-                                    return status::unsupported_command;
-                                }
-                                child_transform_handle =
-                                    resolved_line.transform_handle;
-                            }
-                            affine_2d_double child_local_transform =
-                                parent_local_transform;
-                            if (child_transform_handle != 0U) {
-                                affine_2d_double child_transform{};
-                                const status transform_status =
-                                    resolve_transform(
-                                        child_transform_handle,
-                                        child_transform);
-                                if (transform_status != status::success) {
-                                    return transform_status;
-                                }
-                                child_local_transform = compose_affine(
-                                    child_transform,
-                                    parent_local_transform);
-                            }
-                            const affine_2d_double child_effective_transform =
-                                compose_affine(
-                                    child_local_transform,
-                                    current.transform);
-                            if (affine_has_zero_area(
-                                    child_effective_transform)) {
-                                return status::success;
-                            }
-                            const path_geometry_state* stroke_path = child != path_geometries.end() ? &child->second : nullptr;
-                            if (combined_child != combined_geometries.end()) {
-                                if (combined_stroke_cursor >= combined_stroke_outlines.size() ||
-                                    combined_stroke_outlines[combined_stroke_cursor].first != child_handle)
-                                    return status::invalid_graph;
-                                stroke_path = &combined_stroke_outlines[combined_stroke_cursor++].second;
-                                if (stroke_path->stroke_contours.empty()) return status::success;
-                            }
-                            status stroke_status = status::success;
-                            if (tile_pen) {
-                                brush_use_state child_use = stroke_brush_use;
-                                child_use.effective_transform = child_effective_transform;
-                                if (stroke_path != nullptr) {
-                                    if (stroke_path->stroke_contours.empty()) return status::success;
-                                    stroke_status = append_tile_pen(group_pen, child_use, current, {}, {}, false,
-                                        stroke_path->stroke_contours, &tile_primitives);
-                                } else if (resolved_line.kind == fixed_geometry_kind::line) {
-                                    stroke_status = append_tile_line_pen(group_pen, resolved_line.first,
-                                        resolved_line.second, resolved_line.third, resolved_line.fourth,
-                                        child_effective_transform, current, &tile_primitives);
+                        for (const auto& entry : prepared_strokes) {
+                            status drawn = status::success;
+                            if (entry.legacy_degenerate) {
+                                const auto& shape = entry.fixed;
+                                const auto effective = compose_affine(entry.legacy_transform, current.transform);
+                                if (tiled) {
+                                    const bool ellipse = shape.kind == fixed_geometry_kind::ellipse;
+                                    const double half = group_pen.thickness * 0.5;
+                                    const brush_use_state child_use{
+                                        shape.first - (ellipse ? shape.third : 0.0) - half,
+                                        shape.second - (ellipse ? shape.fourth : 0.0) - half,
+                                        shape.third * (ellipse ? 2.0 : 1.0) + group_pen.thickness,
+                                        shape.fourth * (ellipse ? 2.0 : 1.0) + group_pen.thickness, effective};
+                                    drawn = append_degenerate_tile_shape(shape, group_pen, child_use, current,
+                                        &tile_primitives, &tile_paths, &tile_segments);
+                                } else if (shape.kind == fixed_geometry_kind::ellipse) {
+                                    drawn = append_degenerate_ellipse_stroke(shape.first, shape.second, shape.third, shape.fourth,
+                                        group_pen, entry.legacy_transform, effective, brush_index);
                                 } else {
-                                    if (resolved_line.third == 0.0 || resolved_line.fourth == 0.0) {
-                                        const bool ellipse = resolved_line.kind == fixed_geometry_kind::ellipse;
-                                        const double half = group_pen.thickness * 0.5;
-                                        child_use.x = resolved_line.first - (ellipse ? resolved_line.third : 0.0) - half;
-                                        child_use.y = resolved_line.second - (ellipse ? resolved_line.fourth : 0.0) - half;
-                                        child_use.width = resolved_line.third * (ellipse ? 2.0 : 1.0) + group_pen.thickness;
-                                        child_use.height = resolved_line.fourth * (ellipse ? 2.0 : 1.0) + group_pen.thickness;
-                                        stroke_status = append_degenerate_tile_shape(resolved_line, group_pen, child_use,
-                                            current, &tile_primitives, &tile_paths, &tile_segments);
-                                    } else {
-                                        const auto geometry = make_tile_fixed_geometry(resolved_line);
-                                        stroke_status = append_tile_pen(group_pen, child_use, current, {}, {}, false,
-                                            geometry.stroke_contours, &tile_primitives);
-                                    }
+                                    drawn = append_degenerate_rectangle_stroke(shape.first, shape.second, shape.third, shape.fourth,
+                                        shape.radius_x, shape.radius_y, group_pen, entry.legacy_transform, effective, brush_index);
                                 }
-                            } else if (stroke_path != nullptr) {
-                                stroke_status = append_path_strokes(
-                                    *stroke_path,
-                                    group_pen,
-                                    child_local_transform,
-                                    child_effective_transform,
-                                    stroke_brush_index);
-                            } else if (resolved_line.kind ==
-                                fixed_geometry_kind::line) {
-                                stroke_status = append_resolved_line_stroke(
-                                    resolved_line.first,
-                                    resolved_line.second,
-                                    resolved_line.third,
-                                    resolved_line.fourth,
-                                    group_pen,
-                                    child_local_transform,
-                                    child_effective_transform,
-                                    stroke_brush_index);
-                            } else if (resolved_line.third == 0.0 || resolved_line.fourth == 0.0) {
-                                // Reuse the group-resolved material: relative gradients
-                                // must not restart their mapping at each collapsed child.
-                                stroke_status = resolved_line.kind == fixed_geometry_kind::ellipse
-                                    ? append_degenerate_ellipse_stroke(resolved_line.first, resolved_line.second,
-                                        resolved_line.third, resolved_line.fourth, group_pen,
-                                        child_local_transform, child_effective_transform, stroke_brush_index)
-                                    : append_degenerate_rectangle_stroke(resolved_line.first, resolved_line.second,
-                                        resolved_line.third, resolved_line.fourth, resolved_line.radius_x,
-                                        resolved_line.radius_y, group_pen, child_local_transform,
-                                        child_effective_transform, stroke_brush_index);
+                            } else if (tiled) {
+                                drawn = append_tile_pen(group_pen, use, current, {}, {}, false,
+                                    entry.spine.stroke_contours, &tile_primitives);
+                            } else if (entry.line) {
+                                drawn = append_resolved_line_stroke(entry.fixed.first, entry.fixed.second,
+                                    entry.fixed.third, entry.fixed.fourth, group_pen, {}, current.transform, brush_index);
                             } else {
-                                stroke_status =
-                                    append_positive_fixed_shape_stroke(
-                                        resolved_line,
-                                        group_pen,
-                                        child_local_transform,
-                                        child_effective_transform,
-                                        stroke_brush_index);
+                                drawn = append_path_strokes(entry.spine, group_pen, {}, current.transform, brush_index, &use);
                             }
-                            if (stroke_status != status::success) {
-                                return stroke_status;
-                            }
-                            return status::success;
-                        };
-                        for (const std::uint32_t child_handle :
-                             geometry_group->second.children) {
-                            const status stroke_status = append_group_stroke(
-                                append_group_stroke,
-                                child_handle,
-                                local_transform,
-                                1U);
-                            if (stroke_status != status::success) {
-                                return stroke_status;
-                            }
+                            if (drawn != status::success) return drawn;
                         }
-                        if (combined_stroke_cursor != combined_stroke_outlines.size()) return status::invalid_graph;
-                        if (tile_pen) {
-                            const status painted = paint_tile_pen_mask(group_pen, stroke_brush_use, current,
+                        if (tiled) {
+                            const status painted = paint_tile_pen_mask(group_pen, use, current,
                                 tile_primitives, tile_paths, tile_segments);
                             if (painted != status::success) return painted;
                         }
