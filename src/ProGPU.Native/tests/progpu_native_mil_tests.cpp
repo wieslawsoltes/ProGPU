@@ -13043,6 +13043,9 @@ bool retained_drawing_image_infers_crossing_and_point_strokes() {
     auto hollow_curve = make_single_bezier_path_figures(3U, curve_points);
     const std::uint32_t hollow_curve_flags = 0x02U;
     std::memcpy(hollow_curve.data() + 52U, &hollow_curve_flags, sizeof(hollow_curve_flags));
+    const std::array tiny_points{std::array{1.002, 2.0}, std::array{1.0, 2.0}};
+    auto tiny_reversal = make_single_bezier_path_figures(3U, tiny_points);
+    std::memcpy(tiny_reversal.data() + 52U, &hollow_curve_flags, sizeof(hollow_curve_flags));
     struct bounds_case {
         std::vector<std::byte> figures;
         std::uint32_t start, end, dash_handle;
@@ -13073,6 +13076,9 @@ bool retained_drawing_image_infers_crossing_and_point_strokes() {
         bounds_case{hollow_line(1.25, 2.125), flat, flat, dash, 1.5, false, {}},
         bounds_case{hollow_line(1.00001, 2.00001), flat, flat, dash, 1.5, false, {}},
         bounds_case{hollow_curve, flat, flat, dash, 1.5, false, {}},
+        bounds_case{tiny_reversal, flat, flat, 0U, 0.0, false, {1, 0, 2.001F, 4}},
+        bounds_case{tiny_reversal, flat, flat, dash, 0.0, false, {1, 0, 2.001F, 4}},
+        bounds_case{tiny_reversal, flat, flat, dash, 1.5, false, {}},
         // A long gap must not stretch a short visible dash to the whole spine.
         bounds_case{hollow_line(11.0, 2.0), flat, flat, dash, 0.0, false, {1, 0, 4, 4}, true}};
     std::uint64_t generation = 1U;
