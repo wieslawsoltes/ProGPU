@@ -71,6 +71,15 @@ struct mil_image_brush_fixture_options {
     std::array<double, 6U> path_matrix{0.9, 0.0, 0.0, 0.8, 3.0, 5.0};
     std::span<const std::byte> group_geometry_commands{};
     bool geometry_drawing_image{};
+    bool bitmap_cache_brush{};
+    bool explicit_source_cache{};
+    bool target_source_cache{};
+    double source_cache_scale{1.0};
+    double target_cache_scale{1.0};
+    bool source_cache_snap{};
+    bool repeat_paint{};
+    std::span<const std::byte> source_visual_commands{};
+    std::array<double, 4U> source_bounds{10.0, 20.0, 20.0, 10.0};
 };
 
 inline bool build_mil_image_brush_fixture(std::vector<std::byte>& scene,
@@ -87,13 +96,15 @@ inline bool build_mil_image_brush_fixture(std::vector<std::byte>& scene,
     const bool vector_source = options.source != mil_brush_fixture_source::bitmap;
     const bool drawing_brush = options.source == mil_brush_fixture_source::drawing;
     const bool visual_brush = options.source == mil_brush_fixture_source::visual;
+    if (options.bitmap_cache_brush && !visual_brush) return false;
     packet(batch, command::channel_create_resource, 3U,
         visual_brush ? 39U : drawing_brush ? 87U : vector_source ? 59U : 95U);
     packet(batch, command::channel_create_resource, 4U, 47U);
     packet(batch, command::generic_target_create, 4U,
         std::uint64_t{0U}, std::uint64_t{0U}, 64U, 64U, 0U);
     packet(batch, command::target_set_root, 4U, 1U);
-    packet(batch, command::channel_create_resource, 5U, visual_brush ? 82U : drawing_brush ? 81U : 80U);
+    packet(batch, command::channel_create_resource, 5U,
+        options.bitmap_cache_brush ? 83U : visual_brush ? 82U : drawing_brush ? 81U : 80U);
     if (vector_source) {
         packet(batch, command::channel_create_resource, 8U, 69U);
         packet(batch, command::rectangle_geometry, 8U,
@@ -129,7 +140,22 @@ inline bool build_mil_image_brush_fixture(std::vector<std::byte>& scene,
         packet(batch, command::matrix_transform, 7U,
             0.5, 0.0, 0.0, 0.5, 0.25, 0.25, 0U);
     }
-    packet(batch, visual_brush ? command::visual_brush : drawing_brush ? command::drawing_brush : command::image_brush, 5U, options.opacity,
+    if (options.bitmap_cache_brush) {
+        if (options.explicit_source_cache) {
+            packet(batch, command::channel_create_resource, 410U, 94U);
+            packet(batch, command::bitmap_cache, 410U, options.source_cache_scale,
+                0U, options.source_cache_snap ? 1U : 0U, 0U);
+        }
+        if (options.target_source_cache) {
+            packet(batch, command::channel_create_resource, 411U, 94U);
+            packet(batch, command::bitmap_cache, 411U, options.target_cache_scale,
+                0U, options.source_cache_snap ? 1U : 0U, 0U);
+            packet(batch, command::visual_set_cache_mode, 3U, 411U);
+        }
+        packet(batch, command::bitmap_cache_brush, 5U, options.opacity, 0U,
+            options.rotate || options.skew ? 6U : 0U, options.relative_scale ? 7U : 0U,
+            options.explicit_source_cache ? 410U : 0U, 3U);
+    } else packet(batch, visual_brush ? command::visual_brush : drawing_brush ? command::drawing_brush : command::image_brush, 5U, options.opacity,
         options.viewport, options.viewbox, 0.707, 1.414,
         0U, options.rotate || options.skew ? 6U : 0U, options.relative_scale ? 7U : 0U,
         1U, options.viewbox_units, 0U, 0U, options.stretch,
@@ -340,12 +366,17 @@ inline bool build_mil_image_brush_fixture(std::vector<std::byte>& scene,
     if (options.paint_transform && !options.visual_mask) packet(nested, command::pop);
     if (options.inherited_clip && !options.visual_mask) packet(nested, command::pop);
     if (options.guidelines) packet(nested, command::pop);
+    if (options.repeat_paint) {
+        const auto repeated = nested;
+        nested.insert(nested.end(), repeated.begin(), repeated.end());
+    }
     append(batch, static_cast<std::uint32_t>(16U + nested.size()));
     append(batch, static_cast<std::uint32_t>(command::render_data));
     append(batch, 2U);
     append(batch, static_cast<std::uint32_t>(nested.size()));
     batch.insert(batch.end(), nested.begin(), nested.end());
     packet(batch, command::visual_set_content, 1U, 2U);
+    batch.insert(batch.end(), options.source_visual_commands.begin(), options.source_visual_commands.end());
     progpu_native_mil_channel* raw = nullptr;
     if (progpu_native_mil_channel_create(&raw) != PROGPU_NATIVE_MIL_STATUS_SUCCESS)
         return false;
@@ -362,7 +393,8 @@ inline bool build_mil_image_brush_fixture(std::vector<std::byte>& scene,
             28U, 0U, options.glyph_style, options.glyph_font.data(), options.glyph_font.size())
         != PROGPU_NATIVE_MIL_STATUS_SUCCESS) return false;
     if (visual_brush && progpu_native_mil_channel_set_visual_cache_bounds(raw,
-        3U, 10.0, 20.0, 20.0, 10.0) != PROGPU_NATIVE_MIL_STATUS_SUCCESS) return false;
+        3U, options.source_bounds[0], options.source_bounds[1], options.source_bounds[2],
+        options.source_bounds[3]) != PROGPU_NATIVE_MIL_STATUS_SUCCESS) return false;
     constexpr std::array<std::uint8_t, 8U> pixels{255, 0, 0, 255, 0, 0, 255, 255};
     if (!vector_source && progpu_native_mil_channel_set_bitmap_source_rgba8_with_dpi(raw,
         3U, 2U, 1U, 8U, pixels.data(), pixels.size(), options.dpi_x, options.dpi_y)

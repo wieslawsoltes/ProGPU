@@ -19758,7 +19758,122 @@ bool bitmap_cache_brush_ingress_is_typed_and_transactional() {
     append_command(draw, command::target_set_root, 9U, 7U);
     PROGPU_REQUIRE(state.apply(draw) == status::success);
     std::vector<std::byte> stream;
-    PROGPU_REQUIRE(state.build_scene(9U, 8118U, 1U, stream) == status::unsupported_command);
+    PROGPU_REQUIRE(state.build_scene(9U, 8118U, 1U, stream) == status::success);
+    PROGPU_REQUIRE(get_scene_layers(stream).empty());
+    return true;
+}
+
+bool bitmap_cache_brush_captures_content_with_independent_root_state() {
+    using namespace progpu::native::tests;
+    mil_image_brush_fixture_options options{};
+    options.source = mil_brush_fixture_source::visual;
+    options.bitmap_cache_brush = true;
+    std::vector<std::byte> baseline;
+    PROGPU_REQUIRE(build_mil_image_brush_fixture(baseline, options, 8119U));
+    progpu_native_scene_layer initial{};
+    PROGPU_REQUIRE(try_get_cached_layer(baseline, initial));
+    PROGPU_REQUIRE(initial.bounds.width == 20.0F && initial.bounds.height == 10.0F);
+    PROGPU_REQUIRE(initial.opacity == 1.0F);
+    progpu_native_scene_state composite{};
+    PROGPU_REQUIRE(try_get_state_resource(baseline, initial.reserved0, composite));
+    PROGPU_REQUIRE(composite.transform.m11 == 1.0F && composite.transform.m22 == 1.0F);
+    PROGPU_REQUIRE(composite.transform.m31 == 10.0F && composite.transform.m32 == 20.0F);
+    PROGPU_REQUIRE((composite.flags & PROGPU_NATIVE_SCENE_STATE_CLIP_RECT) != 0U);
+    PROGPU_REQUIRE(composite.clip_rect.x == 8.0F && composite.clip_rect.width == 48.0F);
+    progpu_native_scene_state raster{};
+    PROGPU_REQUIRE(try_get_cached_raster_state(baseline, raster));
+    PROGPU_REQUIRE(raster.transform.m31 == -10.0F && raster.transform.m32 == -20.0F);
+
+    std::vector<std::byte> root_updates;
+    append_create(root_updates, 420U, 66U);
+    append_command(root_updates, command::matrix_transform, 420U,
+        2.0, 0.0, 0.0, 3.0, 100.0, 200.0, 0U);
+    append_command(root_updates, command::visual_set_transform, 3U, 420U);
+    append_command(root_updates, command::visual_set_offset, 3U, 400.0, 500.0);
+    append_command(root_updates, command::visual_set_alpha, 3U, 0.25);
+    append_command(root_updates, command::visual_set_alpha_mask, 3U, 9U);
+    append_create(root_updates, 421U, 69U);
+    append_command(root_updates, command::rectangle_geometry, 421U,
+        0.0, 0.0, 0.0, 0.0, 1.0, 1.0, 0U, 0U, 0U, 0U);
+    append_command(root_updates, command::visual_set_clip, 3U, 421U);
+    append_create(root_updates, 422U, 36U);
+    append_command(root_updates, command::blur_effect, 422U, 5.0, 0U, 0U, 1U);
+    append_command(root_updates, command::visual_set_effect, 3U, 422U);
+    options.source_visual_commands = root_updates;
+    std::vector<std::byte> ignored;
+    PROGPU_REQUIRE(build_mil_image_brush_fixture(ignored, options, 8119U));
+    PROGPU_REQUIRE(ignored == baseline);
+    options.source_visual_commands = {};
+
+    for (const bool explicit_cache : {false, true}) {
+        options.target_source_cache = true;
+        options.explicit_source_cache = explicit_cache;
+        options.target_cache_scale = 2.0;
+        options.source_cache_scale = 3.0;
+        std::vector<std::byte> scaled;
+        PROGPU_REQUIRE(build_mil_image_brush_fixture(scaled, options, 8119U));
+        progpu_native_scene_layer layer{};
+        PROGPU_REQUIRE(try_get_cached_layer(scaled, layer));
+        const float scale = explicit_cache ? 3.0F : 2.0F;
+        PROGPU_REQUIRE(layer.bounds.width == 20.0F * scale && layer.bounds.height == 10.0F * scale);
+        PROGPU_REQUIRE(try_get_state_resource(scaled, layer.reserved0, composite));
+        PROGPU_REQUIRE(composite.transform.m11 == 1.0F / scale);
+        PROGPU_REQUIRE(composite.transform.m31 == 10.0F && composite.transform.m32 == 20.0F);
+        options.source_cache_snap = true;
+        std::vector<std::byte> snapped;
+        PROGPU_REQUIRE(build_mil_image_brush_fixture(snapped, options, 8119U));
+        PROGPU_REQUIRE(snapped == scaled);
+        options.source_cache_snap = false;
+    }
+    options.source_cache_scale = 0.0;
+    std::vector<std::byte> empty;
+    PROGPU_REQUIRE(build_mil_image_brush_fixture(empty, options, 8119U));
+    PROGPU_REQUIRE(get_scene_layers(empty).empty());
+    options.source_cache_scale = 1.0;
+    options.explicit_source_cache = options.target_source_cache = false;
+    options.opacity = 0.5;
+    options.repeat_paint = true;
+    std::vector<std::byte> repeated;
+    PROGPU_REQUIRE(build_mil_image_brush_fixture(repeated, options, 8119U));
+    const auto layers = get_scene_layers(repeated);
+    PROGPU_REQUIRE(layers.size() == 2U);
+    PROGPU_REQUIRE(layers[0].opacity == 0.5F && layers[1].opacity == 0.5F);
+    PROGPU_REQUIRE(layers[0].content_revision == layers[1].content_revision);
+    PROGPU_REQUIRE(layers[0].composite_revision != layers[1].composite_revision);
+    options.repeat_paint = false;
+    options.opacity = 1.0;
+    options.relative_scale = true;
+    PROGPU_REQUIRE(build_mil_image_brush_fixture(repeated, options, 8119U));
+    PROGPU_REQUIRE(try_get_cached_layer(repeated, initial));
+    PROGPU_REQUIRE(try_get_state_resource(repeated, initial.reserved0, composite));
+    PROGPU_REQUIRE(composite.transform.m11 == 0.5F && composite.transform.m22 == 0.5F);
+    PROGPU_REQUIRE(composite.transform.m31 == 21.0F && composite.transform.m32 == 26.0F);
+    options.relative_scale = false;
+    options.source_cycle = true;
+    PROGPU_REQUIRE(!build_mil_image_brush_fixture(repeated, options, 8119U));
+    options.source_cycle = false;
+
+    // Move source content to a real child. Root suppression must not also
+    // suppress the child's alpha/placement or lose dependency invalidation.
+    std::vector<std::byte> child;
+    append_create(child, 423U, 39U);
+    append_command(child, command::visual_create, 423U);
+    append_command(child, command::visual_set_content, 3U, 0U);
+    append_command(child, command::visual_set_content, 423U, 12U);
+    append_command(child, command::visual_insert_child_at, 3U, 423U, 0U);
+    options.source_visual_commands = child;
+    std::vector<std::byte> child_initial;
+    PROGPU_REQUIRE(build_mil_image_brush_fixture(child_initial, options, 8119U));
+    progpu_native_scene_layer before{}, after{};
+    PROGPU_REQUIRE(try_get_cached_layer(child_initial, before));
+    append_command(child, command::visual_set_alpha, 423U, 0.5);
+    append_command(child, command::visual_set_offset, 423U, 2.0, 1.0);
+    options.source_visual_commands = child;
+    PROGPU_REQUIRE(build_mil_image_brush_fixture(repeated, options, 8119U));
+    PROGPU_REQUIRE(try_get_cached_layer(repeated, after));
+    PROGPU_REQUIRE(after.content_revision != before.content_revision);
+    PROGPU_REQUIRE(after.composite_revision == before.composite_revision);
+    PROGPU_REQUIRE(repeated != child_initial);
     return true;
 }
 
@@ -21192,6 +21307,7 @@ int main() {
     PROGPU_REQUIRE(render_data_scope_errors_fail_closed());
     PROGPU_REQUIRE(canonical_tile_brush_packets_are_transactional_and_typed());
     PROGPU_REQUIRE(bitmap_cache_brush_ingress_is_typed_and_transactional());
+    PROGPU_REQUIRE(bitmap_cache_brush_captures_content_with_independent_root_state());
     PROGPU_REQUIRE(bitmap_dpi_is_atomic_and_preserves_legacy_bindings());
     PROGPU_REQUIRE(malformed_and_unsupported_packets_fail_closed());
     PROGPU_REQUIRE(c_abi_is_typed_and_size_versioned());

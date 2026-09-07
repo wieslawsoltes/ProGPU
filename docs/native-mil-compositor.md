@@ -9075,6 +9075,74 @@ and MIL/Direct2D compatibility/WebGPU targets plus managed backend/test projects
 compile. Tests, VM/images, performance, verifiers and CI qualification remain
 deferred; cache-brush execution and the full goal remain open.
 
+## Implementation-first checkpoint: BitmapCacheBrush 2D cached execution
+
+The native sampled-brush path now recognizes BitmapCacheBrush separately from
+TileBrush. Original `append_bitmap_cache_brush` routes a 2D target's content and
+children through the existing `add_visual_cache_layer` local-space cache, then
+composites through the existing primitive/path/pen/glyph coverage and picture-mask
+adapters. No viewbox, viewport, stretching or tiling is synthesized. Brush relative
+mapping uses painted bounds, then absolute mapping and the drawing transform;
+opacity belongs to the final cache composite, not each captured source primitive.
+
+Capture selects explicit brush BitmapCache, otherwise target BitmapCache,
+otherwise the default scale-one/grayscale policy. RenderAtScale changes raster
+resolution, not logical placement; zero scale and null/empty targets paint
+nothing. Capture bypasses root visual traversal so root offset, transform, clip,
+effect, opacity and opacity mask do not enter either the page or its composite.
+Descendants use normal typed visual traversal. SnapsToDevicePixels is omitted
+for the brush even when enabled on the selected cache. These distinctions follow
+the [public BitmapCacheBrush contract](https://learn.microsoft.com/en-us/dotnet/api/system.windows.media.bitmapcachebrush?view=windowsdesktop-10.0).
+
+The cache remains GPU-rendered; there is no CPU pixel processing, readback,
+repacking or added per-command managed/native crossing. Shared active-resource
+tracking rejects source cycles and bounds recursive replay. Stable per-frame
+occurrence IDs distinguish multiple consumers; descendant cached layers inherit
+the brush occurrence scope so repeated captures do not alias their owners.
+Content generations remain separate from consumer placement/opacity. This is
+currently one page per consumer, **not** shared target/brush page residency or
+dirty-region updates. That remaining optimization/contract work must not be
+reported as completed by this checkpoint.
+
+Unsupported forms fail closed: Viewport3D roots, missing source bounds, and root
+scroll-clip, render-option or guideline state need dedicated capture-local
+handling. Descendant forms still have the existing native renderer's capability
+limits. Root policies beyond the six explicitly ignored fields are rejected,
+not silently discarded. Exact platform mapping, DPI/subpixel output, nested
+cache/effect/mask behavior and device-loss lifetime remain unqualified. Full
+BitmapCacheBrush and MIL/DirectX/Direct2D/Win2D parity are still open.
+
+Provenance: this is original ProGPU work sharing this file's existing
+`add_visual_cache_layer`, `append_visual`, `append_render_data`, affine mapping,
+generation hashing and sampled-mask adapters. No external implementation text is
+copied. The retained-preparation checkpoint's Skia, Direct2D/DirectWrite/Win2D,
+WebRender, Vello/Parley and HarfBuzz design references remain applicable: separate
+reusable content from placement, keep capture lazy and GPU-owned, and retain
+existing text shaping/atlas/device policies. No text/shader algorithm changes.
+Per consumer, CPU compilation and dependency hashing follow O(V+C+R) source
+visual/command/resource traversal plus existing geometry costs, with bounded
+recursion and lazily allocated clip scratch. GPU raster work/residency scales
+with captured pixel area and consumer count; no throughput improvement is claimed.
+
+Managed applicability: `NativeMilBatchBuilder.SetBitmapCacheBrush` already emits
+the typed canonical packet and now documents capture rather than universal
+render rejection. The C++ channel consumes it without new ABI or per-draw calls.
+The independent managed renderer has no BitmapCacheBrush implementation to port
+or regression-match; adding its typed cache-brush seam and matched managed/native
+behavior remains required work, not a non-applicability exemption or a reflection
+fallback. The existing portable renderer is not replaced by this checkpoint.
+
+Authored native fixtures cover source placement, root-state suppression, cache
+default/target/override resolution, ignored snap, zero scale, opacity, relative
+mapping, multiple consumers, child invalidation and cycles. Shared GPU fixtures
+add independent scalar rectangle/alpha oracles at three raster scales and warm
+replay. Native library and MIL/Direct2D compatibility/WebGPU targets plus the
+managed native backend compile. All new tests are **authored, not executed**;
+runtime, Windows VM/native comparisons, Linux/macOS images, performance,
+verifiers and CI qualification remain deferred under implementation-first
+sequencing. Coverage stays 105 top-level/25 nested/11 undispatched; the generated
+source digest is refreshed, not hand-edited.
+
 ## Invariants
 
 - No reflection or private managed field scanning in the product bridge.
