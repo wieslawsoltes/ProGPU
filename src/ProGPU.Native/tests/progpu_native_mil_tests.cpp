@@ -13028,12 +13028,28 @@ bool retained_drawing_image_infers_crossing_and_point_strokes() {
     const std::array crossing_ends{std::array{10.0, 10.0}, std::array{0.0, 10.0}, std::array{10.0, 0.0}};
     for (std::size_t index = 0U; index < crossing_ends.size(); ++index)
         std::memcpy(crossing.data() + 104U + index * 32U, crossing_ends[index].data(), sizeof(crossing_ends[index]));
+    const auto hollow_line = [](double x, double y) {
+        auto figures = make_rectangle_path_figures(1.0, 2.0, x, y);
+        figures.resize(120U);
+        const auto set = [&](std::size_t offset, std::uint32_t value) {
+            std::memcpy(figures.data() + offset, &value, sizeof(value));
+        };
+        set(0U, 120U); set(52U, 0U); set(56U, 1U); set(60U, 72U); set(80U, 40U);
+        const std::array end{x, y};
+        std::memcpy(figures.data() + 104U, end.data(), sizeof(end));
+        return figures;
+    };
+    const std::array curve_points{std::array{1.25, 2.5}, std::array{1.5, 2.25}};
+    auto hollow_curve = make_single_bezier_path_figures(3U, curve_points);
+    const std::uint32_t hollow_curve_flags = 0x02U;
+    std::memcpy(hollow_curve.data() + 52U, &hollow_curve_flags, sizeof(hollow_curve_flags));
     struct bounds_case {
         std::vector<std::byte> figures;
         std::uint32_t start, end, dash_handle;
         double offset;
         bool fixed;
         progpu_native_image_rect bounds;
+        bool long_gap = false;
     };
     const std::uint32_t flat = PROGPU_NATIVE_STROKE_CAP_FLAT, square = PROGPU_NATIVE_STROKE_CAP_SQUARE;
     const std::uint32_t round = PROGPU_NATIVE_STROKE_CAP_ROUND, triangle = PROGPU_NATIVE_STROKE_CAP_TRIANGLE;
@@ -13051,10 +13067,20 @@ bool retained_drawing_image_infers_crossing_and_point_strokes() {
         bounds_case{point_path, square, square, 0U, 0.0, true, {-1, 0, 4, 4}},
         bounds_case{point_path, flat, flat, 0U, 0.0, true, {}},
         bounds_case{point_path, square, square, dash, 1.5, true, {}},
-        bounds_case{crossing, flat, flat, 0U, 0.0, false, {-diagonal, -2, 10 + 2 * diagonal, 14}}};
+        bounds_case{crossing, flat, flat, 0U, 0.0, false, {-diagonal, -2, 10 + 2 * diagonal, 14}},
+        // All-gap hollow strokes contribute no source bounds, even when their
+        // unwidened diagonal/curve bounding box has positive area.
+        bounds_case{hollow_line(1.25, 2.125), flat, flat, dash, 1.5, false, {}},
+        bounds_case{hollow_line(1.00001, 2.00001), flat, flat, dash, 1.5, false, {}},
+        bounds_case{hollow_curve, flat, flat, dash, 1.5, false, {}},
+        // A long gap must not stretch a short visible dash to the whole spine.
+        bounds_case{hollow_line(11.0, 2.0), flat, flat, dash, 0.0, false, {1, 0, 4, 4}, true}};
     std::uint64_t generation = 1U;
     for (const auto& test : cases) {
         std::vector<std::byte> update;
+        const std::array long_intervals{1.0, 100.0};
+        append_dash_style(update, dash, 0.0, animation,
+            test.long_gap ? std::span<const double>(long_intervals) : std::span<const double>(intervals));
         append_path_geometry(update, geometry, 0U, 0U, test.figures);
         append_command(update, command::double_resource, animation, test.offset);
         append_command(update, command::pen, pen, 4.0, 10.0, brush, 0U,

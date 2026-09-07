@@ -11612,8 +11612,15 @@ struct channel::implementation {
                     static_cast<std::uint32_t>(dashes.size()), style.put());
                 if (com::failed(hr)) return convert(hr);
                 d2d::rectangle_f bounds{};
-                hr = path->GetWidenedBounds(static_cast<float>(pen.thickness), style.get(),
-                    &world_matrix, tolerance, &bounds);
+                bool emitted_outline = false;
+                // D2D GetWidenedBounds also includes the original spine. MIL
+                // unions actual fill separately, so a dashed hollow contour
+                // needs only its emitted stroke coverage (possibly empty).
+                hr = dashes.empty()
+                    ? path->GetWidenedBounds(static_cast<float>(pen.thickness), style.get(),
+                        &world_matrix, tolerance, &bounds)
+                    : d2d::detail::get_widened_outline_bounds(path.get(), static_cast<float>(pen.thickness),
+                        style.get(), &world_matrix, tolerance, bounds, emitted_outline);
                 if (com::failed(hr)) return convert(hr);
                 if (!std::isfinite(bounds.left) || !std::isfinite(bounds.top) ||
                     !std::isfinite(bounds.right) || !std::isfinite(bounds.bottom))
@@ -11626,8 +11633,23 @@ struct channel::implementation {
                     // widening. MIL still owns an explicit cap pair there.
                     // Do not use this fallback for merely small/nonpoint paths.
                     if (!std::isfinite(spine.left) || !std::isfinite(spine.top) ||
-                        spine.left != spine.right || spine.top != spine.bottom)
-                        return status::unsupported_command;
+                        !std::isfinite(spine.right) || !std::isfinite(spine.bottom)) return status::unsupported_command;
+                    if (spine.left != spine.right || spine.top != spine.bottom) {
+                        if (dashes.empty()) return status::unsupported_command;
+                        // A real outline can collapse only after the world
+                        // transform. It has no area to map into a DrawingImage.
+                        if (emitted_outline) continue;
+                        // Confirm that flattening retained the nonpoint spine
+                        // before treating an empty dash result as all-gap. Tiny
+                        // curves lost at this tolerance must not vanish silently.
+                        d2d::rectangle_f solid_bounds{};
+                        bool solid_outline = false;
+                        hr = d2d::detail::get_widened_outline_bounds(path.get(), static_cast<float>(pen.thickness),
+                            nullptr, nullptr, tolerance, solid_bounds, solid_outline);
+                        if (com::failed(hr)) return convert(hr);
+                        if (!solid_outline) return status::unsupported_command;
+                        continue;
+                    }
                     const std::uint32_t start = contour.closed
                         ? static_cast<std::uint32_t>(PROGPU_NATIVE_STROKE_CAP_ROUND)
                         : contour.start_uses_dash_cap ? pen.dash_cap : pen.start_line_cap;
