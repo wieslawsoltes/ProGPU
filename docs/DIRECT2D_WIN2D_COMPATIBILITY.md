@@ -4780,3 +4780,13 @@ remain deferred. This does not add Direct2D COM methods or establish Win2D parit
 on-screen target-page unification, dirty regions, CPU preparation reuse, managed
 cache-brush integration and platform qualification remain open. See the native
 MIL document for the contract, original ProGPU provenance and cost model.
+
+### Implementation-first checkpoint: typed cache-brush host contract
+
+ProGPU's neutral cache-brush source DTO now connects source-built LibreWPF to the
+existing C++ MIL brush resource and cached execution. The paired host compiler
+and invalidation traversal preserve resolved target/cache identity, null targets,
+cycle rejection and shared fill/pen/mask references. This adds no Direct2D COM
+method and does not establish Win2D or independent managed-renderer parity.
+Fixtures are authored; execution and full qualification remain deferred. See the
+native MIL document for scope, costs, provenance and remaining parity work.

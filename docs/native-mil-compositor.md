@@ -9265,6 +9265,44 @@ Linux/macOS image, performance/SIMD, verifier and CI qualification remain deferr
 Root scroll clips, on-screen target-cache unification, dirty-region updates,
 CPU preparation deduplication, managed integration and full parity remain open.
 
+## Implementation-first checkpoint: typed host cache-brush production
+
+`ProGPU.Wpf.Interop/PortableBitmapCacheBrush.cs` now supplies a dedicated immutable
+value snapshot and `IPortableBitmapCacheBrushSource`. It preserves the resolved
+internal visual, optional explicit cache, opacity and flagged matrices without
+WPF assembly types or reflection. Null target means empty paint; null cache keeps
+the native explicit/target/default selection contract. This is deliberately not
+a `PortableTileBrush`: no stretch, viewbox or tiling is introduced.
+
+LibreWPF's paired source adapter publishes its own resolved `InternalTarget`
+(including any host-owned wrapper) and cache. Its existing public coercion rules
+fix brush opacity at one and transforms at null. The native MIL scene compiler
+consumes the descriptor before ordinary brush contracts, serializes through the
+existing `NativeMilBatchBuilder.SetBitmapCacheBrush`, shares target/cache handles,
+and retains the active-visual cycle guard. Fill, pen and spatial opacity-mask
+routes use the same brush resource. Typed invalidation traversal visits both the
+resolved target and explicit cache, including the target's ordinary dependencies.
+Unavailable descriptors fail closed rather than selecting an ordinary brush.
+
+Provenance: this is original ProGPU interop data modeling and reuse of original
+`NativeMilBitmapCacheBrush`/batch encoding, plus source-owned WPF adaptation in
+LibreWPF; no WPF implementation is copied into ProGPU. The public cache-brush and
+cross-engine content/placement research recorded above remains the design basis.
+Snapshot creation is allocation-free O(1); compilation uses existing O(V + E)
+resource traversal/storage and reference-identity handle maps, without pixels,
+readback, uploads, per-primitive native calls or a new CPU numeric loop requiring
+SIMD. Existing graph limits and unsupported native rendering forms remain intact.
+
+Managed/native applicability: the managed **native-MIL producer** is connected to
+the existing C++ execution path. This does not implement BitmapCacheBrush in the
+independent managed renderer; that matched renderer work and differentials remain
+required before claiming parity. ProGPU contract fixtures and LibreWPF packet,
+shared-reference, null-target, unavailable-contract, cycle, invalidation and
+source-adapter fixtures are authored. Runtime/VM/images/performance/verifier/CI
+qualification remains deferred under the requested implementation-first order.
+The root scroll-clip, target-page unification, dirty-region, CPU preparation reuse
+and broader MIL/DirectX/Direct2D/COM/Win2D goals remain open.
+
 ## Invariants
 
 - No reflection or private managed field scanning in the product bridge.
