@@ -8565,7 +8565,7 @@ SceneStateUploadComplete:
             return false;
         }
 
-        var dashArray = pen.DashArray;
+        var dashArray = pen.DashArrayStorage;
         var dashThickness = pen.IsHairline ? 1f : localThickness;
         if (dashArray is not { Length: > 0 } ||
             !DashPattern.TryCreate(dashArray, pen.DashOffset, dashThickness, out var pattern))
@@ -8614,7 +8614,8 @@ SceneStateUploadComplete:
                             ref patternIndex,
                             ref distanceInPattern,
                             ref activeDashFigure,
-                            ref activeDashEnd);
+                            ref activeDashEnd,
+                            line.IsSmoothJoin);
                         currentPoint = line.Point;
                         break;
 
@@ -8716,7 +8717,11 @@ SceneStateUploadComplete:
 
             if (figure.IsClosed)
             {
-                MergeClosedDashSeam(dashedPath, dashedFigureStartIndex, figure.StartPoint);
+                MergeClosedDashSeam(
+                    dashedPath,
+                    dashedFigureStartIndex,
+                    figure.StartPoint,
+                    figureSegments.Count > 0 && figureSegments[0].IsSmoothJoin);
             }
             else
             {
@@ -8725,8 +8730,8 @@ SceneStateUploadComplete:
                     dashedFigureStartIndex,
                     figure.StartPoint,
                     currentPoint,
-                    pen.StartLineCap,
-                    pen.EndLineCap,
+                    figure.StrokeStartLineCap ?? pen.StartLineCap,
+                    figure.StrokeEndLineCap ?? pen.EndLineCap,
                     pen.DashCap);
             }
         }
@@ -8768,7 +8773,8 @@ SceneStateUploadComplete:
     private static void MergeClosedDashSeam(
         PathGeometry dashedPath,
         int firstFigureIndex,
-        Vector2 seam)
+        Vector2 seam,
+        bool smoothJoin)
     {
         var figures = dashedPath.Figures;
         if ((uint)firstFigureIndex >= (uint)figures.Count)
@@ -8790,6 +8796,7 @@ SceneStateUploadComplete:
             // The drawn interval covers the complete contour. Closing the retained figure
             // produces the source seam join without synthesizing two coincident dash caps.
             firstFigure.IsClosed = true;
+            firstFigure.Segments[0].IsSmoothJoin = smoothJoin;
             firstFigure.StrokeStartLineCap = null;
             firstFigure.StrokeEndLineCap = null;
             return;
@@ -8798,6 +8805,9 @@ SceneStateUploadComplete:
         // The final and initial drawn intervals are one cyclic run. Reuse both retained
         // segment lists and move the initial span behind the final span, preserving O(S)
         // construction while keeping cache hits allocation- and traversal-free.
+        // The first segment originally began at a cap. Once the seam is joined,
+        // restore the source's start-join flag on that now-interior segment.
+        firstFigure.Segments[0].IsSmoothJoin = smoothJoin;
         lastFigure.Segments.AddRange(firstFigure.Segments);
         lastFigure.StrokeStartLineCap = null;
         lastFigure.StrokeEndLineCap = null;
@@ -8827,7 +8837,8 @@ SceneStateUploadComplete:
         ref int patternIndex,
         ref float distanceInPattern,
         ref PathFigure? activeDashFigure,
-        ref Vector2 activeDashEnd)
+        ref Vector2 activeDashEnd,
+        bool isSmoothJoin = false)
     {
         var intervals = pattern.Intervals;
         if (!DashPattern.TryValidateState(intervals, patternIndex, distanceInPattern))
@@ -8859,7 +8870,9 @@ SceneStateUploadComplete:
                     ref activeDashFigure,
                     ref activeDashEnd,
                     start + direction * distance,
-                    new LineSegment(start + direction * (distance + step)));
+                    new LineSegment(
+                        start + direction * (distance + step),
+                        isSmoothJoin: distance <= StrokeEpsilon && isSmoothJoin));
             }
 
             DashPattern.Advance(

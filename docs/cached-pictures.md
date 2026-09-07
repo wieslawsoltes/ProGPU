@@ -98,6 +98,64 @@ DPI and performance qualification is still required.
 
 ## Implementation-first status
 
+### Dash metadata preparation (2026-09-07)
+
+The shared managed `Compositor.TryCreateDashedStrokePath` now preserves explicit
+source-figure endpoint caps, line start-join flags at continuous source boundaries,
+and the first segment's join flag when closed dash runs merge across the seam.
+An open dash cap is still not a join; the seam flag is restored only after the
+first and last spans are found to meet. Fully covered closed contours retain a
+closed figure rather than two coincident endpoint caps. Public pen dash-array
+ownership remains unchanged; preparation borrows `DashArrayStorage` and lets the
+existing `DashPattern` own the scaled intervals, removing an intermediate clone.
+
+This is a prerequisite for general cached dashed paths, **not their enablement**.
+The linear cached-coverage preparer still rejects dashes. General dashed outline
+bounds, tiny/zero intervals and terminal points, constant/gap normalization, and
+curve/device-width cases must be completed before that rejection can be removed.
+Existing epsilon-based dash slicing and curve distance tables are unchanged.
+
+Provenance and applicability: original ProGPU at `c33c0591`, managed
+`Compositor.cs` dash construction and native
+`Mil/progpu_native_mil_curve_dash.hpp::try_create_runs`/seam merging. Native runs
+already retain interior and closing smooth flags plus reached-source-endpoint
+bits; native MIL selects gap/source caps before Direct2D stroke construction.
+There is therefore no native product algorithm change in this checkpoint.
+Matched `DashedPathMetadataTests` and expanded native
+`curve_dashes_match_managed_reference_contracts` cover open joins and cyclic
+joins with both flag values, including fully covered closed contours. Managed
+fixtures additionally cover endpoint overrides, endpoints left in gaps, source
+ownership, and cache reuse. Native flags describe segment ends; managed flags
+describe segment starts. No C ABI, shader, WPF-specific stroker or reflection is
+introduced.
+
+Cost: metadata adds O(1) work per emitted/source boundary, no new allocation or
+coordinate pass. Existing dash preparation remains O(D + S + G) for D intervals,
+S source segments (bounded curve sampling), and G generated spans, with owned
+O(D + G) storage. Run traversal and phase updates are sequential dependencies;
+paired `Vector2` coordinate math remains runtime-intrinsic. There is no GPU
+readback, repacking, additional submission, or per-dash draw. Cache keys, culling,
+atlas eviction, demand-driven upload, worker scheduling, and device-loss handling
+are unchanged. No measured speed improvement is claimed.
+
+Primary contracts re-read for this design:
+[Skia paint](https://api.skia.org/classSkPaint.html),
+[Direct2D segment flags](https://learn.microsoft.com/en-us/windows/win32/api/d2d1/ne-d2d1-d2d1_path_segment),
+[Win2D stroke style](https://microsoft.github.io/Win2D/WinUI3/html/T_Microsoft_Graphics_Canvas_Geometry_CanvasStrokeStyle.htm),
+[WebRender](https://firefox-source-docs.mozilla.org/gfx/RenderingOverview.html),
+[Vello scenes](https://docs.rs/vello/latest/vello/struct.Scene.html),
+[Parley layout](https://docs.rs/parley/latest/parley/layout/struct.Layout.html),
+and [HarfBuzz caching](https://harfbuzz.github.io/shaping-plans-and-caching.html).
+Adopt explicit independent cap/join state and retained geometry/material
+separation; reject a host-local geometry workaround. Text shaping/layout reuse,
+font fallback/variation, DPI/hinting and glyph caches are outside this metadata
+change and remain unchanged. No foreign implementation source was used.
+
+Compilation: Release ProGPU.Tests 0 warnings/errors; Apple Clang native MIL
+fixtures compile and link. Fixture execution, image/SIMD differentials,
+Svg.Skia, VM/platform/package lanes, Instruments/performance, source verifiers
+and PR CI qualification remain deferred and required.
+
 ### Linear path cached pens and gap-preserving contours
 
 `StrokeCoverageGeometry.TryPrepareLinearPath` extends cached-source stroke

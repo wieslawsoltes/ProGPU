@@ -202,6 +202,13 @@ Cross-assembly WPF bridge contracts must not expose shim-owned WPF structs or cl
 
 ### A. Rendering Quality & DPI-Aware Text Snapping
 
+Dash preparation must honor source-figure endpoint cap overrides only at reached
+endpoints and preserve source smooth joins, including the closed seam after run
+merging. A cap must not become a join until topology proves continuity. Borrow
+immutable pen dash storage internally rather than cloning the public array.
+Keep matched native end-join and managed start-join fixtures; do not enable
+cached dashed coverage before its emitted-outline bounds are implemented.
+
 Cached linear path preparation must keep the original fill geometry separate
 from owned gap-split stroke runs. Preserve cyclic closed seams, effective dash
 caps at gaps, explicit endpoint overrides, smooth flags through constant-edge

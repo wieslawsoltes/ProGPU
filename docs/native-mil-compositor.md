@@ -9605,6 +9605,22 @@ Compilation: Release ProGPU.Tests 0 warnings/errors; Apple Clang native MIL
 fixture/Direct2D core targets built. Source verification, execution and CI remain
 deferred, not passed.
 
+## Implementation-first checkpoint: dash contour metadata
+
+Shared managed dash preparation now honors figure endpoint overrides, preserves
+line smooth joins across source vertices, and restores closed-seam smooth flags
+when joining cyclic runs. Preparation borrows immutable pen interval storage
+instead of cloning the public array first. Native already carries the equivalent
+join/endpoint metadata; matched managed/native fixtures are authored. See
+[dash metadata preparation](cached-pictures.md#dash-metadata-preparation-2026-09-07)
+for provenance, research, applicability, costs and remaining scope. ProGPU main
+was refreshed with no commits missing from the feature branch.
+
+Release ProGPU.Tests compiles with 0 warnings/errors and Apple Clang native MIL
+fixtures compile/link. No tests, images, benchmarks, verifiers or CI qualification
+ran. General cached dashed-path bounds/rendering remain unfinished, not enabled
+by this checkpoint.
+
 ## Invariants
 
 - No reflection or private managed field scanning in the product bridge.

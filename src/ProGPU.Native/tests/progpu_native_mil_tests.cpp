@@ -1153,6 +1153,36 @@ bool curve_dashes_match_managed_reference_contracts() {
         seam_segments.back().p0.x == 0.0F &&
         seam_segments.back().p0.y == 0.0F);
 
+    // Matched with managed DashedPathMetadataTests: native flags belong to
+    // segment ends, while managed PathSegment flags belong to segment starts.
+    const std::array whole_contour_pattern{50.0, 2.0};
+    const std::array open_join_pattern{30.0, 2.0};
+    for (const std::uint8_t smooth : {std::uint8_t{0U}, std::uint8_t{1U}}) {
+        const std::array<std::uint8_t, 4U> joins{0U, 0U, 0U, smooth};
+        PROGPU_REQUIRE(curve_dash::try_create_runs(
+            square, joins, true, whole_contour_pattern, 0.0, 1.0F,
+            runs) == curve_dash::result::success);
+        PROGPU_REQUIRE(runs.runs.size() == 1U);
+        PROGPU_REQUIRE(runs.runs.front().closed);
+        PROGPU_REQUIRE(runs.runs.front().closing_smooth_join == (smooth != 0U));
+
+        PROGPU_REQUIRE(curve_dash::try_create_runs(
+            square, joins, true, seam_pattern, 0.0, 1.0F,
+            runs) == curve_dash::result::success);
+        PROGPU_REQUIRE(runs.runs.size() == 5U);
+        PROGPU_REQUIRE(runs.smooth_joins_for(runs.runs.back()).front() == smooth);
+
+        const std::array<std::uint8_t, 2U> open_joins{smooth, 0U};
+        PROGPU_REQUIRE(curve_dash::try_create_runs(
+            std::span<const progpu_native_path_segment>(square).first(2U),
+            open_joins, false, open_join_pattern, 0.0, 1.0F,
+            runs) == curve_dash::result::success);
+        PROGPU_REQUIRE(runs.runs.size() == 1U);
+        PROGPU_REQUIRE(runs.runs.front().starts_at_source_start);
+        PROGPU_REQUIRE(runs.runs.front().ends_at_source_end);
+        PROGPU_REQUIRE(runs.smooth_joins_for(runs.runs.front()).front() == smooth);
+    }
+
     std::array<progpu_native_path_segment, 256U> dense_lines{};
     std::array<std::uint8_t, 256U> dense_joins{};
     for (std::size_t index = 0U; index < dense_lines.size(); ++index) {
