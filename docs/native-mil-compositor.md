@@ -8552,6 +8552,42 @@ for representable curves within the subdivision budget, not general point-only
 Direct2D or transform-collapse replay qualification. Precision-limit cases and
 the remaining full platform/DirectX/Direct2D/Win2D goal remain open.
 
+## Implementation-first checkpoint: round-sector and terminal-cap bounds
+
+The shared native Direct2D bounds query now restricts ideal circular support
+points to the actual cap semicircle or outer round-join sector. Source segment
+normals already provide sector endpoints. Candidate support directions are
+filtered in double precision before float conversion, preserving affine
+reflection/shear behavior without a second geometry algorithm. Short asymmetric
+caps, straight continuations and reversals no longer inherit a full disk's
+unpainted extent. Original-spine-inclusive public query semantics remain intact.
+
+A dash that becomes visible exactly at the source endpoint now includes both
+its inward dash cap and outward source end cap in the bounds query. Terminal
+caps explicitly supply their base endpoints because no nonzero dash strip is
+available to supply them. Direction reversal is algebraic, not a synthetic
+mirrored float point that could overflow. Ordinary nonterminal caps retain the
+existing segment-provided bases and do not add that terminal-only work.
+
+This reuses original ProGPU `append_round_support_points`,
+`append_stroke_cap_bounds_points`, `append_stroke_join_bounds_points` and the
+shared SIMD transformed-point reducer. Work stays O(1) per cap/join and O(P)
+point storage for P source/dash segments; sector predicates add bounded scalar
+dot products, not a new whole-buffer scalar loop. No foreign implementation,
+shader, raster fallback, public ABI/module or managed bridge change. Native MIL
+continues to use emitted-outline bounds for curves/dashes, preserving their
+existing cubic approximation rather than substituting ideal-circle bounds.
+
+Authored fixtures cover short one-sided/two-sided round caps, a short right-angle
+join, straight continuation, reversal and terminal round/square/triangle caps,
+with analytic axis-aligned oracles and affine query-versus-emitted comparisons.
+Those comparisons retain an explicit allowance for the established quarter-cubic
+circle approximation, not for full-disk overestimation. Native library and MIL/
+Direct2D compatibility/WebGPU test targets compile; the MIL digest was regenerated
+after its explanatory comment update. Tests, VM/images, benchmarks, verifiers
+and CI qualification remain deferred. Point-only and transform-collapse parity,
+precision limits and the remainder of the full goal remain open.
+
 ## Invariants
 
 - No reflection or private managed field scanning in the product bridge.

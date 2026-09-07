@@ -1699,11 +1699,12 @@ struct polygon_stroke_edges final {
     return com::ok;
 }
 
+template<typename AcceptOffset>
 void append_round_support_points(
     point_2f center,
     double radius,
     const matrix_3x2_f* transform,
-    std::vector<point_2f>& points)
+    std::vector<point_2f>& points, const AcceptOffset& accept_offset)
 {
     const matrix_3x2_f identity{
         1.0F, 0.0F, 0.0F, 1.0F, 0.0F, 0.0F};
@@ -1714,10 +1715,14 @@ void append_round_support_points(
             return;
         }
         const double scale = radius / length;
-        const float offset_x = static_cast<float>(first * scale);
-        const float offset_y = static_cast<float>(second * scale);
-        points.push_back({center.x + offset_x, center.y + offset_y});
-        points.push_back({center.x - offset_x, center.y - offset_y});
+        const double offset_x = first * scale, offset_y = second * scale;
+        // Segment endpoint normals already cover the sector boundaries. Only
+        // add interior extrema whose direction belongs to the actual sector.
+        // Evaluate angular membership before rounding to float coordinates.
+        if (accept_offset(offset_x, offset_y)) points.push_back({
+            static_cast<float>(center.x + offset_x), static_cast<float>(center.y + offset_y)});
+        if (accept_offset(-offset_x, -offset_y)) points.push_back({
+            static_cast<float>(center.x - offset_x), static_cast<float>(center.y - offset_y)});
     };
     points.push_back(center);
     append_axis(matrix.m11, matrix.m21);
@@ -1838,20 +1843,28 @@ void append_stroke_cap_bounds_points(
     double half_width,
     cap_style cap,
     const matrix_3x2_f* transform,
-    std::vector<point_2f>& points)
+    std::vector<point_2f>& points, bool reverse_direction = false, bool include_base = false)
 {
     if (cap == cap_style::flat) {
         return;
     }
+    const double direction_scale = reverse_direction ? -1.0 : 1.0;
+    const double direction_x = (double{endpoint.x} - adjacent.x) * direction_scale;
+    const double direction_y = (double{endpoint.y} - adjacent.y) * direction_scale;
+    const double length = cap != cap_style::round || include_base
+        ? std::hypot(direction_x, direction_y) : 0.0;
+    // A zero-length terminal dash has no segment strip to supply its cap base.
+    // Keep those two boundary vertices explicit, including under affine maps.
+    if (include_base && length != 0.0) {
+        const double nx = -direction_y * half_width / length, ny = direction_x * half_width / length;
+        points.push_back({static_cast<float>(endpoint.x + nx), static_cast<float>(endpoint.y + ny)});
+        points.push_back({static_cast<float>(endpoint.x - nx), static_cast<float>(endpoint.y - ny)});
+    }
     if (cap == cap_style::round) {
-        append_round_support_points(endpoint, half_width, transform, points);
+        append_round_support_points(endpoint, half_width, transform, points,
+            [direction_x, direction_y](double x, double y) { return x * direction_x + y * direction_y >= 0.0; });
         return;
     }
-    const double direction_x =
-        static_cast<double>(endpoint.x) - adjacent.x;
-    const double direction_y =
-        static_cast<double>(endpoint.y) - adjacent.y;
-    const double length = std::hypot(direction_x, direction_y);
     if (length == 0.0) {
         return;
     }
@@ -1886,7 +1899,12 @@ void append_stroke_join_bounds_points(
     std::vector<point_2f>& points)
 {
     if (join == line_join::round) {
-        append_round_support_points(vertex, half_width, transform, points);
+        const double ix = double{vertex.x} - previous.x, iy = double{vertex.y} - previous.y;
+        const double ox = double{next.x} - vertex.x, oy = double{next.y} - vertex.y;
+        append_round_support_points(vertex, half_width, transform, points,
+            [ix, iy, ox, oy](double x, double y) {
+                return x * ix + y * iy >= 0.0 && x * ox + y * oy <= 0.0;
+            });
         return;
     }
     if (join == line_join::bevel) {
@@ -2129,15 +2147,25 @@ void append_stroke_join_bounds_points(
             points);
         }
     }
-    if (!closed && dash_runs.terminal_visible_point &&
-        source_end_cap != cap_style::flat) {
+    if (!closed && dash_runs.terminal_visible_point) {
+        append_stroke_cap_bounds_points(
+            polygon.back(),
+            polygon[polygon.size() - 2U],
+            half_width,
+            style.GetDashCap(),
+            transform,
+            points,
+            true,
+            true);
         append_stroke_cap_bounds_points(
             polygon.back(),
             polygon[polygon.size() - 2U],
             half_width,
             source_end_cap,
             transform,
-            points);
+            points,
+            false,
+            true);
     }
     return transformed_point_bounds(points, transform, bounds);
 }

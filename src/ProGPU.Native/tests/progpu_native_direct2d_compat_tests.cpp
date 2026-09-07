@@ -1818,6 +1818,85 @@ int run_tests()
         if (coarse->FillContainsPoint({0.5F, 0.5F}, nullptr, 0.01F, &contains) != com::ok || contains == 0) return 9089;
     }
 
+    // A cap is a semicircle and a round join is an outer sector, not a full
+    // disk. Short spines expose excess bounds that long segments can hide.
+    {
+        struct sector_case {
+            std::array<compat::point_2f, 3U> points;
+            std::uint32_t count;
+            compat::cap_style start, end;
+            compat::rectangle_f expected;
+        };
+        const auto flat = compat::cap_style::flat, round = compat::cap_style::round;
+        const std::array cases{
+            sector_case{{compat::point_2f{0, 0}, {0.25F, 0}, {}}, 2U, round, flat, {-1, -1, 0.25F, 1}},
+            sector_case{{compat::point_2f{0, 0}, {0.25F, 0}, {}}, 2U, flat, round, {0, -1, 1.25F, 1}},
+            sector_case{{compat::point_2f{0, 0}, {0.25F, 0}, {}}, 2U, round, round, {-1, -1, 1.25F, 1}},
+            sector_case{{compat::point_2f{-0.125F, 0}, {0, 0}, {0, 0.25F}}, 3U, flat, flat, {-1, -1, 1, 0.25F}},
+            sector_case{{compat::point_2f{-0.125F, 0}, {0, 0}, {0.125F, 0}}, 3U, flat, flat, {-0.125F, -1, 0.125F, 1}},
+            sector_case{{compat::point_2f{0, 0}, {0.125F, 0}, {0, 0}}, 3U, flat, flat, {0, -1, 1.125F, 1}}};
+        const compat::matrix_3x2_f transform{-1.0F, 0.5F, 0.25F, 1.25F, 3, -4};
+        for (const auto& test : cases) {
+            com::pointer<compat::path_geometry> path;
+            com::pointer<compat::geometry_sink> sink;
+            if (factory->CreatePathGeometry(path.put()) != com::ok || path->Open(sink.put()) != com::ok) return 9090;
+            sink->BeginFigure(test.points[0U], compat::figure_begin::hollow);
+            sink->AddLines(test.points.data() + 1U, test.count - 1U);
+            sink->EndFigure(compat::figure_end::open);
+            if (sink->Close() != com::ok) return 9091;
+            const compat::stroke_style_properties properties{test.start, test.end, flat,
+                compat::line_join::round, 10.0F, compat::dash_style::solid, 0.0F};
+            com::pointer<compat::stroke_style> style;
+            compat::rectangle_f bounds{};
+            if (factory->CreateStrokeStyle(&properties, nullptr, 0U, style.put()) != com::ok ||
+                path->GetWidenedBounds(2.0F, style.get(), nullptr, 0.001F, &bounds) != com::ok ||
+                !approximately_equal(bounds.left, test.expected.left) || !approximately_equal(bounds.top, test.expected.top) ||
+                !approximately_equal(bounds.right, test.expected.right) || !approximately_equal(bounds.bottom, test.expected.bottom))
+                return 9092;
+            compat::rectangle_f emitted{};
+            bool has_outline = false;
+            if (path->GetWidenedBounds(2.0F, style.get(), &transform, 0.001F, &bounds) != com::ok ||
+                compat::detail::get_widened_outline_bounds(path.get(), 2.0F, style.get(), &transform, 0.001F,
+                    emitted, has_outline) != com::ok || !has_outline) return 9093;
+            // Widen retains the established quarter-cubic circle approximation;
+            // the support query evaluates the ideal circle. Allow that existing
+            // approximation error while rejecting full-disk overestimation.
+            if (std::abs(bounds.left - emitted.left) > 0.001F || std::abs(bounds.top - emitted.top) > 0.001F ||
+                std::abs(bounds.right - emitted.right) > 0.001F || std::abs(bounds.bottom - emitted.bottom) > 0.001F)
+                return 9094;
+        }
+        com::pointer<compat::path_geometry> path;
+        com::pointer<compat::geometry_sink> sink;
+        if (factory->CreatePathGeometry(path.put()) != com::ok || path->Open(sink.put()) != com::ok) return 9095;
+        sink->BeginFigure({0, 0}, compat::figure_begin::hollow);
+        sink->AddLine({1, 0});
+        sink->EndFigure(compat::figure_end::open);
+        if (sink->Close() != com::ok) return 9096;
+        const std::array<float, 2U> dashes{1, 1};
+        for (const auto cap : {round, compat::cap_style::square, compat::cap_style::triangle}) {
+            const compat::stroke_style_properties properties{flat, flat, cap,
+                compat::line_join::miter, 10.0F, compat::dash_style::custom, 1.5F};
+            com::pointer<compat::stroke_style> style;
+            compat::rectangle_f bounds{}, emitted{};
+            bool has_outline = false;
+            if (factory->CreateStrokeStyle(&properties, dashes.data(), 2U, style.put()) != com::ok ||
+                path->GetWidenedBounds(2.0F, style.get(), nullptr, 0.001F, &bounds) != com::ok ||
+                compat::detail::get_widened_outline_bounds(path.get(), 2.0F, style.get(), nullptr, 0.001F,
+                    emitted, has_outline) != com::ok || !has_outline ||
+                !approximately_equal(bounds.left, 0.0F) || !approximately_equal(bounds.top, -1.0F) ||
+                !approximately_equal(bounds.right, 1.0F) || !approximately_equal(bounds.bottom, 1.0F) ||
+                !approximately_equal(bounds.left, emitted.left) || !approximately_equal(bounds.top, emitted.top) ||
+                !approximately_equal(bounds.right, emitted.right) || !approximately_equal(bounds.bottom, emitted.bottom))
+                return 9097;
+            if (path->GetWidenedBounds(2.0F, style.get(), &transform, 0.001F, &bounds) != com::ok ||
+                compat::detail::get_widened_outline_bounds(path.get(), 2.0F, style.get(), &transform, 0.001F,
+                    emitted, has_outline) != com::ok || !has_outline ||
+                std::abs(bounds.left - emitted.left) > 0.001F || std::abs(bounds.top - emitted.top) > 0.001F ||
+                std::abs(bounds.right - emitted.right) > 0.001F || std::abs(bounds.bottom - emitted.bottom) > 0.001F)
+                return 9098;
+        }
+    }
+
     com::pointer<com::unknown> identity;
     if (factory.as(com::unknown_interface_id(), identity) != com::ok ||
         identity.get() != static_cast<com::unknown*>(raw_factory)) {
