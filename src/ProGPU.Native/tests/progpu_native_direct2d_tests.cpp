@@ -6098,6 +6098,110 @@ int main()
             composite_mask.picture_mask_count == 0U,
         "Direct2D composite geometric/brush mask layout changed");
 
+    // Match portable full-target brush domains across DPI, reflection/shear and
+    // analytic geometry combinations. The independent oracle maps all target
+    // corners back to brush-domain coordinates, never sampling CPU pixels.
+    float saved_full_dpi_x = 0.0F, saved_full_dpi_y = 0.0F;
+    context->GetDpi(&saved_full_dpi_x, &saved_full_dpi_y);
+    const std::array full_layer_transforms{
+        D2D1::Matrix3x2F(0, 1, -1, 0, 10, 20),
+        D2D1::Matrix3x2F(0.6F, 0.8F, -0.8F, 0.6F, -30, 10),
+        D2D1::Matrix3x2F(1, 0.5F, 0.25F, -1, 17, -23)};
+    const std::array<ID2D1Brush*, 3U> full_layer_brushes{
+        solid_brush.Get(), linear_brush.Get(), radial_brush.Get()};
+    for (const auto dpi : {D2D1::SizeF(96, 96), D2D1::SizeF(144, 192)}) {
+        context->SetDpi(dpi.width, dpi.height);
+        for (const auto& world : full_layer_transforms) {
+            for (const bool geometric : {false, true}) {
+                for (auto* brush : full_layer_brushes) {
+                    void* raw_list = nullptr;
+                    require(progpu_native_direct2d_surface_create_command_list(surface,
+                        &raw_list, &native_hresult) == PROGPU_NATIVE_DIRECT2D_STATUS_SUCCESS,
+                        "full-target brush command-list creation failed");
+                    ComPtr<ID2D1CommandList> list;
+                    list.Attach(static_cast<ID2D1CommandList*>(raw_list));
+                    require(progpu_native_direct2d_surface_begin_command_list_draw(surface, list.Get()) ==
+                        PROGPU_NATIVE_DIRECT2D_STATUS_SUCCESS, "full-target brush recording failed");
+                    context->SetTransform(world);
+                    auto parameters = opacity_layer_parameters;
+                    const float maximum = (std::numeric_limits<float>::max)();
+                    parameters.contentBounds = {-maximum, -maximum, maximum, maximum};
+                    parameters.geometricMask = geometric ? scene_path_geometry.Get() : nullptr;
+                    parameters.opacityBrush = brush;
+                    context->PushLayer(&parameters, nullptr);
+                    context->FillRectangle(&opacity_layer_fill0, solid_brush.Get());
+                    context->PopLayer();
+                    require(progpu_native_direct2d_surface_end_command_list_draw(surface,
+                        &command_tag1, &command_tag2, &native_hresult) == PROGPU_NATIVE_DIRECT2D_STATUS_SUCCESS,
+                        "full-target brush recording did not close");
+                    progpu_native_direct2d_scene_stream_result result{};
+                    result.struct_size = static_cast<uint32_t>(sizeof(result));
+                    require(progpu_native_direct2d_command_list_build_scene_stream(surface, list.Get(),
+                        7010U, 1U, nullptr, 0U, &result, &native_hresult) ==
+                            PROGPU_NATIVE_DIRECT2D_STATUS_INSUFFICIENT_BUFFER &&
+                        (result.flags & PROGPU_NATIVE_DIRECT2D_SCENE_STREAM_FLAG_HAS_TARGET_DEPENDENT_MASKS) != 0U,
+                        "full-target mask did not publish target dependency");
+                    std::vector<uint8_t> bytes(static_cast<size_t>(result.required_bytes));
+                    require(progpu_native_direct2d_command_list_build_scene_stream(surface, list.Get(),
+                        7010U, 1U, bytes.data(), bytes.size(), &result, &native_hresult) ==
+                            PROGPU_NATIVE_DIRECT2D_STATUS_SUCCESS && result.written_bytes == bytes.size(),
+                        "full-target brush scene serialization failed");
+                    const auto read = [&]<typename T>(std::uint64_t offset, T& value) {
+                        return progpu::native::direct2d::tests::read_scene_value(
+                            std::as_bytes(std::span(bytes)), offset, value);
+                    };
+                    progpu_native_scene_header header{};
+                    progpu_native_scene_command command{};
+                    progpu_native_scene_layer layer{};
+                    progpu_native_scene_resource resource{};
+                    require(read(0U, header) && header.command_count == 3U &&
+                        read(header.command_offset, command) && command.kind == PROGPU_NATIVE_SCENE_COMMAND_PUSH_LAYER &&
+                        read(command.payload_offset, layer) && layer.mask_resource_index < header.resource_count &&
+                        ((layer.flags & PROGPU_NATIVE_SCENE_LAYER_BOUNDS) != 0U) == geometric &&
+                        read(header.resource_offset + std::uint64_t{layer.mask_resource_index} * header.resource_stride,
+                            resource) && resource.kind == PROGPU_NATIVE_SCENE_RESOURCE_LAYER_MASK,
+                        "full-target brush layer resource changed");
+                    progpu_native_scene_layer_brush_mask mask{};
+                    require(read(geometric ? resource.auxiliary_offset : resource.payload_offset, mask) &&
+                        mask.kind == PROGPU_NATIVE_SCENE_LAYER_MASK_BRUSH &&
+                        mask.transform.m11 == world._11 && mask.transform.m12 == world._12 &&
+                        mask.transform.m21 == world._21 && mask.transform.m22 == world._22 &&
+                        mask.transform.m31 == world._31 && mask.transform.m32 == world._32,
+                        "full-target brush transform changed");
+                    const double determinant = double{world._11} * world._22 - double{world._12} * world._21;
+                    for (const double x : {0.0, static_cast<double>(descriptor.width) * 96.0 / dpi.width}) {
+                        for (const double y : {0.0, static_cast<double>(descriptor.height) * 96.0 / dpi.height}) {
+                            const double local_x = ((x - world._31) * world._22 - (y - world._32) * world._21) / determinant;
+                            const double local_y = ((y - world._32) * world._11 - (x - world._31) * world._12) / determinant;
+                            constexpr double tolerance = 0.002;
+                            require(local_x >= mask.bounds.x - tolerance && local_y >= mask.bounds.y - tolerance &&
+                                local_x <= double{mask.bounds.x} + mask.bounds.width + tolerance &&
+                                local_y <= double{mask.bounds.y} + mask.bounds.height + tolerance,
+                                "full-target brush domain excludes a viewport corner");
+                        }
+                    }
+                    if (!geometric && brush == solid_brush.Get() &&
+                        dpi.width == 96.0F && world._11 == 0.0F) {
+                        progpu_native_direct2d_scene_recorder* recorder = nullptr;
+                        require(progpu_native_direct2d_scene_recorder_create(7011U, 1U, nullptr,
+                            &recorder, &native_hresult) == PROGPU_NATIVE_DIRECT2D_STATUS_SUCCESS,
+                            "targetless full-layer recorder creation failed");
+                        void* raw_sink = nullptr;
+                        require(progpu_native_direct2d_scene_recorder_get_command_sink(recorder,
+                            &raw_sink, &native_hresult) == PROGPU_NATIVE_DIRECT2D_STATUS_SUCCESS,
+                            "targetless recorder sink query failed");
+                        ComPtr<ID2D1CommandSink> sink;
+                        sink.Attach(static_cast<ID2D1CommandSink*>(raw_sink));
+                        require(list->Stream(sink.Get()) == E_NOTIMPL,
+                            "targetless recorder invented full-target brush dimensions");
+                        progpu_native_direct2d_scene_recorder_destroy(recorder);
+                    }
+                }
+            }
+        }
+    }
+    context->SetDpi(saved_full_dpi_x, saved_full_dpi_y);
+
     void* background_layer_list_value = nullptr;
     native_hresult = E_FAIL;
     require(
@@ -6223,7 +6327,7 @@ int main()
         require(
             progpu_native_direct2d_command_list_build_scene_stream(
                 surface, aliased_mask_layer_list.Get(), 7009U, 1U,
-                aliased_mask_stream.data(), aliased_mask_stream.size(),
+                reinterpret_cast<uint8_t*>(aliased_mask_stream.data()), aliased_mask_stream.size(),
                 &aliased_mask_layer_scene, &native_hresult) == PROGPU_NATIVE_DIRECT2D_STATUS_SUCCESS &&
                 native_hresult == S_OK && aliased_mask_layer_scene.written_bytes == aliased_mask_stream.size(),
             "Direct2D aliased geometric layer mask serialization failed");
@@ -6462,7 +6566,7 @@ int main()
     require(
         progpu_native_direct2d_command_list_build_scene_stream(
             surface, antialiased_clip_list.Get(), 7003U, 1U,
-            antialiased_clip_stream.data(), antialiased_clip_stream.size(),
+            reinterpret_cast<uint8_t*>(antialiased_clip_stream.data()), antialiased_clip_stream.size(),
             &antialiased_clip_scene, &native_hresult) == PROGPU_NATIVE_DIRECT2D_STATUS_SUCCESS &&
             native_hresult == S_OK &&
             antialiased_clip_scene.written_bytes == antialiased_clip_stream.size() &&

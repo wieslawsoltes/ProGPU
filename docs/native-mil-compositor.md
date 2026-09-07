@@ -9737,6 +9737,25 @@ succeeds with zero warnings/errors. Full renderer and all runtime/image,
 SIMD/performance, VM/platform/package, source-verifier and CI gates remain deferred.
 Main was refreshed with zero missing commits. Full goal parity remains unfinished.
 
+## Implementation-first checkpoint: full-target Direct2D brush domains
+
+Surface-backed Windows command-list translation now obtains physical size and
+current context DPI for full-target opacity-brush layers, including geometric
+mask combinations. Portable and Windows C++ share the original four-corner local
+domain algorithm through a double-lane SIMD core helper. A typed result flag
+reports the target-size/DPI dependency; callers must rebuild under a new generation
+when either changes. Standalone recorders still lack a target descriptor and
+reject this case instead of inventing dimensions.
+
+See [original provenance, contracts, research, SIMD costs and fixtures](direct2d-target-brush-domains.md).
+Apple Clang C++20 core and portable COM fixtures compile/link; Windows provider
+and fixture compilation remains pending. ProGPU.Tests Release compiles with zero
+warnings/errors; main was refreshed with zero missing commits. Fixtures are
+authored, not run. Fixed
+wire layouts, exports, shaders and ABI version are unchanged; the new flag is
+mirrored in the managed contract. All runtime/image, SIMD/performance,
+VM/platform/package, source-verifier and CI qualification remains deferred.
+
 ## Invariants
 
 - No reflection or private managed field scanning in the product bridge.

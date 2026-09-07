@@ -6061,8 +6061,11 @@ public:
     CommandSceneStreamSink(
         uint64_t scene_id,
         uint64_t generation,
-        const progpu_native_direct2d_command_stream_summary& summary)
-        : builder_(scene_id, generation)
+        const progpu_native_direct2d_command_stream_summary& summary,
+        double target_width = 0.0,
+        double target_height = 0.0)
+        : builder_(scene_id, generation),
+          target_width_(target_width), target_height_(target_height)
     {
         const uint64_t draw_count =
             static_cast<uint64_t>(summary.draw_count) + summary.fill_count;
@@ -6540,7 +6543,9 @@ public:
         if (!full_target && !axis_preserving_transform(transform_)) {
             return fail_unsupported_state();
         }
-        if (full_target && parameters->opacityBrush != nullptr) {
+        D2D1_RECT_F mask_content_bounds = parameters->contentBounds;
+        if (full_target && parameters->opacityBrush != nullptr &&
+            !try_resolve_full_target_local_bounds(mask_content_bounds)) {
             return fail_unsupported_state();
         }
         if (parameters->maskAntialiasMode !=
@@ -6573,7 +6578,7 @@ public:
                 parameters->maskTransform,
                 parameters->maskAntialiasMode,
                 parameters->opacityBrush,
-                parameters->contentBounds,
+                mask_content_bounds,
                 mask_resource_index,
                 mask_bounds,
                 empty_mask);
@@ -6591,7 +6596,7 @@ public:
             bool empty_mask = false;
             const HRESULT mask_hr = add_opacity_brush_layer_mask(
                 parameters->opacityBrush,
-                parameters->contentBounds,
+                mask_content_bounds,
                 mask_resource_index,
                 empty_mask);
             if (FAILED(mask_hr)) {
@@ -6626,6 +6631,7 @@ public:
             parameters->opacityBrush != nullptr;
         has_composite_layer_masks_ |= parameters->geometricMask != nullptr &&
             parameters->opacityBrush != nullptr;
+        has_target_dependent_masks_ |= full_target && parameters->opacityBrush != nullptr;
         return S_OK;
     }
 
@@ -6700,6 +6706,11 @@ public:
     bool has_axis_aligned_clips() const noexcept
     {
         return has_axis_aligned_clips_;
+    }
+
+    bool has_target_dependent_masks() const noexcept
+    {
+        return has_target_dependent_masks_;
     }
 
     bool has_gradient_brushes() const noexcept
@@ -7022,6 +7033,19 @@ private:
                     value >= -std::numeric_limits<float>::max() &&
                     value <= std::numeric_limits<float>::max();
             }) && finite_transform(inverse);
+    }
+
+    bool try_resolve_full_target_local_bounds(D2D1_RECT_F& bounds) const noexcept
+    {
+        D2D1_MATRIX_3X2_F inverse{};
+        if (!try_invert_transform(transform_, inverse)) return false;
+        const progpu_native_direct2d_matrix_3x2_f portable_inverse{
+            inverse._11, inverse._12, inverse._21, inverse._22, inverse._31, inverse._32};
+        direct2d_core::rectangle_edges_f local{};
+        if (progpu::native::com::failed(direct2d_core::viewport_coverage_bounds(
+                portable_inverse, target_width_, target_height_, &local))) return false;
+        bounds = {local.left, local.top, local.right, local.bottom};
+        return true;
     }
 
     static D2D1_MATRIX_3X2_F compose_transform(
@@ -8371,6 +8395,8 @@ private:
 
     std::atomic<ULONG> reference_count_{1U};
     progpu::native::semantic_scene_builder builder_;
+    const double target_width_;
+    const double target_height_;
     D2D1_MATRIX_3X2_F transform_ = D2D1::Matrix3x2F::Identity();
     D2D1_COLOR_F clear_color_{};
     std::array<
@@ -8404,6 +8430,7 @@ private:
     bool has_geometric_layer_masks_ = false;
     bool has_opacity_brush_layer_masks_ = false;
     bool has_composite_layer_masks_ = false;
+    bool has_target_dependent_masks_ = false;
 };
 
 void initialize_scene_stream_result(
@@ -8432,6 +8459,9 @@ void initialize_scene_stream_result(
     if (sink.has_axis_aligned_clips()) {
         result.flags |=
             PROGPU_NATIVE_DIRECT2D_SCENE_STREAM_FLAG_HAS_AXIS_ALIGNED_CLIPS;
+    }
+    if (sink.has_target_dependent_masks()) {
+        result.flags |= PROGPU_NATIVE_DIRECT2D_SCENE_STREAM_FLAG_HAS_TARGET_DEPENDENT_MASKS;
     }
     if (sink.has_gradient_brushes()) {
         result.flags |=
@@ -11581,10 +11611,16 @@ progpu_native_direct2d_command_list_build_scene_stream(
     CommandSceneStreamSink* scene_sink = nullptr;
     if (SUCCEEDED(hr)) {
         try {
+            float dpi_x = 0.0F, dpi_y = 0.0F;
+            surface->d2d_context->GetDpi(&dpi_x, &dpi_y);
             scene_sink = new CommandSceneStreamSink(
                 scene_id,
                 generation,
-                summary);
+                summary,
+                std::isfinite(dpi_x) && dpi_x > 0.0F
+                    ? static_cast<double>(surface->width) * 96.0 / dpi_x : 0.0,
+                std::isfinite(dpi_y) && dpi_y > 0.0F
+                    ? static_cast<double>(surface->height) * 96.0 / dpi_y : 0.0);
         } catch (const std::bad_alloc&) {
             hr = E_OUTOFMEMORY;
         } catch (...) {

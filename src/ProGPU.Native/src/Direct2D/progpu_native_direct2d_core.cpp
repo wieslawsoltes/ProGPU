@@ -4,6 +4,14 @@
 #include <cmath>
 #include <limits>
 
+#if defined(__aarch64__) || defined(_M_ARM64)
+#include <arm_neon.h>
+#elif defined(__SSE2__) || defined(_M_X64) || (defined(_M_IX86_FP) && _M_IX86_FP >= 2)
+#include <emmintrin.h>
+#elif defined(__wasm_simd128__)
+#include <wasm_simd128.h>
+#endif
+
 namespace progpu::native::direct2d::core {
 namespace {
 
@@ -88,6 +96,94 @@ com::result compose_transform(
         static_cast<float>(values[3U]),
         static_cast<float>(values[4U]),
         static_cast<float>(values[5U])};
+    return com::ok;
+}
+
+com::result viewport_coverage_bounds(
+    const progpu_native_direct2d_matrix_3x2_f& inverse,
+    double target_width,
+    double target_height,
+    rectangle_edges_f* result) noexcept
+{
+    if (result == nullptr) return com::pointer_error;
+    *result = {};
+    if (!valid_transform(&inverse) || !std::isfinite(target_width) ||
+        !std::isfinite(target_height) || target_width <= 0.0 || target_height <= 0.0)
+        return com::invalid_argument;
+
+    // Original portable Direct2D viewport envelope, with independent x/y lanes.
+    // O(1) time/storage: four corners, no allocation, pixels or resource work.
+    // Preserve multiply/add ordering and outward float origin/extent rounding.
+    std::array<std::array<double, 2U>, 4U> corners{};
+    corners[0] = {inverse.m31, inverse.m32};
+#if defined(__aarch64__) || defined(_M_ARM64)
+    const std::array<double, 2U> x_axis{inverse.m11, inverse.m12};
+    const std::array<double, 2U> y_axis{inverse.m21, inverse.m22};
+    const auto origin = vld1q_f64(corners[0].data());
+    const auto x = vmulq_n_f64(vld1q_f64(x_axis.data()), target_width);
+    const auto y = vmulq_n_f64(vld1q_f64(y_axis.data()), target_height);
+    vst1q_f64(corners[1].data(), vaddq_f64(x, origin));
+    vst1q_f64(corners[2].data(), vaddq_f64(y, origin));
+    vst1q_f64(corners[3].data(), vaddq_f64(vaddq_f64(x, y), origin));
+#elif defined(__SSE2__) || defined(_M_X64) || (defined(_M_IX86_FP) && _M_IX86_FP >= 2)
+    const auto origin = _mm_loadu_pd(corners[0].data());
+    const auto x = _mm_mul_pd(_mm_set_pd(inverse.m12, inverse.m11), _mm_set1_pd(target_width));
+    const auto y = _mm_mul_pd(_mm_set_pd(inverse.m22, inverse.m21), _mm_set1_pd(target_height));
+    _mm_storeu_pd(corners[1].data(), _mm_add_pd(x, origin));
+    _mm_storeu_pd(corners[2].data(), _mm_add_pd(y, origin));
+    _mm_storeu_pd(corners[3].data(), _mm_add_pd(_mm_add_pd(x, y), origin));
+#elif defined(__wasm_simd128__)
+    const auto origin = wasm_v128_load(corners[0].data());
+    const auto x = wasm_f64x2_mul(wasm_f64x2_make(inverse.m11, inverse.m12),
+        wasm_f64x2_splat(target_width));
+    const auto y = wasm_f64x2_mul(wasm_f64x2_make(inverse.m21, inverse.m22),
+        wasm_f64x2_splat(target_height));
+    wasm_v128_store(corners[1].data(), wasm_f64x2_add(x, origin));
+    wasm_v128_store(corners[2].data(), wasm_f64x2_add(y, origin));
+    wasm_v128_store(corners[3].data(), wasm_f64x2_add(wasm_f64x2_add(x, y), origin));
+#else
+    // Fixed metadata fallback on targets without double-lane SIMD (including
+    // non-SIMD Wasm and ARM32). This is not a whole-buffer scalar pixel path.
+    corners[1] = {target_width * inverse.m11 + inverse.m31,
+        target_width * inverse.m12 + inverse.m32};
+    corners[2] = {target_height * inverse.m21 + inverse.m31,
+        target_height * inverse.m22 + inverse.m32};
+    corners[3] = {target_width * inverse.m11 + target_height * inverse.m21 + inverse.m31,
+        target_width * inverse.m12 + target_height * inverse.m22 + inverse.m32};
+#endif
+    double left = corners[0][0], right = left;
+    double top = corners[0][1], bottom = top;
+    for (const auto& corner : corners) {
+        if (!std::isfinite(corner[0]) || !std::isfinite(corner[1])) return com::invalid_argument;
+        left = std::min(left, corner[0]);
+        right = std::max(right, corner[0]);
+        top = std::min(top, corner[1]);
+        bottom = std::max(bottom, corner[1]);
+    }
+    constexpr double maximum = (std::numeric_limits<float>::max)();
+    const double values[]{left, top, right, bottom, right - left, bottom - top};
+    for (const double value : values) {
+        if (!std::isfinite(value) || value < -maximum || value > maximum)
+            return com::invalid_argument;
+    }
+    const auto outward = [](double value, bool upper) noexcept {
+        float rounded = static_cast<float>(value);
+        if (upper ? double{rounded} < value : double{rounded} > value)
+            rounded = std::nextafter(rounded, upper
+                ? std::numeric_limits<float>::infinity() : -std::numeric_limits<float>::infinity());
+        return rounded;
+    };
+    rectangle_edges_f bounds{outward(left, false), outward(top, false),
+        outward(right, true), outward(bottom, true)};
+    const float width = outward(double{bounds.right} - bounds.left, true);
+    const float height = outward(double{bounds.bottom} - bounds.top, true);
+    bounds.right = bounds.left + width;
+    bounds.bottom = bounds.top + height;
+    if (!std::isfinite(bounds.left) || !std::isfinite(bounds.top) ||
+        !std::isfinite(bounds.right) || !std::isfinite(bounds.bottom) ||
+        !std::isfinite(bounds.right - bounds.left) || !std::isfinite(bounds.bottom - bounds.top))
+        return com::invalid_argument;
+    *result = bounds;
     return com::ok;
 }
 

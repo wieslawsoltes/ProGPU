@@ -102,3 +102,7 @@ source-verifier and exact-head CI qualification remains deferred until the final
 validation phase. Backdrop/ignore-alpha layers, full-target command-list opacity
 brushes and non-axis-preserving finite layer bounds remain explicit unsupported
 translator cases; this checkpoint does not establish full Direct2D or Win2D parity.
+
+The later [target-brush-domain checkpoint](direct2d-target-brush-domains.md)
+supersedes the full-target surface-command-list opacity-brush limitation and
+records the corresponding targetless-recorder and compilation limits.

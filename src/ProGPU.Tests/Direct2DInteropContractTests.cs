@@ -1845,6 +1845,9 @@ public sealed class Direct2DInteropContractTests
             ProGpuDirect2DSceneStreamFlags.HasCompositeLayerMasks,
             (ProGpuDirect2DSceneStreamFlags)(1U << 9));
         Assert.Equal(
+            ProGpuDirect2DSceneStreamFlags.HasTargetDependentMasks,
+            (ProGpuDirect2DSceneStreamFlags)(1U << 10));
+        Assert.Equal(
             ProGpuDirect2DSceneStreamFailureReason.CapacityExceeded,
             (ProGpuDirect2DSceneStreamFailureReason)7U);
         Assert.Equal(

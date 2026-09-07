@@ -1,8 +1,10 @@
 #include "progpu_native_direct2d_core.hpp"
 
 #include <array>
+#include <algorithm>
 #include <cmath>
 #include <cstdint>
+#include <cstring>
 #include <limits>
 
 namespace core = progpu::native::direct2d::core;
@@ -15,10 +17,71 @@ namespace {
     return std::abs(left - right) <= 0.0001F;
 }
 
+// Deliberately scalar test oracle for the original four-corner algorithm.
+core::rectangle_edges_f scalar_viewport_bounds(
+    const progpu_native_direct2d_matrix_3x2_f& inverse, double width, double height)
+{
+    double left = inverse.m31, top = inverse.m32, right = left, bottom = top;
+    for (const double x : {0.0, width}) {
+        for (const double y : {0.0, height}) {
+            const double local_x = x * inverse.m11 + y * inverse.m21 + inverse.m31;
+            const double local_y = x * inverse.m12 + y * inverse.m22 + inverse.m32;
+            left = std::min(left, local_x);
+            right = std::max(right, local_x);
+            top = std::min(top, local_y);
+            bottom = std::max(bottom, local_y);
+        }
+    }
+    const auto outward = [](double value, bool upper) {
+        float rounded = static_cast<float>(value);
+        if (upper ? double{rounded} < value : double{rounded} > value)
+            rounded = std::nextafter(rounded, upper ? std::numeric_limits<float>::infinity()
+                : -std::numeric_limits<float>::infinity());
+        return rounded;
+    };
+    core::rectangle_edges_f result{outward(left, false), outward(top, false),
+        outward(right, true), outward(bottom, true)};
+    result.right = result.left + outward(double{result.right} - result.left, true);
+    result.bottom = result.top + outward(double{result.bottom} - result.top, true);
+    return result;
+}
+
+bool viewport_bounds_contract()
+{
+    const std::array inverses{
+        progpu_native_direct2d_matrix_3x2_f{1, 0, 0, 1, 0, 0},
+        progpu_native_direct2d_matrix_3x2_f{0, -1, 1, 0, -20, 10},
+        progpu_native_direct2d_matrix_3x2_f{0.5F, 0.25F, -0.75F, 2, 17, -23},
+        progpu_native_direct2d_matrix_3x2_f{0.6F, -0.8F, 0.8F, 0.6F, -30, 10}};
+    for (const auto& inverse : inverses) {
+        for (const double width : {640.0, 640.0 * 96.0 / 144.0, 7.25}) {
+            for (const double height : {480.0, 480.0 * 96.0 / 192.0, 3.125}) {
+                core::rectangle_edges_f result{};
+                const auto expected = scalar_viewport_bounds(inverse, width, height);
+                if (core::viewport_coverage_bounds(inverse, width, height, &result) != com::ok ||
+                    std::memcmp(&result, &expected, sizeof(result)) != 0) return false;
+            }
+        }
+    }
+    core::rectangle_edges_f result{1, 2, 3, 4};
+    const auto identity = inverses[0];
+    if (core::viewport_coverage_bounds(identity, 1, 1, nullptr) != com::pointer_error) return false;
+    for (const double width : {0.0, -1.0, std::numeric_limits<double>::infinity(),
+             std::numeric_limits<double>::quiet_NaN(), std::numeric_limits<double>::max()}) {
+        if (core::viewport_coverage_bounds(identity, width, 1, &result) != com::invalid_argument ||
+            result.left != 0 || result.top != 0 || result.right != 0 || result.bottom != 0) return false;
+    }
+    auto invalid = identity;
+    invalid.m21 = std::numeric_limits<float>::quiet_NaN();
+    return core::viewport_coverage_bounds(invalid, 1, 1, &result) == com::invalid_argument &&
+        core::viewport_coverage_bounds(identity, 1, 0, &result) == com::invalid_argument;
+}
+
 } // namespace
 
 int main()
 {
+    if (!viewport_bounds_contract()) return 24;
     const core::rectangle_geometry rectangle({1.0F, 2.0F, 4.0F, 6.0F});
     const progpu_native_direct2d_matrix_3x2_f transform{
         0.0F, 2.0F, -3.0F, 0.0F, 10.0F, 20.0F};

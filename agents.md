@@ -202,6 +202,13 @@ Cross-assembly WPF bridge contracts must not expose shim-owned WPF structs or cl
 
 ### A. Rendering Quality & DPI-Aware Text Snapping
 
+Full-target Direct2D brush domains must use the shared four-corner inverse-viewport
+envelope with outward float origin/extent rounding. Keep independent x/y work on
+intrinsic SIMD where available. This envelope is material domain metadata, never
+an exact geometric clip. Surface-backed translation must report target size/DPI
+dependencies and require a new stream generation after changes; targetless
+recorders must reject missing dimensions instead of guessing or using FLT_MAX.
+
 Direct2D antialiased axis-aligned clips must capture the transformed AABB at
 push time and apply fractional coverage once when their group is popped, not
 per contained draw. Keep clip and opacity-layer scope kinds distinct. Geometric

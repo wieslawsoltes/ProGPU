@@ -458,7 +458,9 @@ public enum ProGpuDirect2DSceneStreamFlags : uint
     HasOpacityLayers = 1U << 6,
     HasGeometricLayerMasks = 1U << 7,
     HasOpacityBrushLayerMasks = 1U << 8,
-    HasCompositeLayerMasks = 1U << 9
+    HasCompositeLayerMasks = 1U << 9,
+    /// <summary>Rebuild with a new generation when the source surface size or context DPI changes.</summary>
+    HasTargetDependentMasks = 1U << 10
 }
 
 public enum ProGpuDirect2DSceneStreamFailureReason : uint

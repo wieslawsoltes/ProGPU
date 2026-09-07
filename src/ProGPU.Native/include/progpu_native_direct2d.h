@@ -113,7 +113,11 @@ typedef enum progpu_native_direct2d_scene_stream_flags {
     PROGPU_NATIVE_DIRECT2D_SCENE_STREAM_FLAG_HAS_OPACITY_BRUSH_LAYER_MASKS =
         1U << 8U,
     PROGPU_NATIVE_DIRECT2D_SCENE_STREAM_FLAG_HAS_COMPOSITE_LAYER_MASKS =
-        1U << 9U
+        1U << 9U,
+    /* Full-target brush domains depend on this surface's physical size and
+     * current context DPI. Rebuild at a new generation if either changes. */
+    PROGPU_NATIVE_DIRECT2D_SCENE_STREAM_FLAG_HAS_TARGET_DEPENDENT_MASKS =
+        1U << 10U
 } progpu_native_direct2d_scene_stream_flags;
 
 typedef enum progpu_native_direct2d_scene_stream_failure_reason {
