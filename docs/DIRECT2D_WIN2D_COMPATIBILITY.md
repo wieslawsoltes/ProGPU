@@ -4832,3 +4832,12 @@ lookup and disposal follow retained command/picture ownership, with no pixel
 readback or per-item submission. Native MIL already owns the paired source-page
 behavior. This does not expand COM API surface; remaining consumers and full
 qualification are tracked in [cached pictures](cached-pictures.md).
+
+### Implementation-first checkpoint: target anchors and ellipse clips
+
+Immutable ProGPU capture anchors allow distinct WPF brushes to share target/cache
+output safely. Shared analytic ellipse clip recording now feeds direct managed
+ellipse consumers, and raw MIL cache-brush dispatch avoids losing typed resources
+during media adaptation. Existing C++ shared-page/clip semantics are unchanged;
+this is managed integration, not an expansion of COM/Win2D API coverage. All
+runtime/platform/VM, performance and CI qualification remains deferred.

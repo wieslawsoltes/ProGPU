@@ -4260,6 +4260,21 @@ public class DrawingContext :
         });
     }
 
+    /// <summary>
+    /// Records an exact analytic ellipse clip in local coordinates. Pair with
+    /// PopGeometryClip. Geometry is retained; recording does not initialize a
+    /// device or submit work. The transform stays on the command.
+    /// </summary>
+    public void PushEllipseClip(Vector2 center, float radiusX, float radiusY, Matrix4x4 transform = default)
+    {
+        if (!float.IsFinite(center.X) || !float.IsFinite(center.Y)
+            || !float.IsFinite(radiusX) || !float.IsFinite(radiusY) || radiusX <= 0 || radiusY <= 0
+            || !float.IsFinite(center.X + radiusX) || !float.IsFinite(center.X - radiusX)
+            || !float.IsFinite(center.Y + radiusY) || !float.IsFinite(center.Y - radiusY))
+            throw new ArgumentOutOfRangeException(nameof(radiusX), "Ellipse clip coordinates and positive radii must be finite.");
+        PushGeometryClip(PrimitivePathGeometry.CreateEllipse(center, radiusX, radiusY), transform);
+    }
+
     public void PopGeometryClip()
     {
         Commands.Add(new RenderCommand { Type = RenderCommandType.PopGeometryClip });
