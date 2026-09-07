@@ -2,6 +2,7 @@ using System;
 using System.Numerics;
 using Microsoft.UI.Xaml;
 using ProGPU.Scene;
+using ProGPU.Fonts.Inter;
 using ProGPU.Tests.Headless;
 using ProGPU.Vector;
 using Xunit;
@@ -11,6 +12,93 @@ namespace ProGPU.Tests;
 public sealed class CachedPictureTests
 {
     private static readonly Rect Bounds = new(10, 20, 20, 10);
+
+    [Theory]
+    [InlineData(TextRenderingMode.ClearType, true, TextRenderingMode.Grayscale)]
+    [InlineData(TextRenderingMode.ClearType, false, TextRenderingMode.ClearType)]
+    [InlineData(TextRenderingMode.Aliased, true, TextRenderingMode.Aliased)]
+    [InlineData(TextRenderingMode.Grayscale, true, TextRenderingMode.Grayscale)]
+    public void CachedTextPolicyOnlySuppressesSubpixelRendering(TextRenderingMode source, bool suppress, TextRenderingMode expected)
+    {
+        Assert.Equal(expected, Compositor.ResolveCachedTextRenderingMode(source, suppress));
+    }
+
+    [Fact]
+    public void ClearTypePolicyChangeInvalidatesSourceAndIsPreservedByOrdinaryUpdates()
+    {
+        using var picture = CreatePicture(Vector4.One);
+        using var cached = new CachedPicture(picture, Bounds, 1, enableClearType: false);
+        Assert.False(cached.EnableClearType);
+        long version = cached.GetVisual().ChangeVersion;
+        cached.Update(picture, Bounds);
+        Assert.Equal(version, cached.GetVisual().ChangeVersion);
+        cached.Update(picture, Bounds, 1, enableClearType: true);
+        Assert.True(cached.EnableClearType);
+        Assert.NotEqual(version, cached.GetVisual().ChangeVersion);
+    }
+
+    [Theory]
+    [InlineData(0)]
+    [InlineData(1)]
+    [InlineData(2)]
+    public void SuppressedClearTypeCaptureMatchesExplicitGrayscaleAndSurvivesPolicySwitches(int nestedKind)
+    {
+        using var window = new HeadlessWindow(64, 64);
+        var bounds = new Rect(0, 0, 64, 32);
+        using var clearType = CreateTextPicture(bounds, TextRenderingMode.ClearType, nestedKind);
+        using var grayscale = CreateTextPicture(bounds, TextRenderingMode.Grayscale, nestedKind);
+        using var cached = new CachedPicture(clearType, bounds, 1, enableClearType: false);
+        window.Content = new CachedPictureHost(cached);
+        try
+        {
+            window.Render();
+            byte[] expected = window.ReadPixels();
+            // Scalar image oracle: equality of two blank captures is not proof
+            // that the glyph path rendered.
+            bool hasWhiteInk = false;
+            for (int index = 0; index < expected.Length; index += 4)
+                hasWhiteInk |= expected[index] > 200 && expected[index + 1] > 200 && expected[index + 2] > 200;
+            Assert.True(hasWhiteInk);
+            cached.Update(grayscale, bounds, 1, enableClearType: true);
+            window.Render();
+            Assert.Equal(expected, window.ReadPixels());
+            cached.Update(clearType, bounds, 1, enableClearType: true);
+            window.Render();
+            cached.Update(clearType, bounds, 1, enableClearType: false);
+            window.Render();
+            Assert.Equal(expected, window.ReadPixels());
+        }
+        finally
+        {
+            window.Content = null;
+        }
+    }
+
+    private static GpuPicture CreateTextPicture(Rect bounds, TextRenderingMode mode, int nestedKind)
+    {
+        var recorder = new GpuPictureRecorder();
+        var commands = recorder.BeginRecording(bounds);
+        if (nestedKind != 0)
+            commands.DrawVisual(new CachedTextVisual(bounds, mode, nestedKind));
+        else
+            commands.DrawText("Cache", InterFontFamily.Regular, 18,
+                new SolidColorBrush(Vector4.One), new Vector2(2, 3), textRenderingMode: mode);
+        return recorder.EndRecording();
+    }
+
+    private sealed class CachedTextVisual : Visual, IOwnedRenderCommandCache
+    {
+        private readonly DrawingContext _commands = new();
+        internal CachedTextVisual(Rect bounds, TextRenderingMode mode, int nestedKind)
+        {
+            Size = new Vector2(bounds.Width, bounds.Height);
+            CacheAsLayer = nestedKind == 1;
+            if (nestedKind == 2) Effect = new BlurEffect { BlurRadius = 0 };
+            _commands.DrawText("Cache", InterFontFamily.Regular, 18,
+                new SolidColorBrush(Vector4.One), new Vector2(2, 3), textRenderingMode: mode);
+        }
+        public DrawingContext GetOrUpdateRenderCommandCache() => _commands;
+    }
 
     [Fact]
     public void RecordingSharesOneOwnerAndNormalizesCaptureWithoutChangingPlacement()

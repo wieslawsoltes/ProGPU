@@ -24,12 +24,24 @@ public sealed class CachedPicture : IDisposable
     private bool _disposed;
 
     public CachedPicture(GpuPicture picture, Rect bounds, float renderScale = 1f)
+        : this(picture, bounds, renderScale, enableClearType: true)
     {
-        Update(picture, bounds, renderScale);
+    }
+
+    public CachedPicture(GpuPicture picture, Rect bounds, float renderScale, bool enableClearType)
+    {
+        Update(picture, bounds, renderScale, enableClearType);
     }
 
     public Rect Bounds { get; private set; }
     public float RenderScale => _visual.LayerCacheRenderScale;
+    /// <summary>
+    /// Whether captured text may use its recorded ClearType mode. False lowers
+    /// ClearType to grayscale without changing explicitly aliased text. Generic
+    /// picture construction preserves recorded modes by default; WPF cache policy
+    /// supplies its own false default explicitly.
+    /// </summary>
+    public bool EnableClearType => _visual.EnableClearType;
 
     /// <summary>
     /// Replaces content and raster policy without changing shared source identity.
@@ -37,6 +49,9 @@ public sealed class CachedPicture : IDisposable
     /// changing the previous source. Identical ownership clones are a no-op.
     /// </summary>
     public void Update(GpuPicture picture, Rect bounds, float renderScale = 1f)
+        => Update(picture, bounds, renderScale, EnableClearType);
+
+    public void Update(GpuPicture picture, Rect bounds, float renderScale, bool enableClearType)
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
         ArgumentNullException.ThrowIfNull(picture);
@@ -51,7 +66,7 @@ public sealed class CachedPicture : IDisposable
 
         ObjectDisposedException.ThrowIf(picture.IsDisposed, picture);
         if (_picture?.SharesRetainedCommandStorageWith(picture) == true &&
-            Bounds == bounds && RenderScale == renderScale)
+            Bounds == bounds && RenderScale == renderScale && EnableClearType == enableClearType)
         {
             return;
         }
@@ -74,6 +89,7 @@ public sealed class CachedPicture : IDisposable
         _visual.Offset = new Vector2(bounds.X, bounds.Y);
         _visual.Size = new Vector2(bounds.Width, bounds.Height);
         _visual.LayerCacheRenderScale = renderScale;
+        _visual.EnableClearType = enableClearType;
         _visual.Invalidate();
         previous?.Dispose();
     }
@@ -106,6 +122,8 @@ public sealed class CachedPicture : IDisposable
     {
         internal readonly DrawingContext Commands = new();
         internal override bool RequiresLayerCache => true;
+        internal bool EnableClearType = true;
+        internal override bool? LayerCacheClearTypePolicy => EnableClearType;
 
         internal CacheVisual() => CacheAsLayer = true;
         public DrawingContext GetOrUpdateRenderCommandCache() => Commands;

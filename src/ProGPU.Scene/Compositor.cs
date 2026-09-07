@@ -1524,6 +1524,8 @@ public unsafe partial class Compositor : IDisposable
 
         public GpuTexture Source { get; }
 
+        public bool? SuppressesClearType { get; set; }
+
         public GpuTexture? Temporary { get; private set; }
 
         public GpuTexture? Destination { get; private set; }
@@ -1641,6 +1643,11 @@ public unsafe partial class Compositor : IDisposable
 
     private static bool UsesLayerCache(Visual visual) =>
         visual.CacheAsLayer && (IsCacheAsLayerEnabled || visual.RequiresLayerCache);
+
+    private bool _suppressCachedClearType;
+
+    internal static TextRenderingMode ResolveCachedTextRenderingMode(TextRenderingMode mode, bool suppressClearType) =>
+        suppressClearType && mode == TextRenderingMode.ClearType ? TextRenderingMode.Grayscale : mode;
 
     public int VectorVertexCount => _vectorVerticesList.Count;
     public List<VectorVertex> VectorVertices => _vectorVerticesList;
@@ -5694,6 +5701,8 @@ SceneStateUploadComplete:
                     CompileFillQuadCommand(command, activeTransform);
                     break;
                 case RenderCommandType.DrawStaticDxf:
+                    if (_suppressCachedClearType)
+                        throw new NotSupportedException("A precompiled DXF buffer cannot override its baked text raster policy during cache capture.");
                     CommitPendingDrawCalls();
                     _drawCalls.Add(new CompositorDrawCall
                     {
@@ -12670,6 +12679,7 @@ SceneStateUploadComplete:
 
     private void CompileTextCommand(RenderCommand cmd, ITextLayoutProvider? textNode, Matrix4x4 transform)
     {
+        cmd.TextRenderingMode = ResolveCachedTextRenderingMode(cmd.TextRenderingMode, _suppressCachedClearType);
         if (ActiveCompilationContext != null &&
             !ActiveCompilationContext.IsRecompiling &&
             ActiveCompilationContext.RetainedGlyphBuilder == null)
@@ -12956,6 +12966,7 @@ SceneStateUploadComplete:
 
     private void CompileGlyphRunCommand(RenderCommand cmd, Matrix4x4 transform)
     {
+        cmd.TextRenderingMode = ResolveCachedTextRenderingMode(cmd.TextRenderingMode, _suppressCachedClearType);
         if (ActiveCompilationContext != null &&
             !ActiveCompilationContext.IsRecompiling &&
             ActiveCompilationContext.RetainedGlyphBuilder == null)
@@ -15840,6 +15851,7 @@ SceneStateUploadComplete:
             fe.IsDirty ||
             !hasCachedEffectKey ||
             cachedEffectKey != effectCacheKey ||
+            textures!.SuppressesClearType != _suppressCachedClearType ||
             textures!.Source.Width != w ||
             textures.Source.Height != h;
 
@@ -15864,6 +15876,8 @@ SceneStateUploadComplete:
             }
 
             var activeTextures = textures!;
+            // Only a fully rendered and filtered result may qualify for reuse.
+            activeTextures.SuppressesClearType = null;
             if (effect is BlurEffect blurResources && blurResources.BlurRadius > 0.01f)
             {
                 activeTextures.EnsureTemporary(_context, w, h, TextureFormat.Rgba8Unorm);
@@ -15986,6 +16000,7 @@ SceneStateUploadComplete:
             }
 
             _effectCacheKeys[fe] = effectCacheKey;
+            activeTextures.SuppressesClearType = _suppressCachedClearType;
         }
 
         if (!drawOnMain)
@@ -16131,7 +16146,10 @@ SceneStateUploadComplete:
         bool hasCached = node.LayerTexture != null;
         bool cachedTextureSizeChanged = hasCached
             && (node.LayerTexture!.Width != w || node.LayerTexture.Height != h);
-        bool needsUpdate = !hasCached || node.IsDirty || cachedTextureSizeChanged;
+        bool suppressClearType = node.LayerCacheClearTypePolicy is bool enableClearType
+            ? !enableClearType : _suppressCachedClearType;
+        bool needsUpdate = !hasCached || node.IsDirty || cachedTextureSizeChanged
+            || node.LayerTextureSuppressesClearType != suppressClearType;
 
         if (needsUpdate)
         {
@@ -16147,6 +16165,8 @@ SceneStateUploadComplete:
             }
 
             _elementsRenderingLayers.Add(node);
+            bool savedClearTypeSuppression = _suppressCachedClearType;
+            _suppressCachedClearType = suppressClearType;
             try
             {
                 // Render the subtree of node offscreen centered with 0 padding into node.LayerTexture
@@ -16160,9 +16180,18 @@ SceneStateUploadComplete:
                     includeRootTransform: false,
                     includeRootVisualState: false,
                     logicalExtent: node.RequiresLayerCache ? node.Size : null);
+                node.LayerTextureSuppressesClearType = suppressClearType;
+            }
+            catch
+            {
+                // A failed recapture must never qualify the old pixels under
+                // a new inherited text policy on the next attempt.
+                node.IsDirty = true;
+                throw;
             }
             finally
             {
+                _suppressCachedClearType = savedClearTypeSuppression;
                 _elementsRenderingLayers.Remove(node);
             }
         }

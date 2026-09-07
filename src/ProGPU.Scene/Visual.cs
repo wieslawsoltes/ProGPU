@@ -365,6 +365,7 @@ public class Visual
     // Required cached sources must not become direct vector replay when the
     // optional visual-layer optimization is disabled by the host.
     internal virtual bool RequiresLayerCache => false;
+    internal virtual bool? LayerCacheClearTypePolicy => null;
 
     /// <summary>
     /// Gets or sets the raster-resolution multiplier for a cached layer.
@@ -475,6 +476,12 @@ public class Visual
     }
 
     // Composition layer texture view
+    internal bool LayerTextureSuppressesClearType
+    {
+        get => _coldState?.LayerTextureSuppressesClearType ?? false;
+        set => GetOrCreateColdState().LayerTextureSuppressesClearType = value;
+    }
+
     public GpuTexture? LayerTexture
     {
         get => _coldState?.LayerTexture;
@@ -1009,6 +1016,7 @@ public class Visual
         public bool CacheAsLayer;
         public float LayerCacheRenderScale = 1f;
         public bool LayerCacheSnapsToDevicePixels;
+        public bool LayerTextureSuppressesClearType;
         public GpuTexture? LayerTexture;
     }
 

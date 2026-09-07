@@ -9320,6 +9320,64 @@ CPU/GPU fixtures are authored, not executed. This is a reusable managed source
 primitive; WPF root-policy capture and brush sink integration remain implementation
 work, along with ClearType, native/managed differentials and the broader goal.
 
+## Implementation-first checkpoint: managed root capture and cache text policy
+
+`PortableBitmapCacheBrushPolicy.TryResolve` now owns the reusable managed typed
+explicit/target/default selection contract: missing contracts fail closed, negative
+scale clamps to zero, snapping is ignored and ClearType policy is preserved. The
+LibreWPF adapter exports an owned `GpuPicture` through `WpfBitmapCacheBrushCapture`.
+Its renderer isolates root raster/guideline state from outer transform, offset,
+clip, opacity, mask, effects and nested cache scopes, while descendants keep normal
+replay. Capture rejects cycles, duplicate parents, excessive depth, missing typed
+state/children, root scroll clips and unsupported recorded content. It does not
+materialize a WPF bitmap or use reflection. Source recording and source bounds
+remain separate from brush opacity/mapping/coverage.
+
+The capture can create/update a ProGPU `CachedPicture` with independent resource
+leases and selected render scale/ClearType. ProGPU handles the text policy itself:
+ClearType text and glyph-run commands become grayscale when disabled, aliased text
+is unchanged, and per-capture state is restored on exit. Both CPU page cache keys
+now include suppression and exact projection. This preserves normal cache reuse
+without sharing incompatible compiled text or fractional capture contexts. Baked
+DXF text cannot be requalified by this path and fails closed under suppression.
+
+Provenance is original ProGPU DTOs, cached picture/visual ownership, text command
+compilation and retained/incremental page keys, plus original LibreWPF typed replay
+adaptation in that repository. The earlier cache/recording and text research
+references in [cached pictures](cached-pictures.md) apply; no foreign implementation
+is copied. Policy selection and text-mode resolution are O(1), outside glyph loops.
+Source recording remains O(V + E + C) traversal/command work, plus existing
+geometry/text preparation, with O(V + C) graph/recording storage and depth bounded
+at 256. Page keys add bounded policy/projection metadata; there is no new numeric
+whole-buffer CPU loop, shader, pixel readback, per-glyph crossing or upload path.
+
+The C++ path already selects cache policy and suppresses root state/subpixel
+rendering during cached capture. This adds the managed counterpart rather than
+changing its wire representation; full matched differentials remain required.
+Authored fixtures cover policy selection, root/child separation, source ownership,
+cycle recovery, empty/zero capture, mode preservation and grayscale GPU comparison
+with a nonempty-ink assertion. All execution, VM/platform/image, performance,
+Svg.Skia, verifier and CI qualification remain deferred. Normal managed brush
+consumer routing, shared cache lifetime/invalidation, unsupported source scopes,
+root scroll clips and the broader goal remain incomplete.
+
+The follow-up source-safety work separates drawing-bounds ancestry from replay
+ancestry, permitting bounds queries during replay while rejecting recursive bounds
+inference. Nested renderer instances enforce declared-child availability too.
+ProGPU nested layer/effect texture reuse now includes effective text suppression;
+failed captures do not qualify an old texture under a new policy. These additions
+use original ProGPU layer/effect lifetime state and LibreWPF typed drawing traversal,
+with constant metadata per cached texture and bounded per-thread ancestry storage.
+The existing native capture-policy contract is unchanged; paired differential
+qualification remains pending. The authored GPU fixture includes direct text,
+ordinary nested layer and effect-source variants.
+
+Compilation checkpoint (implementation-first, 2026-09-07): Release build of
+`src/ProGPU.Tests/ProGPU.Tests.csproj --no-restore` succeeds with zero warnings and
+zero errors. Fixtures were compiled, not executed; this is not rendering or
+performance qualification. ProGPU `origin/main` was fetched and has no commits
+missing from this feature branch at this checkpoint.
+
 ## Invariants
 
 - No reflection or private managed field scanning in the product bridge.

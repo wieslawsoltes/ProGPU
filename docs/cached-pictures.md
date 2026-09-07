@@ -42,6 +42,23 @@ invalidates its owner; recording new references throws. GPU texture retirement i
 left to the compositor's active-owner cleanup and disposal, not synchronous
 texture destruction by the source object.
 
+The four-argument constructor/update accepts `enableClearType`. Generic
+construction defaults to true (preserve recorded text modes); WPF supplies the
+cache's false default explicitly. False lowers ClearType text/glyph commands to
+grayscale inside capture while preserving aliased text. Each nested explicit
+cached source uses its own policy; ordinary nested layers inherit the active
+policy. The compositor restores the caller policy after capture, including failed
+captures. Picture and incremental-page keys include this policy and the exact
+projection, so differently configured captures cannot reuse incompatible compiled
+text pages. Precompiled DXF buffers cannot rewrite baked text policy and fail
+closed when subpixel suppression is required.
+
+Already-rasterized nested layer/effect textures also record their effective
+suppression policy. A policy mismatch forces recapture even when source content
+and pixel dimensions are unchanged; failed work cannot qualify stale pixels.
+Fixtures include direct text, a nested ordinary layer, and a nested effect source
+with policy switches. Execution and performance qualification are deferred.
+
 Construction/update do not initialize a GPU. Changed content retains O(L) leases
 for L picture resources and O(1) extra command storage; immutable scene data stays
 shared. Recording adds one command in amortized O(1). Cold raster work follows
@@ -90,8 +107,11 @@ zero warnings/errors; the LibreWPF bridge/test graph also builds, with warnings.
 Full renderer, Svg.Skia, native differentials, VM/platform images,
 Instruments/benchmarks and CI qualification remain deferred.
 
-The WPF adapter must still produce a root-policy-correct cached picture, select
-explicit/target/default cache policy, connect typed invalidation to this resource,
-and cover brush fills/pens/glyphs/masks plus ClearType policy. This primitive does
-not claim those remaining BitmapCacheBrush semantics or complete MIL/DirectX/
-Direct2D/COM/Win2D parity.
+LibreWPF now exports a root-policy source through `WpfBitmapCacheBrushCapture` and
+uses `PortableBitmapCacheBrushPolicy.TryResolve` for explicit/target/default policy.
+Its `CreateCachedPicture`/`UpdateCachedPicture` methods transfer independent
+picture ownership into this resource and apply render scale/ClearType policy.
+Normal managed brush fills/pens/glyphs/masks still need consumer routing, shared
+cache lifetime and typed invalidation integration. Root scroll clips and source
+content requiring unsupported recorder scopes fail closed. This does not claim
+complete BitmapCacheBrush or MIL/DirectX/Direct2D/COM/Win2D parity.
