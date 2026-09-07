@@ -140,15 +140,35 @@ progpu_portable_package_purposes=(
   "LibreWPF portable interop contracts consumed by the ProGPU/Silk.NET SDK lane."
 )
 
-# Focused package/source-equivalence probe for the CAD dependency boundary.
-# Keep the reviewed fork first so ProGPU.CAD records the same-version package
+# Exact runtime dependency closure of ProGPU.CAD. Keep this list topologically
+# ordered so the focused CAD pack can be restored by an isolated consumer
+# without falling back to previously published ProGPU packages. Keep the
+# reviewed fork before ProGPU.CAD so the latter records the same-version package
 # dependency generated from the pinned submodule source.
 progpu_cad_package_ids=(
+  ProGPU.Backend
+  ProGPU.Text.Shaping
+  ProGPU.Transpiler
+  ProGPU.WinRT
+  ProGPU.Vector
+  ProGPU.Text
+  ProGPU.Compute
+  ProGPU.Scene
+  ProGPU.SkiaSharp
   ACadSharp.ProGPU
   ProGPU.CAD
 )
 
 progpu_cad_package_projects=(
+  src/ProGPU.Backend/ProGPU.Backend.csproj
+  src/ProGPU.Text.Shaping/ProGPU.Text.Shaping.csproj
+  src/ProGPU.Transpiler/ProGPU.Transpiler.csproj
+  src/ProGPU.WinRT/ProGPU.WinRT.csproj
+  src/ProGPU.Vector/ProGPU.Vector.csproj
+  src/ProGPU.Text/ProGPU.Text.csproj
+  src/ProGPU.Compute/ProGPU.Compute.csproj
+  src/ProGPU.Scene/ProGPU.Scene.csproj
+  src/SkiaSharp/SkiaSharp.csproj
   external/ACadSharp/src/ACadSharp/ACadSharp.csproj
   src/ProGPU.CAD/ProGPU.CAD.csproj
 )
