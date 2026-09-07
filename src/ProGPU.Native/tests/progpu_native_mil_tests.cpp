@@ -20126,6 +20126,36 @@ bool bitmap_cache_brush_strokes_retain_coverage_and_shared_source() {
     PROGPU_REQUIRE(try_get_cached_layer(scene, source));
     PROGPU_REQUIRE(try_get_state_resource(scene, source.reserved0, composite));
     PROGPU_REQUIRE(composite.transform.m31 == 26.0F && composite.transform.m32 == 17.0F);
+    mapped.source_visual_commands = {};
+    mapped.shape = mil_brush_fixture_shape::rectangle;
+    for (const auto join : {PROGPU_NATIVE_STROKE_JOIN_MITER,
+            PROGPU_NATIVE_STROKE_JOIN_BEVEL, PROGPU_NATIVE_STROKE_JOIN_ROUND}) {
+        mapped.line_join = join;
+        PROGPU_REQUIRE(build_mil_image_brush_fixture(scene, mapped, 8128U));
+        PROGPU_REQUIRE(try_get_cached_layer(scene, source));
+        PROGPU_REQUIRE(try_get_state_resource(scene, source.reserved0, composite));
+        // Every solid axis-aligned rectangle join has support [6,6..58,58].
+        // Relative half scale maps the [10,20] source anchor to [21,26].
+        PROGPU_REQUIRE(composite.transform.m31 == 21.0F && composite.transform.m32 == 26.0F);
+    }
+    std::vector<std::byte> rectangle_commands, rectangle_replay;
+    append_create(rectangle_commands, 450U, 69U);
+    append_create(rectangle_commands, 451U, 66U);
+    append_command(rectangle_commands, command::matrix_transform, 451U,
+        0.8, 0.6, -0.6, 0.8, 3.0, -2.0, 0U);
+    append_command(rectangle_commands, command::rectangle_geometry, 450U,
+        0.0, 0.0, 8.0, 8.0, 24.0, 12.0, 451U, 0U, 0U, 0U);
+    append_command(rectangle_replay, command::draw_geometry, 0U, 20U, 450U, 0U);
+    append_render_data(rectangle_commands, 2U, rectangle_replay);
+    mapped.line_join = PROGPU_NATIVE_STROKE_JOIN_MITER;
+    mapped.source_visual_commands = rectangle_commands;
+    PROGPU_REQUIRE(build_mil_image_brush_fixture(scene, mapped, 8129U));
+    PROGPU_REQUIRE(try_get_cached_layer(scene, source));
+    PROGPU_REQUIRE(try_get_state_resource(scene, source.reserved0, composite));
+    // Paired with the managed rotated-offset-polygon oracle: stroke bounds
+    // center [10.6,21.2], independent source anchor [10,20].
+    PROGPU_REQUIRE(std::abs(composite.transform.m31 - 10.3F) < 0.0001F);
+    PROGPU_REQUIRE(std::abs(composite.transform.m32 - 20.6F) < 0.0001F);
     return true;
 }
 

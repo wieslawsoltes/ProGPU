@@ -9542,6 +9542,21 @@ for original source provenance, complexity, research, fixtures and limitations.
 General shape/path pens and full runtime, scalar/SIMD, image/platform/VM,
 performance, verifier and CI qualification remain incomplete and deferred.
 
+## Implementation-first checkpoint: shared solid rectangle pen preparation
+
+Managed cached-source pens now include a shared affine rectangle preparer ported
+from the original native MIL rectangle stroke-bounds implementation. Closed
+topology, joins and stroke-relative material mapping survive direct WPF rectangle
+and raw MIL replay, including mixed ordinary/cached fills. The native behavior
+already exists; paired native fixtures add join-family and rotated-geometry
+mapping assertions. No C++ product code, public ABI, or shader changed.
+
+See [solid rectangle pens](cached-pictures.md#solid-rectangle-pen-consumers) for
+provenance, precision boundaries, complexity, research and authored fixtures.
+Dashed/degenerate rectangles, broader geometry routing, rounded/ellipse/path
+consumers and live-picture native transport remain open. Compilation succeeds;
+runtime/performance/platform/source-verifier/CI qualification remains deferred.
+
 ## Invariants
 
 - No reflection or private managed field scanning in the product bridge.

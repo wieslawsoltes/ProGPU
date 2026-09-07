@@ -4899,3 +4899,14 @@ must pass strict open-line classification. Native MIL's existing transformed-lin
 implementation has a new paired mapping fixture. This producer integration adds
 no COM or Win2D methods and does not complete general shape pens or qualification.
 See [LineGeometry routing](cached-pictures.md#cached-linegeometry-and-geometrydrawing-consumers).
+
+### Implementation-first checkpoint: solid cached rectangle pens
+
+The managed reusable stroke preparer now ports original native MIL affine
+rectangle bounds, preserving closed joins and stroke-relative material mapping.
+WPF direct rectangle routes record ordinary/cached fills before a cached pen
+mask. Existing native MIL behavior gains paired join-family/rotated mapping
+fixtures; no COM, Win2D, native product or ABI surface changed. General geometry,
+dashed/degenerate and rounded/ellipse consumers remain open. Compilation alone
+is not qualification; execution and all final gates remain deferred. See
+[solid rectangle pens](cached-pictures.md#solid-rectangle-pen-consumers).

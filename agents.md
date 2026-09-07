@@ -202,6 +202,13 @@ Cross-assembly WPF bridge contracts must not expose shim-owned WPF structs or cl
 
 ### A. Rendering Quality & DPI-Aware Text Snapping
 
+Cached rectangle pens must preserve a closed spine and derive material bounds
+from edge/join support, including clipped miters and round joins. Keep the
+intrinsic fixed-corner preparer paired with native MIL mapping fixtures. Do not
+split a closed stroke into separately capped lines, substitute solid coverage
+for unsupported dashes, or report a successful fill as a successful whole draw
+when its pen was rejected. Geometry-local transforms precede widening.
+
 Portable primitive line mapping must retain paired double-coordinate arithmetic
 until the drawing boundary, validate both endpoints before publishing either, and
 stay allocation-free. Strict open-line classification must not discard topology

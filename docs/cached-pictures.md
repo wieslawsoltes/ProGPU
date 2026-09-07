@@ -98,6 +98,70 @@ DPI and performance qualification is still required.
 
 ## Implementation-first status
 
+### Solid rectangle pen consumers
+
+`StrokeCoverageGeometry.TryPrepareRectangle` prepares a closed four-corner
+spine after a geometry-local affine transform, then measures its normal-width
+stroke. It retains the pen's joins rather than splitting the rectangle into
+independently capped lines. Bounds include edge supports, bevel endpoints,
+unclipped or WPF clipped miters, and the native MIL round-join cubic/refinement
+contract. Outer drawing transforms remain outside both preparation and relative
+material mapping. Zero width produces empty coverage. Dashed/fixed/hairline,
+collapsed or near-collinear rectangles fail closed; they are not implemented by
+inflating a fill box or substituting a solid pen.
+
+Original in-repository provenance is
+`src/ProGPU.Native/src/Mil/progpu_native_mil.cpp::try_transformed_rectangle_stroke_bounds`
+with identity post-widen transform. Managed preparation narrows transformed
+vertices once to the retained `Vector2` spine before measuring that same spine;
+native MIL retains double source coordinates until its native transport boundary.
+The paired tolerance-based fixtures must qualify that precision boundary.
+The existing line-cap cubic extrema accumulator is shared, without changing its
+float-control-point cap contract. Rectangle joins use the native double-control
+contract. Coordinate maps, normal offsets, dot products, cubic evaluation and
+min/max use `Vector128<double>`; length, orientation, join choice and derivative
+root selection are bounded scalar dependencies. Work and stack workspace are
+O(1), with fixed four-vertex arrays and at most two cubics per corner. Success
+allocates one ordinary retained closed path, not one path or submission per edge.
+No native crossing, GPU initialization, readback, or pixel work is introduced.
+
+LibreWPF direct rectangle calls now preserve raw typed cached-pen identity
+before material adaptation, including object, managed, animated, native primitive
+and raw MIL routes. Fill is recorded first (ordinary or cached) and the stroke
+uses one opaque pen mask plus the existing shared cached-source lease. Relative
+brush mapping uses stroke bounds, not fill bounds; alias state and the outer
+transform survive. Retained sinks forward the typed operation and source
+dependencies remain registered. An unsupported stroke with a successful fill
+reports partial output instead of complete success. RectangleGeometry/general
+path routing and rounded/ellipse/dashed consumers remain separate unfinished work.
+
+Native C++ already implements these solid rectangle cached-pen semantics. Its
+paired fixture now covers all three joins and a rotated rectangle geometry's
+relative mapping. No native product, shader or ABI change is needed. Managed
+fixtures cover closed topology, each join, reflected skew, a scalar offset-polygon
+oracle, transactional failed outputs, empty width, and explicit unsupported cases;
+WPF fixtures cover fill/pen combinations, static/animated raw MIL and rejection
+without fill loss. These fixtures were authored and compiled, not executed.
+
+Public-contract research was refreshed from [SkPaint](https://api.skia.org/classSkPaint.html),
+[Direct2D widened bounds](https://learn.microsoft.com/en-us/windows/win32/direct2d/id2d1geometry-getwidenedbounds),
+and [Win2D command lists](https://microsoft.github.io/Win2D/WinUI3/html/T_Microsoft_Graphics_Canvas_CanvasCommandList.htm):
+adopt stroke-style-aware bounds and reusable recordings, reject fill-box guesses
+and per-edge material composition. [WebRender](https://firefox-source-docs.mozilla.org/gfx/RenderingOverview.html)
+and [Vello scenes](https://docs.rs/vello/latest/vello/struct.Scene.html) inform the
+retained preparation/submission separation; no worker, visibility, upload, cache
+eviction or device-loss policy changes here. [Parley](https://docs.rs/parley/latest/parley/layout/struct.Layout.html)
+and [HarfBuzz](https://harfbuzz.github.io/shaping-plans-and-caching.html) reinforce
+reusing upstream layout/shaping; fonts, variable-font state, DPI, subpixel and
+hinting are unchanged. Only original ProGPU implementation was ported.
+
+Release compilation: ProGPU.Tests 0 warnings/errors; WPF.Tests 14 warnings and
+0 errors after the fixture addition (the earlier broader rebuild had 108
+warnings); native MIL fixture target compiled. No warnings were investigated or
+claimed fixed. All runtime, scalar/SIMD execution, image, platform/VM, renderer,
+Svg.Skia, benchmark/Instruments, source-verifier and CI qualification remains
+deferred. This is an implementation checkpoint, not a speed or parity claim.
+
 ### Cached LineGeometry and GeometryDrawing consumers
 
 Cached pens now reach the existing shared line-stroke operation from WPF

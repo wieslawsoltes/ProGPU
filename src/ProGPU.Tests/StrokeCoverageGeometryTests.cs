@@ -8,6 +8,91 @@ namespace ProGPU.Tests;
 public sealed class StrokeCoverageGeometryTests
 {
     [Theory]
+    [InlineData(PenLineJoin.Miter)]
+    [InlineData(PenLineJoin.Bevel)]
+    [InlineData(PenLineJoin.Round)]
+    public void SolidRectangleKeepsClosedJoinsAndStrokeMaterialBounds(PenLineJoin join)
+    {
+        var pen = new Pen(new SolidColorBrush(Vector4.One), 4, lineJoin: join,
+            startLineCap: PenLineCap.Triangle, endLineCap: PenLineCap.Square);
+        Assert.True(StrokeCoverageGeometry.TryPrepareRectangle(new(8, 8, 48, 48), Matrix3x2.Identity,
+            pen, out var path, out var preparedPen, out var bounds));
+        Assert.Same(pen, preparedPen);
+        var figure = Assert.Single(path.Figures);
+        Assert.True(figure.IsClosed);
+        Assert.Equal(3, figure.Segments.Count);
+        Assert.Equal(new Rect(6, 6, 52, 52), bounds);
+        Assert.Equal(join, preparedPen.LineJoin);
+    }
+
+    [Fact]
+    public void RotatedMiterRectangleMatchesIndependentOffsetPolygonOracle()
+    {
+        var pen = new Pen(new SolidColorBrush(Vector4.One), 4, lineJoin: PenLineJoin.Miter);
+        var transform = new Matrix3x2(0.8f, 0.6f, -0.6f, 0.8f, 3, -2);
+        Assert.True(StrokeCoverageGeometry.TryPrepareRectangle(new(8, 8, 24, 12), transform,
+            pen, out var path, out _, out var bounds));
+        // A rigidly rotated rectangle with an unlimited miter has the four
+        // transformed offset corners. Scalar test arithmetic is the oracle,
+        // not the product's per-edge/cubic intrinsic implementation.
+        double left = double.PositiveInfinity, top = double.PositiveInfinity;
+        double right = double.NegativeInfinity, bottom = double.NegativeInfinity;
+        foreach (double x in new double[] { 6, 34 })
+        foreach (double y in new double[] { 6, 22 })
+        {
+            double px = x * 0.8 - y * 0.6 + 3, py = x * 0.6 + y * 0.8 - 2;
+            left = System.Math.Min(left, px); top = System.Math.Min(top, py);
+            right = System.Math.Max(right, px); bottom = System.Math.Max(bottom, py);
+        }
+        Assert.InRange(System.Math.Abs(bounds.X - left), 0, 0.0001);
+        Assert.InRange(System.Math.Abs(bounds.Y - top), 0, 0.0001);
+        Assert.InRange(System.Math.Abs(bounds.Right - right), 0, 0.0001);
+        Assert.InRange(System.Math.Abs(bounds.Bottom - bottom), 0, 0.0001);
+        Assert.True(Assert.Single(path.Figures).IsClosed);
+    }
+
+    [Theory]
+    [InlineData(PenLineJoin.Miter)]
+    [InlineData(PenLineJoin.Round)]
+    [InlineData(PenLineJoin.Bevel)]
+    public void ReflectedSkewedRectangleRetainsGeometryBeforeStroke(PenLineJoin join)
+    {
+        var pen = new Pen(new SolidColorBrush(Vector4.One), 4, lineJoin: join, miterLimit: 1);
+        var transform = new Matrix3x2(-2, 0.25f, 0.5f, 1, 3, 4);
+        Assert.True(StrokeCoverageGeometry.TryPrepareRectangle(new(8, 8, 48, 48), transform,
+            pen, out var path, out var preparedPen, out var bounds));
+        Assert.Equal(Vector2.Transform(new(8, 8), transform), path.Figures[0].StartPoint);
+        Assert.Equal(4, preparedPen.Thickness);
+        Assert.True(bounds.Width > 0 && bounds.Height > 0);
+        Assert.Equal(join, preparedPen.LineJoin);
+    }
+
+    [Fact]
+    public void RectanglePreparationPublishesNothingForUnsupportedState()
+    {
+        var pen = new Pen(new SolidColorBrush(Vector4.One), 4);
+        void Reject(Rect rectangle, Matrix3x2 matrix)
+        {
+            Assert.False(StrokeCoverageGeometry.TryPrepareRectangle(rectangle, matrix, pen,
+                out var path, out var resultPen, out var bounds));
+            Assert.Null(path); Assert.Null(resultPen); Assert.Equal(default, bounds);
+        }
+        Reject(new(8, 8, 48, 48), Matrix3x2.CreateScale(0, 1));
+        Reject(new(8, 8, float.PositiveInfinity, 48), Matrix3x2.Identity);
+        Reject(new(8, 8, 0, 48), Matrix3x2.Identity);
+        pen.SetDashPattern([2, 1]);
+        Reject(new(8, 8, 48, 48), Matrix3x2.Identity);
+        pen.SetDashPattern([]);
+        pen.StrokeTransformMode = PenStrokeTransformMode.Fixed;
+        Reject(new(8, 8, 48, 48), Matrix3x2.Identity);
+        pen.StrokeTransformMode = PenStrokeTransformMode.Normal;
+        pen.Thickness = 0;
+        Assert.True(StrokeCoverageGeometry.TryPrepareRectangle(new(8, 8, 48, 48), Matrix3x2.Identity, pen,
+            out _, out _, out var empty));
+        Assert.Equal(default, empty);
+    }
+
+    [Theory]
     [InlineData(PenLineCap.Flat, 10f, 30f)]
     [InlineData(PenLineCap.Square, 8f, 32f)]
     [InlineData(PenLineCap.Round, 8f, 32f)]
