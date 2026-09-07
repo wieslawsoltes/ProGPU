@@ -87,7 +87,9 @@ public sealed class CadRasterImageRenderTests
 
             zoomReplay.DrawPicture(picture, Matrix4x4.CreateScale(1.25f));
             zoomReplay.DrawPicture(picture, Matrix4x4.CreateScale(4.0f));
-            Assert.Equal(1, zoomReplay.RetainedResourceCount);
+            // The replay owns one nested-picture lifetime and one shared image
+            // texture lease, independent of the number of zoom transforms.
+            Assert.Equal(2, zoomReplay.RetainedResourceCount);
             Assert.True(GpuPictureNativeSceneCompiler.TryCompile(
                 picture,
                 96U,

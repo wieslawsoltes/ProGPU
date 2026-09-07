@@ -11,6 +11,34 @@ namespace ProGPU.Tests;
 public sealed class NativeAnalyticPrimitiveReplayTests
 {
     [Fact]
+    public void DerivedDrawingVisualStillUsesVirtualRenderDispatch()
+    {
+        using var window = new HeadlessWindow(24, 16);
+        using var target = new GpuTexture(
+            window.Context,
+            24,
+            16,
+            TextureFormat.Rgba8Unorm,
+            TextureUsage.RenderAttachment | TextureUsage.CopySrc,
+            "Derived drawing-visual target");
+        var visual = new CountingDrawingVisual
+        {
+            Size = new Vector2(24f, 16f)
+        };
+
+        window.Compositor.RenderOffscreen(
+            visual,
+            width: 24,
+            height: 16,
+            targetTexture: target,
+            padding: 0f,
+            dpiScale: 1f);
+        window.Context.PollDevice(wait: true);
+
+        Assert.Equal(1, visual.RenderCount);
+    }
+
+    [Fact]
     public void UnequalRoundedRectanglePictureReplayRetainsLocalPenWithoutAllocation()
     {
         using var window = new HeadlessWindow(96, 64);
@@ -69,6 +97,20 @@ public sealed class NativeAnalyticPrimitiveReplayTests
                 padding: 0f,
                 dpiScale: 1f);
             window.Context.PollDevice(wait: true);
+        }
+    }
+
+    private sealed class CountingDrawingVisual : DrawingVisual
+    {
+        public int RenderCount { get; private set; }
+
+        public override void OnRender(DrawingContext context)
+        {
+            RenderCount++;
+            context.DrawRectangle(
+                new SolidColorBrush(Vector4.One),
+                pen: null,
+                new Rect(0f, 0f, 24f, 16f));
         }
     }
 }

@@ -5381,10 +5381,30 @@ SceneStateUploadComplete:
                 retainedCommands.TargetWidth == _currentWidth &&
                 retainedCommands.TargetHeight == _currentHeight &&
                 retainedCommands.DpiScale == _currentDpiScale;
-            bool usesPooledContext = !hasRetainedCommands && !ownsRenderCommandCache;
+            // The base DrawingVisual renderer only appends its retained Context.
+            // Replay that storage directly so picture/resource leases are not
+            // AddRef'd into a pooled context on every frame. Preserve virtual
+            // OnRender dispatch for derived drawing-visual implementations.
+            DrawingContext? drawingVisualContext =
+                node.GetType() == typeof(DrawingVisual) &&
+                node is DrawingVisual directDrawingVisual
+                    ? directDrawingVisual.Context
+                    : null;
+            bool usesDrawingVisualContext =
+                !hasRetainedCommands &&
+                !ownsRenderCommandCache &&
+                drawingVisualContext is not null;
+            bool usesPooledContext =
+                !hasRetainedCommands &&
+                !ownsRenderCommandCache &&
+                !usesDrawingVisualContext;
             bool keepRetainedCommands = reuseRetainedCommands;
             var ctx = ownedRenderCommandCache?.GetOrUpdateRenderCommandCache() ??
-                (hasRetainedCommands ? retainedCommands!.Context : GetDrawingContext());
+                (hasRetainedCommands
+                    ? retainedCommands!.Context
+                    : usesDrawingVisualContext
+                        ? drawingVisualContext!
+                        : GetDrawingContext());
             try
             {
                 if (!reuseRetainedCommands)
@@ -5394,7 +5414,7 @@ SceneStateUploadComplete:
                         ctx.Clear();
                     }
 
-                    if (!ownsRenderCommandCache)
+                    if (!ownsRenderCommandCache && !usesDrawingVisualContext)
                     {
                         node.OnRender(ctx);
                     }
@@ -5471,7 +5491,7 @@ SceneStateUploadComplete:
                     // the next compilation after its first successful frame.
                     _retainedVisualCommands.Remove(node);
                 }
-                else if (!keepRetainedCommands)
+                else if (!usesDrawingVisualContext && !keepRetainedCommands)
                 {
                     _retainedVisualCommands.Remove(node);
                     ctx.Clear();

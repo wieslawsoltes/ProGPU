@@ -1184,7 +1184,9 @@ public class GdiShimTests
 
         target.RecordedContext.DrawPicture(picture);
         target.RecordedContext.DrawPicture(picture);
-        Assert.Equal(1, target.RecordedContext.RetainedResourceCount);
+        // One lease owns the nested picture and one owns its image texture;
+        // repeated draws must deduplicate both identities.
+        Assert.Equal(2, target.RecordedContext.RetainedResourceCount);
 
         picture.Dispose();
         source.Dispose();
