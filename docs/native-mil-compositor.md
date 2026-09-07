@@ -9492,6 +9492,23 @@ Native and both managed fixture targets compile in Release; fixtures are not
 executed. Full rendering/platform/VM, performance, verifier and CI qualification
 remain deferred, and full MIL/DirectX/Direct2D/COM/Win2D parity remains incomplete.
 
+## Implementation-first checkpoint: retained cached stroke coverage
+
+The reusable managed `DrawCachedPictureStroke` recorder now uses the existing
+path/pen mask compiler and cached source lease. Opaque pen snapshots preserve
+all stroke scalars and share immutable dash storage without per-dash copies.
+Bounds remain explicit and must cover stroked ink; no fill-bound inflation is
+used to pretend WPF brush mapping is complete. Native MIL already implements
+sampled-pen coverage and shared cached pages, with new paired solid/dashed
+line/rectangle fixtures for asymmetric caps, alpha and repeated source revisions.
+No native product, ABI or shader change is needed for this helper. Generic native
+picture compilation still rejects live managed DrawVisual, a distinct transport
+gap. WPF typed pen/bounds integration and full qualification remain open.
+
+See [retained cached stroke coverage](cached-pictures.md#retained-cached-source-stroke-coverage)
+for source provenance, cross-engine contracts, costs and authored fixtures.
+Native and ProGPU managed fixture targets compile in Release; no tests ran.
+
 ## Invariants
 
 - No reflection or private managed field scanning in the product bridge.

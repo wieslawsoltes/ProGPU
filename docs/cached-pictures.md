@@ -98,6 +98,79 @@ DPI and performance qualification is still required.
 
 ## Implementation-first status
 
+### Retained cached-source stroke coverage
+
+`DrawingContext.DrawCachedPictureStroke` now records a path/pen opacity mask,
+one cached-source draw, and balanced optional opacity scopes. It uses the existing
+`PushOpacityMask(PathGeometry, Pen, Rect, Matrix4x4)` and ordinary stroke compiler,
+not a second stroker or a picture wrapper. Source mapping precedes the outer
+transform; the outer transform positions coverage and material together. The
+coverage pen is opaque white, independent of the original pen brush and its alpha,
+so source alpha and consumer opacity are applied once. Width, asymmetric endpoint
+caps, dash cap, join, miter limit, dash offset, and normal/fixed/hairline state are
+preserved. Ordinary non-positive widths and zero consumer opacity record nothing.
+
+`Pen.WithBrush` snapshots scalar state with one new pen while sharing private,
+immutable dash storage. Both public dash-array reads and assignments still copy,
+so mutating either pen cannot change the other's intervals. The replacement brush
+is borrowed under the existing retained-brush contract. The stroke helper creates
+an independent white brush, rather than exposing a mutable shared singleton.
+Path geometry remains caller-owned and immutable during retained use, as with
+`DrawPath`; source leases survive caller disposal and parent-picture clones.
+
+The caller supplies stroke coverage bounds before the outer transform. These must
+enclose the actual ink, including caps, joins and dashes; fixed/hairline bounds
+also depend on target transform/DPI. Bounds are validated for finite positive
+extents and finite edges, not inferred from fill bounds. WPF relative material
+mapping additionally requires authoritative stroke bounds, not a conservative
+allocation envelope. This checkpoint does **not** yet route WPF cached-brush pens:
+typed pen preservation and authoritative source bounds across immediate primitives,
+geometry drawings and raw MIL replay remain required integration work.
+
+Original ProGPU provenance: `ProGPU.Vector/Brush.cs` owns pen/dash storage;
+`ProGPU.Scene/RenderCommand.cs` owns retained path masks and cached-source leases;
+`Compositor.PushOpacityMaskValue(PathGeometry,...)` uses
+`ResolveStrokeCompileState` and `CompilePathCommand`. No foreign implementation
+was copied. Native MIL already lowers sampled pens through its ordinary stroke
+coverage and `append_bitmap_cache_brush` shared source pages; no C++ product,
+wire or shader change is necessary for this recording helper. The generic
+`GpuPictureNativeSceneCompiler` still rejects live managed `DrawVisual` commands;
+this API must not be advertised as closing that separate native transport gap.
+
+Research refreshed for this checkpoint:
+
+| Primary contract | Decision |
+| --- | --- |
+| [Skia paint](https://api.skia.org/classSkPaint.html) | Keep stroke geometry state separate from replacement material; do not copy its implementation. |
+| [Direct2D widened bounds](https://learn.microsoft.com/en-us/windows/win32/direct2d/id2d1geometry-getwidenedbounds) | Require bounds derived from width/style/transform instead of inflating a fill rectangle. |
+| [Win2D command lists](https://microsoft.github.io/Win2D/WinUI3/html/T_Microsoft_Graphics_Canvas_CanvasCommandList.htm) and [WebRender overview](https://firefox-source-docs.mozilla.org/gfx/RenderingOverview.html) | Retain source identity and commands independently of consumers; compile GPU work lazily. |
+| [Vello Scene](https://docs.rs/vello/latest/vello/struct.Scene.html) | Reuse one path with explicit stroke and transform state, not per-dash submissions. |
+| [Parley layout](https://docs.rs/parley/latest/parley/layout/struct.Layout.html) and [HarfBuzz caching](https://harfbuzz.github.io/shaping-plans-and-caching.html) | Leave shaping/layout reuse unchanged; this stroke-only addition does not touch font fallback, variable fonts, DPI text policy, or glyph atlas generations. |
+
+Startup, workers, visibility, device-loss handling, source-cache keys/eviction and
+demand-driven uploads are unchanged. Recording adds bounded O(1) pen/brush/cache
+and lease objects, no dash-count-dependent copy or numerical loop. Existing
+geometry compilation keeps its path/dash-dependent work and existing GPU stroke
+and mask pipelines; stable replay uses the retained scene. No new CPU fallback,
+readback or execution-policy override is introduced. SIMD optimization applies to
+the existing shared numerical algorithms, not this fixed-size orchestration.
+No speedup or quality/parity claim follows from these structural properties.
+
+Authored managed fixtures cover pen ownership, scalar state, normal/fixed/hairline
+metadata, invalid state before recording, source lifetime, and line/rectangle
+solid/dashed image oracles with warm source reuse. Matched native MIL fixtures
+cover line/rectangle pens with asymmetric caps, dash caps, consumer alpha and
+repeated shared source revisions. Fixtures and compilation results are recorded
+separately; execution, images, performance, source audits, cross-platform/VM,
+renderer/Svg.Skia and CI qualification remain deferred and required.
+
+Release compilation (2026-09-07): native `progpu_native_mil_tests` succeeds;
+ProGPU.Tests reports 0 warnings/0 errors; the WPF test graph reports 105
+warnings/0 errors. Initial new-fixture compile errors (a line-segment constructor
+and a nonexistent layer identity field) were corrected before these builds.
+Warning attribution and all fixture execution are deferred; these totals do not
+establish clean CI, rendering correctness or performance.
+
 ### Cached glyph coverage and authoritative ink bounds
 
 `DrawingContext.DrawCachedPictureWithCoverage` now paints a shared source through

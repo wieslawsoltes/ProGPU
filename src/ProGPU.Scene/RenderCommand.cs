@@ -4555,8 +4555,52 @@ public class DrawingContext :
     public void DrawCachedPictureWithCoverage(CachedPictureLease source, GpuPicture coverage, Rect bounds,
         Matrix4x4 sourceTransform = default, float opacity = 1, Matrix4x4 transform = default)
     {
-        ArgumentNullException.ThrowIfNull(source);
         ArgumentNullException.ThrowIfNull(coverage);
+        var placement = ValidateCachedCoverage(source, bounds, sourceTransform, opacity, transform);
+        PushOwnedOpacityMaskPicture(coverage.Clone(), bounds, transform);
+        DrawCachedCoverageSource(source, placement, opacity);
+    }
+
+    /// <summary>
+    /// Paints a cached source through the ordinary retained path stroker. Pen
+    /// geometry state is snapshotted, but its material is replaced by opaque
+    /// coverage; source alpha and consumer opacity are applied exactly once.
+    /// </summary>
+    /// <remarks>
+    /// Bounds must enclose the stroked ink in path coordinates before transform,
+    /// including caps, joins and dashes. They are not inferred from fill bounds.
+    /// The caller retains immutable path geometry as for DrawPath. Source mapping
+    /// applies before the outer transform, which positions both coverage and paint.
+    /// Recording creates no picture wrapper, dash copy, CPU pixels or GPU work.
+    /// Hairline/fixed-width callers must supply bounds qualified for their target
+    /// transform and DPI. Ordinary non-positive widths produce no commands.
+    /// </remarks>
+    public void DrawCachedPictureStroke(CachedPictureLease source, PathGeometry path, Pen pen, Rect bounds,
+        Matrix4x4 sourceTransform = default, float opacity = 1, Matrix4x4 transform = default)
+    {
+        ArgumentNullException.ThrowIfNull(path);
+        ArgumentNullException.ThrowIfNull(pen);
+        var placement = ValidateCachedCoverage(source, bounds, sourceTransform, opacity, transform);
+        if (!float.IsFinite(pen.Thickness)) throw new ArgumentOutOfRangeException(nameof(pen));
+        if ((!pen.IsHairline && pen.Thickness <= 0) || opacity == 0) return;
+        // Do not share a mutable static brush with caller-visible command data.
+        var coveragePen = pen.WithBrush(new SolidColorBrush(Vector4.One));
+        PushOpacityMask(path, coveragePen, bounds, transform);
+        DrawCachedCoverageSource(source, placement, opacity);
+    }
+
+    private void DrawCachedCoverageSource(CachedPictureLease source, Matrix4x4 placement, float opacity)
+    {
+        if (opacity != 1) PushOpacity(opacity);
+        DrawCachedPicture(source, placement);
+        if (opacity != 1) PopOpacity();
+        PopOpacityMask();
+    }
+
+    private static Matrix4x4 ValidateCachedCoverage(CachedPictureLease source, Rect bounds,
+        Matrix4x4 sourceTransform, float opacity, Matrix4x4 transform)
+    {
+        ArgumentNullException.ThrowIfNull(source);
         if (!float.IsFinite(bounds.X) || !float.IsFinite(bounds.Y)
             || !float.IsFinite(bounds.Width) || !float.IsFinite(bounds.Height)
             || !float.IsFinite(bounds.Right) || !float.IsFinite(bounds.Bottom)
@@ -4570,11 +4614,7 @@ public class DrawingContext :
         var placement = (sourceTransform == default ? Matrix4x4.Identity : sourceTransform)
             * (transform == default ? Matrix4x4.Identity : transform);
         if (!IsFiniteMaskTransform(placement)) throw new ArgumentOutOfRangeException(nameof(transform));
-        PushOwnedOpacityMaskPicture(coverage.Clone(), bounds, transform);
-        if (opacity != 1) PushOpacity(opacity);
-        DrawCachedPicture(source, placement);
-        if (opacity != 1) PopOpacity();
-        PopOpacityMask();
+        return placement;
     }
 
     private void PushOwnedOpacityMaskPicture(GpuPicture picture, Rect bounds, Matrix4x4 transform)

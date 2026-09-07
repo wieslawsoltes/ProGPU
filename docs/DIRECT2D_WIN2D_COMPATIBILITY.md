@@ -4870,3 +4870,13 @@ already provide the paired rendering path. This does not expand COM/Win2D API
 coverage; missing legacy ink metadata, remaining consumers and full qualification
 are still open. Native and managed fixtures compile but were not run. See
 [cached glyph coverage](cached-pictures.md#cached-glyph-coverage-and-authoritative-ink-bounds).
+
+### Implementation-first checkpoint: retained cached-source strokes
+
+The shared scene API now records cached material through the existing pen/path
+mask compiler, preserving stroke state and independently retained source leases.
+Native MIL's sampled-pen path already provides the corresponding coverage/source
+composition; new paired fixtures are authored. This does not add COM methods or
+Win2D surface coverage, and does not close WPF pen bounds/adapter integration or
+generic native picture transport for live managed visuals. See
+[stroke coverage and research](cached-pictures.md#retained-cached-source-stroke-coverage).

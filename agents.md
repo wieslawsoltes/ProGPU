@@ -202,6 +202,14 @@ Cross-assembly WPF bridge contracts must not expose shim-owned WPF structs or cl
 
 ### A. Rendering Quality & DPI-Aware Text Snapping
 
+Cached-source strokes must reuse the ordinary retained pen/path mask compiler.
+Separate opaque coverage from source material alpha, snapshot all pen scalars,
+and share only immutable dash storage; public dash assignments must detach.
+Never infer authoritative WPF relative brush bounds by inflating fill bounds.
+Callers must provide stroke ink bounds including caps, joins, dashes, and any
+target/DPI-dependent fixed or hairline width. Keep source leases alive through
+recording clones without CPU readback, picture-wrapper or per-dash submissions.
+
 Cached-picture material coverage must retain its coverage picture and source lease
 through parent recording clones. Glyph coverage should remain one retained glyph
 command over caller-owned initialized arrays, not per-glyph path expansion or CPU

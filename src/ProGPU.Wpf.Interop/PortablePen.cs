@@ -15,7 +15,8 @@ public interface IPortablePenStateSource
 
 /// <summary>
 /// Package-neutral stroke snapshot. Brush is null or a resource implementing
-/// IPortableBrushSource/IPortableTileBrushSource; consumers must not inspect object shape.
+/// IPortableBrushSource/IPortableTileBrushSource/IPortableBitmapCacheBrushSource;
+/// consumers must not inspect object shape or reduce a cached material to a solid brush.
 /// The publisher owns the dash snapshot and must not mutate it after publication.
 /// Brush identity is retained so the scene compiler can share resources and detect cycles.
 /// </summary>

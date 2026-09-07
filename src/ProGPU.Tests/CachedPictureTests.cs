@@ -13,6 +13,164 @@ public sealed class CachedPictureTests
 {
     private static readonly Rect Bounds = new(10, 20, 20, 10);
 
+    [Theory]
+    [InlineData(PenStrokeTransformMode.Normal, 4f)]
+    [InlineData(PenStrokeTransformMode.Fixed, 4f)]
+    [InlineData(PenStrokeTransformMode.Normal, Pen.HairlineThickness)]
+    public void CachedStrokeSnapshotsPenAndRetainsSource(PenStrokeTransformMode mode, float thickness)
+    {
+        using var input = CreatePicture(Vector4.One);
+        var provider = new PictureSource(input);
+        using var cache = new CachedPictureSourceCache<object>();
+        using var source = cache.Acquire(new object(), provider, static value => value);
+        var path = PrimitivePathGeometry.CreateRectangle(12, 22, 16, 6);
+        var pen = new Pen(new SolidColorBrush(new Vector4(0, 0, 0.2f, 0.2f)), thickness,
+            PenLineJoin.Bevel, 7, PenLineCap.Square, PenLineCap.Triangle, PenLineCap.Round,
+            [2, 1, 3], 0.25, mode);
+        var recorder = new GpuPictureRecorder();
+        var commands = recorder.BeginRecording(Bounds);
+        var mapping = Matrix4x4.CreateTranslation(3, 4, 0);
+        var parent = Matrix4x4.CreateScale(2, 3, 1);
+        commands.DrawCachedPictureStroke(source, path, pen, Bounds, mapping, 0.5f, parent);
+        using var picture = recorder.EndRecording();
+        using var clone = picture.Clone();
+        pen.Thickness = 99;
+        pen.DashArray = [9, 9];
+        pen.DashOffset = 99;
+        source.Dispose();
+        picture.Dispose();
+        Assert.Equal(5, clone.CommandCount);
+        var mask = clone.GetCommand(0);
+        Assert.Equal(RenderCommandType.PushOpacityMask, mask.Type);
+        Assert.Null(mask.Picture);
+        Assert.Same(path, mask.Path);
+        Assert.Same(path, mask.GeometryCache!.StrokePath);
+        Assert.Equal(parent, mask.Transform);
+        Assert.Equal(Bounds, mask.Rect);
+        Assert.True(mask.IsPenThicknessLocal);
+        var coveragePen = mask.Pen!;
+        Assert.NotSame(pen, coveragePen);
+        Assert.Equal(Vector4.One, Assert.IsType<SolidColorBrush>(coveragePen.Brush).Color);
+        Assert.Equal(1f, coveragePen.Brush.Opacity);
+        Assert.Equal(thickness, coveragePen.Thickness);
+        Assert.Equal(mode, coveragePen.StrokeTransformMode);
+        Assert.Equal(PenLineJoin.Bevel, coveragePen.LineJoin);
+        Assert.Equal(7f, coveragePen.MiterLimit);
+        Assert.Equal(PenLineCap.Square, coveragePen.StartLineCap);
+        Assert.Equal(PenLineCap.Triangle, coveragePen.EndLineCap);
+        Assert.Equal(PenLineCap.Round, coveragePen.DashCap);
+        Assert.Equal(new double[] { 2, 1, 3 }, coveragePen.DashArray);
+        Assert.Equal(0.25, coveragePen.DashOffset);
+        Assert.Equal(RenderCommandType.PushOpacity, clone.GetCommand(1).Type);
+        Assert.Equal(0.5f, clone.GetCommand(1).FontSize);
+        Assert.Equal(RenderCommandType.DrawVisual, clone.GetCommand(2).Type);
+        Assert.Equal(mapping * parent, clone.GetCommand(2).Transform);
+        Assert.Equal(RenderCommandType.PopOpacity, clone.GetCommand(3).Type);
+        Assert.Equal(RenderCommandType.PopOpacityMask, clone.GetCommand(4).Type);
+        Assert.Equal(0, provider.DisposeCount);
+        clone.Dispose();
+        Assert.Equal(1, provider.DisposeCount);
+    }
+
+    [Fact]
+    public void CachedStrokeRejectsInvalidStateAndSkipsEmptyPaintBeforeRecording()
+    {
+        using var input = CreatePicture(Vector4.One);
+        using var cache = new CachedPictureSourceCache<object>();
+        using var source = cache.Acquire(new object(), new PictureSource(input), static value => value);
+        var path = PrimitivePathGeometry.CreateRectangle(12, 22, 16, 6);
+        var pen = new Pen(new SolidColorBrush(Vector4.One), 4);
+        var commands = new DrawingContext();
+        Assert.Throws<ArgumentOutOfRangeException>(() => commands.DrawCachedPictureStroke(source, path, pen, default));
+        Assert.Throws<ArgumentOutOfRangeException>(() => commands.DrawCachedPictureStroke(source, path, pen, Bounds, opacity: float.NaN));
+        Assert.Throws<ArgumentOutOfRangeException>(() => commands.DrawCachedPictureStroke(source, path, pen, Bounds,
+            Matrix4x4.CreateScale(float.MaxValue), transform: Matrix4x4.CreateScale(2)));
+        pen.Thickness = float.NaN;
+        Assert.Throws<ArgumentOutOfRangeException>(() => commands.DrawCachedPictureStroke(source, path, pen, Bounds));
+        pen.Thickness = 0;
+        commands.DrawCachedPictureStroke(source, path, pen, Bounds);
+        pen.Thickness = 4;
+        commands.DrawCachedPictureStroke(source, path, pen, Bounds, opacity: 0);
+        Assert.Empty(commands.Commands);
+        Assert.Equal(0, commands.RetainedResourceCount);
+        source.Dispose();
+        Assert.Throws<ObjectDisposedException>(() => commands.DrawCachedPictureStroke(source, path, pen, Bounds));
+        Assert.Empty(commands.Commands);
+    }
+
+    [Theory]
+    [InlineData(false, false)]
+    [InlineData(false, true)]
+    [InlineData(true, false)]
+    [InlineData(true, true)]
+    public void CachedStrokeMatchesOrdinaryCoverageAndReusesSource(bool rectangle, bool dashed)
+    {
+        using var window = new HeadlessWindow(64, 64);
+        var recorder = new GpuPictureRecorder();
+        var fullBounds = new Rect(0, 0, 64, 64);
+        recorder.BeginRecording(fullBounds).DrawRectangle(new SolidColorBrush(new Vector4(1, 0, 0, 1)), null, fullBounds);
+        using var input = recorder.EndRecording();
+        var provider = new PictureSource(input) { CaptureBounds = fullBounds };
+        using var cache = new CachedPictureSourceCache<object>();
+        using var source = cache.Acquire(new object(), provider, static value => value);
+        var reference = new CachedStrokeHost(null, rectangle, dashed);
+        var cached = new CachedStrokeHost(source, rectangle, dashed);
+        try
+        {
+            window.Content = reference;
+            window.Render();
+            var expected = window.ReadPixels();
+            window.Content = cached;
+            window.Render();
+            var actual = window.ReadPixels();
+            Assert.Equal(expected.Length, actual.Length);
+            int painted = 0;
+            for (int index = 0; index < expected.Length; index++)
+            {
+                Assert.InRange(Math.Abs(expected[index] - actual[index]), 0, 2);
+                if (index % 4 != 3 && actual[index] > 32) painted++;
+            }
+            Assert.True(painted > 16);
+            var texture = source.Picture.GetVisual().LayerTexture;
+            window.Render();
+            Assert.Same(texture, source.Picture.GetVisual().LayerTexture);
+            Assert.Equal(1, provider.CaptureCount);
+        }
+        finally
+        {
+            window.Content = null;
+            reference.Commands.Clear();
+            cached.Commands.Clear();
+        }
+    }
+
+    private sealed class CachedStrokeHost : FrameworkElement, IOwnedRenderCommandCache
+    {
+        internal readonly DrawingContext Commands = new();
+        internal CachedStrokeHost(CachedPictureLease? source, bool rectangle, bool dashed)
+        {
+            Width = Height = 64;
+            var path = rectangle ? PrimitivePathGeometry.CreateRectangle(8, 8, 48, 48) : new PathGeometry();
+            if (!rectangle)
+            {
+                var figure = new PathFigure { StartPoint = new Vector2(8, 16), IsFilled = false };
+                figure.Segments.Add(new LineSegment(new Vector2(56, 48)));
+                path.Figures.Add(figure);
+            }
+            var pen = new Pen(new SolidColorBrush(new Vector4(1, 0, 0, 1)), 4,
+                PenLineJoin.Round, 10, PenLineCap.Round, PenLineCap.Triangle, PenLineCap.Square,
+                dashed ? [2, 1] : null, 0.25);
+            if (source == null)
+            {
+                Commands.PushOpacity(0.5f);
+                Commands.DrawPath(null, pen, path);
+                Commands.PopOpacity();
+            }
+            else Commands.DrawCachedPictureStroke(source, path, pen, new Rect(0, 0, 64, 64), opacity: 0.5f);
+        }
+        DrawingContext IOwnedRenderCommandCache.GetOrUpdateRenderCommandCache() => Commands;
+    }
+
     [Fact]
     public void CachedCoverageKeepsOneGlyphCommandAndIndependentOwners()
     {
