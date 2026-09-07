@@ -19966,6 +19966,51 @@ bool bitmap_cache_brush_captures_content_with_independent_root_state() {
     return true;
 }
 
+bool bitmap_cache_brush_rounded_fill_preserves_clamped_arcs() {
+    using namespace progpu::native::tests;
+    mil_image_brush_fixture_options options{};
+    options.source = mil_brush_fixture_source::visual;
+    options.bitmap_cache_brush = true;
+    options.shape = mil_brush_fixture_shape::rounded_rectangle;
+    options.fixed_extent = {20.0, 10.0};
+    const std::array<std::array<double, 2U>, 5U> cases{{
+        {2.0, 3.0}, {std::numeric_limits<double>::max(), std::numeric_limits<double>::max()},
+        {0.00001, 0.00002}, {0.0, 3.0}, {-1.0, 3.0}}};
+    for (const auto& radii : cases) {
+        options.rounded_radii = radii;
+        std::vector<std::byte> stream;
+        PROGPU_REQUIRE(build_mil_image_brush_fixture(stream, options, 8121U));
+        progpu_native_scene_layer source{};
+        PROGPU_REQUIRE(try_get_cached_layer(stream, source));
+        PROGPU_REQUIRE(source.bounds.width == 20.0F && source.bounds.height == 10.0F);
+        const auto header = read_value<progpu_native_scene_header>(stream, 0U);
+        bool found_curve = false;
+        for (std::uint32_t index = 0U; index < header.resource_count; ++index) {
+            const auto resource = read_value<progpu_native_scene_resource>(stream,
+                header.resource_offset + index * sizeof(progpu_native_scene_resource));
+            if (resource.kind != PROGPU_NATIVE_SCENE_RESOURCE_LAYER_MASK ||
+                resource.payload_size != sizeof(progpu_native_scene_layer_vector_mask)) continue;
+            const auto mask = read_value<progpu_native_scene_layer_vector_mask>(stream, resource.payload_offset);
+            if (mask.kind != PROGPU_NATIVE_SCENE_LAYER_MASK_VECTOR_CLIP_CHAIN) continue;
+            PROGPU_REQUIRE(mask.path_count == 1U && mask.segment_count == 8U);
+            std::uint32_t arc_count = 0U;
+            for (std::uint32_t segment_index = 0U; segment_index < mask.segment_count; ++segment_index) {
+                const auto segment = read_value<progpu_native_path_segment>(stream,
+                    resource.auxiliary_offset + mask.path_count * sizeof(progpu_native_scene_clip_path) +
+                    segment_index * sizeof(progpu_native_path_segment));
+                if (segment.kind != PROGPU_NATIVE_PATH_SEGMENT_ARC) continue;
+                ++arc_count;
+                PROGPU_REQUIRE(segment.p3.x == static_cast<float>(std::clamp(radii[0], 0.0, 10.0)));
+                PROGPU_REQUIRE(segment.p3.y == static_cast<float>(std::clamp(radii[1], 0.0, 5.0)));
+            }
+            PROGPU_REQUIRE(arc_count == 4U);
+            found_curve = true;
+        }
+        PROGPU_REQUIRE(found_curve == (radii[0] > 0.0 && radii[1] > 0.0));
+    }
+    return true;
+}
+
 bool bitmap_cache_brush_preserves_root_raster_policy() {
     using namespace progpu::native::tests;
     mil_image_brush_fixture_options options{};
@@ -21459,6 +21504,7 @@ int main() {
     PROGPU_REQUIRE(bitmap_cache_brush_ingress_is_typed_and_transactional());
     PROGPU_REQUIRE(bitmap_cache_brush_captures_content_with_independent_root_state());
     PROGPU_REQUIRE(bitmap_cache_brush_preserves_root_raster_policy());
+    PROGPU_REQUIRE(bitmap_cache_brush_rounded_fill_preserves_clamped_arcs());
     PROGPU_REQUIRE(bitmap_dpi_is_atomic_and_preserves_legacy_bindings());
     PROGPU_REQUIRE(malformed_and_unsupported_packets_fail_closed());
     PROGPU_REQUIRE(c_abi_is_typed_and_size_versioned());

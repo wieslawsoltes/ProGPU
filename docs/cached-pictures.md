@@ -98,6 +98,55 @@ DPI and performance qualification is still required.
 
 ## Implementation-first status
 
+### Rounded cache-brush fills and radius normalization
+
+`DrawingContext.PushRoundedRectangleClip` now records one retained clip using
+ProGPU's original `PrimitivePathGeometry.CreateRoundedRectangle`: four lines
+and four analytic arcs, clamped independently to half the extent. The transform
+remains on the command. A zero radius axis is square. Positive radii, including
+values below the old rectangle-classification epsilon, retain arcs and cannot
+be classified as rectangular clips. Invalid generic clip parameters throw
+before recording; this API requires nonnegative finite radii and finite positive
+bounds. LibreWPF normalizes negative radii to zero and clamps large finite
+double radii before float narrowing. Unrepresentable positive radii fail closed.
+
+Direct object/managed rounded calls and raw MIL rounded/animated records now use
+this clip around the shared cached source, retaining opacity, brush mapping,
+ordinary pen replay and unsupported-animation accounting. No shim geometry or
+pixel copy is introduced. This connects fills, not cache-brush pen materials,
+glyph foregrounds or opacity masks.
+
+Paired C++ work normalizes immediate rounded radii in double precision after
+animation resolution. Both early validation and resolved-value validation now
+accept finite out-of-range radii and clamp them to `[0, extent/2]` before float
+conversion. RectangleGeometry resource validation is a separate unchanged
+contract. Original-source provenance is `PrimitivePathGeometry.cs`, the existing
+retained clip command, and `append_rounded_rectangle_path` plus immediate shape
+dispatch in `src/ProGPU.Native/src/Mil/progpu_native_mil.cpp`. Native sampled
+rounded fills already use four analytic arcs; other native WPF geometry paths
+also use `make_wpf_rounded_rectangle_geometry` with cubic corners. This work
+does not establish bit-identical output across those representations.
+
+The [WPF rounded drawing contract](https://learn.microsoft.com/en-us/dotnet/api/system.windows.media.drawingcontext.drawroundedrectangle?view=windowsdesktop-10.0)
+supplies radius-clamping and separate fill/pen semantics, not implementation
+source. The cross-engine research recorded above remains applicable: retain
+source identity and lazy capture independently from consumer coverage; do not
+change shaping, font reuse, atlas eviction, DPI, upload, batching or device-loss
+policy for a new primitive consumer. Setup is O(1) time and bounded eight-segment
+storage; rasterization uses the existing GPU vector clip path. This introduces
+no compute-heavy CPU buffer loop, new shader, readback or queue submission.
+
+Authored matched fixtures cover analytic/clamped/tiny/zero radii, native source
+layers and curved masks, managed command transforms, transactional invalid input,
+WPF object fills and raw MIL animated diagnostics. Release compilation succeeds
+for native `progpu_native_mil_tests`, ProGPU.Tests (0 warnings/errors) and
+ProGPU.Wpf.Tests (7 warnings, 0 errors). The MIL coverage ledger was regenerated;
+its counts are unchanged and are ingress coverage, not parity evidence.
+Fixtures were not executed. Full renderer/Svg.Skia, native/managed images,
+platform/VM, performance, source verification and CI gates remain deferred and
+required before completion. Cached-brush strokes, glyphs, masks and remaining
+source scopes are still open.
+
 ### Target-anchored aliases and direct ellipse fills
 
 `PortableBitmapCacheBrushCaptureSource` is an immutable typed capture anchor: it
@@ -264,7 +313,8 @@ Its `CreateCachedPicture`/`UpdateCachedPicture` methods transfer independent
 picture ownership into this resource and apply render scale/ClearType policy.
 Managed geometry/rectangle/ellipse fills now have source lookup and recording-owned
 lifetime/invalidation integration, including distinct-brush target/cache identity
-sharing and raw typed MIL dispatch. Rounded, pen, glyph and mask consumers
+sharing and raw typed MIL dispatch. Rounded fills now use the shared analytic
+clip described above. Pen, glyph and mask consumers
 remain open. Root scroll clips and source
 content requiring unsupported recorder scopes fail closed. This does not claim
 complete BitmapCacheBrush or MIL/DirectX/Direct2D/COM/Win2D parity.

@@ -42,6 +42,7 @@ struct mil_image_brush_fixture_options {
     bool zero_length_line{};
     double dash_offset{0.25};
     std::array<double, 2U> fixed_extent{48.0, 48.0};
+    std::array<double, 2U> rounded_radii{12.0, 6.0};
     std::uint32_t line_join{PROGPU_NATIVE_STROKE_JOIN_ROUND};
     bool collapsed_group{};
     bool gradient_pen{};
@@ -355,7 +356,8 @@ inline bool build_mil_image_brush_fixture(std::vector<std::byte>& scene,
         break;
     case mil_brush_fixture_shape::rounded_rectangle:
         packet(nested, command::draw_rounded_rectangle,
-            8.0, 8.0, options.fixed_extent[0], options.fixed_extent[1], 12.0, 6.0, fill_handle, pen_handle);
+            8.0, 8.0, options.fixed_extent[0], options.fixed_extent[1],
+            options.rounded_radii[0], options.rounded_radii[1], fill_handle, pen_handle);
         break;
     default:
         packet(nested, command::draw_rectangle, 8.0, 8.0,

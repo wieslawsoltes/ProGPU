@@ -4841,3 +4841,13 @@ ellipse consumers, and raw MIL cache-brush dispatch avoids losing typed resource
 during media adaptation. Existing C++ shared-page/clip semantics are unchanged;
 this is managed integration, not an expansion of COM/Win2D API coverage. All
 runtime/platform/VM, performance and CI qualification remains deferred.
+
+### Implementation-first checkpoint: rounded cached fills
+
+Shared analytic rounded clips now connect managed WPF cached fills, and native
+MIL immediate rounded radius normalization is aligned with the public clamping
+contract. Tiny positive corners stay curved in managed primitive classification.
+This extends rendering integration, not Direct2D COM/Win2D API surface. Native,
+ProGPU and WPF fixture targets compile; execution and all final gates are still
+deferred. See [rounded cached fills](cached-pictures.md#rounded-cache-brush-fills-and-radius-normalization)
+for paired applicability, original-source provenance, research and remaining work.

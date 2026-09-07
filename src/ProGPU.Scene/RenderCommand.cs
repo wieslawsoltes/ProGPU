@@ -4466,6 +4466,24 @@ public class DrawingContext :
         PushGeometryClip(PrimitivePathGeometry.CreateEllipse(center, radiusX, radiusY), transform);
     }
 
+    /// <summary>
+    /// Records a rounded rectangle clip with analytic corner arcs. Radii clamp
+    /// to half the extent; a zero radius axis produces a rectangle. Pair with
+    /// PopGeometryClip. Recording is bounded CPU setup with no GPU submission.
+    /// </summary>
+    public void PushRoundedRectangleClip(Rect bounds, float radiusX, float radiusY, Matrix4x4 transform = default)
+    {
+        if (!float.IsFinite(bounds.X) || !float.IsFinite(bounds.Y)
+            || !float.IsFinite(bounds.Width) || !float.IsFinite(bounds.Height)
+            || !float.IsFinite(bounds.X + bounds.Width) || !float.IsFinite(bounds.Y + bounds.Height)
+            || bounds.Width <= 0 || bounds.Height <= 0)
+            throw new ArgumentOutOfRangeException(nameof(bounds));
+        if (!float.IsFinite(radiusX) || !float.IsFinite(radiusY) || radiusX < 0 || radiusY < 0)
+            throw new ArgumentOutOfRangeException(nameof(radiusX));
+        PushGeometryClip(PrimitivePathGeometry.CreateRoundedRectangle(bounds.X, bounds.Y,
+            bounds.Width, bounds.Height, radiusX, radiusY), transform);
+    }
+
     public void PopGeometryClip()
     {
         Commands.Add(new RenderCommand { Type = RenderCommandType.PopGeometryClip });

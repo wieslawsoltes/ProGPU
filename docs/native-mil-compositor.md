@@ -9439,6 +9439,24 @@ Release compilation checkpoint (2026-09-07): ProGPU.Tests succeeds with zero
 warnings/errors. Fetched `origin/main` has no commits missing from the feature
 branch. These fixtures were compiled only, not executed.
 
+## Implementation-first checkpoint: rounded cached fills
+
+ProGPU's shared scene recorder now exposes analytic rounded clipping, preserving
+tiny positive corners through primitive classification. LibreWPF direct and raw
+MIL rounded cache-brush fills use this primitive and existing source leases.
+C++ immediate rounded commands now clamp finite radii in double precision before
+float conversion, including resolved animation values. No ABI/shader layout
+changes were needed; the source-digest coverage ledger was regenerated.
+
+See [rounded cached fills](cached-pictures.md#rounded-cache-brush-fills-and-radius-normalization)
+for original in-repository provenance, primary contract research, managed/native
+applicability, bounded recording costs and remaining representation differences.
+Matched native/managed/WPF fixtures are authored. Native MIL tests and both
+managed test graphs compile in Release; fixtures were not executed. Fetched
+ProGPU `origin/main` has no commits missing from this feature branch.
+Runtime/VM/platform, full renderer/Svg.Skia, performance, source verification
+and CI qualification remain deferred. Full parity is not complete.
+
 ## Invariants
 
 - No reflection or private managed field scanning in the product bridge.

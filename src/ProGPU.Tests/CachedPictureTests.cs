@@ -33,6 +33,56 @@ public sealed class CachedPictureTests
         Assert.Equal(RenderCommandType.PopGeometryClip, commands.Commands[1].Type);
     }
 
+    [Theory]
+    [InlineData(2f, 3f, 2f, 3f)]
+    [InlineData(float.MaxValue, float.MaxValue, 10f, 5f)]
+    [InlineData(0.00001f, 0.00002f, 0.00001f, 0.00002f)]
+    public void RoundedClipRetainsClampedAnalyticCorners(float radiusX, float radiusY, float expectedX, float expectedY)
+    {
+        var commands = new DrawingContext();
+        var transform = Matrix4x4.CreateScale(2, 3, 1);
+        commands.PushRoundedRectangleClip(Bounds, radiusX, radiusY, transform);
+        var clip = Assert.Single(commands.Commands);
+        Assert.Equal(RenderCommandType.PushGeometryClip, clip.Type);
+        Assert.Equal(transform, clip.Transform);
+        var figure = Assert.Single(clip.Path!.Figures);
+        Assert.True(figure.IsClosed);
+        Assert.Equal(8, figure.Segments.Count);
+        for (int index = 0; index < 8; index++)
+        {
+            if (index % 2 == 0) Assert.IsType<LineSegment>(figure.Segments[index]);
+            else Assert.Equal(new Vector2(expectedX, expectedY), Assert.IsType<ArcSegment>(figure.Segments[index]).Size);
+        }
+        Assert.False(PrimitivePathGeometry.TryGetAxisAlignedRectangleBounds(clip.Path, out _, out _));
+        commands.PopGeometryClip();
+        Assert.Equal(RenderCommandType.PopGeometryClip, commands.Commands[1].Type);
+    }
+
+    [Theory]
+    [InlineData(0f, 3f)]
+    [InlineData(2f, 0f)]
+    public void RoundedClipZeroAxisIsSquare(float radiusX, float radiusY)
+    {
+        var commands = new DrawingContext();
+        commands.PushRoundedRectangleClip(Bounds, radiusX, radiusY);
+        Assert.True(PrimitivePathGeometry.TryGetAxisAlignedRectangleBounds(
+            Assert.Single(commands.Commands).Path!, out var min, out var max));
+        Assert.Equal(new Vector2(10, 20), min);
+        Assert.Equal(new Vector2(30, 30), max);
+    }
+
+    [Fact]
+    public void InvalidRoundedClipDoesNotRecordPartialCommands()
+    {
+        var commands = new DrawingContext();
+        Assert.Throws<ArgumentOutOfRangeException>(() => commands.PushRoundedRectangleClip(Bounds, -1, 2));
+        Assert.Throws<ArgumentOutOfRangeException>(() => commands.PushRoundedRectangleClip(Bounds, float.NaN, 2));
+        Assert.Throws<ArgumentOutOfRangeException>(() => commands.PushRoundedRectangleClip(Bounds, 1, float.PositiveInfinity));
+        Assert.Throws<ArgumentOutOfRangeException>(() => commands.PushRoundedRectangleClip(new Rect(0, 0, 0, 10), 1, 1));
+        Assert.Throws<ArgumentOutOfRangeException>(() => commands.PushRoundedRectangleClip(new Rect(float.MaxValue, 0, float.MaxValue, 10), 1, 1));
+        Assert.Empty(commands.Commands);
+    }
+
     [Fact]
     public void SharedSourceLookupRetainsOneSourceThroughIndependentRecordings()
     {

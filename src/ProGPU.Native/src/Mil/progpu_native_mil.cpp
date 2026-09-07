@@ -17802,8 +17802,8 @@ struct channel::implementation {
                     !finite_double_as_float(third) ||
                     !finite_double_as_float(fourth) ||
                     (is_rounded &&
-                     (!finite_double_as_float(radius_x) ||
-                      !finite_double_as_float(radius_y)))) {
+                     (!std::isfinite(radius_x) ||
+                      !std::isfinite(radius_y)))) {
                     return status::malformed_batch;
                 }
                 if (animated) {
@@ -17914,10 +17914,14 @@ struct channel::implementation {
                 return status::malformed_batch;
             }
             if (is_rounded &&
-                (!finite_double_as_float(radius_x) ||
-                 !finite_double_as_float(radius_y) || radius_x < 0.0 ||
-                 radius_y < 0.0)) {
+                (!std::isfinite(radius_x) || !std::isfinite(radius_y))) {
                 return status::malformed_batch;
+            }
+            if (is_rounded) {
+                // Immediate rounded-rectangle radii clamp in their double
+                // domain before float conversion, including animated values.
+                radius_x = std::clamp(radius_x, 0.0, third * 0.5);
+                radius_y = std::clamp(radius_y, 0.0, fourth * 0.5);
             }
             const bool prepared_fixed_spine = is_geometry_shape && third > 0.0 && fourth > 0.0;
             const bool prepared_degenerate_shape = is_geometry_shape && (third == 0.0 || fourth == 0.0);

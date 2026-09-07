@@ -44,8 +44,7 @@ public static class PrimitivePathGeometry
                     next = line.Point;
                     break;
                 case ArcSegment arc
-                    when MathF.Abs(arc.Size.X) <= Epsilon ||
-                         MathF.Abs(arc.Size.Y) <= Epsilon:
+                    when arc.Size.X == 0 || arc.Size.Y == 0:
                     next = arc.Point;
                     break;
                 default:
@@ -115,7 +114,9 @@ public static class PrimitivePathGeometry
 
         radiusX = MathF.Min(MathF.Abs(radiusX), width * 0.5f);
         radiusY = MathF.Min(MathF.Abs(radiusY), height * 0.5f);
-        if (radiusX <= Epsilon || radiusY <= Epsilon)
+        // A positive rounded clip must retain its corner geometry, even below
+        // the rectangle-classification epsilon. Only a zero axis is square.
+        if (radiusX == 0 || radiusY == 0)
         {
             return CreateRectangle(x, y, width, height);
         }
