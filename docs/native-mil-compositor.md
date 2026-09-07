@@ -9457,6 +9457,24 @@ ProGPU `origin/main` has no commits missing from this feature branch.
 Runtime/VM/platform, full renderer/Svg.Skia, performance, source verification
 and CI qualification remain deferred. Full parity is not complete.
 
+## Implementation-first checkpoint: cached opacity-mask consumers
+
+The managed scene recorder now owns cached-source alpha-mask pictures through
+parent recording leases. LibreWPF connects bounded direct, visual, drawing-group
+and raw MIL mask scopes without converting typed cache brushes into null media
+brushes. Empty sources mask content out. Brush-only retained-owner metadata is
+bypassed for these resources until it has lease-aware mask state; unbounded
+scopes remain explicitly unsupported rather than inferring bounds from sources.
+
+Native `add_spatial_opacity_mask` and shared cache-page compilation already own
+the equivalent nested mask source. New paired native fixtures inspect that
+relationship; no C++ product source, ABI or shader change is required. See
+[cached opacity masks](cached-pictures.md#recording-owned-cached-opacity-masks)
+for ownership, original-source provenance, research, costs and remaining scope.
+Native MIL and managed/WPF fixture targets compile in Release; none were run.
+Final runtime/VM/platform, renderer/Svg.Skia, performance, verifier and CI
+qualification remains deferred. Full goal parity is still incomplete.
+
 ## Invariants
 
 - No reflection or private managed field scanning in the product bridge.

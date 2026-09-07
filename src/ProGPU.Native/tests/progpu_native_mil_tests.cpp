@@ -20011,6 +20011,45 @@ bool bitmap_cache_brush_rounded_fill_preserves_clamped_arcs() {
     return true;
 }
 
+bool bitmap_cache_brush_masks_retain_source_pages_and_consumer_alpha() {
+    using namespace progpu::native::tests;
+    for (const unsigned scope : {0U, 1U, 2U}) {
+        mil_image_brush_fixture_options options{};
+        options.source = mil_brush_fixture_source::visual;
+        options.bitmap_cache_brush = options.opacity_mask = true;
+        options.drawing_group_mask = scope == 1U;
+        options.visual_mask = scope == 2U;
+        options.opacity = 0.5;
+        options.relative_scale = true;
+        std::vector<std::byte> scene;
+        PROGPU_REQUIRE(build_mil_image_brush_fixture(scene, options, 8122U));
+        const auto header = read_value<progpu_native_scene_header>(scene, 0U);
+        bool found = false;
+        for (std::uint32_t index = 0U; index < header.resource_count; ++index) {
+            const auto resource = read_value<progpu_native_scene_resource>(scene,
+                header.resource_offset + index * sizeof(progpu_native_scene_resource));
+            if (resource.kind != PROGPU_NATIVE_SCENE_RESOURCE_LAYER_MASK ||
+                resource.payload_size != sizeof(progpu_native_scene_layer_picture_mask)) continue;
+            const auto mask = read_value<progpu_native_scene_layer_picture_mask>(scene, resource.payload_offset);
+            if (mask.kind != PROGPU_NATIVE_SCENE_LAYER_MASK_PICTURE) continue;
+            PROGPU_REQUIRE(mask.opacity == 1.0F);
+            const auto begin = scene.begin() + resource.auxiliary_offset + mask.stream_offset;
+            const std::vector<std::byte> nested(begin, begin + mask.stream_size);
+            progpu_native_scene_layer source{};
+            PROGPU_REQUIRE(try_get_cached_layer(nested, source));
+            PROGPU_REQUIRE(source.opacity == 0.5F);
+            PROGPU_REQUIRE(source.bounds.width == 20.0F && source.bounds.height == 10.0F);
+            PROGPU_REQUIRE((source.flags & PROGPU_NATIVE_SCENE_LAYER_CACHE_SHARED) != 0U);
+            progpu_native_scene_state composite{};
+            PROGPU_REQUIRE(try_get_state_resource(nested, source.reserved0, composite));
+            PROGPU_REQUIRE(composite.transform.m11 == 0.5F && composite.transform.m22 == 0.5F);
+            found = true;
+        }
+        PROGPU_REQUIRE(found);
+    }
+    return true;
+}
+
 bool bitmap_cache_brush_preserves_root_raster_policy() {
     using namespace progpu::native::tests;
     mil_image_brush_fixture_options options{};
@@ -21504,6 +21543,7 @@ int main() {
     PROGPU_REQUIRE(bitmap_cache_brush_ingress_is_typed_and_transactional());
     PROGPU_REQUIRE(bitmap_cache_brush_captures_content_with_independent_root_state());
     PROGPU_REQUIRE(bitmap_cache_brush_preserves_root_raster_policy());
+    PROGPU_REQUIRE(bitmap_cache_brush_masks_retain_source_pages_and_consumer_alpha());
     PROGPU_REQUIRE(bitmap_cache_brush_rounded_fill_preserves_clamped_arcs());
     PROGPU_REQUIRE(bitmap_dpi_is_atomic_and_preserves_legacy_bindings());
     PROGPU_REQUIRE(malformed_and_unsupported_packets_fail_closed());

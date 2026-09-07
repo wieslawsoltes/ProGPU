@@ -14,6 +14,110 @@ public sealed class CachedPictureTests
     private static readonly Rect Bounds = new(10, 20, 20, 10);
 
     [Fact]
+    public void CachedMaskOwnsSourceThroughRecordingClonesAndPreservesMapping()
+    {
+        using var input = CreatePicture(Vector4.One);
+        var provider = new PictureSource(input);
+        using var cache = new CachedPictureSourceCache<object>();
+        using var source = cache.Acquire(new object(), provider, static value => value);
+        var recorder = new GpuPictureRecorder();
+        var commands = recorder.BeginRecording(Bounds);
+        var mapping = Matrix4x4.CreateTranslation(3, 4, 0);
+        var parent = Matrix4x4.CreateScale(2, 3, 1);
+        commands.PushCachedPictureOpacityMask(source, Bounds, mapping, 0.5f, parent);
+        commands.PopOpacityMask();
+        using var picture = recorder.EndRecording();
+        using var clone = picture.Clone();
+        var mask = picture.GetCommand(0);
+        Assert.Equal(RenderCommandType.PushOpacityMask, mask.Type);
+        Assert.Equal(Bounds, mask.Rect);
+        Assert.Equal(parent, mask.Transform);
+        Assert.NotNull(mask.Picture);
+        Assert.Equal(3, mask.Picture!.CommandCount);
+        Assert.Equal(0.5f, mask.Picture.GetCommand(0).FontSize);
+        var draw = mask.Picture.GetCommand(1);
+        Assert.Equal(RenderCommandType.DrawVisual, draw.Type);
+        Assert.Same(source.Picture.GetVisual(), draw.Visual);
+        Assert.Equal(mapping, draw.Transform);
+        source.Dispose();
+        picture.Dispose();
+        Assert.False(mask.Picture.IsDisposed);
+        Assert.Equal(0, provider.DisposeCount);
+        clone.Dispose();
+        Assert.True(mask.Picture.IsDisposed);
+        Assert.Equal(0, cache.Count);
+        Assert.Equal(1, provider.DisposeCount);
+    }
+
+    [Fact]
+    public void CachedMaskRejectsInvalidStateBeforeRetainingSource()
+    {
+        using var input = CreatePicture(Vector4.One);
+        using var cache = new CachedPictureSourceCache<object>();
+        using var source = cache.Acquire(new object(), new PictureSource(input), static value => value);
+        var commands = new DrawingContext();
+        Assert.Throws<ArgumentOutOfRangeException>(() => commands.PushCachedPictureOpacityMask(source, Bounds, opacity: float.NaN));
+        Assert.Throws<ArgumentOutOfRangeException>(() => commands.PushCachedPictureOpacityMask(source, default));
+        Assert.Throws<ArgumentOutOfRangeException>(() => commands.PushCachedPictureOpacityMask(source, Bounds,
+            Matrix4x4.CreateTranslation(float.PositiveInfinity, 0, 0)));
+        Assert.Empty(commands.Commands);
+        Assert.Equal(0, commands.RetainedResourceCount);
+    }
+
+    [Fact]
+    public void CachedMaskMatchesAlphaOracleAndRefreshesWithoutReRecording()
+    {
+        using var window = new HeadlessWindow(64, 64);
+        using var input = CreatePicture(new Vector4(0, 0, 0.5f, 0.5f));
+        var provider = new PictureSource(input);
+        using var cache = new CachedPictureSourceCache<object>();
+        using var source = cache.Acquire(new object(), provider, static value => value);
+        var reference = new CachedMaskHost(null);
+        var cached = new CachedMaskHost(source);
+        try
+        {
+            window.Content = reference;
+            window.Render();
+            var expected = window.ReadPixels();
+            window.Content = cached;
+            window.Render();
+            var actual = window.ReadPixels();
+            Assert.Equal(expected.AsSpan((25 * 64 + 15) * 4, 4).ToArray(), actual.AsSpan((25 * 64 + 15) * 4, 4).ToArray());
+            Assert.Equal(expected.AsSpan((5 * 64 + 5) * 4, 4).ToArray(), actual.AsSpan((5 * 64 + 5) * 4, 4).ToArray());
+            var texture = source.Picture.GetVisual().LayerTexture;
+            window.Render();
+            Assert.Same(texture, source.Picture.GetVisual().LayerTexture);
+            Assert.Equal(1, provider.CaptureCount);
+            provider.Scale = 0;
+            provider.Change();
+            window.Render();
+            Assert.Equal(2, provider.CaptureCount);
+            Assert.Null(source.Picture.GetVisual().LayerTexture);
+            Assert.Equal(0, window.ReadPixels()[(25 * 64 + 15) * 4]);
+        }
+        finally
+        {
+            window.Content = null;
+            reference.Commands.Clear();
+            cached.Commands.Clear();
+        }
+    }
+
+    private sealed class CachedMaskHost : FrameworkElement, IOwnedRenderCommandCache
+    {
+        internal readonly DrawingContext Commands = new();
+        internal CachedMaskHost(CachedPictureLease? source)
+        {
+            Width = Height = 64;
+            if (source == null) Commands.PushOpacityMask(new SolidColorBrush(new Vector4(0, 0, 0.25f, 0.25f)), Bounds);
+            else Commands.PushCachedPictureOpacityMask(source, Bounds, opacity: 0.5f);
+            Commands.DrawRectangle(new SolidColorBrush(new Vector4(1, 0, 0, 1)), null, new Rect(0, 0, 64, 64));
+            Commands.PopOpacityMask();
+        }
+        DrawingContext IOwnedRenderCommandCache.GetOrUpdateRenderCommandCache() => Commands;
+    }
+
+    [Fact]
     public void EllipseClipRecordsAnalyticArcsAndPreservesTransform()
     {
         var commands = new DrawingContext();

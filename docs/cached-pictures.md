@@ -98,6 +98,67 @@ DPI and performance qualification is still required.
 
 ## Implementation-first status
 
+### Recording-owned cached opacity masks
+
+`DrawingContext.PushCachedPictureOpacityMask` records a cached source through
+the existing retained-picture alpha-mask compositor. Its source transform and
+opacity are inside an owned one- or three-command mask picture; the outer
+transform applies to both mask placement and the explicit mask bounds. The
+parent recording owns that picture through a retained resource lease. Cloned
+parent recordings keep the mask/source alive independently of the caller's
+source lease and dispose the mask only after the last owner releases it.
+Dynamic source capture still runs through `CompileEmbeddedVisual` and
+`CachedPicture.Refresh`, so source changes need not rebuild consumer recordings.
+
+LibreWPF now passes raw typed cache masks through bounded object/managed calls,
+normal visual-state scopes, drawing-group scopes and both MIL decoder lanes.
+Source lookup shares the existing target/cache/device/adapter identity rules;
+consumer mapping and opacity do not alter source capture. Empty targets,
+zero brush opacity and singular mappings produce transparent masks, not no-op
+scopes. Missing descriptors or unusable bounds report unsupported. Direct sink
+calls throw when a required cached mask cannot be represented. BitmapCacheBrush
+instances bypass brush-only retained-owner mask metadata and use normal typed
+command scopes, because that metadata cannot yet own the source lease. The
+unbounded object/managed PushOpacityMask overload remains a gap for nonempty
+cached sources: deferred painted-content bounds are not guessed from the source.
+
+Original implementation provenance is `GpuPictureRecorder`, `DrawCachedPicture`,
+`RetainedResourceLease`, and `Compositor.PushOpacityMaskValue(GpuPicture,...)`.
+No new compositor shader, pixel conversion, GPU submission point or P/Invoke is
+introduced. Recording uses O(1) bounded wrapper/command storage and one source
+lease per mask, plus the existing source-lease lookup/deduplication cost. It is
+not allocation-free on dirty recording. Stable replay retains the wrapper.
+Mask composition uses the existing GPU mask target/passes; raster work scales
+with affected mask pixels and actual source recapture cost. No CPU pixel loop
+or scalar fallback is added, and no speed improvement is claimed.
+
+Native applicability: `add_spatial_opacity_mask` already records a sampled
+cache-brush fill into an owned child semantic scene and consumes its alpha;
+`append_bitmap_cache_brush` supplies shared source pages and consumer placement.
+Those C++ algorithms and their wire/shader contracts are unchanged. A paired
+native fixture now inspects direct, drawing-group and visual picture masks,
+their nested shared source pages, source dimensions, relative mapping and
+single application of consumer alpha. Managed fixtures cover mask/source lease
+lifetime, parent cloning, independent transforms, rejected parameters, a GPU
+alpha oracle, warm source reuse and deferred recapture after zero-scale updates.
+WPF fixtures cover all bounded scope producers and transparent empty masks.
+
+The [WPF opacity-mask contract](https://learn.microsoft.com/en-us/dotnet/desktop/wpf/graphics-multimedia/opacity-masks-overview)
+defines alpha-only masking combined with content opacity. It informed independent
+mask/color and placement assertions, not implementation source. The existing
+Skia/Direct2D/Win2D/WebRender/Vello/Parley/HarfBuzz research record above remains
+applicable: separate source generation from consumer coverage and preserve lazy
+capture, layout/shaping caches, DPI, atlases, uploads, batching and device-loss
+ownership. No font or pipeline policy is changed by this adapter.
+
+Release compilation (2026-09-07): native `progpu_native_mil_tests` succeeds,
+ProGPU.Tests has 0 warnings/errors, and ProGPU.Wpf.Tests has 1 warning/0 errors.
+All fixtures remain unexecuted. Full native/managed images, nested state and
+lifetime qualification, platform/VM/sample comparisons, renderer/Svg.Skia,
+performance, source verifiers and CI gates are deferred, not waived. Strokes,
+glyphs, unbounded mask scopes, retained-owner mask metadata and remaining source
+scope combinations still require implementation and final qualification.
+
 ### Rounded cache-brush fills and radius normalization
 
 `DrawingContext.PushRoundedRectangleClip` now records one retained clip using
@@ -314,7 +375,8 @@ picture ownership into this resource and apply render scale/ClearType policy.
 Managed geometry/rectangle/ellipse fills now have source lookup and recording-owned
 lifetime/invalidation integration, including distinct-brush target/cache identity
 sharing and raw typed MIL dispatch. Rounded fills now use the shared analytic
-clip described above. Pen, glyph and mask consumers
-remain open. Root scroll clips and source
+clip described above, and bounded opacity masks use recording-owned picture
+sources. Pen, glyph, unbounded mask and retained-owner mask-metadata work
+remains open. Root scroll clips and source
 content requiring unsupported recorder scopes fail closed. This does not claim
 complete BitmapCacheBrush or MIL/DirectX/Direct2D/COM/Win2D parity.

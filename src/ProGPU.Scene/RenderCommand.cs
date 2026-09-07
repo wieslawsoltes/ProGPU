@@ -4512,6 +4512,68 @@ public class DrawingContext :
         });
     }
 
+    /// <summary>
+    /// Records a cached source as an alpha mask. The source mapping is local to
+    /// the mask; transform positions both the mask bounds and the source in the
+    /// parent scene. A recording-owned picture retains the source independently
+    /// of the caller's lease. Pair with PopOpacityMask. No GPU work occurs here.
+    /// </summary>
+    public void PushCachedPictureOpacityMask(CachedPictureLease source, Rect bounds,
+        Matrix4x4 sourceTransform = default, float opacity = 1, Matrix4x4 transform = default)
+    {
+        ArgumentNullException.ThrowIfNull(source);
+        if (!float.IsFinite(bounds.X) || !float.IsFinite(bounds.Y)
+            || !float.IsFinite(bounds.Width) || !float.IsFinite(bounds.Height)
+            || !float.IsFinite(bounds.Right) || !float.IsFinite(bounds.Bottom)
+            || bounds.Width <= 0 || bounds.Height <= 0)
+            throw new ArgumentOutOfRangeException(nameof(bounds));
+        if (!float.IsFinite(opacity) || opacity < 0 || opacity > 1)
+            throw new ArgumentOutOfRangeException(nameof(opacity));
+        if (!IsFiniteMaskTransform(sourceTransform) || !IsFiniteMaskTransform(transform))
+            throw new ArgumentOutOfRangeException(nameof(sourceTransform));
+
+        var recorder = new GpuPictureRecorder();
+        var recording = recorder.BeginRecording(bounds);
+        GpuPicture picture;
+        try
+        {
+            if (opacity != 1) recording.PushOpacity(opacity);
+            recording.DrawCachedPicture(source, sourceTransform);
+            if (opacity != 1) recording.PopOpacity();
+            picture = recorder.EndRecording();
+        }
+        finally { recording.Clear(); }
+
+        // Own the complete mask recording, not merely a borrowed GpuPicture.
+        // Parent snapshots share this lease until their final disposal.
+        var owned = RetainedResourceLease.Create(picture, picture);
+        var resources = _retainedResources ??= new List<RetainedResourceLease>();
+        try { resources.Add(owned); }
+        catch { owned.Dispose(); throw; }
+        try
+        {
+            Commands.Add(new RenderCommand
+            {
+                Type = RenderCommandType.PushOpacityMask,
+                Picture = picture,
+                Rect = bounds,
+                Transform = transform
+            });
+        }
+        catch
+        {
+            resources.RemoveAt(resources.Count - 1);
+            owned.Dispose();
+            throw;
+        }
+    }
+
+    private static bool IsFiniteMaskTransform(Matrix4x4 value) =>
+        float.IsFinite(value.M11) && float.IsFinite(value.M12) && float.IsFinite(value.M13) && float.IsFinite(value.M14)
+        && float.IsFinite(value.M21) && float.IsFinite(value.M22) && float.IsFinite(value.M23) && float.IsFinite(value.M24)
+        && float.IsFinite(value.M31) && float.IsFinite(value.M32) && float.IsFinite(value.M33) && float.IsFinite(value.M34)
+        && float.IsFinite(value.M41) && float.IsFinite(value.M42) && float.IsFinite(value.M43) && float.IsFinite(value.M44);
+
     public void PushOpacityMask(
         PathGeometry geometry,
         Pen pen,

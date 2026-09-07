@@ -4851,3 +4851,13 @@ This extends rendering integration, not Direct2D COM/Win2D API surface. Native,
 ProGPU and WPF fixture targets compile; execution and all final gates are still
 deferred. See [rounded cached fills](cached-pictures.md#rounded-cache-brush-fills-and-radius-normalization)
 for paired applicability, original-source provenance, research and remaining work.
+
+### Implementation-first checkpoint: retained cached opacity masks
+
+ProGPU now owns cached-source mask pictures through recording leases. LibreWPF
+bounded direct, visual, drawing-group and MIL mask producers use the same GPU
+picture-mask path and source cache. Native sampled-mask child scenes already
+provide the equivalent ownership path; paired fixtures are authored and compile.
+This adds no COM interface or Win2D API surface. Unbounded scopes, lease-aware
+retained-owner metadata and full qualification remain open. Details and research:
+[cached opacity masks](cached-pictures.md#recording-owned-cached-opacity-masks).
