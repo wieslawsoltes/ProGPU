@@ -8817,6 +8817,57 @@ compile; execution, Windows/VM/image/SIMD/performance/verifier/CI qualification
 remain deferred. Zero-size source-shape transforms, retained preparation costs
 and the broader full MIL/DirectX/Direct2D/Win2D goal remain open.
 
+## Implementation-first checkpoint: zero-size fixed geometry pen frames
+
+Native MIL zero-width/zero-height rectangle, rounded rectangle and ellipse
+resources now map their point or surviving axis through Geometry.Transform
+before widening. `prepare_degenerate_fixed_geometry` creates a canonical shape
+and a rotation/translation-only pen frame, so scale/shear changes the spine but
+not pen thickness. Reflected axes retain traversal direction. Direct replay and
+prepared group entries share the mapper and the original specialized zero-size
+shape handlers; drawing/world state still transforms completed coverage.
+
+Spatial pen mapping uses drawing-coordinate widened bounds, including rotated
+outlines and dash coverage, instead of canonical frame bounds. Tile coverage is
+collected in its pen frame and painted once with the drawing-coordinate mapping.
+DrawingImage source bounds now use the same ordering for direct fixed resources
+and zero-size group children, including ancestor geometry transforms. A collapsed
+world remains empty, while geometry-only point collapse can retain pen coverage.
+This supersedes the preceding zero-size legacy-transform gap for these adapters;
+it does not establish Windows pixel parity for every degenerate convention.
+
+Provenance is original ProGPU `try_transform_line_spine` (paired double NEON/SSE2),
+`make_degenerate_rectangle_outline`, `make_wpf_rounded_rectangle_geometry`,
+`degenerate_ellipse_points`, `transform_path_stroke_spine` and
+`resolve_path_stroke_bounds`, all in the native MIL implementation. No foreign
+implementation, shader, CPU pixel fallback, readback, per-item submission or
+public C/COM/module surface is added. Mapping is allocation-free O(1). Fixed
+outline bounds use bounded contour storage; dashed bounds retain the existing
+native widening cost and temporary path ownership. Group traversal remains
+O(R + P) before widening for R occurrences and P prepared segments. Topology and
+resource traversal are dependent scalar operations; coordinate mapping uses the
+shared intrinsics. Prepared shapes/bounds are not yet cached between compilations.
+
+Managed applicability: this repairs native MIL resource adaptation, not a shared
+shader or provider-wide Direct2D Widen algorithm. Managed `WidenGeometry` remains
+provider-backed. LibreWPF's `WpfPortablePathGeometryConverter` already materializes
+portable geometry transforms through `CreateTransformed`; it does not consume
+these native fixed-resource handlers. Its degenerate rendering still needs the
+matched managed/native final differential gate. The independent WinUI geometry
+adapters are not evidence of MIL parity, and broader cross-host geometry parity
+remains open. No managed workaround is introduced.
+
+Authored fixtures extend direct-versus-single-child-group comparisons to zero
+dimensions under identity, scale, shear/reflection and rank reduction, with
+solid/gradient/four tile-source kinds and dashes. Independent pre-scaled source
+fixtures cover three joins, spatial paints and unchanged pen/dash units.
+DrawingImage ellipse fixtures use scalar capsule bounds for direct and ancestor
+transforms, including point collapse. Native library and MIL/Direct2D
+compatibility/WebGPU targets compile. Tests, Windows VM comparisons, pixel/SIMD
+differentials, benchmarks, verifiers and CI qualification remain unexecuted by
+the implementation-first request. Coverage source digest was regenerated; no
+full MIL/DirectX/Direct2D/Win2D completion or speed claim is made.
+
 ## Invariants
 
 - No reflection or private managed field scanning in the product bridge.
