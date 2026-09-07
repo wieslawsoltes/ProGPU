@@ -4681,3 +4681,19 @@ execution, Windows/VM/images, SIMD/performance, verifiers and CI qualification
 remain deferred. Native MIL docs record original helper provenance, O(P)
 preparation/storage, removed intermediate COM paths and pending caching. This
 changes neither public COM Widen semantics nor the broader completion criteria.
+
+### Implementation-first checkpoint: retained native MIL path preparation
+
+Decoded PathGeometry resources now retain up to two immutable prepared spines,
+keyed by the exact composed geometry matrix. Direct/group replay and source
+bounds share leases; path replacement resets ownership and transform changes
+select a new key. Each entry is capped at 64 KiB of prepared object/vector
+storage; larger entries remain uncached. This is CPU geometry preparation, not
+a device-specific ID2D1GeometryRealization or a changed public COM contract.
+
+The native MIL specification records ownership, original helper provenance,
+cross-engine design references, costs and remaining aggregate-budget/caching
+work. Warm/cold, eviction-with-live-leases, transform/path/pen update fixtures
+are authored and native targets compile. Runtime/race/lifetime, Windows/VM,
+image/SIMD/performance/Instruments, verifier and CI qualification remain deferred.
+No full Direct2D/Win2D parity or measured performance claim is made.
