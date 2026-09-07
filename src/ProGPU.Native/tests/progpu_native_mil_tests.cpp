@@ -17520,6 +17520,8 @@ bool fixed_geometry_spines_match_single_child_groups() {
         mil_brush_fixture_source::drawing_image, mil_brush_fixture_source::visual};
     for (const auto& transform : transforms) {
         for (std::uint32_t shape = 0U; shape < 3U; ++shape) {
+          for (const auto extent : {std::array{16.0, 12.0}, std::array{0.0, 12.0},
+              std::array{16.0, 0.0}, std::array{0.0, 0.0}}) {
             std::array<std::vector<std::byte>, 2U> graphs;
             for (std::uint32_t grouped = 0U; grouped < graphs.size(); ++grouped) {
                 auto& commands = graphs[grouped];
@@ -17528,11 +17530,12 @@ bool fixed_geometry_spines_match_single_child_groups() {
                 const std::uint32_t handle = grouped == 0U ? 15U : 41U;
                 append_create(commands, handle, shape == 2U ? 70U : 69U);
                 if (shape == 2U) {
-                    packet(commands, command::ellipse_geometry, handle, 8.0, 6.0, 20.0, 24.0, 45U, 0U, 0U, 0U);
+                    packet(commands, command::ellipse_geometry, handle,
+                        extent[0] * 0.5, extent[1] * 0.5, 20.0, 24.0, 45U, 0U, 0U, 0U);
                 } else {
                     packet(commands, command::rectangle_geometry, handle,
                         shape == 1U ? 3.0 : 0.0, shape == 1U ? 2.0 : 0.0,
-                        12.0, 18.0, 16.0, 12.0, 45U, 0U, 0U, 0U);
+                        12.0, 18.0, extent[0], extent[1], 45U, 0U, 0U, 0U);
                 }
                 if (grouped != 0U) {
                     append_create(commands, 15U, 71U);
@@ -17572,6 +17575,128 @@ bool fixed_geometry_spines_match_single_child_groups() {
                         PROGPU_REQUIRE(resource.kind != PROGPU_NATIVE_SCENE_RESOURCE_LAYER_MASK);
                     }
                 }
+            }
+          }
+        }
+    }
+    return true;
+}
+
+bool degenerate_fixed_geometry_scale_matches_materialized_shape() {
+    using namespace progpu::native::tests;
+    using mil_clip_fixture_detail::packet;
+    // Independent axis-aligned oracle: multiply source coordinates/extents,
+    // leave pen width/dashes unchanged, and remove Geometry.Transform.
+    for (const auto extent : {std::array{0.0, 12.0}, std::array{16.0, 0.0}, std::array{0.0, 0.0}}) {
+        for (std::uint32_t shape = 0U; shape < 3U; ++shape) {
+            std::array<std::vector<std::byte>, 2U> graphs;
+            for (std::uint32_t reference = 0U; reference < 2U; ++reference) {
+                auto& batch = graphs[reference];
+                append_create(batch, 45U, 66U);
+                packet(batch, command::matrix_transform, 45U,
+                    std::array{2.0, 0.0, 0.0, 3.0, 4.0, 8.0}, 0U);
+                append_create(batch, 15U, shape == 2U ? 70U : 69U);
+                const double sx = reference ? 2.0 : 1.0, sy = reference ? 3.0 : 1.0;
+                const double x = reference ? 28.0 : 12.0, y = reference ? 62.0 : 18.0;
+                const std::uint32_t transform = reference ? 0U : 45U;
+                if (shape == 2U) {
+                    packet(batch, command::ellipse_geometry, 15U,
+                        extent[0] * sx, extent[1] * sy, x, y, transform, 0U, 0U, 0U);
+                } else {
+                    packet(batch, command::rectangle_geometry, 15U,
+                        shape == 1U ? 3.0 * (extent[0] > 0.0 ? sx : 1.0) : 0.0,
+                        shape == 1U ? 2.0 * (extent[1] > 0.0 ? sy : 1.0) : 0.0,
+                        x, y, extent[0] * sx, extent[1] * sy, transform, 0U, 0U, 0U);
+                }
+            }
+            for (std::uint32_t brush = 0U; brush < 3U; ++brush) {
+                for (const bool dashed : {false, true}) {
+                    for (const auto join : {PROGPU_NATIVE_STROKE_JOIN_ROUND,
+                        PROGPU_NATIVE_STROKE_JOIN_MITER, PROGPU_NATIVE_STROKE_JOIN_BEVEL}) {
+                        mil_image_brush_fixture_options options{};
+                        options.shape = mil_brush_fixture_shape::group;
+                        options.pen = true;
+                        options.dashed = dashed;
+                        options.line_join = join;
+                        options.solid_pen = brush == 0U;
+                        options.gradient_pen = brush == 1U;
+                        options.tile_mode = 3U;
+                        options.paint_transform = true;
+                        options.group_geometry_commands = graphs[0U];
+                        std::vector<std::byte> actual, expected;
+                        PROGPU_REQUIRE(build_mil_image_brush_fixture(actual, options, 8110U));
+                        options.group_geometry_commands = graphs[1U];
+                        PROGPU_REQUIRE(build_mil_image_brush_fixture(expected, options, 8110U));
+                        PROGPU_REQUIRE(actual == expected);
+                    }
+                }
+            }
+        }
+    }
+    return true;
+}
+
+bool drawing_image_degenerate_ellipse_uses_unscaled_pen_bounds() {
+    const std::array<std::array<double, 6U>, 4U> transforms{{
+        {2.0, 0.0, 0.0, 3.0, 4.0, 8.0},
+        {0.0, 2.0, -3.0, 0.0, 40.0, 8.0},
+        {-1.0, 0.5, 0.25, 1.0, 40.0, 8.0},
+        {0.0, 0.0, 0.0, 0.0, 24.0, 32.0}}};
+    for (const auto& matrix : transforms) {
+        for (const auto radii : {std::array{8.0, 0.0}, std::array{0.0, 6.0}, std::array{0.0, 0.0}}) {
+            for (const bool grouped : {false, true}) {
+                std::vector<std::byte> batch;
+                for (const auto resource : {std::array{1U, 39U}, std::array{2U, 43U},
+                    std::array{3U, 47U}, std::array{4U, 75U}, std::array{5U, 85U},
+                    std::array{6U, 66U}, std::array{7U, 70U}, std::array{8U, 87U},
+                    std::array{9U, 59U}, std::array{10U, 71U}}) {
+                    append_create(batch, resource[0], resource[1]);
+                }
+                append_command(batch, command::visual_create, 1U);
+                append_command(batch, command::visual_set_content, 1U, 2U);
+                append_command(batch, command::solid_color_brush, 4U, 1.0,
+                    progpu_native_color{1.0F, 0.0F, 0.0F, 1.0F}, 0U, 0U, 0U, 0U);
+                append_command(batch, command::pen, 5U, 4.0, 10.0, 4U, 0U,
+                    PROGPU_NATIVE_STROKE_CAP_FLAT, PROGPU_NATIVE_STROKE_CAP_FLAT,
+                    PROGPU_NATIVE_STROKE_CAP_FLAT, PROGPU_NATIVE_STROKE_JOIN_MITER, 0U);
+                append_command(batch, command::matrix_transform, 6U, matrix, 0U);
+                append_command(batch, command::ellipse_geometry, 7U,
+                    radii[0], radii[1], 12.0, 18.0, grouped ? 0U : 6U, 0U, 0U, 0U);
+                // Put the transform on the ancestor in the grouped case.
+                append_command(batch, command::geometry_group, 10U, grouped ? 6U : 0U, 0U, 4U, 7U);
+                append_command(batch, command::geometry_drawing, 8U, 0U, 5U, grouped ? 10U : 7U);
+                append_command(batch, command::drawing_image, 9U, 8U);
+                std::vector<std::byte> nested;
+                append_command(nested, command::draw_image, 2.0, 4.0, 40.0, 20.0, 9U, 0U);
+                append_render_data(batch, 2U, nested);
+                append_command(batch, command::generic_target_create, 3U,
+                    std::uint64_t{0U}, std::uint64_t{0U}, 64U, 64U, 0U);
+                append_command(batch, command::target_set_root, 3U, 1U);
+                channel state;
+                PROGPU_REQUIRE(state.apply(batch) == status::success);
+                std::vector<std::byte> stream;
+                PROGPU_REQUIRE(state.build_scene(3U, 8112U, 1U, stream) == status::success);
+                // Scalar capsule oracle: mapped endpoints plus a radius-two
+                // disk in drawing coordinates, irrespective of geometry scale.
+                const double cx = 12.0 * matrix[0] + 18.0 * matrix[2] + matrix[4];
+                const double cy = 12.0 * matrix[1] + 18.0 * matrix[3] + matrix[5];
+                const double dx = std::abs(radii[0] * matrix[0] + radii[1] * matrix[2]);
+                const double dy = std::abs(radii[0] * matrix[1] + radii[1] * matrix[3]);
+                const double sx = 40.0 / (2.0 * dx + 4.0), sy = 20.0 / (2.0 * dy + 4.0);
+                const double tx = 2.0 - (cx - dx - 2.0) * sx, ty = 4.0 - (cy - dy - 2.0) * sy;
+                const auto header = read_value<progpu_native_scene_header>(stream, 0U);
+                bool found = false;
+                for (std::uint32_t index = 0U; index < header.resource_count; ++index) {
+                    const auto resource = read_value<progpu_native_scene_resource>(stream,
+                        header.resource_offset + index * sizeof(progpu_native_scene_resource));
+                    if (resource.kind != PROGPU_NATIVE_SCENE_RESOURCE_STATE) continue;
+                    const auto scene = read_value<progpu_native_scene_state>(stream, resource.payload_offset);
+                    if (std::abs(scene.transform.m11 - sx) < 0.0001 &&
+                        std::abs(scene.transform.m22 - sy) < 0.0001 &&
+                        std::abs(scene.transform.m31 - tx) < 0.0001 &&
+                        std::abs(scene.transform.m32 - ty) < 0.0001) found = true;
+                }
+                PROGPU_REQUIRE(found);
             }
         }
     }
@@ -20853,6 +20978,8 @@ int main() {
     PROGPU_REQUIRE(path_geometry_transform_precedes_pen_widening());
     PROGPU_REQUIRE(group_geometry_spines_precede_pen_widening());
     PROGPU_REQUIRE(fixed_geometry_spines_match_single_child_groups());
+    PROGPU_REQUIRE(degenerate_fixed_geometry_scale_matches_materialized_shape());
+    PROGPU_REQUIRE(drawing_image_degenerate_ellipse_uses_unscaled_pen_bounds());
     PROGPU_REQUIRE(
         retained_gradient_stops_match_wpf_coincidence_and_pad_edges());
     PROGPU_REQUIRE(retained_viewport3d_uses_pointer_free_mesh_sideband());

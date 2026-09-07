@@ -11562,6 +11562,50 @@ struct channel::implementation {
         return status::success;
     }
 
+    // Map a zero-size fixed shape's one-dimensional spine, then retain only a
+    // rigid pen frame. Scaling/shearing geometry must not scale the pen itself.
+    status prepare_degenerate_fixed_geometry(const fixed_geometry_state& source,
+        const affine_2d_double& transform, fixed_geometry_state& output,
+        affine_2d_double& pen_frame) const noexcept {
+        if (source.kind == fixed_geometry_kind::line || source.third < 0.0 || source.fourth < 0.0 ||
+            (source.third != 0.0 && source.fourth != 0.0)) return status::invalid_graph;
+        double origin_x = source.first, origin_y = source.second;
+        double duplicate_x = origin_x, duplicate_y = origin_y;
+        if (!try_transform_line_spine(origin_x, origin_y, duplicate_x, duplicate_y, transform))
+            return status::invalid_graph;
+        auto linear = transform;
+        linear.m31 = linear.m32 = 0.0;
+        double zero_x = 0.0, zero_y = 0.0, axis_x = source.third, axis_y = source.fourth;
+        if (!try_transform_line_spine(zero_x, zero_y, axis_x, axis_y, linear)) return status::invalid_graph;
+        const double length = std::hypot(axis_x, axis_y);
+        if (!finite_double_as_float(length)) return status::invalid_graph;
+        fixed_geometry_state result = source;
+        result.first = result.second = 0.0;
+        result.third = source.third > 0.0 ? length : 0.0;
+        result.fourth = source.fourth > 0.0 ? length : 0.0;
+        result.transform_handle = 0U;
+        affine_2d_double frame{};
+        frame.m31 = origin_x;
+        frame.m32 = origin_y;
+        if (length > 0.0) {
+            const double ux = axis_x / length, uy = axis_y / length;
+            if (source.third > 0.0) {
+                frame.m11 = ux; frame.m12 = uy; frame.m21 = -uy; frame.m22 = ux;
+                result.radius_x = std::min(source.radius_x, source.third * 0.5) * (length / source.third);
+            } else {
+                frame.m11 = uy; frame.m12 = -ux; frame.m21 = ux; frame.m22 = uy;
+                result.radius_y = std::min(source.radius_y, source.fourth * 0.5) * (length / source.fourth);
+            }
+        }
+        if (source.kind == fixed_geometry_kind::rectangle &&
+            !(source.radius_x > 0.0 && source.radius_y > 0.0)) result.radius_x = result.radius_y = 0.0;
+        if (!finite_double_as_float(result.radius_x) || !finite_double_as_float(result.radius_y))
+            return status::invalid_graph;
+        output = result;
+        pen_frame = frame;
+        return status::success;
+    }
+
     // Materialize only stroke data; fills retain their original analytic path.
     // Coordinate pairs use shared intrinsic mapping. Contour topology and arc
     // expansion are sequential, bounded by four pieces per endpoint arc or
@@ -11866,9 +11910,10 @@ struct channel::implementation {
     // Composite fills use the actual boolean outline. Group strokes instead
     // retain every child's contour (including contours whose fills cancel).
     // All geometry-ancestor transforms precede widening; world state follows.
-    template<typename FixedPathFactory>
+    template<typename FixedPathFactory, typename DegenerateBounds>
     status resolve_composite_drawing_bounds(std::uint32_t handle, const pen_state& pen,
         const affine_2d_double& world, const FixedPathFactory& make_fixed_path,
+        const DegenerateBounds& degenerate_bounds,
         progpu_native_image_rect& output) const noexcept {
         namespace d2d = native::direct2d::compat;
         namespace com = native::com;
@@ -12009,6 +12054,22 @@ struct channel::implementation {
                         fixed_geometry_state fixed{};
                         status result = resolve_fixed_geometry(resource, fixed);
                         if (result != status::success) return result;
+                        if (fixed.kind != fixed_geometry_kind::line &&
+                            (fixed.third == 0.0 || fixed.fourth == 0.0)) {
+                            affine_2d_double local{}, frame{};
+                            if (fixed.transform_handle != 0U) {
+                                result = resolve_transform(fixed.transform_handle, local);
+                                if (result != status::success) return result;
+                            }
+                            result = prepare_degenerate_fixed_geometry(fixed,
+                                compose_affine(local, parent), fixed, frame);
+                            if (result != status::success) return result;
+                            progpu_native_image_rect stroke{};
+                            result = degenerate_bounds(fixed, pen, compose_affine(frame, world), stroke);
+                            if (result != status::success) return result;
+                            return include(stroke.x, stroke.y, double{stroke.x} + stroke.width,
+                                double{stroke.y} + stroke.height) ? status::success : status::unsupported_command;
+                        }
                         result = make_fixed_path(fixed, temporary);
                         if (result != status::success) return result;
                         temporary.transform_handle = fixed.transform_handle;
@@ -13870,6 +13931,76 @@ struct channel::implementation {
                 ? status::success
                 : status::invalid_graph;
         };
+        const auto resolve_degenerate_fixed_bounds = [this, &make_degenerate_rectangle_outline,
+            &make_wpf_rounded_rectangle_geometry, &degenerate_ellipse_points](
+            const fixed_geometry_state& shape, const pen_state& pen,
+            const affine_2d_double& frame, progpu_native_image_rect& bounds) noexcept -> status {
+          try {
+            bounds = {};
+            if (affine_has_zero_area(frame)) return status::success;
+            bool dashed = false;
+            if (pen.dash_style_handle != 0U) {
+                const auto found = dash_styles.find(pen.dash_style_handle);
+                if (found == dash_styles.end()) return status::invalid_handle;
+                dashed = !found->second.intervals.empty();
+            }
+            const bool ellipse = shape.kind == fixed_geometry_kind::ellipse;
+            if (ellipse && !dashed) {
+                return try_transformed_line_stroke_bounds(shape.first - shape.third, shape.second - shape.fourth,
+                    shape.first + shape.third, shape.second + shape.fourth, pen.thickness,
+                    PROGPU_NATIVE_STROKE_CAP_ROUND, PROGPU_NATIVE_STROKE_CAP_ROUND, frame, bounds)
+                    ? status::success : status::invalid_graph;
+            }
+            path_geometry_state path{};
+            pen_state stroke_pen = pen;
+            if (!dashed) {
+                const double half = pen.thickness * 0.5;
+                path_stroke_contour_state contour{};
+                contour.closed = true;
+                contour.segments = make_degenerate_rectangle_outline(shape.first - half, shape.second - half,
+                    shape.first + shape.third + half, shape.second + shape.fourth + half,
+                    shape.radius_x, shape.radius_y, pen);
+                contour.smooth_joins.resize(contour.segments.size());
+                path.stroke_contours.push_back(std::move(contour));
+                path_geometry_state mapped{};
+                const status transformed = transform_path_stroke_spine(path, frame, mapped);
+                if (transformed != status::success) return transformed;
+                bounds = {static_cast<float>(mapped.left), static_cast<float>(mapped.top),
+                    static_cast<float>(mapped.right - mapped.left), static_cast<float>(mapped.bottom - mapped.top)};
+                return status::success;
+            }
+            if (!ellipse && shape.radius_x > 0.0 && shape.radius_y > 0.0) {
+                path = make_wpf_rounded_rectangle_geometry(shape.first, shape.second, shape.third, shape.fourth,
+                    shape.radius_x, shape.radius_y);
+                stroke_pen.miter_limit = 1.0;
+            } else {
+                const std::array points = ellipse
+                    ? degenerate_ellipse_points(shape.first, shape.second, shape.third, shape.fourth)
+                    : std::array{progpu_native_point{static_cast<float>(shape.first), static_cast<float>(shape.second)},
+                        progpu_native_point{static_cast<float>(shape.first + shape.third), static_cast<float>(shape.second)},
+                        progpu_native_point{static_cast<float>(shape.first + shape.third), static_cast<float>(shape.second + shape.fourth)},
+                        progpu_native_point{static_cast<float>(shape.first), static_cast<float>(shape.second + shape.fourth)}};
+                path_stroke_contour_state contour{};
+                contour.closed = true;
+                contour.points.assign(points.begin(), points.end());
+                for (std::size_t index = 0U; index < points.size(); ++index) {
+                    progpu_native_path_segment segment{};
+                    segment.kind = PROGPU_NATIVE_PATH_SEGMENT_LINE;
+                    segment.p0 = points[index];
+                    segment.p1 = points[(index + 1U) % points.size()];
+                    contour.segments.push_back(segment);
+                    contour.smooth_joins.push_back(0U);
+                }
+                path.stroke_contours.push_back(std::move(contour));
+                if (ellipse) stroke_pen.line_join = PROGPU_NATIVE_STROKE_JOIN_ROUND;
+            }
+            return resolve_path_stroke_bounds(path, stroke_pen, frame, bounds);
+          } catch (const std::bad_alloc&) {
+            return status::capacity_exceeded;
+          } catch (...) {
+            return status::unsupported_command;
+          }
+        };
         const auto make_fixed_bounds_path = [&make_wpf_rounded_rectangle_geometry,
             &make_ellipse_path_geometry](const fixed_geometry_state& geometry,
                 path_geometry_state& output) -> status {
@@ -13906,6 +14037,7 @@ struct channel::implementation {
         const auto resolve_drawing_image_bounds = [
             this,
             &drawing_image_bounds_segments,
+            &resolve_degenerate_fixed_bounds,
             &make_fixed_bounds_path](
             auto&& resolve_bounds,
             std::uint32_t drawing_handle,
@@ -14190,7 +14322,7 @@ struct channel::implementation {
                     return status::success;
                 }
                 const status resolved = resolve_composite_drawing_bounds(drawing->second.geometry_handle,
-                    pen, current_transform, make_fixed_bounds_path, bounds);
+                    pen, current_transform, make_fixed_bounds_path, resolve_degenerate_fixed_bounds, bounds);
                 if (resolved != status::success) return resolved;
                 return finish_bounds();
             }
@@ -14235,6 +14367,20 @@ struct channel::implementation {
                     drawing->second.geometry_handle, geometry);
                 if (geometry_status != status::success) {
                     return geometry_status;
+                }
+                if (geometry.kind != fixed_geometry_kind::line &&
+                    (geometry.third == 0.0 || geometry.fourth == 0.0)) {
+                    affine_2d_double local{}, frame{};
+                    if (geometry.transform_handle != 0U) {
+                        const status resolved = resolve_transform(geometry.transform_handle, local);
+                        if (resolved != status::success) return resolved;
+                    }
+                    const status prepared = prepare_degenerate_fixed_geometry(geometry, local, geometry, frame);
+                    if (prepared != status::success) return prepared;
+                    const status widened = resolve_degenerate_fixed_bounds(geometry, pen,
+                        compose_affine(frame, current_transform), bounds);
+                    if (widened != status::success) return widened;
+                    return finish_bounds();
                 }
                 if (pen.dash_style_handle != 0U) {
                     const auto dash = dash_styles.find(
@@ -16695,9 +16841,9 @@ struct channel::implementation {
                     struct prepared_group_stroke {
                         path_geometry_state spine;
                         fixed_geometry_state fixed;
-                        affine_2d_double legacy_transform{};
+                        affine_2d_double pen_frame{};
                         bool line{};
-                        bool legacy_degenerate{};
+                        bool degenerate{};
                     };
                     std::vector<prepared_group_stroke> prepared_strokes;
                     if (pen_handle != 0U) {
@@ -16725,7 +16871,7 @@ struct channel::implementation {
                                 if (resolved != status::success) return resolved;
                                 transform_handle = entry.fixed.transform_handle;
                                 entry.line = entry.fixed.kind == fixed_geometry_kind::line;
-                                entry.legacy_degenerate = !entry.line &&
+                                entry.degenerate = !entry.line &&
                                     (entry.fixed.third == 0.0 || entry.fixed.fourth == 0.0);
                             }
                             if (transform_handle != 0U) {
@@ -16742,17 +16888,12 @@ struct channel::implementation {
                                 return status::success;
                             }
                             progpu_native_image_rect bounds{};
-                            if (entry.legacy_degenerate) {
-                                // Preserve the existing specialized zero-size fixed-shape
-                                // convention until its geometry-space adapter is implemented.
-                                const bool ellipse = entry.fixed.kind == fixed_geometry_kind::ellipse;
-                                if (!try_fixed_shape_stroke_bounds(
-                                        entry.fixed.first - (ellipse ? entry.fixed.third : 0.0),
-                                        entry.fixed.second - (ellipse ? entry.fixed.fourth : 0.0),
-                                        entry.fixed.third * (ellipse ? 2.0 : 1.0),
-                                        entry.fixed.fourth * (ellipse ? 2.0 : 1.0),
-                                        group_pen.thickness, parent, bounds)) return status::invalid_graph;
-                                entry.legacy_transform = parent;
+                            if (entry.degenerate) {
+                                const status mapped = prepare_degenerate_fixed_geometry(entry.fixed, parent,
+                                    entry.fixed, entry.pen_frame);
+                                if (mapped != status::success) return mapped;
+                                const status measured = resolve_degenerate_fixed_bounds(entry.fixed, group_pen, entry.pen_frame, bounds);
+                                if (measured != status::success) return measured;
                             } else {
                                 path_geometry_state owned_source{};
                                 const path_geometry_state* source = nullptr;
@@ -17000,9 +17141,9 @@ struct channel::implementation {
                         std::vector<progpu_native_path_segment> tile_segments;
                         for (const auto& entry : prepared_strokes) {
                             status drawn = status::success;
-                            if (entry.legacy_degenerate) {
+                            if (entry.degenerate) {
                                 const auto& shape = entry.fixed;
-                                const auto effective = compose_affine(entry.legacy_transform, current.transform);
+                                const auto effective = compose_affine(entry.pen_frame, current.transform);
                                 if (tiled) {
                                     const bool ellipse = shape.kind == fixed_geometry_kind::ellipse;
                                     const double half = group_pen.thickness * 0.5;
@@ -17015,10 +17156,10 @@ struct channel::implementation {
                                         &tile_primitives, &tile_paths, &tile_segments);
                                 } else if (shape.kind == fixed_geometry_kind::ellipse) {
                                     drawn = append_degenerate_ellipse_stroke(shape.first, shape.second, shape.third, shape.fourth,
-                                        group_pen, entry.legacy_transform, effective, brush_index);
+                                        group_pen, entry.pen_frame, effective, brush_index);
                                 } else {
                                     drawn = append_degenerate_rectangle_stroke(shape.first, shape.second, shape.third, shape.fourth,
-                                        shape.radius_x, shape.radius_y, group_pen, entry.legacy_transform, effective, brush_index);
+                                        shape.radius_x, shape.radius_y, group_pen, entry.pen_frame, effective, brush_index);
                                 }
                             } else if (tiled) {
                                 drawn = append_tile_pen(group_pen, use, current, {}, {}, false,
@@ -17613,8 +17754,9 @@ struct channel::implementation {
                 return status::malformed_batch;
             }
             const bool prepared_fixed_spine = is_geometry_shape && third > 0.0 && fourth > 0.0;
+            const bool prepared_degenerate_shape = is_geometry_shape && (third == 0.0 || fourth == 0.0);
             const bool fill_has_area = !affine_has_zero_area(effective_transform);
-            if ((!prepared_fixed_spine && !fill_has_area) || affine_has_zero_area(current.transform)) {
+            if ((!prepared_fixed_spine && !prepared_degenerate_shape && !fill_has_area) || affine_has_zero_area(current.transform)) {
                 if (brush_handle != 0U &&
                     !has_brush_state(brush_handle)) {
                     return status::invalid_handle;
@@ -17794,7 +17936,49 @@ struct channel::implementation {
                     return pen_status;
                 }
                 if (pen.brush_handle != 0U && pen.thickness > 0.0) {
-                    if (prepared_fixed_spine) {
+                    if (prepared_degenerate_shape) {
+                        fixed_geometry_state shape{};
+                        shape.kind = is_ellipse ? fixed_geometry_kind::ellipse : fixed_geometry_kind::rectangle;
+                        shape.first = first;
+                        shape.second = second;
+                        shape.third = third;
+                        shape.fourth = fourth;
+                        shape.radius_x = radius_x;
+                        shape.radius_y = radius_y;
+                        affine_2d_double frame{};
+                        const status mapped = prepare_degenerate_fixed_geometry(shape, local_transform, shape, frame);
+                        if (mapped != status::success) return mapped;
+                        progpu_native_image_rect bounds{};
+                        const status measured = resolve_degenerate_fixed_bounds(shape, pen, frame, bounds);
+                        if (measured != status::success) return measured;
+                        if (bounds.width > 0.0F && bounds.height > 0.0F) {
+                            const brush_use_state use{bounds.x, bounds.y, bounds.width, bounds.height, current.transform};
+                            const auto effective = compose_affine(frame, current.transform);
+                            status drawn = status::success;
+                            if (tile_brushes.contains(pen.brush_handle)) {
+                                const bool ellipse = shape.kind == fixed_geometry_kind::ellipse;
+                                const double half = pen.thickness * 0.5;
+                                const brush_use_state local_use{shape.first - (ellipse ? shape.third : 0.0) - half,
+                                    shape.second - (ellipse ? shape.fourth : 0.0) - half,
+                                    shape.third * (ellipse ? 2.0 : 1.0) + pen.thickness,
+                                    shape.fourth * (ellipse ? 2.0 : 1.0) + pen.thickness, effective};
+                                std::vector<progpu_native_geometry_primitive> primitives;
+                                std::vector<progpu_native_scene_path_fill> paths;
+                                std::vector<progpu_native_path_segment> segments;
+                                drawn = append_degenerate_tile_shape(shape, pen, local_use, current, &primitives, &paths, &segments);
+                                if (drawn == status::success) drawn = paint_tile_pen_mask(pen, use, current, primitives, paths, segments);
+                            } else {
+                                std::uint32_t brush_index = PROGPU_NATIVE_SCENE_NO_INDEX;
+                                drawn = resolve_brush_index(pen.brush_handle, brush_index, &use);
+                                if (drawn == status::success) drawn = is_ellipse
+                                    ? append_degenerate_ellipse_stroke(shape.first, shape.second, shape.third, shape.fourth,
+                                        pen, frame, effective, brush_index)
+                                    : append_degenerate_rectangle_stroke(shape.first, shape.second, shape.third, shape.fourth,
+                                        shape.radius_x, shape.radius_y, pen, frame, effective, brush_index);
+                            }
+                            if (drawn != status::success) return drawn;
+                        }
+                    } else if (prepared_fixed_spine) {
                         fixed_geometry_state shape{};
                         shape.kind = is_ellipse ? fixed_geometry_kind::ellipse : fixed_geometry_kind::rectangle;
                         shape.first = first;

@@ -4649,3 +4649,20 @@ runtime/Windows/VM/images, performance, verifier and CI qualification are deferr
 The native MIL specification records original helper provenance, bounded fixed
 contour setup, widening costs and pending retained preparation/fast-path work.
 No complete Direct2D/Win2D parity or performance claim is made.
+
+### Implementation-first checkpoint: zero-size MIL pen frames
+
+Zero-size native MIL rectangle/rounded-rectangle/ellipse resources now map their
+point or surviving axis before widening. Direct and grouped replay retain only
+rotation/translation in the pen frame; geometry scale/shear no longer scales pen
+width. Spatial paints use drawing-coordinate widened coverage, and DrawingImage
+bounds handle direct and ancestor-transformed zero-size children consistently.
+The original shape conventions, intrinsic coordinate mapper and native widening
+helpers are reused; there is no public COM/C/module change or pixel fallback.
+
+Direct/group and independently pre-scaled fixtures plus scalar DrawingImage
+capsule-bound cases are authored. Native library and MIL/Direct2D compatibility/
+WebGPU targets compile; test execution, Windows/VM/image/SIMD comparisons,
+benchmarks, verifiers and CI qualification remain deferred. Native MIL docs
+record provenance, allocation/complexity costs and managed applicability.
+Retained preparation caching and the broader Direct2D/Win2D goal remain open.
