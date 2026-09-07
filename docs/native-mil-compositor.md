@@ -9018,6 +9018,63 @@ compile. Runtime, race/lifetime/allocation, VM/images, SIMD/performance/Instrume
 verifiers and CI qualification remain deferred. No measured speed or complete
 MIL/DirectX/Direct2D/Win2D parity claim is made.
 
+## Implementation-first checkpoint: BitmapCacheBrush protocol ingress
+
+The native channel now retains canonical `MilCmdBitmapCacheBrush` (0x84,
+36-byte command payload/40-byte framed packet) for resource type 83. Its state
+is separate from TileBrush: opacity plus opacity-animation, absolute-transform,
+relative-transform, BitmapCache and internal-target Visual handles. Generated
+WPF protocol layouts supply native field offsets. Native ingress checks exact
+size, resource kinds and finite [0,1] opacity transactionally; nullable references
+remain supported. All five dependency edges participate in deletion protection
+and retained fingerprint traversal, including the cache resource's dependencies.
+
+Managed `NativeMilBitmapCacheBrush` and `SetBitmapCacheBrush` emit the matching
+typed packet, with scalar validation before appending bytes. The internal target
+is the source-built WPF visual after its layout/wrapping decisions, not a
+bridge-created reflected Visual surrogate. The managed resource enum adds the
+canonical value 83. No new public C ABI or C++ module layout is introduced.
+
+**Rendering is still unsupported.** The decoder count is now 105 top-level,
+25 nested and 11 undispatched commands, but that records ingress, not cache-brush
+execution or full parity. Brush resolution fails closed; this implementation
+does not disguise BitmapCacheBrush as VisualBrush or mark it complete.
+
+The next execution layer must follow the documented
+[BitmapCacheBrush contract](https://learn.microsoft.com/en-us/dotnet/api/system.windows.media.bitmapcachebrush):
+use the explicit brush cache when provided, otherwise the target's cache or
+default cache policy; ignore root offset, transform, clip, effect, opacity and
+opacity mask during capture; ignore SnapsToDevicePixels for this brush. Descendant
+state is still rendered normally. [RenderAtScale](https://learn.microsoft.com/en-us/dotnet/api/system.windows.media.bitmapcache.renderatscale)
+controls capture resolution and zero scale suppresses capture. This differs from
+the existing VisualBrush capture route, so merely adding a resource-type check
+there would be incorrect.
+
+Planned implementation reuses ProGPU's retained GPU cache/picture capture and
+sampled-brush masks with a typed root-capture policy and brush-specific cache
+identity. It must preserve target cache ownership, source-generation invalidation,
+relative/absolute brush mapping, empty/null targets, opacity-once behavior, DPI,
+device loss and nested source-cycle rejection. Cache default/override interaction,
+ignored-root versus retained-child state, scale animation, multiple consumers,
+brush transforms, dirty content and resource lifetime need native/managed/Windows
+differentials before release. Exact source placement and mapping are execution
+work, not assumed equivalent to TileBrush stretch/viewbox behavior.
+
+This is original ProGPU packet/dependency code derived from the generated protocol
+and public contracts, with no foreign implementation copied. Ingress is fixed
+O(1) decoding/map work per command; dependency/deletion traversal follows existing
+resource-graph costs. No compute-heavy loop, pixel processing, shader, GPU upload
+or per-item crossing is added. Managed/native applicability is paired in the
+producer/consumer; the independent managed WPF renderer remains unchanged until
+the cache-brush execution path is connected through typed source contracts.
+
+Authored native cases cover every reference kind, dependency deletion/release,
+bad sizes/opacity, transaction rollback and explicit render rejection. Managed
+cases check every byte field and validation-before-write behavior. Native library
+and MIL/Direct2D compatibility/WebGPU targets plus managed backend/test projects
+compile. Tests, VM/images, performance, verifiers and CI qualification remain
+deferred; cache-brush execution and the full goal remain open.
+
 ## Invariants
 
 - No reflection or private managed field scanning in the product bridge.

@@ -6,6 +6,29 @@ namespace ProGPU.Tests;
 
 public sealed class NativeMilTileBrushTests
 {
+    [Fact]
+    public void WritesCacheBrushPacketWithoutTileBrushFields()
+    {
+        var batch = new NativeMilBatchBuilder();
+        var brush = new NativeMilBitmapCacheBrush(7, 6, 0.75, 3, 4, 5);
+        batch.SetBitmapCacheBrush(2, brush);
+        byte[] bytes = batch.ToArray();
+        Assert.Equal(40, bytes.Length);
+        Assert.Equal(40U, UInt32(bytes, 0));
+        Assert.Equal(0x84U, UInt32(bytes, 4));
+        Assert.Equal(2U, UInt32(bytes, 8));
+        Assert.Equal(0.75, Double(bytes, 12));
+        for (uint i = 0; i < 5; ++i) Assert.Equal(3U + i, UInt32(bytes, 20 + (int)i * 4));
+        foreach (double opacity in new[] { double.NaN, double.PositiveInfinity, -0.01, 1.01 })
+        {
+            Assert.Throws<ArgumentOutOfRangeException>(() => batch.SetBitmapCacheBrush(2, brush with { Opacity = opacity }));
+            Assert.Equal(bytes, batch.ToArray());
+        }
+        Assert.Throws<ArgumentOutOfRangeException>(() => batch.SetBitmapCacheBrush(0, brush));
+        Assert.Equal(bytes, batch.ToArray());
+        Assert.Equal(83U, (uint)NativeMilResourceType.BitmapCacheBrush);
+    }
+
     [Theory]
     [InlineData(0x81U)]
     [InlineData(0x82U)]
