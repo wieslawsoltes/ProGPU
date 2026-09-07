@@ -8588,6 +8588,42 @@ after its explanatory comment update. Tests, VM/images, benchmarks, verifiers
 and CI qualification remain deferred. Point-only and transform-collapse parity,
 precision limits and the remainder of the full goal remain open.
 
+## Implementation-first checkpoint: line geometry transforms before widening
+
+Direct `LineGeometry` replay now maps its two endpoints through the geometry's
+local transform before resolving the brush and emitting stroke coverage. The pen's
+thickness, dash intervals and endpoint caps remain in drawing coordinates; only
+the active drawing/world transform is applied after widening. This matches the
+ordering already used by native MIL source-bounds inference. In particular, a
+rank-one geometry transform may leave a strokable line, and a rank-zero geometry
+transform may leave visible point caps. A zero-area world transform still removes
+painted area. Solid, gradient and tile-brush pens all consume the mapped spine
+through their existing adapters, including gradient bounds and tile-mask capture.
+
+The new fixed-endpoint helper uses paired NEON/SSE2 double lanes, unaligned-safe
+loads/stores and constant stack storage. It validates every mapped coordinate
+before publishing any output, and leaves float conversion with the existing
+stroke encoder. The non-SIMD platform branch is fixed two-endpoint arithmetic,
+not a scalar buffer traversal. Work/storage are O(1); there is no allocation,
+shader, readback or additional submission. Provenance is original ProGPU affine
+mapping plus `append_resolved_line_stroke` and `append_tile_line_pen` in
+`progpu_native_mil.cpp`; no foreign implementation was used. The public native
+ABI/modules and independent managed replay are unchanged.
+
+Authored stream differentials compare transformed LineGeometry against scalar-
+mapped DrawLine input for nonuniform scale, shear/reflection, rotation, line and
+point collapse, asymmetric/flat caps, solid/dashed pens, solid/gradient brushes,
+and bitmap/DrawingBrush/DrawingImage/VisualBrush tile sources. Identity, affine and
+collapsed world transforms are included. The native library and MIL/Direct2D
+compatibility/WebGPU test targets compile; these fixtures have not been executed.
+Runtime, platform/VM/image, SIMD differential execution, profiling, verifiers and
+CI qualification remain deferred by implementation-first sequencing.
+
+This closes direct fixed-line replay only. General path/arc and nested geometry-
+group spine transforms, other fixed-shape pen transforms, float precision limits
+and the broader MIL/DirectX/Direct2D/Win2D goal remain open. No complete transform-
+collapse or platform parity claim is made.
+
 ## Invariants
 
 - No reflection or private managed field scanning in the product bridge.

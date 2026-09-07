@@ -454,6 +454,47 @@ bool affine_has_zero_area(const affine_2d_double& transform) noexcept {
     return std::isfinite(determinant) && determinant == 0.0;
 }
 
+bool try_transform_line_spine(
+    double& x0, double& y0, double& x1, double& y1,
+    const affine_2d_double& transform) noexcept {
+    // Geometry transforms change the spine before widening. Keep both endpoint
+    // lanes in double precision; the existing stroke encoder owns float transport.
+    const double xs[2U]{x0, x1};
+    const double ys[2U]{y0, y1};
+    double mapped_x[2U]{};
+    double mapped_y[2U]{};
+#if defined(PROGPU_NATIVE_MIL_INTRINSICS_NEON)
+    const auto x = vld1q_f64(xs);
+    const auto y = vld1q_f64(ys);
+    vst1q_f64(mapped_x, vaddq_f64(vaddq_f64(
+        vmulq_n_f64(x, transform.m11), vmulq_n_f64(y, transform.m21)),
+        vdupq_n_f64(transform.m31)));
+    vst1q_f64(mapped_y, vaddq_f64(vaddq_f64(
+        vmulq_n_f64(x, transform.m12), vmulq_n_f64(y, transform.m22)),
+        vdupq_n_f64(transform.m32)));
+#elif defined(PROGPU_NATIVE_MIL_INTRINSICS_SSE2)
+    const auto x = _mm_loadu_pd(xs);
+    const auto y = _mm_loadu_pd(ys);
+    _mm_storeu_pd(mapped_x, _mm_add_pd(_mm_add_pd(
+        _mm_mul_pd(x, _mm_set1_pd(transform.m11)),
+        _mm_mul_pd(y, _mm_set1_pd(transform.m21))), _mm_set1_pd(transform.m31)));
+    _mm_storeu_pd(mapped_y, _mm_add_pd(_mm_add_pd(
+        _mm_mul_pd(x, _mm_set1_pd(transform.m12)),
+        _mm_mul_pd(y, _mm_set1_pd(transform.m22))), _mm_set1_pd(transform.m32)));
+#else
+    // Fixed two-endpoint platform fallback, never a scalar buffer traversal.
+    for (std::size_t index = 0U; index < 2U; ++index) {
+        mapped_x[index] = xs[index] * transform.m11 + ys[index] * transform.m21 + transform.m31;
+        mapped_y[index] = xs[index] * transform.m12 + ys[index] * transform.m22 + transform.m32;
+    }
+#endif
+    if (!finite_double_as_float(mapped_x[0U]) || !finite_double_as_float(mapped_y[0U]) ||
+        !finite_double_as_float(mapped_x[1U]) || !finite_double_as_float(mapped_y[1U])) return false;
+    x0 = mapped_x[0U]; y0 = mapped_y[0U];
+    x1 = mapped_x[1U]; y1 = mapped_y[1U];
+    return true;
+}
+
 bool try_invert_affine(
     const affine_2d_double& source,
     affine_2d_double& inverse) noexcept {
@@ -17847,27 +17888,34 @@ struct channel::implementation {
                     continue;
                 }
                 if (resolved_geometry.kind == fixed_geometry_kind::line) {
-                    if (pen_handle != 0U) {
-                        pen_state pen{};
-                        const status resolved = resolve_pen(pen_handle, pen);
-                        if (resolved != status::success) return resolved;
-                        if (tile_brushes.contains(pen.brush_handle)) {
-                            const status drawn = append_tile_line_pen(pen, resolved_geometry.first,
-                                resolved_geometry.second, resolved_geometry.third, resolved_geometry.fourth,
-                                effective_transform, current);
-                            if (drawn != status::success) return drawn;
-                            ++metrics.line_count;
-                            continue;
-                        }
+                    if (pen_handle == 0U) continue;
+                    pen_state pen{};
+                    const status resolved = resolve_pen(pen_handle, pen);
+                    if (resolved != status::success) return resolved;
+                    if (pen.brush_handle == 0U || pen.thickness == 0.0) continue;
+                    double x0 = resolved_geometry.first;
+                    double y0 = resolved_geometry.second;
+                    double x1 = resolved_geometry.third;
+                    double y1 = resolved_geometry.fourth;
+                    if (!try_transform_line_spine(x0, y0, x1, y1, local_transform)) {
+                        return status::invalid_graph;
                     }
-                    const status line_status = append_line_stroke(
-                        resolved_geometry.first,
-                        resolved_geometry.second,
-                        resolved_geometry.third,
-                        resolved_geometry.fourth,
-                        pen_handle,
-                        local_transform,
-                        effective_transform);
+                    if (tile_brushes.contains(pen.brush_handle)) {
+                        const status drawn = append_tile_line_pen(pen, x0, y0, x1, y1,
+                            current.transform, current);
+                        if (drawn != status::success) return drawn;
+                        ++metrics.line_count;
+                        continue;
+                    }
+                    const status line_status = append_resolved_line_stroke(
+                        x0,
+                        y0,
+                        x1,
+                        y1,
+                        pen,
+                        affine_2d_double{},
+                        current.transform,
+                        PROGPU_NATIVE_SCENE_NO_INDEX);
                     if (line_status != status::success) {
                         return line_status;
                     }
