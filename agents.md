@@ -202,6 +202,13 @@ Cross-assembly WPF bridge contracts must not expose shim-owned WPF structs or cl
 
 ### A. Rendering Quality & DPI-Aware Text Snapping
 
+Cached linear path preparation must keep the original fill geometry separate
+from owned gap-split stroke runs. Preserve cyclic closed seams, effective dash
+caps at gaps, explicit endpoint overrides, smooth flags through constant-edge
+compaction, and non-contributing flat point runs. Stream intrinsic support bounds
+with native float-narrowing order; do not flatten unsupported curves, join across
+gaps, replace sector bounds with whole circles, or silently solidify dashes.
+
 Smooth cached ellipse/rounded pens must preserve analytic spines and share the
 original native adaptive cubic support algorithm for material bounds. Keep x/y
 work intrinsic, fixed source storage bounded, geometry-local transforms before

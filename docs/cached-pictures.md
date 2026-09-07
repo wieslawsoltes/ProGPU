@@ -98,6 +98,83 @@ DPI and performance qualification is still required.
 
 ## Implementation-first status
 
+### Linear path cached pens and gap-preserving contours
+
+`StrokeCoverageGeometry.TryPrepareLinearPath` extends cached-source stroke
+preparation to solid arbitrary open/closed linear figures. It snapshots owned
+stroke-only runs, preserves caps and smooth joins, rotates closed gap runs across
+the figure seam, and keeps the original geometry independent for filling. Exact
+constant edges compact without losing adjacent smooth metadata. Point-like runs
+retain explicit caps; independent flat-capped points contribute no phantom ink.
+Hollow/filled state does not disable stroke. Validation of finite coordinates,
+pen enums, source topology and the one-million-record budget precedes allocation.
+Curves, dashes, boolean boundary strokes and non-normal device-width policies are
+explicitly unsupported by this preparer, not flattened or approximated.
+
+Provenance is original ProGPU code at `fc0d178a`: native MIL's
+`parsed_stroke_edge`/`append_open_run` construction and constant-segment compaction,
+plus `solid_polyline_widened_bounds`, `append_stroke_segment_bounds_points`,
+`append_stroke_cap_bounds_points`, `append_stroke_join_bounds_points` and
+`append_round_support_points` in
+`src/ProGPU.Native/src/Direct2D/progpu_native_direct2d_path.cpp`. The managed
+specialization measures before the outer transform. Native endpoint-oriented
+smooth metadata corresponds to start-join metadata in managed path segments;
+compacted flags stay at the surviving join rather than disappear with a constant.
+Round sectors add only eligible axis extrema, miters keep native float-narrowing
+and clipped-miter interpolation, and caps retain native endpoint extension order.
+This is not the smooth-cubic material-bounds approximation used for ellipse pens.
+
+Managed support arithmetic/reduction uses `Vector128<double>`, with narrowing at
+the same support-point boundaries as C++. C++ line-strip bounds now also use
+ARM64 NEON or SSE2 double-coordinate lanes; hypot stays scalar, division is exact,
+and no FMA/reciprocal approximation is introduced. Unsupported SIMD architectures
+retain the fixed four-point scalar implementation. The public ABI and shader
+execution policy are unchanged. Scalar reference fixtures compare sloped strip
+support independently; they have been authored, not executed.
+
+Cost is O(S + F) work and owned storage for S input edges and F figures, with
+at most one implicit closing edge per figure. Normalization walks each cyclic
+edge once and measurement streams bounds with O(1) temporary storage instead of
+retaining the C++ query's support-point array. Topology, run boundaries, tangents
+and bounds reduction are sequential dependencies; independent coordinate math
+is intrinsic. The snapshot exists at recording/preparation time. Stable source
+lease handling, GPU mask batching, lazy startup, culling, upload and device-domain
+cache ownership are unchanged. There is no per-segment interop, GPU submission,
+CPU image readback or new eager pipeline.
+
+WPF typed packed/local/native paths and GeometryDrawing/raw MIL consumers route
+through shared ProGPU preparation, retaining primitive and strict single-line
+shortcuts. An owned stroke-run path must never replace the original fill path:
+gaps and hollow stroke figures would change fill coverage. Unsupported pens still
+report partial/unsupported results when a fill succeeds. No reflection, WPF-local
+stroker or synthetic geometry shape was added.
+
+Primary contracts refreshed: [SkPaint](https://api.skia.org/classSkPaint.html),
+[Direct2D widened bounds](https://learn.microsoft.com/en-us/windows/win32/direct2d/id2d1geometry-getwidenedbounds),
+[Win2D command lists](https://microsoft.github.io/Win2D/WinUI3/html/T_Microsoft_Graphics_Canvas_CanvasCommandList.htm),
+[WebRender](https://firefox-source-docs.mozilla.org/gfx/RenderingOverview.html),
+[Vello scenes](https://docs.rs/vello/latest/vello/struct.Scene.html),
+[Parley layout](https://docs.rs/parley/latest/parley/layout/struct.Layout.html), and
+[HarfBuzz plans](https://harfbuzz.github.io/shaping-plans-and-caching.html).
+Adopt explicit stroke state and retained geometry/material separation, not foreign
+source implementations. Text shaping/layout reuse, font fallback/variation,
+DPI/hinting, atlas keys/eviction and worker scheduling remain unchanged.
+
+Matched authored fixtures are `LinearPathStrokeCoverageTests`, native
+`bitmap_cache_brush_linear_paths_preserve_gap_bounds`, and WPF
+`CachedLinearPathsKeepFillAndGapSplitStrokeSeparate`. They cover scalar strip
+oracles, closed/open gaps, cap/material bounds, all joins, constant smooth state,
+ownership and typed/raw drawing routes. Final runtime/image/SIMD/platform/VM,
+Svg.Skia, Instruments/performance, source verifiers and PR CI qualification remain
+deferred. No complete general-path parity or speed improvement is claimed.
+
+Compilation checkpoint (2026-09-07): final Release ProGPU.Tests build succeeds
+with 0 warnings/errors; native MIL fixtures and the Direct2D core build with
+Apple Clang. Final incremental WPF.Tests build reports 0 warnings/errors (the
+preceding fixture compile reported 18 warnings). Warning attribution is not
+qualified. ProGPU `origin/main` was refreshed with no missing commits. No test,
+source verifier, runtime, benchmark or CI qualification was executed.
+
 ### Smooth cached pens: ellipse and rounded rectangle
 
 `StrokeCoverageGeometry.TryPrepareEllipse` and `TryPrepareRoundedRectangle`

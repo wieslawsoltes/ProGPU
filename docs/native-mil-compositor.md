@@ -9588,6 +9588,23 @@ picture transport. Compilation is not rendering/parity qualification.
 Release compilation: ProGPU.Tests 0 warnings/errors and native MIL fixture
 target built. Tests, source verifier and CI qualification were not executed.
 
+## Implementation-first checkpoint: linear cached paths and intrinsic support
+
+Shared managed preparation now preserves arbitrary solid linear stroke contours,
+gap caps, closed seams, smooth joins and point caps separately from the original
+fill path. It ports original native MIL contour construction and Direct2D bounds.
+C++ Direct2D line support-point arithmetic also gains double NEON/SSE2 lanes with
+the original narrowing order. Native/managed scalar-oracle and cached mapping
+fixtures plus WPF typed/raw consumers are authored. No MIL product code, command
+counts, public C ABI or shader changed. See
+[linear cached paths](cached-pictures.md#linear-path-cached-pens-and-gap-preserving-contours)
+for source provenance, costs, research, unsupported forms and deferred gates.
+Curved/dashed general contours and full goal qualification remain unfinished.
+
+Compilation: Release ProGPU.Tests 0 warnings/errors; Apple Clang native MIL
+fixture/Direct2D core targets built. Source verification, execution and CI remain
+deferred, not passed.
+
 ## Invariants
 
 - No reflection or private managed field scanning in the product bridge.

@@ -1820,6 +1820,37 @@ private:
     if (length == 0.0) {
         return not_implemented;
     }
+#if defined(PROGPU_NATIVE_DIRECT2D_PATH_INTRINSICS_NEON) && (defined(__aarch64__) || defined(_M_ARM64))
+    // Independent coordinate lanes retain double division/multiplication and
+    // the original float rounding at each emitted support point. The hypot
+    // reduction remains scalar; no FMA or approximate reciprocal is used.
+    const std::array<double, 2U> perpendicular{-delta_y, delta_x};
+    const float64x2_t normal = vmulq_n_f64(
+        vdivq_f64(vld1q_f64(perpendicular.data()), vdupq_n_f64(length)), half_width);
+    const auto append_pair = [&](progpu_native_point point) {
+        const std::array<double, 2U> coordinates{point.x, point.y};
+        const float64x2_t center = vld1q_f64(coordinates.data());
+        const float32x2_t positive = vcvt_f32_f64(vaddq_f64(center, normal));
+        const float32x2_t negative = vcvt_f32_f64(vsubq_f64(center, normal));
+        points.push_back({vget_lane_f32(positive, 0U), vget_lane_f32(positive, 1U)});
+        points.push_back({vget_lane_f32(negative, 0U), vget_lane_f32(negative, 1U)});
+    };
+    append_pair(segment.p0);
+    append_pair(segment.p1);
+#elif defined(PROGPU_NATIVE_DIRECT2D_PATH_INTRINSICS_SSE2)
+    const __m128d normal = _mm_mul_pd(
+        _mm_div_pd(_mm_set_pd(delta_x, -delta_y), _mm_set1_pd(length)), _mm_set1_pd(half_width));
+    const auto append_pair = [&](progpu_native_point point) {
+        const __m128d center = _mm_set_pd(point.y, point.x);
+        const __m128 positive = _mm_cvtpd_ps(_mm_add_pd(center, normal));
+        const __m128 negative = _mm_cvtpd_ps(_mm_sub_pd(center, normal));
+        points.push_back({_mm_cvtss_f32(positive), _mm_cvtss_f32(_mm_shuffle_ps(positive, positive, _MM_SHUFFLE(1, 1, 1, 1)))});
+        points.push_back({_mm_cvtss_f32(negative), _mm_cvtss_f32(_mm_shuffle_ps(negative, negative, _MM_SHUFFLE(1, 1, 1, 1)))});
+    };
+    append_pair(segment.p0);
+    append_pair(segment.p1);
+#else
+    // Fixed four-point fallback for targets without double SIMD instructions.
     const double normal_x = -delta_y / length * half_width;
     const double normal_y = delta_x / length * half_width;
     points.push_back({
@@ -1834,6 +1865,7 @@ private:
     points.push_back({
         static_cast<float>(segment.p1.x - normal_x),
         static_cast<float>(segment.p1.y - normal_y)});
+#endif
     return com::ok;
 }
 

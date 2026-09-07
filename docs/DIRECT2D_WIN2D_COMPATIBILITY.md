@@ -4929,3 +4929,13 @@ producer routing and paired fixtures are included; no new COM/Win2D methods,
 shader or public C ABI are introduced. Dashed/degenerate/general path work,
 live native picture transport and full qualification remain open. See
 [smooth cached pens](cached-pictures.md#smooth-cached-pens-ellipse-and-rounded-rectangle).
+
+### Implementation-first checkpoint: shared linear stroke support
+
+The existing portable C++ Direct2D solid-polyline bounds now use intrinsic paired
+coordinate arithmetic for line-strip support points. Their original bounds and
+MIL gap-contour rules are ported into shared C# cached-pen preparation, with
+independent scalar fixtures and paired native/WPF mapping cases. No COM/Win2D
+surface or ABI changes; runtime, SIMD/performance, VM and CI qualification remain
+deferred. Curved/dashed cached paths and the wider API goal remain open. See
+[linear cached paths](cached-pictures.md#linear-path-cached-pens-and-gap-preserving-contours).

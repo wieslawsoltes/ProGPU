@@ -20208,6 +20208,77 @@ bool bitmap_cache_brush_strokes_retain_coverage_and_shared_source() {
     return true;
 }
 
+bool bitmap_cache_brush_linear_paths_preserve_gap_bounds() {
+    using namespace progpu::native::tests;
+    namespace d2d = progpu::native::direct2d::compat;
+    namespace com = progpu::native::com;
+    com::pointer<d2d::factory> factory;
+    PROGPU_REQUIRE(com::succeeded(d2d::create_factory(factory.put())));
+    for (const auto delta : {std::array{3.0F, 4.0F}, std::array{-3.0F, 4.0F},
+            std::array{3.0F, -4.0F}, std::array{-3.0F, -4.0F}, std::array{0.125F, 11.5F}}) {
+        progpu_native_path_segment segment{};
+        segment.kind = PROGPU_NATIVE_PATH_SEGMENT_LINE;
+        segment.p0 = {10.0F, 20.0F}; segment.p1 = {10.0F + delta[0], 20.0F + delta[1]};
+        const std::array segments{segment}; const std::array<std::uint8_t, 1U> smooth{0U};
+        com::pointer<d2d::path_geometry> path;
+        PROGPU_REQUIRE(com::succeeded(d2d::detail::create_native_stroke_geometry(factory.get(), segments, smooth, false, path.put())));
+        d2d::rectangle_f actual{};
+        PROGPU_REQUIRE(com::succeeded(path->GetWidenedBounds(4.0F, nullptr, nullptr, 0.25F, &actual)));
+        const double dx = double{segment.p1.x} - segment.p0.x, dy = double{segment.p1.y} - segment.p0.y;
+        const double length = std::hypot(dx, dy), nx = -dy / length * 2.0, ny = dx / length * 2.0;
+        d2d::rectangle_f expected{std::numeric_limits<float>::infinity(), std::numeric_limits<float>::infinity(),
+            -std::numeric_limits<float>::infinity(), -std::numeric_limits<float>::infinity()};
+        // Independent scalar oracle for the intrinsic support-point kernel.
+        for (const auto point : {segment.p0, segment.p1}) {
+            for (const double sign : {-1.0, 1.0}) {
+                const float x = static_cast<float>(point.x + sign * nx), y = static_cast<float>(point.y + sign * ny);
+                expected.left = std::min(expected.left, x); expected.top = std::min(expected.top, y);
+                expected.right = std::max(expected.right, x); expected.bottom = std::max(expected.bottom, y);
+            }
+        }
+        PROGPU_REQUIRE(actual.left == expected.left && actual.top == expected.top);
+        PROGPU_REQUIRE(actual.right == expected.right && actual.bottom == expected.bottom);
+    }
+    for (const bool closed : {false, true}) {
+        for (const bool gap : {false, true}) {
+            for (const auto join : {PROGPU_NATIVE_STROKE_JOIN_MITER,
+                    PROGPU_NATIVE_STROKE_JOIN_BEVEL, PROGPU_NATIVE_STROKE_JOIN_ROUND}) {
+                mil_image_brush_fixture_options options{};
+                options.source = mil_brush_fixture_source::visual;
+                options.bitmap_cache_brush = options.pen = options.relative_scale = true;
+                options.cap = PROGPU_NATIVE_STROKE_CAP_ROUND;
+                options.end_cap = PROGPU_NATIVE_STROKE_CAP_TRIANGLE;
+                options.dash_cap = PROGPU_NATIVE_STROKE_CAP_FLAT;
+                options.line_join = join;
+                auto figures = make_rectangle_path_figures(10, 20, 30, 40);
+                const std::uint32_t flags = closed ? 0x04U : 0U; // Hollow, independent of stroke closure.
+                std::memcpy(figures.data() + 52U, &flags, sizeof(flags));
+                if (gap) {
+                    const std::uint32_t unstroked = 0x04U;
+                    std::memcpy(figures.data() + 88U + 32U + 4U, &unstroked, sizeof(unstroked));
+                }
+                std::vector<std::byte> commands, replay;
+                append_create(commands, 470U, 71U);
+                append_path_geometry(commands, 470U, 0U, 0U, figures);
+                append_command(replay, command::draw_geometry, 0U, 20U, 470U, 0U);
+                append_render_data(commands, 2U, replay);
+                options.source_visual_commands = commands;
+                std::vector<std::byte> scene;
+                PROGPU_REQUIRE(build_mil_image_brush_fixture(scene, options, 8132U));
+                progpu_native_scene_layer source{};
+                progpu_native_scene_state composite{};
+                PROGPU_REQUIRE(try_get_cached_layer(scene, source));
+                PROGPU_REQUIRE(try_get_state_resource(scene, source.reserved0, composite));
+                // Paired LinearPathStrokeCoverageTests bounds: [8,18..32,42],
+                // or right=30 for a flat-capped gap. Include source anchor [10,20].
+                PROGPU_REQUIRE(composite.transform.m31 == (gap ? 14.5F : 15.0F));
+                PROGPU_REQUIRE(composite.transform.m32 == 25.0F);
+            }
+        }
+    }
+    return true;
+}
+
 bool bitmap_cache_brush_glyphs_retain_coverage_and_shared_source() {
     using namespace progpu::native::tests;
     const auto font_bytes = load_inter_test_font();
@@ -21748,6 +21819,7 @@ int main() {
     PROGPU_REQUIRE(bitmap_cache_brush_preserves_root_raster_policy());
     PROGPU_REQUIRE(bitmap_cache_brush_glyphs_retain_coverage_and_shared_source());
     PROGPU_REQUIRE(bitmap_cache_brush_strokes_retain_coverage_and_shared_source());
+    PROGPU_REQUIRE(bitmap_cache_brush_linear_paths_preserve_gap_bounds());
     PROGPU_REQUIRE(bitmap_cache_brush_masks_retain_source_pages_and_consumer_alpha());
     PROGPU_REQUIRE(bitmap_cache_brush_rounded_fill_preserves_clamped_arcs());
     PROGPU_REQUIRE(bitmap_dpi_is_atomic_and_preserves_legacy_bindings());
