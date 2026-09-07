@@ -605,6 +605,11 @@ static class ArcSegmentGeometry
             normalizedPatternIndex,
             normalizedDistanceInPattern,
             dashSegments);
+        if (dashSegmentCount < 0)
+        {
+            dashSegments = Array.Empty<ArcDashSegment>();
+            return false;
+        }
         if (dashSegmentCount == 0)
         {
             dashSegments = Array.Empty<ArcDashSegment>();
@@ -671,6 +676,7 @@ static class ArcSegmentGeometry
                 {
                     dashSegments[dashSegmentCount++] = new ArcDashSegment(dashStart, dashArc);
                 }
+                else return -1;
             }
 
             DashPattern.Advance(dashPattern, ref patternIndex, ref distanceInPattern, remainingInElement, step);
@@ -720,7 +726,7 @@ static class ArcSegmentGeometry
             cumulativeLengths[i] = totalLength;
         }
 
-        return totalLength > Epsilon;
+        return float.IsFinite(totalLength) && totalLength > Epsilon;
     }
 
     private static float GetArcParameterAtDistance(float[] cumulativeLengths, float distance)

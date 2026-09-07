@@ -98,6 +98,63 @@ DPI and performance qualification is still required.
 
 ## Implementation-first status
 
+### Curved dash continuity prerequisites (2026-09-07)
+
+Ordinary managed quadratic/cubic/arc dash replay now follows the native run-state
+contract: each emitted visible interval starts a new run unless it is the first
+span at a source-segment start continuing the same active interval. Hidden final
+phases and visible interval boundaries clear continuation. Smooth joins are
+inherited only at that real source junction. Returning to the same position
+across a hidden interval cannot synthesize a join. Nonconstant returning Béziers
+remain analytic curves even when their endpoints coincide; native subsegment
+acceptance now also preserves these curves and full-turn analytic arcs. Exact
+constant managed Béziers and empty endpoint arcs preserve phase without adding a
+segment. The native picture compiler also accepts successfully prepared entirely
+hidden curved contours as no-ops, matching the linear lane.
+
+Failed curve preparation and subsegment extraction no longer become successful
+omissions. Managed accumulated length must remain finite before the interval
+walk, matching native length-table rejection. Invalid/overflowed metrics fail
+closed instead of entering a non-progressing dash traversal. Tiny intervals,
+tiny/point-only stroke semantics, general density budgeting and curved terminal
+filled-coverage preparation remain unfinished; no new epsilon geometry or
+coarse polyline fallback is introduced by this checkpoint.
+
+Provenance: original ProGPU `94106859`
+`Mil/progpu_native_mil_curve_dash.hpp` run boundaries and analytic subsegments,
+managed `BezierSegmentGeometry`/`ArcSegmentGeometry` distance tables and
+`Compositor` dash replay. Managed controls continue to use runtime-intrinsic
+`Vector2` arithmetic; native coordinate generation is unchanged. New finite,
+constant-shape and phase decisions inspect a bounded number of fields or depend
+on prior phase, so they are scalar control work. Cold cost remains O(S * Q + G)
+for S source curves, fixed/default metric samples Q and G generated spans;
+temporary distance tables are O(Q), generated ownership O(G). Retained replay
+still reuses existing dash caches. No pixels, readbacks, uploads, new shaders or
+per-span queue submissions are introduced. Performance remains unmeasured.
+
+Primary contract research refreshed for this checkpoint:
+
+- [Direct2D segment flags](https://learn.microsoft.com/en-us/windows/win32/api/d2d1/ne-d2d1-d2d1_path_segment),
+  [SkPaint](https://api.skia.org/classSkPaint.html), and
+  [Win2D stroke style](https://microsoft.github.io/Win2D/WinUI3/html/T_Microsoft_Graphics_Canvas_Geometry_CanvasStrokeStyle.htm):
+  preserve explicit stroke/join state; do not infer it from coincident positions.
+- [WebRender](https://firefox-source-docs.mozilla.org/gfx/RenderingOverview.html)
+  and [Vello Scene](https://docs.rs/vello/latest/vello/struct.Scene.html): retain
+  scene geometry and existing batching, not per-dash renderer submissions.
+- [Parley Layout](https://docs.rs/parley/latest/parley/layout/struct.Layout.html)
+  and [HarfBuzz plans](https://harfbuzz.github.io/shaping-plans-and-caching.html):
+  shaping/layout reuse is unchanged; this geometric state fix does not change
+  text, fallback fonts, variable-font identity, DPI/hinting or glyph upload.
+
+These sources inform contracts, not implementation text. Startup/lazy pipeline
+creation, culling, workers, cache eviction, atlas generations and device-loss
+policies are unchanged. Authored managed/native fixtures cover hidden returning
+curves, separate intervals on one retracing curve, full returning quadratic and
+cubic spans, native full-turn arcs, smooth junctions and invalid/overflowed
+metrics. This is a prerequisite for broader curved cached coverage, not its
+completion. Runtime/image, performance/SIMD, VM/platform/package, source-verifier,
+Svg.Skia and CI qualification remain deferred.
+
 ### Shared ordinary linear dash coverage (2026-09-07)
 
 Ordinary normal-width linear dashed strokes now request the complete terminal

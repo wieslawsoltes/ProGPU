@@ -9679,6 +9679,25 @@ Runtime/image, performance/SIMD, VM/platform/package, source-verifier and CI
 qualification remain deferred. Curves, tiny/point-only cases, boolean boundaries,
 device-width policies and broader MIL/DirectX/Direct2D/COM/Win2D parity remain open.
 
+## Implementation-first checkpoint: curved dash continuity
+
+Managed curved dash replay now separates visible intervals by phase state,
+preserves real source smooth joins and propagates failed curve preparation.
+Managed length tables reject overflow before dash traversal. Both managed and
+native C++ subsegment consumers preserve analytic returning Béziers; native
+full-turn arcs also remain valid. Endpoint coincidence is not curve degeneracy.
+Paired fixtures cover hidden retraces and returning curves, alongside smooth
+join and invalid-metric cases. No native ABI or MIL packet change is introduced.
+
+See [provenance, primary research, complexity and remaining work](cached-pictures.md#curved-dash-continuity-prerequisites-2026-09-07).
+Final ProGPU.Tests Release compilation succeeds with 0 warnings and 0 errors;
+Apple Clang C++20 native MIL fixtures compile and link. ProGPU main was refreshed
+with zero missing commits. These are build results, not executed test results.
+General curved cached/terminal coverage, density budgets, tiny/point-only cases,
+boolean and device-width policies remain open. Full MIL/DirectX/Direct2D/COM/Win2D
+parity and runtime/image, performance/SIMD, VM/platform/package, source-verifier
+and CI qualification remain incomplete and deferred.
+
 ## Invariants
 
 - No reflection or private managed field scanning in the product bridge.

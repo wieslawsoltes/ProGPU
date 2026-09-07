@@ -499,8 +499,27 @@ inline bool try_create_subsegment(
     default:
         return false;
     }
-    return finite(result.p0) && finite(segment_end(result)) &&
-           !points_near(result.p0, segment_end(result));
+    if (!finite(result.p0) || !finite(segment_end(result))) {
+        return false;
+    }
+    // Endpoint coincidence is a line-degeneracy test, not a curve-degeneracy
+    // test. A full returning Bézier or arc must retain its analytic coverage.
+    switch (result.kind) {
+    case PROGPU_NATIVE_PATH_SEGMENT_QUADRATIC:
+        return finite(result.p1) &&
+            (result.p1.x != result.p0.x || result.p1.y != result.p0.y ||
+             result.p2.x != result.p0.x || result.p2.y != result.p0.y);
+    case PROGPU_NATIVE_PATH_SEGMENT_CUBIC:
+        return finite(result.p1) && finite(result.p2) &&
+            (result.p1.x != result.p0.x || result.p1.y != result.p0.y ||
+             result.p2.x != result.p0.x || result.p2.y != result.p0.y ||
+             result.p3.x != result.p0.x || result.p3.y != result.p0.y);
+    case PROGPU_NATIVE_PATH_SEGMENT_ARC:
+        return std::isfinite(std::bit_cast<float>(result.pad1)) &&
+            std::bit_cast<float>(result.pad1) != 0.0F;
+    default:
+        return !points_near(result.p0, segment_end(result));
+    }
 }
 
 inline result append_segment(

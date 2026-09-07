@@ -196,6 +196,11 @@ public static class BezierSegmentGeometry
             normalizedDistanceInPattern,
             dashSegments);
 
+        if (dashSegmentCount < 0)
+        {
+            dashSegments = Array.Empty<QuadraticBezierDashSegment>();
+            return false;
+        }
         if (dashSegmentCount == 0)
         {
             dashSegments = Array.Empty<QuadraticBezierDashSegment>();
@@ -259,6 +264,11 @@ public static class BezierSegmentGeometry
             normalizedDistanceInPattern,
             dashSegments);
 
+        if (dashSegmentCount < 0)
+        {
+            dashSegments = Array.Empty<CubicBezierDashSegment>();
+            return false;
+        }
         if (dashSegmentCount == 0)
         {
             dashSegments = Array.Empty<CubicBezierDashSegment>();
@@ -301,7 +311,7 @@ public static class BezierSegmentGeometry
             previous = current;
         }
 
-        return totalLength > Epsilon;
+        return float.IsFinite(totalLength) && totalLength > Epsilon;
     }
 
     private static bool TryBuildCubicLengthTable(
@@ -335,7 +345,7 @@ public static class BezierSegmentGeometry
             previous = current;
         }
 
-        return totalLength > Epsilon;
+        return float.IsFinite(totalLength) && totalLength > Epsilon;
     }
 
     private static bool TryPrepareDashSegments(
@@ -424,6 +434,7 @@ public static class BezierSegmentGeometry
                 {
                     dashSegments[dashSegmentCount++] = new QuadraticBezierDashSegment(dashStart, dashSegment);
                 }
+                else return -1;
             }
 
             DashPattern.Advance(dashPattern, ref patternIndex, ref distanceInPattern, remainingInElement, step);
@@ -463,6 +474,7 @@ public static class BezierSegmentGeometry
                 {
                     dashSegments[dashSegmentCount++] = new CubicBezierDashSegment(dashStart, dashSegment);
                 }
+                else return -1;
             }
 
             DashPattern.Advance(dashPattern, ref patternIndex, ref distanceInPattern, remainingInElement, step);

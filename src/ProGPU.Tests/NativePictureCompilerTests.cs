@@ -16,12 +16,16 @@ namespace ProGPU.Tests;
 
 public class NativePictureCompilerTests
 {
-    [Fact]
-    public void CompilerAcceptsEntirelyHiddenLinearDashWithoutEmittingStrokeGeometry()
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void CompilerAcceptsEntirelyHiddenDashWithoutEmittingStrokeGeometry(bool curved)
     {
         var path = new PathGeometry();
         var figure = new PathFigure(Vector2.Zero);
-        figure.Segments.Add(new LineSegment(new(1, 0)));
+        figure.Segments.Add(curved
+            ? new QuadraticBezierSegment(new(0.5f, 1), new(1, 0))
+            : new LineSegment(new(1, 0)));
         path.Figures.Add(figure);
         var pen = new Pen(new SolidColorBrush(Vector4.One), 1,
             dashArray: [1, 10], dashOffset: 2);

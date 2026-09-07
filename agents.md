@@ -202,6 +202,13 @@ Cross-assembly WPF bridge contracts must not expose shim-owned WPF structs or cl
 
 ### A. Rendering Quality & DPI-Aware Text Snapping
 
+Curved dash continuation must follow the visible interval state, not coincident
+endpoints. Separate emitted intervals stay separate runs; only a first span at
+the source segment start inherits its smooth-join flag. Do not discard analytic
+returning curves by applying a line endpoint-distance degeneracy test. Propagate
+curve metric/subsegment failures instead of publishing partial successful paths,
+and reject nonfinite accumulated length before walking dash intervals.
+
 Ordinary linear dash rendering, hit testing and native picture compilation must
 share complete retained coverage, including directed terminal caps. Keep paint
 out of the outline key, refresh derived paint without rebuilding geometry, cache

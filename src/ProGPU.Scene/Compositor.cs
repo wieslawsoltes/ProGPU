@@ -8607,6 +8607,8 @@ SceneStateUploadComplete:
         for (int figureIndex = 0; figureIndex < sourceFigures.Count; figureIndex++)
         {
             var figure = sourceFigures[figureIndex];
+            if (figure == null || !float.IsFinite(figure.StartPoint.X) || !float.IsFinite(figure.StartPoint.Y))
+                return false;
             var dashedFigureStartIndex = dashedPath.Figures.Count;
             var patternIndex = pattern.InitialIndex;
             var distanceInPattern = pattern.InitialDistance;
@@ -8618,7 +8620,9 @@ SceneStateUploadComplete:
             for (int segmentIndex = 0; segmentIndex < figureSegments.Count; segmentIndex++)
             {
                 var segment = figureSegments[segmentIndex];
+                if (segment == null) return false;
                 var segmentStart = currentPoint;
+                bool startsInVisibleDash = (patternIndex & 1) == 0;
                 if (!segment.IsStroked)
                 {
                     if (TryGetPathSegmentEndPoint(segment, out var skippedEndPoint))
@@ -8650,6 +8654,8 @@ SceneStateUploadComplete:
                         break;
 
                     case QuadraticBezierSegment quadratic:
+                        if (quadratic.ControlPoint == segmentStart && quadratic.Point == segmentStart)
+                            break;
                         if (BezierSegmentGeometry.TryCreateDashedQuadraticBezierSegments(
                                 segmentStart,
                                 quadratic,
@@ -8663,6 +8669,8 @@ SceneStateUploadComplete:
                             for (int dashIndex = 0; dashIndex < quadraticSegments.Length; dashIndex++)
                             {
                                 var dashSegment = quadraticSegments[dashIndex];
+                                PrepareCurveDashContinuation(ref activeDashFigure, dashSegment.Segment,
+                                    dashIndex, startsInVisibleDash, quadratic.IsSmoothJoin);
                                 AppendDashedSegment(
                                     dashedPath,
                                     ref activeDashFigure,
@@ -8670,12 +8678,16 @@ SceneStateUploadComplete:
                                     dashSegment.Start,
                                     dashSegment.Segment);
                             }
+                            if (quadraticSegments.Length == 0) activeDashFigure = null;
                         }
+                        else return false;
 
                         currentPoint = quadratic.Point;
                         break;
 
                     case CubicBezierSegment cubic:
+                        if (cubic.ControlPoint1 == segmentStart && cubic.ControlPoint2 == segmentStart
+                            && cubic.Point == segmentStart) break;
                         if (BezierSegmentGeometry.TryCreateDashedCubicBezierSegments(
                                 segmentStart,
                                 cubic,
@@ -8689,6 +8701,8 @@ SceneStateUploadComplete:
                             for (int dashIndex = 0; dashIndex < cubicSegments.Length; dashIndex++)
                             {
                                 var dashSegment = cubicSegments[dashIndex];
+                                PrepareCurveDashContinuation(ref activeDashFigure, dashSegment.Segment,
+                                    dashIndex, startsInVisibleDash, cubic.IsSmoothJoin);
                                 AppendDashedSegment(
                                     dashedPath,
                                     ref activeDashFigure,
@@ -8696,12 +8710,17 @@ SceneStateUploadComplete:
                                     dashSegment.Start,
                                     dashSegment.Segment);
                             }
+                            if (cubicSegments.Length == 0) activeDashFigure = null;
                         }
+                        else return false;
 
                         currentPoint = cubic.Point;
                         break;
 
                     case ArcSegment arc:
+                        if (arc.Point == segmentStart && float.IsFinite(arc.Size.X) && float.IsFinite(arc.Size.Y)
+                            && arc.Size.X >= 0 && arc.Size.Y >= 0 && float.IsFinite(arc.RotationAngle)
+                            && (uint)arc.SweepDirection <= 1) break;
                         if (ArcSegmentGeometry.TryCreateDashedArcSegments(
                                 segmentStart,
                                 arc,
@@ -8715,6 +8734,8 @@ SceneStateUploadComplete:
                             for (int dashIndex = 0; dashIndex < arcSegments.Length; dashIndex++)
                             {
                                 var dashSegment = arcSegments[dashIndex];
+                                PrepareCurveDashContinuation(ref activeDashFigure, dashSegment.Arc,
+                                    dashIndex, startsInVisibleDash, arc.IsSmoothJoin);
                                 AppendDashedSegment(
                                     dashedPath,
                                     ref activeDashFigure,
@@ -8722,7 +8743,9 @@ SceneStateUploadComplete:
                                     dashSegment.Start,
                                     dashSegment.Arc);
                             }
+                            if (arcSegments.Length == 0) activeDashFigure = null;
                         }
+                        else return false;
 
                         currentPoint = arc.Point;
                         break;
@@ -8730,6 +8753,13 @@ SceneStateUploadComplete:
                     default:
                         return false;
                 }
+                // Native curve_dash closes the run at every hidden interval or
+                // visible interval boundary, even when a curve returns to the
+                // same coordinate. Final phase, not positional equality, owns
+                // continuation into the next source segment.
+                if (segment is not LineSegment &&
+                    ((patternIndex & 1) != 0 || distanceInPattern <= StrokeEpsilon))
+                    activeDashFigure = null;
             }
 
             if (figure.IsClosed && Vector2.DistanceSquared(currentPoint, figure.StartPoint) > StrokeEpsilon * StrokeEpsilon)
@@ -8943,6 +8973,16 @@ SceneStateUploadComplete:
         distanceInPattern = localDistanceInPattern;
     }
 
+    private static void PrepareCurveDashContinuation(ref PathFigure? activeDashFigure,
+        PathSegment segment, int dashIndex, bool startsInVisibleDash, bool sourceSmoothJoin)
+    {
+        // Each emitted curve span is a distinct visible interval. Only the
+        // first span beginning at the source segment can continue a prior run.
+        bool atSourceStart = dashIndex == 0 && startsInVisibleDash;
+        if (!atSourceStart) activeDashFigure = null;
+        segment.IsSmoothJoin = atSourceStart && sourceSmoothJoin;
+    }
+
     private static void AppendDashedSegment(
         PathGeometry dashedPath,
         ref PathFigure? activeDashFigure,
@@ -8950,7 +8990,10 @@ SceneStateUploadComplete:
         Vector2 start,
         PathSegment segment)
     {
-        if (TryGetPathSegmentEndPoint(segment, out var endPoint) &&
+        if (!TryGetPathSegmentEndPoint(segment, out var endPoint)) return;
+        // Coincident endpoints do not make a Bézier or elliptical curve
+        // constant. Preserve its controls/analytic span rather than dropping it.
+        if (segment is LineSegment &&
             Vector2.DistanceSquared(start, endPoint) <= StrokeEpsilon * StrokeEpsilon)
         {
             return;

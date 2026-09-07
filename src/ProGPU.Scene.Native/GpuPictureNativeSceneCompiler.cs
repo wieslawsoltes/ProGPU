@@ -3778,6 +3778,7 @@ public static partial class GpuPictureNativeSceneCompiler
                 undashedPen =
                     Compositor.CreateUndashedPen(pen, localThickness);
             }
+            if (dashedPath.Figures.Count == 0) return true;
             RenderCommand dashedCommand = command;
             dashedCommand.Brush = null;
             dashedCommand.Path = dashedPath;

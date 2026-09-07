@@ -1202,6 +1202,82 @@ bool curve_dashes_match_managed_reference_contracts() {
     PROGPU_REQUIRE(runs.runs[0U].segment_count == 1U && runs.runs[1U].segment_count == 1U);
     PROGPU_REQUIRE(runs.smooth_joins.empty());
 
+    // Matched CurvedDashContinuityTests: phase boundaries, not endpoint
+    // coincidence, decide whether analytic curved spans are connected.
+    const auto make_quadratic = [](progpu_native_point start,
+        progpu_native_point control, progpu_native_point end) {
+        progpu_native_path_segment value{};
+        value.kind = PROGPU_NATIVE_PATH_SEGMENT_QUADRATIC;
+        value.p0 = start; value.p1 = control; value.p2 = end;
+        return value;
+    };
+    const std::array returning_curves{
+        make_quadratic({0, 0}, {0.5F, 0}, {1, 0}),
+        make_quadratic({1, 0}, {3, 0}, {1, 0}),
+        make_quadratic({1, 0}, {1, 0.5F}, {1, 1})};
+    const std::array<std::uint8_t, 3U> returning_joins{0U, 1U, 0U};
+    PROGPU_REQUIRE(curve_dash::try_create_runs(returning_curves, returning_joins, false,
+        retrace_pattern, 0.0, 1.0F, runs) == curve_dash::result::success);
+    PROGPU_REQUIRE(runs.runs.size() == 2U && runs.smooth_joins.empty());
+    PROGPU_REQUIRE(runs.runs[0U].segment_count == 1U && runs.runs[1U].segment_count == 1U);
+
+    const auto returning_quadratic = make_quadratic({0, 0}, {4, 0}, {0, 0});
+    PROGPU_REQUIRE(curve_dash::try_create_runs(
+        std::span(&returning_quadratic, 1U), one_join, false,
+        retrace_pattern, 0.0, 1.0F, runs) == curve_dash::result::success);
+    PROGPU_REQUIRE(runs.runs.size() == 2U && runs.smooth_joins.empty());
+    const std::array whole_curve_pattern{20.0, 1.0};
+    PROGPU_REQUIRE(curve_dash::try_create_runs(
+        std::span(&returning_quadratic, 1U), one_join, false,
+        whole_curve_pattern, 0.0, 1.0F, runs) == curve_dash::result::success);
+    PROGPU_REQUIRE(runs.runs.size() == 1U && runs.segments.size() == 1U);
+    PROGPU_REQUIRE(!runs.runs.front().closed);
+    PROGPU_REQUIRE(runs.segments.front().p1.x == 4.0F);
+
+    auto returning_cubic = cubic;
+    returning_cubic.p1 = {2, 3}; returning_cubic.p2 = {-2, 3}; returning_cubic.p3 = {0, 0};
+    PROGPU_REQUIRE(curve_dash::try_create_runs(
+        std::span(&returning_cubic, 1U), one_join, false,
+        whole_curve_pattern, 0.0, 1.0F, runs) == curve_dash::result::success);
+    PROGPU_REQUIRE(runs.runs.size() == 1U && runs.segments.size() == 1U);
+    PROGPU_REQUIRE(runs.segments.front().kind == PROGPU_NATIVE_PATH_SEGMENT_CUBIC);
+    PROGPU_REQUIRE(!runs.runs.front().closed);
+
+    auto joined_cubic = returning_cubic;
+    joined_cubic.p0 = {1, 0}; joined_cubic.p1 = {1, 0.25F};
+    joined_cubic.p2 = {1, 0.75F}; joined_cubic.p3 = {1, 1};
+    const std::array constant_join_curves{returning_curves[0U],
+        make_quadratic({1, 0}, {1, 0}, {1, 0}), joined_cubic};
+    for (const std::uint8_t smooth : {std::uint8_t{0U}, std::uint8_t{1U}}) {
+        const std::array<std::uint8_t, 3U> joins{0U, smooth, 0U};
+        PROGPU_REQUIRE(curve_dash::try_create_runs(constant_join_curves, joins, false,
+            whole_curve_pattern, 0.0, 1.0F, runs) == curve_dash::result::success);
+        PROGPU_REQUIRE(runs.runs.size() == 1U && runs.segments.size() == 2U);
+        PROGPU_REQUIRE(runs.smooth_joins.size() == 1U && runs.smooth_joins.front() == smooth);
+    }
+
+    // The native analytic arc format can represent one full turn; managed
+    // endpoint-arc paths represent that same circle with multiple arc records.
+    auto full_arc = arc;
+    full_arc.p1 = full_arc.p0;
+    full_arc.pad1 = std::bit_cast<std::uint32_t>(2.0F * std::numbers::pi_v<float>);
+    const std::array full_arc_pattern{1000.0, 1.0};
+    PROGPU_REQUIRE(curve_dash::try_create_runs(
+        std::span(&full_arc, 1U), one_join, false,
+        full_arc_pattern, 0.0, 1.0F, runs) == curve_dash::result::success);
+    PROGPU_REQUIRE(runs.runs.size() == 1U && runs.segments.size() == 1U);
+    PROGPU_REQUIRE(runs.segments.front().kind == PROGPU_NATIVE_PATH_SEGMENT_ARC);
+
+    auto invalid_quadratic = returning_quadratic;
+    invalid_quadratic.p1.x = std::numeric_limits<float>::quiet_NaN();
+    PROGPU_REQUIRE(curve_dash::try_create_runs(
+        std::span(&invalid_quadratic, 1U), one_join, false,
+        whole_curve_pattern, 0.0, 1.0F, runs) == curve_dash::result::invalid);
+    invalid_quadratic.p1 = {std::numeric_limits<float>::max(), std::numeric_limits<float>::max()};
+    PROGPU_REQUIRE(curve_dash::try_create_runs(
+        std::span(&invalid_quadratic, 1U), one_join, false,
+        whole_curve_pattern, 0.0, 1.0F, runs) == curve_dash::result::invalid);
+
     std::array<progpu_native_path_segment, 256U> dense_lines{};
     std::array<std::uint8_t, 256U> dense_joins{};
     for (std::size_t index = 0U; index < dense_lines.size(); ++index) {
