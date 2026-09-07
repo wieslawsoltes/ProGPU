@@ -70,6 +70,7 @@ struct mil_image_brush_fixture_options {
     std::array<double, 6U> paint_matrix{0.8, 0.2, -0.1, 0.8, 8.0, 0.0};
     std::array<double, 6U> path_matrix{0.9, 0.0, 0.0, 0.8, 3.0, 5.0};
     std::span<const std::byte> group_geometry_commands{};
+    bool geometry_drawing_image{};
 };
 
 inline bool build_mil_image_brush_fixture(std::vector<std::byte>& scene,
@@ -314,7 +315,13 @@ inline bool build_mil_image_brush_fixture(std::vector<std::byte>& scene,
     case mil_brush_fixture_shape::path:
     case mil_brush_fixture_shape::group:
     case mil_brush_fixture_shape::combined:
-        packet(nested, command::draw_geometry, fill_handle, pen_handle, 15U, 0U);
+        if (options.geometry_drawing_image) {
+            packet(batch, command::channel_create_resource, 400U, 87U);
+            packet(batch, command::geometry_drawing, 400U, fill_handle, pen_handle, 15U);
+            packet(batch, command::channel_create_resource, 401U, 59U);
+            packet(batch, command::drawing_image, 401U, 400U);
+            packet(nested, command::draw_image, 2.0, 4.0, 40.0, 20.0, 401U, 0U);
+        } else packet(nested, command::draw_geometry, fill_handle, pen_handle, 15U, 0U);
         break;
     case mil_brush_fixture_shape::ellipse:
         packet(nested, command::draw_ellipse, 32.0, 32.0,

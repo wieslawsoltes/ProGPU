@@ -4666,3 +4666,18 @@ WebGPU targets compile; test execution, Windows/VM/image/SIMD comparisons,
 benchmarks, verifiers and CI qualification remain deferred. Native MIL docs
 record provenance, allocation/complexity costs and managed applicability.
 Retained preparation caching and the broader Direct2D/Win2D goal remain open.
+
+### Implementation-first checkpoint: prepared MIL image-source bounds
+
+Native MIL stroke bounds now use the same intrinsic spine preparation as replay
+rather than an additional COM Simplify/transform path. This aligns arc collapse
+and partial constant-segment handling. DrawingImage positive fixed shapes use
+prepared bounds when geometry loses area; nonsingular solid shapes keep their
+analytic bounds fast paths. Source line mapping also uses the shared SIMD helper.
+
+Hollow-path source-image differentials and scalar projected-ellipse fixtures are
+authored. Native library and MIL/Direct2D compatibility/WebGPU targets compile;
+execution, Windows/VM/images, SIMD/performance, verifiers and CI qualification
+remain deferred. Native MIL docs record original helper provenance, O(P)
+preparation/storage, removed intermediate COM paths and pending caching. This
+changes neither public COM Widen semantics nor the broader completion criteria.
