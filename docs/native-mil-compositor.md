@@ -8973,6 +8973,51 @@ compatibility/WebGPU targets compile. Runtime, race/lifetime/allocation tests,
 Windows/VM/images, SIMD/benchmarks/Instruments, verifiers and CI qualification
 remain deferred under implementation-first sequencing. Full goal remains open.
 
+## Implementation-first checkpoint: aggregate preparation residency
+
+Native MIL prepared-path caching now has a shared 8 MiB payload budget in
+addition to the two-slot/64 KiB per-entry limits. Transactional channel snapshots
+share the budget and immutable cache owners. `prepared_stroke_geometry` couples
+the prepared vectors with a move-only residency reservation; aliasing geometry
+leases keep that reservation alive. Payload destruction precedes releasing its
+charge. Evicting a slot therefore cannot admit replacement bytes against memory
+that an active group or bounds consumer still holds.
+
+Admission uses overflow-safe atomic compare/exchange in the existing internal
+`progpu_native_semantic_budget.hpp` domain. The new reusable `residency_budget`
+and `residency_reservation` are original ProGPU ownership/accounting code, not
+foreign source. Relaxed atomics account for bytes only; the existing cache mutex
+still publishes geometry. Reservation moves/reset/destruction are fixed work
+with no allocation. Admission has dependent atomic retries under contention, so
+SIMD does not apply to this ownership operation. Geometry preparation continues
+using the existing NEON/SSE2 mapper; no GPU path, shader or raster policy changes.
+
+The charged size includes the prepared owner object and vector capacities.
+Cache metadata, shared-pointer allocator/control-block overhead and transient
+uncached preparation/widening work are outside this payload budget; this is not
+a total process-memory guarantee. On admission failure, an owner can retire its
+next replacement slot outside the cache lock and retry once. Live leases keep
+their charges. No other owner's slots are scanned, and an exhausted budget or
+allocation failure leaves the exact uncached path available. This is bounded
+admission, not a global LRU; budget tuning/configuration and workload-wide
+replacement policy remain performance work.
+
+The preceding cross-engine design/reference record still applies: reusable
+preparation is retained separately from device-dependent raster content. This
+closes the missing aggregate prepared-payload budget from that checkpoint.
+Managed applicability remains the native MIL snapshot cache boundary; no public
+C/COM/module contract or managed cache policy changes. Native and managed output,
+memory residency and submission behavior still require matched final evidence.
+
+Authored internal tests cover exact admission, over-capacity/overflow rejection,
+zero/null owners, move/reset accounting, alias lifetime after owner eviction and
+concurrent bounded admission. Existing MIL warm/fresh and live-group-lease
+fixtures remain the integration coverage. Native library, MIL/Direct2D
+compatibility/WebGPU/internal targets and the import-based module consumer
+compile. Runtime, race/lifetime/allocation, VM/images, SIMD/performance/Instruments,
+verifiers and CI qualification remain deferred. No measured speed or complete
+MIL/DirectX/Direct2D/Win2D parity claim is made.
+
 ## Invariants
 
 - No reflection or private managed field scanning in the product bridge.

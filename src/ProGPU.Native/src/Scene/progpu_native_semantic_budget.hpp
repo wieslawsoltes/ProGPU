@@ -4,10 +4,74 @@
 
 #include <algorithm>
 #include <array>
+#include <atomic>
 #include <cstdint>
 #include <limits>
+#include <memory>
+#include <utility>
 
 namespace progpu::native::semantic {
+
+// Shared retained-payload accounting. Charges belong to live allocations,
+// not cache slots, so eviction cannot release bytes still held by a consumer.
+// Fixed work without contention; atomic retry is dependent ownership work.
+class residency_budget final {
+public:
+    explicit residency_budget(std::uint64_t limit) noexcept : limit_(limit) {}
+    std::uint64_t bytes() const noexcept { return bytes_.load(std::memory_order_relaxed); }
+    std::uint64_t limit() const noexcept { return limit_; }
+
+private:
+    friend class residency_reservation;
+    bool acquire(std::uint64_t count) noexcept {
+        auto current = bytes_.load(std::memory_order_relaxed);
+        do {
+            if (count > limit_ || current > limit_ - count) return false;
+        } while (!bytes_.compare_exchange_weak(current, current + count,
+            std::memory_order_relaxed, std::memory_order_relaxed));
+        return true;
+    }
+    void release(std::uint64_t count) noexcept { bytes_.fetch_sub(count, std::memory_order_relaxed); }
+    const std::uint64_t limit_;
+    std::atomic<std::uint64_t> bytes_{};
+};
+
+class residency_reservation final {
+public:
+    residency_reservation() noexcept = default;
+    ~residency_reservation() { reset(); }
+    residency_reservation(const residency_reservation&) = delete;
+    residency_reservation& operator=(const residency_reservation&) = delete;
+    residency_reservation(residency_reservation&& source) noexcept
+        : owner_(std::move(source.owner_)), bytes_(std::exchange(source.bytes_, 0U)) {}
+    residency_reservation& operator=(residency_reservation&& source) noexcept {
+        if (this != &source) {
+            reset();
+            owner_ = std::move(source.owner_);
+            bytes_ = std::exchange(source.bytes_, 0U);
+        }
+        return *this;
+    }
+    static residency_reservation try_acquire(const std::shared_ptr<residency_budget>& owner,
+        std::uint64_t bytes) noexcept {
+        residency_reservation result;
+        if (owner && owner->acquire(bytes)) {
+            result.owner_ = owner;
+            result.bytes_ = bytes;
+        }
+        return result;
+    }
+    explicit operator bool() const noexcept { return bool(owner_); }
+    void reset() noexcept {
+        if (owner_) owner_->release(bytes_);
+        owner_.reset();
+        bytes_ = 0U;
+    }
+
+private:
+    std::shared_ptr<residency_budget> owner_;
+    std::uint64_t bytes_{};
+};
 
 struct scissor final {
     std::uint32_t x = 0U;
