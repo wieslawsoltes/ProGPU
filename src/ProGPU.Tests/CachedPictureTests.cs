@@ -14,6 +14,52 @@ public sealed class CachedPictureTests
     private static readonly Rect Bounds = new(10, 20, 20, 10);
 
     [Fact]
+    public void SharedSourceLookupRetainsOneSourceThroughIndependentRecordings()
+    {
+        using var picture = CreatePicture(Vector4.One);
+        var source = new PictureSource(picture);
+        using var cache = new CachedPictureSourceCache<object>(ReferenceEqualityComparer.Instance);
+        object key = new();
+        using var first = cache.Acquire(key, source, static value => value);
+        using var second = cache.Acquire(key, source, static value => value);
+        Assert.Same(first.Picture, second.Picture);
+        Assert.Equal(1, source.CaptureCount);
+        var recorder = new GpuPictureRecorder();
+        var commands = recorder.BeginRecording(Bounds);
+        commands.DrawCachedPicture(first);
+        commands.DrawCachedPicture(second);
+        Assert.Equal(1, commands.RetainedResourceCount);
+        using var recorded = recorder.EndRecording();
+        using var clone = recorded.Clone();
+        commands.Clear();
+        first.Dispose();
+        second.Dispose();
+        recorded.Dispose();
+        Assert.Equal(1, cache.Count);
+        Assert.Equal(0, source.DisposeCount);
+        clone.Dispose();
+        Assert.Equal(0, cache.Count);
+        Assert.Equal(1, source.DisposeCount);
+        Assert.Equal(0, source.SubscriptionCount);
+    }
+
+    [Fact]
+    public void ClosingLookupPreservesExistingLeasesButRejectsNewAcquisitions()
+    {
+        using var picture = CreatePicture(Vector4.One);
+        var source = new PictureSource(picture);
+        using var cache = new CachedPictureSourceCache<object>();
+        using var lease = cache.Acquire(new object(), source, static value => value);
+        cache.Dispose();
+        Assert.Throws<ObjectDisposedException>(() => cache.Acquire(new object(), source, static value => value));
+        source.Change();
+        lease.Picture.Refresh();
+        Assert.Equal(2, source.CaptureCount);
+        lease.Dispose();
+        Assert.Equal(1, source.DisposeCount);
+    }
+
+    [Fact]
     public void LiveSourceCoalescesChangesAndReleasesOwnedSubscriptions()
     {
         using var picture = CreatePicture(Vector4.One);

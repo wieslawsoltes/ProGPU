@@ -4822,3 +4822,13 @@ does not expand Direct2D COM or Win2D API coverage by itself; automatic WPF brus
 consumer routing and the full parity gates remain open. See
 [live typed sources](cached-pictures.md#live-typed-sources) for research, costs,
 ownership and the authored but unexecuted fixtures.
+
+### Implementation-first checkpoint: recording-owned cached fills
+
+ProGPU now exposes source-cache acquisition and cloneable recording-owned
+CachedPicture leases. LibreWPF connects geometry/rectangle cache-brush fills
+through exact clips and the shared native-equivalent affine mapping. Source
+lookup and disposal follow retained command/picture ownership, with no pixel
+readback or per-item submission. Native MIL already owns the paired source-page
+behavior. This does not expand COM API surface; remaining consumers and full
+qualification are tracked in [cached pictures](cached-pictures.md).

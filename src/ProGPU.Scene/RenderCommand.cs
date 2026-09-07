@@ -4869,6 +4869,24 @@ public class DrawingContext :
         DrawVisual(picture.GetVisual(), transform);
     }
 
+    /// <summary>
+    /// Records and independently retains a shared source lease. Repeated draws
+    /// retain it once per recording; picture snapshots preserve that ownership.
+    /// </summary>
+    public void DrawCachedPicture(CachedPictureLease lease, Matrix4x4 transform = default)
+    {
+        ArgumentNullException.ThrowIfNull(lease);
+        CachedPicture picture = lease.Picture;
+        Visual visual = picture.GetVisual();
+        if (!HasRetainedResourceIdentity(picture))
+        {
+            var retained = RetainedResourceLease.Create(lease.Clone(), picture);
+            try { (_retainedResources ??= new List<RetainedResourceLease>()).Add(retained); }
+            catch { retained.Dispose(); throw; }
+        }
+        DrawVisual(visual, transform);
+    }
+
     private void RetainPictureResources(GpuPicture picture)
     {
         ArgumentNullException.ThrowIfNull(picture);

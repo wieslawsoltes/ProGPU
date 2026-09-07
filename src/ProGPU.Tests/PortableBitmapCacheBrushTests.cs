@@ -6,6 +6,22 @@ namespace ProGPU.Tests;
 public sealed class PortableBitmapCacheBrushTests
 {
     [Fact]
+    public void MappingUsesConsumerRelativeFrameThenAbsoluteTransformWithoutStretching()
+    {
+        var bounds = new PortableRect(10, 20, 100, 50);
+        var brush = new PortableBitmapCacheBrush(null, HasRelativeTransform: true,
+            RelativeTransform: new(2, 0, 0, 3, 0.25, 0.5),
+            HasTransform: true, Transform: new(1, 0, 0, 1, 7, 9));
+        Assert.True(PortableBitmapCacheBrushPolicy.TryGetMapping(brush, bounds, out var mapping));
+        Assert.Equal(new System.Numerics.Vector2(42, 54),
+            System.Numerics.Vector2.Transform(new(10, 20), mapping));
+        Assert.True(PortableBitmapCacheBrushPolicy.TryGetMapping(new(null), bounds, out mapping));
+        Assert.True(mapping.IsIdentity);
+        Assert.False(PortableBitmapCacheBrushPolicy.TryGetMapping(brush with
+        { Transform = new(double.NaN, 0, 0, 1, 0, 0) }, bounds, out _));
+    }
+
+    [Fact]
     public void CachePolicySelectsExplicitThenTargetThenDefaultAndIgnoresSnapping()
     {
         var targetCache = new CacheSource(new(3, true, false));

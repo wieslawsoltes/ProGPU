@@ -9400,6 +9400,25 @@ Release compilation checkpoint (2026-09-07): ProGPU.Tests builds with zero
 warnings and errors; fixtures are not executed. Fetched `origin/main` has no
 commits missing from the feature branch at this checkpoint.
 
+## Implementation-first checkpoint: recording-owned cache-brush fills
+
+ProGPU source lookup and cloneable leases now integrate with retained command
+resource ownership. Shared source mappings survive independent picture recordings
+and are removed/disposed after the last lease. LibreWPF routes GeometryDrawing
+and object/managed geometry/rectangle fills through exact clip, opacity, shared
+affine mapping and the leased cached source. Native C++ owns the corresponding
+existing fill/page semantics; no native ABI/source change is needed here.
+
+See [recording-owned source lookup](cached-pictures.md#recording-owned-source-lookup-and-wpf-fills)
+for original-source provenance, primary research applicability, complexity,
+lifetime, authored fixtures and the unimplemented consumer cases. Compilation is
+not parity evidence. Runtime/VM/platform, source-verifier, CI, renderer/Svg.Skia,
+and performance qualification remain deferred under the requested sequence.
+
+Compilation checkpoint (2026-09-07): the Release ProGPU.Tests build succeeds with
+zero warnings/errors. Fetched `origin/main` has no commits missing from this
+feature branch. The new fixtures were compiled, not executed.
+
 ## Invariants
 
 - No reflection or private managed field scanning in the product bridge.

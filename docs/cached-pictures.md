@@ -98,6 +98,56 @@ DPI and performance qualification is still required.
 
 ## Implementation-first status
 
+### Recording-owned source lookup and WPF fills
+
+`CachedPictureSourceCache<TKey>.Acquire` creates one live source per capture key
+and returns independent `CachedPictureLease` objects. The factory runs only for
+a missing entry, recursive acquisition is rejected, and the last lease removes
+the entry and disposes the source/subscriptions. Closing the lookup rejects new
+acquisitions but leaves outstanding leases valid. The lease's Picture property
+is borrowed; callers dispose the lease, never the shared picture.
+
+`DrawingContext.DrawCachedPicture(CachedPictureLease)` retains independent
+ownership once per source identity per recording. Existing picture snapshot and
+clone leases extend that lifetime; clearing one drawing context cannot invalidate
+another retained recording. Lookup is expected O(1); recording uses the existing
+O(R) retained-resource identity check for R resources, with O(1) command insertion
+and only one durable source lease per recording. No performance claim is made.
+
+LibreWPF uses a rendering-thread lookup keyed by brush reference, device context,
+viewport-cache identity and image-adapter delegate identity (target/method equality,
+not arbitrary object reflection). Keys are removed with final recording ownership.
+This implements reuse of the same brush in a compatible capture context; sharing
+across distinct brush objects with equal target/policy is still open. Providers
+and command disposal follow the same serialized rendering-thread contract.
+
+Typed GeometryDrawing fills and object/managed render-data geometry/rectangle
+calls now clip to exact native geometry, apply opacity and consumer-relative then
+absolute brush mapping, and record the leased source. There is no TileBrush
+viewbox/stretch/tiling or source-pixel copy. The shared interop mapping follows
+the original C++ `append_bitmap_cache_brush` affine contract, evaluated in double
+before conversion to the managed float domain. Singular maps paint nothing;
+invalid numeric state fails closed. Cached source contents remain independent
+of the fill's transform, opacity and shape coverage.
+
+Provenance: original ProGPU `RetainedResourceLease`, DrawingContext picture
+snapshot ownership, CachedPicture source lifecycle, and native MIL
+`append_bitmap_cache_brush` in `src/ProGPU.Native/src/Mil/progpu_native_mil.cpp`.
+The earlier SkDrawable/Direct2D/Win2D/WebRender/Vello/Parley/HarfBuzz public-contract
+research applies: adopt explicit ownership and retained source/consumer separation;
+do not change shaping, fonts, atlas eviction, device-loss handling or GPU batching.
+The mapping is fixed-work O(1) arithmetic, not a whole-buffer CPU kernel. GPU
+work and texture residency remain in the existing shared layer compositor.
+
+Authored fixtures cover mapping order, shared acquisitions, recording/clone
+ownership, closed-lookup behavior, exact clip/opacity command scopes, and typed
+source subscription lifetime in GeometryDrawing/object render-data fills. Tests,
+native/managed image differentials, VM/platform comparisons, renderer/Svg.Skia
+gates and allocation/performance measurements are deferred. Native C++ already
+has this fill/mapping/shared-page behavior and needs paired qualification, not a
+new callback or wire record. Direct ellipse-call routing, cached-brush strokes,
+glyph foregrounds, masks, target/policy aliasing and broader parity remain open.
+
 ### Live typed sources
 
 `CachedPicture(ICachedPictureSource source, bool ownsSource = false)` captures
@@ -166,7 +216,8 @@ LibreWPF now exports a root-policy source through `WpfBitmapCacheBrushCapture` a
 uses `PortableBitmapCacheBrushPolicy.TryResolve` for explicit/target/default policy.
 Its `CreateCachedPicture`/`UpdateCachedPicture` methods transfer independent
 picture ownership into this resource and apply render scale/ClearType policy.
-Normal managed brush fills/pens/glyphs/masks still need consumer routing, shared
-cache lifetime and typed invalidation integration. Root scroll clips and source
+Managed geometry/rectangle fills now have source lookup and recording-owned
+lifetime/invalidation integration. Remaining direct ellipse, pen, glyph and mask
+consumers plus target/policy alias sharing are open. Root scroll clips and source
 content requiring unsupported recorder scopes fail closed. This does not claim
 complete BitmapCacheBrush or MIL/DirectX/Direct2D/COM/Win2D parity.
