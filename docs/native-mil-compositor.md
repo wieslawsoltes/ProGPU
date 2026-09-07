@@ -8911,6 +8911,68 @@ MIL/Direct2D compatibility/WebGPU targets compile. Runtime tests, VM/images,
 SIMD differentials, benchmarks, verifiers and CI qualification remain deferred;
 the broader MIL/DirectX/Direct2D/Win2D goal remains open.
 
+## Implementation-first checkpoint: retained PathGeometry stroke preparation
+
+Decoded immutable PathGeometry snapshots now own a two-slot preparation cache.
+Direct replay, group preparation and stroke bounds acquire immutable leases from
+`acquire_path_stroke_spine`. The key is the exact six double bit patterns of the
+composed geometry/ancestor matrix; the owning snapshot supplies source identity.
+Path packet replacement creates a new owner, while transactional graph copies
+share the old immutable source's cache. Transform-resource and animation changes
+are resolved before lookup. Pen, dash, brush, world and DPI state are not cached:
+they act after geometry preparation and still use the current widening, mapping
+and rasterization state.
+
+Two entries use round-robin replacement, with at most 64 KiB of prepared object
+and vector-capacity storage admitted per entry (128 KiB per decoded path, plus
+cache metadata/control blocks). Larger preparations stay on the uncached path;
+there is not yet a channel-wide aggregate cache budget. Active group/bounds
+leases may temporarily retain evicted entries until their compilation use ends.
+Prepared objects have no cache owner, preventing cycles. A cache mutex protects
+lookup/publication, geometry work and evicted-vector destruction happen outside
+the lock, and concurrent misses may duplicate work without publishing partial
+data. This does not add a new channel mutation/concurrency contract. Optional
+cache allocation failure leaves the original uncached rendering route available.
+
+Cache hits perform two fixed-size key comparisons and a shared ownership acquire,
+without transformed-vector allocation/copy. Misses retain the original O(P)
+time/storage intrinsic mapper plus an O(C) capacity accounting pass for C contours.
+NEON/SSE2 coordinate mapping, arc lowering, contour flags, failure semantics and
+quality constants are unchanged. Resource parsing adds small cache-owner metadata;
+actual prepared vectors are lazy. Fixed geometry, combined outlines, widened
+bounds and native widening objects are not retained by this cache. Those domains,
+aggregate budgeting, contention/counter instrumentation and measured memory/time
+qualification remain work; no speed improvement is claimed from compilation.
+
+Design references (contracts only; no external source implementation copied):
+[SkPath generation/bounds caching](https://api.skia.org/classSkPath.html) informs
+source identity and reuse;
+[Direct2D realizations](https://learn.microsoft.com/en-us/windows/win32/direct2d/geometry-realizations-overview)
+and [Win2D cached geometry](https://microsoft.github.io/Win2D/WinUI3/html/T_Microsoft_Graphics_Canvas_Geometry_CanvasCachedGeometry.htm)
+motivate separating preparation from drawing, but their device-dependent
+flattened realization is not adopted for this CPU analytic-spine cache.
+[WebRender coordinate trees](https://firefox-source-docs.mozilla.org/gfx/RenderingOverview.html)
+inform the explicit geometry-versus-world key boundary. [Vello Scene](https://docs.rs/vello/latest/vello/struct.Scene.html)
+is a retained scene reference, not a reason to reuse unversioned mutable paths.
+[DirectWrite layout reuse](https://learn.microsoft.com/en-us/windows/win32/direct2d/improving-direct2d-performance),
+[Parley layout](https://docs.rs/parley/latest/parley/struct.Layout.html) and
+[HarfBuzz keyed shape plans](https://harfbuzz.github.io/harfbuzz-hb-shape-plan.html)
+support keeping reusable CPU preparation distinct from rendering; shaping,
+font fallback/variation, hinting, glyph residency, visibility, device loss and
+upload policy are unchanged here. No font/text cache or worker scheduler is added.
+
+The implementation wraps original ProGPU `transform_path_stroke_spine`; it does
+not change public C/COM/modules, shared shaders or managed bridge contracts.
+Managed portable conversion's retained path ownership remains separate and needs
+matched performance qualification; this cache is specific to native decoded MIL
+snapshot preparation, not a replacement for either renderer's scene cache.
+Authored warm-versus-fresh fixtures cover repeated builds, more live group
+variants than slots, geometry rank changes, same-handle path replacement and pen
+changes, including DrawingImage bounds. Native library and MIL/Direct2D
+compatibility/WebGPU targets compile. Runtime, race/lifetime/allocation tests,
+Windows/VM/images, SIMD/benchmarks/Instruments, verifiers and CI qualification
+remain deferred under implementation-first sequencing. Full goal remains open.
+
 ## Invariants
 
 - No reflection or private managed field scanning in the product bridge.

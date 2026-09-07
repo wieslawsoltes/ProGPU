@@ -14,6 +14,8 @@
 #include <cmath>
 #include <cstring>
 #include <limits>
+#include <memory>
+#include <mutex>
 #include <new>
 #include <numbers>
 #include <type_traits>
@@ -2848,6 +2850,8 @@ struct channel::implementation {
         bool end_uses_dash_cap{};
     };
 
+    struct stroke_preparation_cache;
+
     struct path_geometry_state {
         std::vector<progpu_native_path_segment> segments;
         std::vector<progpu_native_path_segment> per_point_segments;
@@ -2859,6 +2863,21 @@ struct channel::implementation {
         double bottom{};
         std::uint32_t transform_handle{};
         std::uint32_t fill_rule{};
+        // Only decoded immutable resources own caches. Prepared/temporary
+        // paths leave this null, preventing cache ownership cycles.
+        std::shared_ptr<stroke_preparation_cache> stroke_cache;
+    };
+
+    struct stroke_preparation_cache {
+        struct entry {
+            std::array<std::uint64_t, 6U> matrix{};
+            std::shared_ptr<const path_geometry_state> geometry;
+        };
+        std::mutex mutex;
+        std::array<entry, 2U> entries;
+        std::size_t next{};
+        static constexpr std::size_t maximum_entry_bytes = 64U * 1024U;
+        static_assert(sizeof(path_geometry_state) < maximum_entry_bytes);
     };
 
     struct geometry_group_state {
@@ -8936,6 +8955,10 @@ struct channel::implementation {
                 geometry.right = has_computed_bounds ? computed_right : 0.0;
                 geometry.bottom = has_computed_bounds ? computed_bottom : 0.0;
             }
+            // Cache allocation is optional; allocation pressure must not turn
+            // an otherwise valid resource update into a rendering failure.
+            try { geometry.stroke_cache = std::make_shared<stroke_preparation_cache>(); }
+            catch (const std::bad_alloc&) {}
             path_geometries.insert_or_assign(handle, std::move(geometry));
             increment_generation(handle);
             ++metrics.updated_resource_count;
@@ -11725,6 +11748,59 @@ struct channel::implementation {
         return status::success;
     }
 
+    // Immutable decoded path snapshots own at most two prepared variants.
+    // Hits lease vectors without copying; misses retain the original mapper.
+    // Exact bit keys preserve signed-zero and sub-float transform distinctions.
+    status acquire_path_stroke_spine(const path_geometry_state& source,
+        const affine_2d_double& transform, path_geometry_state& scratch,
+        std::shared_ptr<const path_geometry_state>& lease,
+        const path_geometry_state*& output) const {
+        const std::array key{std::bit_cast<std::uint64_t>(transform.m11),
+            std::bit_cast<std::uint64_t>(transform.m12), std::bit_cast<std::uint64_t>(transform.m21),
+            std::bit_cast<std::uint64_t>(transform.m22), std::bit_cast<std::uint64_t>(transform.m31),
+            std::bit_cast<std::uint64_t>(transform.m32)};
+        const auto& cache = source.stroke_cache;
+        if (cache) {
+            const std::lock_guard lock(cache->mutex);
+            for (const auto& entry : cache->entries) {
+                if (entry.geometry && entry.matrix == key) {
+                    lease = entry.geometry;
+                    output = lease.get();
+                    return status::success;
+                }
+            }
+        }
+        const status mapped = transform_path_stroke_spine(source, transform, scratch);
+        if (mapped != status::success) return mapped;
+        output = &scratch;
+        if (!cache) return status::success;
+        std::size_t bytes = sizeof(path_geometry_state);
+        const auto charge = [&bytes](std::size_t count, std::size_t size) {
+            if (count > (stroke_preparation_cache::maximum_entry_bytes - bytes) / size) return false;
+            bytes += count * size;
+            return true;
+        };
+        if (!charge(scratch.stroke_contours.capacity(), sizeof(path_stroke_contour_state))) return status::success;
+        for (const auto& contour : scratch.stroke_contours) {
+            if (!charge(contour.points.capacity(), sizeof(progpu_native_point)) ||
+                !charge(contour.segments.capacity(), sizeof(progpu_native_path_segment)) ||
+                !charge(contour.smooth_joins.capacity(), sizeof(std::uint8_t))) return status::success;
+        }
+        // Prepare outside the lock. Concurrent misses may duplicate bounded
+        // work, but publication never exposes partially populated vectors.
+        try { lease = std::make_shared<const path_geometry_state>(std::move(scratch)); }
+        catch (const std::bad_alloc&) { return status::success; }
+        output = lease.get();
+        stroke_preparation_cache::entry evicted;
+        {
+            const std::lock_guard lock(cache->mutex);
+            evicted = std::move(cache->entries[cache->next]);
+            cache->entries[cache->next] = {key, lease};
+            cache->next = (cache->next + 1U) % cache->entries.size();
+        }
+        return status::success;
+    }
+
     // Reuse ProGPU's native path widening, not a MIL-specific stroke envelope.
     // Geometry.Transform changes the spine; world transforms widen results.
     // Contour traversal is sequential topology work. Dash conversion uses
@@ -11759,15 +11835,15 @@ struct channel::implementation {
             const bool prepare_spine = transform_spine || std::any_of(source.stroke_contours.begin(), source.stroke_contours.end(),
                 [](const auto& contour) { return native::semantic_path_stroke::has_mixed_constant_segments(contour.segments); });
             path_geometry_state prepared{};
+            std::shared_ptr<const path_geometry_state> prepared_lease;
             const path_geometry_state* stroke_spine = &source;
             if (prepare_spine) {
                 // Use the same analytic/intrinsic geometry preparation as MIL
                 // replay, including full-ellipse rank reduction and partial
                 // constant-segment compaction. Do not independently Simplify
                 // through a float COM matrix before widening source bounds.
-                const status mapped = transform_path_stroke_spine(source, local, prepared);
+                const status mapped = acquire_path_stroke_spine(source, local, prepared, prepared_lease, stroke_spine);
                 if (mapped != status::success) return mapped;
-                stroke_spine = &prepared;
             }
             // Absolute 0.25 world-unit approximation, with the same WPF default
             // tolerance and a conservative matrix norm for post-widen scaling.
@@ -16826,6 +16902,7 @@ struct channel::implementation {
                     double group_stroke_right = 0.0, group_stroke_bottom = 0.0;
                     struct prepared_group_stroke {
                         path_geometry_state spine;
+                        std::shared_ptr<const path_geometry_state> lease;
                         fixed_geometry_state fixed;
                         affine_2d_double pen_frame{};
                         bool line{};
@@ -16906,16 +16983,18 @@ struct channel::implementation {
                                     source = &owned_source;
                                 }
                                 if (source->stroke_contours.empty()) return status::success;
-                                const status mapped = transform_path_stroke_spine(*source, parent, entry.spine);
+                                const path_geometry_state* prepared_spine = nullptr;
+                                const status mapped = acquire_path_stroke_spine(*source, parent, entry.spine,
+                                    entry.lease, prepared_spine);
                                 if (mapped != status::success) return mapped;
                                 if (spatial) {
-                                    const status measured = resolve_path_stroke_bounds(entry.spine, group_pen, {}, bounds);
+                                    const status measured = resolve_path_stroke_bounds(*prepared_spine, group_pen, {}, bounds);
                                     if (measured != status::success) return measured;
                                 } else {
                                     const double expansion = group_pen.thickness * 0.5 * std::max(1.0, group_pen.miter_limit);
-                                    if (!try_transform_bounds(entry.spine.left - expansion, entry.spine.top - expansion,
-                                            entry.spine.right - entry.spine.left + expansion * 2.0,
-                                            entry.spine.bottom - entry.spine.top + expansion * 2.0, {}, bounds))
+                                    if (!try_transform_bounds(prepared_spine->left - expansion, prepared_spine->top - expansion,
+                                            prepared_spine->right - prepared_spine->left + expansion * 2.0,
+                                            prepared_spine->bottom - prepared_spine->top + expansion * 2.0, {}, bounds))
                                         return status::invalid_graph;
                                 }
                             }
@@ -17149,12 +17228,13 @@ struct channel::implementation {
                                 }
                             } else if (tiled) {
                                 drawn = append_tile_pen(group_pen, use, current, {}, {}, false,
-                                    entry.spine.stroke_contours, &tile_primitives);
+                                    (entry.lease ? *entry.lease : entry.spine).stroke_contours, &tile_primitives);
                             } else if (entry.line) {
                                 drawn = append_resolved_line_stroke(entry.fixed.first, entry.fixed.second,
                                     entry.fixed.third, entry.fixed.fourth, group_pen, {}, current.transform, brush_index);
                             } else {
-                                drawn = append_path_strokes(entry.spine, group_pen, {}, current.transform, brush_index, &use);
+                                drawn = append_path_strokes(entry.lease ? *entry.lease : entry.spine,
+                                    group_pen, {}, current.transform, brush_index, &use);
                             }
                             if (drawn != status::success) return drawn;
                         }
@@ -17439,16 +17519,19 @@ struct channel::implementation {
                         if (pen.brush_handle == 0U || pen.thickness == 0.0) continue;
                         const auto& source = path_geometry->second;
                         path_geometry_state transformed_spine{};
+                        std::shared_ptr<const path_geometry_state> transformed_lease;
+                        const path_geometry_state* prepared_spine = &source;
                         const bool transform_spine = local_transform.m11 != 1.0 || local_transform.m12 != 0.0 ||
                             local_transform.m21 != 0.0 || local_transform.m22 != 1.0 ||
                             local_transform.m31 != 0.0 || local_transform.m32 != 0.0;
                         const bool normalize_spine = transform_spine || std::ranges::any_of(source.stroke_contours,
                             [](const auto& contour) { return native::semantic_path_stroke::has_mixed_constant_segments(contour.segments); });
                         if (normalize_spine) {
-                            const status mapped = transform_path_stroke_spine(source, local_transform, transformed_spine);
+                            const status mapped = acquire_path_stroke_spine(source, local_transform, transformed_spine,
+                                transformed_lease, prepared_spine);
                             if (mapped != status::success) return mapped;
                         }
-                        const auto& geometry = normalize_spine ? transformed_spine : source;
+                        const auto& geometry = *prepared_spine;
                         brush_use_state spatial_use{};
                         const bool spatial = gradient_brushes.contains(pen.brush_handle) || tile_brushes.contains(pen.brush_handle);
                         if (spatial) {

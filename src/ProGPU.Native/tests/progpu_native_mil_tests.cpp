@@ -17756,6 +17756,76 @@ bool drawing_image_path_bounds_match_scalar_pretransformed_spines() {
     return true;
 }
 
+bool retained_path_preparation_preserves_updates_and_live_group_leases() {
+    const std::array controls{std::array{14.0, 22.0}, std::array{25.0, 6.0}};
+    auto source = make_single_bezier_path_figures(3U, controls);
+    const auto flags = read_value<std::uint32_t>(source, 52U) & ~0x08U;
+    std::memcpy(source.data() + 52U, &flags, sizeof(flags));
+    std::vector<std::byte> history;
+    for (const auto resource : {std::array{1U, 39U}, std::array{2U, 43U},
+        std::array{3U, 47U}, std::array{4U, 75U}, std::array{5U, 85U},
+        std::array{6U, 66U}, std::array{7U, 73U}, std::array{8U, 71U},
+        std::array{9U, 66U}, std::array{10U, 71U}, std::array{12U, 71U},
+        std::array{13U, 66U}, std::array{20U, 87U}, std::array{21U, 59U}})
+        append_create(history, resource[0], resource[1]);
+    append_command(history, command::visual_create, 1U);
+    append_command(history, command::visual_set_content, 1U, 2U);
+    append_command(history, command::solid_color_brush, 4U, 1.0,
+        progpu_native_color{1.0F, 0.0F, 0.0F, 1.0F}, 0U, 0U, 0U, 0U);
+    append_command(history, command::pen, 5U, 4.0, 10.0, 4U, 0U,
+        PROGPU_NATIVE_STROKE_CAP_ROUND, PROGPU_NATIVE_STROKE_CAP_TRIANGLE,
+        PROGPU_NATIVE_STROKE_CAP_FLAT, PROGPU_NATIVE_STROKE_JOIN_ROUND, 0U);
+    append_command(history, command::matrix_transform, 6U, 2.0, 0.0, 0.0, 3.0, 4.0, 8.0, 0U);
+    append_command(history, command::matrix_transform, 9U, 1.0, 0.0, 0.0, 1.0, 8.0, 4.0, 0U);
+    append_command(history, command::matrix_transform, 13U, 0.5, 0.0, 0.0, 0.5, 2.0, 4.0, 0U);
+    append_path_geometry(history, 7U, 6U, 0U, source);
+    append_command(history, command::geometry_group, 8U, 9U, 0U, 4U, 7U);
+    append_command(history, command::geometry_group, 12U, 13U, 0U, 4U, 7U);
+    // Three variants exceed the two-slot cache while the first group's
+    // prepared entry is still leased for deferred group emission.
+    append_command(history, command::geometry_group, 10U, 0U, 0U, 12U, 7U, 8U, 12U);
+    append_command(history, command::geometry_drawing, 20U, 0U, 5U, 10U);
+    append_command(history, command::drawing_image, 21U, 20U);
+    std::vector<std::byte> nested;
+    append_command(nested, command::draw_geometry, 0U, 5U, 7U, 0U);
+    append_command(nested, command::draw_geometry, 0U, 5U, 10U, 0U);
+    append_command(nested, command::draw_image, 2.0, 4.0, 40.0, 20.0, 21U, 0U);
+    append_render_data(history, 2U, nested);
+    append_command(history, command::generic_target_create, 3U,
+        std::uint64_t{0U}, std::uint64_t{0U}, 64U, 64U, 0U);
+    append_command(history, command::target_set_root, 3U, 1U);
+    channel retained;
+    PROGPU_REQUIRE(retained.apply(history) == status::success);
+    const std::array<std::array<double, 6U>, 4U> matrices{{
+        {2.0, 0.0, 0.0, 3.0, 4.0, 8.0},
+        {0.0, 0.0, 0.0, 1.0, 24.0, 0.0},
+        {0.0, 0.0, 0.0, 0.0, 24.0, 32.0},
+        {2.0, 0.0, 0.0, 3.0, 4.0, 8.0}}};
+    for (std::uint32_t step = 0U; step < 8U; ++step) {
+        std::vector<std::byte> update;
+        append_command(update, command::matrix_transform, 6U, matrices[step % matrices.size()], 0U);
+        if (step == 4U) {
+            // Replacing the same resource handle must replace its cache owner.
+            const std::array point{18.0, 30.0};
+            std::memcpy(source.data() + 104U, point.data(), sizeof(point));
+            append_path_geometry(update, 7U, 6U, 0U, source);
+        }
+        if (step == 6U) append_command(update, command::pen, 5U, 6.0, 10.0, 4U, 0U,
+            PROGPU_NATIVE_STROKE_CAP_SQUARE, PROGPU_NATIVE_STROKE_CAP_ROUND,
+            PROGPU_NATIVE_STROKE_CAP_FLAT, PROGPU_NATIVE_STROKE_JOIN_BEVEL, 0U);
+        PROGPU_REQUIRE(retained.apply(update) == status::success);
+        history.insert(history.end(), update.begin(), update.end());
+        channel fresh;
+        PROGPU_REQUIRE(fresh.apply(history) == status::success);
+        std::vector<std::byte> actual, expected, repeated;
+        PROGPU_REQUIRE(retained.build_scene(3U, 8116U, 1U, actual) == status::success);
+        PROGPU_REQUIRE(retained.build_scene(3U, 8116U, 1U, repeated) == status::success);
+        PROGPU_REQUIRE(fresh.build_scene(3U, 8116U, 1U, expected) == status::success);
+        PROGPU_REQUIRE(actual == expected && actual == repeated);
+    }
+    return true;
+}
+
 bool group_geometry_spines_precede_pen_widening() {
     using namespace progpu::native::tests;
     using mil_clip_fixture_detail::packet;
@@ -21034,6 +21104,7 @@ int main() {
     PROGPU_REQUIRE(degenerate_fixed_geometry_scale_matches_materialized_shape());
     PROGPU_REQUIRE(drawing_image_degenerate_ellipse_uses_unscaled_pen_bounds());
     PROGPU_REQUIRE(drawing_image_path_bounds_match_scalar_pretransformed_spines());
+    PROGPU_REQUIRE(retained_path_preparation_preserves_updates_and_live_group_leases());
     PROGPU_REQUIRE(
         retained_gradient_stops_match_wpf_coincidence_and_pad_edges());
     PROGPU_REQUIRE(retained_viewport3d_uses_pointer_free_mesh_sideband());
