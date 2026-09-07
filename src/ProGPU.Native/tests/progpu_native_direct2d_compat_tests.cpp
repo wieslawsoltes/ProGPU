@@ -1,5 +1,6 @@
 #include "progpu_native_direct2d_compat.hpp"
 #include "progpu_native_direct2d_scene_submission.hpp"
+#include "progpu_native_direct2d_clip_fixture.hpp"
 #include "progpu_native.h"
 #include "../src/Direct2D/progpu_native_direct2d_path.hpp"
 
@@ -6496,6 +6497,36 @@ int run_tests()
             PROGPU_NATIVE_SCENE_COMMAND_POP_LAYER) {
         return 179;
     }
+    // Matched Windows command-list fixture: transformed fractional AA coverage
+    // belongs to one group, with aliased scopes on both sides of that group.
+    compat::matrix_3x2_f previous_clip_transform{};
+    target->GetTransform(&previous_clip_transform);
+    const compat::matrix_3x2_f clip_identity{1.0F, 0.0F, 0.0F, 1.0F, 0.0F, 0.0F};
+    const compat::matrix_3x2_f clip_shear{1.0F, 0.5F, 0.0F, 1.0F, 2.0F, 3.0F};
+    const compat::rectangle_f clip_parent{0.0F, 0.0F, 30.0F, 30.0F};
+    const compat::rectangle_f clip_fractional{0.25F, 0.5F, 10.75F, 12.5F};
+    const compat::rectangle_f clip_child{4.0F, 5.0F, 25.0F, 25.0F};
+    target->BeginDraw();
+    target->SetTransform(&clip_identity);
+    target->PushAxisAlignedClip(&clip_parent, compat::antialias_mode::aliased);
+    target->SetTransform(&clip_shear);
+    target->PushAxisAlignedClip(&clip_fractional, compat::antialias_mode::per_primitive);
+    target->SetTransform(&clip_identity);
+    target->PushAxisAlignedClip(&clip_child, compat::antialias_mode::aliased);
+    target->FillRectangle(&rectangle, target_brush.get());
+    target->FillRectangle(&rectangle, target_brush.get());
+    target->PopAxisAlignedClip();
+    target->PopAxisAlignedClip();
+    target->PopAxisAlignedClip();
+    if (target->EndDraw(nullptr, nullptr) != com::ok) return 179;
+    std::vector<std::byte> grouped_clip_scene(
+        static_cast<std::size_t>(scene_target->GetRequiredSceneSize()));
+    std::uint64_t grouped_clip_written = 0U;
+    if (scene_target->BuildScene(grouped_clip_scene.data(), grouped_clip_scene.size(),
+            &grouped_clip_written) != com::ok || grouped_clip_written != grouped_clip_scene.size() ||
+        !progpu::native::direct2d::tests::grouped_axis_clip_contract(grouped_clip_scene)) return 179;
+    target->SetTransform(&previous_clip_transform);
+
     target->BeginDraw();
     target->PopAxisAlignedClip();
     if (target->EndDraw(nullptr, nullptr) != compat::wrong_state ||

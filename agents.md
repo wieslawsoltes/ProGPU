@@ -202,6 +202,13 @@ Cross-assembly WPF bridge contracts must not expose shim-owned WPF structs or cl
 
 ### A. Rendering Quality & DPI-Aware Text Snapping
 
+Direct2D antialiased axis-aligned clips must capture the transformed AABB at
+push time and apply fractional coverage once when their group is popped, not
+per contained draw. Keep clip and opacity-layer scope kinds distinct. Geometric
+layer-mask antialiasing is independent of primitive antialiasing, including
+geometry-plus-opacity-brush masks. Native scene writers must agree on the declared
+1/4/8 path and mask sample grids; do not silently promote aliased coverage to AA.
+
 Source dash caps and closed-seam joins require visible endpoint traversal as
 well as position agreement. A hidden interval returning to the source coordinate
 must not acquire source caps or close an earlier run. A newly visible terminal

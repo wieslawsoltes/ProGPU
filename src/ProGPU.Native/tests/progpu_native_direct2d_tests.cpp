@@ -1,5 +1,6 @@
 #include "progpu_native_direct2d.h"
 #include "progpu_native_direct2d_compat.hpp"
+#include "progpu_native_direct2d_clip_fixture.hpp"
 #include "progpu_native.h"
 
 #include <d2d1_3.h>
@@ -6156,64 +6157,114 @@ int main()
             background_layer_scene.written_bytes == 0U,
         "Direct2D background-initialized layer did not fail closed");
 
-    void* aliased_mask_layer_list_value = nullptr;
-    native_hresult = E_FAIL;
-    require(
-        progpu_native_direct2d_surface_create_command_list(
-            surface,
-            &aliased_mask_layer_list_value,
-            &native_hresult) == PROGPU_NATIVE_DIRECT2D_STATUS_SUCCESS &&
-            aliased_mask_layer_list_value != nullptr && native_hresult == S_OK,
-        "aliased-mask layer command-list creation failed");
-    ComPtr<ID2D1CommandList> aliased_mask_layer_list;
-    aliased_mask_layer_list.Attach(
-        static_cast<ID2D1CommandList*>(aliased_mask_layer_list_value));
-    require(
-        progpu_native_direct2d_surface_begin_command_list_draw(
-            surface,
-            aliased_mask_layer_list.Get()) ==
-            PROGPU_NATIVE_DIRECT2D_STATUS_SUCCESS,
-        "aliased-mask layer command-list recording did not begin");
-    context->SetTransform(opacity_layer_transform);
-    D2D1_LAYER_PARAMETERS1 aliased_mask_layer_parameters =
-        opacity_layer_parameters;
-    aliased_mask_layer_parameters.maskAntialiasMode =
-        D2D1_ANTIALIAS_MODE_ALIASED;
-    context->PushLayer(&aliased_mask_layer_parameters, nullptr);
-    context->FillRectangle(&opacity_layer_fill0, solid_brush.Get());
-    context->PopLayer();
-    command_tag1 = 0U;
-    command_tag2 = 0U;
-    native_hresult = E_FAIL;
-    require(
-        progpu_native_direct2d_surface_end_command_list_draw(
-            surface,
-            &command_tag1,
-            &command_tag2,
-            &native_hresult) == PROGPU_NATIVE_DIRECT2D_STATUS_SUCCESS &&
-            native_hresult == S_OK,
-        "aliased-mask layer command-list recording did not close");
-    progpu_native_direct2d_scene_stream_result aliased_mask_layer_scene{};
-    aliased_mask_layer_scene.struct_size =
-        static_cast<uint32_t>(sizeof(aliased_mask_layer_scene));
-    native_hresult = S_OK;
-    require(
-        progpu_native_direct2d_command_list_build_scene_stream(
-            surface,
-            aliased_mask_layer_list.Get(),
-            7009U,
-            1U,
-            nullptr,
-            0U,
-            &aliased_mask_layer_scene,
-            &native_hresult) ==
-                PROGPU_NATIVE_DIRECT2D_STATUS_INTERFACE_NOT_SUPPORTED &&
-            native_hresult == E_NOTIMPL &&
-            aliased_mask_layer_scene.failure_reason ==
-                PROGPU_NATIVE_DIRECT2D_SCENE_STREAM_FAILURE_UNSUPPORTED_STATE &&
-            aliased_mask_layer_scene.failure_callback_index != 0U &&
-            aliased_mask_layer_scene.written_bytes == 0U,
-        "Direct2D aliased geometric layer mask did not fail closed");
+    for (const bool with_opacity : {false, true}) {
+        void* aliased_mask_layer_list_value = nullptr;
+        native_hresult = E_FAIL;
+        require(
+            progpu_native_direct2d_surface_create_command_list(
+                surface,
+                &aliased_mask_layer_list_value,
+                &native_hresult) == PROGPU_NATIVE_DIRECT2D_STATUS_SUCCESS &&
+                aliased_mask_layer_list_value != nullptr && native_hresult == S_OK,
+            "aliased-mask layer command-list creation failed");
+        ComPtr<ID2D1CommandList> aliased_mask_layer_list;
+        aliased_mask_layer_list.Attach(
+            static_cast<ID2D1CommandList*>(aliased_mask_layer_list_value));
+        require(
+            progpu_native_direct2d_surface_begin_command_list_draw(
+                surface,
+                aliased_mask_layer_list.Get()) ==
+                PROGPU_NATIVE_DIRECT2D_STATUS_SUCCESS,
+            "aliased-mask layer command-list recording did not begin");
+        context->SetTransform(opacity_layer_transform);
+        D2D1_LAYER_PARAMETERS1 aliased_mask_layer_parameters =
+            opacity_layer_parameters;
+        aliased_mask_layer_parameters.maskAntialiasMode =
+            D2D1_ANTIALIAS_MODE_ALIASED;
+        aliased_mask_layer_parameters.opacityBrush = with_opacity ? linear_brush.Get() : nullptr;
+        context->SetAntialiasMode(D2D1_ANTIALIAS_MODE_PER_PRIMITIVE);
+        context->PushLayer(&aliased_mask_layer_parameters, nullptr);
+        context->FillRectangle(&opacity_layer_fill0, solid_brush.Get());
+        context->PopLayer();
+        command_tag1 = 0U;
+        command_tag2 = 0U;
+        native_hresult = E_FAIL;
+        require(
+            progpu_native_direct2d_surface_end_command_list_draw(
+                surface,
+                &command_tag1,
+                &command_tag2,
+                &native_hresult) == PROGPU_NATIVE_DIRECT2D_STATUS_SUCCESS &&
+                native_hresult == S_OK,
+            "aliased-mask layer command-list recording did not close");
+        progpu_native_direct2d_scene_stream_result aliased_mask_layer_scene{};
+        aliased_mask_layer_scene.struct_size =
+            static_cast<uint32_t>(sizeof(aliased_mask_layer_scene));
+        native_hresult = S_OK;
+        require(
+            progpu_native_direct2d_command_list_build_scene_stream(
+                surface,
+                aliased_mask_layer_list.Get(),
+                7009U,
+                1U,
+                nullptr,
+                0U,
+                &aliased_mask_layer_scene,
+                &native_hresult) ==
+                    PROGPU_NATIVE_DIRECT2D_STATUS_INSUFFICIENT_BUFFER &&
+                native_hresult == HRESULT_FROM_WIN32(ERROR_INSUFFICIENT_BUFFER) &&
+                aliased_mask_layer_scene.failure_reason ==
+                    PROGPU_NATIVE_DIRECT2D_SCENE_STREAM_FAILURE_NONE &&
+                aliased_mask_layer_scene.failure_callback_index == 0U &&
+                aliased_mask_layer_scene.written_bytes == 0U,
+            "Direct2D aliased geometric layer mask measure failed");
+        std::vector<std::byte> aliased_mask_stream(
+            static_cast<size_t>(aliased_mask_layer_scene.required_bytes));
+        require(
+            progpu_native_direct2d_command_list_build_scene_stream(
+                surface, aliased_mask_layer_list.Get(), 7009U, 1U,
+                aliased_mask_stream.data(), aliased_mask_stream.size(),
+                &aliased_mask_layer_scene, &native_hresult) == PROGPU_NATIVE_DIRECT2D_STATUS_SUCCESS &&
+                native_hresult == S_OK && aliased_mask_layer_scene.written_bytes == aliased_mask_stream.size(),
+            "Direct2D aliased geometric layer mask serialization failed");
+        const auto read_mask = [&]<typename T>(std::uint64_t offset, T& value) {
+            return progpu::native::direct2d::tests::read_scene_value(aliased_mask_stream, offset, value);
+        };
+        progpu_native_scene_header mask_header{};
+        progpu_native_scene_command mask_command{};
+        progpu_native_scene_layer mask_layer{};
+        progpu_native_scene_resource mask_resource{};
+        require(read_mask(0U, mask_header) && mask_header.command_count == 3U &&
+            read_mask(mask_header.command_offset, mask_command) &&
+            mask_command.kind == PROGPU_NATIVE_SCENE_COMMAND_PUSH_LAYER &&
+            read_mask(mask_command.payload_offset, mask_layer) &&
+            mask_layer.mask_resource_index < mask_header.resource_count &&
+            read_mask(mask_header.resource_offset +
+                std::uint64_t{mask_layer.mask_resource_index} * mask_header.resource_stride, mask_resource) &&
+            mask_resource.kind == PROGPU_NATIVE_SCENE_RESOURCE_LAYER_MASK,
+            "Direct2D aliased layer omitted retained mask resource");
+        std::uint64_t path_offset = mask_resource.auxiliary_offset;
+        if (with_opacity) {
+            progpu_native_scene_layer_composite_mask mask{};
+            require(read_mask(mask_resource.payload_offset, mask) &&
+                mask.kind == PROGPU_NATIVE_SCENE_LAYER_MASK_COMPOSITE && mask.path_count == 1U &&
+                mask.brush_mask_count == 1U && mask.geometry_mask_count == 0U &&
+                mask.picture_mask_count == 0U,
+                "Direct2D aliased composite mask changed topology");
+            path_offset += sizeof(progpu_native_scene_layer_brush_mask);
+        } else {
+            progpu_native_scene_layer_vector_mask mask{};
+            require(read_mask(mask_resource.payload_offset, mask) &&
+                mask.kind == PROGPU_NATIVE_SCENE_LAYER_MASK_VECTOR_CLIP_CHAIN && mask.path_count == 1U,
+                "Direct2D aliased vector mask changed topology");
+        }
+        progpu_native_scene_clip_path aliased_path{};
+        require(read_mask(path_offset, aliased_path) && aliased_path.sample_grid == 1U,
+            "Direct2D geometric mask inherited primitive antialiasing");
+        aliased_path.sample_grid = translated_mask_path.sample_grid;
+        require(std::memcmp(&aliased_path, &translated_mask_path, sizeof(aliased_path)) == 0,
+            "Direct2D aliased mask changed analytic topology or composed transform");
+    }
 
     progpu_native_direct2d_scene_stream_result scene_short{};
     scene_short.struct_size = static_cast<uint32_t>(sizeof(scene_short));
@@ -6355,10 +6406,21 @@ int main()
     context->SetUnitMode(D2D1_UNIT_MODE_DIPS);
     context->SetTextRenderingParams(nullptr);
     context->SetTransform(D2D1::Matrix3x2F::Identity());
+    const D2D1_RECT_F clip_fractional = {0.25F, 0.5F, 10.75F, 12.5F};
+    const D2D1_RECT_F clip_child = {4.0F, 5.0F, 25.0F, 25.0F};
     context->PushAxisAlignedClip(
         &scene_outer_clip,
+        D2D1_ANTIALIAS_MODE_ALIASED);
+    context->SetTransform(D2D1::Matrix3x2F(1.0F, 0.5F, 0.0F, 1.0F, 2.0F, 3.0F));
+    context->PushAxisAlignedClip(
+        &clip_fractional,
         D2D1_ANTIALIAS_MODE_PER_PRIMITIVE);
+    context->SetTransform(D2D1::Matrix3x2F::Identity());
+    context->PushAxisAlignedClip(&clip_child, D2D1_ANTIALIAS_MODE_ALIASED);
     context->FillRectangle(&scene_fill, solid_brush.Get());
+    context->FillRectangle(&scene_fill, solid_brush.Get());
+    context->PopAxisAlignedClip();
+    context->PopAxisAlignedClip();
     context->PopAxisAlignedClip();
     command_tag1 = 0U;
     command_tag2 = 0U;
@@ -6385,13 +6447,27 @@ int main()
             0U,
             &antialiased_clip_scene,
             &native_hresult) ==
-            PROGPU_NATIVE_DIRECT2D_STATUS_INTERFACE_NOT_SUPPORTED &&
-            native_hresult == E_NOTIMPL &&
+            PROGPU_NATIVE_DIRECT2D_STATUS_INSUFFICIENT_BUFFER &&
+            native_hresult == HRESULT_FROM_WIN32(ERROR_INSUFFICIENT_BUFFER) &&
             antialiased_clip_scene.failure_reason ==
-                PROGPU_NATIVE_DIRECT2D_SCENE_STREAM_FAILURE_UNSUPPORTED_STATE &&
-            antialiased_clip_scene.failure_callback_index != 0U &&
-            antialiased_clip_scene.written_bytes == 0U,
-        "per-primitive Direct2D clip antialiasing did not fail closed");
+                PROGPU_NATIVE_DIRECT2D_SCENE_STREAM_FAILURE_NONE &&
+            antialiased_clip_scene.failure_callback_index == 0U &&
+            antialiased_clip_scene.written_bytes == 0U &&
+            antialiased_clip_scene.translated_draw_count == 2U &&
+            (antialiased_clip_scene.flags &
+                PROGPU_NATIVE_DIRECT2D_SCENE_STREAM_FLAG_HAS_AXIS_ALIGNED_CLIPS) != 0U,
+        "per-primitive Direct2D clip scene measure failed");
+    std::vector<std::byte> antialiased_clip_stream(
+        static_cast<size_t>(antialiased_clip_scene.required_bytes));
+    require(
+        progpu_native_direct2d_command_list_build_scene_stream(
+            surface, antialiased_clip_list.Get(), 7003U, 1U,
+            antialiased_clip_stream.data(), antialiased_clip_stream.size(),
+            &antialiased_clip_scene, &native_hresult) == PROGPU_NATIVE_DIRECT2D_STATUS_SUCCESS &&
+            native_hresult == S_OK &&
+            antialiased_clip_scene.written_bytes == antialiased_clip_stream.size() &&
+            progpu::native::direct2d::tests::grouped_axis_clip_contract(antialiased_clip_stream),
+        "Windows and portable Direct2D grouped AA clip contracts diverged");
 
     ComPtr<IDWriteRenderingParams> text_rendering_params;
     require(SUCCEEDED(dwrite_factory->CreateRenderingParams(

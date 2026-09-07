@@ -6455,8 +6455,9 @@ public:
         if (!finite_rectangle(rectangle)) {
             return fail_invalid_value();
         }
-        if (antialias_mode != D2D1_ANTIALIAS_MODE_ALIASED) {
-            return fail_unsupported_state();
+        if (antialias_mode != D2D1_ANTIALIAS_MODE_ALIASED &&
+            antialias_mode != D2D1_ANTIALIAS_MODE_PER_PRIMITIVE) {
+            return fail_invalid_value();
         }
         if (clip_depth_ == clip_stack_.size() ||
             scope_depth_ == scope_stack_.size()) {
@@ -6476,18 +6477,45 @@ public:
                 return fail_invalid_value();
             }
         }
-        progpu_native_scene_state state =
-            progpu::native::semantic_scene_builder::identity_state();
-        state.flags = PROGPU_NATIVE_SCENE_STATE_CLIP_RECT;
-        state.clip_rect = clip;
-        uint32_t state_index = PROGPU_NATIVE_SCENE_NO_INDEX;
-        if (!builder_.add_state(state, state_index) ||
-            !builder_.save(state_index)) {
-            return fail_builder();
+        uint8_t scope = scope_axis_aligned_clip;
+        if (antialias_mode == D2D1_ANTIALIAS_MODE_ALIASED) {
+            auto state = progpu::native::semantic_scene_builder::identity_state();
+            state.flags = PROGPU_NATIVE_SCENE_STATE_CLIP_RECT;
+            state.clip_rect = clip;
+            uint32_t state_index = PROGPU_NATIVE_SCENE_NO_INDEX;
+            if (!builder_.add_state(state, state_index) ||
+                !builder_.save(state_index)) {
+                return fail_builder();
+            }
+        } else {
+            // Original portable Direct2D lowering: clip the transformed AABB,
+            // then apply edge coverage once to the group at PopAxisAlignedClip.
+            // Do not apply the fractional mask independently to each draw.
+            progpu_native_scene_layer_mask mask{};
+            mask.bounds = clip;
+            mask.transform = {1.0F, 0.0F, 0.0F, 1.0F, 0.0F, 0.0F};
+            mask.opacity = 1.0F;
+            uint32_t mask_resource_index = PROGPU_NATIVE_SCENE_NO_INDEX;
+            if (!builder_.add_rounded_rectangle_mask(mask, mask_resource_index)) {
+                return fail_builder();
+            }
+            const progpu_native_scene_layer layer{
+                sizeof(progpu_native_scene_layer),
+                PROGPU_NATIVE_SCENE_LAYER_BOUNDS,
+                clip,
+                1.0F,
+                PROGPU_NATIVE_BLEND_SRC_OVER,
+                mask_resource_index,
+                PROGPU_NATIVE_SCENE_NO_INDEX,
+                0U, 0U, 0U, 0U};
+            if (!builder_.push_layer(layer)) {
+                return fail_builder();
+            }
+            scope = scope_antialiased_axis_clip;
         }
         clip_stack_[clip_depth_] = clip;
         ++clip_depth_;
-        scope_stack_[scope_depth_] = scope_axis_aligned_clip;
+        scope_stack_[scope_depth_] = scope;
         ++scope_depth_;
         has_axis_aligned_clips_ = true;
         return S_OK;
@@ -6523,11 +6551,6 @@ public:
         if (parameters->layerOptions != D2D1_LAYER_OPTIONS1_NONE) {
             return fail_unsupported_state();
         }
-        if (parameters->geometricMask != nullptr &&
-            parameters->maskAntialiasMode !=
-                D2D1_ANTIALIAS_MODE_PER_PRIMITIVE) {
-            return fail_unsupported_state();
-        }
         if (scope_depth_ == scope_stack_.size()) {
             return fail_capacity_exceeded();
         }
@@ -6548,6 +6571,7 @@ public:
             const HRESULT mask_hr = add_geometric_layer_mask(
                 parameters->geometricMask,
                 parameters->maskTransform,
+                parameters->maskAntialiasMode,
                 parameters->opacityBrush,
                 parameters->contentBounds,
                 mask_resource_index,
@@ -6612,10 +6636,13 @@ public:
             return fail_drawing_state();
         }
         if (clip_depth_ == 0U || scope_depth_ == 0U ||
-            scope_stack_[scope_depth_ - 1U] != scope_axis_aligned_clip) {
+            (scope_stack_[scope_depth_ - 1U] != scope_axis_aligned_clip &&
+                scope_stack_[scope_depth_ - 1U] != scope_antialiased_axis_clip)) {
             return fail_drawing_state();
         }
-        if (!builder_.restore()) {
+        const bool antialiased =
+            scope_stack_[scope_depth_ - 1U] == scope_antialiased_axis_clip;
+        if (!(antialiased ? builder_.pop_layer() : builder_.restore())) {
             return fail_builder();
         }
         --clip_depth_;
@@ -7390,6 +7417,7 @@ private:
     HRESULT add_geometric_layer_mask(
         ID2D1Geometry* geometry,
         const D2D1_MATRIX_3X2_F& mask_transform,
+        D2D1_ANTIALIAS_MODE mask_antialias_mode,
         ID2D1Brush* opacity_brush,
         const D2D1_RECT_F& content_bounds,
         uint32_t& resource_index,
@@ -7463,7 +7491,7 @@ private:
                 target_transform._31,
                 target_transform._32},
             path_sink->fill_rule(),
-            8U,
+            mask_antialias_mode == D2D1_ANTIALIAS_MODE_ALIASED ? 1U : 8U,
             PROGPU_NATIVE_CLIP_INTERSECT,
             0U};
         if (opacity_brush == nullptr) {
@@ -8351,6 +8379,7 @@ private:
     static constexpr uint8_t scope_none = 0U;
     static constexpr uint8_t scope_axis_aligned_clip = 1U;
     static constexpr uint8_t scope_opacity_layer = 2U;
+    static constexpr uint8_t scope_antialiased_axis_clip = 3U;
     std::array<uint8_t, PROGPU_NATIVE_SCENE_MAX_STACK_DEPTH> scope_stack_{};
     std::vector<brush_cache_entry> brush_cache_;
     D2D1_ANTIALIAS_MODE antialias_mode_ =

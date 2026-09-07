@@ -9718,6 +9718,25 @@ VM/platform/package, source-verifier and CI qualification remain deferred.
 General curved/terminal cached coverage and full MIL/DirectX/Direct2D/COM/Win2D
 parity remain incomplete.
 
+## Implementation-first checkpoint: Direct2D command-stream antialiasing
+
+The Windows command-list translator now lowers antialiased axis-aligned clips
+to the same retained group mask used by portable C++ Direct2D. Aliased geometric
+layer masks, including geometry plus opacity-brush combinations, retain an
+independent 1x1 coverage grid instead of failing with `E_NOTIMPL`. This supersedes
+the corresponding ABI v34/v40 unsupported cases documented historically above.
+Managed scene mask/path validation now accepts the existing native 1/4/8-grid
+contract. No native ABI or shader changes are required.
+
+See [contracts, original ProGPU provenance, primary research, costs and fixtures](direct2d-command-stream-antialiasing.md).
+Portable/Windows shared clip and paired mask fixtures are authored, not run.
+The Apple Clang C++20 portable fixture compiles/links; the fast build has no
+Windows provider target, so neither that provider nor its Windows fixture has
+compilation evidence from this checkpoint. Final ProGPU.Tests Release compilation
+succeeds with zero warnings/errors. Full renderer and all runtime/image,
+SIMD/performance, VM/platform/package, source-verifier and CI gates remain deferred.
+Main was refreshed with zero missing commits. Full goal parity remains unfinished.
+
 ## Invariants
 
 - No reflection or private managed field scanning in the product bridge.

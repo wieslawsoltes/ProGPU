@@ -4207,8 +4207,49 @@ public class NativeRendererInteropTests
             out _));
     }
 
-    [Fact]
-    public void SemanticSceneBuilderWritesBooleanVectorMaskWithoutAllocation()
+    [Theory]
+    [InlineData(0U)]
+    [InlineData(2U)]
+    [InlineData(3U)]
+    [InlineData(16U)]
+    [InlineData(uint.MaxValue)]
+    public void SemanticSceneBuilderRejectsUndeclaredPathAndMaskSampleGrids(uint sampleGrid)
+    {
+        Span<byte> destination = stackalloc byte[4096];
+        Span<NativePathSegment> segments = stackalloc NativePathSegment[3]
+        {
+            new(NativePathSegmentKind.Line, Vector2.Zero, Vector2.UnitX),
+            new(NativePathSegmentKind.Line, Vector2.UnitX, Vector2.UnitY),
+            new(NativePathSegmentKind.Line, Vector2.UnitY, Vector2.Zero)
+        };
+        Span<NativeScenePathFill> fills = stackalloc NativeScenePathFill[1];
+        fills[0] = new NativeScenePathFill(0U, 3U, Vector2.Zero, Vector2.One,
+            Vector4.One, Matrix3x2.Identity, NativeFillRule.NonZero, sampleGrid);
+        var builder = new NativeSceneStreamBuilder(destination, 1U, 1U,
+            commandCapacity: 0, resourceCapacity: 1);
+        Assert.False(builder.TryAddPathResource(1U, 1U, fills, segments, out uint resourceIndex));
+        Assert.Equal(uint.MaxValue, resourceIndex);
+
+        Span<NativeSceneClipPath> paths = stackalloc NativeSceneClipPath[1];
+        paths[0] = new NativeSceneClipPath(0U, 3U, Vector2.Zero, Vector2.One,
+            Matrix3x2.Identity, sampleGrid: sampleGrid);
+        int pathBytes = Unsafe.SizeOf<NativeSceneClipPath>();
+        Span<byte> auxiliary = stackalloc byte[pathBytes + 3 * Unsafe.SizeOf<NativePathSegment>()];
+        MemoryMarshal.AsBytes(paths).CopyTo(auxiliary);
+        MemoryMarshal.AsBytes(segments).CopyTo(auxiliary[pathBytes..]);
+        var mask = new NativeSceneLayerVectorMask(1U, 3U, 1f);
+        builder = new NativeSceneStreamBuilder(destination, 1U, 1U,
+            commandCapacity: 0, resourceCapacity: 1);
+        Assert.False(builder.TryAddLayerVectorMaskResource(1U, 1U, in mask,
+            auxiliary, out resourceIndex));
+        Assert.Equal(uint.MaxValue, resourceIndex);
+    }
+
+    [Theory]
+    [InlineData(1U)]
+    [InlineData(4U)]
+    [InlineData(8U)]
+    public void SemanticSceneBuilderWritesBooleanVectorMaskWithoutAllocation(uint sampleGrid)
     {
         Span<byte> destination = stackalloc byte[4096];
         Span<NativeSceneClipPath> paths = stackalloc NativeSceneClipPath[1];
@@ -4272,7 +4313,7 @@ public class NativeRendererInteropTests
             new Vector2(2f, 2f),
             new Vector2(30f, 24f),
             new Matrix3x2(1f, 0.1f, -0.05f, 1f, 3f, 4f),
-            sampleGrid: 4U,
+            sampleGrid: sampleGrid,
             booleanNodeCount: 3U);
         var mask = new NativeSceneLayerVectorMask(1U, 6U, 0.8f, 3U);
         int pathBytes = Unsafe.SizeOf<NativeSceneClipPath>();
@@ -5352,8 +5393,11 @@ public class NativeRendererInteropTests
             1U, 1U, paths, segments, out _));
     }
 
-    [Fact]
-    public void SemanticSceneBuilderWritesTypedMixedPayloadsWithoutAllocation()
+    [Theory]
+    [InlineData(1U)]
+    [InlineData(4U)]
+    [InlineData(8U)]
+    public void SemanticSceneBuilderWritesTypedMixedPayloadsWithoutAllocation(uint sampleGrid)
     {
         Span<byte> destination = stackalloc byte[4096];
         Span<NativeAnalyticPrimitive> analytic = stackalloc NativeAnalyticPrimitive[1];
@@ -5380,7 +5424,7 @@ public class NativeRendererInteropTests
             new Vector4(1f),
             Matrix3x2.Identity,
             NativeFillRule.NonZero,
-            sampleGrid: 4);
+            sampleGrid: sampleGrid);
         outlines[0] = new NativeSceneGlyphOutline(
             0,
             1,
