@@ -2676,6 +2676,7 @@ public class GpuPicture :
     private readonly RetainedResourceLease[] _retainedResources;
     private bool _disposed;
 
+    internal bool IsDisposed => _disposed;
     public int RetainedResourceCount => _retainedResources.Length;
     internal int ImageEffectCount => _imageEffectBuffer.Length;
     internal GpuPictureCommandCollection RetainedCommands =>
@@ -4855,6 +4856,17 @@ public class DrawingContext :
             Visual = visual,
             Transform = transform
         });
+    }
+
+    /// <summary>
+    /// Records a reference to one shared cached source. The caller owns its
+    /// lifetime and serializes updates with rendering. Recording is O(1), adds
+    /// one command and performs no rasterization or pixel transfer.
+    /// </summary>
+    public void DrawCachedPicture(CachedPicture picture, Matrix4x4 transform = default)
+    {
+        ArgumentNullException.ThrowIfNull(picture);
+        DrawVisual(picture.GetVisual(), transform);
     }
 
     private void RetainPictureResources(GpuPicture picture)

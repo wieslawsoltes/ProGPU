@@ -1639,6 +1639,9 @@ public unsafe partial class Compositor : IDisposable
     public static float DefaultTextContrast = 1.15f;
     public static bool IsCacheAsLayerEnabled { get; set; } = true;
 
+    private static bool UsesLayerCache(Visual visual) =>
+        visual.CacheAsLayer && (IsCacheAsLayerEnabled || visual.RequiresLayerCache);
+
     public int VectorVertexCount => _vectorVerticesList.Count;
     public List<VectorVertex> VectorVertices => _vectorVerticesList;
     public List<uint> VectorIndices => _vectorIndicesList;
@@ -4713,8 +4716,7 @@ SceneStateUploadComplete:
                     || !ReferenceEquals(owner.LayerTexture, texture)
                     || !_activeLayerTextureOwners.Contains(owner)
                     || !owner.IsVisible
-                    || !owner.CacheAsLayer
-                    || !IsCacheAsLayerEnabled
+                    || !UsesLayerCache(owner)
                     || !IsAttachedToAnyActiveRoot(owner, mainRoot, externalLayers, activeToolTip))
                 {
                     AddRemovalItem(ref stale, ref staleCount, _allocatedLayerTextures.Count, owner);
@@ -5356,7 +5358,7 @@ SceneStateUploadComplete:
             return;
         }
 
-        if (node.CacheAsLayer && IsCacheAsLayerEnabled && !_elementsRenderingLayers.Contains(node))
+        if (UsesLayerCache(node) && !_elementsRenderingLayers.Contains(node))
         {
             ApplyAndDrawLayer(node, parentTransform);
             return;
@@ -6260,8 +6262,7 @@ SceneStateUploadComplete:
                 continue;
             }
 
-            if (visual.CacheAsLayer &&
-                IsCacheAsLayerEnabled &&
+            if (UsesLayerCache(visual) &&
                 !_elementsRenderingLayers.Contains(visual))
             {
                 EnsureLayerTexture(visual);
@@ -16154,10 +16155,11 @@ SceneStateUploadComplete:
                     logicalRenderWidth,
                     logicalRenderHeight,
                     node.LayerTexture,
-                    0f,
+                    Vector2.Zero,
                     rasterScale,
                     includeRootTransform: false,
-                    includeRootVisualState: false);
+                    includeRootVisualState: false,
+                    logicalExtent: node.RequiresLayerCache ? node.Size : null);
             }
             finally
             {
@@ -16760,7 +16762,8 @@ SceneStateUploadComplete:
         Vector4? clearColor = null,
         bool loadExistingContents = false,
         bool includeRootTransform = true,
-        bool includeRootVisualState = true)
+        bool includeRootVisualState = true,
+        Vector2? logicalExtent = null)
     {
         _compiledSceneReusable = false;
         lock (_offscreenRenderLock)
@@ -16797,7 +16800,8 @@ SceneStateUploadComplete:
                             clearColor,
                             loadExistingContents,
                             includeRootTransform,
-                            includeRootVisualState);
+                            includeRootVisualState,
+                            logicalExtent);
                         break;
                     }
                     catch (PathAtlasCapacityExceededException)
@@ -16842,7 +16846,8 @@ SceneStateUploadComplete:
         Vector4? clearColor,
         bool loadExistingContents,
         bool includeRootTransform,
-        bool includeRootVisualState)
+        bool includeRootVisualState,
+        Vector2? logicalExtent)
     {
         long totalStartTimestamp = System.Diagnostics.Stopwatch.GetTimestamp();
         using var currentContextScope = WgpuContext.PushCurrent(_context);
@@ -16866,10 +16871,12 @@ SceneStateUploadComplete:
             ResetIncrementalScenePageFrameMetrics();
         }
 
-        // 1. Calculate orthographic projection matrix for offscreen
+        // Cached source geometry keeps exact logical extents even though texture
+        // allocation and frame bookkeeping use integer pixel dimensions.
+        Vector2 projectionExtent = logicalExtent ?? new Vector2(width, height);
         var projection = new Matrix4x4(
-            2.0f / width, 0f, 0f, 0f,
-            0f, -2.0f / height, 0f, 0f,
+            2.0f / projectionExtent.X, 0f, 0f, 0f,
+            0f, -2.0f / projectionExtent.Y, 0f, 0f,
             0f, 0f, 1f, 0f,
             -1.0f, 1.0f, 0f, 1.0f
         );

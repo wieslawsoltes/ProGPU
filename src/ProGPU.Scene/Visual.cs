@@ -362,6 +362,10 @@ public class Visual
         }
     }
 
+    // Required cached sources must not become direct vector replay when the
+    // optional visual-layer optimization is disabled by the host.
+    internal virtual bool RequiresLayerCache => false;
+
     /// <summary>
     /// Gets or sets the raster-resolution multiplier for a cached layer.
     /// A non-positive value suppresses layer rendering.
