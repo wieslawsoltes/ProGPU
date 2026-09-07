@@ -98,6 +98,83 @@ DPI and performance qualification is still required.
 
 ## Implementation-first status
 
+### Smooth cached pens: ellipse and rounded rectangle
+
+`StrokeCoverageGeometry.TryPrepareEllipse` and `TryPrepareRoundedRectangle`
+prepare a closed analytic spine, unchanged normal-width pen, and stroke-relative
+material bounds after the geometry-local affine transform. The outer drawing
+transform remains on the completed coverage mask. WPF typed/local geometry,
+GeometryDrawing, direct commands and raw MIL use the same retained path for
+ordinary/source fill and cached pen, preserving separate material bounds and
+fill-before-stroke order. Direct shapes retain guideline snapping; geometry
+descriptors are not snapped as if they were direct shapes. Invalid pens remain
+partial/unsupported even when the independent fill can be recorded.
+
+Original-source provenance: the bounds algorithm ports ProGPU
+`src/ProGPU.Native/src/Mil/progpu_native_mil.cpp` at `bd359d4c`, specifically
+`try_transformed_cubic_contour_stroke_bounds`,
+`try_transformed_ellipse_stroke_bounds` and
+`try_transformed_rounded_rectangle_stroke_bounds`, into
+`src/ProGPU.Scene/StrokeCoverageGeometry.Smooth.cs`. It reuses the previously
+ported intrinsic closed-join/cubic-extrema helpers and existing
+`PrimitivePathGeometry` analytic arc factories. No third-party implementation
+source is copied. The managed bounds specialization uses identity post-widen
+world space because the mask separately carries the outer transform. Ellipse
+control coordinates preserve the native source float rounding; rounded-corner
+controls and subsequent bounds work use double precision. WPF descriptors narrow
+to the shared float scene boundary before this smooth preparer; this does not
+claim arbitrary-double geometry precision or bitwise cross-backend equivalence.
+
+The native and managed walkers both skip exact zero-length straight connectors
+created when corner radii clamp to half an extent. Tiny nonzero tangents still
+fail the original finite/length preflight. Dashed, fixed/hairline, degenerate,
+singular and general packed-path strokes remain open. The existing primitive
+factory also rejects extents/radii at or below its `0.0001` construction threshold;
+this remains an explicit tiny-shape gap, not successful empty coverage. Zero pen
+width on otherwise supported geometry returns an owned spine and empty ink.
+
+Cost: four source cubics for ellipses, four cubics plus four connectors for rounded
+rectangles, bounded stack workspace, and at most 1,024 dyadic subdivisions per
+cubic. Adaptive stepping/normalization decisions and bounds reductions are
+sequential dependencies. Independent x/y arithmetic uses `Vector128<double>`;
+there is no whole-buffer scalar pixel loop. Returned analytic geometry owns
+O(1) segments; no sampled-polyline array is retained. Recording adds one stroke
+mask and one leased source draw, not per-sample GPU calls or CPU readback. GPU
+execution policy, shaders, submission model and public C ABI are unchanged.
+
+Primary contract/architecture research refreshed for this port:
+
+- [SkPaint](https://api.skia.org/classSkPaint.html) and
+  [Direct2D widened bounds](https://learn.microsoft.com/en-us/windows/win32/direct2d/id2d1geometry-getwidenedbounds):
+  preserve explicit pen semantics and transformation order; reject fill-bound
+  inflation as the general stroke oracle.
+- [Win2D command lists](https://microsoft.github.io/Win2D/WinUI3/html/T_Microsoft_Graphics_Canvas_CanvasCommandList.htm),
+  [WebRender](https://firefox-source-docs.mozilla.org/gfx/RenderingOverview.html),
+  and [Vello scenes](https://docs.rs/vello/latest/vello/struct.Scene.html): retain
+  reusable geometry/material separation and lazy recording. No eager pipelines,
+  new worker scheduler, altered culling, or cache-eviction algorithm is introduced.
+- [Parley layout](https://docs.rs/parley/latest/parley/layout/struct.Layout.html)
+  and [HarfBuzz plans](https://harfbuzz.github.io/shaping-plans-and-caching.html):
+  keep reusable text results outside geometric stroke preparation. Shaping,
+  fallback/variable fonts, DPI/hinting, glyph keys, upload and device-loss policy
+  are unchanged, not reimplemented by this geometry port.
+
+Authored fixtures: `SmoothStrokeCoverageTests` checks independent axis-extrema
+bounds, reflection, source ownership, analytic arcs, zero-width and rejected
+state. Native `bitmap_cache_brush_strokes_retain_coverage_and_shared_source`
+adds matching ellipse/rounded/clamped affine material mappings. WPF
+`SmoothCachedPenReplayTests` records typed/local geometry, direct object commands
+and raw MIL while checking shared path identity, bounds and source mapping.
+These fixtures are compilation-only in the implementation-first phase. Runtime
+and image differentials, scalar/SIMD qualification, Instruments, benchmarks,
+Svg.Skia, package/VM/platform and PR CI gates remain required and deferred.
+There is no measured speed claim or declaration of complete parity.
+
+Compilation checkpoint (2026-09-07): ProGPU.Tests Release succeeds with zero
+warnings/errors; native `progpu_native_mil_tests` builds under Apple Clang.
+`origin/main` was refreshed and contains no commits missing from the feature
+branch. The source verifier and all fixture execution remain deferred.
+
 ### Affine RectangleGeometry and shared native-path fills
 
 Cached pens now reach `RectangleGeometry`/`GeometryDrawing` through typed primitive

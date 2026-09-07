@@ -202,6 +202,14 @@ Cross-assembly WPF bridge contracts must not expose shim-owned WPF structs or cl
 
 ### A. Rendering Quality & DPI-Aware Text Snapping
 
+Smooth cached ellipse/rounded pens must preserve analytic spines and share the
+original native adaptive cubic support algorithm for material bounds. Keep x/y
+work intrinsic, fixed source storage bounded, geometry-local transforms before
+widening and outer transforms on completed coverage. Exact zero-length straight
+connectors caused by half-extent radius clamping do not break adjacent arcs;
+nonzero degeneracy must not be silently discarded. Keep matched native/managed
+fixtures and never substitute fill-bound inflation or sampled retained polylines.
+
 Affine rectangle descriptors must publish all four double-coordinate corners
 transactionally into caller-owned spans, with no partial output or tail writes.
 Shared convex-quadrilateral stroke preparation must validate every corner even

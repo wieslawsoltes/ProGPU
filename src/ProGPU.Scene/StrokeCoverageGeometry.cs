@@ -7,7 +7,7 @@ using ProGPU.Vector;
 namespace ProGPU.Scene;
 
 /// <summary>Prepares retained stroke coverage and material bounds without a device.</summary>
-public static class StrokeCoverageGeometry
+public static partial class StrokeCoverageGeometry
 {
     /// <summary>
     /// Prepares a solid, normal-width rectangle after its geometry-local affine

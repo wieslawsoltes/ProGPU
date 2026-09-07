@@ -20176,6 +20176,35 @@ bool bitmap_cache_brush_strokes_retain_coverage_and_shared_source() {
         PROGPU_REQUIRE(std::abs(composite.transform.m32 - 20.6F) < 0.0001F);
     }
     PROGPU_REQUIRE(consumers == 2U);
+    // Matched SmoothStrokeCoverageTests: local affine precedes normal-width
+    // widening. Half-extent radii create zero-length straight connectors.
+    for (const bool ellipse : {false, true}) {
+        for (const auto radii : {std::array{3.0, 2.0}, std::array{12.0, 2.0},
+                std::array{3.0, 6.0}, std::array{12.0, 6.0}, std::array{100.0, 100.0}}) {
+            std::vector<std::byte> smooth_commands, smooth_replay;
+            append_create(smooth_commands, 460U, ellipse ? 70U : 69U);
+            append_create(smooth_commands, 461U, 66U);
+            append_command(smooth_commands, command::matrix_transform, 461U,
+                2.0, 0.0, 0.0, 0.5, 3.0, 4.0, 0U);
+            if (ellipse) {
+                append_command(smooth_commands, command::ellipse_geometry, 460U,
+                    12.0, 6.0, 20.0, 14.0, 461U, 0U, 0U, 0U);
+            } else {
+                append_command(smooth_commands, command::rectangle_geometry, 460U,
+                    radii[0], radii[1], 8.0, 8.0, 24.0, 12.0, 461U, 0U, 0U, 0U);
+            }
+            append_command(smooth_replay, command::draw_geometry, 0U, 20U, 460U, 0U);
+            append_render_data(smooth_commands, 2U, smooth_replay);
+            mapped.source_visual_commands = smooth_commands;
+            PROGPU_REQUIRE(build_mil_image_brush_fixture(scene, mapped, 8131U));
+            PROGPU_REQUIRE(try_get_cached_layer(scene, source));
+            PROGPU_REQUIRE(try_get_state_resource(scene, source.reserved0, composite));
+            // Widened spine [17,6..69,16], anchored half-scale source [10,20].
+            PROGPU_REQUIRE(std::abs(composite.transform.m31 - 26.5F) < 0.02F);
+            PROGPU_REQUIRE(std::abs(composite.transform.m32 - 15.5F) < 0.02F);
+            if (ellipse) break;
+        }
+    }
     return true;
 }
 

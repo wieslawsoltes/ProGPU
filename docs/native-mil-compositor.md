@@ -9572,6 +9572,22 @@ for provenance, costs, research and authored fixtures. General path, rounded,
 ellipse, dash, degenerate and live native-picture transport work remains open;
 validation is still deferred, not waived.
 
+## Implementation-first checkpoint: shared smooth cached pen preparation
+
+Managed ellipse and rounded-rectangle cached pens now port the original native
+MIL adaptive cubic stroke-bounds algorithm into shared intrinsic preparation.
+WPF typed/local geometry and direct/raw command consumers share one analytic
+fill/stroke path. Both bounds walkers skip exact collapsed straight connectors
+between clamped rounded corners. Matched managed/native fixtures are authored;
+the coverage ledger source digest was regenerated without changing command counts.
+See [smooth cached pens](cached-pictures.md#smooth-cached-pens-ellipse-and-rounded-rectangle)
+for source provenance, CPU/GPU costs, research, precision limits and deferred gates.
+This does not close dashed/degenerate/general path consumers or live native
+picture transport. Compilation is not rendering/parity qualification.
+
+Release compilation: ProGPU.Tests 0 warnings/errors and native MIL fixture
+target built. Tests, source verifier and CI qualification were not executed.
+
 ## Invariants
 
 - No reflection or private managed field scanning in the product bridge.

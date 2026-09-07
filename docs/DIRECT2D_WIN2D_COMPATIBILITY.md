@@ -4919,3 +4919,13 @@ material bounds; native MIL gains a paired GeometryDrawing/shared-page fixture.
 No COM/Win2D API, C++ product or ABI surface changed. Packed paths, broader shape
 pens and final qualification remain open. See
 [affine rectangle consumers](cached-pictures.md#affine-rectanglegeometry-and-shared-native-path-fills).
+
+### Implementation-first checkpoint: smooth cached pen producers
+
+Shared managed ellipse/rounded stroke preparation now ports original native MIL
+adaptive bounds and retains analytic geometry for cached source coverage. C++ and
+C# skip exact collapsed straight connectors at clamped rounded corners. WPF
+producer routing and paired fixtures are included; no new COM/Win2D methods,
+shader or public C ABI are introduced. Dashed/degenerate/general path work,
+live native picture transport and full qualification remain open. See
+[smooth cached pens](cached-pictures.md#smooth-cached-pens-ellipse-and-rounded-rectangle).

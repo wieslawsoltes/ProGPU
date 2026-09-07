@@ -1018,6 +1018,12 @@ bool try_transformed_cubic_contour_stroke_bounds(
                 cubic[3U][1U] - cubic[0U][1U]};
             const double tangent_length = std::hypot(
                 tangent[0U], tangent[1U]);
+            // Rounded-rectangle radii clamped to half an extent leave exact
+            // zero-length straight spans between smooth arcs. They carry no
+            // extra stroke support and must not reject a capsule/oval contour.
+            if (tangent[0U] == 0.0 && tangent[1U] == 0.0) {
+                continue;
+            }
             if (!std::isfinite(tangent_length) ||
                 tangent_length <= 0.000001) {
                 return false;
