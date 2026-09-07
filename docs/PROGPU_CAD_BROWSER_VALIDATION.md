@@ -52,7 +52,8 @@ packaging test, or DWG browser certification.
 
 Local validation on 2026-09-08: 1,539/1,539 Release CAD tests passed; the
 normal-workload-resolver AOT publish completed native linking; Chrome with
-SwiftShader passed the complete smoke, including all 15 model-space entity types
+hardware rendering and with SwiftShader passed the complete smoke, including all
+15 model-space entity types
 after reopen/resave and a 2880x1800 physical framebuffer. Screenshots were
 visually inspected. Submitted-frame/command counters are liveness evidence only,
 not performance measurements.

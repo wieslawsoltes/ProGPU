@@ -37,6 +37,23 @@ await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
 let browser;
 let page;
 const errors = [];
+async function clickUntilEvent(eventName, x, y, timeout = 30_000) {
+  let observed;
+  let failure;
+  const pending = page.waitForEvent(eventName, { timeout }).then(
+    value => { observed = value; },
+    error => { failure = error; });
+  const deadline = Date.now() + timeout;
+  // File operations re-enable the toolbar after their asynchronous completion,
+  // which can be later than the browser's download/filechooser event.
+  while (!observed && !failure && Date.now() < deadline) {
+    await page.mouse.click(x, y);
+    await Promise.race([pending, new Promise(resolve => setTimeout(resolve, 500))]);
+  }
+  await pending;
+  if (failure) throw failure;
+  return observed;
+}
 try {
   const args = ['--enable-unsafe-webgpu'];
   if (process.env.PROGPU_CAD_BROWSER_USE_SWIFTSHADER === '1') args.push('--use-angle=swiftshader');
@@ -74,9 +91,7 @@ try {
   }
   await fs.writeFile(path.join(evidence, 'zoomed.png'), afterZoom);
   assert.ok(!afterZoom.equals(beforeZoom), 'Wheel input did not change the CAD drawing.');
-  const downloadPromise = page.waitForEvent('download', { timeout: 60_000 });
-  await page.mouse.click(650, 22); // Save As, in the sample's first command row.
-  const download = await downloadPromise;
+  const download = await clickUntilEvent('download', 650, 22, 60_000); // Save As.
   assert.match(download.suggestedFilename(), /\.dxf$/i);
   const savedDrawing = path.join(evidence, 'roundtrip.dxf');
   await download.saveAs(savedDrawing);
@@ -108,22 +123,11 @@ try {
   const savedTypes = modelEntityTypes(await fs.readFile(savedDrawing));
   assert.equal(savedTypes.length, 15, 'The sample lost an entity during serialization.');
   assert.ok(savedTypes.includes('IMAGE'), 'The sample raster image was not serialized.');
-  const chooserPromise = page.waitForEvent('filechooser', { timeout: 30_000 });
-  await page.mouse.click(70, 22); // Open DXF/DWG.
-  await (await chooserPromise).setFiles(savedDrawing);
+  const chooser = await clickUntilEvent('filechooser', 70, 22); // Open DXF/DWG.
+  await chooser.setFiles(savedDrawing);
   // Saving is disabled while the document loads. Retry the button until the
   // load completes, then verify the new session name and entity inventory.
-  let reopenedDownload;
-  const reopenedPromise = page.waitForEvent('download', { timeout: 30_000 })
-    .then(value => { reopenedDownload = value; });
-  // Attach rejection immediately so a timeout cannot become unhandled while
-  // the bounded interaction loop is running.
-  reopenedPromise.catch(() => {});
-  for (let attempt = 0; attempt < 30 && !reopenedDownload; attempt++) {
-    await page.mouse.click(650, 22);
-    await new Promise(resolve => setTimeout(resolve, 500));
-  }
-  await reopenedPromise;
+  const reopenedDownload = await clickUntilEvent('download', 650, 22);
   assert.equal(reopenedDownload.suggestedFilename(), 'roundtrip.dxf',
     'Open did not replace the current document.');
   const reopenedDrawing = path.join(evidence, 'reopened.dxf');
