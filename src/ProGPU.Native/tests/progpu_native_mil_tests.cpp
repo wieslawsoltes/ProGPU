@@ -19684,6 +19684,84 @@ bool canonical_tile_brush_packets_are_transactional_and_typed() {
     return true;
 }
 
+bool bitmap_cache_brush_ingress_is_typed_and_transactional() {
+    using layout = command_layouts::bitmap_cache_brush;
+    const auto frame = [](const std::vector<std::byte>& packet) {
+        std::vector<std::byte> bytes;
+        append_value(bytes, static_cast<std::uint32_t>(packet.size() + 4U));
+        bytes.insert(bytes.end(), packet.begin(), packet.end());
+        return bytes;
+    };
+    channel state;
+    const std::array types{83U, 49U, 66U, 66U, 94U, 39U};
+    std::vector<std::byte> create;
+    for (std::uint32_t index = 0U; index < types.size(); ++index)
+        append_create(create, index + 1U, types[index]);
+    append_command(create, command::visual_create, 6U);
+    PROGPU_REQUIRE(state.apply(create) == status::success);
+    std::vector<std::byte> packet(layout::fixed_size);
+    write_value(packet, 0U, command::bitmap_cache_brush);
+    write_value(packet, layout::handle_offset, 1U);
+    write_value(packet, layout::opacity_offset, 0.75);
+    const std::array offsets{layout::h_opacity_animations_offset, layout::h_transform_offset,
+        layout::h_relative_transform_offset, layout::h_bitmap_cache_offset, layout::h_internal_target_offset};
+    for (std::uint32_t index = 0U; index < offsets.size(); ++index)
+        write_value(packet, offsets[index], index + 2U);
+    batch_metrics metrics{};
+    PROGPU_REQUIRE(state.apply(frame(packet), &metrics) == status::success);
+    PROGPU_REQUIRE(metrics.updated_resource_count == 1U);
+    const auto generation = state.resource_generation(1U);
+    for (const double opacity : {std::numeric_limits<double>::quiet_NaN(),
+        std::numeric_limits<double>::infinity(), -0.01, 1.01}) {
+        auto invalid = packet;
+        write_value(invalid, layout::opacity_offset, opacity);
+        auto transaction = frame(packet);
+        const auto tail = frame(invalid);
+        transaction.insert(transaction.end(), tail.begin(), tail.end());
+        PROGPU_REQUIRE(state.apply(transaction) == status::malformed_batch);
+        PROGPU_REQUIRE(state.resource_generation(1U) == generation);
+    }
+    for (const auto offset : offsets) {
+        auto invalid = packet;
+        write_value(invalid, offset, 1U);
+        PROGPU_REQUIRE(state.apply(frame(invalid)) == status::invalid_handle);
+        PROGPU_REQUIRE(state.resource_generation(1U) == generation);
+    }
+    for (std::uint32_t index = 1U; index < types.size(); ++index) {
+        std::vector<std::byte> remove;
+        append_command(remove, command::channel_delete_resource, index + 1U, types[index]);
+        PROGPU_REQUIRE(state.apply(remove) == status::invalid_graph);
+    }
+    for (const auto size : {layout::fixed_size - 4U, layout::fixed_size + 4U}) {
+        auto invalid = packet;
+        invalid.resize(size);
+        PROGPU_REQUIRE(state.apply(frame(invalid)) == status::malformed_batch);
+    }
+    for (const auto offset : offsets) write_value(packet, offset, 0U);
+    PROGPU_REQUIRE(state.apply(frame(packet)) == status::success);
+    for (std::uint32_t index = 1U; index < types.size(); ++index) {
+        std::vector<std::byte> remove;
+        append_command(remove, command::channel_delete_resource, index + 1U, types[index]);
+        PROGPU_REQUIRE(state.apply(remove) == status::success);
+    }
+    std::vector<std::byte> draw;
+    append_create(draw, 7U, 39U);
+    append_create(draw, 8U, 43U);
+    append_create(draw, 9U, 47U);
+    append_command(draw, command::visual_create, 7U);
+    append_command(draw, command::visual_set_content, 7U, 8U);
+    std::vector<std::byte> nested;
+    append_command(nested, command::draw_rectangle, 0.0, 0.0, 20.0, 20.0, 1U, 0U);
+    append_render_data(draw, 8U, nested);
+    append_command(draw, command::generic_target_create, 9U,
+        std::uint64_t{0U}, std::uint64_t{0U}, 32U, 32U, 0U);
+    append_command(draw, command::target_set_root, 9U, 7U);
+    PROGPU_REQUIRE(state.apply(draw) == status::success);
+    std::vector<std::byte> stream;
+    PROGPU_REQUIRE(state.build_scene(9U, 8118U, 1U, stream) == status::unsupported_command);
+    return true;
+}
+
 bool malformed_and_unsupported_packets_fail_closed() {
     channel state;
     const std::array malformed{
@@ -21113,6 +21191,7 @@ int main() {
     PROGPU_REQUIRE(canonical_viewport3d_scene_uses_wpf_resources());
     PROGPU_REQUIRE(render_data_scope_errors_fail_closed());
     PROGPU_REQUIRE(canonical_tile_brush_packets_are_transactional_and_typed());
+    PROGPU_REQUIRE(bitmap_cache_brush_ingress_is_typed_and_transactional());
     PROGPU_REQUIRE(bitmap_dpi_is_atomic_and_preserves_legacy_bindings());
     PROGPU_REQUIRE(malformed_and_unsupported_packets_fail_closed());
     PROGPU_REQUIRE(c_abi_is_typed_and_size_versioned());

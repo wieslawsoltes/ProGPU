@@ -4714,3 +4714,18 @@ and module consumer compile. Execution, race/lifetime/allocation, VM/images,
 SIMD/performance/Instruments, verifiers and CI qualification remain deferred.
 The native MIL document records costs and remaining budget tuning/replacement
 work; full Direct2D/Win2D parity remains open.
+
+### Implementation-first checkpoint: MIL BitmapCacheBrush ingress
+
+Native MIL now retains the distinct BitmapCacheBrush packet and all five typed
+dependencies; the managed batch builder has a matching DTO/emitter. This closes
+a protocol-ingress gap only. Rendering remains explicitly unsupported pending
+cache selection, root-state suppression and sampled-cache execution. It must not
+be lowered as an ordinary VisualBrush, whose root behavior differs.
+
+The native MIL document records public-contract references and the execution
+design, plus original-code provenance and O(1) ingress costs. Native transactional/
+dependency/fail-closed and managed packet-layout fixtures are authored. Native
+targets and managed backend/test projects compile; runtime/VM/image/performance/
+verifier/CI qualification remains deferred. No public COM or full parity claim
+is made by the increased decoder coverage count.

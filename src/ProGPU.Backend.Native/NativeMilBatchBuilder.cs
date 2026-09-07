@@ -669,6 +669,22 @@ public sealed class NativeMilBatchBuilder
     public void SetVisualBrush(uint handle, NativeMilTileBrush brush, uint visualHandle = 0) =>
         SetTileBrush(NativeMilCommand.VisualBrush, handle, brush, visualHandle);
 
+    /// <summary>Retains a typed BitmapCacheBrush packet; unsupported rendering fails closed.</summary>
+    public void SetBitmapCacheBrush(uint handle, NativeMilBitmapCacheBrush brush)
+    {
+        ValidateHandle(handle);
+        if (!double.IsFinite(brush.Opacity) || brush.Opacity < 0 || brush.Opacity > 1)
+            throw new ArgumentOutOfRangeException(nameof(brush));
+        Span<byte> packet = NativeMilBatchEncoding.Allocate(_writer, NativeMilCommand.BitmapCacheBrush, 36);
+        WriteUInt32(packet, 4, handle);
+        WriteDouble(packet, 8, brush.Opacity);
+        WriteUInt32(packet, 16, brush.OpacityAnimationHandle);
+        WriteUInt32(packet, 20, brush.TransformHandle);
+        WriteUInt32(packet, 24, brush.RelativeTransformHandle);
+        WriteUInt32(packet, 28, brush.BitmapCacheHandle);
+        WriteUInt32(packet, 32, brush.InternalTargetHandle);
+    }
+
     private void SetTileBrush(uint command, uint handle,
         NativeMilTileBrush brush, uint sourceHandle)
     {
@@ -3328,6 +3344,7 @@ internal static class NativeMilCommand
     internal const uint ImageBrush = 0x81;
     internal const uint DrawingBrush = 0x82;
     internal const uint VisualBrush = 0x83;
+    internal const uint BitmapCacheBrush = 0x84;
     internal const uint DashStyle = 0x85;
     internal const uint Pen = 0x86;
     internal const uint GeometryDrawing = 0x87;

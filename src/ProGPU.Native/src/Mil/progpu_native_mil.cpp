@@ -97,6 +97,7 @@ constexpr std::uint32_t type_radial_gradient_brush = 78U;
 constexpr std::uint32_t type_image_brush = 80U;
 constexpr std::uint32_t type_drawing_brush = 81U;
 constexpr std::uint32_t type_visual_brush = 82U;
+constexpr std::uint32_t type_bitmap_cache_brush = 83U;
 constexpr std::uint32_t type_dash_style = 84U;
 constexpr std::uint32_t type_pen = 85U;
 constexpr std::uint32_t type_geometry_drawing = 87U;
@@ -2560,6 +2561,15 @@ struct channel::implementation {
         std::uint32_t source_handle{};
     };
 
+    struct bitmap_cache_brush_state {
+        double opacity{1.0};
+        std::uint32_t opacity_animation{};
+        std::uint32_t transform_handle{};
+        std::uint32_t relative_transform_handle{};
+        std::uint32_t cache_handle{};
+        std::uint32_t target_handle{};
+    };
+
     struct gradient_brush_state {
         enum class kind : std::uint32_t {
             linear,
@@ -2968,6 +2978,7 @@ struct channel::implementation {
     std::unordered_map<std::uint32_t, solid_brush_state> solid_brushes;
     std::unordered_map<std::uint32_t, gradient_brush_state> gradient_brushes;
     std::unordered_map<std::uint32_t, tile_brush_state> tile_brushes;
+    std::unordered_map<std::uint32_t, bitmap_cache_brush_state> bitmap_cache_brushes;
     std::unordered_map<std::uint32_t, dash_style_state> dash_styles;
     std::unordered_map<std::uint32_t, pen_state> pens;
     std::unordered_map<std::uint32_t, geometry_drawing_state>
@@ -3049,7 +3060,8 @@ struct channel::implementation {
              found->second.type == type_radial_gradient_brush ||
              found->second.type == type_image_brush ||
              found->second.type == type_drawing_brush ||
-             found->second.type == type_visual_brush);
+             found->second.type == type_visual_brush ||
+             found->second.type == type_bitmap_cache_brush);
     }
 
     bool require_effect(std::uint32_t handle) const noexcept {
@@ -3060,7 +3072,8 @@ struct channel::implementation {
 
     bool has_brush_state(std::uint32_t handle) const noexcept {
         return solid_brushes.contains(handle) ||
-            gradient_brushes.contains(handle) || tile_brushes.contains(handle);
+            gradient_brushes.contains(handle) || tile_brushes.contains(handle) ||
+            bitmap_cache_brushes.contains(handle);
     }
 
     bool transform_reaches(
@@ -5447,6 +5460,11 @@ struct channel::implementation {
                     return status::invalid_graph;
                 }
             }
+            for (const auto& [brush_handle, brush] : bitmap_cache_brushes) {
+                if (brush_handle != handle && (brush.target_handle == handle || brush.cache_handle == handle ||
+                    brush.opacity_animation == handle || brush.transform_handle == handle ||
+                    brush.relative_transform_handle == handle)) return status::invalid_graph;
+            }
             visuals.erase(handle);
             viewport3d_visuals.erase(handle);
             visuals3d.erase(handle);
@@ -5478,6 +5496,7 @@ struct channel::implementation {
             solid_brushes.erase(handle);
             gradient_brushes.erase(handle);
             tile_brushes.erase(handle);
+            bitmap_cache_brushes.erase(handle);
             dash_styles.erase(handle);
             pens.erase(handle);
             geometry_drawings.erase(handle);
@@ -8990,6 +9009,31 @@ struct channel::implementation {
         case command::visual_brush:
             return apply_tile_brush<command_layouts::visual_brush>(view,
                 type_visual_brush, command_layouts::visual_brush::h_visual_offset, metrics);
+        case command::bitmap_cache_brush: {
+            using layout = command_layouts::bitmap_cache_brush;
+            bitmap_cache_brush_state brush{};
+            if (!has_exact_size(view, layout::fixed_size) ||
+                !read_at(view.packet, layout::handle_offset, handle) ||
+                !read_at(view.packet, layout::opacity_offset, brush.opacity) ||
+                !read_at(view.packet, layout::h_opacity_animations_offset, brush.opacity_animation) ||
+                !read_at(view.packet, layout::h_transform_offset, brush.transform_handle) ||
+                !read_at(view.packet, layout::h_relative_transform_offset, brush.relative_transform_handle) ||
+                !read_at(view.packet, layout::h_bitmap_cache_offset, brush.cache_handle) ||
+                !read_at(view.packet, layout::h_internal_target_offset, brush.target_handle))
+                return status::malformed_batch;
+            if (!require_resource(handle, type_bitmap_cache_brush) ||
+                (brush.opacity_animation != 0U && !require_resource(brush.opacity_animation, type_double_resource)) ||
+                (brush.transform_handle != 0U && !require_transform(brush.transform_handle)) ||
+                (brush.relative_transform_handle != 0U && !require_transform(brush.relative_transform_handle)) ||
+                (brush.cache_handle != 0U && !require_resource(brush.cache_handle, type_bitmap_cache)) ||
+                (brush.target_handle != 0U && !require_visual(brush.target_handle))) return status::invalid_handle;
+            if (!std::isfinite(brush.opacity) || brush.opacity < 0.0 || brush.opacity > 1.0)
+                return status::malformed_batch;
+            bitmap_cache_brushes.insert_or_assign(handle, brush);
+            increment_generation(handle);
+            ++metrics.updated_resource_count;
+            return status::success;
+        }
         case command::solid_color_brush: {
             using layout = command_layouts::solid_color_brush;
             double opacity = 0.0;
@@ -12524,7 +12568,7 @@ struct channel::implementation {
                 result = added;
                 return status::success;
             }
-            if (tile_brushes.contains(brush_handle)) {
+            if (tile_brushes.contains(brush_handle) || bitmap_cache_brushes.contains(brush_handle)) {
                 // Tile sources require a sampled-image/layer brush, not a
                 // gradient-table approximation. The image lowering path owns it.
                 return status::unsupported_command;
@@ -19443,6 +19487,16 @@ struct channel::implementation {
                 append_if_success(brush->second.opacity_animation);
                 append_if_success(brush->second.viewport_animation);
                 append_if_success(brush->second.viewbox_animation);
+            }
+        } else if (resource->second.type == type_bitmap_cache_brush) {
+            const auto brush = bitmap_cache_brushes.find(handle);
+            if (brush == bitmap_cache_brushes.end()) result = status::invalid_handle;
+            else {
+                append_if_success(brush->second.target_handle);
+                append_if_success(brush->second.cache_handle);
+                append_if_success(brush->second.opacity_animation);
+                append_if_success(brush->second.transform_handle);
+                append_if_success(brush->second.relative_transform_handle);
             }
         } else if (is_effect_type(resource->second.type)) {
             const auto effect = effects.find(handle);

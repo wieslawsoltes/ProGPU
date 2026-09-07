@@ -68,6 +68,7 @@ public enum NativeMilResourceType : uint
     ImageBrush = 80,
     DrawingBrush = 81,
     VisualBrush = 82,
+    BitmapCacheBrush = 83,
     DashStyle = 84,
     Pen = 85,
     GeometryDrawing = 87,
@@ -370,6 +371,16 @@ public readonly record struct NativeMilTileBrush(
     uint RelativeTransformHandle = 0,
     uint ViewportAnimationHandle = 0,
     uint ViewboxAnimationHandle = 0);
+
+/// <summary>Canonical cache-brush state; the target is the source-built internal visual.</summary>
+/// <remarks>Protocol retention does not imply that cache-brush rendering is available.</remarks>
+public readonly record struct NativeMilBitmapCacheBrush(
+    uint InternalTargetHandle,
+    uint BitmapCacheHandle = 0,
+    double Opacity = 1.0,
+    uint OpacityAnimationHandle = 0,
+    uint TransformHandle = 0,
+    uint RelativeTransformHandle = 0);
 
 public readonly record struct NativeMilGradientStop(
     double Offset,

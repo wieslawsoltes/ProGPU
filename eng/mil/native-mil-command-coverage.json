@@ -13,15 +13,15 @@
     },
     "decoder": {
       "path": "src/ProGPU.Native/src/Mil/progpu_native_mil.cpp",
-      "sha256": "c05b309e10675e2c624c1c975c585a71b4988ef6ea9b4673d0452a2351ac835e"
+      "sha256": "ca0dbfc5e6e2d70eb0730740f18b8904325cb8faa5bc4e162e41653d2f858fa4"
     }
   },
   "summary": {
     "commandCount": 143,
     "sentinel": 2,
-    "topLevelDecoder": 104,
+    "topLevelDecoder": 105,
     "nestedRenderDataDispatch": 25,
-    "notDispatched": 12
+    "notDispatched": 11
   },
   "commands": [
     {
@@ -951,7 +951,7 @@
       "name": "bitmap_cache_brush",
       "wpfName": "MilCmdBitmapCacheBrush",
       "value": 132,
-      "executionPath": "not-dispatched",
+      "executionPath": "top-level-decoder",
       "layout": "MILCMD_BITMAPCACHEBRUSH"
     },
     {
