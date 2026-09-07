@@ -16,6 +16,10 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <!-- ACadSharp discovers entity/header properties and constructs table records
+         through reflection during document IO. Preserve the dependency's object
+         model in the trimmed browser app until it supplies annotated contracts. -->
+    <TrimmerRootAssembly Include="ACadSharp" />
     <ProjectReference Include="..\ProGPU.Browser\ProGPU.Browser.csproj" />
     <ProjectReference Include="..\ProGPU.CAD.Sample\ProGPU.CAD.Sample.csproj" />
     <ProjectReference Include="..\ProGPU.WinRT\ProGPU.WinRT.csproj" />

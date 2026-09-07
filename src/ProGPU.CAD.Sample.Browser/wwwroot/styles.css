@@ -27,3 +27,24 @@ html, body, #progpu-canvas {
   opacity: .01;
   pointer-events: none;
 }
+
+#diagnostics {
+  position: fixed;
+  z-index: 10;
+  top: 12px;
+  right: 12px;
+  max-width: min(480px, calc(100vw - 24px));
+  max-height: calc(100vh - 24px);
+  overflow: auto;
+  padding: 16px;
+  border: 1px solid currentColor;
+  border-radius: 8px;
+  background: Canvas;
+  color: CanvasText;
+  font: 14px system-ui, sans-serif;
+}
+
+#diagnostics[hidden] { display: none !important; }
+#diagnostics h1 { margin-top: 0; font-size: 18px; }
+#status-detail { white-space: pre-wrap; overflow-wrap: anywhere; }
+#diagnostics dl div { display: flex; justify-content: space-between; gap: 16px; }

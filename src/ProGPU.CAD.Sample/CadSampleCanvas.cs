@@ -12326,6 +12326,9 @@ public sealed class CadSampleCanvas : FrameworkElement
                 Brightness = 55,
                 Contrast = 60,
                 Fade = 12,
+                // IMAGE requires two rectangular boundary corners even when
+                // clipping is disabled; the coordinates describe the 1x1 image.
+                ClipBoundaryVertices = [new XY(-0.5, -0.5), new XY(0.5, 0.5)],
             });
             document.Entities.Add(new Circle(new XYZ(-38, 8, 0), 27));
             document.Entities.Add(new Arc(new XYZ(30, 8, 0), 30, 0.2, 5.1));
