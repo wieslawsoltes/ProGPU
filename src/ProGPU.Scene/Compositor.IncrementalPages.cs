@@ -62,7 +62,9 @@ public unsafe partial class Compositor
         float DpiScale,
         ulong GlyphAtlasGeneration,
         ulong PathAtlasGeneration,
-        bool SolidRoundedSpecialization);
+        bool SolidRoundedSpecialization,
+        bool SuppressClearType,
+        Matrix4x4 Projection);
 
     private readonly record struct IncrementalScenePageLookup(
         Visual Visual,
@@ -186,7 +188,9 @@ public unsafe partial class Compositor
             _atlas.Generation,
             _pathAtlas.Generation,
             _previousSolidRoundedPrimitiveCount >=
-                SolidRoundedSpecializationThreshold);
+                SolidRoundedSpecializationThreshold,
+            _suppressCachedClearType,
+            _currentProjection);
     }
 
     private bool CanUseIncrementalScenePage(Visual node)

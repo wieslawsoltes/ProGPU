@@ -4800,3 +4800,13 @@ from rounded texture allocation. See [cached pictures](cached-pictures.md) for
 ownership, costs and original-code/public-contract provenance. This adds no COM
 interface and does not make Win2D or WPF cache-brush parity complete. WPF capture
 and brush integration and all runtime/CI qualification remain open.
+
+### Implementation-first checkpoint: managed capture policy and cached text
+
+The managed cache source now has typed explicit/target/default selection and
+ProGPU-owned ClearType suppression. LibreWPF can export root-policy source
+pictures and create/update a `CachedPicture` with owned leases. CPU page caches
+separate text policy and projection; precompiled DXF text fails closed when its
+baked policy cannot be suppressed. Tests are authored, not executed. This does
+not add COM APIs or complete Win2D/managed brush consumer integration. See the
+native MIL and cached-picture documents for provenance, costs and open work.

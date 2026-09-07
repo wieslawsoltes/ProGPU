@@ -6,6 +6,45 @@ namespace ProGPU.Tests;
 public sealed class PortableBitmapCacheBrushTests
 {
     [Fact]
+    public void CachePolicySelectsExplicitThenTargetThenDefaultAndIgnoresSnapping()
+    {
+        var targetCache = new CacheSource(new(3, true, false));
+        var target = new VisualSource(new() { HasCacheMode = true, CacheMode = targetCache });
+        Assert.True(PortableBitmapCacheBrushPolicy.TryResolve(new(target), out var policy));
+        Assert.Equal(new PortableBitmapCache(3, false, false), policy);
+        var explicitCache = new CacheSource(new(2, true, true));
+        Assert.True(PortableBitmapCacheBrushPolicy.TryResolve(new(target, explicitCache), out policy));
+        Assert.Equal(new PortableBitmapCache(2, false, true), policy);
+        Assert.True(PortableBitmapCacheBrushPolicy.TryResolve(new(new VisualSource(new())), out policy));
+        Assert.Equal(new PortableBitmapCache(1, false, false), policy);
+        Assert.True(PortableBitmapCacheBrushPolicy.TryResolve(new(null), out policy));
+        Assert.Equal(new PortableBitmapCache(1, false, false), policy);
+    }
+
+    [Fact]
+    public void CachePolicyFailsClosedAndClampsNegativeScale()
+    {
+        Assert.False(PortableBitmapCacheBrushPolicy.TryResolve(new(new object()), out _));
+        Assert.False(PortableBitmapCacheBrushPolicy.TryResolve(new(null, new object()), out _));
+        Assert.False(PortableBitmapCacheBrushPolicy.TryResolve(new(new VisualSource(new() { HasCacheMode = true })), out _));
+        Assert.False(PortableBitmapCacheBrushPolicy.TryResolve(new(null, new CacheSource(new(double.NaN, false, false))), out _));
+        Assert.True(PortableBitmapCacheBrushPolicy.TryResolve(new(null, new CacheSource(new(-2, true, true))), out var policy));
+        Assert.Equal(new PortableBitmapCache(0, false, true), policy);
+    }
+
+    private sealed class VisualSource(PortableVisualState value) : IPortableVisualStateSource
+    {
+        public bool TryGetPortableVisualState(out PortableVisualState state)
+        { state = value; return true; }
+    }
+
+    private sealed class CacheSource(PortableBitmapCache value) : IPortableBitmapCacheSource
+    {
+        public bool TryGetPortableBitmapCache(out PortableBitmapCache cache)
+        { cache = value; return true; }
+    }
+
+    [Fact]
     public void DefaultPolicyRetainsSourceIdentityWithoutTileMapping()
     {
         object target = new();
