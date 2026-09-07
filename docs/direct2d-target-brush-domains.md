@@ -6,8 +6,10 @@ Surface-backed Windows Direct2D command-list translation now supports full-targe
 opacity-brush layers with the existing solid, linear and radial brush mappings,
 including a geometric mask combined with the brush. Rotation, reflection, shear,
 translation and nonuniform DPI use the same local-domain calculation as portable
-C++ Direct2D. Finite non-axis-preserving layer content bounds remain a separate
-unsupported case; this change must not broaden an exact geometric clip.
+C++ Direct2D. Finite non-axis-preserving layer content bounds were a separate
+unsupported case at this checkpoint; the subsequent
+[finite affine layer implementation](direct2d-finite-affine-layers.md) addresses
+that case without replacing exact geometric masks with bounds.
 
 At translation, the surface mutex protects a snapshot of physical surface size
 and the current context DPI. The backing surface size, not a temporary command

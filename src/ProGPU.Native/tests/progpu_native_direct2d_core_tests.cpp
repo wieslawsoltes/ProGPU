@@ -19,13 +19,16 @@ namespace {
 
 // Deliberately scalar test oracle for the original four-corner algorithm.
 core::rectangle_edges_f scalar_viewport_bounds(
-    const progpu_native_direct2d_matrix_3x2_f& inverse, double width, double height)
+    const progpu_native_direct2d_matrix_3x2_f& inverse, double width, double height,
+    double target_x = 0.0, double target_y = 0.0)
 {
-    double left = inverse.m31, top = inverse.m32, right = left, bottom = top;
+    const double origin_x = target_x * inverse.m11 + target_y * inverse.m21 + inverse.m31;
+    const double origin_y = target_x * inverse.m12 + target_y * inverse.m22 + inverse.m32;
+    double left = origin_x, top = origin_y, right = left, bottom = top;
     for (const double x : {0.0, width}) {
         for (const double y : {0.0, height}) {
-            const double local_x = x * inverse.m11 + y * inverse.m21 + inverse.m31;
-            const double local_y = x * inverse.m12 + y * inverse.m22 + inverse.m32;
+            const double local_x = x * inverse.m11 + y * inverse.m21 + origin_x;
+            const double local_y = x * inverse.m12 + y * inverse.m22 + origin_y;
             left = std::min(left, local_x);
             right = std::max(right, local_x);
             top = std::min(top, local_y);
@@ -60,11 +63,24 @@ bool viewport_bounds_contract()
                 const auto expected = scalar_viewport_bounds(inverse, width, height);
                 if (core::viewport_coverage_bounds(inverse, width, height, &result) != com::ok ||
                     std::memcmp(&result, &expected, sizeof(result)) != 0) return false;
+                for (const auto origin : {std::array<double, 2U>{0, 0},
+                         std::array<double, 2U>{-31.25, 17.125}, std::array<double, 2U>{4096.5, -2048.75}}) {
+                    const auto rectangular = scalar_viewport_bounds(inverse, width, height, origin[0], origin[1]);
+                    if (core::rectangular_coverage_bounds(inverse, origin[0], origin[1], width, height, &result) != com::ok ||
+                        std::memcmp(&result, &rectangular, sizeof(result)) != 0) return false;
+                }
             }
         }
     }
     core::rectangle_edges_f result{1, 2, 3, 4};
     const auto identity = inverses[0];
+    if (core::rectangular_coverage_bounds(identity, 1, 2, 3, 4, nullptr) != com::pointer_error) return false;
+    for (const double origin : {std::numeric_limits<double>::infinity(),
+             std::numeric_limits<double>::quiet_NaN(), std::numeric_limits<double>::max()}) {
+        if (core::rectangular_coverage_bounds(identity, origin, 0, 1, 1, &result) != com::invalid_argument ||
+            result.left != 0 || result.top != 0 || result.right != 0 || result.bottom != 0 ||
+            core::rectangular_coverage_bounds(identity, 0, origin, 1, 1, &result) != com::invalid_argument) return false;
+    }
     if (core::viewport_coverage_bounds(identity, 1, 1, nullptr) != com::pointer_error) return false;
     for (const double width : {0.0, -1.0, std::numeric_limits<double>::infinity(),
              std::numeric_limits<double>::quiet_NaN(), std::numeric_limits<double>::max()}) {

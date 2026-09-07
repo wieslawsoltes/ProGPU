@@ -459,7 +459,9 @@ portable_scene record_portable_scene()
 std::vector<std::uint8_t> render_progpu(
     const dawn_api& api,
     const gpu_context& gpu,
-    d2d::scene_render_target_native* scene_target)
+    d2d::scene_render_target_native* scene_target,
+    std::uint64_t expected_draws = 9U,
+    std::uint64_t expected_commands = 9U)
 {
     progpu_native_dawn_engine_options options{};
     options.struct_size = sizeof(options);
@@ -514,8 +516,8 @@ std::vector<std::uint8_t> render_progpu(
             &frame_metrics,
             &diagnostics) == PROGPU_NATIVE_STATUS_SUCCESS &&
         diagnostics.stage == d2d::scene_submission_stage::none &&
-        scene_metrics.draw_count == 9U &&
-        frame_metrics.command_count == 9U &&
+        scene_metrics.draw_count == expected_draws &&
+        frame_metrics.command_count == expected_commands &&
         frame_metrics.submission_count == 1U,
         "ProGPU D3D12 Direct2D render failed");
 
@@ -612,7 +614,41 @@ std::vector<std::uint8_t> render_progpu(
     return result;
 }
 
-std::vector<std::uint8_t> render_system_direct2d()
+// One original drawing workload invoked through both the ProGPU COM vtable and
+// Microsoft's system render target. Painting after resetting the world transform
+// makes the target AABB corners distinguishable from the source parallelogram.
+void record_finite_affine_layer(ID2D1RenderTarget* target, bool opacity_mask)
+{
+    const D2D1_COLOR_F white{1, 1, 1, 1};
+    const D2D1_COLOR_F transparent{0, 0, 0, 0};
+    ID2D1SolidColorBrush* raw_brush = nullptr;
+    require(SUCCEEDED(target->CreateSolidColorBrush(&white, nullptr, &raw_brush)) && raw_brush != nullptr,
+        "finite affine oracle brush creation failed");
+    native_com::pointer<ID2D1SolidColorBrush> brush;
+    brush.attach(raw_brush);
+    ID2D1Layer* raw_layer = nullptr;
+    require(SUCCEEDED(target->CreateLayer(nullptr, &raw_layer)) && raw_layer != nullptr,
+        "finite affine oracle layer creation failed");
+    native_com::pointer<ID2D1Layer> layer;
+    layer.attach(raw_layer);
+    const D2D1_MATRIX_3X2_F identity{1, 0, 0, 1, 0, 0};
+    const D2D1_MATRIX_3X2_F world{1, 0.5F, 0.25F, 1, 10, 4};
+    const D2D1_LAYER_PARAMETERS parameters{
+        {1, 2, 13, 17}, nullptr, D2D1_ANTIALIAS_MODE_PER_PRIMITIVE,
+        identity, 0.625F, opacity_mask ? brush.get() : nullptr, D2D1_LAYER_OPTIONS_NONE};
+    const D2D1_RECT_F fill{0, 0, static_cast<float>(width), static_cast<float>(height)};
+    target->SetTransform(identity);
+    target->BeginDraw();
+    target->Clear(&transparent);
+    target->SetTransform(world);
+    target->PushLayer(&parameters, layer.get());
+    target->SetTransform(identity);
+    target->FillRectangle(&fill, brush.get());
+    target->PopLayer();
+    require(SUCCEEDED(target->EndDraw()), "finite affine oracle recording failed");
+}
+
+std::vector<std::uint8_t> render_system_direct2d(bool finite_layer = false, bool opacity_mask = false)
 {
     IWICImagingFactory* raw_wic_factory = nullptr;
     require(SUCCEEDED(CoCreateInstance(
@@ -809,6 +845,8 @@ std::vector<std::uint8_t> render_system_direct2d()
         bitmap_brush_path.get(), brushes[1U].get(), 2.0F);
     require(SUCCEEDED(target->EndDraw()), "system Direct2D draw failed");
 
+    if (finite_layer) record_finite_affine_layer(target.get(), opacity_mask);
+
     WICRect lock_rectangle{0, 0, static_cast<INT>(width),
         static_cast<INT>(height)};
     IWICBitmapLock* raw_lock = nullptr;
@@ -898,6 +936,36 @@ int wmain(int argc, wchar_t** argv)
         api, gpu, scene.scene_target.get());
     const std::vector<std::uint8_t> system = render_system_direct2d();
     compare_images(progpu, system);
+    for (const bool opacity_mask : {false, true}) {
+        record_finite_affine_layer(reinterpret_cast<ID2D1RenderTarget*>(scene.target.get()), opacity_mask);
+        const auto affine_progpu = render_progpu(api, gpu, scene.scene_target.get(), 1U, 3U);
+        const auto affine_system = render_system_direct2d(true, opacity_mask);
+        require(affine_progpu.size() == affine_system.size(), "finite affine oracle image size mismatch");
+        // Exclude only a one-pixel border around the fractional target extent.
+        // Every interior and exterior pixel is compared, including AABB corners
+        // outside the sheared source quadrilateral; alpha is compared too.
+        for (std::uint32_t y = 0U; y < height; ++y) {
+            for (std::uint32_t x = 0U; x < width; ++x) {
+                const double px = x + 0.5, py = y + 0.5;
+                const bool near_x = (std::abs(px - 11.5) <= 1 || std::abs(px - 27.25) <= 1) &&
+                    py >= 5.5 && py <= 28.5;
+                const bool near_y = (std::abs(py - 6.5) <= 1 || std::abs(py - 27.5) <= 1) &&
+                    px >= 10.5 && px <= 28.25;
+                if (near_x || near_y) continue;
+                const auto index = (static_cast<std::size_t>(y) * width + x) * 4U;
+                for (std::size_t channel = 0U; channel < 4U; ++channel)
+                    require(std::abs(static_cast<int>(affine_progpu[index + channel]) -
+                        static_cast<int>(affine_system[index + channel])) <= 2,
+                        "finite affine layer interior/exterior differs from native Direct2D");
+            }
+        }
+        // Explicitly require nonempty, grouped opacity at a center sample so
+        // two accidentally blank outputs cannot pass the differential gate.
+        const auto center = (16U * width + 20U) * 4U;
+        require(affine_system[center + 3U] >= 158U && affine_system[center + 3U] <= 161U &&
+            affine_progpu[center + 3U] >= 158U && affine_progpu[center + 3U] <= 161U,
+            "finite affine layer opacity or visible coverage is missing");
+    }
     scene = {};
     release_gpu(api, gpu);
     CoUninitialize();

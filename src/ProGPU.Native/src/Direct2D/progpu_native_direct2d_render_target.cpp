@@ -5337,12 +5337,6 @@ public:
         const bool full_target = infinite_rectangle(
             parameters->content_bounds);
         rectangle_f mask_content_bounds = parameters->content_bounds;
-        if (!full_target) {
-            if (!axis_preserving_transform(transform_)) {
-                latch(not_implemented);
-                return;
-            }
-        }
         if (full_target && parameters->opacity_brush != nullptr &&
             !try_resolve_full_target_local_bounds(mask_content_bounds)) {
             latch(not_implemented);
@@ -5385,6 +5379,14 @@ public:
         }
         if (!valid_native_rectangle(bounds)) {
             latch(com::invalid_argument);
+            return;
+        }
+        // Keep the target-aligned content extent independent from exact mask
+        // geometry. Its inverse envelope is only the opacity material domain.
+        if (!full_target && parameters->opacity_brush != nullptr &&
+            !axis_preserving_transform(transform_) &&
+            !try_resolve_rectangular_local_bounds(bounds, mask_content_bounds)) {
+            latch(not_implemented);
             return;
         }
         std::uint32_t mask_resource_index = PROGPU_NATIVE_SCENE_NO_INDEX;
@@ -6311,6 +6313,19 @@ private:
             static_cast<double>(pixel_width_) * 96.0 / dpi_x_,
             static_cast<double>(pixel_height_) * 96.0 / dpi_y_,
             &bounds));
+    }
+
+    [[nodiscard]] bool try_resolve_rectangular_local_bounds(
+        const progpu_native_image_rect& target, rectangle_f& bounds) const noexcept
+    {
+        if (target.width == 0.0F || target.height == 0.0F) {
+            bounds = {};
+            return true;
+        }
+        matrix_3x2_f inverse{};
+        return try_invert_transform(transform_, inverse) &&
+            com::succeeded(core::rectangular_coverage_bounds(inverse,
+                target.x, target.y, target.width, target.height, &bounds));
     }
 
     [[nodiscard]] static matrix_3x2_f compose_transform(

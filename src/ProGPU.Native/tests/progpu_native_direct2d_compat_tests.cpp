@@ -9673,6 +9673,33 @@ int run_tests()
         }
     }
     const compat::matrix_3x2_f singular_layer_transform{1.0F, 2.0F, 2.0F, 4.0F, 0.0F, 0.0F};
+    for (const auto& world : affine_full_layer_transforms) {
+        for (const bool geometric : {false, true}) {
+            for (auto* opacity_brush : std::array<compat::brush*, 3U>{nullptr,
+                     target_brush.get(), linear_brush.get()}) {
+                auto parameters = layer_parameters;
+                parameters.content_bounds = {1.0F, 2.0F, 13.0F, 17.0F};
+                parameters.opacity = 0.625F;
+                parameters.opacity_brush = opacity_brush;
+                parameters.geometric_mask = geometric ? path_base.get() : nullptr;
+                target->SetTransform(&world);
+                target->BeginDraw();
+                target->PushLayer(&parameters, target_layer.get());
+                // Layer bounds and masks are captured at push, not pop time.
+                target->SetTransform(&identity_matrix);
+                target->FillRectangle(&layer_bounds, target_brush.get());
+                target->PopLayer();
+                if (target->EndDraw(nullptr, nullptr) != com::ok) return 330;
+                const auto size = scene_target->GetRequiredSceneSize();
+                std::vector<std::byte> scene(static_cast<std::size_t>(size));
+                std::uint64_t written = 0U;
+                if (size == 0U || scene_target->BuildScene(scene.data(), size, &written) != com::ok ||
+                    written != size || !progpu::native::direct2d::tests::finite_affine_layer_contract(scene,
+                        {world.m11, world.m12, world.m21, world.m22, world.m31, world.m32},
+                        opacity_brush != nullptr, geometric)) return 331;
+            }
+        }
+    }
     target->SetTransform(&singular_layer_transform);
     target->BeginDraw();
     target->PushLayer(&full_opacity_brush_layer_parameters, target_layer.get());
@@ -9744,7 +9771,7 @@ int run_tests()
                     parameters.opacity_brush = bitmap_brush.get();
                     parameters.geometric_mask = geometric ? path_base.get() : nullptr;
                     parameters.mask_antialias_mode = mode;
-                    const auto world = full_target ? affine_full_layer_transforms[1] : identity_matrix;
+                    const auto world = affine_full_layer_transforms[full_target ? 1U : 2U];
                     bitmap_brush->SetOpacity(0.375F);
                     bitmap_brush->SetExtendModeX(compat::extend_mode::wrap);
                     bitmap_brush->SetExtendModeY(compat::extend_mode::mirror);

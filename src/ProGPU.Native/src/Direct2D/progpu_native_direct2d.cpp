@@ -6540,9 +6540,6 @@ public:
             return fail_invalid_value();
         }
         const bool full_target = infinite_rectangle(parameters->contentBounds);
-        if (!full_target && !axis_preserving_transform(transform_)) {
-            return fail_unsupported_state();
-        }
         D2D1_RECT_F mask_content_bounds = parameters->contentBounds;
         if (full_target && parameters->opacityBrush != nullptr &&
             !try_resolve_full_target_local_bounds(mask_content_bounds)) {
@@ -6568,6 +6565,14 @@ public:
                 parameters->contentBounds.bottom);
         if (!finite_native_rectangle(bounds)) {
             return fail_invalid_value();
+        }
+        // Content bounds delimit the target-aligned layer allocation. A brush
+        // domain must cover that rectangle, not only the rotated local quad.
+        // Exact geometric-mask coverage remains a separate retained resource.
+        if (!full_target && parameters->opacityBrush != nullptr &&
+            !axis_preserving_transform(transform_) &&
+            !try_resolve_rectangular_local_bounds(bounds, mask_content_bounds)) {
+            return fail_unsupported_state();
         }
         uint32_t mask_resource_index = PROGPU_NATIVE_SCENE_NO_INDEX;
         if (parameters->geometricMask != nullptr) {
@@ -7044,6 +7049,24 @@ private:
         direct2d_core::rectangle_edges_f local{};
         if (progpu::native::com::failed(direct2d_core::viewport_coverage_bounds(
                 portable_inverse, target_width_, target_height_, &local))) return false;
+        bounds = {local.left, local.top, local.right, local.bottom};
+        return true;
+    }
+
+    bool try_resolve_rectangular_local_bounds(
+        const progpu_native_image_rect& target, D2D1_RECT_F& bounds) const noexcept
+    {
+        if (target.width == 0.0F || target.height == 0.0F) {
+            bounds = {};
+            return true;
+        }
+        D2D1_MATRIX_3X2_F inverse{};
+        if (!try_invert_transform(transform_, inverse)) return false;
+        const progpu_native_direct2d_matrix_3x2_f portable_inverse{
+            inverse._11, inverse._12, inverse._21, inverse._22, inverse._31, inverse._32};
+        direct2d_core::rectangle_edges_f local{};
+        if (progpu::native::com::failed(direct2d_core::rectangular_coverage_bounds(
+                portable_inverse, target.x, target.y, target.width, target.height, &local))) return false;
         bounds = {local.left, local.top, local.right, local.bottom};
         return true;
     }

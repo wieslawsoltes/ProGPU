@@ -6266,6 +6266,65 @@ int main()
     }
     context->SetDpi(saved_full_dpi_x, saved_full_dpi_y);
 
+    for (const auto& world : full_layer_transforms) {
+        for (const bool geometric : {false, true}) {
+            for (auto* opacity_brush : std::array<ID2D1Brush*, 4U>{nullptr,
+                     solid_brush.Get(), linear_brush.Get(), radial_brush.Get()}) {
+                void* raw_list = nullptr;
+                require(progpu_native_direct2d_surface_create_command_list(surface, &raw_list,
+                    &native_hresult) == PROGPU_NATIVE_DIRECT2D_STATUS_SUCCESS,
+                    "finite affine layer command-list creation failed");
+                ComPtr<ID2D1CommandList> list;
+                list.Attach(static_cast<ID2D1CommandList*>(raw_list));
+                require(progpu_native_direct2d_surface_begin_command_list_draw(surface, list.Get()) ==
+                    PROGPU_NATIVE_DIRECT2D_STATUS_SUCCESS, "finite affine layer recording failed");
+                context->SetTransform(world);
+                auto parameters = opacity_layer_parameters;
+                parameters.contentBounds = {1.0F, 2.0F, 13.0F, 17.0F};
+                parameters.opacity = 0.625F;
+                parameters.opacityBrush = opacity_brush;
+                parameters.geometricMask = geometric ? scene_path_geometry.Get() : nullptr;
+                context->PushLayer(&parameters, nullptr);
+                context->SetTransform(D2D1::Matrix3x2F::Identity());
+                context->FillRectangle(&opacity_layer_fill0, solid_brush.Get());
+                context->PopLayer();
+                require(progpu_native_direct2d_surface_end_command_list_draw(surface,
+                    &command_tag1, &command_tag2, &native_hresult) == PROGPU_NATIVE_DIRECT2D_STATUS_SUCCESS,
+                    "finite affine layer recording did not close");
+                progpu_native_direct2d_scene_stream_result result{};
+                result.struct_size = static_cast<uint32_t>(sizeof(result));
+                require(progpu_native_direct2d_command_list_build_scene_stream(surface, list.Get(),
+                    7012U, 1U, nullptr, 0U, &result, &native_hresult) ==
+                        PROGPU_NATIVE_DIRECT2D_STATUS_INSUFFICIENT_BUFFER &&
+                    (result.flags & PROGPU_NATIVE_DIRECT2D_SCENE_STREAM_FLAG_HAS_TARGET_DEPENDENT_MASKS) == 0U,
+                    "finite affine layer invented an output-size dependency");
+                std::vector<uint8_t> bytes(static_cast<size_t>(result.required_bytes));
+                require(progpu_native_direct2d_command_list_build_scene_stream(surface, list.Get(),
+                    7012U, 1U, bytes.data(), bytes.size(), &result, &native_hresult) ==
+                        PROGPU_NATIVE_DIRECT2D_STATUS_SUCCESS &&
+                    progpu::native::direct2d::tests::finite_affine_layer_contract(std::as_bytes(std::span(bytes)),
+                        {world._11, world._12, world._21, world._22, world._31, world._32},
+                        opacity_brush != nullptr, geometric), "finite affine layer contract differs from portable producer");
+                progpu_native_direct2d_scene_recorder* recorder = nullptr;
+                require(progpu_native_direct2d_scene_recorder_create(7012U, 1U, nullptr,
+                    &recorder, &native_hresult) == PROGPU_NATIVE_DIRECT2D_STATUS_SUCCESS,
+                    "finite affine targetless recorder creation failed");
+                void* raw_sink = nullptr;
+                require(progpu_native_direct2d_scene_recorder_get_command_sink(recorder,
+                    &raw_sink, &native_hresult) == PROGPU_NATIVE_DIRECT2D_STATUS_SUCCESS,
+                    "finite affine recorder sink acquisition failed");
+                ComPtr<ID2D1CommandSink> sink;
+                sink.Attach(static_cast<ID2D1CommandSink*>(raw_sink));
+                require(list->Stream(sink.Get()) == S_OK, "finite affine targetless recorder rejected callbacks");
+                std::vector<uint8_t> recorded(bytes.size());
+                require(progpu_native_direct2d_scene_recorder_build_stream(recorder, recorded.data(),
+                    recorded.size(), &result, &native_hresult) == PROGPU_NATIVE_DIRECT2D_STATUS_SUCCESS &&
+                    recorded == bytes, "finite affine targetless recorder differs from surface translation");
+                progpu_native_direct2d_scene_recorder_destroy(recorder);
+            }
+        }
+    }
+
     void* background_layer_list_value = nullptr;
     native_hresult = E_FAIL;
     require(

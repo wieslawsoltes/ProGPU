@@ -113,9 +113,21 @@ com::result viewport_coverage_bounds(
     double target_height,
     rectangle_edges_f* result) noexcept
 {
+    return rectangular_coverage_bounds(inverse, 0.0, 0.0, target_width, target_height, result);
+}
+
+com::result rectangular_coverage_bounds(
+    const progpu_native_direct2d_matrix_3x2_f& inverse,
+    double target_x,
+    double target_y,
+    double target_width,
+    double target_height,
+    rectangle_edges_f* result) noexcept
+{
     if (result == nullptr) return com::pointer_error;
     *result = {};
-    if (!valid_transform(&inverse) || !std::isfinite(target_width) ||
+    if (!valid_transform(&inverse) || !std::isfinite(target_x) || !std::isfinite(target_y) ||
+        !std::isfinite(target_width) ||
         !std::isfinite(target_height) || target_width <= 0.0 || target_height <= 0.0)
         return com::invalid_argument;
 
@@ -127,21 +139,38 @@ com::result viewport_coverage_bounds(
 #if defined(__aarch64__) || defined(_M_ARM64)
     const std::array<double, 2U> x_axis{inverse.m11, inverse.m12};
     const std::array<double, 2U> y_axis{inverse.m21, inverse.m22};
-    const auto origin = vld1q_f64(corners[0].data());
+    auto origin = vld1q_f64(corners[0].data());
+    if (target_x != 0.0 || target_y != 0.0) {
+        origin = vaddq_f64(vaddq_f64(vmulq_n_f64(vld1q_f64(x_axis.data()), target_x),
+            vmulq_n_f64(vld1q_f64(y_axis.data()), target_y)), origin);
+        vst1q_f64(corners[0].data(), origin);
+    }
     const auto x = vmulq_n_f64(vld1q_f64(x_axis.data()), target_width);
     const auto y = vmulq_n_f64(vld1q_f64(y_axis.data()), target_height);
     vst1q_f64(corners[1].data(), vaddq_f64(x, origin));
     vst1q_f64(corners[2].data(), vaddq_f64(y, origin));
     vst1q_f64(corners[3].data(), vaddq_f64(vaddq_f64(x, y), origin));
 #elif defined(__SSE2__) || defined(_M_X64) || (defined(_M_IX86_FP) && _M_IX86_FP >= 2)
-    const auto origin = _mm_loadu_pd(corners[0].data());
+    auto origin = _mm_loadu_pd(corners[0].data());
+    if (target_x != 0.0 || target_y != 0.0) {
+        origin = _mm_add_pd(_mm_add_pd(
+            _mm_mul_pd(_mm_set_pd(inverse.m12, inverse.m11), _mm_set1_pd(target_x)),
+            _mm_mul_pd(_mm_set_pd(inverse.m22, inverse.m21), _mm_set1_pd(target_y))), origin);
+        _mm_storeu_pd(corners[0].data(), origin);
+    }
     const auto x = _mm_mul_pd(_mm_set_pd(inverse.m12, inverse.m11), _mm_set1_pd(target_width));
     const auto y = _mm_mul_pd(_mm_set_pd(inverse.m22, inverse.m21), _mm_set1_pd(target_height));
     _mm_storeu_pd(corners[1].data(), _mm_add_pd(x, origin));
     _mm_storeu_pd(corners[2].data(), _mm_add_pd(y, origin));
     _mm_storeu_pd(corners[3].data(), _mm_add_pd(_mm_add_pd(x, y), origin));
 #elif defined(__wasm_simd128__)
-    const auto origin = wasm_v128_load(corners[0].data());
+    auto origin = wasm_v128_load(corners[0].data());
+    if (target_x != 0.0 || target_y != 0.0) {
+        origin = wasm_f64x2_add(wasm_f64x2_add(
+            wasm_f64x2_mul(wasm_f64x2_make(inverse.m11, inverse.m12), wasm_f64x2_splat(target_x)),
+            wasm_f64x2_mul(wasm_f64x2_make(inverse.m21, inverse.m22), wasm_f64x2_splat(target_y))), origin);
+        wasm_v128_store(corners[0].data(), origin);
+    }
     const auto x = wasm_f64x2_mul(wasm_f64x2_make(inverse.m11, inverse.m12),
         wasm_f64x2_splat(target_width));
     const auto y = wasm_f64x2_mul(wasm_f64x2_make(inverse.m21, inverse.m22),
@@ -152,12 +181,15 @@ com::result viewport_coverage_bounds(
 #else
     // Fixed metadata fallback on targets without double-lane SIMD (including
     // non-SIMD Wasm and ARM32). This is not a whole-buffer scalar pixel path.
-    corners[1] = {target_width * inverse.m11 + inverse.m31,
-        target_width * inverse.m12 + inverse.m32};
-    corners[2] = {target_height * inverse.m21 + inverse.m31,
-        target_height * inverse.m22 + inverse.m32};
-    corners[3] = {target_width * inverse.m11 + target_height * inverse.m21 + inverse.m31,
-        target_width * inverse.m12 + target_height * inverse.m22 + inverse.m32};
+    if (target_x != 0.0 || target_y != 0.0)
+        corners[0] = {target_x * inverse.m11 + target_y * inverse.m21 + inverse.m31,
+            target_x * inverse.m12 + target_y * inverse.m22 + inverse.m32};
+    corners[1] = {target_width * inverse.m11 + corners[0][0],
+        target_width * inverse.m12 + corners[0][1]};
+    corners[2] = {target_height * inverse.m21 + corners[0][0],
+        target_height * inverse.m22 + corners[0][1]};
+    corners[3] = {target_width * inverse.m11 + target_height * inverse.m21 + corners[0][0],
+        target_width * inverse.m12 + target_height * inverse.m22 + corners[0][1]};
 #endif
     double left = corners[0][0], right = left;
     double top = corners[0][1], bottom = top;

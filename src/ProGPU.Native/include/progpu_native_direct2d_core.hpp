@@ -107,9 +107,18 @@ struct stroke_style_properties_f final {
     const progpu_native_direct2d_matrix_3x2_f* second,
     progpu_native_direct2d_matrix_3x2_f* result) noexcept;
 
-/* Conservative local domain of a zero-origin target viewport. The caller
- * supplies its already-inverted draw transform. This is brush storage/domain
- * metadata, never an approximation of a geometric clip. Error clears result. */
+/* Inverse-map a target-space rectangle to a conservative local material domain.
+ * The output is not an exact clip. Origins and dimensions stay double until
+ * outward float origin/extent rounding; independent coordinates use SIMD. */
+[[nodiscard]] com::result rectangular_coverage_bounds(
+    const progpu_native_direct2d_matrix_3x2_f& inverse,
+    double target_x,
+    double target_y,
+    double target_width,
+    double target_height,
+    rectangle_edges_f* result) noexcept;
+
+/* Zero-origin viewport specialization. Error clears result. */
 [[nodiscard]] com::result viewport_coverage_bounds(
     const progpu_native_direct2d_matrix_3x2_f& inverse,
     double target_width,

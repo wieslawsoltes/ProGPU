@@ -9772,6 +9772,21 @@ runtime/image, VM/platform/package, source-verifier, SIMD/performance and exact-
 CI qualification remain pending. Main was refreshed with zero missing commits.
 The full goal remains active; this batch is not complete Direct2D/Win2D parity.
 
+## Implementation-first checkpoint: finite affine Direct2D layers
+
+Portable C++ render targets and Windows command-list/standalone recorders accept
+finite rotated/sheared layer content bounds. Opacity material domains now cover
+the inverse target rectangle through shared double-lane SIMD mapping; geometric
+masks remain separate exact resources. Legacy targetless recorders need no output
+descriptor for finite content. Existing axis-preserving/full-target paths remain.
+
+See [coordinate interpretation, original provenance, research, costs and fixtures](direct2d-finite-affine-layers.md).
+Core and portable fixtures compile/link with Apple Clang C++20; fixtures are not
+executed. Managed product source, scene ABI and shaders are unchanged. Windows
+provider/full-renderer compilation, native pixel conformance of affine content
+bounds, all runtime/platform/VM/package/image, source-verifier, SIMD/performance
+and exact-head CI qualification remain pending. Main has zero missing commits.
+
 ## Invariants
 
 - No reflection or private managed field scanning in the product bridge.

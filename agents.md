@@ -213,6 +213,11 @@ value contracts with physical dimensions and independent DPI. Copy metadata
 during creation; never retain caller pointers or create a GPU surface for bounds.
 Acquired command sinks own independent COM references. Keep recorder writes on
 caller spans and require a new recorder/generation after target changes.
+Finite affine Direct2D layers must keep target-aligned content bounds separate
+from exact geometric masks. For rotated/sheared opacity brushes, derive the local
+material domain from the inverse target rectangle, not just the source quad.
+Capture bounds and mask transforms at PushLayer; later SetTransform calls must
+not remap them. Preserve the ordinary axis-preserving and zero-origin fast paths.
 
 Direct2D antialiased axis-aligned clips must capture the transformed AABB at
 push time and apply fractional coverage once when their group is popped, not
