@@ -4593,3 +4593,23 @@ differentials and arc/world-collapse fixtures cover this implementation, but
 execution and platform/VM/image/performance/verifier/CI gates are deferred.
 Nested groups, other fixed shapes, mixed partially collapsed segments and full
 Direct2D/Win2D qualification remain open.
+
+### Implementation-first checkpoint: shared constant-segment compaction
+
+The shared native semantic stroke compiler now handles contours that mix
+constant and moving segments. Exact line/Bezier control equality uses paired
+NEON/SSE2 comparisons; coincident endpoints alone never discard a retracing
+curve. In-place compaction preflights connectivity, preserves forced-round flags
+across removed segments and rejects disconnected input without mutating it.
+Entirely point-like contours keep their existing caller policy. Shared compiler
+consumers make O(S) normalized copies only for mixed input; MIL's owned prepared
+spines compact in place. No pixel fallback or public API change is added.
+
+MIL curved/smooth replay now calls this same compiler instead of retaining its
+duplicate cap/join/tangent/dash implementation. Original ProGPU compiler and
+dash helpers are the source provenance. Scalar-predicate, compact-contour,
+transactionality and MIL transform differential fixtures are authored. Native
+library, MIL and Direct2D compatibility/WebGPU targets compile; execution,
+Windows/VM/images, performance, verifier and CI qualification remain deferred.
+Forced-round propagation and broader degenerate/Direct2D/Win2D parity must still
+pass the final Windows comparison. No measured performance improvement is claimed.

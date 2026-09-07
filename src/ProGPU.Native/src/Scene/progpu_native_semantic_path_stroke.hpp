@@ -10,6 +10,14 @@
 #include <span>
 #include <vector>
 
+#if defined(__aarch64__) || defined(_M_ARM64)
+#include <arm_neon.h>
+#define PROGPU_NATIVE_STROKE_INTRINSICS_NEON 1
+#elif defined(__SSE2__) || defined(_M_X64) || (defined(_M_IX86_FP) && _M_IX86_FP >= 2)
+#include <emmintrin.h>
+#define PROGPU_NATIVE_STROKE_INTRINSICS_SSE2 1
+#endif
+
 namespace progpu::native::semantic_path_stroke {
 
 enum class result {
@@ -42,6 +50,71 @@ inline progpu_native_point segment_end(
         : segment.kind == PROGPU_NATIVE_PATH_SEGMENT_CUBIC
             ? segment.p3
             : segment.p1;
+}
+
+// Exact constancy only: equal endpoints do not make a retracing curve constant.
+// Four independent control-coordinate comparisons use intrinsic lanes; a cubic
+// has one fixed two-coordinate tail. Arcs retain their analytic representation.
+inline bool is_constant_segment(const progpu_native_path_segment& segment) noexcept {
+    if (!std::isfinite(segment.p0.x) || !std::isfinite(segment.p0.y) ||
+        (segment.kind != PROGPU_NATIVE_PATH_SEGMENT_LINE &&
+         segment.kind != PROGPU_NATIVE_PATH_SEGMENT_QUADRATIC &&
+         segment.kind != PROGPU_NATIVE_PATH_SEGMENT_CUBIC)) return false;
+    const auto second = segment.kind == PROGPU_NATIVE_PATH_SEGMENT_LINE ? segment.p1 : segment.p2;
+    const std::array<float, 4U> coordinates{segment.p1.x, segment.p1.y, second.x, second.y};
+    const std::array<float, 4U> anchor{segment.p0.x, segment.p0.y, segment.p0.x, segment.p0.y};
+    bool equal = false;
+#if defined(PROGPU_NATIVE_STROKE_INTRINSICS_NEON)
+    equal = vminvq_u32(vceqq_f32(vld1q_f32(coordinates.data()), vld1q_f32(anchor.data()))) != 0U;
+#elif defined(PROGPU_NATIVE_STROKE_INTRINSICS_SSE2)
+    equal = _mm_movemask_ps(_mm_cmpeq_ps(_mm_loadu_ps(coordinates.data()), _mm_loadu_ps(anchor.data()))) == 15;
+#else
+    equal = coordinates[0U] == anchor[0U] && coordinates[1U] == anchor[1U] &&
+        coordinates[2U] == anchor[2U] && coordinates[3U] == anchor[3U];
+#endif
+    return equal && (segment.kind != PROGPU_NATIVE_PATH_SEGMENT_CUBIC ||
+        (segment.p3.x == segment.p0.x && segment.p3.y == segment.p0.y));
+}
+
+inline bool has_mixed_constant_segments(std::span<const progpu_native_path_segment> segments) noexcept {
+    bool constant = false, moving = false;
+    for (const auto& segment : segments) {
+        if (is_constant_segment(segment)) constant = true;
+        else moving = true;
+        if (constant && moving) return true;
+    }
+    return false;
+}
+
+// Caller-owned compaction: no allocation, O(S) topology work, O(1) state.
+// Do not heal discontinuities. Validate connectivity before changing either span.
+// Any forced-round join across a removed zero-distance chain remains forced.
+// All-constant contours retain one anchor segment for the caller's point-cap policy.
+inline result compact_constant_segments(std::span<progpu_native_path_segment> segments,
+    std::span<std::uint8_t> smooth_joins, bool closed, std::size_t& count) noexcept {
+    if (segments.empty() || segments.size() != smooth_joins.size()) return result::invalid;
+    const auto same = [](progpu_native_point first, progpu_native_point second) {
+        return first.x == second.x && first.y == second.y;
+    };
+    for (std::size_t index = 1U; index < segments.size(); ++index)
+        if (!same(segment_end(segments[index - 1U]), segments[index].p0)) return result::invalid;
+    if (closed && !same(segment_end(segments.back()), segments.front().p0)) return result::invalid;
+    std::size_t written = 0U;
+    std::uint8_t leading_join = 0U;
+    for (std::size_t index = 0U; index < segments.size(); ++index) {
+        if (is_constant_segment(segments[index])) {
+            if (written != 0U) smooth_joins[written - 1U] |= smooth_joins[index];
+            else leading_join |= smooth_joins[index];
+            continue;
+        }
+        segments[written] = segments[index];
+        smooth_joins[written] = smooth_joins[index];
+        ++written;
+    }
+    if (written == 0U) written = 1U;
+    if (closed) smooth_joins[written - 1U] |= leading_join;
+    count = written;
+    return result::success;
 }
 
 inline bool try_tangent(
@@ -211,6 +284,17 @@ inline result compile(
         return value;
     };
     try {
+        std::vector<progpu_native_path_segment> normalized_segments;
+        std::vector<std::uint8_t> normalized_joins;
+        if (has_mixed_constant_segments(segments)) {
+            normalized_segments.assign(segments.begin(), segments.end());
+            normalized_joins.assign(smooth_joins.begin(), smooth_joins.end());
+            std::size_t count = 0U;
+            if (compact_constant_segments(normalized_segments, normalized_joins, closed, count) != result::success)
+                return rollback(result::invalid);
+            segments = std::span<const progpu_native_path_segment>(normalized_segments).first(count);
+            smooth_joins = std::span<const std::uint8_t>(normalized_joins).first(count);
+        }
         const auto append_cap = [&](
             const progpu_native_path_segment& segment,
             std::uint32_t cap,
