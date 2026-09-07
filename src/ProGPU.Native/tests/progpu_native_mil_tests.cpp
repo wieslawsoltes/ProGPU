@@ -17506,6 +17506,121 @@ bool retained_gradient_brushes_compile_with_wpf_mapping_and_animation() {
     return true;
 }
 
+bool group_geometry_spines_precede_pen_widening() {
+    using namespace progpu::native::tests;
+    using mil_clip_fixture_detail::packet;
+    const std::array<std::array<double, 6U>, 5U> roots{{
+        {2.0, 0.0, 0.0, 3.0, 4.0, 8.0},
+        {-1.0, 0.5, 0.25, 1.0, 40.0, 8.0},
+        {1.0, 0.0, 0.0, 0.0, 0.0, 24.0},
+        {0.0, 0.0, 0.0, 1.0, 24.0, 0.0},
+        {0.0, 0.0, 0.0, 0.0, 24.0, 32.0}}};
+    const std::array<double, 6U> nested{0.75, 0.25, -0.5, 1.0, 12.0, 4.0};
+    const std::array<double, 6U> leaf{1.0, 0.0, 0.0, 1.0, 2.0, 4.0};
+    const auto map = [](std::array<double, 2U> point, const std::array<double, 6U>& matrix) {
+        return std::array{point[0] * matrix[0] + point[1] * matrix[2] + matrix[4],
+            point[0] * matrix[1] + point[1] * matrix[3] + matrix[5]};
+    };
+    const std::array controls{std::array{14.0, 22.0}, std::array{25.0, 6.0}};
+    const auto source_path = make_single_bezier_path_figures(3U, controls);
+    const std::array sources{mil_brush_fixture_source::bitmap, mil_brush_fixture_source::drawing,
+        mil_brush_fixture_source::drawing_image, mil_brush_fixture_source::visual};
+    for (const auto& root : roots) {
+        std::vector<std::byte> hierarchical, flattened;
+        for (const auto handle : {45U, 46U, 47U}) append_create(hierarchical, handle, 66U);
+        packet(hierarchical, command::matrix_transform, 45U, root, 0U);
+        packet(hierarchical, command::matrix_transform, 46U, nested, 0U);
+        packet(hierarchical, command::matrix_transform, 47U, leaf, 0U);
+        append_create(hierarchical, 41U, 68U);
+        packet(hierarchical, command::line_geometry, 41U, 2.0, 4.0, 10.0, 4.0, 47U, 0U, 0U);
+        append_create(hierarchical, 42U, 73U);
+        append_path_geometry(hierarchical, 42U, 47U, 0U, source_path);
+        append_create(hierarchical, 43U, 71U);
+        packet(hierarchical, command::geometry_group, 43U, 46U, 0U, 8U, 41U, 42U);
+        append_create(hierarchical, 15U, 71U);
+        packet(hierarchical, command::geometry_group, 15U, 45U, 0U, 8U, 41U, 43U);
+        // The same line resource occurs under two different ancestor transforms.
+        for (const bool child : {false, true}) {
+            auto start = map({2.0, 4.0}, leaf), end = map({10.0, 4.0}, leaf);
+            if (child) { start = map(start, nested); end = map(end, nested); }
+            start = map(start, root); end = map(end, root);
+            const auto handle = child ? 102U : 101U;
+            append_create(flattened, handle, 68U);
+            packet(flattened, command::line_geometry, handle, start, end, 0U, 0U, 0U);
+        }
+        auto mapped_path = source_path;
+        for (const auto offset : {64U, 104U, 120U}) {
+            auto point = std::array{read_value<double>(mapped_path, offset), read_value<double>(mapped_path, offset + 8U)};
+            point = map(map(map(point, leaf), nested), root);
+            std::memcpy(mapped_path.data() + offset, point.data(), sizeof(point));
+        }
+        append_create(flattened, 103U, 73U);
+        append_path_geometry(flattened, 103U, 0U, 0U, mapped_path);
+        append_create(flattened, 15U, 71U);
+        packet(flattened, command::geometry_group, 15U, 0U, 0U, 12U, 101U, 102U, 103U);
+        for (std::uint32_t brush = 0U; brush < 6U; ++brush) {
+            for (const bool dashed : {false, true}) {
+                mil_image_brush_fixture_options options{};
+                options.tile_mode = 3U;
+                options.source = sources[brush < 2U ? 0U : brush - 2U];
+                options.shape = mil_brush_fixture_shape::group;
+                options.paint_transform = true;
+                options.pen = true;
+                options.dashed = dashed;
+                options.cap = PROGPU_NATIVE_STROKE_CAP_ROUND;
+                options.end_cap = PROGPU_NATIVE_STROKE_CAP_TRIANGLE;
+                options.solid_pen = brush == 0U;
+                options.gradient_pen = brush == 1U;
+                options.paint_matrix = nested;
+                options.group_geometry_commands = hierarchical;
+                std::vector<std::byte> actual, expected;
+                PROGPU_REQUIRE(build_mil_image_brush_fixture(actual, options, 8106U));
+                options.group_geometry_commands = flattened;
+                PROGPU_REQUIRE(build_mil_image_brush_fixture(expected, options, 8106U));
+                PROGPU_REQUIRE(actual == expected);
+            }
+        }
+        // Positive-size rectangle/ellipse and combined children keep visible
+        // strokes when the ancestor geometry transform collapses their fill.
+        for (const bool combined : {false, true}) {
+            for (const bool solid : {false, true}) {
+                for (const bool dashed : {false, true}) {
+                    mil_image_brush_fixture_options options{};
+                    options.tile_mode = 3U;
+                    options.shape = mil_brush_fixture_shape::group;
+                    options.path_figures = source_path;
+                    options.pen = true;
+                    options.dashed = dashed;
+                    options.nested_group = true;
+                    options.solid_pen = solid;
+                    options.group_combined = combined;
+                    options.path_matrix = root;
+                    std::vector<std::byte> scene;
+                    PROGPU_REQUIRE(build_mil_image_brush_fixture(scene, options, 8107U));
+                    const auto header = read_value<progpu_native_scene_header>(scene, 0U);
+                    bool painted = false;
+                    for (std::uint32_t index = 0U; index < header.command_count; ++index) {
+                        const auto draw = read_value<progpu_native_scene_command>(scene,
+                            header.command_offset + index * sizeof(progpu_native_scene_command));
+                        painted |= draw.kind == PROGPU_NATIVE_SCENE_COMMAND_DRAW_GEOMETRY ||
+                            draw.kind == PROGPU_NATIVE_SCENE_COMMAND_DRAW_STROKE_BATCH ||
+                            draw.kind == PROGPU_NATIVE_SCENE_COMMAND_DRAW_PATH;
+                    }
+                    if (!solid) {
+                        for (std::uint32_t index = 0U; index < header.resource_count; ++index) {
+                            const auto resource = read_value<progpu_native_scene_resource>(scene,
+                                header.resource_offset + index * sizeof(progpu_native_scene_resource));
+                            painted |= resource.kind == PROGPU_NATIVE_SCENE_RESOURCE_LAYER_MASK;
+                        }
+                    }
+                    PROGPU_REQUIRE(painted);
+                }
+            }
+        }
+    }
+    return true;
+}
+
 bool path_geometry_transform_precedes_pen_widening() {
     using namespace progpu::native::tests;
     struct path_case { std::vector<std::byte> figures; std::vector<std::size_t> point_offsets; };
@@ -20664,6 +20779,7 @@ int main() {
     PROGPU_REQUIRE(degenerate_gradient_pen_caps_use_wpf_stroke_bounds());
     PROGPU_REQUIRE(line_geometry_transform_precedes_pen_widening());
     PROGPU_REQUIRE(path_geometry_transform_precedes_pen_widening());
+    PROGPU_REQUIRE(group_geometry_spines_precede_pen_widening());
     PROGPU_REQUIRE(
         retained_gradient_stops_match_wpf_coincidence_and_pad_edges());
     PROGPU_REQUIRE(retained_viewport3d_uses_pointer_free_mesh_sideband());

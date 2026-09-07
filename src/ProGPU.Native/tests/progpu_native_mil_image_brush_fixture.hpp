@@ -69,6 +69,7 @@ struct mil_image_brush_fixture_options {
     std::array<double, 6U> line_geometry_matrix{1.0, 0.0, 0.0, 1.0, 0.0, 0.0};
     std::array<double, 6U> paint_matrix{0.8, 0.2, -0.1, 0.8, 8.0, 0.0};
     std::array<double, 6U> path_matrix{0.9, 0.0, 0.0, 0.8, 3.0, 5.0};
+    std::span<const std::byte> group_geometry_commands{};
 };
 
 inline bool build_mil_image_brush_fixture(std::vector<std::byte>& scene,
@@ -205,7 +206,9 @@ inline bool build_mil_image_brush_fixture(std::vector<std::byte>& scene,
     }
     if (options.opacity_mask && !options.drawing_group_mask && !options.visual_mask)
         packet(nested, command::push_opacity_mask, 8.0F, 8.0F, 56.0F, 56.0F, 5U, 0U);
-    if (options.shape == mil_brush_fixture_shape::path ||
+    if (options.shape == mil_brush_fixture_shape::group && !options.group_geometry_commands.empty()) {
+        batch.insert(batch.end(), options.group_geometry_commands.begin(), options.group_geometry_commands.end());
+    } else if (options.shape == mil_brush_fixture_shape::path ||
         options.shape == mil_brush_fixture_shape::group ||
         options.shape == mil_brush_fixture_shape::combined) {
         packet(batch, command::channel_create_resource, 16U, 66U);

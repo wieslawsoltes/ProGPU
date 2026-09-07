@@ -8724,6 +8724,61 @@ degenerate Direct2D semantics. Forced-round propagation still requires the final
 Windows differential gate. Nested group/other fixed-shape transform ordering,
 retained preparation caching and the wider full-goal scope remain open.
 
+## Implementation-first checkpoint: prepared nested-group strokes
+
+GeometryGroup stroke preparation now walks each occurrence once, composes child
+and ancestor geometry transforms, and retains the drawing-coordinate spine used
+by replay. Repeated resource handles under different parents get separate
+prepared entries. The previous independent bounds/replay walks and combined-
+outline cursor coupling are removed. Paths, fixed lines, positive-size
+rectangles/rounded rectangles/ellipses and CombinedGeometry outlines widen after
+their composed geometry transform. Drawing/world state stays post-widening.
+Combined outlines retain their existing Boolean solver and are computed once
+per occurrence. Their tolerance now uses a unit lower bound on affine scale,
+so collapsed transforms remain representable without dividing by zero.
+
+Gradient/tile brush mapping uses the union of native widened bounds of the
+prepared strokes in drawing coordinates. Solid pens use conservative prepared
+spine bounds without paying for a separate widening query. Brush identity and
+mapping are resolved once for the group. Tile children collect coverage into one
+mask and one paint operation, rather than remapping the brush for each child.
+Zero-area geometry suppresses fill separately from stroke; zero-area world state
+still suppresses both. Unused group fills are no longer compiled for pen-only
+draws. Existing point-cap, dash-gap and constant-segment policies are reused.
+
+Collapsed full-ellipse spines now split their original analytic full turn into
+two endpoint-arc halves before the existing ProGPU cubic lowering. Each half has
+at most four pieces, internal joins remain smooth, and the original outgoing
+flag stays on the final piece. Non-singular ellipses stay analytic. Opposite-point
+construction is checked in double precision before float transport.
+
+Already-zero-size fixed rectangles/ellipses deliberately remain on their
+existing specialized renderers, with an explicit `legacy_degenerate` prepared
+entry. Those source-shape conventions are not yet generalized to geometry-space
+pen transforms; this is a remaining correctness task, not full group parity.
+Direct non-group positive fixed-shape transform ordering also remains open.
+
+Provenance is original ProGPU `transform_path_stroke_spine`,
+`make_fixed_bounds_path`, `resolve_combined_stroke_outline`,
+`resolve_path_stroke_bounds`, shared semantic stroke compilation and tile-mask
+composition. No foreign source, public C/COM/module ABI, managed workaround,
+shader, pixel fallback or extra per-child submission is introduced. For R graph
+occurrences and P prepared segments, bookkeeping/storage are O(R + P), plus the
+existing Boolean and spatial-bounds widening costs. Topology traversal is
+sequential; coordinate mapping reuses intrinsic pairs. Prepared entries live for
+the scene compilation, not across compilations; retained preparation caching and
+profiling remain explicit follow-ups. No measured speed claim is made.
+
+Authored stream differentials compare nested/repeated line and path resources
+against independently flattened packets, using scale, shear/reflection, both
+rank-one projections and point collapse, solid/gradient/tile brushes, dashes and
+world transforms. Additional fixed/combined-child fixtures require stroke or
+mask output under collapsed ancestors. Native library and MIL/Direct2D
+compatibility/WebGPU test targets compile. Execution, Windows/VM/image/SIMD/
+performance/verifier/CI qualification remain deferred. The specialized
+degenerate shapes, direct fixed shapes, cache work and full MIL/DirectX/Direct2D/
+Win2D goal remain open.
+
 ## Invariants
 
 - No reflection or private managed field scanning in the product bridge.
