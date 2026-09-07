@@ -18413,6 +18413,66 @@ bool retained_gradient_stops_match_wpf_coincidence_and_pad_edges() {
     return true;
 }
 
+bool viewport3d_cache_brush_reuses_mesh_replay(channel& state,
+    std::uint32_t source, progpu_native_image_rect bounds, std::uint64_t scene_id) {
+    std::vector<std::byte> batch, content;
+    append_create(batch, 4000U, 39U);
+    append_create(batch, 4001U, 43U);
+    append_create(batch, 4002U, 83U);
+    append_create(batch, 4003U, 47U);
+    append_command(batch, command::visual_create, 4000U);
+    append_command(batch, command::bitmap_cache_brush, 4002U, 0.5, 0U, 0U, 0U, 0U, source);
+    append_command(content, command::draw_rectangle, 0.0, 0.0, 160.0, 120.0, 4002U, 0U);
+    append_render_data(batch, 4001U, content);
+    append_command(batch, command::visual_set_content, 4000U, 4001U);
+    append_command(batch, command::generic_target_create, 4003U,
+        std::uint64_t{0U}, std::uint64_t{0U}, 160U, 120U, 0U);
+    append_command(batch, command::target_set_root, 4003U, 4000U);
+    PROGPU_REQUIRE(state.apply(batch) == status::success);
+    PROGPU_REQUIRE(state.set_visual_cache_bounds(source, bounds.x, bounds.y,
+        bounds.width, bounds.height) == status::success);
+    scene_build_request request{};
+    request.target_handle = 4003U;
+    request.scene_id = scene_id;
+    request.generation = request.request_serial = 1U;
+    request.dpi_scale_x = request.dpi_scale_y = 1.0;
+    std::span<const std::byte> compiled;
+    PROGPU_REQUIRE(state.build_scene(request, compiled) == status::success);
+    std::vector<std::byte> initial(compiled.begin(), compiled.end());
+    progpu_native_scene_layer layer{};
+    PROGPU_REQUIRE(try_get_cached_layer(initial, layer));
+    PROGPU_REQUIRE(layer.opacity == 0.5F);
+    PROGPU_REQUIRE(layer.bounds.width == bounds.width && layer.bounds.height == bounds.height);
+    const auto header = read_value<progpu_native_scene_header>(initial, 0U);
+    bool mesh_found = false;
+    for (std::uint32_t index = 0U; index < header.command_count; ++index) {
+        const auto draw = read_value<progpu_native_scene_command>(initial,
+            header.command_offset + index * sizeof(progpu_native_scene_command));
+        if (draw.kind != PROGPU_NATIVE_SCENE_COMMAND_DRAW_MESH_3D_BATCH) continue;
+        mesh_found = true;
+        PROGPU_REQUIRE(draw.bounds_x == 0.0F && draw.bounds_y == 0.0F);
+        PROGPU_REQUIRE(draw.bounds_width == bounds.width && draw.bounds_height == bounds.height);
+    }
+    PROGPU_REQUIRE(mesh_found);
+    batch.clear();
+    append_command(batch, command::visual_set_offset, source, 70.0, 90.0);
+    append_command(batch, command::visual_set_alpha, source, 0.125);
+    PROGPU_REQUIRE(state.apply(batch) == status::success);
+    request.generation = request.request_serial = 2U;
+    PROGPU_REQUIRE(state.build_scene(request, compiled) == status::success);
+    std::vector<std::byte> updated(compiled.begin(), compiled.end());
+    progpu_native_scene_layer changed{};
+    PROGPU_REQUIRE(try_get_cached_layer(updated, changed));
+    PROGPU_REQUIRE(changed.content_revision == layer.content_revision);
+    PROGPU_REQUIRE(changed.composite_revision == layer.composite_revision);
+    PROGPU_REQUIRE(changed.opacity == layer.opacity);
+    batch.clear();
+    append_command(batch, command::visual_set_offset, source, 0.0, 0.0);
+    append_command(batch, command::visual_set_alpha, source, 1.0);
+    PROGPU_REQUIRE(state.apply(batch) == status::success);
+    return true;
+}
+
 bool retained_viewport3d_uses_pointer_free_mesh_sideband() {
     constexpr std::uint32_t viewport_handle = 920U;
     constexpr std::uint32_t target = 921U;
@@ -18541,6 +18601,7 @@ bool retained_viewport3d_uses_pointer_free_mesh_sideband() {
     }
     PROGPU_REQUIRE(found_mesh);
     PROGPU_REQUIRE(found_draw);
+    PROGPU_REQUIRE(viewport3d_cache_brush_reuses_mesh_replay(state, viewport_handle, viewport, 8201U));
 
     progpu_native_scene_brush material{};
     material.type = PROGPU_NATIVE_SCENE_BRUSH_LINEAR_GRADIENT;
@@ -19418,6 +19479,9 @@ bool canonical_viewport3d_scene_uses_wpf_resources() {
     PROGPU_REQUIRE(found_mesh_batch);
     PROGPU_REQUIRE(found_draw);
 
+    PROGPU_REQUIRE(viewport3d_cache_brush_reuses_mesh_replay(state, viewport,
+        {10.0F, 20.0F, 120.0F, 80.0F}, 8401U));
+
     std::vector<std::byte> invalid_material_update;
     const std::array<std::uint32_t, 1U> invalid_material_child{camera};
     append_material_group(
@@ -19874,6 +19938,67 @@ bool bitmap_cache_brush_captures_content_with_independent_root_state() {
     PROGPU_REQUIRE(after.content_revision != before.content_revision);
     PROGPU_REQUIRE(after.composite_revision == before.composite_revision);
     PROGPU_REQUIRE(repeated != child_initial);
+    return true;
+}
+
+bool bitmap_cache_brush_preserves_root_raster_policy() {
+    using namespace progpu::native::tests;
+    mil_image_brush_fixture_options options{};
+    options.source = mil_brush_fixture_source::visual;
+    options.bitmap_cache_brush = options.explicit_source_cache = true;
+    options.source_cache_scale = 1.5;
+    std::vector<std::byte> baseline, scene, commands;
+    PROGPU_REQUIRE(build_mil_image_brush_fixture(baseline, options, 8120U));
+    progpu_native_scene_layer before{}, after{};
+    PROGPU_REQUIRE(try_get_cached_layer(baseline, before));
+    append_command(commands, command::visual_set_render_options, 3U, 0x3BU,
+        1U, 0U, 3U, 1U, 2U, 1U);
+    append_command(commands, command::visual_set_guideline_collection, 3U,
+        std::uint16_t{3U}, std::uint16_t{0U}, std::uint16_t{2U}, std::uint16_t{0U},
+        10.25F, 20.5F, 29.75F, 20.25F, 29.75F);
+    options.source_visual_commands = commands;
+    PROGPU_REQUIRE(build_mil_image_brush_fixture(scene, options, 8120U));
+    PROGPU_REQUIRE(try_get_cached_layer(scene, after));
+    PROGPU_REQUIRE(before.content_revision != after.content_revision);
+    PROGPU_REQUIRE(before.composite_revision == after.composite_revision);
+    progpu_native_scene_state raster{};
+    PROGPU_REQUIRE(try_get_cached_raster_state(scene, raster));
+    PROGPU_REQUIRE((raster.flags & PROGPU_NATIVE_SCENE_STATE_GUIDELINE_SET) != 0U);
+    const auto header = read_value<progpu_native_scene_header>(scene, 0U);
+    const auto resource = read_value<progpu_native_scene_resource>(scene,
+        header.resource_offset + raster.guideline_resource_index * sizeof(progpu_native_scene_resource));
+    const auto guides = read_value<progpu_native_scene_guideline_set>(scene, resource.payload_offset);
+    PROGPU_REQUIRE(guides.guideline_x_count == 3U && guides.guideline_y_count == 2U);
+    // Scalar oracle for float-coordinate mapping; includes vector pairs and
+    // the one-coordinate tail, with independent axis origins.
+    constexpr std::array expected{0.375, 15.75, 29.625, 0.375, 14.625};
+    for (std::size_t index = 0U; index < expected.size(); ++index) {
+        PROGPU_REQUIRE(read_value<double>(scene,
+            resource.payload_offset + sizeof(guides) + index * sizeof(double)) == expected[index]);
+    }
+    bool aliased = false;
+    for (std::uint32_t index = 0U; index < header.resource_count; ++index) {
+        const auto record = read_value<progpu_native_scene_resource>(scene,
+            header.resource_offset + index * sizeof(progpu_native_scene_resource));
+        if (record.kind != PROGPU_NATIVE_SCENE_RESOURCE_ANALYTIC_BATCH) continue;
+        for (std::size_t offset = 0U; offset < record.payload_size; offset += sizeof(progpu_native_analytic_primitive)) {
+            const auto primitive = read_value<progpu_native_analytic_primitive>(scene, record.payload_offset + offset);
+            aliased |= (primitive.flags & PROGPU_NATIVE_PRIMITIVE_FLAG_EDGE_ALIASED) != 0U;
+        }
+    }
+    PROGPU_REQUIRE(aliased);
+    std::array<std::uint64_t, 2U> revisions{};
+    for (std::uint32_t axis = 0U; axis < 2U; ++axis) {
+        commands.clear();
+        append_command(commands, command::visual_set_guideline_collection, 3U,
+            static_cast<std::uint16_t>(axis == 0U ? 1U : 0U), std::uint16_t{0U},
+            static_cast<std::uint16_t>(axis == 1U ? 1U : 0U), std::uint16_t{0U}, 20.25F);
+        options.source_visual_commands = commands;
+        PROGPU_REQUIRE(build_mil_image_brush_fixture(scene, options, 8120U));
+        PROGPU_REQUIRE(try_get_cached_layer(scene, after));
+        revisions[axis] = after.content_revision;
+    }
+    PROGPU_REQUIRE(revisions[0U] != revisions[1U]);
     return true;
 }
 
@@ -21308,6 +21433,7 @@ int main() {
     PROGPU_REQUIRE(canonical_tile_brush_packets_are_transactional_and_typed());
     PROGPU_REQUIRE(bitmap_cache_brush_ingress_is_typed_and_transactional());
     PROGPU_REQUIRE(bitmap_cache_brush_captures_content_with_independent_root_state());
+    PROGPU_REQUIRE(bitmap_cache_brush_preserves_root_raster_policy());
     PROGPU_REQUIRE(bitmap_dpi_is_atomic_and_preserves_legacy_bindings());
     PROGPU_REQUIRE(malformed_and_unsupported_packets_fail_closed());
     PROGPU_REQUIRE(c_abi_is_typed_and_size_versioned());
