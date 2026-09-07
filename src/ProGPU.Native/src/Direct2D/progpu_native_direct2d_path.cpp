@@ -10,6 +10,7 @@
 #include <memory>
 #include <mutex>
 #include <new>
+#include <numeric>
 #include <numbers>
 #include <span>
 #include <utility>
@@ -220,6 +221,57 @@ void include_cubic_bounds(
     return cross * cross / length_squared;
 }
 
+// Convex combinations of forward control-polygon tangents stay inside their
+// common angular cone. Bound pen-normal deviation conservatively by twice the
+// sine of that cone angle, reserving half the tolerance for centerline error.
+// Four fixed lanes (the final lane is zero) avoid per-curve heap allocations.
+[[nodiscard]] bool stroke_tangents_fit_chord(point_2f start, point_2f control1,
+    point_2f control2, point_2f end, double radius, double tolerance_squared) noexcept
+{
+    const double cx = double{end.x} - start.x, cy = double{end.y} - start.y;
+    const double chord_squared = cx * cx + cy * cy;
+    if (chord_squared == 0.0)
+        return same_point(start, control1) && same_point(start, control2);
+    const std::array<double, 4U> x{double{control1.x} - start.x,
+        double{control2.x} - control1.x, double{end.x} - control2.x, 0.0};
+    const std::array<double, 4U> y{double{control1.y} - start.y,
+        double{control2.y} - control1.y, double{end.y} - control2.y, 0.0};
+    const double normal_factor = 16.0 * radius * radius;
+    const double tolerance_factor = tolerance_squared * chord_squared;
+#if defined(PROGPU_NATIVE_DIRECT2D_PATH_INTRINSICS_NEON) && (defined(__aarch64__) || defined(_M_ARM64))
+    for (std::size_t i = 0U; i < 4U; i += 2U) {
+        const auto dx = vld1q_f64(x.data() + i), dy = vld1q_f64(y.data() + i);
+        const auto dot = vaddq_f64(vmulq_n_f64(dx, cx), vmulq_n_f64(dy, cy));
+        const auto cross = vsubq_f64(vmulq_n_f64(dx, cy), vmulq_n_f64(dy, cx));
+        const auto length_squared = vaddq_f64(vmulq_f64(dx, dx), vmulq_f64(dy, dy));
+        const auto valid = vandq_u64(vcgeq_f64(dot, vdupq_n_f64(0.0)),
+            vcleq_f64(vmulq_n_f64(vmulq_f64(cross, cross), normal_factor),
+                vmulq_n_f64(length_squared, tolerance_factor)));
+        if (vgetq_lane_u64(valid, 0U) == 0U || vgetq_lane_u64(valid, 1U) == 0U) return false;
+    }
+#elif defined(PROGPU_NATIVE_DIRECT2D_PATH_INTRINSICS_SSE2)
+    for (std::size_t i = 0U; i < 4U; i += 2U) {
+        const auto dx = _mm_loadu_pd(x.data() + i), dy = _mm_loadu_pd(y.data() + i);
+        const auto dot = _mm_add_pd(_mm_mul_pd(dx, _mm_set1_pd(cx)), _mm_mul_pd(dy, _mm_set1_pd(cy)));
+        const auto cross = _mm_sub_pd(_mm_mul_pd(dx, _mm_set1_pd(cy)), _mm_mul_pd(dy, _mm_set1_pd(cx)));
+        const auto length_squared = _mm_add_pd(_mm_mul_pd(dx, dx), _mm_mul_pd(dy, dy));
+        const auto valid = _mm_and_pd(_mm_cmpge_pd(dot, _mm_setzero_pd()),
+            _mm_cmple_pd(_mm_mul_pd(_mm_mul_pd(cross, cross), _mm_set1_pd(normal_factor)),
+                _mm_mul_pd(length_squared, _mm_set1_pd(tolerance_factor))));
+        if (_mm_movemask_pd(valid) != 3) return false;
+    }
+#else
+    // Fixed three-edge scalar platform path when double intrinsics are absent.
+    for (std::size_t i = 0U; i < 3U; ++i) {
+        const double dot = x[i] * cx + y[i] * cy;
+        const double cross = x[i] * cy - y[i] * cx;
+        if (!(dot >= 0.0) || !(normal_factor * cross * cross <=
+                tolerance_factor * (x[i] * x[i] + y[i] * y[i]))) return false;
+    }
+#endif
+    return true;
+}
+
 template<typename Callback>
 [[nodiscard]] bool flatten_cubic(
     point_2f start,
@@ -228,33 +280,30 @@ template<typename Callback>
     point_2f end,
     double tolerance_squared,
     std::uint32_t depth,
-    Callback& callback)
+    Callback& callback,
+    double stroke_radius = 0.0)
 {
-    if (depth == 20U ||
-        (point_line_distance_squared(control1, start, end) <=
-                tolerance_squared &&
-            point_line_distance_squared(control2, start, end) <=
-                tolerance_squared)) {
+    const double centerline_tolerance = stroke_radius > 0.0 ? tolerance_squared * 0.25 : tolerance_squared;
+    const bool flat = point_line_distance_squared(control1, start, end) <= centerline_tolerance &&
+        point_line_distance_squared(control2, start, end) <= centerline_tolerance &&
+        (stroke_radius == 0.0 || stroke_tangents_fit_chord(start, control1, control2, end,
+            stroke_radius, tolerance_squared));
+    if (flat || (depth == 20U && stroke_radius == 0.0)) {
         return callback(start, end);
     }
+    if (depth == 20U) return false; // Never relax the stroke error bound at the work limit.
     const point_2f p01{
-        (start.x + control1.x) * 0.5F,
-        (start.y + control1.y) * 0.5F};
+        std::midpoint(start.x, control1.x), std::midpoint(start.y, control1.y)};
     const point_2f p12{
-        (control1.x + control2.x) * 0.5F,
-        (control1.y + control2.y) * 0.5F};
+        std::midpoint(control1.x, control2.x), std::midpoint(control1.y, control2.y)};
     const point_2f p23{
-        (control2.x + end.x) * 0.5F,
-        (control2.y + end.y) * 0.5F};
+        std::midpoint(control2.x, end.x), std::midpoint(control2.y, end.y)};
     const point_2f p012{
-        (p01.x + p12.x) * 0.5F,
-        (p01.y + p12.y) * 0.5F};
+        std::midpoint(p01.x, p12.x), std::midpoint(p01.y, p12.y)};
     const point_2f p123{
-        (p12.x + p23.x) * 0.5F,
-        (p12.y + p23.y) * 0.5F};
+        std::midpoint(p12.x, p23.x), std::midpoint(p12.y, p23.y)};
     const point_2f midpoint{
-        (p012.x + p123.x) * 0.5F,
-        (p012.y + p123.y) * 0.5F};
+        std::midpoint(p012.x, p123.x), std::midpoint(p012.y, p123.y)};
     return flatten_cubic(
                start,
                p01,
@@ -262,7 +311,8 @@ template<typename Callback>
                midpoint,
                tolerance_squared,
                depth + 1U,
-               callback) &&
+               callback,
+               stroke_radius) &&
         flatten_cubic(
             midpoint,
             p123,
@@ -270,7 +320,8 @@ template<typename Callback>
             end,
             tolerance_squared,
             depth + 1U,
-            callback);
+            callback,
+            stroke_radius);
 }
 
 template<typename BeginCallback, typename LineCallback,
@@ -283,7 +334,8 @@ template<typename BeginCallback, typename LineCallback,
     BeginCallback&& begin_callback,
     LineCallback&& line_callback,
     CubicCallback&& cubic_callback,
-    EndCallback&& end_callback)
+    EndCallback&& end_callback,
+    double stroke_radius = 0.0)
 {
     const double tolerance_squared =
         static_cast<double>(tolerance) * tolerance;
@@ -395,7 +447,8 @@ template<typename BeginCallback, typename LineCallback,
                                 cubic_end_target,
                                 tolerance_squared,
                                 0U,
-                                callback)) {
+                                callback,
+                                stroke_radius)) {
                             return false;
                         }
                     } else if (!cubic_callback(
@@ -3862,9 +3915,8 @@ enum class stroke_contour_usage { query, solid_outline, dashed_outline };
         }
         const bool has_incoming =
             current->closed || current->points.size() > 1U;
-        if (has_incoming && edge.segment_index != previous_segment &&
-            has_path_segment_flag(
-                edge.flags, path_segment::force_round_line_join)) {
+        if (has_incoming && (edge.segment_index == previous_segment ||
+            has_path_segment_flag(edge.flags, path_segment::force_round_line_join))) {
           current->round_joins.back() = 1U;
         }
         current->points.push_back(edge.end);
@@ -5611,7 +5663,7 @@ public:
         try {
             std::vector<flat_edge> edges;
             const com::result edge_status = collect_flat_edges(
-                nullptr, flattening_tolerance, false, edges);
+                nullptr, flattening_tolerance, false, edges, stroke_width);
             if (com::failed(edge_status)) {
                 return edge_status;
             }
@@ -5738,7 +5790,7 @@ public:
         try {
             std::vector<flat_edge> edges;
             const com::result edge_status = collect_flat_edges(
-                nullptr, flattening_tolerance, false, edges);
+                nullptr, flattening_tolerance, false, edges, stroke_width);
             if (com::failed(edge_status)) {
                 return edge_status;
             }
@@ -7045,7 +7097,7 @@ public:
         try {
             std::vector<flat_edge> edges;
             const com::result edge_status = collect_flat_edges(
-                nullptr, flattening_tolerance, false, edges);
+                nullptr, flattening_tolerance, false, edges, stroke_width);
             if (com::failed(edge_status)) {
                 return edge_status;
             }
@@ -7330,7 +7382,7 @@ private:
         const matrix_3x2_f* transform,
         float tolerance,
         bool close_open_filled_figures,
-        std::vector<flat_edge>& edges) const noexcept
+        std::vector<flat_edge>& edges, float stroke_width = 0.0F) const noexcept
     {
         edges.clear();
         if (!closed()) {
@@ -7383,7 +7435,7 @@ private:
                         ++public_segment_base;
                     }
                     return true;
-                });
+                }, double{stroke_width} * 0.5);
             return visited ? com::ok : com::invalid_argument;
         } catch (const std::bad_alloc&) {
             edges.clear();

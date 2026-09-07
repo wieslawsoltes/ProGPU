@@ -17,6 +17,7 @@
 #include <cstdint>
 #include <cstring>
 #include <limits>
+#include <memory>
 #include <span>
 #include <vector>
 
@@ -1755,6 +1756,66 @@ int run_tests()
                 bounds, has_outline) != com::ok || !has_outline ||
             !approximately_equal(bounds.left, expected.left) || !approximately_equal(bounds.top, expected.top) ||
             !approximately_equal(bounds.right, expected.right) || !approximately_equal(bounds.bottom, expected.bottom)) return 9076;
+    }
+
+    // Centerline-only flattening erased these quadratic reversals even though
+    // a finite pen leaves substantial coverage. Artificial curve joins must
+    // remain round regardless of the requested joins between source segments.
+    {
+        for (const float extent : {10.0F, 0.001F}) {
+            com::pointer<compat::path_geometry> path;
+            com::pointer<compat::geometry_sink> sink;
+            if (factory->CreatePathGeometry(path.put()) != com::ok || path->Open(sink.put()) != com::ok) return 9080;
+            sink->BeginFigure({0, 0}, compat::figure_begin::hollow);
+            const compat::quadratic_bezier_segment curve{{extent, 0}, {0, 0}};
+            sink->AddQuadraticBezier(&curve);
+            sink->EndFigure(compat::figure_end::open);
+            if (sink->Close() != com::ok) return 9081;
+            for (const auto join : {compat::line_join::miter, compat::line_join::bevel,
+                    compat::line_join::round, compat::line_join::miter_or_bevel}) {
+                const compat::stroke_style_properties properties{compat::cap_style::flat, compat::cap_style::flat,
+                    compat::cap_style::flat, join, 10.0F, compat::dash_style::solid, 0.0F};
+                com::pointer<compat::stroke_style> style;
+                if (factory->CreateStrokeStyle(&properties, nullptr, 0U, style.put()) != com::ok) return 9082;
+                compat::rectangle_f bounds{};
+                bool has_outline = false;
+                if (compat::detail::get_widened_outline_bounds(path.get(), 2.0F, style.get(), nullptr, 0.25F,
+                        bounds, has_outline) != com::ok || !has_outline ||
+                    !approximately_equal(bounds.left, 0.0F) || !approximately_equal(bounds.top, -1.0F) ||
+                    !approximately_equal(bounds.right, extent * 0.5F + 1.0F) ||
+                    !approximately_equal(bounds.bottom, 1.0F)) return 9083;
+                std::int32_t contains = 0;
+                if (path->StrokeContainsPoint({extent * 0.5F + 0.5F, 0}, 2.0F, style.get(), nullptr,
+                        0.25F, &contains) != com::ok || contains == 0 ||
+                    path->StrokeContainsPoint({-0.5F, 0}, 2.0F, style.get(), nullptr,
+                        0.25F, &contains) != com::ok || contains != 0) return 9084;
+            }
+        }
+        // The same pen-aware criterion must keep a tiny two-dimensional loop
+        // whose endpoints coincide; compare a coarse tolerance with a finer
+        // construction at points well away from the boundary.
+        com::pointer<compat::path_geometry> loop;
+        com::pointer<compat::geometry_sink> sink;
+        if (factory->CreatePathGeometry(loop.put()) != com::ok || loop->Open(sink.put()) != com::ok) return 9085;
+        sink->BeginFigure({0, 0}, compat::figure_begin::hollow);
+        const compat::bezier_segment curve{{0.001F, 0}, {0, 0.001F}, {0, 0}};
+        sink->AddBezier(&curve);
+        sink->EndFigure(compat::figure_end::open);
+        if (sink->Close() != com::ok) return 9086;
+        com::pointer<compat::path_geometry> coarse, fine;
+        for (const auto [target, tolerance] : std::array{
+                std::pair{std::addressof(coarse), 0.25F}, std::pair{std::addressof(fine), 0.01F}}) {
+            if (factory->CreatePathGeometry(target->put()) != com::ok || (*target)->Open(sink.put()) != com::ok ||
+                loop->Widen(2.0F, nullptr, nullptr, tolerance, sink.get()) != com::ok || sink->Close() != com::ok)
+                return 9087;
+        }
+        for (const auto point : std::array<compat::point_2f, 4U>{{{0.5F, 0.5F}, {-0.5F, 0.5F}, {2, 2}, {-2, -2}}}) {
+            std::int32_t a = 0, b = 0;
+            if (coarse->FillContainsPoint(point, nullptr, 0.01F, &a) != com::ok ||
+                fine->FillContainsPoint(point, nullptr, 0.01F, &b) != com::ok || a != b) return 9088;
+        }
+        std::int32_t contains = 0;
+        if (coarse->FillContainsPoint({0.5F, 0.5F}, nullptr, 0.01F, &contains) != com::ok || contains == 0) return 9089;
     }
 
     com::pointer<com::unknown> identity;

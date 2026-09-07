@@ -8511,6 +8511,47 @@ digest was regenerated. Tests, verifiers, images/VMs, profiling and CI qualifica
 remain deferred. General point-only Direct2D behavior, lost tiny curves,
 transform-collapse replay fidelity and full platform parity remain open.
 
+## Implementation-first checkpoint: pen-aware small-curve flattening
+
+The native Direct2D stroke flattener now accounts for pen width as well as
+centerline distance. Nonconstant coincident-endpoint curves cannot immediately
+become a point. Each accepted span requires forward control-polygon tangents
+within a pen-normal angular error bound; half the pen-space tolerance is reserved
+for centerline deviation and half for normal deviation. A conservative
+twice-sine bound avoids square roots. Fixed double lanes use NEON/SSE2 with no
+heap allocation in the predicate. Recursive subdivision retains the existing
+depth-20 limit but stroke processing now fails rather than relaxing its criterion
+at that limit. Overflow-safe `std::midpoint` is used for subdivision.
+
+`GetWidenedBounds`, `StrokeContainsPoint` and `Widen` share this stroke mode.
+Flattened edges within one original curve publish smooth round joins regardless
+of the user's join choice between original segments, preserving curve reversals
+and cusp coverage. Non-stroke traversal retains its existing tolerance/depth
+policy. The implementation extends original ProGPU `flatten_cubic`, `visit_path`
+and `build_flat_polylines`; no foreign implementation, new shader, raster
+fallback or public ABI/module change is introduced.
+
+MIL now uses the existing emitted-outline bounds collector for curved solid
+strokes too: conservative full-disk public-query supports are not exact
+DrawingImage source bounds for short round reversals. Point-cap handling remains
+separate. The managed Direct2D `WidenGeometry` entry remains provider-backed;
+the source-integrated managed WPF/analytic GPU rendering paths do not consume
+this native COM-query flattener and are not duplicated or changed here.
+
+For C input cubics and P generated spans, work is O(C + P), output O(P), and
+recursive stack O(20), with a maximum 2^20 spans per input cubic before the
+existing work limit. Pen-aware refinement can produce more geometry than the
+old centerline-only approximation; no performance improvement is claimed.
+Authored fixtures cover large and tiny quadratic reversals with analytic
+stroke-only bounds and cap-side hit points, all join styles, a tiny 2D loop at
+coarse/fine tolerances, and solid/on/gap MIL DrawingImage mapping. Native library,
+MIL and Direct2D compatibility/WebGPU test targets compile; the coverage source
+digest was regenerated. No tests, Windows/VM/images, benchmarks, verifiers or
+CI qualification ran. This replaces the blanket tiny-curve flattening rejection
+for representable curves within the subdivision budget, not general point-only
+Direct2D or transform-collapse replay qualification. Precision-limit cases and
+the remaining full platform/DirectX/Direct2D/Win2D goal remain open.
+
 ## Invariants
 
 - No reflection or private managed field scanning in the product bridge.

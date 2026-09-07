@@ -11613,10 +11613,16 @@ struct channel::implementation {
                 if (com::failed(hr)) return convert(hr);
                 d2d::rectangle_f bounds{};
                 bool emitted_outline = false;
+                const bool measure_outline = !dashes.empty() || std::any_of(
+                    contour.segments.begin(), contour.segments.end(), [](const auto& segment) {
+                        return segment.kind != PROGPU_NATIVE_PATH_SEGMENT_LINE;
+                    });
                 // D2D GetWidenedBounds also includes the original spine. MIL
                 // unions actual fill separately, so a dashed hollow contour
                 // needs only its emitted stroke coverage (possibly empty).
-                hr = dashes.empty()
+                // Curves also need actual round-join/cap sectors rather than
+                // the conservative full-disk supports of the public query.
+                hr = !measure_outline
                     ? path->GetWidenedBounds(static_cast<float>(pen.thickness), style.get(),
                         &world_matrix, tolerance, &bounds)
                     : d2d::detail::get_widened_outline_bounds(path.get(), static_cast<float>(pen.thickness),
@@ -11635,10 +11641,11 @@ struct channel::implementation {
                     if (!std::isfinite(spine.left) || !std::isfinite(spine.top) ||
                         !std::isfinite(spine.right) || !std::isfinite(spine.bottom)) return status::unsupported_command;
                     if (spine.left != spine.right || spine.top != spine.bottom) {
-                        if (dashes.empty()) return status::unsupported_command;
+                        if (!measure_outline) return status::unsupported_command;
                         // A real outline can collapse only after the world
                         // transform. It has no area to map into a DrawingImage.
                         if (emitted_outline) continue;
+                        if (dashes.empty()) return status::unsupported_command;
                         // Confirm that flattening retained the nonpoint spine
                         // before treating an empty dash result as all-gap. Tiny
                         // curves lost at this tolerance must not vanish silently.

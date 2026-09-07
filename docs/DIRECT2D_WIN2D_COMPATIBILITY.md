@@ -4487,3 +4487,39 @@ has drawing-image mapping fixtures for all-gap diagonal/curved/tiny-line paths
 and a visible short dash followed by a long gap. Native targets compile; runtime,
 Windows/VM/image, verifier, profiling and CI qualification remain deferred.
 This is not full point/tiny-contour or Direct2D/Win2D parity qualification.
+
+### Implementation-first checkpoint: pen-aware curve subdivision
+
+Native stroke queries and `Widen` now pass the pen radius into the original
+ProGPU cubic flattener. A span must satisfy both centerline distance and a
+forward-tangent cone criterion: half the pen-space tolerance is assigned to
+each, with normal deviation conservatively bounded by twice the tangent-angle
+sine. Fixed NEON/SSE2 double lanes evaluate control-edge dot/cross products without
+square roots or heap allocation. A nonconstant zero-chord curve must subdivide,
+and reversed control directions cannot be flattened into one forward segment.
+At depth 20, stroke subdivision fails if the criterion is still unmet instead
+of silently accepting reduced quality. Midpoints avoid overflow for finite
+coordinates. Non-stroke visitors retain their existing subdivision policy.
+
+Edges produced from one source curve now carry smooth round-join metadata;
+user-selected miter/bevel/etc. joins still apply between original segments.
+This lets a retracing quadratic retain its outward round reversal without
+inventing an inner disk beyond flat source caps. The internal emitted-outline
+collector is also used for native MIL curved solid bounds, where conservative
+public-query full-circle supports would overstate a tiny curve's source extent.
+Public query/COM/C/module interfaces and the provider-backed managed entry point
+remain unchanged. Independent managed WPF and analytic GPU rendering paths do
+not use this CPU COM-query flattener.
+
+Provenance is original ProGPU `flatten_cubic`, `visit_path`,
+`build_flat_polylines` and the established widening/bounds kernels; no foreign
+source or second raster algorithm is added. For C curves and P generated spans,
+work/storage are O(C + P)/O(P), the recursion stack is bounded by 20 levels, and
+each input cubic has at most 2^20 spans. More subdivision is expected where pen
+coverage requires it; no speed claim is made before deferred profiling.
+Authored fixtures include large/tiny reversals, analytic bounds, cap-side hit
+points under every join style, a tiny 2D loop compared at coarse/fine tolerance,
+and MIL solid/on/gap source mapping. Native library and MIL/Direct2D compatibility/
+WebGPU test targets compile. All runtime/Windows/VM/image/performance/verifier/CI
+qualification is deferred; precision-limit, point-only and transform-collapse
+cases plus full Direct2D/Win2D parity remain open.
