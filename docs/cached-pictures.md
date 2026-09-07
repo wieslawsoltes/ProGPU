@@ -98,6 +98,53 @@ DPI and performance qualification is still required.
 
 ## Implementation-first status
 
+### Endpoint traversal and closed dash seams (2026-09-07)
+
+Managed and native dash preparation now requires visible traversal at a source
+endpoint before applying that endpoint's cap or merging a closed seam. Position
+agreement remains a consistency check, not proof that an endpoint was reached by
+the visible run. This fixes leading/trailing hidden retraces and closed contours
+whose visible interior run happens to return to the source seam. Explicit managed
+unstroked leading/trailing edges clear eligibility; zero-length no-op records do
+not erase a preceding valid traversal.
+
+Endpoint phase is interpreted using the existing dash epsilon:
+
+| Final phase | Position within interval | Ordinary run reaches source end |
+| --- | --- | --- |
+| Visible | Inside interval | Yes |
+| Visible | At interval start | No; directed terminal point is separate |
+| Hidden | Inside interval | No |
+| Hidden | At interval start | Yes; visible interval just ended |
+
+The initial interval must also be visible before the first run can acquire the
+source-start cap. A closed seam needs both endpoint conditions plus coordinate
+agreement. Existing true whole-contour and wraparound joins remain supported.
+For a visible `0 -> 1` followed by a hidden `1 -> 2 -> 1` with dash `[1, 2]`,
+the terminal forward direction is `-X`: its square cap must not also extend the
+earlier `+X` run to `1.5`. Paired managed/native emitted-outline fixtures require
+the correct bounds `[0, -0.5, 1, 0.5]` at width one.
+
+Provenance is original ProGPU `8d7a63d0` managed `Compositor` dash-state handling,
+native `Mil/progpu_native_mil_curve_dash.hpp` retained run metadata and the shared
+directed-cap outline implementation. Both backends change, with no native ABI,
+MIL packet, shader, pixel, readback or upload changes. Added phase/eligibility
+state is O(1) per figure; generated storage and preparation complexity are
+unchanged. These dependent boolean decisions are scalar control work; intrinsic
+coordinate/bounds math and retained cache reuse remain unchanged. No speed claim
+is made.
+
+The preceding primary Direct2D/Skia/Win2D contract research and
+WebRender/Vello/Parley/HarfBuzz architecture review remain applicable: preserve
+explicit stroke topology and retained geometry, while leaving text/layout,
+startup, culling, workers, batching, cache/atlas generations and device policy
+unchanged. No foreign source text is copied. Managed/native fixtures cover linear
+and quadratic leading/trailing retraces, both closed-seam phases, explicit gaps
+and directed terminal bounds. They are authored, not executed. General curved
+cached coverage, tiny/point-only and density policies, device-width/boolean
+coverage and all runtime/image, SIMD/performance, VM/platform/package,
+source-verifier, Svg.Skia and CI qualification remain unfinished.
+
 ### Curved dash continuity prerequisites (2026-09-07)
 
 Ordinary managed quadratic/cubic/arc dash replay now follows the native run-state

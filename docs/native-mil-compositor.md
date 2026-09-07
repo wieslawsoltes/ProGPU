@@ -9698,6 +9698,26 @@ boolean and device-width policies remain open. Full MIL/DirectX/Direct2D/COM/Win
 parity and runtime/image, performance/SIMD, VM/platform/package, source-verifier
 and CI qualification remain incomplete and deferred.
 
+## Implementation-first checkpoint: source endpoint traversal
+
+Managed and native dash preparation now combines interval traversal with position
+agreement before assigning source endpoint caps or closing a seam. Hidden
+retraces cannot acquire source caps, and a new directed terminal point does not
+also cap an earlier coincident run. Explicit managed unstroked endpoint traversal
+remains ineligible after a dash reset. Paired linear/quadratic, closed-seam and
+native/managed directed-outline bounds fixtures are authored.
+
+See [phase semantics, provenance, costs and pending gates](cached-pictures.md#endpoint-traversal-and-closed-dash-seams-2026-09-07).
+ProGPU.Tests Release compilation succeeds with 0 warnings/errors and Apple Clang
+C++20 native MIL fixtures compile/link. The existing fast native build tree has
+`PROGPU_NATIVE_BUILD_WGPU_TARGET=OFF`, so it has no `progpu_native` renderer target;
+that attempted target build is not evidence of a rebuilt full renderer binary.
+Main was refreshed with zero missing commits.
+No ABI, packet or shader change is introduced. Runtime/image, SIMD/performance,
+VM/platform/package, source-verifier and CI qualification remain deferred.
+General curved/terminal cached coverage and full MIL/DirectX/Direct2D/COM/Win2D
+parity remain incomplete.
+
 ## Invariants
 
 - No reflection or private managed field scanning in the product bridge.

@@ -8612,6 +8612,8 @@ SceneStateUploadComplete:
             var dashedFigureStartIndex = dashedPath.Figures.Count;
             var patternIndex = pattern.InitialIndex;
             var distanceInPattern = pattern.InitialDistance;
+            bool sourceStartEligible = (patternIndex & 1) == 0;
+            bool sourceEndHasStrokedTraversal = false;
             PathFigure? activeDashFigure = null;
             var activeDashEnd = default(Vector2);
             var currentPoint = figure.StartPoint;
@@ -8625,6 +8627,9 @@ SceneStateUploadComplete:
                 bool startsInVisibleDash = (patternIndex & 1) == 0;
                 if (!segment.IsStroked)
                 {
+                    if (dashedPath.Figures.Count == dashedFigureStartIndex)
+                        sourceStartEligible = false;
+                    sourceEndHasStrokedTraversal = false;
                     if (TryGetPathSegmentEndPoint(segment, out var skippedEndPoint))
                     {
                         currentPoint = skippedEndPoint;
@@ -8640,6 +8645,11 @@ SceneStateUploadComplete:
                 switch (segment)
                 {
                     case LineSegment line:
+                        if (Vector2.DistanceSquared(segmentStart, line.Point) <= StrokeEpsilon * StrokeEpsilon)
+                        {
+                            currentPoint = line.Point;
+                            continue;
+                        }
                         AddDashedLineFigures(
                             dashedPath,
                             pattern,
@@ -8655,7 +8665,7 @@ SceneStateUploadComplete:
 
                     case QuadraticBezierSegment quadratic:
                         if (quadratic.ControlPoint == segmentStart && quadratic.Point == segmentStart)
-                            break;
+                            continue;
                         if (BezierSegmentGeometry.TryCreateDashedQuadraticBezierSegments(
                                 segmentStart,
                                 quadratic,
@@ -8687,7 +8697,7 @@ SceneStateUploadComplete:
 
                     case CubicBezierSegment cubic:
                         if (cubic.ControlPoint1 == segmentStart && cubic.ControlPoint2 == segmentStart
-                            && cubic.Point == segmentStart) break;
+                            && cubic.Point == segmentStart) continue;
                         if (BezierSegmentGeometry.TryCreateDashedCubicBezierSegments(
                                 segmentStart,
                                 cubic,
@@ -8720,7 +8730,7 @@ SceneStateUploadComplete:
                     case ArcSegment arc:
                         if (arc.Point == segmentStart && float.IsFinite(arc.Size.X) && float.IsFinite(arc.Size.Y)
                             && arc.Size.X >= 0 && arc.Size.Y >= 0 && float.IsFinite(arc.RotationAngle)
-                            && (uint)arc.SweepDirection <= 1) break;
+                            && (uint)arc.SweepDirection <= 1) continue;
                         if (ArcSegmentGeometry.TryCreateDashedArcSegments(
                                 segmentStart,
                                 arc,
@@ -8753,6 +8763,7 @@ SceneStateUploadComplete:
                     default:
                         return false;
                 }
+                sourceEndHasStrokedTraversal = true;
                 // Native curve_dash closes the run at every hidden interval or
                 // visible interval boundary, even when a curve returns to the
                 // same coordinate. Final phase, not positional equality, owns
@@ -8773,22 +8784,26 @@ SceneStateUploadComplete:
                     ref distanceInPattern,
                     ref activeDashFigure,
                     ref activeDashEnd);
+                sourceEndHasStrokedTraversal = true;
             }
 
+            bool sourceEndEligible = sourceEndHasStrokedTraversal &&
+                ((patternIndex & 1) == 0 ? distanceInPattern > StrokeEpsilon : distanceInPattern <= StrokeEpsilon);
             if (figure.IsClosed)
             {
-                MergeClosedDashSeam(
-                    dashedPath,
-                    dashedFigureStartIndex,
-                    figure.StartPoint,
-                    figureSegments.Count > 0 && figureSegments[0].IsSmoothJoin);
+                if (sourceStartEligible && sourceEndEligible)
+                    MergeClosedDashSeam(
+                        dashedPath,
+                        dashedFigureStartIndex,
+                        figure.StartPoint,
+                        figureSegments.Count > 0 && figureSegments[0].IsSmoothJoin);
             }
             else
             {
                 // Native terminal intervals own two directed caps even though
                 // they have no centerline length. Keep that metadata separate
                 // until one compound filled coverage path can be prepared.
-                if (captureTerminalCaps && (patternIndex & 1) == 0
+                if (captureTerminalCaps && sourceEndHasStrokedTraversal && (patternIndex & 1) == 0
                     && distanceInPattern <= StrokeEpsilon
                     && (pen.DashCap != PenLineCap.Flat
                         || (figure.StrokeEndLineCap ?? pen.EndLineCap) != PenLineCap.Flat))
@@ -8807,7 +8822,9 @@ SceneStateUploadComplete:
                     currentPoint,
                     figure.StrokeStartLineCap ?? pen.StartLineCap,
                     figure.StrokeEndLineCap ?? pen.EndLineCap,
-                    pen.DashCap);
+                    pen.DashCap,
+                    sourceStartEligible,
+                    sourceEndEligible);
             }
         }
 
@@ -8821,7 +8838,9 @@ SceneStateUploadComplete:
         Vector2 sourceEnd,
         PenLineCap startLineCap,
         PenLineCap endLineCap,
-        PenLineCap dashCap)
+        PenLineCap dashCap,
+        bool sourceStartEligible,
+        bool sourceEndEligible)
     {
         var figures = dashedPath.Figures;
         if ((uint)firstFigureIndex >= (uint)figures.Count)
@@ -8830,14 +8849,14 @@ SceneStateUploadComplete:
         }
 
         var firstFigure = figures[firstFigureIndex];
-        if (startLineCap != dashCap &&
+        if (sourceStartEligible && startLineCap != dashCap &&
             Vector2.DistanceSquared(firstFigure.StartPoint, sourceStart) <= StrokeEpsilon * StrokeEpsilon)
         {
             firstFigure.StrokeStartLineCap = startLineCap;
         }
 
         var lastFigure = figures[^1];
-        if (endLineCap != dashCap &&
+        if (sourceEndEligible && endLineCap != dashCap &&
             TryGetPathFigureEndPoint(lastFigure, out var lastEnd) &&
             Vector2.DistanceSquared(lastEnd, sourceEnd) <= StrokeEpsilon * StrokeEpsilon)
         {

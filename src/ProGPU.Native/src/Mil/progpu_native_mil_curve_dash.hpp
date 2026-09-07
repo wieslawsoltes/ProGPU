@@ -647,6 +647,7 @@ inline result try_create_runs(
             source_intervals, offset, thickness, pattern)) {
         return result::invalid;
     }
+    const bool starts_in_visible_interval = (pattern.index & 1U) == 0U;
     constexpr std::size_t no_run = std::numeric_limits<std::size_t>::max();
     std::size_t active_run = no_run;
     for (std::size_t segment_index = 0U; segment_index < segments.size();
@@ -704,24 +705,29 @@ inline result try_create_runs(
     }
     const auto source_start = segments.front().p0;
     const auto source_end = detail::segment_end(segments.back());
+    // The interval just traversed owns an endpoint cap. Hidden -> visible at
+    // exactly the endpoint is a separate terminal point, not the end of an
+    // earlier run that happens to end at the same coordinate.
+    const bool ends_in_visible_interval = (pattern.index & 1U) == 0U
+        ? pattern.distance > epsilon : pattern.distance <= epsilon;
     if (!closed) {
         output.runs.front().starts_at_source_start =
-            detail::run_touches_start(
+            starts_in_visible_interval && detail::run_touches_start(
                 output,
                 output.runs.front(),
                 source_start);
-        output.runs.back().ends_at_source_end = detail::run_touches_end(
+        output.runs.back().ends_at_source_end = ends_in_visible_interval && detail::run_touches_end(
             output,
             output.runs.back(),
             source_end);
         return result::success;
     }
     const bool first_touches_seam =
-        detail::run_touches_start(
+        starts_in_visible_interval && detail::run_touches_start(
             output,
             output.runs.front(),
             source_start);
-    const bool last_touches_seam = detail::run_touches_end(
+    const bool last_touches_seam = ends_in_visible_interval && detail::run_touches_end(
         output,
         output.runs.back(),
         source_end);

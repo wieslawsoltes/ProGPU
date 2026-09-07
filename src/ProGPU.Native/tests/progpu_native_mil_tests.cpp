@@ -1278,6 +1278,49 @@ bool curve_dashes_match_managed_reference_contracts() {
         std::span(&invalid_quadratic, 1U), one_join, false,
         whole_curve_pattern, 0.0, 1.0F, runs) == curve_dash::result::invalid);
 
+    // Paired DashEndpointTraversalTests: source cap/seam eligibility needs
+    // interval traversal as well as positional endpoint equality.
+    const std::array start_retrace_points{progpu_native_point{0, 0}, progpu_native_point{1, 0},
+        progpu_native_point{0, 0}, progpu_native_point{0, 1}};
+    const std::array end_retrace_points{progpu_native_point{0, 0}, progpu_native_point{1, 0},
+        progpu_native_point{2, 0}, progpu_native_point{1, 0}};
+    const std::array seam_retrace_points{progpu_native_point{0, 0}, progpu_native_point{1, 0},
+        progpu_native_point{0, 0}, progpu_native_point{-1, 0}, progpu_native_point{0, 0}};
+    for (const bool curved : {false, true}) {
+        const auto segment_between = [&](progpu_native_point start, progpu_native_point end) {
+            if (curved) return make_quadratic(start,
+                {(start.x + end.x) * 0.5F, (start.y + end.y) * 0.5F}, end);
+            progpu_native_path_segment value{};
+            value.kind = PROGPU_NATIVE_PATH_SEGMENT_LINE; value.p0 = start; value.p1 = end;
+            return value;
+        };
+        std::array<progpu_native_path_segment, 3U> endpoint_segments{};
+        const std::array<std::uint8_t, 3U> endpoint_joins{};
+        for (std::size_t index = 0U; index < endpoint_segments.size(); ++index)
+            endpoint_segments[index] = segment_between(start_retrace_points[index], start_retrace_points[index + 1U]);
+        PROGPU_REQUIRE(curve_dash::try_create_runs(endpoint_segments, endpoint_joins, false,
+            retrace_pattern, 1.0, 1.0F, runs) == curve_dash::result::success);
+        PROGPU_REQUIRE(runs.runs.size() == 1U);
+        PROGPU_REQUIRE(!runs.runs.front().starts_at_source_start && runs.runs.front().ends_at_source_end);
+        for (std::size_t index = 0U; index < endpoint_segments.size(); ++index)
+            endpoint_segments[index] = segment_between(end_retrace_points[index], end_retrace_points[index + 1U]);
+        PROGPU_REQUIRE(curve_dash::try_create_runs(endpoint_segments, endpoint_joins, false,
+            retrace_pattern, 0.0, 1.0F, runs) == curve_dash::result::success);
+        PROGPU_REQUIRE(runs.runs.size() == 1U && runs.terminal_visible_point);
+        PROGPU_REQUIRE(runs.runs.front().starts_at_source_start && !runs.runs.front().ends_at_source_end);
+
+        std::array<progpu_native_path_segment, 4U> seam_segments2{};
+        const std::array<std::uint8_t, 4U> seam_joins2{};
+        for (std::size_t index = 0U; index < seam_segments2.size(); ++index)
+            seam_segments2[index] = segment_between(seam_retrace_points[index], seam_retrace_points[index + 1U]);
+        for (const double offset : {0.0, 2.0}) {
+            PROGPU_REQUIRE(curve_dash::try_create_runs(seam_segments2, seam_joins2, true,
+                terminal_dash_pattern, offset, 1.0F, runs) == curve_dash::result::success);
+            PROGPU_REQUIRE(runs.runs.size() == 1U && !runs.runs.front().closed);
+            PROGPU_REQUIRE(runs.runs.front().segment_count == 2U);
+        }
+    }
+
     std::array<progpu_native_path_segment, 256U> dense_lines{};
     std::array<std::uint8_t, 256U> dense_joins{};
     for (std::size_t index = 0U; index < dense_lines.size(); ++index) {
@@ -20375,6 +20418,38 @@ bool directed_terminal_dash_outlines_match_managed() {
     return true;
 }
 
+bool directed_terminal_retrace_does_not_cap_earlier_run() {
+    namespace d2d = progpu::native::direct2d::compat;
+    namespace com = progpu::native::com;
+    com::pointer<d2d::factory> factory;
+    PROGPU_REQUIRE(com::succeeded(d2d::create_factory(factory.put())));
+    const std::array points{progpu_native_point{0, 0}, progpu_native_point{1, 0},
+        progpu_native_point{2, 0}, progpu_native_point{1, 0}};
+    std::array<progpu_native_path_segment, 3U> segments{};
+    const std::array<std::uint8_t, 3U> joins{};
+    for (std::size_t index = 0U; index < segments.size(); ++index) {
+        segments[index].kind = PROGPU_NATIVE_PATH_SEGMENT_LINE;
+        segments[index].p0 = points[index]; segments[index].p1 = points[index + 1U];
+    }
+    com::pointer<d2d::path_geometry> path;
+    PROGPU_REQUIRE(com::succeeded(d2d::detail::create_native_stroke_geometry(
+        factory.get(), segments, joins, false, path.put())));
+    const std::array intervals{1.0F, 2.0F};
+    d2d::stroke_style_properties properties{d2d::cap_style::flat, d2d::cap_style::square,
+        d2d::cap_style::flat, d2d::line_join::miter, 10.0F, d2d::dash_style::custom, 0.0F};
+    com::pointer<d2d::stroke_style> style;
+    PROGPU_REQUIRE(com::succeeded(factory->CreateStrokeStyle(&properties,
+        intervals.data(), static_cast<std::uint32_t>(intervals.size()), style.put())));
+    d2d::rectangle_f bounds{};
+    bool has_outline = false;
+    PROGPU_REQUIRE(com::succeeded(d2d::detail::get_widened_outline_bounds(path.get(),
+        1.0F, style.get(), nullptr, 0.25F, bounds, has_outline)));
+    // Paired DirectedTerminalCapDoesNotAlsoExtendEarlierCoincidentRun.
+    PROGPU_REQUIRE(has_outline && bounds.left == 0 && bounds.right == 1);
+    PROGPU_REQUIRE(bounds.top == -0.5F && bounds.bottom == 0.5F);
+    return true;
+}
+
 bool bitmap_cache_brush_linear_paths_preserve_gap_bounds() {
     using namespace progpu::native::tests;
     namespace d2d = progpu::native::direct2d::compat;
@@ -22007,6 +22082,7 @@ int main() {
     PROGPU_REQUIRE(bitmap_cache_brush_glyphs_retain_coverage_and_shared_source());
     PROGPU_REQUIRE(bitmap_cache_brush_strokes_retain_coverage_and_shared_source());
     PROGPU_REQUIRE(directed_terminal_dash_outlines_match_managed());
+    PROGPU_REQUIRE(directed_terminal_retrace_does_not_cap_earlier_run());
     PROGPU_REQUIRE(bitmap_cache_brush_linear_paths_preserve_gap_bounds());
     PROGPU_REQUIRE(bitmap_cache_brush_masks_retain_source_pages_and_consumer_alpha());
     PROGPU_REQUIRE(bitmap_cache_brush_rounded_fill_preserves_clamped_arcs());

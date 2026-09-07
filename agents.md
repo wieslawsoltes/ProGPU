@@ -202,6 +202,13 @@ Cross-assembly WPF bridge contracts must not expose shim-owned WPF structs or cl
 
 ### A. Rendering Quality & DPI-Aware Text Snapping
 
+Source dash caps and closed-seam joins require visible endpoint traversal as
+well as position agreement. A hidden interval returning to the source coordinate
+must not acquire source caps or close an earlier run. A newly visible terminal
+point owns its separate directed caps; do not also apply the source-end cap to
+an earlier coincident run. Explicit unstroked leading/trailing segments must not
+restore endpoint eligibility through a phase reset.
+
 Curved dash continuation must follow the visible interval state, not coincident
 endpoints. Separate emitted intervals stay separate runs; only a first span at
 the source segment start inherits its smooth-join flag. Do not discard analytic
