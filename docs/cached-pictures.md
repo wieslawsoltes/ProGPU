@@ -98,6 +98,76 @@ DPI and performance qualification is still required.
 
 ## Implementation-first status
 
+### Directed terminal dash coverage (2026-09-07)
+
+The line and linear-path preparers now expose overloads with an optional complete
+`fillCoverage` output. An open run whose dash phase starts a visible interval
+exactly at the source endpoint retains a typed endpoint/adjacent-point record and
+independent backward dash cap and forward source-end cap. When either cap paints,
+preparation materializes the **entire** stroke coverage as one positive-winding
+nonzero-fill path: bodies, joins, ordinary caps and directed terminal caps. This
+is not a tiny synthetic line, an extra fill of the source geometry, or separately
+blended cap coverage. The old spine-only overloads fail closed if the complete
+filled payload would otherwise be dropped. Both line and general linear-path
+zero-width dashed pens now return empty coverage consistently.
+
+`DrawingContext.DrawCachedPictureFillCoverage` records that complete path as one
+opaque `DrawPath` in one owned mask picture, then reuses the existing cached-source
+lease, placement and opacity scopes. It preserves edge aliasing on the fill and
+the outer transform on the mask. Parent picture clones retain both the coverage
+picture and source. Ordinary cached strokes still use their original direct
+path/pen mask command without a picture wrapper. Only terminal-cap cases take
+the filled-outline representation. LibreWPF's direct line and typed/native-path
+cached-pen routes consume the optional payload instead of stroking its spine a
+second time. No native ABI or shader change is required: the native picture
+compiler already accepts filled path commands in retained mask pictures.
+
+Original ProGPU provenance: `a3c7ef6c`'s managed emitted-outline bounds helpers,
+native `Direct2D/progpu_native_direct2d_path.cpp` compound writer and terminal cap
+outlines, and `Mil/progpu_native_mil_curve_dash.hpp` terminal state. The managed
+bounds-only walker can now optionally emit the same finite control/end points.
+Bodies/caps/join wedges use positive locally anchored endpoint area; negative-turn
+round wedges reverse their cubic traversal before publication. Degenerate emitted
+pieces fail closed. No foreign implementation code is introduced. Native already
+implements directed terminal caps and compound fills, so native changes here are
+matched fixture additions, not a second product implementation.
+
+Preparation remains O(D + S + G + T) for intervals D, source records S, generated
+stroke records G and terminal records T. Bounds-only scratch is O(1); terminal
+metadata is allocated lazily and the complete terminal-case outline owns O(G + T)
+bounded-size pieces. Coordinate/control math and area/bounds reduction use paired
+intrinsics; topology, cap selection and bounded curve/area decisions are dependent
+scalar work. Recording adds one constant-sized picture wrapper only for the
+complete filled-coverage case, never one command or GPU submission per cap. There
+are no CPU pixels, texture repacks, new pipelines, or changes to execution-policy
+defaults. Allocation, GPU overlap/edge quality and performance remain unmeasured.
+
+The prior primary-engine research remains the design basis: preserve explicit
+stroke state and retained scene/material separation, and rasterize the combined
+coverage with one fill rule rather than alpha-compositing independent boundaries.
+See the linked Skia/Direct2D/Win2D/WebRender/Vello/Parley/HarfBuzz sources in the
+metadata checkpoint below. Shaping/layout reuse, font fallback/variation,
+DPI/hinting, culling, worker scheduling, atlas residency/eviction, demand-driven
+upload and device-loss policies remain unchanged.
+
+Authored fixtures cover all 16 dash/end-cap pairs in four directions in both
+managed `DirectedTerminalStrokeCoverageTests` and native
+`directed_terminal_dash_outlines_match_managed`; managed coverage also checks
+interior joins, positive winding and zero-width no-ops. `CachedPictureTests`
+checks one-command mask ownership, source lifetime, transforms, opacity and alias
+state. LibreWPF adds direct-line/general-path terminal mask recording fixtures.
+Release ProGPU.Tests and native MIL fixtures compile; fixture execution and all
+image/SIMD, platform/VM/package, Svg.Skia, Instruments/performance, source-verifier
+and CI qualification remain deferred and required.
+
+This closes the cached terminal-cap representation gap for prepared nondegenerate
+linear runs, not the full stroke goal. Tiny/nonpositive dash intervals, tiny or
+point-only source runs, curves, boolean boundaries and fixed/hairline policies
+remain unfinished. The ordinary non-cached legacy dash generator still does not
+request terminal payloads. General live managed-tree native-picture transport is
+also unchanged and remains unsupported. Oblique floating-point boundaries and
+compact/compound native rounding still need differential qualification.
+
 ### Dashed linear cached coverage and emitted bounds (2026-09-07)
 
 `StrokeCoverageGeometry.TryPrepareLinearPath` now prepares positive, finite,

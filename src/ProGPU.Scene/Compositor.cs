@@ -8556,6 +8556,20 @@ SceneStateUploadComplete:
         out PathGeometry dashedPath,
         bool rejectUnrepresentedTerminalCaps = false)
     {
+        bool result = TryCreateDashedStrokePath(source, pen, localThickness, out dashedPath,
+            out var terminalCaps, captureTerminalCaps: rejectUnrepresentedTerminalCaps);
+        return result && terminalCaps == null;
+    }
+
+    internal static bool TryCreateDashedStrokePath(
+        PathGeometry source,
+        Pen pen,
+        float localThickness,
+        out PathGeometry dashedPath,
+        out List<DirectedStrokeCaps>? terminalCaps,
+        bool captureTerminalCaps)
+    {
+        terminalCaps = null;
         dashedPath = new PathGeometry
         {
             FillRule = source.FillRule
@@ -8726,13 +8740,21 @@ SceneStateUploadComplete:
             }
             else
             {
-                // Native dash runs explicitly represent a visible zero-length
-                // terminal interval. A retained spine currently lacks its tangent
-                // and two directed caps: cached coverage must not lose that ink.
-                if (rejectUnrepresentedTerminalCaps && (patternIndex & 1) == 0
+                // Native terminal intervals own two directed caps even though
+                // they have no centerline length. Keep that metadata separate
+                // until one compound filled coverage path can be prepared.
+                if (captureTerminalCaps && (patternIndex & 1) == 0
                     && distanceInPattern <= StrokeEpsilon
                     && (pen.DashCap != PenLineCap.Flat
-                        || (figure.StrokeEndLineCap ?? pen.EndLineCap) != PenLineCap.Flat)) return false;
+                        || (figure.StrokeEndLineCap ?? pen.EndLineCap) != PenLineCap.Flat))
+                {
+                    if (figureSegments.Count == 0 || figureSegments[^1] is not LineSegment) return false;
+                    var adjacent = figure.StartPoint;
+                    if (figureSegments.Count > 1
+                        && !TryGetPathSegmentEndPoint(figureSegments[^2], out adjacent)) return false;
+                    (terminalCaps ??= new()).Add(new(currentPoint, adjacent, pen.DashCap,
+                        figure.StrokeEndLineCap ?? pen.EndLineCap));
+                }
                 ApplyOpenDashEndpointCaps(
                     dashedPath,
                     dashedFigureStartIndex,

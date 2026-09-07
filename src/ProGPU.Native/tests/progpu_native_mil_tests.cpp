@@ -20257,6 +20257,48 @@ bool bitmap_cache_brush_strokes_retain_coverage_and_shared_source() {
     return true;
 }
 
+bool directed_terminal_dash_outlines_match_managed() {
+    namespace d2d = progpu::native::direct2d::compat;
+    namespace com = progpu::native::com;
+    com::pointer<d2d::factory> factory;
+    PROGPU_REQUIRE(com::succeeded(d2d::create_factory(factory.put())));
+    const std::array<float, 2U> intervals{2.0F, 2.0F};
+    const std::array<std::uint8_t, 1U> joins{};
+    for (const auto direction : {progpu_native_point{1, 0}, progpu_native_point{-1, 0},
+            progpu_native_point{0, 1}, progpu_native_point{0, -1}}) {
+        for (std::uint32_t dash = 0U; dash < 4U; ++dash) {
+            for (std::uint32_t end = 0U; end < 4U; ++end) {
+                progpu_native_path_segment segment{};
+                segment.kind = PROGPU_NATIVE_PATH_SEGMENT_LINE;
+                segment.p1 = {direction.x * 4, direction.y * 4};
+                com::pointer<d2d::path_geometry> path;
+                PROGPU_REQUIRE(com::succeeded(d2d::detail::create_native_stroke_geometry(factory.get(),
+                    std::span(&segment, 1U), joins, false, path.put())));
+                d2d::stroke_style_properties properties{d2d::cap_style::flat,
+                    static_cast<d2d::cap_style>(end), static_cast<d2d::cap_style>(dash),
+                    d2d::line_join::miter, 10.0F, d2d::dash_style::custom, 0.0F};
+                com::pointer<d2d::stroke_style> style;
+                PROGPU_REQUIRE(com::succeeded(factory->CreateStrokeStyle(&properties,
+                    intervals.data(), 2U, style.put())));
+                d2d::rectangle_f bounds{};
+                bool has_outline = false;
+                PROGPU_REQUIRE(com::succeeded(d2d::detail::get_widened_outline_bounds(path.get(),
+                    1.0F, style.get(), nullptr, 0.25F, bounds, has_outline)));
+                PROGPU_REQUIRE(has_outline);
+                const float length = end != 0U ? 4.5F : dash != 0U ? 4.0F : 2.0F;
+                const float normal_x = -direction.y * 0.5F, normal_y = direction.x * 0.5F;
+                const float left = std::min(0.0F, direction.x * length) - std::abs(normal_x);
+                const float right = std::max(0.0F, direction.x * length) + std::abs(normal_x);
+                const float top = std::min(0.0F, direction.y * length) - std::abs(normal_y);
+                const float bottom = std::max(0.0F, direction.y * length) + std::abs(normal_y);
+                PROGPU_REQUIRE(bounds.left == left && bounds.right == right);
+                PROGPU_REQUIRE(bounds.top == top && bounds.bottom == bottom);
+            }
+        }
+    }
+    return true;
+}
+
 bool bitmap_cache_brush_linear_paths_preserve_gap_bounds() {
     using namespace progpu::native::tests;
     namespace d2d = progpu::native::direct2d::compat;
@@ -21888,6 +21930,7 @@ int main() {
     PROGPU_REQUIRE(bitmap_cache_brush_preserves_root_raster_policy());
     PROGPU_REQUIRE(bitmap_cache_brush_glyphs_retain_coverage_and_shared_source());
     PROGPU_REQUIRE(bitmap_cache_brush_strokes_retain_coverage_and_shared_source());
+    PROGPU_REQUIRE(directed_terminal_dash_outlines_match_managed());
     PROGPU_REQUIRE(bitmap_cache_brush_linear_paths_preserve_gap_bounds());
     PROGPU_REQUIRE(bitmap_cache_brush_masks_retain_source_pages_and_consumer_alpha());
     PROGPU_REQUIRE(bitmap_cache_brush_rounded_fill_preserves_clamped_arcs());

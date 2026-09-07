@@ -13,6 +13,42 @@ public sealed class CachedPictureTests
 {
     private static readonly Rect Bounds = new(10, 20, 20, 10);
 
+    [Fact]
+    public void FilledStrokeCoverageRecordsOnePathAndRetainsMaskAndSource()
+    {
+        using var input = CreatePicture(Vector4.One);
+        var provider = new PictureSource(input);
+        using var cache = new CachedPictureSourceCache<object>();
+        using var source = cache.Acquire(new object(), provider, static value => value);
+        var pen = new Pen(new SolidColorBrush(Vector4.One), 1, dashCap: PenLineCap.Round, dashArray: [2, 2]);
+        Assert.True(StrokeCoverageGeometry.TryPrepareLine(Vector2.Zero, new(4, 0), pen,
+            out _, out _, out var bounds, out var outline));
+        Assert.NotNull(outline);
+        var recorder = new GpuPictureRecorder();
+        var commands = recorder.BeginRecording(bounds);
+        var parent = Matrix4x4.CreateScale(2, 3, 1);
+        commands.DrawCachedPictureFillCoverage(source, outline, bounds, opacity: 0.5f,
+            transform: parent, isEdgeAliased: true);
+        using var picture = recorder.EndRecording();
+        using var clone = picture.Clone();
+        commands.Clear(); picture.Dispose(); source.Dispose();
+        Assert.Equal(5, clone.CommandCount);
+        var mask = clone.GetCommand(0);
+        Assert.Equal(RenderCommandType.PushOpacityMask, mask.Type);
+        Assert.Equal(parent, mask.Transform);
+        Assert.NotNull(mask.Picture);
+        Assert.Equal(1, mask.Picture.CommandCount);
+        var fill = mask.Picture.GetCommand(0);
+        Assert.Equal(RenderCommandType.DrawPath, fill.Type);
+        Assert.Same(outline, fill.Path);
+        Assert.Null(fill.Pen);
+        Assert.True(fill.IsEdgeAliased);
+        Assert.Equal(Vector4.One, Assert.IsType<SolidColorBrush>(fill.Brush).Color);
+        Assert.Equal(0, provider.DisposeCount);
+        clone.Dispose();
+        Assert.Equal(1, provider.DisposeCount);
+    }
+
     [Theory]
     [InlineData(PenStrokeTransformMode.Normal, 4f)]
     [InlineData(PenStrokeTransformMode.Fixed, 4f)]

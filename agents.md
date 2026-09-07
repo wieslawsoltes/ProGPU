@@ -208,9 +208,12 @@ merging. A cap must not become a join until topology proves continuity. Borrow
 immutable pen dash storage internally rather than cloning the public array.
 Keep matched native end-join and managed start-join fixtures. Cached dashed
 material bounds must measure emitted cubic caps/joins rather than ideal solid
-support or fill-bound inflation. Preflight density/finite metrics before splitting;
-reject visible terminal point caps until their directed tangent representation
-exists. Hidden intervals must end an active dash even if they return to the same
+support or fill-bound inflation. Preflight density/finite metrics before splitting.
+Visible terminal point caps must retain endpoint/tangent and independent cap
+directions. Their cached coverage must be one positive-winding compound filled
+outline, including the ordinary stroke pieces, rather than tiny fake segments or
+separately alpha-blended masks. Legacy spine-only APIs must reject an unconsumed
+filled-coverage payload. Hidden intervals must end an active dash even if they return to the same
 position; positional equality alone does not prove continuity.
 
 Cached linear path preparation must keep the original fill geometry separate

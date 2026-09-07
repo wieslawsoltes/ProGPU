@@ -4594,6 +4594,38 @@ public class DrawingContext :
         DrawCachedCoverageSource(source, placement, opacity);
     }
 
+    /// <summary>
+    /// Paints a cached source through one retained filled coverage path. Compound
+    /// stroke outlines use this for directed terminal caps so overlapping pieces
+    /// are rasterized with one fill rule instead of alpha-blended separately.
+    /// </summary>
+    public void DrawCachedPictureFillCoverage(CachedPictureLease source, PathGeometry coverage, Rect bounds,
+        Matrix4x4 sourceTransform = default, float opacity = 1, Matrix4x4 transform = default,
+        bool isEdgeAliased = false)
+    {
+        ArgumentNullException.ThrowIfNull(coverage);
+        var placement = ValidateCachedCoverage(source, bounds, sourceTransform, opacity, transform);
+        if (opacity == 0) return;
+        var recorder = new GpuPictureRecorder();
+        var recording = recorder.BeginRecording(bounds);
+        GpuPicture picture;
+        try
+        {
+            recording.Commands.Add(new RenderCommand
+            {
+                Type = RenderCommandType.DrawPath,
+                Path = coverage,
+                Brush = new SolidColorBrush(Vector4.One),
+                IsEdgeAliased = isEdgeAliased,
+                GeometryCache = RenderCommandGeometryCache.ForPath(coverage)
+            });
+            picture = recorder.EndRecording();
+        }
+        finally { recording.Clear(); }
+        PushOwnedOpacityMaskPicture(picture, bounds, transform);
+        DrawCachedCoverageSource(source, placement, opacity);
+    }
+
     private void DrawCachedCoverageSource(CachedPictureLease source, Matrix4x4 placement, float opacity)
     {
         if (opacity != 1) PushOpacity(opacity);

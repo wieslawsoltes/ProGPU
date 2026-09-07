@@ -187,13 +187,33 @@ public static partial class StrokeCoverageGeometry
     public static bool TryPrepareLine(Vector2 start, Vector2 end, Pen pen,
         out PathGeometry path, out Pen coveragePen, out Rect bounds)
     {
+        if (TryPrepareLine(start, end, pen, out path, out coveragePen, out bounds, out var fillCoverage)
+            && fillCoverage == null) return true;
+        path = null!; coveragePen = null!; bounds = default;
+        return false;
+    }
+
+    /// <summary>Prepares a line, returning optional complete filled coverage for directed terminal dash caps.</summary>
+    public static bool TryPrepareLine(Vector2 start, Vector2 end, Pen pen,
+        out PathGeometry path, out Pen coveragePen, out Rect bounds, out PathGeometry? fillCoverage)
+    {
+        if (TryPrepareLineCore(start, end, pen, out path, out coveragePen, out bounds, out fillCoverage)) return true;
+        path = null!; coveragePen = null!; bounds = default; fillCoverage = null;
+        return false;
+    }
+
+    private static bool TryPrepareLineCore(Vector2 start, Vector2 end, Pen pen,
+        out PathGeometry path, out Pen coveragePen, out Rect bounds, out PathGeometry? fillCoverage)
+    {
         ArgumentNullException.ThrowIfNull(pen);
         path = null!;
         coveragePen = null!;
         bounds = default;
+        fillCoverage = null;
         if (!float.IsFinite(start.X) || !float.IsFinite(start.Y)
             || !float.IsFinite(end.X) || !float.IsFinite(end.Y)
-            || !float.IsFinite(pen.Thickness) || pen.Thickness < 0 || pen.IsFixed
+            || !float.IsFinite(pen.Thickness) || pen.Thickness < 0
+            || pen.StrokeTransformMode != PenStrokeTransformMode.Normal
             || (uint)pen.StartLineCap > 3 || (uint)pen.EndLineCap > 3 || (uint)pen.DashCap > 3
             || !double.IsFinite(pen.DashOffset)) return false;
         path = RenderCommandGeometryCache.CreateLinePath(start, end);
@@ -203,9 +223,20 @@ public static partial class StrokeCoverageGeometry
         {
             // Do not inherit the legacy dash engine's epsilon replacement of
             // zero/tiny intervals or allow unbounded generated figure storage.
-            if (!CanPrepareDashPattern(pen, start, end)) return false;
-            var cache = RenderCommandGeometryCache.ForStrokePath(path);
-            if (!cache.TryGetDashedStrokePath(pen, pen.Thickness, out path, out coveragePen)) return false;
+            float metricLength = (end - start).Length();
+            if (!float.IsFinite(metricLength) || metricLength <= 0.0001f
+                || !CanPrepareDashPattern(pen, start, end)) return false;
+            if (!Compositor.TryCreateDashedStrokePath(path, pen, pen.Thickness, out var dashed,
+                    out var terminals, captureTerminalCaps: true)) return false;
+            path = dashed;
+            coveragePen = Compositor.CreateUndashedPen(pen);
+            if (terminals != null)
+            {
+                var outline = new PathGeometry { FillRule = FillRule.Nonzero };
+                if (!TryMeasurePreparedLinearStrokeOutline(path, coveragePen, out bounds, outline, terminals)) return false;
+                fillCoverage = outline;
+                return true;
+            }
         }
         Vector2 min = new(float.PositiveInfinity), max = new(float.NegativeInfinity);
         bool any = false;

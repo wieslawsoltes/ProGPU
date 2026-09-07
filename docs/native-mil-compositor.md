@@ -9641,6 +9641,25 @@ fixtures. Runtime/image/SIMD, performance, platform/VM/package, source-verifier
 and CI qualification remains deferred. Main was refreshed with zero missing
 commits. This is not full MIL, DirectX, Direct2D or Win2D parity.
 
+## Implementation-first checkpoint: directed terminal cached dash caps
+
+Shared line/linear-path preparation now returns optional complete filled coverage
+for a visible zero-length terminal dash: endpoint/tangent and independent backward
+dash/forward source caps are preserved. One positive-winding compound path holds
+all stroke pieces and caps, keeping one mask fill and avoiding fake epsilon lines
+or separately alpha-blended cap draws. New retained recording and LibreWPF routes
+consume the payload; legacy spine-only preparer overloads reject it explicitly.
+Zero-width linear dashed pens now consistently produce empty coverage.
+
+Native already implements the original terminal-cap and compound-outline
+algorithms; matched native/managed/WPF fixtures are authored. No native public
+ABI, MIL product source or shader changes. See
+[representation, provenance, costs and remaining scope](cached-pictures.md#directed-terminal-dash-coverage-2026-09-07).
+Compilation is not execution or parity evidence: tests/images/SIMD, performance,
+platform/VM/package, source verifiers and CI qualification remain deferred.
+Ordinary non-cached terminal routing, tiny/point-like geometry, curves, boolean
+boundaries and device-width policy support remain open work.
+
 ## Invariants
 
 - No reflection or private managed field scanning in the product bridge.

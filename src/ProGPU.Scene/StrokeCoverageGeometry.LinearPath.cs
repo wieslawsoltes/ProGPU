@@ -16,9 +16,24 @@ public static partial class StrokeCoverageGeometry
     public static bool TryPrepareLinearPath(PathGeometry source, Pen pen,
         out PathGeometry strokePath, out Pen coveragePen, out Rect bounds)
     {
+        if (TryPrepareLinearPath(source, pen, out strokePath, out coveragePen, out bounds, out var fillCoverage)
+            && fillCoverage == null) return true;
+        // Legacy callers cannot consume the directed terminal-cap coverage.
+        strokePath = null!; coveragePen = null!; bounds = default;
+        return false;
+    }
+
+    /// <summary>
+    /// Prepares stroke coverage, optionally as one compound filled outline when
+    /// zero-length terminal dashes need directed caps. If fillCoverage is non-null,
+    /// render that fill instead of stroking strokePath; bounds cover the full union.
+    /// </summary>
+    public static bool TryPrepareLinearPath(PathGeometry source, Pen pen,
+        out PathGeometry strokePath, out Pen coveragePen, out Rect bounds, out PathGeometry? fillCoverage)
+    {
         ArgumentNullException.ThrowIfNull(source);
         ArgumentNullException.ThrowIfNull(pen);
-        strokePath = null!; coveragePen = null!; bounds = default;
+        strokePath = null!; coveragePen = null!; bounds = default; fillCoverage = null;
         if (source.IsCombined || (uint)source.FillRule > 1 || !float.IsFinite(pen.Thickness) || pen.Thickness < 0
             || pen.StrokeTransformMode != PenStrokeTransformMode.Normal || !double.IsFinite(pen.DashOffset)
             || (uint)pen.LineJoin > 2 || !float.IsFinite(pen.MiterLimit) || (uint)pen.StartLineCap > 3
@@ -40,7 +55,7 @@ public static partial class StrokeCoverageGeometry
         var prepared = new PathGeometry { FillRule = source.FillRule };
         for (int f = 0; f < source.Figures.Count; f++) AppendLinearRuns(source.Figures[f], pen, prepared);
         if (pen.HasDashPattern)
-            return TryPrepareDashedLinearRuns(prepared, pen, out strokePath, out coveragePen, out bounds);
+            return TryPrepareDashedLinearRuns(prepared, pen, out strokePath, out coveragePen, out bounds, out fillCoverage);
         var state = new LineBounds();
         bool any = false;
         if (pen.Thickness > 0)
@@ -68,10 +83,10 @@ public static partial class StrokeCoverageGeometry
     }
 
     private static bool TryPrepareDashedLinearRuns(PathGeometry prepared, Pen pen,
-        out PathGeometry strokePath, out Pen coveragePen, out Rect bounds)
+        out PathGeometry strokePath, out Pen coveragePen, out Rect bounds, out PathGeometry? fillCoverage)
     {
-        strokePath = null!; coveragePen = null!; bounds = default;
-        if (pen.Thickness == 0) return false;
+        strokePath = null!; coveragePen = null!; bounds = default; fillCoverage = null;
+        if (pen.Thickness == 0) { strokePath = prepared; coveragePen = pen; return true; }
         double length = 0;
         int records = prepared.Figures.Count;
         for (int f = 0; f < prepared.Figures.Count; f++)
@@ -95,10 +110,11 @@ public static partial class StrokeCoverageGeometry
         // bounds preparation before the scaled interval or dash arrays allocate.
         if (!CanPrepareDashPattern(pen, length, records * 2)
             || !Compositor.TryCreateDashedStrokePath(prepared, pen, pen.Thickness,
-                out var dashed, rejectUnrepresentedTerminalCaps: true)) return false;
+                out var dashed, out var terminals, captureTerminalCaps: true)) return false;
         var undashedPen = Compositor.CreateUndashedPen(pen);
-        if (!TryMeasurePreparedLinearStrokeOutline(dashed, undashedPen, out var measured)) return false;
-        strokePath = dashed; coveragePen = undashedPen; bounds = measured;
+        var outline = terminals == null ? null : new PathGeometry { FillRule = FillRule.Nonzero };
+        if (!TryMeasurePreparedLinearStrokeOutline(dashed, undashedPen, out var measured, outline, terminals)) return false;
+        strokePath = dashed; coveragePen = undashedPen; bounds = measured; fillCoverage = outline;
         return true;
     }
 
