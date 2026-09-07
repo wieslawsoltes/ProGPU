@@ -4523,3 +4523,36 @@ and MIL solid/on/gap source mapping. Native library and MIL/Direct2D compatibili
 WebGPU test targets compile. All runtime/Windows/VM/image/performance/verifier/CI
 qualification is deferred; precision-limit, point-only and transform-collapse
 cases plus full Direct2D/Win2D parity remain open.
+
+### Implementation-first checkpoint: sector-restricted stroke supports
+
+The ideal-circle extrema used by `GetWidenedBounds` now honor the requested
+cap/join sector. A cap accepts offsets pointing out of its endpoint. A round join
+accepts offsets past the incoming segment and before the outgoing segment;
+this also gives an outward semicircle at a reversal and no disk at a straight
+continuation. Existing strip endpoint normals supply the sector boundaries.
+Membership is evaluated on double offsets before float coordinate rounding and
+uses the existing transform-axis support directions, including reflection/shear.
+
+Terminal-visible zero-length dashes now contribute their inward dash cap as well
+as the source end cap. Their base endpoints are emitted explicitly, including
+for square/triangle caps under affine maps, while normal nonterminal caps reuse
+strip-provided bases. Reversal uses a sign on double direction components rather
+than manufacturing a possibly overflowing mirrored endpoint.
+
+Original ProGPU support/cap/join helpers and SIMD point reduction remain the
+implementation sources. Complexity stays constant per cap/join and O(P) overall
+point storage for P stroke segments; the extra angular predicates are fixed-work
+dot products, not a new scalar buffer traversal. No foreign source, shader,
+readback, public ABI/module or managed-provider change is introduced. The public
+query still includes original spine extents; emitted geometry retains the existing
+quarter-cubic circular approximation, while this query uses ideal circles.
+
+Authored fixtures cover short asymmetric caps, right-angle joins, straight and
+reversed short segments, and endpoint-visible round/square/triangle dash caps.
+They use analytic axis-aligned bounds and transformed emitted-outline comparisons
+with only the established cubic approximation allowance. Native library and MIL/
+Direct2D compatibility/WebGPU test targets compile. Tests, Windows/VM/images,
+profiling, verifiers and CI qualification remain deferred. General point-only,
+precision-limit and transform-collapse cases and full Direct2D/Win2D qualification
+remain open; prior full-disk-support limitations are superseded by this checkpoint.

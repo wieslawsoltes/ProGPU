@@ -11620,8 +11620,8 @@ struct channel::implementation {
                 // D2D GetWidenedBounds also includes the original spine. MIL
                 // unions actual fill separately, so a dashed hollow contour
                 // needs only its emitted stroke coverage (possibly empty).
-                // Curves also need actual round-join/cap sectors rather than
-                // the conservative full-disk supports of the public query.
+                // Curves use the emitted cubic approximation rather than the
+                // public query's ideal circular sector supports.
                 hr = !measure_outline
                     ? path->GetWidenedBounds(static_cast<float>(pen.thickness), style.get(),
                         &world_matrix, tolerance, &bounds)
