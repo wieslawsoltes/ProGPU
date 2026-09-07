@@ -441,7 +441,8 @@ bool is_valid_semantic_layer(
         PROGPU_NATIVE_SCENE_LAYER_CACHE_NEAREST |
         PROGPU_NATIVE_SCENE_LAYER_CACHE_FANT |
         PROGPU_NATIVE_SCENE_LAYER_COMPOSITE_STATE |
-        PROGPU_NATIVE_SCENE_LAYER_CACHE_TILE;
+        PROGPU_NATIVE_SCENE_LAYER_CACHE_TILE |
+        PROGPU_NATIVE_SCENE_LAYER_CACHE_SHARED;
     const bool local_cache =
         (layer.flags & PROGPU_NATIVE_SCENE_LAYER_CACHE_LOCAL_SPACE) != 0U;
     const bool explicit_composite_state =
@@ -470,6 +471,7 @@ bool is_valid_semantic_layer(
         layer.opacity >= 0.0F && layer.opacity <= 1.0F &&
         layer.blend_mode <= PROGPU_NATIVE_BLEND_MODULATE &&
         (!explicit_composite_state || (!local_cache && materialized)) &&
+        ((layer.flags & PROGPU_NATIVE_SCENE_LAYER_CACHE_SHARED) == 0U || local_cache) &&
         ((layer.flags & PROGPU_NATIVE_SCENE_LAYER_CACHE_CONTENT) == 0U ||
             ((layer.flags & PROGPU_NATIVE_SCENE_LAYER_BACKDROP) == 0U &&
                 layer.content_revision != 0U &&

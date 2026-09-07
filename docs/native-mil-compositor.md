@@ -9203,6 +9203,68 @@ work includes root ScrollableAreaClip semantics, shared target/consumer page
 residency, dirty regions, unsupported 3D combinations, managed integration and
 full platform qualification. The complete goal remains active.
 
+## Implementation-first checkpoint: shared cache-brush GPU pages
+
+The semantic layer contract adds opt-in `LAYER_CACHE_SHARED` (`1 << 9`), exposed
+through the C header, named scene-builder module and managed `CacheShared` flag.
+It requires a local-space cache; the existing descriptor remains 64 bytes. Older
+engines reject the unknown flag rather than silently accepting different ownership
+semantics. Both native and managed builders validate the local-cache requirement.
+All sequential consumers of an owner must opt in and agree on content revision
+and raster extent. Duplicate legacy owners, mixed shared/non-shared owners,
+conflicting revisions/extents and recursive active-owner use fail closed before
+target submission. Producers remain responsible for identical source pixels
+under a retained content revision, as with existing cross-frame cache reuse.
+
+The native cache budget counts an agreed shared owner once. Existing stable-slot
+assignment, working output-cache keys, device generations and replay machinery
+then reuse the page: the first cold consumer records its content pass; later
+consumers can skip that capture and issue their own composite. Each composite
+retains its opacity, transform, sampling and final coverage mask. Working cache
+state is still committed only with the frame's established submission lifecycle;
+no CPU pixels, readback/repacking, per-item crossing or additional queue submission
+is introduced. Recursive sampling of a page currently being written is forbidden.
+
+BitmapCacheBrush now emits source-based shared identities instead of occurrence
+IDs. Repeated uses of one explicit brush cache share its page. Distinct brushes
+without an explicit cache share the target/default-policy page. Explicit brush
+caches keep separate ownership. Descendant cache identities inherit a stable
+source-capture scope and opt in to sharing, so repeated source subtrees do not
+allocate one descendant page per paint. Content keys retain the existing source,
+policy, bounds and dependency revisions; consumer opacity/placement stay outside.
+The target's ordinary on-screen cache is still a separate domain because its
+root-raster policy is not yet unified with brush capture. This checkpoint does
+not claim that final target/brush sharing contract is complete.
+
+Provenance: original ProGPU `semantic::cache_budget`, stable layer-slot assignment,
+`semantic_output_cache_key` and push/pop replay are reused without shader changes.
+The earlier cache-brush contract and cross-engine research record inform the
+content/placement split; no foreign implementation is copied. Budget lookup stays
+O(U) per cache occurrence for bounded unique-owner count U; ancestry checks cost
+O(D) at bounded layer depth D. CPU command/resource preparation is still repeated
+per consumer. GPU residency follows unique pages, and reuse is intended to avoid
+duplicate source raster passes; per-consumer masks/composites still cost work.
+Ownership/key traversal is dependent CPU control work, not a new scalar pixel
+fallback. No measured throughput, allocation or residency improvement is claimed.
+
+Managed/native applicability is paired at the shared scene contract and validation
+boundary. The independent managed BitmapCacheBrush renderer remains pending;
+this change does not substitute the native scene producer for that implementation.
+Native packet fixtures now check shared owners, distinct implicit brushes and
+explicit-cache separation. Budget fixtures cover opt-in, revisions, dimensions,
+effect rejection and unchanged allocation accounting. Managed fixtures cover
+wire flags/local-cache validation and independent consumer opacity. The module
+consumer imports the new flag. Authored GPU fixtures require one cold content pass
+and zero warm passes for repeated paints, alongside the existing pixel oracle.
+
+Native library/MIL/Direct2D compatibility/WebGPU/internal targets, the module
+consumer and managed test graph compile. Native-contract generation was run
+(no marked-record layout change); the MIL digest is refreshed. All fixtures are
+authored, not executed. Runtime/device-loss/recursive-owner, Windows VM/native,
+Linux/macOS image, performance/SIMD, verifier and CI qualification remain deferred.
+Root scroll clips, on-screen target-cache unification, dirty-region updates,
+CPU preparation deduplication, managed integration and full parity remain open.
+
 ## Invariants
 
 - No reflection or private managed field scanning in the product bridge.

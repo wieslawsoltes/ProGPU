@@ -250,6 +250,8 @@ progpu_native_status render_scene(
 
     semantic_layer_budget layer_budget{};
     semantic::cache_budget cache_budget{};
+    std::array<std::uint64_t, PROGPU_NATIVE_SCENE_MAX_STACK_DEPTH> active_cache_owners{};
+    std::uint32_t cache_scope_depth = 0U;
     semantic_layer_target_cursor layer_budget_cursor(
         bytes,
         frame->width,
@@ -288,6 +290,14 @@ progpu_native_status render_scene(
             const bool cached =
                 (layer.flags &
                     PROGPU_NATIVE_SCENE_LAYER_CACHE_CONTENT) != 0U;
+            if (cache_scope_depth == active_cache_owners.size() ||
+                (cached && std::find(active_cache_owners.begin(),
+                    active_cache_owners.begin() + cache_scope_depth, layer.composite_revision) !=
+                        active_cache_owners.begin() + cache_scope_depth)) {
+                return engine->fail(PROGPU_NATIVE_STATUS_INVALID_ARGUMENT,
+                    "A semantic cache owner recursively references its active page.");
+            }
+            active_cache_owners[cache_scope_depth++] = cached ? layer.composite_revision : 0U;
             semantic_has_materialized_layers |= materialized;
             if (layer.mask_resource_index !=
                     PROGPU_NATIVE_SCENE_NO_INDEX) {
@@ -365,10 +375,12 @@ progpu_native_status render_scene(
             if (cached && !cache_budget.add(
                     layer.composite_revision,
                     target_extent,
-                    effected)) {
+                    effected,
+                    (layer.flags & PROGPU_NATIVE_SCENE_LAYER_CACHE_SHARED) != 0U,
+                    layer.content_revision)) {
                 return engine->fail(
                     PROGPU_NATIVE_STATUS_INVALID_ARGUMENT,
-                    "A semantic retained cache owner is duplicated or the bounded cache-page pool is exceeded.");
+                    "A semantic retained cache owner conflicts or the bounded cache-page pool is exceeded.");
             }
             semantic_has_layer_effects |= effected;
             if (effected) {
@@ -463,6 +475,7 @@ progpu_native_status render_scene(
             }
         } else if (command.kind ==
             PROGPU_NATIVE_SCENE_COMMAND_POP_LAYER) {
+            --cache_scope_depth;
             layer_budget.pop();
         }
     }

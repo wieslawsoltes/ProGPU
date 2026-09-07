@@ -829,7 +829,13 @@ public enum NativeSceneLayerFlags : uint
     /// </summary>
     CompositeState = 1U << 7,
     /// <summary>Restores a local page through its typed tile-composite resource.</summary>
-    CacheTile = 1U << 8
+    CacheTile = 1U << 8,
+    /// <summary>
+    /// Shares identical local cached content between sequential consumers.
+    /// All consumers of an owner must opt in and agree on content revision and
+    /// raster extent. Recursive ownership is invalid; composite state may differ.
+    /// </summary>
+    CacheShared = 1U << 9
 }
 
 public enum NativeSceneValidationError : uint

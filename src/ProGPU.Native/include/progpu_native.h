@@ -323,7 +323,14 @@ enum {
     /* Applies the clip-only STATE in reserved0 to a materialized composite. */
     PROGPU_NATIVE_SCENE_LAYER_COMPOSITE_STATE = 1U << 7U,
     /* reserved1 references TILE_COMPOSITE; requires local cache. */
-    PROGPU_NATIVE_SCENE_LAYER_CACHE_TILE = 1U << 8U
+    PROGPU_NATIVE_SCENE_LAYER_CACHE_TILE = 1U << 8U,
+    /* Allows sequential consumers of identical local cached content to share
+     * one GPU page. Requires CACHE_LOCAL_SPACE. All consumers of the same
+     * composite_revision must opt in and have identical content_revision and
+     * raster extent. Recursive use of an active cache owner is invalid.
+     * The producer must preserve identical source content for that revision;
+     * opacity, composite state, sampling and final mask may differ. */
+    PROGPU_NATIVE_SCENE_LAYER_CACHE_SHARED = 1U << 9U
 };
 
 typedef enum progpu_native_image_sampling {

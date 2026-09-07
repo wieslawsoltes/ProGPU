@@ -649,6 +649,20 @@ void semantic_cache_budget_is_owner_keyed_and_bounded() {
     require(budget.pooled_effect_bytes() == 24U * 16U * 12U);
     require(budget.maximum_width() == 40U);
     require(budget.maximum_height() == 32U);
+    cache_budget shared{};
+    const scissor extent{0U, 0U, 20U, 10U, true};
+    require(shared.add(81U, extent, false, true, 7U));
+    const auto bytes = shared.pooled_bytes();
+    require(shared.add(81U, extent, false, true, 7U));
+    require(shared.count == 1U && shared.pooled_bytes() == bytes);
+    require(!shared.add(81U, extent, false, false, 7U));
+    require(!shared.add(81U, extent, false, true, 8U));
+    require(!shared.add(81U, {0U, 0U, 40U, 10U, true}, false, true, 7U));
+    require(!shared.add(81U, {1U, 0U, 20U, 10U, true}, false, true, 7U));
+    require(!shared.add(81U, extent, true, true, 7U));
+    require(!shared.add(82U, extent, false, true, 0U));
+    require(shared.count == 1U && shared.pooled_bytes() == bytes);
+    require(!budget.add(71U, {0U, 0U, 40U, 32U, true}, false, true, 7U));
 }
 
 void semantic_brush_page_is_bounded_deduplicated_and_retained() {

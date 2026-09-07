@@ -19903,7 +19903,8 @@ bool bitmap_cache_brush_captures_content_with_independent_root_state() {
     PROGPU_REQUIRE(layers.size() == 2U);
     PROGPU_REQUIRE(layers[0].opacity == 0.5F && layers[1].opacity == 0.5F);
     PROGPU_REQUIRE(layers[0].content_revision == layers[1].content_revision);
-    PROGPU_REQUIRE(layers[0].composite_revision != layers[1].composite_revision);
+    PROGPU_REQUIRE(layers[0].composite_revision == layers[1].composite_revision);
+    PROGPU_REQUIRE((layers[0].flags & PROGPU_NATIVE_SCENE_LAYER_CACHE_SHARED) != 0U);
     options.repeat_paint = false;
     options.opacity = 1.0;
     options.relative_scale = true;
@@ -19916,6 +19917,30 @@ bool bitmap_cache_brush_captures_content_with_independent_root_state() {
     options.source_cycle = true;
     PROGPU_REQUIRE(!build_mil_image_brush_fixture(repeated, options, 8119U));
     options.source_cycle = false;
+
+    // Distinct brushes using target/default policy share source residency;
+    // explicit brush-owned caches must remain separate owners.
+    for (const bool explicit_cache : {false, true}) {
+        std::vector<std::byte> consumers, draws;
+        append_create(consumers, 430U, 83U);
+        if (explicit_cache) {
+            append_create(consumers, 431U, 94U);
+            append_command(consumers, command::bitmap_cache, 431U, 1.0, 0U, 0U, 0U);
+        }
+        append_command(consumers, command::bitmap_cache_brush, 430U, 0.25,
+            0U, 0U, 0U, explicit_cache ? 431U : 0U, 3U);
+        append_command(draws, command::draw_rectangle, 8.0, 8.0, 48.0, 48.0, 5U, 0U);
+        append_command(draws, command::draw_rectangle, 8.0, 8.0, 48.0, 48.0, 430U, 0U);
+        append_render_data(consumers, 2U, draws);
+        options.source_visual_commands = consumers;
+        PROGPU_REQUIRE(build_mil_image_brush_fixture(repeated, options, 8119U));
+        const auto owners = get_scene_layers(repeated);
+        PROGPU_REQUIRE(owners.size() == 2U);
+        PROGPU_REQUIRE(owners[0].opacity == 1.0F && owners[1].opacity == 0.25F);
+        PROGPU_REQUIRE((owners[0].composite_revision == owners[1].composite_revision) == !explicit_cache);
+        if (!explicit_cache) PROGPU_REQUIRE(owners[0].content_revision == owners[1].content_revision);
+    }
+    options.source_visual_commands = {};
 
     // Move source content to a real child. Root suppression must not also
     // suppress the child's alpha/placement or lose dependency invalidation.

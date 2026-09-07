@@ -279,6 +279,8 @@ private:
 
 struct cache_budget {
     std::array<std::uint64_t, max_cached_layers> identities{};
+    std::array<std::uint64_t, max_cached_layers> revisions{};
+    std::array<bool, max_cached_layers> shared{};
     std::array<std::uint32_t, max_cached_layers> widths{};
     std::array<std::uint32_t, max_cached_layers> heights{};
     std::array<bool, max_cached_layers> effected{};
@@ -288,16 +290,24 @@ struct cache_budget {
     bool add(
         std::uint64_t identity,
         const scissor& extent,
-        bool has_effect) noexcept {
+        bool has_effect,
+        bool allow_shared = false,
+        std::uint64_t revision = 0U) noexcept {
+        if (allow_shared && (revision == 0U || has_effect || extent.x != 0U || extent.y != 0U))
+            return false;
         for (std::uint32_t index = 0U; index < count; ++index) {
             if (identities[index] == identity) {
-                return false;
+                return allow_shared && shared[index] && revisions[index] == revision &&
+                    widths[index] == std::max(extent.width, 1U) &&
+                    heights[index] == std::max(extent.height, 1U) && !effected[index];
             }
         }
         if (identity == 0U || count == max_cached_layers) {
             return false;
         }
         identities[count] = identity;
+        revisions[count] = revision;
+        shared[count] = allow_shared;
         widths[count] = std::max(extent.width, 1U);
         heights[count] = std::max(extent.height, 1U);
         effected[count] = has_effect;
