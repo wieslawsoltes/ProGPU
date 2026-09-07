@@ -8624,6 +8624,58 @@ group spine transforms, other fixed-shape pen transforms, float precision limits
 and the broader MIL/DirectX/Direct2D/Win2D goal remain open. No complete transform-
 collapse or platform parity claim is made.
 
+## Implementation-first checkpoint: path spines before pen widening
+
+Direct PathGeometry strokes now materialize geometry-transformed contours before
+pen execution, while fills retain their original segments and local transform.
+Lines and Bezier controls use the shared paired NEON/SSE2 double mapper. Analytic
+arcs use the existing affine ellipse-basis conversion when non-singular; singular
+arc spines use the existing original ProGPU `lower_wpf_arc_to_cubics` before
+mapping. That conversion emits at most four pieces per arc, marks internal joins
+smooth and retains the original outgoing-join flag on the final piece. Open/
+closed topology, unstroked-gap cap selection and source dash-cap boundaries are
+preserved. Stroke primitives carry identity local transforms; drawing/world
+state still acts after widening. Geometry collapse no longer suppresses the
+whole draw: zero-area fills are omitted separately, and nonpainting world state
+still suppresses both fill and stroke.
+
+Spatial direct-path pen brushes now obtain their drawing-coordinate bounds from
+the original `resolve_path_stroke_bounds` / native Direct2D widening path, not a
+scaled control-box-plus-miter envelope. The resulting brush mapping is shared by
+gradients and tile-mask painting; empty painted coverage skips the spatial pen.
+Solid brushes do not incur this extra bounds query. Curved contour command bounds
+also use the existing analytic segment-extrema reader before pen expansion,
+instead of relying on endpoints that can exclude visible curve coverage.
+
+Provenance: original ProGPU `try_transform_line_spine`,
+`try_transform_arc_segment`, `Geometry/progpu_native_arc.hpp`,
+`try_get_path_segment_bounds`, `resolve_path_stroke_bounds`,
+`append_path_strokes` and `append_tile_pen`. No foreign code, alternative raster
+algorithm, shader, readback, per-item submission or managed workaround is added.
+The public native C/COM/module contracts are unchanged. Mapping is O(S + C)
+time/storage for S segments and C contours, with at most four generated segments
+per arc and the existing per-contour record cap. Paired coordinate arithmetic is
+SIMD; metadata traversal, arc partitioning and analytic extrema are fixed-work
+per segment. Identity spines avoid the transformed snapshot. Spatial bounds add
+the existing widening/subdivision costs and owned temporaries documented above;
+these snapshots and bounds are not yet cached across scene compilations. This
+is an explicit performance follow-up, not a measured speed improvement.
+
+Authored differentials compare scalar-pretransformed quadratic/cubic/mixed path
+packets against Geometry.Transform replay for scale, shear/reflection, rotation,
+line/point collapse, smooth joins, unstroked gaps, dashes, solid/gradient pens and
+all four tile-source families. Arc fixtures require analytic, cubic or cap
+primitive forms according to matrix rank, and world-collapse fixtures reject
+stroke/path draw commands. Existing transform/point expectations were updated
+to the new spine-first contract. Native library and MIL/Direct2D compatibility/
+WebGPU test targets are built in the implementation-first lane; tests and
+platform/VM/image/SIMD/performance/verifier/CI qualification remain deferred.
+
+Nested GeometryGroup and other fixed-shape pen ordering, mixed constant and
+nonconstant collapsed segments, precision-limit arc cases, retained preparation
+caching and the broader MIL/DirectX/Direct2D/Win2D scope remain open. This is not
+full transform-collapse or pixel-parity qualification.
+
 ## Invariants
 
 - No reflection or private managed field scanning in the product bridge.
