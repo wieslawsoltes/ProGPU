@@ -4890,3 +4890,12 @@ cap logic. This does not expand COM or Win2D method coverage. Native MIL already
 implements the corresponding sampled-pen route; new mapping fixtures are authored,
 not executed. General geometry pens, zero/tiny dash semantics and full qualification
 remain open. See [line preparation](cached-pictures.md#typed-cached-line-pens-and-intrinsic-cap-bounds).
+
+### Implementation-first checkpoint: cached LineGeometry producers
+
+Typed WPF geometry and GeometryDrawing routes now reuse cached-line stroke
+preparation. Primitive descriptors avoid path construction; path-only sources
+must pass strict open-line classification. Native MIL's existing transformed-line
+implementation has a new paired mapping fixture. This producer integration adds
+no COM or Win2D methods and does not complete general shape pens or qualification.
+See [LineGeometry routing](cached-pictures.md#cached-linegeometry-and-geometrydrawing-consumers).

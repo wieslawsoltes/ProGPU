@@ -20107,6 +20107,25 @@ bool bitmap_cache_brush_strokes_retain_coverage_and_shared_source() {
     // Stroke [8,18..30,22], source anchor [10,20], relative half-scale:
     // anchor/2 + strokeOrigin/2 + strokeExtent/4.
     PROGPU_REQUIRE(composite.transform.m31 == 14.5F && composite.transform.m32 == 20.0F);
+    mapped.shape = mil_brush_fixture_shape::line_geometry;
+    mapped.transform_line_geometry = true;
+    mapped.line_geometry_matrix = {2.0, 0.0, 0.0, 0.5, 3.0, 4.0};
+    PROGPU_REQUIRE(build_mil_image_brush_fixture(scene, mapped, 8126U));
+    PROGPU_REQUIRE(try_get_cached_layer(scene, source));
+    PROGPU_REQUIRE(try_get_state_resource(scene, source.reserved0, composite));
+    // Geometry maps the spine to [23,14..63,14] before width-four widening.
+    // Asymmetric stroke [21,12..63,16] maps the source anchor to [26,17].
+    PROGPU_REQUIRE(composite.transform.m31 == 26.0F && composite.transform.m32 == 17.0F);
+    std::vector<std::byte> drawing_commands, drawing_replay;
+    append_create(drawing_commands, 440U, 87U);
+    append_command(drawing_commands, command::geometry_drawing, 440U, 0U, 20U, 15U);
+    append_command(drawing_replay, command::draw_drawing, 440U, 0U);
+    append_render_data(drawing_commands, 2U, drawing_replay);
+    mapped.source_visual_commands = drawing_commands;
+    PROGPU_REQUIRE(build_mil_image_brush_fixture(scene, mapped, 8127U));
+    PROGPU_REQUIRE(try_get_cached_layer(scene, source));
+    PROGPU_REQUIRE(try_get_state_resource(scene, source.reserved0, composite));
+    PROGPU_REQUIRE(composite.transform.m31 == 26.0F && composite.transform.m32 == 17.0F);
     return true;
 }
 

@@ -202,6 +202,12 @@ Cross-assembly WPF bridge contracts must not expose shim-owned WPF structs or cl
 
 ### A. Rendering Quality & DPI-Aware Text Snapping
 
+Portable primitive line mapping must retain paired double-coordinate arithmetic
+until the drawing boundary, validate both endpoints before publishing either, and
+stay allocation-free. Strict open-line classification must not discard topology
+or cap overrides. Geometry-local transforms precede stroke preparation; do not
+scale pen width or capture a zero-area line fill while adapting that descriptor.
+
 Line material bounds must use prepared line/dash spines and effective endpoint
 caps. Preserve intrinsic paired-coordinate bounds, finite/budget preflight and
 explicit rejection of unsupported zero/tiny dash semantics. Do not replace

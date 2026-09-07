@@ -9526,6 +9526,22 @@ dash intervals fail closed; general geometry/primitive pens and complete parity
 are still open. Compilation is not execution or qualification. Final platform,
 VM/image, SIMD/performance, source-verifier and CI gates remain deferred.
 
+## Implementation-first checkpoint: cached LineGeometry consumers
+
+WPF cached pens now route from open-line geometry and GeometryDrawing through
+the same retained line coverage/source operation. Source-built LineGeometry's
+existing primitive descriptor bypasses packed path construction, using a new
+intrinsic double-coordinate mapping query. Path-only and local media lines retain
+their typed conversion paths; strict classification rejects other topology.
+Native MIL already supports transformed LineGeometry/cache pens; the paired
+fixture checks nonuniform geometry mapping before constant-width widening.
+No native product, ABI or shader change is required by these producer routes.
+
+See [cached LineGeometry consumers](cached-pictures.md#cached-linegeometry-and-geometrydrawing-consumers)
+for original source provenance, complexity, research, fixtures and limitations.
+General shape/path pens and full runtime, scalar/SIMD, image/platform/VM,
+performance, verifier and CI qualification remain incomplete and deferred.
+
 ## Invariants
 
 - No reflection or private managed field scanning in the product bridge.

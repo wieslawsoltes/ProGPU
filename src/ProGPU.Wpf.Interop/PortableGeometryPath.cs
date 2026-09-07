@@ -1,4 +1,5 @@
 using System;
+using System.Runtime.Intrinsics;
 
 namespace ProGPU.Wpf.Interop;
 
@@ -52,6 +53,33 @@ public readonly struct PortablePrimitiveGeometry
     public double RadiusY { get; }
 
     public PortableMatrix3x2 Transform { get; }
+
+    /// <summary>
+    /// Reads a line's endpoints after its geometry-local affine transform.
+    /// The pen width is deliberately not transformed. This is fixed-work,
+    /// allocation-free metadata arithmetic over paired double coordinates.
+    /// Non-line, nonfinite and overflowing descriptors are unavailable.
+    /// </summary>
+    public bool TryGetTransformedLinePoints(out PortablePoint start, out PortablePoint end)
+    {
+        start = end = default;
+        if (Kind != PortablePrimitiveGeometryKind.Line
+            || !double.IsFinite(Point1.X) || !double.IsFinite(Point1.Y)
+            || !double.IsFinite(Point2.X) || !double.IsFinite(Point2.Y)
+            || !double.IsFinite(Transform.M11) || !double.IsFinite(Transform.M12)
+            || !double.IsFinite(Transform.M21) || !double.IsFinite(Transform.M22)
+            || !double.IsFinite(Transform.OffsetX) || !double.IsFinite(Transform.OffsetY)) return false;
+        var x = Vector128.Create(Transform.M11, Transform.M12);
+        var y = Vector128.Create(Transform.M21, Transform.M22);
+        var translation = Vector128.Create(Transform.OffsetX, Transform.OffsetY);
+        var first = Vector128.Create(Point1.X) * x + Vector128.Create(Point1.Y) * y + translation;
+        var last = Vector128.Create(Point2.X) * x + Vector128.Create(Point2.Y) * y + translation;
+        if (!double.IsFinite(first[0]) || !double.IsFinite(first[1])
+            || !double.IsFinite(last[0]) || !double.IsFinite(last[1])) return false;
+        start = new PortablePoint(first[0], first[1]);
+        end = new PortablePoint(last[0], last[1]);
+        return true;
+    }
 
     public static PortablePrimitiveGeometry Line(
         PortablePoint startPoint,

@@ -98,6 +98,69 @@ DPI and performance qualification is still required.
 
 ## Implementation-first status
 
+### Cached LineGeometry and GeometryDrawing consumers
+
+Cached pens now reach the existing shared line-stroke operation from WPF
+`DrawGeometry`/`GeometryDrawing`, object and managed entry points, direct native
+geometry sinks, and both MIL decoder lanes. This checkpoint recognizes one open
+stroked line only: it does not approximate a polyline, closed contour, curve or
+combined path as a line. A line's fill has zero area, so even a supplied cached
+fill brush does not trigger another source capture. Unsupported cached pens on
+other geometries report partial/unsupported output rather than treating a fill
+alone as a completely implemented draw.
+
+Source-built `LineGeometry` already publishes `IPortablePrimitiveGeometrySource`.
+The new `PortablePrimitiveGeometry.TryGetTransformedLinePoints` uses that descriptor
+directly, pairs affine coordinate arithmetic with `Vector128<double>`, and keeps
+double precision until the downstream float drawing boundary. It validates kind,
+all input coefficients/coordinates and both output points before publishing either
+endpoint. No packed path, WPF shape probing, native crossing, device initialization
+or buffer allocation is needed for this route. Its work and storage are O(1).
+Geometry-local transforms change the spine before the normal-width stroke is
+prepared; the outer drawing transform still applies to the finished stroke and
+material together. The pen thickness is not multiplied by the geometry transform.
+
+Portable path-only sources use the existing cached native path conversion and
+`PrimitivePathGeometry.TryGetOpenLine`, a new O(1) strict classifier. Local media
+lines use the existing typed/cached line reader. The classifier requires exactly
+one open figure and one stroked line segment, finite endpoints and no per-figure
+cap overrides; fill participation does not change its zero fill area. A source
+that explicitly cannot publish path data is unsupported, not read through another
+object shape. Existing path conversion is O(S) for S source segments on a cache
+miss; the primitive-descriptor route avoids it entirely. All stroke/dash bounds,
+source leases, raster policy and GPU composition remain in the previously added
+ProGPU implementations.
+
+Original ProGPU provenance is `PortablePrimitiveGeometry`, the native MIL affine
+line-geometry/spine preparation and sampled-pen path, `WpfPortablePathGeometryConverter`,
+`WpfMediaLineGeometryReader`, and `StrokeCoverageGeometry`. The native C++ product
+already implements transformed LineGeometry with cached pens; a paired native
+fixture now checks the nonuniform geometry-transform/constant-width relative
+mapping in direct geometry and GeometryDrawing replay. No C ABI, native product
+algorithm or shader change is needed. Generic
+live-managed-visual native picture transport is still a separate open gap.
+
+Authored fixtures cover intrinsic transforms against scalar double arithmetic,
+overflow/nonfinite/other-kind rejection, strict topology recognition, object/
+drawing/MIL routes, path-only versus primitive sources, dashed geometry lines,
+zero-area fill avoidance and reporting of unimplemented non-line cached pens.
+The primitive-source fixture throws if replay requests a packed path. The
+[existing cross-engine research](#retained-cached-source-stroke-coverage) remains
+applicable: preserve typed primitive/stroke/material separation and retained
+source identity, and derive brush mapping from the widened stroke rather than
+fill bounds. Text shaping/layout, font caches, visibility, device loss and GPU
+execution policy are unchanged. No speed or rendering-parity claim is made.
+
+General path/closed-shape cached pens, exact zero/tiny dash semantics, all
+degenerate/transform/DPI/guideline combinations and the full goal's qualification
+remain open. Fixtures are authored only; runtime/image/native/managed/platform/VM,
+scalar/SIMD, renderer/Svg.Skia, benchmarks, source audits and CI remain deferred.
+
+Release compilation (2026-09-07): native MIL fixtures succeed; ProGPU.Tests has
+0 warnings/0 errors. The final incremental WPF build has 13 warnings/0 errors,
+after a broader rebuild with 106 warnings/0 errors. Warnings were not attributed,
+and no fixture was run. Incremental warning totals do not imply warning fixes.
+
 ### Typed cached-line pens and intrinsic cap bounds
 
 LibreWPF now routes cached-brush line pens before the color/gradient-only pen
