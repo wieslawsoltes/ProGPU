@@ -245,6 +245,10 @@ public class Pen
     internal double[]? DashArrayStorage => _dashArray;
     public double DashOffset { get; set; }
 
+    /// <summary>Copies caller-owned intervals once into immutable retained storage.</summary>
+    public void SetDashPattern(ReadOnlySpan<double> intervals) =>
+        _dashArray = intervals.IsEmpty ? null : intervals.ToArray();
+
     /// <summary>
     /// Snapshots stroke state with a different material. The immutable dash
     /// storage is shared; assigning or reading DashArray still makes an owned

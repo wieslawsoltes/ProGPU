@@ -9509,6 +9509,23 @@ See [retained cached stroke coverage](cached-pictures.md#retained-cached-source-
 for source provenance, cross-engine contracts, costs and authored fixtures.
 Native and ProGPU managed fixture targets compile in Release; no tests ran.
 
+## Implementation-first checkpoint: typed cached line pens
+
+WPF line consumers now retain PortablePenState brush identity and dispatch to
+shared ProGPU line/dash preparation before media-pen adaptation. Cap-derived
+material bounds use intrinsic coordinate pairs and original ProGPU C++ cubic
+cap/derivative logic. Source invalidation traverses the typed pen brush. Edge
+alias state survives both managed stroke-mask compilation paths. Native MIL
+already supports sampled-pen coverage, bounds and raster state; an additional
+native fixture checks asymmetric-cap relative material mapping. No C ABI or
+native product shader change is needed.
+
+See [typed cached-line pens](cached-pictures.md#typed-cached-line-pens-and-intrinsic-cap-bounds)
+for provenance, costs, scalar-oracle fixtures and exact limits. Zero/tiny legacy
+dash intervals fail closed; general geometry/primitive pens and complete parity
+are still open. Compilation is not execution or qualification. Final platform,
+VM/image, SIMD/performance, source-verifier and CI gates remain deferred.
+
 ## Invariants
 
 - No reflection or private managed field scanning in the product bridge.

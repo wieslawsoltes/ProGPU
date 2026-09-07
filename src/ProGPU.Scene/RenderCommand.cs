@@ -4577,6 +4577,11 @@ public class DrawingContext :
     /// </remarks>
     public void DrawCachedPictureStroke(CachedPictureLease source, PathGeometry path, Pen pen, Rect bounds,
         Matrix4x4 sourceTransform = default, float opacity = 1, Matrix4x4 transform = default)
+        => DrawCachedPictureStroke(source, path, pen, bounds, sourceTransform, opacity, transform, false);
+
+    /// <summary>Records cached stroke coverage with explicit edge antialiasing policy.</summary>
+    public void DrawCachedPictureStroke(CachedPictureLease source, PathGeometry path, Pen pen, Rect bounds,
+        Matrix4x4 sourceTransform, float opacity, Matrix4x4 transform, bool isEdgeAliased)
     {
         ArgumentNullException.ThrowIfNull(path);
         ArgumentNullException.ThrowIfNull(pen);
@@ -4585,7 +4590,7 @@ public class DrawingContext :
         if ((!pen.IsHairline && pen.Thickness <= 0) || opacity == 0) return;
         // Do not share a mutable static brush with caller-visible command data.
         var coveragePen = pen.WithBrush(new SolidColorBrush(Vector4.One));
-        PushOpacityMask(path, coveragePen, bounds, transform);
+        PushOpacityMask(path, coveragePen, bounds, transform, isEdgeAliased);
         DrawCachedCoverageSource(source, placement, opacity);
     }
 
@@ -4654,6 +4659,14 @@ public class DrawingContext :
         Pen pen,
         Rect bounds,
         Matrix4x4 transform)
+        => PushOpacityMask(geometry, pen, bounds, transform, false);
+
+    public void PushOpacityMask(
+        PathGeometry geometry,
+        Pen pen,
+        Rect bounds,
+        Matrix4x4 transform,
+        bool isEdgeAliased)
     {
         ArgumentNullException.ThrowIfNull(geometry);
         ArgumentNullException.ThrowIfNull(pen);
@@ -4665,6 +4678,7 @@ public class DrawingContext :
             Rect = bounds,
             Transform = transform,
             IsPenThicknessLocal = true,
+            IsEdgeAliased = isEdgeAliased,
             GeometryCache = RenderCommandGeometryCache.ForStrokePath(geometry)
         });
     }

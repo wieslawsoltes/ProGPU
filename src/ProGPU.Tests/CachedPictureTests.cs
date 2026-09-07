@@ -31,7 +31,7 @@ public sealed class CachedPictureTests
         var commands = recorder.BeginRecording(Bounds);
         var mapping = Matrix4x4.CreateTranslation(3, 4, 0);
         var parent = Matrix4x4.CreateScale(2, 3, 1);
-        commands.DrawCachedPictureStroke(source, path, pen, Bounds, mapping, 0.5f, parent);
+        commands.DrawCachedPictureStroke(source, path, pen, Bounds, mapping, 0.5f, parent, true);
         using var picture = recorder.EndRecording();
         using var clone = picture.Clone();
         pen.Thickness = 99;
@@ -45,6 +45,7 @@ public sealed class CachedPictureTests
         Assert.Null(mask.Picture);
         Assert.Same(path, mask.Path);
         Assert.Same(path, mask.GeometryCache!.StrokePath);
+        Assert.True(mask.IsEdgeAliased);
         Assert.Equal(parent, mask.Transform);
         Assert.Equal(Bounds, mask.Rect);
         Assert.True(mask.IsPenThicknessLocal);

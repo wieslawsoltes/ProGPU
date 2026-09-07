@@ -202,6 +202,12 @@ Cross-assembly WPF bridge contracts must not expose shim-owned WPF structs or cl
 
 ### A. Rendering Quality & DPI-Aware Text Snapping
 
+Line material bounds must use prepared line/dash spines and effective endpoint
+caps. Preserve intrinsic paired-coordinate bounds, finite/budget preflight and
+explicit rejection of unsupported zero/tiny dash semantics. Do not replace
+semicircular caps with full endpoint circles or drop edge-alias metadata from
+stroke opacity masks. Keep scalar-oracle and native mapping fixtures paired.
+
 Cached-source strokes must reuse the ordinary retained pen/path mask compiler.
 Separate opaque coverage from source material alpha, snapshot all pen scalars,
 and share only immutable dash storage; public dash assignments must detach.

@@ -20091,6 +20091,22 @@ bool bitmap_cache_brush_strokes_retain_coverage_and_shared_source() {
             PROGPU_REQUIRE(source_count == 2U);
         }
     }
+    mil_image_brush_fixture_options mapped{};
+    mapped.source = mil_brush_fixture_source::visual;
+    mapped.bitmap_cache_brush = mapped.pen = mapped.relative_scale = true;
+    mapped.shape = mil_brush_fixture_shape::line;
+    mapped.line_points = {10.0, 20.0, 30.0, 20.0};
+    mapped.cap = PROGPU_NATIVE_STROKE_CAP_ROUND;
+    mapped.end_cap = PROGPU_NATIVE_STROKE_CAP_FLAT;
+    std::vector<std::byte> scene;
+    PROGPU_REQUIRE(build_mil_image_brush_fixture(scene, mapped, 8125U));
+    progpu_native_scene_layer source{};
+    progpu_native_scene_state composite{};
+    PROGPU_REQUIRE(try_get_cached_layer(scene, source));
+    PROGPU_REQUIRE(try_get_state_resource(scene, source.reserved0, composite));
+    // Stroke [8,18..30,22], source anchor [10,20], relative half-scale:
+    // anchor/2 + strokeOrigin/2 + strokeExtent/4.
+    PROGPU_REQUIRE(composite.transform.m31 == 14.5F && composite.transform.m32 == 20.0F);
     return true;
 }
 

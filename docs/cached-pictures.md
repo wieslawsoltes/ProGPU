@@ -98,6 +98,75 @@ DPI and performance qualification is still required.
 
 ## Implementation-first status
 
+### Typed cached-line pens and intrinsic cap bounds
+
+LibreWPF now routes cached-brush line pens before the color/gradient-only pen
+adapter. Object calls, managed static/animated calls, native primitive calls,
+retained sinks and both raw MIL decoder lanes consume `PortablePenState`, retain
+the original brush identity and use ProGPU-owned stroke preparation. The typed
+invalidation visitor follows `PortablePenState.Brush`, including cached target
+and explicit cache-policy dependencies. Missing/invalid descriptors fail closed.
+
+`StrokeCoverageGeometry.TryPrepareLine` builds the ordinary retained line and,
+for dashes, reuses `RenderCommandGeometryCache.TryGetDashedStrokePath` and its
+effective per-figure endpoint caps. The prepared undashed coverage is recorded
+once, so drawing does not repeat dash preparation. Bounds come from each emitted
+line spine and cap, not an inflated fill rectangle. Relative brush mapping uses
+these bounds; active command transforms remain outside the source capture.
+WPF guideline snapping happens before preparation. Opaque coverage, source alpha
+and consumer opacity remain separate. Explicit aliased-edge policy now survives
+path-mask recording and both managed compilation paths; old public overloads
+remain available and default to antialiased coverage.
+
+Original source provenance: the new paired-coordinate bound implementation ports
+ProGPU C++ `Mil/progpu_native_mil.cpp::try_transformed_line_stroke_bounds` and the
+cubic portion of `try_get_path_segment_bounds` into `ProGPU.Scene`, restricted
+to identity geometry transforms before the outer draw transform. Round caps use
+the same two cubic quarters and analytic derivative roots; they are not broadened
+to full endpoint circles. `Vector128<double>` handles independent coordinates,
+cap controls, bounds reductions and curve evaluation. Scalar root branches are
+bounded, data-dependent choices. Generated figure traversal is a bounds reduction.
+The new dash preflight pairs interval validation/scaling with intrinsics and a
+single scalar tail. `Pen.SetDashPattern(ReadOnlySpan<double>)` takes one owned
+snapshot; the existing dash engine still has its own preparation storage.
+
+New preparation is O(D + F) time/storage for D dash intervals and F emitted
+figures, plus fixed work per cap. Normal solid lines are O(1). No GPU initialization,
+new shader, readback, per-dash submission, native call per primitive or WPF-local
+stroker is added. Existing source cache identity, texture reuse, refresh, DPI,
+device-loss and eviction policies remain unchanged. Native MIL already has the
+paired sampled-pen/widened-bounds path and aliased raster state; its product C++
+and wire/shaders are unchanged. A native fixture checks asymmetric-cap relative
+mapping against a scalar arithmetic oracle. Managed fixtures cover all cap kinds,
+short asymmetric lines, odd/even dashes, a dense scalar cubic oracle for intrinsic
+bounds, mask alias metadata, typed replay and pen dependency invalidation.
+
+This is not full stroke parity. The inherited dash engine replaces zero/tiny
+scaled intervals with epsilon values, so this new preparation rejects intervals
+at or below 0.0001 rather than silently using that approximation. Nonfinite or
+overflowing patterns, fixed/hairline width in this bounds helper, and preparations
+whose line length divided by minimum interval exceeds one million are explicitly
+unsupported. General geometry/primitive pens, LineGeometry/GeometryDrawing
+lowering, exact zero/tiny dash semantics, combined/group strokes and complete
+transform/DPI/guideline/degenerate-case qualification remain open. General
+`DrawCachedPictureStroke` still accepts caller-qualified bounds for fixed/hairline
+strokes; the new WPF line preparer does not guess them. Float transport and cubic
+round-cap tolerances require native/managed differential qualification; no bitwise
+or image-parity claim is made.
+
+The primary contracts and cross-engine decisions in
+[retained stroke research](#retained-cached-source-stroke-coverage) remain the
+design references: preserve material/stroke separation and command/source reuse;
+derive bounds from widened geometry; leave shaping, layout and font caches alone.
+This is an original ProGPU cross-language port, not foreign source adaptation.
+All authored tests, scalar/SIMD comparisons, image/VM/platform/renderer/Svg.Skia,
+performance, source audits and CI gates remain unexecuted pending final validation.
+
+Release compilation (2026-09-07): native `progpu_native_mil_tests` succeeds;
+ProGPU.Tests reports 0 warnings/0 errors. The final incremental WPF build reports
+11 warnings/0 errors, after a broader rebuild reporting 106 warnings/0 errors.
+Warning attribution remains deferred; changing incremental totals are not fixes.
+
 ### Retained cached-source stroke coverage
 
 `DrawingContext.DrawCachedPictureStroke` now records a path/pen opacity mask,

@@ -5666,7 +5666,8 @@ SceneStateUploadComplete:
                             activeTransform,
                             command.IsPenThicknessLocal,
                             command.Transform,
-                            command.GeometryCache);
+                            command.GeometryCache,
+                            command.IsEdgeAliased);
                     }
                     else if (command.Brush != null)
                     {
@@ -6126,7 +6127,8 @@ SceneStateUploadComplete:
                             activeTransform,
                             cmd.IsPenThicknessLocal,
                             cmd.Transform,
-                            cmd.GeometryCache);
+                            cmd.GeometryCache,
+                            cmd.IsEdgeAliased);
                     else if (cmd.Brush != null)
                         PushOpacityMaskValue(cmd.Brush, cmd.Rect, activeTransform);
                     break;
@@ -21458,7 +21460,8 @@ SceneStateUploadComplete:
         Matrix4x4 transform,
         bool isPenThicknessLocal,
         Matrix4x4 recordedTransform,
-        RenderCommandGeometryCache? geometryCache)
+        RenderCommandGeometryCache? geometryCache,
+        bool isEdgeAliased)
     {
         _currentFrameOpacityMaskDemand++;
         _peakOpacityMaskDemand = Math.Max(
@@ -21489,6 +21492,7 @@ SceneStateUploadComplete:
                         Type = RenderCommandType.DrawPath,
                         Path = path,
                         Pen = retainedPen,
+                        IsEdgeAliased = isEdgeAliased,
                         IsPenThicknessLocal = true,
                         GeometryCache = geometryCache
                     },

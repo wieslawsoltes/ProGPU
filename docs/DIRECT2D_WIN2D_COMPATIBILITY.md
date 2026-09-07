@@ -4880,3 +4880,13 @@ composition; new paired fixtures are authored. This does not add COM methods or
 Win2D surface coverage, and does not close WPF pen bounds/adapter integration or
 generic native picture transport for live managed visuals. See
 [stroke coverage and research](cached-pictures.md#retained-cached-source-stroke-coverage).
+
+### Implementation-first checkpoint: typed cached line pens
+
+LibreWPF line replay now consumes the shared stroke operation with typed pen
+state and cap-derived bounds, including prepared dashes and edge alias metadata.
+The bound calculation uses intrinsic coordinate pairs and original ProGPU native
+cap logic. This does not expand COM or Win2D method coverage. Native MIL already
+implements the corresponding sampled-pen route; new mapping fixtures are authored,
+not executed. General geometry pens, zero/tiny dash semantics and full qualification
+remain open. See [line preparation](cached-pictures.md#typed-cached-line-pens-and-intrinsic-cap-bounds).
