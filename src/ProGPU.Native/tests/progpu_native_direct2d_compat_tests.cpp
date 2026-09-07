@@ -1656,6 +1656,55 @@ int run_tests()
         }
     }
 
+    // A convex inset can disappear before either bounding-box axis collapses.
+    // Keep the compact narrow ring, but use the compound stroke beyond that
+    // limit. Reverse the source to exercise both winding conventions.
+    {
+        const std::array<compat::point_2f, 3U> triangle{{{0, 0}, {10, 0}, {5, 8}}};
+        const std::array<compat::point_2f, 4U> kite{{{0, 0}, {10, 0}, {9, 2}, {5, 8}}};
+        const std::array<compat::point_2f, 8U> concave{{
+            {0, 0}, {10, 0}, {10, 10}, {6, 10}, {6, 2}, {4, 2}, {4, 10}, {0, 10}}};
+        const compat::matrix_3x2_f transform{-1.0F, 0.375F, 0.25F, 1.25F, 17.0F, -3.0F};
+        for (const auto points : {std::span<const compat::point_2f>(triangle),
+                std::span<const compat::point_2f>(kite), std::span<const compat::point_2f>(concave)}) {
+            for (const bool reverse : {false, true}) {
+                com::pointer<compat::path_geometry> path;
+                com::pointer<compat::geometry_sink> sink;
+                if (factory->CreatePathGeometry(path.put()) != com::ok || path->Open(sink.put()) != com::ok) return 9060;
+                sink->BeginFigure(points.front(), compat::figure_begin::hollow);
+                for (std::size_t i = 1U; i < points.size(); ++i)
+                    sink->AddLine(points[reverse ? points.size() - i : i]);
+                sink->EndFigure(compat::figure_end::closed);
+                if (sink->Close() != com::ok) return 9061;
+                for (const auto join : {compat::line_join::miter, compat::line_join::bevel,
+                        compat::line_join::round, compat::line_join::miter_or_bevel}) {
+                    const compat::stroke_style_properties properties{compat::cap_style::flat, compat::cap_style::flat,
+                        compat::cap_style::flat, join, 10.0F, compat::dash_style::solid, 0.0F};
+                    com::pointer<compat::stroke_style> style;
+                    if (factory->CreateStrokeStyle(&properties, nullptr, 0U, style.put()) != com::ok) return 9062;
+                    for (const float width : {1.0F, 3.0F, 6.0F}) {
+                        if (!widened_fill_matches_stroke(*factory.get(), *path.get(), width, style.get(), nullptr) ||
+                            !widened_fill_matches_stroke(*factory.get(), *path.get(), width, style.get(), &transform)) return 9063;
+                    }
+                }
+                if (!widened_fill_matches_stroke(*factory.get(), *path.get(), 6.0F, nullptr, nullptr)) return 9064;
+                if (points.size() == triangle.size()) {
+                    com::pointer<simplified_sink> compact;
+                    compact.attach(new simplified_sink());
+                    if (path->Widen(1.0F, nullptr, nullptr, 0.001F, compact.get()) != com::ok ||
+                        compact->begin_count != 2U || compact->end_count != 2U ||
+                        captured_fill_contains(*compact.get(), {5.0F, 2.75F})) return 9065;
+                    com::pointer<compat::path_geometry> widened;
+                    std::int32_t contains = 0;
+                    if (factory->CreatePathGeometry(widened.put()) != com::ok || widened->Open(sink.put()) != com::ok ||
+                        path->Widen(6.0F, nullptr, nullptr, 0.001F, sink.get()) != com::ok || sink->Close() != com::ok ||
+                        widened->FillContainsPoint({5.0F, 2.75F}, nullptr, 0.001F, &contains) != com::ok || contains == 0)
+                        return 9066;
+                }
+            }
+        }
+    }
+
     com::pointer<com::unknown> identity;
     if (factory.as(com::unknown_interface_id(), identity) != com::ok ||
         identity.get() != static_cast<com::unknown*>(raw_factory)) {

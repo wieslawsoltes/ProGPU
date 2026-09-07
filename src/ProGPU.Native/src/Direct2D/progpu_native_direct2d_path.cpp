@@ -2327,13 +2327,14 @@ using stroke_line_frame = std::array<double, 4U>; // unit X/Y, radius-scaled nor
 [[nodiscard]] com::result build_closed_stroke_side(
     std::span<const progpu_native_path_segment> segments,
     std::span<const std::uint8_t> round_joins,
+    std::span<const stroke_line_frame> frames,
     double half_width,
     double side,
     line_join join,
     double miter_limit,
     dash_side& output)
 {
-    if (segments.size() < 3U || round_joins.size() != segments.size() ||
+    if (segments.size() < 3U || round_joins.size() != segments.size() || frames.size() != segments.size() ||
         !same_point(
             {segments.back().p1.x, segments.back().p1.y},
             {segments.front().p0.x, segments.front().p0.y})) {
@@ -2350,7 +2351,9 @@ using stroke_line_frame = std::array<double, 4U>; // unit X/Y, radius-scaled nor
             side,
             resolved_line_join(join, round_joins[index] != 0U),
             miter_limit,
-            output);
+            output,
+            &frames[(index + segments.size() - 1U) % segments.size()],
+            &frames[index]);
         if (com::failed(result)) {
             return result;
         }
@@ -2388,6 +2391,52 @@ using stroke_line_frame = std::array<double, 4U>; // unit X/Y, radius-scaled nor
 [[nodiscard]] com::result transform_points_in_place(
     std::vector<point_2f>& points,
     const matrix_3x2_f* transform) noexcept;
+
+// A simple convex contour's compact inset is usable only while every offset
+// edge advances in its source edge's direction. Positive signed area alone is
+// insufficient: an inset past the inradius can invert and acquire area again.
+// Caller-owned spans, O(P) work, O(1) scratch; paired double intrinsic lanes and
+// at most one scalar tail on supported desktop architectures.
+[[nodiscard]] bool convex_inset_preserves_edges(
+    std::span<const point_2f> source, std::span<const point_2f> inset) noexcept
+{
+    if (source.size() < 3U || source.size() != inset.size()) return false;
+    std::size_t index = 0U;
+#if (defined(PROGPU_NATIVE_DIRECT2D_PATH_INTRINSICS_NEON) && (defined(__aarch64__) || defined(_M_ARM64))) || defined(PROGPU_NATIVE_DIRECT2D_PATH_INTRINSICS_SSE2)
+    for (; index + 2U <= source.size(); index += 2U) {
+        const std::size_t next = (index + 2U) % source.size();
+        const std::array<double, 2U> sx{
+            double{source[index + 1U].x} - source[index].x,
+            double{source[next].x} - source[index + 1U].x};
+        const std::array<double, 2U> sy{
+            double{source[index + 1U].y} - source[index].y,
+            double{source[next].y} - source[index + 1U].y};
+        const std::array<double, 2U> ix{
+            double{inset[index + 1U].x} - inset[index].x,
+            double{inset[next].x} - inset[index + 1U].x};
+        const std::array<double, 2U> iy{
+            double{inset[index + 1U].y} - inset[index].y,
+            double{inset[next].y} - inset[index + 1U].y};
+#if defined(PROGPU_NATIVE_DIRECT2D_PATH_INTRINSICS_NEON)
+        const float64x2_t dot = vaddq_f64(vmulq_f64(vld1q_f64(sx.data()), vld1q_f64(ix.data())),
+            vmulq_f64(vld1q_f64(sy.data()), vld1q_f64(iy.data())));
+        if (!(vgetq_lane_f64(dot, 0U) > 0.0) || !(vgetq_lane_f64(dot, 1U) > 0.0)) return false;
+#else
+        const __m128d dot = _mm_add_pd(_mm_mul_pd(_mm_loadu_pd(sx.data()), _mm_loadu_pd(ix.data())),
+            _mm_mul_pd(_mm_loadu_pd(sy.data()), _mm_loadu_pd(iy.data())));
+        if (_mm_movemask_pd(_mm_cmpgt_pd(dot, _mm_setzero_pd())) != 3) return false;
+#endif
+    }
+#endif
+    // Scalar tail, or the existing platform path without double intrinsics.
+    for (; index < source.size(); ++index) {
+        const std::size_t next = (index + 1U) % source.size();
+        const double dot = (double{source[next].x} - source[index].x) * (double{inset[next].x} - inset[index].x) +
+            (double{source[next].y} - source[index].y) * (double{inset[next].y} - inset[index].y);
+        if (!(dot > 0.0)) return false;
+    }
+    return true;
+}
 
 struct widened_outline_segment final {
     bool cubic{};
@@ -2647,6 +2696,9 @@ void reverse_widened_outline(widened_outline& outline)
         segments.push_back(segment);
     }
     const double half_width = static_cast<double>(stroke_width) * 0.5;
+    std::vector<stroke_line_frame> frames(segments.size());
+    const com::result frame_status = prepare_stroke_line_frames(segments, half_width, frames);
+    if (com::failed(frame_status)) return frame_status;
     std::array<dash_side, 2U> sides;
     std::array<widened_outline, 2U> prepared;
     std::array<std::vector<point_2f>, 2U> flattened;
@@ -2661,6 +2713,7 @@ void reverse_widened_outline(widened_outline& outline)
         com::result result = build_closed_stroke_side(
             segments,
             round_joins,
+            frames,
             half_width,
             side,
             join,
@@ -2668,6 +2721,9 @@ void reverse_widened_outline(widened_outline& outline)
             sides[index]);
         if (com::failed(result)) {
             return result;
+        }
+        if (index == 0U && !convex_inset_preserves_edges(points, sides[index].points)) {
+            return not_implemented;
         }
         result = build_closed_side_outline(sides[index], prepared[index]);
         if (com::failed(result)) {
@@ -6963,8 +7019,8 @@ public:
                      double{stroke_width} >= double{contour_bounds.bottom} - contour_bounds.top);
                 const bool compound = polylines.size() > 1U ||
                     ((!polyline.closed || dashed) && polyline.points.size() > 2U) || collapsed_inset ||
-                    (polyline.closed && !prepare_closed_stroke_contour(polyline, dashed
-                        ? stroke_contour_usage::dashed_outline : stroke_contour_usage::solid_outline));
+                    (polyline.closed && (!strictly_convex_polygon(polyline.points) ||
+                        !prepare_closed_stroke_contour(polyline, stroke_contour_usage::solid_outline)));
                 if (compound) {
                     const com::result result = compound_widen();
                     if (com::failed(result)) return result;
@@ -7041,6 +7097,9 @@ public:
                     polyline.points, half_width, inner);
                 if (com::failed(result)) {
                     return result;
+                }
+                if (!convex_inset_preserves_edges(polyline.points, inner)) {
+                    return not_implemented;
                 }
                 if (!normalize_simple_polygon(outer)) {
                     return not_implemented;
