@@ -8553,7 +8553,8 @@ SceneStateUploadComplete:
         PathGeometry source,
         Pen pen,
         float localThickness,
-        out PathGeometry dashedPath)
+        out PathGeometry dashedPath,
+        bool rejectUnrepresentedTerminalCaps = false)
     {
         dashedPath = new PathGeometry
         {
@@ -8725,6 +8726,13 @@ SceneStateUploadComplete:
             }
             else
             {
+                // Native dash runs explicitly represent a visible zero-length
+                // terminal interval. A retained spine currently lacks its tangent
+                // and two directed caps: cached coverage must not lose that ink.
+                if (rejectUnrepresentedTerminalCaps && (patternIndex & 1) == 0
+                    && distanceInPattern <= StrokeEpsilon
+                    && (pen.DashCap != PenLineCap.Flat
+                        || (figure.StrokeEndLineCap ?? pen.EndLineCap) != PenLineCap.Flat)) return false;
                 ApplyOpenDashEndpointCaps(
                     dashedPath,
                     dashedFigureStartIndex,
@@ -8863,7 +8871,8 @@ SceneStateUploadComplete:
         {
             var remainingInElement = intervals[localPatternIndex] - localDistanceInPattern;
             var step = MathF.Min(remainingInElement, length - distance);
-            if ((localPatternIndex % 2) == 0 && step > StrokeEpsilon)
+            bool visible = (localPatternIndex & 1) == 0;
+            if (visible && step > StrokeEpsilon)
             {
                 AppendDashedSegment(
                     dashedPath,
@@ -8873,6 +8882,15 @@ SceneStateUploadComplete:
                     new LineSegment(
                         start + direction * (distance + step),
                         isSmoothJoin: distance <= StrokeEpsilon && isSmoothJoin));
+            }
+
+            // Position equality alone does not prove dash continuity: a hidden
+            // loop can return to the previous endpoint. Native run construction
+            // ends the active run at an interval boundary even at that position.
+            if (!visible || step >= remainingInElement - StrokeEpsilon)
+            {
+                activeDashFigure = null;
+                activeDashEnd = default;
             }
 
             DashPattern.Advance(

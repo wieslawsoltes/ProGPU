@@ -233,8 +233,12 @@ public static partial class StrokeCoverageGeometry
     }
 
     private static bool CanPrepareDashPattern(Pen pen, Vector2 start, Vector2 end)
+        => CanPrepareDashPattern(pen, double.Hypot((double)end.X - start.X, (double)end.Y - start.Y));
+
+    private static bool CanPrepareDashPattern(Pen pen, double length, int sourceRecords = 0)
     {
         ReadOnlySpan<double> intervals = pen.DashArrayStorage;
+        if (intervals.IsEmpty || intervals.Length > 1_000_000) return false;
         var minimum = Vector128.Create(double.PositiveInfinity);
         var sum = Vector128<double>.Zero;
         var width = Vector128.Create((double)pen.Thickness);
@@ -258,9 +262,8 @@ public static partial class StrokeCoverageGeometry
             total += tail;
         }
         if ((intervals.Length & 1) != 0) total *= 2;
-        double length = double.Hypot((double)end.X - start.X, (double)end.Y - start.Y);
         return total < float.MaxValue && float.IsFinite((float)(pen.DashOffset * pen.Thickness))
-            && length / smallest <= 1_000_000;
+            && double.IsFinite(length) && length / smallest + sourceRecords <= 1_000_000;
     }
 
     // Original ProGPU provenance: native MIL try_transformed_line_stroke_bounds

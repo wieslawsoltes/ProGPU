@@ -98,6 +98,81 @@ DPI and performance qualification is still required.
 
 ## Implementation-first status
 
+### Dashed linear cached coverage and emitted bounds (2026-09-07)
+
+`StrokeCoverageGeometry.TryPrepareLinearPath` now prepares positive, finite,
+normal-width dashed linear paths as well as solid ones. Gap splitting and exact
+constant-edge compaction happen before dash phase restarts; closed gap runs retain
+their cyclic order. The owned dashed spine and undashed coverage pen stay separate
+from the original fill geometry. Existing LibreWPF typed/object/GeometryDrawing/
+raw-MIL path consumers acquire this capability through the shared ProGPU API,
+without another host-specific stroker or changes to source-brush ownership.
+
+The new allocation-free `TryMeasurePreparedLinearStrokeOutline` measures emitted
+stroke pieces, not fill-bound inflation or ideal solid-stroke support. It streams
+float-narrowed body corners, clipped outer miters, at-most-two-cubic round joins,
+two-cubic round caps, square/triangle caps, and round reversal caps into an
+intrinsic bounds reducer. Cubic extrema use analytic derivative roots. Solid
+linear cached pens retain their existing ideal-support calculation; the two
+material-bound contracts must not be interchanged. Local geometry transforms
+precede preparation and the outer visual transform remains on completed coverage.
+
+Preparation preflights scaled dash intervals and cumulative float edge lengths,
+caps interval storage at one million entries, and bounds generated span/figure
+storage using dash density plus source records before splitting. Tiny/nonpositive
+intervals or nonconstant edges at or below the existing .0001 threshold, float
+metric overflow, point-only dashed runs, zero-width dashed pens, curves, boolean
+boundary strokes, and fixed/hairline policies remain rejected. A visible
+zero-length terminal dash with non-flat caps also fails closed: the retained
+spine does not yet carry its tangent and two independently directed caps. This
+is an explicit remaining representation task, not an epsilon-sized fake dash.
+No output path, pen or bounds is published when preparation fails.
+
+The shared line dash generator now clears active-run state at invisible intervals
+and visible interval ends. A hidden retrace that returns to the previous endpoint
+must not join two distinct dashes merely because the positions match. This uses
+the original native run-state behavior; it does not change dash phase or curve
+distance-table quality. Existing non-cached terminal handling is unchanged.
+
+Original ProGPU provenance at `18ee4f8b`:
+`Direct2D/progpu_native_direct2d_path.cpp`'s
+`prepare_compound_segment_widen`, `append_stroke_side_join`,
+`append_circular_arc_segments`, `append_round_cap_segments`, and
+`build_terminal_dash_outline`; `Mil/progpu_native_mil_curve_dash.hpp`'s run
+boundaries and terminal-visible-point state; and the existing managed contour,
+dash and cubic-bounds helpers. Native already executes these outline algorithms;
+native product code, ABI and shaders are unchanged. Native fixtures are extended
+to match the new managed preparation and LibreWPF consumer fixtures. Neither
+cross-platform pixel parity nor bit-identical results at every float boundary
+are claimed by compilation; different double frame normalization and compact
+single-line versus compound narrowing still require exact-output qualification.
+
+For D intervals, S input records and G generated dash records, preparation is
+O(D + S + G) time and O(D + S + G) owned storage. Emitted-outline bounds alone
+are O(G) time/O(1) workspace and allocate no outline graph. X/Y arithmetic and
+reductions use `Vector128<double>`/runtime-intrinsic `Vector2`; topology, phase
+updates, angle/length evaluation and bounded root selection remain dependent
+scalar work. Source capture, masks and same-device leases keep the existing GPU
+path, with no CPU pixels, per-dash submissions or material copies. This does not
+claim measured acceleration or change execution-policy defaults.
+
+The primary-engine design research in the following metadata checkpoint remains
+applicable: explicit cap/join state, retained geometry/material separation, lazy
+recording and demand-driven resources are retained. Font shaping/layout reuse,
+fallback and variation state, DPI/hinting, visibility culling, worker scheduling,
+atlas keys/eviction, upload and device-loss policies are unchanged. No foreign
+implementation source is used.
+
+Authored fixtures: `DashedLinearStrokeCoverageTests`, native
+`bitmap_cache_brush_linear_paths_preserve_gap_bounds`, and LibreWPF
+`CachedLinearPathsKeepFillAndGapSplitStrokeSeparate`. These include all joins,
+open/closed gap cases, capsule cubic-error oracles, partial-output rejection,
+terminal/density guards and hidden retraces. ProGPU.Tests Release builds with
+0 warnings/errors; Apple Clang native MIL fixtures compile/link. All execution,
+image/SIMD, package/VM/platform, Svg.Skia, Instruments/performance, source-verifier
+and PR CI gates remain deferred and required. Full dashed/curved parity remains
+unfinished. Earlier checkpoint limitations below describe their named snapshots.
+
 ### Dash metadata preparation (2026-09-07)
 
 The shared managed `Compositor.TryCreateDashedStrokePath` now preserves explicit
@@ -109,8 +184,8 @@ closed figure rather than two coincident endpoint caps. Public pen dash-array
 ownership remains unchanged; preparation borrows `DashArrayStorage` and lets the
 existing `DashPattern` own the scaled intervals, removing an intermediate clone.
 
-This is a prerequisite for general cached dashed paths, **not their enablement**.
-The linear cached-coverage preparer still rejects dashes. General dashed outline
+At `18ee4f8b`, this was a prerequisite, **not dashed-path enablement**.
+That snapshot's linear cached-coverage preparer rejected dashes. General dashed outline
 bounds, tiny/zero intervals and terminal points, constant/gap normalization, and
 curve/device-width cases must be completed before that rejection can be removed.
 Existing epsilon-based dash slicing and curve distance tables are unchanged.

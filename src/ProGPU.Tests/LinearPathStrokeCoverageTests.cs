@@ -115,7 +115,7 @@ public sealed class LinearPathStrokeCoverageTests
         source.Figures[0].Segments.Add(new QuadraticBezierSegment(new(1, 2), new(3, 4)));
         Reject();
         source.Figures[0].Segments.RemoveAt(3);
-        pen.DashArray = [1, 1]; Reject();
+        pen.DashArray = [0, 1]; Reject();
         pen.DashArray = null; pen.StrokeTransformMode = PenStrokeTransformMode.Fixed; Reject();
         pen.StrokeTransformMode = (PenStrokeTransformMode)23; Reject();
         pen.StrokeTransformMode = PenStrokeTransformMode.Normal; pen.Thickness = float.NaN; Reject();

@@ -1183,6 +1183,25 @@ bool curve_dashes_match_managed_reference_contracts() {
         PROGPU_REQUIRE(runs.smooth_joins_for(runs.runs.front()).front() == smooth);
     }
 
+    // A hidden out-and-back loop returns to the previous dash endpoint but
+    // must not make that positional coincidence a join. Paired managed fixture:
+    // HiddenRetraceDoesNotJoinDistinctDashIntervalsAtCoincidentPositions.
+    const std::array retrace_points{progpu_native_point{0, 0}, progpu_native_point{1, 0},
+        progpu_native_point{2, 0}, progpu_native_point{1, 0}, progpu_native_point{1, 1}};
+    std::array<progpu_native_path_segment, 4U> retrace{};
+    const std::array<std::uint8_t, 4U> retrace_joins{0U, 0U, 1U, 0U};
+    for (std::size_t index = 0U; index < retrace.size(); ++index) {
+        retrace[index].kind = PROGPU_NATIVE_PATH_SEGMENT_LINE;
+        retrace[index].p0 = retrace_points[index];
+        retrace[index].p1 = retrace_points[index + 1U];
+    }
+    const std::array retrace_pattern{1.0, 2.0};
+    PROGPU_REQUIRE(curve_dash::try_create_runs(retrace, retrace_joins, false,
+        retrace_pattern, 0.0, 1.0F, runs) == curve_dash::result::success);
+    PROGPU_REQUIRE(runs.runs.size() == 2U);
+    PROGPU_REQUIRE(runs.runs[0U].segment_count == 1U && runs.runs[1U].segment_count == 1U);
+    PROGPU_REQUIRE(runs.smooth_joins.empty());
+
     std::array<progpu_native_path_segment, 256U> dense_lines{};
     std::array<std::uint8_t, 256U> dense_joins{};
     for (std::size_t index = 0U; index < dense_lines.size(); ++index) {
@@ -20268,6 +20287,20 @@ bool bitmap_cache_brush_linear_paths_preserve_gap_bounds() {
         }
         PROGPU_REQUIRE(actual.left == expected.left && actual.top == expected.top);
         PROGPU_REQUIRE(actual.right == expected.right && actual.bottom == expected.bottom);
+        // Matched DashedLinearStrokeCoverageTests: emitted cubic caps against
+        // the independent ideal capsule oracle, retaining the cubic error bound.
+        d2d::stroke_style_properties properties{d2d::cap_style::round, d2d::cap_style::round,
+            d2d::cap_style::flat, d2d::line_join::miter, 10.0F, d2d::dash_style::solid, 0.0F};
+        com::pointer<d2d::stroke_style> style;
+        PROGPU_REQUIRE(com::succeeded(factory->CreateStrokeStyle(&properties, nullptr, 0U, style.put())));
+        bool has_outline = false;
+        PROGPU_REQUIRE(com::succeeded(d2d::detail::get_widened_outline_bounds(
+            path.get(), 4.0F, style.get(), nullptr, 0.25F, actual, has_outline)));
+        PROGPU_REQUIRE(has_outline);
+        PROGPU_REQUIRE(std::abs(actual.left - (std::min(segment.p0.x, segment.p1.x) - 2.0F)) < 0.001F);
+        PROGPU_REQUIRE(std::abs(actual.top - (std::min(segment.p0.y, segment.p1.y) - 2.0F)) < 0.001F);
+        PROGPU_REQUIRE(std::abs(actual.right - (std::max(segment.p0.x, segment.p1.x) + 2.0F)) < 0.001F);
+        PROGPU_REQUIRE(std::abs(actual.bottom - (std::max(segment.p0.y, segment.p1.y) + 2.0F)) < 0.001F);
     }
     for (const bool closed : {false, true}) {
         for (const bool gap : {false, true}) {
@@ -20301,6 +20334,12 @@ bool bitmap_cache_brush_linear_paths_preserve_gap_bounds() {
                 PROGPU_REQUIRE(try_get_state_resource(scene, source.reserved0, composite));
                 // Paired LinearPathStrokeCoverageTests bounds: [8,18..32,42],
                 // or right=30 for a flat-capped gap. Include source anchor [10,20].
+                PROGPU_REQUIRE(composite.transform.m31 == (gap ? 14.5F : 15.0F));
+                PROGPU_REQUIRE(composite.transform.m32 == 25.0F);
+                options.dashed = true; // [2,1], width four, offset .25.
+                PROGPU_REQUIRE(build_mil_image_brush_fixture(scene, options, 8133U));
+                PROGPU_REQUIRE(try_get_cached_layer(scene, source));
+                PROGPU_REQUIRE(try_get_state_resource(scene, source.reserved0, composite));
                 PROGPU_REQUIRE(composite.transform.m31 == (gap ? 14.5F : 15.0F));
                 PROGPU_REQUIRE(composite.transform.m32 == 25.0F);
             }

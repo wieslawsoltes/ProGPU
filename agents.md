@@ -206,8 +206,12 @@ Dash preparation must honor source-figure endpoint cap overrides only at reached
 endpoints and preserve source smooth joins, including the closed seam after run
 merging. A cap must not become a join until topology proves continuity. Borrow
 immutable pen dash storage internally rather than cloning the public array.
-Keep matched native end-join and managed start-join fixtures; do not enable
-cached dashed coverage before its emitted-outline bounds are implemented.
+Keep matched native end-join and managed start-join fixtures. Cached dashed
+material bounds must measure emitted cubic caps/joins rather than ideal solid
+support or fill-bound inflation. Preflight density/finite metrics before splitting;
+reject visible terminal point caps until their directed tangent representation
+exists. Hidden intervals must end an active dash even if they return to the same
+position; positional equality alone does not prove continuity.
 
 Cached linear path preparation must keep the original fill geometry separate
 from owned gap-split stroke runs. Preserve cyclic closed seams, effective dash

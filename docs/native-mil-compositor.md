@@ -9621,6 +9621,26 @@ fixtures compile/link. No tests, images, benchmarks, verifiers or CI qualificati
 ran. General cached dashed-path bounds/rendering remain unfinished, not enabled
 by this checkpoint.
 
+## Implementation-first checkpoint: dashed linear cached outline bounds
+
+The shared managed linear path preparer now emits owned dashed stroke runs and
+an undashed coverage pen, while preserving the source fill path. Material bounds
+come from the original native compound-outline algorithm with intrinsic X/Y
+arithmetic, float-narrowed caps/joins and analytic cubic extrema; existing solid
+support bounds remain separate. Shared dash run construction also stops at
+interval boundaries, preventing hidden retraces from joining unrelated dashes.
+Typed/raw LibreWPF consumers use the shared API without a new bridge stroker.
+Native already implements the referenced outline and dash-state algorithms;
+matched native/managed/LibreWPF fixtures are authored. See
+[design, provenance, limits and costs](cached-pictures.md#dashed-linear-cached-coverage-and-emitted-bounds-2026-09-07).
+
+Visible zero-length terminal dashes requiring caps, tiny/point-only cases,
+curves, boolean boundary strokes and device-width policies remain open work.
+Compilation succeeds for Release ProGPU.Tests and Apple Clang native MIL
+fixtures. Runtime/image/SIMD, performance, platform/VM/package, source-verifier
+and CI qualification remains deferred. Main was refreshed with zero missing
+commits. This is not full MIL, DirectX, Direct2D or Win2D parity.
+
 ## Invariants
 
 - No reflection or private managed field scanning in the product bridge.

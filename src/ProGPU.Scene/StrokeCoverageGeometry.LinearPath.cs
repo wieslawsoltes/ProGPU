@@ -8,7 +8,7 @@ namespace ProGPU.Scene;
 public static partial class StrokeCoverageGeometry
 {
     /// <summary>
-    /// Prepares owned solid linear stroke contours and their material bounds.
+    /// Prepares owned linear stroke contours and their material bounds.
     /// Geometry-local transforms must already be applied. Keeps gaps, cyclic
     /// seams, smooth joins and endpoint overrides; does not flatten curves.
     /// The original path remains the independent fill geometry.
@@ -20,7 +20,7 @@ public static partial class StrokeCoverageGeometry
         ArgumentNullException.ThrowIfNull(pen);
         strokePath = null!; coveragePen = null!; bounds = default;
         if (source.IsCombined || (uint)source.FillRule > 1 || !float.IsFinite(pen.Thickness) || pen.Thickness < 0
-            || pen.StrokeTransformMode != PenStrokeTransformMode.Normal || pen.HasDashPattern || !double.IsFinite(pen.DashOffset)
+            || pen.StrokeTransformMode != PenStrokeTransformMode.Normal || !double.IsFinite(pen.DashOffset)
             || (uint)pen.LineJoin > 2 || !float.IsFinite(pen.MiterLimit) || (uint)pen.StartLineCap > 3
             || (uint)pen.EndLineCap > 3 || (uint)pen.DashCap > 3) return false;
         // Validate the entire input before allocating the owned stroke snapshot.
@@ -39,6 +39,8 @@ public static partial class StrokeCoverageGeometry
         }
         var prepared = new PathGeometry { FillRule = source.FillRule };
         for (int f = 0; f < source.Figures.Count; f++) AppendLinearRuns(source.Figures[f], pen, prepared);
+        if (pen.HasDashPattern)
+            return TryPrepareDashedLinearRuns(prepared, pen, out strokePath, out coveragePen, out bounds);
         var state = new LineBounds();
         bool any = false;
         if (pen.Thickness > 0)
@@ -62,6 +64,41 @@ public static partial class StrokeCoverageGeometry
             }
         }
         strokePath = prepared; coveragePen = pen;
+        return true;
+    }
+
+    private static bool TryPrepareDashedLinearRuns(PathGeometry prepared, Pen pen,
+        out PathGeometry strokePath, out Pen coveragePen, out Rect bounds)
+    {
+        strokePath = null!; coveragePen = null!; bounds = default;
+        if (pen.Thickness == 0) return false;
+        double length = 0;
+        int records = prepared.Figures.Count;
+        for (int f = 0; f < prepared.Figures.Count; f++)
+        {
+            var figure = prepared.Figures[f];
+            if (figure.Segments.Count > 1_000_000 - records) return false;
+            records += figure.Segments.Count;
+            var start = figure.StartPoint;
+            for (int i = 0; i < figure.Segments.Count; i++)
+            {
+                var end = ((LineSegment)figure.Segments[i]).Point;
+                // Use the shared dash generator's float metric. It must not
+                // silently skip a nonzero tiny edge or overflow its loop state.
+                float segmentLength = (end - start).Length();
+                if (!float.IsFinite(segmentLength) || segmentLength <= 0.0001f) return false;
+                length += segmentLength;
+                start = end;
+            }
+        }
+        // Includes contour-boundary storage in addition to dash density. This
+        // bounds preparation before the scaled interval or dash arrays allocate.
+        if (!CanPrepareDashPattern(pen, length, records * 2)
+            || !Compositor.TryCreateDashedStrokePath(prepared, pen, pen.Thickness,
+                out var dashed, rejectUnrepresentedTerminalCaps: true)) return false;
+        var undashedPen = Compositor.CreateUndashedPen(pen);
+        if (!TryMeasurePreparedLinearStrokeOutline(dashed, undashedPen, out var measured)) return false;
+        strokePath = dashed; coveragePen = undashedPen; bounds = measured;
         return true;
     }
 
