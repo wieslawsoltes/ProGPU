@@ -225,15 +225,17 @@ public:
         compat::point_2f control2{};
         compat::point_2f end{};
     };
-    std::array<compat::point_2f, 32U> begin_points{};
-    std::array<compat::figure_begin, 32U> figure_begins{};
-    std::array<compat::figure_end, 32U> figure_ends{};
-    std::array<std::size_t, 32U> begin_line_offsets{};
-    std::array<std::size_t, 32U> end_line_offsets{};
-    std::array<compat::point_2f, 64U> line_points{};
-    std::array<std::size_t, 32U> begin_segment_offsets{};
-    std::array<std::size_t, 32U> end_segment_offsets{};
-    std::array<captured_segment, 512U> captured_segments{};
+    // Compound widening deliberately emits multiple same-winding pieces.
+    // Keep captured coverage complete for the existing curved/dashed fixtures.
+    std::array<compat::point_2f, 512U> begin_points{};
+    std::array<compat::figure_begin, 512U> figure_begins{};
+    std::array<compat::figure_end, 512U> figure_ends{};
+    std::array<std::size_t, 512U> begin_line_offsets{};
+    std::array<std::size_t, 512U> end_line_offsets{};
+    std::array<compat::point_2f, 4096U> line_points{};
+    std::array<std::size_t, 512U> begin_segment_offsets{};
+    std::array<std::size_t, 512U> end_segment_offsets{};
+    std::array<captured_segment, 4096U> captured_segments{};
     std::size_t line_point_count = 0U;
     std::size_t captured_segment_count = 0U;
     std::uint32_t begin_count = 0U;
@@ -1380,6 +1382,38 @@ static_assert(
     offsetof(D2D1_LAYER_PARAMETERS, layerOptions));
 #endif
 
+// Compare emitted fill coverage with the independently queried stroke. Skip
+// only the narrow tolerance band, not interiors, overlaps, or empty regions.
+[[nodiscard]] bool widened_fill_matches_stroke(compat::factory& factory,
+    compat::geometry& source, float width, compat::stroke_style* style,
+    const compat::matrix_3x2_f* transform)
+{
+    com::pointer<compat::path_geometry> widened;
+    com::pointer<compat::geometry_sink> sink;
+    if (factory.CreatePathGeometry(widened.put()) != com::ok || widened->Open(sink.put()) != com::ok ||
+        source.Widen(width, style, transform, 0.001F, sink.get()) != com::ok || sink->Close() != com::ok)
+        return false;
+    for (std::uint32_t y = 0U; y < 37U; ++y) {
+        for (std::uint32_t x = 0U; x < 37U; ++x) {
+            const compat::point_2f local{-2.317F + float(x) * 0.431F, -2.193F + float(y) * 0.419F};
+            const compat::point_2f point = transform == nullptr ? local : compat::point_2f{
+                local.x * transform->m11 + local.y * transform->m21 + transform->m31,
+                local.x * transform->m12 + local.y * transform->m22 + transform->m32};
+            std::int32_t expected = 0, actual = 0, smaller = 0, larger = 0;
+            if (source.StrokeContainsPoint(point, width, style, transform, 0.001F, &expected) != com::ok ||
+                source.StrokeContainsPoint(point, width - 0.004F, style, transform, 0.001F, &smaller) != com::ok ||
+                source.StrokeContainsPoint(point, width + 0.004F, style, transform, 0.001F, &larger) != com::ok ||
+                widened->FillContainsPoint(point, nullptr, 0.001F, &actual) != com::ok) return false;
+            if (smaller == larger && actual != expected) {
+                std::fprintf(stderr, "compound Widen coverage mismatch at %g,%g: stroke=%d fill=%d\n",
+                    point.x, point.y, expected, actual);
+                return false;
+            }
+        }
+    }
+    return true;
+}
+
 int run_tests()
 {
     if (compat::create_factory(nullptr) != com::pointer_error) {
@@ -1507,10 +1541,14 @@ int run_tests()
                 contains == 0) return 9023;
             if (path->StrokeContainsPoint({5, 2}, 2.0F, style.get(), nullptr, 0.01F, &contains) != com::ok ||
                 contains != 0) return 9024;
-            com::pointer<simplified_sink> sink;
-            sink.attach(new simplified_sink());
-            if (path->Widen(2.0F, style.get(), nullptr, 0.01F, sink.get()) != compat::not_implemented ||
-                sink->begin_count != 0U) return 9025;
+            com::pointer<compat::path_geometry> widened;
+            com::pointer<compat::geometry_sink> sink;
+            if (factory->CreatePathGeometry(widened.put()) != com::ok || widened->Open(sink.put()) != com::ok ||
+                path->Widen(2.0F, style.get(), nullptr, 0.01F, sink.get()) != com::ok ||
+                sink->Close() != com::ok ||
+                widened->FillContainsPoint({5, 5}, nullptr, 0.01F, &contains) != com::ok || contains == 0 ||
+                widened->FillContainsPoint({5, 2}, nullptr, 0.01F, &contains) != com::ok || contains != 0 ||
+                !widened_fill_matches_stroke(*factory.get(), *path.get(), 2.0F, style.get(), nullptr)) return 9025;
         }
         // A closed two-edge retrace has no enclosed area either. Round joins
         // still contribute disks at its reversal points.
@@ -1528,12 +1566,94 @@ int run_tests()
         std::int32_t contains = 0;
         if (path->StrokeContainsPoint({-0.5F, 0}, 2.0F, style.get(), nullptr, 0.01F, &contains) != com::ok ||
             contains == 0) return 9029;
+        if (!widened_fill_matches_stroke(*factory.get(), *path.get(), 2.0F, style.get(), nullptr)) return 9032;
         segments[0U].p0 = {0.1F, 0}; segments[0U].p1 = {0, 0};
         segments[1U].p0 = {0, 0}; segments[1U].p1 = {0.1F, 0};
         if (compat::detail::create_native_stroke_geometry(factory.get(), std::span{segments}.first(2U),
                 std::span{joins}.first(2U), false, path.put()) != com::ok) return 9030;
         if (path->StrokeContainsPoint({0.5F, 0}, 2.0F, style.get(), nullptr, 0.01F, &contains) != com::ok ||
             contains != 0) return 9031;
+        if (!widened_fill_matches_stroke(*factory.get(), *path.get(), 2.0F, style.get(), nullptr)) return 9033;
+    }
+
+    // Mixed closed/open figures must union their stroke coverage, regardless of
+    // contour direction. The line crosses the ring but must not fill its hole.
+    {
+        com::pointer<compat::path_geometry> path;
+        com::pointer<compat::geometry_sink> sink;
+        if (factory->CreatePathGeometry(path.put()) != com::ok || path->Open(sink.put()) != com::ok) return 9040;
+        sink->BeginFigure({0, 0}, compat::figure_begin::hollow);
+        const std::array<compat::point_2f, 3U> rectangle{{{10, 0}, {10, 10}, {0, 10}}};
+        sink->AddLines(rectangle.data(), 3U);
+        sink->EndFigure(compat::figure_end::closed);
+        sink->BeginFigure({-2, 5}, compat::figure_begin::hollow);
+        sink->AddLine({12, 5});
+        sink->EndFigure(compat::figure_end::open);
+        if (sink->Close() != com::ok) return 9041;
+        com::pointer<compat::path_geometry> widened;
+        if (factory->CreatePathGeometry(widened.put()) != com::ok || widened->Open(sink.put()) != com::ok ||
+            path->Widen(2.0F, nullptr, nullptr, 0.001F, sink.get()) != com::ok || sink->Close() != com::ok) return 9042;
+        std::int32_t contains = 0;
+        if (widened->FillContainsPoint({0.5F, 5}, nullptr, 0.001F, &contains) != com::ok || contains == 0 ||
+            widened->FillContainsPoint({5, 2}, nullptr, 0.001F, &contains) != com::ok || contains != 0 ||
+            !widened_fill_matches_stroke(*factory.get(), *path.get(), 2.0F, nullptr, nullptr)) return 9043;
+    }
+
+    // An over-wide closed rectangle has no inner hole. Testing both implicit
+    // default and explicit round styles catches inverted positive-area insets.
+    {
+        com::pointer<compat::path_geometry> path;
+        com::pointer<compat::geometry_sink> sink;
+        if (factory->CreatePathGeometry(path.put()) != com::ok || path->Open(sink.put()) != com::ok) return 9044;
+        sink->BeginFigure({0, 0}, compat::figure_begin::hollow);
+        const std::array<compat::point_2f, 3U> points{{{2, 0}, {2, 2}, {0, 2}}};
+        sink->AddLines(points.data(), 3U);
+        sink->EndFigure(compat::figure_end::closed);
+        if (sink->Close() != com::ok) return 9045;
+        const compat::stroke_style_properties properties{compat::cap_style::flat, compat::cap_style::flat,
+            compat::cap_style::flat, compat::line_join::round, 10.0F, compat::dash_style::solid, 0.0F};
+        com::pointer<compat::stroke_style> style;
+        if (factory->CreateStrokeStyle(&properties, nullptr, 0U, style.put()) != com::ok) return 9046;
+        for (auto* selected : {static_cast<compat::stroke_style*>(nullptr), style.get()}) {
+            com::pointer<compat::path_geometry> widened;
+            std::int32_t contains = 0;
+            if (factory->CreatePathGeometry(widened.put()) != com::ok || widened->Open(sink.put()) != com::ok ||
+                path->Widen(6.0F, selected, nullptr, 0.001F, sink.get()) != com::ok || sink->Close() != com::ok ||
+                widened->FillContainsPoint({1, 1}, nullptr, 0.001F, &contains) != com::ok || contains == 0 ||
+                !widened_fill_matches_stroke(*factory.get(), *path.get(), 6.0F, selected, nullptr)) return 9047;
+        }
+    }
+
+    // Odd/even line counts exercise paired SIMD frames and the scalar tail.
+    // Source caps differ from dash caps, and reflection/shear follows widening.
+    {
+        const std::array<progpu_native_point, 5U> points{{{0, 0}, {8, 7}, {0, 7}, {8, 0}, {3, 0}}};
+        std::array<progpu_native_path_segment, 4U> segments{};
+        const std::array<std::uint8_t, 4U> joins{};
+        for (std::size_t i = 0U; i < segments.size(); ++i) {
+            segments[i].kind = PROGPU_NATIVE_PATH_SEGMENT_LINE;
+            segments[i].p0 = points[i]; segments[i].p1 = points[i + 1U];
+        }
+        const compat::matrix_3x2_f reflected{-1.25F, 0.25F, 0.375F, 0.75F, 23.0F, -11.0F};
+        const std::array<float, 3U> dashes{1.5F, 0.5F, 2.0F};
+        for (const std::size_t count : {3U, 4U}) {
+            com::pointer<compat::path_geometry> path;
+            if (compat::detail::create_native_stroke_geometry(factory.get(), std::span{segments}.first(count),
+                    std::span{joins}.first(count), false, path.put()) != com::ok) return 9050;
+            for (const auto join : {compat::line_join::miter, compat::line_join::bevel,
+                    compat::line_join::round, compat::line_join::miter_or_bevel}) {
+                for (const bool dashed : {false, true}) {
+                    const compat::stroke_style_properties properties{compat::cap_style::square, compat::cap_style::triangle,
+                        compat::cap_style::round, join, 1.5F,
+                        dashed ? compat::dash_style::custom : compat::dash_style::solid, -0.25F};
+                    com::pointer<compat::stroke_style> style;
+                    if (factory->CreateStrokeStyle(&properties, dashed ? dashes.data() : nullptr,
+                            dashed ? 3U : 0U, style.put()) != com::ok) return 9051;
+                    if (!widened_fill_matches_stroke(*factory.get(), *path.get(), 2.0F, style.get(), nullptr) ||
+                        !widened_fill_matches_stroke(*factory.get(), *path.get(), 2.0F, style.get(), &reflected)) return 9052;
+                }
+            }
+        }
     }
 
     com::pointer<com::unknown> identity;
@@ -3992,8 +4112,8 @@ int run_tests()
           compat::fill_mode::winding ||
       raw_open_default_widen_sink->segment_flags !=
           compat::path_segment::force_unstroked ||
-      raw_open_default_widen_sink->begin_count != 1U ||
-      raw_open_default_widen_sink->end_count != 1U ||
+      raw_open_default_widen_sink->begin_count == 0U ||
+      raw_open_default_widen_sink->end_count != raw_open_default_widen_sink->begin_count ||
       raw_open_default_widen_sink->figure_end !=
           compat::figure_end::closed ||
       raw_open_round_widen_sink->bezier_count == 0U ||
@@ -4015,7 +4135,8 @@ int run_tests()
           *raw_open_triangle_dashed_widen_sink, {4.0F, 3.8F}) ||
       !captured_fill_contains(
           *raw_open_transformed_widen_sink, {19.5F, -6.25F}) ||
-      raw_open_curve_widen_sink->begin_count != 1U ||
+      raw_open_curve_widen_sink->begin_count == 0U ||
+      raw_open_curve_widen_sink->end_count != raw_open_curve_widen_sink->begin_count ||
       raw_open_curve_round_widen_sink->bezier_count == 0U) {
     return 389;
   }
@@ -4256,7 +4377,7 @@ int run_tests()
           compat::fill_mode::winding ||
       raw_multi_default_widen_sink->segment_flags !=
           compat::path_segment::force_unstroked ||
-      raw_multi_default_widen_sink->begin_count != 2U ||
+      raw_multi_default_widen_sink->begin_count < 2U ||
       raw_multi_default_widen_sink->begin_count !=
           raw_multi_default_widen_sink->end_count ||
       raw_multi_dashed_widen_sink->begin_count < 2U ||
@@ -4317,11 +4438,11 @@ int run_tests()
   if (multi_rejected_widen_path->Widen(
           1.0F, nullptr, nullptr,
           core::default_flattening_tolerance,
-          multi_rejected_widen_sink.get()) != compat::not_implemented ||
-      raw_multi_rejected_widen_sink->begin_count != 0U ||
-      raw_multi_rejected_widen_sink->end_count != 0U ||
-      raw_multi_rejected_widen_sink->line_count != 0U ||
-      raw_multi_rejected_widen_sink->bezier_count != 0U) {
+          multi_rejected_widen_sink.get()) != com::ok ||
+      raw_multi_rejected_widen_sink->begin_count == 0U ||
+      raw_multi_rejected_widen_sink->end_count != raw_multi_rejected_widen_sink->begin_count ||
+      !captured_fill_contains(*raw_multi_rejected_widen_sink, {12.0F, 2.0F}) ||
+      captured_fill_contains(*raw_multi_rejected_widen_sink, {12.0F, 1.0F})) {
     return 399;
   }
   const compat::matrix_3x2_f disjoint_path_transform{

@@ -4369,3 +4369,58 @@ Direct2D compatibility/WebGPU test targets compile. No fixture execution,
 Windows/VM comparison, image review, performance measurements or CI qualification
 has run; query preparation's reduced work is not a benchmark result. Full native
 Direct2D point-cap and arbitrary widened-outline parity remain open.
+
+### Implementation-first checkpoint: compound winding stroke outlines
+
+`Widen` now accepts crossing/retraced closed spines and uses a same-winding
+compound representation for multi-edge open/dashed contours and multiple source
+figures. Each segment contributes a strip; each turn contributes only its outer
+join; open endpoints contribute their selected cap. All pieces use positive
+local winding, so overlapping open/closed figures cannot cancel each other.
+Round reversals contribute only the outward semicircle. Dash splitting retains
+original start/direction, source versus dash caps and closing smooth-join state.
+An inset whose source bounding box collapses at the selected width also uses the
+compound representation. Simple solid closed outlines keep the compact path,
+falling back to pieces if its topology checks reject the result.
+
+The [Direct2D Widen contract](https://learn.microsoft.com/en-us/windows/win32/api/d2d1/nf-d2d1-id2d1geometry-widen(float_id2d1strokestyle_constd2d1_matrix_3x2_f_float_id2d1simplifiedgeometrysink))
+places the world transform after widening and appends the result to the supplied
+sink. This implementation preserves that ordering and prepares all source
+contours before emitting anything. It reuses original ProGPU helpers in
+`src/ProGPU.Native/src/Direct2D/progpu_native_direct2d_path.cpp`:
+`append_stroke_side_join`, `append_circular_arc_segments`,
+`build_terminal_dash_outline`, `create_dashed_polyline_runs`, and
+`transform_points_in_place`. Public documentation informs the contract only;
+no third-party implementation is copied. Earlier cross-engine retained-geometry
+and CPU/GPU ownership decisions remain unchanged: this is CPU geometry output,
+not a raster fallback or a change to shaping, atlas, or GPU submission policy.
+
+For P flattened/dashed segments, the new compound stage costs O(P) work/storage.
+Line-frame preparation uses paired double-precision NEON (AArch64) or SSE2 lanes,
+unaligned-safe span stores and at most one scalar tail; targets without double
+intrinsics retain the existing scalar normal calculation. Each frame is reused
+by its strip and joins. Topology/output assembly has variable-length sequential
+dependencies; each orientation calculation covers one fixed-size piece and uses
+local coordinates to avoid cancellation from large translations. The existing
+SIMD transform kernel processes one packed buffer across all pieces in each
+contour/run. Output still owns small per-piece vectors; no allocation or speed
+claim is made. The compact eligibility/offset path retains O(P²) checks.
+
+Managed/native applicability: `ProGpuDirect2DSurface.WidenGeometry` delegates to
+the selected provider. This closes native provider rejection/cancellation gaps;
+there is no separate managed implementation of this COM path-construction core
+to duplicate. The independent managed WPF stroke renderer, shaders and all
+public C/COM/module interfaces are unchanged.
+
+Authored native fixtures cover solid/full-visible dashed bow ties, closed and
+short open retraces, mixed ring/line coverage, over-wide closed rectangles,
+all joins, square/triangle endpoint caps with round dash caps, odd patterns,
+negative phase, reflected/sheared transforms and paired/tail segment counts.
+They compare explicit analytic points and widened fill against stroke queries;
+capture storage was enlarged for piece-based curved outputs, and no test should
+require one figure per stroke. Native library, MIL/Direct2D compatibility and
+Direct2D WebGPU test targets compile. Fixtures remain unexecuted under the user's
+implementation-first sequence. Windows native differential, image/GPU/VM,
+sanitizer, performance and CI gates remain deferred. General point-only/tiny
+contours, compact-offset edge cases and complete Direct2D/Win2D qualification are
+still open; this supersedes the prior blanket complex-`Widen` rejection.
