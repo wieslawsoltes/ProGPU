@@ -14,6 +14,26 @@ public sealed class CachedPictureTests
     private static readonly Rect Bounds = new(10, 20, 20, 10);
 
     [Fact]
+    public void EllipseClipRecordsAnalyticArcsAndPreservesTransform()
+    {
+        var commands = new DrawingContext();
+        var transform = Matrix4x4.CreateScale(2, 3, 1);
+        commands.PushEllipseClip(new Vector2(10, 12), 4, 6, transform);
+        var clip = Assert.Single(commands.Commands);
+        Assert.Equal(RenderCommandType.PushGeometryClip, clip.Type);
+        Assert.Equal(transform, clip.Transform);
+        var figure = Assert.Single(clip.Path!.Figures);
+        Assert.Equal(new Vector2(14, 12), figure.StartPoint);
+        Assert.Equal(4, figure.Segments.Count);
+        Assert.All(figure.Segments, segment => Assert.IsType<ArcSegment>(segment));
+        Assert.Throws<ArgumentOutOfRangeException>(() => commands.PushEllipseClip(Vector2.Zero, float.NaN, 1));
+        Assert.Throws<ArgumentOutOfRangeException>(() => commands.PushEllipseClip(Vector2.Zero, 1, 0));
+        Assert.Single(commands.Commands);
+        commands.PopGeometryClip();
+        Assert.Equal(RenderCommandType.PopGeometryClip, commands.Commands[1].Type);
+    }
+
+    [Fact]
     public void SharedSourceLookupRetainsOneSourceThroughIndependentRecordings()
     {
         using var picture = CreatePicture(Vector4.One);

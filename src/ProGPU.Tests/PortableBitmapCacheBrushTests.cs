@@ -6,6 +6,19 @@ namespace ProGPU.Tests;
 public sealed class PortableBitmapCacheBrushTests
 {
     [Fact]
+    public void SharedCaptureDescriptorHasStableTargetAndNoConsumerState()
+    {
+        object target = new(), cache = new();
+        var source = new PortableBitmapCacheBrushCaptureSource(target, cache);
+        Assert.True(source.TryGetPortableBitmapCacheBrush(out var brush));
+        Assert.Same(target, brush.InternalTarget);
+        Assert.Same(cache, brush.BitmapCache);
+        Assert.Equal(1, brush.Opacity);
+        Assert.False(brush.HasTransform);
+        Assert.False(brush.HasRelativeTransform);
+    }
+
+    [Fact]
     public void MappingUsesConsumerRelativeFrameThenAbsoluteTransformWithoutStretching()
     {
         var bounds = new PortableRect(10, 20, 100, 50);

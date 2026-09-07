@@ -98,6 +98,52 @@ DPI and performance qualification is still required.
 
 ## Implementation-first status
 
+### Target-anchored aliases and direct ellipse fills
+
+`PortableBitmapCacheBrushCaptureSource` is an immutable typed capture anchor: it
+holds target and optional explicit cache identities, with opacity one and no
+consumer transforms. LibreWPF lookup now keys those identities plus the device,
+viewport cache and adapter context. Distinct brushes using the same target and
+same explicit cache (or both selecting target/default policy) share one source.
+Changing the first brush's target cannot retarget the shared recording used by
+another brush. Consumer brush state stays on the normal retained WPF dependency
+graph; the source provider subscribes only to its anchored target/cache graph.
+Different explicit cache objects remain distinct even when their current values
+match, because either can mutate independently.
+
+`DrawingContext.PushEllipseClip` records the original ProGPU four-arc analytic
+ellipse as one retained geometry clip and preserves its command transform. WPF
+direct ellipse calls use this reusable API rather than allocating a shim ellipse
+or widening its bounds into a rectangle clip. Zero-area fills paint nothing;
+negative/nonfinite radii or values outside the float renderer domain fail closed.
+Object and managed ellipse calls, including their animation overloads, route to
+the source fill path while retaining unsupported-animation diagnostics.
+
+The managed MIL decoder now dispatches raw typed BitmapCacheBrush resources for
+rectangle, ellipse and geometry records before attempting media-brush conversion.
+Both native-primitive and typed decoder lanes use the same dispatcher, preserve
+regular pen replay, and account for unsupported animation handles. Rounded cache
+brush records explicitly report unsupported until their exact clip route exists;
+they must not be counted as applied after converting their brush to null.
+
+Original-source provenance is ProGPU's `PrimitivePathGeometry.CreateEllipse`,
+retained geometry clip commands, neutral bitmap-cache descriptors and the C++
+MIL target/cache resource identity and consumer mapping contract. Existing
+SkDrawable, Direct2D/Win2D, WebRender, Vello/Parley and HarfBuzz research above
+continues to apply: retain capture/consumer separation and lazy rendering;
+shaping/font caches, DPI/atlas eviction, uploads, GPU batching and device-loss
+algorithms are unchanged. Anchoring, key comparison and primitive setup are O(1),
+with bounded four-arc recording storage and no numerical whole-buffer CPU work,
+readback or new shader. No speed or pixel-parity claim is made.
+
+Native C++ already clips and maps these cache-brush consumers over shared source
+pages; these changes connect the managed path without new wire records or native
+callbacks. Authored fixtures cover distinct-brush sharing, target replacement
+isolation, exact native arc clips and raw MIL resource dispatch. Full managed/native
+image/lifecycle, platform/VM, performance, renderer/Svg.Skia, verifier and CI
+qualification remains deferred. Rounded calls, cached-brush strokes, glyphs,
+masks and remaining source-scope combinations are still implementation work.
+
 ### Recording-owned source lookup and WPF fills
 
 `CachedPictureSourceCache<TKey>.Acquire` creates one live source per capture key
@@ -216,8 +262,9 @@ LibreWPF now exports a root-policy source through `WpfBitmapCacheBrushCapture` a
 uses `PortableBitmapCacheBrushPolicy.TryResolve` for explicit/target/default policy.
 Its `CreateCachedPicture`/`UpdateCachedPicture` methods transfer independent
 picture ownership into this resource and apply render scale/ClearType policy.
-Managed geometry/rectangle fills now have source lookup and recording-owned
-lifetime/invalidation integration. Remaining direct ellipse, pen, glyph and mask
-consumers plus target/policy alias sharing are open. Root scroll clips and source
+Managed geometry/rectangle/ellipse fills now have source lookup and recording-owned
+lifetime/invalidation integration, including distinct-brush target/cache identity
+sharing and raw typed MIL dispatch. Rounded, pen, glyph and mask consumers
+remain open. Root scroll clips and source
 content requiring unsupported recorder scopes fail closed. This does not claim
 complete BitmapCacheBrush or MIL/DirectX/Direct2D/COM/Win2D parity.

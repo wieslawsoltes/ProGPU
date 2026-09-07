@@ -9419,6 +9419,26 @@ Compilation checkpoint (2026-09-07): the Release ProGPU.Tests build succeeds wit
 zero warnings/errors. Fetched `origin/main` has no commits missing from this
 feature branch. The new fixtures were compiled, not executed.
 
+## Implementation-first checkpoint: anchored aliases, ellipse and raw brush dispatch
+
+ProGPU now supplies immutable target/cache capture anchors and reusable analytic
+ellipse clip recording. LibreWPF shares sources across distinct brushes without
+following the first brush's later target changes, and routes direct ellipse fills
+through curved native clips. Its MIL decoder handles raw typed cache brushes
+before media adaptation for rectangle/ellipse/geometry records, retaining regular
+pen replay and animation diagnostics; unsupported rounded records fail closed.
+
+See [target-anchored aliases](cached-pictures.md#target-anchored-aliases-and-direct-ellipse-fills)
+for original-source provenance, cross-engine research applicability, complexity,
+native/managed applicability and authored fixtures. Source pages and clipping
+already exist in C++; no wire contract or native source changes are introduced.
+Runtime, native/managed/platform/VM, performance, verifier and CI qualification
+remain deferred; full MIL/DirectX/Direct2D/COM/Win2D parity is not complete.
+
+Release compilation checkpoint (2026-09-07): ProGPU.Tests succeeds with zero
+warnings/errors. Fetched `origin/main` has no commits missing from the feature
+branch. These fixtures were compiled only, not executed.
+
 ## Invariants
 
 - No reflection or private managed field scanning in the product bridge.
