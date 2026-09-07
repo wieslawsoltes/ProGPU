@@ -201,6 +201,14 @@ When adding ProGPU APIs for the WPF port, keep hot paths typed and source-integr
 Cross-assembly WPF bridge contracts must not expose shim-owned WPF structs or classes when package-mode apps load the real WPF transport assemblies. Prefer primitive values, package-neutral DTOs, typed registrars, and source-integrated WPF interfaces such as the portable geometry, brush, pen, effect, bitmap-effect input, shader-effect sampler kind/image-source metadata, drawing-content, render-data, invalidation, visual-state, visual-bounds, visual-layout, and bitmap-source pixel seams.
 
 ### A. Rendering Quality & DPI-Aware Text Snapping
+
+Cached-picture material coverage must retain its coverage picture and source lease
+through parent recording clones. Glyph coverage should remain one retained glyph
+command over caller-owned initialized arrays, not per-glyph path expansion or CPU
+pixels. WPF glyph-mask bounds and relative brush mapping require authoritative
+portable InkBounds (baseline included, before the glyph transform); missing ink
+metadata is an explicit typed-contract gap, not permission to use font-size boxes.
+
 ProGPU achieves high-performance vector graphics and text rendering matching macOS Retina quality. When modifying or extending text visuals (`TextVisual.cs`, `Compositor.cs`, `GlyphAtlas.cs`):
 * **Framebacks**: Always back the swapchain with physical framebuffer pixels (`FramebufferSize`) rather than logical window coordinates to prevent OS-level linear stretching.
 * **Glyph Atlas scale**: Rasterize glyphs into the atlas at their actual physical dimensions by applying the current `DpiScale`.

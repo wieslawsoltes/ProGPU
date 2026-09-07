@@ -4544,6 +4544,41 @@ public class DrawingContext :
         }
         finally { recording.Clear(); }
 
+        PushOwnedOpacityMaskPicture(picture, bounds, transform);
+    }
+
+    /// <summary>
+    /// Paints a shared cached source through retained alpha coverage. Coverage
+    /// can contain glyphs, strokes or other scene commands. Caller resources
+    /// are independently leased; recording never submits GPU work or reads pixels.
+    /// </summary>
+    public void DrawCachedPictureWithCoverage(CachedPictureLease source, GpuPicture coverage, Rect bounds,
+        Matrix4x4 sourceTransform = default, float opacity = 1, Matrix4x4 transform = default)
+    {
+        ArgumentNullException.ThrowIfNull(source);
+        ArgumentNullException.ThrowIfNull(coverage);
+        if (!float.IsFinite(bounds.X) || !float.IsFinite(bounds.Y)
+            || !float.IsFinite(bounds.Width) || !float.IsFinite(bounds.Height)
+            || !float.IsFinite(bounds.Right) || !float.IsFinite(bounds.Bottom)
+            || bounds.Width <= 0 || bounds.Height <= 0)
+            throw new ArgumentOutOfRangeException(nameof(bounds));
+        if (!float.IsFinite(opacity) || opacity < 0 || opacity > 1)
+            throw new ArgumentOutOfRangeException(nameof(opacity));
+        if (!IsFiniteMaskTransform(sourceTransform) || !IsFiniteMaskTransform(transform))
+            throw new ArgumentOutOfRangeException(nameof(sourceTransform));
+        _ = source.Picture.GetVisual();
+        var placement = (sourceTransform == default ? Matrix4x4.Identity : sourceTransform)
+            * (transform == default ? Matrix4x4.Identity : transform);
+        if (!IsFiniteMaskTransform(placement)) throw new ArgumentOutOfRangeException(nameof(transform));
+        PushOwnedOpacityMaskPicture(coverage.Clone(), bounds, transform);
+        if (opacity != 1) PushOpacity(opacity);
+        DrawCachedPicture(source, placement);
+        if (opacity != 1) PopOpacity();
+        PopOpacityMask();
+    }
+
+    private void PushOwnedOpacityMaskPicture(GpuPicture picture, Rect bounds, Matrix4x4 transform)
+    {
         // Own the complete mask recording, not merely a borrowed GpuPicture.
         // Parent snapshots share this lease until their final disposal.
         var owned = RetainedResourceLease.Create(picture, picture);

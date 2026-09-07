@@ -9475,6 +9475,23 @@ Native MIL and managed/WPF fixture targets compile in Release; none were run.
 Final runtime/VM/platform, renderer/Svg.Skia, performance, verifier and CI
 qualification remains deferred. Full goal parity is still incomplete.
 
+## Implementation-first checkpoint: cached glyph coverage
+
+ProGPU now owns coverage-picture clones and cached-source leases through
+`DrawCachedPictureWithCoverage`. LibreWPF keeps glyph coverage as one retained
+glyph command and routes typed cached foregrounds before media adaptation.
+Portable glyph DTOs carry authoritative ink bounds; source-built WPF computes
+and caches them, and the native MIL producer prefers them in ManagedBounds.
+Missing ink metadata is unsupported for cached glyph coverage, not replaced with
+font-size boxes. Native sampled glyph/cache-page algorithms are unchanged;
+paired direct/drawing style fixtures are added.
+
+See [cached glyph coverage](cached-pictures.md#cached-glyph-coverage-and-authoritative-ink-bounds)
+for source provenance, primary research, costs, ownership and remaining scope.
+Native and both managed fixture targets compile in Release; fixtures are not
+executed. Full rendering/platform/VM, performance, verifier and CI qualification
+remain deferred, and full MIL/DirectX/Direct2D/COM/Win2D parity remains incomplete.
+
 ## Invariants
 
 - No reflection or private managed field scanning in the product bridge.

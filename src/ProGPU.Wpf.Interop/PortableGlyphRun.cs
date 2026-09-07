@@ -15,6 +15,11 @@ public interface IPortableNativeGlyphRunSource
 
 public sealed class PortableGlyphRun
 {
+    /// <summary>Authoritative ink bounds, including baseline origin but before Transform. Empty ink is valid.</summary>
+    public bool HasInkBounds { get; set; }
+
+    public PortableRect InkBounds { get; set; } = PortableRect.Empty;
+
     public ushort[] GlyphIndices { get; set; } = Array.Empty<ushort>();
 
     public PortablePoint[] GlyphPositions { get; set; } = Array.Empty<PortablePoint>();
@@ -44,6 +49,11 @@ public sealed class PortableGlyphRun
 
 public sealed class PortableNativeGlyphRun
 {
+    /// <summary>Authoritative ink bounds, including baseline origin but before Transform. Empty ink is valid.</summary>
+    public bool HasInkBounds { get; set; }
+
+    public PortableRect InkBounds { get; set; } = PortableRect.Empty;
+
     public ushort[] GlyphIndices { get; set; } = Array.Empty<ushort>();
 
     public Vector2[] GlyphPositions { get; set; } = Array.Empty<Vector2>();

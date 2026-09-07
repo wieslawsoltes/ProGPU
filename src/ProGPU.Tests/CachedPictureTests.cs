@@ -14,6 +14,46 @@ public sealed class CachedPictureTests
     private static readonly Rect Bounds = new(10, 20, 20, 10);
 
     [Fact]
+    public void CachedCoverageKeepsOneGlyphCommandAndIndependentOwners()
+    {
+        using var input = CreatePicture(Vector4.One);
+        var provider = new PictureSource(input);
+        using var cache = new CachedPictureSourceCache<object>();
+        using var source = cache.Acquire(new object(), provider, static value => value);
+        var font = InterFontFamily.Regular;
+        ushort[] indices = [font.GetGlyphIndex('A'), font.GetGlyphIndex('g')];
+        Vector2[] positions = [Vector2.Zero, new Vector2(12, 0)];
+        var maskRecorder = new GpuPictureRecorder();
+        maskRecorder.BeginRecording(Bounds).DrawGlyphRun(indices, positions, font, 16,
+            new SolidColorBrush(Vector4.One), new Vector2(10, 25));
+        using var coverage = maskRecorder.EndRecording();
+        var recorder = new GpuPictureRecorder();
+        var commands = recorder.BeginRecording(Bounds);
+        var mapping = Matrix4x4.CreateTranslation(2, 3, 0);
+        var parent = Matrix4x4.CreateScale(2, 3, 1);
+        commands.DrawCachedPictureWithCoverage(source, coverage, Bounds, mapping, 0.5f, parent);
+        using var picture = recorder.EndRecording();
+        using var clone = picture.Clone();
+        coverage.Dispose();
+        source.Dispose();
+        picture.Dispose();
+        var mask = clone.GetCommand(0);
+        Assert.Equal(RenderCommandType.PushOpacityMask, mask.Type);
+        Assert.Equal(parent, mask.Transform);
+        Assert.False(mask.Picture!.IsDisposed);
+        Assert.Equal(1, mask.Picture.CommandCount);
+        Assert.Same(indices, mask.Picture.GetCommand(0).GlyphIndices);
+        Assert.Same(positions, mask.Picture.GetCommand(0).GlyphPositions);
+        Assert.Equal(RenderCommandType.DrawGlyphRun, mask.Picture.GetCommand(0).Type);
+        Assert.Equal(mapping * parent, clone.GetCommand(2).Transform);
+        Assert.Equal(RenderCommandType.PopOpacityMask, clone.GetCommand(4).Type);
+        Assert.Equal(0, provider.DisposeCount);
+        clone.Dispose();
+        Assert.True(mask.Picture.IsDisposed);
+        Assert.Equal(1, provider.DisposeCount);
+    }
+
+    [Fact]
     public void CachedMaskOwnsSourceThroughRecordingClonesAndPreservesMapping()
     {
         using var input = CreatePicture(Vector4.One);

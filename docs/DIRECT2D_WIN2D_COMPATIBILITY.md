@@ -4861,3 +4861,12 @@ provide the equivalent ownership path; paired fixtures are authored and compile.
 This adds no COM interface or Win2D API surface. Unbounded scopes, lease-aware
 retained-owner metadata and full qualification remain open. Details and research:
 [cached opacity masks](cached-pictures.md#recording-owned-cached-opacity-masks).
+
+### Implementation-first checkpoint: cached glyph foregrounds
+
+Shared cached-picture coverage now supports WPF glyph foregrounds using retained
+glyph commands and authoritative portable ink bounds. Native sampled glyph masks
+already provide the paired rendering path. This does not expand COM/Win2D API
+coverage; missing legacy ink metadata, remaining consumers and full qualification
+are still open. Native and managed fixtures compile but were not run. See
+[cached glyph coverage](cached-pictures.md#cached-glyph-coverage-and-authoritative-ink-bounds).

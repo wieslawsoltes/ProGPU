@@ -98,6 +98,66 @@ DPI and performance qualification is still required.
 
 ## Implementation-first status
 
+### Cached glyph coverage and authoritative ink bounds
+
+`DrawingContext.DrawCachedPictureWithCoverage` now paints a shared source through
+an independently owned coverage-picture clone. Coverage bounds and the outer
+transform define the mask; source mapping composes before that outer transform.
+Consumer opacity remains outside coverage. The command recording owns both
+coverage and source across caller disposal and parent recording clones. This
+reuses `PushOwnedOpacityMaskPicture`, existing GPU picture masks and
+`DrawCachedPicture`; it is also reusable for future stroke coverage.
+
+Portable native-vector and compatibility glyph DTOs now have additive
+`HasInkBounds`/`InkBounds` fields. Bounds include baseline origin but precede the
+glyph transform; explicitly empty ink is valid. Source-built WPF calls its
+existing `ComputeInkBoundingBox`, adds baseline origin and caches the neutral
+result once per initialized GlyphRun, sharing it between both portable exports.
+The WPF adapter cache includes bounds availability and value. The native MIL
+producer prefers these bounds in its existing ManagedBounds packet field; no
+C ABI field was added. Old descriptors retain their existing legacy producer
+size-bound fallback, which is not sufficient for cached-glyph coverage.
+
+WPF cached foregrounds now dispatch before media-brush adaptation in direct
+object/managed entry points, GlyphRunDrawing replay and raw MIL records. Given
+authoritative ink bounds, the sink records one opaque glyph-run coverage command
+with original glyph indices/positions, baseline, font and style simulations.
+It preserves Aliased mode and lowers other coverage modes to Grayscale because
+the mask consumes alpha, not RGB subpixel coverage. Glyph transform and active
+outer transform apply to both coverage and material. Missing ink metadata fails
+closed for this consumer; local shim/older DTO sources need a real ink-bound
+contract, not an estimated box. Empty ink and empty cached sources paint nothing.
+
+Original-source provenance: ProGPU `GpuPictureRecorder`, retained resource
+leases, `DrawGlyphRun`, `PushOpacityMaskValue(GpuPicture,...)`, and
+`DrawCachedPicture`. Native sampled-glyph coverage already records an owned
+glyph mask plus shared cache-source pages in `progpu_native_mil.cpp`; its product
+algorithm and wire/shaders are unchanged. New paired native fixtures cover
+direct and GlyphRunDrawing consumers with four style-simulation combinations.
+Managed fixtures cover coverage/source ownership through clones, composed
+transforms and shared glyph arrays; WPF fixtures cover ink-metadata cache changes,
+raw/object dispatch, retained coverage and authoritative native packet bounds.
+
+The [WPF ink-bounds contract](https://learn.microsoft.com/en-us/dotnet/api/system.windows.media.glyphrun.computeinkboundingbox?view=windowsdesktop-10.0)
+defines origin-relative ink bounds; the bridge adds baseline once. No foreign
+implementation is copied into ProGPU. Existing Skia/DirectWrite/Direct2D/Win2D,
+WebRender, Vello/Parley and HarfBuzz research remains applicable: retain shaped
+glyph data and source identity separately, with lazy GPU masks and unchanged
+font, DPI, atlas, upload and device-loss policy. Recording adds O(1) bounded
+picture/command/lease allocations per dirty draw, not per glyph. Source WPF
+ink calculation runs once per initialized glyph run; no new numerical CPU
+buffer loop or pixel fallback is added. GPU glyph work remains O(G) plus mask
+raster/composition work over affected pixels, using existing pipelines. No speed
+or pixel-parity claim is made.
+
+Release compilation (2026-09-07): native `progpu_native_mil_tests` succeeds,
+ProGPU.Tests has 0 warnings/errors and ProGPU.Wpf.Tests has 10 warnings/0 errors.
+Fixtures are compiled only. Full glyph images (including style, color-font,
+transform, hinting and DPI combinations), lifecycle, native/managed/platform/VM,
+renderer/Svg.Skia, performance, source verification and CI gates remain deferred.
+Strokes, unbounded masks, legacy glyph producers without ink bounds, retained-owner
+mask metadata and remaining source scopes are still implementation work.
+
 ### Recording-owned cached opacity masks
 
 `DrawingContext.PushCachedPictureOpacityMask` records a cached source through
@@ -376,7 +436,8 @@ Managed geometry/rectangle/ellipse fills now have source lookup and recording-ow
 lifetime/invalidation integration, including distinct-brush target/cache identity
 sharing and raw typed MIL dispatch. Rounded fills now use the shared analytic
 clip described above, and bounded opacity masks use recording-owned picture
-sources. Pen, glyph, unbounded mask and retained-owner mask-metadata work
+sources. Glyph foregrounds with authoritative ink metadata now use retained
+coverage. Pen, legacy glyph metadata, unbounded mask and retained-owner mask-metadata work
 remains open. Root scroll clips and source
 content requiring unsupported recorder scopes fail closed. This does not claim
 complete BitmapCacheBrush or MIL/DirectX/Direct2D/COM/Win2D parity.

@@ -20050,6 +20050,51 @@ bool bitmap_cache_brush_masks_retain_source_pages_and_consumer_alpha() {
     return true;
 }
 
+bool bitmap_cache_brush_glyphs_retain_coverage_and_shared_source() {
+    using namespace progpu::native::tests;
+    const auto font_bytes = load_inter_test_font();
+    progpu::native::text::sfnt_font_view font{};
+    PROGPU_REQUIRE(progpu::native::text::sfnt_font_view::try_create(font_bytes, 0U, font));
+    std::uint16_t a = 0U, g = 0U;
+    PROGPU_REQUIRE(font.try_get_glyph_index('A', a) && font.try_get_glyph_index('g', g));
+    std::vector<std::byte> glyph_commands;
+    const std::array glyphs{a, g};
+    const std::array advances{18.0F, 19.0F};
+    append_glyph_run_create(glyph_commands, 28U, 8.0F, 38.0F, 24.0F,
+        glyphs, advances, {}, 8.0, 8.0, 56.0, 48.0);
+    for (const bool drawing : {false, true}) {
+        for (std::uint32_t style = 0U; style < 4U; ++style) {
+            mil_image_brush_fixture_options options{};
+            options.source = mil_brush_fixture_source::visual;
+            options.bitmap_cache_brush = true;
+            options.shape = mil_brush_fixture_shape::glyphs;
+            options.opacity = 0.5;
+            options.glyph_commands = glyph_commands;
+            options.glyph_font = font_bytes;
+            options.glyph_style = style;
+            options.glyph_drawing = drawing;
+            std::vector<std::byte> scene;
+            PROGPU_REQUIRE(build_mil_image_brush_fixture(scene, options, 8123U));
+            progpu_native_scene_layer source{};
+            PROGPU_REQUIRE(try_get_cached_layer(scene, source));
+            PROGPU_REQUIRE(source.opacity == 0.5F);
+            PROGPU_REQUIRE((source.flags & PROGPU_NATIVE_SCENE_LAYER_CACHE_SHARED) != 0U);
+            const auto header = read_value<progpu_native_scene_header>(scene, 0U);
+            bool found = false;
+            for (std::uint32_t index = 0U; index < header.resource_count; ++index) {
+                const auto resource = read_value<progpu_native_scene_resource>(scene,
+                    header.resource_offset + index * sizeof(progpu_native_scene_resource));
+                if (resource.kind != PROGPU_NATIVE_SCENE_RESOURCE_LAYER_MASK ||
+                    resource.payload_size != sizeof(progpu_native_scene_layer_picture_mask)) continue;
+                const auto mask = read_value<progpu_native_scene_layer_picture_mask>(scene, resource.payload_offset);
+                found |= mask.kind == PROGPU_NATIVE_SCENE_LAYER_MASK_PICTURE && mask.stream_size != 0U;
+            }
+            PROGPU_REQUIRE(found);
+        }
+    }
+    return true;
+}
+
 bool bitmap_cache_brush_preserves_root_raster_policy() {
     using namespace progpu::native::tests;
     mil_image_brush_fixture_options options{};
@@ -21543,6 +21588,7 @@ int main() {
     PROGPU_REQUIRE(bitmap_cache_brush_ingress_is_typed_and_transactional());
     PROGPU_REQUIRE(bitmap_cache_brush_captures_content_with_independent_root_state());
     PROGPU_REQUIRE(bitmap_cache_brush_preserves_root_raster_policy());
+    PROGPU_REQUIRE(bitmap_cache_brush_glyphs_retain_coverage_and_shared_source());
     PROGPU_REQUIRE(bitmap_cache_brush_masks_retain_source_pages_and_consumer_alpha());
     PROGPU_REQUIRE(bitmap_cache_brush_rounded_fill_preserves_clamped_arcs());
     PROGPU_REQUIRE(bitmap_dpi_is_atomic_and_preserves_legacy_bindings());
