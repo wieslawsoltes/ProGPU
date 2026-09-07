@@ -81,6 +81,28 @@ bool viewport_bounds_contract()
 
 int main()
 {
+    const progpu_native_direct2d_target_extent target{sizeof(target), 640U, 480U, 0U, 144.0F, 192.0F};
+    if (!core::valid_target_extent(&target) || core::valid_target_extent(nullptr)) return 25;
+    for (std::uint32_t field = 0U; field < 6U; ++field) {
+        auto invalid = target;
+        switch (field) {
+        case 0U: invalid.struct_size -= 1U; break;
+        case 1U: invalid.pixel_width = 0U; break;
+        case 2U: invalid.pixel_height = 0U; break;
+        case 3U: invalid.reserved = 1U; break;
+        case 4U: invalid.dpi_x = std::numeric_limits<float>::quiet_NaN(); break;
+        default: invalid.dpi_y = std::numeric_limits<float>::infinity(); break;
+        }
+        if (core::valid_target_extent(&invalid)) return 25;
+    }
+    for (const float value : {0.0F, -1.0F}) {
+        auto invalid = target;
+        invalid.dpi_x = value;
+        if (core::valid_target_extent(&invalid)) return 25;
+        invalid = target;
+        invalid.dpi_y = value;
+        if (core::valid_target_extent(&invalid)) return 25;
+    }
     if (!viewport_bounds_contract()) return 24;
     const core::rectangle_geometry rectangle({1.0F, 2.0F, 4.0F, 6.0F});
     const progpu_native_direct2d_matrix_3x2_f transform{

@@ -13,6 +13,14 @@ static_assert(sizeof(progpu_native_direct2d_color_f) == 16U);
 static_assert(sizeof(progpu_native_direct2d_triangle) == 24U);
 static_assert(sizeof(progpu_native_direct2d_command_stream_summary) == 64U);
 static_assert(sizeof(progpu_native_direct2d_scene_stream_result) == 80U);
+static_assert(std::is_standard_layout_v<progpu_native_direct2d_target_extent>);
+static_assert(sizeof(progpu_native_direct2d_target_extent) == 24U);
+static_assert(offsetof(progpu_native_direct2d_target_extent, pixel_width) == 4U);
+static_assert(offsetof(progpu_native_direct2d_target_extent, reserved) == 12U);
+static_assert(offsetof(progpu_native_direct2d_target_extent, dpi_x) == 16U);
+static_assert(offsetof(progpu_native_direct2d_target_extent, dpi_y) == 20U);
+static_assert(PROGPU_NATIVE_DIRECT2D_ABI_VERSION == 55U);
+static_assert(PROGPU_NATIVE_DIRECT2D_INTERFACE_D2D1_COMMAND_SINK1 == 61);
 
 #if defined(_WIN32)
 static_assert(PROGPU_NATIVE_DIRECT2D_HAS_WINDOWS_PROVIDER == 1);

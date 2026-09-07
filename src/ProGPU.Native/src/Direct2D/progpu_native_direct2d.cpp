@@ -9796,10 +9796,11 @@ progpu_native_direct2d_compat_factory_create_solid_color_brush(
     return PROGPU_NATIVE_DIRECT2D_STATUS_SUCCESS;
 }
 
-progpu_native_direct2d_status
-progpu_native_direct2d_scene_recorder_create(
+static progpu_native_direct2d_status create_scene_recorder(
     uint64_t scene_id,
     uint64_t generation,
+    const progpu_native_direct2d_target_extent* target,
+    bool target_required,
     const progpu_native_direct2d_command_stream_summary* capacity_hint,
     progpu_native_direct2d_scene_recorder** recorder,
     int32_t* native_hresult)
@@ -9812,6 +9813,7 @@ progpu_native_direct2d_scene_recorder_create(
     }
     if (scene_id == 0U || generation == 0U || recorder == nullptr ||
         native_hresult == nullptr ||
+        (target == nullptr ? target_required : !direct2d_core::valid_target_extent(target)) ||
         (capacity_hint != nullptr &&
             capacity_hint->struct_size != sizeof(*capacity_hint))) {
         return PROGPU_NATIVE_DIRECT2D_STATUS_INVALID_ARGUMENT;
@@ -9825,7 +9827,9 @@ progpu_native_direct2d_scene_recorder_create(
 
     CommandSceneStreamSink* sink = nullptr;
     try {
-        sink = new CommandSceneStreamSink(scene_id, generation, hint);
+        sink = new CommandSceneStreamSink(scene_id, generation, hint,
+            target != nullptr ? static_cast<double>(target->pixel_width) * 96.0 / target->dpi_x : 0.0,
+            target != nullptr ? static_cast<double>(target->pixel_height) * 96.0 / target->dpi_y : 0.0);
     } catch (const std::bad_alloc&) {
         *native_hresult = E_OUTOFMEMORY;
         return PROGPU_NATIVE_DIRECT2D_STATUS_OUT_OF_MEMORY;
@@ -9851,6 +9855,29 @@ progpu_native_direct2d_scene_recorder_create(
     *recorder = instance;
     *native_hresult = S_OK;
     return PROGPU_NATIVE_DIRECT2D_STATUS_SUCCESS;
+}
+
+progpu_native_direct2d_status progpu_native_direct2d_scene_recorder_create(
+    uint64_t scene_id,
+    uint64_t generation,
+    const progpu_native_direct2d_command_stream_summary* capacity_hint,
+    progpu_native_direct2d_scene_recorder** recorder,
+    int32_t* native_hresult)
+{
+    return create_scene_recorder(scene_id, generation, nullptr, false,
+        capacity_hint, recorder, native_hresult);
+}
+
+progpu_native_direct2d_status progpu_native_direct2d_scene_recorder_create_for_target(
+    uint64_t scene_id,
+    uint64_t generation,
+    const progpu_native_direct2d_target_extent* target,
+    const progpu_native_direct2d_command_stream_summary* capacity_hint,
+    progpu_native_direct2d_scene_recorder** recorder,
+    int32_t* native_hresult)
+{
+    return create_scene_recorder(scene_id, generation, target, true,
+        capacity_hint, recorder, native_hresult);
 }
 
 void progpu_native_direct2d_scene_recorder_destroy(

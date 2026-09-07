@@ -26,9 +26,10 @@ The flag does not itself invalidate a caller-owned cache. Fixed record layouts,
 exports and the ABI version remain unchanged; managed/native flag values have a
 matched contract fixture. Existing streams without this dependency are unaffected.
 
-The standalone recorder has no target descriptor. It still returns explicit
+The legacy standalone recorder has no target descriptor and still returns explicit
 unsupported state for a full-target opacity brush instead of guessing dimensions.
-A future typed target descriptor is required to support that recorder case.
+The subsequent [ABI v55 target-aware recorder](direct2d-target-aware-recorders.md)
+supplies a typed immutable descriptor and supports that recorder case.
 Missing/nonpositive target extent, invalid DPI, noninvertible transforms and
 unrepresentable bounds fail closed. No partial stream is returned as success.
 

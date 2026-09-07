@@ -9756,6 +9756,22 @@ wire layouts, exports, shaders and ABI version are unchanged; the new flag is
 mirrored in the managed contract. All runtime/image, SIMD/performance,
 VM/platform/package, source-verifier and CI qualification remains deferred.
 
+## Implementation-first checkpoint: target-aware standalone recorders
+
+ABI v55 adds an immutable physical-size/independent-DPI descriptor to standalone
+Direct2D recorders. The C header generates the managed wire record, and the public
+managed SafeHandle wrapper owns recorder and acquired COM references with span
+serialization. Full-target brush translation reuses the surface-backed algorithm;
+no GPU surface is created. Legacy targetless recorders still reject missing bounds.
+This supersedes the target-descriptor gap in the preceding checkpoint.
+
+See [contracts, original provenance, research, costs and deferred fixtures](direct2d-target-aware-recorders.md).
+Native core/portable COM/header fixtures compile/link and ProGPU.Tests Release
+compiles with zero warnings/errors. Windows provider/fixture compilation and all
+runtime/image, VM/platform/package, source-verifier, SIMD/performance and exact-head
+CI qualification remain pending. Main was refreshed with zero missing commits.
+The full goal remains active; this batch is not complete Direct2D/Win2D parity.
+
 ## Invariants
 
 - No reflection or private managed field scanning in the product bridge.

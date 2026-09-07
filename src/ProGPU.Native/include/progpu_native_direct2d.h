@@ -195,7 +195,9 @@ typedef enum progpu_native_direct2d_interface_kind {
     PROGPU_NATIVE_DIRECT2D_INTERFACE_D2D1_DEVICE_CONTEXT5 = 57,
     PROGPU_NATIVE_DIRECT2D_INTERFACE_D2D1_SVG_DOCUMENT = 58,
     PROGPU_NATIVE_DIRECT2D_INTERFACE_WIN2D_CANVAS_SVG_DOCUMENT = 59,
-    PROGPU_NATIVE_DIRECT2D_INTERFACE_D2D1_GEOMETRY_REALIZATION = 60
+    PROGPU_NATIVE_DIRECT2D_INTERFACE_D2D1_GEOMETRY_REALIZATION = 60,
+    /* Recorder-owned; not returned by surface_get_interface. */
+    PROGPU_NATIVE_DIRECT2D_INTERFACE_D2D1_COMMAND_SINK1 = 61
 } progpu_native_direct2d_interface_kind;
 
 typedef enum progpu_native_direct2d_color_glyph_path {
@@ -794,7 +796,7 @@ typedef struct progpu_native_direct2d_stroke_style_properties {
 } progpu_native_direct2d_stroke_style_properties;
 
 enum {
-    PROGPU_NATIVE_DIRECT2D_ABI_VERSION = 54U
+    PROGPU_NATIVE_DIRECT2D_ABI_VERSION = 55U
 };
 
 PROGPU_NATIVE_DIRECT2D_API uint32_t
@@ -822,6 +824,19 @@ progpu_native_direct2d_compat_factory_create_solid_color_brush(
     void** brush,
     int32_t* native_hresult);
 
+/* Immutable output extent for target-aware recorders. Dimensions are physical
+ * pixels; DPI components are independently positive/finite; reserved is zero.
+ * A different output extent requires a new recorder and scene generation. */
+/* PROGPU_CSHARP_STRUCT: Public.NativeDirect2DTargetExtent */
+typedef struct progpu_native_direct2d_target_extent {
+    uint32_t struct_size;
+    uint32_t pixel_width;
+    uint32_t pixel_height;
+    uint32_t reserved;
+    float dpi_x;
+    float dpi_y;
+} progpu_native_direct2d_target_extent;
+
 /* Creates a retained ProGPU scene recorder. capacity_hint is optional and is
  * used only to reserve storage; recording remains bounded by the semantic
  * scene ABI even when the actual callback counts differ from the hint. */
@@ -829,6 +844,19 @@ PROGPU_NATIVE_DIRECT2D_API progpu_native_direct2d_status
 progpu_native_direct2d_scene_recorder_create(
     uint64_t scene_id,
     uint64_t generation,
+    const progpu_native_direct2d_command_stream_summary* capacity_hint,
+    progpu_native_direct2d_scene_recorder** recorder,
+    int32_t* native_hresult);
+
+/* ABI v55: target is required and copied during creation. No surface, device,
+ * COM owner or caller memory is retained for the target descriptor. The sink
+ * supports full-target brush domains and publishes HAS_TARGET_DEPENDENT_MASKS.
+ * The targetless create entry point keeps its previous behavior. */
+PROGPU_NATIVE_DIRECT2D_API progpu_native_direct2d_status
+progpu_native_direct2d_scene_recorder_create_for_target(
+    uint64_t scene_id,
+    uint64_t generation,
+    const progpu_native_direct2d_target_extent* target,
     const progpu_native_direct2d_command_stream_summary* capacity_hint,
     progpu_native_direct2d_scene_recorder** recorder,
     int32_t* native_hresult);

@@ -92,7 +92,8 @@ public enum ProGpuDirect2DInterfaceKind
     D2D1DeviceContext5 = 57,
     D2D1SvgDocument = 58,
     Win2DCanvasSvgDocument = 59,
-    D2D1GeometryRealization = 60
+    D2D1GeometryRealization = 60,
+    D2D1CommandSink1 = 61
 }
 
 public enum ProGpuDirect2DColorGlyphPath : uint
@@ -994,9 +995,10 @@ public sealed class ProGpuDirect2DComReference : SafeHandleZeroOrMinusOneIsInval
     private readonly ProGpuDirect2DResourceDomain _resourceDomain;
 
     /// <summary>
-    /// Identifies the native Direct2D/D3D11 device domain that created this
-    /// resource. References from a lost generation fail closed on a new
-    /// surface and must be recreated.
+    /// Identifies the native device or recorder domain that created this
+    /// resource. Device references from a lost generation fail closed on a new
+    /// surface and must be recreated; recorder references retain their immutable
+    /// scene generation independently of a GPU device.
     /// </summary>
     public ulong ResourceGeneration => _resourceDomain.Generation;
 

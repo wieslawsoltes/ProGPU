@@ -1687,20 +1687,7 @@ public sealed unsafe class ProGpuDirect2DSurface :
 
     private static ProGpuDirect2DSceneStreamResult
         ToManagedSceneStreamResult(
-            ProGpuDirect2DNative.NativeSceneStreamResult result) =>
-        new(
-            result.Flags,
-            result.RequiredBytes,
-            result.WrittenBytes,
-            result.CommandCount,
-            result.ResourceCount,
-            result.BrushCount,
-            result.TranslatedDrawCount,
-            result.FailureCallbackIndex,
-            result.FailureReason,
-            result.ClearColor,
-            result.SceneId,
-            result.Generation);
+            ProGpuDirect2DNative.NativeSceneStreamResult result) => result.ToManaged();
 
     /// <summary>
     /// Creates a genuine same-device ID2D1SvgDocument from UTF-8 XML. The

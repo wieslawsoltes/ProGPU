@@ -7,3 +7,9 @@ dotnet run --project \
   --configuration Release -- \
   "${repo_root}/src/ProGPU.Native/include/progpu_native.h" \
   "${repo_root}/src/ProGPU.Backend.Native/Generated/NativeContract.g.cs"
+
+dotnet run --project \
+  "${repo_root}/eng/ProGPU.NativeContractGenerator/ProGPU.NativeContractGenerator.csproj" \
+  --configuration Release -- \
+  "${repo_root}/src/ProGPU.Native/include/progpu_native_direct2d.h" \
+  "${repo_root}/src/ProGPU.Backend.Native/Generated/NativeDirect2DContract.g.cs"

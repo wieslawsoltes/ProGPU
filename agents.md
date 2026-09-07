@@ -208,6 +208,11 @@ intrinsic SIMD where available. This envelope is material domain metadata, never
 an exact geometric clip. Surface-backed translation must report target size/DPI
 dependencies and require a new stream generation after changes; targetless
 recorders must reject missing dimensions instead of guessing or using FLT_MAX.
+Target-aware recorder descriptors must be immutable, generated native/managed
+value contracts with physical dimensions and independent DPI. Copy metadata
+during creation; never retain caller pointers or create a GPU surface for bounds.
+Acquired command sinks own independent COM references. Keep recorder writes on
+caller spans and require a new recorder/generation after target changes.
 
 Direct2D antialiased axis-aligned clips must capture the transformed AABB at
 push time and apply fractional coverage once when their group is popped, not

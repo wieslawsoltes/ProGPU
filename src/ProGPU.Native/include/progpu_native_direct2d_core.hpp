@@ -97,6 +97,9 @@ struct stroke_style_properties_f final {
 [[nodiscard]] bool valid_transform(
     const progpu_native_direct2d_matrix_3x2_f* transform) noexcept;
 
+[[nodiscard]] bool valid_target_extent(
+    const progpu_native_direct2d_target_extent* target) noexcept;
+
 /* Direct2D uses row-vector affine matrices. The returned matrix applies
  * first, followed by second (or identity when second is null). */
 [[nodiscard]] com::result compose_transform(

@@ -1,10 +1,48 @@
 using ProGPU.Direct2D;
+using ProGPU.Backend.Native;
+using System.Runtime.CompilerServices;
+using System.Runtime.InteropServices;
 using Xunit;
 
 namespace ProGPU.Tests;
 
 public sealed class Direct2DInteropContractTests
 {
+    [Fact]
+    public void RecorderTargetUsesGeneratedNativeLayoutAndIndependentDpi()
+    {
+        Assert.Equal(24, Unsafe.SizeOf<NativeDirect2DTargetExtent>());
+        Assert.Equal((nint)4, Marshal.OffsetOf<NativeDirect2DTargetExtent>(nameof(NativeDirect2DTargetExtent.PixelWidth)));
+        Assert.Equal((nint)12, Marshal.OffsetOf<NativeDirect2DTargetExtent>(nameof(NativeDirect2DTargetExtent.Reserved)));
+        Assert.Equal((nint)16, Marshal.OffsetOf<NativeDirect2DTargetExtent>(nameof(NativeDirect2DTargetExtent.DpiX)));
+        Assert.Equal((nint)20, Marshal.OffsetOf<NativeDirect2DTargetExtent>(nameof(NativeDirect2DTargetExtent.DpiY)));
+        new ProGpuDirect2DRecorderTarget(640U, 480U, 144f, 192f).Validate();
+        new ProGpuDirect2DRecorderTarget(1U, 1U).Validate();
+        Assert.Equal(61, (int)ProGpuDirect2DInterfaceKind.D2D1CommandSink1);
+        Assert.Throws<ArgumentOutOfRangeException>(() => ProGpuDirect2DSceneRecorder.Create(0U, 1U));
+        Assert.Throws<ArgumentOutOfRangeException>(() => ProGpuDirect2DSceneRecorder.Create(1U, 0U));
+        string generator = ReadRepoFile("eng", "progpu-generate-native-contract.sh");
+        string verifier = ReadRepoFile("eng", "progpu-verify-native-contract.sh");
+        Assert.Contains("NativeDirect2DContract.g.cs", generator, StringComparison.Ordinal);
+        Assert.Contains("NativeDirect2DContract.g.cs", verifier, StringComparison.Ordinal);
+        Assert.Contains("progpu_native_direct2d_scene_recorder_create_for_target",
+            ReadRepoFile("eng", "progpu-native-direct2d-exports.txt"), StringComparison.Ordinal);
+    }
+
+    [Theory]
+    [InlineData(0U, 1U, 96f, 96f)]
+    [InlineData(1U, 0U, 96f, 96f)]
+    [InlineData(1U, 1U, 0f, 96f)]
+    [InlineData(1U, 1U, 96f, -1f)]
+    [InlineData(1U, 1U, float.NaN, 96f)]
+    [InlineData(1U, 1U, 96f, float.PositiveInfinity)]
+    public void RecorderRejectsInvalidTargetBeforeLoadingNativeCode(uint width, uint height, float dpiX, float dpiY)
+    {
+        var target = new ProGpuDirect2DRecorderTarget(width, height, dpiX, dpiY);
+        Assert.Throws<ArgumentOutOfRangeException>(() => target.Validate());
+        Assert.Throws<ArgumentOutOfRangeException>(() => ProGpuDirect2DSceneRecorder.Create(1U, 1U, target));
+    }
+
     [Fact]
     public void PortableDirect2DWebGpuGateCoversD3D12MetalAndVulkan()
     {
@@ -583,7 +621,7 @@ public sealed class Direct2DInteropContractTests
             native,
             StringComparison.Ordinal);
         Assert.Contains(
-            "internal const uint AbiVersion = 54U;",
+            "internal const uint AbiVersion = 55U;",
             native,
             StringComparison.Ordinal);
         Assert.Contains(
@@ -986,7 +1024,7 @@ public sealed class Direct2DInteropContractTests
             exports,
             StringComparison.Ordinal);
         Assert.Equal(
-            129,
+            130,
             exports.Split(
                 '\n',
                 StringSplitOptions.RemoveEmptyEntries |
@@ -1046,7 +1084,7 @@ public sealed class Direct2DInteropContractTests
             "progpu_native_direct2d_tests.cpp");
 
         Assert.Contains(
-            "PROGPU_NATIVE_DIRECT2D_ABI_VERSION = 54U",
+            "PROGPU_NATIVE_DIRECT2D_ABI_VERSION = 55U",
             header,
             StringComparison.Ordinal);
         Assert.Contains(

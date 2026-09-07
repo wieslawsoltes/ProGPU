@@ -6101,6 +6101,30 @@ int main()
     // Match portable full-target brush domains across DPI, reflection/shear and
     // analytic geometry combinations. The independent oracle maps all target
     // corners back to brush-domain coordinates, never sampling CPU pixels.
+    {
+        progpu_native_direct2d_target_extent target{
+            static_cast<uint32_t>(sizeof(progpu_native_direct2d_target_extent)),
+            descriptor.width, descriptor.height, 0U, 96.0F, 96.0F};
+        for (uint32_t invalid = 0U; invalid < 7U; ++invalid) {
+            auto candidate = target;
+            switch (invalid) {
+            case 1U: --candidate.struct_size; break;
+            case 2U: candidate.pixel_width = 0U; break;
+            case 3U: candidate.pixel_height = 0U; break;
+            case 4U: candidate.reserved = 1U; break;
+            case 5U: candidate.dpi_x = std::numeric_limits<float>::quiet_NaN(); break;
+            case 6U: candidate.dpi_y = 0.0F; break;
+            default: break;
+            }
+            auto* recorder = reinterpret_cast<progpu_native_direct2d_scene_recorder*>(uintptr_t{1U});
+            native_hresult = S_OK;
+            require(progpu_native_direct2d_scene_recorder_create_for_target(7010U, 1U,
+                invalid == 0U ? nullptr : &candidate, nullptr, &recorder, &native_hresult) ==
+                    PROGPU_NATIVE_DIRECT2D_STATUS_INVALID_ARGUMENT &&
+                recorder == nullptr && native_hresult == E_INVALIDARG,
+                "invalid recorder target did not clear its outputs");
+        }
+    }
     float saved_full_dpi_x = 0.0F, saved_full_dpi_y = 0.0F;
     context->GetDpi(&saved_full_dpi_x, &saved_full_dpi_y);
     const std::array full_layer_transforms{
@@ -6179,6 +6203,46 @@ int main()
                                 local_y <= double{mask.bounds.y} + mask.bounds.height + tolerance,
                                 "full-target brush domain excludes a viewport corner");
                         }
+                    }
+                    {
+                        progpu_native_direct2d_target_extent target{
+                            static_cast<uint32_t>(sizeof(progpu_native_direct2d_target_extent)),
+                            descriptor.width, descriptor.height, 0U, dpi.width, dpi.height};
+                        progpu_native_direct2d_scene_recorder* recorder = nullptr;
+                        require(progpu_native_direct2d_scene_recorder_create_for_target(7010U, 1U,
+                            &target, nullptr, &recorder, &native_hresult) ==
+                                PROGPU_NATIVE_DIRECT2D_STATUS_SUCCESS && recorder != nullptr &&
+                            native_hresult == S_OK, "target-aware recorder creation failed");
+                        // The descriptor is borrowed only during creation. Poison
+                        // caller storage before any layer callback consumes it.
+                        target = {};
+                        void* raw_sink = nullptr;
+                        require(progpu_native_direct2d_scene_recorder_get_command_sink(recorder,
+                            &raw_sink, &native_hresult) == PROGPU_NATIVE_DIRECT2D_STATUS_SUCCESS &&
+                            raw_sink != nullptr, "target-aware recorder sink query failed");
+                        ComPtr<ID2D1CommandSink> sink;
+                        sink.Attach(static_cast<ID2D1CommandSink*>(raw_sink));
+                        require(list->Stream(sink.Get()) == S_OK,
+                            "target-aware recorder rejected full-target brush callbacks");
+                        progpu_native_direct2d_scene_stream_result recorded{};
+                        recorded.struct_size = static_cast<uint32_t>(sizeof(recorded));
+                        require(progpu_native_direct2d_scene_recorder_build_stream(recorder,
+                            nullptr, 0U, &recorded, &native_hresult) ==
+                                PROGPU_NATIVE_DIRECT2D_STATUS_INSUFFICIENT_BUFFER &&
+                            recorded.required_bytes == bytes.size() &&
+                            (recorded.flags & PROGPU_NATIVE_DIRECT2D_SCENE_STREAM_FLAG_HAS_TARGET_DEPENDENT_MASKS) != 0U,
+                            "target-aware recorder measurement differs from surface translation");
+                        std::vector<uint8_t> recorded_bytes(static_cast<size_t>(recorded.required_bytes));
+                        require(progpu_native_direct2d_scene_recorder_build_stream(recorder,
+                            recorded_bytes.data(), recorded_bytes.size(), &recorded, &native_hresult) ==
+                                PROGPU_NATIVE_DIRECT2D_STATUS_SUCCESS &&
+                            recorded.written_bytes == recorded_bytes.size() && recorded_bytes == bytes,
+                            "target-aware recorder stream differs from surface translation");
+                        progpu_native_direct2d_scene_recorder_destroy(recorder);
+                        // The acquired COM reference remains independently owned.
+                        ComPtr<IUnknown> retained;
+                        require(sink->QueryInterface(IID_PPV_ARGS(&retained)) == S_OK,
+                            "recorder destruction invalidated an acquired sink reference");
                     }
                     if (!geometric && brush == solid_brush.Get() &&
                         dpi.width == 96.0F && world._11 == 0.0F) {

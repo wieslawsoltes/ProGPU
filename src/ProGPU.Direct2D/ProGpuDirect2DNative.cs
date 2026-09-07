@@ -1,13 +1,14 @@
 using System.Buffers.Binary;
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
+using ProGPU.Backend.Native;
 
 namespace ProGPU.Direct2D;
 
 internal static unsafe partial class ProGpuDirect2DNative
 {
     internal const string LibraryName = "progpu_native_direct2d";
-    internal const uint AbiVersion = 54U;
+    internal const uint AbiVersion = 55U;
     internal const uint DxgiFormatB8G8R8A8Unorm = 87U;
     internal const uint D2D1AlphaModePremultiplied = 1U;
 
@@ -278,6 +279,11 @@ internal static unsafe partial class ProGpuDirect2DNative
         internal ProGpuDirect2DColor ClearColor;
         internal ulong SceneId;
         internal ulong Generation;
+
+        internal readonly ProGpuDirect2DSceneStreamResult ToManaged() => new(
+            Flags, RequiredBytes, WrittenBytes, CommandCount, ResourceCount,
+            BrushCount, TranslatedDrawCount, FailureCallbackIndex, FailureReason,
+            ClearColor, SceneId, Generation);
     }
 
     internal enum Win2DResourceKind
@@ -291,6 +297,33 @@ internal static unsafe partial class ProGpuDirect2DNative
         EntryPoint = "progpu_native_direct2d_get_abi_version")]
     [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
     internal static partial uint GetAbiVersion();
+
+    [LibraryImport(LibraryName, EntryPoint = "progpu_native_direct2d_scene_recorder_create")]
+    [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
+    internal static partial ProGpuDirect2DStatus SceneRecorderCreate(
+        ulong sceneId, ulong generation, NativeCommandStreamSummary* capacityHint,
+        nint* recorder, int* nativeHResult);
+
+    [LibraryImport(LibraryName, EntryPoint = "progpu_native_direct2d_scene_recorder_create_for_target")]
+    [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
+    internal static partial ProGpuDirect2DStatus SceneRecorderCreateForTarget(
+        ulong sceneId, ulong generation, NativeDirect2DTargetExtent* target,
+        NativeCommandStreamSummary* capacityHint, nint* recorder, int* nativeHResult);
+
+    [LibraryImport(LibraryName, EntryPoint = "progpu_native_direct2d_scene_recorder_destroy")]
+    [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
+    internal static partial void SceneRecorderDestroy(nint recorder);
+
+    [LibraryImport(LibraryName, EntryPoint = "progpu_native_direct2d_scene_recorder_get_command_sink")]
+    [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
+    internal static partial ProGpuDirect2DStatus SceneRecorderGetCommandSink(
+        nint recorder, nint* commandSink, int* nativeHResult);
+
+    [LibraryImport(LibraryName, EntryPoint = "progpu_native_direct2d_scene_recorder_build_stream")]
+    [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
+    internal static partial ProGpuDirect2DStatus SceneRecorderBuildStream(
+        nint recorder, byte* destination, ulong destinationCapacity,
+        NativeSceneStreamResult* result, int* nativeHResult);
 
     [LibraryImport(
         LibraryName,

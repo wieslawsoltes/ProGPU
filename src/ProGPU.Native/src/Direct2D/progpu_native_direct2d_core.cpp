@@ -53,6 +53,14 @@ bool valid_transform(
             std::isfinite(transform->m32));
 }
 
+bool valid_target_extent(const progpu_native_direct2d_target_extent* target) noexcept
+{
+    return target != nullptr && target->struct_size == sizeof(*target) &&
+        target->pixel_width != 0U && target->pixel_height != 0U && target->reserved == 0U &&
+        std::isfinite(target->dpi_x) && target->dpi_x > 0.0F &&
+        std::isfinite(target->dpi_y) && target->dpi_y > 0.0F;
+}
+
 com::result compose_transform(
     const progpu_native_direct2d_matrix_3x2_f& first,
     const progpu_native_direct2d_matrix_3x2_f* second,
