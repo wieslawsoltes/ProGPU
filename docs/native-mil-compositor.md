@@ -9378,6 +9378,28 @@ zero errors. Fixtures were compiled, not executed; this is not rendering or
 performance qualification. ProGPU `origin/main` was fetched and has no commits
 missing from this feature branch at this checkpoint.
 
+## Implementation-first checkpoint: live typed cache-source invalidation
+
+`ICachedPictureSource` and owned `CachedPictureSnapshot` connect typed mutable
+hosts to shared ProGPU cached pictures. Events invalidate without capture;
+preparation recaptures before sizing and embedded-version tracking. Failed or
+unstable captures retain old ownership but cannot silently render stale pixels.
+Disposal releases source subscriptions and optionally the provider. LibreWPF's
+live capture factory uses its existing typed dependency tracker and transfers
+recording ownership directly. Normal automatic brush-consumer routing and
+target/policy-based source lookup are still incomplete.
+
+See [live typed sources](cached-pictures.md#live-typed-sources) for API/lifetime,
+primary research, original-source provenance, cost and native applicability.
+CPU/GPU fixtures are authored for coalescing, failure retry, reentry, mutation
+during capture, subscription ownership and zero-scale recovery. Execution,
+platform/VM comparisons, performance, source verifiers and CI qualification remain
+deferred under implementation-first sequencing.
+
+Release compilation checkpoint (2026-09-07): ProGPU.Tests builds with zero
+warnings and errors; fixtures are not executed. Fetched `origin/main` has no
+commits missing from the feature branch at this checkpoint.
+
 ## Invariants
 
 - No reflection or private managed field scanning in the product bridge.

@@ -98,6 +98,61 @@ DPI and performance qualification is still required.
 
 ## Implementation-first status
 
+### Live typed sources
+
+`CachedPicture(ICachedPictureSource source, bool ownsSource = false)` captures
+one initial CPU recording and subscribes to typed `Invalidated` events. Further
+events mark the retained owner dirty without recording or submitting GPU work.
+Layer preparation calls `Refresh` before sizing; multiple consumers and repeated
+events share one successful recapture. An unchanged source takes an O(1) branch.
+`Refresh` is also available for explicit host preparation. Live sources reject
+manual `Update`; their recorder owns content, bounds and raster policy.
+
+`Capture` returns an owned `CachedPictureSnapshot`. ProGPU acquires independent
+picture leases then disposes the snapshot. Invalid descriptors, capture exceptions,
+reentrant capture and changes during capture fail without replacing prior source
+ownership, leave the source dirty, and propagate to rendering rather than
+qualifying stale pixels. Disposal unsubscribes exactly once; `ownsSource` also
+disposes the provider, including failed construction. Serialized rendering-thread
+access is mandatory. Hosts without change events must explicitly invalidate.
+
+LibreWPF `WpfBitmapCacheBrushCapture.CreateLiveCachedPicture` connects its existing
+typed dependency tracker and source recorder to this API. Source/cache dependency
+subscriptions are refreshed before recording so an event during capture cannot
+be hidden by the tracker's dirty-event coalescing. The host wrapper transfers its
+new picture directly, without an extra ownership clone. Callers retain one live
+source across consumers; automatic brush-consumer lookup/routing remains open.
+
+This is original ProGPU `CachedPicture`/`Visual` invalidation and compositor layer
+preparation, with original LibreWPF tracker/capture adaptation. Construction and
+changed recapture cost O(C + V + E + L), including existing recording/graph work
+and L retained resource leases; unchanged preparation adds O(1) work with no new
+allocation. The event handler performs only dirty/version updates. There is no
+numeric pixel loop requiring SIMD, CPU readback, per-primitive native crossing,
+shader, additional queue submission or eager GPU initialization.
+
+Public-contract research refreshed for this extension:
+
+- [SkDrawable](https://api.skia.org/classSkDrawable.html): adopt explicit change
+  notification and independent snapshot ownership, not its implementation.
+- [Direct2D resource reuse](https://learn.microsoft.com/en-us/windows/win32/direct2d/improving-direct2d-performance)
+  and [Win2D command lists](https://microsoft.github.io/Win2D/WinUI3/html/T_Microsoft_Graphics_Canvas_CanvasCommandList.htm):
+  preserve reusable recorded sources and keep submission outside mutation events.
+- [WebRender overview](https://firefox-source-docs.mozilla.org/gfx/RenderingOverview.html)
+  and [Vello scenes](https://docs.rs/vello/latest/vello/struct.Scene.html): keep
+  host recording separate from renderer preparation; this change does not add
+  worker scheduling or alter existing visibility/device-domain cache ownership.
+- [Parley layout](https://docs.rs/parley/latest/parley/layout/struct.Layout.html)
+  and [HarfBuzz plans](https://harfbuzz.github.io/shaping-plans-and-caching.html):
+  retain upstream layout/shaping reuse. Font fallback, variable fonts, DPI,
+  subpixel/hinting, atlas eviction and demand-driven upload algorithms are unchanged.
+
+Native applicability: C++ MIL already receives host-authored immutable updates
+and invalidates shared source pages by resource generation. This managed callback
+adapter does not cross the C ABI or change native wire semantics. Native/managed
+mutation, resize, failure and disposal differentials remain required, as do
+startup/scroll/residency and allocation measurements; no speed claim is made.
+
 CPU fixtures cover source identity, coordinate normalization, independent snapshot
 ownership, no-op updates, invalid input and disposal. Authored GPU fixtures cover
 two consumers, warm reuse, replacement pixels, zero/changed scale and fractional

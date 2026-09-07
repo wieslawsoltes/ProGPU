@@ -13,6 +13,122 @@ public sealed class CachedPictureTests
 {
     private static readonly Rect Bounds = new(10, 20, 20, 10);
 
+    [Fact]
+    public void LiveSourceCoalescesChangesAndReleasesOwnedSubscriptions()
+    {
+        using var picture = CreatePicture(Vector4.One);
+        var source = new PictureSource(picture);
+        using var cached = new CachedPicture(source, ownsSource: true);
+        Assert.Equal(1, source.CaptureCount);
+        Assert.Equal(1, source.SubscriptionCount);
+        Assert.True(source.LastCapture!.IsDisposed);
+        var owner = cached.GetVisual();
+        long version = owner.ChangeVersion;
+        source.Change();
+        source.Change();
+        Assert.True(cached.IsSourceDirty);
+        Assert.NotEqual(version, owner.ChangeVersion);
+        Assert.Equal(1, source.CaptureCount);
+        cached.Refresh();
+        cached.Refresh();
+        Assert.Equal(2, source.CaptureCount);
+        Assert.False(cached.IsSourceDirty);
+        Assert.Throws<InvalidOperationException>(() => cached.Update(picture, Bounds));
+        cached.Dispose();
+        Assert.Equal(0, source.SubscriptionCount);
+        Assert.Equal(1, source.DisposeCount);
+        owner.PrepareLayerCache(); // Recorded disposed references remain empty.
+    }
+
+    [Fact]
+    public void FailedLiveCapturePreservesOwnershipAndRetriesWithoutAnotherEvent()
+    {
+        using var picture = CreatePicture(Vector4.One);
+        using var source = new PictureSource(picture);
+        using var cached = new CachedPicture(source);
+        source.CaptureBounds = new Rect(0, 0, -1, 2);
+        source.Change();
+        Assert.Throws<ArgumentOutOfRangeException>(() => cached.Refresh());
+        Assert.Equal(Bounds, cached.Bounds);
+        Assert.True(cached.IsSourceDirty);
+        Assert.True(source.LastCapture!.IsDisposed);
+        source.CaptureBounds = new Rect(0, 0, 5, 6);
+        cached.Refresh();
+        Assert.Equal(source.CaptureBounds, cached.Bounds);
+        Assert.False(cached.IsSourceDirty);
+        source.DuringCapture = source.Change;
+        source.Change();
+        Assert.Throws<InvalidOperationException>(() => cached.Refresh());
+        Assert.True(cached.IsSourceDirty);
+        Assert.True(source.LastCapture!.IsDisposed);
+        source.DuringCapture = () => cached.Refresh();
+        Assert.Throws<InvalidOperationException>(() => cached.Refresh());
+        source.DuringCapture = null;
+        cached.Refresh();
+        Assert.False(cached.IsSourceDirty);
+    }
+
+    [Fact]
+    public void FailedLiveConstructionUnsubscribesAndHonorsSourceOwnership()
+    {
+        using var picture = CreatePicture(Vector4.One);
+        var source = new PictureSource(picture) { CaptureBounds = new Rect(0, 0, -1, 1) };
+        Assert.Throws<ArgumentOutOfRangeException>(() => new CachedPicture(source, ownsSource: true));
+        Assert.Equal(0, source.SubscriptionCount);
+        Assert.Equal(1, source.DisposeCount);
+        Assert.True(source.LastCapture!.IsDisposed);
+    }
+
+    [Fact]
+    public void RenderingRefreshesLiveSourcesBeforeSizingIncludingZeroScaleRecovery()
+    {
+        using var window = new HeadlessWindow(64, 64);
+        using var picture = CreatePicture(new Vector4(1, 0, 0, 1));
+        using var source = new PictureSource(picture) { Scale = 0 };
+        using var cached = new CachedPicture(source);
+        window.Content = new CachedPictureHost(cached);
+        try
+        {
+            window.Render();
+            Assert.Null(cached.GetVisual().LayerTexture);
+            source.Scale = 2;
+            source.Change();
+            window.Render();
+            Assert.Equal(2, source.CaptureCount);
+            Assert.Equal(40u, cached.GetVisual().LayerTexture!.Width);
+            AssertChannel(window.ReadPixels(), 15, 25, 0);
+            window.Render();
+            Assert.Equal(2, source.CaptureCount);
+        }
+        finally { window.Content = null; }
+    }
+
+    private sealed class PictureSource(GpuPicture picture) : ICachedPictureSource
+    {
+        private EventHandler? _invalidated;
+        public int SubscriptionCount { get; private set; }
+        public int CaptureCount { get; private set; }
+        public int DisposeCount { get; private set; }
+        public GpuPicture? LastCapture { get; private set; }
+        public Rect CaptureBounds { get; set; } = Bounds;
+        public float Scale { get; set; } = 1;
+        public Action? DuringCapture { get; set; }
+        public event EventHandler? Invalidated
+        {
+            add { _invalidated += value; SubscriptionCount++; }
+            remove { _invalidated -= value; SubscriptionCount--; }
+        }
+        public void Change() => _invalidated?.Invoke(this, EventArgs.Empty);
+        public CachedPictureSnapshot Capture()
+        {
+            CaptureCount++;
+            DuringCapture?.Invoke();
+            LastCapture = picture.Clone();
+            return new(LastCapture, CaptureBounds, Scale);
+        }
+        public void Dispose() => DisposeCount++;
+    }
+
     [Theory]
     [InlineData(TextRenderingMode.ClearType, true, TextRenderingMode.Grayscale)]
     [InlineData(TextRenderingMode.ClearType, false, TextRenderingMode.ClearType)]
