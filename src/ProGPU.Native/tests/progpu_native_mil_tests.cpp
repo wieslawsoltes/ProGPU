@@ -9064,10 +9064,10 @@ bool retained_line_path_stroke_preserves_closure_gaps_and_pen_state() {
         PROGPU_REQUIRE(stroke.line_join == 1U);
         PROGPU_REQUIRE(stroke.dash_interval_count == 2U);
         PROGPU_REQUIRE(stroke.dash_offset == 0.75);
-        PROGPU_REQUIRE(stroke.transform.m11 == 1.5F);
-        PROGPU_REQUIRE(stroke.transform.m22 == 1.5F);
-        PROGPU_REQUIRE(stroke.transform.m31 == 2.0F);
-        PROGPU_REQUIRE(stroke.transform.m32 == 3.0F);
+        PROGPU_REQUIRE(stroke.transform.m11 == 1.0F);
+        PROGPU_REQUIRE(stroke.transform.m22 == 1.0F);
+        PROGPU_REQUIRE(stroke.transform.m31 == 0.0F);
+        PROGPU_REQUIRE(stroke.transform.m32 == 0.0F);
         if ((stroke.flags & PROGPU_NATIVE_POLYLINE_FLAG_CLOSED) != 0U) {
             PROGPU_REQUIRE(stroke.point_count == 4U);
             PROGPU_REQUIRE(stroke.start_cap == 1U);
@@ -9139,12 +9139,12 @@ bool retained_line_path_stroke_preserves_closure_gaps_and_pen_state() {
         const auto fourth = read_value<progpu_native_point>(
             stream,
             record.auxiliary_offset + 3U * sizeof(progpu_native_point));
-        if (first.x != 28.0F || first.y != 0.0F) {
+        if (first.x != 44.0F || first.y != 3.0F) {
             continue;
         }
-        PROGPU_REQUIRE(second.x == 32.0F && second.y == 0.0F);
-        PROGPU_REQUIRE(third.x == 20.0F && third.y == 0.0F);
-        PROGPU_REQUIRE(fourth.x == 24.0F && fourth.y == 0.0F);
+        PROGPU_REQUIRE(second.x == 50.0F && second.y == 3.0F);
+        PROGPU_REQUIRE(third.x == 32.0F && third.y == 3.0F);
+        PROGPU_REQUIRE(fourth.x == 38.0F && fourth.y == 3.0F);
         PROGPU_REQUIRE(stroke.start_cap == 3U && stroke.end_cap == 3U);
         PROGPU_REQUIRE(stroke.dash_interval_count == 2U);
         PROGPU_REQUIRE(stroke.dash_offset == 0.75);
@@ -9219,10 +9219,12 @@ bool retained_line_path_stroke_preserves_closure_gaps_and_pen_state() {
             continue;
         }
         PROGPU_REQUIRE(primitive.stroke_thickness == 2.0F);
-        PROGPU_REQUIRE(primitive.transform.m11 == 1.5F);
-        PROGPU_REQUIRE(primitive.transform.m22 == 1.5F);
-        PROGPU_REQUIRE(primitive.transform.m31 == 2.0F);
-        PROGPU_REQUIRE(primitive.transform.m32 == 3.0F);
+        PROGPU_REQUIRE(primitive.transform.m11 == 1.0F);
+        PROGPU_REQUIRE(primitive.transform.m22 == 1.0F);
+        PROGPU_REQUIRE(primitive.transform.m31 == 0.0F);
+        PROGPU_REQUIRE(primitive.transform.m32 == 0.0F);
+        PROGPU_REQUIRE(primitive.p0.x == 3.5F && primitive.p0.y == 6.0F);
+        PROGPU_REQUIRE(primitive.p1.x == 15.5F && primitive.p1.y == 15.0F);
         PROGPU_REQUIRE(primitive.p3.y > 0.0F);
         found_arc_stroke = true;
     }
@@ -17412,6 +17414,129 @@ bool retained_gradient_brushes_compile_with_wpf_mapping_and_animation() {
     return true;
 }
 
+bool path_geometry_transform_precedes_pen_widening() {
+    using namespace progpu::native::tests;
+    struct path_case { std::vector<std::byte> figures; std::vector<std::size_t> point_offsets; };
+    const std::array quadratic{std::array{14.0, 22.0}, std::array{25.0, 6.0}};
+    const std::array cubic{std::array{14.0, 22.0}, std::array{25.0, -6.0}, std::array{32.0, 18.0}};
+    std::array cases{
+        path_case{make_single_bezier_path_figures(3U, quadratic), {64U, 104U, 120U}},
+        path_case{make_single_bezier_path_figures(2U, cubic), {64U, 104U, 120U, 136U}},
+        path_case{make_curve_path_figures(), {64U, 104U, 136U, 152U, 184U, 200U, 216U}},
+        path_case{make_curve_path_figures(), {64U, 104U, 136U, 152U, 184U, 200U, 216U}}};
+    // The fourth case has an unstroked leading segment and a smooth join.
+    const std::uint32_t gap = 0x04U, smooth_curve = 0x28U;
+    std::memcpy(cases[3U].figures.data() + 92U, &gap, sizeof(gap));
+    std::memcpy(cases[3U].figures.data() + 124U, &smooth_curve, sizeof(smooth_curve));
+    const std::array<std::array<double, 6U>, 5U> matrices{{
+        {2.0, 0.0, 0.0, 3.0, 4.0, 8.0},
+        {-1.0, 0.5, 0.25, 1.0, 40.0, 8.0},
+        {1.0, 0.0, 0.0, 0.0, 0.0, 24.0},
+        {0.0, 0.0, 0.0, 0.0, 24.0, 32.0},
+        {0.0, 1.0, -1.0, 0.0, 40.0, 0.0}}};
+    const std::array sources{mil_brush_fixture_source::bitmap,
+        mil_brush_fixture_source::drawing, mil_brush_fixture_source::drawing_image,
+        mil_brush_fixture_source::visual};
+    for (auto& test : cases) {
+        auto flags = read_value<std::uint32_t>(test.figures, 52U) & ~0x08U;
+        std::memcpy(test.figures.data() + 52U, &flags, sizeof(flags));
+        for (const auto& matrix : matrices) {
+            auto mapped = test.figures;
+            for (const auto offset : test.point_offsets) {
+                const double x = read_value<double>(mapped, offset);
+                const double y = read_value<double>(mapped, offset + 8U);
+                const std::array<double, 2U> point{
+                    x * matrix[0U] + y * matrix[2U] + matrix[4U],
+                    x * matrix[1U] + y * matrix[3U] + matrix[5U]};
+                std::memcpy(mapped.data() + offset, point.data(), sizeof(point));
+            }
+            for (std::uint32_t brush = 0U; brush < 6U; ++brush) {
+                for (const bool dashed : {false, true}) {
+                    mil_image_brush_fixture_options options{};
+                    options.tile_mode = 3U;
+                    options.source = sources[brush < 2U ? 0U : brush - 2U];
+                    options.shape = mil_brush_fixture_shape::path;
+                    options.paint_transform = true;
+                    options.path_figures = test.figures;
+                    options.pen = true;
+                    options.dashed = dashed;
+                    options.cap = PROGPU_NATIVE_STROKE_CAP_ROUND;
+                    options.end_cap = PROGPU_NATIVE_STROKE_CAP_TRIANGLE;
+                    options.solid_pen = brush == 0U;
+                    options.gradient_pen = brush == 1U;
+                    options.path_matrix = matrix;
+                    options.paint_matrix = {0.75, 0.25, -0.5, 1.0, 12.0, 4.0};
+                    std::vector<std::byte> transformed;
+                    PROGPU_REQUIRE(build_mil_image_brush_fixture(transformed, options, 8104U));
+                    options.path_matrix = {1.0, 0.0, 0.0, 1.0, 0.0, 0.0};
+                    options.path_figures = mapped;
+                    std::vector<std::byte> reference;
+                    PROGPU_REQUIRE(build_mil_image_brush_fixture(reference, options, 8104U));
+                    PROGPU_REQUIRE(transformed == reference);
+                }
+            }
+        }
+    }
+    // Arcs retain analytic form for nonsingular matrices. Rank-one and point
+    // collapse exercise the original bounded cubic lowering before mapping.
+    auto arc = make_arc_path_figures();
+    const std::uint32_t open_hollow = 0x02U;
+    std::memcpy(arc.data() + 52U, &open_hollow, sizeof(open_hollow));
+    for (const auto& matrix : matrices) {
+        for (const bool tiled : {false, true}) {
+            for (const bool dashed : {false, true}) {
+                mil_image_brush_fixture_options options{};
+                options.tile_mode = 3U;
+                options.shape = mil_brush_fixture_shape::path;
+                options.path_figures = arc;
+                options.pen = true;
+                options.dashed = dashed;
+                options.solid_pen = !tiled;
+                options.path_matrix = matrix;
+                std::vector<std::byte> scene;
+                PROGPU_REQUIRE(build_mil_image_brush_fixture(scene, options, 8105U));
+                const auto header = read_value<progpu_native_scene_header>(scene, 0U);
+                PROGPU_REQUIRE(header.command_count != 0U);
+                if (!tiled && !dashed) {
+                    const bool point = matrix[0U] == 0.0 && matrix[1U] == 0.0 &&
+                        matrix[2U] == 0.0 && matrix[3U] == 0.0;
+                    const bool collapsed = matrix[0U] * matrix[3U] - matrix[1U] * matrix[2U] == 0.0;
+                    const auto expected = point ? PROGPU_NATIVE_GEOMETRY_PATH_CAP :
+                        collapsed ? PROGPU_NATIVE_GEOMETRY_CUBIC_BEZIER : PROGPU_NATIVE_GEOMETRY_ARC;
+                    bool found = false;
+                    for (std::uint32_t index = 0U; index < header.resource_count; ++index) {
+                        const auto resource = read_value<progpu_native_scene_resource>(scene,
+                            header.resource_offset + index * sizeof(progpu_native_scene_resource));
+                        if (resource.kind != PROGPU_NATIVE_SCENE_RESOURCE_GEOMETRY_BATCH) continue;
+                        for (std::uint32_t offset = 0U; offset < resource.payload_size;
+                             offset += sizeof(progpu_native_geometry_primitive)) {
+                            const auto primitive = read_value<progpu_native_geometry_primitive>(scene,
+                                resource.payload_offset + offset);
+                            found |= primitive.kind == expected;
+                            PROGPU_REQUIRE(primitive.transform.m11 == 1.0F && primitive.transform.m22 == 1.0F);
+                            PROGPU_REQUIRE(primitive.transform.m12 == 0.0F && primitive.transform.m21 == 0.0F);
+                            PROGPU_REQUIRE(primitive.transform.m31 == 0.0F && primitive.transform.m32 == 0.0F);
+                        }
+                    }
+                    PROGPU_REQUIRE(found);
+                }
+                options.paint_transform = true;
+                options.paint_matrix = {1.0, 0.0, 0.0, 0.0, 0.0, 24.0};
+                PROGPU_REQUIRE(build_mil_image_brush_fixture(scene, options, 8105U));
+                const auto empty_header = read_value<progpu_native_scene_header>(scene, 0U);
+                for (std::uint32_t index = 0U; index < empty_header.command_count; ++index) {
+                    const auto draw = read_value<progpu_native_scene_command>(scene,
+                        empty_header.command_offset + index * sizeof(progpu_native_scene_command));
+                    PROGPU_REQUIRE(draw.kind != PROGPU_NATIVE_SCENE_COMMAND_DRAW_GEOMETRY);
+                    PROGPU_REQUIRE(draw.kind != PROGPU_NATIVE_SCENE_COMMAND_DRAW_STROKE_BATCH);
+                    PROGPU_REQUIRE(draw.kind != PROGPU_NATIVE_SCENE_COMMAND_DRAW_PATH);
+                }
+            }
+        }
+    }
+    return true;
+}
+
 bool line_geometry_transform_precedes_pen_widening() {
     using namespace progpu::native::tests;
     // Independently mapped DrawLine is the stream oracle: brush coordinates,
@@ -20444,6 +20569,7 @@ int main() {
         retained_gradient_brushes_compile_with_wpf_mapping_and_animation());
     PROGPU_REQUIRE(degenerate_gradient_pen_caps_use_wpf_stroke_bounds());
     PROGPU_REQUIRE(line_geometry_transform_precedes_pen_widening());
+    PROGPU_REQUIRE(path_geometry_transform_precedes_pen_widening());
     PROGPU_REQUIRE(
         retained_gradient_stops_match_wpf_coincidence_and_pad_edges());
     PROGPU_REQUIRE(retained_viewport3d_uses_pointer_free_mesh_sideband());

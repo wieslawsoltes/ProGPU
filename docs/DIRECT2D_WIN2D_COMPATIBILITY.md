@@ -4575,3 +4575,21 @@ The native library and MIL/Direct2D compatibility/WebGPU test targets compile;
 execution, Windows/VM/images, SIMD/performance and CI qualification are deferred.
 General path/group/other fixed-shape transform ordering and full Direct2D/Win2D
 qualification remain open.
+
+### Implementation-first checkpoint: MIL path-spine transform ordering
+
+Direct native MIL PathGeometry now maps stroke contours before widening, while
+keeping fill transforms separate. The original affine arc converter preserves
+analytic arcs for non-singular maps; collapsed arcs use original ProGPU bounded
+cubic lowering with smooth internal joins. Coordinate pairs reuse NEON/SSE2
+double mapping. Spatial direct-path pen bounds reuse native Direct2D widening,
+and command bounds include curve extrema. Public C/COM/module and managed
+provider contracts remain unchanged; no shader or pixel fallback is introduced.
+
+The native MIL specification records provenance, O(S + C) mapped storage and
+the extra spatial-bounds widening costs. Retained preparation caching is still
+required before making performance claims. Authored scalar-pretransformed path
+differentials and arc/world-collapse fixtures cover this implementation, but
+execution and platform/VM/image/performance/verifier/CI gates are deferred.
+Nested groups, other fixed shapes, mixed partially collapsed segments and full
+Direct2D/Win2D qualification remain open.

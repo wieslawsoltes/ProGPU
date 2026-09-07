@@ -68,6 +68,7 @@ struct mil_image_brush_fixture_options {
     bool transform_line_geometry{};
     std::array<double, 6U> line_geometry_matrix{1.0, 0.0, 0.0, 1.0, 0.0, 0.0};
     std::array<double, 6U> paint_matrix{0.8, 0.2, -0.1, 0.8, 8.0, 0.0};
+    std::array<double, 6U> path_matrix{0.9, 0.0, 0.0, 0.8, 3.0, 5.0};
 };
 
 inline bool build_mil_image_brush_fixture(std::vector<std::byte>& scene,
@@ -209,7 +210,7 @@ inline bool build_mil_image_brush_fixture(std::vector<std::byte>& scene,
         options.shape == mil_brush_fixture_shape::combined) {
         packet(batch, command::channel_create_resource, 16U, 66U);
         packet(batch, command::matrix_transform, 16U,
-            0.9, 0.0, 0.0, 0.8, 3.0, 5.0, 0U);
+            options.path_matrix, 0U);
         if (options.shape == mil_brush_fixture_shape::path) {
             packet(batch, command::channel_create_resource, 15U, 73U);
             append(batch, static_cast<std::uint32_t>(24U + options.path_figures.size()));
