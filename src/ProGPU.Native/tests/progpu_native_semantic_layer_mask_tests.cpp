@@ -369,6 +369,30 @@ bool semantic_layer_coverage_mask_is_exact_and_bounded() {
         parsed.picture.stream_size != sizeof(nested_header)) {
         return false;
     }
+    picture_mask.flags =
+        PROGPU_NATIVE_SCENE_PICTURE_MASK_SOURCE_EXTENT;
+    picture_mask.reserved0 = 20U;
+    picture_mask.reserved1 = 12U;
+    std::memcpy(
+        picture_bytes.data(), &picture_mask, sizeof(picture_mask));
+    if (!semantic::validate_layer_mask_resource(
+            picture_bytes.data(), resource, error_offset, &parsed) ||
+        parsed.picture.reserved0 != 20U ||
+        parsed.picture.reserved1 != 12U) {
+        return false;
+    }
+    picture_mask.reserved1 = 0U;
+    std::memcpy(
+        picture_bytes.data(), &picture_mask, sizeof(picture_mask));
+    if (semantic::validate_layer_mask_resource(
+            picture_bytes.data(), resource, error_offset)) {
+        return false;
+    }
+    picture_mask.flags = 0U;
+    picture_mask.reserved0 = 0U;
+    picture_mask.reserved1 = 0U;
+    std::memcpy(
+        picture_bytes.data(), &picture_mask, sizeof(picture_mask));
 
     constexpr std::size_t outer_resource_offset =
         sizeof(progpu_native_scene_header);

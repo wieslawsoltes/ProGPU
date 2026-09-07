@@ -212,9 +212,207 @@ bool semantic_scene_builder::add_rgba8_image(
     std::uint32_t row_bytes,
     std::span<const std::byte> pixels,
     std::uint32_t& resource_index) noexcept {
+    return add_upload_image(
+        width, height, row_bytes, pixels, false, resource_index);
+}
+
+bool semantic_scene_builder::add_bgra8_image(
+    std::uint32_t width,
+    std::uint32_t height,
+    std::uint32_t row_bytes,
+    std::span<const std::byte> pixels,
+    std::uint32_t& resource_index) noexcept {
+    return add_upload_image(
+        width, height, row_bytes, pixels, true, resource_index);
+}
+
+bool semantic_scene_builder::add_r8_image(
+    std::uint32_t width, std::uint32_t height, std::uint32_t row_bytes,
+    std::span<const std::byte> pixels, std::uint32_t& resource_index) noexcept {
+    return add_upload_image(width, height, row_bytes, pixels, false, resource_index, true);
+}
+
+bool semantic_scene_builder::try_get_full_image_copy(
+    progpu_native_image_rect bounds, std::uint32_t pixel_width,
+    std::uint32_t pixel_height, scene_full_image_copy& copy) const noexcept {
+    copy = {};
+    if (implementation_->stack_depth != 0U || implementation_->commands.size() != 3U ||
+        !finite_rect(bounds) || bounds.width <= 0.0F || bounds.height <= 0.0F ||
+        pixel_width == 0U || pixel_height == 0U) return false;
+    const auto& push = implementation_->commands[0];
+    const auto& draw = implementation_->commands[1];
+    const auto& pop = implementation_->commands[2];
+    if (push.record.kind != PROGPU_NATIVE_SCENE_COMMAND_PUSH_LAYER ||
+        draw.record.kind != PROGPU_NATIVE_SCENE_COMMAND_DRAW_IMAGE ||
+        pop.record.kind != PROGPU_NATIVE_SCENE_COMMAND_POP_LAYER ||
+        push.record.state_index != PROGPU_NATIVE_SCENE_NO_INDEX ||
+        draw.record.state_index != PROGPU_NATIVE_SCENE_NO_INDEX ||
+        pop.record.state_index != PROGPU_NATIVE_SCENE_NO_INDEX ||
+        push.payload.size() != sizeof(progpu_native_scene_layer) || !pop.payload.empty() ||
+        draw.payload.size() < sizeof(progpu_native_scene_image_draw) ||
+        draw.record.resource_index >= implementation_->resources.size()) return false;
+    const auto same_rect = [](progpu_native_image_rect a, progpu_native_image_rect b) noexcept {
+        return a.x == b.x && a.y == b.y && a.width == b.width && a.height == b.height;
+    };
+    progpu_native_scene_layer layer{};
+    std::memcpy(&layer, push.payload.data(), sizeof(layer));
+    if (layer.flags != PROGPU_NATIVE_SCENE_LAYER_BOUNDS || layer.blend_mode != PROGPU_NATIVE_BLEND_SRC ||
+        layer.opacity != 1.0F || !same_rect(layer.bounds, bounds) ||
+        layer.mask_resource_index != PROGPU_NATIVE_SCENE_NO_INDEX ||
+        layer.effect_resource_index != PROGPU_NATIVE_SCENE_NO_INDEX ||
+        layer.content_revision != 0U || layer.composite_revision != 0U || layer.reserved0 != 0U || layer.reserved1 != 0U)
+        return false;
+    scene_full_image_copy candidate{};
+    std::memcpy(&candidate.image, draw.payload.data(), sizeof(candidate.image));
+    const auto& image = candidate.image;
+    const auto& resource = implementation_->resources[draw.record.resource_index];
+    const bool matrix = (image.flags & PROGPU_NATIVE_SCENE_IMAGE_COLOR_MATRIX) != 0U;
+    if ((!resource.rgba8_image && !resource.bgra8_image && !resource.r8_image && !resource.picture_image) ||
+        image.image_width != resource.image_width || image.image_height != resource.image_height ||
+        image.row_bytes != resource.image_row_bytes || image.opacity != 1.0F ||
+        image.sampling != PROGPU_NATIVE_IMAGE_SAMPLING_NEAREST || image.max_anisotropy != 1U ||
+        (image.flags & ~(PROGPU_NATIVE_SCENE_IMAGE_SOURCE_PREMULTIPLIED |
+            PROGPU_NATIVE_SCENE_IMAGE_SOURCE_ALPHA_IGNORE | PROGPU_NATIVE_SCENE_IMAGE_COLOR_MATRIX)) != 0U ||
+        image.transform.m11 != 1.0F || image.transform.m12 != 0.0F ||
+        image.transform.m21 != 0.0F || image.transform.m22 != 1.0F ||
+        image.transform.m31 != 0.0F || image.transform.m32 != 0.0F ||
+        !same_rect(image.destination_rect, bounds) ||
+        image.source_rect.width != static_cast<float>(pixel_width) ||
+        image.source_rect.height != static_cast<float>(pixel_height) ||
+        !std::isfinite(image.source_rect.x) || !std::isfinite(image.source_rect.y) ||
+        image.source_rect.x < 0.0F || image.source_rect.y < 0.0F ||
+        std::floor(image.source_rect.x) != image.source_rect.x || std::floor(image.source_rect.y) != image.source_rect.y ||
+        image.source_rect.x + image.source_rect.width > static_cast<float>(image.image_width) ||
+        image.source_rect.y + image.source_rect.height > static_cast<float>(image.image_height) ||
+        !same_rect({draw.record.bounds_x, draw.record.bounds_y, draw.record.bounds_width, draw.record.bounds_height}, bounds) ||
+        draw.payload.size() != sizeof(image) + (matrix ? sizeof(candidate.color_matrix) : 0U)) return false;
+    if (matrix) std::memcpy(&candidate.color_matrix, draw.payload.data() + sizeof(image), sizeof(candidate.color_matrix));
+    if (resource.picture_image) {
+        if (resource.payload.size() != sizeof(candidate.picture)) return false;
+        std::memcpy(&candidate.picture, resource.payload.data(), sizeof(candidate.picture));
+    }
+    candidate.resource_index = draw.record.resource_index;
+    candidate.resource_flags = resource.record.flags;
+    copy = candidate;
+    return true;
+}
+
+bool semantic_scene_builder::copy_image_resource_from(
+    const semantic_scene_builder& source, std::uint32_t source_resource_index,
+    std::uint32_t& resource_index) noexcept {
     resource_index = PROGPU_NATIVE_SCENE_NO_INDEX;
+    if (&source == this || !source.implementation_ || source_resource_index >= source.implementation_->resources.size() ||
+        implementation_->resources.size() >= PROGPU_NATIVE_SCENE_MAX_RESOURCES)
+        return implementation_->fail(scene_build_error::invalid_argument);
+    const auto& source_resource = source.implementation_->resources[source_resource_index];
+    if (!source_resource.rgba8_image && !source_resource.bgra8_image && !source_resource.r8_image && !source_resource.picture_image)
+        return implementation_->fail(scene_build_error::invalid_argument);
+    try {
+        auto resource = source_resource;
+        resource.record.resource_id = implementation_->resources.size() + 1U;
+        resource.record.generation = implementation_->generation;
+        implementation_->resources.reserve(implementation_->resources.size() + 1U);
+        implementation_->resources.push_back(std::move(resource));
+        resource_index = static_cast<std::uint32_t>(implementation_->resources.size() - 1U);
+        implementation_->error = scene_build_error::none;
+        return true;
+    } catch (const std::bad_alloc&) {
+        return implementation_->fail(scene_build_error::out_of_memory);
+    } catch (...) {
+        return implementation_->fail(scene_build_error::invalid_state);
+    }
+}
+
+bool semantic_scene_builder::copy_image_from_memory(
+    const progpu_native_scene_image_draw& image,
+    std::uint32_t storage_flags,
+    std::span<const std::byte> pixels,
+    const progpu_native_scene_image_color_matrix* color_matrix) noexcept {
+    if (storage_flags != 0U && storage_flags != PROGPU_NATIVE_SCENE_IMAGE_BGRA8 &&
+        storage_flags != PROGPU_NATIVE_SCENE_IMAGE_R8)
+        return implementation_->fail(scene_build_error::invalid_argument);
+    const auto resource_count = implementation_->resources.size();
+    std::uint32_t resource_index = PROGPU_NATIVE_SCENE_NO_INDEX;
+    if (add_upload_image(image.image_width, image.image_height, image.row_bytes,
+            pixels, storage_flags == PROGPU_NATIVE_SCENE_IMAGE_BGRA8, resource_index,
+            storage_flags == PROGPU_NATIVE_SCENE_IMAGE_R8) &&
+        append_image_copy_commands(resource_index, image, color_matrix)) return true;
+    implementation_->resources.resize(resource_count);
+    return false;
+}
+
+bool semantic_scene_builder::copy_image_from_builder(
+    semantic_scene_builder source, std::uint32_t source_resource_index,
+    const progpu_native_scene_image_draw& image,
+    const progpu_native_scene_image_color_matrix* color_matrix) noexcept {
+    if (!source.implementation_ || source_resource_index >= source.implementation_->resources.size())
+        return implementation_->fail(scene_build_error::invalid_argument);
+    auto& resource = source.implementation_->resources[source_resource_index];
+    if ((!resource.rgba8_image && !resource.bgra8_image && !resource.r8_image && !resource.picture_image) ||
+        implementation_->resources.size() >= PROGPU_NATIVE_SCENE_MAX_RESOURCES)
+        return implementation_->fail(scene_build_error::invalid_argument);
+    try {
+        implementation_->resources.reserve(implementation_->resources.size() + 1U);
+        resource.record.resource_id = implementation_->resources.size() + 1U;
+        resource.record.generation = implementation_->generation;
+        const auto resource_index = static_cast<std::uint32_t>(implementation_->resources.size());
+        implementation_->resources.push_back(std::move(resource));
+        if (append_image_copy_commands(resource_index, image, color_matrix)) return true;
+        implementation_->resources.pop_back();
+        return false;
+    } catch (const std::bad_alloc&) {
+        return implementation_->fail(scene_build_error::out_of_memory);
+    } catch (...) {
+        return implementation_->fail(scene_build_error::invalid_state);
+    }
+}
+
+bool semantic_scene_builder::append_image_copy_commands(
+    std::uint32_t resource_index, const progpu_native_scene_image_draw& image,
+    const progpu_native_scene_image_color_matrix* color_matrix) noexcept {
+    if (implementation_->stack_depth != 0U ||
+        image.transform.m11 != 1.0F || image.transform.m12 != 0.0F ||
+        image.transform.m21 != 0.0F || image.transform.m22 != 1.0F ||
+        image.transform.m31 != 0.0F || image.transform.m32 != 0.0F ||
+        image.opacity != 1.0F || image.sampling != PROGPU_NATIVE_IMAGE_SAMPLING_NEAREST) {
+        return implementation_->fail(scene_build_error::invalid_argument);
+    }
+    // Append-only transaction: the leading layer prevents image merging from
+    // modifying any prior command. Only newly appended vectors/stack metadata
+    // need rollback; existing history is never serialized or cloned.
+    const auto command_count = implementation_->commands.size();
+    const auto maximum_stack_depth = implementation_->maximum_stack_depth;
+    const progpu_native_scene_layer layer{
+        sizeof(progpu_native_scene_layer), PROGPU_NATIVE_SCENE_LAYER_BOUNDS,
+        image.destination_rect, 1.0F, PROGPU_NATIVE_BLEND_SRC,
+        PROGPU_NATIVE_SCENE_NO_INDEX, PROGPU_NATIVE_SCENE_NO_INDEX,
+        0U, 0U, 0U, 0U};
+    if (push_layer(layer) && draw_image(resource_index, image, image.destination_rect,
+            PROGPU_NATIVE_SCENE_NO_INDEX, nullptr, color_matrix) && pop_layer()) {
+        return true;
+    }
+    implementation_->commands.resize(command_count);
+    implementation_->stack_depth = 0U;
+    implementation_->materialized_layer_depth = 0U;
+    implementation_->maximum_stack_depth = maximum_stack_depth;
+    implementation_->stack_kinds[0] = 0U;
+    return false;
+}
+
+bool semantic_scene_builder::add_upload_image(
+    std::uint32_t width,
+    std::uint32_t height,
+    std::uint32_t row_bytes,
+    std::span<const std::byte> pixels,
+    bool bgra8,
+    std::uint32_t& resource_index,
+    bool r8) noexcept {
+    resource_index = PROGPU_NATIVE_SCENE_NO_INDEX;
+    // Algorithm: retain the upload's native byte layout; GPU texture format
+    // selects R8/RGBA8/BGRA8 interpretation. O(B) byte copy and owned storage,
+    // with no per-pixel conversion. Format flags are mutually exclusive.
     const std::uint64_t minimum_row_bytes =
-        static_cast<std::uint64_t>(width) * 4U;
+        static_cast<std::uint64_t>(width) * (r8 ? 1U : 4U);
     const std::uint64_t required_bytes = height == 0U
         ? 0U
         : static_cast<std::uint64_t>(row_bytes) * (height - 1U) +
@@ -232,17 +430,58 @@ bool semantic_scene_builder::add_rgba8_image(
         implementation::resource_entry resource{};
         resource.record.struct_size = sizeof(resource.record);
         resource.record.kind = PROGPU_NATIVE_SCENE_RESOURCE_IMAGE;
-        resource.record.flags = PROGPU_NATIVE_SCENE_RECORD_REQUIRED;
+        resource.record.flags = PROGPU_NATIVE_SCENE_RECORD_REQUIRED |
+            (bgra8 ? PROGPU_NATIVE_SCENE_IMAGE_BGRA8 : 0U) |
+            (r8 ? PROGPU_NATIVE_SCENE_IMAGE_R8 : 0U);
         resource.record.resource_id = implementation_->resources.size() + 1U;
         resource.record.generation = implementation_->generation;
         resource.payload.assign(pixels.begin(), pixels.end());
-        resource.rgba8_image = true;
+        resource.rgba8_image = !bgra8 && !r8;
+        resource.bgra8_image = bgra8;
+        resource.r8_image = r8;
         resource.image_width = width;
         resource.image_height = height;
         resource.image_row_bytes = row_bytes;
         resource_index = static_cast<std::uint32_t>(
             implementation_->resources.size());
         implementation_->resources.push_back(std::move(resource));
+        implementation_->error = scene_build_error::none;
+        return true;
+    } catch (const std::bad_alloc&) {
+        return implementation_->fail(scene_build_error::out_of_memory);
+    } catch (...) {
+        return implementation_->fail(scene_build_error::invalid_state);
+    }
+}
+
+bool semantic_scene_builder::add_picture_image(
+    const progpu_native_scene_picture_image& picture,
+    std::span<const std::byte> nested_scene,
+    std::uint32_t& resource_index) noexcept {
+    resource_index = PROGPU_NATIVE_SCENE_NO_INDEX;
+    if (!semantic::is_valid_semantic_picture_image(picture) ||
+        nested_scene.size() < sizeof(progpu_native_scene_header) ||
+        nested_scene.size() > PROGPU_NATIVE_SCENE_MAX_STREAM_BYTES ||
+        implementation_->resources.size() >= PROGPU_NATIVE_SCENE_MAX_RESOURCES)
+        return implementation_->fail(scene_build_error::invalid_argument);
+    try {
+        // Retain source scene bytes, not CPU-rendered pixels. O(S) copying/storage
+        // for S serialized bytes; nested stream validation occurs at scene ingestion.
+        implementation::resource_entry resource{};
+        resource.record.struct_size = sizeof(resource.record);
+        resource.record.kind = PROGPU_NATIVE_SCENE_RESOURCE_IMAGE;
+        resource.record.flags = PROGPU_NATIVE_SCENE_RECORD_REQUIRED | PROGPU_NATIVE_SCENE_IMAGE_PICTURE;
+        resource.record.resource_id = implementation_->resources.size() + 1U;
+        resource.record.generation = implementation_->generation;
+        resource.payload.resize(sizeof(picture));
+        std::memcpy(resource.payload.data(), &picture, sizeof(picture));
+        resource.auxiliary.assign(nested_scene.begin(), nested_scene.end());
+        resource.picture_image = true;
+        resource.image_width = picture.width;
+        resource.image_height = picture.height;
+        resource.image_row_bytes = picture.width * 4U;
+        implementation_->resources.push_back(std::move(resource));
+        resource_index = static_cast<std::uint32_t>(implementation_->resources.size() - 1U);
         implementation_->error = scene_build_error::none;
         return true;
     } catch (const std::bad_alloc&) {
@@ -294,11 +533,47 @@ bool semantic_scene_builder::update_rgba8_image(
     std::uint32_t row_bytes,
     std::span<const std::byte> pixels,
     std::uint64_t resource_generation) noexcept {
+    return update_32bit_image(
+        resource_index,
+        width,
+        height,
+        row_bytes,
+        pixels,
+        resource_generation,
+        false);
+}
+
+bool semantic_scene_builder::update_bgra8_image(
+    std::uint32_t resource_index,
+    std::uint32_t width,
+    std::uint32_t height,
+    std::uint32_t row_bytes,
+    std::span<const std::byte> pixels,
+    std::uint64_t resource_generation) noexcept {
+    return update_32bit_image(
+        resource_index,
+        width,
+        height,
+        row_bytes,
+        pixels,
+        resource_generation,
+        true);
+}
+
+bool semantic_scene_builder::update_32bit_image(
+    std::uint32_t resource_index,
+    std::uint32_t width,
+    std::uint32_t height,
+    std::uint32_t row_bytes,
+    std::span<const std::byte> pixels,
+    std::uint64_t resource_generation,
+    bool bgra8) noexcept {
     if (resource_index >= implementation_->resources.size()) {
         return implementation_->fail(scene_build_error::invalid_argument);
     }
     auto& resource = implementation_->resources[resource_index];
-    if (!resource.rgba8_image || width != resource.image_width ||
+    if ((bgra8 ? !resource.bgra8_image : !resource.rgba8_image) ||
+        width != resource.image_width ||
         height != resource.image_height ||
         row_bytes != resource.image_row_bytes ||
         pixels.size() != resource.payload.size() ||
@@ -347,16 +622,17 @@ bool semantic_scene_builder::draw_image(
         (image.flags & PROGPU_NATIVE_SCENE_IMAGE_EFFECT) != 0U;
     const bool external_image =
         (resource.record.flags & PROGPU_NATIVE_SCENE_EXTERNAL_IMAGE) != 0U;
-    const std::uint64_t validation_bytes = external_image
+    const std::uint64_t validation_bytes = (external_image || resource.picture_image)
         ? static_cast<std::uint64_t>(image.row_bytes) *
                 (image.image_height - 1U) +
             static_cast<std::uint64_t>(image.image_width) * 4U
         : resource.payload.size();
-    if ((!resource.rgba8_image && !external_image) ||
+    if ((!resource.rgba8_image && !resource.bgra8_image && !resource.r8_image && !resource.picture_image && !external_image) ||
+        (resource.picture_image && (image.flags & PROGPU_NATIVE_SCENE_IMAGE_SOURCE_PREMULTIPLIED) == 0U) ||
         image.image_width != resource.image_width ||
         image.image_height != resource.image_height ||
         image.row_bytes != resource.image_row_bytes ||
-        !semantic::is_valid_semantic_image(image, validation_bytes) ||
+        !semantic::is_valid_semantic_image(image, validation_bytes, resource.r8_image ? 1U : 4U) ||
         wants_sampling != (sampling_options != nullptr) ||
         wants_matrix != (color_matrix != nullptr) ||
         wants_effect != (effect != nullptr) ||
@@ -462,16 +738,17 @@ bool semantic_scene_builder::draw_image_patches(
         (image.flags & PROGPU_NATIVE_SCENE_IMAGE_EFFECT) != 0U;
     const bool external_image =
         (resource.record.flags & PROGPU_NATIVE_SCENE_EXTERNAL_IMAGE) != 0U;
-    const std::uint64_t validation_bytes = external_image
+    const std::uint64_t validation_bytes = (external_image || resource.picture_image)
         ? static_cast<std::uint64_t>(image.row_bytes) *
                 (image.image_height - 1U) +
             static_cast<std::uint64_t>(image.image_width) * 4U
         : resource.payload.size();
-    if ((!resource.rgba8_image && !external_image) ||
+    if ((!resource.rgba8_image && !resource.bgra8_image && !resource.r8_image && !resource.picture_image && !external_image) ||
+        (resource.picture_image && (image.flags & PROGPU_NATIVE_SCENE_IMAGE_SOURCE_PREMULTIPLIED) == 0U) ||
         image.image_width != resource.image_width ||
         image.image_height != resource.image_height ||
         image.row_bytes != resource.image_row_bytes ||
-        !semantic::is_valid_semantic_image(image, validation_bytes) ||
+        !semantic::is_valid_semantic_image(image, validation_bytes, resource.r8_image ? 1U : 4U) ||
         wants_sampling != (sampling_options != nullptr) ||
         wants_matrix != (color_matrix != nullptr) ||
         wants_effect != (effect != nullptr) ||
@@ -537,7 +814,7 @@ bool semantic_scene_builder::draw_image_patches(
                 command.record,
                 image,
                 validation_bytes,
-                parsed) ||
+                parsed, resource.r8_image ? 1U : 4U) ||
             parsed.patch_count != patches.size()) {
             return implementation_->fail(scene_build_error::invalid_argument);
         }

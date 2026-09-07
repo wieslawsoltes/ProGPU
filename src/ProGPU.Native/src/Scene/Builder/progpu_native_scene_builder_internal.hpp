@@ -19,6 +19,9 @@ struct semantic_scene_builder::implementation final {
         bool brush_table = false;
         bool text_style_table = false;
         bool rgba8_image = false;
+        bool bgra8_image = false;
+        bool r8_image = false;
+        bool picture_image = false;
         std::uint32_t image_width = 0U;
         std::uint32_t image_height = 0U;
         std::uint32_t image_row_bytes = 0U;
@@ -52,10 +55,42 @@ struct semantic_scene_builder::implementation final {
         return false;
     }
 
-    bool valid_state_index(std::uint32_t index) const noexcept {
-        return index == PROGPU_NATIVE_SCENE_NO_INDEX ||
-            (index < resources.size() && resources[index].record.kind ==
-                PROGPU_NATIVE_SCENE_RESOURCE_STATE);
+    bool valid_state_index(
+        std::uint32_t index,
+        bool allow_per_point = false) const noexcept {
+        if (index == PROGPU_NATIVE_SCENE_NO_INDEX) {
+            return true;
+        }
+        if (index >= resources.size() || resources[index].record.kind !=
+                PROGPU_NATIVE_SCENE_RESOURCE_STATE ||
+            resources[index].payload.size() !=
+                sizeof(progpu_native_scene_state)) {
+            return false;
+        }
+        progpu_native_scene_state state{};
+        std::memcpy(
+            &state,
+            resources[index].payload.data(),
+            sizeof(state));
+        if ((state.flags & PROGPU_NATIVE_SCENE_STATE_GUIDELINE_SET) == 0U) {
+            return true;
+        }
+        if (state.guideline_resource_index >= resources.size()) {
+            return false;
+        }
+        const auto& guidelines = resources[state.guideline_resource_index];
+        if (guidelines.record.kind !=
+                PROGPU_NATIVE_SCENE_RESOURCE_GUIDELINE_SET ||
+            guidelines.payload.size() <
+                sizeof(progpu_native_scene_guideline_set)) {
+            return false;
+        }
+        progpu_native_scene_guideline_set header{};
+        std::memcpy(&header, guidelines.payload.data(), sizeof(header));
+        return (header.flags &
+                PROGPU_NATIVE_SCENE_GUIDELINE_COMPOSITE_ONLY) == 0U &&
+            (allow_per_point || (header.flags &
+                PROGPU_NATIVE_SCENE_GUIDELINE_PER_POINT) == 0U);
     }
 
     bool try_merge_image_draw(

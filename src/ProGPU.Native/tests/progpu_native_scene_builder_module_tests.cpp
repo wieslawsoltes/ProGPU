@@ -1,9 +1,11 @@
 #include <array>
 #include <cstddef>
+#include <utility>
 
 import progpu.native.scene_builder;
 
 int main() {
+    static_assert(progpu::native::PROGPU_NATIVE_SCENE_LAYER_CACHE_SHARED == (1U << 9U));
     progpu::native::semantic_scene_builder builder(9001U, 3U);
     progpu::native::progpu_native_scene_brush gradient{};
     gradient.type =
@@ -45,7 +47,117 @@ int main() {
         !builder.advance_generation(4U) || builder.generation() != 4U) {
         return 1;
     }
+    progpu::native::progpu_native_scene_tile_composite tile{};
+    tile.struct_size = sizeof(tile);
+    tile.address_u = progpu::native::PROGPU_NATIVE_IMAGE_ADDRESS_REPEAT;
+    tile.address_v = progpu::native::PROGPU_NATIVE_IMAGE_ADDRESS_MIRROR_REPEAT;
+    tile.output_width = 32.0F;
+    tile.output_height = 16.0F;
+    tile.m11 = 0.125F;
+    tile.m22 = 0.25F;
+    unsigned int tile_index = progpu::native::PROGPU_NATIVE_SCENE_NO_INDEX;
+    if (!builder.add_tile_composite(tile, tile_index)) return 1;
+    progpu::native::semantic_scene_builder guideline_source(9002U, 1U);
+    const std::array coordinates{2.25};
+    const std::array offsets{-0.125};
+    unsigned int source_guidelines = progpu::native::PROGPU_NATIVE_SCENE_NO_INDEX;
+    unsigned int copied_guidelines = progpu::native::PROGPU_NATIVE_SCENE_NO_INDEX;
+    if (!guideline_source.add_guideline_set_with_offsets(coordinates, {}, offsets, {}, source_guidelines) ||
+        !builder.copy_guideline_set_from(guideline_source, source_guidelines, copied_guidelines) ||
+        copied_guidelines == progpu::native::PROGPU_NATIVE_SCENE_NO_INDEX) return 1;
+    progpu::native::progpu_native_point displacement{};
+    if (!builder.try_uniform_guideline_translation(copied_guidelines, 2.0F, displacement) ||
+        displacement.x != -0.0625F || displacement.y != 0.0F) return 1;
     std::array<std::byte, 4096U> stream{};
+    const std::array<std::byte, 4U> coverage{
+        std::byte{0}, std::byte{64}, std::byte{128}, std::byte{255}};
+    unsigned int r8_index = progpu::native::PROGPU_NATIVE_SCENE_NO_INDEX;
+    image.row_bytes = 2U;
+    image.sampling = progpu::native::PROGPU_NATIVE_IMAGE_SAMPLING_LINEAR;
+    image.max_anisotropy = 1U;
+    if (!builder.add_r8_image(2U, 2U, 2U, coverage, r8_index) ||
+        !builder.draw_image(r8_index, image, image.destination_rect)) return 1;
+    progpu::native::semantic_scene_builder child(9003U, 1U);
+    unsigned int child_image = progpu::native::PROGPU_NATIVE_SCENE_NO_INDEX;
+    if (!child.add_r8_image(2U, 2U, 2U, coverage, child_image) ||
+        !child.draw_image(child_image, image, image.destination_rect)) return 1;
+    std::array<std::byte, 1024U> child_stream{};
+    std::size_t child_written = 0U;
+    if (!child.build_into(child_stream, child_written)) return 1;
+    progpu::native::progpu_native_scene_picture_image picture{};
+    picture.struct_size = sizeof(picture);
+    picture.width = picture.height = 2U;
+    picture.dpi_scale = 2.0F;
+    picture.clear_color = {0.25F, 0.5F, 1.0F, 0.75F};
+    unsigned int picture_index = progpu::native::PROGPU_NATIVE_SCENE_NO_INDEX;
+    image.row_bytes = 8U;
+    image.flags = progpu::native::PROGPU_NATIVE_SCENE_IMAGE_SOURCE_PREMULTIPLIED;
+    if (!builder.add_picture_image(picture, {child_stream.data(), child_written}, picture_index) ||
+        !builder.draw_image(picture_index, image, image.destination_rect)) return 1;
+    const auto before_copy_size = builder.required_stream_size();
+    std::array<std::byte, 4096U> before_copy{};
+    std::array<std::byte, 4096U> after_failed_copy{};
+    std::size_t before_copy_written = 0U;
+    std::size_t after_failed_copy_written = 0U;
+    if (!builder.build_into(before_copy, before_copy_written)) return 1;
+    image.row_bytes = 2U;
+    image.sampling = progpu::native::PROGPU_NATIVE_IMAGE_SAMPLING_NEAREST;
+    image.flags = progpu::native::PROGPU_NATIVE_SCENE_IMAGE_COLOR_MATRIX;
+    // Missing matrix fails after upload/layer append; transaction restores both.
+    if (builder.copy_image_from_memory(image, progpu::native::PROGPU_NATIVE_SCENE_IMAGE_R8, coverage) ||
+        builder.required_stream_size() != before_copy_size ||
+        !builder.build_into(after_failed_copy, after_failed_copy_written) ||
+        after_failed_copy_written != before_copy_written || before_copy != after_failed_copy) return 1;
+    image.flags = 0U;
+    if (!builder.copy_image_from_memory(image, progpu::native::PROGPU_NATIVE_SCENE_IMAGE_R8, coverage)) return 1;
+    progpu::native::semantic_scene_builder staged_image(9004U);
+    unsigned int staged_index = progpu::native::PROGPU_NATIVE_SCENE_NO_INDEX;
+    if (!staged_image.add_r8_image(2U, 2U, 2U, coverage, staged_index) ||
+        !builder.copy_image_from_builder(std::move(staged_image), staged_index, image)) return 1;
+    if (!builder.build_into(before_copy, before_copy_written)) return 1;
+    progpu::native::semantic_scene_builder rejected_image(9005U);
+    if (!rejected_image.add_r8_image(2U, 2U, 2U, coverage, staged_index)) return 1;
+    image.flags = progpu::native::PROGPU_NATIVE_SCENE_IMAGE_COLOR_MATRIX;
+    if (builder.copy_image_from_builder(std::move(rejected_image), staged_index, image) ||
+        !builder.build_into(after_failed_copy, after_failed_copy_written) ||
+        after_failed_copy_written != before_copy_written || before_copy != after_failed_copy) return 1;
+    progpu::native::semantic_scene_builder canonical_copy(9006U);
+    image.flags = 0U;
+    if (!canonical_copy.copy_image_from_memory(image, progpu::native::PROGPU_NATIVE_SCENE_IMAGE_R8, coverage)) return 1;
+    progpu::native::scene_full_image_copy full_image{};
+    if (!canonical_copy.try_get_full_image_copy(image.destination_rect, 2U, 2U, full_image) ||
+        full_image.image.row_bytes != 2U) return 1;
+    progpu::native::semantic_scene_builder extracted(9007U);
+    unsigned int extracted_index = progpu::native::PROGPU_NATIVE_SCENE_NO_INDEX;
+    if (!extracted.copy_image_resource_from(canonical_copy, full_image.resource_index, extracted_index)) return 1;
+    progpu::native::semantic_scene_builder flattened(9008U);
+    if (!flattened.copy_image_from_builder(std::move(extracted), extracted_index, image) ||
+        !flattened.try_get_full_image_copy(image.destination_rect, 2U, 2U, full_image)) return 1;
+    // Imported ownership remains valid after releasing the original history.
+    if (!canonical_copy.reset(9006U, 2U) ||
+        !flattened.try_get_full_image_copy(image.destination_rect, 2U, 2U, full_image)) return 1;
+    unsigned int rejected_index = 123U;
+    if (flattened.copy_image_resource_from(flattened, full_image.resource_index, rejected_index) ||
+        rejected_index != progpu::native::PROGPU_NATIVE_SCENE_NO_INDEX) return 1;
+    image.source_rect.width = 1.0F;
+    if (!canonical_copy.copy_image_from_memory(image, progpu::native::PROGPU_NATIVE_SCENE_IMAGE_R8, coverage) ||
+        canonical_copy.try_get_full_image_copy(image.destination_rect, 2U, 2U, full_image)) return 1;
+    image.source_rect.width = 2.0F;
+    if (!canonical_copy.copy_image_from_memory(image, progpu::native::PROGPU_NATIVE_SCENE_IMAGE_R8, coverage) ||
+        canonical_copy.try_get_full_image_copy(image.destination_rect, 2U, 2U, full_image) ||
+        full_image.resource_index != progpu::native::PROGPU_NATIVE_SCENE_NO_INDEX) return 1;
+    const std::array<std::byte, 16U> crop_pixels{};
+    image.image_width = image.image_height = image.row_bytes = 4U;
+    image.source_rect = {1.0F, 1.0F, 2.0F, 2.0F};
+    image.destination_rect = {0.0F, 0.0F, 2.0F, 2.0F};
+    if (!canonical_copy.reset(9006U, 3U) ||
+        !canonical_copy.copy_image_from_memory(image, progpu::native::PROGPU_NATIVE_SCENE_IMAGE_R8, crop_pixels) ||
+        !canonical_copy.try_get_full_image_copy(image.destination_rect, 2U, 2U, full_image) ||
+        full_image.image.source_rect.x != 1.0F || full_image.image.image_width != 4U) return 1;
+    image.source_rect.x = 1.5F;
+    if (!canonical_copy.reset(9006U, 4U) ||
+        !canonical_copy.copy_image_from_memory(image, progpu::native::PROGPU_NATIVE_SCENE_IMAGE_R8, crop_pixels) ||
+        canonical_copy.try_get_full_image_copy(image.destination_rect, 2U, 2U, full_image)) return 1;
     const std::size_t required_size = builder.required_stream_size();
     std::size_t bytes_written = 0U;
     return required_size > 0U && required_size <= stream.size() &&

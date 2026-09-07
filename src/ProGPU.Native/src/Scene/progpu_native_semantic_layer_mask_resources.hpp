@@ -7,11 +7,13 @@
 
 struct progpu_native_engine;
 struct semantic_render_bundle_span;
+struct semantic_image_draw;
 
 namespace progpu::native {
 namespace semantic {
 struct scissor;
 struct semantic_layer_mask;
+class semantic_state_cursor;
 }
 namespace execution {
 
@@ -37,6 +39,8 @@ bool create_semantic_brush_mask_binding(
     const semantic::semantic_layer_mask& parsed,
     const semantic::scissor& target_extent,
     float dpi_scale,
+    const semantic::semantic_state_cursor* composite_state_cursor,
+    const progpu_native_scene_state* composite_state,
     semantic_render_bundle_span& operation);
 
 bool create_semantic_geometry_mask_binding(
@@ -52,7 +56,17 @@ bool create_semantic_picture_mask_binding(
     const std::byte* nested_scene,
     const semantic::scissor& target_extent,
     float dpi_scale,
+    const semantic::semantic_state_cursor* composite_state_cursor,
+    const progpu_native_scene_state* composite_state,
     semantic_render_bundle_span& operation);
+
+bool create_semantic_picture_image(
+    progpu_native_engine& engine,
+    const progpu_native_scene_picture_image& picture,
+    const std::byte* nested_scene,
+    std::uint32_t scene_size,
+    semantic_image_draw& draw,
+    progpu_native_scene_frame_metrics& child_metrics);
 
 bool create_semantic_composite_mask_binding(
     progpu_native_engine& engine,
@@ -60,6 +74,8 @@ bool create_semantic_composite_mask_binding(
     const progpu_native_scene_resource& resource,
     const semantic::scissor& target_extent,
     float dpi_scale,
+    const semantic::semantic_state_cursor* composite_state_cursor,
+    const progpu_native_scene_state* composite_state,
     semantic_render_bundle_span& operation);
 
 } // namespace execution

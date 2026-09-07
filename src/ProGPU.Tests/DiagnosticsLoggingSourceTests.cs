@@ -197,6 +197,9 @@ public class DiagnosticsLoggingSourceTests
         Assert.Contains("  pack-mobile:\n    name: Pack mobile packages", workflow, StringComparison.Ordinal);
         Assert.Contains("PROGPU_PACKAGE_GROUP=portable", workflow, StringComparison.Ordinal);
         Assert.Contains("PROGPU_PACKAGE_GROUP=mobile", workflow, StringComparison.Ordinal);
+        Assert.Contains("version=\"0.1.0-preview.${GITHUB_RUN_NUMBER}.ci\"", workflow, StringComparison.Ordinal);
+        Assert.Contains("PROGPU_PACKAGE_VERSION=0.1.0-preview.${{ github.run_number }}.ci", workflow, StringComparison.Ordinal);
+        Assert.DoesNotContain("0.1.0-ci.", workflow, StringComparison.Ordinal);
         Assert.Contains("dotnet workload restore src/ProGPU.Android/ProGPU.Android.csproj", workflow, StringComparison.Ordinal);
         Assert.Contains("dotnet workload restore src/ProGPU.iOS/ProGPU.iOS.csproj", workflow, StringComparison.Ordinal);
         Assert.Contains("uses: actions/upload-artifact@v7", workflow, StringComparison.Ordinal);
@@ -389,7 +392,10 @@ public class DiagnosticsLoggingSourceTests
         Assert.Contains("HasDynamicOffset = true", source, StringComparison.Ordinal);
         Assert.Contains("GetOrCreateRingBindGroup()", source, StringComparison.Ordinal);
         Assert.Contains("GetOrCreateBatchComputePass()", source, StringComparison.Ordinal);
-        Assert.Contains("_batchCoverageCopies.Add(new PendingCoverageCopy(", source, StringComparison.Ordinal);
+        Assert.Contains("_batchCoverageCopies.Add(", source, StringComparison.Ordinal);
+        Assert.Contains("new PendingCoverageCopy(", source, StringComparison.Ordinal);
+        Assert.Contains("GetOrCreateBatchRasterPass()", source, StringComparison.Ordinal);
+        Assert.Contains("GpuComputeExecutionPath.RasterShader", source, StringComparison.Ordinal);
         Assert.DoesNotContain("QueueWriteBuffer(_context.Queue, _uniformRingBuffer.BufferPtr", source, StringComparison.Ordinal);
         Assert.DoesNotContain("ComputePipelineGetBindGroupLayout", source, StringComparison.Ordinal);
         Assert.DoesNotContain("foreach (var buffer in _batchBuffers)", source, StringComparison.Ordinal);
@@ -555,8 +561,10 @@ public class DiagnosticsLoggingSourceTests
     {
         string source = ReadSource("src", "ProGPU.Compute", "ComputeAccelerator.cs");
 
-        Assert.Contains("_blurHorizontalParams!.WriteSingle(new GaussianBlurParams(sigmaX));", source, StringComparison.Ordinal);
-        Assert.Contains("_blurVerticalParams!.WriteSingle(new GaussianBlurParams(sigmaY));", source, StringComparison.Ordinal);
+        Assert.Contains("_blurHorizontalParams!.WriteSingle(horizontalParams);", source, StringComparison.Ordinal);
+        Assert.Contains("_blurVerticalParams!.WriteSingle(verticalParams);", source, StringComparison.Ordinal);
+        Assert.Contains("public void ApplyBoxBlur(", source, StringComparison.Ordinal);
+        Assert.Contains("GaussianBlurParams.Box(radiusX)", source, StringComparison.Ordinal);
         Assert.Contains("private CachedPassBinding _blurHorizontalBinding;", source, StringComparison.Ordinal);
         Assert.Contains("private CachedPassBinding _shadowVerticalBinding;", source, StringComparison.Ordinal);
         Assert.Contains("private BindGroup* GetOrCreatePassBinding(", source, StringComparison.Ordinal);

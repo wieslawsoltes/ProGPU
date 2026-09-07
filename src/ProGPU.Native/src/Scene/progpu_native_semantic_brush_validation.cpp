@@ -77,9 +77,12 @@ bool is_valid_semantic_brush(
         static_cast<std::uint32_t>(stops.size());
     const auto* stop_bytes =
         reinterpret_cast<const std::byte*>(stops.data());
-    const std::uint32_t spread = brush.spread_method & 0x7fffffffU;
-    const bool outside_color =
-        (brush.spread_method & 0x80000000U) != 0U;
+    const std::uint32_t spread = brush.spread_method &
+        PROGPU_NATIVE_SCENE_GRADIENT_SPREAD_MASK;
+    const bool pad_outside_colors = (brush.spread_method &
+        PROGPU_NATIVE_SCENE_GRADIENT_PAD_OUTSIDE_COLORS) != 0U;
+    const bool conical_outside_color = (brush.spread_method &
+        PROGPU_NATIVE_SCENE_GRADIENT_CONICAL_OUTSIDE_COLOR) != 0U;
     if (!supported_brush_kind(brush.type) ||
         !std::isfinite(brush.opacity) || brush.opacity < 0.0F ||
         brush.opacity > 1.0F || !finite_point(brush.start_point) ||
@@ -88,8 +91,11 @@ bool is_valid_semantic_brush(
         spread > PROGPU_NATIVE_SCENE_GRADIENT_DECAL ||
         brush.color_interpolation_mode >
             PROGPU_NATIVE_SCENE_GRADIENT_INTERPOLATE_SCRGB ||
-        (outside_color && brush.type !=
+        (conical_outside_color && brush.type !=
             PROGPU_NATIVE_SCENE_BRUSH_TWO_POINT_CONICAL_GRADIENT) ||
+        (pad_outside_colors &&
+            (!gradient_brush_kind(brush.type) ||
+                spread != PROGPU_NATIVE_SCENE_GRADIENT_PAD)) ||
         brush.reserved0 != 0U || brush.reserved1 != 0U ||
         !finite_array(brush.offsets0, 4U) ||
         !finite_array(brush.offsets1, 4U) ||
@@ -108,7 +114,7 @@ bool is_valid_semantic_brush(
     if (brush.type == PROGPU_NATIVE_SCENE_BRUSH_PERLIN_NOISE) {
         const std::uint32_t table_count =
             semantic_brush_stored_stop_count(brush);
-        if (outside_color || spread > 1U ||
+        if (pad_outside_colors || conical_outside_color || spread > 1U ||
             brush.stop_count > PROGPU_NATIVE_SCENE_MAX_PERLIN_OCTAVES ||
             (table_count == 0U && brush.stop_offset != 0U) ||
             brush.stop_offset > stop_count ||

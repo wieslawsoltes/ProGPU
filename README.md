@@ -24,7 +24,8 @@ Choose the area closest to your application to find the relevant packages.
 | `ProGPU.Backend.Native` | Experimental typed .NET host and desktop x64/arm64 runtimes for the parallel C++ renderer, including isolated wgpu-native and provider-resolved Dawn binaries. | [![NuGet](https://img.shields.io/nuget/vpre/ProGPU.Backend.Native.svg)](https://www.nuget.org/packages/ProGPU.Backend.Native/) |
 | `ProGPU.Backend.Dawn` | Typed Dawn native presentation, shared texture memory, and cross-queue fence services. | [![NuGet](https://img.shields.io/nuget/vpre/ProGPU.Backend.Dawn.svg)](https://www.nuget.org/packages/ProGPU.Backend.Dawn/) |
 | `ProGPU.Browser` | Batched .NET WebAssembly dispatcher and `navigator.gpu` browser host services. | [![NuGet](https://img.shields.io/nuget/vpre/ProGPU.Browser.svg)](https://www.nuget.org/packages/ProGPU.Browser/) |
-| `ProGPU.DirectX` | DirectX-compatible facade and shader-oriented API surface implemented on ProGPU/WebGPU. | [![NuGet](https://img.shields.io/nuget/vpre/ProGPU.DirectX.svg)](https://www.nuget.org/packages/ProGPU.DirectX/) |
+| `ProGPU.DirectX` | Direct3D-style facade and shader-oriented API surface implemented on ProGPU/WebGPU. Direct2D/Win2D use the separate [native-interop and portable Canvas plan](docs/DIRECT2D_WIN2D_COMPATIBILITY.md). | [![NuGet](https://img.shields.io/nuget/vpre/ProGPU.DirectX.svg)](https://www.nuget.org/packages/ProGPU.DirectX/) |
+| `ProGPU.Direct2D` | Genuine Windows Direct2D/DirectWrite COM surfaces, uploaded bitmaps, brushes, geometries, stroke styles, retained text formats/layouts with range formatting and OpenType typography, and text drawing with synchronized zero-copy Dawn/WebGPU texture sharing and real Win2D projection interop. | [![NuGet](https://img.shields.io/nuget/vpre/ProGPU.Direct2D.svg)](https://www.nuget.org/packages/ProGPU.Direct2D/) |
 | `ProGPU.Compute` | Compute pipeline helpers for GPU-side effects, acceleration, and future hit-test indexes. | [![NuGet](https://img.shields.io/nuget/vpre/ProGPU.Compute.svg)](https://www.nuget.org/packages/ProGPU.Compute/) |
 | `ProGPU.Transpiler` | Shader/source transformation helpers used by generated GPU pipelines. | [![NuGet](https://img.shields.io/nuget/vpre/ProGPU.Transpiler.svg)](https://www.nuget.org/packages/ProGPU.Transpiler/) |
 
@@ -47,6 +48,7 @@ Choose the area closest to your application to find the relevant packages.
 | --- | --- | --- |
 | `ProGPU.Layout` | Measure/arrange layout substrate shared by higher-level UI adapters. | [![NuGet](https://img.shields.io/nuget/vpre/ProGPU.Layout.svg)](https://www.nuget.org/packages/ProGPU.Layout/) |
 | `ProGPU.Virtualization` | Virtualization helpers for large retained visual and item surfaces. | [![NuGet](https://img.shields.io/nuget/vpre/ProGPU.Virtualization.svg)](https://www.nuget.org/packages/ProGPU.Virtualization/) |
+| `ProGPU.Win2D` | Portable source-compatible Win2D Canvas core rendered by the retained native C++ WebGPU engine. | [![NuGet](https://img.shields.io/nuget/vpre/ProGPU.Win2D.svg)](https://www.nuget.org/packages/ProGPU.Win2D/) |
 | `ProGPU.WinUI` | WinUI-shaped controls and app model implemented on ProGPU. | [![NuGet](https://img.shields.io/nuget/vpre/ProGPU.WinUI.svg)](https://www.nuget.org/packages/ProGPU.WinUI/) |
 | `ProGPU.WinUI.Themes.Fluent` | Source-generated unchanged WinUI Fluent theme resources and inspectable XAML content. | [![NuGet](https://img.shields.io/nuget/vpre/ProGPU.WinUI.Themes.Fluent.svg)](https://www.nuget.org/packages/ProGPU.WinUI.Themes.Fluent/) |
 | `ProGPU.WinUI.Charts` | Chart controls and chart rendering primitives for the WinUI-shaped layer. | [![NuGet](https://img.shields.io/nuget/vpre/ProGPU.WinUI.Charts.svg)](https://www.nuget.org/packages/ProGPU.WinUI.Charts/) |
@@ -120,6 +122,12 @@ custom GPU drawing from an ordinary WinUI NuGet consumer.
 
 See [`docs/progpu-packaging.md`](docs/progpu-packaging.md) for package-only
 consumer validation, version overrides, and publishing.
+
+Compute-heavy workloads follow the typed
+[`GPU-first compute fallback policy`](docs/GPU_COMPUTE_FALLBACK_POLICY.md):
+native compute remains the default where qualified, exact same-device shader
+stages precede CPU fallback, and CPU implementations use intrinsic SIMD with a
+scalar differential oracle.
 
 The mobile packages contain the managed hosts and `buildTransitive` native-link
 contracts. Until native binaries are distributed independently, applications set

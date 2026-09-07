@@ -14,6 +14,25 @@ public sealed class SkiaHairlineRenderingTests
     private const int SurfaceSize = 128;
 
     [Theory]
+    [InlineData(1f)]
+    [InlineData(2f)]
+    [InlineData(4f)]
+    public void DirectHairlineRemainsOnePhysicalPixelAcrossDisplayDpi(float dpiScale)
+    {
+        using var window = new HeadlessWindow(SurfaceSize, SurfaceSize);
+        var command = CreateLineCommand(vertical: false);
+        command.Position = new Vector2(8f / dpiScale, 64.5f / dpiScale);
+        command.Position2 = new Vector2(120f / dpiScale, 64.5f / dpiScale);
+        command.IsEdgeAliased = true;
+        window.Content = new CommandVisual(command);
+        window.RenderAtDpi((uint)(SurfaceSize / dpiScale),
+            (uint)(SurfaceSize / dpiScale), dpiScale);
+        var pixels = window.ReadPixels();
+        Assert.Equal(1, CountPaintedRows(pixels, SurfaceSize / 2));
+        Assert.Equal(255, pixels[(64 * SurfaceSize + 64) * 4 + 2]);
+    }
+
+    [Theory]
     [InlineData(false, false)]
     [InlineData(true, false)]
     [InlineData(false, true)]

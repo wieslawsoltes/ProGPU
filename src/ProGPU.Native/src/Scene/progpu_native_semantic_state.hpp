@@ -6,8 +6,47 @@
 #include <array>
 #include <cstddef>
 #include <cstdint>
+#include <cmath>
+#include <cstring>
+#include <span>
 
 namespace progpu::native::semantic {
+
+// Algorithm: WPF half-integer rounding toward the numerically larger integer.
+// Time/space: O(1); floats without fractional bits have zero displacement.
+inline float wpf_guideline_offset(float value) noexcept {
+    if (!(std::abs(value) < 8388608.0F)) return 0.0F;
+    float offset = std::floor(value + 0.5F) - value;
+    if (offset <= -0.5F) offset += 1.0F;
+    return offset;
+}
+
+// Algorithm: resolve at most one guideline per axis, including pre-resolved
+// dynamic physical offsets. Time/space: O(1), alignment-safe fixed-size reads.
+// Multi-coordinate deformation is deliberately not a uniform translation.
+inline bool try_uniform_guideline_translation(std::span<const std::byte> payload,
+    float dpi, progpu_native_point& translation) noexcept {
+    if (payload.size() < sizeof(progpu_native_scene_guideline_set) ||
+        !std::isfinite(dpi) || dpi <= 0.0F) return false;
+    progpu_native_scene_guideline_set header{};
+    std::memcpy(&header, payload.data(), sizeof(header));
+    if (header.struct_size != sizeof(header) || header.guideline_x_count > 1U || header.guideline_y_count > 1U ||
+        (header.flags & ~PROGPU_NATIVE_SCENE_GUIDELINE_EXPLICIT_OFFSETS) != 0U) return false;
+    const bool explicit_offsets = (header.flags & PROGPU_NATIVE_SCENE_GUIDELINE_EXPLICIT_OFFSETS) != 0U;
+    const auto count = header.guideline_x_count + header.guideline_y_count;
+    if (payload.size() != sizeof(header) + count * sizeof(double) * (explicit_offsets ? 2U : 1U)) return false;
+    const auto axis = [&](std::uint32_t index) {
+        double value = 0.0;
+        std::memcpy(&value, payload.data() + sizeof(header) +
+            (index + (explicit_offsets ? count : 0U)) * sizeof(double), sizeof(value));
+        return (explicit_offsets ? static_cast<float>(value) : wpf_guideline_offset(static_cast<float>(value) * dpi)) / dpi;
+    };
+    const progpu_native_point result{header.guideline_x_count == 0U ? 0.0F : axis(0U),
+        header.guideline_y_count == 0U ? 0.0F : axis(header.guideline_x_count)};
+    if (!std::isfinite(result.x) || !std::isfinite(result.y)) return false;
+    translation = result;
+    return true;
+}
 
 progpu_native_scene_state semantic_identity_state() noexcept;
 
@@ -15,16 +54,51 @@ class semantic_state_cursor final {
 public:
     semantic_state_cursor(
         const std::byte* bytes,
-        const progpu_native_scene_header& header) noexcept;
+        const progpu_native_scene_header& header,
+        float dpi_scale = 0.0F) noexcept;
 
     progpu_native_scene_state advance(
         const progpu_native_scene_command& command) noexcept;
 
+    progpu_native_scene_state resolve_state(
+        std::uint32_t index) const noexcept;
+
+    progpu_native_scene_state read_composite_state(
+        std::uint32_t index) const noexcept;
+
+    void snap_composite_point(
+        const progpu_native_scene_state& state,
+        float& target_x,
+        float& target_y) const noexcept;
+
+    bool try_composite_rectangle_inverse(
+        const progpu_native_scene_state& state,
+        progpu_native_image_rect bounds,
+        progpu_native_affine_2d& inverse,
+        bool& visible) const noexcept;
+
+    bool has_per_point_guidelines(
+        const progpu_native_scene_state& state) const noexcept;
+
+    void snap_draw_point(
+        const progpu_native_scene_state& state,
+        float& target_x,
+        float& target_y) const noexcept;
+
 private:
+    std::uint32_t read_guideline_flags(
+        const progpu_native_scene_state& state) const noexcept;
+    void snap_point(
+        const progpu_native_scene_state& state,
+        float& target_x,
+        float& target_y) const noexcept;
     progpu_native_scene_state read_state(std::uint32_t index) const noexcept;
+    progpu_native_scene_state resolve_guidelines(
+        progpu_native_scene_state state) const noexcept;
 
     const std::byte* bytes_;
     const progpu_native_scene_header& header_;
+    float dpi_scale_ = 0.0F;
     std::array<progpu_native_scene_state,
         PROGPU_NATIVE_SCENE_MAX_STACK_DEPTH> stack_{};
     std::uint32_t depth_ = 0U;

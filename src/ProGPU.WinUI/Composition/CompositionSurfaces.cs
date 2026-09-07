@@ -32,7 +32,10 @@ public sealed class CompositionSurfaceBrush : CompositionBrush
 {
     private readonly EventHandler _textureChangedHandler;
     private readonly DispatcherQueueHandler _dispatchTextureChangedHandler;
-    private readonly GpuTextureBrush _sceneBrush = new();
+    private readonly GpuTextureBrush _sceneBrush = new()
+    {
+        ExtendToFillBounds = false
+    };
     private CompositionBitmapInterpolationMode _bitmapInterpolationMode =
         CompositionBitmapInterpolationMode.Linear;
     private CompositionStretch _stretch = CompositionStretch.Uniform;

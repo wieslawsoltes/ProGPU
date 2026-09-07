@@ -4,6 +4,8 @@
 namespace progpu::native::tests {
 
 bool semantic_scene_builder_is_deterministic_and_valid();
+bool semantic_scene_builder_bounds_composite_only_guidelines();
+bool semantic_scene_builder_records_final_composite_clip();
 bool semantic_scene_builder_preserves_shared_path_segments();
 bool semantic_scene_builder_records_general_brushes();
 bool semantic_scene_builder_records_native_svg_layers();

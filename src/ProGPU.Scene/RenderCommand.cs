@@ -232,6 +232,17 @@ public enum TextureSamplingMode
     MagNearestMinNearestMipLinear
 }
 
+/// <summary>
+/// Selects how normalized texture coordinates outside the source extent are
+/// resolved by retained image draws.
+/// </summary>
+public enum TextureAddressMode : byte
+{
+    Clamp = 0,
+    Repeat = 1,
+    MirrorRepeat = 2
+}
+
 public enum TexturePatchKind : byte
 {
     Texture,
@@ -742,15 +753,108 @@ public struct RenderCommand
     public GpuTexture? Texture;
     public Rect SrcRect;
     public TexturePatch[]? TexturePatches;
-    public TextureSamplingMode TextureSamplingMode;
-    public byte TextureMaxAnisotropy;
+    private uint _textureOptions;
+    public float TextureOpacity;
     public Vector2 TextureCubicCoefficients;
-    public bool HasTextureCubicCoefficients;
-    public bool SnapTextureToPixels;
-    public bool HasImageEffect;
     private ImageEffectCommandDataBox? _imageEffect;
     internal int ImageEffectBufferIndex;
-    internal bool HasBufferedImageEffect;
+
+    public TextureSamplingMode TextureSamplingMode
+    {
+        readonly get => (TextureSamplingMode)(_textureOptions & 0x0fu);
+        set
+        {
+            if ((uint)value >
+                (uint)TextureSamplingMode.MagNearestMinNearestMipLinear)
+            {
+                throw new ArgumentOutOfRangeException(nameof(value));
+            }
+            _textureOptions = (_textureOptions & ~0x0fu) | (uint)value;
+        }
+    }
+
+    public byte TextureMaxAnisotropy
+    {
+        readonly get => (byte)((_textureOptions >> 4) & 0xffu);
+        set => _textureOptions = (_textureOptions & ~(0xffu << 4)) |
+            ((uint)value << 4);
+    }
+
+    public TextureAddressMode TextureAddressModeU
+    {
+        readonly get => (TextureAddressMode)((_textureOptions >> 12) & 0x03u);
+        set
+        {
+            if ((uint)value > (uint)TextureAddressMode.MirrorRepeat)
+            {
+                throw new ArgumentOutOfRangeException(nameof(value));
+            }
+            _textureOptions = (_textureOptions & ~(0x03u << 12)) |
+                ((uint)value << 12);
+        }
+    }
+
+    public TextureAddressMode TextureAddressModeV
+    {
+        readonly get => (TextureAddressMode)((_textureOptions >> 14) & 0x03u);
+        set
+        {
+            if ((uint)value > (uint)TextureAddressMode.MirrorRepeat)
+            {
+                throw new ArgumentOutOfRangeException(nameof(value));
+            }
+            _textureOptions = (_textureOptions & ~(0x03u << 14)) |
+                ((uint)value << 14);
+        }
+    }
+
+    public bool HasTextureOpacity
+    {
+        readonly get => (_textureOptions & (1u << 16)) != 0;
+        set => SetTextureOption(1u << 16, value);
+    }
+
+    public bool AllowExtendedTextureSourceRect
+    {
+        readonly get => (_textureOptions & (1u << 17)) != 0;
+        set => SetTextureOption(1u << 17, value);
+    }
+
+    public bool HasTextureCubicCoefficients
+    {
+        readonly get => (_textureOptions & (1u << 18)) != 0;
+        set => SetTextureOption(1u << 18, value);
+    }
+
+    public bool SnapTextureToPixels
+    {
+        readonly get => (_textureOptions & (1u << 19)) != 0;
+        set => SetTextureOption(1u << 19, value);
+    }
+
+    public bool HasImageEffect
+    {
+        readonly get => (_textureOptions & (1u << 20)) != 0;
+        set => SetTextureOption(1u << 20, value);
+    }
+
+    internal bool HasBufferedImageEffect
+    {
+        readonly get => (_textureOptions & (1u << 21)) != 0;
+        set => SetTextureOption(1u << 21, value);
+    }
+
+    private void SetTextureOption(uint mask, bool value)
+    {
+        if (value)
+        {
+            _textureOptions |= mask;
+        }
+        else
+        {
+            _textureOptions &= ~mask;
+        }
+    }
 
     public ImageEffectCommandData ImageEffect
     {
@@ -999,6 +1103,11 @@ internal readonly struct RetainedTextureCommandData
     private readonly TexturePatch[]? _patches;
     private readonly TextureSamplingMode _samplingMode;
     private readonly byte _maxAnisotropy;
+    private readonly TextureAddressMode _addressModeU;
+    private readonly TextureAddressMode _addressModeV;
+    private readonly float _opacity;
+    private readonly bool _hasOpacity;
+    private readonly bool _allowExtendedSourceRect;
     private readonly Vector2 _cubicCoefficients;
     private readonly bool _hasCubicCoefficients;
     private readonly bool _snapToPixels;
@@ -1014,6 +1123,11 @@ internal readonly struct RetainedTextureCommandData
         _patches = command.TexturePatches;
         _samplingMode = command.TextureSamplingMode;
         _maxAnisotropy = command.TextureMaxAnisotropy;
+        _addressModeU = command.TextureAddressModeU;
+        _addressModeV = command.TextureAddressModeV;
+        _opacity = command.TextureOpacity;
+        _hasOpacity = command.HasTextureOpacity;
+        _allowExtendedSourceRect = command.AllowExtendedTextureSourceRect;
         _cubicCoefficients = command.TextureCubicCoefficients;
         _hasCubicCoefficients = command.HasTextureCubicCoefficients;
         _snapToPixels = command.SnapTextureToPixels;
@@ -1030,6 +1144,11 @@ internal readonly struct RetainedTextureCommandData
         command.TexturePatches = _patches;
         command.TextureSamplingMode = _samplingMode;
         command.TextureMaxAnisotropy = _maxAnisotropy;
+        command.TextureAddressModeU = _addressModeU;
+        command.TextureAddressModeV = _addressModeV;
+        command.TextureOpacity = _opacity;
+        command.HasTextureOpacity = _hasOpacity;
+        command.AllowExtendedTextureSourceRect = _allowExtendedSourceRect;
         command.TextureCubicCoefficients = _cubicCoefficients;
         command.HasTextureCubicCoefficients = _hasCubicCoefficients;
         command.SnapTextureToPixels = _snapToPixels;
@@ -1422,6 +1541,11 @@ internal readonly struct RetainedRenderCommand
         command.TexturePatches is not null ||
         command.TextureSamplingMode != default ||
         command.TextureMaxAnisotropy != 0 ||
+        command.TextureAddressModeU != default ||
+        command.TextureAddressModeV != default ||
+        command.TextureOpacity != 0f ||
+        command.HasTextureOpacity ||
+        command.AllowExtendedTextureSourceRect ||
         command.TextureCubicCoefficients != default ||
         command.HasTextureCubicCoefficients ||
         command.SnapTextureToPixels ||
@@ -1526,11 +1650,8 @@ internal readonly struct RetainedSimpleTextureCommand
     private readonly Rect _source;
     private readonly int _hitTestId;
     private readonly int _transformIndex;
-    private readonly RenderCommandPresentationDependencies _presentationDependencies;
-    private readonly byte _samplingMode;
-    private readonly byte _maxAnisotropy;
-    private readonly bool _snapToPixels;
-    private readonly bool _isEdgeAliased;
+    private readonly uint _options;
+    private readonly float _opacity;
 
     public RetainedSimpleTextureCommand(
         in RenderCommand command,
@@ -1541,11 +1662,8 @@ internal readonly struct RetainedSimpleTextureCommand
         _source = command.SrcRect;
         _hitTestId = command.HitTestId;
         _transformIndex = transformIndex;
-        _presentationDependencies = command.PresentationDependencies;
-        _samplingMode = checked((byte)command.TextureSamplingMode);
-        _maxAnisotropy = command.TextureMaxAnisotropy;
-        _snapToPixels = command.SnapTextureToPixels;
-        _isEdgeAliased = command.IsEdgeAliased;
+        _options = PackOptions(in command);
+        _opacity = command.TextureOpacity;
     }
 
     public RenderCommand Expand(Matrix4x4[] transforms) =>
@@ -1557,12 +1675,29 @@ internal readonly struct RetainedSimpleTextureCommand
             Texture = _texture,
             SrcRect = _source,
             Transform = transforms[_transformIndex],
-            PresentationDependencies = _presentationDependencies,
-            TextureSamplingMode = (TextureSamplingMode)_samplingMode,
-            TextureMaxAnisotropy = _maxAnisotropy,
-            SnapTextureToPixels = _snapToPixels,
-            IsEdgeAliased = _isEdgeAliased
+            PresentationDependencies =
+                (RenderCommandPresentationDependencies)((_options >> 16) & 0xffu),
+            TextureSamplingMode = (TextureSamplingMode)(_options & 0x0fu),
+            TextureMaxAnisotropy = (byte)((_options >> 4) & 0xffu),
+            TextureAddressModeU = (TextureAddressMode)((_options >> 12) & 0x03u),
+            TextureAddressModeV = (TextureAddressMode)((_options >> 14) & 0x03u),
+            TextureOpacity = _opacity,
+            HasTextureOpacity = (_options & (1u << 24)) != 0,
+            AllowExtendedTextureSourceRect = (_options & (1u << 25)) != 0,
+            SnapTextureToPixels = (_options & (1u << 26)) != 0,
+            IsEdgeAliased = (_options & (1u << 27)) != 0
         };
+
+    private static uint PackOptions(in RenderCommand command) =>
+        ((uint)command.TextureSamplingMode & 0x0fu) |
+        ((uint)command.TextureMaxAnisotropy << 4) |
+        (((uint)command.TextureAddressModeU & 0x03u) << 12) |
+        (((uint)command.TextureAddressModeV & 0x03u) << 14) |
+        (((uint)command.PresentationDependencies & 0xffu) << 16) |
+        (command.HasTextureOpacity ? 1u << 24 : 0u) |
+        (command.AllowExtendedTextureSourceRect ? 1u << 25 : 0u) |
+        (command.SnapTextureToPixels ? 1u << 26 : 0u) |
+        (command.IsEdgeAliased ? 1u << 27 : 0u);
 }
 
 internal readonly struct RetainedSimpleRectangleCommand
@@ -2541,6 +2676,7 @@ public class GpuPicture :
     private readonly RetainedResourceLease[] _retainedResources;
     private bool _disposed;
 
+    internal bool IsDisposed => _disposed;
     public int RetainedResourceCount => _retainedResources.Length;
     internal int ImageEffectCount => _imageEffectBuffer.Length;
     internal GpuPictureCommandCollection RetainedCommands =>
@@ -4124,6 +4260,21 @@ public class DrawingContext :
         });
     }
 
+    /// <summary>
+    /// Records an exact analytic ellipse clip in local coordinates. Pair with
+    /// PopGeometryClip. Geometry is retained; recording does not initialize a
+    /// device or submit work. The transform stays on the command.
+    /// </summary>
+    public void PushEllipseClip(Vector2 center, float radiusX, float radiusY, Matrix4x4 transform = default)
+    {
+        if (!float.IsFinite(center.X) || !float.IsFinite(center.Y)
+            || !float.IsFinite(radiusX) || !float.IsFinite(radiusY) || radiusX <= 0 || radiusY <= 0
+            || !float.IsFinite(center.X + radiusX) || !float.IsFinite(center.X - radiusX)
+            || !float.IsFinite(center.Y + radiusY) || !float.IsFinite(center.Y - radiusY))
+            throw new ArgumentOutOfRangeException(nameof(radiusX), "Ellipse clip coordinates and positive radii must be finite.");
+        PushGeometryClip(PrimitivePathGeometry.CreateEllipse(center, radiusX, radiusY), transform);
+    }
+
     public void PopGeometryClip()
     {
         Commands.Add(new RenderCommand { Type = RenderCommandType.PopGeometryClip });
@@ -4720,6 +4871,35 @@ public class DrawingContext :
             Visual = visual,
             Transform = transform
         });
+    }
+
+    /// <summary>
+    /// Records a reference to one shared cached source. The caller owns its
+    /// lifetime and serializes updates with rendering. Recording is O(1), adds
+    /// one command and performs no rasterization or pixel transfer.
+    /// </summary>
+    public void DrawCachedPicture(CachedPicture picture, Matrix4x4 transform = default)
+    {
+        ArgumentNullException.ThrowIfNull(picture);
+        DrawVisual(picture.GetVisual(), transform);
+    }
+
+    /// <summary>
+    /// Records and independently retains a shared source lease. Repeated draws
+    /// retain it once per recording; picture snapshots preserve that ownership.
+    /// </summary>
+    public void DrawCachedPicture(CachedPictureLease lease, Matrix4x4 transform = default)
+    {
+        ArgumentNullException.ThrowIfNull(lease);
+        CachedPicture picture = lease.Picture;
+        Visual visual = picture.GetVisual();
+        if (!HasRetainedResourceIdentity(picture))
+        {
+            var retained = RetainedResourceLease.Create(lease.Clone(), picture);
+            try { (_retainedResources ??= new List<RetainedResourceLease>()).Add(retained); }
+            catch { retained.Dispose(); throw; }
+        }
+        DrawVisual(visual, transform);
     }
 
     private void RetainPictureResources(GpuPicture picture)

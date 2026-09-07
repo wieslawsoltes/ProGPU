@@ -29,6 +29,41 @@ contracts remain equivalent and the difference is documented and measured.
 The existing ProGPU implementation is authoritative for behavioral compatibility;
 third-party engines remain research and conformance references only.
 
+### A-1.1. Mandatory GPU-First Compute and SIMD Fallback Policy
+
+Compute-heavy work must use a typed, configurable execution policy whose default
+selects the fastest qualified implementation. The required preference order is native
+compute, then a compatible same-device render/fragment or other GPU shader-stage path,
+then intrinsic-SIMD CPU, with scalar CPU retained only as an explicit reference or last
+resort. Do not move a data-parallel workload to the CPU merely because one adapter or
+driver profile cannot safely run its compute pipeline.
+
+A different shader stage is eligible only when it can preserve the same observable
+algorithm without compute-only workgroup memory, barriers, atomics, indirect-dispatch
+semantics, or unavailable storage writes. Such fallbacks must share typed resources,
+quality constants, cache ownership, and differential tests with the compute path and must
+not add CPU readback, CPU repacking, per-item queue submission, or backend-specific managed
+workarounds. Kernels with compute-only semantics must use another exact GPU algorithm or
+continue to a CPU path explicitly; never silently approximate them.
+
+Expose fastest/automatic, forced native-compute, forced compatible GPU-shader, forced
+intrinsic-SIMD CPU, and forced scalar-reference preferences through typed configuration and
+diagnostics. Fastest/automatic is the product default and must use qualified adapter
+capabilities. Forced incompatible modes fail closed instead of silently selecting another
+path. Every implementation must report its resolved execution path so integration and
+performance gates can prove which path ran.
+
+Every CPU fallback and every other compute-heavy CPU hot path must use hardware intrinsics
+or runtime-intrinsic SIMD whenever its lanes are independent. Managed code should prefer
+`Vector128<T>`/`Vector256<T>`/`Vector512<T>`, `Vector<T>`, or platform intrinsics with a
+bounded scalar tail. Native code should use a shared SIMD abstraction or explicit
+architecture intrinsics with compile-time/runtime feature selection and a bounded scalar
+tail. Whole-buffer scalar loops are allowed only for genuine data dependencies or the
+explicit scalar reference mode; document why SIMD is inapplicable and differentially test
+SIMD results against that scalar oracle. SIMD paths must remain allocation-free,
+alignment-safe, span-based, and quality/bit compatible, and measured performance claims
+require representative benchmarks.
+
 When an equivalent feature exists elsewhere, implement it clean-room:
 
 * Start from authoritative specifications, public API contracts, primary research, and
@@ -115,6 +150,11 @@ include an explicit applicability audit for both implementations.
   use equivalent workloads and report comparable Release counters and p50/p95/p99 evidence,
   including stable replay, retained uploads, allocations, and GPU resource residency where
   applicable.
+* Every edit to `src/ProGPU.Native/src/Mil/progpu_native_mil.cpp`, including
+  implementation-only optimizations, changes the coverage ledger's source digest.
+  Run `python3 eng/progpu-generate-mil-coverage.py`, review the generated diff, and
+  run `eng/progpu-verify-native-contract.sh` before committing. Do not hand-edit
+  ledger hashes or disable freshness checks to make CI pass.
 * Keep shared public C records, generated C# wire declarations, canonical shaders, fixtures,
   and expected results synchronized. A wire or shader change is incomplete while generated
   output is stale or only one implementation consumes the new contract.

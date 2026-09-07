@@ -160,6 +160,15 @@ fn sample_gradient_color(brush: Brush, t: f32) -> vec4<f32> {
         return vec4<f32>(0.0, 0.0, 0.0, 0.0);
     }
 
+    if ((brush.spreadMethod & 0x40000000u) != 0u) {
+        if (t < 0.0) {
+            return brush.stopColors0;
+        }
+        if (t > 1.0) {
+            return brush.stopColors1;
+        }
+    }
+
     var previousColor = get_gradient_stop_color(brush, 0u);
     var previousOffset = get_gradient_stop_offset(brush, 0u);
     var i = 1u;
@@ -606,10 +615,10 @@ fn fs_main(input: VertexOutput) -> @location(0) vec4<f32> {
             } else {
                 finalColor = vec4<f32>(0.0);
             }
-        } else if ((brush.spreadMethod & 0x7fffffffu) == 3u && (t < 0.0 || t > 1.0)) {
+        } else if ((brush.spreadMethod & 0x3fffffffu) == 3u && (t < 0.0 || t > 1.0)) {
             finalColor = vec4<f32>(0.0);
         } else {
-            t = apply_gradient_spread(t, brush.spreadMethod & 0x7fffffffu);
+            t = apply_gradient_spread(t, brush.spreadMethod & 0x3fffffffu);
             let gradColor = sample_gradient_color(brush, t);
             finalColor = vec4<f32>(gradColor.rgb, gradColor.a * brush.opacity);
         }

@@ -32,13 +32,18 @@ required_entries=(
   runtimes/osx-arm64/native/libprogpu_native_dawn.dylib
   runtimes/win-x64/native/progpu_native.dll
   runtimes/win-x64/native/progpu_native_dawn.dll
+  runtimes/win-x64/native/progpu_native_direct2d.dll
   runtimes/win-arm64/native/progpu_native.dll
   runtimes/win-arm64/native/progpu_native_dawn.dll
+  runtimes/win-arm64/native/progpu_native_direct2d.dll
   build/native/include/progpu_native.h
   build/native/include/progpu_native_dawn.h
   build/native/include/progpu_native_compression.hpp
   build/native/include/progpu_native_hit_testing.hpp
   build/native/include/progpu_native_image.hpp
+  build/native/include/progpu_native_mil.h
+  build/native/include/progpu_native_mil.hpp
+  build/native/include/progpu_native_direct2d.h
   build/native/include/progpu_native_scene_builder.hpp
   build/native/include/progpu_native_text.hpp
   build/native/modules/progpu_native_compression.cppm
@@ -49,7 +54,7 @@ required_entries=(
   build/native/cmake/ProGPUNativeConfig.cmake
 )
 for rid in linux-x64 linux-arm64 osx-x64 osx-arm64; do
-  for library in compression hit_testing image text scene_builder; do
+  for library in compression hit_testing image mil text scene_builder; do
     required_entries+=(
       "runtimes/${rid}/native/sdk/libprogpu_native_${library}.a")
   done
@@ -57,7 +62,7 @@ done
 for rid in win-x64 win-arm64; do
   required_entries+=(
     "runtimes/${rid}/native/sdk/progpu_native_dawn.lib")
-  for library in compression hit_testing image text scene_builder; do
+  for library in compression hit_testing image mil text scene_builder; do
     required_entries+=(
       "runtimes/${rid}/native/sdk/progpu_native_${library}.lib")
   done
@@ -83,6 +88,51 @@ NUGET_PACKAGES="${consumer_packages}" dotnet run \
   --project "${consumer}" --configuration Release --no-restore \
   -p:ProGpuNativePackageSource="${package_output}" \
   -p:ProGpuNativePackageVersion="${package_version}"
+NUGET_PACKAGES="${consumer_packages}" dotnet run \
+  --project "${consumer}" --configuration Release --no-restore \
+  -p:ProGpuNativePackageSource="${package_output}" \
+  -p:ProGpuNativePackageVersion="${package_version}" -- \
+  --mil-drawing-group-only
+NUGET_PACKAGES="${consumer_packages}" dotnet run \
+  --project "${consumer}" --configuration Release --no-restore \
+  -p:ProGpuNativePackageSource="${package_output}" \
+  -p:ProGpuNativePackageVersion="${package_version}" -- \
+  --mil-glyph-run-drawing-only
+NUGET_PACKAGES="${consumer_packages}" dotnet run \
+  --project "${consumer}" --configuration Release --no-restore \
+  -p:ProGpuNativePackageSource="${package_output}" \
+  -p:ProGpuNativePackageVersion="${package_version}" -- \
+  --mil-text-render-options-only
+NUGET_PACKAGES="${consumer_packages}" dotnet run \
+  --project "${consumer}" --configuration Release --no-restore \
+  -p:ProGpuNativePackageSource="${package_output}" \
+  -p:ProGpuNativePackageVersion="${package_version}" -- \
+  --mil-visual-clip-only
+NUGET_PACKAGES="${consumer_packages}" dotnet run \
+  --project "${consumer}" --configuration Release --no-restore \
+  -p:ProGpuNativePackageSource="${package_output}" \
+  -p:ProGpuNativePackageVersion="${package_version}" -- \
+  --mil-visual-opacity-mask-only
+NUGET_PACKAGES="${consumer_packages}" dotnet run \
+  --project "${consumer}" --configuration Release --no-restore \
+  -p:ProGpuNativePackageSource="${package_output}" \
+  -p:ProGpuNativePackageVersion="${package_version}" -- \
+  --mil-visual-effect-only
+NUGET_PACKAGES="${consumer_packages}" dotnet run \
+  --project "${consumer}" --configuration Release --no-restore \
+  -p:ProGpuNativePackageSource="${package_output}" \
+  -p:ProGpuNativePackageVersion="${package_version}" -- \
+  --mil-visual-guideline-only
+NUGET_PACKAGES="${consumer_packages}" dotnet run \
+  --project "${consumer}" --configuration Release --no-restore \
+  -p:ProGpuNativePackageSource="${package_output}" \
+  -p:ProGpuNativePackageVersion="${package_version}" -- \
+  --mil-drawing-image-only
+NUGET_PACKAGES="${consumer_packages}" dotnet run \
+  --project "${consumer}" --configuration Release --no-restore \
+  -p:ProGpuNativePackageSource="${package_output}" \
+  -p:ProGpuNativePackageVersion="${package_version}" -- \
+  --mil-guideline-only
 
 native_consumer_root="$(mktemp -d /tmp/progpu-native-cpp-consumer.XXXXXX)"
 cleanup_native_consumer() {

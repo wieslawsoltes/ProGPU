@@ -1,0 +1,6627 @@
+{
+  "schemaVersion": 2,
+  "wireContract": {
+    "byteOrder": "little-endian",
+    "commandWidth": 4,
+    "managedLayoutPack": 1,
+    "nativeLayoutPack": 1
+  },
+  "source": {
+    "commandTypes": {
+      "path": "src/Microsoft.DotNet.Wpf/src/WpfGfx/include/Generated/wgx_command_types.h",
+      "sha256": "294039586fc93247c2c7bffcf757fe9871d16b841aa2d6fd7078b541928f7fb1"
+    },
+    "managedLayouts": {
+      "path": "src/Microsoft.DotNet.Wpf/src/WpfGfx/include/Generated/wgx_commands.cs",
+      "sha256": "277571b16b49a5bc7b366e6dd63f426fec7f3f7aa036b3c6a34c868f74345080",
+      "overlapCount": 108
+    },
+    "nativeLayouts": {
+      "path": "src/Microsoft.DotNet.Wpf/src/WpfGfx/include/Generated/wgx_commands.h",
+      "sha256": "6aba85e9296b2ac66d1c963269ef4b7337d6a453456735fb93732c29517a9f2b"
+    },
+    "renderDataLayouts": {
+      "path": "src/Microsoft.DotNet.Wpf/src/WpfGfx/include/Generated/wgx_renderdata_commands.h",
+      "sha256": "f80794cae775710097159bd9b313bd5604c7bf5093975082d6aa084cccf94bb5",
+      "overlapCount": 25
+    },
+    "managedRenderDataLayouts": {
+      "path": "src/Microsoft.DotNet.Wpf/src/PresentationCore/System/Windows/Media/Generated/RenderData.cs",
+      "sha256": "2bba656900fb11217564c8d8c1dba63da2732f28b3805c327b2067d7cf1e5adf",
+      "authoritativeCount": 25
+    }
+  },
+  "commands": [
+    {
+      "name": "invalid",
+      "wpfName": "MilCmdInvalid",
+      "value": 0
+    },
+    {
+      "name": "transport_sync_flush",
+      "wpfName": "MilCmdTransportSyncFlush",
+      "value": 1,
+      "layout": "MILCMD_TRANSPORT_SYNCFLUSH"
+    },
+    {
+      "name": "transport_destroy_resources_on_channel",
+      "wpfName": "MilCmdTransportDestroyResourcesOnChannel",
+      "value": 2,
+      "layout": "MILCMD_TRANSPORT_DESTROYRESOURCESONCHANNEL"
+    },
+    {
+      "name": "partition_register_for_notifications",
+      "wpfName": "MilCmdPartitionRegisterForNotifications",
+      "value": 3,
+      "layout": "MILCMD_PARTITION_REGISTERFORNOTIFICATIONS"
+    },
+    {
+      "name": "channel_request_tier",
+      "wpfName": "MilCmdChannelRequestTier",
+      "value": 4,
+      "layout": "MILCMD_CHANNEL_REQUESTTIER"
+    },
+    {
+      "name": "partition_set_vblank_sync_mode",
+      "wpfName": "MilCmdPartitionSetVBlankSyncMode",
+      "value": 5,
+      "layout": "MILCMD_PARTITION_SETVBLANKSYNCMODE"
+    },
+    {
+      "name": "partition_notify_present",
+      "wpfName": "MilCmdPartitionNotifyPresent",
+      "value": 6,
+      "layout": "MILCMD_PARTITION_NOTIFYPRESENT"
+    },
+    {
+      "name": "channel_create_resource",
+      "wpfName": "MilCmdChannelCreateResource",
+      "value": 7,
+      "layout": "MILCMD_CHANNEL_CREATERESOURCE"
+    },
+    {
+      "name": "channel_delete_resource",
+      "wpfName": "MilCmdChannelDeleteResource",
+      "value": 8,
+      "layout": "MILCMD_CHANNEL_DELETERESOURCE"
+    },
+    {
+      "name": "channel_duplicate_handle",
+      "wpfName": "MilCmdChannelDuplicateHandle",
+      "value": 9,
+      "layout": "MILCMD_CHANNEL_DUPLICATEHANDLE"
+    },
+    {
+      "name": "d3d_image",
+      "wpfName": "MilCmdD3DImage",
+      "value": 10,
+      "layout": "MILCMD_D3DIMAGE"
+    },
+    {
+      "name": "d3d_image_present",
+      "wpfName": "MilCmdD3DImagePresent",
+      "value": 11,
+      "layout": "MILCMD_D3DIMAGE_PRESENT"
+    },
+    {
+      "name": "bitmap_source",
+      "wpfName": "MilCmdBitmapSource",
+      "value": 12,
+      "layout": "MILCMD_BITMAP_SOURCE"
+    },
+    {
+      "name": "bitmap_invalidate",
+      "wpfName": "MilCmdBitmapInvalidate",
+      "value": 13,
+      "layout": "MILCMD_BITMAP_INVALIDATE"
+    },
+    {
+      "name": "double_resource",
+      "wpfName": "MilCmdDoubleResource",
+      "value": 14,
+      "layout": "MILCMD_DOUBLERESOURCE"
+    },
+    {
+      "name": "color_resource",
+      "wpfName": "MilCmdColorResource",
+      "value": 15,
+      "layout": "MILCMD_COLORRESOURCE"
+    },
+    {
+      "name": "point_resource",
+      "wpfName": "MilCmdPointResource",
+      "value": 16,
+      "layout": "MILCMD_POINTRESOURCE"
+    },
+    {
+      "name": "rect_resource",
+      "wpfName": "MilCmdRectResource",
+      "value": 17,
+      "layout": "MILCMD_RECTRESOURCE"
+    },
+    {
+      "name": "size_resource",
+      "wpfName": "MilCmdSizeResource",
+      "value": 18,
+      "layout": "MILCMD_SIZERESOURCE"
+    },
+    {
+      "name": "matrix_resource",
+      "wpfName": "MilCmdMatrixResource",
+      "value": 19,
+      "layout": "MILCMD_MATRIXRESOURCE"
+    },
+    {
+      "name": "point3d_resource",
+      "wpfName": "MilCmdPoint3DResource",
+      "value": 20,
+      "layout": "MILCMD_POINT3DRESOURCE"
+    },
+    {
+      "name": "vector3d_resource",
+      "wpfName": "MilCmdVector3DResource",
+      "value": 21,
+      "layout": "MILCMD_VECTOR3DRESOURCE"
+    },
+    {
+      "name": "quaternion_resource",
+      "wpfName": "MilCmdQuaternionResource",
+      "value": 22,
+      "layout": "MILCMD_QUATERNIONRESOURCE"
+    },
+    {
+      "name": "media_player",
+      "wpfName": "MilCmdMediaPlayer",
+      "value": 23,
+      "layout": "MILCMD_MEDIAPLAYER"
+    },
+    {
+      "name": "render_data",
+      "wpfName": "MilCmdRenderData",
+      "value": 24,
+      "layout": "MILCMD_RENDERDATA"
+    },
+    {
+      "name": "etw_event_resource",
+      "wpfName": "MilCmdEtwEventResource",
+      "value": 25,
+      "layout": "MILCMD_ETWEVENTRESOURCE"
+    },
+    {
+      "name": "visual_create",
+      "wpfName": "MilCmdVisualCreate",
+      "value": 26,
+      "layout": "MILCMD_VISUAL_CREATE"
+    },
+    {
+      "name": "visual_set_offset",
+      "wpfName": "MilCmdVisualSetOffset",
+      "value": 27,
+      "layout": "MILCMD_VISUAL_SETOFFSET"
+    },
+    {
+      "name": "visual_set_transform",
+      "wpfName": "MilCmdVisualSetTransform",
+      "value": 28,
+      "layout": "MILCMD_VISUAL_SETTRANSFORM"
+    },
+    {
+      "name": "visual_set_effect",
+      "wpfName": "MilCmdVisualSetEffect",
+      "value": 29,
+      "layout": "MILCMD_VISUAL_SETEFFECT"
+    },
+    {
+      "name": "visual_set_cache_mode",
+      "wpfName": "MilCmdVisualSetCacheMode",
+      "value": 30,
+      "layout": "MILCMD_VISUAL_SETCACHEMODE"
+    },
+    {
+      "name": "visual_set_clip",
+      "wpfName": "MilCmdVisualSetClip",
+      "value": 31,
+      "layout": "MILCMD_VISUAL_SETCLIP"
+    },
+    {
+      "name": "visual_set_alpha",
+      "wpfName": "MilCmdVisualSetAlpha",
+      "value": 32,
+      "layout": "MILCMD_VISUAL_SETALPHA"
+    },
+    {
+      "name": "visual_set_render_options",
+      "wpfName": "MilCmdVisualSetRenderOptions",
+      "value": 33,
+      "layout": "MILCMD_VISUAL_SETRENDEROPTIONS"
+    },
+    {
+      "name": "visual_set_content",
+      "wpfName": "MilCmdVisualSetContent",
+      "value": 34,
+      "layout": "MILCMD_VISUAL_SETCONTENT"
+    },
+    {
+      "name": "visual_set_alpha_mask",
+      "wpfName": "MilCmdVisualSetAlphaMask",
+      "value": 35,
+      "layout": "MILCMD_VISUAL_SETALPHAMASK"
+    },
+    {
+      "name": "visual_remove_all_children",
+      "wpfName": "MilCmdVisualRemoveAllChildren",
+      "value": 36,
+      "layout": "MILCMD_VISUAL_REMOVEALLCHILDREN"
+    },
+    {
+      "name": "visual_remove_child",
+      "wpfName": "MilCmdVisualRemoveChild",
+      "value": 37,
+      "layout": "MILCMD_VISUAL_REMOVECHILD"
+    },
+    {
+      "name": "visual_insert_child_at",
+      "wpfName": "MilCmdVisualInsertChildAt",
+      "value": 38,
+      "layout": "MILCMD_VISUAL_INSERTCHILDAT"
+    },
+    {
+      "name": "visual_set_guideline_collection",
+      "wpfName": "MilCmdVisualSetGuidelineCollection",
+      "value": 39,
+      "layout": "MILCMD_VISUAL_SETGUIDELINECOLLECTION"
+    },
+    {
+      "name": "visual_set_scrollable_area_clip",
+      "wpfName": "MilCmdVisualSetScrollableAreaClip",
+      "value": 40,
+      "layout": "MILCMD_VISUAL_SETSCROLLABLEAREACLIP"
+    },
+    {
+      "name": "viewport3d_visual_set_camera",
+      "wpfName": "MilCmdViewport3DVisualSetCamera",
+      "value": 41,
+      "layout": "MILCMD_VIEWPORT3DVISUAL_SETCAMERA"
+    },
+    {
+      "name": "viewport3d_visual_set_viewport",
+      "wpfName": "MilCmdViewport3DVisualSetViewport",
+      "value": 42,
+      "layout": "MILCMD_VIEWPORT3DVISUAL_SETVIEWPORT"
+    },
+    {
+      "name": "viewport3d_visual_set_3d_child",
+      "wpfName": "MilCmdViewport3DVisualSet3DChild",
+      "value": 43,
+      "layout": "MILCMD_VIEWPORT3DVISUAL_SET3DCHILD"
+    },
+    {
+      "name": "visual3d_set_content",
+      "wpfName": "MilCmdVisual3DSetContent",
+      "value": 44,
+      "layout": "MILCMD_VISUAL3D_SETCONTENT"
+    },
+    {
+      "name": "visual3d_set_transform",
+      "wpfName": "MilCmdVisual3DSetTransform",
+      "value": 45,
+      "layout": "MILCMD_VISUAL3D_SETTRANSFORM"
+    },
+    {
+      "name": "visual3d_remove_all_children",
+      "wpfName": "MilCmdVisual3DRemoveAllChildren",
+      "value": 46,
+      "layout": "MILCMD_VISUAL3D_REMOVEALLCHILDREN"
+    },
+    {
+      "name": "visual3d_remove_child",
+      "wpfName": "MilCmdVisual3DRemoveChild",
+      "value": 47,
+      "layout": "MILCMD_VISUAL3D_REMOVECHILD"
+    },
+    {
+      "name": "visual3d_insert_child_at",
+      "wpfName": "MilCmdVisual3DInsertChildAt",
+      "value": 48,
+      "layout": "MILCMD_VISUAL3D_INSERTCHILDAT"
+    },
+    {
+      "name": "hwnd_target_create",
+      "wpfName": "MilCmdHwndTargetCreate",
+      "value": 49,
+      "layout": "MILCMD_HWNDTARGET_CREATE"
+    },
+    {
+      "name": "hwnd_target_suppress_layered",
+      "wpfName": "MilCmdHwndTargetSuppressLayered",
+      "value": 50,
+      "layout": "MILCMD_HWNDTARGET_SUPPRESSLAYERED"
+    },
+    {
+      "name": "target_update_window_settings",
+      "wpfName": "MilCmdTargetUpdateWindowSettings",
+      "value": 51,
+      "layout": "MILCMD_TARGET_UPDATEWINDOWSETTINGS"
+    },
+    {
+      "name": "generic_target_create",
+      "wpfName": "MilCmdGenericTargetCreate",
+      "value": 52,
+      "layout": "MILCMD_GENERICTARGET_CREATE"
+    },
+    {
+      "name": "target_set_root",
+      "wpfName": "MilCmdTargetSetRoot",
+      "value": 53,
+      "layout": "MILCMD_TARGET_SETROOT"
+    },
+    {
+      "name": "target_set_clear_color",
+      "wpfName": "MilCmdTargetSetClearColor",
+      "value": 54,
+      "layout": "MILCMD_TARGET_SETCLEARCOLOR"
+    },
+    {
+      "name": "target_invalidate",
+      "wpfName": "MilCmdTargetInvalidate",
+      "value": 55,
+      "layout": "MILCMD_TARGET_INVALIDATE"
+    },
+    {
+      "name": "target_set_flags",
+      "wpfName": "MilCmdTargetSetFlags",
+      "value": 56,
+      "layout": "MILCMD_TARGET_SETFLAGS"
+    },
+    {
+      "name": "hwnd_target_dpi_changed",
+      "wpfName": "MilCmdHwndTargetDpiChanged",
+      "value": 57,
+      "layout": "MILCMD_HWNDTARGET_DPICHANGED"
+    },
+    {
+      "name": "glyph_run_create",
+      "wpfName": "MilCmdGlyphRunCreate",
+      "value": 58,
+      "layout": "MILCMD_GLYPHRUN_CREATE"
+    },
+    {
+      "name": "double_buffered_bitmap",
+      "wpfName": "MilCmdDoubleBufferedBitmap",
+      "value": 59,
+      "layout": "MILCMD_DOUBLEBUFFEREDBITMAP"
+    },
+    {
+      "name": "double_buffered_bitmap_copy_forward",
+      "wpfName": "MilCmdDoubleBufferedBitmapCopyForward",
+      "value": 60,
+      "layout": "MILCMD_DOUBLEBUFFEREDBITMAP_COPYFORWARD"
+    },
+    {
+      "name": "partition_notify_policy_change_for_non_interactive_mode",
+      "wpfName": "MilCmdPartitionNotifyPolicyChangeForNonInteractiveMode",
+      "value": 61,
+      "layout": "MILCMD_PARTITION_NOTIFYPOLICYCHANGEFORNONINTERACTIVEMODE"
+    },
+    {
+      "name": "draw_line",
+      "wpfName": "MilDrawLine",
+      "value": 62,
+      "layout": "MILCMD_DRAW_LINE"
+    },
+    {
+      "name": "draw_line_animate",
+      "wpfName": "MilDrawLineAnimate",
+      "value": 63,
+      "layout": "MILCMD_DRAW_LINE_ANIMATE"
+    },
+    {
+      "name": "draw_rectangle",
+      "wpfName": "MilDrawRectangle",
+      "value": 64,
+      "layout": "MILCMD_DRAW_RECTANGLE"
+    },
+    {
+      "name": "draw_rectangle_animate",
+      "wpfName": "MilDrawRectangleAnimate",
+      "value": 65,
+      "layout": "MILCMD_DRAW_RECTANGLE_ANIMATE"
+    },
+    {
+      "name": "draw_rounded_rectangle",
+      "wpfName": "MilDrawRoundedRectangle",
+      "value": 66,
+      "layout": "MILCMD_DRAW_ROUNDED_RECTANGLE"
+    },
+    {
+      "name": "draw_rounded_rectangle_animate",
+      "wpfName": "MilDrawRoundedRectangleAnimate",
+      "value": 67,
+      "layout": "MILCMD_DRAW_ROUNDED_RECTANGLE_ANIMATE"
+    },
+    {
+      "name": "draw_ellipse",
+      "wpfName": "MilDrawEllipse",
+      "value": 68,
+      "layout": "MILCMD_DRAW_ELLIPSE"
+    },
+    {
+      "name": "draw_ellipse_animate",
+      "wpfName": "MilDrawEllipseAnimate",
+      "value": 69,
+      "layout": "MILCMD_DRAW_ELLIPSE_ANIMATE"
+    },
+    {
+      "name": "draw_geometry",
+      "wpfName": "MilDrawGeometry",
+      "value": 70,
+      "layout": "MILCMD_DRAW_GEOMETRY"
+    },
+    {
+      "name": "draw_image",
+      "wpfName": "MilDrawImage",
+      "value": 71,
+      "layout": "MILCMD_DRAW_IMAGE"
+    },
+    {
+      "name": "draw_image_animate",
+      "wpfName": "MilDrawImageAnimate",
+      "value": 72,
+      "layout": "MILCMD_DRAW_IMAGE_ANIMATE"
+    },
+    {
+      "name": "draw_glyph_run",
+      "wpfName": "MilDrawGlyphRun",
+      "value": 73,
+      "layout": "MILCMD_DRAW_GLYPH_RUN"
+    },
+    {
+      "name": "draw_drawing",
+      "wpfName": "MilDrawDrawing",
+      "value": 74,
+      "layout": "MILCMD_DRAW_DRAWING"
+    },
+    {
+      "name": "draw_video",
+      "wpfName": "MilDrawVideo",
+      "value": 75,
+      "layout": "MILCMD_DRAW_VIDEO"
+    },
+    {
+      "name": "draw_video_animate",
+      "wpfName": "MilDrawVideoAnimate",
+      "value": 76,
+      "layout": "MILCMD_DRAW_VIDEO_ANIMATE"
+    },
+    {
+      "name": "push_clip",
+      "wpfName": "MilPushClip",
+      "value": 77,
+      "layout": "MILCMD_PUSH_CLIP"
+    },
+    {
+      "name": "push_opacity_mask",
+      "wpfName": "MilPushOpacityMask",
+      "value": 78,
+      "layout": "MILCMD_PUSH_OPACITY_MASK"
+    },
+    {
+      "name": "push_opacity",
+      "wpfName": "MilPushOpacity",
+      "value": 79,
+      "layout": "MILCMD_PUSH_OPACITY"
+    },
+    {
+      "name": "push_opacity_animate",
+      "wpfName": "MilPushOpacityAnimate",
+      "value": 80,
+      "layout": "MILCMD_PUSH_OPACITY_ANIMATE"
+    },
+    {
+      "name": "push_transform",
+      "wpfName": "MilPushTransform",
+      "value": 81,
+      "layout": "MILCMD_PUSH_TRANSFORM"
+    },
+    {
+      "name": "push_guideline_set",
+      "wpfName": "MilPushGuidelineSet",
+      "value": 82,
+      "layout": "MILCMD_PUSH_GUIDELINE_SET"
+    },
+    {
+      "name": "push_guideline_y1",
+      "wpfName": "MilPushGuidelineY1",
+      "value": 83,
+      "layout": "MILCMD_PUSH_GUIDELINE_Y1"
+    },
+    {
+      "name": "push_guideline_y2",
+      "wpfName": "MilPushGuidelineY2",
+      "value": 84,
+      "layout": "MILCMD_PUSH_GUIDELINE_Y2"
+    },
+    {
+      "name": "push_effect",
+      "wpfName": "MilPushEffect",
+      "value": 85,
+      "layout": "MILCMD_PUSH_EFFECT"
+    },
+    {
+      "name": "pop",
+      "wpfName": "MilPop",
+      "value": 86,
+      "layout": "MILCMD_POP"
+    },
+    {
+      "name": "axis_angle_rotation3d",
+      "wpfName": "MilCmdAxisAngleRotation3D",
+      "value": 87,
+      "layout": "MILCMD_AXISANGLEROTATION3D"
+    },
+    {
+      "name": "quaternion_rotation3d",
+      "wpfName": "MilCmdQuaternionRotation3D",
+      "value": 88,
+      "layout": "MILCMD_QUATERNIONROTATION3D"
+    },
+    {
+      "name": "perspective_camera",
+      "wpfName": "MilCmdPerspectiveCamera",
+      "value": 89,
+      "layout": "MILCMD_PERSPECTIVECAMERA"
+    },
+    {
+      "name": "orthographic_camera",
+      "wpfName": "MilCmdOrthographicCamera",
+      "value": 90,
+      "layout": "MILCMD_ORTHOGRAPHICCAMERA"
+    },
+    {
+      "name": "matrix_camera",
+      "wpfName": "MilCmdMatrixCamera",
+      "value": 91,
+      "layout": "MILCMD_MATRIXCAMERA"
+    },
+    {
+      "name": "model3d_group",
+      "wpfName": "MilCmdModel3DGroup",
+      "value": 92,
+      "layout": "MILCMD_MODEL3DGROUP"
+    },
+    {
+      "name": "ambient_light",
+      "wpfName": "MilCmdAmbientLight",
+      "value": 93,
+      "layout": "MILCMD_AMBIENTLIGHT"
+    },
+    {
+      "name": "directional_light",
+      "wpfName": "MilCmdDirectionalLight",
+      "value": 94,
+      "layout": "MILCMD_DIRECTIONALLIGHT"
+    },
+    {
+      "name": "point_light",
+      "wpfName": "MilCmdPointLight",
+      "value": 95,
+      "layout": "MILCMD_POINTLIGHT"
+    },
+    {
+      "name": "spot_light",
+      "wpfName": "MilCmdSpotLight",
+      "value": 96,
+      "layout": "MILCMD_SPOTLIGHT"
+    },
+    {
+      "name": "geometry_model3d",
+      "wpfName": "MilCmdGeometryModel3D",
+      "value": 97,
+      "layout": "MILCMD_GEOMETRYMODEL3D"
+    },
+    {
+      "name": "mesh_geometry3d",
+      "wpfName": "MilCmdMeshGeometry3D",
+      "value": 98,
+      "layout": "MILCMD_MESHGEOMETRY3D"
+    },
+    {
+      "name": "material_group",
+      "wpfName": "MilCmdMaterialGroup",
+      "value": 99,
+      "layout": "MILCMD_MATERIALGROUP"
+    },
+    {
+      "name": "diffuse_material",
+      "wpfName": "MilCmdDiffuseMaterial",
+      "value": 100,
+      "layout": "MILCMD_DIFFUSEMATERIAL"
+    },
+    {
+      "name": "specular_material",
+      "wpfName": "MilCmdSpecularMaterial",
+      "value": 101,
+      "layout": "MILCMD_SPECULARMATERIAL"
+    },
+    {
+      "name": "emissive_material",
+      "wpfName": "MilCmdEmissiveMaterial",
+      "value": 102,
+      "layout": "MILCMD_EMISSIVEMATERIAL"
+    },
+    {
+      "name": "transform3d_group",
+      "wpfName": "MilCmdTransform3DGroup",
+      "value": 103,
+      "layout": "MILCMD_TRANSFORM3DGROUP"
+    },
+    {
+      "name": "translate_transform3d",
+      "wpfName": "MilCmdTranslateTransform3D",
+      "value": 104,
+      "layout": "MILCMD_TRANSLATETRANSFORM3D"
+    },
+    {
+      "name": "scale_transform3d",
+      "wpfName": "MilCmdScaleTransform3D",
+      "value": 105,
+      "layout": "MILCMD_SCALETRANSFORM3D"
+    },
+    {
+      "name": "rotate_transform3d",
+      "wpfName": "MilCmdRotateTransform3D",
+      "value": 106,
+      "layout": "MILCMD_ROTATETRANSFORM3D"
+    },
+    {
+      "name": "matrix_transform3d",
+      "wpfName": "MilCmdMatrixTransform3D",
+      "value": 107,
+      "layout": "MILCMD_MATRIXTRANSFORM3D"
+    },
+    {
+      "name": "pixel_shader",
+      "wpfName": "MilCmdPixelShader",
+      "value": 108,
+      "layout": "MILCMD_PIXELSHADER"
+    },
+    {
+      "name": "implicit_input_brush",
+      "wpfName": "MilCmdImplicitInputBrush",
+      "value": 109,
+      "layout": "MILCMD_IMPLICITINPUTBRUSH"
+    },
+    {
+      "name": "blur_effect",
+      "wpfName": "MilCmdBlurEffect",
+      "value": 110,
+      "layout": "MILCMD_BLUREFFECT"
+    },
+    {
+      "name": "drop_shadow_effect",
+      "wpfName": "MilCmdDropShadowEffect",
+      "value": 111,
+      "layout": "MILCMD_DROPSHADOWEFFECT"
+    },
+    {
+      "name": "shader_effect",
+      "wpfName": "MilCmdShaderEffect",
+      "value": 112,
+      "layout": "MILCMD_SHADEREFFECT"
+    },
+    {
+      "name": "drawing_image",
+      "wpfName": "MilCmdDrawingImage",
+      "value": 113,
+      "layout": "MILCMD_DRAWINGIMAGE"
+    },
+    {
+      "name": "transform_group",
+      "wpfName": "MilCmdTransformGroup",
+      "value": 114,
+      "layout": "MILCMD_TRANSFORMGROUP"
+    },
+    {
+      "name": "translate_transform",
+      "wpfName": "MilCmdTranslateTransform",
+      "value": 115,
+      "layout": "MILCMD_TRANSLATETRANSFORM"
+    },
+    {
+      "name": "scale_transform",
+      "wpfName": "MilCmdScaleTransform",
+      "value": 116,
+      "layout": "MILCMD_SCALETRANSFORM"
+    },
+    {
+      "name": "skew_transform",
+      "wpfName": "MilCmdSkewTransform",
+      "value": 117,
+      "layout": "MILCMD_SKEWTRANSFORM"
+    },
+    {
+      "name": "rotate_transform",
+      "wpfName": "MilCmdRotateTransform",
+      "value": 118,
+      "layout": "MILCMD_ROTATETRANSFORM"
+    },
+    {
+      "name": "matrix_transform",
+      "wpfName": "MilCmdMatrixTransform",
+      "value": 119,
+      "layout": "MILCMD_MATRIXTRANSFORM"
+    },
+    {
+      "name": "line_geometry",
+      "wpfName": "MilCmdLineGeometry",
+      "value": 120,
+      "layout": "MILCMD_LINEGEOMETRY"
+    },
+    {
+      "name": "rectangle_geometry",
+      "wpfName": "MilCmdRectangleGeometry",
+      "value": 121,
+      "layout": "MILCMD_RECTANGLEGEOMETRY"
+    },
+    {
+      "name": "ellipse_geometry",
+      "wpfName": "MilCmdEllipseGeometry",
+      "value": 122,
+      "layout": "MILCMD_ELLIPSEGEOMETRY"
+    },
+    {
+      "name": "geometry_group",
+      "wpfName": "MilCmdGeometryGroup",
+      "value": 123,
+      "layout": "MILCMD_GEOMETRYGROUP"
+    },
+    {
+      "name": "combined_geometry",
+      "wpfName": "MilCmdCombinedGeometry",
+      "value": 124,
+      "layout": "MILCMD_COMBINEDGEOMETRY"
+    },
+    {
+      "name": "path_geometry",
+      "wpfName": "MilCmdPathGeometry",
+      "value": 125,
+      "layout": "MILCMD_PATHGEOMETRY"
+    },
+    {
+      "name": "solid_color_brush",
+      "wpfName": "MilCmdSolidColorBrush",
+      "value": 126,
+      "layout": "MILCMD_SOLIDCOLORBRUSH"
+    },
+    {
+      "name": "linear_gradient_brush",
+      "wpfName": "MilCmdLinearGradientBrush",
+      "value": 127,
+      "layout": "MILCMD_LINEARGRADIENTBRUSH"
+    },
+    {
+      "name": "radial_gradient_brush",
+      "wpfName": "MilCmdRadialGradientBrush",
+      "value": 128,
+      "layout": "MILCMD_RADIALGRADIENTBRUSH"
+    },
+    {
+      "name": "image_brush",
+      "wpfName": "MilCmdImageBrush",
+      "value": 129,
+      "layout": "MILCMD_IMAGEBRUSH"
+    },
+    {
+      "name": "drawing_brush",
+      "wpfName": "MilCmdDrawingBrush",
+      "value": 130,
+      "layout": "MILCMD_DRAWINGBRUSH"
+    },
+    {
+      "name": "visual_brush",
+      "wpfName": "MilCmdVisualBrush",
+      "value": 131,
+      "layout": "MILCMD_VISUALBRUSH"
+    },
+    {
+      "name": "bitmap_cache_brush",
+      "wpfName": "MilCmdBitmapCacheBrush",
+      "value": 132,
+      "layout": "MILCMD_BITMAPCACHEBRUSH"
+    },
+    {
+      "name": "dash_style",
+      "wpfName": "MilCmdDashStyle",
+      "value": 133,
+      "layout": "MILCMD_DASHSTYLE"
+    },
+    {
+      "name": "pen",
+      "wpfName": "MilCmdPen",
+      "value": 134,
+      "layout": "MILCMD_PEN"
+    },
+    {
+      "name": "geometry_drawing",
+      "wpfName": "MilCmdGeometryDrawing",
+      "value": 135,
+      "layout": "MILCMD_GEOMETRYDRAWING"
+    },
+    {
+      "name": "glyph_run_drawing",
+      "wpfName": "MilCmdGlyphRunDrawing",
+      "value": 136,
+      "layout": "MILCMD_GLYPHRUNDRAWING"
+    },
+    {
+      "name": "image_drawing",
+      "wpfName": "MilCmdImageDrawing",
+      "value": 137,
+      "layout": "MILCMD_IMAGEDRAWING"
+    },
+    {
+      "name": "video_drawing",
+      "wpfName": "MilCmdVideoDrawing",
+      "value": 138,
+      "layout": "MILCMD_VIDEODRAWING"
+    },
+    {
+      "name": "drawing_group",
+      "wpfName": "MilCmdDrawingGroup",
+      "value": 139,
+      "layout": "MILCMD_DRAWINGGROUP"
+    },
+    {
+      "name": "guideline_set",
+      "wpfName": "MilCmdGuidelineSet",
+      "value": 140,
+      "layout": "MILCMD_GUIDELINESET"
+    },
+    {
+      "name": "bitmap_cache",
+      "wpfName": "MilCmdBitmapCache",
+      "value": 141,
+      "layout": "MILCMD_BITMAPCACHE"
+    },
+    {
+      "name": "validate_structure_order",
+      "wpfName": "MilCmdValidateStructureOrder",
+      "value": 142
+    }
+  ],
+  "layouts": [
+    {
+      "name": "MILCMD_TRANSPORT_SYNCFLUSH",
+      "fixedSize": 4,
+      "sourceKind": "native-command",
+      "fields": [
+        {
+          "name": "Type",
+          "type": "MILCMD",
+          "offset": 0,
+          "size": 4
+        }
+      ]
+    },
+    {
+      "name": "MILCMD_TRANSPORT_DESTROYRESOURCESONCHANNEL",
+      "fixedSize": 8,
+      "sourceKind": "native-command",
+      "fields": [
+        {
+          "name": "Type",
+          "type": "MILCMD",
+          "offset": 0,
+          "size": 4
+        },
+        {
+          "name": "hChannel",
+          "type": "HMIL_CHANNEL",
+          "offset": 4,
+          "size": 4
+        }
+      ]
+    },
+    {
+      "name": "MILCMD_PARTITION_REGISTERFORNOTIFICATIONS",
+      "fixedSize": 8,
+      "sourceKind": "native-command",
+      "fields": [
+        {
+          "name": "Type",
+          "type": "MILCMD",
+          "offset": 0,
+          "size": 4
+        },
+        {
+          "name": "Enable",
+          "type": "BOOL",
+          "offset": 4,
+          "size": 4
+        }
+      ]
+    },
+    {
+      "name": "MILCMD_CHANNEL_REQUESTTIER",
+      "fixedSize": 8,
+      "sourceKind": "native-command",
+      "fields": [
+        {
+          "name": "Type",
+          "type": "MILCMD",
+          "offset": 0,
+          "size": 4
+        },
+        {
+          "name": "ReturnCommonMinimum",
+          "type": "BOOL",
+          "offset": 4,
+          "size": 4
+        }
+      ]
+    },
+    {
+      "name": "MILCMD_PARTITION_SETVBLANKSYNCMODE",
+      "fixedSize": 8,
+      "sourceKind": "native-command",
+      "fields": [
+        {
+          "name": "Type",
+          "type": "MILCMD",
+          "offset": 0,
+          "size": 4
+        },
+        {
+          "name": "Enable",
+          "type": "BOOL",
+          "offset": 4,
+          "size": 4
+        }
+      ]
+    },
+    {
+      "name": "MILCMD_PARTITION_NOTIFYPRESENT",
+      "fixedSize": 12,
+      "sourceKind": "native-command",
+      "fields": [
+        {
+          "name": "Type",
+          "type": "MILCMD",
+          "offset": 0,
+          "size": 4
+        },
+        {
+          "name": "FrameTime",
+          "type": "UINT64",
+          "offset": 4,
+          "size": 8
+        }
+      ]
+    },
+    {
+      "name": "MILCMD_CHANNEL_CREATERESOURCE",
+      "fixedSize": 12,
+      "sourceKind": "native-command",
+      "fields": [
+        {
+          "name": "Type",
+          "type": "MILCMD",
+          "offset": 0,
+          "size": 4
+        },
+        {
+          "name": "Handle",
+          "type": "HMIL_RESOURCE",
+          "offset": 4,
+          "size": 4
+        },
+        {
+          "name": "resType",
+          "type": "MIL_RESOURCE_TYPE",
+          "offset": 8,
+          "size": 4
+        }
+      ]
+    },
+    {
+      "name": "MILCMD_CHANNEL_DELETERESOURCE",
+      "fixedSize": 12,
+      "sourceKind": "native-command",
+      "fields": [
+        {
+          "name": "Type",
+          "type": "MILCMD",
+          "offset": 0,
+          "size": 4
+        },
+        {
+          "name": "Handle",
+          "type": "HMIL_RESOURCE",
+          "offset": 4,
+          "size": 4
+        },
+        {
+          "name": "resType",
+          "type": "MIL_RESOURCE_TYPE",
+          "offset": 8,
+          "size": 4
+        }
+      ]
+    },
+    {
+      "name": "MILCMD_CHANNEL_DUPLICATEHANDLE",
+      "fixedSize": 16,
+      "sourceKind": "native-command",
+      "fields": [
+        {
+          "name": "Type",
+          "type": "MILCMD",
+          "offset": 0,
+          "size": 4
+        },
+        {
+          "name": "Original",
+          "type": "HMIL_RESOURCE",
+          "offset": 4,
+          "size": 4
+        },
+        {
+          "name": "TargetChannel",
+          "type": "HMIL_CHANNEL",
+          "offset": 8,
+          "size": 4
+        },
+        {
+          "name": "Duplicate",
+          "type": "HMIL_RESOURCE",
+          "offset": 12,
+          "size": 4
+        }
+      ]
+    },
+    {
+      "name": "MILCMD_D3DIMAGE",
+      "fixedSize": 24,
+      "sourceKind": "native-command",
+      "fields": [
+        {
+          "name": "Type",
+          "type": "MILCMD",
+          "offset": 0,
+          "size": 4
+        },
+        {
+          "name": "Handle",
+          "type": "HMIL_RESOURCE",
+          "offset": 4,
+          "size": 4
+        },
+        {
+          "name": "pInteropDeviceBitmap",
+          "type": "UINT64",
+          "offset": 8,
+          "size": 8
+        },
+        {
+          "name": "pSoftwareBitmap",
+          "type": "UINT64",
+          "offset": 16,
+          "size": 8
+        }
+      ]
+    },
+    {
+      "name": "MILCMD_D3DIMAGE_PRESENT",
+      "fixedSize": 16,
+      "sourceKind": "native-command",
+      "fields": [
+        {
+          "name": "Type",
+          "type": "MILCMD",
+          "offset": 0,
+          "size": 4
+        },
+        {
+          "name": "Handle",
+          "type": "HMIL_RESOURCE",
+          "offset": 4,
+          "size": 4
+        },
+        {
+          "name": "hEvent",
+          "type": "UINT64",
+          "offset": 8,
+          "size": 8
+        }
+      ]
+    },
+    {
+      "name": "MILCMD_BITMAP_SOURCE",
+      "fixedSize": 16,
+      "sourceKind": "native-command",
+      "fields": [
+        {
+          "name": "Type",
+          "type": "MILCMD",
+          "offset": 0,
+          "size": 4
+        },
+        {
+          "name": "Handle",
+          "type": "HMIL_RESOURCE",
+          "offset": 4,
+          "size": 4
+        },
+        {
+          "name": "pIBitmap",
+          "type": "IWICBitmapSource*",
+          "offset": 8,
+          "size": 8
+        }
+      ]
+    },
+    {
+      "name": "MILCMD_BITMAP_INVALIDATE",
+      "fixedSize": 28,
+      "sourceKind": "native-command",
+      "fields": [
+        {
+          "name": "Type",
+          "type": "MILCMD",
+          "offset": 0,
+          "size": 4
+        },
+        {
+          "name": "Handle",
+          "type": "HMIL_RESOURCE",
+          "offset": 4,
+          "size": 4
+        },
+        {
+          "name": "UseDirtyRect",
+          "type": "BOOL",
+          "offset": 8,
+          "size": 4
+        },
+        {
+          "name": "DirtyRect",
+          "type": "RECT",
+          "offset": 12,
+          "size": 16
+        }
+      ]
+    },
+    {
+      "name": "MILCMD_DOUBLERESOURCE",
+      "fixedSize": 16,
+      "sourceKind": "native-command",
+      "fields": [
+        {
+          "name": "Type",
+          "type": "MILCMD",
+          "offset": 0,
+          "size": 4
+        },
+        {
+          "name": "Handle",
+          "type": "HMIL_RESOURCE",
+          "offset": 4,
+          "size": 4
+        },
+        {
+          "name": "Value",
+          "type": "DOUBLE",
+          "offset": 8,
+          "size": 8
+        }
+      ]
+    },
+    {
+      "name": "MILCMD_COLORRESOURCE",
+      "fixedSize": 24,
+      "sourceKind": "native-command",
+      "fields": [
+        {
+          "name": "Type",
+          "type": "MILCMD",
+          "offset": 0,
+          "size": 4
+        },
+        {
+          "name": "Handle",
+          "type": "HMIL_RESOURCE",
+          "offset": 4,
+          "size": 4
+        },
+        {
+          "name": "Value",
+          "type": "MilColorF",
+          "offset": 8,
+          "size": 16
+        }
+      ]
+    },
+    {
+      "name": "MILCMD_POINTRESOURCE",
+      "fixedSize": 24,
+      "sourceKind": "native-command",
+      "fields": [
+        {
+          "name": "Type",
+          "type": "MILCMD",
+          "offset": 0,
+          "size": 4
+        },
+        {
+          "name": "Handle",
+          "type": "HMIL_RESOURCE",
+          "offset": 4,
+          "size": 4
+        },
+        {
+          "name": "Value",
+          "type": "MilPoint2D",
+          "offset": 8,
+          "size": 16
+        }
+      ]
+    },
+    {
+      "name": "MILCMD_RECTRESOURCE",
+      "fixedSize": 40,
+      "sourceKind": "native-command",
+      "fields": [
+        {
+          "name": "Type",
+          "type": "MILCMD",
+          "offset": 0,
+          "size": 4
+        },
+        {
+          "name": "Handle",
+          "type": "HMIL_RESOURCE",
+          "offset": 4,
+          "size": 4
+        },
+        {
+          "name": "Value",
+          "type": "MilPointAndSizeD",
+          "offset": 8,
+          "size": 32
+        }
+      ]
+    },
+    {
+      "name": "MILCMD_SIZERESOURCE",
+      "fixedSize": 24,
+      "sourceKind": "native-command",
+      "fields": [
+        {
+          "name": "Type",
+          "type": "MILCMD",
+          "offset": 0,
+          "size": 4
+        },
+        {
+          "name": "Handle",
+          "type": "HMIL_RESOURCE",
+          "offset": 4,
+          "size": 4
+        },
+        {
+          "name": "Value",
+          "type": "MilSizeD",
+          "offset": 8,
+          "size": 16
+        }
+      ]
+    },
+    {
+      "name": "MILCMD_MATRIXRESOURCE",
+      "fixedSize": 56,
+      "sourceKind": "native-command",
+      "fields": [
+        {
+          "name": "Type",
+          "type": "MILCMD",
+          "offset": 0,
+          "size": 4
+        },
+        {
+          "name": "Handle",
+          "type": "HMIL_RESOURCE",
+          "offset": 4,
+          "size": 4
+        },
+        {
+          "name": "Value",
+          "type": "MilMatrix3x2D",
+          "offset": 8,
+          "size": 48
+        }
+      ]
+    },
+    {
+      "name": "MILCMD_POINT3DRESOURCE",
+      "fixedSize": 20,
+      "sourceKind": "native-command",
+      "fields": [
+        {
+          "name": "Type",
+          "type": "MILCMD",
+          "offset": 0,
+          "size": 4
+        },
+        {
+          "name": "Handle",
+          "type": "HMIL_RESOURCE",
+          "offset": 4,
+          "size": 4
+        },
+        {
+          "name": "Value",
+          "type": "MilPoint3F",
+          "offset": 8,
+          "size": 12
+        }
+      ]
+    },
+    {
+      "name": "MILCMD_VECTOR3DRESOURCE",
+      "fixedSize": 20,
+      "sourceKind": "native-command",
+      "fields": [
+        {
+          "name": "Type",
+          "type": "MILCMD",
+          "offset": 0,
+          "size": 4
+        },
+        {
+          "name": "Handle",
+          "type": "HMIL_RESOURCE",
+          "offset": 4,
+          "size": 4
+        },
+        {
+          "name": "Value",
+          "type": "MilPoint3F",
+          "offset": 8,
+          "size": 12
+        }
+      ]
+    },
+    {
+      "name": "MILCMD_QUATERNIONRESOURCE",
+      "fixedSize": 24,
+      "sourceKind": "native-command",
+      "fields": [
+        {
+          "name": "Type",
+          "type": "MILCMD",
+          "offset": 0,
+          "size": 4
+        },
+        {
+          "name": "Handle",
+          "type": "HMIL_RESOURCE",
+          "offset": 4,
+          "size": 4
+        },
+        {
+          "name": "Value",
+          "type": "MilQuaternionF",
+          "offset": 8,
+          "size": 16
+        }
+      ]
+    },
+    {
+      "name": "MILCMD_MEDIAPLAYER",
+      "fixedSize": 20,
+      "sourceKind": "native-command",
+      "fields": [
+        {
+          "name": "Type",
+          "type": "MILCMD",
+          "offset": 0,
+          "size": 4
+        },
+        {
+          "name": "Handle",
+          "type": "HMIL_RESOURCE",
+          "offset": 4,
+          "size": 4
+        },
+        {
+          "name": "pMedia",
+          "type": "UINT64",
+          "offset": 8,
+          "size": 8
+        },
+        {
+          "name": "notifyUceDirect",
+          "type": "BOOL",
+          "offset": 16,
+          "size": 4
+        }
+      ]
+    },
+    {
+      "name": "MILCMD_RENDERDATA",
+      "fixedSize": 12,
+      "sourceKind": "native-command",
+      "fields": [
+        {
+          "name": "Type",
+          "type": "MILCMD",
+          "offset": 0,
+          "size": 4
+        },
+        {
+          "name": "Handle",
+          "type": "HMIL_RESOURCE",
+          "offset": 4,
+          "size": 4
+        },
+        {
+          "name": "cbData",
+          "type": "UINT",
+          "offset": 8,
+          "size": 4
+        }
+      ]
+    },
+    {
+      "name": "MILCMD_ETWEVENTRESOURCE",
+      "fixedSize": 12,
+      "sourceKind": "native-command",
+      "fields": [
+        {
+          "name": "Type",
+          "type": "MILCMD",
+          "offset": 0,
+          "size": 4
+        },
+        {
+          "name": "Handle",
+          "type": "HMIL_RESOURCE",
+          "offset": 4,
+          "size": 4
+        },
+        {
+          "name": "id",
+          "type": "UINT",
+          "offset": 8,
+          "size": 4
+        }
+      ]
+    },
+    {
+      "name": "MILCMD_VISUAL_CREATE",
+      "fixedSize": 8,
+      "sourceKind": "native-command",
+      "fields": [
+        {
+          "name": "Type",
+          "type": "MILCMD",
+          "offset": 0,
+          "size": 4
+        },
+        {
+          "name": "Handle",
+          "type": "HMIL_RESOURCE",
+          "offset": 4,
+          "size": 4
+        }
+      ]
+    },
+    {
+      "name": "MILCMD_VISUAL_SETOFFSET",
+      "fixedSize": 24,
+      "sourceKind": "native-command",
+      "fields": [
+        {
+          "name": "Type",
+          "type": "MILCMD",
+          "offset": 0,
+          "size": 4
+        },
+        {
+          "name": "Handle",
+          "type": "HMIL_RESOURCE",
+          "offset": 4,
+          "size": 4
+        },
+        {
+          "name": "offsetX",
+          "type": "DOUBLE",
+          "offset": 8,
+          "size": 8
+        },
+        {
+          "name": "offsetY",
+          "type": "DOUBLE",
+          "offset": 16,
+          "size": 8
+        }
+      ]
+    },
+    {
+      "name": "MILCMD_VISUAL_SETTRANSFORM",
+      "fixedSize": 12,
+      "sourceKind": "native-command",
+      "fields": [
+        {
+          "name": "Type",
+          "type": "MILCMD",
+          "offset": 0,
+          "size": 4
+        },
+        {
+          "name": "Handle",
+          "type": "HMIL_RESOURCE",
+          "offset": 4,
+          "size": 4
+        },
+        {
+          "name": "hTransform",
+          "type": "HMIL_RESOURCE",
+          "offset": 8,
+          "size": 4
+        }
+      ]
+    },
+    {
+      "name": "MILCMD_VISUAL_SETEFFECT",
+      "fixedSize": 12,
+      "sourceKind": "native-command",
+      "fields": [
+        {
+          "name": "Type",
+          "type": "MILCMD",
+          "offset": 0,
+          "size": 4
+        },
+        {
+          "name": "Handle",
+          "type": "HMIL_RESOURCE",
+          "offset": 4,
+          "size": 4
+        },
+        {
+          "name": "hEffect",
+          "type": "HMIL_RESOURCE",
+          "offset": 8,
+          "size": 4
+        }
+      ]
+    },
+    {
+      "name": "MILCMD_VISUAL_SETCACHEMODE",
+      "fixedSize": 12,
+      "sourceKind": "native-command",
+      "fields": [
+        {
+          "name": "Type",
+          "type": "MILCMD",
+          "offset": 0,
+          "size": 4
+        },
+        {
+          "name": "Handle",
+          "type": "HMIL_RESOURCE",
+          "offset": 4,
+          "size": 4
+        },
+        {
+          "name": "hCacheMode",
+          "type": "HMIL_RESOURCE",
+          "offset": 8,
+          "size": 4
+        }
+      ]
+    },
+    {
+      "name": "MILCMD_VISUAL_SETCLIP",
+      "fixedSize": 12,
+      "sourceKind": "native-command",
+      "fields": [
+        {
+          "name": "Type",
+          "type": "MILCMD",
+          "offset": 0,
+          "size": 4
+        },
+        {
+          "name": "Handle",
+          "type": "HMIL_RESOURCE",
+          "offset": 4,
+          "size": 4
+        },
+        {
+          "name": "hClip",
+          "type": "HMIL_RESOURCE",
+          "offset": 8,
+          "size": 4
+        }
+      ]
+    },
+    {
+      "name": "MILCMD_VISUAL_SETALPHA",
+      "fixedSize": 16,
+      "sourceKind": "native-command",
+      "fields": [
+        {
+          "name": "Type",
+          "type": "MILCMD",
+          "offset": 0,
+          "size": 4
+        },
+        {
+          "name": "Handle",
+          "type": "HMIL_RESOURCE",
+          "offset": 4,
+          "size": 4
+        },
+        {
+          "name": "alpha",
+          "type": "DOUBLE",
+          "offset": 8,
+          "size": 8
+        }
+      ]
+    },
+    {
+      "name": "MILCMD_VISUAL_SETRENDEROPTIONS",
+      "fixedSize": 36,
+      "sourceKind": "native-command",
+      "fields": [
+        {
+          "name": "Type",
+          "type": "MILCMD",
+          "offset": 0,
+          "size": 4
+        },
+        {
+          "name": "Handle",
+          "type": "HMIL_RESOURCE",
+          "offset": 4,
+          "size": 4
+        },
+        {
+          "name": "renderOptions",
+          "type": "MilRenderOptions",
+          "offset": 8,
+          "size": 28
+        }
+      ]
+    },
+    {
+      "name": "MILCMD_VISUAL_SETCONTENT",
+      "fixedSize": 12,
+      "sourceKind": "native-command",
+      "fields": [
+        {
+          "name": "Type",
+          "type": "MILCMD",
+          "offset": 0,
+          "size": 4
+        },
+        {
+          "name": "Handle",
+          "type": "HMIL_RESOURCE",
+          "offset": 4,
+          "size": 4
+        },
+        {
+          "name": "hContent",
+          "type": "HMIL_RESOURCE",
+          "offset": 8,
+          "size": 4
+        }
+      ]
+    },
+    {
+      "name": "MILCMD_VISUAL_SETALPHAMASK",
+      "fixedSize": 12,
+      "sourceKind": "native-command",
+      "fields": [
+        {
+          "name": "Type",
+          "type": "MILCMD",
+          "offset": 0,
+          "size": 4
+        },
+        {
+          "name": "Handle",
+          "type": "HMIL_RESOURCE",
+          "offset": 4,
+          "size": 4
+        },
+        {
+          "name": "hAlphaMask",
+          "type": "HMIL_RESOURCE",
+          "offset": 8,
+          "size": 4
+        }
+      ]
+    },
+    {
+      "name": "MILCMD_VISUAL_REMOVEALLCHILDREN",
+      "fixedSize": 8,
+      "sourceKind": "native-command",
+      "fields": [
+        {
+          "name": "Type",
+          "type": "MILCMD",
+          "offset": 0,
+          "size": 4
+        },
+        {
+          "name": "Handle",
+          "type": "HMIL_RESOURCE",
+          "offset": 4,
+          "size": 4
+        }
+      ]
+    },
+    {
+      "name": "MILCMD_VISUAL_REMOVECHILD",
+      "fixedSize": 12,
+      "sourceKind": "native-command",
+      "fields": [
+        {
+          "name": "Type",
+          "type": "MILCMD",
+          "offset": 0,
+          "size": 4
+        },
+        {
+          "name": "Handle",
+          "type": "HMIL_RESOURCE",
+          "offset": 4,
+          "size": 4
+        },
+        {
+          "name": "hChild",
+          "type": "HMIL_RESOURCE",
+          "offset": 8,
+          "size": 4
+        }
+      ]
+    },
+    {
+      "name": "MILCMD_VISUAL_INSERTCHILDAT",
+      "fixedSize": 16,
+      "sourceKind": "native-command",
+      "fields": [
+        {
+          "name": "Type",
+          "type": "MILCMD",
+          "offset": 0,
+          "size": 4
+        },
+        {
+          "name": "Handle",
+          "type": "HMIL_RESOURCE",
+          "offset": 4,
+          "size": 4
+        },
+        {
+          "name": "hChild",
+          "type": "HMIL_RESOURCE",
+          "offset": 8,
+          "size": 4
+        },
+        {
+          "name": "index",
+          "type": "UINT",
+          "offset": 12,
+          "size": 4
+        }
+      ]
+    },
+    {
+      "name": "MILCMD_VISUAL_SETGUIDELINECOLLECTION",
+      "fixedSize": 16,
+      "sourceKind": "native-command",
+      "fields": [
+        {
+          "name": "Type",
+          "type": "MILCMD",
+          "offset": 0,
+          "size": 4
+        },
+        {
+          "name": "Handle",
+          "type": "HMIL_RESOURCE",
+          "offset": 4,
+          "size": 4
+        },
+        {
+          "name": "countX",
+          "type": "WORD",
+          "offset": 8,
+          "size": 2
+        },
+        {
+          "name": "UINT16Padding0",
+          "type": "UINT16",
+          "offset": 10,
+          "size": 2
+        },
+        {
+          "name": "countY",
+          "type": "WORD",
+          "offset": 12,
+          "size": 2
+        },
+        {
+          "name": "UINT16Padding1",
+          "type": "UINT16",
+          "offset": 14,
+          "size": 2
+        }
+      ]
+    },
+    {
+      "name": "MILCMD_VISUAL_SETSCROLLABLEAREACLIP",
+      "fixedSize": 44,
+      "sourceKind": "native-command",
+      "fields": [
+        {
+          "name": "Type",
+          "type": "MILCMD",
+          "offset": 0,
+          "size": 4
+        },
+        {
+          "name": "Handle",
+          "type": "HMIL_RESOURCE",
+          "offset": 4,
+          "size": 4
+        },
+        {
+          "name": "Clip",
+          "type": "MilPointAndSizeD",
+          "offset": 8,
+          "size": 32
+        },
+        {
+          "name": "IsEnabled",
+          "type": "BOOL",
+          "offset": 40,
+          "size": 4
+        }
+      ]
+    },
+    {
+      "name": "MILCMD_VIEWPORT3DVISUAL_SETCAMERA",
+      "fixedSize": 12,
+      "sourceKind": "native-command",
+      "fields": [
+        {
+          "name": "Type",
+          "type": "MILCMD",
+          "offset": 0,
+          "size": 4
+        },
+        {
+          "name": "Handle",
+          "type": "HMIL_RESOURCE",
+          "offset": 4,
+          "size": 4
+        },
+        {
+          "name": "hCamera",
+          "type": "HMIL_RESOURCE",
+          "offset": 8,
+          "size": 4
+        }
+      ]
+    },
+    {
+      "name": "MILCMD_VIEWPORT3DVISUAL_SETVIEWPORT",
+      "fixedSize": 40,
+      "sourceKind": "native-command",
+      "fields": [
+        {
+          "name": "Type",
+          "type": "MILCMD",
+          "offset": 0,
+          "size": 4
+        },
+        {
+          "name": "Handle",
+          "type": "HMIL_RESOURCE",
+          "offset": 4,
+          "size": 4
+        },
+        {
+          "name": "Viewport",
+          "type": "MilPointAndSizeD",
+          "offset": 8,
+          "size": 32
+        }
+      ]
+    },
+    {
+      "name": "MILCMD_VIEWPORT3DVISUAL_SET3DCHILD",
+      "fixedSize": 12,
+      "sourceKind": "native-command",
+      "fields": [
+        {
+          "name": "Type",
+          "type": "MILCMD",
+          "offset": 0,
+          "size": 4
+        },
+        {
+          "name": "Handle",
+          "type": "HMIL_RESOURCE",
+          "offset": 4,
+          "size": 4
+        },
+        {
+          "name": "hChild",
+          "type": "HMIL_RESOURCE",
+          "offset": 8,
+          "size": 4
+        }
+      ]
+    },
+    {
+      "name": "MILCMD_VISUAL3D_SETCONTENT",
+      "fixedSize": 12,
+      "sourceKind": "native-command",
+      "fields": [
+        {
+          "name": "Type",
+          "type": "MILCMD",
+          "offset": 0,
+          "size": 4
+        },
+        {
+          "name": "Handle",
+          "type": "HMIL_RESOURCE",
+          "offset": 4,
+          "size": 4
+        },
+        {
+          "name": "hContent",
+          "type": "HMIL_RESOURCE",
+          "offset": 8,
+          "size": 4
+        }
+      ]
+    },
+    {
+      "name": "MILCMD_VISUAL3D_SETTRANSFORM",
+      "fixedSize": 12,
+      "sourceKind": "native-command",
+      "fields": [
+        {
+          "name": "Type",
+          "type": "MILCMD",
+          "offset": 0,
+          "size": 4
+        },
+        {
+          "name": "Handle",
+          "type": "HMIL_RESOURCE",
+          "offset": 4,
+          "size": 4
+        },
+        {
+          "name": "hTransform",
+          "type": "HMIL_RESOURCE",
+          "offset": 8,
+          "size": 4
+        }
+      ]
+    },
+    {
+      "name": "MILCMD_VISUAL3D_REMOVEALLCHILDREN",
+      "fixedSize": 8,
+      "sourceKind": "native-command",
+      "fields": [
+        {
+          "name": "Type",
+          "type": "MILCMD",
+          "offset": 0,
+          "size": 4
+        },
+        {
+          "name": "Handle",
+          "type": "HMIL_RESOURCE",
+          "offset": 4,
+          "size": 4
+        }
+      ]
+    },
+    {
+      "name": "MILCMD_VISUAL3D_REMOVECHILD",
+      "fixedSize": 12,
+      "sourceKind": "native-command",
+      "fields": [
+        {
+          "name": "Type",
+          "type": "MILCMD",
+          "offset": 0,
+          "size": 4
+        },
+        {
+          "name": "Handle",
+          "type": "HMIL_RESOURCE",
+          "offset": 4,
+          "size": 4
+        },
+        {
+          "name": "hChild",
+          "type": "HMIL_RESOURCE",
+          "offset": 8,
+          "size": 4
+        }
+      ]
+    },
+    {
+      "name": "MILCMD_VISUAL3D_INSERTCHILDAT",
+      "fixedSize": 16,
+      "sourceKind": "native-command",
+      "fields": [
+        {
+          "name": "Type",
+          "type": "MILCMD",
+          "offset": 0,
+          "size": 4
+        },
+        {
+          "name": "Handle",
+          "type": "HMIL_RESOURCE",
+          "offset": 4,
+          "size": 4
+        },
+        {
+          "name": "hChild",
+          "type": "HMIL_RESOURCE",
+          "offset": 8,
+          "size": 4
+        },
+        {
+          "name": "index",
+          "type": "UINT",
+          "offset": 12,
+          "size": 4
+        }
+      ]
+    },
+    {
+      "name": "MILCMD_HWNDTARGET_CREATE",
+      "fixedSize": 92,
+      "sourceKind": "native-command",
+      "fields": [
+        {
+          "name": "Type",
+          "type": "MILCMD",
+          "offset": 0,
+          "size": 4
+        },
+        {
+          "name": "Handle",
+          "type": "HMIL_RESOURCE",
+          "offset": 4,
+          "size": 4
+        },
+        {
+          "name": "hwnd",
+          "type": "UINT64",
+          "offset": 8,
+          "size": 8
+        },
+        {
+          "name": "hSection",
+          "type": "UINT64",
+          "offset": 16,
+          "size": 8
+        },
+        {
+          "name": "masterDevice",
+          "type": "UINT64",
+          "offset": 24,
+          "size": 8
+        },
+        {
+          "name": "width",
+          "type": "UINT",
+          "offset": 32,
+          "size": 4
+        },
+        {
+          "name": "height",
+          "type": "UINT",
+          "offset": 36,
+          "size": 4
+        },
+        {
+          "name": "clearColor",
+          "type": "MilColorF",
+          "offset": 40,
+          "size": 16
+        },
+        {
+          "name": "flags",
+          "type": "UINT",
+          "offset": 56,
+          "size": 4
+        },
+        {
+          "name": "hBitmap",
+          "type": "HMIL_RESOURCE",
+          "offset": 60,
+          "size": 4
+        },
+        {
+          "name": "stride",
+          "type": "UINT",
+          "offset": 64,
+          "size": 4
+        },
+        {
+          "name": "ePixelFormat",
+          "type": "MilPixelFormat::Enum",
+          "offset": 68,
+          "size": 4
+        },
+        {
+          "name": "DpiAwarenessContext",
+          "type": "INT",
+          "offset": 72,
+          "size": 4
+        },
+        {
+          "name": "DpiX",
+          "type": "DOUBLE",
+          "offset": 76,
+          "size": 8
+        },
+        {
+          "name": "DpiY",
+          "type": "DOUBLE",
+          "offset": 84,
+          "size": 8
+        }
+      ]
+    },
+    {
+      "name": "MILCMD_HWNDTARGET_SUPPRESSLAYERED",
+      "fixedSize": 12,
+      "sourceKind": "native-command",
+      "fields": [
+        {
+          "name": "Type",
+          "type": "MILCMD",
+          "offset": 0,
+          "size": 4
+        },
+        {
+          "name": "Handle",
+          "type": "HMIL_RESOURCE",
+          "offset": 4,
+          "size": 4
+        },
+        {
+          "name": "Suppress",
+          "type": "BOOL",
+          "offset": 8,
+          "size": 4
+        }
+      ]
+    },
+    {
+      "name": "MILCMD_TARGET_UPDATEWINDOWSETTINGS",
+      "fixedSize": 72,
+      "sourceKind": "native-command",
+      "fields": [
+        {
+          "name": "Type",
+          "type": "MILCMD",
+          "offset": 0,
+          "size": 4
+        },
+        {
+          "name": "Handle",
+          "type": "HMIL_RESOURCE",
+          "offset": 4,
+          "size": 4
+        },
+        {
+          "name": "windowRect",
+          "type": "RECT",
+          "offset": 8,
+          "size": 16
+        },
+        {
+          "name": "windowLayerType",
+          "type": "MilWindowLayerType::Enum",
+          "offset": 24,
+          "size": 4
+        },
+        {
+          "name": "transparencyMode",
+          "type": "MilTransparency::Flags",
+          "offset": 28,
+          "size": 4
+        },
+        {
+          "name": "constantAlpha",
+          "type": "FLOAT",
+          "offset": 32,
+          "size": 4
+        },
+        {
+          "name": "isChild",
+          "type": "BOOL",
+          "offset": 36,
+          "size": 4
+        },
+        {
+          "name": "isRTL",
+          "type": "BOOL",
+          "offset": 40,
+          "size": 4
+        },
+        {
+          "name": "renderingEnabled",
+          "type": "BOOL",
+          "offset": 44,
+          "size": 4
+        },
+        {
+          "name": "colorKey",
+          "type": "MilColorF",
+          "offset": 48,
+          "size": 16
+        },
+        {
+          "name": "disableCookie",
+          "type": "UINT",
+          "offset": 64,
+          "size": 4
+        },
+        {
+          "name": "gdiBlt",
+          "type": "BOOL",
+          "offset": 68,
+          "size": 4
+        }
+      ]
+    },
+    {
+      "name": "MILCMD_GENERICTARGET_CREATE",
+      "fixedSize": 36,
+      "sourceKind": "native-command",
+      "fields": [
+        {
+          "name": "Type",
+          "type": "MILCMD",
+          "offset": 0,
+          "size": 4
+        },
+        {
+          "name": "Handle",
+          "type": "HMIL_RESOURCE",
+          "offset": 4,
+          "size": 4
+        },
+        {
+          "name": "hwnd",
+          "type": "UINT64",
+          "offset": 8,
+          "size": 8
+        },
+        {
+          "name": "pRenderTarget",
+          "type": "UINT64",
+          "offset": 16,
+          "size": 8
+        },
+        {
+          "name": "width",
+          "type": "UINT",
+          "offset": 24,
+          "size": 4
+        },
+        {
+          "name": "height",
+          "type": "UINT",
+          "offset": 28,
+          "size": 4
+        },
+        {
+          "name": "dummy",
+          "type": "UINT",
+          "offset": 32,
+          "size": 4
+        }
+      ]
+    },
+    {
+      "name": "MILCMD_TARGET_SETROOT",
+      "fixedSize": 12,
+      "sourceKind": "native-command",
+      "fields": [
+        {
+          "name": "Type",
+          "type": "MILCMD",
+          "offset": 0,
+          "size": 4
+        },
+        {
+          "name": "Handle",
+          "type": "HMIL_RESOURCE",
+          "offset": 4,
+          "size": 4
+        },
+        {
+          "name": "hRoot",
+          "type": "HMIL_RESOURCE",
+          "offset": 8,
+          "size": 4
+        }
+      ]
+    },
+    {
+      "name": "MILCMD_TARGET_SETCLEARCOLOR",
+      "fixedSize": 24,
+      "sourceKind": "native-command",
+      "fields": [
+        {
+          "name": "Type",
+          "type": "MILCMD",
+          "offset": 0,
+          "size": 4
+        },
+        {
+          "name": "Handle",
+          "type": "HMIL_RESOURCE",
+          "offset": 4,
+          "size": 4
+        },
+        {
+          "name": "clearColor",
+          "type": "MilColorF",
+          "offset": 8,
+          "size": 16
+        }
+      ]
+    },
+    {
+      "name": "MILCMD_TARGET_INVALIDATE",
+      "fixedSize": 24,
+      "sourceKind": "native-command",
+      "fields": [
+        {
+          "name": "Type",
+          "type": "MILCMD",
+          "offset": 0,
+          "size": 4
+        },
+        {
+          "name": "Handle",
+          "type": "HMIL_RESOURCE",
+          "offset": 4,
+          "size": 4
+        },
+        {
+          "name": "rc",
+          "type": "RECT",
+          "offset": 8,
+          "size": 16
+        }
+      ]
+    },
+    {
+      "name": "MILCMD_TARGET_SETFLAGS",
+      "fixedSize": 12,
+      "sourceKind": "native-command",
+      "fields": [
+        {
+          "name": "Type",
+          "type": "MILCMD",
+          "offset": 0,
+          "size": 4
+        },
+        {
+          "name": "Handle",
+          "type": "HMIL_RESOURCE",
+          "offset": 4,
+          "size": 4
+        },
+        {
+          "name": "flags",
+          "type": "UINT",
+          "offset": 8,
+          "size": 4
+        }
+      ]
+    },
+    {
+      "name": "MILCMD_HWNDTARGET_DPICHANGED",
+      "fixedSize": 28,
+      "sourceKind": "native-command",
+      "fields": [
+        {
+          "name": "Type",
+          "type": "MILCMD",
+          "offset": 0,
+          "size": 4
+        },
+        {
+          "name": "Handle",
+          "type": "HMIL_RESOURCE",
+          "offset": 4,
+          "size": 4
+        },
+        {
+          "name": "DpiX",
+          "type": "DOUBLE",
+          "offset": 8,
+          "size": 8
+        },
+        {
+          "name": "DpiY",
+          "type": "DOUBLE",
+          "offset": 16,
+          "size": 8
+        },
+        {
+          "name": "AfterParent",
+          "type": "BOOL",
+          "offset": 24,
+          "size": 4
+        }
+      ]
+    },
+    {
+      "name": "MILCMD_GLYPHRUN_CREATE",
+      "fixedSize": 76,
+      "sourceKind": "native-command",
+      "fields": [
+        {
+          "name": "Type",
+          "type": "MILCMD",
+          "offset": 0,
+          "size": 4
+        },
+        {
+          "name": "Handle",
+          "type": "HMIL_RESOURCE",
+          "offset": 4,
+          "size": 4
+        },
+        {
+          "name": "pIDWriteFont",
+          "type": "UINT64",
+          "offset": 8,
+          "size": 8
+        },
+        {
+          "name": "GlyphRunFlags",
+          "type": "WORD",
+          "offset": 16,
+          "size": 2
+        },
+        {
+          "name": "UINT16Padding0",
+          "type": "UINT16",
+          "offset": 18,
+          "size": 2
+        },
+        {
+          "name": "Origin",
+          "type": "MilPoint2F",
+          "offset": 20,
+          "size": 8
+        },
+        {
+          "name": "MuSize",
+          "type": "FLOAT",
+          "offset": 28,
+          "size": 4
+        },
+        {
+          "name": "ManagedBounds",
+          "type": "MilPointAndSizeD",
+          "offset": 32,
+          "size": 32
+        },
+        {
+          "name": "GlyphCount",
+          "type": "WORD",
+          "offset": 64,
+          "size": 2
+        },
+        {
+          "name": "UINT16Padding1",
+          "type": "UINT16",
+          "offset": 66,
+          "size": 2
+        },
+        {
+          "name": "BidiLevel",
+          "type": "WORD",
+          "offset": 68,
+          "size": 2
+        },
+        {
+          "name": "UINT16Padding2",
+          "type": "UINT16",
+          "offset": 70,
+          "size": 2
+        },
+        {
+          "name": "DWriteTextMeasuringMethod",
+          "type": "WORD",
+          "offset": 72,
+          "size": 2
+        },
+        {
+          "name": "UINT16Padding3",
+          "type": "UINT16",
+          "offset": 74,
+          "size": 2
+        }
+      ]
+    },
+    {
+      "name": "MILCMD_DOUBLEBUFFEREDBITMAP",
+      "fixedSize": 20,
+      "sourceKind": "native-command",
+      "fields": [
+        {
+          "name": "Type",
+          "type": "MILCMD",
+          "offset": 0,
+          "size": 4
+        },
+        {
+          "name": "Handle",
+          "type": "HMIL_RESOURCE",
+          "offset": 4,
+          "size": 4
+        },
+        {
+          "name": "SwDoubleBufferedBitmap",
+          "type": "UINT64",
+          "offset": 8,
+          "size": 8
+        },
+        {
+          "name": "UseBackBuffer",
+          "type": "BOOL",
+          "offset": 16,
+          "size": 4
+        }
+      ]
+    },
+    {
+      "name": "MILCMD_DOUBLEBUFFEREDBITMAP_COPYFORWARD",
+      "fixedSize": 16,
+      "sourceKind": "native-command",
+      "fields": [
+        {
+          "name": "Type",
+          "type": "MILCMD",
+          "offset": 0,
+          "size": 4
+        },
+        {
+          "name": "Handle",
+          "type": "HMIL_RESOURCE",
+          "offset": 4,
+          "size": 4
+        },
+        {
+          "name": "CopyCompletedEvent",
+          "type": "UINT64",
+          "offset": 8,
+          "size": 8
+        }
+      ]
+    },
+    {
+      "name": "MILCMD_PARTITION_NOTIFYPOLICYCHANGEFORNONINTERACTIVEMODE",
+      "fixedSize": 8,
+      "sourceKind": "native-command",
+      "fields": [
+        {
+          "name": "Type",
+          "type": "MILCMD",
+          "offset": 0,
+          "size": 4
+        },
+        {
+          "name": "ShouldRenderEvenWhenNoDisplayDevicesAreAvailable",
+          "type": "BOOL",
+          "offset": 4,
+          "size": 4
+        }
+      ]
+    },
+    {
+      "name": "MILCMD_AXISANGLEROTATION3D",
+      "fixedSize": 36,
+      "sourceKind": "native-command",
+      "fields": [
+        {
+          "name": "Type",
+          "type": "MILCMD",
+          "offset": 0,
+          "size": 4
+        },
+        {
+          "name": "Handle",
+          "type": "HMIL_RESOURCE",
+          "offset": 4,
+          "size": 4
+        },
+        {
+          "name": "angle",
+          "type": "DOUBLE",
+          "offset": 8,
+          "size": 8
+        },
+        {
+          "name": "axis",
+          "type": "MilPoint3F",
+          "offset": 16,
+          "size": 12
+        },
+        {
+          "name": "hAxisAnimations",
+          "type": "HMIL_RESOURCE",
+          "offset": 28,
+          "size": 4
+        },
+        {
+          "name": "hAngleAnimations",
+          "type": "HMIL_RESOURCE",
+          "offset": 32,
+          "size": 4
+        }
+      ]
+    },
+    {
+      "name": "MILCMD_QUATERNIONROTATION3D",
+      "fixedSize": 28,
+      "sourceKind": "native-command",
+      "fields": [
+        {
+          "name": "Type",
+          "type": "MILCMD",
+          "offset": 0,
+          "size": 4
+        },
+        {
+          "name": "Handle",
+          "type": "HMIL_RESOURCE",
+          "offset": 4,
+          "size": 4
+        },
+        {
+          "name": "quaternion",
+          "type": "MilQuaternionF",
+          "offset": 8,
+          "size": 16
+        },
+        {
+          "name": "hQuaternionAnimations",
+          "type": "HMIL_RESOURCE",
+          "offset": 24,
+          "size": 4
+        }
+      ]
+    },
+    {
+      "name": "MILCMD_PERSPECTIVECAMERA",
+      "fixedSize": 96,
+      "sourceKind": "native-command",
+      "fields": [
+        {
+          "name": "Type",
+          "type": "MILCMD",
+          "offset": 0,
+          "size": 4
+        },
+        {
+          "name": "Handle",
+          "type": "HMIL_RESOURCE",
+          "offset": 4,
+          "size": 4
+        },
+        {
+          "name": "nearPlaneDistance",
+          "type": "DOUBLE",
+          "offset": 8,
+          "size": 8
+        },
+        {
+          "name": "farPlaneDistance",
+          "type": "DOUBLE",
+          "offset": 16,
+          "size": 8
+        },
+        {
+          "name": "fieldOfView",
+          "type": "DOUBLE",
+          "offset": 24,
+          "size": 8
+        },
+        {
+          "name": "position",
+          "type": "MilPoint3F",
+          "offset": 32,
+          "size": 12
+        },
+        {
+          "name": "htransform",
+          "type": "HMIL_RESOURCE",
+          "offset": 44,
+          "size": 4
+        },
+        {
+          "name": "lookDirection",
+          "type": "MilPoint3F",
+          "offset": 48,
+          "size": 12
+        },
+        {
+          "name": "hNearPlaneDistanceAnimations",
+          "type": "HMIL_RESOURCE",
+          "offset": 60,
+          "size": 4
+        },
+        {
+          "name": "upDirection",
+          "type": "MilPoint3F",
+          "offset": 64,
+          "size": 12
+        },
+        {
+          "name": "hFarPlaneDistanceAnimations",
+          "type": "HMIL_RESOURCE",
+          "offset": 76,
+          "size": 4
+        },
+        {
+          "name": "hPositionAnimations",
+          "type": "HMIL_RESOURCE",
+          "offset": 80,
+          "size": 4
+        },
+        {
+          "name": "hLookDirectionAnimations",
+          "type": "HMIL_RESOURCE",
+          "offset": 84,
+          "size": 4
+        },
+        {
+          "name": "hUpDirectionAnimations",
+          "type": "HMIL_RESOURCE",
+          "offset": 88,
+          "size": 4
+        },
+        {
+          "name": "hFieldOfViewAnimations",
+          "type": "HMIL_RESOURCE",
+          "offset": 92,
+          "size": 4
+        }
+      ]
+    },
+    {
+      "name": "MILCMD_ORTHOGRAPHICCAMERA",
+      "fixedSize": 96,
+      "sourceKind": "native-command",
+      "fields": [
+        {
+          "name": "Type",
+          "type": "MILCMD",
+          "offset": 0,
+          "size": 4
+        },
+        {
+          "name": "Handle",
+          "type": "HMIL_RESOURCE",
+          "offset": 4,
+          "size": 4
+        },
+        {
+          "name": "nearPlaneDistance",
+          "type": "DOUBLE",
+          "offset": 8,
+          "size": 8
+        },
+        {
+          "name": "farPlaneDistance",
+          "type": "DOUBLE",
+          "offset": 16,
+          "size": 8
+        },
+        {
+          "name": "width",
+          "type": "DOUBLE",
+          "offset": 24,
+          "size": 8
+        },
+        {
+          "name": "position",
+          "type": "MilPoint3F",
+          "offset": 32,
+          "size": 12
+        },
+        {
+          "name": "htransform",
+          "type": "HMIL_RESOURCE",
+          "offset": 44,
+          "size": 4
+        },
+        {
+          "name": "lookDirection",
+          "type": "MilPoint3F",
+          "offset": 48,
+          "size": 12
+        },
+        {
+          "name": "hNearPlaneDistanceAnimations",
+          "type": "HMIL_RESOURCE",
+          "offset": 60,
+          "size": 4
+        },
+        {
+          "name": "upDirection",
+          "type": "MilPoint3F",
+          "offset": 64,
+          "size": 12
+        },
+        {
+          "name": "hFarPlaneDistanceAnimations",
+          "type": "HMIL_RESOURCE",
+          "offset": 76,
+          "size": 4
+        },
+        {
+          "name": "hPositionAnimations",
+          "type": "HMIL_RESOURCE",
+          "offset": 80,
+          "size": 4
+        },
+        {
+          "name": "hLookDirectionAnimations",
+          "type": "HMIL_RESOURCE",
+          "offset": 84,
+          "size": 4
+        },
+        {
+          "name": "hUpDirectionAnimations",
+          "type": "HMIL_RESOURCE",
+          "offset": 88,
+          "size": 4
+        },
+        {
+          "name": "hWidthAnimations",
+          "type": "HMIL_RESOURCE",
+          "offset": 92,
+          "size": 4
+        }
+      ]
+    },
+    {
+      "name": "MILCMD_MATRIXCAMERA",
+      "fixedSize": 140,
+      "sourceKind": "native-command",
+      "fields": [
+        {
+          "name": "Type",
+          "type": "MILCMD",
+          "offset": 0,
+          "size": 4
+        },
+        {
+          "name": "Handle",
+          "type": "HMIL_RESOURCE",
+          "offset": 4,
+          "size": 4
+        },
+        {
+          "name": "viewMatrix",
+          "type": "D3DMATRIX",
+          "offset": 8,
+          "size": 64
+        },
+        {
+          "name": "projectionMatrix",
+          "type": "D3DMATRIX",
+          "offset": 72,
+          "size": 64
+        },
+        {
+          "name": "htransform",
+          "type": "HMIL_RESOURCE",
+          "offset": 136,
+          "size": 4
+        }
+      ]
+    },
+    {
+      "name": "MILCMD_MODEL3DGROUP",
+      "fixedSize": 16,
+      "sourceKind": "native-command",
+      "fields": [
+        {
+          "name": "Type",
+          "type": "MILCMD",
+          "offset": 0,
+          "size": 4
+        },
+        {
+          "name": "Handle",
+          "type": "HMIL_RESOURCE",
+          "offset": 4,
+          "size": 4
+        },
+        {
+          "name": "htransform",
+          "type": "HMIL_RESOURCE",
+          "offset": 8,
+          "size": 4
+        },
+        {
+          "name": "ChildrenSize",
+          "type": "UINT32",
+          "offset": 12,
+          "size": 4
+        }
+      ]
+    },
+    {
+      "name": "MILCMD_AMBIENTLIGHT",
+      "fixedSize": 32,
+      "sourceKind": "native-command",
+      "fields": [
+        {
+          "name": "Type",
+          "type": "MILCMD",
+          "offset": 0,
+          "size": 4
+        },
+        {
+          "name": "Handle",
+          "type": "HMIL_RESOURCE",
+          "offset": 4,
+          "size": 4
+        },
+        {
+          "name": "color",
+          "type": "MilColorF",
+          "offset": 8,
+          "size": 16
+        },
+        {
+          "name": "htransform",
+          "type": "HMIL_RESOURCE",
+          "offset": 24,
+          "size": 4
+        },
+        {
+          "name": "hColorAnimations",
+          "type": "HMIL_RESOURCE",
+          "offset": 28,
+          "size": 4
+        }
+      ]
+    },
+    {
+      "name": "MILCMD_DIRECTIONALLIGHT",
+      "fixedSize": 48,
+      "sourceKind": "native-command",
+      "fields": [
+        {
+          "name": "Type",
+          "type": "MILCMD",
+          "offset": 0,
+          "size": 4
+        },
+        {
+          "name": "Handle",
+          "type": "HMIL_RESOURCE",
+          "offset": 4,
+          "size": 4
+        },
+        {
+          "name": "color",
+          "type": "MilColorF",
+          "offset": 8,
+          "size": 16
+        },
+        {
+          "name": "direction",
+          "type": "MilPoint3F",
+          "offset": 24,
+          "size": 12
+        },
+        {
+          "name": "htransform",
+          "type": "HMIL_RESOURCE",
+          "offset": 36,
+          "size": 4
+        },
+        {
+          "name": "hColorAnimations",
+          "type": "HMIL_RESOURCE",
+          "offset": 40,
+          "size": 4
+        },
+        {
+          "name": "hDirectionAnimations",
+          "type": "HMIL_RESOURCE",
+          "offset": 44,
+          "size": 4
+        }
+      ]
+    },
+    {
+      "name": "MILCMD_POINTLIGHT",
+      "fixedSize": 96,
+      "sourceKind": "native-command",
+      "fields": [
+        {
+          "name": "Type",
+          "type": "MILCMD",
+          "offset": 0,
+          "size": 4
+        },
+        {
+          "name": "Handle",
+          "type": "HMIL_RESOURCE",
+          "offset": 4,
+          "size": 4
+        },
+        {
+          "name": "color",
+          "type": "MilColorF",
+          "offset": 8,
+          "size": 16
+        },
+        {
+          "name": "range",
+          "type": "DOUBLE",
+          "offset": 24,
+          "size": 8
+        },
+        {
+          "name": "constantAttenuation",
+          "type": "DOUBLE",
+          "offset": 32,
+          "size": 8
+        },
+        {
+          "name": "linearAttenuation",
+          "type": "DOUBLE",
+          "offset": 40,
+          "size": 8
+        },
+        {
+          "name": "quadraticAttenuation",
+          "type": "DOUBLE",
+          "offset": 48,
+          "size": 8
+        },
+        {
+          "name": "position",
+          "type": "MilPoint3F",
+          "offset": 56,
+          "size": 12
+        },
+        {
+          "name": "htransform",
+          "type": "HMIL_RESOURCE",
+          "offset": 68,
+          "size": 4
+        },
+        {
+          "name": "hColorAnimations",
+          "type": "HMIL_RESOURCE",
+          "offset": 72,
+          "size": 4
+        },
+        {
+          "name": "hPositionAnimations",
+          "type": "HMIL_RESOURCE",
+          "offset": 76,
+          "size": 4
+        },
+        {
+          "name": "hRangeAnimations",
+          "type": "HMIL_RESOURCE",
+          "offset": 80,
+          "size": 4
+        },
+        {
+          "name": "hConstantAttenuationAnimations",
+          "type": "HMIL_RESOURCE",
+          "offset": 84,
+          "size": 4
+        },
+        {
+          "name": "hLinearAttenuationAnimations",
+          "type": "HMIL_RESOURCE",
+          "offset": 88,
+          "size": 4
+        },
+        {
+          "name": "hQuadraticAttenuationAnimations",
+          "type": "HMIL_RESOURCE",
+          "offset": 92,
+          "size": 4
+        }
+      ]
+    },
+    {
+      "name": "MILCMD_SPOTLIGHT",
+      "fixedSize": 136,
+      "sourceKind": "native-command",
+      "fields": [
+        {
+          "name": "Type",
+          "type": "MILCMD",
+          "offset": 0,
+          "size": 4
+        },
+        {
+          "name": "Handle",
+          "type": "HMIL_RESOURCE",
+          "offset": 4,
+          "size": 4
+        },
+        {
+          "name": "color",
+          "type": "MilColorF",
+          "offset": 8,
+          "size": 16
+        },
+        {
+          "name": "range",
+          "type": "DOUBLE",
+          "offset": 24,
+          "size": 8
+        },
+        {
+          "name": "constantAttenuation",
+          "type": "DOUBLE",
+          "offset": 32,
+          "size": 8
+        },
+        {
+          "name": "linearAttenuation",
+          "type": "DOUBLE",
+          "offset": 40,
+          "size": 8
+        },
+        {
+          "name": "quadraticAttenuation",
+          "type": "DOUBLE",
+          "offset": 48,
+          "size": 8
+        },
+        {
+          "name": "outerConeAngle",
+          "type": "DOUBLE",
+          "offset": 56,
+          "size": 8
+        },
+        {
+          "name": "innerConeAngle",
+          "type": "DOUBLE",
+          "offset": 64,
+          "size": 8
+        },
+        {
+          "name": "position",
+          "type": "MilPoint3F",
+          "offset": 72,
+          "size": 12
+        },
+        {
+          "name": "htransform",
+          "type": "HMIL_RESOURCE",
+          "offset": 84,
+          "size": 4
+        },
+        {
+          "name": "direction",
+          "type": "MilPoint3F",
+          "offset": 88,
+          "size": 12
+        },
+        {
+          "name": "hColorAnimations",
+          "type": "HMIL_RESOURCE",
+          "offset": 100,
+          "size": 4
+        },
+        {
+          "name": "hPositionAnimations",
+          "type": "HMIL_RESOURCE",
+          "offset": 104,
+          "size": 4
+        },
+        {
+          "name": "hRangeAnimations",
+          "type": "HMIL_RESOURCE",
+          "offset": 108,
+          "size": 4
+        },
+        {
+          "name": "hConstantAttenuationAnimations",
+          "type": "HMIL_RESOURCE",
+          "offset": 112,
+          "size": 4
+        },
+        {
+          "name": "hLinearAttenuationAnimations",
+          "type": "HMIL_RESOURCE",
+          "offset": 116,
+          "size": 4
+        },
+        {
+          "name": "hQuadraticAttenuationAnimations",
+          "type": "HMIL_RESOURCE",
+          "offset": 120,
+          "size": 4
+        },
+        {
+          "name": "hDirectionAnimations",
+          "type": "HMIL_RESOURCE",
+          "offset": 124,
+          "size": 4
+        },
+        {
+          "name": "hOuterConeAngleAnimations",
+          "type": "HMIL_RESOURCE",
+          "offset": 128,
+          "size": 4
+        },
+        {
+          "name": "hInnerConeAngleAnimations",
+          "type": "HMIL_RESOURCE",
+          "offset": 132,
+          "size": 4
+        }
+      ]
+    },
+    {
+      "name": "MILCMD_GEOMETRYMODEL3D",
+      "fixedSize": 24,
+      "sourceKind": "native-command",
+      "fields": [
+        {
+          "name": "Type",
+          "type": "MILCMD",
+          "offset": 0,
+          "size": 4
+        },
+        {
+          "name": "Handle",
+          "type": "HMIL_RESOURCE",
+          "offset": 4,
+          "size": 4
+        },
+        {
+          "name": "htransform",
+          "type": "HMIL_RESOURCE",
+          "offset": 8,
+          "size": 4
+        },
+        {
+          "name": "hgeometry",
+          "type": "HMIL_RESOURCE",
+          "offset": 12,
+          "size": 4
+        },
+        {
+          "name": "hmaterial",
+          "type": "HMIL_RESOURCE",
+          "offset": 16,
+          "size": 4
+        },
+        {
+          "name": "hbackMaterial",
+          "type": "HMIL_RESOURCE",
+          "offset": 20,
+          "size": 4
+        }
+      ]
+    },
+    {
+      "name": "MILCMD_MESHGEOMETRY3D",
+      "fixedSize": 24,
+      "sourceKind": "native-command",
+      "fields": [
+        {
+          "name": "Type",
+          "type": "MILCMD",
+          "offset": 0,
+          "size": 4
+        },
+        {
+          "name": "Handle",
+          "type": "HMIL_RESOURCE",
+          "offset": 4,
+          "size": 4
+        },
+        {
+          "name": "PositionsSize",
+          "type": "UINT32",
+          "offset": 8,
+          "size": 4
+        },
+        {
+          "name": "NormalsSize",
+          "type": "UINT32",
+          "offset": 12,
+          "size": 4
+        },
+        {
+          "name": "TextureCoordinatesSize",
+          "type": "UINT32",
+          "offset": 16,
+          "size": 4
+        },
+        {
+          "name": "TriangleIndicesSize",
+          "type": "UINT32",
+          "offset": 20,
+          "size": 4
+        }
+      ]
+    },
+    {
+      "name": "MILCMD_MATERIALGROUP",
+      "fixedSize": 12,
+      "sourceKind": "native-command",
+      "fields": [
+        {
+          "name": "Type",
+          "type": "MILCMD",
+          "offset": 0,
+          "size": 4
+        },
+        {
+          "name": "Handle",
+          "type": "HMIL_RESOURCE",
+          "offset": 4,
+          "size": 4
+        },
+        {
+          "name": "ChildrenSize",
+          "type": "UINT32",
+          "offset": 8,
+          "size": 4
+        }
+      ]
+    },
+    {
+      "name": "MILCMD_DIFFUSEMATERIAL",
+      "fixedSize": 44,
+      "sourceKind": "native-command",
+      "fields": [
+        {
+          "name": "Type",
+          "type": "MILCMD",
+          "offset": 0,
+          "size": 4
+        },
+        {
+          "name": "Handle",
+          "type": "HMIL_RESOURCE",
+          "offset": 4,
+          "size": 4
+        },
+        {
+          "name": "color",
+          "type": "MilColorF",
+          "offset": 8,
+          "size": 16
+        },
+        {
+          "name": "ambientColor",
+          "type": "MilColorF",
+          "offset": 24,
+          "size": 16
+        },
+        {
+          "name": "hbrush",
+          "type": "HMIL_RESOURCE",
+          "offset": 40,
+          "size": 4
+        }
+      ]
+    },
+    {
+      "name": "MILCMD_SPECULARMATERIAL",
+      "fixedSize": 36,
+      "sourceKind": "native-command",
+      "fields": [
+        {
+          "name": "Type",
+          "type": "MILCMD",
+          "offset": 0,
+          "size": 4
+        },
+        {
+          "name": "Handle",
+          "type": "HMIL_RESOURCE",
+          "offset": 4,
+          "size": 4
+        },
+        {
+          "name": "color",
+          "type": "MilColorF",
+          "offset": 8,
+          "size": 16
+        },
+        {
+          "name": "specularPower",
+          "type": "DOUBLE",
+          "offset": 24,
+          "size": 8
+        },
+        {
+          "name": "hbrush",
+          "type": "HMIL_RESOURCE",
+          "offset": 32,
+          "size": 4
+        }
+      ]
+    },
+    {
+      "name": "MILCMD_EMISSIVEMATERIAL",
+      "fixedSize": 28,
+      "sourceKind": "native-command",
+      "fields": [
+        {
+          "name": "Type",
+          "type": "MILCMD",
+          "offset": 0,
+          "size": 4
+        },
+        {
+          "name": "Handle",
+          "type": "HMIL_RESOURCE",
+          "offset": 4,
+          "size": 4
+        },
+        {
+          "name": "color",
+          "type": "MilColorF",
+          "offset": 8,
+          "size": 16
+        },
+        {
+          "name": "hbrush",
+          "type": "HMIL_RESOURCE",
+          "offset": 24,
+          "size": 4
+        }
+      ]
+    },
+    {
+      "name": "MILCMD_TRANSFORM3DGROUP",
+      "fixedSize": 12,
+      "sourceKind": "native-command",
+      "fields": [
+        {
+          "name": "Type",
+          "type": "MILCMD",
+          "offset": 0,
+          "size": 4
+        },
+        {
+          "name": "Handle",
+          "type": "HMIL_RESOURCE",
+          "offset": 4,
+          "size": 4
+        },
+        {
+          "name": "ChildrenSize",
+          "type": "UINT32",
+          "offset": 8,
+          "size": 4
+        }
+      ]
+    },
+    {
+      "name": "MILCMD_TRANSLATETRANSFORM3D",
+      "fixedSize": 44,
+      "sourceKind": "native-command",
+      "fields": [
+        {
+          "name": "Type",
+          "type": "MILCMD",
+          "offset": 0,
+          "size": 4
+        },
+        {
+          "name": "Handle",
+          "type": "HMIL_RESOURCE",
+          "offset": 4,
+          "size": 4
+        },
+        {
+          "name": "offsetX",
+          "type": "DOUBLE",
+          "offset": 8,
+          "size": 8
+        },
+        {
+          "name": "offsetY",
+          "type": "DOUBLE",
+          "offset": 16,
+          "size": 8
+        },
+        {
+          "name": "offsetZ",
+          "type": "DOUBLE",
+          "offset": 24,
+          "size": 8
+        },
+        {
+          "name": "hOffsetXAnimations",
+          "type": "HMIL_RESOURCE",
+          "offset": 32,
+          "size": 4
+        },
+        {
+          "name": "hOffsetYAnimations",
+          "type": "HMIL_RESOURCE",
+          "offset": 36,
+          "size": 4
+        },
+        {
+          "name": "hOffsetZAnimations",
+          "type": "HMIL_RESOURCE",
+          "offset": 40,
+          "size": 4
+        }
+      ]
+    },
+    {
+      "name": "MILCMD_SCALETRANSFORM3D",
+      "fixedSize": 80,
+      "sourceKind": "native-command",
+      "fields": [
+        {
+          "name": "Type",
+          "type": "MILCMD",
+          "offset": 0,
+          "size": 4
+        },
+        {
+          "name": "Handle",
+          "type": "HMIL_RESOURCE",
+          "offset": 4,
+          "size": 4
+        },
+        {
+          "name": "scaleX",
+          "type": "DOUBLE",
+          "offset": 8,
+          "size": 8
+        },
+        {
+          "name": "scaleY",
+          "type": "DOUBLE",
+          "offset": 16,
+          "size": 8
+        },
+        {
+          "name": "scaleZ",
+          "type": "DOUBLE",
+          "offset": 24,
+          "size": 8
+        },
+        {
+          "name": "centerX",
+          "type": "DOUBLE",
+          "offset": 32,
+          "size": 8
+        },
+        {
+          "name": "centerY",
+          "type": "DOUBLE",
+          "offset": 40,
+          "size": 8
+        },
+        {
+          "name": "centerZ",
+          "type": "DOUBLE",
+          "offset": 48,
+          "size": 8
+        },
+        {
+          "name": "hScaleXAnimations",
+          "type": "HMIL_RESOURCE",
+          "offset": 56,
+          "size": 4
+        },
+        {
+          "name": "hScaleYAnimations",
+          "type": "HMIL_RESOURCE",
+          "offset": 60,
+          "size": 4
+        },
+        {
+          "name": "hScaleZAnimations",
+          "type": "HMIL_RESOURCE",
+          "offset": 64,
+          "size": 4
+        },
+        {
+          "name": "hCenterXAnimations",
+          "type": "HMIL_RESOURCE",
+          "offset": 68,
+          "size": 4
+        },
+        {
+          "name": "hCenterYAnimations",
+          "type": "HMIL_RESOURCE",
+          "offset": 72,
+          "size": 4
+        },
+        {
+          "name": "hCenterZAnimations",
+          "type": "HMIL_RESOURCE",
+          "offset": 76,
+          "size": 4
+        }
+      ]
+    },
+    {
+      "name": "MILCMD_ROTATETRANSFORM3D",
+      "fixedSize": 48,
+      "sourceKind": "native-command",
+      "fields": [
+        {
+          "name": "Type",
+          "type": "MILCMD",
+          "offset": 0,
+          "size": 4
+        },
+        {
+          "name": "Handle",
+          "type": "HMIL_RESOURCE",
+          "offset": 4,
+          "size": 4
+        },
+        {
+          "name": "centerX",
+          "type": "DOUBLE",
+          "offset": 8,
+          "size": 8
+        },
+        {
+          "name": "centerY",
+          "type": "DOUBLE",
+          "offset": 16,
+          "size": 8
+        },
+        {
+          "name": "centerZ",
+          "type": "DOUBLE",
+          "offset": 24,
+          "size": 8
+        },
+        {
+          "name": "hCenterXAnimations",
+          "type": "HMIL_RESOURCE",
+          "offset": 32,
+          "size": 4
+        },
+        {
+          "name": "hCenterYAnimations",
+          "type": "HMIL_RESOURCE",
+          "offset": 36,
+          "size": 4
+        },
+        {
+          "name": "hCenterZAnimations",
+          "type": "HMIL_RESOURCE",
+          "offset": 40,
+          "size": 4
+        },
+        {
+          "name": "hrotation",
+          "type": "HMIL_RESOURCE",
+          "offset": 44,
+          "size": 4
+        }
+      ]
+    },
+    {
+      "name": "MILCMD_MATRIXTRANSFORM3D",
+      "fixedSize": 72,
+      "sourceKind": "native-command",
+      "fields": [
+        {
+          "name": "Type",
+          "type": "MILCMD",
+          "offset": 0,
+          "size": 4
+        },
+        {
+          "name": "Handle",
+          "type": "HMIL_RESOURCE",
+          "offset": 4,
+          "size": 4
+        },
+        {
+          "name": "matrix",
+          "type": "D3DMATRIX",
+          "offset": 8,
+          "size": 64
+        }
+      ]
+    },
+    {
+      "name": "MILCMD_PIXELSHADER",
+      "fixedSize": 20,
+      "sourceKind": "native-command",
+      "fields": [
+        {
+          "name": "Type",
+          "type": "MILCMD",
+          "offset": 0,
+          "size": 4
+        },
+        {
+          "name": "Handle",
+          "type": "HMIL_RESOURCE",
+          "offset": 4,
+          "size": 4
+        },
+        {
+          "name": "ShaderRenderMode",
+          "type": "ShaderEffectShaderRenderMode::Enum",
+          "offset": 8,
+          "size": 4
+        },
+        {
+          "name": "PixelShaderBytecodeSize",
+          "type": "UINT32",
+          "offset": 12,
+          "size": 4
+        },
+        {
+          "name": "CompileSoftwareShader",
+          "type": "BOOL",
+          "offset": 16,
+          "size": 4
+        }
+      ]
+    },
+    {
+      "name": "MILCMD_IMPLICITINPUTBRUSH",
+      "fixedSize": 28,
+      "sourceKind": "native-command",
+      "fields": [
+        {
+          "name": "Type",
+          "type": "MILCMD",
+          "offset": 0,
+          "size": 4
+        },
+        {
+          "name": "Handle",
+          "type": "HMIL_RESOURCE",
+          "offset": 4,
+          "size": 4
+        },
+        {
+          "name": "Opacity",
+          "type": "DOUBLE",
+          "offset": 8,
+          "size": 8
+        },
+        {
+          "name": "hOpacityAnimations",
+          "type": "HMIL_RESOURCE",
+          "offset": 16,
+          "size": 4
+        },
+        {
+          "name": "hTransform",
+          "type": "HMIL_RESOURCE",
+          "offset": 20,
+          "size": 4
+        },
+        {
+          "name": "hRelativeTransform",
+          "type": "HMIL_RESOURCE",
+          "offset": 24,
+          "size": 4
+        }
+      ]
+    },
+    {
+      "name": "MILCMD_BLUREFFECT",
+      "fixedSize": 28,
+      "sourceKind": "native-command",
+      "fields": [
+        {
+          "name": "Type",
+          "type": "MILCMD",
+          "offset": 0,
+          "size": 4
+        },
+        {
+          "name": "Handle",
+          "type": "HMIL_RESOURCE",
+          "offset": 4,
+          "size": 4
+        },
+        {
+          "name": "Radius",
+          "type": "DOUBLE",
+          "offset": 8,
+          "size": 8
+        },
+        {
+          "name": "hRadiusAnimations",
+          "type": "HMIL_RESOURCE",
+          "offset": 16,
+          "size": 4
+        },
+        {
+          "name": "KernelType",
+          "type": "MilKernelType::Enum",
+          "offset": 20,
+          "size": 4
+        },
+        {
+          "name": "RenderingBias",
+          "type": "MilEffectRenderingBias::Enum",
+          "offset": 24,
+          "size": 4
+        }
+      ]
+    },
+    {
+      "name": "MILCMD_DROPSHADOWEFFECT",
+      "fixedSize": 80,
+      "sourceKind": "native-command",
+      "fields": [
+        {
+          "name": "Type",
+          "type": "MILCMD",
+          "offset": 0,
+          "size": 4
+        },
+        {
+          "name": "Handle",
+          "type": "HMIL_RESOURCE",
+          "offset": 4,
+          "size": 4
+        },
+        {
+          "name": "ShadowDepth",
+          "type": "DOUBLE",
+          "offset": 8,
+          "size": 8
+        },
+        {
+          "name": "Color",
+          "type": "MilColorF",
+          "offset": 16,
+          "size": 16
+        },
+        {
+          "name": "Direction",
+          "type": "DOUBLE",
+          "offset": 32,
+          "size": 8
+        },
+        {
+          "name": "Opacity",
+          "type": "DOUBLE",
+          "offset": 40,
+          "size": 8
+        },
+        {
+          "name": "BlurRadius",
+          "type": "DOUBLE",
+          "offset": 48,
+          "size": 8
+        },
+        {
+          "name": "hShadowDepthAnimations",
+          "type": "HMIL_RESOURCE",
+          "offset": 56,
+          "size": 4
+        },
+        {
+          "name": "hColorAnimations",
+          "type": "HMIL_RESOURCE",
+          "offset": 60,
+          "size": 4
+        },
+        {
+          "name": "hDirectionAnimations",
+          "type": "HMIL_RESOURCE",
+          "offset": 64,
+          "size": 4
+        },
+        {
+          "name": "hOpacityAnimations",
+          "type": "HMIL_RESOURCE",
+          "offset": 68,
+          "size": 4
+        },
+        {
+          "name": "hBlurRadiusAnimations",
+          "type": "HMIL_RESOURCE",
+          "offset": 72,
+          "size": 4
+        },
+        {
+          "name": "RenderingBias",
+          "type": "MilEffectRenderingBias::Enum",
+          "offset": 76,
+          "size": 4
+        }
+      ]
+    },
+    {
+      "name": "MILCMD_SHADEREFFECT",
+      "fixedSize": 80,
+      "sourceKind": "native-command",
+      "fields": [
+        {
+          "name": "Type",
+          "type": "MILCMD",
+          "offset": 0,
+          "size": 4
+        },
+        {
+          "name": "Handle",
+          "type": "HMIL_RESOURCE",
+          "offset": 4,
+          "size": 4
+        },
+        {
+          "name": "TopPadding",
+          "type": "DOUBLE",
+          "offset": 8,
+          "size": 8
+        },
+        {
+          "name": "BottomPadding",
+          "type": "DOUBLE",
+          "offset": 16,
+          "size": 8
+        },
+        {
+          "name": "LeftPadding",
+          "type": "DOUBLE",
+          "offset": 24,
+          "size": 8
+        },
+        {
+          "name": "RightPadding",
+          "type": "DOUBLE",
+          "offset": 32,
+          "size": 8
+        },
+        {
+          "name": "hPixelShader",
+          "type": "HMIL_RESOURCE",
+          "offset": 40,
+          "size": 4
+        },
+        {
+          "name": "DdxUvDdyUvRegisterIndex",
+          "type": "INT",
+          "offset": 44,
+          "size": 4
+        },
+        {
+          "name": "ShaderConstantFloatRegistersSize",
+          "type": "UINT32",
+          "offset": 48,
+          "size": 4
+        },
+        {
+          "name": "DependencyPropertyFloatValuesSize",
+          "type": "UINT32",
+          "offset": 52,
+          "size": 4
+        },
+        {
+          "name": "ShaderConstantIntRegistersSize",
+          "type": "UINT32",
+          "offset": 56,
+          "size": 4
+        },
+        {
+          "name": "DependencyPropertyIntValuesSize",
+          "type": "UINT32",
+          "offset": 60,
+          "size": 4
+        },
+        {
+          "name": "ShaderConstantBoolRegistersSize",
+          "type": "UINT32",
+          "offset": 64,
+          "size": 4
+        },
+        {
+          "name": "DependencyPropertyBoolValuesSize",
+          "type": "UINT32",
+          "offset": 68,
+          "size": 4
+        },
+        {
+          "name": "ShaderSamplerRegistrationInfoSize",
+          "type": "UINT32",
+          "offset": 72,
+          "size": 4
+        },
+        {
+          "name": "DependencyPropertySamplerValuesSize",
+          "type": "UINT32",
+          "offset": 76,
+          "size": 4
+        }
+      ]
+    },
+    {
+      "name": "MILCMD_DRAWINGIMAGE",
+      "fixedSize": 12,
+      "sourceKind": "native-command",
+      "fields": [
+        {
+          "name": "Type",
+          "type": "MILCMD",
+          "offset": 0,
+          "size": 4
+        },
+        {
+          "name": "Handle",
+          "type": "HMIL_RESOURCE",
+          "offset": 4,
+          "size": 4
+        },
+        {
+          "name": "hDrawing",
+          "type": "HMIL_RESOURCE",
+          "offset": 8,
+          "size": 4
+        }
+      ]
+    },
+    {
+      "name": "MILCMD_TRANSFORMGROUP",
+      "fixedSize": 12,
+      "sourceKind": "native-command",
+      "fields": [
+        {
+          "name": "Type",
+          "type": "MILCMD",
+          "offset": 0,
+          "size": 4
+        },
+        {
+          "name": "Handle",
+          "type": "HMIL_RESOURCE",
+          "offset": 4,
+          "size": 4
+        },
+        {
+          "name": "ChildrenSize",
+          "type": "UINT32",
+          "offset": 8,
+          "size": 4
+        }
+      ]
+    },
+    {
+      "name": "MILCMD_TRANSLATETRANSFORM",
+      "fixedSize": 32,
+      "sourceKind": "native-command",
+      "fields": [
+        {
+          "name": "Type",
+          "type": "MILCMD",
+          "offset": 0,
+          "size": 4
+        },
+        {
+          "name": "Handle",
+          "type": "HMIL_RESOURCE",
+          "offset": 4,
+          "size": 4
+        },
+        {
+          "name": "X",
+          "type": "DOUBLE",
+          "offset": 8,
+          "size": 8
+        },
+        {
+          "name": "Y",
+          "type": "DOUBLE",
+          "offset": 16,
+          "size": 8
+        },
+        {
+          "name": "hXAnimations",
+          "type": "HMIL_RESOURCE",
+          "offset": 24,
+          "size": 4
+        },
+        {
+          "name": "hYAnimations",
+          "type": "HMIL_RESOURCE",
+          "offset": 28,
+          "size": 4
+        }
+      ]
+    },
+    {
+      "name": "MILCMD_SCALETRANSFORM",
+      "fixedSize": 56,
+      "sourceKind": "native-command",
+      "fields": [
+        {
+          "name": "Type",
+          "type": "MILCMD",
+          "offset": 0,
+          "size": 4
+        },
+        {
+          "name": "Handle",
+          "type": "HMIL_RESOURCE",
+          "offset": 4,
+          "size": 4
+        },
+        {
+          "name": "ScaleX",
+          "type": "DOUBLE",
+          "offset": 8,
+          "size": 8
+        },
+        {
+          "name": "ScaleY",
+          "type": "DOUBLE",
+          "offset": 16,
+          "size": 8
+        },
+        {
+          "name": "CenterX",
+          "type": "DOUBLE",
+          "offset": 24,
+          "size": 8
+        },
+        {
+          "name": "CenterY",
+          "type": "DOUBLE",
+          "offset": 32,
+          "size": 8
+        },
+        {
+          "name": "hScaleXAnimations",
+          "type": "HMIL_RESOURCE",
+          "offset": 40,
+          "size": 4
+        },
+        {
+          "name": "hScaleYAnimations",
+          "type": "HMIL_RESOURCE",
+          "offset": 44,
+          "size": 4
+        },
+        {
+          "name": "hCenterXAnimations",
+          "type": "HMIL_RESOURCE",
+          "offset": 48,
+          "size": 4
+        },
+        {
+          "name": "hCenterYAnimations",
+          "type": "HMIL_RESOURCE",
+          "offset": 52,
+          "size": 4
+        }
+      ]
+    },
+    {
+      "name": "MILCMD_SKEWTRANSFORM",
+      "fixedSize": 56,
+      "sourceKind": "native-command",
+      "fields": [
+        {
+          "name": "Type",
+          "type": "MILCMD",
+          "offset": 0,
+          "size": 4
+        },
+        {
+          "name": "Handle",
+          "type": "HMIL_RESOURCE",
+          "offset": 4,
+          "size": 4
+        },
+        {
+          "name": "AngleX",
+          "type": "DOUBLE",
+          "offset": 8,
+          "size": 8
+        },
+        {
+          "name": "AngleY",
+          "type": "DOUBLE",
+          "offset": 16,
+          "size": 8
+        },
+        {
+          "name": "CenterX",
+          "type": "DOUBLE",
+          "offset": 24,
+          "size": 8
+        },
+        {
+          "name": "CenterY",
+          "type": "DOUBLE",
+          "offset": 32,
+          "size": 8
+        },
+        {
+          "name": "hAngleXAnimations",
+          "type": "HMIL_RESOURCE",
+          "offset": 40,
+          "size": 4
+        },
+        {
+          "name": "hAngleYAnimations",
+          "type": "HMIL_RESOURCE",
+          "offset": 44,
+          "size": 4
+        },
+        {
+          "name": "hCenterXAnimations",
+          "type": "HMIL_RESOURCE",
+          "offset": 48,
+          "size": 4
+        },
+        {
+          "name": "hCenterYAnimations",
+          "type": "HMIL_RESOURCE",
+          "offset": 52,
+          "size": 4
+        }
+      ]
+    },
+    {
+      "name": "MILCMD_ROTATETRANSFORM",
+      "fixedSize": 44,
+      "sourceKind": "native-command",
+      "fields": [
+        {
+          "name": "Type",
+          "type": "MILCMD",
+          "offset": 0,
+          "size": 4
+        },
+        {
+          "name": "Handle",
+          "type": "HMIL_RESOURCE",
+          "offset": 4,
+          "size": 4
+        },
+        {
+          "name": "Angle",
+          "type": "DOUBLE",
+          "offset": 8,
+          "size": 8
+        },
+        {
+          "name": "CenterX",
+          "type": "DOUBLE",
+          "offset": 16,
+          "size": 8
+        },
+        {
+          "name": "CenterY",
+          "type": "DOUBLE",
+          "offset": 24,
+          "size": 8
+        },
+        {
+          "name": "hAngleAnimations",
+          "type": "HMIL_RESOURCE",
+          "offset": 32,
+          "size": 4
+        },
+        {
+          "name": "hCenterXAnimations",
+          "type": "HMIL_RESOURCE",
+          "offset": 36,
+          "size": 4
+        },
+        {
+          "name": "hCenterYAnimations",
+          "type": "HMIL_RESOURCE",
+          "offset": 40,
+          "size": 4
+        }
+      ]
+    },
+    {
+      "name": "MILCMD_MATRIXTRANSFORM",
+      "fixedSize": 60,
+      "sourceKind": "native-command",
+      "fields": [
+        {
+          "name": "Type",
+          "type": "MILCMD",
+          "offset": 0,
+          "size": 4
+        },
+        {
+          "name": "Handle",
+          "type": "HMIL_RESOURCE",
+          "offset": 4,
+          "size": 4
+        },
+        {
+          "name": "Matrix",
+          "type": "MilMatrix3x2D",
+          "offset": 8,
+          "size": 48
+        },
+        {
+          "name": "hMatrixAnimations",
+          "type": "HMIL_RESOURCE",
+          "offset": 56,
+          "size": 4
+        }
+      ]
+    },
+    {
+      "name": "MILCMD_LINEGEOMETRY",
+      "fixedSize": 52,
+      "sourceKind": "native-command",
+      "fields": [
+        {
+          "name": "Type",
+          "type": "MILCMD",
+          "offset": 0,
+          "size": 4
+        },
+        {
+          "name": "Handle",
+          "type": "HMIL_RESOURCE",
+          "offset": 4,
+          "size": 4
+        },
+        {
+          "name": "StartPoint",
+          "type": "MilPoint2D",
+          "offset": 8,
+          "size": 16
+        },
+        {
+          "name": "EndPoint",
+          "type": "MilPoint2D",
+          "offset": 24,
+          "size": 16
+        },
+        {
+          "name": "hTransform",
+          "type": "HMIL_RESOURCE",
+          "offset": 40,
+          "size": 4
+        },
+        {
+          "name": "hStartPointAnimations",
+          "type": "HMIL_RESOURCE",
+          "offset": 44,
+          "size": 4
+        },
+        {
+          "name": "hEndPointAnimations",
+          "type": "HMIL_RESOURCE",
+          "offset": 48,
+          "size": 4
+        }
+      ]
+    },
+    {
+      "name": "MILCMD_RECTANGLEGEOMETRY",
+      "fixedSize": 72,
+      "sourceKind": "native-command",
+      "fields": [
+        {
+          "name": "Type",
+          "type": "MILCMD",
+          "offset": 0,
+          "size": 4
+        },
+        {
+          "name": "Handle",
+          "type": "HMIL_RESOURCE",
+          "offset": 4,
+          "size": 4
+        },
+        {
+          "name": "RadiusX",
+          "type": "DOUBLE",
+          "offset": 8,
+          "size": 8
+        },
+        {
+          "name": "RadiusY",
+          "type": "DOUBLE",
+          "offset": 16,
+          "size": 8
+        },
+        {
+          "name": "Rect",
+          "type": "MilPointAndSizeD",
+          "offset": 24,
+          "size": 32
+        },
+        {
+          "name": "hTransform",
+          "type": "HMIL_RESOURCE",
+          "offset": 56,
+          "size": 4
+        },
+        {
+          "name": "hRadiusXAnimations",
+          "type": "HMIL_RESOURCE",
+          "offset": 60,
+          "size": 4
+        },
+        {
+          "name": "hRadiusYAnimations",
+          "type": "HMIL_RESOURCE",
+          "offset": 64,
+          "size": 4
+        },
+        {
+          "name": "hRectAnimations",
+          "type": "HMIL_RESOURCE",
+          "offset": 68,
+          "size": 4
+        }
+      ]
+    },
+    {
+      "name": "MILCMD_ELLIPSEGEOMETRY",
+      "fixedSize": 56,
+      "sourceKind": "native-command",
+      "fields": [
+        {
+          "name": "Type",
+          "type": "MILCMD",
+          "offset": 0,
+          "size": 4
+        },
+        {
+          "name": "Handle",
+          "type": "HMIL_RESOURCE",
+          "offset": 4,
+          "size": 4
+        },
+        {
+          "name": "RadiusX",
+          "type": "DOUBLE",
+          "offset": 8,
+          "size": 8
+        },
+        {
+          "name": "RadiusY",
+          "type": "DOUBLE",
+          "offset": 16,
+          "size": 8
+        },
+        {
+          "name": "Center",
+          "type": "MilPoint2D",
+          "offset": 24,
+          "size": 16
+        },
+        {
+          "name": "hTransform",
+          "type": "HMIL_RESOURCE",
+          "offset": 40,
+          "size": 4
+        },
+        {
+          "name": "hRadiusXAnimations",
+          "type": "HMIL_RESOURCE",
+          "offset": 44,
+          "size": 4
+        },
+        {
+          "name": "hRadiusYAnimations",
+          "type": "HMIL_RESOURCE",
+          "offset": 48,
+          "size": 4
+        },
+        {
+          "name": "hCenterAnimations",
+          "type": "HMIL_RESOURCE",
+          "offset": 52,
+          "size": 4
+        }
+      ]
+    },
+    {
+      "name": "MILCMD_GEOMETRYGROUP",
+      "fixedSize": 20,
+      "sourceKind": "native-command",
+      "fields": [
+        {
+          "name": "Type",
+          "type": "MILCMD",
+          "offset": 0,
+          "size": 4
+        },
+        {
+          "name": "Handle",
+          "type": "HMIL_RESOURCE",
+          "offset": 4,
+          "size": 4
+        },
+        {
+          "name": "hTransform",
+          "type": "HMIL_RESOURCE",
+          "offset": 8,
+          "size": 4
+        },
+        {
+          "name": "FillRule",
+          "type": "MilFillMode::Enum",
+          "offset": 12,
+          "size": 4
+        },
+        {
+          "name": "ChildrenSize",
+          "type": "UINT32",
+          "offset": 16,
+          "size": 4
+        }
+      ]
+    },
+    {
+      "name": "MILCMD_COMBINEDGEOMETRY",
+      "fixedSize": 24,
+      "sourceKind": "native-command",
+      "fields": [
+        {
+          "name": "Type",
+          "type": "MILCMD",
+          "offset": 0,
+          "size": 4
+        },
+        {
+          "name": "Handle",
+          "type": "HMIL_RESOURCE",
+          "offset": 4,
+          "size": 4
+        },
+        {
+          "name": "hTransform",
+          "type": "HMIL_RESOURCE",
+          "offset": 8,
+          "size": 4
+        },
+        {
+          "name": "GeometryCombineMode",
+          "type": "MilCombineMode::Enum",
+          "offset": 12,
+          "size": 4
+        },
+        {
+          "name": "hGeometry1",
+          "type": "HMIL_RESOURCE",
+          "offset": 16,
+          "size": 4
+        },
+        {
+          "name": "hGeometry2",
+          "type": "HMIL_RESOURCE",
+          "offset": 20,
+          "size": 4
+        }
+      ]
+    },
+    {
+      "name": "MILCMD_PATHGEOMETRY",
+      "fixedSize": 20,
+      "sourceKind": "native-command",
+      "fields": [
+        {
+          "name": "Type",
+          "type": "MILCMD",
+          "offset": 0,
+          "size": 4
+        },
+        {
+          "name": "Handle",
+          "type": "HMIL_RESOURCE",
+          "offset": 4,
+          "size": 4
+        },
+        {
+          "name": "hTransform",
+          "type": "HMIL_RESOURCE",
+          "offset": 8,
+          "size": 4
+        },
+        {
+          "name": "FillRule",
+          "type": "MilFillMode::Enum",
+          "offset": 12,
+          "size": 4
+        },
+        {
+          "name": "FiguresSize",
+          "type": "UINT32",
+          "offset": 16,
+          "size": 4
+        }
+      ]
+    },
+    {
+      "name": "MILCMD_SOLIDCOLORBRUSH",
+      "fixedSize": 48,
+      "sourceKind": "native-command",
+      "fields": [
+        {
+          "name": "Type",
+          "type": "MILCMD",
+          "offset": 0,
+          "size": 4
+        },
+        {
+          "name": "Handle",
+          "type": "HMIL_RESOURCE",
+          "offset": 4,
+          "size": 4
+        },
+        {
+          "name": "Opacity",
+          "type": "DOUBLE",
+          "offset": 8,
+          "size": 8
+        },
+        {
+          "name": "Color",
+          "type": "MilColorF",
+          "offset": 16,
+          "size": 16
+        },
+        {
+          "name": "hOpacityAnimations",
+          "type": "HMIL_RESOURCE",
+          "offset": 32,
+          "size": 4
+        },
+        {
+          "name": "hTransform",
+          "type": "HMIL_RESOURCE",
+          "offset": 36,
+          "size": 4
+        },
+        {
+          "name": "hRelativeTransform",
+          "type": "HMIL_RESOURCE",
+          "offset": 40,
+          "size": 4
+        },
+        {
+          "name": "hColorAnimations",
+          "type": "HMIL_RESOURCE",
+          "offset": 44,
+          "size": 4
+        }
+      ]
+    },
+    {
+      "name": "MILCMD_LINEARGRADIENTBRUSH",
+      "fixedSize": 84,
+      "sourceKind": "native-command",
+      "fields": [
+        {
+          "name": "Type",
+          "type": "MILCMD",
+          "offset": 0,
+          "size": 4
+        },
+        {
+          "name": "Handle",
+          "type": "HMIL_RESOURCE",
+          "offset": 4,
+          "size": 4
+        },
+        {
+          "name": "Opacity",
+          "type": "DOUBLE",
+          "offset": 8,
+          "size": 8
+        },
+        {
+          "name": "StartPoint",
+          "type": "MilPoint2D",
+          "offset": 16,
+          "size": 16
+        },
+        {
+          "name": "EndPoint",
+          "type": "MilPoint2D",
+          "offset": 32,
+          "size": 16
+        },
+        {
+          "name": "hOpacityAnimations",
+          "type": "HMIL_RESOURCE",
+          "offset": 48,
+          "size": 4
+        },
+        {
+          "name": "hTransform",
+          "type": "HMIL_RESOURCE",
+          "offset": 52,
+          "size": 4
+        },
+        {
+          "name": "hRelativeTransform",
+          "type": "HMIL_RESOURCE",
+          "offset": 56,
+          "size": 4
+        },
+        {
+          "name": "ColorInterpolationMode",
+          "type": "MilColorInterpolationMode::Enum",
+          "offset": 60,
+          "size": 4
+        },
+        {
+          "name": "MappingMode",
+          "type": "MilBrushMappingMode::Enum",
+          "offset": 64,
+          "size": 4
+        },
+        {
+          "name": "SpreadMethod",
+          "type": "MilGradientSpreadMethod::Enum",
+          "offset": 68,
+          "size": 4
+        },
+        {
+          "name": "GradientStopsSize",
+          "type": "UINT32",
+          "offset": 72,
+          "size": 4
+        },
+        {
+          "name": "hStartPointAnimations",
+          "type": "HMIL_RESOURCE",
+          "offset": 76,
+          "size": 4
+        },
+        {
+          "name": "hEndPointAnimations",
+          "type": "HMIL_RESOURCE",
+          "offset": 80,
+          "size": 4
+        }
+      ]
+    },
+    {
+      "name": "MILCMD_RADIALGRADIENTBRUSH",
+      "fixedSize": 108,
+      "sourceKind": "native-command",
+      "fields": [
+        {
+          "name": "Type",
+          "type": "MILCMD",
+          "offset": 0,
+          "size": 4
+        },
+        {
+          "name": "Handle",
+          "type": "HMIL_RESOURCE",
+          "offset": 4,
+          "size": 4
+        },
+        {
+          "name": "Opacity",
+          "type": "DOUBLE",
+          "offset": 8,
+          "size": 8
+        },
+        {
+          "name": "Center",
+          "type": "MilPoint2D",
+          "offset": 16,
+          "size": 16
+        },
+        {
+          "name": "RadiusX",
+          "type": "DOUBLE",
+          "offset": 32,
+          "size": 8
+        },
+        {
+          "name": "RadiusY",
+          "type": "DOUBLE",
+          "offset": 40,
+          "size": 8
+        },
+        {
+          "name": "GradientOrigin",
+          "type": "MilPoint2D",
+          "offset": 48,
+          "size": 16
+        },
+        {
+          "name": "hOpacityAnimations",
+          "type": "HMIL_RESOURCE",
+          "offset": 64,
+          "size": 4
+        },
+        {
+          "name": "hTransform",
+          "type": "HMIL_RESOURCE",
+          "offset": 68,
+          "size": 4
+        },
+        {
+          "name": "hRelativeTransform",
+          "type": "HMIL_RESOURCE",
+          "offset": 72,
+          "size": 4
+        },
+        {
+          "name": "ColorInterpolationMode",
+          "type": "MilColorInterpolationMode::Enum",
+          "offset": 76,
+          "size": 4
+        },
+        {
+          "name": "MappingMode",
+          "type": "MilBrushMappingMode::Enum",
+          "offset": 80,
+          "size": 4
+        },
+        {
+          "name": "SpreadMethod",
+          "type": "MilGradientSpreadMethod::Enum",
+          "offset": 84,
+          "size": 4
+        },
+        {
+          "name": "GradientStopsSize",
+          "type": "UINT32",
+          "offset": 88,
+          "size": 4
+        },
+        {
+          "name": "hCenterAnimations",
+          "type": "HMIL_RESOURCE",
+          "offset": 92,
+          "size": 4
+        },
+        {
+          "name": "hRadiusXAnimations",
+          "type": "HMIL_RESOURCE",
+          "offset": 96,
+          "size": 4
+        },
+        {
+          "name": "hRadiusYAnimations",
+          "type": "HMIL_RESOURCE",
+          "offset": 100,
+          "size": 4
+        },
+        {
+          "name": "hGradientOriginAnimations",
+          "type": "HMIL_RESOURCE",
+          "offset": 104,
+          "size": 4
+        }
+      ]
+    },
+    {
+      "name": "MILCMD_IMAGEBRUSH",
+      "fixedSize": 148,
+      "sourceKind": "native-command",
+      "fields": [
+        {
+          "name": "Type",
+          "type": "MILCMD",
+          "offset": 0,
+          "size": 4
+        },
+        {
+          "name": "Handle",
+          "type": "HMIL_RESOURCE",
+          "offset": 4,
+          "size": 4
+        },
+        {
+          "name": "Opacity",
+          "type": "DOUBLE",
+          "offset": 8,
+          "size": 8
+        },
+        {
+          "name": "Viewport",
+          "type": "MilPointAndSizeD",
+          "offset": 16,
+          "size": 32
+        },
+        {
+          "name": "Viewbox",
+          "type": "MilPointAndSizeD",
+          "offset": 48,
+          "size": 32
+        },
+        {
+          "name": "CacheInvalidationThresholdMinimum",
+          "type": "DOUBLE",
+          "offset": 80,
+          "size": 8
+        },
+        {
+          "name": "CacheInvalidationThresholdMaximum",
+          "type": "DOUBLE",
+          "offset": 88,
+          "size": 8
+        },
+        {
+          "name": "hOpacityAnimations",
+          "type": "HMIL_RESOURCE",
+          "offset": 96,
+          "size": 4
+        },
+        {
+          "name": "hTransform",
+          "type": "HMIL_RESOURCE",
+          "offset": 100,
+          "size": 4
+        },
+        {
+          "name": "hRelativeTransform",
+          "type": "HMIL_RESOURCE",
+          "offset": 104,
+          "size": 4
+        },
+        {
+          "name": "ViewportUnits",
+          "type": "MilBrushMappingMode::Enum",
+          "offset": 108,
+          "size": 4
+        },
+        {
+          "name": "ViewboxUnits",
+          "type": "MilBrushMappingMode::Enum",
+          "offset": 112,
+          "size": 4
+        },
+        {
+          "name": "hViewportAnimations",
+          "type": "HMIL_RESOURCE",
+          "offset": 116,
+          "size": 4
+        },
+        {
+          "name": "hViewboxAnimations",
+          "type": "HMIL_RESOURCE",
+          "offset": 120,
+          "size": 4
+        },
+        {
+          "name": "Stretch",
+          "type": "MilStretch::Enum",
+          "offset": 124,
+          "size": 4
+        },
+        {
+          "name": "TileMode",
+          "type": "MilTileMode::Enum",
+          "offset": 128,
+          "size": 4
+        },
+        {
+          "name": "AlignmentX",
+          "type": "MilHorizontalAlignment::Enum",
+          "offset": 132,
+          "size": 4
+        },
+        {
+          "name": "AlignmentY",
+          "type": "MilVerticalAlignment::Enum",
+          "offset": 136,
+          "size": 4
+        },
+        {
+          "name": "CachingHint",
+          "type": "MilCachingHint::Enum",
+          "offset": 140,
+          "size": 4
+        },
+        {
+          "name": "hImageSource",
+          "type": "HMIL_RESOURCE",
+          "offset": 144,
+          "size": 4
+        }
+      ]
+    },
+    {
+      "name": "MILCMD_DRAWINGBRUSH",
+      "fixedSize": 148,
+      "sourceKind": "native-command",
+      "fields": [
+        {
+          "name": "Type",
+          "type": "MILCMD",
+          "offset": 0,
+          "size": 4
+        },
+        {
+          "name": "Handle",
+          "type": "HMIL_RESOURCE",
+          "offset": 4,
+          "size": 4
+        },
+        {
+          "name": "Opacity",
+          "type": "DOUBLE",
+          "offset": 8,
+          "size": 8
+        },
+        {
+          "name": "Viewport",
+          "type": "MilPointAndSizeD",
+          "offset": 16,
+          "size": 32
+        },
+        {
+          "name": "Viewbox",
+          "type": "MilPointAndSizeD",
+          "offset": 48,
+          "size": 32
+        },
+        {
+          "name": "CacheInvalidationThresholdMinimum",
+          "type": "DOUBLE",
+          "offset": 80,
+          "size": 8
+        },
+        {
+          "name": "CacheInvalidationThresholdMaximum",
+          "type": "DOUBLE",
+          "offset": 88,
+          "size": 8
+        },
+        {
+          "name": "hOpacityAnimations",
+          "type": "HMIL_RESOURCE",
+          "offset": 96,
+          "size": 4
+        },
+        {
+          "name": "hTransform",
+          "type": "HMIL_RESOURCE",
+          "offset": 100,
+          "size": 4
+        },
+        {
+          "name": "hRelativeTransform",
+          "type": "HMIL_RESOURCE",
+          "offset": 104,
+          "size": 4
+        },
+        {
+          "name": "ViewportUnits",
+          "type": "MilBrushMappingMode::Enum",
+          "offset": 108,
+          "size": 4
+        },
+        {
+          "name": "ViewboxUnits",
+          "type": "MilBrushMappingMode::Enum",
+          "offset": 112,
+          "size": 4
+        },
+        {
+          "name": "hViewportAnimations",
+          "type": "HMIL_RESOURCE",
+          "offset": 116,
+          "size": 4
+        },
+        {
+          "name": "hViewboxAnimations",
+          "type": "HMIL_RESOURCE",
+          "offset": 120,
+          "size": 4
+        },
+        {
+          "name": "Stretch",
+          "type": "MilStretch::Enum",
+          "offset": 124,
+          "size": 4
+        },
+        {
+          "name": "TileMode",
+          "type": "MilTileMode::Enum",
+          "offset": 128,
+          "size": 4
+        },
+        {
+          "name": "AlignmentX",
+          "type": "MilHorizontalAlignment::Enum",
+          "offset": 132,
+          "size": 4
+        },
+        {
+          "name": "AlignmentY",
+          "type": "MilVerticalAlignment::Enum",
+          "offset": 136,
+          "size": 4
+        },
+        {
+          "name": "CachingHint",
+          "type": "MilCachingHint::Enum",
+          "offset": 140,
+          "size": 4
+        },
+        {
+          "name": "hDrawing",
+          "type": "HMIL_RESOURCE",
+          "offset": 144,
+          "size": 4
+        }
+      ]
+    },
+    {
+      "name": "MILCMD_VISUALBRUSH",
+      "fixedSize": 148,
+      "sourceKind": "native-command",
+      "fields": [
+        {
+          "name": "Type",
+          "type": "MILCMD",
+          "offset": 0,
+          "size": 4
+        },
+        {
+          "name": "Handle",
+          "type": "HMIL_RESOURCE",
+          "offset": 4,
+          "size": 4
+        },
+        {
+          "name": "Opacity",
+          "type": "DOUBLE",
+          "offset": 8,
+          "size": 8
+        },
+        {
+          "name": "Viewport",
+          "type": "MilPointAndSizeD",
+          "offset": 16,
+          "size": 32
+        },
+        {
+          "name": "Viewbox",
+          "type": "MilPointAndSizeD",
+          "offset": 48,
+          "size": 32
+        },
+        {
+          "name": "CacheInvalidationThresholdMinimum",
+          "type": "DOUBLE",
+          "offset": 80,
+          "size": 8
+        },
+        {
+          "name": "CacheInvalidationThresholdMaximum",
+          "type": "DOUBLE",
+          "offset": 88,
+          "size": 8
+        },
+        {
+          "name": "hOpacityAnimations",
+          "type": "HMIL_RESOURCE",
+          "offset": 96,
+          "size": 4
+        },
+        {
+          "name": "hTransform",
+          "type": "HMIL_RESOURCE",
+          "offset": 100,
+          "size": 4
+        },
+        {
+          "name": "hRelativeTransform",
+          "type": "HMIL_RESOURCE",
+          "offset": 104,
+          "size": 4
+        },
+        {
+          "name": "ViewportUnits",
+          "type": "MilBrushMappingMode::Enum",
+          "offset": 108,
+          "size": 4
+        },
+        {
+          "name": "ViewboxUnits",
+          "type": "MilBrushMappingMode::Enum",
+          "offset": 112,
+          "size": 4
+        },
+        {
+          "name": "hViewportAnimations",
+          "type": "HMIL_RESOURCE",
+          "offset": 116,
+          "size": 4
+        },
+        {
+          "name": "hViewboxAnimations",
+          "type": "HMIL_RESOURCE",
+          "offset": 120,
+          "size": 4
+        },
+        {
+          "name": "Stretch",
+          "type": "MilStretch::Enum",
+          "offset": 124,
+          "size": 4
+        },
+        {
+          "name": "TileMode",
+          "type": "MilTileMode::Enum",
+          "offset": 128,
+          "size": 4
+        },
+        {
+          "name": "AlignmentX",
+          "type": "MilHorizontalAlignment::Enum",
+          "offset": 132,
+          "size": 4
+        },
+        {
+          "name": "AlignmentY",
+          "type": "MilVerticalAlignment::Enum",
+          "offset": 136,
+          "size": 4
+        },
+        {
+          "name": "CachingHint",
+          "type": "MilCachingHint::Enum",
+          "offset": 140,
+          "size": 4
+        },
+        {
+          "name": "hVisual",
+          "type": "HMIL_RESOURCE",
+          "offset": 144,
+          "size": 4
+        }
+      ]
+    },
+    {
+      "name": "MILCMD_BITMAPCACHEBRUSH",
+      "fixedSize": 36,
+      "sourceKind": "native-command",
+      "fields": [
+        {
+          "name": "Type",
+          "type": "MILCMD",
+          "offset": 0,
+          "size": 4
+        },
+        {
+          "name": "Handle",
+          "type": "HMIL_RESOURCE",
+          "offset": 4,
+          "size": 4
+        },
+        {
+          "name": "Opacity",
+          "type": "DOUBLE",
+          "offset": 8,
+          "size": 8
+        },
+        {
+          "name": "hOpacityAnimations",
+          "type": "HMIL_RESOURCE",
+          "offset": 16,
+          "size": 4
+        },
+        {
+          "name": "hTransform",
+          "type": "HMIL_RESOURCE",
+          "offset": 20,
+          "size": 4
+        },
+        {
+          "name": "hRelativeTransform",
+          "type": "HMIL_RESOURCE",
+          "offset": 24,
+          "size": 4
+        },
+        {
+          "name": "hBitmapCache",
+          "type": "HMIL_RESOURCE",
+          "offset": 28,
+          "size": 4
+        },
+        {
+          "name": "hInternalTarget",
+          "type": "HMIL_RESOURCE",
+          "offset": 32,
+          "size": 4
+        }
+      ]
+    },
+    {
+      "name": "MILCMD_DASHSTYLE",
+      "fixedSize": 24,
+      "sourceKind": "native-command",
+      "fields": [
+        {
+          "name": "Type",
+          "type": "MILCMD",
+          "offset": 0,
+          "size": 4
+        },
+        {
+          "name": "Handle",
+          "type": "HMIL_RESOURCE",
+          "offset": 4,
+          "size": 4
+        },
+        {
+          "name": "Offset",
+          "type": "DOUBLE",
+          "offset": 8,
+          "size": 8
+        },
+        {
+          "name": "hOffsetAnimations",
+          "type": "HMIL_RESOURCE",
+          "offset": 16,
+          "size": 4
+        },
+        {
+          "name": "DashesSize",
+          "type": "UINT32",
+          "offset": 20,
+          "size": 4
+        }
+      ]
+    },
+    {
+      "name": "MILCMD_PEN",
+      "fixedSize": 52,
+      "sourceKind": "native-command",
+      "fields": [
+        {
+          "name": "Type",
+          "type": "MILCMD",
+          "offset": 0,
+          "size": 4
+        },
+        {
+          "name": "Handle",
+          "type": "HMIL_RESOURCE",
+          "offset": 4,
+          "size": 4
+        },
+        {
+          "name": "Thickness",
+          "type": "DOUBLE",
+          "offset": 8,
+          "size": 8
+        },
+        {
+          "name": "MiterLimit",
+          "type": "DOUBLE",
+          "offset": 16,
+          "size": 8
+        },
+        {
+          "name": "hBrush",
+          "type": "HMIL_RESOURCE",
+          "offset": 24,
+          "size": 4
+        },
+        {
+          "name": "hThicknessAnimations",
+          "type": "HMIL_RESOURCE",
+          "offset": 28,
+          "size": 4
+        },
+        {
+          "name": "StartLineCap",
+          "type": "MilPenCap::Enum",
+          "offset": 32,
+          "size": 4
+        },
+        {
+          "name": "EndLineCap",
+          "type": "MilPenCap::Enum",
+          "offset": 36,
+          "size": 4
+        },
+        {
+          "name": "DashCap",
+          "type": "MilPenCap::Enum",
+          "offset": 40,
+          "size": 4
+        },
+        {
+          "name": "LineJoin",
+          "type": "MilPenJoin::Enum",
+          "offset": 44,
+          "size": 4
+        },
+        {
+          "name": "hDashStyle",
+          "type": "HMIL_RESOURCE",
+          "offset": 48,
+          "size": 4
+        }
+      ]
+    },
+    {
+      "name": "MILCMD_GEOMETRYDRAWING",
+      "fixedSize": 20,
+      "sourceKind": "native-command",
+      "fields": [
+        {
+          "name": "Type",
+          "type": "MILCMD",
+          "offset": 0,
+          "size": 4
+        },
+        {
+          "name": "Handle",
+          "type": "HMIL_RESOURCE",
+          "offset": 4,
+          "size": 4
+        },
+        {
+          "name": "hBrush",
+          "type": "HMIL_RESOURCE",
+          "offset": 8,
+          "size": 4
+        },
+        {
+          "name": "hPen",
+          "type": "HMIL_RESOURCE",
+          "offset": 12,
+          "size": 4
+        },
+        {
+          "name": "hGeometry",
+          "type": "HMIL_RESOURCE",
+          "offset": 16,
+          "size": 4
+        }
+      ]
+    },
+    {
+      "name": "MILCMD_GLYPHRUNDRAWING",
+      "fixedSize": 16,
+      "sourceKind": "native-command",
+      "fields": [
+        {
+          "name": "Type",
+          "type": "MILCMD",
+          "offset": 0,
+          "size": 4
+        },
+        {
+          "name": "Handle",
+          "type": "HMIL_RESOURCE",
+          "offset": 4,
+          "size": 4
+        },
+        {
+          "name": "hGlyphRun",
+          "type": "HMIL_RESOURCE",
+          "offset": 8,
+          "size": 4
+        },
+        {
+          "name": "hForegroundBrush",
+          "type": "HMIL_RESOURCE",
+          "offset": 12,
+          "size": 4
+        }
+      ]
+    },
+    {
+      "name": "MILCMD_IMAGEDRAWING",
+      "fixedSize": 48,
+      "sourceKind": "native-command",
+      "fields": [
+        {
+          "name": "Type",
+          "type": "MILCMD",
+          "offset": 0,
+          "size": 4
+        },
+        {
+          "name": "Handle",
+          "type": "HMIL_RESOURCE",
+          "offset": 4,
+          "size": 4
+        },
+        {
+          "name": "Rect",
+          "type": "MilPointAndSizeD",
+          "offset": 8,
+          "size": 32
+        },
+        {
+          "name": "hImageSource",
+          "type": "HMIL_RESOURCE",
+          "offset": 40,
+          "size": 4
+        },
+        {
+          "name": "hRectAnimations",
+          "type": "HMIL_RESOURCE",
+          "offset": 44,
+          "size": 4
+        }
+      ]
+    },
+    {
+      "name": "MILCMD_VIDEODRAWING",
+      "fixedSize": 48,
+      "sourceKind": "native-command",
+      "fields": [
+        {
+          "name": "Type",
+          "type": "MILCMD",
+          "offset": 0,
+          "size": 4
+        },
+        {
+          "name": "Handle",
+          "type": "HMIL_RESOURCE",
+          "offset": 4,
+          "size": 4
+        },
+        {
+          "name": "Rect",
+          "type": "MilPointAndSizeD",
+          "offset": 8,
+          "size": 32
+        },
+        {
+          "name": "hPlayer",
+          "type": "HMIL_RESOURCE",
+          "offset": 40,
+          "size": 4
+        },
+        {
+          "name": "hRectAnimations",
+          "type": "HMIL_RESOURCE",
+          "offset": 44,
+          "size": 4
+        }
+      ]
+    },
+    {
+      "name": "MILCMD_DRAWINGGROUP",
+      "fixedSize": 52,
+      "sourceKind": "native-command",
+      "fields": [
+        {
+          "name": "Type",
+          "type": "MILCMD",
+          "offset": 0,
+          "size": 4
+        },
+        {
+          "name": "Handle",
+          "type": "HMIL_RESOURCE",
+          "offset": 4,
+          "size": 4
+        },
+        {
+          "name": "Opacity",
+          "type": "DOUBLE",
+          "offset": 8,
+          "size": 8
+        },
+        {
+          "name": "ChildrenSize",
+          "type": "UINT32",
+          "offset": 16,
+          "size": 4
+        },
+        {
+          "name": "hClipGeometry",
+          "type": "HMIL_RESOURCE",
+          "offset": 20,
+          "size": 4
+        },
+        {
+          "name": "hOpacityAnimations",
+          "type": "HMIL_RESOURCE",
+          "offset": 24,
+          "size": 4
+        },
+        {
+          "name": "hOpacityMask",
+          "type": "HMIL_RESOURCE",
+          "offset": 28,
+          "size": 4
+        },
+        {
+          "name": "hTransform",
+          "type": "HMIL_RESOURCE",
+          "offset": 32,
+          "size": 4
+        },
+        {
+          "name": "hGuidelineSet",
+          "type": "HMIL_RESOURCE",
+          "offset": 36,
+          "size": 4
+        },
+        {
+          "name": "EdgeMode",
+          "type": "MilEdgeMode::Enum",
+          "offset": 40,
+          "size": 4
+        },
+        {
+          "name": "bitmapScalingMode",
+          "type": "MilBitmapScalingMode::Enum",
+          "offset": 44,
+          "size": 4
+        },
+        {
+          "name": "ClearTypeHint",
+          "type": "MilClearTypeHint::Enum",
+          "offset": 48,
+          "size": 4
+        }
+      ]
+    },
+    {
+      "name": "MILCMD_GUIDELINESET",
+      "fixedSize": 20,
+      "sourceKind": "native-command",
+      "fields": [
+        {
+          "name": "Type",
+          "type": "MILCMD",
+          "offset": 0,
+          "size": 4
+        },
+        {
+          "name": "Handle",
+          "type": "HMIL_RESOURCE",
+          "offset": 4,
+          "size": 4
+        },
+        {
+          "name": "GuidelinesXSize",
+          "type": "UINT32",
+          "offset": 8,
+          "size": 4
+        },
+        {
+          "name": "GuidelinesYSize",
+          "type": "UINT32",
+          "offset": 12,
+          "size": 4
+        },
+        {
+          "name": "IsDynamic",
+          "type": "BOOL",
+          "offset": 16,
+          "size": 4
+        }
+      ]
+    },
+    {
+      "name": "MILCMD_BITMAPCACHE",
+      "fixedSize": 28,
+      "sourceKind": "native-command",
+      "fields": [
+        {
+          "name": "Type",
+          "type": "MILCMD",
+          "offset": 0,
+          "size": 4
+        },
+        {
+          "name": "Handle",
+          "type": "HMIL_RESOURCE",
+          "offset": 4,
+          "size": 4
+        },
+        {
+          "name": "RenderAtScale",
+          "type": "DOUBLE",
+          "offset": 8,
+          "size": 8
+        },
+        {
+          "name": "hRenderAtScaleAnimations",
+          "type": "HMIL_RESOURCE",
+          "offset": 16,
+          "size": 4
+        },
+        {
+          "name": "SnapsToDevicePixels",
+          "type": "BOOL",
+          "offset": 20,
+          "size": 4
+        },
+        {
+          "name": "EnableClearType",
+          "type": "BOOL",
+          "offset": 24,
+          "size": 4
+        }
+      ]
+    },
+    {
+      "name": "MILCMD_DRAW_LINE",
+      "fixedSize": 44,
+      "sourceKind": "render-data",
+      "fields": [
+        {
+          "name": "type",
+          "type": "MILCMD",
+          "offset": 0,
+          "size": 4
+        },
+        {
+          "name": "point0",
+          "type": "MilPoint2D",
+          "offset": 4,
+          "size": 16
+        },
+        {
+          "name": "point1",
+          "type": "MilPoint2D",
+          "offset": 20,
+          "size": 16
+        },
+        {
+          "name": "hPen",
+          "type": "HMIL_RESOURCE",
+          "offset": 36,
+          "size": 4
+        },
+        {
+          "name": "QuadWordPad0",
+          "type": "UINT32",
+          "offset": 40,
+          "size": 4
+        }
+      ]
+    },
+    {
+      "name": "MILCMD_DRAW_LINE_ANIMATE",
+      "fixedSize": 52,
+      "sourceKind": "render-data",
+      "fields": [
+        {
+          "name": "type",
+          "type": "MILCMD",
+          "offset": 0,
+          "size": 4
+        },
+        {
+          "name": "point0",
+          "type": "MilPoint2D",
+          "offset": 4,
+          "size": 16
+        },
+        {
+          "name": "point1",
+          "type": "MilPoint2D",
+          "offset": 20,
+          "size": 16
+        },
+        {
+          "name": "hPen",
+          "type": "HMIL_RESOURCE",
+          "offset": 36,
+          "size": 4
+        },
+        {
+          "name": "hPoint0Animations",
+          "type": "HMIL_RESOURCE",
+          "offset": 40,
+          "size": 4
+        },
+        {
+          "name": "hPoint1Animations",
+          "type": "HMIL_RESOURCE",
+          "offset": 44,
+          "size": 4
+        },
+        {
+          "name": "QuadWordPad0",
+          "type": "UINT32",
+          "offset": 48,
+          "size": 4
+        }
+      ]
+    },
+    {
+      "name": "MILCMD_DRAW_RECTANGLE",
+      "fixedSize": 44,
+      "sourceKind": "render-data",
+      "fields": [
+        {
+          "name": "type",
+          "type": "MILCMD",
+          "offset": 0,
+          "size": 4
+        },
+        {
+          "name": "rectangle",
+          "type": "MilPointAndSizeD",
+          "offset": 4,
+          "size": 32
+        },
+        {
+          "name": "hBrush",
+          "type": "HMIL_RESOURCE",
+          "offset": 36,
+          "size": 4
+        },
+        {
+          "name": "hPen",
+          "type": "HMIL_RESOURCE",
+          "offset": 40,
+          "size": 4
+        }
+      ]
+    },
+    {
+      "name": "MILCMD_DRAW_RECTANGLE_ANIMATE",
+      "fixedSize": 52,
+      "sourceKind": "render-data",
+      "fields": [
+        {
+          "name": "type",
+          "type": "MILCMD",
+          "offset": 0,
+          "size": 4
+        },
+        {
+          "name": "rectangle",
+          "type": "MilPointAndSizeD",
+          "offset": 4,
+          "size": 32
+        },
+        {
+          "name": "hBrush",
+          "type": "HMIL_RESOURCE",
+          "offset": 36,
+          "size": 4
+        },
+        {
+          "name": "hPen",
+          "type": "HMIL_RESOURCE",
+          "offset": 40,
+          "size": 4
+        },
+        {
+          "name": "hRectangleAnimations",
+          "type": "HMIL_RESOURCE",
+          "offset": 44,
+          "size": 4
+        },
+        {
+          "name": "QuadWordPad0",
+          "type": "UINT32",
+          "offset": 48,
+          "size": 4
+        }
+      ]
+    },
+    {
+      "name": "MILCMD_DRAW_ROUNDED_RECTANGLE",
+      "fixedSize": 60,
+      "sourceKind": "render-data",
+      "fields": [
+        {
+          "name": "type",
+          "type": "MILCMD",
+          "offset": 0,
+          "size": 4
+        },
+        {
+          "name": "rectangle",
+          "type": "MilPointAndSizeD",
+          "offset": 4,
+          "size": 32
+        },
+        {
+          "name": "radiusX",
+          "type": "DOUBLE",
+          "offset": 36,
+          "size": 8
+        },
+        {
+          "name": "radiusY",
+          "type": "DOUBLE",
+          "offset": 44,
+          "size": 8
+        },
+        {
+          "name": "hBrush",
+          "type": "HMIL_RESOURCE",
+          "offset": 52,
+          "size": 4
+        },
+        {
+          "name": "hPen",
+          "type": "HMIL_RESOURCE",
+          "offset": 56,
+          "size": 4
+        }
+      ]
+    },
+    {
+      "name": "MILCMD_DRAW_ROUNDED_RECTANGLE_ANIMATE",
+      "fixedSize": 76,
+      "sourceKind": "render-data",
+      "fields": [
+        {
+          "name": "type",
+          "type": "MILCMD",
+          "offset": 0,
+          "size": 4
+        },
+        {
+          "name": "rectangle",
+          "type": "MilPointAndSizeD",
+          "offset": 4,
+          "size": 32
+        },
+        {
+          "name": "radiusX",
+          "type": "DOUBLE",
+          "offset": 36,
+          "size": 8
+        },
+        {
+          "name": "radiusY",
+          "type": "DOUBLE",
+          "offset": 44,
+          "size": 8
+        },
+        {
+          "name": "hBrush",
+          "type": "HMIL_RESOURCE",
+          "offset": 52,
+          "size": 4
+        },
+        {
+          "name": "hPen",
+          "type": "HMIL_RESOURCE",
+          "offset": 56,
+          "size": 4
+        },
+        {
+          "name": "hRectangleAnimations",
+          "type": "HMIL_RESOURCE",
+          "offset": 60,
+          "size": 4
+        },
+        {
+          "name": "hRadiusXAnimations",
+          "type": "HMIL_RESOURCE",
+          "offset": 64,
+          "size": 4
+        },
+        {
+          "name": "hRadiusYAnimations",
+          "type": "HMIL_RESOURCE",
+          "offset": 68,
+          "size": 4
+        },
+        {
+          "name": "QuadWordPad0",
+          "type": "UINT32",
+          "offset": 72,
+          "size": 4
+        }
+      ]
+    },
+    {
+      "name": "MILCMD_DRAW_ELLIPSE",
+      "fixedSize": 44,
+      "sourceKind": "render-data",
+      "fields": [
+        {
+          "name": "type",
+          "type": "MILCMD",
+          "offset": 0,
+          "size": 4
+        },
+        {
+          "name": "center",
+          "type": "MilPoint2D",
+          "offset": 4,
+          "size": 16
+        },
+        {
+          "name": "radiusX",
+          "type": "DOUBLE",
+          "offset": 20,
+          "size": 8
+        },
+        {
+          "name": "radiusY",
+          "type": "DOUBLE",
+          "offset": 28,
+          "size": 8
+        },
+        {
+          "name": "hBrush",
+          "type": "HMIL_RESOURCE",
+          "offset": 36,
+          "size": 4
+        },
+        {
+          "name": "hPen",
+          "type": "HMIL_RESOURCE",
+          "offset": 40,
+          "size": 4
+        }
+      ]
+    },
+    {
+      "name": "MILCMD_DRAW_ELLIPSE_ANIMATE",
+      "fixedSize": 60,
+      "sourceKind": "render-data",
+      "fields": [
+        {
+          "name": "type",
+          "type": "MILCMD",
+          "offset": 0,
+          "size": 4
+        },
+        {
+          "name": "center",
+          "type": "MilPoint2D",
+          "offset": 4,
+          "size": 16
+        },
+        {
+          "name": "radiusX",
+          "type": "DOUBLE",
+          "offset": 20,
+          "size": 8
+        },
+        {
+          "name": "radiusY",
+          "type": "DOUBLE",
+          "offset": 28,
+          "size": 8
+        },
+        {
+          "name": "hBrush",
+          "type": "HMIL_RESOURCE",
+          "offset": 36,
+          "size": 4
+        },
+        {
+          "name": "hPen",
+          "type": "HMIL_RESOURCE",
+          "offset": 40,
+          "size": 4
+        },
+        {
+          "name": "hCenterAnimations",
+          "type": "HMIL_RESOURCE",
+          "offset": 44,
+          "size": 4
+        },
+        {
+          "name": "hRadiusXAnimations",
+          "type": "HMIL_RESOURCE",
+          "offset": 48,
+          "size": 4
+        },
+        {
+          "name": "hRadiusYAnimations",
+          "type": "HMIL_RESOURCE",
+          "offset": 52,
+          "size": 4
+        },
+        {
+          "name": "QuadWordPad0",
+          "type": "UINT32",
+          "offset": 56,
+          "size": 4
+        }
+      ]
+    },
+    {
+      "name": "MILCMD_DRAW_GEOMETRY",
+      "fixedSize": 20,
+      "sourceKind": "render-data",
+      "fields": [
+        {
+          "name": "type",
+          "type": "MILCMD",
+          "offset": 0,
+          "size": 4
+        },
+        {
+          "name": "hBrush",
+          "type": "HMIL_RESOURCE",
+          "offset": 4,
+          "size": 4
+        },
+        {
+          "name": "hPen",
+          "type": "HMIL_RESOURCE",
+          "offset": 8,
+          "size": 4
+        },
+        {
+          "name": "hGeometry",
+          "type": "HMIL_RESOURCE",
+          "offset": 12,
+          "size": 4
+        },
+        {
+          "name": "QuadWordPad0",
+          "type": "UINT32",
+          "offset": 16,
+          "size": 4
+        }
+      ]
+    },
+    {
+      "name": "MILCMD_DRAW_IMAGE",
+      "fixedSize": 44,
+      "sourceKind": "render-data",
+      "fields": [
+        {
+          "name": "type",
+          "type": "MILCMD",
+          "offset": 0,
+          "size": 4
+        },
+        {
+          "name": "rectangle",
+          "type": "MilPointAndSizeD",
+          "offset": 4,
+          "size": 32
+        },
+        {
+          "name": "hImageSource",
+          "type": "HMIL_RESOURCE",
+          "offset": 36,
+          "size": 4
+        },
+        {
+          "name": "QuadWordPad0",
+          "type": "UINT32",
+          "offset": 40,
+          "size": 4
+        }
+      ]
+    },
+    {
+      "name": "MILCMD_DRAW_IMAGE_ANIMATE",
+      "fixedSize": 44,
+      "sourceKind": "render-data",
+      "fields": [
+        {
+          "name": "type",
+          "type": "MILCMD",
+          "offset": 0,
+          "size": 4
+        },
+        {
+          "name": "rectangle",
+          "type": "MilPointAndSizeD",
+          "offset": 4,
+          "size": 32
+        },
+        {
+          "name": "hImageSource",
+          "type": "HMIL_RESOURCE",
+          "offset": 36,
+          "size": 4
+        },
+        {
+          "name": "hRectangleAnimations",
+          "type": "HMIL_RESOURCE",
+          "offset": 40,
+          "size": 4
+        }
+      ]
+    },
+    {
+      "name": "MILCMD_DRAW_GLYPH_RUN",
+      "fixedSize": 12,
+      "sourceKind": "render-data",
+      "fields": [
+        {
+          "name": "type",
+          "type": "MILCMD",
+          "offset": 0,
+          "size": 4
+        },
+        {
+          "name": "hForegroundBrush",
+          "type": "HMIL_RESOURCE",
+          "offset": 4,
+          "size": 4
+        },
+        {
+          "name": "hGlyphRun",
+          "type": "HMIL_RESOURCE",
+          "offset": 8,
+          "size": 4
+        }
+      ]
+    },
+    {
+      "name": "MILCMD_DRAW_DRAWING",
+      "fixedSize": 12,
+      "sourceKind": "render-data",
+      "fields": [
+        {
+          "name": "type",
+          "type": "MILCMD",
+          "offset": 0,
+          "size": 4
+        },
+        {
+          "name": "hDrawing",
+          "type": "HMIL_RESOURCE",
+          "offset": 4,
+          "size": 4
+        },
+        {
+          "name": "QuadWordPad0",
+          "type": "UINT32",
+          "offset": 8,
+          "size": 4
+        }
+      ]
+    },
+    {
+      "name": "MILCMD_DRAW_VIDEO",
+      "fixedSize": 44,
+      "sourceKind": "render-data",
+      "fields": [
+        {
+          "name": "type",
+          "type": "MILCMD",
+          "offset": 0,
+          "size": 4
+        },
+        {
+          "name": "rectangle",
+          "type": "MilPointAndSizeD",
+          "offset": 4,
+          "size": 32
+        },
+        {
+          "name": "hPlayer",
+          "type": "HMIL_RESOURCE",
+          "offset": 36,
+          "size": 4
+        },
+        {
+          "name": "QuadWordPad0",
+          "type": "UINT32",
+          "offset": 40,
+          "size": 4
+        }
+      ]
+    },
+    {
+      "name": "MILCMD_DRAW_VIDEO_ANIMATE",
+      "fixedSize": 44,
+      "sourceKind": "render-data",
+      "fields": [
+        {
+          "name": "type",
+          "type": "MILCMD",
+          "offset": 0,
+          "size": 4
+        },
+        {
+          "name": "rectangle",
+          "type": "MilPointAndSizeD",
+          "offset": 4,
+          "size": 32
+        },
+        {
+          "name": "hPlayer",
+          "type": "HMIL_RESOURCE",
+          "offset": 36,
+          "size": 4
+        },
+        {
+          "name": "hRectangleAnimations",
+          "type": "HMIL_RESOURCE",
+          "offset": 40,
+          "size": 4
+        }
+      ]
+    },
+    {
+      "name": "MILCMD_PUSH_CLIP",
+      "fixedSize": 12,
+      "sourceKind": "render-data",
+      "fields": [
+        {
+          "name": "type",
+          "type": "MILCMD",
+          "offset": 0,
+          "size": 4
+        },
+        {
+          "name": "hClipGeometry",
+          "type": "HMIL_RESOURCE",
+          "offset": 4,
+          "size": 4
+        },
+        {
+          "name": "QuadWordPad0",
+          "type": "UINT32",
+          "offset": 8,
+          "size": 4
+        }
+      ]
+    },
+    {
+      "name": "MILCMD_PUSH_OPACITY_MASK",
+      "fixedSize": 28,
+      "sourceKind": "render-data",
+      "fields": [
+        {
+          "name": "type",
+          "type": "MILCMD",
+          "offset": 0,
+          "size": 4
+        },
+        {
+          "name": "boundingBoxCacheLocalSpace",
+          "type": "MilRectF",
+          "offset": 4,
+          "size": 16
+        },
+        {
+          "name": "hOpacityMask",
+          "type": "HMIL_RESOURCE",
+          "offset": 20,
+          "size": 4
+        },
+        {
+          "name": "QuadWordPad0",
+          "type": "UINT32",
+          "offset": 24,
+          "size": 4
+        }
+      ]
+    },
+    {
+      "name": "MILCMD_PUSH_OPACITY",
+      "fixedSize": 12,
+      "sourceKind": "render-data",
+      "fields": [
+        {
+          "name": "type",
+          "type": "MILCMD",
+          "offset": 0,
+          "size": 4
+        },
+        {
+          "name": "opacity",
+          "type": "DOUBLE",
+          "offset": 4,
+          "size": 8
+        }
+      ]
+    },
+    {
+      "name": "MILCMD_PUSH_OPACITY_ANIMATE",
+      "fixedSize": 20,
+      "sourceKind": "render-data",
+      "fields": [
+        {
+          "name": "type",
+          "type": "MILCMD",
+          "offset": 0,
+          "size": 4
+        },
+        {
+          "name": "opacity",
+          "type": "DOUBLE",
+          "offset": 4,
+          "size": 8
+        },
+        {
+          "name": "hOpacityAnimations",
+          "type": "HMIL_RESOURCE",
+          "offset": 12,
+          "size": 4
+        },
+        {
+          "name": "QuadWordPad0",
+          "type": "UINT32",
+          "offset": 16,
+          "size": 4
+        }
+      ]
+    },
+    {
+      "name": "MILCMD_PUSH_TRANSFORM",
+      "fixedSize": 12,
+      "sourceKind": "render-data",
+      "fields": [
+        {
+          "name": "type",
+          "type": "MILCMD",
+          "offset": 0,
+          "size": 4
+        },
+        {
+          "name": "hTransform",
+          "type": "HMIL_RESOURCE",
+          "offset": 4,
+          "size": 4
+        },
+        {
+          "name": "QuadWordPad0",
+          "type": "UINT32",
+          "offset": 8,
+          "size": 4
+        }
+      ]
+    },
+    {
+      "name": "MILCMD_PUSH_GUIDELINE_SET",
+      "fixedSize": 12,
+      "sourceKind": "render-data",
+      "fields": [
+        {
+          "name": "type",
+          "type": "MILCMD",
+          "offset": 0,
+          "size": 4
+        },
+        {
+          "name": "hGuidelines",
+          "type": "HMIL_RESOURCE",
+          "offset": 4,
+          "size": 4
+        },
+        {
+          "name": "QuadWordPad0",
+          "type": "UINT32",
+          "offset": 8,
+          "size": 4
+        }
+      ]
+    },
+    {
+      "name": "MILCMD_PUSH_GUIDELINE_Y1",
+      "fixedSize": 12,
+      "sourceKind": "render-data",
+      "fields": [
+        {
+          "name": "type",
+          "type": "MILCMD",
+          "offset": 0,
+          "size": 4
+        },
+        {
+          "name": "coordinate",
+          "type": "DOUBLE",
+          "offset": 4,
+          "size": 8
+        }
+      ]
+    },
+    {
+      "name": "MILCMD_PUSH_GUIDELINE_Y2",
+      "fixedSize": 20,
+      "sourceKind": "render-data",
+      "fields": [
+        {
+          "name": "type",
+          "type": "MILCMD",
+          "offset": 0,
+          "size": 4
+        },
+        {
+          "name": "leadingCoordinate",
+          "type": "DOUBLE",
+          "offset": 4,
+          "size": 8
+        },
+        {
+          "name": "offsetToDrivenCoordinate",
+          "type": "DOUBLE",
+          "offset": 12,
+          "size": 8
+        }
+      ]
+    },
+    {
+      "name": "MILCMD_PUSH_EFFECT",
+      "fixedSize": 12,
+      "sourceKind": "managed-render-data",
+      "fields": [
+        {
+          "name": "type",
+          "type": "MILCMD",
+          "offset": 0,
+          "size": 4
+        },
+        {
+          "name": "hEffect",
+          "type": "UInt32",
+          "offset": 4,
+          "size": 4
+        },
+        {
+          "name": "hEffectInput",
+          "type": "UInt32",
+          "offset": 8,
+          "size": 4
+        }
+      ]
+    },
+    {
+      "name": "MILCMD_POP",
+      "fixedSize": 4,
+      "sourceKind": "render-data",
+      "fields": [
+        {
+          "name": "type",
+          "type": "MILCMD",
+          "offset": 0,
+          "size": 4
+        }
+      ]
+    }
+  ]
+}

@@ -166,11 +166,30 @@ public unsafe class ComputeAccelerator : IDisposable
     {
         [FieldOffset(0)] public float Sigma;
         [FieldOffset(4)] public uint Radius;
+        [FieldOffset(8)] public uint KernelType;
+        [FieldOffset(12)] private uint _padding;
 
         public GaussianBlurParams(float sigma)
         {
             Sigma = float.IsFinite(sigma) ? Math.Max(0f, sigma) : 0f;
             Radius = (uint)Math.Clamp((int)MathF.Ceiling(Sigma * 3f), 0, 128);
+            KernelType = 0u;
+            _padding = 0u;
+        }
+
+        public static GaussianBlurParams Box(float radius)
+        {
+            var result = new GaussianBlurParams(0f)
+            {
+                Radius = (uint)Math.Clamp(
+                    (int)MathF.Floor(float.IsFinite(radius)
+                        ? Math.Max(0f, radius)
+                        : 0f),
+                    0,
+                    128),
+                KernelType = 1u
+            };
+            return result;
         }
     }
 
@@ -718,6 +737,39 @@ public unsafe class ComputeAccelerator : IDisposable
         GpuTexture destination,
         float sigmaX,
         float sigmaY)
+        => ApplySeparableBlur(
+            source,
+            temp,
+            destination,
+            new GaussianBlurParams(sigmaX),
+            new GaussianBlurParams(sigmaY));
+
+    public void ApplyBoxBlur(
+        GpuTexture source,
+        GpuTexture temp,
+        GpuTexture destination,
+        float radiusX,
+        float radiusY)
+        => ApplySeparableBlur(
+            source,
+            temp,
+            destination,
+            GaussianBlurParams.Box(radiusX),
+            GaussianBlurParams.Box(radiusY));
+
+    public void ApplyBoxBlur(
+        GpuTexture source,
+        GpuTexture temp,
+        GpuTexture destination,
+        float radius)
+        => ApplyBoxBlur(source, temp, destination, radius, radius);
+
+    private void ApplySeparableBlur(
+        GpuTexture source,
+        GpuTexture temp,
+        GpuTexture destination,
+        GaussianBlurParams horizontalParams,
+        GaussianBlurParams verticalParams)
     {
         if (_isDisposed) throw new ObjectDisposedException(nameof(ComputeAccelerator));
         EnsureGaussianBlurResources();
@@ -729,8 +781,8 @@ public unsafe class ComputeAccelerator : IDisposable
         temp.Resize(width, height);
         destination.Resize(width, height);
 
-        _blurHorizontalParams!.WriteSingle(new GaussianBlurParams(sigmaX));
-        _blurVerticalParams!.WriteSingle(new GaussianBlurParams(sigmaY));
+        _blurHorizontalParams!.WriteSingle(horizontalParams);
+        _blurVerticalParams!.WriteSingle(verticalParams);
 
         CommandEncoder* encoder;
         fixed (byte* encoderLabel = "Compute Blur Encoder\0"u8)

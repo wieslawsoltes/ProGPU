@@ -1232,6 +1232,10 @@ public sealed class GpuHitTestingTests
         }, Matrix4x4.CreateTranslation(10f, 20f, 0f), id: 88);
         var index = builder.BuildIndex(maxDepth: 2, maxPrimitivesPerNode: 1);
 
+        Assert.Equal(
+            (float)(uint)FillRule.Nonzero,
+            Assert.Single(index.Primitives).Data1.Z);
+
         bool hit = GpuHitTestEngine.TryHitTestPoint(context, index, new Vector2(15f, 24f), out GpuHitTestResult result);
 
         Assert.True(hit);

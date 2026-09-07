@@ -24,7 +24,7 @@ bool validate_image_draw_payload(
     const progpu_native_scene_command& command,
     const progpu_native_scene_image_draw& image,
     std::uint64_t pixel_bytes,
-    semantic_image_options& options) noexcept;
+    semantic_image_options& options, std::uint32_t bytes_per_pixel = 4U) noexcept;
 
 void resolve_image_vertex_color(
     const progpu_native_scene_image_draw& image,

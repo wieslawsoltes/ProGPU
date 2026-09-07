@@ -13,8 +13,11 @@ public sealed class ImageEffectRenderTests
     [Fact]
     public void OrdinaryRenderCommandDoesNotInlineImageEffectPayload()
     {
+        int commandSize =
+            System.Runtime.CompilerServices.Unsafe.SizeOf<RenderCommand>();
         Assert.True(
-            System.Runtime.CompilerServices.Unsafe.SizeOf<RenderCommand>() <= 576);
+            commandSize <= 576,
+            $"Expected at most 576 bytes per ordinary command, actual={commandSize} bytes.");
         Assert.Equal(
             248,
             System.Runtime.CompilerServices.Unsafe.SizeOf<ImageEffectCommandData>());

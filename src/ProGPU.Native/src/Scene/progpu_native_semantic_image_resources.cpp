@@ -23,40 +23,76 @@ namespace progpu::native::semantic {
 WGPUSampler resolve_semantic_image_sampler(
     progpu_native_engine& engine,
     std::uint32_t sampling,
-    std::uint32_t max_anisotropy) noexcept {
+    std::uint32_t max_anisotropy,
+    std::uint32_t image_flags) noexcept {
     semantic_image_sampler_options options{};
     if (!resolve_semantic_image_sampler_options(
             sampling, max_anisotropy, options)) {
         return nullptr;
     }
-    if (sampling == PROGPU_NATIVE_IMAGE_SAMPLING_NEAREST) {
-        return engine.image_nearest_sampler;
-    }
-    if (sampling == PROGPU_NATIVE_IMAGE_SAMPLING_LINEAR ||
-        sampling == PROGPU_NATIVE_IMAGE_SAMPLING_CUBIC) {
-        return engine.image_linear_sampler;
+    const std::uint32_t address_u =
+        (image_flags & PROGPU_NATIVE_SCENE_IMAGE_ADDRESS_U_MASK) >>
+        PROGPU_NATIVE_SCENE_IMAGE_ADDRESS_U_SHIFT;
+    const std::uint32_t address_v =
+        (image_flags & PROGPU_NATIVE_SCENE_IMAGE_ADDRESS_V_MASK) >>
+        PROGPU_NATIVE_SCENE_IMAGE_ADDRESS_V_SHIFT;
+    if (address_u > PROGPU_NATIVE_IMAGE_ADDRESS_MIRROR_REPEAT ||
+        address_v > PROGPU_NATIVE_IMAGE_ADDRESS_MIRROR_REPEAT) {
+        return nullptr;
     }
 
     WGPUSampler* cache = nullptr;
-    if (sampling == PROGPU_NATIVE_IMAGE_SAMPLING_LINEAR_MIPMAP) {
-        cache = options.max_anisotropy > 1U
-            ? &engine.image_anisotropic_samplers[
-                options.max_anisotropy - 2U]
-            : &engine.image_mipmap_sampler;
+    if (address_u == PROGPU_NATIVE_IMAGE_ADDRESS_CLAMP &&
+        address_v == PROGPU_NATIVE_IMAGE_ADDRESS_CLAMP) {
+        if (sampling == PROGPU_NATIVE_IMAGE_SAMPLING_NEAREST) {
+            return engine.image_nearest_sampler;
+        }
+        if (sampling == PROGPU_NATIVE_IMAGE_SAMPLING_LINEAR ||
+            sampling == PROGPU_NATIVE_IMAGE_SAMPLING_CUBIC ||
+            sampling == PROGPU_NATIVE_IMAGE_SAMPLING_FANT) {
+            return engine.image_linear_sampler;
+        }
+        if (sampling == PROGPU_NATIVE_IMAGE_SAMPLING_LINEAR_MIPMAP) {
+            cache = options.max_anisotropy > 1U
+                ? &engine.image_anisotropic_samplers[
+                    options.max_anisotropy - 2U]
+                : &engine.image_mipmap_sampler;
+        } else {
+            cache = &engine.image_filtered_samplers[
+                sampling -
+                    PROGPU_NATIVE_IMAGE_SAMPLING_MAG_LINEAR_MIN_LINEAR_MIP_NEAREST];
+        }
     } else {
-        cache = &engine.image_filtered_samplers[
-            sampling -
-                PROGPU_NATIVE_IMAGE_SAMPLING_MAG_LINEAR_MIN_LINEAR_MIP_NEAREST];
+        const std::size_t address_index =
+            static_cast<std::size_t>(address_v * 3U + address_u);
+        const std::size_t cache_index =
+            (static_cast<std::size_t>(sampling) * 17U +
+                options.max_anisotropy) * 9U + address_index;
+        if (cache_index >= engine.image_addressed_samplers.size()) {
+            return nullptr;
+        }
+        cache = &engine.image_addressed_samplers[cache_index];
     }
     if (*cache != nullptr) {
         return *cache;
     }
 
+    const auto map_address = [](std::uint32_t mode) noexcept {
+        switch (mode) {
+            case PROGPU_NATIVE_IMAGE_ADDRESS_REPEAT:
+                return WGPUAddressMode_Repeat;
+            case PROGPU_NATIVE_IMAGE_ADDRESS_MIRROR_REPEAT:
+                return WGPUAddressMode_MirrorRepeat;
+            default:
+                return WGPUAddressMode_ClampToEdge;
+        }
+    };
+
     WGPUSamplerDescriptor descriptor{};
     descriptor.label = webgpu::string_view(
         "ProGPU semantic retained image sampling");
-    descriptor.addressModeU = WGPUAddressMode_ClampToEdge;
-    descriptor.addressModeV = WGPUAddressMode_ClampToEdge;
+    descriptor.addressModeU = map_address(address_u);
+    descriptor.addressModeV = map_address(address_v);
     descriptor.addressModeW = WGPUAddressMode_ClampToEdge;
     descriptor.magFilter = options.mag_linear
         ? WGPUFilterMode_Linear

@@ -1,0 +1,3357 @@
+using System.Buffers;
+using System.Buffers.Binary;
+using System.Numerics;
+using System.Runtime.InteropServices;
+
+namespace ProGPU.Backend.Native;
+
+/// <summary>
+/// Writes canonical, DWORD-aligned WPF DUCE/MIL channel batches.
+/// </summary>
+public sealed class NativeMilBatchBuilder
+{
+    private readonly ArrayBufferWriter<byte> _writer;
+
+    public NativeMilBatchBuilder(int initialCapacity = 4096)
+    {
+        ArgumentOutOfRangeException.ThrowIfLessThan(initialCapacity, 1);
+        _writer = new ArrayBufferWriter<byte>(initialCapacity);
+    }
+
+    public int Length => _writer.WrittenCount;
+
+    public ReadOnlySpan<byte> WrittenSpan => _writer.WrittenSpan;
+
+    public void Clear() => _writer.Clear();
+
+    public byte[] ToArray() => _writer.WrittenSpan.ToArray();
+
+    public void CreateResource(uint handle, NativeMilResourceType resourceType)
+    {
+        ValidateHandle(handle);
+        Span<byte> packet = NativeMilBatchEncoding.Allocate(
+            _writer, NativeMilCommand.CreateResource, 12);
+        WriteUInt32(packet, 4, handle);
+        WriteUInt32(packet, 8, (uint)resourceType);
+    }
+
+    public void DeleteResource(uint handle, NativeMilResourceType resourceType)
+    {
+        ValidateHandle(handle);
+        Span<byte> packet = NativeMilBatchEncoding.Allocate(
+            _writer, NativeMilCommand.DeleteResource, 12);
+        WriteUInt32(packet, 4, handle);
+        WriteUInt32(packet, 8, (uint)resourceType);
+    }
+
+    /// <summary>
+    /// Writes canonical MilCmdD3DImage state without process-local COM
+    /// pointers. Bind the live texture through the typed channel sideband.
+    /// </summary>
+    public void SetD3DImage(uint handle)
+    {
+        ValidateHandle(handle);
+        Span<byte> packet = NativeMilBatchEncoding.Allocate(
+            _writer, NativeMilCommand.D3DImage, 24);
+        WriteUInt32(packet, 4, handle);
+    }
+
+    /// <summary>
+    /// Writes canonical MilCmdD3DImagePresent without a process-local event
+    /// handle. Portable synchronization belongs to the external image lease.
+    /// </summary>
+    public void PresentD3DImage(uint handle)
+    {
+        ValidateHandle(handle);
+        Span<byte> packet = NativeMilBatchEncoding.Allocate(
+            _writer, NativeMilCommand.D3DImagePresent, 16);
+        WriteUInt32(packet, 4, handle);
+    }
+
+    /// <summary>
+    /// Writes canonical MilCmdBitmapSource with a null process-local WIC
+    /// pointer. Bind pixels or a texture through the typed channel sideband.
+    /// </summary>
+    public void SetBitmapSource(uint handle)
+    {
+        ValidateHandle(handle);
+        Span<byte> packet = NativeMilBatchEncoding.Allocate(
+            _writer, NativeMilCommand.BitmapSource, 16);
+        WriteUInt32(packet, 4, handle);
+    }
+
+    public void InvalidateBitmapSource(uint handle)
+    {
+        ValidateHandle(handle);
+        Span<byte> packet = NativeMilBatchEncoding.Allocate(
+            _writer, NativeMilCommand.BitmapInvalidate, 28);
+        WriteUInt32(packet, 4, handle);
+    }
+
+    public void InvalidateBitmapSource(
+        uint handle,
+        int x,
+        int y,
+        int width,
+        int height)
+    {
+        ValidateHandle(handle);
+        if (x < 0 || y < 0 || width <= 0 || height <= 0 ||
+            x > int.MaxValue - width || y > int.MaxValue - height)
+        {
+            throw new ArgumentOutOfRangeException(nameof(width));
+        }
+        Span<byte> packet = NativeMilBatchEncoding.Allocate(
+            _writer, NativeMilCommand.BitmapInvalidate, 28);
+        WriteUInt32(packet, 4, handle);
+        WriteUInt32(packet, 8, 1);
+        WriteUInt32(packet, 12, unchecked((uint)x));
+        WriteUInt32(packet, 16, unchecked((uint)y));
+        WriteUInt32(packet, 20, unchecked((uint)(x + width)));
+        WriteUInt32(packet, 24, unchecked((uint)(y + height)));
+    }
+
+    /// <summary>
+    /// Writes canonical MilCmdMediaPlayer with a null process-local pointer.
+    /// </summary>
+    public void SetMediaPlayer(uint handle, bool notifyDirect = false)
+    {
+        ValidateHandle(handle);
+        Span<byte> packet = NativeMilBatchEncoding.Allocate(
+            _writer, NativeMilCommand.MediaPlayer, 20);
+        WriteUInt32(packet, 4, handle);
+        WriteUInt32(packet, 16, notifyDirect ? 1U : 0U);
+    }
+
+    /// <summary>
+    /// Writes canonical WriteableBitmap state with a null process-local
+    /// CSwDoubleBufferedBitmap pointer.
+    /// </summary>
+    public void SetDoubleBufferedBitmap(
+        uint handle,
+        bool useBackBuffer = false)
+    {
+        ValidateHandle(handle);
+        Span<byte> packet = NativeMilBatchEncoding.Allocate(
+            _writer, NativeMilCommand.DoubleBufferedBitmap, 20);
+        WriteUInt32(packet, 4, handle);
+        WriteUInt32(packet, 16, useBackBuffer ? 1U : 0U);
+    }
+
+    /// <summary>
+    /// Writes pointer-free copy-forward notification. Typed producer
+    /// synchronization completes before the front-buffer sideband is bound.
+    /// </summary>
+    public void CopyForwardDoubleBufferedBitmap(uint handle)
+    {
+        ValidateHandle(handle);
+        Span<byte> packet = NativeMilBatchEncoding.Allocate(
+            _writer, NativeMilCommand.DoubleBufferedBitmapCopyForward, 16);
+        WriteUInt32(packet, 4, handle);
+    }
+
+    public void CreateVisual(uint handle)
+    {
+        WriteHandleCommand(NativeMilCommand.VisualCreate, handle);
+    }
+
+    public void SetVisualOffset(uint handle, double x, double y)
+    {
+        ValidateHandle(handle);
+        if (!double.IsFinite(x) || !double.IsFinite(y))
+        {
+            throw new ArgumentOutOfRangeException(nameof(x));
+        }
+        Span<byte> packet = NativeMilBatchEncoding.Allocate(
+            _writer, NativeMilCommand.VisualSetOffset, 24);
+        WriteUInt32(packet, 4, handle);
+        WriteDouble(packet, 8, x);
+        WriteDouble(packet, 16, y);
+    }
+
+    public void SetVisualTransform(uint handle, uint transformHandle)
+    {
+        ValidateHandle(handle);
+        Span<byte> packet = NativeMilBatchEncoding.Allocate(
+            _writer, NativeMilCommand.VisualSetTransform, 12);
+        WriteUInt32(packet, 4, handle);
+        WriteUInt32(packet, 8, transformHandle);
+    }
+
+    public void SetVisualEffect(uint handle, uint effectHandle)
+    {
+        ValidateHandle(handle);
+        Span<byte> packet = NativeMilBatchEncoding.Allocate(
+            _writer, NativeMilCommand.VisualSetEffect, 12);
+        WriteUInt32(packet, 4, handle);
+        WriteUInt32(packet, 8, effectHandle);
+    }
+
+    /// <summary>Writes canonical MilCmdVisualSetCacheMode state.</summary>
+    public void SetVisualCacheMode(uint handle, uint cacheModeHandle)
+    {
+        ValidateHandle(handle);
+        Span<byte> packet = NativeMilBatchEncoding.Allocate(
+            _writer, NativeMilCommand.VisualSetCacheMode, 12);
+        WriteUInt32(packet, 4, handle);
+        WriteUInt32(packet, 8, cacheModeHandle);
+    }
+
+    public void SetVisualClip(uint handle, uint clipGeometryHandle)
+    {
+        ValidateHandle(handle);
+        Span<byte> packet = NativeMilBatchEncoding.Allocate(
+            _writer, NativeMilCommand.VisualSetClip, 12);
+        WriteUInt32(packet, 4, handle);
+        WriteUInt32(packet, 8, clipGeometryHandle);
+    }
+
+    public void SetVisualScrollableAreaClip(
+        uint handle,
+        NativeMilRect? clip)
+    {
+        ValidateHandle(handle);
+        if (clip is { } value &&
+            (!double.IsFinite(value.X) || !double.IsFinite(value.Y) ||
+             !double.IsFinite(value.Width) || !double.IsFinite(value.Height) ||
+             value.Width < 0.0 || value.Height < 0.0))
+        {
+            throw new ArgumentOutOfRangeException(nameof(clip));
+        }
+        NativeMilRect rect = clip ?? default;
+        Span<byte> packet = NativeMilBatchEncoding.Allocate(
+            _writer, NativeMilCommand.VisualSetScrollableAreaClip, 44);
+        WriteUInt32(packet, 4, handle);
+        WriteDouble(packet, 8, rect.X);
+        WriteDouble(packet, 16, rect.Y);
+        WriteDouble(packet, 24, rect.Width);
+        WriteDouble(packet, 32, rect.Height);
+        WriteUInt32(packet, 40, clip.HasValue ? 1U : 0U);
+    }
+
+    public void SetVisualOpacity(uint handle, double opacity)
+    {
+        ValidateHandle(handle);
+        if (!double.IsFinite(opacity) || opacity < 0.0 || opacity > 1.0)
+        {
+            throw new ArgumentOutOfRangeException(nameof(opacity));
+        }
+        Span<byte> packet = NativeMilBatchEncoding.Allocate(
+            _writer, NativeMilCommand.VisualSetAlpha, 16);
+        WriteUInt32(packet, 4, handle);
+        WriteDouble(packet, 8, opacity);
+    }
+
+    public void SetVisualRenderOptions(
+        uint handle,
+        NativeMilRenderOptions options)
+    {
+        ValidateHandle(handle);
+        const NativeMilRenderOptionFlags supported =
+            NativeMilRenderOptionFlags.BitmapScalingMode |
+            NativeMilRenderOptionFlags.EdgeMode |
+            NativeMilRenderOptionFlags.ClearTypeHint |
+            NativeMilRenderOptionFlags.TextRenderingMode |
+            NativeMilRenderOptionFlags.TextHintingMode;
+        if ((options.Flags & ~supported) != 0 ||
+            options.EdgeMode > NativeMilEdgeMode.Aliased ||
+            options.BitmapScalingMode >
+                NativeMilBitmapScalingMode.NearestNeighbor ||
+            options.ClearTypeHint > NativeMilClearTypeHint.Enabled ||
+            options.TextRenderingMode > NativeMilTextRenderingMode.ClearType ||
+            options.TextHintingMode > NativeMilTextHintingMode.Animated ||
+            ((options.Flags & NativeMilRenderOptionFlags.EdgeMode) == 0 &&
+                options.EdgeMode != NativeMilEdgeMode.Unspecified) ||
+            ((options.Flags & NativeMilRenderOptionFlags.BitmapScalingMode) == 0 &&
+                options.BitmapScalingMode !=
+                    NativeMilBitmapScalingMode.Unspecified) ||
+            ((options.Flags & NativeMilRenderOptionFlags.ClearTypeHint) == 0 &&
+                options.ClearTypeHint != NativeMilClearTypeHint.Auto) ||
+            ((options.Flags & NativeMilRenderOptionFlags.TextRenderingMode) == 0 &&
+                options.TextRenderingMode != NativeMilTextRenderingMode.Auto) ||
+            ((options.Flags & NativeMilRenderOptionFlags.TextHintingMode) == 0 &&
+                options.TextHintingMode != NativeMilTextHintingMode.Auto))
+        {
+            throw new ArgumentOutOfRangeException(nameof(options));
+        }
+        Span<byte> packet = NativeMilBatchEncoding.Allocate(
+            _writer, NativeMilCommand.VisualSetRenderOptions, 36);
+        WriteUInt32(packet, 4, handle);
+        WriteUInt32(packet, 8, (uint)options.Flags);
+        WriteUInt32(packet, 12, (uint)options.EdgeMode);
+        WriteUInt32(packet, 16, 0);
+        WriteUInt32(packet, 20, (uint)options.BitmapScalingMode);
+        WriteUInt32(packet, 24, (uint)options.ClearTypeHint);
+        WriteUInt32(packet, 28, (uint)options.TextRenderingMode);
+        WriteUInt32(packet, 32, (uint)options.TextHintingMode);
+    }
+
+    public void SetVisualContent(uint handle, uint contentHandle)
+    {
+        ValidateHandle(handle);
+        Span<byte> packet = NativeMilBatchEncoding.Allocate(
+            _writer, NativeMilCommand.VisualSetContent, 12);
+        WriteUInt32(packet, 4, handle);
+        WriteUInt32(packet, 8, contentHandle);
+    }
+
+    public void SetVisualOpacityMask(uint handle, uint opacityMaskHandle)
+    {
+        ValidateHandle(handle);
+        Span<byte> packet = NativeMilBatchEncoding.Allocate(
+            _writer, NativeMilCommand.VisualSetAlphaMask, 12);
+        WriteUInt32(packet, 4, handle);
+        WriteUInt32(packet, 8, opacityMaskHandle);
+    }
+
+    public void SetVisualGuidelines(
+        uint handle,
+        ReadOnlySpan<double> guidelinesX,
+        ReadOnlySpan<double> guidelinesY)
+    {
+        ValidateHandle(handle);
+        if (guidelinesX.Length > ushort.MaxValue ||
+            guidelinesY.Length > ushort.MaxValue)
+        {
+            throw new ArgumentOutOfRangeException(nameof(guidelinesX));
+        }
+        int count = checked(guidelinesX.Length + guidelinesY.Length);
+        Span<byte> packet = NativeMilBatchEncoding.Allocate(
+            _writer,
+            NativeMilCommand.VisualSetGuidelineCollection,
+            checked(16 + count * sizeof(float)));
+        WriteUInt32(packet, 4, handle);
+        WriteUInt16(packet, 8, checked((ushort)guidelinesX.Length));
+        WriteUInt16(packet, 12, checked((ushort)guidelinesY.Length));
+        int offset = 16;
+        foreach (double coordinate in guidelinesX)
+        {
+            float value = (float)coordinate;
+            if (!float.IsFinite(value))
+            {
+                throw new ArgumentOutOfRangeException(nameof(guidelinesX));
+            }
+            WriteSingle(packet, offset, value);
+            offset += sizeof(float);
+        }
+        foreach (double coordinate in guidelinesY)
+        {
+            float value = (float)coordinate;
+            if (!float.IsFinite(value))
+            {
+                throw new ArgumentOutOfRangeException(nameof(guidelinesY));
+            }
+            WriteSingle(packet, offset, value);
+            offset += sizeof(float);
+        }
+    }
+
+    public void SetViewport3DVisualCamera(uint handle, uint cameraHandle)
+    {
+        ValidateHandle(handle);
+        Span<byte> packet = NativeMilBatchEncoding.Allocate(
+            _writer, NativeMilCommand.Viewport3DVisualSetCamera, 12);
+        WriteUInt32(packet, 4, handle);
+        WriteUInt32(packet, 8, cameraHandle);
+    }
+
+    public void SetViewport3DVisualChild(uint handle, uint childHandle)
+    {
+        ValidateHandle(handle);
+        Span<byte> packet = NativeMilBatchEncoding.Allocate(
+            _writer, NativeMilCommand.Viewport3DVisualSet3DChild, 12);
+        WriteUInt32(packet, 4, handle);
+        WriteUInt32(packet, 8, childHandle);
+    }
+
+    public void SetVisual3DContent(uint handle, uint contentHandle)
+    {
+        ValidateHandle(handle);
+        Span<byte> packet = NativeMilBatchEncoding.Allocate(
+            _writer, NativeMilCommand.Visual3DSetContent, 12);
+        WriteUInt32(packet, 4, handle);
+        WriteUInt32(packet, 8, contentHandle);
+    }
+
+    public void SetVisual3DTransform(uint handle, uint transformHandle)
+    {
+        ValidateHandle(handle);
+        Span<byte> packet = NativeMilBatchEncoding.Allocate(
+            _writer, NativeMilCommand.Visual3DSetTransform, 12);
+        WriteUInt32(packet, 4, handle);
+        WriteUInt32(packet, 8, transformHandle);
+    }
+
+    public void RemoveAllVisual3DChildren(uint handle)
+    {
+        WriteHandleCommand(NativeMilCommand.Visual3DRemoveAllChildren, handle);
+    }
+
+    public void RemoveVisual3DChild(uint handle, uint childHandle)
+    {
+        ValidateHandle(handle);
+        ValidateHandle(childHandle);
+        Span<byte> packet = NativeMilBatchEncoding.Allocate(
+            _writer, NativeMilCommand.Visual3DRemoveChild, 12);
+        WriteUInt32(packet, 4, handle);
+        WriteUInt32(packet, 8, childHandle);
+    }
+
+    public void InsertVisual3DChild(
+        uint handle,
+        uint childHandle,
+        uint index)
+    {
+        ValidateHandle(handle);
+        ValidateHandle(childHandle);
+        Span<byte> packet = NativeMilBatchEncoding.Allocate(
+            _writer, NativeMilCommand.Visual3DInsertChildAt, 16);
+        WriteUInt32(packet, 4, handle);
+        WriteUInt32(packet, 8, childHandle);
+        WriteUInt32(packet, 12, index);
+    }
+
+    /// <summary>
+    /// Writes a canonical viewport. The WPF <c>Rect.Empty</c> wire value is
+    /// represented by positive-infinite X/Y and negative-infinite size.
+    /// </summary>
+    public void SetViewport3DVisualViewport(
+        uint handle,
+        NativeMilRect viewport)
+    {
+        ValidateHandle(handle);
+        bool isEmpty =
+            double.IsPositiveInfinity(viewport.X) &&
+            double.IsPositiveInfinity(viewport.Y) &&
+            double.IsNegativeInfinity(viewport.Width) &&
+            double.IsNegativeInfinity(viewport.Height);
+        if (!isEmpty &&
+            (!double.IsFinite(viewport.X) ||
+             !double.IsFinite(viewport.Y) ||
+             !double.IsFinite(viewport.Width) ||
+             !double.IsFinite(viewport.Height) ||
+             viewport.Width < 0.0 || viewport.Height < 0.0))
+        {
+            throw new ArgumentOutOfRangeException(nameof(viewport));
+        }
+        Span<byte> packet = NativeMilBatchEncoding.Allocate(
+            _writer, NativeMilCommand.Viewport3DVisualSetViewport, 40);
+        WriteUInt32(packet, 4, handle);
+        WriteDouble(packet, 8, viewport.X);
+        WriteDouble(packet, 16, viewport.Y);
+        WriteDouble(packet, 24, viewport.Width);
+        WriteDouble(packet, 32, viewport.Height);
+    }
+
+    public void InsertVisualChild(uint handle, uint childHandle, uint index)
+    {
+        ValidateHandle(handle);
+        ValidateHandle(childHandle);
+        Span<byte> packet = NativeMilBatchEncoding.Allocate(
+            _writer, NativeMilCommand.VisualInsertChildAt, 16);
+        WriteUInt32(packet, 4, handle);
+        WriteUInt32(packet, 8, childHandle);
+        WriteUInt32(packet, 12, index);
+    }
+
+    public void SetBlurEffect(
+        uint handle,
+        double radius,
+        NativeMilEffectRenderingBias renderingBias =
+            NativeMilEffectRenderingBias.Performance,
+        NativeMilBlurKernelType kernelType =
+            NativeMilBlurKernelType.Gaussian)
+    {
+        ValidateHandle(handle);
+        if (!double.IsFinite(radius) ||
+            kernelType > NativeMilBlurKernelType.Box ||
+            renderingBias > NativeMilEffectRenderingBias.Quality)
+        {
+            throw new ArgumentOutOfRangeException(nameof(radius));
+        }
+        Span<byte> packet = NativeMilBatchEncoding.Allocate(
+            _writer, NativeMilCommand.BlurEffect, 28);
+        WriteUInt32(packet, 4, handle);
+        WriteDouble(packet, 8, radius);
+        WriteUInt32(packet, 16, 0);
+        WriteUInt32(packet, 20, (uint)kernelType);
+        WriteUInt32(packet, 24, (uint)renderingBias);
+    }
+
+    public void SetDropShadowEffect(
+        uint handle,
+        double shadowDepth,
+        NativeMilColor color,
+        double direction,
+        double opacity,
+        double blurRadius,
+        NativeMilEffectRenderingBias renderingBias =
+            NativeMilEffectRenderingBias.Performance)
+    {
+        ValidateHandle(handle);
+        if (!double.IsFinite(shadowDepth) ||
+            !double.IsFinite(direction) ||
+            !double.IsFinite(opacity) ||
+            !double.IsFinite(blurRadius) ||
+            !float.IsFinite(color.Red) || !float.IsFinite(color.Green) ||
+            !float.IsFinite(color.Blue) || !float.IsFinite(color.Alpha) ||
+            renderingBias > NativeMilEffectRenderingBias.Quality)
+        {
+            throw new ArgumentOutOfRangeException(nameof(shadowDepth));
+        }
+        Span<byte> packet = NativeMilBatchEncoding.Allocate(
+            _writer, NativeMilCommand.DropShadowEffect, 80);
+        WriteUInt32(packet, 4, handle);
+        WriteDouble(packet, 8, shadowDepth);
+        WriteSingle(packet, 16, color.Red);
+        WriteSingle(packet, 20, color.Green);
+        WriteSingle(packet, 24, color.Blue);
+        WriteSingle(packet, 28, color.Alpha);
+        WriteDouble(packet, 32, direction);
+        WriteDouble(packet, 40, opacity);
+        WriteDouble(packet, 48, blurRadius);
+        WriteUInt32(packet, 76, (uint)renderingBias);
+    }
+
+    /// <summary>
+    /// Writes canonical MilCmdHwndTargetCreate with every process-local
+    /// Windows handle set to zero. Surface ownership belongs to the portable
+    /// host; this packet retains dimensions, clear state, flags, and DPI.
+    /// </summary>
+    public void CreateHwndTarget(
+        uint handle,
+        uint pixelWidth,
+        uint pixelHeight,
+        NativeMilColor clearColor,
+        uint flags,
+        int dpiAwarenessContext,
+        double dpiX,
+        double dpiY)
+    {
+        ValidateHandle(handle);
+        ValidateColor(clearColor);
+        if (!double.IsFinite(dpiX) || !double.IsFinite(dpiY) ||
+            dpiX <= 0.0 || dpiY <= 0.0)
+        {
+            throw new ArgumentOutOfRangeException(nameof(dpiX));
+        }
+        Span<byte> packet = NativeMilBatchEncoding.Allocate(
+            _writer, NativeMilCommand.HwndTargetCreate, 92);
+        WriteUInt32(packet, 4, handle);
+        WriteUInt32(packet, 32, pixelWidth);
+        WriteUInt32(packet, 36, pixelHeight);
+        WriteSingle(packet, 40, clearColor.Red);
+        WriteSingle(packet, 44, clearColor.Green);
+        WriteSingle(packet, 48, clearColor.Blue);
+        WriteSingle(packet, 52, clearColor.Alpha);
+        WriteUInt32(packet, 56, flags);
+        WriteUInt32(packet, 72, unchecked((uint)dpiAwarenessContext));
+        WriteDouble(packet, 76, dpiX);
+        WriteDouble(packet, 84, dpiY);
+    }
+
+    public void SuppressHwndTargetLayeredPresentation(
+        uint handle,
+        bool suppress)
+    {
+        ValidateHandle(handle);
+        Span<byte> packet = NativeMilBatchEncoding.Allocate(
+            _writer, NativeMilCommand.HwndTargetSuppressLayered, 12);
+        WriteUInt32(packet, 4, handle);
+        WriteUInt32(packet, 8, suppress ? 1U : 0U);
+    }
+
+    public void UpdateHwndTargetWindowSettings(
+        uint handle,
+        NativeMilWindowSettings settings)
+    {
+        ValidateHandle(handle);
+        ValidateColor(settings.ColorKey);
+        const NativeMilTransparencyMode supportedTransparency =
+            NativeMilTransparencyMode.ConstantAlpha |
+            NativeMilTransparencyMode.PerPixelAlpha |
+            NativeMilTransparencyMode.ColorKey;
+        if (settings.LayerType >
+                NativeMilWindowLayerType.ApplicationManagedLayer ||
+            (settings.TransparencyMode & ~supportedTransparency) != 0 ||
+            !float.IsFinite(settings.ConstantAlpha))
+        {
+            throw new ArgumentOutOfRangeException(nameof(settings));
+        }
+        Span<byte> packet = NativeMilBatchEncoding.Allocate(
+            _writer, NativeMilCommand.TargetUpdateWindowSettings, 72);
+        WriteUInt32(packet, 4, handle);
+        WriteUInt32(packet, 8, unchecked((uint)settings.WindowRect.Left));
+        WriteUInt32(packet, 12, unchecked((uint)settings.WindowRect.Top));
+        WriteUInt32(packet, 16, unchecked((uint)settings.WindowRect.Right));
+        WriteUInt32(packet, 20, unchecked((uint)settings.WindowRect.Bottom));
+        WriteUInt32(packet, 24, (uint)settings.LayerType);
+        WriteUInt32(packet, 28, (uint)settings.TransparencyMode);
+        WriteSingle(packet, 32, settings.ConstantAlpha);
+        WriteUInt32(packet, 36, settings.IsChild ? 1U : 0U);
+        WriteUInt32(packet, 40, settings.IsRtl ? 1U : 0U);
+        WriteUInt32(packet, 44, settings.RenderingEnabled ? 1U : 0U);
+        WriteSingle(packet, 48, settings.ColorKey.Red);
+        WriteSingle(packet, 52, settings.ColorKey.Green);
+        WriteSingle(packet, 56, settings.ColorKey.Blue);
+        WriteSingle(packet, 60, settings.ColorKey.Alpha);
+        WriteUInt32(packet, 64, settings.DisableCookie);
+        WriteUInt32(packet, 68, settings.GdiBlt ? 1U : 0U);
+    }
+
+    public void NotifyHwndTargetDpiChanged(
+        uint handle,
+        double dpiX,
+        double dpiY,
+        bool afterParent)
+    {
+        ValidateHandle(handle);
+        if (!double.IsFinite(dpiX) || !double.IsFinite(dpiY) ||
+            dpiX <= 0.0 || dpiY <= 0.0)
+        {
+            throw new ArgumentOutOfRangeException(nameof(dpiX));
+        }
+        Span<byte> packet = NativeMilBatchEncoding.Allocate(
+            _writer, NativeMilCommand.HwndTargetDpiChanged, 28);
+        WriteUInt32(packet, 4, handle);
+        WriteDouble(packet, 8, dpiX);
+        WriteDouble(packet, 16, dpiY);
+        WriteUInt32(packet, 24, afterParent ? 1U : 0U);
+    }
+
+    public void CreateGenericTarget(
+        uint handle,
+        uint pixelWidth,
+        uint pixelHeight,
+        uint flags = 0,
+        ulong platformRenderTarget = 0,
+        ulong section = 0)
+    {
+        ValidateHandle(handle);
+        Span<byte> packet = NativeMilBatchEncoding.Allocate(
+            _writer, NativeMilCommand.GenericTargetCreate, 36);
+        WriteUInt32(packet, 4, handle);
+        WriteUInt64(packet, 8, platformRenderTarget);
+        WriteUInt64(packet, 16, section);
+        WriteUInt32(packet, 24, pixelWidth);
+        WriteUInt32(packet, 28, pixelHeight);
+        WriteUInt32(packet, 32, flags);
+    }
+
+    public void SetTargetRoot(uint handle, uint rootHandle)
+    {
+        ValidateHandle(handle);
+        Span<byte> packet = NativeMilBatchEncoding.Allocate(
+            _writer, NativeMilCommand.TargetSetRoot, 12);
+        WriteUInt32(packet, 4, handle);
+        WriteUInt32(packet, 8, rootHandle);
+    }
+
+    public void SetTargetClearColor(uint handle, NativeMilColor color)
+    {
+        ValidateHandle(handle);
+        ValidateColor(color);
+        Span<byte> packet = NativeMilBatchEncoding.Allocate(
+            _writer, NativeMilCommand.TargetSetClearColor, 24);
+        WriteUInt32(packet, 4, handle);
+        WriteSingle(packet, 8, color.Red);
+        WriteSingle(packet, 12, color.Green);
+        WriteSingle(packet, 16, color.Blue);
+        WriteSingle(packet, 20, color.Alpha);
+    }
+
+    public void SetImageBrush(uint handle, NativeMilTileBrush brush, uint imageSourceHandle = 0) =>
+        SetTileBrush(NativeMilCommand.ImageBrush, handle, brush, imageSourceHandle);
+
+    public void SetDrawingBrush(uint handle, NativeMilTileBrush brush, uint drawingHandle = 0) =>
+        SetTileBrush(NativeMilCommand.DrawingBrush, handle, brush, drawingHandle);
+
+    public void SetVisualBrush(uint handle, NativeMilTileBrush brush, uint visualHandle = 0) =>
+        SetTileBrush(NativeMilCommand.VisualBrush, handle, brush, visualHandle);
+
+    /// <summary>Retains a typed BitmapCacheBrush packet for native cached visual capture.</summary>
+    public void SetBitmapCacheBrush(uint handle, NativeMilBitmapCacheBrush brush)
+    {
+        ValidateHandle(handle);
+        if (!double.IsFinite(brush.Opacity) || brush.Opacity < 0 || brush.Opacity > 1)
+            throw new ArgumentOutOfRangeException(nameof(brush));
+        Span<byte> packet = NativeMilBatchEncoding.Allocate(_writer, NativeMilCommand.BitmapCacheBrush, 36);
+        WriteUInt32(packet, 4, handle);
+        WriteDouble(packet, 8, brush.Opacity);
+        WriteUInt32(packet, 16, brush.OpacityAnimationHandle);
+        WriteUInt32(packet, 20, brush.TransformHandle);
+        WriteUInt32(packet, 24, brush.RelativeTransformHandle);
+        WriteUInt32(packet, 28, brush.BitmapCacheHandle);
+        WriteUInt32(packet, 32, brush.InternalTargetHandle);
+    }
+
+    private void SetTileBrush(uint command, uint handle,
+        NativeMilTileBrush brush, uint sourceHandle)
+    {
+        ValidateHandle(handle);
+        static bool ValidRect(NativeMilRect rect) =>
+            (double.IsPositiveInfinity(rect.X) && double.IsPositiveInfinity(rect.Y) &&
+             double.IsNegativeInfinity(rect.Width) && double.IsNegativeInfinity(rect.Height)) ||
+            (double.IsFinite(rect.X) && double.IsFinite(rect.Y) &&
+            double.IsFinite(rect.Width) && double.IsFinite(rect.Height) &&
+            rect.Width >= 0 && rect.Height >= 0);
+        if (!ValidRect(brush.Viewport) || !ValidRect(brush.Viewbox) ||
+            !double.IsFinite(brush.Opacity) || brush.Opacity < 0 || brush.Opacity > 1 ||
+            (uint)brush.ViewportUnits > 1 || (uint)brush.ViewboxUnits > 1 ||
+            (uint)brush.Stretch > 3 || (uint)brush.TileMode > 4 ||
+            (uint)brush.AlignmentX > 2 || (uint)brush.AlignmentY > 2)
+        {
+            throw new ArgumentOutOfRangeException(nameof(brush));
+        }
+        Span<byte> packet = NativeMilBatchEncoding.Allocate(_writer, command, 148);
+        WriteUInt32(packet, 4, handle);
+        WriteDouble(packet, 8, brush.Opacity);
+        WriteDouble(packet, 16, brush.Viewport.X);
+        WriteDouble(packet, 24, brush.Viewport.Y);
+        WriteDouble(packet, 32, brush.Viewport.Width);
+        WriteDouble(packet, 40, brush.Viewport.Height);
+        WriteDouble(packet, 48, brush.Viewbox.X);
+        WriteDouble(packet, 56, brush.Viewbox.Y);
+        WriteDouble(packet, 64, brush.Viewbox.Width);
+        WriteDouble(packet, 72, brush.Viewbox.Height);
+        WriteDouble(packet, 80, brush.CacheInvalidationThresholdMinimum);
+        WriteDouble(packet, 88, brush.CacheInvalidationThresholdMaximum);
+        WriteUInt32(packet, 96, brush.OpacityAnimationHandle);
+        WriteUInt32(packet, 100, brush.TransformHandle);
+        WriteUInt32(packet, 104, brush.RelativeTransformHandle);
+        WriteUInt32(packet, 108, (uint)brush.ViewportUnits);
+        WriteUInt32(packet, 112, (uint)brush.ViewboxUnits);
+        WriteUInt32(packet, 116, brush.ViewportAnimationHandle);
+        WriteUInt32(packet, 120, brush.ViewboxAnimationHandle);
+        WriteUInt32(packet, 124, (uint)brush.Stretch);
+        WriteUInt32(packet, 128, (uint)brush.TileMode);
+        WriteUInt32(packet, 132, (uint)brush.AlignmentX);
+        WriteUInt32(packet, 136, (uint)brush.AlignmentY);
+        WriteUInt32(packet, 140, brush.Cache ? 1U : 0U);
+        WriteUInt32(packet, 144, sourceHandle);
+    }
+
+    public void SetSolidColorBrush(
+        uint handle,
+        NativeMilColor color,
+        double opacity = 1.0)
+    {
+        ValidateHandle(handle);
+        ValidateColor(color);
+        if (!double.IsFinite(opacity) || opacity < 0.0 || opacity > 1.0)
+        {
+            throw new ArgumentOutOfRangeException(nameof(opacity));
+        }
+        Span<byte> packet = NativeMilBatchEncoding.Allocate(
+            _writer, NativeMilCommand.SolidColorBrush, 48);
+        WriteUInt32(packet, 4, handle);
+        WriteDouble(packet, 8, opacity);
+        WriteSingle(packet, 16, color.Red);
+        WriteSingle(packet, 20, color.Green);
+        WriteSingle(packet, 24, color.Blue);
+        WriteSingle(packet, 28, color.Alpha);
+    }
+
+    public void SetDoubleResource(uint handle, double value)
+    {
+        ValidateHandle(handle);
+        if (!double.IsFinite(value))
+        {
+            throw new ArgumentOutOfRangeException(nameof(value));
+        }
+        Span<byte> packet = NativeMilBatchEncoding.Allocate(
+            _writer, NativeMilCommand.DoubleResource, 16);
+        WriteUInt32(packet, 4, handle);
+        WriteDouble(packet, 8, value);
+    }
+
+    public void SetPoint3DResource(uint handle, Vector3 value)
+    {
+        SetVector3Resource(
+            handle, value, NativeMilCommand.Point3DResource);
+    }
+
+    public void SetVector3DResource(uint handle, Vector3 value)
+    {
+        SetVector3Resource(
+            handle, value, NativeMilCommand.Vector3DResource);
+    }
+
+    public void SetQuaternionResource(uint handle, Quaternion value)
+    {
+        ValidateHandle(handle);
+        ValidateQuaternion(value, nameof(value));
+        Span<byte> packet = NativeMilBatchEncoding.Allocate(
+            _writer, NativeMilCommand.QuaternionResource, 24);
+        WriteUInt32(packet, 4, handle);
+        WriteQuaternion(packet, 8, value);
+    }
+
+    private void SetVector3Resource(
+        uint handle,
+        Vector3 value,
+        uint command)
+    {
+        ValidateHandle(handle);
+        ValidateVector3(value, nameof(value));
+        Span<byte> packet = NativeMilBatchEncoding.Allocate(
+            _writer, command, 20);
+        WriteUInt32(packet, 4, handle);
+        WriteVector3(packet, 8, value);
+    }
+
+    /// <summary>Writes canonical MilCmdBitmapCache resource state.</summary>
+    public void SetBitmapCache(uint handle, NativeMilBitmapCache cache)
+    {
+        ValidateHandle(handle);
+        if (!double.IsFinite(cache.RenderAtScale))
+        {
+            throw new ArgumentOutOfRangeException(nameof(cache));
+        }
+        Span<byte> packet = NativeMilBatchEncoding.Allocate(
+            _writer, NativeMilCommand.BitmapCache, 28);
+        WriteUInt32(packet, 4, handle);
+        WriteDouble(packet, 8, cache.RenderAtScale);
+        WriteUInt32(packet, 16, cache.RenderAtScaleAnimationHandle);
+        WriteUInt32(packet, 20, cache.SnapsToDevicePixels ? 1U : 0U);
+        WriteUInt32(packet, 24, cache.EnableClearType ? 1U : 0U);
+    }
+
+    public void SetPointResource(uint handle, NativeMilPoint point)
+    {
+        ValidateHandle(handle);
+        ValidatePoint(point);
+        Span<byte> packet = NativeMilBatchEncoding.Allocate(
+            _writer, NativeMilCommand.PointResource, 24);
+        WriteUInt32(packet, 4, handle);
+        WriteDouble(packet, 8, point.X);
+        WriteDouble(packet, 16, point.Y);
+    }
+
+    public void SetSizeResource(uint handle, NativeMilSize size)
+    {
+        ValidateHandle(handle);
+        if (!double.IsFinite(size.Width) || !double.IsFinite(size.Height) ||
+            size.Width < 0.0 || size.Height < 0.0)
+        {
+            throw new ArgumentOutOfRangeException(nameof(size));
+        }
+        Span<byte> packet = NativeMilBatchEncoding.Allocate(
+            _writer, NativeMilCommand.SizeResource, 24);
+        WriteUInt32(packet, 4, handle);
+        WriteDouble(packet, 8, size.Width);
+        WriteDouble(packet, 16, size.Height);
+    }
+
+    public void SetRectResource(uint handle, NativeMilRect rect)
+    {
+        ValidateHandle(handle);
+        if (!double.IsFinite(rect.X) || !double.IsFinite(rect.Y) ||
+            !double.IsFinite(rect.Width) || !double.IsFinite(rect.Height) ||
+            rect.Width < 0.0 || rect.Height < 0.0)
+        {
+            throw new ArgumentOutOfRangeException(nameof(rect));
+        }
+        Span<byte> packet = NativeMilBatchEncoding.Allocate(
+            _writer, NativeMilCommand.RectResource, 40);
+        WriteUInt32(packet, 4, handle);
+        WriteDouble(packet, 8, rect.X);
+        WriteDouble(packet, 16, rect.Y);
+        WriteDouble(packet, 24, rect.Width);
+        WriteDouble(packet, 32, rect.Height);
+    }
+
+    public void SetLinearGradientBrush(
+        uint handle,
+        NativeMilLinearGradientBrush brush,
+        ReadOnlySpan<NativeMilGradientStop> stops)
+    {
+        ValidateHandle(handle);
+        ValidateGradientState(
+            brush.Opacity,
+            brush.Interpolation,
+            brush.MappingMode,
+            brush.SpreadMethod);
+        ValidatePoint(brush.StartPoint);
+        ValidatePoint(brush.EndPoint);
+        int stopsSize = checked(stops.Length * 24);
+        Span<byte> packet = NativeMilBatchEncoding.Allocate(
+            _writer,
+            NativeMilCommand.LinearGradientBrush,
+            checked(84 + stopsSize));
+        WriteUInt32(packet, 4, handle);
+        WriteDouble(packet, 8, brush.Opacity);
+        WritePoint(packet, 16, brush.StartPoint);
+        WritePoint(packet, 32, brush.EndPoint);
+        WriteUInt32(packet, 48, brush.OpacityAnimationHandle);
+        WriteUInt32(packet, 52, brush.TransformHandle);
+        WriteUInt32(packet, 56, brush.RelativeTransformHandle);
+        WriteUInt32(packet, 60, (uint)brush.Interpolation);
+        WriteUInt32(packet, 64, (uint)brush.MappingMode);
+        WriteUInt32(packet, 68, (uint)brush.SpreadMethod);
+        WriteUInt32(packet, 72, checked((uint)stopsSize));
+        WriteUInt32(packet, 76, brush.StartPointAnimationHandle);
+        WriteUInt32(packet, 80, brush.EndPointAnimationHandle);
+        WriteGradientStops(packet[84..], stops);
+    }
+
+    public void SetRadialGradientBrush(
+        uint handle,
+        NativeMilRadialGradientBrush brush,
+        ReadOnlySpan<NativeMilGradientStop> stops)
+    {
+        ValidateHandle(handle);
+        ValidateGradientState(
+            brush.Opacity,
+            brush.Interpolation,
+            brush.MappingMode,
+            brush.SpreadMethod);
+        ValidatePoint(brush.Center);
+        ValidatePoint(brush.GradientOrigin);
+        if (!double.IsFinite(brush.RadiusX) || brush.RadiusX < 0.0 ||
+            !double.IsFinite(brush.RadiusY) || brush.RadiusY < 0.0)
+        {
+            throw new ArgumentOutOfRangeException(nameof(brush));
+        }
+        int stopsSize = checked(stops.Length * 24);
+        Span<byte> packet = NativeMilBatchEncoding.Allocate(
+            _writer,
+            NativeMilCommand.RadialGradientBrush,
+            checked(108 + stopsSize));
+        WriteUInt32(packet, 4, handle);
+        WriteDouble(packet, 8, brush.Opacity);
+        WritePoint(packet, 16, brush.Center);
+        WriteDouble(packet, 32, brush.RadiusX);
+        WriteDouble(packet, 40, brush.RadiusY);
+        WritePoint(packet, 48, brush.GradientOrigin);
+        WriteUInt32(packet, 64, brush.OpacityAnimationHandle);
+        WriteUInt32(packet, 68, brush.TransformHandle);
+        WriteUInt32(packet, 72, brush.RelativeTransformHandle);
+        WriteUInt32(packet, 76, (uint)brush.Interpolation);
+        WriteUInt32(packet, 80, (uint)brush.MappingMode);
+        WriteUInt32(packet, 84, (uint)brush.SpreadMethod);
+        WriteUInt32(packet, 88, checked((uint)stopsSize));
+        WriteUInt32(packet, 92, brush.CenterAnimationHandle);
+        WriteUInt32(packet, 96, brush.RadiusXAnimationHandle);
+        WriteUInt32(packet, 100, brush.RadiusYAnimationHandle);
+        WriteUInt32(packet, 104, brush.GradientOriginAnimationHandle);
+        WriteGradientStops(packet[108..], stops);
+    }
+
+    public void SetMatrixResource(uint handle, NativeMilMatrix3x2 matrix)
+    {
+        ValidateHandle(handle);
+        ValidateMatrix(matrix);
+        Span<byte> packet = NativeMilBatchEncoding.Allocate(
+            _writer, NativeMilCommand.MatrixResource, 56);
+        WriteUInt32(packet, 4, handle);
+        WriteDouble(packet, 8, matrix.M11);
+        WriteDouble(packet, 16, matrix.M12);
+        WriteDouble(packet, 24, matrix.M21);
+        WriteDouble(packet, 32, matrix.M22);
+        WriteDouble(packet, 40, matrix.OffsetX);
+        WriteDouble(packet, 48, matrix.OffsetY);
+    }
+
+    public void SetMatrixTransform(
+        uint handle,
+        NativeMilMatrix3x2 matrix,
+        uint matrixAnimationHandle = 0)
+    {
+        ValidateHandle(handle);
+        ValidateMatrix(matrix);
+        Span<byte> packet = NativeMilBatchEncoding.Allocate(
+            _writer, NativeMilCommand.MatrixTransform, 60);
+        WriteUInt32(packet, 4, handle);
+        WriteDouble(packet, 8, matrix.M11);
+        WriteDouble(packet, 16, matrix.M12);
+        WriteDouble(packet, 24, matrix.M21);
+        WriteDouble(packet, 32, matrix.M22);
+        WriteDouble(packet, 40, matrix.OffsetX);
+        WriteDouble(packet, 48, matrix.OffsetY);
+        WriteUInt32(packet, 56, matrixAnimationHandle);
+    }
+
+    public void SetAxisAngleRotation3D(
+        uint handle,
+        double angle,
+        Vector3 axis,
+        uint axisAnimationHandle = 0,
+        uint angleAnimationHandle = 0)
+    {
+        ValidateHandle(handle);
+        ValidateAnimatedVector3(axis, axisAnimationHandle, nameof(axis));
+        ValidateAnimatedDouble(
+            angle, angleAnimationHandle, nameof(angle));
+        Span<byte> packet = NativeMilBatchEncoding.Allocate(
+            _writer, NativeMilCommand.AxisAngleRotation3D, 36);
+        WriteUInt32(packet, 4, handle);
+        WriteDouble(packet, 8, angle);
+        WriteVector3(packet, 16, axis);
+        WriteUInt32(packet, 28, axisAnimationHandle);
+        WriteUInt32(packet, 32, angleAnimationHandle);
+    }
+
+    public void SetQuaternionRotation3D(
+        uint handle,
+        Quaternion quaternion,
+        uint quaternionAnimationHandle = 0)
+    {
+        ValidateHandle(handle);
+        ValidateAnimatedQuaternion(
+            quaternion,
+            quaternionAnimationHandle,
+            nameof(quaternion));
+        Span<byte> packet = NativeMilBatchEncoding.Allocate(
+            _writer, NativeMilCommand.QuaternionRotation3D, 28);
+        WriteUInt32(packet, 4, handle);
+        WriteQuaternion(packet, 8, quaternion);
+        WriteUInt32(packet, 24, quaternionAnimationHandle);
+    }
+
+    public void SetPerspectiveCamera(
+        uint handle,
+        double nearPlaneDistance,
+        double farPlaneDistance,
+        double fieldOfView,
+        Vector3 position,
+        Vector3 lookDirection,
+        Vector3 upDirection,
+        uint transformHandle = 0,
+        uint nearPlaneDistanceAnimationHandle = 0,
+        uint farPlaneDistanceAnimationHandle = 0,
+        uint positionAnimationHandle = 0,
+        uint lookDirectionAnimationHandle = 0,
+        uint upDirectionAnimationHandle = 0,
+        uint fieldOfViewAnimationHandle = 0)
+    {
+        SetProjectionCamera(
+            handle,
+            NativeMilCommand.PerspectiveCamera,
+            nearPlaneDistance,
+            farPlaneDistance,
+            fieldOfView,
+            position,
+            lookDirection,
+            upDirection,
+            transformHandle,
+            nearPlaneDistanceAnimationHandle,
+            farPlaneDistanceAnimationHandle,
+            positionAnimationHandle,
+            lookDirectionAnimationHandle,
+            upDirectionAnimationHandle,
+            fieldOfViewAnimationHandle);
+    }
+
+    public void SetOrthographicCamera(
+        uint handle,
+        double nearPlaneDistance,
+        double farPlaneDistance,
+        double width,
+        Vector3 position,
+        Vector3 lookDirection,
+        Vector3 upDirection,
+        uint transformHandle = 0,
+        uint nearPlaneDistanceAnimationHandle = 0,
+        uint farPlaneDistanceAnimationHandle = 0,
+        uint positionAnimationHandle = 0,
+        uint lookDirectionAnimationHandle = 0,
+        uint upDirectionAnimationHandle = 0,
+        uint widthAnimationHandle = 0)
+    {
+        SetProjectionCamera(
+            handle,
+            NativeMilCommand.OrthographicCamera,
+            nearPlaneDistance,
+            farPlaneDistance,
+            width,
+            position,
+            lookDirection,
+            upDirection,
+            transformHandle,
+            nearPlaneDistanceAnimationHandle,
+            farPlaneDistanceAnimationHandle,
+            positionAnimationHandle,
+            lookDirectionAnimationHandle,
+            upDirectionAnimationHandle,
+            widthAnimationHandle);
+    }
+
+    public void SetMatrixCamera(
+        uint handle,
+        Matrix4x4 viewMatrix,
+        Matrix4x4 projectionMatrix,
+        uint transformHandle = 0)
+    {
+        ValidateHandle(handle);
+        ValidateMatrix4x4(viewMatrix, nameof(viewMatrix));
+        ValidateMatrix4x4(projectionMatrix, nameof(projectionMatrix));
+        Span<byte> packet = NativeMilBatchEncoding.Allocate(
+            _writer, NativeMilCommand.MatrixCamera, 140);
+        WriteUInt32(packet, 4, handle);
+        WriteMatrix4x4(packet, 8, viewMatrix);
+        WriteMatrix4x4(packet, 72, projectionMatrix);
+        WriteUInt32(packet, 136, transformHandle);
+    }
+
+    public void SetTransform3DGroup(
+        uint handle,
+        ReadOnlySpan<uint> children)
+    {
+        ValidateHandle(handle);
+        int childrenSize = checked(children.Length * sizeof(uint));
+        Span<byte> packet = NativeMilBatchEncoding.Allocate(
+            _writer,
+            NativeMilCommand.Transform3DGroup,
+            checked(12 + childrenSize));
+        WriteUInt32(packet, 4, handle);
+        WriteUInt32(packet, 8, checked((uint)childrenSize));
+        for (int index = 0; index < children.Length; ++index)
+        {
+            ValidateHandle(children[index]);
+            WriteUInt32(packet, 12 + index * sizeof(uint), children[index]);
+        }
+    }
+
+    public void SetTranslateTransform3D(
+        uint handle,
+        double offsetX,
+        double offsetY,
+        double offsetZ,
+        uint offsetXAnimationHandle = 0,
+        uint offsetYAnimationHandle = 0,
+        uint offsetZAnimationHandle = 0)
+    {
+        ValidateHandle(handle);
+        ValidateAnimatedDouble(
+            offsetX, offsetXAnimationHandle, nameof(offsetX));
+        ValidateAnimatedDouble(
+            offsetY, offsetYAnimationHandle, nameof(offsetY));
+        ValidateAnimatedDouble(
+            offsetZ, offsetZAnimationHandle, nameof(offsetZ));
+        Span<byte> packet = NativeMilBatchEncoding.Allocate(
+            _writer, NativeMilCommand.TranslateTransform3D, 44);
+        WriteUInt32(packet, 4, handle);
+        WriteDouble(packet, 8, offsetX);
+        WriteDouble(packet, 16, offsetY);
+        WriteDouble(packet, 24, offsetZ);
+        WriteUInt32(packet, 32, offsetXAnimationHandle);
+        WriteUInt32(packet, 36, offsetYAnimationHandle);
+        WriteUInt32(packet, 40, offsetZAnimationHandle);
+    }
+
+    public void SetScaleTransform3D(
+        uint handle,
+        double scaleX,
+        double scaleY,
+        double scaleZ,
+        double centerX = 0.0,
+        double centerY = 0.0,
+        double centerZ = 0.0,
+        uint scaleXAnimationHandle = 0,
+        uint scaleYAnimationHandle = 0,
+        uint scaleZAnimationHandle = 0,
+        uint centerXAnimationHandle = 0,
+        uint centerYAnimationHandle = 0,
+        uint centerZAnimationHandle = 0)
+    {
+        ValidateHandle(handle);
+        ReadOnlySpan<double> values = stackalloc double[]
+        {
+            scaleX, scaleY, scaleZ,
+            centerX, centerY, centerZ
+        };
+        ReadOnlySpan<uint> animations = stackalloc uint[]
+        {
+            scaleXAnimationHandle,
+            scaleYAnimationHandle,
+            scaleZAnimationHandle,
+            centerXAnimationHandle,
+            centerYAnimationHandle,
+            centerZAnimationHandle
+        };
+        for (int index = 0; index < values.Length; ++index)
+        {
+            ValidateAnimatedDouble(
+                values[index], animations[index], nameof(scaleX));
+        }
+        Span<byte> packet = NativeMilBatchEncoding.Allocate(
+            _writer, NativeMilCommand.ScaleTransform3D, 80);
+        WriteUInt32(packet, 4, handle);
+        for (int index = 0; index < values.Length; ++index)
+        {
+            WriteDouble(packet, 8 + index * sizeof(double), values[index]);
+            WriteUInt32(packet, 56 + index * sizeof(uint), animations[index]);
+        }
+    }
+
+    public void SetRotateTransform3D(
+        uint handle,
+        uint rotationHandle,
+        double centerX = 0.0,
+        double centerY = 0.0,
+        double centerZ = 0.0,
+        uint centerXAnimationHandle = 0,
+        uint centerYAnimationHandle = 0,
+        uint centerZAnimationHandle = 0)
+    {
+        ValidateHandle(handle);
+        ValidateHandle(rotationHandle);
+        ReadOnlySpan<double> values = stackalloc double[]
+        {
+            centerX, centerY, centerZ
+        };
+        ReadOnlySpan<uint> animations = stackalloc uint[]
+        {
+            centerXAnimationHandle,
+            centerYAnimationHandle,
+            centerZAnimationHandle
+        };
+        for (int index = 0; index < values.Length; ++index)
+        {
+            ValidateAnimatedDouble(
+                values[index], animations[index], nameof(centerX));
+        }
+        Span<byte> packet = NativeMilBatchEncoding.Allocate(
+            _writer, NativeMilCommand.RotateTransform3D, 48);
+        WriteUInt32(packet, 4, handle);
+        for (int index = 0; index < values.Length; ++index)
+        {
+            WriteDouble(packet, 8 + index * sizeof(double), values[index]);
+            WriteUInt32(packet, 32 + index * sizeof(uint), animations[index]);
+        }
+        WriteUInt32(packet, 44, rotationHandle);
+    }
+
+    public void SetMatrixTransform3D(uint handle, Matrix4x4 matrix)
+    {
+        ValidateHandle(handle);
+        ValidateMatrix4x4(matrix, nameof(matrix));
+        Span<byte> packet = NativeMilBatchEncoding.Allocate(
+            _writer, NativeMilCommand.MatrixTransform3D, 72);
+        WriteUInt32(packet, 4, handle);
+        WriteMatrix4x4(packet, 8, matrix);
+    }
+
+    public void SetModel3DGroup(
+        uint handle,
+        uint transformHandle,
+        ReadOnlySpan<uint> children)
+    {
+        ValidateHandle(handle);
+        int childrenSize = checked(children.Length * sizeof(uint));
+        Span<byte> packet = NativeMilBatchEncoding.Allocate(
+            _writer,
+            NativeMilCommand.Model3DGroup,
+            checked(16 + childrenSize));
+        WriteUInt32(packet, 4, handle);
+        WriteUInt32(packet, 8, transformHandle);
+        WriteUInt32(packet, 12, checked((uint)childrenSize));
+        for (int index = 0; index < children.Length; ++index)
+        {
+            ValidateHandle(children[index]);
+            WriteUInt32(packet, 16 + index * sizeof(uint), children[index]);
+        }
+    }
+
+    public void SetAmbientLight(
+        uint handle,
+        NativeMilColor color,
+        uint transformHandle = 0,
+        uint colorAnimationHandle = 0)
+    {
+        ValidateHandle(handle);
+        ValidateAnimatedColor(color, colorAnimationHandle, nameof(color));
+        Span<byte> packet = NativeMilBatchEncoding.Allocate(
+            _writer, NativeMilCommand.AmbientLight, 32);
+        WriteUInt32(packet, 4, handle);
+        WriteColor(packet, 8, color);
+        WriteUInt32(packet, 24, transformHandle);
+        WriteUInt32(packet, 28, colorAnimationHandle);
+    }
+
+    public void SetDirectionalLight(
+        uint handle,
+        NativeMilColor color,
+        Vector3 direction,
+        uint transformHandle = 0,
+        uint colorAnimationHandle = 0,
+        uint directionAnimationHandle = 0)
+    {
+        ValidateHandle(handle);
+        ValidateAnimatedColor(color, colorAnimationHandle, nameof(color));
+        ValidateAnimatedVector3(
+            direction,
+            directionAnimationHandle,
+            nameof(direction));
+        Span<byte> packet = NativeMilBatchEncoding.Allocate(
+            _writer, NativeMilCommand.DirectionalLight, 48);
+        WriteUInt32(packet, 4, handle);
+        WriteColor(packet, 8, color);
+        WriteVector3(packet, 24, direction);
+        WriteUInt32(packet, 36, transformHandle);
+        WriteUInt32(packet, 40, colorAnimationHandle);
+        WriteUInt32(packet, 44, directionAnimationHandle);
+    }
+
+    public void SetPointLight(
+        uint handle,
+        NativeMilColor color,
+        double range,
+        double constantAttenuation,
+        double linearAttenuation,
+        double quadraticAttenuation,
+        Vector3 position,
+        uint transformHandle = 0,
+        uint colorAnimationHandle = 0,
+        uint positionAnimationHandle = 0,
+        uint rangeAnimationHandle = 0,
+        uint constantAttenuationAnimationHandle = 0,
+        uint linearAttenuationAnimationHandle = 0,
+        uint quadraticAttenuationAnimationHandle = 0)
+    {
+        ValidateHandle(handle);
+        ValidateAnimatedColor(color, colorAnimationHandle, nameof(color));
+        ValidateAnimatedVector3(
+            position,
+            positionAnimationHandle,
+            nameof(position));
+        ValidateAnimatedDouble(
+            range,
+            rangeAnimationHandle,
+            nameof(range),
+            allowPositiveInfinity: true);
+        ValidateAnimatedDouble(
+            constantAttenuation,
+            constantAttenuationAnimationHandle,
+            nameof(constantAttenuation));
+        ValidateAnimatedDouble(
+            linearAttenuation,
+            linearAttenuationAnimationHandle,
+            nameof(linearAttenuation));
+        ValidateAnimatedDouble(
+            quadraticAttenuation,
+            quadraticAttenuationAnimationHandle,
+            nameof(quadraticAttenuation));
+        Span<byte> packet = NativeMilBatchEncoding.Allocate(
+            _writer, NativeMilCommand.PointLight, 96);
+        WriteUInt32(packet, 4, handle);
+        WriteColor(packet, 8, color);
+        WriteDouble(packet, 24, range);
+        WriteDouble(packet, 32, constantAttenuation);
+        WriteDouble(packet, 40, linearAttenuation);
+        WriteDouble(packet, 48, quadraticAttenuation);
+        WriteVector3(packet, 56, position);
+        WriteUInt32(packet, 68, transformHandle);
+        WriteUInt32(packet, 72, colorAnimationHandle);
+        WriteUInt32(packet, 76, positionAnimationHandle);
+        WriteUInt32(packet, 80, rangeAnimationHandle);
+        WriteUInt32(packet, 84, constantAttenuationAnimationHandle);
+        WriteUInt32(packet, 88, linearAttenuationAnimationHandle);
+        WriteUInt32(packet, 92, quadraticAttenuationAnimationHandle);
+    }
+
+    public void SetSpotLight(
+        uint handle,
+        NativeMilColor color,
+        double range,
+        double constantAttenuation,
+        double linearAttenuation,
+        double quadraticAttenuation,
+        double outerConeAngle,
+        double innerConeAngle,
+        Vector3 position,
+        Vector3 direction,
+        uint transformHandle = 0,
+        uint colorAnimationHandle = 0,
+        uint positionAnimationHandle = 0,
+        uint rangeAnimationHandle = 0,
+        uint constantAttenuationAnimationHandle = 0,
+        uint linearAttenuationAnimationHandle = 0,
+        uint quadraticAttenuationAnimationHandle = 0,
+        uint directionAnimationHandle = 0,
+        uint outerConeAngleAnimationHandle = 0,
+        uint innerConeAngleAnimationHandle = 0)
+    {
+        ValidateHandle(handle);
+        ValidateAnimatedColor(color, colorAnimationHandle, nameof(color));
+        ValidateAnimatedVector3(
+            position,
+            positionAnimationHandle,
+            nameof(position));
+        ValidateAnimatedVector3(
+            direction,
+            directionAnimationHandle,
+            nameof(direction));
+        ReadOnlySpan<double> values = stackalloc double[]
+        {
+            range,
+            constantAttenuation,
+            linearAttenuation,
+            quadraticAttenuation,
+            outerConeAngle,
+            innerConeAngle
+        };
+        ReadOnlySpan<uint> animations = stackalloc uint[]
+        {
+            rangeAnimationHandle,
+            constantAttenuationAnimationHandle,
+            linearAttenuationAnimationHandle,
+            quadraticAttenuationAnimationHandle,
+            outerConeAngleAnimationHandle,
+            innerConeAngleAnimationHandle
+        };
+        for (int index = 0; index < values.Length; ++index)
+        {
+            ValidateAnimatedDouble(
+                values[index],
+                animations[index],
+                nameof(range),
+                allowPositiveInfinity: index == 0);
+        }
+        Span<byte> packet = NativeMilBatchEncoding.Allocate(
+            _writer, NativeMilCommand.SpotLight, 136);
+        WriteUInt32(packet, 4, handle);
+        WriteColor(packet, 8, color);
+        for (int index = 0; index < values.Length; ++index)
+        {
+            WriteDouble(packet, 24 + index * sizeof(double), values[index]);
+        }
+        WriteVector3(packet, 72, position);
+        WriteUInt32(packet, 84, transformHandle);
+        WriteVector3(packet, 88, direction);
+        WriteUInt32(packet, 100, colorAnimationHandle);
+        WriteUInt32(packet, 104, positionAnimationHandle);
+        WriteUInt32(packet, 108, rangeAnimationHandle);
+        WriteUInt32(packet, 112, constantAttenuationAnimationHandle);
+        WriteUInt32(packet, 116, linearAttenuationAnimationHandle);
+        WriteUInt32(packet, 120, quadraticAttenuationAnimationHandle);
+        WriteUInt32(packet, 124, directionAnimationHandle);
+        WriteUInt32(packet, 128, outerConeAngleAnimationHandle);
+        WriteUInt32(packet, 132, innerConeAngleAnimationHandle);
+    }
+
+    public void SetGeometryModel3D(
+        uint handle,
+        uint transformHandle,
+        uint geometryHandle,
+        uint materialHandle,
+        uint backMaterialHandle)
+    {
+        ValidateHandle(handle);
+        Span<byte> packet = NativeMilBatchEncoding.Allocate(
+            _writer, NativeMilCommand.GeometryModel3D, 24);
+        WriteUInt32(packet, 4, handle);
+        WriteUInt32(packet, 8, transformHandle);
+        WriteUInt32(packet, 12, geometryHandle);
+        WriteUInt32(packet, 16, materialHandle);
+        WriteUInt32(packet, 20, backMaterialHandle);
+    }
+
+    public void SetMeshGeometry3D(
+        uint handle,
+        ReadOnlySpan<Vector3> positions,
+        ReadOnlySpan<Vector3> normals,
+        ReadOnlySpan<NativeMilPoint> textureCoordinates,
+        ReadOnlySpan<uint> triangleIndices)
+    {
+        ValidateHandle(handle);
+        int positionsSize = checked(positions.Length * 3 * sizeof(float));
+        int normalsSize = checked(normals.Length * 3 * sizeof(float));
+        int textureCoordinatesSize = checked(
+            textureCoordinates.Length * 2 * sizeof(double));
+        int triangleIndicesSize = checked(
+            triangleIndices.Length * sizeof(uint));
+        int fixedSize = 24;
+        Span<byte> packet = NativeMilBatchEncoding.Allocate(
+            _writer,
+            NativeMilCommand.MeshGeometry3D,
+            checked(fixedSize + positionsSize + normalsSize +
+                textureCoordinatesSize + triangleIndicesSize));
+        WriteUInt32(packet, 4, handle);
+        WriteUInt32(packet, 8, checked((uint)positionsSize));
+        WriteUInt32(packet, 12, checked((uint)normalsSize));
+        WriteUInt32(packet, 16, checked((uint)textureCoordinatesSize));
+        WriteUInt32(packet, 20, checked((uint)triangleIndicesSize));
+        int offset = fixedSize;
+        foreach (Vector3 position in positions)
+        {
+            ValidateVector3(position, nameof(positions));
+            WriteVector3(packet, offset, position);
+            offset += 3 * sizeof(float);
+        }
+        foreach (Vector3 normal in normals)
+        {
+            ValidateVector3(normal, nameof(normals));
+            WriteVector3(packet, offset, normal);
+            offset += 3 * sizeof(float);
+        }
+        foreach (NativeMilPoint coordinate in textureCoordinates)
+        {
+            ValidatePoint(coordinate);
+            WriteDouble(packet, offset, coordinate.X);
+            WriteDouble(packet, offset + sizeof(double), coordinate.Y);
+            offset += 2 * sizeof(double);
+        }
+        foreach (uint triangleIndex in triangleIndices)
+        {
+            WriteUInt32(packet, offset, triangleIndex);
+            offset += sizeof(uint);
+        }
+    }
+
+    public void SetMaterialGroup(
+        uint handle,
+        ReadOnlySpan<uint> children)
+    {
+        ValidateHandle(handle);
+        int childrenSize = checked(children.Length * sizeof(uint));
+        Span<byte> packet = NativeMilBatchEncoding.Allocate(
+            _writer,
+            NativeMilCommand.MaterialGroup,
+            checked(12 + childrenSize));
+        WriteUInt32(packet, 4, handle);
+        WriteUInt32(packet, 8, checked((uint)childrenSize));
+        for (int index = 0; index < children.Length; ++index)
+        {
+            ValidateHandle(children[index]);
+            WriteUInt32(packet, 12 + index * sizeof(uint), children[index]);
+        }
+    }
+
+    public void SetDiffuseMaterial(
+        uint handle,
+        NativeMilColor color,
+        NativeMilColor ambientColor,
+        uint brushHandle)
+    {
+        ValidateHandle(handle);
+        ValidateColor(color);
+        ValidateColor(ambientColor);
+        Span<byte> packet = NativeMilBatchEncoding.Allocate(
+            _writer, NativeMilCommand.DiffuseMaterial, 44);
+        WriteUInt32(packet, 4, handle);
+        WriteColor(packet, 8, color);
+        WriteColor(packet, 24, ambientColor);
+        WriteUInt32(packet, 40, brushHandle);
+    }
+
+    public void SetSpecularMaterial(
+        uint handle,
+        NativeMilColor color,
+        double specularPower,
+        uint brushHandle)
+    {
+        ValidateHandle(handle);
+        ValidateColor(color);
+        if (!double.IsFinite(specularPower))
+        {
+            throw new ArgumentOutOfRangeException(nameof(specularPower));
+        }
+        Span<byte> packet = NativeMilBatchEncoding.Allocate(
+            _writer, NativeMilCommand.SpecularMaterial, 36);
+        WriteUInt32(packet, 4, handle);
+        WriteColor(packet, 8, color);
+        WriteDouble(packet, 24, specularPower);
+        WriteUInt32(packet, 32, brushHandle);
+    }
+
+    public void SetEmissiveMaterial(
+        uint handle,
+        NativeMilColor color,
+        uint brushHandle)
+    {
+        ValidateHandle(handle);
+        ValidateColor(color);
+        Span<byte> packet = NativeMilBatchEncoding.Allocate(
+            _writer, NativeMilCommand.EmissiveMaterial, 28);
+        WriteUInt32(packet, 4, handle);
+        WriteColor(packet, 8, color);
+        WriteUInt32(packet, 24, brushHandle);
+    }
+
+    private void SetProjectionCamera(
+        uint handle,
+        uint command,
+        double nearPlaneDistance,
+        double farPlaneDistance,
+        double projectionValue,
+        Vector3 position,
+        Vector3 lookDirection,
+        Vector3 upDirection,
+        uint transformHandle,
+        uint nearPlaneDistanceAnimationHandle,
+        uint farPlaneDistanceAnimationHandle,
+        uint positionAnimationHandle,
+        uint lookDirectionAnimationHandle,
+        uint upDirectionAnimationHandle,
+        uint projectionValueAnimationHandle)
+    {
+        ValidateHandle(handle);
+        ValidateAnimatedDouble(
+            nearPlaneDistance,
+            nearPlaneDistanceAnimationHandle,
+            nameof(nearPlaneDistance));
+        ValidateAnimatedDouble(
+            farPlaneDistance,
+            farPlaneDistanceAnimationHandle,
+            nameof(farPlaneDistance),
+            allowPositiveInfinity: true);
+        ValidateAnimatedDouble(
+            projectionValue,
+            projectionValueAnimationHandle,
+            nameof(projectionValue));
+        ValidateAnimatedVector3(
+            position, positionAnimationHandle, nameof(position));
+        ValidateAnimatedVector3(
+            lookDirection,
+            lookDirectionAnimationHandle,
+            nameof(lookDirection));
+        ValidateAnimatedVector3(
+            upDirection, upDirectionAnimationHandle, nameof(upDirection));
+
+        Span<byte> packet = NativeMilBatchEncoding.Allocate(
+            _writer, command, 96);
+        WriteUInt32(packet, 4, handle);
+        WriteDouble(packet, 8, nearPlaneDistance);
+        WriteDouble(packet, 16, farPlaneDistance);
+        WriteDouble(packet, 24, projectionValue);
+        WriteVector3(packet, 32, position);
+        WriteUInt32(packet, 44, transformHandle);
+        WriteVector3(packet, 48, lookDirection);
+        WriteUInt32(packet, 60, nearPlaneDistanceAnimationHandle);
+        WriteVector3(packet, 64, upDirection);
+        WriteUInt32(packet, 76, farPlaneDistanceAnimationHandle);
+        WriteUInt32(packet, 80, positionAnimationHandle);
+        WriteUInt32(packet, 84, lookDirectionAnimationHandle);
+        WriteUInt32(packet, 88, upDirectionAnimationHandle);
+        WriteUInt32(packet, 92, projectionValueAnimationHandle);
+    }
+
+    public void SetTransformGroup(uint handle, ReadOnlySpan<uint> children)
+    {
+        ValidateHandle(handle);
+        int childrenSize = checked(children.Length * sizeof(uint));
+        Span<byte> packet = NativeMilBatchEncoding.Allocate(
+            _writer,
+            NativeMilCommand.TransformGroup,
+            checked(12 + childrenSize));
+        WriteUInt32(packet, 4, handle);
+        WriteUInt32(packet, 8, (uint)childrenSize);
+        for (int index = 0; index < children.Length; ++index)
+        {
+            ValidateHandle(children[index]);
+            WriteUInt32(packet, 12 + index * sizeof(uint), children[index]);
+        }
+    }
+
+    public void SetTranslateTransform(
+        uint handle,
+        double x,
+        double y,
+        uint xAnimationHandle = 0,
+        uint yAnimationHandle = 0)
+    {
+        ValidateHandle(handle);
+        ValidateTransformValues(x, y);
+        Span<byte> packet = NativeMilBatchEncoding.Allocate(
+            _writer, NativeMilCommand.TranslateTransform, 32);
+        WriteUInt32(packet, 4, handle);
+        WriteDouble(packet, 8, x);
+        WriteDouble(packet, 16, y);
+        WriteUInt32(packet, 24, xAnimationHandle);
+        WriteUInt32(packet, 28, yAnimationHandle);
+    }
+
+    public void SetScaleTransform(
+        uint handle,
+        double scaleX,
+        double scaleY,
+        double centerX = 0,
+        double centerY = 0,
+        uint scaleXAnimationHandle = 0,
+        uint scaleYAnimationHandle = 0,
+        uint centerXAnimationHandle = 0,
+        uint centerYAnimationHandle = 0)
+    {
+        ValidateHandle(handle);
+        ValidateTransformValues(scaleX, scaleY, centerX, centerY);
+        Span<byte> packet = NativeMilBatchEncoding.Allocate(
+            _writer, NativeMilCommand.ScaleTransform, 56);
+        WriteUInt32(packet, 4, handle);
+        WriteDouble(packet, 8, scaleX);
+        WriteDouble(packet, 16, scaleY);
+        WriteDouble(packet, 24, centerX);
+        WriteDouble(packet, 32, centerY);
+        WriteUInt32(packet, 40, scaleXAnimationHandle);
+        WriteUInt32(packet, 44, scaleYAnimationHandle);
+        WriteUInt32(packet, 48, centerXAnimationHandle);
+        WriteUInt32(packet, 52, centerYAnimationHandle);
+    }
+
+    public void SetSkewTransform(
+        uint handle,
+        double angleX,
+        double angleY,
+        double centerX = 0,
+        double centerY = 0,
+        uint angleXAnimationHandle = 0,
+        uint angleYAnimationHandle = 0,
+        uint centerXAnimationHandle = 0,
+        uint centerYAnimationHandle = 0)
+    {
+        ValidateHandle(handle);
+        ValidateTransformValues(angleX, angleY, centerX, centerY);
+        Span<byte> packet = NativeMilBatchEncoding.Allocate(
+            _writer, NativeMilCommand.SkewTransform, 56);
+        WriteUInt32(packet, 4, handle);
+        WriteDouble(packet, 8, angleX);
+        WriteDouble(packet, 16, angleY);
+        WriteDouble(packet, 24, centerX);
+        WriteDouble(packet, 32, centerY);
+        WriteUInt32(packet, 40, angleXAnimationHandle);
+        WriteUInt32(packet, 44, angleYAnimationHandle);
+        WriteUInt32(packet, 48, centerXAnimationHandle);
+        WriteUInt32(packet, 52, centerYAnimationHandle);
+    }
+
+    public void SetRotateTransform(
+        uint handle,
+        double angle,
+        double centerX = 0,
+        double centerY = 0,
+        uint angleAnimationHandle = 0,
+        uint centerXAnimationHandle = 0,
+        uint centerYAnimationHandle = 0)
+    {
+        ValidateHandle(handle);
+        ValidateTransformValues(angle, centerX, centerY);
+        Span<byte> packet = NativeMilBatchEncoding.Allocate(
+            _writer, NativeMilCommand.RotateTransform, 44);
+        WriteUInt32(packet, 4, handle);
+        WriteDouble(packet, 8, angle);
+        WriteDouble(packet, 16, centerX);
+        WriteDouble(packet, 24, centerY);
+        WriteUInt32(packet, 32, angleAnimationHandle);
+        WriteUInt32(packet, 36, centerXAnimationHandle);
+        WriteUInt32(packet, 40, centerYAnimationHandle);
+    }
+
+    public void SetLineGeometry(
+        uint handle,
+        double startX,
+        double startY,
+        double endX,
+        double endY,
+        uint transformHandle = 0)
+    {
+        ValidateHandle(handle);
+        if (!double.IsFinite(startX) || !double.IsFinite(startY) ||
+            !double.IsFinite(endX) || !double.IsFinite(endY))
+        {
+            throw new ArgumentOutOfRangeException(nameof(startX));
+        }
+        Span<byte> packet = NativeMilBatchEncoding.Allocate(
+            _writer, NativeMilCommand.LineGeometry, 52);
+        WriteUInt32(packet, 4, handle);
+        WriteDouble(packet, 8, startX);
+        WriteDouble(packet, 16, startY);
+        WriteDouble(packet, 24, endX);
+        WriteDouble(packet, 32, endY);
+        WriteUInt32(packet, 40, transformHandle);
+        WriteUInt32(packet, 44, 0);
+        WriteUInt32(packet, 48, 0);
+    }
+
+    public void SetRectangleGeometry(
+        uint handle,
+        double x,
+        double y,
+        double width,
+        double height,
+        double radiusX = 0,
+        double radiusY = 0,
+        uint transformHandle = 0)
+    {
+        ValidateHandle(handle);
+        if (!double.IsFinite(x) || !double.IsFinite(y) ||
+            !double.IsFinite(width) || width < 0.0 ||
+            !double.IsFinite(height) || height < 0.0 ||
+            !double.IsFinite(radiusX) || radiusX < 0.0 ||
+            !double.IsFinite(radiusY) || radiusY < 0.0)
+        {
+            throw new ArgumentOutOfRangeException(nameof(width));
+        }
+        Span<byte> packet = NativeMilBatchEncoding.Allocate(
+            _writer, NativeMilCommand.RectangleGeometry, 72);
+        WriteUInt32(packet, 4, handle);
+        WriteDouble(packet, 8, radiusX);
+        WriteDouble(packet, 16, radiusY);
+        WriteDouble(packet, 24, x);
+        WriteDouble(packet, 32, y);
+        WriteDouble(packet, 40, width);
+        WriteDouble(packet, 48, height);
+        WriteUInt32(packet, 56, transformHandle);
+        WriteUInt32(packet, 60, 0);
+        WriteUInt32(packet, 64, 0);
+        WriteUInt32(packet, 68, 0);
+    }
+
+    public void SetEllipseGeometry(
+        uint handle,
+        double centerX,
+        double centerY,
+        double radiusX,
+        double radiusY,
+        uint transformHandle = 0)
+    {
+        ValidateHandle(handle);
+        if (!double.IsFinite(centerX) || !double.IsFinite(centerY) ||
+            !double.IsFinite(radiusX) || radiusX < 0.0 ||
+            !double.IsFinite(radiusY) || radiusY < 0.0)
+        {
+            throw new ArgumentOutOfRangeException(nameof(radiusX));
+        }
+        Span<byte> packet = NativeMilBatchEncoding.Allocate(
+            _writer, NativeMilCommand.EllipseGeometry, 56);
+        WriteUInt32(packet, 4, handle);
+        WriteDouble(packet, 8, radiusX);
+        WriteDouble(packet, 16, radiusY);
+        WriteDouble(packet, 24, centerX);
+        WriteDouble(packet, 32, centerY);
+        WriteUInt32(packet, 40, transformHandle);
+        WriteUInt32(packet, 44, 0);
+        WriteUInt32(packet, 48, 0);
+        WriteUInt32(packet, 52, 0);
+    }
+
+    public void SetPathGeometry(
+        uint handle,
+        NativeMilPathGeometry geometry,
+        uint transformHandle = 0)
+    {
+        ValidateHandle(handle);
+        ArgumentNullException.ThrowIfNull(geometry);
+        ArgumentNullException.ThrowIfNull(geometry.Figures);
+        double right = geometry.X + geometry.Width;
+        double bottom = geometry.Y + geometry.Height;
+        if (geometry.FillRule > NativeMilPathFillRule.Nonzero ||
+            !double.IsFinite(geometry.X) ||
+            !double.IsFinite(geometry.Y) ||
+            !double.IsFinite(geometry.Width) || geometry.Width < 0.0 ||
+            !double.IsFinite(geometry.Height) || geometry.Height < 0.0 ||
+            !double.IsFinite(right) ||
+            !double.IsFinite(bottom))
+        {
+            throw new ArgumentOutOfRangeException(nameof(geometry));
+        }
+
+        int figuresSize = 48;
+        foreach (NativeMilPathFigure figure in geometry.Figures)
+        {
+            ArgumentNullException.ThrowIfNull(figure);
+            ArgumentNullException.ThrowIfNull(figure.Segments);
+            ValidatePoint(figure.StartPoint, nameof(geometry));
+            figuresSize = checked(figuresSize + 40);
+            foreach (NativeMilPathSegment segment in figure.Segments)
+            {
+                ValidatePathSegment(segment, nameof(geometry));
+                figuresSize = checked(figuresSize + PathSegmentSize(segment));
+            }
+        }
+
+        Span<byte> packet = NativeMilBatchEncoding.Allocate(
+            _writer,
+            NativeMilCommand.PathGeometry,
+            checked(20 + figuresSize));
+        WriteUInt32(packet, 4, handle);
+        WriteUInt32(packet, 8, transformHandle);
+        WriteUInt32(packet, 12, (uint)geometry.FillRule);
+        WriteUInt32(packet, 16, checked((uint)figuresSize));
+
+        const uint PathHasCurves = 0x01;
+        const uint PathBoundsValid = 0x02;
+        const uint PathHasGaps = 0x04;
+        const uint PathHasHollows = 0x08;
+        uint pathFlags = PathBoundsValid;
+        foreach (NativeMilPathFigure figure in geometry.Figures)
+        {
+            if (!figure.IsFilled)
+            {
+                pathFlags |= PathHasHollows;
+            }
+            foreach (NativeMilPathSegment segment in figure.Segments)
+            {
+                if (segment.Kind != NativeMilPathSegmentKind.Line)
+                {
+                    pathFlags |= PathHasCurves;
+                }
+                if (!segment.IsStroked)
+                {
+                    pathFlags |= PathHasGaps;
+                }
+            }
+        }
+
+        int offset = 20;
+        WriteUInt32(packet, offset, checked((uint)figuresSize));
+        WriteUInt32(packet, offset + 4, pathFlags);
+        WriteDouble(packet, offset + 8, geometry.X);
+        WriteDouble(packet, offset + 16, geometry.Y);
+        WriteDouble(packet, offset + 24, right);
+        WriteDouble(packet, offset + 32, bottom);
+        WriteUInt32(packet, offset + 40, checked((uint)geometry.Figures.Count));
+        WriteUInt32(packet, offset + 44, 0);
+        offset += 48;
+
+        uint previousFigureSize = 0;
+        foreach (NativeMilPathFigure figure in geometry.Figures)
+        {
+            int figureOffset = offset;
+            int figureSize = 40;
+            foreach (NativeMilPathSegment segment in figure.Segments)
+            {
+                figureSize = checked(figureSize + PathSegmentSize(segment));
+            }
+            uint figureFlags = 0;
+            if (figure.Segments.Any(static segment => !segment.IsStroked))
+            {
+                figureFlags |= 0x01;
+            }
+            if (figure.Segments.Any(
+                    static segment =>
+                        segment.Kind != NativeMilPathSegmentKind.Line))
+            {
+                figureFlags |= 0x02;
+            }
+            if (figure.IsClosed)
+            {
+                figureFlags |= 0x04;
+            }
+            if (figure.IsFilled)
+            {
+                figureFlags |= 0x08;
+            }
+            WriteUInt32(packet, offset, previousFigureSize);
+            WriteUInt32(packet, offset + 4, figureFlags);
+            WriteUInt32(
+                packet,
+                offset + 8,
+                checked((uint)figure.Segments.Count));
+            WriteUInt32(packet, offset + 12, checked((uint)figureSize));
+            WritePoint(packet, offset + 16, figure.StartPoint);
+            int lastSegmentOffset = 0;
+            int segmentOffset = offset + 40;
+            uint previousSegmentSize = 0;
+            foreach (NativeMilPathSegment segment in figure.Segments)
+            {
+                lastSegmentOffset = segmentOffset - figureOffset;
+                int segmentSize = PathSegmentSize(segment);
+                uint segmentFlags = 0;
+                if (!segment.IsStroked)
+                {
+                    segmentFlags |= 0x04;
+                }
+                if (segment.IsSmoothJoin)
+                {
+                    segmentFlags |= 0x08;
+                }
+                if (segment.Kind != NativeMilPathSegmentKind.Line)
+                {
+                    segmentFlags |= 0x20;
+                }
+                WriteUInt32(packet, segmentOffset, (uint)segment.Kind);
+                WriteUInt32(packet, segmentOffset + 4, segmentFlags);
+                WriteUInt32(packet, segmentOffset + 8, previousSegmentSize);
+                switch (segment.Kind)
+                {
+                    case NativeMilPathSegmentKind.Line:
+                        WriteUInt32(packet, segmentOffset + 12, 0);
+                        WritePoint(packet, segmentOffset + 16, segment.Point1);
+                        break;
+                    case NativeMilPathSegmentKind.QuadraticBezier:
+                        WriteUInt32(packet, segmentOffset + 12, 0);
+                        WritePoint(packet, segmentOffset + 16, segment.Point1);
+                        WritePoint(packet, segmentOffset + 32, segment.Point2);
+                        break;
+                    case NativeMilPathSegmentKind.CubicBezier:
+                        WriteUInt32(packet, segmentOffset + 12, 0);
+                        WritePoint(packet, segmentOffset + 16, segment.Point1);
+                        WritePoint(packet, segmentOffset + 32, segment.Point2);
+                        WritePoint(packet, segmentOffset + 48, segment.Point3);
+                        break;
+                    case NativeMilPathSegmentKind.Arc:
+                        WriteUInt32(
+                            packet,
+                            segmentOffset + 12,
+                            segment.IsLargeArc ? 1U : 0U);
+                        WritePoint(packet, segmentOffset + 16, segment.Point1);
+                        WriteDouble(packet, segmentOffset + 32, segment.RadiusX);
+                        WriteDouble(packet, segmentOffset + 40, segment.RadiusY);
+                        WriteDouble(
+                            packet,
+                            segmentOffset + 48,
+                            segment.RotationAngle);
+                        WriteUInt32(
+                            packet,
+                            segmentOffset + 56,
+                            segment.IsClockwise ? 1U : 0U);
+                        WriteUInt32(packet, segmentOffset + 60, 0);
+                        break;
+                    default:
+                        throw new ArgumentOutOfRangeException(nameof(geometry));
+                }
+                previousSegmentSize = checked((uint)segmentSize);
+                segmentOffset += segmentSize;
+            }
+            WriteUInt32(
+                packet,
+                offset + 32,
+                checked((uint)lastSegmentOffset));
+            WriteUInt32(packet, offset + 36, 0);
+            offset += figureSize;
+            previousFigureSize = checked((uint)figureSize);
+        }
+    }
+
+    public void SetGeometryGroup(
+        uint handle,
+        NativeMilPathFillRule fillRule,
+        ReadOnlySpan<uint> childHandles,
+        uint transformHandle = 0)
+    {
+        ValidateHandle(handle);
+        if (fillRule > NativeMilPathFillRule.Nonzero)
+        {
+            throw new ArgumentOutOfRangeException(nameof(fillRule));
+        }
+        foreach (uint childHandle in childHandles)
+        {
+            ValidateHandle(childHandle);
+        }
+        int childrenSize = checked(childHandles.Length * sizeof(uint));
+        Span<byte> packet = NativeMilBatchEncoding.Allocate(
+            _writer,
+            NativeMilCommand.GeometryGroup,
+            checked(20 + childrenSize));
+        WriteUInt32(packet, 4, handle);
+        WriteUInt32(packet, 8, transformHandle);
+        WriteUInt32(packet, 12, (uint)fillRule);
+        WriteUInt32(packet, 16, checked((uint)childrenSize));
+        for (int index = 0; index < childHandles.Length; index++)
+        {
+            WriteUInt32(packet, 20 + index * sizeof(uint), childHandles[index]);
+        }
+    }
+
+    public void SetCombinedGeometry(
+        uint handle,
+        NativeMilGeometryCombineMode combineMode,
+        uint geometry1Handle,
+        uint geometry2Handle,
+        uint transformHandle = 0)
+    {
+        ValidateHandle(handle);
+        if (combineMode > NativeMilGeometryCombineMode.Exclude)
+        {
+            throw new ArgumentOutOfRangeException(nameof(combineMode));
+        }
+        Span<byte> packet = NativeMilBatchEncoding.Allocate(
+            _writer,
+            NativeMilCommand.CombinedGeometry,
+            24);
+        WriteUInt32(packet, 4, handle);
+        WriteUInt32(packet, 8, transformHandle);
+        WriteUInt32(packet, 12, (uint)combineMode);
+        WriteUInt32(packet, 16, geometry1Handle);
+        WriteUInt32(packet, 20, geometry2Handle);
+    }
+
+    private static int PathSegmentSize(NativeMilPathSegment segment) =>
+        segment.Kind switch
+        {
+            NativeMilPathSegmentKind.Line => 32,
+            NativeMilPathSegmentKind.QuadraticBezier => 48,
+            NativeMilPathSegmentKind.CubicBezier => 64,
+            NativeMilPathSegmentKind.Arc => 64,
+            _ => throw new ArgumentOutOfRangeException(nameof(segment))
+        };
+
+    private static void ValidatePathSegment(
+        NativeMilPathSegment segment,
+        string parameterName)
+    {
+        if (segment.Kind < NativeMilPathSegmentKind.Line ||
+            segment.Kind > NativeMilPathSegmentKind.Arc)
+        {
+            throw new ArgumentOutOfRangeException(parameterName);
+        }
+        ValidatePoint(segment.Point1, parameterName);
+        if (segment.Kind == NativeMilPathSegmentKind.QuadraticBezier ||
+            segment.Kind == NativeMilPathSegmentKind.CubicBezier)
+        {
+            ValidatePoint(segment.Point2, parameterName);
+        }
+        if (segment.Kind == NativeMilPathSegmentKind.CubicBezier)
+        {
+            ValidatePoint(segment.Point3, parameterName);
+        }
+        if (segment.Kind == NativeMilPathSegmentKind.Arc &&
+            (!double.IsFinite(segment.RadiusX) || segment.RadiusX < 0.0 ||
+             !double.IsFinite(segment.RadiusY) || segment.RadiusY < 0.0 ||
+             !double.IsFinite(segment.RotationAngle)))
+        {
+            throw new ArgumentOutOfRangeException(parameterName);
+        }
+    }
+
+    private static void ValidatePoint(
+        NativeMilPoint point,
+        string parameterName)
+    {
+        if (!double.IsFinite(point.X) || !double.IsFinite(point.Y))
+        {
+            throw new ArgumentOutOfRangeException(parameterName);
+        }
+    }
+
+    private static void WritePoint(
+        Span<byte> destination,
+        int offset,
+        NativeMilPoint point)
+    {
+        WriteDouble(destination, offset, point.X);
+        WriteDouble(destination, offset + 8, point.Y);
+    }
+
+    public void SetPen(uint handle, NativeMilPen pen)
+    {
+        ValidateHandle(handle);
+        if (!double.IsFinite(pen.Thickness) || pen.Thickness < 0.0 ||
+            !double.IsFinite(pen.MiterLimit) || pen.MiterLimit < 0.0 ||
+            pen.StartLineCap > NativeMilPenLineCap.Triangle ||
+            pen.EndLineCap > NativeMilPenLineCap.Triangle ||
+            pen.DashCap > NativeMilPenLineCap.Triangle ||
+            pen.LineJoin > NativeMilPenLineJoin.Round)
+        {
+            throw new ArgumentOutOfRangeException(nameof(pen));
+        }
+        Span<byte> packet = NativeMilBatchEncoding.Allocate(
+            _writer, NativeMilCommand.Pen, 52);
+        WriteUInt32(packet, 4, handle);
+        WriteDouble(packet, 8, pen.Thickness);
+        WriteDouble(packet, 16, pen.MiterLimit);
+        WriteUInt32(packet, 24, pen.BrushHandle);
+        WriteUInt32(packet, 32, (uint)pen.StartLineCap);
+        WriteUInt32(packet, 36, (uint)pen.EndLineCap);
+        WriteUInt32(packet, 40, (uint)pen.DashCap);
+        WriteUInt32(packet, 44, (uint)pen.LineJoin);
+        WriteUInt32(packet, 48, pen.DashStyleHandle);
+    }
+
+    public void SetGeometryDrawing(
+        uint handle,
+        uint brushHandle,
+        uint penHandle,
+        uint geometryHandle)
+    {
+        ValidateHandle(handle);
+        Span<byte> packet = NativeMilBatchEncoding.Allocate(
+            _writer, NativeMilCommand.GeometryDrawing, 20);
+        WriteUInt32(packet, 4, handle);
+        WriteUInt32(packet, 8, brushHandle);
+        WriteUInt32(packet, 12, penHandle);
+        WriteUInt32(packet, 16, geometryHandle);
+    }
+
+    /// <summary>
+    /// Writes canonical MilCmdGlyphRunCreate state. The embedded DirectWrite
+    /// pointer is deliberately zero; bind SFNT bytes with
+    /// <see cref="NativeMilChannel.SetGlyphRunFontSfnt"/> before compilation.
+    /// </summary>
+    public void SetGlyphRun(
+        uint handle,
+        NativeMilGlyphRun glyphRun,
+        ReadOnlySpan<ushort> glyphIndices,
+        ReadOnlySpan<float> advances,
+        ReadOnlySpan<Vector2> offsets = default)
+    {
+        ValidateHandle(handle);
+        if (glyphIndices.IsEmpty || glyphIndices.Length > ushort.MaxValue ||
+            (!advances.IsEmpty && advances.Length != glyphIndices.Length) ||
+            (!offsets.IsEmpty && offsets.Length != glyphIndices.Length) ||
+            !float.IsFinite(glyphRun.EmSize) || glyphRun.EmSize <= 0 ||
+            glyphRun.MeasuringMethod > NativeMilTextMeasuringMethod.GdiNatural ||
+            !double.IsFinite(glyphRun.ManagedBounds.X) ||
+            !double.IsFinite(glyphRun.ManagedBounds.Y) ||
+            !double.IsFinite(glyphRun.ManagedBounds.Width) ||
+            !double.IsFinite(glyphRun.ManagedBounds.Height) ||
+            glyphRun.ManagedBounds.Width < 0 ||
+            glyphRun.ManagedBounds.Height < 0)
+        {
+            throw new ArgumentOutOfRangeException(nameof(glyphRun));
+        }
+        float originX = ToFiniteSingle(glyphRun.Origin.X, nameof(glyphRun));
+        float originY = ToFiniteSingle(glyphRun.Origin.Y, nameof(glyphRun));
+        foreach (float advance in advances)
+        {
+            if (!float.IsFinite(advance))
+            {
+                throw new ArgumentOutOfRangeException(nameof(advances));
+            }
+        }
+        foreach (Vector2 offset in offsets)
+        {
+            if (!float.IsFinite(offset.X) || !float.IsFinite(offset.Y))
+            {
+                throw new ArgumentOutOfRangeException(nameof(offsets));
+            }
+        }
+        int payloadSize = checked(
+            glyphIndices.Length * sizeof(ushort) +
+            glyphIndices.Length * sizeof(float) +
+            offsets.Length * sizeof(float) * 2);
+        Span<byte> packet = NativeMilBatchEncoding.Allocate(
+            _writer,
+            NativeMilCommand.GlyphRunCreate,
+            checked(76 + payloadSize));
+        WriteUInt32(packet, 4, handle);
+        WriteUInt64(packet, 8, 0);
+        ushort flags = 0;
+        if (glyphRun.IsSideways)
+        {
+            flags |= 0x0001;
+        }
+        if (!offsets.IsEmpty)
+        {
+            flags |= 0x0010;
+        }
+        WriteUInt16(packet, 16, flags);
+        WriteSingle(packet, 20, originX);
+        WriteSingle(packet, 24, originY);
+        WriteSingle(packet, 28, glyphRun.EmSize);
+        WriteDouble(packet, 32, glyphRun.ManagedBounds.X);
+        WriteDouble(packet, 40, glyphRun.ManagedBounds.Y);
+        WriteDouble(packet, 48, glyphRun.ManagedBounds.Width);
+        WriteDouble(packet, 56, glyphRun.ManagedBounds.Height);
+        WriteUInt16(packet, 64, checked((ushort)glyphIndices.Length));
+        WriteUInt16(packet, 68, glyphRun.BidiLevel);
+        WriteUInt16(packet, 72, (ushort)glyphRun.MeasuringMethod);
+        int writeOffset = 76;
+        foreach (ushort glyphIndex in glyphIndices)
+        {
+            WriteUInt16(packet, writeOffset, glyphIndex);
+            writeOffset += sizeof(ushort);
+        }
+        if (advances.IsEmpty)
+        {
+            for (int index = 0; index < glyphIndices.Length; index++)
+            {
+                WriteSingle(packet, writeOffset, 0);
+                writeOffset += sizeof(float);
+            }
+        }
+        else
+        {
+            foreach (float advance in advances)
+            {
+                WriteSingle(packet, writeOffset, advance);
+                writeOffset += sizeof(float);
+            }
+        }
+        foreach (Vector2 glyphOffset in offsets)
+        {
+            WriteSingle(packet, writeOffset, glyphOffset.X);
+            WriteSingle(
+                packet, writeOffset + sizeof(float), glyphOffset.Y);
+            writeOffset += sizeof(float) * 2;
+        }
+    }
+
+    public void SetGlyphRunDrawing(
+        uint handle,
+        uint glyphRunHandle,
+        uint foregroundBrushHandle)
+    {
+        ValidateHandle(handle);
+        Span<byte> packet = NativeMilBatchEncoding.Allocate(
+            _writer, NativeMilCommand.GlyphRunDrawing, 16);
+        WriteUInt32(packet, 4, handle);
+        WriteUInt32(packet, 8, glyphRunHandle);
+        WriteUInt32(packet, 12, foregroundBrushHandle);
+    }
+
+    public void SetImageDrawing(
+        uint handle,
+        double x,
+        double y,
+        double width,
+        double height,
+        uint imageSourceHandle,
+        uint rectAnimationHandle = 0)
+    {
+        ValidateHandle(handle);
+        if (!double.IsFinite(x) || !double.IsFinite(y) ||
+            !double.IsFinite(width) || width < 0.0 ||
+            !double.IsFinite(height) || height < 0.0)
+        {
+            throw new ArgumentOutOfRangeException(nameof(width));
+        }
+        Span<byte> packet = NativeMilBatchEncoding.Allocate(
+            _writer, NativeMilCommand.ImageDrawing, 48);
+        WriteUInt32(packet, 4, handle);
+        WriteDouble(packet, 8, x);
+        WriteDouble(packet, 16, y);
+        WriteDouble(packet, 24, width);
+        WriteDouble(packet, 32, height);
+        WriteUInt32(packet, 40, imageSourceHandle);
+        WriteUInt32(packet, 44, rectAnimationHandle);
+    }
+
+    public void SetVideoDrawing(
+        uint handle,
+        double x,
+        double y,
+        double width,
+        double height,
+        uint mediaPlayerHandle,
+        uint rectAnimationHandle = 0)
+    {
+        ValidateHandle(handle);
+        if (!double.IsFinite(x) || !double.IsFinite(y) ||
+            !double.IsFinite(width) || width < 0.0 ||
+            !double.IsFinite(height) || height < 0.0)
+        {
+            throw new ArgumentOutOfRangeException(nameof(width));
+        }
+        Span<byte> packet = NativeMilBatchEncoding.Allocate(
+            _writer, NativeMilCommand.VideoDrawing, 48);
+        WriteUInt32(packet, 4, handle);
+        WriteDouble(packet, 8, x);
+        WriteDouble(packet, 16, y);
+        WriteDouble(packet, 24, width);
+        WriteDouble(packet, 32, height);
+        WriteUInt32(packet, 40, mediaPlayerHandle);
+        WriteUInt32(packet, 44, rectAnimationHandle);
+    }
+
+    /// <summary>Writes canonical MilCmdDrawingImage state.</summary>
+    public void SetDrawingImage(uint handle, uint drawingHandle)
+    {
+        ValidateHandle(handle);
+        Span<byte> packet = NativeMilBatchEncoding.Allocate(
+            _writer, NativeMilCommand.DrawingImage, 12);
+        WriteUInt32(packet, 4, handle);
+        WriteUInt32(packet, 8, drawingHandle);
+    }
+
+    public void SetDrawingGroup(
+        uint handle,
+        NativeMilDrawingGroup group,
+        ReadOnlySpan<uint> childHandles)
+    {
+        ValidateHandle(handle);
+        if (!double.IsFinite(group.Opacity) || group.Opacity < 0.0 ||
+            group.Opacity > 1.0 ||
+            group.EdgeMode > NativeMilEdgeMode.Aliased ||
+            group.BitmapScalingMode >
+                NativeMilBitmapScalingMode.NearestNeighbor ||
+            group.ClearTypeHint > NativeMilClearTypeHint.Enabled)
+        {
+            throw new ArgumentOutOfRangeException(nameof(group));
+        }
+        foreach (uint childHandle in childHandles)
+        {
+            ValidateHandle(childHandle);
+        }
+        int childrenSize = checked(childHandles.Length * sizeof(uint));
+        Span<byte> packet = NativeMilBatchEncoding.Allocate(
+            _writer,
+            NativeMilCommand.DrawingGroup,
+            checked(52 + childrenSize));
+        WriteUInt32(packet, 4, handle);
+        WriteDouble(packet, 8, group.Opacity);
+        WriteUInt32(packet, 16, checked((uint)childrenSize));
+        WriteUInt32(packet, 20, group.ClipGeometryHandle);
+        WriteUInt32(packet, 24, group.OpacityAnimationHandle);
+        WriteUInt32(packet, 28, group.OpacityMaskHandle);
+        WriteUInt32(packet, 32, group.TransformHandle);
+        WriteUInt32(packet, 36, group.GuidelineSetHandle);
+        WriteUInt32(packet, 40, (uint)group.EdgeMode);
+        WriteUInt32(packet, 44, (uint)group.BitmapScalingMode);
+        WriteUInt32(packet, 48, (uint)group.ClearTypeHint);
+        for (int index = 0; index < childHandles.Length; index++)
+        {
+            WriteUInt32(packet, 52 + index * sizeof(uint), childHandles[index]);
+        }
+    }
+
+    /// <summary>Writes canonical MilCmdGuidelineSet state.</summary>
+    public void SetGuidelineSet(
+        uint handle,
+        bool isDynamic,
+        ReadOnlySpan<double> guidelinesX,
+        ReadOnlySpan<double> guidelinesY)
+    {
+        ValidateHandle(handle);
+        if (guidelinesX.Length > ushort.MaxValue ||
+            guidelinesY.Length > ushort.MaxValue ||
+            (isDynamic &&
+                ((guidelinesX.Length & 1) != 0 ||
+                 (guidelinesY.Length & 1) != 0)))
+        {
+            throw new ArgumentOutOfRangeException(nameof(guidelinesX));
+        }
+        foreach (double coordinate in guidelinesX)
+        {
+            if (!double.IsFinite(coordinate))
+            {
+                throw new ArgumentOutOfRangeException(nameof(guidelinesX));
+            }
+        }
+        foreach (double coordinate in guidelinesY)
+        {
+            if (!double.IsFinite(coordinate))
+            {
+                throw new ArgumentOutOfRangeException(nameof(guidelinesY));
+            }
+        }
+        int xBytes = checked(guidelinesX.Length * sizeof(double));
+        int yBytes = checked(guidelinesY.Length * sizeof(double));
+        Span<byte> packet = NativeMilBatchEncoding.Allocate(
+            _writer,
+            NativeMilCommand.GuidelineSet,
+            checked(20 + xBytes + yBytes));
+        WriteUInt32(packet, 4, handle);
+        WriteUInt32(packet, 8, checked((uint)xBytes));
+        WriteUInt32(packet, 12, checked((uint)yBytes));
+        WriteUInt32(packet, 16, isDynamic ? 1U : 0U);
+        MemoryMarshal.AsBytes(guidelinesX).CopyTo(packet[20..]);
+        MemoryMarshal.AsBytes(guidelinesY).CopyTo(packet[(20 + xBytes)..]);
+    }
+
+    public void SetDashStyle(
+        uint handle,
+        double offset,
+        ReadOnlySpan<double> intervals)
+    {
+        ValidateHandle(handle);
+        if (!double.IsFinite(offset))
+        {
+            throw new ArgumentOutOfRangeException(nameof(offset));
+        }
+        foreach (double interval in intervals)
+        {
+            if (!double.IsFinite(interval) || interval < 0.0)
+            {
+                throw new ArgumentOutOfRangeException(nameof(intervals));
+            }
+        }
+        int intervalsSize = checked(intervals.Length * sizeof(double));
+        Span<byte> packet = NativeMilBatchEncoding.Allocate(
+            _writer,
+            NativeMilCommand.DashStyle,
+            checked(24 + intervalsSize));
+        WriteUInt32(packet, 4, handle);
+        WriteDouble(packet, 8, offset);
+        WriteUInt32(packet, 20, (uint)intervalsSize);
+        for (int index = 0; index < intervals.Length; ++index)
+        {
+            WriteDouble(
+                packet,
+                24 + index * sizeof(double),
+                intervals[index]);
+        }
+    }
+
+    public void SetRenderData(uint handle, NativeMilRenderDataBuilder renderData)
+    {
+        ValidateHandle(handle);
+        ArgumentNullException.ThrowIfNull(renderData);
+        ReadOnlySpan<byte> nested = renderData.WrittenSpan;
+        Span<byte> packet = NativeMilBatchEncoding.Allocate(
+            _writer,
+            NativeMilCommand.RenderData,
+            checked(12 + nested.Length));
+        WriteUInt32(packet, 4, handle);
+        WriteUInt32(packet, 8, checked((uint)nested.Length));
+        nested.CopyTo(packet[12..]);
+    }
+
+    private void WriteHandleCommand(uint command, uint handle)
+    {
+        ValidateHandle(handle);
+        Span<byte> packet = NativeMilBatchEncoding.Allocate(
+            _writer, command, 8);
+        WriteUInt32(packet, 4, handle);
+    }
+
+    private static void ValidateHandle(uint handle)
+    {
+        ArgumentOutOfRangeException.ThrowIfZero(handle);
+    }
+
+    private static void ValidatePoint(NativeMilPoint point)
+    {
+        if (!double.IsFinite(point.X) || !double.IsFinite(point.Y))
+        {
+            throw new ArgumentOutOfRangeException(nameof(point));
+        }
+    }
+
+    private static void ValidateGradientState(
+        double opacity,
+        NativeMilGradientInterpolation interpolation,
+        NativeMilBrushMappingMode mappingMode,
+        NativeMilGradientSpreadMethod spreadMethod)
+    {
+        if (!double.IsFinite(opacity) || opacity < 0.0 || opacity > 1.0 ||
+            interpolation > NativeMilGradientInterpolation.SRgb ||
+            mappingMode > NativeMilBrushMappingMode.RelativeToBoundingBox ||
+            spreadMethod > NativeMilGradientSpreadMethod.Repeat)
+        {
+            throw new ArgumentOutOfRangeException(nameof(opacity));
+        }
+    }
+
+    private static void WriteGradientStops(
+        Span<byte> destination,
+        ReadOnlySpan<NativeMilGradientStop> stops)
+    {
+        for (int index = 0; index < stops.Length; ++index)
+        {
+            NativeMilGradientStop stop = stops[index];
+            ValidateColor(stop.Color);
+            if (!double.IsFinite(stop.Offset))
+            {
+                throw new ArgumentOutOfRangeException(nameof(stops));
+            }
+            int offset = index * 24;
+            WriteDouble(destination, offset, stop.Offset);
+            WriteSingle(destination, offset + 8, stop.Color.Red);
+            WriteSingle(destination, offset + 12, stop.Color.Green);
+            WriteSingle(destination, offset + 16, stop.Color.Blue);
+            WriteSingle(destination, offset + 20, stop.Color.Alpha);
+        }
+    }
+
+    internal static void ValidateColor(NativeMilColor color)
+    {
+        if (!float.IsFinite(color.Red) || !float.IsFinite(color.Green) ||
+            !float.IsFinite(color.Blue) || !float.IsFinite(color.Alpha))
+        {
+            throw new ArgumentOutOfRangeException(nameof(color));
+        }
+    }
+
+    internal static void ValidateMatrix(NativeMilMatrix3x2 matrix)
+    {
+        if (!double.IsFinite(matrix.M11) || !double.IsFinite(matrix.M12) ||
+            !double.IsFinite(matrix.M21) || !double.IsFinite(matrix.M22) ||
+            !double.IsFinite(matrix.OffsetX) ||
+            !double.IsFinite(matrix.OffsetY))
+        {
+            throw new ArgumentOutOfRangeException(nameof(matrix));
+        }
+    }
+
+    private static void ValidateVector3(Vector3 value, string parameterName)
+    {
+        if (!float.IsFinite(value.X) || !float.IsFinite(value.Y) ||
+            !float.IsFinite(value.Z))
+        {
+            throw new ArgumentOutOfRangeException(parameterName);
+        }
+    }
+
+    private static void ValidateQuaternion(
+        Quaternion value,
+        string parameterName)
+    {
+        if (!float.IsFinite(value.X) || !float.IsFinite(value.Y) ||
+            !float.IsFinite(value.Z) || !float.IsFinite(value.W))
+        {
+            throw new ArgumentOutOfRangeException(parameterName);
+        }
+    }
+
+    private static void ValidateAnimatedDouble(
+        double value,
+        uint animationHandle,
+        string parameterName,
+        bool allowPositiveInfinity = false)
+    {
+        if (animationHandle != 0)
+        {
+            return;
+        }
+        float converted = (float)value;
+        if ((!double.IsFinite(value) || !float.IsFinite(converted)) &&
+            !(allowPositiveInfinity && double.IsPositiveInfinity(value)))
+        {
+            throw new ArgumentOutOfRangeException(parameterName);
+        }
+    }
+
+    private static void ValidateAnimatedVector3(
+        Vector3 value,
+        uint animationHandle,
+        string parameterName)
+    {
+        if (animationHandle == 0)
+        {
+            ValidateVector3(value, parameterName);
+        }
+    }
+
+    private static void ValidateAnimatedColor(
+        NativeMilColor value,
+        uint animationHandle,
+        string parameterName)
+    {
+        if (animationHandle == 0 &&
+            (!float.IsFinite(value.Red) ||
+             !float.IsFinite(value.Green) ||
+             !float.IsFinite(value.Blue) ||
+             !float.IsFinite(value.Alpha)))
+        {
+            throw new ArgumentOutOfRangeException(parameterName);
+        }
+    }
+
+    private static void ValidateAnimatedQuaternion(
+        Quaternion value,
+        uint animationHandle,
+        string parameterName)
+    {
+        if (animationHandle == 0)
+        {
+            ValidateQuaternion(value, parameterName);
+        }
+    }
+
+    private static void ValidateMatrix4x4(
+        Matrix4x4 value,
+        string parameterName)
+    {
+        ReadOnlySpan<float> values = MemoryMarshal.CreateReadOnlySpan(
+            ref value.M11, 16);
+        foreach (float component in values)
+        {
+            if (!float.IsFinite(component))
+            {
+                throw new ArgumentOutOfRangeException(parameterName);
+            }
+        }
+    }
+
+    private static void WriteVector3(
+        Span<byte> destination,
+        int offset,
+        Vector3 value)
+    {
+        WriteSingle(destination, offset, value.X);
+        WriteSingle(destination, offset + 4, value.Y);
+        WriteSingle(destination, offset + 8, value.Z);
+    }
+
+    private static void WriteColor(
+        Span<byte> destination,
+        int offset,
+        NativeMilColor value)
+    {
+        WriteSingle(destination, offset, value.Red);
+        WriteSingle(destination, offset + 4, value.Green);
+        WriteSingle(destination, offset + 8, value.Blue);
+        WriteSingle(destination, offset + 12, value.Alpha);
+    }
+
+    private static void WriteQuaternion(
+        Span<byte> destination,
+        int offset,
+        Quaternion value)
+    {
+        WriteSingle(destination, offset, value.X);
+        WriteSingle(destination, offset + 4, value.Y);
+        WriteSingle(destination, offset + 8, value.Z);
+        WriteSingle(destination, offset + 12, value.W);
+    }
+
+    private static void WriteMatrix4x4(
+        Span<byte> destination,
+        int offset,
+        Matrix4x4 value)
+    {
+        ReadOnlySpan<float> values = MemoryMarshal.CreateReadOnlySpan(
+            ref value.M11, 16);
+        for (int index = 0; index < values.Length; ++index)
+        {
+            WriteSingle(destination, offset + index * sizeof(float), values[index]);
+        }
+    }
+
+    private static void ValidateTransformValues(
+        double first,
+        double second,
+        double third = 0,
+        double fourth = 0)
+    {
+        if (!double.IsFinite(first) || !double.IsFinite(second) ||
+            !double.IsFinite(third) || !double.IsFinite(fourth))
+        {
+            throw new ArgumentOutOfRangeException(nameof(first));
+        }
+    }
+
+    internal static void WriteUInt32(Span<byte> packet, int offset, uint value) =>
+        BinaryPrimitives.WriteUInt32LittleEndian(packet[offset..], value);
+
+    internal static void WriteUInt16(Span<byte> packet, int offset, ushort value) =>
+        BinaryPrimitives.WriteUInt16LittleEndian(packet[offset..], value);
+
+    internal static void WriteUInt64(Span<byte> packet, int offset, ulong value) =>
+        BinaryPrimitives.WriteUInt64LittleEndian(packet[offset..], value);
+
+    internal static void WriteDouble(Span<byte> packet, int offset, double value) =>
+        WriteUInt64(packet, offset, BitConverter.DoubleToUInt64Bits(value));
+
+    internal static void WriteSingle(Span<byte> packet, int offset, float value) =>
+        WriteUInt32(packet, offset, BitConverter.SingleToUInt32Bits(value));
+
+    private static float ToFiniteSingle(double value, string parameterName)
+    {
+        float result = (float)value;
+        if (!double.IsFinite(value) || !float.IsFinite(result))
+        {
+            throw new ArgumentOutOfRangeException(parameterName);
+        }
+        return result;
+    }
+}
+
+/// <summary>
+/// Writes the nested instruction stream carried by a MIL render-data resource.
+/// </summary>
+public sealed class NativeMilRenderDataBuilder
+{
+    private readonly ArrayBufferWriter<byte> _writer;
+
+    public NativeMilRenderDataBuilder(int initialCapacity = 1024)
+    {
+        ArgumentOutOfRangeException.ThrowIfLessThan(initialCapacity, 1);
+        _writer = new ArrayBufferWriter<byte>(initialCapacity);
+    }
+
+    public int Length => _writer.WrittenCount;
+
+    public ReadOnlySpan<byte> WrittenSpan => _writer.WrittenSpan;
+
+    public void Clear() => _writer.Clear();
+
+    public void PushOpacity(double opacity)
+    {
+        if (!double.IsFinite(opacity) || opacity < 0.0 || opacity > 1.0)
+        {
+            throw new ArgumentOutOfRangeException(nameof(opacity));
+        }
+        Span<byte> packet = NativeMilBatchEncoding.Allocate(
+            _writer, NativeMilCommand.PushOpacity, 12);
+        NativeMilBatchBuilder.WriteDouble(packet, 4, opacity);
+    }
+
+    public void PushOpacity(double opacity, uint opacityAnimationHandle)
+    {
+        if (!double.IsFinite(opacity) || opacity < 0.0 || opacity > 1.0)
+        {
+            throw new ArgumentOutOfRangeException(nameof(opacity));
+        }
+        Span<byte> packet = NativeMilBatchEncoding.Allocate(
+            _writer, NativeMilCommand.PushOpacityAnimate, 20);
+        NativeMilBatchBuilder.WriteDouble(packet, 4, opacity);
+        NativeMilBatchBuilder.WriteUInt32(packet, 12, opacityAnimationHandle);
+    }
+
+    public void PushClip(uint geometryHandle)
+    {
+        ArgumentOutOfRangeException.ThrowIfZero(geometryHandle);
+        Span<byte> packet = NativeMilBatchEncoding.Allocate(
+            _writer, NativeMilCommand.PushClip, 12);
+        NativeMilBatchBuilder.WriteUInt32(packet, 4, geometryHandle);
+    }
+
+    public void PushOpacityMask(
+        NativeMilRect bounds,
+        uint opacityMaskHandle)
+    {
+        ArgumentOutOfRangeException.ThrowIfZero(opacityMaskHandle);
+        if (!double.IsFinite(bounds.X) || !double.IsFinite(bounds.Y) ||
+            !double.IsFinite(bounds.Width) || bounds.Width < 0.0 ||
+            !double.IsFinite(bounds.Height) || bounds.Height < 0.0)
+        {
+            throw new ArgumentOutOfRangeException(nameof(bounds));
+        }
+        float left = (float)bounds.X;
+        float top = (float)bounds.Y;
+        float right = (float)(bounds.X + bounds.Width);
+        float bottom = (float)(bounds.Y + bounds.Height);
+        if (!float.IsFinite(left) || !float.IsFinite(top) ||
+            !float.IsFinite(right) || !float.IsFinite(bottom))
+        {
+            throw new ArgumentOutOfRangeException(nameof(bounds));
+        }
+        Span<byte> packet = NativeMilBatchEncoding.Allocate(
+            _writer, NativeMilCommand.PushOpacityMask, 28);
+        NativeMilBatchBuilder.WriteSingle(packet, 4, left);
+        NativeMilBatchBuilder.WriteSingle(packet, 8, top);
+        NativeMilBatchBuilder.WriteSingle(packet, 12, right);
+        NativeMilBatchBuilder.WriteSingle(packet, 16, bottom);
+        NativeMilBatchBuilder.WriteUInt32(packet, 20, opacityMaskHandle);
+    }
+
+    public void PushTransform(uint transformHandle)
+    {
+        Span<byte> packet = NativeMilBatchEncoding.Allocate(
+            _writer, NativeMilCommand.PushTransform, 12);
+        NativeMilBatchBuilder.WriteUInt32(packet, 4, transformHandle);
+    }
+
+    public void PushGuidelineSet(uint guidelineSetHandle)
+    {
+        Span<byte> packet = NativeMilBatchEncoding.Allocate(
+            _writer, NativeMilCommand.PushGuidelineSet, 12);
+        NativeMilBatchBuilder.WriteUInt32(packet, 4, guidelineSetHandle);
+    }
+
+    public void PushGuidelineY1(double coordinate)
+    {
+        if (!double.IsFinite(coordinate))
+        {
+            throw new ArgumentOutOfRangeException(nameof(coordinate));
+        }
+        Span<byte> packet = NativeMilBatchEncoding.Allocate(
+            _writer, NativeMilCommand.PushGuidelineY1, 12);
+        NativeMilBatchBuilder.WriteDouble(packet, 4, coordinate);
+    }
+
+    public void PushGuidelineY2(
+        double leadingCoordinate,
+        double offsetToDrivenCoordinate)
+    {
+        if (!double.IsFinite(leadingCoordinate) ||
+            !double.IsFinite(offsetToDrivenCoordinate))
+        {
+            throw new ArgumentOutOfRangeException(nameof(leadingCoordinate));
+        }
+        Span<byte> packet = NativeMilBatchEncoding.Allocate(
+            _writer, NativeMilCommand.PushGuidelineY2, 20);
+        NativeMilBatchBuilder.WriteDouble(packet, 4, leadingCoordinate);
+        NativeMilBatchBuilder.WriteDouble(
+            packet, 12, offsetToDrivenCoordinate);
+    }
+
+    public void Pop()
+    {
+        _ = NativeMilBatchEncoding.Allocate(
+            _writer, NativeMilCommand.Pop, 4);
+    }
+
+    public void DrawLine(
+        double x0,
+        double y0,
+        double x1,
+        double y1,
+        uint penHandle)
+    {
+        if (!double.IsFinite(x0) || !double.IsFinite(y0) ||
+            !double.IsFinite(x1) || !double.IsFinite(y1))
+        {
+            throw new ArgumentOutOfRangeException(nameof(x0));
+        }
+        Span<byte> packet = NativeMilBatchEncoding.Allocate(
+            _writer, NativeMilCommand.DrawLine, 44);
+        NativeMilBatchBuilder.WriteDouble(packet, 4, x0);
+        NativeMilBatchBuilder.WriteDouble(packet, 12, y0);
+        NativeMilBatchBuilder.WriteDouble(packet, 20, x1);
+        NativeMilBatchBuilder.WriteDouble(packet, 28, y1);
+        NativeMilBatchBuilder.WriteUInt32(packet, 36, penHandle);
+    }
+
+    public void DrawLine(
+        double x0,
+        double y0,
+        double x1,
+        double y1,
+        uint penHandle,
+        uint point0AnimationHandle,
+        uint point1AnimationHandle)
+    {
+        if (!double.IsFinite(x0) || !double.IsFinite(y0) ||
+            !double.IsFinite(x1) || !double.IsFinite(y1))
+        {
+            throw new ArgumentOutOfRangeException(nameof(x0));
+        }
+        Span<byte> packet = NativeMilBatchEncoding.Allocate(
+            _writer, NativeMilCommand.DrawLineAnimate, 52);
+        NativeMilBatchBuilder.WriteDouble(packet, 4, x0);
+        NativeMilBatchBuilder.WriteDouble(packet, 12, y0);
+        NativeMilBatchBuilder.WriteDouble(packet, 20, x1);
+        NativeMilBatchBuilder.WriteDouble(packet, 28, y1);
+        NativeMilBatchBuilder.WriteUInt32(packet, 36, penHandle);
+        NativeMilBatchBuilder.WriteUInt32(
+            packet, 40, point0AnimationHandle);
+        NativeMilBatchBuilder.WriteUInt32(
+            packet, 44, point1AnimationHandle);
+    }
+
+    public void DrawGeometry(
+        uint brushHandle,
+        uint penHandle,
+        uint geometryHandle)
+    {
+        ArgumentOutOfRangeException.ThrowIfZero(geometryHandle);
+        Span<byte> packet = NativeMilBatchEncoding.Allocate(
+            _writer, NativeMilCommand.DrawGeometry, 20);
+        NativeMilBatchBuilder.WriteUInt32(packet, 4, brushHandle);
+        NativeMilBatchBuilder.WriteUInt32(packet, 8, penHandle);
+        NativeMilBatchBuilder.WriteUInt32(packet, 12, geometryHandle);
+        NativeMilBatchBuilder.WriteUInt32(packet, 16, 0);
+    }
+
+    public void DrawDrawing(uint drawingHandle)
+    {
+        ArgumentOutOfRangeException.ThrowIfZero(drawingHandle);
+        Span<byte> packet = NativeMilBatchEncoding.Allocate(
+            _writer, NativeMilCommand.DrawDrawing, 12);
+        NativeMilBatchBuilder.WriteUInt32(packet, 4, drawingHandle);
+        NativeMilBatchBuilder.WriteUInt32(packet, 8, 0);
+    }
+
+    public void DrawGlyphRun(uint foregroundBrushHandle, uint glyphRunHandle)
+    {
+        Span<byte> packet = NativeMilBatchEncoding.Allocate(
+            _writer, NativeMilCommand.DrawGlyphRun, 12);
+        NativeMilBatchBuilder.WriteUInt32(packet, 4, foregroundBrushHandle);
+        NativeMilBatchBuilder.WriteUInt32(packet, 8, glyphRunHandle);
+    }
+
+    public void DrawImage(
+        NativeMilRect destination,
+        uint imageSourceHandle)
+    {
+        ArgumentOutOfRangeException.ThrowIfZero(imageSourceHandle);
+        if (!double.IsFinite(destination.X) ||
+            !double.IsFinite(destination.Y) ||
+            !double.IsFinite(destination.Width) ||
+            !double.IsFinite(destination.Height) ||
+            destination.Width < 0.0 || destination.Height < 0.0)
+        {
+            throw new ArgumentOutOfRangeException(nameof(destination));
+        }
+        Span<byte> packet = NativeMilBatchEncoding.Allocate(
+            _writer, NativeMilCommand.DrawImage, 44);
+        NativeMilBatchBuilder.WriteDouble(packet, 4, destination.X);
+        NativeMilBatchBuilder.WriteDouble(packet, 12, destination.Y);
+        NativeMilBatchBuilder.WriteDouble(packet, 20, destination.Width);
+        NativeMilBatchBuilder.WriteDouble(packet, 28, destination.Height);
+        NativeMilBatchBuilder.WriteUInt32(packet, 36, imageSourceHandle);
+        NativeMilBatchBuilder.WriteUInt32(packet, 40, 0);
+    }
+
+    public void DrawImage(
+        NativeMilRect destination,
+        uint imageSourceHandle,
+        uint rectangleAnimationHandle)
+    {
+        ArgumentOutOfRangeException.ThrowIfZero(imageSourceHandle);
+        if (!double.IsFinite(destination.X) ||
+            !double.IsFinite(destination.Y) ||
+            !double.IsFinite(destination.Width) ||
+            !double.IsFinite(destination.Height) ||
+            destination.Width < 0.0 || destination.Height < 0.0)
+        {
+            throw new ArgumentOutOfRangeException(nameof(destination));
+        }
+        Span<byte> packet = NativeMilBatchEncoding.Allocate(
+            _writer, NativeMilCommand.DrawImageAnimate, 44);
+        NativeMilBatchBuilder.WriteDouble(packet, 4, destination.X);
+        NativeMilBatchBuilder.WriteDouble(packet, 12, destination.Y);
+        NativeMilBatchBuilder.WriteDouble(packet, 20, destination.Width);
+        NativeMilBatchBuilder.WriteDouble(packet, 28, destination.Height);
+        NativeMilBatchBuilder.WriteUInt32(packet, 36, imageSourceHandle);
+        NativeMilBatchBuilder.WriteUInt32(
+            packet, 40, rectangleAnimationHandle);
+    }
+
+    public void DrawVideo(
+        NativeMilRect destination,
+        uint mediaPlayerHandle)
+    {
+        ArgumentOutOfRangeException.ThrowIfZero(mediaPlayerHandle);
+        ValidateVideoDestination(destination);
+        Span<byte> packet = NativeMilBatchEncoding.Allocate(
+            _writer, NativeMilCommand.DrawVideo, 44);
+        WriteVideoPayload(packet, destination, mediaPlayerHandle, 0);
+    }
+
+    public void DrawVideo(
+        NativeMilRect destination,
+        uint mediaPlayerHandle,
+        uint rectangleAnimationHandle)
+    {
+        ArgumentOutOfRangeException.ThrowIfZero(mediaPlayerHandle);
+        ValidateVideoDestination(destination);
+        Span<byte> packet = NativeMilBatchEncoding.Allocate(
+            _writer, NativeMilCommand.DrawVideoAnimate, 44);
+        WriteVideoPayload(
+            packet,
+            destination,
+            mediaPlayerHandle,
+            rectangleAnimationHandle);
+    }
+
+    private static void ValidateVideoDestination(NativeMilRect destination)
+    {
+        if (!double.IsFinite(destination.X) ||
+            !double.IsFinite(destination.Y) ||
+            !double.IsFinite(destination.Width) ||
+            !double.IsFinite(destination.Height) ||
+            destination.Width < 0.0 || destination.Height < 0.0)
+        {
+            throw new ArgumentOutOfRangeException(nameof(destination));
+        }
+    }
+
+    private static void WriteVideoPayload(
+        Span<byte> packet,
+        NativeMilRect destination,
+        uint mediaPlayerHandle,
+        uint trailingValue)
+    {
+        NativeMilBatchBuilder.WriteDouble(packet, 4, destination.X);
+        NativeMilBatchBuilder.WriteDouble(packet, 12, destination.Y);
+        NativeMilBatchBuilder.WriteDouble(packet, 20, destination.Width);
+        NativeMilBatchBuilder.WriteDouble(packet, 28, destination.Height);
+        NativeMilBatchBuilder.WriteUInt32(packet, 36, mediaPlayerHandle);
+        NativeMilBatchBuilder.WriteUInt32(packet, 40, trailingValue);
+    }
+
+    public void DrawRectangle(
+        double x,
+        double y,
+        double width,
+        double height,
+        uint brushHandle,
+        uint penHandle = 0)
+    {
+        if (!double.IsFinite(x) || !double.IsFinite(y) ||
+            !double.IsFinite(width) || !double.IsFinite(height) ||
+            width < 0.0 || height < 0.0)
+        {
+            throw new ArgumentOutOfRangeException(nameof(width));
+        }
+        Span<byte> packet = NativeMilBatchEncoding.Allocate(
+            _writer, NativeMilCommand.DrawRectangle, 44);
+        NativeMilBatchBuilder.WriteDouble(packet, 4, x);
+        NativeMilBatchBuilder.WriteDouble(packet, 12, y);
+        NativeMilBatchBuilder.WriteDouble(packet, 20, width);
+        NativeMilBatchBuilder.WriteDouble(packet, 28, height);
+        NativeMilBatchBuilder.WriteUInt32(packet, 36, brushHandle);
+        NativeMilBatchBuilder.WriteUInt32(packet, 40, penHandle);
+    }
+
+    public void DrawRectangle(
+        double x,
+        double y,
+        double width,
+        double height,
+        uint brushHandle,
+        uint penHandle,
+        uint rectangleAnimationHandle)
+    {
+        if (!double.IsFinite(x) || !double.IsFinite(y) ||
+            !double.IsFinite(width) || !double.IsFinite(height) ||
+            width < 0.0 || height < 0.0)
+        {
+            throw new ArgumentOutOfRangeException(nameof(width));
+        }
+        Span<byte> packet = NativeMilBatchEncoding.Allocate(
+            _writer, NativeMilCommand.DrawRectangleAnimate, 52);
+        NativeMilBatchBuilder.WriteDouble(packet, 4, x);
+        NativeMilBatchBuilder.WriteDouble(packet, 12, y);
+        NativeMilBatchBuilder.WriteDouble(packet, 20, width);
+        NativeMilBatchBuilder.WriteDouble(packet, 28, height);
+        NativeMilBatchBuilder.WriteUInt32(packet, 36, brushHandle);
+        NativeMilBatchBuilder.WriteUInt32(packet, 40, penHandle);
+        NativeMilBatchBuilder.WriteUInt32(
+            packet, 44, rectangleAnimationHandle);
+    }
+
+    public void DrawEllipse(
+        double centerX,
+        double centerY,
+        double radiusX,
+        double radiusY,
+        uint brushHandle,
+        uint penHandle = 0)
+    {
+        if (!double.IsFinite(centerX) || !double.IsFinite(centerY) ||
+            !double.IsFinite(radiusX) || !double.IsFinite(radiusY) ||
+            radiusX < 0.0 || radiusY < 0.0)
+        {
+            throw new ArgumentOutOfRangeException(nameof(radiusX));
+        }
+        Span<byte> packet = NativeMilBatchEncoding.Allocate(
+            _writer, NativeMilCommand.DrawEllipse, 44);
+        NativeMilBatchBuilder.WriteDouble(packet, 4, centerX);
+        NativeMilBatchBuilder.WriteDouble(packet, 12, centerY);
+        NativeMilBatchBuilder.WriteDouble(packet, 20, radiusX);
+        NativeMilBatchBuilder.WriteDouble(packet, 28, radiusY);
+        NativeMilBatchBuilder.WriteUInt32(packet, 36, brushHandle);
+        NativeMilBatchBuilder.WriteUInt32(packet, 40, penHandle);
+    }
+
+    public void DrawEllipse(
+        double centerX,
+        double centerY,
+        double radiusX,
+        double radiusY,
+        uint brushHandle,
+        uint penHandle,
+        uint centerAnimationHandle,
+        uint radiusXAnimationHandle,
+        uint radiusYAnimationHandle)
+    {
+        if (!double.IsFinite(centerX) || !double.IsFinite(centerY) ||
+            !double.IsFinite(radiusX) || !double.IsFinite(radiusY) ||
+            radiusX < 0.0 || radiusY < 0.0)
+        {
+            throw new ArgumentOutOfRangeException(nameof(radiusX));
+        }
+        Span<byte> packet = NativeMilBatchEncoding.Allocate(
+            _writer, NativeMilCommand.DrawEllipseAnimate, 60);
+        NativeMilBatchBuilder.WriteDouble(packet, 4, centerX);
+        NativeMilBatchBuilder.WriteDouble(packet, 12, centerY);
+        NativeMilBatchBuilder.WriteDouble(packet, 20, radiusX);
+        NativeMilBatchBuilder.WriteDouble(packet, 28, radiusY);
+        NativeMilBatchBuilder.WriteUInt32(packet, 36, brushHandle);
+        NativeMilBatchBuilder.WriteUInt32(packet, 40, penHandle);
+        NativeMilBatchBuilder.WriteUInt32(
+            packet, 44, centerAnimationHandle);
+        NativeMilBatchBuilder.WriteUInt32(
+            packet, 48, radiusXAnimationHandle);
+        NativeMilBatchBuilder.WriteUInt32(
+            packet, 52, radiusYAnimationHandle);
+    }
+
+    public void DrawRoundedRectangle(
+        double x,
+        double y,
+        double width,
+        double height,
+        double radiusX,
+        double radiusY,
+        uint brushHandle,
+        uint penHandle = 0)
+    {
+        if (!double.IsFinite(x) || !double.IsFinite(y) ||
+            !double.IsFinite(width) || !double.IsFinite(height) ||
+            !double.IsFinite(radiusX) || !double.IsFinite(radiusY) ||
+            width < 0.0 || height < 0.0 || radiusX < 0.0 || radiusY < 0.0)
+        {
+            throw new ArgumentOutOfRangeException(nameof(width));
+        }
+        Span<byte> packet = NativeMilBatchEncoding.Allocate(
+            _writer, NativeMilCommand.DrawRoundedRectangle, 60);
+        NativeMilBatchBuilder.WriteDouble(packet, 4, x);
+        NativeMilBatchBuilder.WriteDouble(packet, 12, y);
+        NativeMilBatchBuilder.WriteDouble(packet, 20, width);
+        NativeMilBatchBuilder.WriteDouble(packet, 28, height);
+        NativeMilBatchBuilder.WriteDouble(packet, 36, radiusX);
+        NativeMilBatchBuilder.WriteDouble(packet, 44, radiusY);
+        NativeMilBatchBuilder.WriteUInt32(packet, 52, brushHandle);
+        NativeMilBatchBuilder.WriteUInt32(packet, 56, penHandle);
+    }
+
+    public void DrawRoundedRectangle(
+        double x,
+        double y,
+        double width,
+        double height,
+        double radiusX,
+        double radiusY,
+        uint brushHandle,
+        uint penHandle,
+        uint rectangleAnimationHandle,
+        uint radiusXAnimationHandle,
+        uint radiusYAnimationHandle)
+    {
+        if (!double.IsFinite(x) || !double.IsFinite(y) ||
+            !double.IsFinite(width) || !double.IsFinite(height) ||
+            !double.IsFinite(radiusX) || !double.IsFinite(radiusY) ||
+            width < 0.0 || height < 0.0 ||
+            radiusX < 0.0 || radiusY < 0.0)
+        {
+            throw new ArgumentOutOfRangeException(nameof(width));
+        }
+        Span<byte> packet = NativeMilBatchEncoding.Allocate(
+            _writer, NativeMilCommand.DrawRoundedRectangleAnimate, 76);
+        NativeMilBatchBuilder.WriteDouble(packet, 4, x);
+        NativeMilBatchBuilder.WriteDouble(packet, 12, y);
+        NativeMilBatchBuilder.WriteDouble(packet, 20, width);
+        NativeMilBatchBuilder.WriteDouble(packet, 28, height);
+        NativeMilBatchBuilder.WriteDouble(packet, 36, radiusX);
+        NativeMilBatchBuilder.WriteDouble(packet, 44, radiusY);
+        NativeMilBatchBuilder.WriteUInt32(packet, 52, brushHandle);
+        NativeMilBatchBuilder.WriteUInt32(packet, 56, penHandle);
+        NativeMilBatchBuilder.WriteUInt32(
+            packet, 60, rectangleAnimationHandle);
+        NativeMilBatchBuilder.WriteUInt32(
+            packet, 64, radiusXAnimationHandle);
+        NativeMilBatchBuilder.WriteUInt32(
+            packet, 68, radiusYAnimationHandle);
+    }
+}
+
+internal static class NativeMilBatchEncoding
+{
+    internal static Span<byte> Allocate(
+        ArrayBufferWriter<byte> writer,
+        uint command,
+        int packetSize)
+    {
+        int itemSize = checked((packetSize + 4 + 3) & ~3);
+        Span<byte> item = writer.GetSpan(itemSize)[..itemSize];
+        item.Clear();
+        BinaryPrimitives.WriteUInt32LittleEndian(item, (uint)itemSize);
+        BinaryPrimitives.WriteUInt32LittleEndian(item[4..], command);
+        writer.Advance(itemSize);
+        return item.Slice(4, packetSize);
+    }
+}
+
+internal static class NativeMilCommand
+{
+    internal const uint D3DImage = 0x0a;
+    internal const uint D3DImagePresent = 0x0b;
+    internal const uint BitmapSource = 0x0c;
+    internal const uint BitmapInvalidate = 0x0d;
+    internal const uint CreateResource = 0x07;
+    internal const uint DeleteResource = 0x08;
+    internal const uint DoubleResource = 0x0e;
+    internal const uint SizeResource = 0x0f;
+    internal const uint PointResource = 0x10;
+    internal const uint RectResource = 0x11;
+    internal const uint MatrixResource = 0x13;
+    internal const uint Point3DResource = 0x14;
+    internal const uint Vector3DResource = 0x15;
+    internal const uint QuaternionResource = 0x16;
+    internal const uint MediaPlayer = 0x17;
+    internal const uint RenderData = 0x18;
+    internal const uint VisualCreate = 0x1a;
+    internal const uint VisualSetOffset = 0x1b;
+    internal const uint VisualSetTransform = 0x1c;
+    internal const uint VisualSetEffect = 0x1d;
+    internal const uint VisualSetCacheMode = 0x1e;
+    internal const uint VisualSetClip = 0x1f;
+    internal const uint VisualSetAlpha = 0x20;
+    internal const uint VisualSetRenderOptions = 0x21;
+    internal const uint VisualSetContent = 0x22;
+    internal const uint VisualSetAlphaMask = 0x23;
+    internal const uint VisualInsertChildAt = 0x26;
+    internal const uint VisualSetGuidelineCollection = 0x27;
+    internal const uint VisualSetScrollableAreaClip = 0x28;
+    internal const uint Viewport3DVisualSetCamera = 0x29;
+    internal const uint Viewport3DVisualSetViewport = 0x2a;
+    internal const uint Viewport3DVisualSet3DChild = 0x2b;
+    internal const uint Visual3DSetContent = 0x2c;
+    internal const uint Visual3DSetTransform = 0x2d;
+    internal const uint Visual3DRemoveAllChildren = 0x2e;
+    internal const uint Visual3DRemoveChild = 0x2f;
+    internal const uint Visual3DInsertChildAt = 0x30;
+    internal const uint HwndTargetCreate = 0x31;
+    internal const uint HwndTargetSuppressLayered = 0x32;
+    internal const uint TargetUpdateWindowSettings = 0x33;
+    internal const uint GenericTargetCreate = 0x34;
+    internal const uint TargetSetRoot = 0x35;
+    internal const uint TargetSetClearColor = 0x36;
+    internal const uint HwndTargetDpiChanged = 0x39;
+    internal const uint GlyphRunCreate = 0x3a;
+    internal const uint DoubleBufferedBitmap = 0x3b;
+    internal const uint DoubleBufferedBitmapCopyForward = 0x3c;
+    internal const uint DrawLine = 0x3e;
+    internal const uint DrawLineAnimate = 0x3f;
+    internal const uint DrawRectangle = 0x40;
+    internal const uint DrawRectangleAnimate = 0x41;
+    internal const uint DrawRoundedRectangle = 0x42;
+    internal const uint DrawRoundedRectangleAnimate = 0x43;
+    internal const uint DrawEllipse = 0x44;
+    internal const uint DrawEllipseAnimate = 0x45;
+    internal const uint DrawGeometry = 0x46;
+    internal const uint DrawImage = 0x47;
+    internal const uint DrawImageAnimate = 0x48;
+    internal const uint DrawGlyphRun = 0x49;
+    internal const uint DrawDrawing = 0x4a;
+    internal const uint DrawVideo = 0x4b;
+    internal const uint DrawVideoAnimate = 0x4c;
+    internal const uint PushClip = 0x4d;
+    internal const uint PushOpacityMask = 0x4e;
+    internal const uint PushOpacity = 0x4f;
+    internal const uint PushOpacityAnimate = 0x50;
+    internal const uint PushTransform = 0x51;
+    internal const uint PushGuidelineSet = 0x52;
+    internal const uint PushGuidelineY1 = 0x53;
+    internal const uint PushGuidelineY2 = 0x54;
+    internal const uint Pop = 0x56;
+    internal const uint AxisAngleRotation3D = 0x57;
+    internal const uint QuaternionRotation3D = 0x58;
+    internal const uint PerspectiveCamera = 0x59;
+    internal const uint OrthographicCamera = 0x5a;
+    internal const uint MatrixCamera = 0x5b;
+    internal const uint Model3DGroup = 0x5c;
+    internal const uint AmbientLight = 0x5d;
+    internal const uint DirectionalLight = 0x5e;
+    internal const uint PointLight = 0x5f;
+    internal const uint SpotLight = 0x60;
+    internal const uint GeometryModel3D = 0x61;
+    internal const uint MeshGeometry3D = 0x62;
+    internal const uint MaterialGroup = 0x63;
+    internal const uint DiffuseMaterial = 0x64;
+    internal const uint SpecularMaterial = 0x65;
+    internal const uint EmissiveMaterial = 0x66;
+    internal const uint Transform3DGroup = 0x67;
+    internal const uint TranslateTransform3D = 0x68;
+    internal const uint ScaleTransform3D = 0x69;
+    internal const uint RotateTransform3D = 0x6a;
+    internal const uint MatrixTransform3D = 0x6b;
+    internal const uint BlurEffect = 0x6e;
+    internal const uint DropShadowEffect = 0x6f;
+    internal const uint DrawingImage = 0x71;
+    internal const uint TransformGroup = 0x72;
+    internal const uint TranslateTransform = 0x73;
+    internal const uint ScaleTransform = 0x74;
+    internal const uint SkewTransform = 0x75;
+    internal const uint RotateTransform = 0x76;
+    internal const uint MatrixTransform = 0x77;
+    internal const uint LineGeometry = 0x78;
+    internal const uint RectangleGeometry = 0x79;
+    internal const uint EllipseGeometry = 0x7a;
+    internal const uint GeometryGroup = 0x7b;
+    internal const uint CombinedGeometry = 0x7c;
+    internal const uint PathGeometry = 0x7d;
+    internal const uint SolidColorBrush = 0x7e;
+    internal const uint LinearGradientBrush = 0x7f;
+    internal const uint RadialGradientBrush = 0x80;
+    internal const uint ImageBrush = 0x81;
+    internal const uint DrawingBrush = 0x82;
+    internal const uint VisualBrush = 0x83;
+    internal const uint BitmapCacheBrush = 0x84;
+    internal const uint DashStyle = 0x85;
+    internal const uint Pen = 0x86;
+    internal const uint GeometryDrawing = 0x87;
+    internal const uint GlyphRunDrawing = 0x88;
+    internal const uint ImageDrawing = 0x89;
+    internal const uint VideoDrawing = 0x8a;
+    internal const uint DrawingGroup = 0x8b;
+    internal const uint GuidelineSet = 0x8c;
+    internal const uint BitmapCache = 0x8d;
+}

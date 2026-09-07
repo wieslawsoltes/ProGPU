@@ -11,7 +11,8 @@ namespace progpu::native::semantic {
 WGPUSampler resolve_semantic_image_sampler(
     progpu_native_engine& engine,
     std::uint32_t sampling,
-    std::uint32_t max_anisotropy) noexcept;
+    std::uint32_t max_anisotropy,
+    std::uint32_t image_flags = 0U) noexcept;
 
 bool create_semantic_image_color_matrix_resources(
     progpu_native_engine& engine,

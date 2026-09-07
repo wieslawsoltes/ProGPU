@@ -4,8 +4,44 @@
 
 #include <array>
 #include <cstring>
+#if defined(__aarch64__) || defined(_M_ARM64)
+#include <arm_neon.h>
+#elif defined(__SSE2__) || defined(_M_X64) || (defined(_M_IX86_FP) && _M_IX86_FP >= 2)
+#include <emmintrin.h>
+#elif defined(__wasm_simd128__)
+#include <wasm_simd128.h>
+#endif
 
 namespace progpu::native::semantic {
+bool scene_bytes_equal(std::span<const std::byte> left, std::span<const std::byte> right) noexcept {
+    if (left.size() != right.size()) return false;
+    std::size_t offset = 0U;
+#if defined(__aarch64__) || defined(_M_ARM64)
+    for (; offset + 16U <= left.size(); offset += 16U) {
+        const auto a = vld1q_u8(reinterpret_cast<const std::uint8_t*>(left.data() + offset));
+        const auto b = vld1q_u8(reinterpret_cast<const std::uint8_t*>(right.data() + offset));
+        if (vminvq_u8(vceqq_u8(a, b)) != 255U) return false;
+    }
+#elif defined(__SSE2__) || defined(_M_X64) || (defined(_M_IX86_FP) && _M_IX86_FP >= 2)
+    for (; offset + 16U <= left.size(); offset += 16U) {
+        const auto a = _mm_loadu_si128(reinterpret_cast<const __m128i*>(left.data() + offset));
+        const auto b = _mm_loadu_si128(reinterpret_cast<const __m128i*>(right.data() + offset));
+        if (_mm_movemask_epi8(_mm_cmpeq_epi8(a, b)) != 0xffff) return false;
+    }
+#elif defined(__wasm_simd128__)
+    for (; offset + 16U <= left.size(); offset += 16U) {
+        const auto a = wasm_v128_load(left.data() + offset);
+        const auto b = wasm_v128_load(right.data() + offset);
+        if (!wasm_i8x16_all_true(wasm_i8x16_eq(a, b))) return false;
+    }
+#else
+    // Targets without these SIMD ISAs use their platform's optimized byte routine.
+    return left.empty() || std::memcmp(left.data(), right.data(), left.size()) == 0;
+#endif
+    for (; offset < left.size(); ++offset) if (left[offset] != right[offset]) return false;
+    return true;
+}
+
 namespace {
 
 constexpr std::uint64_t fnv_offset = 14695981039346656037ULL;
@@ -109,6 +145,45 @@ std::uint64_t append_command(
     return hash;
 }
 
+std::uint64_t append_3d_command(
+    std::uint64_t hash,
+    const std::byte* bytes,
+    const progpu_native_scene_header& header,
+    const progpu_native_scene_command& command) noexcept {
+    hash = append_command_record(hash, bytes, header, command);
+    if (command.payload_size == 0U) {
+        return hash;
+    }
+    constexpr std::size_t camera_size =
+        sizeof(progpu_native_scene_camera_3d);
+    constexpr std::size_t material_header_size =
+        sizeof(progpu_native_scene_mesh_3d_materials);
+    if (command.kind != PROGPU_NATIVE_SCENE_COMMAND_DRAW_MESH_3D_BATCH ||
+        command.payload_size < camera_size + material_header_size) {
+        return append_fnv1a64(
+            hash,
+            bytes + command.payload_offset,
+            command.payload_size);
+    }
+
+    hash = append_fnv1a64(
+        hash,
+        bytes + command.payload_offset,
+        camera_size);
+    auto materials = read_record<progpu_native_scene_mesh_3d_materials>(
+        bytes, command.payload_offset + camera_size);
+    const std::uint32_t brush_resource_index =
+        materials.brush_resource_index;
+    materials.brush_resource_index = 0U;
+    hash = append_fnv1a64(hash, &materials, sizeof(materials));
+    hash = append_resource_reference(
+        hash, bytes, header, brush_resource_index);
+    return append_fnv1a64(
+        hash,
+        bytes + command.payload_offset + camera_size + material_header_size,
+        command.payload_size - camera_size - material_header_size);
+}
+
 std::uint64_t append_scope_command(
     std::uint64_t hash,
     const std::byte* bytes,
@@ -129,13 +204,28 @@ std::uint64_t append_scope_command(
         bytes, command.payload_offset);
     const std::uint32_t mask_resource_index = layer.mask_resource_index;
     const std::uint32_t effect_resource_index = layer.effect_resource_index;
+    const bool has_composite_state =
+        (layer.flags & (PROGPU_NATIVE_SCENE_LAYER_CACHE_LOCAL_SPACE |
+            PROGPU_NATIVE_SCENE_LAYER_COMPOSITE_STATE)) != 0U;
+    const std::uint32_t composite_state_resource_index = layer.reserved0;
+    const bool tile_cache = (layer.flags & PROGPU_NATIVE_SCENE_LAYER_CACHE_TILE) != 0U;
+    const std::uint32_t tile_resource_index = layer.reserved1;
+    if (tile_cache) layer.reserved1 = 0U;
     layer.mask_resource_index = 0U;
     layer.effect_resource_index = 0U;
+    if (has_composite_state) {
+        layer.reserved0 = 0U;
+    }
     hash = append_fnv1a64(hash, &layer, sizeof(layer));
     hash = append_resource_reference(
         hash, bytes, header, mask_resource_index);
-    return append_resource_reference(
+    hash = append_resource_reference(
         hash, bytes, header, effect_resource_index);
+    if (tile_cache) hash = append_resource_reference(hash, bytes, header, tile_resource_index);
+    return has_composite_state
+        ? append_resource_reference(
+            hash, bytes, header, composite_state_resource_index)
+        : hash;
 }
 
 std::uint64_t append_effective_state(
@@ -271,6 +361,47 @@ bool is_3d_command(std::uint32_t kind) noexcept {
 
 } // namespace
 
+bool find_append_only_scene_suffix(const std::byte* previous,
+    const progpu_native_scene_header& old, const std::byte* current,
+    const progpu_native_scene_header& next, std::uint32_t& first_command) noexcept {
+    first_command = 0U;
+    if (old.scene_id != next.scene_id || old.flags != next.flags || next.generation < old.generation ||
+        old.resource_count > next.resource_count || old.command_count > next.command_count) return false;
+    const auto same_bytes = [&](std::uint32_t old_offset, std::uint32_t next_offset, std::uint32_t size) {
+        return scene_bytes_equal({previous + old_offset, size}, {current + next_offset, size});
+    };
+    for (std::uint32_t i = 0U; i < next.resource_count; ++i) {
+        auto resource = read_record<progpu_native_scene_resource>(current, next.resource_offset + i * next.resource_stride);
+        if ((resource.flags & PROGPU_NATIVE_SCENE_EXTERNAL_IMAGE) != 0U) return false;
+        if (i >= old.resource_count) continue;
+        auto prior = read_record<progpu_native_scene_resource>(previous, old.resource_offset + i * old.resource_stride);
+        const bool append_table = prior.kind == PROGPU_NATIVE_SCENE_RESOURCE_BRUSH_TABLE ||
+            prior.kind == PROGPU_NATIVE_SCENE_RESOURCE_TEXT_STYLE_TABLE;
+        if (prior.payload_size > resource.payload_size || prior.auxiliary_size > resource.auxiliary_size ||
+            (!append_table && (prior.payload_size != resource.payload_size || prior.auxiliary_size != resource.auxiliary_size)) ||
+            !same_bytes(prior.payload_offset, resource.payload_offset, prior.payload_size) ||
+            !same_bytes(prior.auxiliary_offset, resource.auxiliary_offset, prior.auxiliary_size)) return false;
+        prior.payload_offset = resource.payload_offset = 0U;
+        prior.auxiliary_offset = resource.auxiliary_offset = 0U;
+        prior.payload_size = resource.payload_size = 0U;
+        prior.auxiliary_size = resource.auxiliary_size = 0U;
+        if (!scene_bytes_equal(std::as_bytes(std::span(&prior, 1U)), std::as_bytes(std::span(&resource, 1U)))) return false;
+    }
+    for (std::uint32_t i = 0U; i < next.command_count; ++i) {
+        auto command = read_record<progpu_native_scene_command>(current, next.command_offset + i * next.command_stride);
+        if (command.kind == PROGPU_NATIVE_SCENE_COMMAND_DRAW_LINE_3D_BATCH ||
+            command.kind == PROGPU_NATIVE_SCENE_COMMAND_DRAW_MESH_3D_BATCH) return false;
+        if (i >= old.command_count) continue;
+        auto prior = read_record<progpu_native_scene_command>(previous, old.command_offset + i * old.command_stride);
+        if (prior.payload_size != command.payload_size ||
+            !same_bytes(prior.payload_offset, command.payload_offset, prior.payload_size)) return false;
+        prior.payload_offset = command.payload_offset = 0U;
+        if (!scene_bytes_equal(std::as_bytes(std::span(&prior, 1U)), std::as_bytes(std::span(&command, 1U)))) return false;
+    }
+    first_command = old.command_count;
+    return true;
+}
+
 semantic_content_hashes compute_content_hashes(
     const std::byte* bytes,
     const progpu_native_scene_header& header) noexcept {
@@ -386,8 +517,8 @@ semantic_content_hashes compute_content_hashes(
         } else if (is_3d_command(command.kind)) {
             three_d_commands = append_active_layers(
                 three_d_commands, bytes, header, active_scopes, scope_depth);
-            three_d_commands = append_command(
-                three_d_commands, bytes, header, command, true);
+            three_d_commands = append_3d_command(
+                three_d_commands, bytes, header, command);
             three_d_commands = append_effective_state(
                 three_d_commands, bytes, header, effective_state_index);
         }

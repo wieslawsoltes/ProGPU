@@ -12,6 +12,8 @@ internal static unsafe partial class NativeMethods
     internal const uint DawnWebScene2026JulyBackendAbi = 2;
     internal const uint GeometryFrameCapturePayloadHash = 1U;
     internal const uint GeometryFrameRetainCompiledPayload = 1U << 1;
+    internal const uint PathFrameStagedSignedWinding = 1U << 2;
+    internal const uint ClipChainStagedSignedWinding = 1U;
     internal const uint SceneStreamMagic = 0x31534750U;
     internal const uint SceneStreamVersion = 1U;
     internal const uint SceneStreamEndianMarker = 0x01020304U;
@@ -23,6 +25,7 @@ internal static unsafe partial class NativeMethods
     internal const uint SceneMaximumLayerBytes = 256U * 1024U * 1024U;
     internal const uint SceneMaximumBrushes = 1024U * 1024U;
     internal const uint SceneMaximumGradientStops = 64U * 1024U;
+    internal const uint SceneMaximumGuidelinesPerAxis = 65535U;
     internal const uint SceneMaximumDrawBrushIndices = 1024U * 1024U;
     internal const uint SceneMaximumTextStyles = 1024U * 1024U;
     internal const uint SceneNoIndex = uint.MaxValue;

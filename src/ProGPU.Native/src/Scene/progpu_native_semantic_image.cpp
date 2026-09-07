@@ -55,10 +55,10 @@ bool validate_image_draw_payload(
     const progpu_native_scene_command& command,
     const progpu_native_scene_image_draw& image,
     std::uint64_t pixel_bytes,
-    semantic_image_options& options) noexcept {
+    semantic_image_options& options, std::uint32_t bytes_per_pixel) noexcept {
     options = {};
     if (bytes == nullptr || image.struct_size != sizeof(image) ||
-        !is_valid_semantic_image(image, pixel_bytes)) {
+        !is_valid_semantic_image(image, pixel_bytes, bytes_per_pixel)) {
         return false;
     }
     std::uint64_t cursor = command.payload_offset + sizeof(image);
@@ -149,9 +149,13 @@ void resolve_image_vertex_color(
     float (&color)[4]) noexcept {
     const bool premultiplied_source = has_effect ||
         (image.flags & PROGPU_NATIVE_SCENE_IMAGE_SOURCE_PREMULTIPLIED) != 0U;
+    const bool ignore_source_alpha =
+        (image.flags & PROGPU_NATIVE_SCENE_IMAGE_SOURCE_ALPHA_IGNORE) != 0U;
     color[0] = premultiplied_source ? image.opacity : 1.0F;
     color[1] = premultiplied_source ? 1.0F : 0.0F;
-    color[2] = premultiplied_source ? image.opacity : 1.0F;
+    color[2] = ignore_source_alpha
+        ? -1.0F
+        : (premultiplied_source ? image.opacity : 1.0F);
     color[3] = image.sampling == PROGPU_NATIVE_IMAGE_SAMPLING_CUBIC
         ? -image.opacity
         : image.opacity;

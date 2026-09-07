@@ -66,6 +66,25 @@ public struct GpuPathRecord
     public uint Pad1;
 }
 
+internal static class GpuPathFillRuleEncoding
+{
+    // The native raster and path-operation shader ABI uses 0 for nonzero and 1 for even-odd.
+    // Keep this conversion separate from the managed FillRule enum, whose values are reversed.
+    public static uint Encode(FillRule fillRule) => fillRule switch
+    {
+        FillRule.Nonzero => 0u,
+        FillRule.EvenOdd => 1u,
+        _ => throw new ArgumentOutOfRangeException(nameof(fillRule))
+    };
+
+    public static FillRule Decode(uint encodedFillRule) => encodedFillRule switch
+    {
+        0u => FillRule.Nonzero,
+        1u => FillRule.EvenOdd,
+        _ => throw new ArgumentOutOfRangeException(nameof(encodedFillRule))
+    };
+}
+
 [StructLayout(LayoutKind.Sequential, Pack = 16)]
 public struct GpuPathSegment
 {
@@ -598,7 +617,7 @@ public unsafe class PathAtlas : IDisposable
         _computePipeline = _pipelineCache.GetOrCreateComputePipeline(
             "PathRasterizer",
             shaderModule,
-            "cs_main",
+            "cs_main_ordinary",
             _computePipelineLayout);
     }
 
@@ -992,7 +1011,7 @@ public unsafe class PathAtlas : IDisposable
             MinY = minY,
             MaxX = maxX,
             MaxY = maxY,
-            FillRule = (uint)path.FillRule
+            FillRule = GpuPathFillRuleEncoding.Encode(path.FillRule)
         };
 
         return (records, CopySegments(segments));

@@ -381,18 +381,44 @@ internal sealed unsafe class AppleAudioEffectTap :
                 copyBack = false;
                 return false;
             }
-            var channelSamples =
+        }
+        if (format.ChannelCount == 1)
+        {
+            new ReadOnlySpan<float>(
+                    (void*)buffers[0].Data,
+                    frameCount)
+                .CopyTo(samples);
+        }
+        else if (format.ChannelCount == 2)
+        {
+            MediaFloatStereoLayoutConverter.Interleave(
                 new ReadOnlySpan<float>(
-                    (void*)buffer.Data,
-                    frameCount);
-            for (int frame = 0;
-                 frame < frameCount;
-                 frame++)
+                    (void*)buffers[0].Data,
+                    frameCount),
+                new ReadOnlySpan<float>(
+                    (void*)buffers[1].Data,
+                    frameCount),
+                samples);
+        }
+        else
+        {
+            for (int channel = 0;
+                 channel < format.ChannelCount;
+                 channel++)
             {
-                samples[
-                    frame * format.ChannelCount +
-                    channel] =
-                    channelSamples[frame];
+                var channelSamples =
+                    new ReadOnlySpan<float>(
+                        (void*)buffers[channel].Data,
+                        frameCount);
+                for (int frame = 0;
+                     frame < frameCount;
+                     frame++)
+                {
+                    samples[
+                        frame * format.ChannelCount +
+                        channel] =
+                        channelSamples[frame];
+                }
             }
         }
         copyBack = true;
@@ -405,6 +431,27 @@ internal sealed unsafe class AppleAudioEffectTap :
         int frameCount,
         int channelCount)
     {
+        if (channelCount == 1)
+        {
+            samples[..frameCount].CopyTo(
+                new Span<float>(
+                    (void*)buffers[0].Data,
+                    frameCount));
+            return;
+        }
+        if (channelCount == 2)
+        {
+            MediaFloatStereoLayoutConverter.Deinterleave(
+                samples,
+                new Span<float>(
+                    (void*)buffers[0].Data,
+                    frameCount),
+                new Span<float>(
+                    (void*)buffers[1].Data,
+                    frameCount));
+            return;
+        }
+
         for (int channel = 0;
              channel < channelCount;
              channel++)

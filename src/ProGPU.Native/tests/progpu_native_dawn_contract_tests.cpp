@@ -4,6 +4,7 @@
 #include <cstdint>
 #include <cstdlib>
 #include <cstring>
+#include <array>
 
 namespace {
 
@@ -90,11 +91,69 @@ int main() {
     require(engine == nullptr);
 
     options = valid_options(state);
+    options.flags = 1ULL << 63U;
+    require(progpu_native_dawn_engine_create(&options, &engine) ==
+        PROGPU_NATIVE_STATUS_INVALID_ARGUMENT);
+    require(state.call_count == 0U);
+    require(engine == nullptr);
+
+    options = valid_options(state);
+    options.flags =
+        PROGPU_NATIVE_ENGINE_GLYPH_INTRINSIC_SIMD_CPU_FALLBACK |
+        PROGPU_NATIVE_ENGINE_GLYPH_RASTER_SHADER_FALLBACK;
+    require(progpu_native_dawn_engine_create(&options, &engine) ==
+        PROGPU_NATIVE_STATUS_INVALID_ARGUMENT);
+    require(state.call_count == 0U);
+    require(engine == nullptr);
+
+    options = valid_options(state);
+    options.flags =
+        PROGPU_NATIVE_ENGINE_GLYPH_INTRINSIC_SIMD_CPU_FALLBACK;
     require(progpu_native_dawn_engine_create(&options, &engine) ==
         PROGPU_NATIVE_STATUS_UNSUPPORTED);
     require(state.call_count > 1U);
     require(!state.invalid_name);
     require(engine == nullptr);
+
+    state.call_count = 0U;
+    options = valid_options(state);
+    options.flags = PROGPU_NATIVE_ENGINE_GLYPH_RASTER_SHADER_FALLBACK;
+    require(progpu_native_dawn_engine_create(&options, &engine) ==
+        PROGPU_NATIVE_STATUS_UNSUPPORTED);
+    require(state.call_count > 1U);
+    require(!state.invalid_name);
+    require(engine == nullptr);
+
+    state.call_count = 0U;
+    options = valid_options(state);
+    options.flags = PROGPU_NATIVE_ENGINE_GLYPH_SCALAR_CPU_FALLBACK;
+    require(progpu_native_dawn_engine_create(&options, &engine) ==
+        PROGPU_NATIVE_STATUS_UNSUPPORTED);
+    require(state.call_count > 1U);
+    require(!state.invalid_name);
+    require(engine == nullptr);
+
+    state.call_count = 0U;
+    options = valid_options(state);
+    require(progpu_native_dawn_engine_create(&options, &engine) ==
+        PROGPU_NATIVE_STATUS_UNSUPPORTED);
+    require(state.call_count > 1U);
+    require(!state.invalid_name);
+    require(engine == nullptr);
+
+    for (const std::uint64_t glyph : std::array<std::uint64_t, 4U>{0U,
+        PROGPU_NATIVE_ENGINE_GLYPH_INTRINSIC_SIMD_CPU_FALLBACK,
+        PROGPU_NATIVE_ENGINE_GLYPH_RASTER_SHADER_FALLBACK,
+        PROGPU_NATIVE_ENGINE_GLYPH_SCALAR_CPU_FALLBACK}) {
+        state.call_count = 0U;
+        options = valid_options(state);
+        options.flags = glyph | PROGPU_NATIVE_ENGINE_IMAGE_EXPLICIT_SHADER_SAMPLING;
+        require(progpu_native_dawn_engine_create(&options, &engine) ==
+            PROGPU_NATIVE_STATUS_UNSUPPORTED);
+        require(state.call_count > 1U); // Accepted flags reach the unavailable provider.
+        require(!state.invalid_name);
+        require(engine == nullptr);
+    }
 
     return 0;
 }

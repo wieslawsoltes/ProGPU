@@ -362,6 +362,12 @@ public class Visual
         }
     }
 
+    // Required cached sources must not become direct vector replay when the
+    // optional visual-layer optimization is disabled by the host.
+    internal virtual bool RequiresLayerCache => false;
+    internal virtual bool? LayerCacheClearTypePolicy => null;
+    internal virtual void PrepareLayerCache() { }
+
     /// <summary>
     /// Gets or sets the raster-resolution multiplier for a cached layer.
     /// A non-positive value suppresses layer rendering.
@@ -471,6 +477,12 @@ public class Visual
     }
 
     // Composition layer texture view
+    internal bool LayerTextureSuppressesClearType
+    {
+        get => _coldState?.LayerTextureSuppressesClearType ?? false;
+        set => GetOrCreateColdState().LayerTextureSuppressesClearType = value;
+    }
+
     public GpuTexture? LayerTexture
     {
         get => _coldState?.LayerTexture;
@@ -1005,6 +1017,7 @@ public class Visual
         public bool CacheAsLayer;
         public float LayerCacheRenderScale = 1f;
         public bool LayerCacheSnapsToDevicePixels;
+        public bool LayerTextureSuppressesClearType;
         public GpuTexture? LayerTexture;
     }
 
@@ -1501,9 +1514,19 @@ public sealed class WpfShaderEffect : EffectBase
     }
 }
 
+/// <summary>
+/// Selects the separable GPU kernel used by <see cref="BlurEffect"/>.
+/// </summary>
+public enum BlurKernelType
+{
+    Gaussian = 0,
+    Box = 1
+}
+
 public class BlurEffect : EffectBase
 {
     private float _blurRadius;
+    private BlurKernelType _kernelType;
 
     public float BlurRadius
     {
@@ -1513,6 +1536,27 @@ public class BlurEffect : EffectBase
             if (_blurRadius != value)
             {
                 _blurRadius = value;
+                Invalidate();
+            }
+        }
+    }
+
+    /// <summary>
+    /// Gets or sets the GPU blur kernel. Gaussian remains the default.
+    /// </summary>
+    public BlurKernelType KernelType
+    {
+        get => _kernelType;
+        set
+        {
+            if (value is not BlurKernelType.Gaussian and
+                not BlurKernelType.Box)
+            {
+                throw new ArgumentOutOfRangeException(nameof(value));
+            }
+            if (_kernelType != value)
+            {
+                _kernelType = value;
                 Invalidate();
             }
         }

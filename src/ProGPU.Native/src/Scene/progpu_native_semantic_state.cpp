@@ -6,10 +6,20 @@
 #include <algorithm>
 #include <cmath>
 #include <cstring>
+#include <limits>
 
 namespace progpu::native::semantic {
 
 namespace {
+
+std::uint32_t target_domain_extent(std::uint32_t frame_extent,
+                                  std::uint32_t origin,
+                                  std::uint32_t extent) noexcept {
+    const auto end = std::min<std::uint64_t>(
+        static_cast<std::uint64_t>(origin) + extent,
+        std::numeric_limits<std::uint32_t>::max());
+    return std::max(frame_extent, static_cast<std::uint32_t>(end));
+}
 
 float snap_scissor_coordinate(float value) noexcept {
     const float rounded = std::round(value);
@@ -42,8 +52,12 @@ progpu_native_scene_state semantic_identity_state() noexcept {
 
 semantic_state_cursor::semantic_state_cursor(
     const std::byte* bytes,
-    const progpu_native_scene_header& header) noexcept
-    : bytes_(bytes), header_(header), current_(semantic_identity_state()) {
+    const progpu_native_scene_header& header,
+    float dpi_scale) noexcept
+    : bytes_(bytes),
+      header_(header),
+      dpi_scale_(dpi_scale),
+      current_(semantic_identity_state()) {
 }
 
 progpu_native_scene_state semantic_state_cursor::advance(
@@ -52,7 +66,7 @@ progpu_native_scene_state semantic_state_cursor::advance(
         command.kind == PROGPU_NATIVE_SCENE_COMMAND_PUSH_LAYER) {
         stack_[depth_++] = current_;
         if (command.state_index != PROGPU_NATIVE_SCENE_NO_INDEX) {
-            current_ = read_state(command.state_index);
+            current_ = resolve_state(command.state_index);
         }
         return current_;
     }
@@ -62,9 +76,291 @@ progpu_native_scene_state semantic_state_cursor::advance(
         return current_;
     }
     if (command.state_index != PROGPU_NATIVE_SCENE_NO_INDEX) {
-        return read_state(command.state_index);
+        return resolve_state(command.state_index);
     }
     return current_;
+}
+
+progpu_native_scene_state semantic_state_cursor::resolve_state(
+    std::uint32_t index) const noexcept {
+    return resolve_guidelines(read_state(index));
+}
+
+progpu_native_scene_state semantic_state_cursor::read_composite_state(
+    std::uint32_t index) const noexcept {
+    return read_state(index);
+}
+
+void semantic_state_cursor::snap_composite_point(
+    const progpu_native_scene_state& state,
+    float& target_x,
+    float& target_y) const noexcept {
+    if ((read_guideline_flags(state) &
+            PROGPU_NATIVE_SCENE_GUIDELINE_PER_POINT) != 0U) {
+        return;
+    }
+    snap_point(state, target_x, target_y);
+}
+
+bool semantic_state_cursor::has_per_point_guidelines(
+    const progpu_native_scene_state& state) const noexcept {
+    return (read_guideline_flags(state) &
+        PROGPU_NATIVE_SCENE_GUIDELINE_PER_POINT) != 0U;
+}
+
+bool semantic_state_cursor::try_composite_rectangle_inverse(
+    const progpu_native_scene_state& state,
+    progpu_native_image_rect bounds,
+    progpu_native_affine_2d& inverse,
+    bool& visible) const noexcept {
+    // Algorithm: snap opposite corners with the same nearest-guideline search
+    // as the retained cache quad, then invert its separable deformation.
+    // Time: O(log X + log Y) for X/Y guidelines. Space: O(1), allocation-free.
+    if (!std::isfinite(bounds.x) || !std::isfinite(bounds.y) ||
+        !std::isfinite(bounds.width) || !std::isfinite(bounds.height) ||
+        bounds.width <= 0.0F || bounds.height <= 0.0F) return false;
+    const float right = bounds.x + bounds.width;
+    const float bottom = bounds.y + bounds.height;
+    if (!std::isfinite(right) || !std::isfinite(bottom)) return false;
+    float snapped_left = bounds.x;
+    float snapped_top = bounds.y;
+    float snapped_right = right;
+    float snapped_bottom = bottom;
+    snap_composite_point(state, snapped_left, snapped_top);
+    snap_composite_point(state, snapped_right, snapped_bottom);
+    if (!std::isfinite(snapped_left) || !std::isfinite(snapped_top) ||
+        !std::isfinite(snapped_right) || !std::isfinite(snapped_bottom)) return false;
+    const double width = static_cast<double>(snapped_right) - snapped_left;
+    const double height = static_cast<double>(snapped_bottom) - snapped_top;
+    if (width <= 0.0 || height <= 0.0) {
+        inverse = {1.0F, 0.0F, 0.0F, 1.0F, 0.0F, 0.0F};
+        visible = false;
+        return true;
+    }
+    const double sx = static_cast<double>(right - bounds.x) / width;
+    const double sy = static_cast<double>(bottom - bounds.y) / height;
+    const double tx = bounds.x - snapped_left * sx;
+    const double ty = bounds.y - snapped_top * sy;
+    constexpr double limit = std::numeric_limits<float>::max();
+    for (const double value : {sx, sy, tx, ty})
+        if (!std::isfinite(value) || std::abs(value) > limit) return false;
+    inverse = {static_cast<float>(sx), 0.0F, 0.0F, static_cast<float>(sy),
+        static_cast<float>(tx), static_cast<float>(ty)};
+    visible = true;
+    return true;
+}
+
+void semantic_state_cursor::snap_draw_point(
+    const progpu_native_scene_state& state,
+    float& target_x,
+    float& target_y) const noexcept {
+    if (!has_per_point_guidelines(state)) {
+        return;
+    }
+    snap_point(state, target_x, target_y);
+}
+
+std::uint32_t semantic_state_cursor::read_guideline_flags(
+    const progpu_native_scene_state& state) const noexcept {
+    if ((state.flags & PROGPU_NATIVE_SCENE_STATE_GUIDELINE_SET) == 0U ||
+        state.guideline_resource_index >= header_.resource_count) {
+        return 0U;
+    }
+    progpu_native_scene_resource resource{};
+    std::memcpy(
+        &resource,
+        bytes_ + header_.resource_offset +
+            static_cast<std::size_t>(state.guideline_resource_index) *
+                header_.resource_stride,
+        sizeof(resource));
+    progpu_native_scene_guideline_set guidelines{};
+    std::memcpy(
+        &guidelines,
+        bytes_ + resource.payload_offset,
+        sizeof(guidelines));
+    return guidelines.flags;
+}
+
+void semantic_state_cursor::snap_point(
+    const progpu_native_scene_state& state,
+    float& target_x,
+    float& target_y) const noexcept {
+    if ((state.flags & PROGPU_NATIVE_SCENE_STATE_GUIDELINE_SET) == 0U ||
+        !std::isfinite(dpi_scale_) || dpi_scale_ <= 0.0F) {
+        return;
+    }
+    progpu_native_scene_resource resource{};
+    std::memcpy(
+        &resource,
+        bytes_ + header_.resource_offset +
+            static_cast<std::size_t>(state.guideline_resource_index) *
+                header_.resource_stride,
+        sizeof(resource));
+    progpu_native_scene_guideline_set guidelines{};
+    std::memcpy(
+        &guidelines,
+        bytes_ + resource.payload_offset,
+        sizeof(guidelines));
+    const bool explicit_offsets = (guidelines.flags &
+        PROGPU_NATIVE_SCENE_GUIDELINE_EXPLICIT_OFFSETS) != 0U;
+    const std::size_t coordinate_count =
+        static_cast<std::size_t>(guidelines.guideline_x_count) +
+        guidelines.guideline_y_count;
+    const std::size_t explicit_offset_base =
+        sizeof(progpu_native_scene_guideline_set) +
+        coordinate_count * sizeof(double);
+    const auto snap_axis = [this,
+                            &resource,
+                            explicit_offsets,
+                            explicit_offset_base](
+        float& coordinate,
+        std::size_t offset,
+        std::uint32_t count,
+        std::uint32_t offset_index_base) {
+        if (count == 0U) {
+            return;
+        }
+        const float physical_coordinate = coordinate * dpi_scale_;
+        const auto read_coordinate = [this, &resource, offset](
+            std::uint32_t index) {
+            double value = 0.0;
+            std::memcpy(
+                &value,
+                bytes_ + resource.payload_offset + offset +
+                    static_cast<std::size_t>(index) * sizeof(double),
+                sizeof(value));
+            return static_cast<float>(value) * dpi_scale_;
+        };
+        std::uint32_t selected = 0U;
+        const float first = read_coordinate(0U);
+        if (count > 1U && physical_coordinate > first) {
+            std::uint32_t lower = 0U;
+            std::uint32_t upper = count - 1U;
+            float lower_value = first;
+            float upper_value = read_coordinate(upper);
+            if (physical_coordinate > upper_value) {
+                selected = upper;
+            } else {
+                while (upper - lower > 1U) {
+                    const std::uint32_t middle = (lower + upper) >> 1U;
+                    const float middle_value = read_coordinate(middle);
+                    if (physical_coordinate > middle_value) {
+                        lower = middle;
+                        lower_value = middle_value;
+                    } else {
+                        upper = middle;
+                        upper_value = middle_value;
+                    }
+                }
+                selected = upper_value - physical_coordinate <
+                        physical_coordinate - lower_value
+                    ? upper
+                    : lower;
+            }
+        }
+        const float selected_coordinate = read_coordinate(selected);
+        float snapping_offset = wpf_guideline_offset(selected_coordinate);
+        if (explicit_offsets) {
+            double stored_offset = 0.0;
+            std::memcpy(
+                &stored_offset,
+                bytes_ + resource.payload_offset + explicit_offset_base +
+                    static_cast<std::size_t>(offset_index_base + selected) *
+                        sizeof(double),
+                sizeof(stored_offset));
+            snapping_offset = static_cast<float>(stored_offset);
+        }
+        coordinate += snapping_offset / dpi_scale_;
+    };
+    constexpr std::size_t header_size =
+        sizeof(progpu_native_scene_guideline_set);
+    snap_axis(
+        target_x,
+        header_size,
+        guidelines.guideline_x_count,
+        0U);
+    snap_axis(
+        target_y,
+        header_size +
+            static_cast<std::size_t>(guidelines.guideline_x_count) *
+                sizeof(double),
+        guidelines.guideline_y_count,
+        guidelines.guideline_x_count);
+}
+
+progpu_native_scene_state semantic_state_cursor::resolve_guidelines(
+    progpu_native_scene_state state) const noexcept {
+    if ((state.flags & PROGPU_NATIVE_SCENE_STATE_GUIDELINE_SET) == 0U ||
+        !std::isfinite(dpi_scale_) || dpi_scale_ <= 0.0F) {
+        return state;
+    }
+    progpu_native_scene_resource resource{};
+    std::memcpy(
+        &resource,
+        bytes_ + header_.resource_offset +
+            static_cast<std::size_t>(state.guideline_resource_index) *
+                header_.resource_stride,
+        sizeof(resource));
+    progpu_native_scene_guideline_set guidelines{};
+    std::memcpy(
+        &guidelines,
+        bytes_ + resource.payload_offset,
+        sizeof(guidelines));
+    if ((guidelines.flags & PROGPU_NATIVE_SCENE_GUIDELINE_PER_POINT) != 0U) {
+        return state;
+    }
+    progpu_native_point translation{};
+    if (try_uniform_guideline_translation(
+            {bytes_ + resource.payload_offset, static_cast<std::size_t>(resource.payload_size)}, dpi_scale_, translation)) {
+        state.transform.m31 += translation.x;
+        state.transform.m32 += translation.y;
+        return state;
+    }
+    std::size_t offset = resource.payload_offset + sizeof(guidelines);
+    const bool explicit_offsets = (guidelines.flags &
+        PROGPU_NATIVE_SCENE_GUIDELINE_EXPLICIT_OFFSETS) != 0U;
+    const std::size_t coordinate_count =
+        static_cast<std::size_t>(guidelines.guideline_x_count) +
+        guidelines.guideline_y_count;
+    const std::size_t explicit_offset_base =
+        resource.payload_offset + sizeof(guidelines) +
+        coordinate_count * sizeof(double);
+    if (guidelines.guideline_x_count != 0U) {
+        double coordinate = 0.0;
+        std::memcpy(&coordinate, bytes_ + offset, sizeof(coordinate));
+        const float physical =
+            static_cast<float>(coordinate) * dpi_scale_;
+        float snapping_offset = wpf_guideline_offset(physical);
+        if (explicit_offsets) {
+            double stored_offset = 0.0;
+            std::memcpy(
+                &stored_offset,
+                bytes_ + explicit_offset_base,
+                sizeof(stored_offset));
+            snapping_offset = static_cast<float>(stored_offset);
+        }
+        state.transform.m31 += snapping_offset / dpi_scale_;
+        offset += sizeof(coordinate);
+    }
+    if (guidelines.guideline_y_count != 0U) {
+        double coordinate = 0.0;
+        std::memcpy(&coordinate, bytes_ + offset, sizeof(coordinate));
+        const float physical =
+            static_cast<float>(coordinate) * dpi_scale_;
+        float snapping_offset = wpf_guideline_offset(physical);
+        if (explicit_offsets) {
+            double stored_offset = 0.0;
+            std::memcpy(
+                &stored_offset,
+                bytes_ + explicit_offset_base +
+                    static_cast<std::size_t>(guidelines.guideline_x_count) *
+                        sizeof(double),
+                sizeof(stored_offset));
+            snapping_offset = static_cast<float>(stored_offset);
+        }
+        state.transform.m32 += snapping_offset / dpi_scale_;
+    }
+    return state;
 }
 
 progpu_native_scene_state semantic_state_cursor::read_state(
@@ -303,11 +599,14 @@ scissor resolve_semantic_target_scissor(
     std::uint32_t frame_width,
     std::uint32_t frame_height,
     float dpi_scale) noexcept {
+    // A local bitmap-cache page may be larger than the presentation frame
+    // (RenderAtScale, or an offscreen subtree). Clip against that page's
+    // coordinate domain before localizing, not against the root window.
     auto clipped = intersect_semantic_scissors(
         resolve_semantic_scissor(
             state,
-            frame_width,
-            frame_height,
+            target_domain_extent(frame_width, target.x, target.width),
+            target_domain_extent(frame_height, target.y, target.height),
             dpi_scale),
         target);
     if (!clipped.drawable) {
@@ -352,13 +651,34 @@ scissor semantic_layer_target_cursor::advance(
         const bool materialized = scene::layer_requires_materialization(layer);
         scope_materialized_[scope_depth_++] = materialized;
         if (materialized) {
-            const auto declared = resolve_semantic_layer_scissor(
-                layer,
-                frame_width_,
-                frame_height_,
-                dpi_scale_);
-            extents_[materialized_depth_++] =
-                intersect_semantic_scissors(current(), declared);
+            const bool local_cache =
+                (layer.flags &
+                    PROGPU_NATIVE_SCENE_LAYER_CACHE_LOCAL_SPACE) != 0U;
+            if (local_cache) {
+                const auto local_extent = [&](float value) noexcept {
+                    const double pixels = std::ceil(
+                        static_cast<double>(value) * dpi_scale_);
+                    return pixels >= static_cast<double>(
+                            std::numeric_limits<std::uint32_t>::max())
+                        ? std::numeric_limits<std::uint32_t>::max()
+                        : static_cast<std::uint32_t>(pixels);
+                };
+                const std::uint32_t width = local_extent(
+                    layer.bounds.width);
+                const std::uint32_t height = local_extent(
+                    layer.bounds.height);
+                extents_[materialized_depth_++] = {
+                    0U, 0U, width, height, width != 0U && height != 0U};
+            } else {
+                const auto parent = current();
+                const auto declared = resolve_semantic_layer_scissor(
+                    layer,
+                    target_domain_extent(frame_width_, parent.x, parent.width),
+                    target_domain_extent(frame_height_, parent.y, parent.height),
+                    dpi_scale_);
+                extents_[materialized_depth_++] =
+                    intersect_semantic_scissors(parent, declared);
+            }
         }
     } else if (command.kind == PROGPU_NATIVE_SCENE_COMMAND_POP_LAYER) {
         if (scope_materialized_[--scope_depth_]) {

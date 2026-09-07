@@ -1,4 +1,5 @@
 using System.Numerics;
+using System.Runtime.InteropServices;
 using System.Text;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
@@ -2717,6 +2718,603 @@ public sealed class MediaPlaybackEngineTests
     }
 
     [Fact]
+    public void SharedPcm16StereoProcessorMatchesScalarOracleAcrossVectorTails()
+    {
+        int[] lengths = [1, 7, 8, 15, 16, 17, 31, 32, 33, 257];
+        MediaAudioStereoLevels[] levels =
+        [
+            new(0f, 0f),
+            new(0.001f, 2f),
+            new(0.5f, 1.5f),
+            new(1f, 1f),
+            new(1.999f, 0.125f),
+            new(2f, 2f)
+        ];
+        var random = new Random(0x51_4D_44);
+
+        foreach (int length in lengths)
+        {
+            short[] source = new short[length];
+            random.NextBytes(
+                System.Runtime.InteropServices.MemoryMarshal.AsBytes(
+                    source.AsSpan()));
+            if (length > 0)
+            {
+                source[0] = short.MinValue;
+                source[^1] = short.MaxValue;
+            }
+
+            foreach (MediaAudioStereoLevels stereoLevels in levels)
+            {
+                for (int initialOffset = 0;
+                     initialOffset < 2;
+                     initialOffset++)
+                {
+                    short[] expected = source.ToArray();
+                    ApplyPcm16ScalarOracle(
+                        expected,
+                        stereoLevels,
+                        initialOffset);
+                    short[] actual = source.ToArray();
+                    int channelOffset = initialOffset;
+
+                    MediaPcm16StereoProcessor.ApplyStereo(
+                        actual,
+                        channelCount: 2,
+                        stereoLevels,
+                        ref channelOffset);
+
+                    Assert.Equal(expected, actual);
+                    Assert.Equal(
+                        (initialOffset + length) & 1,
+                        channelOffset);
+                }
+            }
+        }
+    }
+
+    private static void ApplyPcm16ScalarOracle(
+        Span<short> samples,
+        in MediaAudioStereoLevels levels,
+        int channelOffset)
+    {
+        int left = (int)Math.Round(
+            levels.Left * 32_768d,
+            MidpointRounding.AwayFromZero);
+        int right = (int)Math.Round(
+            levels.Right * 32_768d,
+            MidpointRounding.AwayFromZero);
+        int channel = channelOffset;
+        for (int index = 0; index < samples.Length; index++)
+        {
+            int fixedLevel = channel == 0 ? left : right;
+            int scaled = samples[index] * fixedLevel / 32_768;
+            samples[index] = (short)Math.Clamp(
+                scaled,
+                short.MinValue,
+                short.MaxValue);
+            channel ^= 1;
+        }
+    }
+
+    [Fact]
+    public void SharedPcm16WideAccumulatorMatchesScalarOracleAcrossVectorTails()
+    {
+        int[] lengths = [1, 7, 8, 15, 16, 17, 31, 32, 33, 257];
+        (int Left, int Right)[] levels =
+        [
+            (0, 0),
+            (1, 65_536),
+            (16_384, 49_152),
+            (32_768, 32_768),
+            (65_536, 4_096)
+        ];
+        var random = new Random(0x57_49_44);
+
+        foreach (int length in lengths)
+        {
+            short[] source = new short[length];
+            random.NextBytes(
+                System.Runtime.InteropServices.MemoryMarshal.AsBytes(
+                    source.AsSpan()));
+            source[0] = short.MinValue;
+            source[^1] = short.MaxValue;
+            long[] initial = new long[length];
+            for (int index = 0; index < initial.Length; index++)
+            {
+                initial[index] = random.NextInt64(
+                    -1_000_000_000L,
+                    1_000_000_001L);
+            }
+            initial[0] = long.MinValue + 10;
+            initial[^1] = long.MaxValue - 10;
+
+            foreach ((int left, int right) in levels)
+            {
+                long[] expected = initial.ToArray();
+                AddPcm16WideScalarOracle(
+                    source,
+                    left,
+                    right,
+                    expected);
+                long[] actual = initial.ToArray();
+
+                MediaPcm16WideAccumulator.AddStereo(
+                    source,
+                    left,
+                    right,
+                    actual);
+
+                Assert.Equal(expected, actual);
+            }
+
+            long[] monoExpected = initial.ToArray();
+            AddPcm16WideScalarOracle(
+                source,
+                49_152,
+                49_152,
+                monoExpected);
+            long[] monoActual = initial.ToArray();
+            MediaPcm16WideAccumulator.AddMono(
+                source,
+                49_152,
+                monoActual);
+            Assert.Equal(monoExpected, monoActual);
+
+            long[] saturationSource = initial.ToArray();
+            long[] boundaries =
+            [
+                long.MinValue,
+                short.MinValue - 1L,
+                short.MinValue,
+                -1L,
+                0L,
+                1L,
+                short.MaxValue,
+                short.MaxValue + 1L,
+                long.MaxValue
+            ];
+            boundaries.AsSpan(
+                    0,
+                    Math.Min(
+                        boundaries.Length,
+                        saturationSource.Length))
+                .CopyTo(saturationSource);
+            short[] saturatedExpected = new short[length];
+            short[] saturatedActual = new short[length];
+            for (int index = 0;
+                 index < saturationSource.Length;
+                 index++)
+            {
+                saturatedExpected[index] =
+                    (short)Math.Clamp(
+                        saturationSource[index],
+                        short.MinValue,
+                        short.MaxValue);
+            }
+            MediaPcm16WideAccumulator.WriteSaturated(
+                saturationSource,
+                saturatedActual);
+            Assert.Equal(
+                saturatedExpected,
+                saturatedActual);
+        }
+    }
+
+    private static void AddPcm16WideScalarOracle(
+        ReadOnlySpan<short> source,
+        int left,
+        int right,
+        Span<long> destination)
+    {
+        for (int index = 0; index < source.Length; index++)
+        {
+            int level = (index & 1) == 0 ? left : right;
+            long contribution =
+                (long)source[index] * level / 32_768;
+            destination[index] = unchecked(
+                destination[index] + contribution);
+        }
+    }
+
+    [Fact]
+    public void SharedPcm16FloatConverterMatchesScalarOracleAcrossVectorTails()
+    {
+        int[] lengths = [0, 1, 3, 4, 7, 8, 9, 15, 16, 17, 31, 32, 33, 257];
+        var random = new Random(0x50_43_46);
+
+        foreach (int length in lengths)
+        {
+            var source = new short[length];
+            random.NextBytes(
+                MemoryMarshal.AsBytes(
+                    source.AsSpan()));
+            if (length > 0)
+            {
+                source[0] = short.MinValue;
+                source[^1] = short.MaxValue;
+            }
+            if (length > 6)
+            {
+                source[1] = -1;
+                source[2] = 0;
+                source[3] = 1;
+                source[4] = -16_384;
+                source[5] = 16_384;
+            }
+
+            var expected = new float[length];
+            for (int index = 0; index < source.Length; index++)
+            {
+                expected[index] = source[index] / 32_768F;
+            }
+            var actual = new float[length + 1];
+            actual[^1] = float.NaN;
+
+            MediaPcm16FloatConverter.ConvertToNormalizedFloat(
+                source,
+                actual);
+
+            for (int index = 0; index < expected.Length; index++)
+            {
+                Assert.Equal(
+                    BitConverter.SingleToInt32Bits(expected[index]),
+                    BitConverter.SingleToInt32Bits(actual[index]));
+            }
+            Assert.True(float.IsNaN(actual[^1]));
+        }
+
+        Assert.Throws<ArgumentException>(() =>
+            MediaPcm16FloatConverter.ConvertToNormalizedFloat(
+                new short[17],
+                new float[16]));
+
+        short[] allocationSource = new short[2_048];
+        random.NextBytes(
+            MemoryMarshal.AsBytes(
+                allocationSource.AsSpan()));
+        float[] allocationDestination = new float[allocationSource.Length];
+        MediaPcm16FloatConverter.ConvertToNormalizedFloat(
+            allocationSource,
+            allocationDestination);
+        long before = GC.GetAllocatedBytesForCurrentThread();
+        for (int iteration = 0; iteration < 1_000; iteration++)
+        {
+            MediaPcm16FloatConverter.ConvertToNormalizedFloat(
+                allocationSource,
+                allocationDestination);
+        }
+        Assert.Equal(
+            before,
+            GC.GetAllocatedBytesForCurrentThread());
+    }
+
+    [Fact]
+    public void SharedFloatStereoLayoutConverterMatchesScalarOracleAcrossVectorTails()
+    {
+        int[] frames = [0, 1, 3, 4, 5, 7, 8, 9, 15, 16, 17, 257];
+        var random = new Random(0x53_54_52);
+
+        foreach (int frameCount in frames)
+        {
+            var left = new float[frameCount];
+            var right = new float[frameCount];
+            for (int frame = 0; frame < frameCount; frame++)
+            {
+                left[frame] = (float)(random.NextDouble() * 8D - 4D);
+                right[frame] = (float)(random.NextDouble() * 8D - 4D);
+            }
+
+            var expected = new float[frameCount * 2];
+            for (int frame = 0; frame < frameCount; frame++)
+            {
+                expected[frame * 2] = left[frame];
+                expected[frame * 2 + 1] = right[frame];
+            }
+            var actual = new float[expected.Length + 1];
+            actual[^1] = float.NaN;
+            MediaFloatStereoLayoutConverter.Interleave(
+                left,
+                right,
+                actual);
+
+            Assert.True(
+                expected.AsSpan().SequenceEqual(
+                    actual.AsSpan(0, expected.Length)));
+            Assert.True(float.IsNaN(actual[^1]));
+
+            var actualLeft = new float[frameCount + 1];
+            var actualRight = new float[frameCount + 1];
+            actualLeft[^1] = float.NaN;
+            actualRight[^1] = float.NaN;
+            MediaFloatStereoLayoutConverter.Deinterleave(
+                expected,
+                actualLeft.AsSpan(0, frameCount),
+                actualRight.AsSpan(0, frameCount));
+
+            Assert.True(left.AsSpan().SequenceEqual(
+                actualLeft.AsSpan(0, frameCount)));
+            Assert.True(right.AsSpan().SequenceEqual(
+                actualRight.AsSpan(0, frameCount)));
+            Assert.True(float.IsNaN(actualLeft[^1]));
+            Assert.True(float.IsNaN(actualRight[^1]));
+        }
+
+        Assert.Throws<ArgumentException>(() =>
+            MediaFloatStereoLayoutConverter.Interleave(
+                new float[4],
+                new float[3],
+                new float[8]));
+        Assert.Throws<ArgumentException>(() =>
+            MediaFloatStereoLayoutConverter.Interleave(
+                new float[4],
+                new float[4],
+                new float[7]));
+        Assert.Throws<ArgumentException>(() =>
+            MediaFloatStereoLayoutConverter.Deinterleave(
+                new float[7],
+                new float[4],
+                new float[4]));
+
+        float[] allocationLeft = new float[2_048];
+        float[] allocationRight = new float[2_048];
+        float[] allocationInterleaved = new float[4_096];
+        MediaFloatStereoLayoutConverter.Interleave(
+            allocationLeft,
+            allocationRight,
+            allocationInterleaved);
+        MediaFloatStereoLayoutConverter.Deinterleave(
+            allocationInterleaved,
+            allocationLeft,
+            allocationRight);
+        long before = GC.GetAllocatedBytesForCurrentThread();
+        for (int iteration = 0; iteration < 1_000; iteration++)
+        {
+            MediaFloatStereoLayoutConverter.Interleave(
+                allocationLeft,
+                allocationRight,
+                allocationInterleaved);
+            MediaFloatStereoLayoutConverter.Deinterleave(
+                allocationInterleaved,
+                allocationLeft,
+                allocationRight);
+        }
+        Assert.Equal(
+            before,
+            GC.GetAllocatedBytesForCurrentThread());
+    }
+
+    [Fact]
+    public void SharedPcm16ProcessedAccumulatorMatchesScalarOracleAcrossVectorTails()
+    {
+        int[] lengths = [1, 3, 4, 7, 8, 9, 15, 16, 17, 33, 257];
+        (int Left, int Right)[] levels =
+        [
+            (0, 0),
+            (1, 65_536),
+            (16_384, 49_152),
+            (32_768, 32_768),
+            (65_536, 4_096)
+        ];
+        var random = new Random(0x46_58_41);
+
+        foreach (int length in lengths)
+        {
+            var source = new float[length];
+            for (int index = 0; index < source.Length; index++)
+            {
+                source[index] =
+                    (float)(random.NextDouble() * 8D - 4D);
+            }
+            source[0] = float.MaxValue;
+            source[^1] = -float.MaxValue;
+            if (length > 2)
+            {
+                source[1] = 0.5F / 32_768F;
+                source[2] = -0.5F / 32_768F;
+            }
+            if (length > 6)
+            {
+                source[3] = float.Epsilon;
+                source[4] = -float.Epsilon;
+                source[5] = 0F;
+                source[6] = -0F;
+            }
+
+            var initial = new long[length];
+            for (int index = 0; index < initial.Length; index++)
+            {
+                initial[index] = random.NextInt64(
+                    -1_000_000_000L,
+                    1_000_000_001L);
+            }
+            initial[0] = 1;
+            initial[^1] = -1;
+
+            foreach ((int left, int right) in levels)
+            {
+                long[] expected = initial.ToArray();
+                AddPcm16ProcessedScalarOracle(
+                    source,
+                    left,
+                    right,
+                    expected,
+                    "non-finite");
+                long[] actual = initial.ToArray();
+
+                MediaPcm16ProcessedAccumulator.AddStereo(
+                    source,
+                    left,
+                    right,
+                    actual,
+                    "non-finite");
+
+                Assert.Equal(expected, actual);
+            }
+
+            long[] monoExpected = initial.ToArray();
+            AddPcm16ProcessedScalarOracle(
+                source,
+                49_152,
+                49_152,
+                monoExpected,
+                "non-finite");
+            long[] monoActual = initial.ToArray();
+            MediaPcm16ProcessedAccumulator.AddMono(
+                source,
+                49_152,
+                monoActual,
+                "non-finite");
+            Assert.Equal(monoExpected, monoActual);
+        }
+
+        var roundingSource = new float[4_099];
+        for (int index = 0; index < roundingSource.Length; index++)
+        {
+            float sample;
+            do
+            {
+                sample = BitConverter.Int32BitsToSingle(
+                    (int)random.NextInt64());
+            }
+            while (!float.IsFinite(sample));
+            roundingSource[index] = sample;
+        }
+        roundingSource[0] = BitConverter.Int32BitsToSingle(0x3EFFFFFF);
+        roundingSource[1] = BitConverter.Int32BitsToSingle(0x3F000001);
+        roundingSource[2] = BitConverter.Int32BitsToSingle(
+            unchecked((int)0xBEFFFFFF));
+        roundingSource[3] = BitConverter.Int32BitsToSingle(
+            unchecked((int)0xBF000001));
+        var roundingInitial = new long[roundingSource.Length];
+        for (int index = 0; index < roundingInitial.Length; index++)
+        {
+            roundingInitial[index] = (index % 4) switch
+            {
+                0 => long.MinValue,
+                1 => long.MaxValue,
+                2 => random.NextInt64(
+                    -1_000_000_000_000L,
+                    1_000_000_000_001L),
+                _ => 0
+            };
+        }
+        foreach ((int left, int right) in levels)
+        {
+            long[] expected = roundingInitial.ToArray();
+            AddPcm16ProcessedScalarOracle(
+                roundingSource,
+                left,
+                right,
+                expected,
+                "non-finite");
+            long[] actual = roundingInitial.ToArray();
+            MediaPcm16ProcessedAccumulator.AddStereo(
+                roundingSource,
+                left,
+                right,
+                actual,
+                "non-finite");
+            Assert.Equal(expected, actual);
+        }
+
+        float[] invalid = new float[17];
+        invalid.AsSpan().Fill(0.25F);
+        invalid[10] = float.NaN;
+        long[] invalidExpected = new long[invalid.Length];
+        long[] invalidActual = new long[invalid.Length];
+        Assert.Throws<InvalidDataException>(() =>
+            AddPcm16ProcessedScalarOracle(
+                invalid,
+                32_768,
+                16_384,
+                invalidExpected,
+                "expected non-finite"));
+        InvalidDataException exception = Assert.Throws<InvalidDataException>(() =>
+            MediaPcm16ProcessedAccumulator.AddStereo(
+                invalid,
+                32_768,
+                16_384,
+                invalidActual,
+                "expected non-finite"));
+        Assert.Equal("expected non-finite", exception.Message);
+        Assert.Equal(invalidExpected, invalidActual);
+
+        float[] allocationSource = new float[2_048];
+        allocationSource.AsSpan().Fill(0.25F);
+        long[] allocationDestination = new long[allocationSource.Length];
+        MediaPcm16ProcessedAccumulator.AddStereo(
+            allocationSource,
+            32_768,
+            49_152,
+            allocationDestination,
+            "non-finite");
+        allocationDestination.AsSpan().Clear();
+        long before = GC.GetAllocatedBytesForCurrentThread();
+        for (int iteration = 0; iteration < 1_000; iteration++)
+        {
+            MediaPcm16ProcessedAccumulator.AddStereo(
+                allocationSource,
+                32_768,
+                49_152,
+                allocationDestination,
+                "non-finite");
+            allocationDestination.AsSpan().Clear();
+        }
+        Assert.Equal(
+            before,
+            GC.GetAllocatedBytesForCurrentThread());
+    }
+
+    private static void AddPcm16ProcessedScalarOracle(
+        ReadOnlySpan<float> source,
+        int left,
+        int right,
+        Span<long> destination,
+        string nonFiniteMessage)
+    {
+        if (left == 0 && right == 0)
+        {
+            return;
+        }
+
+        for (int index = 0; index < source.Length; index++)
+        {
+            float sample = source[index];
+            if (!float.IsFinite(sample))
+            {
+                throw new InvalidDataException(nonFiniteMessage);
+            }
+
+            int level = (index & 1) == 0 ? left : right;
+            double scaled = (double)sample * level;
+            long contribution =
+                scaled >= long.MaxValue
+                    ? long.MaxValue
+                    : scaled <= long.MinValue
+                        ? long.MinValue
+                        : checked((long)Math.Round(
+                            scaled,
+                            MidpointRounding.AwayFromZero));
+            long accumulator = destination[index];
+            if (contribution > 0 &&
+                accumulator > long.MaxValue - contribution)
+            {
+                destination[index] = long.MaxValue;
+            }
+            else if (contribution < 0 &&
+                     accumulator < long.MinValue - contribution)
+            {
+                destination[index] = long.MinValue;
+            }
+            else
+            {
+                destination[index] = accumulator + contribution;
+            }
+        }
+    }
+
+    [Fact]
     public void SharedPcmTimelineMathUsesHalfOpenFrameBoundaries()
     {
         const uint sampleRate = 48_000;
@@ -3135,6 +3733,169 @@ public sealed class MediaPlaybackEngineTests
     }
 
     [Fact]
+    public void Mesh3DEntryCanOverrideViewportShadingMode()
+    {
+        var payload = new Viewport3DCompilationPayload
+        {
+            ShadingMode = ShadingMode3D.Realistic
+        };
+        var inherited = new MeshCompilationEntry();
+        var unlit = new MeshCompilationEntry
+        {
+            ShadingModeOverride = ShadingMode3D.Flat
+        };
+
+        Assert.Equal(
+            ShadingMode3D.Realistic,
+            Mesh3DExtensionPipeline.ResolveShadingMode(
+                payload,
+                inherited));
+        Assert.Equal(
+            ShadingMode3D.Flat,
+            Mesh3DExtensionPipeline.ResolveShadingMode(
+                payload,
+                unlit));
+    }
+
+    [Fact]
+    public void Mesh3DCompilesTypedGradientMaterialWithoutTextureStaging()
+    {
+        var stops = new List<GpuGradientStop>();
+        var record = new GpuMesh3DRecord();
+        var brush = new global::ProGPU.Vector.LinearGradientBrush(
+            new Vector2(0f, 0.5f),
+            new Vector2(1f, 0.5f),
+            new[]
+            {
+                new global::ProGPU.Vector.GradientStop(
+                    new Vector4(1f, 0f, 0f, 0.5f),
+                    0f),
+                new global::ProGPU.Vector.GradientStop(
+                    new Vector4(0f, 0f, 1f, 1f),
+                    1f)
+            })
+        {
+            Opacity = 0.75f,
+            SpreadMethod =
+                global::ProGPU.Vector.GradientSpreadMethod.Reflect,
+            ColorInterpolationMode =
+                global::ProGPU.Vector.GradientColorInterpolationMode
+                    .ScRgbLinearInterpolation,
+            CoordinateTransform = Matrix4x4.CreateTranslation(
+                0.25f,
+                0.5f,
+                0f)
+        };
+
+        Mesh3DExtensionPipeline.ApplyMaterialBrush(
+            brush,
+            ref record,
+            stops);
+
+        Assert.Equal(2, stops.Count);
+        Assert.Equal(new Vector4(0f, 0.5f, 1f, 0.5f),
+            record.MaterialGradientPoints);
+        Assert.Equal(new Vector4(1f, 0.75f, 1f, 1f),
+            record.MaterialBrushMetadata);
+        Assert.Equal(new Vector4(0f, 2f, 0f, 0f),
+            record.MaterialStopMetadata);
+        Assert.Equal(0.25f, record.MaterialBrushTransform0.Z);
+        Assert.Equal(0.5f, record.MaterialBrushTransform1.Z);
+        Assert.Equal(new Vector4(1f, 0f, 0f, 0.5f),
+            stops[0].Color);
+        Assert.Equal(1f, stops[1].Offset);
+    }
+
+    [Fact]
+    public void Mesh3DCompilesTypedRadialGradientMaterial()
+    {
+        var stops = new List<GpuGradientStop>();
+        var record = new GpuMesh3DRecord();
+        var brush = new global::ProGPU.Vector.RadialGradientBrush(
+            new Vector2(0.5f, 0.5f),
+            new Vector2(0.25f, 0.5f),
+            0.5f,
+            0.25f,
+            new[]
+            {
+                new global::ProGPU.Vector.GradientStop(
+                    Vector4.One,
+                    0f),
+                new global::ProGPU.Vector.GradientStop(
+                    Vector4.Zero,
+                    1f)
+            });
+
+        Mesh3DExtensionPipeline.ApplyMaterialBrush(
+            brush,
+            ref record,
+            stops);
+
+        Assert.Equal(new Vector4(0.25f, 0.5f, 0f, 0f),
+            record.MaterialGradientPoints);
+        Assert.Equal(new Vector4(0.5f, 0.5f, 0.5f, 0.25f),
+            record.MaterialGradientEllipse);
+        Assert.Equal(2f, record.MaterialBrushMetadata.X);
+        Assert.Equal(2, stops.Count);
+    }
+
+    [Fact]
+    public void Mesh3DCompilesTypedSpecularGradientTarget()
+    {
+        var stops = new List<GpuGradientStop>();
+        var record = new GpuMesh3DRecord();
+        var brush = new global::ProGPU.Vector.LinearGradientBrush(
+            Vector2.Zero,
+            Vector2.UnitX,
+            [
+                new global::ProGPU.Vector.GradientStop(
+                    new Vector4(1f, 0f, 0f, 1f),
+                    0f),
+                new global::ProGPU.Vector.GradientStop(
+                    new Vector4(0f, 0f, 1f, 1f),
+                    1f)
+            ]);
+
+        Mesh3DExtensionPipeline.ApplyMaterialBrush(
+            brush,
+            ref record,
+            stops,
+            MaterialBrushTarget3D.Specular);
+
+        Assert.Equal(new Vector4(0f, 2f, 1f, 0f),
+            record.MaterialStopMetadata);
+    }
+
+    [Fact]
+    public void Mesh3DRejectsInvalidMaterialBrushTarget()
+    {
+        var stops = new List<GpuGradientStop>();
+        var record = new GpuMesh3DRecord();
+
+        Assert.Throws<ArgumentOutOfRangeException>(() =>
+            Mesh3DExtensionPipeline.ApplyMaterialBrush(
+                new global::ProGPU.Vector.SolidColorBrush(
+                    Vector4.One),
+                ref record,
+                stops,
+                (MaterialBrushTarget3D)2));
+    }
+
+    [Fact]
+    public void Mesh3DRejectsSpecularTargetWithoutTypedBrush()
+    {
+        var stops = new List<GpuGradientStop>();
+        var record = new GpuMesh3DRecord();
+
+        Assert.Throws<ArgumentException>(() =>
+            Mesh3DExtensionPipeline.ApplyMaterialBrush(
+                null,
+                ref record,
+                stops,
+                MaterialBrushTarget3D.Specular));
+    }
+
+    [Fact]
     public void Mesh3DShadersSharePlanarStorageRecordAbi()
     {
         string solid = ShaderResource.Load(
@@ -3144,8 +3905,10 @@ public sealed class MediaPlaybackEngineTests
             typeof(Mesh3DExtensionPipeline),
             "Mesh3DWireframe.wgsl");
 
-        Assert.Equal(448, System.Runtime.InteropServices.Marshal
+        Assert.Equal(560, System.Runtime.InteropServices.Marshal
             .SizeOf<GpuMesh3DRecord>());
+        Assert.Equal(80, System.Runtime.InteropServices.Marshal
+            .SizeOf<GpuLight3DRecord>());
         Assert.Equal(
             GetRecordDeclaration(solid),
             GetRecordDeclaration(wireframe));
@@ -3156,6 +3919,46 @@ public sealed class MediaPlaybackEngineTests
         Assert.Contains(
             "TransformMaterialCoordinate",
             solid,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "@group(0) @binding(2) var<storage, read> lightRecords",
+            solid,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "@group(0) @binding(3) var<storage, read> materialGradientStops",
+            solid,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "SampleMaterialGradient(",
+            solid,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "record.materialStopMetadata.z > 0.5",
+            solid,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "materialSpecular * specular",
+            solid,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "if (record.lightCount != 0u)",
+            solid,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "distance <= 0.000001 || distance > source.positionRange.w",
+            solid,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "let H = normalize(V + L);",
+            solid,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "source.directionInnerCos.w - outerCos",
+            solid,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "@group(0) @binding(2) var<storage, read> lightRecords",
+            wireframe,
             StringComparison.Ordinal);
 
         static string GetRecordDeclaration(string shader)
@@ -3232,6 +4035,322 @@ public sealed class MediaPlaybackEngineTests
         Assert.Equal(
             (byte)1,
             scratch.UnfilterableMaterials[0]);
+    }
+
+    [Fact]
+    public void WinUiMesh3DExecutesPointAndSpotLightBufferOnGpu()
+    {
+        byte[] point = RenderWithLight(new Light3DCompilationEntry
+        {
+            Kind = LightKind3D.Point,
+            Color = new Vector4(1f, 0f, 0f, 1f),
+            Position = new Vector3(0f, 0f, 2f),
+            Range = 20f
+        });
+        byte[] spot = RenderWithLight(new Light3DCompilationEntry
+        {
+            Kind = LightKind3D.Spot,
+            Color = new Vector4(0f, 0f, 1f, 1f),
+            Position = new Vector3(0f, 0f, 2f),
+            Direction = -Vector3.UnitZ,
+            Range = 20f,
+            InnerConeCosine = MathF.Cos(15f * MathF.PI / 180f),
+            OuterConeCosine = MathF.Cos(30f * MathF.PI / 180f)
+        });
+
+        Assert.True(point[0] > point[2] + 40,
+            $"Expected point-light red dominance, got {string.Join('/', point)}.");
+        Assert.True(spot[2] > spot[0] + 40,
+            $"Expected spot-light blue dominance, got {string.Join('/', spot)}.");
+
+        static byte[] RenderWithLight(Light3DCompilationEntry light)
+        {
+            using var window = new HeadlessWindow(160, 90);
+            var mesh = new MeshGeometry3D
+            {
+                Positions =
+                [
+                    new Vector3(-1.5f, -0.8f, 0f),
+                    new Vector3(1.5f, -0.8f, 0f),
+                    new Vector3(1.5f, 0.8f, 0f),
+                    new Vector3(-1.5f, 0.8f, 0f)
+                ],
+                Normals =
+                [
+                    -Vector3.UnitZ,
+                    -Vector3.UnitZ,
+                    -Vector3.UnitZ,
+                    -Vector3.UnitZ
+                ],
+                TriangleIndices = [0, 1, 2, 0, 2, 3]
+            };
+            var material = new DiffuseMaterial
+            {
+                Brush = new ProGPU.Vector.SolidColorBrush(Vector4.One),
+                SpecularColor = Vector3.Zero,
+                AmbientColor = Vector3.One
+            };
+            var viewport = new Viewport3D
+            {
+                Camera = new OrthographicCamera { Width = 4f }
+            };
+            viewport.Lights.Add(light);
+            viewport.Children.Add(new ModelVisual3D
+            {
+                Content = new GeometryModel3D
+                {
+                    Geometry = mesh,
+                    BackMaterial = material
+                }
+            });
+            window.Content = viewport;
+            try
+            {
+                window.Render();
+                byte[] pixels = window.ReadPixels();
+                int offset = (45 * 160 + 80) * 4;
+                return pixels.AsSpan(offset, 4).ToArray();
+            }
+            finally
+            {
+                window.Content = null;
+            }
+        }
+    }
+
+    [Fact]
+    public void WinUiMesh3DExecutesLinearGradientMaterialOnGpu()
+    {
+        using var window = new HeadlessWindow(160, 90);
+        var mesh = new MeshGeometry3D
+        {
+            Positions =
+            [
+                new Vector3(-1.5f, -0.8f, 0f),
+                new Vector3(1.5f, -0.8f, 0f),
+                new Vector3(1.5f, 0.8f, 0f),
+                new Vector3(-1.5f, 0.8f, 0f)
+            ],
+            Normals =
+            [
+                -Vector3.UnitZ,
+                -Vector3.UnitZ,
+                -Vector3.UnitZ,
+                -Vector3.UnitZ
+            ],
+            TextureCoordinates =
+            [
+                new Vector2(0f, 1f),
+                new Vector2(1f, 1f),
+                new Vector2(1f, 0f),
+                new Vector2(0f, 0f)
+            ],
+            TriangleIndices = [0, 1, 2, 0, 2, 3]
+        };
+        var brush = new global::ProGPU.Vector.LinearGradientBrush(
+            new Vector2(0f, 0.5f),
+            new Vector2(1f, 0.5f),
+            new[]
+            {
+                new global::ProGPU.Vector.GradientStop(
+                    new Vector4(1f, 0f, 0f, 1f),
+                    0f),
+                new global::ProGPU.Vector.GradientStop(
+                    new Vector4(0f, 0f, 1f, 1f),
+                    1f)
+            });
+        var material = new DiffuseMaterial(brush);
+        var viewport = new Viewport3D
+        {
+            Camera = new OrthographicCamera { Width = 4f },
+            ShadingMode = ShadingMode3D.Flat
+        };
+        viewport.Children.Add(new ModelVisual3D
+        {
+            Content = new GeometryModel3D
+            {
+                Geometry = mesh,
+                Material = material,
+                BackMaterial = material
+            }
+        });
+        window.Content = viewport;
+        var webGpuErrors = new List<string>();
+        void OnWebGpuError(ErrorType _, string message) =>
+            webGpuErrors.Add(message);
+        WgpuContext.OnWebGpuError += OnWebGpuError;
+        try
+        {
+            window.Render();
+            byte[] pixels = window.ReadPixels();
+            int redDominant = 0;
+            int blueDominant = 0;
+            int maximumRedDelta = int.MinValue;
+            int maximumBlueDelta = int.MinValue;
+            for (int offset = 0;
+                 offset < pixels.Length;
+                 offset += 4)
+            {
+                if (pixels[offset] > pixels[offset + 2] + 48)
+                {
+                    redDominant++;
+                }
+                if (pixels[offset + 2] > pixels[offset] + 48)
+                {
+                    blueDominant++;
+                }
+                maximumRedDelta = Math.Max(
+                    maximumRedDelta,
+                    pixels[offset] - pixels[offset + 2]);
+                maximumBlueDelta = Math.Max(
+                    maximumBlueDelta,
+                    pixels[offset + 2] - pixels[offset]);
+            }
+
+            Assert.True(redDominant >= 1_000,
+                $"Expected a red gradient region, found {redDominant} pixels; " +
+                $"maximum red delta was {maximumRedDelta}; " +
+                $"WebGPU errors: {string.Join(" | ", webGpuErrors)}.");
+            Assert.True(blueDominant >= 1_000,
+                $"Expected a blue gradient region, found {blueDominant} pixels; " +
+                $"maximum blue delta was {maximumBlueDelta}.");
+        }
+        finally
+        {
+            WgpuContext.OnWebGpuError -= OnWebGpuError;
+            window.Content = null;
+        }
+    }
+
+    [Fact]
+    public void WinUiMesh3DExecutesSpecularGradientMaterialOnGpu()
+    {
+        using var window = new HeadlessWindow(160, 90);
+        var mesh = new MeshGeometry3D
+        {
+            Positions =
+            [
+                new Vector3(-1.5f, -0.8f, 0f),
+                new Vector3(1.5f, -0.8f, 0f),
+                new Vector3(1.5f, 0.8f, 0f),
+                new Vector3(-1.5f, 0.8f, 0f)
+            ],
+            Normals =
+            [
+                Vector3.UnitZ,
+                Vector3.UnitZ,
+                Vector3.UnitZ,
+                Vector3.UnitZ
+            ],
+            TextureCoordinates =
+            [
+                new Vector2(0f, 1f),
+                new Vector2(1f, 1f),
+                new Vector2(1f, 0f),
+                new Vector2(0f, 0f)
+            ],
+            TriangleIndices = [0, 1, 2, 0, 2, 3]
+        };
+        var brush = new global::ProGPU.Vector.LinearGradientBrush(
+            new Vector2(0f, 0.5f),
+            new Vector2(1f, 0.5f),
+            [
+                new global::ProGPU.Vector.GradientStop(
+                    new Vector4(1f, 0f, 0f, 1f),
+                    0f),
+                new global::ProGPU.Vector.GradientStop(
+                    new Vector4(0f, 0f, 1f, 1f),
+                    1f)
+            ]);
+        var material = new DiffuseMaterial(brush)
+        {
+            BrushTarget = MaterialBrushTarget3D.Specular,
+            Color = Vector4.UnitW,
+            SpecularColor = Vector3.One,
+            Shininess = 8f,
+            AmbientColor = Vector3.Zero
+        };
+        var viewport = new Viewport3D
+        {
+            Camera = new OrthographicCamera { Width = 4f }
+        };
+        viewport.Lights.Add(new Light3DCompilationEntry
+        {
+            Kind = LightKind3D.Point,
+            Color = Vector4.One,
+            Position = new Vector3(0f, 0f, -2f),
+            Range = 20f
+        });
+        viewport.Children.Add(new ModelVisual3D
+        {
+            Content = new GeometryModel3D
+            {
+                Geometry = mesh,
+                BackMaterial = material
+            }
+        });
+        window.Content = viewport;
+        var webGpuErrors = new List<string>();
+        void OnWebGpuError(ErrorType _, string message) =>
+            webGpuErrors.Add(message);
+        WgpuContext.OnWebGpuError += OnWebGpuError;
+        try
+        {
+            window.Render();
+            byte[] pixels = window.ReadPixels();
+            int redDominant = 0;
+            int blueDominant = 0;
+            int nonBlack = 0;
+            int maximumRedDelta = int.MinValue;
+            int maximumBlueDelta = int.MinValue;
+            for (int offset = 0;
+                 offset < pixels.Length;
+                 offset += 4)
+            {
+                if (pixels[offset] != 0 ||
+                    pixels[offset + 1] != 0 ||
+                    pixels[offset + 2] != 0)
+                {
+                    nonBlack++;
+                }
+                if (pixels[offset] > pixels[offset + 2] + 32)
+                {
+                    redDominant++;
+                }
+                if (pixels[offset + 2] > pixels[offset] + 32)
+                {
+                    blueDominant++;
+                }
+                maximumRedDelta = Math.Max(
+                    maximumRedDelta,
+                    pixels[offset] - pixels[offset + 2]);
+                maximumBlueDelta = Math.Max(
+                    maximumBlueDelta,
+                    pixels[offset + 2] - pixels[offset]);
+            }
+
+            Assert.True(redDominant >= 500,
+                $"Expected a red specular-gradient region, found " +
+                $"{redDominant} pixels; WebGPU errors: " +
+                $"{string.Join(" | ", webGpuErrors)}; nonBlack=" +
+                $"{nonBlack}, maxRedDelta={maximumRedDelta}, " +
+                $"maxBlueDelta={maximumBlueDelta}.");
+            Assert.True(blueDominant >= 500,
+                $"Expected a blue specular-gradient region, found " +
+                $"{blueDominant} pixels.");
+            Console.WriteLine(
+                "Qualified managed Mesh3D specular gradient on " +
+                $"{window.Context.AdapterName}, " +
+                $"backend={window.Context.AdapterBackendType}: " +
+                $"red={redDominant}, blue={blueDominant}, " +
+                $"maxRedDelta={maximumRedDelta}, " +
+                $"maxBlueDelta={maximumBlueDelta}.");
+        }
+        finally
+        {
+            WgpuContext.OnWebGpuError -= OnWebGpuError;
+            window.Content = null;
+        }
     }
 
     [Fact]

@@ -6,24 +6,49 @@
 
 #include <algorithm>
 #include <array>
+#include <atomic>
+#include <chrono>
 #include <cstdint>
 #include <cstdlib>
 #include <fstream>
 #include <iostream>
 #include <string>
+#include <thread>
 #include <vector>
 
 namespace {
 
 struct device_request {
     WGPUDevice device = nullptr;
-    bool complete = false;
+    std::atomic_bool complete{false};
 };
 
 struct map_request {
     WGPUBufferMapAsyncStatus status = WGPUBufferMapAsyncStatus_Unknown;
-    bool complete = false;
+    std::atomic_bool complete{false};
 };
+
+constexpr auto gpu_async_timeout = std::chrono::seconds(30);
+
+bool wait_for_gpu_callback(
+    WGPUDevice device,
+    const std::atomic_bool& complete,
+    const char* operation) {
+    const auto deadline = std::chrono::steady_clock::now() + gpu_async_timeout;
+    while (!complete.load(std::memory_order_acquire)) {
+        (void)wgpuDevicePoll(device, false, nullptr);
+        if (complete.load(std::memory_order_acquire)) {
+            return true;
+        }
+        if (std::chrono::steady_clock::now() >= deadline) {
+            std::cerr << operation << " timed out after "
+                      << gpu_async_timeout.count() << " seconds.\n";
+            return false;
+        }
+        std::this_thread::sleep_for(std::chrono::milliseconds(1));
+    }
+    return true;
+}
 
 void on_device_requested(
     WGPURequestDeviceStatus status,
@@ -38,7 +63,7 @@ void on_device_requested(
                   << (message == nullptr ? "unknown error" : message)
                   << '\n';
     }
-    request.complete = true;
+    request.complete.store(true, std::memory_order_release);
 }
 
 void on_device_lost(
@@ -62,7 +87,7 @@ void on_uncaptured_error(
 void on_buffer_mapped(WGPUBufferMapAsyncStatus status, void* userdata) {
     auto& request = *static_cast<map_request*>(userdata);
     request.status = status;
-    request.complete = true;
+    request.complete.store(true, std::memory_order_release);
 }
 
 WGPUInstanceBackendFlags platform_backends() {
@@ -103,12 +128,16 @@ bool request_device(
     WGPUAdapter& adapter,
     WGPUDevice& device,
     WGPUQueue& queue) {
+    std::cerr << "[ProGPUNative] enumerating platform adapters."
+              << std::endl;
     WGPUInstanceEnumerateAdapterOptions adapter_options{};
     adapter_options.backends = platform_backends();
     const std::size_t adapter_count = wgpuInstanceEnumerateAdapters(
         instance,
         &adapter_options,
         nullptr);
+    std::cerr << "[ProGPUNative] adapter count=" << adapter_count << '.'
+              << std::endl;
     if (adapter_count == 0U) {
         std::cerr << "No requested WebGPU backend adapter was found.\n";
         return false;
@@ -118,6 +147,8 @@ bool request_device(
         instance,
         &adapter_options,
         adapters.data());
+    std::cerr << "[ProGPUNative] enumerated " << written << " adapter(s)."
+              << std::endl;
     if (written == 0U || adapters[0] == nullptr) {
         std::cerr << "WebGPU adapter enumeration failed.\n";
         return false;
@@ -132,12 +163,15 @@ bool request_device(
     descriptor.defaultQueue.label = "ProGPU native sample queue";
     descriptor.deviceLostCallback = on_device_lost;
     device_request request{};
+    std::cerr << "[ProGPUNative] requesting WebGPU device." << std::endl;
     wgpuAdapterRequestDevice(
         adapter,
         &descriptor,
         on_device_requested,
         &request);
-    if (!request.complete || request.device == nullptr) {
+    std::cerr << "[ProGPUNative] device request returned." << std::endl;
+    if (!request.complete.load(std::memory_order_acquire) ||
+        request.device == nullptr) {
         std::cerr << "The wgpu-native ABI did not complete the device request.\n";
         return false;
     }
@@ -212,13 +246,304 @@ bool has_expected_colors(
         return pixels + y * row_bytes + x * 4U;
     };
     const std::uint8_t* blue = pixel(100U, 100U);
-    const std::uint8_t* amber = pixel(360U, 130U);
+    const std::uint8_t* pad_start = pixel(300U, 180U);
+    const std::uint8_t* inside_start = pixel(342U, 180U);
+    const std::uint8_t* inside_end = pixel(498U, 180U);
+    const std::uint8_t* pad_end = pixel(540U, 180U);
     const std::uint8_t* background = pixel(10U, 10U);
+    const std::uint8_t* boolean_inside = pixel(204U, 12U);
+    const std::uint8_t* boolean_hole = pixel(214U, 12U);
+    const std::uint8_t* boolean_xor = pixel(244U, 12U);
+    const std::uint8_t* binary_xor_left = pixel(285U, 12U);
+    const std::uint8_t* binary_xor_overlap = pixel(295U, 12U);
+    const std::uint8_t* binary_xor_right = pixel(305U, 12U);
+    const std::uint8_t* ternary_xor_a = pixel(325U, 12U);
+    const std::uint8_t* ternary_xor_ab = pixel(335U, 12U);
+    const std::uint8_t* ternary_xor_abc = pixel(345U, 12U);
+    const std::uint8_t* ternary_xor_bc = pixel(355U, 12U);
+    const std::uint8_t* ternary_xor_c = pixel(365U, 12U);
+    const std::uint8_t* quaternary_xor_a = pixel(385U, 12U);
+    const std::uint8_t* quaternary_xor_ab = pixel(395U, 12U);
+    const std::uint8_t* quaternary_xor_abc = pixel(405U, 12U);
+    const std::uint8_t* quaternary_xor_abcd = pixel(415U, 12U);
+    const std::uint8_t* quaternary_xor_bcd = pixel(425U, 12U);
+    const std::uint8_t* quaternary_xor_cd = pixel(435U, 12U);
+    const std::uint8_t* quaternary_xor_d = pixel(445U, 12U);
+    const std::uint8_t* mixed_difference = pixel(465U, 12U);
+    const std::uint8_t* mixed_gap = pixel(475U, 12U);
+    const std::uint8_t* mixed_union_start = pixel(485U, 12U);
+    const std::uint8_t* mixed_union_end = pixel(515U, 12U);
+    const std::uint8_t* mixed_path_difference = pixel(465U, 44U);
+    const std::uint8_t* mixed_path_gap = pixel(475U, 44U);
+    const std::uint8_t* mixed_path_union = pixel(485U, 44U);
+    const std::uint8_t* fractional_xor_left = pixel(540U, 12U);
+    const std::uint8_t* fractional_xor_overlap = pixel(550U, 12U);
+    const std::uint8_t* fractional_xor_right = pixel(570U, 12U);
+    const std::uint8_t* winding_mask_cancelled = pixel(470U, 76U);
+    const std::uint8_t* winding_mask_island = pixel(530U, 76U);
+    const std::uint8_t* winding_path_cancelled = pixel(470U, 108U);
+    const std::uint8_t* winding_path_island = pixel(530U, 108U);
+    const std::uint8_t* nonzero_double_contour = pixel(580U, 76U);
+    const std::uint8_t* even_odd_double_contour = pixel(580U, 108U);
     if (!(blue[2] > 180U && blue[0] < 100U &&
-        amber[0] > 180U && amber[1] > 90U &&
-        background[0] < 30U && background[1] < 30U)) {
+        pad_start[0] > 180U && pad_start[1] > 90U &&
+        pad_start[2] < 80U &&
+        inside_start[1] > 180U && inside_start[0] < 80U &&
+        inside_end[1] > 180U && inside_end[2] > 180U &&
+        pad_end[0] > 140U && pad_end[2] > 180U && pad_end[1] < 100U &&
+        background[0] < 30U && background[1] < 30U &&
+        boolean_inside[1] > 180U && boolean_inside[2] > 180U &&
+        boolean_hole[0] < 30U && boolean_hole[1] < 30U &&
+        boolean_xor[0] < 30U && boolean_xor[1] < 30U &&
+        binary_xor_left[1] > 180U && binary_xor_left[2] > 180U &&
+        binary_xor_overlap[0] < 30U &&
+        binary_xor_overlap[1] < 30U &&
+        binary_xor_right[1] > 180U && binary_xor_right[2] > 180U &&
+        ternary_xor_a[1] > 180U && ternary_xor_a[2] > 180U &&
+        ternary_xor_ab[0] < 30U && ternary_xor_ab[1] < 30U &&
+        ternary_xor_abc[1] > 180U && ternary_xor_abc[2] > 180U &&
+        ternary_xor_bc[0] < 30U && ternary_xor_bc[1] < 30U &&
+        ternary_xor_c[1] > 180U && ternary_xor_c[2] > 180U &&
+        quaternary_xor_a[1] > 180U && quaternary_xor_a[2] > 180U &&
+        quaternary_xor_ab[0] < 30U && quaternary_xor_ab[1] < 30U &&
+        quaternary_xor_abc[1] > 180U && quaternary_xor_abc[2] > 180U &&
+        quaternary_xor_abcd[0] < 30U &&
+        quaternary_xor_abcd[1] < 30U &&
+        quaternary_xor_bcd[1] > 180U && quaternary_xor_bcd[2] > 180U &&
+        quaternary_xor_cd[0] < 30U && quaternary_xor_cd[1] < 30U &&
+        quaternary_xor_d[1] > 180U && quaternary_xor_d[2] > 180U &&
+        mixed_difference[1] > 180U && mixed_difference[2] > 180U &&
+        mixed_gap[0] < 30U && mixed_gap[1] < 30U &&
+        mixed_union_start[1] > 180U && mixed_union_start[2] > 180U &&
+        mixed_union_end[1] > 180U && mixed_union_end[2] > 180U &&
+        mixed_path_difference[1] > 180U &&
+        mixed_path_difference[2] > 180U &&
+        mixed_path_gap[0] < 30U && mixed_path_gap[1] < 30U &&
+        mixed_path_union[1] > 180U && mixed_path_union[2] > 180U &&
+        fractional_xor_left[0] == 28U &&
+        fractional_xor_left[1] == 108U &&
+        fractional_xor_left[2] == 126U &&
+        fractional_xor_overlap[0] < 30U &&
+        fractional_xor_overlap[1] < 30U &&
+        fractional_xor_right[0] == 28U &&
+        fractional_xor_right[1] == 108U &&
+        fractional_xor_right[2] == 126U &&
+        winding_mask_cancelled[0] < 30U &&
+        winding_mask_cancelled[1] < 30U &&
+        winding_mask_island[1] > 180U &&
+        winding_mask_island[2] > 180U &&
+        winding_path_cancelled[0] < 30U &&
+        winding_path_cancelled[1] < 30U &&
+        winding_path_island[1] > 180U &&
+        winding_path_island[2] > 180U &&
+        nonzero_double_contour[1] > 180U &&
+        nonzero_double_contour[2] > 180U &&
+        even_odd_double_contour[0] < 30U &&
+        even_odd_double_contour[1] < 30U)) {
+        const auto print_pixel = [](const char* name,
+                                    const std::uint8_t* value) {
+            std::cerr << name << "="
+                      << static_cast<unsigned int>(value[0]) << ","
+                      << static_cast<unsigned int>(value[1]) << ","
+                      << static_cast<unsigned int>(value[2]) << ","
+                      << static_cast<unsigned int>(value[3]) << " ";
+        };
+        std::cerr << "Native sample color evidence mismatch: ";
+        print_pixel("blue", blue);
+        print_pixel("pad-start", pad_start);
+        print_pixel("inside-start", inside_start);
+        print_pixel("inside-end", inside_end);
+        print_pixel("pad-end", pad_end);
+        print_pixel("background", background);
+        print_pixel("boolean-inside", boolean_inside);
+        print_pixel("boolean-hole", boolean_hole);
+        print_pixel("boolean-xor", boolean_xor);
+        print_pixel("binary-xor-left", binary_xor_left);
+        print_pixel("binary-xor-overlap", binary_xor_overlap);
+        print_pixel("binary-xor-right", binary_xor_right);
+        print_pixel("ternary-xor-a", ternary_xor_a);
+        print_pixel("ternary-xor-ab", ternary_xor_ab);
+        print_pixel("ternary-xor-abc", ternary_xor_abc);
+        print_pixel("ternary-xor-bc", ternary_xor_bc);
+        print_pixel("ternary-xor-c", ternary_xor_c);
+        print_pixel("quaternary-xor-a", quaternary_xor_a);
+        print_pixel("quaternary-xor-ab", quaternary_xor_ab);
+        print_pixel("quaternary-xor-abc", quaternary_xor_abc);
+        print_pixel("quaternary-xor-abcd", quaternary_xor_abcd);
+        print_pixel("quaternary-xor-bcd", quaternary_xor_bcd);
+        print_pixel("quaternary-xor-cd", quaternary_xor_cd);
+        print_pixel("quaternary-xor-d", quaternary_xor_d);
+        print_pixel("mixed-difference", mixed_difference);
+        print_pixel("mixed-gap", mixed_gap);
+        print_pixel("mixed-union-start", mixed_union_start);
+        print_pixel("mixed-union-end", mixed_union_end);
+        print_pixel("mixed-path-difference", mixed_path_difference);
+        print_pixel("mixed-path-gap", mixed_path_gap);
+        print_pixel("mixed-path-union", mixed_path_union);
+        print_pixel("fractional-xor-left", fractional_xor_left);
+        print_pixel("fractional-xor-overlap", fractional_xor_overlap);
+        print_pixel("fractional-xor-right", fractional_xor_right);
+        print_pixel("winding-mask-cancelled", winding_mask_cancelled);
+        print_pixel("winding-mask-island", winding_mask_island);
+        print_pixel("winding-path-cancelled", winding_path_cancelled);
+        print_pixel("winding-path-island", winding_path_island);
+        print_pixel("nonzero-double-contour", nonzero_double_contour);
+        print_pixel("even-odd-double-contour", even_odd_double_contour);
+        std::cerr << '\n';
         return false;
     }
+    std::cout << "[ProGPUNativeGradient] pad-start="
+              << static_cast<unsigned int>(pad_start[0]) << ","
+              << static_cast<unsigned int>(pad_start[1]) << ","
+              << static_cast<unsigned int>(pad_start[2])
+              << " inside-start="
+              << static_cast<unsigned int>(inside_start[0]) << ","
+              << static_cast<unsigned int>(inside_start[1]) << ","
+              << static_cast<unsigned int>(inside_start[2])
+              << " inside-end="
+              << static_cast<unsigned int>(inside_end[0]) << ","
+              << static_cast<unsigned int>(inside_end[1]) << ","
+              << static_cast<unsigned int>(inside_end[2])
+              << " pad-end="
+              << static_cast<unsigned int>(pad_end[0]) << ","
+              << static_cast<unsigned int>(pad_end[1]) << ","
+              << static_cast<unsigned int>(pad_end[2]) << '\n';
+    std::cout << "[ProGPUNativeBoolean] inside="
+              << static_cast<unsigned int>(boolean_inside[0]) << ","
+              << static_cast<unsigned int>(boolean_inside[1]) << ","
+              << static_cast<unsigned int>(boolean_inside[2])
+              << " difference-hole="
+              << static_cast<unsigned int>(boolean_hole[0]) << ","
+              << static_cast<unsigned int>(boolean_hole[1]) << ","
+              << static_cast<unsigned int>(boolean_hole[2])
+              << " xor-island="
+              << static_cast<unsigned int>(boolean_xor[0]) << ","
+              << static_cast<unsigned int>(boolean_xor[1]) << ","
+              << static_cast<unsigned int>(boolean_xor[2])
+              << " binary-left="
+              << static_cast<unsigned int>(binary_xor_left[0]) << ","
+              << static_cast<unsigned int>(binary_xor_left[1]) << ","
+              << static_cast<unsigned int>(binary_xor_left[2])
+              << " binary-overlap="
+              << static_cast<unsigned int>(binary_xor_overlap[0]) << ","
+              << static_cast<unsigned int>(binary_xor_overlap[1]) << ","
+              << static_cast<unsigned int>(binary_xor_overlap[2])
+              << " binary-right="
+              << static_cast<unsigned int>(binary_xor_right[0]) << ","
+              << static_cast<unsigned int>(binary_xor_right[1]) << ","
+              << static_cast<unsigned int>(binary_xor_right[2])
+              << " ternary-a="
+              << static_cast<unsigned int>(ternary_xor_a[0]) << ","
+              << static_cast<unsigned int>(ternary_xor_a[1]) << ","
+              << static_cast<unsigned int>(ternary_xor_a[2])
+              << " ternary-ab="
+              << static_cast<unsigned int>(ternary_xor_ab[0]) << ","
+              << static_cast<unsigned int>(ternary_xor_ab[1]) << ","
+              << static_cast<unsigned int>(ternary_xor_ab[2])
+              << " ternary-abc="
+              << static_cast<unsigned int>(ternary_xor_abc[0]) << ","
+              << static_cast<unsigned int>(ternary_xor_abc[1]) << ","
+              << static_cast<unsigned int>(ternary_xor_abc[2])
+              << " ternary-bc="
+              << static_cast<unsigned int>(ternary_xor_bc[0]) << ","
+              << static_cast<unsigned int>(ternary_xor_bc[1]) << ","
+              << static_cast<unsigned int>(ternary_xor_bc[2])
+              << " ternary-c="
+              << static_cast<unsigned int>(ternary_xor_c[0]) << ","
+              << static_cast<unsigned int>(ternary_xor_c[1]) << ","
+              << static_cast<unsigned int>(ternary_xor_c[2])
+              << " quaternary-a="
+              << static_cast<unsigned int>(quaternary_xor_a[0]) << ","
+              << static_cast<unsigned int>(quaternary_xor_a[1]) << ","
+              << static_cast<unsigned int>(quaternary_xor_a[2])
+              << " quaternary-ab="
+              << static_cast<unsigned int>(quaternary_xor_ab[0]) << ","
+              << static_cast<unsigned int>(quaternary_xor_ab[1]) << ","
+              << static_cast<unsigned int>(quaternary_xor_ab[2])
+              << " quaternary-abc="
+              << static_cast<unsigned int>(quaternary_xor_abc[0]) << ","
+              << static_cast<unsigned int>(quaternary_xor_abc[1]) << ","
+              << static_cast<unsigned int>(quaternary_xor_abc[2])
+              << " quaternary-abcd="
+              << static_cast<unsigned int>(quaternary_xor_abcd[0]) << ","
+              << static_cast<unsigned int>(quaternary_xor_abcd[1]) << ","
+              << static_cast<unsigned int>(quaternary_xor_abcd[2])
+              << " quaternary-bcd="
+              << static_cast<unsigned int>(quaternary_xor_bcd[0]) << ","
+              << static_cast<unsigned int>(quaternary_xor_bcd[1]) << ","
+              << static_cast<unsigned int>(quaternary_xor_bcd[2])
+              << " quaternary-cd="
+              << static_cast<unsigned int>(quaternary_xor_cd[0]) << ","
+              << static_cast<unsigned int>(quaternary_xor_cd[1]) << ","
+              << static_cast<unsigned int>(quaternary_xor_cd[2])
+              << " quaternary-d="
+              << static_cast<unsigned int>(quaternary_xor_d[0]) << ","
+              << static_cast<unsigned int>(quaternary_xor_d[1]) << ","
+              << static_cast<unsigned int>(quaternary_xor_d[2])
+              << " mixed-difference="
+              << static_cast<unsigned int>(mixed_difference[0]) << ","
+              << static_cast<unsigned int>(mixed_difference[1]) << ","
+              << static_cast<unsigned int>(mixed_difference[2])
+              << " mixed-gap="
+              << static_cast<unsigned int>(mixed_gap[0]) << ","
+              << static_cast<unsigned int>(mixed_gap[1]) << ","
+              << static_cast<unsigned int>(mixed_gap[2])
+              << " mixed-union-start="
+              << static_cast<unsigned int>(mixed_union_start[0]) << ","
+              << static_cast<unsigned int>(mixed_union_start[1]) << ","
+              << static_cast<unsigned int>(mixed_union_start[2])
+              << " mixed-union-end="
+              << static_cast<unsigned int>(mixed_union_end[0]) << ","
+              << static_cast<unsigned int>(mixed_union_end[1]) << ","
+              << static_cast<unsigned int>(mixed_union_end[2])
+              << " mixed-path-difference="
+              << static_cast<unsigned int>(mixed_path_difference[0]) << ","
+              << static_cast<unsigned int>(mixed_path_difference[1]) << ","
+              << static_cast<unsigned int>(mixed_path_difference[2])
+              << " mixed-path-gap="
+              << static_cast<unsigned int>(mixed_path_gap[0]) << ","
+              << static_cast<unsigned int>(mixed_path_gap[1]) << ","
+              << static_cast<unsigned int>(mixed_path_gap[2])
+              << " mixed-path-union="
+              << static_cast<unsigned int>(mixed_path_union[0]) << ","
+              << static_cast<unsigned int>(mixed_path_union[1]) << ","
+              << static_cast<unsigned int>(mixed_path_union[2])
+              << " fractional-xor-left="
+              << static_cast<unsigned int>(fractional_xor_left[0]) << ","
+              << static_cast<unsigned int>(fractional_xor_left[1]) << ","
+              << static_cast<unsigned int>(fractional_xor_left[2])
+              << " fractional-xor-overlap="
+              << static_cast<unsigned int>(fractional_xor_overlap[0]) << ","
+              << static_cast<unsigned int>(fractional_xor_overlap[1]) << ","
+              << static_cast<unsigned int>(fractional_xor_overlap[2])
+              << " fractional-xor-right="
+              << static_cast<unsigned int>(fractional_xor_right[0]) << ","
+              << static_cast<unsigned int>(fractional_xor_right[1]) << ","
+              << static_cast<unsigned int>(fractional_xor_right[2])
+              << " winding-mask-cancelled="
+              << static_cast<unsigned int>(winding_mask_cancelled[0]) << ","
+              << static_cast<unsigned int>(winding_mask_cancelled[1]) << ","
+              << static_cast<unsigned int>(winding_mask_cancelled[2])
+              << " winding-mask-island="
+              << static_cast<unsigned int>(winding_mask_island[0]) << ","
+              << static_cast<unsigned int>(winding_mask_island[1]) << ","
+              << static_cast<unsigned int>(winding_mask_island[2])
+              << " winding-path-cancelled="
+              << static_cast<unsigned int>(winding_path_cancelled[0]) << ","
+              << static_cast<unsigned int>(winding_path_cancelled[1]) << ","
+              << static_cast<unsigned int>(winding_path_cancelled[2])
+              << " winding-path-island="
+              << static_cast<unsigned int>(winding_path_island[0]) << ","
+              << static_cast<unsigned int>(winding_path_island[1]) << ","
+              << static_cast<unsigned int>(winding_path_island[2])
+              << " nonzero-double-contour="
+              << static_cast<unsigned int>(nonzero_double_contour[0]) << ","
+              << static_cast<unsigned int>(nonzero_double_contour[1]) << ","
+              << static_cast<unsigned int>(nonzero_double_contour[2])
+              << " even-odd-double-contour="
+              << static_cast<unsigned int>(even_odd_double_contour[0]) << ","
+              << static_cast<unsigned int>(even_odd_double_contour[1]) << ","
+              << static_cast<unsigned int>(even_odd_double_contour[2]) << '\n';
     if (!requires_decoded_glyph) {
         return true;
     }
@@ -260,12 +585,13 @@ bool verify_retained_gpu_hit_test(
     progpu_native_hit_test_result summary{};
     std::uint32_t hit_count = 0U;
     std::uint8_t complete = 0U;
+    const auto deadline = std::chrono::steady_clock::now() + gpu_async_timeout;
     while (complete == 0U) {
         const auto poll_status = progpu_native_engine_poll_hit_test(
                 engine,
                 token,
                 hits.data(),
-                hits.size(),
+                static_cast<std::uint32_t>(hits.size()),
                 &hit_count,
                 &summary,
                 &complete);
@@ -275,7 +601,13 @@ bool verify_retained_gpu_hit_test(
             return false;
         }
         if (complete == 0U) {
-            (void)wgpuDevicePoll(device, true, nullptr);
+            (void)wgpuDevicePoll(device, false, nullptr);
+            if (std::chrono::steady_clock::now() >= deadline) {
+                std::cerr << "GPU hit testing timed out after "
+                          << gpu_async_timeout.count() << " seconds.\n";
+                return false;
+            }
+            std::this_thread::sleep_for(std::chrono::milliseconds(1));
         }
     }
     const bool passed = summary.hit == 1U &&
@@ -314,7 +646,10 @@ int main(int argc, char** argv) {
     extras.flags = WGPUInstanceFlag_Validation;
     WGPUInstanceDescriptor instance_descriptor{};
     instance_descriptor.nextInChain = &extras.chain;
+    std::cerr << "[ProGPUNative] creating WebGPU instance." << std::endl;
     WGPUInstance instance = wgpuCreateInstance(&instance_descriptor);
+    std::cerr << "[ProGPUNative] WebGPU instance creation returned."
+              << std::endl;
     if (instance == nullptr) {
         std::cerr << "Could not create the wgpu-native instance.\n";
         return EXIT_FAILURE;
@@ -332,18 +667,32 @@ int main(int argc, char** argv) {
     const std::string adapter_name = adapter_properties.name == nullptr
         ? "unknown"
         : adapter_properties.name;
-    const bool defer_software_d3d12_hit_test =
-        adapter_properties.backendType == WGPUBackendType_D3D12 &&
+    const bool is_d3d12_adapter =
+        adapter_properties.backendType == WGPUBackendType_D3D12;
+    const bool defer_software_d3d12_hit_test = is_d3d12_adapter &&
         adapter_name == "Microsoft Basic Render Driver";
+    // The Parallels WDDM adapter currently stalls while creating/executing the
+    // retained hit-test compute pipeline. Keep D3D12 render/readback coverage
+    // live and publish the deferral in the provider evidence file.
+    const bool defer_virtualized_d3d12_hit_test = is_d3d12_adapter &&
+        adapter_name.find("Parallels Display Adapter") != std::string::npos;
+    const bool defer_d3d12_hit_test =
+        defer_software_d3d12_hit_test ||
+        defer_virtualized_d3d12_hit_test;
     const char* hit_test_status = defer_software_d3d12_hit_test
         ? "deferred-software-adapter"
-        : "passed";
+        : defer_virtualized_d3d12_hit_test
+            ? "deferred-parallels-adapter"
+            : "passed";
     if (adapter_properties.backendType != platform_backend_type()) {
         std::cerr << "Expected " << backend_name(platform_backend_type())
                   << " but selected "
                   << backend_name(adapter_properties.backendType) << ".\n";
         return EXIT_FAILURE;
     }
+    std::cerr << "[ProGPUNative] selected "
+              << backend_name(adapter_properties.backendType)
+              << " adapter '" << adapter_name << "'." << std::endl;
 
     constexpr std::uint32_t width = 640U;
     constexpr std::uint32_t height = 360U;
@@ -383,26 +732,49 @@ int main(int argc, char** argv) {
     }
 
     progpu::native::semantic_scene_builder scene_builder(501U, 1U);
-    if (!scene_builder.reserve(9U, 11U, 9216U)) {
+    if (!scene_builder.reserve(16U, 16U, 12288U)) {
         std::cerr << "Could not reserve the native retained scene builder.\n";
         return EXIT_FAILURE;
     }
-    std::array<std::uint32_t, 5U> brush_indices{};
+    std::array<std::uint32_t, 6U> brush_indices{};
+    const auto identity =
+        progpu::native::semantic_scene_builder::identity_transform();
+    const std::array pad_gradient_stops{
+        progpu_native_scene_gradient_stop{
+            {0.0F, 1.0F, 0.0F, 1.0F}, 0.0F, 0U, 0U, 0U},
+        progpu_native_scene_gradient_stop{
+            {0.0F, 1.0F, 1.0F, 1.0F}, 1.0F, 0U, 0U, 0U}};
+    progpu_native_scene_brush pad_gradient{};
+    pad_gradient.type = PROGPU_NATIVE_SCENE_BRUSH_LINEAR_GRADIENT;
+    pad_gradient.opacity = 1.0F;
+    pad_gradient.start_point = {340.0F, 0.0F};
+    pad_gradient.end_point = {500.0F, 0.0F};
+    pad_gradient.stop_count = static_cast<std::uint32_t>(
+        pad_gradient_stops.size());
+    pad_gradient.spread_method =
+        static_cast<std::uint32_t>(PROGPU_NATIVE_SCENE_GRADIENT_PAD) |
+        PROGPU_NATIVE_SCENE_GRADIENT_PAD_OUTSIDE_COLORS;
+    pad_gradient.color_interpolation_mode =
+        PROGPU_NATIVE_SCENE_GRADIENT_INTERPOLATE_SRGB;
+    pad_gradient.colors[0] = {0.98F, 0.52F, 0.08F, 1.0F};
+    pad_gradient.colors[1] = {0.72F, 0.20F, 0.96F, 1.0F};
+    pad_gradient.coordinate_transform0[0] = 1.0F;
+    pad_gradient.coordinate_transform1[1] = 1.0F;
     if (!scene_builder.add_solid_brush(
             {0.08F, 0.42F, 0.95F, 1.0F}, 1.0F, brush_indices[0]) ||
-        !scene_builder.add_solid_brush(
-            {0.98F, 0.52F, 0.08F, 1.0F}, 1.0F, brush_indices[1]) ||
+        !scene_builder.add_brush(
+            pad_gradient, pad_gradient_stops, brush_indices[1]) ||
         !scene_builder.add_solid_brush(
             {0.20F, 0.82F, 0.48F, 1.0F}, 0.90F, brush_indices[2]) ||
         !scene_builder.add_solid_brush(
             {0.20F, 0.82F, 0.95F, 1.0F}, 1.0F, brush_indices[3]) ||
         !scene_builder.add_solid_brush(
-            {0.72F, 0.34F, 0.96F, 1.0F}, 1.0F, brush_indices[4])) {
+            {0.72F, 0.34F, 0.96F, 1.0F}, 1.0F, brush_indices[4]) ||
+        !scene_builder.add_solid_brush(
+            {0.02F, 0.024F, 0.039F, 1.0F}, 1.0F, brush_indices[5])) {
         std::cerr << "Could not record native retained brushes.\n";
         return EXIT_FAILURE;
     }
-    const auto identity =
-        progpu::native::semantic_scene_builder::identity_transform();
     progpu_native_scene_layer_mask scene_mask{};
     scene_mask.bounds = {36.0F, 36.0F, 600.0F, 314.0F};
     scene_mask.transform = identity;
@@ -710,6 +1082,913 @@ int main(int argc, char** argv) {
         std::cerr << "Could not close the native retained layer.\n";
         return EXIT_FAILURE;
     }
+    const std::array boolean_mask_segments{
+        progpu_native_path_segment{
+            {200.0F, 4.0F}, {260.0F, 4.0F}, {}, {},
+            PROGPU_NATIVE_PATH_SEGMENT_LINE, 0U, 0U, 0U},
+        progpu_native_path_segment{
+            {260.0F, 4.0F}, {260.0F, 24.0F}, {}, {},
+            PROGPU_NATIVE_PATH_SEGMENT_LINE, 0U, 0U, 0U},
+        progpu_native_path_segment{
+            {260.0F, 24.0F}, {200.0F, 24.0F}, {}, {},
+            PROGPU_NATIVE_PATH_SEGMENT_LINE, 0U, 0U, 0U},
+        progpu_native_path_segment{
+            {200.0F, 24.0F}, {200.0F, 4.0F}, {}, {},
+            PROGPU_NATIVE_PATH_SEGMENT_LINE, 0U, 0U, 0U},
+        progpu_native_path_segment{
+            {210.0F, 8.0F}, {220.0F, 8.0F}, {}, {},
+            PROGPU_NATIVE_PATH_SEGMENT_LINE, 0U, 0U, 0U},
+        progpu_native_path_segment{
+            {220.0F, 8.0F}, {220.0F, 16.0F}, {}, {},
+            PROGPU_NATIVE_PATH_SEGMENT_LINE, 0U, 0U, 0U},
+        progpu_native_path_segment{
+            {220.0F, 16.0F}, {210.0F, 16.0F}, {}, {},
+            PROGPU_NATIVE_PATH_SEGMENT_LINE, 0U, 0U, 0U},
+        progpu_native_path_segment{
+            {210.0F, 16.0F}, {210.0F, 8.0F}, {}, {},
+            PROGPU_NATIVE_PATH_SEGMENT_LINE, 0U, 0U, 0U},
+        progpu_native_path_segment{
+            {240.0F, 8.0F}, {250.0F, 8.0F}, {}, {},
+            PROGPU_NATIVE_PATH_SEGMENT_LINE, 0U, 0U, 0U},
+        progpu_native_path_segment{
+            {250.0F, 8.0F}, {250.0F, 16.0F}, {}, {},
+            PROGPU_NATIVE_PATH_SEGMENT_LINE, 0U, 0U, 0U},
+        progpu_native_path_segment{
+            {250.0F, 16.0F}, {240.0F, 16.0F}, {}, {},
+            PROGPU_NATIVE_PATH_SEGMENT_LINE, 0U, 0U, 0U},
+        progpu_native_path_segment{
+            {240.0F, 16.0F}, {240.0F, 8.0F}, {}, {},
+            PROGPU_NATIVE_PATH_SEGMENT_LINE, 0U, 0U, 0U}};
+    const std::array boolean_mask_nodes{
+        progpu_native_scene_path_boolean_node{
+            0U, 4U, 200.0F, 4.0F, 260.0F, 24.0F,
+            PROGPU_NATIVE_FILL_RULE_NON_ZERO,
+            PROGPU_NATIVE_PATH_BOOLEAN_LEAF, 0U, 0U},
+        progpu_native_scene_path_boolean_node{
+            4U, 4U, 210.0F, 8.0F, 220.0F, 16.0F,
+            PROGPU_NATIVE_FILL_RULE_NON_ZERO,
+            PROGPU_NATIVE_PATH_BOOLEAN_LEAF, 0U, 0U},
+        progpu_native_scene_path_boolean_node{
+            0U, 0U, 0.0F, 0.0F, 0.0F, 0.0F,
+            PROGPU_NATIVE_FILL_RULE_NON_ZERO,
+            PROGPU_NATIVE_PATH_BOOLEAN_DIFFERENCE, 0U, 0U},
+        progpu_native_scene_path_boolean_node{
+            8U, 4U, 240.0F, 8.0F, 250.0F, 16.0F,
+            PROGPU_NATIVE_FILL_RULE_NON_ZERO,
+            PROGPU_NATIVE_PATH_BOOLEAN_LEAF, 0U, 0U},
+        progpu_native_scene_path_boolean_node{
+            0U, 0U, 0.0F, 0.0F, 0.0F, 0.0F,
+            PROGPU_NATIVE_FILL_RULE_NON_ZERO,
+            PROGPU_NATIVE_PATH_BOOLEAN_XOR, 0U, 0U}};
+    const progpu_native_scene_clip_path boolean_mask_path{
+        0U,
+        boolean_mask_segments.size(),
+        0U,
+        boolean_mask_nodes.size(),
+        200.0F,
+        4.0F,
+        260.0F,
+        24.0F,
+        identity,
+        PROGPU_NATIVE_FILL_RULE_EVEN_ODD,
+        8U,
+        PROGPU_NATIVE_CLIP_INTERSECT,
+        0U};
+    std::uint32_t boolean_mask_index = PROGPU_NATIVE_SCENE_NO_INDEX;
+    if (!scene_builder.add_vector_clip_mask(
+            std::span<const progpu_native_scene_clip_path>(
+                &boolean_mask_path,
+                1U),
+            boolean_mask_segments,
+            boolean_mask_nodes,
+            1.0F,
+            boolean_mask_index)) {
+        std::cerr << "Could not record native boolean vector mask.\n";
+        return EXIT_FAILURE;
+    }
+    progpu_native_scene_layer boolean_layer{};
+    boolean_layer.flags = PROGPU_NATIVE_SCENE_LAYER_BOUNDS |
+        PROGPU_NATIVE_SCENE_LAYER_FORCE_ISOLATION;
+    boolean_layer.bounds = {200.0F, 4.0F, 60.0F, 20.0F};
+    boolean_layer.opacity = 1.0F;
+    boolean_layer.blend_mode = PROGPU_NATIVE_BLEND_SRC_OVER;
+    boolean_layer.mask_resource_index = boolean_mask_index;
+    boolean_layer.effect_resource_index = PROGPU_NATIVE_SCENE_NO_INDEX;
+    boolean_layer.content_revision = 1U;
+    boolean_layer.composite_revision = 1U;
+    const progpu_native_analytic_primitive boolean_content{
+        PROGPU_NATIVE_PRIMITIVE_RECTANGLE,
+        0U,
+        200.0F,
+        4.0F,
+        60.0F,
+        20.0F,
+        0.0F,
+        0.0F,
+        {1.0F, 1.0F, 1.0F, 1.0F},
+        identity};
+    if (!scene_builder.push_layer(boolean_layer) ||
+        !scene_builder.draw_analytic(
+            std::span<const progpu_native_analytic_primitive>(
+                &boolean_content,
+                1U),
+            std::span<const std::uint32_t>(&brush_indices[3], 1U),
+            {200.0F, 4.0F, 60.0F, 20.0F}) ||
+        !scene_builder.pop_layer()) {
+        std::cerr << "Could not record native boolean vector-mask layer.\n";
+        return EXIT_FAILURE;
+    }
+    const std::array binary_xor_segments{
+        progpu_native_path_segment{
+            {280.0F, 4.0F}, {300.0F, 4.0F}, {}, {},
+            PROGPU_NATIVE_PATH_SEGMENT_LINE, 0U, 0U, 0U},
+        progpu_native_path_segment{
+            {300.0F, 4.0F}, {300.0F, 24.0F}, {}, {},
+            PROGPU_NATIVE_PATH_SEGMENT_LINE, 0U, 0U, 0U},
+        progpu_native_path_segment{
+            {300.0F, 24.0F}, {280.0F, 24.0F}, {}, {},
+            PROGPU_NATIVE_PATH_SEGMENT_LINE, 0U, 0U, 0U},
+        progpu_native_path_segment{
+            {280.0F, 24.0F}, {280.0F, 4.0F}, {}, {},
+            PROGPU_NATIVE_PATH_SEGMENT_LINE, 0U, 0U, 0U},
+        progpu_native_path_segment{
+            {290.0F, 4.0F}, {310.0F, 4.0F}, {}, {},
+            PROGPU_NATIVE_PATH_SEGMENT_LINE, 0U, 0U, 0U},
+        progpu_native_path_segment{
+            {310.0F, 4.0F}, {310.0F, 24.0F}, {}, {},
+            PROGPU_NATIVE_PATH_SEGMENT_LINE, 0U, 0U, 0U},
+        progpu_native_path_segment{
+            {310.0F, 24.0F}, {290.0F, 24.0F}, {}, {},
+            PROGPU_NATIVE_PATH_SEGMENT_LINE, 0U, 0U, 0U},
+        progpu_native_path_segment{
+            {290.0F, 24.0F}, {290.0F, 4.0F}, {}, {},
+            PROGPU_NATIVE_PATH_SEGMENT_LINE, 0U, 0U, 0U}};
+    const std::array binary_xor_nodes{
+        progpu_native_scene_path_boolean_node{
+            0U, 4U, 280.0F, 4.0F, 300.0F, 24.0F,
+            PROGPU_NATIVE_FILL_RULE_EVEN_ODD,
+            PROGPU_NATIVE_PATH_BOOLEAN_LEAF, 0U, 0U},
+        progpu_native_scene_path_boolean_node{
+            4U, 4U, 290.0F, 4.0F, 310.0F, 24.0F,
+            PROGPU_NATIVE_FILL_RULE_EVEN_ODD,
+            PROGPU_NATIVE_PATH_BOOLEAN_LEAF, 0U, 0U},
+        progpu_native_scene_path_boolean_node{
+            0U, 0U, 0.0F, 0.0F, 0.0F, 0.0F,
+            PROGPU_NATIVE_FILL_RULE_NON_ZERO,
+            PROGPU_NATIVE_PATH_BOOLEAN_XOR, 0U, 0U}};
+    const progpu_native_scene_clip_path binary_xor_path{
+        0U,
+        binary_xor_segments.size(),
+        0U,
+        binary_xor_nodes.size(),
+        280.0F,
+        4.0F,
+        310.0F,
+        24.0F,
+        identity,
+        PROGPU_NATIVE_FILL_RULE_EVEN_ODD,
+        8U,
+        PROGPU_NATIVE_CLIP_INTERSECT,
+        0U};
+    std::uint32_t binary_xor_mask_index = PROGPU_NATIVE_SCENE_NO_INDEX;
+    if (!scene_builder.add_vector_clip_mask(
+            std::span<const progpu_native_scene_clip_path>(
+                &binary_xor_path,
+                1U),
+            binary_xor_segments,
+            binary_xor_nodes,
+            1.0F,
+            binary_xor_mask_index)) {
+        std::cerr << "Could not record translated binary XOR mask.\n";
+        return EXIT_FAILURE;
+    }
+    progpu_native_scene_layer binary_xor_layer{};
+    binary_xor_layer.flags = PROGPU_NATIVE_SCENE_LAYER_BOUNDS |
+        PROGPU_NATIVE_SCENE_LAYER_FORCE_ISOLATION;
+    binary_xor_layer.bounds = {280.0F, 4.0F, 30.0F, 20.0F};
+    binary_xor_layer.opacity = 1.0F;
+    binary_xor_layer.blend_mode = PROGPU_NATIVE_BLEND_SRC_OVER;
+    binary_xor_layer.mask_resource_index = binary_xor_mask_index;
+    binary_xor_layer.effect_resource_index = PROGPU_NATIVE_SCENE_NO_INDEX;
+    binary_xor_layer.content_revision = 1U;
+    binary_xor_layer.composite_revision = 1U;
+    const progpu_native_analytic_primitive binary_xor_content{
+        PROGPU_NATIVE_PRIMITIVE_RECTANGLE,
+        0U,
+        280.0F,
+        4.0F,
+        30.0F,
+        20.0F,
+        0.0F,
+        0.0F,
+        {1.0F, 1.0F, 1.0F, 1.0F},
+        identity};
+    if (!scene_builder.push_layer(binary_xor_layer) ||
+        !scene_builder.draw_analytic(
+            std::span<const progpu_native_analytic_primitive>(
+                &binary_xor_content,
+                1U),
+            std::span<const std::uint32_t>(&brush_indices[3], 1U),
+            {280.0F, 4.0F, 30.0F, 20.0F}) ||
+        !scene_builder.pop_layer()) {
+        std::cerr << "Could not record translated binary XOR layer.\n";
+        return EXIT_FAILURE;
+    }
+    const std::array ternary_xor_segments{
+        progpu_native_path_segment{
+            {320.0F, 4.0F}, {350.0F, 4.0F}, {}, {},
+            PROGPU_NATIVE_PATH_SEGMENT_LINE, 0U, 0U, 0U},
+        progpu_native_path_segment{
+            {350.0F, 4.0F}, {350.0F, 24.0F}, {}, {},
+            PROGPU_NATIVE_PATH_SEGMENT_LINE, 0U, 0U, 0U},
+        progpu_native_path_segment{
+            {350.0F, 24.0F}, {320.0F, 24.0F}, {}, {},
+            PROGPU_NATIVE_PATH_SEGMENT_LINE, 0U, 0U, 0U},
+        progpu_native_path_segment{
+            {320.0F, 24.0F}, {320.0F, 4.0F}, {}, {},
+            PROGPU_NATIVE_PATH_SEGMENT_LINE, 0U, 0U, 0U},
+        progpu_native_path_segment{
+            {330.0F, 4.0F}, {360.0F, 4.0F}, {}, {},
+            PROGPU_NATIVE_PATH_SEGMENT_LINE, 0U, 0U, 0U},
+        progpu_native_path_segment{
+            {360.0F, 4.0F}, {360.0F, 24.0F}, {}, {},
+            PROGPU_NATIVE_PATH_SEGMENT_LINE, 0U, 0U, 0U},
+        progpu_native_path_segment{
+            {360.0F, 24.0F}, {330.0F, 24.0F}, {}, {},
+            PROGPU_NATIVE_PATH_SEGMENT_LINE, 0U, 0U, 0U},
+        progpu_native_path_segment{
+            {330.0F, 24.0F}, {330.0F, 4.0F}, {}, {},
+            PROGPU_NATIVE_PATH_SEGMENT_LINE, 0U, 0U, 0U},
+        progpu_native_path_segment{
+            {340.0F, 4.0F}, {370.0F, 4.0F}, {}, {},
+            PROGPU_NATIVE_PATH_SEGMENT_LINE, 0U, 0U, 0U},
+        progpu_native_path_segment{
+            {370.0F, 4.0F}, {370.0F, 24.0F}, {}, {},
+            PROGPU_NATIVE_PATH_SEGMENT_LINE, 0U, 0U, 0U},
+        progpu_native_path_segment{
+            {370.0F, 24.0F}, {340.0F, 24.0F}, {}, {},
+            PROGPU_NATIVE_PATH_SEGMENT_LINE, 0U, 0U, 0U},
+        progpu_native_path_segment{
+            {340.0F, 24.0F}, {340.0F, 4.0F}, {}, {},
+            PROGPU_NATIVE_PATH_SEGMENT_LINE, 0U, 0U, 0U}};
+    const std::array ternary_xor_nodes{
+        progpu_native_scene_path_boolean_node{
+            0U, 4U, 320.0F, 4.0F, 350.0F, 24.0F,
+            PROGPU_NATIVE_FILL_RULE_EVEN_ODD,
+            PROGPU_NATIVE_PATH_BOOLEAN_LEAF, 0U, 0U},
+        progpu_native_scene_path_boolean_node{
+            4U, 4U, 330.0F, 4.0F, 360.0F, 24.0F,
+            PROGPU_NATIVE_FILL_RULE_EVEN_ODD,
+            PROGPU_NATIVE_PATH_BOOLEAN_LEAF, 0U, 0U},
+        progpu_native_scene_path_boolean_node{
+            0U, 0U, 0.0F, 0.0F, 0.0F, 0.0F,
+            PROGPU_NATIVE_FILL_RULE_NON_ZERO,
+            PROGPU_NATIVE_PATH_BOOLEAN_XOR, 0U, 0U},
+        progpu_native_scene_path_boolean_node{
+            8U, 4U, 340.0F, 4.0F, 370.0F, 24.0F,
+            PROGPU_NATIVE_FILL_RULE_EVEN_ODD,
+            PROGPU_NATIVE_PATH_BOOLEAN_LEAF, 0U, 0U},
+        progpu_native_scene_path_boolean_node{
+            0U, 0U, 0.0F, 0.0F, 0.0F, 0.0F,
+            PROGPU_NATIVE_FILL_RULE_NON_ZERO,
+            PROGPU_NATIVE_PATH_BOOLEAN_XOR, 0U, 0U}};
+    const progpu_native_scene_clip_path ternary_xor_path{
+        0U,
+        ternary_xor_segments.size(),
+        0U,
+        ternary_xor_nodes.size(),
+        320.0F,
+        4.0F,
+        370.0F,
+        24.0F,
+        identity,
+        PROGPU_NATIVE_FILL_RULE_EVEN_ODD,
+        8U,
+        PROGPU_NATIVE_CLIP_INTERSECT,
+        0U};
+    std::uint32_t ternary_xor_mask_index = PROGPU_NATIVE_SCENE_NO_INDEX;
+    if (!scene_builder.add_vector_clip_mask(
+            std::span<const progpu_native_scene_clip_path>(
+                &ternary_xor_path,
+                1U),
+            ternary_xor_segments,
+            ternary_xor_nodes,
+            1.0F,
+            ternary_xor_mask_index)) {
+        std::cerr << "Could not record translated ternary XOR mask.\n";
+        return EXIT_FAILURE;
+    }
+    progpu_native_scene_layer ternary_xor_layer{};
+    ternary_xor_layer.flags = PROGPU_NATIVE_SCENE_LAYER_BOUNDS |
+        PROGPU_NATIVE_SCENE_LAYER_FORCE_ISOLATION;
+    ternary_xor_layer.bounds = {320.0F, 4.0F, 50.0F, 20.0F};
+    ternary_xor_layer.opacity = 1.0F;
+    ternary_xor_layer.blend_mode = PROGPU_NATIVE_BLEND_SRC_OVER;
+    ternary_xor_layer.mask_resource_index = ternary_xor_mask_index;
+    ternary_xor_layer.effect_resource_index = PROGPU_NATIVE_SCENE_NO_INDEX;
+    ternary_xor_layer.content_revision = 1U;
+    ternary_xor_layer.composite_revision = 1U;
+    const progpu_native_analytic_primitive ternary_xor_content{
+        PROGPU_NATIVE_PRIMITIVE_RECTANGLE,
+        0U,
+        320.0F,
+        4.0F,
+        50.0F,
+        20.0F,
+        0.0F,
+        0.0F,
+        {1.0F, 1.0F, 1.0F, 1.0F},
+        identity};
+    if (!scene_builder.push_layer(ternary_xor_layer) ||
+        !scene_builder.draw_analytic(
+            std::span<const progpu_native_analytic_primitive>(
+                &ternary_xor_content,
+                1U),
+            std::span<const std::uint32_t>(&brush_indices[3], 1U),
+            {320.0F, 4.0F, 50.0F, 20.0F}) ||
+        !scene_builder.pop_layer()) {
+        std::cerr << "Could not record translated ternary XOR layer.\n";
+        return EXIT_FAILURE;
+    }
+    std::vector<progpu_native_path_segment> quaternary_xor_segments;
+    std::vector<progpu_native_scene_path_boolean_node> quaternary_xor_nodes;
+    quaternary_xor_segments.reserve(16U);
+    quaternary_xor_nodes.reserve(7U);
+    constexpr std::array quaternary_lefts{380.0F, 390.0F, 400.0F, 410.0F};
+    for (std::size_t leaf_index = 0U;
+         leaf_index < quaternary_lefts.size();
+         ++leaf_index) {
+        const float left = quaternary_lefts[leaf_index];
+        const float right = left + 40.0F;
+        quaternary_xor_segments.push_back({
+            {left, 4.0F}, {right, 4.0F}, {}, {},
+            PROGPU_NATIVE_PATH_SEGMENT_LINE, 0U, 0U, 0U});
+        quaternary_xor_segments.push_back({
+            {right, 4.0F}, {right, 24.0F}, {}, {},
+            PROGPU_NATIVE_PATH_SEGMENT_LINE, 0U, 0U, 0U});
+        quaternary_xor_segments.push_back({
+            {right, 24.0F}, {left, 24.0F}, {}, {},
+            PROGPU_NATIVE_PATH_SEGMENT_LINE, 0U, 0U, 0U});
+        quaternary_xor_segments.push_back({
+            {left, 24.0F}, {left, 4.0F}, {}, {},
+            PROGPU_NATIVE_PATH_SEGMENT_LINE, 0U, 0U, 0U});
+        quaternary_xor_nodes.push_back({
+            static_cast<std::uint64_t>(leaf_index * 4U),
+            4U,
+            left,
+            4.0F,
+            right,
+            24.0F,
+            PROGPU_NATIVE_FILL_RULE_EVEN_ODD,
+            PROGPU_NATIVE_PATH_BOOLEAN_LEAF,
+            0U,
+            0U});
+        if (leaf_index != 0U) {
+            progpu_native_scene_path_boolean_node operation{};
+            operation.kind = PROGPU_NATIVE_PATH_BOOLEAN_XOR;
+            quaternary_xor_nodes.push_back(operation);
+        }
+    }
+    const progpu_native_scene_clip_path quaternary_xor_path{
+        0U,
+        quaternary_xor_segments.size(),
+        0U,
+        quaternary_xor_nodes.size(),
+        380.0F,
+        4.0F,
+        450.0F,
+        24.0F,
+        identity,
+        PROGPU_NATIVE_FILL_RULE_EVEN_ODD,
+        8U,
+        PROGPU_NATIVE_CLIP_INTERSECT,
+        0U};
+    std::uint32_t quaternary_xor_mask_index = PROGPU_NATIVE_SCENE_NO_INDEX;
+    if (!scene_builder.add_vector_clip_mask(
+            std::span<const progpu_native_scene_clip_path>(
+                &quaternary_xor_path,
+                1U),
+            quaternary_xor_segments,
+            quaternary_xor_nodes,
+            1.0F,
+            quaternary_xor_mask_index)) {
+        std::cerr << "Could not record translated quaternary XOR mask.\n";
+        return EXIT_FAILURE;
+    }
+    progpu_native_scene_layer quaternary_xor_layer{};
+    quaternary_xor_layer.flags = PROGPU_NATIVE_SCENE_LAYER_BOUNDS |
+        PROGPU_NATIVE_SCENE_LAYER_FORCE_ISOLATION;
+    quaternary_xor_layer.bounds = {380.0F, 4.0F, 70.0F, 20.0F};
+    quaternary_xor_layer.opacity = 1.0F;
+    quaternary_xor_layer.blend_mode = PROGPU_NATIVE_BLEND_SRC_OVER;
+    quaternary_xor_layer.mask_resource_index = quaternary_xor_mask_index;
+    quaternary_xor_layer.effect_resource_index = PROGPU_NATIVE_SCENE_NO_INDEX;
+    quaternary_xor_layer.content_revision = 1U;
+    quaternary_xor_layer.composite_revision = 1U;
+    const progpu_native_analytic_primitive quaternary_xor_content{
+        PROGPU_NATIVE_PRIMITIVE_RECTANGLE,
+        0U,
+        380.0F,
+        4.0F,
+        70.0F,
+        20.0F,
+        0.0F,
+        0.0F,
+        {1.0F, 1.0F, 1.0F, 1.0F},
+        identity};
+    if (!scene_builder.push_layer(quaternary_xor_layer) ||
+        !scene_builder.draw_analytic(
+            std::span<const progpu_native_analytic_primitive>(
+                &quaternary_xor_content,
+                1U),
+            std::span<const std::uint32_t>(&brush_indices[3], 1U),
+            {380.0F, 4.0F, 70.0F, 20.0F}) ||
+        !scene_builder.pop_layer()) {
+        std::cerr << "Could not record translated quaternary XOR layer.\n";
+        return EXIT_FAILURE;
+    }
+    std::vector<progpu_native_path_segment> mixed_boolean_segments;
+    std::vector<progpu_native_scene_path_boolean_node> mixed_boolean_nodes;
+    mixed_boolean_segments.reserve(12U);
+    mixed_boolean_nodes.reserve(5U);
+    constexpr std::array mixed_lefts{460.0F, 470.0F, 480.0F};
+    for (std::size_t leaf_index = 0U;
+         leaf_index < mixed_lefts.size();
+         ++leaf_index) {
+        const float left = mixed_lefts[leaf_index];
+        const float right = left + 40.0F;
+        mixed_boolean_segments.push_back({
+            {left, 4.0F}, {right, 4.0F}, {}, {},
+            PROGPU_NATIVE_PATH_SEGMENT_LINE, 0U, 0U, 0U});
+        mixed_boolean_segments.push_back({
+            {right, 4.0F}, {right, 24.0F}, {}, {},
+            PROGPU_NATIVE_PATH_SEGMENT_LINE, 0U, 0U, 0U});
+        mixed_boolean_segments.push_back({
+            {right, 24.0F}, {left, 24.0F}, {}, {},
+            PROGPU_NATIVE_PATH_SEGMENT_LINE, 0U, 0U, 0U});
+        mixed_boolean_segments.push_back({
+            {left, 24.0F}, {left, 4.0F}, {}, {},
+            PROGPU_NATIVE_PATH_SEGMENT_LINE, 0U, 0U, 0U});
+        mixed_boolean_nodes.push_back({
+            static_cast<std::uint64_t>(leaf_index * 4U),
+            4U,
+            left,
+            4.0F,
+            right,
+            24.0F,
+            PROGPU_NATIVE_FILL_RULE_EVEN_ODD,
+            PROGPU_NATIVE_PATH_BOOLEAN_LEAF,
+            0U,
+            0U});
+        if (leaf_index != 0U) {
+            progpu_native_scene_path_boolean_node operation{};
+            operation.kind = leaf_index == 1U
+                ? PROGPU_NATIVE_PATH_BOOLEAN_DIFFERENCE
+                : PROGPU_NATIVE_PATH_BOOLEAN_UNION;
+            mixed_boolean_nodes.push_back(operation);
+        }
+    }
+    const progpu_native_scene_clip_path mixed_boolean_path{
+        0U,
+        mixed_boolean_segments.size(),
+        0U,
+        mixed_boolean_nodes.size(),
+        460.0F,
+        4.0F,
+        520.0F,
+        24.0F,
+        identity,
+        PROGPU_NATIVE_FILL_RULE_EVEN_ODD,
+        8U,
+        PROGPU_NATIVE_CLIP_INTERSECT,
+        0U};
+    std::uint32_t mixed_boolean_mask_index = PROGPU_NATIVE_SCENE_NO_INDEX;
+    if (!scene_builder.add_vector_clip_mask(
+            std::span<const progpu_native_scene_clip_path>(
+                &mixed_boolean_path,
+                1U),
+            mixed_boolean_segments,
+            mixed_boolean_nodes,
+            1.0F,
+            mixed_boolean_mask_index)) {
+        std::cerr << "Could not record translated mixed boolean mask.\n";
+        return EXIT_FAILURE;
+    }
+    progpu_native_scene_layer mixed_boolean_layer{};
+    mixed_boolean_layer.flags = PROGPU_NATIVE_SCENE_LAYER_BOUNDS |
+        PROGPU_NATIVE_SCENE_LAYER_FORCE_ISOLATION;
+    mixed_boolean_layer.bounds = {460.0F, 4.0F, 60.0F, 20.0F};
+    mixed_boolean_layer.opacity = 1.0F;
+    mixed_boolean_layer.blend_mode = PROGPU_NATIVE_BLEND_SRC_OVER;
+    mixed_boolean_layer.mask_resource_index = mixed_boolean_mask_index;
+    mixed_boolean_layer.effect_resource_index = PROGPU_NATIVE_SCENE_NO_INDEX;
+    mixed_boolean_layer.content_revision = 1U;
+    mixed_boolean_layer.composite_revision = 1U;
+    const progpu_native_analytic_primitive mixed_boolean_content{
+        PROGPU_NATIVE_PRIMITIVE_RECTANGLE,
+        0U,
+        460.0F,
+        4.0F,
+        60.0F,
+        20.0F,
+        0.0F,
+        0.0F,
+        {1.0F, 1.0F, 1.0F, 1.0F},
+        identity};
+    if (!scene_builder.push_layer(mixed_boolean_layer) ||
+        !scene_builder.draw_analytic(
+            std::span<const progpu_native_analytic_primitive>(
+                &mixed_boolean_content,
+                1U),
+            std::span<const std::uint32_t>(&brush_indices[3], 1U),
+            {460.0F, 4.0F, 60.0F, 20.0F}) ||
+        !scene_builder.pop_layer()) {
+        std::cerr << "Could not record translated mixed boolean layer.\n";
+        return EXIT_FAILURE;
+    }
+    auto mixed_path_transform = identity;
+    mixed_path_transform.m32 = 32.0F;
+    const progpu_native_scene_path_fill mixed_path_fill{
+        0U,
+        mixed_boolean_segments.size(),
+        0U,
+        mixed_boolean_nodes.size(),
+        460.0F,
+        4.0F,
+        520.0F,
+        24.0F,
+        {1.0F, 1.0F, 1.0F, 1.0F},
+        mixed_path_transform,
+        PROGPU_NATIVE_FILL_RULE_EVEN_ODD,
+        8U};
+    if (!scene_builder.draw_paths(
+            std::span<const progpu_native_scene_path_fill>(
+                &mixed_path_fill,
+                1U),
+            mixed_boolean_segments,
+            std::span<const std::uint32_t>(&brush_indices[3], 1U),
+            {460.0F, 36.0F, 60.0F, 20.0F},
+            PROGPU_NATIVE_SCENE_NO_INDEX,
+            mixed_boolean_nodes)) {
+        std::cerr << "Could not record translated mixed boolean path.\n";
+        return EXIT_FAILURE;
+    }
+    const std::array fractional_xor_segments{
+        progpu_native_path_segment{
+            {540.25F, 4.0F}, {570.25F, 4.0F}, {}, {},
+            PROGPU_NATIVE_PATH_SEGMENT_LINE, 0U, 0U, 0U},
+        progpu_native_path_segment{
+            {570.25F, 4.0F}, {570.25F, 24.0F}, {}, {},
+            PROGPU_NATIVE_PATH_SEGMENT_LINE, 0U, 0U, 0U},
+        progpu_native_path_segment{
+            {570.25F, 24.0F}, {540.25F, 24.0F}, {}, {},
+            PROGPU_NATIVE_PATH_SEGMENT_LINE, 0U, 0U, 0U},
+        progpu_native_path_segment{
+            {540.25F, 24.0F}, {540.25F, 4.0F}, {}, {},
+            PROGPU_NATIVE_PATH_SEGMENT_LINE, 0U, 0U, 0U},
+        progpu_native_path_segment{
+            {540.75F, 4.0F}, {570.75F, 4.0F}, {}, {},
+            PROGPU_NATIVE_PATH_SEGMENT_LINE, 0U, 0U, 0U},
+        progpu_native_path_segment{
+            {570.75F, 4.0F}, {570.75F, 24.0F}, {}, {},
+            PROGPU_NATIVE_PATH_SEGMENT_LINE, 0U, 0U, 0U},
+        progpu_native_path_segment{
+            {570.75F, 24.0F}, {540.75F, 24.0F}, {}, {},
+            PROGPU_NATIVE_PATH_SEGMENT_LINE, 0U, 0U, 0U},
+        progpu_native_path_segment{
+            {540.75F, 24.0F}, {540.75F, 4.0F}, {}, {},
+            PROGPU_NATIVE_PATH_SEGMENT_LINE, 0U, 0U, 0U}};
+    const std::array fractional_xor_nodes{
+        progpu_native_scene_path_boolean_node{
+            0U, 4U, 540.25F, 4.0F, 570.25F, 24.0F,
+            PROGPU_NATIVE_FILL_RULE_EVEN_ODD,
+            PROGPU_NATIVE_PATH_BOOLEAN_LEAF, 0U, 0U},
+        progpu_native_scene_path_boolean_node{
+            4U, 4U, 540.75F, 4.0F, 570.75F, 24.0F,
+            PROGPU_NATIVE_FILL_RULE_EVEN_ODD,
+            PROGPU_NATIVE_PATH_BOOLEAN_LEAF, 0U, 0U},
+        progpu_native_scene_path_boolean_node{
+            0U, 0U, 0.0F, 0.0F, 0.0F, 0.0F,
+            PROGPU_NATIVE_FILL_RULE_NON_ZERO,
+            PROGPU_NATIVE_PATH_BOOLEAN_XOR, 0U, 0U}};
+    const progpu_native_scene_clip_path fractional_xor_path{
+        0U,
+        fractional_xor_segments.size(),
+        0U,
+        fractional_xor_nodes.size(),
+        540.25F,
+        4.0F,
+        570.75F,
+        24.0F,
+        identity,
+        PROGPU_NATIVE_FILL_RULE_EVEN_ODD,
+        8U,
+        PROGPU_NATIVE_CLIP_INTERSECT,
+        0U};
+    std::uint32_t fractional_xor_mask_index = PROGPU_NATIVE_SCENE_NO_INDEX;
+    if (!scene_builder.add_vector_clip_mask(
+            std::span<const progpu_native_scene_clip_path>(
+                &fractional_xor_path,
+                1U),
+            fractional_xor_segments,
+            fractional_xor_nodes,
+            1.0F,
+            fractional_xor_mask_index)) {
+        std::cerr << "Could not record fractional translated XOR mask.\n";
+        return EXIT_FAILURE;
+    }
+    progpu_native_scene_layer fractional_xor_layer{};
+    fractional_xor_layer.flags = PROGPU_NATIVE_SCENE_LAYER_BOUNDS |
+        PROGPU_NATIVE_SCENE_LAYER_FORCE_ISOLATION;
+    fractional_xor_layer.bounds = {540.0F, 4.0F, 31.0F, 20.0F};
+    fractional_xor_layer.opacity = 1.0F;
+    fractional_xor_layer.blend_mode = PROGPU_NATIVE_BLEND_SRC_OVER;
+    fractional_xor_layer.mask_resource_index = fractional_xor_mask_index;
+    fractional_xor_layer.effect_resource_index = PROGPU_NATIVE_SCENE_NO_INDEX;
+    fractional_xor_layer.content_revision = 1U;
+    fractional_xor_layer.composite_revision = 1U;
+    const progpu_native_analytic_primitive fractional_xor_content{
+        PROGPU_NATIVE_PRIMITIVE_RECTANGLE,
+        0U,
+        540.0F,
+        4.0F,
+        31.0F,
+        20.0F,
+        0.0F,
+        0.0F,
+        {1.0F, 1.0F, 1.0F, 1.0F},
+        identity};
+    if (!scene_builder.push_layer(fractional_xor_layer) ||
+        !scene_builder.draw_analytic(
+            std::span<const progpu_native_analytic_primitive>(
+                &fractional_xor_content,
+                1U),
+            std::span<const std::uint32_t>(&brush_indices[3], 1U),
+            {540.0F, 4.0F, 31.0F, 20.0F}) ||
+        !scene_builder.pop_layer()) {
+        std::cerr << "Could not record fractional translated XOR layer.\n";
+        return EXIT_FAILURE;
+    }
+    std::vector<progpu_native_path_segment> winding_group_segments;
+    const auto append_winding_rectangle = [
+        &winding_group_segments](
+        float left,
+        float top,
+        float right,
+        float bottom,
+        bool clockwise) {
+        const std::size_t offset = winding_group_segments.size();
+        const std::array clockwise_points{
+            progpu_native_point{left, top},
+            progpu_native_point{right, top},
+            progpu_native_point{right, bottom},
+            progpu_native_point{left, bottom}};
+        const std::array counter_clockwise_points{
+            progpu_native_point{left, top},
+            progpu_native_point{left, bottom},
+            progpu_native_point{right, bottom},
+            progpu_native_point{right, top}};
+        const auto& points = clockwise
+            ? clockwise_points
+            : counter_clockwise_points;
+        for (std::size_t index = 0U; index < points.size(); ++index) {
+            winding_group_segments.push_back({
+                points[index],
+                points[(index + 1U) % points.size()],
+                {},
+                {},
+                PROGPU_NATIVE_PATH_SEGMENT_LINE,
+                0U,
+                0U,
+                0U});
+        }
+        return offset;
+    };
+    const std::size_t winding_a = append_winding_rectangle(
+        460.0F, 68.0F, 500.0F, 88.0F, true);
+    const std::size_t winding_b = append_winding_rectangle(
+        480.0F, 68.0F, 520.0F, 88.0F, true);
+    const std::size_t winding_cancellation = append_winding_rectangle(
+        460.0F, 68.0F, 520.0F, 88.0F, false);
+    const std::size_t winding_island = append_winding_rectangle(
+        520.0F, 68.0F, 540.0F, 88.0F, true);
+    const std::array winding_group_nodes{
+        progpu_native_scene_path_boolean_node{
+            winding_a, 4U, 460.0F, 68.0F, 500.0F, 88.0F,
+            PROGPU_NATIVE_FILL_RULE_NON_ZERO,
+            PROGPU_NATIVE_PATH_BOOLEAN_LEAF, 0U, 0U},
+        progpu_native_scene_path_boolean_node{
+            winding_b, 4U, 480.0F, 68.0F, 520.0F, 88.0F,
+            PROGPU_NATIVE_FILL_RULE_NON_ZERO,
+            PROGPU_NATIVE_PATH_BOOLEAN_LEAF, 0U, 0U},
+        progpu_native_scene_path_boolean_node{
+            0U, 0U, 0.0F, 0.0F, 0.0F, 0.0F,
+            PROGPU_NATIVE_FILL_RULE_NON_ZERO,
+            PROGPU_NATIVE_PATH_BOOLEAN_UNION, 0U, 0U},
+        progpu_native_scene_path_boolean_node{
+            winding_cancellation, 4U, 460.0F, 68.0F, 520.0F, 88.0F,
+            PROGPU_NATIVE_FILL_RULE_NON_ZERO,
+            PROGPU_NATIVE_PATH_BOOLEAN_WINDING_LEAF, 0U, 0U},
+        progpu_native_scene_path_boolean_node{
+            0U, 0U, 0.0F, 0.0F, 0.0F, 0.0F,
+            PROGPU_NATIVE_FILL_RULE_NON_ZERO,
+            PROGPU_NATIVE_PATH_BOOLEAN_WINDING_ADD, 0U, 0U},
+        progpu_native_scene_path_boolean_node{
+            winding_island, 4U, 520.0F, 68.0F, 540.0F, 88.0F,
+            PROGPU_NATIVE_FILL_RULE_NON_ZERO,
+            PROGPU_NATIVE_PATH_BOOLEAN_WINDING_LEAF, 0U, 0U},
+        progpu_native_scene_path_boolean_node{
+            0U, 0U, 0.0F, 0.0F, 0.0F, 0.0F,
+            PROGPU_NATIVE_FILL_RULE_NON_ZERO,
+            PROGPU_NATIVE_PATH_BOOLEAN_WINDING_ADD, 0U, 0U}};
+    const std::array winding_test_backgrounds{
+        progpu_native_analytic_primitive{
+            PROGPU_NATIVE_PRIMITIVE_RECTANGLE,
+            0U,
+            460.0F,
+            68.0F,
+            140.0F,
+            20.0F,
+            0.0F,
+            0.0F,
+            {1.0F, 1.0F, 1.0F, 1.0F},
+            identity},
+        progpu_native_analytic_primitive{
+            PROGPU_NATIVE_PRIMITIVE_RECTANGLE,
+            0U,
+            460.0F,
+            100.0F,
+            140.0F,
+            20.0F,
+            0.0F,
+            0.0F,
+            {1.0F, 1.0F, 1.0F, 1.0F},
+            identity}};
+    const std::array winding_test_background_brushes{
+        brush_indices[5],
+        brush_indices[5]};
+    if (!scene_builder.draw_analytic(
+            winding_test_backgrounds,
+            winding_test_background_brushes,
+            {460.0F, 68.0F, 140.0F, 52.0F})) {
+        std::cerr << "Could not record signed-winding test backgrounds.\n";
+        return EXIT_FAILURE;
+    }
+    const progpu_native_scene_clip_path winding_group_mask_path{
+        0U,
+        winding_group_segments.size(),
+        0U,
+        winding_group_nodes.size(),
+        460.0F,
+        68.0F,
+        540.0F,
+        88.0F,
+        identity,
+        PROGPU_NATIVE_FILL_RULE_NON_ZERO,
+        8U,
+        PROGPU_NATIVE_CLIP_INTERSECT,
+        0U};
+    std::uint32_t winding_group_mask_index = PROGPU_NATIVE_SCENE_NO_INDEX;
+    if (!scene_builder.add_vector_clip_mask(
+            std::span<const progpu_native_scene_clip_path>(
+                &winding_group_mask_path,
+                1U),
+            winding_group_segments,
+            winding_group_nodes,
+            1.0F,
+            winding_group_mask_index)) {
+        std::cerr << "Could not record signed-winding group mask.\n";
+        return EXIT_FAILURE;
+    }
+    progpu_native_scene_layer winding_group_layer{};
+    winding_group_layer.flags = PROGPU_NATIVE_SCENE_LAYER_BOUNDS |
+        PROGPU_NATIVE_SCENE_LAYER_FORCE_ISOLATION;
+    winding_group_layer.bounds = {460.0F, 68.0F, 80.0F, 20.0F};
+    winding_group_layer.opacity = 1.0F;
+    winding_group_layer.blend_mode = PROGPU_NATIVE_BLEND_SRC_OVER;
+    winding_group_layer.mask_resource_index = winding_group_mask_index;
+    winding_group_layer.effect_resource_index = PROGPU_NATIVE_SCENE_NO_INDEX;
+    winding_group_layer.content_revision = 1U;
+    winding_group_layer.composite_revision = 1U;
+    const progpu_native_analytic_primitive winding_group_content{
+        PROGPU_NATIVE_PRIMITIVE_RECTANGLE,
+        0U,
+        460.0F,
+        68.0F,
+        80.0F,
+        20.0F,
+        0.0F,
+        0.0F,
+        {1.0F, 1.0F, 1.0F, 1.0F},
+        identity};
+    if (!scene_builder.push_layer(winding_group_layer) ||
+        !scene_builder.draw_analytic(
+            std::span<const progpu_native_analytic_primitive>(
+                &winding_group_content,
+                1U),
+            std::span<const std::uint32_t>(&brush_indices[3], 1U),
+            {460.0F, 68.0F, 80.0F, 20.0F}) ||
+        !scene_builder.pop_layer()) {
+        std::cerr << "Could not record signed-winding group layer.\n";
+        return EXIT_FAILURE;
+    }
+    auto winding_group_path_transform = identity;
+    winding_group_path_transform.m32 = 32.0F;
+    const progpu_native_scene_path_fill winding_group_path{
+        0U,
+        winding_group_segments.size(),
+        0U,
+        winding_group_nodes.size(),
+        460.0F,
+        68.0F,
+        540.0F,
+        88.0F,
+        {1.0F, 1.0F, 1.0F, 1.0F},
+        winding_group_path_transform,
+        PROGPU_NATIVE_FILL_RULE_NON_ZERO,
+        8U};
+    if (!scene_builder.draw_paths(
+            std::span<const progpu_native_scene_path_fill>(
+                &winding_group_path,
+                1U),
+            winding_group_segments,
+            std::span<const std::uint32_t>(&brush_indices[3], 1U),
+            {460.0F, 100.0F, 80.0F, 20.0F},
+            PROGPU_NATIVE_SCENE_NO_INDEX,
+            winding_group_nodes)) {
+        std::cerr << "Could not record signed-winding group path.\n";
+        return EXIT_FAILURE;
+    }
+    const std::array double_contour_segments{
+        progpu_native_path_segment{
+            {560.0F, 68.0F}, {600.0F, 68.0F}, {}, {},
+            PROGPU_NATIVE_PATH_SEGMENT_LINE, 0U, 0U, 0U},
+        progpu_native_path_segment{
+            {600.0F, 68.0F}, {600.0F, 88.0F}, {}, {},
+            PROGPU_NATIVE_PATH_SEGMENT_LINE, 0U, 0U, 0U},
+        progpu_native_path_segment{
+            {600.0F, 88.0F}, {560.0F, 88.0F}, {}, {},
+            PROGPU_NATIVE_PATH_SEGMENT_LINE, 0U, 0U, 0U},
+        progpu_native_path_segment{
+            {560.0F, 88.0F}, {560.0F, 68.0F}, {}, {},
+            PROGPU_NATIVE_PATH_SEGMENT_LINE, 0U, 0U, 0U},
+        progpu_native_path_segment{
+            {560.0F, 68.0F}, {600.0F, 68.0F}, {}, {},
+            PROGPU_NATIVE_PATH_SEGMENT_LINE, 0U, 0U, 0U},
+        progpu_native_path_segment{
+            {600.0F, 68.0F}, {600.0F, 88.0F}, {}, {},
+            PROGPU_NATIVE_PATH_SEGMENT_LINE, 0U, 0U, 0U},
+        progpu_native_path_segment{
+            {600.0F, 88.0F}, {560.0F, 88.0F}, {}, {},
+            PROGPU_NATIVE_PATH_SEGMENT_LINE, 0U, 0U, 0U},
+        progpu_native_path_segment{
+            {560.0F, 88.0F}, {560.0F, 68.0F}, {}, {},
+            PROGPU_NATIVE_PATH_SEGMENT_LINE, 0U, 0U, 0U}};
+    const progpu_native_scene_path_fill nonzero_double_contour_path{
+        0U,
+        double_contour_segments.size(),
+        0U,
+        0U,
+        560.0F,
+        68.0F,
+        600.0F,
+        88.0F,
+        {1.0F, 1.0F, 1.0F, 1.0F},
+        identity,
+        PROGPU_NATIVE_FILL_RULE_NON_ZERO,
+        8U};
+    auto even_odd_double_contour_transform = identity;
+    even_odd_double_contour_transform.m32 = 32.0F;
+    const progpu_native_scene_path_fill even_odd_double_contour_path{
+        0U,
+        double_contour_segments.size(),
+        0U,
+        0U,
+        560.0F,
+        68.0F,
+        600.0F,
+        88.0F,
+        {1.0F, 1.0F, 1.0F, 1.0F},
+        even_odd_double_contour_transform,
+        PROGPU_NATIVE_FILL_RULE_EVEN_ODD,
+        8U};
+    if (!scene_builder.draw_paths(
+            std::span<const progpu_native_scene_path_fill>(
+                &nonzero_double_contour_path,
+                1U),
+            double_contour_segments,
+            std::span<const std::uint32_t>(&brush_indices[3], 1U),
+            {560.0F, 68.0F, 40.0F, 20.0F}) ||
+        !scene_builder.draw_paths(
+            std::span<const progpu_native_scene_path_fill>(
+                &even_odd_double_contour_path,
+                1U),
+            double_contour_segments,
+            std::span<const std::uint32_t>(&brush_indices[3], 1U),
+            {560.0F, 100.0F, 40.0F, 20.0F})) {
+        std::cerr << "Could not record fill-rule differential paths.\n";
+        return EXIT_FAILURE;
+    }
     progpu_native_hit_test_primitive hit_primitive{};
     hit_primitive.bounds_min = {48.0F, 48.0F};
     hit_primitive.bounds_max = {228.0F, 168.0F};
@@ -766,7 +2045,11 @@ int main(int argc, char** argv) {
         std::cerr << "Could not install the native retained scene.\n";
         return EXIT_FAILURE;
     }
-    if (!defer_software_d3d12_hit_test &&
+    if (!defer_d3d12_hit_test) {
+        std::cerr << "[ProGPUNative] executing retained GPU hit test."
+                  << std::endl;
+    }
+    if (!defer_d3d12_hit_test &&
         !verify_retained_gpu_hit_test(engine, device)) {
         std::array<char, 512U> error{};
         progpu_native_engine_get_last_error(
@@ -777,7 +2060,7 @@ int main(int argc, char** argv) {
                   << error.data() << '\n';
         return EXIT_FAILURE;
     }
-    if (defer_software_d3d12_hit_test) {
+    if (defer_d3d12_hit_test) {
         std::cout
             << "[ProGPUNative] retained GPU hit test deferred on "
             << adapter_name
@@ -795,6 +2078,7 @@ int main(int argc, char** argv) {
     frame.clear_color = {0.02F, 0.025F, 0.04F, 1.0F};
     progpu_native_scene_frame_metrics metrics{};
     metrics.struct_size = sizeof(metrics);
+    std::cerr << "[ProGPUNative] rendering retained scene." << std::endl;
     const progpu_native_status render_status =
         progpu_native_engine_render_scene(engine, &frame, &metrics);
     if (render_status != PROGPU_NATIVE_STATUS_SUCCESS) {
@@ -806,6 +2090,8 @@ int main(int argc, char** argv) {
         std::cerr << "Native render failed: " << error.data() << '\n';
         return EXIT_FAILURE;
     }
+    std::cerr << "[ProGPUNative] retained scene rendered; reading pixels."
+              << std::endl;
 
     const std::uint32_t row_bytes = align_row_bytes(width * 4U);
     const std::uint64_t readback_size =
@@ -843,12 +2129,19 @@ int main(int argc, char** argv) {
         readback_size,
         on_buffer_mapped,
         &mapped);
-    while (!mapped.complete) {
-        wgpuDevicePoll(device, true, nullptr);
-    }
-    const auto* pixels = static_cast<const std::uint8_t*>(
-        wgpuBufferGetConstMappedRange(readback, 0U, readback_size));
+    std::cerr << "[ProGPUNative] waiting for native sample readback."
+              << std::endl;
+    const bool map_completed = wait_for_gpu_callback(
+        device,
+        mapped.complete,
+        "Native sample readback");
+    const auto* pixels = map_completed &&
+            mapped.status == WGPUBufferMapAsyncStatus_Success
+        ? static_cast<const std::uint8_t*>(
+            wgpuBufferGetConstMappedRange(readback, 0U, readback_size))
+        : nullptr;
     bool passed =
+        map_completed &&
         mapped.status == WGPUBufferMapAsyncStatus_Success &&
         pixels != nullptr &&
         has_expected_colors(pixels, row_bytes, uses_decoded_glyph) &&
@@ -869,7 +2162,7 @@ int main(int argc, char** argv) {
     abandoned_query.point = {80.0F, 80.0F};
     abandoned_query.region_max = abandoned_query.point;
     std::uint64_t abandoned_token = 0U;
-    passed = passed && (defer_software_d3d12_hit_test ||
+    passed = passed && (defer_d3d12_hit_test ||
         (progpu_native_engine_begin_hit_test(
             engine,
             &abandoned_query,

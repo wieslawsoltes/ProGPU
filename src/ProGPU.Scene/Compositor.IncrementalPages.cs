@@ -62,7 +62,9 @@ public unsafe partial class Compositor
         float DpiScale,
         ulong GlyphAtlasGeneration,
         ulong PathAtlasGeneration,
-        bool SolidRoundedSpecialization);
+        bool SolidRoundedSpecialization,
+        bool SuppressClearType,
+        Matrix4x4 Projection);
 
     private readonly record struct IncrementalScenePageLookup(
         Visual Visual,
@@ -111,6 +113,8 @@ public unsafe partial class Compositor
             BlendMode = drawCall.BlendMode;
             TextureSamplingMode = drawCall.TextureSamplingMode;
             TextureMaxAnisotropy = drawCall.TextureMaxAnisotropy;
+            TextureAddressModeU = drawCall.TextureAddressModeU;
+            TextureAddressModeV = drawCall.TextureAddressModeV;
             TextureAlphaMode = drawCall.TextureAlphaMode;
         }
 
@@ -124,6 +128,8 @@ public unsafe partial class Compositor
         internal GpuBlendMode BlendMode { get; }
         internal TextureSamplingMode TextureSamplingMode { get; }
         internal byte TextureMaxAnisotropy { get; }
+        internal TextureAddressMode TextureAddressModeU { get; }
+        internal TextureAddressMode TextureAddressModeV { get; }
         internal GpuTextureAlphaMode TextureAlphaMode { get; }
 
         internal CompositorDrawCall Expand(uint indexBase)
@@ -140,6 +146,8 @@ public unsafe partial class Compositor
                 BlendMode = BlendMode,
                 TextureSamplingMode = TextureSamplingMode,
                 TextureMaxAnisotropy = TextureMaxAnisotropy,
+                TextureAddressModeU = TextureAddressModeU,
+                TextureAddressModeV = TextureAddressModeV,
                 TextureAlphaMode = TextureAlphaMode
             };
         }
@@ -180,7 +188,9 @@ public unsafe partial class Compositor
             _atlas.Generation,
             _pathAtlas.Generation,
             _previousSolidRoundedPrimitiveCount >=
-                SolidRoundedSpecializationThreshold);
+                SolidRoundedSpecializationThreshold,
+            _suppressCachedClearType,
+            _currentProjection);
     }
 
     private bool CanUseIncrementalScenePage(Visual node)

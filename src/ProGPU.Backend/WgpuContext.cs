@@ -55,6 +55,28 @@ public unsafe class WgpuContext : IDisposable
     public bool SupportsTextureFormatsTier1 { get; private set; }
     public BackendType AdapterBackendType { get; private set; } = BackendType.Undefined;
     public string AdapterName { get; private set; } = string.Empty;
+    /// <summary>Configure before device creation; retained vertices keep the resolved path.</summary>
+    public GpuImageSamplingPreference ImageSamplingPreference { get; init; } =
+        GpuImageSamplingPolicy.ReadEnvironmentPreference();
+    public GpuImageSamplingPath ImageSamplingPath => GpuImageSamplingPolicy.Resolve(
+        ImageSamplingPreference, AdapterBackendType, AdapterName);
+    /// <summary>
+    /// Gets or sets the requested compute execution policy. Set this before
+    /// constructing workload-owned GPU resources.
+    /// </summary>
+    public GpuComputeExecutionPreference ComputeExecutionPreference { get; set; } =
+        GpuComputeExecutionPolicy.ReadEnvironmentPreference();
+    /// <summary>Gets the resolved glyph coverage implementation.</summary>
+    public GpuComputeExecutionPath GlyphRasterizationPath =>
+        GpuComputeExecutionPolicy.ResolveGlyphRasterization(
+            ComputeExecutionPreference,
+            AdapterBackendType,
+            AdapterName);
+    /// <summary>
+    /// Gets whether glyph coverage must avoid the adapter's compute shader.
+    /// </summary>
+    public bool RequiresGlyphComputeFallback =>
+        GlyphRasterizationPath != GpuComputeExecutionPath.NativeCompute;
     public WgpuAdapterSelectionDiagnostics AdapterSelectionDiagnostics { get; private set; } =
         WgpuAdapterSelectionDiagnostics.Unknown;
     public IProGpuExternalTextureImporter?
@@ -877,7 +899,7 @@ public unsafe class WgpuContext : IDisposable
         _window = window;
         Wgpu = CreateNativeWebGpuApi();
         Api = new SilkWebGpuApi(Wgpu, RenderLock);
-        
+
         // 1. Create WebGPU Instance (isolated per context)
         SafeLog("[WGPUCONTEXT] Creating WebGPU Instance\n");
         var instanceExtras = CreateNativeInstanceExtras();
@@ -964,7 +986,7 @@ public unsafe class WgpuContext : IDisposable
         {
             adapterStateHandle.Free();
         }
-        
+
         SafeLog($"[WGPUCONTEXT] RequestAdapter finished, adapter={adapterState.Result:X}\n");
         if (adapterState.Result == 0)
         {
@@ -1266,11 +1288,13 @@ public unsafe class WgpuContext : IDisposable
 
     private static NativeInstanceExtras CreateNativeInstanceExtras()
     {
-        uint backends = OperatingSystem.IsAndroid()
-            ? NativeInstanceExtras.VulkanBackend
-            : OperatingSystem.IsIOS()
-                ? NativeInstanceExtras.MetalBackend
-                : 0u;
+        uint backends = OperatingSystem.IsWindows()
+            ? NativeInstanceExtras.D3D12Backend
+            : OperatingSystem.IsAndroid()
+                ? NativeInstanceExtras.VulkanBackend
+                : OperatingSystem.IsIOS()
+                    ? NativeInstanceExtras.MetalBackend
+                    : 0u;
         return backends == 0u
             ? default
             : new NativeInstanceExtras
@@ -1289,6 +1313,7 @@ public unsafe class WgpuContext : IDisposable
         public const uint STypeValue = 0x00030006;
         public const uint VulkanBackend = 1u << 0;
         public const uint MetalBackend = 1u << 2;
+        public const uint D3D12Backend = 1u << 3;
 
         public ChainedStruct Chain;
         public uint Backends;
@@ -1741,6 +1766,14 @@ public unsafe class WgpuContext : IDisposable
         AdapterSelectionDiagnostics = diagnostics;
         AdapterBackendType = diagnostics.BackendType;
         AdapterName = diagnostics.Name;
+        ProGpuBackendDiagnostics.WriteLine(
+            $"[Image] Base-level sampling path={ImageSamplingPath}, " +
+            $"preference={ImageSamplingPreference}, adapter='{AdapterName}', " +
+            $"backend={AdapterBackendType}.");
+        ProGpuBackendDiagnostics.WriteLine(
+            $"[Compute] Glyph rasterization path={GlyphRasterizationPath}, " +
+            $"preference={ComputeExecutionPreference}, adapter='{AdapterName}', " +
+            $"backend={AdapterBackendType}.");
     }
 
     /// <summary>

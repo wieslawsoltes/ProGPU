@@ -72,10 +72,16 @@ bool valid_picture_mask(
     const progpu_native_scene_layer_picture_mask& mask,
     const std::byte* streams,
     std::uint32_t stream_bytes) noexcept {
+    const bool source_extent =
+        (mask.flags & PROGPU_NATIVE_SCENE_PICTURE_MASK_SOURCE_EXTENT) != 0U;
     return mask.struct_size == sizeof(mask) &&
         mask.kind == PROGPU_NATIVE_SCENE_LAYER_MASK_PICTURE &&
-        mask.flags == 0U && mask.reserved0 == 0U &&
-        mask.reserved1 == 0U && mask.stream_size != 0U &&
+        (mask.flags & ~PROGPU_NATIVE_SCENE_PICTURE_MASK_SOURCE_EXTENT) == 0U &&
+        (source_extent
+                ? mask.reserved0 > 0U && mask.reserved0 <= 16384U &&
+                    mask.reserved1 > 0U && mask.reserved1 <= 16384U
+                : mask.reserved0 == 0U && mask.reserved1 == 0U) &&
+        mask.stream_size != 0U &&
         mask.stream_offset <= stream_bytes &&
         mask.stream_size <= stream_bytes - mask.stream_offset &&
         valid_bounds(mask.bounds) && valid_transform(mask.transform) &&
@@ -177,7 +183,8 @@ bool valid_vector_path(
         path.max_x > path.min_x && path.max_y > path.min_y &&
         valid_transform(path.transform) &&
         path.fill_rule <= PROGPU_NATIVE_FILL_RULE_EVEN_ODD &&
-        (path.sample_grid == 4U || path.sample_grid == 8U) &&
+        (path.sample_grid == 1U || path.sample_grid == 4U ||
+            path.sample_grid == 8U) &&
         path.operation <= PROGPU_NATIVE_CLIP_DIFFERENCE &&
         path.reserved == 0U)) {
         return false;

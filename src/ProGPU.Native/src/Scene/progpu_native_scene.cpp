@@ -21,7 +21,10 @@ namespace {
 constexpr std::uint32_t known_resource_flags =
     PROGPU_NATIVE_SCENE_RECORD_REQUIRED |
     PROGPU_NATIVE_SCENE_COLOR_GLYPH_BITMAPS |
-    PROGPU_NATIVE_SCENE_EXTERNAL_IMAGE;
+    PROGPU_NATIVE_SCENE_EXTERNAL_IMAGE |
+    PROGPU_NATIVE_SCENE_IMAGE_BGRA8 |
+    PROGPU_NATIVE_SCENE_IMAGE_R8 |
+    PROGPU_NATIVE_SCENE_IMAGE_PICTURE;
 constexpr std::uint32_t known_command_flags =
     PROGPU_NATIVE_SCENE_RECORD_REQUIRED |
     PROGPU_NATIVE_SCENE_GLYPH_STYLED;
@@ -84,7 +87,7 @@ bool span_lives_in_arena(
 
 bool is_known_resource(std::uint32_t kind) noexcept {
     return kind >= PROGPU_NATIVE_SCENE_RESOURCE_ANALYTIC_BATCH &&
-        kind <= PROGPU_NATIVE_SCENE_RESOURCE_HIT_TEST_INDEX;
+        kind <= PROGPU_NATIVE_SCENE_RESOURCE_TILE_COMPOSITE;
 }
 
 bool is_known_command(std::uint32_t kind) noexcept {
@@ -283,7 +286,8 @@ hit_test_resource_validation validate_hit_test_resource(
 bool valid_scene_state(const progpu_native_scene_state& state) noexcept {
     constexpr std::uint32_t known_flags =
         PROGPU_NATIVE_SCENE_STATE_CLIP_RECT |
-        PROGPU_NATIVE_SCENE_STATE_MASK;
+        PROGPU_NATIVE_SCENE_STATE_MASK |
+        PROGPU_NATIVE_SCENE_STATE_GUIDELINE_SET;
     const bool clip_is_canonical =
         (state.flags & PROGPU_NATIVE_SCENE_STATE_CLIP_RECT) != 0U ||
         (state.clip_rect.x == 0.0F && state.clip_rect.y == 0.0F &&
@@ -292,10 +296,12 @@ bool valid_scene_state(const progpu_native_scene_state& state) noexcept {
     const bool mask_is_canonical =
         (state.flags & PROGPU_NATIVE_SCENE_STATE_MASK) != 0U ||
         state.mask_resource_index == 0U;
+    const bool guidelines_are_canonical =
+        (state.flags & PROGPU_NATIVE_SCENE_STATE_GUIDELINE_SET) != 0U ||
+        state.guideline_resource_index == 0U;
     return state.struct_size == sizeof(progpu_native_scene_state) &&
         (state.flags & ~known_flags) == 0U &&
         state.reserved == 0U &&
-        state.reserved1 == 0U &&
         std::isfinite(state.transform.m11) &&
         std::isfinite(state.transform.m12) &&
         std::isfinite(state.transform.m21) &&
@@ -310,7 +316,7 @@ bool valid_scene_state(const progpu_native_scene_state& state) noexcept {
         std::isfinite(state.clip_rect.height) &&
         state.clip_rect.width >= 0.0F &&
         state.clip_rect.height >= 0.0F && clip_is_canonical &&
-        mask_is_canonical;
+        mask_is_canonical && guidelines_are_canonical;
 }
 
 bool valid_scene_layer(const progpu_native_scene_layer& layer) noexcept {
@@ -479,10 +485,28 @@ validation_result validate(
         }
         const bool external_image =
             (resource.flags & PROGPU_NATIVE_SCENE_EXTERNAL_IMAGE) != 0U;
+        const bool bgra8_image =
+            (resource.flags & PROGPU_NATIVE_SCENE_IMAGE_BGRA8) != 0U;
+        const bool r8_image = (resource.flags & PROGPU_NATIVE_SCENE_IMAGE_R8) != 0U;
+        const bool picture_image = (resource.flags & PROGPU_NATIVE_SCENE_IMAGE_PICTURE) != 0U;
+        if (picture_image) {
+            if (external_image || bgra8_image || r8_image ||
+                resource.kind != PROGPU_NATIVE_SCENE_RESOURCE_IMAGE ||
+                resource.payload_size != sizeof(progpu_native_scene_picture_image) ||
+                resource.auxiliary_size < sizeof(progpu_native_scene_header) ||
+                !semantic::is_valid_semantic_picture_image(read_record<progpu_native_scene_picture_image>(
+                    bytes, resource.payload_offset)) ||
+                validate(bytes + resource.auxiliary_offset, resource.auxiliary_size).status != PROGPU_NATIVE_STATUS_SUCCESS)
+                return fail(header, PROGPU_NATIVE_SCENE_VALIDATION_VALUE, offset);
+        }
         if (external_image &&
             (resource.kind != PROGPU_NATIVE_SCENE_RESOURCE_IMAGE ||
                 resource.payload_size != 0U ||
-                resource.auxiliary_size != 0U)) {
+                resource.auxiliary_size != 0U || bgra8_image || r8_image)) {
+            return fail(header, PROGPU_NATIVE_SCENE_VALIDATION_RECORD, offset);
+        }
+        if ((bgra8_image && r8_image) || ((bgra8_image || r8_image) &&
+            resource.kind != PROGPU_NATIVE_SCENE_RESOURCE_IMAGE)) {
             return fail(header, PROGPU_NATIVE_SCENE_VALIDATION_RECORD, offset);
         }
         if (resource.resource_id <= previous_resource_id) {
@@ -543,6 +567,126 @@ validation_result validate(
                         header,
                         PROGPU_NATIVE_SCENE_VALIDATION_RECORD,
                         resource.payload_offset);
+                }
+            }
+            if ((state.flags &
+                    PROGPU_NATIVE_SCENE_STATE_GUIDELINE_SET) != 0U) {
+                if (state.guideline_resource_index >= index) {
+                    return fail(
+                        header,
+                        PROGPU_NATIVE_SCENE_VALIDATION_RECORD,
+                        resource.payload_offset);
+                }
+                const auto guideline_resource =
+                    read_record<progpu_native_scene_resource>(
+                        bytes,
+                        header.resource_offset +
+                            static_cast<std::size_t>(
+                                state.guideline_resource_index) *
+                                header.resource_stride);
+                if (guideline_resource.kind !=
+                    PROGPU_NATIVE_SCENE_RESOURCE_GUIDELINE_SET) {
+                    return fail(
+                        header,
+                        PROGPU_NATIVE_SCENE_VALIDATION_RECORD,
+                        resource.payload_offset);
+                }
+            }
+        }
+        if (resource.kind == PROGPU_NATIVE_SCENE_RESOURCE_TILE_COMPOSITE) {
+            if (resource.payload_size != sizeof(progpu_native_scene_tile_composite) ||
+                resource.auxiliary_size != 0U ||
+                !semantic::is_valid_semantic_tile_composite(
+                    read_record<progpu_native_scene_tile_composite>(bytes, resource.payload_offset))) {
+                return fail(header, PROGPU_NATIVE_SCENE_VALIDATION_VALUE, offset);
+            }
+        }
+        if (resource.kind == PROGPU_NATIVE_SCENE_RESOURCE_GUIDELINE_SET) {
+            if (resource.payload_size <
+                    sizeof(progpu_native_scene_guideline_set) ||
+                resource.auxiliary_size != 0U) {
+                return fail(
+                    header,
+                    PROGPU_NATIVE_SCENE_VALIDATION_RECORD,
+                    offset);
+            }
+            const auto guidelines =
+                read_record<progpu_native_scene_guideline_set>(
+                    bytes, resource.payload_offset);
+            const std::uint64_t coordinate_count =
+                static_cast<std::uint64_t>(guidelines.guideline_x_count) +
+                guidelines.guideline_y_count;
+            const bool explicit_offsets = (guidelines.flags &
+                PROGPU_NATIVE_SCENE_GUIDELINE_EXPLICIT_OFFSETS) != 0U;
+            const std::uint64_t expected_size = sizeof(guidelines) +
+                coordinate_count * sizeof(double) *
+                    (explicit_offsets ? 2U : 1U);
+            const bool multiple = guidelines.guideline_x_count > 1U ||
+                guidelines.guideline_y_count > 1U;
+            const std::uint32_t multi_flags = guidelines.flags &
+                (PROGPU_NATIVE_SCENE_GUIDELINE_COMPOSITE_ONLY |
+                 PROGPU_NATIVE_SCENE_GUIDELINE_PER_POINT);
+            if (guidelines.struct_size != sizeof(guidelines) ||
+                (guidelines.flags &
+                    ~(PROGPU_NATIVE_SCENE_GUIDELINE_COMPOSITE_ONLY |
+                      PROGPU_NATIVE_SCENE_GUIDELINE_PER_POINT |
+                      PROGPU_NATIVE_SCENE_GUIDELINE_EXPLICIT_OFFSETS)) != 0U ||
+                multiple != (multi_flags != 0U) ||
+                (multi_flags & (multi_flags - 1U)) != 0U ||
+                guidelines.guideline_x_count >
+                    PROGPU_NATIVE_SCENE_MAX_GUIDELINES_PER_AXIS ||
+                guidelines.guideline_y_count >
+                    PROGPU_NATIVE_SCENE_MAX_GUIDELINES_PER_AXIS ||
+                expected_size != resource.payload_size) {
+                return fail(
+                    header,
+                    PROGPU_NATIVE_SCENE_VALIDATION_VALUE,
+                    resource.payload_offset);
+            }
+            std::uint64_t coordinate_index = 0U;
+            for (std::uint32_t axis = 0U; axis < 2U; ++axis) {
+                const std::uint32_t count = axis == 0U
+                    ? guidelines.guideline_x_count
+                    : guidelines.guideline_y_count;
+                double previous = -std::numeric_limits<double>::infinity();
+                for (std::uint32_t axis_index = 0U;
+                     axis_index < count;
+                     ++axis_index, ++coordinate_index) {
+                    const auto coordinate = read_record<double>(
+                        bytes,
+                        resource.payload_offset + sizeof(guidelines) +
+                            coordinate_index * sizeof(double));
+                    if (!std::isfinite(coordinate) ||
+                        coordinate < previous) {
+                        return fail(
+                            header,
+                            PROGPU_NATIVE_SCENE_VALIDATION_VALUE,
+                            resource.payload_offset + sizeof(guidelines) +
+                                static_cast<std::uint32_t>(
+                                    coordinate_index * sizeof(double)));
+                    }
+                    previous = coordinate;
+                }
+            }
+            if (explicit_offsets) {
+                for (std::uint64_t offset_index = 0U;
+                     offset_index < coordinate_count;
+                     ++offset_index) {
+                    const auto explicit_offset = read_record<double>(
+                        bytes,
+                        resource.payload_offset + sizeof(guidelines) +
+                            (coordinate_count + offset_index) *
+                                sizeof(double));
+                    if (!std::isfinite(explicit_offset) ||
+                        std::abs(explicit_offset) > 1.0) {
+                        return fail(
+                            header,
+                            PROGPU_NATIVE_SCENE_VALIDATION_VALUE,
+                            resource.payload_offset + sizeof(guidelines) +
+                                static_cast<std::uint32_t>(
+                                    (coordinate_count + offset_index) *
+                                        sizeof(double)));
+                    }
                 }
             }
         }
@@ -752,6 +896,7 @@ validation_result validate(
                 sizeof(progpu_native_scene_mesh_3d);
             std::size_t vertex_count = 0U;
             std::size_t index_count = 0U;
+            std::size_t light_count = 0U;
             for (std::uint32_t mesh_index = 0U;
                  mesh_index < mesh_count;
                  ++mesh_index) {
@@ -767,13 +912,21 @@ validation_result validate(
                     index_count,
                     static_cast<std::size_t>(mesh.index_offset) +
                         mesh.index_count);
+                light_count = std::max(
+                    light_count,
+                    static_cast<std::size_t>(mesh.light_offset) +
+                        mesh.light_count);
             }
             const std::uint64_t vertex_bytes =
                 static_cast<std::uint64_t>(vertex_count) *
                     sizeof(progpu_native_scene_mesh_3d_vertex);
             const std::uint64_t index_bytes =
                 static_cast<std::uint64_t>(index_count) * sizeof(std::uint32_t);
-            if (vertex_bytes + index_bytes != resource.auxiliary_size) {
+            const std::uint64_t light_bytes =
+                static_cast<std::uint64_t>(light_count) *
+                    sizeof(progpu_native_scene_light_3d);
+            if (vertex_bytes + index_bytes + light_bytes !=
+                resource.auxiliary_size) {
                 return fail(
                     header,
                     PROGPU_NATIVE_SCENE_VALIDATION_RECORD,
@@ -799,6 +952,24 @@ validation_result validate(
             }
             const std::size_t indices_offset = resource.auxiliary_offset +
                 static_cast<std::size_t>(vertex_bytes);
+            const std::size_t lights_offset = indices_offset +
+                static_cast<std::size_t>(index_bytes);
+            for (std::size_t light_index = 0U;
+                 light_index < light_count;
+                 ++light_index) {
+                const auto light = read_record<progpu_native_scene_light_3d>(
+                    bytes,
+                    lights_offset + light_index *
+                        sizeof(progpu_native_scene_light_3d));
+                if (!semantic::is_valid_semantic_light_3d(light)) {
+                    return fail(
+                        header,
+                        PROGPU_NATIVE_SCENE_VALIDATION_VALUE,
+                        static_cast<std::uint32_t>(
+                            lights_offset + light_index *
+                                sizeof(progpu_native_scene_light_3d)));
+                }
+            }
             for (std::uint32_t mesh_index = 0U;
                  mesh_index < mesh_count;
                  ++mesh_index) {
@@ -807,7 +978,7 @@ validation_result validate(
                     resource.payload_offset + mesh_index *
                         sizeof(progpu_native_scene_mesh_3d));
                 if (!semantic::is_valid_semantic_mesh_3d(
-                        mesh, vertex_count, index_count)) {
+                        mesh, vertex_count, index_count, light_count)) {
                     return fail(
                         header,
                         PROGPU_NATIVE_SCENE_VALIDATION_VALUE,
@@ -924,6 +1095,28 @@ validation_result validate(
                     PROGPU_NATIVE_SCENE_VALIDATION_RECORD,
                     offset);
             }
+            const auto state = read_record<progpu_native_scene_state>(
+                bytes, state_resource.payload_offset);
+            if ((state.flags &
+                    PROGPU_NATIVE_SCENE_STATE_GUIDELINE_SET) != 0U) {
+                const auto guideline_resource = read_record<
+                    progpu_native_scene_resource>(
+                        bytes,
+                        header.resource_offset +
+                            static_cast<std::size_t>(
+                                state.guideline_resource_index) *
+                                header.resource_stride);
+                const auto guidelines = read_record<
+                    progpu_native_scene_guideline_set>(
+                        bytes, guideline_resource.payload_offset);
+                if ((guidelines.flags &
+                        PROGPU_NATIVE_SCENE_GUIDELINE_COMPOSITE_ONLY) != 0U) {
+                    return fail(
+                        header,
+                        PROGPU_NATIVE_SCENE_VALIDATION_VALUE,
+                        offset);
+                }
+            }
         }
         if (is_draw_command(command.kind)) {
             if (command.resource_index >= header.resource_count) {
@@ -948,8 +1141,14 @@ validation_result validate(
                     PROGPU_NATIVE_SCENE_COMMAND_DRAW_LINE_3D_BATCH ||
                 command.kind ==
                     PROGPU_NATIVE_SCENE_COMMAND_DRAW_MESH_3D_BATCH) {
-                if (command.payload_size !=
-                    sizeof(progpu_native_scene_camera_3d)) {
+                const bool mesh_material_payload = command.kind ==
+                        PROGPU_NATIVE_SCENE_COMMAND_DRAW_MESH_3D_BATCH &&
+                    command.payload_size >
+                        sizeof(progpu_native_scene_camera_3d);
+                if (command.payload_size <
+                        sizeof(progpu_native_scene_camera_3d) ||
+                    (!mesh_material_payload && command.payload_size !=
+                        sizeof(progpu_native_scene_camera_3d))) {
                     return fail(
                         header,
                         PROGPU_NATIVE_SCENE_VALIDATION_RECORD,
@@ -963,6 +1162,97 @@ validation_result validate(
                         header,
                         PROGPU_NATIVE_SCENE_VALIDATION_VALUE,
                         command.payload_offset);
+                }
+                if (mesh_material_payload) {
+                    const std::uint32_t materials_offset =
+                        command.payload_offset +
+                            sizeof(progpu_native_scene_camera_3d);
+                    if (command.payload_size <
+                        sizeof(progpu_native_scene_camera_3d) +
+                            sizeof(progpu_native_scene_mesh_3d_materials)) {
+                        return fail(
+                            header,
+                            PROGPU_NATIVE_SCENE_VALIDATION_RECORD,
+                            offset);
+                    }
+                    const auto materials = read_record<
+                        progpu_native_scene_mesh_3d_materials>(
+                            bytes, materials_offset);
+                    const std::uint32_t mesh_count =
+                        resource.payload_size /
+                            sizeof(progpu_native_scene_mesh_3d);
+                    const std::uint64_t expected_payload_size =
+                        sizeof(progpu_native_scene_camera_3d) +
+                        sizeof(materials) +
+                        static_cast<std::uint64_t>(materials.brush_count) *
+                            sizeof(std::uint32_t);
+                    if (materials.struct_size != sizeof(materials) ||
+                        materials.reserved0 != 0U ||
+                        materials.brush_count != mesh_count ||
+                        expected_payload_size != command.payload_size ||
+                        materials.brush_resource_index >=
+                            header.resource_count) {
+                        return fail(
+                            header,
+                            PROGPU_NATIVE_SCENE_VALIDATION_VALUE,
+                            materials_offset);
+                    }
+                    const auto brush_resource = read_record<
+                        progpu_native_scene_resource>(
+                            bytes,
+                            header.resource_offset +
+                                static_cast<std::size_t>(
+                                    materials.brush_resource_index) *
+                                    header.resource_stride);
+                    if (brush_resource.kind !=
+                            PROGPU_NATIVE_SCENE_RESOURCE_BRUSH_TABLE ||
+                        brush_resource.payload_size == 0U ||
+                        brush_resource.payload_size %
+                            sizeof(progpu_native_scene_brush) != 0U) {
+                        return fail(
+                            header,
+                            PROGPU_NATIVE_SCENE_VALIDATION_RECORD,
+                            materials_offset);
+                    }
+                    const std::uint32_t brush_count =
+                        brush_resource.payload_size /
+                            sizeof(progpu_native_scene_brush);
+                    const std::uint32_t indices_offset = materials_offset +
+                        sizeof(materials);
+                    for (std::uint32_t material_index = 0U;
+                         material_index < materials.brush_count;
+                         ++material_index) {
+                        const auto brush_index = read_record<std::uint32_t>(
+                            bytes,
+                            indices_offset +
+                                static_cast<std::size_t>(material_index) *
+                                    sizeof(std::uint32_t));
+                        if (brush_index >= brush_count) {
+                            return fail(
+                                header,
+                                PROGPU_NATIVE_SCENE_VALIDATION_RANGE,
+                                indices_offset + material_index *
+                                    sizeof(std::uint32_t));
+                        }
+                        const auto brush = read_record<
+                            progpu_native_scene_brush>(
+                                bytes,
+                                brush_resource.payload_offset +
+                                    static_cast<std::size_t>(brush_index) *
+                                        sizeof(progpu_native_scene_brush));
+                        if (brush.type !=
+                                PROGPU_NATIVE_SCENE_BRUSH_SOLID &&
+                            brush.type !=
+                                PROGPU_NATIVE_SCENE_BRUSH_LINEAR_GRADIENT &&
+                            brush.type !=
+                                PROGPU_NATIVE_SCENE_BRUSH_RADIAL_GRADIENT) {
+                            return fail(
+                                header,
+                                PROGPU_NATIVE_SCENE_VALIDATION_VALUE,
+                                brush_resource.payload_offset + brush_index *
+                                    sizeof(progpu_native_scene_brush));
+                        }
+                    }
                 }
             }
             if (command.kind == PROGPU_NATIVE_SCENE_COMMAND_DRAW_ANALYTIC ||
@@ -1080,11 +1370,79 @@ validation_result validate(
                     PROGPU_NATIVE_SCENE_RESOURCE_LAYER_MASK) ||
                 !valid_layer_resource(
                     layer.effect_resource_index,
-                    PROGPU_NATIVE_SCENE_RESOURCE_EFFECT_CHAIN)) {
+                    PROGPU_NATIVE_SCENE_RESOURCE_EFFECT_CHAIN) ||
+                (((layer.flags &
+                        (PROGPU_NATIVE_SCENE_LAYER_CACHE_LOCAL_SPACE |
+                            PROGPU_NATIVE_SCENE_LAYER_COMPOSITE_STATE)) !=
+                    0U) &&
+                    (layer.reserved0 == PROGPU_NATIVE_SCENE_NO_INDEX ||
+                        !valid_layer_resource(
+                            layer.reserved0,
+                            PROGPU_NATIVE_SCENE_RESOURCE_STATE)))) {
                 return fail(
                     header,
                     PROGPU_NATIVE_SCENE_VALIDATION_RECORD,
                     offset);
+            }
+            const bool local_cache = (layer.flags &
+                PROGPU_NATIVE_SCENE_LAYER_CACHE_LOCAL_SPACE) != 0U;
+            const bool tile_cache = (layer.flags & PROGPU_NATIVE_SCENE_LAYER_CACHE_TILE) != 0U;
+            if (tile_cache && (layer.reserved1 == PROGPU_NATIVE_SCENE_NO_INDEX ||
+                !valid_layer_resource(layer.reserved1, PROGPU_NATIVE_SCENE_RESOURCE_TILE_COMPOSITE))) {
+                return fail(header, PROGPU_NATIVE_SCENE_VALIDATION_RECORD, offset);
+            }
+            const bool has_composite_state = local_cache ||
+                (layer.flags &
+                    PROGPU_NATIVE_SCENE_LAYER_COMPOSITE_STATE) != 0U;
+            if (has_composite_state) {
+                const auto composite_resource = read_record<
+                    progpu_native_scene_resource>(
+                        bytes,
+                        header.resource_offset +
+                            static_cast<std::size_t>(layer.reserved0) *
+                                header.resource_stride);
+                const auto composite_state = read_record<
+                    progpu_native_scene_state>(
+                        bytes, composite_resource.payload_offset);
+                const std::uint32_t composite_flags = local_cache
+                    ? PROGPU_NATIVE_SCENE_STATE_CLIP_RECT |
+                        PROGPU_NATIVE_SCENE_STATE_GUIDELINE_SET
+                    : PROGPU_NATIVE_SCENE_STATE_CLIP_RECT;
+                const bool canonical_transform = (local_cache && !tile_cache) ||
+                    (composite_state.transform.m11 == 1.0F &&
+                        composite_state.transform.m12 == 0.0F &&
+                        composite_state.transform.m21 == 0.0F &&
+                        composite_state.transform.m22 == 1.0F &&
+                        composite_state.transform.m31 == 0.0F &&
+                        composite_state.transform.m32 == 0.0F);
+                bool composite_guideline_is_valid = true;
+                if ((composite_state.flags &
+                        PROGPU_NATIVE_SCENE_STATE_GUIDELINE_SET) != 0U) {
+                    const auto guideline_resource = read_record<
+                        progpu_native_scene_resource>(
+                            bytes,
+                            header.resource_offset +
+                                static_cast<std::size_t>(
+                                    composite_state.guideline_resource_index) *
+                                    header.resource_stride);
+                    const auto guidelines = read_record<
+                        progpu_native_scene_guideline_set>(
+                            bytes, guideline_resource.payload_offset);
+                    composite_guideline_is_valid = (guidelines.flags &
+                        PROGPU_NATIVE_SCENE_GUIDELINE_PER_POINT) == 0U;
+                }
+                if ((composite_state.flags & ~composite_flags) != 0U ||
+                    (tile_cache && (composite_state.flags &
+                        ~PROGPU_NATIVE_SCENE_STATE_CLIP_RECT) != 0U) ||
+                    !canonical_transform ||
+                    !composite_guideline_is_valid ||
+                    composite_state.opacity != 1.0F ||
+                    composite_state.mask_resource_index != 0U) {
+                    return fail(
+                        header,
+                        PROGPU_NATIVE_SCENE_VALIDATION_VALUE,
+                        offset);
+                }
             }
             layer_is_materialized = layer_requires_materialization(layer);
         }

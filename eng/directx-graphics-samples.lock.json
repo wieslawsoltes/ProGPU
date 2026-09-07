@@ -1,0 +1,22 @@
+{
+  "repository": "https://github.com/microsoft/DirectX-Graphics-Samples.git",
+  "commit": "213dd4fd4918ea009dd8f35adee1aff1f2ecaba4",
+  "sample": "Samples/Desktop/D3D12HelloWorld/src/HelloTriangle",
+  "agilityPackage": "Microsoft.Direct3D.D3D12",
+  "agilityVersion": "1.618.3",
+  "files": {
+    "Samples/Desktop/D3D12HelloWorld/src/HelloTriangle/shaders.hlsl": "c300fc6586b8e0410ea3df4c00d080efeeeeac7e0e2485a84864fae118f6597e",
+    "Samples/Desktop/D3D12HelloWorld/src/HelloTriangle/D3D12HelloTriangle.cpp": "2074bac618ee63ec777c00919e26eaa38056f11c801a67c794587de431777447",
+    "Samples/Desktop/D3D12HelloWorld/src/HelloTriangle/packages.config": "07c655c8ed12ef307256aeb7bed7ed59d84aec7f5164ddfb295183d9d6ac6e47",
+    "LICENSE": "cf248820bf1178370bb4f1670a59f8748d46bc96d0f64080cd631511c6046409"
+  },
+  "helloTexture": {
+    "sample": "Samples/Desktop/D3D12HelloWorld/src/HelloTexture",
+    "files": {
+      "Samples/Desktop/D3D12HelloWorld/src/HelloTexture/shaders.hlsl": "049311b431e20dd2fda38dd0c473f9df68ba1f51434d1724058ec8fc4f832231",
+      "Samples/Desktop/D3D12HelloWorld/src/HelloTexture/D3D12HelloTexture.cpp": "a40ac315002046809865369a8ff4fadae1d24cf7665d47ee6f30536a021d6160",
+      "Samples/Desktop/D3D12HelloWorld/src/HelloTexture/packages.config": "07c655c8ed12ef307256aeb7bed7ed59d84aec7f5164ddfb295183d9d6ac6e47",
+      "LICENSE": "cf248820bf1178370bb4f1670a59f8748d46bc96d0f64080cd631511c6046409"
+    }
+  }
+}
