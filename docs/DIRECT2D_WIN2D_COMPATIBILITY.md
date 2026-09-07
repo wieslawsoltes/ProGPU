@@ -4748,3 +4748,19 @@ complexity, managed applicability and remaining work. Native semantic and GPU
 pixel/warm-replay fixtures are authored; native and managed-backend compilation
 is the checkpoint evidence. Runtime, VM/images, performance, verifiers and CI
 qualification remain deferred; no full-parity or speed claim is made.
+
+### Implementation-first checkpoint: cache-brush root policies and 3D content
+
+Native BitmapCacheBrush targets now share ordinary Viewport3D camera/mesh/material
+replay, including canonical and pointer-free sideband sources. Root render options
+and static guidelines apply inside the captured page and enter its content key;
+general visual generation no longer substitutes for Viewport3D content generation.
+Shared guideline mapping uses two-lane NEON/SSE2 plus a bounded tail, and guideline
+axis counts disambiguate retained keys. Public COM/shader/module APIs are unchanged.
+
+Native root-policy/SIMD-coordinate and canonical/sideband cache-brush fixtures are
+authored and native targets compile. Runtime/VM/image/performance/verifier/CI
+qualification remains deferred. Root scroll clips, shared pages/dirty regions,
+unsupported 3D policy combinations and independent managed integration remain
+open; this does not establish full Direct2D or Win2D parity. The native MIL
+document records original-code provenance, costs and applicability.

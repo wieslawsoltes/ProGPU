@@ -9143,6 +9143,66 @@ verifiers and CI qualification remain deferred under implementation-first
 sequencing. Coverage stays 105 top-level/25 nested/11 undispatched; the generated
 source digest is refreshed, not hand-edited.
 
+## Implementation-first checkpoint: cache-brush root raster state and Viewport3D
+
+BitmapCacheBrush capture now shares `append_viewport3d_content` with ordinary
+visual traversal. The helper is an extraction of original ProGPU canonical/
+sideband camera, mesh, light and material replay, not a second 3D implementation.
+The target root's excluded placement/compositing properties remain bypassed;
+camera/model transforms and viewport dimensions remain part of its content.
+Local cache raster coordinates normalize the source viewport, while the existing
+cache composite restores source placement and applies brush opacity. Existing
+3D replay restrictions still apply, including unsupported per-point guideline
+or vector-mask combinations; they are not silently approximated.
+
+Root bitmap sampling, edge mode, ClearType hint and text rendering/hinting modes
+now use one `apply_visual_render_options` helper shared with ordinary traversal.
+Capture applies them after resetting inherited paint state. Cache EnableClearType
+still controls whether the page can contain subpixel text. Static root guidelines
+are mapped into the cache raster frame and retained on its state, including the
+existing per-point path for multi-guideline sets. Consumer guidelines remain on
+the final composite instead of contaminating the source page. Root render policy
+and both guideline axes now participate in cache content revision; axis counts
+delimit the hash so moving the same coordinate from X to Y cannot alias.
+
+Viewport3D sideband snapshots now retain their own content generation. Canonical
+viewport/camera/model dependencies and sideband generations determine cached
+content rather than the visual's general generation. Thus changing an ignored
+root offset/alpha need not rebuild its cached meshes. Sideband mutation remains
+transactional and unchanged byte-identical updates retain the old generation;
+existing array validation/ownership and native GPU lifetime are unchanged.
+
+Shared static-guideline mapping now processes two independent doubles at a time
+with baseline ARM64 NEON or x86 SSE2: convert to float, multiply/add in float,
+convert back to double, reversing pairs in-place in the output order for negative
+axis scale. Loads/stores are alignment-safe; the scalar tail has at most one
+coordinate. Targets without these baseline intrinsics retain the portability
+fallback. Work remains O(G) and mapped storage O(G), with no second reversal pass,
+for G guidelines. This is original ProGPU mapping, not a foreign implementation;
+no measured speed claim is made. Graph hashing remains dependency-ordered CPU
+work, not a lane-parallel pixel fallback. Rendering stays on existing GPU paths.
+
+The prior cache-brush public-contract and cross-engine design references remain
+the design basis: separate content from placement, preserve retained identity,
+and reuse existing text/geometry/GPU lifetime machinery. No public C/COM/module
+or shader contract changed. Managed native-MIL producers already send these
+typed visual resources/options; no new managed/native crossing is needed. The
+independent managed BitmapCacheBrush seam and matched renderer differentials
+remain required work. This native extraction is not a claim that the independent
+managed renderer has acquired the feature.
+
+Authored fixtures exercise canonical and sideband Viewport3D targets through
+cache brushes, normalized mesh viewports, opacity and unchanged cache identity
+after excluded root updates. Root-policy fixtures check aliased primitives,
+mapped guideline pairs/tails against scalar expected coordinates and X/Y hash
+separation. Existing negative-scale guideline cases now exercise the shared SIMD
+mapper. Native library/MIL/Direct2D compatibility/WebGPU targets compile. Tests,
+Windows/native and macOS/Linux GPU comparisons, SIMD/precision/performance,
+verifiers and CI qualification remain deferred, not passed. Remaining capture
+work includes root ScrollableAreaClip semantics, shared target/consumer page
+residency, dirty regions, unsupported 3D combinations, managed integration and
+full platform qualification. The complete goal remains active.
+
 ## Invariants
 
 - No reflection or private managed field scanning in the product bridge.

@@ -2932,6 +2932,7 @@ struct channel::implementation {
     };
 
     struct viewport3d_scene_state {
+        std::uint64_t content_generation{};
         progpu_native_scene_camera_3d camera{};
         progpu_native_image_rect viewport{};
         std::vector<progpu_native_scene_mesh_3d> meshes;
@@ -18715,22 +18716,38 @@ struct channel::implementation {
             double scale,
             double offset,
             std::vector<double>& destination) {
-            if (scale < 0.0) {
-                for (auto iterator = source.rbegin();
-                     iterator != source.rend();
-                     ++iterator) {
-                    destination.push_back(static_cast<float>(
-                        static_cast<float>(*iterator) *
-                            static_cast<float>(scale) +
-                        static_cast<float>(offset)));
-                }
-            } else {
-                for (double coordinate : source) {
-                    destination.push_back(static_cast<float>(
-                        static_cast<float>(coordinate) *
-                            static_cast<float>(scale) +
-                        static_cast<float>(offset)));
-                }
+            // Two independent coordinates per SIMD group. Preserve WPF's
+            // double->float, float multiply/add, float->double sequence and
+            // reverse descending transformed axes without a second pass.
+            destination.resize(source.size());
+            const bool reverse = scale < 0.0;
+            const float multiplier = static_cast<float>(scale);
+            const float translation = static_cast<float>(offset);
+            std::size_t index = 0U;
+#if defined(PROGPU_NATIVE_MIL_INTRINSICS_NEON)
+            for (; index + 2U <= source.size(); index += 2U) {
+                const auto first = reverse ? source.size() - index - 2U : index;
+                auto values = vcvt_f32_f64(vld1q_f64(source.data() + first));
+                if (reverse) values = vrev64_f32(values);
+                const auto mapped = vadd_f32(vmul_f32(values, vdup_n_f32(multiplier)),
+                    vdup_n_f32(translation));
+                vst1q_f64(destination.data() + index, vcvt_f64_f32(mapped));
+            }
+#elif defined(PROGPU_NATIVE_MIL_INTRINSICS_SSE2)
+            for (; index + 2U <= source.size(); index += 2U) {
+                const auto first = reverse ? source.size() - index - 2U : index;
+                auto values = _mm_cvtpd_ps(_mm_loadu_pd(source.data() + first));
+                if (reverse) values = _mm_shuffle_ps(values, values, _MM_SHUFFLE(3, 2, 0, 1));
+                const auto mapped = _mm_add_ps(_mm_mul_ps(values, _mm_set1_ps(multiplier)),
+                    _mm_set1_ps(translation));
+                _mm_storeu_pd(destination.data() + index, _mm_cvtps_pd(mapped));
+            }
+#endif
+            // At most one tail element on the baseline ARM64/x86 SIMD paths;
+            // scalar portability fallback for targets without those intrinsics.
+            for (; index < source.size(); ++index) {
+                const auto first = reverse ? source.size() - index - 1U : index;
+                destination[index] = static_cast<float>(source[first]) * multiplier + translation;
             }
         };
         try {
@@ -19842,7 +19859,8 @@ struct channel::implementation {
         bool include_outer_state,
         std::unordered_set<std::uint32_t>& active_visuals,
         std::unordered_set<std::uint32_t>& active_resources,
-        std::uint64_t& hash) const {
+        std::uint64_t& hash,
+        bool include_root_raster_state = false) const {
         if (active_visuals.size() + active_resources.size() >= maximum_visual_depth ||
             !active_visuals.insert(handle).second) {
             return status::invalid_graph;
@@ -19859,8 +19877,12 @@ struct channel::implementation {
         };
         append_fnv1a64(hash, handle);
         if (resource->second.type == type_viewport3d_visual) {
-            append_fnv1a64(hash, resource->second.generation);
             const auto viewport = viewport3d_visuals.find(handle);
+            if (viewport == viewport3d_visuals.end() || !viewport->second.has_child_binding) {
+                const auto sideband = viewport3d_scenes.find(handle);
+                append_fnv1a64(hash, sideband == viewport3d_scenes.end()
+                    ? std::uint64_t{0U} : sideband->second.content_generation);
+            }
             if (viewport != viewport3d_visuals.end()) {
                 append_fnv1a64(hash, viewport->second.x);
                 append_fnv1a64(hash, viewport->second.y);
@@ -19883,19 +19905,23 @@ struct channel::implementation {
             active_visuals.erase(handle);
             return status::invalid_handle;
         }
-        if (include_outer_state) {
+        if (include_outer_state || include_root_raster_state) {
             append_fnv1a64(hash, visual->second.render_options_flags);
             append_fnv1a64(hash, visual->second.edge_mode);
             append_fnv1a64(hash, visual->second.bitmap_scaling_mode);
             append_fnv1a64(hash, visual->second.clear_type_hint);
             append_fnv1a64(hash, visual->second.text_rendering_mode);
             append_fnv1a64(hash, visual->second.text_hinting_mode);
+            append_fnv1a64(hash, static_cast<std::uint64_t>(visual->second.guidelines_x.size()));
             for (const double coordinate : visual->second.guidelines_x) {
                 append_fnv1a64(hash, coordinate);
             }
+            append_fnv1a64(hash, static_cast<std::uint64_t>(visual->second.guidelines_y.size()));
             for (const double coordinate : visual->second.guidelines_y) {
                 append_fnv1a64(hash, coordinate);
             }
+        }
+        if (include_outer_state) {
             append_fnv1a64(hash, visual->second.offset_x);
             append_fnv1a64(hash, visual->second.offset_y);
             append_fnv1a64(hash, visual->second.opacity);
@@ -20081,6 +20107,160 @@ struct channel::implementation {
             mask_resource_index, context, clip_paths, clip_segments, clip_boolean_nodes);
     }
 
+    static void apply_visual_render_options(
+        const visual_state& visual, render_scope_state& current) noexcept {
+        if ((visual.render_options_flags &
+                render_option_bitmap_scaling) != 0U) {
+            current.image_sampling =
+                visual.bitmap_scaling_mode == 3U
+                ? PROGPU_NATIVE_IMAGE_SAMPLING_NEAREST
+                : visual.bitmap_scaling_mode == 2U
+                ? PROGPU_NATIVE_IMAGE_SAMPLING_FANT
+                : PROGPU_NATIVE_IMAGE_SAMPLING_LINEAR;
+        }
+        if ((visual.render_options_flags &
+                render_option_edge_mode) != 0U) {
+            current.edge_aliased = visual.edge_mode != 0U;
+        }
+        if ((visual.render_options_flags &
+                render_option_clear_type_hint) != 0U) {
+            current.clear_type_enabled =
+                visual.clear_type_hint != 0U;
+        }
+        if ((visual.render_options_flags &
+                render_option_text_rendering_mode) != 0U) {
+            current.text_rendering_mode =
+                visual.text_rendering_mode;
+        }
+        if ((visual.render_options_flags &
+                render_option_text_hinting_mode) != 0U) {
+            current.text_hinting_mode = visual.text_hinting_mode;
+        }
+    }
+
+    status append_viewport3d_content(
+        std::uint32_t handle,
+        const render_scope_state& content_scope,
+        native::semantic_scene_builder& builder) const {
+        status result = status::success;
+        if (content_scope.mask_resource_index !=
+                       PROGPU_NATIVE_SCENE_NO_INDEX ||
+                   content_scope.guideline_resource_index !=
+                       PROGPU_NATIVE_SCENE_NO_INDEX) {
+            result = status::unsupported_command;
+        } else if (!affine_preserves_axis_alignment(
+                       content_scope.transform)) {
+            result = status::unsupported_command;
+        } else {
+            const auto canonical = viewport3d_visuals.find(handle);
+            viewport3d_scene_state canonical_scene{};
+            const viewport3d_scene_state* render_scene = nullptr;
+            const bool has_canonical_graph =
+                canonical != viewport3d_visuals.end() &&
+                canonical->second.has_child_binding;
+            bool render_viewport = true;
+            if (has_canonical_graph) {
+                if (canonical->second.child_handle == 0U) {
+                    render_viewport = false;
+                } else {
+                    result = build_canonical_viewport3d_scene(
+                        canonical->second.child_handle,
+                        canonical_scene);
+                    render_scene = &canonical_scene;
+                }
+            } else {
+                const auto sideband = viewport3d_scenes.find(handle);
+                if (sideband == viewport3d_scenes.end()) {
+                    result = status::unsupported_command;
+                } else {
+                    render_scene = &sideband->second;
+                }
+            }
+            progpu_native_image_rect source_viewport = render_scene
+                ? render_scene->viewport
+                : progpu_native_image_rect{};
+            progpu_native_scene_camera_3d camera = render_scene
+                ? render_scene->camera
+                : progpu_native_scene_camera_3d{};
+            if (canonical != viewport3d_visuals.end()) {
+                if (canonical->second.has_viewport) {
+                    if (canonical->second.width <= 0.0 ||
+                        canonical->second.height <= 0.0 ||
+                        !finite_double_as_float(canonical->second.x) ||
+                        !finite_double_as_float(canonical->second.y) ||
+                        !finite_double_as_float(
+                            canonical->second.width) ||
+                        !finite_double_as_float(
+                            canonical->second.height)) {
+                        render_viewport = false;
+                    } else {
+                        source_viewport = {
+                            static_cast<float>(canonical->second.x),
+                            static_cast<float>(canonical->second.y),
+                            static_cast<float>(canonical->second.width),
+                            static_cast<float>(canonical->second.height)};
+                    }
+                }
+                if (canonical->second.has_camera_binding) {
+                    if (canonical->second.camera_handle == 0U) {
+                        render_viewport = false;
+                    } else if (render_viewport) {
+                        const status camera_status = resolve_camera3d(
+                            canonical->second.camera_handle,
+                            static_cast<double>(source_viewport.width) /
+                                source_viewport.height,
+                            camera);
+                        if (camera_status != status::success) {
+                            result = camera_status;
+                        }
+                    }
+                } else if (has_canonical_graph) {
+                    render_viewport = false;
+                }
+            }
+            progpu_native_image_rect viewport{};
+            if (result == status::success && render_viewport &&
+                !try_transform_bounds(
+                    source_viewport.x,
+                    source_viewport.y,
+                    source_viewport.width,
+                    source_viewport.height,
+                    content_scope.transform,
+                    viewport)) {
+                result = status::invalid_graph;
+            } else if (result == status::success && render_viewport &&
+                render_scene != nullptr &&
+                !render_scene->meshes.empty()) {
+                auto viewport_state =
+                    native::semantic_scene_builder::identity_state();
+                viewport_state.opacity = static_cast<float>(
+                    content_scope.opacity);
+                if (content_scope.has_clip) {
+                    viewport_state.flags |=
+                        PROGPU_NATIVE_SCENE_STATE_CLIP_RECT;
+                    viewport_state.clip_rect = content_scope.clip_rect;
+                }
+                std::uint32_t viewport_state_index =
+                    PROGPU_NATIVE_SCENE_NO_INDEX;
+                if (!builder.add_state(
+                        viewport_state, viewport_state_index) ||
+                    !builder.draw_meshes_3d(
+                        render_scene->meshes,
+                        render_scene->vertices,
+                        render_scene->indices,
+                        render_scene->lights,
+                        render_scene->materials,
+                        render_scene->gradient_stops,
+                        camera,
+                        viewport,
+                        viewport_state_index)) {
+                    result = status::invalid_graph;
+                }
+            }
+        }
+        return result;
+    }
+
     status append_bitmap_cache_brush(
         std::uint32_t brush_handle,
         const brush_use_state& use,
@@ -20102,17 +20282,14 @@ struct channel::implementation {
         if (frame == nullptr) return status::unsupported_command;
         const auto target = visuals.find(brush.target_handle);
         if (target == visuals.end()) return status::invalid_handle;
-        // Capture 2D content explicitly, not append_visual(root): the six
+        // Capture content explicitly, not append_visual(root): the six
         // cache-brush-excluded root properties must never enter the page.
-        // Viewport3D root capture needs its own typed scene entry point.
-        if (!require_resource(brush.target_handle, type_visual))
+        const bool is_viewport3d = require_resource(brush.target_handle, type_viewport3d_visual);
+        if (!is_viewport3d && !require_resource(brush.target_handle, type_visual))
             return status::unsupported_command;
         const auto& root = target->second;
-        // These root policies need a capture-local implementation; do not
-        // silently discard them along with the six explicitly ignored fields.
-        if (root.has_scroll_clip || root.render_options_flags != 0U ||
-            !root.guidelines_x.empty() || !root.guidelines_y.empty())
-            return status::unsupported_command;
+        // ScrollableAreaClip still needs an explicit capture-space contract.
+        if (root.has_scroll_clip) return status::unsupported_command;
         if (!root.has_cache_bounds) return status::unsupported_command;
         if (root.cache_bounds_width <= 0.0 || root.cache_bounds_height <= 0.0 ||
             use.width <= 0.0 || use.height <= 0.0) return status::success;
@@ -20172,7 +20349,8 @@ struct channel::implementation {
         if (result == status::success && !skip) {
             ++metrics.visual_count;
             metrics.maximum_visual_depth = std::max(metrics.maximum_visual_depth, depth);
-            if (root.content_handle != 0U) {
+            if (is_viewport3d) result = append_viewport3d_content(brush.target_handle, content, builder);
+            if (result == status::success && root.content_handle != 0U) {
                 result = append_render_data(root.content_handle, content, builder,
                     brush_indices, image_indices, glyph_resources, frame, active,
                     child_paths, child_segments, child_nodes, metrics);
@@ -20310,7 +20488,8 @@ struct channel::implementation {
             false,
             active_visuals,
             active_resources,
-            content_revision);
+            content_revision,
+            capture != nullptr);
         if (revision_status != status::success) {
             return revision_status;
         }
@@ -20436,11 +20615,21 @@ struct channel::implementation {
         content_state.text_hinting_mode = 0U;
         content_state.subpixel_text_disabled =
             !cache_state.enable_clear_type;
+        if (capture != nullptr) {
+            apply_visual_render_options(cache_visual, content_state);
+            const status guidelines = apply_static_guidelines(cache_visual.guidelines_x,
+                cache_visual.guidelines_y, content_state, builder, false);
+            if (guidelines != status::success) return guidelines;
+        }
         auto raster_state =
             native::semantic_scene_builder::identity_state();
         if (!try_to_native_affine(
                 content_state.transform, raster_state.transform)) {
             return status::invalid_graph;
+        }
+        if (content_state.guideline_resource_index != PROGPU_NATIVE_SCENE_NO_INDEX) {
+            raster_state.flags |= PROGPU_NATIVE_SCENE_STATE_GUIDELINE_SET;
+            raster_state.guideline_resource_index = content_state.guideline_resource_index;
         }
         std::uint32_t raster_state_index = PROGPU_NATIVE_SCENE_NO_INDEX;
         if (!builder.add_state(raster_state, raster_state_index)) {
@@ -20649,33 +20838,7 @@ struct channel::implementation {
         const bool isolate_uncached_visual_composite =
             needs_uncached_visual_composite &&
             visual->second.has_cache_bounds;
-        if ((visual->second.render_options_flags &
-                render_option_bitmap_scaling) != 0U) {
-            current.image_sampling =
-                visual->second.bitmap_scaling_mode == 3U
-                ? PROGPU_NATIVE_IMAGE_SAMPLING_NEAREST
-                : visual->second.bitmap_scaling_mode == 2U
-                ? PROGPU_NATIVE_IMAGE_SAMPLING_FANT
-                : PROGPU_NATIVE_IMAGE_SAMPLING_LINEAR;
-        }
-        if ((visual->second.render_options_flags &
-                render_option_edge_mode) != 0U) {
-            current.edge_aliased = visual->second.edge_mode != 0U;
-        }
-        if ((visual->second.render_options_flags &
-                render_option_clear_type_hint) != 0U) {
-            current.clear_type_enabled =
-                visual->second.clear_type_hint != 0U;
-        }
-        if ((visual->second.render_options_flags &
-                render_option_text_rendering_mode) != 0U) {
-            current.text_rendering_mode =
-                visual->second.text_rendering_mode;
-        }
-        if ((visual->second.render_options_flags &
-                render_option_text_hinting_mode) != 0U) {
-            current.text_hinting_mode = visual->second.text_hinting_mode;
-        }
+        apply_visual_render_options(visual->second, current);
         if (visual->second.clip_geometry_handle != 0U) {
             status clip_status = apply_visual_rectangle_clip(
                 visual->second.clip_geometry_handle,
@@ -20899,121 +21062,7 @@ struct channel::implementation {
             std::max(metrics.maximum_visual_depth, depth);
         status result = status::success;
         if (!skip_cached_content && is_viewport3d) {
-            if (content_scope.mask_resource_index !=
-                           PROGPU_NATIVE_SCENE_NO_INDEX ||
-                       content_scope.guideline_resource_index !=
-                           PROGPU_NATIVE_SCENE_NO_INDEX) {
-                result = status::unsupported_command;
-            } else if (!affine_preserves_axis_alignment(
-                           content_scope.transform)) {
-                result = status::unsupported_command;
-            } else {
-                const auto canonical = viewport3d_visuals.find(handle);
-                viewport3d_scene_state canonical_scene{};
-                const viewport3d_scene_state* render_scene = nullptr;
-                const bool has_canonical_graph =
-                    canonical != viewport3d_visuals.end() &&
-                    canonical->second.has_child_binding;
-                bool render_viewport = true;
-                if (has_canonical_graph) {
-                    if (canonical->second.child_handle == 0U) {
-                        render_viewport = false;
-                    } else {
-                        result = build_canonical_viewport3d_scene(
-                            canonical->second.child_handle,
-                            canonical_scene);
-                        render_scene = &canonical_scene;
-                    }
-                } else {
-                    const auto sideband = viewport3d_scenes.find(handle);
-                    if (sideband == viewport3d_scenes.end()) {
-                        result = status::unsupported_command;
-                    } else {
-                        render_scene = &sideband->second;
-                    }
-                }
-                progpu_native_image_rect source_viewport = render_scene
-                    ? render_scene->viewport
-                    : progpu_native_image_rect{};
-                progpu_native_scene_camera_3d camera = render_scene
-                    ? render_scene->camera
-                    : progpu_native_scene_camera_3d{};
-                if (canonical != viewport3d_visuals.end()) {
-                    if (canonical->second.has_viewport) {
-                        if (canonical->second.width <= 0.0 ||
-                            canonical->second.height <= 0.0 ||
-                            !finite_double_as_float(canonical->second.x) ||
-                            !finite_double_as_float(canonical->second.y) ||
-                            !finite_double_as_float(
-                                canonical->second.width) ||
-                            !finite_double_as_float(
-                                canonical->second.height)) {
-                            render_viewport = false;
-                        } else {
-                            source_viewport = {
-                                static_cast<float>(canonical->second.x),
-                                static_cast<float>(canonical->second.y),
-                                static_cast<float>(canonical->second.width),
-                                static_cast<float>(canonical->second.height)};
-                        }
-                    }
-                    if (canonical->second.has_camera_binding) {
-                        if (canonical->second.camera_handle == 0U) {
-                            render_viewport = false;
-                        } else if (render_viewport) {
-                            const status camera_status = resolve_camera3d(
-                                canonical->second.camera_handle,
-                                static_cast<double>(source_viewport.width) /
-                                    source_viewport.height,
-                                camera);
-                            if (camera_status != status::success) {
-                                result = camera_status;
-                            }
-                        }
-                    } else if (has_canonical_graph) {
-                        render_viewport = false;
-                    }
-                }
-                progpu_native_image_rect viewport{};
-                if (result == status::success && render_viewport &&
-                    !try_transform_bounds(
-                        source_viewport.x,
-                        source_viewport.y,
-                        source_viewport.width,
-                        source_viewport.height,
-                        content_scope.transform,
-                        viewport)) {
-                    result = status::invalid_graph;
-                } else if (result == status::success && render_viewport &&
-                    render_scene != nullptr &&
-                    !render_scene->meshes.empty()) {
-                    auto viewport_state =
-                        native::semantic_scene_builder::identity_state();
-                    viewport_state.opacity = static_cast<float>(
-                        content_scope.opacity);
-                    if (content_scope.has_clip) {
-                        viewport_state.flags |=
-                            PROGPU_NATIVE_SCENE_STATE_CLIP_RECT;
-                        viewport_state.clip_rect = content_scope.clip_rect;
-                    }
-                    std::uint32_t viewport_state_index =
-                        PROGPU_NATIVE_SCENE_NO_INDEX;
-                    if (!builder.add_state(
-                            viewport_state, viewport_state_index) ||
-                        !builder.draw_meshes_3d(
-                            render_scene->meshes,
-                            render_scene->vertices,
-                            render_scene->indices,
-                            render_scene->lights,
-                            render_scene->materials,
-                            render_scene->gradient_stops,
-                            camera,
-                            viewport,
-                            viewport_state_index)) {
-                        result = status::invalid_graph;
-                    }
-                }
-            }
+            result = append_viewport3d_content(handle, content_scope, builder);
         }
         if (!skip_cached_content && visual->second.content_handle != 0U) {
             if (result == status::success) {
@@ -21623,6 +21672,9 @@ status channel::set_viewport3d_scene(
     }
     try {
         implementation::viewport3d_scene_state scene{};
+        const auto generation = implementation_->resources.at(handle).generation;
+        scene.content_generation = generation == std::numeric_limits<std::uint64_t>::max()
+            ? generation : generation + 1U;
         scene.camera = camera;
         scene.viewport = viewport;
         scene.meshes.assign(meshes.begin(), meshes.end());
