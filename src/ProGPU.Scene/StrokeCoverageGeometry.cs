@@ -35,8 +35,6 @@ public static class StrokeCoverageGeometry
         // Fixed four-corner storage; coordinate mapping, offsets and extrema use
         // intrinsic pairs. Normalize the retained float spine before measuring it.
         Span<Vector2> points = stackalloc Vector2[4];
-        Span<Vector128<double>> vertices = stackalloc Vector128<double>[4];
-        Span<Vector128<double>> directions = stackalloc Vector128<double>[4];
         var xBasis = Vector128.Create((double)geometryTransform.M11, geometryTransform.M12);
         var yBasis = Vector128.Create((double)geometryTransform.M21, geometryTransform.M22);
         var translation = Vector128.Create((double)geometryTransform.M31, geometryTransform.M32);
@@ -46,6 +44,29 @@ public static class StrokeCoverageGeometry
             double y = rectangle.Y + (i >= 2 ? (double)rectangle.Height : 0);
             var mapped = Vector128.Create(x) * xBasis + Vector128.Create(y) * yBasis + translation;
             points[i] = new((float)mapped[0], (float)mapped[1]);
+            if (!float.IsFinite(points[i].X) || !float.IsFinite(points[i].Y)) return false;
+        }
+        return TryPrepareConvexQuadrilateral(points, pen, out path, out coveragePen, out bounds);
+    }
+
+    /// <summary>
+    /// Prepares an already transformed, strictly convex four-corner closed spine.
+    /// Accepts exactly four finite vertices in perimeter order; no borrowed span
+    /// survives the call. Stroke width is applied after the vertex transform.
+    /// </summary>
+    public static bool TryPrepareConvexQuadrilateral(ReadOnlySpan<Vector2> points, Pen pen,
+        out PathGeometry path, out Pen coveragePen, out Rect bounds)
+    {
+        ArgumentNullException.ThrowIfNull(pen);
+        path = null!;
+        coveragePen = null!;
+        bounds = default;
+        if (points.Length != 4 || !float.IsFinite(pen.Thickness) || pen.Thickness < 0
+            || pen.IsFixed || pen.HasDashPattern || (uint)pen.LineJoin > 2 || !float.IsFinite(pen.MiterLimit)) return false;
+        Span<Vector128<double>> vertices = stackalloc Vector128<double>[4];
+        Span<Vector128<double>> directions = stackalloc Vector128<double>[4];
+        for (int i = 0; i < 4; i++)
+        {
             if (!float.IsFinite(points[i].X) || !float.IsFinite(points[i].Y)) return false;
             vertices[i] = Vector128.Create((double)points[i].X, points[i].Y);
         }
@@ -58,6 +79,13 @@ public static class StrokeCoverageGeometry
         }
         double orientation = Cross(directions[3], directions[0]);
         if (!double.IsFinite(orientation) || Math.Abs(orientation) <= 0.0001) return false;
+        // Validate every corner even for zero-width strokes. A concave, crossed
+        // or collapsed input is not a successfully prepared quadrilateral.
+        for (int i = 1; i < 4; i++)
+        {
+            double turn = Cross(directions[i - 1], directions[i]);
+            if (!double.IsFinite(turn) || Math.Abs(turn) <= 0.0001 || turn * orientation <= 0) return false;
+        }
         if (pen.Thickness == 0)
         {
             path = RenderCommandGeometryCache.CreatePolylinePath(points, isClosed: true);

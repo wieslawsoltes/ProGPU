@@ -202,6 +202,13 @@ Cross-assembly WPF bridge contracts must not expose shim-owned WPF structs or cl
 
 ### A. Rendering Quality & DPI-Aware Text Snapping
 
+Affine rectangle descriptors must publish all four double-coordinate corners
+transactionally into caller-owned spans, with no partial output or tail writes.
+Shared convex-quadrilateral stroke preparation must validate every corner even
+for zero width and retain an owned closed path. Keep fill and pen on that same
+immutable path, with separate material bounds and outer transforms after stroke
+preparation; never broaden a rotated native-path fill clip to its bounds.
+
 Cached rectangle pens must preserve a closed spine and derive material bounds
 from edge/join support, including clipped miters and round joins. Keep the
 intrinsic fixed-corner preparer paired with native MIL mapping fixtures. Do not

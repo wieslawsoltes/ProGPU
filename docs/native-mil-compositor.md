@@ -9557,6 +9557,21 @@ Dashed/degenerate rectangles, broader geometry routing, rounded/ellipse/path
 consumers and live-picture native transport remain open. Compilation succeeds;
 runtime/performance/platform/source-verifier/CI qualification remains deferred.
 
+## Implementation-first checkpoint: affine rectangle geometry consumers
+
+ProGPU exposes transactional double-coordinate rectangle mapping and the shared
+convex four-corner stroke core. WPF now connects primitive/local RectangleGeometry
+and GeometryDrawing cached pens without packing another path; fill and stroke
+share the immutable native geometry while retaining separate material bounds.
+Source fills use an exact native path clip under the active outer transform.
+Native MIL already implements this behavior and gains a matched two-consumer
+GeometryDrawing/mapping fixture. No native product, ABI or shader changed.
+
+See [affine rectangle consumers](cached-pictures.md#affine-rectanglegeometry-and-shared-native-path-fills)
+for provenance, costs, research and authored fixtures. General path, rounded,
+ellipse, dash, degenerate and live native-picture transport work remains open;
+validation is still deferred, not waived.
+
 ## Invariants
 
 - No reflection or private managed field scanning in the product bridge.

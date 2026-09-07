@@ -20156,6 +20156,26 @@ bool bitmap_cache_brush_strokes_retain_coverage_and_shared_source() {
     // center [10.6,21.2], independent source anchor [10,20].
     PROGPU_REQUIRE(std::abs(composite.transform.m31 - 10.3F) < 0.0001F);
     PROGPU_REQUIRE(std::abs(composite.transform.m32 - 20.6F) < 0.0001F);
+    // GeometryDrawing with both cached fill and cached pen must retain two
+    // consumers of the same source page, with the transformed stroke mapping.
+    append_create(rectangle_commands, 452U, 87U);
+    append_command(rectangle_commands, command::geometry_drawing, 452U, 5U, 20U, 450U);
+    std::vector<std::byte> rectangle_drawing_replay;
+    append_command(rectangle_drawing_replay, command::draw_drawing, 452U, 0U);
+    append_render_data(rectangle_commands, 2U, rectangle_drawing_replay);
+    mapped.source_visual_commands = rectangle_commands;
+    PROGPU_REQUIRE(build_mil_image_brush_fixture(scene, mapped, 8130U));
+    std::uint32_t consumers = 0U;
+    std::uint64_t shared_revision = 0U;
+    for (const auto& layer : get_scene_layers(scene)) {
+        if ((layer.flags & PROGPU_NATIVE_SCENE_LAYER_CACHE_SHARED) == 0U) continue;
+        if (consumers++ == 0U) shared_revision = layer.content_revision;
+        else PROGPU_REQUIRE(layer.content_revision == shared_revision);
+        PROGPU_REQUIRE(try_get_state_resource(scene, layer.reserved0, composite));
+        PROGPU_REQUIRE(std::abs(composite.transform.m31 - 10.3F) < 0.0001F);
+        PROGPU_REQUIRE(std::abs(composite.transform.m32 - 20.6F) < 0.0001F);
+    }
+    PROGPU_REQUIRE(consumers == 2U);
     return true;
 }
 

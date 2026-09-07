@@ -4910,3 +4910,12 @@ fixtures; no COM, Win2D, native product or ABI surface changed. General geometry
 dashed/degenerate and rounded/ellipse consumers remain open. Compilation alone
 is not qualification; execution and all final gates remain deferred. See
 [solid rectangle pens](cached-pictures.md#solid-rectangle-pen-consumers).
+
+### Implementation-first checkpoint: affine rectangle geometry producers
+
+Managed cached pens now consume typed affine rectangle geometry through shared
+four-corner preparation. Fill and pen reuse native path identity with separate
+material bounds; native MIL gains a paired GeometryDrawing/shared-page fixture.
+No COM/Win2D API, C++ product or ABI surface changed. Packed paths, broader shape
+pens and final qualification remain open. See
+[affine rectangle consumers](cached-pictures.md#affine-rectanglegeometry-and-shared-native-path-fills).

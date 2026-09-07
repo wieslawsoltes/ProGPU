@@ -98,6 +98,78 @@ DPI and performance qualification is still required.
 
 ## Implementation-first status
 
+### Affine RectangleGeometry and shared native-path fills
+
+Cached pens now reach `RectangleGeometry`/`GeometryDrawing` through typed primitive
+descriptors in LibreWPF object, managed, direct native geometry and raw MIL routes.
+The primitive descriptor is read once. `TryWriteTransformedRectangleCorners`
+maps its four sharp corners in paired double lanes into a caller-owned span,
+validates all outputs before publication and leaves both failed output and caller
+tails untouched. Rounded/empty/nonfinite descriptors remain unavailable. Local
+media rectangles use typed affine transform state, rejecting perspective/3D
+matrices rather than dropping their components.
+
+`TryPrepareConvexQuadrilateral` is the shared ProGPU preparation core now used
+by `TryPrepareRectangle`. It accepts four already mapped finite float vertices,
+validates every corner even for zero-width strokes, and rejects concavity,
+crossings, collapsed/near-collinear edges and unsupported pen policies. It owns
+one closed retained path on success, never the caller's span. Original provenance
+is the rectangle/join implementation in `StrokeCoverageGeometry` from native MIL
+`try_transformed_rectangle_stroke_bounds`; no alternate stroker was introduced.
+Mapping stays double until the retained drawing boundary, before widening, while
+the outer drawing transform remains attached to completed coverage.
+
+Normal and source-brush fills reuse that same immutable ProGPU path. A typed
+native-path clip overload and fill descriptor allow cached/tile/drawing/image
+brushes to use existing source replay without exporting another portable path,
+manufacturing media geometry, or broadening a rotated rectangle into its AABB.
+Fill bounds and stroke material bounds remain separate. Ordinary fills emit one
+native path command; source fills retain their existing clip/material scopes;
+the pen retains one source lease and stroke mask. An unsupported pen can still
+produce a valid fill, but reports partial output. Source/geometry/pen dependencies
+and active transforms/aliasing remain on existing typed paths.
+
+Preparation and descriptor mapping are fixed O(1) work/stack storage with paired
+intrinsic arithmetic and bounded scalar orientation/length/root decisions. The
+retained path is allocated once per changed recording and shared by fill/pen;
+stable replay does not remap descriptors. Source capture complexity and lifetime
+remain as documented below. There is no device initialization, per-edge native
+crossing, CPU readback/repacking, or additional queue submission in preparation.
+
+Native applicability: native MIL already handles affine rectangle geometry and
+GeometryDrawing cached fills/pens. The matched native fixture now checks two
+consumers with identical source content revision and rotated relative mapping;
+no product C++, wire, shader or COM method changed. Managed fixtures cover scalar
+double mapping, caller-tail/failed-output ownership, strict topology, shared-core
+equivalence, and span lifetime. WPF fixtures cover object/GeometryDrawing/MIL
+dispatch, original ordinary/cached fill ordering, identical retained fill/pen
+path identity, transformed stroke bounds and source mapping. Their primitive
+publisher throws if replay requests packed geometry. All fixtures remain unrun.
+
+Primary-contract research was refreshed from [SkPaint](https://api.skia.org/classSkPaint.html),
+[Direct2D widened bounds](https://learn.microsoft.com/en-us/windows/win32/direct2d/id2d1geometry-getwidenedbounds),
+[Win2D command lists](https://microsoft.github.io/Win2D/WinUI3/html/T_Microsoft_Graphics_Canvas_CanvasCommandList.htm),
+[WebRender](https://firefox-source-docs.mozilla.org/gfx/RenderingOverview.html),
+[Vello](https://docs.rs/vello/latest/vello/struct.Scene.html),
+[Parley](https://docs.rs/parley/latest/parley/layout/struct.Layout.html), and
+[HarfBuzz](https://harfbuzz.github.io/shaping-plans-and-caching.html). Adopt one
+retained shape with separate materials and preserve preparation/submission and
+layout/shaping reuse; reject per-consumer geometry reconstruction and approximate
+axis-aligned clipping. Startup/lazy GPU initialization, worker scheduling,
+visibility, upload/cache eviction/device-loss, font fallback/variation, DPI,
+hinting and subpixel policies are unchanged. No foreign source was copied.
+
+Compilation checkpoint: ProGPU.Tests Release passed with 0 warnings/errors; the
+final WPF.Tests rebuild passed with 17 warnings and 0 errors after correcting the
+new sink contract's namespace reference. The native MIL fixture target compiled.
+No tests, warning qualification or performance measurements were executed.
+
+This is not a qualification or speed claim. Packed-path-only rectangle consumers,
+rounded/ellipse/dashed/degenerate and general path pens, plus generic native live
+picture transport, remain open. Final runtime, native/managed image, scalar/SIMD,
+VM/platform, renderer/Svg.Skia, Instruments/benchmark, source-verifier and CI
+qualification remain deferred under the implementation-first sequence.
+
 ### Solid rectangle pen consumers
 
 `StrokeCoverageGeometry.TryPrepareRectangle` prepares a closed four-corner

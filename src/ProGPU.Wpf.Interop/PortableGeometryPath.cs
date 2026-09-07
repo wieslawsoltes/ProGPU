@@ -55,6 +55,38 @@ public readonly struct PortablePrimitiveGeometry
     public PortableMatrix3x2 Transform { get; }
 
     /// <summary>
+    /// Writes four sharp-rectangle corners after the geometry-local affine map.
+    /// Keeps double precision, clockwise source order and caller-owned storage.
+    /// Failure leaves the destination unchanged; extra destination entries are
+    /// untouched. Rounded, empty, nonfinite and overflowing descriptors fail.
+    /// </summary>
+    public bool TryWriteTransformedRectangleCorners(Span<PortablePoint> destination)
+    {
+        if (destination.Length < 4 || Kind != PortablePrimitiveGeometryKind.Rectangle
+            || RadiusX != 0 || RadiusY != 0 || Rect.Width <= 0 || Rect.Height <= 0
+            || !double.IsFinite(Rect.X) || !double.IsFinite(Rect.Y)
+            || !double.IsFinite(Rect.Width) || !double.IsFinite(Rect.Height)
+            || !double.IsFinite(Transform.M11) || !double.IsFinite(Transform.M12)
+            || !double.IsFinite(Transform.M21) || !double.IsFinite(Transform.M22)
+            || !double.IsFinite(Transform.OffsetX) || !double.IsFinite(Transform.OffsetY)) return false;
+        double right = Rect.X + Rect.Width, bottom = Rect.Y + Rect.Height;
+        if (!double.IsFinite(right) || !double.IsFinite(bottom)) return false;
+        var x = Vector128.Create(Transform.M11, Transform.M12);
+        var y = Vector128.Create(Transform.M21, Transform.M22);
+        var translation = Vector128.Create(Transform.OffsetX, Transform.OffsetY);
+        Span<PortablePoint> corners = stackalloc PortablePoint[4];
+        for (int i = 0; i < 4; i++)
+        {
+            var mapped = Vector128.Create(i is 1 or 2 ? right : Rect.X) * x
+                + Vector128.Create(i >= 2 ? bottom : Rect.Y) * y + translation;
+            if (!double.IsFinite(mapped[0]) || !double.IsFinite(mapped[1])) return false;
+            corners[i] = new(mapped[0], mapped[1]);
+        }
+        corners.CopyTo(destination);
+        return true;
+    }
+
+    /// <summary>
     /// Reads a line's endpoints after its geometry-local affine transform.
     /// The pen width is deliberately not transformed. This is fixed-work,
     /// allocation-free metadata arithmetic over paired double coordinates.
