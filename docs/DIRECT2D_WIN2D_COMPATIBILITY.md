@@ -4764,3 +4764,19 @@ qualification remains deferred. Root scroll clips, shared pages/dirty regions,
 unsupported 3D policy combinations and independent managed integration remain
 open; this does not establish full Direct2D or Win2D parity. The native MIL
 document records original-code provenance, costs and applicability.
+
+### Implementation-first checkpoint: opt-in shared local cache pages
+
+Native semantic layers and the managed scene builder now expose `CacheShared`.
+Agreed sequential consumers of identical local content share one GPU cache owner;
+conflicting metadata, legacy duplicates and recursive active-owner use fail closed.
+BitmapCacheBrush uses stable source ownership rather than per-paint pages, with
+separate explicit brush caches and independently composited opacity/coverage.
+
+Native budget/MIL, managed contract and module fixtures are authored; GPU fixtures
+now assert cold/warm content-pass budgets as well as pixels. Native targets,
+module consumer and managed test graph compile. Execution and CI qualification
+remain deferred. This does not add Direct2D COM methods or establish Win2D parity;
+on-screen target-page unification, dirty regions, CPU preparation reuse, managed
+cache-brush integration and platform qualification remain open. See the native
+MIL document for the contract, original ProGPU provenance and cost model.

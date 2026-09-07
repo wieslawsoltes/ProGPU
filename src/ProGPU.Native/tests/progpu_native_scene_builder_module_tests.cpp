@@ -5,6 +5,7 @@
 import progpu.native.scene_builder;
 
 int main() {
+    static_assert(progpu::native::PROGPU_NATIVE_SCENE_LAYER_CACHE_SHARED == (1U << 9U));
     progpu::native::semantic_scene_builder builder(9001U, 3U);
     progpu::native::progpu_native_scene_brush gradient{};
     gradient.type =

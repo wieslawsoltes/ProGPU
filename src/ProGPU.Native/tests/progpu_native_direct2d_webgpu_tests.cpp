@@ -1352,6 +1352,12 @@ void verify_mil_bitmap_cache_brushes(const gpu_context& gpu, progpu_native_engin
             std::memcpy(&header, stream.data(), sizeof(header));
             const auto pixels = render_scene(gpu, engine, nullptr, repeated ? 2U : 1U,
                 header.command_count, 0U, stream, identity);
+            progpu_native_layer_metrics metrics{};
+            metrics.struct_size = sizeof(metrics);
+            require(progpu_native_engine_get_layer_metrics(engine, &metrics) ==
+                PROGPU_NATIVE_STATUS_SUCCESS, "BitmapCacheBrush layer metrics unavailable");
+            require(metrics.content_pass_count == 1U,
+                "BitmapCacheBrush consumers did not share one cold capture");
             // Independent scalar oracle: the source occupies [10,30)x[20,30),
             // irrespective of cache resolution or the 48x48 paint rectangle.
             for (std::uint32_t y = 0U; y < height; ++y) {
@@ -1367,6 +1373,9 @@ void verify_mil_bitmap_cache_brushes(const gpu_context& gpu, progpu_native_engin
             const auto warm = render_scene(gpu, engine, nullptr, repeated ? 2U : 1U,
                 header.command_count, 0U, stream, identity);
             require(warm == pixels, "BitmapCacheBrush retained replay changed pixels");
+            require(progpu_native_engine_get_layer_metrics(engine, &metrics) ==
+                PROGPU_NATIVE_STATUS_SUCCESS && metrics.content_pass_count == 0U,
+                "BitmapCacheBrush warm shared page rerasterized content");
         }
     }
 }

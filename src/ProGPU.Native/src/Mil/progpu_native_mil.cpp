@@ -2362,7 +2362,6 @@ struct scene_compile_context {
     bool needs_more_cycles{};
     std::uint32_t visual_brush_depth{};
     std::uint64_t scene_id{};
-    std::uint64_t cache_brush_occurrence{};
     std::uint64_t cache_brush_scope{};
 
     bool is_visual_brush() const noexcept {
@@ -2574,7 +2573,6 @@ struct channel::implementation {
 
     struct cache_brush_capture_policy {
         std::uint32_t brush_handle{};
-        std::uint64_t occurrence{};
     };
 
     struct gradient_brush_state {
@@ -20329,9 +20327,10 @@ struct channel::implementation {
             return status::invalid_graph;
         }
         const auto depth = static_cast<std::uint32_t>(active.size());
-        // The executor currently requires one owner per layer occurrence.
-        // Stable traversal preserves identity without aliasing two consumers.
-        const cache_brush_capture_policy capture{brush_handle, frame->cache_brush_occurrence++};
+        // An explicit brush cache owns its page. Otherwise all cache brushes
+        // targeting this source share the target/default-policy page. Draw
+        // opacity, transforms and coverage do not define captured content.
+        const cache_brush_capture_policy capture{brush.cache_handle != 0U ? brush_handle : 0U};
         const std::uint32_t cache_handle = brush.cache_handle != 0U
             ? brush.cache_handle : root.cache_mode_handle;
         bool pushed{}, skip{}, saved{};
@@ -20344,7 +20343,11 @@ struct channel::implementation {
         std::vector<progpu_native_path_segment> child_segments;
         std::vector<progpu_native_scene_path_boolean_node> child_nodes;
         const auto previous_scope = frame->cache_brush_scope;
-        frame->cache_brush_scope = capture.occurrence + 1U;
+        std::uint64_t scope_identity = 14695981039346656037ULL;
+        append_fnv1a64(scope_identity, previous_scope);
+        append_fnv1a64(scope_identity, capture.brush_handle);
+        append_fnv1a64(scope_identity, brush.target_handle);
+        frame->cache_brush_scope = finish_nonzero_hash(scope_identity);
         ++frame->visual_brush_depth;
         if (result == status::success && !skip) {
             ++metrics.visual_count;
@@ -20508,7 +20511,6 @@ struct channel::implementation {
         if (capture != nullptr) {
             append_fnv1a64(owner_identity, std::uint32_t{0x43425253U});
             append_fnv1a64(owner_identity, capture->brush_handle);
-            append_fnv1a64(owner_identity, capture->occurrence);
         }
         const affine_2d_double raster_to_local{
             1.0 / render_at_scale,
@@ -20640,6 +20642,10 @@ struct channel::implementation {
         layer.flags = PROGPU_NATIVE_SCENE_LAYER_CACHE_CONTENT |
             PROGPU_NATIVE_SCENE_LAYER_CACHE_LOCAL_SPACE |
             PROGPU_NATIVE_SCENE_LAYER_BOUNDS;
+        if (capture != nullptr ||
+            (mask_context.frame != nullptr && mask_context.frame->cache_brush_scope != 0U)) {
+            layer.flags |= PROGPU_NATIVE_SCENE_LAYER_CACHE_SHARED;
+        }
         if (state.image_sampling == PROGPU_NATIVE_IMAGE_SAMPLING_NEAREST) {
             layer.flags |= PROGPU_NATIVE_SCENE_LAYER_CACHE_NEAREST;
         } else if (state.image_sampling == PROGPU_NATIVE_IMAGE_SAMPLING_FANT) {

@@ -3372,7 +3372,8 @@ public ref struct NativeSceneStreamBuilder
             NativeSceneLayerFlags.CacheLocalSpace |
             NativeSceneLayerFlags.CacheNearest |
             NativeSceneLayerFlags.CacheFant |
-            NativeSceneLayerFlags.CompositeState | NativeSceneLayerFlags.CacheTile;
+            NativeSceneLayerFlags.CompositeState | NativeSceneLayerFlags.CacheTile |
+            NativeSceneLayerFlags.CacheShared;
         bool localCache =
             (layer.Flags & NativeSceneLayerFlags.CacheLocalSpace) != 0;
         bool explicitCompositeState =
@@ -3390,6 +3391,7 @@ public ref struct NativeSceneStreamBuilder
             (uint)layer.BlendMode <= (uint)GpuBlendMode.Modulate &&
             (!explicitCompositeState ||
                 (!localCache && RequiresMaterialization(layer))) &&
+            ((layer.Flags & NativeSceneLayerFlags.CacheShared) == 0 || localCache) &&
             ((layer.Flags & NativeSceneLayerFlags.CacheContent) == 0 ||
                 ((layer.Flags & NativeSceneLayerFlags.Backdrop) == 0 &&
                     layer.ContentRevision != 0 &&
