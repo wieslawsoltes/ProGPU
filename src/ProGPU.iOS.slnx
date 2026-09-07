@@ -1,4 +1,7 @@
 <Solution>
+  <Project Path="ProGPU.Backend/ProGPU.Backend.csproj" />
+  <Project Path="ProGPU.GameEngine/ProGPU.GameEngine.csproj" />
   <Project Path="ProGPU.iOS/ProGPU.iOS.csproj" />
   <Project Path="ProGPU.Samples.iOS/ProGPU.Samples.iOS.csproj" />
+  <Project Path="ProGPU.Samples.Suntrail.iOS/ProGPU.Samples.Suntrail.iOS.csproj" />
 </Solution>

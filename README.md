@@ -21,6 +21,7 @@ Choose the area closest to your application to find the relevant packages.
 | Package | Purpose | NuGet |
 | --- | --- | --- |
 | `ProGPU.Backend` | WebGPU device, swapchain, Silk.NET windowing, and platform backend services. | [![NuGet](https://img.shields.io/nuget/vpre/ProGPU.Backend.svg)](https://www.nuget.org/packages/ProGPU.Backend/) |
+| `ProGPU.GameEngine` | Reusable bounded game rendering, scene, and procedural material infrastructure. | [![NuGet](https://img.shields.io/nuget/vpre/ProGPU.GameEngine.svg)](https://www.nuget.org/packages/ProGPU.GameEngine/) |
 | `ProGPU.Backend.Native` | Experimental typed .NET host and desktop x64/arm64 runtimes for the parallel C++ renderer, including isolated wgpu-native and provider-resolved Dawn binaries. | [![NuGet](https://img.shields.io/nuget/vpre/ProGPU.Backend.Native.svg)](https://www.nuget.org/packages/ProGPU.Backend.Native/) |
 | `ProGPU.Backend.Dawn` | Typed Dawn native presentation, shared texture memory, and cross-queue fence services. | [![NuGet](https://img.shields.io/nuget/vpre/ProGPU.Backend.Dawn.svg)](https://www.nuget.org/packages/ProGPU.Backend.Dawn/) |
 | `ProGPU.Browser` | Batched .NET WebAssembly dispatcher and `navigator.gpu` browser host services. | [![NuGet](https://img.shields.io/nuget/vpre/ProGPU.Browser.svg)](https://www.nuget.org/packages/ProGPU.Browser/) |
@@ -158,6 +159,8 @@ publishing guidance, input/IME/inset/storage contracts, clean-room research,
 and device validation gates are in [`docs/android.md`](docs/android.md).
 
 ## Browser WebGPU sample
+
+[Suntrail](docs/samples/suntrail.md) is an original, playable eight-island platform adventure built with ProGPU.WinUI and a single instanced procedural-art shader. It has a shared game project and thin desktop, iOS, and browser hosts.
 
 The gallery is split into a shared `ProGPU.Samples` library and thin `ProGPU.Samples.Desktop`, `ProGPU.Samples.Browser`, `ProGPU.Samples.iOS`, and `ProGPU.Samples.Android` hosts. The browser host publishes with the .NET WebAssembly SDK, negotiates WebGPU capabilities, sends aligned binary command packets directly from WASM memory, and passes embedded WGSL unchanged to `GPUDevice.createShaderModule`.
 

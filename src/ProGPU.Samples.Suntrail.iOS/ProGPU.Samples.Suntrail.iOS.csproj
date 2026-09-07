@@ -1,0 +1,59 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0-ios</TargetFramework>
+    <RuntimeIdentifiers Condition="'$(RuntimeIdentifier)' == ''">ios-arm64;iossimulator-arm64</RuntimeIdentifiers>
+    <SupportedOSPlatformVersion>15.0</SupportedOSPlatformVersion>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <ApplicationId>com.progpu.suntrail</ApplicationId>
+    <ApplicationTitle>Suntrail</ApplicationTitle>
+    <ApplicationDisplayVersion>1.0</ApplicationDisplayVersion>
+    <ApplicationVersion>1</ApplicationVersion>
+    <!-- Silk resolves the statically linked WebGPU exports by name. The device
+         post-link stripper otherwise removes exports not in mtouch's managed
+         P/Invoke list, even when the native linker explicitly exported them. -->
+    <NoSymbolStrip>true</NoSymbolStrip>
+    <CodesignKey Condition="'$(RuntimeIdentifier)' == 'iossimulator-arm64'"></CodesignKey>
+    <MtouchLink Condition="'$(Configuration)' == 'Debug'">SdkOnly</MtouchLink>
+    <MtouchLink Condition="'$(Configuration)' == 'Release'">Full</MtouchLink>
+    <!-- The simulator is a runtime-validation lane, so avoid the iOS SDK's
+         device-only AOT generic-instance closure there. Device Release builds
+         remain fully AOT compiled. -->
+    <UseInterpreter Condition="'$(Configuration)' == 'Debug' or '$(RuntimeIdentifier)' == 'iossimulator-arm64'">true</UseInterpreter>
+    <ProGpuUseWindowsBaseShim>true</ProGpuUseWindowsBaseShim>
+    <ProGpuWgpuNativeXCFramework Condition="'$(ProGpuWgpuNativeXCFramework)' == ''">$(MSBuildThisFileDirectory)../../artifacts/wgpu-native-ios/wgpu_native.xcframework</ProGpuWgpuNativeXCFramework>
+    <ProGpuDawnIOSXCFramework Condition="'$(ProGpuDawnIOSXCFramework)' == ''">$(MSBuildThisFileDirectory)../../artifacts/dawn-ios/webgpu_dawn.xcframework</ProGpuDawnIOSXCFramework>
+  </PropertyGroup>
+  <ItemGroup>
+    <!-- Retain WebGPUSharp's managed ABI in the linked/AOT closure. The iOS
+         host supplies the exact Dawn ABI as an embedded framework below. -->
+    <PackageReference Include="WebGPUSharp"
+                      ExcludeAssets="native" />
+    <ProjectReference Include="..\ProGPU.iOS\ProGPU.iOS.csproj" />
+    <ProjectReference Include="..\ProGPU.Samples.Suntrail\ProGPU.Samples.Suntrail.csproj" />
+  </ItemGroup>
+  <ItemGroup>
+    <!-- Silk resolves the stable wgpu C API at startup. Export it through the
+         iOS linker's otherwise restrictive managed-symbol export list. -->
+    <LinkerArgument Include="-Wl,-exported_symbol,_wgpu%2A" />
+  </ItemGroup>
+  <ItemGroup Condition="Exists('$(ProGpuWgpuNativeXCFramework)')">
+    <NativeReference Include="$(ProGpuWgpuNativeXCFramework)">
+      <Kind>Static</Kind>
+      <ForceLoad>true</ForceLoad>
+      <SmartLink>false</SmartLink>
+      <Frameworks>Metal</Frameworks>
+    </NativeReference>
+  </ItemGroup>
+  <ItemGroup Condition="Exists('$(ProGpuDawnIOSXCFramework)')">
+    <NativeReference Include="$(ProGpuDawnIOSXCFramework)">
+      <Kind>Framework</Kind>
+      <ForceLoad>true</ForceLoad>
+      <SmartLink>false</SmartLink>
+      <IsCxx>true</IsCxx>
+      <Frameworks>Metal</Frameworks>
+    </NativeReference>
+  </ItemGroup>
+</Project>
