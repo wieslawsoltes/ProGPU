@@ -9303,6 +9303,23 @@ qualification remains deferred under the requested implementation-first order.
 The root scroll-clip, target-page unification, dirty-region, CPU preparation reuse
 and broader MIL/DirectX/Direct2D/COM/Win2D goals remain open.
 
+## Implementation-first checkpoint: managed shared cached-picture resource
+
+The independent managed renderer now has `CachedPicture` and
+`DrawingContext.DrawCachedPicture`, built on original ProGPU picture snapshots,
+owned commands, embedded visual references and retained GPU layer caching. A
+single source can be referenced by multiple consumers, with explicit ownership,
+replacement/invalidation, source bounds and render scale. Required cache sources
+retain cached rendering when optional layer caching is disabled. Their offscreen
+projection preserves fractional logical extents independently of pixel-rounded
+allocation. No CPU pixel conversion or WPF-local cache implementation is added.
+
+See [shared cached pictures](cached-pictures.md) for API use, ownership, complexity,
+primary design sources, managed/native applicability and deferred qualification.
+CPU/GPU fixtures are authored, not executed. This is a reusable managed source
+primitive; WPF root-policy capture and brush sink integration remain implementation
+work, along with ClearType, native/managed differentials and the broader goal.
+
 ## Invariants
 
 - No reflection or private managed field scanning in the product bridge.

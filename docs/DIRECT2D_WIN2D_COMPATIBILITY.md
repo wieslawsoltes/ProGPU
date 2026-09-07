@@ -4790,3 +4790,13 @@ cycle rejection and shared fill/pen/mask references. This adds no Direct2D COM
 method and does not establish Win2D or independent managed-renderer parity.
 Fixtures are authored; execution and full qualification remain deferred. See the
 native MIL document for scope, costs, provenance and remaining parity work.
+
+### Implementation-first checkpoint: managed cached-picture source
+
+`ProGPU.Scene.CachedPicture` now owns a shared, lazily rasterized picture source
+for repeated managed drawing. It reuses embedded visual/layer caches and keeps
+consumer placement outside capture; exact fractional source extents are separate
+from rounded texture allocation. See [cached pictures](cached-pictures.md) for
+ownership, costs and original-code/public-contract provenance. This adds no COM
+interface and does not make Win2D or WPF cache-brush parity complete. WPF capture
+and brush integration and all runtime/CI qualification remain open.
